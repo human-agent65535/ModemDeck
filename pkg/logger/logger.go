@@ -37,29 +37,6 @@ var readerIMSIRegistry = struct {
 	m: make(map[string]string),
 }
 
-// BindReaderIMSI 绑定 reader 与 IMSI 映射。
-func BindReaderIMSI(reader, imsi string) {
-	reader = strings.TrimSpace(reader)
-	imsi = strings.TrimSpace(imsi)
-	if reader == "" || imsi == "" {
-		return
-	}
-	readerIMSIRegistry.mu.Lock()
-	readerIMSIRegistry.m[reader] = imsi
-	readerIMSIRegistry.mu.Unlock()
-}
-
-// UnbindReaderIMSI 解绑 reader 对应的 IMSI 映射。
-func UnbindReaderIMSI(reader string) {
-	reader = strings.TrimSpace(reader)
-	if reader == "" {
-		return
-	}
-	readerIMSIRegistry.mu.Lock()
-	delete(readerIMSIRegistry.m, reader)
-	readerIMSIRegistry.mu.Unlock()
-}
-
 // LookupIMSIByReader 根据 reader 查找绑定的 IMSI。
 func LookupIMSIByReader(reader string) (string, bool) {
 	reader = strings.TrimSpace(reader)
@@ -77,12 +54,6 @@ func LookupIMSIByReader(reader string) (string, bool) {
 		return "", false
 	}
 	return imsi, true
-}
-
-func clearReaderIMSIBindings() {
-	readerIMSIRegistry.mu.Lock()
-	clear(readerIMSIRegistry.m)
-	readerIMSIRegistry.mu.Unlock()
 }
 
 // fixedWidthColorLevelEncoder 固定宽度（5字符）的彩色日志等级编码器
@@ -323,20 +294,6 @@ func Debug(msg string, args ...interface{}) {
 	SugarLogger().Debugw(msg, args...)
 }
 
-// RunInfo 仅在 go run 场景下输出 Info 日志。
-func RunInfo(msg string, args ...interface{}) {
-	if IsGoRun() {
-		SugarLogger().Infow(msg, args...)
-	}
-}
-
-// RunError 仅在 go run 场景下输出 Error 日志。
-func RunError(msg string, args ...interface{}) {
-	if IsGoRun() {
-		SugarLogger().Errorw(msg, args...)
-	}
-}
-
 // RunDebug 仅在 go run 场景下输出 Debug 日志。
 func RunDebug(msg string, args ...interface{}) {
 	if IsGoRun() {
@@ -353,8 +310,4 @@ func RunWarn(msg string, args ...interface{}) {
 
 func Warn(msg string, args ...interface{}) {
 	SugarLogger().Warnw(msg, args...)
-}
-
-func Fatal(msg string, args ...interface{}) {
-	SugarLogger().Fatalw(msg, args...)
 }
