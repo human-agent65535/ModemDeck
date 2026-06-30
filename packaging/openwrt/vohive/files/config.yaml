@@ -1,0 +1,15 @@
+server:
+  debug: false
+  port: 7575
+
+web:
+  username: admin
+  password: admin
+
+devices: []
+
+vowifi:
+  enabled: false
+
+webhook:
+  enabled: false

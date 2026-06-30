@@ -1,0 +1,18 @@
+services:
+  vohive:
+    build:
+      context: ..  # 使用父目录作为构建上下文，以便访问 quectel-qmi-go 和 swu-go
+      dockerfile: vohive/Dockerfile
+    image: vohive:latest
+    container_name: vohive
+    restart: unless-stopped
+    network_mode: "host" # 推荐使用 Host 模式以便管理 4G 网卡接口
+    privileged: true     # 需要访问 USB 设备、网络管理能力与 /dev/net/tun
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - /dev:/dev
+    environment:
+      - TZ=Asia/Shanghai
+      - HTTPS_PROXY=http://10.10.10.10:6152

@@ -1,0 +1,26 @@
+# Docker Compose 配置 - 使用 DockerHub 预构建镜像
+# 镜像地址: iniwex/vohive
+# 用法: docker-compose -f docker-compose.hub.yml up -d
+
+services:
+  vohive:
+    image: iniwex/vohive:latest
+    container_name: vohive
+    restart: unless-stopped
+    ports:
+      - "7575:7575"
+    volumes:
+      # 配置文件 (首次运行需创建)
+      - ./config:/app/config
+      - ./data:/app/data
+      # 日志目录
+      - ./logs:/app/logs
+    environment:
+      - TZ=Asia/Shanghai
+      - CONFIG_PATH=/app/config/config.yaml
+    # 需要访问宿主机设备时启用以下配置
+    privileged: true
+    devices:
+      # USB 设备透传
+      - /dev/:/dev/
+    network_mode: host
