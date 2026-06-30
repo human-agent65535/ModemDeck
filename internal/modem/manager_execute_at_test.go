@@ -238,7 +238,7 @@ func TestHandleCommandNotifiesDisconnectOnFatalWriteError(t *testing.T) {
 	m.running = true
 	m.healthy = true
 	disconnected := make(chan struct{}, 1)
-	m.SetOnDisconnect(func() { disconnected <- struct{}{} })
+	m.SetOnDisconnectWithReason(func(string) { disconnected <- struct{}{} })
 
 	req := commandRequest{
 		cmd:      "AT+CPIN?",
@@ -414,7 +414,7 @@ func TestExecuteATReturnsFatalSerialErrorBeforeManagerStopped(t *testing.T) {
 	m.running = true
 	m.healthy = true
 	disconnected := make(chan struct{}, 1)
-	m.SetOnDisconnect(func() { disconnected <- struct{}{} })
+	m.SetOnDisconnectWithReason(func(string) { disconnected <- struct{}{} })
 
 	go func() {
 		req := <-m.cmdChan

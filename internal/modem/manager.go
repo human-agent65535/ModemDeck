@@ -50,7 +50,6 @@ type commandRequest struct {
 }
 
 // Manager 管理单个 EC20 模块的 AT 指令通信
-// 采用 channel-based 异步架构，参考 smsie 项目
 type Manager struct {
 	cfg      config.DeviceConfig
 	atPort   string
@@ -110,7 +109,6 @@ type Manager struct {
 	newSMSHandler          func(index string) // 处理新短信索引的回调 (用于 bubble up URC)
 	disableURCRead         bool               // 如果启用 QMI，禁用 AT 自动读取
 	simStatusHandler       func(inserted *bool, state string)
-	onDisconnect           func() // 串口掉线回调 (通知 Pool 触发重连)
 	onDisconnectWithReason func(reason string)
 
 	// CS 来电回调
@@ -404,13 +402,6 @@ func (m *Manager) SetConnectCallback(fn func()) {
 	m.connectCallback = fn
 }
 
-// SetOnDisconnect 设置串口掉线回调（模块重启/拔出时触发）
-func (m *Manager) SetOnDisconnect(cb func()) {
-	m.infoMu.Lock()
-	m.onDisconnect = cb
-	m.infoMu.Unlock()
-}
-
 // SetOnDisconnectWithReason 设置带原因的串口/控制面掉线回调。
 func (m *Manager) SetOnDisconnectWithReason(cb func(reason string)) {
 	m.infoMu.Lock()
@@ -424,14 +415,10 @@ func (m *Manager) notifyDisconnect(reason string) {
 		reason = "modem_disconnect"
 	}
 	m.infoMu.RLock()
-	legacy := m.onDisconnect
 	withReason := m.onDisconnectWithReason
 	m.infoMu.RUnlock()
 	if withReason != nil {
 		go withReason(reason)
-	}
-	if legacy != nil {
-		go legacy()
 	}
 }
 

@@ -737,7 +737,6 @@ type Manager struct {
 	apduSessions        map[byte]apduSessionInfo
 	onConnect           func()
 	smsHandlersMu       sync.Mutex
-	onNewSMS            []func(index uint32)
 	onNewSMSStored      []func(storage uint8, index uint32)
 	onNewSMSRaw         []func(RawSMSIndication)
 	uimHandlersMu       sync.Mutex
@@ -985,18 +984,12 @@ func (m *Manager) handleQMIEvent(event qmimanager.Event) {
 		m.dispatchRecoveryExhausted(event.Reason, event.Error)
 	case qmimanager.EventNewSMS:
 		m.smsHandlersMu.Lock()
-		legacyHandlers := append([]func(index uint32){}, m.onNewSMS...)
 		storedHandlers := append([]func(storage uint8, index uint32){}, m.onNewSMSStored...)
 		m.smsHandlersMu.Unlock()
 
 		for _, handler := range storedHandlers {
 			if handler != nil {
 				handler(event.StorageType, event.SMSIndex)
-			}
-		}
-		for _, handler := range legacyHandlers {
-			if handler != nil {
-				handler(event.SMSIndex)
 			}
 		}
 	case qmimanager.EventNewSMSRaw:
@@ -2205,16 +2198,6 @@ func (m *Manager) EnsureSMSReady(ctx context.Context) error {
 		return fmt.Errorf("qmi_manager_not_available")
 	}
 	return m.qmiMgr.EnsureSMSReady(ctx)
-}
-
-// OnNewSMS registers a callback for new SMS events
-func (m *Manager) OnNewSMS(handler func(index uint32)) {
-	if handler == nil {
-		return
-	}
-	m.smsHandlersMu.Lock()
-	m.onNewSMS = append(m.onNewSMS, handler)
-	m.smsHandlersMu.Unlock()
 }
 
 func (m *Manager) OnNewSMSWithStorage(handler func(storage uint8, index uint32)) {

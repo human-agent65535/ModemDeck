@@ -394,25 +394,6 @@ func TestOnNewSMSWithStorageDispatchesStorageAndIndex(t *testing.T) {
 	}
 }
 
-func TestOnNewSMSCompatibilityIgnoresStorage(t *testing.T) {
-	m := &Manager{}
-
-	var gotIndex uint32
-	m.OnNewSMS(func(index uint32) {
-		gotIndex = index
-	})
-
-	m.handleQMIEvent(qmimanager.Event{
-		Type:        qmimanager.EventNewSMS,
-		StorageType: 0,
-		SMSIndex:    7,
-	})
-
-	if gotIndex != 7 {
-		t.Fatalf("got index=%d want=7", gotIndex)
-	}
-}
-
 func TestManagerDispatchesHealthEventsForQMIEvents(t *testing.T) {
 	m := &Manager{}
 	got := make([]HealthEvent, 0, 3)
