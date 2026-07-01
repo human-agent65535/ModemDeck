@@ -541,7 +541,7 @@ usePollingScheduler(() => fetchUpstream({ silent: true }), 10000, {
       <div class="ui-card p-6">
         <div class="flex items-center justify-between mb-4">
           <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white flex items-center justify-center shadow-lg shadow-violet-500/25">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-[#5b5bd6] to-[#4a4ac2] text-white flex items-center justify-center shadow-lg shadow-indigo-500/25">
               <el-icon size="20"><Earth24Regular /></el-icon>
             </div>
             <div>
@@ -628,7 +628,7 @@ usePollingScheduler(() => fetchUpstream({ silent: true }), 10000, {
       <div class="ui-card p-6">
         <div class="flex items-center justify-between mb-4">
           <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-500 text-white flex items-center justify-center shadow-lg shadow-indigo-500/25">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-[#5b5bd6] to-[#4a4ac2] text-white flex items-center justify-center shadow-lg shadow-indigo-500/25">
               <el-icon size="20"><Router24Regular /></el-icon>
             </div>
             <div>

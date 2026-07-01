@@ -86,7 +86,7 @@ function getSignalBars(dbm: number | null | undefined) {
     class="group relative block w-full overflow-hidden ui-card ui-card-hover text-left transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-950"
     @click="emit('open-device', device.id)"
   >
-    <div class="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-150" />
+    <div class="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-indigo-500/10 to-indigo-400/10 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-150" />
 
     <div class="p-6 relative z-10">
       <div class="flex justify-between items-start mb-6">
