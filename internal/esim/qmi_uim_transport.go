@@ -25,10 +25,6 @@ type QMIUIMTransport struct {
 	coord *apduCoordinator
 }
 
-func NewQMIUIMTransport(controlDevice string) *QMIUIMTransport {
-	return NewQMIUIMTransportWithOptions(controlDevice, qmiq.ClientOptions{})
-}
-
 func NewQMIUIMTransportWithOptions(controlDevice string, clientOptions qmiq.ClientOptions) *QMIUIMTransport {
 	return &QMIUIMTransport{
 		controlDevice: strings.TrimSpace(controlDevice),

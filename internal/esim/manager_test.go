@@ -35,6 +35,39 @@ func newTestManagerWithOverviewLoader(loader func() (*EsimOverview, error)) *Man
 	}
 }
 
+func newManagerWithChannelFactory(
+	deviceID string,
+	channelFactory func(aid []byte) (*lpa.Client, error),
+	clearFn func(),
+	onBefore func(),
+	onAfter func(),
+) *Manager {
+	var beforeWithToken func(SwitchOperation, string) uint64
+	if onBefore != nil {
+		beforeWithToken = func(SwitchOperation, string) uint64 { onBefore(); return 0 }
+	}
+	var afterWithToken func(SwitchOperation, uint64)
+	if onAfter != nil {
+		afterWithToken = func(SwitchOperation, uint64) { onAfter() }
+	}
+	mgr := &Manager{
+		deviceID:             deviceID,
+		transport:            transportCustom,
+		channelFactory:       channelFactory,
+		clearChannels:        clearFn,
+		sf:                   &singleflight.Group{},
+		onBeforeSwitch:       beforeWithToken,
+		onAfterSwitch:        afterWithToken,
+		switchSignal:         make(chan string, 16),
+		opDone:               make(chan struct{}),
+		postSwitchMinDelay:   defaultPostSwitchMinDelay,
+		readQueueWaitTimeout: defaultReadQueueWaitTimeout,
+	}
+	mgr.overviewLoader = mgr.loadOverviewFresh
+	mgr.profilesLoader = mgr.loadProfilesFresh
+	return mgr
+}
+
 type fakeAPDUIdleWaiter struct {
 	wait func(ctx context.Context) error
 }
@@ -257,7 +290,7 @@ func aidHexList(aids [][]byte) []string {
 }
 
 func TestGetEffectiveAIDPlanUsesFullStaticWithoutKnownAIDs(t *testing.T) {
-	mgr := NewManagerWithChannelFactory("dev-esim", nil, nil, nil, nil)
+	mgr := newManagerWithChannelFactory("dev-esim", nil, nil, nil, nil)
 
 	plan := mgr.getEffectiveAIDPlan()
 
@@ -271,7 +304,7 @@ func TestGetEffectiveAIDPlanUsesFullStaticWithoutKnownAIDs(t *testing.T) {
 
 func TestGetEffectiveAIDPlanIgnoresSeededAIDs(t *testing.T) {
 	seeded := mustHexAIDs(t, "A0000005591010FFFFFFFF8900000101")
-	mgr := NewManagerWithChannelFactory("dev-esim", nil, nil, nil, nil)
+	mgr := newManagerWithChannelFactory("dev-esim", nil, nil, nil, nil)
 	mgr.SeedDiscoveredEUICCs([]EUICCInfo{{AID: seeded[0], EID: "eid-1", Spec: EUICCSpecSGP22}})
 
 	plan := mgr.getEffectiveAIDPlan()
@@ -285,7 +318,7 @@ func TestGetEffectiveAIDPlanIgnoresSeededAIDs(t *testing.T) {
 }
 
 func TestGetEffectiveAIDsClonesPlanAIDs(t *testing.T) {
-	mgr := NewManagerWithChannelFactory("dev-esim", nil, nil, nil, nil)
+	mgr := newManagerWithChannelFactory("dev-esim", nil, nil, nil, nil)
 
 	got := mgr.getEffectiveAIDs()
 	got[0][0] = 0xFF
@@ -297,7 +330,7 @@ func TestGetEffectiveAIDsClonesPlanAIDs(t *testing.T) {
 
 func TestSeedDiscoveredEUICCsDoesNotChangeScanPlan(t *testing.T) {
 	aid := mustHexAIDs(t, "A0000005591010FFFFFFFF8900000199")[0]
-	mgr := NewManagerWithChannelFactory("dev-esim", nil, nil, nil, nil)
+	mgr := newManagerWithChannelFactory("dev-esim", nil, nil, nil, nil)
 
 	mgr.SeedDiscoveredEUICCs([]EUICCInfo{{AID: aid, EID: "eid-1", Spec: EUICCSpecSGP22}})
 
@@ -316,7 +349,7 @@ func TestGetEIDsScansHardwareEvenWhenSeededDiscoveryExists(t *testing.T) {
 	targetAIDHex := strings.ToUpper(hex.EncodeToString(targetAID))
 	targetEID := "89049032000001000000113509931049"
 	var factoryCalls atomic.Int32
-	mgr := NewManagerWithChannelFactory("reader-slot", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("reader-slot", func(aid []byte) (*lpa.Client, error) {
 		factoryCalls.Add(1)
 		if got := strings.ToUpper(hex.EncodeToString(aid)); got != targetAIDHex {
 			return nil, fmt.Errorf("unsupported AID %s", got)
@@ -351,7 +384,7 @@ func TestGetEsimOverviewSeedsDiscoveredEIDForLaterGetEIDs(t *testing.T) {
 	aidHex := strings.ToUpper(hex.EncodeToString(aid))
 	var factoryCalls atomic.Int32
 	eid := mustHexAIDs(t, "89049032000001000000113509931049")[0]
-	mgr := NewManagerWithChannelFactory("reader-slot", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("reader-slot", func(aid []byte) (*lpa.Client, error) {
 		factoryCalls.Add(1)
 		if got := strings.ToUpper(hex.EncodeToString(aid)); got != aidHex {
 			return nil, fmt.Errorf("unexpected AID %s", got)
@@ -387,7 +420,7 @@ func TestForEachEUICCAlwaysUsesFullStaticScan(t *testing.T) {
 	attempts := make(map[string]int)
 	seenAttempts := make([]string, 0, len(AIDs))
 
-	mgr := NewManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
 		aidHex := strings.ToUpper(hex.EncodeToString(aid))
 		attempts[aidHex]++
 		seenAttempts = append(seenAttempts, aidHex)
@@ -442,7 +475,7 @@ func TestDoForEachEUICCScansPastThreeFailuresAndStopsAtFirstUsableVendorAID(t *t
 	targetAIDHex := strings.ToUpper(hex.EncodeToString(AIDs[3]))
 	eid := mustDecodeHex(t, "89049032000001000000113509931049")
 	opened := make([]string, 0, len(AIDs))
-	mgr := NewManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
 		aidHex := strings.ToUpper(hex.EncodeToString(aid))
 		opened = append(opened, aidHex)
 		if aidHex != targetAIDHex {
@@ -484,7 +517,7 @@ func TestDoForEachEUICCScansPastThreeFailuresAndStopsAtFirstUsableVendorAID(t *t
 func TestDoForEachEUICCRecoversFromCallbackPanic(t *testing.T) {
 	targetAIDHex := strings.ToUpper(hex.EncodeToString(AIDs[3]))
 	eid := mustDecodeHex(t, "89049032000001000000113509931049")
-	mgr := NewManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
 		aidHex := strings.ToUpper(hex.EncodeToString(aid))
 		if aidHex != targetAIDHex {
 			return nil, fmt.Errorf("unsupported AID %s", aidHex)
@@ -517,7 +550,7 @@ func TestDoForEachEUICCContinuesESTKPairThenStopsBeforeGSMA(t *testing.T) {
 		strings.ToUpper(hex.EncodeToString(AIDs[1])): mustDecodeHex(t, "89049032000001000000113509931050"),
 	}
 	opened := make([]string, 0, len(AIDs))
-	mgr := NewManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
 		aidHex := strings.ToUpper(hex.EncodeToString(aid))
 		opened = append(opened, aidHex)
 		eid, ok := eids[aidHex]
@@ -548,7 +581,7 @@ func TestFindAIDForICCIDScansPastThreeFailedAIDs(t *testing.T) {
 	targetICCID := "8986001234567890123"
 	targetAID := AIDs[3]
 	opened := make([]string, 0, len(AIDs))
-	mgr := NewManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
 		aidHex := strings.ToUpper(hex.EncodeToString(aid))
 		opened = append(opened, aidHex)
 		if !reflect.DeepEqual(aid, targetAID) {
@@ -925,7 +958,7 @@ func TestSwitchProfileCustomAPDUErrorFailsWithoutConfirmationRead(t *testing.T) 
 			{ICCID: mustTestICCID(t, targetICCID), ProfileState: sgp22.ProfileEnabled, ProfileName: "target"},
 		},
 	}
-	mgr := NewManagerWithChannelFactory("reader-slot", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("reader-slot", func(aid []byte) (*lpa.Client, error) {
 		if got := strings.ToUpper(hex.EncodeToString(aid)); got != aidHex {
 			t.Fatalf("aid=%s want %s", got, aidHex)
 		}
@@ -1134,7 +1167,7 @@ func TestRunPostSwitchHookPassesSwitchOperation(t *testing.T) {
 }
 
 func TestNewManagerWithChannelFactoryUsesOneSecondDefaultPostSwitchDelay(t *testing.T) {
-	mgr := NewManagerWithChannelFactoryCallbacks("dev-esim", nil, nil, ChannelFactorySwitchCallbacks{})
+	mgr := newManagerWithChannelFactory("dev-esim", nil, nil, nil, nil)
 	if mgr.postSwitchMinDelay != time.Second {
 		t.Fatalf("postSwitchMinDelay=%s want 1s", mgr.postSwitchMinDelay)
 	}
@@ -2042,7 +2075,7 @@ func TestDeleteProfileReturnsZeroWarningResultForInvalidICCID(t *testing.T) {
 }
 
 func TestDisableProfileRejectsInvalidICCIDBeforeOpeningChannel(t *testing.T) {
-	mgr := NewManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
 		t.Fatalf("channel factory called for aid=%X", aid)
 		return nil, nil
 	}, nil, nil, nil)
@@ -2066,7 +2099,7 @@ func TestDownloadProfileReturnsZeroWarningResultForInvalidAIDHex(t *testing.T) {
 }
 
 func TestResolveDownloadIMEIUsesExplicitCustomIMEIBeforeProviders(t *testing.T) {
-	mgr := NewManagerWithChannelFactory("reader-slot-001", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("reader-slot-001", func(aid []byte) (*lpa.Client, error) {
 		t.Fatalf("channel factory called for aid=%X", aid)
 		return nil, nil
 	}, nil, nil, nil)
@@ -2085,7 +2118,7 @@ func TestResolveDownloadIMEIUsesExplicitCustomIMEIBeforeProviders(t *testing.T) 
 }
 
 func TestResolveDownloadIMEIRejectsInvalidExplicitCustomIMEI(t *testing.T) {
-	mgr := NewManagerWithChannelFactory("reader-slot-001", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("reader-slot-001", func(aid []byte) (*lpa.Client, error) {
 		t.Fatalf("channel factory called for aid=%X", aid)
 		return nil, nil
 	}, nil, nil, nil)
@@ -2100,7 +2133,7 @@ func TestResolveDownloadIMEIRejectsInvalidExplicitCustomIMEI(t *testing.T) {
 }
 
 func TestResolveDownloadIMEIDoesNotGenerateSyntheticIMEIForCustomTransport(t *testing.T) {
-	mgr := NewManagerWithChannelFactory("reader-slot-001", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("reader-slot-001", func(aid []byte) (*lpa.Client, error) {
 		t.Fatalf("channel factory called for aid=%X", aid)
 		return nil, nil
 	}, nil, nil, nil)
@@ -2381,7 +2414,7 @@ func TestRecoverDownloadInstallFinalizeErrorSendsInstallNotification(t *testing.
 	}
 	var factoryCalls atomic.Int32
 	var closeCalls atomic.Int32
-	mgr := NewManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
 		factoryCalls.Add(1)
 		if got := strings.ToUpper(hex.EncodeToString(aid)); got != aidHex {
 			t.Fatalf("aid=%s want %s", got, aidHex)
@@ -2627,7 +2660,7 @@ func TestListNotificationsMapsCurrentNotificationItems(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewICCID() error=%v", err)
 	}
-	mgr := NewManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
 		if got := strings.ToUpper(hex.EncodeToString(aid)); got != "A0000005591010FFFFFFFF8900000100" {
 			t.Fatalf("aid=%s want GSMA default AID", got)
 		}
@@ -2682,7 +2715,7 @@ func TestListNotificationsAutoCleansEnableDisableNotifications(t *testing.T) {
 		nil,
 		nil,
 	)
-	mgr := NewManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
 		return client, nil
 	}, nil, nil, nil)
 	mgr.readQueueWaitTimeout = 200 * time.Millisecond
@@ -2728,7 +2761,7 @@ func TestListNotificationsKeepsVisibleItemsWhenAutoCleanupFails(t *testing.T) {
 		nil,
 		nil,
 	)
-	mgr := NewManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
 		return client, nil
 	}, nil, nil, nil)
 	mgr.readQueueWaitTimeout = 200 * time.Millisecond
@@ -2761,7 +2794,7 @@ func TestListNotificationsWithoutAIDReadsStaticAIDsUnderReadArbitration(t *testi
 	}
 
 	seenAIDs := make([]string, 0, 2)
-	mgr := NewManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
 		got := strings.ToUpper(hex.EncodeToString(aid))
 		seenAIDs = append(seenAIDs, got)
 		switch got {
@@ -2821,7 +2854,7 @@ func TestListNotificationsWithoutAIDAutoCleansStaticAIDNotifications(t *testing.
 
 	var cleanedRoundTripper *fakeNotificationRoundTripper
 	var cleanedTransmitter *fakeNotificationTransmitter
-	mgr := NewManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
 		got := strings.ToUpper(hex.EncodeToString(aid))
 		switch got {
 		case strings.ToUpper(hex.EncodeToString(AIDs[0])):
@@ -2889,7 +2922,7 @@ func TestRetryNotificationHandlesPendingNotificationBySequence(t *testing.T) {
 		nil,
 		nil,
 	)
-	mgr := NewManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
 		return client, nil
 	}, nil, nil, nil)
 
@@ -2904,7 +2937,7 @@ func TestRetryNotificationHandlesPendingNotificationBySequence(t *testing.T) {
 func TestRetryNotificationClosesRealLPAClientOnSuccess(t *testing.T) {
 	ch := &lifecycleSmartCardChannel{response: lifecycleRetrieveNotificationResponse(t)}
 	var roundTripper *fakeNotificationRoundTripper
-	mgr := NewManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
 		client, rt := newLifecycleNotificationClient(t, ch, nil)
 		roundTripper = rt
 		return client, nil
@@ -2926,7 +2959,7 @@ func TestRetryNotificationClosesRealLPAClientOnSuccess(t *testing.T) {
 
 func TestRetryNotificationClosesRealLPAClientOnRetrieveFailure(t *testing.T) {
 	ch := &lifecycleSmartCardChannel{response: emptyRetrieveNotificationResponse()}
-	mgr := NewManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
 		client, _ := newLifecycleNotificationClient(t, ch, nil)
 		return client, nil
 	}, nil, nil, nil)
@@ -3015,7 +3048,7 @@ func TestRetryNotificationClassifiesRetrieveAndHandleFailures(t *testing.T) {
 		PendingNotification: bertlv.NewValue(bertlv.ContextSpecific.Primitive(0), []byte{0x01}),
 		Notification:        &sgp22.NotificationMetadata{SequenceNumber: 11, ProfileManagementOperation: sgp22.NotificationEventInstall, ICCID: iccid, Address: "install.example.com"},
 	}
-	mgr := NewManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
 		client, _ := newTestNotificationClient(
 			[]*sgp22.NotificationMetadata{{SequenceNumber: 11, ProfileManagementOperation: sgp22.NotificationEventInstall, ICCID: iccid, Address: "install.example.com"}},
 			map[sgp22.SequenceNumber][]*sgp22.PendingNotification{11: {pending}},
@@ -3029,7 +3062,7 @@ func TestRetryNotificationClassifiesRetrieveAndHandleFailures(t *testing.T) {
 		t.Fatal("RetryNotification() error=nil, want retrieve failure")
 	}
 
-	mgr = NewManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
+	mgr = newManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
 		client, _ := newTestNotificationClient(
 			[]*sgp22.NotificationMetadata{{SequenceNumber: 11, ProfileManagementOperation: sgp22.NotificationEventInstall, ICCID: iccid, Address: "install.example.com"}},
 			map[sgp22.SequenceNumber][]*sgp22.PendingNotification{11: {pending}},
@@ -3050,7 +3083,7 @@ func TestDoForEachEUICCReattemptsAfterPartialFailure(t *testing.T) {
 	aid2 := AIDs[1] // eSTK.me SE1
 	attempts := make(map[string]int)
 
-	mgr := NewManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
+	mgr := newManagerWithChannelFactory("dev-esim", func(aid []byte) (*lpa.Client, error) {
 		aidHex := strings.ToUpper(hex.EncodeToString(aid))
 		attempts[aidHex]++
 		if bytes.Equal(aid, aid1) {

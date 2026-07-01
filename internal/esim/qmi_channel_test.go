@@ -94,7 +94,7 @@ func (f *qmiChannelTransportFake) TransmitEUICCAPDU(ctx context.Context, slot by
 }
 
 func TestQMIUIMTransportAPDUSessionRegistryClearsSession(t *testing.T) {
-	transport := NewQMIUIMTransport("/dev/cdc-wdm0")
+	transport := NewQMIUIMTransportWithOptions("/dev/cdc-wdm0", qmiq.ClientOptions{})
 	transport.bindAPDUSession(2, "test")
 
 	if !transport.hasAPDUSession(2) {
@@ -109,7 +109,7 @@ func TestQMIUIMTransportAPDUSessionRegistryClearsSession(t *testing.T) {
 }
 
 func TestQMIUIMTransportAcquireAPDUTransportLeaseAllowsConcurrentQMIChannels(t *testing.T) {
-	transport := NewQMIUIMTransport("/dev/cdc-wdm0")
+	transport := NewQMIUIMTransportWithOptions("/dev/cdc-wdm0", qmiq.ClientOptions{})
 	transport.SetAPDUArbiter(apduarbiter.New("dev-qmi", apduarbiter.Options{MaxQMITransports: 3}))
 
 	first, err := transport.acquireAPDUTransportLease(
