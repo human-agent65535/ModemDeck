@@ -418,7 +418,7 @@ func detectQMIUSBCapability(scanUSBPath string) (qmiUSBCapability, bool) {
 
 	for _, ifPath := range ifaces {
 		driver := determineDriver(ifPath)
-		if driver != "qmi_wwan" {
+		if !isQMIWWANDriver(driver) {
 			continue
 		}
 
@@ -444,6 +444,15 @@ func detectQMIUSBCapability(scanUSBPath string) (qmiUSBCapability, bool) {
 	}
 
 	return qmiUSBCapability{}, false
+}
+
+func isQMIWWANDriver(driver string) bool {
+	switch strings.ToLower(strings.TrimSpace(driver)) {
+	case "qmi_wwan", "qmi_wwan_q", "qmi_wwan_f", "wwan_qmi":
+		return true
+	default:
+		return false
+	}
 }
 
 func detectMBIMUSBCapability(scanUSBPath string) (qmiUSBCapability, bool) {

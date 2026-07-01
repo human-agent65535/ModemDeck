@@ -193,6 +193,58 @@ func TestDiscoverQMIDeviceFromSysFSAcceptsSierraQMIByCapability(t *testing.T) {
 	}
 }
 
+func TestDiscoverQMIDeviceFromSysFSAcceptsOpenWrtQMIWWANVariants(t *testing.T) {
+	for _, driver := range []string{"qmi_wwan_q", "qmi_wwan_f"} {
+		t.Run(driver, func(t *testing.T) {
+			usbPath := t.TempDir()
+			usbName := filepath.Base(usbPath)
+
+			write := func(rel, content string) {
+				t.Helper()
+				path := filepath.Join(usbPath, rel)
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatalf("mkdir %s: %v", rel, err)
+				}
+				if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+					t.Fatalf("write %s: %v", rel, err)
+				}
+			}
+
+			write("idVendor", "2c7c\n")
+			write("idProduct", "0125\n")
+			write("bNumInterfaces", "5\n")
+
+			ifacePath := filepath.Join(usbPath, usbName+":1.4")
+			if err := os.MkdirAll(filepath.Join(ifacePath, "net", "wwan0"), 0o755); err != nil {
+				t.Fatalf("mkdir net iface: %v", err)
+			}
+			if err := os.MkdirAll(filepath.Join(ifacePath, "usbmisc", "cdc-wdm0"), 0o755); err != nil {
+				t.Fatalf("mkdir cdc-wdm tree: %v", err)
+			}
+			if err := os.Symlink("/tmp/"+driver, filepath.Join(ifacePath, "driver")); err != nil {
+				t.Fatalf("symlink driver: %v", err)
+			}
+
+			got, err := discoverQMIDeviceFromSysFS(usbPath)
+			if err != nil {
+				t.Fatalf("discoverQMIDeviceFromSysFS() error = %v", err)
+			}
+			if got == nil {
+				t.Fatal("discoverQMIDeviceFromSysFS() returned nil")
+			}
+			if got.DriverName != driver {
+				t.Fatalf("DriverName=%q want %q", got.DriverName, driver)
+			}
+			if got.ControlPath != "/dev/cdc-wdm0" {
+				t.Fatalf("ControlPath=%q want /dev/cdc-wdm0", got.ControlPath)
+			}
+			if got.NetInterface != "wwan0" {
+				t.Fatalf("NetInterface=%q want wwan0", got.NetInterface)
+			}
+		})
+	}
+}
+
 func TestDiscoverQMIDeviceFromSysFSPrefersLowerNumericQMIInterface(t *testing.T) {
 	usbPath := t.TempDir()
 	usbName := filepath.Base(usbPath)
