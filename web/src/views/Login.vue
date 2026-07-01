@@ -58,14 +58,14 @@ async function handleLogin() {
 <template>
   <div class="relative w-full h-full flex items-center justify-center overflow-hidden">
     <div class="absolute -top-32 -left-32 w-[520px] h-[520px] rounded-full bg-indigo-500/15 dark:bg-indigo-500/20 blur-[120px] animate-pulse-slow" />
-    <div class="absolute -bottom-32 -right-32 w-[520px] h-[520px] rounded-full bg-purple-500/15 dark:bg-purple-500/20 blur-[120px] animate-pulse-slow" style="animation-delay: 2s" />
+    <div class="absolute -bottom-32 -right-32 w-[520px] h-[520px] rounded-full bg-indigo-500/12 dark:bg-indigo-500/16 blur-[120px] animate-pulse-slow" style="animation-delay: 2s" />
 
     <div class="relative w-full max-w-md p-1">
       <div class="relative bg-white/70 dark:bg-[#141418]/70 backdrop-blur-xl border border-gray-100 dark:border-white/10 rounded-2xl p-8 shadow-2xl overflow-hidden group">
         <div class="absolute inset-0 bg-gradient-to-br from-indigo-500/8 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
 
         <div class="text-center mb-10 relative z-10">
-          <div class="w-20 h-20 bg-gradient-to-tr from-indigo-500 to-purple-600 rounded-2xl mx-auto flex items-center justify-center text-white text-2xl font-bold shadow-lg shadow-indigo-500/20 mb-6 transform group-hover:scale-105 transition-transform duration-300">
+          <div class="w-20 h-20 bg-[#5b5bd6] rounded-2xl mx-auto flex items-center justify-center text-white text-2xl font-bold shadow-lg shadow-indigo-500/20 mb-6 transform group-hover:scale-105 transition-transform duration-300">
             VH
           </div>
           <h2 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400">
@@ -106,7 +106,7 @@ async function handleLogin() {
           <button 
             type="submit" 
             :disabled="loading"
-            class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-3 px-4 rounded-lg shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 transform active:scale-95 transition-all duration-200 disabled:opacity-70 disabled:cursor-not-allowed"
+            class="w-full bg-[#5b5bd6] hover:bg-[#4a4ac2] text-white font-bold py-3 px-4 rounded-lg shadow-sm flex items-center justify-center gap-2 transform active:scale-95 transition-all duration-200 disabled:opacity-70 disabled:cursor-not-allowed"
           >
             <span v-if="loading" class="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
             <span v-else>登录</span>
