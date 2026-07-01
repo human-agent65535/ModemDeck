@@ -92,7 +92,7 @@ const sourceLabel = computed(() => {
   <div>
     <!-- 标题行 -->
     <div class="flex items-center gap-3 mb-4">
-      <div class="w-10 h-10 rounded-xl bg-violet-50 dark:bg-violet-500/10 flex items-center justify-center text-violet-600 dark:text-violet-400">
+      <div class="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
         <el-icon size="22"><Sim24Regular /></el-icon>
       </div>
       <div>
@@ -143,7 +143,7 @@ const sourceLabel = computed(() => {
         <!-- 开启网络 -->
         <div
           class="ui-panel-muted p-3 space-y-1"
-          :class="local.network_enabled ? 'border border-emerald-300 bg-emerald-50/50 dark:bg-emerald-900/20' : ''"
+          :class="local.network_enabled ? 'border border-indigo-300 bg-indigo-50/50 dark:bg-indigo-900/20' : ''"
         >
           <div class="flex items-center justify-between">
             <div>
@@ -187,7 +187,7 @@ const sourceLabel = computed(() => {
         <!-- 飞行模式 -->
         <div
           class="ui-panel-muted p-3 space-y-1"
-          :class="local.airplane_enabled ? 'border border-sky-300 bg-sky-50/50 dark:bg-sky-900/20' : ''"
+          :class="local.airplane_enabled ? 'border border-indigo-300 bg-indigo-50/50 dark:bg-indigo-900/20' : ''"
         >
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">

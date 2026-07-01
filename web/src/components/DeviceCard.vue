@@ -91,7 +91,7 @@ function getSignalBars(dbm: number | null | undefined) {
     <div class="p-6 relative z-10">
       <div class="flex justify-between items-start mb-6">
         <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-xl bg-gray-50 dark:bg-white/5 flex items-center justify-center text-blue-600 dark:text-blue-400 shadow-inner">
+          <div class="w-10 h-10 rounded-xl bg-gray-50 dark:bg-white/5 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shadow-inner">
             <el-icon size="20"><Sim24Regular /></el-icon>
           </div>
           <div>
@@ -142,7 +142,7 @@ function getSignalBars(dbm: number | null | undefined) {
         <div class="space-y-2">
           <div class="flex justify-between items-center text-sm">
             <span class="text-gray-400 flex items-center gap-1.5"><el-icon><Globe24Regular /></el-icon> 公网 IP</span>
-            <span class="font-mono font-bold text-blue-600 dark:text-blue-400">{{ device.public_ip || '---' }}</span>
+            <span class="font-mono font-bold text-indigo-600 dark:text-indigo-400">{{ device.public_ip || '---' }}</span>
           </div>
         </div>
       </div>

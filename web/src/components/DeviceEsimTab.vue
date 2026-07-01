@@ -500,7 +500,7 @@ onBeforeUnmount(() => {
       <div v-if="chipInfo" class="ui-panel-muted p-4 relative">
       <div class="flex items-center justify-between gap-3 mb-3">
         <div class="flex items-center gap-3 min-w-0">
-          <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white text-xs font-bold flex items-center justify-center shadow-lg shadow-emerald-500/25">
+          <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-[#5b5bd6] to-[#4a4ac2] text-white text-xs font-bold flex items-center justify-center shadow-lg shadow-indigo-500/25">
             ESIM
           </div>
           <div>
@@ -805,7 +805,7 @@ onBeforeUnmount(() => {
 }
 
 .esim-orbit {
-  background: linear-gradient(135deg, #10b981, #0ea5a4);
+  background: linear-gradient(135deg, #5b5bd6, #4a4ac2);
   animation: esim-orbit 2.2s ease-in-out infinite;
 }
 
@@ -833,7 +833,7 @@ onBeforeUnmount(() => {
   width: 7px;
   height: 7px;
   border-radius: 9999px;
-  background: #14b8a6;
+  background: #5b5bd6;
   opacity: 0.3;
   animation: esim-dot-bounce 1.1s ease-in-out infinite;
 }

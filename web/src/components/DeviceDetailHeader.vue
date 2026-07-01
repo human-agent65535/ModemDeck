@@ -66,12 +66,12 @@ const emit = defineEmits<{
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  background: linear-gradient(135deg, #06b6d4, #14b8a6);
+  background: linear-gradient(135deg, #5b5bd6, #4a4ac2);
   color: #fff;
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 1.15rem;
   font-weight: 700;
-  box-shadow: 0 10px 22px rgba(6, 182, 212, 0.2);
+  box-shadow: 0 10px 22px rgba(91, 91, 214, 0.2);
 }
 
 </style>

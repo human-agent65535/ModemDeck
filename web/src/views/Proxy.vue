@@ -507,7 +507,7 @@ usePollingScheduler(() => fetchUpstream({ silent: true }), 10000, {
           <div class="flex items-center gap-1.5">
             <el-icon size="16"><Earth24Regular /></el-icon>
             <span class="font-medium">漫游前置代理</span>
-            <span v-if="upstreamStore.proxies.length > 0" class="inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-bold leading-none text-white bg-blue-500 rounded-full shadow-sm ml-0.5">
+            <span v-if="upstreamStore.proxies.length > 0" class="inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-bold leading-none text-white bg-indigo-500 rounded-full shadow-sm ml-0.5">
               {{ upstreamStore.proxies.length }}
             </span>
           </div>
@@ -518,7 +518,7 @@ usePollingScheduler(() => fetchUpstream({ silent: true }), 10000, {
           <div class="flex items-center gap-1.5">
             <el-icon size="16"><Router24Regular /></el-icon>
             <span class="font-medium">本地出站代理</span>
-            <span v-if="instances.length > 0" class="inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-bold leading-none text-white bg-blue-500 rounded-full shadow-sm ml-0.5">
+            <span v-if="instances.length > 0" class="inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-bold leading-none text-white bg-indigo-500 rounded-full shadow-sm ml-0.5">
               {{ instances.length }}
             </span>
           </div>
@@ -585,7 +585,7 @@ usePollingScheduler(() => fetchUpstream({ silent: true }), 10000, {
                 {{ proxy.enabled ? '已启用' : '已禁用' }}
               </el-tag>
               
-              <div class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-blue-50 text-blue-600 border border-blue-200/60 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800/40">
+              <div class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-indigo-50 text-indigo-600 border border-indigo-200/60 dark:bg-indigo-900/20 dark:text-indigo-400 dark:border-indigo-800/40">
                 <el-icon size="14"><Link24Regular /></el-icon>
                 <span>{{ proxy.ruleCount }} 个国家规则</span>
               </div>
@@ -802,7 +802,7 @@ usePollingScheduler(() => fetchUpstream({ silent: true }), 10000, {
       <div class="space-y-6 pb-6">
         <div class="space-y-4">
           <div class="flex items-center gap-2 pb-2 border-b border-gray-100 dark:border-gray-800">
-            <div class="w-1 h-4 bg-violet-500 rounded-full"></div>
+            <div class="w-1 h-4 bg-indigo-500 rounded-full"></div>
             <h3 class="text-sm font-bold text-gray-900 dark:text-gray-100">代理信息</h3>
           </div>
 
@@ -903,7 +903,7 @@ usePollingScheduler(() => fetchUpstream({ silent: true }), 10000, {
         <!-- 添加国家规则 -->
         <div class="space-y-4">
           <div class="flex items-center gap-2 pb-2 border-b border-gray-100 dark:border-gray-800">
-            <div class="w-1 h-4 bg-blue-500 rounded-full"></div>
+            <div class="w-1 h-4 bg-indigo-500 rounded-full"></div>
             <h3 class="text-sm font-bold text-gray-900 dark:text-gray-100">添加国家规则</h3>
           </div>
 

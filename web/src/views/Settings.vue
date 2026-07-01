@@ -357,10 +357,10 @@ onBeforeUnmount(() => {
 
       <!-- System Info Card -->
       <div class="ui-card p-8 relative overflow-hidden group">
-         <div class="absolute top-0 right-0 w-40 h-40 bg-green-500/5 rounded-bl-full -mr-10 -mt-10 transition-transform group-hover:scale-110"></div>
+         <div class="absolute top-0 right-0 w-40 h-40 bg-indigo-500/5 rounded-bl-full -mr-10 -mt-10 transition-transform group-hover:scale-110"></div>
 
          <div class="flex items-center gap-3 mb-6 relative z-10">
-            <div class="w-12 h-12 rounded-xl bg-green-50 dark:bg-green-500/10 flex items-center justify-center text-green-600 dark:text-green-400">
+            <div class="w-12 h-12 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
                <el-icon size="24"><Server24Regular /></el-icon>
             </div>
             <div>
@@ -405,7 +405,7 @@ onBeforeUnmount(() => {
               <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div class="min-w-0">
                   <div class="flex items-center gap-3">
-                    <div class="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                    <div class="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
                       <el-icon size="18"><DocumentText24Regular /></el-icon>
                     </div>
                     <div>
@@ -430,11 +430,11 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="notify-card ui-card p-8 relative overflow-hidden group lg:col-span-2">
-         <div class="absolute top-0 right-0 w-40 h-40 bg-purple-500/5 rounded-bl-full -mr-10 -mt-10 transition-transform group-hover:scale-110"></div>
+         <div class="absolute top-0 right-0 w-40 h-40 bg-indigo-500/5 rounded-bl-full -mr-10 -mt-10 transition-transform group-hover:scale-110"></div>
 
          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 relative z-10">
             <div class="flex items-center gap-3">
-               <div class="w-12 h-12 rounded-xl bg-purple-50 dark:bg-purple-500/10 flex items-center justify-center text-purple-600 dark:text-purple-400">
+               <div class="w-12 h-12 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
                   <el-icon size="24"><Alert24Regular /></el-icon>
                </div>
                <div>
@@ -514,10 +514,10 @@ onBeforeUnmount(() => {
                     <el-input v-model="feishuForm.chat_ids" :disabled="!feishuForm.enabled" placeholder="多个群组用英文逗号分隔" />
                     <div class="text-[10px] text-gray-400 mt-1">飞书群聊的 Chat ID (oc_xxxx)，可通过飞书开放平台 API 获取，支持逗号分隔多个群组。</div>
                   </div>
-                  <div class="p-3 rounded-xl bg-blue-50/50 dark:bg-blue-500/5 text-xs text-blue-600 dark:text-blue-400/80 leading-relaxed border border-blue-100/50 dark:border-blue-500/10">
+                  <div class="p-3 rounded-xl bg-indigo-50/50 dark:bg-indigo-500/5 text-xs text-indigo-600 dark:text-indigo-400/80 leading-relaxed border border-indigo-100/50 dark:border-indigo-500/10">
                     <strong>配置说明：</strong>
                     <ol class="list-decimal ml-4 mt-1 space-y-1">
-                      <li>在<a href="https://open.feishu.cn" target="_blank" class="underline hover:text-blue-700">飞书开放平台</a>创建自建应用，启用「机器人」能力</li>
+                      <li>在<a href="https://open.feishu.cn" target="_blank" class="underline hover:text-indigo-700">飞书开放平台</a>创建自建应用，启用「机器人」能力</li>
                       <li>在「事件与回调 → 事件配置」中选择「使用长连接接收事件」</li>
                       <li>添加 <code>im:message</code> 和 <code>im:message:send_as_bot</code> 权限</li>
                     </ol>

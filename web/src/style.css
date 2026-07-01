@@ -267,8 +267,12 @@ html.dark .el-dialog.glass-modal {
 }
 
 html.dark {
-  --ui-border: rgba(255, 255, 255, 0.09);
-  --ui-border-muted: rgba(255, 255, 255, 0.06);
+  /* 暗色纵深:page(#101014) < 内层面板(recessed) < 外层卡片,拉开亮度层次 */
+  --ui-surface: rgba(255, 255, 255, 0.055);
+  --ui-surface-strong: rgba(255, 255, 255, 0.09);
+  --ui-surface-muted: rgba(255, 255, 255, 0.022);
+  --ui-border: rgba(255, 255, 255, 0.10);
+  --ui-border-muted: rgba(255, 255, 255, 0.055);
 
   /* Element Plus 暗色主题在 html.dark 下重定义了 primary,需同源覆盖为靛蓝 */
   --el-color-primary: #6d6ee0;
