@@ -138,7 +138,7 @@ watch(scanState, (next) => {
         <div class="flex justify-between items-center mb-2">
           <span class="font-medium text-gray-700 dark:text-gray-200">当前模式</span>
           <span class="px-2 py-0.5 rounded text-xs font-medium" 
-            :class="currentSelection?.mode === 'automatic' ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300'">
+            :class="currentSelection?.mode === 'automatic' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300'">
             {{ currentSelection?.mode === 'automatic' ? '自动' : '手动锁定' }}
           </span>
         </div>
@@ -158,7 +158,7 @@ watch(scanState, (next) => {
       </div>
 
       <div v-if="scanning || scanMessage || scanError" class="mb-4 rounded-lg border px-3 py-2 text-xs"
-        :class="scanError ? (scanRetryable ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300' : 'border-red-200 bg-red-50 text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300') : 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-300'">
+        :class="scanError ? (scanRetryable ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300' : 'border-red-200 bg-red-50 text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300') : 'border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/20 dark:bg-indigo-500/10 dark:text-indigo-300'">
         {{ scanError || scanMessage }}
       </div>
 

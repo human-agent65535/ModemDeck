@@ -143,7 +143,7 @@ const sourceLabel = computed(() => {
         <!-- 开启网络 -->
         <div
           class="ui-panel-muted p-3 space-y-1"
-          :class="local.network_enabled ? 'border border-emerald-300 bg-emerald-50/50 dark:bg-emerald-900/20' : ''"
+          :class="local.network_enabled ? 'border border-indigo-300 bg-indigo-50/50 dark:bg-indigo-900/20' : ''"
         >
           <div class="flex items-center justify-between">
             <div>
