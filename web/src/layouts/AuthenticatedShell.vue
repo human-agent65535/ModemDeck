@@ -249,10 +249,10 @@ const activePath = computed(() => route.path)
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   --sidebar-menu-text: #475569;
-  --sidebar-menu-hover-bg: rgba(6, 182, 212, 0.08);
-  --sidebar-menu-active-bg: linear-gradient(135deg, rgba(6, 182, 212, 0.14), rgba(20, 184, 166, 0.1));
-  --sidebar-menu-active-color: #0f766e;
-  --sidebar-menu-active-ring: rgba(6, 182, 212, 0.16);
+  --sidebar-menu-hover-bg: rgba(91, 91, 214, 0.08);
+  --sidebar-menu-active-bg: linear-gradient(135deg, rgba(91, 91, 214, 0.14), rgba(91, 91, 214, 0.1));
+  --sidebar-menu-active-color: #4a4ac2;
+  --sidebar-menu-active-ring: rgba(91, 91, 214, 0.16);
 }
 
 .sidebar-brand-title {
@@ -264,11 +264,11 @@ const activePath = computed(() => route.path)
   display: flex;
   align-items: center;
   min-height: 1.75rem;
-  background: linear-gradient(135deg, #06b6d4, #8b5cf6);
+  background: linear-gradient(135deg, #5b5bd6, #4a4ac2);
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 2px 8px rgba(6, 182, 212, 0.18));
+  filter: drop-shadow(0 2px 8px rgba(91, 91, 214, 0.18));
   white-space: nowrap;
   padding-right: 4px;
 }
@@ -281,12 +281,12 @@ const activePath = computed(() => route.path)
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  background: linear-gradient(135deg, #06b6d4, #14b8a6);
+  background: linear-gradient(135deg, #5b5bd6, #4a4ac2);
   color: #fff;
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 0.84rem;
   font-weight: 700;
-  box-shadow: 0 6px 14px rgba(6, 182, 212, 0.18);
+  box-shadow: 0 6px 14px rgba(91, 91, 214, 0.18);
 }
 
 .sidebar-menu-label {
@@ -297,10 +297,10 @@ const activePath = computed(() => route.path)
 
 :global(html.dark) .sidebar-shell {
   --sidebar-menu-text: rgba(255, 255, 255, 0.72);
-  --sidebar-menu-hover-bg: rgba(45, 212, 191, 0.1);
-  --sidebar-menu-active-bg: linear-gradient(135deg, rgba(34, 211, 238, 0.18), rgba(45, 212, 191, 0.12));
-  --sidebar-menu-active-color: #99f6e4;
-  --sidebar-menu-active-ring: rgba(103, 232, 249, 0.18);
+  --sidebar-menu-hover-bg: rgba(91, 91, 214, 0.14);
+  --sidebar-menu-active-bg: linear-gradient(135deg, rgba(91, 91, 214, 0.2), rgba(91, 91, 214, 0.12));
+  --sidebar-menu-active-color: #a5a6f6;
+  --sidebar-menu-active-ring: rgba(91, 91, 214, 0.22);
 }
 
 :deep(.sidebar-menu) {

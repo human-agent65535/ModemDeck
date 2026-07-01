@@ -805,7 +805,7 @@ onBeforeUnmount(() => {
 }
 
 .esim-orbit {
-  background: linear-gradient(135deg, #10b981, #0ea5a4);
+  background: linear-gradient(135deg, #5b5bd6, #4a4ac2);
   animation: esim-orbit 2.2s ease-in-out infinite;
 }
 
@@ -833,7 +833,7 @@ onBeforeUnmount(() => {
   width: 7px;
   height: 7px;
   border-radius: 9999px;
-  background: #14b8a6;
+  background: #5b5bd6;
   opacity: 0.3;
   animation: esim-dot-bounce 1.1s ease-in-out infinite;
 }
