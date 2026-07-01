@@ -229,3 +229,117 @@ html.dark .el-dialog.glass-modal {
 .el-scrollbar__wrap {
   scroll-behavior: smooth;
 }
+
+/* ============================================================
+   视觉精修 — Linear / Apple 克制专业(浅色为主,明暗通用)
+   做减法:收紧圆角 + hairline 边框 + 柔阴影 + 单一强调色 + tabular
+   ============================================================ */
+
+/* 单一精致强调色(靛蓝),替换蓝/紫/青混用 */
+:root {
+  --el-color-primary: #5b5bd6;
+  --el-color-primary-light-3: #7f80e0;
+  --el-color-primary-light-5: #a3a4ea;
+  --el-color-primary-light-7: #cdcdf3;
+  --el-color-primary-light-8: #e0e0f8;
+  --el-color-primary-light-9: #f1f1fc;
+  --el-color-primary-dark-2: #4a4ac2;
+
+  /* 圆角收紧,利落不"糯" */
+  --ui-radius-sm: 6px;
+  --ui-radius-md: 8px;
+  --ui-radius-lg: 10px;
+  --ui-radius-xl: 12px;
+
+  /* hairline 低对比边框 */
+  --ui-border: rgba(17, 24, 39, 0.08);
+  --ui-border-muted: rgba(17, 24, 39, 0.05);
+  --ui-surface: rgba(255, 255, 255, 0.9);
+  --ui-surface-strong: #ffffff;
+  --ui-surface-muted: rgba(250, 250, 251, 0.9);
+
+  /* 更小更柔的阴影 */
+  --ui-shadow-sm: 0 1px 2px rgba(17, 24, 39, 0.04);
+  --ui-shadow-md: 0 1px 3px rgba(17, 24, 39, 0.06), 0 1px 2px rgba(17, 24, 39, 0.04);
+  --ui-shadow-lg: 0 8px 24px rgba(17, 24, 39, 0.08);
+  --ui-btn-primary-shadow: 0 1px 2px rgba(91, 91, 214, 0.20);
+  --ui-btn-primary-shadow-hover: 0 2px 6px rgba(91, 91, 214, 0.26);
+}
+
+html.dark {
+  --ui-border: rgba(255, 255, 255, 0.09);
+  --ui-border-muted: rgba(255, 255, 255, 0.06);
+
+  /* Element Plus 暗色主题在 html.dark 下重定义了 primary,需同源覆盖为靛蓝 */
+  --el-color-primary: #6d6ee0;
+  --el-color-primary-light-3: #565bc9;
+  --el-color-primary-light-5: #45469e;
+  --el-color-primary-light-7: #363766;
+  --el-color-primary-light-8: #2b2c4d;
+  --el-color-primary-light-9: #212138;
+  --el-color-primary-dark-2: #8b8cec;
+}
+
+/* 卡片悬停:极轻抬升(克制) */
+.ui-card-hover:hover {
+  transform: translateY(-1px);
+}
+
+/* 菜单项圆角收紧 */
+.el-menu-item {
+  border-radius: 8px;
+}
+
+/* 激活项:单色靛蓝,低饱和背景 */
+.el-menu {
+  --el-menu-active-color: #5b5bd6;
+  --el-menu-hover-bg-color: rgba(91, 91, 214, 0.06);
+}
+
+.el-menu-item.is-active {
+  background: rgba(91, 91, 214, 0.08);
+}
+
+.dark .el-menu {
+  --el-menu-active-color: #a5a6f6;
+  --el-menu-hover-bg-color: rgba(91, 91, 214, 0.14);
+}
+
+.dark .el-menu-item.is-active {
+  background: rgba(91, 91, 214, 0.18);
+}
+
+/* 标题收紧字距 + 数字 tabular */
+.ui-app-title,
+h1, h2 {
+  letter-spacing: -0.02em;
+}
+
+.vh-app-root,
+#app {
+  font-feature-settings: 'tnum' 1, 'cv01' 1;
+}
+
+/* 品牌收敛:字标近黑(暗色近白),徽章单一强调色 */
+.sidebar-brand-title {
+  background: #1f2430 !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  filter: none !important;
+}
+
+html.dark .sidebar-brand-title {
+  background: #f3f4f6 !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+}
+
+.sidebar-brand-icon {
+  background: #5b5bd6 !important;
+  box-shadow: 0 1px 2px rgba(91, 91, 214, 0.3) !important;
+}
+
+/* 按钮圆角利落 */
+.el-button {
+  border-radius: 8px;
+}
