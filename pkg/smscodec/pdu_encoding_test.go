@@ -29,7 +29,7 @@ func TestBuildSubmitTPDUsWithOptionsForcesUCS2(t *testing.T) {
 }
 
 func TestBuildSubmitTPDUsKeepsAutoEncodingByDefault(t *testing.T) {
-	tpdus, _, err := BuildSubmitTPDUs("10086", "hello")
+	tpdus, _, err := BuildSubmitTPDUsWithOptions("10086", "hello", SubmitOptions{})
 	if err != nil {
 		t.Fatalf("BuildSubmitTPDUs() error = %v", err)
 	}
