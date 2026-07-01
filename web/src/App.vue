@@ -97,7 +97,7 @@ const shell = computed(() =>
           <div class="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-indigo-500/20 to-transparent pointer-events-none"></div>
           
           <div class="relative z-10">
-            <div class="flex items-center justify-center w-16 h-16 mx-auto mb-6 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl shadow-lg shadow-indigo-500/30">
+            <div class="flex items-center justify-center w-16 h-16 mx-auto mb-6 bg-gradient-to-br from-[#5b5bd6] to-[#4a4ac2] rounded-2xl shadow-lg shadow-indigo-500/30">
               <svg class="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
@@ -150,7 +150,7 @@ const shell = computed(() =>
                   :class="[
                     'flex-[1.5] px-4 py-3 text-sm font-bold tracking-wide transition-all duration-300 rounded-xl',
                     canAccept 
-                      ? 'text-white bg-gradient-to-r from-indigo-500 to-purple-600 shadow-lg shadow-indigo-500/30 hover:shadow-indigo-500/50 hover:-translate-y-0.5 active:translate-y-0 cursor-pointer' 
+                      ? 'text-white bg-gradient-to-r from-[#5b5bd6] to-[#4a4ac2] shadow-lg shadow-indigo-500/30 hover:shadow-indigo-500/50 hover:-translate-y-0.5 active:translate-y-0 cursor-pointer'
                       : 'text-gray-400 dark:text-gray-500 bg-gray-200 dark:bg-gray-800 shadow-none cursor-not-allowed border border-gray-300 dark:border-gray-700 opacity-60'
                   ]"
                 >
