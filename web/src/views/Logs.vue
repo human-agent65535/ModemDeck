@@ -236,7 +236,7 @@ watch(levelFilter, () => {
         >
           <span class="text-gray-500">[{{ formatDateTime(log.time) }}]</span>
           <span class="font-bold ml-1 inline-block w-14" :class="getLevelClass(log.level)">{{ log.level.toUpperCase().padEnd(5) }}</span>
-          <span class="text-cyan-400 inline-block w-48 truncate align-bottom" :title="log.caller">{{ log.caller }}</span>
+          <span class="text-indigo-400 inline-block w-48 truncate align-bottom" :title="log.caller">{{ log.caller }}</span>
           <span class="text-gray-100 ml-1">{{ log.message }}</span>
           <span v-if="log.fields" class="text-amber-300/70 ml-1">{{ log.fields }}</span>
         </div>

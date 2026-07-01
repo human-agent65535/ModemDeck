@@ -802,7 +802,7 @@ usePollingScheduler(() => fetchUpstream({ silent: true }), 10000, {
       <div class="space-y-6 pb-6">
         <div class="space-y-4">
           <div class="flex items-center gap-2 pb-2 border-b border-gray-100 dark:border-gray-800">
-            <div class="w-1 h-4 bg-violet-500 rounded-full"></div>
+            <div class="w-1 h-4 bg-indigo-500 rounded-full"></div>
             <h3 class="text-sm font-bold text-gray-900 dark:text-gray-100">代理信息</h3>
           </div>
 
