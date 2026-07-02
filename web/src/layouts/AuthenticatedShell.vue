@@ -295,10 +295,10 @@ const activePath = computed(() => route.path)
   letter-spacing: -0.01em;
 }
 
-:global(html.dark) .sidebar-shell {
-  --sidebar-menu-text: rgba(255, 255, 255, 0.72);
-  --sidebar-menu-hover-bg: rgba(91, 91, 214, 0.14);
-  --sidebar-menu-active-bg: linear-gradient(135deg, rgba(91, 91, 214, 0.2), rgba(91, 91, 214, 0.12));
+:global(html.dark .sidebar-shell) {
+  --sidebar-menu-text: rgba(255, 255, 255, 0.84);
+  --sidebar-menu-hover-bg: rgba(91, 91, 214, 0.18);
+  --sidebar-menu-active-bg: linear-gradient(135deg, rgba(91, 91, 214, 0.24), rgba(91, 91, 214, 0.15));
   --sidebar-menu-active-color: #a5a6f6;
   --sidebar-menu-active-ring: rgba(91, 91, 214, 0.22);
 }
@@ -328,6 +328,7 @@ const activePath = computed(() => route.path)
 :deep(.sidebar-menu .el-menu-item .el-icon) {
   margin-right: 8px !important;
   font-size: 1.18rem;
+  color: inherit;
 }
 
 :deep(.sidebar-menu .el-menu-item .el-icon svg) {
@@ -337,6 +338,15 @@ const activePath = computed(() => route.path)
 
 :deep(.sidebar-menu .el-menu-item:hover) {
   background: var(--sidebar-menu-hover-bg);
+}
+
+:global(html.dark .sidebar-shell .sidebar-menu .el-menu-item:not(.is-active)) {
+  color: rgba(236, 241, 252, 0.9) !important;
+}
+
+:global(html.dark .sidebar-shell .sidebar-menu .el-menu-item:not(.is-active) .el-icon),
+:global(html.dark .sidebar-shell .sidebar-menu .el-menu-item:not(.is-active) .sidebar-menu-label) {
+  color: rgba(236, 241, 252, 0.9) !important;
 }
 
 :deep(.sidebar-menu .el-menu-item.is-active) {

@@ -160,12 +160,23 @@ func (t *TelegramChannel) Start() error {
 		}
 
 		ctx := &tgCommandContext{channel: t}
-		response := handler(ctx, args)
+		response := t.invokeHandler(handler, ctx, command, args)
 		if response != "" {
 			ctx.Reply(response)
 		}
 	}
 	return nil
+}
+
+// invokeHandler 执行命令处理器，捕获 panic 避免单个命令异常拖垮整个长轮询循环
+func (t *TelegramChannel) invokeHandler(handler CommandHandler, ctx CommandContext, command string, args []string) (response string) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("Telegram 命令处理器 panic", "command", command, "recover", r)
+			response = ""
+		}
+	}()
+	return handler(ctx, args)
 }
 
 func (t *TelegramChannel) Close() error {

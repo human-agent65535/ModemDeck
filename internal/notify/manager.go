@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -13,8 +14,9 @@ import (
 // Manager 统一通知管理器
 // 持有多个 Channel 实例，向所有已启用渠道广播通知和命令
 type Manager struct {
-	pool     *device.Pool
-	channels []Channel // 所有已启用的通知渠道
+	pool            *device.Pool
+	channels        []Channel // 所有已启用的通知渠道
+	superviseCancel context.CancelFunc
 }
 
 type NotificationContext struct {
@@ -149,17 +151,60 @@ func (m *Manager) initChannels(cfg *config.Config) error {
 	// 向所有渠道注册命令
 	m.registerCommands()
 
-	// 启动所有渠道的命令监听
+	// 启动所有渠道的命令监听，并对常驻监听（如 Telegram long-polling）做退避重启
+	ctx, cancel := context.WithCancel(context.Background())
+	m.superviseCancel = cancel
 	for _, ch := range m.channels {
 		ch := ch
-		go func() {
-			if err := ch.Start(); err != nil {
-				logger.Error("通知渠道命令监听失败", "channel", ch.Name(), "err", err)
-			}
-		}()
+		go m.superviseChannel(ctx, ch)
 	}
 
 	return nil
+}
+
+// superviseChannel 保持渠道的常驻监听存活。
+// 若 Start() 意外退出（非 ctx 取消导致），按退避重试重启；
+// 若 Start() 很快返回（如 webhook/email 等本就不阻塞的渠道），只跑一次，避免空转重启。
+func (m *Manager) superviseChannel(ctx context.Context, ch Channel) {
+	backoff := time.Second
+	const maxBackoff = 30 * time.Second
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		start := time.Now()
+		if err := ch.Start(); err != nil {
+			logger.Error("通知渠道命令监听退出", "channel", ch.Name(), "err", err)
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		if time.Since(start) < time.Second {
+			// Start() 立即返回，说明该渠道无需常驻监听
+			return
+		}
+
+		logger.Warn("通知渠道监听意外退出，准备重启", "channel", ch.Name(), "backoff", backoff)
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
 }
 
 // registerCommands 向所有已启用渠道注册同一组命令处理器
@@ -184,6 +229,9 @@ func (m *Manager) registerCommands() {
 
 // Close 关闭所有通知渠道
 func (m *Manager) Close() {
+	if m.superviseCancel != nil {
+		m.superviseCancel()
+	}
 	for _, ch := range m.channels {
 		_ = ch.Close()
 	}
