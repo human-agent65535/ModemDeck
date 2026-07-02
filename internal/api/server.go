@@ -86,6 +86,9 @@ type Server struct {
 	loginMu       sync.Mutex
 	loginAttempts map[string]loginAttempt
 
+	smsLimiterMu sync.Mutex
+	smsLimiter   *smsRateLimiter
+
 	shutdownCh chan struct{}
 }
 
@@ -115,10 +118,23 @@ func New(cfg *config.Config, pool *device.Pool, fs http.FileSystem, proxyMgr *se
 		proxyRepo:     repo.NewDBRepo(),
 		websheets:     vwebsheet.New(vwebsheet.Config{BasePath: "/api/websheets"}),
 		loginAttempts: make(map[string]loginAttempt),
+		smsLimiter:    newSMSRateLimiter(time.Now(), time.Now),
 		shutdownCh:    make(chan struct{}),
 	}
 
 	return s
+}
+
+func (s *Server) smsRateLimiter() *smsRateLimiter {
+	if s.smsLimiter != nil {
+		return s.smsLimiter
+	}
+	s.smsLimiterMu.Lock()
+	defer s.smsLimiterMu.Unlock()
+	if s.smsLimiter == nil {
+		s.smsLimiter = newSMSRateLimiter(time.Now(), time.Now)
+	}
+	return s.smsLimiter
 }
 
 func (s *Server) SetRealtimeTraffic(m *proxytraffic.RealtimeManager) {
@@ -991,6 +1007,22 @@ func (s *Server) handleSendSMS(c *gin.Context) {
 			msg = "未找到匹配 IMSI 的设备: " + imsi
 		}
 		c.JSON(http.StatusNotFound, gin.H{"status": "error", "message": msg})
+		return
+	}
+
+	if rate := s.smsRateLimiter().Allow(); !rate.Allowed {
+		retryAfterSeconds := int64(rate.RetryAfter.Seconds())
+		if retryAfterSeconds < 0 {
+			retryAfterSeconds = 0
+		}
+		c.JSON(http.StatusTooManyRequests, gin.H{
+			"status":              "error",
+			"code":                "sms_rate_limited",
+			"reason":              rate.Code,
+			"message":             rate.Message,
+			"retry_after_seconds": retryAfterSeconds,
+			"request_id":          requestID(c),
+		})
 		return
 	}
 
