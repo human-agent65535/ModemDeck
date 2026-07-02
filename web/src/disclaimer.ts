@@ -6,3 +6,7 @@ export function shouldShowDisclaimer(lastAgreedAt: number | null, now: number): 
   }
   return now - lastAgreedAt >= DISCLAIMER_INTERVAL_MS
 }
+
+export function shouldRequireDisclaimerConfirmationText(lastAgreedAt: number | null): boolean {
+  return lastAgreedAt === null || Number.isNaN(lastAgreedAt)
+}

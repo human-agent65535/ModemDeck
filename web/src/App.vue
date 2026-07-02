@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import LoadingScreen from './components/LoadingScreen.vue'
 import { ElMessage } from 'element-plus'
-import { shouldShowDisclaimer } from './disclaimer'
+import { shouldRequireDisclaimerConfirmationText, shouldShowDisclaimer } from './disclaimer'
 
 const DISCLAIMER_AGREED_AT_KEY = 'vohive_disclaimer_agreed_at'
 
@@ -15,7 +15,8 @@ const isDark = ref(localStorage.getItem('theme') === 'dark')
 const showDisclaimer = ref(false)
 const confirmText = ref('')
 const expectedConfirmText = '我同意并确认'
-const canAccept = computed(() => confirmText.value === expectedConfirmText)
+const manualConfirmRequired = ref(true)
+const canAccept = computed(() => !manualConfirmRequired.value || confirmText.value === expectedConfirmText)
 
 function toggleTheme() {
   isDark.value = !isDark.value
@@ -46,6 +47,7 @@ watch(() => auth.isAuthenticated, (isAuthenticated) => {
     const agreedAt = agreedAtRaw === null ? null : Number(agreedAtRaw)
     if (shouldShowDisclaimer(agreedAt, Date.now())) {
       confirmText.value = ''
+      manualConfirmRequired.value = shouldRequireDisclaimerConfirmationText(agreedAt)
       showDisclaimer.value = true
     }
   } else {
@@ -125,11 +127,14 @@ const shell = computed(() =>
             </div>
             
             <div class="disclaimer-actions mt-6 pt-5 border-t border-gray-100 dark:border-gray-800">
-              <p class="mb-3 text-xs font-bold text-center text-gray-500 dark:text-gray-400">
+              <p v-if="manualConfirmRequired" class="mb-3 text-xs font-bold text-center text-gray-500 dark:text-gray-400">
                 请输入「<span class="text-indigo-600 dark:text-indigo-400 select-all">{{ expectedConfirmText }}</span>」以解锁按钮
               </p>
+              <p v-else class="mb-3 text-xs font-bold text-center text-gray-500 dark:text-gray-400">
+                本次为周期性确认，点击「<span class="text-indigo-600 dark:text-indigo-400">{{ expectedConfirmText }}</span>」即可继续
+              </p>
               
-              <div class="disclaimer-input-wrap mb-5">
+              <div v-if="manualConfirmRequired" class="disclaimer-input-wrap mb-5">
                 <input 
                   type="text" 
                   v-model="confirmText" 
@@ -154,7 +159,7 @@ const shell = computed(() =>
                       : 'text-gray-400 dark:text-gray-500 bg-gray-200 dark:bg-gray-800 shadow-none cursor-not-allowed border border-gray-300 dark:border-gray-700 opacity-60'
                   ]"
                 >
-                  同意并继续
+                  {{ manualConfirmRequired ? '同意并继续' : expectedConfirmText }}
                 </button>
               </div>
             </div>
