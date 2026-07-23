@@ -10,9 +10,11 @@ import (
 )
 
 var (
-	ErrCallNotFound    = errors.New("call not found")
-	ErrMessageNotFound = errors.New("message not found")
-	ErrSnapshotInvalid = errors.New("hardware snapshot is invalid")
+	ErrCallNotFound                 = errors.New("call not found")
+	ErrMessageNotFound              = errors.New("message not found")
+	ErrMessageThreadNotFound        = errors.New("message thread not found")
+	ErrMessageThreadIdentityInvalid = errors.New("message thread identity is not unique")
+	ErrSnapshotInvalid              = errors.New("hardware snapshot is invalid")
 )
 
 const (
@@ -173,17 +175,49 @@ func (s *Store) MarkMessageThreadRead(ctx context.Context, iccid, peer string) e
 	if iccid == "" || peer == "" {
 		return fmt.Errorf("mark message thread read: iccid and peer are required")
 	}
-	if _, err := s.database.ExecContext(
+	result, err := s.database.ExecContext(
 		ctx,
 		`UPDATE sms_contacts
 		 SET unread_count = 0, updated_at = CURRENT_TIMESTAMP
-		 WHERE iccid = ? AND peer = ?`,
+		 WHERE rowid = (
+			SELECT rowid
+			FROM sms_contacts
+			WHERE iccid = ? AND peer = ?
+			LIMIT 1
+		 )
+		 AND 1 = (
+			SELECT COUNT(*)
+			FROM sms_contacts
+			WHERE iccid = ? AND peer = ?
+		 )`,
 		iccid,
 		peer,
-	); err != nil {
+		iccid,
+		peer,
+	)
+	if err != nil {
 		return fmt.Errorf("mark message thread read: %w", err)
 	}
-	return nil
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("mark message thread read: read affected rows: %w", err)
+	}
+	if affected == 1 {
+		return nil
+	}
+	var matches int
+	if err := s.database.QueryRowContext(
+		ctx,
+		"SELECT COUNT(*) FROM sms_contacts WHERE iccid = ? AND peer = ?",
+		iccid,
+		peer,
+	).Scan(&matches); err != nil {
+		return fmt.Errorf("mark message thread read: count matching threads: %w", err)
+	}
+	if matches == 0 {
+		return ErrMessageThreadNotFound
+	}
+	return ErrMessageThreadIdentityInvalid
 }
 
 func (s *Store) MarkMessageThreadReadByLine(ctx context.Context, lineID, peer string) error {

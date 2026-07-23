@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -229,6 +230,88 @@ func TestMarkMessageThreadReadByLineOnlyUsesCurrentSIM(t *testing.T) {
 	}
 	if oldUnread != 1 || newUnread != 0 {
 		t.Fatalf("unread counts old=%d new=%d, want old=1 new=0", oldUnread, newUnread)
+	}
+}
+
+func TestMarkMessageThreadReadUsesExactSIMIdentity(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	ctx := context.Background()
+	peer := "+818012345678"
+	if _, err := repository.database.ExecContext(
+		ctx,
+		`INSERT INTO sms_contacts (
+			imsi, iccid, peer, unread_count, created_at, updated_at
+		 ) VALUES
+			('imsi-a', 'iccid-a', ?, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+			('imsi-b', 'iccid-b', ?, 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		peer,
+		peer,
+	); err != nil {
+		t.Fatalf("insert message threads: %v", err)
+	}
+
+	if err := repository.MarkMessageThreadRead(ctx, "iccid-a", peer); err != nil {
+		t.Fatalf("MarkMessageThreadRead() error = %v", err)
+	}
+	var firstUnread, secondUnread int
+	if err := repository.database.QueryRowContext(
+		ctx,
+		"SELECT unread_count FROM sms_contacts WHERE imsi = 'imsi-a' AND peer = ?",
+		peer,
+	).Scan(&firstUnread); err != nil {
+		t.Fatalf("read first SIM unread count: %v", err)
+	}
+	if err := repository.database.QueryRowContext(
+		ctx,
+		"SELECT unread_count FROM sms_contacts WHERE imsi = 'imsi-b' AND peer = ?",
+		peer,
+	).Scan(&secondUnread); err != nil {
+		t.Fatalf("read second SIM unread count: %v", err)
+	}
+	if firstUnread != 0 || secondUnread != 3 {
+		t.Fatalf("unread counts first=%d second=%d, want first=0 second=3", firstUnread, secondUnread)
+	}
+
+	if err := repository.MarkMessageThreadRead(ctx, "missing-iccid", peer); !errors.Is(err, ErrMessageThreadNotFound) {
+		t.Fatalf("missing thread error = %v, want ErrMessageThreadNotFound", err)
+	}
+}
+
+func TestMarkMessageThreadReadRejectsAmbiguousSIMIdentity(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	ctx := context.Background()
+	peer := "+818012345678"
+	if _, err := repository.database.ExecContext(
+		ctx,
+		`INSERT INTO sms_contacts (
+			imsi, iccid, peer, unread_count, created_at, updated_at
+		 ) VALUES
+			('imsi-a', 'shared-iccid', ?, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+			('imsi-b', 'shared-iccid', ?, 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		peer,
+		peer,
+	); err != nil {
+		t.Fatalf("insert ambiguous message threads: %v", err)
+	}
+
+	err := repository.MarkMessageThreadRead(ctx, "shared-iccid", peer)
+	if !errors.Is(err, ErrMessageThreadIdentityInvalid) {
+		t.Fatalf("MarkMessageThreadRead() error = %v, want ErrMessageThreadIdentityInvalid", err)
+	}
+	var unreadTotal int
+	if err := repository.database.QueryRowContext(
+		ctx,
+		"SELECT SUM(unread_count) FROM sms_contacts WHERE iccid = 'shared-iccid' AND peer = ?",
+		peer,
+	).Scan(&unreadTotal); err != nil {
+		t.Fatalf("read ambiguous unread total: %v", err)
+	}
+	if unreadTotal != 5 {
+		t.Fatalf("ambiguous unread total = %d, want 5", unreadTotal)
 	}
 }
 

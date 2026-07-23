@@ -95,12 +95,21 @@ func (api *API) messageRead(response http.ResponseWriter, request *http.Request)
 	if !decodeJSONBody(response, request, &input) {
 		return
 	}
-	if strings.TrimSpace(input.ICCID) == "" || strings.TrimSpace(input.Peer) == "" {
+	iccid := strings.TrimSpace(input.ICCID)
+	peer := strings.TrimSpace(input.Peer)
+	if iccid == "" || peer == "" {
 		writeError(response, http.StatusBadRequest, "invalid_argument", "iccid and peer are required", "")
 		return
 	}
-	if err := api.repository.MarkMessageThreadRead(request.Context(), input.ICCID, input.Peer); err != nil {
-		api.writeInternalError(response, request, "mark message thread read", err)
+	if err := api.repository.MarkMessageThreadRead(request.Context(), iccid, peer); err != nil {
+		switch {
+		case errors.Is(err, store.ErrMessageThreadNotFound):
+			writeError(response, http.StatusNotFound, "message_thread_not_found", "Message thread no longer exists", "")
+		case errors.Is(err, store.ErrMessageThreadIdentityInvalid):
+			writeError(response, http.StatusConflict, "message_thread_identity_invalid", "Message thread identity is ambiguous", "")
+		default:
+			api.writeInternalError(response, request, "mark message thread read", err)
+		}
 		return
 	}
 	response.Header().Set("Cache-Control", "no-store")

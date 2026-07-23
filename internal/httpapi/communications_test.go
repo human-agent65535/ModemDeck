@@ -103,6 +103,81 @@ func TestMessageCommandForwardsExplicitLineAndIdempotencyKey(t *testing.T) {
 	}
 }
 
+func TestMessageReadUsesExactSIMAndPeer(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeRepository{}
+	api, err := New(repository, Options{disableAuthentication: true})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/v1/messages/read",
+		bytes.NewBufferString(`{"iccid":"  iccid-main  ","peer":"  +818012345678  "}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body = %s", response.Code, response.Body.String())
+	}
+	if repository.messageReadICCID != "iccid-main" ||
+		repository.messageReadPeer != "+818012345678" {
+		t.Fatalf(
+			"message read identity = %q %q",
+			repository.messageReadICCID,
+			repository.messageReadPeer,
+		)
+	}
+}
+
+func TestMessageReadReportsIdentityFailures(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		storeError error
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name:       "missing exact thread",
+			storeError: store.ErrMessageThreadNotFound,
+			wantStatus: http.StatusNotFound,
+			wantCode:   "message_thread_not_found",
+		},
+		{
+			name:       "ambiguous identity",
+			storeError: store.ErrMessageThreadIdentityInvalid,
+			wantStatus: http.StatusConflict,
+			wantCode:   "message_thread_identity_invalid",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repository := &fakeRepository{messageReadError: test.storeError}
+			api, err := New(repository, Options{disableAuthentication: true})
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			request := httptest.NewRequest(
+				http.MethodPatch,
+				"/api/v1/messages/read",
+				bytes.NewBufferString(`{"iccid":"iccid-main","peer":"+818012345678"}`),
+			)
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+
+			api.ServeHTTP(response, request)
+
+			assertAPIError(t, response, test.wantStatus, test.wantCode)
+		})
+	}
+}
+
 func TestCommandRejectsConflictingRequestIdentities(t *testing.T) {
 	t.Parallel()
 
