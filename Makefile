@@ -1,6 +1,9 @@
 SHELL := /bin/sh
 
-GO_IMAGE ?= golang:1.26.3-bookworm
+GO_IMAGE ?= golang:1.26.3-bookworm@sha256:386d475a660466863d9f8c766fec64d7fdad3edac2c6a05020c09534d71edb4b
+ROOT_TOOLCHAIN_IMAGE ?= modemdeck-root-toolchain:go1.26.3-opus1.3.1-3
+ROOT_TOOLCHAIN_DOCKERFILE ?= Dockerfile.toolchain
+NODE_IMAGE ?= node:22.17.1-bookworm-slim@sha256:2fa754a9ba4d7adbd2a51d182eaabbe355c82b673624035a38c0d42b08724854
 AGENT_NAME ?= modemdeck-agent
 IMAGE ?= modemdeck
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || printf '%s' dev)
@@ -15,6 +18,7 @@ MODEMDECK_UID ?= 10001
 MODEMDECK_GID ?= 10001
 MODEMDECK_AGENT_GID ?= 10002
 COMPOSE_ADMIN_PASSWORD_FILE ?= /dev/null
+COMPOSE_SETTINGS_KEY_FILE ?= /dev/null
 HOST_UID := $(shell id -u)
 HOST_GID := $(shell id -g)
 
@@ -24,23 +28,46 @@ ROOT_GO = docker run --rm \
 	-e GOTOOLCHAIN=local \
 	--mount type=volume,source=modemdeck-root-go-mod,target=/go/pkg/mod \
 	--mount type=volume,source=modemdeck-root-go-build,target=/root/.cache/go-build \
-	-v "$(CURDIR):/workspace" \
+	--mount type=bind,source="$(CURDIR)",target=/workspace,readonly \
 	-w /workspace \
-	$(GO_IMAGE)
+	$(ROOT_TOOLCHAIN_IMAGE)
 
 ROOT_PACKAGES = ./cmd/... ./internal/...
 
-AGENT_GO = docker run --rm \
+AGENT_GO_RO = docker run --rm \
 	-e GOTOOLCHAIN=local \
 	--mount type=volume,source=modemdeck-agent-go-mod,target=/go/pkg/mod \
 	--mount type=volume,source=modemdeck-agent-go-build,target=/root/.cache/go-build \
-	-v "$(CURDIR):/workspace" \
+	--mount type=bind,source="$(CURDIR)",target=/workspace,readonly \
 	-w /workspace/agent \
 	$(GO_IMAGE)
 
-.PHONY: all build app-build agent-build image check root-test agent-test \
-	root-vet agent-vet web-install web-check web-build compose-config \
-	compose-up compose-down compose-logs prepare-data install-agent clean
+AGENT_GO_RW = docker run --rm \
+	-e GOTOOLCHAIN=local \
+	--mount type=volume,source=modemdeck-agent-go-mod,target=/go/pkg/mod \
+	--mount type=volume,source=modemdeck-agent-go-build,target=/root/.cache/go-build \
+	--mount type=bind,source="$(CURDIR)",target=/workspace \
+	-w /workspace/agent \
+	$(GO_IMAGE)
+
+WEB_NODE_RO = docker run --rm \
+	--mount type=bind,source="$(CURDIR)/web",target=/workspace/web,readonly \
+	--mount type=volume,source=modemdeck-web-node-modules,target=/workspace/web/node_modules \
+	--mount type=volume,source=modemdeck-web-npm-cache,target=/root/.npm \
+	-w /workspace/web \
+	$(NODE_IMAGE)
+
+WEB_NODE_RW = docker run --rm \
+	--mount type=bind,source="$(CURDIR)/web",target=/workspace/web \
+	--mount type=volume,source=modemdeck-web-node-modules,target=/workspace/web/node_modules \
+	--mount type=volume,source=modemdeck-web-npm-cache,target=/root/.npm \
+	-w /workspace/web \
+	$(NODE_IMAGE)
+
+.PHONY: all build app-build agent-build image check root-toolchain root-test \
+	agent-test root-vet agent-vet web-install web-test web-typecheck web-lint \
+	web-check web-build compose-config dockerfile-check compose-up compose-down \
+	compose-logs prepare-data install-agent clean
 
 all: check build
 
@@ -59,7 +86,7 @@ app-build:
 
 agent-build:
 	mkdir -p "$(DIST_DIR)"
-	$(AGENT_GO) sh -ec 'CGO_ENABLED=0 GOOS=$(TARGETOS) GOARCH=$(TARGETARCH) \
+	$(AGENT_GO_RW) sh -ec 'CGO_ENABLED=0 GOOS=$(TARGETOS) GOARCH=$(TARGETARCH) \
 		go build -mod=readonly -trimpath -buildvcs=false \
 		-ldflags="-s -w -X main.version=$(VERSION)" \
 		-o /workspace/$(AGENT_OUT) $(AGENT_MAIN); \
@@ -77,37 +104,57 @@ image:
 		-t "$(IMAGE):$(VERSION)" \
 		.
 
-check: root-test agent-test root-vet agent-vet web-check compose-config
+check: root-test agent-test root-vet agent-vet web-check compose-config dockerfile-check
 
-root-test:
+root-toolchain:
+	docker build \
+		--file "$(ROOT_TOOLCHAIN_DOCKERFILE)" \
+		--tag "$(ROOT_TOOLCHAIN_IMAGE)" \
+		.
+
+root-test: root-toolchain
 	$(ROOT_GO) go test -mod=readonly $(ROOT_PACKAGES)
 
 agent-test:
-	$(AGENT_GO) go test -mod=readonly ./...
+	$(AGENT_GO_RO) go test -mod=readonly ./...
 
-root-vet:
+root-vet: root-toolchain
 	$(ROOT_GO) go vet -mod=readonly $(ROOT_PACKAGES)
 
 agent-vet:
-	$(AGENT_GO) go vet -mod=readonly ./...
+	$(AGENT_GO_RO) go vet -mod=readonly ./...
 
 web-install:
-	npm ci --prefix web --no-audit --no-fund
+	$(WEB_NODE_RO) npm ci --include=dev --no-audit --no-fund
+
+web-test: web-install
+	$(WEB_NODE_RO) npm test
+
+web-typecheck: web-install
+	$(WEB_NODE_RO) npm run typecheck
+
+web-lint: web-install
+	$(WEB_NODE_RO) npm run lint
 
 web-check: web-install
-	npm run typecheck --prefix web
-	npm run lint --prefix web
-	npm run build --prefix web
+	$(WEB_NODE_RO) npm test
+	$(WEB_NODE_RO) npm run typecheck
+	$(WEB_NODE_RO) npm run lint
+	$(WEB_NODE_RW) npm run build
 
 web-build: web-install
-	npm run build --prefix web
+	$(WEB_NODE_RW) npm run build
 
 compose-config:
 	MODEMDECK_BUILD_DATE="$(BUILD_DATE)" \
 	MODEMDECK_VCS_REF="$(VCS_REF)" \
 	MODEMDECK_AGENT_GID="$(MODEMDECK_AGENT_GID)" \
 	MODEMDECK_ADMIN_PASSWORD_FILE="$(COMPOSE_ADMIN_PASSWORD_FILE)" \
+	MODEMDECK_SETTINGS_KEY_FILE="$(COMPOSE_SETTINGS_KEY_FILE)" \
 	docker compose config --quiet
+
+dockerfile-check:
+	docker build --check .
 
 prepare-data:
 	sudo env MODEMDECK_UID="$(MODEMDECK_UID)" MODEMDECK_GID="$(MODEMDECK_GID)" \
