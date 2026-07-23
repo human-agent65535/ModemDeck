@@ -17,6 +17,7 @@ import {
   createDTMFPayload,
   createGlobalCallSettingsPayload,
   createLineSettingsPayload,
+  createMessageReadPayload,
   createMessagePayload,
   createRecordingSettingsPayload,
   createTelegramUnitPayload,
@@ -29,6 +30,7 @@ import {
   parseGlobalCallSettings,
   parseLineSettingsResponse,
   parseMessageResponse,
+  parseRecordingEntriesResponse,
   parseRecordingSettingsResponse,
   parseTelegramUnitResponse,
   parseTelegramUnitsResponse,
@@ -77,6 +79,7 @@ import type {
   LoginInput,
   Message,
   MessageThread,
+  RecordingEntry,
   RecordingSettings,
   RenameDeviceInput,
   SaveConnectionProfileInput,
@@ -654,11 +657,12 @@ const realGateway: ConfiguredModemDeckGateway = {
   },
 
   async markThreadRead(query): Promise<void> {
+    const contract = communicationContracts.markMessageRead
     await writeJSON(
-      `${API_ROOT}/messages/read`,
-      'PATCH',
-      { iccid: query.iccid.trim(), peer: query.peer.trim() },
-      204
+      contract.path,
+      contract.method,
+      createMessageReadPayload(query),
+      contract.successStatus
     )
   },
 
@@ -958,6 +962,13 @@ const realGateway: ConfiguredModemDeckGateway = {
   async getRecordingSettings(): Promise<RecordingSettings> {
     const contract = communicationContracts.getRecordingSettings
     return parseRecordingSettingsResponse(await get(contract.path))
+  },
+
+  async listRecordings(query: ListQuery = {}): Promise<RecordingEntry[]> {
+    const contract = communicationContracts.listRecordings
+    return parseRecordingEntriesResponse(
+      await get(`${contract.path}${queryString({ q: query.q })}`)
+    )
   },
 
   async updateRecordingSettings(settings: RecordingSettings): Promise<RecordingSettings> {

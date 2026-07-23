@@ -1,4 +1,4 @@
-import { parseMessage } from './normalize.ts'
+import { parseCallRecord, parseMessage } from './normalize.ts'
 import type {
   CallAction,
   CallDirection,
@@ -20,7 +20,10 @@ import type {
   LineSettings,
   LineIncomingCallConfiguration,
   Message,
+  MessageReadInput,
+  RecordingEntry,
   RecordingSettings,
+  RecordingStatus,
   SendMessageInput,
   TelegramUnit,
   TelegramUnitInput,
@@ -43,6 +46,12 @@ const CALL_PHASES = new Set<CallPhase>([
 ])
 const CALL_DIRECTIONS = new Set<CallDirection>(['incoming', 'outgoing'])
 const CALL_ACTIONS = new Set<CallAction>(['answer', 'reject', 'hangup'])
+const RECORDING_STATUSES = new Set<RecordingStatus>([
+  'pending',
+  'recording',
+  'ready',
+  'failed'
+])
 const INCOMING_CALL_POLICIES = new Set<IncomingCallPolicy>([
   'follow_global',
   'receive',
@@ -121,8 +130,10 @@ function stringList(source: JsonRecord, path: string, key: string): string[] {
 
 export const communicationPaths = {
   messages: '/api/v1/messages',
+  messageRead: '/api/v1/messages/read',
   calls: '/api/v1/calls',
   activeCalls: '/api/v1/calls/active',
+  recordings: '/api/v1/recordings',
   callSettings: '/api/v1/settings/calls',
   recordingSettings: '/api/v1/settings/recording',
   telegram: '/api/v1/settings/telegram'
@@ -134,6 +145,11 @@ export const communicationContracts = {
     path: communicationPaths.messages,
     successStatus: 201
   },
+  markMessageRead: {
+    method: 'PATCH',
+    path: communicationPaths.messageRead,
+    successStatus: 204
+  },
   startCall: {
     method: 'POST',
     path: communicationPaths.calls,
@@ -142,6 +158,11 @@ export const communicationContracts = {
   activeCalls: {
     method: 'GET',
     path: communicationPaths.activeCalls,
+    successStatus: 200
+  },
+  listRecordings: {
+    method: 'GET',
+    path: communicationPaths.recordings,
     successStatus: 200
   },
   getCallSettings: {
@@ -292,6 +313,13 @@ export function createMessagePayload(input: SendMessageInput): SendMessageInput 
     to,
     content
   }
+}
+
+export function createMessageReadPayload(input: MessageReadInput): MessageReadInput {
+  const iccid = input.iccid.trim()
+  const peer = input.peer.trim()
+  if (!iccid || !peer) throw new Error('iccid 和 peer 不能为空')
+  return { iccid, peer }
 }
 
 export function createCallPayload(
@@ -827,6 +855,58 @@ export function parseCallRecordingsResponse(value: unknown): CallRecording[] {
         download_url: `/api/v1/calls/${encodeURIComponent(callID)}/recordings/${encodeURIComponent(id)}/download`
       }
     ]
+  })
+}
+
+export function parseRecordingEntriesResponse(value: unknown): RecordingEntry[] {
+  const source = objectValue(value, 'response')
+  if (!Array.isArray(source.recordings)) throw new Error('response.recordings 必须是数组')
+  return source.recordings.map((value, index) => {
+    const path = `response.recordings[${index}]`
+    const entry = objectValue(value, path)
+    const segmentPath = `${path}.segment`
+    const segment = objectValue(entry.segment, segmentPath)
+    const call = parseCallRecord(entry.call)
+    const id = requiredString(segment, segmentPath, 'id')
+    const callID = requiredString(segment, segmentPath, 'call_id')
+    if (call.id !== callID) throw new Error(`${path}.call.id 与 segment.call_id 不一致`)
+
+    const status = requiredString(segment, segmentPath, 'status') as RecordingStatus
+    if (!RECORDING_STATUSES.has(status)) {
+      throw new Error(`${segmentPath}.status 未知：${status}`)
+    }
+
+    const segmentIndex = requiredNonNegativeInteger(segment, segmentPath, 'segment_index')
+    if (segmentIndex < 1) throw new Error(`${segmentPath}.segment_index 必须是正整数`)
+    const startedAt = optionalTimestamp(segment, segmentPath, 'started_at')
+    const endedAt = optionalTimestamp(segment, segmentPath, 'ended_at')
+    const createdAt = requiredTimestamp(segment, segmentPath, 'created_at')
+    const durationMS = requiredNonNegativeInteger(segment, segmentPath, 'duration_ms')
+    const failureCode = optionalString(segment, 'failure_code')
+    const playable = requiredBoolean(entry, path, 'playable')
+    if (playable && status !== 'ready') {
+      throw new Error(`${path}.playable 只能用于 ready 录音`)
+    }
+
+    const result: RecordingEntry = {
+      id,
+      call_id: callID,
+      segment_index: segmentIndex,
+      status,
+      recorded_at: startedAt || createdAt,
+      ...(startedAt ? { started_at: startedAt } : {}),
+      ...(endedAt ? { ended_at: endedAt } : {}),
+      duration_seconds: Math.floor(durationMS / 1000),
+      size_bytes: requiredNonNegativeInteger(segment, segmentPath, 'size_bytes'),
+      ...(failureCode ? { failure_code: failureCode } : {}),
+      playable,
+      call
+    }
+    if (playable) {
+      result.content_type = 'audio/ogg; codecs=opus'
+      result.download_url = `/api/v1/calls/${encodeURIComponent(callID)}/recordings/${encodeURIComponent(id)}/download`
+    }
+    return result
   })
 }
 

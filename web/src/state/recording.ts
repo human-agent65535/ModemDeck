@@ -4,6 +4,7 @@ import type {
   CallRecording,
   CallRecordingState,
   CallSession,
+  RecordingEntry,
   RecordingSettings,
   ResourceStatus
 } from '../api/types'
@@ -66,6 +67,18 @@ export const recordingListState = reactive<{
   error: ''
 })
 
+export const recordingCatalogState = reactive<{
+  query: string
+  status: ResourceStatus
+  data: RecordingEntry[]
+  error: string
+}>({
+  query: '',
+  status: 'idle',
+  data: [],
+  error: ''
+})
+
 let settingsRequest: Promise<RecordingSettings | null> | undefined
 let dialerResetGeneration = 0
 let callSyncGeneration = 0
@@ -73,6 +86,7 @@ let attemptedCallID = ''
 let preferredCallID = ''
 let preferredCallEnabled = false
 let recordingListGeneration = 0
+let recordingCatalogGeneration = 0
 
 function failureMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiError && error.status === 403) return '无权管理通话录音'
@@ -307,5 +321,43 @@ export async function loadCallRecordings(callID: string, force = false): Promise
     recordingListState.status =
       error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
     recordingListState.error = failureMessage(error, '无法载入通话录音')
+  }
+}
+
+export async function loadRecordingEntries(
+  query = '',
+  force = false
+): Promise<RecordingEntry[] | null> {
+  const normalizedQuery = query.trim()
+  if (
+    !force &&
+    recordingCatalogState.query === normalizedQuery &&
+    recordingCatalogState.status === 'ready'
+  ) {
+    return recordingCatalogState.data
+  }
+
+  const token = ++recordingCatalogGeneration
+  recordingCatalogState.query = normalizedQuery
+  recordingCatalogState.status = 'loading'
+  recordingCatalogState.data = []
+  recordingCatalogState.error = ''
+  try {
+    const recordings = await gateway.listRecordings(
+      normalizedQuery ? { q: normalizedQuery } : undefined
+    )
+    if (token !== recordingCatalogGeneration) return null
+    recordingCatalogState.data = recordings
+    recordingCatalogState.status = 'ready'
+    return recordings
+  } catch (error) {
+    if (token !== recordingCatalogGeneration) return null
+    recordingCatalogState.status =
+      error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
+    recordingCatalogState.error =
+      error instanceof ApiError && error.status === 403
+        ? '无权查看通话录音'
+        : failureMessage(error, '无法载入通话录音')
+    return null
   }
 }

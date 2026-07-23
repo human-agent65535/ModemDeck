@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import {
+  AudioLines,
   House,
   MessageSquareText,
   Phone,
@@ -33,7 +34,8 @@ const primaryNav = [
   { name: 'dashboard', label: '首页', icon: House },
   { name: 'contacts', label: '联系人', icon: UsersRound },
   { name: 'messages', label: '消息', icon: MessageSquareText },
-  { name: 'calls', label: '通话', icon: Phone }
+  { name: 'calls', label: '通话', icon: Phone },
+  { name: 'recordings', label: '录音', icon: AudioLines }
 ]
 
 watch(

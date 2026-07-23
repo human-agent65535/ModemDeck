@@ -22,7 +22,9 @@ import type {
   LineSettings,
   LoginInput,
   Message,
+  MessageReadInput,
   MessageThread,
+  RecordingEntry,
   RecordingSettings,
   RenameDeviceInput,
   SaveConnectionProfileInput,
@@ -68,7 +70,7 @@ export interface ModemDeckGateway {
   listContacts(query?: ListQuery): Promise<Contact[]>
   listThreads(query?: ListQuery): Promise<MessageThread[]>
   listMessages(query: MessageQuery): Promise<Message[]>
-  markThreadRead(query: MessageQuery): Promise<void>
+  markThreadRead(input: MessageReadInput): Promise<void>
   listCalls(filter?: CallFilter, query?: ListQuery): Promise<CallRecord[]>
   listDevices(): Promise<Device[]>
   createDevice(input: CreateDeviceInput): Promise<Device>
@@ -110,6 +112,7 @@ export interface ModemDeckGateway {
   callAction(id: string, action: CallAction): Promise<CallSession>
   sendDTMF(id: string, digit: string): Promise<CallSession>
   exchangeCallMedia(id: string, offerSDP: string): Promise<string>
+  listRecordings(query?: ListQuery): Promise<RecordingEntry[]>
   getRecordingSettings(): Promise<RecordingSettings>
   updateRecordingSettings(settings: RecordingSettings): Promise<RecordingSettings>
   setCallRecording(id: string, enabled: boolean): Promise<CallRecordingState>

@@ -27,6 +27,7 @@ import type {
   LineSummary,
   Message,
   MessageThread,
+  RecordingEntry,
   RecordingSettings,
   RenameDeviceInput,
   SaveConnectionProfileInput,
@@ -949,6 +950,44 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
 
     async exchangeCallMedia(): Promise<string> {
       throw new ApiError('测试数据未连接音频设备', 503)
+    },
+
+    async listRecordings(query: ListQuery = {}): Promise<RecordingEntry[]> {
+      const q = normalizedQuery(query)
+      return clone(
+        calls
+          .filter(call => call.id === 'call-1' || call.id === 'call-3')
+          .filter(
+            call =>
+              !q ||
+              includes(call.display_name, q) ||
+              includes(call.remote_number, q)
+          )
+          .map(call => {
+            const recordedAt =
+              call.id === 'call-1'
+                ? '2026-07-23T08:52:04Z'
+                : '2026-07-22T07:30:03Z'
+            return {
+              id: `recording-${call.id}`,
+              call_id: call.id,
+              segment_index: 1,
+              status: 'ready' as const,
+              recorded_at: recordedAt,
+              started_at: recordedAt,
+              ended_at:
+                call.id === 'call-1'
+                  ? '2026-07-23T08:52:05Z'
+                  : '2026-07-22T07:30:04Z',
+              duration_seconds: 1,
+              size_bytes: 16044,
+              playable: true,
+              content_type: 'audio/wav',
+              download_url: recordingFixtureURL(),
+              call
+            }
+          })
+      )
     },
 
     async getRecordingSettings(): Promise<RecordingSettings> {

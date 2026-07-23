@@ -16,6 +16,7 @@ import {
   createCallRecordingPayload,
   createDTMFPayload,
   createMessagePayload,
+  createMessageReadPayload,
   createRecordingSettingsPayload,
   createTelegramUnitPayload,
   parseActiveCallsResponse,
@@ -24,6 +25,7 @@ import {
   parseCallRecordingsResponse,
   parseCallResponse,
   parseMessageResponse,
+  parseRecordingEntriesResponse,
   parseRecordingSettingsResponse,
   parseTelegramUnitResponse,
   parseTelegramUnitsResponse,
@@ -47,8 +49,10 @@ const canonicalCall = {
 test('communication and Telegram endpoints match the root API', () => {
   assert.deepEqual(communicationPaths, {
     messages: '/api/v1/messages',
+    messageRead: '/api/v1/messages/read',
     calls: '/api/v1/calls',
     activeCalls: '/api/v1/calls/active',
+    recordings: '/api/v1/recordings',
     callSettings: '/api/v1/settings/calls',
     recordingSettings: '/api/v1/settings/recording',
     telegram: '/api/v1/settings/telegram'
@@ -69,6 +73,11 @@ test('communication and Telegram endpoints match the root API', () => {
     path: '/api/v1/messages',
     successStatus: 201
   })
+  assert.deepEqual(communicationContracts.markMessageRead, {
+    method: 'PATCH',
+    path: '/api/v1/messages/read',
+    successStatus: 204
+  })
   assert.deepEqual(communicationContracts.startCall, {
     method: 'POST',
     path: '/api/v1/calls',
@@ -77,6 +86,11 @@ test('communication and Telegram endpoints match the root API', () => {
   assert.deepEqual(communicationContracts.activeCalls, {
     method: 'GET',
     path: '/api/v1/calls/active',
+    successStatus: 200
+  })
+  assert.deepEqual(communicationContracts.listRecordings, {
+    method: 'GET',
+    path: '/api/v1/recordings',
     successStatus: 200
   })
   assert.deepEqual(communicationContracts.getRecordingSettings, {
@@ -153,6 +167,23 @@ test('message payload keeps only the finalized wire fields', () => {
       to: '+818012345678',
       content: 'hello'
     }
+  )
+})
+
+test('message read payload requires an exact SIM and peer identity', () => {
+  assert.deepEqual(
+    createMessageReadPayload({
+      iccid: '  8986012345678900001  ',
+      peer: '  +818012345678  '
+    }),
+    {
+      iccid: '8986012345678900001',
+      peer: '+818012345678'
+    }
+  )
+  assert.throws(
+    () => createMessageReadPayload({ iccid: '', peer: '+818012345678' }),
+    /iccid 和 peer/
   )
 })
 
@@ -291,6 +322,84 @@ test('recording metadata derives same-origin authenticated API downloads', () =>
       segments: [{ ...segment, status: 'recording' }]
     }),
     []
+  )
+})
+
+test('recording aggregation preserves call metadata and only exposes ready downloads', () => {
+  const call = {
+    id: 'call-1',
+    device_id: 'device-1',
+    direction: 'incoming',
+    remote_number: '+818012345678',
+    contact_name: 'Alex Rowan',
+    started_at: '2026-07-23T12:00:00Z',
+    ended_at: '2026-07-23T12:02:00Z',
+    duration_seconds: 120,
+    missed: false
+  }
+  const segment = {
+    id: 'segment-1',
+    call_id: 'call-1',
+    segment_index: 1,
+    status: 'ready',
+    started_at: '2026-07-23T12:00:04Z',
+    ended_at: '2026-07-23T12:01:04Z',
+    duration_ms: 60_000,
+    size_bytes: 123456,
+    created_at: '2026-07-23T12:00:03Z'
+  }
+  const [recording] = parseRecordingEntriesResponse({
+    recordings: [{ segment, call, playable: true }]
+  })
+  assert.deepEqual(recording, {
+    id: 'segment-1',
+    call_id: 'call-1',
+    segment_index: 1,
+    status: 'ready',
+    recorded_at: '2026-07-23T12:00:04Z',
+    started_at: '2026-07-23T12:00:04Z',
+    ended_at: '2026-07-23T12:01:04Z',
+    duration_seconds: 60,
+    size_bytes: 123456,
+    playable: true,
+    content_type: 'audio/ogg; codecs=opus',
+    download_url: '/api/v1/calls/call-1/recordings/segment-1/download',
+    call: {
+      id: 'call-1',
+      device_id: 'device-1',
+      direction: 'incoming',
+      remote_number: '+818012345678',
+      display_name: 'Alex Rowan',
+      contact_id: undefined,
+      started_at: '2026-07-23T12:00:00Z',
+      ended_at: '2026-07-23T12:02:00Z',
+      duration_seconds: 120,
+      missed: false,
+      failure_reason: undefined
+    }
+  })
+
+  const [failed] = parseRecordingEntriesResponse({
+    recordings: [{
+      segment: {
+        ...segment,
+        id: 'segment-2',
+        status: 'failed',
+        failure_code: 'interrupted'
+      },
+      call,
+      playable: false
+    }]
+  })
+  assert.equal(failed.playable, false)
+  assert.equal(failed.failure_code, 'interrupted')
+  assert.equal(failed.download_url, undefined)
+  assert.throws(
+    () =>
+      parseRecordingEntriesResponse({
+        recordings: [{ segment: { ...segment, status: 'recording' }, call, playable: true }]
+      }),
+    /playable/
   )
 })
 

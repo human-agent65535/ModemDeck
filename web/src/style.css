@@ -2647,7 +2647,7 @@ dd {
     left: 0;
     display: grid;
     height: var(--mobile-nav-height);
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(6, 1fr);
     padding-bottom: env(safe-area-inset-bottom);
     background: rgb(255 255 255 / 96%);
     border-top: 1px solid var(--border);

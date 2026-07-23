@@ -92,6 +92,25 @@ export type CallRecording = {
   download_url: string
 }
 
+export type RecordingStatus = 'pending' | 'recording' | 'ready' | 'failed'
+
+export type RecordingEntry = {
+  id: string
+  call_id: string
+  segment_index: number
+  status: RecordingStatus
+  recorded_at: string
+  started_at?: string
+  ended_at?: string
+  duration_seconds: number
+  size_bytes: number
+  failure_code?: string
+  playable: boolean
+  content_type?: string
+  download_url?: string
+  call: CallRecord
+}
+
 export type BootstrapResponse = {
   capabilities: Capabilities
   lines: LineSummary[]
@@ -163,6 +182,11 @@ export type Message = {
   timestamp: string
   type: 1 | 2
   status: number
+}
+
+export type MessageReadInput = {
+  iccid: string
+  peer: string
 }
 
 export type SendMessageInput = {

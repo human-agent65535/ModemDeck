@@ -39,6 +39,12 @@ const router = createRouter({
           meta: { communication: true }
         },
         {
+          path: 'recordings',
+          name: 'recordings',
+          component: () => import('../views/RecordingsView.vue'),
+          meta: { communication: true }
+        },
+        {
           path: 'settings/:section?',
           name: 'settings',
           component: () => import('../views/SettingsView.vue')
