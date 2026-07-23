@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   Activity,
   ArrowLeft,
+  Circle,
   LoaderCircle,
   LogOut,
   RadioTower,
@@ -11,8 +12,10 @@ import {
   UserRound
 } from '@lucide/vue'
 import StatePanel from '../components/StatePanel.vue'
+import DeviceConfigurationPanel from '../components/DeviceConfigurationPanel.vue'
+import RecordingSettingsForm from '../components/RecordingSettingsForm.vue'
+import TelegramSettingsForm from '../components/TelegramSettingsForm.vue'
 import { fixtureMode } from '../api/client'
-import type { Device } from '../api/types'
 import { logout as logoutSession, sessionState } from '../state/session'
 import {
   bootstrapResource,
@@ -21,7 +24,7 @@ import {
   loadDevices
 } from '../state/workspace'
 
-type SettingsSection = 'devices' | 'telegram' | 'diagnostics'
+type SettingsSection = 'devices' | 'recording' | 'telegram' | 'diagnostics'
 
 const route = useRoute()
 const router = useRouter()
@@ -34,10 +37,10 @@ const sections: Array<{
   icon: typeof RadioTower
 }> = [
   { id: 'devices', label: '设备', description: '蜂窝线路与模组', icon: RadioTower },
+  { id: 'recording', label: '通话录音', description: '默认录音设置', icon: Circle },
   { id: 'telegram', label: 'Telegram', description: '消息通知', icon: Send },
   { id: 'diagnostics', label: '诊断', description: '服务与接口状态', icon: Activity }
 ]
-
 const selectedSection = computed<SettingsSection | ''>(() => {
   const value = String(route.params.section || '')
   return sections.some(section => section.id === value) ? (value as SettingsSection) : ''
@@ -49,14 +52,11 @@ const currentTitle = computed(
 watch(
   selectedSection,
   section => {
-    if (section === 'devices') void loadDevices()
+    if (section === 'devices') void loadBootstrap()
+    if (section === 'diagnostics') void Promise.all([loadBootstrap(), loadDevices()])
   },
   { immediate: true }
 )
-
-function deviceName(device: Device): string {
-  return device.alias || device.model || device.imei
-}
 
 function openSection(section: SettingsSection): void {
   void router.push({ name: 'settings', params: { section } })
@@ -138,55 +138,15 @@ onMounted(() => {
         </header>
 
         <div v-if="selectedSection === 'devices'" class="settings-content">
-          <StatePanel v-if="devicesResource.status === 'loading'" state="loading" title="正在载入设备" />
-          <StatePanel
-            v-else-if="devicesResource.status === 'error'"
-            state="error"
-            title="无法载入设备"
-            :detail="devicesResource.error"
-            retryable
-            @retry="loadDevices(true)"
-          />
-          <StatePanel
-            v-else-if="devicesResource.status === 'ready' && devicesResource.data.length === 0"
-            state="empty"
-            title="没有设备"
-            detail="服务未返回蜂窝设备"
-          />
-          <div v-else class="device-list">
-            <section v-for="device in devicesResource.data" :key="device.imei" class="device-row">
-              <header>
-                <span class="settings-icon"><RadioTower :size="19" /></span>
-                <div>
-                  <h3>{{ deviceName(device) }}</h3>
-                  <span>{{ device.model || device.imei }}</span>
-                </div>
-                <span class="status-label" :class="{ 'status-label--unknown': !device.sim_inserted }">
-                  {{ device.sim_inserted ? 'SIM 已插入' : '未插入 SIM' }}
-                </span>
-              </header>
-              <dl class="device-facts">
-                <div><dt>IMEI</dt><dd>{{ device.imei }}</dd></div>
-                <div v-if="device.firmware"><dt>固件</dt><dd>{{ device.firmware }}</dd></div>
-                <div v-if="device.current_iccid"><dt>当前 ICCID</dt><dd>{{ device.current_iccid }}</dd></div>
-                <div v-if="device.signal_dbm != null"><dt>信号</dt><dd>{{ device.signal_dbm }} dBm</dd></div>
-                <div v-if="device.sim?.phone_number"><dt>号码</dt><dd>{{ device.sim.phone_number }}</dd></div>
-                <div v-if="device.sim?.operator"><dt>运营商</dt><dd>{{ device.sim.operator }}</dd></div>
-                <div v-if="device.sim?.imsi"><dt>IMSI</dt><dd>{{ device.sim.imsi }}</dd></div>
-                <div v-if="device.sim?.reg_status_text"><dt>驻网</dt><dd>{{ device.sim.reg_status_text }}</dd></div>
-                <div v-if="device.sim?.apn"><dt>APN</dt><dd>{{ device.sim.apn }}</dd></div>
-                <div v-if="device.sim"><dt>IMS 状态码</dt><dd>{{ device.sim.ims_status }}</dd></div>
-              </dl>
-            </section>
-          </div>
+          <DeviceConfigurationPanel />
+        </div>
+
+        <div v-else-if="selectedSection === 'recording'" class="settings-content">
+          <RecordingSettingsForm />
         </div>
 
         <div v-else-if="selectedSection === 'telegram'" class="settings-content">
-          <StatePanel
-            state="empty"
-            title="Telegram 状态暂不可用"
-            detail="当前只读 API 尚未提供 Telegram 配置接口"
-          />
+          <TelegramSettingsForm />
         </div>
 
         <div v-else class="settings-content">
@@ -208,7 +168,13 @@ onMounted(() => {
             </dl>
           </section>
           <StatePanel
-            v-if="bootstrapResource.status === 'error'"
+            v-if="bootstrapResource.status === 'forbidden'"
+            state="forbidden"
+            title="无权查看诊断信息"
+            :detail="bootstrapResource.error"
+          />
+          <StatePanel
+            v-else-if="bootstrapResource.status === 'error'"
             state="error"
             title="Bootstrap 请求失败"
             :detail="bootstrapResource.error"

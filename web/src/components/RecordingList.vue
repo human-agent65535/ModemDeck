@@ -1,0 +1,223 @@
+<script setup lang="ts">
+import { computed, watch } from 'vue'
+import { Download, LoaderCircle, RefreshCw } from '@lucide/vue'
+import { loadCallRecordings, recordingListState } from '../state/recording'
+import { formatDateTime, formatDuration } from '../utils/format'
+
+const props = defineProps<{
+  callId: string
+}>()
+
+const current = computed(() =>
+  recordingListState.callID === props.callId
+    ? recordingListState
+    : {
+        status: 'loading' as const,
+        data: [],
+        error: ''
+      }
+)
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.max(0.1, bytes / 1024).toFixed(1)} KB`
+  return `${Math.max(0.1, bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function downloadName(id: string, contentType: string): string {
+  const normalized = contentType.toLocaleLowerCase()
+  const extension = normalized.includes('ogg')
+    ? 'ogg'
+    : normalized.includes('flac')
+      ? 'flac'
+      : normalized.includes('mpeg')
+        ? 'mp3'
+        : normalized.includes('wav')
+          ? 'wav'
+          : 'audio'
+  return `modemdeck-${id}.${extension}`
+}
+
+watch(
+  () => props.callId,
+  callID => {
+    void loadCallRecordings(callID)
+  },
+  { immediate: true }
+)
+</script>
+
+<template>
+  <section class="recording-list" aria-labelledby="call-recordings-title">
+    <header>
+      <h3 id="call-recordings-title">录音</h3>
+      <span v-if="current.status === 'ready'">{{ current.data.length }}</span>
+    </header>
+
+    <div v-if="current.status === 'loading' || current.status === 'idle'" class="recording-list__state">
+      <LoaderCircle class="spin" :size="17" />
+      正在载入录音
+    </div>
+    <div
+      v-else-if="current.status === 'error' || current.status === 'forbidden'"
+      class="recording-list__state recording-list__state--error"
+      role="alert"
+    >
+      <span>{{ current.error }}</span>
+      <button
+        v-if="current.status === 'error'"
+        type="button"
+        title="重试"
+        aria-label="重新载入录音"
+        @click="loadCallRecordings(callId, true)"
+      >
+        <RefreshCw :size="16" />
+      </button>
+    </div>
+    <p v-else-if="current.data.length === 0" class="recording-list__empty">没有录音</p>
+    <ol v-else>
+      <li v-for="(recording, index) in current.data" :key="recording.id">
+        <div class="recording-list__meta">
+          <strong>片段 {{ index + 1 }}</strong>
+          <span>
+            {{ formatDateTime(recording.started_at) }} ·
+            {{ formatDuration(recording.duration_seconds) }} ·
+            {{ formatSize(recording.size_bytes) }}
+          </span>
+        </div>
+        <audio :src="recording.download_url" controls preload="metadata">
+          浏览器不支持音频播放。
+        </audio>
+        <a
+          :href="recording.download_url"
+          :download="downloadName(recording.id, recording.content_type)"
+          title="下载录音"
+          aria-label="下载录音"
+        >
+          <Download :size="18" />
+        </a>
+      </li>
+    </ol>
+  </section>
+</template>
+
+<style scoped>
+.recording-list {
+  border-top: 1px solid var(--border);
+}
+
+.recording-list > header {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.recording-list h3 {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.recording-list header span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.recording-list__state,
+.recording-list__empty {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.recording-list__state--error {
+  color: var(--danger);
+}
+
+.recording-list__state button {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  color: inherit;
+  background: transparent;
+  border-radius: 50%;
+}
+
+.recording-list ol {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0 0 4px;
+  list-style: none;
+}
+
+.recording-list li {
+  display: grid;
+  min-width: 0;
+  align-items: center;
+  grid-template-columns: minmax(130px, 0.8fr) minmax(180px, 1fr) 34px;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.recording-list__meta {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.recording-list__meta strong {
+  font-size: 11px;
+}
+
+.recording-list__meta span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recording-list audio {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+}
+
+.recording-list a {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  color: var(--muted);
+  border-radius: 50%;
+}
+
+.recording-list a:hover {
+  color: var(--accent-strong);
+  background: var(--surface-hover);
+}
+
+@media (max-width: 720px) {
+  .recording-list li {
+    grid-template-columns: minmax(0, 1fr) 34px;
+  }
+
+  .recording-list audio {
+    grid-column: 1 / 3;
+    grid-row: 2;
+  }
+}
+</style>

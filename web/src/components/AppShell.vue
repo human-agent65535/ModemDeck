@@ -1,16 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import {
-  Grid3X3,
+  House,
   MessageSquareText,
   Phone,
+  PhoneCall,
   Settings,
   TestTube2,
   UsersRound
 } from '@lucide/vue'
 import { fixtureMode } from '../api/client'
-import { initializeCallRuntime } from '../state/call'
+import { initializeCallRuntime, shutdownCallRuntime } from '../state/call'
 import { sessionState } from '../state/session'
 import { openDialer } from '../state/ui'
 import {
@@ -18,24 +19,22 @@ import {
   loadBootstrap,
   loadContacts
 } from '../state/workspace'
+import AudioSettingsMenu from './AudioSettingsMenu.vue'
 import CallSurface from './CallSurface.vue'
 import DialerPanel from './DialerPanel.vue'
 import GlobalSearch from './GlobalSearch.vue'
+import IncomingCallModeControl from './IncomingCallModeControl.vue'
 
 const route = useRoute()
 const router = useRouter()
+const permanentDialer = ref(false)
+let dialerMediaQuery: MediaQueryList | undefined
 const primaryNav = [
+  { name: 'dashboard', label: '首页', icon: House },
   { name: 'contacts', label: '联系人', icon: UsersRound },
   { name: 'messages', label: '消息', icon: MessageSquareText },
   { name: 'calls', label: '通话', icon: Phone }
 ]
-
-const communicationView = computed(() => Boolean(route.meta.communication))
-const messageComposerVisible = computed(
-  () =>
-    route.name === 'messages' &&
-    (typeof route.params.threadKey === 'string' || route.query.compose !== undefined)
-)
 
 watch(
   () => sessionState.status,
@@ -49,20 +48,32 @@ watch(
 )
 
 async function bootstrap(): Promise<void> {
-  const result = await loadBootstrap(true)
-  if (result) initializeCallRuntime()
+  await loadBootstrap(true)
+}
+
+function syncDialerMode(): void {
+  permanentDialer.value = dialerMediaQuery?.matches ?? false
 }
 
 onMounted(() => {
+  initializeCallRuntime()
   void bootstrap()
   void loadContacts()
+  dialerMediaQuery = window.matchMedia('(min-width: 1101px)')
+  dialerMediaQuery.addEventListener('change', syncDialerMode)
+  syncDialerMode()
+})
+
+onBeforeUnmount(() => {
+  dialerMediaQuery?.removeEventListener('change', syncDialerMode)
+  shutdownCallRuntime()
 })
 </script>
 
 <template>
   <div class="app-shell">
     <aside class="rail" aria-label="主导航">
-      <RouterLink class="brand-mark" to="/contacts" aria-label="ModemDeck">
+      <RouterLink class="brand-mark" :to="{ name: 'dashboard' }" aria-label="ModemDeck 首页">
         <span>M</span>
         <strong>Modem<br />Deck</strong>
       </RouterLink>
@@ -73,6 +84,7 @@ onMounted(() => {
           :key="item.name"
           class="rail-link"
           :to="{ name: item.name }"
+          :title="item.label"
         >
           <component :is="item.icon" :size="22" />
           <span>{{ item.label }}</span>
@@ -80,7 +92,11 @@ onMounted(() => {
       </nav>
 
       <nav class="rail__secondary">
-        <RouterLink class="rail-link" :to="{ name: 'settings', params: { section: 'devices' } }">
+        <RouterLink
+          class="rail-link"
+          :to="{ name: 'settings', params: { section: 'devices' } }"
+          title="设置"
+        >
           <Settings :size="22" />
           <span>设置</span>
         </RouterLink>
@@ -95,29 +111,36 @@ onMounted(() => {
           <TestTube2 :size="15" />
           开发数据
         </div>
+        <div class="shell-header__controls">
+          <IncomingCallModeControl />
+          <AudioSettingsMenu />
+          <button
+            class="icon-button shell-dialer-toggle"
+            type="button"
+            title="打开拨号栏"
+            aria-label="打开拨号栏"
+            @click="openDialer()"
+          >
+            <PhoneCall :size="19" />
+          </button>
+        </div>
       </header>
 
-      <div v-if="bootstrapResource.status === 'error'" class="bootstrap-alert" role="alert">
+      <div
+        v-if="bootstrapResource.status === 'error' || bootstrapResource.status === 'forbidden'"
+        class="bootstrap-alert"
+        role="alert"
+      >
         <span>{{ bootstrapResource.error }}</span>
-        <button type="button" @click="bootstrap">重试</button>
+        <button v-if="bootstrapResource.status === 'error'" type="button" @click="bootstrap">
+          重试
+        </button>
       </div>
 
       <div class="route-stage">
         <RouterView />
       </div>
     </main>
-
-    <button
-      v-if="communicationView"
-      class="dialer-fab"
-      :class="{ 'dialer-fab--above-composer': messageComposerVisible }"
-      type="button"
-      title="打开拨号盘"
-      aria-label="打开拨号盘"
-      @click="openDialer()"
-    >
-      <Grid3X3 :size="24" />
-    </button>
 
     <nav class="mobile-nav" aria-label="移动导航">
       <RouterLink
@@ -134,7 +157,7 @@ onMounted(() => {
       </RouterLink>
     </nav>
 
-    <DialerPanel />
+    <DialerPanel :permanent="permanentDialer" />
     <CallSurface />
   </div>
 </template>

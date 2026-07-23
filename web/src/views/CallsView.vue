@@ -1,18 +1,21 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowLeft,
   MessageSquareText,
   Phone,
   PhoneIncoming,
+  LoaderCircle,
   PhoneMissed,
   PhoneOutgoing
 } from '@lucide/vue'
 import type { CallFilter, CallRecord } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
+import RecordingList from '../components/RecordingList.vue'
 import SearchField from '../components/SearchField.vue'
 import StatePanel from '../components/StatePanel.vue'
+import { callState } from '../state/call'
 import { openDialer } from '../state/ui'
 import {
   callsResource,
@@ -96,6 +99,13 @@ function sendMessage(call: CallRecord): void {
   })
 }
 
+watch(
+  () => callState.session?.phase,
+  phase => {
+    if (phase === 'ended' || phase === 'failed') void loadCalls(true)
+  }
+)
+
 onMounted(() => {
   void Promise.all([loadCalls(), loadContacts(), loadDevices()])
 })
@@ -124,11 +134,32 @@ onMounted(() => {
           </button>
         </div>
       </div>
+      <div
+        v-if="callState.syncStatus === 'loading'"
+        class="call-sync-status"
+        role="status"
+      >
+        <LoaderCircle class="spin" :size="14" />
+        正在连接通话服务
+      </div>
+      <div
+        v-else-if="callState.syncStatus === 'error' || callState.syncStatus === 'forbidden'"
+        class="call-sync-status call-sync-status--error"
+        role="alert"
+      >
+        {{ callState.syncError }}
+      </div>
 
       <StatePanel
         v-if="callsResource.status === 'loading'"
         state="loading"
         title="正在载入通话记录"
+      />
+      <StatePanel
+        v-else-if="callsResource.status === 'forbidden'"
+        state="forbidden"
+        title="无权查看通话记录"
+        :detail="callsResource.error"
       />
       <StatePanel
         v-else-if="callsResource.status === 'error'"
@@ -149,26 +180,30 @@ onMounted(() => {
           :key="call.id"
           class="list-item call-list-item"
           :class="{ 'is-selected': call.id === selectedId, 'is-missed': call.missed }"
-          role="button"
-          tabindex="0"
-          @click="selectCall(call)"
-          @keydown.enter="selectCall(call)"
-          @keydown.space.prevent="selectCall(call)"
         >
-          <span class="call-direction-icon"><component :is="iconFor(call)" :size="18" /></span>
-          <span class="list-item__content">
-            <span class="list-item__title">
-              <strong>{{ displayName(call) }}</strong>
-              <time>{{ formatRelativeDate(call.started_at) }}</time>
+          <button
+            class="call-list-item__select"
+            type="button"
+            :aria-label="`查看 ${displayName(call)} 的通话详情`"
+            @click="selectCall(call)"
+          >
+            <span class="call-direction-icon"><component :is="iconFor(call)" :size="18" /></span>
+            <span class="list-item__content">
+              <span class="list-item__title">
+                <strong>{{ displayName(call) }}</strong>
+                <time>{{ formatRelativeDate(call.started_at) }}</time>
+              </span>
+              <small>{{ directionLabel(call) }} · {{ call.remote_number }}</small>
             </span>
-            <small>{{ directionLabel(call) }} · {{ call.remote_number }}</small>
-          </span>
+          </button>
           <button
             class="icon-button icon-button--quiet call-list-item__call"
             type="button"
             :disabled="Boolean(dialUnavailable)"
             :title="dialUnavailable || '回拨'"
-            @click.stop="callBack(call)"
+            :aria-label="`回拨 ${displayName(call)}`"
+            @click="callBack(call)"
+            @keydown.enter.prevent="callBack(call)"
           >
             <Phone :size="17" />
           </button>
@@ -224,6 +259,8 @@ onMounted(() => {
             </dl>
           </section>
 
+          <RecordingList :call-id="selected.id" />
+
           <p v-if="dialUnavailable || messageUnavailable" class="unavailable-note">
             {{ dialUnavailable || messageUnavailable }}
           </p>
@@ -239,3 +276,33 @@ onMounted(() => {
     </article>
   </section>
 </template>
+
+<style scoped>
+.call-list-item {
+  gap: 0;
+  padding: 0;
+  cursor: default;
+}
+
+.call-list-item__select {
+  display: flex;
+  min-width: 0;
+  min-height: 76px;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 6px 10px 14px;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+}
+
+.call-list-item__select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.call-list-item__call {
+  margin-right: 10px;
+}
+</style>

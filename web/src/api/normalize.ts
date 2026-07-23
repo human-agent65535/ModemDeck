@@ -2,6 +2,8 @@ import type {
   BootstrapResponse,
   CallDirection,
   CallRecord,
+  CommunicationCapabilities,
+  CommunicationCapabilityName,
   Contact,
   ContactPhone,
   Device,
@@ -54,6 +56,30 @@ function listValue(value: unknown, key: string): unknown[] {
   const source = objectValue(value, 'response')
   if (!Array.isArray(source[key])) throw new Error(`response.${key} 必须是数组`)
   return source[key] as unknown[]
+}
+
+const COMMUNICATION_CAPABILITIES: CommunicationCapabilityName[] = [
+  'dial',
+  'answer',
+  'reject',
+  'hangup',
+  'dtmf',
+  'message'
+]
+
+function parseCommunicationCapabilities(
+  value: unknown,
+  path: string
+): CommunicationCapabilities | undefined {
+  if (value === undefined || value === null) return undefined
+  const source = objectValue(value, path)
+  const capabilities: CommunicationCapabilities = {}
+  for (const key of COMMUNICATION_CAPABILITIES) {
+    if (source[key] === undefined) continue
+    if (typeof source[key] !== 'boolean') throw new Error(`${path}.${key} 必须是布尔值`)
+    capabilities[key] = source[key]
+  }
+  return capabilities
 }
 
 function normalizePhone(value: unknown, contactId: string, index: number): ContactPhone {
@@ -189,10 +215,12 @@ export function parseDevice(value: unknown): Device {
     alias: stringValue(source, 'alias'),
     model: stringValue(source, 'model'),
     firmware: stringValue(source, 'firmware'),
+    state: stringValue(source, 'state') || undefined,
     current_iccid: stringValue(source, 'current_iccid'),
     sim_inserted: source.sim_inserted === true,
     signal_dbm: Number.isFinite(signal) ? signal : null,
-    sim: source.sim ? parseSIM(source.sim) : undefined
+    sim: source.sim ? parseSIM(source.sim) : undefined,
+    capabilities: parseCommunicationCapabilities(source.capabilities, 'device.capabilities')
   }
 }
 
@@ -203,14 +231,17 @@ export function parseDevices(value: unknown): Device[] {
 function parseLine(value: unknown): LineSummary {
   const source = objectValue(value, 'line')
   const line: LineSummary = {
+    id: stringValue(source, 'id') || undefined,
     iccid: stringValue(source, 'iccid'),
     imsi: stringValue(source, 'imsi'),
     phone_number: stringValue(source, 'phone_number'),
     operator: stringValue(source, 'operator'),
     device_imei: stringValue(source, 'device_imei'),
-    device_alias: stringValue(source, 'device_alias')
+    device_alias: stringValue(source, 'device_alias'),
+    state: stringValue(source, 'state') || undefined,
+    capabilities: parseCommunicationCapabilities(source.capabilities, 'line.capabilities')
   }
-  if (!line.iccid && !line.imsi && !line.device_imei) throw new Error('line 缺少稳定标识')
+  if (!line.id && !line.iccid && !line.imsi && !line.device_imei) throw new Error('line 缺少稳定标识')
   return line
 }
 

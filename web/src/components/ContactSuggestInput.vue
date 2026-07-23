@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, useId, watch } from 'vue'
 import { Search } from '@lucide/vue'
 import type { Contact, ContactPhone } from '../api/types'
 import { primaryPhone } from '../utils/format'
@@ -31,6 +31,8 @@ const emit = defineEmits<{
 const input = ref<HTMLInputElement | null>(null)
 const focused = ref(false)
 const activeIndex = ref(0)
+const inputId = `contact-suggest-${useId()}`
+const listboxId = `${inputId}-listbox`
 
 const suggestions = computed<Suggestion[]>(() => {
   const query = props.modelValue.trim().toLocaleLowerCase()
@@ -50,6 +52,9 @@ const suggestions = computed<Suggestion[]>(() => {
 })
 
 const showSuggestions = computed(() => focused.value && suggestions.value.length > 0)
+const activeDescendant = computed(() =>
+  showSuggestions.value ? `${listboxId}-option-${activeIndex.value}` : undefined
+)
 
 watch(
   () => props.autofocus,
@@ -100,10 +105,17 @@ function onBlur(): void {
     <div class="suggest-input__field">
       <Search :size="18" aria-hidden="true" />
       <input
+        :id="inputId"
         ref="input"
         :value="modelValue"
         type="tel"
         autocomplete="off"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-haspopup="listbox"
+        :aria-expanded="showSuggestions"
+        :aria-controls="listboxId"
+        :aria-activedescendant="activeDescendant"
         :placeholder="placeholder"
         @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
         @focus="focused = true"
@@ -111,9 +123,10 @@ function onBlur(): void {
         @keydown="onKeydown"
       />
     </div>
-    <div v-if="showSuggestions" class="suggest-menu" role="listbox">
+    <div v-if="showSuggestions" :id="listboxId" class="suggest-menu" role="listbox">
       <button
         v-for="(suggestion, index) in suggestions"
+        :id="`${listboxId}-option-${index}`"
         :key="`${suggestion.contact.id}:${suggestion.phone.id}`"
         class="suggest-menu__item"
         :class="{ 'is-active': index === activeIndex }"

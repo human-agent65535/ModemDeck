@@ -148,6 +148,12 @@ onMounted(() => {
         title="正在载入联系人"
       />
       <StatePanel
+        v-else-if="contactsResource.status === 'forbidden'"
+        state="forbidden"
+        title="无权查看联系人"
+        :detail="contactsResource.error"
+      />
+      <StatePanel
         v-else-if="contactsResource.status === 'error'"
         state="error"
         title="无法载入联系人"

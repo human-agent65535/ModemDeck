@@ -4,6 +4,7 @@ import type {
   BootstrapResponse,
   CallFilter,
   CallRecord,
+  CommunicationCapabilityName,
   Contact,
   ContactInput,
   Device,
@@ -11,8 +12,11 @@ import type {
   Message,
   MessageThread,
   Resource,
-  SendMessageInput
+  SendMessageInput,
+  TelegramUnit,
+  TelegramUnitInput
 } from '../api/types'
+import { ApiError } from '../api/types'
 
 function resource<T>(data: T): Resource<T> {
   return reactive({ status: 'idle', data, error: '' }) as Resource<T>
@@ -31,7 +35,7 @@ async function load<T>(target: Resource<T>, loader: () => Promise<T>): Promise<T
     target.status = 'ready'
     return data
   } catch (error) {
-    target.status = 'error'
+    target.status = error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
     target.error = errorText(error)
     return null
   }
@@ -42,6 +46,7 @@ export const contactsResource = resource<Contact[]>([])
 export const threadsResource = resource<MessageThread[]>([])
 export const callsResource = resource<CallRecord[]>([])
 export const devicesResource = resource<Device[]>([])
+export const telegramResource = resource<TelegramUnit[]>([])
 export const messageResources = reactive<Record<string, Resource<Message[]>>>({})
 export const contactEditingAvailable = gateway.interactions.contacts
 
@@ -57,7 +62,7 @@ export function capabilityReason(capability: 'dial' | 'message'): string {
 }
 
 export function lineKey(line: LineSummary): string {
-  return line.iccid || line.imsi || line.device_imei
+  return line.id || line.iccid || line.imsi || line.device_imei
 }
 
 export function lineLabel(line: LineSummary): string {
@@ -65,8 +70,22 @@ export function lineLabel(line: LineSummary): string {
 }
 
 export function lineName(key: string): string {
-  const line = bootstrapResource.data?.lines.find(item => lineKey(item) === key || item.iccid === key)
+  const line = lineForKey(key)
   return line ? lineLabel(line) : key
+}
+
+export function lineForKey(key: string): LineSummary | undefined {
+  return bootstrapResource.data?.lines.find(
+    item => lineKey(item) === key || item.iccid === key || item.device_imei === key
+  )
+}
+
+export function lineSupports(
+  line: LineSummary | undefined,
+  capability: CommunicationCapabilityName
+): boolean | null {
+  const value = line?.capabilities?.[capability]
+  return typeof value === 'boolean' ? value : null
 }
 
 export function deviceName(id: string): string {
@@ -108,6 +127,13 @@ export function loadDevices(force = false): Promise<Device[] | null> {
   return load(devicesResource, () => gateway.listDevices())
 }
 
+export function loadTelegramUnits(force = false): Promise<TelegramUnit[] | null> {
+  if (!force && telegramResource.status === 'ready') {
+    return Promise.resolve(telegramResource.data)
+  }
+  return load(telegramResource, () => gateway.listTelegramUnits())
+}
+
 export function messagesFor(threadKey: string): Resource<Message[]> {
   if (!messageResources[threadKey]) messageResources[threadKey] = resource<Message[]>([])
   return messageResources[threadKey]
@@ -143,14 +169,50 @@ export async function deleteContact(contact: Contact): Promise<void> {
 }
 
 export async function sendMessage(input: SendMessageInput): Promise<Message> {
-  if (!gateway.sendMessage) throw new Error('当前版本不支持发送消息')
   const sent = await gateway.sendMessage(input)
-  const key = input.thread_key || `${input.iccid}|${input.to}`
+  const key = input.thread_key || `${sent.iccid}|${sent.peer}`
   const target = messagesFor(key)
   target.data = [...target.data, sent]
   target.status = 'ready'
-  await loadThreads(true)
+
+  const existing = threadsResource.data.find(thread => thread.key === key)
+  const updated: MessageThread = {
+    key,
+    imsi: sent.imsi,
+    iccid: sent.iccid,
+    peer: sent.peer,
+    contact_name: existing?.contact_name || contactForNumber(sent.peer)?.display_name,
+    last_timestamp: sent.timestamp,
+    last_content: sent.content,
+    unread_count: existing?.unread_count || 0
+  }
+  threadsResource.data = threadsResource.data
+    .filter(thread => thread.key !== key)
+    .concat(updated)
+    .sort((a, b) => Date.parse(b.last_timestamp) - Date.parse(a.last_timestamp))
+  threadsResource.status = 'ready'
   return sent
+}
+
+export async function saveTelegramUnit(
+  input: TelegramUnitInput,
+  id?: string
+): Promise<TelegramUnit> {
+  const saved = id
+    ? await gateway.updateTelegramUnit(id, input)
+    : await gateway.createTelegramUnit(input)
+  telegramResource.data = telegramResource.data
+    .filter(unit => unit.id !== saved.id)
+    .concat(saved)
+    .sort((a, b) => a.display_name.localeCompare(b.display_name))
+  telegramResource.status = 'ready'
+  telegramResource.error = ''
+  return saved
+}
+
+export async function deleteTelegramUnit(unit: TelegramUnit): Promise<void> {
+  await gateway.deleteTelegramUnit(unit.id, unit.revision)
+  telegramResource.data = telegramResource.data.filter(item => item.id !== unit.id)
 }
 
 export async function ensureSearchData(): Promise<void> {

@@ -14,7 +14,12 @@ const router = createRouter({
       path: '/',
       component: AppShell,
       children: [
-        { path: '', redirect: '/contacts' },
+        {
+          path: '',
+          name: 'dashboard',
+          component: () => import('../views/DashboardView.vue'),
+          meta: { communication: true }
+        },
         {
           path: 'contacts/:contactId?',
           name: 'contacts',
@@ -40,7 +45,7 @@ const router = createRouter({
         }
       ]
     },
-    { path: '/:pathMatch(.*)*', redirect: '/contacts' }
+    { path: '/:pathMatch(.*)*', redirect: '/' }
   ]
 })
 
@@ -48,7 +53,7 @@ router.beforeEach(async to => {
   const authenticated = await ensureSession()
 
   if (to.name === 'login') {
-    return authenticated ? { name: 'contacts' } : true
+    return authenticated ? { name: 'dashboard' } : true
   }
   if (!authenticated) {
     return {

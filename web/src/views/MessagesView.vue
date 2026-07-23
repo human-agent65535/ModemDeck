@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, MessageSquarePlus, Phone, Send } from '@lucide/vue'
+import { ArrowLeft, LoaderCircle, MessageSquarePlus, Phone, Send } from '@lucide/vue'
 import type { Contact } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
 import ContactSuggestInput from '../components/ContactSuggestInput.vue'
@@ -14,6 +14,7 @@ import {
   contactsResource,
   lineKey,
   lineLabel,
+  lineSupports,
   loadBootstrap,
   loadContacts,
   loadMessages,
@@ -44,7 +45,16 @@ const currentMessages = computed(() =>
   selectedKey.value ? messagesFor(selectedKey.value) : null
 )
 const lines = computed(() => bootstrapResource.data?.lines || [])
+const selectedLine = computed(() => lines.value.find(line => lineKey(line) === selectedLineKey.value))
+const activeLine = computed(() =>
+  composingNew.value
+    ? selectedLine.value
+    : lines.value.find(line => line.iccid && line.iccid === selectedThread.value?.iccid)
+)
 const messageUnavailable = computed(() => capabilityReason('message'))
+const messageWriteUnavailable = computed(() =>
+  threadsResource.status === 'forbidden' ? '当前账户无权发送消息' : messageUnavailable.value
+)
 const dialUnavailable = computed(() => capabilityReason('dial'))
 const filteredThreads = computed(() => {
   const query = search.value.trim().toLocaleLowerCase()
@@ -63,12 +73,14 @@ const activeRecipient = computed(() =>
 )
 const activeICCID = computed(() => {
   if (!composingNew.value) return selectedThread.value?.iccid || ''
-  return lines.value.find(line => lineKey(line) === selectedLineKey.value)?.iccid || ''
+  return selectedLine.value?.iccid || ''
 })
+const activeLineID = computed(() => (activeLine.value ? lineKey(activeLine.value) : ''))
 const sendDisabledReason = computed(() => {
-  if (messageUnavailable.value) return messageUnavailable.value
+  if (messageWriteUnavailable.value) return messageWriteUnavailable.value
   if (!activeRecipient.value) return '请选择联系人或输入号码'
-  if (!activeICCID.value) return '请选择线路'
+  if (!activeLineID.value && !activeICCID.value) return '请选择线路'
+  if (lineSupports(activeLine.value, 'message') === false) return '所选线路不支持发送消息'
   if (!draft.value.trim()) return '请输入消息'
   return ''
 })
@@ -77,7 +89,7 @@ watch(
   lines,
   value => {
     if (!value.some(line => lineKey(line) === selectedLineKey.value)) {
-      selectedLineKey.value = value[0] ? lineKey(value[0]) : ''
+      selectedLineKey.value = ''
     }
   },
   { immediate: true }
@@ -128,7 +140,7 @@ function chooseThread(key: string): void {
 }
 
 function startMessage(): void {
-  if (messageUnavailable.value) return
+  if (messageWriteUnavailable.value) return
   composingNew.value = true
   newRecipient.value = ''
   newRecipientName.value = ''
@@ -154,7 +166,8 @@ async function submit(): Promise<void> {
   try {
     const sent = await sendMessage({
       thread_key: selectedThread.value?.key,
-      iccid: activeICCID.value,
+      line_id: activeLineID.value || undefined,
+      iccid: activeICCID.value || undefined,
       to: activeRecipient.value,
       content: draft.value.trim()
     })
@@ -162,10 +175,9 @@ async function submit(): Promise<void> {
     const key = `${sent.iccid}|${sent.peer}`
     if (composingNew.value) {
       composingNew.value = false
-      await loadThreads(true)
       await router.replace({ name: 'messages', params: { threadKey: key } })
       const thread = threadsResource.data.find(item => item.key === key)
-      if (thread) await loadMessages(thread, true)
+      if (thread) await loadMessages(thread)
     }
     scrollToEnd()
   } catch (error) {
@@ -205,8 +217,8 @@ onMounted(() => {
         <button
           class="icon-button"
           type="button"
-          :disabled="Boolean(messageUnavailable)"
-          :title="messageUnavailable || '新消息'"
+          :disabled="Boolean(messageWriteUnavailable)"
+          :title="messageWriteUnavailable || '新消息'"
           @click="startMessage"
         >
           <MessageSquarePlus :size="19" />
@@ -217,6 +229,12 @@ onMounted(() => {
       </div>
 
       <StatePanel v-if="threadsResource.status === 'loading'" state="loading" title="正在载入消息" />
+      <StatePanel
+        v-else-if="threadsResource.status === 'forbidden'"
+        state="forbidden"
+        title="无权查看消息"
+        :detail="threadsResource.error"
+      />
       <StatePanel
         v-else-if="threadsResource.status === 'error'"
         state="error"
@@ -296,6 +314,12 @@ onMounted(() => {
             title="正在载入对话"
           />
           <StatePanel
+            v-else-if="!composingNew && currentMessages?.status === 'forbidden'"
+            state="forbidden"
+            title="无权查看这段对话"
+            :detail="currentMessages.error"
+          />
+          <StatePanel
             v-else-if="!composingNew && currentMessages?.status === 'error'"
             state="error"
             title="无法载入对话"
@@ -334,20 +358,24 @@ onMounted(() => {
         </div>
 
         <footer class="message-composer">
-          <label v-if="composingNew && lines.length > 1" class="compact-select">
+          <label v-if="composingNew && lines.length > 0" class="compact-select">
             <span>线路</span>
-            <select v-model="selectedLineKey">
+            <select v-model="selectedLineKey" aria-label="消息线路">
+              <option value="" disabled>选择线路</option>
               <option v-for="line in lines" :key="lineKey(line)" :value="lineKey(line)">
-                {{ lineLabel(line) }}
+                {{ lineLabel(line) }}{{
+                  lineSupports(line, 'message') === false ? ' · 不支持消息' : ''
+                }}
               </option>
             </select>
           </label>
+          <p v-else-if="composingNew" class="unavailable-note">没有可用线路</p>
           <div class="composer-row">
             <textarea
               v-model="draft"
               rows="1"
               placeholder="输入消息"
-              :disabled="Boolean(messageUnavailable)"
+              :disabled="Boolean(messageWriteUnavailable)"
               @keydown.enter.exact.prevent="submit"
             />
             <button
@@ -357,10 +385,13 @@ onMounted(() => {
               :title="sendDisabledReason || '发送'"
               @click="submit"
             >
-              <Send :size="19" />
+              <LoaderCircle v-if="sending" class="spin" :size="19" />
+              <Send v-else :size="19" />
             </button>
           </div>
-          <p v-if="messageUnavailable" class="unavailable-note">{{ messageUnavailable }}</p>
+          <p v-if="messageWriteUnavailable" class="unavailable-note">
+            {{ messageWriteUnavailable }}
+          </p>
           <p v-else-if="sendError" class="field-error">{{ sendError }}</p>
         </footer>
       </template>

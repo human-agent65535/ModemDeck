@@ -5,6 +5,36 @@ import type {
   ModemDeckGateway
 } from './gateway'
 import {
+  callActionContract,
+  callMediaContract,
+  callRecordingContract,
+  communicationContracts,
+  createCallActionPayload,
+  createCallMediaPayload,
+  createCallPayload,
+  createCallRecordingPayload,
+  createDeviceConfigurationPayload,
+  createDTMFPayload,
+  createGlobalCallSettingsPayload,
+  createMessagePayload,
+  createRecordingSettingsPayload,
+  createTelegramUnitPayload,
+  parseActiveCallsResponse,
+  parseCallMediaResponse,
+  parseCallRecordingState,
+  parseCallRecordingsResponse,
+  parseCallResponse,
+  parseDeviceConfigurationResponse,
+  parseGlobalCallSettings,
+  parseMessageResponse,
+  parseRecordingSettingsResponse,
+  parseTelegramUnitResponse,
+  parseTelegramUnitsResponse,
+  telegramUnitContract,
+  telegramUnitDeletePath,
+  deviceConfigurationContract
+} from './contract'
+import {
   parseBootstrap,
   parseCalls,
   parseContactResponse,
@@ -17,36 +47,60 @@ import type {
   ApiErrorBody,
   BootstrapResponse,
   CallFilter,
+  CallRecording,
+  CallRecordingState,
   CallRecord,
+  CallSession,
   Contact,
   ContactInput,
   Device,
+  DeviceConfiguration,
+  GlobalCallSettings,
   LoginInput,
   Message,
   MessageThread,
-  SessionResponse
+  RecordingSettings,
+  SendMessageInput,
+  SessionResponse,
+  TelegramUnit,
+  TelegramUnitInput,
+  UpdateDeviceConfigurationInput,
+  UpdateGlobalCallSettingsInput
 } from './types'
 import { ApiError } from './types'
 import { createFixtureGateway } from './fixture'
 
 const API_ROOT = '/api/v1'
 
-export const fixtureMode = import.meta.env.DEV && import.meta.env.VITE_MODEMDECK_FIXTURE === '1'
+const runtimeEnvironment = import.meta.env
+
+export const fixtureMode =
+  Boolean(runtimeEnvironment?.DEV) && runtimeEnvironment?.VITE_MODEMDECK_FIXTURE === '1'
 
 const REAL_INTERACTIONS: GatewayInteractions = {
   contacts: true,
-  message: false,
-  dial: false
+  message: true,
+  dial: true,
+  telegram: true
 }
 
 const FIXTURE_INTERACTIONS: GatewayInteractions = {
   contacts: true,
   message: true,
-  dial: true
+  dial: true,
+  telegram: true
 }
 
 let currentCSRFToken = ''
 let authenticationRequiredHandler: () => void = () => undefined
+
+function requestID(): string {
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16))
+  bytes[6] = ((bytes[6] || 0) & 0x0f) | 0x40
+  bytes[8] = ((bytes[8] || 0) & 0x3f) | 0x80
+  const encoded = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
+  return `${encoded.slice(0, 8)}-${encoded.slice(8, 12)}-${encoded.slice(12, 16)}-${encoded.slice(16, 20)}-${encoded.slice(20)}`
+}
 
 export function setClientCSRFToken(token?: string): void {
   currentCSRFToken = token?.trim() || ''
@@ -173,7 +227,12 @@ function get(path: string): Promise<unknown> {
   )
 }
 
-function writeJSON(path: string, method: 'POST' | 'PUT', input: unknown, expectedStatus: number) {
+function writeJSON(
+  path: string,
+  method: 'POST' | 'PUT' | 'PATCH',
+  input: unknown,
+  expectedStatus: number
+) {
   return request(
     path,
     {
@@ -254,6 +313,18 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
+  async sendMessage(input: SendMessageInput): Promise<Message> {
+    const contract = communicationContracts.sendMessage
+    return parseMessageResponse(
+      await writeJSON(
+        contract.path,
+        contract.method,
+        createMessagePayload({ ...input, request_id: input.request_id || requestID() }),
+        contract.successStatus
+      )
+    )
+  },
+
   async listCalls(filter: CallFilter = 'all', query: ListQuery = {}): Promise<CallRecord[]> {
     return parseCalls(
       await get(`${API_ROOT}/calls${queryString({ kind: filter, q: query.q })}`)
@@ -262,6 +333,174 @@ const realGateway: ConfiguredModemDeckGateway = {
 
   async listDevices(): Promise<Device[]> {
     return parseDevices(await get(`${API_ROOT}/devices`))
+  },
+
+  async getGlobalCallSettings(): Promise<GlobalCallSettings> {
+    return parseGlobalCallSettings(await get(communicationContracts.getCallSettings.path))
+  },
+
+  async updateGlobalCallSettings(
+    input: UpdateGlobalCallSettingsInput
+  ): Promise<GlobalCallSettings> {
+    const contract = communicationContracts.updateCallSettings
+    return parseGlobalCallSettings(
+      await writeJSON(
+        contract.path,
+        contract.method,
+        createGlobalCallSettingsPayload(input),
+        contract.successStatus
+      )
+    )
+  },
+
+  async getDeviceConfiguration(lineID: string): Promise<DeviceConfiguration> {
+    const contract = deviceConfigurationContract(lineID).get
+    return parseDeviceConfigurationResponse(await get(contract.path))
+  },
+
+  async updateDeviceConfiguration(
+    lineID: string,
+    input: UpdateDeviceConfigurationInput
+  ): Promise<DeviceConfiguration> {
+    const contract = deviceConfigurationContract(lineID).update
+    return parseDeviceConfigurationResponse(
+      await writeJSON(
+        contract.path,
+        contract.method,
+        createDeviceConfigurationPayload(input),
+        contract.successStatus
+      )
+    )
+  },
+
+  async getActiveCalls(): Promise<CallSession[]> {
+    return parseActiveCallsResponse(await get(communicationContracts.activeCalls.path))
+  },
+
+  async startCall(
+    lineKey: string,
+    number: string,
+    recordingEnabled?: boolean
+  ): Promise<CallSession> {
+    const contract = communicationContracts.startCall
+    return parseCallResponse(
+      await writeJSON(
+        contract.path,
+        contract.method,
+        createCallPayload(lineKey, number, requestID(), recordingEnabled),
+        contract.successStatus
+      )
+    )
+  },
+
+  async callAction(id, action): Promise<CallSession> {
+    const contract = callActionContract(id, action)
+    return parseCallResponse(
+      await writeJSON(
+        contract.path,
+        contract.method,
+        createCallActionPayload(action, requestID()),
+        contract.successStatus
+      )
+    )
+  },
+
+  async sendDTMF(id: string, digit: string): Promise<CallSession> {
+    const contract = callActionContract(id, 'dtmf')
+    return parseCallResponse(
+      await writeJSON(
+        contract.path,
+        contract.method,
+        createDTMFPayload(digit, requestID()),
+        contract.successStatus
+      )
+    )
+  },
+
+  async exchangeCallMedia(id: string, offerSDP: string): Promise<string> {
+    const contract = callMediaContract(id)
+    return parseCallMediaResponse(
+      await writeJSON(
+        contract.path,
+        contract.method,
+        createCallMediaPayload(offerSDP),
+        contract.successStatus
+      )
+    )
+  },
+
+  async getRecordingSettings(): Promise<RecordingSettings> {
+    const contract = communicationContracts.getRecordingSettings
+    return parseRecordingSettingsResponse(await get(contract.path))
+  },
+
+  async updateRecordingSettings(settings: RecordingSettings): Promise<RecordingSettings> {
+    const contract = communicationContracts.updateRecordingSettings
+    return parseRecordingSettingsResponse(
+      await writeJSON(
+        contract.path,
+        contract.method,
+        createRecordingSettingsPayload(settings),
+        contract.successStatus
+      )
+    )
+  },
+
+  async setCallRecording(id: string, enabled: boolean): Promise<CallRecordingState> {
+    const contract = callRecordingContract(id).update
+    return parseCallRecordingState(
+      await writeJSON(
+        contract.path,
+        contract.method,
+        createCallRecordingPayload(enabled),
+        contract.successStatus
+      )
+    )
+  },
+
+  async listCallRecordings(id: string): Promise<CallRecording[]> {
+    const contract = callRecordingContract(id).list
+    return parseCallRecordingsResponse(await get(contract.path))
+  },
+
+  async listTelegramUnits(): Promise<TelegramUnit[]> {
+    return parseTelegramUnitsResponse(await get(communicationContracts.listTelegram.path))
+  },
+
+  async createTelegramUnit(input: TelegramUnitInput): Promise<TelegramUnit> {
+    const contract = communicationContracts.createTelegram
+    return parseTelegramUnitResponse(
+      await writeJSON(
+        contract.path,
+        contract.method,
+        createTelegramUnitPayload(input),
+        contract.successStatus
+      )
+    )
+  },
+
+  async updateTelegramUnit(id: string, input: TelegramUnitInput): Promise<TelegramUnit> {
+    const contract = telegramUnitContract(id).update
+    return parseTelegramUnitResponse(
+      await writeJSON(
+        contract.path,
+        contract.method,
+        createTelegramUnitPayload(input),
+        contract.successStatus
+      )
+    )
+  },
+
+  async deleteTelegramUnit(id: string, revision: number): Promise<void> {
+    const contract = telegramUnitContract(id).delete
+    await request(
+      telegramUnitDeletePath(id, revision),
+      {
+        method: contract.method,
+        headers: { Accept: 'application/json' }
+      },
+      contract.successStatus
+    )
   }
 }
 

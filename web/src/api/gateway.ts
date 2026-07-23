@@ -1,16 +1,26 @@
 import type {
   BootstrapResponse,
+  CallAction,
   CallFilter,
+  CallRecording,
+  CallRecordingState,
   CallRecord,
   CallSession,
   Contact,
   ContactInput,
   Device,
+  DeviceConfiguration,
+  GlobalCallSettings,
   LoginInput,
   Message,
   MessageThread,
+  RecordingSettings,
   SendMessageInput,
-  SessionResponse
+  SessionResponse,
+  TelegramUnit,
+  TelegramUnitInput,
+  UpdateDeviceConfigurationInput,
+  UpdateGlobalCallSettingsInput
 } from './types'
 
 export type ListQuery = {
@@ -26,6 +36,7 @@ export type GatewayInteractions = Readonly<{
   contacts: boolean
   message: boolean
   dial: boolean
+  telegram: boolean
 }>
 
 export interface SessionGateway {
@@ -42,13 +53,30 @@ export interface ModemDeckGateway {
   listMessages(query: MessageQuery): Promise<Message[]>
   listCalls(filter?: CallFilter, query?: ListQuery): Promise<CallRecord[]>
   listDevices(): Promise<Device[]>
+  getGlobalCallSettings(): Promise<GlobalCallSettings>
+  updateGlobalCallSettings(input: UpdateGlobalCallSettingsInput): Promise<GlobalCallSettings>
+  getDeviceConfiguration(lineID: string): Promise<DeviceConfiguration>
+  updateDeviceConfiguration(
+    lineID: string,
+    input: UpdateDeviceConfigurationInput
+  ): Promise<DeviceConfiguration>
   createContact?(input: ContactInput): Promise<Contact>
   updateContact?(id: string, input: ContactInput): Promise<Contact>
   deleteContact?(id: string, revision?: number): Promise<void>
-  sendMessage?(input: SendMessageInput): Promise<Message>
-  getCall?(id: string): Promise<CallSession>
-  startCall?(lineKey: string, number: string): Promise<CallSession>
-  callAction?(id: string, action: 'answer' | 'reject' | 'hangup'): Promise<CallSession>
+  sendMessage(input: SendMessageInput): Promise<Message>
+  getActiveCalls(): Promise<CallSession[]>
+  startCall(lineKey: string, number: string, recordingEnabled?: boolean): Promise<CallSession>
+  callAction(id: string, action: CallAction): Promise<CallSession>
+  sendDTMF(id: string, digit: string): Promise<CallSession>
+  exchangeCallMedia(id: string, offerSDP: string): Promise<string>
+  getRecordingSettings(): Promise<RecordingSettings>
+  updateRecordingSettings(settings: RecordingSettings): Promise<RecordingSettings>
+  setCallRecording(id: string, enabled: boolean): Promise<CallRecordingState>
+  listCallRecordings(id: string): Promise<CallRecording[]>
+  listTelegramUnits(): Promise<TelegramUnit[]>
+  createTelegramUnit(input: TelegramUnitInput): Promise<TelegramUnit>
+  updateTelegramUnit(id: string, input: TelegramUnitInput): Promise<TelegramUnit>
+  deleteTelegramUnit(id: string, revision: number): Promise<void>
 }
 
 export type ConfiguredModemDeckGateway = ModemDeckGateway & {
