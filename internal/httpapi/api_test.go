@@ -25,6 +25,9 @@ type fakeRepository struct {
 	deleteContactID    string
 	deleteContactRev   int64
 	deleteContactError error
+	messageReadICCID   string
+	messageReadPeer    string
+	messageReadError   error
 	recordingQuery     store.RecordingQuery
 	recordingEntries   []store.RecordingEntry
 	recordingError     error
@@ -69,8 +72,10 @@ func (repository *fakeRepository) Messages(context.Context, store.MessageQuery) 
 	return []store.Message{}, nil
 }
 
-func (repository *fakeRepository) MarkMessageThreadRead(context.Context, string, string) error {
-	return nil
+func (repository *fakeRepository) MarkMessageThreadRead(_ context.Context, iccid, peer string) error {
+	repository.messageReadICCID = iccid
+	repository.messageReadPeer = peer
+	return repository.messageReadError
 }
 
 func (repository *fakeRepository) Calls(context.Context, store.CallQuery) ([]store.Call, error) {

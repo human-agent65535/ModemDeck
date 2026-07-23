@@ -32,6 +32,11 @@ type recordingListResponse struct {
 	Segments []store.RecordingSegment `json:"segments"`
 }
 
+type recordingEntriesResponse struct {
+	Recordings []store.RecordingEntry `json:"recordings"`
+	Meta       responseMeta           `json:"meta"`
+}
+
 type recordingMutationErrorResponse struct {
 	State store.CallRecordingState `json:"state"`
 	Error errorResponse            `json:"error"`
@@ -88,6 +93,29 @@ func (api *API) recordingSettings(response http.ResponseWriter, request *http.Re
 		response.Header().Set("Allow", http.MethodGet+", "+http.MethodPut)
 		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET and PUT are supported", "")
 	}
+}
+
+func (api *API) recordingEntries(response http.ResponseWriter, request *http.Request) {
+	limit, ok := requestLimit(response, request)
+	if !ok {
+		return
+	}
+	search, ok := requestSearch(response, request)
+	if !ok {
+		return
+	}
+	entries, err := api.repository.RecordingEntries(
+		request.Context(),
+		store.RecordingQuery{Search: search, Limit: limit},
+	)
+	if err != nil {
+		api.writeInternalError(response, request, "list recordings", err)
+		return
+	}
+	writeJSON(response, http.StatusOK, recordingEntriesResponse{
+		Recordings: entries,
+		Meta:       responseMeta{Limit: limit},
+	})
 }
 
 func (api *API) recordingResource(

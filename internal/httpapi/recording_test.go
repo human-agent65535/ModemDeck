@@ -151,6 +151,59 @@ func TestRecordingMetadataDoesNotLeakPathAndDownloadIsOgg(t *testing.T) {
 	}
 }
 
+func TestRecordingCollectionIsBoundedSearchableAndDoesNotLeakPaths(t *testing.T) {
+	repository := &fakeRepository{
+		recordingEntries: []store.RecordingEntry{{
+			Segment: store.RecordingSegment{
+				ID:           "segment-1",
+				CallID:       "call-1",
+				SegmentIndex: 1,
+				Status:       store.RecordingSegmentReady,
+				RelativePath: "call-1/segment-1.ogg",
+			},
+			Call: store.RecordingCall{
+				ID:           "call-1",
+				RemoteNumber: "+818000000001",
+				ContactName:  "Alice",
+			},
+			Playable: true,
+		}},
+	}
+	api, err := New(repository, Options{disableAuthentication: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	api.ServeHTTP(
+		response,
+		httptest.NewRequest(
+			http.MethodGet,
+			"/api/v1/recordings?q=Alice&limit=9999",
+			nil,
+		),
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if repository.recordingQuery.Search != "Alice" ||
+		repository.recordingQuery.Limit != store.MaxQueryLimit {
+		t.Fatalf("recording query = %+v", repository.recordingQuery)
+	}
+	var payload recordingEntriesResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Recordings) != 1 ||
+		payload.Recordings[0].Segment.ID != "segment-1" ||
+		payload.Meta.Limit != store.MaxQueryLimit {
+		t.Fatalf("recording response = %+v", payload)
+	}
+	if strings.Contains(response.Body.String(), "relative_path") ||
+		strings.Contains(response.Body.String(), "segment-1.ogg") {
+		t.Fatalf("recording path leaked: %s", response.Body.String())
+	}
+}
+
 func TestRecordingErrorsAreTypedAndToggleIncludesState(t *testing.T) {
 	recordings := &fakeRecordingService{
 		updateError: errors.Join(recording.ErrConflict, recording.ErrRevisionConflict),

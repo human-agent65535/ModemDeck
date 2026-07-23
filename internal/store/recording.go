@@ -78,6 +78,32 @@ type RecordingSegment struct {
 	UpdatedAt    string  `json:"updated_at"`
 }
 
+type RecordingQuery struct {
+	Search string
+	Limit  int
+}
+
+type RecordingCall struct {
+	ID              string `json:"id"`
+	DeviceID        string `json:"device_id"`
+	Direction       string `json:"direction"`
+	RemoteNumber    string `json:"remote_number"`
+	ContactID       string `json:"contact_id,omitempty"`
+	ContactName     string `json:"contact_name,omitempty"`
+	StartedAt       string `json:"started_at"`
+	EndedAt         string `json:"ended_at,omitempty"`
+	DurationSeconds int64  `json:"duration_seconds"`
+	Missed          bool   `json:"missed"`
+	EndReason       string `json:"end_reason,omitempty"`
+	FailureCode     string `json:"failure_code,omitempty"`
+}
+
+type RecordingEntry struct {
+	Segment  RecordingSegment `json:"segment"`
+	Call     RecordingCall    `json:"call"`
+	Playable bool             `json:"playable"`
+}
+
 func (s *Store) RecordingSettings(ctx context.Context) (RecordingSettings, error) {
 	var (
 		settings       RecordingSettings
@@ -641,6 +667,76 @@ func (s *Store) RecordingSegments(ctx context.Context, callID string) ([]Recordi
 	return segments, rowsError("read recording segments", rows.Err())
 }
 
+func (s *Store) RecordingEntries(
+	ctx context.Context,
+	query RecordingQuery,
+) ([]RecordingEntry, error) {
+	limit := boundedLimit(query.Limit)
+	statement := fmt.Sprintf(`SELECT
+		recording.id, recording.call_id, recording.segment_index, recording.status,
+		recording.started_at, recording.ended_at, recording.duration_ms,
+		recording.size_bytes, recording.relative_path, recording.failure_code,
+		recording.created_at, recording.updated_at,
+		call.device_id, call.direction, call.remote_number,
+		%s, %s,
+		call.created_at, call.active_at, call.ended_at,
+		call.end_reason, call.failure_code
+		FROM modemdeck_call_recordings recording
+		JOIN call_history call ON call.id = recording.call_id`,
+		fmt.Sprintf(contactIDForNumberSQL, "call.remote_number", "call.remote_number"),
+		fmt.Sprintf(contactNameForNumberSQL, "call.remote_number", "call.remote_number"),
+	)
+	arguments := make([]any, 0, 6)
+	if strings.TrimSpace(query.Search) != "" {
+		pattern := searchPattern(query.Search)
+		statement += ` WHERE (
+			LOWER(COALESCE(call.remote_number, '')) LIKE ? ESCAPE '\' OR
+			LOWER(COALESCE(call.device_id, '')) LIKE ? ESCAPE '\' OR
+			LOWER(COALESCE(recording.id, '')) LIKE ? ESCAPE '\' OR
+			EXISTS (
+				SELECT 1
+				FROM contact_phones
+				JOIN contacts ON contacts.id = contact_phones.contact_id
+				WHERE (
+					contact_phones.canonical_e164 = call.remote_number OR
+					contact_phones.original_number = call.remote_number
+				)
+				AND LOWER(COALESCE(contacts.display_name, '')) LIKE ? ESCAPE '\'
+			) OR
+			EXISTS (
+				SELECT 1
+				FROM devices
+				WHERE devices.imei = call.device_id
+				AND LOWER(COALESCE(devices.alias, '')) LIKE ? ESCAPE '\'
+			)
+		)`
+		arguments = append(arguments, pattern, pattern, pattern, pattern, pattern)
+	}
+	statement += ` ORDER BY
+		COALESCE(recording.started_at, recording.created_at) DESC,
+		recording.call_id DESC,
+		recording.segment_index DESC,
+		recording.id DESC
+		LIMIT ?`
+	arguments = append(arguments, limit)
+
+	rows, err := s.database.QueryContext(ctx, statement, arguments...)
+	if err != nil {
+		return nil, fmt.Errorf("query recording entries: %w", err)
+	}
+	defer rows.Close()
+
+	entries := make([]RecordingEntry, 0)
+	for rows.Next() {
+		entry, err := scanRecordingEntry(rows)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	return entries, rowsError("read recording entries", rows.Err())
+}
+
 func (s *Store) RecordingSegment(
 	ctx context.Context,
 	callID, segmentID string,
@@ -938,6 +1034,78 @@ func scanRecordingSegment(scanner recordingSegmentScanner) (RecordingSegment, er
 	segment.CreatedAt = stringValue(createdAt)
 	segment.UpdatedAt = stringValue(updatedAt)
 	return segment, nil
+}
+
+func scanRecordingEntry(scanner recordingSegmentScanner) (RecordingEntry, error) {
+	var (
+		entry                                         RecordingEntry
+		startedAt, endedAt, relativePath              sql.NullString
+		segmentFailure, segmentCreated, segmentUpdate sql.NullString
+		segmentIndex, durationMS, sizeBytes           sql.NullInt64
+		segmentStatus                                 sql.NullString
+		deviceID, direction, remoteNumber             sql.NullString
+		contactID, contactName, callCreated           sql.NullString
+		activeAt, callEnded, endReason, callFailure   sql.NullString
+	)
+	if err := scanner.Scan(
+		&entry.Segment.ID,
+		&entry.Segment.CallID,
+		&segmentIndex,
+		&segmentStatus,
+		&startedAt,
+		&endedAt,
+		&durationMS,
+		&sizeBytes,
+		&relativePath,
+		&segmentFailure,
+		&segmentCreated,
+		&segmentUpdate,
+		&deviceID,
+		&direction,
+		&remoteNumber,
+		&contactID,
+		&contactName,
+		&callCreated,
+		&activeAt,
+		&callEnded,
+		&endReason,
+		&callFailure,
+	); err != nil {
+		return RecordingEntry{}, fmt.Errorf("scan recording entry: %w", err)
+	}
+	entry.Segment.SegmentIndex = intValue(segmentIndex)
+	entry.Segment.Status = stringValue(segmentStatus)
+	entry.Segment.StartedAt = pointerValue(startedAt)
+	entry.Segment.EndedAt = pointerValue(endedAt)
+	entry.Segment.DurationMS = intValue(durationMS)
+	entry.Segment.SizeBytes = intValue(sizeBytes)
+	entry.Segment.RelativePath = stringValue(relativePath)
+	entry.Segment.FailureCode = stringValue(segmentFailure)
+	entry.Segment.CreatedAt = stringValue(segmentCreated)
+	entry.Segment.UpdatedAt = stringValue(segmentUpdate)
+	entry.Playable = entry.Segment.Status == RecordingSegmentReady &&
+		entry.Segment.RelativePath != ""
+
+	entry.Call = RecordingCall{
+		ID:           entry.Segment.CallID,
+		DeviceID:     stringValue(deviceID),
+		Direction:    stringValue(direction),
+		RemoteNumber: stringValue(remoteNumber),
+		ContactID:    stringValue(contactID),
+		ContactName:  stringValue(contactName),
+		StartedAt:    stringValue(callCreated),
+		EndedAt:      stringValue(callEnded),
+		EndReason:    stringValue(endReason),
+		FailureCode:  stringValue(callFailure),
+	}
+	if activeAt.Valid {
+		entry.Call.DurationSeconds = durationSeconds(activeAt.String, entry.Call.EndedAt)
+	}
+	entry.Call.Missed = entry.Call.Direction == string(CallKindIncoming) &&
+		!activeAt.Valid &&
+		entry.Call.EndReason != "rejected" &&
+		entry.Call.FailureCode != "rejected"
+	return entry, nil
 }
 
 func requireOneRecordingRow(result sql.Result) error {

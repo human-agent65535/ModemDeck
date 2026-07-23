@@ -385,6 +385,83 @@ func TestRecordingToggleSegmentsAndCrashCleanup(t *testing.T) {
 	}
 }
 
+func TestRecordingEntriesAreBoundedSearchableAndStable(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	repository := newHardwareTestStore(t)
+	recordedAt := time.Date(2026, time.July, 23, 15, 0, 0, 0, time.UTC)
+
+	for _, fixture := range []struct {
+		callID    string
+		segmentID string
+		number    string
+	}{
+		{callID: "call-a", segmentID: "segment-a", number: "+818000000001"},
+		{callID: "call-b", segmentID: "segment-b", number: "+818000000002"},
+	} {
+		applyRecordingTestCall(t, repository, fixture.callID, "", "incoming")
+		if _, err := repository.database.ExecContext(
+			ctx,
+			"UPDATE call_history SET remote_number = ? WHERE id = ?",
+			fixture.number,
+			fixture.callID,
+		); err != nil {
+			t.Fatal(err)
+		}
+		segment, err := repository.CreateRecordingSegment(ctx, RecordingSegment{
+			ID:           fixture.segmentID,
+			CallID:       fixture.callID,
+			RelativePath: fixture.callID + "/" + fixture.segmentID + ".ogg",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := repository.MarkRecordingSegmentStarted(
+			ctx,
+			fixture.callID,
+			segment.ID,
+			recordedAt,
+		); err != nil {
+			t.Fatal(err)
+		}
+		if err := repository.CompleteRecordingSegment(
+			ctx,
+			fixture.callID,
+			segment.ID,
+			recordedAt.Add(time.Minute),
+			60_000,
+			4096,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	entries, err := repository.RecordingEntries(ctx, RecordingQuery{Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Segment.ID != "segment-b" {
+		t.Fatalf("bounded stable entries = %+v", entries)
+	}
+	if !entries[0].Playable ||
+		entries[0].Call.RemoteNumber != "+818000000002" ||
+		entries[0].Call.ID != "call-b" {
+		t.Fatalf("recording metadata = %+v", entries[0])
+	}
+
+	entries, err = repository.RecordingEntries(
+		ctx,
+		RecordingQuery{Search: "+818000000001", Limit: MaxQueryLimit + 1},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Segment.ID != "segment-a" {
+		t.Fatalf("searched entries = %+v", entries)
+	}
+}
+
 func TestRecordingPathValidationRejectsTraversal(t *testing.T) {
 	t.Parallel()
 
