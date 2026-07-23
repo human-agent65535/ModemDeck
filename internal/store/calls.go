@@ -32,8 +32,8 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 		ch.id, ch.request_id, ch.device_id, ch.direction, ch.remote_number,
 		%s, %s,
 		ch.endpoint_id, ch.endpoint_call_id, ch.phase, ch.revision,
-		ch.created_at, ch.updated_at, ch.active_at, ch.ended_at,
-		ch.end_reason, ch.failure_code
+			ch.created_at, ch.updated_at, ch.active_at, ch.ended_at,
+			ch.end_reason, ch.failure_code, ch.bearer
 		FROM call_history ch`,
 		fmt.Sprintf(contactIDForNumberSQL, "ch.remote_number", "ch.remote_number"),
 		fmt.Sprintf(contactNameForNumberSQL, "ch.remote_number", "ch.remote_number"),
@@ -81,17 +81,17 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 	calls := make([]Call, 0)
 	for rows.Next() {
 		var (
-			call                                                                 Call
-			requestID, deviceID, direction, remoteNumber, contactID, contactName sql.NullString
-			endpointID, endpointCallID, phase                                    sql.NullString
-			revision                                                             sql.NullInt64
-			createdAt, updatedAt, activeAt, endedAt, endReason, failureCode      sql.NullString
+			call                                                                    Call
+			requestID, deviceID, direction, remoteNumber, contactID, contactName    sql.NullString
+			endpointID, endpointCallID, phase                                       sql.NullString
+			revision                                                                sql.NullInt64
+			createdAt, updatedAt, activeAt, endedAt, endReason, failureCode, bearer sql.NullString
 		)
 		if err := rows.Scan(
 			&call.ID, &requestID, &deviceID, &direction, &remoteNumber,
 			&contactID, &contactName, &endpointID, &endpointCallID, &phase,
 			&revision, &createdAt, &updatedAt, &activeAt, &endedAt,
-			&endReason, &failureCode,
+			&endReason, &failureCode, &bearer,
 		); err != nil {
 			return nil, fmt.Errorf("scan call: %w", err)
 		}
@@ -112,6 +112,7 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 		call.EndedAt = stringValue(endedAt)
 		call.EndReason = stringValue(endReason)
 		call.FailureCode = stringValue(failureCode)
+		call.Bearer = stringValue(bearer)
 		if call.ActiveAt != nil {
 			call.DurationSeconds = durationSeconds(*call.ActiveAt, call.EndedAt)
 		}

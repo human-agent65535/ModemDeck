@@ -14,6 +14,7 @@ import (
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
 	"github.com/human-agent65535/modemdeck/internal/auth"
+	"github.com/human-agent65535/modemdeck/internal/communication"
 	"github.com/human-agent65535/modemdeck/internal/httpapi"
 	"github.com/human-agent65535/modemdeck/internal/platform/database"
 	"github.com/human-agent65535/modemdeck/internal/store"
@@ -74,24 +75,40 @@ func run(logger *slog.Logger, listenAddress, databasePath, legacyDatabasePath, a
 		_ = db.Close()
 		return fmt.Errorf("configure administrator: %w", err)
 	}
+	admin.Password = ""
 	agent, err := agentclient.New(agentSocketPath, 2*time.Second)
 	if err != nil {
 		_ = db.Close()
 		return fmt.Errorf("create host agent client: %w", err)
 	}
 	defer agent.CloseIdleConnections()
+	communications, err := communication.New(agent, repository)
+	if err != nil {
+		_ = db.Close()
+		return fmt.Errorf("create communication service: %w", err)
+	}
 	api, err := httpapi.New(repository, httpapi.Options{
-		Capabilities:  agentCapabilitySource{client: agent},
-		Authenticator: authenticator,
-		AdminUsername: admin.Username,
-		SecureCookies: admin.SecureCookies,
-		Logger:        logger,
-		Web:           webapp.Embedded(),
+		Communications: communications,
+		Authenticator:  authenticator,
+		AdminUsername:  admin.Username,
+		SecureCookies:  admin.SecureCookies,
+		Logger:         logger,
+		Web:            webapp.Embedded(),
 	})
 	if err != nil {
 		_ = db.Close()
 		return fmt.Errorf("create HTTP API: %w", err)
 	}
+
+	signals, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	syncDone := make(chan struct{})
+	go func() {
+		defer close(syncDone)
+		communications.Run(signals, 3*time.Second, func(err error) {
+			logger.Warn("hardware snapshot unavailable", "error", err)
+		})
+	}()
 
 	server := &http.Server{
 		Addr:              listenAddress,
@@ -107,8 +124,6 @@ func run(logger *slog.Logger, listenAddress, databasePath, legacyDatabasePath, a
 		serverErrors <- server.ListenAndServe()
 	}()
 
-	signals, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	select {
 	case <-signals.Done():
 		shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -125,44 +140,18 @@ func run(logger *slog.Logger, listenAddress, databasePath, legacyDatabasePath, a
 			return fmt.Errorf("serve HTTP: %w", serveErr)
 		}
 	case serveErr := <-serverErrors:
+		stop()
 		if !errors.Is(serveErr, http.ErrServerClosed) {
 			_ = database.CloseWithTimeout(db, 5*time.Second)
 			return fmt.Errorf("serve HTTP: %w", serveErr)
 		}
 	}
+	stop()
+	<-syncDone
 	if err := database.CloseWithTimeout(db, 5*time.Second); err != nil {
 		return err
 	}
 	return nil
-}
-
-type agentCapabilitySource struct {
-	client *agentclient.Client
-}
-
-func (source agentCapabilitySource) Capabilities(ctx context.Context) (httpapi.Capabilities, error) {
-	health, err := source.client.Health(ctx)
-	if err != nil {
-		return httpapi.Capabilities{}, err
-	}
-	capabilities := httpapi.Capabilities{
-		AgentConnected: true,
-		Dial:           health.Provider.Available && health.Provider.Capabilities.Dial,
-		Message:        health.Provider.Available && health.Provider.Capabilities.SendMessage,
-	}
-	capabilities.UnavailableReasons = make(map[string]string, 2)
-	if !health.Provider.Available {
-		capabilities.UnavailableReasons["dial"] = "ModemManager is unavailable"
-		capabilities.UnavailableReasons["message"] = "ModemManager is unavailable"
-		return capabilities, nil
-	}
-	if !capabilities.Dial {
-		capabilities.UnavailableReasons["dial"] = "The host agent does not support dialing"
-	}
-	if !capabilities.Message {
-		capabilities.UnavailableReasons["message"] = "The host agent does not support sending messages"
-	}
-	return capabilities, nil
 }
 
 func environmentOrDefault(name, fallback string) string {

@@ -40,9 +40,35 @@ type threadsResponse struct {
 	Meta    responseMeta          `json:"meta"`
 }
 
+type messageResponse struct {
+	Message store.Message `json:"message"`
+}
+
 type messagesResponse struct {
 	Messages []store.Message `json:"messages"`
 	Meta     responseMeta    `json:"meta"`
+}
+
+type callSessionResponse struct {
+	ID            string  `json:"id"`
+	LineKey       string  `json:"line_key"`
+	Direction     string  `json:"direction"`
+	RemoteNumber  string  `json:"remote_number"`
+	DisplayName   string  `json:"display_name,omitempty"`
+	Phase         string  `json:"phase"`
+	CreatedAt     string  `json:"created_at"`
+	ActiveAt      *string `json:"active_at,omitempty"`
+	EndedAt       string  `json:"ended_at,omitempty"`
+	FailureReason string  `json:"failure_reason,omitempty"`
+	Bearer        string  `json:"bearer,omitempty"`
+}
+
+type callSessionEnvelope struct {
+	Call callSessionResponse `json:"call"`
+}
+
+type activeCallsResponse struct {
+	Calls []callSessionResponse `json:"calls"`
 }
 
 type callsResponse struct {

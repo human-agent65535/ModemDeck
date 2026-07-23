@@ -10,7 +10,7 @@ func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 	rows, err := s.database.QueryContext(ctx, `SELECT
 		d.imei, d.alias, d.model, d.firmware, d.port,
 		d.public_ip, d.private_ip, d.public_ipv6, d.private_ipv6,
-		d.iccid, d.sim_inserted, d.signal_db_m, d.signal_rsrq, d.signal_rsrp,
+			d.iccid, d.sim_inserted, d.signal_quality, d.signal_db_m, d.signal_rsrq, d.signal_rsrp,
 		d.last_seen, d.created_at, d.updated_at,
 		s.iccid, s.imsi,
 		COALESCE(NULLIF(ss.phone_number, ''), NULLIF(ss.modem_phone_number, ''), NULLIF(ss.vowifi_phone_number, ''), ''),
@@ -29,21 +29,21 @@ func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 	devices := make([]Device, 0)
 	for rows.Next() {
 		var (
-			device                                                Device
-			alias, model, firmware, port                          sql.NullString
-			publicIP, privateIP, publicIPv6, privateIPv6, iccid   sql.NullString
-			simInserted, signalDBM, signalRSRQ, signalRSRP        sql.NullInt64
-			lastSeen, createdAt, updatedAt                        sql.NullString
-			simICCID, simIMSI, phoneNumber, operator, currentIMEI sql.NullString
-			regStatus                                             sql.NullInt64
-			regStatusText, lac, cellID, apn                       sql.NullString
-			imsStatus                                             sql.NullInt64
-			simLastSeen                                           sql.NullString
+			device                                                        Device
+			alias, model, firmware, port                                  sql.NullString
+			publicIP, privateIP, publicIPv6, privateIPv6, iccid           sql.NullString
+			simInserted, signalQuality, signalDBM, signalRSRQ, signalRSRP sql.NullInt64
+			lastSeen, createdAt, updatedAt                                sql.NullString
+			simICCID, simIMSI, phoneNumber, operator, currentIMEI         sql.NullString
+			regStatus                                                     sql.NullInt64
+			regStatusText, lac, cellID, apn                               sql.NullString
+			imsStatus                                                     sql.NullInt64
+			simLastSeen                                                   sql.NullString
 		)
 		if err := rows.Scan(
 			&device.IMEI, &alias, &model, &firmware, &port,
 			&publicIP, &privateIP, &publicIPv6, &privateIPv6,
-			&iccid, &simInserted, &signalDBM, &signalRSRQ, &signalRSRP,
+			&iccid, &simInserted, &signalQuality, &signalDBM, &signalRSRQ, &signalRSRP,
 			&lastSeen, &createdAt, &updatedAt,
 			&simICCID, &simIMSI, &phoneNumber, &operator, &currentIMEI,
 			&regStatus, &regStatusText, &lac, &cellID, &apn, &imsStatus, &simLastSeen,
@@ -60,6 +60,10 @@ func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 		device.PrivateIPv6 = stringValue(privateIPv6)
 		device.CurrentICCID = stringValue(iccid)
 		device.SIMInserted = boolValue(simInserted)
+		if signalQuality.Valid && signalQuality.Int64 >= 0 {
+			value := uint32(signalQuality.Int64)
+			device.SignalQuality = &value
+		}
 		device.SignalDBM = intValue(signalDBM)
 		device.SignalRSRQ = intValue(signalRSRQ)
 		device.SignalRSRP = intValue(signalRSRP)

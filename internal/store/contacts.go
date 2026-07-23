@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/human-agent65535/modemdeck/internal/phone"
 )
 
 var (
@@ -485,36 +487,15 @@ func normalizeContactInput(input ContactInput, creating bool) (normalizedContact
 }
 
 func normalizeContactNumber(number, field string) (string, string, error) {
-	number = strings.TrimSpace(number)
-	if number == "" {
-		return "", "", contactValidation(field, "required")
+	original, canonical, err := phone.Normalize(number)
+	if err == nil {
+		return original, canonical, nil
 	}
-	if len([]rune(number)) > MaxContactPhoneNumberLength {
-		return "", "", contactValidation(field, "too_long")
+	var numberError *phone.Error
+	if errors.As(err, &numberError) {
+		return "", "", contactValidation(field, string(numberError.Code))
 	}
-	if number[0] != '+' {
-		return "", "", contactValidation(field, "international_prefix_required")
-	}
-
-	var digits strings.Builder
-	digits.Grow(len(number) - 1)
-	for _, character := range number[1:] {
-		switch {
-		case character >= '0' && character <= '9':
-			digits.WriteRune(character)
-		case character == ' ', character == '(', character == ')', character == '-':
-		default:
-			return "", "", contactValidation(field, "invalid_character")
-		}
-	}
-	canonicalDigits := digits.String()
-	if len(canonicalDigits) < 8 || len(canonicalDigits) > 15 {
-		return "", "", contactValidation(field, "invalid_length")
-	}
-	if canonicalDigits[0] == '0' {
-		return "", "", contactValidation(field, "invalid_country_code")
-	}
-	return number, "+" + canonicalDigits, nil
+	return "", "", contactValidation(field, "invalid")
 }
 
 func resolveUpdatedPhoneIDs(

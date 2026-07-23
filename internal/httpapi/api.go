@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
+	"github.com/human-agent65535/modemdeck/internal/communication"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -26,6 +27,7 @@ type Repository interface {
 	DeleteContact(context.Context, string, int64) error
 	MessageThreads(context.Context, store.ThreadQuery) ([]store.MessageThread, error)
 	Messages(context.Context, store.MessageQuery) ([]store.Message, error)
+	MarkMessageThreadRead(context.Context, string, string) error
 	Calls(context.Context, store.CallQuery) ([]store.Call, error)
 	Devices(context.Context) ([]store.Device, error)
 	Lines(context.Context) ([]store.LineSummary, error)
@@ -34,6 +36,10 @@ type Repository interface {
 type Capabilities struct {
 	AgentConnected     bool              `json:"agent_connected"`
 	Dial               bool              `json:"dial"`
+	AnswerCall         bool              `json:"answer_call"`
+	HangupCall         bool              `json:"hangup_call"`
+	RejectCall         bool              `json:"reject_call"`
+	SendDTMF           bool              `json:"send_dtmf"`
 	Message            bool              `json:"message"`
 	WebRTCAudio        bool              `json:"webrtc_audio"`
 	DeviceControl      bool              `json:"device_control"`
@@ -52,8 +58,17 @@ type Authenticator interface {
 	Logout(context.Context, auth.SessionToken) error
 }
 
+type CommunicationService interface {
+	Status(context.Context) (communication.Status, error)
+	SendMessage(context.Context, communication.SendMessageInput) (store.Message, error)
+	StartCall(context.Context, communication.StartCallInput) (store.Call, error)
+	CallAction(context.Context, communication.CallActionInput) (store.Call, error)
+	ActiveCalls(context.Context) ([]store.Call, error)
+}
+
 type Options struct {
 	Capabilities          CapabilitySource
+	Communications        CommunicationService
 	Authenticator         Authenticator
 	AdminUsername         string
 	SecureCookies         bool
@@ -63,14 +78,15 @@ type Options struct {
 }
 
 type API struct {
-	repository    Repository
-	capabilities  CapabilitySource
-	authenticator Authenticator
-	adminUsername string
-	secureCookies bool
-	loginSlots    chan struct{}
-	logger        *slog.Logger
-	web           http.Handler
+	repository     Repository
+	capabilities   CapabilitySource
+	communications CommunicationService
+	authenticator  Authenticator
+	adminUsername  string
+	secureCookies  bool
+	loginSlots     chan struct{}
+	logger         *slog.Logger
+	web            http.Handler
 }
 
 func New(repository Repository, options Options) (*API, error) {
@@ -89,14 +105,15 @@ func New(repository Repository, options Options) (*API, error) {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	return &API{
-		repository:    repository,
-		capabilities:  options.Capabilities,
-		authenticator: options.Authenticator,
-		adminUsername: adminUsername,
-		secureCookies: options.SecureCookies,
-		loginSlots:    make(chan struct{}, 2),
-		logger:        logger,
-		web:           options.Web,
+		repository:     repository,
+		capabilities:   options.Capabilities,
+		communications: options.Communications,
+		authenticator:  options.Authenticator,
+		adminUsername:  adminUsername,
+		secureCookies:  options.SecureCookies,
+		loginSlots:     make(chan struct{}, 2),
+		logger:         logger,
+		web:            options.Web,
 	}, nil
 }
 
@@ -130,14 +147,22 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	case "/api/v1/messages/threads":
 		api.getOnly(response, request, api.messageThreads)
 	case "/api/v1/messages":
-		api.getOnly(response, request, api.messages)
+		api.messagesCollection(response, request)
+	case "/api/v1/messages/read":
+		api.messageRead(response, request)
 	case "/api/v1/calls":
-		api.getOnly(response, request, api.calls)
+		api.callsCollection(response, request)
+	case "/api/v1/calls/active":
+		api.getOnly(response, request, api.activeCalls)
 	case "/api/v1/devices":
 		api.getOnly(response, request, api.devices)
 	default:
 		if id, ok := contactResourceID(request.URL.Path); ok {
 			api.contactResource(response, request, id)
+			return
+		}
+		if id, action, ok := callActionResource(request.URL.Path); ok {
+			api.callAction(response, request, id, action)
 			return
 		}
 		writeError(response, http.StatusNotFound, "not_found", "API endpoint was not found", "")
@@ -169,7 +194,16 @@ func (api *API) bootstrap(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 	capabilities := Capabilities{}
-	if api.capabilities != nil {
+	if api.communications != nil {
+		status, statusErr := api.communications.Status(request.Context())
+		if statusErr != nil {
+			api.logger.Warn("live communication state is unavailable", "error", statusErr)
+			capabilities = disconnectedCapabilities()
+		} else {
+			lines = status.Lines
+			capabilities = capabilitiesForLines(status.Lines)
+		}
+	} else if api.capabilities != nil {
 		capabilities, err = api.capabilities.Capabilities(request.Context())
 		if err != nil {
 			api.logger.Warn("host agent is unavailable", "error", err)
@@ -200,6 +234,29 @@ func disconnectedCapabilities() Capabilities {
 		"dial":    "Host agent is not connected",
 		"message": "Host agent is not connected",
 	}}
+}
+
+func capabilitiesForLines(lines []store.LineSummary) Capabilities {
+	capabilities := Capabilities{
+		AgentConnected:     true,
+		UnavailableReasons: map[string]string{},
+	}
+	for _, line := range lines {
+		capabilities.Dial = capabilities.Dial || line.Capabilities.Dial
+		capabilities.AnswerCall = capabilities.AnswerCall || line.Capabilities.AnswerCall
+		capabilities.HangupCall = capabilities.HangupCall || line.Capabilities.HangupCall
+		capabilities.RejectCall = capabilities.RejectCall || line.Capabilities.RejectCall
+		capabilities.SendDTMF = capabilities.SendDTMF || line.Capabilities.SendDTMF
+		capabilities.Message = capabilities.Message || line.Capabilities.SendMessage
+		capabilities.WebRTCAudio = capabilities.WebRTCAudio || line.Capabilities.Media
+	}
+	if !capabilities.Dial {
+		capabilities.UnavailableReasons["dial"] = "No attached line supports dialing"
+	}
+	if !capabilities.Message {
+		capabilities.UnavailableReasons["message"] = "No attached line supports sending messages"
+	}
+	return capabilities
 }
 
 func (api *API) contactsCollection(response http.ResponseWriter, request *http.Request) {

@@ -65,6 +65,10 @@ func (repository *fakeRepository) Messages(context.Context, store.MessageQuery) 
 	return []store.Message{}, nil
 }
 
+func (repository *fakeRepository) MarkMessageThreadRead(context.Context, string, string) error {
+	return nil
+}
+
 func (repository *fakeRepository) Calls(context.Context, store.CallQuery) ([]store.Call, error) {
 	return []store.Call{}, nil
 }

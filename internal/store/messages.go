@@ -91,8 +91,10 @@ func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]Messag
 
 func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, error) {
 	limit := boundedLimit(query.Limit)
-	statement := `SELECT id, imsi, iccid, peer, local_phone, sender, recipient,
-		content, type, status, timestamp, created_at FROM sms`
+	statement := `SELECT id, request_id, line_id, endpoint_message_id,
+		imsi, iccid, peer, local_phone, sender, recipient,
+		content, type, status, state, failure_code, revision, timestamp, created_at
+		FROM sms`
 	conditions := make([]string, 0, 2)
 	arguments := make([]any, 0, 3)
 	if iccid := strings.TrimSpace(query.ICCID); iccid != "" {
@@ -118,17 +120,23 @@ func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, er
 	messages := make([]Message, 0)
 	for rows.Next() {
 		var (
-			message                                              Message
-			imsi, iccid, peer, local, sender, recipient, content sql.NullString
-			messageType, status                                  sql.NullInt64
-			timestamp, createdAt                                 sql.NullString
+			message                                               Message
+			requestID, lineID, endpointID, imsi, iccid, peer      sql.NullString
+			local, sender, recipient, content, state, failureCode sql.NullString
+			messageType, status, revision                         sql.NullInt64
+			timestamp, createdAt                                  sql.NullString
 		)
 		if err := rows.Scan(
-			&message.ID, &imsi, &iccid, &peer, &local, &sender, &recipient,
-			&content, &messageType, &status, &timestamp, &createdAt,
+			&message.ID, &requestID, &lineID, &endpointID,
+			&imsi, &iccid, &peer, &local, &sender, &recipient,
+			&content, &messageType, &status, &state, &failureCode, &revision,
+			&timestamp, &createdAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
 		}
+		message.RequestID = stringValue(requestID)
+		message.LineID = stringValue(lineID)
+		message.EndpointMessageID = stringValue(endpointID)
 		message.IMSI = stringValue(imsi)
 		message.ICCID = stringValue(iccid)
 		message.Peer = stringValue(peer)
@@ -144,6 +152,9 @@ func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, er
 			message.Direction = "outgoing"
 		}
 		message.Status = intValue(status)
+		message.State = stringValue(state)
+		message.FailureCode = stringValue(failureCode)
+		message.Revision = intValue(revision)
 		message.Timestamp = stringValue(timestamp)
 		message.CreatedAt = stringValue(createdAt)
 		messages = append(messages, message)
