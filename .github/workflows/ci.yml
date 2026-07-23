@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go modules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test application module
+        run: >-
+          docker run --rm
+          -e GOTOOLCHAIN=local
+          -v "$PWD:/workspace"
+          -w /workspace
+          golang:1.26.3-bookworm
+          go test -mod=readonly ./cmd/... ./internal/...
+
+      - name: Vet application module
+        run: >-
+          docker run --rm
+          -e GOTOOLCHAIN=local
+          -v "$PWD:/workspace"
+          -w /workspace
+          golang:1.26.3-bookworm
+          go vet -mod=readonly ./cmd/... ./internal/...
+
+      - name: Test host-agent module
+        run: >-
+          docker run --rm
+          -e GOTOOLCHAIN=local
+          -v "$PWD:/workspace"
+          -w /workspace/agent
+          golang:1.26.3-bookworm
+          go test -mod=readonly ./...
+
+      - name: Vet host-agent module
+        run: >-
+          docker run --rm
+          -e GOTOOLCHAIN=local
+          -v "$PWD:/workspace"
+          -w /workspace/agent
+          golang:1.26.3-bookworm
+          go vet -mod=readonly ./...
+
+  web:
+    name: Web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.17.1
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci --prefix web --no-audit --no-fund
+      - run: npm run typecheck --prefix web
+      - run: npm run lint --prefix web
+      - run: npm run build --prefix web
+
+  image:
+    name: Container
+    runs-on: ubuntu-latest
+    needs:
+      - go
+      - web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Compose
+        env:
+          MODEMDECK_AGENT_GID: "10002"
+        run: docker compose config --quiet
+
+      - name: Check Dockerfile
+        run: docker build --check .
+
+      - name: Build runtime image
+        run: docker build --target runtime -t modemdeck:ci .
