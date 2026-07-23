@@ -111,12 +111,23 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 		t.Fatalf("devices = %+v, want persisted signal quality", devices)
 	}
 
-	if err := repository.MarkMessageThreadRead(ctx, line.ICCID, message.Number); err != nil {
-		t.Fatalf("MarkMessageThreadRead() error = %v", err)
+	if err := repository.MarkMessageThreadReadByLine(ctx, line.ID, message.Number); err != nil {
+		t.Fatalf("MarkMessageThreadReadByLine() error = %v", err)
 	}
 	threads, err = repository.MessageThreads(ctx, ThreadQuery{})
 	if err != nil || len(threads) != 1 || threads[0].UnreadCount != 0 {
 		t.Fatalf("threads after read = %+v, error = %v", threads, err)
+	}
+	if _, err := repository.database.ExecContext(
+		ctx,
+		"UPDATE sms_contacts SET unread_count = 1 WHERE iccid = ? AND peer = ?",
+		line.ICCID,
+		message.Number,
+	); err != nil {
+		t.Fatalf("restore unread fixture: %v", err)
+	}
+	if err := repository.MarkMessageThreadRead(ctx, line.ICCID, message.Number); err != nil {
+		t.Fatalf("MarkMessageThreadRead() error = %v", err)
 	}
 
 	if err := repository.ApplyHardwareSnapshot(ctx, HardwareSnapshot{
@@ -140,6 +151,84 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 	}
 	if len(calls) != 1 || calls[0].Phase != "ended" || calls[0].EndedAt == "" {
 		t.Fatalf("calls = %+v, want closed call", calls)
+	}
+}
+
+func TestMarkMessageThreadReadByLineOnlyUsesCurrentSIM(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	ctx := context.Background()
+	observed := time.Date(2026, time.July, 23, 10, 30, 0, 0, time.UTC)
+	line := hardwareLifecycleTestLine("line-reused", "990000000000200")
+	line.ICCID = "8901000000000000200"
+	line.IMSI = "440500000000200"
+	peer := "+818012345678"
+	oldMessage := HardwareMessage{
+		LineID:            line.ID,
+		EndpointMessageID: "old-sim:/sms/1",
+		IMSI:              line.IMSI,
+		ICCID:             line.ICCID,
+		Number:            peer,
+		Text:              "old SIM",
+		Direction:         "incoming",
+		State:             "received",
+		StateCode:         3,
+		Revision:          1,
+		Timestamp:         observed,
+		ObservedAt:        observed,
+	}
+	if err := repository.ApplyHardwareSnapshot(ctx, HardwareSnapshot{
+		BootEpoch:  "old-sim",
+		Revision:   "old-sim-1",
+		ObservedAt: observed,
+		Lines:      []HardwareLine{line},
+		Messages:   []HardwareMessage{oldMessage},
+	}); err != nil {
+		t.Fatalf("apply old SIM snapshot: %v", err)
+	}
+
+	line.ICCID = "8901000000000000201"
+	line.IMSI = "440500000000201"
+	newMessage := oldMessage
+	newMessage.EndpointMessageID = "new-sim:/sms/1"
+	newMessage.ICCID = line.ICCID
+	newMessage.IMSI = line.IMSI
+	newMessage.Text = "new SIM"
+	newMessage.Timestamp = observed.Add(time.Minute)
+	newMessage.ObservedAt = newMessage.Timestamp
+	if err := repository.ApplyHardwareSnapshot(ctx, HardwareSnapshot{
+		BootEpoch:  "new-sim",
+		Revision:   "new-sim-1",
+		ObservedAt: newMessage.ObservedAt,
+		Lines:      []HardwareLine{line},
+		Messages:   []HardwareMessage{newMessage},
+	}); err != nil {
+		t.Fatalf("apply new SIM snapshot: %v", err)
+	}
+
+	if err := repository.MarkMessageThreadReadByLine(ctx, line.ID, peer); err != nil {
+		t.Fatalf("MarkMessageThreadReadByLine() error = %v", err)
+	}
+	var oldUnread, newUnread int
+	if err := repository.database.QueryRowContext(
+		ctx,
+		"SELECT unread_count FROM sms_contacts WHERE imsi = ? AND peer = ?",
+		oldMessage.IMSI,
+		peer,
+	).Scan(&oldUnread); err != nil {
+		t.Fatalf("read old SIM unread count: %v", err)
+	}
+	if err := repository.database.QueryRowContext(
+		ctx,
+		"SELECT unread_count FROM sms_contacts WHERE imsi = ? AND peer = ?",
+		newMessage.IMSI,
+		peer,
+	).Scan(&newUnread); err != nil {
+		t.Fatalf("read new SIM unread count: %v", err)
+	}
+	if oldUnread != 1 || newUnread != 0 {
+		t.Fatalf("unread counts old=%d new=%d, want old=1 new=0", oldUnread, newUnread)
 	}
 }
 

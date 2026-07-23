@@ -187,6 +187,7 @@ func (m *Manager) startUnit(parent context.Context, unitID string) (unitRuntime,
 		SMSSender: dependencies,
 		Dialer:    dependencies,
 		Replies:   dependencies,
+		Read:      dependencies,
 		Observer: telegram.ObserverFunc(func(_ context.Context, event telegram.Event) {
 			m.logger.Info(
 				"Telegram runtime event",

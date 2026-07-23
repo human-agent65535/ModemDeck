@@ -168,6 +168,10 @@ func (r *fakeRepository) Messages(context.Context, store.MessageQuery) ([]store.
 	return []store.Message{}, nil
 }
 
+func (r *fakeRepository) MarkMessageThreadReadByLine(context.Context, string, string) error {
+	return nil
+}
+
 func (r *fakeRepository) TelegramNextOffset(context.Context, string) (int64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -280,6 +284,20 @@ func (*fakeBot) SendMessage(
 		MessageID: 1,
 		Chat:      telegram.Chat{ID: request.ChatID},
 	}, nil
+}
+
+func (*fakeBot) AnswerCallbackQuery(
+	context.Context,
+	telegram.AnswerCallbackQueryRequest,
+) error {
+	return nil
+}
+
+func (*fakeBot) EditMessageReplyMarkup(
+	context.Context,
+	telegram.EditMessageReplyMarkupRequest,
+) error {
+	return nil
 }
 
 func (*fakeBot) GetUpdates(

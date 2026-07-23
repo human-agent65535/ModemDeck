@@ -41,7 +41,33 @@ func TestClientGetMeAndSendMessage(t *testing.T) {
 			if payload.ReplyParameters == nil || payload.ReplyParameters.MessageID != 22 {
 				t.Errorf("reply parameters = %#v", payload.ReplyParameters)
 			}
+			if payload.ReplyMarkup == nil ||
+				len(payload.ReplyMarkup.InlineKeyboard) != 1 ||
+				payload.ReplyMarkup.InlineKeyboard[0][0].CallbackData != markReadCallbackData {
+				t.Errorf("reply markup = %#v", payload.ReplyMarkup)
+			}
 			writeJSON(response, `{"ok":true,"result":{"message_id":23,"chat":{"id":-100},"date":1,"text":"hello"}}`)
+		case strings.HasSuffix(request.URL.Path, "/answerCallbackQuery"):
+			methods = append(methods, "answerCallbackQuery")
+			var payload answerCallbackQueryPayload
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Errorf("decode callback payload: %v", err)
+			}
+			if payload.CallbackQueryID != "callback-1" || payload.Text != "read" {
+				t.Errorf("callback payload = %#v", payload)
+			}
+			writeJSON(response, `{"ok":true,"result":true}`)
+		case strings.HasSuffix(request.URL.Path, "/editMessageReplyMarkup"):
+			methods = append(methods, "editMessageReplyMarkup")
+			var payload editMessageReplyMarkupPayload
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Errorf("decode edit markup payload: %v", err)
+			}
+			if payload.ChatID != -100 || payload.MessageID != 23 ||
+				len(payload.ReplyMarkup.InlineKeyboard) != 0 {
+				t.Errorf("edit markup payload = %#v", payload)
+			}
+			writeJSON(response, `{"ok":true,"result":{"message_id":23,"chat":{"id":-100}}}`)
 		default:
 			http.NotFound(response, request)
 		}
@@ -61,6 +87,11 @@ func TestClientGetMeAndSendMessage(t *testing.T) {
 		ChatID:           -100,
 		Text:             "hello",
 		ReplyToMessageID: 22,
+		ReplyMarkup: &InlineKeyboardMarkup{
+			InlineKeyboard: [][]InlineKeyboardButton{{
+				{Text: "read", CallbackData: markReadCallbackData},
+			}},
+		},
 	})
 	if err != nil {
 		t.Fatalf("SendMessage() error = %v", err)
@@ -68,7 +99,22 @@ func TestClientGetMeAndSendMessage(t *testing.T) {
 	if message.MessageID != 23 || message.Chat.ID != -100 {
 		t.Fatalf("SendMessage() = %#v", message)
 	}
-	if got := strings.Join(methods, ","); got != "getMe,sendMessage" {
+	if err := client.AnswerCallbackQuery(context.Background(), AnswerCallbackQueryRequest{
+		CallbackQueryID: "callback-1",
+		Text:            "read",
+	}); err != nil {
+		t.Fatalf("AnswerCallbackQuery() error = %v", err)
+	}
+	if err := client.EditMessageReplyMarkup(context.Background(), EditMessageReplyMarkupRequest{
+		ChatID:    -100,
+		MessageID: 23,
+		ReplyMarkup: InlineKeyboardMarkup{
+			InlineKeyboard: [][]InlineKeyboardButton{},
+		},
+	}); err != nil {
+		t.Fatalf("EditMessageReplyMarkup() error = %v", err)
+	}
+	if got := strings.Join(methods, ","); got != "getMe,sendMessage,answerCallbackQuery,editMessageReplyMarkup" {
 		t.Fatalf("methods = %q", got)
 	}
 }
@@ -84,7 +130,9 @@ func TestClientGetUpdatesBoundsAndPayload(t *testing.T) {
 		if payload.Offset != 19 || payload.Limit != 2 || payload.Timeout != 2 {
 			t.Errorf("payload = %#v", payload)
 		}
-		if len(payload.AllowedUpdates) != 1 || payload.AllowedUpdates[0] != "message" {
+		if len(payload.AllowedUpdates) != 2 ||
+			payload.AllowedUpdates[0] != "message" ||
+			payload.AllowedUpdates[1] != "callback_query" {
 			t.Errorf("allowed_updates = %#v", payload.AllowedUpdates)
 		}
 		writeJSON(response, `{"ok":true,"result":[{"update_id":19},{"update_id":20}]}`)

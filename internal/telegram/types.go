@@ -33,14 +33,43 @@ type Message struct {
 }
 
 type Update struct {
-	UpdateID int64    `json:"update_id"`
-	Message  *Message `json:"message,omitempty"`
+	UpdateID      int64          `json:"update_id"`
+	Message       *Message       `json:"message,omitempty"`
+	CallbackQuery *CallbackQuery `json:"callback_query,omitempty"`
 }
 
 type SendMessageRequest struct {
 	ChatID           int64
 	Text             string
 	ReplyToMessageID int64
+	ReplyMarkup      *InlineKeyboardMarkup
+}
+
+type InlineKeyboardMarkup struct {
+	InlineKeyboard [][]InlineKeyboardButton `json:"inline_keyboard"`
+}
+
+type InlineKeyboardButton struct {
+	Text         string `json:"text"`
+	CallbackData string `json:"callback_data"`
+}
+
+type CallbackQuery struct {
+	ID      string   `json:"id"`
+	From    BotUser  `json:"from"`
+	Message *Message `json:"message,omitempty"`
+	Data    string   `json:"data,omitempty"`
+}
+
+type AnswerCallbackQueryRequest struct {
+	CallbackQueryID string
+	Text            string
+}
+
+type EditMessageReplyMarkupRequest struct {
+	ChatID      int64
+	MessageID   int64
+	ReplyMarkup InlineKeyboardMarkup
 }
 
 type GetUpdatesRequest struct {
@@ -52,6 +81,8 @@ type GetUpdatesRequest struct {
 type BotAPI interface {
 	GetMe(context.Context) (BotUser, error)
 	SendMessage(context.Context, SendMessageRequest) (Message, error)
+	AnswerCallbackQuery(context.Context, AnswerCallbackQueryRequest) error
+	EditMessageReplyMarkup(context.Context, EditMessageReplyMarkupRequest) error
 	GetUpdates(context.Context, GetUpdatesRequest) ([]Update, error)
 }
 
@@ -140,6 +171,10 @@ type ReplyBindingStore interface {
 	// expired.
 	Bind(context.Context, int64, int64, int64, ReplyBinding) error
 	Resolve(context.Context, int64, int64, int64) (ReplyBinding, error)
+}
+
+type MessageReadMarker interface {
+	MarkMessageThreadRead(context.Context, string, string) error
 }
 
 type EventKind string

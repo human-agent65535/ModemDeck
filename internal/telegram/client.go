@@ -147,8 +147,9 @@ func (c *Client) SendMessage(ctx context.Context, request SendMessageRequest) (M
 	}
 
 	payload := sendMessagePayload{
-		ChatID: request.ChatID,
-		Text:   request.Text,
+		ChatID:      request.ChatID,
+		Text:        request.Text,
+		ReplyMarkup: request.ReplyMarkup,
 	}
 	if request.ReplyToMessageID > 0 {
 		payload.ReplyParameters = &replyParameters{MessageID: request.ReplyToMessageID}
@@ -162,6 +163,50 @@ func (c *Client) SendMessage(ctx context.Context, request SendMessageRequest) (M
 		return Message{}, &ProtocolError{Method: "sendMessage", Reason: "result is missing message identity"}
 	}
 	return message, nil
+}
+
+func (c *Client) AnswerCallbackQuery(
+	ctx context.Context,
+	request AnswerCallbackQueryRequest,
+) error {
+	if strings.TrimSpace(request.CallbackQueryID) == "" {
+		return fmt.Errorf("telegram answerCallbackQuery callback query ID is required")
+	}
+	if utf8.RuneCountInString(request.Text) > 200 {
+		return fmt.Errorf("telegram answerCallbackQuery text exceeds 200 runes")
+	}
+	var accepted bool
+	if err := c.call(ctx, "answerCallbackQuery", answerCallbackQueryPayload{
+		CallbackQueryID: request.CallbackQueryID,
+		Text:            request.Text,
+	}, c.requestTimeout, &accepted); err != nil {
+		return err
+	}
+	if !accepted {
+		return &ProtocolError{Method: "answerCallbackQuery", Reason: "result was false"}
+	}
+	return nil
+}
+
+func (c *Client) EditMessageReplyMarkup(
+	ctx context.Context,
+	request EditMessageReplyMarkupRequest,
+) error {
+	if request.ChatID == 0 || request.MessageID <= 0 {
+		return fmt.Errorf("telegram editMessageReplyMarkup message identity is required")
+	}
+	var message Message
+	if err := c.call(ctx, "editMessageReplyMarkup", editMessageReplyMarkupPayload{
+		ChatID:      request.ChatID,
+		MessageID:   request.MessageID,
+		ReplyMarkup: request.ReplyMarkup,
+	}, c.requestTimeout, &message); err != nil {
+		return err
+	}
+	if message.MessageID != request.MessageID || message.Chat.ID != request.ChatID {
+		return &ProtocolError{Method: "editMessageReplyMarkup", Reason: "result does not match the requested message"}
+	}
+	return nil
 }
 
 func (c *Client) GetUpdates(ctx context.Context, request GetUpdatesRequest) ([]Update, error) {
@@ -180,7 +225,7 @@ func (c *Client) GetUpdates(ctx context.Context, request GetUpdatesRequest) ([]U
 		Offset:         request.Offset,
 		Limit:          request.Limit,
 		Timeout:        timeoutSeconds,
-		AllowedUpdates: []string{"message"},
+		AllowedUpdates: []string{"message", "callback_query"},
 	}
 
 	requestDeadline := request.Timeout + c.longPollGrace
@@ -281,9 +326,10 @@ func newAPIError(envelope apiEnvelope) *APIError {
 }
 
 type sendMessagePayload struct {
-	ChatID          int64            `json:"chat_id"`
-	Text            string           `json:"text"`
-	ReplyParameters *replyParameters `json:"reply_parameters,omitempty"`
+	ChatID          int64                 `json:"chat_id"`
+	Text            string                `json:"text"`
+	ReplyParameters *replyParameters      `json:"reply_parameters,omitempty"`
+	ReplyMarkup     *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
 }
 
 type replyParameters struct {
@@ -295,6 +341,17 @@ type getUpdatesPayload struct {
 	Limit          int      `json:"limit"`
 	Timeout        int      `json:"timeout"`
 	AllowedUpdates []string `json:"allowed_updates"`
+}
+
+type answerCallbackQueryPayload struct {
+	CallbackQueryID string `json:"callback_query_id"`
+	Text            string `json:"text,omitempty"`
+}
+
+type editMessageReplyMarkupPayload struct {
+	ChatID      int64                `json:"chat_id"`
+	MessageID   int64                `json:"message_id"`
+	ReplyMarkup InlineKeyboardMarkup `json:"reply_markup"`
 }
 
 type apiEnvelope struct {

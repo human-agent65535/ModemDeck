@@ -9,9 +9,11 @@ const testBotToken = "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcd"
 const testBotID = int64(123456789)
 
 type botStub struct {
-	getMe   func(context.Context) (BotUser, error)
-	send    func(context.Context, SendMessageRequest) (Message, error)
-	updates func(context.Context, GetUpdatesRequest) ([]Update, error)
+	getMe      func(context.Context) (BotUser, error)
+	send       func(context.Context, SendMessageRequest) (Message, error)
+	answer     func(context.Context, AnswerCallbackQueryRequest) error
+	editMarkup func(context.Context, EditMessageReplyMarkupRequest) error
+	updates    func(context.Context, GetUpdatesRequest) ([]Update, error)
 }
 
 func (b botStub) GetMe(ctx context.Context) (BotUser, error) {
@@ -26,6 +28,20 @@ func (b botStub) SendMessage(ctx context.Context, request SendMessageRequest) (M
 		return Message{MessageID: 1, Chat: Chat{ID: request.ChatID}}, nil
 	}
 	return b.send(ctx, request)
+}
+
+func (b botStub) AnswerCallbackQuery(ctx context.Context, request AnswerCallbackQueryRequest) error {
+	if b.answer == nil {
+		return nil
+	}
+	return b.answer(ctx, request)
+}
+
+func (b botStub) EditMessageReplyMarkup(ctx context.Context, request EditMessageReplyMarkupRequest) error {
+	if b.editMarkup == nil {
+		return nil
+	}
+	return b.editMarkup(ctx, request)
 }
 
 func (b botStub) GetUpdates(ctx context.Context, request GetUpdatesRequest) ([]Update, error) {
@@ -57,6 +73,12 @@ type dialerFunc func(context.Context, CallRequest) error
 
 func (f dialerFunc) Dial(ctx context.Context, request CallRequest) error {
 	return f(ctx, request)
+}
+
+type messageReadMarkerFunc func(context.Context, string, string) error
+
+func (f messageReadMarkerFunc) MarkMessageThreadRead(ctx context.Context, lineID, peer string) error {
+	return f(ctx, lineID, peer)
 }
 
 type replyStoreStub struct {

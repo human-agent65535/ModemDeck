@@ -18,6 +18,7 @@ type Dependencies struct {
 	SMSSender SMSSender
 	Dialer    Dialer
 	Replies   ReplyBindingStore
+	Read      MessageReadMarker
 	Observer  Observer
 }
 
@@ -30,6 +31,7 @@ type Service struct {
 	sender   SMSSender
 	dialer   Dialer
 	replies  ReplyBindingStore
+	read     MessageReadMarker
 	observer Observer
 
 	identityMu  sync.RWMutex
@@ -56,6 +58,8 @@ func NewService(config Config, dependencies Dependencies) (*Service, error) {
 			return nil, &ConfigError{Field: "dialer", Reason: "dependency is required"}
 		case dependencies.Replies == nil:
 			return nil, &ConfigError{Field: "replies", Reason: "dependency is required"}
+		case dependencies.Read == nil:
+			return nil, &ConfigError{Field: "read_marker", Reason: "dependency is required"}
 		}
 	}
 
@@ -68,6 +72,7 @@ func NewService(config Config, dependencies Dependencies) (*Service, error) {
 		sender:   dependencies.SMSSender,
 		dialer:   dependencies.Dialer,
 		replies:  dependencies.Replies,
+		read:     dependencies.Read,
 		observer: dependencies.Observer,
 	}, nil
 }
@@ -109,7 +114,13 @@ func (s *Service) Run(ctx context.Context, checkpoint Checkpoint, options PollOp
 // HandleUpdate enforces both configured identities before parsing commands. It
 // intentionally returns no information to unauthorized chats or users.
 func (s *Service) HandleUpdate(ctx context.Context, update Update) error {
-	if !s.config.Enabled || update.Message == nil {
+	if !s.config.Enabled {
+		return nil
+	}
+	if update.CallbackQuery != nil {
+		return s.handleCallbackQuery(ctx, update.UpdateID, update.CallbackQuery)
+	}
+	if update.Message == nil {
 		return nil
 	}
 	message := update.Message
@@ -152,6 +163,57 @@ func (s *Service) HandleUpdate(ctx context.Context, update Update) error {
 	}
 }
 
+const markReadCallbackData = "sms:mark-read"
+
+func (s *Service) handleCallbackQuery(
+	ctx context.Context,
+	updateID int64,
+	query *CallbackQuery,
+) error {
+	if query == nil || query.Message == nil || query.Data != markReadCallbackData {
+		return nil
+	}
+	message := query.Message
+	if message.Chat.ID != s.config.ChatID || query.From.ID != s.config.AdminID {
+		s.observe(ctx, Event{Kind: EventUnauthorizedUpdate, Operation: "authorize_callback", UpdateID: updateID})
+		return nil
+	}
+	binding, err := s.replies.Resolve(ctx, s.botID, s.config.ChatID, message.MessageID)
+	if err != nil {
+		var notFoundErr *ReplyBindingNotFoundError
+		if errors.As(err, &notFoundErr) {
+			s.answerCallback(ctx, query.ID, "消息已过期")
+			return nil
+		}
+		return &OperationError{Operation: "resolve_read_binding", Kind: errorClass(err), Err: err}
+	}
+	if err := s.read.MarkMessageThreadRead(ctx, binding.LineID, binding.Number); err != nil {
+		s.answerCallback(ctx, query.ID, "标记失败，请重试")
+		s.observe(ctx, Event{Kind: EventOperationFailed, Operation: "mark_message_read", ErrorClass: errorClass(err), UpdateID: updateID})
+		return &OperationError{Operation: "mark_message_read", Kind: errorClass(err), Err: err}
+	}
+	s.answerCallback(ctx, query.ID, "已标记已读")
+	if err := s.bot.EditMessageReplyMarkup(ctx, EditMessageReplyMarkupRequest{
+		ChatID:    message.Chat.ID,
+		MessageID: message.MessageID,
+		ReplyMarkup: InlineKeyboardMarkup{
+			InlineKeyboard: [][]InlineKeyboardButton{},
+		},
+	}); err != nil {
+		s.observe(ctx, Event{Kind: EventOperationFailed, Operation: "clear_read_action", ErrorClass: errorClass(err), UpdateID: updateID})
+	}
+	return nil
+}
+
+func (s *Service) answerCallback(ctx context.Context, callbackQueryID, text string) {
+	if err := s.bot.AnswerCallbackQuery(ctx, AnswerCallbackQueryRequest{
+		CallbackQueryID: callbackQueryID,
+		Text:            text,
+	}); err != nil {
+		s.observe(ctx, Event{Kind: EventOperationFailed, Operation: "answer_callback", ErrorClass: errorClass(err)})
+	}
+}
+
 func (s *Service) isCommandTarget(target string) bool {
 	s.identityMu.RLock()
 	username := s.botUsername
@@ -170,17 +232,26 @@ func (s *Service) NotifyIncomingSMS(ctx context.Context, incoming IncomingSMS) e
 		return &OperationError{Operation: "notify_incoming_sms", Kind: "invalid_body", Err: errors.New("SMS body is empty")}
 	}
 
-	displayPeer, normalizedPeer, replyable := notificationPeer(incoming.From)
+	displayPeer, _, replyable := notificationPeer(incoming.From)
 	text := formatIncomingSMS(incoming, displayPeer, replyable)
-	sent, err := s.bot.SendMessage(ctx, SendMessageRequest{ChatID: s.config.ChatID, Text: text})
+	peer := strings.TrimSpace(incoming.From)
+	request := SendMessageRequest{ChatID: s.config.ChatID, Text: text}
+	if peer != "" {
+		request.ReplyMarkup = &InlineKeyboardMarkup{
+			InlineKeyboard: [][]InlineKeyboardButton{{
+				{Text: "标记已读", CallbackData: markReadCallbackData},
+			}},
+		}
+	}
+	sent, err := s.bot.SendMessage(ctx, request)
 	if err != nil {
 		s.observe(ctx, Event{Kind: EventOperationFailed, Operation: "notify_incoming_sms", ErrorClass: errorClass(err)})
 		return &OperationError{Operation: "notify_incoming_sms", Kind: errorClass(err), Err: err}
 	}
-	if replyable {
+	if peer != "" {
 		if err := s.replies.Bind(ctx, s.botID, s.config.ChatID, sent.MessageID, ReplyBinding{
 			LineID: incoming.LineID,
-			Number: normalizedPeer,
+			Number: peer,
 		}); err != nil {
 			s.observe(ctx, Event{Kind: EventOperationFailed, Operation: "bind_sms_reply", ErrorClass: errorClass(err)})
 			return &OperationError{Operation: "bind_sms_reply", Kind: errorClass(err), Err: err}

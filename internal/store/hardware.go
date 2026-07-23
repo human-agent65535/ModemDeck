@@ -186,6 +186,32 @@ func (s *Store) MarkMessageThreadRead(ctx context.Context, iccid, peer string) e
 	return nil
 }
 
+func (s *Store) MarkMessageThreadReadByLine(ctx context.Context, lineID, peer string) error {
+	lineID = strings.TrimSpace(lineID)
+	peer = strings.TrimSpace(peer)
+	if lineID == "" || peer == "" {
+		return fmt.Errorf("mark message thread read by line: line ID and peer are required")
+	}
+	if _, err := s.database.ExecContext(
+		ctx,
+		`UPDATE sms_contacts
+		 SET unread_count = 0, updated_at = CURRENT_TIMESTAMP
+		 WHERE peer = ? AND iccid = (
+			SELECT iccid
+			FROM sms
+			WHERE line_id = ? AND peer = ? AND COALESCE(iccid, '') <> ''
+			ORDER BY timestamp DESC, id DESC
+			LIMIT 1
+		 )`,
+		peer,
+		lineID,
+		peer,
+	); err != nil {
+		return fmt.Errorf("mark message thread read by line: %w", err)
+	}
+	return nil
+}
+
 func upsertHardwareLine(ctx context.Context, transaction *sql.Tx, line HardwareLine, observedAt time.Time) error {
 	line.ID = strings.TrimSpace(line.ID)
 	if line.ID == "" {

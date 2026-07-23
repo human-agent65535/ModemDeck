@@ -19,6 +19,7 @@ type CommunicationService interface {
 
 type Repository interface {
 	Messages(context.Context, store.MessageQuery) ([]store.Message, error)
+	MarkMessageThreadReadByLine(context.Context, string, string) error
 	TelegramNextOffset(context.Context, string) (int64, error)
 	AdvanceTelegramOffset(context.Context, string, int64) error
 	BindTelegramReply(context.Context, int64, int64, int64, store.TelegramReplyBinding) error
@@ -91,6 +92,10 @@ func (a adapters) Dial(ctx context.Context, request telegram.CallRequest) error 
 		Number:    request.To,
 	})
 	return err
+}
+
+func (a adapters) MarkMessageThreadRead(ctx context.Context, lineID, peer string) error {
+	return a.repository.MarkMessageThreadReadByLine(ctx, lineID, peer)
 }
 
 func (a adapters) Bind(

@@ -30,6 +30,7 @@ func TestNewServiceRequiresEnabledDependencies(t *testing.T) {
 		{name: "sender", mutate: func(d *Dependencies) { d.SMSSender = nil }, field: "sms_sender"},
 		{name: "dialer", mutate: func(d *Dependencies) { d.Dialer = nil }, field: "dialer"},
 		{name: "replies", mutate: func(d *Dependencies) { d.Replies = nil }, field: "replies"},
+		{name: "read marker", mutate: func(d *Dependencies) { d.Read = nil }, field: "read_marker"},
 	}
 	for _, test := range tests {
 		test := test
@@ -382,8 +383,14 @@ func TestServiceNotificationsAndReplyBinding(t *testing.T) {
 		!strings.Contains(sent[0].Text, "+818012345678") {
 		t.Fatalf("incoming notification = %#v", sent)
 	}
-	if !reflect.DeepEqual(bindings, []ReplyBinding{{LineID: "line-a", Number: "+818012345678"}}) {
+	if !reflect.DeepEqual(bindings, []ReplyBinding{{LineID: "line-a", Number: "+81 80-1234-5678"}}) {
 		t.Fatalf("bindings = %#v", bindings)
+	}
+	if sent[0].ReplyMarkup == nil ||
+		len(sent[0].ReplyMarkup.InlineKeyboard) != 1 ||
+		len(sent[0].ReplyMarkup.InlineKeyboard[0]) != 1 ||
+		sent[0].ReplyMarkup.InlineKeyboard[0][0].CallbackData != markReadCallbackData {
+		t.Fatalf("incoming notification markup = %#v", sent[0].ReplyMarkup)
 	}
 
 	if err := service.NotifyIncomingSMS(context.Background(), IncomingSMS{
@@ -408,6 +415,65 @@ func TestServiceNotificationsAndReplyBinding(t *testing.T) {
 	}
 	if len(sent) != 2 || !strings.Contains(sent[1].Text, "未接来电") {
 		t.Fatalf("missed-call notification = %#v", sent)
+	}
+}
+
+func TestServiceMarksTelegramNotificationRead(t *testing.T) {
+	t.Parallel()
+
+	var markedLine, markedPeer string
+	var answered AnswerCallbackQueryRequest
+	var edited EditMessageReplyMarkupRequest
+	dependencies := completeDependencies()
+	dependencies.Replies = replyStoreStub{
+		resolve: func(_ context.Context, botID, chatID, messageID int64) (ReplyBinding, error) {
+			if botID != testBotID || chatID != -100 || messageID != 501 {
+				t.Fatalf("Resolve(%d, %d, %d)", botID, chatID, messageID)
+			}
+			return ReplyBinding{LineID: "line-a", Number: "BANK ALERT"}, nil
+		},
+	}
+	dependencies.Read = messageReadMarkerFunc(func(_ context.Context, lineID, peer string) error {
+		markedLine = lineID
+		markedPeer = peer
+		return nil
+	})
+	dependencies.Bot = botStub{
+		answer: func(_ context.Context, request AnswerCallbackQueryRequest) error {
+			answered = request
+			return nil
+		},
+		editMarkup: func(_ context.Context, request EditMessageReplyMarkupRequest) error {
+			edited = request
+			return nil
+		},
+	}
+	service := mustService(t, validServiceConfig(), dependencies)
+
+	err := service.HandleUpdate(context.Background(), Update{
+		UpdateID: 70,
+		CallbackQuery: &CallbackQuery{
+			ID:   "callback-1",
+			From: BotUser{ID: 42},
+			Message: &Message{
+				MessageID: 501,
+				Chat:      Chat{ID: -100},
+			},
+			Data: markReadCallbackData,
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleUpdate() error = %v", err)
+	}
+	if markedLine != "line-a" || markedPeer != "BANK ALERT" {
+		t.Fatalf("marked thread = %q %q", markedLine, markedPeer)
+	}
+	if answered.CallbackQueryID != "callback-1" || answered.Text != "已标记已读" {
+		t.Fatalf("callback answer = %+v", answered)
+	}
+	if edited.ChatID != -100 || edited.MessageID != 501 ||
+		len(edited.ReplyMarkup.InlineKeyboard) != 0 {
+		t.Fatalf("edited markup = %+v", edited)
 	}
 }
 
@@ -630,7 +696,7 @@ func TestServiceNotificationFailuresAreTypedAndSafe(t *testing.T) {
 	})
 }
 
-func TestServiceNotifiesNonE164PeersWithoutReplyBinding(t *testing.T) {
+func TestServiceNotifiesNonE164PeersWithReadBinding(t *testing.T) {
 	t.Parallel()
 
 	var sent []SendMessageRequest
@@ -659,8 +725,8 @@ func TestServiceNotifiesNonE164PeersWithoutReplyBinding(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("NotifyMissedCall() error = %v", err)
 	}
-	if binds != 0 {
-		t.Fatalf("non-E.164 notification bindings = %d", binds)
+	if binds != 1 {
+		t.Fatalf("non-E.164 notification read bindings = %d", binds)
 	}
 	if len(sent) != 2 ||
 		!strings.Contains(sent[0].Text, "BANK ALERT") ||
@@ -714,6 +780,9 @@ func completeDependencies() Dependencies {
 			return nil
 		}),
 		Replies: replyStoreStub{},
+		Read: messageReadMarkerFunc(func(context.Context, string, string) error {
+			return nil
+		}),
 	}
 }
 
