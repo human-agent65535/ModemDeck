@@ -2,6 +2,20 @@
 
 set -eu
 
+usage() {
+    cat >&2 <<'EOF'
+usage: install-modemdeck-agent.sh [PREBUILT_AGENT_BINARY]
+
+Installs a prebuilt Linux modemdeck-agent and its systemd unit. This script
+does not build source or install packages.
+EOF
+}
+
+if [ "$#" -gt 1 ]; then
+    usage
+    exit 2
+fi
+
 if [ "$(id -u)" -ne 0 ]; then
     echo "install-modemdeck-agent.sh must run as root" >&2
     exit 1
@@ -17,6 +31,13 @@ repo_dir=$(CDPATH= cd -- "${script_dir}/.." && pwd)
 binary=${1:-"${repo_dir}/dist/modemdeck-agent"}
 agent_gid=${MODEMDECK_AGENT_GID:-10002}
 
+for command in getent groupadd install systemctl systemd-tmpfiles; do
+    if ! command -v "$command" >/dev/null 2>&1; then
+        echo "required runtime command is unavailable: $command" >&2
+        exit 1
+    fi
+done
+
 case "$agent_gid" in
     ""|*[!0-9]*)
         echo "MODEMDECK_AGENT_GID must be numeric" >&2
@@ -24,8 +45,8 @@ case "$agent_gid" in
         ;;
 esac
 
-if [ ! -x "$binary" ]; then
-    echo "agent binary is missing or not executable: $binary" >&2
+if [ ! -f "$binary" ] || [ -L "$binary" ] || [ ! -x "$binary" ]; then
+    echo "agent binary must be an executable regular file, not a symlink: $binary" >&2
     exit 1
 fi
 
@@ -48,6 +69,7 @@ else
     groupadd --system --gid "$agent_gid" modemdeck
 fi
 
+install -d -o root -g modemdeck -m 0750 /etc/modemdeck
 install -D -o root -g root -m 0755 \
     "$binary" /usr/local/bin/modemdeck-agent
 install -D -o root -g root -m 0644 \
@@ -63,3 +85,5 @@ systemctl enable modemdeck-agent.service
 systemctl restart modemdeck-agent.service
 
 printf 'modemdeck-agent installed; set MODEMDECK_AGENT_GID=%s for Docker Compose\n' "$agent_gid"
+printf '%s\n' \
+    'media remains disabled unless /etc/modemdeck/agent.env explicitly sets MODEMDECK_MEDIA_BINDINGS_FILE'

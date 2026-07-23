@@ -10,6 +10,9 @@ Group=modemdeck
 UMask=0007
 Environment=MODEMDECK_AGENT_SOCKET=/run/modemdeck/agent.sock
 Environment=MODEMDECK_AGENT_SOCKET_MODE=0660
+# Empty by default: media is enabled only through an explicit administrator
+# binding file configured in /etc/modemdeck/agent.env.
+Environment=MODEMDECK_MEDIA_BINDINGS_FILE=
 EnvironmentFile=-/etc/modemdeck/agent.env
 ExecStart=/usr/local/bin/modemdeck-agent --socket ${MODEMDECK_AGENT_SOCKET} --socket-mode ${MODEMDECK_AGENT_SOCKET_MODE}
 RuntimeDirectory=modemdeck

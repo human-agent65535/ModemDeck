@@ -28,10 +28,12 @@ services:
       MODEMDECK_AGENT_SOCKET: /run/modemdeck/agent.sock
       MODEMDECK_ADMIN_USERNAME: ${MODEMDECK_ADMIN_USERNAME:-admin}
       MODEMDECK_ADMIN_PASSWORD_FILE: /run/secrets/modemdeck_admin_password
+      MODEMDECK_SETTINGS_KEY_FILE: /run/secrets/modemdeck_settings_key
       MODEMDECK_SECURE_COOKIES: ${MODEMDECK_SECURE_COOKIES:-false}
       MODEMDECK_HEALTHCHECK_URL: http://127.0.0.1:7575/api/v1/health
     secrets:
       - modemdeck_admin_password
+      - modemdeck_settings_key
     volumes:
       - type: bind
         source: ./data
@@ -66,3 +68,5 @@ services:
 secrets:
   modemdeck_admin_password:
     file: ${MODEMDECK_ADMIN_PASSWORD_FILE:?MODEMDECK_ADMIN_PASSWORD_FILE must point to a host secret file}
+  modemdeck_settings_key:
+    file: ${MODEMDECK_SETTINGS_KEY_FILE:?MODEMDECK_SETTINGS_KEY_FILE must point to a host secret file}

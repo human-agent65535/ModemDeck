@@ -17,14 +17,19 @@ COPY web/ ./
 RUN npm run build
 
 
-FROM ${GO_IMAGE} AS app-builder
+FROM --platform=${TARGETPLATFORM} ${GO_IMAGE} AS app-builder
 
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+ARG TARGETOS
+ARG TARGETARCH
 
 ENV GOTOOLCHAIN=local \
-    CGO_ENABLED=0
+    CGO_ENABLED=1
 WORKDIR /workspace
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update \
+    && apt-get install -y --no-install-recommends libopus-dev=1.3.1-3
 
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -40,7 +45,8 @@ COPY --from=web-builder /workspace/web/dist/ ./internal/webapp/dist/
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
-    go build -mod=readonly -trimpath -buildvcs=false -ldflags="-s -w" \
+    go build -mod=readonly -tags=netgo,osusergo -trimpath -buildvcs=false \
+    -ldflags="-s -w -linkmode=external -extldflags=-static" \
     -o /out/modemdeck ./cmd/modemdeck
 
 
@@ -62,6 +68,7 @@ RUN apk add --no-cache ca-certificates=20260611-r0 \
     && adduser -S -D -H -h /nonexistent -s /sbin/nologin \
         -u "${MODEMDECK_UID}" -G modemdeck modemdeck \
     && mkdir -p /var/lib/modemdeck /run/modemdeck /tmp \
+    && ln -s /var/lib/modemdeck /data \
     && chown -R "${MODEMDECK_UID}:${MODEMDECK_GID}" /var/lib/modemdeck /tmp \
     && chmod 0770 /var/lib/modemdeck \
     && chmod 0750 /run/modemdeck
@@ -78,6 +85,7 @@ LABEL org.opencontainers.image.title="ModemDeck" \
 ENV MODEMDECK_HTTP_ADDRESS=0.0.0.0:7575 \
     MODEMDECK_DATABASE_PATH=/var/lib/modemdeck/modemdeck.db \
     MODEMDECK_LEGACY_DATABASE_PATH=/var/lib/modemdeck/vohive.db \
+    MODEMDECK_RECORDINGS_PATH=/data/recordings \
     MODEMDECK_AGENT_SOCKET=/run/modemdeck/agent.sock \
     MODEMDECK_HEALTHCHECK_URL=http://127.0.0.1:7575/api/v1/health
 
