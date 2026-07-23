@@ -8,7 +8,6 @@ import (
 
 const (
 	maxBotTokenLength = 256
-	maxLineScopes     = 256
 	maxLineIDLength   = 128
 )
 
@@ -39,10 +38,6 @@ func (e *ConfigError) Error() string {
 }
 
 func (c Config) Validate() error {
-	if len(c.LineScopes) > maxLineScopes {
-		return &ConfigError{Field: "line_scopes", Reason: "too many entries"}
-	}
-
 	seen := make(map[string]struct{}, len(c.LineScopes))
 	for _, lineID := range c.LineScopes {
 		if err := validateLineID(lineID); err != nil {

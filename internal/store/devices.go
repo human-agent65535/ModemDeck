@@ -19,8 +19,7 @@ func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 		FROM devices d
 		LEFT JOIN sim_cards s ON s.iccid = d.iccid
 		LEFT JOIN sim_subscriptions ss ON ss.imsi = s.imsi
-		ORDER BY LOWER(COALESCE(d.alias, '')) ASC, d.imei ASC
-		LIMIT ?`, MaxQueryLimit)
+		ORDER BY LOWER(COALESCE(d.alias, '')) ASC, d.imei ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("query devices: %w", err)
 	}
@@ -117,8 +116,7 @@ func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
 		line_rows.operator, line_rows.device_imei, COALESCE(devices.alias, '')
 	FROM line_rows
 	LEFT JOIN devices ON devices.imei = line_rows.device_imei
-	ORDER BY COALESCE(NULLIF(line_rows.phone_number, ''), line_rows.iccid, line_rows.imsi) ASC
-	LIMIT ?`, MaxQueryLimit)
+	ORDER BY COALESCE(NULLIF(line_rows.phone_number, ''), line_rows.iccid, line_rows.imsi) ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("query lines: %w", err)
 	}

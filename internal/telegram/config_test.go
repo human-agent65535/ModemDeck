@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -162,6 +163,23 @@ func TestConfigAllowsLine(t *testing.T) {
 	}
 	if config.AllowsLine("line-c") {
 		t.Fatal("unconfigured line was allowed")
+	}
+}
+
+func TestConfigLineScopesHaveNoProductCountLimit(t *testing.T) {
+	t.Parallel()
+
+	const count = 300
+	scopes := make([]string, 0, count)
+	for index := 0; index < count; index++ {
+		scopes = append(scopes, fmt.Sprintf("line-%03d", index))
+	}
+	config := Config{LineScopes: scopes}
+	if err := config.Validate(); err != nil {
+		t.Fatalf("Validate() with %d line scopes error = %v", count, err)
+	}
+	if !config.AllowsLine(scopes[count-1]) {
+		t.Fatalf("AllowsLine() rejected line %q", scopes[count-1])
 	}
 }
 
