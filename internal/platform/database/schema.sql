@@ -203,6 +203,7 @@ CREATE TABLE devices (
 CREATE TABLE sim_cards (
 			iccid TEXT PRIMARY KEY,
 			imsi TEXT NOT NULL DEFAULT '',
+			line_label TEXT NOT NULL DEFAULT '',
 			operator TEXT NOT NULL DEFAULT '',
 			current_imei TEXT,
 			reg_status INTEGER NOT NULL DEFAULT 0,

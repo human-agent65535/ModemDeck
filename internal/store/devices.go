@@ -12,9 +12,15 @@ var (
 	ErrDeviceNotFound   = errors.New("device not found")
 	ErrDeviceConflict   = errors.New("device already exists")
 	ErrDeviceValidation = errors.New("device validation failed")
+	ErrLineNotFound     = errors.New("line not found")
+	ErrLineValidation   = errors.New("line validation failed")
 )
 
-const maxDeviceAliasLength = 100
+const (
+	maxDeviceAliasLength = 100
+	maxLineLabelLength   = 16
+	maxLineICCIDLength   = 64
+)
 
 func (s *Store) CreateDevice(ctx context.Context, input DeviceInput) (Device, error) {
 	imei, alias, err := normalizeDeviceInput(input)
@@ -71,6 +77,45 @@ func (s *Store) RenameDevice(ctx context.Context, imei, alias string) (Device, e
 		return Device{}, ErrDeviceNotFound
 	}
 	return s.device(ctx, imei)
+}
+
+func (s *Store) UpdateLineLabel(ctx context.Context, iccid, label string) (LineSummary, error) {
+	iccid = strings.TrimSpace(iccid)
+	if iccid == "" || len([]rune(iccid)) > maxLineICCIDLength {
+		return LineSummary{}, fmt.Errorf("%w: ICCID is invalid", ErrLineValidation)
+	}
+	label = strings.TrimSpace(label)
+	if len([]rune(label)) > maxLineLabelLength {
+		return LineSummary{}, fmt.Errorf("%w: label is too long", ErrLineValidation)
+	}
+	result, err := s.database.ExecContext(
+		ctx,
+		`UPDATE sim_cards
+		 SET line_label = ?, updated_at = CURRENT_TIMESTAMP
+		 WHERE iccid = ?`,
+		label,
+		iccid,
+	)
+	if err != nil {
+		return LineSummary{}, fmt.Errorf("update line label: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return LineSummary{}, fmt.Errorf("read updated line count: %w", err)
+	}
+	if affected != 1 {
+		return LineSummary{}, ErrLineNotFound
+	}
+	lines, err := s.Lines(ctx)
+	if err != nil {
+		return LineSummary{}, err
+	}
+	for _, line := range lines {
+		if line.ICCID == iccid {
+			return line, nil
+		}
+	}
+	return LineSummary{}, ErrLineNotFound
 }
 
 func normalizeDeviceInput(input DeviceInput) (string, string, error) {
@@ -195,6 +240,7 @@ func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
 	rows, err := s.database.QueryContext(ctx, `WITH line_rows AS (
 		SELECT
 			s.iccid AS iccid,
+			s.line_label AS line_label,
 			s.imsi AS imsi,
 			COALESCE(NULLIF(ss.phone_number, ''), NULLIF(ss.modem_phone_number, ''), NULLIF(ss.vowifi_phone_number, ''), '') AS phone_number,
 			COALESCE(NULLIF(s.operator, ''), ss.operator, '') AS operator,
@@ -206,6 +252,7 @@ func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
 		UNION ALL
 		SELECT
 			ss.current_iccid,
+			COALESCE((SELECT sim_cards.line_label FROM sim_cards WHERE sim_cards.iccid = ss.current_iccid), ''),
 			ss.imsi,
 			COALESCE(NULLIF(ss.phone_number, ''), NULLIF(ss.modem_phone_number, ''), NULLIF(ss.vowifi_phone_number, ''), ''),
 			ss.operator,
@@ -213,7 +260,7 @@ func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
 		FROM sim_subscriptions ss
 		WHERE NOT EXISTS (SELECT 1 FROM sim_cards WHERE sim_cards.imsi = ss.imsi)
 	)
-	SELECT line_rows.iccid, line_rows.imsi, line_rows.phone_number,
+	SELECT line_rows.iccid, line_rows.line_label, line_rows.imsi, line_rows.phone_number,
 		line_rows.operator, line_rows.device_imei, COALESCE(devices.alias, '')
 	FROM line_rows
 	LEFT JOIN devices ON devices.imei = line_rows.device_imei
@@ -226,13 +273,22 @@ func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
 	lines := make([]LineSummary, 0)
 	for rows.Next() {
 		var (
-			line                                                  LineSummary
-			iccid, imsi, phone, operator, deviceIMEI, deviceAlias sql.NullString
+			line                                                             LineSummary
+			iccid, lineLabel, imsi, phone, operator, deviceIMEI, deviceAlias sql.NullString
 		)
-		if err := rows.Scan(&iccid, &imsi, &phone, &operator, &deviceIMEI, &deviceAlias); err != nil {
+		if err := rows.Scan(
+			&iccid,
+			&lineLabel,
+			&imsi,
+			&phone,
+			&operator,
+			&deviceIMEI,
+			&deviceAlias,
+		); err != nil {
 			return nil, fmt.Errorf("scan line: %w", err)
 		}
 		line.ICCID = stringValue(iccid)
+		line.LineLabel = stringValue(lineLabel)
 		line.IMSI = stringValue(imsi)
 		line.PhoneNumber = stringValue(phone)
 		line.Operator = stringValue(operator)

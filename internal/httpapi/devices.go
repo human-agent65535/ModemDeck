@@ -9,12 +9,22 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
+const maxLineLabelICCIDLength = 64
+
 type renameDeviceRequest struct {
 	Alias *string `json:"alias"`
 }
 
 type deviceResponse struct {
 	Device store.Device `json:"device"`
+}
+
+type updateLineLabelRequest struct {
+	LineLabel *string `json:"line_label"`
+}
+
+type lineResponse struct {
+	Line store.LineSummary `json:"line"`
 }
 
 func (api *API) devicesCollection(response http.ResponseWriter, request *http.Request) {
@@ -66,6 +76,57 @@ func (api *API) deviceResource(response http.ResponseWriter, request *http.Reque
 	writeJSON(response, http.StatusOK, deviceResponse{Device: device})
 }
 
+func (api *API) lineLabelResource(
+	response http.ResponseWriter,
+	request *http.Request,
+	iccid string,
+) {
+	if request.Method != http.MethodPatch {
+		response.Header().Set("Allow", http.MethodPatch)
+		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only PATCH is supported", "")
+		return
+	}
+	var input updateLineLabelRequest
+	if !decodeJSONBody(response, request, &input) {
+		return
+	}
+	if input.LineLabel == nil {
+		writeError(
+			response,
+			http.StatusBadRequest,
+			"invalid_argument",
+			"line_label is required",
+			"line_label",
+		)
+		return
+	}
+	line, err := api.repository.UpdateLineLabel(request.Context(), iccid, *input.LineLabel)
+	if err != nil {
+		switch {
+		case errors.Is(err, store.ErrLineValidation):
+			writeError(
+				response,
+				http.StatusBadRequest,
+				"invalid_line_label",
+				"Line label is invalid",
+				"line_label",
+			)
+		case errors.Is(err, store.ErrLineNotFound):
+			writeError(
+				response,
+				http.StatusNotFound,
+				"line_not_found",
+				"Line was not found",
+				"iccid",
+			)
+		default:
+			api.writeInternalError(response, request, "update line label", err)
+		}
+		return
+	}
+	writeJSON(response, http.StatusOK, lineResponse{Line: line})
+}
+
 func (api *API) writeDeviceError(
 	response http.ResponseWriter,
 	request *http.Request,
@@ -102,4 +163,29 @@ func deviceResourceIMEI(path string) (string, bool) {
 		return "", false
 	}
 	return imei, true
+}
+
+func lineLabelResourceICCID(path string) (string, bool) {
+	const (
+		prefix = "/api/v1/lines/"
+		suffix = "/label"
+	)
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		return "", false
+	}
+	encoded := strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
+	if encoded == "" || strings.Contains(encoded, "/") || len(encoded) > 192 {
+		return "", false
+	}
+	iccid, err := url.PathUnescape(encoded)
+	if err != nil {
+		return "", false
+	}
+	iccid = strings.TrimSpace(iccid)
+	if iccid == "" ||
+		strings.Contains(iccid, "/") ||
+		len([]rune(iccid)) > maxLineLabelICCIDLength {
+		return "", false
+	}
+	return iccid, true
 }

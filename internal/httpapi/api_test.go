@@ -32,6 +32,10 @@ type fakeRepository struct {
 	recordingEntries   []store.RecordingEntry
 	recordingError     error
 	lines              []store.LineSummary
+	updateLineICCID    string
+	updateLineLabel    string
+	updateLineResult   store.LineSummary
+	updateLineError    error
 }
 
 func (repository *fakeRepository) Ping(context.Context) error {
@@ -111,6 +115,16 @@ func (repository *fakeRepository) RenameDevice(
 
 func (repository *fakeRepository) Lines(context.Context) ([]store.LineSummary, error) {
 	return repository.lines, nil
+}
+
+func (repository *fakeRepository) UpdateLineLabel(
+	_ context.Context,
+	iccid string,
+	label string,
+) (store.LineSummary, error) {
+	repository.updateLineICCID = iccid
+	repository.updateLineLabel = label
+	return repository.updateLineResult, repository.updateLineError
 }
 
 func (repository *fakeRepository) LineSettings(context.Context) (store.LineSettings, error) {
@@ -242,6 +256,7 @@ func TestBootstrapMergesPersistedIdentityIntoLiveLines(t *testing.T) {
 
 	repository := &fakeRepository{lines: []store.LineSummary{{
 		ICCID:       "8986010000000000001",
+		LineLabel:   "主卡",
 		IMSI:        "460010000000001",
 		PhoneNumber: "+818000000001",
 		Operator:    "China Unicom",
@@ -286,7 +301,8 @@ func TestBootstrapMergesPersistedIdentityIntoLiveLines(t *testing.T) {
 		t.Fatalf("line count = %d, want 1", len(body.Lines))
 	}
 	line := body.Lines[0]
-	if line.DeviceAlias != "主线路" ||
+	if line.LineLabel != "主卡" ||
+		line.DeviceAlias != "主线路" ||
 		line.PhoneNumber != "+818000000001" ||
 		line.Model != "QDC507" ||
 		line.State != "registered" ||
@@ -295,6 +311,52 @@ func TestBootstrapMergesPersistedIdentityIntoLiveLines(t *testing.T) {
 	}
 	if line.Operator != "46001" {
 		t.Fatalf("operator = %q, want live value to remain authoritative", line.Operator)
+	}
+}
+
+func TestBootstrapMergesPersistedLineLabelByIMSI(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeRepository{lines: []store.LineSummary{{
+		ICCID:      "8986010000000000001",
+		LineLabel:  "副卡",
+		IMSI:       "460010000000001",
+		DeviceIMEI: "860000000000001",
+	}}}
+	communications := &fakeCommunications{status: communication.Status{
+		Connected: true,
+		Lines: []store.LineSummary{{
+			ID:         "line-without-iccid",
+			IMSI:       "460010000000001",
+			DeviceIMEI: "860000000000001",
+			State:      "registered",
+		}},
+	}}
+	api, err := New(repository, Options{
+		Communications:        communications,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/bootstrap", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", response.Code, response.Body.String())
+	}
+	var body bootstrapResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode bootstrap: %v", err)
+	}
+	if len(body.Lines) != 1 {
+		t.Fatalf("line count = %d, want 1", len(body.Lines))
+	}
+	if body.Lines[0].LineLabel != "副卡" {
+		t.Fatalf("line label = %q, want 副卡", body.Lines[0].LineLabel)
+	}
+	if body.Lines[0].ICCID != "" {
+		t.Fatalf("live ICCID = %q, want empty ICCID to remain non-editable", body.Lines[0].ICCID)
 	}
 }
 

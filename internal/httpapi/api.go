@@ -38,6 +38,7 @@ type Repository interface {
 	CreateDevice(context.Context, store.DeviceInput) (store.Device, error)
 	RenameDevice(context.Context, string, string) (store.Device, error)
 	Lines(context.Context) ([]store.LineSummary, error)
+	UpdateLineLabel(context.Context, string, string) (store.LineSummary, error)
 	LineSettings(context.Context) (store.LineSettings, error)
 	UpdateLineSettings(context.Context, string, int64) (store.LineSettings, error)
 }
@@ -301,6 +302,10 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 			api.deviceResource(response, request, imei)
 			return
 		}
+		if iccid, ok := lineLabelResourceICCID(request.URL.EscapedPath()); ok {
+			api.lineLabelResource(response, request, iccid)
+			return
+		}
 		if id, ok := deviceConfigurationResourceID(request.URL.Path); ok {
 			api.deviceConfiguration(response, request, id)
 			return
@@ -411,6 +416,7 @@ func mergePersistedLineMetadata(
 			}
 		}
 		if found {
+			line.LineLabel = persisted.LineLabel
 			if line.PhoneNumber == "" {
 				line.PhoneNumber = persisted.PhoneNumber
 			}
