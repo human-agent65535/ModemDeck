@@ -9,19 +9,24 @@ project and is not affiliated with Google Voice, modem vendors, or network
 operators.
 
 > **Rewrite status:** ModemDeck is a clean rewrite in progress. The current
-> delivery target is a read-only legacy-data vertical slice, not a working
-> cellular send/call product. Repository code, passing software tests, or a
-> detected modem must not be treated as proof of hardware support.
+> delivery includes authenticated contact management and read-only historical
+> communication data. It is not yet a working cellular send/call product.
+> Repository code, passing software tests, or a detected modem must not be
+> treated as proof of hardware support.
 
 ## Delivery boundary
 
-### Current vertical slice: read-only legacy data
+### Current vertical slice: authentication, contacts, and historical data
 
 The first slice is deliberately independent of cellular hardware:
 
 - transfer a stopped `vohive.db` SQLite file family to `modemdeck.db`;
-- present retained contacts, historical messages, and historical calls through
-  read-only application APIs and screens;
+- authenticate one configured administrator with an Argon2id password hash,
+  bounded server-side sessions, HttpOnly cookies, and CSRF protection;
+- create, edit, and delete contacts with canonical phone-number uniqueness and
+  optimistic revision checks;
+- present historical messages, calls, devices, and lines through read-only
+  application APIs and screens;
 - verify migration counts, relationships, and failure behavior without starting
   a modem runtime.
 
@@ -29,9 +34,9 @@ This slice does not send or receive live SMS, edit modem/SIM settings, place or
 answer calls, request a browser microphone, or claim that a host agent works on
 real hardware.
 
-The current HTTP surface is unauthenticated. Docker Compose therefore binds to
-`127.0.0.1` by default. Do not expose it to a shared network without an explicit
-authentication and reverse-proxy boundary.
+Docker Compose still binds to `127.0.0.1` by default. Built-in authentication
+does not provide TLS; use an HTTPS reverse proxy and set
+`MODEMDECK_SECURE_COOKIES=true` before exposing the service to a shared network.
 
 ### Future phases: hardware send and call work
 
@@ -65,8 +70,9 @@ The only legacy compatibility is a one-time SQLite ownership transfer:
   `-journal` sidecars are renamed as one file family;
 - all tables, indexes, and triggers remain in the database so unknown legacy
   data is not discarded;
-- ModemDeck reads only its documented contact, message, call-history, and
-  historical line tables; retained operational tables are inert;
+- ModemDeck reads and writes its documented contact tables and reads the
+  documented message, call-history, and historical line tables; retained
+  operational tables are inert;
 - after a successful transfer, `modemdeck.db` is the only runtime database
   path and `vohive.db` no longer exists.
 
@@ -112,11 +118,19 @@ SMS or calls.
 2. Back up the complete SQLite file family as described in the migration guide.
 3. Choose stable numeric IDs in `.env`; keep `MODEMDECK_AGENT_GID` distinct from
    `MODEMDECK_GID`.
-4. Run `make install-agent` on the Linux host. This installs and starts the
+4. Create the password file named by `MODEMDECK_ADMIN_PASSWORD_FILE`. It must
+   contain 12 to 1024 bytes and should be readable only by the operator. The
+   password is mounted as a Docker secret, not placed in the container
+   environment or command line.
+5. Run `make install-agent` on the Linux host. This installs and starts the
    systemd unit and creates `/run/modemdeck/agent.sock`.
-5. Run `make prepare-data` once, then `docker compose up --detach --build`.
-6. Keep the default loopback bind, or place an authenticated reverse proxy in
-   front before changing `MODEMDECK_BIND_ADDRESS`.
+6. Run `make prepare-data` once, then `docker compose up --detach --build`.
+7. Keep the default loopback bind, or place an HTTPS reverse proxy in front
+   before changing `MODEMDECK_BIND_ADDRESS`.
+
+The default username is `admin` and can be changed with
+`MODEMDECK_ADMIN_USERNAME`. Changing the password file value on restart updates
+the Argon2id hash and revokes all existing sessions atomically.
 
 The application container remains non-root, read-only, and without host D-Bus,
 `/dev`, host networking, or Linux capabilities. The socket group is its only

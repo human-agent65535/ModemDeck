@@ -86,6 +86,7 @@ jobs:
       - name: Validate Compose
         env:
           MODEMDECK_AGENT_GID: "10002"
+          MODEMDECK_ADMIN_PASSWORD_FILE: /dev/null
         run: docker compose config --quiet
 
       - name: Check Dockerfile
