@@ -1,0 +1,75 @@
+# Build outputs
+/modemdeck
+/modemdeck-agent
+/mbimprobe
+*.exe
+*.dll
+*.so
+*.dylib
+*.o
+
+# Runtime data and logs
+/data/
+/logs/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.log
+
+# Frontend build outputs
+/web/dist/
+/web/node_modules/
+/web-reader/dist/
+/web-reader/node_modules/
+/internal/web/dist/
+/internal/webapp/dist/*
+!/internal/webapp/dist/.keep
+/dist/*
+
+# Editors
+.idea/
+.vscode/
+.agent/
+.shared/
+*.swp
+*.swo
+*~
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Local configuration and secrets
+/config/config.yaml
+/config/*.yaml
+!config/config.example.yaml
+.env
+!.env.example
+
+# Test coverage
+coverage.out
+*.cover
+*.coverprofile
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+/server
+/reader
+*.code-workspace
+PushNotification.pdf
+Quectel_LTE_Standard_UAC_应用指导_V1.0.pdf
+go.work
+go.work.sum
+
+# macOS AppleDouble metadata
+**/._*
+.superpowers/*
+.codex
+web/tests
+.worktrees/
+Quectel_EC2xEG2xEG9xEM05_Series_AT_Commands_Manual_V2.2.pdf
+Quectel_EC2xEG2xEG9xEM05_Series_QCFG_AT_Commands_Manual_V1.6.pdf
+410sim自动激活脚本/*

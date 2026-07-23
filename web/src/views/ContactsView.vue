@@ -1,0 +1,261 @@
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import {
+  ArrowLeft,
+  MessageSquareText,
+  Pencil,
+  Phone,
+  Trash2,
+  UserPlus
+} from '@lucide/vue'
+import type { Contact, ContactInput } from '../api/types'
+import BaseAvatar from '../components/BaseAvatar.vue'
+import ContactEditor from '../components/ContactEditor.vue'
+import SearchField from '../components/SearchField.vue'
+import StatePanel from '../components/StatePanel.vue'
+import { openDialer } from '../state/ui'
+import {
+  capabilityReason,
+  contactsResource,
+  deleteContact,
+  loadContacts,
+  saveContact,
+  interactiveMode
+} from '../state/workspace'
+import { primaryPhone } from '../utils/format'
+
+const route = useRoute()
+const router = useRouter()
+const search = ref('')
+const editorOpen = ref(false)
+const editing = ref<Contact | undefined>()
+const saving = ref(false)
+const editorError = ref('')
+const deleting = ref(false)
+
+const filteredContacts = computed(() => {
+  const query = search.value.trim().toLocaleLowerCase()
+  const digits = query.replace(/\D/g, '')
+  return contactsResource.data
+    .filter(contact => {
+      if (!query) return true
+      return (
+        contact.display_name.toLocaleLowerCase().includes(query) ||
+        (digits.length > 0 &&
+          contact.phones.some(phone => phone.number.replace(/\D/g, '').includes(digits)))
+      )
+    })
+    .slice()
+    .sort((a, b) => a.display_name.localeCompare(b.display_name))
+})
+
+const selectedId = computed(() => String(route.params.contactId || ''))
+const selected = computed(() => contactsResource.data.find(contact => contact.id === selectedId.value))
+const messageUnavailable = computed(() => capabilityReason('message'))
+const dialUnavailable = computed(() => capabilityReason('dial'))
+
+watch(
+  () => contactsResource.status,
+  status => {
+    if (status === 'ready' && selectedId.value && !selected.value) {
+      void router.replace({ name: 'contacts' })
+    }
+  }
+)
+
+function selectContact(contact: Contact): void {
+  void router.push({ name: 'contacts', params: { contactId: contact.id } })
+}
+
+function backToList(): void {
+  void router.push({ name: 'contacts' })
+}
+
+function openNew(): void {
+  editing.value = undefined
+  editorError.value = ''
+  editorOpen.value = true
+}
+
+function openEdit(contact: Contact): void {
+  editing.value = contact
+  editorError.value = ''
+  editorOpen.value = true
+}
+
+async function save(input: ContactInput): Promise<void> {
+  saving.value = true
+  editorError.value = ''
+  try {
+    const contact = await saveContact(input, editing.value?.id)
+    editorOpen.value = false
+    await router.push({ name: 'contacts', params: { contactId: contact.id } })
+  } catch (error) {
+    editorError.value = error instanceof Error ? error.message : '联系人保存失败'
+  } finally {
+    saving.value = false
+  }
+}
+
+async function remove(contact: Contact): Promise<void> {
+  if (!window.confirm(`删除联系人“${contact.display_name}”？`)) return
+  deleting.value = true
+  try {
+    await deleteContact(contact)
+    await router.replace({ name: 'contacts' })
+  } catch (error) {
+    editorError.value = error instanceof Error ? error.message : '联系人删除失败'
+  } finally {
+    deleting.value = false
+  }
+}
+
+function call(contact: Contact, number: string): void {
+  if (dialUnavailable.value) return
+  openDialer(number, contact.display_name)
+}
+
+function message(contact: Contact, number: string): void {
+  if (messageUnavailable.value) return
+  void router.push({ name: 'messages', query: { compose: number, name: contact.display_name } })
+}
+
+onMounted(() => {
+  void loadContacts()
+})
+</script>
+
+<template>
+  <section class="workspace" :class="{ 'has-selection': selected }">
+    <aside class="list-pane">
+      <header class="pane-header">
+        <div>
+          <h1>联系人</h1>
+          <span v-if="contactsResource.status === 'ready'">{{ contactsResource.data.length }}</span>
+        </div>
+        <button v-if="interactiveMode" class="icon-button" type="button" title="新建联系人" @click="openNew">
+          <UserPlus :size="19" />
+        </button>
+      </header>
+      <div class="pane-search">
+        <SearchField v-model="search" placeholder="搜索姓名或号码" />
+      </div>
+
+      <StatePanel
+        v-if="contactsResource.status === 'loading'"
+        state="loading"
+        title="正在载入联系人"
+      />
+      <StatePanel
+        v-else-if="contactsResource.status === 'error'"
+        state="error"
+        title="无法载入联系人"
+        :detail="contactsResource.error"
+        retryable
+        @retry="loadContacts(true)"
+      />
+      <StatePanel
+        v-else-if="filteredContacts.length === 0"
+        state="empty"
+        :title="search ? '没有匹配的联系人' : '还没有联系人'"
+      />
+      <div v-else class="item-list" role="list">
+        <button
+          v-for="contact in filteredContacts"
+          :key="contact.id"
+          class="list-item"
+          :class="{ 'is-selected': contact.id === selectedId }"
+          type="button"
+          @click="selectContact(contact)"
+        >
+          <BaseAvatar :name="contact.display_name" />
+          <span class="list-item__content">
+            <strong>{{ contact.display_name }}</strong>
+            <small>{{ primaryPhone(contact.phones) || '没有号码' }}</small>
+          </span>
+        </button>
+      </div>
+    </aside>
+
+    <article class="detail-pane">
+      <template v-if="selected">
+        <header class="detail-header">
+          <button class="icon-button mobile-back" type="button" title="返回联系人" @click="backToList">
+            <ArrowLeft :size="20" />
+          </button>
+          <BaseAvatar :name="selected.display_name" size="large" />
+          <div class="detail-header__identity">
+            <h2>{{ selected.display_name }}</h2>
+            <span v-if="selected.notes">{{ selected.notes }}</span>
+          </div>
+          <div v-if="interactiveMode" class="detail-header__actions">
+            <button class="icon-button" type="button" title="编辑联系人" @click="openEdit(selected)">
+              <Pencil :size="18" />
+            </button>
+            <button
+              class="icon-button icon-button--danger"
+              type="button"
+              title="删除联系人"
+              :disabled="deleting"
+              @click="remove(selected)"
+            >
+              <Trash2 :size="18" />
+            </button>
+          </div>
+        </header>
+
+        <div class="contact-detail">
+          <section class="detail-section">
+            <h3>电话号码</h3>
+            <div v-for="phone in selected.phones" :key="phone.id" class="phone-detail-row">
+              <span>
+                <small>{{ phone.label }}{{ phone.primary ? ' · 主要' : '' }}</small>
+                <strong>{{ phone.number }}</strong>
+              </span>
+              <span class="row-actions">
+                <button
+                  class="icon-button"
+                  type="button"
+                  :disabled="Boolean(dialUnavailable)"
+                  :title="dialUnavailable || '拨打'"
+                  @click="call(selected, phone.number)"
+                >
+                  <Phone :size="18" />
+                </button>
+                <button
+                  class="icon-button"
+                  type="button"
+                  :disabled="Boolean(messageUnavailable)"
+                  :title="messageUnavailable || '发送消息'"
+                  @click="message(selected, phone.number)"
+                >
+                  <MessageSquareText :size="18" />
+                </button>
+              </span>
+            </div>
+          </section>
+          <p v-if="dialUnavailable || messageUnavailable" class="unavailable-note">
+            {{ dialUnavailable || messageUnavailable }}
+          </p>
+        </div>
+      </template>
+
+      <StatePanel
+        v-else
+        state="empty"
+        title="选择一个联系人"
+        detail="联系人详情会显示在这里"
+      />
+    </article>
+
+    <ContactEditor
+      :open="editorOpen"
+      :contact="editing"
+      :saving="saving"
+      :error="editorError"
+      @close="editorOpen = false"
+      @save="save"
+    />
+  </section>
+</template>

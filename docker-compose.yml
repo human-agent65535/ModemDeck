@@ -1,0 +1,59 @@
+name: modemdeck
+
+services:
+  modemdeck:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        VERSION: ${MODEMDECK_VERSION:-dev}
+        BUILD_DATE: ${MODEMDECK_BUILD_DATE:-unknown}
+        VCS_REF: ${MODEMDECK_VCS_REF:-unknown}
+        MODEMDECK_UID: ${MODEMDECK_UID:-10001}
+        MODEMDECK_GID: ${MODEMDECK_GID:-10001}
+    image: ${MODEMDECK_IMAGE:-modemdeck}:${MODEMDECK_VERSION:-dev}
+    container_name: modemdeck
+    restart: unless-stopped
+    init: true
+    user: "${MODEMDECK_UID:-10001}:${MODEMDECK_GID:-10001}"
+    group_add:
+      - "${MODEMDECK_AGENT_GID:?MODEMDECK_AGENT_GID must match the host modemdeck group}"
+    ports:
+      - "${MODEMDECK_BIND_ADDRESS:-127.0.0.1}:${MODEMDECK_PORT:-7575}:7575"
+    environment:
+      MODEMDECK_HTTP_ADDRESS: 0.0.0.0:7575
+      MODEMDECK_DATABASE_PATH: /var/lib/modemdeck/modemdeck.db
+      MODEMDECK_LEGACY_DATABASE_PATH: /var/lib/modemdeck/vohive.db
+      MODEMDECK_AGENT_SOCKET: /run/modemdeck/agent.sock
+      MODEMDECK_HEALTHCHECK_URL: http://127.0.0.1:7575/api/v1/health
+    volumes:
+      - type: bind
+        source: ./data
+        target: /var/lib/modemdeck
+        read_only: false
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /run/modemdeck
+        target: /run/modemdeck
+        read_only: true
+        bind:
+          create_host_path: false
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q -T 3 -O /dev/null "$${MODEMDECK_HEALTHCHECK_URL}" || exit 1
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    stop_grace_period: 20s
