@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { Circle, Delete, LoaderCircle, Phone, RotateCcw, X } from '@lucide/vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { Circle, Delete, LoaderCircle, Phone, X } from '@lucide/vue'
 import { callState, dial } from '../state/call'
 import { closeDialer, uiState } from '../state/ui'
 import {
@@ -16,7 +16,8 @@ import {
   lineKey,
   lineLabel,
   lineSupports,
-  loadContacts
+  loadContacts,
+  resolveLine
 } from '../state/workspace'
 import ContactSuggestInput from './ContactSuggestInput.vue'
 
@@ -33,7 +34,14 @@ const number = ref('')
 const contactLabel = ref('')
 const selectedLineId = ref('')
 const inputAutofocus = ref(false)
+const draftContextLineKey = ref('')
+const lineSelectionOverridden = ref(false)
 let resettingDraft = false
+let zeroHoldTimer: number | undefined
+let zeroPointerId: number | undefined
+let zeroLongPressTriggered = false
+
+const zeroLongPressDelay = 500
 
 const keypad = [
   { digit: '1', letters: '' },
@@ -51,6 +59,9 @@ const keypad = [
 ]
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
+const defaultLineDeviceIMEI = computed(
+  () => bootstrapResource.data?.line_settings.default_device_imei || ''
+)
 const selectedLine = computed(() => lines.value.find(line => lineKey(line) === selectedLineId.value))
 const dialUnavailable = computed(() => capabilityReason('dial'))
 const activeCallUnavailable = computed(() => {
@@ -71,13 +82,6 @@ const disabledReason = computed(
     validationError.value ||
     (!number.value.trim() ? '请输入号码' : '')
 )
-const recordingStatusLabel = computed(() => {
-  if (dialerRecordingState.status === 'loading') return '正在读取默认设置'
-  if (dialerRecordingState.status === 'error') return '默认设置不可用'
-  if (dialerRecordingState.overridden) return '已覆盖默认设置'
-  return dialerRecordingState.enabled ? '跟随默认：开启' : '跟随默认：关闭'
-})
-
 function focusNumber(): void {
   inputAutofocus.value = false
   void nextTick(() => {
@@ -85,13 +89,25 @@ function focusNumber(): void {
   })
 }
 
-function beginDraft(target = '', label = '', focus = false): void {
+function syncResolvedLine(force = false): void {
+  const selectedStillExists = lines.value.some(line => lineKey(line) === selectedLineId.value)
+  if (!selectedStillExists) lineSelectionOverridden.value = false
+  if (!force && lineSelectionOverridden.value) return
+
+  const resolved = resolveLine('dial', {
+    contextKey: draftContextLineKey.value,
+    number: number.value
+  })
+  selectedLineId.value = resolved ? lineKey(resolved) : ''
+}
+
+function beginDraft(target = '', label = '', focus = false, contextLineKey = ''): void {
   resettingDraft = true
   number.value = target
   contactLabel.value = label
-  if (!lines.value.some(line => lineKey(line) === selectedLineId.value)) {
-    selectedLineId.value = ''
-  }
+  draftContextLineKey.value = contextLineKey
+  lineSelectionOverridden.value = false
+  syncResolvedLine(true)
   resettingDraft = false
   void resetDialerRecording()
   if (focus) focusNumber()
@@ -100,7 +116,9 @@ function beginDraft(target = '', label = '', focus = false): void {
 watch(
   () => uiState.dialRequestRevision,
   revision => {
-    if (revision > 0) beginDraft(uiState.dialTarget, uiState.dialLabel, true)
+    if (revision > 0) {
+      beginDraft(uiState.dialTarget, uiState.dialLabel, true, uiState.dialLineKey)
+    }
     void loadContacts()
   }
 )
@@ -115,14 +133,8 @@ watch(
 )
 
 watch(
-  lines,
-  value => {
-    if (!value.some(line => lineKey(line) === selectedLineId.value)) {
-      const hadLine = Boolean(selectedLineId.value)
-      selectedLineId.value = ''
-      if (hadLine) void resetDialerRecording()
-    }
-  },
+  [lines, defaultLineDeviceIMEI, () => contactsResource.data, number],
+  () => syncResolvedLine(),
   { immediate: true }
 )
 
@@ -133,12 +145,56 @@ watch(number, (value, previous) => {
 })
 
 function appendDigit(digit: string): void {
-  if (digit === '0' && number.value === '') {
-    number.value = '0'
-    return
-  }
   number.value += digit
   contactLabel.value = ''
+}
+
+function clearZeroHold(): void {
+  if (zeroHoldTimer !== undefined) window.clearTimeout(zeroHoldTimer)
+  zeroHoldTimer = undefined
+}
+
+function startZeroHold(event: PointerEvent): void {
+  if (event.pointerType === 'mouse' && event.button !== 0) return
+
+  clearZeroHold()
+  zeroPointerId = event.pointerId
+  zeroLongPressTriggered = false
+  ;(event.currentTarget as HTMLButtonElement).setPointerCapture(event.pointerId)
+  zeroHoldTimer = window.setTimeout(() => {
+    if (zeroPointerId !== event.pointerId) return
+    zeroLongPressTriggered = true
+    appendDigit('+')
+  }, zeroLongPressDelay)
+}
+
+function finishZeroHold(event: PointerEvent): void {
+  if (zeroPointerId !== event.pointerId) return
+
+  clearZeroHold()
+  if (!zeroLongPressTriggered) appendDigit('0')
+  const button = event.currentTarget as HTMLButtonElement
+  if (button.hasPointerCapture(event.pointerId)) button.releasePointerCapture(event.pointerId)
+  zeroPointerId = undefined
+}
+
+function cancelZeroHold(event: PointerEvent): void {
+  if (zeroPointerId !== event.pointerId) return
+  clearZeroHold()
+  zeroPointerId = undefined
+  zeroLongPressTriggered = false
+}
+
+function handleKeyClick(digit: string, event: MouseEvent): void {
+  if (digit === '0') {
+    if (event.detail === 0) appendDigit('0')
+    return
+  }
+  appendDigit(digit)
+}
+
+function preventZeroContextMenu(digit: string, event: MouseEvent): void {
+  if (digit === '0') event.preventDefault()
 }
 
 function removeDigit(): void {
@@ -152,6 +208,11 @@ function chooseContact(suggestion: {
 }): void {
   number.value = suggestion.phone.number
   contactLabel.value = suggestion.contact.display_name
+  syncResolvedLine()
+}
+
+function changeLine(): void {
+  lineSelectionOverridden.value = true
 }
 
 async function placeCall(): Promise<void> {
@@ -170,18 +231,16 @@ async function placeCall(): Promise<void> {
   beginDraft()
 }
 
-function resetDraft(): void {
-  beginDraft('', '', true)
-}
-
 function changeRecording(event: Event): void {
   setDialerRecording((event.target as HTMLInputElement).checked)
 }
 
 onMounted(() => {
-  beginDraft()
+  beginDraft(uiState.dialTarget, uiState.dialLabel, false, uiState.dialLineKey)
   void loadContacts()
 })
+
+onBeforeUnmount(clearZeroHold)
 </script>
 
 <template>
@@ -200,21 +259,20 @@ onMounted(() => {
           aria-label="拨号"
           @keydown.esc="!permanent && closeDialer()"
         >
-          <header class="tool-header">
-            <div>
-              <h2>拨号</h2>
-              <p v-if="contactLabel">{{ contactLabel }}</p>
-            </div>
+          <header class="tool-header dialer-toolbar">
+            <h2>拨号</h2>
+            <label v-if="lines.length > 0" class="dialer-line-picker">
+              <span>线路</span>
+              <select v-model="selectedLineId" aria-label="通话线路" @change="changeLine">
+                <option value="" disabled>选择线路</option>
+                <option v-for="line in lines" :key="lineKey(line)" :value="lineKey(line)">
+                  {{ lineLabel(line) }}{{ line.phone_number ? ` · ${line.phone_number}` : '' }}{{
+                    lineSupports(line, 'dial') === false ? ' · 不支持拨号' : ''
+                  }}
+                </option>
+              </select>
+            </label>
             <span class="dialer-header-actions">
-              <button
-                class="icon-button"
-                type="button"
-                title="新建拨号"
-                aria-label="清空并新建拨号"
-                @click="resetDraft"
-              >
-                <RotateCcw :size="18" />
-              </button>
               <button
                 v-if="!permanent"
                 class="icon-button"
@@ -229,39 +287,27 @@ onMounted(() => {
           </header>
 
           <div class="dialer-panel__body">
-            <ContactSuggestInput
-              v-model="number"
-              :contacts="contactsResource.data"
-              :autofocus="inputAutofocus"
-              @select="chooseContact"
-            />
-
-            <label v-if="lines.length > 0" class="field">
-              <span>线路</span>
-              <select v-model="selectedLineId" aria-label="通话线路">
-                <option value="" disabled>选择线路</option>
-                <option v-for="line in lines" :key="lineKey(line)" :value="lineKey(line)">
-                  {{ lineLabel(line) }}{{ line.phone_number ? ` · ${line.phone_number}` : '' }}{{
-                    lineSupports(line, 'dial') === false ? ' · 不支持拨号' : ''
-                  }}
-                </option>
-              </select>
-            </label>
+            <div class="dialer-number-entry">
+              <ContactSuggestInput
+                v-model="number"
+                :contacts="contactsResource.data"
+                :autofocus="inputAutofocus"
+                @select="chooseContact"
+              />
+              <span v-if="contactLabel" class="dialer-contact-name">{{ contactLabel }}</span>
+            </div>
 
             <label class="dialer-recording">
               <span class="dialer-recording__identity">
                 <Circle :size="16" fill="currentColor" aria-hidden="true" />
-                <span>
-                  <strong>本次通话录音</strong>
-                  <small>{{ recordingStatusLabel }}</small>
-                </span>
+                <strong>通话录音</strong>
               </span>
               <input
                 type="checkbox"
                 role="switch"
                 :checked="dialerRecordingState.enabled"
                 :disabled="dialerRecordingState.status !== 'ready'"
-                aria-label="本次通话录音"
+                aria-label="通话录音"
                 @change="changeRecording"
               />
             </label>
@@ -276,7 +322,11 @@ onMounted(() => {
                 class="keypad__key"
                 type="button"
                 :aria-label="key.digit"
-                @click="appendDigit(key.digit)"
+                @click="handleKeyClick(key.digit, $event)"
+                @contextmenu="preventZeroContextMenu(key.digit, $event)"
+                @pointerdown="key.digit === '0' && startZeroHold($event)"
+                @pointerup="key.digit === '0' && finishZeroHold($event)"
+                @pointercancel="key.digit === '0' && cancelZeroHold($event)"
               >
                 <strong>{{ key.digit }}</strong>
                 <small>{{ key.letters }}</small>
@@ -311,7 +361,6 @@ onMounted(() => {
             <p v-if="dialUnavailable || lines.length === 0" class="unavailable-note">
               {{ dialUnavailable || '没有可用线路' }}
             </p>
-            <p v-else-if="!selectedLineId" class="unavailable-note">选择线路</p>
             <p v-else-if="validationError" class="field-error">{{ validationError }}</p>
             <p v-if="callState.error" class="field-error">{{ callState.error }}</p>
           </div>
@@ -346,9 +395,64 @@ onMounted(() => {
   gap: 3px;
 }
 
+.dialer-toolbar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.dialer-line-picker {
+  display: grid;
+  min-width: 0;
+  align-items: center;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.dialer-line-picker select {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 25px 0 8px;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
 .dialer-panel__body {
   min-height: 0;
   flex: 1;
+}
+
+.dialer-number-entry {
+  position: relative;
+  padding: 4px 0 8px;
+}
+
+.dialer-number-entry :deep(.suggest-input__field) {
+  height: 58px;
+  padding: 0 14px;
+  background: var(--background);
+}
+
+.dialer-number-entry :deep(.suggest-input__field input) {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.dialer-contact-name {
+  display: block;
+  margin: 6px 2px 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dialer-recording {
@@ -370,21 +474,14 @@ onMounted(() => {
   color: var(--danger);
 }
 
-.dialer-recording__identity > span {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
-}
-
 .dialer-recording__identity strong {
   color: var(--text);
   font-size: 12px;
 }
 
-.dialer-recording__identity small {
-  color: var(--muted);
-  font-size: 10px;
+.keypad__key {
+  touch-action: manipulation;
+  user-select: none;
 }
 
 .dialer-recording > input {

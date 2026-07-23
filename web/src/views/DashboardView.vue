@@ -17,7 +17,9 @@ import {
 } from '@lucide/vue'
 import type { CallRecord, Contact, LineSummary, MessageThread } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
+import ModuleCard from '../components/ModuleCard.vue'
 import StatePanel from '../components/StatePanel.vue'
+import { selectDeviceConfiguration } from '../state/deviceConfiguration'
 import { openDialer } from '../state/ui'
 import {
   bootstrapResource,
@@ -25,11 +27,12 @@ import {
   capabilityReason,
   contactForNumber,
   contactsResource,
+  devicesResource,
   lineKey,
-  lineLabel,
   loadBootstrap,
   loadCalls,
   loadContacts,
+  loadDevices,
   loadThreads,
   threadsResource
 } from '../state/workspace'
@@ -58,6 +61,9 @@ const route = useRoute()
 const router = useRouter()
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
+const defaultDeviceIMEI = computed(
+  () => bootstrapResource.data?.line_settings.default_device_imei || ''
+)
 const selectionKey = computed(() =>
   typeof route.query.item === 'string' ? route.query.item : ''
 )
@@ -188,13 +194,6 @@ function activityIcon(activity: DashboardActivity) {
   return activity.call.direction === 'incoming' ? PhoneIncoming : PhoneOutgoing
 }
 
-function lineCapabilities(line: LineSummary): string {
-  const available: string[] = []
-  if (line.capabilities?.dial === true) available.push('通话')
-  if (line.capabilities?.message === true) available.push('消息')
-  return available.length > 0 ? available.join(' · ') : '能力未报告'
-}
-
 function selectOverview(): void {
   void router.push({ name: 'dashboard', query: { item: 'overview' } })
 }
@@ -207,17 +206,30 @@ function backToList(): void {
   void router.push({ name: 'dashboard' })
 }
 
-function callNumber(number: string, label = ''): void {
+function callNumber(number: string, label = '', contextLineKey = ''): void {
   if (dialUnavailable.value) return
-  openDialer(number, label)
+  openDialer(number, label, contextLineKey)
 }
 
-function startMessage(number: string, name = ''): void {
+function startMessage(number: string, name = '', contextLineKey = ''): void {
   if (messageUnavailable.value) return
   void router.push({
     name: 'messages',
-    query: { compose: number, ...(name ? { name } : {}) }
+    query: {
+      compose: number,
+      ...(name ? { name } : {}),
+      ...(contextLineKey ? { line: contextLineKey } : {})
+    }
   })
+}
+
+function deviceFor(line: LineSummary) {
+  return devicesResource.data.find(device => device.imei === line.device_imei)
+}
+
+function openLineSettings(line: LineSummary): void {
+  if (line.id) selectDeviceConfiguration(line.id)
+  void router.push({ name: 'settings', params: { section: 'devices' } })
 }
 
 function callContact(contact: Contact): void {
@@ -240,7 +252,8 @@ function loadDashboard(): void {
     loadBootstrap(),
     loadCalls(),
     loadThreads(),
-    loadContacts()
+    loadContacts(),
+    loadDevices()
   ])
 }
 
@@ -397,18 +410,15 @@ onMounted(loadDashboard)
               <Inbox :size="17" />
               尚未发现线路
             </div>
-            <div v-else class="dashboard-detail-list">
-              <div v-for="line in lines" :key="lineKey(line)" class="dashboard-line-row">
-                <span class="dashboard-activity-icon"><Phone :size="17" /></span>
-                <span>
-                  <strong>{{ lineLabel(line) }}</strong>
-                  <small>{{ line.phone_number || line.operator || lineKey(line) }}</small>
-                </span>
-                <span>
-                  <strong>{{ line.state || '状态未报告' }}</strong>
-                  <small>{{ lineCapabilities(line) }}</small>
-                </span>
-              </div>
+            <div v-else class="dashboard-module-grid">
+              <ModuleCard
+                v-for="line in lines"
+                :key="lineKey(line)"
+                :line="line"
+                :device="deviceFor(line)"
+                :default-line="line.device_imei === defaultDeviceIMEI"
+                @select="openLineSettings(line)"
+              />
             </div>
           </section>
 
@@ -505,7 +515,7 @@ onMounted(loadDashboard)
               type="button"
               :disabled="Boolean(dialUnavailable)"
               :title="dialUnavailable || '回拨'"
-              @click="callNumber(selectedCall.remote_number, callName(selectedCall))"
+              @click="callNumber(selectedCall.remote_number, callName(selectedCall), selectedCall.device_id)"
             >
               <Phone :size="19" />
               <span>回拨</span>
@@ -515,7 +525,7 @@ onMounted(loadDashboard)
               type="button"
               :disabled="Boolean(messageUnavailable)"
               :title="messageUnavailable || '发消息'"
-              @click="startMessage(selectedCall.remote_number, callName(selectedCall))"
+              @click="startMessage(selectedCall.remote_number, callName(selectedCall), selectedCall.device_id)"
             >
               <MessageSquareText :size="19" />
               <span>消息</span>
@@ -580,7 +590,7 @@ onMounted(loadDashboard)
               type="button"
               :disabled="Boolean(messageUnavailable)"
               :title="messageUnavailable || '发消息'"
-              @click="startMessage(selectedThread.peer, threadName(selectedThread))"
+              @click="startMessage(selectedThread.peer, threadName(selectedThread), selectedThread.line_id || selectedThread.iccid)"
             >
               <MessageSquareText :size="19" />
               <span>消息</span>
@@ -590,7 +600,7 @@ onMounted(loadDashboard)
               type="button"
               :disabled="Boolean(dialUnavailable)"
               :title="dialUnavailable || '拨号'"
-              @click="callNumber(selectedThread.peer, threadName(selectedThread))"
+              @click="callNumber(selectedThread.peer, threadName(selectedThread), selectedThread.line_id || selectedThread.iccid)"
             >
               <Phone :size="19" />
               <span>拨号</span>
@@ -627,3 +637,11 @@ onMounted(loadDashboard)
     </article>
   </section>
 </template>
+
+<style scoped>
+.dashboard-module-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+</style>

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from 'vue'
 import { Plus, Trash2, X } from '@lucide/vue'
-import type { Contact, ContactInput } from '../api/types'
+import type { Contact, ContactInput, LineSummary } from '../api/types'
+import { lineLabel } from '../state/workspace'
 
 type PhoneDraft = {
   id?: string
@@ -13,6 +14,7 @@ type PhoneDraft = {
 const props = defineProps<{
   open: boolean
   contact?: Contact
+  lines?: LineSummary[]
   saving?: boolean
   error?: string
 }>()
@@ -25,10 +27,12 @@ const emit = defineEmits<{
 const draft = reactive<{
   name: string
   notes: string
+  preferredDeviceIMEI: string
   phones: PhoneDraft[]
 }>({
   name: '',
   notes: '',
+  preferredDeviceIMEI: '',
   phones: []
 })
 
@@ -46,6 +50,7 @@ watch(
     if (!open) return
     draft.name = contact?.display_name || ''
     draft.notes = contact?.notes || ''
+    draft.preferredDeviceIMEI = contact?.preferred_device_imei || ''
     draft.phones = contact?.phones.length
       ? contact.phones.map(phone => ({
           id: phone.id,
@@ -83,6 +88,7 @@ function submit(): void {
   emit('save', {
     display_name: draft.name.trim(),
     notes: draft.notes.trim() || undefined,
+    preferred_device_imei: draft.preferredDeviceIMEI || undefined,
     revision: props.contact?.revision,
     phones: draft.phones.map(phone => ({
       id: phone.id,
@@ -146,6 +152,20 @@ function submit(): void {
                 <Plus :size="16" />添加号码
               </button>
             </fieldset>
+
+            <label v-if="lines?.length" class="field">
+              <span>首选线路</span>
+              <select v-model="draft.preferredDeviceIMEI">
+                <option value="">跟随默认线路</option>
+                <option
+                  v-for="line in lines"
+                  :key="line.device_imei"
+                  :value="line.device_imei"
+                >
+                  {{ lineLabel(line) }}{{ line.phone_number ? ` · ${line.phone_number}` : '' }}
+                </option>
+              </select>
+            </label>
 
             <label class="field">
               <span>备注</span>

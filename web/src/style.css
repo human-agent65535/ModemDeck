@@ -280,12 +280,12 @@ strong {
   background: var(--surface-hover);
 }
 
-.rail-link.router-link-active {
+.rail-link.is-current {
   color: var(--accent-strong);
   background: var(--surface-selected);
 }
 
-.rail-link.router-link-active::before {
+.rail-link.is-current::before {
   position: absolute;
   top: 13px;
   bottom: 13px;
@@ -2072,7 +2072,7 @@ dd {
 
 .settings-content {
   width: 100%;
-  max-width: 940px;
+  max-width: none;
 }
 
 .settings-group + .settings-group {
@@ -2664,11 +2664,11 @@ dd {
     font-size: 10px;
   }
 
-  .mobile-nav a.router-link-active {
+  .mobile-nav a.is-current {
     color: var(--accent-strong);
   }
 
-  .mobile-nav a.router-link-active::before {
+  .mobile-nav a.is-current::before {
     position: absolute;
     top: 0;
     width: 34px;

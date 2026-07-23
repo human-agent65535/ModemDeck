@@ -16,6 +16,7 @@ import {
   createDeviceConfigurationPayload,
   createDTMFPayload,
   createGlobalCallSettingsPayload,
+  createLineSettingsPayload,
   createMessagePayload,
   createRecordingSettingsPayload,
   createTelegramUnitPayload,
@@ -26,6 +27,7 @@ import {
   parseCallResponse,
   parseDeviceConfigurationResponse,
   parseGlobalCallSettings,
+  parseLineSettingsResponse,
   parseMessageResponse,
   parseRecordingSettingsResponse,
   parseTelegramUnitResponse,
@@ -39,6 +41,7 @@ import {
   parseCalls,
   parseContactResponse,
   parseContacts,
+  parseDeviceResponse,
   parseDevices,
   parseMessages,
   parseThreads
@@ -51,21 +54,44 @@ import type {
   CallRecordingState,
   CallRecord,
   CallSession,
+  CommandReceipt,
+  ConnectionProfile,
   Contact,
   ContactInput,
+  CommunicationCapabilities,
+  CommunicationCapabilityName,
+  CreateDeviceInput,
+  DeleteConnectionProfileInput,
   Device,
   DeviceConfiguration,
+  DiagnosticActiveCall,
+  DiagnosticLogEntry,
+  DiagnosticLogLevel,
+  DiagnosticLogPage,
+  DiagnosticLogQuery,
+  DiagnosticLogStreamHandlers,
+  DiagnosticStatus,
+  DiagnosticsSnapshot,
   GlobalCallSettings,
+  LineSummary,
   LoginInput,
   Message,
   MessageThread,
   RecordingSettings,
+  RenameDeviceInput,
+  SaveConnectionProfileInput,
   SendMessageInput,
   SessionResponse,
+  SIMCommandInput,
+  SIMStatus,
   TelegramUnit,
   TelegramUnitInput,
   UpdateDeviceConfigurationInput,
-  UpdateGlobalCallSettingsInput
+  UpdateGlobalCallSettingsInput,
+  UpdateLineSettingsInput,
+  USSDCommandInput,
+  USSDResponse,
+  USSDStatus
 } from './types'
 import { ApiError } from './types'
 import { createFixtureGateway } from './fixture'
@@ -158,6 +184,320 @@ function parseSession(value: unknown): SessionResponse {
   return session
 }
 
+function requiredRecord(value: unknown, path: string): Record<string, unknown> {
+  const source = recordValue(value)
+  if (!source) throw new ApiError(`${path} 必须是对象`, 0, 'invalid_response')
+  return source
+}
+
+function stringValue(source: Record<string, unknown>, key: string): string {
+  const value = source[key]
+  if (typeof value === 'string') return value.trim()
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  return ''
+}
+
+function requiredStringValue(
+  source: Record<string, unknown>,
+  path: string,
+  key: string
+): string {
+  const value = stringValue(source, key)
+  if (!value) throw new ApiError(`${path}.${key} 不能为空`, 0, 'invalid_response')
+  return value
+}
+
+function requiredBooleanValue(
+  source: Record<string, unknown>,
+  path: string,
+  key: string
+): boolean {
+  const value = source[key]
+  if (typeof value !== 'boolean') {
+    throw new ApiError(`${path}.${key} 必须是布尔值`, 0, 'invalid_response')
+  }
+  return value
+}
+
+function numberValue(source: Record<string, unknown>, path: string, key: string): number {
+  const value = source[key]
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new ApiError(`${path}.${key} 必须是非负数`, 0, 'invalid_response')
+  }
+  return value
+}
+
+const DIAGNOSTIC_CAPABILITIES: Array<[CommunicationCapabilityName, string]> = [
+  ['modem', 'modem'],
+  ['sim', 'sim'],
+  ['voice', 'voice'],
+  ['messaging', 'messaging'],
+  ['media', 'media'],
+  ['dial', 'dial'],
+  ['answer', 'answer_call'],
+  ['reject', 'reject_call'],
+  ['hangup', 'hangup_call'],
+  ['dtmf', 'send_dtmf'],
+  ['message', 'send_message']
+]
+
+function parseDiagnosticCapabilities(value: unknown, path: string): CommunicationCapabilities {
+  const source = requiredRecord(value, path)
+  const result: CommunicationCapabilities = {}
+  for (const [name, wireName] of DIAGNOSTIC_CAPABILITIES) {
+    result[name] = requiredBooleanValue(source, path, wireName)
+  }
+  return result
+}
+
+function parseDiagnosticLine(value: unknown, index: number): LineSummary {
+  const path = `diagnostics.lines[${index}]`
+  const source = requiredRecord(value, path)
+  const id = stringValue(source, 'id')
+  const iccid = stringValue(source, 'iccid')
+  const imsi = stringValue(source, 'imsi')
+  const deviceIMEI = stringValue(source, 'device_imei')
+  if (!id && !iccid && !imsi && !deviceIMEI) {
+    throw new ApiError(`${path} 缺少稳定标识`, 0, 'invalid_response')
+  }
+  const rawSignal = source.signal_quality
+  const signalQuality =
+    typeof rawSignal === 'number' && Number.isFinite(rawSignal) ? rawSignal : undefined
+  return {
+    id: id || undefined,
+    iccid,
+    imsi,
+    phone_number: stringValue(source, 'phone_number'),
+    operator: stringValue(source, 'operator'),
+    device_imei: deviceIMEI,
+    device_alias: stringValue(source, 'device_alias'),
+    model: stringValue(source, 'model') || undefined,
+    firmware: stringValue(source, 'firmware') || undefined,
+    state: stringValue(source, 'state') || undefined,
+    signal_quality: signalQuality,
+    capabilities: parseDiagnosticCapabilities(source.capabilities, `${path}.capabilities`)
+  }
+}
+
+function parseDiagnosticAvailability(value: unknown, path: string) {
+  const source = requiredRecord(value, path)
+  return {
+    available: requiredBooleanValue(source, path, 'available'),
+    error: stringValue(source, 'error') || undefined
+  }
+}
+
+function parseCommandReceipt(value: unknown): CommandReceipt {
+  const response = requiredRecord(value, 'command_response')
+  const receipt = requiredRecord(response.receipt, 'command_response.receipt')
+  return {
+    request_id: requiredStringValue(receipt, 'command_response.receipt', 'request_id'),
+    resource_id: requiredStringValue(receipt, 'command_response.receipt', 'resource_id')
+  }
+}
+
+function parseSIMStatus(value: unknown): SIMStatus {
+  const response = requiredRecord(value, 'sim_response')
+  const source = requiredRecord(response.sim, 'sim_response.sim')
+  const retriesSource = requiredRecord(source.unlock_retries, 'sim_response.sim.unlock_retries')
+  const unlockRetries: Record<string, number> = {}
+  for (const [key, retryValue] of Object.entries(retriesSource)) {
+    if (typeof retryValue !== 'number' || !Number.isSafeInteger(retryValue) || retryValue < 0) {
+      throw new ApiError(
+        `sim_response.sim.unlock_retries.${key} 必须是非负整数`,
+        0,
+        'invalid_response'
+      )
+    }
+    unlockRetries[key] = retryValue
+  }
+  return {
+    line_id: requiredStringValue(source, 'sim_response.sim', 'line_id'),
+    present: requiredBooleanValue(source, 'sim_response.sim', 'present'),
+    active: requiredBooleanValue(source, 'sim_response.sim', 'active'),
+    identifier: stringValue(source, 'identifier'),
+    imsi: stringValue(source, 'imsi'),
+    eid: stringValue(source, 'eid') || undefined,
+    operator_identifier: stringValue(source, 'operator_identifier'),
+    operator_name: stringValue(source, 'operator_name'),
+    unlock_required: stringValue(source, 'unlock_required'),
+    unlock_required_code: numberValue(source, 'sim_response.sim', 'unlock_required_code'),
+    unlock_retries: unlockRetries,
+    observed_at: requiredStringValue(source, 'sim_response.sim', 'observed_at')
+  }
+}
+
+function parseConnectionProfile(value: unknown, path: string): ConnectionProfile {
+  const source = requiredRecord(value, path)
+  return {
+    profile_id: numberValue(source, path, 'profile_id'),
+    profile_name: stringValue(source, 'profile_name'),
+    apn: stringValue(source, 'apn'),
+    ip_family: stringValue(source, 'ip_family'),
+    ip_type: numberValue(source, path, 'ip_type'),
+    apn_type: numberValue(source, path, 'apn_type'),
+    allowed_auth: numberValue(source, path, 'allowed_auth'),
+    user: stringValue(source, 'user') || undefined,
+    access_type_preference: numberValue(source, path, 'access_type_preference'),
+    roaming_allowance: numberValue(source, path, 'roaming_allowance'),
+    profile_source: numberValue(source, path, 'profile_source')
+  }
+}
+
+function parseConnectionProfiles(value: unknown): ConnectionProfile[] {
+  const response = requiredRecord(value, 'profiles_response')
+  if (!Array.isArray(response.profiles)) {
+    throw new ApiError('profiles_response.profiles 必须是数组', 0, 'invalid_response')
+  }
+  return response.profiles.map((profile, index) =>
+    parseConnectionProfile(profile, `profiles_response.profiles[${index}]`)
+  )
+}
+
+function parseSavedConnectionProfile(value: unknown): ConnectionProfile {
+  const response = requiredRecord(value, 'profile_response')
+  return parseConnectionProfile(response.profile, 'profile_response.profile')
+}
+
+function parseUSSDStatus(value: unknown): USSDStatus {
+  const response = requiredRecord(value, 'ussd_response')
+  const source = requiredRecord(response.ussd, 'ussd_response.ussd')
+  return {
+    line_id: requiredStringValue(source, 'ussd_response.ussd', 'line_id'),
+    state: requiredStringValue(source, 'ussd_response.ussd', 'state'),
+    state_code: numberValue(source, 'ussd_response.ussd', 'state_code'),
+    network_notification: stringValue(source, 'network_notification') || undefined,
+    network_request: stringValue(source, 'network_request') || undefined,
+    observed_at: requiredStringValue(source, 'ussd_response.ussd', 'observed_at')
+  }
+}
+
+function parseUSSDResult(value: unknown): USSDResponse {
+  const response = requiredRecord(value, 'ussd_command_response')
+  const result = requiredRecord(response.result, 'ussd_command_response.result')
+  return { response: stringValue(result, 'response') || undefined }
+}
+
+function parseDiagnosticAgentCapabilities(value: unknown) {
+  const path = 'diagnostics.host_agent.capabilities'
+  const source = requiredRecord(value, path)
+  return {
+    discovery: requiredBooleanValue(source, path, 'discovery'),
+    snapshot: requiredBooleanValue(source, path, 'snapshot'),
+    device_configuration: requiredBooleanValue(source, path, 'device_configuration'),
+    dial: requiredBooleanValue(source, path, 'dial'),
+    answer_call: requiredBooleanValue(source, path, 'answer_call'),
+    reject_call: requiredBooleanValue(source, path, 'reject_call'),
+    hangup_call: requiredBooleanValue(source, path, 'hangup_call'),
+    send_dtmf: requiredBooleanValue(source, path, 'send_dtmf'),
+    send_message: requiredBooleanValue(source, path, 'send_message'),
+    sim_management: requiredBooleanValue(source, path, 'sim_management'),
+    connection_profiles: requiredBooleanValue(source, path, 'connection_profiles'),
+    ussd: requiredBooleanValue(source, path, 'ussd')
+  }
+}
+
+function parseDiagnosticCall(value: unknown, index: number): DiagnosticActiveCall {
+  const path = `diagnostics.active_calls[${index}]`
+  const source = requiredRecord(value, path)
+  const audioRate = source.audio_rate
+  return {
+    id: requiredStringValue(source, path, 'id'),
+    line_id: requiredStringValue(source, path, 'line_id'),
+    direction: requiredStringValue(source, path, 'direction'),
+    phase: requiredStringValue(source, path, 'phase'),
+    bearer: stringValue(source, 'bearer'),
+    media_available: requiredBooleanValue(source, path, 'media_available'),
+    audio_encoding: stringValue(source, 'audio_encoding') || undefined,
+    audio_resolution: stringValue(source, 'audio_resolution') || undefined,
+    audio_rate:
+      typeof audioRate === 'number' && Number.isFinite(audioRate) && audioRate > 0
+        ? audioRate
+        : undefined
+  }
+}
+
+function parseDiagnostics(value: unknown): DiagnosticsSnapshot {
+  const source = requiredRecord(value, 'diagnostics')
+  const status = requiredStringValue(source, 'diagnostics', 'status')
+  if (status !== 'ok' && status !== 'degraded' && status !== 'unavailable') {
+    throw new ApiError(`diagnostics.status 未知：${status}`, 0, 'invalid_response')
+  }
+  const hostAgentSource = requiredRecord(source.host_agent, 'diagnostics.host_agent')
+  if (!Array.isArray(source.lines) || !Array.isArray(source.active_calls)) {
+    throw new ApiError('diagnostics 的线路或通话列表无效', 0, 'invalid_response')
+  }
+  return {
+    status: status as DiagnosticStatus,
+    observed_at: requiredStringValue(source, 'diagnostics', 'observed_at'),
+    database: parseDiagnosticAvailability(source.database, 'diagnostics.database'),
+    host_agent: {
+      connected: requiredBooleanValue(
+        hostAgentSource,
+        'diagnostics.host_agent',
+        'connected'
+      ),
+      provider: stringValue(hostAgentSource, 'provider'),
+      agent_version: stringValue(hostAgentSource, 'agent_version'),
+      runtime_version: stringValue(hostAgentSource, 'runtime_version'),
+      boot_epoch: stringValue(hostAgentSource, 'boot_epoch'),
+      revision: stringValue(hostAgentSource, 'revision'),
+      observed_at: stringValue(hostAgentSource, 'observed_at'),
+      last_error: stringValue(hostAgentSource, 'last_error') || undefined,
+      capabilities: parseDiagnosticAgentCapabilities(hostAgentSource.capabilities)
+    },
+    call_runtime: parseDiagnosticAvailability(
+      source.call_runtime,
+      'diagnostics.call_runtime'
+    ),
+    lines: source.lines.map(parseDiagnosticLine),
+    active_calls: source.active_calls.map(parseDiagnosticCall)
+  }
+}
+
+function parseDiagnosticLogEntry(value: unknown, path = 'diagnostic_log'): DiagnosticLogEntry {
+  const source = requiredRecord(value, path)
+  const level = requiredStringValue(source, path, 'level')
+  if (level !== 'debug' && level !== 'info' && level !== 'warn' && level !== 'error') {
+    throw new ApiError(`${path}.level 未知：${level}`, 0, 'invalid_response')
+  }
+  const fields = source.fields === undefined ? undefined : requiredRecord(source.fields, `${path}.fields`)
+  return {
+    id: numberValue(source, path, 'id'),
+    timestamp: requiredStringValue(source, path, 'timestamp'),
+    level: level as DiagnosticLogLevel,
+    component: requiredStringValue(source, path, 'component'),
+    caller: stringValue(source, 'caller') || undefined,
+    message: requiredStringValue(source, path, 'message'),
+    fields: fields ? { ...fields } : undefined
+  }
+}
+
+function parseDiagnosticLogPage(value: unknown): DiagnosticLogPage {
+  const source = requiredRecord(value, 'diagnostic_logs')
+  if (!Array.isArray(source.entries)) {
+    throw new ApiError('diagnostic_logs.entries 必须是数组', 0, 'invalid_response')
+  }
+  return {
+    entries: source.entries.map((entry, index) =>
+      parseDiagnosticLogEntry(entry, `diagnostic_logs.entries[${index}]`)
+    ),
+    oldest_id: numberValue(source, 'diagnostic_logs', 'oldest_id'),
+    newest_id: numberValue(source, 'diagnostic_logs', 'newest_id'),
+    truncated: requiredBooleanValue(source, 'diagnostic_logs', 'truncated')
+  }
+}
+
+function diagnosticLogQueryString(query: DiagnosticLogQuery = {}): string {
+  return queryString({
+    after: query.after === undefined ? undefined : String(query.after),
+    limit: query.limit === undefined ? undefined : String(query.limit),
+    level: query.level,
+    component: query.component?.trim(),
+    search: query.search?.trim()
+  })
+}
+
 async function responseBody(response: Response): Promise<unknown> {
   if (response.status === 204) return undefined
 
@@ -229,7 +569,7 @@ function get(path: string): Promise<unknown> {
 
 function writeJSON(
   path: string,
-  method: 'POST' | 'PUT' | 'PATCH',
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   input: unknown,
   expectedStatus: number
 ) {
@@ -313,6 +653,15 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
+  async markThreadRead(query): Promise<void> {
+    await writeJSON(
+      `${API_ROOT}/messages/read`,
+      'PATCH',
+      { iccid: query.iccid.trim(), peer: query.peer.trim() },
+      204
+    )
+  },
+
   async sendMessage(input: SendMessageInput): Promise<Message> {
     const contract = communicationContracts.sendMessage
     return parseMessageResponse(
@@ -335,6 +684,172 @@ const realGateway: ConfiguredModemDeckGateway = {
     return parseDevices(await get(`${API_ROOT}/devices`))
   },
 
+  async createDevice(input: CreateDeviceInput): Promise<Device> {
+    const imei = input.imei.trim()
+    if (!imei) throw new Error('IMEI 不能为空')
+    return parseDeviceResponse(
+      await writeJSON(
+        `${API_ROOT}/devices`,
+        'POST',
+        { imei, alias: input.alias?.trim() || '' },
+        201
+      )
+    )
+  },
+
+  async renameDevice(imei: string, input: RenameDeviceInput): Promise<Device> {
+    const normalizedIMEI = imei.trim()
+    if (!normalizedIMEI) throw new Error('IMEI 不能为空')
+    return parseDeviceResponse(
+      await writeJSON(
+        `${API_ROOT}/devices/${encodeURIComponent(normalizedIMEI)}`,
+        'PATCH',
+        { alias: input.alias.trim() },
+        200
+      )
+    )
+  },
+
+  async getSIMStatus(lineID: string): Promise<SIMStatus> {
+    return parseSIMStatus(
+      await get(`${API_ROOT}/devices/${encodeURIComponent(lineID.trim())}/sim`)
+    )
+  },
+
+  async commandSIM(lineID: string, input: SIMCommandInput): Promise<CommandReceipt> {
+    return parseCommandReceipt(
+      await writeJSON(
+        `${API_ROOT}/devices/${encodeURIComponent(lineID.trim())}/sim/commands`,
+        'POST',
+        { request_id: requestID(), ...input },
+        200
+      )
+    )
+  },
+
+  async listConnectionProfiles(lineID: string): Promise<ConnectionProfile[]> {
+    return parseConnectionProfiles(
+      await get(`${API_ROOT}/devices/${encodeURIComponent(lineID.trim())}/profiles`)
+    )
+  },
+
+  async saveConnectionProfile(
+    lineID: string,
+    input: SaveConnectionProfileInput
+  ): Promise<ConnectionProfile> {
+    return parseSavedConnectionProfile(
+      await writeJSON(
+        `${API_ROOT}/devices/${encodeURIComponent(lineID.trim())}/profiles`,
+        'PUT',
+        { request_id: requestID(), ...input },
+        200
+      )
+    )
+  },
+
+  async deleteConnectionProfile(
+    lineID: string,
+    input: DeleteConnectionProfileInput
+  ): Promise<CommandReceipt> {
+    return parseCommandReceipt(
+      await writeJSON(
+        `${API_ROOT}/devices/${encodeURIComponent(lineID.trim())}/profiles`,
+        'DELETE',
+        { request_id: requestID(), ...input },
+        200
+      )
+    )
+  },
+
+  async getUSSDStatus(lineID: string): Promise<USSDStatus> {
+    return parseUSSDStatus(
+      await get(`${API_ROOT}/devices/${encodeURIComponent(lineID.trim())}/ussd`)
+    )
+  },
+
+  async commandUSSD(lineID: string, input: USSDCommandInput): Promise<USSDResponse> {
+    return parseUSSDResult(
+      await writeJSON(
+        `${API_ROOT}/devices/${encodeURIComponent(lineID.trim())}/ussd`,
+        'POST',
+        { request_id: requestID(), ...input },
+        200
+      )
+    )
+  },
+
+  async getDiagnostics(): Promise<DiagnosticsSnapshot> {
+    return parseDiagnostics(await get(`${API_ROOT}/diagnostics`))
+  },
+
+  async listDiagnosticLogs(query: DiagnosticLogQuery = {}): Promise<DiagnosticLogPage> {
+    return parseDiagnosticLogPage(
+      await get(`${API_ROOT}/diagnostics/logs${diagnosticLogQueryString(query)}`)
+    )
+  },
+
+  subscribeDiagnosticLogs(
+    query: DiagnosticLogQuery,
+    handlers: DiagnosticLogStreamHandlers
+  ): () => void {
+    const source = new EventSource(
+      `${API_ROOT}/diagnostics/logs/stream${diagnosticLogQueryString(query)}`,
+      { withCredentials: true }
+    )
+    let closed = false
+    const close = () => {
+      if (closed) return
+      closed = true
+      source.close()
+    }
+    source.onopen = () => {
+      if (!closed) handlers.onOpen()
+    }
+    source.addEventListener('log', event => {
+      if (closed) return
+      try {
+        handlers.onEntry(parseDiagnosticLogEntry(JSON.parse(event.data) as unknown))
+      } catch (error) {
+        close()
+        handlers.onError(error instanceof Error ? error : new Error('实时日志格式无效'))
+      }
+    })
+    source.addEventListener('reset', event => {
+      if (closed) return
+      try {
+        const reset = requiredRecord(JSON.parse(event.data) as unknown, 'diagnostic_log_reset')
+        handlers.onReset(
+          numberValue(reset, 'diagnostic_log_reset', 'oldest_id'),
+          numberValue(reset, 'diagnostic_log_reset', 'newest_id')
+        )
+      } catch (error) {
+        close()
+        handlers.onError(error instanceof Error ? error : new Error('日志重置事件格式无效'))
+      }
+    })
+    source.onerror = () => {
+      if (closed) return
+      close()
+      handlers.onError()
+    }
+    return close
+  },
+
+  async downloadDiagnosticLogs(query: DiagnosticLogQuery = {}): Promise<Blob> {
+    const body = await request(
+      `${API_ROOT}/diagnostics/logs/download${diagnosticLogQueryString(query)}`,
+      {
+        method: 'GET',
+        headers: { Accept: 'application/x-ndjson' }
+      },
+      200
+    )
+    if (body !== undefined && typeof body !== 'string') {
+      throw new ApiError('日志下载响应格式无效', 0, 'invalid_response')
+    }
+    return new Blob([body || ''], { type: 'application/x-ndjson' })
+  },
+
   async getGlobalCallSettings(): Promise<GlobalCallSettings> {
     return parseGlobalCallSettings(await get(communicationContracts.getCallSettings.path))
   },
@@ -349,6 +864,17 @@ const realGateway: ConfiguredModemDeckGateway = {
         contract.method,
         createGlobalCallSettingsPayload(input),
         contract.successStatus
+      )
+    )
+  },
+
+  async updateLineSettings(input: UpdateLineSettingsInput) {
+    return parseLineSettingsResponse(
+      await writeJSON(
+        `${API_ROOT}/settings/lines`,
+        'PATCH',
+        createLineSettingsPayload(input),
+        200
       )
     )
   },

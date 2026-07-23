@@ -7,11 +7,13 @@ import type {
   CommunicationCapabilityName,
   Contact,
   ContactInput,
+  CreateDeviceInput,
   Device,
   LineSummary,
   Message,
   MessageThread,
   Resource,
+  RenameDeviceInput,
   SendMessageInput,
   TelegramUnit,
   TelegramUnitInput
@@ -80,6 +82,43 @@ export function lineForKey(key: string): LineSummary | undefined {
   )
 }
 
+export function resolveLine(
+  capability: CommunicationCapabilityName,
+  options: {
+    contextKey?: string
+    preferredDeviceIMEI?: string
+    number?: string
+  } = {}
+): LineSummary | undefined {
+  const lines = bootstrapResource.data?.lines || []
+  const supported = (line: LineSummary | undefined) =>
+    line && lineSupports(line, capability) !== false ? line : undefined
+  const byKey = (key?: string) =>
+    supported(
+      key
+        ? lines.find(
+            line =>
+              lineKey(line) === key ||
+              line.id === key ||
+              line.iccid === key ||
+              line.device_imei === key
+          )
+        : undefined
+    )
+
+  const contextLine = byKey(options.contextKey)
+  if (contextLine) return contextLine
+
+  const contact =
+    options.preferredDeviceIMEI || !options.number
+      ? undefined
+      : contactForNumber(options.number)
+  const preferredLine = byKey(options.preferredDeviceIMEI || contact?.preferred_device_imei)
+  if (preferredLine) return preferredLine
+
+  return byKey(bootstrapResource.data?.line_settings.default_device_imei)
+}
+
 export function lineSupports(
   line: LineSummary | undefined,
   capability: CommunicationCapabilityName
@@ -127,6 +166,29 @@ export function loadDevices(force = false): Promise<Device[] | null> {
   return load(devicesResource, () => gateway.listDevices())
 }
 
+export async function createDevice(input: CreateDeviceInput): Promise<Device> {
+  const saved = await gateway.createDevice(input)
+  devicesResource.data = devicesResource.data
+    .filter(device => device.imei !== saved.imei)
+    .concat(saved)
+    .sort((a, b) => (a.alias || a.model || a.imei).localeCompare(b.alias || b.model || b.imei))
+  devicesResource.status = 'ready'
+  devicesResource.error = ''
+  return saved
+}
+
+export async function renameDevice(imei: string, input: RenameDeviceInput): Promise<Device> {
+  const saved = await gateway.renameDevice(imei, input)
+  devicesResource.data = devicesResource.data
+    .map(device => (device.imei === saved.imei ? saved : device))
+    .sort((a, b) => (a.alias || a.model || a.imei).localeCompare(b.alias || b.model || b.imei))
+  devicesResource.status = 'ready'
+  devicesResource.error = ''
+  const line = bootstrapResource.data?.lines.find(item => item.device_imei === saved.imei)
+  if (line) line.device_alias = saved.alias
+  return saved
+}
+
 export function loadTelegramUnits(force = false): Promise<TelegramUnit[] | null> {
   if (!force && telegramResource.status === 'ready') {
     return Promise.resolve(telegramResource.data)
@@ -139,10 +201,35 @@ export function messagesFor(threadKey: string): Resource<Message[]> {
   return messageResources[threadKey]
 }
 
-export function loadMessages(thread: MessageThread, force = false): Promise<Message[] | null> {
+export async function loadMessages(
+  thread: MessageThread,
+  force = false
+): Promise<Message[] | null> {
   const target = messagesFor(thread.key)
-  if (!force && target.status === 'ready') return Promise.resolve(target.data)
-  return load(target, () => gateway.listMessages({ iccid: thread.iccid, peer: thread.peer }))
+  const messages =
+    !force && target.status === 'ready'
+      ? target.data
+      : await load(target, () => gateway.listMessages({ iccid: thread.iccid, peer: thread.peer }))
+  if (messages && thread.unread_count > 0) {
+    threadsResource.error = ''
+    try {
+      await gateway.markThreadRead({ iccid: thread.iccid, peer: thread.peer })
+      thread.unread_count = 0
+    } catch (error) {
+      threadsResource.error = errorText(error)
+    }
+  }
+  return messages
+}
+
+export async function updateDefaultLine(deviceIMEI: string): Promise<void> {
+  const bootstrap = bootstrapResource.data
+  if (!bootstrap) throw new Error('线路设置尚未载入')
+  const settings = await gateway.updateLineSettings({
+    default_device_imei: deviceIMEI,
+    expected_revision: bootstrap.line_settings.revision
+  })
+  bootstrap.line_settings = settings
 }
 
 export async function saveContact(input: ContactInput, id?: string): Promise<Contact> {
@@ -180,6 +267,7 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
     key,
     imsi: sent.imsi,
     iccid: sent.iccid,
+    line_id: sent.line_id || input.line_id || existing?.line_id,
     peer: sent.peer,
     contact_name: existing?.contact_name || contactForNumber(sent.peer)?.display_name,
     last_timestamp: sent.timestamp,

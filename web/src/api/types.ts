@@ -1,5 +1,10 @@
 export type CapabilityName = 'dial' | 'message'
 export type CommunicationCapabilityName =
+  | 'modem'
+  | 'sim'
+  | 'voice'
+  | 'messaging'
+  | 'media'
   | 'dial'
   | 'answer'
   | 'reject'
@@ -28,7 +33,10 @@ export type LineSummary = {
   operator: string
   device_imei: string
   device_alias: string
+  model?: string
+  firmware?: string
   state?: string
+  signal_quality?: number
   capabilities?: CommunicationCapabilities
 }
 
@@ -87,6 +95,17 @@ export type CallRecording = {
 export type BootstrapResponse = {
   capabilities: Capabilities
   lines: LineSummary[]
+  line_settings: LineSettings
+}
+
+export type LineSettings = {
+  default_device_imei: string
+  revision: number
+}
+
+export type UpdateLineSettingsInput = {
+  default_device_imei: string
+  expected_revision: number
 }
 
 export type ContactPhone = {
@@ -102,6 +121,7 @@ export type Contact = {
   display_name: string
   phones: ContactPhone[]
   notes?: string
+  preferred_device_imei?: string
   revision?: number
   created_at?: string
   updated_at?: string
@@ -116,6 +136,7 @@ export type ContactInput = {
     primary: boolean
   }>
   notes?: string
+  preferred_device_imei?: string
   revision?: number
 }
 
@@ -123,6 +144,7 @@ export type MessageThread = {
   key: string
   imsi: string
   iccid: string
+  line_id?: string
   peer: string
   contact_name?: string
   last_timestamp: string
@@ -134,6 +156,7 @@ export type Message = {
   id: string
   imsi: string
   iccid: string
+  line_id?: string
   peer: string
   direction: CallDirection
   content: string
@@ -185,12 +208,112 @@ export type Device = {
   alias: string
   model: string
   firmware: string
+  port: string
+  public_ip: string
+  private_ip: string
+  public_ipv6: string
+  private_ipv6: string
   state?: string
   current_iccid: string
   sim_inserted: boolean
+  signal_quality: number | null
   signal_dbm: number | null
+  signal_rsrq: number | null
+  signal_rsrp: number | null
+  last_seen?: string
   sim?: DeviceSIM
   capabilities?: CommunicationCapabilities
+}
+
+export type CreateDeviceInput = {
+  imei: string
+  alias?: string
+}
+
+export type RenameDeviceInput = {
+  alias: string
+}
+
+export type CommandReceipt = {
+  request_id: string
+  resource_id: string
+}
+
+export type SIMStatus = {
+  line_id: string
+  present: boolean
+  active: boolean
+  identifier: string
+  imsi: string
+  eid?: string
+  operator_identifier: string
+  operator_name: string
+  unlock_required: string
+  unlock_required_code: number
+  unlock_retries: Record<string, number>
+  observed_at: string
+}
+
+export type SIMOperation = 'send_pin' | 'send_puk' | 'enable_pin' | 'change_pin'
+
+export type SIMCommandInput = {
+  operation: SIMOperation
+  pin?: string
+  puk?: string
+  new_pin?: string
+  enabled?: boolean
+}
+
+export type ConnectionProfile = {
+  profile_id: number
+  profile_name: string
+  apn: string
+  ip_family: string
+  ip_type: number
+  apn_type: number
+  allowed_auth: number
+  user?: string
+  access_type_preference: number
+  roaming_allowance: number
+  profile_source: number
+}
+
+export type SaveConnectionProfileInput = {
+  profile_id?: number
+  profile_name?: string
+  apn?: string
+  ip_family?: string
+  apn_type?: number
+  allowed_auth?: number
+  user?: string
+  password?: string
+  access_type_preference?: number
+  roaming_allowance?: number
+}
+
+export type DeleteConnectionProfileInput = {
+  profile_id?: number
+  profile_name?: string
+}
+
+export type USSDStatus = {
+  line_id: string
+  state: string
+  state_code: number
+  network_notification?: string
+  network_request?: string
+  observed_at: string
+}
+
+export type USSDAction = 'initiate' | 'respond' | 'cancel'
+
+export type USSDCommandInput = {
+  action: USSDAction
+  command?: string
+}
+
+export type USSDResponse = {
+  response?: string
 }
 
 export type IncomingCallPolicy = 'follow_global' | 'receive' | 'do_not_disturb'
@@ -279,6 +402,7 @@ export type VoLTEConfiguration = {
 }
 
 export type DeviceConfigurationCapabilities = {
+  voice: DeviceFeatureCapability
   radio: DeviceFeatureCapability
   data_connection: DeviceFeatureCapability
   flight_mode: DeviceFeatureCapability
@@ -308,6 +432,96 @@ export type DeviceHardwareConfiguration = {
 export type DeviceConfiguration = {
   hardware?: DeviceHardwareConfiguration
   incoming_calls?: LineIncomingCallConfiguration
+}
+
+export type DiagnosticStatus = 'ok' | 'degraded' | 'unavailable'
+
+export type DiagnosticAvailability = {
+  available: boolean
+  error?: string
+}
+
+export type DiagnosticHostAgent = {
+  connected: boolean
+  provider: string
+  agent_version: string
+  runtime_version: string
+  boot_epoch: string
+  revision: string
+  observed_at: string
+  last_error?: string
+  capabilities: DiagnosticAgentCapabilities
+}
+
+export type DiagnosticAgentCapabilities = {
+  discovery: boolean
+  snapshot: boolean
+  device_configuration: boolean
+  dial: boolean
+  answer_call: boolean
+  reject_call: boolean
+  hangup_call: boolean
+  send_dtmf: boolean
+  send_message: boolean
+  sim_management: boolean
+  connection_profiles: boolean
+  ussd: boolean
+}
+
+export type DiagnosticActiveCall = {
+  id: string
+  line_id: string
+  direction: string
+  phase: string
+  bearer: string
+  media_available: boolean
+  audio_encoding?: string
+  audio_resolution?: string
+  audio_rate?: number
+}
+
+export type DiagnosticsSnapshot = {
+  status: DiagnosticStatus
+  observed_at: string
+  database: DiagnosticAvailability
+  host_agent: DiagnosticHostAgent
+  call_runtime: DiagnosticAvailability
+  lines: LineSummary[]
+  active_calls: DiagnosticActiveCall[]
+}
+
+export type DiagnosticLogLevel = 'debug' | 'info' | 'warn' | 'error'
+
+export type DiagnosticLogEntry = {
+  id: number
+  timestamp: string
+  level: DiagnosticLogLevel
+  component: string
+  caller?: string
+  message: string
+  fields?: Record<string, unknown>
+}
+
+export type DiagnosticLogPage = {
+  entries: DiagnosticLogEntry[]
+  oldest_id: number
+  newest_id: number
+  truncated: boolean
+}
+
+export type DiagnosticLogQuery = {
+  after?: number
+  limit?: number
+  level?: DiagnosticLogLevel
+  component?: string
+  search?: string
+}
+
+export type DiagnosticLogStreamHandlers = {
+  onOpen: () => void
+  onEntry: (entry: DiagnosticLogEntry) => void
+  onReset: (oldestID: number, newestID: number) => void
+  onError: (error?: Error) => void
 }
 
 export type IPFamily = 'auto' | 'ipv4' | 'ipv6' | 'ipv4v6'

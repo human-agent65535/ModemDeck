@@ -6,20 +6,28 @@ async function source(path) {
   return readFile(new URL(path, import.meta.url), 'utf8')
 }
 
-test('dialing and new messages require an explicit line selection', async () => {
+test('dialing and messages resolve context, contact, and global default lines', async () => {
   const dialer = await source('../src/components/DialerPanel.vue')
   const messages = await source('../src/views/MessagesView.vue')
+  const workspace = await source('../src/state/workspace.ts')
 
-  assert.doesNotMatch(dialer, /defaultLineID/)
+  assert.match(workspace, /export function resolveLine\(/)
+  assert.match(workspace, /const contextLine = byKey\(options\.contextKey\)/)
+  assert.match(workspace, /contact\?\.preferred_device_imei/)
+  assert.match(workspace, /line_settings\.default_device_imei/)
+
+  assert.match(dialer, /resolveLine\('dial'/)
+  assert.match(dialer, /contextKey: draftContextLineKey\.value/)
+  assert.match(dialer, /lineSelectionOverridden/)
   assert.match(dialer, /\(!selectedLineId\.value \? '选择线路' : ''\)/)
   assert.match(dialer, /<option value="" disabled>选择线路<\/option>/)
-  assert.match(dialer, /selectedLineId\.value = ''/)
   assert.doesNotMatch(dialer, /lines\.length === 1/)
 
-  assert.doesNotMatch(messages, /defaultLineID/)
+  assert.match(messages, /resolveLine\('message'/)
+  assert.match(messages, /contextKey: composeContextLineKey\.value/)
+  assert.match(messages, /threadUsesLine\(thread, line\)/)
   assert.match(messages, /if \(!activeLineID\.value && !activeICCID\.value\) return '请选择线路'/)
   assert.match(messages, /<option value="" disabled>选择线路<\/option>/)
-  assert.match(messages, /selectedLineKey\.value = ''/)
   assert.doesNotMatch(messages, /lines\.length === 1/)
 })
 
@@ -37,7 +45,10 @@ test('every dialer request has a monotonic event revision even for the same numb
 
   const dialer = await source('../src/components/DialerPanel.vue')
   assert.match(dialer, /\(\) => uiState\.dialRequestRevision/)
-  assert.match(dialer, /beginDraft\(uiState\.dialTarget, uiState\.dialLabel, true\)/)
+  assert.match(
+    dialer,
+    /beginDraft\(uiState\.dialTarget, uiState\.dialLabel, true, uiState\.dialLineKey\)/
+  )
   assert.doesNotMatch(dialer, /\(\) => \[uiState\.dialTarget, uiState\.dialLabel\]/)
   closeDialer()
 })

@@ -17,6 +17,7 @@ import type {
   IncomingCallActionResult,
   IncomingCallPolicy,
   IPConfiguration,
+  LineSettings,
   LineIncomingCallConfiguration,
   Message,
   RecordingSettings,
@@ -24,7 +25,8 @@ import type {
   TelegramUnit,
   TelegramUnitInput,
   UpdateDeviceConfigurationInput,
-  UpdateGlobalCallSettingsInput
+  UpdateGlobalCallSettingsInput,
+  UpdateLineSettingsInput
 } from './types.ts'
 
 type JsonRecord = Record<string, unknown>
@@ -371,6 +373,20 @@ export function createGlobalCallSettingsPayload(
   }
 }
 
+export function createLineSettingsPayload(
+  input: UpdateLineSettingsInput
+): UpdateLineSettingsInput {
+  const defaultDeviceIMEI = input.default_device_imei.trim()
+  if (!defaultDeviceIMEI) throw new Error('default_device_imei 不能为空')
+  if (!Number.isSafeInteger(input.expected_revision) || input.expected_revision < 1) {
+    throw new Error('line settings expected_revision 必须是正整数')
+  }
+  return {
+    default_device_imei: defaultDeviceIMEI,
+    expected_revision: input.expected_revision
+  }
+}
+
 export function createDeviceConfigurationPayload(
   input: UpdateDeviceConfigurationInput
 ): UpdateDeviceConfigurationInput {
@@ -606,6 +622,7 @@ function parseDataConnection(value: unknown, index: number): DataConnection {
 function parseDeviceCapabilities(value: unknown): DeviceConfigurationCapabilities {
   const source = objectValue(value, 'hardware.capabilities')
   return {
+    voice: parseFeatureCapability(source.voice, 'hardware.capabilities.voice'),
     radio: parseFeatureCapability(source.radio, 'hardware.capabilities.radio'),
     data_connection: parseFeatureCapability(
       source.data_connection,
@@ -741,7 +758,8 @@ export function parseCallMediaResponse(value: unknown): string {
 }
 
 export function parseRecordingSettingsResponse(value: unknown): RecordingSettings {
-  const source = objectValue(value, 'recording_settings')
+  const response = objectValue(value, 'recording_settings_response')
+  const source = objectValue(response.settings, 'recording_settings')
   return {
     default_enabled: requiredBoolean(source, 'recording_settings', 'default_enabled'),
     revision: requiredRevision(source, 'recording_settings')
@@ -749,14 +767,14 @@ export function parseRecordingSettingsResponse(value: unknown): RecordingSetting
 }
 
 export function parseCallRecordingState(value: unknown): CallRecordingState {
-  const source = objectValue(value, 'call_recording')
-  const startedAt = optionalTimestamp(source, 'call_recording', 'started_at')
-  const recordingError = optionalString(source, 'error')
+  const response = objectValue(value, 'call_recording_response')
+  const source = objectValue(response.state, 'call_recording')
+  const status = requiredString(source, 'call_recording', 'status')
+  const recordingError = optionalString(source, 'last_error_code')
   return {
     call_id: requiredString(source, 'call_recording', 'call_id'),
     enabled: requiredBoolean(source, 'call_recording', 'enabled'),
-    active: requiredBoolean(source, 'call_recording', 'active'),
-    ...(startedAt ? { started_at: startedAt } : {}),
+    active: status === 'recording',
     ...(recordingError ? { error: recordingError } : {})
   }
 }
@@ -788,8 +806,37 @@ export function parseCallRecording(value: unknown): CallRecording {
 
 export function parseCallRecordingsResponse(value: unknown): CallRecording[] {
   const source = objectValue(value, 'response')
-  if (!Array.isArray(source.recordings)) throw new Error('response.recordings 必须是数组')
-  return source.recordings.map(parseCallRecording)
+  if (!Array.isArray(source.segments)) throw new Error('response.segments 必须是数组')
+  return source.segments.flatMap((value, index): CallRecording[] => {
+    const path = `response.segments[${index}]`
+    const segment = objectValue(value, path)
+    if (requiredString(segment, path, 'status') !== 'ready') return []
+    const id = requiredString(segment, path, 'id')
+    const callID = requiredString(segment, path, 'call_id')
+    const endedAt = optionalTimestamp(segment, path, 'ended_at')
+    const durationMS = requiredNonNegativeInteger(segment, path, 'duration_ms')
+    return [
+      {
+        id,
+        call_id: callID,
+        started_at: requiredTimestamp(segment, path, 'started_at'),
+        ...(endedAt ? { ended_at: endedAt } : {}),
+        duration_seconds: Math.floor(durationMS / 1000),
+        content_type: 'audio/ogg; codecs=opus',
+        size_bytes: requiredNonNegativeInteger(segment, path, 'size_bytes'),
+        download_url: `/api/v1/calls/${encodeURIComponent(callID)}/recordings/${encodeURIComponent(id)}/download`
+      }
+    ]
+  })
+}
+
+export function parseLineSettingsResponse(value: unknown): LineSettings {
+  const response = objectValue(value, 'line_settings_response')
+  const source = objectValue(response.settings, 'line_settings')
+  return {
+    default_device_imei: requiredString(source, 'line_settings', 'default_device_imei'),
+    revision: requiredRevision(source, 'line_settings')
+  }
 }
 
 export function parseCallResponse(value: unknown): CallSession {

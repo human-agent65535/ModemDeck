@@ -17,9 +17,12 @@ import StatePanel from '../components/StatePanel.vue'
 import { openDialer } from '../state/ui'
 import {
   capabilityReason,
+  bootstrapResource,
   contactsResource,
   contactEditingAvailable,
   deleteContact,
+  lineLabel,
+  loadBootstrap,
   loadContacts,
   saveContact
 } from '../state/workspace'
@@ -54,6 +57,9 @@ const selectedId = computed(() => String(route.params.contactId || ''))
 const selected = computed(() => contactsResource.data.find(contact => contact.id === selectedId.value))
 const messageUnavailable = computed(() => capabilityReason('message'))
 const dialUnavailable = computed(() => capabilityReason('dial'))
+const contactLines = computed(
+  () => bootstrapResource.data?.lines.filter(line => Boolean(line.device_imei)) || []
+)
 
 watch(
   () => contactsResource.status,
@@ -121,7 +127,13 @@ function message(contact: Contact, number: string): void {
   void router.push({ name: 'messages', query: { compose: number, name: contact.display_name } })
 }
 
+function preferredLineName(contact: Contact): string {
+  const line = contactLines.value.find(item => item.device_imei === contact.preferred_device_imei)
+  return line ? lineLabel(line) : contact.preferred_device_imei || ''
+}
+
 onMounted(() => {
+  void loadBootstrap()
   void loadContacts()
 })
 </script>
@@ -240,6 +252,9 @@ onMounted(() => {
                 </button>
               </span>
             </div>
+            <p v-if="selected.preferred_device_imei" class="contact-preferred-line">
+              首选线路：{{ preferredLineName(selected) }}
+            </p>
           </section>
           <p v-if="dialUnavailable || messageUnavailable" class="unavailable-note">
             {{ dialUnavailable || messageUnavailable }}
@@ -258,6 +273,7 @@ onMounted(() => {
     <ContactEditor
       :open="editorOpen"
       :contact="editing"
+      :lines="contactLines"
       :saving="saving"
       :error="editorError"
       @close="editorOpen = false"

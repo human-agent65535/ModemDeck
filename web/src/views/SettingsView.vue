@@ -13,15 +13,13 @@ import {
 } from '@lucide/vue'
 import StatePanel from '../components/StatePanel.vue'
 import DeviceConfigurationPanel from '../components/DeviceConfigurationPanel.vue'
+import DiagnosticsPanel from '../components/DiagnosticsPanel.vue'
 import RecordingSettingsForm from '../components/RecordingSettingsForm.vue'
 import TelegramSettingsForm from '../components/TelegramSettingsForm.vue'
 import { fixtureMode } from '../api/client'
 import { logout as logoutSession, sessionState } from '../state/session'
 import {
-  bootstrapResource,
-  devicesResource,
-  loadBootstrap,
-  loadDevices
+  loadBootstrap
 } from '../state/workspace'
 
 type SettingsSection = 'devices' | 'recording' | 'telegram' | 'diagnostics'
@@ -39,7 +37,7 @@ const sections: Array<{
   { id: 'devices', label: '设备', description: '蜂窝线路与模组', icon: RadioTower },
   { id: 'recording', label: '通话录音', description: '默认录音设置', icon: Circle },
   { id: 'telegram', label: 'Telegram', description: '消息通知', icon: Send },
-  { id: 'diagnostics', label: '诊断', description: '服务与接口状态', icon: Activity }
+  { id: 'diagnostics', label: '诊断', description: '运行状态与实时日志', icon: Activity }
 ]
 const selectedSection = computed<SettingsSection | ''>(() => {
   const value = String(route.params.section || '')
@@ -53,7 +51,6 @@ watch(
   selectedSection,
   section => {
     if (section === 'devices') void loadBootstrap()
-    if (section === 'diagnostics') void Promise.all([loadBootstrap(), loadDevices()])
   },
   { immediate: true }
 )
@@ -150,37 +147,7 @@ onMounted(() => {
         </div>
 
         <div v-else class="settings-content">
-          <section class="diagnostics-summary">
-            <h3>接口状态</h3>
-            <dl class="settings-facts">
-              <div><dt>数据源</dt><dd>{{ fixtureMode ? '开发 fixture' : '生产 API' }}</dd></div>
-              <div><dt>Bootstrap</dt><dd>{{ bootstrapResource.status }}</dd></div>
-              <div><dt>设备接口</dt><dd>{{ devicesResource.status }}</dd></div>
-              <template v-if="bootstrapResource.data">
-                <div><dt>Host agent</dt><dd>{{ bootstrapResource.data.capabilities.agent_connected ? 'connected' : 'disconnected' }}</dd></div>
-                <div><dt>消息发送</dt><dd>{{ bootstrapResource.data.capabilities.message ? 'available' : 'unavailable' }}</dd></div>
-                <div><dt>通话控制</dt><dd>{{ bootstrapResource.data.capabilities.dial ? 'available' : 'unavailable' }}</dd></div>
-                <div><dt>WebRTC 音频</dt><dd>{{ bootstrapResource.data.capabilities.webrtc_audio ? 'available' : 'unavailable' }}</dd></div>
-                <div><dt>设备控制</dt><dd>{{ bootstrapResource.data.capabilities.device_control ? 'available' : 'unavailable' }}</dd></div>
-                <div><dt>VoLTE 控制</dt><dd>{{ bootstrapResource.data.capabilities.volte_control ? 'available' : 'unavailable' }}</dd></div>
-                <div><dt>VoWiFi 控制</dt><dd>{{ bootstrapResource.data.capabilities.vowifi_control ? 'available' : 'unavailable' }}</dd></div>
-              </template>
-            </dl>
-          </section>
-          <StatePanel
-            v-if="bootstrapResource.status === 'forbidden'"
-            state="forbidden"
-            title="无权查看诊断信息"
-            :detail="bootstrapResource.error"
-          />
-          <StatePanel
-            v-else-if="bootstrapResource.status === 'error'"
-            state="error"
-            title="Bootstrap 请求失败"
-            :detail="bootstrapResource.error"
-            retryable
-            @retry="loadBootstrap(true)"
-          />
+          <DiagnosticsPanel />
         </div>
       </template>
 

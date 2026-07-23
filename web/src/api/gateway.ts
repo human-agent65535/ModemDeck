@@ -6,21 +6,38 @@ import type {
   CallRecordingState,
   CallRecord,
   CallSession,
+  CommandReceipt,
+  ConnectionProfile,
   Contact,
   ContactInput,
+  CreateDeviceInput,
+  DeleteConnectionProfileInput,
   Device,
   DeviceConfiguration,
+  DiagnosticLogPage,
+  DiagnosticLogQuery,
+  DiagnosticLogStreamHandlers,
+  DiagnosticsSnapshot,
   GlobalCallSettings,
+  LineSettings,
   LoginInput,
   Message,
   MessageThread,
   RecordingSettings,
+  RenameDeviceInput,
+  SaveConnectionProfileInput,
   SendMessageInput,
   SessionResponse,
+  SIMCommandInput,
+  SIMStatus,
   TelegramUnit,
   TelegramUnitInput,
   UpdateDeviceConfigurationInput,
-  UpdateGlobalCallSettingsInput
+  UpdateGlobalCallSettingsInput,
+  UpdateLineSettingsInput,
+  USSDCommandInput,
+  USSDResponse,
+  USSDStatus
 } from './types'
 
 export type ListQuery = {
@@ -51,10 +68,34 @@ export interface ModemDeckGateway {
   listContacts(query?: ListQuery): Promise<Contact[]>
   listThreads(query?: ListQuery): Promise<MessageThread[]>
   listMessages(query: MessageQuery): Promise<Message[]>
+  markThreadRead(query: MessageQuery): Promise<void>
   listCalls(filter?: CallFilter, query?: ListQuery): Promise<CallRecord[]>
   listDevices(): Promise<Device[]>
+  createDevice(input: CreateDeviceInput): Promise<Device>
+  renameDevice(imei: string, input: RenameDeviceInput): Promise<Device>
+  getSIMStatus(lineID: string): Promise<SIMStatus>
+  commandSIM(lineID: string, input: SIMCommandInput): Promise<CommandReceipt>
+  listConnectionProfiles(lineID: string): Promise<ConnectionProfile[]>
+  saveConnectionProfile(
+    lineID: string,
+    input: SaveConnectionProfileInput
+  ): Promise<ConnectionProfile>
+  deleteConnectionProfile(
+    lineID: string,
+    input: DeleteConnectionProfileInput
+  ): Promise<CommandReceipt>
+  getUSSDStatus(lineID: string): Promise<USSDStatus>
+  commandUSSD(lineID: string, input: USSDCommandInput): Promise<USSDResponse>
+  getDiagnostics(): Promise<DiagnosticsSnapshot>
+  listDiagnosticLogs(query?: DiagnosticLogQuery): Promise<DiagnosticLogPage>
+  subscribeDiagnosticLogs(
+    query: DiagnosticLogQuery,
+    handlers: DiagnosticLogStreamHandlers
+  ): () => void
+  downloadDiagnosticLogs(query?: DiagnosticLogQuery): Promise<Blob>
   getGlobalCallSettings(): Promise<GlobalCallSettings>
   updateGlobalCallSettings(input: UpdateGlobalCallSettingsInput): Promise<GlobalCallSettings>
+  updateLineSettings(input: UpdateLineSettingsInput): Promise<LineSettings>
   getDeviceConfiguration(lineID: string): Promise<DeviceConfiguration>
   updateDeviceConfiguration(
     lineID: string,

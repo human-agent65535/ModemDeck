@@ -41,6 +41,14 @@ function numberValue(source: JsonRecord, key: string, fallback = 0): number {
   return Number.isFinite(value) ? value : fallback
 }
 
+function nullableNumber(source: JsonRecord, key: string, zeroIsUnknown = false): number | null {
+  const raw = source[key]
+  if (raw === undefined || raw === null || raw === '') return null
+  const value = Number(raw)
+  if (!Number.isFinite(value) || (zeroIsUnknown && value === 0)) return null
+  return value
+}
+
 function timestamp(source: JsonRecord, path: string, key: string): string {
   const value = requiredString(source, path, key)
   if (!Number.isFinite(Date.parse(value))) throw new Error(`${path}.${key} 不是有效时间`)
@@ -59,6 +67,10 @@ function listValue(value: unknown, key: string): unknown[] {
 }
 
 const COMMUNICATION_CAPABILITIES: CommunicationCapabilityName[] = [
+  'modem',
+  'sim',
+  'voice',
+  'messaging',
   'dial',
   'answer',
   'reject',
@@ -75,9 +87,23 @@ function parseCommunicationCapabilities(
   const source = objectValue(value, path)
   const capabilities: CommunicationCapabilities = {}
   for (const key of COMMUNICATION_CAPABILITIES) {
-    if (source[key] === undefined) continue
-    if (typeof source[key] !== 'boolean') throw new Error(`${path}.${key} 必须是布尔值`)
-    capabilities[key] = source[key]
+    const wireKey =
+      key === 'answer'
+        ? 'answer_call'
+        : key === 'hangup'
+          ? 'hangup_call'
+          : key === 'reject'
+            ? 'reject_call'
+            : key === 'dtmf'
+              ? 'send_dtmf'
+              : key === 'message'
+                ? 'send_message'
+                : key
+    if (source[wireKey] === undefined) continue
+    if (typeof source[wireKey] !== 'boolean') {
+      throw new Error(`${path}.${wireKey} 必须是布尔值`)
+    }
+    capabilities[key] = source[wireKey]
   }
   return capabilities
 }
@@ -102,6 +128,7 @@ export function parseContact(value: unknown): Contact {
     display_name: requiredString(source, 'contact', 'display_name'),
     phones: rawPhones.map((phone, index) => normalizePhone(phone, id, index)),
     notes: stringValue(source, 'notes') || undefined,
+    preferred_device_imei: stringValue(source, 'preferred_device_imei') || undefined,
     revision: Number.isFinite(Number(source.revision)) ? Number(source.revision) : undefined,
     created_at: optionalTimestamp(source, 'created_at'),
     updated_at: optionalTimestamp(source, 'updated_at')
@@ -129,6 +156,7 @@ export function parseThread(value: unknown): MessageThread {
     key: threadKey(iccid, peer),
     imsi: stringValue(source, 'imsi'),
     iccid,
+    line_id: stringValue(source, 'line_id') || undefined,
     peer,
     contact_name: stringValue(source, 'contact_name') || undefined,
     last_timestamp: stringValue(source, 'last_timestamp'),
@@ -149,6 +177,7 @@ export function parseMessage(value: unknown): Message {
     id: requiredString(source, 'message', 'id'),
     imsi: stringValue(source, 'imsi'),
     iccid: requiredString(source, 'message', 'iccid'),
+    line_id: stringValue(source, 'line_id') || undefined,
     peer: requiredString(source, 'message', 'peer'),
     direction: type === 1 ? 'incoming' : 'outgoing',
     content: stringValue(source, 'content'),
@@ -209,16 +238,24 @@ function parseSIM(value: unknown): DeviceSIM {
 
 export function parseDevice(value: unknown): Device {
   const source = objectValue(value, 'device')
-  const signal = Number(source.signal_dbm)
   return {
     imei: requiredString(source, 'device', 'imei'),
     alias: stringValue(source, 'alias'),
     model: stringValue(source, 'model'),
     firmware: stringValue(source, 'firmware'),
+    port: stringValue(source, 'port'),
+    public_ip: stringValue(source, 'public_ip'),
+    private_ip: stringValue(source, 'private_ip'),
+    public_ipv6: stringValue(source, 'public_ipv6'),
+    private_ipv6: stringValue(source, 'private_ipv6'),
     state: stringValue(source, 'state') || undefined,
     current_iccid: stringValue(source, 'current_iccid'),
     sim_inserted: source.sim_inserted === true,
-    signal_dbm: Number.isFinite(signal) ? signal : null,
+    signal_quality: nullableNumber(source, 'signal_quality'),
+    signal_dbm: nullableNumber(source, 'signal_dbm', true),
+    signal_rsrq: nullableNumber(source, 'signal_rsrq', true),
+    signal_rsrp: nullableNumber(source, 'signal_rsrp', true),
+    last_seen: optionalTimestamp(source, 'last_seen'),
     sim: source.sim ? parseSIM(source.sim) : undefined,
     capabilities: parseCommunicationCapabilities(source.capabilities, 'device.capabilities')
   }
@@ -226,6 +263,11 @@ export function parseDevice(value: unknown): Device {
 
 export function parseDevices(value: unknown): Device[] {
   return listValue(value, 'devices').map(parseDevice)
+}
+
+export function parseDeviceResponse(value: unknown): Device {
+  const source = objectValue(value, 'device_response')
+  return parseDevice(source.device)
 }
 
 function parseLine(value: unknown): LineSummary {
@@ -238,7 +280,10 @@ function parseLine(value: unknown): LineSummary {
     operator: stringValue(source, 'operator'),
     device_imei: stringValue(source, 'device_imei'),
     device_alias: stringValue(source, 'device_alias'),
+    model: stringValue(source, 'model') || undefined,
+    firmware: stringValue(source, 'firmware') || undefined,
     state: stringValue(source, 'state') || undefined,
+    signal_quality: nullableNumber(source, 'signal_quality') ?? undefined,
     capabilities: parseCommunicationCapabilities(source.capabilities, 'line.capabilities')
   }
   if (!line.id && !line.iccid && !line.imsi && !line.device_imei) throw new Error('line 缺少稳定标识')
@@ -267,6 +312,11 @@ export function parseBootstrap(value: unknown): BootstrapResponse {
       ? (capabilities.unavailable_reasons as JsonRecord)
       : {}
   const lines = Array.isArray(source.lines) ? source.lines.map(parseLine) : []
+  const lineSettings = objectValue(source.line_settings, 'bootstrap.line_settings')
+  const lineSettingsRevision = numberValue(lineSettings, 'revision')
+  if (!Number.isSafeInteger(lineSettingsRevision) || lineSettingsRevision < 1) {
+    throw new Error('bootstrap.line_settings.revision 必须是正整数')
+  }
   return {
     capabilities: {
       agent_connected: capabilities.agent_connected as boolean,
@@ -281,6 +331,10 @@ export function parseBootstrap(value: unknown): BootstrapResponse {
         message: stringValue(reasons, 'message') || undefined
       }
     },
-    lines
+    lines,
+    line_settings: {
+      default_device_imei: stringValue(lineSettings, 'default_device_imei'),
+      revision: lineSettingsRevision
+    }
   }
 }

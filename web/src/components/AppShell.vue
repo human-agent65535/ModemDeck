@@ -83,6 +83,7 @@ onBeforeUnmount(() => {
           v-for="item in primaryNav"
           :key="item.name"
           class="rail-link"
+          :class="{ 'is-current': route.name === item.name }"
           :to="{ name: item.name }"
           :title="item.label"
         >
@@ -94,6 +95,7 @@ onBeforeUnmount(() => {
       <nav class="rail__secondary">
         <RouterLink
           class="rail-link"
+          :class="{ 'is-current': route.name === 'settings' }"
           :to="{ name: 'settings', params: { section: 'devices' } }"
           title="设置"
         >
@@ -146,12 +148,16 @@ onBeforeUnmount(() => {
       <RouterLink
         v-for="item in primaryNav"
         :key="item.name"
+        :class="{ 'is-current': route.name === item.name }"
         :to="{ name: item.name }"
       >
         <component :is="item.icon" :size="21" />
         <span>{{ item.label }}</span>
       </RouterLink>
-      <RouterLink :to="{ name: 'settings', params: { section: 'devices' } }">
+      <RouterLink
+        :class="{ 'is-current': route.name === 'settings' }"
+        :to="{ name: 'settings', params: { section: 'devices' } }"
+      >
         <Settings :size="21" />
         <span>设置</span>
       </RouterLink>

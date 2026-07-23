@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, LoaderCircle, MessageSquarePlus, Phone, Send } from '@lucide/vue'
-import type { Contact } from '../api/types'
+import type { Contact, LineSummary, MessageThread } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
 import ContactSuggestInput from '../components/ContactSuggestInput.vue'
 import SearchField from '../components/SearchField.vue'
@@ -20,6 +20,7 @@ import {
   loadMessages,
   loadThreads,
   messagesFor,
+  resolveLine,
   sendMessage,
   threadsResource
 } from '../state/workspace'
@@ -32,6 +33,8 @@ const composingNew = ref(false)
 const newRecipient = ref('')
 const newRecipientName = ref('')
 const selectedLineKey = ref('')
+const composeContextLineKey = ref('')
+const lineFilterKey = ref('all')
 const draft = ref('')
 const sending = ref(false)
 const sendError = ref('')
@@ -45,11 +48,14 @@ const currentMessages = computed(() =>
   selectedKey.value ? messagesFor(selectedKey.value) : null
 )
 const lines = computed(() => bootstrapResource.data?.lines || [])
+const defaultLineDeviceIMEI = computed(
+  () => bootstrapResource.data?.line_settings.default_device_imei || ''
+)
 const selectedLine = computed(() => lines.value.find(line => lineKey(line) === selectedLineKey.value))
 const activeLine = computed(() =>
   composingNew.value
     ? selectedLine.value
-    : lines.value.find(line => line.iccid && line.iccid === selectedThread.value?.iccid)
+    : lineForThread(selectedThread.value)
 )
 const messageUnavailable = computed(() => capabilityReason('message'))
 const messageWriteUnavailable = computed(() =>
@@ -59,7 +65,12 @@ const dialUnavailable = computed(() => capabilityReason('dial'))
 const filteredThreads = computed(() => {
   const query = search.value.trim().toLocaleLowerCase()
   const digits = query.replace(/\D/g, '')
+  const filteredLine =
+    lineFilterKey.value === 'all'
+      ? undefined
+      : lines.value.find(line => lineKey(line) === lineFilterKey.value)
   return threadsResource.data.filter(thread => {
+    if (filteredLine && !threadUsesLine(thread, filteredLine)) return false
     if (!query) return true
     return (
       (thread.contact_name || '').toLocaleLowerCase().includes(query) ||
@@ -85,14 +96,47 @@ const sendDisabledReason = computed(() => {
   return ''
 })
 
+let lineSelectionOverridden = false
+
+function threadUsesLine(thread: MessageThread, line: LineSummary): boolean {
+  return Boolean(
+    (thread.line_id &&
+      [line.id, lineKey(line), line.device_imei].filter(Boolean).includes(thread.line_id)) ||
+      (thread.iccid && line.iccid === thread.iccid)
+  )
+}
+
+function lineForThread(thread?: MessageThread): LineSummary | undefined {
+  return thread ? lines.value.find(line => threadUsesLine(thread, line)) : undefined
+}
+
+function syncComposeLine(force = false): void {
+  if (!composingNew.value) return
+  const selectedStillExists = lines.value.some(line => lineKey(line) === selectedLineKey.value)
+  if (!selectedStillExists) lineSelectionOverridden = false
+  if (!force && lineSelectionOverridden) return
+  const resolved = resolveLine('message', {
+    contextKey: composeContextLineKey.value,
+    number: newRecipient.value
+  })
+  selectedLineKey.value = resolved ? lineKey(resolved) : ''
+}
+
 watch(
   lines,
   value => {
-    if (!value.some(line => lineKey(line) === selectedLineKey.value)) {
-      selectedLineKey.value = ''
-    }
+    if (
+      lineFilterKey.value !== 'all' &&
+      !value.some(line => lineKey(line) === lineFilterKey.value)
+    ) lineFilterKey.value = 'all'
+    syncComposeLine()
   },
   { immediate: true }
+)
+
+watch(
+  [lines, defaultLineDeviceIMEI, () => contactsResource.data, newRecipient, composingNew],
+  () => syncComposeLine()
 )
 
 watch(
@@ -102,10 +146,15 @@ watch(
       composingNew.value = true
       newRecipient.value = compose
       newRecipientName.value = typeof route.query.name === 'string' ? route.query.name : ''
+      composeContextLineKey.value =
+        typeof route.query.line === 'string' ? route.query.line : ''
+      lineSelectionOverridden = false
+      syncComposeLine(true)
       sendError.value = ''
       return
     }
     composingNew.value = false
+    composeContextLineKey.value = ''
     if (typeof routeThreadKey === 'string' && routeThreadKey) {
       const thread = threadsResource.data.find(item => item.key === routeThreadKey)
       if (thread) void loadMessages(thread).then(() => scrollToEnd())
@@ -144,6 +193,9 @@ function startMessage(): void {
   composingNew.value = true
   newRecipient.value = ''
   newRecipientName.value = ''
+  composeContextLineKey.value = ''
+  lineSelectionOverridden = false
+  syncComposeLine(true)
   draft.value = ''
   sendError.value = ''
   void router.push({ name: 'messages', query: { compose: '' } })
@@ -152,11 +204,16 @@ function startMessage(): void {
 function chooseRecipient(suggestion: { contact: Contact; phone: { number: string } }): void {
   newRecipient.value = suggestion.phone.number
   newRecipientName.value = suggestion.contact.display_name
+  syncComposeLine(true)
 }
 
 function backToList(): void {
   composingNew.value = false
   void router.push({ name: 'messages' })
+}
+
+function changeComposeLine(): void {
+  lineSelectionOverridden = true
 }
 
 async function submit(): Promise<void> {
@@ -191,7 +248,8 @@ function callCurrent(): void {
   if (dialUnavailable.value || !activeRecipient.value) return
   openDialer(
     activeRecipient.value,
-    composingNew.value ? newRecipientName.value : selectedThread.value?.contact_name || ''
+    composingNew.value ? newRecipientName.value : selectedThread.value?.contact_name || '',
+    activeLineID.value
   )
 }
 
@@ -226,7 +284,25 @@ onMounted(() => {
       </header>
       <div class="pane-search">
         <SearchField v-model="search" placeholder="搜索对话" />
+        <select
+          v-if="lines.length > 1"
+          v-model="lineFilterKey"
+          class="message-line-filter"
+          aria-label="按模组筛选消息"
+        >
+          <option value="all">全部模组</option>
+          <option v-for="line in lines" :key="lineKey(line)" :value="lineKey(line)">
+            {{ lineLabel(line) }}
+          </option>
+        </select>
       </div>
+      <p
+        v-if="threadsResource.status === 'ready' && threadsResource.error"
+        class="field-error pane-error"
+        role="alert"
+      >
+        {{ threadsResource.error }}
+      </p>
 
       <StatePanel v-if="threadsResource.status === 'loading'" state="loading" title="正在载入消息" />
       <StatePanel
@@ -360,7 +436,7 @@ onMounted(() => {
         <footer class="message-composer">
           <label v-if="composingNew && lines.length > 0" class="compact-select">
             <span>线路</span>
-            <select v-model="selectedLineKey" aria-label="消息线路">
+            <select v-model="selectedLineKey" aria-label="消息线路" @change="changeComposeLine">
               <option value="" disabled>选择线路</option>
               <option v-for="line in lines" :key="lineKey(line)" :value="lineKey(line)">
                 {{ lineLabel(line) }}{{
@@ -370,6 +446,9 @@ onMounted(() => {
             </select>
           </label>
           <p v-else-if="composingNew" class="unavailable-note">没有可用线路</p>
+          <span v-else-if="activeLine" class="message-line-context">
+            {{ lineLabel(activeLine) }}
+          </span>
           <div class="composer-row">
             <textarea
               v-model="draft"
@@ -400,3 +479,33 @@ onMounted(() => {
     </article>
   </section>
 </template>
+
+<style scoped>
+.pane-search {
+  display: grid;
+  gap: 8px;
+}
+
+.message-line-filter {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 9px;
+  color: var(--text);
+  font-size: 11px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.message-line-context {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.pane-error {
+  margin: 0 16px 8px;
+}
+</style>

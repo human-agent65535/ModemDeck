@@ -229,51 +229,68 @@ test('call media response requires a non-empty SDP answer', () => {
 
 test('recording settings and active state require authoritative booleans and revisions', () => {
   assert.deepEqual(
-    parseRecordingSettingsResponse({ default_enabled: true, revision: 4 }),
+    parseRecordingSettingsResponse({
+      settings: { default_enabled: true, revision: 4 }
+    }),
     { default_enabled: true, revision: 4 }
   )
   assert.deepEqual(
     parseCallRecordingState({
-      call_id: 'call-1',
-      enabled: true,
-      active: true,
-      started_at: '2026-07-23T12:00:04Z'
+      state: {
+        call_id: 'call-1',
+        enabled: true,
+        status: 'recording'
+      }
     }),
     {
       call_id: 'call-1',
       enabled: true,
-      active: true,
-      started_at: '2026-07-23T12:00:04Z'
+      active: true
     }
   )
   assert.throws(
-    () => parseRecordingSettingsResponse({ default_enabled: false, revision: 0 }),
+    () =>
+      parseRecordingSettingsResponse({
+        settings: { default_enabled: false, revision: 0 }
+      }),
     /revision/
   )
   assert.throws(
-    () => parseCallRecordingState({ call_id: 'call-1', enabled: true }),
-    /active/
+    () =>
+      parseCallRecordingState({
+        state: { call_id: 'call-1', enabled: true }
+      }),
+    /status/
   )
 })
 
-test('recording metadata accepts only same-origin authenticated API downloads', () => {
-  const recording = {
+test('recording metadata derives same-origin authenticated API downloads', () => {
+  const segment = {
     id: 'recording-1',
     call_id: 'call-1',
+    status: 'ready',
     started_at: '2026-07-23T12:00:04Z',
     ended_at: '2026-07-23T12:01:04Z',
-    duration_seconds: 60,
-    content_type: 'audio/ogg; codecs=opus',
-    size_bytes: 123456,
-    download_url: '/api/v1/calls/call-1/recordings/recording-1/download'
+    duration_ms: 60_000,
+    size_bytes: 123456
   }
-  assert.deepEqual(parseCallRecordingsResponse({ recordings: [recording] }), [recording])
-  assert.throws(
-    () =>
-      parseCallRecordingsResponse({
-        recordings: [{ ...recording, download_url: 'https://example.com/recording.ogg' }]
-      }),
-    /同源 API 路径/
+  assert.deepEqual(parseCallRecordingsResponse({ segments: [segment] }), [
+    {
+      id: 'recording-1',
+      call_id: 'call-1',
+      started_at: '2026-07-23T12:00:04Z',
+      ended_at: '2026-07-23T12:01:04Z',
+      duration_seconds: 60,
+      content_type: 'audio/ogg; codecs=opus',
+      size_bytes: 123456,
+      download_url: '/api/v1/calls/call-1/recordings/recording-1/download'
+    }
+  ])
+  assert.deepEqual(
+    parseCallRecordingsResponse({
+      segments: [{ ...segment, status: 'recording' }]
+    }),
+    []
   )
 })
 

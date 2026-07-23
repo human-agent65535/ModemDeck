@@ -6,23 +6,41 @@ import type {
   CallRecordingState,
   CallRecord,
   CallSession,
+  CommandReceipt,
+  ConnectionProfile,
   Contact,
   ContactInput,
+  CreateDeviceInput,
+  DeleteConnectionProfileInput,
   Device,
   DeviceConfiguration,
   DeviceFeatureCapability,
   DeviceHardwareConfiguration,
+  DiagnosticLogEntry,
+  DiagnosticLogPage,
+  DiagnosticLogQuery,
+  DiagnosticLogStreamHandlers,
+  DiagnosticsSnapshot,
   GlobalCallSettings,
   IncomingCallPolicy,
+  LineSettings,
   LineSummary,
   Message,
   MessageThread,
   RecordingSettings,
+  RenameDeviceInput,
+  SaveConnectionProfileInput,
   SendMessageInput,
+  SIMCommandInput,
+  SIMStatus,
   TelegramUnit,
   TelegramUnitInput,
   UpdateDeviceConfigurationInput,
-  UpdateGlobalCallSettingsInput
+  UpdateGlobalCallSettingsInput,
+  UpdateLineSettingsInput,
+  USSDCommandInput,
+  USSDResponse,
+  USSDStatus
 } from './types'
 import { ApiError } from './types'
 import { threadKey } from './normalize'
@@ -34,6 +52,7 @@ const contacts: Contact[] = [
   {
     id: 'contact-alex',
     display_name: 'Alex Rowan',
+    preferred_device_imei: 'fixture-001',
     phones: [{ id: 'phone-alex', label: '手机', number: '+1 202 555 0103', primary: true }],
     notes: '东京',
     revision: 3
@@ -41,6 +60,7 @@ const contacts: Contact[] = [
   {
     id: 'contact-casey',
     display_name: 'Casey Morgan',
+    preferred_device_imei: 'fixture-002',
     phones: [
       { id: 'phone-casey-mobile', label: '手机', number: '+1 202 555 0104', primary: true },
       { id: 'phone-casey-work', label: '工作', number: '+1 202 555 0105', primary: false }
@@ -60,6 +80,7 @@ const threads: MessageThread[] = [
     key: threadKey(MAIN_ICCID, '+1 202 555 0103'),
     imsi: '001010000000001',
     iccid: MAIN_ICCID,
+    line_id: 'line-fixture-main',
     peer: '+1 202 555 0103',
     contact_name: 'Alex Rowan',
     last_timestamp: '2026-07-23T09:42:00Z',
@@ -70,6 +91,7 @@ const threads: MessageThread[] = [
     key: threadKey(TRAVEL_ICCID, '+1 202 555 0104'),
     imsi: '001020000000002',
     iccid: TRAVEL_ICCID,
+    line_id: 'line-fixture-travel',
     peer: '+1 202 555 0104',
     contact_name: 'Casey Morgan',
     last_timestamp: '2026-07-22T14:18:00Z',
@@ -80,6 +102,7 @@ const threads: MessageThread[] = [
     key: threadKey(MAIN_ICCID, '+1 202 555 0106'),
     imsi: '001010000000001',
     iccid: MAIN_ICCID,
+    line_id: 'line-fixture-main',
     peer: '+1 202 555 0106',
     contact_name: 'Riley Quinn',
     last_timestamp: '2026-07-20T06:05:00Z',
@@ -94,6 +117,7 @@ const messagesByThread: Record<string, Message[]> = {
       id: '101',
       imsi: '001010000000001',
       iccid: MAIN_ICCID,
+      line_id: 'line-fixture-main',
       peer: '+1 202 555 0103',
       direction: 'outgoing',
       content: '设备已经恢复，可以再试一次。',
@@ -105,6 +129,7 @@ const messagesByThread: Record<string, Message[]> = {
       id: '102',
       imsi: '001010000000001',
       iccid: MAIN_ICCID,
+      line_id: 'line-fixture-main',
       peer: '+1 202 555 0103',
       direction: 'incoming',
       content: '好的，明天下午联系。',
@@ -189,8 +214,51 @@ const calls: CallRecord[] = [
   }
 ]
 
+const diagnosticLogs: DiagnosticLogEntry[] = [
+  {
+    id: 41,
+    timestamp: '2026-07-23T11:58:42Z',
+    level: 'info',
+    component: 'application',
+    caller: 'main.go:42',
+    message: 'ModemDeck service started',
+    fields: { version: 'fixture', address: ':7577' }
+  },
+  {
+    id: 42,
+    timestamp: '2026-07-23T11:58:43Z',
+    level: 'info',
+    component: 'communications',
+    caller: 'service.go:108',
+    message: 'host agent snapshot loaded',
+    fields: { provider: 'modemmanager', lines: 2, revision: 'fixture-revision-8' }
+  },
+  {
+    id: 43,
+    timestamp: '2026-07-23T11:59:12Z',
+    level: 'warn',
+    component: 'call-media',
+    caller: 'runtime.go:214',
+    message: 'media remains unavailable until a call is active',
+    fields: { line_id: 'line-fixture-travel' }
+  },
+  {
+    id: 44,
+    timestamp: '2026-07-23T12:00:00Z',
+    level: 'debug',
+    component: 'http',
+    caller: 'api.go:231',
+    message: 'diagnostics snapshot served',
+    fields: { duration: '4ms' }
+  }
+]
+
 function clone<T>(value: T): T {
   return structuredClone(value)
+}
+
+function fixtureLineKey(line: LineSummary): string {
+  return line.id || line.iccid || line.imsi || line.device_imei
 }
 
 function includes(value: string | undefined, query: string): boolean {
@@ -252,8 +320,16 @@ function fixtureLines(count: number): LineSummary[] {
       operator: 'Aurora Mobile',
       device_imei: 'fixture-001',
       device_alias: 'Main cellular line',
+      model: 'Fixture modem 1',
+      firmware: 'Fixture 1.0',
       state: 'registered',
+      signal_quality: 82,
       capabilities: {
+        modem: true,
+        sim: true,
+        voice: true,
+        messaging: true,
+        media: true,
         dial: true,
         answer: true,
         reject: true,
@@ -272,8 +348,16 @@ function fixtureLines(count: number): LineSummary[] {
       operator: 'Pine Wireless',
       device_imei: 'fixture-002',
       device_alias: 'Travel cellular line',
+      model: 'Fixture modem 2',
+      firmware: 'Fixture 1.0',
       state: 'registered',
+      signal_quality: 76,
       capabilities: {
+        modem: true,
+        sim: true,
+        voice: true,
+        messaging: true,
+        media: false,
         dial: true,
         answer: true,
         reject: false,
@@ -293,8 +377,16 @@ function fixtureLines(count: number): LineSummary[] {
       operator: `Fixture Network ${displayIndex}`,
       device_imei: `fixture-${String(displayIndex).padStart(3, '0')}`,
       device_alias: `Cellular line ${displayIndex}`,
+      model: `Fixture modem ${displayIndex}`,
+      firmware: 'Fixture 1.0',
       state: 'registered',
+      signal_quality: Math.max(10, 80 - displayIndex),
       capabilities: {
+        modem: true,
+        sim: true,
+        voice: true,
+        messaging: true,
+        media: displayIndex % 2 === 1,
         dial: true,
         answer: true,
         reject: displayIndex % 2 === 1,
@@ -375,6 +467,9 @@ function fixtureHardware(line: LineSummary, index: number): DeviceHardwareConfig
       ...(volteAvailable ? { policy: 'enabled' as const, profile_id: 'fixture-volte-v1' } : {})
     },
     capabilities: {
+      voice: feature('modemmanager', {
+        writable: false
+      }),
       radio: feature('modemmanager'),
       data_connection: feature('modemmanager'),
       flight_mode: feature('modemmanager', {
@@ -418,16 +513,14 @@ function fixtureHardware(line: LineSummary, index: number): DeviceHardwareConfig
         reason: 'arbitrary AT access is intentionally not exposed'
       }),
       ussd: feature('modemmanager', {
-        implemented: false,
-        readable: false,
-        writable: false,
-        reason: 'USSD is an operational session API'
+        implemented: true,
+        readable: true,
+        writable: true
       }),
       connection_profile: feature('modemmanager', {
-        implemented: false,
-        readable: false,
-        writable: false,
-        reason: 'connection profile mutation is deferred'
+        implemented: true,
+        readable: true,
+        writable: true
       })
     }
   }
@@ -443,10 +536,19 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         alias: line.device_alias,
         model: `Fixture modem ${index + 1}`,
         firmware: 'Fixture 1.0',
+        port: `cdc-wdm${index}`,
+        public_ip: '',
+        private_ip: index === 0 ? '10.0.0.2' : '',
+        public_ipv6: '',
+        private_ipv6: '',
         state: line.state,
         current_iccid: line.iccid,
         sim_inserted: true,
+        signal_quality: line.signal_quality || null,
         signal_dbm: -70 - index,
+        signal_rsrq: -10 - index,
+        signal_rsrp: -95 - index,
+        last_seen: '2026-07-23T12:00:00Z',
         capabilities: clone(line.capabilities || {}),
         sim: {
           iccid: line.iccid,
@@ -482,6 +584,41 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     receive_calls: true,
     revision: 1
   }
+  let lineSettings: LineSettings = {
+    default_device_imei: lines[0]?.device_imei || '',
+    revision: 1
+  }
+  const connectionProfiles = new Map<string, ConnectionProfile[]>(
+    lines.map(line => [
+      fixtureLineKey(line),
+      [
+        {
+          profile_id: 1,
+          profile_name: 'ims',
+          apn: 'ims',
+          ip_family: 'ipv4v6',
+          ip_type: 3,
+          apn_type: 2,
+          allowed_auth: 0,
+          access_type_preference: 0,
+          roaming_allowance: 0,
+          profile_source: 0
+        },
+        {
+          profile_id: 2,
+          profile_name: 'data',
+          apn: '',
+          ip_family: 'ipv4v6',
+          ip_type: 3,
+          apn_type: 1,
+          allowed_auth: 0,
+          access_type_preference: 0,
+          roaming_allowance: 0,
+          profile_source: 0
+        }
+      ]
+    ])
+  )
   let activeCall: CallSession | undefined
   let activeCallRecording: CallRecordingState | undefined
   let callPolls = 0
@@ -562,6 +699,32 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     hardware.observed_at = '2026-07-23T12:01:00Z'
   }
 
+  function filteredDiagnosticLogs(query: DiagnosticLogQuery = {}): DiagnosticLogPage {
+    const level = query.level || ''
+    const component = query.component?.trim().toLocaleLowerCase() || ''
+    const search = query.search?.trim().toLocaleLowerCase() || ''
+    const after = query.after || 0
+    const limit = Math.max(1, Math.min(2000, Math.trunc(query.limit || 500)))
+    const matching = diagnosticLogs.filter(entry => {
+      if (entry.id <= after) return false
+      if (level && entry.level !== level) return false
+      if (component && entry.component.toLocaleLowerCase() !== component) return false
+      if (!search) return true
+      return [
+        entry.message,
+        entry.component,
+        entry.caller || '',
+        JSON.stringify(entry.fields || {})
+      ].some(value => value.toLocaleLowerCase().includes(search))
+    })
+    return {
+      entries: clone(matching.slice(-limit)),
+      oldest_id: diagnosticLogs[0]?.id || 0,
+      newest_id: diagnosticLogs.at(-1)?.id || 0,
+      truncated: matching.length > limit || (after > 0 && after + 1 < (diagnosticLogs[0]?.id || 0))
+    }
+  }
+
   return {
     async getBootstrap(): Promise<BootstrapResponse> {
       return {
@@ -575,7 +738,8 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           vowifi_control: true,
           unavailable_reasons: {}
         },
-        lines: clone(lines)
+        lines: clone(lines),
+        line_settings: clone(lineSettings)
       }
     },
 
@@ -597,6 +761,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         id: `contact-fixture-${sequence}`,
         display_name: input.display_name,
         notes: input.notes,
+        preferred_device_imei: input.preferred_device_imei,
         revision: 1,
         phones: input.phones.map((phone, index) => ({
           id: `phone-fixture-${sequence}-${index + 1}`,
@@ -617,6 +782,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         ...current,
         display_name: input.display_name,
         notes: input.notes,
+        preferred_device_imei: input.preferred_device_imei,
         revision: (current.revision || 0) + 1,
         phones: input.phones.map((phone, phoneIndex) => ({
           id: phone.id || `phone-fixture-${sequence}-${phoneIndex + 1}`,
@@ -654,6 +820,11 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       return clone(messagesByThread[threadKey(query.iccid, query.peer)] || [])
     },
 
+    async markThreadRead(query: MessageQuery): Promise<void> {
+      const thread = threads.find(item => item.key === threadKey(query.iccid, query.peer))
+      if (thread) thread.unread_count = 0
+    },
+
     async sendMessage(input: SendMessageInput): Promise<Message> {
       sequence += 1
       const iccid =
@@ -672,6 +843,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           key,
           imsi: '',
           iccid,
+          line_id: input.line_id,
           peer: input.to,
           contact_name: contact?.display_name,
           last_timestamp: '2026-07-23T12:00:00Z',
@@ -684,6 +856,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         id: String(sequence),
         imsi: thread.imsi,
         iccid,
+        line_id: input.line_id,
         peer: input.to,
         direction: 'outgoing',
         content: input.content,
@@ -826,6 +999,203 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       return clone(fixtureDeviceList)
     },
 
+    async createDevice(input: CreateDeviceInput): Promise<Device> {
+      const imei = input.imei.trim()
+      if (!imei) throw new ApiError('IMEI 不能为空', 400, 'invalid_device')
+      if (fixtureDeviceList.some(device => device.imei === imei)) {
+        throw new ApiError('设备已存在', 409, 'device_exists')
+      }
+      const device: Device = {
+        imei,
+        alias: input.alias?.trim() || '',
+        model: '',
+        firmware: '',
+        port: '',
+        public_ip: '',
+        private_ip: '',
+        public_ipv6: '',
+        private_ipv6: '',
+        current_iccid: '',
+        sim_inserted: false,
+        signal_quality: null,
+        signal_dbm: null,
+        signal_rsrq: null,
+        signal_rsrp: null
+      }
+      fixtureDeviceList.push(device)
+      return clone(device)
+    },
+
+    async renameDevice(imei: string, input: RenameDeviceInput): Promise<Device> {
+      const device = fixtureDeviceList.find(item => item.imei === imei)
+      if (!device) throw new ApiError('设备不存在', 404, 'device_not_found')
+      device.alias = input.alias.trim()
+      return clone(device)
+    },
+
+    async getSIMStatus(lineID: string): Promise<SIMStatus> {
+      const line = lines.find(item => fixtureLineKey(item) === lineID)
+      if (!line) throw new ApiError('线路不存在', 404, 'not_found')
+      return {
+        line_id: lineID,
+        present: Boolean(line.iccid),
+        active: Boolean(line.iccid),
+        identifier: line.iccid,
+        imsi: line.imsi,
+        operator_identifier: '',
+        operator_name: line.operator,
+        unlock_required: 'none',
+        unlock_required_code: 1,
+        unlock_retries: { 'sim-pin': 3, 'sim-puk': 10 },
+        observed_at: '2026-07-23T12:00:00Z'
+      }
+    },
+
+    async commandSIM(lineID: string, _input: SIMCommandInput): Promise<CommandReceipt> {
+      if (!lines.some(item => fixtureLineKey(item) === lineID)) {
+        throw new ApiError('线路不存在', 404, 'not_found')
+      }
+      return { request_id: `fixture-sim-${Date.now()}`, resource_id: lineID }
+    },
+
+    async listConnectionProfiles(lineID: string): Promise<ConnectionProfile[]> {
+      return clone(connectionProfiles.get(lineID) || [])
+    },
+
+    async saveConnectionProfile(
+      lineID: string,
+      input: SaveConnectionProfileInput
+    ): Promise<ConnectionProfile> {
+      const profiles = connectionProfiles.get(lineID)
+      if (!profiles) throw new ApiError('线路不存在', 404, 'not_found')
+      const profileID =
+        input.profile_id ?? Math.max(0, ...profiles.map(profile => profile.profile_id)) + 1
+      const profile: ConnectionProfile = {
+        profile_id: profileID,
+        profile_name: input.profile_name || '',
+        apn: input.apn || '',
+        ip_family: input.ip_family || 'ipv4v6',
+        ip_type: input.ip_family === 'ipv4' ? 1 : input.ip_family === 'ipv6' ? 2 : 3,
+        apn_type: input.apn_type || 0,
+        allowed_auth: input.allowed_auth || 0,
+        user: input.user,
+        access_type_preference: input.access_type_preference || 0,
+        roaming_allowance: input.roaming_allowance || 0,
+        profile_source: 0
+      }
+      connectionProfiles.set(
+        lineID,
+        profiles.filter(item => item.profile_id !== profileID).concat(profile)
+      )
+      return clone(profile)
+    },
+
+    async deleteConnectionProfile(
+      lineID: string,
+      input: DeleteConnectionProfileInput
+    ): Promise<CommandReceipt> {
+      const profiles = connectionProfiles.get(lineID)
+      if (!profiles) throw new ApiError('线路不存在', 404, 'not_found')
+      connectionProfiles.set(
+        lineID,
+        profiles.filter(
+          profile =>
+            (input.profile_id === undefined || profile.profile_id !== input.profile_id) &&
+            (!input.profile_name || profile.profile_name !== input.profile_name)
+        )
+      )
+      return { request_id: `fixture-profile-${Date.now()}`, resource_id: lineID }
+    },
+
+    async getUSSDStatus(lineID: string): Promise<USSDStatus> {
+      if (!lines.some(item => fixtureLineKey(item) === lineID)) {
+        throw new ApiError('线路不存在', 404, 'not_found')
+      }
+      return {
+        line_id: lineID,
+        state: 'idle',
+        state_code: 1,
+        observed_at: '2026-07-23T12:00:00Z'
+      }
+    },
+
+    async commandUSSD(lineID: string, input: USSDCommandInput): Promise<USSDResponse> {
+      if (!lines.some(item => fixtureLineKey(item) === lineID)) {
+        throw new ApiError('线路不存在', 404, 'not_found')
+      }
+      return input.action === 'cancel' ? {} : { response: 'Fixture network response' }
+    },
+
+    async getDiagnostics(): Promise<DiagnosticsSnapshot> {
+      return {
+        status: 'ok',
+        observed_at: '2026-07-23T12:00:00Z',
+        database: { available: true },
+        host_agent: {
+          connected: true,
+          provider: 'modemmanager',
+          agent_version: 'fixture-agent',
+          runtime_version: 'go1.26.3',
+          boot_epoch: 'fixture-boot',
+          revision: 'fixture-revision-8',
+          observed_at: '2026-07-23T12:00:00Z',
+          capabilities: {
+            discovery: true,
+            snapshot: true,
+            device_configuration: true,
+            dial: true,
+            answer_call: true,
+            reject_call: true,
+            hangup_call: true,
+            send_dtmf: true,
+            send_message: true,
+            sim_management: true,
+            connection_profiles: true,
+            ussd: true
+          }
+        },
+        call_runtime: { available: true },
+        lines: clone(lines),
+        active_calls:
+          activeCall && activeCall.phase !== 'ended' && activeCall.phase !== 'failed'
+            ? [
+                {
+                  id: activeCall.id,
+                  line_id: activeCall.line_key,
+                  direction: activeCall.direction,
+                  phase: activeCall.phase,
+                  bearer: activeCall.bearer || '',
+                  media_available: activeCall.media_available,
+                  ...(activeCall.phase === 'active'
+                    ? {
+                        audio_encoding: 'pcm',
+                        audio_resolution: 's16le',
+                        audio_rate: 8000
+                      }
+                    : {})
+                }
+              ]
+            : []
+      }
+    },
+
+    async listDiagnosticLogs(query: DiagnosticLogQuery = {}): Promise<DiagnosticLogPage> {
+      return filteredDiagnosticLogs(query)
+    },
+
+    subscribeDiagnosticLogs(
+      _query: DiagnosticLogQuery,
+      _handlers: DiagnosticLogStreamHandlers
+    ): () => void {
+      return () => undefined
+    },
+
+    async downloadDiagnosticLogs(query: DiagnosticLogQuery = {}): Promise<Blob> {
+      const page = filteredDiagnosticLogs({ ...query, limit: 2000 })
+      const content = page.entries.map(entry => JSON.stringify(entry)).join('\n')
+      return new Blob([content ? `${content}\n` : ''], { type: 'application/x-ndjson' })
+    },
+
     async getGlobalCallSettings(): Promise<GlobalCallSettings> {
       return clone(globalCallSettings)
     },
@@ -842,6 +1212,20 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         revision: globalCallSettings.revision + 1
       }
       return clone(globalCallSettings)
+    },
+
+    async updateLineSettings(input: UpdateLineSettingsInput): Promise<LineSettings> {
+      if (input.expected_revision !== lineSettings.revision) {
+        throw new ApiError('默认线路已被其他会话修改', 409, 'conflict')
+      }
+      if (!lines.some(line => line.device_imei === input.default_device_imei)) {
+        throw new ApiError('线路不存在', 400, 'invalid_line')
+      }
+      lineSettings = {
+        default_device_imei: input.default_device_imei,
+        revision: lineSettings.revision + 1
+      }
+      return clone(lineSettings)
     },
 
     async getDeviceConfiguration(lineID: string): Promise<DeviceConfiguration> {
