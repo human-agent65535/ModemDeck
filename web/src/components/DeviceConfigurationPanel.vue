@@ -10,7 +10,6 @@ import {
   Phone,
   PhoneIncoming,
   Plus,
-  Power,
   RadioTower,
   Save,
   Send,
@@ -70,7 +69,7 @@ const activeTab = ref<DeviceTab>('overview')
 const apn = ref('')
 const ipFamily = ref<IPFamily>('auto')
 const incomingPolicyDraft = ref<IncomingCallPolicy>('follow_global')
-const voltePolicyDraft = ref<'enabled' | 'disabled'>('disabled')
+const voltePolicyDraft = ref<'enabled' | 'disabled' | ''>('')
 
 const addOpen = ref(false)
 const addIMEI = ref('')
@@ -133,6 +132,12 @@ const selectedIsDefault = computed(
   () => selectedLine.value?.device_imei === defaultDeviceIMEI.value
 )
 const voiceAvailable = computed(() => selectedLine.value?.capabilities?.voice === true)
+const flightModeWritable = computed(
+  () =>
+    hardware.value?.flight_mode_known === true &&
+    hardware.value.capabilities.flight_mode.writable &&
+    hardware.value.capabilities.radio.writable
+)
 const volteStatusLabel = computed(() => {
   const capability = hardware.value?.capabilities.volte
   const volte = hardware.value?.volte
@@ -145,11 +150,12 @@ const volteStatusLabel = computed(() => {
 const volteStatusDetail = computed(() => {
   const capability = hardware.value?.capabilities.volte
   const volte = hardware.value?.volte
-  if (!capability || !volte) return ''
-  if (!volte.policy_known && capability.supported && capability.implemented) {
-    return '当前无法读取'
-  }
-  return readOnlyReason(capability)
+  if (!capability || !volte) return '能力未知'
+  if (!capability.supported) return capability.reason || '不支持'
+  if (!capability.implemented) return capability.reason || '未实现'
+  if (!capability.writable) return capability.reason || '只读'
+  if (!volte.policy_known) return '当前状态不可读取'
+  return ''
 })
 
 const otherCapabilities = computed(() => {
@@ -197,12 +203,20 @@ watch(
 watch(
   () => hardware.value?.revision,
   () => {
-    apn.value = ''
-    ipFamily.value = 'auto'
+    const connection =
+      hardware.value?.data_connections.find(item => item.connected) ||
+      hardware.value?.data_connections[0]
+    apn.value = connection?.apn || ''
+    ipFamily.value =
+      connection?.ip_family === 'ipv4' ||
+      connection?.ip_family === 'ipv6' ||
+      connection?.ip_family === 'ipv4v6'
+        ? connection.ip_family
+        : 'auto'
     voltePolicyDraft.value =
       hardware.value?.volte.policy_known && hardware.value.volte.policy
         ? hardware.value.volte.policy
-        : 'disabled'
+        : ''
   }
 )
 
@@ -328,27 +342,37 @@ async function addModule(): Promise<void> {
 async function changeRadio(event: Event): Promise<void> {
   if (!selectedLineID.value) return
   const control = event.target as HTMLInputElement
-  const enabled = control.checked
-  if (!enabled && !window.confirm('关闭蜂窝射频会中断驻网和数据连接。继续？')) {
-    control.checked = Boolean(hardware.value?.radio.enabled)
+  const flightModeEnabled = control.checked
+  if (
+    flightModeEnabled &&
+    !window.confirm('开启飞行模式会中断驻网、通话和数据。继续？')
+  ) {
+    control.checked = Boolean(hardware.value?.flight_mode)
     return
   }
-  await setRadioEnabled(selectedLineID.value, enabled)
+  const saved = await setRadioEnabled(selectedLineID.value, !flightModeEnabled)
+  if (!saved) control.checked = Boolean(hardware.value?.flight_mode)
 }
 
-async function applyDataConnection(): Promise<void> {
-  if (selectedLineID.value) {
-    await connectData(selectedLineID.value, apn.value, ipFamily.value)
-  }
+async function applyDataConnection(): Promise<boolean> {
+  if (!selectedLineID.value) return false
+  return connectData(selectedLineID.value, apn.value, ipFamily.value)
 }
 
-async function stopDataConnection(): Promise<void> {
-  if (!selectedLineID.value || !window.confirm('断开此模组的数据连接？')) return
-  await disconnectData(selectedLineID.value)
+async function stopDataConnection(): Promise<boolean> {
+  if (!selectedLineID.value || !window.confirm('关闭此模组的移动数据？')) return false
+  return disconnectData(selectedLineID.value)
+}
+
+async function changeDataConnection(event: Event): Promise<void> {
+  const control = event.target as HTMLInputElement
+  const enabled = control.checked
+  const saved = enabled ? await applyDataConnection() : await stopDataConnection()
+  if (!saved) control.checked = Boolean(hardware.value?.network_enabled)
 }
 
 async function applyVoLTE(): Promise<void> {
-  if (!selectedLineID.value) return
+  if (!selectedLineID.value || !voltePolicyDraft.value) return
   if (!window.confirm(`将 VoLTE 设为${voltePolicyDraft.value === 'enabled' ? '开启' : '关闭'}？`)) {
     return
   }
@@ -672,65 +696,83 @@ onMounted(() => {
 
         <template v-else-if="activeTab === 'network'">
           <section class="configuration-section">
-            <header><Power :size="18" /><h4>蜂窝射频</h4></header>
-            <label
-              v-if="hardware.capabilities.radio.writable && hardware.radio.enabled_known"
-              class="configuration-toggle"
-            >
-              <span>
-                <strong>{{ hardware.radio.enabled ? '已开启' : '已关闭' }}</strong>
-                <small>{{ hardware.radio.power_state || '状态未知' }}</small>
-              </span>
-              <span class="configuration-toggle__control">
-                <LoaderCircle
-                  v-if="savingOperation === 'set_radio_enabled'"
-                  class="spin"
-                  :size="16"
-                />
+            <header><CardSim :size="18" /><h4>卡策略</h4></header>
+            <div class="data-form">
+              <label>
+                <span>APN</span>
                 <input
-                  type="checkbox"
-                  role="switch"
-                  :checked="hardware.radio.enabled"
-                  :disabled="hardwareBusy"
-                  @change="changeRadio"
+                  v-model.trim="apn"
+                  placeholder="自动"
+                  :disabled="
+                    hardwareBusy ||
+                    hardware.network_enabled ||
+                    !hardware.capabilities.data_connection.writable
+                  "
                 />
-              </span>
-            </label>
-            <div v-else class="configuration-readonly">
-              <strong>{{ hardware.radio.enabled ? '已开启' : '已关闭' }}</strong>
-              <small>{{ readOnlyReason(hardware.capabilities.radio) }}</small>
-            </div>
-          </section>
-
-          <section class="configuration-section">
-            <header><Network :size="18" /><h4>数据连接</h4></header>
-            <div v-if="hardware.capabilities.data_connection.writable" class="data-form">
-              <label><span>APN</span><input v-model.trim="apn" placeholder="自动" /></label>
+              </label>
               <label>
                 <span>IP</span>
-                <select v-model="ipFamily">
+                <select
+                  v-model="ipFamily"
+                  :disabled="
+                    hardwareBusy ||
+                    hardware.network_enabled ||
+                    !hardware.capabilities.data_connection.writable
+                  "
+                >
                   <option value="auto">自动</option>
                   <option value="ipv4">IPv4</option>
                   <option value="ipv6">IPv6</option>
                   <option value="ipv4v6">IPv4 + IPv6</option>
                 </select>
               </label>
-              <button class="primary-action" type="button" :disabled="hardwareBusy" @click="applyDataConnection">
-                连接
-              </button>
-              <button
-                v-if="hardware.network_enabled"
-                class="secondary-action"
-                type="button"
-                :disabled="hardwareBusy"
-                @click="stopDataConnection"
-              >
-                断开
-              </button>
             </div>
-            <div v-else class="configuration-readonly">
-              <strong>{{ hardware.network_enabled ? '已连接' : '未连接' }}</strong>
-              <small>{{ readOnlyReason(hardware.capabilities.data_connection) }}</small>
+            <div class="card-policy-controls">
+              <label class="configuration-toggle">
+                <span>
+                  <strong>移动数据</strong>
+                  <small v-if="!hardware.capabilities.data_connection.writable">
+                    {{ readOnlyReason(hardware.capabilities.data_connection) || '不可写' }}
+                  </small>
+                </span>
+                <span class="configuration-toggle__control">
+                  <LoaderCircle
+                    v-if="savingOperation === 'connect_data' || savingOperation === 'disconnect_data'"
+                    class="spin"
+                    :size="16"
+                  />
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    :checked="hardware.network_enabled"
+                    :disabled="hardwareBusy || !hardware.capabilities.data_connection.writable"
+                    @change="changeDataConnection"
+                  />
+                </span>
+              </label>
+              <label class="configuration-toggle">
+                <span>
+                  <strong>飞行模式</strong>
+                  <small v-if="!hardware.flight_mode_known">状态未知</small>
+                  <small v-else-if="!flightModeWritable">
+                    {{ readOnlyReason(hardware.capabilities.flight_mode) || '不可写' }}
+                  </small>
+                </span>
+                <span class="configuration-toggle__control">
+                  <LoaderCircle
+                    v-if="savingOperation === 'set_radio_enabled'"
+                    class="spin"
+                    :size="16"
+                  />
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    :checked="hardware.flight_mode"
+                    :disabled="hardwareBusy || !flightModeWritable"
+                    @change="changeRadio"
+                  />
+                </span>
+              </label>
             </div>
             <div v-if="hardware.data_connections.length" class="bearer-list">
               <article v-for="connection in hardware.data_connections" :key="connection.id">
@@ -738,6 +780,16 @@ onMounted(() => {
                 <span>{{ connection.ip_family }} · {{ connection.interface || '—' }}</span>
                 <small>{{ connection.ipv4.address || connection.ipv6.address || '地址未分配' }}</small>
               </article>
+            </div>
+          </section>
+
+          <section class="configuration-section">
+            <header><Network :size="18" /><h4>VoWiFi</h4></header>
+            <div class="configuration-readonly">
+              <strong>{{ capabilityStatus(hardware.capabilities.vowifi, 'vowifi') }}</strong>
+              <small v-if="capabilityDetail(hardware.capabilities.vowifi, 'vowifi')">
+                {{ capabilityDetail(hardware.capabilities.vowifi, 'vowifi') }}
+              </small>
             </div>
           </section>
 
@@ -898,13 +950,14 @@ onMounted(() => {
 
           <section class="configuration-section">
             <header><RadioTower :size="18" /><h4>VoLTE</h4></header>
-            <div
-              v-if="hardware.capabilities.volte.writable && hardware.volte.policy_known"
-              class="configuration-control-row"
-            >
+            <div class="configuration-control-row">
               <label>
                 <span>状态</span>
-                <select v-model="voltePolicyDraft" :disabled="hardwareBusy">
+                <select
+                  v-model="voltePolicyDraft"
+                  :disabled="hardwareBusy || !hardware.capabilities.volte.writable"
+                >
+                  <option disabled value="">选择</option>
                   <option value="enabled">开启</option>
                   <option value="disabled">关闭</option>
                 </select>
@@ -912,16 +965,21 @@ onMounted(() => {
               <button
                 class="primary-action"
                 type="button"
-                :disabled="hardwareBusy || voltePolicyDraft === hardware.volte.policy"
+                :disabled="
+                  hardwareBusy ||
+                  !hardware.capabilities.volte.writable ||
+                  !voltePolicyDraft ||
+                  (hardware.volte.policy_known && voltePolicyDraft === hardware.volte.policy)
+                "
                 @click="applyVoLTE"
               >
                 保存
               </button>
             </div>
-            <div v-else class="configuration-readonly">
+            <p class="configuration-control-status">
               <strong>{{ volteStatusLabel }}</strong>
-              <small>{{ volteStatusDetail }}</small>
-            </div>
+              <span v-if="volteStatusDetail">{{ volteStatusDetail }}</span>
+            </p>
           </section>
         </template>
 
@@ -1319,9 +1377,28 @@ onMounted(() => {
 
 .data-form {
   display: grid;
-  grid-template-columns: minmax(160px, 1fr) 150px auto auto;
+  grid-template-columns: minmax(160px, 1fr) 150px;
   align-items: end;
   gap: 9px;
+}
+
+.card-policy-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.card-policy-controls .configuration-toggle {
+  min-width: 0;
+  padding: 10px 12px 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.card-policy-controls .configuration-toggle + .configuration-toggle {
+  padding-right: 0;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
 }
 
 .bearer-list,
@@ -1436,6 +1513,19 @@ onMounted(() => {
   margin-top: 13px;
 }
 
+.configuration-control-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 8px;
+  margin: 9px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.configuration-control-status strong {
+  color: var(--text);
+}
+
 .voice-capabilities {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1524,6 +1614,7 @@ pre {
 @media (max-width: 720px) {
   .module-edit-row,
   .data-form,
+  .card-policy-controls,
   .profile-form,
   .sim-form,
   .configuration-control-row,
@@ -1534,6 +1625,13 @@ pre {
 
   .module-edit-row__wide {
     grid-column: auto;
+  }
+
+  .card-policy-controls .configuration-toggle,
+  .card-policy-controls .configuration-toggle + .configuration-toggle {
+    padding-right: 0;
+    padding-left: 0;
+    border-left: 0;
   }
 
   .primary-action,
