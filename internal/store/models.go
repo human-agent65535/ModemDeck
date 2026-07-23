@@ -1,8 +1,13 @@
 package store
 
 const (
-	DefaultQueryLimit = 50
-	MaxQueryLimit     = 200
+	DefaultQueryLimit           = 50
+	MaxQueryLimit               = 200
+	MaxContactDisplayNameLength = 200
+	MaxContactNotesLength       = 4000
+	MaxContactPhoneLabelLength  = 50
+	MaxContactPhoneNumberLength = 64
+	MaxContactPhones            = 50
 )
 
 type ContactQuery struct {
@@ -26,6 +31,20 @@ type ContactPhone struct {
 	OriginalNumber string `json:"original_number"`
 	CanonicalE164  string `json:"canonical_e164"`
 	Primary        bool   `json:"primary"`
+}
+
+type ContactInput struct {
+	DisplayName string              `json:"display_name"`
+	Notes       string              `json:"notes"`
+	Revision    int64               `json:"revision"`
+	Phones      []ContactPhoneInput `json:"phones"`
+}
+
+type ContactPhoneInput struct {
+	ID      string `json:"id"`
+	Label   string `json:"label"`
+	Number  string `json:"number"`
+	Primary bool   `json:"primary"`
 }
 
 type ThreadQuery struct {

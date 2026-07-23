@@ -25,6 +25,10 @@ type contactsResponse struct {
 	Meta     responseMeta    `json:"meta"`
 }
 
+type contactResponse struct {
+	Contact store.Contact `json:"contact"`
+}
+
 type threadsResponse struct {
 	Threads []store.MessageThread `json:"threads"`
 	Meta    responseMeta          `json:"meta"`

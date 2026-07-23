@@ -1,6 +1,10 @@
 package httpapi
 
 import (
+	"encoding/json"
+	"errors"
+	"io"
+	"mime"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,7 +17,76 @@ const (
 	maxSearchLength     = 200
 	maxIdentifierLength = 128
 	maxPhoneLength      = 64
+	maxJSONBodyBytes    = 64 << 10
 )
+
+type contactInputRequest struct {
+	DisplayName string                     `json:"display_name"`
+	Notes       string                     `json:"notes"`
+	Revision    int64                      `json:"revision"`
+	Phones      []contactPhoneInputRequest `json:"phones"`
+}
+
+type contactPhoneInputRequest struct {
+	ID      string `json:"id"`
+	Label   string `json:"label"`
+	Number  string `json:"number"`
+	Primary bool   `json:"primary"`
+}
+
+func decodeContactInput(response http.ResponseWriter, request *http.Request) (store.ContactInput, bool) {
+	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		writeError(response, http.StatusUnsupportedMediaType, "unsupported_media_type", "Content-Type must be application/json", "")
+		return store.ContactInput{}, false
+	}
+	request.Body = http.MaxBytesReader(response, request.Body, maxJSONBodyBytes)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var body contactInputRequest
+	if err := decoder.Decode(&body); err != nil {
+		writeJSONDecodeError(response, err)
+		return store.ContactInput{}, false
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeError(response, http.StatusBadRequest, "invalid_json", "Request body must contain one JSON object", "")
+		return store.ContactInput{}, false
+	}
+	phones := make([]store.ContactPhoneInput, len(body.Phones))
+	for index := range body.Phones {
+		phones[index] = store.ContactPhoneInput{
+			ID:      body.Phones[index].ID,
+			Label:   body.Phones[index].Label,
+			Number:  body.Phones[index].Number,
+			Primary: body.Phones[index].Primary,
+		}
+	}
+	return store.ContactInput{
+		DisplayName: body.DisplayName,
+		Notes:       body.Notes,
+		Revision:    body.Revision,
+		Phones:      phones,
+	}, true
+}
+
+func writeJSONDecodeError(response http.ResponseWriter, err error) {
+	var maximum *http.MaxBytesError
+	if errors.As(err, &maximum) {
+		writeError(response, http.StatusRequestEntityTooLarge, "body_too_large", "Request body is too large", "")
+		return
+	}
+	writeError(response, http.StatusBadRequest, "invalid_json", "Request body must be a valid JSON object", "")
+}
+
+func requiredPositiveInt64(response http.ResponseWriter, request *http.Request, field string) (int64, bool) {
+	raw := strings.TrimSpace(request.URL.Query().Get(field))
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || value <= 0 {
+		writeError(response, http.StatusBadRequest, "invalid_argument", field+" must be a positive integer", field)
+		return 0, false
+	}
+	return value, true
+}
 
 func requestLimit(response http.ResponseWriter, request *http.Request) (int, bool) {
 	raw := strings.TrimSpace(request.URL.Query().Get("limit"))

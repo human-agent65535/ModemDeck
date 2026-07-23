@@ -12,9 +12,19 @@ import (
 )
 
 type fakeRepository struct {
-	pingError    error
-	contactLimit int
-	lines        []store.LineSummary
+	pingError          error
+	contactLimit       int
+	contact            store.Contact
+	contactError       error
+	createContactInput store.ContactInput
+	createContactError error
+	updateContactID    string
+	updateContactInput store.ContactInput
+	updateContactError error
+	deleteContactID    string
+	deleteContactRev   int64
+	deleteContactError error
+	lines              []store.LineSummary
 }
 
 func (repository *fakeRepository) Ping(context.Context) error {
@@ -24,6 +34,27 @@ func (repository *fakeRepository) Ping(context.Context) error {
 func (repository *fakeRepository) Contacts(_ context.Context, query store.ContactQuery) ([]store.Contact, error) {
 	repository.contactLimit = query.Limit
 	return []store.Contact{}, nil
+}
+
+func (repository *fakeRepository) Contact(context.Context, string) (store.Contact, error) {
+	return repository.contact, repository.contactError
+}
+
+func (repository *fakeRepository) CreateContact(_ context.Context, input store.ContactInput) (store.Contact, error) {
+	repository.createContactInput = input
+	return repository.contact, repository.createContactError
+}
+
+func (repository *fakeRepository) UpdateContact(_ context.Context, id string, input store.ContactInput) (store.Contact, error) {
+	repository.updateContactID = id
+	repository.updateContactInput = input
+	return repository.contact, repository.updateContactError
+}
+
+func (repository *fakeRepository) DeleteContact(_ context.Context, id string, revision int64) error {
+	repository.deleteContactID = id
+	repository.deleteContactRev = revision
+	return repository.deleteContactError
 }
 
 func (repository *fakeRepository) MessageThreads(context.Context, store.ThreadQuery) ([]store.MessageThread, error) {
@@ -177,7 +208,7 @@ func TestStructuredErrors(t *testing.T) {
 		{name: "invalid call kind", method: http.MethodGet, path: "/api/v1/calls?kind=sideways", wantStatus: 400, wantCode: "invalid_argument"},
 		{name: "missing message iccid", method: http.MethodGet, path: "/api/v1/messages?peer=%2B15550100", wantStatus: 400, wantCode: "invalid_argument"},
 		{name: "missing message peer", method: http.MethodGet, path: "/api/v1/messages?iccid=8901000000000000001", wantStatus: 400, wantCode: "invalid_argument"},
-		{name: "wrong method", method: http.MethodPost, path: "/api/v1/contacts", wantStatus: 405, wantCode: "method_not_allowed"},
+		{name: "wrong method", method: http.MethodPatch, path: "/api/v1/contacts", wantStatus: 405, wantCode: "method_not_allowed"},
 		{name: "missing endpoint", method: http.MethodGet, path: "/api/v1/missing", wantStatus: 404, wantCode: "not_found"},
 	}
 	for _, test := range tests {
