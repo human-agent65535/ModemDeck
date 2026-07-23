@@ -73,6 +73,15 @@ func (api *API) sendMessage(response http.ResponseWriter, request *http.Request)
 		api.writeCommunicationError(response, request, "send message", err)
 		return
 	}
+	api.logger.Info(
+		"message submitted",
+		"line_id",
+		message.LineID,
+		"request_id",
+		requestID,
+		"state",
+		message.State,
+	)
 	writeJSON(response, http.StatusCreated, messageResponse{Message: message})
 }
 
@@ -148,6 +157,17 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 		api.writeCommunicationError(response, request, "start call", err)
 		return
 	}
+	api.logger.Info(
+		"call started",
+		"line_id",
+		call.DeviceID,
+		"call_id",
+		call.ID,
+		"request_id",
+		requestID,
+		"phase",
+		call.Phase,
+	)
 	writeJSON(response, http.StatusCreated, callSessionEnvelope{Call: callSession(call)})
 }
 
@@ -206,6 +226,17 @@ func (api *API) callAction(response http.ResponseWriter, request *http.Request, 
 			api.logger.Warn("close call media", "error", closeErr)
 		}
 	}
+	api.logger.Info(
+		"call control completed",
+		"call_id",
+		callID,
+		"action",
+		action,
+		"request_id",
+		requestID,
+		"phase",
+		call.Phase,
+	)
 	writeJSON(response, http.StatusOK, callSessionEnvelope{Call: callSession(call)})
 }
 
@@ -266,6 +297,17 @@ func (api *API) writeCommunicationError(
 	operation string,
 	err error,
 ) {
+	api.logger.Warn(
+		operation,
+		"method",
+		request.Method,
+		"path",
+		request.URL.Path,
+		"error_class",
+		communicationErrorClass(err),
+		"error",
+		err,
+	)
 	switch {
 	case errors.Is(err, communication.ErrInvalidArgument):
 		writeError(response, http.StatusBadRequest, "invalid_argument", err.Error(), "")
@@ -285,5 +327,28 @@ func (api *API) writeCommunicationError(
 		writeError(response, http.StatusBadGateway, "verification_failed", err.Error(), "")
 	default:
 		api.writeInternalError(response, request, operation, err)
+	}
+}
+
+func communicationErrorClass(err error) string {
+	switch {
+	case errors.Is(err, communication.ErrInvalidArgument):
+		return "invalid_argument"
+	case errors.Is(err, communication.ErrNotFound):
+		return "not_found"
+	case errors.Is(err, communication.ErrConflict):
+		return "conflict"
+	case errors.Is(err, communication.ErrNotSupported):
+		return "not_supported"
+	case errors.Is(err, communication.ErrFailedPrecondition):
+		return "failed_precondition"
+	case errors.Is(err, communication.ErrNetworkRejected):
+		return "network_rejected"
+	case errors.Is(err, communication.ErrUnavailable):
+		return "unavailable"
+	case errors.Is(err, communication.ErrVerification):
+		return "verification_failed"
+	default:
+		return "internal"
 	}
 }

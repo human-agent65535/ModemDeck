@@ -76,6 +76,7 @@ func ValidateSchema(ctx context.Context, database *sql.DB) error {
 		key   string
 	}{
 		{table: "modemdeck_call_settings", key: "singleton"},
+		{table: "modemdeck_line_settings", key: "singleton"},
 		{table: "modemdeck_recording_settings", key: "singleton"},
 	} {
 		var count int

@@ -19,6 +19,7 @@ const maxRequestBodyBytes = 256 << 10
 type handler struct {
 	provider             domain.Provider
 	deviceConfigurations domain.DeviceConfigurationProvider
+	lineServices         domain.LineServiceProvider
 	agentVersion         string
 	media                *media.Manager
 }
@@ -56,6 +57,7 @@ func NewWithMedia(
 type Options struct {
 	Media                *media.Manager
 	DeviceConfigurations domain.DeviceConfigurationProvider
+	LineServices         domain.LineServiceProvider
 }
 
 func NewWithOptions(
@@ -63,9 +65,14 @@ func NewWithOptions(
 	agentVersion string,
 	options Options,
 ) http.Handler {
+	lineServices := options.LineServices
+	if lineServices == nil {
+		lineServices, _ = provider.(domain.LineServiceProvider)
+	}
 	h := &handler{
 		provider:             provider,
 		deviceConfigurations: options.DeviceConfigurations,
+		lineServices:         lineServices,
 		agentVersion:         agentVersion,
 		media:                options.Media,
 	}
@@ -74,6 +81,13 @@ func NewWithOptions(
 	mux.HandleFunc("GET /v1/snapshot", h.snapshot)
 	mux.HandleFunc("GET /v1/lines/{id}/configuration", h.getDeviceConfiguration)
 	mux.HandleFunc("PATCH /v1/lines/{id}/configuration", h.patchDeviceConfiguration)
+	mux.HandleFunc("GET /v1/lines/{id}/sim", h.getSIMStatus)
+	mux.HandleFunc("POST /v1/lines/{id}/sim/commands", h.postSIMCommand)
+	mux.HandleFunc("GET /v1/lines/{id}/profiles", h.getConnectionProfiles)
+	mux.HandleFunc("PUT /v1/lines/{id}/profiles", h.putConnectionProfile)
+	mux.HandleFunc("DELETE /v1/lines/{id}/profiles", h.deleteConnectionProfile)
+	mux.HandleFunc("GET /v1/lines/{id}/ussd", h.getUSSDStatus)
+	mux.HandleFunc("POST /v1/lines/{id}/ussd", h.postUSSDCommand)
 	mux.HandleFunc("POST /v1/calls", h.startCall)
 	mux.HandleFunc("POST /v1/calls/{id}/answer", h.answerCall)
 	mux.HandleFunc("POST /v1/calls/{id}/reject", h.rejectCall)
@@ -101,6 +115,9 @@ func (h *handler) health(w http.ResponseWriter, r *http.Request) {
 		status = "degraded"
 	}
 	health.Capabilities.DeviceConfiguration = h.deviceConfigurations != nil
+	health.Capabilities.SIMManagement = h.lineServices != nil
+	health.Capabilities.ConnectionProfiles = h.lineServices != nil
+	health.Capabilities.USSD = h.lineServices != nil
 	h.writeJSON(w, http.StatusOK, healthResponse{
 		Status:       status,
 		APIVersion:   domain.APIVersion,

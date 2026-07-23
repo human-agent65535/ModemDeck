@@ -3,8 +3,96 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
 )
+
+var (
+	ErrDeviceNotFound   = errors.New("device not found")
+	ErrDeviceConflict   = errors.New("device already exists")
+	ErrDeviceValidation = errors.New("device validation failed")
+)
+
+const maxDeviceAliasLength = 100
+
+func (s *Store) CreateDevice(ctx context.Context, input DeviceInput) (Device, error) {
+	imei, alias, err := normalizeDeviceInput(input)
+	if err != nil {
+		return Device{}, err
+	}
+	_, err = s.database.ExecContext(
+		ctx,
+		`INSERT INTO devices (
+			imei, alias, created_at, updated_at
+		 ) VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		imei,
+		alias,
+	)
+	if err != nil {
+		var exists int
+		if lookupErr := s.database.QueryRowContext(
+			ctx,
+			"SELECT 1 FROM devices WHERE imei = ?",
+			imei,
+		).Scan(&exists); lookupErr == nil {
+			return Device{}, ErrDeviceConflict
+		}
+		return Device{}, fmt.Errorf("create device: %w", err)
+	}
+	return s.device(ctx, imei)
+}
+
+func (s *Store) RenameDevice(ctx context.Context, imei, alias string) (Device, error) {
+	imei, _, err := normalizeDeviceInput(DeviceInput{IMEI: imei})
+	if err != nil {
+		return Device{}, err
+	}
+	alias = strings.TrimSpace(alias)
+	if len([]rune(alias)) > maxDeviceAliasLength {
+		return Device{}, fmt.Errorf("%w: alias is too long", ErrDeviceValidation)
+	}
+	result, err := s.database.ExecContext(
+		ctx,
+		`UPDATE devices
+		 SET alias = ?, updated_at = CURRENT_TIMESTAMP
+		 WHERE imei = ?`,
+		alias,
+		imei,
+	)
+	if err != nil {
+		return Device{}, fmt.Errorf("rename device: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return Device{}, fmt.Errorf("read renamed device count: %w", err)
+	}
+	if affected != 1 {
+		return Device{}, ErrDeviceNotFound
+	}
+	return s.device(ctx, imei)
+}
+
+func normalizeDeviceInput(input DeviceInput) (string, string, error) {
+	imei := strings.TrimSpace(input.IMEI)
+	if len(imei) < 8 || len(imei) > 64 {
+		return "", "", fmt.Errorf("%w: imei length is invalid", ErrDeviceValidation)
+	}
+	for _, character := range imei {
+		if (character >= 'a' && character <= 'z') ||
+			(character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') ||
+			character == '.' || character == '_' || character == ':' || character == '-' {
+			continue
+		}
+		return "", "", fmt.Errorf("%w: imei contains invalid characters", ErrDeviceValidation)
+	}
+	alias := strings.TrimSpace(input.Alias)
+	if len([]rune(alias)) > maxDeviceAliasLength {
+		return "", "", fmt.Errorf("%w: alias is too long", ErrDeviceValidation)
+	}
+	return imei, alias, nil
+}
 
 func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 	rows, err := s.database.QueryContext(ctx, `SELECT
@@ -88,6 +176,19 @@ func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 		devices = append(devices, device)
 	}
 	return devices, rowsError("read devices", rows.Err())
+}
+
+func (s *Store) device(ctx context.Context, imei string) (Device, error) {
+	devices, err := s.Devices(ctx)
+	if err != nil {
+		return Device{}, err
+	}
+	for _, device := range devices {
+		if device.IMEI == imei {
+			return device, nil
+		}
+	}
+	return Device{}, ErrDeviceNotFound
 }
 
 func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {

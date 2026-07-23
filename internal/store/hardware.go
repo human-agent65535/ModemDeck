@@ -233,6 +233,15 @@ func upsertHardwareLine(ctx context.Context, transaction *sql.Tx, line HardwareL
 	); err != nil {
 		return fmt.Errorf("upsert hardware line device: %w", err)
 	}
+	if _, err := transaction.ExecContext(
+		ctx,
+		`UPDATE modemdeck_line_settings
+		 SET default_device_imei = ?, revision = revision + 1, updated_at = CURRENT_TIMESTAMP
+		 WHERE singleton = 1 AND default_device_imei = ''`,
+		imei,
+	); err != nil {
+		return fmt.Errorf("initialize default line: %w", err)
+	}
 	if strings.TrimSpace(line.ICCID) == "" {
 		return nil
 	}

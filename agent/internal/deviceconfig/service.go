@@ -97,6 +97,16 @@ func (s *Service) ApplyDeviceConfiguration(
 		return s.enrich(ctx, updated)
 	}
 
+	if !current.Capabilities.VoLTE.Readable {
+		return domain.DeviceConfiguration{}, domain.Unavailable(
+			operation,
+			firstNonEmpty(
+				current.Capabilities.VoLTE.Reason,
+				"VoLTE state is unavailable and cannot be verified before applying",
+			),
+			nil,
+		)
+	}
 	driver, _, capability, err := s.resolveDriver(ctx, current)
 	if err != nil {
 		return domain.DeviceConfiguration{}, err
@@ -123,16 +133,19 @@ func (s *Service) enrich(
 		return domain.DeviceConfiguration{}, err
 	}
 	configuration.Capabilities.VoLTE = capability
-	configuration.VoLTE = domain.VoLTEConfiguration{}
+	configuration.VoLTE = domain.VoLTEConfiguration{ProfileID: driver.Capability().ProfileID}
 	if capability.Readable {
 		state, err := driver.Read(ctx)
 		if err != nil {
-			return domain.DeviceConfiguration{}, mapVoLTEError("read_device_configuration", err)
-		}
-		configuration.VoLTE = domain.VoLTEConfiguration{
-			PolicyKnown: true,
-			Policy:      string(state.Policy),
-			ProfileID:   driver.Capability().ProfileID,
+			configuration.Capabilities.VoLTE.Readable = false
+			configuration.Capabilities.VoLTE.Writable = false
+			configuration.Capabilities.VoLTE.Reason = volteReadFailureReason(err)
+		} else {
+			configuration.VoLTE = domain.VoLTEConfiguration{
+				PolicyKnown: true,
+				Policy:      string(state.Policy),
+				ProfileID:   driver.Capability().ProfileID,
+			}
 		}
 	}
 	configuration.Revision, err = domain.RevisionDeviceConfiguration(configuration)
@@ -168,11 +181,12 @@ func (s *Service) resolveDriver(
 		var err error
 		transports, err = s.resolve(ctx, configuration.LineID, identity)
 		if err != nil {
-			return nil, volte.Transports{}, domain.FeatureCapability{}, domain.Unavailable(
-				"read_device_configuration",
-				"VoLTE transport discovery failed",
-				err,
-			)
+			return candidate, volte.Transports{}, domain.FeatureCapability{
+				Backend:     "vendor_extension",
+				Supported:   true,
+				Implemented: true,
+				Reason:      "exact VoLTE profile resolved, but its transport is unavailable",
+			}, nil
 		}
 	}
 	driver := s.registry.Resolve(identity, transports)
@@ -198,11 +212,29 @@ func (s *Service) resolveDriver(
 	return driver, transports, domain.FeatureCapability{
 		Backend:     "vendor_extension",
 		Supported:   true,
-		Implemented: readable || writable,
+		Implemented: true,
 		Readable:    readable,
 		Writable:    writable,
 		Reason:      reason,
 	}, nil
+}
+
+func volteReadFailureReason(err error) string {
+	typed, ok := volte.AsError(err)
+	if !ok || strings.TrimSpace(typed.Message) == "" {
+		return "exact VoLTE profile resolved, but current policy could not be read"
+	}
+	return "exact VoLTE profile resolved, but current policy could not be read: " +
+		strings.TrimSpace(typed.Message)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func protocolAvailable(protocol volte.Protocol, transports volte.Transports) bool {

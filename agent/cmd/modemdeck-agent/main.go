@@ -105,11 +105,21 @@ func run() error {
 		return err
 	}
 	defer mediaManager.Close()
-	volteRegistry, err := volte.NewRegistry()
+	volteRegistry, err := volte.NewRegistry(volte.QDC507GLEFM21Profile())
 	if err != nil {
 		return fmt.Errorf("create VoLTE profile registry: %w", err)
 	}
-	deviceConfigurations, err := deviceconfig.New(provider, volteRegistry, nil)
+	deviceConfigurations, err := deviceconfig.New(
+		provider,
+		volteRegistry,
+		func(
+			_ context.Context,
+			lineID string,
+			_ volte.Identity,
+		) (volte.Transports, error) {
+			return volte.Transports{AT: provider.ATTransport(lineID)}, nil
+		},
+	)
 	if err != nil {
 		return fmt.Errorf("create device configuration service: %w", err)
 	}

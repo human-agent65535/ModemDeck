@@ -37,6 +37,63 @@ func TestUnknownQDC507AndEG25ProfilesAreUnsupported(t *testing.T) {
 	}
 }
 
+func TestQDC507GLEFM21ProfileUsesVerifiedQCFGCommands(t *testing.T) {
+	t.Parallel()
+	policy := PolicyDisabled
+	at := &fakeAT{
+		command: func(_ context.Context, command string) (string, error) {
+			switch command {
+			case `AT+QCFG="ims"`:
+				if policy == PolicyEnabled {
+					return "+QCFG: \"ims\",1,0\r\nOK\r\n", nil
+				}
+				return "+QCFG: \"ims\",2,1\r\nOK\r\n", nil
+			case `AT+QCFG="ims",1`:
+				policy = PolicyEnabled
+				return "OK\r\n", nil
+			default:
+				return "", fmt.Errorf("unexpected command %q", command)
+			}
+		},
+	}
+	registry := mustRegistry(t, QDC507GLEFM21Profile())
+	driver := registry.Resolve(QDC507GLEFM21Identity, Transports{AT: at})
+
+	state, err := driver.Apply(context.Background(), PolicyEnabled)
+	if err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	if state.Policy != PolicyEnabled {
+		t.Fatalf("state = %+v", state)
+	}
+	want := []string{`AT+QCFG="ims",1`, `AT+QCFG="ims"`}
+	if !slices.Equal(at.commands, want) {
+		t.Fatalf("commands = %#v, want %#v", at.commands, want)
+	}
+}
+
+func TestDecodeQuectelIMSUsesForcedModeBeforeCapability(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		response string
+		want     Policy
+	}{
+		{response: "+QCFG: \"ims\",0,1\r\nOK\r\n", want: PolicyEnabled},
+		{response: "+QCFG: \"ims\",0,0\r\nOK\r\n", want: PolicyDisabled},
+		{response: "+QCFG: \"ims\",1,0\r\nOK\r\n", want: PolicyEnabled},
+		{response: "+QCFG: \"ims\",2,1\r\nOK\r\n", want: PolicyDisabled},
+	}
+	for _, test := range tests {
+		state, err := decodeQuectelIMS(test.response)
+		if err != nil {
+			t.Fatalf("decodeQuectelIMS(%q) error = %v", test.response, err)
+		}
+		if state.Policy != test.want {
+			t.Fatalf("decodeQuectelIMS(%q) = %q, want %q", test.response, state.Policy, test.want)
+		}
+	}
+}
+
 func TestProfileIdentityMatchIsExact(t *testing.T) {
 	registry := mustRegistry(t, readOnlyProfile(testIdentity))
 	cases := []Identity{

@@ -618,6 +618,37 @@ func TestRefreshPreservesSixDiscoveredLines(t *testing.T) {
 	}
 }
 
+func TestProjectLinePreservesDetectedInterfaces(t *testing.T) {
+	t.Parallel()
+	projected := projectLine(agentclient.Line{
+		ID: "line-voice",
+		Capabilities: agentclient.LineCapabilities{
+			ModemInterface:     true,
+			SIMInterface:       true,
+			VoiceInterface:     true,
+			MessagingInterface: true,
+			Dial:               true,
+			AnswerCall:         true,
+			HangupCall:         true,
+			RejectCall:         true,
+			SendDTMF:           true,
+			SendMessage:        true,
+		},
+	})
+	if !projected.Capabilities.Modem ||
+		!projected.Capabilities.SIM ||
+		!projected.Capabilities.Voice ||
+		!projected.Capabilities.Messaging ||
+		!projected.Capabilities.Dial ||
+		!projected.Capabilities.AnswerCall ||
+		!projected.Capabilities.HangupCall ||
+		!projected.Capabilities.RejectCall ||
+		!projected.Capabilities.SendDTMF ||
+		!projected.Capabilities.SendMessage {
+		t.Fatalf("projected capabilities = %+v", projected.Capabilities)
+	}
+}
+
 func TestDNDRejectsNewRingingIncomingCallOnceAndRecordsOutcome(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.July, 23, 16, 0, 0, 0, time.UTC)

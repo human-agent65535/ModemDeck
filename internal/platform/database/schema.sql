@@ -19,6 +19,7 @@ CREATE TABLE contacts (
 			id TEXT PRIMARY KEY,
 			display_name TEXT NOT NULL,
 			notes TEXT NOT NULL DEFAULT '',
+			preferred_device_imei TEXT NOT NULL DEFAULT '',
 			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -99,6 +100,13 @@ CREATE TABLE call_history (
 CREATE TABLE modemdeck_call_settings (
 			singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
 			receive_calls NUMERIC NOT NULL DEFAULT 1,
+			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+
+CREATE TABLE modemdeck_line_settings (
+			singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+			default_device_imei TEXT NOT NULL DEFAULT '',
 			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
@@ -306,6 +314,8 @@ CREATE INDEX idx_modemdeck_auth_sessions_expiry ON modemdeck_auth_sessions(expir
 
 CREATE INDEX idx_contacts_display_name ON contacts(display_name);
 
+CREATE INDEX idx_contacts_preferred_device ON contacts(preferred_device_imei);
+
 CREATE INDEX idx_contact_phones_contact_id ON contact_phones(contact_id);
 
 CREATE UNIQUE INDEX ux_contact_phones_canonical_e164 ON contact_phones(canonical_e164);
@@ -359,6 +369,10 @@ CREATE INDEX idx_modemdeck_notification_deliveries_status ON modemdeck_notificat
 INSERT INTO modemdeck_call_settings (
 	singleton, receive_calls, revision, updated_at
 ) VALUES (1, 1, 1, CURRENT_TIMESTAMP);
+
+INSERT INTO modemdeck_line_settings (
+	singleton, default_device_imei, revision, updated_at
+) VALUES (1, '', 1, CURRENT_TIMESTAMP);
 
 INSERT INTO modemdeck_recording_settings (
 	singleton, default_enabled, revision, updated_at

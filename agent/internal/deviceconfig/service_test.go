@@ -33,12 +33,16 @@ func (provider *fakeGenericProvider) ApplyGenericDeviceConfiguration(
 type fakeATTransport struct {
 	policy   volte.Policy
 	commands []string
+	readErr  error
 }
 
 func (transport *fakeATTransport) Command(_ context.Context, command string) (string, error) {
 	transport.commands = append(transport.commands, command)
 	switch command {
 	case "AT+TESTVOLTE?":
+		if transport.readErr != nil {
+			return "", transport.readErr
+		}
 		return string(transport.policy), nil
 	case "AT+TESTVOLTE=0":
 		transport.policy = volte.PolicyDisabled
@@ -48,6 +52,70 @@ func (transport *fakeATTransport) Command(_ context.Context, command string) (st
 		return "OK", nil
 	default:
 		return "", fmt.Errorf("unexpected command %q", command)
+	}
+}
+
+func TestExactVoLTEReadFailureKeepsGenericConfiguration(t *testing.T) {
+	t.Parallel()
+	identity := domain.DeviceIdentity{
+		Manufacturer: "Fixture Vendor",
+		Model:        "Fixture Model",
+		Firmware:     "fixture-fw-1",
+	}
+	profile := volte.Profile{
+		ID: "fixture-volte-v1",
+		Identity: volte.Identity{
+			Manufacturer: identity.Manufacturer,
+			Model:        identity.Model,
+			Firmware:     identity.Firmware,
+		},
+		OperationTimeout: time.Second,
+		Read: volte.ATRead("AT+TESTVOLTE?", func(response string) (volte.State, error) {
+			return volte.State{Policy: volte.Policy(response)}, nil
+		}),
+	}
+	registry, err := volte.NewRegistry(profile)
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+	generic := &fakeGenericProvider{configuration: baseConfiguration(t, identity)}
+	at := &fakeATTransport{readErr: fmt.Errorf("ModemManager command disabled")}
+	service, err := New(
+		generic,
+		registry,
+		func(context.Context, string, volte.Identity) (volte.Transports, error) {
+			return volte.Transports{AT: at}, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	configuration, err := service.DeviceConfiguration(context.Background(), "line-1")
+	if err != nil {
+		t.Fatalf("DeviceConfiguration() error = %v", err)
+	}
+	if !configuration.Capabilities.VoLTE.Supported ||
+		!configuration.Capabilities.VoLTE.Implemented ||
+		configuration.Capabilities.VoLTE.Readable ||
+		configuration.Capabilities.VoLTE.Writable ||
+		configuration.VoLTE.PolicyKnown ||
+		configuration.VoLTE.ProfileID != profile.ID ||
+		configuration.Capabilities.VoLTE.Reason == "" {
+		t.Fatalf("configuration = %+v", configuration)
+	}
+	_, err = service.ApplyDeviceConfiguration(
+		context.Background(),
+		domain.ApplyDeviceConfigurationRequest{
+			RequestID:        "volte-request-read-failure",
+			LineID:           "line-1",
+			ExpectedRevision: configuration.Revision,
+			Operation:        domain.DeviceConfigurationSetVoLTEPolicy,
+			VoLTEPolicy:      "enabled",
+		},
+	)
+	operationError, ok := domain.AsOperationError(err)
+	if !ok || operationError.Code != domain.ErrorUnavailable {
+		t.Fatalf("ApplyDeviceConfiguration() error = %v", err)
 	}
 }
 

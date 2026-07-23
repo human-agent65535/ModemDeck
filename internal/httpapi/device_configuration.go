@@ -262,6 +262,15 @@ func (api *API) updateDeviceConfiguration(
 		api.writeCommunicationError(response, request, "apply device configuration", err)
 		return
 	}
+	api.logger.Info(
+		"device configuration applied",
+		"line_id",
+		lineID,
+		"operation",
+		input.Operation,
+		"request_id",
+		requestID,
+	)
 	writeJSON(response, http.StatusOK, deviceConfigurationResponse{Hardware: &hardware})
 }
 

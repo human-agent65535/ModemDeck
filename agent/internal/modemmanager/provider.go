@@ -176,6 +176,10 @@ func (p *Provider) Snapshot(ctx context.Context) (domain.Snapshot, error) {
 	if err != nil {
 		return domain.Snapshot{}, err
 	}
+	objects, err = p.hydrateReferencedSIMs(ctx, operation, objects)
+	if err != nil {
+		return domain.Snapshot{}, err
+	}
 	parsed := ParseManagedObjects(objects, identity)
 	observedAt := p.now().UTC()
 	p.projectTerminatedCalls(&parsed, observedAt)
@@ -694,6 +698,70 @@ func (p *Provider) managedObjects(ctx context.Context, operation string) (Manage
 	return objects, nil
 }
 
+func (p *Provider) hydrateReferencedSIMs(
+	ctx context.Context,
+	operation string,
+	objects ManagedObjects,
+) (ManagedObjects, error) {
+	paths := make([]dbus.ObjectPath, 0)
+	seen := make(map[dbus.ObjectPath]struct{})
+	for _, interfaces := range objects {
+		modemProperties, found := interfaces[modemInterface]
+		if !found {
+			continue
+		}
+		path, present := objectPathProperty(modemProperties, "Sim")
+		if !present || path == "/" {
+			continue
+		}
+		if existing, found := objects[path]; found {
+			if _, found := existing[simInterface]; found {
+				continue
+			}
+		}
+		if _, duplicate := seen[path]; duplicate {
+			continue
+		}
+		seen[path] = struct{}{}
+		paths = append(paths, path)
+	}
+	sort.Slice(paths, func(i, j int) bool {
+		return paths[i] < paths[j]
+	})
+	for _, path := range paths {
+		body, err := p.call(
+			ctx,
+			path,
+			propertiesInterface+".GetAll",
+			operation,
+			"ModemManager failed to read a referenced SIM",
+			simInterface,
+		)
+		if err != nil {
+			if operationError, ok := domain.AsOperationError(err); ok &&
+				operationError.Code == domain.ErrorNotFound {
+				continue
+			}
+			return nil, err
+		}
+		properties := Properties{}
+		if err := dbus.Store(body, &properties); err != nil {
+			return nil, domain.Internal(
+				operation,
+				"ModemManager SIM properties response was malformed",
+				err,
+			)
+		}
+		interfaces := objects[path]
+		if interfaces == nil {
+			interfaces = Interfaces{}
+		}
+		interfaces[simInterface] = properties
+		objects[path] = interfaces
+	}
+	return objects, nil
+}
+
 func (p *Provider) call(
 	ctx context.Context,
 	path dbus.ObjectPath,
@@ -733,6 +801,9 @@ func implementedCapabilities() domain.AgentCapabilities {
 		HangupCall:          true,
 		SendDTMF:            true,
 		SendMessage:         true,
+		SIMManagement:       true,
+		ConnectionProfiles:  true,
+		USSD:                true,
 	}
 }
 

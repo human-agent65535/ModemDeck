@@ -328,6 +328,7 @@ func genericConfigurationCapabilities(interfaces Interfaces) domain.DeviceConfig
 	modemManager := "modemmanager"
 	vendor := "vendor_extension"
 	application := "application"
+	_, voiceSupported := interfaces[voiceInterface]
 	dataWritable := false
 	if _, found := interfaces[simpleInterface]; found {
 		dataWritable = true
@@ -344,15 +345,27 @@ func genericConfigurationCapabilities(interfaces Interfaces) domain.DeviceConfig
 	if !dataWritable {
 		dataReason = "active bearer APN/IP is readable; ModemManager Simple is not exposed for connect and disconnect"
 	}
-	ussdReason := "USSD is an operational session API and is not exposed by this configuration endpoint"
+	ussdReason := ""
 	if !ussdSupported {
 		ussdReason = "ModemManager USSD is not currently exposed for this line"
 	}
-	profileReason := "Connection profile mutation is deferred; active bearer APN/IP is implemented"
+	profileReason := ""
 	if !profilesSupported {
 		profileReason = "ModemManager ProfileManager is not currently exposed for this line"
 	}
 	return domain.DeviceConfigurationCapabilities{
+		Voice: domain.FeatureCapability{
+			Backend:     modemManager,
+			Supported:   voiceSupported,
+			Implemented: true,
+			Readable:    true,
+			Reason: func() string {
+				if voiceSupported {
+					return ""
+				}
+				return "ModemManager Voice is not exposed for this line"
+			}(),
+		},
 		Radio: domain.FeatureCapability{
 			Backend:     modemManager,
 			Supported:   true,
@@ -397,14 +410,20 @@ func genericConfigurationCapabilities(interfaces Interfaces) domain.DeviceConfig
 			Reason:  "arbitrary AT access is intentionally not exposed by the configuration API",
 		},
 		USSD: domain.FeatureCapability{
-			Backend:   modemManager,
-			Supported: ussdSupported,
-			Reason:    ussdReason,
+			Backend:     modemManager,
+			Supported:   ussdSupported,
+			Implemented: ussdSupported,
+			Readable:    ussdSupported,
+			Writable:    ussdSupported,
+			Reason:      ussdReason,
 		},
 		ConnectionProfile: domain.FeatureCapability{
-			Backend:   modemManager,
-			Supported: profilesSupported,
-			Reason:    profileReason,
+			Backend:     modemManager,
+			Supported:   profilesSupported,
+			Implemented: profilesSupported,
+			Readable:    profilesSupported,
+			Writable:    profilesSupported,
+			Reason:      profileReason,
 		},
 	}
 }

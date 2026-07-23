@@ -18,6 +18,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/calllifecycle"
 	"github.com/human-agent65535/modemdeck/internal/callmedia"
 	"github.com/human-agent65535/modemdeck/internal/communication"
+	"github.com/human-agent65535/modemdeck/internal/diagnostics"
 	"github.com/human-agent65535/modemdeck/internal/httpapi"
 	"github.com/human-agent65535/modemdeck/internal/mediaapp"
 	"github.com/human-agent65535/modemdeck/internal/platform/database"
@@ -30,7 +31,8 @@ import (
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logBuffer := diagnostics.NewLogBuffer(diagnostics.DefaultLogCapacity)
+	logger := slog.New(logBuffer.Handler(slog.NewJSONHandler(os.Stdout, nil)))
 	secureCookiesDefault, err := environmentBool("MODEMDECK_SECURE_COOKIES", false)
 	if err != nil {
 		logger.Error("invalid authentication configuration", "error", err)
@@ -64,6 +66,7 @@ func main() {
 		*recordingsPath,
 		admin,
 		settingsSecrets,
+		logBuffer,
 	); err != nil {
 		logger.Error("ModemDeck stopped", "error", err)
 		os.Exit(1)
@@ -75,6 +78,7 @@ func run(
 	listenAddress, databasePath, agentSocketPath, recordingsPath string,
 	admin adminConfig,
 	settingsSecrets *secretbox.Box,
+	logBuffer diagnostics.LogSource,
 ) error {
 	ctx := context.Background()
 	db, err := database.Open(ctx, database.Config{
@@ -133,7 +137,7 @@ func run(
 	recordings, err := recording.New(repository, mediaCore, recording.Options{
 		RootDirectory: recordingsPath,
 		Report: func(err error) {
-			logger.Warn("call recording worker failed", "error", err)
+			logger.Warn("call recording worker failed", "component", "recording", "error", err)
 		},
 	})
 	if err != nil {
@@ -171,7 +175,7 @@ func run(
 		telegramSettings,
 		communications,
 		repository,
-		telegramruntime.Options{Logger: logger},
+		telegramruntime.Options{Logger: logger.With("component", "telegram")},
 	)
 	if err != nil {
 		_ = recordings.Close(context.Background())
@@ -182,6 +186,7 @@ func run(
 	api, err := httpapi.New(repository, httpapi.Options{
 		Communications:       communications,
 		DeviceConfigurations: communications,
+		LineServices:         communications,
 		CallPolicies:         communications,
 		CallMedia:            callMedia,
 		Recording:            recordings,
@@ -189,7 +194,8 @@ func run(
 		Authenticator:        authenticator,
 		AdminUsername:        admin.Username,
 		SecureCookies:        admin.SecureCookies,
-		Logger:               logger,
+		Logger:               logger.With("component", "http"),
+		DiagnosticLogs:       logBuffer,
 		Web:                  webapp.Embedded(),
 	})
 	if err != nil {
@@ -205,7 +211,7 @@ func run(
 	go func() {
 		defer close(syncDone)
 		communications.Run(signals, 3*time.Second, func(err error) {
-			logger.Warn("hardware snapshot unavailable", "error", err)
+			logger.Warn("hardware snapshot unavailable", "component", "communications", "error", err)
 		})
 	}()
 	telegramDone := make(chan error, 1)
@@ -222,7 +228,13 @@ func run(
 	}
 	serverErrors := make(chan error, 1)
 	go func() {
-		logger.Info("ModemDeck HTTP server started", "address", listenAddress, "database", databasePath)
+		logger.Info(
+			"ModemDeck HTTP server started",
+			"component",
+			"http",
+			"address",
+			listenAddress,
+		)
 		serverErrors <- server.ListenAndServe()
 	}()
 

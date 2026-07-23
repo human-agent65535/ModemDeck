@@ -18,13 +18,14 @@ type ContactQuery struct {
 }
 
 type Contact struct {
-	ID          string         `json:"id"`
-	DisplayName string         `json:"display_name"`
-	Notes       string         `json:"notes"`
-	Revision    int64          `json:"revision"`
-	CreatedAt   string         `json:"created_at"`
-	UpdatedAt   string         `json:"updated_at"`
-	Phones      []ContactPhone `json:"phones"`
+	ID                  string         `json:"id"`
+	DisplayName         string         `json:"display_name"`
+	Notes               string         `json:"notes"`
+	PreferredDeviceIMEI string         `json:"preferred_device_imei"`
+	Revision            int64          `json:"revision"`
+	CreatedAt           string         `json:"created_at"`
+	UpdatedAt           string         `json:"updated_at"`
+	Phones              []ContactPhone `json:"phones"`
 }
 
 type ContactPhone struct {
@@ -36,10 +37,11 @@ type ContactPhone struct {
 }
 
 type ContactInput struct {
-	DisplayName string              `json:"display_name"`
-	Notes       string              `json:"notes"`
-	Revision    int64               `json:"revision"`
-	Phones      []ContactPhoneInput `json:"phones"`
+	DisplayName         string              `json:"display_name"`
+	Notes               string              `json:"notes"`
+	PreferredDeviceIMEI string              `json:"preferred_device_imei"`
+	Revision            int64               `json:"revision"`
+	Phones              []ContactPhoneInput `json:"phones"`
 }
 
 type ContactPhoneInput struct {
@@ -57,6 +59,7 @@ type ThreadQuery struct {
 type MessageThread struct {
 	IMSI          string `json:"imsi"`
 	ICCID         string `json:"iccid"`
+	LineID        string `json:"line_id"`
 	Peer          string `json:"peer"`
 	ContactID     string `json:"contact_id"`
 	ContactName   string `json:"contact_name"`
@@ -165,6 +168,11 @@ type Device struct {
 	SIM           *SIMCard `json:"sim,omitempty"`
 }
 
+type DeviceInput struct {
+	IMEI  string `json:"imei"`
+	Alias string `json:"alias"`
+}
+
 type SIMCard struct {
 	ICCID         string `json:"iccid"`
 	IMSI          string `json:"imsi"`
@@ -196,6 +204,10 @@ type LineSummary struct {
 }
 
 type LineCapabilities struct {
+	Modem       bool `json:"modem"`
+	SIM         bool `json:"sim"`
+	Voice       bool `json:"voice"`
+	Messaging   bool `json:"messaging"`
 	Dial        bool `json:"dial"`
 	AnswerCall  bool `json:"answer_call"`
 	HangupCall  bool `json:"hangup_call"`
@@ -312,6 +324,12 @@ type GlobalCallSettings struct {
 	ReceiveCalls bool   `json:"receive_calls"`
 	Revision     int64  `json:"revision"`
 	UpdatedAt    string `json:"updated_at"`
+}
+
+type LineSettings struct {
+	DefaultDeviceIMEI string `json:"default_device_imei"`
+	Revision          int64  `json:"revision"`
+	UpdatedAt         string `json:"updated_at"`
 }
 
 type LineCallPolicy struct {

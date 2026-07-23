@@ -36,6 +36,9 @@ type Capabilities struct {
 	RejectCall          bool `json:"reject_call"`
 	SendDTMF            bool `json:"send_dtmf"`
 	SendMessage         bool `json:"send_message"`
+	SIMManagement       bool `json:"sim_management"`
+	ConnectionProfiles  bool `json:"connection_profiles"`
+	USSD                bool `json:"ussd"`
 	Snapshot            bool `json:"snapshot"`
 }
 

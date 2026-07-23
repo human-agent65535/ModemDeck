@@ -20,6 +20,11 @@ type sessionResponse struct {
 type bootstrapResponse struct {
 	Capabilities Capabilities        `json:"capabilities"`
 	Lines        []store.LineSummary `json:"lines"`
+	LineSettings store.LineSettings  `json:"line_settings"`
+}
+
+type lineSettingsResponse struct {
+	Settings store.LineSettings `json:"settings"`
 }
 
 type responseMeta struct {

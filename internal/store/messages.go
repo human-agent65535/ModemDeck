@@ -28,8 +28,13 @@ const contactNameForNumberSQL = `COALESCE((
 func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]MessageThread, error) {
 	limit := boundedLimit(query.Limit)
 	statement := fmt.Sprintf(`SELECT
-		COALESCE(sc.imsi, ''), COALESCE(sc.iccid, ''), COALESCE(sc.peer, ''),
-		%s, %s,
+			COALESCE(sc.imsi, ''), COALESCE(sc.iccid, ''),
+			COALESCE((
+				SELECT sms.line_id FROM sms
+				WHERE sms.id = sc.last_sms_id
+				LIMIT 1
+			), ''), COALESCE(sc.peer, ''),
+			%s, %s,
 		COALESCE(sc.last_sms_id, 0), sc.last_timestamp,
 		COALESCE(sc.last_content, ''), COALESCE(sc.last_type, 0),
 		COALESCE(sc.unread_count, 0)
@@ -63,19 +68,20 @@ func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]Messag
 	threads := make([]MessageThread, 0)
 	for rows.Next() {
 		var (
-			thread                                    MessageThread
-			imsi, iccid, peer, contactID, contactName sql.NullString
-			lastID, lastType, unread                  sql.NullInt64
-			lastTimestamp, lastContent                sql.NullString
+			thread                                            MessageThread
+			imsi, iccid, lineID, peer, contactID, contactName sql.NullString
+			lastID, lastType, unread                          sql.NullInt64
+			lastTimestamp, lastContent                        sql.NullString
 		)
 		if err := rows.Scan(
-			&imsi, &iccid, &peer, &contactID, &contactName,
+			&imsi, &iccid, &lineID, &peer, &contactID, &contactName,
 			&lastID, &lastTimestamp, &lastContent, &lastType, &unread,
 		); err != nil {
 			return nil, fmt.Errorf("scan message thread: %w", err)
 		}
 		thread.IMSI = stringValue(imsi)
 		thread.ICCID = stringValue(iccid)
+		thread.LineID = stringValue(lineID)
 		thread.Peer = stringValue(peer)
 		thread.ContactID = stringValue(contactID)
 		thread.ContactName = stringValue(contactName)

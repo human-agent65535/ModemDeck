@@ -85,6 +85,7 @@ type Status struct {
 	AgentVersion   string
 	ProviderName   string
 	RuntimeVersion string
+	Capabilities   agentclient.Capabilities
 	Lines          []store.LineSummary
 }
 
@@ -184,6 +185,7 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 		AgentVersion:   health.AgentVersion,
 		ProviderName:   health.Provider.Name,
 		RuntimeVersion: health.Provider.RuntimeVersion,
+		Capabilities:   health.Provider.Capabilities,
 		Lines:          lines,
 	}
 	s.mu.Lock()
@@ -1165,6 +1167,10 @@ func projectLine(line agentclient.Line) store.LineSummary {
 		State:       line.State,
 		Signal:      signal,
 		Capabilities: store.LineCapabilities{
+			Modem:       line.Capabilities.ModemInterface,
+			SIM:         line.Capabilities.SIMInterface,
+			Voice:       line.Capabilities.VoiceInterface,
+			Messaging:   line.Capabilities.MessagingInterface,
 			Dial:        line.Capabilities.Dial,
 			AnswerCall:  line.Capabilities.AnswerCall,
 			HangupCall:  line.Capabilities.HangupCall,

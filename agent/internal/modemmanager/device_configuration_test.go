@@ -114,6 +114,9 @@ func TestDeviceConfigurationReadsGenericModemManagerState(t *testing.T) {
 		t.Fatalf("unexpected runtime state: %+v", configuration)
 	}
 	if !configuration.Capabilities.Radio.Writable ||
+		!configuration.Capabilities.Voice.Supported ||
+		!configuration.Capabilities.Voice.Readable ||
+		configuration.Capabilities.Voice.Writable ||
 		!configuration.Capabilities.DataConnection.Readable ||
 		!configuration.Capabilities.DataConnection.Writable {
 		t.Fatalf("unexpected generic capabilities: %+v", configuration.Capabilities)

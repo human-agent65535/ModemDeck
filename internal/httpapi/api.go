@@ -11,6 +11,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
 	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/communication"
+	"github.com/human-agent65535/modemdeck/internal/diagnostics"
 	"github.com/human-agent65535/modemdeck/internal/recording"
 	"github.com/human-agent65535/modemdeck/internal/store"
 	"github.com/human-agent65535/modemdeck/internal/telegramsettings"
@@ -33,7 +34,11 @@ type Repository interface {
 	MarkMessageThreadRead(context.Context, string, string) error
 	Calls(context.Context, store.CallQuery) ([]store.Call, error)
 	Devices(context.Context) ([]store.Device, error)
+	CreateDevice(context.Context, store.DeviceInput) (store.Device, error)
+	RenameDevice(context.Context, string, string) (store.Device, error)
 	Lines(context.Context) ([]store.LineSummary, error)
+	LineSettings(context.Context) (store.LineSettings, error)
+	UpdateLineSettings(context.Context, string, int64) (store.LineSettings, error)
 }
 
 type Capabilities struct {
@@ -78,6 +83,32 @@ type DeviceConfigurationService interface {
 	) (agentclient.DeviceConfiguration, error)
 }
 
+type LineService interface {
+	SIMStatus(context.Context, string) (agentclient.SIMStatus, error)
+	SIMCommand(
+		context.Context,
+		string,
+		agentclient.SIMCommandRequest,
+	) (agentclient.CommandReceipt, error)
+	ConnectionProfiles(context.Context, string) ([]agentclient.ConnectionProfile, error)
+	SaveConnectionProfile(
+		context.Context,
+		string,
+		agentclient.SaveConnectionProfileRequest,
+	) (agentclient.ConnectionProfile, error)
+	DeleteConnectionProfile(
+		context.Context,
+		string,
+		agentclient.DeleteConnectionProfileRequest,
+	) (agentclient.CommandReceipt, error)
+	USSDStatus(context.Context, string) (agentclient.USSDStatus, error)
+	USSDCommand(
+		context.Context,
+		string,
+		agentclient.USSDRequest,
+	) (agentclient.USSDResponse, error)
+}
+
 type CallPolicyService interface {
 	GlobalCallSettings(context.Context) (store.GlobalCallSettings, error)
 	UpdateGlobalCallSettings(context.Context, bool, int64) (store.GlobalCallSettings, error)
@@ -119,6 +150,7 @@ type Options struct {
 	Capabilities          CapabilitySource
 	Communications        CommunicationService
 	DeviceConfigurations  DeviceConfigurationService
+	LineServices          LineService
 	CallPolicies          CallPolicyService
 	CallMedia             CallMediaService
 	Recording             RecordingService
@@ -127,6 +159,7 @@ type Options struct {
 	AdminUsername         string
 	SecureCookies         bool
 	Logger                *slog.Logger
+	DiagnosticLogs        diagnostics.LogSource
 	Web                   http.Handler
 	disableAuthentication bool
 }
@@ -136,6 +169,7 @@ type API struct {
 	capabilities         CapabilitySource
 	communications       CommunicationService
 	deviceConfigurations DeviceConfigurationService
+	lineServices         LineService
 	callPolicies         CallPolicyService
 	callMedia            CallMediaService
 	recordings           RecordingService
@@ -145,6 +179,7 @@ type API struct {
 	secureCookies        bool
 	loginSlots           chan struct{}
 	logger               *slog.Logger
+	diagnosticLogs       diagnostics.LogSource
 	web                  http.Handler
 }
 
@@ -168,6 +203,7 @@ func New(repository Repository, options Options) (*API, error) {
 		capabilities:         options.Capabilities,
 		communications:       options.Communications,
 		deviceConfigurations: options.DeviceConfigurations,
+		lineServices:         options.LineServices,
 		callPolicies:         options.CallPolicies,
 		callMedia:            options.CallMedia,
 		recordings:           options.Recording,
@@ -177,6 +213,7 @@ func New(repository Repository, options Options) (*API, error) {
 		secureCookies:        options.SecureCookies,
 		loginSlots:           make(chan struct{}, 2),
 		logger:               logger,
+		diagnosticLogs:       options.DiagnosticLogs,
 		web:                  options.Web,
 	}, nil
 }
@@ -219,11 +256,21 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	case "/api/v1/calls/active":
 		api.getOnly(response, request, api.activeCalls)
 	case "/api/v1/devices":
-		api.getOnly(response, request, api.devices)
+		api.devicesCollection(response, request)
+	case "/api/v1/diagnostics":
+		api.getOnly(response, request, api.diagnostics)
+	case "/api/v1/diagnostics/logs":
+		api.getOnly(response, request, api.diagnosticLogHistory)
+	case "/api/v1/diagnostics/logs/stream":
+		api.getOnly(response, request, api.diagnosticLogStream)
+	case "/api/v1/diagnostics/logs/download":
+		api.getOnly(response, request, api.downloadDiagnosticLogs)
 	case "/api/v1/settings/telegram":
 		api.telegramCollection(response, request)
 	case "/api/v1/settings/calls":
 		api.callSettings(response, request)
+	case "/api/v1/settings/lines":
+		api.lineSettings(response, request)
 	case "/api/v1/settings/recording":
 		api.recordingSettings(response, request)
 	default:
@@ -247,8 +294,16 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 			api.telegramResource(response, request, id)
 			return
 		}
+		if imei, ok := deviceResourceIMEI(request.URL.Path); ok {
+			api.deviceResource(response, request, imei)
+			return
+		}
 		if id, ok := deviceConfigurationResourceID(request.URL.Path); ok {
 			api.deviceConfiguration(response, request, id)
+			return
+		}
+		if id, resource, ok := lineServiceResource(request.URL.Path); ok {
+			api.lineServiceResource(response, request, id, resource)
 			return
 		}
 		writeError(response, http.StatusNotFound, "not_found", "API endpoint was not found", "")
@@ -302,9 +357,15 @@ func (api *API) bootstrap(response http.ResponseWriter, request *http.Request) {
 	if capabilities.AgentConnected && api.callMedia != nil {
 		capabilities.WebRTCAudio = true
 	}
+	lineSettings, err := api.repository.LineSettings(request.Context())
+	if err != nil {
+		api.writeInternalError(response, request, "load line settings", err)
+		return
+	}
 	writeJSON(response, http.StatusOK, bootstrapResponse{
 		Capabilities: capabilities,
 		Lines:        lines,
+		LineSettings: lineSettings,
 	})
 }
 

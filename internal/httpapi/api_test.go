@@ -77,8 +77,35 @@ func (repository *fakeRepository) Devices(context.Context) ([]store.Device, erro
 	return []store.Device{}, nil
 }
 
+func (repository *fakeRepository) CreateDevice(
+	context.Context,
+	store.DeviceInput,
+) (store.Device, error) {
+	return store.Device{}, nil
+}
+
+func (repository *fakeRepository) RenameDevice(
+	context.Context,
+	string,
+	string,
+) (store.Device, error) {
+	return store.Device{}, nil
+}
+
 func (repository *fakeRepository) Lines(context.Context) ([]store.LineSummary, error) {
 	return repository.lines, nil
+}
+
+func (repository *fakeRepository) LineSettings(context.Context) (store.LineSettings, error) {
+	return store.LineSettings{DefaultDeviceIMEI: "", Revision: 1}, nil
+}
+
+func (repository *fakeRepository) UpdateLineSettings(
+	context.Context,
+	string,
+	int64,
+) (store.LineSettings, error) {
+	return store.LineSettings{Revision: 2}, nil
 }
 
 type fixedCapabilities struct {

@@ -66,6 +66,7 @@ type VoLTEConfiguration struct {
 }
 
 type DeviceConfigurationCapabilities struct {
+	Voice             FeatureCapability `json:"voice"`
 	Radio             FeatureCapability `json:"radio"`
 	DataConnection    FeatureCapability `json:"data_connection"`
 	FlightMode        FeatureCapability `json:"flight_mode"`

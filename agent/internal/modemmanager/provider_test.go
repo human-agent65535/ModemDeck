@@ -30,6 +30,10 @@ type fakeCaller struct {
 	createdMessagePath dbus.ObjectPath
 	runtimeVersion     string
 	callIntrospection  string
+	atResponse         string
+	connectionProfiles []map[string]dbus.Variant
+	ussdResponse       string
+	externalSIMs       map[dbus.ObjectPath]Properties
 	errors             map[string]error
 	calls              []dbusInvocation
 }
@@ -67,14 +71,111 @@ func (f *fakeCaller) Call(
 		return []any{f.objects}, nil
 	case propertiesInterface + ".Get":
 		return []any{dbus.MakeVariant(f.runtimeVersion)}, nil
+	case propertiesInterface + ".GetAll":
+		return []any{f.externalSIMs[path]}, nil
 	case introspectableInterface + ".Introspect":
 		return []any{f.callIntrospection}, nil
 	case voiceInterface + ".CreateCall":
 		return []any{f.createdCallPath}, nil
 	case messagingInterface + ".Create":
 		return []any{f.createdMessagePath}, nil
+	case modemInterface + ".Command":
+		return []any{f.atResponse}, nil
+	case profileManagerInterface + ".List":
+		return []any{f.connectionProfiles}, nil
+	case profileManagerInterface + ".Set":
+		return []any{args[0]}, nil
+	case ussdInterface + ".Initiate", ussdInterface + ".Respond":
+		return []any{f.ussdResponse}, nil
 	default:
 		return []any{}, nil
+	}
+}
+
+func TestSnapshotHydratesReferencedSIMOutsideManagedObjects(t *testing.T) {
+	t.Parallel()
+	objects := emptyLineObjects(true, true)
+	simProperties := objects[testSIMPath][simInterface]
+	delete(objects, testSIMPath)
+	caller := newFakeCaller(objects)
+	caller.externalSIMs[testSIMPath] = simProperties
+	provider := newTestProvider(caller)
+
+	snapshot, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if len(snapshot.Lines) != 1 {
+		t.Fatalf("lines = %d, want 1", len(snapshot.Lines))
+	}
+	line := snapshot.Lines[0]
+	if !line.Capabilities.SIMInterface ||
+		!line.SIMPresent ||
+		line.SIMIdentifier != "8986012345678901234" {
+		t.Fatalf("hydrated line = %+v", line)
+	}
+	invocations := caller.invocations()
+	assertMethods(
+		t,
+		invocations,
+		objectManagerInterface+".GetManagedObjects",
+		propertiesInterface+".GetAll",
+	)
+	if len(invocations[1].Args) != 1 || invocations[1].Args[0] != simInterface {
+		t.Fatalf("GetAll args = %#v", invocations[1].Args)
+	}
+}
+
+func TestATTransportResolvesLineAndUsesModemManagerCommand(t *testing.T) {
+	t.Parallel()
+	caller := newFakeCaller(emptyLineObjects(true, true))
+	caller.atResponse = "+QCFG: \"ims\",1,1\r\nOK\r\n"
+	provider := newTestProvider(caller)
+	snapshot, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if len(snapshot.Lines) != 1 {
+		t.Fatalf("lines = %d, want 1", len(snapshot.Lines))
+	}
+	caller.calls = nil
+
+	response, err := provider.ATTransport(snapshot.Lines[0].ID).Command(
+		context.Background(),
+		`AT+QCFG="ims"`,
+	)
+	if err != nil {
+		t.Fatalf("Command() error = %v", err)
+	}
+	if response != strings.TrimSpace(caller.atResponse) {
+		t.Fatalf("response = %q, want %q", response, strings.TrimSpace(caller.atResponse))
+	}
+	invocations := caller.invocations()
+	assertMethods(
+		t,
+		invocations,
+		objectManagerInterface+".GetManagedObjects",
+		modemInterface+".Command",
+	)
+	if got := invocations[1].Args; len(got) != 2 ||
+		got[0] != `AT+QCFG="ims"` ||
+		got[1] != modemCommandTimeoutSeconds {
+		t.Fatalf("Command args = %#v", got)
+	}
+}
+
+func TestATTransportRejectsUnroutableInputBeforeCommand(t *testing.T) {
+	t.Parallel()
+	caller := newFakeCaller(emptyLineObjects(true, true))
+	provider := newTestProvider(caller)
+	if _, err := provider.ATTransport("").Command(context.Background(), `AT+QCFG="ims"`); err == nil {
+		t.Fatal("empty line Command() error = nil")
+	}
+	if _, err := provider.ATTransport("line").Command(context.Background(), "AT\rD"); err == nil {
+		t.Fatal("newline Command() error = nil")
+	}
+	if len(caller.invocations()) != 0 {
+		t.Fatalf("invalid commands reached D-Bus: %+v", caller.invocations())
 	}
 }
 
@@ -847,7 +948,8 @@ func newFakeCaller(objects ManagedObjects) *fakeCaller {
 				<method name="SendDtmf"/>
 			</interface>
 		</node>`,
-		errors: make(map[string]error),
+		externalSIMs: make(map[dbus.ObjectPath]Properties),
+		errors:       make(map[string]error),
 	}
 }
 

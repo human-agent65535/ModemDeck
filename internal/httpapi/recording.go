@@ -82,6 +82,7 @@ func (api *API) recordingSettings(response http.ResponseWriter, request *http.Re
 			api.writeRecordingError(response, request, "update recording settings", err, nil)
 			return
 		}
+		api.logger.Info("recording defaults updated", "enabled", settings.DefaultEnabled)
 		writeJSON(response, http.StatusOK, recordingSettingsResponse{Settings: settings})
 	default:
 		response.Header().Set("Allow", http.MethodGet+", "+http.MethodPut)
@@ -129,6 +130,15 @@ func (api *API) toggleRecording(response http.ResponseWriter, request *http.Requ
 		api.writeRecordingError(response, request, "toggle call recording", err, &state)
 		return
 	}
+	api.logger.Info(
+		"call recording updated",
+		"call_id",
+		callID,
+		"enabled",
+		state.Enabled,
+		"status",
+		state.Status,
+	)
 	writeJSON(response, http.StatusOK, recordingStateResponse{State: state})
 }
 
@@ -270,6 +280,19 @@ func (api *API) writeRecordingError(
 		message = "The recording codec is unavailable"
 	default:
 		api.logger.Error(operation, "method", request.Method, "path", request.URL.Path, "error", err)
+	}
+	if status < http.StatusInternalServerError {
+		api.logger.Warn(
+			operation,
+			"method",
+			request.Method,
+			"path",
+			request.URL.Path,
+			"error_class",
+			code,
+			"error",
+			err,
+		)
 	}
 	payload := errorResponse{Code: code, Message: message}
 	if state != nil && state.CallID != "" {

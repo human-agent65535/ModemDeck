@@ -100,10 +100,11 @@ func (e *ContactPhoneConflictError) Unwrap() error {
 }
 
 type normalizedContactInput struct {
-	displayName string
-	notes       string
-	revision    int64
-	phones      []normalizedContactPhone
+	displayName         string
+	notes               string
+	preferredDeviceIMEI string
+	revision            int64
+	phones              []normalizedContactPhone
 }
 
 type normalizedContactPhone struct {
@@ -152,13 +153,23 @@ func (s *Store) CreateContact(ctx context.Context, input ContactInput) (Contact,
 	if err := findContactPhoneConflict(ctx, transaction, normalized.phones, ""); err != nil {
 		return Contact{}, err
 	}
+	if normalized.preferredDeviceIMEI != "" {
+		if err := requireDevice(ctx, transaction, normalized.preferredDeviceIMEI); err != nil {
+			if errors.Is(err, ErrLineSettingsInvalidDevice) {
+				return Contact{}, contactValidation("preferred_device_imei", "unknown")
+			}
+			return Contact{}, fmt.Errorf("validate preferred contact device: %w", err)
+		}
+	}
 	if _, err := transaction.ExecContext(
 		ctx,
-		`INSERT INTO contacts (id, display_name, notes, revision, created_at, updated_at)
-		 VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		`INSERT INTO contacts (
+			id, display_name, notes, preferred_device_imei, revision, created_at, updated_at
+		 ) VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
 		contactID,
 		normalized.displayName,
 		normalized.notes,
+		normalized.preferredDeviceIMEI,
 	); err != nil {
 		_ = transaction.Rollback()
 		return Contact{}, s.classifyContactWriteError(ctx, fmt.Errorf("insert contact: %w", err), normalized.phones, "")
@@ -211,14 +222,24 @@ func (s *Store) UpdateContact(ctx context.Context, id string, input ContactInput
 	if err := findContactPhoneConflict(ctx, transaction, normalized.phones, contactID); err != nil {
 		return Contact{}, err
 	}
+	if normalized.preferredDeviceIMEI != "" {
+		if err := requireDevice(ctx, transaction, normalized.preferredDeviceIMEI); err != nil {
+			if errors.Is(err, ErrLineSettingsInvalidDevice) {
+				return Contact{}, contactValidation("preferred_device_imei", "unknown")
+			}
+			return Contact{}, fmt.Errorf("validate preferred contact device: %w", err)
+		}
+	}
 
 	result, err := transaction.ExecContext(
 		ctx,
 		`UPDATE contacts
-		 SET display_name = ?, notes = ?, revision = revision + 1, updated_at = CURRENT_TIMESTAMP
+		 SET display_name = ?, notes = ?, preferred_device_imei = ?,
+			revision = revision + 1, updated_at = CURRENT_TIMESTAMP
 		 WHERE id = ? AND revision = ?`,
 		normalized.displayName,
 		normalized.notes,
+		normalized.preferredDeviceIMEI,
 		contactID,
 		normalized.revision,
 	)
@@ -303,7 +324,7 @@ func (s *Store) DeleteContact(ctx context.Context, id string, revision int64) er
 
 func (s *Store) Contacts(ctx context.Context, query ContactQuery) ([]Contact, error) {
 	limit := boundedLimit(query.Limit)
-	statement := `SELECT id, display_name, notes, revision, created_at, updated_at
+	statement := `SELECT id, display_name, notes, preferred_device_imei, revision, created_at, updated_at
 		FROM contacts`
 	arguments := []any{}
 	if strings.TrimSpace(query.Search) != "" {
@@ -334,16 +355,25 @@ func (s *Store) Contacts(ctx context.Context, query ContactQuery) ([]Contact, er
 	contacts := make([]Contact, 0)
 	for rows.Next() {
 		var (
-			contact              Contact
-			displayName, notes   sql.NullString
-			revision             sql.NullInt64
-			createdAt, updatedAt sql.NullString
+			contact                                 Contact
+			displayName, notes, preferredDeviceIMEI sql.NullString
+			revision                                sql.NullInt64
+			createdAt, updatedAt                    sql.NullString
 		)
-		if err := rows.Scan(&contact.ID, &displayName, &notes, &revision, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(
+			&contact.ID,
+			&displayName,
+			&notes,
+			&preferredDeviceIMEI,
+			&revision,
+			&createdAt,
+			&updatedAt,
+		); err != nil {
 			return nil, fmt.Errorf("scan contact: %w", err)
 		}
 		contact.DisplayName = stringValue(displayName)
 		contact.Notes = stringValue(notes)
+		contact.PreferredDeviceIMEI = stringValue(preferredDeviceIMEI)
 		contact.Revision = intValue(revision)
 		contact.CreatedAt = stringValue(createdAt)
 		contact.UpdatedAt = stringValue(updatedAt)
@@ -433,11 +463,17 @@ func normalizeContactInput(input ContactInput, creating bool) (normalizedContact
 		return normalizedContactInput{}, contactValidation("phones", "too_many")
 	}
 
+	preferredDeviceIMEI := strings.TrimSpace(input.PreferredDeviceIMEI)
+	if len(preferredDeviceIMEI) > 64 {
+		return normalizedContactInput{}, contactValidation("preferred_device_imei", "too_long")
+	}
+
 	normalized := normalizedContactInput{
-		displayName: displayName,
-		notes:       notes,
-		revision:    input.Revision,
-		phones:      make([]normalizedContactPhone, 0, len(input.Phones)),
+		displayName:         displayName,
+		notes:               notes,
+		preferredDeviceIMEI: preferredDeviceIMEI,
+		revision:            input.Revision,
+		phones:              make([]normalizedContactPhone, 0, len(input.Phones)),
 	}
 	canonicalSeen := make(map[string]struct{}, len(input.Phones))
 	requestedIDSeen := make(map[string]struct{}, len(input.Phones))
@@ -682,18 +718,26 @@ func insertContactPhones(
 
 func contactByID(ctx context.Context, queryer contactQueryer, contactID string) (Contact, error) {
 	var (
-		contact              Contact
-		displayName, notes   sql.NullString
-		revision             sql.NullInt64
-		createdAt, updatedAt sql.NullString
+		contact                                 Contact
+		displayName, notes, preferredDeviceIMEI sql.NullString
+		revision                                sql.NullInt64
+		createdAt, updatedAt                    sql.NullString
 	)
 	err := queryer.QueryRowContext(
 		ctx,
-		`SELECT id, display_name, notes, revision, created_at, updated_at
+		`SELECT id, display_name, notes, preferred_device_imei, revision, created_at, updated_at
 		 FROM contacts
 		 WHERE id = ?`,
 		contactID,
-	).Scan(&contact.ID, &displayName, &notes, &revision, &createdAt, &updatedAt)
+	).Scan(
+		&contact.ID,
+		&displayName,
+		&notes,
+		&preferredDeviceIMEI,
+		&revision,
+		&createdAt,
+		&updatedAt,
+	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Contact{}, &ContactNotFoundError{ContactID: contactID}
 	}
@@ -702,6 +746,7 @@ func contactByID(ctx context.Context, queryer contactQueryer, contactID string) 
 	}
 	contact.DisplayName = stringValue(displayName)
 	contact.Notes = stringValue(notes)
+	contact.PreferredDeviceIMEI = stringValue(preferredDeviceIMEI)
 	contact.Revision = intValue(revision)
 	contact.CreatedAt = stringValue(createdAt)
 	contact.UpdatedAt = stringValue(updatedAt)
