@@ -27,24 +27,36 @@ func (providerStub) Health(context.Context) (domain.ProviderHealth, error) {
 	}, nil
 }
 
-func (providerStub) Lines(context.Context) ([]domain.Line, error) {
-	return []domain.Line{}, nil
+func (providerStub) Snapshot(context.Context) (domain.Snapshot, error) {
+	return domain.Snapshot{
+		Lines:    []domain.Line{},
+		Calls:    []domain.Call{},
+		Messages: []domain.Message{},
+	}, nil
 }
 
-func (providerStub) StartCall(context.Context, domain.StartCallRequest) (domain.Call, error) {
-	return domain.Call{}, domain.NotSupported("start_call")
+func (providerStub) StartCall(context.Context, domain.StartCallRequest) (domain.CommandReceipt, error) {
+	return domain.CommandReceipt{}, domain.NotSupported("start_call", "not supported in socket test")
 }
 
-func (providerStub) AnswerCall(context.Context, string) (domain.Call, error) {
-	return domain.Call{}, domain.NotSupported("answer_call")
+func (providerStub) AnswerCall(context.Context, domain.CallCommandRequest) (domain.CommandReceipt, error) {
+	return domain.CommandReceipt{}, domain.NotSupported("answer_call", "not supported in socket test")
 }
 
-func (providerStub) HangupCall(context.Context, string) (domain.Call, error) {
-	return domain.Call{}, domain.NotSupported("hangup_call")
+func (providerStub) RejectCall(context.Context, domain.CallCommandRequest) (domain.CommandReceipt, error) {
+	return domain.CommandReceipt{}, domain.NotSupported("reject_call", "not supported in socket test")
 }
 
-func (providerStub) SendMessage(context.Context, domain.SendMessageRequest) (domain.Message, error) {
-	return domain.Message{}, domain.NotSupported("send_message")
+func (providerStub) HangupCall(context.Context, domain.CallCommandRequest) (domain.CommandReceipt, error) {
+	return domain.CommandReceipt{}, domain.NotSupported("hangup_call", "not supported in socket test")
+}
+
+func (providerStub) SendDTMF(context.Context, domain.DTMFRequest) (domain.CommandReceipt, error) {
+	return domain.CommandReceipt{}, domain.NotSupported("send_dtmf", "not supported in socket test")
+}
+
+func (providerStub) SendMessage(context.Context, domain.SendMessageRequest) (domain.CommandReceipt, error) {
+	return domain.CommandReceipt{}, domain.NotSupported("send_message", "not supported in socket test")
 }
 
 func TestHTTPOverUnixSocket(t *testing.T) {

@@ -11,15 +11,36 @@ const (
 	modemInterface     = "org.freedesktop.ModemManager1.Modem"
 	simInterface       = "org.freedesktop.ModemManager1.Sim"
 	voiceInterface     = "org.freedesktop.ModemManager1.Modem.Voice"
+	callInterface      = "org.freedesktop.ModemManager1.Call"
 	messagingInterface = "org.freedesktop.ModemManager1.Modem.Messaging"
+	smsInterface       = "org.freedesktop.ModemManager1.Sms"
 )
 
-type Properties map[string]dbus.Variant
-type Interfaces map[string]Properties
-type ManagedObjects map[dbus.ObjectPath]Interfaces
+type Properties = map[string]dbus.Variant
+type Interfaces = map[string]Properties
+type ManagedObjects = map[dbus.ObjectPath]Interfaces
 
-func ParseManagedObjects(objects ManagedObjects) []domain.Line {
-	lines := make([]domain.Line, 0)
+type ParsedObjects struct {
+	Lines        []domain.Line
+	Calls        []domain.Call
+	Messages     []domain.Message
+	LinePaths    map[string]dbus.ObjectPath
+	CallPaths    map[string]dbus.ObjectPath
+	MessagePaths map[string]dbus.ObjectPath
+}
+
+func ParseManagedObjects(objects ManagedObjects, ids *instanceIDs) ParsedObjects {
+	parsed := ParsedObjects{
+		Lines:        []domain.Line{},
+		Calls:        []domain.Call{},
+		Messages:     []domain.Message{},
+		LinePaths:    make(map[string]dbus.ObjectPath),
+		CallPaths:    make(map[string]dbus.ObjectPath),
+		MessagePaths: make(map[string]dbus.ObjectPath),
+	}
+	seenCalls := make(map[string]struct{})
+	seenMessages := make(map[string]struct{})
+
 	for path, interfaces := range objects {
 		modemProperties, ok := interfaces[modemInterface]
 		if !ok {
@@ -27,7 +48,6 @@ func ParseManagedObjects(objects ManagedObjects) []domain.Line {
 		}
 
 		line := domain.Line{
-			ID:                       string(path),
 			State:                    "unknown",
 			Drivers:                  []string{},
 			OwnNumbers:               []string{},
@@ -37,10 +57,6 @@ func ParseManagedObjects(objects ManagedObjects) []domain.Line {
 			SupportedMessageStorages: []uint32{},
 			Capabilities: domain.LineCapabilities{
 				ModemInterface: true,
-				Dial:           false,
-				AnswerCall:     false,
-				HangupCall:     false,
-				SendMessage:    false,
 			},
 		}
 
@@ -74,26 +90,122 @@ func ParseManagedObjects(objects ManagedObjects) []domain.Line {
 			}
 		}
 
+		line.ID = ids.lineID(path, line)
+		parsed.LinePaths[line.ID] = path
+
 		if voiceProperties, found := interfaces[voiceInterface]; found {
 			line.Capabilities.VoiceInterface = true
+			line.Capabilities.Dial = true
+			line.Capabilities.AnswerCall = true
+			line.Capabilities.RejectCall = true
+			line.Capabilities.HangupCall = true
+			line.Capabilities.SendDTMF = true
 			line.EmergencyOnly, _ = boolProperty(voiceProperties, "EmergencyOnly")
-			line.CallIDs, _ = objectPathsProperty(voiceProperties, "Calls")
+
+			callPaths, _ := objectPathValuesProperty(voiceProperties, "Calls")
+			for _, callPath := range callPaths {
+				callProperties, found := objects[callPath][callInterface]
+				if !found {
+					continue
+				}
+				call := parseCall(callPath, line.ID, callProperties, ids)
+				line.CallIDs = append(line.CallIDs, call.ID)
+				if _, duplicate := seenCalls[call.ID]; !duplicate {
+					seenCalls[call.ID] = struct{}{}
+					parsed.CallPaths[call.ID] = callPath
+					parsed.Calls = append(parsed.Calls, call)
+				}
+			}
 		}
 
 		if messagingProperties, found := interfaces[messagingInterface]; found {
 			line.Capabilities.MessagingInterface = true
-			line.MessageIDs, _ = objectPathsProperty(messagingProperties, "Messages")
+			line.Capabilities.SendMessage = true
 			line.SupportedMessageStorages, _ = uint32sProperty(messagingProperties, "SupportedStorages")
 			line.DefaultMessageStorage, _ = uint32Property(messagingProperties, "DefaultStorage")
+
+			messagePaths, _ := objectPathValuesProperty(messagingProperties, "Messages")
+			for _, messagePath := range messagePaths {
+				messageProperties, found := objects[messagePath][smsInterface]
+				if !found {
+					continue
+				}
+				message := parseMessage(messagePath, line.ID, messageProperties, ids)
+				line.MessageIDs = append(line.MessageIDs, message.ID)
+				if _, duplicate := seenMessages[message.ID]; !duplicate {
+					seenMessages[message.ID] = struct{}{}
+					parsed.MessagePaths[message.ID] = messagePath
+					parsed.Messages = append(parsed.Messages, message)
+				}
+			}
 		}
 
-		lines = append(lines, line)
+		sort.Strings(line.CallIDs)
+		sort.Strings(line.MessageIDs)
+		parsed.Lines = append(parsed.Lines, line)
 	}
 
-	sort.Slice(lines, func(i, j int) bool {
-		return lines[i].ID < lines[j].ID
+	sort.Slice(parsed.Lines, func(i, j int) bool {
+		return parsed.Lines[i].ID < parsed.Lines[j].ID
 	})
-	return lines
+	sort.Slice(parsed.Calls, func(i, j int) bool {
+		return parsed.Calls[i].ID < parsed.Calls[j].ID
+	})
+	sort.Slice(parsed.Messages, func(i, j int) bool {
+		return parsed.Messages[i].ID < parsed.Messages[j].ID
+	})
+	return parsed
+}
+
+const callStateTerminated int32 = 7
+
+func parseCall(path dbus.ObjectPath, lineID string, properties Properties, ids *instanceIDs) domain.Call {
+	stateCode, _ := int32Property(properties, "State")
+	stateReasonCode, _ := int32Property(properties, "StateReason")
+	directionCode, _ := int32Property(properties, "Direction")
+	number, _ := stringProperty(properties, "Number")
+	multiparty, _ := boolProperty(properties, "Multiparty")
+	audioPort, _ := stringProperty(properties, "AudioPort")
+	audioFormat, audioFormatKnown := audioFormatProperty(properties)
+	return domain.Call{
+		ID:              ids.callID(path),
+		LineID:          lineID,
+		Number:          number,
+		Direction:       callDirectionName(directionCode),
+		State:           callStateName(stateCode),
+		StateCode:       stateCode,
+		StateReason:     callStateReasonName(stateReasonCode),
+		StateReasonCode: stateReasonCode,
+		Multiparty:      multiparty,
+		AudioPort:       audioPort,
+		AudioFormat:     audioFormat,
+		MediaAvailable: audioPort != "" &&
+			audioFormatKnown &&
+			audioFormat.Encoding != "" &&
+			audioFormat.Resolution != "" &&
+			audioFormat.Rate > 0,
+		// The standard ModemManager Call interface does not expose the
+		// cellular bearer. Never infer VoLTE or VoWiFi from unrelated fields.
+		Bearer: "",
+	}
+}
+
+func parseMessage(path dbus.ObjectPath, lineID string, properties Properties, ids *instanceIDs) domain.Message {
+	stateCode, _ := uint32Property(properties, "State")
+	pduType, _ := uint32Property(properties, "PduType")
+	number, _ := stringProperty(properties, "Number")
+	text, _ := stringProperty(properties, "Text")
+	timestamp, _ := stringProperty(properties, "Timestamp")
+	return domain.Message{
+		ID:        ids.messageID(path),
+		LineID:    lineID,
+		Number:    number,
+		Text:      text,
+		Direction: messageDirectionName(pduType),
+		State:     messageStateName(stateCode),
+		StateCode: stateCode,
+		Timestamp: timestamp,
+	}
 }
 
 func modemStateName(code int32) string {
@@ -124,6 +236,91 @@ func modemStateName(code int32) string {
 		return "connecting"
 	case 11:
 		return "connected"
+	default:
+		return "unknown"
+	}
+}
+
+func callStateName(code int32) string {
+	switch code {
+	case 1:
+		return "dialing"
+	case 2:
+		return "ringing_out"
+	case 3:
+		return "ringing_in"
+	case 4:
+		return "active"
+	case 5:
+		return "held"
+	case 6:
+		return "waiting"
+	case callStateTerminated:
+		return "terminated"
+	default:
+		return "unknown"
+	}
+}
+
+func callDirectionName(code int32) string {
+	switch code {
+	case 1:
+		return "incoming"
+	case 2:
+		return "outgoing"
+	default:
+		return "unknown"
+	}
+}
+
+func callStateReasonName(code int32) string {
+	switch code {
+	case 1:
+		return "outgoing_started"
+	case 2:
+		return "incoming_new"
+	case 3:
+		return "accepted"
+	case 4:
+		return "terminated"
+	case 5:
+		return "refused_or_busy"
+	case 6:
+		return "error"
+	case 7:
+		return "audio_setup_failed"
+	case 8:
+		return "transferred"
+	case 9:
+		return "deflected"
+	default:
+		return "unknown"
+	}
+}
+
+func messageStateName(code uint32) string {
+	switch code {
+	case 1:
+		return "stored"
+	case 2:
+		return "receiving"
+	case 3:
+		return "received"
+	case 4:
+		return "sending"
+	case 5:
+		return "sent"
+	default:
+		return "unknown"
+	}
+}
+
+func messageDirectionName(pduType uint32) string {
+	switch pduType {
+	case 1, 3, 32:
+		return "incoming"
+	case 2, 33:
+		return "outgoing"
 	default:
 		return "unknown"
 	}
@@ -189,6 +386,22 @@ func boolProperty(properties Properties, name string) (bool, bool) {
 	return result, ok
 }
 
+func audioFormatProperty(properties Properties) (*domain.CallAudioFormat, bool) {
+	value, ok := propertyValue(properties, "AudioFormat")
+	if !ok {
+		return nil, false
+	}
+	formatProperties, ok := value.(map[string]dbus.Variant)
+	if !ok {
+		return nil, false
+	}
+	format := &domain.CallAudioFormat{}
+	format.Encoding, _ = stringProperty(formatProperties, "encoding")
+	format.Resolution, _ = stringProperty(formatProperties, "resolution")
+	format.Rate, _ = uint32Property(formatProperties, "rate")
+	return format, true
+}
+
 func objectPathProperty(properties Properties, name string) (dbus.ObjectPath, bool) {
 	value, ok := propertyValue(properties, name)
 	if !ok {
@@ -198,20 +411,16 @@ func objectPathProperty(properties Properties, name string) (dbus.ObjectPath, bo
 	return result, ok
 }
 
-func objectPathsProperty(properties Properties, name string) ([]string, bool) {
+func objectPathValuesProperty(properties Properties, name string) ([]dbus.ObjectPath, bool) {
 	value, ok := propertyValue(properties, name)
 	if !ok {
-		return []string{}, false
+		return []dbus.ObjectPath{}, false
 	}
 	paths, ok := value.([]dbus.ObjectPath)
 	if !ok {
-		return []string{}, false
+		return []dbus.ObjectPath{}, false
 	}
-	result := make([]string, 0, len(paths))
-	for _, path := range paths {
-		result = append(result, string(path))
-	}
-	return result, true
+	return append([]dbus.ObjectPath(nil), paths...), true
 }
 
 func signalQualityProperty(properties Properties) (uint32, bool, bool) {

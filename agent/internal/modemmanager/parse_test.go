@@ -2,21 +2,20 @@ package modemmanager
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/godbus/dbus/v5"
 )
 
-func TestParseManagedObjectsMapsModemSIMVoiceAndMessaging(t *testing.T) {
+func TestParseManagedObjectsMapsLineCallsAndMessages(t *testing.T) {
+	ids := newInstanceIDsForTest("boot-a", []byte("01234567890123456789012345678901"))
 	modemPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/Modem/7")
 	simPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/SIM/3")
-	callPaths := []dbus.ObjectPath{
-		"/org/freedesktop/ModemManager1/Call/4",
-	}
-	messagePaths := []dbus.ObjectPath{
-		"/org/freedesktop/ModemManager1/SMS/8",
-		"/org/freedesktop/ModemManager1/SMS/9",
-	}
+	incomingCallPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/Call/4")
+	terminatedCallPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/Call/5")
+	incomingMessagePath := dbus.ObjectPath("/org/freedesktop/ModemManager1/SMS/8")
+	outgoingMessagePath := dbus.ObjectPath("/org/freedesktop/ModemManager1/SMS/9")
 
 	objects := ManagedObjects{
 		modemPath: {
@@ -39,11 +38,17 @@ func TestParseManagedObjectsMapsModemSIMVoiceAndMessaging(t *testing.T) {
 				"Sim":                 dbus.MakeVariant(simPath),
 			},
 			voiceInterface: {
-				"Calls":         dbus.MakeVariant(callPaths),
+				"Calls": dbus.MakeVariant([]dbus.ObjectPath{
+					incomingCallPath,
+					terminatedCallPath,
+				}),
 				"EmergencyOnly": dbus.MakeVariant(false),
 			},
 			messagingInterface: {
-				"Messages":          dbus.MakeVariant(messagePaths),
+				"Messages": dbus.MakeVariant([]dbus.ObjectPath{
+					incomingMessagePath,
+					outgoingMessagePath,
+				}),
 				"SupportedStorages": dbus.MakeVariant([]uint32{1, 2}),
 				"DefaultStorage":    dbus.MakeVariant(uint32(2)),
 			},
@@ -57,68 +62,281 @@ func TestParseManagedObjectsMapsModemSIMVoiceAndMessaging(t *testing.T) {
 				"EmergencyNumbers":   dbus.MakeVariant([]string{"110", "119"}),
 			},
 		},
+		incomingCallPath: {
+			callInterface: {
+				"Number":      dbus.MakeVariant("+818000000001"),
+				"Direction":   dbus.MakeVariant(int32(1)),
+				"State":       dbus.MakeVariant(int32(3)),
+				"StateReason": dbus.MakeVariant(int32(2)),
+				"Multiparty":  dbus.MakeVariant(true),
+				"AudioPort":   dbus.MakeVariant("hw:2,0"),
+				"AudioFormat": dbus.MakeVariant(map[string]dbus.Variant{
+					"encoding":   dbus.MakeVariant("pcm"),
+					"resolution": dbus.MakeVariant("s16le"),
+					"rate":       dbus.MakeVariant(uint32(8000)),
+				}),
+			},
+		},
+		terminatedCallPath: {
+			callInterface: {
+				"Number":      dbus.MakeVariant("+818000000002"),
+				"Direction":   dbus.MakeVariant(int32(2)),
+				"State":       dbus.MakeVariant(int32(7)),
+				"StateReason": dbus.MakeVariant(int32(4)),
+			},
+		},
+		incomingMessagePath: {
+			smsInterface: {
+				"Number":    dbus.MakeVariant("+818000000003"),
+				"Text":      dbus.MakeVariant("incoming"),
+				"PduType":   dbus.MakeVariant(uint32(1)),
+				"State":     dbus.MakeVariant(uint32(3)),
+				"Timestamp": dbus.MakeVariant("2026-07-23T10:00:00+09:00"),
+			},
+		},
+		outgoingMessagePath: {
+			smsInterface: {
+				"Number":    dbus.MakeVariant("+818000000004"),
+				"Text":      dbus.MakeVariant("outgoing"),
+				"PduType":   dbus.MakeVariant(uint32(2)),
+				"State":     dbus.MakeVariant(uint32(5)),
+				"Timestamp": dbus.MakeVariant("2026-07-23T10:01:00+09:00"),
+			},
+		},
 	}
 
-	lines := ParseManagedObjects(objects)
-	if len(lines) != 1 {
-		t.Fatalf("got %d lines, want 1", len(lines))
+	parsed := ParseManagedObjects(objects, ids)
+	if len(parsed.Lines) != 1 || len(parsed.Calls) != 2 || len(parsed.Messages) != 2 {
+		t.Fatalf("unexpected snapshot sizes: lines=%d calls=%d messages=%d", len(parsed.Lines), len(parsed.Calls), len(parsed.Messages))
 	}
-	line := lines[0]
-	if line.ID != string(modemPath) || line.State != "registered" || line.StateCode != 8 {
-		t.Fatalf("unexpected line identity/state: %+v", line)
+
+	line := parsed.Lines[0]
+	if line.ID == string(modemPath) || !strings.HasPrefix(line.ID, "line_") {
+		t.Fatalf("line id is not opaque: %q", line.ID)
 	}
-	if line.Manufacturer != "Quectel" || line.Model != "EG25-G" || line.PrimaryPort != "cdc-wdm0" {
-		t.Fatalf("unexpected modem properties: %+v", line)
+	if parsed.LinePaths[line.ID] != modemPath {
+		t.Fatalf("line path mapping = %q", parsed.LinePaths[line.ID])
+	}
+	if line.State != "registered" || line.StateCode != 8 ||
+		line.Manufacturer != "Quectel" || line.Model != "EG25-G" ||
+		line.PrimaryPort != "cdc-wdm0" {
+		t.Fatalf("unexpected line: %+v", line)
 	}
 	if !line.SignalQualityKnown || line.SignalQuality != 76 || !line.SignalQualityRecent {
 		t.Fatalf("unexpected signal quality: %+v", line)
 	}
-	if !line.SIMPresent || line.SIMPath != string(simPath) || line.SIMIdentifier != "8986012345678901234" {
+	if !line.SIMPresent || line.SIMIdentifier != "8986012345678901234" ||
+		line.OperatorIdentifier != "44051" || line.OperatorName != "KDDI" {
 		t.Fatalf("unexpected SIM mapping: %+v", line)
 	}
-	if line.OperatorIdentifier != "44051" || line.OperatorName != "KDDI" {
-		t.Fatalf("unexpected operator mapping: %+v", line)
+	if !line.Capabilities.Dial || !line.Capabilities.AnswerCall ||
+		!line.Capabilities.RejectCall || !line.Capabilities.HangupCall ||
+		!line.Capabilities.SendDTMF || !line.Capabilities.SendMessage {
+		t.Fatalf("implemented line capabilities were not advertised: %+v", line.Capabilities)
 	}
-	if !reflect.DeepEqual(line.CallIDs, []string{string(callPaths[0])}) {
-		t.Fatalf("call ids = %#v", line.CallIDs)
+
+	var incomingCall, terminatedCall = parsed.Calls[0], parsed.Calls[1]
+	if incomingCall.Number != "+818000000001" {
+		incomingCall, terminatedCall = terminatedCall, incomingCall
 	}
-	if !reflect.DeepEqual(line.MessageIDs, []string{string(messagePaths[0]), string(messagePaths[1])}) {
-		t.Fatalf("message ids = %#v", line.MessageIDs)
+	if incomingCall.ID == string(incomingCallPath) || !strings.HasPrefix(incomingCall.ID, "call_boot-a_") {
+		t.Fatalf("call id is not boot-scoped and opaque: %q", incomingCall.ID)
 	}
-	if !line.Capabilities.ModemInterface || !line.Capabilities.SIMInterface ||
-		!line.Capabilities.VoiceInterface || !line.Capabilities.MessagingInterface {
-		t.Fatalf("read interfaces were not advertised: %+v", line.Capabilities)
+	if parsed.CallPaths[incomingCall.ID] != incomingCallPath {
+		t.Fatalf("call path mapping = %q", parsed.CallPaths[incomingCall.ID])
 	}
-	if line.Capabilities.Dial || line.Capabilities.AnswerCall ||
-		line.Capabilities.HangupCall || line.Capabilities.SendMessage {
-		t.Fatalf("unimplemented mutations were advertised: %+v", line.Capabilities)
+	if incomingCall.LineID != line.ID || incomingCall.Direction != "incoming" ||
+		incomingCall.State != "ringing_in" || incomingCall.StateCode != 3 ||
+		incomingCall.StateReason != "incoming_new" || incomingCall.StateReasonCode != 2 ||
+		!incomingCall.Multiparty || incomingCall.AudioPort != "hw:2,0" ||
+		incomingCall.AudioFormat == nil || incomingCall.AudioFormat.Encoding != "pcm" ||
+		incomingCall.AudioFormat.Resolution != "s16le" || incomingCall.AudioFormat.Rate != 8000 ||
+		!incomingCall.MediaAvailable || incomingCall.Bearer != "" {
+		t.Fatalf("unexpected incoming call: %+v", incomingCall)
+	}
+	if terminatedCall.State != "terminated" || terminatedCall.StateCode != 7 ||
+		terminatedCall.StateReason != "terminated" || terminatedCall.MediaAvailable ||
+		terminatedCall.Bearer != "" {
+		t.Fatalf("unexpected terminated call: %+v", terminatedCall)
+	}
+	wantCallIDs := []string{incomingCall.ID, terminatedCall.ID}
+	if wantCallIDs[0] > wantCallIDs[1] {
+		wantCallIDs[0], wantCallIDs[1] = wantCallIDs[1], wantCallIDs[0]
+	}
+	if !reflect.DeepEqual(line.CallIDs, wantCallIDs) {
+		t.Fatalf("call IDs = %#v", line.CallIDs)
+	}
+
+	var incoming, outgoing = parsed.Messages[0], parsed.Messages[1]
+	if incoming.Text != "incoming" {
+		incoming, outgoing = outgoing, incoming
+	}
+	if incoming.ID == string(incomingMessagePath) || !strings.HasPrefix(incoming.ID, "message_boot-a_") {
+		t.Fatalf("message id is not boot-scoped and opaque: %q", incoming.ID)
+	}
+	if incoming.LineID != line.ID || incoming.Direction != "incoming" ||
+		incoming.State != "received" || incoming.Timestamp == "" {
+		t.Fatalf("unexpected incoming message: %+v", incoming)
+	}
+	if outgoing.Direction != "outgoing" || outgoing.State != "sent" {
+		t.Fatalf("unexpected outgoing message: %+v", outgoing)
+	}
+	wantMessageIDs := []string{incoming.ID, outgoing.ID}
+	if wantMessageIDs[0] > wantMessageIDs[1] {
+		wantMessageIDs[0], wantMessageIDs[1] = wantMessageIDs[1], wantMessageIDs[0]
+	}
+	if !reflect.DeepEqual(line.MessageIDs, wantMessageIDs) {
+		t.Fatalf("message IDs = %#v", line.MessageIDs)
 	}
 }
 
-func TestParseManagedObjectsSortsLinesAndIgnoresOtherObjects(t *testing.T) {
+func TestCallMediaRequiresExplicitPortAndCompleteFormat(t *testing.T) {
+	ids := newInstanceIDsForTest("boot-a", []byte("01234567890123456789012345678901"))
+	callPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/Call/1")
+	objects := oneLineObjects(callPath, 4)
+	properties := objects[callPath][callInterface]
+	properties["AudioPort"] = dbus.MakeVariant("hw:2,0")
+	properties["AudioFormat"] = dbus.MakeVariant(map[string]dbus.Variant{
+		"encoding": dbus.MakeVariant("pcm"),
+		"rate":     dbus.MakeVariant(uint32(8000)),
+	})
+
+	call := ParseManagedObjects(objects, ids).Calls[0]
+	if call.MediaAvailable {
+		t.Fatalf("incomplete audio format advertised media availability: %+v", call)
+	}
+	if call.AudioFormat == nil || call.AudioFormat.Resolution != "" {
+		t.Fatalf("explicit partial audio format was not projected: %+v", call.AudioFormat)
+	}
+}
+
+func TestMessageStateNamesMatchModemManagerStatesZeroThroughFive(t *testing.T) {
+	tests := []struct {
+		code uint32
+		want string
+	}{
+		{code: 0, want: "unknown"},
+		{code: 1, want: "stored"},
+		{code: 2, want: "receiving"},
+		{code: 3, want: "received"},
+		{code: 4, want: "sending"},
+		{code: 5, want: "sent"},
+		{code: 6, want: "unknown"},
+	}
+	for _, test := range tests {
+		if got := messageStateName(test.code); got != test.want {
+			t.Fatalf("message state %d = %q, want %q", test.code, got, test.want)
+		}
+	}
+}
+
+func TestOpaqueObjectIDsAreStableOnlyWithinBootEpoch(t *testing.T) {
+	path := dbus.ObjectPath("/org/freedesktop/ModemManager1/Call/1")
+	objects := oneLineObjects(path, 4)
+	modemPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/Modem/0")
+	messagePath := dbus.ObjectPath("/org/freedesktop/ModemManager1/SMS/1")
+	objects[modemPath][messagingInterface] = Properties{
+		"Messages": dbus.MakeVariant([]dbus.ObjectPath{messagePath}),
+	}
+	objects[messagePath] = Interfaces{
+		smsInterface: {
+			"Number":  dbus.MakeVariant("+818000000001"),
+			"Text":    dbus.MakeVariant("hello"),
+			"PduType": dbus.MakeVariant(uint32(1)),
+			"State":   dbus.MakeVariant(uint32(3)),
+		},
+	}
+	firstIDs := newInstanceIDsForTest("boot-a", []byte("01234567890123456789012345678901"))
+	restartedIDs := newInstanceIDsForTest("boot-b", []byte("abcdefghijklmnopqrstuvwxyzABCDEF"))
+
+	first := ParseManagedObjects(objects, firstIDs)
+	again := ParseManagedObjects(objects, firstIDs)
+	restarted := ParseManagedObjects(objects, restartedIDs)
+
+	if first.Calls[0].ID != again.Calls[0].ID {
+		t.Fatalf("same-process call ID changed: %q != %q", first.Calls[0].ID, again.Calls[0].ID)
+	}
+	if first.Calls[0].ID == restarted.Calls[0].ID {
+		t.Fatalf("restarted agent reused call ID %q", first.Calls[0].ID)
+	}
+	if first.Messages[0].ID != again.Messages[0].ID {
+		t.Fatalf("same-process message ID changed: %q != %q", first.Messages[0].ID, again.Messages[0].ID)
+	}
+	if first.Messages[0].ID == restarted.Messages[0].ID {
+		t.Fatalf("restarted agent reused message ID %q", first.Messages[0].ID)
+	}
+	if first.Lines[0].ID != restarted.Lines[0].ID {
+		t.Fatalf("hardware line ID changed across boot: %q != %q", first.Lines[0].ID, restarted.Lines[0].ID)
+	}
+}
+
+func TestLineIDDoesNotDependOnTTYPortName(t *testing.T) {
+	ids := newInstanceIDsForTest("boot-a", []byte("01234567890123456789012345678901"))
+	objects := oneLineObjects("/org/freedesktop/ModemManager1/Call/1", 7)
+	modemPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/Modem/0")
+	objects[modemPath][modemInterface]["PrimaryPort"] = dbus.MakeVariant("ttyUSB2")
+	first := ParseManagedObjects(objects, ids).Lines[0].ID
+
+	objects[modemPath][modemInterface]["PrimaryPort"] = dbus.MakeVariant("ttyUSB9")
+	second := ParseManagedObjects(objects, ids).Lines[0].ID
+	if first != second {
+		t.Fatalf("line ID changed with tty port name: %q != %q", first, second)
+	}
+}
+
+func TestParseManagedObjectsSortsAndUsesEmptyArrays(t *testing.T) {
+	ids := newInstanceIDsForTest("boot-a", []byte("01234567890123456789012345678901"))
 	objects := ManagedObjects{
 		"/org/freedesktop/ModemManager1/Modem/9": {
-			modemInterface: {"State": dbus.MakeVariant(int32(1234))},
+			modemInterface: {
+				"EquipmentIdentifier": dbus.MakeVariant("imei-9"),
+				"State":               dbus.MakeVariant(int32(1234)),
+			},
 		},
 		"/org/freedesktop/ModemManager1/Modem/2": {
-			modemInterface: {"State": dbus.MakeVariant(int32(-1))},
+			modemInterface: {
+				"EquipmentIdentifier": dbus.MakeVariant("imei-2"),
+				"State":               dbus.MakeVariant(int32(-1)),
+			},
 		},
 		"/org/freedesktop/ModemManager1/SMS/1": {
-			"org.freedesktop.ModemManager1.Sms": {},
+			smsInterface: {},
 		},
 	}
 
-	lines := ParseManagedObjects(objects)
-	if len(lines) != 2 {
-		t.Fatalf("got %d lines, want 2", len(lines))
+	parsed := ParseManagedObjects(objects, ids)
+	if len(parsed.Lines) != 2 {
+		t.Fatalf("got %d lines, want 2", len(parsed.Lines))
 	}
-	if lines[0].ID != "/org/freedesktop/ModemManager1/Modem/2" || lines[0].State != "failed" {
-		t.Fatalf("unexpected first line: %+v", lines[0])
+	for _, line := range parsed.Lines {
+		if line.OwnNumbers == nil || line.CallIDs == nil || line.MessageIDs == nil {
+			t.Fatalf("empty collections must be encoded as arrays: %+v", line)
+		}
 	}
-	if lines[1].ID != "/org/freedesktop/ModemManager1/Modem/9" || lines[1].State != "unknown" {
-		t.Fatalf("unexpected second line: %+v", lines[1])
+	if parsed.Calls == nil || parsed.Messages == nil {
+		t.Fatal("snapshot collections must not be nil")
 	}
-	if lines[1].OwnNumbers == nil || lines[1].CallIDs == nil || lines[1].MessageIDs == nil {
-		t.Fatalf("empty collections must be encoded as arrays: %+v", lines[1])
+}
+
+func oneLineObjects(callPath dbus.ObjectPath, callState int32) ManagedObjects {
+	modemPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/Modem/0")
+	return ManagedObjects{
+		modemPath: {
+			modemInterface: {
+				"EquipmentIdentifier": dbus.MakeVariant("867530900000001"),
+				"Physdev":             dbus.MakeVariant("/sys/devices/usb1/1-2"),
+				"State":               dbus.MakeVariant(int32(8)),
+			},
+			voiceInterface: {
+				"Calls": dbus.MakeVariant([]dbus.ObjectPath{callPath}),
+			},
+		},
+		callPath: {
+			callInterface: {
+				"Number":    dbus.MakeVariant("+818000000001"),
+				"Direction": dbus.MakeVariant(int32(1)),
+				"State":     dbus.MakeVariant(callState),
+			},
+		},
 	}
 }

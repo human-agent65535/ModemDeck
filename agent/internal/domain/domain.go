@@ -4,22 +4,28 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 )
 
 const APIVersion = "v1"
 
 type AgentCapabilities struct {
 	Discovery   bool `json:"discovery"`
+	Snapshot    bool `json:"snapshot"`
 	Dial        bool `json:"dial"`
 	AnswerCall  bool `json:"answer_call"`
+	RejectCall  bool `json:"reject_call"`
 	HangupCall  bool `json:"hangup_call"`
+	SendDTMF    bool `json:"send_dtmf"`
 	SendMessage bool `json:"send_message"`
 }
 
 type ProviderHealth struct {
-	Name         string            `json:"name"`
-	Available    bool              `json:"available"`
-	Capabilities AgentCapabilities `json:"capabilities"`
+	Name           string            `json:"name"`
+	Available      bool              `json:"available"`
+	BootEpoch      string            `json:"boot_epoch"`
+	RuntimeVersion string            `json:"runtime_version,omitempty"`
+	Capabilities   AgentCapabilities `json:"capabilities"`
 }
 
 type LineCapabilities struct {
@@ -29,7 +35,9 @@ type LineCapabilities struct {
 	MessagingInterface bool `json:"messaging_interface"`
 	Dial               bool `json:"dial"`
 	AnswerCall         bool `json:"answer_call"`
+	RejectCall         bool `json:"reject_call"`
 	HangupCall         bool `json:"hangup_call"`
+	SendDTMF           bool `json:"send_dtmf"`
 	SendMessage        bool `json:"send_message"`
 }
 
@@ -68,49 +76,99 @@ type Line struct {
 	Capabilities             LineCapabilities `json:"capabilities"`
 }
 
-type StartCallRequest struct {
-	LineID string `json:"line_id"`
-	Number string `json:"number"`
+type CallAudioFormat struct {
+	Encoding   string `json:"encoding"`
+	Resolution string `json:"resolution"`
+	Rate       uint32 `json:"rate"`
 }
 
 type Call struct {
-	ID     string `json:"id"`
-	LineID string `json:"line_id"`
-	Number string `json:"number"`
-	State  string `json:"state"`
-}
-
-type SendMessageRequest struct {
-	LineID string `json:"line_id"`
-	Number string `json:"number"`
-	Text   string `json:"text"`
+	ID              string           `json:"id"`
+	LineID          string           `json:"line_id"`
+	Number          string           `json:"number"`
+	Direction       string           `json:"direction"`
+	State           string           `json:"state"`
+	StateCode       int32            `json:"state_code"`
+	StateReason     string           `json:"state_reason"`
+	StateReasonCode int32            `json:"state_reason_code"`
+	Multiparty      bool             `json:"multiparty"`
+	AudioPort       string           `json:"audio_port,omitempty"`
+	AudioFormat     *CallAudioFormat `json:"audio_format,omitempty"`
+	MediaAvailable  bool             `json:"media_available"`
+	Bearer          string           `json:"bearer"`
 }
 
 type Message struct {
-	ID     string `json:"id"`
-	LineID string `json:"line_id"`
-	Number string `json:"number"`
-	State  string `json:"state"`
+	ID        string `json:"id"`
+	LineID    string `json:"line_id"`
+	Number    string `json:"number"`
+	Text      string `json:"text"`
+	Direction string `json:"direction"`
+	State     string `json:"state"`
+	StateCode uint32 `json:"state_code"`
+	Timestamp string `json:"timestamp"`
+}
+
+type Snapshot struct {
+	Revision   string    `json:"revision"`
+	ObservedAt time.Time `json:"observed_at"`
+	Lines      []Line    `json:"lines"`
+	Calls      []Call    `json:"calls"`
+	Messages   []Message `json:"messages"`
+}
+
+type StartCallRequest struct {
+	RequestID string `json:"request_id"`
+	LineID    string `json:"line_id"`
+	Number    string `json:"number"`
+}
+
+type CallCommandRequest struct {
+	RequestID string `json:"request_id"`
+	CallID    string `json:"-"`
+}
+
+type DTMFRequest struct {
+	RequestID string `json:"request_id"`
+	CallID    string `json:"-"`
+	Digits    string `json:"digits"`
+}
+
+type SendMessageRequest struct {
+	RequestID string `json:"request_id"`
+	LineID    string `json:"line_id"`
+	Number    string `json:"number"`
+	Text      string `json:"text"`
+}
+
+// CommandReceipt acknowledges a synchronous ModemManager command. Call and
+// message state must always be read from Snapshot instead of inferred here.
+type CommandReceipt struct {
+	RequestID  string `json:"request_id"`
+	ResourceID string `json:"resource_id"`
 }
 
 type Provider interface {
 	Health(context.Context) (ProviderHealth, error)
-	Lines(context.Context) ([]Line, error)
-	StartCall(context.Context, StartCallRequest) (Call, error)
-	AnswerCall(context.Context, string) (Call, error)
-	HangupCall(context.Context, string) (Call, error)
-	SendMessage(context.Context, SendMessageRequest) (Message, error)
+	Snapshot(context.Context) (Snapshot, error)
+	StartCall(context.Context, StartCallRequest) (CommandReceipt, error)
+	AnswerCall(context.Context, CallCommandRequest) (CommandReceipt, error)
+	RejectCall(context.Context, CallCommandRequest) (CommandReceipt, error)
+	HangupCall(context.Context, CallCommandRequest) (CommandReceipt, error)
+	SendDTMF(context.Context, DTMFRequest) (CommandReceipt, error)
+	SendMessage(context.Context, SendMessageRequest) (CommandReceipt, error)
 }
 
 type ErrorCode string
 
 const (
-	ErrorInvalidArgument ErrorCode = "invalid_argument"
-	ErrorNotFound        ErrorCode = "not_found"
-	ErrorConflict        ErrorCode = "conflict"
-	ErrorNotSupported    ErrorCode = "not_supported"
-	ErrorUnavailable     ErrorCode = "unavailable"
-	ErrorInternal        ErrorCode = "internal"
+	ErrorInvalidArgument  ErrorCode = "invalid_argument"
+	ErrorNotFound         ErrorCode = "not_found"
+	ErrorConflict         ErrorCode = "conflict"
+	ErrorNotSupported     ErrorCode = "not_supported"
+	ErrorPermissionDenied ErrorCode = "permission_denied"
+	ErrorUnavailable      ErrorCode = "unavailable"
+	ErrorInternal         ErrorCode = "internal"
 )
 
 type OperationError struct {
@@ -140,13 +198,32 @@ func NewOperationError(code ErrorCode, operation, message string, cause error) e
 	}
 }
 
-func NotSupported(operation string) error {
-	return NewOperationError(
-		ErrorNotSupported,
-		operation,
-		"operation is not implemented by the ModemManager provider",
-		nil,
-	)
+func InvalidArgument(operation, message string) error {
+	return NewOperationError(ErrorInvalidArgument, operation, message, nil)
+}
+
+func NotFound(operation, message string) error {
+	return NewOperationError(ErrorNotFound, operation, message, nil)
+}
+
+func Conflict(operation, message string) error {
+	return NewOperationError(ErrorConflict, operation, message, nil)
+}
+
+func NotSupported(operation, message string) error {
+	return NewOperationError(ErrorNotSupported, operation, message, nil)
+}
+
+func PermissionDenied(operation, message string, cause error) error {
+	return NewOperationError(ErrorPermissionDenied, operation, message, cause)
+}
+
+func Unavailable(operation, message string, cause error) error {
+	return NewOperationError(ErrorUnavailable, operation, message, cause)
+}
+
+func Internal(operation, message string, cause error) error {
+	return NewOperationError(ErrorInternal, operation, message, cause)
 }
 
 func AsOperationError(err error) (*OperationError, bool) {

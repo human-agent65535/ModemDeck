@@ -7,66 +7,107 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/human-agent65535/modemdeck/agent/internal/domain"
 )
 
 type fakeProvider struct {
 	health          domain.ProviderHealth
-	lines           []domain.Line
-	mutationError   error
+	snapshot        domain.Snapshot
+	operationError  error
+	contexts        []context.Context
 	startRequests   []domain.StartCallRequest
-	answerCallIDs   []string
-	hangupCallIDs   []string
+	answerRequests  []domain.CallCommandRequest
+	rejectRequests  []domain.CallCommandRequest
+	hangupRequests  []domain.CallCommandRequest
+	dtmfRequests    []domain.DTMFRequest
 	messageRequests []domain.SendMessageRequest
 }
 
-func (p *fakeProvider) Health(context.Context) (domain.ProviderHealth, error) {
+func (p *fakeProvider) Health(ctx context.Context) (domain.ProviderHealth, error) {
+	p.contexts = append(p.contexts, ctx)
+	if p.operationError != nil {
+		return domain.ProviderHealth{}, p.operationError
+	}
 	return p.health, nil
 }
 
-func (p *fakeProvider) Lines(context.Context) ([]domain.Line, error) {
-	return p.lines, nil
+func (p *fakeProvider) Snapshot(ctx context.Context) (domain.Snapshot, error) {
+	p.contexts = append(p.contexts, ctx)
+	if p.operationError != nil {
+		return domain.Snapshot{}, p.operationError
+	}
+	return p.snapshot, nil
 }
 
-func (p *fakeProvider) StartCall(_ context.Context, request domain.StartCallRequest) (domain.Call, error) {
+func (p *fakeProvider) StartCall(ctx context.Context, request domain.StartCallRequest) (domain.CommandReceipt, error) {
+	p.contexts = append(p.contexts, ctx)
 	p.startRequests = append(p.startRequests, request)
-	if p.mutationError != nil {
-		return domain.Call{}, p.mutationError
+	if p.operationError != nil {
+		return domain.CommandReceipt{}, p.operationError
 	}
-	return domain.Call{ID: "call-1", LineID: request.LineID, Number: request.Number, State: "created"}, nil
+	return domain.CommandReceipt{RequestID: request.RequestID, ResourceID: "call_boot_x"}, nil
 }
 
-func (p *fakeProvider) AnswerCall(_ context.Context, id string) (domain.Call, error) {
-	p.answerCallIDs = append(p.answerCallIDs, id)
-	if p.mutationError != nil {
-		return domain.Call{}, p.mutationError
-	}
-	return domain.Call{ID: id, State: "active"}, nil
+func (p *fakeProvider) AnswerCall(ctx context.Context, request domain.CallCommandRequest) (domain.CommandReceipt, error) {
+	p.contexts = append(p.contexts, ctx)
+	p.answerRequests = append(p.answerRequests, request)
+	return p.callReceipt(request)
 }
 
-func (p *fakeProvider) HangupCall(_ context.Context, id string) (domain.Call, error) {
-	p.hangupCallIDs = append(p.hangupCallIDs, id)
-	if p.mutationError != nil {
-		return domain.Call{}, p.mutationError
-	}
-	return domain.Call{ID: id, State: "terminated"}, nil
+func (p *fakeProvider) RejectCall(ctx context.Context, request domain.CallCommandRequest) (domain.CommandReceipt, error) {
+	p.contexts = append(p.contexts, ctx)
+	p.rejectRequests = append(p.rejectRequests, request)
+	return p.callReceipt(request)
 }
 
-func (p *fakeProvider) SendMessage(_ context.Context, request domain.SendMessageRequest) (domain.Message, error) {
+func (p *fakeProvider) HangupCall(ctx context.Context, request domain.CallCommandRequest) (domain.CommandReceipt, error) {
+	p.contexts = append(p.contexts, ctx)
+	p.hangupRequests = append(p.hangupRequests, request)
+	return p.callReceipt(request)
+}
+
+func (p *fakeProvider) SendDTMF(ctx context.Context, request domain.DTMFRequest) (domain.CommandReceipt, error) {
+	p.contexts = append(p.contexts, ctx)
+	p.dtmfRequests = append(p.dtmfRequests, request)
+	if p.operationError != nil {
+		return domain.CommandReceipt{}, p.operationError
+	}
+	return domain.CommandReceipt{RequestID: request.RequestID, ResourceID: request.CallID}, nil
+}
+
+func (p *fakeProvider) SendMessage(ctx context.Context, request domain.SendMessageRequest) (domain.CommandReceipt, error) {
+	p.contexts = append(p.contexts, ctx)
 	p.messageRequests = append(p.messageRequests, request)
-	if p.mutationError != nil {
-		return domain.Message{}, p.mutationError
+	if p.operationError != nil {
+		return domain.CommandReceipt{}, p.operationError
 	}
-	return domain.Message{ID: "message-1", LineID: request.LineID, Number: request.Number, State: "created"}, nil
+	return domain.CommandReceipt{RequestID: request.RequestID, ResourceID: "message_boot_x"}, nil
 }
 
-func TestHealthReportsDiscoveryWithoutMutationCapabilities(t *testing.T) {
+func (p *fakeProvider) callReceipt(request domain.CallCommandRequest) (domain.CommandReceipt, error) {
+	if p.operationError != nil {
+		return domain.CommandReceipt{}, p.operationError
+	}
+	return domain.CommandReceipt{RequestID: request.RequestID, ResourceID: request.CallID}, nil
+}
+
+func TestHealthReportsCapabilitiesAndBootEpoch(t *testing.T) {
 	provider := &fakeProvider{health: domain.ProviderHealth{
-		Name:      "org.freedesktop.ModemManager1",
-		Available: true,
+		Name:           "org.freedesktop.ModemManager1",
+		Available:      true,
+		BootEpoch:      "boot-1",
+		RuntimeVersion: "1.26.0",
 		Capabilities: domain.AgentCapabilities{
-			Discovery: true,
+			Discovery:   true,
+			Snapshot:    true,
+			Dial:        true,
+			AnswerCall:  true,
+			RejectCall:  true,
+			HangupCall:  true,
+			SendDTMF:    true,
+			SendMessage: true,
 		},
 	}}
 	recorder := performRequest(New(provider, "test-version"), http.MethodGet, "/v1/health", nil)
@@ -76,102 +117,228 @@ func TestHealthReportsDiscoveryWithoutMutationCapabilities(t *testing.T) {
 
 	var response healthResponse
 	decodeResponse(t, recorder, &response)
-	if response.Status != "ok" || response.APIVersion != "v1" || response.AgentVersion != "test-version" {
+	if response.Status != "ok" || response.APIVersion != "v1" ||
+		response.AgentVersion != "test-version" || response.Provider.BootEpoch != "boot-1" ||
+		response.Provider.RuntimeVersion != "1.26.0" {
 		t.Fatalf("unexpected health response: %+v", response)
 	}
-	capabilities := response.Provider.Capabilities
-	if !capabilities.Discovery {
-		t.Fatal("discovery should be true")
-	}
-	if capabilities.Dial || capabilities.AnswerCall || capabilities.HangupCall || capabilities.SendMessage {
-		t.Fatalf("unimplemented mutations were advertised: %+v", capabilities)
+	if !response.Provider.Capabilities.Snapshot || !response.Provider.Capabilities.SendDTMF {
+		t.Fatalf("capabilities missing: %+v", response.Provider.Capabilities)
 	}
 }
 
-func TestLinesReturnsFakeProviderData(t *testing.T) {
-	provider := &fakeProvider{lines: []domain.Line{{
-		ID:    "/org/freedesktop/ModemManager1/Modem/0",
-		State: "registered",
-	}}}
-	recorder := performRequest(New(provider, "test"), http.MethodGet, "/v1/lines", nil)
+func TestSnapshotIsOnlyAuthoritativeReadRoute(t *testing.T) {
+	observedAt := time.Date(2026, 7, 23, 1, 2, 3, 0, time.UTC)
+	provider := &fakeProvider{snapshot: domain.Snapshot{
+		Revision:   "sha256:abc",
+		ObservedAt: observedAt,
+		Lines:      []domain.Line{{ID: "line_x"}},
+		Calls:      []domain.Call{{ID: "call_boot_x", LineID: "line_x", State: "active", StateCode: 4}},
+		Messages:   []domain.Message{{ID: "message_boot_x", LineID: "line_x", State: "received", StateCode: 3}},
+	}}
+	handler := New(provider, "test")
+
+	recorder := performRequest(handler, http.MethodGet, "/v1/snapshot", nil)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
-	var response linesResponse
+	var response domain.Snapshot
 	decodeResponse(t, recorder, &response)
-	if len(response.Lines) != 1 || response.Lines[0].State != "registered" {
-		t.Fatalf("unexpected lines response: %+v", response)
+	if response.Revision != "sha256:abc" || !response.ObservedAt.Equal(observedAt) ||
+		len(response.Lines) != 1 || len(response.Calls) != 1 || len(response.Messages) != 1 {
+		t.Fatalf("unexpected snapshot response: %+v", response)
+	}
+
+	legacy := performRequest(handler, http.MethodGet, "/v1/lines", nil)
+	if legacy.Code != http.StatusNotFound {
+		t.Fatalf("legacy read route status = %d, body = %s", legacy.Code, legacy.Body.String())
 	}
 }
 
-func TestMutationRoutesUseProviderContract(t *testing.T) {
+func TestCommandRoutesRequireAndEchoRequestID(t *testing.T) {
 	provider := &fakeProvider{}
 	handler := New(provider, "test")
 
 	start := performRequest(handler, http.MethodPost, "/v1/calls", []byte(`{
-		"line_id":" /org/freedesktop/ModemManager1/Modem/0 ",
-		"number":" +818012345678 "
+		"request_id":"request-start",
+		"line_id":"line_x",
+		"number":"+818012345678"
 	}`))
-	if start.Code != http.StatusCreated {
-		t.Fatalf("start status = %d, body = %s", start.Code, start.Body.String())
-	}
-	if len(provider.startRequests) != 1 || provider.startRequests[0].LineID != "/org/freedesktop/ModemManager1/Modem/0" || provider.startRequests[0].Number != "+818012345678" {
-		t.Fatalf("unexpected start request: %#v", provider.startRequests)
-	}
+	assertReceipt(t, start, http.StatusCreated, "request-start", "call_boot_x")
 
-	answer := performRequest(handler, http.MethodPost, "/v1/calls/call-1/answer", []byte(`{}`))
-	if answer.Code != http.StatusOK || len(provider.answerCallIDs) != 1 || provider.answerCallIDs[0] != "call-1" {
-		t.Fatalf("answer status/body/ids = %d %s %#v", answer.Code, answer.Body.String(), provider.answerCallIDs)
-	}
+	answer := performRequest(handler, http.MethodPost, "/v1/calls/call_boot_x/answer", []byte(`{
+		"request_id":"request-answer"
+	}`))
+	assertReceipt(t, answer, http.StatusOK, "request-answer", "call_boot_x")
 
-	hangup := performRequest(handler, http.MethodPost, "/v1/calls/call-1/hangup", []byte(`{}`))
-	if hangup.Code != http.StatusOK || len(provider.hangupCallIDs) != 1 || provider.hangupCallIDs[0] != "call-1" {
-		t.Fatalf("hangup status/body/ids = %d %s %#v", hangup.Code, hangup.Body.String(), provider.hangupCallIDs)
-	}
+	reject := performRequest(handler, http.MethodPost, "/v1/calls/call_boot_x/reject", []byte(`{
+		"request_id":"request-reject"
+	}`))
+	assertReceipt(t, reject, http.StatusOK, "request-reject", "call_boot_x")
+
+	hangup := performRequest(handler, http.MethodPost, "/v1/calls/call_boot_x/hangup", []byte(`{
+		"request_id":"request-hangup"
+	}`))
+	assertReceipt(t, hangup, http.StatusOK, "request-hangup", "call_boot_x")
+
+	dtmf := performRequest(handler, http.MethodPost, "/v1/calls/call_boot_x/dtmf", []byte(`{
+		"request_id":"request-dtmf",
+		"digits":"12#"
+	}`))
+	assertReceipt(t, dtmf, http.StatusOK, "request-dtmf", "call_boot_x")
 
 	message := performRequest(handler, http.MethodPost, "/v1/messages", []byte(`{
-		"line_id":"/org/freedesktop/ModemManager1/Modem/0",
+		"request_id":"request-message",
+		"line_id":"line_x",
 		"number":"+818012345678",
 		"text":"hello"
 	}`))
-	if message.Code != http.StatusCreated || len(provider.messageRequests) != 1 || provider.messageRequests[0].Text != "hello" {
-		t.Fatalf("message status/body/requests = %d %s %#v", message.Code, message.Body.String(), provider.messageRequests)
+	assertReceipt(t, message, http.StatusCreated, "request-message", "message_boot_x")
+
+	if len(provider.startRequests) != 1 || provider.startRequests[0].RequestID != "request-start" {
+		t.Fatalf("start requests = %#v", provider.startRequests)
+	}
+	if len(provider.answerRequests) != 1 || provider.answerRequests[0].CallID != "call_boot_x" {
+		t.Fatalf("answer requests = %#v", provider.answerRequests)
+	}
+	if len(provider.rejectRequests) != 1 || provider.rejectRequests[0].RequestID != "request-reject" {
+		t.Fatalf("reject requests = %#v", provider.rejectRequests)
+	}
+	if len(provider.hangupRequests) != 1 || provider.hangupRequests[0].RequestID != "request-hangup" {
+		t.Fatalf("hangup requests = %#v", provider.hangupRequests)
+	}
+	if len(provider.dtmfRequests) != 1 || provider.dtmfRequests[0].Digits != "12#" {
+		t.Fatalf("DTMF requests = %#v", provider.dtmfRequests)
+	}
+	if len(provider.messageRequests) != 1 || provider.messageRequests[0].Text != "hello" {
+		t.Fatalf("message requests = %#v", provider.messageRequests)
 	}
 }
 
-func TestNotSupportedErrorIsStructured(t *testing.T) {
-	provider := &fakeProvider{mutationError: domain.NotSupported("start_call")}
-	recorder := performRequest(
-		New(provider, "test"),
-		http.MethodPost,
-		"/v1/calls",
-		[]byte(`{"line_id":"line-1","number":"+818012345678"}`),
-	)
-	if recorder.Code != http.StatusNotImplemented {
-		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+func TestEveryCommandRouteRejectsMissingRequestIDBeforeProvider(t *testing.T) {
+	tests := []struct {
+		name   string
+		target string
+		body   []byte
+	}{
+		{name: "dial", target: "/v1/calls", body: []byte(`{"line_id":"line_x","number":"+818012345678"}`)},
+		{name: "answer", target: "/v1/calls/call_x/answer", body: []byte(`{}`)},
+		{name: "reject", target: "/v1/calls/call_x/reject", body: []byte(`{}`)},
+		{name: "hangup", target: "/v1/calls/call_x/hangup", body: []byte(`{}`)},
+		{name: "DTMF", target: "/v1/calls/call_x/dtmf", body: []byte(`{"digits":"1"}`)},
+		{name: "message", target: "/v1/messages", body: []byte(`{"line_id":"line_x","number":"+818012345678","text":"hello"}`)},
 	}
-	var response errorBody
-	decodeResponse(t, recorder, &response)
-	if response.Error.Code != domain.ErrorNotSupported || response.Error.Operation != "start_call" {
-		t.Fatalf("unexpected error response: %+v", response)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			provider := &fakeProvider{}
+			recorder := performRequest(New(provider, "test"), http.MethodPost, test.target, test.body)
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			if len(provider.contexts) != 0 {
+				t.Fatalf("provider was called for missing request_id: %#v", provider.contexts)
+			}
+		})
 	}
 }
 
-func TestStrictJSONRejectsUnknownFieldsBeforeProvider(t *testing.T) {
+func TestHandlerPassesRequestContextToProvider(t *testing.T) {
 	provider := &fakeProvider{}
-	recorder := performRequest(
-		New(provider, "test"),
-		http.MethodPost,
-		"/v1/messages",
-		[]byte(`{"line_id":"line-1","number":"1","text":"hello","fake_success":true}`),
-	)
-	if recorder.Code != http.StatusBadRequest {
+	handler := New(provider, "test")
+	ctx := context.WithValue(context.Background(), handlerContextKey{}, "request")
+	request := httptest.NewRequest(http.MethodGet, "/v1/snapshot", nil).WithContext(ctx)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
-	if len(provider.messageRequests) != 0 {
-		t.Fatalf("provider was called with invalid request: %#v", provider.messageRequests)
+	if len(provider.contexts) != 1 || provider.contexts[0] != ctx {
+		t.Fatalf("provider contexts = %#v", provider.contexts)
 	}
 }
+
+func TestTypedProviderErrorsMapToHTTPAndEchoRequestID(t *testing.T) {
+	tests := []struct {
+		name   string
+		code   domain.ErrorCode
+		status int
+	}{
+		{name: "invalid", code: domain.ErrorInvalidArgument, status: http.StatusBadRequest},
+		{name: "not found", code: domain.ErrorNotFound, status: http.StatusNotFound},
+		{name: "conflict", code: domain.ErrorConflict, status: http.StatusConflict},
+		{name: "unsupported", code: domain.ErrorNotSupported, status: http.StatusNotImplemented},
+		{name: "permission", code: domain.ErrorPermissionDenied, status: http.StatusForbidden},
+		{name: "unavailable", code: domain.ErrorUnavailable, status: http.StatusServiceUnavailable},
+		{name: "internal", code: domain.ErrorInternal, status: http.StatusInternalServerError},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			provider := &fakeProvider{operationError: domain.NewOperationError(
+				test.code,
+				"start_call",
+				"command failed",
+				nil,
+			)}
+			recorder := performRequest(
+				New(provider, "test"),
+				http.MethodPost,
+				"/v1/calls",
+				[]byte(`{"request_id":"request-error","line_id":"line_x","number":"+818012345678"}`),
+			)
+			if recorder.Code != test.status {
+				t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			var response errorBody
+			decodeResponse(t, recorder, &response)
+			if response.Error.Code != test.code || response.Error.Operation != "start_call" ||
+				response.Error.RequestID != "request-error" {
+				t.Fatalf("unexpected error response: %+v", response)
+			}
+		})
+	}
+}
+
+func TestStrictJSONAndContentTypeRejectBeforeProvider(t *testing.T) {
+	tests := []struct {
+		name        string
+		contentType string
+		body        []byte
+	}{
+		{
+			name:        "unknown field",
+			contentType: "application/json",
+			body:        []byte(`{"request_id":"x","line_id":"line_x","number":"1","text":"hello","fake_success":true}`),
+		},
+		{
+			name:        "multiple objects",
+			contentType: "application/json",
+			body:        []byte(`{"request_id":"x","line_id":"line_x","number":"1","text":"hello"} {}`),
+		},
+		{
+			name:        "wrong content type",
+			contentType: "text/plain",
+			body:        []byte(`{"request_id":"x","line_id":"line_x","number":"1","text":"hello"}`),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			provider := &fakeProvider{}
+			request := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(test.body))
+			request.Header.Set("Content-Type", test.contentType)
+			recorder := httptest.NewRecorder()
+			New(provider, "test").ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			if len(provider.messageRequests) != 0 {
+				t.Fatalf("provider was called with invalid request: %#v", provider.messageRequests)
+			}
+		})
+	}
+}
+
+type handlerContextKey struct{}
 
 func performRequest(handler http.Handler, method, target string, body []byte) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(method, target, bytes.NewReader(body))
@@ -181,6 +348,18 @@ func performRequest(handler http.Handler, method, target string, body []byte) *h
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
 	return recorder
+}
+
+func assertReceipt(t *testing.T, recorder *httptest.ResponseRecorder, status int, requestID, resourceID string) {
+	t.Helper()
+	if recorder.Code != status {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var receipt domain.CommandReceipt
+	decodeResponse(t, recorder, &receipt)
+	if receipt.RequestID != requestID || receipt.ResourceID != resourceID {
+		t.Fatalf("receipt = %+v", receipt)
+	}
 }
 
 func decodeResponse(t *testing.T, recorder *httptest.ResponseRecorder, destination any) {
