@@ -12,6 +12,7 @@ import {
 import type { Contact, ContactInput } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
 import ContactEditor from '../components/ContactEditor.vue'
+import ContactNumberActions from '../components/ContactNumberActions.vue'
 import SearchField from '../components/SearchField.vue'
 import StatePanel from '../components/StatePanel.vue'
 import { openDialer } from '../state/ui'
@@ -57,6 +58,11 @@ const selectedId = computed(() => String(route.params.contactId || ''))
 const selected = computed(() => contactsResource.data.find(contact => contact.id === selectedId.value))
 const messageUnavailable = computed(() => capabilityReason('message'))
 const dialUnavailable = computed(() => capabilityReason('dial'))
+const searchedPhone = computed(() => {
+  const value = search.value.trim()
+  const digits = value.replace(/\D/g, '')
+  return digits.length >= 3 && /^[+\d\s().-]+$/.test(value) ? value : ''
+})
 const contactLines = computed(
   () => bootstrapResource.data?.lines.filter(line => Boolean(line.device_imei)) || []
 )
@@ -119,12 +125,24 @@ async function remove(contact: Contact): Promise<void> {
 
 function call(contact: Contact, number: string): void {
   if (dialUnavailable.value) return
-  openDialer(number, contact.display_name)
+  openDialer(number, contact.display_name, contact.preferred_device_imei || '')
 }
 
 function message(contact: Contact, number: string): void {
   if (messageUnavailable.value) return
-  void router.push({ name: 'messages', query: { compose: number, name: contact.display_name } })
+  void router.push({
+    name: 'messages',
+    query: {
+      compose: number,
+      name: contact.display_name,
+      ...(contact.preferred_device_imei ? { line: contact.preferred_device_imei } : {})
+    }
+  })
+}
+
+function openSavedContact(contact: Contact): void {
+  search.value = ''
+  selectContact(contact)
 }
 
 function preferredLineName(contact: Contact): string {
@@ -173,11 +191,17 @@ onMounted(() => {
         retryable
         @retry="loadContacts(true)"
       />
-      <StatePanel
-        v-else-if="filteredContacts.length === 0"
-        state="empty"
-        :title="search ? '没有匹配的联系人' : '还没有联系人'"
-      />
+      <div v-else-if="filteredContacts.length === 0" class="contact-empty-state">
+        <StatePanel
+          state="empty"
+          :title="search ? '没有匹配的联系人' : '还没有联系人'"
+        />
+        <ContactNumberActions
+          v-if="searchedPhone"
+          :number="searchedPhone"
+          @saved="openSavedContact"
+        />
+      </div>
       <div v-else class="item-list" role="list">
         <button
           v-for="contact in filteredContacts"
@@ -281,3 +305,13 @@ onMounted(() => {
     />
   </section>
 </template>
+
+<style scoped>
+.contact-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px 24px;
+}
+</style>

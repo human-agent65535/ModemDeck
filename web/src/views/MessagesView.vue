@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, LoaderCircle, MessageSquarePlus, Phone, RadioTower, Send } from '@lucide/vue'
+import { ArrowLeft, LoaderCircle, MessageSquarePlus, Phone, Send } from '@lucide/vue'
 import type { Contact, LineSummary, MessageThread } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
 import ContactSuggestInput from '../components/ContactSuggestInput.vue'
@@ -14,7 +14,6 @@ import {
   capabilityReason,
   contactsResource,
   lineKey,
-  lineLabel,
   lineSupports,
   loadBootstrap,
   loadContacts,
@@ -58,11 +57,13 @@ const defaultLineDeviceIMEI = computed(
   () => bootstrapResource.data?.line_settings.default_device_imei || ''
 )
 const selectedLine = computed(() => lines.value.find(line => lineKey(line) === selectedLineKey.value))
-const activeLine = computed(() =>
-  composingNew.value
-    ? selectedLine.value
-    : lineForThread(selectedThread.value)
-)
+const activeLine = computed(() => selectedLine.value)
+const replyThreadKey = computed(() => {
+  const thread = selectedThread.value
+  const line = activeLine.value
+  if (composingNew.value || !thread || !line) return undefined
+  return threadUsesLine(thread, line) ? thread.key : undefined
+})
 const messageUnavailable = computed(() => capabilityReason('message'))
 const messageWriteUnavailable = computed(() =>
   threadsResource.status === 'forbidden' ? '当前账户无权发送消息' : messageUnavailable.value
@@ -88,10 +89,7 @@ const filteredThreads = computed(() => {
 const activeRecipient = computed(() =>
   composingNew.value ? newRecipient.value.trim() : selectedThread.value?.peer || ''
 )
-const activeICCID = computed(() => {
-  if (!composingNew.value) return selectedThread.value?.iccid || ''
-  return selectedLine.value?.iccid || ''
-})
+const activeICCID = computed(() => activeLine.value?.iccid || '')
 const activeLineID = computed(() => (activeLine.value ? lineKey(activeLine.value) : ''))
 const sendDisabledReason = computed(() => {
   if (messageWriteUnavailable.value) return messageWriteUnavailable.value
@@ -103,6 +101,7 @@ const sendDisabledReason = computed(() => {
 })
 
 let lineSelectionOverridden = false
+let replyLineThreadKey = ''
 let openedThreadKey = ''
 let attemptedReadKey = ''
 
@@ -116,23 +115,6 @@ function threadUsesLine(thread: MessageThread, line: LineSummary): boolean {
 
 function lineForThread(thread?: MessageThread): LineSummary | undefined {
   return thread ? lines.value.find(line => threadUsesLine(thread, line)) : undefined
-}
-
-function isDefaultLine(line: LineSummary): boolean {
-  return Boolean(
-    line.device_imei && line.device_imei === bootstrapResource.data?.line_settings.default_device_imei
-  )
-}
-
-function lineDetails(line: LineSummary): string {
-  const name = lineLabel(line)
-  return [
-    line.phone_number,
-    line.operator && line.operator !== name ? line.operator : '',
-    isDefaultLine(line) ? '默认线路' : ''
-  ]
-    .filter(Boolean)
-    .join(' · ')
 }
 
 function syncComposeLine(force = false): void {
@@ -162,6 +144,29 @@ watch(
 watch(
   [lines, defaultLineDeviceIMEI, () => contactsResource.data, newRecipient, composingNew],
   () => syncComposeLine()
+)
+
+watch(
+  [selectedThread, lines, composingNew],
+  () => {
+    if (composingNew.value) {
+      replyLineThreadKey = ''
+      return
+    }
+    const thread = selectedThread.value
+    if (!thread) {
+      replyLineThreadKey = ''
+      selectedLineKey.value = ''
+      return
+    }
+    const selectedStillExists = lines.value.some(line => lineKey(line) === selectedLineKey.value)
+    if (replyLineThreadKey === thread.key && selectedStillExists) return
+
+    replyLineThreadKey = thread.key
+    const threadLine = lineForThread(thread)
+    selectedLineKey.value = threadLine ? lineKey(threadLine) : ''
+  },
+  { immediate: true }
 )
 
 watch(
@@ -269,8 +274,9 @@ function backToList(): void {
   void router.push({ name: 'messages' })
 }
 
-function changeComposeLine(): void {
-  lineSelectionOverridden = true
+function changeSendingLine(): void {
+  if (composingNew.value) lineSelectionOverridden = true
+  sendError.value = ''
 }
 
 async function submit(): Promise<void> {
@@ -278,8 +284,9 @@ async function submit(): Promise<void> {
   sending.value = true
   sendError.value = ''
   try {
+    const threadKey = replyThreadKey.value
     const sent = await sendMessage({
-      thread_key: selectedThread.value?.key,
+      thread_key: threadKey,
       line_id: activeLineID.value || undefined,
       iccid: activeICCID.value || undefined,
       to: activeRecipient.value,
@@ -287,7 +294,7 @@ async function submit(): Promise<void> {
     })
     draft.value = ''
     const key = `${sent.iccid}|${sent.peer}`
-    if (composingNew.value) {
+    if (composingNew.value || key !== threadKey) {
       composingNew.value = false
       await router.replace({ name: 'messages', params: { threadKey: key } })
       const thread = threadsResource.data.find(item => item.key === key)
@@ -496,7 +503,7 @@ onMounted(() => {
 
         <footer class="message-composer">
           <LineSelector
-            v-if="composingNew && lines.length > 0"
+            v-if="lines.length > 0"
             v-model="selectedLineKey"
             class="message-line-select"
             :lines="lines"
@@ -504,16 +511,9 @@ onMounted(() => {
             label="发送线路"
             capability="message"
             unavailable-label="不支持消息"
-            @change="changeComposeLine"
+            @change="changeSendingLine"
           />
-          <p v-else-if="composingNew" class="unavailable-note">没有可用线路</p>
-          <div v-else-if="activeLine" class="message-line-context" aria-label="当前回复线路">
-            <RadioTower :size="18" />
-            <span>
-              <strong>{{ lineLabel(activeLine) }}</strong>
-              <span v-if="lineDetails(activeLine)">{{ lineDetails(activeLine) }}</span>
-            </span>
-          </div>
+          <p v-else class="unavailable-note">没有可用线路</p>
           <div class="composer-row">
             <textarea
               v-model="draft"
@@ -553,44 +553,6 @@ onMounted(() => {
 
 .message-line-select {
   margin-bottom: 10px;
-}
-
-.message-line-context {
-  display: flex;
-  min-width: 0;
-  min-height: 44px;
-  align-items: center;
-  gap: 9px;
-  margin-bottom: 10px;
-  padding: 8px 10px;
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-  border: 1px solid rgb(17 120 100 / 20%);
-  border-radius: 7px;
-}
-
-.message-line-context > span {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.message-line-context strong,
-.message-line-context span span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.message-line-context strong {
-  color: var(--text);
-  font-size: 13px;
-}
-
-.message-line-context span span {
-  color: var(--muted);
-  font-size: 12px;
 }
 
 .message-read-error {

@@ -12,6 +12,7 @@ import {
 } from '@lucide/vue'
 import type { CallFilter, CallRecord } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
+import ContactNumberActions from '../components/ContactNumberActions.vue'
 import RecordingList from '../components/RecordingList.vue'
 import SearchField from '../components/SearchField.vue'
 import StatePanel from '../components/StatePanel.vue'
@@ -88,14 +89,18 @@ function backToList(): void {
 
 function callBack(call: CallRecord): void {
   if (dialUnavailable.value) return
-  openDialer(call.remote_number, displayName(call))
+  openDialer(call.remote_number, displayName(call), call.device_id)
 }
 
 function sendMessage(call: CallRecord): void {
   if (messageUnavailable.value) return
   void router.push({
     name: 'messages',
-    query: { compose: call.remote_number, name: displayName(call) }
+    query: {
+      compose: call.remote_number,
+      name: displayName(call),
+      ...(call.device_id ? { line: call.device_id } : {})
+    }
   })
 }
 
@@ -248,6 +253,12 @@ onMounted(() => {
             </button>
           </div>
 
+          <ContactNumberActions
+            class="call-detail__contact-actions"
+            :number="selected.remote_number"
+            :contact="contactForNumber(selected.remote_number)"
+          />
+
           <section class="detail-section detail-facts">
             <h3>通话详情</h3>
             <dl>
@@ -304,5 +315,9 @@ onMounted(() => {
 
 .call-list-item__call {
   margin-right: 10px;
+}
+
+.call-detail__contact-actions {
+  margin: -20px 0 30px;
 }
 </style>

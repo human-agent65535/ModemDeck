@@ -13,7 +13,9 @@ import {
   PhoneIncoming,
   PhoneMissed,
   PhoneOutgoing,
-  Settings
+  RadioTower,
+  Settings,
+  Users
 } from '@lucide/vue'
 import type { CallRecord, Contact, LineSummary, MessageThread } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
@@ -79,6 +81,27 @@ const unreadMessages = computed(() =>
 const missedCalls = computed(
   () => callsResource.data.filter(call => call.missed).length
 )
+const onlineLines = computed(
+  () =>
+    lines.value.filter(line =>
+      ['registered', 'connected'].includes((line.state || '').toLocaleLowerCase())
+    ).length
+)
+const callReadyLines = computed(
+  () =>
+    lines.value.filter(
+      line => line.capabilities?.dial === true || line.capabilities?.voice === true
+    ).length
+)
+const messageReadyLines = computed(
+  () =>
+    lines.value.filter(
+      line =>
+        line.capabilities?.message === true ||
+        line.capabilities?.messaging === true
+    ).length
+)
+const attentionCount = computed(() => unreadMessages.value + missedCalls.value)
 
 const activities = computed<DashboardActivity[]>(() => {
   const calls: DashboardActivity[] = callsResource.data.map(call => ({
@@ -242,6 +265,11 @@ function messageContact(contact: Contact): void {
   if (number) startMessage(number, contact.display_name)
 }
 
+function composeMessage(): void {
+  if (messageUnavailable.value) return
+  void router.push({ name: 'messages', query: { compose: '' } })
+}
+
 function retryActivities(): void {
   if (callsResource.status === 'error') void loadCalls(true)
   if (threadsResource.status === 'error') void loadThreads(true)
@@ -265,9 +293,19 @@ onMounted(loadDashboard)
     <aside class="list-pane dashboard-activity-pane">
       <header class="pane-header">
         <div>
-          <h1>首页</h1>
+          <h1>活动</h1>
           <span v-if="!activityLoading">{{ activities.length }}</span>
         </div>
+        <button
+          class="icon-button dashboard-pane-action"
+          type="button"
+          :disabled="Boolean(messageUnavailable)"
+          :title="messageUnavailable || '新消息'"
+          aria-label="新消息"
+          @click="composeMessage"
+        >
+          <MessageSquareText :size="19" />
+        </button>
       </header>
 
       <button
@@ -279,7 +317,10 @@ onMounted(loadDashboard)
         <span class="dashboard-activity-icon"><House :size="18" /></span>
         <span class="list-item__content">
           <strong>通信概览</strong>
-          <small>{{ lines.length }} 条线路 · {{ unreadMessages }} 条未读</small>
+          <small>
+            {{ onlineLines }}/{{ lines.length }} 线路在线
+            <template v-if="attentionCount"> · {{ attentionCount }} 待处理</template>
+          </small>
         </span>
         <ChevronRight :size="16" />
       </button>
@@ -353,12 +394,32 @@ onMounted(loadDashboard)
           >
             <ArrowLeft :size="20" />
           </button>
-          <span class="dashboard-detail-symbol"><House :size="21" /></span>
+          <span class="dashboard-detail-symbol"><RadioTower :size="21" /></span>
           <div class="detail-header__identity">
-            <h2>通信概览</h2>
-            <span>线路、未读消息与未接来电</span>
+            <h2>通信工作台</h2>
+            <span>{{ onlineLines }}/{{ lines.length }} 条线路在线</span>
           </div>
-          <div class="detail-header__actions">
+          <div class="detail-header__actions dashboard-header-actions">
+            <button
+              class="dashboard-command-button"
+              type="button"
+              :disabled="Boolean(messageUnavailable)"
+              :title="messageUnavailable || '新消息'"
+              @click="composeMessage"
+            >
+              <MessageSquareText :size="17" />
+              <span>新消息</span>
+            </button>
+            <button
+              class="dashboard-command-button"
+              type="button"
+              :disabled="Boolean(dialUnavailable)"
+              :title="dialUnavailable || '拨号'"
+              @click="openDialer()"
+            >
+              <Phone :size="17" />
+              <span>拨号</span>
+            </button>
             <RouterLink
               class="icon-button"
               :to="{ name: 'settings', params: { section: 'devices' } }"
@@ -370,15 +431,56 @@ onMounted(loadDashboard)
         </header>
 
         <div class="dashboard-detail-scroll">
-          <section class="dashboard-summary-strip" aria-label="通信汇总">
-            <div><strong>{{ lines.length }}</strong><span>线路</span></div>
-            <div><strong>{{ unreadMessages }}</strong><span>未读消息</span></div>
-            <div><strong>{{ missedCalls }}</strong><span>未接来电</span></div>
+          <section class="dashboard-summary-grid" aria-label="通信汇总">
+            <RouterLink class="dashboard-summary-card is-message" :to="{ name: 'messages' }">
+              <span class="dashboard-summary-icon">
+                <MessageSquareText :size="20" />
+              </span>
+              <span class="dashboard-summary-value">{{ unreadMessages }}</span>
+              <span class="dashboard-summary-label">未读消息</span>
+              <ChevronRight :size="17" />
+            </RouterLink>
+            <RouterLink class="dashboard-summary-card is-missed" :to="{ name: 'calls' }">
+              <span class="dashboard-summary-icon">
+                <PhoneMissed :size="20" />
+              </span>
+              <span class="dashboard-summary-value">{{ missedCalls }}</span>
+              <span class="dashboard-summary-label">未接来电</span>
+              <ChevronRight :size="17" />
+            </RouterLink>
+            <RouterLink
+              class="dashboard-summary-card is-lines"
+              :to="{ name: 'settings', params: { section: 'devices' } }"
+            >
+              <span class="dashboard-summary-icon">
+                <RadioTower :size="20" />
+              </span>
+              <span class="dashboard-summary-value">
+                {{ onlineLines }}<small>/{{ lines.length }}</small>
+              </span>
+              <span class="dashboard-summary-label">在线线路</span>
+              <ChevronRight :size="17" />
+            </RouterLink>
+            <RouterLink class="dashboard-summary-card is-contacts" :to="{ name: 'contacts' }">
+              <span class="dashboard-summary-icon">
+                <Users :size="20" />
+              </span>
+              <span class="dashboard-summary-value">{{ contactsResource.data.length }}</span>
+              <span class="dashboard-summary-label">联系人</span>
+              <ChevronRight :size="17" />
+            </RouterLink>
           </section>
 
           <section class="dashboard-detail-section" aria-labelledby="dashboard-lines-title">
             <header>
-              <h3 id="dashboard-lines-title">线路状态</h3>
+              <div>
+                <h3 id="dashboard-lines-title">线路状态</h3>
+                <span class="dashboard-section-metrics">
+                  <span><b>{{ onlineLines }}</b> 在线</span>
+                  <span><b>{{ callReadyLines }}</b> 可通话</span>
+                  <span><b>{{ messageReadyLines }}</b> 可短信</span>
+                </span>
+              </div>
               <RouterLink :to="{ name: 'settings', params: { section: 'devices' } }">
                 管理设备
                 <ChevronRight :size="15" />
@@ -424,7 +526,9 @@ onMounted(loadDashboard)
 
           <section class="dashboard-detail-section" aria-labelledby="dashboard-contacts-title">
             <header>
-              <h3 id="dashboard-contacts-title">快捷联系人</h3>
+              <div>
+                <h3 id="dashboard-contacts-title">常用联系人</h3>
+              </div>
               <RouterLink :to="{ name: 'contacts' }">
                 全部联系人
                 <ChevronRight :size="15" />
@@ -639,9 +743,350 @@ onMounted(loadDashboard)
 </template>
 
 <style scoped>
+.dashboard-workspace {
+  grid-template-columns: minmax(300px, 344px) minmax(0, 1fr);
+}
+
+.dashboard-activity-pane {
+  background: var(--surface);
+}
+
+.dashboard-pane-action {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+}
+
+.dashboard-overview-row {
+  min-height: 70px;
+  padding-inline: 16px;
+}
+
+.dashboard-list-label {
+  min-height: 40px;
+  padding: 13px 16px 9px;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: none;
+}
+
+.dashboard-activity-row {
+  min-height: 72px;
+  padding: 10px 16px;
+}
+
+.dashboard-activity-row .list-item__content strong {
+  font-size: 14px;
+}
+
+.dashboard-activity-row .list-item__content small,
+.dashboard-overview-row .list-item__content small,
+.dashboard-activity-row time {
+  font-size: 12px;
+}
+
+.dashboard-inline-error {
+  min-height: 48px;
+  padding: 9px 14px;
+  font-size: 12px;
+}
+
+.dashboard-detail-header {
+  min-height: 76px;
+}
+
+.dashboard-detail-symbol {
+  width: 42px;
+  height: 42px;
+  flex-basis: 42px;
+  border-radius: 7px;
+}
+
+.dashboard-header-actions {
+  gap: 8px;
+}
+
+.dashboard-command-button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 13px;
+  color: var(--accent-strong);
+  font-size: 13px;
+  font-weight: 650;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+}
+
+.dashboard-command-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+}
+
+.dashboard-detail-scroll {
+  padding: 20px 24px 28px;
+  container-type: inline-size;
+}
+
+.dashboard-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dashboard-summary-card {
+  display: grid;
+  min-width: 0;
+  min-height: 106px;
+  align-items: center;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  column-gap: 12px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease;
+}
+
+.dashboard-summary-card:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.dashboard-summary-icon {
+  display: inline-grid;
+  width: 40px;
+  height: 40px;
+  grid-row: 1 / 3;
+  place-items: center;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-radius: 6px;
+}
+
+.dashboard-summary-card.is-missed .dashboard-summary-icon {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.dashboard-summary-card.is-lines .dashboard-summary-icon {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+
+.dashboard-summary-card.is-contacts .dashboard-summary-icon {
+  color: #7357a5;
+  background: #f1ecf8;
+}
+
+.dashboard-summary-value {
+  align-self: end;
+  overflow: hidden;
+  font-size: 26px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-summary-value small {
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.dashboard-summary-label {
+  align-self: start;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.dashboard-summary-card > svg {
+  grid-column: 3;
+  grid-row: 1 / 3;
+  color: var(--faint);
+}
+
+.dashboard-detail-section {
+  margin-top: 24px;
+  background: transparent;
+  border: 0;
+}
+
+.dashboard-detail-section > header {
+  min-height: 52px;
+  padding: 0 0 12px;
+  border-bottom: 0;
+}
+
+.dashboard-detail-section > header > div {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+}
+
+.dashboard-detail-section h3 {
+  font-size: 16px;
+}
+
+.dashboard-section-metrics {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dashboard-section-metrics b {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-detail-section > header a {
+  min-height: 36px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
 .dashboard-module-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.dashboard-detail-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 10px;
+}
+
+.dashboard-contact-row {
+  min-height: 72px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.dashboard-contact-row:last-child {
+  border-bottom: 1px solid var(--border);
+}
+
+.dashboard-contact-row strong {
+  font-size: 14px;
+}
+
+.dashboard-contact-row small {
+  font-size: 12px;
+}
+
+.dashboard-contact-actions {
+  gap: 4px;
+}
+
+.dashboard-contact-actions .icon-button {
+  width: 38px;
+  height: 38px;
+  flex-basis: 38px;
+}
+
+.dashboard-section-state {
+  min-height: 92px;
+  padding: 18px;
+  font-size: 13px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.dashboard-open-resource,
+.dashboard-message-detail .detail-section > small {
+  font-size: 12px;
+}
+
+@container (max-width: 920px) {
+  .dashboard-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1180px) {
+  .dashboard-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 860px) {
+  .dashboard-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-detail-scroll {
+    padding: 16px 16px 24px;
+  }
+}
+
+@media (max-width: 640px) {
+  .dashboard-header-actions .dashboard-command-button {
+    width: 40px;
+    padding: 0;
+  }
+
+  .dashboard-header-actions .dashboard-command-button span {
+    display: none;
+  }
+
+  .dashboard-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .dashboard-summary-card {
+    min-height: 92px;
+    grid-template-columns: 34px minmax(0, 1fr);
+    column-gap: 9px;
+    padding: 12px;
+  }
+
+  .dashboard-summary-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .dashboard-summary-card > svg {
+    display: none;
+  }
+
+  .dashboard-summary-value {
+    font-size: 22px;
+  }
+
+  .dashboard-summary-label {
+    font-size: 12px;
+  }
+
+  .dashboard-module-grid,
+  .dashboard-detail-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 390px) {
+  .dashboard-detail-scroll {
+    padding-inline: 12px;
+  }
+
+  .dashboard-detail-symbol {
+    display: none;
+  }
 }
 </style>

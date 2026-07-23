@@ -836,7 +836,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
             ? TRAVEL_ICCID
             : '')
       if (!iccid) throw new ApiError('请选择线路', 400)
-      const key = input.thread_key || threadKey(iccid, input.to)
+      const key = threadKey(iccid, input.to)
       let thread = threads.find(item => item.key === key)
       if (!thread) {
         const contact = contacts.find(item => item.phones.some(phone => phone.number === input.to))

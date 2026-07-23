@@ -317,7 +317,7 @@ export async function deleteContact(contact: Contact): Promise<void> {
 
 export async function sendMessage(input: SendMessageInput): Promise<Message> {
   const sent = await gateway.sendMessage(input)
-  const key = input.thread_key || `${sent.iccid}|${sent.peer}`
+  const key = `${sent.iccid}|${sent.peer}`
   const target = messagesFor(key)
   target.data = [...target.data, sent]
   target.status = 'ready'
