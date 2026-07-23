@@ -84,7 +84,6 @@ LABEL org.opencontainers.image.title="ModemDeck" \
 
 ENV MODEMDECK_HTTP_ADDRESS=0.0.0.0:7575 \
     MODEMDECK_DATABASE_PATH=/var/lib/modemdeck/modemdeck.db \
-    MODEMDECK_LEGACY_DATABASE_PATH=/var/lib/modemdeck/vohive.db \
     MODEMDECK_RECORDINGS_PATH=/data/recordings \
     MODEMDECK_AGENT_SOCKET=/run/modemdeck/agent.sock \
     MODEMDECK_HEALTHCHECK_URL=http://127.0.0.1:7575/api/v1/health

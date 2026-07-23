@@ -151,9 +151,8 @@ func TestServiceRequiresExactIdentifiersAndRevision(t *testing.T) {
 func newTestService(t *testing.T) *Service {
 	t.Helper()
 	directory := t.TempDir()
-	sqlite, _, err := database.Open(context.Background(), database.Config{
+	sqlite, err := database.Open(context.Background(), database.Config{
 		TargetPath: filepath.Join(directory, "modemdeck.db"),
-		LegacyPath: filepath.Join(directory, "vohive.db"),
 	})
 	if err != nil {
 		t.Fatalf("open database: %v", err)

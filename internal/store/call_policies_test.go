@@ -5,8 +5,6 @@ import (
 	"errors"
 	"testing"
 	"time"
-
-	platformdb "github.com/human-agent65535/modemdeck/internal/platform/database"
 )
 
 func TestCallPolicyDefaultsOverridesAndOptimisticLock(t *testing.T) {
@@ -247,8 +245,8 @@ func TestInterruptedDNDSubmissionBecomesIndeterminateWithoutRetry(t *testing.T) 
 	if actions, err := repository.ClaimIncomingCallActions(ctx, 10); err != nil || len(actions) != 1 {
 		t.Fatalf("claimed actions = %+v, error = %v", actions, err)
 	}
-	if err := platformdb.MigrateSchema(ctx, repository.database); err != nil {
-		t.Fatalf("MigrateSchema() error = %v", err)
+	if err := repository.RecoverInterruptedCommunicationOperations(ctx); err != nil {
+		t.Fatalf("RecoverInterruptedCommunicationOperations() error = %v", err)
 	}
 	action, err := repository.IncomingCallAction(ctx, call.AppID)
 	if err != nil {

@@ -15,6 +15,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  security:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reject private and one-off artifacts
+        run: make repository-check
+
+      - name: Scan complete history for secrets
+        run: make secret-scan
+
   go:
     name: Go modules
     runs-on: ubuntu-latest

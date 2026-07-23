@@ -12,9 +12,8 @@ func TestEmptyDatabaseReturnsEmptyCollections(t *testing.T) {
 	t.Parallel()
 
 	directory := t.TempDir()
-	database, _, err := platformdb.Open(context.Background(), platformdb.Config{
+	database, err := platformdb.Open(context.Background(), platformdb.Config{
 		TargetPath: filepath.Join(directory, "modemdeck.db"),
-		LegacyPath: filepath.Join(directory, "vohive.db"),
 	})
 	if err != nil {
 		t.Fatalf("open empty database: %v", err)

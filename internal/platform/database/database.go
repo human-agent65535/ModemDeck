@@ -14,43 +14,33 @@ import (
 
 type Config struct {
 	TargetPath string
-	LegacyPath string
 }
 
-type OpenResult struct {
-	Path      string
-	Migration FileMigration
-}
+const DefaultPath = "data/modemdeck.db"
 
-func Open(ctx context.Context, config Config) (*sql.DB, OpenResult, error) {
+func Open(ctx context.Context, config Config) (*sql.DB, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	config = normalizeConfig(config)
-	result := OpenResult{Path: config.TargetPath}
 
-	migration, err := MigrateLegacyFiles(config.TargetPath, config.LegacyPath)
-	if err != nil {
-		return nil, result, err
-	}
-	result.Migration = migration
 	if err := os.MkdirAll(filepath.Dir(config.TargetPath), 0o755); err != nil {
-		return nil, result, fmt.Errorf("create database directory: %w", err)
+		return nil, fmt.Errorf("create database directory: %w", err)
 	}
 
 	database, err := sql.Open("sqlite", config.TargetPath)
 	if err != nil {
-		return nil, result, fmt.Errorf("open sqlite database: %w", err)
+		return nil, fmt.Errorf("open sqlite database: %w", err)
 	}
 	database.SetMaxOpenConns(1)
 	database.SetMaxIdleConns(1)
 	database.SetConnMaxLifetime(0)
 
-	closeOnError := func(openErr error) (*sql.DB, OpenResult, error) {
+	closeOnError := func(openErr error) (*sql.DB, error) {
 		if closeErr := database.Close(); closeErr != nil {
 			openErr = fmt.Errorf("%w; close database: %v", openErr, closeErr)
 		}
-		return nil, result, openErr
+		return nil, openErr
 	}
 	if err := database.PingContext(ctx); err != nil {
 		return closeOnError(fmt.Errorf("ping sqlite database: %w", err))
@@ -58,20 +48,16 @@ func Open(ctx context.Context, config Config) (*sql.DB, OpenResult, error) {
 	if err := configureSQLite(ctx, database); err != nil {
 		return closeOnError(err)
 	}
-	if err := MigrateSchema(ctx, database); err != nil {
+	if _, err := InitializeSchema(ctx, database); err != nil {
 		return closeOnError(err)
 	}
-	return database, result, nil
+	return database, nil
 }
 
 func normalizeConfig(config Config) Config {
 	config.TargetPath = strings.TrimSpace(config.TargetPath)
-	config.LegacyPath = strings.TrimSpace(config.LegacyPath)
 	if config.TargetPath == "" {
 		config.TargetPath = DefaultPath
-	}
-	if config.LegacyPath == "" {
-		config.LegacyPath = LegacyPath
 	}
 	return config
 }

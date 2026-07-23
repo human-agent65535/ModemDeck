@@ -38,7 +38,6 @@ func main() {
 	}
 	listenAddress := flag.String("listen", ":8080", "HTTP listen address")
 	databasePath := flag.String("database", database.DefaultPath, "ModemDeck SQLite database path")
-	legacyDatabasePath := flag.String("legacy-database", database.LegacyPath, "legacy VoHive SQLite database path")
 	agentSocketPath := flag.String("agent-socket", environmentOrDefault("MODEMDECK_AGENT_SOCKET", "/run/modemdeck/agent.sock"), "ModemDeck host agent Unix socket")
 	adminUsername := flag.String("admin-username", environmentOrDefault("MODEMDECK_ADMIN_USERNAME", defaultAdminUsername), "administrator username")
 	adminPasswordFile := flag.String("admin-password-file", os.Getenv("MODEMDECK_ADMIN_PASSWORD_FILE"), "path to the administrator password secret")
@@ -61,7 +60,6 @@ func main() {
 		logger,
 		*listenAddress,
 		*databasePath,
-		*legacyDatabasePath,
 		*agentSocketPath,
 		*recordingsPath,
 		admin,
@@ -74,26 +72,26 @@ func main() {
 
 func run(
 	logger *slog.Logger,
-	listenAddress, databasePath, legacyDatabasePath, agentSocketPath, recordingsPath string,
+	listenAddress, databasePath, agentSocketPath, recordingsPath string,
 	admin adminConfig,
 	settingsSecrets *secretbox.Box,
 ) error {
 	ctx := context.Background()
-	db, openResult, err := database.Open(ctx, database.Config{
+	db, err := database.Open(ctx, database.Config{
 		TargetPath: databasePath,
-		LegacyPath: legacyDatabasePath,
 	})
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
-	}
-	if openResult.Migration.Migrated {
-		logger.Info("migrated legacy database", "source", openResult.Migration.Source, "target", openResult.Migration.Target)
 	}
 
 	repository, err := store.New(db)
 	if err != nil {
 		_ = db.Close()
 		return fmt.Errorf("create store: %w", err)
+	}
+	if err := repository.RecoverInterruptedCommunicationOperations(ctx); err != nil {
+		_ = db.Close()
+		return fmt.Errorf("recover interrupted communication operations: %w", err)
 	}
 	authenticator, err := auth.NewService(repository)
 	if err != nil {
@@ -224,7 +222,7 @@ func run(
 	}
 	serverErrors := make(chan error, 1)
 	go func() {
-		logger.Info("ModemDeck HTTP server started", "address", listenAddress, "database", openResult.Path)
+		logger.Info("ModemDeck HTTP server started", "address", listenAddress, "database", databasePath)
 		serverErrors <- server.ListenAndServe()
 	}()
 

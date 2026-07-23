@@ -24,7 +24,6 @@ services:
     environment:
       MODEMDECK_HTTP_ADDRESS: 0.0.0.0:7575
       MODEMDECK_DATABASE_PATH: /var/lib/modemdeck/modemdeck.db
-      MODEMDECK_LEGACY_DATABASE_PATH: /var/lib/modemdeck/vohive.db
       MODEMDECK_AGENT_SOCKET: /run/modemdeck/agent.sock
       MODEMDECK_ADMIN_USERNAME: ${MODEMDECK_ADMIN_USERNAME:-admin}
       MODEMDECK_ADMIN_PASSWORD_FILE: /run/secrets/modemdeck_admin_password

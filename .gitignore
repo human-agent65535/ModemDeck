@@ -46,7 +46,44 @@ Thumbs.db
 !config/config.example.yaml
 /secrets/
 .env
+.env.*
 !.env.example
+!.env.*.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+
+# One-off migrations, private fixtures, and local exports
+/cmd/modemdeck-import-legacy-telegram/
+/cmd/modemdeck-migrate/
+/internal/legacymigrate/
+/internal/legacytelegram/
+/integration/legacy_*
+/integration/private/
+/migration/
+/migrations/
+/one-off/
+/private/
+/scratch/
+/backups/
+*.backup
+*.bak
+*.dump
+*.sql.gz
+*.sqlite
+*.sqlite3
+
+# Call recordings and audio diagnostics
+/recordings/
+*.flac
+*.ogg
+*.opus
+*.wav
 
 # Test coverage
 coverage.out
@@ -69,7 +106,6 @@ go.work.sum
 **/._*
 .superpowers/*
 .codex
-web/tests
 .worktrees/
 Quectel_EC2xEG2xEG9xEM05_Series_AT_Commands_Manual_V2.2.pdf
 Quectel_EC2xEG2xEG9xEM05_Series_QCFG_AT_Commands_Manual_V1.6.pdf

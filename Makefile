@@ -4,6 +4,7 @@ GO_IMAGE ?= golang:1.26.3-bookworm@sha256:386d475a660466863d9f8c766fec64d7fdad3e
 ROOT_TOOLCHAIN_IMAGE ?= modemdeck-root-toolchain:go1.26.3-opus1.3.1-3
 ROOT_TOOLCHAIN_DOCKERFILE ?= Dockerfile.toolchain
 NODE_IMAGE ?= node:22.17.1-bookworm-slim@sha256:2fa754a9ba4d7adbd2a51d182eaabbe355c82b673624035a38c0d42b08724854
+GITLEAKS_IMAGE ?= ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 AGENT_NAME ?= modemdeck-agent
 IMAGE ?= modemdeck
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || printf '%s' dev)
@@ -67,7 +68,7 @@ WEB_NODE_RW = docker run --rm \
 .PHONY: all build app-build agent-build image check root-toolchain root-test \
 	agent-test root-vet agent-vet web-install web-test web-typecheck web-lint \
 	web-check web-build compose-config dockerfile-check compose-up compose-down \
-	compose-logs prepare-data install-agent clean
+	compose-logs prepare-data install-agent repository-check secret-scan clean
 
 all: check build
 
@@ -104,7 +105,15 @@ image:
 		-t "$(IMAGE):$(VERSION)" \
 		.
 
-check: root-test agent-test root-vet agent-vet web-check compose-config dockerfile-check
+check: repository-check root-test agent-test root-vet agent-vet web-check compose-config dockerfile-check
+
+repository-check:
+	./scripts/check-repository-hygiene.sh
+
+secret-scan:
+	docker run --rm \
+		--mount type=bind,source="$(CURDIR)",target=/repo,readonly \
+		$(GITLEAKS_IMAGE) git /repo --no-banner --no-color --redact=100
 
 root-toolchain:
 	docker build \

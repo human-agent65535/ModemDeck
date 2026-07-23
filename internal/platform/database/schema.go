@@ -3,721 +3,212 @@ package database
 import (
 	"context"
 	"database/sql"
+	_ "embed"
+	"errors"
 	"fmt"
-	"sort"
 	"strings"
 )
 
-type tableSchema struct {
-	name       string
-	create     string
-	identity   []string
-	addColumns map[string]string
+//go:embed schema.sql
+var currentSchemaSQL string
+
+var ErrSchemaOutdated = errors.New("database schema is not current")
+
+type schemaShape struct {
+	tables  map[string]map[string]struct{}
+	indexes map[string]struct{}
 }
 
-var compatibleTables = []tableSchema{
-	{
-		name: "modemdeck_admin_credentials",
-		create: `CREATE TABLE IF NOT EXISTS modemdeck_admin_credentials (
-			singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-			password_hash TEXT NOT NULL,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		)`,
-		identity: []string{"singleton"},
-		addColumns: map[string]string{
-			"password_hash": "TEXT NOT NULL DEFAULT ''",
-			"updated_at":    "DATETIME",
-		},
-	},
-	{
-		name: "modemdeck_auth_sessions",
-		create: `CREATE TABLE IF NOT EXISTS modemdeck_auth_sessions (
-			session_token_digest BLOB PRIMARY KEY CHECK (length(session_token_digest) = 32),
-			csrf_token_digest BLOB NOT NULL CHECK (length(csrf_token_digest) = 32),
-			created_at_unix INTEGER NOT NULL,
-			expires_at_unix INTEGER NOT NULL CHECK (expires_at_unix >= created_at_unix)
-		)`,
-		identity: []string{"session_token_digest"},
-		addColumns: map[string]string{
-			"csrf_token_digest": "BLOB",
-			"created_at_unix":   "INTEGER NOT NULL DEFAULT 0",
-			"expires_at_unix":   "INTEGER NOT NULL DEFAULT 0",
-		},
-	},
-	{
-		name: "contacts",
-		create: `CREATE TABLE IF NOT EXISTS contacts (
-			id TEXT PRIMARY KEY,
-			display_name TEXT NOT NULL,
-			notes TEXT NOT NULL DEFAULT '',
-			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		)`,
-		identity: []string{"id"},
-		addColumns: map[string]string{
-			"display_name": "TEXT NOT NULL DEFAULT ''",
-			"notes":        "TEXT NOT NULL DEFAULT ''",
-			"revision":     "INTEGER NOT NULL DEFAULT 1",
-			"created_at":   "DATETIME",
-			"updated_at":   "DATETIME",
-		},
-	},
-	{
-		name: "contact_phones",
-		create: `CREATE TABLE IF NOT EXISTS contact_phones (
-			id TEXT PRIMARY KEY,
-			contact_id TEXT NOT NULL,
-			label TEXT NOT NULL DEFAULT '',
-			original_number TEXT NOT NULL DEFAULT '',
-			canonical_e164 TEXT NOT NULL DEFAULT '',
-			is_primary NUMERIC NOT NULL DEFAULT 0,
-			FOREIGN KEY (contact_id) REFERENCES contacts(id) ON DELETE CASCADE ON UPDATE CASCADE
-		)`,
-		identity: []string{"id", "contact_id"},
-		addColumns: map[string]string{
-			"label":           "TEXT NOT NULL DEFAULT ''",
-			"original_number": "TEXT NOT NULL DEFAULT ''",
-			"canonical_e164":  "TEXT NOT NULL DEFAULT ''",
-			"is_primary":      "NUMERIC NOT NULL DEFAULT 0",
-		},
-	},
-	{
-		name: "sms",
-		create: `CREATE TABLE IF NOT EXISTS sms (
-				id INTEGER PRIMARY KEY AUTOINCREMENT,
-				request_id TEXT NOT NULL DEFAULT '',
-				line_id TEXT NOT NULL DEFAULT '',
-				endpoint_message_id TEXT NOT NULL DEFAULT '',
-				imsi TEXT NOT NULL DEFAULT '',
-				iccid TEXT NOT NULL DEFAULT '',
-				peer TEXT NOT NULL DEFAULT '',
-			local_phone TEXT NOT NULL DEFAULT '',
-			sender TEXT NOT NULL DEFAULT '',
-			recipient TEXT NOT NULL DEFAULT '',
-			content TEXT NOT NULL DEFAULT '',
-				type INTEGER NOT NULL DEFAULT 0,
-				status INTEGER NOT NULL DEFAULT 0,
-				state TEXT NOT NULL DEFAULT '',
-				failure_code TEXT NOT NULL DEFAULT '',
-				revision INTEGER NOT NULL DEFAULT 1,
-				timestamp DATETIME,
-				created_at DATETIME
-			)`,
-		identity: []string{"id"},
-		addColumns: map[string]string{
-			"request_id":          "TEXT NOT NULL DEFAULT ''",
-			"line_id":             "TEXT NOT NULL DEFAULT ''",
-			"endpoint_message_id": "TEXT NOT NULL DEFAULT ''",
-			"imsi":                "TEXT NOT NULL DEFAULT ''",
-			"iccid":               "TEXT NOT NULL DEFAULT ''",
-			"peer":                "TEXT NOT NULL DEFAULT ''",
-			"local_phone":         "TEXT NOT NULL DEFAULT ''",
-			"sender":              "TEXT NOT NULL DEFAULT ''",
-			"recipient":           "TEXT NOT NULL DEFAULT ''",
-			"content":             "TEXT NOT NULL DEFAULT ''",
-			"type":                "INTEGER NOT NULL DEFAULT 0",
-			"status":              "INTEGER NOT NULL DEFAULT 0",
-			"state":               "TEXT NOT NULL DEFAULT ''",
-			"failure_code":        "TEXT NOT NULL DEFAULT ''",
-			"revision":            "INTEGER NOT NULL DEFAULT 1",
-			"timestamp":           "DATETIME",
-			"created_at":          "DATETIME",
-		},
-	},
-	{
-		name: "sms_contacts",
-		create: `CREATE TABLE IF NOT EXISTS sms_contacts (
-			imsi TEXT NOT NULL,
-			iccid TEXT NOT NULL DEFAULT '',
-			peer TEXT NOT NULL,
-			last_sms_id INTEGER NOT NULL DEFAULT 0,
-			last_timestamp DATETIME,
-			last_content TEXT NOT NULL DEFAULT '',
-			last_type INTEGER NOT NULL DEFAULT 0,
-			unread_count INTEGER NOT NULL DEFAULT 0,
-			created_at DATETIME,
-			updated_at DATETIME,
-			PRIMARY KEY (imsi, peer)
-		)`,
-		identity: []string{"imsi", "peer"},
-		addColumns: map[string]string{
-			"iccid":          "TEXT NOT NULL DEFAULT ''",
-			"last_sms_id":    "INTEGER NOT NULL DEFAULT 0",
-			"last_timestamp": "DATETIME",
-			"last_content":   "TEXT NOT NULL DEFAULT ''",
-			"last_type":      "INTEGER NOT NULL DEFAULT 0",
-			"unread_count":   "INTEGER NOT NULL DEFAULT 0",
-			"created_at":     "DATETIME",
-			"updated_at":     "DATETIME",
-		},
-	},
-	{
-		name: "call_history",
-		create: `CREATE TABLE IF NOT EXISTS call_history (
-			id TEXT PRIMARY KEY,
-			request_id TEXT NOT NULL DEFAULT '',
-			device_id TEXT NOT NULL DEFAULT '',
-			direction TEXT NOT NULL DEFAULT '',
-			remote_number TEXT NOT NULL DEFAULT '',
-			endpoint_id TEXT NOT NULL DEFAULT '',
-			endpoint_call_id TEXT NOT NULL DEFAULT '',
-			phase TEXT NOT NULL DEFAULT '',
-			revision INTEGER NOT NULL DEFAULT 1,
-			created_at DATETIME,
-			updated_at DATETIME,
-			active_at DATETIME,
-				ended_at DATETIME,
-			end_reason TEXT NOT NULL DEFAULT '',
-			failure_code TEXT NOT NULL DEFAULT '',
-			bearer TEXT NOT NULL DEFAULT '',
-			state_reason TEXT NOT NULL DEFAULT '',
-			state_reason_code INTEGER NOT NULL DEFAULT 0,
-			multiparty NUMERIC NOT NULL DEFAULT 0,
-			audio_port TEXT NOT NULL DEFAULT '',
-			audio_encoding TEXT NOT NULL DEFAULT '',
-			audio_resolution TEXT NOT NULL DEFAULT '',
-			audio_rate INTEGER NOT NULL DEFAULT 0,
-			media_available NUMERIC NOT NULL DEFAULT 0
-			)`,
-		identity: []string{"id"},
-		addColumns: map[string]string{
-			"request_id":        "TEXT NOT NULL DEFAULT ''",
-			"device_id":         "TEXT NOT NULL DEFAULT ''",
-			"direction":         "TEXT NOT NULL DEFAULT ''",
-			"remote_number":     "TEXT NOT NULL DEFAULT ''",
-			"endpoint_id":       "TEXT NOT NULL DEFAULT ''",
-			"endpoint_call_id":  "TEXT NOT NULL DEFAULT ''",
-			"phase":             "TEXT NOT NULL DEFAULT ''",
-			"revision":          "INTEGER NOT NULL DEFAULT 1",
-			"created_at":        "DATETIME",
-			"updated_at":        "DATETIME",
-			"active_at":         "DATETIME",
-			"ended_at":          "DATETIME",
-			"end_reason":        "TEXT NOT NULL DEFAULT ''",
-			"failure_code":      "TEXT NOT NULL DEFAULT ''",
-			"bearer":            "TEXT NOT NULL DEFAULT ''",
-			"state_reason":      "TEXT NOT NULL DEFAULT ''",
-			"state_reason_code": "INTEGER NOT NULL DEFAULT 0",
-			"multiparty":        "NUMERIC NOT NULL DEFAULT 0",
-			"audio_port":        "TEXT NOT NULL DEFAULT ''",
-			"audio_encoding":    "TEXT NOT NULL DEFAULT ''",
-			"audio_resolution":  "TEXT NOT NULL DEFAULT ''",
-			"audio_rate":        "INTEGER NOT NULL DEFAULT 0",
-			"media_available":   "NUMERIC NOT NULL DEFAULT 0",
-		},
-	},
-	{
-		name: "modemdeck_call_settings",
-		create: `CREATE TABLE IF NOT EXISTS modemdeck_call_settings (
-			singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-			receive_calls NUMERIC NOT NULL DEFAULT 1,
-			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		)`,
-		identity: []string{"singleton"},
-		addColumns: map[string]string{
-			"receive_calls": "NUMERIC NOT NULL DEFAULT 1",
-			"revision":      "INTEGER NOT NULL DEFAULT 1",
-			"updated_at":    "DATETIME",
-		},
-	},
-	{
-		name: "modemdeck_line_call_policies",
-		create: `CREATE TABLE IF NOT EXISTS modemdeck_line_call_policies (
-			line_id TEXT PRIMARY KEY,
-			policy TEXT NOT NULL DEFAULT 'follow_global'
-				CHECK (policy IN ('follow_global', 'receive', 'do_not_disturb')),
-			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		)`,
-		identity: []string{"line_id"},
-		addColumns: map[string]string{
-			"policy":     "TEXT NOT NULL DEFAULT 'follow_global'",
-			"revision":   "INTEGER NOT NULL DEFAULT 1",
-			"updated_at": "DATETIME",
-		},
-	},
-	{
-		name: "modemdeck_incoming_call_actions",
-		create: `CREATE TABLE IF NOT EXISTS modemdeck_incoming_call_actions (
-			call_id TEXT PRIMARY KEY,
-			line_id TEXT NOT NULL,
-			endpoint_call_id TEXT NOT NULL,
-			effective_policy TEXT NOT NULL
-				CHECK (effective_policy IN ('receive', 'do_not_disturb')),
-			global_revision INTEGER NOT NULL,
-			line_revision INTEGER NOT NULL,
-			request_id TEXT NOT NULL UNIQUE,
-			status TEXT NOT NULL DEFAULT 'pending'
-				CHECK (status IN ('pending', 'sending', 'succeeded', 'failed', 'indeterminate', 'skipped')),
-			error_code TEXT NOT NULL DEFAULT '',
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (call_id) REFERENCES call_history(id) ON DELETE CASCADE ON UPDATE CASCADE
-		)`,
-		identity: []string{"call_id"},
-		addColumns: map[string]string{
-			"line_id":          "TEXT NOT NULL DEFAULT ''",
-			"endpoint_call_id": "TEXT NOT NULL DEFAULT ''",
-			"effective_policy": "TEXT NOT NULL DEFAULT 'receive'",
-			"global_revision":  "INTEGER NOT NULL DEFAULT 1",
-			"line_revision":    "INTEGER NOT NULL DEFAULT 1",
-			"request_id":       "TEXT NOT NULL DEFAULT ''",
-			"status":           "TEXT NOT NULL DEFAULT 'indeterminate'",
-			"error_code":       "TEXT NOT NULL DEFAULT ''",
-			"created_at":       "DATETIME",
-			"updated_at":       "DATETIME",
-		},
-	},
-	{
-		name: "modemdeck_recording_settings",
-		create: `CREATE TABLE IF NOT EXISTS modemdeck_recording_settings (
-				singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-				default_enabled NUMERIC NOT NULL DEFAULT 0,
-				revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
-				updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-			)`,
-		identity: []string{"singleton"},
-		addColumns: map[string]string{
-			"default_enabled": "NUMERIC NOT NULL DEFAULT 0",
-			"revision":        "INTEGER NOT NULL DEFAULT 1",
-			"updated_at":      "DATETIME",
-		},
-	},
-	{
-		name: "modemdeck_call_recording_requests",
-		create: `CREATE TABLE IF NOT EXISTS modemdeck_call_recording_requests (
-				request_id TEXT PRIMARY KEY,
-				enabled NUMERIC NOT NULL,
-				created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-			)`,
-		identity: []string{"request_id"},
-		addColumns: map[string]string{
-			"enabled":    "NUMERIC NOT NULL DEFAULT 0",
-			"created_at": "DATETIME",
-		},
-	},
-	{
-		name: "modemdeck_call_recording_state",
-		create: `CREATE TABLE IF NOT EXISTS modemdeck_call_recording_state (
-				call_id TEXT PRIMARY KEY,
-				preference TEXT NOT NULL DEFAULT 'default',
-				request_enabled NUMERIC,
-				enabled NUMERIC NOT NULL DEFAULT 0,
-				generation INTEGER NOT NULL DEFAULT 0,
-				status TEXT NOT NULL DEFAULT 'off',
-				active_segment_id TEXT NOT NULL DEFAULT '',
-				last_error_code TEXT NOT NULL DEFAULT '',
-				updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-				FOREIGN KEY (call_id) REFERENCES call_history(id) ON DELETE CASCADE ON UPDATE CASCADE
-			)`,
-		identity: []string{"call_id"},
-		addColumns: map[string]string{
-			"preference":        "TEXT NOT NULL DEFAULT 'default'",
-			"request_enabled":   "NUMERIC",
-			"enabled":           "NUMERIC NOT NULL DEFAULT 0",
-			"generation":        "INTEGER NOT NULL DEFAULT 0",
-			"status":            "TEXT NOT NULL DEFAULT 'off'",
-			"active_segment_id": "TEXT NOT NULL DEFAULT ''",
-			"last_error_code":   "TEXT NOT NULL DEFAULT ''",
-			"updated_at":        "DATETIME",
-		},
-	},
-	{
-		name: "modemdeck_call_recordings",
-		create: `CREATE TABLE IF NOT EXISTS modemdeck_call_recordings (
-				id TEXT PRIMARY KEY,
-				call_id TEXT NOT NULL,
-				segment_index INTEGER NOT NULL CHECK (segment_index > 0),
-				status TEXT NOT NULL,
-				started_at DATETIME,
-				ended_at DATETIME,
-				duration_ms INTEGER NOT NULL DEFAULT 0,
-				size_bytes INTEGER NOT NULL DEFAULT 0,
-				relative_path TEXT NOT NULL DEFAULT '',
-				failure_code TEXT NOT NULL DEFAULT '',
-				created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-				updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-				UNIQUE (call_id, segment_index),
-				FOREIGN KEY (call_id) REFERENCES call_history(id) ON DELETE CASCADE ON UPDATE CASCADE
-			)`,
-		identity: []string{"id"},
-		addColumns: map[string]string{
-			"call_id":       "TEXT NOT NULL DEFAULT ''",
-			"segment_index": "INTEGER NOT NULL DEFAULT 1",
-			"status":        "TEXT NOT NULL DEFAULT 'failed'",
-			"started_at":    "DATETIME",
-			"ended_at":      "DATETIME",
-			"duration_ms":   "INTEGER NOT NULL DEFAULT 0",
-			"size_bytes":    "INTEGER NOT NULL DEFAULT 0",
-			"relative_path": "TEXT NOT NULL DEFAULT ''",
-			"failure_code":  "TEXT NOT NULL DEFAULT ''",
-			"created_at":    "DATETIME",
-			"updated_at":    "DATETIME",
-		},
-	},
-	{
-		name: "devices",
-		create: `CREATE TABLE IF NOT EXISTS devices (
-			imei TEXT PRIMARY KEY,
-			alias TEXT NOT NULL DEFAULT '',
-			model TEXT NOT NULL DEFAULT '',
-			firmware TEXT NOT NULL DEFAULT '',
-			port TEXT NOT NULL DEFAULT '',
-			public_ip TEXT NOT NULL DEFAULT '',
-			private_ip TEXT NOT NULL DEFAULT '',
-			public_ipv6 TEXT NOT NULL DEFAULT '',
-			private_ipv6 TEXT NOT NULL DEFAULT '',
-			iccid TEXT,
-				sim_inserted NUMERIC NOT NULL DEFAULT 0,
-				signal_quality INTEGER,
-				signal_db_m INTEGER NOT NULL DEFAULT 0,
-			signal_rsrq INTEGER NOT NULL DEFAULT 0,
-			signal_rsrp INTEGER NOT NULL DEFAULT 0,
-			last_seen DATETIME,
-			created_at DATETIME,
-			updated_at DATETIME
-		)`,
-		identity: []string{"imei"},
-		addColumns: map[string]string{
-			"alias":          "TEXT NOT NULL DEFAULT ''",
-			"model":          "TEXT NOT NULL DEFAULT ''",
-			"firmware":       "TEXT NOT NULL DEFAULT ''",
-			"port":           "TEXT NOT NULL DEFAULT ''",
-			"public_ip":      "TEXT NOT NULL DEFAULT ''",
-			"private_ip":     "TEXT NOT NULL DEFAULT ''",
-			"public_ipv6":    "TEXT NOT NULL DEFAULT ''",
-			"private_ipv6":   "TEXT NOT NULL DEFAULT ''",
-			"iccid":          "TEXT",
-			"sim_inserted":   "NUMERIC NOT NULL DEFAULT 0",
-			"signal_quality": "INTEGER",
-			"signal_db_m":    "INTEGER NOT NULL DEFAULT 0",
-			"signal_rsrq":    "INTEGER NOT NULL DEFAULT 0",
-			"signal_rsrp":    "INTEGER NOT NULL DEFAULT 0",
-			"last_seen":      "DATETIME",
-			"created_at":     "DATETIME",
-			"updated_at":     "DATETIME",
-		},
-	},
-	{
-		name: "sim_cards",
-		create: `CREATE TABLE IF NOT EXISTS sim_cards (
-			iccid TEXT PRIMARY KEY,
-			imsi TEXT NOT NULL DEFAULT '',
-			operator TEXT NOT NULL DEFAULT '',
-			current_imei TEXT,
-			reg_status INTEGER NOT NULL DEFAULT 0,
-			reg_status_text TEXT NOT NULL DEFAULT '',
-			lac TEXT NOT NULL DEFAULT '',
-			cell_id TEXT NOT NULL DEFAULT '',
-			apn TEXT NOT NULL DEFAULT '',
-			ims_status INTEGER NOT NULL DEFAULT 0,
-			last_seen DATETIME,
-			created_at DATETIME,
-			updated_at DATETIME
-		)`,
-		identity: []string{"iccid"},
-		addColumns: map[string]string{
-			"imsi":            "TEXT NOT NULL DEFAULT ''",
-			"operator":        "TEXT NOT NULL DEFAULT ''",
-			"current_imei":    "TEXT",
-			"reg_status":      "INTEGER NOT NULL DEFAULT 0",
-			"reg_status_text": "TEXT NOT NULL DEFAULT ''",
-			"lac":             "TEXT NOT NULL DEFAULT ''",
-			"cell_id":         "TEXT NOT NULL DEFAULT ''",
-			"apn":             "TEXT NOT NULL DEFAULT ''",
-			"ims_status":      "INTEGER NOT NULL DEFAULT 0",
-			"last_seen":       "DATETIME",
-			"created_at":      "DATETIME",
-			"updated_at":      "DATETIME",
-		},
-	},
-	{
-		name: "sim_subscriptions",
-		create: `CREATE TABLE IF NOT EXISTS sim_subscriptions (
-			imsi TEXT PRIMARY KEY,
-			current_iccid TEXT NOT NULL DEFAULT '',
-			phone_number TEXT NOT NULL DEFAULT '',
-			modem_phone_number TEXT NOT NULL DEFAULT '',
-			vowifi_phone_number TEXT NOT NULL DEFAULT '',
-			operator TEXT NOT NULL DEFAULT '',
-			last_seen DATETIME,
-			created_at DATETIME,
-			updated_at DATETIME
-		)`,
-		identity: []string{"imsi"},
-		addColumns: map[string]string{
-			"current_iccid":       "TEXT NOT NULL DEFAULT ''",
-			"phone_number":        "TEXT NOT NULL DEFAULT ''",
-			"modem_phone_number":  "TEXT NOT NULL DEFAULT ''",
-			"vowifi_phone_number": "TEXT NOT NULL DEFAULT ''",
-			"operator":            "TEXT NOT NULL DEFAULT ''",
-			"last_seen":           "DATETIME",
-			"created_at":          "DATETIME",
-			"updated_at":          "DATETIME",
-		},
-	},
-	{
-		name: "modemdeck_telegram_units",
-		create: `CREATE TABLE IF NOT EXISTS modemdeck_telegram_units (
-			id TEXT PRIMARY KEY,
-			display_name TEXT NOT NULL DEFAULT '',
-			enabled NUMERIC NOT NULL DEFAULT 0,
-			bot_id INTEGER NOT NULL DEFAULT 0,
-			bot_token_nonce BLOB NOT NULL DEFAULT X'',
-			bot_token_ciphertext BLOB NOT NULL DEFAULT X'',
-			token_hint TEXT NOT NULL DEFAULT '',
-			chat_id INTEGER NOT NULL DEFAULT 0,
-			admin_id INTEGER NOT NULL DEFAULT 0,
-			incoming_sms NUMERIC NOT NULL DEFAULT 1,
-			missed_calls NUMERIC NOT NULL DEFAULT 1,
-			revision INTEGER NOT NULL DEFAULT 1,
-			bot_username TEXT NOT NULL DEFAULT '',
-			verified_at DATETIME,
-			last_error_class TEXT NOT NULL DEFAULT '',
-			next_update_offset INTEGER NOT NULL DEFAULT 0,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		)`,
-		identity: []string{"id"},
-		addColumns: map[string]string{
-			"display_name":         "TEXT NOT NULL DEFAULT ''",
-			"enabled":              "NUMERIC NOT NULL DEFAULT 0",
-			"bot_id":               "INTEGER NOT NULL DEFAULT 0",
-			"bot_token_nonce":      "BLOB NOT NULL DEFAULT X''",
-			"bot_token_ciphertext": "BLOB NOT NULL DEFAULT X''",
-			"token_hint":           "TEXT NOT NULL DEFAULT ''",
-			"chat_id":              "INTEGER NOT NULL DEFAULT 0",
-			"admin_id":             "INTEGER NOT NULL DEFAULT 0",
-			"incoming_sms":         "NUMERIC NOT NULL DEFAULT 1",
-			"missed_calls":         "NUMERIC NOT NULL DEFAULT 1",
-			"revision":             "INTEGER NOT NULL DEFAULT 1",
-			"bot_username":         "TEXT NOT NULL DEFAULT ''",
-			"verified_at":          "DATETIME",
-			"last_error_class":     "TEXT NOT NULL DEFAULT ''",
-			"next_update_offset":   "INTEGER NOT NULL DEFAULT 0",
-			"created_at":           "DATETIME",
-			"updated_at":           "DATETIME",
-		},
-	},
-	{
-		name: "modemdeck_telegram_line_scopes",
-		create: `CREATE TABLE IF NOT EXISTS modemdeck_telegram_line_scopes (
-			unit_id TEXT NOT NULL,
-			line_id TEXT NOT NULL,
-			PRIMARY KEY (unit_id, line_id),
-			FOREIGN KEY (unit_id) REFERENCES modemdeck_telegram_units(id) ON DELETE CASCADE ON UPDATE CASCADE
-		)`,
-		identity:   []string{"unit_id", "line_id"},
-		addColumns: map[string]string{},
-	},
-	{
-		name: "modemdeck_telegram_reply_bindings",
-		create: `CREATE TABLE IF NOT EXISTS modemdeck_telegram_reply_bindings (
-			bot_id INTEGER NOT NULL,
-			chat_id INTEGER NOT NULL,
-			message_id INTEGER NOT NULL,
-			line_id TEXT NOT NULL,
-			phone_number TEXT NOT NULL,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			PRIMARY KEY (bot_id, chat_id, message_id)
-		)`,
-		identity: []string{"bot_id", "chat_id", "message_id"},
-		addColumns: map[string]string{
-			"line_id":      "TEXT NOT NULL DEFAULT ''",
-			"phone_number": "TEXT NOT NULL DEFAULT ''",
-			"created_at":   "DATETIME",
-		},
-	},
-	{
-		name: "modemdeck_hardware_sync",
-		create: `CREATE TABLE IF NOT EXISTS modemdeck_hardware_sync (
-			singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-			boot_epoch TEXT NOT NULL DEFAULT '',
-			snapshot_revision TEXT NOT NULL DEFAULT '',
-			sequence INTEGER NOT NULL DEFAULT 0,
-			observed_at DATETIME,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		)`,
-		identity: []string{"singleton"},
-		addColumns: map[string]string{
-			"boot_epoch":        "TEXT NOT NULL DEFAULT ''",
-			"snapshot_revision": "TEXT NOT NULL DEFAULT ''",
-			"sequence":          "INTEGER NOT NULL DEFAULT 0",
-			"observed_at":       "DATETIME",
-			"updated_at":        "DATETIME",
-		},
-	},
-	{
-		name: "modemdeck_hardware_commands",
-		create: `CREATE TABLE IF NOT EXISTS modemdeck_hardware_commands (
-			request_id TEXT PRIMARY KEY,
-			operation TEXT NOT NULL,
-			payload_digest BLOB NOT NULL,
-			status TEXT NOT NULL,
-			resource_id TEXT NOT NULL DEFAULT '',
-			error_code TEXT NOT NULL DEFAULT '',
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		)`,
-		identity: []string{"request_id"},
-		addColumns: map[string]string{
-			"operation":      "TEXT NOT NULL DEFAULT ''",
-			"payload_digest": "BLOB NOT NULL DEFAULT X''",
-			"status":         "TEXT NOT NULL DEFAULT ''",
-			"resource_id":    "TEXT NOT NULL DEFAULT ''",
-			"error_code":     "TEXT NOT NULL DEFAULT ''",
-			"created_at":     "DATETIME",
-			"updated_at":     "DATETIME",
-		},
-	},
-	{
-		name: "modemdeck_notification_events",
-		create: `CREATE TABLE IF NOT EXISTS modemdeck_notification_events (
-			event_key TEXT PRIMARY KEY,
-			event_type TEXT NOT NULL,
-			resource_id TEXT NOT NULL,
-			line_id TEXT NOT NULL,
-			peer TEXT NOT NULL DEFAULT '',
-			body TEXT NOT NULL DEFAULT '',
-			occurred_at DATETIME NOT NULL,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		)`,
-		identity: []string{"event_key"},
-		addColumns: map[string]string{
-			"event_type":  "TEXT NOT NULL DEFAULT ''",
-			"resource_id": "TEXT NOT NULL DEFAULT ''",
-			"line_id":     "TEXT NOT NULL DEFAULT ''",
-			"peer":        "TEXT NOT NULL DEFAULT ''",
-			"body":        "TEXT NOT NULL DEFAULT ''",
-			"occurred_at": "DATETIME",
-			"created_at":  "DATETIME",
-		},
-	},
-	{
-		name: "modemdeck_notification_deliveries",
-		create: `CREATE TABLE IF NOT EXISTS modemdeck_notification_deliveries (
-			event_key TEXT NOT NULL,
-			unit_id TEXT NOT NULL,
-			status TEXT NOT NULL DEFAULT 'pending',
-			attempt_token TEXT NOT NULL DEFAULT '',
-			last_error_class TEXT NOT NULL DEFAULT '',
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			PRIMARY KEY (event_key, unit_id),
-			FOREIGN KEY (event_key) REFERENCES modemdeck_notification_events(event_key) ON DELETE CASCADE ON UPDATE CASCADE,
-			FOREIGN KEY (unit_id) REFERENCES modemdeck_telegram_units(id) ON DELETE CASCADE ON UPDATE CASCADE
-		)`,
-		identity: []string{"event_key", "unit_id"},
-		addColumns: map[string]string{
-			"status":           "TEXT NOT NULL DEFAULT 'pending'",
-			"attempt_token":    "TEXT NOT NULL DEFAULT ''",
-			"last_error_class": "TEXT NOT NULL DEFAULT ''",
-			"created_at":       "DATETIME",
-			"updated_at":       "DATETIME",
-		},
-	},
-}
-
-var compatibleIndexes = []string{
-	"CREATE INDEX IF NOT EXISTS idx_modemdeck_auth_sessions_expiry ON modemdeck_auth_sessions(expires_at_unix)",
-	"CREATE INDEX IF NOT EXISTS idx_contacts_display_name ON contacts(display_name)",
-	"CREATE INDEX IF NOT EXISTS idx_contact_phones_contact_id ON contact_phones(contact_id)",
-	"CREATE UNIQUE INDEX IF NOT EXISTS ux_contact_phones_canonical_e164 ON contact_phones(canonical_e164)",
-	"CREATE UNIQUE INDEX IF NOT EXISTS ux_contact_phones_primary_per_contact ON contact_phones(contact_id) WHERE is_primary = 1",
-	"CREATE INDEX IF NOT EXISTS idx_sms_iccid_timestamp ON sms(iccid, timestamp DESC)",
-	"CREATE INDEX IF NOT EXISTS idx_sms_iccid_peer_timestamp ON sms(iccid, peer, timestamp DESC)",
-	"CREATE INDEX IF NOT EXISTS idx_sms_imsi_peer_timestamp ON sms(imsi, peer, timestamp DESC)",
-	"CREATE UNIQUE INDEX IF NOT EXISTS ux_sms_request_id ON sms(request_id) WHERE request_id <> ''",
-	"CREATE UNIQUE INDEX IF NOT EXISTS ux_sms_endpoint_message ON sms(line_id, endpoint_message_id) WHERE line_id <> '' AND endpoint_message_id <> ''",
-	"CREATE INDEX IF NOT EXISTS idx_sms_contacts_iccid_timestamp ON sms_contacts(iccid, last_timestamp DESC)",
-	"CREATE INDEX IF NOT EXISTS idx_sms_contacts_timestamp ON sms_contacts(last_timestamp DESC)",
-	"CREATE INDEX IF NOT EXISTS idx_call_history_ended_at ON call_history(ended_at DESC)",
-	"CREATE INDEX IF NOT EXISTS idx_call_history_device_ended_at ON call_history(device_id, ended_at DESC)",
-	"CREATE UNIQUE INDEX IF NOT EXISTS ux_call_history_request_id ON call_history(request_id) WHERE request_id <> ''",
-	"CREATE INDEX IF NOT EXISTS idx_modemdeck_incoming_call_actions_status ON modemdeck_incoming_call_actions(status, created_at)",
-	"CREATE INDEX IF NOT EXISTS idx_modemdeck_call_recording_state_enabled ON modemdeck_call_recording_state(enabled, generation)",
-	"CREATE INDEX IF NOT EXISTS idx_modemdeck_call_recording_requests_created ON modemdeck_call_recording_requests(created_at, request_id)",
-	"CREATE INDEX IF NOT EXISTS idx_modemdeck_call_recordings_call ON modemdeck_call_recordings(call_id, segment_index)",
-	"CREATE INDEX IF NOT EXISTS idx_modemdeck_call_recordings_status ON modemdeck_call_recordings(status, updated_at)",
-	"CREATE INDEX IF NOT EXISTS idx_devices_iccid ON devices(iccid)",
-	"CREATE INDEX IF NOT EXISTS idx_sim_cards_imsi ON sim_cards(imsi)",
-	"CREATE INDEX IF NOT EXISTS idx_sim_subscriptions_current_iccid ON sim_subscriptions(current_iccid)",
-	"CREATE UNIQUE INDEX IF NOT EXISTS ux_modemdeck_telegram_units_bot_id ON modemdeck_telegram_units(bot_id) WHERE bot_id > 0",
-	"CREATE INDEX IF NOT EXISTS idx_modemdeck_telegram_reply_bindings_created_at ON modemdeck_telegram_reply_bindings(created_at)",
-	"CREATE INDEX IF NOT EXISTS idx_modemdeck_hardware_commands_status_updated ON modemdeck_hardware_commands(status, updated_at)",
-	"CREATE INDEX IF NOT EXISTS idx_modemdeck_notification_deliveries_status ON modemdeck_notification_deliveries(status, created_at)",
-}
-
-func MigrateSchema(ctx context.Context, database *sql.DB) error {
+// InitializeSchema creates the current schema only when the database is empty.
+// Existing databases are validated and never altered.
+func InitializeSchema(ctx context.Context, database *sql.DB) (bool, error) {
 	if database == nil {
-		return fmt.Errorf("migrate schema: nil database")
+		return false, errors.New("initialize schema: nil database")
 	}
+	empty, err := databaseIsEmpty(ctx, database)
+	if err != nil {
+		return false, err
+	}
+	if !empty {
+		return false, ValidateSchema(ctx, database)
+	}
+	if err := createSchema(ctx, database); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func ValidateSchema(ctx context.Context, database *sql.DB) error {
+	if database == nil {
+		return errors.New("validate schema: nil database")
+	}
+	expected, err := expectedSchemaShape(ctx)
+	if err != nil {
+		return err
+	}
+	actual, err := readSchemaShape(ctx, database)
+	if err != nil {
+		return err
+	}
+	for table, expectedColumns := range expected.tables {
+		actualColumns, exists := actual.tables[table]
+		if !exists {
+			return fmt.Errorf("%w: table %s is missing", ErrSchemaOutdated, table)
+		}
+		for column := range expectedColumns {
+			if _, exists := actualColumns[column]; !exists {
+				return fmt.Errorf(
+					"%w: column %s.%s is missing",
+					ErrSchemaOutdated,
+					table,
+					column,
+				)
+			}
+		}
+	}
+	for index := range expected.indexes {
+		if _, exists := actual.indexes[index]; !exists {
+			return fmt.Errorf("%w: index %s is missing", ErrSchemaOutdated, index)
+		}
+	}
+	for _, requiredRow := range []struct {
+		table string
+		key   string
+	}{
+		{table: "modemdeck_call_settings", key: "singleton"},
+		{table: "modemdeck_recording_settings", key: "singleton"},
+	} {
+		var count int
+		query := "SELECT COUNT(*) FROM " + quoteIdentifier(requiredRow.table) +
+			" WHERE " + quoteIdentifier(requiredRow.key) + " = 1"
+		if err := database.QueryRowContext(ctx, query).Scan(&count); err != nil {
+			return fmt.Errorf("validate required row in %s: %w", requiredRow.table, err)
+		}
+		if count != 1 {
+			return fmt.Errorf(
+				"%w: required row %s.%s=1 is missing",
+				ErrSchemaOutdated,
+				requiredRow.table,
+				requiredRow.key,
+			)
+		}
+	}
+	return nil
+}
+
+func createSchema(ctx context.Context, database *sql.DB) error {
 	transaction, err := database.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin schema migration: %w", err)
+		return fmt.Errorf("begin schema creation: %w", err)
 	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = transaction.Rollback()
-		}
-	}()
-
-	for _, table := range compatibleTables {
-		if _, err := transaction.ExecContext(ctx, table.create); err != nil {
-			return fmt.Errorf("create compatible table %s: %w", table.name, err)
-		}
-		if err := ensureCompatibleColumns(ctx, transaction, table); err != nil {
-			return err
-		}
-	}
-	if err := backfillCompatibilityData(ctx, transaction); err != nil {
-		return err
-	}
-	for _, statement := range compatibleIndexes {
-		if _, err := transaction.ExecContext(ctx, statement); err != nil {
-			return fmt.Errorf("create compatible index with %q: %w", statement, err)
-		}
+	defer transaction.Rollback()
+	if _, err := transaction.ExecContext(ctx, currentSchemaSQL); err != nil {
+		return fmt.Errorf("create current schema: %w", err)
 	}
 	if err := transaction.Commit(); err != nil {
-		return fmt.Errorf("commit schema migration: %w", err)
+		return fmt.Errorf("commit schema creation: %w", err)
 	}
-	committed = true
 	return nil
 }
 
-func ensureCompatibleColumns(ctx context.Context, transaction *sql.Tx, table tableSchema) error {
-	columns, err := tableColumns(ctx, transaction, table.name)
+func expectedSchemaShape(ctx context.Context) (schemaShape, error) {
+	reference, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
-		return err
+		return schemaShape{}, fmt.Errorf("open schema reference database: %w", err)
 	}
-	for _, identity := range table.identity {
-		if _, exists := columns[identity]; !exists {
-			return fmt.Errorf("table %s is incompatible: required identity column %s is missing", table.name, identity)
-		}
+	reference.SetMaxOpenConns(1)
+	defer reference.Close()
+	if _, err := reference.ExecContext(ctx, currentSchemaSQL); err != nil {
+		return schemaShape{}, fmt.Errorf("build schema reference database: %w", err)
 	}
-
-	names := make([]string, 0, len(table.addColumns))
-	for name := range table.addColumns {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		if _, exists := columns[name]; exists {
-			continue
-		}
-		statement := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", quoteIdentifier(table.name), quoteIdentifier(name), table.addColumns[name])
-		if _, err := transaction.ExecContext(ctx, statement); err != nil {
-			return fmt.Errorf("add compatible column %s.%s: %w", table.name, name, err)
-		}
-	}
-	return nil
+	return readSchemaShape(ctx, reference)
 }
 
-func tableColumns(ctx context.Context, transaction *sql.Tx, table string) (map[string]struct{}, error) {
-	rows, err := transaction.QueryContext(ctx, "PRAGMA table_info("+quoteIdentifier(table)+")")
+func databaseIsEmpty(ctx context.Context, database *sql.DB) (bool, error) {
+	var count int
+	if err := database.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*)
+		 FROM sqlite_schema
+		 WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`,
+	).Scan(&count); err != nil {
+		return false, fmt.Errorf("inspect database schema: %w", err)
+	}
+	return count == 0, nil
+}
+
+func readSchemaShape(ctx context.Context, database *sql.DB) (schemaShape, error) {
+	shape := schemaShape{
+		tables:  make(map[string]map[string]struct{}),
+		indexes: make(map[string]struct{}),
+	}
+	tableRows, err := database.QueryContext(
+		ctx,
+		`SELECT name
+		 FROM sqlite_schema
+		 WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+		 ORDER BY name`,
+	)
+	if err != nil {
+		return schemaShape{}, fmt.Errorf("list schema tables: %w", err)
+	}
+	tableNames := make([]string, 0)
+	for tableRows.Next() {
+		var name string
+		if err := tableRows.Scan(&name); err != nil {
+			_ = tableRows.Close()
+			return schemaShape{}, fmt.Errorf("scan schema table: %w", err)
+		}
+		tableNames = append(tableNames, name)
+	}
+	if err := tableRows.Err(); err != nil {
+		_ = tableRows.Close()
+		return schemaShape{}, fmt.Errorf("read schema tables: %w", err)
+	}
+	if err := tableRows.Close(); err != nil {
+		return schemaShape{}, fmt.Errorf("close schema tables: %w", err)
+	}
+	for _, table := range tableNames {
+		columns, err := tableColumns(ctx, database, table)
+		if err != nil {
+			return schemaShape{}, err
+		}
+		shape.tables[table] = columns
+	}
+
+	indexRows, err := database.QueryContext(
+		ctx,
+		`SELECT name
+		 FROM sqlite_schema
+		 WHERE type = 'index' AND name NOT LIKE 'sqlite_%'
+		 ORDER BY name`,
+	)
+	if err != nil {
+		return schemaShape{}, fmt.Errorf("list schema indexes: %w", err)
+	}
+	defer indexRows.Close()
+	for indexRows.Next() {
+		var name string
+		if err := indexRows.Scan(&name); err != nil {
+			return schemaShape{}, fmt.Errorf("scan schema index: %w", err)
+		}
+		shape.indexes[name] = struct{}{}
+	}
+	if err := indexRows.Err(); err != nil {
+		return schemaShape{}, fmt.Errorf("read schema indexes: %w", err)
+	}
+	return shape, nil
+}
+
+func tableColumns(
+	ctx context.Context,
+	database *sql.DB,
+	table string,
+) (map[string]struct{}, error) {
+	rows, err := database.QueryContext(
+		ctx,
+		"PRAGMA table_info("+quoteIdentifier(table)+")",
+	)
 	if err != nil {
 		return nil, fmt.Errorf("inspect table %s: %w", table, err)
 	}
@@ -733,7 +224,14 @@ func tableColumns(ctx context.Context, transaction *sql.Tx, table string) (map[s
 			defaultValue sql.NullString
 			primaryKey   int
 		)
-		if err := rows.Scan(&sequence, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+		if err := rows.Scan(
+			&sequence,
+			&name,
+			&columnType,
+			&notNull,
+			&defaultValue,
+			&primaryKey,
+		); err != nil {
 			return nil, fmt.Errorf("scan table metadata for %s: %w", table, err)
 		}
 		columns[name] = struct{}{}
@@ -742,75 +240,6 @@ func tableColumns(ctx context.Context, transaction *sql.Tx, table string) (map[s
 		return nil, fmt.Errorf("read table metadata for %s: %w", table, err)
 	}
 	return columns, nil
-}
-
-func backfillCompatibilityData(ctx context.Context, transaction *sql.Tx) error {
-	statements := []string{
-		`INSERT INTO modemdeck_call_settings (
-			singleton, receive_calls, revision, updated_at
-		 ) VALUES (1, 1, 1, CURRENT_TIMESTAMP)
-		 ON CONFLICT(singleton) DO NOTHING`,
-		`UPDATE modemdeck_incoming_call_actions
-		 SET status = 'indeterminate',
-			error_code = CASE WHEN error_code = '' THEN 'process_interrupted' ELSE error_code END,
-			updated_at = CURRENT_TIMESTAMP
-		 WHERE status = 'sending'`,
-		`UPDATE modemdeck_hardware_commands
-		 SET status = 'indeterminate',
-			error_code = CASE WHEN error_code = '' THEN 'process_interrupted' ELSE error_code END,
-			updated_at = CURRENT_TIMESTAMP
-		 WHERE status = 'pending'`,
-		`INSERT INTO modemdeck_recording_settings (
-			singleton, default_enabled, revision, updated_at
-		 ) VALUES (1, 0, 1, CURRENT_TIMESTAMP)
-		 ON CONFLICT(singleton) DO NOTHING`,
-		`UPDATE modemdeck_call_recording_state
-		 SET request_enabled = enabled
-		 WHERE preference = 'override' AND request_enabled IS NULL`,
-		`UPDATE modemdeck_call_recording_requests
-		 SET created_at = CURRENT_TIMESTAMP
-		 WHERE created_at IS NULL`,
-		`UPDATE sms
-		 SET peer = TRIM(CASE WHEN type = 2 AND COALESCE(recipient, '') <> '' THEN recipient ELSE sender END)
-		 WHERE COALESCE(peer, '') = ''`,
-		`UPDATE sms
-		 SET iccid = COALESCE(
-			(SELECT sim_cards.iccid FROM sim_cards WHERE sim_cards.imsi = sms.imsi AND COALESCE(sim_cards.iccid, '') <> '' LIMIT 1),
-			CASE WHEN COALESCE(sms.imsi, '') <> '' THEN 'imsi:' || sms.imsi ELSE '' END
-		 )
-		 WHERE COALESCE(iccid, '') = ''`,
-		`UPDATE sms_contacts
-		 SET iccid = COALESCE(
-			(SELECT sim_cards.iccid FROM sim_cards WHERE sim_cards.imsi = sms_contacts.imsi AND COALESCE(sim_cards.iccid, '') <> '' LIMIT 1),
-			CASE WHEN COALESCE(sms_contacts.imsi, '') <> '' THEN 'imsi:' || sms_contacts.imsi ELSE '' END
-		 )
-		 WHERE COALESCE(iccid, '') = ''`,
-		`INSERT INTO sms_contacts (
-			imsi, iccid, peer, last_sms_id, last_timestamp, last_content,
-			last_type, unread_count, created_at, updated_at
-		 )
-		 SELECT latest.imsi, latest.iccid, latest.peer, latest.id, latest.timestamp,
-			latest.content, latest.type,
-			(SELECT COUNT(*) FROM sms unread
-			 WHERE unread.imsi = latest.imsi AND unread.peer = latest.peer
-			 AND unread.type = 1 AND unread.status = 0),
-			latest.created_at, latest.timestamp
-		 FROM sms latest
-		 WHERE COALESCE(latest.peer, '') <> ''
-		 AND NOT EXISTS (
-			SELECT 1 FROM sms newer
-			WHERE newer.imsi = latest.imsi AND newer.peer = latest.peer
-			AND (newer.timestamp > latest.timestamp OR
-				(newer.timestamp = latest.timestamp AND newer.id > latest.id))
-		 )
-		 ON CONFLICT(imsi, peer) DO NOTHING`,
-	}
-	for _, statement := range statements {
-		if _, err := transaction.ExecContext(ctx, statement); err != nil {
-			return fmt.Errorf("backfill compatible data: %w", err)
-		}
-	}
-	return nil
 }
 
 func quoteIdentifier(identifier string) string {

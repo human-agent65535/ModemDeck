@@ -20,6 +20,13 @@ dist
 logs
 secrets
 tmp
+backups
+migration
+migrations
+one-off
+private
+recordings
+scratch
 config/config.yaml
 .env
 .env.*
@@ -32,6 +39,20 @@ config/config.yaml
 **/*.o
 **/*.sqlite
 **/*.sqlite3
+**/*.backup
+**/*.bak
+**/*.dump
+**/*.sql.gz
+**/*.key
+**/*.pem
+**/*.p12
+**/*.pfx
+**/*.jks
+**/*.keystore
+**/*.wav
+**/*.flac
+**/*.ogg
+**/*.opus
 
 web/node_modules
 web/dist

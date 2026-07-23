@@ -376,9 +376,8 @@ func newContactTestStore(t *testing.T) (*Store, *sql.DB) {
 	t.Helper()
 
 	directory := t.TempDir()
-	database, _, err := platformdb.Open(context.Background(), platformdb.Config{
+	database, err := platformdb.Open(context.Background(), platformdb.Config{
 		TargetPath: filepath.Join(directory, "modemdeck.db"),
-		LegacyPath: filepath.Join(directory, "vohive.db"),
 	})
 	if err != nil {
 		t.Fatalf("open contact test database: %v", err)

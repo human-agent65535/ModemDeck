@@ -474,9 +474,8 @@ type serviceFixture struct {
 func newServiceFixture(t *testing.T, writerError error) *serviceFixture {
 	t.Helper()
 	directory := t.TempDir()
-	database, _, err := platformdb.Open(context.Background(), platformdb.Config{
+	database, err := platformdb.Open(context.Background(), platformdb.Config{
 		TargetPath: filepath.Join(directory, "modemdeck.db"),
-		LegacyPath: filepath.Join(directory, "vohive.db"),
 	})
 	if err != nil {
 		t.Fatal(err)
