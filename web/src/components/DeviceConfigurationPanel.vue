@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  Activity,
   AlertCircle,
   CardSim,
   CheckCircle2,
@@ -132,7 +133,24 @@ const selectedIsDefault = computed(
   () => selectedLine.value?.device_imei === defaultDeviceIMEI.value
 )
 const voiceAvailable = computed(() => selectedLine.value?.capabilities?.voice === true)
-const mediaAvailable = computed(() => selectedLine.value?.capabilities?.media === true)
+const volteStatusLabel = computed(() => {
+  const capability = hardware.value?.capabilities.volte
+  const volte = hardware.value?.volte
+  if (!capability || !volte) return '状态未知'
+  if (!capability.supported) return '不支持'
+  if (!capability.implemented) return '未实现'
+  if (!volte.policy_known) return '状态未知'
+  return volte.policy === 'enabled' ? '已开启' : '已关闭'
+})
+const volteStatusDetail = computed(() => {
+  const capability = hardware.value?.capabilities.volte
+  const volte = hardware.value?.volte
+  if (!capability || !volte) return ''
+  if (!volte.policy_known && capability.supported && capability.implemented) {
+    return '当前无法读取'
+  }
+  return readOnlyReason(capability)
+})
 
 const otherCapabilities = computed(() => {
   const capabilities = hardware.value?.capabilities
@@ -225,12 +243,32 @@ function readOnlyReason(capability: DeviceFeatureCapability): string {
   return ''
 }
 
-function capabilityStatus(capability: DeviceFeatureCapability): string {
+function capabilityStatus(capability: DeviceFeatureCapability, id = ''): string {
+  if (
+    id === 'volte' &&
+    hardware.value?.volte.policy_known === false &&
+    capability.supported &&
+    capability.implemented
+  ) {
+    return '状态未知'
+  }
   if (capability.writable) return '可读写'
   if (capability.readable) return '只读'
   if (capability.supported && capability.implemented) return '暂不可用'
   if (capability.supported) return '未实现'
   return '不支持'
+}
+
+function capabilityDetail(capability: DeviceFeatureCapability, id = ''): string {
+  if (
+    id === 'volte' &&
+    hardware.value?.volte.policy_known === false &&
+    capability.supported &&
+    capability.implemented
+  ) {
+    return '当前无法读取'
+  }
+  return readOnlyReason(capability)
 }
 
 function policyLabel(policy: IncomingCallPolicy): string {
@@ -478,8 +516,8 @@ onMounted(() => {
   <section class="device-configuration" aria-labelledby="device-configuration-title">
     <header class="module-toolbar">
       <div>
-        <h3 id="device-configuration-title">模组</h3>
-        <span>{{ lines.length }}</span>
+        <h3 id="device-configuration-title">选择模组</h3>
+        <span>{{ lines.length }} 个</span>
       </div>
       <button class="secondary-action" type="button" @click="addOpen = !addOpen">
         <Plus :size="16" />
@@ -557,6 +595,14 @@ onMounted(() => {
     </form>
 
     <template v-if="selectedLineID">
+      <header class="selected-module-context">
+        <div class="selected-module-context__identity">
+          <span>当前配置模组</span>
+          <strong>{{ selectedLine ? lineLabel(selectedLine) : selectedLineID }}</strong>
+        </div>
+        <span v-if="selectedIsDefault" class="selected-module-context__default">默认线路</span>
+      </header>
+
       <nav class="device-tabs" aria-label="模组设置">
         <button
           v-for="tab in tabs"
@@ -593,15 +639,14 @@ onMounted(() => {
         <template v-if="activeTab === 'overview'">
           <section class="configuration-section configuration-summary">
             <header>
-              <div>
-                <h4>{{ selectedLine ? lineLabel(selectedLine) : hardware.line_id }}</h4>
-                <span v-if="selectedIsDefault">默认线路</span>
-              </div>
-              <strong>{{ selectedLine?.state || 'unknown' }}</strong>
+              <h4>硬件信息</h4>
+              <span v-if="selectedIsDefault">默认线路</span>
             </header>
             <dl>
               <div><dt>制造商</dt><dd>{{ hardware.identity.manufacturer || '—' }}</dd></div>
               <div><dt>型号</dt><dd>{{ hardware.identity.model || '—' }}</dd></div>
+              <div><dt>运营商</dt><dd>{{ selectedLine?.operator || '—' }}</dd></div>
+              <div><dt>信号</dt><dd>{{ selectedLine?.signal_quality == null ? '—' : `${selectedLine.signal_quality}%` }}</dd></div>
               <div><dt>IMEI</dt><dd>{{ hardware.identity.equipment_identifier || '—' }}</dd></div>
               <div><dt>固件</dt><dd>{{ hardware.identity.firmware || '—' }}</dd></div>
               <div><dt>ICCID</dt><dd>{{ selectedLine?.iccid || '—' }}</dd></div>
@@ -618,8 +663,8 @@ onMounted(() => {
                   <ShieldAlert v-else :size="15" />
                   {{ item.label }}
                 </span>
-                <strong>{{ capabilityStatus(item.capability) }}</strong>
-                <small>{{ readOnlyReason(item.capability) }}</small>
+                <strong>{{ capabilityStatus(item.capability, item.id) }}</strong>
+                <small>{{ capabilityDetail(item.capability, item.id) }}</small>
               </div>
             </div>
           </section>
@@ -807,17 +852,16 @@ onMounted(() => {
 
         <template v-else-if="activeTab === 'voice'">
           <section class="configuration-section">
-            <header><Phone :size="18" /><h4>Voice</h4></header>
+            <header><Phone :size="18" /><h4>语音</h4></header>
             <div class="voice-capabilities">
               <div class="voice-status" :class="{ 'is-available': voiceAvailable }">
                 <CheckCircle2 v-if="voiceAvailable" :size="18" />
                 <AlertCircle v-else :size="18" />
                 <span><strong>通话控制</strong><small>{{ voiceAvailable ? '可用' : '不可用' }}</small></span>
               </div>
-              <div class="voice-status" :class="{ 'is-available': mediaAvailable }">
-                <CheckCircle2 v-if="mediaAvailable" :size="18" />
-                <AlertCircle v-else :size="18" />
-                <span><strong>通话音频</strong><small>{{ mediaAvailable ? '可用' : '不可用' }}</small></span>
+              <div class="voice-status is-pending">
+                <Activity :size="18" />
+                <span><strong>浏览器音频</strong><small>通话接通后检测</small></span>
               </div>
             </div>
           </section>
@@ -855,7 +899,7 @@ onMounted(() => {
           <section class="configuration-section">
             <header><RadioTower :size="18" /><h4>VoLTE</h4></header>
             <div
-              v-if="hardware.capabilities.volte.writable"
+              v-if="hardware.capabilities.volte.writable && hardware.volte.policy_known"
               class="configuration-control-row"
             >
               <label>
@@ -875,16 +919,8 @@ onMounted(() => {
               </button>
             </div>
             <div v-else class="configuration-readonly">
-              <strong>
-                {{
-                  hardware.volte.policy_known
-                    ? hardware.volte.policy === 'enabled'
-                      ? '已开启'
-                      : '已关闭'
-                    : '状态未知'
-                }}
-              </strong>
-              <small>{{ readOnlyReason(hardware.capabilities.volte) }}</small>
+              <strong>{{ volteStatusLabel }}</strong>
+              <small>{{ volteStatusDetail }}</small>
             </div>
           </section>
         </template>
@@ -952,19 +988,38 @@ onMounted(() => {
 .module-toolbar h3,
 .configuration-section h4 {
   margin: 0;
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .module-toolbar span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .module-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr));
-  gap: 10px;
-  padding: 14px 0;
+  grid-auto-columns: min(420px, calc(100vw - 46px));
+  grid-auto-flow: column;
+  gap: 12px;
+  padding: 14px 1px 16px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+  scroll-snap-type: inline proximity;
+}
+
+.module-grid::-webkit-scrollbar {
+  height: 6px;
+}
+
+.module-grid::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
+}
+
+.module-grid > :deep(.module-card) {
+  scroll-snap-align: start;
 }
 
 .module-edit-row {
@@ -995,7 +1050,7 @@ onMounted(() => {
 .sim-form label > span,
 .configuration-control-row label > span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
 }
 
@@ -1012,6 +1067,7 @@ onMounted(() => {
   height: 36px;
   min-width: 0;
   padding: 0 9px;
+  font-size: 13px;
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border-strong);
@@ -1026,7 +1082,7 @@ onMounted(() => {
   justify-content: center;
   gap: 6px;
   padding: 0 11px;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 650;
   border-radius: 5px;
 }
@@ -1052,7 +1108,6 @@ onMounted(() => {
   display: flex;
   min-width: 0;
   overflow-x: auto;
-  border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
 
@@ -1064,13 +1119,50 @@ onMounted(() => {
   justify-content: center;
   gap: 6px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
   border-bottom: 2px solid transparent;
 }
 
 .device-tabs button.is-selected {
   color: var(--accent-strong);
+  background: var(--surface-selected);
   border-bottom-color: var(--accent);
+}
+
+.selected-module-context {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 13px 2px;
+  border-top: 1px solid var(--border-strong);
+  border-bottom: 1px solid var(--border);
+}
+
+.selected-module-context__identity {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.selected-module-context__identity > span,
+.selected-module-context__default {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.selected-module-context__identity > strong {
+  overflow: hidden;
+  font-size: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selected-module-context__default {
+  color: var(--accent-strong);
 }
 
 .device-configuration__body {
@@ -1097,24 +1189,14 @@ onMounted(() => {
 }
 
 .configuration-summary > header {
-  justify-content: space-between;
-}
-
-.configuration-summary > header > div {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  justify-content: flex-start;
 }
 
 .configuration-summary > header span {
+  margin-left: auto;
   color: var(--accent-strong);
-  font-size: 10px;
-}
-
-.configuration-summary > header > strong {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 650;
 }
 
 .configuration-summary dl,
@@ -1128,14 +1210,15 @@ onMounted(() => {
 .configuration-summary dt,
 .configuration-facts dt {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .configuration-summary dd,
 .configuration-facts dd {
   margin: 3px 0 0;
   overflow-wrap: anywhere;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .capability-grid {
@@ -1160,17 +1243,17 @@ onMounted(() => {
   align-items: center;
   gap: 6px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .capability-grid strong {
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .capability-grid small {
   overflow-wrap: anywhere;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .configuration-toggle,
@@ -1195,7 +1278,7 @@ onMounted(() => {
 .configuration-toggle small,
 .configuration-readonly small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .configuration-toggle__control {
@@ -1288,7 +1371,7 @@ onMounted(() => {
 .profile-list small,
 .profile-list > div > button > span:nth-child(2) {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .profile-list > div.is-selected {
@@ -1337,7 +1420,7 @@ onMounted(() => {
 .retry-row span {
   padding: 4px 7px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 12px;
   background: var(--surface-subtle);
   border-radius: 4px;
 }
@@ -1376,11 +1459,15 @@ onMounted(() => {
 
 .voice-status small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .voice-status.is-available {
   color: var(--accent-strong);
+}
+
+.voice-status.is-pending {
+  color: var(--muted-strong);
 }
 
 .inline-error,
@@ -1390,7 +1477,7 @@ onMounted(() => {
   gap: 7px;
   margin: 10px 0;
   color: var(--danger);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .inline-warning {
@@ -1413,14 +1500,14 @@ onMounted(() => {
 
 .ussd-status span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 pre {
   margin: 12px 0 0;
   padding: 10px;
   overflow: auto;
-  font-size: 11px;
+  font-size: 12px;
   white-space: pre-wrap;
   background: var(--surface-subtle);
   border: 1px solid var(--border);

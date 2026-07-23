@@ -2,7 +2,6 @@
 import {
   Activity,
   AlertTriangle,
-  CardSim,
   CheckCircle2,
   ChevronsDown,
   Database,
@@ -30,6 +29,7 @@ import type {
   LineSummary
 } from '../api/types'
 import { ApiError } from '../api/types'
+import { lineLabel } from '../state/workspace'
 import StatePanel from './StatePanel.vue'
 
 type SnapshotState = 'idle' | 'loading' | 'ready' | 'forbidden' | 'error'
@@ -133,17 +133,69 @@ const knownComponents = computed(() =>
   )
 )
 
-function lineLabel(line: LineSummary): string {
-  return line.device_alias || line.phone_number || line.operator || line.device_imei || line.id || '未命名模组'
-}
-
 function lineCapabilities(line: LineSummary) {
   return [
-    { name: 'Modem', available: line.capabilities?.modem === true },
-    { name: 'Voice', available: line.capabilities?.voice === true },
-    { name: 'SIM', available: line.capabilities?.sim === true },
-    { name: 'Messaging', available: line.capabilities?.messaging === true }
+    { name: '模组控制', available: line.capabilities?.modem === true },
+    { name: '语音通话', available: line.capabilities?.voice === true },
+    { name: 'SIM 卡', available: line.capabilities?.sim === true },
+    { name: '短信', available: line.capabilities?.messaging === true }
   ]
+}
+
+function lineStateLabel(state?: string): string {
+  switch (state?.toLowerCase()) {
+    case 'connected':
+      return '已连接'
+    case 'registered':
+      return '已驻网'
+    case 'enabled':
+      return '已启用'
+    case 'searching':
+      return '正在搜网'
+    case 'connecting':
+      return '正在连接'
+    case 'disconnecting':
+      return '正在断开'
+    case 'disabled':
+      return '已停用'
+    case 'disabling':
+      return '正在停用'
+    case 'enabling':
+      return '正在启用'
+    case 'locked':
+      return 'SIM 已锁定'
+    case 'failed':
+      return '异常'
+    case 'initializing':
+      return '正在初始化'
+    default:
+      return state || '状态未知'
+  }
+}
+
+function lineStateTone(state?: string): 'positive' | 'warning' | 'negative' | 'neutral' {
+  switch (state?.toLowerCase()) {
+    case 'connected':
+    case 'registered':
+      return 'positive'
+    case 'enabled':
+    case 'searching':
+    case 'connecting':
+    case 'disconnecting':
+    case 'disabling':
+    case 'enabling':
+    case 'initializing':
+      return 'warning'
+    case 'failed':
+    case 'locked':
+      return 'negative'
+    default:
+      return 'neutral'
+  }
+}
+
+function lineSignalLabel(line: LineSummary): string {
+  return line.signal_quality === undefined ? '未报告' : `${line.signal_quality}%`
 }
 
 function agentCapabilities() {
@@ -166,8 +218,50 @@ function callLineLabel(call: DiagnosticActiveCall): string {
   return line ? lineLabel(line) : call.line_id
 }
 
+function callDirectionLabel(direction: string): string {
+  if (direction === 'incoming') return '来电'
+  if (direction === 'outgoing') return '呼出'
+  return direction || '方向未知'
+}
+
+function callPhaseLabel(phase: string): string {
+  switch (phase) {
+    case 'dialing':
+      return '正在拨号'
+    case 'ringing':
+      return '正在响铃'
+    case 'connecting':
+      return '正在接通'
+    case 'active':
+      return '通话中'
+    case 'ending':
+      return '正在结束'
+    case 'ended':
+      return '已结束'
+    case 'failed':
+      return '失败'
+    default:
+      return phase || '状态未知'
+  }
+}
+
+function callBearerLabel(bearer: string): string {
+  switch (bearer.toLowerCase()) {
+    case 'volte':
+      return 'VoLTE'
+    case 'vowifi':
+      return 'VoWiFi'
+    case 'gsm':
+    case 'cs':
+    case 'circuit-switched':
+      return '传统蜂窝语音'
+    default:
+      return bearer || '承载未确认'
+  }
+}
+
 function audioDescription(call: DiagnosticActiveCall): string {
-  if (!call.media_available) return '音频不可用'
+  if (!call.media_available) return '音频通道未建立'
   const values = [
     call.audio_encoding,
     call.audio_resolution,
@@ -475,10 +569,10 @@ onBeforeUnmount(() => {
         </div>
 
         <dl class="agent-facts">
-          <div><dt>Provider</dt><dd>{{ snapshot.host_agent.provider || '—' }}</dd></div>
-          <div><dt>Agent</dt><dd>{{ snapshot.host_agent.agent_version || '—' }}</dd></div>
-          <div><dt>Runtime</dt><dd>{{ snapshot.host_agent.runtime_version || '—' }}</dd></div>
-          <div><dt>Revision</dt><dd>{{ snapshot.host_agent.revision || '—' }}</dd></div>
+          <div><dt>硬件服务</dt><dd>{{ snapshot.host_agent.provider || '—' }}</dd></div>
+          <div><dt>Agent 版本</dt><dd>{{ snapshot.host_agent.agent_version || '—' }}</dd></div>
+          <div><dt>运行时</dt><dd>{{ snapshot.host_agent.runtime_version || '—' }}</dd></div>
+          <div><dt>构建版本</dt><dd>{{ snapshot.host_agent.revision || '—' }}</dd></div>
         </dl>
         <div class="agent-capabilities">
           <span
@@ -511,15 +605,50 @@ onBeforeUnmount(() => {
         </header>
 
         <div v-if="snapshot.lines.length" class="line-grid">
-          <article v-for="line in snapshot.lines" :key="line.id || line.device_imei || line.iccid" class="line-status">
+          <article
+            v-for="line in snapshot.lines"
+            :key="line.id || line.device_imei || line.iccid"
+            class="line-status"
+          >
             <header>
               <span class="line-status__icon"><RadioTower :size="18" /></span>
               <span class="line-status__identity">
                 <strong>{{ lineLabel(line) }}</strong>
-                <small>{{ line.model || line.operator || line.device_imei || '未知型号' }}</small>
+                <small>{{ line.model || '型号未报告' }}</small>
               </span>
-              <span class="line-state">{{ line.state || 'unknown' }}</span>
+              <span
+                class="line-state"
+                :class="`is-${lineStateTone(line.state)}`"
+              >
+                {{ lineStateLabel(line.state) }}
+              </span>
             </header>
+            <dl class="line-facts">
+              <div>
+                <dt>运营商</dt>
+                <dd>{{ line.operator || '未识别' }}</dd>
+              </div>
+              <div>
+                <dt>网络状态</dt>
+                <dd>{{ lineStateLabel(line.state) }}</dd>
+              </div>
+              <div>
+                <dt>信号强度</dt>
+                <dd>{{ lineSignalLabel(line) }}</dd>
+              </div>
+              <div>
+                <dt>SIM ICCID</dt>
+                <dd>{{ line.iccid || '未报告' }}</dd>
+              </div>
+              <div>
+                <dt>模组 IMEI</dt>
+                <dd>{{ line.device_imei || '未报告' }}</dd>
+              </div>
+              <div>
+                <dt>固件版本</dt>
+                <dd>{{ line.firmware || '未报告' }}</dd>
+              </div>
+            </dl>
             <div class="capability-row">
               <span
                 v-for="capability in lineCapabilities(line)"
@@ -532,11 +661,6 @@ onBeforeUnmount(() => {
                 {{ capability.name }}
               </span>
             </div>
-            <footer>
-              <span v-if="line.signal_quality !== undefined">信号 {{ line.signal_quality }}%</span>
-              <span v-if="line.iccid"><CardSim :size="13" />{{ line.iccid }}</span>
-              <span v-if="line.device_imei">{{ line.device_imei }}</span>
-            </footer>
           </article>
         </div>
         <p v-else class="empty-row">Host agent 未返回线路</p>
@@ -554,7 +678,11 @@ onBeforeUnmount(() => {
             <span class="active-call__icon"><PhoneCall :size="18" /></span>
             <span class="active-call__identity">
               <strong>{{ callLineLabel(call) }}</strong>
-              <small>{{ call.direction }} · {{ call.phase }} · {{ call.bearer || 'bearer unknown' }}</small>
+              <small>
+                {{ callDirectionLabel(call.direction) }} ·
+                {{ callPhaseLabel(call.phase) }} ·
+                {{ callBearerLabel(call.bearer) }}
+              </small>
             </span>
             <span class="active-call__audio" :class="{ 'is-unavailable': !call.media_available }">
               <Volume2 :size="15" />
@@ -729,13 +857,13 @@ onBeforeUnmount(() => {
 .section-heading h3 {
   margin: 0;
   color: var(--text);
-  font-size: 14px;
+  font-size: 16px;
   text-transform: none;
 }
 
 .section-heading span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .overall-status,
@@ -745,7 +873,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   color: var(--accent-strong);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
 }
 
@@ -818,14 +946,14 @@ onBeforeUnmount(() => {
 .service-status strong {
   overflow: hidden;
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .service-status small {
   color: currentColor;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .agent-facts {
@@ -842,14 +970,15 @@ onBeforeUnmount(() => {
 
 .agent-facts dt {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .agent-facts dd {
   margin: 4px 0 0;
   overflow: hidden;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -874,7 +1003,7 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   gap: 7px;
   color: var(--danger);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
@@ -899,16 +1028,17 @@ onBeforeUnmount(() => {
 
 .line-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
-  gap: 10px;
-  padding-top: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
+  gap: 12px;
+  padding-top: 14px;
 }
 
 .line-status {
   min-width: 0;
-  padding: 13px;
+  padding: 15px 16px;
   background: var(--surface-subtle);
   border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
   border-radius: 6px;
 }
 
@@ -946,21 +1076,78 @@ onBeforeUnmount(() => {
 }
 
 .line-status__identity strong {
-  font-size: 12px;
+  font-size: 15px;
 }
 
 .line-status__identity small,
 .line-state {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .line-state {
   flex: 0 0 auto;
-  padding: 3px 6px;
+  padding: 4px 8px;
+  color: var(--muted);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 4px;
+  font-weight: 650;
+}
+
+.line-state.is-positive {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-color: #c8e5de;
+}
+
+.line-state.is-warning {
+  color: #7a5700;
+  background: #fff5d8;
+  border-color: #ead9a7;
+}
+
+.line-state.is-negative {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: #f0d2d6;
+}
+
+.line-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 14px 0 0;
+  border-top: 1px solid var(--border);
+}
+
+.line-facts > div {
+  min-width: 0;
+  padding: 11px 10px 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.line-facts > div:nth-child(even) {
+  padding-right: 0;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}
+
+.line-facts dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.line-facts dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.line-facts > div:nth-child(n + 4) dd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .capability-row {
@@ -977,7 +1164,7 @@ onBeforeUnmount(() => {
   gap: 5px;
   padding: 3px 7px;
   color: var(--danger);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
   background: var(--danger-soft);
   border: 1px solid #f0d2d6;
@@ -988,25 +1175,6 @@ onBeforeUnmount(() => {
   color: var(--accent-strong);
   background: var(--accent-soft);
   border-color: #c8e5de;
-}
-
-.line-status footer {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  gap: 6px 12px;
-  margin-top: 11px;
-  color: var(--muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 9px;
-}
-
-.line-status footer span {
-  display: inline-flex;
-  min-width: 0;
-  align-items: center;
-  gap: 4px;
-  overflow-wrap: anywhere;
 }
 
 .active-call-list {
@@ -1048,12 +1216,12 @@ onBeforeUnmount(() => {
 }
 
 .active-call__identity strong {
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .active-call__identity small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .active-call__audio {
@@ -1061,7 +1229,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 5px;
   color: var(--accent-strong);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
 }
 
@@ -1073,7 +1241,7 @@ onBeforeUnmount(() => {
   min-height: 56px;
   padding: 20px 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .log-heading {
@@ -1109,7 +1277,7 @@ onBeforeUnmount(() => {
   gap: 5px;
   padding: 0 7px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -1142,7 +1310,7 @@ onBeforeUnmount(() => {
 
 .log-filters select {
   padding: 0 9px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .filter-input {
@@ -1157,7 +1325,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   flex: 1;
   padding: 0;
-  font-size: 11px;
+  font-size: 12px;
   background: transparent;
   border: 0;
 }
@@ -1165,7 +1333,7 @@ onBeforeUnmount(() => {
 .log-notice {
   padding-bottom: 8px;
   color: #946200;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .log-viewport {
@@ -1185,7 +1353,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   gap: 7px;
   color: #8d99a8;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .log-entry {
@@ -1196,7 +1364,7 @@ onBeforeUnmount(() => {
   padding: 7px 10px;
   color: #d8dee7;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
   border-bottom: 1px solid #252d38;
 }
@@ -1297,6 +1465,15 @@ onBeforeUnmount(() => {
   .agent-facts,
   .log-filters {
     grid-template-columns: 1fr;
+  }
+
+  .line-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .line-facts > div:nth-child(even) {
+    padding-left: 0;
+    border-left: 0;
   }
 
   .active-call {

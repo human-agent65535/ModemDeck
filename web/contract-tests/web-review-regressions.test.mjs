@@ -9,6 +9,7 @@ async function source(path) {
 test('dialing and messages resolve context, contact, and global default lines', async () => {
   const dialer = await source('../src/components/DialerPanel.vue')
   const messages = await source('../src/views/MessagesView.vue')
+  const lineSelector = await source('../src/components/LineSelector.vue')
   const workspace = await source('../src/state/workspace.ts')
 
   assert.match(workspace, /export function resolveLine\(/)
@@ -20,15 +21,17 @@ test('dialing and messages resolve context, contact, and global default lines', 
   assert.match(dialer, /contextKey: draftContextLineKey\.value/)
   assert.match(dialer, /lineSelectionOverridden/)
   assert.match(dialer, /\(!selectedLineId\.value \? '选择线路' : ''\)/)
-  assert.match(dialer, /<option value="" disabled>选择线路<\/option>/)
+  assert.match(dialer, /<LineSelector/)
   assert.doesNotMatch(dialer, /lines\.length === 1/)
 
   assert.match(messages, /resolveLine\('message'/)
   assert.match(messages, /contextKey: composeContextLineKey\.value/)
   assert.match(messages, /threadUsesLine\(thread, line\)/)
   assert.match(messages, /if \(!activeLineID\.value && !activeICCID\.value\) return '请选择线路'/)
-  assert.match(messages, /<option value="" disabled>选择线路<\/option>/)
+  assert.match(messages, /<LineSelector/)
   assert.doesNotMatch(messages, /lines\.length === 1/)
+  assert.match(lineSelector, /<option v-else value="" disabled>/)
+  assert.match(lineSelector, /v-for="line in lines"/)
 })
 
 test('every dialer request has a monotonic event revision even for the same number', async () => {

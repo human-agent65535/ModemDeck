@@ -11,6 +11,7 @@ import type {
   Device,
   LineSummary,
   Message,
+  MessageReadInput,
   MessageThread,
   Resource,
   RenameDeviceInput,
@@ -50,7 +51,29 @@ export const callsResource = resource<CallRecord[]>([])
 export const devicesResource = resource<Device[]>([])
 export const telegramResource = resource<TelegramUnit[]>([])
 export const messageResources = reactive<Record<string, Resource<Message[]>>>({})
+export const threadReadErrors = reactive<Record<string, string>>({})
 export const contactEditingAvailable = gateway.interactions.contacts
+
+let threadsLoad: Promise<MessageThread[] | null> | undefined
+const messageLoads = new Map<string, Promise<Message[] | null>>()
+
+export function createMessageReadCoordinator(
+  request: (input: MessageReadInput) => Promise<void>
+): (input: MessageReadInput) => Promise<void> {
+  const requests = new Map<string, Promise<void>>()
+  return input => {
+    const key = `${input.iccid}\u0000${input.peer}`
+    const pending = requests.get(key)
+    if (pending) return pending
+    const operation = request(input).finally(() => {
+      if (requests.get(key) === operation) requests.delete(key)
+    })
+    requests.set(key, operation)
+    return operation
+  }
+}
+
+const requestThreadRead = createMessageReadCoordinator(input => gateway.markThreadRead(input))
 
 export function capabilityReason(capability: 'dial' | 'message'): string {
   const bootstrap = bootstrapResource.data
@@ -68,7 +91,7 @@ export function lineKey(line: LineSummary): string {
 }
 
 export function lineLabel(line: LineSummary): string {
-  return line.device_alias || line.phone_number || line.operator || lineKey(line)
+  return line.device_alias || line.model || line.phone_number || line.operator || lineKey(line)
 }
 
 export function lineName(key: string): string {
@@ -151,7 +174,11 @@ export function loadContacts(force = false): Promise<Contact[] | null> {
 
 export function loadThreads(force = false): Promise<MessageThread[] | null> {
   if (!force && threadsResource.status === 'ready') return Promise.resolve(threadsResource.data)
-  return load(threadsResource, () => gateway.listThreads())
+  if (threadsLoad) return threadsLoad
+  threadsLoad = load(threadsResource, () => gateway.listThreads()).finally(() => {
+    threadsLoad = undefined
+  })
+  return threadsLoad
 }
 
 export function loadCalls(force = false, filter: CallFilter = 'all'): Promise<CallRecord[] | null> {
@@ -206,20 +233,53 @@ export async function loadMessages(
   force = false
 ): Promise<Message[] | null> {
   const target = messagesFor(thread.key)
-  const messages =
-    !force && target.status === 'ready'
-      ? target.data
-      : await load(target, () => gateway.listMessages({ iccid: thread.iccid, peer: thread.peer }))
-  if (messages && thread.unread_count > 0) {
-    threadsResource.error = ''
-    try {
-      await gateway.markThreadRead({ iccid: thread.iccid, peer: thread.peer })
-      thread.unread_count = 0
-    } catch (error) {
-      threadsResource.error = errorText(error)
+  if (!force && target.status === 'ready') return target.data
+  const pending = messageLoads.get(thread.key)
+  if (pending) return pending
+  const operation = load(target, () =>
+    gateway.listMessages({ iccid: thread.iccid, peer: thread.peer })
+  ).finally(() => {
+    if (messageLoads.get(thread.key) === operation) messageLoads.delete(thread.key)
+  })
+  messageLoads.set(thread.key, operation)
+  return operation
+}
+
+function messageReadError(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.code === 'authentication_required' || error.code === 'csrf_failed') {
+      return '无法标记已读：登录校验已失效，请刷新页面后重试'
+    }
+    if (error.code === 'message_thread_not_found') {
+      return '无法标记已读：这段会话已不存在，请刷新消息列表'
+    }
+    if (error.code === 'message_thread_identity_invalid') {
+      return '无法标记已读：线路身份不明确，请刷新消息列表'
+    }
+    if (error.code === 'internal_error') {
+      return '无法标记已读：服务端未能保存状态，请稍后重试'
     }
   }
-  return messages
+  return `无法标记已读：${errorText(error)}`
+}
+
+export async function markThreadRead(thread: MessageThread): Promise<boolean> {
+  if (thread.unread_count <= 0) return true
+  const key = thread.key
+  threadReadErrors[key] = ''
+  try {
+    await requestThreadRead({ iccid: thread.iccid, peer: thread.peer })
+  } catch (error) {
+    threadReadErrors[key] = messageReadError(error)
+    return false
+  }
+
+  const current = threadsResource.data.find(
+    item => item.key === key && item.iccid === thread.iccid && item.peer === thread.peer
+  )
+  if (current) current.unread_count = 0
+  delete threadReadErrors[key]
+  return true
 }
 
 export async function updateDefaultLine(deviceIMEI: string): Promise<void> {

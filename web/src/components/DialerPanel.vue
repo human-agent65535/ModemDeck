@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Circle, Delete, LoaderCircle, Phone, X } from '@lucide/vue'
+import {
+  Circle,
+  Delete,
+  LoaderCircle,
+  Phone,
+  X
+} from '@lucide/vue'
 import { callState, dial } from '../state/call'
 import { closeDialer, uiState } from '../state/ui'
 import {
@@ -14,12 +20,12 @@ import {
   capabilityReason,
   contactsResource,
   lineKey,
-  lineLabel,
   lineSupports,
   loadContacts,
   resolveLine
 } from '../state/workspace'
 import ContactSuggestInput from './ContactSuggestInput.vue'
+import LineSelector from './LineSelector.vue'
 
 withDefaults(
   defineProps<{
@@ -261,17 +267,6 @@ onBeforeUnmount(clearZeroHold)
         >
           <header class="tool-header dialer-toolbar">
             <h2>拨号</h2>
-            <label v-if="lines.length > 0" class="dialer-line-picker">
-              <span>线路</span>
-              <select v-model="selectedLineId" aria-label="通话线路" @change="changeLine">
-                <option value="" disabled>选择线路</option>
-                <option v-for="line in lines" :key="lineKey(line)" :value="lineKey(line)">
-                  {{ lineLabel(line) }}{{ line.phone_number ? ` · ${line.phone_number}` : '' }}{{
-                    lineSupports(line, 'dial') === false ? ' · 不支持拨号' : ''
-                  }}
-                </option>
-              </select>
-            </label>
             <span class="dialer-header-actions">
               <button
                 v-if="!permanent"
@@ -287,6 +282,18 @@ onBeforeUnmount(clearZeroHold)
           </header>
 
           <div class="dialer-panel__body">
+            <div v-if="lines.length > 0" class="dialer-line-switcher">
+              <LineSelector
+                v-model="selectedLineId"
+                :lines="lines"
+                :default-device-imei="defaultLineDeviceIMEI"
+                label="通话线路"
+                capability="dial"
+                unavailable-label="不支持拨号"
+                @change="changeLine"
+              />
+            </div>
+
             <div class="dialer-number-entry">
               <ContactSuggestInput
                 v-model="number"
@@ -396,32 +403,12 @@ onBeforeUnmount(clearZeroHold)
 }
 
 .dialer-toolbar {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 10px;
+  display: flex;
 }
 
-.dialer-line-picker {
-  display: grid;
-  min-width: 0;
-  align-items: center;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 6px;
-  color: var(--muted);
-  font-size: 10px;
-}
-
-.dialer-line-picker select {
-  width: 100%;
-  min-width: 0;
-  height: 30px;
-  padding: 0 25px 0 8px;
-  overflow: hidden;
-  color: var(--text);
-  text-overflow: ellipsis;
-  background: var(--background);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+.dialer-line-switcher {
+  padding-bottom: 13px;
+  border-bottom: 1px solid var(--border);
 }
 
 .dialer-panel__body {
@@ -431,7 +418,7 @@ onBeforeUnmount(clearZeroHold)
 
 .dialer-number-entry {
   position: relative;
-  padding: 4px 0 8px;
+  padding: 14px 0 8px;
 }
 
 .dialer-number-entry :deep(.suggest-input__field) {
@@ -450,7 +437,7 @@ onBeforeUnmount(clearZeroHold)
   margin: 6px 2px 0;
   overflow: hidden;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -476,7 +463,7 @@ onBeforeUnmount(clearZeroHold)
 
 .dialer-recording__identity strong {
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .keypad__key {
@@ -524,7 +511,7 @@ onBeforeUnmount(clearZeroHold)
 .dialer-recording__error {
   margin-top: 7px;
   color: var(--danger);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 </style>

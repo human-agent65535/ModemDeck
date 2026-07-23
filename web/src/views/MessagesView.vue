@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, LoaderCircle, MessageSquarePlus, Phone, Send } from '@lucide/vue'
+import { ArrowLeft, LoaderCircle, MessageSquarePlus, Phone, RadioTower, Send } from '@lucide/vue'
 import type { Contact, LineSummary, MessageThread } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
 import ContactSuggestInput from '../components/ContactSuggestInput.vue'
+import LineSelector from '../components/LineSelector.vue'
 import SearchField from '../components/SearchField.vue'
 import StatePanel from '../components/StatePanel.vue'
 import { openDialer } from '../state/ui'
@@ -19,9 +20,11 @@ import {
   loadContacts,
   loadMessages,
   loadThreads,
+  markThreadRead,
   messagesFor,
   resolveLine,
   sendMessage,
+  threadReadErrors,
   threadsResource
 } from '../state/workspace'
 import { formatRelativeDate } from '../utils/format'
@@ -46,6 +49,9 @@ const selectedThread = computed(() =>
 )
 const currentMessages = computed(() =>
   selectedKey.value ? messagesFor(selectedKey.value) : null
+)
+const selectedReadError = computed(() =>
+  selectedThread.value ? threadReadErrors[selectedThread.value.key] || '' : ''
 )
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const defaultLineDeviceIMEI = computed(
@@ -97,6 +103,8 @@ const sendDisabledReason = computed(() => {
 })
 
 let lineSelectionOverridden = false
+let openedThreadKey = ''
+let attemptedReadKey = ''
 
 function threadUsesLine(thread: MessageThread, line: LineSummary): boolean {
   return Boolean(
@@ -108,6 +116,23 @@ function threadUsesLine(thread: MessageThread, line: LineSummary): boolean {
 
 function lineForThread(thread?: MessageThread): LineSummary | undefined {
   return thread ? lines.value.find(line => threadUsesLine(thread, line)) : undefined
+}
+
+function isDefaultLine(line: LineSummary): boolean {
+  return Boolean(
+    line.device_imei && line.device_imei === bootstrapResource.data?.line_settings.default_device_imei
+  )
+}
+
+function lineDetails(line: LineSummary): string {
+  const name = lineLabel(line)
+  return [
+    line.phone_number,
+    line.operator && line.operator !== name ? line.operator : '',
+    isDefaultLine(line) ? '默认线路' : ''
+  ]
+    .filter(Boolean)
+    .join(' · ')
 }
 
 function syncComposeLine(force = false): void {
@@ -141,7 +166,7 @@ watch(
 
 watch(
   () => [route.params.threadKey, route.query.compose] as const,
-  ([routeThreadKey, compose]) => {
+  ([, compose]) => {
     if (typeof compose === 'string') {
       composingNew.value = true
       newRecipient.value = compose
@@ -155,21 +180,28 @@ watch(
     }
     composingNew.value = false
     composeContextLineKey.value = ''
-    if (typeof routeThreadKey === 'string' && routeThreadKey) {
-      const thread = threadsResource.data.find(item => item.key === routeThreadKey)
-      if (thread) void loadMessages(thread).then(() => scrollToEnd())
-    }
   },
   { immediate: true }
 )
 
 watch(
-  () => threadsResource.status,
-  status => {
-    if (status !== 'ready' || !selectedKey.value) return
+  () =>
+    [
+      selectedKey.value,
+      selectedThread.value?.last_timestamp || '',
+      selectedThread.value?.unread_count || 0,
+      composingNew.value
+    ] as const,
+  () => {
+    if (composingNew.value || !selectedKey.value) {
+      openedThreadKey = ''
+      attemptedReadKey = ''
+      return
+    }
     const thread = selectedThread.value
-    if (thread) void loadMessages(thread).then(() => scrollToEnd())
-  }
+    if (thread) void openThread(thread)
+  },
+  { immediate: true }
 )
 
 watch(
@@ -179,6 +211,31 @@ watch(
 
 function scrollToEnd(): void {
   void nextTick(() => messagesEnd.value?.scrollIntoView({ block: 'end' }))
+}
+
+async function openThread(thread: MessageThread, force = false): Promise<void> {
+  if (openedThreadKey !== thread.key) {
+    openedThreadKey = thread.key
+    attemptedReadKey = ''
+  }
+  const messages = await loadMessages(thread, force)
+  if (!messages || composingNew.value || selectedKey.value !== thread.key) return
+
+  const current = selectedThread.value
+  if (current?.unread_count) {
+    const readKey = `${current.key}\u0000${current.last_timestamp}\u0000${current.unread_count}`
+    if (readKey !== attemptedReadKey) {
+      attemptedReadKey = readKey
+      await markThreadRead(current)
+    }
+  }
+  scrollToEnd()
+}
+
+function retryThreadRead(): void {
+  attemptedReadKey = ''
+  const thread = selectedThread.value
+  if (thread) void openThread(thread)
 }
 
 function chooseThread(key: string): void {
@@ -284,17 +341,17 @@ onMounted(() => {
       </header>
       <div class="pane-search">
         <SearchField v-model="search" placeholder="搜索对话" />
-        <select
+        <LineSelector
           v-if="lines.length > 1"
           v-model="lineFilterKey"
           class="message-line-filter"
-          aria-label="按模组筛选消息"
-        >
-          <option value="all">全部模组</option>
-          <option v-for="line in lines" :key="lineKey(line)" :value="lineKey(line)">
-            {{ lineLabel(line) }}
-          </option>
-        </select>
+          :lines="lines"
+          :default-device-imei="defaultLineDeviceIMEI"
+          label="消息线路"
+          include-all
+          all-label="全部线路"
+          all-description="显示所有模组的对话"
+        />
       </div>
       <p
         v-if="threadsResource.status === 'ready' && threadsResource.error"
@@ -384,6 +441,10 @@ onMounted(() => {
         </header>
 
         <div class="messages-scroll">
+          <p v-if="selectedReadError" class="message-read-error" role="alert">
+            <span>{{ selectedReadError }}</span>
+            <button type="button" @click="retryThreadRead">重试</button>
+          </p>
           <StatePanel
             v-if="!composingNew && currentMessages?.status === 'loading'"
             state="loading"
@@ -401,7 +462,7 @@ onMounted(() => {
             title="无法载入对话"
             :detail="currentMessages.error"
             retryable
-            @retry="selectedThread && loadMessages(selectedThread, true)"
+            @retry="selectedThread && openThread(selectedThread, true)"
           />
           <StatePanel
             v-else-if="!composingNew && currentMessages?.status === 'ready' && currentMessages.data.length === 0"
@@ -434,21 +495,25 @@ onMounted(() => {
         </div>
 
         <footer class="message-composer">
-          <label v-if="composingNew && lines.length > 0" class="compact-select">
-            <span>线路</span>
-            <select v-model="selectedLineKey" aria-label="消息线路" @change="changeComposeLine">
-              <option value="" disabled>选择线路</option>
-              <option v-for="line in lines" :key="lineKey(line)" :value="lineKey(line)">
-                {{ lineLabel(line) }}{{
-                  lineSupports(line, 'message') === false ? ' · 不支持消息' : ''
-                }}
-              </option>
-            </select>
-          </label>
+          <LineSelector
+            v-if="composingNew && lines.length > 0"
+            v-model="selectedLineKey"
+            class="message-line-select"
+            :lines="lines"
+            :default-device-imei="defaultLineDeviceIMEI"
+            label="发送线路"
+            capability="message"
+            unavailable-label="不支持消息"
+            @change="changeComposeLine"
+          />
           <p v-else-if="composingNew" class="unavailable-note">没有可用线路</p>
-          <span v-else-if="activeLine" class="message-line-context">
-            {{ lineLabel(activeLine) }}
-          </span>
+          <div v-else-if="activeLine" class="message-line-context" aria-label="当前回复线路">
+            <RadioTower :size="18" />
+            <span>
+              <strong>{{ lineLabel(activeLine) }}</strong>
+              <span v-if="lineDetails(activeLine)">{{ lineDetails(activeLine) }}</span>
+            </span>
+          </div>
           <div class="composer-row">
             <textarea
               v-model="draft"
@@ -486,23 +551,66 @@ onMounted(() => {
   gap: 8px;
 }
 
-.message-line-filter {
-  width: 100%;
-  min-height: 34px;
-  padding: 0 9px;
-  color: var(--text);
-  font-size: 11px;
-  background: var(--surface-subtle);
-  border: 1px solid var(--border);
-  border-radius: 5px;
+.message-line-select {
+  margin-bottom: 10px;
 }
 
 .message-line-context {
-  display: inline-flex;
+  display: flex;
+  min-width: 0;
+  min-height: 44px;
   align-items: center;
-  min-height: 24px;
+  gap: 9px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border: 1px solid rgb(17 120 100 / 20%);
+  border-radius: 7px;
+}
+
+.message-line-context > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.message-line-context strong,
+.message-line-context span span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-line-context strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.message-line-context span span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
+}
+
+.message-read-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  color: var(--danger);
+  font-size: 13px;
+  background: #fff4f4;
+  border: 1px solid #f2caca;
+  border-radius: 7px;
+}
+
+.message-read-error button {
+  flex: 0 0 auto;
+  color: var(--danger);
+  font-weight: 700;
 }
 
 .pane-error {
