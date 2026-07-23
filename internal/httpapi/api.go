@@ -8,9 +8,12 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/human-agent65535/modemdeck/internal/agentclient"
 	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/communication"
+	"github.com/human-agent65535/modemdeck/internal/recording"
 	"github.com/human-agent65535/modemdeck/internal/store"
+	"github.com/human-agent65535/modemdeck/internal/telegramsettings"
 )
 
 var (
@@ -66,9 +69,60 @@ type CommunicationService interface {
 	ActiveCalls(context.Context) ([]store.Call, error)
 }
 
+type DeviceConfigurationService interface {
+	DeviceConfiguration(context.Context, string) (agentclient.DeviceConfiguration, error)
+	ApplyDeviceConfiguration(
+		context.Context,
+		string,
+		agentclient.ApplyDeviceConfigurationRequest,
+	) (agentclient.DeviceConfiguration, error)
+}
+
+type CallPolicyService interface {
+	GlobalCallSettings(context.Context) (store.GlobalCallSettings, error)
+	UpdateGlobalCallSettings(context.Context, bool, int64) (store.GlobalCallSettings, error)
+	LineCallPolicy(context.Context, string) (store.LineCallPolicy, error)
+	UpdateLineCallPolicy(
+		context.Context,
+		string,
+		store.LineCallPolicyValue,
+		int64,
+	) (store.LineCallPolicy, error)
+	EffectiveCallPolicy(context.Context, string) (store.EffectiveCallPolicy, error)
+	CallPolicyConfiguration(context.Context, string) (store.CallPolicyConfiguration, error)
+	LatestIncomingCallAction(context.Context, string) (*store.IncomingCallAction, error)
+}
+
+type TelegramSettingsService interface {
+	List(context.Context) ([]telegramsettings.Unit, error)
+	Create(context.Context, telegramsettings.CreateInput) (telegramsettings.Unit, error)
+	Update(context.Context, string, telegramsettings.UpdateInput) (telegramsettings.Unit, error)
+	Delete(context.Context, string, int64) error
+}
+
+type CallMediaService interface {
+	Exchange(context.Context, string, string) (string, error)
+	CloseCall(context.Context, string) error
+}
+
+type RecordingService interface {
+	Settings(context.Context) (store.RecordingSettings, error)
+	UpdateSettings(context.Context, bool, int64) (store.RecordingSettings, error)
+	PrepareOutgoing(context.Context, string, bool) (string, error)
+	CallRecordings(context.Context, string) (recording.CallRecordings, error)
+	SetEnabled(context.Context, string, bool) (store.CallRecordingState, error)
+	Download(context.Context, string, string) (recording.Download, error)
+	FinalizeCall(context.Context, string) error
+}
+
 type Options struct {
 	Capabilities          CapabilitySource
 	Communications        CommunicationService
+	DeviceConfigurations  DeviceConfigurationService
+	CallPolicies          CallPolicyService
+	CallMedia             CallMediaService
+	Recording             RecordingService
+	TelegramSettings      TelegramSettingsService
 	Authenticator         Authenticator
 	AdminUsername         string
 	SecureCookies         bool
@@ -78,15 +132,20 @@ type Options struct {
 }
 
 type API struct {
-	repository     Repository
-	capabilities   CapabilitySource
-	communications CommunicationService
-	authenticator  Authenticator
-	adminUsername  string
-	secureCookies  bool
-	loginSlots     chan struct{}
-	logger         *slog.Logger
-	web            http.Handler
+	repository           Repository
+	capabilities         CapabilitySource
+	communications       CommunicationService
+	deviceConfigurations DeviceConfigurationService
+	callPolicies         CallPolicyService
+	callMedia            CallMediaService
+	recordings           RecordingService
+	telegram             TelegramSettingsService
+	authenticator        Authenticator
+	adminUsername        string
+	secureCookies        bool
+	loginSlots           chan struct{}
+	logger               *slog.Logger
+	web                  http.Handler
 }
 
 func New(repository Repository, options Options) (*API, error) {
@@ -105,15 +164,20 @@ func New(repository Repository, options Options) (*API, error) {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	return &API{
-		repository:     repository,
-		capabilities:   options.Capabilities,
-		communications: options.Communications,
-		authenticator:  options.Authenticator,
-		adminUsername:  adminUsername,
-		secureCookies:  options.SecureCookies,
-		loginSlots:     make(chan struct{}, 2),
-		logger:         logger,
-		web:            options.Web,
+		repository:           repository,
+		capabilities:         options.Capabilities,
+		communications:       options.Communications,
+		deviceConfigurations: options.DeviceConfigurations,
+		callPolicies:         options.CallPolicies,
+		callMedia:            options.CallMedia,
+		recordings:           options.Recording,
+		telegram:             options.TelegramSettings,
+		authenticator:        options.Authenticator,
+		adminUsername:        adminUsername,
+		secureCookies:        options.SecureCookies,
+		loginSlots:           make(chan struct{}, 2),
+		logger:               logger,
+		web:                  options.Web,
 	}, nil
 }
 
@@ -156,6 +220,12 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.getOnly(response, request, api.activeCalls)
 	case "/api/v1/devices":
 		api.getOnly(response, request, api.devices)
+	case "/api/v1/settings/telegram":
+		api.telegramCollection(response, request)
+	case "/api/v1/settings/calls":
+		api.callSettings(response, request)
+	case "/api/v1/settings/recording":
+		api.recordingSettings(response, request)
 	default:
 		if id, ok := contactResourceID(request.URL.Path); ok {
 			api.contactResource(response, request, id)
@@ -163,6 +233,22 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		}
 		if id, action, ok := callActionResource(request.URL.Path); ok {
 			api.callAction(response, request, id, action)
+			return
+		}
+		if id, ok := callMediaResourceID(request.URL.Path); ok {
+			api.callMediaExchange(response, request, id)
+			return
+		}
+		if resource, ok := parseRecordingResource(request.URL.Path); ok {
+			api.recordingResource(response, request, resource)
+			return
+		}
+		if id, ok := telegramResourceID(request.URL.Path); ok {
+			api.telegramResource(response, request, id)
+			return
+		}
+		if id, ok := deviceConfigurationResourceID(request.URL.Path); ok {
+			api.deviceConfiguration(response, request, id)
 			return
 		}
 		writeError(response, http.StatusNotFound, "not_found", "API endpoint was not found", "")
@@ -213,6 +299,9 @@ func (api *API) bootstrap(response http.ResponseWriter, request *http.Request) {
 		capabilities = disconnectedCapabilities()
 	}
 	capabilities = gateCapabilities(capabilities)
+	if capabilities.AgentConnected && api.callMedia != nil {
+		capabilities.WebRTCAudio = true
+	}
 	writeJSON(response, http.StatusOK, bootstrapResponse{
 		Capabilities: capabilities,
 		Lines:        lines,
@@ -467,7 +556,6 @@ func (api *API) devices(response http.ResponseWriter, request *http.Request) {
 	}
 	writeJSON(response, http.StatusOK, devicesResponse{
 		Devices: devices,
-		Meta:    responseMeta{Limit: store.MaxQueryLimit},
 	})
 }
 

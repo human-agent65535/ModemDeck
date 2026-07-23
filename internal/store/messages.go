@@ -95,8 +95,21 @@ func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, er
 		imsi, iccid, peer, local_phone, sender, recipient,
 		content, type, status, state, failure_code, revision, timestamp, created_at
 		FROM sms`
-	conditions := make([]string, 0, 2)
-	arguments := make([]any, 0, 3)
+	conditions := make([]string, 0, 3)
+	arguments := make([]any, 0, 4)
+	if len(query.LineIDs) > 0 {
+		lineIDs := uniqueNonEmptyStrings(query.LineIDs)
+		if len(lineIDs) == 0 {
+			return []Message{}, nil
+		}
+		if len(lineIDs) > MaxQueryLimit {
+			return nil, fmt.Errorf("query messages: too many line IDs")
+		}
+		conditions = append(conditions, "line_id IN ("+placeholders(len(lineIDs))+")")
+		for _, lineID := range lineIDs {
+			arguments = append(arguments, lineID)
+		}
+	}
 	if iccid := strings.TrimSpace(query.ICCID); iccid != "" {
 		conditions = append(conditions, "iccid = ?")
 		arguments = append(arguments, iccid)
@@ -160,4 +173,21 @@ func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, er
 		messages = append(messages, message)
 	}
 	return messages, rowsError("read messages", rows.Err())
+}
+
+func uniqueNonEmptyStrings(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }

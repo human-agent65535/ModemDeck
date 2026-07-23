@@ -1,0 +1,177 @@
+package callmedia
+
+import (
+	"context"
+	"errors"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+func TestMediaHubStartsEndpointOnlyWhenConsumerStarts(t *testing.T) {
+	format := testFormat(8000)
+	endpoint := newFakeEndpoint(format)
+	hub, err := newMediaHub(context.Background(), "call-start", endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+		defer cancel()
+		if err := hub.Close(ctx); err != nil {
+			t.Errorf("close hub: %v", err)
+		}
+	})
+	first, err := hub.Subscribe(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	second, err := hub.Subscribe(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+
+	time.Sleep(20 * time.Millisecond)
+	if got := endpoint.startCalls.Load(); got != 0 {
+		t.Fatalf("endpoint starts after open = %d, want 0", got)
+	}
+	if err := first.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := endpoint.startCalls.Load(); got != 1 {
+		t.Fatalf("endpoint starts = %d, want 1", got)
+	}
+
+	downlink := make([]byte, format.FrameBytes())
+	downlink[0] = 0x42
+	endpoint.read <- downlink
+	frame, err := first.Next(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if frame.Sequence != 1 || frame.DownlinkPCM[0] != 0x42 {
+		t.Fatalf("duplex frame = %+v", frame)
+	}
+}
+
+func TestMediaHubStartFailureIsTerminal(t *testing.T) {
+	endpoint := newFakeEndpoint(testFormat(8000))
+	endpoint.startErr = errors.New("start failed")
+	hub, err := newMediaHub(context.Background(), "call-start-failed", endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscription, err := hub.Subscribe(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscription.Start(context.Background()); !errors.Is(err, ErrEndpointIO) {
+		t.Fatalf("Start() error = %v, want ErrEndpointIO", err)
+	}
+	select {
+	case <-hub.Done():
+	case <-time.After(testTimeout):
+		t.Fatal("failed hub did not close")
+	}
+	if got := endpoint.startCalls.Load(); got != 1 {
+		t.Fatalf("endpoint starts = %d, want 1", got)
+	}
+	if got := endpoint.closeCalls.Load(); got != 1 {
+		t.Fatalf("endpoint closes = %d, want 1", got)
+	}
+}
+
+func TestMediaHubStartIsOwnedByCallLifetime(t *testing.T) {
+	format := testFormat(8000)
+	endpoint := &blockingStartEndpoint{
+		fakeEndpoint: newFakeEndpoint(format),
+		started:      make(chan struct{}),
+		release:      make(chan struct{}),
+	}
+	hub, err := newMediaHub(context.Background(), "call-shared-start", endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := hub.Subscribe(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := hub.Subscribe(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstContext, cancelFirst := context.WithCancel(context.Background())
+	firstResult := make(chan error, 1)
+	go func() {
+		firstResult <- first.Start(firstContext)
+	}()
+	receive(t, endpoint.started)
+	cancelFirst()
+	if err := receive(t, firstResult); !errors.Is(err, ErrCanceled) {
+		t.Fatalf("first Start() error = %v, want ErrCanceled", err)
+	}
+	close(endpoint.release)
+	if err := second.Start(context.Background()); err != nil {
+		t.Fatalf("second Start() error = %v", err)
+	}
+	if got := endpoint.calls.Load(); got != 1 {
+		t.Fatalf("endpoint Start() calls = %d, want 1", got)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	if err := hub.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type blockingStartEndpoint struct {
+	*fakeEndpoint
+	started chan struct{}
+	release chan struct{}
+	calls   atomic.Int32
+}
+
+func (e *blockingStartEndpoint) Start(ctx context.Context) error {
+	e.calls.Add(1)
+	close(e.started)
+	select {
+	case <-e.release:
+		return e.fakeEndpoint.Start(ctx)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func TestMediaHubUplinkBackpressureFailsAllConsumers(t *testing.T) {
+	format := testFormat(8000)
+	endpoint := newFakeEndpoint(format)
+	endpoint.writes = make(chan []byte, uplinkQueueCapacity+1)
+	hub, err := newMediaHub(context.Background(), "call-backpressure", endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscription, err := hub.Subscribe(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscription.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	frame := make([]byte, format.FrameBytes())
+	for index := 0; index < uplinkQueueCapacity; index++ {
+		if err := hub.WritePCM(context.Background(), frame); err != nil {
+			t.Fatalf("WritePCM(%d) error = %v", index, err)
+		}
+	}
+	if err := hub.WritePCM(context.Background(), frame); !errors.Is(err, ErrBackpressure) {
+		t.Fatalf("overflow WritePCM() error = %v, want ErrBackpressure", err)
+	}
+	if _, err := subscription.Next(context.Background()); !errors.Is(err, ErrBackpressure) {
+		t.Fatalf("subscription error = %v, want ErrBackpressure", err)
+	}
+}

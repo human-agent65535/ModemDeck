@@ -10,12 +10,15 @@ import (
 type ErrorCode string
 
 const (
-	CodeInvalidArgument ErrorCode = "invalid_argument"
-	CodeNotFound        ErrorCode = "not_found"
-	CodeConflict        ErrorCode = "conflict"
-	CodeNotSupported    ErrorCode = "not_supported"
-	CodeUnavailable     ErrorCode = "unavailable"
-	CodeInternal        ErrorCode = "internal"
+	CodeInvalidArgument    ErrorCode = "invalid_argument"
+	CodeNotFound           ErrorCode = "not_found"
+	CodeConflict           ErrorCode = "conflict"
+	CodeNotSupported       ErrorCode = "not_supported"
+	CodeFailedPrecondition ErrorCode = "failed_precondition"
+	CodeNetworkRejected    ErrorCode = "network_rejected"
+	CodeUnavailable        ErrorCode = "unavailable"
+	CodeVerification       ErrorCode = "verification_failed"
+	CodeInternal           ErrorCode = "internal"
 )
 
 type Error struct {
@@ -48,12 +51,15 @@ func (e *Error) Is(target error) bool {
 }
 
 var (
-	ErrInvalidArgument = &Error{Code: CodeInvalidArgument}
-	ErrNotFound        = &Error{Code: CodeNotFound}
-	ErrConflict        = &Error{Code: CodeConflict}
-	ErrNotSupported    = &Error{Code: CodeNotSupported}
-	ErrUnavailable     = &Error{Code: CodeUnavailable}
-	ErrInternal        = &Error{Code: CodeInternal}
+	ErrInvalidArgument    = &Error{Code: CodeInvalidArgument}
+	ErrNotFound           = &Error{Code: CodeNotFound}
+	ErrConflict           = &Error{Code: CodeConflict}
+	ErrNotSupported       = &Error{Code: CodeNotSupported}
+	ErrFailedPrecondition = &Error{Code: CodeFailedPrecondition}
+	ErrNetworkRejected    = &Error{Code: CodeNetworkRejected}
+	ErrUnavailable        = &Error{Code: CodeUnavailable}
+	ErrVerification       = &Error{Code: CodeVerification}
+	ErrInternal           = &Error{Code: CodeInternal}
 )
 
 func operationError(code ErrorCode, operation, message string, cause error) error {
@@ -75,8 +81,14 @@ func translateAgentError(operation string, err error) error {
 		code = CodeConflict
 	case "not_supported":
 		code = CodeNotSupported
+	case "failed_precondition":
+		code = CodeFailedPrecondition
+	case "network_rejected":
+		code = CodeNetworkRejected
 	case "unavailable":
 		code = CodeUnavailable
+	case "verification_failed":
+		code = CodeVerification
 	}
 	return operationError(code, operation, agentError.Message, err)
 }

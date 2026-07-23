@@ -203,6 +203,18 @@ func TestCommunicationErrorsHaveStableHTTPMapping(t *testing.T) {
 			wantCode:   "communications_unavailable",
 		},
 		{
+			name:       "failed precondition",
+			err:        &communication.Error{Code: communication.CodeFailedPrecondition, Message: "call is not active"},
+			wantStatus: http.StatusPreconditionFailed,
+			wantCode:   "failed_precondition",
+		},
+		{
+			name:       "network rejected",
+			err:        &communication.Error{Code: communication.CodeNetworkRejected, Message: "network rejected"},
+			wantStatus: http.StatusUnprocessableEntity,
+			wantCode:   "network_rejected",
+		},
+		{
 			name:       "unknown internal",
 			err:        errors.New("secret dependency failure"),
 			wantStatus: http.StatusInternalServerError,

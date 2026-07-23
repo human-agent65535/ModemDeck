@@ -15,8 +15,15 @@ var (
 	ErrSnapshotInvalid = errors.New("hardware snapshot is invalid")
 )
 
+const (
+	modemManagerEndpointID         = "modemmanager"
+	defaultHardwareCallFailureCode = ""
+)
+
 func (s *Store) ApplyHardwareSnapshot(ctx context.Context, snapshot HardwareSnapshot) error {
-	if snapshot.ObservedAt.IsZero() {
+	snapshot.BootEpoch = strings.TrimSpace(snapshot.BootEpoch)
+	snapshot.Revision = strings.TrimSpace(snapshot.Revision)
+	if snapshot.BootEpoch == "" || snapshot.Revision == "" || snapshot.ObservedAt.IsZero() {
 		return ErrSnapshotInvalid
 	}
 	transaction, err := s.database.BeginTx(ctx, nil)
@@ -24,6 +31,13 @@ func (s *Store) ApplyHardwareSnapshot(ctx context.Context, snapshot HardwareSnap
 		return fmt.Errorf("begin hardware snapshot: %w", err)
 	}
 	defer transaction.Rollback()
+	sequence, duplicate, err := allocateSnapshotSequence(ctx, transaction, snapshot)
+	if err != nil {
+		return err
+	}
+	if duplicate {
+		return nil
+	}
 
 	for _, line := range snapshot.Lines {
 		if err := upsertHardwareLine(ctx, transaction, line, snapshot.ObservedAt); err != nil {
@@ -31,16 +45,18 @@ func (s *Store) ApplyHardwareSnapshot(ctx context.Context, snapshot HardwareSnap
 		}
 	}
 	for _, message := range snapshot.Messages {
+		message.Revision = sequence
 		if _, _, err := upsertHardwareMessage(ctx, transaction, message); err != nil {
 			return err
 		}
 	}
 	for _, call := range snapshot.Calls {
+		call.Revision = sequence
 		if _, err := upsertHardwareCall(ctx, transaction, call); err != nil {
 			return err
 		}
 	}
-	if err := closeMissingCalls(ctx, transaction, snapshot); err != nil {
+	if err := closeMissingCalls(ctx, transaction, snapshot, sequence); err != nil {
 		return err
 	}
 	if err := transaction.Commit(); err != nil {
@@ -55,6 +71,12 @@ func (s *Store) UpsertHardwareMessage(ctx context.Context, message HardwareMessa
 		return Message{}, false, fmt.Errorf("begin message upsert: %w", err)
 	}
 	defer transaction.Rollback()
+	if message.Revision <= 0 {
+		message.Revision, err = nextHardwareSequence(ctx, transaction)
+		if err != nil {
+			return Message{}, false, err
+		}
+	}
 	stored, created, err := upsertHardwareMessage(ctx, transaction, message)
 	if err != nil {
 		return Message{}, false, err
@@ -71,6 +93,12 @@ func (s *Store) UpsertHardwareCall(ctx context.Context, call HardwareCall) (Call
 		return Call{}, fmt.Errorf("begin call upsert: %w", err)
 	}
 	defer transaction.Rollback()
+	if call.Revision <= 0 {
+		call.Revision, err = nextHardwareSequence(ctx, transaction)
+		if err != nil {
+			return Call{}, err
+		}
+	}
 	stored, err := upsertHardwareCall(ctx, transaction, call)
 	if err != nil {
 		return Call{}, err
@@ -117,7 +145,9 @@ func (s *Store) ActiveCalls(ctx context.Context) ([]Call, error) {
 		ctx,
 		`SELECT id, request_id, device_id, direction, remote_number,
 			endpoint_id, endpoint_call_id, phase, revision, created_at, updated_at,
-			active_at, ended_at, end_reason, failure_code, bearer
+			active_at, ended_at, end_reason, failure_code, bearer, state_reason,
+			state_reason_code, multiparty, audio_port, audio_encoding,
+			audio_resolution, audio_rate, media_available
 		 FROM call_history
 		 WHERE phase NOT IN ('ended', 'failed') AND COALESCE(ended_at, '') = ''
 		 ORDER BY created_at ASC, id ASC`,
@@ -157,6 +187,13 @@ func (s *Store) MarkMessageThreadRead(ctx context.Context, iccid, peer string) e
 }
 
 func upsertHardwareLine(ctx context.Context, transaction *sql.Tx, line HardwareLine, observedAt time.Time) error {
+	line.ID = strings.TrimSpace(line.ID)
+	if line.ID == "" {
+		return nil
+	}
+	if err := ensureLineCallPolicy(ctx, transaction, line.ID); err != nil {
+		return err
+	}
 	imei := strings.TrimSpace(line.EquipmentIdentifier)
 	if imei == "" {
 		imei = strings.TrimSpace(line.DeviceIdentifier)
@@ -355,6 +392,25 @@ func upsertHardwareMessage(
 		if err := updateMessageThread(ctx, transaction, existingID, message); err != nil {
 			return Message{}, false, err
 		}
+		if message.Direction == "incoming" {
+			resourceID := message.EndpointMessageID
+			if resourceID == "" {
+				resourceID = fmt.Sprintf("%d", existingID)
+			}
+			if err := enqueueTelegramNotification(
+				ctx,
+				transaction,
+				fmt.Sprintf("sms:%d", existingID),
+				NotificationIncomingSMS,
+				resourceID,
+				message.LineID,
+				message.Number,
+				message.Text,
+				message.Timestamp,
+			); err != nil {
+				return Message{}, false, err
+			}
+		}
 	} else {
 		if _, err := transaction.ExecContext(
 			ctx,
@@ -516,6 +572,10 @@ func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareC
 	call.Direction = strings.ToLower(strings.TrimSpace(call.Direction))
 	call.Phase = strings.ToLower(strings.TrimSpace(call.Phase))
 	call.Bearer = strings.TrimSpace(call.Bearer)
+	call.StateReason = strings.TrimSpace(call.StateReason)
+	call.AudioPort = strings.TrimSpace(call.AudioPort)
+	call.AudioEncoding = strings.TrimSpace(call.AudioEncoding)
+	call.AudioResolution = strings.TrimSpace(call.AudioResolution)
 	if call.AppID == "" || call.LineID == "" || call.EndpointCallID == "" ||
 		(call.Direction != "incoming" && call.Direction != "outgoing") {
 		return Call{}, fmt.Errorf("%w: invalid call identity", ErrSnapshotInvalid)
@@ -526,6 +586,19 @@ func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareC
 	if call.ObservedAt.IsZero() {
 		call.ObservedAt = time.Now().UTC()
 	}
+	newlyDiscovered := false
+	var existingCallID string
+	err := transaction.QueryRowContext(
+		ctx,
+		"SELECT id FROM call_history WHERE id = ?",
+		call.AppID,
+	).Scan(&existingCallID)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		newlyDiscovered = true
+	case err != nil:
+		return Call{}, fmt.Errorf("query hardware call identity: %w", err)
+	}
 	observed := databaseTime(call.ObservedAt)
 	activeAt := any(nil)
 	endedAt := any(nil)
@@ -535,15 +608,25 @@ func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareC
 	}
 	if call.Phase == "ended" || call.Phase == "failed" {
 		endedAt = observed
-		endReason = "unknown"
+		endReason = call.StateReason
+		if endReason == "" {
+			endReason = "unknown"
+		}
 	}
 	if _, err := transaction.ExecContext(
 		ctx,
 		`INSERT INTO call_history (
 			id, request_id, device_id, direction, remote_number, endpoint_id,
 			endpoint_call_id, phase, revision, created_at, updated_at, active_at,
-			ended_at, end_reason, failure_code, bearer
-		 ) VALUES (?, ?, ?, ?, ?, 'modemmanager', ?, ?, ?, ?, ?, ?, ?, ?, '', ?)
+			ended_at, end_reason, failure_code, bearer, state_reason,
+			state_reason_code, multiparty, audio_port, audio_encoding,
+			audio_resolution, audio_rate, media_available
+		 ) VALUES (
+			?, ?, ?, ?, ?, ?,
+			?, ?, ?, ?, ?, ?,
+			?, ?, ?, ?, ?, ?,
+			?, ?, ?, ?, ?, ?
+		 )
 		 ON CONFLICT(id) DO UPDATE SET
 			endpoint_call_id = excluded.endpoint_call_id,
 			phase = excluded.phase,
@@ -561,13 +644,37 @@ func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareC
 			bearer = CASE
 				WHEN excluded.bearer <> '' THEN excluded.bearer
 				ELSE call_history.bearer
-			END
+			END,
+			state_reason = CASE
+				WHEN excluded.state_reason <> '' THEN excluded.state_reason
+				ELSE call_history.state_reason
+			END,
+			state_reason_code = excluded.state_reason_code,
+			multiparty = excluded.multiparty,
+			audio_port = CASE
+				WHEN excluded.audio_port <> '' THEN excluded.audio_port
+				ELSE call_history.audio_port
+			END,
+			audio_encoding = CASE
+				WHEN excluded.audio_encoding <> '' THEN excluded.audio_encoding
+				ELSE call_history.audio_encoding
+			END,
+			audio_resolution = CASE
+				WHEN excluded.audio_resolution <> '' THEN excluded.audio_resolution
+				ELSE call_history.audio_resolution
+			END,
+			audio_rate = CASE
+				WHEN excluded.audio_rate > 0 THEN excluded.audio_rate
+				ELSE call_history.audio_rate
+			END,
+			media_available = excluded.media_available
 		 WHERE excluded.revision >= call_history.revision`,
 		call.AppID,
 		call.RequestID,
 		call.LineID,
 		call.Direction,
 		call.Number,
+		modemManagerEndpointID,
 		call.EndpointCallID,
 		call.Phase,
 		call.Revision,
@@ -576,48 +683,234 @@ func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareC
 		activeAt,
 		endedAt,
 		endReason,
+		defaultHardwareCallFailureCode,
 		call.Bearer,
+		call.StateReason,
+		call.StateReasonCode,
+		call.Multiparty,
+		call.AudioPort,
+		call.AudioEncoding,
+		call.AudioResolution,
+		call.AudioRate,
+		call.MediaAvailable,
 	); err != nil {
 		return Call{}, fmt.Errorf("upsert hardware call: %w", err)
 	}
-	return callByID(ctx, transaction, call.AppID)
+	if err := ensureCallRecordingState(ctx, transaction, call.AppID); err != nil {
+		return Call{}, err
+	}
+	if newlyDiscovered && call.Direction == "incoming" && call.Phase == "ringing" {
+		if err := enqueueIncomingCallAction(ctx, transaction, call); err != nil {
+			return Call{}, err
+		}
+	}
+	stored, err := callByID(ctx, transaction, call.AppID)
+	if err != nil {
+		return Call{}, err
+	}
+	if stored.Missed && (stored.Phase == "ended" || stored.Phase == "failed") {
+		if err := enqueueTelegramNotification(
+			ctx,
+			transaction,
+			"call:"+stored.ID,
+			NotificationMissedCall,
+			stored.ID,
+			stored.DeviceID,
+			stored.RemoteNumber,
+			"",
+			call.ObservedAt,
+		); err != nil {
+			return Call{}, err
+		}
+	}
+	return stored, nil
 }
 
-func closeMissingCalls(ctx context.Context, transaction *sql.Tx, snapshot HardwareSnapshot) error {
-	if len(snapshot.Lines) == 0 {
-		return nil
-	}
-	lineIDs := make([]any, 0, len(snapshot.Lines))
-	for _, line := range snapshot.Lines {
-		if id := strings.TrimSpace(line.ID); id != "" {
-			lineIDs = append(lineIDs, id)
-		}
-	}
-	if len(lineIDs) == 0 {
-		return nil
-	}
-	activeIDs := make([]any, 0, len(snapshot.Calls))
+func closeMissingCalls(
+	ctx context.Context,
+	transaction *sql.Tx,
+	snapshot HardwareSnapshot,
+	sequence int64,
+) error {
+	activeIDs := make(map[string]struct{}, len(snapshot.Calls))
 	for _, call := range snapshot.Calls {
-		if call.Phase != "ended" && call.Phase != "failed" && strings.TrimSpace(call.AppID) != "" {
-			activeIDs = append(activeIDs, strings.TrimSpace(call.AppID))
+		phase := strings.ToLower(strings.TrimSpace(call.Phase))
+		if phase != "ended" && phase != "failed" && strings.TrimSpace(call.AppID) != "" {
+			activeIDs[strings.TrimSpace(call.AppID)] = struct{}{}
 		}
 	}
-	statement := `UPDATE call_history
-		SET phase = 'ended', ended_at = ?, updated_at = ?,
-			end_reason = CASE WHEN end_reason = '' THEN 'unknown' ELSE end_reason END,
-			revision = revision + 1
-		WHERE phase NOT IN ('ended', 'failed')
-		AND device_id IN (` + placeholders(len(lineIDs)) + `)`
-	arguments := []any{databaseTime(snapshot.ObservedAt), databaseTime(snapshot.ObservedAt)}
-	arguments = append(arguments, lineIDs...)
-	if len(activeIDs) > 0 {
-		statement += " AND id NOT IN (" + placeholders(len(activeIDs)) + ")"
-		arguments = append(arguments, activeIDs...)
+	rows, err := transaction.QueryContext(
+		ctx,
+		`SELECT id, device_id, remote_number, created_at, direction,
+			active_at, end_reason, failure_code
+		 FROM call_history
+		 WHERE endpoint_id = ? AND phase NOT IN ('ended', 'failed')`,
+		modemManagerEndpointID,
+	)
+	if err != nil {
+		return fmt.Errorf("query open hardware calls: %w", err)
 	}
-	if _, err := transaction.ExecContext(ctx, statement, arguments...); err != nil {
-		return fmt.Errorf("close missing hardware calls: %w", err)
+	type missingCall struct {
+		id, lineID, peer, createdAt, direction string
+		missed                                 bool
+	}
+	missing := make([]missingCall, 0)
+	for rows.Next() {
+		var (
+			call                             missingCall
+			activeAt, endReason, failureCode sql.NullString
+		)
+		if err := rows.Scan(
+			&call.id,
+			&call.lineID,
+			&call.peer,
+			&call.createdAt,
+			&call.direction,
+			&activeAt,
+			&endReason,
+			&failureCode,
+		); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan open hardware call: %w", err)
+		}
+		if _, stillActive := activeIDs[call.id]; stillActive {
+			continue
+		}
+		call.missed = call.direction == "incoming" &&
+			!activeAt.Valid &&
+			stringValue(endReason) != "rejected" &&
+			stringValue(failureCode) != "rejected"
+		missing = append(missing, call)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("read open hardware calls: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close open hardware calls: %w", err)
+	}
+
+	for _, call := range missing {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`UPDATE call_history
+				 SET phase = 'ended', ended_at = ?, updated_at = ?,
+					end_reason = CASE
+						WHEN end_reason = '' THEN 'not_present_in_snapshot'
+						ELSE end_reason
+					END,
+					revision = ?,
+					audio_port = '',
+					audio_encoding = '',
+					audio_resolution = '',
+					audio_rate = 0,
+					media_available = 0
+				 WHERE id = ? AND device_id = ? AND endpoint_id = ?
+					AND phase NOT IN ('ended', 'failed')`,
+			databaseTime(snapshot.ObservedAt),
+			databaseTime(snapshot.ObservedAt),
+			sequence,
+			call.id,
+			call.lineID,
+			modemManagerEndpointID,
+		); err != nil {
+			return fmt.Errorf("close missing hardware call: %w", err)
+		}
+		if !call.missed {
+			continue
+		}
+		occurredAt := snapshot.ObservedAt
+		if parsed, ok := parseDatabaseTime(call.createdAt); ok {
+			occurredAt = parsed.UTC()
+		}
+		if err := enqueueTelegramNotification(
+			ctx,
+			transaction,
+			"call:"+call.id,
+			NotificationMissedCall,
+			call.id,
+			call.lineID,
+			call.peer,
+			"",
+			occurredAt,
+		); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+func allocateSnapshotSequence(
+	ctx context.Context,
+	transaction *sql.Tx,
+	snapshot HardwareSnapshot,
+) (int64, bool, error) {
+	var (
+		bootEpoch, revision string
+		sequence            int64
+	)
+	err := transaction.QueryRowContext(
+		ctx,
+		`SELECT boot_epoch, snapshot_revision, sequence
+		 FROM modemdeck_hardware_sync WHERE singleton = 1`,
+	).Scan(&bootEpoch, &revision, &sequence)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return 0, false, fmt.Errorf("read hardware snapshot sequence: %w", err)
+	}
+	if err == nil && bootEpoch == snapshot.BootEpoch && revision == snapshot.Revision {
+		return sequence, true, nil
+	}
+	if sequence == int64(^uint64(0)>>1) {
+		return 0, false, fmt.Errorf("hardware snapshot sequence exhausted")
+	}
+	sequence++
+	if _, err := transaction.ExecContext(
+		ctx,
+		`INSERT INTO modemdeck_hardware_sync (
+			singleton, boot_epoch, snapshot_revision, sequence, observed_at, updated_at
+		 ) VALUES (1, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(singleton) DO UPDATE SET
+			boot_epoch = excluded.boot_epoch,
+			snapshot_revision = excluded.snapshot_revision,
+			sequence = excluded.sequence,
+			observed_at = excluded.observed_at,
+			updated_at = excluded.updated_at`,
+		snapshot.BootEpoch,
+		snapshot.Revision,
+		sequence,
+		databaseTime(snapshot.ObservedAt),
+	); err != nil {
+		return 0, false, fmt.Errorf("advance hardware snapshot sequence: %w", err)
+	}
+	return sequence, false, nil
+}
+
+func nextHardwareSequence(ctx context.Context, transaction *sql.Tx) (int64, error) {
+	var sequence int64
+	err := transaction.QueryRowContext(
+		ctx,
+		"SELECT sequence FROM modemdeck_hardware_sync WHERE singleton = 1",
+	).Scan(&sequence)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("read hardware command sequence: %w", err)
+	}
+	if sequence == int64(^uint64(0)>>1) {
+		return 0, fmt.Errorf("hardware command sequence exhausted")
+	}
+	sequence++
+	if _, err := transaction.ExecContext(
+		ctx,
+		`INSERT INTO modemdeck_hardware_sync (
+			singleton, sequence, updated_at
+		 ) VALUES (1, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(singleton) DO UPDATE SET
+			sequence = excluded.sequence,
+			updated_at = excluded.updated_at`,
+		sequence,
+	); err != nil {
+		return 0, fmt.Errorf("advance hardware command sequence: %w", err)
+	}
+	return sequence, nil
 }
 
 func callByID(ctx context.Context, queryer interface {
@@ -627,7 +920,9 @@ func callByID(ctx context.Context, queryer interface {
 		ctx,
 		`SELECT id, request_id, device_id, direction, remote_number,
 			endpoint_id, endpoint_call_id, phase, revision, created_at, updated_at,
-			active_at, ended_at, end_reason, failure_code, bearer
+			active_at, ended_at, end_reason, failure_code, bearer, state_reason,
+			state_reason_code, multiparty, audio_port, audio_encoding,
+			audio_resolution, audio_rate, media_available
 		 FROM call_history WHERE id = ?`,
 		id,
 	)
@@ -647,7 +942,8 @@ func scanCallRow(scanner callScanner) (Call, error) {
 		call                                                                       Call
 		requestID, deviceID, direction, remoteNumber, endpointID, endpointCallID   sql.NullString
 		phase, createdAt, updatedAt, activeAt, endedAt, endReason, failure, bearer sql.NullString
-		revision                                                                   sql.NullInt64
+		stateReason, audioPort, audioEncoding, audioResolution                     sql.NullString
+		revision, stateReasonCode, multiparty, audioRate, mediaAvailable           sql.NullInt64
 	)
 	if err := scanner.Scan(
 		&call.ID,
@@ -666,6 +962,14 @@ func scanCallRow(scanner callScanner) (Call, error) {
 		&endReason,
 		&failure,
 		&bearer,
+		&stateReason,
+		&stateReasonCode,
+		&multiparty,
+		&audioPort,
+		&audioEncoding,
+		&audioResolution,
+		&audioRate,
+		&mediaAvailable,
 	); err != nil {
 		return Call{}, err
 	}
@@ -685,6 +989,16 @@ func scanCallRow(scanner callScanner) (Call, error) {
 	call.EndReason = stringValue(endReason)
 	call.FailureCode = stringValue(failure)
 	call.Bearer = stringValue(bearer)
+	call.StateReason = stringValue(stateReason)
+	call.StateReasonCode = intValue(stateReasonCode)
+	call.Multiparty = boolValue(multiparty)
+	call.AudioPort = stringValue(audioPort)
+	call.AudioEncoding = stringValue(audioEncoding)
+	call.AudioResolution = stringValue(audioResolution)
+	if audioRate.Valid && audioRate.Int64 > 0 {
+		call.AudioRate = uint32(audioRate.Int64)
+	}
+	call.MediaAvailable = boolValue(mediaAvailable)
 	if call.ActiveAt != nil {
 		call.DurationSeconds = durationSeconds(*call.ActiveAt, call.EndedAt)
 	}

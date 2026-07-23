@@ -28,20 +28,23 @@ var (
 )
 
 type Capabilities struct {
-	Discovery   bool `json:"discovery"`
-	Dial        bool `json:"dial"`
-	AnswerCall  bool `json:"answer_call"`
-	HangupCall  bool `json:"hangup_call"`
-	RejectCall  bool `json:"reject_call"`
-	SendDTMF    bool `json:"send_dtmf"`
-	SendMessage bool `json:"send_message"`
-	Snapshot    bool `json:"snapshot"`
+	Discovery           bool `json:"discovery"`
+	DeviceConfiguration bool `json:"device_configuration"`
+	Dial                bool `json:"dial"`
+	AnswerCall          bool `json:"answer_call"`
+	HangupCall          bool `json:"hangup_call"`
+	RejectCall          bool `json:"reject_call"`
+	SendDTMF            bool `json:"send_dtmf"`
+	SendMessage         bool `json:"send_message"`
+	Snapshot            bool `json:"snapshot"`
 }
 
 type ProviderHealth struct {
-	Name         string       `json:"name"`
-	Available    bool         `json:"available"`
-	Capabilities Capabilities `json:"capabilities"`
+	Name           string       `json:"name"`
+	Available      bool         `json:"available"`
+	BootEpoch      string       `json:"boot_epoch"`
+	RuntimeVersion string       `json:"runtime_version"`
+	Capabilities   Capabilities `json:"capabilities"`
 }
 
 type Health struct {
@@ -52,6 +55,8 @@ type Health struct {
 }
 
 type LineCapabilities struct {
+	ModemInterface     bool `json:"modem_interface"`
+	SIMInterface       bool `json:"sim_interface"`
 	VoiceInterface     bool `json:"voice_interface"`
 	MessagingInterface bool `json:"messaging_interface"`
 	Dial               bool `json:"dial"`
@@ -64,37 +69,66 @@ type LineCapabilities struct {
 }
 
 type Line struct {
-	ID                  string           `json:"id"`
-	Manufacturer        string           `json:"manufacturer"`
-	Model               string           `json:"model"`
-	Revision            string           `json:"revision"`
-	DeviceIdentifier    string           `json:"device_identifier"`
-	EquipmentIdentifier string           `json:"equipment_identifier"`
-	Device              string           `json:"device"`
-	PhysicalDevice      string           `json:"physical_device"`
-	Plugin              string           `json:"plugin"`
-	PrimaryPort         string           `json:"primary_port"`
-	State               string           `json:"state"`
-	StateCode           int32            `json:"state_code"`
-	AccessTechnologies  uint32           `json:"access_technologies"`
-	SignalQualityKnown  bool             `json:"signal_quality_known"`
-	SignalQuality       uint32           `json:"signal_quality"`
-	OwnNumbers          []string         `json:"own_numbers"`
-	SIMIdentifier       string           `json:"sim_identifier"`
-	IMSI                string           `json:"imsi"`
-	OperatorIdentifier  string           `json:"operator_identifier"`
-	OperatorName        string           `json:"operator_name"`
-	Capabilities        LineCapabilities `json:"capabilities"`
+	ID                       string           `json:"id"`
+	Manufacturer             string           `json:"manufacturer"`
+	Model                    string           `json:"model"`
+	Revision                 string           `json:"revision"`
+	DeviceIdentifier         string           `json:"device_identifier"`
+	EquipmentIdentifier      string           `json:"equipment_identifier"`
+	IdentityPersistent       bool             `json:"identity_persistent"`
+	IdentitySource           string           `json:"identity_source"`
+	SavedPolicySupported     bool             `json:"saved_policy_supported"`
+	UnsupportedPolicyReason  string           `json:"unsupported_policy_reason"`
+	Device                   string           `json:"device"`
+	PhysicalDevice           string           `json:"physical_device"`
+	Drivers                  []string         `json:"drivers"`
+	Plugin                   string           `json:"plugin"`
+	PrimaryPort              string           `json:"primary_port"`
+	State                    string           `json:"state"`
+	StateCode                int32            `json:"state_code"`
+	PowerStateCode           uint32           `json:"power_state_code"`
+	AccessTechnologies       uint32           `json:"access_technologies"`
+	SignalQualityKnown       bool             `json:"signal_quality_known"`
+	SignalQuality            uint32           `json:"signal_quality"`
+	SignalQualityRecent      bool             `json:"signal_quality_recent"`
+	OwnNumbers               []string         `json:"own_numbers"`
+	SIMPresent               bool             `json:"sim_present"`
+	SIMPath                  string           `json:"sim_path"`
+	SIMIdentifier            string           `json:"sim_identifier"`
+	IMSI                     string           `json:"imsi"`
+	OperatorIdentifier       string           `json:"operator_identifier"`
+	OperatorName             string           `json:"operator_name"`
+	EmergencyNumbers         []string         `json:"emergency_numbers"`
+	EmergencyOnly            bool             `json:"emergency_only"`
+	CallIDs                  []string         `json:"call_ids"`
+	MessageIDs               []string         `json:"message_ids"`
+	SupportedMessageStorages []uint32         `json:"supported_message_storages"`
+	DefaultMessageStorage    uint32           `json:"default_message_storage"`
+	Capabilities             LineCapabilities `json:"capabilities"`
+}
+
+type CallAudioFormat struct {
+	Encoding   string `json:"encoding"`
+	Resolution string `json:"resolution"`
+	Rate       uint32 `json:"rate"`
 }
 
 type Call struct {
-	ID        string `json:"id"`
-	LineID    string `json:"line_id"`
-	Number    string `json:"number"`
-	Direction string `json:"direction"`
-	State     string `json:"state"`
-	StateCode int32  `json:"state_code"`
-	Bearer    string `json:"bearer"`
+	ID              string           `json:"id"`
+	LineID          string           `json:"line_id"`
+	Number          string           `json:"number"`
+	Direction       string           `json:"direction"`
+	State           string           `json:"state"`
+	StateCode       int32            `json:"state_code"`
+	StateReason     string           `json:"state_reason"`
+	StateReasonCode int32            `json:"state_reason_code"`
+	Multiparty      bool             `json:"multiparty"`
+	AudioPort       string           `json:"audio_port"`
+	AudioFormat     *CallAudioFormat `json:"audio_format"`
+	MediaAvailable  bool             `json:"media_available"`
+	MediaConfigured bool             `json:"media_configured"`
+	MediaActive     bool             `json:"media_active"`
+	Bearer          string           `json:"bearer"`
 }
 
 type Message struct {
@@ -109,11 +143,16 @@ type Message struct {
 }
 
 type Snapshot struct {
-	Revision   uint64    `json:"revision"`
+	Revision   string    `json:"revision"`
 	ObservedAt time.Time `json:"observed_at"`
 	Lines      []Line    `json:"lines"`
 	Calls      []Call    `json:"calls"`
 	Messages   []Message `json:"messages"`
+}
+
+type CommandReceipt struct {
+	RequestID  string `json:"request_id"`
+	ResourceID string `json:"resource_id"`
 }
 
 type StartCallRequest struct {
@@ -156,7 +195,8 @@ func (e *OperationError) Error() string {
 }
 
 type Client struct {
-	httpClient *http.Client
+	httpClient     *http.Client
+	requestTimeout time.Duration
 }
 
 func New(socketPath string, timeout time.Duration) (*Client, error) {
@@ -176,10 +216,10 @@ func New(socketPath string, timeout time.Duration) (*Client, error) {
 		MaxIdleConnsPerHost: 2,
 		IdleConnTimeout:     30 * time.Second,
 	}
-	return &Client{httpClient: &http.Client{
-		Transport: transport,
-		Timeout:   timeout,
-	}}, nil
+	return &Client{
+		httpClient:     &http.Client{Transport: transport},
+		requestTimeout: timeout,
+	}, nil
 }
 
 func (client *Client) Health(ctx context.Context) (Health, error) {
@@ -210,17 +250,17 @@ func (client *Client) Snapshot(ctx context.Context) (Snapshot, error) {
 	return snapshot, nil
 }
 
-func (client *Client) StartCall(ctx context.Context, request StartCallRequest) (Call, error) {
+func (client *Client) StartCall(ctx context.Context, request StartCallRequest) (CommandReceipt, error) {
 	if strings.TrimSpace(request.RequestID) == "" ||
 		strings.TrimSpace(request.LineID) == "" ||
 		strings.TrimSpace(request.Number) == "" {
-		return Call{}, ErrInvalidRequest
+		return CommandReceipt{}, ErrInvalidRequest
 	}
-	var call Call
-	if err := client.doJSON(ctx, http.MethodPost, "/v1/calls", request, http.StatusCreated, &call); err != nil {
-		return Call{}, err
+	var receipt CommandReceipt
+	if err := client.doJSON(ctx, http.MethodPost, "/v1/calls", request, http.StatusCreated, &receipt); err != nil {
+		return CommandReceipt{}, err
 	}
-	return call, nil
+	return receipt, nil
 }
 
 func (client *Client) CallAction(
@@ -228,50 +268,50 @@ func (client *Client) CallAction(
 	callID string,
 	action string,
 	request CallActionRequest,
-) (Call, error) {
+) (CommandReceipt, error) {
 	callID = strings.TrimSpace(callID)
 	action = strings.TrimSpace(action)
 	if callID == "" || strings.TrimSpace(request.RequestID) == "" {
-		return Call{}, ErrInvalidRequest
+		return CommandReceipt{}, ErrInvalidRequest
 	}
 	switch action {
 	case "answer", "reject", "hangup":
 	default:
-		return Call{}, ErrInvalidRequest
+		return CommandReceipt{}, ErrInvalidRequest
 	}
-	var call Call
+	var receipt CommandReceipt
 	path := "/v1/calls/" + url.PathEscape(callID) + "/" + action
-	if err := client.doJSON(ctx, http.MethodPost, path, request, http.StatusOK, &call); err != nil {
-		return Call{}, err
+	if err := client.doJSON(ctx, http.MethodPost, path, request, http.StatusOK, &receipt); err != nil {
+		return CommandReceipt{}, err
 	}
-	return call, nil
+	return receipt, nil
 }
 
-func (client *Client) SendDTMF(ctx context.Context, callID string, request DTMFRequest) (Call, error) {
+func (client *Client) SendDTMF(ctx context.Context, callID string, request DTMFRequest) (CommandReceipt, error) {
 	callID = strings.TrimSpace(callID)
 	if callID == "" || strings.TrimSpace(request.RequestID) == "" || strings.TrimSpace(request.Digits) == "" {
-		return Call{}, ErrInvalidRequest
+		return CommandReceipt{}, ErrInvalidRequest
 	}
-	var call Call
+	var receipt CommandReceipt
 	path := "/v1/calls/" + url.PathEscape(callID) + "/dtmf"
-	if err := client.doJSON(ctx, http.MethodPost, path, request, http.StatusOK, &call); err != nil {
-		return Call{}, err
+	if err := client.doJSON(ctx, http.MethodPost, path, request, http.StatusOK, &receipt); err != nil {
+		return CommandReceipt{}, err
 	}
-	return call, nil
+	return receipt, nil
 }
 
-func (client *Client) SendMessage(ctx context.Context, request SendMessageRequest) (Message, error) {
+func (client *Client) SendMessage(ctx context.Context, request SendMessageRequest) (CommandReceipt, error) {
 	if strings.TrimSpace(request.RequestID) == "" ||
 		strings.TrimSpace(request.LineID) == "" ||
 		strings.TrimSpace(request.Number) == "" ||
 		strings.TrimSpace(request.Text) == "" {
-		return Message{}, ErrInvalidRequest
+		return CommandReceipt{}, ErrInvalidRequest
 	}
-	var message Message
-	if err := client.doJSON(ctx, http.MethodPost, "/v1/messages", request, http.StatusCreated, &message); err != nil {
-		return Message{}, err
+	var receipt CommandReceipt
+	if err := client.doJSON(ctx, http.MethodPost, "/v1/messages", request, http.StatusCreated, &receipt); err != nil {
+		return CommandReceipt{}, err
 	}
-	return message, nil
+	return receipt, nil
 }
 
 func (client *Client) doJSON(
@@ -287,6 +327,11 @@ func (client *Client) doJSON(
 	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, client.requestTimeout)
+		defer cancel()
 	}
 
 	var body io.Reader

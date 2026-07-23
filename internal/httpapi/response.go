@@ -50,17 +50,18 @@ type messagesResponse struct {
 }
 
 type callSessionResponse struct {
-	ID            string  `json:"id"`
-	LineKey       string  `json:"line_key"`
-	Direction     string  `json:"direction"`
-	RemoteNumber  string  `json:"remote_number"`
-	DisplayName   string  `json:"display_name,omitempty"`
-	Phase         string  `json:"phase"`
-	CreatedAt     string  `json:"created_at"`
-	ActiveAt      *string `json:"active_at,omitempty"`
-	EndedAt       string  `json:"ended_at,omitempty"`
-	FailureReason string  `json:"failure_reason,omitempty"`
-	Bearer        string  `json:"bearer,omitempty"`
+	ID             string  `json:"id"`
+	LineKey        string  `json:"line_key"`
+	Direction      string  `json:"direction"`
+	RemoteNumber   string  `json:"remote_number"`
+	DisplayName    string  `json:"display_name,omitempty"`
+	Phase          string  `json:"phase"`
+	CreatedAt      string  `json:"created_at"`
+	ActiveAt       *string `json:"active_at,omitempty"`
+	EndedAt        string  `json:"ended_at,omitempty"`
+	FailureReason  string  `json:"failure_reason,omitempty"`
+	Bearer         string  `json:"bearer,omitempty"`
+	MediaAvailable bool    `json:"media_available"`
 }
 
 type callSessionEnvelope struct {
@@ -78,7 +79,6 @@ type callsResponse struct {
 
 type devicesResponse struct {
 	Devices []store.Device `json:"devices"`
-	Meta    responseMeta   `json:"meta"`
 }
 
 type errorResponse struct {

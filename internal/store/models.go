@@ -68,9 +68,10 @@ type MessageThread struct {
 }
 
 type MessageQuery struct {
-	ICCID string
-	Peer  string
-	Limit int
+	ICCID   string
+	Peer    string
+	LineIDs []string
+	Limit   int
 }
 
 type Message struct {
@@ -130,6 +131,14 @@ type Call struct {
 	EndReason       string  `json:"end_reason"`
 	FailureCode     string  `json:"failure_code"`
 	Bearer          string  `json:"bearer"`
+	StateReason     string  `json:"state_reason"`
+	StateReasonCode int64   `json:"state_reason_code"`
+	Multiparty      bool    `json:"multiparty"`
+	AudioPort       string  `json:"audio_port"`
+	AudioEncoding   string  `json:"audio_encoding"`
+	AudioResolution string  `json:"audio_resolution"`
+	AudioRate       uint32  `json:"audio_rate"`
+	MediaAvailable  bool    `json:"media_available"`
 	DurationSeconds int64   `json:"duration_seconds"`
 	Missed          bool    `json:"missed"`
 }
@@ -197,11 +206,23 @@ type LineCapabilities struct {
 }
 
 type HardwareSnapshot struct {
-	Revision   uint64
+	BootEpoch  string
+	Revision   string
 	ObservedAt time.Time
 	Lines      []HardwareLine
 	Calls      []HardwareCall
 	Messages   []HardwareMessage
+}
+
+type HardwareCommand struct {
+	RequestID     string
+	Operation     string
+	PayloadDigest []byte
+	Status        string
+	ResourceID    string
+	ErrorCode     string
+	CreatedAt     string
+	UpdatedAt     string
 }
 
 type HardwareLine struct {
@@ -224,16 +245,24 @@ type HardwareLine struct {
 }
 
 type HardwareCall struct {
-	AppID          string
-	RequestID      string
-	LineID         string
-	EndpointCallID string
-	Number         string
-	Direction      string
-	Phase          string
-	Bearer         string
-	Revision       int64
-	ObservedAt     time.Time
+	AppID           string
+	RequestID       string
+	LineID          string
+	EndpointCallID  string
+	Number          string
+	Direction       string
+	Phase           string
+	Bearer          string
+	StateReason     string
+	StateReasonCode int64
+	Multiparty      bool
+	AudioPort       string
+	AudioEncoding   string
+	AudioResolution string
+	AudioRate       uint32
+	MediaAvailable  bool
+	Revision        int64
+	ObservedAt      time.Time
 }
 
 type HardwareMessage struct {
@@ -262,4 +291,68 @@ type CallControlTarget struct {
 	Phase          string
 	Bearer         string
 	Revision       int64
+}
+
+type LineCallPolicyValue string
+
+const (
+	LineCallPolicyFollowGlobal LineCallPolicyValue = "follow_global"
+	LineCallPolicyReceive      LineCallPolicyValue = "receive"
+	LineCallPolicyDND          LineCallPolicyValue = "do_not_disturb"
+)
+
+type EffectiveCallPolicyValue string
+
+const (
+	EffectiveCallPolicyReceive EffectiveCallPolicyValue = "receive"
+	EffectiveCallPolicyDND     EffectiveCallPolicyValue = "do_not_disturb"
+)
+
+type GlobalCallSettings struct {
+	ReceiveCalls bool   `json:"receive_calls"`
+	Revision     int64  `json:"revision"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
+type LineCallPolicy struct {
+	LineID    string              `json:"line_id"`
+	Policy    LineCallPolicyValue `json:"policy"`
+	Revision  int64               `json:"revision"`
+	UpdatedAt string              `json:"updated_at"`
+}
+
+type EffectiveCallPolicy struct {
+	LineID         string                   `json:"line_id"`
+	Policy         EffectiveCallPolicyValue `json:"policy"`
+	GlobalRevision int64                    `json:"global_revision"`
+	LineRevision   int64                    `json:"line_revision"`
+}
+
+type CallPolicyConfiguration struct {
+	Global    GlobalCallSettings
+	Line      LineCallPolicy
+	Effective EffectiveCallPolicy
+}
+
+const (
+	IncomingCallActionPending       = "pending"
+	IncomingCallActionSending       = "sending"
+	IncomingCallActionSucceeded     = "succeeded"
+	IncomingCallActionFailed        = "failed"
+	IncomingCallActionIndeterminate = "indeterminate"
+	IncomingCallActionSkipped       = "skipped"
+)
+
+type IncomingCallAction struct {
+	CallID          string
+	LineID          string
+	EndpointCallID  string
+	EffectivePolicy EffectiveCallPolicyValue
+	GlobalRevision  int64
+	LineRevision    int64
+	RequestID       string
+	Status          string
+	ErrorCode       string
+	CreatedAt       string
+	UpdatedAt       string
 }

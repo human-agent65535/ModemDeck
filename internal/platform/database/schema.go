@@ -168,27 +168,193 @@ var compatibleTables = []tableSchema{
 			updated_at DATETIME,
 			active_at DATETIME,
 				ended_at DATETIME,
-				end_reason TEXT NOT NULL DEFAULT '',
-				failure_code TEXT NOT NULL DEFAULT '',
-				bearer TEXT NOT NULL DEFAULT ''
+			end_reason TEXT NOT NULL DEFAULT '',
+			failure_code TEXT NOT NULL DEFAULT '',
+			bearer TEXT NOT NULL DEFAULT '',
+			state_reason TEXT NOT NULL DEFAULT '',
+			state_reason_code INTEGER NOT NULL DEFAULT 0,
+			multiparty NUMERIC NOT NULL DEFAULT 0,
+			audio_port TEXT NOT NULL DEFAULT '',
+			audio_encoding TEXT NOT NULL DEFAULT '',
+			audio_resolution TEXT NOT NULL DEFAULT '',
+			audio_rate INTEGER NOT NULL DEFAULT 0,
+			media_available NUMERIC NOT NULL DEFAULT 0
 			)`,
 		identity: []string{"id"},
 		addColumns: map[string]string{
-			"request_id":       "TEXT NOT NULL DEFAULT ''",
-			"device_id":        "TEXT NOT NULL DEFAULT ''",
-			"direction":        "TEXT NOT NULL DEFAULT ''",
-			"remote_number":    "TEXT NOT NULL DEFAULT ''",
-			"endpoint_id":      "TEXT NOT NULL DEFAULT ''",
+			"request_id":        "TEXT NOT NULL DEFAULT ''",
+			"device_id":         "TEXT NOT NULL DEFAULT ''",
+			"direction":         "TEXT NOT NULL DEFAULT ''",
+			"remote_number":     "TEXT NOT NULL DEFAULT ''",
+			"endpoint_id":       "TEXT NOT NULL DEFAULT ''",
+			"endpoint_call_id":  "TEXT NOT NULL DEFAULT ''",
+			"phase":             "TEXT NOT NULL DEFAULT ''",
+			"revision":          "INTEGER NOT NULL DEFAULT 1",
+			"created_at":        "DATETIME",
+			"updated_at":        "DATETIME",
+			"active_at":         "DATETIME",
+			"ended_at":          "DATETIME",
+			"end_reason":        "TEXT NOT NULL DEFAULT ''",
+			"failure_code":      "TEXT NOT NULL DEFAULT ''",
+			"bearer":            "TEXT NOT NULL DEFAULT ''",
+			"state_reason":      "TEXT NOT NULL DEFAULT ''",
+			"state_reason_code": "INTEGER NOT NULL DEFAULT 0",
+			"multiparty":        "NUMERIC NOT NULL DEFAULT 0",
+			"audio_port":        "TEXT NOT NULL DEFAULT ''",
+			"audio_encoding":    "TEXT NOT NULL DEFAULT ''",
+			"audio_resolution":  "TEXT NOT NULL DEFAULT ''",
+			"audio_rate":        "INTEGER NOT NULL DEFAULT 0",
+			"media_available":   "NUMERIC NOT NULL DEFAULT 0",
+		},
+	},
+	{
+		name: "modemdeck_call_settings",
+		create: `CREATE TABLE IF NOT EXISTS modemdeck_call_settings (
+			singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+			receive_calls NUMERIC NOT NULL DEFAULT 1,
+			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		identity: []string{"singleton"},
+		addColumns: map[string]string{
+			"receive_calls": "NUMERIC NOT NULL DEFAULT 1",
+			"revision":      "INTEGER NOT NULL DEFAULT 1",
+			"updated_at":    "DATETIME",
+		},
+	},
+	{
+		name: "modemdeck_line_call_policies",
+		create: `CREATE TABLE IF NOT EXISTS modemdeck_line_call_policies (
+			line_id TEXT PRIMARY KEY,
+			policy TEXT NOT NULL DEFAULT 'follow_global'
+				CHECK (policy IN ('follow_global', 'receive', 'do_not_disturb')),
+			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		identity: []string{"line_id"},
+		addColumns: map[string]string{
+			"policy":     "TEXT NOT NULL DEFAULT 'follow_global'",
+			"revision":   "INTEGER NOT NULL DEFAULT 1",
+			"updated_at": "DATETIME",
+		},
+	},
+	{
+		name: "modemdeck_incoming_call_actions",
+		create: `CREATE TABLE IF NOT EXISTS modemdeck_incoming_call_actions (
+			call_id TEXT PRIMARY KEY,
+			line_id TEXT NOT NULL,
+			endpoint_call_id TEXT NOT NULL,
+			effective_policy TEXT NOT NULL
+				CHECK (effective_policy IN ('receive', 'do_not_disturb')),
+			global_revision INTEGER NOT NULL,
+			line_revision INTEGER NOT NULL,
+			request_id TEXT NOT NULL UNIQUE,
+			status TEXT NOT NULL DEFAULT 'pending'
+				CHECK (status IN ('pending', 'sending', 'succeeded', 'failed', 'indeterminate', 'skipped')),
+			error_code TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (call_id) REFERENCES call_history(id) ON DELETE CASCADE ON UPDATE CASCADE
+		)`,
+		identity: []string{"call_id"},
+		addColumns: map[string]string{
+			"line_id":          "TEXT NOT NULL DEFAULT ''",
 			"endpoint_call_id": "TEXT NOT NULL DEFAULT ''",
-			"phase":            "TEXT NOT NULL DEFAULT ''",
-			"revision":         "INTEGER NOT NULL DEFAULT 1",
+			"effective_policy": "TEXT NOT NULL DEFAULT 'receive'",
+			"global_revision":  "INTEGER NOT NULL DEFAULT 1",
+			"line_revision":    "INTEGER NOT NULL DEFAULT 1",
+			"request_id":       "TEXT NOT NULL DEFAULT ''",
+			"status":           "TEXT NOT NULL DEFAULT 'indeterminate'",
+			"error_code":       "TEXT NOT NULL DEFAULT ''",
 			"created_at":       "DATETIME",
 			"updated_at":       "DATETIME",
-			"active_at":        "DATETIME",
-			"ended_at":         "DATETIME",
-			"end_reason":       "TEXT NOT NULL DEFAULT ''",
-			"failure_code":     "TEXT NOT NULL DEFAULT ''",
-			"bearer":           "TEXT NOT NULL DEFAULT ''",
+		},
+	},
+	{
+		name: "modemdeck_recording_settings",
+		create: `CREATE TABLE IF NOT EXISTS modemdeck_recording_settings (
+				singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+				default_enabled NUMERIC NOT NULL DEFAULT 0,
+				revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+				updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+			)`,
+		identity: []string{"singleton"},
+		addColumns: map[string]string{
+			"default_enabled": "NUMERIC NOT NULL DEFAULT 0",
+			"revision":        "INTEGER NOT NULL DEFAULT 1",
+			"updated_at":      "DATETIME",
+		},
+	},
+	{
+		name: "modemdeck_call_recording_requests",
+		create: `CREATE TABLE IF NOT EXISTS modemdeck_call_recording_requests (
+				request_id TEXT PRIMARY KEY,
+				enabled NUMERIC NOT NULL,
+				created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+			)`,
+		identity: []string{"request_id"},
+		addColumns: map[string]string{
+			"enabled":    "NUMERIC NOT NULL DEFAULT 0",
+			"created_at": "DATETIME",
+		},
+	},
+	{
+		name: "modemdeck_call_recording_state",
+		create: `CREATE TABLE IF NOT EXISTS modemdeck_call_recording_state (
+				call_id TEXT PRIMARY KEY,
+				preference TEXT NOT NULL DEFAULT 'default',
+				request_enabled NUMERIC,
+				enabled NUMERIC NOT NULL DEFAULT 0,
+				generation INTEGER NOT NULL DEFAULT 0,
+				status TEXT NOT NULL DEFAULT 'off',
+				active_segment_id TEXT NOT NULL DEFAULT '',
+				last_error_code TEXT NOT NULL DEFAULT '',
+				updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (call_id) REFERENCES call_history(id) ON DELETE CASCADE ON UPDATE CASCADE
+			)`,
+		identity: []string{"call_id"},
+		addColumns: map[string]string{
+			"preference":        "TEXT NOT NULL DEFAULT 'default'",
+			"request_enabled":   "NUMERIC",
+			"enabled":           "NUMERIC NOT NULL DEFAULT 0",
+			"generation":        "INTEGER NOT NULL DEFAULT 0",
+			"status":            "TEXT NOT NULL DEFAULT 'off'",
+			"active_segment_id": "TEXT NOT NULL DEFAULT ''",
+			"last_error_code":   "TEXT NOT NULL DEFAULT ''",
+			"updated_at":        "DATETIME",
+		},
+	},
+	{
+		name: "modemdeck_call_recordings",
+		create: `CREATE TABLE IF NOT EXISTS modemdeck_call_recordings (
+				id TEXT PRIMARY KEY,
+				call_id TEXT NOT NULL,
+				segment_index INTEGER NOT NULL CHECK (segment_index > 0),
+				status TEXT NOT NULL,
+				started_at DATETIME,
+				ended_at DATETIME,
+				duration_ms INTEGER NOT NULL DEFAULT 0,
+				size_bytes INTEGER NOT NULL DEFAULT 0,
+				relative_path TEXT NOT NULL DEFAULT '',
+				failure_code TEXT NOT NULL DEFAULT '',
+				created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				UNIQUE (call_id, segment_index),
+				FOREIGN KEY (call_id) REFERENCES call_history(id) ON DELETE CASCADE ON UPDATE CASCADE
+			)`,
+		identity: []string{"id"},
+		addColumns: map[string]string{
+			"call_id":       "TEXT NOT NULL DEFAULT ''",
+			"segment_index": "INTEGER NOT NULL DEFAULT 1",
+			"status":        "TEXT NOT NULL DEFAULT 'failed'",
+			"started_at":    "DATETIME",
+			"ended_at":      "DATETIME",
+			"duration_ms":   "INTEGER NOT NULL DEFAULT 0",
+			"size_bytes":    "INTEGER NOT NULL DEFAULT 0",
+			"relative_path": "TEXT NOT NULL DEFAULT ''",
+			"failure_code":  "TEXT NOT NULL DEFAULT ''",
+			"created_at":    "DATETIME",
+			"updated_at":    "DATETIME",
 		},
 	},
 	{
@@ -292,6 +458,166 @@ var compatibleTables = []tableSchema{
 			"updated_at":          "DATETIME",
 		},
 	},
+	{
+		name: "modemdeck_telegram_units",
+		create: `CREATE TABLE IF NOT EXISTS modemdeck_telegram_units (
+			id TEXT PRIMARY KEY,
+			display_name TEXT NOT NULL DEFAULT '',
+			enabled NUMERIC NOT NULL DEFAULT 0,
+			bot_id INTEGER NOT NULL DEFAULT 0,
+			bot_token_nonce BLOB NOT NULL DEFAULT X'',
+			bot_token_ciphertext BLOB NOT NULL DEFAULT X'',
+			token_hint TEXT NOT NULL DEFAULT '',
+			chat_id INTEGER NOT NULL DEFAULT 0,
+			admin_id INTEGER NOT NULL DEFAULT 0,
+			incoming_sms NUMERIC NOT NULL DEFAULT 1,
+			missed_calls NUMERIC NOT NULL DEFAULT 1,
+			revision INTEGER NOT NULL DEFAULT 1,
+			bot_username TEXT NOT NULL DEFAULT '',
+			verified_at DATETIME,
+			last_error_class TEXT NOT NULL DEFAULT '',
+			next_update_offset INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		identity: []string{"id"},
+		addColumns: map[string]string{
+			"display_name":         "TEXT NOT NULL DEFAULT ''",
+			"enabled":              "NUMERIC NOT NULL DEFAULT 0",
+			"bot_id":               "INTEGER NOT NULL DEFAULT 0",
+			"bot_token_nonce":      "BLOB NOT NULL DEFAULT X''",
+			"bot_token_ciphertext": "BLOB NOT NULL DEFAULT X''",
+			"token_hint":           "TEXT NOT NULL DEFAULT ''",
+			"chat_id":              "INTEGER NOT NULL DEFAULT 0",
+			"admin_id":             "INTEGER NOT NULL DEFAULT 0",
+			"incoming_sms":         "NUMERIC NOT NULL DEFAULT 1",
+			"missed_calls":         "NUMERIC NOT NULL DEFAULT 1",
+			"revision":             "INTEGER NOT NULL DEFAULT 1",
+			"bot_username":         "TEXT NOT NULL DEFAULT ''",
+			"verified_at":          "DATETIME",
+			"last_error_class":     "TEXT NOT NULL DEFAULT ''",
+			"next_update_offset":   "INTEGER NOT NULL DEFAULT 0",
+			"created_at":           "DATETIME",
+			"updated_at":           "DATETIME",
+		},
+	},
+	{
+		name: "modemdeck_telegram_line_scopes",
+		create: `CREATE TABLE IF NOT EXISTS modemdeck_telegram_line_scopes (
+			unit_id TEXT NOT NULL,
+			line_id TEXT NOT NULL,
+			PRIMARY KEY (unit_id, line_id),
+			FOREIGN KEY (unit_id) REFERENCES modemdeck_telegram_units(id) ON DELETE CASCADE ON UPDATE CASCADE
+		)`,
+		identity:   []string{"unit_id", "line_id"},
+		addColumns: map[string]string{},
+	},
+	{
+		name: "modemdeck_telegram_reply_bindings",
+		create: `CREATE TABLE IF NOT EXISTS modemdeck_telegram_reply_bindings (
+			bot_id INTEGER NOT NULL,
+			chat_id INTEGER NOT NULL,
+			message_id INTEGER NOT NULL,
+			line_id TEXT NOT NULL,
+			phone_number TEXT NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (bot_id, chat_id, message_id)
+		)`,
+		identity: []string{"bot_id", "chat_id", "message_id"},
+		addColumns: map[string]string{
+			"line_id":      "TEXT NOT NULL DEFAULT ''",
+			"phone_number": "TEXT NOT NULL DEFAULT ''",
+			"created_at":   "DATETIME",
+		},
+	},
+	{
+		name: "modemdeck_hardware_sync",
+		create: `CREATE TABLE IF NOT EXISTS modemdeck_hardware_sync (
+			singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+			boot_epoch TEXT NOT NULL DEFAULT '',
+			snapshot_revision TEXT NOT NULL DEFAULT '',
+			sequence INTEGER NOT NULL DEFAULT 0,
+			observed_at DATETIME,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		identity: []string{"singleton"},
+		addColumns: map[string]string{
+			"boot_epoch":        "TEXT NOT NULL DEFAULT ''",
+			"snapshot_revision": "TEXT NOT NULL DEFAULT ''",
+			"sequence":          "INTEGER NOT NULL DEFAULT 0",
+			"observed_at":       "DATETIME",
+			"updated_at":        "DATETIME",
+		},
+	},
+	{
+		name: "modemdeck_hardware_commands",
+		create: `CREATE TABLE IF NOT EXISTS modemdeck_hardware_commands (
+			request_id TEXT PRIMARY KEY,
+			operation TEXT NOT NULL,
+			payload_digest BLOB NOT NULL,
+			status TEXT NOT NULL,
+			resource_id TEXT NOT NULL DEFAULT '',
+			error_code TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		identity: []string{"request_id"},
+		addColumns: map[string]string{
+			"operation":      "TEXT NOT NULL DEFAULT ''",
+			"payload_digest": "BLOB NOT NULL DEFAULT X''",
+			"status":         "TEXT NOT NULL DEFAULT ''",
+			"resource_id":    "TEXT NOT NULL DEFAULT ''",
+			"error_code":     "TEXT NOT NULL DEFAULT ''",
+			"created_at":     "DATETIME",
+			"updated_at":     "DATETIME",
+		},
+	},
+	{
+		name: "modemdeck_notification_events",
+		create: `CREATE TABLE IF NOT EXISTS modemdeck_notification_events (
+			event_key TEXT PRIMARY KEY,
+			event_type TEXT NOT NULL,
+			resource_id TEXT NOT NULL,
+			line_id TEXT NOT NULL,
+			peer TEXT NOT NULL DEFAULT '',
+			body TEXT NOT NULL DEFAULT '',
+			occurred_at DATETIME NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		identity: []string{"event_key"},
+		addColumns: map[string]string{
+			"event_type":  "TEXT NOT NULL DEFAULT ''",
+			"resource_id": "TEXT NOT NULL DEFAULT ''",
+			"line_id":     "TEXT NOT NULL DEFAULT ''",
+			"peer":        "TEXT NOT NULL DEFAULT ''",
+			"body":        "TEXT NOT NULL DEFAULT ''",
+			"occurred_at": "DATETIME",
+			"created_at":  "DATETIME",
+		},
+	},
+	{
+		name: "modemdeck_notification_deliveries",
+		create: `CREATE TABLE IF NOT EXISTS modemdeck_notification_deliveries (
+			event_key TEXT NOT NULL,
+			unit_id TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			attempt_token TEXT NOT NULL DEFAULT '',
+			last_error_class TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (event_key, unit_id),
+			FOREIGN KEY (event_key) REFERENCES modemdeck_notification_events(event_key) ON DELETE CASCADE ON UPDATE CASCADE,
+			FOREIGN KEY (unit_id) REFERENCES modemdeck_telegram_units(id) ON DELETE CASCADE ON UPDATE CASCADE
+		)`,
+		identity: []string{"event_key", "unit_id"},
+		addColumns: map[string]string{
+			"status":           "TEXT NOT NULL DEFAULT 'pending'",
+			"attempt_token":    "TEXT NOT NULL DEFAULT ''",
+			"last_error_class": "TEXT NOT NULL DEFAULT ''",
+			"created_at":       "DATETIME",
+			"updated_at":       "DATETIME",
+		},
+	},
 }
 
 var compatibleIndexes = []string{
@@ -310,9 +636,18 @@ var compatibleIndexes = []string{
 	"CREATE INDEX IF NOT EXISTS idx_call_history_ended_at ON call_history(ended_at DESC)",
 	"CREATE INDEX IF NOT EXISTS idx_call_history_device_ended_at ON call_history(device_id, ended_at DESC)",
 	"CREATE UNIQUE INDEX IF NOT EXISTS ux_call_history_request_id ON call_history(request_id) WHERE request_id <> ''",
+	"CREATE INDEX IF NOT EXISTS idx_modemdeck_incoming_call_actions_status ON modemdeck_incoming_call_actions(status, created_at)",
+	"CREATE INDEX IF NOT EXISTS idx_modemdeck_call_recording_state_enabled ON modemdeck_call_recording_state(enabled, generation)",
+	"CREATE INDEX IF NOT EXISTS idx_modemdeck_call_recording_requests_created ON modemdeck_call_recording_requests(created_at, request_id)",
+	"CREATE INDEX IF NOT EXISTS idx_modemdeck_call_recordings_call ON modemdeck_call_recordings(call_id, segment_index)",
+	"CREATE INDEX IF NOT EXISTS idx_modemdeck_call_recordings_status ON modemdeck_call_recordings(status, updated_at)",
 	"CREATE INDEX IF NOT EXISTS idx_devices_iccid ON devices(iccid)",
 	"CREATE INDEX IF NOT EXISTS idx_sim_cards_imsi ON sim_cards(imsi)",
 	"CREATE INDEX IF NOT EXISTS idx_sim_subscriptions_current_iccid ON sim_subscriptions(current_iccid)",
+	"CREATE UNIQUE INDEX IF NOT EXISTS ux_modemdeck_telegram_units_bot_id ON modemdeck_telegram_units(bot_id) WHERE bot_id > 0",
+	"CREATE INDEX IF NOT EXISTS idx_modemdeck_telegram_reply_bindings_created_at ON modemdeck_telegram_reply_bindings(created_at)",
+	"CREATE INDEX IF NOT EXISTS idx_modemdeck_hardware_commands_status_updated ON modemdeck_hardware_commands(status, updated_at)",
+	"CREATE INDEX IF NOT EXISTS idx_modemdeck_notification_deliveries_status ON modemdeck_notification_deliveries(status, created_at)",
 }
 
 func MigrateSchema(ctx context.Context, database *sql.DB) error {
@@ -411,6 +746,30 @@ func tableColumns(ctx context.Context, transaction *sql.Tx, table string) (map[s
 
 func backfillCompatibilityData(ctx context.Context, transaction *sql.Tx) error {
 	statements := []string{
+		`INSERT INTO modemdeck_call_settings (
+			singleton, receive_calls, revision, updated_at
+		 ) VALUES (1, 1, 1, CURRENT_TIMESTAMP)
+		 ON CONFLICT(singleton) DO NOTHING`,
+		`UPDATE modemdeck_incoming_call_actions
+		 SET status = 'indeterminate',
+			error_code = CASE WHEN error_code = '' THEN 'process_interrupted' ELSE error_code END,
+			updated_at = CURRENT_TIMESTAMP
+		 WHERE status = 'sending'`,
+		`UPDATE modemdeck_hardware_commands
+		 SET status = 'indeterminate',
+			error_code = CASE WHEN error_code = '' THEN 'process_interrupted' ELSE error_code END,
+			updated_at = CURRENT_TIMESTAMP
+		 WHERE status = 'pending'`,
+		`INSERT INTO modemdeck_recording_settings (
+			singleton, default_enabled, revision, updated_at
+		 ) VALUES (1, 0, 1, CURRENT_TIMESTAMP)
+		 ON CONFLICT(singleton) DO NOTHING`,
+		`UPDATE modemdeck_call_recording_state
+		 SET request_enabled = enabled
+		 WHERE preference = 'override' AND request_enabled IS NULL`,
+		`UPDATE modemdeck_call_recording_requests
+		 SET created_at = CURRENT_TIMESTAMP
+		 WHERE created_at IS NULL`,
 		`UPDATE sms
 		 SET peer = TRIM(CASE WHEN type = 2 AND COALESCE(recipient, '') <> '' THEN recipient ELSE sender END)
 		 WHERE COALESCE(peer, '') = ''`,

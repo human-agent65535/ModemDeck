@@ -33,7 +33,10 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 		%s, %s,
 		ch.endpoint_id, ch.endpoint_call_id, ch.phase, ch.revision,
 			ch.created_at, ch.updated_at, ch.active_at, ch.ended_at,
-			ch.end_reason, ch.failure_code, ch.bearer
+			ch.end_reason, ch.failure_code, ch.bearer, ch.state_reason,
+			ch.state_reason_code, ch.multiparty, ch.audio_port,
+			ch.audio_encoding, ch.audio_resolution, ch.audio_rate,
+			ch.media_available
 		FROM call_history ch`,
 		fmt.Sprintf(contactIDForNumberSQL, "ch.remote_number", "ch.remote_number"),
 		fmt.Sprintf(contactNameForNumberSQL, "ch.remote_number", "ch.remote_number"),
@@ -86,12 +89,16 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 			endpointID, endpointCallID, phase                                       sql.NullString
 			revision                                                                sql.NullInt64
 			createdAt, updatedAt, activeAt, endedAt, endReason, failureCode, bearer sql.NullString
+			stateReason, audioPort, audioEncoding, audioResolution                  sql.NullString
+			stateReasonCode, multiparty, audioRate, mediaAvailable                  sql.NullInt64
 		)
 		if err := rows.Scan(
 			&call.ID, &requestID, &deviceID, &direction, &remoteNumber,
 			&contactID, &contactName, &endpointID, &endpointCallID, &phase,
 			&revision, &createdAt, &updatedAt, &activeAt, &endedAt,
-			&endReason, &failureCode, &bearer,
+			&endReason, &failureCode, &bearer, &stateReason, &stateReasonCode,
+			&multiparty, &audioPort, &audioEncoding, &audioResolution,
+			&audioRate, &mediaAvailable,
 		); err != nil {
 			return nil, fmt.Errorf("scan call: %w", err)
 		}
@@ -113,6 +120,16 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 		call.EndReason = stringValue(endReason)
 		call.FailureCode = stringValue(failureCode)
 		call.Bearer = stringValue(bearer)
+		call.StateReason = stringValue(stateReason)
+		call.StateReasonCode = intValue(stateReasonCode)
+		call.Multiparty = boolValue(multiparty)
+		call.AudioPort = stringValue(audioPort)
+		call.AudioEncoding = stringValue(audioEncoding)
+		call.AudioResolution = stringValue(audioResolution)
+		if audioRate.Valid && audioRate.Int64 > 0 {
+			call.AudioRate = uint32(audioRate.Int64)
+		}
+		call.MediaAvailable = boolValue(mediaAvailable)
 		if call.ActiveAt != nil {
 			call.DurationSeconds = durationSeconds(*call.ActiveAt, call.EndedAt)
 		}

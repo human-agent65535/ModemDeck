@@ -23,9 +23,10 @@ type markMessageReadRequest struct {
 }
 
 type startCallRequest struct {
-	RequestID string `json:"request_id"`
-	LineID    string `json:"line_id"`
-	Number    string `json:"number"`
+	RequestID        string `json:"request_id"`
+	LineID           string `json:"line_id"`
+	Number           string `json:"number"`
+	RecordingEnabled *bool  `json:"recording_enabled,omitempty"`
 }
 
 type callActionRequest struct {
@@ -122,6 +123,22 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 	if !ok {
 		return
 	}
+	if input.RecordingEnabled != nil {
+		if api.recordings == nil {
+			writeError(response, http.StatusServiceUnavailable, "recording_unavailable", "Call recording is unavailable", "")
+			return
+		}
+		preparedRequestID, err := api.recordings.PrepareOutgoing(
+			request.Context(),
+			requestID,
+			*input.RecordingEnabled,
+		)
+		if err != nil {
+			api.writeRecordingError(response, request, "prepare outgoing call recording", err, nil)
+			return
+		}
+		requestID = preparedRequestID
+	}
 	call, err := api.communications.StartCall(request.Context(), communication.StartCallInput{
 		RequestID: requestID,
 		LineID:    input.LineID,
@@ -179,6 +196,16 @@ func (api *API) callAction(response http.ResponseWriter, request *http.Request, 
 		api.writeCommunicationError(response, request, "control call", err)
 		return
 	}
+	if api.callMedia != nil && (action == "hangup" || action == "reject") {
+		if api.recordings != nil {
+			if finalizeErr := api.recordings.FinalizeCall(request.Context(), callID); finalizeErr != nil {
+				api.logger.Warn("finalize call recording", "error", finalizeErr)
+			}
+		}
+		if closeErr := api.callMedia.CloseCall(request.Context(), callID); closeErr != nil {
+			api.logger.Warn("close call media", "error", closeErr)
+		}
+	}
 	writeJSON(response, http.StatusOK, callSessionEnvelope{Call: callSession(call)})
 }
 
@@ -218,17 +245,18 @@ func callSession(call store.Call) callSessionResponse {
 		failure = call.EndReason
 	}
 	return callSessionResponse{
-		ID:            call.ID,
-		LineKey:       call.DeviceID,
-		Direction:     call.Direction,
-		RemoteNumber:  call.RemoteNumber,
-		DisplayName:   call.ContactName,
-		Phase:         call.Phase,
-		CreatedAt:     call.CreatedAt,
-		ActiveAt:      call.ActiveAt,
-		EndedAt:       call.EndedAt,
-		FailureReason: failure,
-		Bearer:        call.Bearer,
+		ID:             call.ID,
+		LineKey:        call.DeviceID,
+		Direction:      call.Direction,
+		RemoteNumber:   call.RemoteNumber,
+		DisplayName:    call.ContactName,
+		Phase:          call.Phase,
+		CreatedAt:      call.CreatedAt,
+		ActiveAt:       call.ActiveAt,
+		EndedAt:        call.EndedAt,
+		FailureReason:  failure,
+		Bearer:         call.Bearer,
+		MediaAvailable: call.MediaAvailable,
 	}
 }
 
@@ -247,8 +275,14 @@ func (api *API) writeCommunicationError(
 		writeError(response, http.StatusConflict, "conflict", err.Error(), "")
 	case errors.Is(err, communication.ErrNotSupported):
 		writeError(response, http.StatusNotImplemented, "not_supported", err.Error(), "")
+	case errors.Is(err, communication.ErrFailedPrecondition):
+		writeError(response, http.StatusPreconditionFailed, "failed_precondition", err.Error(), "")
+	case errors.Is(err, communication.ErrNetworkRejected):
+		writeError(response, http.StatusUnprocessableEntity, "network_rejected", err.Error(), "")
 	case errors.Is(err, communication.ErrUnavailable):
 		writeError(response, http.StatusServiceUnavailable, "communications_unavailable", err.Error(), "")
+	case errors.Is(err, communication.ErrVerification):
+		writeError(response, http.StatusBadGateway, "verification_failed", err.Error(), "")
 	default:
 		api.writeInternalError(response, request, operation, err)
 	}
