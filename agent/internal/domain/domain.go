@@ -10,14 +10,15 @@ import (
 const APIVersion = "v1"
 
 type AgentCapabilities struct {
-	Discovery   bool `json:"discovery"`
-	Snapshot    bool `json:"snapshot"`
-	Dial        bool `json:"dial"`
-	AnswerCall  bool `json:"answer_call"`
-	RejectCall  bool `json:"reject_call"`
-	HangupCall  bool `json:"hangup_call"`
-	SendDTMF    bool `json:"send_dtmf"`
-	SendMessage bool `json:"send_message"`
+	Discovery           bool `json:"discovery"`
+	Snapshot            bool `json:"snapshot"`
+	DeviceConfiguration bool `json:"device_configuration"`
+	Dial                bool `json:"dial"`
+	AnswerCall          bool `json:"answer_call"`
+	RejectCall          bool `json:"reject_call"`
+	HangupCall          bool `json:"hangup_call"`
+	SendDTMF            bool `json:"send_dtmf"`
+	SendMessage         bool `json:"send_message"`
 }
 
 type ProviderHealth struct {
@@ -48,6 +49,10 @@ type Line struct {
 	Revision                 string           `json:"revision"`
 	DeviceIdentifier         string           `json:"device_identifier"`
 	EquipmentIdentifier      string           `json:"equipment_identifier"`
+	IdentityPersistent       bool             `json:"identity_persistent"`
+	IdentitySource           string           `json:"identity_source,omitempty"`
+	SavedPolicySupported     bool             `json:"saved_policy_supported"`
+	UnsupportedPolicyReason  string           `json:"unsupported_policy_reason,omitempty"`
 	Device                   string           `json:"device"`
 	PhysicalDevice           string           `json:"physical_device"`
 	Drivers                  []string         `json:"drivers"`
@@ -95,6 +100,8 @@ type Call struct {
 	AudioPort       string           `json:"audio_port,omitempty"`
 	AudioFormat     *CallAudioFormat `json:"audio_format,omitempty"`
 	MediaAvailable  bool             `json:"media_available"`
+	MediaConfigured bool             `json:"media_configured"`
+	MediaActive     bool             `json:"media_active"`
 	Bearer          string           `json:"bearer"`
 }
 
@@ -162,13 +169,16 @@ type Provider interface {
 type ErrorCode string
 
 const (
-	ErrorInvalidArgument  ErrorCode = "invalid_argument"
-	ErrorNotFound         ErrorCode = "not_found"
-	ErrorConflict         ErrorCode = "conflict"
-	ErrorNotSupported     ErrorCode = "not_supported"
-	ErrorPermissionDenied ErrorCode = "permission_denied"
-	ErrorUnavailable      ErrorCode = "unavailable"
-	ErrorInternal         ErrorCode = "internal"
+	ErrorInvalidArgument    ErrorCode = "invalid_argument"
+	ErrorNotFound           ErrorCode = "not_found"
+	ErrorConflict           ErrorCode = "conflict"
+	ErrorNotSupported       ErrorCode = "not_supported"
+	ErrorPermissionDenied   ErrorCode = "permission_denied"
+	ErrorFailedPrecondition ErrorCode = "failed_precondition"
+	ErrorNetworkRejected    ErrorCode = "network_rejected"
+	ErrorUnavailable        ErrorCode = "unavailable"
+	ErrorVerification       ErrorCode = "verification_failed"
+	ErrorInternal           ErrorCode = "internal"
 )
 
 type OperationError struct {
@@ -218,8 +228,20 @@ func PermissionDenied(operation, message string, cause error) error {
 	return NewOperationError(ErrorPermissionDenied, operation, message, cause)
 }
 
+func FailedPrecondition(operation, message string, cause error) error {
+	return NewOperationError(ErrorFailedPrecondition, operation, message, cause)
+}
+
+func NetworkRejected(operation, message string, cause error) error {
+	return NewOperationError(ErrorNetworkRejected, operation, message, cause)
+}
+
 func Unavailable(operation, message string, cause error) error {
 	return NewOperationError(ErrorUnavailable, operation, message, cause)
+}
+
+func VerificationFailed(operation, message string, cause error) error {
+	return NewOperationError(ErrorVerification, operation, message, cause)
 }
 
 func Internal(operation, message string, cause error) error {

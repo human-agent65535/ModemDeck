@@ -31,12 +31,14 @@ const (
 )
 
 type Provider struct {
-	caller Caller
-	close  func() error
-	now    func() time.Time
-	ids    *instanceIDs
+	caller        Caller
+	ownerResolver ownerResolver
+	close         func() error
+	now           func() time.Time
+	ids           *instanceIDs
 
 	callMu        sync.Mutex
+	configMu      sync.Mutex
 	snapshotMu    sync.Mutex
 	terminalCalls map[string]terminalCallProjection
 }
@@ -46,17 +48,56 @@ type terminalCallProjection struct {
 	expiresAt time.Time
 }
 
-func New(caller Caller) (*Provider, error) {
-	ids, err := newInstanceIDs()
+type ownerResolver interface {
+	ResolveOwner(context.Context) (string, error)
+}
+
+type callerOwnerResolver struct {
+	caller Caller
+}
+
+func (r callerOwnerResolver) ResolveOwner(ctx context.Context) (string, error) {
+	body, err := r.caller.Call(
+		ctx,
+		busServiceName,
+		busPath,
+		busInterface+".GetNameOwner",
+		dbus.FlagNoAutoStart,
+		serviceName,
+	)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return newProvider(caller, ids), nil
+	var owner string
+	if err := dbus.Store(body, &owner); err != nil {
+		return "", fmt.Errorf("decode ModemManager D-Bus owner: %w", err)
+	}
+	return strings.TrimSpace(owner), nil
+}
+
+type staticOwnerResolver struct {
+	owner string
+}
+
+func (r staticOwnerResolver) ResolveOwner(context.Context) (string, error) {
+	return r.owner, nil
+}
+
+func New(caller Caller) (*Provider, error) {
+	return newProvider(caller, newInstanceIDs()), nil
 }
 
 func newProvider(caller Caller, ids *instanceIDs) *Provider {
+	if ids == nil {
+		ids = newInstanceIDs()
+	}
+	var resolver ownerResolver = callerOwnerResolver{caller: caller}
+	if owner := ids.providerEpoch(); owner != "" {
+		resolver = staticOwnerResolver{owner: owner}
+	}
 	return &Provider{
 		caller:        caller,
+		ownerResolver: resolver,
 		now:           time.Now,
 		ids:           ids,
 		terminalCalls: make(map[string]terminalCallProjection),
@@ -87,9 +128,6 @@ func (p *Provider) Close() error {
 func (p *Provider) Health(ctx context.Context) (domain.ProviderHealth, error) {
 	const operation = "health"
 	health := domain.ProviderHealth{Name: serviceName}
-	if p != nil && p.ids != nil {
-		health.BootEpoch = p.ids.bootEpoch
-	}
 	if err := p.requireCaller(ctx, operation); err != nil {
 		return health, err
 	}
@@ -112,22 +150,33 @@ func (p *Provider) Health(ctx context.Context) (domain.ProviderHealth, error) {
 	}
 	health.Available = available
 	if available {
+		identity, err := p.resolveProviderIdentity(ctx, operation)
+		if err != nil {
+			return health, err
+		}
+		health.BootEpoch = identity.providerEpoch()
 		health.Capabilities = implementedCapabilities()
 		health.RuntimeVersion, err = p.runtimeVersion(ctx, operation)
 		if err != nil {
 			return health, err
 		}
+	} else {
+		p.clearProviderIdentity()
 	}
 	return health, nil
 }
 
 func (p *Provider) Snapshot(ctx context.Context) (domain.Snapshot, error) {
 	const operation = "snapshot"
+	identity, err := p.resolveProviderIdentity(ctx, operation)
+	if err != nil {
+		return domain.Snapshot{}, err
+	}
 	objects, err := p.managedObjects(ctx, operation)
 	if err != nil {
 		return domain.Snapshot{}, err
 	}
-	parsed := ParseManagedObjects(objects, p.ids)
+	parsed := ParseManagedObjects(objects, identity)
 	observedAt := p.now().UTC()
 	p.projectTerminatedCalls(&parsed, observedAt)
 	revision, err := snapshotRevision(parsed.Lines, parsed.Calls, parsed.Messages)
@@ -207,7 +256,7 @@ func (p *Provider) StartCall(ctx context.Context, request domain.StartCallReques
 	); err != nil {
 		return domain.CommandReceipt{}, err
 	}
-	return domain.CommandReceipt{RequestID: request.RequestID, ResourceID: p.ids.callID(callPath)}, nil
+	return domain.CommandReceipt{RequestID: request.RequestID, ResourceID: parsed.ids.callID(callPath)}, nil
 }
 
 func (p *Provider) AnswerCall(ctx context.Context, request domain.CallCommandRequest) (domain.CommandReceipt, error) {
@@ -384,7 +433,7 @@ func (p *Provider) SendMessage(ctx context.Context, request domain.SendMessageRe
 	); err != nil {
 		return domain.CommandReceipt{}, err
 	}
-	return domain.CommandReceipt{RequestID: request.RequestID, ResourceID: p.ids.messageID(messagePath)}, nil
+	return domain.CommandReceipt{RequestID: request.RequestID, ResourceID: parsed.ids.messageID(messagePath)}, nil
 }
 
 func (p *Provider) controlCall(
@@ -573,11 +622,58 @@ func (p *Provider) snapshotContent(
 	ctx context.Context,
 	operation string,
 ) (ParsedObjects, error) {
+	identity, err := p.resolveProviderIdentity(ctx, operation)
+	if err != nil {
+		return ParsedObjects{}, err
+	}
 	objects, err := p.managedObjects(ctx, operation)
 	if err != nil {
 		return ParsedObjects{}, err
 	}
-	return ParseManagedObjects(objects, p.ids), nil
+	return ParseManagedObjects(objects, identity), nil
+}
+
+func (p *Provider) resolveProviderIdentity(
+	ctx context.Context,
+	operation string,
+) (*instanceIDs, error) {
+	if err := p.requireCaller(ctx, operation); err != nil {
+		return nil, err
+	}
+	if p.ownerResolver == nil {
+		return nil, domain.Unavailable(operation, "ModemManager owner resolver is unavailable", nil)
+	}
+	owner, err := p.ownerResolver.ResolveOwner(ctx)
+	if err != nil {
+		return nil, mapCallError(operation, "failed to resolve the ModemManager D-Bus owner", err)
+	}
+	if owner == "" {
+		return nil, domain.Unavailable(operation, "ModemManager D-Bus owner is unavailable", nil)
+	}
+	previousOwner := p.ids.providerEpoch()
+	if err := p.ids.setProviderOwner(owner); err != nil {
+		return nil, domain.Internal(operation, "ModemManager D-Bus owner was invalid", err)
+	}
+	if previousOwner != "" && previousOwner != owner {
+		p.snapshotMu.Lock()
+		p.terminalCalls = make(map[string]terminalCallProjection)
+		p.snapshotMu.Unlock()
+	}
+	identity, err := p.ids.freeze()
+	if err != nil {
+		return nil, domain.Internal(operation, "ModemManager identity was unavailable", err)
+	}
+	return identity, nil
+}
+
+func (p *Provider) clearProviderIdentity() {
+	if p == nil || p.ids == nil {
+		return
+	}
+	p.ids.clearProviderOwner()
+	p.snapshotMu.Lock()
+	p.terminalCalls = make(map[string]terminalCallProjection)
+	p.snapshotMu.Unlock()
 }
 
 func (p *Provider) managedObjects(ctx context.Context, operation string) (ManagedObjects, error) {
@@ -628,14 +724,15 @@ func (p *Provider) requireCaller(ctx context.Context, operation string) error {
 
 func implementedCapabilities() domain.AgentCapabilities {
 	return domain.AgentCapabilities{
-		Discovery:   true,
-		Snapshot:    true,
-		Dial:        true,
-		AnswerCall:  true,
-		RejectCall:  true,
-		HangupCall:  true,
-		SendDTMF:    true,
-		SendMessage: true,
+		Discovery:           true,
+		Snapshot:            true,
+		DeviceConfiguration: true,
+		Dial:                true,
+		AnswerCall:          true,
+		RejectCall:          true,
+		HangupCall:          true,
+		SendDTMF:            true,
+		SendMessage:         true,
 	}
 }
 

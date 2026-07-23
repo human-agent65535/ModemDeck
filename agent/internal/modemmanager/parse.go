@@ -27,6 +27,7 @@ type ParsedObjects struct {
 	LinePaths    map[string]dbus.ObjectPath
 	CallPaths    map[string]dbus.ObjectPath
 	MessagePaths map[string]dbus.ObjectPath
+	ids          *instanceIDs
 }
 
 func ParseManagedObjects(objects ManagedObjects, ids *instanceIDs) ParsedObjects {
@@ -37,6 +38,7 @@ func ParseManagedObjects(objects ManagedObjects, ids *instanceIDs) ParsedObjects
 		LinePaths:    make(map[string]dbus.ObjectPath),
 		CallPaths:    make(map[string]dbus.ObjectPath),
 		MessagePaths: make(map[string]dbus.ObjectPath),
+		ids:          ids,
 	}
 	seenCalls := make(map[string]struct{})
 	seenMessages := make(map[string]struct{})
@@ -90,52 +92,64 @@ func ParseManagedObjects(objects ManagedObjects, ids *instanceIDs) ParsedObjects
 			}
 		}
 
-		line.ID = ids.lineID(path, line)
-		parsed.LinePaths[line.ID] = path
+		identity := stableLineIdentity(line)
+		line.ID = identity.id
+		line.IdentityPersistent = identity.persistent
+		line.IdentitySource = identity.source
+		line.SavedPolicySupported = identity.savedPolicySupported
+		line.UnsupportedPolicyReason = identity.unsupportedPolicyReason
+		routable := line.ID != ""
+		if routable {
+			parsed.LinePaths[line.ID] = path
+		}
 
 		if voiceProperties, found := interfaces[voiceInterface]; found {
 			line.Capabilities.VoiceInterface = true
-			line.Capabilities.Dial = true
-			line.Capabilities.AnswerCall = true
-			line.Capabilities.RejectCall = true
-			line.Capabilities.HangupCall = true
-			line.Capabilities.SendDTMF = true
+			line.Capabilities.Dial = routable
+			line.Capabilities.AnswerCall = routable
+			line.Capabilities.RejectCall = routable
+			line.Capabilities.HangupCall = routable
+			line.Capabilities.SendDTMF = routable
 			line.EmergencyOnly, _ = boolProperty(voiceProperties, "EmergencyOnly")
 
-			callPaths, _ := objectPathValuesProperty(voiceProperties, "Calls")
-			for _, callPath := range callPaths {
-				callProperties, found := objects[callPath][callInterface]
-				if !found {
-					continue
-				}
-				call := parseCall(callPath, line.ID, callProperties, ids)
-				line.CallIDs = append(line.CallIDs, call.ID)
-				if _, duplicate := seenCalls[call.ID]; !duplicate {
-					seenCalls[call.ID] = struct{}{}
-					parsed.CallPaths[call.ID] = callPath
-					parsed.Calls = append(parsed.Calls, call)
+			if routable {
+				callPaths, _ := objectPathValuesProperty(voiceProperties, "Calls")
+				for _, callPath := range callPaths {
+					callProperties, found := objects[callPath][callInterface]
+					if !found {
+						continue
+					}
+					call := parseCall(callPath, line.ID, callProperties, ids)
+					line.CallIDs = append(line.CallIDs, call.ID)
+					if _, duplicate := seenCalls[call.ID]; !duplicate {
+						seenCalls[call.ID] = struct{}{}
+						parsed.CallPaths[call.ID] = callPath
+						parsed.Calls = append(parsed.Calls, call)
+					}
 				}
 			}
 		}
 
 		if messagingProperties, found := interfaces[messagingInterface]; found {
 			line.Capabilities.MessagingInterface = true
-			line.Capabilities.SendMessage = true
+			line.Capabilities.SendMessage = routable
 			line.SupportedMessageStorages, _ = uint32sProperty(messagingProperties, "SupportedStorages")
 			line.DefaultMessageStorage, _ = uint32Property(messagingProperties, "DefaultStorage")
 
-			messagePaths, _ := objectPathValuesProperty(messagingProperties, "Messages")
-			for _, messagePath := range messagePaths {
-				messageProperties, found := objects[messagePath][smsInterface]
-				if !found {
-					continue
-				}
-				message := parseMessage(messagePath, line.ID, messageProperties, ids)
-				line.MessageIDs = append(line.MessageIDs, message.ID)
-				if _, duplicate := seenMessages[message.ID]; !duplicate {
-					seenMessages[message.ID] = struct{}{}
-					parsed.MessagePaths[message.ID] = messagePath
-					parsed.Messages = append(parsed.Messages, message)
+			if routable {
+				messagePaths, _ := objectPathValuesProperty(messagingProperties, "Messages")
+				for _, messagePath := range messagePaths {
+					messageProperties, found := objects[messagePath][smsInterface]
+					if !found {
+						continue
+					}
+					message := parseMessage(messagePath, line.ID, messageProperties, ids)
+					line.MessageIDs = append(line.MessageIDs, message.ID)
+					if _, duplicate := seenMessages[message.ID]; !duplicate {
+						seenMessages[message.ID] = struct{}{}
+						parsed.MessagePaths[message.ID] = messagePath
+						parsed.Messages = append(parsed.Messages, message)
+					}
 				}
 			}
 		}
@@ -246,9 +260,9 @@ func callStateName(code int32) string {
 	case 1:
 		return "dialing"
 	case 2:
-		return "ringing_out"
+		return "ringing-out"
 	case 3:
-		return "ringing_in"
+		return "ringing-in"
 	case 4:
 		return "active"
 	case 5:

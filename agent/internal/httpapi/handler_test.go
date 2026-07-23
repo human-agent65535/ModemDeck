@@ -269,7 +269,10 @@ func TestTypedProviderErrorsMapToHTTPAndEchoRequestID(t *testing.T) {
 		{name: "conflict", code: domain.ErrorConflict, status: http.StatusConflict},
 		{name: "unsupported", code: domain.ErrorNotSupported, status: http.StatusNotImplemented},
 		{name: "permission", code: domain.ErrorPermissionDenied, status: http.StatusForbidden},
+		{name: "failed precondition", code: domain.ErrorFailedPrecondition, status: http.StatusPreconditionFailed},
+		{name: "network rejected", code: domain.ErrorNetworkRejected, status: http.StatusUnprocessableEntity},
 		{name: "unavailable", code: domain.ErrorUnavailable, status: http.StatusServiceUnavailable},
+		{name: "verification", code: domain.ErrorVerification, status: http.StatusBadGateway},
 		{name: "internal", code: domain.ErrorInternal, status: http.StatusInternalServerError},
 	}
 	for _, test := range tests {

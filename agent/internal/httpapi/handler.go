@@ -11,13 +11,16 @@ import (
 	"unicode"
 
 	"github.com/human-agent65535/modemdeck/agent/internal/domain"
+	"github.com/human-agent65535/modemdeck/agent/internal/media"
 )
 
 const maxRequestBodyBytes = 256 << 10
 
 type handler struct {
-	provider     domain.Provider
-	agentVersion string
+	provider             domain.Provider
+	deviceConfigurations domain.DeviceConfigurationProvider
+	agentVersion         string
+	media                *media.Manager
 }
 
 type healthResponse struct {
@@ -39,10 +42,38 @@ type apiError struct {
 }
 
 func New(provider domain.Provider, agentVersion string) http.Handler {
-	h := &handler{provider: provider, agentVersion: agentVersion}
+	return NewWithOptions(provider, agentVersion, Options{})
+}
+
+func NewWithMedia(
+	provider domain.Provider,
+	agentVersion string,
+	mediaManager *media.Manager,
+) http.Handler {
+	return NewWithOptions(provider, agentVersion, Options{Media: mediaManager})
+}
+
+type Options struct {
+	Media                *media.Manager
+	DeviceConfigurations domain.DeviceConfigurationProvider
+}
+
+func NewWithOptions(
+	provider domain.Provider,
+	agentVersion string,
+	options Options,
+) http.Handler {
+	h := &handler{
+		provider:             provider,
+		deviceConfigurations: options.DeviceConfigurations,
+		agentVersion:         agentVersion,
+		media:                options.Media,
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", h.health)
 	mux.HandleFunc("GET /v1/snapshot", h.snapshot)
+	mux.HandleFunc("GET /v1/lines/{id}/configuration", h.getDeviceConfiguration)
+	mux.HandleFunc("PATCH /v1/lines/{id}/configuration", h.patchDeviceConfiguration)
 	mux.HandleFunc("POST /v1/calls", h.startCall)
 	mux.HandleFunc("POST /v1/calls/{id}/answer", h.answerCall)
 	mux.HandleFunc("POST /v1/calls/{id}/reject", h.rejectCall)
@@ -50,7 +81,13 @@ func New(provider domain.Provider, agentVersion string) http.Handler {
 	mux.HandleFunc("POST /v1/calls/{id}/dtmf", h.sendDTMF)
 	mux.HandleFunc("POST /v1/messages", h.sendMessage)
 	mux.HandleFunc("/", h.notFound)
-	return mux
+	if options.Media == nil {
+		return mux
+	}
+	root := http.NewServeMux()
+	root.Handle("/v1/media/", NewMediaHandler(options.Media, MediaHandlerOptions{}))
+	root.Handle("/", mux)
+	return root
 }
 
 func (h *handler) health(w http.ResponseWriter, r *http.Request) {
@@ -63,6 +100,7 @@ func (h *handler) health(w http.ResponseWriter, r *http.Request) {
 	if !health.Available {
 		status = "degraded"
 	}
+	health.Capabilities.DeviceConfiguration = h.deviceConfigurations != nil
 	h.writeJSON(w, http.StatusOK, healthResponse{
 		Status:       status,
 		APIVersion:   domain.APIVersion,
@@ -77,6 +115,7 @@ func (h *handler) snapshot(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err, "")
 		return
 	}
+	decorateMediaSnapshot(&snapshot, h.media)
 	h.writeJSON(w, http.StatusOK, snapshot)
 }
 
@@ -210,8 +249,14 @@ func (h *handler) writeError(w http.ResponseWriter, err error, requestID string)
 		status = http.StatusNotImplemented
 	case domain.ErrorPermissionDenied:
 		status = http.StatusForbidden
+	case domain.ErrorFailedPrecondition:
+		status = http.StatusPreconditionFailed
+	case domain.ErrorNetworkRejected:
+		status = http.StatusUnprocessableEntity
 	case domain.ErrorUnavailable:
 		status = http.StatusServiceUnavailable
+	case domain.ErrorVerification:
+		status = http.StatusBadGateway
 	case domain.ErrorInternal:
 		status = http.StatusInternalServerError
 	}

@@ -29,7 +29,12 @@ func TestSnapshotJSONContractUsesArraysAndRequiredTruthFields(t *testing.T) {
 	snapshot := Snapshot{
 		Revision:   "sha256:abc",
 		ObservedAt: time.Date(2026, 7, 23, 1, 2, 3, 0, time.UTC),
-		Lines:      []Line{},
+		Lines: []Line{{
+			ID:                   "line_hash",
+			IdentityPersistent:   true,
+			IdentitySource:       "physical_device+equipment_identifier",
+			SavedPolicySupported: true,
+		}},
 		Calls: []Call{{
 			ID:              "call_epoch_hash",
 			LineID:          "line_hash",
@@ -45,8 +50,10 @@ func TestSnapshotJSONContractUsesArraysAndRequiredTruthFields(t *testing.T) {
 				Resolution: "s16le",
 				Rate:       8000,
 			},
-			MediaAvailable: true,
-			Bearer:         "",
+			MediaAvailable:  true,
+			MediaConfigured: true,
+			MediaActive:     true,
+			Bearer:          "",
 		}},
 		Messages: []Message{{
 			ID:        "message_epoch_hash",
@@ -76,6 +83,17 @@ func TestSnapshotJSONContractUsesArraysAndRequiredTruthFields(t *testing.T) {
 	if _, ok := decoded["lines"].([]any); !ok {
 		t.Fatalf("lines is not an array: %T", decoded["lines"])
 	}
+	lines := decoded["lines"].([]any)
+	line := lines[0].(map[string]any)
+	for _, key := range []string{
+		"identity_persistent",
+		"identity_source",
+		"saved_policy_supported",
+	} {
+		if _, ok := line[key]; !ok {
+			t.Fatalf("line JSON missing %q: %s", key, encoded)
+		}
+	}
 	calls := decoded["calls"].([]any)
 	call := calls[0].(map[string]any)
 	for _, key := range []string{
@@ -85,6 +103,8 @@ func TestSnapshotJSONContractUsesArraysAndRequiredTruthFields(t *testing.T) {
 		"audio_port",
 		"audio_format",
 		"media_available",
+		"media_configured",
+		"media_active",
 		"bearer",
 	} {
 		if _, ok := call[key]; !ok {

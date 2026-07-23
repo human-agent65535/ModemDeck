@@ -13,9 +13,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/human-agent65535/modemdeck/agent/internal/deviceconfig"
 	"github.com/human-agent65535/modemdeck/agent/internal/httpapi"
+	"github.com/human-agent65535/modemdeck/agent/internal/media"
 	"github.com/human-agent65535/modemdeck/agent/internal/modemmanager"
 	"github.com/human-agent65535/modemdeck/agent/internal/unixsocket"
+	"github.com/human-agent65535/modemdeck/agent/internal/volte"
 )
 
 var version = "dev"
@@ -32,6 +35,11 @@ func run() error {
 	socketMode := flag.String("socket-mode", "0660", "unix socket permission mode in octal")
 	socketUID := flag.Int("socket-uid", -1, "unix socket owner uid; -1 keeps the process uid")
 	socketGID := flag.Int("socket-gid", -1, "unix socket owner gid; -1 keeps the process gid")
+	mediaBindingsFile := flag.String(
+		"media-bindings-file",
+		os.Getenv("MODEMDECK_MEDIA_BINDINGS_FILE"),
+		"absolute path to explicit host audio-port bindings JSON",
+	)
 	flag.Parse()
 
 	mode, err := parseSocketMode(*socketMode)
@@ -44,6 +52,67 @@ func run() error {
 		return err
 	}
 	defer provider.Close()
+	bindings, err := loadMediaBindings(*mediaBindingsFile)
+	if err != nil {
+		return err
+	}
+	backends, err := configureMediaBackends(bindings)
+	if err != nil {
+		return err
+	}
+	mediaManager, err := media.NewManager(
+		media.CallSourceFunc(func(ctx context.Context, callID string) (media.Call, error) {
+			snapshot, err := provider.Snapshot(ctx)
+			if err != nil {
+				return media.Call{}, media.NewError(
+					media.ErrorBackendUnavailable,
+					"resolve_media_call",
+					"ModemManager call state is unavailable",
+					err,
+				)
+			}
+			for _, call := range snapshot.Calls {
+				if call.ID != callID {
+					continue
+				}
+				projected := media.Call{
+					ID:             call.ID,
+					State:          call.State,
+					AudioPort:      call.AudioPort,
+					MediaAvailable: call.MediaAvailable,
+				}
+				if call.AudioFormat != nil {
+					projected.AudioFormat = &media.AdvertisedFormat{
+						Encoding:   call.AudioFormat.Encoding,
+						Resolution: call.AudioFormat.Resolution,
+						Rate:       call.AudioFormat.Rate,
+					}
+				}
+				return projected, nil
+			}
+			return media.Call{}, media.NewError(
+				media.ErrorNotFound,
+				"resolve_media_call",
+				"call was not found",
+				nil,
+			)
+		}),
+		bindings,
+		backends,
+		media.Options{},
+	)
+	if err != nil {
+		return err
+	}
+	defer mediaManager.Close()
+	volteRegistry, err := volte.NewRegistry()
+	if err != nil {
+		return fmt.Errorf("create VoLTE profile registry: %w", err)
+	}
+	deviceConfigurations, err := deviceconfig.New(provider, volteRegistry, nil)
+	if err != nil {
+		return fmt.Errorf("create device configuration service: %w", err)
+	}
 
 	listener, err := unixsocket.Listen(unixsocket.Config{
 		Path: *socketPath,
@@ -57,10 +126,13 @@ func run() error {
 	defer listener.Close()
 
 	server := &http.Server{
-		Handler:           httpapi.New(provider, version),
+		Handler: httpapi.NewWithOptions(provider, version, httpapi.Options{
+			Media:                mediaManager,
+			DeviceConfigurations: deviceConfigurations,
+		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    32 << 10,
 	}

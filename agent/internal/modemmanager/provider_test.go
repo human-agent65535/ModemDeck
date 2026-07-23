@@ -24,6 +24,7 @@ type dbusInvocation struct {
 type fakeCaller struct {
 	mu                 sync.Mutex
 	owner              bool
+	ownerName          string
 	objects            ManagedObjects
 	createdCallPath    dbus.ObjectPath
 	createdMessagePath dbus.ObjectPath
@@ -57,6 +58,11 @@ func (f *fakeCaller) Call(
 	switch method {
 	case busInterface + ".NameHasOwner":
 		return []any{f.owner}, nil
+	case busInterface + ".GetNameOwner":
+		if !f.owner {
+			return nil, dbus.NewError("org.freedesktop.DBus.Error.NameHasNoOwner", nil)
+		}
+		return []any{f.ownerName}, nil
 	case objectManagerInterface + ".GetManagedObjects":
 		return []any{f.objects}, nil
 	case propertiesInterface + ".Get":
@@ -76,6 +82,12 @@ func (f *fakeCaller) invocations() []dbusInvocation {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]dbusInvocation(nil), f.calls...)
+}
+
+func (f *fakeCaller) setOwnerName(ownerName string) {
+	f.mu.Lock()
+	f.ownerName = ownerName
+	f.mu.Unlock()
 }
 
 func TestHealthAdvertisesImplementedCapabilitiesOnlyWithOwner(t *testing.T) {
@@ -192,6 +204,72 @@ func TestSnapshotUsesOneManagedObjectsCallAndStableContentRevision(t *testing.T)
 	}
 }
 
+func TestProviderIdentityFollowsModemManagerOwnerAcrossAgentRestarts(t *testing.T) {
+	t.Parallel()
+
+	objects := emptyLineObjects(true, false)
+	addCall(objects, "/org/freedesktop/ModemManager1/Call/17", 4)
+	caller := newFakeCaller(objects)
+	caller.owner = true
+	caller.setOwnerName(":1.41")
+
+	firstProvider, err := New(caller)
+	if err != nil {
+		t.Fatalf("first New() error = %v", err)
+	}
+	first, err := firstProvider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("first Snapshot() error = %v", err)
+	}
+	restartedAgentProvider, err := New(caller)
+	if err != nil {
+		t.Fatalf("restarted agent New() error = %v", err)
+	}
+	restartedAgent, err := restartedAgentProvider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("restarted agent Snapshot() error = %v", err)
+	}
+	if len(first.Calls) != 1 || len(restartedAgent.Calls) != 1 ||
+		first.Calls[0].ID != restartedAgent.Calls[0].ID {
+		t.Fatalf("agent restart changed call identity: first=%+v restarted=%+v", first.Calls, restartedAgent.Calls)
+	}
+
+	caller.setOwnerName(":1.42")
+	restartedModemManager, err := firstProvider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("new owner Snapshot() error = %v", err)
+	}
+	if len(restartedModemManager.Calls) != 1 ||
+		restartedModemManager.Calls[0].ID == first.Calls[0].ID {
+		t.Fatalf("ModemManager owner change did not change call identity: before=%+v after=%+v", first.Calls, restartedModemManager.Calls)
+	}
+	health, err := firstProvider.Health(context.Background())
+	if err != nil {
+		t.Fatalf("Health() error = %v", err)
+	}
+	if health.BootEpoch != ":1.42" {
+		t.Fatalf("provider boot_epoch = %q, want ModemManager owner :1.42", health.BootEpoch)
+	}
+}
+
+func TestProviderDoesNotFallbackWhenOwnerCannotBeResolved(t *testing.T) {
+	t.Parallel()
+
+	caller := newFakeCaller(emptyLineObjects(true, false))
+	caller.owner = true
+	caller.errors[busInterface+".GetNameOwner"] = dbus.NewError(
+		"org.freedesktop.DBus.Error.NameHasNoOwner",
+		nil,
+	)
+	provider, err := New(caller)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	_, err = provider.Snapshot(context.Background())
+	assertOperationError(t, err, domain.ErrorUnavailable, "snapshot")
+	assertMethods(t, caller.invocations(), busInterface+".GetNameOwner")
+}
+
 func TestSnapshotRetainsTerminatedCallForBoundedProjection(t *testing.T) {
 	objects := emptyLineObjects(true, false)
 	callPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/Call/8")
@@ -261,7 +339,7 @@ func TestStartCallUsesVoiceCreateThenCallStartAndOpaqueReceipt(t *testing.T) {
 		t.Fatalf("StartCall: %v", err)
 	}
 	if receipt.RequestID != "request-dial-1" ||
-		!strings.HasPrefix(receipt.ResourceID, "call_boot-test_") ||
+		!strings.HasPrefix(receipt.ResourceID, "call_") ||
 		strings.Contains(receipt.ResourceID, "/") {
 		t.Fatalf("unexpected receipt: %+v", receipt)
 	}
@@ -475,7 +553,7 @@ func TestCallControlsRejectInvalidStateAndOldBootID(t *testing.T) {
 	t.Run("old boot id", func(t *testing.T) {
 		caller := newFakeCaller(objects)
 		provider := newTestProvider(caller)
-		oldIDs := newInstanceIDsForTest("old-boot", []byte("abcdefghijklmnopqrstuvwxyzABCDEF"))
+		oldIDs := newInstanceIDsForTest(":1.40")
 		oldCallID := ParseManagedObjects(objects, oldIDs).Calls[0].ID
 		_, err := provider.HangupCall(context.Background(), domain.CallCommandRequest{
 			RequestID: "request-old-id",
@@ -639,7 +717,7 @@ func TestSendMessageUsesMessagingCreateThenSmsSend(t *testing.T) {
 		t.Fatalf("SendMessage: %v", err)
 	}
 	if receipt.RequestID != "request-sms" ||
-		!strings.HasPrefix(receipt.ResourceID, "message_boot-test_") ||
+		!strings.HasPrefix(receipt.ResourceID, "message_") ||
 		strings.Contains(receipt.ResourceID, "/") {
 		t.Fatalf("unexpected receipt: %+v", receipt)
 	}
@@ -672,7 +750,7 @@ func TestSendMessageFailureDoesNotInvokeFallbackOrDelete(t *testing.T) {
 		Number:    "+818012345678",
 		Text:      "hello",
 	})
-	assertOperationError(t, err, domain.ErrorConflict, "send_message")
+	assertOperationError(t, err, domain.ErrorFailedPrecondition, "send_message")
 	assertMethods(t, caller.invocations(),
 		objectManagerInterface+".GetManagedObjects",
 		messagingInterface+".Create",
@@ -705,6 +783,16 @@ func TestProviderMapsContextAndDBusErrorsToTypedErrors(t *testing.T) {
 			name: "permission",
 			err:  dbus.NewError("org.freedesktop.ModemManager1.Error.Core.Unauthorized", nil),
 			code: domain.ErrorPermissionDenied,
+		},
+		{
+			name: "SIM precondition",
+			err:  dbus.NewError("org.freedesktop.ModemManager1.Error.MobileEquipment.SimPin", nil),
+			code: domain.ErrorFailedPrecondition,
+		},
+		{
+			name: "network rejected",
+			err:  dbus.NewError("org.freedesktop.ModemManager1.Error.MobileEquipment.MissingOrUnknownApn", nil),
+			code: domain.ErrorNetworkRejected,
 		},
 		{
 			name: "internal",
@@ -743,13 +831,14 @@ var (
 func newTestProvider(caller Caller) *Provider {
 	return newProvider(
 		caller,
-		newInstanceIDsForTest("boot-test", []byte("01234567890123456789012345678901")),
+		newInstanceIDsForTest("boot-test"),
 	)
 }
 
 func newFakeCaller(objects ManagedObjects) *fakeCaller {
 	return &fakeCaller{
 		objects:            objects,
+		ownerName:          ":1.41",
 		createdCallPath:    "/org/freedesktop/ModemManager1/Call/99",
 		createdMessagePath: "/org/freedesktop/ModemManager1/SMS/99",
 		runtimeVersion:     "1.24.2",
