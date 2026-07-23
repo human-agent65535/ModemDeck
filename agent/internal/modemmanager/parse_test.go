@@ -195,6 +195,81 @@ func TestParseManagedObjectsMapsLineCallsAndMessages(t *testing.T) {
 	}
 }
 
+func TestParseManagedObjectsResolvesOnlyMissingOperatorNames(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		operatorIdentifier string
+		operatorName       string
+		includeName        bool
+		want               string
+	}{
+		{
+			name:               "missing name uses embedded table",
+			operatorIdentifier: "46001",
+			want:               "China Unicom",
+		},
+		{
+			name:               "non-empty ModemManager name is preserved",
+			operatorIdentifier: "46001",
+			operatorName:       "Carrier name from ModemManager",
+			includeName:        true,
+			want:               "Carrier name from ModemManager",
+		},
+		{
+			name:               "unknown PLMN stays empty for upper-layer fallback",
+			operatorIdentifier: "12345",
+			want:               "",
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			modemPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/Modem/0")
+			simPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/SIM/0")
+			simProperties := Properties{
+				"SimIdentifier":      dbus.MakeVariant("8986000000000000000"),
+				"OperatorIdentifier": dbus.MakeVariant(test.operatorIdentifier),
+			}
+			if test.includeName {
+				simProperties["OperatorName"] = dbus.MakeVariant(test.operatorName)
+			}
+			objects := ManagedObjects{
+				modemPath: {
+					modemInterface: {
+						"EquipmentIdentifier": dbus.MakeVariant("867530900000001"),
+						"Physdev":             dbus.MakeVariant("/sys/devices/usb1/1-2"),
+						"State":               dbus.MakeVariant(int32(8)),
+						"Sim":                 dbus.MakeVariant(simPath),
+					},
+				},
+				simPath: {
+					simInterface: simProperties,
+				},
+			}
+
+			parsed := ParseManagedObjects(objects, newInstanceIDsForTest(":1.41"))
+			if len(parsed.Lines) != 1 {
+				t.Fatalf("parsed lines = %d, want 1", len(parsed.Lines))
+			}
+			line := parsed.Lines[0]
+			if line.OperatorIdentifier != test.operatorIdentifier || line.OperatorName != test.want {
+				t.Fatalf(
+					"operator = (%q, %q), want (%q, %q)",
+					line.OperatorIdentifier,
+					line.OperatorName,
+					test.operatorIdentifier,
+					test.want,
+				)
+			}
+		})
+	}
+}
+
 func TestCallStateNameUsesCanonicalNames(t *testing.T) {
 	t.Parallel()
 

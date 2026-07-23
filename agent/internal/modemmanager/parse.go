@@ -2,9 +2,11 @@ package modemmanager
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/human-agent65535/modemdeck/agent/internal/domain"
+	"github.com/human-agent65535/modemdeck/agent/internal/operator"
 )
 
 const (
@@ -88,6 +90,11 @@ func ParseManagedObjects(objects ManagedObjects, ids *instanceIDs) ParsedObjects
 				line.IMSI, _ = stringProperty(simProperties, "Imsi")
 				line.OperatorIdentifier, _ = stringProperty(simProperties, "OperatorIdentifier")
 				line.OperatorName, _ = stringProperty(simProperties, "OperatorName")
+				if strings.TrimSpace(line.OperatorName) == "" {
+					if name, found := operator.Name(line.OperatorIdentifier); found {
+						line.OperatorName = name
+					}
+				}
 				line.EmergencyNumbers, _ = stringsProperty(simProperties, "EmergencyNumbers")
 			}
 		}

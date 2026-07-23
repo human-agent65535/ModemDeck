@@ -621,7 +621,8 @@ func TestRefreshPreservesSixDiscoveredLines(t *testing.T) {
 func TestProjectLinePreservesDetectedInterfaces(t *testing.T) {
 	t.Parallel()
 	projected := projectLine(agentclient.Line{
-		ID: "line-voice",
+		ID:    "line-voice",
+		Model: "QDC507",
 		Capabilities: agentclient.LineCapabilities{
 			ModemInterface:     true,
 			SIMInterface:       true,
@@ -646,6 +647,13 @@ func TestProjectLinePreservesDetectedInterfaces(t *testing.T) {
 		!projected.Capabilities.SendDTMF ||
 		!projected.Capabilities.SendMessage {
 		t.Fatalf("projected capabilities = %+v", projected.Capabilities)
+	}
+	if projected.DeviceAlias != "" || projected.Model != "QDC507" {
+		t.Fatalf(
+			"projected identity = alias %q, model %q; want empty alias and detected model",
+			projected.DeviceAlias,
+			projected.Model,
+		)
 	}
 }
 

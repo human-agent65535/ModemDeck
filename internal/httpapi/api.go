@@ -33,6 +33,7 @@ type Repository interface {
 	Messages(context.Context, store.MessageQuery) ([]store.Message, error)
 	MarkMessageThreadRead(context.Context, string, string) error
 	Calls(context.Context, store.CallQuery) ([]store.Call, error)
+	RecordingEntries(context.Context, store.RecordingQuery) ([]store.RecordingEntry, error)
 	Devices(context.Context) ([]store.Device, error)
 	CreateDevice(context.Context, store.DeviceInput) (store.Device, error)
 	RenameDevice(context.Context, string, string) (store.Device, error)
@@ -255,6 +256,8 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.callsCollection(response, request)
 	case "/api/v1/calls/active":
 		api.getOnly(response, request, api.activeCalls)
+	case "/api/v1/recordings":
+		api.getOnly(response, request, api.recordingEntries)
 	case "/api/v1/devices":
 		api.devicesCollection(response, request)
 	case "/api/v1/diagnostics":
@@ -341,7 +344,7 @@ func (api *API) bootstrap(response http.ResponseWriter, request *http.Request) {
 			api.logger.Warn("live communication state is unavailable", "error", statusErr)
 			capabilities = disconnectedCapabilities()
 		} else {
-			lines = status.Lines
+			lines = mergePersistedLineMetadata(status.Lines, lines)
 			capabilities = capabilitiesForLines(status.Lines)
 		}
 	} else if api.capabilities != nil {
@@ -367,6 +370,63 @@ func (api *API) bootstrap(response http.ResponseWriter, request *http.Request) {
 		Lines:        lines,
 		LineSettings: lineSettings,
 	})
+}
+
+func mergePersistedLineMetadata(
+	liveLines []store.LineSummary,
+	persistedLines []store.LineSummary,
+) []store.LineSummary {
+	aliasesByIMEI := make(map[string]string, len(persistedLines))
+	byICCID := make(map[string]store.LineSummary, len(persistedLines))
+	byIMSI := make(map[string]store.LineSummary, len(persistedLines))
+	for _, line := range persistedLines {
+		if imei := strings.TrimSpace(line.DeviceIMEI); imei != "" {
+			if alias := strings.TrimSpace(line.DeviceAlias); alias != "" {
+				aliasesByIMEI[imei] = alias
+			}
+		}
+		if iccid := strings.TrimSpace(line.ICCID); iccid != "" {
+			byICCID[iccid] = line
+		}
+		if imsi := strings.TrimSpace(line.IMSI); imsi != "" {
+			byIMSI[imsi] = line
+		}
+	}
+
+	merged := make([]store.LineSummary, len(liveLines))
+	for index, live := range liveLines {
+		line := live
+		if alias := aliasesByIMEI[strings.TrimSpace(line.DeviceIMEI)]; alias != "" {
+			line.DeviceAlias = alias
+		}
+
+		var persisted store.LineSummary
+		var found bool
+		if iccid := strings.TrimSpace(line.ICCID); iccid != "" {
+			persisted, found = byICCID[iccid]
+		}
+		if !found {
+			if imsi := strings.TrimSpace(line.IMSI); imsi != "" {
+				persisted, found = byIMSI[imsi]
+			}
+		}
+		if found {
+			if line.PhoneNumber == "" {
+				line.PhoneNumber = persisted.PhoneNumber
+			}
+			if line.Operator == "" {
+				line.Operator = persisted.Operator
+			}
+			if line.DeviceIMEI == "" {
+				line.DeviceIMEI = persisted.DeviceIMEI
+			}
+			if line.DeviceAlias == "" {
+				line.DeviceAlias = persisted.DeviceAlias
+			}
+		}
+		merged[index] = line
+	}
+	return merged
 }
 
 func gateCapabilities(capabilities Capabilities) Capabilities {

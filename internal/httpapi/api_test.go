@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/human-agent65535/modemdeck/internal/communication"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -24,6 +25,9 @@ type fakeRepository struct {
 	deleteContactID    string
 	deleteContactRev   int64
 	deleteContactError error
+	recordingQuery     store.RecordingQuery
+	recordingEntries   []store.RecordingEntry
+	recordingError     error
 	lines              []store.LineSummary
 }
 
@@ -71,6 +75,14 @@ func (repository *fakeRepository) MarkMessageThreadRead(context.Context, string,
 
 func (repository *fakeRepository) Calls(context.Context, store.CallQuery) ([]store.Call, error) {
 	return []store.Call{}, nil
+}
+
+func (repository *fakeRepository) RecordingEntries(
+	_ context.Context,
+	query store.RecordingQuery,
+) ([]store.RecordingEntry, error) {
+	repository.recordingQuery = query
+	return repository.recordingEntries, repository.recordingError
 }
 
 func (repository *fakeRepository) Devices(context.Context) ([]store.Device, error) {
@@ -217,6 +229,67 @@ func TestBootstrapPreservesConnectedCapabilities(t *testing.T) {
 	}
 	if body.Capabilities.UnavailableReasons["vowifi"] != "not implemented" {
 		t.Fatalf("unavailable reasons = %+v", body.Capabilities.UnavailableReasons)
+	}
+}
+
+func TestBootstrapMergesPersistedIdentityIntoLiveLines(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeRepository{lines: []store.LineSummary{{
+		ICCID:       "8986010000000000001",
+		IMSI:        "460010000000001",
+		PhoneNumber: "+818000000001",
+		Operator:    "China Unicom",
+		DeviceIMEI:  "860000000000001",
+		DeviceAlias: "主线路",
+	}}}
+	communications := &fakeCommunications{status: communication.Status{
+		Connected: true,
+		Lines: []store.LineSummary{{
+			ID:         "line-1",
+			ICCID:      "8986010000000000001",
+			IMSI:       "460010000000001",
+			Operator:   "46001",
+			DeviceIMEI: "860000000000001",
+			Model:      "QDC507",
+			State:      "registered",
+			Capabilities: store.LineCapabilities{
+				Voice: true,
+				Dial:  true,
+			},
+		}},
+	}}
+	api, err := New(repository, Options{
+		Communications:        communications,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/bootstrap", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", response.Code, response.Body.String())
+	}
+
+	var body bootstrapResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode bootstrap: %v", err)
+	}
+	if len(body.Lines) != 1 {
+		t.Fatalf("line count = %d, want 1", len(body.Lines))
+	}
+	line := body.Lines[0]
+	if line.DeviceAlias != "主线路" ||
+		line.PhoneNumber != "+818000000001" ||
+		line.Model != "QDC507" ||
+		line.State != "registered" ||
+		!line.Capabilities.Voice {
+		t.Fatalf("merged line = %+v", line)
+	}
+	if line.Operator != "46001" {
+		t.Fatalf("operator = %q, want live value to remain authoritative", line.Operator)
 	}
 }
 

@@ -1161,7 +1161,7 @@ func projectLine(line agentclient.Line) store.LineSummary {
 		PhoneNumber: firstString(line.OwnNumbers),
 		Operator:    firstNonEmpty(line.OperatorName, line.OperatorIdentifier),
 		DeviceIMEI:  firstNonEmpty(line.EquipmentIdentifier, line.DeviceIdentifier),
-		DeviceAlias: line.Model,
+		DeviceAlias: "",
 		Model:       line.Model,
 		Firmware:    line.Revision,
 		State:       line.State,
