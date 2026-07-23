@@ -17,6 +17,34 @@ type tableSchema struct {
 
 var compatibleTables = []tableSchema{
 	{
+		name: "modemdeck_admin_credentials",
+		create: `CREATE TABLE IF NOT EXISTS modemdeck_admin_credentials (
+			singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+			password_hash TEXT NOT NULL,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		identity: []string{"singleton"},
+		addColumns: map[string]string{
+			"password_hash": "TEXT NOT NULL DEFAULT ''",
+			"updated_at":    "DATETIME",
+		},
+	},
+	{
+		name: "modemdeck_auth_sessions",
+		create: `CREATE TABLE IF NOT EXISTS modemdeck_auth_sessions (
+			session_token_digest BLOB PRIMARY KEY CHECK (length(session_token_digest) = 32),
+			csrf_token_digest BLOB NOT NULL CHECK (length(csrf_token_digest) = 32),
+			created_at_unix INTEGER NOT NULL,
+			expires_at_unix INTEGER NOT NULL CHECK (expires_at_unix >= created_at_unix)
+		)`,
+		identity: []string{"session_token_digest"},
+		addColumns: map[string]string{
+			"csrf_token_digest": "BLOB",
+			"created_at_unix":   "INTEGER NOT NULL DEFAULT 0",
+			"expires_at_unix":   "INTEGER NOT NULL DEFAULT 0",
+		},
+	},
+	{
 		name: "contacts",
 		create: `CREATE TABLE IF NOT EXISTS contacts (
 			id TEXT PRIMARY KEY,
@@ -251,6 +279,7 @@ var compatibleTables = []tableSchema{
 }
 
 var compatibleIndexes = []string{
+	"CREATE INDEX IF NOT EXISTS idx_modemdeck_auth_sessions_expiry ON modemdeck_auth_sessions(expires_at_unix)",
 	"CREATE INDEX IF NOT EXISTS idx_contacts_display_name ON contacts(display_name)",
 	"CREATE INDEX IF NOT EXISTS idx_contact_phones_contact_id ON contact_phones(contact_id)",
 	"CREATE UNIQUE INDEX IF NOT EXISTS ux_contact_phones_canonical_e164 ON contact_phones(canonical_e164)",

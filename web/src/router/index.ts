@@ -1,9 +1,15 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
+import { ensureSession } from '../state/session'
 
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('../views/LoginView.vue')
+    },
     {
       path: '/',
       component: AppShell,
@@ -36,6 +42,21 @@ const router = createRouter({
     },
     { path: '/:pathMatch(.*)*', redirect: '/contacts' }
   ]
+})
+
+router.beforeEach(async to => {
+  const authenticated = await ensureSession()
+
+  if (to.name === 'login') {
+    return authenticated ? { name: 'contacts' } : true
+  }
+  if (!authenticated) {
+    return {
+      name: 'login',
+      query: { redirect: to.fullPath }
+    }
+  }
+  return true
 })
 
 export default router

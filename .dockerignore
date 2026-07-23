@@ -18,8 +18,11 @@ scripts
 data
 dist
 logs
+secrets
 tmp
 config/config.yaml
+.env
+.env.*
 
 **/*.db
 **/*.db-journal

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
+	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/httpapi"
 	"github.com/human-agent65535/modemdeck/internal/platform/database"
 	"github.com/human-agent65535/modemdeck/internal/store"
@@ -20,20 +21,33 @@ import (
 )
 
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	secureCookiesDefault, err := environmentBool("MODEMDECK_SECURE_COOKIES", false)
+	if err != nil {
+		logger.Error("invalid authentication configuration", "error", err)
+		os.Exit(1)
+	}
 	listenAddress := flag.String("listen", ":8080", "HTTP listen address")
 	databasePath := flag.String("database", database.DefaultPath, "ModemDeck SQLite database path")
 	legacyDatabasePath := flag.String("legacy-database", database.LegacyPath, "legacy VoHive SQLite database path")
 	agentSocketPath := flag.String("agent-socket", environmentOrDefault("MODEMDECK_AGENT_SOCKET", "/run/modemdeck/agent.sock"), "ModemDeck host agent Unix socket")
+	adminUsername := flag.String("admin-username", environmentOrDefault("MODEMDECK_ADMIN_USERNAME", defaultAdminUsername), "administrator username")
+	adminPasswordFile := flag.String("admin-password-file", os.Getenv("MODEMDECK_ADMIN_PASSWORD_FILE"), "path to the administrator password secret")
+	secureCookies := flag.Bool("secure-cookies", secureCookiesDefault, "require HTTPS for authentication cookies")
 	flag.Parse()
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	if err := run(logger, *listenAddress, *databasePath, *legacyDatabasePath, *agentSocketPath); err != nil {
+	admin, err := loadAdminConfig(*adminUsername, *adminPasswordFile, *secureCookies)
+	if err != nil {
+		logger.Error("load authentication configuration", "error", err)
+		os.Exit(1)
+	}
+	if err := run(logger, *listenAddress, *databasePath, *legacyDatabasePath, *agentSocketPath, admin); err != nil {
 		logger.Error("ModemDeck stopped", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(logger *slog.Logger, listenAddress, databasePath, legacyDatabasePath, agentSocketPath string) error {
+func run(logger *slog.Logger, listenAddress, databasePath, legacyDatabasePath, agentSocketPath string, admin adminConfig) error {
 	ctx := context.Background()
 	db, openResult, err := database.Open(ctx, database.Config{
 		TargetPath: databasePath,
@@ -51,6 +65,15 @@ func run(logger *slog.Logger, listenAddress, databasePath, legacyDatabasePath, a
 		_ = db.Close()
 		return fmt.Errorf("create store: %w", err)
 	}
+	authenticator, err := auth.NewService(repository)
+	if err != nil {
+		_ = db.Close()
+		return fmt.Errorf("create authentication service: %w", err)
+	}
+	if err := authenticator.EnsureAdmin(ctx, admin.Password); err != nil {
+		_ = db.Close()
+		return fmt.Errorf("configure administrator: %w", err)
+	}
 	agent, err := agentclient.New(agentSocketPath, 2*time.Second)
 	if err != nil {
 		_ = db.Close()
@@ -58,9 +81,12 @@ func run(logger *slog.Logger, listenAddress, databasePath, legacyDatabasePath, a
 	}
 	defer agent.CloseIdleConnections()
 	api, err := httpapi.New(repository, httpapi.Options{
-		Capabilities: agentCapabilitySource{client: agent},
-		Logger:       logger,
-		Web:          webapp.Embedded(),
+		Capabilities:  agentCapabilitySource{client: agent},
+		Authenticator: authenticator,
+		AdminUsername: admin.Username,
+		SecureCookies: admin.SecureCookies,
+		Logger:        logger,
+		Web:           webapp.Embedded(),
 	})
 	if err != nil {
 		_ = db.Close()

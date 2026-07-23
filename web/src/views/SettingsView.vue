@@ -1,10 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Activity, ArrowLeft, RadioTower, Send } from '@lucide/vue'
+import {
+  Activity,
+  ArrowLeft,
+  LoaderCircle,
+  LogOut,
+  RadioTower,
+  Send,
+  UserRound
+} from '@lucide/vue'
 import StatePanel from '../components/StatePanel.vue'
 import { fixtureMode } from '../api/client'
 import type { Device } from '../api/types'
+import { logout as logoutSession, sessionState } from '../state/session'
 import {
   bootstrapResource,
   devicesResource,
@@ -16,6 +25,8 @@ type SettingsSection = 'devices' | 'telegram' | 'diagnostics'
 
 const route = useRoute()
 const router = useRouter()
+const logoutPending = ref(false)
+const logoutError = ref('')
 const sections: Array<{
   id: SettingsSection
   label: string
@@ -55,6 +66,20 @@ function backToSettings(): void {
   void router.push({ name: 'settings', params: { section: '' } })
 }
 
+async function logout(): Promise<void> {
+  if (logoutPending.value) return
+  logoutPending.value = true
+  logoutError.value = ''
+  try {
+    await logoutSession()
+    await router.replace({ name: 'login' })
+  } catch (error) {
+    logoutError.value = error instanceof Error ? error.message : '退出登录失败'
+  } finally {
+    logoutPending.value = false
+  }
+}
+
 onMounted(() => {
   void loadBootstrap()
 })
@@ -80,6 +105,27 @@ onMounted(() => {
           </span>
         </button>
       </div>
+      <footer v-if="!fixtureMode" class="settings-account">
+        <span class="settings-account__icon"><UserRound :size="19" /></span>
+        <span class="settings-account__identity">
+          <strong>{{ sessionState.username || '管理员' }}</strong>
+          <small>管理员账户</small>
+          <small v-if="logoutError" class="settings-account__error" role="alert">
+            {{ logoutError }}
+          </small>
+        </span>
+        <button
+          class="icon-button"
+          type="button"
+          title="退出登录"
+          aria-label="退出登录"
+          :disabled="logoutPending"
+          @click="logout"
+        >
+          <LoaderCircle v-if="logoutPending" class="spin" :size="19" />
+          <LogOut v-else :size="19" />
+        </button>
+      </footer>
     </aside>
 
     <article class="detail-pane settings-detail-pane">

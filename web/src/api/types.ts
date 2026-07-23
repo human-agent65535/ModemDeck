@@ -146,17 +146,31 @@ export type ApiErrorBody = {
   code?: string
   message?: string
   detail?: string
+  field?: string
+}
+
+export type SessionResponse = {
+  authenticated: boolean
+  username?: string
+  csrf_token?: string
+}
+
+export type LoginInput = {
+  username: string
+  password: string
 }
 
 export class ApiError extends Error {
   readonly status: number
   readonly code?: string
+  readonly field?: string
 
-  constructor(message: string, status = 0, code?: string) {
+  constructor(message: string, status = 0, code?: string, field?: string) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
+    this.field = field
   }
 }
 

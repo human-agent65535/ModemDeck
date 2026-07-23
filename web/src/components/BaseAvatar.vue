@@ -10,15 +10,15 @@ const props = withDefaults(
   { size: 'medium' }
 )
 
-const hue = computed(() => {
+const palette = computed(() => {
   let hash = 0
-  for (const char of props.name) hash = (hash * 31 + char.codePointAt(0)!) % 360
-  return `hsl(${hash} 42% 92%)`
+  for (const char of props.name) hash = (hash * 31 + char.codePointAt(0)!) % 8
+  return `avatar--palette-${hash}`
 })
 </script>
 
 <template>
-  <span class="avatar" :class="`avatar--${size}`" :style="{ backgroundColor: hue }" aria-hidden="true">
+  <span class="avatar" :class="[`avatar--${size}`, palette]" aria-hidden="true">
     {{ initials(name) }}
   </span>
 </template>

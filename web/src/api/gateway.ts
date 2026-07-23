@@ -6,9 +6,11 @@ import type {
   Contact,
   ContactInput,
   Device,
+  LoginInput,
   Message,
   MessageThread,
-  SendMessageInput
+  SendMessageInput,
+  SessionResponse
 } from './types'
 
 export type ListQuery = {
@@ -20,8 +22,20 @@ export type MessageQuery = {
   peer: string
 }
 
+export type GatewayInteractions = Readonly<{
+  contacts: boolean
+  message: boolean
+  dial: boolean
+}>
+
+export interface SessionGateway {
+  getSession(): Promise<SessionResponse>
+  login(input: LoginInput): Promise<SessionResponse>
+  logout(): Promise<void>
+}
+
 export interface ModemDeckGateway {
-  readonly interactive: boolean
+  readonly interactions?: GatewayInteractions
   getBootstrap(): Promise<BootstrapResponse>
   listContacts(query?: ListQuery): Promise<Contact[]>
   listThreads(query?: ListQuery): Promise<MessageThread[]>
@@ -36,3 +50,7 @@ export interface ModemDeckGateway {
   startCall?(lineKey: string, number: string): Promise<CallSession>
   callAction?(id: string, action: 'answer' | 'reject' | 'hangup'): Promise<CallSession>
 }
+
+export type ConfiguredModemDeckGateway = ModemDeckGateway & {
+  readonly interactions: GatewayInteractions
+} & SessionGateway

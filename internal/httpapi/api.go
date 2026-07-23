@@ -8,10 +8,14 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
-var ErrRepositoryRequired = errors.New("http api repository is required")
+var (
+	ErrRepositoryRequired    = errors.New("http api repository is required")
+	ErrAuthenticatorRequired = errors.New("http api authenticator is required")
+)
 
 type Repository interface {
 	Ping(context.Context) error
@@ -42,36 +46,62 @@ type CapabilitySource interface {
 	Capabilities(context.Context) (Capabilities, error)
 }
 
+type Authenticator interface {
+	Login(context.Context, string) (auth.LoginResult, error)
+	Authenticate(context.Context, auth.SessionToken) (auth.Authentication, error)
+	Logout(context.Context, auth.SessionToken) error
+}
+
 type Options struct {
-	Capabilities CapabilitySource
-	Logger       *slog.Logger
-	Web          http.Handler
+	Capabilities          CapabilitySource
+	Authenticator         Authenticator
+	AdminUsername         string
+	SecureCookies         bool
+	Logger                *slog.Logger
+	Web                   http.Handler
+	disableAuthentication bool
 }
 
 type API struct {
-	repository   Repository
-	capabilities CapabilitySource
-	logger       *slog.Logger
-	web          http.Handler
+	repository    Repository
+	capabilities  CapabilitySource
+	authenticator Authenticator
+	adminUsername string
+	secureCookies bool
+	loginSlots    chan struct{}
+	logger        *slog.Logger
+	web           http.Handler
 }
 
 func New(repository Repository, options Options) (*API, error) {
 	if repository == nil {
 		return nil, ErrRepositoryRequired
 	}
+	if options.Authenticator == nil && !options.disableAuthentication {
+		return nil, ErrAuthenticatorRequired
+	}
+	adminUsername := strings.TrimSpace(options.AdminUsername)
+	if adminUsername == "" {
+		adminUsername = "admin"
+	}
 	logger := options.Logger
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	return &API{
-		repository:   repository,
-		capabilities: options.Capabilities,
-		logger:       logger,
-		web:          options.Web,
+		repository:    repository,
+		capabilities:  options.Capabilities,
+		authenticator: options.Authenticator,
+		adminUsername: adminUsername,
+		secureCookies: options.SecureCookies,
+		loginSlots:    make(chan struct{}, 2),
+		logger:        logger,
+		web:           options.Web,
 	}, nil
 }
 
 func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
+	api.setSecurityHeaders(response)
 	if !strings.HasPrefix(request.URL.Path, "/api/") {
 		if api.web != nil {
 			api.web.ServeHTTP(response, request)
@@ -80,10 +110,19 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		http.NotFound(response, request)
 		return
 	}
+	if request.URL.Path == "/api/v1/health" {
+		api.getOnly(response, request, api.health)
+		return
+	}
+	if request.URL.Path == "/api/v1/session" {
+		api.session(response, request)
+		return
+	}
+	if !api.authorizeAPI(response, request) {
+		return
+	}
 
 	switch request.URL.Path {
-	case "/api/v1/health":
-		api.getOnly(response, request, api.health)
 	case "/api/v1/bootstrap":
 		api.getOnly(response, request, api.bootstrap)
 	case "/api/v1/contacts":
@@ -283,7 +322,12 @@ func (api *API) writeContactError(response http.ResponseWriter, request *http.Re
 	case errors.Is(err, store.ErrContactPhoneConflict):
 		writeError(response, http.StatusConflict, "phone_conflict", "Phone number is already assigned to another contact", "phones")
 	case errors.Is(err, store.ErrContactValidation):
-		writeError(response, http.StatusBadRequest, "invalid_contact", err.Error(), "")
+		var validation *store.ContactValidationError
+		field := ""
+		if errors.As(err, &validation) {
+			field = validation.Field
+		}
+		writeError(response, http.StatusBadRequest, "invalid_contact", "Contact data is invalid", field)
 	default:
 		api.writeInternalError(response, request, operation, err)
 	}

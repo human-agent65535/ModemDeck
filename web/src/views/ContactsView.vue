@@ -18,10 +18,10 @@ import { openDialer } from '../state/ui'
 import {
   capabilityReason,
   contactsResource,
+  contactEditingAvailable,
   deleteContact,
   loadContacts,
-  saveContact,
-  interactiveMode
+  saveContact
 } from '../state/workspace'
 import { primaryPhone } from '../utils/format'
 
@@ -134,7 +134,7 @@ onMounted(() => {
           <h1>联系人</h1>
           <span v-if="contactsResource.status === 'ready'">{{ contactsResource.data.length }}</span>
         </div>
-        <button v-if="interactiveMode" class="icon-button" type="button" title="新建联系人" @click="openNew">
+        <button v-if="contactEditingAvailable" class="icon-button" type="button" title="新建联系人" @click="openNew">
           <UserPlus :size="19" />
         </button>
       </header>
@@ -189,7 +189,7 @@ onMounted(() => {
             <h2>{{ selected.display_name }}</h2>
             <span v-if="selected.notes">{{ selected.notes }}</span>
           </div>
-          <div v-if="interactiveMode" class="detail-header__actions">
+          <div v-if="contactEditingAvailable" class="detail-header__actions">
             <button class="icon-button" type="button" title="编辑联系人" @click="openEdit(selected)">
               <Pencil :size="18" />
             </button>

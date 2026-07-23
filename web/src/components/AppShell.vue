@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
-import { RouterView, useRoute } from 'vue-router'
+import { computed, onMounted, watch } from 'vue'
+import { RouterView, useRoute, useRouter } from 'vue-router'
 import {
   Grid3X3,
   MessageSquareText,
@@ -11,6 +11,7 @@ import {
 } from '@lucide/vue'
 import { fixtureMode } from '../api/client'
 import { initializeCallRuntime } from '../state/call'
+import { sessionState } from '../state/session'
 import { openDialer } from '../state/ui'
 import {
   bootstrapResource,
@@ -22,6 +23,7 @@ import DialerPanel from './DialerPanel.vue'
 import GlobalSearch from './GlobalSearch.vue'
 
 const route = useRoute()
+const router = useRouter()
 const primaryNav = [
   { name: 'contacts', label: '联系人', icon: UsersRound },
   { name: 'messages', label: '消息', icon: MessageSquareText },
@@ -33,6 +35,17 @@ const messageComposerVisible = computed(
   () =>
     route.name === 'messages' &&
     (typeof route.params.threadKey === 'string' || route.query.compose !== undefined)
+)
+
+watch(
+  () => sessionState.status,
+  status => {
+    if (status !== 'anonymous') return
+    void router.replace({
+      name: 'login',
+      query: { redirect: route.fullPath }
+    })
+  }
 )
 
 async function bootstrap(): Promise<void> {

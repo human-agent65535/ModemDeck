@@ -90,7 +90,7 @@ func TestContactLimitIsClamped(t *testing.T) {
 	t.Parallel()
 
 	repository := &fakeRepository{}
-	api, err := New(repository, Options{})
+	api, err := New(repository, Options{disableAuthentication: true})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -117,7 +117,7 @@ func TestBootstrapGatesCapabilitiesUntilAgentConnected(t *testing.T) {
 	t.Parallel()
 
 	repository := &fakeRepository{lines: []store.LineSummary{}}
-	api, err := New(repository, Options{Capabilities: fixedCapabilities{value: Capabilities{
+	api, err := New(repository, Options{disableAuthentication: true, Capabilities: fixedCapabilities{value: Capabilities{
 		AgentConnected: false,
 		Dial:           true,
 		Message:        true,
@@ -165,7 +165,7 @@ func TestBootstrapPreservesConnectedCapabilities(t *testing.T) {
 			"vowifi": "not implemented",
 		},
 	}
-	api, err := New(repository, Options{Capabilities: fixedCapabilities{value: want}})
+	api, err := New(repository, Options{disableAuthentication: true, Capabilities: fixedCapabilities{value: want}})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -193,7 +193,7 @@ func TestStructuredErrors(t *testing.T) {
 	t.Parallel()
 
 	repository := &fakeRepository{pingError: errors.New("database down")}
-	api, err := New(repository, Options{})
+	api, err := New(repository, Options{disableAuthentication: true})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

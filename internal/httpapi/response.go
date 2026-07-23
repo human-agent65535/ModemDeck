@@ -11,6 +11,12 @@ type healthResponse struct {
 	Status string `json:"status"`
 }
 
+type sessionResponse struct {
+	Authenticated bool   `json:"authenticated"`
+	Username      string `json:"username,omitempty"`
+	CSRFToken     string `json:"csrf_token,omitempty"`
+}
+
 type bootstrapResponse struct {
 	Capabilities Capabilities        `json:"capabilities"`
 	Lines        []store.LineSummary `json:"lines"`

@@ -1,4 +1,4 @@
-import { reactive, shallowReactive } from 'vue'
+import { reactive } from 'vue'
 import { gateway } from '../api/client'
 import type {
   BootstrapResponse,
@@ -15,7 +15,7 @@ import type {
 } from '../api/types'
 
 function resource<T>(data: T): Resource<T> {
-  return shallowReactive({ status: 'idle', data, error: '' })
+  return reactive({ status: 'idle', data, error: '' }) as Resource<T>
 }
 
 function errorText(error: unknown): string {
@@ -43,7 +43,7 @@ export const threadsResource = resource<MessageThread[]>([])
 export const callsResource = resource<CallRecord[]>([])
 export const devicesResource = resource<Device[]>([])
 export const messageResources = reactive<Record<string, Resource<Message[]>>>({})
-export const interactiveMode = gateway.interactive
+export const contactEditingAvailable = gateway.interactions.contacts
 
 export function capabilityReason(capability: 'dial' | 'message'): string {
   const bootstrap = bootstrapResource.data
@@ -52,7 +52,7 @@ export function capabilityReason(capability: 'dial' | 'message'): string {
   if (!available) {
     return bootstrap.capabilities.unavailable_reasons?.[capability] || 'Host agent 未提供此能力'
   }
-  if (!gateway.interactive) return '当前版本为只读，控制接口尚未开放'
+  if (!gateway.interactions[capability]) return '当前版本尚未开放此控制接口'
   return ''
 }
 
@@ -128,10 +128,10 @@ export async function saveContact(input: ContactInput, id?: string): Promise<Con
     if (!gateway.createContact) throw new Error('当前版本不支持联系人写入')
     saved = await gateway.createContact(input)
   }
-  const index = contactsResource.data.findIndex(contact => contact.id === saved.id)
-  if (index >= 0) contactsResource.data.splice(index, 1, saved)
-  else contactsResource.data.push(saved)
-  contactsResource.data.sort((a, b) => a.display_name.localeCompare(b.display_name))
+  contactsResource.data = contactsResource.data
+    .filter(contact => contact.id !== saved.id)
+    .concat(saved)
+    .sort((a, b) => a.display_name.localeCompare(b.display_name))
   contactsResource.status = 'ready'
   return saved
 }
@@ -139,8 +139,7 @@ export async function saveContact(input: ContactInput, id?: string): Promise<Con
 export async function deleteContact(contact: Contact): Promise<void> {
   if (!gateway.deleteContact) throw new Error('当前版本不支持联系人写入')
   await gateway.deleteContact(contact.id, contact.revision)
-  const index = contactsResource.data.findIndex(item => item.id === contact.id)
-  if (index >= 0) contactsResource.data.splice(index, 1)
+  contactsResource.data = contactsResource.data.filter(item => item.id !== contact.id)
 }
 
 export async function sendMessage(input: SendMessageInput): Promise<Message> {
@@ -148,7 +147,7 @@ export async function sendMessage(input: SendMessageInput): Promise<Message> {
   const sent = await gateway.sendMessage(input)
   const key = input.thread_key || `${input.iccid}|${input.to}`
   const target = messagesFor(key)
-  target.data.push(sent)
+  target.data = [...target.data, sent]
   target.status = 'ready'
   await loadThreads(true)
   return sent

@@ -243,8 +243,6 @@ export function createFixtureGateway(): ModemDeckGateway {
   let callPolls = 0
 
   return {
-    interactive: true,
-
     async getBootstrap(): Promise<BootstrapResponse> {
       return {
         capabilities: {

@@ -86,6 +86,11 @@ export function parseContacts(value: unknown): Contact[] {
   return listValue(value, 'contacts').map(parseContact)
 }
 
+export function parseContactResponse(value: unknown): Contact {
+  const source = objectValue(value, 'response')
+  return parseContact(source.contact)
+}
+
 export function threadKey(iccid: string, peer: string): string {
   return `${iccid}|${peer}`
 }

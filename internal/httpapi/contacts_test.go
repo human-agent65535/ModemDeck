@@ -15,7 +15,7 @@ func TestCreateContact(t *testing.T) {
 	t.Parallel()
 
 	repository := &fakeRepository{contact: store.Contact{ID: "contact-1", DisplayName: "Aiko", Revision: 1}}
-	api, err := New(repository, Options{})
+	api, err := New(repository, Options{disableAuthentication: true})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -44,7 +44,7 @@ func TestUpdateAndDeleteContactCarryRevision(t *testing.T) {
 	t.Parallel()
 
 	repository := &fakeRepository{contact: store.Contact{ID: "contact-1", Revision: 8}}
-	api, err := New(repository, Options{})
+	api, err := New(repository, Options{disableAuthentication: true})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -96,7 +96,7 @@ func TestContactWriteValidationAndErrors(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			api, err := New(test.repository, Options{})
+			api, err := New(test.repository, Options{disableAuthentication: true})
 			if err != nil {
 				t.Fatalf("New() error = %v", err)
 			}

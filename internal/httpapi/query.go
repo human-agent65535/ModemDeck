@@ -35,21 +35,8 @@ type contactPhoneInputRequest struct {
 }
 
 func decodeContactInput(response http.ResponseWriter, request *http.Request) (store.ContactInput, bool) {
-	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
-	if err != nil || mediaType != "application/json" {
-		writeError(response, http.StatusUnsupportedMediaType, "unsupported_media_type", "Content-Type must be application/json", "")
-		return store.ContactInput{}, false
-	}
-	request.Body = http.MaxBytesReader(response, request.Body, maxJSONBodyBytes)
-	decoder := json.NewDecoder(request.Body)
-	decoder.DisallowUnknownFields()
 	var body contactInputRequest
-	if err := decoder.Decode(&body); err != nil {
-		writeJSONDecodeError(response, err)
-		return store.ContactInput{}, false
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		writeError(response, http.StatusBadRequest, "invalid_json", "Request body must contain one JSON object", "")
+	if !decodeJSONBody(response, request, &body) {
 		return store.ContactInput{}, false
 	}
 	phones := make([]store.ContactPhoneInput, len(body.Phones))
@@ -67,6 +54,26 @@ func decodeContactInput(response http.ResponseWriter, request *http.Request) (st
 		Revision:    body.Revision,
 		Phones:      phones,
 	}, true
+}
+
+func decodeJSONBody(response http.ResponseWriter, request *http.Request, destination any) bool {
+	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		writeError(response, http.StatusUnsupportedMediaType, "unsupported_media_type", "Content-Type must be application/json", "")
+		return false
+	}
+	request.Body = http.MaxBytesReader(response, request.Body, maxJSONBodyBytes)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(destination); err != nil {
+		writeJSONDecodeError(response, err)
+		return false
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeError(response, http.StatusBadRequest, "invalid_json", "Request body must contain one JSON object", "")
+		return false
+	}
+	return true
 }
 
 func writeJSONDecodeError(response http.ResponseWriter, err error) {
