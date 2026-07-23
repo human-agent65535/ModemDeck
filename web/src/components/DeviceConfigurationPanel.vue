@@ -146,15 +146,17 @@ const lineLabelDirty = computed(
   () => lineLabelDraft.value.trim() !== (selectedLine.value?.line_label || '')
 )
 const voiceAvailable = computed(() => selectedLine.value?.capabilities?.voice === true)
-const selectedCallBearer = computed(() => {
+const selectedLineCall = computed(() => {
   const line = selectedLine.value
   const session = callState.session
-  if (!line || !session) return ''
+  if (!line || !session) return null
   const belongsToSelectedLine = [line.id, lineKey(line), line.device_imei]
     .filter(Boolean)
     .includes(session.line_key)
-  if (!belongsToSelectedLine) return ''
-  switch (session.bearer?.trim().toLowerCase()) {
+  return belongsToSelectedLine ? session : null
+})
+const selectedCallBearer = computed(() => {
+  switch (selectedLineCall.value?.bearer?.trim().toLowerCase()) {
     case 'volte':
       return 'VoLTE'
     case 'vowifi':
@@ -166,6 +168,10 @@ const selectedCallBearer = computed(() => {
     default:
       return ''
   }
+})
+const selectedCallPathLabel = computed(() => {
+  if (selectedCallBearer.value) return selectedCallBearer.value
+  return selectedLineCall.value ? '待接通' : '无通话'
 })
 const flightModeWritable = computed(
   () =>
@@ -1033,8 +1039,8 @@ onMounted(() => {
               >
                 <RadioTower :size="18" />
                 <span>
-                  <strong>语音承载</strong>
-                  <small>{{ selectedCallBearer || '通话时确认' }}</small>
+                  <strong>通话路径</strong>
+                  <small>{{ selectedCallPathLabel }}</small>
                 </span>
               </div>
             </div>

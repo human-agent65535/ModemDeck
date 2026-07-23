@@ -278,7 +278,7 @@ function callBearerLabel(bearer: string): string {
     case 'gsm':
     case 'cs':
     case 'circuit-switched':
-      return '传统蜂窝语音'
+      return 'GSM / CS'
     default:
       return bearer || '承载未确认'
   }

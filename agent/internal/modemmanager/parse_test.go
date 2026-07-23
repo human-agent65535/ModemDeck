@@ -288,6 +288,139 @@ func TestCallStateNameUsesCanonicalNames(t *testing.T) {
 	}
 }
 
+func TestParseManagedObjectsInfersActiveCellularVoiceBearer(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		callState          int32
+		accessTechnologies uint32
+		want               string
+	}{
+		{
+			name:               "active LTE",
+			callState:          4,
+			accessTechnologies: accessTechnologyLTE,
+			want:               "volte",
+		},
+		{
+			name:               "active GSM",
+			callState:          4,
+			accessTechnologies: accessTechnologyGSM,
+			want:               "cs",
+		},
+		{
+			name:               "active UMTS",
+			callState:          4,
+			accessTechnologies: accessTechnologyUMTS,
+			want:               "cs",
+		},
+		{
+			name:               "held LTE",
+			callState:          5,
+			accessTechnologies: accessTechnologyLTE,
+			want:               "volte",
+		},
+		{
+			name:               "dialing LTE",
+			callState:          1,
+			accessTechnologies: accessTechnologyLTE,
+		},
+		{
+			name:               "ringing out LTE",
+			callState:          2,
+			accessTechnologies: accessTechnologyLTE,
+		},
+		{
+			name:               "ringing in LTE",
+			callState:          3,
+			accessTechnologies: accessTechnologyLTE,
+		},
+		{
+			name:               "waiting LTE",
+			callState:          6,
+			accessTechnologies: accessTechnologyLTE,
+		},
+		{
+			name:               "terminated LTE",
+			callState:          7,
+			accessTechnologies: accessTechnologyLTE,
+		},
+		{
+			name:               "unknown state LTE",
+			callState:          0,
+			accessTechnologies: accessTechnologyLTE,
+		},
+		{
+			name:               "mixed LTE and GSM",
+			callState:          4,
+			accessTechnologies: accessTechnologyLTE | accessTechnologyGSM,
+		},
+		{
+			name:               "mixed GSM and UMTS",
+			callState:          4,
+			accessTechnologies: accessTechnologyGSM | accessTechnologyUMTS,
+		},
+		{
+			name:               "unknown technology",
+			callState:          4,
+			accessTechnologies: 0,
+		},
+		{
+			name:               "5G NR only",
+			callState:          4,
+			accessTechnologies: uint32(1 << 15),
+		},
+		{
+			name:               "LTE Cat-M only",
+			callState:          4,
+			accessTechnologies: uint32(1 << 16),
+		},
+		{
+			name:               "LTE NB-IoT only",
+			callState:          4,
+			accessTechnologies: uint32(1 << 17),
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			callPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/Call/1")
+			objects := oneLineObjects(callPath, test.callState)
+			modemPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/Modem/0")
+			objects[modemPath][modemInterface]["AccessTechnologies"] =
+				dbus.MakeVariant(test.accessTechnologies)
+
+			parsed := ParseManagedObjects(
+				objects,
+				newInstanceIDsForTest(":1.41"),
+			)
+			if len(parsed.Calls) != 1 {
+				t.Fatalf("parsed calls = %d, want 1", len(parsed.Calls))
+			}
+			if got := parsed.Calls[0].Bearer; got != test.want {
+				t.Fatalf("bearer = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestCellularVoiceBearerPreservesExplicitBearer(t *testing.T) {
+	t.Parallel()
+
+	const explicitBearer = "upstream-bearer"
+	if got := cellularVoiceBearer(
+		"dialing",
+		explicitBearer,
+		accessTechnologyLTE,
+	); got != explicitBearer {
+		t.Fatalf("bearer = %q, want preserved %q", got, explicitBearer)
+	}
+}
+
 func TestCallMediaRequiresExplicitPortAndCompleteFormat(t *testing.T) {
 	ids := newInstanceIDsForTest(":1.41")
 	callPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/Call/1")

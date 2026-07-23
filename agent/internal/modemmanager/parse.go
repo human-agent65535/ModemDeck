@@ -16,6 +16,17 @@ const (
 	callInterface      = "org.freedesktop.ModemManager1.Call"
 	messagingInterface = "org.freedesktop.ModemManager1.Modem.Messaging"
 	smsInterface       = "org.freedesktop.ModemManager1.Sms"
+
+	accessTechnologyGSM        uint32 = 1 << 1
+	accessTechnologyGSMCompact uint32 = 1 << 2
+	accessTechnologyGPRS       uint32 = 1 << 3
+	accessTechnologyEDGE       uint32 = 1 << 4
+	accessTechnologyUMTS       uint32 = 1 << 5
+	accessTechnologyHSDPA      uint32 = 1 << 6
+	accessTechnologyHSUPA      uint32 = 1 << 7
+	accessTechnologyHSPA       uint32 = 1 << 8
+	accessTechnologyHSPAPlus   uint32 = 1 << 9
+	accessTechnologyLTE        uint32 = 1 << 14
 )
 
 type Properties = map[string]dbus.Variant
@@ -166,6 +177,19 @@ func ParseManagedObjects(objects ManagedObjects, ids *instanceIDs) ParsedObjects
 		parsed.Lines = append(parsed.Lines, line)
 	}
 
+	accessTechnologiesByLine := make(map[string]uint32, len(parsed.Lines))
+	for _, line := range parsed.Lines {
+		accessTechnologiesByLine[line.ID] = line.AccessTechnologies
+	}
+	for index := range parsed.Calls {
+		call := &parsed.Calls[index]
+		call.Bearer = cellularVoiceBearer(
+			call.State,
+			call.Bearer,
+			accessTechnologiesByLine[call.LineID],
+		)
+	}
+
 	sort.Slice(parsed.Lines, func(i, j int) bool {
 		return parsed.Lines[i].ID < parsed.Lines[j].ID
 	})
@@ -176,6 +200,32 @@ func ParseManagedObjects(objects ManagedObjects, ids *instanceIDs) ParsedObjects
 		return parsed.Messages[i].ID < parsed.Messages[j].ID
 	})
 	return parsed
+}
+
+func cellularVoiceBearer(state, existingBearer string, accessTechnologies uint32) string {
+	if existingBearer != "" {
+		return existingBearer
+	}
+	if state != "active" && state != "held" {
+		return ""
+	}
+
+	switch accessTechnologies {
+	case accessTechnologyLTE:
+		return "volte"
+	case accessTechnologyGSM,
+		accessTechnologyGSMCompact,
+		accessTechnologyGPRS,
+		accessTechnologyEDGE,
+		accessTechnologyUMTS,
+		accessTechnologyHSDPA,
+		accessTechnologyHSUPA,
+		accessTechnologyHSPA,
+		accessTechnologyHSPAPlus:
+		return "cs"
+	default:
+		return ""
+	}
 }
 
 const callStateTerminated int32 = 7
@@ -205,8 +255,8 @@ func parseCall(path dbus.ObjectPath, lineID string, properties Properties, ids *
 			audioFormat.Encoding != "" &&
 			audioFormat.Resolution != "" &&
 			audioFormat.Rate > 0,
-		// The standard ModemManager Call interface does not expose the
-		// cellular bearer. Never infer VoLTE or VoWiFi from unrelated fields.
+		// The standard Call interface has no bearer property. Active-call
+		// inference is applied later from the associated line's RAT snapshot.
 		Bearer: "",
 	}
 }
