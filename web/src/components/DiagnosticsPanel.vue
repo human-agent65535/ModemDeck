@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   Activity,
+  AudioLines,
   AlertTriangle,
   CheckCircle2,
   ChevronsDown,
@@ -29,6 +30,7 @@ import type {
   LineSummary
 } from '../api/types'
 import { ApiError } from '../api/types'
+import { audioState, refreshAudioDevices } from '../state/audio'
 import { lineLabel } from '../state/workspace'
 import StatePanel from './StatePanel.vue'
 
@@ -98,6 +100,28 @@ const statusLabel = computed(() => {
     default:
       return '读取中'
   }
+})
+
+const browserAudioSupported = computed(
+  () =>
+    typeof RTCPeerConnection !== 'undefined' &&
+    typeof navigator !== 'undefined' &&
+    typeof navigator.mediaDevices?.getUserMedia === 'function'
+)
+
+const browserAudioAvailable = computed(
+  () => browserAudioSupported.value && audioState.devicesStatus !== 'error'
+)
+
+const browserAudioDetail = computed(() => {
+  if (!browserAudioSupported.value) return 'WebRTC 音频不可用'
+  if (audioState.devicesStatus === 'idle' || audioState.devicesStatus === 'loading') {
+    return '正在读取音频设备'
+  }
+  if (audioState.devicesStatus === 'error') {
+    return audioState.devicesError || '无法读取音频设备'
+  }
+  return `输入 ${audioState.inputs.length} · 输出 ${audioState.outputs.length}`
 })
 
 const connectionLabel = computed(() => {
@@ -484,6 +508,7 @@ watch(autoFollow, enabled => {
 onMounted(() => {
   void loadSnapshot()
   void loadLogs()
+  void refreshAudioDevices()
   snapshotTimer = window.setInterval(() => {
     void loadSnapshot()
   }, SNAPSHOT_INTERVAL_MS)
@@ -564,6 +589,15 @@ onBeforeUnmount(() => {
               <small>{{ snapshot.call_runtime.available ? '可用' : '不可用' }}</small>
             </span>
             <CheckCircle2 v-if="snapshot.call_runtime.available" :size="18" />
+            <XCircle v-else :size="18" />
+          </article>
+          <article class="service-status" :class="{ 'is-unavailable': !browserAudioAvailable }">
+            <span class="service-status__icon"><AudioLines :size="19" /></span>
+            <span>
+              <strong>浏览器音频</strong>
+              <small>{{ browserAudioDetail }}</small>
+            </span>
+            <CheckCircle2 v-if="browserAudioAvailable" :size="18" />
             <XCircle v-else :size="18" />
           </article>
         </div>
@@ -902,7 +936,7 @@ onBeforeUnmount(() => {
 
 .service-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   border-bottom: 1px solid var(--border);
 }
 
@@ -918,8 +952,12 @@ onBeforeUnmount(() => {
   border-right: 1px solid var(--border);
 }
 
-.service-status:last-child {
+.service-status:nth-child(2n) {
   border-right: 0;
+}
+
+.service-status:nth-child(n + 3) {
+  border-top: 1px solid var(--border);
 }
 
 .service-status.is-unavailable {
@@ -1428,6 +1466,7 @@ onBeforeUnmount(() => {
   .service-status {
     border-right: 0;
     border-bottom: 1px solid var(--border);
+    border-top: 0;
   }
 
   .service-status:last-child {

@@ -13,21 +13,30 @@ import {
 import type { CallFilter, CallRecord } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
 import ContactNumberActions from '../components/ContactNumberActions.vue'
+import LineTag from '../components/LineTag.vue'
 import RecordingList from '../components/RecordingList.vue'
 import SearchField from '../components/SearchField.vue'
 import StatePanel from '../components/StatePanel.vue'
 import { callState } from '../state/call'
 import { openDialer } from '../state/ui'
 import {
+  bootstrapResource,
   callsResource,
   capabilityReason,
   contactForNumber,
   deviceName,
+  loadBootstrap,
   loadCalls,
   loadContacts,
   loadDevices
 } from '../state/workspace'
 import { formatDateTime, formatDuration, formatRelativeDate } from '../utils/format'
+import {
+  createLineLookup,
+  findLine,
+  lineTagFallback,
+  lineTagLine
+} from '../utils/lineIdentity'
 
 const route = useRoute()
 const router = useRouter()
@@ -64,6 +73,11 @@ const selectedId = computed(() => (typeof route.query.selected === 'string' ? ro
 const selected = computed(() => callsResource.data.find(call => call.id === selectedId.value))
 const dialUnavailable = computed(() => capabilityReason('dial'))
 const messageUnavailable = computed(() => capabilityReason('message'))
+const lines = computed(() => bootstrapResource.data?.lines || [])
+const lineLookup = computed(() => createLineLookup(lines.value))
+const defaultDeviceIMEI = computed(
+  () => bootstrapResource.data?.line_settings.default_device_imei || ''
+)
 
 function displayName(call: CallRecord): string {
   return call.display_name || contactForNumber(call.remote_number)?.display_name || call.remote_number
@@ -77,6 +91,19 @@ function iconFor(call: CallRecord) {
 function directionLabel(call: CallRecord): string {
   if (call.missed) return '未接来电'
   return call.direction === 'incoming' ? '呼入' : '呼出'
+}
+
+function lineForCall(call: CallRecord) {
+  return findLine(lineLookup.value, call.device_id)
+}
+
+function callLineFallback(call: CallRecord): string {
+  return lineTagFallback(
+    lineForCall(call),
+    lines.value,
+    defaultDeviceIMEI.value,
+    call.device_id
+  )
 }
 
 function selectCall(call: CallRecord): void {
@@ -112,7 +139,7 @@ watch(
 )
 
 onMounted(() => {
-  void Promise.all([loadCalls(), loadContacts(), loadDevices()])
+  void Promise.all([loadBootstrap(), loadCalls(), loadContacts(), loadDevices()])
 })
 </script>
 
@@ -198,7 +225,13 @@ onMounted(() => {
                 <strong>{{ displayName(call) }}</strong>
                 <time>{{ formatRelativeDate(call.started_at) }}</time>
               </span>
-              <small>{{ directionLabel(call) }} · {{ call.remote_number }}</small>
+              <span class="call-list-item__meta">
+                <LineTag
+                  :line="lineTagLine(lineForCall(call), call.device_id)"
+                  :fallback="callLineFallback(call)"
+                />
+                <small>{{ directionLabel(call) }} · {{ call.remote_number }}</small>
+              </span>
             </span>
           </button>
           <button
@@ -265,6 +298,15 @@ onMounted(() => {
               <div><dt>方向</dt><dd>{{ directionLabel(selected) }}</dd></div>
               <div><dt>时间</dt><dd>{{ formatDateTime(selected.started_at) }}</dd></div>
               <div><dt>时长</dt><dd>{{ selected.missed ? '未接通' : formatDuration(selected.duration_seconds) }}</dd></div>
+              <div>
+                <dt>线路</dt>
+                <dd>
+                  <LineTag
+                    :line="lineTagLine(lineForCall(selected), selected.device_id)"
+                    :fallback="callLineFallback(selected)"
+                  />
+                </dd>
+              </div>
               <div><dt>设备</dt><dd>{{ deviceName(selected.device_id) }}</dd></div>
               <div v-if="selected.failure_reason"><dt>结果</dt><dd>{{ selected.failure_reason }}</dd></div>
             </dl>
@@ -315,6 +357,20 @@ onMounted(() => {
 
 .call-list-item__call {
   margin-right: 10px;
+}
+
+.call-list-item__meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.call-list-item__meta small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .call-detail__contact-actions {

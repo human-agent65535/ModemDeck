@@ -19,6 +19,7 @@ import type {
   DiagnosticLogStreamHandlers,
   DiagnosticsSnapshot,
   GlobalCallSettings,
+  LineSummary,
   LineSettings,
   LoginInput,
   Message,
@@ -36,6 +37,7 @@ import type {
   TelegramUnitInput,
   UpdateDeviceConfigurationInput,
   UpdateGlobalCallSettingsInput,
+  UpdateLineLabelInput,
   UpdateLineSettingsInput,
   USSDCommandInput,
   USSDResponse,
@@ -75,6 +77,7 @@ export interface ModemDeckGateway {
   listDevices(): Promise<Device[]>
   createDevice(input: CreateDeviceInput): Promise<Device>
   renameDevice(imei: string, input: RenameDeviceInput): Promise<Device>
+  updateLineLabel(iccid: string, input: UpdateLineLabelInput): Promise<LineSummary>
   getSIMStatus(lineID: string): Promise<SIMStatus>
   commandSIM(lineID: string, input: SIMCommandInput): Promise<CommandReceipt>
   listConnectionProfiles(lineID: string): Promise<ConnectionProfile[]>

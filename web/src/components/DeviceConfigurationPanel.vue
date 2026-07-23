@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {
-  Activity,
   AlertCircle,
   CardSim,
   CheckCircle2,
@@ -14,6 +13,7 @@ import {
   Save,
   Send,
   ShieldAlert,
+  Tag,
   Trash2,
   X
 } from '@lucide/vue'
@@ -29,6 +29,7 @@ import type {
   SIMStatus,
   USSDStatus
 } from '../api/types'
+import { callState } from '../state/call'
 import {
   connectData,
   deviceConfigurationResource,
@@ -49,8 +50,10 @@ import {
   loadBootstrap,
   loadDevices,
   renameDevice,
-  updateDefaultLine
+  updateDefaultLine,
+  updateLineLabel
 } from '../state/workspace'
+import LineTag from './LineTag.vue'
 import ModuleCard from './ModuleCard.vue'
 import StatePanel from './StatePanel.vue'
 
@@ -80,6 +83,9 @@ const renameIMEI = ref('')
 const renameAlias = ref('')
 const renamePending = ref(false)
 const moduleError = ref('')
+const lineLabelDraft = ref('')
+const lineLabelPending = ref(false)
+const lineLabelError = ref('')
 
 const simStatus = ref<SIMStatus | null>(null)
 const simLoadStatus = ref<AsyncStatus>('idle')
@@ -131,7 +137,36 @@ const hardwareBusy = computed(() => savingOperation.value !== '')
 const selectedIsDefault = computed(
   () => selectedLine.value?.device_imei === defaultDeviceIMEI.value
 )
+const selectedLineFallback = computed(() => {
+  if (selectedIsDefault.value) return '主卡'
+  const index = lines.value.findIndex(line => lineKey(line) === selectedLineID.value)
+  return `线路 ${index >= 0 ? index + 1 : 1}`
+})
+const lineLabelDirty = computed(
+  () => lineLabelDraft.value.trim() !== (selectedLine.value?.line_label || '')
+)
 const voiceAvailable = computed(() => selectedLine.value?.capabilities?.voice === true)
+const selectedCallBearer = computed(() => {
+  const line = selectedLine.value
+  const session = callState.session
+  if (!line || !session) return ''
+  const belongsToSelectedLine = [line.id, lineKey(line), line.device_imei]
+    .filter(Boolean)
+    .includes(session.line_key)
+  if (!belongsToSelectedLine) return ''
+  switch (session.bearer?.trim().toLowerCase()) {
+    case 'volte':
+      return 'VoLTE'
+    case 'vowifi':
+      return 'VoWiFi'
+    case 'gsm':
+    case 'cs':
+    case 'circuit-switched':
+      return 'GSM / CS'
+    default:
+      return ''
+  }
+})
 const flightModeWritable = computed(
   () =>
     hardware.value?.flight_mode_known === true &&
@@ -218,6 +253,15 @@ watch(
         ? hardware.value.volte.policy
         : ''
   }
+)
+
+watch(
+  [() => selectedLine.value?.iccid, () => selectedLine.value?.line_label],
+  () => {
+    lineLabelDraft.value = selectedLine.value?.line_label || ''
+    lineLabelError.value = ''
+  },
+  { immediate: true }
 )
 
 watch(activeTab, tab => {
@@ -319,6 +363,25 @@ async function saveRename(): Promise<void> {
     moduleError.value = error instanceof Error ? error.message : '模组名称保存失败'
   } finally {
     renamePending.value = false
+  }
+}
+
+async function saveLineLabel(): Promise<void> {
+  const line = selectedLine.value
+  if (!line?.iccid || lineLabelPending.value || !lineLabelDirty.value) return
+  const value = lineLabelDraft.value.trim()
+  if (Array.from(value).length > 16) {
+    lineLabelError.value = '线路标签不能超过 16 个字符'
+    return
+  }
+  lineLabelPending.value = true
+  lineLabelError.value = ''
+  try {
+    await updateLineLabel(line.iccid, { line_label: value })
+  } catch (error) {
+    lineLabelError.value = error instanceof Error ? error.message : '线路标签保存失败'
+  } finally {
+    lineLabelPending.value = false
   }
 }
 
@@ -622,7 +685,14 @@ onMounted(() => {
       <header class="selected-module-context">
         <div class="selected-module-context__identity">
           <span>当前配置模组</span>
-          <strong>{{ selectedLine ? lineLabel(selectedLine) : selectedLineID }}</strong>
+          <div class="selected-module-context__name">
+            <strong>{{ selectedLine ? lineLabel(selectedLine) : selectedLineID }}</strong>
+            <LineTag
+              v-if="selectedLine"
+              :line="selectedLine"
+              :fallback="selectedLineFallback"
+            />
+          </div>
         </div>
         <span v-if="selectedIsDefault" class="selected-module-context__default">默认线路</span>
       </header>
@@ -661,6 +731,49 @@ onMounted(() => {
         </p>
 
         <template v-if="activeTab === 'overview'">
+          <section class="configuration-section">
+            <header><Tag :size="18" /><h4>线路标识</h4></header>
+            <form class="line-label-form" @submit.prevent="saveLineLabel">
+              <label>
+                <span>线路标签</span>
+                <input
+                  v-model="lineLabelDraft"
+                  maxlength="16"
+                  autocomplete="off"
+                  :placeholder="`${selectedLineFallback}（建议）`"
+                  :disabled="lineLabelPending || !selectedLine?.iccid"
+                  aria-describedby="line-label-status"
+                />
+              </label>
+              <LineTag
+                v-if="selectedLine"
+                :line="{ ...selectedLine, line_label: lineLabelDraft.trim() }"
+                :fallback="selectedLineFallback"
+              />
+              <button
+                class="primary-action"
+                type="submit"
+                :disabled="lineLabelPending || !selectedLine?.iccid || !lineLabelDirty"
+              >
+                <LoaderCircle v-if="lineLabelPending" class="spin" :size="16" />
+                <Save v-else :size="16" />
+                保存
+              </button>
+            </form>
+            <p
+              id="line-label-status"
+              class="line-label-status"
+              :class="{ 'is-error': lineLabelError }"
+              :role="lineLabelError ? 'alert' : 'status'"
+            >
+              {{
+                !selectedLine?.iccid
+                  ? '未检测到 SIM，无法保存标签'
+                  : lineLabelError
+              }}
+            </p>
+          </section>
+
           <section class="configuration-section configuration-summary">
             <header>
               <h4>硬件信息</h4>
@@ -911,9 +1024,18 @@ onMounted(() => {
                 <AlertCircle v-else :size="18" />
                 <span><strong>通话控制</strong><small>{{ voiceAvailable ? '可用' : '不可用' }}</small></span>
               </div>
-              <div class="voice-status is-pending">
-                <Activity :size="18" />
-                <span><strong>浏览器音频</strong><small>通话接通后检测</small></span>
+              <div
+                class="voice-status"
+                :class="{
+                  'is-available': selectedCallBearer,
+                  'is-pending': !selectedCallBearer
+                }"
+              >
+                <RadioTower :size="18" />
+                <span>
+                  <strong>语音承载</strong>
+                  <small>{{ selectedCallBearer || '通话时确认' }}</small>
+                </span>
               </div>
             </div>
           </section>
@@ -1212,7 +1334,15 @@ onMounted(() => {
   font-weight: 650;
 }
 
-.selected-module-context__identity > strong {
+.selected-module-context__name {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.selected-module-context__name > strong {
+  min-width: 0;
   overflow: hidden;
   font-size: 16px;
   text-overflow: ellipsis;
@@ -1240,6 +1370,53 @@ onMounted(() => {
 
 .configuration-section > header h4 {
   color: var(--text);
+}
+
+.line-label-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 320px) auto auto;
+  align-items: end;
+  justify-content: start;
+  gap: 10px;
+}
+
+.line-label-form label {
+  display: grid;
+  gap: 5px;
+}
+
+.line-label-form label > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.line-label-form input {
+  width: 100%;
+  height: 36px;
+  min-width: 0;
+  padding: 0 9px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+}
+
+.line-label-form > :deep(.line-tag) {
+  align-self: end;
+  margin-bottom: 7px;
+}
+
+.line-label-status {
+  min-height: 18px;
+  margin: 5px 0 0;
+  color: var(--accent-strong);
+  font-size: 12px;
+}
+
+.line-label-status.is-error {
+  color: var(--danger);
 }
 
 .section-action {
@@ -1613,6 +1790,7 @@ pre {
 
 @media (max-width: 720px) {
   .module-edit-row,
+  .line-label-form,
   .data-form,
   .card-policy-controls,
   .profile-form,
@@ -1625,6 +1803,10 @@ pre {
 
   .module-edit-row__wide {
     grid-column: auto;
+  }
+
+  .line-label-form > :deep(.line-tag) {
+    margin-bottom: 0;
   }
 
   .card-policy-controls .configuration-toggle,

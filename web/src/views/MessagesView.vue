@@ -6,6 +6,7 @@ import type { Contact, LineSummary, MessageThread } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
 import ContactSuggestInput from '../components/ContactSuggestInput.vue'
 import LineSelector from '../components/LineSelector.vue'
+import LineTag from '../components/LineTag.vue'
 import SearchField from '../components/SearchField.vue'
 import StatePanel from '../components/StatePanel.vue'
 import { openDialer } from '../state/ui'
@@ -27,6 +28,12 @@ import {
   threadsResource
 } from '../state/workspace'
 import { formatRelativeDate } from '../utils/format'
+import {
+  createLineLookup,
+  findLine,
+  lineTagFallback,
+  lineTagLine
+} from '../utils/lineIdentity'
 
 const route = useRoute()
 const router = useRouter()
@@ -58,6 +65,7 @@ const defaultLineDeviceIMEI = computed(
 )
 const selectedLine = computed(() => lines.value.find(line => lineKey(line) === selectedLineKey.value))
 const activeLine = computed(() => selectedLine.value)
+const lineLookup = computed(() => createLineLookup(lines.value))
 const replyThreadKey = computed(() => {
   const thread = selectedThread.value
   const line = activeLine.value
@@ -114,7 +122,18 @@ function threadUsesLine(thread: MessageThread, line: LineSummary): boolean {
 }
 
 function lineForThread(thread?: MessageThread): LineSummary | undefined {
-  return thread ? lines.value.find(line => threadUsesLine(thread, line)) : undefined
+  if (!thread) return undefined
+  return findLine(lineLookup.value, thread.line_id, thread.iccid)
+}
+
+function threadLineFallback(thread: MessageThread): string {
+  return lineTagFallback(
+    lineForThread(thread),
+    lines.value,
+    defaultLineDeviceIMEI.value,
+    thread.line_id,
+    thread.iccid
+  )
 }
 
 function syncComposeLine(force = false): void {
@@ -404,7 +423,13 @@ onMounted(() => {
               <time>{{ formatRelativeDate(thread.last_timestamp) }}</time>
             </span>
             <span class="list-item__preview">
-              <small>{{ thread.last_content || thread.peer }}</small>
+              <span class="message-thread-meta">
+                <LineTag
+                  :line="lineTagLine(lineForThread(thread), thread.line_id, thread.iccid)"
+                  :fallback="threadLineFallback(thread)"
+                />
+                <small>{{ thread.last_content || thread.peer }}</small>
+              </span>
               <b v-if="thread.unread_count">{{ thread.unread_count }}</b>
             </span>
           </span>
@@ -434,6 +459,11 @@ onMounted(() => {
             <div class="conversation-title">
               <h2>{{ selectedThread.contact_name || selectedThread.peer }}</h2>
               <span v-if="selectedThread.contact_name">{{ selectedThread.peer }}</span>
+              <LineTag
+                class="conversation-line-tag"
+                :line="lineTagLine(lineForThread(selectedThread), selectedThread.line_id, selectedThread.iccid)"
+                :fallback="threadLineFallback(selectedThread)"
+              />
             </div>
           </template>
           <button
@@ -553,6 +583,24 @@ onMounted(() => {
 
 .message-line-select {
   margin-bottom: 10px;
+}
+
+.message-thread-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.message-thread-meta small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-line-tag {
+  margin-top: 3px;
 }
 
 .message-read-error {

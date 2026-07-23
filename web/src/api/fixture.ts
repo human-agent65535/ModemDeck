@@ -38,6 +38,7 @@ import type {
   TelegramUnitInput,
   UpdateDeviceConfigurationInput,
   UpdateGlobalCallSettingsInput,
+  UpdateLineLabelInput,
   UpdateLineSettingsInput,
   USSDCommandInput,
   USSDResponse,
@@ -321,6 +322,7 @@ function fixtureLines(count: number): LineSummary[] {
       operator: 'Aurora Mobile',
       device_imei: 'fixture-001',
       device_alias: 'Main cellular line',
+      line_label: '主卡',
       model: 'Fixture modem 1',
       firmware: 'Fixture 1.0',
       state: 'registered',
@@ -349,6 +351,7 @@ function fixtureLines(count: number): LineSummary[] {
       operator: 'Pine Wireless',
       device_imei: 'fixture-002',
       device_alias: 'Travel cellular line',
+      line_label: '副卡',
       model: 'Fixture modem 2',
       firmware: 'Fixture 1.0',
       state: 'registered',
@@ -378,6 +381,7 @@ function fixtureLines(count: number): LineSummary[] {
       operator: `Fixture Network ${displayIndex}`,
       device_imei: `fixture-${String(displayIndex).padStart(3, '0')}`,
       device_alias: `Cellular line ${displayIndex}`,
+      line_label: '',
       model: `Fixture modem ${displayIndex}`,
       firmware: 'Fixture 1.0',
       state: 'registered',
@@ -1070,6 +1074,18 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       if (!device) throw new ApiError('设备不存在', 404, 'device_not_found')
       device.alias = input.alias.trim()
       return clone(device)
+    },
+
+    async updateLineLabel(iccid: string, input: UpdateLineLabelInput): Promise<LineSummary> {
+      const normalizedICCID = iccid.trim()
+      const line = lines.find(item => item.iccid === normalizedICCID)
+      if (!line) throw new ApiError('线路不存在', 404, 'line_not_found')
+      const label = input.line_label.trim()
+      if (Array.from(label).length > 16) {
+        throw new ApiError('线路标签不能超过 16 个字符', 400, 'invalid_line_label')
+      }
+      line.line_label = label
+      return clone(line)
     },
 
     async getSIMStatus(lineID: string): Promise<SIMStatus> {

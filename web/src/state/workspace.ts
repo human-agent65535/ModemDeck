@@ -17,7 +17,8 @@ import type {
   RenameDeviceInput,
   SendMessageInput,
   TelegramUnit,
-  TelegramUnitInput
+  TelegramUnitInput,
+  UpdateLineLabelInput
 } from '../api/types'
 import { ApiError } from '../api/types'
 
@@ -213,6 +214,17 @@ export async function renameDevice(imei: string, input: RenameDeviceInput): Prom
   devicesResource.error = ''
   const line = bootstrapResource.data?.lines.find(item => item.device_imei === saved.imei)
   if (line) line.device_alias = saved.alias
+  return saved
+}
+
+export async function updateLineLabel(
+  iccid: string,
+  input: UpdateLineLabelInput
+): Promise<LineSummary> {
+  const saved = await gateway.updateLineLabel(iccid, input)
+  const line = bootstrapResource.data?.lines.find(item => item.iccid === iccid)
+  if (line) Object.assign(line, saved)
+  bootstrapResource.error = ''
   return saved
 }
 

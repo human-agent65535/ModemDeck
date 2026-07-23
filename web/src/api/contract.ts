@@ -1,4 +1,4 @@
-import { parseCallRecord, parseMessage } from './normalize.ts'
+import { parseCallRecord, parseLineResponse, parseMessage } from './normalize.ts'
 import type {
   CallAction,
   CallDirection,
@@ -29,6 +29,7 @@ import type {
   TelegramUnitInput,
   UpdateDeviceConfigurationInput,
   UpdateGlobalCallSettingsInput,
+  UpdateLineLabelInput,
   UpdateLineSettingsInput
 } from './types.ts'
 
@@ -231,6 +232,20 @@ export function callRecordingContract(id: string): {
     list: { method: 'GET', path: callRecordingsPath(id), successStatus: 200 }
   }
 }
+
+export function lineLabelPath(iccid: string): string {
+  const normalizedICCID = iccid.trim()
+  if (!normalizedICCID) throw new Error('ICCID 不能为空')
+  return `/api/v1/lines/${encodeURIComponent(normalizedICCID)}/label`
+}
+
+export function createLineLabelPayload(input: UpdateLineLabelInput): UpdateLineLabelInput {
+  const lineLabel = input.line_label.trim()
+  if (Array.from(lineLabel).length > 16) throw new Error('线路标签不能超过 16 个字符')
+  return { line_label: lineLabel }
+}
+
+export const parseLineLabelResponse = parseLineResponse
 
 export function deviceConfigurationPath(lineID: string): string {
   const normalizedLineID = lineID.trim()

@@ -33,6 +33,7 @@ export type LineSummary = {
   operator: string
   device_imei: string
   device_alias: string
+  line_label: string
   model?: string
   firmware?: string
   state?: string
@@ -256,6 +257,10 @@ export type CreateDeviceInput = {
 
 export type RenameDeviceInput = {
   alias: string
+}
+
+export type UpdateLineLabelInput = {
+  line_label: string
 }
 
 export type CommandReceipt = {

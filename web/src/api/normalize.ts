@@ -270,7 +270,7 @@ export function parseDeviceResponse(value: unknown): Device {
   return parseDevice(source.device)
 }
 
-function parseLine(value: unknown): LineSummary {
+export function parseLine(value: unknown): LineSummary {
   const source = objectValue(value, 'line')
   const line: LineSummary = {
     id: stringValue(source, 'id') || undefined,
@@ -280,6 +280,7 @@ function parseLine(value: unknown): LineSummary {
     operator: stringValue(source, 'operator'),
     device_imei: stringValue(source, 'device_imei'),
     device_alias: stringValue(source, 'device_alias'),
+    line_label: stringValue(source, 'line_label'),
     model: stringValue(source, 'model') || undefined,
     firmware: stringValue(source, 'firmware') || undefined,
     state: stringValue(source, 'state') || undefined,
@@ -288,6 +289,11 @@ function parseLine(value: unknown): LineSummary {
   }
   if (!line.id && !line.iccid && !line.imsi && !line.device_imei) throw new Error('line 缺少稳定标识')
   return line
+}
+
+export function parseLineResponse(value: unknown): LineSummary {
+  const source = objectValue(value, 'line_response')
+  return parseLine(source.line ?? source)
 }
 
 export function parseBootstrap(value: unknown): BootstrapResponse {

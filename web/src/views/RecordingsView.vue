@@ -4,6 +4,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, AudioLines, Download } from '@lucide/vue'
 import type { RecordingEntry } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
+import LineTag from '../components/LineTag.vue'
 import SearchField from '../components/SearchField.vue'
 import StatePanel from '../components/StatePanel.vue'
 import {
@@ -11,12 +12,20 @@ import {
   recordingCatalogState
 } from '../state/recording'
 import {
+  bootstrapResource,
   contactForNumber,
   deviceName,
+  loadBootstrap,
   loadContacts,
   loadDevices
 } from '../state/workspace'
 import { formatDateTime, formatDuration, formatRelativeDate } from '../utils/format'
+import {
+  createLineLookup,
+  findLine,
+  lineTagFallback,
+  lineTagLine
+} from '../utils/lineIdentity'
 
 const route = useRoute()
 const router = useRouter()
@@ -29,6 +38,11 @@ const selectedID = computed(() =>
 const selected = computed(() =>
   recordingCatalogState.data.find(recording => recording.id === selectedID.value)
 )
+const lines = computed(() => bootstrapResource.data?.lines || [])
+const lineLookup = computed(() => createLineLookup(lines.value))
+const defaultDeviceIMEI = computed(
+  () => bootstrapResource.data?.line_settings.default_device_imei || ''
+)
 
 function displayName(recording: RecordingEntry): string {
   return (
@@ -40,6 +54,19 @@ function displayName(recording: RecordingEntry): string {
 
 function directionLabel(recording: RecordingEntry): string {
   return recording.call.direction === 'incoming' ? '呼入' : '呼出'
+}
+
+function lineForRecording(recording: RecordingEntry) {
+  return findLine(lineLookup.value, recording.call.device_id)
+}
+
+function recordingLineFallback(recording: RecordingEntry): string {
+  return lineTagFallback(
+    lineForRecording(recording),
+    lines.value,
+    defaultDeviceIMEI.value,
+    recording.call.device_id
+  )
 }
 
 function statusLabel(recording: RecordingEntry): string {
@@ -94,7 +121,7 @@ function scheduleSearch(value: string): void {
 watch(search, scheduleSearch)
 
 onMounted(() => {
-  void Promise.all([loadRecordingEntries(), loadContacts(), loadDevices()])
+  void Promise.all([loadBootstrap(), loadRecordingEntries(), loadContacts(), loadDevices()])
 })
 
 onBeforeUnmount(() => {
@@ -162,14 +189,20 @@ onBeforeUnmount(() => {
               <strong>{{ displayName(recording) }}</strong>
               <time>{{ formatRelativeDate(recording.recorded_at) }}</time>
             </span>
-            <small>
-              {{ directionLabel(recording) }} ·
-              {{
-                recording.playable
-                  ? formatDuration(recording.duration_seconds)
-                  : statusLabel(recording)
-              }}
-            </small>
+            <span class="recording-list-item__meta">
+              <LineTag
+                :line="lineTagLine(lineForRecording(recording), recording.call.device_id)"
+                :fallback="recordingLineFallback(recording)"
+              />
+              <small>
+                {{ directionLabel(recording) }} ·
+                {{
+                  recording.playable
+                    ? formatDuration(recording.duration_seconds)
+                    : statusLabel(recording)
+                }}
+              </small>
+            </span>
           </span>
         </button>
       </div>
@@ -234,6 +267,15 @@ onBeforeUnmount(() => {
                 <dd>{{ directionLabel(selected) }}</dd>
               </div>
               <div>
+                <dt>线路</dt>
+                <dd>
+                  <LineTag
+                    :line="lineTagLine(lineForRecording(selected), selected.call.device_id)"
+                    :fallback="recordingLineFallback(selected)"
+                  />
+                </dd>
+              </div>
+              <div>
                 <dt>设备</dt>
                 <dd>{{ deviceName(selected.call.device_id) }}</dd>
               </div>
@@ -290,6 +332,20 @@ onBeforeUnmount(() => {
 .recording-list-item__icon.is-unavailable {
   color: var(--muted);
   background: var(--surface-hover);
+}
+
+.recording-list-item__meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.recording-list-item__meta small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .recording-detail {

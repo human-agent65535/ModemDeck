@@ -17,6 +17,7 @@ import {
   createDTMFPayload,
   createGlobalCallSettingsPayload,
   createLineSettingsPayload,
+  createLineLabelPayload,
   createMessageReadPayload,
   createMessagePayload,
   createRecordingSettingsPayload,
@@ -29,6 +30,7 @@ import {
   parseDeviceConfigurationResponse,
   parseGlobalCallSettings,
   parseLineSettingsResponse,
+  parseLineLabelResponse,
   parseMessageResponse,
   parseRecordingEntriesResponse,
   parseRecordingSettingsResponse,
@@ -36,7 +38,8 @@ import {
   parseTelegramUnitsResponse,
   telegramUnitContract,
   telegramUnitDeletePath,
-  deviceConfigurationContract
+  deviceConfigurationContract,
+  lineLabelPath
 } from './contract'
 import {
   parseBootstrap,
@@ -91,6 +94,7 @@ import type {
   TelegramUnitInput,
   UpdateDeviceConfigurationInput,
   UpdateGlobalCallSettingsInput,
+  UpdateLineLabelInput,
   UpdateLineSettingsInput,
   USSDCommandInput,
   USSDResponse,
@@ -274,6 +278,7 @@ function parseDiagnosticLine(value: unknown, index: number): LineSummary {
     operator: stringValue(source, 'operator'),
     device_imei: deviceIMEI,
     device_alias: stringValue(source, 'device_alias'),
+    line_label: stringValue(source, 'line_label'),
     model: stringValue(source, 'model') || undefined,
     firmware: stringValue(source, 'firmware') || undefined,
     state: stringValue(source, 'state') || undefined,
@@ -709,6 +714,17 @@ const realGateway: ConfiguredModemDeckGateway = {
         `${API_ROOT}/devices/${encodeURIComponent(normalizedIMEI)}`,
         'PATCH',
         { alias: input.alias.trim() },
+        200
+      )
+    )
+  },
+
+  async updateLineLabel(iccid: string, input: UpdateLineLabelInput): Promise<LineSummary> {
+    return parseLineLabelResponse(
+      await writeJSON(
+        lineLabelPath(iccid),
+        'PATCH',
+        createLineLabelPayload(input),
         200
       )
     )

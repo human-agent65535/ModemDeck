@@ -19,6 +19,7 @@ import {
 } from '@lucide/vue'
 import type { CallRecord, Contact, LineSummary, MessageThread } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
+import LineTag from '../components/LineTag.vue'
 import ModuleCard from '../components/ModuleCard.vue'
 import StatePanel from '../components/StatePanel.vue'
 import { selectDeviceConfiguration } from '../state/deviceConfiguration'
@@ -44,6 +45,12 @@ import {
   formatRelativeDate,
   primaryPhone
 } from '../utils/format'
+import {
+  createLineLookup,
+  findLine,
+  lineTagFallback,
+  lineTagLine
+} from '../utils/lineIdentity'
 
 type DashboardActivity =
   | {
@@ -63,6 +70,7 @@ const route = useRoute()
 const router = useRouter()
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
+const lineLookup = computed(() => createLineLookup(lines.value))
 const defaultDeviceIMEI = computed(
   () => bootstrapResource.data?.line_settings.default_device_imei || ''
 )
@@ -192,6 +200,64 @@ function threadName(thread: MessageThread): string {
     thread.contact_name ||
     contactForNumber(thread.peer)?.display_name ||
     thread.peer
+  )
+}
+
+function lineForCall(call: CallRecord): LineSummary | undefined {
+  return findLine(lineLookup.value, call.device_id)
+}
+
+function lineForThread(thread: MessageThread): LineSummary | undefined {
+  return findLine(lineLookup.value, thread.line_id, thread.iccid)
+}
+
+function lineForActivity(activity: DashboardActivity): LineSummary | undefined {
+  return activity.kind === 'call'
+    ? lineForCall(activity.call)
+    : lineForThread(activity.thread)
+}
+
+function activityLineFallback(activity: DashboardActivity): string {
+  const line = lineForActivity(activity)
+  const identifiers =
+    activity.kind === 'call'
+      ? [activity.call.device_id]
+      : [activity.thread.line_id, activity.thread.iccid]
+  return lineTagFallback(
+    line,
+    lines.value,
+    defaultDeviceIMEI.value,
+    ...identifiers
+  )
+}
+
+function activityLineTagLine(activity: DashboardActivity) {
+  const line = lineForActivity(activity)
+  return activity.kind === 'call'
+    ? lineTagLine(line, activity.call.device_id)
+    : lineTagLine(
+        line,
+        activity.thread.line_id,
+        activity.thread.iccid
+      )
+}
+
+function callLineFallback(call: CallRecord): string {
+  return lineTagFallback(
+    lineForCall(call),
+    lines.value,
+    defaultDeviceIMEI.value,
+    call.device_id
+  )
+}
+
+function threadLineFallback(thread: MessageThread): string {
+  return lineTagFallback(
+    lineForThread(thread),
+    lines.value,
+    defaultDeviceIMEI.value,
+    thread.line_id,
+    thread.iccid
   )
 }
 
@@ -371,7 +437,13 @@ onMounted(loadDashboard)
               <time>{{ formatRelativeDate(activity.timestamp) }}</time>
             </span>
             <span class="list-item__preview">
-              <small>{{ activityDescription(activity) }}</small>
+              <span class="dashboard-activity-meta">
+                <LineTag
+                  :line="activityLineTagLine(activity)"
+                  :fallback="activityLineFallback(activity)"
+                />
+                <small>{{ activityDescription(activity) }}</small>
+              </span>
               <b
                 v-if="activity.kind === 'message' && activity.thread.unread_count > 0"
               >
@@ -661,6 +733,15 @@ onMounted(loadDashboard)
                   }}
                 </dd>
               </div>
+              <div>
+                <dt>线路</dt>
+                <dd>
+                  <LineTag
+                    :line="lineTagLine(lineForCall(selectedCall), selectedCall.device_id)"
+                    :fallback="callLineFallback(selectedCall)"
+                  />
+                </dd>
+              </div>
               <div v-if="selectedCall.failure_reason">
                 <dt>结果</dt><dd>{{ selectedCall.failure_reason }}</dd>
               </div>
@@ -712,6 +793,11 @@ onMounted(loadDashboard)
           </div>
           <section class="detail-section">
             <h3>最近消息</h3>
+            <LineTag
+              class="dashboard-detail-line-tag"
+              :line="lineTagLine(lineForThread(selectedThread), selectedThread.line_id, selectedThread.iccid)"
+              :fallback="threadLineFallback(selectedThread)"
+            />
             <p class="dashboard-message-preview">
               {{ selectedThread.last_content || '没有消息内容' }}
             </p>
@@ -783,6 +869,20 @@ onMounted(loadDashboard)
 .dashboard-overview-row .list-item__content small,
 .dashboard-activity-row time {
   font-size: 12px;
+}
+
+.dashboard-activity-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.dashboard-activity-meta small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dashboard-inline-error {
@@ -1011,6 +1111,10 @@ onMounted(loadDashboard)
 .dashboard-open-resource,
 .dashboard-message-detail .detail-section > small {
   font-size: 12px;
+}
+
+.dashboard-detail-line-tag {
+  margin-bottom: 10px;
 }
 
 @container (max-width: 920px) {
