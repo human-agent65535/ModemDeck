@@ -20,6 +20,10 @@ const incomingCallModeSource = readFileSync(
   new URL('../src/components/IncomingCallModeControl.vue', import.meta.url),
   'utf8'
 )
+const moduleCardSource = readFileSync(
+  new URL('../src/components/ModuleCard.vue', import.meta.url),
+  'utf8'
+)
 
 test('call policy and device configuration contracts match the root API', () => {
   assert.deepEqual(communicationContracts.getCallSettings, {
@@ -144,6 +148,37 @@ test('fixture preserves every one of six server lines and exposes each configura
   assert.deepEqual(
     configurations.map(configuration => configuration.hardware?.line_id),
     bootstrap.lines.map(line => line.id)
+  )
+})
+
+test('module cards keep selection and default actions in a stable shared footer', () => {
+  const footerStart = moduleCardSource.indexOf(
+    '<footer class="module-card__footer">'
+  )
+  const capabilitiesStart = moduleCardSource.indexOf(
+    'class="module-card__capabilities"',
+    footerStart
+  )
+  const actionsStart = moduleCardSource.indexOf(
+    'class="module-card__actions"',
+    footerStart
+  )
+
+  assert.ok(footerStart >= 0, '模组卡片缺少固定底栏')
+  assert.ok(capabilitiesStart > footerStart, '模组能力不在底栏内')
+  assert.ok(actionsStart > capabilitiesStart, '默认线路与编辑动作不在能力右侧')
+  assert.doesNotMatch(moduleCardSource, /\bStar\b/)
+  assert.match(moduleCardSource, /\bCircleCheck\b/)
+  assert.match(moduleCardSource, /defaultLine \? '默认线路' : '设为默认'/)
+  assert.match(moduleCardSource, /:disabled="defaultLine"/)
+  assert.match(moduleCardSource, /\.module-card__current\s*\{[^}]*visibility: hidden/s)
+  assert.match(
+    moduleCardSource,
+    /\.module-card__current\.is-visible\s*\{[^}]*visibility: visible/s
+  )
+  assert.match(
+    moduleCardSource,
+    /grid-template-columns: minmax\(0, 1fr\) auto/
   )
 })
 

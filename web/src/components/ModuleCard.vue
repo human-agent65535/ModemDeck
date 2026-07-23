@@ -2,12 +2,12 @@
 import {
   CardSim,
   Check,
+  CircleCheck,
   MessageSquareText,
   Pencil,
   Phone,
   RadioTower,
-  Signal,
-  Star
+  Signal
 } from '@lucide/vue'
 import { computed } from 'vue'
 import type { Device, LineSummary } from '../api/types'
@@ -93,14 +93,14 @@ const stateLabel = computed(() => {
             {{ stateLabel }}
           </small>
         </span>
-        <span class="module-card__badges">
-          <span v-if="selected" class="module-card__current">
+        <span class="module-card__status">
+          <span
+            class="module-card__current"
+            :class="{ 'is-visible': selected }"
+            :aria-hidden="!selected"
+          >
             <Check :size="13" />
             当前配置
-          </span>
-          <span v-if="defaultLine" class="module-card__default">
-            <Star :size="13" fill="currentColor" />
-            默认线路
           </span>
         </span>
       </header>
@@ -136,7 +136,10 @@ const stateLabel = computed(() => {
         </div>
       </dl>
 
-      <footer>
+    </button>
+
+    <footer class="module-card__footer">
+      <div class="module-card__capabilities" aria-label="模组能力">
         <span :class="{ 'is-enabled': line.capabilities?.voice }">
           <Phone :size="14" />
           通话
@@ -149,30 +152,40 @@ const stateLabel = computed(() => {
           <CardSim :size="14" />
           SIM
         </span>
-      </footer>
-    </button>
+      </div>
 
-    <div v-if="actions" class="module-card__actions">
-      <button
-        class="icon-button"
-        type="button"
-        title="设为默认线路"
-        aria-label="设为默认线路"
-        :disabled="defaultLine"
-        @click="emit('makeDefault')"
+      <div v-if="actions" class="module-card__actions">
+        <button
+          class="module-card__default-action"
+          type="button"
+          :title="defaultLine ? '当前默认线路' : '设为默认线路'"
+          :aria-label="defaultLine ? '当前默认线路' : '设为默认线路'"
+          :aria-pressed="defaultLine"
+          :disabled="defaultLine"
+          @click="emit('makeDefault')"
+        >
+          <CircleCheck :size="16" />
+          <span>{{ defaultLine ? '默认线路' : '设为默认' }}</span>
+        </button>
+        <button
+          class="icon-button"
+          type="button"
+          title="修改模组名称"
+          aria-label="修改模组名称"
+          @click="emit('rename')"
+        >
+          <Pencil :size="17" />
+        </button>
+      </div>
+      <span
+        v-else-if="defaultLine"
+        class="module-card__default-status"
+        title="当前默认线路"
       >
-        <Star :size="17" :fill="defaultLine ? 'currentColor' : 'none'" />
-      </button>
-      <button
-        class="icon-button"
-        type="button"
-        title="修改模组名称"
-        aria-label="修改模组名称"
-        @click="emit('rename')"
-      >
-        <Pencil :size="17" />
-      </button>
-    </div>
+        <CircleCheck :size="16" />
+        默认线路
+      </span>
+    </footer>
   </article>
 </template>
 
@@ -276,16 +289,16 @@ const stateLabel = computed(() => {
   background: #18a46f;
 }
 
-.module-card__badges {
+.module-card__status {
   display: flex;
-  flex: 0 0 auto;
-  flex-direction: column;
+  width: 82px;
+  min-height: 24px;
+  flex: 0 0 82px;
   align-items: flex-end;
-  gap: 4px;
+  justify-content: flex-end;
 }
 
-.module-card__current,
-.module-card__default {
+.module-card__current {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
@@ -293,12 +306,14 @@ const stateLabel = computed(() => {
   color: var(--accent-strong);
   font-size: 12px;
   font-weight: 650;
-}
-
-.module-card__current {
   padding: 3px 6px;
+  visibility: hidden;
   background: var(--accent-soft);
   border-radius: 4px;
+}
+
+.module-card__current.is-visible {
+  visibility: visible;
 }
 
 .module-card__facts {
@@ -339,37 +354,92 @@ const stateLabel = computed(() => {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-.module-card footer {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+.module-card__footer {
+  display: grid;
+  min-height: 48px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border-top: 1px solid var(--border);
 }
 
-.module-card footer span {
+.module-card.is-selected .module-card__footer {
+  background: var(--surface-selected);
+}
+
+.module-card__capabilities {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.module-card__capabilities > span {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   color: var(--muted);
   font-size: 12px;
+  white-space: nowrap;
 }
 
-.module-card footer span.is-enabled {
+.module-card__capabilities > span.is-enabled {
   color: var(--accent-strong);
 }
 
 .module-card__actions {
   display: flex;
-  min-height: 40px;
+  min-width: 0;
   align-items: center;
   justify-content: flex-end;
-  gap: 2px;
-  padding: 4px 8px;
-  border-top: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  gap: 4px;
 }
 
-.module-card.is-selected .module-card__actions {
-  background: var(--surface-selected);
+.module-card__default-action,
+.module-card__default-status {
+  display: inline-flex;
+  min-width: 0;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.module-card__default-action {
+  padding: 0 8px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.module-card__default-action:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+}
+
+.module-card__default-action:disabled {
+  color: var(--accent-strong);
+  cursor: default;
+  opacity: 1;
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+}
+
+.module-card__default-status {
+  padding: 0 4px;
+}
+
+.module-card__actions .icon-button {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
 }
 
 .module-card.is-compact .module-card__main {
@@ -378,8 +448,28 @@ const stateLabel = computed(() => {
 }
 
 @media (max-width: 560px) {
-  .module-card__badges {
-    align-items: flex-start;
+  .module-card__status {
+    width: 78px;
+    flex-basis: 78px;
+  }
+}
+
+@container (max-width: 350px) {
+  .module-card__main {
+    padding-inline: 12px;
+  }
+
+  .module-card__footer {
+    gap: 5px;
+    padding-inline: 8px;
+  }
+
+  .module-card__capabilities {
+    gap: 6px;
+  }
+
+  .module-card__default-action {
+    padding-inline: 6px;
   }
 }
 
