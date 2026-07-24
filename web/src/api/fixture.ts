@@ -62,6 +62,7 @@ const contacts: Contact[] = [
   {
     id: 'contact-alex',
     display_name: 'Alex Rowan',
+    favorite: true,
     preferred_device_imei: 'fixture-001',
     phones: [{ id: 'phone-alex', label: '手机', number: '+1 202 555 0103', primary: true }],
     notes: '东京',
@@ -70,6 +71,7 @@ const contacts: Contact[] = [
   {
     id: 'contact-casey',
     display_name: 'Casey Morgan',
+    favorite: false,
     preferred_device_imei: 'fixture-002',
     phones: [
       { id: 'phone-casey-mobile', label: '手机', number: '+1 202 555 0104', primary: true },
@@ -80,6 +82,7 @@ const contacts: Contact[] = [
   {
     id: 'contact-riley',
     display_name: 'Riley Quinn',
+    favorite: false,
     phones: [{ id: 'phone-riley', label: '手机', number: '+1 202 555 0106', primary: true }],
     revision: 1
   }
@@ -934,6 +937,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       const contact: Contact = {
         id: `contact-fixture-${sequence}`,
         display_name: input.display_name,
+        favorite: input.favorite,
         notes: input.notes,
         preferred_device_imei: input.preferred_device_imei,
         revision: 1,
@@ -955,6 +959,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       const updated: Contact = {
         ...current,
         display_name: input.display_name,
+        favorite: input.favorite,
         notes: input.notes,
         preferred_device_imei: input.preferred_device_imei,
         revision: (current.revision || 0) + 1,

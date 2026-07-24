@@ -22,6 +22,7 @@ type Contact struct {
 	DisplayName         string         `json:"display_name"`
 	Notes               string         `json:"notes"`
 	PreferredDeviceIMEI string         `json:"preferred_device_imei"`
+	Favorite            bool           `json:"favorite"`
 	Revision            int64          `json:"revision"`
 	CreatedAt           string         `json:"created_at"`
 	UpdatedAt           string         `json:"updated_at"`
@@ -40,6 +41,7 @@ type ContactInput struct {
 	DisplayName         string              `json:"display_name"`
 	Notes               string              `json:"notes"`
 	PreferredDeviceIMEI string              `json:"preferred_device_imei"`
+	Favorite            bool                `json:"favorite"`
 	Revision            int64               `json:"revision"`
 	Phones              []ContactPhoneInput `json:"phones"`
 }

@@ -20,6 +20,7 @@ func TestContactCRUD(t *testing.T) {
 	created, err := repository.CreateContact(ctx, ContactInput{
 		DisplayName: "  Ada Lovelace  ",
 		Notes:       "  first programmer  ",
+		Favorite:    true,
 		Phones: []ContactPhoneInput{
 			{Label: " mobile ", Number: " +44 (20) 7946-0958 ", Primary: true},
 			{Label: "work", Number: "+1 212-555-0198"},
@@ -33,6 +34,9 @@ func TestContactCRUD(t *testing.T) {
 	}
 	if created.DisplayName != "Ada Lovelace" || created.Notes != "first programmer" {
 		t.Fatalf("CreateContact() text = %q / %q", created.DisplayName, created.Notes)
+	}
+	if !created.Favorite {
+		t.Fatal("CreateContact() favorite = false, want true")
 	}
 	if created.Revision != 1 {
 		t.Fatalf("CreateContact() revision = %d, want 1", created.Revision)
@@ -60,6 +64,7 @@ func TestContactCRUD(t *testing.T) {
 	updated, err := repository.UpdateContact(ctx, created.ID, ContactInput{
 		DisplayName: "Ada Byron",
 		Notes:       "updated",
+		Favorite:    false,
 		Revision:    created.Revision,
 		Phones: []ContactPhoneInput{
 			{
@@ -78,6 +83,9 @@ func TestContactCRUD(t *testing.T) {
 	}
 	if updated.DisplayName != "Ada Byron" || updated.Notes != "updated" {
 		t.Fatalf("UpdateContact() text = %q / %q", updated.DisplayName, updated.Notes)
+	}
+	if updated.Favorite {
+		t.Fatal("UpdateContact() favorite = true, want false")
 	}
 	if len(updated.Phones) != 1 {
 		t.Fatalf("UpdateContact() phones = %d, want whole-resource replacement with 1", len(updated.Phones))

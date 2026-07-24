@@ -88,6 +88,7 @@ async function createContact(): Promise<void> {
   try {
     const saved = await saveContact({
       display_name: name,
+      favorite: false,
       phones: [
         {
           label: phoneLabel.value.trim() || '手机',
@@ -120,6 +121,7 @@ async function addToContact(): Promise<void> {
     const saved = await saveContact(
       {
         display_name: contact.display_name,
+        favorite: contact.favorite,
         notes: contact.notes,
         preferred_device_imei: contact.preferred_device_imei,
         revision: contact.revision,

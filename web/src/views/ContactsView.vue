@@ -6,6 +6,7 @@ import {
   MessageSquareText,
   Pencil,
   Phone,
+  Star,
   Trash2,
   UserPlus
 } from '@lucide/vue'
@@ -37,6 +38,8 @@ const editing = ref<Contact | undefined>()
 const saving = ref(false)
 const editorError = ref('')
 const deleting = ref(false)
+const favoritePending = ref(false)
+const favoriteError = ref('')
 
 const filteredContacts = computed(() => {
   const query = search.value.trim().toLocaleLowerCase()
@@ -120,6 +123,34 @@ async function remove(contact: Contact): Promise<void> {
     editorError.value = error instanceof Error ? error.message : '联系人删除失败'
   } finally {
     deleting.value = false
+  }
+}
+
+async function toggleFavorite(contact: Contact): Promise<void> {
+  if (favoritePending.value) return
+  favoritePending.value = true
+  favoriteError.value = ''
+  try {
+    await saveContact(
+      {
+        display_name: contact.display_name,
+        favorite: !contact.favorite,
+        notes: contact.notes,
+        preferred_device_imei: contact.preferred_device_imei,
+        revision: contact.revision,
+        phones: contact.phones.map(phone => ({
+          id: phone.id,
+          label: phone.label,
+          number: phone.number,
+          primary: phone.primary
+        }))
+      },
+      contact.id
+    )
+  } catch (error) {
+    favoriteError.value = error instanceof Error ? error.message : '收藏状态保存失败'
+  } finally {
+    favoritePending.value = false
   }
 }
 
@@ -216,6 +247,13 @@ onMounted(() => {
             <strong>{{ contact.display_name }}</strong>
             <small>{{ primaryPhone(contact.phones) || '没有号码' }}</small>
           </span>
+          <Star
+            v-if="contact.favorite"
+            class="contact-favorite-mark"
+            :size="15"
+            fill="currentColor"
+            aria-label="已收藏"
+          />
         </button>
       </div>
     </aside>
@@ -232,6 +270,17 @@ onMounted(() => {
             <span v-if="selected.notes">{{ selected.notes }}</span>
           </div>
           <div v-if="contactEditingAvailable" class="detail-header__actions">
+            <button
+              class="icon-button contact-favorite-button"
+              :class="{ 'is-active': selected.favorite }"
+              type="button"
+              :title="selected.favorite ? '取消收藏' : '收藏联系人'"
+              :aria-pressed="selected.favorite"
+              :disabled="favoritePending"
+              @click="toggleFavorite(selected)"
+            >
+              <Star :size="18" :fill="selected.favorite ? 'currentColor' : 'none'" />
+            </button>
             <button class="icon-button" type="button" title="编辑联系人" @click="openEdit(selected)">
               <Pencil :size="18" />
             </button>
@@ -248,6 +297,7 @@ onMounted(() => {
         </header>
 
         <div class="contact-detail">
+          <p v-if="favoriteError" class="field-error" role="alert">{{ favoriteError }}</p>
           <section class="detail-section">
             <h3>电话号码</h3>
             <div v-for="phone in selected.phones" :key="phone.id" class="phone-detail-row">
@@ -313,5 +363,14 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
   padding: 0 20px 24px;
+}
+
+.contact-favorite-mark,
+.contact-favorite-button.is-active {
+  color: #a86400;
+}
+
+.contact-favorite-mark {
+  flex: 0 0 auto;
 }
 </style>

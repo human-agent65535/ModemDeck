@@ -103,6 +103,7 @@ type normalizedContactInput struct {
 	displayName         string
 	notes               string
 	preferredDeviceIMEI string
+	favorite            bool
 	revision            int64
 	phones              []normalizedContactPhone
 }
@@ -164,12 +165,14 @@ func (s *Store) CreateContact(ctx context.Context, input ContactInput) (Contact,
 	if _, err := transaction.ExecContext(
 		ctx,
 		`INSERT INTO contacts (
-			id, display_name, notes, preferred_device_imei, revision, created_at, updated_at
-		 ) VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+			id, display_name, notes, preferred_device_imei, is_favorite,
+			revision, created_at, updated_at
+		 ) VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
 		contactID,
 		normalized.displayName,
 		normalized.notes,
 		normalized.preferredDeviceIMEI,
+		normalized.favorite,
 	); err != nil {
 		_ = transaction.Rollback()
 		return Contact{}, s.classifyContactWriteError(ctx, fmt.Errorf("insert contact: %w", err), normalized.phones, "")
@@ -234,12 +237,13 @@ func (s *Store) UpdateContact(ctx context.Context, id string, input ContactInput
 	result, err := transaction.ExecContext(
 		ctx,
 		`UPDATE contacts
-		 SET display_name = ?, notes = ?, preferred_device_imei = ?,
+		 SET display_name = ?, notes = ?, preferred_device_imei = ?, is_favorite = ?,
 			revision = revision + 1, updated_at = CURRENT_TIMESTAMP
 		 WHERE id = ? AND revision = ?`,
 		normalized.displayName,
 		normalized.notes,
 		normalized.preferredDeviceIMEI,
+		normalized.favorite,
 		contactID,
 		normalized.revision,
 	)
@@ -324,7 +328,8 @@ func (s *Store) DeleteContact(ctx context.Context, id string, revision int64) er
 
 func (s *Store) Contacts(ctx context.Context, query ContactQuery) ([]Contact, error) {
 	limit := boundedLimit(query.Limit)
-	statement := `SELECT id, display_name, notes, preferred_device_imei, revision, created_at, updated_at
+	statement := `SELECT id, display_name, notes, preferred_device_imei, is_favorite,
+			revision, created_at, updated_at
 		FROM contacts`
 	arguments := []any{}
 	if strings.TrimSpace(query.Search) != "" {
@@ -357,7 +362,7 @@ func (s *Store) Contacts(ctx context.Context, query ContactQuery) ([]Contact, er
 		var (
 			contact                                 Contact
 			displayName, notes, preferredDeviceIMEI sql.NullString
-			revision                                sql.NullInt64
+			favorite, revision                      sql.NullInt64
 			createdAt, updatedAt                    sql.NullString
 		)
 		if err := rows.Scan(
@@ -365,6 +370,7 @@ func (s *Store) Contacts(ctx context.Context, query ContactQuery) ([]Contact, er
 			&displayName,
 			&notes,
 			&preferredDeviceIMEI,
+			&favorite,
 			&revision,
 			&createdAt,
 			&updatedAt,
@@ -374,6 +380,7 @@ func (s *Store) Contacts(ctx context.Context, query ContactQuery) ([]Contact, er
 		contact.DisplayName = stringValue(displayName)
 		contact.Notes = stringValue(notes)
 		contact.PreferredDeviceIMEI = stringValue(preferredDeviceIMEI)
+		contact.Favorite = boolValue(favorite)
 		contact.Revision = intValue(revision)
 		contact.CreatedAt = stringValue(createdAt)
 		contact.UpdatedAt = stringValue(updatedAt)
@@ -472,6 +479,7 @@ func normalizeContactInput(input ContactInput, creating bool) (normalizedContact
 		displayName:         displayName,
 		notes:               notes,
 		preferredDeviceIMEI: preferredDeviceIMEI,
+		favorite:            input.Favorite,
 		revision:            input.Revision,
 		phones:              make([]normalizedContactPhone, 0, len(input.Phones)),
 	}
@@ -720,12 +728,13 @@ func contactByID(ctx context.Context, queryer contactQueryer, contactID string) 
 	var (
 		contact                                 Contact
 		displayName, notes, preferredDeviceIMEI sql.NullString
-		revision                                sql.NullInt64
+		favorite, revision                      sql.NullInt64
 		createdAt, updatedAt                    sql.NullString
 	)
 	err := queryer.QueryRowContext(
 		ctx,
-		`SELECT id, display_name, notes, preferred_device_imei, revision, created_at, updated_at
+		`SELECT id, display_name, notes, preferred_device_imei, is_favorite,
+			revision, created_at, updated_at
 		 FROM contacts
 		 WHERE id = ?`,
 		contactID,
@@ -734,6 +743,7 @@ func contactByID(ctx context.Context, queryer contactQueryer, contactID string) 
 		&displayName,
 		&notes,
 		&preferredDeviceIMEI,
+		&favorite,
 		&revision,
 		&createdAt,
 		&updatedAt,
@@ -747,6 +757,7 @@ func contactByID(ctx context.Context, queryer contactQueryer, contactID string) 
 	contact.DisplayName = stringValue(displayName)
 	contact.Notes = stringValue(notes)
 	contact.PreferredDeviceIMEI = stringValue(preferredDeviceIMEI)
+	contact.Favorite = boolValue(favorite)
 	contact.Revision = intValue(revision)
 	contact.CreatedAt = stringValue(createdAt)
 	contact.UpdatedAt = stringValue(updatedAt)

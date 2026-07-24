@@ -260,6 +260,7 @@ export type Contact = {
   id: string
   display_name: string
   phones: ContactPhone[]
+  favorite: boolean
   notes?: string
   preferred_device_imei?: string
   revision?: number
@@ -269,6 +270,7 @@ export type Contact = {
 
 export type ContactInput = {
   display_name: string
+  favorite: boolean
   phones: Array<{
     id?: string
     label: string

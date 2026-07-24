@@ -41,6 +41,12 @@ function numberValue(source: JsonRecord, key: string, fallback = 0): number {
   return Number.isFinite(value) ? value : fallback
 }
 
+function requiredBoolean(source: JsonRecord, path: string, key: string): boolean {
+  const value = source[key]
+  if (typeof value === 'boolean') return value
+  throw new Error(`${path}.${key} 必须是布尔值`)
+}
+
 function nullableNumber(source: JsonRecord, key: string, zeroIsUnknown = false): number | null {
   const raw = source[key]
   if (raw === undefined || raw === null || raw === '') return null
@@ -127,6 +133,7 @@ export function parseContact(value: unknown): Contact {
     id,
     display_name: requiredString(source, 'contact', 'display_name'),
     phones: rawPhones.map((phone, index) => normalizePhone(phone, id, index)),
+    favorite: requiredBoolean(source, 'contact', 'favorite'),
     notes: stringValue(source, 'notes') || undefined,
     preferred_device_imei: stringValue(source, 'preferred_device_imei') || undefined,
     revision: Number.isFinite(Number(source.revision)) ? Number(source.revision) : undefined,

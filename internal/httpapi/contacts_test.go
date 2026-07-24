@@ -19,7 +19,7 @@ func TestCreateContact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	body := `{"display_name":"Aiko","notes":"Tokyo","phones":[{"label":"mobile","number":"+81 90-1234-5678","primary":true}]}`
+	body := `{"display_name":"Aiko","notes":"Tokyo","preferred_device_imei":"imei-main","favorite":true,"phones":[{"label":"mobile","number":"+81 90-1234-5678","primary":true}]}`
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/contacts", bytes.NewBufferString(body))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -30,6 +30,10 @@ func TestCreateContact(t *testing.T) {
 	}
 	if repository.createContactInput.DisplayName != "Aiko" || len(repository.createContactInput.Phones) != 1 {
 		t.Fatalf("create input = %+v", repository.createContactInput)
+	}
+	if repository.createContactInput.PreferredDeviceIMEI != "imei-main" ||
+		!repository.createContactInput.Favorite {
+		t.Fatalf("create contact preferences = %+v", repository.createContactInput)
 	}
 	var result contactResponse
 	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
@@ -48,7 +52,7 @@ func TestUpdateAndDeleteContactCarryRevision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	updateBody := `{"display_name":"Aiko","revision":7,"phones":[{"id":"phone-1","label":"mobile","number":"+819012345678","primary":true}]}`
+	updateBody := `{"display_name":"Aiko","preferred_device_imei":"imei-main","favorite":true,"revision":7,"phones":[{"id":"phone-1","label":"mobile","number":"+819012345678","primary":true}]}`
 	update := httptest.NewRequest(http.MethodPut, "/api/v1/contacts/contact-1", bytes.NewBufferString(updateBody))
 	update.Header.Set("Content-Type", "application/json; charset=utf-8")
 	updateResponse := httptest.NewRecorder()
@@ -58,6 +62,10 @@ func TestUpdateAndDeleteContactCarryRevision(t *testing.T) {
 	}
 	if repository.updateContactID != "contact-1" || repository.updateContactInput.Revision != 7 {
 		t.Fatalf("update = id %q input %+v", repository.updateContactID, repository.updateContactInput)
+	}
+	if repository.updateContactInput.PreferredDeviceIMEI != "imei-main" ||
+		!repository.updateContactInput.Favorite {
+		t.Fatalf("update contact preferences = %+v", repository.updateContactInput)
 	}
 
 	remove := httptest.NewRequest(http.MethodDelete, "/api/v1/contacts/contact-1?revision=8", nil)
