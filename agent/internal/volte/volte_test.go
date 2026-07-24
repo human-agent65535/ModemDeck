@@ -120,7 +120,8 @@ func TestDecodeQuectelIMSPreservesConfigurationAndCapability(t *testing.T) {
 		if state.Policy != test.wantPolicy ||
 			state.ConfigurationMode != test.wantMode ||
 			!state.ModemCapabilityKnown ||
-			state.ModemCapabilityEnabled != test.wantCapability {
+			state.ModemCapabilityEnabled != test.wantCapability ||
+			state.RestartRequired {
 			t.Fatalf("decodeQuectelIMS(%q) = %+v", test.response, state)
 		}
 	}

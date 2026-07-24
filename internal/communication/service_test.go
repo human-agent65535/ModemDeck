@@ -764,6 +764,7 @@ func TestProjectLineSeparatesHomeAndServingOperators(t *testing.T) {
 		RegistrationStateCode:  5,
 		RegistrationState:      "roaming",
 		Roaming:                true,
+		EmergencyOnly:          true,
 	})
 	if projected.Operator != "Viettel Mobile" ||
 		projected.HomeOperatorCode != "45204" ||
@@ -773,7 +774,8 @@ func TestProjectLineSeparatesHomeAndServingOperators(t *testing.T) {
 		!projected.RegistrationStateKnown ||
 		projected.RegistrationStateCode != 5 ||
 		projected.RegistrationState != "roaming" ||
-		!projected.Roaming {
+		!projected.Roaming ||
+		!projected.EmergencyOnly {
 		t.Fatalf("projected roaming line = %+v", projected)
 	}
 

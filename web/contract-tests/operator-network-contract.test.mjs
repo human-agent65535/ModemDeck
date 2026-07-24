@@ -62,6 +62,7 @@ function roamingLine() {
     imsi: '001020000000001',
     device_imei: '867530900000099',
     state: 'registered',
+    emergency_only: false,
     ...networkFields
   }
 }
@@ -128,6 +129,42 @@ test('searching lines do not present cached serving operators as current network
       registration_state: 'home'
     }),
     true
+  )
+})
+
+test('idle emergency-only lines report the usable service state', () => {
+  assert.equal(
+    registrationStateLabel(
+      {
+        registration_state_known: true,
+        registration_state: 'idle',
+        emergency_only: true
+      },
+      '已启用'
+    ),
+    '仅限紧急呼叫'
+  )
+  assert.equal(
+    registrationStateLabel(
+      {
+        registration_state_known: true,
+        registration_state: 'idle',
+        emergency_only: false
+      },
+      '已启用'
+    ),
+    '等待驻网'
+  )
+  assert.equal(
+    registrationStateLabel(
+      {
+        registration_state_known: true,
+        registration_state: 'searching',
+        emergency_only: true
+      },
+      '已启用'
+    ),
+    '正在搜网'
   )
 })
 
@@ -246,6 +283,7 @@ test('SIM and diagnostics HTTP decoders preserve serving and home operators', as
     assert.equal(diagnostics.lines[0]?.home_operator_name, 'Pine Wireless')
     assert.equal(diagnostics.lines[0]?.serving_operator_name, 'Aurora Mobile')
     assert.equal(diagnostics.lines[0]?.roaming, true)
+    assert.equal(diagnostics.lines[0]?.emergency_only, false)
   } finally {
     globalThis.fetch = originalFetch
   }

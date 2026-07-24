@@ -320,6 +320,7 @@ export function parseLine(value: unknown): LineSummary {
     registration_state_code: numberValue(source, 'registration_state_code'),
     registration_state: stringValue(source, 'registration_state'),
     roaming: source.roaming === true,
+    emergency_only: source.emergency_only === true,
     device_imei: stringValue(source, 'device_imei'),
     device_alias: stringValue(source, 'device_alias'),
     line_label: stringValue(source, 'line_label'),

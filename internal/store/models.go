@@ -213,6 +213,7 @@ type LineSummary struct {
 	RegistrationStateCode  uint32           `json:"registration_state_code"`
 	RegistrationState      string           `json:"registration_state"`
 	Roaming                bool             `json:"roaming"`
+	EmergencyOnly          bool             `json:"emergency_only"`
 	DeviceIMEI             string           `json:"device_imei"`
 	DeviceAlias            string           `json:"device_alias"`
 	Model                  string           `json:"model"`

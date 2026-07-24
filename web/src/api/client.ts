@@ -319,6 +319,7 @@ function parseDiagnosticLine(value: unknown, index: number): LineSummary {
     registration_state_code: numberValue(source, path, 'registration_state_code'),
     registration_state: stringValue(source, 'registration_state'),
     roaming: requiredBooleanValue(source, path, 'roaming'),
+    emergency_only: requiredBooleanValue(source, path, 'emergency_only'),
     device_imei: deviceIMEI,
     device_alias: stringValue(source, 'device_alias'),
     line_label: stringValue(source, 'line_label'),

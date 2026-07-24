@@ -1257,6 +1257,7 @@ func projectLine(line agentclient.Line) store.LineSummary {
 		RegistrationStateCode:  line.RegistrationStateCode,
 		RegistrationState:      line.RegistrationState,
 		Roaming:                line.Roaming,
+		EmergencyOnly:          line.EmergencyOnly,
 		DeviceIMEI:             firstNonEmpty(line.EquipmentIdentifier, line.DeviceIdentifier),
 		DeviceAlias:            "",
 		Model:                  line.Model,

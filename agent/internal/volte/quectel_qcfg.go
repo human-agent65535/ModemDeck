@@ -60,11 +60,9 @@ func decodeQuectelIMS(response string) (State, error) {
 		case 1:
 			state.ConfigurationMode = ConfigurationModeForcedEnabled
 			state.Policy = PolicyEnabled
-			state.RestartRequired = capability == 0
 		case 2:
 			state.ConfigurationMode = ConfigurationModeForcedDisabled
 			state.Policy = PolicyDisabled
-			state.RestartRequired = capability == 1
 		}
 		return state, nil
 	}

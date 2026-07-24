@@ -39,6 +39,7 @@ export type LineSummary = {
   registration_state_code: number
   registration_state: string
   roaming: boolean
+  emergency_only: boolean
   device_imei: string
   device_alias: string
   line_label: string

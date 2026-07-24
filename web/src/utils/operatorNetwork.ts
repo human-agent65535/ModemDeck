@@ -10,6 +10,7 @@ export type OperatorNetworkSource = {
   registration_state_known?: boolean
   registration_state?: string
   roaming?: boolean
+  emergency_only?: boolean
 }
 
 export type OperatorFact = {
@@ -122,6 +123,12 @@ export function registrationStateLabel(
 ): string {
   if (isRoamingNetwork(source)) return '漫游'
   if (!source.registration_state_known) return fallback
+  if (
+    source.emergency_only &&
+    clean(source.registration_state).toLocaleLowerCase() !== 'searching'
+  ) {
+    return '仅限紧急呼叫'
+  }
 
   switch (clean(source.registration_state).toLocaleLowerCase()) {
     case 'home':
@@ -143,7 +150,7 @@ export function registrationStateLabel(
     case 'denied':
       return '注册被拒绝'
     case 'idle':
-      return '未注册'
+      return '等待驻网'
     case 'unknown':
       return '状态未知'
     default:
