@@ -2202,6 +2202,295 @@ dd {
   max-width: 720px;
 }
 
+.tls-settings {
+  max-width: 760px;
+}
+
+.tls-settings__state {
+  display: flex;
+  min-height: 180px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tls-settings__state--error {
+  flex-direction: column;
+  color: var(--danger);
+}
+
+.tls-summary {
+  display: flex;
+  min-height: 68px;
+  align-items: center;
+  gap: 11px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tls-summary__icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  place-items: center;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-radius: 8px;
+}
+
+.tls-summary__heading {
+  min-width: 0;
+  flex: 1;
+}
+
+.tls-summary__heading h3,
+.tls-install h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  text-transform: none;
+}
+
+.tls-summary__heading p,
+.tls-install header p {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.tls-summary__status {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 7px;
+}
+
+.tls-summary .status-label--danger {
+  color: #9b3340;
+  background: var(--danger-soft);
+  border-color: #f0d2d6;
+}
+
+.tls-summary .status-label--neutral {
+  color: var(--muted);
+  background: var(--surface-hover);
+  border-color: var(--border);
+}
+
+.tls-expired-warning {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 7px;
+  margin-top: 12px;
+  padding: 8px 10px;
+  color: var(--danger);
+  font-size: 11px;
+  background: var(--danger-soft);
+  border-left: 3px solid var(--danger);
+  border-radius: 4px;
+}
+
+.tls-facts {
+  display: grid;
+  margin: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 24px;
+}
+
+.tls-facts > div {
+  display: grid;
+  min-width: 0;
+  min-height: 50px;
+  align-items: center;
+  padding: 9px 0;
+  grid-template-columns: 92px minmax(0, 1fr);
+  border-bottom: 1px solid var(--border);
+}
+
+.tls-facts__wide {
+  grid-column: 1 / -1;
+}
+
+.tls-facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.tls-facts code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--muted);
+  font-size: 10px;
+  word-break: break-all;
+}
+
+.tls-ca-download {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.tls-ca-download .secondary-button {
+  flex: 0 0 auto;
+}
+
+.tls-ca-download p {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.tls-install {
+  margin-top: 28px;
+  border-top: 1px solid var(--border);
+}
+
+.tls-install > header {
+  display: flex;
+  min-height: 70px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.tls-install > header > div {
+  min-width: 0;
+}
+
+.tls-install > header .secondary-button {
+  flex: 0 0 auto;
+}
+
+.tls-file-grid {
+  display: grid;
+  gap: 16px;
+  padding: 18px 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.tls-file-field {
+  min-width: 0;
+}
+
+.tls-file-field__label {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.tls-file-picker {
+  display: flex;
+  min-height: 64px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  color: var(--accent-strong);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.tls-file-picker:hover {
+  background: var(--surface-hover);
+}
+
+.tls-file-field:focus-within .tls-file-picker {
+  box-shadow: 0 0 0 3px rgb(17 120 100 / 20%);
+}
+
+.tls-file-picker.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
+.tls-file-field.has-error .tls-file-picker {
+  border-color: var(--danger);
+}
+
+.tls-file-picker > svg {
+  flex: 0 0 auto;
+}
+
+.tls-file-picker > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.tls-file-picker strong,
+.tls-file-picker small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tls-file-picker strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.tls-file-picker small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.tls-file-field .field-error {
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+.tls-install__actions {
+  display: flex;
+  min-height: 62px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+
+.tls-install__feedback {
+  min-width: 0;
+  flex: 1;
+}
+
+.tls-install__feedback .field-error {
+  margin: 0;
+}
+
+.tls-connection-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  color: var(--accent-strong);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.tls-connection-notice svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.tls-install__actions .primary-button {
+  flex: 0 0 auto;
+}
+
 .telegram-settings {
   display: grid;
   min-height: 480px;
@@ -2847,6 +3136,56 @@ dd {
 
   .settings-form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .tls-summary {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .tls-summary__heading {
+    padding-top: 2px;
+  }
+
+  .tls-summary__status {
+    width: 100%;
+    padding-left: 49px;
+  }
+
+  .tls-facts,
+  .tls-file-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tls-facts__wide {
+    grid-column: auto;
+  }
+
+  .tls-install > header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .tls-ca-download {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .tls-install > header .secondary-button {
+    width: 100%;
+  }
+
+  .tls-install__actions {
+    align-items: stretch;
+    flex-direction: column;
+    padding-bottom: 76px;
+    scroll-margin-block-end: 76px;
+  }
+
+  .tls-install__actions .primary-button {
+    width: 100%;
   }
 
   .telegram-settings {

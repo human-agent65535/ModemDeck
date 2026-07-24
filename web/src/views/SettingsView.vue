@@ -9,6 +9,7 @@ import {
   LogOut,
   RadioTower,
   Send,
+  ShieldCheck,
   UserRound
 } from '@lucide/vue'
 import StatePanel from '../components/StatePanel.vue'
@@ -16,13 +17,14 @@ import DeviceConfigurationPanel from '../components/DeviceConfigurationPanel.vue
 import DiagnosticsPanel from '../components/DiagnosticsPanel.vue'
 import RecordingSettingsForm from '../components/RecordingSettingsForm.vue'
 import TelegramSettingsForm from '../components/TelegramSettingsForm.vue'
+import TLSSettingsForm from '../components/TLSSettingsForm.vue'
 import { fixtureMode } from '../api/client'
 import { logout as logoutSession, sessionState } from '../state/session'
 import {
   loadBootstrap
 } from '../state/workspace'
 
-type SettingsSection = 'devices' | 'recording' | 'telegram' | 'diagnostics'
+type SettingsSection = 'devices' | 'recording' | 'telegram' | 'tls' | 'diagnostics'
 
 const route = useRoute()
 const router = useRouter()
@@ -37,6 +39,7 @@ const sections: Array<{
   { id: 'devices', label: '设备', description: '蜂窝线路与模组', icon: RadioTower },
   { id: 'recording', label: '通话录音', description: '默认录音设置', icon: Circle },
   { id: 'telegram', label: 'Telegram', description: '消息通知', icon: Send },
+  { id: 'tls', label: 'HTTPS', description: '证书与安全连接', icon: ShieldCheck },
   { id: 'diagnostics', label: '诊断', description: '运行状态与实时日志', icon: Activity }
 ]
 const selectedSection = computed<SettingsSection | ''>(() => {
@@ -144,6 +147,10 @@ onMounted(() => {
 
         <div v-else-if="selectedSection === 'telegram'" class="settings-content">
           <TelegramSettingsForm />
+        </div>
+
+        <div v-else-if="selectedSection === 'tls'" class="settings-content">
+          <TLSSettingsForm />
         </div>
 
         <div v-else class="settings-content">

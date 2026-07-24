@@ -82,6 +82,31 @@ export type RecordingSettings = {
   revision: number
 }
 
+export type TLSMode = 'automatic' | 'user'
+
+export type TLSSettings = {
+  mode: TLSMode
+  subject: string
+  issuer: string
+  dns_names: string[]
+  ip_addresses: string[]
+  not_before: string
+  not_after: string
+  fingerprint_sha256: string
+  expired: boolean
+  renews_automatically: boolean
+}
+
+export type UpdateTLSSettingsInput =
+  | {
+      operation: 'install_user'
+      certificate_pem: string
+      private_key_pem: string
+    }
+  | {
+      operation: 'use_automatic'
+    }
+
 export type CallRecordingState = {
   call_id: string
   enabled: boolean

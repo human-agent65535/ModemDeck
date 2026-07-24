@@ -41,11 +41,13 @@ import type {
   SIMStatus,
   TelegramUnit,
   TelegramUnitInput,
+  TLSSettings,
   UpdateDeviceConfigurationInput,
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
   UpdateLineSettingsInput,
   UpdateProxyInput,
+  UpdateTLSSettingsInput,
   USSDCommandInput,
   USSDResponse,
   USSDStatus
@@ -131,6 +133,8 @@ export interface ModemDeckGateway {
   listRecordings(query?: ListQuery): Promise<RecordingEntry[]>
   getRecordingSettings(): Promise<RecordingSettings>
   updateRecordingSettings(settings: RecordingSettings): Promise<RecordingSettings>
+  getTLSSettings(): Promise<TLSSettings>
+  updateTLSSettings(input: UpdateTLSSettingsInput): Promise<TLSSettings>
   setCallRecording(id: string, enabled: boolean): Promise<CallRecordingState>
   listCallRecordings(id: string): Promise<CallRecording[]>
   listTelegramUnits(): Promise<TelegramUnit[]>
