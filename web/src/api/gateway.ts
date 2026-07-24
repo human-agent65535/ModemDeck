@@ -20,7 +20,7 @@ import type {
   DiagnosticLogStreamHandlers,
   DiagnosticsSnapshot,
   GlobalCallSettings,
-  LineSummary,
+  LineLabelResult,
   LineSettings,
   LoginInput,
   Message,
@@ -83,7 +83,7 @@ export interface ModemDeckGateway {
   listDevices(): Promise<Device[]>
   createDevice(input: CreateDeviceInput): Promise<Device>
   renameDevice(imei: string, input: RenameDeviceInput): Promise<Device>
-  updateLineLabel(iccid: string, input: UpdateLineLabelInput): Promise<LineSummary>
+  updateLineLabel(iccid: string, input: UpdateLineLabelInput): Promise<LineLabelResult>
   getNetworkStatus(): Promise<NetworkStatus>
   listProxies(): Promise<ProxyInstance[]>
   createProxy(input: CreateProxyInput): Promise<ProxyMutation>

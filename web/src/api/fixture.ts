@@ -24,6 +24,7 @@ import type {
   DiagnosticsSnapshot,
   GlobalCallSettings,
   IncomingCallPolicy,
+  LineLabelResult,
   LineSettings,
   LineSummary,
   Message,
@@ -1250,7 +1251,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       return clone(device)
     },
 
-    async updateLineLabel(iccid: string, input: UpdateLineLabelInput): Promise<LineSummary> {
+    async updateLineLabel(iccid: string, input: UpdateLineLabelInput): Promise<LineLabelResult> {
       const normalizedICCID = iccid.trim()
       const line = lines.find(item => item.iccid === normalizedICCID)
       if (!line) throw new ApiError('线路不存在', 404, 'line_not_found')
@@ -1259,7 +1260,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         throw new ApiError('线路标签不能超过 16 个字符', 400, 'invalid_line_label')
       }
       line.line_label = label
-      return clone(line)
+      return { iccid: line.iccid, line_label: line.line_label }
     },
 
     async getNetworkStatus(): Promise<NetworkStatus> {

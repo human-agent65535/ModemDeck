@@ -50,7 +50,7 @@ func TestLineLabelResourceUpdatesByICCID(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if payload.Line.LineLabel != "主卡" || payload.Line.DeviceAlias != "机房模组" {
+	if payload.Line.ICCID != iccid || payload.Line.LineLabel != "主卡" {
 		t.Fatalf("line = %+v", payload.Line)
 	}
 }

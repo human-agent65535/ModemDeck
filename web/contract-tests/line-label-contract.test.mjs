@@ -52,14 +52,18 @@ test('line label API uses ICCID identity and a bounded payload', () => {
 })
 
 test('line label response accepts the documented direct and envelope forms', () => {
-  const direct = parseLineLabelResponse(line)
-  const enveloped = parseLineLabelResponse({ line: { ...line, line_label: '副卡' } })
-  assert.equal(direct.id, line.id)
+  const direct = parseLineLabelResponse({
+    iccid: line.iccid,
+    line_label: line.line_label
+  })
+  const enveloped = parseLineLabelResponse({
+    line: { iccid: line.iccid, line_label: '副卡' }
+  })
   assert.equal(direct.iccid, line.iccid)
-  assert.equal(direct.device_alias, line.device_alias)
   assert.equal(direct.line_label, '主卡')
-  assert.equal(enveloped.id, line.id)
+  assert.equal(enveloped.iccid, line.iccid)
   assert.equal(enveloped.line_label, '副卡')
+  assert.equal('state' in enveloped, false)
 })
 
 test('fixture keeps module aliases separate from editable line labels', async () => {
@@ -74,7 +78,7 @@ test('fixture keeps module aliases separate from editable line labels', async ()
   const main = initial.lines[0]
   const saved = await gateway.updateLineLabel(main.iccid, { line_label: '工作' })
   assert.equal(saved.line_label, '工作')
-  assert.equal(saved.device_alias, main.device_alias)
+  assert.deepEqual(saved, { iccid: main.iccid, line_label: '工作' })
   assert.equal((await gateway.getBootstrap()).lines[0].line_label, '工作')
 
   const cleared = await gateway.updateLineLabel(main.iccid, { line_label: '' })

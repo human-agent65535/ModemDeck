@@ -88,6 +88,7 @@ import type {
   DiagnosticStatus,
   DiagnosticsSnapshot,
   GlobalCallSettings,
+  LineLabelResult,
   LineSummary,
   LoginInput,
   Message,
@@ -736,7 +737,7 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
-  async updateLineLabel(iccid: string, input: UpdateLineLabelInput): Promise<LineSummary> {
+  async updateLineLabel(iccid: string, input: UpdateLineLabelInput): Promise<LineLabelResult> {
     return parseLineLabelResponse(
       await writeJSON(
         lineLabelPath(iccid),

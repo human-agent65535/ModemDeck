@@ -385,6 +385,11 @@ export type UpdateLineLabelInput = {
   line_label: string
 }
 
+export type LineLabelResult = {
+  iccid: string
+  line_label: string
+}
+
 export type CommandReceipt = {
   request_id: string
   resource_id: string

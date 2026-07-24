@@ -227,7 +227,7 @@ export async function renameDevice(imei: string, input: RenameDeviceInput): Prom
 export async function updateLineLabel(
   iccid: string,
   input: UpdateLineLabelInput
-): Promise<LineSummary> {
+): Promise<void> {
   const saved = await gateway.updateLineLabel(iccid, input)
   const normalizedICCID = iccid.trim()
   if (saved.iccid !== normalizedICCID) {
@@ -236,7 +236,6 @@ export async function updateLineLabel(
   const line = bootstrapResource.data?.lines.find(item => item.iccid === normalizedICCID)
   if (line) line.line_label = saved.line_label
   bootstrapResource.error = ''
-  return line || saved
 }
 
 export function loadTelegramUnits(force = false): Promise<TelegramUnit[] | null> {

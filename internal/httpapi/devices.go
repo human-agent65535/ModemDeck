@@ -23,8 +23,13 @@ type updateLineLabelRequest struct {
 	LineLabel *string `json:"line_label"`
 }
 
+type lineLabel struct {
+	ICCID     string `json:"iccid"`
+	LineLabel string `json:"line_label"`
+}
+
 type lineResponse struct {
-	Line store.LineSummary `json:"line"`
+	Line lineLabel `json:"line"`
 }
 
 func (api *API) devicesCollection(response http.ResponseWriter, request *http.Request) {
@@ -124,7 +129,10 @@ func (api *API) lineLabelResource(
 		}
 		return
 	}
-	writeJSON(response, http.StatusOK, lineResponse{Line: line})
+	writeJSON(response, http.StatusOK, lineResponse{Line: lineLabel{
+		ICCID:     line.ICCID,
+		LineLabel: line.LineLabel,
+	}})
 }
 
 func (api *API) writeDeviceError(

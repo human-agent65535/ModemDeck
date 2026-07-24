@@ -1,4 +1,4 @@
-import { parseCallRecord, parseLineResponse, parseMessage } from './normalize.ts'
+import { parseCallRecord, parseMessage } from './normalize.ts'
 import type {
   CallAction,
   CallDirection,
@@ -18,6 +18,7 @@ import type {
   IncomingCallActionResult,
   IncomingCallPolicy,
   IPConfiguration,
+  LineLabelResult,
   LineSettings,
   LineIncomingCallConfiguration,
   Message,
@@ -360,7 +361,14 @@ export function createLineLabelPayload(input: UpdateLineLabelInput): UpdateLineL
   return { line_label: lineLabel }
 }
 
-export const parseLineLabelResponse = parseLineResponse
+export function parseLineLabelResponse(value: unknown): LineLabelResult {
+  const response = objectValue(value, 'line_label_response')
+  const source = objectValue(response.line ?? response, 'line_label_response.line')
+  return {
+    iccid: requiredString(source, 'line_label_response.line', 'iccid'),
+    line_label: requiredString(source, 'line_label_response.line', 'line_label', true)
+  }
+}
 
 function normalizedProxyFields(
   input: CreateProxyInput | UpdateProxyInput,
