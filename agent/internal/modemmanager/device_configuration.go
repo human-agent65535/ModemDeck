@@ -297,6 +297,11 @@ func (p *Provider) readDeviceConfiguration(
 	}
 
 	radioEnabled, radioKnown := modemEnabled(line.StateCode)
+	var accessTechnologies *uint32
+	if line.AccessTechnologiesKnown {
+		value := line.AccessTechnologies
+		accessTechnologies = &value
+	}
 	configuration := domain.DeviceConfiguration{
 		LineID:     line.ID,
 		ObservedAt: p.now().UTC(),
@@ -305,6 +310,13 @@ func (p *Provider) readDeviceConfiguration(
 			Model:               line.Model,
 			Firmware:            line.Revision,
 			EquipmentIdentifier: line.EquipmentIdentifier,
+		},
+		Details: domain.DeviceHardwareDetails{
+			HardwareRevision:   line.HardwareRevision,
+			PrimaryPort:        line.PrimaryPort,
+			AccessTechnologies: accessTechnologies,
+			SNR:                line.SignalSNR,
+			Ports:              append([]domain.ModemPort(nil), line.Ports...),
 		},
 		Radio: domain.RadioConfiguration{
 			Enabled:        radioEnabled,

@@ -44,8 +44,13 @@ export type LineSummary = {
   line_label: string
   model?: string
   firmware?: string
+  hardware_revision?: string
+  primary_port?: string
+  ports?: ModemPort[]
+  access_technologies?: number
   state?: string
   signal_quality?: number
+  signal_snr?: number
   capabilities?: CommunicationCapabilities
 }
 
@@ -594,6 +599,20 @@ export type DeviceIdentity = {
   equipment_identifier: string
 }
 
+export type ModemPort = {
+  name: string
+  type: string
+  type_code: number
+}
+
+export type DeviceHardwareDetails = {
+  hardware_revision: string
+  primary_port: string
+  access_technologies: number | null
+  snr: number | null
+  ports: ModemPort[]
+}
+
 export type RadioConfiguration = {
   enabled: boolean
   enabled_known: boolean
@@ -649,6 +668,7 @@ export type DeviceHardwareConfiguration = {
   revision: string
   observed_at: string
   identity: DeviceIdentity
+  details: DeviceHardwareDetails
   radio: RadioConfiguration
   flight_mode: boolean
   flight_mode_known: boolean

@@ -2,6 +2,7 @@ package modemmanager
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -24,6 +25,7 @@ func TestParseManagedObjectsMapsLineCallsAndMessages(t *testing.T) {
 				"Manufacturer":        dbus.MakeVariant("Quectel"),
 				"Model":               dbus.MakeVariant("EG25-G"),
 				"Revision":            dbus.MakeVariant("EG25GGBR07A08M2G"),
+				"HardwareRevision":    dbus.MakeVariant("EG25G-MINIPCIE"),
 				"DeviceIdentifier":    dbus.MakeVariant("device-identifier"),
 				"EquipmentIdentifier": dbus.MakeVariant("867530900000001"),
 				"Device":              dbus.MakeVariant("/sys/devices/test"),
@@ -31,12 +33,17 @@ func TestParseManagedObjectsMapsLineCallsAndMessages(t *testing.T) {
 				"Drivers":             dbus.MakeVariant([]string{"qmi_wwan", "option"}),
 				"Plugin":              dbus.MakeVariant("quectel"),
 				"PrimaryPort":         dbus.MakeVariant("cdc-wdm0"),
-				"State":               dbus.MakeVariant(int32(8)),
-				"PowerState":          dbus.MakeVariant(uint32(3)),
-				"AccessTechnologies":  dbus.MakeVariant(uint32(1 << 14)),
-				"SignalQuality":       dbus.MakeVariant([]any{uint32(76), true}),
-				"OwnNumbers":          dbus.MakeVariant([]string{"+818012345678"}),
-				"Sim":                 dbus.MakeVariant(simPath),
+				"Ports": dbus.MakeVariant([][]any{
+					{"wwan0", uint32(2)},
+					{"ttyUSB2", uint32(3)},
+					{"cdc-wdm0", uint32(6)},
+				}),
+				"State":              dbus.MakeVariant(int32(8)),
+				"PowerState":         dbus.MakeVariant(uint32(3)),
+				"AccessTechnologies": dbus.MakeVariant(uint32(1 << 14)),
+				"SignalQuality":      dbus.MakeVariant([]any{uint32(76), true}),
+				"OwnNumbers":         dbus.MakeVariant([]string{"+818012345678"}),
+				"Sim":                dbus.MakeVariant(simPath),
 			},
 			signalInterface: {
 				"Rate": dbus.MakeVariant(uint32(10)),
@@ -44,6 +51,7 @@ func TestParseManagedObjectsMapsLineCallsAndMessages(t *testing.T) {
 					"rssi": dbus.MakeVariant(float64(-67.5)),
 					"rsrp": dbus.MakeVariant(float64(-93)),
 					"rsrq": dbus.MakeVariant(float64(-9.5)),
+					"snr":  dbus.MakeVariant(float64(7.25)),
 				}),
 			},
 			modem3GPPInterface: {
@@ -133,15 +141,29 @@ func TestParseManagedObjectsMapsLineCallsAndMessages(t *testing.T) {
 	}
 	if line.State != "registered" || line.StateCode != 8 ||
 		line.Manufacturer != "Quectel" || line.Model != "EG25-G" ||
-		line.PrimaryPort != "cdc-wdm0" {
+		line.HardwareRevision != "EG25G-MINIPCIE" ||
+		line.PrimaryPort != "cdc-wdm0" ||
+		!line.AccessTechnologiesKnown ||
+		line.AccessTechnologies != accessTechnologyLTE {
 		t.Fatalf("unexpected line: %+v", line)
+	}
+	if len(line.Ports) != 3 ||
+		line.Ports[0].Name != "cdc-wdm0" ||
+		line.Ports[0].Type != "qmi" ||
+		line.Ports[0].TypeCode != 6 ||
+		line.Ports[1].Name != "ttyUSB2" ||
+		line.Ports[1].Type != "at" ||
+		line.Ports[2].Name != "wwan0" ||
+		line.Ports[2].Type != "net" {
+		t.Fatalf("unexpected typed ports: %+v", line.Ports)
 	}
 	if !line.SignalQualityKnown || line.SignalQuality != 76 || !line.SignalQualityRecent {
 		t.Fatalf("unexpected signal quality: %+v", line)
 	}
 	if line.SignalDBM == nil || *line.SignalDBM != -67.5 ||
 		line.SignalRSRP == nil || *line.SignalRSRP != -93 ||
-		line.SignalRSRQ == nil || *line.SignalRSRQ != -9.5 {
+		line.SignalRSRQ == nil || *line.SignalRSRQ != -9.5 ||
+		line.SignalSNR == nil || *line.SignalSNR != 7.25 {
 		t.Fatalf("unexpected extended signal: %+v", line)
 	}
 	if !line.SIMPresent || line.SIMIdentifier != "8986012345678901234" ||
@@ -216,6 +238,29 @@ func TestParseManagedObjectsMapsLineCallsAndMessages(t *testing.T) {
 	}
 	if !reflect.DeepEqual(line.MessageIDs, wantMessageIDs) {
 		t.Fatalf("message IDs = %#v", line.MessageIDs)
+	}
+}
+
+func TestParseManagedObjectsKeepsUnknownHardwareTelemetryAbsent(t *testing.T) {
+	t.Parallel()
+
+	objects := emptyLineObjects(false, false)
+	objects[testModemPath][modemInterface]["AccessTechnologies"] = dbus.MakeVariant(uint32(0))
+	objects[testModemPath][signalInterface] = Properties{
+		"Lte": dbus.MakeVariant(map[string]dbus.Variant{
+			"snr": dbus.MakeVariant(math.NaN()),
+		}),
+	}
+	parsed := ParseManagedObjects(objects, newInstanceIDsForTest(":1.41"))
+	if len(parsed.Lines) != 1 {
+		t.Fatalf("lines = %d, want 1", len(parsed.Lines))
+	}
+	line := parsed.Lines[0]
+	if line.HardwareRevision != "" ||
+		line.AccessTechnologiesKnown ||
+		line.SignalSNR != nil ||
+		line.Ports != nil {
+		t.Fatalf("unknown hardware telemetry was invented: %+v", line)
 	}
 }
 

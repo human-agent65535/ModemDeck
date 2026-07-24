@@ -294,6 +294,17 @@ func TestDeviceConfigurationReadsGenericModemManagerState(t *testing.T) {
 		configuration.FlightMode || configuration.NetworkEnabled {
 		t.Fatalf("unexpected runtime state: %+v", configuration)
 	}
+	if configuration.Details.HardwareRevision != "fixture-hw-1" ||
+		configuration.Details.PrimaryPort != "cdc-wdm0" ||
+		configuration.Details.AccessTechnologies == nil ||
+		*configuration.Details.AccessTechnologies != accessTechnologyLTE ||
+		configuration.Details.SNR == nil ||
+		*configuration.Details.SNR != 9.5 ||
+		len(configuration.Details.Ports) != 2 ||
+		configuration.Details.Ports[0].Type != "qmi" ||
+		configuration.Details.Ports[1].Type != "at" {
+		t.Fatalf("unexpected hardware details: %+v", configuration.Details)
+	}
 	if !configuration.Capabilities.Radio.Writable ||
 		!configuration.Capabilities.Voice.Supported ||
 		!configuration.Capabilities.Voice.Readable ||
@@ -1201,9 +1212,21 @@ func configurationObjects() ManagedObjects {
 	)
 	objects := emptyLineObjects(true, true)
 	objects[testModemPath][modemInterface]["Revision"] = dbus.MakeVariant("fixture-fw-1")
+	objects[testModemPath][modemInterface]["HardwareRevision"] = dbus.MakeVariant("fixture-hw-1")
+	objects[testModemPath][modemInterface]["AccessTechnologies"] =
+		dbus.MakeVariant(accessTechnologyLTE)
+	objects[testModemPath][modemInterface]["Ports"] = dbus.MakeVariant([][]any{
+		{"ttyUSB2", uint32(3)},
+		{"cdc-wdm0", uint32(6)},
+	})
 	objects[testModemPath][modemInterface]["PowerState"] = dbus.MakeVariant(uint32(3))
 	objects[testModemPath][modemInterface]["Bearers"] = dbus.MakeVariant([]dbus.ObjectPath{})
 	objects[testModemPath][simpleInterface] = Properties{}
+	objects[testModemPath][signalInterface] = Properties{
+		"Lte": dbus.MakeVariant(map[string]dbus.Variant{
+			"snr": dbus.MakeVariant(float64(9.5)),
+		}),
+	}
 	objects[testModemPath][modem3GPPInterface] = Properties{
 		"InitialEpsBearer": dbus.MakeVariant(initialEPSBearerPath),
 	}

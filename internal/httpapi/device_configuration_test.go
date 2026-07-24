@@ -286,10 +286,23 @@ func TestAppCallSettingsAndLinePolicyUseRevisionedWrites(t *testing.T) {
 
 func TestAppHardwareConfigurationForwardsOpaqueDeviceRevision(t *testing.T) {
 	t.Parallel()
+	accessTechnologies := uint32(1 << 14)
+	snr := 8.5
 	configurations := &fakeDeviceConfigurations{configuration: agentclient.DeviceConfiguration{
 		LineID:     "line-1",
 		Revision:   "sha256:updated",
 		ObservedAt: time.Date(2026, time.July, 23, 0, 0, 0, 0, time.UTC),
+		Details: agentclient.DeviceHardwareDetails{
+			HardwareRevision:   "fixture-hw-1",
+			PrimaryPort:        "cdc-wdm0",
+			AccessTechnologies: &accessTechnologies,
+			SNR:                &snr,
+			Ports: []agentclient.ModemPort{{
+				Name:     "cdc-wdm0",
+				Type:     "qmi",
+				TypeCode: 6,
+			}},
+		},
 	}}
 	api, err := New(&fakeRepository{}, Options{
 		DeviceConfigurations:  configurations,
@@ -319,6 +332,20 @@ func TestAppHardwareConfigurationForwardsOpaqueDeviceRevision(t *testing.T) {
 		configurations.applyRequest.ExpectedRevision != "sha256:current" ||
 		configurations.applyRequest.Operation != agentclient.DeviceConfigurationDisconnectData {
 		t.Fatalf("hardware request = %+v, line = %q", configurations.applyRequest, configurations.lineID)
+	}
+	var body deviceConfigurationResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Hardware == nil ||
+		body.Hardware.Details.HardwareRevision != "fixture-hw-1" ||
+		body.Hardware.Details.AccessTechnologies == nil ||
+		*body.Hardware.Details.AccessTechnologies != accessTechnologies ||
+		body.Hardware.Details.SNR == nil ||
+		*body.Hardware.Details.SNR != snr ||
+		len(body.Hardware.Details.Ports) != 1 ||
+		body.Hardware.Details.Ports[0].Type != "qmi" {
+		t.Fatalf("hardware response details = %+v", body.Hardware)
 	}
 }
 

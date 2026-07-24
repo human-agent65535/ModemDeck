@@ -1135,21 +1135,26 @@ func projectSnapshot(
 		projected := projectLine(line)
 		lines = append(lines, projected)
 		lineIndex[line.ID] = projected
+		accessTechnologies := knownAccessTechnologies(line)
 		hardwareLines = append(hardwareLines, store.HardwareLine{
 			ID:                  line.ID,
 			Manufacturer:        line.Manufacturer,
 			Model:               line.Model,
 			Firmware:            line.Revision,
+			HardwareRevision:    line.HardwareRevision,
 			DeviceIdentifier:    line.DeviceIdentifier,
 			EquipmentIdentifier: line.EquipmentIdentifier,
 			PhysicalDevice:      line.PhysicalDevice,
 			PrimaryPort:         line.PrimaryPort,
+			Ports:               projectHardwarePorts(line.Ports),
+			AccessTechnologies:  accessTechnologies,
 			State:               line.State,
 			SignalKnown:         line.SignalQualityKnown,
 			SignalQuality:       line.SignalQuality,
 			SignalDBM:           roundedSignal(line.SignalDBM),
 			SignalRSRQ:          roundedSignal(line.SignalRSRQ),
 			SignalRSRP:          roundedSignal(line.SignalRSRP),
+			SignalSNR:           cloneFloat64(line.SignalSNR),
 			PhoneNumber:         firstString(line.OwnNumbers),
 			ICCID:               line.SIMIdentifier,
 			IMSI:                line.IMSI,
@@ -1199,6 +1204,37 @@ func roundedSignal(value *float64) *int64 {
 	return &rounded
 }
 
+func cloneFloat64(value *float64) *float64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func knownAccessTechnologies(line agentclient.Line) *uint32 {
+	if !line.AccessTechnologiesKnown || line.AccessTechnologies == 0 {
+		return nil
+	}
+	value := line.AccessTechnologies
+	return &value
+}
+
+func projectHardwarePorts(ports []agentclient.ModemPort) []store.HardwarePort {
+	if len(ports) == 0 {
+		return nil
+	}
+	projected := make([]store.HardwarePort, 0, len(ports))
+	for _, port := range ports {
+		projected = append(projected, store.HardwarePort{
+			Name:     port.Name,
+			Type:     port.Type,
+			TypeCode: port.TypeCode,
+		})
+	}
+	return projected
+}
+
 func projectLine(line agentclient.Line) store.LineSummary {
 	var signal *uint32
 	if line.SignalQualityKnown {
@@ -1225,8 +1261,13 @@ func projectLine(line agentclient.Line) store.LineSummary {
 		DeviceAlias:            "",
 		Model:                  line.Model,
 		Firmware:               line.Revision,
+		HardwareRevision:       line.HardwareRevision,
+		PrimaryPort:            line.PrimaryPort,
+		Ports:                  projectHardwarePorts(line.Ports),
+		AccessTechnologies:     knownAccessTechnologies(line),
 		State:                  line.State,
 		Signal:                 signal,
+		SignalSNR:              cloneFloat64(line.SignalSNR),
 		Capabilities: store.LineCapabilities{
 			Modem:       line.Capabilities.ModemInterface,
 			SIM:         line.Capabilities.SIMInterface,

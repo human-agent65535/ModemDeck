@@ -80,6 +80,7 @@ func ParseManagedObjects(objects ManagedObjects, ids *instanceIDs) ParsedObjects
 		line.Manufacturer, _ = stringProperty(modemProperties, "Manufacturer")
 		line.Model, _ = stringProperty(modemProperties, "Model")
 		line.Revision, _ = stringProperty(modemProperties, "Revision")
+		line.HardwareRevision, _ = stringProperty(modemProperties, "HardwareRevision")
 		line.DeviceIdentifier, _ = stringProperty(modemProperties, "DeviceIdentifier")
 		line.EquipmentIdentifier, _ = stringProperty(modemProperties, "EquipmentIdentifier")
 		line.Device, _ = stringProperty(modemProperties, "Device")
@@ -87,16 +88,21 @@ func ParseManagedObjects(objects ManagedObjects, ids *instanceIDs) ParsedObjects
 		line.Drivers, _ = stringsProperty(modemProperties, "Drivers")
 		line.Plugin, _ = stringProperty(modemProperties, "Plugin")
 		line.PrimaryPort, _ = stringProperty(modemProperties, "PrimaryPort")
+		line.Ports, _ = modemPortsProperty(modemProperties, "Ports")
 		line.StateCode, _ = int32Property(modemProperties, "State")
 		line.State = modemStateName(line.StateCode)
 		line.PowerStateCode, _ = uint32Property(modemProperties, "PowerState")
-		line.AccessTechnologies, _ = uint32Property(modemProperties, "AccessTechnologies")
+		line.AccessTechnologies, line.AccessTechnologiesKnown =
+			uint32Property(modemProperties, "AccessTechnologies")
+		line.AccessTechnologiesKnown =
+			line.AccessTechnologiesKnown && line.AccessTechnologies != 0
 		line.SignalQuality, line.SignalQualityRecent, line.SignalQualityKnown = signalQualityProperty(modemProperties)
 		if signalProperties, found := interfaces[signalInterface]; found {
-			line.SignalDBM, line.SignalRSRP, line.SignalRSRQ = extendedSignalProperties(
-				signalProperties,
-				line.AccessTechnologies,
-			)
+			line.SignalDBM, line.SignalRSRP, line.SignalRSRQ, line.SignalSNR =
+				extendedSignalProperties(
+					signalProperties,
+					line.AccessTechnologies,
+				)
 		}
 		line.OwnNumbers, _ = stringsProperty(modemProperties, "OwnNumbers")
 
@@ -583,7 +589,7 @@ func signalQualityProperty(properties Properties) (uint32, bool, bool) {
 func extendedSignalProperties(
 	properties Properties,
 	accessTechnologies uint32,
-) (*float64, *float64, *float64) {
+) (*float64, *float64, *float64, *float64) {
 	technologyOrder := []string{"Lte", "Nr5g", "Umts", "Gsm", "Cdma", "Evdo"}
 	if accessTechnologies&accessTechnologyLTE == 0 {
 		technologyOrder = []string{"Nr5g", "Umts", "Gsm", "Lte", "Cdma", "Evdo"}
@@ -596,9 +602,80 @@ func extendedSignalProperties(
 		rssi := finiteSignalValue(values, "rssi")
 		rsrp := finiteSignalValue(values, "rsrp")
 		rsrq := finiteSignalValue(values, "rsrq")
-		return rssi, rsrp, rsrq
+		snr := finiteSignalValue(values, "snr")
+		return rssi, rsrp, rsrq, snr
 	}
-	return nil, nil, nil
+	return nil, nil, nil, nil
+}
+
+func modemPortsProperty(properties Properties, name string) ([]domain.ModemPort, bool) {
+	value, ok := propertyValue(properties, name)
+	if !ok {
+		return nil, false
+	}
+	var tuples [][]any
+	switch typed := value.(type) {
+	case [][]any:
+		tuples = typed
+	case []any:
+		tuples = make([][]any, 0, len(typed))
+		for _, item := range typed {
+			tuple, tupleOK := item.([]any)
+			if !tupleOK {
+				return nil, false
+			}
+			tuples = append(tuples, tuple)
+		}
+	default:
+		return nil, false
+	}
+	ports := make([]domain.ModemPort, 0, len(tuples))
+	for _, tuple := range tuples {
+		if len(tuple) != 2 {
+			return nil, false
+		}
+		portName, nameOK := tuple[0].(string)
+		portType, typeOK := tuple[1].(uint32)
+		portName = strings.TrimSpace(portName)
+		if !nameOK || !typeOK || portName == "" {
+			return nil, false
+		}
+		ports = append(ports, domain.ModemPort{
+			Name:     portName,
+			Type:     modemPortTypeName(portType),
+			TypeCode: portType,
+		})
+	}
+	sort.Slice(ports, func(i, j int) bool {
+		if ports[i].Name != ports[j].Name {
+			return ports[i].Name < ports[j].Name
+		}
+		return ports[i].TypeCode < ports[j].TypeCode
+	})
+	return ports, true
+}
+
+func modemPortTypeName(portType uint32) string {
+	switch portType {
+	case 2:
+		return "net"
+	case 3:
+		return "at"
+	case 4:
+		return "qcdm"
+	case 5:
+		return "gps"
+	case 6:
+		return "qmi"
+	case 7:
+		return "mbim"
+	case 8:
+		return "audio"
+	case 9:
+		return "ignored"
+	default:
+		return "unknown"
+	}
 }
 
 func signalValuesProperty(properties Properties, name string) (Properties, bool) {

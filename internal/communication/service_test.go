@@ -691,9 +691,20 @@ func TestRefreshPreservesSixDiscoveredLines(t *testing.T) {
 
 func TestProjectLinePreservesDetectedInterfaces(t *testing.T) {
 	t.Parallel()
+	snr := 8.75
 	projected := projectLine(agentclient.Line{
-		ID:    "line-voice",
-		Model: "QDC507",
+		ID:                      "line-voice",
+		Model:                   "QDC507",
+		HardwareRevision:        "fixture-hw-1",
+		PrimaryPort:             "cdc-wdm0",
+		AccessTechnologies:      1 << 14,
+		AccessTechnologiesKnown: true,
+		SignalSNR:               &snr,
+		Ports: []agentclient.ModemPort{{
+			Name:     "cdc-wdm0",
+			Type:     "qmi",
+			TypeCode: 6,
+		}},
 		Capabilities: agentclient.LineCapabilities{
 			ModemInterface:     true,
 			SIMInterface:       true,
@@ -725,6 +736,16 @@ func TestProjectLinePreservesDetectedInterfaces(t *testing.T) {
 			projected.DeviceAlias,
 			projected.Model,
 		)
+	}
+	if projected.HardwareRevision != "fixture-hw-1" ||
+		projected.PrimaryPort != "cdc-wdm0" ||
+		projected.AccessTechnologies == nil ||
+		*projected.AccessTechnologies != 1<<14 ||
+		projected.SignalSNR == nil ||
+		*projected.SignalSNR != snr ||
+		len(projected.Ports) != 1 ||
+		projected.Ports[0].Type != "qmi" {
+		t.Fatalf("projected hardware details = %+v", projected)
 	}
 }
 

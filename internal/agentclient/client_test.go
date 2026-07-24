@@ -296,6 +296,16 @@ func TestDeviceConfigurationReadsAndAppliesTypedContract(t *testing.T) {
 			"revision":"sha256:fixture",
 			"observed_at":"2026-07-23T00:00:00Z",
 			"identity":{"manufacturer":"Fixture","model":"M1","firmware":"F1","equipment_identifier":"99"},
+			"details":{
+				"hardware_revision":"fixture-hw-1",
+				"primary_port":"cdc-wdm0",
+				"access_technologies":16384,
+				"snr":8.5,
+				"ports":[
+					{"name":"cdc-wdm0","type":"qmi","type_code":6},
+					{"name":"ttyUSB2","type":"at","type_code":3}
+				]
+			},
 			"radio":{"enabled":true,"enabled_known":true,"power_state":"on","power_state_code":3},
 			"flight_mode":false,
 			"flight_mode_known":true,
@@ -339,6 +349,16 @@ func TestDeviceConfigurationReadsAndAppliesTypedContract(t *testing.T) {
 		configuration.VoLTE.ModemCapabilityEnabled ||
 		!configuration.VoLTE.RestartRequired {
 		t.Fatalf("configuration = %+v", configuration)
+	}
+	if configuration.Details.HardwareRevision != "fixture-hw-1" ||
+		configuration.Details.PrimaryPort != "cdc-wdm0" ||
+		configuration.Details.AccessTechnologies == nil ||
+		*configuration.Details.AccessTechnologies != 16384 ||
+		configuration.Details.SNR == nil ||
+		*configuration.Details.SNR != 8.5 ||
+		len(configuration.Details.Ports) != 2 ||
+		configuration.Details.Ports[1].Type != "at" {
+		t.Fatalf("hardware details = %+v", configuration.Details)
 	}
 	enabled := false
 	configuration, err = client.ApplyDeviceConfiguration(

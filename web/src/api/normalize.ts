@@ -114,6 +114,23 @@ function parseCommunicationCapabilities(
   return capabilities
 }
 
+function parseModemPorts(value: unknown, path: string) {
+  if (value === undefined || value === null) return undefined
+  if (!Array.isArray(value)) throw new Error(`${path} 必须是数组`)
+  return value.map((entry, index) => {
+    const source = objectValue(entry, `${path}[${index}]`)
+    const typeCode = Number(source.type_code)
+    if (!Number.isSafeInteger(typeCode) || typeCode < 0) {
+      throw new Error(`${path}[${index}].type_code 必须是非负整数`)
+    }
+    return {
+      name: requiredString(source, `${path}[${index}]`, 'name'),
+      type: requiredString(source, `${path}[${index}]`, 'type'),
+      type_code: typeCode
+    }
+  })
+}
+
 function normalizePhone(value: unknown, contactId: string, index: number): ContactPhone {
   const source = objectValue(value, `contact.phones[${index}]`)
   return {
@@ -287,6 +304,8 @@ export function parseDeviceResponse(value: unknown): Device {
 
 export function parseLine(value: unknown): LineSummary {
   const source = objectValue(value, 'line')
+  const rawAccessTechnologies = nullableNumber(source, 'access_technologies')
+  const rawSignalSNR = nullableNumber(source, 'signal_snr', true)
   const line: LineSummary = {
     id: stringValue(source, 'id') || undefined,
     iccid: stringValue(source, 'iccid'),
@@ -306,8 +325,16 @@ export function parseLine(value: unknown): LineSummary {
     line_label: stringValue(source, 'line_label'),
     model: stringValue(source, 'model') || undefined,
     firmware: stringValue(source, 'firmware') || undefined,
+    hardware_revision: stringValue(source, 'hardware_revision') || undefined,
+    primary_port: stringValue(source, 'primary_port') || undefined,
+    ports: parseModemPorts(source.ports, 'line.ports'),
+    access_technologies:
+      rawAccessTechnologies != null && rawAccessTechnologies > 0
+        ? rawAccessTechnologies
+        : undefined,
     state: stringValue(source, 'state') || undefined,
     signal_quality: nullableNumber(source, 'signal_quality') ?? undefined,
+    signal_snr: rawSignalSNR ?? undefined,
     capabilities: parseCommunicationCapabilities(source.capabilities, 'line.capabilities')
   }
   if (!line.id && !line.iccid && !line.imsi && !line.device_imei) throw new Error('line 缺少稳定标识')

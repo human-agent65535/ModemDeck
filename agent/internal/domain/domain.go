@@ -48,45 +48,55 @@ type LineCapabilities struct {
 	SendMessage        bool `json:"send_message"`
 }
 
+type ModemPort struct {
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	TypeCode uint32 `json:"type_code"`
+}
+
 type Line struct {
-	ID                      string   `json:"id"`
-	Manufacturer            string   `json:"manufacturer"`
-	Model                   string   `json:"model"`
-	Revision                string   `json:"revision"`
-	DeviceIdentifier        string   `json:"device_identifier"`
-	EquipmentIdentifier     string   `json:"equipment_identifier"`
-	IdentityPersistent      bool     `json:"identity_persistent"`
-	IdentitySource          string   `json:"identity_source,omitempty"`
-	SavedPolicySupported    bool     `json:"saved_policy_supported"`
-	UnsupportedPolicyReason string   `json:"unsupported_policy_reason,omitempty"`
-	Device                  string   `json:"device"`
-	PhysicalDevice          string   `json:"physical_device"`
-	Drivers                 []string `json:"drivers"`
-	Plugin                  string   `json:"plugin"`
-	PrimaryPort             string   `json:"primary_port"`
-	State                   string   `json:"state"`
-	StateCode               int32    `json:"state_code"`
-	PowerStateCode          uint32   `json:"power_state_code"`
-	AccessTechnologies      uint32   `json:"access_technologies"`
-	SignalQualityKnown      bool     `json:"signal_quality_known"`
-	SignalQuality           uint32   `json:"signal_quality"`
-	SignalQualityRecent     bool     `json:"signal_quality_recent"`
-	SignalDBM               *float64 `json:"signal_dbm,omitempty"`
-	SignalRSRP              *float64 `json:"signal_rsrp,omitempty"`
-	SignalRSRQ              *float64 `json:"signal_rsrq,omitempty"`
-	OwnNumbers              []string `json:"own_numbers"`
-	SIMPresent              bool     `json:"sim_present"`
-	SIMPath                 string   `json:"sim_path"`
-	SIMIdentifier           string   `json:"sim_identifier"`
-	IMSI                    string   `json:"imsi"`
-	HomeOperatorCode        string   `json:"home_operator_code"`
-	HomeOperatorName        string   `json:"home_operator_name"`
-	ServingOperatorCode     string   `json:"serving_operator_code"`
-	ServingOperatorName     string   `json:"serving_operator_name"`
-	RegistrationStateKnown  bool     `json:"registration_state_known"`
-	RegistrationStateCode   uint32   `json:"registration_state_code"`
-	RegistrationState       string   `json:"registration_state"`
-	Roaming                 bool     `json:"roaming"`
+	ID                      string      `json:"id"`
+	Manufacturer            string      `json:"manufacturer"`
+	Model                   string      `json:"model"`
+	Revision                string      `json:"revision"`
+	HardwareRevision        string      `json:"hardware_revision,omitempty"`
+	DeviceIdentifier        string      `json:"device_identifier"`
+	EquipmentIdentifier     string      `json:"equipment_identifier"`
+	IdentityPersistent      bool        `json:"identity_persistent"`
+	IdentitySource          string      `json:"identity_source,omitempty"`
+	SavedPolicySupported    bool        `json:"saved_policy_supported"`
+	UnsupportedPolicyReason string      `json:"unsupported_policy_reason,omitempty"`
+	Device                  string      `json:"device"`
+	PhysicalDevice          string      `json:"physical_device"`
+	Drivers                 []string    `json:"drivers"`
+	Plugin                  string      `json:"plugin"`
+	PrimaryPort             string      `json:"primary_port"`
+	Ports                   []ModemPort `json:"ports,omitempty"`
+	State                   string      `json:"state"`
+	StateCode               int32       `json:"state_code"`
+	PowerStateCode          uint32      `json:"power_state_code"`
+	AccessTechnologies      uint32      `json:"access_technologies"`
+	AccessTechnologiesKnown bool        `json:"access_technologies_known"`
+	SignalQualityKnown      bool        `json:"signal_quality_known"`
+	SignalQuality           uint32      `json:"signal_quality"`
+	SignalQualityRecent     bool        `json:"signal_quality_recent"`
+	SignalDBM               *float64    `json:"signal_dbm,omitempty"`
+	SignalRSRP              *float64    `json:"signal_rsrp,omitempty"`
+	SignalRSRQ              *float64    `json:"signal_rsrq,omitempty"`
+	SignalSNR               *float64    `json:"signal_snr,omitempty"`
+	OwnNumbers              []string    `json:"own_numbers"`
+	SIMPresent              bool        `json:"sim_present"`
+	SIMPath                 string      `json:"sim_path"`
+	SIMIdentifier           string      `json:"sim_identifier"`
+	IMSI                    string      `json:"imsi"`
+	HomeOperatorCode        string      `json:"home_operator_code"`
+	HomeOperatorName        string      `json:"home_operator_name"`
+	ServingOperatorCode     string      `json:"serving_operator_code"`
+	ServingOperatorName     string      `json:"serving_operator_name"`
+	RegistrationStateKnown  bool        `json:"registration_state_known"`
+	RegistrationStateCode   uint32      `json:"registration_state_code"`
+	RegistrationState       string      `json:"registration_state"`
+	Roaming                 bool        `json:"roaming"`
 	// OperatorIdentifier and OperatorName remain home-operator aliases for API compatibility.
 	OperatorIdentifier       string           `json:"operator_identifier"`
 	OperatorName             string           `json:"operator_name"`

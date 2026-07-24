@@ -217,9 +217,20 @@ type LineSummary struct {
 	DeviceAlias            string           `json:"device_alias"`
 	Model                  string           `json:"model"`
 	Firmware               string           `json:"firmware"`
+	HardwareRevision       string           `json:"hardware_revision,omitempty"`
+	PrimaryPort            string           `json:"primary_port,omitempty"`
+	Ports                  []HardwarePort   `json:"ports,omitempty"`
+	AccessTechnologies     *uint32          `json:"access_technologies,omitempty"`
 	State                  string           `json:"state"`
 	Signal                 *uint32          `json:"signal_quality,omitempty"`
+	SignalSNR              *float64         `json:"signal_snr,omitempty"`
 	Capabilities           LineCapabilities `json:"capabilities"`
+}
+
+type HardwarePort struct {
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	TypeCode uint32 `json:"type_code"`
 }
 
 type LineCapabilities struct {
@@ -314,16 +325,20 @@ type HardwareLine struct {
 	Manufacturer        string
 	Model               string
 	Firmware            string
+	HardwareRevision    string
 	DeviceIdentifier    string
 	EquipmentIdentifier string
 	PhysicalDevice      string
 	PrimaryPort         string
+	Ports               []HardwarePort
+	AccessTechnologies  *uint32
 	State               string
 	SignalKnown         bool
 	SignalQuality       uint32
 	SignalDBM           *int64
 	SignalRSRQ          *int64
 	SignalRSRP          *int64
+	SignalSNR           *float64
 	PhoneNumber         string
 	ICCID               string
 	IMSI                string

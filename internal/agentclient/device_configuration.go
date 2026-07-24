@@ -34,6 +34,20 @@ type DeviceIdentity struct {
 	EquipmentIdentifier string `json:"equipment_identifier"`
 }
 
+type ModemPort struct {
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	TypeCode uint32 `json:"type_code"`
+}
+
+type DeviceHardwareDetails struct {
+	HardwareRevision   string      `json:"hardware_revision,omitempty"`
+	PrimaryPort        string      `json:"primary_port,omitempty"`
+	AccessTechnologies *uint32     `json:"access_technologies,omitempty"`
+	SNR                *float64    `json:"snr,omitempty"`
+	Ports              []ModemPort `json:"ports,omitempty"`
+}
+
 type RadioConfiguration struct {
 	Enabled        bool   `json:"enabled"`
 	EnabledKnown   bool   `json:"enabled_known"`
@@ -89,6 +103,7 @@ type DeviceConfiguration struct {
 	Revision        string                          `json:"revision"`
 	ObservedAt      time.Time                       `json:"observed_at"`
 	Identity        DeviceIdentity                  `json:"identity"`
+	Details         DeviceHardwareDetails           `json:"details"`
 	Radio           RadioConfiguration              `json:"radio"`
 	FlightMode      bool                            `json:"flight_mode"`
 	FlightModeKnown bool                            `json:"flight_mode_known"`

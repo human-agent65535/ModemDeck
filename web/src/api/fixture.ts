@@ -469,6 +469,17 @@ function fixtureHardware(line: LineSummary, index: number): DeviceHardwareConfig
       firmware: 'fixture-fw-1',
       equipment_identifier: line.device_imei
     },
+    details: {
+      hardware_revision: `fixture-hw-${index + 1}`,
+      primary_port: `cdc-wdm${index}`,
+      access_technologies: index === 0 ? 1 << 14 : 1 << 5,
+      snr: index === 0 ? 8.5 : null,
+      ports: [
+        { name: `cdc-wdm${index}`, type: 'qmi', type_code: 6 },
+        { name: `ttyUSB${index * 2 + 2}`, type: 'at', type_code: 3 },
+        { name: `wwan${index}`, type: 'net', type_code: 2 }
+      ]
+    },
     radio: {
       enabled: true,
       enabled_known: true,

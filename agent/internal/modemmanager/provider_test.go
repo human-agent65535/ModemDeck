@@ -427,6 +427,7 @@ func TestSnapshotStartsExtendedSignalPollingOnceAndReadsMetrics(t *testing.T) {
 			"rssi": dbus.MakeVariant(float64(-68)),
 			"rsrp": dbus.MakeVariant(float64(-94)),
 			"rsrq": dbus.MakeVariant(float64(-11)),
+			"snr":  dbus.MakeVariant(float64(6.5)),
 		}),
 	}
 	provider := newTestProvider(caller)
@@ -438,7 +439,8 @@ func TestSnapshotStartsExtendedSignalPollingOnceAndReadsMetrics(t *testing.T) {
 	if len(first.Lines) != 1 ||
 		first.Lines[0].SignalDBM == nil || *first.Lines[0].SignalDBM != -68 ||
 		first.Lines[0].SignalRSRP == nil || *first.Lines[0].SignalRSRP != -94 ||
-		first.Lines[0].SignalRSRQ == nil || *first.Lines[0].SignalRSRQ != -11 {
+		first.Lines[0].SignalRSRQ == nil || *first.Lines[0].SignalRSRQ != -11 ||
+		first.Lines[0].SignalSNR == nil || *first.Lines[0].SignalSNR != 6.5 {
 		t.Fatalf("extended signal = %+v", first.Lines)
 	}
 	assertMethods(

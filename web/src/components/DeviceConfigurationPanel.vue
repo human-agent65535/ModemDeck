@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   AlertCircle,
+  Cable,
   CardSim,
   CheckCircle2,
   Database,
@@ -299,6 +300,65 @@ function ipFamilyLabel(value: string): string {
       return 'IPv4 + IPv6'
     default:
       return value.trim()
+  }
+}
+
+const accessTechnologyLabels: Array<{ mask: number; label: string }> = [
+  { mask: 1 << 15, label: '5G NR' },
+  { mask: 1 << 14, label: 'LTE' },
+  { mask: 1 << 16, label: 'LTE-M' },
+  { mask: 1 << 17, label: 'NB-IoT' },
+  { mask: 1 << 9, label: 'HSPA+' },
+  { mask: 1 << 8, label: 'HSPA' },
+  { mask: 1 << 7, label: 'HSUPA' },
+  { mask: 1 << 6, label: 'HSDPA' },
+  { mask: 1 << 5, label: 'UMTS' },
+  { mask: 1 << 4, label: 'EDGE' },
+  { mask: 1 << 3, label: 'GPRS' },
+  { mask: 1 << 2, label: 'GSM Compact' },
+  { mask: 1 << 1, label: 'GSM' },
+  { mask: 1 << 13, label: 'EVDO-B' },
+  { mask: 1 << 12, label: 'EVDO-A' },
+  { mask: 1 << 11, label: 'EVDO-0' },
+  { mask: 1 << 10, label: '1xRTT' },
+  { mask: 1, label: 'POTS' }
+]
+
+function accessTechnologyLabel(value: number | null): string {
+  if (value == null || value === 0) return ''
+  const unsigned = value >>> 0
+  const labels = accessTechnologyLabels
+    .filter(item => (unsigned & item.mask) !== 0)
+    .map(item => item.label)
+  const knownMask = accessTechnologyLabels.reduce(
+    (mask, item) => (mask | item.mask) >>> 0,
+    0
+  )
+  const unknownMask = (unsigned & ~knownMask) >>> 0
+  if (unknownMask !== 0) labels.push(`其他 0x${unknownMask.toString(16).toUpperCase()}`)
+  return labels.join(' / ') || `0x${unsigned.toString(16).toUpperCase()}`
+}
+
+function modemPortTypeLabel(type: string): string {
+  switch (type) {
+    case 'net':
+      return '网络'
+    case 'at':
+      return 'AT 控制'
+    case 'qcdm':
+      return 'QCDM 诊断'
+    case 'gps':
+      return 'GNSS'
+    case 'qmi':
+      return 'QMI 控制'
+    case 'mbim':
+      return 'MBIM 控制'
+    case 'audio':
+      return '音频'
+    case 'ignored':
+      return '已忽略'
+    default:
+      return '未知'
   }
 }
 
@@ -900,15 +960,26 @@ onMounted(() => {
             <dl>
               <div><dt>制造商</dt><dd>{{ hardware.identity.manufacturer || '—' }}</dd></div>
               <div><dt>型号</dt><dd>{{ hardware.identity.model || '—' }}</dd></div>
+              <div v-if="hardware.details.hardware_revision">
+                <dt>硬件版本</dt>
+                <dd>{{ hardware.details.hardware_revision }}</dd>
+              </div>
               <div v-for="fact in selectedOperatorFacts" :key="fact.id">
                 <dt>{{ fact.label }}</dt>
                 <dd>{{ fact.value }}</dd>
               </div>
               <div><dt>信号</dt><dd>{{ selectedLine?.signal_quality == null ? '—' : `${selectedLine.signal_quality}%` }}</dd></div>
+              <div v-if="hardware.details.access_technologies != null">
+                <dt>接入制式</dt>
+                <dd>{{ accessTechnologyLabel(hardware.details.access_technologies) }}</dd>
+              </div>
               <div><dt>IMEI</dt><dd>{{ hardware.identity.equipment_identifier || '—' }}</dd></div>
               <div><dt>固件</dt><dd>{{ hardware.identity.firmware || '—' }}</dd></div>
               <div><dt>ICCID</dt><dd>{{ selectedLine?.iccid || '—' }}</dd></div>
-              <div><dt>端口</dt><dd>{{ selectedDevice?.port || '—' }}</dd></div>
+              <div>
+                <dt>主端口</dt>
+                <dd>{{ hardware.details.primary_port || selectedDevice?.port || '—' }}</dd>
+              </div>
               <div v-if="selectedDevice?.signal_dbm != null">
                 <dt>RSSI</dt>
                 <dd>{{ selectedDevice.signal_dbm }} dBm</dd>
@@ -921,7 +992,23 @@ onMounted(() => {
                 <dt>RSRQ</dt>
                 <dd>{{ selectedDevice.signal_rsrq }} dB</dd>
               </div>
+              <div v-if="hardware.details.snr != null">
+                <dt>SNR</dt>
+                <dd>{{ hardware.details.snr }} dB</dd>
+              </div>
             </dl>
+            <details v-if="hardware.details.ports.length" class="hardware-ports">
+              <summary>
+                <span><Cable :size="16" />端口详情</span>
+                <small>{{ hardware.details.ports.length }} 个</small>
+              </summary>
+              <ul>
+                <li v-for="port in hardware.details.ports" :key="`${port.name}:${port.type_code}`">
+                  <code>{{ port.name }}</code>
+                  <span>{{ modemPortTypeLabel(port.type) }}</span>
+                </li>
+              </ul>
+            </details>
           </section>
 
           <section class="configuration-section">
@@ -1637,6 +1724,73 @@ onMounted(() => {
   margin: 3px 0 0;
   overflow-wrap: anywhere;
   font-size: 13px;
+}
+
+.hardware-ports {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.hardware-ports > summary {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  color: var(--text);
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.hardware-ports > summary > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hardware-ports > summary > span svg {
+  color: var(--accent-strong);
+}
+
+.hardware-ports > summary > small {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.hardware-ports ul {
+  display: grid;
+  gap: 0;
+  margin: 8px 0 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  list-style: none;
+}
+
+.hardware-ports li {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hardware-ports li:last-child {
+  border-bottom: 0;
+}
+
+.hardware-ports code {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.hardware-ports li span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .capability-grid {

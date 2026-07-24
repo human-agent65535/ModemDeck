@@ -171,6 +171,57 @@ test('device configuration preserves the server-resolved automatic APN', async (
   assert.equal(parsed.hardware?.automatic_apn, 'automatic.example')
 })
 
+test('device configuration preserves truthful hardware details and nullable telemetry', async () => {
+  const configuration = await createFixtureGateway().getDeviceConfiguration(
+    'line-fixture-main'
+  )
+  assert.ok(configuration.hardware)
+
+  const parsed = parseDeviceConfigurationResponse(configuration)
+
+  assert.equal(parsed.hardware?.details.hardware_revision, 'fixture-hw-1')
+  assert.equal(parsed.hardware?.details.primary_port, 'cdc-wdm0')
+  assert.equal(parsed.hardware?.details.access_technologies, 1 << 14)
+  assert.equal(parsed.hardware?.details.snr, 8.5)
+  assert.deepEqual(
+    parsed.hardware?.details.ports.map(port => [port.name, port.type, port.type_code]),
+    [
+      ['cdc-wdm0', 'qmi', 6],
+      ['ttyUSB2', 'at', 3],
+      ['wwan0', 'net', 2]
+    ]
+  )
+
+  delete configuration.hardware.details
+  const missing = parseDeviceConfigurationResponse(configuration)
+  assert.deepEqual(missing.hardware?.details, {
+    hardware_revision: '',
+    primary_port: '',
+    access_technologies: null,
+    snr: null,
+    ports: []
+  })
+})
+
+test('device configuration rejects invented or malformed hardware telemetry', async () => {
+  const configuration = await createFixtureGateway().getDeviceConfiguration(
+    'line-fixture-main'
+  )
+  assert.ok(configuration.hardware)
+  configuration.hardware.details.snr = Number.NaN
+  assert.throws(
+    () => parseDeviceConfigurationResponse(configuration),
+    /hardware\.details\.snr/
+  )
+
+  configuration.hardware.details.snr = null
+  configuration.hardware.details.access_technologies = -1
+  assert.throws(
+    () => parseDeviceConfigurationResponse(configuration),
+    /hardware\.details\.access_technologies/
+  )
+})
+
 test('VoLTE configuration keeps policy and modem capability separate', async () => {
   const configuration = await createFixtureGateway().getDeviceConfiguration(
     'line-fixture-main'

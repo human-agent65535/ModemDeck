@@ -168,6 +168,29 @@ function requiredNonNegativeInteger(source: JsonRecord, path: string, key: strin
   return value
 }
 
+function nullableFiniteNumber(source: JsonRecord, path: string, key: string): number | null {
+  const value = source[key]
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`${path}.${key} 必须是有限数字或 null`)
+  }
+  return value
+}
+
+function nullableUint32(source: JsonRecord, path: string, key: string): number | null {
+  const value = source[key]
+  if (value === undefined || value === null || value === 0) return null
+  if (
+    typeof value !== 'number' ||
+    !Number.isSafeInteger(value) ||
+    value < 0 ||
+    value > 0xffffffff
+  ) {
+    throw new Error(`${path}.${key} 必须是 uint32 或 null`)
+  }
+  return value
+}
+
 function requiredPositiveInteger(source: JsonRecord, path: string, key: string): number {
   const value = requiredNonNegativeInteger(source, path, key)
   if (value < 1) throw new Error(`${path}.${key} 必须是正整数`)
@@ -1082,6 +1105,10 @@ function parseDeviceCapabilities(value: unknown): DeviceConfigurationCapabilitie
 function parseDeviceHardwareConfiguration(value: unknown): DeviceHardwareConfiguration {
   const source = objectValue(value, 'hardware')
   const identity = objectValue(source.identity, 'hardware.identity')
+  const details =
+    source.details === undefined
+      ? ({} as JsonRecord)
+      : objectValue(source.details, 'hardware.details')
   const radio = objectValue(source.radio, 'hardware.radio')
   const volte = objectValue(source.volte, 'hardware.volte')
   const policyValue = optionalString(volte, 'policy')
@@ -1091,6 +1118,19 @@ function parseDeviceHardwareConfiguration(value: unknown): DeviceHardwareConfigu
   if (!Array.isArray(source.data_connections)) {
     throw new Error('hardware.data_connections 必须是数组')
   }
+  const rawPorts = details.ports
+  if (rawPorts !== undefined && rawPorts !== null && !Array.isArray(rawPorts)) {
+    throw new Error('hardware.details.ports 必须是数组')
+  }
+  const ports = (Array.isArray(rawPorts) ? rawPorts : []).map((value, index) => {
+    const path = `hardware.details.ports[${index}]`
+    const port = objectValue(value, path)
+    return {
+      name: requiredString(port, path, 'name'),
+      type: requiredString(port, path, 'type'),
+      type_code: requiredNonNegativeInteger(port, path, 'type_code')
+    }
+  })
   const profileID = optionalString(volte, 'profile_id')
   const configurationMode = optionalString(volte, 'configuration_mode')
   if (
@@ -1115,6 +1155,17 @@ function parseDeviceHardwareConfiguration(value: unknown): DeviceHardwareConfigu
         'equipment_identifier',
         true
       )
+    },
+    details: {
+      hardware_revision: optionalString(details, 'hardware_revision') || '',
+      primary_port: optionalString(details, 'primary_port') || '',
+      access_technologies: nullableUint32(
+        details,
+        'hardware.details',
+        'access_technologies'
+      ),
+      snr: nullableFiniteNumber(details, 'hardware.details', 'snr'),
+      ports
     },
     radio: {
       enabled: requiredBoolean(radio, 'hardware.radio', 'enabled'),

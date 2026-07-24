@@ -182,6 +182,19 @@ test('hardware details show only backend-provided radio measurements', () => {
     source,
     /v-if="selectedDevice\?\.signal_rsrq != null"[\s\S]*?<dt>RSRQ<\/dt>[\s\S]*?\{\{ selectedDevice\.signal_rsrq \}\} dB/
   )
+  assert.match(
+    source,
+    /v-if="hardware\.details\.snr != null"[\s\S]*?<dt>SNR<\/dt>[\s\S]*?\{\{ hardware\.details\.snr \}\} dB/
+  )
+  assert.match(
+    source,
+    /<dt>主端口<\/dt>[\s\S]*?hardware\.details\.primary_port/
+  )
+  assert.match(
+    source,
+    /<details v-if="hardware\.details\.ports\.length" class="hardware-ports">[\s\S]*?v-for="port in hardware\.details\.ports"/
+  )
   assert.doesNotMatch(source, /signal_quality[^;\n]*(?:signal_dbm|signal_rsrp|signal_rsrq)/)
-  assert.doesNotMatch(source, /<dt>SNR<\/dt>/)
+  assert.doesNotMatch(source, /signal_quality[^;\n]*hardware\.details\.snr/)
+  assert.doesNotMatch(source, /hardware\.details\.ports[^;\n]*(?:voice|media|audio_available)/)
 })

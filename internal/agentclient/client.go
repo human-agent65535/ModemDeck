@@ -79,6 +79,7 @@ type Line struct {
 	Manufacturer             string           `json:"manufacturer"`
 	Model                    string           `json:"model"`
 	Revision                 string           `json:"revision"`
+	HardwareRevision         string           `json:"hardware_revision"`
 	DeviceIdentifier         string           `json:"device_identifier"`
 	EquipmentIdentifier      string           `json:"equipment_identifier"`
 	IdentityPersistent       bool             `json:"identity_persistent"`
@@ -90,16 +91,19 @@ type Line struct {
 	Drivers                  []string         `json:"drivers"`
 	Plugin                   string           `json:"plugin"`
 	PrimaryPort              string           `json:"primary_port"`
+	Ports                    []ModemPort      `json:"ports"`
 	State                    string           `json:"state"`
 	StateCode                int32            `json:"state_code"`
 	PowerStateCode           uint32           `json:"power_state_code"`
 	AccessTechnologies       uint32           `json:"access_technologies"`
+	AccessTechnologiesKnown  bool             `json:"access_technologies_known"`
 	SignalQualityKnown       bool             `json:"signal_quality_known"`
 	SignalQuality            uint32           `json:"signal_quality"`
 	SignalQualityRecent      bool             `json:"signal_quality_recent"`
 	SignalDBM                *float64         `json:"signal_dbm"`
 	SignalRSRP               *float64         `json:"signal_rsrp"`
 	SignalRSRQ               *float64         `json:"signal_rsrq"`
+	SignalSNR                *float64         `json:"signal_snr"`
 	OwnNumbers               []string         `json:"own_numbers"`
 	SIMPresent               bool             `json:"sim_present"`
 	SIMPath                  string           `json:"sim_path"`
