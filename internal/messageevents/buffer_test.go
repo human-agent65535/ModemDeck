@@ -30,6 +30,25 @@ func TestBufferPublishesIdempotentlyAndReplaysAfterID(t *testing.T) {
 	}
 }
 
+func TestBufferCurrentSubscriptionStartsAtNewestEvent(t *testing.T) {
+	t.Parallel()
+
+	buffer := NewBuffer(4)
+	buffer.Publish(IncomingSMS{EventKey: "sms:1", MessageID: "1"})
+	second, _ := buffer.Publish(IncomingSMS{EventKey: "sms:2", MessageID: "2"})
+
+	window, updates, cancel := buffer.SubscribeCurrent()
+	defer cancel()
+	if window.Reset || window.NewestID != second.ID || len(window.Events) != 0 {
+		t.Fatalf("current window = %+v, want newest ID without replay", window)
+	}
+
+	third, _ := buffer.Publish(IncomingSMS{EventKey: "sms:3", MessageID: "3"})
+	if update := <-updates; update != third {
+		t.Fatalf("live update = %+v, want %+v", update, third)
+	}
+}
+
 func TestBufferResetsExpiredAndFutureCursors(t *testing.T) {
 	t.Parallel()
 
@@ -42,13 +61,13 @@ func TestBufferResetsExpiredAndFutureCursors(t *testing.T) {
 	expired, _, cancelExpired := buffer.Subscribe(1)
 	cancelExpired()
 	if !expired.Reset || expired.OldestID != 3 || expired.NewestID != 4 ||
-		len(expired.Events) != 2 {
+		len(expired.Events) != 0 {
 		t.Fatalf("expired window = %+v", expired)
 	}
 
 	future, _, cancelFuture := buffer.Subscribe(99)
 	cancelFuture()
-	if !future.Reset || len(future.Events) != 2 {
+	if !future.Reset || len(future.Events) != 0 {
 		t.Fatalf("future window = %+v", future)
 	}
 

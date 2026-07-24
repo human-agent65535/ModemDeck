@@ -51,6 +51,76 @@ func TestMessageEventStreamReplaysLastEventID(t *testing.T) {
 	}
 }
 
+func TestMessageEventStreamInitialSubscriptionStartsAtCurrentWatermark(t *testing.T) {
+	t.Parallel()
+
+	events := messageevents.NewBuffer(8)
+	events.Publish(messageevents.IncomingSMS{
+		EventKey:  "sms:1",
+		MessageID: "1",
+		ThreadKey: "iccid|+818000000001",
+	})
+	second, _ := events.Publish(messageevents.IncomingSMS{
+		EventKey:  "sms:2",
+		MessageID: "2",
+		ThreadKey: "iccid|+818000000002",
+	})
+	api, err := New(&fakeRepository{}, Options{
+		MessageEvents:         events,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/messages/events", nil)
+	ctx, cancel := context.WithCancel(request.Context())
+	cancel()
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request.WithContext(ctx))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	if strings.Contains(body, "event: sms") ||
+		!strings.Contains(body, "id: 2\nevent: ready") ||
+		!strings.Contains(body, `"newest_id":2`) {
+		t.Fatalf("stream = %q; want ready at watermark %d without replay", body, second.ID)
+	}
+}
+
+func TestMessageEventStreamReplaysExplicitAfterCursor(t *testing.T) {
+	t.Parallel()
+
+	events := messageevents.NewBuffer(8)
+	events.Publish(messageevents.IncomingSMS{
+		EventKey:  "sms:1",
+		MessageID: "1",
+		ThreadKey: "iccid|+818000000001",
+	})
+	api, err := New(&fakeRepository{}, Options{
+		MessageEvents:         events,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/messages/events?after=0", nil)
+	ctx, cancel := context.WithCancel(request.Context())
+	cancel()
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request.WithContext(ctx))
+
+	body := response.Body.String()
+	if response.Code != http.StatusOK ||
+		!strings.Contains(body, "event: sms") ||
+		!strings.Contains(body, `"message_id":"1"`) {
+		t.Fatalf("status = %d; stream = %q", response.Code, body)
+	}
+}
+
 func TestMessageEventStreamResetsCursorFromPreviousProcess(t *testing.T) {
 	t.Parallel()
 
@@ -73,7 +143,8 @@ func TestMessageEventStreamResetsCursorFromPreviousProcess(t *testing.T) {
 
 	body := response.Body.String()
 	if response.Code != http.StatusOK || !strings.Contains(body, "id: 0\nevent: reset") ||
-		!strings.Contains(body, `"message_id":"1"`) {
+		strings.Contains(body, "event: sms") ||
+		!strings.Contains(body, "id: 1\nevent: ready") {
 		t.Fatalf("status = %d; stream = %q", response.Code, body)
 	}
 }

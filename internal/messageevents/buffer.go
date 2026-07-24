@@ -32,6 +32,7 @@ type Publisher interface {
 
 type Source interface {
 	Subscribe(after uint64) (Window, <-chan IncomingSMS, func())
+	SubscribeCurrent() (Window, <-chan IncomingSMS, func())
 }
 
 type Buffer struct {
@@ -91,12 +92,20 @@ func (b *Buffer) Publish(event IncomingSMS) (IncomingSMS, bool) {
 }
 
 func (b *Buffer) Subscribe(after uint64) (Window, <-chan IncomingSMS, func()) {
+	return b.subscribe(after, true)
+}
+
+func (b *Buffer) SubscribeCurrent() (Window, <-chan IncomingSMS, func()) {
+	return b.subscribe(0, false)
+}
+
+func (b *Buffer) subscribe(after uint64, replay bool) (Window, <-chan IncomingSMS, func()) {
 	b.mu.Lock()
 	b.nextClient++
 	clientID := b.nextClient
 	updates := make(chan IncomingSMS, subscriberCapacity)
 	b.subscribers[clientID] = updates
-	window := b.windowLocked(after)
+	window := b.windowLocked(after, replay)
 	b.mu.Unlock()
 
 	var once sync.Once
@@ -113,17 +122,20 @@ func (b *Buffer) Subscribe(after uint64) (Window, <-chan IncomingSMS, func()) {
 	return window, updates, cancel
 }
 
-func (b *Buffer) windowLocked(after uint64) Window {
+func (b *Buffer) windowLocked(after uint64, replay bool) Window {
 	window := Window{Events: []IncomingSMS{}}
 	if len(b.events) == 0 {
-		window.Reset = after > 0
+		window.Reset = replay && after > 0
 		return window
 	}
 	window.OldestID = b.events[0].ID
 	window.NewestID = b.events[len(b.events)-1].ID
+	if !replay {
+		return window
+	}
 	window.Reset = after > window.NewestID || (after > 0 && after+1 < window.OldestID)
 	if window.Reset {
-		after = 0
+		return window
 	}
 	for _, event := range b.events {
 		if event.ID > after {

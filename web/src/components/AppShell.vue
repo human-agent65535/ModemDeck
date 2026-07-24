@@ -39,7 +39,8 @@ const route = useRoute()
 const router = useRouter()
 const permanentDialer = ref(false)
 const messageNotificationTitle = computed(() => {
-  if (!messageNotificationState.supported) return '短信通知需要 HTTPS'
+  if (!messageNotificationState.secureContext) return '短信通知需要 HTTPS'
+  if (!messageNotificationState.supported) return '当前浏览器不支持短信通知'
   if (messageNotificationState.enabled) return '关闭短信通知'
   if (messageNotificationState.permission === 'denied') return '短信通知已被浏览器阻止'
   return '启用短信通知'
@@ -140,6 +141,7 @@ onBeforeUnmount(() => {
             :class="{ 'is-active': messageNotificationState.enabled }"
             type="button"
             :disabled="
+              !messageNotificationState.secureContext ||
               !messageNotificationState.supported ||
               messageNotificationState.permission === 'denied'
             "

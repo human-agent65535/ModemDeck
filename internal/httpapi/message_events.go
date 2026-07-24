@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/human-agent65535/modemdeck/internal/messageevents"
 )
 
 func (api *API) messageEventStream(response http.ResponseWriter, request *http.Request) {
@@ -14,7 +16,7 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 		writeError(response, http.StatusServiceUnavailable, "message_events_unavailable", "Message events are unavailable", "")
 		return
 	}
-	after, ok := messageEventCursor(response, request)
+	after, replay, ok := messageEventCursor(response, request)
 	if !ok {
 		return
 	}
@@ -24,7 +26,14 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 		return
 	}
 
-	window, updates, cancel := api.messageEvents.Subscribe(after)
+	var window messageevents.Window
+	var updates <-chan messageevents.IncomingSMS
+	var cancel func()
+	if replay {
+		window, updates, cancel = api.messageEvents.Subscribe(after)
+	} else {
+		window, updates, cancel = api.messageEvents.SubscribeCurrent()
+	}
 	defer cancel()
 
 	response.Header().Set("Content-Type", "text/event-stream")
@@ -48,7 +57,7 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 			return
 		}
 	}
-	if !writeMessageSSE(response, flusher, "ready", 0, map[string]uint64{
+	if !writeMessageSSE(response, flusher, "ready", window.NewestID, map[string]uint64{
 		"newest_id": window.NewestID,
 	}) {
 		return
@@ -73,7 +82,10 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 	}
 }
 
-func messageEventCursor(response http.ResponseWriter, request *http.Request) (uint64, bool) {
+func messageEventCursor(
+	response http.ResponseWriter,
+	request *http.Request,
+) (after uint64, replay bool, ok bool) {
 	value := strings.TrimSpace(request.URL.Query().Get("after"))
 	field := "after"
 	if value == "" {
@@ -81,14 +93,14 @@ func messageEventCursor(response http.ResponseWriter, request *http.Request) (ui
 		field = "Last-Event-ID"
 	}
 	if value == "" {
-		return 0, true
+		return 0, false, true
 	}
 	after, err := strconv.ParseUint(value, 10, 64)
 	if err != nil {
 		writeError(response, http.StatusBadRequest, "invalid_argument", field+" must be an unsigned integer", field)
-		return 0, false
+		return 0, false, false
 	}
-	return after, true
+	return after, true, true
 }
 
 func writeMessageSSE(

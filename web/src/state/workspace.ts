@@ -319,7 +319,9 @@ export async function refreshIncomingMessage(
   if (!thread || activeThreadKey !== event.thread_key) return
 
   const messages = await refreshMessages(thread)
-  if (!messages || !messagesWereReady || !animate) return
+  if (!messages) return
+  if (thread.unread_count > 0) await markThreadRead(thread)
+  if (!messagesWereReady || !animate) return
   const inserted = messages.filter(message => !previousMessageIDs.has(message.id))
   const eventMessage = inserted.find(message => message.id === event.message_id)
   if (eventMessage) {

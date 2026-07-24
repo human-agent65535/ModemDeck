@@ -15,6 +15,7 @@ const fallbackRefreshMilliseconds = 30_000
 
 const state = reactive({
   supported: false,
+  secureContext: false,
   permission: 'default' as NotificationPermission,
   enabled: false,
   connected: false
@@ -47,7 +48,7 @@ export function initializeMessageRuntime(router: Router): void {
       const allowNotification = initializedStream
       enqueue(async () => {
         if (currentGeneration !== generation) return
-        await refreshIncomingMessage(event, activeThreadKey(router), allowNotification)
+        await refreshIncomingMessage(event, activeThreadKey(router))
         if (allowNotification) showIncomingMessageNotification(event, router)
       })
     },
@@ -92,7 +93,7 @@ export function shutdownMessageRuntime(): void {
 
 export async function toggleMessageNotifications(): Promise<void> {
   syncNotificationState()
-  if (!state.supported) return
+  if (!state.supported || !state.secureContext) return
   if (state.enabled) {
     writeNotificationPreference(false)
     state.enabled = false
@@ -145,13 +146,12 @@ function enqueue(operation: () => Promise<void>): void {
 }
 
 function syncNotificationState(): void {
-  state.supported =
-    typeof window !== 'undefined' &&
-    window.isSecureContext &&
-    typeof Notification !== 'undefined'
-  state.permission = state.supported ? Notification.permission : 'denied'
+  state.secureContext = typeof window !== 'undefined' && window.isSecureContext
+  state.supported = typeof Notification !== 'undefined'
+  const available = state.secureContext && state.supported
+  state.permission = available ? Notification.permission : 'denied'
   state.enabled =
-    state.supported &&
+    available &&
     state.permission === 'granted' &&
     readNotificationPreference()
 }
