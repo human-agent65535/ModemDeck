@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   AlertCircle,
   ArrowLeft,
+  ChartNoAxesCombined,
   ChevronRight,
   House,
   Inbox,
@@ -15,14 +16,16 @@ import {
   PhoneOutgoing,
   RadioTower,
   Settings,
-  Users
+  Star
 } from '@lucide/vue'
 import type { CallRecord, Contact, LineSummary, MessageThread } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
 import LineTag from '../components/LineTag.vue'
 import ModuleCard from '../components/ModuleCard.vue'
 import StatePanel from '../components/StatePanel.vue'
+import TrafficSummary from '../components/TrafficSummary.vue'
 import { selectDeviceConfiguration } from '../state/deviceConfiguration'
+import { loadNetwork, networkState } from '../state/network'
 import { openDialer } from '../state/ui'
 import {
   bootstrapResource,
@@ -110,6 +113,23 @@ const messageReadyLines = computed(
     ).length
 )
 const attentionCount = computed(() => unreadMessages.value + missedCalls.value)
+const trafficSnapshot = computed(() => networkState.snapshot)
+const todayTraffic = computed(
+  () =>
+    (trafficSnapshot.value?.today_total.rx_bytes || 0) +
+    (trafficSnapshot.value?.today_total.tx_bytes || 0)
+)
+const monthTraffic = computed(
+  () =>
+    (trafficSnapshot.value?.month_total.rx_bytes || 0) +
+    (trafficSnapshot.value?.month_total.tx_bytes || 0)
+)
+const connectedNetworkLines = computed(
+  () => trafficSnapshot.value?.lines.filter(line => line.connected).length || 0
+)
+const runningProxies = computed(
+  () => trafficSnapshot.value?.proxies.filter(proxy => proxy.running).length || 0
+)
 
 const activities = computed<DashboardActivity[]>(() => {
   const calls: DashboardActivity[] = callsResource.data.map(call => ({
@@ -159,33 +179,24 @@ const activityRetryable = computed(
   () => callsResource.status === 'error' || threadsResource.status === 'error'
 )
 
-const quickContacts = computed(() => {
-  const selected: Contact[] = []
-  const selectedIDs = new Set<string>()
-  const addNumber = (number: string): void => {
-    const contact = contactForNumber(number)
-    if (!contact || selectedIDs.has(contact.id)) return
-    selectedIDs.add(contact.id)
-    selected.push(contact)
-  }
-
-  activities.value.forEach(activity => {
-    addNumber(
-      activity.kind === 'call'
-        ? activity.call.remote_number
-        : activity.thread.peer
-    )
-  })
+const favoriteContacts = computed(() =>
   contactsResource.data
-    .slice()
-    .sort((a, b) => a.display_name.localeCompare(b.display_name))
-    .forEach(contact => {
-      if (selected.length >= 6 || selectedIDs.has(contact.id)) return
-      selectedIDs.add(contact.id)
-      selected.push(contact)
-    })
-  return selected.slice(0, 6)
-})
+    .filter(contact => contact.favorite)
+    .slice(0, 6)
+)
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  const units = ['KB', 'MB', 'GB', 'TB', 'PB']
+  let value = bytes / 1024
+  let unit = units[0]
+  for (let index = 1; index < units.length && value >= 1024; index += 1) {
+    value /= 1024
+    unit = units[index]
+  }
+  const precision = value >= 100 ? 0 : value >= 10 ? 1 : 2
+  return `${value.toFixed(precision)} ${unit}`
+}
 
 function callName(call: CallRecord): string {
   return (
@@ -347,7 +358,8 @@ function loadDashboard(): void {
     loadCalls(),
     loadThreads(),
     loadContacts(),
-    loadDevices()
+    loadDevices(),
+    loadNetwork()
   ])
 }
 
@@ -533,12 +545,12 @@ onMounted(loadDashboard)
               <span class="dashboard-summary-label">在线线路</span>
               <ChevronRight :size="17" />
             </RouterLink>
-            <RouterLink class="dashboard-summary-card is-contacts" :to="{ name: 'contacts' }">
+            <RouterLink class="dashboard-summary-card is-traffic" :to="{ name: 'traffic' }">
               <span class="dashboard-summary-icon">
-                <Users :size="20" />
+                <ChartNoAxesCombined :size="20" />
               </span>
-              <span class="dashboard-summary-value">{{ contactsResource.data.length }}</span>
-              <span class="dashboard-summary-label">联系人</span>
+              <span class="dashboard-summary-value">{{ formatBytes(monthTraffic) }}</span>
+              <span class="dashboard-summary-label">本月流量</span>
               <ChevronRight :size="17" />
             </RouterLink>
           </section>
@@ -596,10 +608,60 @@ onMounted(loadDashboard)
             </div>
           </section>
 
+          <section class="dashboard-detail-section" aria-labelledby="dashboard-traffic-title">
+            <header>
+              <div>
+                <h3 id="dashboard-traffic-title">流量</h3>
+              </div>
+              <RouterLink :to="{ name: 'traffic' }">
+                查看流量
+                <ChevronRight :size="15" />
+              </RouterLink>
+            </header>
+            <div
+              v-if="networkState.status === 'loading' || networkState.status === 'idle'"
+              class="dashboard-section-state"
+            >
+              <LoaderCircle class="spin" :size="17" />
+              正在载入流量
+            </div>
+            <div
+              v-else-if="networkState.status === 'error' || networkState.status === 'forbidden'"
+              class="dashboard-section-state dashboard-section-state--error"
+              role="alert"
+            >
+              <AlertCircle :size="17" />
+              <span>{{ networkState.error || '无法载入流量' }}</span>
+              <button
+                v-if="networkState.status === 'error'"
+                type="button"
+                @click="loadNetwork(true)"
+              >
+                重试
+              </button>
+            </div>
+            <div
+              v-else-if="!trafficSnapshot?.available"
+              class="dashboard-section-state"
+            >
+              <ChartNoAxesCombined :size="17" />
+              流量状态不可用
+            </div>
+            <TrafficSummary
+              v-else
+              :today-bytes="todayTraffic"
+              :month-bytes="monthTraffic"
+              :connected-lines="connectedNetworkLines"
+              :total-lines="trafficSnapshot.lines.length"
+              :running-proxies="runningProxies"
+              :total-proxies="trafficSnapshot.proxies.length"
+            />
+          </section>
+
           <section class="dashboard-detail-section" aria-labelledby="dashboard-contacts-title">
             <header>
               <div>
-                <h3 id="dashboard-contacts-title">常用联系人</h3>
+                <h3 id="dashboard-contacts-title">收藏联系人</h3>
               </div>
               <RouterLink :to="{ name: 'contacts' }">
                 全部联系人
@@ -628,13 +690,16 @@ onMounted(loadDashboard)
                 重试
               </button>
             </div>
-            <div v-else-if="quickContacts.length === 0" class="dashboard-section-state">
-              <Inbox :size="17" />
-              还没有联系人
+            <div
+              v-else-if="favoriteContacts.length === 0"
+              class="dashboard-section-state dashboard-favorites-empty"
+            >
+              <Star :size="17" />
+              暂无收藏联系人
             </div>
             <div v-else class="dashboard-detail-list">
               <div
-                v-for="contact in quickContacts"
+                v-for="contact in favoriteContacts"
                 :key="contact.id"
                 class="dashboard-contact-row"
               >
@@ -980,9 +1045,9 @@ onMounted(loadDashboard)
   background: var(--accent-soft);
 }
 
-.dashboard-summary-card.is-contacts .dashboard-summary-icon {
-  color: #7357a5;
-  background: #f1ecf8;
+.dashboard-summary-card.is-traffic .dashboard-summary-icon {
+  color: #7a4b00;
+  background: #fff2d6;
 }
 
 .dashboard-summary-value {
@@ -1060,7 +1125,13 @@ onMounted(loadDashboard)
 .dashboard-module-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  justify-content: start;
   gap: 12px;
+}
+
+.dashboard-module-grid > :deep(.module-card) {
+  width: 100%;
+  max-width: 420px;
 }
 
 .dashboard-detail-list {
@@ -1106,6 +1177,10 @@ onMounted(loadDashboard)
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 7px;
+}
+
+.dashboard-favorites-empty {
+  min-height: 72px;
 }
 
 .dashboard-open-resource,
