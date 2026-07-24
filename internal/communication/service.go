@@ -1,14 +1,17 @@
 package communication
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -237,7 +240,7 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 	s.status = cloneStatus(status)
 	s.lastSnapshot = snapshot
 	s.mu.Unlock()
-	s.publishRuntimeSnapshot(snapshot)
+	s.publishRuntimeSnapshot(snapshot, lines)
 	if err := s.reconcileAuthoritativeCalls(refreshContext, activeCalls); err != nil {
 		return cloneStatus(status), operationError(
 			CodeInternal,
@@ -257,15 +260,67 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 	return cloneStatus(status), nil
 }
 
-func (s *Service) publishRuntimeSnapshot(snapshot agentclient.Snapshot) {
+func (s *Service) publishRuntimeSnapshot(
+	snapshot agentclient.Snapshot,
+	lines []store.LineSummary,
+) {
 	if s.runtime == nil {
 		return
 	}
-	s.runtime.Publish(runtimeevents.Event{
-		EventKey:   "communications:" + snapshot.Revision,
-		Resources:  []runtimeevents.Resource{runtimeevents.ResourceLines, runtimeevents.ResourceCalls},
-		ObservedAt: snapshot.ObservedAt,
+	if key, ok := runtimePayloadKey("communications:lines:", canonicalRuntimeLines(lines)); ok {
+		s.runtime.Publish(runtimeevents.Event{
+			EventKey:   key,
+			Resources:  []runtimeevents.Resource{runtimeevents.ResourceLines},
+			ObservedAt: snapshot.ObservedAt,
+		})
+	}
+	if key, ok := runtimePayloadKey("communications:calls:", canonicalRuntimeCalls(snapshot.Calls)); ok {
+		s.runtime.Publish(runtimeevents.Event{
+			EventKey:   key,
+			Resources:  []runtimeevents.Resource{runtimeevents.ResourceCalls},
+			ObservedAt: snapshot.ObservedAt,
+		})
+	}
+}
+
+func runtimePayloadKey(prefix string, payload any) (string, bool) {
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", false
+	}
+	digest := sha256.Sum256(encoded)
+	return prefix + hex.EncodeToString(digest[:]), true
+}
+
+func canonicalRuntimeLines(lines []store.LineSummary) []store.LineSummary {
+	canonical := append([]store.LineSummary(nil), lines...)
+	for index := range canonical {
+		canonical[index].Ports = append([]store.HardwarePort(nil), canonical[index].Ports...)
+		slices.SortFunc(canonical[index].Ports, func(left, right store.HardwarePort) int {
+			if comparison := strings.Compare(left.Name, right.Name); comparison != 0 {
+				return comparison
+			}
+			if comparison := strings.Compare(left.Type, right.Type); comparison != 0 {
+				return comparison
+			}
+			return cmp.Compare(left.TypeCode, right.TypeCode)
+		})
+	}
+	slices.SortFunc(canonical, func(left, right store.LineSummary) int {
+		return strings.Compare(left.ID, right.ID)
 	})
+	return canonical
+}
+
+func canonicalRuntimeCalls(calls []agentclient.Call) []agentclient.Call {
+	canonical := append([]agentclient.Call(nil), calls...)
+	slices.SortFunc(canonical, func(left, right agentclient.Call) int {
+		if comparison := strings.Compare(left.LineID, right.LineID); comparison != 0 {
+			return comparison
+		}
+		return strings.Compare(left.ID, right.ID)
+	})
+	return canonical
 }
 
 func (s *Service) publishIncomingMessages(messages []store.Message) {
