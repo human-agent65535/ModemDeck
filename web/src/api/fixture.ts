@@ -451,6 +451,7 @@ function fixtureHardware(line: LineSummary, index: number): DeviceHardwareConfig
     flight_mode: false,
     flight_mode_known: true,
     network_enabled: index === 0,
+    automatic_apn: '',
     data_connections:
       index === 0
         ? [

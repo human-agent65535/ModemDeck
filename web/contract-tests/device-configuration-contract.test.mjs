@@ -107,6 +107,18 @@ test('fixture exposes config-only enforcement without promising automatic reject
   assert.equal(parsed.hardware?.capabilities.volte.writable, false)
 })
 
+test('device configuration preserves the server-resolved automatic APN', async () => {
+  const configuration = await createFixtureGateway().getDeviceConfiguration(
+    'line-fixture-main'
+  )
+  assert.ok(configuration.hardware)
+  configuration.hardware.automatic_apn = 'automatic.example'
+
+  const parsed = parseDeviceConfigurationResponse(configuration)
+
+  assert.equal(parsed.hardware?.automatic_apn, 'automatic.example')
+})
+
 test('global call settings contain only preference and revision', async () => {
   const settings = parseGlobalCallSettings({
     receive_calls: false,

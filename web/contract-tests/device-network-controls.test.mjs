@@ -55,6 +55,24 @@ test('mobile data switch uses APN and IP settings for connect and disconnect', (
   )
 })
 
+test('empty APN remains automatic and only displays a server-resolved value', () => {
+  assert.match(
+    source,
+    /const apnPlaceholder = computed\(\(\) => automaticAPNLabel\(hardware\.value\?\.automatic_apn\)\)/
+  )
+  assert.match(
+    source,
+    /function automaticAPNLabel\(value\?: string\): string \{[\s\S]*return resolvedAPN \? `自动（\$\{resolvedAPN\}）` : '自动'[\s\S]*\}/
+  )
+  assert.match(source, /v-model\.trim="apn"[\s\S]*:placeholder="apnPlaceholder"/)
+  assert.match(
+    source,
+    /watch\(\s*selectedLineID,\s*\(\) => \{\s*apn\.value = ''\s*\},\s*\{ immediate: true \}\s*\)/
+  )
+  assert.doesNotMatch(source, /apn\.value = connection\?\.apn/)
+  assert.doesNotMatch(source, /automaticAPNLabel\([^)]*(?:operator|imsi|iccid)/)
+})
+
 test('network keeps a compact bearer status and folds full profiles into details', () => {
   const networkStart = source.indexOf("<template v-else-if=\"activeTab === 'network'\">")
   const networkEnd = source.indexOf("<template v-else-if=\"activeTab === 'sim'\">", networkStart)

@@ -1059,6 +1059,7 @@ function parseDeviceHardwareConfiguration(value: unknown): DeviceHardwareConfigu
     flight_mode: requiredBoolean(source, 'hardware', 'flight_mode'),
     flight_mode_known: requiredBoolean(source, 'hardware', 'flight_mode_known'),
     network_enabled: requiredBoolean(source, 'hardware', 'network_enabled'),
+    automatic_apn: optionalString(source, 'automatic_apn') || '',
     data_connections: source.data_connections.map(parseDataConnection),
     volte: {
       policy_known: requiredBoolean(volte, 'hardware.volte', 'policy_known'),

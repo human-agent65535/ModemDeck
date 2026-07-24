@@ -580,6 +580,7 @@ export type DeviceHardwareConfiguration = {
   flight_mode: boolean
   flight_mode_known: boolean
   network_enabled: boolean
+  automatic_apn: string
   data_connections: DataConnection[]
   volte: VoLTEConfiguration
   capabilities: DeviceConfigurationCapabilities

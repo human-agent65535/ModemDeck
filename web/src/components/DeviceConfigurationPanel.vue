@@ -127,6 +127,7 @@ const selectedResource = computed(() =>
 )
 const configuration = computed(() => selectedResource.value?.data || null)
 const hardware = computed(() => configuration.value?.hardware)
+const apnPlaceholder = computed(() => automaticAPNLabel(hardware.value?.automatic_apn))
 const incomingCalls = computed(() => configuration.value?.incoming_calls)
 const savingOperation = computed(() => selectedResource.value?.savingOperation || '')
 const hardwareBusy = computed(() => savingOperation.value !== '')
@@ -228,6 +229,11 @@ const otherCapabilities = computed(() => {
   ]
 })
 
+function automaticAPNLabel(value?: string): string {
+  const resolvedAPN = value?.trim()
+  return resolvedAPN ? `自动（${resolvedAPN}）` : '自动'
+}
+
 watch(
   [lines, defaultDeviceIMEI],
   ([currentLines, defaultIMEI]) => {
@@ -246,6 +252,14 @@ watch(
 )
 
 watch(
+  selectedLineID,
+  () => {
+    apn.value = ''
+  },
+  { immediate: true }
+)
+
+watch(
   () => incomingCalls.value?.revision,
   () => {
     incomingPolicyDraft.value = incomingCalls.value?.policy || 'follow_global'
@@ -258,7 +272,6 @@ watch(
     const connection =
       hardware.value?.data_connections.find(item => item.connected) ||
       hardware.value?.data_connections[0]
-    apn.value = connection?.apn || ''
     ipFamily.value =
       connection?.ip_family === 'ipv4' ||
       connection?.ip_family === 'ipv6' ||
@@ -833,7 +846,7 @@ onMounted(() => {
                 <span>APN</span>
                 <input
                   v-model.trim="apn"
-                  placeholder="自动"
+                  :placeholder="apnPlaceholder"
                   :disabled="
                     hardwareBusy ||
                     hardware.network_enabled ||
