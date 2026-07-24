@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { trafficLineState } from '../src/components/trafficLineState.ts'
 
 const appShell = readFileSync(new URL('../src/components/AppShell.vue', import.meta.url), 'utf8')
 const router = readFileSync(new URL('../src/router/index.ts', import.meta.url), 'utf8')
@@ -39,6 +40,64 @@ test('traffic identity uses the shared line label and module fallback', () => {
   assert.doesNotMatch(proxyEditor, /<select/)
   assert.match(trafficLineCard, /return props\.line\.phone_number\.trim\(\) \|\| props\.fallback/)
   assert.match(trafficLineCard, /operator !== primaryIdentity\(\)/)
+})
+
+test('traffic line state treats inactive data as neutral and preserves explicit errors', () => {
+  const disconnected = {
+    line_id: 'line-main',
+    connected: false,
+    interface: '',
+    dns: [],
+    rx_bytes: 0,
+    tx_bytes: 0,
+    error: ''
+  }
+
+  assert.deepEqual(trafficLineState(undefined), {
+    kind: 'idle',
+    label: '未启用'
+  })
+  assert.deepEqual(trafficLineState(disconnected), {
+    kind: 'idle',
+    label: '未连接'
+  })
+  assert.deepEqual(
+    trafficLineState({
+      ...disconnected,
+      error: 'line has no connected data bearer'
+    }),
+    { kind: 'idle', label: '未连接' }
+  )
+  assert.deepEqual(
+    trafficLineState({
+      ...disconnected,
+      connected: true
+    }),
+    { kind: 'connected', label: '已联网' }
+  )
+  assert.deepEqual(
+    trafficLineState({
+      ...disconnected,
+      connected: true,
+      error: 'connected bearer has no usable DNS servers'
+    }),
+    { kind: 'error', label: '状态异常' }
+  )
+})
+
+test('traffic line cards use the device-card responsive width contract', () => {
+  assert.match(
+    trafficView,
+    /\.traffic-line-grid\s*\{[\s\S]*grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(320px,\s*1fr\)\)[\s\S]*justify-content:\s*start/
+  )
+  assert.match(
+    trafficView,
+    /\.traffic-line-grid\s*>\s*:deep\(\.traffic-line-card\)\s*\{[\s\S]*width:\s*100%[\s\S]*max-width:\s*420px/
+  )
+  assert.match(
+    trafficView,
+    /@media \(max-width:\s*600px\)[\s\S]*\.traffic-line-grid\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)/
+  )
 })
 
 test('proxy editor exposes product fields but no interface input', () => {

@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { Cable, CircleAlert, CircleCheck, Clock3 } from '@lucide/vue'
 import type { LineSummary, NetworkLineStatus, NetworkUsage } from '../api/types'
 import LineTag from './LineTag.vue'
 import TrafficUsage from './TrafficUsage.vue'
+import { trafficLineState } from './trafficLineState'
 
 const props = defineProps<{
   line: LineSummary
@@ -12,17 +14,7 @@ const props = defineProps<{
   month?: NetworkUsage
 }>()
 
-function connectionLabel(): string {
-  if (props.runtime?.connected) return '已联网'
-  if (props.runtime?.error) return '状态异常'
-  return '等待线路联网'
-}
-
-function connectionClass(): string {
-  if (props.runtime?.connected) return 'is-running'
-  if (props.runtime?.error) return 'is-error'
-  return 'is-waiting'
-}
+const connection = computed(() => trafficLineState(props.runtime))
 
 function primaryIdentity(): string {
   return props.line.phone_number.trim() || props.fallback
@@ -42,11 +34,14 @@ function secondaryIdentity(): string {
         <strong>{{ primaryIdentity() }}</strong>
         <small v-if="secondaryIdentity()">{{ secondaryIdentity() }}</small>
       </div>
-      <span class="traffic-line-card__state" :class="connectionClass()">
-        <CircleCheck v-if="runtime?.connected" :size="15" />
-        <CircleAlert v-else-if="runtime?.error" :size="15" />
+      <span
+        class="traffic-line-card__state"
+        :class="`is-${connection.kind}`"
+      >
+        <CircleCheck v-if="connection.kind === 'connected'" :size="15" />
+        <CircleAlert v-else-if="connection.kind === 'error'" :size="15" />
         <Clock3 v-else :size="15" />
-        {{ connectionLabel() }}
+        {{ connection.label }}
       </span>
     </header>
 
@@ -127,7 +122,7 @@ function secondaryIdentity(): string {
   white-space: nowrap;
 }
 
-.traffic-line-card__state.is-running {
+.traffic-line-card__state.is-connected {
   color: var(--accent-strong);
 }
 

@@ -517,7 +517,19 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 
-.traffic-line-grid,
+.traffic-line-grid {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  justify-content: start;
+}
+
+.traffic-line-grid > :deep(.traffic-line-card) {
+  width: 100%;
+  max-width: 420px;
+}
+
 .proxy-grid {
   display: grid;
   min-width: 0;
@@ -575,6 +587,10 @@ onBeforeUnmount(() => {
   .traffic-page__content {
     gap: 18px;
     padding: 16px 14px 28px;
+  }
+
+  .traffic-line-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>
