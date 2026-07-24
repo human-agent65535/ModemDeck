@@ -541,7 +541,14 @@ onBeforeUnmount(() => {
   display: grid;
   min-width: 0;
   gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(min(310px, 100%), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(310px, 100%), 420px));
+  justify-content: start;
+}
+
+.proxy-grid > :deep(.proxy-card),
+.proxy-add-card {
+  width: 100%;
+  max-width: 420px;
 }
 
 .proxy-add-card {
