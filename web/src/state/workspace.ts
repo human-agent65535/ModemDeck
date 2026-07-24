@@ -229,10 +229,14 @@ export async function updateLineLabel(
   input: UpdateLineLabelInput
 ): Promise<LineSummary> {
   const saved = await gateway.updateLineLabel(iccid, input)
-  const line = bootstrapResource.data?.lines.find(item => item.iccid === iccid)
-  if (line) Object.assign(line, saved)
+  const normalizedICCID = iccid.trim()
+  if (saved.iccid !== normalizedICCID) {
+    throw new ApiError('线路标签响应与请求线路不一致', 0, 'invalid_response')
+  }
+  const line = bootstrapResource.data?.lines.find(item => item.iccid === normalizedICCID)
+  if (line) line.line_label = saved.line_label
   bootstrapResource.error = ''
-  return saved
+  return line || saved
 }
 
 export function loadTelegramUnits(force = false): Promise<TelegramUnit[] | null> {

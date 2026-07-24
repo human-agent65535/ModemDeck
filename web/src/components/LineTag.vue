@@ -45,6 +45,7 @@ const tone = computed(() => {
   width: fit-content;
   max-width: 104px;
   height: 22px;
+  flex: 0 0 auto;
   align-items: center;
   padding: 0 7px;
   overflow: hidden;
