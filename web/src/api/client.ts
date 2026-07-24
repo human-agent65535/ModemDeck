@@ -41,6 +41,7 @@ import {
   parseProxyMutationResponse,
   parseRecordingEntriesResponse,
   parseRecordingSettingsResponse,
+  parseSIMStatusResponse,
   parseTelegramUnitResponse,
   parseTelegramUnitsResponse,
   parseTLSSettingsResponse,
@@ -336,53 +337,6 @@ function parseCommandReceipt(value: unknown): CommandReceipt {
   return {
     request_id: requiredStringValue(receipt, 'command_response.receipt', 'request_id'),
     resource_id: requiredStringValue(receipt, 'command_response.receipt', 'resource_id')
-  }
-}
-
-function parseSIMStatus(value: unknown): SIMStatus {
-  const response = requiredRecord(value, 'sim_response')
-  const source = requiredRecord(response.sim, 'sim_response.sim')
-  const retriesSource = requiredRecord(source.unlock_retries, 'sim_response.sim.unlock_retries')
-  const unlockRetries: Record<string, number> = {}
-  for (const [key, retryValue] of Object.entries(retriesSource)) {
-    if (typeof retryValue !== 'number' || !Number.isSafeInteger(retryValue) || retryValue < 0) {
-      throw new ApiError(
-        `sim_response.sim.unlock_retries.${key} 必须是非负整数`,
-        0,
-        'invalid_response'
-      )
-    }
-    unlockRetries[key] = retryValue
-  }
-  return {
-    line_id: requiredStringValue(source, 'sim_response.sim', 'line_id'),
-    present: requiredBooleanValue(source, 'sim_response.sim', 'present'),
-    active: requiredBooleanValue(source, 'sim_response.sim', 'active'),
-    identifier: stringValue(source, 'identifier'),
-    imsi: stringValue(source, 'imsi'),
-    eid: stringValue(source, 'eid') || undefined,
-    home_operator_code: stringValue(source, 'home_operator_code'),
-    home_operator_name: stringValue(source, 'home_operator_name'),
-    serving_operator_code: stringValue(source, 'serving_operator_code'),
-    serving_operator_name: stringValue(source, 'serving_operator_name'),
-    registration_state_known: requiredBooleanValue(
-      source,
-      'sim_response.sim',
-      'registration_state_known'
-    ),
-    registration_state_code: numberValue(
-      source,
-      'sim_response.sim',
-      'registration_state_code'
-    ),
-    registration_state: stringValue(source, 'registration_state'),
-    roaming: requiredBooleanValue(source, 'sim_response.sim', 'roaming'),
-    operator_identifier: stringValue(source, 'operator_identifier'),
-    operator_name: stringValue(source, 'operator_name'),
-    unlock_required: stringValue(source, 'unlock_required'),
-    unlock_required_code: numberValue(source, 'sim_response.sim', 'unlock_required_code'),
-    unlock_retries: unlockRetries,
-    observed_at: requiredStringValue(source, 'sim_response.sim', 'observed_at')
   }
 }
 
@@ -849,7 +803,7 @@ const realGateway: ConfiguredModemDeckGateway = {
   },
 
   async getSIMStatus(lineID: string): Promise<SIMStatus> {
-    return parseSIMStatus(
+    return parseSIMStatusResponse(
       await get(`${API_ROOT}/devices/${encodeURIComponent(lineID.trim())}/sim`)
     )
   },

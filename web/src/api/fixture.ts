@@ -1462,12 +1462,52 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     async getSIMStatus(lineID: string): Promise<SIMStatus> {
       const line = lines.find(item => fixtureLineKey(item) === lineID)
       if (!line) throw new ApiError('线路不存在', 404, 'not_found')
+      const isESIM = lineID === 'line-fixture-travel'
       return {
         line_id: lineID,
         present: Boolean(line.iccid),
         active: Boolean(line.iccid),
         identifier: line.iccid,
         imsi: line.imsi,
+        sim_type: isESIM ? 'esim' : 'physical',
+        esim_status: isESIM ? 'with_profiles' : 'unknown',
+        ...(isESIM ? { eid: '****5678' } : {}),
+        sim_slots: isESIM
+          ? [
+              {
+                index: 1,
+                present: false,
+                current: false,
+                sim_type: 'unknown',
+                esim_status: 'unknown'
+              },
+              {
+                index: 2,
+                present: true,
+                current: true,
+                sim_type: 'esim',
+                esim_status: 'with_profiles',
+                eid: '****5678'
+              }
+            ]
+          : [
+              {
+                index: 1,
+                present: true,
+                current: true,
+                sim_type: 'physical',
+                esim_status: 'unknown'
+              }
+            ],
+        sim_slots_known: true,
+        primary_sim_slot: isESIM ? 2 : 1,
+        primary_sim_slot_known: true,
+        current_sim_slot: isESIM ? 2 : 1,
+        current_sim_slot_known: true,
+        profile_management: {
+          supported: false,
+          reason: '当前仅提供只读 eSIM 状态'
+        },
         home_operator_code: line.home_operator_code,
         home_operator_name: line.home_operator_name,
         serving_operator_code: line.serving_operator_code,

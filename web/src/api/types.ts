@@ -461,13 +461,40 @@ export type CommandReceipt = {
   resource_id: string
 }
 
+export type SIMType = 'unknown' | 'physical' | 'esim'
+
+export type ESIMStatus = 'unknown' | 'no_profiles' | 'with_profiles'
+
+export type SIMSlot = {
+  index: number
+  present: boolean
+  current: boolean
+  sim_type: SIMType
+  esim_status: ESIMStatus
+  eid?: string
+}
+
+export type SIMProfileManagementCapability = {
+  supported: boolean
+  reason: string
+}
+
 export type SIMStatus = {
   line_id: string
   present: boolean
   active: boolean
   identifier: string
   imsi: string
+  sim_type: SIMType
+  esim_status: ESIMStatus
   eid?: string
+  sim_slots: SIMSlot[]
+  sim_slots_known: boolean
+  primary_sim_slot: number
+  primary_sim_slot_known: boolean
+  current_sim_slot: number
+  current_sim_slot_known: boolean
+  profile_management: SIMProfileManagementCapability
   home_operator_code: string
   home_operator_name: string
   serving_operator_code: string

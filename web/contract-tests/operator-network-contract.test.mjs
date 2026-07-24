@@ -176,6 +176,18 @@ test('SIM and diagnostics HTTP decoders preserve serving and home operators', as
               active: true,
               identifier: line.iccid,
               imsi: line.imsi,
+              sim_type: 'physical',
+              esim_status: 'unknown',
+              sim_slots: [],
+              sim_slots_known: false,
+              primary_sim_slot: 0,
+              primary_sim_slot_known: false,
+              current_sim_slot: 0,
+              current_sim_slot_known: false,
+              profile_management: {
+                supported: false,
+                reason: 'eUICC profile management is unavailable'
+              },
               operator_identifier: '00102',
               operator_name: 'Pine Wireless',
               unlock_required: 'none',

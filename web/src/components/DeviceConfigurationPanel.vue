@@ -303,6 +303,28 @@ function ipFamilyLabel(value: string): string {
   }
 }
 
+function simTypeLabel(value: SIMStatus['sim_type']): string {
+  switch (value) {
+    case 'physical':
+      return '实体 SIM'
+    case 'esim':
+      return 'eSIM'
+    default:
+      return '未知'
+  }
+}
+
+function esimStatusLabel(value: SIMStatus['esim_status']): string {
+  switch (value) {
+    case 'with_profiles':
+      return '已有 Profile'
+    case 'no_profiles':
+      return '无 Profile'
+    default:
+      return '未知'
+  }
+}
+
 const accessTechnologyLabels: Array<{ mask: number; label: string }> = [
   { mask: 1 << 15, label: '5G NR' },
   { mask: 1 << 14, label: 'LTE' },
@@ -1206,12 +1228,45 @@ onMounted(() => {
               <dl class="configuration-facts">
                 <div><dt>ICCID</dt><dd>{{ simStatus.identifier || '—' }}</dd></div>
                 <div><dt>IMSI</dt><dd>{{ simStatus.imsi || '—' }}</dd></div>
+                <div><dt>SIM 类型</dt><dd>{{ simTypeLabel(simStatus.sim_type) }}</dd></div>
                 <div v-for="fact in simOperatorFacts" :key="fact.id">
                   <dt>{{ fact.label }}</dt>
                   <dd>{{ fact.value }}</dd>
                 </div>
                 <div><dt>锁定</dt><dd>{{ simStatus.unlock_required || 'none' }}</dd></div>
+                <template v-if="simStatus.sim_type === 'esim'">
+                  <div><dt>eSIM 状态</dt><dd>{{ esimStatusLabel(simStatus.esim_status) }}</dd></div>
+                  <div><dt>EID</dt><dd>{{ simStatus.eid || '—' }}</dd></div>
+                  <div>
+                    <dt>当前卡槽</dt>
+                    <dd>{{ simStatus.current_sim_slot_known ? simStatus.current_sim_slot : '—' }}</dd>
+                  </div>
+                  <div>
+                    <dt>主卡槽</dt>
+                    <dd>{{ simStatus.primary_sim_slot_known ? simStatus.primary_sim_slot : '—' }}</dd>
+                  </div>
+                  <div>
+                    <dt>Profile 管理</dt>
+                    <dd>{{ simStatus.profile_management.supported ? '可用' : '暂不支持' }}</dd>
+                  </div>
+                </template>
               </dl>
+              <div
+                v-if="simStatus.sim_type === 'esim' && simStatus.sim_slots_known"
+                class="sim-slot-list"
+                aria-label="SIM 卡槽"
+              >
+                <div
+                  v-for="slot in simStatus.sim_slots"
+                  :key="slot.index"
+                  class="sim-slot"
+                  :class="{ 'is-current': slot.current }"
+                >
+                  <span>卡槽 {{ slot.index }}</span>
+                  <strong>{{ slot.present ? simTypeLabel(slot.sim_type) : '空' }}</strong>
+                  <small v-if="slot.current">当前</small>
+                </div>
+              </div>
               <div class="retry-row">
                 <span v-for="(count, name) in simStatus.unlock_retries" :key="name">
                   {{ name }} {{ count }}
@@ -2215,6 +2270,46 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
+}
+
+.sim-slot-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.sim-slot {
+  display: grid;
+  min-width: 116px;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  padding: 7px 9px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.sim-slot > span,
+.sim-slot > small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.sim-slot > strong {
+  grid-row: 2;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.sim-slot > small {
+  grid-row: 2;
+}
+
+.sim-slot.is-current {
+  border-color: var(--accent);
 }
 
 .retry-row span {

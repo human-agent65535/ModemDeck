@@ -39,6 +39,11 @@ import type {
   RecordingSettings,
   RecordingStatus,
   SendMessageInput,
+  ESIMStatus,
+  SIMProfileManagementCapability,
+  SIMSlot,
+  SIMStatus,
+  SIMType,
   TelegramUnit,
   TelegramUnitInput,
   TLSMode,
@@ -101,6 +106,8 @@ const PROXY_APPLY_STATUSES = new Set<ProxyApplyStatus>([
   'runtime_unavailable'
 ])
 const TLS_MODES = new Set<TLSMode>(['automatic', 'user'])
+const SIM_TYPES = new Set<SIMType>(['unknown', 'physical', 'esim'])
+const ESIM_STATUSES = new Set<ESIMStatus>(['unknown', 'no_profiles', 'with_profiles'])
 
 function objectValue(value: unknown, path: string): JsonRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -195,6 +202,85 @@ function requiredPositiveInteger(source: JsonRecord, path: string, key: string):
   const value = requiredNonNegativeInteger(source, path, key)
   if (value < 1) throw new Error(`${path}.${key} 必须是正整数`)
   return value
+}
+
+function simType(source: JsonRecord, path: string): SIMType {
+  const value = requiredString(source, path, 'sim_type') as SIMType
+  if (!SIM_TYPES.has(value)) throw new Error(`${path}.sim_type 无效`)
+  return value
+}
+
+function esimStatus(source: JsonRecord, path: string): ESIMStatus {
+  const value = requiredString(source, path, 'esim_status') as ESIMStatus
+  if (!ESIM_STATUSES.has(value)) throw new Error(`${path}.esim_status 无效`)
+  return value
+}
+
+function maskedEID(source: JsonRecord, path: string): string | undefined {
+  const value = source.eid
+  if (value === undefined || value === '') return undefined
+  if (typeof value !== 'string' || !/^\*{4}\d{4}$/.test(value)) {
+    throw new Error(`${path}.eid 必须为空或掩码 EID`)
+  }
+  return value
+}
+
+function simSlot(value: unknown, path: string): SIMSlot {
+  const source = objectValue(value, path)
+  const eid = maskedEID(source, path)
+  return {
+    index: requiredPositiveInteger(source, path, 'index'),
+    present: requiredBoolean(source, path, 'present'),
+    current: requiredBoolean(source, path, 'current'),
+    sim_type: simType(source, path),
+    esim_status: esimStatus(source, path),
+    ...(eid ? { eid } : {})
+  }
+}
+
+function simSlots(source: JsonRecord, path: string): SIMSlot[] {
+  if (!Array.isArray(source.sim_slots)) throw new Error(`${path}.sim_slots 必须是数组`)
+  const slots = source.sim_slots.map((value, index) =>
+    simSlot(value, `${path}.sim_slots[${index}]`)
+  )
+  const indexes = slots.map(slot => slot.index)
+  if (new Set(indexes).size !== indexes.length) {
+    throw new Error(`${path}.sim_slots.index 不能重复`)
+  }
+  return slots
+}
+
+function knownSIMSlot(
+  source: JsonRecord,
+  path: string,
+  valueKey: 'primary_sim_slot' | 'current_sim_slot',
+  knownKey: 'primary_sim_slot_known' | 'current_sim_slot_known'
+): { value: number; known: boolean } {
+  const value = requiredNonNegativeInteger(source, path, valueKey)
+  const known = requiredBoolean(source, path, knownKey)
+  if (known && value < 1) throw new Error(`${path}.${valueKey} 必须是正整数`)
+  if (!known && value !== 0) throw new Error(`${path}.${valueKey} 未知时必须为 0`)
+  return { value, known }
+}
+
+function simProfileManagement(
+  source: JsonRecord,
+  path: string
+): SIMProfileManagementCapability {
+  const capability = objectValue(source.profile_management, `${path}.profile_management`)
+  return {
+    supported: requiredBoolean(
+      capability,
+      `${path}.profile_management`,
+      'supported'
+    ),
+    reason: requiredString(
+      capability,
+      `${path}.profile_management`,
+      'reason',
+      true
+    )
+  }
 }
 
 function stringList(source: JsonRecord, path: string, key: string): string[] {
@@ -427,6 +513,85 @@ export function parseLineLabelResponse(value: unknown): LineLabelResult {
   return {
     iccid: requiredString(source, 'line_label_response.line', 'iccid'),
     line_label: requiredString(source, 'line_label_response.line', 'line_label', true)
+  }
+}
+
+export function parseSIMStatusResponse(value: unknown): SIMStatus {
+  const response = objectValue(value, 'sim_response')
+  const source = objectValue(response.sim, 'sim_response.sim')
+  const path = 'sim_response.sim'
+  const eid = maskedEID(source, path)
+  const slots = simSlots(source, path)
+  const slotsKnown = requiredBoolean(source, path, 'sim_slots_known')
+  const primarySlot = knownSIMSlot(
+    source,
+    path,
+    'primary_sim_slot',
+    'primary_sim_slot_known'
+  )
+  const currentSlot = knownSIMSlot(
+    source,
+    path,
+    'current_sim_slot',
+    'current_sim_slot_known'
+  )
+  const unlockRetriesSource = objectValue(
+    source.unlock_retries,
+    `${path}.unlock_retries`
+  )
+  const unlockRetries: Record<string, number> = {}
+  for (const [name, retryValue] of Object.entries(unlockRetriesSource)) {
+    if (typeof retryValue !== 'number' || !Number.isSafeInteger(retryValue) || retryValue < 0) {
+      throw new Error(`${path}.unlock_retries.${name} 必须是非负整数`)
+    }
+    unlockRetries[name] = retryValue
+  }
+  if (!slotsKnown && slots.length > 0) {
+    throw new Error(`${path}.sim_slots 未知时必须为空`)
+  }
+
+  return {
+    line_id: requiredString(source, path, 'line_id'),
+    present: requiredBoolean(source, path, 'present'),
+    active: requiredBoolean(source, path, 'active'),
+    identifier: requiredString(source, path, 'identifier', true),
+    imsi: requiredString(source, path, 'imsi', true),
+    sim_type: simType(source, path),
+    esim_status: esimStatus(source, path),
+    ...(eid ? { eid } : {}),
+    sim_slots: slots,
+    sim_slots_known: slotsKnown,
+    primary_sim_slot: primarySlot.value,
+    primary_sim_slot_known: primarySlot.known,
+    current_sim_slot: currentSlot.value,
+    current_sim_slot_known: currentSlot.known,
+    profile_management: simProfileManagement(source, path),
+    home_operator_code: requiredString(source, path, 'home_operator_code', true),
+    home_operator_name: requiredString(source, path, 'home_operator_name', true),
+    serving_operator_code: requiredString(source, path, 'serving_operator_code', true),
+    serving_operator_name: requiredString(source, path, 'serving_operator_name', true),
+    registration_state_known: requiredBoolean(
+      source,
+      path,
+      'registration_state_known'
+    ),
+    registration_state_code: requiredNonNegativeInteger(
+      source,
+      path,
+      'registration_state_code'
+    ),
+    registration_state: requiredString(source, path, 'registration_state', true),
+    roaming: requiredBoolean(source, path, 'roaming'),
+    operator_identifier: requiredString(source, path, 'operator_identifier', true),
+    operator_name: requiredString(source, path, 'operator_name', true),
+    unlock_required: requiredString(source, path, 'unlock_required', true),
+    unlock_required_code: requiredNonNegativeInteger(
+      source,
+      path,
+      'unlock_required_code'
+    ),
+    unlock_retries: unlockRetries,
+    observed_at: requiredTimestamp(source, path, 'observed_at')
   }
 }
 
