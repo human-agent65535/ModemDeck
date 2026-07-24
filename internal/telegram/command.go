@@ -10,7 +10,7 @@ type CommandKind string
 
 const (
 	CommandHelp  CommandKind = "help"
-	CommandLines CommandKind = "lines"
+	CommandList  CommandKind = "list"
 	CommandSMS   CommandKind = "sms"
 	CommandCall  CommandKind = "call"
 	CommandReply CommandKind = "reply"
@@ -53,11 +53,11 @@ func ParseCommand(text string) (Command, error) {
 			return Command{}, &CommandError{Code: "help_has_arguments"}
 		}
 		command.Kind = CommandHelp
-	case "lines":
+	case "list", "lines":
 		if rest != "" {
-			return Command{}, &CommandError{Code: "lines_has_arguments"}
+			return Command{}, &CommandError{Code: "list_has_arguments"}
 		}
-		command.Kind = CommandLines
+		command.Kind = CommandList
 	case "sms":
 		return parseSMSCommand(command, rest)
 	case "call":
@@ -95,20 +95,20 @@ func parseSMSCommand(command Command, rest string) (Command, error) {
 }
 
 func parseCallCommand(command Command, rest string) (Command, error) {
-	lineID, numberValue := cutField(rest)
-	if lineID == "" || numberValue == "" {
-		return Command{}, &CommandError{Code: "call_requires_line_and_number"}
-	}
-	if err := validateLineID(lineID); err != nil {
-		return Command{}, &CommandError{Code: "invalid_line"}
-	}
-	number, err := NormalizePhone(numberValue)
-	if err != nil {
-		return Command{}, &CommandError{Code: "invalid_phone"}
-	}
 	command.Kind = CommandCall
-	command.LineID = lineID
-	command.Number = number
+	command.Limit = DefaultCallQueryLimit
+	if rest == "" {
+		return command, nil
+	}
+	fields := strings.Fields(rest)
+	if len(fields) != 1 {
+		return Command{}, &CommandError{Code: "call_too_many_arguments"}
+	}
+	limit, err := parseCallLimit(fields[0])
+	if err != nil {
+		return Command{}, err
+	}
+	command.Limit = limit
 	return command, nil
 }
 
@@ -139,6 +139,14 @@ func parseSMSLimit(value string) (int, error) {
 	limit, err := strconv.Atoi(value)
 	if err != nil || limit < 1 || limit > MaxSMSQueryLimit {
 		return 0, &CommandError{Code: "invalid_sms_limit"}
+	}
+	return limit, nil
+}
+
+func parseCallLimit(value string) (int, error) {
+	limit, err := strconv.Atoi(value)
+	if err != nil || limit < 1 || limit > MaxCallQueryLimit {
+		return 0, &CommandError{Code: "invalid_call_limit"}
 	}
 	return limit, nil
 }

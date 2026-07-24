@@ -27,8 +27,8 @@ func TestNewServiceRequiresEnabledDependencies(t *testing.T) {
 		{name: "bot", mutate: func(d *Dependencies) { d.Bot = nil }, field: "bot"},
 		{name: "lines", mutate: func(d *Dependencies) { d.Lines = nil }, field: "lines"},
 		{name: "sms", mutate: func(d *Dependencies) { d.SMS = nil }, field: "sms"},
+		{name: "calls", mutate: func(d *Dependencies) { d.Calls = nil }, field: "calls"},
 		{name: "sender", mutate: func(d *Dependencies) { d.SMSSender = nil }, field: "sms_sender"},
-		{name: "dialer", mutate: func(d *Dependencies) { d.Dialer = nil }, field: "dialer"},
 		{name: "replies", mutate: func(d *Dependencies) { d.Replies = nil }, field: "replies"},
 		{name: "read marker", mutate: func(d *Dependencies) { d.Read = nil }, field: "read_marker"},
 	}
@@ -195,32 +195,32 @@ func TestServiceRejectsUnauthorizedUpdatesWithoutSideEffects(t *testing.T) {
 	t.Parallel()
 
 	var sent []SendMessageRequest
-	var calls []CallRequest
+	var callQueries []CallQuery
 	recorder := &eventRecorder{}
 	dependencies := completeDependencies()
 	dependencies.Bot = botStub{send: func(_ context.Context, request SendMessageRequest) (Message, error) {
 		sent = append(sent, request)
 		return Message{MessageID: 1, Chat: Chat{ID: request.ChatID}}, nil
 	}}
-	dependencies.Dialer = dialerFunc(func(_ context.Context, request CallRequest) error {
-		calls = append(calls, request)
-		return nil
+	dependencies.Calls = callQuerierFunc(func(_ context.Context, query CallQuery) ([]Call, error) {
+		callQueries = append(callQueries, query)
+		return nil, nil
 	})
 	dependencies.Observer = recorder
 	service := mustService(t, validServiceConfig(), dependencies)
 
 	updates := []Update{
-		commandUpdate(10, -999, 42, "/call line-a +818012345678"),
-		commandUpdate(11, -100, 99, "/call line-a +818012345678"),
-		{UpdateID: 12, Message: &Message{MessageID: 12, Chat: Chat{ID: -100}, Text: "/call line-a +818012345678"}},
+		commandUpdate(10, -999, 42, "/call"),
+		commandUpdate(11, -100, 99, "/call"),
+		{UpdateID: 12, Message: &Message{MessageID: 12, Chat: Chat{ID: -100}, Text: "/call"}},
 	}
 	for _, update := range updates {
 		if err := service.HandleUpdate(context.Background(), update); err != nil {
 			t.Fatalf("HandleUpdate() error = %v", err)
 		}
 	}
-	if len(sent) != 0 || len(calls) != 0 {
-		t.Fatalf("unauthorized side effects: sent=%d calls=%d", len(sent), len(calls))
+	if len(sent) != 0 || len(callQueries) != 0 {
+		t.Fatalf("unauthorized side effects: sent=%d call_queries=%d", len(sent), len(callQueries))
 	}
 	events := recorder.snapshot()
 	if len(events) != 3 {
@@ -246,7 +246,20 @@ func TestServiceLinesAndSMSRespectScopes(t *testing.T) {
 	dependencies.Lines = lineQuerierFunc(func(context.Context) ([]Line, error) {
 		return []Line{
 			{ID: "line-b", Label: "Hidden", PhoneNumber: "+14155550123", Available: true},
-			{ID: "line-a", Label: "Primary", PhoneNumber: "+818012345678", Available: true},
+			{
+				ID:                "line-a",
+				Label:             "Primary",
+				PhoneNumber:       "+818012345678",
+				Operator:          "46001",
+				RegistrationKnown: true,
+				RegistrationState: "roaming",
+				Roaming:           true,
+				Signal:            uint32Pointer(68),
+				CapabilitiesKnown: true,
+				SMSAvailable:      true,
+				CallAvailable:     true,
+				Available:         true,
+			},
 			{ID: "line-a", Label: "Duplicate", Available: true},
 			{ID: "bad/line", Label: "Invalid", Available: true},
 		}, nil
@@ -260,14 +273,20 @@ func TestServiceLinesAndSMSRespectScopes(t *testing.T) {
 	})
 	service := mustService(t, validServiceConfig(), dependencies)
 
-	if err := service.HandleUpdate(context.Background(), commandUpdate(20, -100, 42, "/lines")); err != nil {
-		t.Fatalf("/lines error = %v", err)
+	if err := service.HandleUpdate(context.Background(), commandUpdate(20, -100, 42, "/list")); err != nil {
+		t.Fatalf("/list error = %v", err)
 	}
 	if len(sent) != 1 ||
 		!strings.Contains(sent[0].Text, "Primary") ||
+		!strings.Contains(sent[0].Text, "+818012345678") ||
+		strings.Contains(sent[0].Text, "46001") ||
+		!strings.Contains(sent[0].Text, "信号 68%") ||
+		!strings.Contains(sent[0].Text, "短信可用") ||
+		!strings.Contains(sent[0].Text, "呼叫控制可用") ||
+		strings.Contains(sent[0].Text, "line-a") ||
 		strings.Contains(sent[0].Text, "Hidden") ||
 		strings.Contains(sent[0].Text, "bad/line") {
-		t.Fatalf("/lines response = %#v", sent)
+		t.Fatalf("/list response = %#v", sent)
 	}
 
 	if err := service.HandleUpdate(context.Background(), commandUpdate(21, -100, 42, "/sms")); err != nil {
@@ -291,11 +310,11 @@ func TestServiceLinesAndSMSRespectScopes(t *testing.T) {
 	}
 }
 
-func TestServiceCallAndSMSCommands(t *testing.T) {
+func TestServiceRecentCallsAndSMSCommands(t *testing.T) {
 	t.Parallel()
 
 	var sent []SendMessageRequest
-	var calls []CallRequest
+	var callQueries []CallQuery
 	var smsRequests []SMSRequest
 	dependencies := completeDependencies()
 	dependencies.Bot = botStub{send: func(_ context.Context, request SendMessageRequest) (Message, error) {
@@ -306,9 +325,25 @@ func TestServiceCallAndSMSCommands(t *testing.T) {
 		smsRequests = append(smsRequests, request)
 		return nil
 	})
-	dependencies.Dialer = dialerFunc(func(_ context.Context, request CallRequest) error {
-		calls = append(calls, request)
-		return nil
+	dependencies.Calls = callQuerierFunc(func(_ context.Context, query CallQuery) ([]Call, error) {
+		callQueries = append(callQueries, query)
+		return []Call{
+			{
+				ID:           "call-1",
+				LineID:       "line-a",
+				Direction:    "incoming",
+				Peer:         "+818012345678",
+				ContactName:  "Aiko Tanaka",
+				OccurredAt:   time.Date(2026, 7, 24, 8, 30, 0, 0, time.UTC),
+				HasRecording: true,
+			},
+			{
+				ID:        "call-hidden",
+				LineID:    "line-b",
+				Direction: "outgoing",
+				Peer:      "+14155550123",
+			},
+		}, nil
 	})
 	dependencies.Replies = replyStoreStub{resolve: func(_ context.Context, botID, chatID, messageID int64) (ReplyBinding, error) {
 		if botID != testBotID || chatID != -100 || messageID != 700 {
@@ -318,15 +353,23 @@ func TestServiceCallAndSMSCommands(t *testing.T) {
 	}}
 	service := mustService(t, validServiceConfig(), dependencies)
 
-	if err := service.HandleUpdate(context.Background(), commandUpdate(30, -100, 42, "/call line-a +81-80-1234-5678")); err != nil {
+	if err := service.HandleUpdate(context.Background(), commandUpdate(30, -100, 42, "/call 5")); err != nil {
 		t.Fatalf("/call error = %v", err)
 	}
-	if !reflect.DeepEqual(calls, []CallRequest{{
-		RequestID: "telegram:123456789:30:call",
-		LineID:    "line-a",
-		To:        "+818012345678",
+	if !reflect.DeepEqual(callQueries, []CallQuery{{
+		LineIDs: []string{"line-a"},
+		Limit:   5,
 	}}) {
-		t.Fatalf("calls = %#v", calls)
+		t.Fatalf("call queries = %#v", callQueries)
+	}
+	if !strings.Contains(sent[0].Text, "呼入 · Aiko Tanaka") ||
+		!strings.Contains(sent[0].Text, "Primary") ||
+		!strings.Contains(sent[0].Text, "2026-07-24 08:30 UTC") ||
+		!strings.Contains(sent[0].Text, "有录音") ||
+		strings.Contains(sent[0].Text, "line-a") ||
+		strings.Contains(sent[0].Text, "call-1") ||
+		strings.Contains(sent[0].Text, "call-hidden") {
+		t.Fatalf("/call response = %q", sent[0].Text)
 	}
 
 	if err := service.HandleUpdate(context.Background(), commandUpdate(31, -100, 42, "/reply line-a +81-80-1234-5678 hello there")); err != nil {
@@ -362,18 +405,13 @@ func TestServiceCallAndSMSCommands(t *testing.T) {
 	}
 }
 
-func TestServiceRejectsUnavailableActionLine(t *testing.T) {
+func TestServiceRejectsUnavailableSMSLine(t *testing.T) {
 	t.Parallel()
 
-	var calls int
 	var sends int
 	dependencies := completeDependencies()
 	dependencies.Lines = lineQuerierFunc(func(context.Context) ([]Line, error) {
 		return []Line{{ID: "line-a", Available: false}}, nil
-	})
-	dependencies.Dialer = dialerFunc(func(context.Context, CallRequest) error {
-		calls++
-		return nil
 	})
 	dependencies.SMSSender = smsSenderFunc(func(context.Context, SMSRequest) error {
 		sends++
@@ -381,10 +419,9 @@ func TestServiceRejectsUnavailableActionLine(t *testing.T) {
 	})
 	service := mustService(t, validServiceConfig(), dependencies)
 
-	_ = service.HandleUpdate(context.Background(), commandUpdate(40, -100, 42, "/call line-a +818012345678"))
 	_ = service.HandleUpdate(context.Background(), commandUpdate(41, -100, 42, "/reply line-a +818012345678 body"))
-	if calls != 0 || sends != 0 {
-		t.Fatalf("unavailable line caused actions: calls=%d sends=%d", calls, sends)
+	if sends != 0 {
+		t.Fatalf("unavailable line caused SMS sends: %d", sends)
 	}
 }
 
@@ -603,7 +640,7 @@ func TestServiceFailureBoundaryDoesNotExposeSensitiveData(t *testing.T) {
 	dependencies.Observer = recorder
 	service := mustService(t, validServiceConfig(), dependencies)
 
-	if err := service.HandleUpdate(context.Background(), commandUpdate(50, -100, 42, "/lines")); err != nil {
+	if err := service.HandleUpdate(context.Background(), commandUpdate(50, -100, 42, "/list")); err != nil {
 		t.Fatalf("HandleUpdate() error = %v", err)
 	}
 	if len(sent) != 1 || strings.Contains(sent[0].Text, dependencySecret) || !strings.Contains(sent[0].Text, "操作失败") {
@@ -620,7 +657,7 @@ func TestServiceFailureBoundaryDoesNotExposeSensitiveData(t *testing.T) {
 	}
 }
 
-func TestServiceHelpExcludesTelegramVoiceCall(t *testing.T) {
+func TestServiceHelpDescribesCallHistoryWithoutDialing(t *testing.T) {
 	t.Parallel()
 
 	var responseText string
@@ -634,7 +671,8 @@ func TestServiceHelpExcludesTelegramVoiceCall(t *testing.T) {
 	if err := service.HandleUpdate(context.Background(), commandUpdate(60, -100, 42, "/help")); err != nil {
 		t.Fatalf("/help error = %v", err)
 	}
-	if !strings.Contains(responseText, "/call") || !strings.Contains(responseText, "不会发起 Telegram 语音通话") {
+	if !strings.Contains(responseText, "/call [1-20] - 查看最近通话") ||
+		strings.Contains(responseText, "拨号") {
 		t.Fatalf("help text = %q", responseText)
 	}
 }
@@ -858,10 +896,10 @@ func completeDependencies() Dependencies {
 		SMS: smsQuerierFunc(func(context.Context, SMSQuery) ([]SMS, error) {
 			return nil, nil
 		}),
-		SMSSender: smsSenderFunc(func(context.Context, SMSRequest) error {
-			return nil
+		Calls: callQuerierFunc(func(context.Context, CallQuery) ([]Call, error) {
+			return nil, nil
 		}),
-		Dialer: dialerFunc(func(context.Context, CallRequest) error {
+		SMSSender: smsSenderFunc(func(context.Context, SMSRequest) error {
 			return nil
 		}),
 		Replies: replyStoreStub{},
@@ -869,6 +907,10 @@ func completeDependencies() Dependencies {
 			return nil
 		}),
 	}
+}
+
+func uint32Pointer(value uint32) *uint32 {
+	return &value
 }
 
 func mustService(t *testing.T, config Config, dependencies Dependencies) *Service {

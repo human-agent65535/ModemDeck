@@ -106,7 +106,7 @@ func TestManagerVerifiesBotAndDispatchesDurableNotification(t *testing.T) {
 	}
 	commands, messages := bot.snapshots()
 	if len(commands) != 1 || len(commands[0]) != 5 ||
-		commands[0][0].Command != "lines" || commands[0][4].Command != "help" {
+		commands[0][0].Command != "list" || commands[0][4].Command != "help" {
 		t.Fatalf("registered commands = %+v", commands)
 	}
 	if len(messages) != 1 ||
@@ -180,9 +180,10 @@ func TestManagerRegistersBotCommandsOnStartupAndReload(t *testing.T) {
 	}
 	for _, registration := range commands {
 		if len(registration) != 5 ||
-			registration[0].Command != "lines" ||
+			registration[0].Command != "list" ||
 			registration[1].Command != "sms" ||
 			registration[2].Command != "call" ||
+			registration[2].Description != "查看最近通话" ||
 			registration[3].Command != "reply" ||
 			registration[4].Command != "help" {
 			t.Fatalf("registered commands = %+v", registration)
@@ -196,6 +197,57 @@ func waitForBotConfiguration(t *testing.T, configured <-chan struct{}) {
 	case <-configured:
 	case <-time.After(time.Second):
 		t.Fatal("bot command menu was not configured")
+	}
+}
+
+func TestAdaptersExposeHumanLineMetadataAndRecentCalls(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeRepository{
+		calls: []store.Call{{
+			ID:           "call-1",
+			DeviceID:     "line-1",
+			Direction:    "incoming",
+			RemoteNumber: "+818012345678",
+			ContactName:  "Aiko Tanaka",
+			EndedAt:      "2026-07-24T08:30:00Z",
+			Missed:       true,
+		}},
+		recordings: []store.RecordingEntry{{
+			Call:     store.RecordingCall{ID: "call-1"},
+			Playable: true,
+		}},
+	}
+	adapter := adapters{
+		communications: fakeCommunications{},
+		repository:     repository,
+	}
+
+	lines, err := adapter.Lines(context.Background())
+	if err != nil {
+		t.Fatalf("Lines() error = %v", err)
+	}
+	if len(lines) != 1 ||
+		lines[0].ID != "line-1" ||
+		lines[0].Label != "主线路" ||
+		lines[0].PhoneNumber != "+818000000001" {
+		t.Fatalf("Lines() = %+v", lines)
+	}
+
+	calls, err := adapter.RecentCalls(context.Background(), telegram.CallQuery{
+		LineIDs: []string{"line-1"},
+		Limit:   10,
+	})
+	if err != nil {
+		t.Fatalf("RecentCalls() error = %v", err)
+	}
+	if len(calls) != 1 ||
+		calls[0].LineID != "line-1" ||
+		calls[0].ContactName != "Aiko Tanaka" ||
+		!calls[0].Missed ||
+		!calls[0].HasRecording ||
+		calls[0].OccurredAt.Format(time.RFC3339) != "2026-07-24T08:30:00Z" {
+		t.Fatalf("RecentCalls() = %+v", calls)
 	}
 }
 
@@ -224,7 +276,8 @@ func (fakeCommunications) Status(context.Context) (communication.Status, error) 
 		Connected: true,
 		Lines: []store.LineSummary{{
 			ID:          "line-1",
-			LineLabel:   "主线路",
+			ICCID:       "iccid-1",
+			Model:       "QDC507",
 			PhoneNumber: "+818000000001",
 			State:       "registered",
 		}},
@@ -236,13 +289,6 @@ func (fakeCommunications) SendMessage(
 	communication.SendMessageInput,
 ) (store.Message, error) {
 	return store.Message{}, nil
-}
-
-func (fakeCommunications) StartCall(
-	context.Context,
-	communication.StartCallInput,
-) (store.Call, error) {
-	return store.Call{}, nil
 }
 
 type fakeRepository struct {
@@ -258,10 +304,31 @@ type fakeRepository struct {
 	verifiedAt  string
 	lastError   string
 	bound       store.TelegramReplyBinding
+	calls       []store.Call
+	recordings  []store.RecordingEntry
+}
+
+func (r *fakeRepository) Lines(context.Context) ([]store.LineSummary, error) {
+	return []store.LineSummary{{
+		ICCID:       "iccid-1",
+		LineLabel:   "主线路",
+		PhoneNumber: "+818000000001",
+	}}, nil
 }
 
 func (r *fakeRepository) Messages(context.Context, store.MessageQuery) ([]store.Message, error) {
 	return []store.Message{}, nil
+}
+
+func (r *fakeRepository) Calls(context.Context, store.CallQuery) ([]store.Call, error) {
+	return append([]store.Call(nil), r.calls...), nil
+}
+
+func (r *fakeRepository) RecordingEntries(
+	context.Context,
+	store.RecordingQuery,
+) ([]store.RecordingEntry, error) {
+	return append([]store.RecordingEntry(nil), r.recordings...), nil
 }
 
 func (r *fakeRepository) MarkMessageThreadReadByLine(context.Context, string, string) error {

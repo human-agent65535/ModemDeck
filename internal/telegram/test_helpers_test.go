@@ -71,15 +71,15 @@ func (f smsQuerierFunc) RecentSMS(ctx context.Context, query SMSQuery) ([]SMS, e
 	return f(ctx, query)
 }
 
+type callQuerierFunc func(context.Context, CallQuery) ([]Call, error)
+
+func (f callQuerierFunc) RecentCalls(ctx context.Context, query CallQuery) ([]Call, error) {
+	return f(ctx, query)
+}
+
 type smsSenderFunc func(context.Context, SMSRequest) error
 
 func (f smsSenderFunc) SendSMS(ctx context.Context, request SMSRequest) error {
-	return f(ctx, request)
-}
-
-type dialerFunc func(context.Context, CallRequest) error
-
-func (f dialerFunc) Dial(ctx context.Context, request CallRequest) error {
 	return f(ctx, request)
 }
 

@@ -15,8 +15,8 @@ type Dependencies struct {
 	Bot       BotAPI
 	Lines     LineQuerier
 	SMS       SMSQuerier
+	Calls     CallQuerier
 	SMSSender SMSSender
-	Dialer    Dialer
 	Replies   ReplyBindingStore
 	Read      MessageReadMarker
 	Observer  Observer
@@ -28,8 +28,8 @@ type Service struct {
 	bot      BotAPI
 	lines    LineQuerier
 	sms      SMSQuerier
+	calls    CallQuerier
 	sender   SMSSender
-	dialer   Dialer
 	replies  ReplyBindingStore
 	read     MessageReadMarker
 	observer Observer
@@ -52,10 +52,10 @@ func NewService(config Config, dependencies Dependencies) (*Service, error) {
 			return nil, &ConfigError{Field: "lines", Reason: "dependency is required"}
 		case dependencies.SMS == nil:
 			return nil, &ConfigError{Field: "sms", Reason: "dependency is required"}
+		case dependencies.Calls == nil:
+			return nil, &ConfigError{Field: "calls", Reason: "dependency is required"}
 		case dependencies.SMSSender == nil:
 			return nil, &ConfigError{Field: "sms_sender", Reason: "dependency is required"}
-		case dependencies.Dialer == nil:
-			return nil, &ConfigError{Field: "dialer", Reason: "dependency is required"}
 		case dependencies.Replies == nil:
 			return nil, &ConfigError{Field: "replies", Reason: "dependency is required"}
 		case dependencies.Read == nil:
@@ -69,8 +69,8 @@ func NewService(config Config, dependencies Dependencies) (*Service, error) {
 		bot:      dependencies.Bot,
 		lines:    dependencies.Lines,
 		sms:      dependencies.SMS,
+		calls:    dependencies.Calls,
 		sender:   dependencies.SMSSender,
-		dialer:   dependencies.Dialer,
 		replies:  dependencies.Replies,
 		read:     dependencies.Read,
 		observer: dependencies.Observer,
@@ -167,7 +167,7 @@ func (s *Service) HandleUpdate(ctx context.Context, update Update) error {
 	switch command.Kind {
 	case CommandHelp:
 		return s.sendText(ctx, update.UpdateID, message.MessageID, helpText())
-	case CommandLines:
+	case CommandList:
 		return s.handleLines(ctx, update.UpdateID, message.MessageID)
 	case CommandSMS:
 		return s.handleSMSQuery(ctx, update.UpdateID, message.MessageID, command)
@@ -370,21 +370,25 @@ func (s *Service) handleSMSQuery(ctx context.Context, updateID, replyTo int64, c
 }
 
 func (s *Service) handleCall(ctx context.Context, updateID, replyTo int64, command Command) error {
-	if _, err := s.resolveLine(ctx, command.LineID); err != nil {
-		var unavailableErr *lineUnavailableError
-		if errors.As(err, &unavailableErr) {
-			return s.sendText(ctx, updateID, replyTo, "线路不存在、不可用或不在此 Bot 的授权范围内。")
-		}
-		return s.reportOperationFailure(ctx, updateID, replyTo, "resolve_call_line", err)
+	lines, err := s.accessibleLines(ctx)
+	if err != nil {
+		return s.reportOperationFailure(ctx, updateID, replyTo, "query_call_lines", err)
 	}
-	if err := s.dialer.Dial(ctx, CallRequest{
-		RequestID: requestID(s.botID, updateID, "call"),
-		LineID:    command.LineID,
-		To:        command.Number,
-	}); err != nil {
-		return s.reportOperationFailure(ctx, updateID, replyTo, "dial", err)
+	lineIDs := make([]string, 0, len(lines))
+	for _, line := range lines {
+		lineIDs = append(lineIDs, line.ID)
 	}
-	return s.sendText(ctx, updateID, replyTo, "已提交拨号请求："+command.Number)
+	if len(lineIDs) == 0 {
+		return s.sendText(ctx, updateID, replyTo, "没有可用线路。")
+	}
+	calls, err := s.calls.RecentCalls(ctx, CallQuery{
+		LineIDs: lineIDs,
+		Limit:   command.Limit,
+	})
+	if err != nil {
+		return s.reportOperationFailure(ctx, updateID, replyTo, "query_calls", err)
+	}
+	return s.sendText(ctx, updateID, replyTo, formatCalls(filterCalls(calls, lineIDs), lines))
 }
 
 func (s *Service) handleReplyCommand(ctx context.Context, updateID, replyTo int64, command Command) error {
@@ -547,6 +551,20 @@ func filterSMS(messages []SMS, allowedLineIDs []string) []SMS {
 	return filtered
 }
 
+func filterCalls(calls []Call, allowedLineIDs []string) []Call {
+	allowed := make(map[string]struct{}, len(allowedLineIDs))
+	for _, lineID := range allowedLineIDs {
+		allowed[lineID] = struct{}{}
+	}
+	filtered := make([]Call, 0, len(calls))
+	for _, call := range calls {
+		if _, ok := allowed[call.LineID]; ok {
+			filtered = append(filtered, call)
+		}
+	}
+	return filtered
+}
+
 func requestID(botID, updateID int64, operation string) string {
 	return fmt.Sprintf("telegram:%d:%d:%s", botID, updateID, operation)
 }
@@ -554,21 +572,21 @@ func requestID(botID, updateID int64, operation string) string {
 func helpText() string {
 	return strings.Join([]string{
 		"ModemDeck Telegram 命令",
-		"/lines - 查看授权线路",
+		"/list - 查看线路状态",
 		"/sms [线路ID] [1-20] - 查看最近短信",
-		"/call <线路ID> <国际号码> - 通过蜂窝线路拨号",
+		"/call [1-20] - 查看最近通话",
 		"/reply <线路ID> <国际号码> <内容> - 回复短信",
 		"/help - 查看帮助",
 		"",
-		"也可以直接回复一条“新短信”通知。/call 不会发起 Telegram 语音通话。",
+		"也可以直接回复一条“新短信”通知。",
 	}, "\n")
 }
 
 func botCommands() []BotCommand {
 	return []BotCommand{
-		{Command: "lines", Description: "查看授权线路"},
+		{Command: "list", Description: "查看线路状态"},
 		{Command: "sms", Description: "查看最近短信"},
-		{Command: "call", Description: "通过蜂窝线路拨号"},
+		{Command: "call", Description: "查看最近通话"},
 		{Command: "reply", Description: "回复短信"},
 		{Command: "help", Description: "查看帮助"},
 	}
@@ -580,22 +598,147 @@ func formatLines(lines []Line) string {
 	}
 	var builder strings.Builder
 	builder.WriteString("线路\n")
-	for _, line := range lines {
-		label := line.Label
-		if label == "" {
-			label = line.ID
+	for index, line := range lines {
+		if index > 0 {
+			builder.WriteByte('\n')
 		}
-		status := "离线"
-		if line.Available {
-			status = "可用"
+		fmt.Fprintf(&builder, "%s · %s\n", lineDisplayName(line, index), linePhoneNumber(line))
+		details := []string{lineRegistrationLabel(line)}
+		if operator := lineOperatorLabel(line.Operator); operator != "" {
+			details = append(details, operator)
 		}
-		fmt.Fprintf(&builder, "- %s (%s) %s", label, line.ID, status)
-		if line.PhoneNumber != "" {
-			fmt.Fprintf(&builder, " %s", line.PhoneNumber)
+		if line.Signal == nil {
+			details = append(details, "信号未知")
+		} else {
+			details = append(details, fmt.Sprintf("信号 %d%%", *line.Signal))
 		}
+		builder.WriteString(strings.Join(details, " · "))
 		builder.WriteByte('\n')
+		builder.WriteString(lineCapabilityLabel(line))
 	}
 	return truncateRunes(strings.TrimSpace(builder.String()), MaxTelegramMessageRunes)
+}
+
+func formatCalls(calls []Call, lines []Line) string {
+	if len(calls) == 0 {
+		return "没有通话记录。"
+	}
+	lineNames := make(map[string]string, len(lines))
+	for index, line := range lines {
+		lineNames[line.ID] = lineDisplayName(line, index)
+	}
+	var builder strings.Builder
+	builder.WriteString("最近通话\n")
+	for _, call := range calls {
+		direction := "通话"
+		switch {
+		case call.Missed:
+			direction = "未接"
+		case strings.EqualFold(call.Direction, "incoming"):
+			direction = "呼入"
+		case strings.EqualFold(call.Direction, "outgoing"):
+			direction = "呼出"
+		}
+		peer := singleLine(call.ContactName)
+		if peer == "" {
+			peer = singleLine(call.Peer)
+		}
+		if peer == "" {
+			peer = "未知号码"
+		}
+		lineName := lineNames[call.LineID]
+		if lineName == "" {
+			lineName = "线路"
+		}
+		details := []string{lineName}
+		if !call.OccurredAt.IsZero() {
+			details = append(details, call.OccurredAt.UTC().Format("2006-01-02 15:04 UTC"))
+		}
+		if call.HasRecording {
+			details = append(details, "有录音")
+		}
+		fmt.Fprintf(&builder, "\n%s · %s\n%s\n", direction, peer, strings.Join(details, " · "))
+	}
+	return truncateRunes(strings.TrimSpace(builder.String()), MaxTelegramMessageRunes)
+}
+
+func lineDisplayName(line Line, index int) string {
+	label := singleLine(line.Label)
+	if label == "" || label == strings.TrimSpace(line.ID) {
+		return fmt.Sprintf("未命名线路 %d", index+1)
+	}
+	return label
+}
+
+func linePhoneNumber(line Line) string {
+	number := singleLine(line.PhoneNumber)
+	if number == "" {
+		return "号码未读取"
+	}
+	return number
+}
+
+func lineRegistrationLabel(line Line) string {
+	if line.RegistrationKnown {
+		switch strings.ToLower(strings.TrimSpace(line.RegistrationState)) {
+		case "registered", "home", "registered-home":
+			return "已驻网"
+		case "roaming", "registered-roaming":
+			return "漫游"
+		case "searching":
+			return "搜网中"
+		case "denied":
+			return "驻网被拒绝"
+		case "idle", "not-registered":
+			return "未驻网"
+		}
+	}
+	if line.Roaming {
+		return "漫游"
+	}
+	if line.Available {
+		return "在线"
+	}
+	return "状态未知"
+}
+
+func lineOperatorLabel(operator string) string {
+	operator = singleLine(operator)
+	if operator == "" || isOperatorCode(operator) {
+		return ""
+	}
+	return operator
+}
+
+func isOperatorCode(value string) bool {
+	if len(value) != 5 && len(value) != 6 {
+		return false
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func lineCapabilityLabel(line Line) string {
+	if !line.CapabilitiesKnown {
+		return "能力未知"
+	}
+	sms := "短信不可用"
+	if line.SMSAvailable {
+		sms = "短信可用"
+	}
+	call := "呼叫控制不可用"
+	if line.CallAvailable {
+		call = "呼叫控制可用"
+	}
+	return sms + " · " + call
+}
+
+func singleLine(value string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
 }
 
 func formatSMS(messages []SMS) string {

@@ -10,6 +10,8 @@ const (
 	MaxSMSBodyRunes         = 1600
 	DefaultSMSQueryLimit    = 10
 	MaxSMSQueryLimit        = 20
+	DefaultCallQueryLimit   = 10
+	MaxCallQueryLimit       = 20
 )
 
 type BotUser struct {
@@ -93,10 +95,19 @@ type BotAPI interface {
 }
 
 type Line struct {
-	ID          string
-	Label       string
-	PhoneNumber string
-	Available   bool
+	ID                string
+	Label             string
+	PhoneNumber       string
+	Operator          string
+	RegistrationKnown bool
+	RegistrationState string
+	Roaming           bool
+	State             string
+	Signal            *uint32
+	CapabilitiesKnown bool
+	SMSAvailable      bool
+	CallAvailable     bool
+	Available         bool
 }
 
 type SMS struct {
@@ -120,10 +131,20 @@ type SMSRequest struct {
 	Body      string
 }
 
-type CallRequest struct {
-	RequestID string
-	LineID    string
-	To        string
+type Call struct {
+	ID           string
+	LineID       string
+	Direction    string
+	Peer         string
+	ContactName  string
+	OccurredAt   time.Time
+	Missed       bool
+	HasRecording bool
+}
+
+type CallQuery struct {
+	LineIDs []string
+	Limit   int
 }
 
 type IncomingSMS struct {
@@ -156,18 +177,15 @@ type SMSQuerier interface {
 	RecentSMS(context.Context, SMSQuery) ([]SMS, error)
 }
 
+type CallQuerier interface {
+	RecentCalls(context.Context, CallQuery) ([]Call, error)
+}
+
 type SMSSender interface {
 	// SendSMS must treat a repeated non-empty RequestID as the same operation.
 	// This closes the crash window between executing a command and durably
 	// advancing the Telegram update checkpoint.
 	SendSMS(context.Context, SMSRequest) error
-}
-
-// Dialer places a cellular call through a ModemDeck line. It does not model or
-// implement a Telegram voice call.
-type Dialer interface {
-	// Dial must treat a repeated non-empty RequestID as the same operation.
-	Dial(context.Context, CallRequest) error
 }
 
 type ReplyBindingStore interface {

@@ -26,9 +26,14 @@ func TestParseCommand(t *testing.T) {
 			want:  Command{Kind: CommandHelp, TargetBot: "MyBot"},
 		},
 		{
-			name:  "lines",
+			name:  "list",
+			input: "  /list  ",
+			want:  Command{Kind: CommandList},
+		},
+		{
+			name:  "legacy lines alias",
 			input: "  /lines  ",
-			want:  Command{Kind: CommandLines},
+			want:  Command{Kind: CommandList},
 		},
 		{
 			name:  "sms defaults",
@@ -46,21 +51,19 @@ func TestParseCommand(t *testing.T) {
 			want:  Command{Kind: CommandSMS, LineID: "line-a", Limit: 20},
 		},
 		{
-			name:  "call normalizes",
-			input: "/call line-a +81 (80) 1234-5678",
+			name:  "call defaults",
+			input: "/call",
 			want: Command{
-				Kind:   CommandCall,
-				LineID: "line-a",
-				Number: "+818012345678",
+				Kind:  CommandCall,
+				Limit: DefaultCallQueryLimit,
 			},
 		},
 		{
-			name:  "call",
-			input: "/call line-a +81-80-1234-5678",
+			name:  "call limit",
+			input: "/call 20",
 			want: Command{
-				Kind:   CommandCall,
-				LineID: "line-a",
-				Number: "+818012345678",
+				Kind:  CommandCall,
+				Limit: 20,
 			},
 		},
 		{
@@ -79,7 +82,9 @@ func TestParseCommand(t *testing.T) {
 		{name: "sms limit low", input: "/sms line-a 0", wantErr: "invalid_sms_limit"},
 		{name: "sms limit high", input: "/sms line-a 21", wantErr: "invalid_sms_limit"},
 		{name: "sms extra", input: "/sms line-a 10 extra", wantErr: "sms_too_many_arguments"},
-		{name: "call national number", input: "/call line-a 08012345678", wantErr: "invalid_phone"},
+		{name: "call limit low", input: "/call 0", wantErr: "invalid_call_limit"},
+		{name: "call limit high", input: "/call 21", wantErr: "invalid_call_limit"},
+		{name: "call extra", input: "/call 10 extra", wantErr: "call_too_many_arguments"},
 		{name: "reply missing body", input: "/reply line-a +818012345678", wantErr: "reply_requires_line_number_and_body"},
 	}
 

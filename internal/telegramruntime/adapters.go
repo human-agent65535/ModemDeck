@@ -14,11 +14,13 @@ import (
 type CommunicationService interface {
 	Status(context.Context) (communication.Status, error)
 	SendMessage(context.Context, communication.SendMessageInput) (store.Message, error)
-	StartCall(context.Context, communication.StartCallInput) (store.Call, error)
 }
 
 type Repository interface {
+	Lines(context.Context) ([]store.LineSummary, error)
 	Messages(context.Context, store.MessageQuery) ([]store.Message, error)
+	Calls(context.Context, store.CallQuery) ([]store.Call, error)
+	RecordingEntries(context.Context, store.RecordingQuery) ([]store.RecordingEntry, error)
 	MarkMessageThreadReadByLine(context.Context, string, string) error
 	TelegramNextOffset(context.Context, string) (int64, error)
 	AdvanceTelegramOffset(context.Context, string, int64) error
@@ -41,13 +43,31 @@ func (a adapters) Lines(ctx context.Context) ([]telegram.Line, error) {
 	if err != nil {
 		return nil, err
 	}
+	if persisted, persistedErr := a.repository.Lines(ctx); persistedErr == nil {
+		status.Lines = mergePersistedLineMetadata(status.Lines, persisted)
+	}
 	lines := make([]telegram.Line, 0, len(status.Lines))
 	for _, line := range status.Lines {
+		capabilitiesKnown := line.Capabilities.Modem ||
+			line.Capabilities.SIM ||
+			line.Capabilities.Messaging ||
+			line.Capabilities.Voice ||
+			line.Capabilities.SendMessage ||
+			line.Capabilities.Dial
 		lines = append(lines, telegram.Line{
-			ID:          line.ID,
-			Label:       lineLabel(line),
-			PhoneNumber: line.PhoneNumber,
-			Available:   lineAvailable(line.State),
+			ID:                line.ID,
+			Label:             lineLabel(line),
+			PhoneNumber:       line.PhoneNumber,
+			Operator:          currentOperator(line),
+			RegistrationKnown: line.RegistrationStateKnown,
+			RegistrationState: line.RegistrationState,
+			Roaming:           line.Roaming,
+			State:             line.State,
+			Signal:            cloneSignal(line.Signal),
+			CapabilitiesKnown: capabilitiesKnown,
+			SMSAvailable:      line.Capabilities.SendMessage,
+			CallAvailable:     line.Capabilities.Dial,
+			Available:         lineAvailable(line.State),
 		})
 	}
 	return lines, nil
@@ -75,21 +95,66 @@ func (a adapters) RecentSMS(ctx context.Context, query telegram.SMSQuery) ([]tel
 	return result, nil
 }
 
+func (a adapters) RecentCalls(ctx context.Context, query telegram.CallQuery) ([]telegram.Call, error) {
+	allowed := make(map[string]struct{}, len(query.LineIDs))
+	for _, lineID := range query.LineIDs {
+		allowed[lineID] = struct{}{}
+	}
+	calls, err := a.repository.Calls(ctx, store.CallQuery{
+		Kind:  store.CallKindAll,
+		Limit: store.MaxQueryLimit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	recorded := make(map[string]struct{})
+	if entries, recordingErr := a.repository.RecordingEntries(
+		ctx,
+		store.RecordingQuery{Limit: store.MaxQueryLimit},
+	); recordingErr == nil {
+		for _, entry := range entries {
+			if entry.Playable {
+				recorded[entry.Call.ID] = struct{}{}
+			}
+		}
+	}
+	limit := query.Limit
+	if limit <= 0 || limit > telegram.MaxCallQueryLimit {
+		limit = telegram.DefaultCallQueryLimit
+	}
+	result := make([]telegram.Call, 0, limit)
+	for _, call := range calls {
+		if _, ok := allowed[call.DeviceID]; !ok {
+			continue
+		}
+		occurredAt := parseDatabaseTime(call.EndedAt)
+		if occurredAt.IsZero() {
+			occurredAt = parseDatabaseTime(call.StartedAt)
+		}
+		_, hasRecording := recorded[call.ID]
+		result = append(result, telegram.Call{
+			ID:           call.ID,
+			LineID:       call.DeviceID,
+			Direction:    call.Direction,
+			Peer:         call.RemoteNumber,
+			ContactName:  call.ContactName,
+			OccurredAt:   occurredAt,
+			Missed:       call.Missed,
+			HasRecording: hasRecording,
+		})
+		if len(result) == limit {
+			break
+		}
+	}
+	return result, nil
+}
+
 func (a adapters) SendSMS(ctx context.Context, request telegram.SMSRequest) error {
 	_, err := a.communications.SendMessage(ctx, communication.SendMessageInput{
 		RequestID: request.RequestID,
 		LineID:    request.LineID,
 		Number:    request.To,
 		Text:      request.Body,
-	})
-	return err
-}
-
-func (a adapters) Dial(ctx context.Context, request telegram.CallRequest) error {
-	_, err := a.communications.StartCall(ctx, communication.StartCallInput{
-		RequestID: request.RequestID,
-		LineID:    request.LineID,
-		Number:    request.To,
 	})
 	return err
 }
@@ -141,14 +206,12 @@ func lineLabel(line store.LineSummary) string {
 		line.LineLabel,
 		line.DeviceAlias,
 		line.Model,
-		line.Operator,
-		line.ID,
 	} {
 		if value = strings.TrimSpace(value); value != "" {
 			return value
 		}
 	}
-	return line.ID
+	return ""
 }
 
 func lineAvailable(state string) bool {
@@ -166,4 +229,82 @@ func parseDatabaseTime(value string) time.Time {
 		return time.Time{}
 	}
 	return parsed.UTC()
+}
+
+func mergePersistedLineMetadata(
+	liveLines []store.LineSummary,
+	persistedLines []store.LineSummary,
+) []store.LineSummary {
+	byICCID := make(map[string]store.LineSummary, len(persistedLines))
+	byIMSI := make(map[string]store.LineSummary, len(persistedLines))
+	aliasesByIMEI := make(map[string]string, len(persistedLines))
+	for _, line := range persistedLines {
+		if iccid := strings.TrimSpace(line.ICCID); iccid != "" {
+			byICCID[iccid] = line
+		}
+		if imsi := strings.TrimSpace(line.IMSI); imsi != "" {
+			byIMSI[imsi] = line
+		}
+		if imei := strings.TrimSpace(line.DeviceIMEI); imei != "" {
+			aliasesByIMEI[imei] = strings.TrimSpace(line.DeviceAlias)
+		}
+	}
+	merged := make([]store.LineSummary, len(liveLines))
+	for index, live := range liveLines {
+		line := live
+		if line.DeviceAlias == "" {
+			line.DeviceAlias = aliasesByIMEI[strings.TrimSpace(line.DeviceIMEI)]
+		}
+		persisted, found := byICCID[strings.TrimSpace(line.ICCID)]
+		if !found {
+			persisted, found = byIMSI[strings.TrimSpace(line.IMSI)]
+		}
+		if found {
+			if line.LineLabel == "" {
+				line.LineLabel = persisted.LineLabel
+			}
+			if line.PhoneNumber == "" {
+				line.PhoneNumber = persisted.PhoneNumber
+			}
+			if line.HomeOperatorName == "" {
+				line.HomeOperatorName = persisted.HomeOperatorName
+			}
+			if line.Operator == "" {
+				line.Operator = persisted.Operator
+			}
+		}
+		merged[index] = line
+	}
+	return merged
+}
+
+func currentOperator(line store.LineSummary) string {
+	state := strings.ToLower(strings.TrimSpace(line.RegistrationState))
+	if line.RegistrationStateKnown &&
+		(state == "registered" || state == "home" || state == "registered-home" ||
+			state == "roaming" || state == "registered-roaming") {
+		for _, value := range []string{line.ServingOperatorName, line.ServingOperatorCode} {
+			if value = strings.TrimSpace(value); value != "" {
+				return value
+			}
+		}
+	}
+	for _, value := range []string{
+		line.HomeOperatorName,
+		line.Operator,
+		line.HomeOperatorCode,
+	} {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func cloneSignal(value *uint32) *uint32 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
