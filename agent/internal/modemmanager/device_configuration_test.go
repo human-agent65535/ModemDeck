@@ -134,6 +134,28 @@ func TestDeviceConfigurationReadsGenericModemManagerState(t *testing.T) {
 	)
 }
 
+func TestParseDataConnectionPreservesAPNType(t *testing.T) {
+	t.Parallel()
+
+	connection, err := parseDataConnection("bearer-default", Properties{
+		"Connected": dbus.MakeVariant(true),
+		"Interface": dbus.MakeVariant("wwan0"),
+		"Properties": dbus.MakeVariant(map[string]dbus.Variant{
+			"apn":      dbus.MakeVariant("internet.example"),
+			"apn-type": dbus.MakeVariant(domain.APNTypeDefault),
+			"ip-type":  dbus.MakeVariant(uint32(1)),
+		}),
+		"Ip4Config": dbus.MakeVariant(map[string]dbus.Variant{}),
+		"Ip6Config": dbus.MakeVariant(map[string]dbus.Variant{}),
+	})
+	if err != nil {
+		t.Fatalf("parseDataConnection() error = %v", err)
+	}
+	if connection.APNType != domain.APNTypeDefault {
+		t.Fatalf("APN type = %d, want default bit", connection.APNType)
+	}
+}
+
 func TestApplyDeviceConfigurationWritesOnceAndVerifiesReadBack(t *testing.T) {
 	t.Parallel()
 	objects := configurationObjects()
@@ -162,6 +184,7 @@ func TestApplyDeviceConfigurationWritesOnceAndVerifiesReadBack(t *testing.T) {
 	}
 	if !connected.NetworkEnabled || len(connected.DataConnections) != 1 ||
 		connected.DataConnections[0].APN != "internet.example" ||
+		connected.DataConnections[0].APNType != domain.APNTypeDefault ||
 		connected.DataConnections[0].IPFamily != "ipv4" {
 		t.Fatalf("connected configuration = %+v", connected)
 	}

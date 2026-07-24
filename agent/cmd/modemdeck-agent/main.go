@@ -17,6 +17,7 @@ import (
 	"github.com/human-agent65535/modemdeck/agent/internal/httpapi"
 	"github.com/human-agent65535/modemdeck/agent/internal/media"
 	"github.com/human-agent65535/modemdeck/agent/internal/modemmanager"
+	"github.com/human-agent65535/modemdeck/agent/internal/networking"
 	"github.com/human-agent65535/modemdeck/agent/internal/unixsocket"
 	"github.com/human-agent65535/modemdeck/agent/internal/volte"
 )
@@ -123,6 +124,15 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("create device configuration service: %w", err)
 	}
+	networkManager, err := networking.NewManager(provider, deviceConfigurations)
+	if err != nil {
+		return fmt.Errorf("create network manager: %w", err)
+	}
+	defer func() {
+		if err := networkManager.Close(); err != nil {
+			slog.Error("close network manager", "error", err)
+		}
+	}()
 
 	listener, err := unixsocket.Listen(unixsocket.Config{
 		Path: *socketPath,
@@ -139,6 +149,7 @@ func run() error {
 		Handler: httpapi.NewWithOptions(provider, version, httpapi.Options{
 			Media:                mediaManager,
 			DeviceConfigurations: deviceConfigurations,
+			Network:              networkManager,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,

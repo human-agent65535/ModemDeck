@@ -13,6 +13,8 @@ type AgentCapabilities struct {
 	Discovery           bool `json:"discovery"`
 	Snapshot            bool `json:"snapshot"`
 	DeviceConfiguration bool `json:"device_configuration"`
+	Network             bool `json:"network"`
+	Proxy               bool `json:"proxy"`
 	Dial                bool `json:"dial"`
 	AnswerCall          bool `json:"answer_call"`
 	RejectCall          bool `json:"reject_call"`

@@ -135,7 +135,9 @@ func (p *Provider) ApplyGenericDeviceConfiguration(
 		if matchingConnectedData(current.DataConnections, apn, requestedFamily) {
 			return current, nil
 		}
-		properties := map[string]dbus.Variant{}
+		properties := map[string]dbus.Variant{
+			"apn-type": dbus.MakeVariant(domain.APNTypeDefault),
+		}
 		if apn != "" {
 			properties["apn"] = dbus.MakeVariant(apn)
 		}
@@ -442,6 +444,7 @@ func parseDataConnection(id string, properties Properties) (domain.DataConnectio
 	}
 	if found {
 		connection.APN, _ = stringProperty(bearerProperties, "apn")
+		connection.APNType, _ = uint32Property(bearerProperties, "apn-type")
 		family, _ := uint32Property(bearerProperties, "ip-type")
 		connection.IPFamily = bearerIPFamilyName(family)
 	}
@@ -548,6 +551,9 @@ func verifyConnectedBearer(
 		if !connection.Connected {
 			return fmt.Errorf("returned bearer is not connected")
 		}
+		if connection.APNType&domain.APNTypeDefault == 0 {
+			return fmt.Errorf("returned bearer is not a default Internet bearer")
+		}
 		if apn != "" && connection.APN != apn {
 			return fmt.Errorf("bearer APN read-back did not match the request")
 		}
@@ -562,6 +568,9 @@ func verifyConnectedBearer(
 func matchingConnectedData(connections []domain.DataConnection, apn string, family uint32) bool {
 	for _, connection := range connections {
 		if !connection.Connected {
+			continue
+		}
+		if connection.APNType&domain.APNTypeDefault == 0 {
 			continue
 		}
 		if apn != "" && connection.APN != apn {

@@ -20,6 +20,7 @@ type handler struct {
 	provider             domain.Provider
 	deviceConfigurations domain.DeviceConfigurationProvider
 	lineServices         domain.LineServiceProvider
+	network              domain.NetworkProvider
 	agentVersion         string
 	media                *media.Manager
 }
@@ -58,6 +59,7 @@ type Options struct {
 	Media                *media.Manager
 	DeviceConfigurations domain.DeviceConfigurationProvider
 	LineServices         domain.LineServiceProvider
+	Network              domain.NetworkProvider
 }
 
 func NewWithOptions(
@@ -73,6 +75,7 @@ func NewWithOptions(
 		provider:             provider,
 		deviceConfigurations: options.DeviceConfigurations,
 		lineServices:         lineServices,
+		network:              options.Network,
 		agentVersion:         agentVersion,
 		media:                options.Media,
 	}
@@ -94,6 +97,8 @@ func NewWithOptions(
 	mux.HandleFunc("POST /v1/calls/{id}/hangup", h.hangupCall)
 	mux.HandleFunc("POST /v1/calls/{id}/dtmf", h.sendDTMF)
 	mux.HandleFunc("POST /v1/messages", h.sendMessage)
+	mux.HandleFunc("PUT /v1/proxies", h.putProxies)
+	mux.HandleFunc("GET /v1/network", h.getNetwork)
 	mux.HandleFunc("/", h.notFound)
 	if options.Media == nil {
 		return mux
@@ -118,6 +123,8 @@ func (h *handler) health(w http.ResponseWriter, r *http.Request) {
 	health.Capabilities.SIMManagement = h.lineServices != nil
 	health.Capabilities.ConnectionProfiles = h.lineServices != nil
 	health.Capabilities.USSD = h.lineServices != nil
+	health.Capabilities.Network = h.network != nil
+	health.Capabilities.Proxy = h.network != nil
 	h.writeJSON(w, http.StatusOK, healthResponse{
 		Status:       status,
 		APIVersion:   domain.APIVersion,

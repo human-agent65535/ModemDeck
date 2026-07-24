@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const APNTypeDefault uint32 = 1 << 1
+
 type DeviceConfigurationOperation string
 
 const (
@@ -53,6 +55,7 @@ type DataConnection struct {
 	ID        string          `json:"id"`
 	Connected bool            `json:"connected"`
 	APN       string          `json:"apn"`
+	APNType   uint32          `json:"-"`
 	IPFamily  string          `json:"ip_family"`
 	Interface string          `json:"interface"`
 	IPv4      IPConfiguration `json:"ipv4"`
