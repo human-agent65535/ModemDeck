@@ -269,8 +269,8 @@ func upsertHardwareLine(ctx context.Context, transaction *sql.Tx, line HardwareL
 		ctx,
 		`INSERT INTO devices (
 			imei, model, firmware, port, iccid, sim_inserted, signal_quality,
-			last_seen, created_at, updated_at
-		 ) VALUES (?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?)
+			signal_db_m, signal_rsrq, signal_rsrp, last_seen, created_at, updated_at
+		 ) VALUES (?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(imei) DO UPDATE SET
 			model = excluded.model,
 			firmware = excluded.firmware,
@@ -278,6 +278,9 @@ func upsertHardwareLine(ctx context.Context, transaction *sql.Tx, line HardwareL
 			iccid = excluded.iccid,
 			sim_inserted = excluded.sim_inserted,
 			signal_quality = excluded.signal_quality,
+			signal_db_m = excluded.signal_db_m,
+			signal_rsrq = excluded.signal_rsrq,
+			signal_rsrp = excluded.signal_rsrp,
 			last_seen = excluded.last_seen,
 			updated_at = excluded.updated_at`,
 		imei,
@@ -287,6 +290,9 @@ func upsertHardwareLine(ctx context.Context, transaction *sql.Tx, line HardwareL
 		strings.TrimSpace(line.ICCID),
 		line.ICCID != "",
 		signal,
+		signalMetricValue(line.SignalDBM),
+		signalMetricValue(line.SignalRSRQ),
+		signalMetricValue(line.SignalRSRP),
 		databaseTime(observedAt),
 		databaseTime(observedAt),
 		databaseTime(observedAt),
@@ -631,6 +637,13 @@ func messageByID(ctx context.Context, queryer interface {
 		message.Direction = "outgoing"
 	}
 	return message, nil
+}
+
+func signalMetricValue(value *int64) int64 {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareCall) (Call, error) {

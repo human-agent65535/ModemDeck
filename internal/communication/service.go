@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -1111,6 +1112,9 @@ func projectSnapshot(
 			State:               line.State,
 			SignalKnown:         line.SignalQualityKnown,
 			SignalQuality:       line.SignalQuality,
+			SignalDBM:           roundedSignal(line.SignalDBM),
+			SignalRSRQ:          roundedSignal(line.SignalRSRQ),
+			SignalRSRP:          roundedSignal(line.SignalRSRP),
 			PhoneNumber:         firstString(line.OwnNumbers),
 			ICCID:               line.SIMIdentifier,
 			IMSI:                line.IMSI,
@@ -1146,6 +1150,14 @@ func projectSnapshot(
 		Calls:      calls,
 		Messages:   messages,
 	}, lines
+}
+
+func roundedSignal(value *float64) *int64 {
+	if value == nil {
+		return nil
+	}
+	rounded := int64(math.Round(*value))
+	return &rounded
 }
 
 func projectLine(line agentclient.Line) store.LineSummary {

@@ -28,6 +28,8 @@ const (
 	propertiesInterface     = "org.freedesktop.DBus.Properties"
 	introspectableInterface = "org.freedesktop.DBus.Introspectable"
 	terminalCallRetention   = 30 * time.Second
+	signalRefreshInterval   = uint32(10)
+	signalSetupRetryDelay   = 30 * time.Second
 )
 
 type Provider struct {
@@ -41,11 +43,19 @@ type Provider struct {
 	configMu      sync.Mutex
 	snapshotMu    sync.Mutex
 	terminalCalls map[string]terminalCallProjection
+
+	telemetryMu       sync.Mutex
+	signalSetupStates map[string]signalSetupState
 }
 
 type terminalCallProjection struct {
 	call      domain.Call
 	expiresAt time.Time
+}
+
+type signalSetupState struct {
+	complete    bool
+	nextAttempt time.Time
 }
 
 type ownerResolver interface {
@@ -96,11 +106,12 @@ func newProvider(caller Caller, ids *instanceIDs) *Provider {
 		resolver = staticOwnerResolver{owner: owner}
 	}
 	return &Provider{
-		caller:        caller,
-		ownerResolver: resolver,
-		now:           time.Now,
-		ids:           ids,
-		terminalCalls: make(map[string]terminalCallProjection),
+		caller:            caller,
+		ownerResolver:     resolver,
+		now:               time.Now,
+		ids:               ids,
+		terminalCalls:     make(map[string]terminalCallProjection),
+		signalSetupStates: make(map[string]signalSetupState),
 	}
 }
 
@@ -175,6 +186,12 @@ func (p *Provider) Snapshot(ctx context.Context) (domain.Snapshot, error) {
 	objects, err := p.managedObjects(ctx, operation)
 	if err != nil {
 		return domain.Snapshot{}, err
+	}
+	if p.prepareExtendedSignal(ctx, operation, objects) {
+		objects, err = p.managedObjects(ctx, operation)
+		if err != nil {
+			return domain.Snapshot{}, err
+		}
 	}
 	objects, err = p.hydrateReferencedSIMs(ctx, operation, objects)
 	if err != nil {
@@ -662,6 +679,9 @@ func (p *Provider) resolveProviderIdentity(
 		p.snapshotMu.Lock()
 		p.terminalCalls = make(map[string]terminalCallProjection)
 		p.snapshotMu.Unlock()
+		p.telemetryMu.Lock()
+		p.signalSetupStates = make(map[string]signalSetupState)
+		p.telemetryMu.Unlock()
 	}
 	identity, err := p.ids.freeze()
 	if err != nil {
@@ -678,6 +698,95 @@ func (p *Provider) clearProviderIdentity() {
 	p.snapshotMu.Lock()
 	p.terminalCalls = make(map[string]terminalCallProjection)
 	p.snapshotMu.Unlock()
+	p.telemetryMu.Lock()
+	p.signalSetupStates = make(map[string]signalSetupState)
+	p.telemetryMu.Unlock()
+}
+
+func (p *Provider) prepareExtendedSignal(
+	ctx context.Context,
+	operation string,
+	objects ManagedObjects,
+) bool {
+	paths := make([]dbus.ObjectPath, 0, len(objects))
+	for path, interfaces := range objects {
+		if _, found := interfaces[modemInterface]; !found {
+			continue
+		}
+		if _, found := interfaces[signalInterface]; found {
+			paths = append(paths, path)
+		}
+	}
+	sort.Slice(paths, func(i, j int) bool {
+		return paths[i] < paths[j]
+	})
+
+	started := false
+	for _, path := range paths {
+		interfaces := objects[path]
+		state, stateKnown := int32Property(interfaces[modemInterface], "State")
+		if !stateKnown || state < modemStateEnabled {
+			continue
+		}
+		signalProperties := interfaces[signalInterface]
+		rate, known := uint32Property(signalProperties, "Rate")
+		if !known || rate != 0 {
+			continue
+		}
+		key := signalSetupKey(path, interfaces[modemInterface])
+		if !p.claimSignalSetup(key) {
+			continue
+		}
+		_, err := p.call(
+			ctx,
+			path,
+			signalInterface+".Setup",
+			operation,
+			"ModemManager failed to start extended signal polling",
+			signalRefreshInterval,
+		)
+		if err == nil {
+			p.completeSignalSetup(key)
+			started = true
+			continue
+		}
+		if operationError, ok := domain.AsOperationError(err); ok &&
+			(operationError.Code == domain.ErrorNotSupported ||
+				operationError.Code == domain.ErrorPermissionDenied) {
+			p.completeSignalSetup(key)
+		}
+	}
+	return started
+}
+
+func (p *Provider) claimSignalSetup(key string) bool {
+	p.telemetryMu.Lock()
+	defer p.telemetryMu.Unlock()
+	now := time.Now()
+	if p.now != nil {
+		now = p.now()
+	}
+	state, found := p.signalSetupStates[key]
+	if state.complete || found && now.Before(state.nextAttempt) {
+		return false
+	}
+	state.nextAttempt = now.Add(signalSetupRetryDelay)
+	p.signalSetupStates[key] = state
+	return true
+}
+
+func (p *Provider) completeSignalSetup(key string) {
+	p.telemetryMu.Lock()
+	defer p.telemetryMu.Unlock()
+	state := p.signalSetupStates[key]
+	state.complete = true
+	p.signalSetupStates[key] = state
+}
+
+func signalSetupKey(path dbus.ObjectPath, modemProperties Properties) string {
+	equipmentIdentifier, _ := stringProperty(modemProperties, "EquipmentIdentifier")
+	deviceIdentifier, _ := stringProperty(modemProperties, "DeviceIdentifier")
+	return string(path) + "\x00" + equipmentIdentifier + "\x00" + deviceIdentifier
 }
 
 func (p *Provider) managedObjects(ctx context.Context, operation string) (ManagedObjects, error) {
@@ -770,10 +879,30 @@ func (p *Provider) call(
 	message string,
 	args ...any,
 ) ([]any, error) {
+	return p.callDestination(
+		ctx,
+		serviceName,
+		path,
+		method,
+		operation,
+		message,
+		args...,
+	)
+}
+
+func (p *Provider) callDestination(
+	ctx context.Context,
+	destination string,
+	path dbus.ObjectPath,
+	method string,
+	operation string,
+	message string,
+	args ...any,
+) ([]any, error) {
 	if err := p.requireCaller(ctx, operation); err != nil {
 		return nil, err
 	}
-	body, err := p.caller.Call(ctx, serviceName, path, method, dbus.FlagNoAutoStart, args...)
+	body, err := p.caller.Call(ctx, destination, path, method, dbus.FlagNoAutoStart, args...)
 	if err != nil {
 		return nil, mapCallError(operation, message, err)
 	}

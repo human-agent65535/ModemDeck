@@ -127,85 +127,60 @@ func (p *Provider) ApplyGenericDeviceConfiguration(
 		if err != nil {
 			return domain.DeviceConfiguration{}, domain.InvalidArgument(operation, err.Error())
 		}
-		apn := strings.TrimSpace(request.APN)
-		if invalidAPN(apn) {
+		requestedAPN := strings.TrimSpace(request.APN)
+		if invalidAPN(requestedAPN) {
 			return domain.DeviceConfiguration{}, domain.InvalidArgument(
 				operation,
 				"apn must be empty for automatic selection or contain only ASCII letters, digits, dots, and hyphens",
 			)
 		}
-		if matchingConnectedData(current.DataConnections, apn, requestedFamily) {
-			return current, nil
+		effectiveAPN := requestedAPN
+		if effectiveAPN == "" {
+			effectiveAPN = strings.TrimSpace(current.AutomaticAPN)
 		}
-		properties := map[string]dbus.Variant{
-			"apn-type": dbus.MakeVariant(domain.APNTypeDefault),
-		}
-		if apn != "" {
-			properties["apn"] = dbus.MakeVariant(apn)
-		}
-		if requestedFamily != 0 {
-			properties["ip-type"] = dbus.MakeVariant(requestedFamily)
-		}
-		body, err := p.call(
+		reuseExisting := matchingConnectedData(
+			current.DataConnections,
+			effectiveAPN,
+			requestedFamily,
+		)
+		if _, err := p.activateNetworkManagerData(
 			bounded,
 			modemPath,
-			modemInterface+".CreateBearer",
-			operation,
-			"ModemManager failed to create the packet data bearer",
-			properties,
-		)
-		if err != nil {
-			return domain.DeviceConfiguration{}, err
-		}
-		bearerPath, err := objectPathResult(
-			operation,
-			"ModemManager returned an invalid packet data bearer path",
-			body,
-		)
-		if err != nil {
-			return domain.DeviceConfiguration{}, err
-		}
-		if _, err := p.call(
-			bounded,
-			bearerPath,
-			bearerInterface+".Connect",
-			operation,
-			"ModemManager failed to connect the packet data bearer",
+			request.LineID,
+			requestedAPN,
+			current.AutomaticAPN,
+			requestedFamily,
+			reuseExisting,
 		); err != nil {
-			if cleanupErr := p.deleteBearer(modemPath, bearerPath); cleanupErr != nil {
-				return domain.DeviceConfiguration{}, domain.VerificationFailed(
-					operation,
-					"packet data connection failed and the created bearer could not be removed",
-					errors.Join(err, cleanupErr),
-				)
-			}
 			return domain.DeviceConfiguration{}, err
 		}
 		verified, _, _, err := p.readDeviceConfiguration(bounded, request.LineID, operation)
 		if err != nil {
-			if rollbackErr := p.rollbackBearer(modemPath, bearerPath); rollbackErr != nil {
+			if rollbackErr := p.cleanupOwnedNetworkManagerData(modemPath, request.LineID); rollbackErr != nil {
 				return domain.DeviceConfiguration{}, domain.VerificationFailed(
 					operation,
-					"packet data state could not be verified and bearer rollback failed",
+					"cellular data state could not be verified and NetworkManager rollback failed",
 					errors.Join(err, rollbackErr),
 				)
 			}
 			return domain.DeviceConfiguration{}, err
 		}
-		if err := verifyConnectedBearer(
-			p.ids.bearerID(bearerPath),
-			apn,
-			requestedFamily,
-			verified,
-		); err != nil {
-			if rollbackErr := p.rollbackBearer(modemPath, bearerPath); rollbackErr != nil {
+		if !matchingConnectedData(verified.DataConnections, effectiveAPN, requestedFamily) {
+			verificationErr := errors.New(
+				"NetworkManager activated the modem but no matching connected Internet bearer was reported",
+			)
+			if rollbackErr := p.cleanupOwnedNetworkManagerData(modemPath, request.LineID); rollbackErr != nil {
 				return domain.DeviceConfiguration{}, domain.VerificationFailed(
 					operation,
-					"packet data verification failed and bearer rollback failed",
-					errors.Join(err, rollbackErr),
+					"cellular data verification failed and NetworkManager rollback failed",
+					errors.Join(verificationErr, rollbackErr),
 				)
 			}
-			return domain.DeviceConfiguration{}, domain.VerificationFailed(operation, err.Error(), err)
+			return domain.DeviceConfiguration{}, domain.VerificationFailed(
+				operation,
+				verificationErr.Error(),
+				verificationErr,
+			)
 		}
 		return verified, nil
 	case domain.DeviceConfigurationDisconnectData:
@@ -215,18 +190,22 @@ func (p *Provider) ApplyGenericDeviceConfiguration(
 				current.Capabilities.DataConnection.Reason,
 			)
 		}
-		if !current.NetworkEnabled {
-			return current, nil
-		}
-		if _, err := p.call(
+		deactivated, err := p.deactivateOwnedNetworkManagerData(
 			bounded,
 			modemPath,
-			simpleInterface+".Disconnect",
-			operation,
-			"ModemManager failed to disconnect packet data bearers",
-			dbus.ObjectPath("/"),
-		); err != nil {
+			request.LineID,
+		)
+		if err != nil {
 			return domain.DeviceConfiguration{}, err
+		}
+		if !deactivated {
+			if current.NetworkEnabled {
+				return domain.DeviceConfiguration{}, domain.Conflict(
+					operation,
+					"the connected cellular bearer is not owned by ModemDeck",
+				)
+			}
+			return current, nil
 		}
 	case domain.DeviceConfigurationRestartModem:
 		if !current.Capabilities.Radio.Writable {
@@ -375,6 +354,7 @@ func (p *Provider) readDeviceConfiguration(
 
 func genericConfigurationCapabilities(interfaces Interfaces) domain.DeviceConfigurationCapabilities {
 	modemManager := "modemmanager"
+	networkManager := "networkmanager"
 	vendor := "vendor_extension"
 	application := "application"
 	_, voiceSupported := interfaces[voiceInterface]
@@ -392,7 +372,7 @@ func genericConfigurationCapabilities(interfaces Interfaces) domain.DeviceConfig
 	}
 	dataReason := ""
 	if !dataWritable {
-		dataReason = "active bearer APN/IP is readable; ModemManager Simple is not exposed for connect and disconnect"
+		dataReason = "NetworkManager requires the ModemManager Simple interface for cellular activation"
 	}
 	ussdReason := ""
 	if !ussdSupported {
@@ -423,7 +403,7 @@ func genericConfigurationCapabilities(interfaces Interfaces) domain.DeviceConfig
 			Writable:    true,
 		},
 		DataConnection: domain.FeatureCapability{
-			Backend:     modemManager,
+			Backend:     networkManager,
 			Supported:   true,
 			Implemented: true,
 			Readable:    true,
@@ -563,40 +543,6 @@ func initialEPSBearerAPN(objects ManagedObjects, interfaces Interfaces) string {
 	return apn
 }
 
-func (p *Provider) deleteBearer(
-	modemPath dbus.ObjectPath,
-	bearerPath dbus.ObjectPath,
-) error {
-	ctx, cancel := context.WithTimeout(context.Background(), deviceConfigurationReadTimeout)
-	defer cancel()
-	_, err := p.call(
-		ctx,
-		modemPath,
-		modemInterface+".DeleteBearer",
-		"apply_device_configuration",
-		"ModemManager failed to delete the packet data bearer",
-		bearerPath,
-	)
-	return err
-}
-
-func (p *Provider) rollbackBearer(
-	modemPath dbus.ObjectPath,
-	bearerPath dbus.ObjectPath,
-) error {
-	ctx, cancel := context.WithTimeout(context.Background(), deviceConfigurationReadTimeout)
-	defer cancel()
-	_, disconnectErr := p.call(
-		ctx,
-		bearerPath,
-		bearerInterface+".Disconnect",
-		"apply_device_configuration",
-		"ModemManager failed to disconnect the packet data bearer",
-	)
-	deleteErr := p.deleteBearer(modemPath, bearerPath)
-	return errors.Join(disconnectErr, deleteErr)
-}
-
 func validateConfigurationRequest(request domain.ApplyDeviceConfigurationRequest) error {
 	const operation = "apply_device_configuration"
 	request.LineID = strings.TrimSpace(request.LineID)
@@ -652,33 +598,6 @@ func configurationContext(
 	return bounded, cancel, nil
 }
 
-func verifyConnectedBearer(
-	bearerID string,
-	apn string,
-	requestedFamily uint32,
-	configuration domain.DeviceConfiguration,
-) error {
-	for _, connection := range configuration.DataConnections {
-		if connection.ID != bearerID {
-			continue
-		}
-		if !connection.Connected {
-			return fmt.Errorf("returned bearer is not connected")
-		}
-		if connection.APNType&domain.APNTypeDefault == 0 {
-			return fmt.Errorf("returned bearer is not a default Internet bearer")
-		}
-		if apn != "" && connection.APN != apn {
-			return fmt.Errorf("bearer APN read-back did not match the request")
-		}
-		if requestedFamily != 0 && connection.IPFamily != bearerIPFamilyName(requestedFamily) {
-			return fmt.Errorf("bearer IP family read-back did not match the request")
-		}
-		return nil
-	}
-	return fmt.Errorf("returned bearer was absent from the authoritative modem snapshot")
-}
-
 func matchingConnectedData(connections []domain.DataConnection, apn string, family uint32) bool {
 	for _, connection := range connections {
 		if !connection.Connected {
@@ -690,12 +609,43 @@ func matchingConnectedData(connections []domain.DataConnection, apn string, fami
 		if apn != "" && connection.APN != apn {
 			continue
 		}
-		if family != 0 && connection.IPFamily != bearerIPFamilyName(family) {
+		if !connectedFamilyMatches(connection, family) {
 			continue
 		}
 		return true
 	}
 	return false
+}
+
+func connectedFamilyMatches(connection domain.DataConnection, family uint32) bool {
+	switch family {
+	case 0, bearerIPFamilyAny:
+		return true
+	case bearerIPFamilyIPv4:
+		return connection.IPFamily == "ipv4" ||
+			connection.IPFamily == "ipv4v6" && ipConfigurationAvailable(connection.IPv4)
+	case bearerIPFamilyIPv6:
+		return connection.IPFamily == "ipv6" ||
+			connection.IPFamily == "ipv4v6" && ipConfigurationAvailable(connection.IPv6)
+	case bearerIPFamilyIPv4V6:
+		switch connection.IPFamily {
+		case "ipv4":
+			return ipConfigurationAvailable(connection.IPv4)
+		case "ipv6":
+			return ipConfigurationAvailable(connection.IPv6)
+		case "ipv4v6":
+			return ipConfigurationAvailable(connection.IPv4) ||
+				ipConfigurationAvailable(connection.IPv6)
+		}
+	}
+	return false
+}
+
+func ipConfigurationAvailable(configuration domain.IPConfiguration) bool {
+	return configuration.Method != "" ||
+		configuration.Address != "" ||
+		configuration.Gateway != "" ||
+		len(configuration.DNS) > 0
 }
 
 func invalidAPN(value string) bool {

@@ -17,6 +17,9 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 	repository := newHardwareTestStore(t)
 	ctx := context.Background()
 	observed := time.Date(2026, time.July, 23, 10, 0, 0, 0, time.UTC)
+	signalDBM := int64(-68)
+	signalRSRQ := int64(-11)
+	signalRSRP := int64(-94)
 	line := HardwareLine{
 		ID:                  "line-boot-1",
 		Model:               "Fixture modem",
@@ -26,6 +29,9 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 		State:               "registered",
 		SignalKnown:         true,
 		SignalQuality:       74,
+		SignalDBM:           &signalDBM,
+		SignalRSRQ:          &signalRSRQ,
+		SignalRSRP:          &signalRSRP,
 		PhoneNumber:         "+819012345678",
 		ICCID:               "8901000000000000001",
 		IMSI:                "440500000000001",
@@ -110,6 +116,11 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 	}
 	if len(devices) != 1 || devices[0].SignalQuality == nil || *devices[0].SignalQuality != 74 {
 		t.Fatalf("devices = %+v, want persisted signal quality", devices)
+	}
+	if devices[0].SignalDBM != signalDBM ||
+		devices[0].SignalRSRQ != signalRSRQ ||
+		devices[0].SignalRSRP != signalRSRP {
+		t.Fatalf("devices = %+v, want persisted extended signal", devices)
 	}
 
 	if err := repository.MarkMessageThreadReadByLine(ctx, line.ID, message.Number); err != nil {

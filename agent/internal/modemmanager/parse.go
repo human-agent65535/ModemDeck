@@ -1,6 +1,7 @@
 package modemmanager
 
 import (
+	"math"
 	"sort"
 	"strings"
 
@@ -11,6 +12,7 @@ import (
 
 const (
 	modemInterface     = "org.freedesktop.ModemManager1.Modem"
+	signalInterface    = "org.freedesktop.ModemManager1.Modem.Signal"
 	simInterface       = "org.freedesktop.ModemManager1.Sim"
 	voiceInterface     = "org.freedesktop.ModemManager1.Modem.Voice"
 	callInterface      = "org.freedesktop.ModemManager1.Call"
@@ -90,6 +92,12 @@ func ParseManagedObjects(objects ManagedObjects, ids *instanceIDs) ParsedObjects
 		line.PowerStateCode, _ = uint32Property(modemProperties, "PowerState")
 		line.AccessTechnologies, _ = uint32Property(modemProperties, "AccessTechnologies")
 		line.SignalQuality, line.SignalQualityRecent, line.SignalQualityKnown = signalQualityProperty(modemProperties)
+		if signalProperties, found := interfaces[signalInterface]; found {
+			line.SignalDBM, line.SignalRSRP, line.SignalRSRQ = extendedSignalProperties(
+				signalProperties,
+				line.AccessTechnologies,
+			)
+		}
 		line.OwnNumbers, _ = stringsProperty(modemProperties, "OwnNumbers")
 
 		if simPath, present := objectPathProperty(modemProperties, "Sim"); present && simPath != "/" {
@@ -509,6 +517,48 @@ func signalQualityProperty(properties Properties) (uint32, bool, bool) {
 		return 0, false, false
 	}
 	return quality, recent, true
+}
+
+func extendedSignalProperties(
+	properties Properties,
+	accessTechnologies uint32,
+) (*float64, *float64, *float64) {
+	technologyOrder := []string{"Lte", "Nr5g", "Umts", "Gsm", "Cdma", "Evdo"}
+	if accessTechnologies&accessTechnologyLTE == 0 {
+		technologyOrder = []string{"Nr5g", "Umts", "Gsm", "Lte", "Cdma", "Evdo"}
+	}
+	for _, technology := range technologyOrder {
+		values, ok := signalValuesProperty(properties, technology)
+		if !ok || len(values) == 0 {
+			continue
+		}
+		rssi := finiteSignalValue(values, "rssi")
+		rsrp := finiteSignalValue(values, "rsrp")
+		rsrq := finiteSignalValue(values, "rsrq")
+		return rssi, rsrp, rsrq
+	}
+	return nil, nil, nil
+}
+
+func signalValuesProperty(properties Properties, name string) (Properties, bool) {
+	value, ok := propertyValue(properties, name)
+	if !ok {
+		return nil, false
+	}
+	values, ok := value.(map[string]dbus.Variant)
+	return values, ok
+}
+
+func finiteSignalValue(properties Properties, name string) *float64 {
+	value, ok := propertyValue(properties, name)
+	if !ok {
+		return nil
+	}
+	number, ok := value.(float64)
+	if !ok || math.IsNaN(number) || math.IsInf(number, 0) {
+		return nil
+	}
+	return &number
 }
 
 func propertyValue(properties Properties, name string) (any, bool) {

@@ -17,6 +17,7 @@ const (
 	messageErrorPrefix          = "org.freedesktop.ModemManager1.Error.Message."
 	cdmaActivationErrorPrefix   = "org.freedesktop.ModemManager1.Error.CdmaActivation."
 	carrierLockErrorPrefix      = "org.freedesktop.ModemManager1.Error.CarrierLock."
+	networkManagerErrorPrefix   = "org.freedesktop.NetworkManager.Error."
 )
 
 func mapCallError(operation, message string, err error) error {
@@ -34,6 +35,7 @@ func mapCallError(operation, message string, err error) error {
 func classifyDBusError(name string) (domain.ErrorCode, bool) {
 	switch name {
 	case dbusErrorPrefix + "InvalidArgs",
+		networkManagerErrorPrefix + "InvalidArguments",
 		modemManagerCoreErrorPrefix + "InvalidArgs",
 		mobileEquipmentErrorPrefix + "InvalidIndex",
 		mobileEquipmentErrorPrefix + "TextTooLong",
@@ -53,6 +55,9 @@ func classifyDBusError(name string) (domain.ErrorCode, bool) {
 
 	case dbusErrorPrefix + "UnknownObject",
 		dbusErrorPrefix + "FileNotFound",
+		networkManagerErrorPrefix + "UnknownDevice",
+		networkManagerErrorPrefix + "UnknownConnection",
+		networkManagerErrorPrefix + "ConnectionNotActive",
 		modemManagerCoreErrorPrefix + "NotFound",
 		mobileEquipmentErrorPrefix + "NotFound",
 		mobileEquipmentErrorPrefix + "UnknownPdpContext",
@@ -81,12 +86,15 @@ func classifyDBusError(name string) (domain.ErrorCode, bool) {
 
 	case dbusErrorPrefix + "AccessDenied",
 		dbusErrorPrefix + "AuthFailed",
+		networkManagerErrorPrefix + "PermissionDenied",
 		modemManagerCoreErrorPrefix + "Unauthorized":
 		return domain.ErrorPermissionDenied, true
 
 	case modemManagerCoreErrorPrefix + "WrongState",
 		modemManagerCoreErrorPrefix + "Connected",
 		modemManagerCoreErrorPrefix + "WrongSimState",
+		networkManagerErrorPrefix + "Failed",
+		networkManagerErrorPrefix + "NoSecrets",
 		mobileEquipmentErrorPrefix + "NotAllowed",
 		mobileEquipmentErrorPrefix + "PhSimPin",
 		mobileEquipmentErrorPrefix + "PhFsimPin",
@@ -181,6 +189,8 @@ func classifyDBusError(name string) (domain.ErrorCode, bool) {
 
 	case dbusErrorPrefix + "LimitsExceeded",
 		dbusErrorPrefix + "ObjectPathInUse",
+		networkManagerErrorPrefix + "AlreadyActive",
+		networkManagerErrorPrefix + "ConnectionAlreadyActive",
 		modemManagerCoreErrorPrefix + "InProgress",
 		modemManagerCoreErrorPrefix + "TooMany",
 		modemManagerCoreErrorPrefix + "Exists",

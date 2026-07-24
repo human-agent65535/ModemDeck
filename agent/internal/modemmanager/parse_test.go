@@ -38,6 +38,14 @@ func TestParseManagedObjectsMapsLineCallsAndMessages(t *testing.T) {
 				"OwnNumbers":          dbus.MakeVariant([]string{"+818012345678"}),
 				"Sim":                 dbus.MakeVariant(simPath),
 			},
+			signalInterface: {
+				"Rate": dbus.MakeVariant(uint32(10)),
+				"Lte": dbus.MakeVariant(map[string]dbus.Variant{
+					"rssi": dbus.MakeVariant(float64(-67.5)),
+					"rsrp": dbus.MakeVariant(float64(-93)),
+					"rsrq": dbus.MakeVariant(float64(-9.5)),
+				}),
+			},
 			voiceInterface: {
 				"Calls": dbus.MakeVariant([]dbus.ObjectPath{
 					incomingCallPath,
@@ -125,6 +133,11 @@ func TestParseManagedObjectsMapsLineCallsAndMessages(t *testing.T) {
 	}
 	if !line.SignalQualityKnown || line.SignalQuality != 76 || !line.SignalQualityRecent {
 		t.Fatalf("unexpected signal quality: %+v", line)
+	}
+	if line.SignalDBM == nil || *line.SignalDBM != -67.5 ||
+		line.SignalRSRP == nil || *line.SignalRSRP != -93 ||
+		line.SignalRSRQ == nil || *line.SignalRSRQ != -9.5 {
+		t.Fatalf("unexpected extended signal: %+v", line)
 	}
 	if !line.SIMPresent || line.SIMIdentifier != "8986012345678901234" ||
 		line.OperatorIdentifier != "44051" || line.OperatorName != "KDDI" {

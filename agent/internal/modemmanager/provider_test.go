@@ -34,6 +34,7 @@ type fakeCaller struct {
 	connectionProfiles []map[string]dbus.Variant
 	ussdResponse       string
 	externalSIMs       map[dbus.ObjectPath]Properties
+	signalAfterSetup   map[dbus.ObjectPath]Properties
 	errors             map[string]error
 	calls              []dbusInvocation
 }
@@ -81,6 +82,18 @@ func (f *fakeCaller) Call(
 		return []any{f.createdMessagePath}, nil
 	case modemInterface + ".Command":
 		return []any{f.atResponse}, nil
+	case signalInterface + ".Setup":
+		rate, ok := args[0].(uint32)
+		if !ok {
+			return nil, errors.New("signal setup rate was malformed")
+		}
+		properties := f.objects[path][signalInterface]
+		if after, found := f.signalAfterSetup[path]; found {
+			properties = after
+			f.objects[path][signalInterface] = properties
+		}
+		properties["Rate"] = dbus.MakeVariant(rate)
+		return []any{}, nil
 	case profileManagerInterface + ".List":
 		return []any{f.connectionProfiles}, nil
 	case profileManagerInterface + ".Set":
@@ -183,6 +196,12 @@ func (f *fakeCaller) invocations() []dbusInvocation {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]dbusInvocation(nil), f.calls...)
+}
+
+func (f *fakeCaller) resetInvocations() {
+	f.mu.Lock()
+	f.calls = nil
+	f.mu.Unlock()
 }
 
 func (f *fakeCaller) setOwnerName(ownerName string) {
@@ -303,6 +322,157 @@ func TestSnapshotUsesOneManagedObjectsCallAndStableContentRevision(t *testing.T)
 	if len(caller.invocations()) != 3 {
 		t.Fatalf("GetManagedObjects calls = %d, want 3", len(caller.invocations()))
 	}
+}
+
+func TestSnapshotStartsExtendedSignalPollingOnceAndReadsMetrics(t *testing.T) {
+	t.Parallel()
+	objects := emptyLineObjects(true, true)
+	objects[testModemPath][modemInterface]["AccessTechnologies"] =
+		dbus.MakeVariant(accessTechnologyLTE)
+	objects[testModemPath][signalInterface] = Properties{
+		"Rate": dbus.MakeVariant(uint32(0)),
+		"Lte":  dbus.MakeVariant(map[string]dbus.Variant{}),
+	}
+	caller := newFakeCaller(objects)
+	caller.signalAfterSetup[testModemPath] = Properties{
+		"Lte": dbus.MakeVariant(map[string]dbus.Variant{
+			"rssi": dbus.MakeVariant(float64(-68)),
+			"rsrp": dbus.MakeVariant(float64(-94)),
+			"rsrq": dbus.MakeVariant(float64(-11)),
+		}),
+	}
+	provider := newTestProvider(caller)
+
+	first, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if len(first.Lines) != 1 ||
+		first.Lines[0].SignalDBM == nil || *first.Lines[0].SignalDBM != -68 ||
+		first.Lines[0].SignalRSRP == nil || *first.Lines[0].SignalRSRP != -94 ||
+		first.Lines[0].SignalRSRQ == nil || *first.Lines[0].SignalRSRQ != -11 {
+		t.Fatalf("extended signal = %+v", first.Lines)
+	}
+	assertMethods(
+		t,
+		caller.invocations(),
+		objectManagerInterface+".GetManagedObjects",
+		signalInterface+".Setup",
+		objectManagerInterface+".GetManagedObjects",
+	)
+
+	caller.resetInvocations()
+	if _, err := provider.Snapshot(context.Background()); err != nil {
+		t.Fatalf("second Snapshot() error = %v", err)
+	}
+	assertMethods(
+		t,
+		caller.invocations(),
+		objectManagerInterface+".GetManagedObjects",
+	)
+}
+
+func TestSnapshotKeepsCoreDataWhenExtendedSignalSetupFails(t *testing.T) {
+	t.Parallel()
+	objects := emptyLineObjects(true, true)
+	objects[testModemPath][signalInterface] = Properties{
+		"Rate": dbus.MakeVariant(uint32(0)),
+	}
+	caller := newFakeCaller(objects)
+	caller.errors[signalInterface+".Setup"] = dbus.NewError(
+		modemManagerCoreErrorPrefix+"Unsupported",
+		[]any{"extended signal is unavailable"},
+	)
+	provider := newTestProvider(caller)
+
+	first, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if len(first.Lines) != 1 {
+		t.Fatalf("lines = %d, want 1", len(first.Lines))
+	}
+	assertMethods(
+		t,
+		caller.invocations(),
+		objectManagerInterface+".GetManagedObjects",
+		signalInterface+".Setup",
+	)
+
+	caller.resetInvocations()
+	if _, err := provider.Snapshot(context.Background()); err != nil {
+		t.Fatalf("second Snapshot() error = %v", err)
+	}
+	assertMethods(
+		t,
+		caller.invocations(),
+		objectManagerInterface+".GetManagedObjects",
+	)
+}
+
+func TestSnapshotRetriesTransientExtendedSignalSetupFailure(t *testing.T) {
+	objects := emptyLineObjects(true, true)
+	objects[testModemPath][modemInterface]["AccessTechnologies"] =
+		dbus.MakeVariant(accessTechnologyLTE)
+	objects[testModemPath][signalInterface] = Properties{
+		"Rate": dbus.MakeVariant(uint32(0)),
+		"Lte":  dbus.MakeVariant(map[string]dbus.Variant{}),
+	}
+	caller := newFakeCaller(objects)
+	caller.errors[signalInterface+".Setup"] = dbus.NewError(
+		dbusErrorPrefix+"NoReply",
+		[]any{"transient signal setup failure"},
+	)
+	provider := newTestProvider(caller)
+	now := time.Date(2026, 7, 24, 1, 2, 3, 0, time.UTC)
+	provider.now = func() time.Time { return now }
+
+	if _, err := provider.Snapshot(context.Background()); err != nil {
+		t.Fatalf("first Snapshot() error = %v", err)
+	}
+	assertMethods(
+		t,
+		caller.invocations(),
+		objectManagerInterface+".GetManagedObjects",
+		signalInterface+".Setup",
+	)
+
+	caller.resetInvocations()
+	if _, err := provider.Snapshot(context.Background()); err != nil {
+		t.Fatalf("Snapshot() during backoff error = %v", err)
+	}
+	assertMethods(
+		t,
+		caller.invocations(),
+		objectManagerInterface+".GetManagedObjects",
+	)
+
+	now = now.Add(signalSetupRetryDelay)
+	delete(caller.errors, signalInterface+".Setup")
+	caller.signalAfterSetup[testModemPath] = Properties{
+		"Lte": dbus.MakeVariant(map[string]dbus.Variant{
+			"rssi": dbus.MakeVariant(float64(-71)),
+			"rsrp": dbus.MakeVariant(float64(-97)),
+			"rsrq": dbus.MakeVariant(float64(-12)),
+		}),
+	}
+	caller.resetInvocations()
+	recovered, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("recovered Snapshot() error = %v", err)
+	}
+	if len(recovered.Lines) != 1 ||
+		recovered.Lines[0].SignalDBM == nil ||
+		*recovered.Lines[0].SignalDBM != -71 {
+		t.Fatalf("recovered signal = %+v", recovered.Lines)
+	}
+	assertMethods(
+		t,
+		caller.invocations(),
+		objectManagerInterface+".GetManagedObjects",
+		signalInterface+".Setup",
+		objectManagerInterface+".GetManagedObjects",
+	)
 }
 
 func TestProviderIdentityFollowsModemManagerOwnerAcrossAgentRestarts(t *testing.T) {
@@ -948,8 +1118,9 @@ func newFakeCaller(objects ManagedObjects) *fakeCaller {
 				<method name="SendDtmf"/>
 			</interface>
 		</node>`,
-		externalSIMs: make(map[dbus.ObjectPath]Properties),
-		errors:       make(map[string]error),
+		externalSIMs:     make(map[dbus.ObjectPath]Properties),
+		signalAfterSetup: make(map[dbus.ObjectPath]Properties),
+		errors:           make(map[string]error),
 	}
 }
 

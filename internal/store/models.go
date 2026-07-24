@@ -301,6 +301,9 @@ type HardwareLine struct {
 	State               string
 	SignalKnown         bool
 	SignalQuality       uint32
+	SignalDBM           *int64
+	SignalRSRQ          *int64
+	SignalRSRP          *int64
 	PhoneNumber         string
 	ICCID               string
 	IMSI                string
