@@ -430,17 +430,33 @@ async function changeDataConnection(event: Event): Promise<void> {
   if (!saved) control.checked = Boolean(hardware.value?.network_enabled)
 }
 
-async function applyVoLTE(): Promise<void> {
-  if (!selectedLineID.value || !voltePolicyDraft.value) return
-  if (!window.confirm(`将 VoLTE 设为${voltePolicyDraft.value === 'enabled' ? '开启' : '关闭'}？`)) {
+async function applyVoLTE(event: Event): Promise<void> {
+  if (!selectedLineID.value) return
+  const control = event.target as HTMLInputElement
+  const previousPolicy =
+    hardware.value?.volte.policy_known && hardware.value.volte.policy
+      ? hardware.value.volte.policy
+      : 'disabled'
+  const nextPolicy = control.checked ? 'enabled' : 'disabled'
+  voltePolicyDraft.value = nextPolicy
+  if (!window.confirm(`将 VoLTE 设为${nextPolicy === 'enabled' ? '开启' : '关闭'}？`)) {
+    control.checked = previousPolicy === 'enabled'
+    voltePolicyDraft.value = previousPolicy
     return
   }
-  await setVoLTEPolicy(selectedLineID.value, voltePolicyDraft.value)
+  const saved = await setVoLTEPolicy(selectedLineID.value, nextPolicy)
+  if (!saved) {
+    control.checked = previousPolicy === 'enabled'
+    voltePolicyDraft.value = previousPolicy
+  }
 }
 
 async function applyIncomingPolicy(): Promise<void> {
   if (selectedLineID.value) {
-    await setIncomingCallPolicy(selectedLineID.value, incomingPolicyDraft.value)
+    const saved = await setIncomingCallPolicy(selectedLineID.value, incomingPolicyDraft.value)
+    if (!saved) {
+      incomingPolicyDraft.value = incomingCalls.value?.policy || 'follow_global'
+    }
   }
 }
 
@@ -1042,29 +1058,45 @@ onMounted(() => {
 
           <section class="configuration-section">
             <header><PhoneIncoming :size="18" /><h4>来电</h4></header>
-            <div class="configuration-control-row">
-              <label>
-                <span>策略</span>
-                <select v-model="incomingPolicyDraft" :disabled="Boolean(savingOperation)">
-                  <option value="follow_global">跟随全局</option>
-                  <option value="receive">接听来电</option>
-                  <option value="do_not_disturb">免打扰</option>
-                </select>
-              </label>
-              <button
-                class="primary-action"
-                type="button"
-                :disabled="Boolean(savingOperation) || incomingPolicyDraft === incomingCalls.policy"
-                @click="applyIncomingPolicy"
-              >
-                保存
-              </button>
+            <fieldset class="incoming-policy" :disabled="Boolean(savingOperation)">
+              <legend>线路策略</legend>
+              <div class="incoming-policy__options">
+                <label>
+                  <input
+                    v-model="incomingPolicyDraft"
+                    type="radio"
+                    value="follow_global"
+                    @change="applyIncomingPolicy"
+                  />
+                  <span>跟随全局</span>
+                </label>
+                <label>
+                  <input
+                    v-model="incomingPolicyDraft"
+                    type="radio"
+                    value="receive"
+                    @change="applyIncomingPolicy"
+                  />
+                  <span>接听</span>
+                </label>
+                <label>
+                  <input
+                    v-model="incomingPolicyDraft"
+                    type="radio"
+                    value="do_not_disturb"
+                    @change="applyIncomingPolicy"
+                  />
+                  <span>免打扰</span>
+                </label>
+              </div>
+            </fieldset>
+            <div class="incoming-policy__status">
+              <span>当前</span>
+              <strong>{{ policyLabel(incomingCalls.effective_policy) }}</strong>
+              <small v-if="incomingPolicyDraft === 'follow_global'">
+                全局：{{ incomingCalls.global_receive_calls ? '接听来电' : '免打扰' }}
+              </small>
             </div>
-            <dl class="configuration-facts">
-              <div><dt>线路</dt><dd>{{ policyLabel(incomingCalls.policy) }}</dd></div>
-              <div><dt>当前</dt><dd>{{ policyLabel(incomingCalls.effective_policy) }}</dd></div>
-              <div><dt>全局</dt><dd>{{ incomingCalls.global_receive_calls ? '接听来电' : '免打扰' }}</dd></div>
-            </dl>
             <p v-if="incomingCalls.enforcement.config_only" class="inline-warning">
               当前模组未报告拒接能力
             </p>
@@ -1072,36 +1104,27 @@ onMounted(() => {
 
           <section class="configuration-section">
             <header><RadioTower :size="18" /><h4>VoLTE</h4></header>
-            <div class="configuration-control-row">
-              <label>
-                <span>状态</span>
-                <select
-                  v-model="voltePolicyDraft"
+            <label class="configuration-toggle">
+              <span>
+                <strong>启用 VoLTE</strong>
+                <small v-if="volteStatusDetail">{{ volteStatusDetail }}</small>
+                <small v-else>{{ volteStatusLabel }}</small>
+              </span>
+              <span class="configuration-toggle__control">
+                <LoaderCircle
+                  v-if="savingOperation === 'set_volte_policy'"
+                  class="spin"
+                  :size="16"
+                />
+                <input
+                  type="checkbox"
+                  role="switch"
+                  :checked="voltePolicyDraft === 'enabled'"
                   :disabled="hardwareBusy || !hardware.capabilities.volte.writable"
-                >
-                  <option disabled value="">选择</option>
-                  <option value="enabled">开启</option>
-                  <option value="disabled">关闭</option>
-                </select>
-              </label>
-              <button
-                class="primary-action"
-                type="button"
-                :disabled="
-                  hardwareBusy ||
-                  !hardware.capabilities.volte.writable ||
-                  !voltePolicyDraft ||
-                  (hardware.volte.policy_known && voltePolicyDraft === hardware.volte.policy)
-                "
-                @click="applyVoLTE"
-              >
-                保存
-              </button>
-            </div>
-            <p class="configuration-control-status">
-              <strong>{{ volteStatusLabel }}</strong>
-              <span v-if="volteStatusDetail">{{ volteStatusDetail }}</span>
-            </p>
+                  @change="applyVoLTE"
+                />
+              </span>
+            </label>
           </section>
         </template>
 
@@ -1494,6 +1517,8 @@ onMounted(() => {
 .voice-status,
 .ussd-status {
   display: flex;
+  width: 100%;
+  max-width: 520px;
   min-height: 56px;
   align-items: center;
   justify-content: space-between;
@@ -1502,9 +1527,11 @@ onMounted(() => {
 
 .configuration-toggle > span:first-child,
 .ussd-status {
+  display: flex;
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
+  gap: 2px;
 }
 
 .configuration-toggle small {
@@ -1555,7 +1582,9 @@ onMounted(() => {
 
 .data-primary-settings {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(280px, 1fr);
+  width: 100%;
+  max-width: 860px;
+  grid-template-columns: minmax(180px, 320px) minmax(280px, 420px);
   align-items: end;
   gap: 14px;
   margin-top: 14px;
@@ -1633,6 +1662,8 @@ onMounted(() => {
 
 .data-connection-status {
   display: flex;
+  width: 100%;
+  max-width: 860px;
   min-height: 42px;
   align-items: center;
   gap: 9px;
@@ -1804,8 +1835,11 @@ onMounted(() => {
 
 .configuration-control-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) auto;
+  width: 100%;
+  max-width: 680px;
+  grid-template-columns: minmax(180px, 520px) auto;
   align-items: end;
+  justify-content: start;
   gap: 9px;
 }
 
@@ -1826,8 +1860,98 @@ onMounted(() => {
   color: var(--text);
 }
 
+.incoming-policy {
+  width: 100%;
+  max-width: 520px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.incoming-policy legend {
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.incoming-policy__options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  padding: 3px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+}
+
+.incoming-policy__options label {
+  position: relative;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.incoming-policy__options input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.incoming-policy__options span {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  border-radius: 4px;
+}
+
+.incoming-policy__options input:checked + span {
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgb(16 24 40 / 12%);
+}
+
+.incoming-policy__options input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.incoming-policy:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.incoming-policy:disabled label {
+  cursor: not-allowed;
+}
+
+.incoming-policy__status {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.incoming-policy__status strong {
+  color: var(--text);
+}
+
+.incoming-policy__status small {
+  margin-left: 4px;
+  color: var(--muted);
+}
+
 .voice-capabilities {
   display: grid;
+  width: 100%;
+  max-width: 860px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }

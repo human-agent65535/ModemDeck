@@ -72,7 +72,7 @@ test('network keeps a compact bearer status and folds full profiles into details
   assert.match(networkSection, /@click\.stop="deleteProfile\(profile\)"/)
 })
 
-test('VoWiFi is status-only in the call tab and VoLTE keeps write gating', () => {
+test('VoWiFi is status-only while VoLTE uses the shared binary switch', () => {
   const networkStart = source.indexOf("<template v-else-if=\"activeTab === 'network'\">")
   const networkEnd = source.indexOf("<template v-else-if=\"activeTab === 'sim'\">", networkStart)
   const networkSection = source.slice(networkStart, networkEnd)
@@ -97,7 +97,27 @@ test('VoWiFi is status-only in the call tab and VoLTE keeps write gating', () =>
   )
 
   assert.ok(volteStart >= 0)
-  assert.match(volteSection, /v-model="voltePolicyDraft"/)
+  assert.match(volteSection, /role="switch"/)
+  assert.match(volteSection, /:checked="voltePolicyDraft === 'enabled'"/)
+  assert.match(volteSection, /@change="applyVoLTE"/)
   assert.match(volteSection, /!hardware\.capabilities\.volte\.writable/)
   assert.match(volteSection, /volteStatusDetail/)
+  assert.doesNotMatch(volteSection, /<select/)
+})
+
+test('incoming call override uses a compact three-state segmented control', () => {
+  const voiceStart = source.indexOf("<template v-else-if=\"activeTab === 'voice'\">")
+  const voiceEnd = source.indexOf('<template v-else>', voiceStart)
+  const voiceSection = source.slice(voiceStart, voiceEnd)
+  const incomingStart = voiceSection.indexOf('<h4>来电</h4>')
+  const incomingEnd = voiceSection.indexOf('</section>', incomingStart)
+  const incomingSection = voiceSection.slice(incomingStart, incomingEnd)
+
+  assert.match(incomingSection, /class="incoming-policy"/)
+  assert.match(incomingSection, /type="radio"\s+value="follow_global"/)
+  assert.match(incomingSection, /type="radio"\s+value="receive"/)
+  assert.match(incomingSection, /type="radio"\s+value="do_not_disturb"/)
+  assert.match(incomingSection, /@change="applyIncomingPolicy"/)
+  assert.doesNotMatch(incomingSection, /<select/)
+  assert.doesNotMatch(incomingSection, />保存</)
 })
