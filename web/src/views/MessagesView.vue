@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, LoaderCircle, MessageSquarePlus, Phone, Send } from '@lucide/vue'
+import { ArrowLeft, LoaderCircle, MessageSquarePlus, Phone, Send, X } from '@lucide/vue'
 import type { Contact, LineSummary, MessageThread } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
 import ContactSuggestInput from '../components/ContactSuggestInput.vue'
@@ -34,6 +34,11 @@ import {
   lineTagFallback,
   lineTagLine
 } from '../utils/lineIdentity'
+import {
+  findRecipientThread,
+  messageReturnRoute,
+  messageThreadUsesLine
+} from './messages/messageFlow'
 
 const route = useRoute()
 const router = useRouter()
@@ -66,10 +71,15 @@ const defaultLineDeviceIMEI = computed(
 const selectedLine = computed(() => lines.value.find(line => lineKey(line) === selectedLineKey.value))
 const activeLine = computed(() => selectedLine.value)
 const lineLookup = computed(() => createLineLookup(lines.value))
+const existingRecipientThread = computed(() =>
+  composingNew.value
+    ? findRecipientThread(threadsResource.data, newRecipient.value, activeLine.value)
+    : undefined
+)
 const replyThreadKey = computed(() => {
-  const thread = selectedThread.value
   const line = activeLine.value
-  if (composingNew.value || !thread || !line) return undefined
+  const thread = composingNew.value ? existingRecipientThread.value : selectedThread.value
+  if (!thread || !line) return undefined
   return threadUsesLine(thread, line) ? thread.key : undefined
 })
 const messageUnavailable = computed(() => capabilityReason('message'))
@@ -112,13 +122,10 @@ let lineSelectionOverridden = false
 let replyLineThreadKey = ''
 let openedThreadKey = ''
 let attemptedReadKey = ''
+let composeReturnThreadKey = ''
 
 function threadUsesLine(thread: MessageThread, line: LineSummary): boolean {
-  return Boolean(
-    (thread.line_id &&
-      [line.id, lineKey(line), line.device_imei].filter(Boolean).includes(thread.line_id)) ||
-      (thread.iccid && line.iccid === thread.iccid)
-  )
+  return messageThreadUsesLine(thread, line)
 }
 
 function lineForThread(thread?: MessageThread): LineSummary | undefined {
@@ -264,6 +271,7 @@ function retryThreadRead(): void {
 
 function chooseThread(key: string): void {
   composingNew.value = false
+  composeReturnThreadKey = ''
   draft.value = ''
   sendError.value = ''
   void router.push({ name: 'messages', params: { threadKey: key } })
@@ -271,6 +279,7 @@ function chooseThread(key: string): void {
 
 function startMessage(): void {
   if (messageWriteUnavailable.value) return
+  composeReturnThreadKey = selectedThread.value?.key || ''
   composingNew.value = true
   newRecipient.value = ''
   newRecipientName.value = ''
@@ -285,12 +294,19 @@ function startMessage(): void {
 function chooseRecipient(suggestion: { contact: Contact; phone: { number: string } }): void {
   newRecipient.value = suggestion.phone.number
   newRecipientName.value = suggestion.contact.display_name
-  syncComposeLine(true)
+  syncComposeLine()
 }
 
 function backToList(): void {
   composingNew.value = false
-  void router.push({ name: 'messages' })
+  const destination = messageReturnRoute(composeReturnThreadKey)
+  composeReturnThreadKey = ''
+  void router.push(destination)
+}
+
+function viewExistingRecipientThread(): void {
+  const thread = existingRecipientThread.value
+  if (thread) chooseThread(thread.key)
 }
 
 function changeSendingLine(): void {
@@ -356,13 +372,14 @@ onMounted(() => {
           <span v-if="threadsResource.status === 'ready'">{{ threadsResource.data.length }}</span>
         </div>
         <button
-          class="icon-button"
+          class="new-message-button"
           type="button"
           :disabled="Boolean(messageWriteUnavailable)"
           :title="messageWriteUnavailable || '新消息'"
           @click="startMessage"
         >
           <MessageSquarePlus :size="19" />
+          <span>新消息</span>
         </button>
       </header>
       <div class="pane-search">
@@ -402,11 +419,21 @@ onMounted(() => {
         retryable
         @retry="loadThreads(true)"
       />
-      <StatePanel
-        v-else-if="filteredThreads.length === 0"
-        state="empty"
-        :title="search ? '没有匹配的对话' : '还没有消息'"
-      />
+      <div v-else-if="filteredThreads.length === 0" class="message-list-empty">
+        <StatePanel
+          state="empty"
+          :title="search ? '没有匹配的对话' : '还没有消息'"
+        />
+        <button
+          v-if="!search && !messageWriteUnavailable"
+          class="secondary-button"
+          type="button"
+          @click="startMessage"
+        >
+          <MessageSquarePlus :size="17" />
+          新消息
+        </button>
+      </div>
       <div v-else class="item-list">
         <button
           v-for="thread in filteredThreads"
@@ -440,11 +467,19 @@ onMounted(() => {
     <article class="detail-pane conversation-pane">
       <template v-if="selectedThread || composingNew">
         <header class="conversation-header">
-          <button class="icon-button mobile-back" type="button" title="返回消息" @click="backToList">
-            <ArrowLeft :size="20" />
+          <button
+            class="icon-button"
+            :class="{ 'mobile-back': !composingNew }"
+            type="button"
+            :title="composingNew ? '取消新消息' : '返回消息'"
+            @click="backToList"
+          >
+            <X v-if="composingNew" :size="20" />
+            <ArrowLeft v-else :size="20" />
           </button>
           <template v-if="composingNew">
             <div class="conversation-recipient">
+              <span class="conversation-recipient__label">收件人</span>
               <ContactSuggestInput
                 v-model="newRecipient"
                 :contacts="contactsResource.data"
@@ -527,6 +562,14 @@ onMounted(() => {
           <div v-else class="new-message-empty">
             <MessageSquarePlus :size="30" />
             <strong>新消息</strong>
+            <button
+              v-if="existingRecipientThread"
+              class="existing-thread-button"
+              type="button"
+              @click="viewExistingRecipientThread"
+            >
+              查看该线路上的已有对话
+            </button>
           </div>
           <div ref="messagesEnd" />
         </div>
@@ -582,6 +625,43 @@ onMounted(() => {
   gap: 8px;
 }
 
+.new-message-button,
+.existing-thread-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-weight: 700;
+}
+
+.new-message-button {
+  min-height: 36px;
+  padding: 0 11px;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-radius: 6px;
+}
+
+.new-message-button:disabled {
+  color: var(--faint);
+  background: var(--surface-subtle);
+}
+
+.message-list-empty {
+  display: flex;
+  min-height: 220px;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.message-list-empty :deep(.state-panel) {
+  min-height: auto;
+  flex: 0 0 auto;
+}
+
 .message-line-select {
   margin-bottom: 10px;
 }
@@ -602,6 +682,33 @@ onMounted(() => {
 
 .conversation-line-tag {
   margin-top: 3px;
+}
+
+.conversation-recipient {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.conversation-recipient__label {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.conversation-recipient > small {
+  grid-column: 2;
+  margin-top: -2px;
+}
+
+.existing-thread-button {
+  min-height: 34px;
+  padding: 0 12px;
+  color: var(--accent-strong);
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
 }
 
 .message-read-error {
