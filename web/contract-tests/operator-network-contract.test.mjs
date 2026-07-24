@@ -6,7 +6,9 @@ import { createFixtureGateway } from '../src/api/fixture.ts'
 import { parseDevices, parseLine } from '../src/api/normalize.ts'
 import {
   formatOperator,
+  isMessagingServiceReady,
   isRegisteredNetwork,
+  isVoiceServiceReady,
   operatorFacts,
   registrationStateLabel
 } from '../src/utils/operatorNetwork.ts'
@@ -165,6 +167,55 @@ test('idle emergency-only lines report the usable service state', () => {
       '已启用'
     ),
     '正在搜网'
+  )
+})
+
+test('service readiness requires a usable registration state', () => {
+  for (const registrationState of ['idle', 'searching', 'denied', 'unknown']) {
+    const line = {
+      state: 'enabled',
+      registration_state_known: true,
+      registration_state: registrationState,
+      emergency_only: false
+    }
+    assert.equal(isVoiceServiceReady(line), false)
+    assert.equal(isMessagingServiceReady(line), false)
+  }
+
+  const emergencyOnly = {
+    state: 'registered',
+    registration_state_known: true,
+    registration_state: 'home',
+    emergency_only: true
+  }
+  assert.equal(isVoiceServiceReady(emergencyOnly), false)
+  assert.equal(isMessagingServiceReady(emergencyOnly), false)
+
+  const smsOnly = {
+    state: 'registered',
+    registration_state_known: true,
+    registration_state: 'roaming-sms-only',
+    emergency_only: false
+  }
+  assert.equal(isVoiceServiceReady(smsOnly), false)
+  assert.equal(isMessagingServiceReady(smsOnly), true)
+
+  const normalService = {
+    state: 'registered',
+    registration_state_known: true,
+    registration_state: 'roaming',
+    emergency_only: false
+  }
+  assert.equal(isVoiceServiceReady(normalService), true)
+  assert.equal(isMessagingServiceReady(normalService), true)
+
+  assert.equal(
+    isVoiceServiceReady({
+      state: 'registered',
+      registration_state_known: false,
+      emergency_only: false
+    }),
+    true
   )
 })
 

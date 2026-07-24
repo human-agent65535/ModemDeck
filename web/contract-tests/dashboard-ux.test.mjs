@@ -28,6 +28,19 @@ test('dashboard uses existing network data for a traffic summary and entry point
   assert.match(dashboard, /:to="\{ name: 'traffic' \}"/)
 })
 
+test('dashboard readiness counts require both service and backend capability', () => {
+  assert.match(dashboard, /isVoiceServiceReady\(line\)/)
+  assert.match(dashboard, /isMessagingServiceReady\(line\)/)
+  assert.match(
+    dashboard,
+    /isVoiceServiceReady\(line\)\s*&&\s*\(line\.capabilities\?\.dial === true \|\| line\.capabilities\?\.voice === true\)/
+  )
+  assert.match(
+    dashboard,
+    /isMessagingServiceReady\(line\)\s*&&\s*\(line\.capabilities\?\.message === true \|\|\s*line\.capabilities\?\.messaging === true\)/
+  )
+})
+
 test('dashboard entity grids retain stable desktop columns and card widths', () => {
   const entityGridBlock =
     dashboard.match(

@@ -42,7 +42,11 @@ import {
   loadThreads,
   threadsResource
 } from '../state/workspace'
-import { isRegisteredNetwork } from '../utils/operatorNetwork'
+import {
+  isMessagingServiceReady,
+  isRegisteredNetwork,
+  isVoiceServiceReady
+} from '../utils/operatorNetwork'
 import {
   formatDateTime,
   formatDuration,
@@ -99,15 +103,18 @@ const onlineLines = computed(
 const callReadyLines = computed(
   () =>
     lines.value.filter(
-      line => line.capabilities?.dial === true || line.capabilities?.voice === true
+      line =>
+        isVoiceServiceReady(line) &&
+        (line.capabilities?.dial === true || line.capabilities?.voice === true)
     ).length
 )
 const messageReadyLines = computed(
   () =>
     lines.value.filter(
       line =>
-        line.capabilities?.message === true ||
-        line.capabilities?.messaging === true
+        isMessagingServiceReady(line) &&
+        (line.capabilities?.message === true ||
+          line.capabilities?.messaging === true)
     ).length
 )
 const attentionCount = computed(() => unreadMessages.value + missedCalls.value)

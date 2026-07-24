@@ -29,6 +29,19 @@ const registeredStates = new Set([
   'attached-rlos'
 ])
 
+const voiceReadyStates = new Set([
+  'home',
+  'roaming',
+  'home-csfb-not-preferred',
+  'roaming-csfb-not-preferred'
+])
+
+const messagingReadyStates = new Set([
+  ...voiceReadyStates,
+  'home-sms-only',
+  'roaming-sms-only'
+])
+
 function clean(value?: string): string {
   return value?.trim() || ''
 }
@@ -66,6 +79,33 @@ export function isRegisteredNetwork(
   return ['registered', 'connected'].includes(
     clean(source.state).toLocaleLowerCase()
   )
+}
+
+function isServiceReady(
+  source: OperatorNetworkSource | null | undefined,
+  readyStates: ReadonlySet<string>
+): boolean {
+  if (!source || source.emergency_only) return false
+  if (source.registration_state_known) {
+    return readyStates.has(
+      clean(source.registration_state).toLocaleLowerCase()
+    )
+  }
+  return ['registered', 'connected'].includes(
+    clean(source.state).toLocaleLowerCase()
+  )
+}
+
+export function isVoiceServiceReady(
+  source?: OperatorNetworkSource | null
+): boolean {
+  return isServiceReady(source, voiceReadyStates)
+}
+
+export function isMessagingServiceReady(
+  source?: OperatorNetworkSource | null
+): boolean {
+  return isServiceReady(source, messagingReadyStates)
 }
 
 export function operatorFacts(
