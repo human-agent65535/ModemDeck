@@ -85,7 +85,7 @@ func TestNetworkSelectionUnknownLineDoesNotPersistWhenAgentUnavailable(t *testin
 	}
 }
 
-func TestReconcileOnlyPersistsSIMBackedStableLines(t *testing.T) {
+func TestReconcileInitializesImplicitAutomaticPolicyForStableSIMLines(t *testing.T) {
 	t.Parallel()
 
 	service, repository, agent := newNetworkTestService(t, nil)
@@ -115,17 +115,29 @@ func TestReconcileOnlyPersistsSIMBackedStableLines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NetworkSelectionPolicies() error = %v", err)
 	}
-	if len(policies) != 1 || policies[0].LineID != "line-stable" {
+	if len(policies) != 1 ||
+		policies[0].LineID != "line-stable" ||
+		policies[0].Configured {
 		t.Fatalf("policies = %+v", policies)
 	}
 	agent.mu.Lock()
-	defer agent.mu.Unlock()
-	if agent.fullSnapshotCalls != 1 {
-		t.Fatalf("full Snapshot calls = %d, want 1", agent.fullSnapshotCalls)
+	fullSnapshotCalls := agent.fullSnapshotCalls
+	selectionCalls := append([]networkAgentCall(nil), agent.selectionCalls...)
+	agent.mu.Unlock()
+	if fullSnapshotCalls != 1 {
+		t.Fatalf("full Snapshot calls = %d, want 1", fullSnapshotCalls)
 	}
-	if len(agent.selectionCalls) != 1 ||
-		agent.selectionCalls[0].LineID != "line-stable" {
-		t.Fatalf("selection calls = %+v", agent.selectionCalls)
+	if len(selectionCalls) != 0 {
+		t.Fatalf("implicit automatic policy must not register: %+v", selectionCalls)
+	}
+	selection, err := service.NetworkSelection(context.Background(), "line-stable")
+	if err != nil {
+		t.Fatalf("NetworkSelection() error = %v", err)
+	}
+	if selection.Mode != agentclient.NetworkSelectionModeAuto ||
+		!selection.Applied ||
+		selection.LastError != "" {
+		t.Fatalf("implicit automatic selection = %+v", selection)
 	}
 }
 
@@ -155,6 +167,7 @@ func TestUpdateNetworkSelectionPersistsDesiredStateBeforeAgentCall(t *testing.T)
 		}
 		if policy.Mode != "manual" ||
 			policy.OperatorCode != "44010" ||
+			!policy.Configured ||
 			policy.Revision != 2 ||
 			policy.AppliedRevision != 0 ||
 			policy.LastError != "" {
@@ -239,11 +252,21 @@ func TestReconcileNetworkSelectionsContinuesAfterPerLineFailure(t *testing.T) {
 
 	service, repository, agent := newNetworkTestService(t, nil)
 	for _, lineID := range []string{"line-a", "line-b"} {
-		if _, err := repository.EnsureNetworkSelectionPolicy(
+		policy, err := repository.EnsureNetworkSelectionPolicy(
 			context.Background(),
 			lineID,
-		); err != nil {
+		)
+		if err != nil {
 			t.Fatalf("EnsureNetworkSelectionPolicy(%q) error = %v", lineID, err)
+		}
+		if _, err := repository.UpdateNetworkSelectionPolicy(
+			context.Background(),
+			lineID,
+			"auto",
+			"",
+			policy.Revision,
+		); err != nil {
+			t.Fatalf("configure network selection for %q: %v", lineID, err)
 		}
 	}
 	agent.fullSnapshot = agentclient.Snapshot{Lines: []agentclient.Line{

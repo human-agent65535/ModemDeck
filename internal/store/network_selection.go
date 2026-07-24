@@ -38,9 +38,9 @@ func (s *Store) EnsureNetworkSelectionPolicy(
 	if _, err := s.database.ExecContext(
 		ctx,
 		`INSERT INTO modemdeck_network_selection_policies (
-			line_id, mode, operator_code, revision, applied_revision,
+			line_id, mode, operator_code, configured, revision, applied_revision,
 			applied_boot_epoch, applied_at, last_error, created_at, updated_at
-		 ) VALUES (?, 'auto', '', 1, 0, '', NULL, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		 ) VALUES (?, 'auto', '', 0, 1, 0, '', NULL, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		 ON CONFLICT(line_id) DO NOTHING`,
 		lineID,
 	); err != nil {
@@ -57,7 +57,7 @@ func (s *Store) NetworkSelectionPolicies(
 ) ([]NetworkSelectionPolicyRecord, error) {
 	rows, err := s.database.QueryContext(
 		ctx,
-		`SELECT line_id, mode, operator_code, revision, applied_revision,
+		`SELECT line_id, mode, operator_code, configured, revision, applied_revision,
 		        applied_boot_epoch, applied_at, last_error, created_at, updated_at
 		 FROM modemdeck_network_selection_policies
 		 ORDER BY line_id`,
@@ -96,6 +96,7 @@ func (s *Store) UpdateNetworkSelectionPolicy(
 		`UPDATE modemdeck_network_selection_policies
 		 SET mode = ?,
 		     operator_code = ?,
+		     configured = 1,
 		     revision = revision + 1,
 		     last_error = '',
 		     updated_at = CURRENT_TIMESTAMP
@@ -202,7 +203,7 @@ func (s *Store) networkSelectionPolicy(
 ) (NetworkSelectionPolicyRecord, error) {
 	policy, err := scanNetworkSelectionPolicy(s.database.QueryRowContext(
 		ctx,
-		`SELECT line_id, mode, operator_code, revision, applied_revision,
+		`SELECT line_id, mode, operator_code, configured, revision, applied_revision,
 		        applied_boot_epoch, applied_at, last_error, created_at, updated_at
 		 FROM modemdeck_network_selection_policies
 		 WHERE line_id = ?`,
@@ -231,12 +232,13 @@ func scanNetworkSelectionPolicy(
 		policy                                       NetworkSelectionPolicyRecord
 		lineID, mode, operatorCode, appliedBootEpoch sql.NullString
 		appliedAt, lastError, createdAt, updatedAt   sql.NullString
-		revision, appliedRevision                    sql.NullInt64
+		configured, revision, appliedRevision        sql.NullInt64
 	)
 	if err := scanner.Scan(
 		&lineID,
 		&mode,
 		&operatorCode,
+		&configured,
 		&revision,
 		&appliedRevision,
 		&appliedBootEpoch,
@@ -250,6 +252,7 @@ func scanNetworkSelectionPolicy(
 	policy.LineID = stringValue(lineID)
 	policy.Mode = stringValue(mode)
 	policy.OperatorCode = stringValue(operatorCode)
+	policy.Configured = boolValue(configured)
 	policy.Revision = intValue(revision)
 	policy.AppliedRevision = intValue(appliedRevision)
 	policy.AppliedBootEpoch = stringValue(appliedBootEpoch)

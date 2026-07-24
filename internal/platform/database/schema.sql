@@ -294,6 +294,8 @@ CREATE TABLE modemdeck_network_selection_policies (
 			mode TEXT NOT NULL DEFAULT 'auto'
 				CHECK (mode IN ('auto', 'manual')),
 			operator_code TEXT NOT NULL DEFAULT '',
+			configured INTEGER NOT NULL DEFAULT 0
+				CHECK (configured IN (0, 1)),
 			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
 			applied_revision INTEGER NOT NULL DEFAULT 0
 				CHECK (applied_revision >= 0 AND applied_revision <= revision),

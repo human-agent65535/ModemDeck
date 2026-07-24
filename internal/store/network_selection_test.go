@@ -39,29 +39,12 @@ func TestNetworkSelectionDesiredStateApplyLifecycle(t *testing.T) {
 	}
 	if policy.Mode != "auto" ||
 		policy.OperatorCode != "" ||
+		policy.Configured ||
 		policy.Revision != 1 ||
 		policy.AppliedRevision != 0 {
 		t.Fatalf("default policy = %+v", policy)
 	}
 	firstAppliedAt := time.Date(2026, 7, 24, 1, 2, 3, 0, time.UTC)
-	if stale, err := repository.MarkNetworkSelectionApplied(
-		context.Background(),
-		"line-1",
-		1,
-		"boot-1",
-		firstAppliedAt,
-	); err != nil || stale {
-		t.Fatalf("MarkNetworkSelectionApplied() stale=%t error=%v", stale, err)
-	}
-	if err := repository.MarkNetworkSelectionApplyFailed(
-		context.Background(),
-		"line-1",
-		1,
-		"old failure",
-	); err != nil {
-		t.Fatalf("MarkNetworkSelectionApplyFailed() error = %v", err)
-	}
-
 	desired, err := repository.UpdateNetworkSelectionPolicy(
 		context.Background(),
 		"line-1",
@@ -74,10 +57,11 @@ func TestNetworkSelectionDesiredStateApplyLifecycle(t *testing.T) {
 	}
 	if desired.Mode != "manual" ||
 		desired.OperatorCode != "44010" ||
+		!desired.Configured ||
 		desired.Revision != 2 ||
-		desired.AppliedRevision != 1 ||
-		desired.AppliedBootEpoch != "boot-1" ||
-		desired.AppliedAt == "" ||
+		desired.AppliedRevision != 0 ||
+		desired.AppliedBootEpoch != "" ||
+		desired.AppliedAt != "" ||
 		desired.LastError != "" {
 		t.Fatalf("desired policy = %+v", desired)
 	}
@@ -103,7 +87,7 @@ func TestNetworkSelectionDesiredStateApplyLifecycle(t *testing.T) {
 		t.Fatalf("NetworkSelectionPolicy() error = %v", err)
 	}
 	if failed.LastError != "operator rejected registration" ||
-		failed.AppliedRevision != 1 {
+		failed.AppliedRevision != 0 {
 		t.Fatalf("failed policy = %+v", failed)
 	}
 	secondAppliedAt := firstAppliedAt.Add(time.Hour)

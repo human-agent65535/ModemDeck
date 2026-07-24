@@ -276,6 +276,7 @@ type NetworkSelectionPolicyRecord struct {
 	LineID           string
 	Mode             string
 	OperatorCode     string
+	Configured       bool
 	Revision         int64
 	AppliedRevision  int64
 	AppliedBootEpoch string

@@ -257,6 +257,9 @@ func (s *Service) reconcileNetworkSelections(
 		if _, attached := active[policy.LineID]; !attached {
 			continue
 		}
+		if !policy.Configured {
+			continue
+		}
 		if policy.AppliedRevision == policy.Revision &&
 			policy.AppliedBootEpoch == snapshot.BootEpoch {
 			continue
@@ -329,6 +332,9 @@ func (s *Service) networkSelectionsPending(
 		if _, attached := active[policy.LineID]; !attached {
 			continue
 		}
+		if !policy.Configured {
+			continue
+		}
 		if policy.AppliedRevision != policy.Revision ||
 			policy.AppliedBootEpoch != snapshot.BootEpoch {
 			return true, nil
@@ -399,15 +405,20 @@ func (s *Service) publicNetworkSelection(
 	line agentclient.Line,
 ) NetworkSelection {
 	bootEpoch := s.currentBootEpoch()
+	lastError := ""
+	if policy.Configured {
+		lastError = policy.LastError
+	}
 	return NetworkSelection{
 		LineID:       policy.LineID,
 		Mode:         agentclient.NetworkSelectionMode(policy.Mode),
 		OperatorCode: policy.OperatorCode,
 		Revision:     policy.Revision,
-		Applied: policy.AppliedRevision == policy.Revision &&
-			bootEpoch != "" &&
-			policy.AppliedBootEpoch == bootEpoch,
-		LastError:    policy.LastError,
+		Applied: !policy.Configured ||
+			(policy.AppliedRevision == policy.Revision &&
+				bootEpoch != "" &&
+				policy.AppliedBootEpoch == bootEpoch),
+		LastError:    lastError,
 		AppliedAt:    policy.AppliedAt,
 		Registration: registrationFromLine(line),
 	}
