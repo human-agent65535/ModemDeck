@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { Check, LoaderCircle, Plus, Save, Trash2 } from '@lucide/vue'
+import { Check, LoaderCircle, Plus, Save, Trash2, X } from '@lucide/vue'
 import type { LineSummary, TelegramUnit } from '../api/types'
 import { ApiError } from '../api/types'
 import {
@@ -17,6 +17,7 @@ import StatePanel from './StatePanel.vue'
 
 const selectedID = ref('')
 const creating = ref(false)
+const draftReturnID = ref('')
 const displayName = ref('')
 const enabled = ref(true)
 const chatID = ref('')
@@ -138,15 +139,35 @@ function normalizedLineScopes(): string[] {
 
 function selectUnit(id: string): void {
   if (saving.value || deleting.value) return
-  creating.value = false
-  selectedID.value = id
+  discardDraft(id)
 }
 
 function startCreate(): void {
   if (saving.value || deleting.value) return
+  if (!creating.value) {
+    draftReturnID.value = selectedUnit.value?.id || telegramResource.data[0]?.id || ''
+  }
   creating.value = true
-  selectedID.value = ''
+  selectedID.value = '__telegram-bot-draft__'
   applyUnit()
+}
+
+function discardDraft(nextID?: string): void {
+  const returnID =
+    nextID ||
+    (telegramResource.data.some(unit => unit.id === draftReturnID.value)
+      ? draftReturnID.value
+      : telegramResource.data[0]?.id || '')
+
+  creating.value = false
+  draftReturnID.value = ''
+  selectedID.value = returnID
+  applyUnit(telegramResource.data.find(unit => unit.id === returnID))
+}
+
+function cancelCreate(): void {
+  if (!creating.value || saving.value || deleting.value) return
+  discardDraft()
 }
 
 async function submit(): Promise<void> {
@@ -171,6 +192,7 @@ async function submit(): Promise<void> {
       current?.id
     )
     creating.value = false
+    draftReturnID.value = ''
     selectedID.value = unit.id
     applyUnit(unit)
     await nextTick()
@@ -254,9 +276,21 @@ onMounted(() => {
           <Plus :size="18" />
         </button>
       </header>
-      <div v-if="telegramResource.data.length === 0" class="telegram-unit-empty">
+      <div v-if="telegramResource.data.length === 0 && !creating" class="telegram-unit-empty">
         还没有 Telegram Bot
       </div>
+      <button
+        v-if="creating"
+        class="telegram-unit-row is-selected"
+        type="button"
+        aria-current="true"
+      >
+        <span class="telegram-unit-row__status" />
+        <span>
+          <strong>{{ displayName.trim() || '未命名 Bot' }}</strong>
+          <small>未保存</small>
+        </span>
+      </button>
       <button
         v-for="unit in telegramResource.data"
         :key="unit.id"
@@ -344,7 +378,17 @@ onMounted(() => {
 
         <footer class="settings-form-actions">
           <button
-            v-if="selectedUnit"
+            v-if="creating"
+            class="secondary-button"
+            type="button"
+            :disabled="saving || deleting"
+            @click="cancelCreate"
+          >
+            <X :size="16" />
+            <span>取消</span>
+          </button>
+          <button
+            v-else-if="selectedUnit"
             class="danger-button"
             type="button"
             :disabled="saving || deleting"
