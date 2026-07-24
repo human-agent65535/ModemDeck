@@ -26,6 +26,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/networkruntime"
 	"github.com/human-agent65535/modemdeck/internal/platform/database"
 	"github.com/human-agent65535/modemdeck/internal/recording"
+	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/secretbox"
 	"github.com/human-agent65535/modemdeck/internal/store"
 	"github.com/human-agent65535/modemdeck/internal/telegramruntime"
@@ -145,10 +146,15 @@ func run(
 	}
 	defer agent.CloseIdleConnections()
 	messageEvents := messageevents.NewBuffer(messageevents.DefaultCapacity)
+	runtimeEvents := runtimeevents.NewBuffer(runtimeevents.DefaultCapacity)
 	communications, err := communication.New(agent, repository, messageEvents)
 	if err != nil {
 		_ = db.Close()
 		return fmt.Errorf("create communication service: %w", err)
+	}
+	if err := communications.SetRuntimeEventPublisher(runtimeEvents); err != nil {
+		_ = db.Close()
+		return fmt.Errorf("configure communication runtime events: %w", err)
 	}
 	mediaOpener, err := agentmedia.New(agentSocketPath, repository, agentmedia.Options{})
 	if err != nil {
@@ -220,6 +226,7 @@ func run(
 		settingsSecrets,
 		agent,
 		networkruntime.Options{
+			RuntimeEvents: runtimeEvents,
 			Report: func(err error) {
 				logger.Warn("network runtime synchronization failed", "component", "network", "error", err)
 			},
@@ -247,6 +254,7 @@ func run(
 		Logger:               logger.With("component", "http"),
 		DiagnosticLogs:       logBuffer,
 		MessageEvents:        messageEvents,
+		RuntimeEvents:        runtimeEvents,
 		Web:                  webapp.Embedded(),
 	})
 	if err != nil {

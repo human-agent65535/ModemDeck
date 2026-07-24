@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
+	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -220,6 +221,7 @@ type Options struct {
 	Now              func() time.Time
 	Random           io.Reader
 	Report           func(error)
+	RuntimeEvents    runtimeevents.Publisher
 }
 
 type Service struct {
@@ -232,6 +234,7 @@ type Service struct {
 	now              func() time.Time
 	random           io.Reader
 	report           func(error)
+	runtimeEvents    runtimeevents.Publisher
 
 	mutationsMu sync.Mutex
 	randomMu    sync.Mutex
@@ -298,6 +301,7 @@ func New(
 		now:              options.Now,
 		random:           options.Random,
 		report:           options.Report,
+		runtimeEvents:    options.RuntimeEvents,
 		state: Status{
 			State:             "unavailable",
 			UnavailableReason: "Network runtime has not synchronized",
@@ -965,16 +969,22 @@ func (s *Service) observeSnapshot(
 
 func (s *Service) setUnavailable(reason string) {
 	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
+	changed := s.state.Available || s.state.UnavailableReason != reason
 	s.state.Available = false
 	s.state.State = "unavailable"
 	s.state.UnavailableReason = reason
 	s.state.Stale = s.state.ObservedAt != nil
+	s.stateMu.Unlock()
+	if changed && s.runtimeEvents != nil {
+		s.runtimeEvents.Publish(runtimeevents.Event{
+			Resources:  []runtimeevents.Resource{runtimeevents.ResourceNetwork},
+			ObservedAt: s.now().UTC(),
+		})
+	}
 }
 
 func (s *Service) setSnapshot(snapshot agentclient.NetworkSnapshot) {
 	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
 	observedAt := snapshot.ObservedAt
 	s.state.Available = true
 	s.state.State = "available"
@@ -984,6 +994,14 @@ func (s *Service) setSnapshot(snapshot agentclient.NetworkSnapshot) {
 	s.state.ObservedAt = &observedAt
 	s.state.Lines = cloneLines(snapshot.Lines)
 	s.state.Proxies = cloneProxies(snapshot.Proxies)
+	s.stateMu.Unlock()
+	if s.runtimeEvents != nil {
+		s.runtimeEvents.Publish(runtimeevents.Event{
+			EventKey:   "network:" + snapshot.BootEpoch + ":" + snapshot.ObservedAt.UTC().Format(time.RFC3339Nano),
+			Resources:  []runtimeevents.Resource{runtimeevents.ResourceNetwork},
+			ObservedAt: snapshot.ObservedAt,
+		})
+	}
 }
 
 func (s *Service) markDirty() {

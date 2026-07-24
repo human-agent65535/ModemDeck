@@ -18,6 +18,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
 	"github.com/human-agent65535/modemdeck/internal/messageevents"
 	"github.com/human-agent65535/modemdeck/internal/phone"
+	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -119,6 +120,7 @@ type Service struct {
 	agent      Agent
 	repository Repository
 	events     messageevents.Publisher
+	runtime    runtimeevents.Publisher
 	random     io.Reader
 	now        func() time.Time
 
@@ -152,6 +154,29 @@ func New(
 		random:     rand.Reader,
 		now:        time.Now,
 	}, nil
+}
+
+func (s *Service) SetRuntimeEventPublisher(events runtimeevents.Publisher) error {
+	if events == nil {
+		return operationError(
+			CodeInvalidArgument,
+			"configure runtime events",
+			"runtime event publisher is required",
+			nil,
+		)
+	}
+	s.refreshMu.Lock()
+	defer s.refreshMu.Unlock()
+	if s.runtime != nil {
+		return operationError(
+			CodeConflict,
+			"configure runtime events",
+			"runtime event publisher is already configured",
+			nil,
+		)
+	}
+	s.runtime = events
+	return nil
 }
 
 func (s *Service) Refresh(ctx context.Context) (Status, error) {
@@ -212,6 +237,7 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 	s.status = cloneStatus(status)
 	s.lastSnapshot = snapshot
 	s.mu.Unlock()
+	s.publishRuntimeSnapshot(snapshot)
 	if err := s.reconcileAuthoritativeCalls(refreshContext, activeCalls); err != nil {
 		return cloneStatus(status), operationError(
 			CodeInternal,
@@ -229,6 +255,17 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 		)
 	}
 	return cloneStatus(status), nil
+}
+
+func (s *Service) publishRuntimeSnapshot(snapshot agentclient.Snapshot) {
+	if s.runtime == nil {
+		return
+	}
+	s.runtime.Publish(runtimeevents.Event{
+		EventKey:   "communications:" + snapshot.Revision,
+		Resources:  []runtimeevents.Resource{runtimeevents.ResourceLines, runtimeevents.ResourceCalls},
+		ObservedAt: snapshot.ObservedAt,
+	})
 }
 
 func (s *Service) publishIncomingMessages(messages []store.Message) {
@@ -925,10 +962,17 @@ func (s *Service) ActiveCalls(ctx context.Context) ([]store.Call, error) {
 
 func (s *Service) recordRefreshFailure(operation string, cause error) (Status, error) {
 	s.mu.Lock()
+	changed := s.status.Connected || s.status.LastError != cause.Error()
 	s.status.Connected = false
 	s.status.LastError = cause.Error()
 	status := cloneStatus(s.status)
 	s.mu.Unlock()
+	if changed && s.runtime != nil {
+		s.runtime.Publish(runtimeevents.Event{
+			Resources:  []runtimeevents.Resource{runtimeevents.ResourceLines, runtimeevents.ResourceCalls},
+			ObservedAt: s.now().UTC(),
+		})
+	}
 	return status, operationError(CodeUnavailable, operation, "live hardware state is unavailable", cause)
 }
 
