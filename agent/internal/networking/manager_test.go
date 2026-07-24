@@ -178,6 +178,12 @@ func TestManagerWaitsForBearerUntilExplicitReapply(t *testing.T) {
 		factory.created != 0 {
 		t.Fatalf("GET implicitly retried waiting proxy: %+v", snapshot.Proxies[0])
 	}
+	if len(snapshot.Lines) != 1 ||
+		snapshot.Lines[0].Connected ||
+		snapshot.Lines[0].Interface != "" ||
+		snapshot.Lines[0].Error != "" {
+		t.Fatalf("disconnected line was reported as unhealthy: %+v", snapshot.Lines)
+	}
 
 	source.setConfiguration(
 		"line-main",

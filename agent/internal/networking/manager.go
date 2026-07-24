@@ -528,6 +528,9 @@ func (manager *Manager) lineStatus(
 	}
 
 	connection, err := selectDefaultInternetConnection(configuration)
+	if errors.Is(err, errNoConnectedDataBearer) {
+		return status
+	}
 	if err != nil {
 		status.Error = err.Error()
 		return status
