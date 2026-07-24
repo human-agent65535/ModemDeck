@@ -206,7 +206,10 @@ func TestAdaptersExposeHumanLineMetadataAndRecentCalls(t *testing.T) {
 	repository := &fakeRepository{
 		calls: []store.Call{{
 			ID:           "call-1",
-			DeviceID:     "line-1",
+			DeviceID:     "legacy-modem-id",
+			LocalPhone:   "+81 80-0000-0001",
+			LineIMSI:     "legacy-imsi",
+			LineICCID:    "legacy-iccid",
 			Direction:    "incoming",
 			RemoteNumber: "+818012345678",
 			ContactName:  "Aiko Tanaka",

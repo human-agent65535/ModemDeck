@@ -34,7 +34,7 @@ type Repository interface {
 	DeleteContact(context.Context, string, int64) error
 	MessageThreads(context.Context, store.ThreadQuery) ([]store.MessageThread, error)
 	Messages(context.Context, store.MessageQuery) ([]store.Message, error)
-	MarkMessageThreadRead(context.Context, string, string) error
+	MarkMessageThreadRead(context.Context, store.MessageThreadIdentity) error
 	Calls(context.Context, store.CallQuery) ([]store.Call, error)
 	RecordingEntries(context.Context, store.RecordingQuery) ([]store.RecordingEntry, error)
 	Devices(context.Context) ([]store.Device, error)
@@ -697,12 +697,27 @@ func (api *API) messages(response http.ResponseWriter, request *http.Request) {
 	if !ok {
 		return
 	}
+	localPhone, ok := boundedFilter(
+		response,
+		request.URL.Query().Get("local_phone"),
+		"local_phone",
+		maxPhoneLength,
+	)
+	if !ok {
+		return
+	}
 	iccid, ok := boundedFilter(response, request.URL.Query().Get("iccid"), "iccid", maxIdentifierLength)
 	if !ok {
 		return
 	}
-	if iccid == "" {
-		writeError(response, http.StatusBadRequest, "invalid_argument", "iccid is required", "iccid")
+	if localPhone == "" && iccid == "" {
+		writeError(
+			response,
+			http.StatusBadRequest,
+			"invalid_argument",
+			"local_phone or iccid is required",
+			"local_phone",
+		)
 		return
 	}
 	peer, ok := boundedFilter(response, request.URL.Query().Get("peer"), "peer", maxPhoneLength)
@@ -713,7 +728,12 @@ func (api *API) messages(response http.ResponseWriter, request *http.Request) {
 		writeError(response, http.StatusBadRequest, "invalid_argument", "peer is required", "peer")
 		return
 	}
-	messages, err := api.repository.Messages(request.Context(), store.MessageQuery{ICCID: iccid, Peer: peer, Limit: limit})
+	messages, err := api.repository.Messages(request.Context(), store.MessageQuery{
+		LocalPhone: localPhone,
+		ICCID:      iccid,
+		Peer:       peer,
+		Limit:      limit,
+	})
 	if err != nil {
 		api.writeInternalError(response, request, "list messages", err)
 		return

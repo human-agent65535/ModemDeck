@@ -59,8 +59,10 @@ type ThreadQuery struct {
 }
 
 type MessageThread struct {
+	Key           string `json:"key"`
 	IMSI          string `json:"imsi"`
 	ICCID         string `json:"iccid"`
+	LocalPhone    string `json:"local_phone"`
 	LineID        string `json:"line_id"`
 	Peer          string `json:"peer"`
 	ContactID     string `json:"contact_id"`
@@ -73,10 +75,17 @@ type MessageThread struct {
 }
 
 type MessageQuery struct {
-	ICCID   string
-	Peer    string
-	LineIDs []string
-	Limit   int
+	LocalPhone string
+	ICCID      string
+	Peer       string
+	LineIDs    []string
+	Limit      int
+}
+
+type MessageThreadIdentity struct {
+	LocalPhone string
+	ICCID      string
+	Peer       string
 }
 
 type Message struct {
@@ -120,6 +129,9 @@ type Call struct {
 	ID              string  `json:"id"`
 	RequestID       string  `json:"request_id"`
 	DeviceID        string  `json:"device_id"`
+	LocalPhone      string  `json:"local_phone"`
+	LineIMSI        string  `json:"line_imsi"`
+	LineICCID       string  `json:"line_iccid"`
 	Direction       string  `json:"direction"`
 	RemoteNumber    string  `json:"remote_number"`
 	ContactID       string  `json:"contact_id"`
@@ -365,6 +377,9 @@ type HardwareCall struct {
 	AppID           string
 	RequestID       string
 	LineID          string
+	LocalPhone      string
+	LineIMSI        string
+	LineICCID       string
 	EndpointCallID  string
 	Number          string
 	Direction       string

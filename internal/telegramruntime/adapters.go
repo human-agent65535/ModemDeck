@@ -39,22 +39,19 @@ type adapters struct {
 }
 
 func (a adapters) Lines(ctx context.Context) ([]telegram.Line, error) {
-	status, err := a.communications.Status(ctx)
+	lines, err := a.lineSummaries(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if persisted, persistedErr := a.repository.Lines(ctx); persistedErr == nil {
-		status.Lines = mergePersistedLineMetadata(status.Lines, persisted)
-	}
-	lines := make([]telegram.Line, 0, len(status.Lines))
-	for _, line := range status.Lines {
+	result := make([]telegram.Line, 0, len(lines))
+	for _, line := range lines {
 		capabilitiesKnown := line.Capabilities.Modem ||
 			line.Capabilities.SIM ||
 			line.Capabilities.Messaging ||
 			line.Capabilities.Voice ||
 			line.Capabilities.SendMessage ||
 			line.Capabilities.Dial
-		lines = append(lines, telegram.Line{
+		result = append(result, telegram.Line{
 			ID:                line.ID,
 			Label:             lineLabel(line),
 			PhoneNumber:       line.PhoneNumber,
@@ -70,7 +67,18 @@ func (a adapters) Lines(ctx context.Context) ([]telegram.Line, error) {
 			Available:         lineAvailable(line.State),
 		})
 	}
-	return lines, nil
+	return result, nil
+}
+
+func (a adapters) lineSummaries(ctx context.Context) ([]store.LineSummary, error) {
+	status, err := a.communications.Status(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if persisted, persistedErr := a.repository.Lines(ctx); persistedErr == nil {
+		status.Lines = mergePersistedLineMetadata(status.Lines, persisted)
+	}
+	return status.Lines, nil
 }
 
 func (a adapters) RecentSMS(ctx context.Context, query telegram.SMSQuery) ([]telegram.SMS, error) {
@@ -100,6 +108,11 @@ func (a adapters) RecentCalls(ctx context.Context, query telegram.CallQuery) ([]
 	for _, lineID := range query.LineIDs {
 		allowed[lineID] = struct{}{}
 	}
+	lines, err := a.lineSummaries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	identities := newCallLineIdentities(lines, allowed)
 	calls, err := a.repository.Calls(ctx, store.CallQuery{
 		Kind:  store.CallKindAll,
 		Limit: store.MaxQueryLimit,
@@ -124,7 +137,8 @@ func (a adapters) RecentCalls(ctx context.Context, query telegram.CallQuery) ([]
 	}
 	result := make([]telegram.Call, 0, limit)
 	for _, call := range calls {
-		if _, ok := allowed[call.DeviceID]; !ok {
+		lineID := identities.resolve(call)
+		if lineID == "" {
 			continue
 		}
 		occurredAt := parseDatabaseTime(call.EndedAt)
@@ -134,7 +148,7 @@ func (a adapters) RecentCalls(ctx context.Context, query telegram.CallQuery) ([]
 		_, hasRecording := recorded[call.ID]
 		result = append(result, telegram.Call{
 			ID:           call.ID,
-			LineID:       call.DeviceID,
+			LineID:       lineID,
 			Direction:    call.Direction,
 			Peer:         call.RemoteNumber,
 			ContactName:  call.ContactName,
@@ -147,6 +161,56 @@ func (a adapters) RecentCalls(ctx context.Context, query telegram.CallQuery) ([]
 		}
 	}
 	return result, nil
+}
+
+type callLineIdentities struct {
+	byDeviceID map[string]string
+	byPhone    map[string]string
+	byIMSI     map[string]string
+	byICCID    map[string]string
+}
+
+func newCallLineIdentities(
+	lines []store.LineSummary,
+	allowed map[string]struct{},
+) callLineIdentities {
+	identities := callLineIdentities{
+		byDeviceID: make(map[string]string, len(lines)),
+		byPhone:    make(map[string]string, len(lines)),
+		byIMSI:     make(map[string]string, len(lines)),
+		byICCID:    make(map[string]string, len(lines)),
+	}
+	for _, line := range lines {
+		if _, ok := allowed[line.ID]; !ok {
+			continue
+		}
+		identities.byDeviceID[strings.TrimSpace(line.ID)] = line.ID
+		if phone := store.NormalizeLinePhone(line.PhoneNumber); phone != "" {
+			identities.byPhone[phone] = line.ID
+		}
+		if imsi := strings.TrimSpace(line.IMSI); imsi != "" {
+			identities.byIMSI[imsi] = line.ID
+		}
+		if iccid := strings.TrimSpace(line.ICCID); iccid != "" {
+			identities.byICCID[iccid] = line.ID
+		}
+	}
+	return identities
+}
+
+func (identities callLineIdentities) resolve(call store.Call) string {
+	if phone := store.NormalizeLinePhone(call.LocalPhone); phone != "" {
+		if lineID := identities.byPhone[phone]; lineID != "" {
+			return lineID
+		}
+	}
+	if lineID := identities.byIMSI[strings.TrimSpace(call.LineIMSI)]; lineID != "" {
+		return lineID
+	}
+	if lineID := identities.byICCID[strings.TrimSpace(call.LineICCID)]; lineID != "" {
+		return lineID
+	}
+	return identities.byDeviceID[strings.TrimSpace(call.DeviceID)]
 }
 
 func (a adapters) SendSMS(ctx context.Context, request telegram.SMSRequest) error {

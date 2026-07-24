@@ -41,6 +41,9 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 		AppID:          "call-fixture-1",
 		RequestID:      "request-call-1",
 		LineID:         line.ID,
+		LocalPhone:     line.PhoneNumber,
+		LineIMSI:       line.IMSI,
+		LineICCID:      line.ICCID,
 		EndpointCallID: "boot-1:/call/1",
 		Number:         "+818012345678",
 		Direction:      "incoming",
@@ -138,7 +141,10 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 	); err != nil {
 		t.Fatalf("restore unread fixture: %v", err)
 	}
-	if err := repository.MarkMessageThreadRead(ctx, line.ICCID, message.Number); err != nil {
+	if err := repository.MarkMessageThreadRead(ctx, MessageThreadIdentity{
+		ICCID: line.ICCID,
+		Peer:  message.Number,
+	}); err != nil {
 		t.Fatalf("MarkMessageThreadRead() error = %v", err)
 	}
 
@@ -161,7 +167,10 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Calls() error = %v", err)
 	}
-	if len(calls) != 1 || calls[0].Phase != "ended" || calls[0].EndedAt == "" {
+	if len(calls) != 1 || calls[0].Phase != "ended" || calls[0].EndedAt == "" ||
+		calls[0].LocalPhone != line.PhoneNumber ||
+		calls[0].LineIMSI != line.IMSI ||
+		calls[0].LineICCID != line.ICCID {
 		t.Fatalf("calls = %+v, want closed call", calls)
 	}
 }
@@ -403,7 +412,10 @@ func TestMarkMessageThreadReadUsesExactSIMIdentity(t *testing.T) {
 		t.Fatalf("insert message threads: %v", err)
 	}
 
-	if err := repository.MarkMessageThreadRead(ctx, "iccid-a", peer); err != nil {
+	if err := repository.MarkMessageThreadRead(ctx, MessageThreadIdentity{
+		ICCID: "iccid-a",
+		Peer:  peer,
+	}); err != nil {
 		t.Fatalf("MarkMessageThreadRead() error = %v", err)
 	}
 	var firstUnread, secondUnread int
@@ -425,8 +437,117 @@ func TestMarkMessageThreadReadUsesExactSIMIdentity(t *testing.T) {
 		t.Fatalf("unread counts first=%d second=%d, want first=0 second=3", firstUnread, secondUnread)
 	}
 
-	if err := repository.MarkMessageThreadRead(ctx, "missing-iccid", peer); !errors.Is(err, ErrMessageThreadNotFound) {
+	if err := repository.MarkMessageThreadRead(ctx, MessageThreadIdentity{
+		ICCID: "missing-iccid",
+		Peer:  peer,
+	}); !errors.Is(err, ErrMessageThreadNotFound) {
 		t.Fatalf("missing thread error = %v, want ErrMessageThreadNotFound", err)
+	}
+}
+
+func TestMessageHistoryUsesLocalPhoneAcrossSIMIdentities(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	ctx := context.Background()
+	peer := "+818055550132"
+	firstObserved := time.Date(2026, time.July, 23, 9, 0, 0, 0, time.UTC)
+	fixtures := []struct {
+		line    HardwareLine
+		message HardwareMessage
+	}{
+		{
+			line: HardwareLine{
+				ID:          "line-before",
+				PhoneNumber: "+81 90-1234-5678",
+				ICCID:       "iccid-before",
+				IMSI:        "imsi-before",
+			},
+			message: HardwareMessage{
+				LineID:            "line-before",
+				EndpointMessageID: "message-before",
+				IMSI:              "imsi-before",
+				ICCID:             "iccid-before",
+				LocalPhone:        "+81 90-1234-5678",
+				Number:            peer,
+				Text:              "before",
+				Direction:         "incoming",
+				State:             "received",
+				StateCode:         3,
+				Revision:          1,
+				Timestamp:         firstObserved,
+				ObservedAt:        firstObserved,
+			},
+		},
+		{
+			line: HardwareLine{
+				ID:          "line-after",
+				PhoneNumber: "+819012345678",
+				ICCID:       "iccid-after",
+				IMSI:        "imsi-after",
+			},
+			message: HardwareMessage{
+				LineID:            "line-after",
+				EndpointMessageID: "message-after",
+				IMSI:              "imsi-after",
+				ICCID:             "iccid-after",
+				LocalPhone:        "+819012345678",
+				Number:            peer,
+				Text:              "after",
+				Direction:         "incoming",
+				State:             "received",
+				StateCode:         3,
+				Revision:          1,
+				Timestamp:         firstObserved.Add(time.Minute),
+				ObservedAt:        firstObserved.Add(time.Minute),
+			},
+		},
+	}
+	for index, fixture := range fixtures {
+		if err := repository.ApplyHardwareSnapshot(ctx, HardwareSnapshot{
+			BootEpoch:  fixture.line.ID,
+			Revision:   fixture.line.ID,
+			ObservedAt: fixture.message.ObservedAt,
+			Lines:      []HardwareLine{fixture.line},
+			Messages:   []HardwareMessage{fixture.message},
+		}); err != nil {
+			t.Fatalf("apply fixture %d: %v", index, err)
+		}
+	}
+
+	threads, err := repository.MessageThreads(ctx, ThreadQuery{})
+	if err != nil {
+		t.Fatalf("MessageThreads() error = %v", err)
+	}
+	if len(threads) != 1 ||
+		threads[0].Key != "phone:819012345678|"+peer ||
+		threads[0].UnreadCount != 2 ||
+		threads[0].LastContent != "after" {
+		t.Fatalf("threads = %+v, want one phone-owned logical thread", threads)
+	}
+
+	messages, err := repository.Messages(ctx, MessageQuery{
+		LocalPhone: "+81 (90) 1234-5678",
+		Peer:       peer,
+	})
+	if err != nil {
+		t.Fatalf("Messages() error = %v", err)
+	}
+	if len(messages) != 2 ||
+		messages[0].Content != "after" ||
+		messages[1].Content != "before" {
+		t.Fatalf("messages = %+v, want both SIM histories in timestamp order", messages)
+	}
+
+	if err := repository.MarkMessageThreadRead(ctx, MessageThreadIdentity{
+		LocalPhone: "+81 90 1234 5678",
+		Peer:       peer,
+	}); err != nil {
+		t.Fatalf("MarkMessageThreadRead() error = %v", err)
+	}
+	threads, err = repository.MessageThreads(ctx, ThreadQuery{})
+	if err != nil || len(threads) != 1 || threads[0].UnreadCount != 0 {
+		t.Fatalf("threads after read = %+v, error = %v", threads, err)
 	}
 }
 
@@ -449,7 +570,10 @@ func TestMarkMessageThreadReadRejectsAmbiguousSIMIdentity(t *testing.T) {
 		t.Fatalf("insert ambiguous message threads: %v", err)
 	}
 
-	err := repository.MarkMessageThreadRead(ctx, "shared-iccid", peer)
+	err := repository.MarkMessageThreadRead(ctx, MessageThreadIdentity{
+		ICCID: "shared-iccid",
+		Peer:  peer,
+	})
 	if !errors.Is(err, ErrMessageThreadIdentityInvalid) {
 		t.Fatalf("MarkMessageThreadRead() error = %v, want ErrMessageThreadIdentityInvalid", err)
 	}

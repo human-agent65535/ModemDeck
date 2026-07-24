@@ -75,6 +75,9 @@ CREATE TABLE call_history (
 			id TEXT PRIMARY KEY,
 			request_id TEXT NOT NULL DEFAULT '',
 			device_id TEXT NOT NULL DEFAULT '',
+			local_phone TEXT NOT NULL DEFAULT '',
+			line_imsi TEXT NOT NULL DEFAULT '',
+			line_iccid TEXT NOT NULL DEFAULT '',
 			direction TEXT NOT NULL DEFAULT '',
 			remote_number TEXT NOT NULL DEFAULT '',
 			endpoint_id TEXT NOT NULL DEFAULT '',
@@ -404,6 +407,10 @@ CREATE INDEX idx_sms_contacts_timestamp ON sms_contacts(last_timestamp DESC);
 CREATE INDEX idx_call_history_ended_at ON call_history(ended_at DESC);
 
 CREATE INDEX idx_call_history_device_ended_at ON call_history(device_id, ended_at DESC);
+
+CREATE INDEX idx_call_history_local_phone_ended_at ON call_history(local_phone, ended_at DESC);
+
+CREATE INDEX idx_call_history_line_iccid_ended_at ON call_history(line_iccid, ended_at DESC);
 
 CREATE UNIQUE INDEX ux_call_history_request_id ON call_history(request_id) WHERE request_id <> '';
 

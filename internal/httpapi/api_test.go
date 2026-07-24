@@ -14,30 +14,30 @@ import (
 )
 
 type fakeRepository struct {
-	pingError          error
-	contactLimit       int
-	contact            store.Contact
-	contactError       error
-	createContactInput store.ContactInput
-	createContactError error
-	updateContactID    string
-	updateContactInput store.ContactInput
-	updateContactError error
-	deleteContactID    string
-	deleteContactRev   int64
-	deleteContactError error
-	messageReadICCID   string
-	messageReadPeer    string
-	messageReadError   error
-	recordingQuery     store.RecordingQuery
-	recordingEntries   []store.RecordingEntry
-	recordingError     error
-	devices            []store.Device
-	lines              []store.LineSummary
-	updateLineICCID    string
-	updateLineLabel    string
-	updateLineResult   store.LineSummary
-	updateLineError    error
+	pingError           error
+	contactLimit        int
+	contact             store.Contact
+	contactError        error
+	createContactInput  store.ContactInput
+	createContactError  error
+	updateContactID     string
+	updateContactInput  store.ContactInput
+	updateContactError  error
+	deleteContactID     string
+	deleteContactRev    int64
+	deleteContactError  error
+	messageQuery        store.MessageQuery
+	messageReadIdentity store.MessageThreadIdentity
+	messageReadError    error
+	recordingQuery      store.RecordingQuery
+	recordingEntries    []store.RecordingEntry
+	recordingError      error
+	devices             []store.Device
+	lines               []store.LineSummary
+	updateLineICCID     string
+	updateLineLabel     string
+	updateLineResult    store.LineSummary
+	updateLineError     error
 }
 
 func (repository *fakeRepository) Ping(context.Context) error {
@@ -74,13 +74,16 @@ func (repository *fakeRepository) MessageThreads(context.Context, store.ThreadQu
 	return []store.MessageThread{}, nil
 }
 
-func (repository *fakeRepository) Messages(context.Context, store.MessageQuery) ([]store.Message, error) {
+func (repository *fakeRepository) Messages(_ context.Context, query store.MessageQuery) ([]store.Message, error) {
+	repository.messageQuery = query
 	return []store.Message{}, nil
 }
 
-func (repository *fakeRepository) MarkMessageThreadRead(_ context.Context, iccid, peer string) error {
-	repository.messageReadICCID = iccid
-	repository.messageReadPeer = peer
+func (repository *fakeRepository) MarkMessageThreadRead(
+	_ context.Context,
+	identity store.MessageThreadIdentity,
+) error {
+	repository.messageReadIdentity = identity
 	return repository.messageReadError
 }
 
@@ -519,7 +522,7 @@ func TestStructuredErrors(t *testing.T) {
 	}{
 		{name: "health unavailable", method: http.MethodGet, path: "/api/v1/health", wantStatus: 503, wantCode: "database_unavailable"},
 		{name: "invalid call kind", method: http.MethodGet, path: "/api/v1/calls?kind=sideways", wantStatus: 400, wantCode: "invalid_argument"},
-		{name: "missing message iccid", method: http.MethodGet, path: "/api/v1/messages?peer=%2B15550100", wantStatus: 400, wantCode: "invalid_argument"},
+		{name: "missing message line identity", method: http.MethodGet, path: "/api/v1/messages?peer=%2B15550100", wantStatus: 400, wantCode: "invalid_argument"},
 		{name: "missing message peer", method: http.MethodGet, path: "/api/v1/messages?iccid=8901000000000000001", wantStatus: 400, wantCode: "invalid_argument"},
 		{name: "wrong method", method: http.MethodPatch, path: "/api/v1/contacts", wantStatus: 405, wantCode: "method_not_allowed"},
 		{name: "missing endpoint", method: http.MethodGet, path: "/api/v1/missing", wantStatus: 404, wantCode: "not_found"},

@@ -158,7 +158,8 @@ func (s *Store) CallControlTarget(ctx context.Context, appID string) (CallContro
 func (s *Store) ActiveCalls(ctx context.Context) ([]Call, error) {
 	rows, err := s.database.QueryContext(
 		ctx,
-		`SELECT id, request_id, device_id, direction, remote_number,
+		`SELECT id, request_id, device_id, local_phone, line_imsi, line_iccid,
+			direction, remote_number,
 			endpoint_id, endpoint_call_id, phase, revision, created_at, updated_at,
 			active_at, ended_at, end_reason, failure_code, bearer, state_reason,
 			state_reason_code, multiparty, audio_port, audio_encoding,
@@ -182,11 +183,42 @@ func (s *Store) ActiveCalls(ctx context.Context) ([]Call, error) {
 	return result, rowsError("read active calls", rows.Err())
 }
 
-func (s *Store) MarkMessageThreadRead(ctx context.Context, iccid, peer string) error {
-	iccid = strings.TrimSpace(iccid)
-	peer = strings.TrimSpace(peer)
-	if iccid == "" || peer == "" {
-		return fmt.Errorf("mark message thread read: iccid and peer are required")
+func (s *Store) MarkMessageThreadRead(
+	ctx context.Context,
+	identity MessageThreadIdentity,
+) error {
+	localPhone := normalizePhoneIdentity(identity.LocalPhone)
+	iccid := strings.TrimSpace(identity.ICCID)
+	peer := strings.TrimSpace(identity.Peer)
+	if peer == "" || (localPhone == "" && iccid == "") {
+		return fmt.Errorf("mark message thread read: local phone or ICCID and peer are required")
+	}
+	if localPhone != "" {
+		result, err := s.database.ExecContext(
+			ctx,
+			`UPDATE sms_contacts
+			 SET unread_count = 0, updated_at = CURRENT_TIMESTAMP
+			 WHERE peer = ? AND EXISTS (
+				SELECT 1
+				FROM sms
+				WHERE sms.imsi = sms_contacts.imsi
+					AND sms.peer = sms_contacts.peer
+					AND `+normalizedPhoneSQL("sms.local_phone")+` = ?
+			 )`,
+			peer,
+			localPhone,
+		)
+		if err != nil {
+			return fmt.Errorf("mark message thread read by local phone: %w", err)
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("mark message thread read by local phone: read affected rows: %w", err)
+		}
+		if affected == 0 {
+			return ErrMessageThreadNotFound
+		}
+		return nil
 	}
 	result, err := s.database.ExecContext(
 		ctx,
@@ -711,18 +743,32 @@ func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareC
 	if _, err := transaction.ExecContext(
 		ctx,
 		`INSERT INTO call_history (
-			id, request_id, device_id, direction, remote_number, endpoint_id,
-			endpoint_call_id, phase, revision, created_at, updated_at, active_at,
-			ended_at, end_reason, failure_code, bearer, state_reason,
-			state_reason_code, multiparty, audio_port, audio_encoding,
-			audio_resolution, audio_rate, media_available
+			id, request_id, device_id, local_phone, line_imsi, line_iccid,
+			direction, remote_number, endpoint_id, endpoint_call_id, phase,
+			revision, created_at, updated_at, active_at, ended_at, end_reason,
+			failure_code, bearer, state_reason, state_reason_code, multiparty,
+			audio_port, audio_encoding, audio_resolution, audio_rate,
+			media_available
 		 ) VALUES (
 			?, ?, ?, ?, ?, ?,
 			?, ?, ?, ?, ?, ?,
 			?, ?, ?, ?, ?, ?,
-			?, ?, ?, ?, ?, ?
+			?, ?, ?, ?, ?, ?,
+			?, ?, ?
 		 )
 		 ON CONFLICT(id) DO UPDATE SET
+			local_phone = CASE
+				WHEN excluded.local_phone <> '' THEN excluded.local_phone
+				ELSE call_history.local_phone
+			END,
+			line_imsi = CASE
+				WHEN excluded.line_imsi <> '' THEN excluded.line_imsi
+				ELSE call_history.line_imsi
+			END,
+			line_iccid = CASE
+				WHEN excluded.line_iccid <> '' THEN excluded.line_iccid
+				ELSE call_history.line_iccid
+			END,
 			endpoint_call_id = excluded.endpoint_call_id,
 			phase = excluded.phase,
 			revision = CASE
@@ -767,6 +813,9 @@ func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareC
 		call.AppID,
 		call.RequestID,
 		call.LineID,
+		strings.TrimSpace(call.LocalPhone),
+		strings.TrimSpace(call.LineIMSI),
+		strings.TrimSpace(call.LineICCID),
 		call.Direction,
 		call.Number,
 		modemManagerEndpointID,
@@ -1013,7 +1062,8 @@ func callByID(ctx context.Context, queryer interface {
 }, id string) (Call, error) {
 	row := queryer.QueryRowContext(
 		ctx,
-		`SELECT id, request_id, device_id, direction, remote_number,
+		`SELECT id, request_id, device_id, local_phone, line_imsi, line_iccid,
+			direction, remote_number,
 			endpoint_id, endpoint_call_id, phase, revision, created_at, updated_at,
 			active_at, ended_at, end_reason, failure_code, bearer, state_reason,
 			state_reason_code, multiparty, audio_port, audio_encoding,
@@ -1034,16 +1084,20 @@ type callScanner interface {
 
 func scanCallRow(scanner callScanner) (Call, error) {
 	var (
-		call                                                                       Call
-		requestID, deviceID, direction, remoteNumber, endpointID, endpointCallID   sql.NullString
-		phase, createdAt, updatedAt, activeAt, endedAt, endReason, failure, bearer sql.NullString
-		stateReason, audioPort, audioEncoding, audioResolution                     sql.NullString
-		revision, stateReasonCode, multiparty, audioRate, mediaAvailable           sql.NullInt64
+		call                                                                    Call
+		requestID, deviceID, localPhone, lineIMSI, lineICCID                    sql.NullString
+		direction, remoteNumber, endpointID, endpointCallID                     sql.NullString
+		phase, createdAt, updatedAt, activeAt, endedAt, endReason               sql.NullString
+		failure, bearer, stateReason, audioPort, audioEncoding, audioResolution sql.NullString
+		revision, stateReasonCode, multiparty, audioRate, mediaAvailable        sql.NullInt64
 	)
 	if err := scanner.Scan(
 		&call.ID,
 		&requestID,
 		&deviceID,
+		&localPhone,
+		&lineIMSI,
+		&lineICCID,
 		&direction,
 		&remoteNumber,
 		&endpointID,
@@ -1070,6 +1124,9 @@ func scanCallRow(scanner callScanner) (Call, error) {
 	}
 	call.RequestID = stringValue(requestID)
 	call.DeviceID = stringValue(deviceID)
+	call.LocalPhone = stringValue(localPhone)
+	call.LineIMSI = stringValue(lineIMSI)
+	call.LineICCID = stringValue(lineICCID)
 	call.Direction = stringValue(direction)
 	call.RemoteNumber = stringValue(remoteNumber)
 	call.EndpointID = stringValue(endpointID)

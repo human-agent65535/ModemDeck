@@ -329,7 +329,12 @@ func (s *Service) publishIncomingMessages(messages []store.Message) {
 		s.events.Publish(messageevents.IncomingSMS{
 			EventKey:  "sms:" + messageID,
 			MessageID: messageID,
-			ThreadKey: message.ICCID + "|" + message.Peer,
+			ThreadKey: store.MessageThreadKey(
+				message.LocalPhone,
+				message.IMSI,
+				message.ICCID,
+				message.Peer,
+			),
 			LineID:    message.LineID,
 			ICCID:     message.ICCID,
 			Peer:      message.Peer,
@@ -873,6 +878,9 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 		AppID:          appID,
 		RequestID:      requestID,
 		LineID:         line.ID,
+		LocalPhone:     line.PhoneNumber,
+		LineIMSI:       line.IMSI,
+		LineICCID:      line.ICCID,
 		EndpointCallID: receipt.ResourceID,
 		Number:         number,
 		Direction:      "outgoing",
@@ -1265,7 +1273,13 @@ func projectSnapshot(
 
 	calls := make([]store.HardwareCall, 0, len(snapshot.Calls))
 	for _, call := range snapshot.Calls {
-		calls = append(calls, projectCall(call, "", snapshot.ObservedAt, 0))
+		calls = append(calls, projectCall(
+			call,
+			lineIndex[call.LineID],
+			"",
+			snapshot.ObservedAt,
+			0,
+		))
 	}
 	messages := make([]store.HardwareMessage, 0, len(snapshot.Messages))
 	for _, message := range snapshot.Messages {
@@ -1429,11 +1443,20 @@ func projectMessage(
 	}
 }
 
-func projectCall(call agentclient.Call, requestID string, observedAt time.Time, revision int64) store.HardwareCall {
+func projectCall(
+	call agentclient.Call,
+	line store.LineSummary,
+	requestID string,
+	observedAt time.Time,
+	revision int64,
+) store.HardwareCall {
 	projected := store.HardwareCall{
 		AppID:           stableInstanceID("call", call.LineID, call.ID),
 		RequestID:       requestID,
 		LineID:          call.LineID,
+		LocalPhone:      line.PhoneNumber,
+		LineIMSI:        line.IMSI,
+		LineICCID:       line.ICCID,
 		EndpointCallID:  call.ID,
 		Number:          call.Number,
 		Direction:       normalizeCallDirection(call.Direction, call.State),

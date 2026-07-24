@@ -153,7 +153,8 @@ func TestLineServiceRoutesExposeTypedOperationsWithoutLoggingSecrets(t *testing.
 		bytes.Contains(simResponse.Body.Bytes(), []byte("/org/freedesktop/ModemManager1/SIM/")) {
 		t.Fatalf("SIM response exposed a raw hardware identifier: %s", simResponse.Body.String())
 	}
-	if repository.updateLineICCID != "" || repository.messageReadICCID != "" ||
+	if repository.updateLineICCID != "" ||
+		repository.messageReadIdentity != (store.MessageThreadIdentity{}) ||
 		!reflect.DeepEqual(repository.createContactInput, store.ContactInput{}) ||
 		!reflect.DeepEqual(repository.recordingQuery, store.RecordingQuery{}) {
 		t.Fatalf("read-only SIM facts reached the application store: %+v", repository)

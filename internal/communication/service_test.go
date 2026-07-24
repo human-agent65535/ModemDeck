@@ -177,6 +177,9 @@ func (repository *fakeRepository) UpsertHardwareCall(
 			ID:             call.AppID,
 			RequestID:      call.RequestID,
 			DeviceID:       call.LineID,
+			LocalPhone:     call.LocalPhone,
+			LineIMSI:       call.LineIMSI,
+			LineICCID:      call.LineICCID,
 			Direction:      call.Direction,
 			RemoteNumber:   call.Number,
 			EndpointCallID: call.EndpointCallID,
@@ -431,6 +434,9 @@ func TestServiceRequiresExplicitCapableLine(t *testing.T) {
 		t.Fatalf("agent start request = %+v", request)
 	}
 	if call.DeviceID != "line-1" || call.RemoteNumber != "+818012345678" ||
+		call.LocalPhone != "+819012345678" ||
+		call.LineIMSI != "440500000000001" ||
+		call.LineICCID != "8901000000000000001" ||
 		call.Direction != "outgoing" || call.Phase != "unknown" {
 		t.Fatalf("call = %+v", call)
 	}
@@ -560,14 +566,16 @@ func TestRefreshPublishesCommittedIncomingMessage(t *testing.T) {
 	agent := connectedAgent(now)
 	repository := &fakeRepository{snapshotResult: store.HardwareSnapshotResult{
 		CreatedIncomingMessages: []store.Message{{
-			ID:        42,
-			LineID:    "line-1",
-			ICCID:     "8901000000000000001",
-			Peer:      "+818012345678",
-			Content:   "hello",
-			Direction: "incoming",
-			State:     "received",
-			Timestamp: now.Format(time.RFC3339),
+			ID:         42,
+			LineID:     "line-1",
+			LocalPhone: "+81 90 0000 0001",
+			IMSI:       "440500000000001",
+			ICCID:      "8901000000000000001",
+			Peer:       "+818012345678",
+			Content:    "hello",
+			Direction:  "incoming",
+			State:      "received",
+			Timestamp:  now.Format(time.RFC3339),
 		}},
 	}}
 	events := messageevents.NewBuffer(8)
@@ -586,7 +594,7 @@ func TestRefreshPublishesCommittedIncomingMessage(t *testing.T) {
 	}
 	event := window.Events[0]
 	if event.EventKey != "sms:42" || event.MessageID != "42" ||
-		event.ThreadKey != "8901000000000000001|+818012345678" ||
+		event.ThreadKey != "phone:819000000001|+818012345678" ||
 		event.LineID != "line-1" || event.Content != "hello" {
 		t.Fatalf("published event = %+v", event)
 	}
@@ -1144,7 +1152,7 @@ func TestProjectCallExposesMediaOnlyWhenDetectedConfiguredAndSupported(t *testin
 			if test.mutate != nil {
 				test.mutate(&call)
 			}
-			projected := projectCall(call, "", time.Time{}, 0)
+			projected := projectCall(call, store.LineSummary{}, "", time.Time{}, 0)
 			if projected.MediaAvailable != test.want {
 				t.Fatalf(
 					"MediaAvailable = %t, want %t for %+v",

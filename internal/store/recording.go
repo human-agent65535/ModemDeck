@@ -86,6 +86,9 @@ type RecordingQuery struct {
 type RecordingCall struct {
 	ID              string `json:"id"`
 	DeviceID        string `json:"device_id"`
+	LocalPhone      string `json:"local_phone"`
+	LineIMSI        string `json:"line_imsi"`
+	LineICCID       string `json:"line_iccid"`
 	Direction       string `json:"direction"`
 	RemoteNumber    string `json:"remote_number"`
 	ContactID       string `json:"contact_id,omitempty"`
@@ -677,7 +680,8 @@ func (s *Store) RecordingEntries(
 		recording.started_at, recording.ended_at, recording.duration_ms,
 		recording.size_bytes, recording.relative_path, recording.failure_code,
 		recording.created_at, recording.updated_at,
-		call.device_id, call.direction, call.remote_number,
+		call.device_id, call.local_phone, call.line_imsi, call.line_iccid,
+		call.direction, call.remote_number,
 		%s, %s,
 		call.created_at, call.active_at, call.ended_at,
 		call.end_reason, call.failure_code
@@ -691,6 +695,7 @@ func (s *Store) RecordingEntries(
 		pattern := searchPattern(query.Search)
 		statement += ` WHERE (
 			LOWER(COALESCE(call.remote_number, '')) LIKE ? ESCAPE '\' OR
+			LOWER(COALESCE(call.local_phone, '')) LIKE ? ESCAPE '\' OR
 			LOWER(COALESCE(call.device_id, '')) LIKE ? ESCAPE '\' OR
 			LOWER(COALESCE(recording.id, '')) LIKE ? ESCAPE '\' OR
 			EXISTS (
@@ -710,7 +715,7 @@ func (s *Store) RecordingEntries(
 				AND LOWER(COALESCE(devices.alias, '')) LIKE ? ESCAPE '\'
 			)
 		)`
-		arguments = append(arguments, pattern, pattern, pattern, pattern, pattern)
+		arguments = append(arguments, pattern, pattern, pattern, pattern, pattern, pattern)
 	}
 	statement += ` ORDER BY
 		COALESCE(recording.started_at, recording.created_at) DESC,
@@ -1043,7 +1048,8 @@ func scanRecordingEntry(scanner recordingSegmentScanner) (RecordingEntry, error)
 		segmentFailure, segmentCreated, segmentUpdate sql.NullString
 		segmentIndex, durationMS, sizeBytes           sql.NullInt64
 		segmentStatus                                 sql.NullString
-		deviceID, direction, remoteNumber             sql.NullString
+		deviceID, localPhone, lineIMSI, lineICCID     sql.NullString
+		direction, remoteNumber                       sql.NullString
 		contactID, contactName, callCreated           sql.NullString
 		activeAt, callEnded, endReason, callFailure   sql.NullString
 	)
@@ -1061,6 +1067,9 @@ func scanRecordingEntry(scanner recordingSegmentScanner) (RecordingEntry, error)
 		&segmentCreated,
 		&segmentUpdate,
 		&deviceID,
+		&localPhone,
+		&lineIMSI,
+		&lineICCID,
 		&direction,
 		&remoteNumber,
 		&contactID,
@@ -1089,6 +1098,9 @@ func scanRecordingEntry(scanner recordingSegmentScanner) (RecordingEntry, error)
 	entry.Call = RecordingCall{
 		ID:           entry.Segment.CallID,
 		DeviceID:     stringValue(deviceID),
+		LocalPhone:   stringValue(localPhone),
+		LineIMSI:     stringValue(lineIMSI),
+		LineICCID:    stringValue(lineICCID),
 		Direction:    stringValue(direction),
 		RemoteNumber: stringValue(remoteNumber),
 		ContactID:    stringValue(contactID),

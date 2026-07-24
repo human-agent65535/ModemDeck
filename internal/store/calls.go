@@ -29,7 +29,8 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 	}
 	limit := boundedLimit(query.Limit)
 	statement := fmt.Sprintf(`SELECT
-		ch.id, ch.request_id, ch.device_id, ch.direction, ch.remote_number,
+		ch.id, ch.request_id, ch.device_id, ch.local_phone, ch.line_imsi,
+		ch.line_iccid, ch.direction, ch.remote_number,
 		%s, %s,
 		ch.endpoint_id, ch.endpoint_call_id, ch.phase, ch.revision,
 			ch.created_at, ch.updated_at, ch.active_at, ch.ended_at,
@@ -59,6 +60,7 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 		pattern := searchPattern(query.Search)
 		conditions = append(conditions, `(
 			LOWER(COALESCE(ch.remote_number, '')) LIKE ? ESCAPE '\' OR
+			LOWER(COALESCE(ch.local_phone, '')) LIKE ? ESCAPE '\' OR
 			LOWER(COALESCE(ch.device_id, '')) LIKE ? ESCAPE '\' OR
 			EXISTS (
 				SELECT 1 FROM contact_phones
@@ -67,7 +69,7 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 				AND LOWER(COALESCE(contacts.display_name, '')) LIKE ? ESCAPE '\'
 			)
 		)`)
-		arguments = append(arguments, pattern, pattern, pattern)
+		arguments = append(arguments, pattern, pattern, pattern, pattern)
 	}
 	if len(conditions) > 0 {
 		statement += " WHERE " + strings.Join(conditions, " AND ")
@@ -84,16 +86,17 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 	calls := make([]Call, 0)
 	for rows.Next() {
 		var (
-			call                                                                    Call
-			requestID, deviceID, direction, remoteNumber, contactID, contactName    sql.NullString
-			endpointID, endpointCallID, phase                                       sql.NullString
-			revision                                                                sql.NullInt64
-			createdAt, updatedAt, activeAt, endedAt, endReason, failureCode, bearer sql.NullString
-			stateReason, audioPort, audioEncoding, audioResolution                  sql.NullString
-			stateReasonCode, multiparty, audioRate, mediaAvailable                  sql.NullInt64
+			call                                                                          Call
+			requestID, deviceID, localPhone, lineIMSI, lineICCID, direction, remoteNumber sql.NullString
+			contactID, contactName, endpointID, endpointCallID, phase                     sql.NullString
+			revision                                                                      sql.NullInt64
+			createdAt, updatedAt, activeAt, endedAt, endReason, failureCode, bearer       sql.NullString
+			stateReason, audioPort, audioEncoding, audioResolution                        sql.NullString
+			stateReasonCode, multiparty, audioRate, mediaAvailable                        sql.NullInt64
 		)
 		if err := rows.Scan(
-			&call.ID, &requestID, &deviceID, &direction, &remoteNumber,
+			&call.ID, &requestID, &deviceID, &localPhone, &lineIMSI, &lineICCID,
+			&direction, &remoteNumber,
 			&contactID, &contactName, &endpointID, &endpointCallID, &phase,
 			&revision, &createdAt, &updatedAt, &activeAt, &endedAt,
 			&endReason, &failureCode, &bearer, &stateReason, &stateReasonCode,
@@ -104,6 +107,9 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 		}
 		call.RequestID = stringValue(requestID)
 		call.DeviceID = stringValue(deviceID)
+		call.LocalPhone = stringValue(localPhone)
+		call.LineIMSI = stringValue(lineIMSI)
+		call.LineICCID = stringValue(lineICCID)
 		call.Direction = stringValue(direction)
 		call.RemoteNumber = stringValue(remoteNumber)
 		call.ContactID = stringValue(contactID)

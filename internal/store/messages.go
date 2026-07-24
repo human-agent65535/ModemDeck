@@ -27,36 +27,75 @@ const contactNameForNumberSQL = `COALESCE((
 
 func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]MessageThread, error) {
 	limit := boundedLimit(query.Limit)
-	statement := fmt.Sprintf(`SELECT
-			COALESCE(sc.imsi, ''), COALESCE(sc.iccid, ''),
-			COALESCE((
-				SELECT sms.line_id FROM sms
-				WHERE sms.id = sc.last_sms_id
-				LIMIT 1
-			), ''), COALESCE(sc.peer, ''),
-			%s, %s,
-		COALESCE(sc.last_sms_id, 0), sc.last_timestamp,
-		COALESCE(sc.last_content, ''), COALESCE(sc.last_type, 0),
-		COALESCE(sc.unread_count, 0)
-		FROM sms_contacts sc`,
-		fmt.Sprintf(contactIDForNumberSQL, "sc.peer", "sc.peer"),
-		fmt.Sprintf(contactNameForNumberSQL, "sc.peer", "sc.peer"),
-	)
+	normalizedLocalPhone := normalizedPhoneSQL("local_phone")
+	statement := `WITH raw_threads AS (
+			SELECT
+				COALESCE(sc.imsi, '') AS imsi,
+				COALESCE(sc.iccid, '') AS iccid,
+				COALESCE((
+					SELECT sms.local_phone FROM sms
+					WHERE sms.id = sc.last_sms_id
+					LIMIT 1
+				), '') AS local_phone,
+				COALESCE((
+					SELECT sms.line_id FROM sms
+					WHERE sms.id = sc.last_sms_id
+					LIMIT 1
+				), '') AS line_id,
+				COALESCE(sc.peer, '') AS peer,
+				COALESCE(sc.last_sms_id, 0) AS last_sms_id,
+				sc.last_timestamp AS last_timestamp,
+				COALESCE(sc.last_content, '') AS last_content,
+				COALESCE(sc.last_type, 0) AS last_type,
+				COALESCE(sc.unread_count, 0) AS unread_count
+			FROM sms_contacts sc
+		),
+		identified_threads AS (
+			SELECT raw_threads.*,
+				CASE
+					WHEN ` + normalizedLocalPhone + ` <> ''
+						THEN 'phone:' || ` + normalizedLocalPhone + `
+					WHEN imsi <> '' THEN 'imsi:' || imsi
+					ELSE 'iccid:' || iccid
+				END AS line_identity
+			FROM raw_threads
+		),
+		ranked_threads AS (
+			SELECT identified_threads.*,
+				ROW_NUMBER() OVER (
+					PARTITION BY line_identity, peer
+					ORDER BY last_timestamp DESC, last_sms_id DESC, imsi ASC
+				) AS line_rank,
+				SUM(unread_count) OVER (
+					PARTITION BY line_identity, peer
+				) AS logical_unread_count
+			FROM identified_threads
+		)
+		SELECT
+			rt.line_identity || '|' || rt.peer,
+			rt.imsi, rt.iccid, rt.local_phone, rt.line_id, rt.peer,
+			` + fmt.Sprintf(contactIDForNumberSQL, "rt.peer", "rt.peer") + `,
+			` + fmt.Sprintf(contactNameForNumberSQL, "rt.peer", "rt.peer") + `,
+			rt.last_sms_id, rt.last_timestamp, rt.last_content, rt.last_type,
+			rt.logical_unread_count
+		FROM ranked_threads rt
+		WHERE rt.line_rank = 1`
 	arguments := []any{}
 	if strings.TrimSpace(query.Search) != "" {
 		pattern := searchPattern(query.Search)
-		statement += ` WHERE
-			LOWER(COALESCE(sc.peer, '')) LIKE ? ESCAPE '\' OR
-			LOWER(COALESCE(sc.last_content, '')) LIKE ? ESCAPE '\' OR
+		statement += ` AND (
+			LOWER(COALESCE(rt.peer, '')) LIKE ? ESCAPE '\' OR
+			LOWER(COALESCE(rt.last_content, '')) LIKE ? ESCAPE '\' OR
 			EXISTS (
 				SELECT 1 FROM contact_phones
 				JOIN contacts ON contacts.id = contact_phones.contact_id
-				WHERE (contact_phones.canonical_e164 = sc.peer OR contact_phones.original_number = sc.peer)
+				WHERE (contact_phones.canonical_e164 = rt.peer OR contact_phones.original_number = rt.peer)
 				AND LOWER(COALESCE(contacts.display_name, '')) LIKE ? ESCAPE '\'
-			)`
+			)
+		)`
 		arguments = append(arguments, pattern, pattern, pattern)
 	}
-	statement += ` ORDER BY sc.last_timestamp DESC, sc.last_sms_id DESC, sc.peer ASC LIMIT ?`
+	statement += ` ORDER BY rt.last_timestamp DESC, rt.last_sms_id DESC, rt.peer ASC LIMIT ?`
 	arguments = append(arguments, limit)
 
 	rows, err := s.database.QueryContext(ctx, statement, arguments...)
@@ -68,19 +107,21 @@ func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]Messag
 	threads := make([]MessageThread, 0)
 	for rows.Next() {
 		var (
-			thread                                            MessageThread
-			imsi, iccid, lineID, peer, contactID, contactName sql.NullString
-			lastID, lastType, unread                          sql.NullInt64
-			lastTimestamp, lastContent                        sql.NullString
+			thread                                                             MessageThread
+			key, imsi, iccid, localPhone, lineID, peer, contactID, contactName sql.NullString
+			lastID, lastType, unread                                           sql.NullInt64
+			lastTimestamp, lastContent                                         sql.NullString
 		)
 		if err := rows.Scan(
-			&imsi, &iccid, &lineID, &peer, &contactID, &contactName,
+			&key, &imsi, &iccid, &localPhone, &lineID, &peer, &contactID, &contactName,
 			&lastID, &lastTimestamp, &lastContent, &lastType, &unread,
 		); err != nil {
 			return nil, fmt.Errorf("scan message thread: %w", err)
 		}
+		thread.Key = stringValue(key)
 		thread.IMSI = stringValue(imsi)
 		thread.ICCID = stringValue(iccid)
+		thread.LocalPhone = stringValue(localPhone)
 		thread.LineID = stringValue(lineID)
 		thread.Peer = stringValue(peer)
 		thread.ContactID = stringValue(contactID)
@@ -101,8 +142,8 @@ func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, er
 		imsi, iccid, peer, local_phone, sender, recipient,
 		content, type, status, state, failure_code, revision, timestamp, created_at
 		FROM sms`
-	conditions := make([]string, 0, 3)
-	arguments := make([]any, 0, 4)
+	conditions := make([]string, 0, 4)
+	arguments := make([]any, 0, 5)
 	if len(query.LineIDs) > 0 {
 		lineIDs := uniqueNonEmptyStrings(query.LineIDs)
 		if len(lineIDs) == 0 {
@@ -116,7 +157,10 @@ func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, er
 			arguments = append(arguments, lineID)
 		}
 	}
-	if iccid := strings.TrimSpace(query.ICCID); iccid != "" {
+	if localPhone := normalizePhoneIdentity(query.LocalPhone); localPhone != "" {
+		conditions = append(conditions, normalizedPhoneSQL("local_phone")+" = ?")
+		arguments = append(arguments, localPhone)
+	} else if iccid := strings.TrimSpace(query.ICCID); iccid != "" {
 		conditions = append(conditions, "iccid = ?")
 		arguments = append(arguments, iccid)
 	}

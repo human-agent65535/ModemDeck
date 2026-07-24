@@ -18,8 +18,9 @@ type sendMessageRequest struct {
 }
 
 type markMessageReadRequest struct {
-	ICCID string `json:"iccid"`
-	Peer  string `json:"peer"`
+	LocalPhone string `json:"local_phone"`
+	ICCID      string `json:"iccid"`
+	Peer       string `json:"peer"`
 }
 
 type startCallRequest struct {
@@ -95,13 +96,22 @@ func (api *API) messageRead(response http.ResponseWriter, request *http.Request)
 	if !decodeJSONBody(response, request, &input) {
 		return
 	}
-	iccid := strings.TrimSpace(input.ICCID)
-	peer := strings.TrimSpace(input.Peer)
-	if iccid == "" || peer == "" {
-		writeError(response, http.StatusBadRequest, "invalid_argument", "iccid and peer are required", "")
+	identity := store.MessageThreadIdentity{
+		LocalPhone: strings.TrimSpace(input.LocalPhone),
+		ICCID:      strings.TrimSpace(input.ICCID),
+		Peer:       strings.TrimSpace(input.Peer),
+	}
+	if identity.Peer == "" || (identity.LocalPhone == "" && identity.ICCID == "") {
+		writeError(
+			response,
+			http.StatusBadRequest,
+			"invalid_argument",
+			"local_phone or iccid and peer are required",
+			"",
+		)
 		return
 	}
-	if err := api.repository.MarkMessageThreadRead(request.Context(), iccid, peer); err != nil {
+	if err := api.repository.MarkMessageThreadRead(request.Context(), identity); err != nil {
 		switch {
 		case errors.Is(err, store.ErrMessageThreadNotFound):
 			writeError(response, http.StatusNotFound, "message_thread_not_found", "Message thread no longer exists", "")
