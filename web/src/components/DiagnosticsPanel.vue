@@ -5,10 +5,13 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronsDown,
+  CircleHelp,
   Database,
   Download,
   LoaderCircle,
+  LockKeyhole,
   MessageSquare,
+  MicOff,
   Pause,
   PhoneCall,
   Play,
@@ -106,26 +109,43 @@ const statusLabel = computed(() => {
   }
 })
 
-const browserAudioSupported = computed(
-  () =>
-    typeof RTCPeerConnection !== 'undefined' &&
-    typeof navigator !== 'undefined' &&
-    typeof navigator.mediaDevices?.getUserMedia === 'function'
+const browserAudioAvailable = computed(
+  () => audioState.microphoneAccessStatus === 'granted'
 )
 
-const browserAudioAvailable = computed(
-  () => browserAudioSupported.value && audioState.devicesStatus !== 'error'
-)
+const browserAudioTone = computed(() => {
+  switch (audioState.microphoneAccessStatus) {
+    case 'granted':
+      return 'available'
+    case 'prompt':
+    case 'pending':
+      return 'pending'
+    case 'no-device':
+      return 'warning'
+    default:
+      return 'unavailable'
+  }
+})
 
 const browserAudioDetail = computed(() => {
-  if (!browserAudioSupported.value) return 'WebRTC 音频不可用'
-  if (audioState.devicesStatus === 'idle' || audioState.devicesStatus === 'loading') {
-    return '正在读取音频设备'
+  switch (audioState.microphoneAccessStatus) {
+    case 'insecure-context':
+      return '需要 HTTPS 安全上下文'
+    case 'unsupported':
+      return '当前浏览器不支持 WebRTC 麦克风'
+    case 'prompt':
+      return '等待麦克风授权'
+    case 'pending':
+      return '正在请求麦克风权限'
+    case 'granted':
+      return `已授权 · 输入 ${audioState.inputs.length} · 输出 ${audioState.outputs.length}`
+    case 'denied':
+      return '麦克风权限已被阻止'
+    case 'no-device':
+      return '已授权，但未检测到麦克风'
+    default:
+      return audioState.microphoneAccessError || '浏览器音频初始化失败'
   }
-  if (audioState.devicesStatus === 'error') {
-    return audioState.devicesError || '无法读取音频设备'
-  }
-  return `输入 ${audioState.inputs.length} · 输出 ${audioState.outputs.length}`
 })
 
 const connectionLabel = computed(() => {
@@ -606,14 +626,40 @@ onBeforeUnmount(() => {
             <CheckCircle2 v-if="snapshot.call_runtime.available" :size="18" />
             <XCircle v-else :size="18" />
           </article>
-          <article class="service-status" :class="{ 'is-unavailable': !browserAudioAvailable }">
+          <article
+            class="service-status"
+            :class="`is-${browserAudioTone}`"
+          >
             <span class="service-status__icon"><AudioLines :size="19" /></span>
             <span>
               <strong>浏览器音频</strong>
               <small>{{ browserAudioDetail }}</small>
             </span>
             <CheckCircle2 v-if="browserAudioAvailable" :size="18" />
-            <XCircle v-else :size="18" />
+            <LoaderCircle
+              v-else-if="audioState.microphoneAccessStatus === 'pending'"
+              class="spin"
+              :size="18"
+            />
+            <CircleHelp
+              v-else-if="audioState.microphoneAccessStatus === 'prompt'"
+              :size="18"
+            />
+            <LockKeyhole
+              v-else-if="
+                audioState.microphoneAccessStatus === 'insecure-context' ||
+                audioState.microphoneAccessStatus === 'denied'
+              "
+              :size="18"
+            />
+            <MicOff
+              v-else-if="
+                audioState.microphoneAccessStatus === 'unsupported' ||
+                audioState.microphoneAccessStatus === 'no-device'
+              "
+              :size="18"
+            />
+            <AlertTriangle v-else :size="18" />
           </article>
         </div>
 
@@ -977,6 +1023,11 @@ onBeforeUnmount(() => {
 
 .service-status.is-unavailable {
   color: var(--danger);
+}
+
+.service-status.is-pending,
+.service-status.is-warning {
+  color: #946200;
 }
 
 .service-status__icon {

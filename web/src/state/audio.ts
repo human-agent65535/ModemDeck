@@ -1,6 +1,15 @@
 import { reactive } from 'vue'
 
 export type AudioDeviceLoadStatus = 'idle' | 'loading' | 'ready' | 'error'
+export type MicrophoneAccessStatus =
+  | 'insecure-context'
+  | 'unsupported'
+  | 'prompt'
+  | 'pending'
+  | 'granted'
+  | 'denied'
+  | 'no-device'
+  | 'error'
 export type MicrophoneTestStatus = 'idle' | 'requesting' | 'active' | 'error'
 export type AudioInputRoutingStatus =
   | 'default'
@@ -27,6 +36,8 @@ type AudioState = {
   devicesStatus: AudioDeviceLoadStatus
   devicesError: string
   devicesRevision: number
+  microphoneAccessStatus: MicrophoneAccessStatus
+  microphoneAccessError: string
   selectedInputID: string
   selectedOutputID: string
   inputRoutingStatus: AudioInputRoutingStatus
@@ -67,6 +78,19 @@ function supportsOutputSelection(): boolean {
   return typeof (HTMLMediaElement.prototype as SinkSelectableMediaElement).setSinkId === 'function'
 }
 
+function initialMicrophoneAccessStatus(): MicrophoneAccessStatus {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return 'unsupported'
+  if (!window.isSecureContext) return 'insecure-context'
+  if (
+    typeof RTCPeerConnection === 'undefined' ||
+    typeof navigator.mediaDevices?.getUserMedia !== 'function' ||
+    typeof navigator.mediaDevices?.enumerateDevices !== 'function'
+  ) {
+    return 'unsupported'
+  }
+  return 'prompt'
+}
+
 const selectedInputID = storedDeviceID(INPUT_STORAGE_KEY)
 const selectedOutputID = storedDeviceID(OUTPUT_STORAGE_KEY)
 const outputSelectionSupported = supportsOutputSelection()
@@ -77,6 +101,8 @@ export const audioState = reactive<AudioState>({
   devicesStatus: 'idle',
   devicesError: '',
   devicesRevision: 0,
+  microphoneAccessStatus: initialMicrophoneAccessStatus(),
+  microphoneAccessError: '',
   selectedInputID,
   selectedOutputID,
   inputRoutingStatus: selectedInputID ? 'selected' : 'default',
@@ -99,6 +125,9 @@ export const audioState = reactive<AudioState>({
 
 let deviceListenerActive = false
 let refreshPromise: Promise<void> | undefined
+let startupAccessAttempted = false
+let startupAccessPromise: Promise<void> | undefined
+let microphonePermissionGranted = false
 let outputApplyGeneration = 0
 let microphoneTestGeneration = 0
 let microphoneTestStream: MediaStream | undefined
@@ -211,6 +240,14 @@ export function refreshAudioDevices(): Promise<void> {
       audioState.outputs = devices.filter(device => device.kind === 'audiooutput')
       audioState.devicesStatus = 'ready'
       audioState.devicesRevision += 1
+      if (
+        microphonePermissionGranted &&
+        (audioState.microphoneAccessStatus === 'granted' ||
+          audioState.microphoneAccessStatus === 'no-device')
+      ) {
+        audioState.microphoneAccessStatus =
+          audioState.inputs.length > 0 ? 'granted' : 'no-device'
+      }
       updateInputSelectionStatus()
       updateOutputSelectionStatus()
     } catch (error) {
@@ -223,6 +260,104 @@ export function refreshAudioDevices(): Promise<void> {
   })
 
   return refreshPromise
+}
+
+async function refreshAudioDevicesAfterPermission(): Promise<void> {
+  if (refreshPromise) await refreshPromise
+  await refreshAudioDevices()
+}
+
+async function microphonePermissionState(): Promise<PermissionState | undefined> {
+  if (!navigator.permissions?.query) return undefined
+  try {
+    const status = await navigator.permissions.query({
+      name: 'microphone' as PermissionName
+    })
+    return status.state
+  } catch {
+    return undefined
+  }
+}
+
+async function setMicrophoneAccessFailure(error: unknown): Promise<void> {
+  microphonePermissionGranted = false
+  audioState.microphoneAccessError = ''
+
+  if (error instanceof DOMException) {
+    if (error.name === 'NotAllowedError' || error.name === 'SecurityError') {
+      const permission = await microphonePermissionState()
+      audioState.microphoneAccessStatus = permission === 'prompt' ? 'prompt' : 'denied'
+      return
+    }
+    if (
+      error.name === 'NotFoundError' ||
+      error.name === 'DevicesNotFoundError' ||
+      error.name === 'OverconstrainedError'
+    ) {
+      audioState.microphoneAccessStatus = 'no-device'
+      return
+    }
+    if (error.name === 'NotReadableError') {
+      audioState.microphoneAccessStatus = 'error'
+      audioState.microphoneAccessError = '麦克风无法读取，可能正被其他应用占用'
+      return
+    }
+  }
+
+  audioState.microphoneAccessStatus = 'error'
+  audioState.microphoneAccessError =
+    error instanceof Error ? error.message : '无法请求麦克风权限'
+}
+
+export function initializeBrowserAudio(): Promise<void> {
+  initializeAudioDevices()
+  if (startupAccessPromise) return startupAccessPromise
+  if (startupAccessAttempted) return Promise.resolve()
+  startupAccessAttempted = true
+
+  const environmentStatus = initialMicrophoneAccessStatus()
+  if (environmentStatus !== 'prompt') {
+    audioState.microphoneAccessStatus = environmentStatus
+    audioState.microphoneAccessError = ''
+    return Promise.resolve()
+  }
+
+  startupAccessPromise = (async () => {
+    let temporaryStream: MediaStream | undefined
+    let permissionGranted = false
+    audioState.microphoneAccessStatus = 'pending'
+    audioState.microphoneAccessError = ''
+
+    try {
+      temporaryStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: false
+      })
+      permissionGranted = true
+      microphonePermissionGranted = true
+      audioState.microphoneAccessStatus = 'granted'
+    } catch (error) {
+      await setMicrophoneAccessFailure(error)
+    } finally {
+      for (const track of temporaryStream?.getTracks() || []) track.stop()
+      await refreshAudioDevicesAfterPermission()
+
+      if (permissionGranted) {
+        if (audioState.devicesStatus === 'error') {
+          audioState.microphoneAccessStatus = 'error'
+          audioState.microphoneAccessError =
+            audioState.devicesError || '无法读取音频设备'
+        } else {
+          audioState.microphoneAccessStatus =
+            audioState.inputs.length > 0 ? 'granted' : 'no-device'
+        }
+      }
+    }
+  })().finally(() => {
+    startupAccessPromise = undefined
+  })
+
+  return startupAccessPromise
 }
 
 function onDeviceChange(): void {

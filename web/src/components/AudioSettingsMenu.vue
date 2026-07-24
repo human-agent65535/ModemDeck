@@ -11,13 +11,11 @@ import {
 } from '@lucide/vue'
 import {
   audioState,
-  initializeAudioDevices,
   inputDeviceMissing,
   outputDeviceMissing,
   refreshAudioDevices,
   setSelectedAudioInput,
   setSelectedAudioOutput,
-  shutdownAudioDevices,
   startMicrophoneTest,
   stopMicrophoneTest
 } from '../state/audio'
@@ -90,13 +88,11 @@ function onDialogKeydown(event: KeyboardEvent): void {
 }
 
 onMounted(() => {
-  initializeAudioDevices()
   document.addEventListener('pointerdown', onDocumentPointerDown)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', onDocumentPointerDown)
-  shutdownAudioDevices()
 })
 </script>
 

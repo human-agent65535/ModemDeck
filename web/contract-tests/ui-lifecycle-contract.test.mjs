@@ -14,24 +14,28 @@ function section(contents, start, end) {
   return contents.slice(startIndex, endIndex)
 }
 
-test('opening audio settings enumerates devices without requesting the microphone', async () => {
-  const menu = await source('../src/components/AudioSettingsMenu.vue')
+test('app startup requests microphone access once and releases the probe stream', async () => {
+  const app = await source('../src/App.vue')
   const audio = await source('../src/state/audio.ts')
-  const openMenu = section(
-    menu,
-    'async function openDialog(): Promise<void> {',
-    'function toggle(): void {'
-  )
-  const enumerate = section(
+  const initialize = section(
     audio,
-    'export function refreshAudioDevices(): Promise<void> {',
+    'export function initializeBrowserAudio(): Promise<void> {',
     'function onDeviceChange(): void {'
   )
 
-  assert.match(openMenu, /refreshAudioDevices\(\)/)
-  assert.doesNotMatch(openMenu, /startMicrophoneTest|getUserMedia/)
-  assert.match(enumerate, /enumerateDevices\(\)/)
-  assert.doesNotMatch(enumerate, /getUserMedia/)
+  assert.match(app, /onMounted\(\(\) => \{\s*void initializeBrowserAudio\(\)/)
+  assert.match(app, /onBeforeUnmount\(\(\) => \{\s*shutdownAudioDevices\(\)/)
+  assert.match(initialize, /if \(startupAccessAttempted\) return Promise\.resolve\(\)/)
+  assert.match(initialize, /getUserMedia\(\{\s*audio: true,\s*video: false\s*\}\)/)
+  assert.match(initialize, /temporaryStream\?\.getTracks\(\)/)
+  assert.ok(
+    initialize.indexOf('track.stop()') <
+      initialize.indexOf('await refreshAudioDevicesAfterPermission()')
+  )
+  assert.match(
+    audio,
+    /'insecure-context'[\s\S]*'unsupported'[\s\S]*'prompt'[\s\S]*'pending'[\s\S]*'granted'[\s\S]*'denied'[\s\S]*'no-device'[\s\S]*'error'/
+  )
 })
 
 test('microphone testing resumes AudioContext and stops after 30 seconds', async () => {

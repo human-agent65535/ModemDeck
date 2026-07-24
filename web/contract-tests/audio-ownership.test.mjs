@@ -28,7 +28,7 @@ test('module voice settings show an observed bearer or a capability-confirmed pa
   assert.match(source, /\.includes\(session\.line_key\)/)
 })
 
-test('browser audio is a global diagnostic and enumeration does not request a microphone', async () => {
+test('browser audio is a global diagnostic with explicit microphone access states', async () => {
   const source = await readFile(diagnosticsPanel, 'utf8')
 
   assert.match(source, /<strong>浏览器音频<\/strong>/)
@@ -37,6 +37,14 @@ test('browser audio is a global diagnostic and enumeration does not request a mi
   assert.match(source, /\{ name: '浏览器音频', available: capabilities\.media \}/)
   assert.doesNotMatch(source, /voice_interface/)
   assert.match(source, /refreshAudioDevices\(\)/)
-  assert.match(source, /typeof RTCPeerConnection !== 'undefined'/)
+  assert.match(source, /audioState\.microphoneAccessStatus === 'granted'/)
+  assert.match(source, /case 'insecure-context':[\s\S]*需要 HTTPS 安全上下文/)
+  assert.match(source, /case 'prompt':[\s\S]*等待麦克风授权/)
+  assert.match(source, /case 'pending':[\s\S]*正在请求麦克风权限/)
+  assert.match(source, /case 'denied':[\s\S]*麦克风权限已被阻止/)
+  assert.match(source, /case 'no-device':[\s\S]*未检测到麦克风/)
+  assert.match(source, /<LoaderCircle[\s\S]*microphoneAccessStatus === 'pending'/)
+  assert.match(source, /<LockKeyhole[\s\S]*microphoneAccessStatus === 'denied'/)
+  assert.match(source, /<MicOff[\s\S]*microphoneAccessStatus === 'no-device'/)
   assert.doesNotMatch(source, /getUserMedia\(\{/)
 })
