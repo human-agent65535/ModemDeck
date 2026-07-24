@@ -8,6 +8,11 @@ const diagnosticsPanel = new URL('../src/components/DiagnosticsPanel.vue', impor
 test('module voice settings show an observed bearer or a capability-confirmed path', async () => {
   const source = await readFile(devicePanel, 'utf8')
 
+  assert.match(
+    source,
+    /\{ id: 'voice', label: '呼叫控制', capability: capabilities\.voice \}/
+  )
+  assert.doesNotMatch(source, /\{ id: 'voice', label: 'Voice'/)
   assert.doesNotMatch(source, /<strong>浏览器音频<\/strong>/)
   assert.match(source, /<strong>通话路径<\/strong>/)
   assert.match(source, /case 'volte':[\s\S]*return 'VoLTE'/)
@@ -27,6 +32,8 @@ test('browser audio is a global diagnostic and enumeration does not request a mi
   const source = await readFile(diagnosticsPanel, 'utf8')
 
   assert.match(source, /<strong>浏览器音频<\/strong>/)
+  assert.match(source, /\{ name: '浏览器音频', available: capabilities\.media \}/)
+  assert.doesNotMatch(source, /voice_interface/)
   assert.match(source, /refreshAudioDevices\(\)/)
   assert.match(source, /typeof RTCPeerConnection !== 'undefined'/)
   assert.doesNotMatch(source, /getUserMedia\(\{/)

@@ -342,11 +342,31 @@ test('risky hardware writes return on cancelled confirmation before invoking sta
     [dataBody, 'disconnectData('],
     [volteBody, 'setVoLTEPolicy(']
   ]) {
-    const confirmation = body.indexOf('window.confirm(')
+    const confirmation = body.indexOf('await requestConfirmation(')
     const cancellationReturn = body.indexOf('return', confirmation)
     const write = body.indexOf(writeCall)
     assert.ok(confirmation >= 0, `${writeCall} 缺少确认`)
     assert.ok(cancellationReturn > confirmation, `${writeCall} 取消时没有提前返回`)
     assert.ok(write > cancellationReturn, `${writeCall} 在确认取消前已执行`)
+  }
+})
+
+test('connected data details render only values reported by the device API', () => {
+  assert.match(devicePanelSource, /const dataConnectionFacts = computed/)
+  assert.match(devicePanelSource, /if \(!connection\) return \[\]/)
+  assert.match(devicePanelSource, /v-if="dataConnectionFacts\.length"/)
+  assert.match(devicePanelSource, /addIPConfiguration\('IPv4', connection\.ipv4\)/)
+  assert.match(devicePanelSource, /addIPConfiguration\('IPv6', connection\.ipv6\)/)
+  for (const label of [
+    '接口',
+    'APN',
+    '协议族',
+    '地址',
+    '前缀',
+    '网关',
+    'DNS',
+    'MTU'
+  ]) {
+    assert.match(devicePanelSource, new RegExp(label))
   }
 })

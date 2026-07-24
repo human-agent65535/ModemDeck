@@ -31,6 +31,7 @@ import type {
   USSDStatus
 } from '../api/types'
 import { callState } from '../state/call'
+import { requestConfirmation } from '../state/confirmation'
 import {
   connectData,
   deviceConfigurationResource,
@@ -158,10 +159,34 @@ const dataConnectionStatusLabel = computed(() => {
   if (connectedDataConnection.value) return '已连接'
   return hardware.value?.network_enabled ? '连接中' : '未连接'
 })
-const dataConnectionStatusDetail = computed(() => {
+const dataConnectionFacts = computed(() => {
   const connection = connectedDataConnection.value
-  if (!connection) return ''
-  return [connection.apn, connection.interface].filter(Boolean).join(' · ')
+  if (!connection) return []
+
+  const facts: Array<{ label: string; value: string }> = []
+  const add = (label: string, value: string | number | undefined) => {
+    if (value === undefined || value === '') return
+    facts.push({ label, value: String(value) })
+  }
+  const addIPConfiguration = (
+    family: 'IPv4' | 'IPv6',
+    configuration: typeof connection.ipv4
+  ) => {
+    if (configuration.address) {
+      add(`${family} 地址`, configuration.address)
+      add(`${family} 前缀`, `/${configuration.prefix}`)
+    }
+    add(`${family} 网关`, configuration.gateway)
+    if (configuration.dns.length) add(`${family} DNS`, configuration.dns.join('、'))
+    if (configuration.mtu > 0) add(`${family} MTU`, configuration.mtu)
+  }
+
+  add('接口', connection.interface)
+  add('APN', connection.apn)
+  add('协议族', ipFamilyLabel(connection.ip_family))
+  addIPConfiguration('IPv4', connection.ipv4)
+  addIPConfiguration('IPv6', connection.ipv6)
+  return facts
 })
 const selectedIsDefault = computed(
   () => selectedLine.value?.device_imei === defaultDeviceIMEI.value
@@ -245,7 +270,7 @@ const otherCapabilities = computed(() => {
   const capabilities = hardware.value?.capabilities
   if (!capabilities) return []
   return [
-    { id: 'voice', label: 'Voice', capability: capabilities.voice },
+    { id: 'voice', label: '呼叫控制', capability: capabilities.voice },
     { id: 'flight_mode', label: '飞行模式', capability: capabilities.flight_mode },
     { id: 'vowifi', label: 'VoWiFi', capability: capabilities.vowifi },
     { id: 'volte', label: 'VoLTE', capability: capabilities.volte },
@@ -262,6 +287,19 @@ const otherCapabilities = computed(() => {
 function automaticAPNLabel(value?: string): string {
   const resolvedAPN = value?.trim()
   return resolvedAPN ? `自动（${resolvedAPN}）` : '自动'
+}
+
+function ipFamilyLabel(value: string): string {
+  switch (value.trim().toLowerCase()) {
+    case 'ipv4':
+      return 'IPv4'
+    case 'ipv6':
+      return 'IPv6'
+    case 'ipv4v6':
+      return 'IPv4 + IPv6'
+    default:
+      return value.trim()
+  }
 }
 
 watch(
@@ -447,7 +485,11 @@ async function changeRadio(event: Event): Promise<void> {
   const flightModeEnabled = control.checked
   if (
     flightModeEnabled &&
-    !window.confirm('开启飞行模式会中断驻网、通话和数据。继续？')
+    !(await requestConfirmation({
+      title: '开启飞行模式？',
+      message: '驻网、通话和移动数据将立即中断。',
+      confirmLabel: '开启'
+    }))
   ) {
     control.checked = Boolean(hardware.value?.flight_mode)
     return
@@ -462,7 +504,13 @@ async function applyDataConnection(): Promise<boolean> {
 }
 
 async function stopDataConnection(): Promise<boolean> {
-  if (!selectedLineID.value || !window.confirm('关闭此模组的移动数据？')) return false
+  if (!selectedLineID.value) return false
+  const confirmed = await requestConfirmation({
+    title: '关闭移动数据？',
+    message: '此模组当前的数据连接将中断。',
+    confirmLabel: '关闭'
+  })
+  if (!confirmed) return false
   return disconnectData(selectedLineID.value)
 }
 
@@ -482,11 +530,12 @@ async function applyVoLTE(event: Event): Promise<void> {
       : 'disabled'
   const nextPolicy = control.checked ? 'enabled' : 'disabled'
   voltePolicyDraft.value = nextPolicy
-  if (
-    !window.confirm(
-      `将 VoLTE 设为${nextPolicy === 'enabled' ? '开启' : '关闭'}？保存后需重启模组生效。`
-    )
-  ) {
+  const confirmed = await requestConfirmation({
+    title: `${nextPolicy === 'enabled' ? '开启' : '关闭'} VoLTE？`,
+    message: '配置将在重启模组后生效。',
+    confirmLabel: '保存（重启生效）'
+  })
+  if (!confirmed) {
     control.checked = previousPolicy === 'enabled'
     voltePolicyDraft.value = previousPolicy
     return
@@ -499,12 +548,14 @@ async function applyVoLTE(event: Event): Promise<void> {
 }
 
 async function applyModemRestart(): Promise<void> {
-  if (
-    !selectedLineID.value ||
-    !window.confirm('重启会中断此模组的通话和移动数据。继续？')
-  ) {
-    return
-  }
+  if (!selectedLineID.value) return
+  const confirmed = await requestConfirmation({
+    title: '重启模组？',
+    message: '当前通话和移动数据将中断。',
+    confirmLabel: '重启',
+    tone: 'danger'
+  })
+  if (!confirmed) return
   await restartModem(selectedLineID.value)
 }
 
@@ -540,7 +591,11 @@ async function applySIMCommand(): Promise<void> {
     enable_pin: simProtectionEnabled.value ? '开启 PIN 保护' : '关闭 PIN 保护',
     change_pin: '修改 PIN'
   }
-  if (!window.confirm(`${label[simOperation.value]}？`)) return
+  const confirmed = await requestConfirmation({
+    title: `${label[simOperation.value]}？`,
+    confirmLabel: '确认'
+  })
+  if (!confirmed) return
   simPending.value = true
   simError.value = ''
   try {
@@ -592,7 +647,11 @@ async function saveProfile(): Promise<void> {
     profileError.value = '名称或 APN 至少填写一项'
     return
   }
-  if (!window.confirm('保存此连接配置？')) return
+  const confirmed = await requestConfirmation({
+    title: '保存连接配置？',
+    confirmLabel: '保存'
+  })
+  if (!confirmed) return
   profilePending.value = true
   profileError.value = ''
   try {
@@ -615,7 +674,13 @@ async function saveProfile(): Promise<void> {
 
 async function deleteProfile(profile: ConnectionProfile): Promise<void> {
   if (!selectedLineID.value || profilePending.value) return
-  if (!window.confirm(`删除连接配置“${profile.profile_name || profile.profile_id}”？`)) return
+  const confirmed = await requestConfirmation({
+    title: '删除连接配置？',
+    message: `“${profile.profile_name || profile.profile_id}”将被永久删除。`,
+    confirmLabel: '删除',
+    tone: 'danger'
+  })
+  if (!confirmed) return
   profilePending.value = true
   profileError.value = ''
   try {
@@ -946,9 +1011,14 @@ onMounted(() => {
               <span class="data-connection-status__dot" aria-hidden="true" />
               <span>
                 <strong>{{ dataConnectionStatusLabel }}</strong>
-                <small v-if="dataConnectionStatusDetail">{{ dataConnectionStatusDetail }}</small>
               </span>
             </div>
+            <dl v-if="dataConnectionFacts.length" class="data-connection-facts">
+              <div v-for="fact in dataConnectionFacts" :key="fact.label">
+                <dt>{{ fact.label }}</dt>
+                <dd>{{ fact.value }}</dd>
+              </div>
+            </dl>
           </section>
 
           <section class="configuration-section">
@@ -1845,6 +1915,34 @@ onMounted(() => {
   white-space: nowrap;
 }
 
+.data-connection-facts {
+  display: grid;
+  width: 100%;
+  max-width: 860px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 20px;
+  padding: 12px 0;
+  margin: 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.data-connection-facts > div {
+  min-width: 0;
+}
+
+.data-connection-facts dt {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.data-connection-facts dd {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
 .advanced-profiles > summary {
   min-height: 32px;
   color: var(--text);
@@ -2222,7 +2320,8 @@ pre {
   .sim-form,
   .configuration-control-row,
   .configuration-summary dl,
-  .configuration-facts {
+  .configuration-facts,
+  .data-connection-facts {
     grid-template-columns: 1fr;
   }
 

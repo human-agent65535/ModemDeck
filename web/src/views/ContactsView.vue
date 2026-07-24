@@ -16,6 +16,7 @@ import ContactEditor from '../components/ContactEditor.vue'
 import ContactNumberActions from '../components/ContactNumberActions.vue'
 import SearchField from '../components/SearchField.vue'
 import StatePanel from '../components/StatePanel.vue'
+import { requestConfirmation } from '../state/confirmation'
 import { openDialer } from '../state/ui'
 import {
   capabilityReason,
@@ -114,7 +115,13 @@ async function save(input: ContactInput): Promise<void> {
 }
 
 async function remove(contact: Contact): Promise<void> {
-  if (!window.confirm(`删除联系人“${contact.display_name}”？`)) return
+  const confirmed = await requestConfirmation({
+    title: '删除联系人？',
+    message: `“${contact.display_name}”将被永久删除。`,
+    confirmLabel: '删除',
+    tone: 'danger'
+  })
+  if (!confirmed) return
   deleting.value = true
   try {
     await deleteContact(contact)

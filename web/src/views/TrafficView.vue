@@ -12,6 +12,7 @@ import ProxyEditorModal from '../components/ProxyEditorModal.vue'
 import StatePanel from '../components/StatePanel.vue'
 import TrafficLineCard from '../components/TrafficLineCard.vue'
 import TrafficSummary from '../components/TrafficSummary.vue'
+import { requestConfirmation } from '../state/confirmation'
 import {
   loadNetwork,
   networkState,
@@ -184,7 +185,13 @@ async function toggleProxy(proxy: ProxyInstance, enabled: boolean): Promise<void
 
 async function deleteProxy(proxy: ProxyInstance): Promise<void> {
   const protocol = proxy.mode === 'http' ? 'HTTP CONNECT' : 'SOCKS5'
-  if (!window.confirm(`删除 ${protocol} 代理？`)) return
+  const confirmed = await requestConfirmation({
+    title: `删除 ${protocol} 代理？`,
+    message: '代理将立即停止并从配置中移除。',
+    confirmLabel: '删除',
+    tone: 'danger'
+  })
+  if (!confirmed) return
   await removeProxy(proxy)
 }
 
