@@ -539,6 +539,7 @@ onMounted(() => {
             :lines="lines"
             :default-device-imei="defaultLineDeviceIMEI"
             label="发送线路"
+            placement="up"
             capability="message"
             unavailable-label="不支持消息"
             @change="changeSendingLine"

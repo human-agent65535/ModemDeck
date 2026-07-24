@@ -123,6 +123,126 @@ export type LineSettings = {
   revision: number
 }
 
+export type ProxyMode = 'http' | 'socks5'
+export type ProxyRuntimeState = 'disabled' | 'waiting_for_bearer' | 'running' | 'error'
+export type ProxyApplyState =
+  | 'applied'
+  | 'pending_create'
+  | 'pending_update'
+  | 'pending_delete'
+export type ProxyApplyStatus =
+  | 'pending'
+  | 'applied'
+  | 'agent_unavailable'
+  | 'agent_rejected'
+  | 'runtime_unavailable'
+
+export type NetworkLineStatus = {
+  line_id: string
+  connected: boolean
+  interface: string
+  dns: string[]
+  rx_bytes: number
+  tx_bytes: number
+  error: string
+}
+
+export type NetworkProxyStatus = {
+  id: string
+  line_id: string
+  state: ProxyRuntimeState
+  running: boolean
+  mode: ProxyMode
+  listen_address: string
+  listen_port: number
+  interface: string
+  runtime_epoch: string
+  started_at?: string
+  bytes_up: number
+  bytes_down: number
+  connections: number
+  active_connections: number
+  last_error: string
+}
+
+export type NetworkUsage = {
+  scope_kind: 'line' | 'proxy'
+  scope_id: string
+  rx_bytes: number
+  tx_bytes: number
+}
+
+export type NetworkUsageTotal = {
+  rx_bytes: number
+  tx_bytes: number
+}
+
+export type NetworkStatus = {
+  available: boolean
+  state: string
+  unavailable_reason?: string
+  boot_epoch: string
+  observed_at?: string
+  lines: NetworkLineStatus[]
+  proxies: NetworkProxyStatus[]
+  today_total: NetworkUsageTotal
+  today_usage: NetworkUsage[]
+  month_total: NetworkUsageTotal
+  month_usage: NetworkUsage[]
+  stale: boolean
+  apply_pending: boolean
+  apply_status: ProxyApplyStatus
+  apply_attempts: number
+  apply_exhausted: boolean
+}
+
+export type ProxyInstance = {
+  id: string
+  name: string
+  line_id: string
+  enabled: boolean
+  mode: ProxyMode
+  listen_address: string
+  listen_port: number
+  auth_enabled: boolean
+  username: string
+  has_password: boolean
+  revision: number
+  applied_revision: number
+  apply_state: ProxyApplyState
+  created_at: string
+  updated_at: string
+}
+
+export type CreateProxyInput = {
+  name: string
+  line_id: string
+  enabled: boolean
+  mode: ProxyMode
+  listen_address: string
+  listen_port: number
+  auth_enabled: boolean
+  username: string
+  password: string
+}
+
+export type UpdateProxyInput = Omit<CreateProxyInput, 'password'> & {
+  revision: number
+  password?: string
+}
+
+export type ProxyMutation = {
+  proxy: ProxyInstance
+  applied: boolean
+  status: ProxyApplyStatus
+}
+
+export type ProxyDeleteResult = {
+  id: string
+  applied: boolean
+  status: ProxyApplyStatus
+}
+
 export type UpdateLineSettingsInput = {
   default_device_imei: string
   expected_revision: number

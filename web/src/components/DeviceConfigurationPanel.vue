@@ -49,7 +49,6 @@ import {
   lineLabel,
   loadBootstrap,
   loadDevices,
-  renameDevice,
   updateDefaultLine,
   updateLineLabel
 } from '../state/workspace'
@@ -70,7 +69,7 @@ const tabs: Array<{ id: DeviceTab; label: string; icon: typeof RadioTower }> = [
 
 const activeTab = ref<DeviceTab>('overview')
 const apn = ref('')
-const ipFamily = ref<IPFamily>('auto')
+const ipFamily = ref<IPFamily>('ipv4v6')
 const incomingPolicyDraft = ref<IncomingCallPolicy>('follow_global')
 const voltePolicyDraft = ref<'enabled' | 'disabled' | ''>('')
 
@@ -79,9 +78,6 @@ const addIMEI = ref('')
 const addAlias = ref('')
 const addPending = ref(false)
 const addError = ref('')
-const renameIMEI = ref('')
-const renameAlias = ref('')
-const renamePending = ref(false)
 const moduleError = ref('')
 const lineLabelDraft = ref('')
 const lineLabelPending = ref(false)
@@ -134,11 +130,24 @@ const hardware = computed(() => configuration.value?.hardware)
 const incomingCalls = computed(() => configuration.value?.incoming_calls)
 const savingOperation = computed(() => selectedResource.value?.savingOperation || '')
 const hardwareBusy = computed(() => savingOperation.value !== '')
+const connectedDataConnection = computed(() =>
+  hardware.value?.data_connections.find(connection => connection.connected)
+)
+const dataConnectionStatusLabel = computed(() => {
+  if (connectedDataConnection.value) return '已连接'
+  return hardware.value?.network_enabled ? '连接中' : '未连接'
+})
+const dataConnectionStatusDetail = computed(() => {
+  const connection = connectedDataConnection.value
+  if (!connection) return ''
+  return [connection.apn, connection.interface].filter(Boolean).join(' · ')
+})
 const selectedIsDefault = computed(
   () => selectedLine.value?.device_imei === defaultDeviceIMEI.value
 )
 const selectedLineFallback = computed(() => {
-  if (selectedIsDefault.value) return '主卡'
+  const line = selectedLine.value
+  if (line) return lineLabel({ ...line, line_label: '' })
   const index = lines.value.findIndex(line => lineKey(line) === selectedLineID.value)
   return `线路 ${index >= 0 ? index + 1 : 1}`
 })
@@ -171,7 +180,9 @@ const selectedCallBearer = computed(() => {
 })
 const selectedCallPathLabel = computed(() => {
   if (selectedCallBearer.value) return selectedCallBearer.value
-  return selectedLineCall.value ? '待接通' : '无通话'
+  return hardware.value?.volte.policy_known && hardware.value.volte.policy === 'enabled'
+    ? 'VoLTE'
+    : 'GSM'
 })
 const flightModeWritable = computed(
   () =>
@@ -253,7 +264,7 @@ watch(
       connection?.ip_family === 'ipv6' ||
       connection?.ip_family === 'ipv4v6'
         ? connection.ip_family
-        : 'auto'
+        : 'ipv4v6'
     voltePolicyDraft.value =
       hardware.value?.volte.policy_known && hardware.value.volte.policy
         ? hardware.value.volte.policy
@@ -348,27 +359,6 @@ async function makeDefault(line: LineSummary): Promise<void> {
     await updateDefaultLine(line.device_imei)
   } catch (error) {
     moduleError.value = error instanceof Error ? error.message : '默认线路保存失败'
-  }
-}
-
-function beginRename(line: LineSummary): void {
-  moduleError.value = ''
-  renameIMEI.value = line.device_imei
-  renameAlias.value = lineLabel(line)
-}
-
-async function saveRename(): Promise<void> {
-  if (!renameIMEI.value || renamePending.value || !renameAlias.value.trim()) return
-  renamePending.value = true
-  moduleError.value = ''
-  try {
-    await renameDevice(renameIMEI.value, { alias: renameAlias.value.trim() })
-    renameIMEI.value = ''
-    await loadBootstrap(true)
-  } catch (error) {
-    moduleError.value = error instanceof Error ? error.message : '模组名称保存失败'
-  } finally {
-    renamePending.value = false
   }
 }
 
@@ -667,25 +657,9 @@ onMounted(() => {
         actions
         @select="selectLine(line)"
         @make-default="makeDefault(line)"
-        @rename="beginRename(line)"
       />
     </div>
     <p v-if="moduleError" class="field-error" role="alert">{{ moduleError }}</p>
-
-    <form v-if="renameIMEI" class="module-edit-row" @submit.prevent="saveRename">
-      <label class="module-edit-row__wide">
-        <span>模组名称</span>
-        <input v-model.trim="renameAlias" autocomplete="off" required />
-      </label>
-      <button class="primary-action" type="submit" :disabled="renamePending || !renameAlias">
-        <LoaderCircle v-if="renamePending" class="spin" :size="16" />
-        <Save v-else :size="16" />
-        保存
-      </button>
-      <button class="icon-button" type="button" title="取消" @click="renameIMEI = ''">
-        <X :size="18" />
-      </button>
-    </form>
 
     <template v-if="selectedLineID">
       <header class="selected-module-context">
@@ -815,9 +789,31 @@ onMounted(() => {
 
         <template v-else-if="activeTab === 'network'">
           <section class="configuration-section">
-            <header><CardSim :size="18" /><h4>卡策略</h4></header>
-            <div class="data-form">
-              <label>
+            <header><Network :size="18" /><h4>移动网络</h4></header>
+            <label class="configuration-toggle data-toggle">
+              <span>
+                <strong>移动数据</strong>
+                <small v-if="!hardware.capabilities.data_connection.writable">
+                  {{ readOnlyReason(hardware.capabilities.data_connection) || '不可写' }}
+                </small>
+              </span>
+              <span class="configuration-toggle__control">
+                <LoaderCircle
+                  v-if="savingOperation === 'connect_data' || savingOperation === 'disconnect_data'"
+                  class="spin"
+                  :size="16"
+                />
+                <input
+                  type="checkbox"
+                  role="switch"
+                  :checked="hardware.network_enabled"
+                  :disabled="hardwareBusy || !hardware.capabilities.data_connection.writable"
+                  @change="changeDataConnection"
+                />
+              </span>
+            </label>
+            <div class="data-primary-settings">
+              <label class="data-apn-field">
                 <span>APN</span>
                 <input
                   v-model.trim="apn"
@@ -829,139 +825,130 @@ onMounted(() => {
                   "
                 />
               </label>
-              <label>
-                <span>IP</span>
-                <select
-                  v-model="ipFamily"
+              <fieldset
+                class="ip-mode-field"
+                :disabled="
+                  hardwareBusy ||
+                  hardware.network_enabled ||
+                  !hardware.capabilities.data_connection.writable
+                "
+              >
+                <legend>IP 模式</legend>
+                <div class="ip-mode-options">
+                  <label>
+                    <input v-model="ipFamily" type="radio" value="ipv4" />
+                    <span>IPv4</span>
+                  </label>
+                  <label>
+                    <input v-model="ipFamily" type="radio" value="ipv6" />
+                    <span>IPv6</span>
+                  </label>
+                  <label>
+                    <input v-model="ipFamily" type="radio" value="ipv4v6" />
+                    <span>IPv4 + IPv6</span>
+                  </label>
+                </div>
+              </fieldset>
+            </div>
+            <div
+              class="data-connection-status"
+              :class="{ 'is-connected': Boolean(connectedDataConnection) }"
+              role="status"
+            >
+              <span class="data-connection-status__dot" aria-hidden="true" />
+              <span>
+                <strong>{{ dataConnectionStatusLabel }}</strong>
+                <small v-if="dataConnectionStatusDetail">{{ dataConnectionStatusDetail }}</small>
+              </span>
+            </div>
+          </section>
+
+          <section class="configuration-section">
+            <header><RadioTower :size="18" /><h4>无线电</h4></header>
+            <label class="configuration-toggle">
+              <span>
+                <strong>飞行模式</strong>
+                <small v-if="!hardware.flight_mode_known">状态未知</small>
+                <small v-else-if="!flightModeWritable">
+                  {{ readOnlyReason(hardware.capabilities.flight_mode) || '不可写' }}
+                </small>
+              </span>
+              <span class="configuration-toggle__control">
+                <LoaderCircle
+                  v-if="savingOperation === 'set_radio_enabled'"
+                  class="spin"
+                  :size="16"
+                />
+                <input
+                  type="checkbox"
+                  role="switch"
+                  :checked="hardware.flight_mode"
                   :disabled="
                     hardwareBusy ||
-                    hardware.network_enabled ||
-                    !hardware.capabilities.data_connection.writable
+                    !flightModeWritable
                   "
-                >
-                  <option value="auto">自动</option>
-                  <option value="ipv4">IPv4</option>
-                  <option value="ipv6">IPv6</option>
-                  <option value="ipv4v6">IPv4 + IPv6</option>
-                </select>
-              </label>
-            </div>
-            <div class="card-policy-controls">
-              <label class="configuration-toggle">
-                <span>
-                  <strong>移动数据</strong>
-                  <small v-if="!hardware.capabilities.data_connection.writable">
-                    {{ readOnlyReason(hardware.capabilities.data_connection) || '不可写' }}
-                  </small>
-                </span>
-                <span class="configuration-toggle__control">
-                  <LoaderCircle
-                    v-if="savingOperation === 'connect_data' || savingOperation === 'disconnect_data'"
-                    class="spin"
-                    :size="16"
-                  />
-                  <input
-                    type="checkbox"
-                    role="switch"
-                    :checked="hardware.network_enabled"
-                    :disabled="hardwareBusy || !hardware.capabilities.data_connection.writable"
-                    @change="changeDataConnection"
-                  />
-                </span>
-              </label>
-              <label class="configuration-toggle">
-                <span>
-                  <strong>飞行模式</strong>
-                  <small v-if="!hardware.flight_mode_known">状态未知</small>
-                  <small v-else-if="!flightModeWritable">
-                    {{ readOnlyReason(hardware.capabilities.flight_mode) || '不可写' }}
-                  </small>
-                </span>
-                <span class="configuration-toggle__control">
-                  <LoaderCircle
-                    v-if="savingOperation === 'set_radio_enabled'"
-                    class="spin"
-                    :size="16"
-                  />
-                  <input
-                    type="checkbox"
-                    role="switch"
-                    :checked="hardware.flight_mode"
-                    :disabled="hardwareBusy || !flightModeWritable"
-                    @change="changeRadio"
-                  />
-                </span>
-              </label>
-            </div>
-            <div v-if="hardware.data_connections.length" class="bearer-list">
-              <article v-for="connection in hardware.data_connections" :key="connection.id">
-                <strong>{{ connection.apn || '自动 APN' }}</strong>
-                <span>{{ connection.ip_family }} · {{ connection.interface || '—' }}</span>
-                <small>{{ connection.ipv4.address || connection.ipv6.address || '地址未分配' }}</small>
-              </article>
-            </div>
+                  @change="changeRadio"
+                />
+              </span>
+            </label>
           </section>
 
           <section class="configuration-section">
-            <header><Network :size="18" /><h4>VoWiFi</h4></header>
-            <div class="configuration-readonly">
-              <strong>{{ capabilityStatus(hardware.capabilities.vowifi, 'vowifi') }}</strong>
-              <small v-if="capabilityDetail(hardware.capabilities.vowifi, 'vowifi')">
-                {{ capabilityDetail(hardware.capabilities.vowifi, 'vowifi') }}
-              </small>
-            </div>
-          </section>
-
-          <section class="configuration-section">
-            <header>
-              <Database :size="18" />
-              <h4>连接配置</h4>
-              <button class="secondary-action section-action" type="button" @click="editProfile()">
-                <Plus :size="15" />
-                新增
-              </button>
-            </header>
-            <StatePanel v-if="profileLoadStatus === 'loading'" state="loading" title="正在读取配置" />
-            <p v-else-if="profileError" class="inline-error">{{ profileError }}</p>
-            <div v-else class="profile-list">
-              <div
-                v-for="profile in profiles"
-                :key="profile.profile_id"
-                :class="{ 'is-selected': editingProfileID === profile.profile_id }"
-              >
-                <button type="button" @click="editProfile(profile)">
-                  <span><strong>{{ profile.profile_name || `Profile ${profile.profile_id}` }}</strong><small>{{ profile.apn || '无 APN' }}</small></span>
-                  <span>{{ profile.ip_family || profile.ip_type }}</span>
-                </button>
-                <button
-                  class="icon-button"
-                  type="button"
-                  title="删除连接配置"
-                  @click.stop="deleteProfile(profile)"
-                >
-                  <Trash2 :size="16" />
-                </button>
+            <details class="advanced-profiles">
+              <summary>
+                <span><Database :size="18" /><strong>高级连接配置</strong></span>
+                <small v-if="profiles.length">{{ profiles.length }} 个</small>
+              </summary>
+              <div class="advanced-profiles__body">
+                <div class="advanced-profiles__actions">
+                  <button class="secondary-action" type="button" @click="editProfile()">
+                    <Plus :size="15" />
+                    新增
+                  </button>
+                </div>
+                <StatePanel v-if="profileLoadStatus === 'loading'" state="loading" title="正在读取配置" />
+                <p v-else-if="profileError" class="inline-error">{{ profileError }}</p>
+                <div v-else class="profile-list">
+                  <div
+                    v-for="profile in profiles"
+                    :key="profile.profile_id"
+                    :class="{ 'is-selected': editingProfileID === profile.profile_id }"
+                  >
+                    <button type="button" @click="editProfile(profile)">
+                      <span><strong>{{ profile.profile_name || `Profile ${profile.profile_id}` }}</strong><small>{{ profile.apn || '无 APN' }}</small></span>
+                      <span>{{ profile.ip_family || profile.ip_type }}</span>
+                    </button>
+                    <button
+                      class="icon-button"
+                      type="button"
+                      title="删除连接配置"
+                      @click.stop="deleteProfile(profile)"
+                    >
+                      <Trash2 :size="16" />
+                    </button>
+                  </div>
+                </div>
+                <form class="profile-form" @submit.prevent="saveProfile">
+                  <label><span>名称</span><input v-model.trim="profileName" /></label>
+                  <label><span>APN</span><input v-model.trim="profileAPN" /></label>
+                  <label>
+                    <span>IP</span>
+                    <select v-model="profileIPFamily">
+                      <option value="ipv4">IPv4</option>
+                      <option value="ipv6">IPv6</option>
+                      <option value="ipv4v6">IPv4 + IPv6</option>
+                    </select>
+                  </label>
+                  <label><span>用户名</span><input v-model.trim="profileUser" autocomplete="username" /></label>
+                  <label><span>密码</span><input v-model="profilePassword" type="password" autocomplete="new-password" /></label>
+                  <button class="primary-action" type="submit" :disabled="profilePending">
+                    <LoaderCircle v-if="profilePending" class="spin" :size="16" />
+                    <Save v-else :size="16" />
+                    保存
+                  </button>
+                </form>
               </div>
-            </div>
-            <form class="profile-form" @submit.prevent="saveProfile">
-              <label><span>名称</span><input v-model.trim="profileName" /></label>
-              <label><span>APN</span><input v-model.trim="profileAPN" /></label>
-              <label>
-                <span>IP</span>
-                <select v-model="profileIPFamily">
-                  <option value="ipv4">IPv4</option>
-                  <option value="ipv6">IPv6</option>
-                  <option value="ipv4v6">IPv4 + IPv6</option>
-                </select>
-              </label>
-              <label><span>用户名</span><input v-model.trim="profileUser" autocomplete="username" /></label>
-              <label><span>密码</span><input v-model="profilePassword" type="password" autocomplete="new-password" /></label>
-              <button class="primary-action" type="submit" :disabled="profilePending">
-                <LoaderCircle v-if="profilePending" class="spin" :size="16" />
-                <Save v-else :size="16" />
-                保存
-              </button>
-            </form>
+            </details>
           </section>
         </template>
 
@@ -1032,15 +1019,22 @@ onMounted(() => {
               </div>
               <div
                 class="voice-status"
-                :class="{
-                  'is-available': selectedCallBearer,
-                  'is-pending': !selectedCallBearer
-                }"
+                :class="{ 'is-available': voiceAvailable }"
               >
                 <RadioTower :size="18" />
                 <span>
                   <strong>通话路径</strong>
                   <small>{{ selectedCallPathLabel }}</small>
+                </span>
+              </div>
+              <div
+                class="voice-status"
+                :class="{ 'is-available': hardware.capabilities.vowifi.readable }"
+              >
+                <Network :size="18" />
+                <span>
+                  <strong>VoWiFi</strong>
+                  <small>{{ capabilityStatus(hardware.capabilities.vowifi, 'vowifi') }}</small>
                 </span>
               </div>
             </div>
@@ -1222,7 +1216,7 @@ onMounted(() => {
 }
 
 .module-edit-row label,
-.data-form label,
+.data-apn-field,
 .profile-form label,
 .sim-form label,
 .configuration-control-row label {
@@ -1231,7 +1225,7 @@ onMounted(() => {
 }
 
 .module-edit-row label > span,
-.data-form label > span,
+.data-apn-field > span,
 .profile-form label > span,
 .sim-form label > span,
 .configuration-control-row label > span {
@@ -1241,8 +1235,7 @@ onMounted(() => {
 }
 
 .module-edit-row input,
-.data-form input,
-.data-form select,
+.data-apn-field input,
 .profile-form input,
 .profile-form select,
 .sim-form input,
@@ -1498,7 +1491,6 @@ onMounted(() => {
 }
 
 .configuration-toggle,
-.configuration-readonly,
 .voice-status,
 .ussd-status {
   display: flex;
@@ -1509,15 +1501,13 @@ onMounted(() => {
 }
 
 .configuration-toggle > span:first-child,
-.configuration-readonly,
 .ussd-status {
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
 }
 
-.configuration-toggle small,
-.configuration-readonly small {
+.configuration-toggle small {
   color: var(--muted);
   font-size: 12px;
 }
@@ -1558,59 +1548,188 @@ onMounted(() => {
   transform: translateX(18px);
 }
 
-.data-form {
-  display: grid;
-  grid-template-columns: minmax(160px, 1fr) 150px;
-  align-items: end;
-  gap: 9px;
-}
-
-.card-policy-controls {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-top: 14px;
-  border-top: 1px solid var(--border);
-}
-
-.card-policy-controls .configuration-toggle {
-  min-width: 0;
-  padding: 10px 12px 10px 0;
+.data-toggle {
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--border);
 }
 
-.card-policy-controls .configuration-toggle + .configuration-toggle {
-  padding-right: 0;
-  padding-left: 12px;
-  border-left: 1px solid var(--border);
+.data-primary-settings {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(280px, 1fr);
+  align-items: end;
+  gap: 14px;
+  margin-top: 14px;
 }
 
-.bearer-list,
+.ip-mode-field {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.ip-mode-field legend {
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.ip-mode-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  padding: 3px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+}
+
+.ip-mode-options label {
+  position: relative;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.ip-mode-options input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.ip-mode-options span {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+  border-radius: 4px;
+}
+
+.ip-mode-options input:checked + span {
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgb(16 24 40 / 12%);
+}
+
+.ip-mode-options input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.ip-mode-field:disabled .ip-mode-options {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.ip-mode-field:disabled .ip-mode-options label {
+  cursor: not-allowed;
+}
+
+.data-connection-status {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 9px;
+  margin-top: 14px;
+  padding-top: 12px;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+}
+
+.data-connection-status__dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  background: var(--muted);
+  border-radius: 50%;
+}
+
+.data-connection-status.is-connected .data-connection-status__dot {
+  background: var(--accent);
+}
+
+.data-connection-status > span:last-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.data-connection-status strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.data-connection-status small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.advanced-profiles > summary {
+  min-height: 32px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.advanced-profiles > summary::marker {
+  color: var(--muted);
+}
+
+.advanced-profiles > summary > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-left: 5px;
+}
+
+.advanced-profiles > summary > span svg {
+  color: var(--accent-strong);
+}
+
+.advanced-profiles > summary > small {
+  float: right;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.advanced-profiles__body {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.advanced-profiles__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .profile-list {
   display: grid;
   gap: 7px;
   margin-top: 12px;
 }
 
-.bearer-list article,
 .profile-list > div {
   display: grid;
   min-width: 0;
   min-height: 48px;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
+  padding: 4px;
   background: var(--surface-subtle);
   border: 1px solid var(--border);
   border-radius: 5px;
-}
-
-.bearer-list article {
-  padding: 8px 10px;
-}
-
-.profile-list > div {
-  grid-template-columns: minmax(0, 1fr) auto;
-  padding: 4px;
 }
 
 .profile-list > div > button:first-child {
@@ -1626,8 +1745,6 @@ onMounted(() => {
   background: transparent;
 }
 
-.bearer-list span,
-.bearer-list small,
 .profile-list small,
 .profile-list > div > button > span:nth-child(2) {
   color: var(--muted);
@@ -1711,7 +1828,7 @@ onMounted(() => {
 
 .voice-capabilities {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -1797,8 +1914,7 @@ pre {
 @media (max-width: 720px) {
   .module-edit-row,
   .line-label-form,
-  .data-form,
-  .card-policy-controls,
+  .data-primary-settings,
   .profile-form,
   .sim-form,
   .configuration-control-row,
@@ -1813,13 +1929,6 @@ pre {
 
   .line-label-form > :deep(.line-tag) {
     margin-bottom: 0;
-  }
-
-  .card-policy-controls .configuration-toggle,
-  .card-policy-controls .configuration-toggle + .configuration-toggle {
-    padding-right: 0;
-    padding-left: 0;
-    border-left: 0;
   }
 
   .primary-action,

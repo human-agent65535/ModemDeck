@@ -7,6 +7,7 @@ import {
   parseLineLabelResponse
 } from '../src/api/contract.ts'
 import { createFixtureGateway } from '../src/api/fixture.ts'
+import { lineLabel } from '../src/state/workspace.ts'
 
 const devicePanelSource = readFileSync(
   new URL('../src/components/DeviceConfigurationPanel.vue', import.meta.url),
@@ -84,7 +85,33 @@ test('fixture keeps module aliases separate from editable line labels', async ()
   )
 })
 
-test('settings edit an ICCID-backed label without changing module alias', () => {
+test('line names prefer the line label and otherwise use the module name', () => {
+  assert.equal(lineLabel(line), '主卡')
+  assert.equal(
+    lineLabel({
+      ...line,
+      id: 'line-secondary',
+      iccid: '8986012345678901937',
+      device_alias: '楼上模组',
+      model: 'EC25',
+      line_label: ''
+    }),
+    '楼上模组'
+  )
+  assert.equal(
+    lineLabel({
+      ...line,
+      id: 'line-third',
+      iccid: '8986012345678901942',
+      device_alias: '',
+      model: 'EC25',
+      line_label: ''
+    }),
+    'EC25'
+  )
+})
+
+test('settings edit only the ICCID-backed line label', () => {
   assert.match(devicePanelSource, /maxlength="16"/)
   assert.match(devicePanelSource, /!selectedLine\?\.iccid/)
   assert.match(devicePanelSource, /updateLineLabel\(line\.iccid,\s*\{\s*line_label: value\s*\}\)/)
@@ -92,6 +119,7 @@ test('settings edit an ICCID-backed label without changing module alias', () => 
   assert.match(devicePanelSource, /`\$\{selectedLineFallback\}（建议）`/)
   assert.match(workspaceSource, /gateway\.updateLineLabel\(iccid, input\)/)
   assert.match(workspaceSource, /Object\.assign\(line, saved\)/)
+  assert.doesNotMatch(devicePanelSource, /renameDevice|修改模组名称|@rename/)
   assert.match(lineTagSource, /line\.line_label\.trim\(\) \|\| props\.fallback\.trim\(\)/)
   assert.match(lineTagSource, /stableHash\(stableKey\) % 6/)
 })

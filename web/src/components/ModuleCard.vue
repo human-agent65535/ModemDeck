@@ -4,7 +4,6 @@ import {
   Check,
   CircleCheck,
   MessageSquareText,
-  Pencil,
   Phone,
   RadioTower,
   Signal
@@ -33,7 +32,6 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   select: []
-  rename: []
   makeDefault: []
 }>()
 
@@ -166,15 +164,6 @@ const stateLabel = computed(() => {
         >
           <CircleCheck :size="16" />
           <span>{{ defaultLine ? '默认线路' : '设为默认' }}</span>
-        </button>
-        <button
-          class="icon-button"
-          type="button"
-          title="修改模组名称"
-          aria-label="修改模组名称"
-          @click="emit('rename')"
-        >
-          <Pencil :size="17" />
         </button>
       </div>
       <span

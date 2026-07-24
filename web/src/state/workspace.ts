@@ -92,7 +92,14 @@ export function lineKey(line: LineSummary): string {
 }
 
 export function lineLabel(line: LineSummary): string {
-  return line.device_alias || line.model || line.phone_number || line.operator || lineKey(line)
+  const explicit = line.line_label.trim()
+  if (explicit) return explicit
+
+  const moduleName = line.device_alias.trim() || line.model?.trim()
+  if (moduleName) return moduleName
+
+  const identifier = (line.iccid || line.id || line.device_imei).trim()
+  return identifier ? `线路 ${identifier.slice(-4)}` : '未命名线路'
 }
 
 export function lineName(key: string): string {

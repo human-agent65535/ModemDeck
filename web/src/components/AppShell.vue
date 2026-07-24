@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import {
   AudioLines,
+  ChartNoAxesCombined,
   House,
   MessageSquareText,
   Phone,
@@ -35,7 +36,8 @@ const primaryNav = [
   { name: 'contacts', label: '联系人', icon: UsersRound },
   { name: 'messages', label: '消息', icon: MessageSquareText },
   { name: 'calls', label: '通话', icon: Phone },
-  { name: 'recordings', label: '录音', icon: AudioLines }
+  { name: 'recordings', label: '录音', icon: AudioLines },
+  { name: 'traffic', label: '流量', icon: ChartNoAxesCombined }
 ]
 
 watch(
@@ -169,3 +171,11 @@ onBeforeUnmount(() => {
     <CallSurface />
   </div>
 </template>
+
+<style scoped>
+@media (max-width: 860px) {
+  .mobile-nav {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+}
+</style>

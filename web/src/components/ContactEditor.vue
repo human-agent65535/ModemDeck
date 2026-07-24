@@ -2,7 +2,7 @@
 import { computed, reactive, watch } from 'vue'
 import { Plus, Trash2, X } from '@lucide/vue'
 import type { Contact, ContactInput, LineSummary } from '../api/types'
-import { lineLabel } from '../state/workspace'
+import LineSelector from './LineSelector.vue'
 
 type PhoneDraft = {
   id?: string
@@ -153,19 +153,17 @@ function submit(): void {
               </button>
             </fieldset>
 
-            <label v-if="lines?.length" class="field">
-              <span>首选线路</span>
-              <select v-model="draft.preferredDeviceIMEI">
-                <option value="">跟随默认线路</option>
-                <option
-                  v-for="line in lines"
-                  :key="line.device_imei"
-                  :value="line.device_imei"
-                >
-                  {{ lineLabel(line) }}{{ line.phone_number ? ` · ${line.phone_number}` : '' }}
-                </option>
-              </select>
-            </label>
+            <LineSelector
+              v-if="lines?.length"
+              v-model="draft.preferredDeviceIMEI"
+              :lines="lines"
+              label="首选线路"
+              value-field="device_imei"
+              include-all
+              all-value=""
+              all-label="跟随默认线路"
+              all-description="未指定时使用全局默认线路"
+            />
 
             <label class="field">
               <span>备注</span>

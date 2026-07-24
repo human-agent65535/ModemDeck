@@ -10,6 +10,7 @@ import type {
   ConnectionProfile,
   Contact,
   ContactInput,
+  CreateProxyInput,
   CreateDeviceInput,
   DeleteConnectionProfileInput,
   Device,
@@ -25,6 +26,10 @@ import type {
   Message,
   MessageReadInput,
   MessageThread,
+  NetworkStatus,
+  ProxyDeleteResult,
+  ProxyInstance,
+  ProxyMutation,
   RecordingEntry,
   RecordingSettings,
   RenameDeviceInput,
@@ -39,6 +44,7 @@ import type {
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
   UpdateLineSettingsInput,
+  UpdateProxyInput,
   USSDCommandInput,
   USSDResponse,
   USSDStatus
@@ -78,6 +84,11 @@ export interface ModemDeckGateway {
   createDevice(input: CreateDeviceInput): Promise<Device>
   renameDevice(imei: string, input: RenameDeviceInput): Promise<Device>
   updateLineLabel(iccid: string, input: UpdateLineLabelInput): Promise<LineSummary>
+  getNetworkStatus(): Promise<NetworkStatus>
+  listProxies(): Promise<ProxyInstance[]>
+  createProxy(input: CreateProxyInput): Promise<ProxyMutation>
+  updateProxy(id: string, input: UpdateProxyInput): Promise<ProxyMutation>
+  deleteProxy(id: string, revision: number): Promise<ProxyDeleteResult>
   getSIMStatus(lineID: string): Promise<SIMStatus>
   commandSIM(lineID: string, input: SIMCommandInput): Promise<CommandReceipt>
   listConnectionProfiles(lineID: string): Promise<ConnectionProfile[]>

@@ -20,6 +20,8 @@ import {
   createLineLabelPayload,
   createMessageReadPayload,
   createMessagePayload,
+  createProxyPayload,
+  createProxyUpdatePayload,
   createRecordingSettingsPayload,
   createTelegramUnitPayload,
   parseActiveCallsResponse,
@@ -32,6 +34,10 @@ import {
   parseLineSettingsResponse,
   parseLineLabelResponse,
   parseMessageResponse,
+  parseNetworkStatusResponse,
+  parseProxyCollectionResponse,
+  parseProxyDeleteResponse,
+  parseProxyMutationResponse,
   parseRecordingEntriesResponse,
   parseRecordingSettingsResponse,
   parseTelegramUnitResponse,
@@ -39,7 +45,10 @@ import {
   telegramUnitContract,
   telegramUnitDeletePath,
   deviceConfigurationContract,
-  lineLabelPath
+  lineLabelPath,
+  networkContracts,
+  proxyDeletePath,
+  proxyResourceContract
 } from './contract'
 import {
   parseBootstrap,
@@ -65,6 +74,7 @@ import type {
   ContactInput,
   CommunicationCapabilities,
   CommunicationCapabilityName,
+  CreateProxyInput,
   CreateDeviceInput,
   DeleteConnectionProfileInput,
   Device,
@@ -82,6 +92,10 @@ import type {
   LoginInput,
   Message,
   MessageThread,
+  NetworkStatus,
+  ProxyDeleteResult,
+  ProxyInstance,
+  ProxyMutation,
   RecordingEntry,
   RecordingSettings,
   RenameDeviceInput,
@@ -96,6 +110,7 @@ import type {
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
   UpdateLineSettingsInput,
+  UpdateProxyInput,
   USSDCommandInput,
   USSDResponse,
   USSDStatus
@@ -726,6 +741,52 @@ const realGateway: ConfiguredModemDeckGateway = {
         'PATCH',
         createLineLabelPayload(input),
         200
+      )
+    )
+  },
+
+  async getNetworkStatus(): Promise<NetworkStatus> {
+    return parseNetworkStatusResponse(await get(networkContracts.status.path))
+  },
+
+  async listProxies(): Promise<ProxyInstance[]> {
+    return parseProxyCollectionResponse(await get(networkContracts.listProxies.path))
+  },
+
+  async createProxy(input: CreateProxyInput): Promise<ProxyMutation> {
+    const contract = networkContracts.createProxy
+    return parseProxyMutationResponse(
+      await writeJSON(
+        contract.path,
+        contract.method,
+        createProxyPayload(input),
+        contract.successStatus
+      )
+    )
+  },
+
+  async updateProxy(id: string, input: UpdateProxyInput): Promise<ProxyMutation> {
+    const contract = proxyResourceContract(id).update
+    return parseProxyMutationResponse(
+      await writeJSON(
+        contract.path,
+        contract.method,
+        createProxyUpdatePayload(input),
+        contract.successStatus
+      )
+    )
+  },
+
+  async deleteProxy(id: string, revision: number): Promise<ProxyDeleteResult> {
+    const contract = proxyResourceContract(id).delete
+    return parseProxyDeleteResponse(
+      await request(
+        proxyDeletePath(id, revision),
+        {
+          method: contract.method,
+          headers: { Accept: 'application/json' }
+        },
+        contract.successStatus
       )
     )
   },

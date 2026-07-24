@@ -44,6 +44,8 @@ export function lineTagFallback(
   ...identifiers: Array<string | undefined>
 ): string {
   if (line) {
+    const moduleName = line.device_alias.trim() || line.model?.trim()
+    if (moduleName) return moduleName
     if (line.device_imei && line.device_imei === defaultDeviceIMEI) return '主卡'
     const index = lines.findIndex(candidate => candidate === line)
     return `线路 ${index >= 0 ? index + 1 : 1}`

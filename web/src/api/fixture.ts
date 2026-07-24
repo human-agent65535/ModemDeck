@@ -10,6 +10,7 @@ import type {
   ConnectionProfile,
   Contact,
   ContactInput,
+  CreateProxyInput,
   CreateDeviceInput,
   DeleteConnectionProfileInput,
   Device,
@@ -27,6 +28,10 @@ import type {
   LineSummary,
   Message,
   MessageThread,
+  NetworkStatus,
+  ProxyDeleteResult,
+  ProxyInstance,
+  ProxyMutation,
   RecordingEntry,
   RecordingSettings,
   RenameDeviceInput,
@@ -40,12 +45,15 @@ import type {
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
   UpdateLineSettingsInput,
+  UpdateProxyInput,
   USSDCommandInput,
   USSDResponse,
   USSDStatus
 } from './types'
 import { ApiError } from './types'
 import { threadKey } from './normalize'
+import { isIPAddress, isLoopbackAddress } from '../utils/ipAddress'
+import { proxyCredentialError } from '../utils/proxyCredentials'
 
 const MAIN_ICCID = '8986012345678900001'
 const TRAVEL_ICCID = '8984045678901230002'
@@ -659,6 +667,167 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       revision: 2
     }
   ]
+  const proxyPasswords = new Set<string>()
+  const proxies: ProxyInstance[] = lines.slice(0, 2).map((line, index) => {
+    const secured = index === 1
+    const id = `proxy-fixture-${index + 1}`
+    if (secured) proxyPasswords.add(id)
+    return {
+      id,
+      name: `${line.line_label || `线路 ${index + 1}`} ${secured ? 'HTTP' : 'SOCKS5'} ${secured ? 3128 : 1080}`,
+      line_id: fixtureLineKey(line),
+      enabled: true,
+      mode: secured ? 'http' : 'socks5',
+      listen_address: secured ? '0.0.0.0' : '127.0.0.1',
+      listen_port: secured ? 3128 : 1080,
+      auth_enabled: secured,
+      username: secured ? 'deck' : '',
+      has_password: secured,
+      revision: 1,
+      applied_revision: 1,
+      apply_state: 'applied',
+      created_at: '2026-07-23T12:00:00Z',
+      updated_at: '2026-07-23T12:00:00Z'
+    }
+  })
+
+  function fixtureLineConnected(lineID: string): boolean {
+    return lines.findIndex(line => fixtureLineKey(line) === lineID) === 0
+  }
+
+  function fixtureNetworkStatus(): NetworkStatus {
+    const networkLines = lines.map((line, index) => ({
+      line_id: fixtureLineKey(line),
+      connected: index === 0,
+      interface: index === 0 ? 'wwan0' : '',
+      dns: index === 0 ? ['1.1.1.1', '8.8.8.8'] : [],
+      rx_bytes: index === 0 ? 4_820_001_423 : 736_010_442,
+      tx_bytes: index === 0 ? 682_040_112 : 95_100_882,
+      error: ''
+    }))
+    const runtimeProxies = proxies.map((proxy, index) => {
+      const lineExists = lines.some(line => fixtureLineKey(line) === proxy.line_id)
+      const connected = fixtureLineConnected(proxy.line_id)
+      const state = !proxy.enabled
+        ? 'disabled'
+        : !lineExists
+          ? 'error'
+          : connected
+            ? 'running'
+            : 'waiting_for_bearer'
+      return {
+        id: proxy.id,
+        line_id: proxy.line_id,
+        state,
+        running: state === 'running',
+        mode: proxy.mode,
+        listen_address: proxy.listen_address,
+        listen_port: proxy.listen_port,
+        interface: state === 'running' ? 'wwan0' : '',
+        runtime_epoch: state === 'running' ? `fixture-runtime-${proxy.revision}` : '',
+        started_at: state === 'running' ? '2026-07-23T12:00:00Z' : undefined,
+        bytes_up: state === 'running' ? 14_200_000 + index * 2_000_000 : 0,
+        bytes_down: state === 'running' ? 184_000_000 + index * 8_000_000 : 0,
+        connections: state === 'running' ? 82 + index * 11 : 0,
+        active_connections: state === 'running' ? 3 + index : 0,
+        last_error: state === 'error' ? 'configured line is unavailable' : ''
+      } satisfies NetworkStatus['proxies'][number]
+    })
+    return {
+      available: true,
+      state: 'available',
+      boot_epoch: 'fixture-network-boot',
+      observed_at: '2026-07-23T12:00:00Z',
+      lines: networkLines,
+      proxies: runtimeProxies,
+      today_total: {
+        rx_bytes: 2_182_000_000,
+        tx_bytes: 269_000_000
+      },
+      today_usage: [
+        ...lines.map((line, index) => ({
+          scope_kind: 'line' as const,
+          scope_id: fixtureLineKey(line),
+          rx_bytes: index === 0 ? 1_842_000_000 : 340_000_000,
+          tx_bytes: index === 0 ? 224_000_000 : 45_000_000
+        })),
+        ...proxies.map((proxy, index) => ({
+          scope_kind: 'proxy' as const,
+          scope_id: proxy.id,
+          rx_bytes: 184_000_000 + index * 8_000_000,
+          tx_bytes: 14_200_000 + index * 2_000_000
+        }))
+      ],
+      month_total: {
+        rx_bytes: 30_880_000_000,
+        tx_bytes: 4_370_000_000
+      },
+      month_usage: [
+        ...lines.map((line, index) => ({
+          scope_kind: 'line' as const,
+          scope_id: fixtureLineKey(line),
+          rx_bytes: index === 0 ? 22_640_000_000 : 8_240_000_000,
+          tx_bytes: index === 0 ? 3_240_000_000 : 1_130_000_000
+        })),
+        ...proxies.map((proxy, index) => ({
+          scope_kind: 'proxy' as const,
+          scope_id: proxy.id,
+          rx_bytes: 2_840_000_000 + index * 80_000_000,
+          tx_bytes: 620_000_000 + index * 20_000_000
+        }))
+      ],
+      stale: false,
+      apply_pending: false,
+      apply_status: 'applied',
+      apply_attempts: 0,
+      apply_exhausted: false
+    }
+  }
+
+  function fixtureProxyError(message: string, field = ''): ApiError {
+    return new ApiError(message, 400, 'invalid_argument', field)
+  }
+
+  function validateFixtureProxy(
+    input: CreateProxyInput | UpdateProxyInput,
+    existing?: ProxyInstance
+  ): void {
+    if (!lines.some(line => fixtureLineKey(line) === input.line_id)) {
+      throw fixtureProxyError('线路不存在', 'line_id')
+    }
+    if (input.mode !== 'http' && input.mode !== 'socks5') {
+      throw fixtureProxyError('代理协议无效', 'mode')
+    }
+    if (!isIPAddress(input.listen_address)) {
+      throw fixtureProxyError('监听地址必须是 IPv4 或 IPv6 地址', 'listen_address')
+    }
+    if (
+      !Number.isSafeInteger(input.listen_port) ||
+      input.listen_port < 1024 ||
+      input.listen_port > 65535
+    ) {
+      throw fixtureProxyError('监听端口无效', 'listen_port')
+    }
+    if (!isLoopbackAddress(input.listen_address) && !input.auth_enabled) {
+      throw fixtureProxyError('非本机监听必须启用认证', 'auth_enabled')
+    }
+    const credentialError = proxyCredentialError(
+      input.mode,
+      input.username,
+      input.password || '',
+      existing?.has_password
+    )
+    if (credentialError) {
+      const field = credentialError.includes('用户名') ? 'username' : 'password'
+      throw fixtureProxyError(credentialError, field)
+    }
+    if (
+      input.auth_enabled &&
+      (!input.username.trim() || (!input.password && !existing?.has_password))
+    ) {
+      throw fixtureProxyError('认证需要用户名和密码', 'password')
+    }
+  }
 
   function configurationForLine(lineID: string): DeviceConfiguration {
     const line = lines.find(candidate => candidate.id === lineID)
@@ -1086,6 +1255,89 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       }
       line.line_label = label
       return clone(line)
+    },
+
+    async getNetworkStatus(): Promise<NetworkStatus> {
+      return clone(fixtureNetworkStatus())
+    },
+
+    async listProxies(): Promise<ProxyInstance[]> {
+      return clone(proxies)
+    },
+
+    async createProxy(input: CreateProxyInput): Promise<ProxyMutation> {
+      validateFixtureProxy(input)
+      sequence += 1
+      const id = `proxy-fixture-${sequence}`
+      if (input.auth_enabled) proxyPasswords.add(id)
+      const proxy: ProxyInstance = {
+        id,
+        name: input.name.trim(),
+        line_id: input.line_id.trim(),
+        enabled: input.enabled,
+        mode: input.mode,
+        listen_address: input.listen_address.trim(),
+        listen_port: input.listen_port,
+        auth_enabled: input.auth_enabled,
+        username: input.auth_enabled ? input.username.trim() : '',
+        has_password: input.auth_enabled,
+        revision: 1,
+        applied_revision: 1,
+        apply_state: 'applied',
+        created_at: '2026-07-23T12:05:00Z',
+        updated_at: '2026-07-23T12:05:00Z'
+      }
+      proxies.push(proxy)
+      return { proxy: clone(proxy), applied: true, status: 'applied' }
+    },
+
+    async updateProxy(id: string, input: UpdateProxyInput): Promise<ProxyMutation> {
+      const index = proxies.findIndex(proxy => proxy.id === id)
+      const existing = proxies[index]
+      if (index < 0 || !existing) {
+        throw new ApiError('代理不存在', 404, 'not_found')
+      }
+      if (input.revision !== existing.revision) {
+        throw new ApiError('代理已被其他操作修改', 409, 'revision_conflict', 'revision')
+      }
+      validateFixtureProxy(input, existing)
+      if (input.auth_enabled) {
+        if (input.password) proxyPasswords.add(id)
+      } else {
+        proxyPasswords.delete(id)
+      }
+      const proxy: ProxyInstance = {
+        ...existing,
+        name: input.name.trim(),
+        line_id: input.line_id.trim(),
+        enabled: input.enabled,
+        mode: input.mode,
+        listen_address: input.listen_address.trim(),
+        listen_port: input.listen_port,
+        auth_enabled: input.auth_enabled,
+        username: input.auth_enabled ? input.username.trim() : '',
+        has_password: input.auth_enabled && proxyPasswords.has(id),
+        revision: existing.revision + 1,
+        applied_revision: existing.revision + 1,
+        apply_state: 'applied',
+        updated_at: '2026-07-23T12:06:00Z'
+      }
+      proxies[index] = proxy
+      return { proxy: clone(proxy), applied: true, status: 'applied' }
+    },
+
+    async deleteProxy(id: string, revision: number): Promise<ProxyDeleteResult> {
+      const index = proxies.findIndex(proxy => proxy.id === id)
+      const existing = proxies[index]
+      if (index < 0 || !existing) {
+        throw new ApiError('代理不存在', 404, 'not_found')
+      }
+      if (revision !== existing.revision) {
+        throw new ApiError('代理已被其他操作修改', 409, 'revision_conflict', 'revision')
+      }
+      proxies.splice(index, 1)
+      proxyPasswords.delete(id)
+      return { id, applied: true, status: 'applied' }
     },
 
     async getSIMStatus(lineID: string): Promise<SIMStatus> {

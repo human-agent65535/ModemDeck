@@ -7,6 +7,7 @@ import type {
   CallRecordingState,
   CallSession,
   CallPolicyEnforcement,
+  CreateProxyInput,
   DataConnection,
   DeviceConfiguration,
   DeviceConfigurationCapabilities,
@@ -21,6 +22,18 @@ import type {
   LineIncomingCallConfiguration,
   Message,
   MessageReadInput,
+  NetworkLineStatus,
+  NetworkProxyStatus,
+  NetworkStatus,
+  NetworkUsage,
+  NetworkUsageTotal,
+  ProxyApplyState,
+  ProxyApplyStatus,
+  ProxyDeleteResult,
+  ProxyInstance,
+  ProxyMode,
+  ProxyMutation,
+  ProxyRuntimeState,
   RecordingEntry,
   RecordingSettings,
   RecordingStatus,
@@ -30,7 +43,8 @@ import type {
   UpdateDeviceConfigurationInput,
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
-  UpdateLineSettingsInput
+  UpdateLineSettingsInput,
+  UpdateProxyInput
 } from './types.ts'
 
 type JsonRecord = Record<string, unknown>
@@ -61,6 +75,26 @@ const INCOMING_CALL_POLICIES = new Set<IncomingCallPolicy>([
 const EFFECTIVE_INCOMING_CALL_POLICIES = new Set<EffectiveIncomingCallPolicy>([
   'receive',
   'do_not_disturb'
+])
+const PROXY_MODES = new Set<ProxyMode>(['http', 'socks5'])
+const PROXY_RUNTIME_STATES = new Set<ProxyRuntimeState>([
+  'disabled',
+  'waiting_for_bearer',
+  'running',
+  'error'
+])
+const PROXY_APPLY_STATES = new Set<ProxyApplyState>([
+  'applied',
+  'pending_create',
+  'pending_update',
+  'pending_delete'
+])
+const PROXY_APPLY_STATUSES = new Set<ProxyApplyStatus>([
+  'pending',
+  'applied',
+  'agent_unavailable',
+  'agent_rejected',
+  'runtime_unavailable'
 ])
 
 function objectValue(value: unknown, path: string): JsonRecord {
@@ -117,6 +151,12 @@ function requiredNonNegativeInteger(source: JsonRecord, path: string, key: strin
   return value
 }
 
+function requiredPositiveInteger(source: JsonRecord, path: string, key: string): number {
+  const value = requiredNonNegativeInteger(source, path, key)
+  if (value < 1) throw new Error(`${path}.${key} 必须是正整数`)
+  return value
+}
+
 function stringList(source: JsonRecord, path: string, key: string): string[] {
   if (!Array.isArray(source[key])) throw new Error(`${path}.${key} 必须是数组`)
   const values = source[key].map((value, index) => {
@@ -127,6 +167,34 @@ function stringList(source: JsonRecord, path: string, key: string): string[] {
   })
   if (new Set(values).size !== values.length) throw new Error(`${path}.${key} 不能重复`)
   return values
+}
+
+function proxyMode(source: JsonRecord, path: string): ProxyMode {
+  const value = requiredString(source, path, 'mode') as ProxyMode
+  if (!PROXY_MODES.has(value)) throw new Error(`${path}.mode 无效`)
+  return value
+}
+
+function proxyRuntimeState(source: JsonRecord, path: string): ProxyRuntimeState {
+  const value = requiredString(source, path, 'state') as ProxyRuntimeState
+  if (!PROXY_RUNTIME_STATES.has(value)) throw new Error(`${path}.state 无效`)
+  return value
+}
+
+function proxyApplyState(source: JsonRecord, path: string): ProxyApplyState {
+  const value = requiredString(source, path, 'apply_state') as ProxyApplyState
+  if (!PROXY_APPLY_STATES.has(value)) throw new Error(`${path}.apply_state 无效`)
+  return value
+}
+
+function proxyApplyStatus(
+  source: JsonRecord,
+  path: string,
+  key = 'status'
+): ProxyApplyStatus {
+  const value = requiredString(source, path, key) as ProxyApplyStatus
+  if (!PROXY_APPLY_STATUSES.has(value)) throw new Error(`${path}.${key} 无效`)
+  return value
 }
 
 export const communicationPaths = {
@@ -198,6 +266,53 @@ export const communicationContracts = {
   }
 } as const
 
+export const networkPaths = {
+  status: '/api/v1/network',
+  proxies: '/api/v1/proxies'
+} as const
+
+export const networkContracts = {
+  status: {
+    method: 'GET',
+    path: networkPaths.status,
+    successStatus: 200
+  },
+  listProxies: {
+    method: 'GET',
+    path: networkPaths.proxies,
+    successStatus: 200
+  },
+  createProxy: {
+    method: 'POST',
+    path: networkPaths.proxies,
+    successStatus: 201
+  }
+} as const
+
+export function proxyResourcePath(id: string): string {
+  const proxyID = id.trim()
+  if (!proxyID) throw new Error('proxy id 不能为空')
+  return `${networkPaths.proxies}/${encodeURIComponent(proxyID)}`
+}
+
+export function proxyResourceContract(id: string): {
+  update: { method: 'PATCH'; path: string; successStatus: 200 }
+  delete: { method: 'DELETE'; path: string; successStatus: 200 }
+} {
+  const path = proxyResourcePath(id)
+  return {
+    update: { method: 'PATCH', path, successStatus: 200 },
+    delete: { method: 'DELETE', path, successStatus: 200 }
+  }
+}
+
+export function proxyDeletePath(id: string, revision: number): string {
+  if (!Number.isSafeInteger(revision) || revision < 1) {
+    throw new Error('proxy revision 必须是正整数')
+  }
+  return `${proxyResourcePath(id)}?revision=${revision}`
+}
+
 export function callActionPath(id: string, action: CallAction | 'dtmf'): string {
   const callID = id.trim()
   if (!callID) throw new Error('call id 不能为空')
@@ -246,6 +361,210 @@ export function createLineLabelPayload(input: UpdateLineLabelInput): UpdateLineL
 }
 
 export const parseLineLabelResponse = parseLineResponse
+
+function normalizedProxyFields(
+  input: CreateProxyInput | UpdateProxyInput,
+  requirePassword: boolean
+): Omit<CreateProxyInput, 'password'> & { password?: string } {
+  const name = input.name.trim()
+  const lineID = input.line_id.trim()
+  const listenAddress = input.listen_address.trim()
+  const username = input.username.trim()
+  const password = input.password
+  if (!name) throw new Error('代理名称不能为空')
+  if (!lineID) throw new Error('请选择线路')
+  if (!PROXY_MODES.has(input.mode)) throw new Error('代理协议无效')
+  if (!listenAddress) throw new Error('监听地址不能为空')
+  if (
+    !Number.isSafeInteger(input.listen_port) ||
+    input.listen_port < 1024 ||
+    input.listen_port > 65535
+  ) {
+    throw new Error('监听端口必须在 1024 到 65535 之间')
+  }
+  if (input.auth_enabled && (!username || (requirePassword && !password))) {
+    throw new Error('启用认证时必须填写用户名和密码')
+  }
+  if (!input.auth_enabled && (username || password)) {
+    throw new Error('未启用认证时不能提交凭据')
+  }
+  return {
+    name,
+    line_id: lineID,
+    enabled: input.enabled,
+    mode: input.mode,
+    listen_address: listenAddress,
+    listen_port: input.listen_port,
+    auth_enabled: input.auth_enabled,
+    username,
+    ...(password ? { password } : {})
+  }
+}
+
+export function createProxyPayload(
+  input: CreateProxyInput
+): CreateProxyInput & { revision: 0 } {
+  const fields = normalizedProxyFields(input, input.auth_enabled)
+  return {
+    revision: 0,
+    ...fields,
+    password: fields.password || ''
+  }
+}
+
+export function createProxyUpdatePayload(
+  input: UpdateProxyInput
+): UpdateProxyInput {
+  if (!Number.isSafeInteger(input.revision) || input.revision < 1) {
+    throw new Error('proxy revision 必须是正整数')
+  }
+  return {
+    revision: input.revision,
+    ...normalizedProxyFields(input, false)
+  }
+}
+
+function parseNetworkLine(value: unknown, index: number): NetworkLineStatus {
+  const path = `network.lines[${index}]`
+  const source = objectValue(value, path)
+  return {
+    line_id: requiredString(source, path, 'line_id'),
+    connected: requiredBoolean(source, path, 'connected'),
+    interface: requiredString(source, path, 'interface', true),
+    dns: stringList(source, path, 'dns'),
+    rx_bytes: requiredNonNegativeInteger(source, path, 'rx_bytes'),
+    tx_bytes: requiredNonNegativeInteger(source, path, 'tx_bytes'),
+    error: requiredString(source, path, 'error', true)
+  }
+}
+
+function parseNetworkProxy(value: unknown, index: number): NetworkProxyStatus {
+  const path = `network.proxies[${index}]`
+  const source = objectValue(value, path)
+  return {
+    id: requiredString(source, path, 'id'),
+    line_id: requiredString(source, path, 'line_id'),
+    state: proxyRuntimeState(source, path),
+    running: requiredBoolean(source, path, 'running'),
+    mode: proxyMode(source, path),
+    listen_address: requiredString(source, path, 'listen_address'),
+    listen_port: requiredPositiveInteger(source, path, 'listen_port'),
+    interface: requiredString(source, path, 'interface', true),
+    runtime_epoch: requiredString(source, path, 'runtime_epoch', true),
+    started_at: optionalTimestamp(source, path, 'started_at'),
+    bytes_up: requiredNonNegativeInteger(source, path, 'bytes_up'),
+    bytes_down: requiredNonNegativeInteger(source, path, 'bytes_down'),
+    connections: requiredNonNegativeInteger(source, path, 'connections'),
+    active_connections: requiredNonNegativeInteger(source, path, 'active_connections'),
+    last_error: requiredString(source, path, 'last_error', true)
+  }
+}
+
+function parseNetworkUsage(value: unknown, path: string): NetworkUsage {
+  const source = objectValue(value, path)
+  const scopeKind = requiredString(source, path, 'scope_kind')
+  if (scopeKind !== 'line' && scopeKind !== 'proxy') {
+    throw new Error(`${path}.scope_kind 无效`)
+  }
+  return {
+    scope_kind: scopeKind,
+    scope_id: requiredString(source, path, 'scope_id'),
+    rx_bytes: requiredNonNegativeInteger(source, path, 'rx_bytes'),
+    tx_bytes: requiredNonNegativeInteger(source, path, 'tx_bytes')
+  }
+}
+
+function parseNetworkUsageTotal(value: unknown, path: string): NetworkUsageTotal {
+  const source = objectValue(value, path)
+  return {
+    rx_bytes: requiredNonNegativeInteger(source, path, 'rx_bytes'),
+    tx_bytes: requiredNonNegativeInteger(source, path, 'tx_bytes')
+  }
+}
+
+export function parseNetworkStatusResponse(value: unknown): NetworkStatus {
+  const source = objectValue(value, 'network')
+  if (!Array.isArray(source.lines)) throw new Error('network.lines 必须是数组')
+  if (!Array.isArray(source.proxies)) throw new Error('network.proxies 必须是数组')
+  if (!Array.isArray(source.today_usage)) throw new Error('network.today_usage 必须是数组')
+  if (!Array.isArray(source.month_usage)) throw new Error('network.month_usage 必须是数组')
+  return {
+    available: requiredBoolean(source, 'network', 'available'),
+    state: requiredString(source, 'network', 'state'),
+    unavailable_reason: optionalString(source, 'unavailable_reason'),
+    boot_epoch: requiredString(source, 'network', 'boot_epoch', true),
+    observed_at: optionalTimestamp(source, 'network', 'observed_at'),
+    lines: source.lines.map(parseNetworkLine),
+    proxies: source.proxies.map(parseNetworkProxy),
+    today_total: parseNetworkUsageTotal(source.today_total, 'network.today_total'),
+    today_usage: source.today_usage.map((item, index) =>
+      parseNetworkUsage(item, `network.today_usage[${index}]`)
+    ),
+    month_total: parseNetworkUsageTotal(source.month_total, 'network.month_total'),
+    month_usage: source.month_usage.map((item, index) =>
+      parseNetworkUsage(item, `network.month_usage[${index}]`)
+    ),
+    stale: requiredBoolean(source, 'network', 'stale'),
+    apply_pending: requiredBoolean(source, 'network', 'apply_pending'),
+    apply_status: proxyApplyStatus(source, 'network', 'apply_status'),
+    apply_attempts: requiredNonNegativeInteger(source, 'network', 'apply_attempts'),
+    apply_exhausted: requiredBoolean(source, 'network', 'apply_exhausted')
+  }
+}
+
+function parseProxyInstance(value: unknown, path: string): ProxyInstance {
+  const source = objectValue(value, path)
+  const revision = requiredRevision(source, path)
+  const appliedRevision = requiredNonNegativeInteger(source, path, 'applied_revision')
+  if (appliedRevision > revision) {
+    throw new Error(`${path}.applied_revision 不能大于 revision`)
+  }
+  return {
+    id: requiredString(source, path, 'id'),
+    name: requiredString(source, path, 'name'),
+    line_id: requiredString(source, path, 'line_id'),
+    enabled: requiredBoolean(source, path, 'enabled'),
+    mode: proxyMode(source, path),
+    listen_address: requiredString(source, path, 'listen_address'),
+    listen_port: requiredPositiveInteger(source, path, 'listen_port'),
+    auth_enabled: requiredBoolean(source, path, 'auth_enabled'),
+    username: requiredString(source, path, 'username', true),
+    has_password: requiredBoolean(source, path, 'has_password'),
+    revision,
+    applied_revision: appliedRevision,
+    apply_state: proxyApplyState(source, path),
+    created_at: requiredString(source, path, 'created_at'),
+    updated_at: requiredString(source, path, 'updated_at')
+  }
+}
+
+export function parseProxyCollectionResponse(value: unknown): ProxyInstance[] {
+  const source = objectValue(value, 'proxy_collection')
+  if (!Array.isArray(source.proxies)) {
+    throw new Error('proxy_collection.proxies 必须是数组')
+  }
+  return source.proxies.map((proxy, index) =>
+    parseProxyInstance(proxy, `proxy_collection.proxies[${index}]`)
+  )
+}
+
+export function parseProxyMutationResponse(value: unknown): ProxyMutation {
+  const source = objectValue(value, 'proxy_mutation')
+  return {
+    proxy: parseProxyInstance(source.proxy, 'proxy_mutation.proxy'),
+    applied: requiredBoolean(source, 'proxy_mutation', 'applied'),
+    status: proxyApplyStatus(source, 'proxy_mutation')
+  }
+}
+
+export function parseProxyDeleteResponse(value: unknown): ProxyDeleteResult {
+  const source = objectValue(value, 'proxy_delete')
+  return {
+    id: requiredString(source, 'proxy_delete', 'id'),
+    applied: requiredBoolean(source, 'proxy_delete', 'applied'),
+    status: proxyApplyStatus(source, 'proxy_delete')
+  }
+}
 
 export function deviceConfigurationPath(lineID: string): string {
   const normalizedLineID = lineID.trim()

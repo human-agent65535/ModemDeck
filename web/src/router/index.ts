@@ -45,6 +45,11 @@ const router = createRouter({
           meta: { communication: true }
         },
         {
+          path: 'traffic',
+          name: 'traffic',
+          component: () => import('../views/TrafficView.vue')
+        },
+        {
           path: 'settings/:section?',
           name: 'settings',
           component: () => import('../views/SettingsView.vue')

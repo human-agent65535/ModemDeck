@@ -1774,32 +1774,43 @@ dd {
 }
 
 .keypad__key strong {
-  font-size: 21px;
+  font-size: 26px;
   line-height: 1;
 }
 
 .keypad__key small {
-  min-height: 11px;
-  margin-top: 4px;
+  margin-top: 3px;
   color: var(--muted);
-  font-size: 8px;
-  font-weight: 700;
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.keypad__key--zero small {
+  margin-top: 2px;
+  font-size: 14px;
+  font-weight: 650;
 }
 
 .dialer-actions {
   display: grid;
+  width: 238px;
   align-items: center;
-  grid-template-columns: 1fr 52px 1fr;
+  justify-content: space-between;
+  margin: 0 auto;
+  grid-template-columns: repeat(3, 62px);
 }
 
 .dialer-actions .call-button {
-  width: 52px;
-  height: 52px;
+  width: 56px;
+  height: 56px;
+  justify-self: center;
 }
 
-.dialer-actions > .icon-button {
-  justify-self: start;
-  margin-left: 12px;
+.dialer-actions > .dialer-backspace-button {
+  width: 44px;
+  height: 44px;
+  justify-self: center;
 }
 
 .call-surface {

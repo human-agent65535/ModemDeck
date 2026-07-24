@@ -30,8 +30,29 @@ test('dialing and messages resolve context, contact, and global default lines', 
   assert.match(messages, /if \(!activeLineID\.value && !activeICCID\.value\) return '请选择线路'/)
   assert.match(messages, /<LineSelector/)
   assert.doesNotMatch(messages, /lines\.length === 1/)
-  assert.match(lineSelector, /<option v-else value="" disabled>/)
-  assert.match(lineSelector, /v-for="line in lines"/)
+  assert.doesNotMatch(lineSelector, /<select|<option/)
+  assert.match(lineSelector, /role="listbox"/)
+  assert.match(lineSelector, /v-for="\(option, index\) in options"/)
+  assert.match(lineSelector, /aria-haspopup="listbox"/)
+  assert.match(lineSelector, /case 'ArrowDown'/)
+  assert.match(lineSelector, /case 'Escape'/)
+})
+
+test('line switching uses one custom selector instead of native dropdowns', async () => {
+  const lineSelector = await source('../src/components/LineSelector.vue')
+  const contactEditor = await source('../src/components/ContactEditor.vue')
+  const proxyEditor = await source('../src/components/ProxyEditorModal.vue')
+  const messages = await source('../src/views/MessagesView.vue')
+
+  assert.doesNotMatch(lineSelector, /<select|<option/)
+  assert.match(lineSelector, /role="listbox"/)
+  assert.match(lineSelector, /role="option"/)
+  assert.match(lineSelector, /valueField: 'line_key'/)
+  assert.match(contactEditor, /<LineSelector[\s\S]*value-field="device_imei"/)
+  assert.doesNotMatch(contactEditor, /<select v-model="draft\.preferredDeviceIMEI"/)
+  assert.match(proxyEditor, /<LineSelector[\s\S]*v-model="form\.line_id"/)
+  assert.doesNotMatch(proxyEditor, /<select v-model="form\.line_id"/)
+  assert.match(messages, /label="发送线路"[\s\S]*placement="up"/)
 })
 
 test('every dialer request has a monotonic event revision even for the same number', async () => {
@@ -54,6 +75,25 @@ test('every dialer request has a monotonic event revision even for the same numb
   )
   assert.doesNotMatch(dialer, /\(\) => \[uiState\.dialTarget, uiState\.dialLabel\]/)
   closeDialer()
+})
+
+test('dialer separates the primary call action from backspace', async () => {
+  const dialer = await source('../src/components/DialerPanel.vue')
+  const styles = await source('../src/style.css')
+
+  assert.match(
+    dialer,
+    /<button[\s\S]*?v-if="number"[\s\S]*?class="icon-button dialer-backspace-button"/
+  )
+  assert.match(styles, /\.dialer-actions\s*\{[\s\S]*?width: 238px/)
+  assert.match(styles, /grid-template-columns: repeat\(3, 62px\)/)
+  assert.match(dialer, /<small v-if="key\.letters">\{\{ key\.letters \}\}<\/small>/)
+  assert.match(styles, /\.keypad__key strong\s*\{[\s\S]*?font-size: 26px/)
+  assert.match(styles, /\.keypad__key--zero small\s*\{[\s\S]*?font-size: 14px/)
+  assert.match(
+    styles,
+    /\.dialer-actions > \.dialer-backspace-button\s*\{[\s\S]*?width: 44px[\s\S]*?height: 44px/
+  )
 })
 
 test('header menu and audio dialog implement bounded keyboard focus behavior', async () => {

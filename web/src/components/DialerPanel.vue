@@ -327,6 +327,7 @@ onBeforeUnmount(clearZeroHold)
                 v-for="key in keypad"
                 :key="key.digit"
                 class="keypad__key"
+                :class="{ 'keypad__key--zero': key.digit === '0' }"
                 type="button"
                 :aria-label="key.digit"
                 @click="handleKeyClick(key.digit, $event)"
@@ -336,7 +337,7 @@ onBeforeUnmount(clearZeroHold)
                 @pointercancel="key.digit === '0' && cancelZeroHold($event)"
               >
                 <strong>{{ key.digit }}</strong>
-                <small>{{ key.letters }}</small>
+                <small v-if="key.letters">{{ key.letters }}</small>
               </button>
             </div>
 
@@ -354,14 +355,14 @@ onBeforeUnmount(clearZeroHold)
                 <Phone v-else :size="22" />
               </button>
               <button
-                class="icon-button"
+                v-if="number"
+                class="icon-button dialer-backspace-button"
                 type="button"
-                :disabled="!number"
                 title="退格"
                 aria-label="退格"
                 @click="removeDigit"
               >
-                <Delete :size="21" />
+                <Delete :size="19" />
               </button>
             </div>
 
