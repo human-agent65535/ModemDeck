@@ -336,6 +336,10 @@ func (p *Provider) waitNetworkManagerActivated(
 	for {
 		active, err := p.readNetworkManagerActive(ctx, activePath, operation)
 		if err != nil {
+			if operationError, ok := domain.AsOperationError(err); ok &&
+				operationError.Code == domain.ErrorNotFound {
+				return p.networkManagerActivationFailure(ctx, devicePath, operation)
+			}
 			return err
 		}
 		switch active.State {
@@ -371,6 +375,21 @@ func (p *Provider) deactivateNetworkManagerConnection(
 		"NetworkManager failed to stop the cellular data connection",
 		activePath,
 	); err != nil {
+		if operationError, ok := domain.AsOperationError(err); ok &&
+			operationError.Code == domain.ErrorNotFound {
+			device, readErr := p.findNetworkManagerDeviceByPath(
+				ctx,
+				devicePath,
+				operation,
+			)
+			if readErr != nil {
+				return errors.Join(err, readErr)
+			}
+			if device.ActiveConnection == networkManagerNoObject ||
+				device.ActiveConnection != activePath {
+				return nil
+			}
+		}
 		return err
 	}
 	ticker := time.NewTicker(networkManagerPollInterval)

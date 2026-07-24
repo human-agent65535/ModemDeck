@@ -315,7 +315,12 @@ func (p *Provider) readDeviceConfiguration(
 		DataConnections: []domain.DataConnection{},
 	}
 	configuration.Capabilities = genericConfigurationCapabilities(interfaces)
-	configuration.AutomaticAPN = initialEPSBearerAPN(objects, interfaces)
+	configuration.AutomaticAPN = p.resolveAutomaticAPN(
+		ctx,
+		objects,
+		interfaces,
+		operation,
+	)
 
 	bearerPaths, _ := objectPathValuesProperty(modemProperties, "Bearers")
 	for _, bearerPath := range bearerPaths {
@@ -531,6 +536,45 @@ func initialEPSBearerAPN(objects ManagedObjects, interfaces Interfaces) string {
 	if !found {
 		return ""
 	}
+	return bearerAPN(bearerProperties)
+}
+
+func (p *Provider) resolveAutomaticAPN(
+	ctx context.Context,
+	objects ManagedObjects,
+	interfaces Interfaces,
+	operation string,
+) string {
+	if apn := initialEPSBearerAPN(objects, interfaces); apn != "" {
+		return apn
+	}
+	properties, found := interfaces[modem3GPPInterface]
+	if !found {
+		return ""
+	}
+	path, found := objectPathProperty(properties, "InitialEpsBearer")
+	if !found || !path.IsValid() || path == "/" {
+		return ""
+	}
+	body, err := p.call(
+		ctx,
+		path,
+		propertiesInterface+".GetAll",
+		operation,
+		"ModemManager failed to read the initial EPS bearer",
+		bearerInterface,
+	)
+	if err != nil {
+		return ""
+	}
+	bearerProperties := Properties{}
+	if err := dbus.Store(body, &bearerProperties); err != nil {
+		return ""
+	}
+	return bearerAPN(bearerProperties)
+}
+
+func bearerAPN(bearerProperties Properties) string {
 	settings, found, err := nestedProperties(bearerProperties, "Properties")
 	if err != nil || !found {
 		return ""

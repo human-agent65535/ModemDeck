@@ -40,7 +40,9 @@ type configurationCaller struct {
 	deviceStateReason    uint32
 	negotiatedIPFamily   uint32
 	activationState      uint32
+	activationDisappears bool
 	verificationMismatch bool
+	externalBearers      map[dbus.ObjectPath]Properties
 }
 
 func (caller *configurationCaller) Call(
@@ -85,6 +87,13 @@ func (caller *configurationCaller) Call(
 	case networkManagerInterface + ".GetDevices":
 		return []any{[]dbus.ObjectPath{testNetworkManagerDevicePath}}, nil
 	case propertiesInterface + ".GetAll":
+		if destination == serviceName {
+			properties, found := caller.externalBearers[path]
+			if !found {
+				return nil, dbus.NewError(dbusErrorPrefix+"UnknownObject", nil)
+			}
+			return []any{properties}, nil
+		}
 		if destination != networkManagerServiceName {
 			return nil, fmt.Errorf("unexpected GetAll destination %s", destination)
 		}
@@ -181,6 +190,9 @@ func (caller *configurationCaller) Call(
 		} else {
 			caller.deviceState = networkManagerStateFailed
 		}
+		if caller.activationDisappears {
+			caller.activeConnection = networkManagerNoObject
+		}
 		if caller.cancelCall != nil {
 			caller.cancelCall()
 		}
@@ -192,6 +204,12 @@ func (caller *configurationCaller) Call(
 	case networkManagerInterface + ".DeactivateConnection":
 		if caller.deactivateErr != nil {
 			return nil, caller.deactivateErr
+		}
+		if caller.activationDisappears {
+			return nil, dbus.NewError(
+				networkManagerErrorPrefix+"ConnectionNotActive",
+				nil,
+			)
 		}
 		caller.activeConnection = networkManagerNoObject
 		caller.activeConnectionID = ""
@@ -502,6 +520,41 @@ func TestApplyDeviceConfigurationResolvesAutomaticAPN(t *testing.T) {
 	t.Fatal("NetworkManager activation was not called")
 }
 
+func TestDeviceConfigurationHydratesAutomaticAPNFromInitialEPSBearer(t *testing.T) {
+	t.Parallel()
+	objects := configurationObjects()
+	initialEPSBearerPath, _ := objectPathProperty(
+		objects[testModemPath][modem3GPPInterface],
+		"InitialEpsBearer",
+	)
+	externalProperties := objects[initialEPSBearerPath][bearerInterface]
+	delete(objects, initialEPSBearerPath)
+	caller := &configurationCaller{
+		objects: objects,
+		externalBearers: map[dbus.ObjectPath]Properties{
+			initialEPSBearerPath: externalProperties,
+		},
+	}
+	provider := newTestProvider(caller)
+
+	configuration, err := provider.ReadDeviceConfiguration(
+		context.Background(),
+		parsedLineID(objects, provider.ids),
+	)
+	if err != nil {
+		t.Fatalf("ReadDeviceConfiguration() error = %v", err)
+	}
+	if configuration.AutomaticAPN != "automatic.example" {
+		t.Fatalf("automatic APN = %q", configuration.AutomaticAPN)
+	}
+	assertConfigurationMethods(
+		t,
+		caller.methods(),
+		objectManagerInterface+".GetManagedObjects",
+		propertiesInterface+".GetAll",
+	)
+}
+
 func TestApplyDeviceConfigurationUsesProviderAutoConfigWithoutResolvedAPN(t *testing.T) {
 	t.Parallel()
 	objects := configurationObjects()
@@ -760,6 +813,48 @@ func TestApplyDeviceConfigurationReportsNetworkManagerAPNRejection(t *testing.T)
 	}
 	if !strings.Contains(strings.ToLower(operationError.Message), "apn") {
 		t.Fatalf("error message = %q, want APN diagnosis", operationError.Message)
+	}
+	if count := caller.methodCount(
+		networkManagerInterface + ".DeactivateConnection",
+	); count != 1 {
+		t.Fatalf("cleanup calls = %d, methods = %v", count, caller.methods())
+	}
+}
+
+func TestApplyDeviceConfigurationHandlesVanishedFailedActivation(t *testing.T) {
+	t.Parallel()
+	objects := configurationObjects()
+	caller := &configurationCaller{
+		objects:              objects,
+		activationState:      networkManagerActiveDeactivated,
+		activationDisappears: true,
+		deviceStateReason:    29,
+	}
+	provider := newTestProvider(caller)
+	lineID := parsedLineID(objects, provider.ids)
+	current, err := provider.ReadDeviceConfiguration(context.Background(), lineID)
+	if err != nil {
+		t.Fatalf("ReadDeviceConfiguration() error = %v", err)
+	}
+	caller.calls = nil
+
+	_, err = provider.ApplyGenericDeviceConfiguration(
+		context.Background(),
+		domain.ApplyDeviceConfigurationRequest{
+			RequestID:        "connect-data-vanished-activation",
+			LineID:           lineID,
+			ExpectedRevision: current.Revision,
+			Operation:        domain.DeviceConfigurationConnectData,
+			APN:              "rejected.example",
+			IPFamily:         "ipv4v6",
+		},
+	)
+	operationError, ok := domain.AsOperationError(err)
+	if !ok || operationError.Code != domain.ErrorFailedPrecondition {
+		t.Fatalf("error = %#v, want failed precondition", err)
+	}
+	if strings.Contains(operationError.Message, "cleanup also failed") {
+		t.Fatalf("error misreported completed cleanup: %q", operationError.Message)
 	}
 	if count := caller.methodCount(
 		networkManagerInterface + ".DeactivateConnection",
