@@ -150,6 +150,7 @@ func run() error {
 			Media:                mediaManager,
 			DeviceConfigurations: deviceConfigurations,
 			Network:              networkManager,
+			NetworkSelection:     provider,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,

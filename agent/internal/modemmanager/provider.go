@@ -44,6 +44,9 @@ type Provider struct {
 	snapshotMu    sync.Mutex
 	terminalCalls map[string]terminalCallProjection
 
+	networkOperationMu sync.Mutex
+	networkOperations  map[string]struct{}
+
 	telemetryMu       sync.Mutex
 	signalSetupStates map[string]signalSetupState
 
@@ -113,6 +116,7 @@ func newProvider(caller Caller, ids *instanceIDs) *Provider {
 		now:               time.Now,
 		ids:               ids,
 		terminalCalls:     make(map[string]terminalCallProjection),
+		networkOperations: make(map[string]struct{}),
 		signalSetupStates: make(map[string]signalSetupState),
 		messageProperties: newMessagePropertyCache(defaultMessagePropertyCacheLimit),
 	}

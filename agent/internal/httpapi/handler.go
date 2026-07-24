@@ -21,6 +21,7 @@ type handler struct {
 	deviceConfigurations domain.DeviceConfigurationProvider
 	lineServices         domain.LineServiceProvider
 	network              domain.NetworkProvider
+	networkSelection     domain.NetworkSelectionProvider
 	agentVersion         string
 	media                *media.Manager
 }
@@ -60,6 +61,7 @@ type Options struct {
 	DeviceConfigurations domain.DeviceConfigurationProvider
 	LineServices         domain.LineServiceProvider
 	Network              domain.NetworkProvider
+	NetworkSelection     domain.NetworkSelectionProvider
 }
 
 func NewWithOptions(
@@ -76,6 +78,7 @@ func NewWithOptions(
 		deviceConfigurations: options.DeviceConfigurations,
 		lineServices:         lineServices,
 		network:              options.Network,
+		networkSelection:     options.NetworkSelection,
 		agentVersion:         agentVersion,
 		media:                options.Media,
 	}
@@ -91,6 +94,8 @@ func NewWithOptions(
 	mux.HandleFunc("DELETE /v1/lines/{id}/profiles", h.deleteConnectionProfile)
 	mux.HandleFunc("GET /v1/lines/{id}/ussd", h.getUSSDStatus)
 	mux.HandleFunc("POST /v1/lines/{id}/ussd", h.postUSSDCommand)
+	mux.HandleFunc("POST /v1/lines/{id}/network-scan", h.postNetworkScan)
+	mux.HandleFunc("PUT /v1/lines/{id}/network-selection", h.putNetworkSelection)
 	mux.HandleFunc("POST /v1/calls", h.startCall)
 	mux.HandleFunc("POST /v1/calls/{id}/answer", h.answerCall)
 	mux.HandleFunc("POST /v1/calls/{id}/reject", h.rejectCall)
@@ -124,6 +129,7 @@ func (h *handler) health(w http.ResponseWriter, r *http.Request) {
 	health.Capabilities.ConnectionProfiles = h.lineServices != nil
 	health.Capabilities.USSD = h.lineServices != nil
 	health.Capabilities.Network = h.network != nil
+	health.Capabilities.NetworkSelection = h.networkSelection != nil
 	health.Capabilities.Proxy = h.network != nil
 	health.Capabilities.Media = h.media != nil && h.media.Configured()
 	h.writeJSON(w, http.StatusOK, healthResponse{
