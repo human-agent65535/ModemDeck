@@ -17,8 +17,8 @@ const lines = [
   {
     id: 'line-main',
     iccid: '898601',
-    imsi: '',
-    phone_number: '',
+    imsi: '001010000000001',
+    phone_number: '+1 202 555 0101',
     operator: '',
     device_imei: 'imei-main',
     device_alias: '',
@@ -27,8 +27,8 @@ const lines = [
   {
     id: 'line-secondary',
     iccid: '898602',
-    imsi: '',
-    phone_number: '',
+    imsi: '001020000000002',
+    phone_number: '+1 202 555 0102',
     operator: '',
     device_imei: 'imei-secondary',
     device_alias: '',
@@ -43,6 +43,8 @@ test('shared line identity keeps known and historical records distinct', () => {
 
   assert.equal(main, lines[0])
   assert.equal(secondary, lines[1])
+  assert.equal(findLine(lookup, '+81 (80) 1234-5678'), lines[0])
+  assert.equal(findLine(lookup, '001020000000002'), lines[1])
   assert.equal(lineTagFallback(main, lines, 'imei-main', 'line-main'), '主卡')
   assert.equal(
     lineTagFallback(secondary, lines, 'imei-main', 'line-secondary'),
@@ -68,11 +70,16 @@ test('message rows and conversation detail identify the original line', async ()
   assert.match(source, /function threadLineFallback\(thread: MessageThread\)/)
   assert.match(
     source,
-    /<LineTag[\s\S]*?:line="lineTagLine\(lineForThread\(thread\), thread\.line_id, thread\.iccid\)"[\s\S]*?:fallback="threadLineFallback\(thread\)"/
+    /if \(thread\.local_phone\) \{[\s\S]*?findLine\(lineLookup\.value, thread\.local_phone\)/
+  )
+  assert.match(source, /findLine\([\s\S]*?thread\.imsi,[\s\S]*?thread\.iccid/)
+  assert.match(
+    source,
+    /<LineTag[\s\S]*?:line="lineTagLine\(lineForThread\(thread\), thread\.local_phone, thread\.imsi, thread\.iccid\)"[\s\S]*?:fallback="threadLineFallback\(thread\)"/
   )
   assert.match(
     source,
-    /class="conversation-line-tag"[\s\S]*?:line="lineTagLine\(lineForThread\(selectedThread\), selectedThread\.line_id, selectedThread\.iccid\)"[\s\S]*?:fallback="threadLineFallback\(selectedThread\)"/
+    /class="conversation-line-tag"[\s\S]*?:line="lineTagLine\(lineForThread\(selectedThread\), selectedThread\.local_phone, selectedThread\.imsi, selectedThread\.iccid\)"[\s\S]*?:fallback="threadLineFallback\(selectedThread\)"/
   )
 })
 
@@ -84,14 +91,22 @@ test('call rows and call detail identify the original line', async () => {
   assert.match(source, /function callLineFallback\(call: CallRecord\)/)
   assert.match(
     source,
-    /<LineTag[\s\S]*?:line="lineTagLine\(lineForCall\(call\), call\.device_id\)"[\s\S]*?:fallback="callLineFallback\(call\)"/
+    /if \(call\.local_phone\) \{[\s\S]*?findLine\(lineLookup\.value, call\.local_phone\)/
+  )
+  assert.match(source, /findLine\([\s\S]*?call\.line_iccid,[\s\S]*?call\.line_imsi/)
+  assert.match(
+    source,
+    /<LineTag[\s\S]*?:line="lineTagLine\(lineForCall\(call\), call\.local_phone, call\.line_iccid, call\.line_imsi\)"[\s\S]*?:fallback="callLineFallback\(call\)"/
   )
   assert.match(
     source,
-    /<dt>线路<\/dt>[\s\S]*?:line="lineTagLine\(lineForCall\(selected\), selected\.device_id\)"[\s\S]*?:fallback="callLineFallback\(selected\)"/
+    /<dt>线路<\/dt>[\s\S]*?:line="lineTagLine\(lineForCall\(selected\), selected\.local_phone, selected\.line_iccid, selected\.line_imsi\)"[\s\S]*?:fallback="callLineFallback\(selected\)"/
   )
-  assert.match(source, /openDialer\(call\.remote_number, displayName\(call\), call\.device_id\)/)
-  assert.match(source, /\.\.\.\(call\.device_id \? \{ line: call\.device_id \} : \{\}\)/)
+  assert.match(source, /function actionLineKey\(call: CallRecord\)/)
+  assert.match(source, /openDialer\(call\.remote_number, displayName\(call\), actionLineKey\(call\)\)/)
+  assert.match(source, /const selectedLineKey = actionLineKey\(call\)/)
+  assert.doesNotMatch(source, /findLine\([\s\S]{0,200}?call\.device_id/)
+  assert.doesNotMatch(source, /\{ line: call\.device_id \}/)
 })
 
 test('recording rows and recording detail identify the call line', async () => {

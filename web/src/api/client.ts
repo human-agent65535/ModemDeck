@@ -724,7 +724,13 @@ const realGateway: ConfiguredModemDeckGateway = {
 
   async listMessages(query): Promise<Message[]> {
     return parseMessages(
-      await get(`${API_ROOT}/messages${queryString({ iccid: query.iccid, peer: query.peer })}`)
+      await get(
+        `${API_ROOT}/messages${queryString({
+          local_phone: query.local_phone,
+          iccid: query.iccid,
+          peer: query.peer
+        })}`
+      )
     )
   },
 

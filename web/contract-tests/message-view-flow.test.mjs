@@ -10,7 +10,7 @@ const mainLine = {
   id: 'line-main',
   iccid: '898601',
   imsi: '46001',
-  phone_number: '',
+  phone_number: '+1 202 555 0101',
   operator: 'China Unicom',
   device_imei: 'imei-main',
   device_alias: '',
@@ -22,12 +22,14 @@ const secondaryLine = {
   id: 'line-secondary',
   iccid: '898602',
   imsi: '00102',
+  phone_number: '+1 202 555 0102',
   device_imei: 'imei-secondary',
   line_label: '副卡'
 }
 
 const mainThread = {
-  key: '898601|+819012345678',
+  key: 'backend-main-thread',
+  local_phone: '818012345678',
   imsi: '46001',
   iccid: '898601',
   line_id: 'line-main',
@@ -38,7 +40,9 @@ const mainThread = {
 
 const secondaryThread = {
   ...mainThread,
-  key: '898602|+819012345678',
+  key: 'backend-secondary-thread',
+  local_phone: '+84 (90) 000-0000',
+  imsi: '00102',
   iccid: '898602',
   line_id: 'imei-secondary'
 }

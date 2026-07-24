@@ -357,6 +357,7 @@ export type ContactInput = {
 
 export type MessageThread = {
   key: string
+  local_phone?: string
   imsi: string
   iccid: string
   line_id?: string
@@ -417,7 +418,8 @@ export type RuntimeEventStreamHandlers = {
 }
 
 export type MessageReadInput = {
-  iccid: string
+  local_phone?: string
+  iccid?: string
   peer: string
 }
 
@@ -433,6 +435,9 @@ export type SendMessageInput = {
 export type CallRecord = {
   id: string
   device_id: string
+  local_phone?: string
+  line_iccid?: string
+  line_imsi?: string
   direction: CallDirection
   remote_number: string
   display_name?: string

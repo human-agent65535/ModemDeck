@@ -170,11 +170,23 @@ test('message payload keeps only the finalized wire fields', () => {
   )
 })
 
-test('message read payload requires an exact SIM and peer identity', () => {
+test('message read payload prefers local phone and retains ICCID fallback', () => {
   assert.deepEqual(
     createMessageReadPayload({
+      local_phone: '  +1 202 555 0101  ',
       iccid: '  8986012345678900001  ',
       peer: '  +818012345678  '
+    }),
+    {
+      local_phone: '+1 202 555 0101',
+      iccid: '8986012345678900001',
+      peer: '+818012345678'
+    }
+  )
+  assert.deepEqual(
+    createMessageReadPayload({
+      iccid: '8986012345678900001',
+      peer: '+818012345678'
     }),
     {
       iccid: '8986012345678900001',
@@ -182,8 +194,8 @@ test('message read payload requires an exact SIM and peer identity', () => {
     }
   )
   assert.throws(
-    () => createMessageReadPayload({ iccid: '', peer: '+818012345678' }),
-    /iccid 和 peer/
+    () => createMessageReadPayload({ local_phone: '', iccid: '', peer: '+818012345678' }),
+    /local_phone 或 iccid/
   )
 })
 
@@ -367,6 +379,9 @@ test('recording aggregation preserves call metadata and only exposes ready downl
     call: {
       id: 'call-1',
       device_id: 'device-1',
+      local_phone: undefined,
+      line_iccid: undefined,
+      line_imsi: undefined,
       direction: 'incoming',
       remote_number: '+818012345678',
       display_name: 'Alex Rowan',

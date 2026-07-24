@@ -1006,10 +1006,17 @@ export function createMessagePayload(input: SendMessageInput): SendMessageInput 
 }
 
 export function createMessageReadPayload(input: MessageReadInput): MessageReadInput {
-  const iccid = input.iccid.trim()
+  const localPhone = input.local_phone?.trim()
+  const iccid = input.iccid?.trim()
   const peer = input.peer.trim()
-  if (!iccid || !peer) throw new Error('iccid 和 peer 不能为空')
-  return { iccid, peer }
+  if ((!localPhone && !iccid) || !peer) {
+    throw new Error('local_phone 或 iccid，以及 peer 不能为空')
+  }
+  return {
+    ...(localPhone ? { local_phone: localPhone } : {}),
+    ...(iccid ? { iccid } : {}),
+    peer
+  }
 }
 
 export function createCallPayload(

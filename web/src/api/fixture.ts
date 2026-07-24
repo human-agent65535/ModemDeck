@@ -29,6 +29,7 @@ import type {
   LineSummary,
   Message,
   MessageEventStreamHandlers,
+  MessageReadInput,
   MessageThread,
   MobileNetworkScan,
   NetworkSelectionPolicy,
@@ -59,12 +60,42 @@ import type {
   USSDStatus
 } from './types'
 import { ApiError } from './types'
-import { threadKey } from './normalize'
 import { isIPAddress, isLoopbackAddress } from '../utils/ipAddress'
+import { normalizedPhoneIdentity } from '../utils/lineIdentity'
 import { proxyCredentialError } from '../utils/proxyCredentials'
 
 const MAIN_ICCID = '8986012345678900001'
 const TRAVEL_ICCID = '8984045678901230002'
+const MAIN_IMSI = '001010000000001'
+const TRAVEL_IMSI = '001020000000002'
+const MAIN_PHONE = '+1 202 555 0101'
+const TRAVEL_PHONE = '+1 202 555 0102'
+
+function fixtureThreadKey(
+  localPhone: string,
+  imsi: string,
+  iccid: string,
+  peer: string
+): string {
+  const lineIdentity = normalizedPhoneIdentity(localPhone) || imsi.trim() || iccid.trim()
+  const peerIdentity = normalizedPhoneIdentity(peer) || peer.trim()
+  return `${lineIdentity}|${peerIdentity}`
+}
+
+function fixtureThreadForQuery(
+  query: MessageQuery | MessageReadInput
+): MessageThread | undefined {
+  const localPhone = normalizedPhoneIdentity(query.local_phone)
+  const peer = normalizedPhoneIdentity(query.peer) || query.peer.trim()
+  return threads.find(thread => {
+    const threadPeer = normalizedPhoneIdentity(thread.peer) || thread.peer.trim()
+    if (threadPeer !== peer) return false
+    const phoneMatches =
+      Boolean(localPhone) &&
+      normalizedPhoneIdentity(thread.local_phone) === localPhone
+    return phoneMatches || Boolean(query.iccid && thread.iccid === query.iccid)
+  })
+}
 
 const contacts: Contact[] = [
   {
@@ -98,8 +129,9 @@ const contacts: Contact[] = [
 
 const threads: MessageThread[] = [
   {
-    key: threadKey(MAIN_ICCID, '+1 202 555 0103'),
-    imsi: '001010000000001',
+    key: fixtureThreadKey(MAIN_PHONE, MAIN_IMSI, MAIN_ICCID, '+1 202 555 0103'),
+    local_phone: MAIN_PHONE,
+    imsi: MAIN_IMSI,
     iccid: MAIN_ICCID,
     line_id: 'line-fixture-main',
     peer: '+1 202 555 0103',
@@ -109,8 +141,9 @@ const threads: MessageThread[] = [
     unread_count: 1
   },
   {
-    key: threadKey(TRAVEL_ICCID, '+1 202 555 0104'),
-    imsi: '001020000000002',
+    key: fixtureThreadKey(TRAVEL_PHONE, TRAVEL_IMSI, TRAVEL_ICCID, '+1 202 555 0104'),
+    local_phone: TRAVEL_PHONE,
+    imsi: TRAVEL_IMSI,
     iccid: TRAVEL_ICCID,
     line_id: 'line-fixture-travel',
     peer: '+1 202 555 0104',
@@ -120,8 +153,9 @@ const threads: MessageThread[] = [
     unread_count: 0
   },
   {
-    key: threadKey(MAIN_ICCID, '+1 202 555 0106'),
-    imsi: '001010000000001',
+    key: fixtureThreadKey(MAIN_PHONE, MAIN_IMSI, MAIN_ICCID, '+1 202 555 0106'),
+    local_phone: MAIN_PHONE,
+    imsi: MAIN_IMSI,
     iccid: MAIN_ICCID,
     line_id: 'line-fixture-main',
     peer: '+1 202 555 0106',
@@ -133,10 +167,10 @@ const threads: MessageThread[] = [
 ]
 
 const messagesByThread: Record<string, Message[]> = {
-  [threadKey(MAIN_ICCID, '+1 202 555 0103')]: [
+  [fixtureThreadKey(MAIN_PHONE, MAIN_IMSI, MAIN_ICCID, '+1 202 555 0103')]: [
     {
       id: '101',
-      imsi: '001010000000001',
+      imsi: MAIN_IMSI,
       iccid: MAIN_ICCID,
       line_id: 'line-fixture-main',
       peer: '+1 202 555 0103',
@@ -148,7 +182,7 @@ const messagesByThread: Record<string, Message[]> = {
     },
     {
       id: '102',
-      imsi: '001010000000001',
+      imsi: MAIN_IMSI,
       iccid: MAIN_ICCID,
       line_id: 'line-fixture-main',
       peer: '+1 202 555 0103',
@@ -159,10 +193,10 @@ const messagesByThread: Record<string, Message[]> = {
       status: 1
     }
   ],
-  [threadKey(TRAVEL_ICCID, '+1 202 555 0104')]: [
+  [fixtureThreadKey(TRAVEL_PHONE, TRAVEL_IMSI, TRAVEL_ICCID, '+1 202 555 0104')]: [
     {
       id: '103',
-      imsi: '001020000000002',
+      imsi: TRAVEL_IMSI,
       iccid: TRAVEL_ICCID,
       peer: '+1 202 555 0104',
       direction: 'incoming',
@@ -172,10 +206,10 @@ const messagesByThread: Record<string, Message[]> = {
       status: 1
     }
   ],
-  [threadKey(MAIN_ICCID, '+1 202 555 0106')]: [
+  [fixtureThreadKey(MAIN_PHONE, MAIN_IMSI, MAIN_ICCID, '+1 202 555 0106')]: [
     {
       id: '104',
-      imsi: '001010000000001',
+      imsi: MAIN_IMSI,
       iccid: MAIN_ICCID,
       peer: '+1 202 555 0106',
       direction: 'outgoing',
@@ -186,7 +220,7 @@ const messagesByThread: Record<string, Message[]> = {
     },
     {
       id: '105',
-      imsi: '001010000000001',
+      imsi: MAIN_IMSI,
       iccid: MAIN_ICCID,
       peer: '+1 202 555 0106',
       direction: 'incoming',
@@ -202,6 +236,9 @@ const calls: CallRecord[] = [
   {
     id: 'call-1',
     device_id: 'fixture-001',
+    local_phone: MAIN_PHONE,
+    line_iccid: MAIN_ICCID,
+    line_imsi: MAIN_IMSI,
     direction: 'incoming',
     remote_number: '+1 202 555 0103',
     display_name: 'Alex Rowan',
@@ -214,6 +251,9 @@ const calls: CallRecord[] = [
   {
     id: 'call-2',
     device_id: 'fixture-001',
+    local_phone: MAIN_PHONE,
+    line_iccid: MAIN_ICCID,
+    line_imsi: MAIN_IMSI,
     direction: 'incoming',
     remote_number: '+1 202 555 0107',
     started_at: '2026-07-22T11:14:00Z',
@@ -224,6 +264,9 @@ const calls: CallRecord[] = [
   {
     id: 'call-3',
     device_id: 'fixture-002',
+    local_phone: TRAVEL_PHONE,
+    line_iccid: TRAVEL_ICCID,
+    line_imsi: TRAVEL_IMSI,
     direction: 'outgoing',
     remote_number: '+1 202 555 0104',
     display_name: 'Casey Morgan',
@@ -336,8 +379,8 @@ function fixtureLines(count: number): LineSummary[] {
     result.push({
       id: 'line-fixture-main',
       iccid: MAIN_ICCID,
-      imsi: '001010000000001',
-      phone_number: '+1 202 555 0101',
+      imsi: MAIN_IMSI,
+      phone_number: MAIN_PHONE,
       operator: 'Aurora Mobile',
       home_operator_code: '00101',
       home_operator_name: 'Aurora Mobile',
@@ -374,8 +417,8 @@ function fixtureLines(count: number): LineSummary[] {
     result.push({
       id: 'line-fixture-travel',
       iccid: TRAVEL_ICCID,
-      imsi: '001020000000002',
-      phone_number: '+1 202 555 0102',
+      imsi: TRAVEL_IMSI,
+      phone_number: TRAVEL_PHONE,
       operator: 'Pine Wireless',
       home_operator_code: '00102',
       home_operator_name: 'Pine Wireless',
@@ -1086,7 +1129,8 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     },
 
     async listMessages(query: MessageQuery): Promise<Message[]> {
-      return clone(messagesByThread[threadKey(query.iccid, query.peer)] || [])
+      const thread = fixtureThreadForQuery(query)
+      return clone((thread && messagesByThread[thread.key]) || [])
     },
 
     subscribeMessageEvents(_handlers: MessageEventStreamHandlers): () => void {
@@ -1097,28 +1141,28 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       return () => undefined
     },
 
-    async markThreadRead(query: MessageQuery): Promise<void> {
-      const thread = threads.find(item => item.key === threadKey(query.iccid, query.peer))
+    async markThreadRead(query: MessageReadInput): Promise<void> {
+      const thread = fixtureThreadForQuery(query)
       if (thread) thread.unread_count = 0
     },
 
     async sendMessage(input: SendMessageInput): Promise<Message> {
       sequence += 1
-      const iccid =
-        input.iccid ||
-        (input.line_id === 'line-fixture-main'
-          ? MAIN_ICCID
-          : input.line_id === 'line-fixture-travel'
-            ? TRAVEL_ICCID
-            : '')
+      const line = lines.find(
+        item => item.id === input.line_id || item.iccid === input.iccid
+      )
+      const iccid = line?.iccid || input.iccid || ''
       if (!iccid) throw new ApiError('请选择线路', 400)
-      const key = threadKey(iccid, input.to)
+      const localPhone = line?.phone_number || ''
+      const imsi = line?.imsi || ''
+      const key = fixtureThreadKey(localPhone, imsi, iccid, input.to)
       let thread = threads.find(item => item.key === key)
       if (!thread) {
         const contact = contacts.find(item => item.phones.some(phone => phone.number === input.to))
         thread = {
           key,
-          imsi: '',
+          local_phone: localPhone || undefined,
+          imsi,
           iccid,
           line_id: input.line_id,
           peer: input.to,

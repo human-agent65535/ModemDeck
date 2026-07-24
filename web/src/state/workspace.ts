@@ -22,6 +22,11 @@ import type {
   UpdateLineLabelInput
 } from '../api/types'
 import { ApiError } from '../api/types'
+import {
+  createLineLookup,
+  findLine,
+  normalizedPhoneIdentity
+} from '../utils/lineIdentity'
 
 function resource<T>(data: T): Resource<T> {
   return reactive({ status: 'idle', data, error: '' }) as Resource<T>
@@ -72,7 +77,8 @@ export function createMessageReadCoordinator(
 ): (input: MessageReadInput) => Promise<void> {
   const requests = new Map<string, Promise<void>>()
   return input => {
-    const key = `${input.iccid}\u0000${input.peer}`
+    const identity = normalizedPhoneIdentity(input.local_phone) || input.iccid?.trim() || ''
+    const key = `${identity}\u0000${input.peer}`
     const pending = requests.get(key)
     if (pending) return pending
     const operation = request(input).finally(() => {
@@ -117,9 +123,8 @@ export function lineName(key: string): string {
 }
 
 export function lineForKey(key: string): LineSummary | undefined {
-  return bootstrapResource.data?.lines.find(
-    item => lineKey(item) === key || item.iccid === key || item.device_imei === key
-  )
+  const lines = bootstrapResource.data?.lines || []
+  return findLine(createLineLookup(lines), key)
 }
 
 export function resolveLine(
@@ -131,20 +136,11 @@ export function resolveLine(
   } = {}
 ): LineSummary | undefined {
   const lines = bootstrapResource.data?.lines || []
+  const lookup = createLineLookup(lines)
   const supported = (line: LineSummary | undefined) =>
     line && lineSupports(line, capability) !== false ? line : undefined
   const byKey = (key?: string) =>
-    supported(
-      key
-        ? lines.find(
-            line =>
-              lineKey(line) === key ||
-              line.id === key ||
-              line.iccid === key ||
-              line.device_imei === key
-          )
-        : undefined
-    )
+    supported(key ? findLine(lookup, key) : undefined)
 
   const contextLine = byKey(options.contextKey)
   if (contextLine) return contextLine
@@ -291,6 +287,14 @@ export function messagesFor(threadKey: string): Resource<Message[]> {
   return messageResources[threadKey]
 }
 
+export function messageQueryForThread(thread: MessageThread): MessageReadInput {
+  return {
+    ...(thread.local_phone ? { local_phone: thread.local_phone } : {}),
+    ...(thread.iccid ? { iccid: thread.iccid } : {}),
+    peer: thread.peer
+  }
+}
+
 export async function loadMessages(
   thread: MessageThread,
   force = false
@@ -300,7 +304,7 @@ export async function loadMessages(
   const pending = messageLoads.get(thread.key)
   if (pending) return pending
   const operation = load(target, () =>
-    gateway.listMessages({ iccid: thread.iccid, peer: thread.peer })
+    gateway.listMessages(messageQueryForThread(thread))
   ).finally(() => {
     if (messageLoads.get(thread.key) === operation) messageLoads.delete(thread.key)
   })
@@ -313,7 +317,7 @@ export function refreshMessages(thread: MessageThread): Promise<Message[] | null
   if (pending) return pending
   const target = messagesFor(thread.key)
   const operation = refreshResource(target, () =>
-    gateway.listMessages({ iccid: thread.iccid, peer: thread.peer })
+    gateway.listMessages(messageQueryForThread(thread))
   ).finally(() => {
     if (messageRefreshes.get(thread.key) === operation) messageRefreshes.delete(thread.key)
   })
@@ -421,14 +425,14 @@ export async function markThreadRead(thread: MessageThread): Promise<boolean> {
   const key = thread.key
   threadReadErrors[key] = ''
   try {
-    await requestThreadRead({ iccid: thread.iccid, peer: thread.peer })
+    await requestThreadRead(messageQueryForThread(thread))
   } catch (error) {
     threadReadErrors[key] = messageReadError(error)
     return false
   }
 
   const current = threadsResource.data.find(
-    item => item.key === key && item.iccid === thread.iccid && item.peer === thread.peer
+    item => item.key === key && item.peer === thread.peer
   )
   if (current) current.unread_count = 0
   delete threadReadErrors[key]
@@ -468,31 +472,58 @@ export async function deleteContact(contact: Contact): Promise<void> {
   contactsResource.data = contactsResource.data.filter(item => item.id !== contact.id)
 }
 
-export async function sendMessage(input: SendMessageInput): Promise<Message> {
-  const sent = await gateway.sendMessage(input)
-  const key = `${sent.iccid}|${sent.peer}`
-  const target = messagesFor(key)
-  target.data = [...target.data, sent]
-  target.status = 'ready'
+function normalizedAddress(value: string): string {
+  return normalizedPhoneIdentity(value) || value.trim().toLocaleLowerCase()
+}
 
-  const existing = threadsResource.data.find(thread => thread.key === key)
-  const updated: MessageThread = {
-    key,
-    imsi: sent.imsi,
-    iccid: sent.iccid,
-    line_id: sent.line_id || input.line_id || existing?.line_id,
-    peer: sent.peer,
-    contact_name: existing?.contact_name || contactForNumber(sent.peer)?.display_name,
-    last_timestamp: sent.timestamp,
-    last_content: sent.content,
-    unread_count: existing?.unread_count || 0
+function findThreadForSentMessage(
+  threads: MessageThread[],
+  input: SendMessageInput,
+  sent: Message
+): MessageThread | undefined {
+  const line = lineForKey(input.line_id || sent.line_id || input.iccid || sent.iccid)
+  const candidates = threads.filter(
+    thread => normalizedAddress(thread.peer) === normalizedAddress(sent.peer)
+  )
+  const localPhone = normalizedPhoneIdentity(line?.phone_number)
+  if (localPhone) {
+    return candidates.find(
+      thread => normalizedPhoneIdentity(thread.local_phone) === localPhone
+    )
   }
-  threadsResource.data = threadsResource.data
-    .filter(thread => thread.key !== key)
-    .concat(updated)
-    .sort((a, b) => Date.parse(b.last_timestamp) - Date.parse(a.last_timestamp))
-  threadsResource.status = 'ready'
-  return sent
+  const imsi = line?.imsi || sent.imsi
+  if (imsi) {
+    const match = candidates.find(thread => thread.imsi === imsi)
+    if (match) return match
+  }
+  const iccid = line?.iccid || sent.iccid || input.iccid
+  if (iccid) {
+    const match = candidates.find(thread => thread.iccid === iccid)
+    if (match) return match
+  }
+  return input.thread_key
+    ? candidates.find(thread => thread.key === input.thread_key)
+    : undefined
+}
+
+export async function sendMessage(
+  input: SendMessageInput
+): Promise<{ message: Message; thread?: MessageThread }> {
+  const sent = await gateway.sendMessage(input)
+  const threads = await refreshThreads()
+  const thread = findThreadForSentMessage(threads || threadsResource.data, input, sent)
+  if (thread) {
+    const target = messagesFor(thread.key)
+    if (!target.data.some(message => message.id === sent.id)) {
+      target.data = [...target.data, sent]
+    }
+    target.status = 'ready'
+    thread.contact_name =
+      thread.contact_name || contactForNumber(sent.peer)?.display_name
+    thread.last_timestamp = sent.timestamp
+    thread.last_content = sent.content
+  }
+  return { message: sent, thread }
 }
 
 export async function saveTelegramUnit(

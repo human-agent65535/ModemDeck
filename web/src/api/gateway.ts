@@ -62,7 +62,8 @@ export type ListQuery = {
 }
 
 export type MessageQuery = {
-  iccid: string
+  local_phone?: string
+  iccid?: string
   peer: string
 }
 

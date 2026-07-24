@@ -2,11 +2,28 @@ import type { LineSummary } from '../api/types'
 
 export type LineTagLine = Pick<LineSummary, 'id' | 'iccid' | 'line_label'>
 
+export function normalizedPhoneIdentity(value: string | undefined): string {
+  return value?.replace(/\D/g, '') || ''
+}
+
+function lookupKeys(value: string | undefined): string[] {
+  const normalized = value?.trim()
+  if (!normalized) return []
+  const digits = normalizedPhoneIdentity(normalized)
+  return digits && digits !== normalized ? [normalized, digits] : [normalized]
+}
+
 export function createLineLookup(lines: LineSummary[]): Map<string, LineSummary> {
   const lookup = new Map<string, LineSummary>()
   for (const line of lines) {
-    for (const identifier of [line.id, line.iccid, line.device_imei]) {
-      if (identifier) lookup.set(identifier, line)
+    for (const identifier of [
+      line.id,
+      line.phone_number,
+      line.imsi,
+      line.iccid,
+      line.device_imei
+    ]) {
+      for (const key of lookupKeys(identifier)) lookup.set(key, line)
     }
   }
   return lookup
@@ -17,10 +34,10 @@ export function findLine(
   ...identifiers: Array<string | undefined>
 ): LineSummary | undefined {
   for (const identifier of identifiers) {
-    const normalized = identifier?.trim()
-    if (!normalized) continue
-    const line = lookup.get(normalized)
-    if (line) return line
+    for (const key of lookupKeys(identifier)) {
+      const line = lookup.get(key)
+      if (line) return line
+    }
   }
   return undefined
 }

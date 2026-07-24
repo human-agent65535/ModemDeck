@@ -29,11 +29,10 @@ import {
   callsResource,
   capabilityReason,
   contactForNumber,
-  deviceName,
+  lineKey,
   loadBootstrap,
   loadCalls,
-  loadContacts,
-  loadDevices
+  loadContacts
 } from '../state/workspace'
 import { formatDateTime, formatDuration, formatRelativeDate } from '../utils/format'
 import {
@@ -114,16 +113,31 @@ function hasPlayableRecording(call: CallRecord): boolean {
 }
 
 function lineForCall(call: CallRecord) {
-  return findLine(lineLookup.value, call.device_id)
+  if (call.local_phone) {
+    return findLine(lineLookup.value, call.local_phone)
+  }
+  return findLine(
+    lineLookup.value,
+    call.line_iccid,
+    call.line_imsi
+  )
 }
 
 function callLineFallback(call: CallRecord): string {
+  const line = lineForCall(call)
+  if (!line && call.local_phone?.trim()) return call.local_phone.trim()
   return lineTagFallback(
-    lineForCall(call),
+    line,
     lines.value,
     defaultDeviceIMEI.value,
-    call.device_id
+    call.line_iccid,
+    call.line_imsi
   )
+}
+
+function actionLineKey(call: CallRecord): string {
+  const line = lineForCall(call)
+  return line ? lineKey(line) : ''
 }
 
 function selectCall(call: CallRecord): void {
@@ -136,17 +150,18 @@ function backToList(): void {
 
 function callBack(call: CallRecord): void {
   if (dialUnavailable.value) return
-  openDialer(call.remote_number, displayName(call), call.device_id)
+  openDialer(call.remote_number, displayName(call), actionLineKey(call))
 }
 
 function sendMessage(call: CallRecord): void {
   if (messageUnavailable.value) return
+  const selectedLineKey = actionLineKey(call)
   void router.push({
     name: 'messages',
     query: {
       compose: call.remote_number,
       name: displayName(call),
-      ...(call.device_id ? { line: call.device_id } : {})
+      ...(selectedLineKey ? { line: selectedLineKey } : {})
     }
   })
 }
@@ -163,7 +178,6 @@ onMounted(() => {
     loadBootstrap(),
     loadCalls(),
     loadContacts(),
-    loadDevices(),
     loadRecordingEntries()
   ])
 })
@@ -253,7 +267,7 @@ onMounted(() => {
               </span>
               <span class="call-list-item__meta">
                 <LineTag
-                  :line="lineTagLine(lineForCall(call), call.device_id)"
+                  :line="lineTagLine(lineForCall(call), call.local_phone, call.line_iccid, call.line_imsi)"
                   :fallback="callLineFallback(call)"
                 />
                 <small>{{ directionLabel(call) }} · {{ call.remote_number }}</small>
@@ -339,12 +353,11 @@ onMounted(() => {
                 <dt>线路</dt>
                 <dd>
                   <LineTag
-                    :line="lineTagLine(lineForCall(selected), selected.device_id)"
+                    :line="lineTagLine(lineForCall(selected), selected.local_phone, selected.line_iccid, selected.line_imsi)"
                     :fallback="callLineFallback(selected)"
                   />
                 </dd>
               </div>
-              <div><dt>设备</dt><dd>{{ deviceName(selected.device_id) }}</dd></div>
               <div v-if="selected.failure_reason"><dt>结果</dt><dd>{{ selected.failure_reason }}</dd></div>
             </dl>
           </section>

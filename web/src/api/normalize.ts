@@ -168,17 +168,16 @@ export function parseContactResponse(value: unknown): Contact {
   return parseContact(source.contact)
 }
 
-export function threadKey(iccid: string, peer: string): string {
-  return `${iccid}|${peer}`
-}
-
 export function parseThread(value: unknown): MessageThread {
   const source = objectValue(value, 'thread')
-  const iccid = requiredString(source, 'thread', 'iccid')
+  const localPhone = stringValue(source, 'local_phone')
+  const imsi = stringValue(source, 'imsi')
+  const iccid = stringValue(source, 'iccid')
   const peer = requiredString(source, 'thread', 'peer')
   return {
-    key: threadKey(iccid, peer),
-    imsi: stringValue(source, 'imsi'),
+    key: requiredString(source, 'thread', 'key'),
+    local_phone: localPhone || undefined,
+    imsi,
     iccid,
     line_id: stringValue(source, 'line_id') || undefined,
     peer,
@@ -226,6 +225,9 @@ export function parseCallRecord(value: unknown): CallRecord {
   return {
     id: requiredString(source, 'call', 'id'),
     device_id: requiredString(source, 'call', 'device_id'),
+    local_phone: stringValue(source, 'local_phone') || undefined,
+    line_iccid: stringValue(source, 'line_iccid') || undefined,
+    line_imsi: stringValue(source, 'line_imsi') || undefined,
     direction: directionValue(source, 'call'),
     remote_number: requiredString(source, 'call', 'remote_number'),
     display_name: stringValue(source, 'contact_name') || undefined,

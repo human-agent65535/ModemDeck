@@ -132,15 +132,24 @@ function threadUsesLine(thread: MessageThread, line: LineSummary): boolean {
 
 function lineForThread(thread?: MessageThread): LineSummary | undefined {
   if (!thread) return undefined
-  return findLine(lineLookup.value, thread.line_id, thread.iccid)
+  if (thread.local_phone) {
+    return findLine(lineLookup.value, thread.local_phone)
+  }
+  return findLine(
+    lineLookup.value,
+    thread.imsi,
+    thread.iccid
+  )
 }
 
 function threadLineFallback(thread: MessageThread): string {
+  const line = lineForThread(thread)
+  if (!line && thread.local_phone?.trim()) return thread.local_phone.trim()
   return lineTagFallback(
-    lineForThread(thread),
+    line,
     lines.value,
     defaultLineDeviceIMEI.value,
-    thread.line_id,
+    thread.imsi,
     thread.iccid
   )
 }
@@ -321,21 +330,20 @@ async function submit(): Promise<void> {
   sending.value = true
   sendError.value = ''
   try {
-    const threadKey = replyThreadKey.value
-    const sent = await sendMessage({
-      thread_key: threadKey,
+    const replyKey = replyThreadKey.value
+    const result = await sendMessage({
+      thread_key: replyKey,
       line_id: activeLineID.value || undefined,
       iccid: activeICCID.value || undefined,
       to: activeRecipient.value,
       content: draft.value.trim()
     })
     draft.value = ''
-    const key = `${sent.iccid}|${sent.peer}`
-    if (composingNew.value || key !== threadKey) {
+    const sentThread = result.thread
+    if (sentThread && (composingNew.value || sentThread.key !== replyKey)) {
       composingNew.value = false
-      await router.replace({ name: 'messages', params: { threadKey: key } })
-      const thread = threadsResource.data.find(item => item.key === key)
-      if (thread) await loadMessages(thread)
+      await router.replace({ name: 'messages', params: { threadKey: sentThread.key } })
+      await loadMessages(sentThread)
     }
     scrollToEnd()
   } catch (error) {
@@ -457,7 +465,7 @@ onMounted(() => {
             <span class="list-item__preview">
               <span class="message-thread-meta">
                 <LineTag
-                  :line="lineTagLine(lineForThread(thread), thread.line_id, thread.iccid)"
+                  :line="lineTagLine(lineForThread(thread), thread.local_phone, thread.imsi, thread.iccid)"
                   :fallback="threadLineFallback(thread)"
                 />
                 <small>{{ thread.last_content || thread.peer }}</small>
@@ -501,7 +509,7 @@ onMounted(() => {
               <span v-if="selectedThread.contact_name">{{ selectedThread.peer }}</span>
               <LineTag
                 class="conversation-line-tag"
-                :line="lineTagLine(lineForThread(selectedThread), selectedThread.line_id, selectedThread.iccid)"
+                :line="lineTagLine(lineForThread(selectedThread), selectedThread.local_phone, selectedThread.imsi, selectedThread.iccid)"
                 :fallback="threadLineFallback(selectedThread)"
               />
             </div>
