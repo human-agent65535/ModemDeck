@@ -369,6 +369,25 @@ func TestParseDataConnectionUsesDefaultBearerTypeWithoutAPNType(t *testing.T) {
 	}
 }
 
+func TestParseDataConnectionSupportsNumberedDNSProperties(t *testing.T) {
+	t.Parallel()
+
+	connection, err := parseDataConnection("bearer-default", Properties{
+		"Ip4Config": dbus.MakeVariant(map[string]dbus.Variant{
+			"method": dbus.MakeVariant(uint32(3)),
+			"dns1":   dbus.MakeVariant("10.0.0.53"),
+			"dns2":   dbus.MakeVariant(" 10.0.0.54 "),
+		}),
+		"Ip6Config": dbus.MakeVariant(map[string]dbus.Variant{}),
+	})
+	if err != nil {
+		t.Fatalf("parseDataConnection() error = %v", err)
+	}
+	if got := strings.Join(connection.IPv4.DNS, ","); got != "10.0.0.53,10.0.0.54" {
+		t.Fatalf("IPv4 DNS = %q", got)
+	}
+}
+
 func TestDeviceConfigurationHydratesReferencedDataBearer(t *testing.T) {
 	t.Parallel()
 	objects := configurationObjects()
@@ -647,6 +666,36 @@ func TestDeviceConfigurationHydratesAutomaticAPNFromInitialEPSBearer(t *testing.
 		caller.methods(),
 		objectManagerInterface+".GetManagedObjects",
 		propertiesInterface+".GetAll",
+	)
+}
+
+func TestDeviceConfigurationUsesInitialEPSBearerSettingsAutomaticAPN(t *testing.T) {
+	t.Parallel()
+	objects := configurationObjects()
+	properties := objects[testModemPath][modem3GPPInterface]
+	properties["InitialEpsBearerSettings"] = dbus.MakeVariant(map[string]dbus.Variant{
+		"apn":     dbus.MakeVariant("3gnet"),
+		"ip-type": dbus.MakeVariant(uint32(bearerIPFamilyIPv4)),
+	})
+	initialEPSBearerPath, _ := objectPathProperty(properties, "InitialEpsBearer")
+	delete(objects, initialEPSBearerPath)
+	caller := &configurationCaller{objects: objects}
+	provider := newTestProvider(caller)
+
+	configuration, err := provider.ReadDeviceConfiguration(
+		context.Background(),
+		parsedLineID(objects, provider.ids),
+	)
+	if err != nil {
+		t.Fatalf("ReadDeviceConfiguration() error = %v", err)
+	}
+	if configuration.AutomaticAPN != "3gnet" {
+		t.Fatalf("automatic APN = %q", configuration.AutomaticAPN)
+	}
+	assertConfigurationMethods(
+		t,
+		caller.methods(),
+		objectManagerInterface+".GetManagedObjects",
 	)
 }
 

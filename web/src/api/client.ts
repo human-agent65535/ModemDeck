@@ -292,6 +292,18 @@ function parseDiagnosticLine(value: unknown, index: number): LineSummary {
     imsi,
     phone_number: stringValue(source, 'phone_number'),
     operator: stringValue(source, 'operator'),
+    home_operator_code: stringValue(source, 'home_operator_code'),
+    home_operator_name: stringValue(source, 'home_operator_name'),
+    serving_operator_code: stringValue(source, 'serving_operator_code'),
+    serving_operator_name: stringValue(source, 'serving_operator_name'),
+    registration_state_known: requiredBooleanValue(
+      source,
+      path,
+      'registration_state_known'
+    ),
+    registration_state_code: numberValue(source, path, 'registration_state_code'),
+    registration_state: stringValue(source, 'registration_state'),
+    roaming: requiredBooleanValue(source, path, 'roaming'),
     device_imei: deviceIMEI,
     device_alias: stringValue(source, 'device_alias'),
     line_label: stringValue(source, 'line_label'),
@@ -342,6 +354,22 @@ function parseSIMStatus(value: unknown): SIMStatus {
     identifier: stringValue(source, 'identifier'),
     imsi: stringValue(source, 'imsi'),
     eid: stringValue(source, 'eid') || undefined,
+    home_operator_code: stringValue(source, 'home_operator_code'),
+    home_operator_name: stringValue(source, 'home_operator_name'),
+    serving_operator_code: stringValue(source, 'serving_operator_code'),
+    serving_operator_name: stringValue(source, 'serving_operator_name'),
+    registration_state_known: requiredBooleanValue(
+      source,
+      'sim_response.sim',
+      'registration_state_known'
+    ),
+    registration_state_code: numberValue(
+      source,
+      'sim_response.sim',
+      'registration_state_code'
+    ),
+    registration_state: stringValue(source, 'registration_state'),
+    roaming: requiredBooleanValue(source, 'sim_response.sim', 'roaming'),
     operator_identifier: stringValue(source, 'operator_identifier'),
     operator_name: stringValue(source, 'operator_name'),
     unlock_required: stringValue(source, 'unlock_required'),

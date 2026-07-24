@@ -54,11 +54,13 @@ test('dashboard and device settings use the same stable module-card tracks', () 
 })
 
 test('module cards expose one fixed information skeleton in both views', () => {
-  const labels = ['运营商', '信号', '型号', '固件', 'IMEI', 'ICCID', '端口']
+  const labels = ['信号', '型号', '固件', 'IMEI', 'ICCID', '端口']
   const positions = labels.map(label => moduleCard.indexOf(`${label}</dt>`))
 
   assert.ok(positions.every(position => position >= 0))
   assert.deepEqual(positions, positions.slice().sort((left, right) => left - right))
+  assert.match(moduleCard, /v-for="fact in networkFacts"/)
+  assert.match(moduleCard, /<dt>\{\{ fact\.label \}\}<\/dt>/)
   assert.match(
     cssBlock(moduleCard, '.module-card__facts'),
     /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/

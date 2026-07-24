@@ -10,6 +10,7 @@ import {
 import { computed } from 'vue'
 import type { Device, LineSummary } from '../api/types'
 import { lineLabel } from '../state/workspace'
+import { isRoamingNetwork, operatorFacts } from '../utils/operatorNetwork'
 import SignalBars from './SignalBars.vue'
 
 const props = withDefaults(
@@ -53,15 +54,17 @@ const equipmentIdentifier = computed(
 const simIdentifier = computed(
   () => props.line.iccid || props.device?.current_iccid || ''
 )
+const networkFacts = computed(() => operatorFacts(props.line, '—'))
 const stateLabel = computed(() => {
   const state = (props.line.state || '').toLocaleLowerCase()
-  if (state === 'connected') return '已连接'
-  if (state === 'registered') return '已驻网'
-  if (state === 'enabled') return '已启用'
-  if (state === 'searching') return '搜索网络'
-  if (state === 'disabled') return '已停用'
-  if (state === 'failed') return '异常'
-  return props.line.state || '状态未知'
+  let label = props.line.state || '状态未知'
+  if (state === 'connected') label = '已连接'
+  if (state === 'registered') label = '已驻网'
+  if (state === 'enabled') label = '已启用'
+  if (state === 'searching') label = '搜索网络'
+  if (state === 'disabled') label = '已停用'
+  if (state === 'failed') label = '异常'
+  return isRoamingNetwork(props.line) ? `${label} · 漫游` : label
 })
 </script>
 
@@ -99,9 +102,9 @@ const stateLabel = computed(() => {
       </header>
 
       <dl class="module-card__facts">
-        <div>
-          <dt>运营商</dt>
-          <dd>{{ line.operator || '—' }}</dd>
+        <div v-for="fact in networkFacts" :key="fact.id">
+          <dt>{{ fact.label }}</dt>
+          <dd>{{ fact.value }}</dd>
         </div>
         <div>
           <dt>信号</dt>

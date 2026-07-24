@@ -54,6 +54,7 @@ import {
   updateDefaultLine,
   updateLineLabel
 } from '../state/workspace'
+import { operatorFacts } from '../utils/operatorNetwork'
 import LineTag from './LineTag.vue'
 import ModuleCard from './ModuleCard.vue'
 import StatePanel from './StatePanel.vue'
@@ -124,6 +125,8 @@ const selectedLine = computed(() =>
 const selectedDevice = computed(() =>
   devicesResource.data.find(device => device.imei === selectedLine.value?.device_imei)
 )
+const selectedOperatorFacts = computed(() => operatorFacts(selectedLine.value, '—'))
+const simOperatorFacts = computed(() => operatorFacts(simStatus.value, '—'))
 const selectedModuleName = computed(() => {
   const line = selectedLine.value
   const device = selectedDevice.value
@@ -832,7 +835,10 @@ onMounted(() => {
             <dl>
               <div><dt>制造商</dt><dd>{{ hardware.identity.manufacturer || '—' }}</dd></div>
               <div><dt>型号</dt><dd>{{ hardware.identity.model || '—' }}</dd></div>
-              <div><dt>运营商</dt><dd>{{ selectedLine?.operator || '—' }}</dd></div>
+              <div v-for="fact in selectedOperatorFacts" :key="fact.id">
+                <dt>{{ fact.label }}</dt>
+                <dd>{{ fact.value }}</dd>
+              </div>
               <div><dt>信号</dt><dd>{{ selectedLine?.signal_quality == null ? '—' : `${selectedLine.signal_quality}%` }}</dd></div>
               <div><dt>IMEI</dt><dd>{{ hardware.identity.equipment_identifier || '—' }}</dd></div>
               <div><dt>固件</dt><dd>{{ hardware.identity.firmware || '—' }}</dd></div>
@@ -1043,7 +1049,10 @@ onMounted(() => {
               <dl class="configuration-facts">
                 <div><dt>ICCID</dt><dd>{{ simStatus.identifier || '—' }}</dd></div>
                 <div><dt>IMSI</dt><dd>{{ simStatus.imsi || '—' }}</dd></div>
-                <div><dt>运营商</dt><dd>{{ simStatus.operator_name || simStatus.operator_identifier || '—' }}</dd></div>
+                <div v-for="fact in simOperatorFacts" :key="fact.id">
+                  <dt>{{ fact.label }}</dt>
+                  <dd>{{ fact.value }}</dd>
+                </div>
                 <div><dt>锁定</dt><dd>{{ simStatus.unlock_required || 'none' }}</dd></div>
               </dl>
               <div class="retry-row">

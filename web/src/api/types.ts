@@ -31,6 +31,14 @@ export type LineSummary = {
   imsi: string
   phone_number: string
   operator: string
+  home_operator_code: string
+  home_operator_name: string
+  serving_operator_code: string
+  serving_operator_name: string
+  registration_state_known: boolean
+  registration_state_code: number
+  registration_state: string
+  roaming: boolean
   device_imei: string
   device_alias: string
   line_label: string
@@ -340,6 +348,14 @@ export type DeviceSIM = {
   imsi: string
   phone_number: string
   operator: string
+  home_operator_code: string
+  home_operator_name: string
+  serving_operator_code: string
+  serving_operator_name: string
+  registration_state_known: boolean
+  registration_state_code: number
+  registration_state: string
+  roaming: boolean
   current_imei: string
   reg_status: number
   reg_status_text: string
@@ -402,6 +418,14 @@ export type SIMStatus = {
   identifier: string
   imsi: string
   eid?: string
+  home_operator_code: string
+  home_operator_name: string
+  serving_operator_code: string
+  serving_operator_name: string
+  registration_state_known: boolean
+  registration_state_code: number
+  registration_state: string
+  roaming: boolean
   operator_identifier: string
   operator_name: string
   unlock_required: string

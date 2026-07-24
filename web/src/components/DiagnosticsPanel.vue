@@ -32,6 +32,10 @@ import type {
 import { ApiError } from '../api/types'
 import { audioState, refreshAudioDevices } from '../state/audio'
 import { lineLabel } from '../state/workspace'
+import {
+  operatorFacts,
+  registrationStateLabel
+} from '../utils/operatorNetwork'
 import StatePanel from './StatePanel.vue'
 
 type SnapshotState = 'idle' | 'loading' | 'ready' | 'forbidden' | 'error'
@@ -166,6 +170,10 @@ function lineCapabilities(line: LineSummary) {
   ]
 }
 
+function lineOperatorFacts(line: LineSummary) {
+  return operatorFacts(line)
+}
+
 function lineStateLabel(state?: string): string {
   switch (state?.toLowerCase()) {
     case 'connected':
@@ -195,6 +203,10 @@ function lineStateLabel(state?: string): string {
     default:
       return state || '状态未知'
   }
+}
+
+function lineRegistrationLabel(line: LineSummary): string {
+  return registrationStateLabel(line, lineStateLabel(line.state))
 }
 
 function lineStateTone(state?: string): 'positive' | 'warning' | 'negative' | 'neutral' {
@@ -661,27 +673,27 @@ onBeforeUnmount(() => {
               </span>
             </header>
             <dl class="line-facts">
-              <div>
-                <dt>运营商</dt>
-                <dd>{{ line.operator || '未识别' }}</dd>
+              <div v-for="fact in lineOperatorFacts(line)" :key="fact.id">
+                <dt>{{ fact.label }}</dt>
+                <dd>{{ fact.value }}</dd>
               </div>
               <div>
                 <dt>网络状态</dt>
-                <dd>{{ lineStateLabel(line.state) }}</dd>
+                <dd>{{ lineRegistrationLabel(line) }}</dd>
               </div>
               <div>
                 <dt>信号强度</dt>
                 <dd>{{ lineSignalLabel(line) }}</dd>
               </div>
-              <div>
+              <div class="is-code">
                 <dt>SIM ICCID</dt>
                 <dd>{{ line.iccid || '未报告' }}</dd>
               </div>
-              <div>
+              <div class="is-code">
                 <dt>模组 IMEI</dt>
                 <dd>{{ line.device_imei || '未报告' }}</dd>
               </div>
-              <div>
+              <div class="is-code">
                 <dt>固件版本</dt>
                 <dd>{{ line.firmware || '未报告' }}</dd>
               </div>
@@ -1187,7 +1199,7 @@ onBeforeUnmount(() => {
   line-height: 1.35;
 }
 
-.line-facts > div:nth-child(n + 4) dd {
+.line-facts > .is-code dd {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 

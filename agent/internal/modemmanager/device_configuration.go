@@ -547,8 +547,27 @@ func parseIPConfiguration(properties Properties, name string) (domain.IPConfigur
 	configuration.Prefix, _ = uint32Property(values, "prefix")
 	configuration.Gateway, _ = stringProperty(values, "gateway")
 	configuration.DNS, _ = stringsProperty(values, "dns")
+	if len(configuration.DNS) == 0 {
+		for _, key := range []string{"dns1", "dns2"} {
+			server, _ := stringProperty(values, key)
+			server = strings.TrimSpace(server)
+			if server == "" || slicesContains(configuration.DNS, server) {
+				continue
+			}
+			configuration.DNS = append(configuration.DNS, server)
+		}
+	}
 	configuration.MTU, _ = uint32Property(values, "mtu")
 	return configuration, nil
+}
+
+func slicesContains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func nestedProperties(properties Properties, name string) (Properties, bool, error) {
@@ -567,6 +586,12 @@ func initialEPSBearerAPN(objects ManagedObjects, interfaces Interfaces) string {
 	properties, found := interfaces[modem3GPPInterface]
 	if !found {
 		return ""
+	}
+	settings, found, err := nestedProperties(properties, "InitialEpsBearerSettings")
+	if err == nil && found {
+		if apn := apnFromSettings(settings); apn != "" {
+			return apn
+		}
 	}
 	path, found := objectPathProperty(properties, "InitialEpsBearer")
 	if !found || !path.IsValid() || path == "/" {
@@ -617,6 +642,10 @@ func bearerAPN(bearerProperties Properties) string {
 	if err != nil || !found {
 		return ""
 	}
+	return apnFromSettings(settings)
+}
+
+func apnFromSettings(settings Properties) string {
 	apn, _ := stringProperty(settings, "apn")
 	apn = strings.TrimSpace(apn)
 	if invalidAPN(apn) {
