@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import {
   AudioLines,
-  Bell,
+  BellOff,
   BellRing,
   ChartNoAxesCombined,
   House,
@@ -17,10 +17,14 @@ import {
 import { fixtureMode } from '../api/client'
 import { initializeCallRuntime, shutdownCallRuntime } from '../state/call'
 import {
+  browserNotificationState,
+  initializeBrowserNotifications,
+  shutdownBrowserNotifications,
+  toggleBrowserNotifications
+} from '../state/browserNotifications'
+import {
   initializeMessageRuntime,
-  messageNotificationState,
-  shutdownMessageRuntime,
-  toggleMessageNotifications
+  shutdownMessageRuntime
 } from '../state/messageRuntime'
 import { sessionState } from '../state/session'
 import { openDialer } from '../state/ui'
@@ -38,12 +42,16 @@ import IncomingCallModeControl from './IncomingCallModeControl.vue'
 const route = useRoute()
 const router = useRouter()
 const permanentDialer = ref(false)
-const messageNotificationTitle = computed(() => {
-  if (!messageNotificationState.secureContext) return '短信通知需要 HTTPS'
-  if (!messageNotificationState.supported) return '当前浏览器不支持短信通知'
-  if (messageNotificationState.enabled) return '关闭短信通知'
-  if (messageNotificationState.permission === 'denied') return '短信通知已被浏览器阻止'
-  return '启用短信通知'
+const browserNotificationTitle = computed(() => {
+  if (!browserNotificationState.secureContext) return '浏览器通知需要 HTTPS'
+  if (!browserNotificationState.supported) return '当前浏览器不支持通知'
+  if (browserNotificationState.requesting) return '正在请求浏览器通知权限'
+  if (browserNotificationState.preferenceEnabled) return '关闭短信与来电通知'
+  if (browserNotificationState.permission === 'denied') {
+    return '通知已被浏览器阻止，请在浏览器设置中允许'
+  }
+  if (browserNotificationState.error) return browserNotificationState.error
+  return '启用短信与来电通知'
 })
 let dialerMediaQuery: MediaQueryList | undefined
 const primaryNav = [
@@ -75,7 +83,8 @@ function syncDialerMode(): void {
 }
 
 onMounted(() => {
-  initializeCallRuntime()
+  initializeBrowserNotifications()
+  initializeCallRuntime(router)
   initializeMessageRuntime(router)
   void bootstrap()
   void loadContacts()
@@ -88,6 +97,7 @@ onBeforeUnmount(() => {
   dialerMediaQuery?.removeEventListener('change', syncDialerMode)
   shutdownMessageRuntime()
   shutdownCallRuntime()
+  shutdownBrowserNotifications()
 })
 </script>
 
@@ -138,20 +148,22 @@ onBeforeUnmount(() => {
           <IncomingCallModeControl />
           <button
             class="icon-button"
-            :class="{ 'is-active': messageNotificationState.enabled }"
+            :class="{ 'is-active': browserNotificationState.active }"
             type="button"
             :disabled="
-              !messageNotificationState.secureContext ||
-              !messageNotificationState.supported ||
-              messageNotificationState.permission === 'denied'
+              browserNotificationState.requesting ||
+              !browserNotificationState.secureContext ||
+              !browserNotificationState.supported ||
+              (browserNotificationState.permission === 'denied' &&
+                !browserNotificationState.preferenceEnabled)
             "
-            :title="messageNotificationTitle"
-            :aria-label="messageNotificationTitle"
-            :aria-pressed="messageNotificationState.enabled"
-            @click="toggleMessageNotifications"
+            :title="browserNotificationTitle"
+            :aria-label="browserNotificationTitle"
+            :aria-pressed="browserNotificationState.active"
+            @click="toggleBrowserNotifications"
           >
-            <BellRing v-if="messageNotificationState.enabled" :size="19" />
-            <Bell v-else :size="19" />
+            <BellRing v-if="browserNotificationState.active" :size="19" />
+            <BellOff v-else :size="19" />
           </button>
           <AudioSettingsMenu />
           <button

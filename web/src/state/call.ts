@@ -1,8 +1,10 @@
 import { reactive } from 'vue'
+import type { Router } from 'vue-router'
 import { gateway } from '../api/client'
 import type { CallAction, CallSession, ResourceStatus } from '../api/types'
 import { ApiError } from '../api/types'
-import { capabilityReason } from './workspace'
+import { showBrowserNotification } from './browserNotifications'
+import { capabilityReason, contactForNumber, lineForKey, lineLabel } from './workspace'
 import { closeDialer } from './ui'
 import { shutdownCallMedia, syncCallMedia } from './callMedia'
 
@@ -10,6 +12,7 @@ const TERMINAL_PHASES = new Set<CallSession['phase']>(['ended', 'failed'])
 const ACTIVE_POLL_MS = 2000
 const IDLE_POLL_MS = 5000
 const ERROR_POLL_MS = 10000
+const NOTIFIED_CALL_HISTORY_LIMIT = 256
 
 type PendingCallAction = '' | 'dial' | CallAction | 'dtmf'
 
@@ -17,6 +20,8 @@ let pollTimer: number | undefined
 let runtimeStarted = false
 let pollInFlight = false
 let mutationEpoch = 0
+let activeRouter: Router | undefined
+const notifiedIncomingCallIDs = new Set<string>()
 
 export const callState = reactive<{
   session: CallSession | null
@@ -60,6 +65,45 @@ function requestError(error: unknown, fallback: string): { message: string; stat
 function acceptSession(session: CallSession): void {
   callState.session = session
   syncCallMedia(session)
+  showIncomingCallNotification(session)
+}
+
+export function claimIncomingCallNotification(
+  session: CallSession,
+  claimed: Set<string>
+): boolean {
+  if (session.direction !== 'incoming' || session.phase !== 'ringing' || !session.id) {
+    return false
+  }
+  if (claimed.has(session.id)) return false
+  claimed.add(session.id)
+  while (claimed.size > NOTIFIED_CALL_HISTORY_LIMIT) {
+    const oldest = claimed.values().next().value
+    if (!oldest) break
+    claimed.delete(oldest)
+  }
+  return true
+}
+
+export function incomingCallRoute(): { name: 'calls' } {
+  return { name: 'calls' }
+}
+
+function showIncomingCallNotification(session: CallSession): void {
+  if (!activeRouter || !claimIncomingCallNotification(session, notifiedIncomingCallIDs)) return
+
+  const contact = contactForNumber(session.remote_number)
+  const caller = session.display_name || contact?.display_name || session.remote_number
+  const line = lineForKey(session.line_key)
+  showBrowserNotification({
+    title: caller,
+    body: line ? `来电 · ${lineLabel(line)}` : '来电',
+    tag: `modemdeck-call-${session.id}`,
+    onClick: () => {
+      window.focus()
+      void activeRouter?.push(incomingCallRoute())
+    }
+  })
 }
 
 async function pollActiveCalls(): Promise<void> {
@@ -101,9 +145,10 @@ async function pollActiveCalls(): Promise<void> {
   }
 }
 
-export function initializeCallRuntime(): void {
+export function initializeCallRuntime(router?: Router): void {
   if (runtimeStarted) return
   runtimeStarted = true
+  activeRouter = router
   callState.syncStatus = 'idle'
   callState.syncError = ''
   schedulePoll(0)
@@ -111,6 +156,7 @@ export function initializeCallRuntime(): void {
 
 export function shutdownCallRuntime(): void {
   runtimeStarted = false
+  activeRouter = undefined
   mutationEpoch += 1
   stopPolling()
   shutdownCallMedia()

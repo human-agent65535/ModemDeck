@@ -4,9 +4,16 @@ import test from 'node:test'
 
 import {
   incomingMessageRoute,
-  shouldDisplayBrowserNotification,
   shouldRunMessageFallback
 } from '../src/state/messageRuntime.ts'
+import {
+  browserNotificationsActive,
+  shouldDisplayBrowserNotification
+} from '../src/state/browserNotifications.ts'
+import {
+  claimIncomingCallNotification,
+  incomingCallRoute
+} from '../src/state/call.ts'
 import { gateway } from '../src/api/client.ts'
 import {
   messageResources,
@@ -27,13 +34,21 @@ const event = {
   timestamp: '2026-07-24T07:30:00Z'
 }
 
-test('browser SMS notifications require a live event, explicit grant, and background page', () => {
-  assert.equal(shouldDisplayBrowserNotification(true, true, 'granted', 'hidden', true), true)
-  assert.equal(shouldDisplayBrowserNotification(true, true, 'granted', 'visible', false), true)
-  assert.equal(shouldDisplayBrowserNotification(true, true, 'granted', 'visible', true), false)
-  assert.equal(shouldDisplayBrowserNotification(false, true, 'granted', 'hidden', false), false)
-  assert.equal(shouldDisplayBrowserNotification(true, false, 'granted', 'hidden', false), false)
-  assert.equal(shouldDisplayBrowserNotification(true, true, 'default', 'hidden', false), false)
+test('browser permission and the local notification preference remain independent', () => {
+  assert.equal(browserNotificationsActive(false, true, true, 'granted'), false)
+  assert.equal(browserNotificationsActive(true, true, true, 'default'), false)
+  assert.equal(browserNotificationsActive(true, true, true, 'denied'), false)
+  assert.equal(browserNotificationsActive(true, false, true, 'granted'), false)
+  assert.equal(browserNotificationsActive(true, true, false, 'granted'), false)
+  assert.equal(browserNotificationsActive(true, true, true, 'granted'), true)
+})
+
+test('browser notifications require a live event, an active preference, and background page', () => {
+  assert.equal(shouldDisplayBrowserNotification(true, true, 'hidden', true), true)
+  assert.equal(shouldDisplayBrowserNotification(true, true, 'visible', false), true)
+  assert.equal(shouldDisplayBrowserNotification(true, true, 'visible', true), false)
+  assert.equal(shouldDisplayBrowserNotification(false, true, 'hidden', false), false)
+  assert.equal(shouldDisplayBrowserNotification(true, false, 'hidden', false), false)
 })
 
 test('notification click route preserves the exact line and peer thread identity', () => {
@@ -41,6 +56,65 @@ test('notification click route preserves the exact line and peer thread identity
     name: 'messages',
     params: { threadKey: event.thread_key }
   })
+})
+
+test('incoming call notification is claimed once for one genuinely ringing call', () => {
+  const claimed = new Set()
+  const incomingCall = {
+    id: 'call-incoming-1',
+    line_key: 'line-main',
+    direction: 'incoming',
+    remote_number: '+818012345678',
+    phase: 'ringing',
+    media_available: false,
+    created_at: '2026-07-24T08:00:00Z'
+  }
+
+  assert.equal(claimIncomingCallNotification(incomingCall, claimed), true)
+  assert.equal(claimIncomingCallNotification(incomingCall, claimed), false)
+  assert.equal(
+    claimIncomingCallNotification(
+      { ...incomingCall, id: 'call-outgoing-1', direction: 'outgoing' },
+      claimed
+    ),
+    false
+  )
+  assert.equal(
+    claimIncomingCallNotification(
+      { ...incomingCall, id: 'call-active-1', phase: 'active' },
+      claimed
+    ),
+    false
+  )
+  assert.equal(
+    claimIncomingCallNotification({ ...incomingCall, id: 'call-incoming-2' }, claimed),
+    true
+  )
+  assert.deepEqual(incomingCallRoute(), { name: 'calls' })
+})
+
+test('incoming call notification history stays bounded', () => {
+  const claimed = new Set()
+  for (let index = 0; index < 300; index += 1) {
+    assert.equal(
+      claimIncomingCallNotification(
+        {
+          id: `call-${index}`,
+          line_key: 'line-main',
+          direction: 'incoming',
+          remote_number: '+818012345678',
+          phase: 'ringing',
+          media_available: false,
+          created_at: '2026-07-24T08:00:00Z'
+        },
+        claimed
+      ),
+      true
+    )
+  }
+  assert.equal(claimed.size, 256)
+  assert.equal(claimed.has('call-0'), false)
+  assert.equal(claimed.has('call-299'), true)
 })
 
 test('message reconciliation polling only runs while SSE is disconnected', () => {
@@ -135,9 +209,17 @@ test('active-thread SMS invalidation refreshes messages and persists the read st
   }
 })
 
-test('message runtime owns one SSE connection and retains disconnected reconciliation', async () => {
+test('communication notifications share one explicit browser preference', async () => {
   const runtime = await readFile(
     new URL('../src/state/messageRuntime.ts', import.meta.url),
+    'utf8'
+  )
+  const browserNotifications = await readFile(
+    new URL('../src/state/browserNotifications.ts', import.meta.url),
+    'utf8'
+  )
+  const calls = await readFile(
+    new URL('../src/state/call.ts', import.meta.url),
     'utf8'
   )
   const shell = await readFile(
@@ -160,19 +242,29 @@ test('message runtime owns one SSE connection and retains disconnected reconcili
     runtime,
     /refreshIncomingMessage\(event, activeThreadKey\(router\)\)/
   )
-  assert.match(runtime, /Notification\.requestPermission\(\)/)
-  assert.match(shell, /@click="toggleMessageNotifications"/)
-  assert.match(shell, /短信通知需要 HTTPS/)
-  const notificationClick = shell.indexOf('@click="toggleMessageNotifications"')
+  assert.match(runtime, /showBrowserNotification\(/)
+  assert.match(calls, /showBrowserNotification\(/)
+  assert.match(calls, /claimIncomingCallNotification\(session, notifiedIncomingCallIDs\)/)
+  assert.match(browserNotifications, /modemdeck\.browserNotifications/)
+  assert.doesNotMatch(browserNotifications, /modemdeck\.messageNotifications/)
+  assert.match(browserNotifications, /Notification\.requestPermission\(\)/)
+  assert.match(browserNotifications, /window\.addEventListener\('storage'/)
+  assert.match(shell, /@click="toggleBrowserNotifications"/)
+  assert.match(shell, /浏览器通知需要 HTTPS/)
+  assert.match(shell, /关闭短信与来电通知/)
+  assert.match(shell, /启用短信与来电通知/)
+  const notificationClick = shell.indexOf('@click="toggleBrowserNotifications"')
   const notificationButton = shell.slice(
     shell.lastIndexOf('<button', notificationClick),
     shell.indexOf('</button>', notificationClick)
   )
   assert.match(notificationButton, /:disabled=/)
-  assert.match(notificationButton, /!messageNotificationState\.secureContext/)
+  assert.match(notificationButton, /!browserNotificationState\.secureContext/)
+  assert.match(notificationButton, /<BellRing v-if="browserNotificationState\.active"/)
+  assert.match(notificationButton, /<BellOff v-else/)
   assert.doesNotMatch(
     notificationButton,
-    /v-if="[^"]*messageNotificationState\.(?:secureContext|supported)/
+    /v-if="[^"]*browserNotificationState\.(?:secureContext|supported)/
   )
   assert.doesNotMatch(shell, /onMounted\([^]*requestPermission/)
   assert.match(workspace, /refreshThreads\(\)/)
