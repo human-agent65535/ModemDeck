@@ -23,10 +23,10 @@ const (
 	networkManagerStateUnmanaged     = uint32(10)
 	networkManagerStateActivated     = uint32(100)
 	networkManagerStateFailed        = uint32(120)
-	networkManagerActiveActivating   = uint32(2)
-	networkManagerActiveActivated    = uint32(3)
-	networkManagerActiveDeactivating = uint32(4)
-	networkManagerActiveDeactivated  = uint32(5)
+	networkManagerActiveActivating   = uint32(1)
+	networkManagerActiveActivated    = uint32(2)
+	networkManagerActiveDeactivating = uint32(3)
+	networkManagerActiveDeactivated  = uint32(4)
 	networkManagerPollInterval       = 200 * time.Millisecond
 	networkManagerCleanupTimeout     = 5 * time.Second
 	networkManagerConnectionPrefix   = "ModemDeck "

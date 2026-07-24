@@ -241,6 +241,22 @@ func networkManagerSettingsIPFamily(
 	}
 }
 
+func TestNetworkManagerActiveStateValuesMatchDBusAPI(t *testing.T) {
+	t.Parallel()
+	if networkManagerActiveActivating != 1 ||
+		networkManagerActiveActivated != 2 ||
+		networkManagerActiveDeactivating != 3 ||
+		networkManagerActiveDeactivated != 4 {
+		t.Fatalf(
+			"active connection states = %d/%d/%d/%d",
+			networkManagerActiveActivating,
+			networkManagerActiveActivated,
+			networkManagerActiveDeactivating,
+			networkManagerActiveDeactivated,
+		)
+	}
+}
+
 func (caller *configurationCaller) methods() []string {
 	caller.mu.Lock()
 	defer caller.mu.Unlock()
