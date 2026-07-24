@@ -6,7 +6,10 @@ import {
   MessageSquareText,
   Phone,
   RadioTower,
-  Signal
+  SignalHigh,
+  SignalLow,
+  SignalMedium,
+  SignalZero
 } from '@lucide/vue'
 import { computed } from 'vue'
 import type { Device, LineSummary } from '../api/types'
@@ -41,6 +44,13 @@ const online = computed(() =>
 const signal = computed(
   () => props.line.signal_quality ?? props.device?.signal_quality ?? null
 )
+const signalIcon = computed(() => {
+  const value = signal.value
+  if (value === null || value <= 0) return SignalZero
+  if (value < 34) return SignalLow
+  if (value < 67) return SignalMedium
+  return SignalHigh
+})
 const model = computed(
   () => props.line.model || props.device?.model || '未知型号'
 )
@@ -100,12 +110,20 @@ const stateLabel = computed(() => {
 
       <dl class="module-card__facts">
         <div>
-          <dt><Signal :size="13" />运营商</dt>
+          <dt>运营商</dt>
           <dd>{{ line.operator || '—' }}</dd>
         </div>
         <div>
           <dt>信号</dt>
-          <dd>{{ signal === null ? '—' : `${signal}%` }}</dd>
+          <dd class="module-card__signal-value">
+            <component
+              :is="signalIcon"
+              class="module-card__signal-icon"
+              :size="14"
+              aria-hidden="true"
+            />
+            <span>{{ signal === null ? '—' : `${signal}%` }}</span>
+          </dd>
         </div>
         <div>
           <dt>型号</dt>
@@ -135,7 +153,7 @@ const stateLabel = computed(() => {
       <div class="module-card__capabilities" aria-label="模组能力">
         <span :class="{ 'is-enabled': line.capabilities?.voice }">
           <Phone :size="14" />
-          通话
+          呼叫控制
         </span>
         <span :class="{ 'is-enabled': line.capabilities?.messaging }">
           <MessageSquareText :size="14" />
@@ -333,6 +351,17 @@ const stateLabel = computed(() => {
 
 .module-card .is-code dd {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.module-card__signal-value {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.module-card__signal-icon {
+  flex: 0 0 auto;
+  color: var(--accent-strong);
 }
 
 .module-card__footer {

@@ -797,6 +797,18 @@ onMounted(() => {
               <div><dt>固件</dt><dd>{{ hardware.identity.firmware || '—' }}</dd></div>
               <div><dt>ICCID</dt><dd>{{ selectedLine?.iccid || '—' }}</dd></div>
               <div><dt>端口</dt><dd>{{ selectedDevice?.port || '—' }}</dd></div>
+              <div v-if="selectedDevice?.signal_dbm != null">
+                <dt>RSSI</dt>
+                <dd>{{ selectedDevice.signal_dbm }} dBm</dd>
+              </div>
+              <div v-if="selectedDevice?.signal_rsrp != null">
+                <dt>RSRP</dt>
+                <dd>{{ selectedDevice.signal_rsrp }} dBm</dd>
+              </div>
+              <div v-if="selectedDevice?.signal_rsrq != null">
+                <dt>RSRQ</dt>
+                <dd>{{ selectedDevice.signal_rsrq }} dB</dd>
+              </div>
             </dl>
           </section>
 
@@ -1073,7 +1085,11 @@ onMounted(() => {
             <header><PhoneIncoming :size="18" /><h4>来电</h4></header>
             <fieldset class="incoming-policy" :disabled="Boolean(savingOperation)">
               <legend>线路策略</legend>
-              <div class="incoming-policy__options">
+              <div
+                class="incoming-policy__options"
+                :data-selection="incomingPolicyDraft"
+              >
+                <span class="incoming-policy__slider" aria-hidden="true" />
                 <label>
                   <input
                     v-model="incomingPolicyDraft"
@@ -1876,17 +1892,44 @@ onMounted(() => {
 }
 
 .incoming-policy__options {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 3px;
+  gap: 0;
   padding: 3px;
+  overflow: hidden;
+  isolation: isolate;
   background: var(--surface-subtle);
   border: 1px solid var(--border-strong);
   border-radius: 6px;
 }
 
+.incoming-policy__slider {
+  position: absolute;
+  z-index: 0;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / 3);
+  pointer-events: none;
+  background: var(--surface);
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgb(16 24 40 / 12%);
+  transform: translateX(0);
+  transition: transform 180ms ease;
+}
+
+.incoming-policy__options[data-selection='receive'] .incoming-policy__slider {
+  transform: translateX(100%);
+}
+
+.incoming-policy__options[data-selection='do_not_disturb'] .incoming-policy__slider {
+  transform: translateX(200%);
+}
+
 .incoming-policy__options label {
   position: relative;
+  z-index: 1;
   min-width: 0;
   cursor: pointer;
 }
@@ -1912,8 +1955,6 @@ onMounted(() => {
 
 .incoming-policy__options input:checked + span {
   color: var(--text);
-  background: var(--surface);
-  box-shadow: 0 1px 3px rgb(16 24 40 / 12%);
 }
 
 .incoming-policy__options input:focus-visible + span {
@@ -1928,6 +1969,12 @@ onMounted(() => {
 
 .incoming-policy:disabled label {
   cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .incoming-policy__slider {
+    transition: none;
+  }
 }
 
 .incoming-policy__status {

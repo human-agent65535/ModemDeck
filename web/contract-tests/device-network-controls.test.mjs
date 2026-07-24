@@ -136,6 +136,52 @@ test('incoming call override uses a compact three-state segmented control', () =
   assert.match(incomingSection, /type="radio"\s+value="receive"/)
   assert.match(incomingSection, /type="radio"\s+value="do_not_disturb"/)
   assert.match(incomingSection, /@change="applyIncomingPolicy"/)
+  assert.match(incomingSection, /:data-selection="incomingPolicyDraft"/)
+  assert.equal(
+    (incomingSection.match(/class="incoming-policy__slider"/g) || []).length,
+    1
+  )
   assert.doesNotMatch(incomingSection, /<select/)
   assert.doesNotMatch(incomingSection, />保存</)
+  assert.match(
+    source,
+    /\.incoming-policy__options\s*\{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)[^}]*gap: 0/s
+  )
+  assert.match(
+    source,
+    /\.incoming-policy__slider\s*\{[^}]*width: calc\(\(100% - 6px\) \/ 3\)[^}]*transition: transform 180ms ease/s
+  )
+  assert.match(
+    source,
+    /\[data-selection='receive'\] \.incoming-policy__slider\s*\{[^}]*transform: translateX\(100%\)/s
+  )
+  assert.match(
+    source,
+    /\[data-selection='do_not_disturb'\] \.incoming-policy__slider\s*\{[^}]*transform: translateX\(200%\)/s
+  )
+  assert.match(
+    source,
+    /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.incoming-policy__slider\s*\{[^}]*transition: none/
+  )
+  assert.doesNotMatch(
+    source,
+    /\.incoming-policy__options input:checked \+ span\s*\{[^}]*(?:background|box-shadow)/s
+  )
+})
+
+test('hardware details show only backend-provided radio measurements', () => {
+  assert.match(
+    source,
+    /v-if="selectedDevice\?\.signal_dbm != null"[\s\S]*?<dt>RSSI<\/dt>[\s\S]*?\{\{ selectedDevice\.signal_dbm \}\} dBm/
+  )
+  assert.match(
+    source,
+    /v-if="selectedDevice\?\.signal_rsrp != null"[\s\S]*?<dt>RSRP<\/dt>[\s\S]*?\{\{ selectedDevice\.signal_rsrp \}\} dBm/
+  )
+  assert.match(
+    source,
+    /v-if="selectedDevice\?\.signal_rsrq != null"[\s\S]*?<dt>RSRQ<\/dt>[\s\S]*?\{\{ selectedDevice\.signal_rsrq \}\} dB/
+  )
+  assert.doesNotMatch(source, /signal_quality[^;\n]*(?:signal_dbm|signal_rsrp|signal_rsrq)/)
+  assert.doesNotMatch(source, /<dt>SNR<\/dt>/)
 })

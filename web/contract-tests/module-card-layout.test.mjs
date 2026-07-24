@@ -87,3 +87,32 @@ test('device settings add selection actions without changing card content', () =
   assert.match(settingsUse, /@select="selectLine\(line\)"/)
   assert.match(settingsUse, /@make-default="makeDefault\(line\)"/)
 })
+
+test('voice capability describes call control without implying an audio path', () => {
+  const capabilitiesStart = moduleCard.indexOf(
+    '<div class="module-card__capabilities"'
+  )
+  const capabilitiesEnd = moduleCard.indexOf('</div>', capabilitiesStart)
+  const capabilities = moduleCard.slice(capabilitiesStart, capabilitiesEnd)
+
+  assert.match(
+    capabilities,
+    /:class="\{ 'is-enabled': line\.capabilities\?\.voice \}"[\s\S]*<Phone :size="14" \/>[\s\S]*呼叫控制/
+  )
+  assert.doesNotMatch(capabilities, /通话|音频|USB|声卡/)
+})
+
+test('signal percentage uses graded bars without changing the reported value', () => {
+  assert.match(
+    moduleCard,
+    /SignalHigh,[\s\S]*SignalLow,[\s\S]*SignalMedium,[\s\S]*SignalZero/
+  )
+  assert.match(
+    moduleCard,
+    /if \(value === null \|\| value <= 0\) return SignalZero[\s\S]*if \(value < 34\) return SignalLow[\s\S]*if \(value < 67\) return SignalMedium[\s\S]*return SignalHigh/
+  )
+  assert.match(
+    moduleCard,
+    /class="module-card__signal-value"[\s\S]*:is="signalIcon"[\s\S]*\{\{ signal === null \? '—' : `\$\{signal\}%` \}\}/
+  )
+})
