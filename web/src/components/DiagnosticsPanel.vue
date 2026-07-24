@@ -36,6 +36,7 @@ import { ApiError } from '../api/types'
 import { audioState, refreshAudioDevices } from '../state/audio'
 import { lineLabel } from '../state/workspace'
 import {
+  isRegisteredNetwork,
   operatorFacts,
   registrationStateLabel
 } from '../utils/operatorNetwork'
@@ -229,8 +230,27 @@ function lineRegistrationLabel(line: LineSummary): string {
   return registrationStateLabel(line, lineStateLabel(line.state))
 }
 
-function lineStateTone(state?: string): 'positive' | 'warning' | 'negative' | 'neutral' {
-  switch (state?.toLowerCase()) {
+function lineStateTone(
+  line: LineSummary
+): 'positive' | 'warning' | 'negative' | 'neutral' {
+  const modemState = line.state?.toLowerCase()
+  if (modemState === 'failed' || modemState === 'locked') return 'negative'
+  if (modemState === 'disabled') return 'neutral'
+  if (isRegisteredNetwork(line)) return 'positive'
+
+  if (line.registration_state_known) {
+    switch (line.registration_state?.toLowerCase()) {
+      case 'searching':
+      case 'emergency-only':
+        return 'warning'
+      case 'denied':
+        return 'negative'
+      default:
+        return 'neutral'
+    }
+  }
+
+  switch (modemState) {
     case 'connected':
     case 'registered':
       return 'positive'
@@ -242,9 +262,6 @@ function lineStateTone(state?: string): 'positive' | 'warning' | 'negative' | 'n
     case 'enabling':
     case 'initializing':
       return 'warning'
-    case 'failed':
-    case 'locked':
-      return 'negative'
     default:
       return 'neutral'
   }
@@ -713,9 +730,9 @@ onBeforeUnmount(() => {
               </span>
               <span
                 class="line-state"
-                :class="`is-${lineStateTone(line.state)}`"
+                :class="`is-${lineStateTone(line)}`"
               >
-                {{ lineStateLabel(line.state) }}
+                {{ lineRegistrationLabel(line) }}
               </span>
             </header>
             <dl class="line-facts">

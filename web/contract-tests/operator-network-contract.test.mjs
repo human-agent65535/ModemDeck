@@ -306,5 +306,7 @@ test('device cards, settings, and diagnostics share the operator fact mapping', 
 
   assert.match(diagnosticsPanel, /lineOperatorFacts\(line\)/)
   assert.match(diagnosticsPanel, /lineRegistrationLabel\(line\)/)
+  assert.match(diagnosticsPanel, /lineStateTone\(line\)/)
+  assert.doesNotMatch(diagnosticsPanel, /lineStateTone\(line\.state\)/)
   assert.doesNotMatch(diagnosticsPanel, /\{\{\s*line\.operator\s*\|\|/)
 })
