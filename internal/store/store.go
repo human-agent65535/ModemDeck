@@ -73,6 +73,14 @@ func intValue(value sql.NullInt64) int64 {
 	return value.Int64
 }
 
+func nullableSignalMetric(value sql.NullInt64) *int64 {
+	if !value.Valid || value.Int64 == 0 {
+		return nil
+	}
+	result := value.Int64
+	return &result
+}
+
 func boolValue(value sql.NullInt64) bool {
 	return value.Valid && value.Int64 != 0
 }

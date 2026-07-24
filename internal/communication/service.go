@@ -1136,6 +1136,7 @@ func projectSnapshot(
 		lines = append(lines, projected)
 		lineIndex[line.ID] = projected
 		accessTechnologies := knownAccessTechnologies(line)
+		signalFresh := line.SignalQualityKnown && line.SignalQualityRecent
 		hardwareLines = append(hardwareLines, store.HardwareLine{
 			ID:                  line.ID,
 			Manufacturer:        line.Manufacturer,
@@ -1149,12 +1150,12 @@ func projectSnapshot(
 			Ports:               projectHardwarePorts(line.Ports),
 			AccessTechnologies:  accessTechnologies,
 			State:               line.State,
-			SignalKnown:         line.SignalQualityKnown,
+			SignalKnown:         signalFresh,
 			SignalQuality:       line.SignalQuality,
-			SignalDBM:           roundedSignal(line.SignalDBM),
-			SignalRSRQ:          roundedSignal(line.SignalRSRQ),
-			SignalRSRP:          roundedSignal(line.SignalRSRP),
-			SignalSNR:           cloneFloat64(line.SignalSNR),
+			SignalDBM:           freshRoundedSignal(signalFresh, line.SignalDBM),
+			SignalRSRQ:          freshRoundedSignal(signalFresh, line.SignalRSRQ),
+			SignalRSRP:          freshRoundedSignal(signalFresh, line.SignalRSRP),
+			SignalSNR:           freshSignal(signalFresh, line.SignalSNR),
 			PhoneNumber:         firstString(line.OwnNumbers),
 			ICCID:               line.SIMIdentifier,
 			IMSI:                line.IMSI,
@@ -1204,6 +1205,20 @@ func roundedSignal(value *float64) *int64 {
 	return &rounded
 }
 
+func freshRoundedSignal(fresh bool, value *float64) *int64 {
+	if !fresh {
+		return nil
+	}
+	return roundedSignal(value)
+}
+
+func freshSignal(fresh bool, value *float64) *float64 {
+	if !fresh {
+		return nil
+	}
+	return cloneFloat64(value)
+}
+
 func cloneFloat64(value *float64) *float64 {
 	if value == nil {
 		return nil
@@ -1237,7 +1252,8 @@ func projectHardwarePorts(ports []agentclient.ModemPort) []store.HardwarePort {
 
 func projectLine(line agentclient.Line) store.LineSummary {
 	var signal *uint32
-	if line.SignalQualityKnown {
+	signalFresh := line.SignalQualityKnown && line.SignalQualityRecent
+	if signalFresh {
 		value := line.SignalQuality
 		signal = &value
 	}
@@ -1268,7 +1284,7 @@ func projectLine(line agentclient.Line) store.LineSummary {
 		AccessTechnologies:     knownAccessTechnologies(line),
 		State:                  line.State,
 		Signal:                 signal,
-		SignalSNR:              cloneFloat64(line.SignalSNR),
+		SignalSNR:              freshSignal(signalFresh, line.SignalSNR),
 		Capabilities: store.LineCapabilities{
 			Modem:       line.Capabilities.ModemInterface,
 			SIM:         line.Capabilities.SIMInterface,

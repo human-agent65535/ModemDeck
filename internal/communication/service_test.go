@@ -699,6 +699,9 @@ func TestProjectLinePreservesDetectedInterfaces(t *testing.T) {
 		PrimaryPort:             "cdc-wdm0",
 		AccessTechnologies:      1 << 14,
 		AccessTechnologiesKnown: true,
+		SignalQualityKnown:      true,
+		SignalQualityRecent:     true,
+		SignalQuality:           73,
 		SignalSNR:               &snr,
 		Ports: []agentclient.ModemPort{{
 			Name:     "cdc-wdm0",
@@ -746,6 +749,41 @@ func TestProjectLinePreservesDetectedInterfaces(t *testing.T) {
 		len(projected.Ports) != 1 ||
 		projected.Ports[0].Type != "qmi" {
 		t.Fatalf("projected hardware details = %+v", projected)
+	}
+}
+
+func TestProjectSnapshotDropsStaleSignalTelemetry(t *testing.T) {
+	t.Parallel()
+
+	dbm := -68.5
+	rsrp := -94.0
+	rsrq := -11.0
+	snr := 7.25
+	hardware, lines := projectSnapshot(agentclient.Snapshot{
+		ObservedAt: time.Date(2026, time.July, 24, 14, 0, 0, 0, time.UTC),
+		Lines: []agentclient.Line{{
+			ID:                  "line-stale-signal",
+			EquipmentIdentifier: "990000000000001",
+			SignalQualityKnown:  true,
+			SignalQuality:       76,
+			SignalQualityRecent: false,
+			SignalDBM:           &dbm,
+			SignalRSRP:          &rsrp,
+			SignalRSRQ:          &rsrq,
+			SignalSNR:           &snr,
+		}},
+	}, "boot-stale-signal")
+
+	if len(lines) != 1 || lines[0].Signal != nil || lines[0].SignalSNR != nil {
+		t.Fatalf("stale live signal was projected: %+v", lines)
+	}
+	if len(hardware.Lines) != 1 {
+		t.Fatalf("hardware lines = %d, want 1", len(hardware.Lines))
+	}
+	line := hardware.Lines[0]
+	if line.SignalKnown || line.SignalDBM != nil || line.SignalRSRP != nil ||
+		line.SignalRSRQ != nil || line.SignalSNR != nil {
+		t.Fatalf("stale persisted signal was projected: %+v", line)
 	}
 }
 

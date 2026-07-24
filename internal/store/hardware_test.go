@@ -117,9 +117,9 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 	if len(devices) != 1 || devices[0].SignalQuality == nil || *devices[0].SignalQuality != 74 {
 		t.Fatalf("devices = %+v, want persisted signal quality", devices)
 	}
-	if devices[0].SignalDBM != signalDBM ||
-		devices[0].SignalRSRQ != signalRSRQ ||
-		devices[0].SignalRSRP != signalRSRP {
+	if devices[0].SignalDBM == nil || *devices[0].SignalDBM != signalDBM ||
+		devices[0].SignalRSRQ == nil || *devices[0].SignalRSRQ != signalRSRQ ||
+		devices[0].SignalRSRP == nil || *devices[0].SignalRSRP != signalRSRP {
 		t.Fatalf("devices = %+v, want persisted extended signal", devices)
 	}
 

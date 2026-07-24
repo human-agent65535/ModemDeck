@@ -196,9 +196,9 @@ func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 			value := uint32(signalQuality.Int64)
 			device.SignalQuality = &value
 		}
-		device.SignalDBM = intValue(signalDBM)
-		device.SignalRSRQ = intValue(signalRSRQ)
-		device.SignalRSRP = intValue(signalRSRP)
+		device.SignalDBM = nullableSignalMetric(signalDBM)
+		device.SignalRSRQ = nullableSignalMetric(signalRSRQ)
+		device.SignalRSRP = nullableSignalMetric(signalRSRP)
 		device.LastSeen = stringValue(lastSeen)
 		device.CreatedAt = stringValue(createdAt)
 		device.UpdatedAt = stringValue(updatedAt)

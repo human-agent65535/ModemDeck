@@ -39,9 +39,7 @@ const emit = defineEmits<{
 }>()
 
 const online = computed(() => isRegisteredNetwork(props.line))
-const signal = computed(
-  () => props.line.signal_quality ?? props.device?.signal_quality ?? null
-)
+const signal = computed(() => props.line.signal_quality ?? null)
 const model = computed(
   () => props.line.model || props.device?.model || '未知型号'
 )

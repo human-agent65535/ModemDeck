@@ -161,9 +161,9 @@ type Device struct {
 	CurrentICCID  string   `json:"current_iccid"`
 	SIMInserted   bool     `json:"sim_inserted"`
 	SignalQuality *uint32  `json:"signal_quality,omitempty"`
-	SignalDBM     int64    `json:"signal_dbm"`
-	SignalRSRQ    int64    `json:"signal_rsrq"`
-	SignalRSRP    int64    `json:"signal_rsrp"`
+	SignalDBM     *int64   `json:"signal_dbm"`
+	SignalRSRQ    *int64   `json:"signal_rsrq"`
+	SignalRSRP    *int64   `json:"signal_rsrp"`
 	LastSeen      string   `json:"last_seen"`
 	CreatedAt     string   `json:"created_at"`
 	UpdatedAt     string   `json:"updated_at"`
