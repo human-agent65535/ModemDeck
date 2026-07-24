@@ -1,4 +1,5 @@
 export type OperatorNetworkSource = {
+  state?: string
   operator?: string
   operator_identifier?: string
   operator_name?: string
@@ -17,6 +18,16 @@ export type OperatorFact = {
   value: string
 }
 
+const registeredStates = new Set([
+  'home',
+  'roaming',
+  'home-sms-only',
+  'roaming-sms-only',
+  'home-csfb-not-preferred',
+  'roaming-csfb-not-preferred',
+  'attached-rlos'
+])
+
 function clean(value?: string): string {
   return value?.trim() || ''
 }
@@ -31,9 +42,28 @@ export function formatOperator(name?: string, code?: string): string {
 }
 
 export function isRoamingNetwork(source?: OperatorNetworkSource | null): boolean {
+  const registrationState = clean(
+    source?.registration_state
+  ).toLocaleLowerCase()
   return (
     source?.roaming === true ||
-    clean(source?.registration_state).toLocaleLowerCase() === 'roaming'
+    registrationState === 'roaming' ||
+    registrationState === 'roaming-sms-only' ||
+    registrationState === 'roaming-csfb-not-preferred'
+  )
+}
+
+export function isRegisteredNetwork(
+  source?: OperatorNetworkSource | null
+): boolean {
+  if (!source) return false
+  if (source.registration_state_known) {
+    return registeredStates.has(
+      clean(source.registration_state).toLocaleLowerCase()
+    )
+  }
+  return ['registered', 'connected'].includes(
+    clean(source.state).toLocaleLowerCase()
   )
 }
 
@@ -51,6 +81,16 @@ export function operatorFacts(
     source?.serving_operator_name,
     source?.serving_operator_code
   )
+
+  if (!isRegisteredNetwork(source)) {
+    return [
+      {
+        id: 'home',
+        label: '归属运营商',
+        value: home || unknownLabel
+      }
+    ]
+  }
 
   if (isRoamingNetwork(source)) {
     return [
@@ -86,6 +126,18 @@ export function registrationStateLabel(
   switch (clean(source.registration_state).toLocaleLowerCase()) {
     case 'home':
       return '本地驻网'
+    case 'home-sms-only':
+      return '本地驻网 · 仅短信'
+    case 'roaming-sms-only':
+      return '漫游 · 仅短信'
+    case 'home-csfb-not-preferred':
+      return '本地驻网'
+    case 'roaming-csfb-not-preferred':
+      return '漫游'
+    case 'attached-rlos':
+      return '受限驻网'
+    case 'emergency-only':
+      return '仅限紧急呼叫'
     case 'searching':
       return '正在搜网'
     case 'denied':

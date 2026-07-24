@@ -42,6 +42,7 @@ import {
   loadThreads,
   threadsResource
 } from '../state/workspace'
+import { isRegisteredNetwork } from '../utils/operatorNetwork'
 import {
   formatDateTime,
   formatDuration,
@@ -93,10 +94,7 @@ const missedCalls = computed(
   () => callsResource.data.filter(call => call.missed).length
 )
 const onlineLines = computed(
-  () =>
-    lines.value.filter(line =>
-      ['registered', 'connected'].includes((line.state || '').toLocaleLowerCase())
-    ).length
+  () => lines.value.filter(line => isRegisteredNetwork(line)).length
 )
 const callReadyLines = computed(
   () =>

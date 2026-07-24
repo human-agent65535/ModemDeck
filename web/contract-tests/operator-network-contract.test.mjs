@@ -6,6 +6,7 @@ import { createFixtureGateway } from '../src/api/fixture.ts'
 import { parseDevices, parseLine } from '../src/api/normalize.ts'
 import {
   formatOperator,
+  isRegisteredNetwork,
   operatorFacts,
   registrationStateLabel
 } from '../src/utils/operatorNetwork.ts'
@@ -98,6 +99,36 @@ test('operator facts distinguish the serving network from the home operator', ()
     ]
   )
   assert.equal(registrationStateLabel(networkFields, '已驻网'), '漫游')
+})
+
+test('searching lines do not present cached serving operators as current networks', () => {
+  const searching = {
+    state: 'searching',
+    home_operator_code: '00102',
+    home_operator_name: 'Pine Wireless',
+    serving_operator_code: '00101',
+    serving_operator_name: 'Aurora Mobile',
+    registration_state_known: true,
+    registration_state: 'searching',
+    roaming: false
+  }
+
+  assert.equal(isRegisteredNetwork(searching), false)
+  assert.equal(registrationStateLabel(searching, '搜索网络'), '正在搜网')
+  assert.deepEqual(operatorFacts(searching), [
+    {
+      id: 'home',
+      label: '归属运营商',
+      value: 'Pine Wireless（00102）'
+    }
+  ])
+  assert.equal(
+    isRegisteredNetwork({
+      ...searching,
+      registration_state: 'home'
+    }),
+    true
+  )
 })
 
 test('bootstrap and device decoders preserve the complete network identity', () => {
@@ -261,6 +292,8 @@ test('device cards, settings, and diagnostics share the operator fact mapping', 
   ])
 
   assert.match(moduleCard, /operatorFacts\(props\.line/)
+  assert.match(moduleCard, /isRegisteredNetwork\(props\.line\)/)
+  assert.doesNotMatch(moduleCard, /'searching'\]\.includes/)
   assert.match(moduleCard, /v-for="fact in networkFacts"/)
   assert.doesNotMatch(moduleCard, /\{\{\s*line\.operator\s*\|\|/)
 

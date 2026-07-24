@@ -10,7 +10,11 @@ import {
 import { computed } from 'vue'
 import type { Device, LineSummary } from '../api/types'
 import { lineLabel } from '../state/workspace'
-import { isRoamingNetwork, operatorFacts } from '../utils/operatorNetwork'
+import {
+  isRegisteredNetwork,
+  operatorFacts,
+  registrationStateLabel
+} from '../utils/operatorNetwork'
 import SignalBars from './SignalBars.vue'
 
 const props = withDefaults(
@@ -34,11 +38,7 @@ const emit = defineEmits<{
   makeDefault: []
 }>()
 
-const online = computed(() =>
-  ['registered', 'connected', 'enabled', 'searching'].includes(
-    (props.line.state || '').toLocaleLowerCase()
-  )
-)
+const online = computed(() => isRegisteredNetwork(props.line))
 const signal = computed(
   () => props.line.signal_quality ?? props.device?.signal_quality ?? null
 )
@@ -63,8 +63,10 @@ const stateLabel = computed(() => {
   if (state === 'enabled') label = '已启用'
   if (state === 'searching') label = '搜索网络'
   if (state === 'disabled') label = '已停用'
+  if (state === 'locked') label = 'SIM 已锁定'
   if (state === 'failed') label = '异常'
-  return isRoamingNetwork(props.line) ? `${label} · 漫游` : label
+  if (['failed', 'locked', 'disabled'].includes(state)) return label
+  return registrationStateLabel(props.line, label)
 })
 </script>
 
