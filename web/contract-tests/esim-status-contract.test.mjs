@@ -142,3 +142,22 @@ test('SIM settings render read-only eSIM facts through the shared decoder', () =
   assert.match(client, /parseSIMStatusResponse/)
   assert.doesNotMatch(client, /function parseSIMStatus\(/)
 })
+
+test('switching modules reloads the active line service and rejects stale responses', () => {
+  const panel = readFileSync(
+    new URL('../src/components/DeviceConfigurationPanel.vue', import.meta.url),
+    'utf8'
+  )
+
+  assert.match(panel, /watch\(activeTab, tab => void loadActiveLineService\(tab\)\)/)
+  assert.match(
+    panel,
+    /function selectLine[\s\S]*resetLineServices\(\)[\s\S]*selectDeviceConfiguration[\s\S]*loadActiveLineService\(\)/
+  )
+  assert.match(panel, /lineServiceGeneration \+= 1/)
+  assert.equal(
+    [...panel.matchAll(/if \(!isCurrentLineServiceRequest\(lineID, generation\)\) return/g)]
+      .length,
+    6
+  )
+})

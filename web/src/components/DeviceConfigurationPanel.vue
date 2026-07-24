@@ -97,6 +97,7 @@ const simPUK = ref('')
 const simNewPIN = ref('')
 const simProtectionEnabled = ref(true)
 const simPending = ref(false)
+let lineServiceGeneration = 0
 
 const profiles = ref<ConnectionProfile[]>([])
 const profileLoadStatus = ref<AsyncStatus>('idle')
@@ -444,20 +445,18 @@ watch(
   { immediate: true }
 )
 
-watch(activeTab, tab => {
-  if (tab === 'sim') void loadSIM()
-  if (tab === 'network') void loadProfiles()
-  if (tab === 'ussd') void loadUSSD()
-})
+watch(activeTab, tab => void loadActiveLineService(tab))
 
 function selectLine(line: LineSummary): void {
-  if (!line.id) return
+  if (!line.id || line.id === selectedLineID.value) return
+  resetLineServices()
   selectDeviceConfiguration(line.id)
   void loadDeviceConfiguration(line.id)
-  resetLineServices()
+  void loadActiveLineService()
 }
 
 function resetLineServices(): void {
+  lineServiceGeneration += 1
   simStatus.value = null
   simLoadStatus.value = 'idle'
   simError.value = ''
@@ -468,6 +467,17 @@ function resetLineServices(): void {
   ussdLoadStatus.value = 'idle'
   ussdError.value = ''
   ussdResult.value = ''
+}
+
+function loadActiveLineService(tab = activeTab.value): Promise<void> | undefined {
+  if (tab === 'sim') return loadSIM()
+  if (tab === 'network') return loadProfiles()
+  if (tab === 'ussd') return loadUSSD()
+  return undefined
+}
+
+function isCurrentLineServiceRequest(lineID: string, generation: number): boolean {
+  return selectedLineID.value === lineID && lineServiceGeneration === generation
 }
 
 function deviceFor(line: LineSummary) {
@@ -651,15 +661,20 @@ async function applyIncomingPolicy(): Promise<void> {
 }
 
 async function loadSIM(force = false): Promise<void> {
-  if (!selectedLineID.value || (simLoadStatus.value === 'ready' && !force)) return
+  const lineID = selectedLineID.value
+  if (!lineID || (simLoadStatus.value === 'ready' && !force)) return
+  const generation = lineServiceGeneration
   simLoadStatus.value = 'loading'
   simError.value = ''
   try {
-    simStatus.value = await gateway.getSIMStatus(selectedLineID.value)
+    const status = await gateway.getSIMStatus(lineID)
+    if (!isCurrentLineServiceRequest(lineID, generation)) return
+    simStatus.value = status
     simLoadStatus.value = 'ready'
     if (simStatus.value.unlock_required.includes('puk')) simOperation.value = 'send_puk'
     else if (simStatus.value.unlock_required.includes('pin')) simOperation.value = 'send_pin'
   } catch (error) {
+    if (!isCurrentLineServiceRequest(lineID, generation)) return
     simLoadStatus.value = 'error'
     simError.value = error instanceof Error ? error.message : 'SIM 状态读取失败'
   }
@@ -702,13 +717,18 @@ async function applySIMCommand(): Promise<void> {
 }
 
 async function loadProfiles(force = false): Promise<void> {
-  if (!selectedLineID.value || (profileLoadStatus.value === 'ready' && !force)) return
+  const lineID = selectedLineID.value
+  if (!lineID || (profileLoadStatus.value === 'ready' && !force)) return
+  const generation = lineServiceGeneration
   profileLoadStatus.value = 'loading'
   profileError.value = ''
   try {
-    profiles.value = await gateway.listConnectionProfiles(selectedLineID.value)
+    const nextProfiles = await gateway.listConnectionProfiles(lineID)
+    if (!isCurrentLineServiceRequest(lineID, generation)) return
+    profiles.value = nextProfiles
     profileLoadStatus.value = 'ready'
   } catch (error) {
+    if (!isCurrentLineServiceRequest(lineID, generation)) return
     profileLoadStatus.value = 'error'
     profileError.value = error instanceof Error ? error.message : '连接配置读取失败'
   }
@@ -779,13 +799,18 @@ async function deleteProfile(profile: ConnectionProfile): Promise<void> {
 }
 
 async function loadUSSD(force = false): Promise<void> {
-  if (!selectedLineID.value || (ussdLoadStatus.value === 'ready' && !force)) return
+  const lineID = selectedLineID.value
+  if (!lineID || (ussdLoadStatus.value === 'ready' && !force)) return
+  const generation = lineServiceGeneration
   ussdLoadStatus.value = 'loading'
   ussdError.value = ''
   try {
-    ussdStatus.value = await gateway.getUSSDStatus(selectedLineID.value)
+    const status = await gateway.getUSSDStatus(lineID)
+    if (!isCurrentLineServiceRequest(lineID, generation)) return
+    ussdStatus.value = status
     ussdLoadStatus.value = 'ready'
   } catch (error) {
+    if (!isCurrentLineServiceRequest(lineID, generation)) return
     ussdLoadStatus.value = 'error'
     ussdError.value = error instanceof Error ? error.message : 'USSD 状态读取失败'
   }
