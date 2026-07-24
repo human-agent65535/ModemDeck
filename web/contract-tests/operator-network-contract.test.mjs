@@ -308,5 +308,13 @@ test('device cards, settings, and diagnostics share the operator fact mapping', 
   assert.match(diagnosticsPanel, /lineRegistrationLabel\(line\)/)
   assert.match(diagnosticsPanel, /lineStateTone\(line\)/)
   assert.doesNotMatch(diagnosticsPanel, /lineStateTone\(line\.state\)/)
+  assert.match(
+    diagnosticsPanel,
+    /\.line-grid\s*\{[\s\S]*grid-template-columns:\s*repeat\([\s\S]*auto-fill,[\s\S]*minmax\(min\(100%, 320px\), 420px\)[\s\S]*justify-content:\s*start/
+  )
+  assert.doesNotMatch(
+    diagnosticsPanel,
+    /\.line-grid\s*\{[\s\S]*minmax\(min\(100%, 440px\), 1fr\)/
+  )
   assert.doesNotMatch(diagnosticsPanel, /\{\{\s*line\.operator\s*\|\|/)
 })

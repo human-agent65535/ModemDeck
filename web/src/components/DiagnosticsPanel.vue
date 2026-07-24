@@ -1149,8 +1149,12 @@ onBeforeUnmount(() => {
 
 .line-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(min(100%, 320px), 420px)
+  );
   gap: 12px;
+  justify-content: start;
   padding-top: 14px;
 }
 
