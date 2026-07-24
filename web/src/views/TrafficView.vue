@@ -521,7 +521,7 @@ onBeforeUnmount(() => {
   display: grid;
   min-width: 0;
   gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(320px, 420px));
   justify-content: start;
 }
 

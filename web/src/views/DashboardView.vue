@@ -1125,7 +1125,7 @@ onMounted(loadDashboard)
 .dashboard-module-grid,
 .dashboard-detail-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 420px));
   justify-content: start;
   gap: 12px;
 }

@@ -40,7 +40,7 @@ test('dashboard entity grids retain stable desktop columns and card widths', () 
 
   assert.match(
     entityGridBlock,
-    /grid-template-columns: repeat\(auto-fill, minmax\(320px, 1fr\)\)/
+    /grid-template-columns: repeat\(auto-fill, minmax\(320px, 420px\)\)/
   )
   assert.match(entityGridBlock, /justify-content: start/)
   assert.match(entityCardBlock, /width: 100%/)

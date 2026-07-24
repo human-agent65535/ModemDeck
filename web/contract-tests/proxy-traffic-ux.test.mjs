@@ -88,7 +88,7 @@ test('traffic line state treats inactive data as neutral and preserves explicit 
 test('traffic line cards use the device-card responsive width contract', () => {
   assert.match(
     trafficView,
-    /\.traffic-line-grid\s*\{[\s\S]*grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(320px,\s*1fr\)\)[\s\S]*justify-content:\s*start/
+    /\.traffic-line-grid\s*\{[\s\S]*grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(320px,\s*420px\)\)[\s\S]*justify-content:\s*start/
   )
   assert.match(
     trafficView,
