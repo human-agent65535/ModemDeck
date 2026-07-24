@@ -5,7 +5,7 @@ import test from 'node:test'
 const devicePanel = new URL('../src/components/DeviceConfigurationPanel.vue', import.meta.url)
 const diagnosticsPanel = new URL('../src/components/DiagnosticsPanel.vue', import.meta.url)
 
-test('module voice settings always show the configured or observed call path', async () => {
+test('module voice settings show an observed bearer or a capability-confirmed path', async () => {
   const source = await readFile(devicePanel, 'utf8')
 
   assert.doesNotMatch(source, /<strong>浏览器音频<\/strong>/)
@@ -15,7 +15,7 @@ test('module voice settings always show the configured or observed call path', a
   assert.match(source, /case 'gsm':[\s\S]*case 'cs':[\s\S]*return 'GSM \/ CS'/)
   assert.match(
     source,
-    /hardware\.value\?\.volte\.policy_known[\s\S]*hardware\.value\.volte\.policy === 'enabled'[\s\S]*\? 'VoLTE'[\s\S]*: 'GSM'/
+    /volte\?\.modem_capability_known[\s\S]*volte\.modem_capability_enabled[\s\S]*\? 'VoLTE'[\s\S]*: 'GSM'/
   )
   assert.doesNotMatch(source, /'无通话'/)
   assert.doesNotMatch(source, /'待接通'/)

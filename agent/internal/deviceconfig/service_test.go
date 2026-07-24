@@ -13,6 +13,7 @@ import (
 type fakeGenericProvider struct {
 	configuration domain.DeviceConfiguration
 	applyCalls    int
+	applyRequests []domain.ApplyDeviceConfigurationRequest
 }
 
 func (provider *fakeGenericProvider) ReadDeviceConfiguration(
@@ -24,9 +25,10 @@ func (provider *fakeGenericProvider) ReadDeviceConfiguration(
 
 func (provider *fakeGenericProvider) ApplyGenericDeviceConfiguration(
 	_ context.Context,
-	_ domain.ApplyDeviceConfigurationRequest,
+	request domain.ApplyDeviceConfigurationRequest,
 ) (domain.DeviceConfiguration, error) {
 	provider.applyCalls++
+	provider.applyRequests = append(provider.applyRequests, request)
 	return provider.configuration, nil
 }
 
@@ -178,6 +180,7 @@ func TestExactVoLTEProfileReadsAppliesAndVerifies(t *testing.T) {
 			}
 			return nil
 		}),
+		ApplyRequiresRestart: true,
 	}
 	registry, err := volte.NewRegistry(profile)
 	if err != nil {
@@ -219,7 +222,9 @@ func TestExactVoLTEProfileReadsAppliesAndVerifies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ApplyDeviceConfiguration() error = %v", err)
 	}
-	if updated.VoLTE.Policy != "enabled" || generic.applyCalls != 0 {
+	if updated.VoLTE.Policy != "enabled" ||
+		!updated.VoLTE.RestartRequired ||
+		generic.applyCalls != 0 {
 		t.Fatalf("updated configuration = %+v, generic apply calls = %d", updated, generic.applyCalls)
 	}
 	wantCommands := []string{
@@ -231,6 +236,168 @@ func TestExactVoLTEProfileReadsAppliesAndVerifies(t *testing.T) {
 	}
 	if fmt.Sprint(at.commands) != fmt.Sprint(wantCommands) {
 		t.Fatalf("AT commands = %v, want %v", at.commands, wantCommands)
+	}
+}
+
+func TestVoLTERestartRequirementPersistsUntilUserRestartsModem(t *testing.T) {
+	t.Parallel()
+	service, generic, _ := newRestartingVoLTEService(t, volte.PolicyDisabled)
+
+	current, err := service.DeviceConfiguration(context.Background(), "line-1")
+	if err != nil {
+		t.Fatalf("DeviceConfiguration() error = %v", err)
+	}
+	updated, err := service.ApplyDeviceConfiguration(
+		context.Background(),
+		domain.ApplyDeviceConfigurationRequest{
+			RequestID:        "enable-volte-before-restart",
+			LineID:           "line-1",
+			ExpectedRevision: current.Revision,
+			Operation:        domain.DeviceConfigurationSetVoLTEPolicy,
+			VoLTEPolicy:      string(volte.PolicyEnabled),
+		},
+	)
+	if err != nil {
+		t.Fatalf("ApplyDeviceConfiguration(enable VoLTE) error = %v", err)
+	}
+	if !updated.VoLTE.RestartRequired {
+		t.Fatalf("updated VoLTE = %+v, want restart required", updated.VoLTE)
+	}
+
+	pending, err := service.DeviceConfiguration(context.Background(), "line-1")
+	if err != nil {
+		t.Fatalf("DeviceConfiguration(after VoLTE write) error = %v", err)
+	}
+	if !pending.VoLTE.RestartRequired {
+		t.Fatalf("VoLTE after GET = %+v, want restart required", pending.VoLTE)
+	}
+
+	restarted, err := service.ApplyDeviceConfiguration(
+		context.Background(),
+		domain.ApplyDeviceConfigurationRequest{
+			RequestID:        "restart-modem-after-volte",
+			LineID:           "line-1",
+			ExpectedRevision: pending.Revision,
+			Operation:        domain.DeviceConfigurationRestartModem,
+		},
+	)
+	if err != nil {
+		t.Fatalf("ApplyDeviceConfiguration(restart modem) error = %v", err)
+	}
+	if restarted.VoLTE.RestartRequired {
+		t.Fatalf("restarted VoLTE = %+v, want pending restart cleared", restarted.VoLTE)
+	}
+	if generic.applyCalls != 1 ||
+		len(generic.applyRequests) != 1 ||
+		generic.applyRequests[0].Operation != domain.DeviceConfigurationRestartModem {
+		t.Fatalf(
+			"generic apply calls = %d, requests = %+v",
+			generic.applyCalls,
+			generic.applyRequests,
+		)
+	}
+
+	afterRestart, err := service.DeviceConfiguration(context.Background(), "line-1")
+	if err != nil {
+		t.Fatalf("DeviceConfiguration(after restart) error = %v", err)
+	}
+	if afterRestart.VoLTE.RestartRequired {
+		t.Fatalf("VoLTE after restart GET = %+v, want pending restart cleared", afterRestart.VoLTE)
+	}
+}
+
+func TestApplyingCurrentVoLTEPolicyDoesNotWriteOrCreatePendingRestart(t *testing.T) {
+	t.Parallel()
+	service, generic, at := newRestartingVoLTEService(t, volte.PolicyEnabled)
+
+	current, err := service.DeviceConfiguration(context.Background(), "line-1")
+	if err != nil {
+		t.Fatalf("DeviceConfiguration() error = %v", err)
+	}
+	at.commands = nil
+
+	unchanged, err := service.ApplyDeviceConfiguration(
+		context.Background(),
+		domain.ApplyDeviceConfigurationRequest{
+			RequestID:        "keep-volte-enabled",
+			LineID:           "line-1",
+			ExpectedRevision: current.Revision,
+			Operation:        domain.DeviceConfigurationSetVoLTEPolicy,
+			VoLTEPolicy:      string(volte.PolicyEnabled),
+		},
+	)
+	if err != nil {
+		t.Fatalf("ApplyDeviceConfiguration(unchanged VoLTE) error = %v", err)
+	}
+	if unchanged.VoLTE.RestartRequired {
+		t.Fatalf("unchanged VoLTE = %+v, want no pending restart", unchanged.VoLTE)
+	}
+	if generic.applyCalls != 0 {
+		t.Fatalf("generic apply calls = %d, want 0", generic.applyCalls)
+	}
+	for _, command := range at.commands {
+		if command == "AT+TESTVOLTE=0" || command == "AT+TESTVOLTE=1" {
+			t.Fatalf("AT commands = %v, unchanged policy must not be written", at.commands)
+		}
+	}
+
+	afterApply, err := service.DeviceConfiguration(context.Background(), "line-1")
+	if err != nil {
+		t.Fatalf("DeviceConfiguration(after unchanged policy) error = %v", err)
+	}
+	if afterApply.VoLTE.RestartRequired {
+		t.Fatalf("VoLTE after unchanged policy GET = %+v, want no pending restart", afterApply.VoLTE)
+	}
+}
+
+func TestExactVoLTEProfilePreservesVendorCapabilityState(t *testing.T) {
+	t.Parallel()
+	identity := domain.DeviceIdentity{
+		Manufacturer: "Fixture Vendor",
+		Model:        "Fixture Model",
+		Firmware:     "fixture-fw-capability",
+	}
+	profile := volte.Profile{
+		ID: "fixture-volte-capability",
+		Identity: volte.Identity{
+			Manufacturer: identity.Manufacturer,
+			Model:        identity.Model,
+			Firmware:     identity.Firmware,
+		},
+		OperationTimeout: time.Second,
+		Read: volte.ATRead("AT+TESTVOLTE?", func(string) (volte.State, error) {
+			return volte.State{
+				Policy:                 volte.PolicyEnabled,
+				ConfigurationMode:      volte.ConfigurationModeForcedEnabled,
+				ModemCapabilityKnown:   true,
+				ModemCapabilityEnabled: false,
+			}, nil
+		}),
+	}
+	registry, err := volte.NewRegistry(profile)
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+	service, err := New(
+		&fakeGenericProvider{configuration: baseConfiguration(t, identity)},
+		registry,
+		func(context.Context, string, volte.Identity) (volte.Transports, error) {
+			return volte.Transports{AT: &fakeATTransport{}}, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	configuration, err := service.DeviceConfiguration(context.Background(), "line-1")
+	if err != nil {
+		t.Fatalf("DeviceConfiguration() error = %v", err)
+	}
+	if configuration.VoLTE.Policy != "enabled" ||
+		configuration.VoLTE.ConfigurationMode != "forced_enabled" ||
+		!configuration.VoLTE.ModemCapabilityKnown ||
+		configuration.VoLTE.ModemCapabilityEnabled {
+		t.Fatalf("VoLTE configuration = %+v", configuration.VoLTE)
 	}
 }
 
@@ -275,6 +442,59 @@ func TestNearMatchDoesNotUseRegisteredVoLTEProfile(t *testing.T) {
 	if configuration.Capabilities.VoLTE.Supported || resolverCalls != 0 {
 		t.Fatalf("near-match configuration = %+v, resolver calls = %d", configuration, resolverCalls)
 	}
+}
+
+func newRestartingVoLTEService(
+	t *testing.T,
+	initialPolicy volte.Policy,
+) (*Service, *fakeGenericProvider, *fakeATTransport) {
+	t.Helper()
+	identity := domain.DeviceIdentity{
+		Manufacturer: "Restart Fixture Vendor",
+		Model:        "Restart Fixture Model",
+		Firmware:     "restart-fixture-fw-1",
+	}
+	profile := volte.Profile{
+		ID: "restart-fixture-volte",
+		Identity: volte.Identity{
+			Manufacturer: identity.Manufacturer,
+			Model:        identity.Model,
+			Firmware:     identity.Firmware,
+		},
+		OperationTimeout: time.Second,
+		Read: volte.ATRead("AT+TESTVOLTE?", func(response string) (volte.State, error) {
+			return volte.State{Policy: volte.Policy(response)}, nil
+		}),
+		Write: volte.ATWrite(func(policy volte.Policy) (string, error) {
+			if policy == volte.PolicyEnabled {
+				return "AT+TESTVOLTE=1", nil
+			}
+			return "AT+TESTVOLTE=0", nil
+		}, func(response string) error {
+			if response != "OK" {
+				return fmt.Errorf("response is not OK")
+			}
+			return nil
+		}),
+		ApplyRequiresRestart: true,
+	}
+	registry, err := volte.NewRegistry(profile)
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+	generic := &fakeGenericProvider{configuration: baseConfiguration(t, identity)}
+	at := &fakeATTransport{policy: initialPolicy}
+	service, err := New(
+		generic,
+		registry,
+		func(context.Context, string, volte.Identity) (volte.Transports, error) {
+			return volte.Transports{AT: at}, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	return service, generic, at
 }
 
 func baseConfiguration(

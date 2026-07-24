@@ -15,6 +15,7 @@ const (
 	DeviceConfigurationConnectData     DeviceConfigurationOperation = "connect_data"
 	DeviceConfigurationDisconnectData  DeviceConfigurationOperation = "disconnect_data"
 	DeviceConfigurationSetVoLTEPolicy  DeviceConfigurationOperation = "set_volte_policy"
+	DeviceConfigurationRestartModem    DeviceConfigurationOperation = "restart_modem"
 )
 
 type FeatureCapability struct {
@@ -60,9 +61,13 @@ type DataConnection struct {
 }
 
 type VoLTEConfiguration struct {
-	PolicyKnown bool   `json:"policy_known"`
-	Policy      string `json:"policy"`
-	ProfileID   string `json:"profile_id"`
+	PolicyKnown            bool   `json:"policy_known"`
+	Policy                 string `json:"policy"`
+	ConfigurationMode      string `json:"configuration_mode"`
+	ModemCapabilityKnown   bool   `json:"modem_capability_known"`
+	ModemCapabilityEnabled bool   `json:"modem_capability_enabled"`
+	RestartRequired        bool   `json:"restart_required"`
+	ProfileID              string `json:"profile_id"`
 }
 
 type DeviceConfigurationCapabilities struct {
@@ -88,6 +93,7 @@ type DeviceConfiguration struct {
 	FlightMode      bool                            `json:"flight_mode"`
 	FlightModeKnown bool                            `json:"flight_mode_known"`
 	NetworkEnabled  bool                            `json:"network_enabled"`
+	AutomaticAPN    string                          `json:"automatic_apn"`
 	DataConnections []DataConnection                `json:"data_connections"`
 	VoLTE           VoLTEConfiguration              `json:"volte"`
 	Capabilities    DeviceConfigurationCapabilities `json:"capabilities"`

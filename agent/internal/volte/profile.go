@@ -7,11 +7,12 @@ import (
 )
 
 type Profile struct {
-	ID               string
-	Identity         Identity
-	OperationTimeout time.Duration
-	Read             ReadMethod
-	Write            WriteMethod
+	ID                   string
+	Identity             Identity
+	OperationTimeout     time.Duration
+	Read                 ReadMethod
+	Write                WriteMethod
+	ApplyRequiresRestart bool
 }
 
 func (p Profile) validate() error {
@@ -71,11 +72,12 @@ func validateIdentity(identity Identity) error {
 
 func (p Profile) capability() Capability {
 	capability := Capability{
-		Supported: true,
-		ProfileID: p.ID,
-		Identity:  p.Identity,
-		Readable:  p.Read != nil,
-		Writable:  p.Write != nil,
+		Supported:            true,
+		ProfileID:            p.ID,
+		Identity:             p.Identity,
+		Readable:             p.Read != nil,
+		Writable:             p.Write != nil,
+		ApplyRequiresRestart: p.ApplyRequiresRestart,
 	}
 	if p.Read != nil {
 		capability.ReadProtocol = p.Read.Protocol()

@@ -287,7 +287,15 @@ func TestDeviceConfigurationReadsAndAppliesTypedContract(t *testing.T) {
 			"flight_mode_known":true,
 			"network_enabled":false,
 			"data_connections":[],
-			"volte":{"policy_known":false,"policy":"","profile_id":""},
+			"volte":{
+				"policy_known":true,
+				"policy":"enabled",
+				"configuration_mode":"forced_enabled",
+				"modem_capability_known":true,
+				"modem_capability_enabled":false,
+				"restart_required":true,
+				"profile_id":"qdc507glefm21-qcfg-ims"
+			},
 			"capabilities":{
 				"radio":{"backend":"modemmanager","supported":true,"implemented":true,"readable":true,"writable":true},
 				"data_connection":{"backend":"modemmanager","supported":true,"implemented":true,"readable":true,"writable":true},
@@ -310,7 +318,12 @@ func TestDeviceConfigurationReadsAndAppliesTypedContract(t *testing.T) {
 	if configuration.LineID != "line-1" ||
 		configuration.Revision != "sha256:fixture" ||
 		len(configuration.DataConnections) != 0 ||
-		configuration.Capabilities.VoLTE.Supported {
+		configuration.Capabilities.VoLTE.Supported ||
+		configuration.VoLTE.Policy != "enabled" ||
+		configuration.VoLTE.ConfigurationMode != "forced_enabled" ||
+		!configuration.VoLTE.ModemCapabilityKnown ||
+		configuration.VoLTE.ModemCapabilityEnabled ||
+		!configuration.VoLTE.RestartRequired {
 		t.Fatalf("configuration = %+v", configuration)
 	}
 	enabled := false

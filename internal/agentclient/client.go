@@ -42,6 +42,7 @@ type Capabilities struct {
 	ConnectionProfiles  bool `json:"connection_profiles"`
 	USSD                bool `json:"ussd"`
 	Snapshot            bool `json:"snapshot"`
+	Media               bool `json:"media"`
 }
 
 type ProviderHealth struct {

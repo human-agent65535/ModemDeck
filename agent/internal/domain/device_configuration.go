@@ -17,6 +17,7 @@ const (
 	DeviceConfigurationConnectData     DeviceConfigurationOperation = "connect_data"
 	DeviceConfigurationDisconnectData  DeviceConfigurationOperation = "disconnect_data"
 	DeviceConfigurationSetVoLTEPolicy  DeviceConfigurationOperation = "set_volte_policy"
+	DeviceConfigurationRestartModem    DeviceConfigurationOperation = "restart_modem"
 )
 
 type FeatureCapability struct {
@@ -63,9 +64,13 @@ type DataConnection struct {
 }
 
 type VoLTEConfiguration struct {
-	PolicyKnown bool   `json:"policy_known"`
-	Policy      string `json:"policy,omitempty"`
-	ProfileID   string `json:"profile_id,omitempty"`
+	PolicyKnown            bool   `json:"policy_known"`
+	Policy                 string `json:"policy,omitempty"`
+	ConfigurationMode      string `json:"configuration_mode,omitempty"`
+	ModemCapabilityKnown   bool   `json:"modem_capability_known"`
+	ModemCapabilityEnabled bool   `json:"modem_capability_enabled"`
+	RestartRequired        bool   `json:"restart_required"`
+	ProfileID              string `json:"profile_id,omitempty"`
 }
 
 type DeviceConfigurationCapabilities struct {
@@ -91,6 +96,7 @@ type DeviceConfiguration struct {
 	FlightMode      bool                            `json:"flight_mode"`
 	FlightModeKnown bool                            `json:"flight_mode_known"`
 	NetworkEnabled  bool                            `json:"network_enabled"`
+	AutomaticAPN    string                          `json:"automatic_apn,omitempty"`
 	DataConnections []DataConnection                `json:"data_connections"`
 	VoLTE           VoLTEConfiguration              `json:"volte"`
 	Capabilities    DeviceConfigurationCapabilities `json:"capabilities"`
@@ -113,6 +119,8 @@ type DeviceConfigurationProvider interface {
 }
 
 func RevisionDeviceConfiguration(configuration DeviceConfiguration) (string, error) {
+	revisionVoLTE := configuration.VoLTE
+	revisionVoLTE.RestartRequired = false
 	content := struct {
 		LineID          string                          `json:"line_id"`
 		Identity        DeviceIdentity                  `json:"identity"`
@@ -120,6 +128,7 @@ func RevisionDeviceConfiguration(configuration DeviceConfiguration) (string, err
 		FlightMode      bool                            `json:"flight_mode"`
 		FlightModeKnown bool                            `json:"flight_mode_known"`
 		NetworkEnabled  bool                            `json:"network_enabled"`
+		AutomaticAPN    string                          `json:"automatic_apn,omitempty"`
 		DataConnections []DataConnection                `json:"data_connections"`
 		VoLTE           VoLTEConfiguration              `json:"volte"`
 		Capabilities    DeviceConfigurationCapabilities `json:"capabilities"`
@@ -130,8 +139,9 @@ func RevisionDeviceConfiguration(configuration DeviceConfiguration) (string, err
 		FlightMode:      configuration.FlightMode,
 		FlightModeKnown: configuration.FlightModeKnown,
 		NetworkEnabled:  configuration.NetworkEnabled,
+		AutomaticAPN:    configuration.AutomaticAPN,
 		DataConnections: configuration.DataConnections,
-		VoLTE:           configuration.VoLTE,
+		VoLTE:           revisionVoLTE,
 		Capabilities:    configuration.Capabilities,
 	}
 	encoded, err := json.Marshal(content)

@@ -554,6 +554,10 @@ export type DataConnection = {
 export type VoLTEConfiguration = {
   policy_known: boolean
   policy?: 'enabled' | 'disabled'
+  configuration_mode?: 'automatic' | 'forced_enabled' | 'forced_disabled'
+  modem_capability_known: boolean
+  modem_capability_enabled: boolean
+  restart_required: boolean
   profile_id?: string
 }
 
@@ -625,6 +629,7 @@ export type DiagnosticAgentCapabilities = {
   sim_management: boolean
   connection_profiles: boolean
   ussd: boolean
+  media: boolean
 }
 
 export type DiagnosticActiveCall = {
@@ -719,6 +724,11 @@ export type UpdateDeviceConfigurationInput =
       operation: 'set_volte_policy'
       expected_device_revision: string
       volte_policy: 'enabled' | 'disabled'
+    }
+  | {
+      request_id: string
+      operation: 'restart_modem'
+      expected_device_revision: string
     }
 
 export type TelegramUnit = {

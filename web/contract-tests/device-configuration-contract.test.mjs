@@ -16,6 +16,10 @@ const devicePanelSource = readFileSync(
   new URL('../src/components/DeviceConfigurationPanel.vue', import.meta.url),
   'utf8'
 )
+const deviceConfigurationStateSource = readFileSync(
+  new URL('../src/state/deviceConfiguration.ts', import.meta.url),
+  'utf8'
+)
 const incomingCallModeSource = readFileSync(
   new URL('../src/components/IncomingCallModeControl.vue', import.meta.url),
   'utf8'
@@ -24,6 +28,22 @@ const moduleCardSource = readFileSync(
   new URL('../src/components/ModuleCard.vue', import.meta.url),
   'utf8'
 )
+
+function functionBody(source, declaration) {
+  const declarationStart = source.indexOf(declaration)
+  assert.ok(declarationStart >= 0, `缺少 ${declaration}`)
+  const bodyStart = source.indexOf('{', declarationStart)
+  assert.ok(bodyStart >= 0, `${declaration} 缺少函数体`)
+
+  let depth = 0
+  for (let index = bodyStart; index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1
+    if (source[index] !== '}') continue
+    depth -= 1
+    if (depth === 0) return source.slice(bodyStart + 1, index)
+  }
+  assert.fail(`${declaration} 函数体不完整`)
+}
 
 test('call policy and device configuration contracts match the root API', () => {
   assert.deepEqual(communicationContracts.getCallSettings, {
@@ -82,6 +102,23 @@ test('call policy and device configuration contracts match the root API', () => 
       incoming_call_policy: 'follow_global'
     }
   )
+  const restartPayload = createDeviceConfigurationPayload({
+    request_id: ' request-restart-1 ',
+    operation: 'restart_modem',
+    expected_device_revision: ' sha256:current ',
+    volte_policy: 'enabled',
+    restart_required: true
+  })
+  assert.deepEqual(restartPayload, {
+    request_id: 'request-restart-1',
+    operation: 'restart_modem',
+    expected_device_revision: 'sha256:current'
+  })
+  assert.deepEqual(Object.keys(restartPayload).sort(), [
+    'expected_device_revision',
+    'operation',
+    'request_id'
+  ])
   assert.throws(
     () =>
       createDeviceConfigurationPayload({
@@ -93,6 +130,21 @@ test('call policy and device configuration contracts match the root API', () => 
       }),
     /APN/
   )
+})
+
+test('VoLTE restart remains an explicit user action', () => {
+  const applyVoLTEBody = functionBody(devicePanelSource, 'async function applyVoLTE')
+  const setVoLTEPolicyBody = functionBody(
+    deviceConfigurationStateSource,
+    'export function setVoLTEPolicy'
+  )
+
+  assert.match(deviceConfigurationStateSource, /operation:\s*['"]restart_modem['"]/)
+  assert.match(devicePanelSource, /@click="[^"]*restart[^"]*"/i)
+  assert.doesNotMatch(applyVoLTEBody, /\brestart[A-Za-z0-9_]*\s*\(/i)
+  assert.doesNotMatch(applyVoLTEBody, /operation:\s*['"]restart_modem['"]/)
+  assert.doesNotMatch(setVoLTEPolicyBody, /\brestart[A-Za-z0-9_]*\s*\(/i)
+  assert.doesNotMatch(setVoLTEPolicyBody, /operation:\s*['"]restart_modem['"]/)
 })
 
 test('fixture exposes config-only enforcement without promising automatic rejection', async () => {
@@ -117,6 +169,26 @@ test('device configuration preserves the server-resolved automatic APN', async (
   const parsed = parseDeviceConfigurationResponse(configuration)
 
   assert.equal(parsed.hardware?.automatic_apn, 'automatic.example')
+})
+
+test('VoLTE configuration keeps policy and modem capability separate', async () => {
+  const configuration = await createFixtureGateway().getDeviceConfiguration(
+    'line-fixture-main'
+  )
+  assert.ok(configuration.hardware)
+  configuration.hardware.volte.policy = 'enabled'
+  configuration.hardware.volte.configuration_mode = 'forced_enabled'
+  configuration.hardware.volte.modem_capability_known = true
+  configuration.hardware.volte.modem_capability_enabled = false
+  configuration.hardware.volte.restart_required = true
+
+  const parsed = parseDeviceConfigurationResponse(configuration)
+
+  assert.equal(parsed.hardware?.volte.policy, 'enabled')
+  assert.equal(parsed.hardware?.volte.configuration_mode, 'forced_enabled')
+  assert.equal(parsed.hardware?.volte.modem_capability_known, true)
+  assert.equal(parsed.hardware?.volte.modem_capability_enabled, false)
+  assert.equal(parsed.hardware?.volte.restart_required, true)
 })
 
 test('global call settings contain only preference and revision', async () => {
@@ -191,6 +263,18 @@ test('module cards keep selection and default actions in a stable shared footer'
   assert.match(
     moduleCardSource,
     /grid-template-columns: minmax\(0, 1fr\) auto/
+  )
+})
+
+test('device configuration distinguishes module identity from the line label', () => {
+  assert.match(devicePanelSource, /<strong>\{\{ selectedModuleName \}\}<\/strong>/)
+  assert.match(
+    devicePanelSource,
+    /v-if="selectedLine && selectedExplicitLineLabel"/
+  )
+  assert.match(
+    devicePanelSource,
+    /label\.toLocaleLowerCase\(\) === selectedModuleName\.value\.toLocaleLowerCase\(\)/
   )
 })
 

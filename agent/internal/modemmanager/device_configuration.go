@@ -2,6 +2,7 @@ package modemmanager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -14,6 +15,7 @@ import (
 const (
 	simpleInterface         = "org.freedesktop.ModemManager1.Modem.Simple"
 	bearerInterface         = "org.freedesktop.ModemManager1.Bearer"
+	modem3GPPInterface      = "org.freedesktop.ModemManager1.Modem.Modem3gpp"
 	ussdInterface           = "org.freedesktop.ModemManager1.Modem.Modem3gpp.Ussd"
 	profileManagerInterface = "org.freedesktop.ModemManager1.Modem.Modem3gpp.ProfileManager"
 
@@ -147,9 +149,9 @@ func (p *Provider) ApplyGenericDeviceConfiguration(
 		body, err := p.call(
 			bounded,
 			modemPath,
-			simpleInterface+".Connect",
+			modemInterface+".CreateBearer",
 			operation,
-			"ModemManager failed to connect the packet data bearer",
+			"ModemManager failed to create the packet data bearer",
 			properties,
 		)
 		if err != nil {
@@ -163,11 +165,46 @@ func (p *Provider) ApplyGenericDeviceConfiguration(
 		if err != nil {
 			return domain.DeviceConfiguration{}, err
 		}
-		verified, _, _, err := p.readDeviceConfiguration(bounded, request.LineID, operation)
-		if err != nil {
+		if _, err := p.call(
+			bounded,
+			bearerPath,
+			bearerInterface+".Connect",
+			operation,
+			"ModemManager failed to connect the packet data bearer",
+		); err != nil {
+			if cleanupErr := p.deleteBearer(modemPath, bearerPath); cleanupErr != nil {
+				return domain.DeviceConfiguration{}, domain.VerificationFailed(
+					operation,
+					"packet data connection failed and the created bearer could not be removed",
+					errors.Join(err, cleanupErr),
+				)
+			}
 			return domain.DeviceConfiguration{}, err
 		}
-		if err := verifyConnectedBearer(p.ids.bearerID(bearerPath), apn, requestedFamily, verified); err != nil {
+		verified, _, _, err := p.readDeviceConfiguration(bounded, request.LineID, operation)
+		if err != nil {
+			if rollbackErr := p.rollbackBearer(modemPath, bearerPath); rollbackErr != nil {
+				return domain.DeviceConfiguration{}, domain.VerificationFailed(
+					operation,
+					"packet data state could not be verified and bearer rollback failed",
+					errors.Join(err, rollbackErr),
+				)
+			}
+			return domain.DeviceConfiguration{}, err
+		}
+		if err := verifyConnectedBearer(
+			p.ids.bearerID(bearerPath),
+			apn,
+			requestedFamily,
+			verified,
+		); err != nil {
+			if rollbackErr := p.rollbackBearer(modemPath, bearerPath); rollbackErr != nil {
+				return domain.DeviceConfiguration{}, domain.VerificationFailed(
+					operation,
+					"packet data verification failed and bearer rollback failed",
+					errors.Join(err, rollbackErr),
+				)
+			}
 			return domain.DeviceConfiguration{}, domain.VerificationFailed(operation, err.Error(), err)
 		}
 		return verified, nil
@@ -191,6 +228,23 @@ func (p *Provider) ApplyGenericDeviceConfiguration(
 		); err != nil {
 			return domain.DeviceConfiguration{}, err
 		}
+	case domain.DeviceConfigurationRestartModem:
+		if !current.Capabilities.Radio.Writable {
+			return domain.DeviceConfiguration{}, domain.NotSupported(
+				operation,
+				current.Capabilities.Radio.Reason,
+			)
+		}
+		if _, err := p.call(
+			bounded,
+			modemPath,
+			modemInterface+".Reset",
+			operation,
+			"ModemManager failed to restart the modem",
+		); err != nil {
+			return domain.DeviceConfiguration{}, err
+		}
+		return current, nil
 	case domain.DeviceConfigurationSetVoLTEPolicy:
 		return domain.DeviceConfiguration{}, domain.NotSupported(
 			operation,
@@ -282,24 +336,17 @@ func (p *Provider) readDeviceConfiguration(
 		DataConnections: []domain.DataConnection{},
 	}
 	configuration.Capabilities = genericConfigurationCapabilities(interfaces)
+	configuration.AutomaticAPN = initialEPSBearerAPN(objects, interfaces)
 
 	bearerPaths, _ := objectPathValuesProperty(modemProperties, "Bearers")
 	for _, bearerPath := range bearerPaths {
 		bearerInterfaces, found := objects[bearerPath]
 		if !found {
-			return domain.DeviceConfiguration{}, nil, "", domain.Internal(
-				operation,
-				"ModemManager bearer path was missing from the object snapshot",
-				nil,
-			)
+			continue
 		}
 		bearerProperties, found := bearerInterfaces[bearerInterface]
 		if !found {
-			return domain.DeviceConfiguration{}, nil, "", domain.Internal(
-				operation,
-				"ModemManager bearer did not expose the bearer interface",
-				nil,
-			)
+			continue
 		}
 		connection, err := parseDataConnection(p.ids.bearerID(bearerPath), bearerProperties)
 		if err != nil {
@@ -487,6 +534,69 @@ func nestedProperties(properties Properties, name string) (Properties, bool, err
 	return values, true, nil
 }
 
+func initialEPSBearerAPN(objects ManagedObjects, interfaces Interfaces) string {
+	properties, found := interfaces[modem3GPPInterface]
+	if !found {
+		return ""
+	}
+	path, found := objectPathProperty(properties, "InitialEpsBearer")
+	if !found || !path.IsValid() || path == "/" {
+		return ""
+	}
+	bearerInterfaces, found := objects[path]
+	if !found {
+		return ""
+	}
+	bearerProperties, found := bearerInterfaces[bearerInterface]
+	if !found {
+		return ""
+	}
+	settings, found, err := nestedProperties(bearerProperties, "Properties")
+	if err != nil || !found {
+		return ""
+	}
+	apn, _ := stringProperty(settings, "apn")
+	apn = strings.TrimSpace(apn)
+	if invalidAPN(apn) {
+		return ""
+	}
+	return apn
+}
+
+func (p *Provider) deleteBearer(
+	modemPath dbus.ObjectPath,
+	bearerPath dbus.ObjectPath,
+) error {
+	ctx, cancel := context.WithTimeout(context.Background(), deviceConfigurationReadTimeout)
+	defer cancel()
+	_, err := p.call(
+		ctx,
+		modemPath,
+		modemInterface+".DeleteBearer",
+		"apply_device_configuration",
+		"ModemManager failed to delete the packet data bearer",
+		bearerPath,
+	)
+	return err
+}
+
+func (p *Provider) rollbackBearer(
+	modemPath dbus.ObjectPath,
+	bearerPath dbus.ObjectPath,
+) error {
+	ctx, cancel := context.WithTimeout(context.Background(), deviceConfigurationReadTimeout)
+	defer cancel()
+	_, disconnectErr := p.call(
+		ctx,
+		bearerPath,
+		bearerInterface+".Disconnect",
+		"apply_device_configuration",
+		"ModemManager failed to disconnect the packet data bearer",
+	)
+	deleteErr := p.deleteBearer(modemPath, bearerPath)
+	return errors.Join(disconnectErr, deleteErr)
+}
+
 func validateConfigurationRequest(request domain.ApplyDeviceConfigurationRequest) error {
 	const operation = "apply_device_configuration"
 	request.LineID = strings.TrimSpace(request.LineID)
@@ -512,6 +622,10 @@ func validateConfigurationRequest(request domain.ApplyDeviceConfigurationRequest
 	case domain.DeviceConfigurationDisconnectData:
 		if request.RadioEnabled != nil || request.APN != "" || request.IPFamily != "" || request.VoLTEPolicy != "" {
 			return domain.InvalidArgument(operation, "disconnect_data does not accept operation parameters")
+		}
+	case domain.DeviceConfigurationRestartModem:
+		if request.RadioEnabled != nil || request.APN != "" || request.IPFamily != "" || request.VoLTEPolicy != "" {
+			return domain.InvalidArgument(operation, "restart_modem does not accept operation parameters")
 		}
 	case domain.DeviceConfigurationSetVoLTEPolicy:
 		if request.RadioEnabled != nil || request.APN != "" || request.IPFamily != "" {

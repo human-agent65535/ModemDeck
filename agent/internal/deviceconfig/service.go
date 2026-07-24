@@ -26,10 +26,12 @@ type TransportResolver func(
 ) (volte.Transports, error)
 
 type Service struct {
-	generic  GenericProvider
-	registry *volte.Registry
-	resolve  TransportResolver
-	applyMu  sync.Mutex
+	generic         GenericProvider
+	registry        *volte.Registry
+	resolve         TransportResolver
+	applyMu         sync.Mutex
+	pendingMu       sync.RWMutex
+	pendingRestarts map[string]bool
 }
 
 func New(
@@ -44,9 +46,10 @@ func New(
 		return nil, errors.New("device configuration VoLTE registry is required")
 	}
 	return &Service{
-		generic:  generic,
-		registry: registry,
-		resolve:  resolver,
+		generic:         generic,
+		registry:        registry,
+		resolve:         resolver,
+		pendingRestarts: make(map[string]bool),
 	}, nil
 }
 
@@ -94,6 +97,11 @@ func (s *Service) ApplyDeviceConfiguration(
 		if err != nil {
 			return domain.DeviceConfiguration{}, err
 		}
+		if request.Operation == domain.DeviceConfigurationRestartModem {
+			s.setRestartPending(request.LineID, false)
+			current.VoLTE.RestartRequired = false
+			return current, nil
+		}
 		return s.enrich(ctx, updated)
 	}
 
@@ -114,14 +122,36 @@ func (s *Service) ApplyDeviceConfiguration(
 	if !capability.Writable {
 		return domain.DeviceConfiguration{}, domain.NotSupported(operation, capability.Reason)
 	}
-	if _, err := driver.Apply(ctx, volte.Policy(request.VoLTEPolicy)); err != nil {
+	requestedPolicy := volte.Policy(request.VoLTEPolicy)
+	if current.VoLTE.PolicyKnown && current.VoLTE.Policy == string(requestedPolicy) {
+		return current, nil
+	}
+	applied, err := driver.Apply(ctx, requestedPolicy)
+	if err != nil {
 		return domain.DeviceConfiguration{}, mapVoLTEError(operation, err)
+	}
+	if applied.RestartRequired {
+		s.setRestartPending(request.LineID, true)
 	}
 	updated, err := s.generic.ReadDeviceConfiguration(ctx, request.LineID)
 	if err != nil {
 		return domain.DeviceConfiguration{}, err
 	}
-	return s.enrich(ctx, updated)
+	updated, err = s.enrich(ctx, updated)
+	if err != nil {
+		return domain.DeviceConfiguration{}, err
+	}
+	updated.VoLTE.RestartRequired =
+		updated.VoLTE.RestartRequired || applied.RestartRequired
+	updated.Revision, err = domain.RevisionDeviceConfiguration(updated)
+	if err != nil {
+		return domain.DeviceConfiguration{}, domain.Internal(
+			operation,
+			"failed to revision the applied device configuration",
+			err,
+		)
+	}
+	return updated, nil
 }
 
 func (s *Service) enrich(
@@ -142,12 +172,18 @@ func (s *Service) enrich(
 			configuration.Capabilities.VoLTE.Reason = volteReadFailureReason(err)
 		} else {
 			configuration.VoLTE = domain.VoLTEConfiguration{
-				PolicyKnown: true,
-				Policy:      string(state.Policy),
-				ProfileID:   driver.Capability().ProfileID,
+				PolicyKnown:            true,
+				Policy:                 string(state.Policy),
+				ConfigurationMode:      string(state.ConfigurationMode),
+				ModemCapabilityKnown:   state.ModemCapabilityKnown,
+				ModemCapabilityEnabled: state.ModemCapabilityEnabled,
+				RestartRequired:        state.RestartRequired || s.restartPending(configuration.LineID),
+				ProfileID:              driver.Capability().ProfileID,
 			}
 		}
 	}
+	configuration.VoLTE.RestartRequired =
+		configuration.VoLTE.RestartRequired || s.restartPending(configuration.LineID)
 	configuration.Revision, err = domain.RevisionDeviceConfiguration(configuration)
 	if err != nil {
 		return domain.DeviceConfiguration{}, domain.Internal(
@@ -157,6 +193,26 @@ func (s *Service) enrich(
 		)
 	}
 	return configuration, nil
+}
+
+func (s *Service) restartPending(lineID string) bool {
+	s.pendingMu.RLock()
+	defer s.pendingMu.RUnlock()
+	return s.pendingRestarts[strings.TrimSpace(lineID)]
+}
+
+func (s *Service) setRestartPending(lineID string, pending bool) {
+	lineID = strings.TrimSpace(lineID)
+	if lineID == "" {
+		return
+	}
+	s.pendingMu.Lock()
+	defer s.pendingMu.Unlock()
+	if pending {
+		s.pendingRestarts[lineID] = true
+		return
+	}
+	delete(s.pendingRestarts, lineID)
 }
 
 func (s *Service) resolveDriver(
@@ -263,7 +319,8 @@ func validateRequest(request domain.ApplyDeviceConfigurationRequest) error {
 	switch request.Operation {
 	case domain.DeviceConfigurationSetRadioEnabled,
 		domain.DeviceConfigurationConnectData,
-		domain.DeviceConfigurationDisconnectData:
+		domain.DeviceConfigurationDisconnectData,
+		domain.DeviceConfigurationRestartModem:
 		return nil
 	case domain.DeviceConfigurationSetVoLTEPolicy:
 		if request.RadioEnabled != nil || request.APN != "" || request.IPFamily != "" {

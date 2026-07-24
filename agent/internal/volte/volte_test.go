@@ -66,30 +66,60 @@ func TestQDC507GLEFM21ProfileUsesVerifiedQCFGCommands(t *testing.T) {
 	if state.Policy != PolicyEnabled {
 		t.Fatalf("state = %+v", state)
 	}
+	if state.ConfigurationMode != ConfigurationModeForcedEnabled ||
+		state.ModemCapabilityEnabled ||
+		!state.RestartRequired {
+		t.Fatalf("state did not preserve QCFG mode and capability: %+v", state)
+	}
 	want := []string{`AT+QCFG="ims",1`, `AT+QCFG="ims"`}
 	if !slices.Equal(at.commands, want) {
 		t.Fatalf("commands = %#v, want %#v", at.commands, want)
 	}
 }
 
-func TestDecodeQuectelIMSUsesForcedModeBeforeCapability(t *testing.T) {
+func TestDecodeQuectelIMSPreservesConfigurationAndCapability(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		response string
-		want     Policy
+		response       string
+		wantPolicy     Policy
+		wantMode       ConfigurationMode
+		wantCapability bool
 	}{
-		{response: "+QCFG: \"ims\",0,1\r\nOK\r\n", want: PolicyEnabled},
-		{response: "+QCFG: \"ims\",0,0\r\nOK\r\n", want: PolicyDisabled},
-		{response: "+QCFG: \"ims\",1,0\r\nOK\r\n", want: PolicyEnabled},
-		{response: "+QCFG: \"ims\",2,1\r\nOK\r\n", want: PolicyDisabled},
+		{
+			response:       "+QCFG: \"ims\",0,1\r\nOK\r\n",
+			wantPolicy:     PolicyEnabled,
+			wantMode:       ConfigurationModeAutomatic,
+			wantCapability: true,
+		},
+		{
+			response:       "+QCFG: \"ims\",0,0\r\nOK\r\n",
+			wantPolicy:     PolicyDisabled,
+			wantMode:       ConfigurationModeAutomatic,
+			wantCapability: false,
+		},
+		{
+			response:       "+QCFG: \"ims\",1,0\r\nOK\r\n",
+			wantPolicy:     PolicyEnabled,
+			wantMode:       ConfigurationModeForcedEnabled,
+			wantCapability: false,
+		},
+		{
+			response:       "+QCFG: \"ims\",2,1\r\nOK\r\n",
+			wantPolicy:     PolicyDisabled,
+			wantMode:       ConfigurationModeForcedDisabled,
+			wantCapability: true,
+		},
 	}
 	for _, test := range tests {
 		state, err := decodeQuectelIMS(test.response)
 		if err != nil {
 			t.Fatalf("decodeQuectelIMS(%q) error = %v", test.response, err)
 		}
-		if state.Policy != test.want {
-			t.Fatalf("decodeQuectelIMS(%q) = %q, want %q", test.response, state.Policy, test.want)
+		if state.Policy != test.wantPolicy ||
+			state.ConfigurationMode != test.wantMode ||
+			!state.ModemCapabilityKnown ||
+			state.ModemCapabilityEnabled != test.wantCapability {
+			t.Fatalf("decodeQuectelIMS(%q) = %+v", test.response, state)
 		}
 	}
 }
@@ -277,6 +307,36 @@ func TestApplyReturnsVerificationErrorOnReadBackMismatch(t *testing.T) {
 	assertErrorCode(t, err, ErrorVerification)
 	if !slices.Equal(at.commands, []string{"AT+TESTVOLTE=1", "AT+TESTVOLTE?"}) {
 		t.Fatalf("unexpected command sequence: %#v", at.commands)
+	}
+}
+
+func TestApplyReturnsIndeterminateVerificationWhenReadBackFails(t *testing.T) {
+	t.Parallel()
+	writeCompleted := false
+	at := &fakeAT{
+		command: func(_ context.Context, command string) (string, error) {
+			switch command {
+			case "AT+TESTVOLTE=1":
+				writeCompleted = true
+				return "OK", nil
+			case "AT+TESTVOLTE?":
+				return "", errors.New("read-back transport failed")
+			default:
+				return "", fmt.Errorf("unexpected command %q", command)
+			}
+		},
+	}
+	driver := mustRegistry(t, writableATProfile(testIdentity)).Resolve(
+		testIdentity,
+		Transports{AT: at},
+	)
+
+	_, err := driver.Apply(context.Background(), PolicyEnabled)
+	assertErrorCode(t, err, ErrorVerification)
+	typed, ok := AsError(err)
+	if !ok || !writeCompleted ||
+		typed.Message != "write completed but read-back failed; resulting policy is unknown" {
+		t.Fatalf("error = %#v, write completed = %v", err, writeCompleted)
 	}
 }
 

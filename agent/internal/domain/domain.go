@@ -24,6 +24,7 @@ type AgentCapabilities struct {
 	SIMManagement       bool `json:"sim_management"`
 	ConnectionProfiles  bool `json:"connection_profiles"`
 	USSD                bool `json:"ussd"`
+	Media               bool `json:"media"`
 }
 
 type ProviderHealth struct {

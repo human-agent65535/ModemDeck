@@ -10,6 +10,7 @@ import {
   PhoneIncoming,
   Plus,
   RadioTower,
+  RotateCw,
   Save,
   Send,
   ShieldAlert,
@@ -36,6 +37,7 @@ import {
   deviceConfigurationState,
   disconnectData,
   loadDeviceConfiguration,
+  restartModem,
   selectDeviceConfiguration,
   setIncomingCallPolicy,
   setRadioEnabled,
@@ -122,6 +124,21 @@ const selectedLine = computed(() =>
 const selectedDevice = computed(() =>
   devicesResource.data.find(device => device.imei === selectedLine.value?.device_imei)
 )
+const selectedModuleName = computed(() => {
+  const line = selectedLine.value
+  const device = selectedDevice.value
+  return (
+    device?.alias.trim() ||
+    line?.device_alias.trim() ||
+    line?.model?.trim() ||
+    device?.model.trim() ||
+    selectedLineID.value
+  )
+})
+const selectedExplicitLineLabel = computed(() => {
+  const label = selectedLine.value?.line_label.trim() || ''
+  return label.toLocaleLowerCase() === selectedModuleName.value.toLocaleLowerCase() ? '' : label
+})
 const selectedResource = computed(() =>
   selectedLineID.value ? deviceConfigurationResource(selectedLineID.value) : null
 )
@@ -181,7 +198,8 @@ const selectedCallBearer = computed(() => {
 })
 const selectedCallPathLabel = computed(() => {
   if (selectedCallBearer.value) return selectedCallBearer.value
-  return hardware.value?.volte.policy_known && hardware.value.volte.policy === 'enabled'
+  const volte = hardware.value?.volte
+  return volte?.modem_capability_known && volte.modem_capability_enabled
     ? 'VoLTE'
     : 'GSM'
 })
@@ -198,7 +216,16 @@ const volteStatusLabel = computed(() => {
   if (!capability.supported) return '不支持'
   if (!capability.implemented) return '未实现'
   if (!volte.policy_known) return '状态未知'
-  return volte.policy === 'enabled' ? '已开启' : '已关闭'
+  if (volte.restart_required) return '已保存，重启模组后生效'
+  if (volte.policy !== 'enabled') {
+    return volte.modem_capability_known && volte.modem_capability_enabled
+      ? '已关闭，尚未生效'
+      : '已关闭'
+  }
+  if (volte.modem_capability_known && !volte.modem_capability_enabled) {
+    return '已开启，尚未生效'
+  }
+  return '已开启'
 })
 const volteStatusDetail = computed(() => {
   const capability = hardware.value?.capabilities.volte
@@ -452,7 +479,11 @@ async function applyVoLTE(event: Event): Promise<void> {
       : 'disabled'
   const nextPolicy = control.checked ? 'enabled' : 'disabled'
   voltePolicyDraft.value = nextPolicy
-  if (!window.confirm(`将 VoLTE 设为${nextPolicy === 'enabled' ? '开启' : '关闭'}？`)) {
+  if (
+    !window.confirm(
+      `将 VoLTE 设为${nextPolicy === 'enabled' ? '开启' : '关闭'}？保存后需重启模组生效。`
+    )
+  ) {
     control.checked = previousPolicy === 'enabled'
     voltePolicyDraft.value = previousPolicy
     return
@@ -462,6 +493,16 @@ async function applyVoLTE(event: Event): Promise<void> {
     control.checked = previousPolicy === 'enabled'
     voltePolicyDraft.value = previousPolicy
   }
+}
+
+async function applyModemRestart(): Promise<void> {
+  if (
+    !selectedLineID.value ||
+    !window.confirm('重启会中断此模组的通话和移动数据。继续？')
+  ) {
+    return
+  }
+  await restartModem(selectedLineID.value)
 }
 
 async function applyIncomingPolicy(): Promise<void> {
@@ -695,9 +736,9 @@ onMounted(() => {
         <div class="selected-module-context__identity">
           <span>当前配置模组</span>
           <div class="selected-module-context__name">
-            <strong>{{ selectedLine ? lineLabel(selectedLine) : selectedLineID }}</strong>
+            <strong>{{ selectedModuleName }}</strong>
             <LineTag
-              v-if="selectedLine"
+              v-if="selectedLine && selectedExplicitLineLabel"
               :line="selectedLine"
               :fallback="selectedLineFallback"
             />
@@ -1135,7 +1176,7 @@ onMounted(() => {
             <header><RadioTower :size="18" /><h4>VoLTE</h4></header>
             <label class="configuration-toggle">
               <span>
-                <strong>启用 VoLTE</strong>
+                <strong>启用 VoLTE（重启生效）</strong>
                 <small v-if="volteStatusDetail">{{ volteStatusDetail }}</small>
                 <small v-else>{{ volteStatusLabel }}</small>
               </span>
@@ -1154,6 +1195,30 @@ onMounted(() => {
                 />
               </span>
             </label>
+            <div
+              v-if="hardware.volte.restart_required"
+              class="restart-required"
+              role="status"
+            >
+              <span>
+                <strong>等待重启</strong>
+                <small>VoLTE 配置已写入</small>
+              </span>
+              <button
+                class="primary-action restart-action"
+                type="button"
+                :disabled="hardwareBusy"
+                @click="applyModemRestart"
+              >
+                <LoaderCircle
+                  v-if="savingOperation === 'restart_modem'"
+                  class="spin"
+                  :size="16"
+                />
+                <RotateCw v-else :size="16" />
+                重启模组
+              </button>
+            </div>
           </section>
         </template>
 
@@ -1589,6 +1654,39 @@ onMounted(() => {
 
 .configuration-toggle input:checked::before {
   transform: translateX(18px);
+}
+
+.restart-required {
+  display: flex;
+  width: 100%;
+  max-width: 520px;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  color: #7a420c;
+  background: #fff7e8;
+  border: 1px solid #e9bd72;
+  border-radius: 6px;
+}
+
+.restart-required > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.restart-required small {
+  color: #8a5a25;
+  font-size: 12px;
+}
+
+.restart-action {
+  flex: 0 0 auto;
+  background: #a85b10;
 }
 
 .data-toggle {
@@ -2113,6 +2211,12 @@ pre {
   .primary-action,
   .secondary-action {
     width: 100%;
+  }
+
+  .restart-required {
+    max-width: none;
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .module-toolbar > .secondary-action,

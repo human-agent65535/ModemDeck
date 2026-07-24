@@ -235,7 +235,8 @@ function agentCapabilities() {
     { name: '代理', available: capabilities.proxy },
     { name: 'USSD', available: capabilities.ussd },
     { name: '拨号', available: capabilities.dial },
-    { name: '短信', available: capabilities.send_message }
+    { name: '短信', available: capabilities.send_message },
+    { name: '浏览器音频', available: capabilities.media }
   ]
 }
 

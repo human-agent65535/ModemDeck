@@ -125,6 +125,7 @@ func (h *handler) health(w http.ResponseWriter, r *http.Request) {
 	health.Capabilities.USSD = h.lineServices != nil
 	health.Capabilities.Network = h.network != nil
 	health.Capabilities.Proxy = h.network != nil
+	health.Capabilities.Media = h.media != nil && h.media.Configured()
 	h.writeJSON(w, http.StatusOK, healthResponse{
 		Status:       status,
 		APIVersion:   domain.APIVersion,

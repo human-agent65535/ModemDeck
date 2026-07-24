@@ -266,6 +266,44 @@ export function setVoLTEPolicy(
   })
 }
 
+function wait(milliseconds: number): Promise<void> {
+  return new Promise(resolve => window.setTimeout(resolve, milliseconds))
+}
+
+export async function restartModem(lineID: string): Promise<boolean> {
+  const target = resourceFor(lineID)
+  const accepted = await updateDevice(lineID, {
+    request_id: requestID(),
+    operation: 'restart_modem',
+    expected_device_revision: hardwareRevision(lineID)
+  })
+  if (!accepted) return false
+
+  target.status = 'loading'
+  target.error = ''
+  await wait(1500)
+  const deadline = Date.now() + 45_000
+  while (Date.now() < deadline) {
+    try {
+      const configuration = await gateway.getDeviceConfiguration(lineID)
+      if (
+        configuration.hardware?.volte.policy_known &&
+        !configuration.hardware.volte.restart_required
+      ) {
+        target.data = configuration
+        target.status = 'ready'
+        return true
+      }
+    } catch {
+      // The ModemManager object normally disappears while the modem restarts.
+    }
+    await wait(1000)
+  }
+  target.status = 'error'
+  target.error = '模组重启后未在 45 秒内重新上线'
+  return false
+}
+
 export function setIncomingCallPolicy(
   lineID: string,
   policy: IncomingCallPolicy

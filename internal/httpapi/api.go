@@ -378,20 +378,20 @@ func (api *API) bootstrap(response http.ResponseWriter, request *http.Request) {
 		} else {
 			lines = mergePersistedLineMetadata(status.Lines, lines)
 			capabilities = capabilitiesForLines(status.Lines)
+			capabilities.WebRTCAudio = status.Capabilities.Media && api.callMedia != nil
 		}
 	} else if api.capabilities != nil {
 		capabilities, err = api.capabilities.Capabilities(request.Context())
 		if err != nil {
 			api.logger.Warn("host agent is unavailable", "error", err)
 			capabilities = disconnectedCapabilities()
+		} else {
+			capabilities.WebRTCAudio = capabilities.WebRTCAudio && api.callMedia != nil
 		}
 	} else {
 		capabilities = disconnectedCapabilities()
 	}
 	capabilities = gateCapabilities(capabilities)
-	if capabilities.AgentConnected && api.callMedia != nil {
-		capabilities.WebRTCAudio = true
-	}
 	lineSettings, err := api.repository.LineSettings(request.Context())
 	if err != nil {
 		api.writeInternalError(response, request, "load line settings", err)

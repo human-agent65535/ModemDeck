@@ -721,6 +721,41 @@ func mustManager(
 	return manager
 }
 
+func TestManagerConfiguredRequiresAtLeastOneValidatedBinding(t *testing.T) {
+	t.Parallel()
+
+	var absent *Manager
+	if absent.Configured() {
+		t.Fatal("nil manager reported configured media")
+	}
+
+	empty := mustManager(
+		t,
+		fixedCallSource(Call{}),
+		nil,
+		map[BackendKind]Backend{},
+	)
+	if empty.Configured() {
+		t.Fatal("manager without bindings reported configured media")
+	}
+
+	configured := mustManager(
+		t,
+		fixedCallSource(Call{}),
+		[]Binding{{
+			AudioPort: "audio-1",
+			Backend:   BackendCharPCM,
+			Endpoint:  "/dev/pcm0",
+		}},
+		map[BackendKind]Backend{
+			BackendCharPCM: NewCharPCMBackend(nil),
+		},
+	)
+	if !configured.Configured() {
+		t.Fatal("manager with a validated binding did not report configured media")
+	}
+}
+
 func mustManagerWithOptions(
 	t *testing.T,
 	source CallSource,

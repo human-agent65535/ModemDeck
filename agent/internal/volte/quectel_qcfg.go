@@ -16,11 +16,12 @@ var QDC507GLEFM21Identity = Identity{
 
 func QDC507GLEFM21Profile() Profile {
 	return Profile{
-		ID:               "qdc507glefm21-qcfg-ims",
-		Identity:         QDC507GLEFM21Identity,
-		OperationTimeout: 5 * time.Second,
-		Read:             ATRead(`AT+QCFG="ims"`, decodeQuectelIMS),
-		Write:            ATWrite(encodeQuectelIMS, validateATOK),
+		ID:                   "qdc507glefm21-qcfg-ims",
+		Identity:             QDC507GLEFM21Identity,
+		OperationTimeout:     5 * time.Second,
+		Read:                 ATRead(`AT+QCFG="ims"`, decodeQuectelIMS),
+		Write:                ATWrite(encodeQuectelIMS, validateATOK),
+		ApplyRequiresRestart: true,
 	}
 }
 
@@ -45,17 +46,27 @@ func decodeQuectelIMS(response string) (State, error) {
 			continue
 		}
 
-		policy := PolicyDisabled
-		if capability == 1 {
-			policy = PolicyEnabled
+		state := State{
+			Policy:                 PolicyDisabled,
+			ModemCapabilityKnown:   true,
+			ModemCapabilityEnabled: capability == 1,
 		}
 		switch mode {
+		case 0:
+			state.ConfigurationMode = ConfigurationModeAutomatic
+			if capability == 1 {
+				state.Policy = PolicyEnabled
+			}
 		case 1:
-			policy = PolicyEnabled
+			state.ConfigurationMode = ConfigurationModeForcedEnabled
+			state.Policy = PolicyEnabled
+			state.RestartRequired = capability == 0
 		case 2:
-			policy = PolicyDisabled
+			state.ConfigurationMode = ConfigurationModeForcedDisabled
+			state.Policy = PolicyDisabled
+			state.RestartRequired = capability == 1
 		}
-		return State{Policy: policy}, nil
+		return state, nil
 	}
 	return State{}, fmt.Errorf(`AT+QCFG="ims" response is invalid`)
 }

@@ -419,7 +419,11 @@ function parseDiagnosticAgentCapabilities(value: unknown) {
     send_message: requiredBooleanValue(source, path, 'send_message'),
     sim_management: requiredBooleanValue(source, path, 'sim_management'),
     connection_profiles: requiredBooleanValue(source, path, 'connection_profiles'),
-    ussd: requiredBooleanValue(source, path, 'ussd')
+    ussd: requiredBooleanValue(source, path, 'ussd'),
+    media:
+      source.media === undefined
+        ? false
+        : requiredBooleanValue(source, path, 'media')
   }
 }
 

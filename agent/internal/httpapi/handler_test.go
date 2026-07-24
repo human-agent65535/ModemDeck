@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/agent/internal/domain"
+	"github.com/human-agent65535/modemdeck/agent/internal/media"
 )
 
 type fakeProvider struct {
@@ -124,6 +125,52 @@ func TestHealthReportsCapabilitiesAndBootEpoch(t *testing.T) {
 	}
 	if !response.Provider.Capabilities.Snapshot || !response.Provider.Capabilities.SendDTMF {
 		t.Fatalf("capabilities missing: %+v", response.Provider.Capabilities)
+	}
+}
+
+func TestHealthAdvertisesMediaOnlyWithAConfiguredBinding(t *testing.T) {
+	t.Parallel()
+
+	source := media.CallSourceFunc(func(context.Context, string) (media.Call, error) {
+		return media.Call{}, nil
+	})
+	empty, err := media.NewManager(source, nil, nil, media.Options{})
+	if err != nil {
+		t.Fatalf("NewManager(empty) error = %v", err)
+	}
+	configured, err := media.NewManager(
+		source,
+		[]media.Binding{{
+			AudioPort: "audio-1",
+			Backend:   media.BackendCharPCM,
+			Endpoint:  "/dev/pcm0",
+		}},
+		map[media.BackendKind]media.Backend{
+			media.BackendCharPCM: media.NewCharPCMBackend(nil),
+		},
+		media.Options{},
+	)
+	if err != nil {
+		t.Fatalf("NewManager(configured) error = %v", err)
+	}
+
+	for name, manager := range map[string]*media.Manager{
+		"empty":      empty,
+		"configured": configured,
+	} {
+		t.Run(name, func(t *testing.T) {
+			recorder := performRequest(
+				NewWithMedia(&fakeProvider{}, "test", manager),
+				http.MethodGet,
+				"/v1/health",
+				nil,
+			)
+			var response healthResponse
+			decodeResponse(t, recorder, &response)
+			if response.Provider.Capabilities.Media != (name == "configured") {
+				t.Fatalf("media capability = %v", response.Provider.Capabilities.Media)
+			}
+		})
 	}
 }
 

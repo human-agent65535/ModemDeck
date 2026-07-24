@@ -364,7 +364,8 @@ func validHardwareConfigurationOperation(
 	case agentclient.DeviceConfigurationSetRadioEnabled,
 		agentclient.DeviceConfigurationConnectData,
 		agentclient.DeviceConfigurationDisconnectData,
-		agentclient.DeviceConfigurationSetVoLTEPolicy:
+		agentclient.DeviceConfigurationSetVoLTEPolicy,
+		agentclient.DeviceConfigurationRestartModem:
 		return true
 	default:
 		return false

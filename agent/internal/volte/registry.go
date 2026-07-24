@@ -195,7 +195,14 @@ func (d *profileDriver) Apply(ctx context.Context, policy Policy) (State, error)
 	}
 	state, err := d.profile.Read.read(bounded, run)
 	if err != nil {
-		return State{}, err
+		return State{}, newError(
+			ErrorVerification,
+			operation,
+			d.profile.ID,
+			d.profile.Read.Protocol(),
+			"write completed but read-back failed; resulting policy is unknown",
+			err,
+		)
 	}
 	if !state.Policy.valid() {
 		return State{}, newError(
@@ -217,6 +224,7 @@ func (d *profileDriver) Apply(ctx context.Context, policy Policy) (State, error)
 			nil,
 		)
 	}
+	state.RestartRequired = d.profile.ApplyRequiresRestart
 	return state, nil
 }
 

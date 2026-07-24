@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/human-agent65535/modemdeck/internal/agentclient"
 	"github.com/human-agent65535/modemdeck/internal/communication"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
@@ -227,7 +228,11 @@ func TestBootstrapPreservesConnectedCapabilities(t *testing.T) {
 			"vowifi": "not implemented",
 		},
 	}
-	api, err := New(repository, Options{disableAuthentication: true, Capabilities: fixedCapabilities{value: want}})
+	api, err := New(repository, Options{
+		disableAuthentication: true,
+		Capabilities:          fixedCapabilities{value: want},
+		CallMedia:             &fakeCallMedia{},
+	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -248,6 +253,73 @@ func TestBootstrapPreservesConnectedCapabilities(t *testing.T) {
 	}
 	if body.Capabilities.UnavailableReasons["vowifi"] != "not implemented" {
 		t.Fatalf("unavailable reasons = %+v", body.Capabilities.UnavailableReasons)
+	}
+}
+
+func TestBootstrapRequiresHostMediaCapabilityAndCallMediaService(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name            string
+		hostMedia       bool
+		callMedia       CallMediaService
+		wantWebRTCAudio bool
+	}{
+		{
+			name:            "no host binding",
+			hostMedia:       false,
+			callMedia:       &fakeCallMedia{},
+			wantWebRTCAudio: false,
+		},
+		{
+			name:            "no application media service",
+			hostMedia:       true,
+			callMedia:       nil,
+			wantWebRTCAudio: false,
+		},
+		{
+			name:            "both sides available",
+			hostMedia:       true,
+			callMedia:       &fakeCallMedia{},
+			wantWebRTCAudio: true,
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			api, err := New(
+				&fakeRepository{lines: []store.LineSummary{}},
+				Options{
+					Communications: &fakeCommunications{status: communication.Status{
+						Connected: true,
+						Capabilities: agentclient.Capabilities{
+							Media: test.hostMedia,
+						},
+						Lines: []store.LineSummary{},
+					}},
+					CallMedia:             test.callMedia,
+					disableAuthentication: true,
+				},
+			)
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			response := httptest.NewRecorder()
+			api.ServeHTTP(
+				response,
+				httptest.NewRequest(http.MethodGet, "/api/v1/bootstrap", nil),
+			)
+			var body bootstrapResponse
+			if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decode bootstrap: %v", err)
+			}
+			if body.Capabilities.WebRTCAudio != test.wantWebRTCAudio {
+				t.Fatalf(
+					"WebRTCAudio = %v, want %v",
+					body.Capabilities.WebRTCAudio,
+					test.wantWebRTCAudio,
+				)
+			}
+		})
 	}
 }
 

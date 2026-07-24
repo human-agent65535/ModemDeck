@@ -28,20 +28,33 @@ func (p Policy) valid() bool {
 	return p == PolicyDisabled || p == PolicyEnabled
 }
 
+type ConfigurationMode string
+
+const (
+	ConfigurationModeAutomatic      ConfigurationMode = "automatic"
+	ConfigurationModeForcedEnabled  ConfigurationMode = "forced_enabled"
+	ConfigurationModeForcedDisabled ConfigurationMode = "forced_disabled"
+)
+
 // State is the vendor setting returned by the registered profile. It is not
 // evidence of IMS registration or of the bearer used by an active call.
 type State struct {
-	Policy Policy
+	Policy                 Policy
+	ConfigurationMode      ConfigurationMode
+	ModemCapabilityKnown   bool
+	ModemCapabilityEnabled bool
+	RestartRequired        bool
 }
 
 type Capability struct {
-	Supported     bool
-	ProfileID     string
-	Identity      Identity
-	Readable      bool
-	Writable      bool
-	ReadProtocol  Protocol
-	WriteProtocol Protocol
+	Supported            bool
+	ProfileID            string
+	Identity             Identity
+	Readable             bool
+	Writable             bool
+	ReadProtocol         Protocol
+	WriteProtocol        Protocol
+	ApplyRequiresRestart bool
 }
 
 // Driver exposes a single resolved vendor profile. Apply always verifies the

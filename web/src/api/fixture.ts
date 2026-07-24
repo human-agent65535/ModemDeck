@@ -482,7 +482,16 @@ function fixtureHardware(line: LineSummary, index: number): DeviceHardwareConfig
         : [],
     volte: {
       policy_known: volteAvailable,
-      ...(volteAvailable ? { policy: 'enabled' as const, profile_id: 'fixture-volte-v1' } : {})
+      modem_capability_known: volteAvailable,
+      modem_capability_enabled: volteAvailable,
+      restart_required: false,
+      ...(volteAvailable
+        ? {
+            policy: 'enabled' as const,
+            configuration_mode: 'forced_enabled' as const,
+            profile_id: 'fixture-volte-v1'
+          }
+        : {})
     },
     capabilities: {
       voice: feature('modemmanager', {
@@ -1467,7 +1476,8 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
             send_message: true,
             sim_management: true,
             connection_profiles: true,
-            ussd: true
+            ussd: true,
+            media: false
           }
         },
         call_runtime: { available: true },
@@ -1625,7 +1635,17 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           hardware.volte = {
             ...hardware.volte,
             policy_known: true,
-            policy: input.volte_policy
+            policy: input.volte_policy,
+            configuration_mode:
+              input.volte_policy === 'enabled' ? 'forced_enabled' : 'forced_disabled',
+            restart_required: true
+          }
+          break
+        case 'restart_modem':
+          hardware.volte = {
+            ...hardware.volte,
+            restart_required: false,
+            modem_capability_enabled: hardware.volte.policy === 'enabled'
           }
           break
       }

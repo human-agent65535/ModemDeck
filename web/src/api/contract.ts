@@ -136,6 +136,18 @@ function requiredBoolean(source: JsonRecord, path: string, key: string): boolean
   return source[key]
 }
 
+function optionalBoolean(
+  source: JsonRecord,
+  path: string,
+  key: string,
+  fallback = false
+): boolean {
+  const value = source[key]
+  if (value === undefined) return fallback
+  if (typeof value !== 'boolean') throw new Error(`${path}.${key} 必须是布尔值`)
+  return value
+}
+
 function requiredRevision(source: JsonRecord, path: string): number {
   const revision = Number(source.revision)
   if (!Number.isSafeInteger(revision) || revision < 1) {
@@ -820,6 +832,12 @@ export function createDeviceConfigurationPayload(
         expected_device_revision: expectedRevision,
         volte_policy: input.volte_policy
       }
+    case 'restart_modem':
+      return {
+        request_id: requestID,
+        operation: input.operation,
+        expected_device_revision: expectedRevision
+      }
   }
 }
 
@@ -1031,6 +1049,15 @@ function parseDeviceHardwareConfiguration(value: unknown): DeviceHardwareConfigu
     throw new Error('hardware.data_connections 必须是数组')
   }
   const profileID = optionalString(volte, 'profile_id')
+  const configurationMode = optionalString(volte, 'configuration_mode')
+  if (
+    configurationMode &&
+    configurationMode !== 'automatic' &&
+    configurationMode !== 'forced_enabled' &&
+    configurationMode !== 'forced_disabled'
+  ) {
+    throw new Error(`hardware.volte.configuration_mode 未知：${configurationMode}`)
+  }
   return {
     line_id: requiredString(source, 'hardware', 'line_id'),
     revision: requiredString(source, 'hardware', 'revision'),
@@ -1064,6 +1091,25 @@ function parseDeviceHardwareConfiguration(value: unknown): DeviceHardwareConfigu
     volte: {
       policy_known: requiredBoolean(volte, 'hardware.volte', 'policy_known'),
       ...(policyValue ? { policy: policyValue as 'enabled' | 'disabled' } : {}),
+      ...(configurationMode
+        ? {
+            configuration_mode: configurationMode as
+              | 'automatic'
+              | 'forced_enabled'
+              | 'forced_disabled'
+          }
+        : {}),
+      modem_capability_known: optionalBoolean(
+        volte,
+        'hardware.volte',
+        'modem_capability_known'
+      ),
+      modem_capability_enabled: optionalBoolean(
+        volte,
+        'hardware.volte',
+        'modem_capability_enabled'
+      ),
+      restart_required: optionalBoolean(volte, 'hardware.volte', 'restart_required'),
       ...(profileID ? { profile_id: profileID } : {})
     },
     capabilities: parseDeviceCapabilities(source.capabilities)

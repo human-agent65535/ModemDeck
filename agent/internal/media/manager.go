@@ -686,6 +686,10 @@ func (m *Manager) IsConfigured(audioPort string) bool {
 	return exists && m.backends[binding.Backend] != nil
 }
 
+func (m *Manager) Configured() bool {
+	return m != nil && len(m.bindings) > 0
+}
+
 func (m *Manager) IsActive(callID string) bool {
 	if m == nil {
 		return false
