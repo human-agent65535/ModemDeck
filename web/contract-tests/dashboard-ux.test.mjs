@@ -28,20 +28,44 @@ test('dashboard uses existing network data for a traffic summary and entry point
   assert.match(dashboard, /:to="\{ name: 'traffic' \}"/)
 })
 
-test('dashboard module cards keep the settings card width instead of stretching', () => {
-  const moduleGridBlock =
-    dashboard.match(/\.dashboard-module-grid\s*\{([^}]*)\}/)?.[1] || ''
-  const moduleCardBlock =
+test('dashboard entity grids retain stable desktop columns and card widths', () => {
+  const entityGridBlock =
     dashboard.match(
-      /\.dashboard-module-grid > :deep\(\.module-card\)\s*\{([^}]*)\}/
+      /\.dashboard-module-grid,\s*\.dashboard-detail-list\s*\{([^}]*)\}/
+    )?.[1] || ''
+  const entityCardBlock =
+    dashboard.match(
+      /\.dashboard-module-grid > :deep\(\.module-card\),\s*\.dashboard-detail-list > \.dashboard-contact-row\s*\{([^}]*)\}/
     )?.[1] || ''
 
   assert.match(
-    moduleGridBlock,
-    /grid-template-columns: repeat\(auto-fit, minmax\(320px, 1fr\)\)/
+    entityGridBlock,
+    /grid-template-columns: repeat\(auto-fill, minmax\(320px, 1fr\)\)/
   )
-  assert.match(moduleGridBlock, /justify-content: start/)
-  assert.match(moduleCardBlock, /max-width: 420px/)
+  assert.match(entityGridBlock, /justify-content: start/)
+  assert.match(entityCardBlock, /width: 100%/)
+  assert.match(entityCardBlock, /max-width: 420px/)
+})
+
+test('dashboard summary cards may fill their grid while entity cards fill only narrow screens', () => {
+  const summaryGridBlock =
+    dashboard.match(/\.dashboard-summary-grid\s*\{([^}]*)\}/)?.[1] || ''
+  const narrowMedia =
+    dashboard.match(/@media \(max-width: 640px\) \{([\s\S]*?)\n\}/)?.[1] || ''
+
+  assert.match(
+    summaryGridBlock,
+    /grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/
+  )
+  assert.doesNotMatch(summaryGridBlock, /max-width: 420px/)
+  assert.match(
+    narrowMedia,
+    /\.dashboard-module-grid,\s*\.dashboard-detail-list\s*\{[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/
+  )
+  assert.match(
+    narrowMedia,
+    /\.dashboard-module-grid > :deep\(\.module-card\),\s*\.dashboard-detail-list > \.dashboard-contact-row\s*\{[\s\S]*?max-width: none/
+  )
 })
 
 test('dashboard favorites never substitute recent or alphabetic contacts', () => {

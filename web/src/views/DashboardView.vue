@@ -1122,21 +1122,21 @@ onMounted(loadDashboard)
   white-space: nowrap;
 }
 
-.dashboard-module-grid {
+.dashboard-module-grid,
+.dashboard-detail-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   justify-content: start;
   gap: 12px;
 }
 
-.dashboard-module-grid > :deep(.module-card) {
+.dashboard-module-grid > :deep(.module-card),
+.dashboard-detail-list > .dashboard-contact-row {
   width: 100%;
   max-width: 420px;
 }
 
 .dashboard-detail-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 10px;
 }
 
@@ -1256,6 +1256,11 @@ onMounted(loadDashboard)
   .dashboard-module-grid,
   .dashboard-detail-list {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-module-grid > :deep(.module-card),
+  .dashboard-detail-list > .dashboard-contact-row {
+    max-width: none;
   }
 }
 
