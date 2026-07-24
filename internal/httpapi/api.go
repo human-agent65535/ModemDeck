@@ -175,6 +175,7 @@ type Options struct {
 	Recording             RecordingService
 	Network               NetworkService
 	TelegramSettings      TelegramSettingsService
+	TLSSettings           TLSSettingsService
 	Authenticator         Authenticator
 	AdminUsername         string
 	SecureCookies         bool
@@ -196,6 +197,7 @@ type API struct {
 	recordings           RecordingService
 	network              NetworkService
 	telegram             TelegramSettingsService
+	tlsSettingsService   TLSSettingsService
 	authenticator        Authenticator
 	adminUsername        string
 	secureCookies        bool
@@ -232,6 +234,7 @@ func New(repository Repository, options Options) (*API, error) {
 		recordings:           options.Recording,
 		network:              options.Network,
 		telegram:             options.TelegramSettings,
+		tlsSettingsService:   options.TLSSettings,
 		authenticator:        options.Authenticator,
 		adminUsername:        adminUsername,
 		secureCookies:        options.SecureCookies,
@@ -306,6 +309,8 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.lineSettings(response, request)
 	case "/api/v1/settings/recording":
 		api.recordingSettings(response, request)
+	case "/api/v1/settings/tls":
+		api.tlsSettings(response, request)
 	default:
 		if id, ok := contactResourceID(request.URL.Path); ok {
 			api.contactResource(response, request, id)
