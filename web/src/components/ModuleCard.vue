@@ -19,14 +19,12 @@ const props = withDefaults(
     selected?: boolean
     defaultLine?: boolean
     actions?: boolean
-    compact?: boolean
   }>(),
   {
     device: undefined,
     selected: false,
     defaultLine: false,
-    actions: false,
-    compact: false
+    actions: false
   }
 )
 
@@ -70,10 +68,7 @@ const stateLabel = computed(() => {
 <template>
   <article
     class="module-card"
-    :class="{
-      'is-selected': selected,
-      'is-compact': compact
-    }"
+    :class="{ 'is-selected': selected }"
   >
     <button
       class="module-card__main"
@@ -112,23 +107,23 @@ const stateLabel = computed(() => {
           <dt>信号</dt>
           <dd>{{ signal === null ? '—' : `${signal}%` }}</dd>
         </div>
-        <div v-if="!compact">
+        <div>
           <dt>型号</dt>
           <dd>{{ model }}</dd>
         </div>
-        <div v-if="!compact">
+        <div>
           <dt>固件</dt>
           <dd>{{ firmware || '—' }}</dd>
         </div>
-        <div v-if="!compact" class="is-code">
+        <div class="is-code">
           <dt>IMEI</dt>
           <dd :title="equipmentIdentifier">{{ equipmentIdentifier || '—' }}</dd>
         </div>
-        <div v-if="!compact" class="is-code is-wide">
+        <div class="is-code">
           <dt>ICCID</dt>
           <dd :title="simIdentifier">{{ simIdentifier || '—' }}</dd>
         </div>
-        <div v-if="!compact" class="is-code">
+        <div class="is-code">
           <dt>端口</dt>
           <dd>{{ device?.port || '—' }}</dd>
         </div>
@@ -306,17 +301,14 @@ const stateLabel = computed(() => {
 }
 
 .module-card__facts {
-  padding: 10px;
-  background: var(--surface-subtle);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-}
-
-.module-card__facts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px 14px;
   margin: 0;
+  padding: 10px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 5px;
 }
 
 .module-card__facts div {
@@ -431,11 +423,6 @@ const stateLabel = computed(() => {
   flex: 0 0 34px;
 }
 
-.module-card.is-compact .module-card__main {
-  gap: 9px;
-  padding: 12px;
-}
-
 @media (max-width: 560px) {
   .module-card__status {
     width: 78px;
@@ -462,13 +449,4 @@ const stateLabel = computed(() => {
   }
 }
 
-@container (min-width: 410px) {
-  .module-card__facts {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .module-card__facts .is-wide {
-    grid-column: span 2;
-  }
-}
 </style>

@@ -1201,28 +1201,15 @@ onMounted(() => {
 
 .module-grid {
   display: grid;
-  grid-auto-columns: min(420px, calc(100vw - 46px));
-  grid-auto-flow: column;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 420px));
+  justify-content: start;
   gap: 12px;
   padding: 14px 1px 16px;
-  overflow-x: auto;
-  overscroll-behavior-inline: contain;
-  scrollbar-color: var(--border-strong) transparent;
-  scrollbar-width: thin;
-  scroll-snap-type: inline proximity;
-}
-
-.module-grid::-webkit-scrollbar {
-  height: 6px;
-}
-
-.module-grid::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-  border-radius: 3px;
 }
 
 .module-grid > :deep(.module-card) {
-  scroll-snap-align: start;
+  width: 100%;
+  max-width: 420px;
 }
 
 .module-edit-row {
@@ -2036,6 +2023,14 @@ pre {
 }
 
 @media (max-width: 720px) {
+  .module-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .module-grid > :deep(.module-card) {
+    max-width: none;
+  }
+
   .module-edit-row,
   .line-label-form,
   .data-primary-settings,
