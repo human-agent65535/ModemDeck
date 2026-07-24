@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowLeft,
+  CassetteTape,
   MessageSquareText,
   Phone,
   PhoneIncoming,
@@ -18,6 +19,10 @@ import RecordingList from '../components/RecordingList.vue'
 import SearchField from '../components/SearchField.vue'
 import StatePanel from '../components/StatePanel.vue'
 import { callState } from '../state/call'
+import {
+  loadRecordingEntries,
+  recordingCatalogState
+} from '../state/recording'
 import { openDialer } from '../state/ui'
 import {
   bootstrapResource,
@@ -71,6 +76,17 @@ const filteredCalls = computed(() => {
 })
 const selectedId = computed(() => (typeof route.query.selected === 'string' ? route.query.selected : ''))
 const selected = computed(() => callsResource.data.find(call => call.id === selectedId.value))
+const selectedContact = computed(() =>
+  selected.value ? contactForNumber(selected.value.remote_number) : undefined
+)
+const playableRecordingCallIDs = computed(
+  () =>
+    new Set(
+      recordingCatalogState.data
+        .filter(recording => recording.playable)
+        .map(recording => recording.call_id)
+    )
+)
 const dialUnavailable = computed(() => capabilityReason('dial'))
 const messageUnavailable = computed(() => capabilityReason('message'))
 const lines = computed(() => bootstrapResource.data?.lines || [])
@@ -91,6 +107,10 @@ function iconFor(call: CallRecord) {
 function directionLabel(call: CallRecord): string {
   if (call.missed) return '未接来电'
   return call.direction === 'incoming' ? '呼入' : '呼出'
+}
+
+function hasPlayableRecording(call: CallRecord): boolean {
+  return playableRecordingCallIDs.value.has(call.id)
 }
 
 function lineForCall(call: CallRecord) {
@@ -139,7 +159,13 @@ watch(
 )
 
 onMounted(() => {
-  void Promise.all([loadBootstrap(), loadCalls(), loadContacts(), loadDevices()])
+  void Promise.all([
+    loadBootstrap(),
+    loadCalls(),
+    loadContacts(),
+    loadDevices(),
+    loadRecordingEntries()
+  ])
 })
 </script>
 
@@ -231,6 +257,15 @@ onMounted(() => {
                   :fallback="callLineFallback(call)"
                 />
                 <small>{{ directionLabel(call) }} · {{ call.remote_number }}</small>
+                <span
+                  v-if="hasPlayableRecording(call)"
+                  class="call-list-item__recording"
+                  role="img"
+                  aria-label="有通话录音"
+                  title="有通话录音"
+                >
+                  <CassetteTape :size="15" aria-hidden="true" />
+                </span>
               </span>
             </span>
           </button>
@@ -260,37 +295,39 @@ onMounted(() => {
             <h2>{{ displayName(selected) }}</h2>
             <span>{{ selected.remote_number }}</span>
           </div>
-        </header>
-
-        <div class="call-detail">
-          <div class="call-detail__actions">
+          <div class="detail-header__actions call-detail__header-actions">
             <button
-              class="action-button"
+              class="call-detail__command call-detail__command--primary"
               type="button"
               :disabled="Boolean(dialUnavailable)"
               :title="dialUnavailable || '回拨'"
+              :aria-label="`回拨 ${displayName(selected)}`"
               @click="callBack(selected)"
             >
-              <Phone :size="19" />
+              <Phone :size="17" />
               <span>回拨</span>
             </button>
             <button
-              class="action-button"
+              class="call-detail__command"
               type="button"
               :disabled="Boolean(messageUnavailable)"
               :title="messageUnavailable || '发送消息'"
+              :aria-label="`给 ${displayName(selected)} 发送消息`"
               @click="sendMessage(selected)"
             >
-              <MessageSquareText :size="19" />
+              <MessageSquareText :size="17" />
               <span>消息</span>
             </button>
           </div>
+        </header>
 
-          <ContactNumberActions
-            class="call-detail__contact-actions"
-            :number="selected.remote_number"
-            :contact="contactForNumber(selected.remote_number)"
-          />
+        <div class="call-detail">
+          <div class="call-detail__contact-actions">
+            <ContactNumberActions
+              :number="selected.remote_number"
+              :contact="selectedContact"
+            />
+          </div>
 
           <section class="detail-section detail-facts">
             <h3>通话详情</h3>
@@ -373,7 +410,87 @@ onMounted(() => {
   white-space: nowrap;
 }
 
+.call-list-item__recording {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  place-items: center;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-radius: 50%;
+}
+
+.call-detail__header-actions {
+  gap: 8px;
+}
+
+.call-detail__command {
+  display: inline-flex;
+  min-width: 72px;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 650;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+}
+
+.call-detail__command:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.call-detail__command--primary {
+  color: #ffffff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.call-detail__command--primary:hover:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
 .call-detail__contact-actions {
-  margin: -20px 0 30px;
+  max-width: 760px;
+  margin-bottom: 20px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.call-detail__contact-actions :deep(.secondary-button) {
+  min-height: 32px;
+  padding: 0 4px;
+  color: var(--accent-strong);
+  background: transparent;
+  border: 0;
+}
+
+.call-detail__contact-actions :deep(.secondary-button:hover:not(:disabled)) {
+  background: var(--accent-soft);
+}
+
+@media (max-width: 720px) {
+  .call-detail__header-actions {
+    gap: 4px;
+  }
+
+  .call-detail__command {
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+    min-height: 36px;
+    padding: 0;
+    border-radius: 50%;
+  }
+
+  .call-detail__command span {
+    display: none;
+  }
 }
 </style>
