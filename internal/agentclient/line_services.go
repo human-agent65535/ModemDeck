@@ -8,27 +8,66 @@ import (
 	"time"
 )
 
+type SIMType string
+
+const (
+	SIMTypeUnknown  SIMType = "unknown"
+	SIMTypePhysical SIMType = "physical"
+	SIMTypeESIM     SIMType = "esim"
+)
+
+type ESIMStatus string
+
+const (
+	ESIMStatusUnknown      ESIMStatus = "unknown"
+	ESIMStatusNoProfiles   ESIMStatus = "no_profiles"
+	ESIMStatusWithProfiles ESIMStatus = "with_profiles"
+)
+
+type SIMSlot struct {
+	Index      uint32     `json:"index"`
+	Present    bool       `json:"present"`
+	Current    bool       `json:"current"`
+	SIMType    SIMType    `json:"sim_type"`
+	ESIMStatus ESIMStatus `json:"esim_status"`
+	EIDMasked  string     `json:"eid,omitempty"`
+}
+
+type SIMProfileManagementCapability struct {
+	Supported bool   `json:"supported"`
+	Reason    string `json:"reason"`
+}
+
 type SIMStatus struct {
-	LineID                 string            `json:"line_id"`
-	Present                bool              `json:"present"`
-	Active                 bool              `json:"active"`
-	Identifier             string            `json:"identifier"`
-	IMSI                   string            `json:"imsi"`
-	EID                    string            `json:"eid,omitempty"`
-	HomeOperatorCode       string            `json:"home_operator_code"`
-	HomeOperatorName       string            `json:"home_operator_name"`
-	ServingOperatorCode    string            `json:"serving_operator_code"`
-	ServingOperatorName    string            `json:"serving_operator_name"`
-	RegistrationStateKnown bool              `json:"registration_state_known"`
-	RegistrationStateCode  uint32            `json:"registration_state_code"`
-	RegistrationState      string            `json:"registration_state"`
-	Roaming                bool              `json:"roaming"`
-	OperatorIdentifier     string            `json:"operator_identifier"`
-	OperatorName           string            `json:"operator_name"`
-	UnlockRequired         string            `json:"unlock_required"`
-	UnlockRequiredCode     uint32            `json:"unlock_required_code"`
-	UnlockRetries          map[string]uint32 `json:"unlock_retries"`
-	ObservedAt             time.Time         `json:"observed_at"`
+	LineID                 string                         `json:"line_id"`
+	Present                bool                           `json:"present"`
+	Active                 bool                           `json:"active"`
+	Identifier             string                         `json:"identifier"`
+	IMSI                   string                         `json:"imsi"`
+	SIMType                SIMType                        `json:"sim_type"`
+	ESIMStatus             ESIMStatus                     `json:"esim_status"`
+	EIDMasked              string                         `json:"eid,omitempty"`
+	SIMSlots               []SIMSlot                      `json:"sim_slots"`
+	SIMSlotsKnown          bool                           `json:"sim_slots_known"`
+	PrimarySIMSlot         uint32                         `json:"primary_sim_slot"`
+	PrimarySIMSlotKnown    bool                           `json:"primary_sim_slot_known"`
+	CurrentSIMSlot         uint32                         `json:"current_sim_slot"`
+	CurrentSIMSlotKnown    bool                           `json:"current_sim_slot_known"`
+	ProfileManagement      SIMProfileManagementCapability `json:"profile_management"`
+	HomeOperatorCode       string                         `json:"home_operator_code"`
+	HomeOperatorName       string                         `json:"home_operator_name"`
+	ServingOperatorCode    string                         `json:"serving_operator_code"`
+	ServingOperatorName    string                         `json:"serving_operator_name"`
+	RegistrationStateKnown bool                           `json:"registration_state_known"`
+	RegistrationStateCode  uint32                         `json:"registration_state_code"`
+	RegistrationState      string                         `json:"registration_state"`
+	Roaming                bool                           `json:"roaming"`
+	OperatorIdentifier     string                         `json:"operator_identifier"`
+	OperatorName           string                         `json:"operator_name"`
+	UnlockRequired         string                         `json:"unlock_required"`
+	UnlockRequiredCode     uint32                         `json:"unlock_required_code"`
+	UnlockRetries          map[string]uint32              `json:"unlock_retries"`
+	ObservedAt             time.Time                      `json:"observed_at"`
 }
 
 type SIMOperation string
@@ -123,6 +162,9 @@ func (client *Client) SIMStatus(ctx context.Context, lineID string) (SIMStatus, 
 	}
 	if response.SIM.UnlockRetries == nil {
 		response.SIM.UnlockRetries = map[string]uint32{}
+	}
+	if response.SIM.SIMSlots == nil {
+		response.SIM.SIMSlots = []SIMSlot{}
 	}
 	return response.SIM, nil
 }

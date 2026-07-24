@@ -17,10 +17,17 @@ func (p *Provider) SIMStatus(ctx context.Context, lineID string) (domain.SIMStat
 	}
 	modemProperties := interfaces[modemInterface]
 	status := domain.SIMStatus{
-		LineID:                 line.ID,
-		Present:                line.SIMPresent,
-		Identifier:             line.SIMIdentifier,
-		IMSI:                   line.IMSI,
+		LineID:     line.ID,
+		Present:    line.SIMPresent,
+		Identifier: line.SIMIdentifier,
+		IMSI:       line.IMSI,
+		SIMType:    domain.SIMTypeUnknown,
+		ESIMStatus: domain.ESIMStatusUnknown,
+		SIMSlots:   []domain.SIMSlot{},
+		ProfileManagement: domain.SIMProfileManagementCapability{
+			Supported: false,
+			Reason:    simProfileManagementNotSupportedReason,
+		},
 		HomeOperatorCode:       line.HomeOperatorCode,
 		HomeOperatorName:       line.HomeOperatorName,
 		ServingOperatorCode:    line.ServingOperatorCode,
@@ -37,14 +44,25 @@ func (p *Provider) SIMStatus(ctx context.Context, lineID string) (domain.SIMStat
 	status.UnlockRequiredCode, _ = uint32Property(modemProperties, "UnlockRequired")
 	status.UnlockRequired = modemLockName(status.UnlockRequiredCode)
 	status.UnlockRetries = unlockRetriesProperty(modemProperties)
+	currentSIMPath, _ := objectPathProperty(modemProperties, "Sim")
+	slotFacts := readStandardSIMSlotFacts(modemProperties, objects, currentSIMPath)
+	status.SIMSlots = slotFacts.Slots
+	status.SIMSlotsKnown = slotFacts.SlotsKnown
+	status.PrimarySIMSlot = slotFacts.PrimarySlot
+	status.PrimarySIMSlotKnown = slotFacts.PrimarySlotKnown
+	status.CurrentSIMSlot = slotFacts.CurrentSlot
+	status.CurrentSIMSlotKnown = slotFacts.CurrentSlotKnown
 	if !line.SIMPresent {
 		return status, nil
 	}
-	simPath := dbus.ObjectPath(line.SIMPath)
+	simPath := currentSIMPath
 	simInterfaces := objects[simPath]
 	if simProperties, found := simInterfaces[simInterface]; found {
 		status.Active, _ = boolProperty(simProperties, "Active")
-		status.EID, _ = stringProperty(simProperties, "Eid")
+		facts := readStandardSIMFacts(simProperties)
+		status.SIMType = facts.SIMType
+		status.ESIMStatus = facts.ESIMStatus
+		status.EIDMasked = facts.EIDMasked
 	}
 	return status, nil
 }

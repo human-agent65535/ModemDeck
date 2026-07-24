@@ -2,6 +2,9 @@ package modemmanager
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/godbus/dbus/v5"
@@ -64,6 +67,118 @@ func TestSIMStatusAndPINCommandUseReferencedSIM(t *testing.T) {
 	if invocations[1].Path != testSIMPath || len(invocations[1].Args) != 1 ||
 		invocations[1].Args[0] != "1234" {
 		t.Fatalf("SendPin invocation = %+v", invocations[1])
+	}
+}
+
+func TestSIMStatusExposesStandardESIMFactsWithoutRawIdentifiers(t *testing.T) {
+	t.Parallel()
+	const (
+		rawCurrentEID  = "89049032000000000000000012345678"
+		rawInactiveEID = "89049032000000000000000087654321"
+	)
+	physicalPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/SIM/1")
+	inactiveESIMPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/SIM/2")
+	objects := emptyLineObjects(true, true)
+	objects[testModemPath][modemInterface]["SimSlots"] = dbus.MakeVariant([]dbus.ObjectPath{
+		physicalPath,
+		testSIMPath,
+		inactiveESIMPath,
+		"/",
+	})
+	objects[testModemPath][modemInterface]["PrimarySimSlot"] = dbus.MakeVariant(uint32(2))
+	objects[testSIMPath][simInterface]["Active"] = dbus.MakeVariant(true)
+	objects[testSIMPath][simInterface]["SimType"] = dbus.MakeVariant(uint32(modemManagerSIMTypeESIM))
+	objects[testSIMPath][simInterface]["EsimStatus"] = dbus.MakeVariant(uint32(modemManagerESIMStatusWithProfiles))
+	objects[testSIMPath][simInterface]["Eid"] = dbus.MakeVariant(rawCurrentEID)
+
+	caller := newFakeCaller(objects)
+	caller.externalSIMs[physicalPath] = Properties{
+		"SimType":    dbus.MakeVariant(uint32(modemManagerSIMTypePhysical)),
+		"EsimStatus": dbus.MakeVariant(uint32(modemManagerESIMStatusUnknown)),
+	}
+	caller.externalSIMs[inactiveESIMPath] = Properties{
+		"SimType":    dbus.MakeVariant(uint32(modemManagerSIMTypeESIM)),
+		"EsimStatus": dbus.MakeVariant(uint32(modemManagerESIMStatusNoProfiles)),
+		"Eid":        dbus.MakeVariant(rawInactiveEID),
+	}
+	provider := newTestProvider(caller)
+
+	status, err := provider.SIMStatus(context.Background(), parsedLineID(objects, provider.ids))
+	if err != nil {
+		t.Fatalf("SIMStatus() error = %v", err)
+	}
+	if status.SIMType != domain.SIMTypeESIM ||
+		status.ESIMStatus != domain.ESIMStatusWithProfiles ||
+		status.EIDMasked != "****5678" {
+		t.Fatalf("current eSIM facts = %+v", status)
+	}
+	if !status.SIMSlotsKnown || len(status.SIMSlots) != 4 ||
+		!status.PrimarySIMSlotKnown || status.PrimarySIMSlot != 2 ||
+		!status.CurrentSIMSlotKnown || status.CurrentSIMSlot != 2 {
+		t.Fatalf("slot summary = %+v", status)
+	}
+	if status.SIMSlots[0].SIMType != domain.SIMTypePhysical ||
+		status.SIMSlots[0].ESIMStatus != domain.ESIMStatusUnknown ||
+		status.SIMSlots[0].Current ||
+		!status.SIMSlots[0].Present {
+		t.Fatalf("physical slot = %+v", status.SIMSlots[0])
+	}
+	if !status.SIMSlots[1].Current ||
+		status.SIMSlots[1].EIDMasked != "****5678" ||
+		status.SIMSlots[2].ESIMStatus != domain.ESIMStatusNoProfiles ||
+		status.SIMSlots[2].EIDMasked != "****4321" ||
+		status.SIMSlots[3].Present {
+		t.Fatalf("eSIM slots = %+v", status.SIMSlots)
+	}
+	if status.ProfileManagement.Supported ||
+		status.ProfileManagement.Reason != simProfileManagementNotSupportedReason {
+		t.Fatalf("profile management = %+v", status.ProfileManagement)
+	}
+
+	encoded, err := json.Marshal(status)
+	if err != nil {
+		t.Fatalf("marshal SIM status: %v", err)
+	}
+	logValue := fmt.Sprintf("%+v", status)
+	for _, privateValue := range []string{
+		rawCurrentEID,
+		rawInactiveEID,
+		string(testSIMPath),
+		string(physicalPath),
+		string(inactiveESIMPath),
+	} {
+		if strings.Contains(string(encoded), privateValue) ||
+			strings.Contains(logValue, privateValue) {
+			t.Fatalf("SIM status exposed private value %q: json=%s log=%s", privateValue, encoded, logValue)
+		}
+	}
+	if !strings.Contains(string(encoded), `"eid":"****5678"`) {
+		t.Fatalf("SIM status JSON did not contain the masked EID: %s", encoded)
+	}
+}
+
+func TestSIMStatusPreservesUnknownForMalformedStandardProperties(t *testing.T) {
+	t.Parallel()
+	objects := emptyLineObjects(true, true)
+	objects[testModemPath][modemInterface]["SimSlots"] = dbus.MakeVariant([]string{string(testSIMPath)})
+	objects[testModemPath][modemInterface]["PrimarySimSlot"] = dbus.MakeVariant(int32(1))
+	objects[testSIMPath][simInterface]["SimType"] = dbus.MakeVariant(uint32(99))
+	objects[testSIMPath][simInterface]["EsimStatus"] = dbus.MakeVariant("with_profiles")
+	objects[testSIMPath][simInterface]["Eid"] = dbus.MakeVariant("not-a-valid-eid")
+	provider := newTestProvider(newFakeCaller(objects))
+
+	status, err := provider.SIMStatus(context.Background(), parsedLineID(objects, provider.ids))
+	if err != nil {
+		t.Fatalf("SIMStatus() error = %v", err)
+	}
+	if status.SIMType != domain.SIMTypeUnknown ||
+		status.ESIMStatus != domain.ESIMStatusUnknown ||
+		status.EIDMasked != "" ||
+		status.SIMSlotsKnown ||
+		len(status.SIMSlots) != 0 ||
+		status.PrimarySIMSlotKnown ||
+		status.CurrentSIMSlotKnown {
+		t.Fatalf("malformed standard properties were guessed: %+v", status)
 	}
 }
 

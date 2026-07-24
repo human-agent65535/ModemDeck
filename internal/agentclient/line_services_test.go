@@ -16,7 +16,7 @@ func TestLineServiceContracts(t *testing.T) {
 		response.Header().Set("Content-Type", "application/json")
 		switch {
 		case request.Method == http.MethodGet && request.URL.Path == "/v1/lines/line-1/sim":
-			_, _ = response.Write([]byte(`{"sim":{"line_id":"line-1","present":true,"active":true,"identifier":"8986","imsi":"44051","home_operator_code":"44051","home_operator_name":"KDDI","serving_operator_code":"44010","serving_operator_name":"NTT DOCOMO","registration_state_known":true,"registration_state_code":5,"registration_state":"roaming","roaming":true,"operator_identifier":"44051","operator_name":"KDDI","unlock_required":"none","unlock_required_code":1,"unlock_retries":{"sim-pin":3},"observed_at":"2026-07-23T00:00:00Z"}}`))
+			_, _ = response.Write([]byte(`{"sim":{"line_id":"line-1","present":true,"active":true,"identifier":"8986","imsi":"44051","sim_type":"esim","esim_status":"with_profiles","eid":"****5678","sim_slots":[{"index":1,"present":true,"current":true,"sim_type":"esim","esim_status":"with_profiles","eid":"****5678"}],"sim_slots_known":true,"primary_sim_slot":1,"primary_sim_slot_known":true,"current_sim_slot":1,"current_sim_slot_known":true,"profile_management":{"supported":false,"reason":"ModemManager does not expose eUICC profile management"},"home_operator_code":"44051","home_operator_name":"KDDI","serving_operator_code":"44010","serving_operator_name":"NTT DOCOMO","registration_state_known":true,"registration_state_code":5,"registration_state":"roaming","roaming":true,"operator_identifier":"44051","operator_name":"KDDI","unlock_required":"none","unlock_required_code":1,"unlock_retries":{"sim-pin":3},"observed_at":"2026-07-23T00:00:00Z"}}`))
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/lines/line-1/sim/commands":
 			if err := json.NewDecoder(request.Body).Decode(&simCommand); err != nil {
 				t.Fatalf("decode SIM command: %v", err)
@@ -49,7 +49,12 @@ func TestLineServiceContracts(t *testing.T) {
 	sim, err := client.SIMStatus(context.Background(), "line-1")
 	if err != nil || sim.LineID != "line-1" || sim.UnlockRetries["sim-pin"] != 3 ||
 		sim.HomeOperatorName != "KDDI" || sim.ServingOperatorName != "NTT DOCOMO" ||
-		sim.RegistrationState != "roaming" || !sim.Roaming {
+		sim.RegistrationState != "roaming" || !sim.Roaming ||
+		sim.SIMType != SIMTypeESIM || sim.ESIMStatus != ESIMStatusWithProfiles ||
+		sim.EIDMasked != "****5678" || len(sim.SIMSlots) != 1 ||
+		!sim.PrimarySIMSlotKnown || sim.PrimarySIMSlot != 1 ||
+		!sim.CurrentSIMSlotKnown || sim.CurrentSIMSlot != 1 ||
+		sim.ProfileManagement.Supported {
 		t.Fatalf("SIMStatus() = %+v, %v", sim, err)
 	}
 	receipt, err := client.SIMCommand(context.Background(), "line-1", SIMCommandRequest{

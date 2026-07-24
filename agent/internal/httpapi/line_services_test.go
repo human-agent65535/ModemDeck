@@ -69,9 +69,34 @@ func (service *fakeLineServices) USSDCommand(
 
 func TestLineServiceRoutesForwardTypedRequestsWithoutEchoingSecrets(t *testing.T) {
 	t.Parallel()
+	const rawEID = "89049032000000000000000012345678"
 	lineServices := &fakeLineServices{
-		simStatus: domain.SIMStatus{LineID: "line-1", Present: true, UnlockRequired: "sim-pin"},
-		profiles:  []domain.ConnectionProfile{{ProfileID: 2, ProfileName: "ims", APN: "ims"}},
+		simStatus: domain.SIMStatus{
+			LineID:              "line-1",
+			Present:             true,
+			UnlockRequired:      "sim-pin",
+			SIMType:             domain.SIMTypeESIM,
+			ESIMStatus:          domain.ESIMStatusWithProfiles,
+			EIDMasked:           "****5678",
+			SIMSlotsKnown:       true,
+			PrimarySIMSlot:      1,
+			PrimarySIMSlotKnown: true,
+			CurrentSIMSlot:      1,
+			CurrentSIMSlotKnown: true,
+			SIMSlots: []domain.SIMSlot{{
+				Index:      1,
+				Present:    true,
+				Current:    true,
+				SIMType:    domain.SIMTypeESIM,
+				ESIMStatus: domain.ESIMStatusWithProfiles,
+				EIDMasked:  "****5678",
+			}},
+			ProfileManagement: domain.SIMProfileManagementCapability{
+				Supported: false,
+				Reason:    "ModemManager does not expose eUICC profile management",
+			},
+		},
+		profiles: []domain.ConnectionProfile{{ProfileID: 2, ProfileName: "ims", APN: "ims"}},
 		ussdStatus: domain.USSDStatus{
 			LineID: "line-1",
 			State:  "idle",
@@ -80,8 +105,17 @@ func TestLineServiceRoutesForwardTypedRequestsWithoutEchoingSecrets(t *testing.T
 	handler := NewWithOptions(&fakeProvider{}, "test", Options{LineServices: lineServices})
 
 	sim := performRequest(handler, http.MethodGet, "/v1/lines/line-1/sim", nil)
-	if sim.Code != http.StatusOK || !bytes.Contains(sim.Body.Bytes(), []byte(`"unlock_required":"sim-pin"`)) {
+	if sim.Code != http.StatusOK ||
+		!bytes.Contains(sim.Body.Bytes(), []byte(`"unlock_required":"sim-pin"`)) ||
+		!bytes.Contains(sim.Body.Bytes(), []byte(`"sim_type":"esim"`)) ||
+		!bytes.Contains(sim.Body.Bytes(), []byte(`"esim_status":"with_profiles"`)) ||
+		!bytes.Contains(sim.Body.Bytes(), []byte(`"eid":"****5678"`)) ||
+		!bytes.Contains(sim.Body.Bytes(), []byte(`"profile_management":{"supported":false`)) {
 		t.Fatalf("SIM response = %d %s", sim.Code, sim.Body.String())
+	}
+	if bytes.Contains(sim.Body.Bytes(), []byte(rawEID)) ||
+		bytes.Contains(sim.Body.Bytes(), []byte("/org/freedesktop/ModemManager1/SIM/")) {
+		t.Fatalf("SIM response exposed a raw hardware identifier: %s", sim.Body.String())
 	}
 
 	pin := performRequest(

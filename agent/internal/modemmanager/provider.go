@@ -823,25 +823,35 @@ func (p *Provider) hydrateReferencedSIMs(
 ) (ManagedObjects, error) {
 	paths := make([]dbus.ObjectPath, 0)
 	seen := make(map[dbus.ObjectPath]struct{})
+	addPath := func(path dbus.ObjectPath) {
+		if !validSIMObjectPath(path) {
+			return
+		}
+		if existing, found := objects[path]; found {
+			if _, found := existing[simInterface]; found {
+				return
+			}
+		}
+		if _, duplicate := seen[path]; duplicate {
+			return
+		}
+		seen[path] = struct{}{}
+		paths = append(paths, path)
+	}
 	for _, interfaces := range objects {
 		modemProperties, found := interfaces[modemInterface]
 		if !found {
 			continue
 		}
 		path, present := objectPathProperty(modemProperties, "Sim")
-		if !present || path == "/" {
-			continue
+		if present {
+			addPath(path)
 		}
-		if existing, found := objects[path]; found {
-			if _, found := existing[simInterface]; found {
-				continue
+		if slotPaths, known := objectPathValuesProperty(modemProperties, "SimSlots"); known {
+			for _, slotPath := range slotPaths {
+				addPath(slotPath)
 			}
 		}
-		if _, duplicate := seen[path]; duplicate {
-			continue
-		}
-		seen[path] = struct{}{}
-		paths = append(paths, path)
 	}
 	sort.Slice(paths, func(i, j int) bool {
 		return paths[i] < paths[j]

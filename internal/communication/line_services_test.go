@@ -98,6 +98,10 @@ func TestLineServicesUseLiveLineAndDeduplicateSensitiveCommands(t *testing.T) {
 		simStatus: agentclient.SIMStatus{
 			LineID:        "line-1",
 			Present:       true,
+			SIMType:       agentclient.SIMTypeESIM,
+			ESIMStatus:    agentclient.ESIMStatusWithProfiles,
+			EIDMasked:     "****5678",
+			SIMSlots:      []agentclient.SIMSlot{},
 			UnlockRetries: map[string]uint32{"sim-pin": 3},
 			ObservedAt:    observedAt,
 		},
@@ -120,8 +124,15 @@ func TestLineServicesUseLiveLineAndDeduplicateSensitiveCommands(t *testing.T) {
 	}
 
 	status, err := service.SIMStatus(context.Background(), "line-1")
-	if err != nil || status.UnlockRetries["sim-pin"] != 3 {
+	if err != nil || status.UnlockRetries["sim-pin"] != 3 ||
+		status.EIDMasked != "****5678" {
 		t.Fatalf("SIMStatus() = %+v, %v", status, err)
+	}
+	if repository.snapshot.ObservedAt != (time.Time{}) ||
+		repository.messageInput.LineID != "" ||
+		repository.callInput.LineID != "" ||
+		repository.commands != nil {
+		t.Fatalf("read-only SIM facts were persisted: %+v", repository)
 	}
 	firstReceipt, err := service.SIMCommand(
 		context.Background(),

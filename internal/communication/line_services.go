@@ -65,6 +65,9 @@ func (s *Service) SIMStatus(
 	if status.UnlockRetries == nil {
 		status.UnlockRetries = map[string]uint32{}
 	}
+	if status.SIMSlots == nil {
+		status.SIMSlots = []agentclient.SIMSlot{}
+	}
 	return status, nil
 }
 

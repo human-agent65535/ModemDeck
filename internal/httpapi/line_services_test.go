@@ -8,12 +8,14 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
 	"github.com/human-agent65535/modemdeck/internal/diagnostics"
+	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
 type fakeLineServices struct {
@@ -88,11 +90,32 @@ func (service *fakeLineServices) USSDCommand(
 }
 
 func TestLineServiceRoutesExposeTypedOperationsWithoutLoggingSecrets(t *testing.T) {
+	const rawEID = "89049032000000000000000012345678"
 	observedAt := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
 	service := &fakeLineServices{
 		simStatus: agentclient.SIMStatus{
-			LineID:     "line-1",
-			Present:    true,
+			LineID:              "line-1",
+			Present:             true,
+			SIMType:             agentclient.SIMTypeESIM,
+			ESIMStatus:          agentclient.ESIMStatusWithProfiles,
+			EIDMasked:           "****5678",
+			SIMSlotsKnown:       true,
+			PrimarySIMSlot:      1,
+			PrimarySIMSlotKnown: true,
+			CurrentSIMSlot:      1,
+			CurrentSIMSlotKnown: true,
+			SIMSlots: []agentclient.SIMSlot{{
+				Index:      1,
+				Present:    true,
+				Current:    true,
+				SIMType:    agentclient.SIMTypeESIM,
+				ESIMStatus: agentclient.ESIMStatusWithProfiles,
+				EIDMasked:  "****5678",
+			}},
+			ProfileManagement: agentclient.SIMProfileManagementCapability{
+				Supported: false,
+				Reason:    "ModemManager does not expose eUICC profile management",
+			},
 			ObservedAt: observedAt,
 		},
 		profiles: []agentclient.ConnectionProfile{{
@@ -107,7 +130,8 @@ func TestLineServiceRoutesExposeTypedOperationsWithoutLoggingSecrets(t *testing.
 		},
 	}
 	buffer := diagnostics.NewLogBuffer(32)
-	api, err := New(&fakeRepository{}, Options{
+	repository := &fakeRepository{}
+	api, err := New(repository, Options{
 		LineServices:          service,
 		Logger:                slog.New(buffer.Handler(slog.NewTextHandler(io.Discard, nil))),
 		disableAuthentication: true,
@@ -116,7 +140,24 @@ func TestLineServiceRoutesExposeTypedOperationsWithoutLoggingSecrets(t *testing.
 		t.Fatalf("New() error = %v", err)
 	}
 
-	assertRequestStatus(t, api, http.MethodGet, "/api/v1/devices/line-1/sim", "", http.StatusOK)
+	simRequest := httptest.NewRequest(http.MethodGet, "/api/v1/devices/line-1/sim", nil)
+	simResponse := httptest.NewRecorder()
+	api.ServeHTTP(simResponse, simRequest)
+	if simResponse.Code != http.StatusOK ||
+		!bytes.Contains(simResponse.Body.Bytes(), []byte(`"sim_type":"esim"`)) ||
+		!bytes.Contains(simResponse.Body.Bytes(), []byte(`"eid":"****5678"`)) ||
+		!bytes.Contains(simResponse.Body.Bytes(), []byte(`"profile_management":{"supported":false`)) {
+		t.Fatalf("SIM response = %d %s", simResponse.Code, simResponse.Body.String())
+	}
+	if bytes.Contains(simResponse.Body.Bytes(), []byte(rawEID)) ||
+		bytes.Contains(simResponse.Body.Bytes(), []byte("/org/freedesktop/ModemManager1/SIM/")) {
+		t.Fatalf("SIM response exposed a raw hardware identifier: %s", simResponse.Body.String())
+	}
+	if repository.updateLineICCID != "" || repository.messageReadICCID != "" ||
+		!reflect.DeepEqual(repository.createContactInput, store.ContactInput{}) ||
+		!reflect.DeepEqual(repository.recordingQuery, store.RecordingQuery{}) {
+		t.Fatalf("read-only SIM facts reached the application store: %+v", repository)
+	}
 	assertRequestStatus(
 		t,
 		api,
@@ -157,7 +198,7 @@ func TestLineServiceRoutesExposeTypedOperationsWithoutLoggingSecrets(t *testing.
 	if err != nil {
 		t.Fatalf("marshal logs: %v", err)
 	}
-	for _, secret := range []string{"1234", "profile-secret", "*123#"} {
+	for _, secret := range []string{"1234", "profile-secret", "*123#", rawEID} {
 		if bytes.Contains(encoded, []byte(secret)) {
 			t.Fatalf("diagnostic logs contain secret %q: %s", secret, encoded)
 		}
