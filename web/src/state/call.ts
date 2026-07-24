@@ -154,6 +154,11 @@ export function initializeCallRuntime(router?: Router): void {
   schedulePoll(0)
 }
 
+export function requestActiveCallRefresh(): void {
+  if (!runtimeStarted) return
+  schedulePoll(0)
+}
+
 export function shutdownCallRuntime(): void {
   runtimeStarted = false
   activeRouter = undefined

@@ -26,6 +26,10 @@ import {
   initializeMessageRuntime,
   shutdownMessageRuntime
 } from '../state/messageRuntime'
+import {
+  initializeRuntimeEvents,
+  shutdownRuntimeEvents
+} from '../state/runtimeEvents'
 import { sessionState } from '../state/session'
 import { openDialer } from '../state/ui'
 import {
@@ -86,6 +90,7 @@ onMounted(() => {
   initializeBrowserNotifications()
   initializeCallRuntime(router)
   initializeMessageRuntime(router)
+  initializeRuntimeEvents()
   void bootstrap()
   void loadContacts()
   dialerMediaQuery = window.matchMedia('(min-width: 1101px)')
@@ -95,6 +100,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   dialerMediaQuery?.removeEventListener('change', syncDialerMode)
+  shutdownRuntimeEvents()
   shutdownMessageRuntime()
   shutdownCallRuntime()
   shutdownBrowserNotifications()

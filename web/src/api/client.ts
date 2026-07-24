@@ -112,6 +112,9 @@ import type {
   RecordingEntry,
   RecordingSettings,
   RenameDeviceInput,
+  RuntimeEvent,
+  RuntimeEventStreamHandlers,
+  RuntimeResource,
   SaveConnectionProfileInput,
   SendMessageInput,
   SessionResponse,
@@ -512,6 +515,36 @@ function parseIncomingMessageEvent(value: unknown): IncomingMessageEvent {
     peer: requiredStringValue(source, 'incoming_message_event', 'peer'),
     content: stringValue(source, 'content'),
     timestamp: requiredStringValue(source, 'incoming_message_event', 'timestamp')
+  }
+}
+
+const RUNTIME_RESOURCES = new Set<RuntimeResource>(['lines', 'network', 'calls'])
+
+function parseRuntimeEvent(value: unknown): RuntimeEvent {
+  const source = requiredRecord(value, 'runtime_event')
+  if (!Array.isArray(source.resources) || source.resources.length === 0) {
+    throw new ApiError('runtime_event.resources 必须是非空数组', 0, 'invalid_response')
+  }
+  const resources: RuntimeResource[] = []
+  for (const [index, value] of source.resources.entries()) {
+    if (typeof value !== 'string' || !RUNTIME_RESOURCES.has(value as RuntimeResource)) {
+      throw new ApiError(
+        `runtime_event.resources[${index}] 是未知资源`,
+        0,
+        'invalid_response'
+      )
+    }
+    const resource = value as RuntimeResource
+    if (!resources.includes(resource)) resources.push(resource)
+  }
+  const observedAt = requiredStringValue(source, 'runtime_event', 'observed_at')
+  if (Number.isNaN(Date.parse(observedAt))) {
+    throw new ApiError('runtime_event.observed_at 必须是有效时间', 0, 'invalid_response')
+  }
+  return {
+    id: numberValue(source, 'runtime_event', 'id'),
+    resources,
+    observed_at: observedAt
   }
 }
 
@@ -956,6 +989,55 @@ const realGateway: ConfiguredModemDeckGateway = {
       } catch (error) {
         close()
         handlers.onError(error instanceof Error ? error : new Error('短信事件重置状态无效'))
+      }
+    })
+    source.onerror = () => {
+      if (!closed) handlers.onError()
+    }
+    return close
+  },
+
+  subscribeRuntimeEvents(handlers: RuntimeEventStreamHandlers): () => void {
+    const source = new EventSource(`${API_ROOT}/runtime/events`, { withCredentials: true })
+    let closed = false
+    const close = () => {
+      if (closed) return
+      closed = true
+      source.close()
+    }
+    source.onopen = () => {
+      if (!closed) handlers.onOpen()
+    }
+    source.addEventListener('runtime', event => {
+      if (closed) return
+      try {
+        handlers.onEvent(parseRuntimeEvent(JSON.parse(event.data) as unknown))
+      } catch (error) {
+        close()
+        handlers.onError(error instanceof Error ? error : new Error('运行时事件格式无效'))
+      }
+    })
+    source.addEventListener('ready', event => {
+      if (closed) return
+      try {
+        const ready = requiredRecord(JSON.parse(event.data) as unknown, 'runtime_event_ready')
+        handlers.onReady(numberValue(ready, 'runtime_event_ready', 'newest_id'))
+      } catch (error) {
+        close()
+        handlers.onError(error instanceof Error ? error : new Error('运行时事件就绪状态无效'))
+      }
+    })
+    source.addEventListener('reset', event => {
+      if (closed) return
+      try {
+        const reset = requiredRecord(JSON.parse(event.data) as unknown, 'runtime_event_reset')
+        handlers.onReset(
+          numberValue(reset, 'runtime_event_reset', 'oldest_id'),
+          numberValue(reset, 'runtime_event_reset', 'newest_id')
+        )
+      } catch (error) {
+        close()
+        handlers.onError(error instanceof Error ? error : new Error('运行时事件重置状态无效'))
       }
     })
     source.onerror = () => {

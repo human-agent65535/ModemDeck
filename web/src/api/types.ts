@@ -400,6 +400,22 @@ export type MessageEventStreamHandlers = {
   onError: (error?: Error) => void
 }
 
+export type RuntimeResource = 'lines' | 'network' | 'calls'
+
+export type RuntimeEvent = {
+  id: number
+  resources: RuntimeResource[]
+  observed_at: string
+}
+
+export type RuntimeEventStreamHandlers = {
+  onOpen: () => void
+  onReady: (newestID: number) => void
+  onEvent: (event: RuntimeEvent) => void
+  onReset: (oldestID: number, newestID: number) => void
+  onError: (error?: Error) => void
+}
+
 export type MessageReadInput = {
   iccid: string
   peer: string

@@ -5,12 +5,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/human-agent65535/modemdeck/internal/messageevents"
+	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 )
 
-func (api *API) messageEventStream(response http.ResponseWriter, request *http.Request) {
-	if api.messageEvents == nil {
-		writeError(response, http.StatusServiceUnavailable, "message_events_unavailable", "Message events are unavailable", "")
+func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.Request) {
+	if api.runtimeEvents == nil {
+		writeError(response, http.StatusServiceUnavailable, "runtime_events_unavailable", "Runtime events are unavailable", "")
 		return
 	}
 	after, replay, ok := eventCursor(response, request)
@@ -23,13 +23,13 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 		return
 	}
 
-	var window messageevents.Window
-	var updates <-chan messageevents.IncomingSMS
+	var window runtimeevents.Window
+	var updates <-chan runtimeevents.Event
 	var cancel func()
 	if replay {
-		window, updates, cancel = api.messageEvents.Subscribe(after)
+		window, updates, cancel = api.runtimeEvents.Subscribe(after)
 	} else {
-		window, updates, cancel = api.messageEvents.SubscribeCurrent()
+		window, updates, cancel = api.runtimeEvents.SubscribeCurrent()
 	}
 	defer cancel()
 
@@ -50,7 +50,7 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 		return
 	}
 	for _, event := range window.Events {
-		if !writeSSE(response, flusher, "sms", event.ID, event) {
+		if !writeSSE(response, flusher, "runtime", event.ID, event) {
 			return
 		}
 	}
@@ -67,7 +67,7 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 		case <-request.Context().Done():
 			return
 		case event, open := <-updates:
-			if !open || !writeSSE(response, flusher, "sms", event.ID, event) {
+			if !open || !writeSSE(response, flusher, "runtime", event.ID, event) {
 				return
 			}
 		case <-heartbeat.C:

@@ -39,6 +39,7 @@ import type {
   RecordingEntry,
   RecordingSettings,
   RenameDeviceInput,
+  RuntimeEventStreamHandlers,
   SaveConnectionProfileInput,
   SendMessageInput,
   SIMCommandInput,
@@ -1089,6 +1090,10 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     },
 
     subscribeMessageEvents(_handlers: MessageEventStreamHandlers): () => void {
+      return () => undefined
+    },
+
+    subscribeRuntimeEvents(_handlers: RuntimeEventStreamHandlers): () => void {
       return () => undefined
     },
 

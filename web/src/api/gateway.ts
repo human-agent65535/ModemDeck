@@ -36,6 +36,7 @@ import type {
   RecordingEntry,
   RecordingSettings,
   RenameDeviceInput,
+  RuntimeEventStreamHandlers,
   SaveConnectionProfileInput,
   SendMessageInput,
   SessionResponse,
@@ -85,6 +86,7 @@ export interface ModemDeckGateway {
   listThreads(query?: ListQuery): Promise<MessageThread[]>
   listMessages(query: MessageQuery): Promise<Message[]>
   subscribeMessageEvents(handlers: MessageEventStreamHandlers): () => void
+  subscribeRuntimeEvents(handlers: RuntimeEventStreamHandlers): () => void
   markThreadRead(input: MessageReadInput): Promise<void>
   listCalls(filter?: CallFilter, query?: ListQuery): Promise<CallRecord[]>
   listDevices(): Promise<Device[]>

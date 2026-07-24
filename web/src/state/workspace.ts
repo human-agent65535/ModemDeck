@@ -62,6 +62,7 @@ let threadsLoad: Promise<MessageThread[] | null> | undefined
 let threadsRefresh: Promise<MessageThread[] | null> | undefined
 let bootstrapRefresh: Promise<BootstrapResponse | null> | undefined
 let devicesRefresh: Promise<Device[] | null> | undefined
+let callsRefreshRequest: Promise<CallRecord[] | null> | undefined
 const messageLoads = new Map<string, Promise<Message[] | null>>()
 const messageRefreshes = new Map<string, Promise<Message[] | null>>()
 const arrivalTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -210,6 +211,14 @@ export function loadCalls(force = false, filter: CallFilter = 'all'): Promise<Ca
     return Promise.resolve(callsResource.data)
   }
   return load(callsResource, () => gateway.listCalls(filter))
+}
+
+export function refreshCalls(): Promise<CallRecord[] | null> {
+  if (callsRefreshRequest) return callsRefreshRequest
+  callsRefreshRequest = refreshResource(callsResource, () => gateway.listCalls('all')).finally(() => {
+    callsRefreshRequest = undefined
+  })
+  return callsRefreshRequest
 }
 
 export function loadDevices(force = false): Promise<Device[] | null> {
