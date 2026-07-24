@@ -204,18 +204,19 @@ func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 		device.UpdatedAt = stringValue(updatedAt)
 		if stringValue(simICCID) != "" {
 			device.SIM = &SIMCard{
-				ICCID:         stringValue(simICCID),
-				IMSI:          stringValue(simIMSI),
-				PhoneNumber:   stringValue(phoneNumber),
-				Operator:      stringValue(operator),
-				CurrentIMEI:   stringValue(currentIMEI),
-				RegStatus:     intValue(regStatus),
-				RegStatusText: stringValue(regStatusText),
-				LAC:           stringValue(lac),
-				CellID:        stringValue(cellID),
-				APN:           stringValue(apn),
-				IMSStatus:     intValue(imsStatus),
-				LastSeen:      stringValue(simLastSeen),
+				ICCID:            stringValue(simICCID),
+				IMSI:             stringValue(simIMSI),
+				PhoneNumber:      stringValue(phoneNumber),
+				Operator:         stringValue(operator),
+				HomeOperatorName: stringValue(operator),
+				CurrentIMEI:      stringValue(currentIMEI),
+				RegStatus:        intValue(regStatus),
+				RegStatusText:    stringValue(regStatusText),
+				LAC:              stringValue(lac),
+				CellID:           stringValue(cellID),
+				APN:              stringValue(apn),
+				IMSStatus:        intValue(imsStatus),
+				LastSeen:         stringValue(simLastSeen),
 			}
 		}
 		devices = append(devices, device)
@@ -292,6 +293,7 @@ func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
 		line.IMSI = stringValue(imsi)
 		line.PhoneNumber = stringValue(phone)
 		line.Operator = stringValue(operator)
+		line.HomeOperatorName = line.Operator
 		line.DeviceIMEI = stringValue(deviceIMEI)
 		line.DeviceAlias = stringValue(deviceAlias)
 		lines = append(lines, line)

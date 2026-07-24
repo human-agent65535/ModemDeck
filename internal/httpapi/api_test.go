@@ -32,6 +32,7 @@ type fakeRepository struct {
 	recordingQuery     store.RecordingQuery
 	recordingEntries   []store.RecordingEntry
 	recordingError     error
+	devices            []store.Device
 	lines              []store.LineSummary
 	updateLineICCID    string
 	updateLineLabel    string
@@ -96,7 +97,7 @@ func (repository *fakeRepository) RecordingEntries(
 }
 
 func (repository *fakeRepository) Devices(context.Context) ([]store.Device, error) {
-	return []store.Device{}, nil
+	return repository.devices, nil
 }
 
 func (repository *fakeRepository) CreateDevice(
@@ -383,6 +384,75 @@ func TestBootstrapMergesPersistedIdentityIntoLiveLines(t *testing.T) {
 	}
 	if line.Operator != "46001" {
 		t.Fatalf("operator = %q, want live value to remain authoritative", line.Operator)
+	}
+}
+
+func TestDevicesExposeLiveServingNetworkWithoutReplacingHomeOperator(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeRepository{devices: []store.Device{{
+		IMEI:         "867530900000099",
+		CurrentICCID: "89840400000000000099",
+		SIM: &store.SIMCard{
+			ICCID:            "89840400000000000099",
+			IMSI:             "452040000000001",
+			Operator:         "Viettel Mobile",
+			HomeOperatorName: "Viettel Mobile",
+		},
+	}}}
+	communications := &fakeCommunications{status: communication.Status{
+		Connected: true,
+		Lines: []store.LineSummary{{
+			ID:                     "line-roaming",
+			ICCID:                  "89840400000000000099",
+			DeviceIMEI:             "867530900000099",
+			Operator:               "Viettel Mobile",
+			HomeOperatorCode:       "45204",
+			HomeOperatorName:       "Viettel Mobile",
+			ServingOperatorCode:    "44010",
+			ServingOperatorName:    "NTT DOCOMO",
+			RegistrationStateKnown: true,
+			RegistrationStateCode:  5,
+			RegistrationState:      "roaming",
+			Roaming:                true,
+		}},
+	}}
+	api, err := New(repository, Options{
+		Communications:        communications,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", response.Code, response.Body.String())
+	}
+	var body devicesResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode devices: %v", err)
+	}
+	if len(body.Devices) != 1 || body.Devices[0].SIM == nil {
+		t.Fatalf("devices = %+v, want one SIM-backed device", body.Devices)
+	}
+	sim := body.Devices[0].SIM
+	if sim.Operator != "Viettel Mobile" ||
+		sim.HomeOperatorCode != "45204" ||
+		sim.HomeOperatorName != "Viettel Mobile" ||
+		sim.ServingOperatorCode != "44010" ||
+		sim.ServingOperatorName != "NTT DOCOMO" ||
+		!sim.RegistrationStateKnown ||
+		sim.RegistrationStateCode != 5 ||
+		sim.RegistrationState != "roaming" ||
+		sim.RegStatus != 5 ||
+		sim.RegStatusText != "roaming" ||
+		!sim.Roaming {
+		t.Fatalf("SIM network state = %+v", sim)
+	}
+	if repository.devices[0].SIM.ServingOperatorName != "" {
+		t.Fatalf("repository-owned SIM was mutated: %+v", repository.devices[0].SIM)
 	}
 }
 

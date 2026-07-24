@@ -657,6 +657,45 @@ func TestProjectLinePreservesDetectedInterfaces(t *testing.T) {
 	}
 }
 
+func TestProjectLineSeparatesHomeAndServingOperators(t *testing.T) {
+	t.Parallel()
+
+	projected := projectLine(agentclient.Line{
+		ID:                     "line-roaming",
+		SIMIdentifier:          "89840400000000000099",
+		IMSI:                   "452040000000001",
+		HomeOperatorCode:       "45204",
+		HomeOperatorName:       "Viettel Mobile",
+		ServingOperatorCode:    "44010",
+		ServingOperatorName:    "NTT DOCOMO",
+		RegistrationStateKnown: true,
+		RegistrationStateCode:  5,
+		RegistrationState:      "roaming",
+		Roaming:                true,
+	})
+	if projected.Operator != "Viettel Mobile" ||
+		projected.HomeOperatorCode != "45204" ||
+		projected.HomeOperatorName != "Viettel Mobile" ||
+		projected.ServingOperatorCode != "44010" ||
+		projected.ServingOperatorName != "NTT DOCOMO" ||
+		!projected.RegistrationStateKnown ||
+		projected.RegistrationStateCode != 5 ||
+		projected.RegistrationState != "roaming" ||
+		!projected.Roaming {
+		t.Fatalf("projected roaming line = %+v", projected)
+	}
+
+	legacy := projectLine(agentclient.Line{
+		OperatorIdentifier: "46001",
+		OperatorName:       "China Unicom",
+	})
+	if legacy.Operator != "China Unicom" ||
+		legacy.HomeOperatorCode != "46001" ||
+		legacy.HomeOperatorName != "China Unicom" {
+		t.Fatalf("legacy home operator projection = %+v", legacy)
+	}
+}
+
 func TestDNDRejectsNewRingingIncomingCallOnceAndRecordsOutcome(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.July, 23, 16, 0, 0, 0, time.UTC)

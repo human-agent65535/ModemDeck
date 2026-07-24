@@ -17,14 +17,22 @@ func (p *Provider) SIMStatus(ctx context.Context, lineID string) (domain.SIMStat
 	}
 	modemProperties := interfaces[modemInterface]
 	status := domain.SIMStatus{
-		LineID:             line.ID,
-		Present:            line.SIMPresent,
-		Identifier:         line.SIMIdentifier,
-		IMSI:               line.IMSI,
-		OperatorIdentifier: line.OperatorIdentifier,
-		OperatorName:       line.OperatorName,
-		UnlockRetries:      map[string]uint32{},
-		ObservedAt:         p.now().UTC(),
+		LineID:                 line.ID,
+		Present:                line.SIMPresent,
+		Identifier:             line.SIMIdentifier,
+		IMSI:                   line.IMSI,
+		HomeOperatorCode:       line.HomeOperatorCode,
+		HomeOperatorName:       line.HomeOperatorName,
+		ServingOperatorCode:    line.ServingOperatorCode,
+		ServingOperatorName:    line.ServingOperatorName,
+		RegistrationStateKnown: line.RegistrationStateKnown,
+		RegistrationStateCode:  line.RegistrationStateCode,
+		RegistrationState:      line.RegistrationState,
+		Roaming:                line.Roaming,
+		OperatorIdentifier:     line.OperatorIdentifier,
+		OperatorName:           line.OperatorName,
+		UnlockRetries:          map[string]uint32{},
+		ObservedAt:             p.now().UTC(),
 	}
 	status.UnlockRequiredCode, _ = uint32Property(modemProperties, "UnlockRequired")
 	status.UnlockRequired = modemLockName(status.UnlockRequiredCode)

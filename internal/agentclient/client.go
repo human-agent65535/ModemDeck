@@ -105,6 +105,14 @@ type Line struct {
 	SIMPath                  string           `json:"sim_path"`
 	SIMIdentifier            string           `json:"sim_identifier"`
 	IMSI                     string           `json:"imsi"`
+	HomeOperatorCode         string           `json:"home_operator_code"`
+	HomeOperatorName         string           `json:"home_operator_name"`
+	ServingOperatorCode      string           `json:"serving_operator_code"`
+	ServingOperatorName      string           `json:"serving_operator_name"`
+	RegistrationStateKnown   bool             `json:"registration_state_known"`
+	RegistrationStateCode    uint32           `json:"registration_state_code"`
+	RegistrationState        string           `json:"registration_state"`
+	Roaming                  bool             `json:"roaming"`
 	OperatorIdentifier       string           `json:"operator_identifier"`
 	OperatorName             string           `json:"operator_name"`
 	EmergencyNumbers         []string         `json:"emergency_numbers"`

@@ -450,6 +450,15 @@ func mergePersistedLineMetadata(
 			if line.Operator == "" {
 				line.Operator = persisted.Operator
 			}
+			if line.HomeOperatorCode == "" {
+				line.HomeOperatorCode = persisted.HomeOperatorCode
+			}
+			if line.HomeOperatorName == "" {
+				line.HomeOperatorName = persisted.HomeOperatorName
+			}
+			if line.HomeOperatorName == "" {
+				line.HomeOperatorName = line.Operator
+			}
 			if line.DeviceIMEI == "" {
 				line.DeviceIMEI = persisted.DeviceIMEI
 			}
@@ -708,9 +717,66 @@ func (api *API) devices(response http.ResponseWriter, request *http.Request) {
 		api.writeInternalError(response, request, "list devices", err)
 		return
 	}
+	if api.communications != nil {
+		status, statusErr := api.communications.Status(request.Context())
+		if statusErr != nil {
+			api.logger.Warn("live device network state is unavailable", "error", statusErr)
+		} else if status.Connected {
+			devices = mergeLiveDeviceNetwork(devices, status.Lines)
+		}
+	}
 	writeJSON(response, http.StatusOK, devicesResponse{
 		Devices: devices,
 	})
+}
+
+func mergeLiveDeviceNetwork(
+	devices []store.Device,
+	lines []store.LineSummary,
+) []store.Device {
+	byIMEI := make(map[string]store.LineSummary, len(lines))
+	byICCID := make(map[string]store.LineSummary, len(lines))
+	for _, line := range lines {
+		if imei := strings.TrimSpace(line.DeviceIMEI); imei != "" {
+			byIMEI[imei] = line
+		}
+		if iccid := strings.TrimSpace(line.ICCID); iccid != "" {
+			byICCID[iccid] = line
+		}
+	}
+
+	merged := append([]store.Device(nil), devices...)
+	for index, device := range merged {
+		line, found := byIMEI[strings.TrimSpace(device.IMEI)]
+		if !found {
+			line, found = byICCID[strings.TrimSpace(device.CurrentICCID)]
+		}
+		if !found || device.SIM == nil {
+			continue
+		}
+		sim := *device.SIM
+		sim.HomeOperatorCode = line.HomeOperatorCode
+		sim.HomeOperatorName = line.HomeOperatorName
+		if sim.HomeOperatorName == "" {
+			sim.HomeOperatorName = sim.Operator
+		}
+		if sim.Operator == "" {
+			sim.Operator = sim.HomeOperatorName
+		}
+		sim.ServingOperatorCode = line.ServingOperatorCode
+		sim.ServingOperatorName = line.ServingOperatorName
+		sim.RegistrationStateKnown = line.RegistrationStateKnown
+		sim.RegistrationStateCode = line.RegistrationStateCode
+		sim.RegistrationState = line.RegistrationState
+		sim.Roaming = line.Roaming
+		if line.RegistrationStateKnown {
+			sim.RegStatus = int64(line.RegistrationStateCode)
+			sim.RegStatusText = line.RegistrationState
+		}
+		device.SIM = &sim
+		merged[index] = device
+	}
+	return merged
 }
 
 func (api *API) writeInternalError(response http.ResponseWriter, request *http.Request, operation string, err error) {

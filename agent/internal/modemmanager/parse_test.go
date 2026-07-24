@@ -46,6 +46,11 @@ func TestParseManagedObjectsMapsLineCallsAndMessages(t *testing.T) {
 					"rsrq": dbus.MakeVariant(float64(-9.5)),
 				}),
 			},
+			modem3GPPInterface: {
+				"OperatorCode":      dbus.MakeVariant("44010"),
+				"OperatorName":      dbus.MakeVariant("NTT DOCOMO"),
+				"RegistrationState": dbus.MakeVariant(uint32(5)),
+			},
 			voiceInterface: {
 				"Calls": dbus.MakeVariant([]dbus.ObjectPath{
 					incomingCallPath,
@@ -142,6 +147,12 @@ func TestParseManagedObjectsMapsLineCallsAndMessages(t *testing.T) {
 	if !line.SIMPresent || line.SIMIdentifier != "8986012345678901234" ||
 		line.OperatorIdentifier != "44051" || line.OperatorName != "KDDI" {
 		t.Fatalf("unexpected SIM mapping: %+v", line)
+	}
+	if line.HomeOperatorCode != "44051" || line.HomeOperatorName != "KDDI" ||
+		line.ServingOperatorCode != "44010" || line.ServingOperatorName != "NTT DOCOMO" ||
+		!line.RegistrationStateKnown || line.RegistrationStateCode != 5 ||
+		line.RegistrationState != "roaming" || !line.Roaming {
+		t.Fatalf("unexpected network registration mapping: %+v", line)
 	}
 	if !line.Capabilities.Dial || !line.Capabilities.AnswerCall ||
 		!line.Capabilities.RejectCall || !line.Capabilities.HangupCall ||
@@ -270,16 +281,88 @@ func TestParseManagedObjectsResolvesOnlyMissingOperatorNames(t *testing.T) {
 				t.Fatalf("parsed lines = %d, want 1", len(parsed.Lines))
 			}
 			line := parsed.Lines[0]
-			if line.OperatorIdentifier != test.operatorIdentifier || line.OperatorName != test.want {
+			if line.OperatorIdentifier != test.operatorIdentifier || line.OperatorName != test.want ||
+				line.HomeOperatorCode != test.operatorIdentifier || line.HomeOperatorName != test.want {
 				t.Fatalf(
-					"operator = (%q, %q), want (%q, %q)",
+					"home operator = legacy(%q, %q) explicit(%q, %q), want (%q, %q)",
 					line.OperatorIdentifier,
 					line.OperatorName,
+					line.HomeOperatorCode,
+					line.HomeOperatorName,
 					test.operatorIdentifier,
 					test.want,
 				)
 			}
 		})
+	}
+}
+
+func TestParseManagedObjectsResolvesMissingServingOperatorName(t *testing.T) {
+	t.Parallel()
+
+	modemPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/Modem/0")
+	objects := ManagedObjects{
+		modemPath: {
+			modemInterface: {
+				"EquipmentIdentifier": dbus.MakeVariant("867530900000001"),
+				"Physdev":             dbus.MakeVariant("/sys/devices/usb1/1-2"),
+				"State":               dbus.MakeVariant(int32(8)),
+			},
+			modem3GPPInterface: {
+				"OperatorCode":      dbus.MakeVariant("46001"),
+				"RegistrationState": dbus.MakeVariant(uint32(1)),
+			},
+		},
+	}
+
+	parsed := ParseManagedObjects(objects, newInstanceIDsForTest(":1.41"))
+	if len(parsed.Lines) != 1 {
+		t.Fatalf("parsed lines = %d, want 1", len(parsed.Lines))
+	}
+	line := parsed.Lines[0]
+	if line.ServingOperatorCode != "46001" ||
+		line.ServingOperatorName != "China Unicom" ||
+		!line.RegistrationStateKnown ||
+		line.RegistrationState != "home" ||
+		line.Roaming {
+		t.Fatalf("serving network = %+v", line)
+	}
+}
+
+func TestRegistrationStateNamesAndRoamingClassification(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		code        uint32
+		name        string
+		wantRoaming bool
+	}{
+		{code: 0, name: "idle"},
+		{code: 1, name: "home"},
+		{code: 2, name: "searching"},
+		{code: 3, name: "denied"},
+		{code: 4, name: "unknown"},
+		{code: 5, name: "roaming", wantRoaming: true},
+		{code: 6, name: "home-sms-only"},
+		{code: 7, name: "roaming-sms-only", wantRoaming: true},
+		{code: 8, name: "emergency-only"},
+		{code: 9, name: "home-csfb-not-preferred"},
+		{code: 10, name: "roaming-csfb-not-preferred", wantRoaming: true},
+		{code: 11, name: "attached-rlos"},
+		{code: 99, name: "unknown"},
+	}
+	for _, test := range tests {
+		if got := registrationStateName(test.code); got != test.name {
+			t.Errorf("registrationStateName(%d) = %q, want %q", test.code, got, test.name)
+		}
+		if got := registrationStateIsRoaming(test.code); got != test.wantRoaming {
+			t.Errorf(
+				"registrationStateIsRoaming(%d) = %t, want %t",
+				test.code,
+				got,
+				test.wantRoaming,
+			)
+		}
 	}
 }
 

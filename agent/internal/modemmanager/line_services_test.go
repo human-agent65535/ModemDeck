@@ -13,8 +13,15 @@ func TestSIMStatusAndPINCommandUseReferencedSIM(t *testing.T) {
 	objects := emptyLineObjects(true, true)
 	objects[testModemPath][modemInterface]["UnlockRequired"] = dbus.MakeVariant(uint32(2))
 	objects[testModemPath][modemInterface]["UnlockRetries"] = dbus.MakeVariant(map[uint32]uint32{2: 3})
+	objects[testModemPath][modem3GPPInterface] = Properties{
+		"OperatorCode":      dbus.MakeVariant("44010"),
+		"OperatorName":      dbus.MakeVariant("NTT DOCOMO"),
+		"RegistrationState": dbus.MakeVariant(uint32(5)),
+	}
 	objects[testSIMPath][simInterface]["Active"] = dbus.MakeVariant(true)
 	objects[testSIMPath][simInterface]["Imsi"] = dbus.MakeVariant("440501234567890")
+	objects[testSIMPath][simInterface]["OperatorIdentifier"] = dbus.MakeVariant("44050")
+	objects[testSIMPath][simInterface]["OperatorName"] = dbus.MakeVariant("KDDI")
 	caller := newFakeCaller(objects)
 	provider := newTestProvider(caller)
 	lineID := parsedLineID(objects, provider.ids)
@@ -27,6 +34,14 @@ func TestSIMStatusAndPINCommandUseReferencedSIM(t *testing.T) {
 		status.IMSI != "440501234567890" || status.UnlockRequired != "sim-pin" ||
 		status.UnlockRetries["sim-pin"] != 3 {
 		t.Fatalf("SIM status = %+v", status)
+	}
+	if status.HomeOperatorCode != "44050" || status.HomeOperatorName != "KDDI" ||
+		status.ServingOperatorCode != "44010" || status.ServingOperatorName != "NTT DOCOMO" ||
+		status.OperatorIdentifier != status.HomeOperatorCode ||
+		status.OperatorName != status.HomeOperatorName ||
+		!status.RegistrationStateKnown || status.RegistrationStateCode != 5 ||
+		status.RegistrationState != "roaming" || !status.Roaming {
+		t.Fatalf("SIM network status = %+v", status)
 	}
 	caller.calls = nil
 	receipt, err := provider.SIMCommand(context.Background(), domain.SIMCommandRequest{

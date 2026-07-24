@@ -1118,7 +1118,7 @@ func projectSnapshot(
 			PhoneNumber:         firstString(line.OwnNumbers),
 			ICCID:               line.SIMIdentifier,
 			IMSI:                line.IMSI,
-			Operator:            firstNonEmpty(line.OperatorName, line.OperatorIdentifier),
+			Operator:            projected.Operator,
 			Capabilities:        projected.Capabilities,
 		})
 	}
@@ -1166,18 +1166,28 @@ func projectLine(line agentclient.Line) store.LineSummary {
 		value := line.SignalQuality
 		signal = &value
 	}
+	homeOperatorCode := firstNonEmpty(line.HomeOperatorCode, line.OperatorIdentifier)
+	homeOperatorName := firstNonEmpty(line.HomeOperatorName, line.OperatorName)
 	return store.LineSummary{
-		ID:          line.ID,
-		ICCID:       line.SIMIdentifier,
-		IMSI:        line.IMSI,
-		PhoneNumber: firstString(line.OwnNumbers),
-		Operator:    firstNonEmpty(line.OperatorName, line.OperatorIdentifier),
-		DeviceIMEI:  firstNonEmpty(line.EquipmentIdentifier, line.DeviceIdentifier),
-		DeviceAlias: "",
-		Model:       line.Model,
-		Firmware:    line.Revision,
-		State:       line.State,
-		Signal:      signal,
+		ID:                     line.ID,
+		ICCID:                  line.SIMIdentifier,
+		IMSI:                   line.IMSI,
+		PhoneNumber:            firstString(line.OwnNumbers),
+		Operator:               firstNonEmpty(homeOperatorName, homeOperatorCode),
+		HomeOperatorCode:       homeOperatorCode,
+		HomeOperatorName:       homeOperatorName,
+		ServingOperatorCode:    line.ServingOperatorCode,
+		ServingOperatorName:    line.ServingOperatorName,
+		RegistrationStateKnown: line.RegistrationStateKnown,
+		RegistrationStateCode:  line.RegistrationStateCode,
+		RegistrationState:      line.RegistrationState,
+		Roaming:                line.Roaming,
+		DeviceIMEI:             firstNonEmpty(line.EquipmentIdentifier, line.DeviceIdentifier),
+		DeviceAlias:            "",
+		Model:                  line.Model,
+		Firmware:               line.Revision,
+		State:                  line.State,
+		Signal:                 signal,
 		Capabilities: store.LineCapabilities{
 			Modem:       line.Capabilities.ModemInterface,
 			SIM:         line.Capabilities.SIMInterface,

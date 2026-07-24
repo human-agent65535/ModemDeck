@@ -58,12 +58,24 @@ func TestUpdateLineLabelUsesSIMIdentityAndSurvivesHardwareRefresh(t *testing.T) 
 	if len(lines) != 1 || lines[0].LineLabel != "主卡" {
 		t.Fatalf("lines = %+v, want persisted line label", lines)
 	}
+	if lines[0].Operator != "Fixture Telecom" ||
+		lines[0].HomeOperatorName != "Fixture Telecom" ||
+		lines[0].ServingOperatorName != "" ||
+		lines[0].Roaming {
+		t.Fatalf("persisted line operator semantics = %+v", lines[0])
+	}
 	devices, err := repository.Devices(ctx)
 	if err != nil {
 		t.Fatalf("Devices() error = %v", err)
 	}
 	if len(devices) != 1 || devices[0].Alias != "机房模组" {
 		t.Fatalf("devices = %+v, want unchanged device alias", devices)
+	}
+	if devices[0].SIM == nil ||
+		devices[0].SIM.Operator != "Fixture Telecom" ||
+		devices[0].SIM.HomeOperatorName != "Fixture Telecom" ||
+		devices[0].SIM.ServingOperatorName != "" {
+		t.Fatalf("persisted SIM operator semantics = %+v", devices[0].SIM)
 	}
 }
 

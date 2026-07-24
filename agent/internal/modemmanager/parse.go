@@ -107,14 +107,31 @@ func ParseManagedObjects(objects ManagedObjects, ids *instanceIDs) ParsedObjects
 				line.Capabilities.SIMInterface = true
 				line.SIMIdentifier, _ = stringProperty(simProperties, "SimIdentifier")
 				line.IMSI, _ = stringProperty(simProperties, "Imsi")
-				line.OperatorIdentifier, _ = stringProperty(simProperties, "OperatorIdentifier")
-				line.OperatorName, _ = stringProperty(simProperties, "OperatorName")
-				if strings.TrimSpace(line.OperatorName) == "" {
-					if name, found := operator.Name(line.OperatorIdentifier); found {
-						line.OperatorName = name
+				line.HomeOperatorCode, _ = stringProperty(simProperties, "OperatorIdentifier")
+				line.HomeOperatorName, _ = stringProperty(simProperties, "OperatorName")
+				if strings.TrimSpace(line.HomeOperatorName) == "" {
+					if name, found := operator.Name(line.HomeOperatorCode); found {
+						line.HomeOperatorName = name
 					}
 				}
+				line.OperatorIdentifier = line.HomeOperatorCode
+				line.OperatorName = line.HomeOperatorName
 				line.EmergencyNumbers, _ = stringsProperty(simProperties, "EmergencyNumbers")
+			}
+		}
+		if properties, found := interfaces[modem3GPPInterface]; found {
+			line.ServingOperatorCode, _ = stringProperty(properties, "OperatorCode")
+			line.ServingOperatorName, _ = stringProperty(properties, "OperatorName")
+			if strings.TrimSpace(line.ServingOperatorName) == "" {
+				if name, resolved := operator.Name(line.ServingOperatorCode); resolved {
+					line.ServingOperatorName = name
+				}
+			}
+			line.RegistrationStateCode, line.RegistrationStateKnown =
+				uint32Property(properties, "RegistrationState")
+			if line.RegistrationStateKnown {
+				line.RegistrationState = registrationStateName(line.RegistrationStateCode)
+				line.Roaming = registrationStateIsRoaming(line.RegistrationStateCode)
 			}
 		}
 
@@ -317,6 +334,46 @@ func modemStateName(code int32) string {
 		return "connected"
 	default:
 		return "unknown"
+	}
+}
+
+func registrationStateName(code uint32) string {
+	switch code {
+	case 0:
+		return "idle"
+	case 1:
+		return "home"
+	case 2:
+		return "searching"
+	case 3:
+		return "denied"
+	case 4:
+		return "unknown"
+	case 5:
+		return "roaming"
+	case 6:
+		return "home-sms-only"
+	case 7:
+		return "roaming-sms-only"
+	case 8:
+		return "emergency-only"
+	case 9:
+		return "home-csfb-not-preferred"
+	case 10:
+		return "roaming-csfb-not-preferred"
+	case 11:
+		return "attached-rlos"
+	default:
+		return "unknown"
+	}
+}
+
+func registrationStateIsRoaming(code uint32) bool {
+	switch code {
+	case 5, 7, 10:
+		return true
+	default:
+		return false
 	}
 }
 

@@ -130,6 +130,14 @@ func TestSnapshotDecodesAgentContract(t *testing.T) {
 				"sim_path":"/org/freedesktop/ModemManager1/SIM/0",
 				"sim_identifier":"8986000000000000000",
 				"imsi":"440510000000001",
+				"home_operator_code":"44051",
+				"home_operator_name":"KDDI",
+				"serving_operator_code":"44010",
+				"serving_operator_name":"NTT DOCOMO",
+				"registration_state_known":true,
+				"registration_state_code":5,
+				"registration_state":"roaming",
+				"roaming":true,
 				"operator_identifier":"44051",
 				"operator_name":"KDDI",
 				"emergency_numbers":["110","119"],
@@ -193,6 +201,12 @@ func TestSnapshotDecodesAgentContract(t *testing.T) {
 		snapshot.Lines[0].IdentitySource != "physical_device+equipment_identifier+device_identifier" ||
 		snapshot.Lines[0].UnsupportedPolicyReason != "" {
 		t.Fatalf("unexpected line identity: %+v", snapshot.Lines[0])
+	}
+	if snapshot.Lines[0].HomeOperatorName != "KDDI" ||
+		snapshot.Lines[0].ServingOperatorName != "NTT DOCOMO" ||
+		snapshot.Lines[0].RegistrationState != "roaming" ||
+		!snapshot.Lines[0].Roaming {
+		t.Fatalf("unexpected line operator state: %+v", snapshot.Lines[0])
 	}
 	if snapshot.Calls[0].AudioFormat == nil ||
 		snapshot.Calls[0].AudioFormat.Rate != 8000 ||

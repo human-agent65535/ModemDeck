@@ -176,34 +176,50 @@ type DeviceInput struct {
 }
 
 type SIMCard struct {
-	ICCID         string `json:"iccid"`
-	IMSI          string `json:"imsi"`
-	PhoneNumber   string `json:"phone_number"`
-	Operator      string `json:"operator"`
-	CurrentIMEI   string `json:"current_imei"`
-	RegStatus     int64  `json:"reg_status"`
-	RegStatusText string `json:"reg_status_text"`
-	LAC           string `json:"lac"`
-	CellID        string `json:"cell_id"`
-	APN           string `json:"apn"`
-	IMSStatus     int64  `json:"ims_status"`
-	LastSeen      string `json:"last_seen"`
+	ICCID                  string `json:"iccid"`
+	IMSI                   string `json:"imsi"`
+	PhoneNumber            string `json:"phone_number"`
+	Operator               string `json:"operator"`
+	HomeOperatorCode       string `json:"home_operator_code"`
+	HomeOperatorName       string `json:"home_operator_name"`
+	ServingOperatorCode    string `json:"serving_operator_code"`
+	ServingOperatorName    string `json:"serving_operator_name"`
+	RegistrationStateKnown bool   `json:"registration_state_known"`
+	RegistrationStateCode  uint32 `json:"registration_state_code"`
+	RegistrationState      string `json:"registration_state"`
+	Roaming                bool   `json:"roaming"`
+	CurrentIMEI            string `json:"current_imei"`
+	RegStatus              int64  `json:"reg_status"`
+	RegStatusText          string `json:"reg_status_text"`
+	LAC                    string `json:"lac"`
+	CellID                 string `json:"cell_id"`
+	APN                    string `json:"apn"`
+	IMSStatus              int64  `json:"ims_status"`
+	LastSeen               string `json:"last_seen"`
 }
 
 type LineSummary struct {
-	ID           string           `json:"id"`
-	ICCID        string           `json:"iccid"`
-	LineLabel    string           `json:"line_label"`
-	IMSI         string           `json:"imsi"`
-	PhoneNumber  string           `json:"phone_number"`
-	Operator     string           `json:"operator"`
-	DeviceIMEI   string           `json:"device_imei"`
-	DeviceAlias  string           `json:"device_alias"`
-	Model        string           `json:"model"`
-	Firmware     string           `json:"firmware"`
-	State        string           `json:"state"`
-	Signal       *uint32          `json:"signal_quality,omitempty"`
-	Capabilities LineCapabilities `json:"capabilities"`
+	ID                     string           `json:"id"`
+	ICCID                  string           `json:"iccid"`
+	LineLabel              string           `json:"line_label"`
+	IMSI                   string           `json:"imsi"`
+	PhoneNumber            string           `json:"phone_number"`
+	Operator               string           `json:"operator"`
+	HomeOperatorCode       string           `json:"home_operator_code"`
+	HomeOperatorName       string           `json:"home_operator_name"`
+	ServingOperatorCode    string           `json:"serving_operator_code"`
+	ServingOperatorName    string           `json:"serving_operator_name"`
+	RegistrationStateKnown bool             `json:"registration_state_known"`
+	RegistrationStateCode  uint32           `json:"registration_state_code"`
+	RegistrationState      string           `json:"registration_state"`
+	Roaming                bool             `json:"roaming"`
+	DeviceIMEI             string           `json:"device_imei"`
+	DeviceAlias            string           `json:"device_alias"`
+	Model                  string           `json:"model"`
+	Firmware               string           `json:"firmware"`
+	State                  string           `json:"state"`
+	Signal                 *uint32          `json:"signal_quality,omitempty"`
+	Capabilities           LineCapabilities `json:"capabilities"`
 }
 
 type LineCapabilities struct {
