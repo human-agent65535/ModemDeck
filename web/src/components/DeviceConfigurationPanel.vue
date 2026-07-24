@@ -1234,9 +1234,7 @@ onMounted(() => {
                   <dd>{{ fact.value }}</dd>
                 </div>
                 <div><dt>锁定</dt><dd>{{ simStatus.unlock_required || 'none' }}</dd></div>
-                <template v-if="simStatus.sim_type === 'esim'">
-                  <div><dt>eSIM 状态</dt><dd>{{ esimStatusLabel(simStatus.esim_status) }}</dd></div>
-                  <div><dt>EID</dt><dd>{{ simStatus.eid || '—' }}</dd></div>
+                <template v-if="simStatus.sim_slots_known">
                   <div>
                     <dt>当前卡槽</dt>
                     <dd>{{ simStatus.current_sim_slot_known ? simStatus.current_sim_slot : '—' }}</dd>
@@ -1245,6 +1243,10 @@ onMounted(() => {
                     <dt>主卡槽</dt>
                     <dd>{{ simStatus.primary_sim_slot_known ? simStatus.primary_sim_slot : '—' }}</dd>
                   </div>
+                </template>
+                <template v-if="simStatus.sim_type === 'esim'">
+                  <div><dt>eSIM 状态</dt><dd>{{ esimStatusLabel(simStatus.esim_status) }}</dd></div>
+                  <div><dt>EID</dt><dd>{{ simStatus.eid || '—' }}</dd></div>
                   <div>
                     <dt>Profile 管理</dt>
                     <dd>{{ simStatus.profile_management.supported ? '可用' : '暂不支持' }}</dd>
@@ -1252,7 +1254,7 @@ onMounted(() => {
                 </template>
               </dl>
               <div
-                v-if="simStatus.sim_type === 'esim' && simStatus.sim_slots_known"
+                v-if="simStatus.sim_slots_known"
                 class="sim-slot-list"
                 aria-label="SIM 卡槽"
               >

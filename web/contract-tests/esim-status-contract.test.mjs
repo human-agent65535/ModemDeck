@@ -133,6 +133,11 @@ test('SIM settings render read-only eSIM facts through the shared decoder', () =
     assert.match(panel, new RegExp(label))
   }
   assert.match(panel, /simStatus\.sim_slots/)
+  assert.match(panel, /v-if="simStatus\.sim_slots_known"/)
+  assert.doesNotMatch(
+    panel,
+    /simStatus\.sim_type === 'esim' && simStatus\.sim_slots_known/
+  )
   assert.doesNotMatch(panel, /profile_management\.reason/)
   assert.match(client, /parseSIMStatusResponse/)
   assert.doesNotMatch(client, /function parseSIMStatus\(/)

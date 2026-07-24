@@ -18,6 +18,8 @@ endorsed by it.
   and recording controls when a verified media path is available.
 - Per-line data usage, active connection details, and HTTP/SOCKS5 proxies bound
   to modem bearers.
+- SIM and eSIM identity, slot status, and masked EID when exposed by
+  ModemManager.
 - Separate home and serving operator identity, including roaming state.
 - Accessible in-app confirmation dialogs for consequential device, contact,
   and proxy actions.
