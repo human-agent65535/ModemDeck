@@ -17,6 +17,7 @@ interface also takes design cues from Google Voice.
 - Telegram bots with encrypted credentials and explicit line scopes;
 - browser WebRTC audio using Opus, explicit host PCM bindings, and Ogg Opus
   call recording;
+- per-line traffic usage and HTTP/SOCKS5 proxies bound to modem bearers;
 - modem inventory and configuration through ModemManager and a dedicated Linux
   host agent.
 

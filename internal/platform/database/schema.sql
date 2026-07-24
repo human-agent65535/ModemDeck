@@ -267,6 +267,47 @@ CREATE TABLE modemdeck_telegram_reply_bindings (
 			PRIMARY KEY (bot_id, chat_id, message_id)
 		);
 
+CREATE TABLE modemdeck_proxy_instances (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			line_id TEXT NOT NULL,
+			enabled NUMERIC NOT NULL DEFAULT 0,
+			mode TEXT NOT NULL CHECK (mode IN ('socks5', 'http')),
+			listen_address TEXT NOT NULL,
+			listen_port INTEGER NOT NULL CHECK (listen_port BETWEEN 1024 AND 65535),
+			auth_enabled NUMERIC NOT NULL DEFAULT 0,
+			username TEXT NOT NULL DEFAULT '',
+			password_nonce BLOB NOT NULL DEFAULT X'',
+			password_ciphertext BLOB NOT NULL DEFAULT X'',
+			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+			applied_revision INTEGER NOT NULL DEFAULT 0
+				CHECK (applied_revision >= 0 AND applied_revision <= revision),
+			desired_deleted NUMERIC NOT NULL DEFAULT 0
+				CHECK (desired_deleted IN (0, 1)),
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+
+CREATE TABLE modemdeck_network_counter_checkpoints (
+			scope_kind TEXT NOT NULL CHECK (scope_kind IN ('line', 'proxy')),
+			scope_id TEXT NOT NULL,
+			epoch TEXT NOT NULL,
+			rx_bytes INTEGER NOT NULL CHECK (rx_bytes >= 0),
+			tx_bytes INTEGER NOT NULL CHECK (tx_bytes >= 0),
+			observed_at DATETIME NOT NULL,
+			PRIMARY KEY (scope_kind, scope_id)
+		);
+
+CREATE TABLE modemdeck_network_daily_usage (
+			day TEXT NOT NULL,
+			scope_kind TEXT NOT NULL CHECK (scope_kind IN ('line', 'proxy')),
+			scope_id TEXT NOT NULL,
+			rx_bytes INTEGER NOT NULL DEFAULT 0 CHECK (rx_bytes >= 0),
+			tx_bytes INTEGER NOT NULL DEFAULT 0 CHECK (tx_bytes >= 0),
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (day, scope_kind, scope_id)
+		);
+
 CREATE TABLE modemdeck_hardware_sync (
 			singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
 			boot_epoch TEXT NOT NULL DEFAULT '',
@@ -362,6 +403,10 @@ CREATE INDEX idx_sim_subscriptions_current_iccid ON sim_subscriptions(current_ic
 CREATE UNIQUE INDEX ux_modemdeck_telegram_units_bot_id ON modemdeck_telegram_units(bot_id) WHERE bot_id > 0;
 
 CREATE INDEX idx_modemdeck_telegram_reply_bindings_created_at ON modemdeck_telegram_reply_bindings(created_at);
+
+CREATE INDEX idx_modemdeck_proxy_instances_line ON modemdeck_proxy_instances(line_id, enabled);
+
+CREATE INDEX idx_modemdeck_network_daily_usage_scope ON modemdeck_network_daily_usage(scope_kind, scope_id, day);
 
 CREATE INDEX idx_modemdeck_hardware_commands_status_updated ON modemdeck_hardware_commands(status, updated_at);
 

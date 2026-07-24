@@ -12,6 +12,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/communication"
 	"github.com/human-agent65535/modemdeck/internal/diagnostics"
+	"github.com/human-agent65535/modemdeck/internal/networkruntime"
 	"github.com/human-agent65535/modemdeck/internal/recording"
 	"github.com/human-agent65535/modemdeck/internal/store"
 	"github.com/human-agent65535/modemdeck/internal/telegramsettings"
@@ -148,6 +149,21 @@ type RecordingService interface {
 	FinalizeCall(context.Context, string) error
 }
 
+type NetworkService interface {
+	Status(context.Context) (networkruntime.Status, error)
+	Proxies(context.Context) ([]networkruntime.Proxy, error)
+	Create(
+		context.Context,
+		networkruntime.CreateInput,
+	) (networkruntime.ProxyMutation, error)
+	Update(
+		context.Context,
+		string,
+		networkruntime.UpdateInput,
+	) (networkruntime.ProxyMutation, error)
+	Delete(context.Context, string, int64) (networkruntime.DeleteResult, error)
+}
+
 type Options struct {
 	Capabilities          CapabilitySource
 	Communications        CommunicationService
@@ -156,6 +172,7 @@ type Options struct {
 	CallPolicies          CallPolicyService
 	CallMedia             CallMediaService
 	Recording             RecordingService
+	Network               NetworkService
 	TelegramSettings      TelegramSettingsService
 	Authenticator         Authenticator
 	AdminUsername         string
@@ -175,6 +192,7 @@ type API struct {
 	callPolicies         CallPolicyService
 	callMedia            CallMediaService
 	recordings           RecordingService
+	network              NetworkService
 	telegram             TelegramSettingsService
 	authenticator        Authenticator
 	adminUsername        string
@@ -209,6 +227,7 @@ func New(repository Repository, options Options) (*API, error) {
 		callPolicies:         options.CallPolicies,
 		callMedia:            options.CallMedia,
 		recordings:           options.Recording,
+		network:              options.Network,
 		telegram:             options.TelegramSettings,
 		authenticator:        options.Authenticator,
 		adminUsername:        adminUsername,
@@ -259,6 +278,10 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.getOnly(response, request, api.activeCalls)
 	case "/api/v1/recordings":
 		api.getOnly(response, request, api.recordingEntries)
+	case "/api/v1/network":
+		api.getOnly(response, request, api.networkStatus)
+	case "/api/v1/proxies":
+		api.proxyCollection(response, request)
 	case "/api/v1/devices":
 		api.devicesCollection(response, request)
 	case "/api/v1/diagnostics":
@@ -296,6 +319,10 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		}
 		if id, ok := telegramResourceID(request.URL.Path); ok {
 			api.telegramResource(response, request, id)
+			return
+		}
+		if id, ok := proxyResourceID(request.URL.Path); ok {
+			api.proxyResource(response, request, id)
 			return
 		}
 		if imei, ok := deviceResourceIMEI(request.URL.Path); ok {

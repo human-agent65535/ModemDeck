@@ -218,6 +218,55 @@ type LineCapabilities struct {
 	Media       bool `json:"media"`
 }
 
+type ProxyInstanceRecord struct {
+	ID                 string
+	Name               string
+	LineID             string
+	Enabled            bool
+	Mode               string
+	ListenAddress      string
+	ListenPort         uint16
+	AuthEnabled        bool
+	Username           string
+	PasswordNonce      []byte
+	PasswordCiphertext []byte
+	Revision           int64
+	AppliedRevision    int64
+	DesiredDeleted     bool
+	CreatedAt          string
+	UpdatedAt          string
+}
+
+type ProxyApplyToken struct {
+	ID             string
+	Revision       int64
+	DesiredDeleted bool
+}
+
+type NetworkScopeKind string
+
+const (
+	NetworkScopeLine  NetworkScopeKind = "line"
+	NetworkScopeProxy NetworkScopeKind = "proxy"
+)
+
+type NetworkCounterSample struct {
+	ScopeKind  NetworkScopeKind
+	ScopeID    string
+	Epoch      string
+	RXBytes    uint64
+	TXBytes    uint64
+	ObservedAt time.Time
+	Location   *time.Location
+}
+
+type NetworkUsage struct {
+	ScopeKind NetworkScopeKind `json:"scope_kind"`
+	ScopeID   string           `json:"scope_id"`
+	RXBytes   uint64           `json:"rx_bytes"`
+	TXBytes   uint64           `json:"tx_bytes"`
+}
+
 type HardwareSnapshot struct {
 	BootEpoch  string
 	Revision   string

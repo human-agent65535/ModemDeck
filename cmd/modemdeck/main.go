@@ -21,6 +21,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/diagnostics"
 	"github.com/human-agent65535/modemdeck/internal/httpapi"
 	"github.com/human-agent65535/modemdeck/internal/mediaapp"
+	"github.com/human-agent65535/modemdeck/internal/networkruntime"
 	"github.com/human-agent65535/modemdeck/internal/platform/database"
 	"github.com/human-agent65535/modemdeck/internal/recording"
 	"github.com/human-agent65535/modemdeck/internal/secretbox"
@@ -29,6 +30,8 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/telegramsettings"
 	"github.com/human-agent65535/modemdeck/internal/webapp"
 )
+
+const hostAgentRequestTimeout = 15 * time.Second
 
 func main() {
 	logBuffer := diagnostics.NewLogBuffer(diagnostics.DefaultLogCapacity)
@@ -107,7 +110,7 @@ func run(
 		return fmt.Errorf("configure administrator: %w", err)
 	}
 	admin.Password = ""
-	agent, err := agentclient.New(agentSocketPath, 2*time.Second)
+	agent, err := agentclient.New(agentSocketPath, hostAgentRequestTimeout)
 	if err != nil {
 		_ = db.Close()
 		return fmt.Errorf("create host agent client: %w", err)
@@ -183,6 +186,22 @@ func run(
 		_ = db.Close()
 		return fmt.Errorf("create Telegram runtime: %w", err)
 	}
+	networkRuntime, err := networkruntime.New(
+		repository,
+		settingsSecrets,
+		agent,
+		networkruntime.Options{
+			Report: func(err error) {
+				logger.Warn("network runtime synchronization failed", "component", "network", "error", err)
+			},
+		},
+	)
+	if err != nil {
+		_ = recordings.Close(context.Background())
+		_ = mediaCore.Close(context.Background())
+		_ = db.Close()
+		return fmt.Errorf("create network runtime: %w", err)
+	}
 	api, err := httpapi.New(repository, httpapi.Options{
 		Communications:       communications,
 		DeviceConfigurations: communications,
@@ -190,6 +209,7 @@ func run(
 		CallPolicies:         communications,
 		CallMedia:            callMedia,
 		Recording:            recordings,
+		Network:              networkRuntime,
 		TelegramSettings:     telegramSettings,
 		Authenticator:        authenticator,
 		AdminUsername:        admin.Username,
@@ -218,6 +238,10 @@ func run(
 	go func() {
 		telegramDone <- telegramRuntime.Run(signals)
 	}()
+	networkDone := make(chan error, 1)
+	go func() {
+		networkDone <- networkRuntime.Run(signals)
+	}()
 	server := &http.Server{
 		Addr:              listenAddress,
 		Handler:           api,
@@ -241,6 +265,7 @@ func run(
 	var runErr error
 	serverStopped := false
 	telegramStopped := false
+	networkStopped := false
 	select {
 	case <-signals.Done():
 	case serveErr := <-serverErrors:
@@ -252,6 +277,11 @@ func run(
 		telegramStopped = true
 		if telegramErr != nil && !errors.Is(telegramErr, context.Canceled) {
 			runErr = fmt.Errorf("run Telegram runtime: %w", telegramErr)
+		}
+	case networkErr := <-networkDone:
+		networkStopped = true
+		if networkErr != nil && !errors.Is(networkErr, context.Canceled) {
+			runErr = fmt.Errorf("run network runtime: %w", networkErr)
 		}
 	}
 	stop()
@@ -273,6 +303,12 @@ func run(
 		telegramErr := <-telegramDone
 		if telegramErr != nil && !errors.Is(telegramErr, context.Canceled) {
 			runErr = errors.Join(runErr, fmt.Errorf("stop Telegram runtime: %w", telegramErr))
+		}
+	}
+	if !networkStopped {
+		networkErr := <-networkDone
+		if networkErr != nil && !errors.Is(networkErr, context.Canceled) {
+			runErr = errors.Join(runErr, fmt.Errorf("stop network runtime: %w", networkErr))
 		}
 	}
 	mediaCloseContext, mediaCloseCancel := context.WithTimeout(context.Background(), 5*time.Second)
