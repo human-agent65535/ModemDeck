@@ -14,6 +14,25 @@ func (p *Provider) hydrateMessages(
 	operation string,
 	objects ManagedObjects,
 ) (ManagedObjects, error) {
+	epoch := ""
+	if p.ids != nil {
+		epoch = p.ids.providerEpoch()
+	}
+	err := p.messageProperties.synchronize(
+		epoch,
+		func(cache *messagePropertyCache) error {
+			return p.hydrateMessagesLocked(ctx, operation, objects, cache)
+		},
+	)
+	return objects, err
+}
+
+func (p *Provider) hydrateMessagesLocked(
+	ctx context.Context,
+	operation string,
+	objects ManagedObjects,
+	cache *messagePropertyCache,
+) error {
 	modemPaths := make([]dbus.ObjectPath, 0)
 	for path, interfaces := range objects {
 		if _, found := interfaces[modemInterface]; !found {
@@ -27,6 +46,7 @@ func (p *Provider) hydrateMessages(
 		return modemPaths[i] < modemPaths[j]
 	})
 
+	listedKeys := make(map[messagePropertyCacheKey]struct{})
 	for _, modemPath := range modemPaths {
 		body, err := p.call(
 			ctx,
@@ -36,11 +56,11 @@ func (p *Provider) hydrateMessages(
 			"ModemManager failed to list SMS messages",
 		)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		var listedPaths []dbus.ObjectPath
 		if err := dbus.Store(body, &listedPaths); err != nil {
-			return nil, domain.Internal(
+			return domain.Internal(
 				operation,
 				"ModemManager SMS list response was malformed",
 				err,
@@ -49,15 +69,33 @@ func (p *Provider) hydrateMessages(
 
 		listedPaths, err = validMessagePaths(operation, listedPaths)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		hydratedPaths := make([]dbus.ObjectPath, 0, len(listedPaths))
 		for _, messagePath := range listedPaths {
+			key := messagePropertyCacheKey{
+				modemPath:   modemPath,
+				messagePath: messagePath,
+			}
+			listedKeys[key] = struct{}{}
+
 			if interfaces, found := objects[messagePath]; found {
-				if _, found := interfaces[smsInterface]; found {
+				if properties, found := interfaces[smsInterface]; found {
+					cache.storeLocked(key, properties)
 					hydratedPaths = append(hydratedPaths, messagePath)
 					continue
 				}
+			}
+
+			if properties, found := cache.getLocked(key); found {
+				interfaces := objects[messagePath]
+				if interfaces == nil {
+					interfaces = Interfaces{}
+				}
+				interfaces[smsInterface] = properties
+				objects[messagePath] = interfaces
+				hydratedPaths = append(hydratedPaths, messagePath)
+				continue
 			}
 
 			properties, found, err := p.readMessageProperties(
@@ -66,11 +104,13 @@ func (p *Provider) hydrateMessages(
 				messagePath,
 			)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			if !found {
+				cache.deleteLocked(key)
 				continue
 			}
+			cache.storeLocked(key, properties)
 			interfaces := objects[messagePath]
 			if interfaces == nil {
 				interfaces = Interfaces{}
@@ -87,7 +127,8 @@ func (p *Provider) hydrateMessages(
 		}
 		messagingProperties["Messages"] = dbus.MakeVariant(hydratedPaths)
 	}
-	return objects, nil
+	cache.reconcileLocked(listedKeys)
+	return nil
 }
 
 func (p *Provider) readMessageProperties(

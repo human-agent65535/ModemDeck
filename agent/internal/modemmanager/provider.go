@@ -46,6 +46,8 @@ type Provider struct {
 
 	telemetryMu       sync.Mutex
 	signalSetupStates map[string]signalSetupState
+
+	messageProperties *messagePropertyCache
 }
 
 type terminalCallProjection struct {
@@ -112,6 +114,7 @@ func newProvider(caller Caller, ids *instanceIDs) *Provider {
 		ids:               ids,
 		terminalCalls:     make(map[string]terminalCallProjection),
 		signalSetupStates: make(map[string]signalSetupState),
+		messageProperties: newMessagePropertyCache(defaultMessagePropertyCacheLimit),
 	}
 }
 
@@ -680,6 +683,7 @@ func (p *Provider) resolveProviderIdentity(
 		return nil, domain.Internal(operation, "ModemManager D-Bus owner was invalid", err)
 	}
 	if previousOwner != "" && previousOwner != owner {
+		p.messageProperties.clear()
 		p.snapshotMu.Lock()
 		p.terminalCalls = make(map[string]terminalCallProjection)
 		p.snapshotMu.Unlock()
@@ -699,6 +703,7 @@ func (p *Provider) clearProviderIdentity() {
 		return
 	}
 	p.ids.clearProviderOwner()
+	p.messageProperties.clear()
 	p.snapshotMu.Lock()
 	p.terminalCalls = make(map[string]terminalCallProjection)
 	p.snapshotMu.Unlock()
