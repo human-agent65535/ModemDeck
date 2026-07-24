@@ -18,6 +18,8 @@ type fakeTLSSettings struct {
 	installError      error
 	automaticError    error
 	automaticSelected bool
+	automaticCAPEM    []byte
+	automaticCAError  error
 }
 
 func (settings *fakeTLSSettings) Status() TLSSettingsStatus {
@@ -35,6 +37,10 @@ func (settings *fakeTLSSettings) InstallUser(
 func (settings *fakeTLSSettings) UseAutomatic() (TLSSettingsStatus, error) {
 	settings.automaticSelected = true
 	return settings.status, settings.automaticError
+}
+
+func (settings *fakeTLSSettings) AutomaticCAPEM() ([]byte, error) {
+	return append([]byte(nil), settings.automaticCAPEM...), settings.automaticCAError
 }
 
 func TestTLSSettingsReturnsCertificateMetadata(t *testing.T) {
@@ -225,6 +231,35 @@ func TestTLSSettingsUnavailableAndMethodBoundary(t *testing.T) {
 			"method status = %d, Allow = %q",
 			method.Code,
 			method.Header().Get("Allow"),
+		)
+	}
+}
+
+func TestTLSSettingsDownloadsAutomaticCertificateAuthority(t *testing.T) {
+	t.Parallel()
+
+	const certificate = "-----BEGIN CERTIFICATE-----\nlocal ca\n-----END CERTIFICATE-----\n"
+	settings := &fakeTLSSettings{
+		status:         testTLSStatus(),
+		automaticCAPEM: []byte(certificate),
+	}
+	api := newTLSSettingsAPI(t, settings)
+	response := httptest.NewRecorder()
+	api.ServeHTTP(
+		response,
+		httptest.NewRequest(http.MethodGet, "/api/v1/settings/tls/ca", nil),
+	)
+
+	if response.Code != http.StatusOK ||
+		response.Header().Get("Content-Type") != "application/x-pem-file" ||
+		response.Header().Get("Content-Disposition") !=
+			`attachment; filename="modemdeck-local-ca.pem"` ||
+		response.Body.String() != certificate {
+		t.Fatalf(
+			"status = %d, headers = %v, body = %q",
+			response.Code,
+			response.Header(),
+			response.Body.String(),
 		)
 	}
 }

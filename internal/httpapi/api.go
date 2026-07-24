@@ -311,6 +311,8 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.recordingSettings(response, request)
 	case "/api/v1/settings/tls":
 		api.tlsSettings(response, request)
+	case "/api/v1/settings/tls/ca":
+		api.getOnly(response, request, api.tlsCertificateAuthority)
 	default:
 		if id, ok := contactResourceID(request.URL.Path); ok {
 			api.contactResource(response, request, id)

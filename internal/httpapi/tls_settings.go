@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const maxTLSSettingsBodyBytes = 2 << 20
+const maxTLSSettingsBodyBytes = 3 << 20
 
 var ErrTLSSettingsInvalidInput = errors.New("TLS settings input is invalid")
 
@@ -27,6 +27,7 @@ type TLSSettingsService interface {
 	Status() TLSSettingsStatus
 	InstallUser(certificatePEM, privateKeyPEM []byte) (TLSSettingsStatus, error)
 	UseAutomatic() (TLSSettingsStatus, error)
+	AutomaticCAPEM() ([]byte, error)
 }
 
 type tlsSettingsResponse struct {
@@ -148,4 +149,43 @@ func (api *API) updateTLSSettings(response http.ResponseWriter, request *http.Re
 		return
 	}
 	writeJSON(response, http.StatusOK, tlsSettingsResponse{TLS: status})
+}
+
+func (api *API) tlsCertificateAuthority(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	if api.tlsSettingsService == nil {
+		writeError(
+			response,
+			http.StatusServiceUnavailable,
+			"tls_settings_unavailable",
+			"TLS certificate settings are unavailable",
+			"",
+		)
+		return
+	}
+	certificate, err := api.tlsSettingsService.AutomaticCAPEM()
+	if err != nil {
+		api.writeInternalError(response, request, "read automatic TLS certificate authority", err)
+		return
+	}
+	if len(certificate) == 0 {
+		writeError(
+			response,
+			http.StatusServiceUnavailable,
+			"tls_ca_unavailable",
+			"Automatic TLS certificate authority is unavailable",
+			"",
+		)
+		return
+	}
+	response.Header().Set("Content-Type", "application/x-pem-file")
+	response.Header().Set(
+		"Content-Disposition",
+		`attachment; filename="modemdeck-local-ca.pem"`,
+	)
+	response.Header().Set("Cache-Control", "no-store")
+	response.WriteHeader(http.StatusOK)
+	_, _ = response.Write(certificate)
 }
