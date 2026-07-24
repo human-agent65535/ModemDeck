@@ -1189,6 +1189,7 @@ onMounted(() => {
                 <input
                   type="checkbox"
                   role="switch"
+                  aria-label="启用 VoLTE（重启生效）"
                   :checked="voltePolicyDraft === 'enabled'"
                   :disabled="hardwareBusy || !hardware.capabilities.volte.writable"
                   @change="applyVoLTE"
@@ -1630,9 +1631,15 @@ onMounted(() => {
   position: relative;
   width: 42px;
   height: 24px;
+  flex: 0 0 42px;
+  margin: 0;
+  -webkit-appearance: none;
   appearance: none;
   background: #d8dde2;
+  border: 0;
   border-radius: 12px;
+  cursor: pointer;
+  transition: background 150ms ease;
 }
 
 .configuration-toggle input::before {
@@ -1654,6 +1661,16 @@ onMounted(() => {
 
 .configuration-toggle input:checked::before {
   transform: translateX(18px);
+}
+
+.configuration-toggle input:focus-visible {
+  outline: 3px solid rgb(17 120 100 / 18%);
+  outline-offset: 2px;
+}
+
+.configuration-toggle input:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 .restart-required {

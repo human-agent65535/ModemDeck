@@ -245,10 +245,8 @@ function onDocumentPointerDown(event: PointerEvent): void {
   if (open.value && !root.value?.contains(event.target as Node)) closeMenu()
 }
 
-function onFocusOut(): void {
-  void nextTick(() => {
-    if (open.value && !root.value?.contains(document.activeElement)) closeMenu()
-  })
+function onDocumentFocusIn(event: FocusEvent): void {
+  if (open.value && !root.value?.contains(event.target as Node)) closeMenu()
 }
 
 watch(
@@ -258,8 +256,14 @@ watch(
   }
 )
 
-onMounted(() => document.addEventListener('pointerdown', onDocumentPointerDown))
-onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPointerDown))
+onMounted(() => {
+  document.addEventListener('pointerdown', onDocumentPointerDown)
+  document.addEventListener('focusin', onDocumentFocusIn)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onDocumentPointerDown)
+  document.removeEventListener('focusin', onDocumentFocusIn)
+})
 </script>
 
 <template>
@@ -267,7 +271,6 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
     ref="root"
     class="line-selector"
     :class="{ 'is-disabled': disabled, 'is-open': open }"
-    @focusout="onFocusOut"
   >
     <span :id="labelID" class="line-selector__label">{{ label }}</span>
     <button
