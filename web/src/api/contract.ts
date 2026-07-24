@@ -23,7 +23,12 @@ import type {
   LineIncomingCallConfiguration,
   Message,
   MessageReadInput,
+  MobileNetwork,
+  MobileNetworkScan,
+  MobileNetworkStatus,
   NetworkLineStatus,
+  NetworkSelectionMode,
+  NetworkSelectionPolicy,
   NetworkProxyStatus,
   NetworkStatus,
   NetworkUsage,
@@ -52,6 +57,7 @@ import type {
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
   UpdateLineSettingsInput,
+  UpdateNetworkSelectionInput,
   UpdateProxyInput,
   UpdateTLSSettingsInput
 } from './types.ts'
@@ -108,6 +114,13 @@ const PROXY_APPLY_STATUSES = new Set<ProxyApplyStatus>([
 const TLS_MODES = new Set<TLSMode>(['automatic', 'user'])
 const SIM_TYPES = new Set<SIMType>(['unknown', 'physical', 'esim'])
 const ESIM_STATUSES = new Set<ESIMStatus>(['unknown', 'no_profiles', 'with_profiles'])
+const NETWORK_SELECTION_MODES = new Set<NetworkSelectionMode>(['auto', 'manual'])
+const MOBILE_NETWORK_STATUSES = new Set<MobileNetworkStatus>([
+  'unknown',
+  'available',
+  'current',
+  'forbidden'
+])
 
 function objectValue(value: unknown, path: string): JsonRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -442,6 +455,30 @@ export function proxyResourcePath(id: string): string {
   return `${networkPaths.proxies}/${encodeURIComponent(proxyID)}`
 }
 
+export function networkSelectionPath(lineID: string): string {
+  const normalizedLineID = lineID.trim()
+  if (!normalizedLineID) throw new Error('line id 不能为空')
+  return `/api/v1/devices/${encodeURIComponent(normalizedLineID)}/network-selection`
+}
+
+export function mobileNetworkScanPath(lineID: string): string {
+  const normalizedLineID = lineID.trim()
+  if (!normalizedLineID) throw new Error('line id 不能为空')
+  return `/api/v1/devices/${encodeURIComponent(normalizedLineID)}/network-scan`
+}
+
+export function networkSelectionContract(lineID: string): {
+  get: { method: 'GET'; path: string; successStatus: 200 }
+  update: { method: 'PUT'; path: string; successStatus: 200 }
+  scan: { method: 'POST'; path: string; successStatus: 200 }
+} {
+  return {
+    get: { method: 'GET', path: networkSelectionPath(lineID), successStatus: 200 },
+    update: { method: 'PUT', path: networkSelectionPath(lineID), successStatus: 200 },
+    scan: { method: 'POST', path: mobileNetworkScanPath(lineID), successStatus: 200 }
+  }
+}
+
 export function proxyResourceContract(id: string): {
   update: { method: 'PATCH'; path: string; successStatus: 200 }
   delete: { method: 'DELETE'; path: string; successStatus: 200 }
@@ -742,6 +779,92 @@ export function parseNetworkStatusResponse(value: unknown): NetworkStatus {
     apply_status: proxyApplyStatus(source, 'network', 'apply_status'),
     apply_attempts: requiredNonNegativeInteger(source, 'network', 'apply_attempts'),
     apply_exhausted: requiredBoolean(source, 'network', 'apply_exhausted')
+  }
+}
+
+function networkSelectionMode(source: JsonRecord, path: string): NetworkSelectionMode {
+  const mode = requiredString(source, path, 'mode') as NetworkSelectionMode
+  if (!NETWORK_SELECTION_MODES.has(mode)) throw new Error(`${path}.mode 无效`)
+  return mode
+}
+
+function normalizedOperatorCode(value: string, path: string): string {
+  const operatorCode = value.trim()
+  if (!/^\d{5,6}$/.test(operatorCode)) {
+    throw new Error(`${path} 必须是 5 或 6 位 MCCMNC`)
+  }
+  return operatorCode
+}
+
+export function createNetworkSelectionPayload(
+  input: UpdateNetworkSelectionInput
+): UpdateNetworkSelectionInput {
+  if (!NETWORK_SELECTION_MODES.has(input.mode)) throw new Error('网络选择模式无效')
+  if (!Number.isSafeInteger(input.expected_revision) || input.expected_revision < 1) {
+    throw new Error('network selection revision 必须是正整数')
+  }
+  if (input.mode === 'auto') {
+    return { mode: 'auto', expected_revision: input.expected_revision }
+  }
+  return {
+    mode: 'manual',
+    operator_code: normalizedOperatorCode(input.operator_code || '', 'operator_code'),
+    expected_revision: input.expected_revision
+  }
+}
+
+export function parseNetworkSelectionResponse(value: unknown): NetworkSelectionPolicy {
+  const path = 'network_selection'
+  const source = objectValue(value, path)
+  const mode = networkSelectionMode(source, path)
+  const rawOperatorCode = optionalString(source, 'operator_code')
+  const operatorCode = rawOperatorCode
+    ? normalizedOperatorCode(rawOperatorCode, `${path}.operator_code`)
+    : undefined
+  if (mode === 'manual' && !operatorCode) {
+    throw new Error(`${path}.operator_code 缺失`)
+  }
+  return {
+    line_id: requiredString(source, path, 'line_id'),
+    mode,
+    ...(operatorCode ? { operator_code: operatorCode } : {}),
+    revision: requiredRevision(source, path),
+    applied: requiredBoolean(source, path, 'applied'),
+    last_error: optionalString(source, 'last_error'),
+    applied_at: optionalTimestamp(source, path, 'applied_at')
+  }
+}
+
+function mobileNetworkStatus(source: JsonRecord, path: string): MobileNetworkStatus {
+  const status = requiredString(source, path, 'status') as MobileNetworkStatus
+  if (!MOBILE_NETWORK_STATUSES.has(status)) throw new Error(`${path}.status 无效`)
+  return status
+}
+
+function parseMobileNetwork(value: unknown, index: number): MobileNetwork {
+  const path = `network_scan.networks[${index}]`
+  const source = objectValue(value, path)
+  return {
+    status: mobileNetworkStatus(source, path),
+    operator_code: normalizedOperatorCode(
+      requiredString(source, path, 'operator_code'),
+      `${path}.operator_code`
+    ),
+    operator_long: requiredString(source, path, 'operator_long', true),
+    operator_short: requiredString(source, path, 'operator_short', true),
+    access_technologies: requiredNonNegativeInteger(source, path, 'access_technologies'),
+    access_technology_names: stringList(source, path, 'access_technology_names')
+  }
+}
+
+export function parseMobileNetworkScanResponse(value: unknown): MobileNetworkScan {
+  const path = 'network_scan'
+  const source = objectValue(value, path)
+  if (!Array.isArray(source.networks)) throw new Error(`${path}.networks 必须是数组`)
+  return {
+    line_id: requiredString(source, path, 'line_id'),
+    observed_at: requiredTimestamp(source, path, 'observed_at'),
+    networks: source.networks.map(parseMobileNetwork)
   }
 }
 

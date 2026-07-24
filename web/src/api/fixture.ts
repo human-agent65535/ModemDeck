@@ -30,6 +30,8 @@ import type {
   Message,
   MessageEventStreamHandlers,
   MessageThread,
+  MobileNetworkScan,
+  NetworkSelectionPolicy,
   NetworkStatus,
   ProxyDeleteResult,
   ProxyInstance,
@@ -48,6 +50,7 @@ import type {
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
   UpdateLineSettingsInput,
+  UpdateNetworkSelectionInput,
   UpdateProxyInput,
   UpdateTLSSettingsInput,
   USSDCommandInput,
@@ -649,6 +652,19 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         policy: 'follow_global' as IncomingCallPolicy,
         revision: 1,
         updated_at: '2026-07-23 12:00:00'
+      }
+    ])
+  )
+  const networkSelectionByLine = new Map<string, NetworkSelectionPolicy>(
+    lines.map((line, index) => [
+      fixtureLineKey(line),
+      {
+        line_id: fixtureLineKey(line),
+        mode: index === 1 ? 'manual' : 'auto',
+        ...(index === 1 ? { operator_code: '00101' } : {}),
+        revision: 1,
+        applied: true,
+        applied_at: '2026-07-23T12:00:00Z'
       }
     ])
   )
@@ -1378,6 +1394,73 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
 
     async getNetworkStatus(): Promise<NetworkStatus> {
       return clone(fixtureNetworkStatus())
+    },
+
+    async getNetworkSelection(lineID: string): Promise<NetworkSelectionPolicy> {
+      const policy = networkSelectionByLine.get(lineID)
+      if (!policy) throw new ApiError('线路不存在', 404, 'not_found')
+      return clone(policy)
+    },
+
+    async updateNetworkSelection(
+      lineID: string,
+      input: UpdateNetworkSelectionInput
+    ): Promise<NetworkSelectionPolicy> {
+      const policy = networkSelectionByLine.get(lineID)
+      if (!policy) throw new ApiError('线路不存在', 404, 'not_found')
+      if (input.expected_revision !== policy.revision) {
+        throw new ApiError('网络选择设置已被其他会话修改', 409, 'conflict')
+      }
+      const operatorCode = input.operator_code?.trim() || ''
+      if (input.mode === 'manual' && !/^\d{5,6}$/.test(operatorCode)) {
+        throw new ApiError('请选择运营商', 400, 'invalid_operator')
+      }
+      const updated: NetworkSelectionPolicy = {
+        line_id: lineID,
+        mode: input.mode,
+        ...(input.mode === 'manual' ? { operator_code: operatorCode } : {}),
+        revision: policy.revision + 1,
+        applied: true,
+        applied_at: '2026-07-23T12:01:00Z'
+      }
+      networkSelectionByLine.set(lineID, updated)
+      return clone(updated)
+    },
+
+    async scanMobileNetworks(lineID: string): Promise<MobileNetworkScan> {
+      if (!networkSelectionByLine.has(lineID)) {
+        throw new ApiError('线路不存在', 404, 'not_found')
+      }
+      return {
+        line_id: lineID,
+        observed_at: '2026-07-23T12:02:00Z',
+        networks: [
+          {
+            status: 'current',
+            operator_code: '00101',
+            operator_long: 'Aurora Mobile',
+            operator_short: 'Aurora Mobile',
+            access_technologies: 1 << 14,
+            access_technology_names: ['LTE']
+          },
+          {
+            status: 'available',
+            operator_code: '00102',
+            operator_long: 'Pine Wireless',
+            operator_short: 'Pine',
+            access_technologies: 1 << 14,
+            access_technology_names: ['LTE']
+          },
+          {
+            status: 'forbidden',
+            operator_code: '44020',
+            operator_long: 'SoftBank',
+            operator_short: 'SoftBank',
+            access_technologies: 1 << 14,
+            access_technology_names: ['LTE']
+          }
+        ]
+      }
     },
 
     async listProxies(): Promise<ProxyInstance[]> {

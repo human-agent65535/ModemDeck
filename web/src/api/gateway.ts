@@ -27,6 +27,8 @@ import type {
   MessageEventStreamHandlers,
   MessageReadInput,
   MessageThread,
+  MobileNetworkScan,
+  NetworkSelectionPolicy,
   NetworkStatus,
   ProxyDeleteResult,
   ProxyInstance,
@@ -46,6 +48,7 @@ import type {
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
   UpdateLineSettingsInput,
+  UpdateNetworkSelectionInput,
   UpdateProxyInput,
   UpdateTLSSettingsInput,
   USSDCommandInput,
@@ -89,6 +92,12 @@ export interface ModemDeckGateway {
   renameDevice(imei: string, input: RenameDeviceInput): Promise<Device>
   updateLineLabel(iccid: string, input: UpdateLineLabelInput): Promise<LineLabelResult>
   getNetworkStatus(): Promise<NetworkStatus>
+  getNetworkSelection(lineID: string): Promise<NetworkSelectionPolicy>
+  updateNetworkSelection(
+    lineID: string,
+    input: UpdateNetworkSelectionInput
+  ): Promise<NetworkSelectionPolicy>
+  scanMobileNetworks(lineID: string): Promise<MobileNetworkScan>
   listProxies(): Promise<ProxyInstance[]>
   createProxy(input: CreateProxyInput): Promise<ProxyMutation>
   updateProxy(id: string, input: UpdateProxyInput): Promise<ProxyMutation>

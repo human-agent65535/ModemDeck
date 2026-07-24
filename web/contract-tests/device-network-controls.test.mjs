@@ -34,6 +34,9 @@ test('mobile data switch uses APN and IP settings for connect and disconnect', (
   const networkStart = source.indexOf("<template v-else-if=\"activeTab === 'network'\">")
   const networkEnd = source.indexOf("<template v-else-if=\"activeTab === 'sim'\">", networkStart)
   const networkSection = source.slice(networkStart, networkEnd)
+  const ipModeStart = networkSection.indexOf('<fieldset')
+  const ipModeEnd = networkSection.indexOf('</fieldset>', ipModeStart)
+  const ipModeSection = networkSection.slice(ipModeStart, ipModeEnd)
 
   assert.match(
     connectBody,
@@ -47,7 +50,7 @@ test('mobile data switch uses APN and IP settings for connect and disconnect', (
   assert.match(networkSection, /type="radio" value="ipv4"/)
   assert.match(networkSection, /type="radio" value="ipv6"/)
   assert.match(networkSection, /type="radio" value="ipv4v6"/)
-  assert.doesNotMatch(networkSection, /value="auto"/)
+  assert.doesNotMatch(ipModeSection, /value="auto"/)
   assert.match(source, /const ipFamily = ref<IPFamily>\('ipv4v6'\)/)
   assert.match(
     source,

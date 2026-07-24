@@ -20,6 +20,7 @@ import {
   createLineLabelPayload,
   createMessageReadPayload,
   createMessagePayload,
+  createNetworkSelectionPayload,
   createProxyPayload,
   createProxyUpdatePayload,
   createRecordingSettingsPayload,
@@ -35,6 +36,8 @@ import {
   parseLineSettingsResponse,
   parseLineLabelResponse,
   parseMessageResponse,
+  parseMobileNetworkScanResponse,
+  parseNetworkSelectionResponse,
   parseNetworkStatusResponse,
   parseProxyCollectionResponse,
   parseProxyDeleteResponse,
@@ -49,6 +52,7 @@ import {
   telegramUnitDeletePath,
   deviceConfigurationContract,
   lineLabelPath,
+  networkSelectionContract,
   networkContracts,
   proxyDeletePath,
   proxyResourceContract,
@@ -99,6 +103,8 @@ import type {
   Message,
   MessageEventStreamHandlers,
   MessageThread,
+  MobileNetworkScan,
+  NetworkSelectionPolicy,
   NetworkStatus,
   ProxyDeleteResult,
   ProxyInstance,
@@ -118,6 +124,7 @@ import type {
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
   UpdateLineSettingsInput,
+  UpdateNetworkSelectionInput,
   UpdateProxyInput,
   UpdateTLSSettingsInput,
   USSDCommandInput,
@@ -758,6 +765,33 @@ const realGateway: ConfiguredModemDeckGateway = {
 
   async getNetworkStatus(): Promise<NetworkStatus> {
     return parseNetworkStatusResponse(await get(networkContracts.status.path))
+  },
+
+  async getNetworkSelection(lineID: string): Promise<NetworkSelectionPolicy> {
+    const contract = networkSelectionContract(lineID).get
+    return parseNetworkSelectionResponse(await get(contract.path))
+  },
+
+  async updateNetworkSelection(
+    lineID: string,
+    input: UpdateNetworkSelectionInput
+  ): Promise<NetworkSelectionPolicy> {
+    const contract = networkSelectionContract(lineID).update
+    return parseNetworkSelectionResponse(
+      await writeJSON(
+        contract.path,
+        contract.method,
+        createNetworkSelectionPayload(input),
+        contract.successStatus
+      )
+    )
+  },
+
+  async scanMobileNetworks(lineID: string): Promise<MobileNetworkScan> {
+    const contract = networkSelectionContract(lineID).scan
+    return parseMobileNetworkScanResponse(
+      await writeJSON(contract.path, contract.method, {}, contract.successStatus)
+    )
   },
 
   async listProxies(): Promise<ProxyInstance[]> {

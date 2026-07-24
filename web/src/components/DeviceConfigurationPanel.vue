@@ -26,6 +26,8 @@ import type {
   IncomingCallPolicy,
   IPFamily,
   LineSummary,
+  MobileNetwork,
+  NetworkSelectionMode,
   SIMOperation,
   SIMStatus,
   USSDStatus
@@ -44,6 +46,15 @@ import {
   setRadioEnabled,
   setVoLTEPolicy
 } from '../state/deviceConfiguration'
+import {
+  activateNetworkSelection,
+  enterManualNetworkSelection,
+  loadNetworkSelection,
+  networkSelectionResource,
+  scanMobileNetworks,
+  selectManualNetwork,
+  useAutomaticNetworkSelection
+} from '../state/networkSelection'
 import {
   bootstrapResource,
   devicesResource,
@@ -152,6 +163,9 @@ const currentSIMIdentity = computed(() => {
 })
 const selectedResource = computed(() =>
   selectedLineID.value ? deviceConfigurationResource(selectedLineID.value) : null
+)
+const selectedNetworkSelection = computed(() =>
+  selectedLineID.value ? networkSelectionResource(selectedLineID.value) : null
 )
 const configuration = computed(() => selectedResource.value?.data || null)
 const hardware = computed(() => configuration.value?.hardware)
@@ -415,6 +429,8 @@ watch(
   { immediate: true }
 )
 
+watch(selectedLineID, lineID => activateNetworkSelection(lineID), { immediate: true })
+
 watch(
   () => incomingCalls.value?.revision,
   () => {
@@ -455,6 +471,7 @@ watch(activeTab, tab => void loadActiveLineService(tab))
 function selectLine(line: LineSummary): void {
   if (!line.id || line.id === selectedLineID.value) return
   resetLineServices()
+  activateNetworkSelection(line.id)
   selectDeviceConfiguration(line.id)
   void loadDeviceConfiguration(line.id)
   void loadActiveLineService()
@@ -474,15 +491,70 @@ function resetLineServices(): void {
   ussdResult.value = ''
 }
 
-function loadActiveLineService(tab = activeTab.value): Promise<void> | undefined {
-  if (tab === 'sim') return loadSIM()
-  if (tab === 'network') return loadProfiles()
-  if (tab === 'ussd') return loadUSSD()
-  return undefined
+async function loadActiveLineService(tab = activeTab.value): Promise<void> {
+  if (tab === 'sim') {
+    await loadSIM()
+    return
+  }
+  if (tab === 'network') {
+    await Promise.all([
+      loadProfiles(),
+      selectedLineID.value
+        ? loadNetworkSelection(selectedLineID.value)
+        : Promise.resolve(false)
+    ])
+    return
+  }
+  if (tab === 'ussd') await loadUSSD()
 }
 
 function isCurrentLineServiceRequest(lineID: string, generation: number): boolean {
   return selectedLineID.value === lineID && lineServiceGeneration === generation
+}
+
+function mobileNetworkName(network: MobileNetwork): string {
+  return network.operator_long || network.operator_short || network.operator_code
+}
+
+function mobileNetworkTechnology(network: MobileNetwork): string {
+  if (network.access_technology_names.length) {
+    return network.access_technology_names.join(' / ')
+  }
+  return accessTechnologyLabel(network.access_technologies) || '未知制式'
+}
+
+function mobileNetworkStatusLabel(network: MobileNetwork): string {
+  switch (network.status) {
+    case 'current':
+      return '当前'
+    case 'available':
+      return '可用'
+    case 'forbidden':
+      return '不可用'
+    default:
+      return '状态未知'
+  }
+}
+
+async function changeNetworkSelectionMode(mode: NetworkSelectionMode): Promise<void> {
+  const lineID = selectedLineID.value
+  const target = selectedNetworkSelection.value
+  if (!lineID || !target || target.policyStatus !== 'ready' || target.saving) return
+  if (target.mode === mode) return
+  if (mode === 'manual') {
+    await enterManualNetworkSelection(lineID)
+    return
+  }
+  await useAutomaticNetworkSelection(lineID)
+}
+
+async function refreshMobileNetworks(): Promise<void> {
+  if (selectedLineID.value) await scanMobileNetworks(selectedLineID.value)
+}
+
+async function chooseMobileNetwork(network: MobileNetwork): Promise<void> {
+  if (!selectedLineID.value || network.status === 'forbidden') return
+  await selectManualNetwork(selectedLineID.value, network)
 }
 
 function deviceFor(line: LineSummary) {
@@ -1124,6 +1196,183 @@ onBeforeUnmount(() => {
                 <dd>{{ fact.value }}</dd>
               </div>
             </dl>
+
+            <div class="network-selection">
+              <header>
+                <strong>网络选择</strong>
+                <small
+                  v-if="
+                    selectedNetworkSelection?.policy?.mode === 'manual' &&
+                    selectedNetworkSelection.policy.operator_code
+                  "
+                >
+                  当前目标 {{ selectedNetworkSelection.policy.operator_code }}
+                </small>
+              </header>
+
+              <StatePanel
+                v-if="selectedNetworkSelection?.policyStatus === 'loading'"
+                state="loading"
+                title="正在读取网络设置"
+              />
+              <div
+                v-else-if="
+                  selectedNetworkSelection?.policyStatus === 'error' ||
+                  selectedNetworkSelection?.policyStatus === 'forbidden'
+                "
+                class="network-selection__load-error"
+              >
+                <p>{{ selectedNetworkSelection.policyError }}</p>
+                <button
+                  class="secondary-action"
+                  type="button"
+                  @click="loadNetworkSelection(selectedLineID, true)"
+                >
+                  重试
+                </button>
+              </div>
+              <template v-else-if="selectedNetworkSelection?.policyStatus === 'ready'">
+                <fieldset
+                  class="network-selection-mode"
+                  :data-selection="selectedNetworkSelection.mode"
+                  :disabled="selectedNetworkSelection.saving"
+                >
+                  <legend class="sr-only">网络选择方式</legend>
+                  <div class="network-selection-mode__options">
+                    <span class="network-selection-mode__slider" aria-hidden="true" />
+                    <label>
+                      <input
+                        type="radio"
+                        value="auto"
+                        :checked="selectedNetworkSelection.mode === 'auto'"
+                        @change="changeNetworkSelectionMode('auto')"
+                      />
+                      <span>自动</span>
+                    </label>
+                    <label>
+                      <input
+                        type="radio"
+                        value="manual"
+                        :checked="selectedNetworkSelection.mode === 'manual'"
+                        @change="changeNetworkSelectionMode('manual')"
+                      />
+                      <span>手动</span>
+                    </label>
+                  </div>
+                  <LoaderCircle
+                    v-if="selectedNetworkSelection.saving"
+                    class="spin network-selection-mode__pending"
+                    :size="16"
+                  />
+                </fieldset>
+
+                <p
+                  v-if="selectedNetworkSelection.policyError"
+                  class="inline-error network-selection__policy-error"
+                  role="status"
+                >
+                  {{ selectedNetworkSelection.policyError }}
+                </p>
+
+                <div
+                  v-if="selectedNetworkSelection.mode === 'manual'"
+                  class="manual-network-selection"
+                >
+                  <header>
+                    <strong>可用网络</strong>
+                    <button
+                      class="secondary-action"
+                      type="button"
+                      :disabled="
+                        selectedNetworkSelection.scanStatus === 'loading' ||
+                        selectedNetworkSelection.saving
+                      "
+                      @click="refreshMobileNetworks"
+                    >
+                      <RotateCw
+                        :class="{ spin: selectedNetworkSelection.scanStatus === 'loading' }"
+                        :size="15"
+                      />
+                      重新搜索
+                    </button>
+                  </header>
+
+                  <div
+                    v-if="selectedNetworkSelection.scanStatus === 'loading'"
+                    class="network-scan-state"
+                    role="status"
+                  >
+                    <LoaderCircle class="spin" :size="17" />
+                    正在搜索网络
+                  </div>
+                  <div
+                    v-else-if="selectedNetworkSelection.scanStatus === 'error'"
+                    class="network-scan-state is-error"
+                    role="status"
+                  >
+                    <AlertCircle :size="17" />
+                    {{ selectedNetworkSelection.scanError }}
+                  </div>
+                  <p
+                    v-else-if="selectedNetworkSelection.scanStatus === 'idle'"
+                    class="network-scan-state"
+                  >
+                    搜索后选择运营商
+                  </p>
+                  <p
+                    v-else-if="!selectedNetworkSelection.scan?.networks.length"
+                    class="network-scan-state"
+                  >
+                    未找到可用网络
+                  </p>
+                  <div v-else class="mobile-network-list">
+                    <button
+                      v-for="network in selectedNetworkSelection.scan.networks"
+                      :key="`${network.operator_code}-${network.access_technologies}`"
+                      type="button"
+                      :class="{
+                        'is-selected':
+                          selectedNetworkSelection.policy?.mode === 'manual' &&
+                          selectedNetworkSelection.policy.operator_code ===
+                            network.operator_code,
+                        'is-forbidden': network.status === 'forbidden'
+                      }"
+                      :disabled="
+                        network.status === 'forbidden' ||
+                        selectedNetworkSelection.saving
+                      "
+                      @click="chooseMobileNetwork(network)"
+                    >
+                      <span class="mobile-network-list__identity">
+                        <strong>{{ mobileNetworkName(network) }}</strong>
+                        <small>
+                          {{ network.operator_code }} · {{ mobileNetworkTechnology(network) }}
+                        </small>
+                      </span>
+                      <span class="mobile-network-list__status">
+                        <LoaderCircle
+                          v-if="
+                            selectedNetworkSelection.selectingOperatorCode ===
+                            network.operator_code
+                          "
+                          class="spin"
+                          :size="16"
+                        />
+                        <CheckCircle2
+                          v-else-if="
+                            selectedNetworkSelection.policy?.mode === 'manual' &&
+                            selectedNetworkSelection.policy.operator_code ===
+                              network.operator_code
+                          "
+                          :size="16"
+                        />
+                        <span>{{ mobileNetworkStatusLabel(network) }}</span>
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </template>
+            </div>
           </section>
 
           <section class="configuration-section">
@@ -2146,6 +2395,230 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 
+.network-selection {
+  width: 100%;
+  max-width: 860px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.network-selection > header,
+.manual-network-selection > header {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.network-selection > header small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.network-selection__load-error {
+  display: flex;
+  max-width: 520px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.network-selection__load-error p {
+  margin: 0;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.network-selection-mode {
+  position: relative;
+  width: 100%;
+  max-width: 340px;
+  margin: 7px 0 0;
+  padding: 0 28px 0 0;
+  border: 0;
+}
+
+.network-selection-mode__options {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 3px;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+}
+
+.network-selection-mode__slider {
+  position: absolute;
+  z-index: 0;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / 2);
+  pointer-events: none;
+  background: var(--surface);
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgb(16 24 40 / 12%);
+  transition: transform 180ms ease;
+}
+
+.network-selection-mode[data-selection='manual'] .network-selection-mode__slider {
+  transform: translateX(100%);
+}
+
+.network-selection-mode__options label {
+  position: relative;
+  z-index: 1;
+  cursor: pointer;
+}
+
+.network-selection-mode__options input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.network-selection-mode__options label > span {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  border-radius: 4px;
+}
+
+.network-selection-mode__options input:checked + span {
+  color: var(--text);
+}
+
+.network-selection-mode__options input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.network-selection-mode:disabled {
+  opacity: 0.6;
+}
+
+.network-selection-mode:disabled label {
+  cursor: not-allowed;
+}
+
+.network-selection-mode__pending {
+  position: absolute;
+  top: 11px;
+  right: 0;
+  color: var(--muted);
+}
+
+.network-selection__policy-error {
+  margin-bottom: 0;
+}
+
+.manual-network-selection {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.manual-network-selection > header .secondary-action {
+  min-height: 30px;
+}
+
+.network-scan-state {
+  display: flex;
+  min-height: 50px;
+  align-items: center;
+  gap: 8px;
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.network-scan-state.is-error {
+  color: var(--danger);
+}
+
+.mobile-network-list {
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.mobile-network-list > button {
+  display: grid;
+  width: 100%;
+  min-height: 58px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 9px 8px;
+  color: inherit;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.mobile-network-list > button:hover:not(:disabled),
+.mobile-network-list > button:focus-visible {
+  background: var(--surface-selected);
+}
+
+.mobile-network-list > button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.mobile-network-list > button.is-selected {
+  color: var(--accent-strong);
+}
+
+.mobile-network-list > button.is-forbidden {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.mobile-network-list__identity {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mobile-network-list__identity strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-network-list__identity small,
+.mobile-network-list__status {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mobile-network-list__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mobile-network-list > button.is-selected .mobile-network-list__status {
+  color: var(--accent-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .network-selection-mode__slider {
+    transition: none;
+  }
+}
+
 .advanced-profiles > summary {
   min-height: 32px;
   color: var(--text);
@@ -2609,7 +3082,8 @@ pre {
   }
 
   .module-toolbar > .secondary-action,
-  .section-action {
+  .section-action,
+  .manual-network-selection > header .secondary-action {
     width: auto;
   }
 

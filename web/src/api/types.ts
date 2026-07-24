@@ -234,6 +234,40 @@ export type NetworkStatus = {
   apply_exhausted: boolean
 }
 
+export type NetworkSelectionMode = 'auto' | 'manual'
+export type MobileNetworkStatus = 'unknown' | 'available' | 'current' | 'forbidden'
+
+export type NetworkSelectionPolicy = {
+  line_id: string
+  mode: NetworkSelectionMode
+  operator_code?: string
+  revision: number
+  applied: boolean
+  last_error?: string
+  applied_at?: string
+}
+
+export type UpdateNetworkSelectionInput = {
+  mode: NetworkSelectionMode
+  operator_code?: string
+  expected_revision: number
+}
+
+export type MobileNetwork = {
+  status: MobileNetworkStatus
+  operator_code: string
+  operator_long: string
+  operator_short: string
+  access_technologies: number
+  access_technology_names: string[]
+}
+
+export type MobileNetworkScan = {
+  line_id: string
+  observed_at: string
+  networks: MobileNetwork[]
+}
+
 export type ProxyInstance = {
   id: string
   name: string
