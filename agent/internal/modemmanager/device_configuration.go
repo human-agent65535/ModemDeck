@@ -34,6 +34,8 @@ const (
 	bearerIPFamilyIPv6   = 2
 	bearerIPFamilyIPv4V6 = 4
 	bearerIPFamilyAny    = 8
+
+	bearerTypeDefault = 1
 )
 
 type genericConfigurationProvider interface {
@@ -324,11 +326,15 @@ func (p *Provider) readDeviceConfiguration(
 
 	bearerPaths, _ := objectPathValuesProperty(modemProperties, "Bearers")
 	for _, bearerPath := range bearerPaths {
-		bearerInterfaces, found := objects[bearerPath]
-		if !found {
-			continue
+		bearerProperties, found, err := p.referencedBearerProperties(
+			ctx,
+			objects,
+			bearerPath,
+			operation,
+		)
+		if err != nil {
+			return domain.DeviceConfiguration{}, nil, "", err
 		}
-		bearerProperties, found := bearerInterfaces[bearerInterface]
 		if !found {
 			continue
 		}
@@ -470,6 +476,7 @@ func parseDataConnection(id string, properties Properties) (domain.DataConnectio
 	}
 	connection.Connected, _ = boolProperty(properties, "Connected")
 	connection.Interface, _ = stringProperty(properties, "Interface")
+	connection.BearerType, _ = uint32Property(properties, "BearerType")
 	bearerProperties, found, err := nestedProperties(properties, "Properties")
 	if err != nil {
 		return domain.DataConnection{}, err
@@ -489,6 +496,43 @@ func parseDataConnection(id string, properties Properties) (domain.DataConnectio
 		return domain.DataConnection{}, err
 	}
 	return connection, nil
+}
+
+func (p *Provider) referencedBearerProperties(
+	ctx context.Context,
+	objects ManagedObjects,
+	path dbus.ObjectPath,
+	operation string,
+) (Properties, bool, error) {
+	if interfaces, found := objects[path]; found {
+		if properties, found := interfaces[bearerInterface]; found {
+			return properties, true, nil
+		}
+	}
+	body, err := p.call(
+		ctx,
+		path,
+		propertiesInterface+".GetAll",
+		operation,
+		"ModemManager failed to read a referenced bearer",
+		bearerInterface,
+	)
+	if err != nil {
+		if operationError, ok := domain.AsOperationError(err); ok &&
+			operationError.Code == domain.ErrorNotFound {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	properties := Properties{}
+	if err := dbus.Store(body, &properties); err != nil {
+		return nil, false, domain.Internal(
+			operation,
+			"ModemManager bearer properties response was malformed",
+			err,
+		)
+	}
+	return properties, true, nil
 }
 
 func parseIPConfiguration(properties Properties, name string) (domain.IPConfiguration, error) {
@@ -556,19 +600,13 @@ func (p *Provider) resolveAutomaticAPN(
 	if !found || !path.IsValid() || path == "/" {
 		return ""
 	}
-	body, err := p.call(
+	bearerProperties, found, err := p.referencedBearerProperties(
 		ctx,
+		objects,
 		path,
-		propertiesInterface+".GetAll",
 		operation,
-		"ModemManager failed to read the initial EPS bearer",
-		bearerInterface,
 	)
-	if err != nil {
-		return ""
-	}
-	bearerProperties := Properties{}
-	if err := dbus.Store(body, &bearerProperties); err != nil {
+	if err != nil || !found {
 		return ""
 	}
 	return bearerAPN(bearerProperties)
@@ -647,7 +685,11 @@ func matchingConnectedData(connections []domain.DataConnection, apn string, fami
 		if !connection.Connected {
 			continue
 		}
-		if connection.APNType&domain.APNTypeDefault == 0 {
+		if connection.BearerType != 0 {
+			if connection.BearerType != bearerTypeDefault {
+				continue
+			}
+		} else if connection.APNType&domain.APNTypeDefault == 0 {
 			continue
 		}
 		if apn != "" && connection.APN != apn {

@@ -337,6 +337,85 @@ func TestParseDataConnectionPreservesAPNType(t *testing.T) {
 	}
 }
 
+func TestParseDataConnectionUsesDefaultBearerTypeWithoutAPNType(t *testing.T) {
+	t.Parallel()
+
+	connection, err := parseDataConnection("bearer-default", Properties{
+		"BearerType": dbus.MakeVariant(uint32(bearerTypeDefault)),
+		"Connected":  dbus.MakeVariant(true),
+		"Interface":  dbus.MakeVariant("wwan0"),
+		"Properties": dbus.MakeVariant(map[string]dbus.Variant{
+			"apn":     dbus.MakeVariant("internet.example"),
+			"ip-type": dbus.MakeVariant(uint32(bearerIPFamilyIPv4V6)),
+		}),
+		"Ip4Config": dbus.MakeVariant(map[string]dbus.Variant{
+			"method":  dbus.MakeVariant(uint32(3)),
+			"address": dbus.MakeVariant("10.0.0.2"),
+		}),
+		"Ip6Config": dbus.MakeVariant(map[string]dbus.Variant{}),
+	})
+	if err != nil {
+		t.Fatalf("parseDataConnection() error = %v", err)
+	}
+	if connection.BearerType != bearerTypeDefault {
+		t.Fatalf("bearer type = %d, want default", connection.BearerType)
+	}
+	if !matchingConnectedData(
+		[]domain.DataConnection{connection},
+		"internet.example",
+		bearerIPFamilyIPv4V6,
+	) {
+		t.Fatal("default bearer without APN type was not recognized as Internet data")
+	}
+}
+
+func TestDeviceConfigurationHydratesReferencedDataBearer(t *testing.T) {
+	t.Parallel()
+	objects := configurationObjects()
+	objects[testModemPath][modemInterface]["Bearers"] =
+		dbus.MakeVariant([]dbus.ObjectPath{testNetworkManagerBearerPath})
+	caller := &configurationCaller{
+		objects: objects,
+		externalBearers: map[dbus.ObjectPath]Properties{
+			testNetworkManagerBearerPath: {
+				"BearerType": dbus.MakeVariant(uint32(bearerTypeDefault)),
+				"Connected":  dbus.MakeVariant(true),
+				"Interface":  dbus.MakeVariant("wwan0"),
+				"Properties": dbus.MakeVariant(map[string]dbus.Variant{
+					"apn":     dbus.MakeVariant("automatic.example"),
+					"ip-type": dbus.MakeVariant(uint32(bearerIPFamilyIPv4V6)),
+				}),
+				"Ip4Config": dbus.MakeVariant(map[string]dbus.Variant{
+					"method":  dbus.MakeVariant(uint32(3)),
+					"address": dbus.MakeVariant("10.0.0.2"),
+				}),
+				"Ip6Config": dbus.MakeVariant(map[string]dbus.Variant{}),
+			},
+		},
+	}
+	provider := newTestProvider(caller)
+
+	configuration, err := provider.ReadDeviceConfiguration(
+		context.Background(),
+		parsedLineID(objects, provider.ids),
+	)
+	if err != nil {
+		t.Fatalf("ReadDeviceConfiguration() error = %v", err)
+	}
+	if !configuration.NetworkEnabled ||
+		len(configuration.DataConnections) != 1 ||
+		!configuration.DataConnections[0].Connected ||
+		configuration.DataConnections[0].Interface != "wwan0" {
+		t.Fatalf("hydrated data configuration = %+v", configuration)
+	}
+	assertConfigurationMethods(
+		t,
+		caller.methods(),
+		objectManagerInterface+".GetManagedObjects",
+		propertiesInterface+".GetAll",
+	)
+}
+
 func TestApplyDeviceConfigurationWritesOnceAndVerifiesReadBack(t *testing.T) {
 	t.Parallel()
 	objects := configurationObjects()

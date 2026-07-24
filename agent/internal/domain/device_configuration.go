@@ -53,14 +53,15 @@ type IPConfiguration struct {
 }
 
 type DataConnection struct {
-	ID        string          `json:"id"`
-	Connected bool            `json:"connected"`
-	APN       string          `json:"apn"`
-	APNType   uint32          `json:"-"`
-	IPFamily  string          `json:"ip_family"`
-	Interface string          `json:"interface"`
-	IPv4      IPConfiguration `json:"ipv4"`
-	IPv6      IPConfiguration `json:"ipv6"`
+	ID         string          `json:"id"`
+	Connected  bool            `json:"connected"`
+	APN        string          `json:"apn"`
+	APNType    uint32          `json:"-"`
+	BearerType uint32          `json:"-"`
+	IPFamily   string          `json:"ip_family"`
+	Interface  string          `json:"interface"`
+	IPv4       IPConfiguration `json:"ipv4"`
+	IPv6       IPConfiguration `json:"ipv6"`
 }
 
 type VoLTEConfiguration struct {
