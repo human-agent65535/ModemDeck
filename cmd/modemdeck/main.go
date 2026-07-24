@@ -275,12 +275,12 @@ func run(
 	}()
 	server := &http.Server{
 		Addr:              listenAddress,
-		Handler:           api,
+		Handler:           redirectPlainHTTPToHTTPS(api),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       90 * time.Second,
-		TLSConfig:         tlsCertificates.TLSConfig(),
+		TLSConfig:         prepareServerTLSConfig(tlsCertificates.TLSConfig()),
 	}
 	serverErrors := make(chan error, 1)
 	go func() {
@@ -291,7 +291,7 @@ func run(
 			"address",
 			listenAddress,
 		)
-		serverErrors <- server.ListenAndServeTLS("", "")
+		serverErrors <- serveTLSAndPlainHTTP(server)
 	}()
 
 	var runErr error
