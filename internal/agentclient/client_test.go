@@ -30,7 +30,7 @@ func TestHealthOverUnixSocket(t *testing.T) {
 			"provider":{
 				"name":"org.freedesktop.ModemManager1",
 				"available":true,
-				"capabilities":{"discovery":true,"dial":false,"answer_call":false,"hangup_call":false,"send_message":false}
+				"capabilities":{"discovery":true,"network":true,"proxy":true,"dial":false,"answer_call":false,"hangup_call":false,"send_message":false}
 			}
 		}`))
 	})}
@@ -54,6 +54,9 @@ func TestHealthOverUnixSocket(t *testing.T) {
 	}
 	if health.APIVersion != APIVersion || !health.Provider.Available || !health.Provider.Capabilities.Discovery {
 		t.Fatalf("unexpected health: %+v", health)
+	}
+	if !health.Provider.Capabilities.Network || !health.Provider.Capabilities.Proxy {
+		t.Fatalf("network capabilities were not decoded: %+v", health.Provider.Capabilities)
 	}
 	if health.Provider.Capabilities.Dial || health.Provider.Capabilities.SendMessage {
 		t.Fatalf("unimplemented mutations were advertised: %+v", health.Provider.Capabilities)

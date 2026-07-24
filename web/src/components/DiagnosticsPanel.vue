@@ -231,6 +231,8 @@ function agentCapabilities() {
     { name: '设备配置', available: capabilities.device_configuration },
     { name: 'SIM / PIN', available: capabilities.sim_management },
     { name: '连接配置', available: capabilities.connection_profiles },
+    { name: '网络状态', available: capabilities.network },
+    { name: '代理', available: capabilities.proxy },
     { name: 'USSD', available: capabilities.ussd },
     { name: '拨号', available: capabilities.dial },
     { name: '短信', available: capabilities.send_message }

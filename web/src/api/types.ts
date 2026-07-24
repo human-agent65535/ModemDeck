@@ -606,6 +606,8 @@ export type DiagnosticAgentCapabilities = {
   discovery: boolean
   snapshot: boolean
   device_configuration: boolean
+  network: boolean
+  proxy: boolean
   dial: boolean
   answer_call: boolean
   reject_call: boolean

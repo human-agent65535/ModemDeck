@@ -30,6 +30,8 @@ var (
 type Capabilities struct {
 	Discovery           bool `json:"discovery"`
 	DeviceConfiguration bool `json:"device_configuration"`
+	Network             bool `json:"network"`
+	Proxy               bool `json:"proxy"`
 	Dial                bool `json:"dial"`
 	AnswerCall          bool `json:"answer_call"`
 	HangupCall          bool `json:"hangup_call"`

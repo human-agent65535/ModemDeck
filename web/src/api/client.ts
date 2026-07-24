@@ -408,6 +408,8 @@ function parseDiagnosticAgentCapabilities(value: unknown) {
     discovery: requiredBooleanValue(source, path, 'discovery'),
     snapshot: requiredBooleanValue(source, path, 'snapshot'),
     device_configuration: requiredBooleanValue(source, path, 'device_configuration'),
+    network: requiredBooleanValue(source, path, 'network'),
+    proxy: requiredBooleanValue(source, path, 'proxy'),
     dial: requiredBooleanValue(source, path, 'dial'),
     answer_call: requiredBooleanValue(source, path, 'answer_call'),
     reject_call: requiredBooleanValue(source, path, 'reject_call'),

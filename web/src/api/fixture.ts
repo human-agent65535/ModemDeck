@@ -1450,6 +1450,8 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
             discovery: true,
             snapshot: true,
             device_configuration: true,
+            network: true,
+            proxy: true,
             dial: true,
             answer_call: true,
             reject_call: true,
