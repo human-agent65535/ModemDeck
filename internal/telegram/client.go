@@ -22,6 +22,9 @@ const (
 	absoluteMaxResponseBytes  = int64(8 << 20)
 	maxTelegramLongPoll       = 50 * time.Second
 	maxTelegramUpdatesPerCall = 100
+	maxTelegramBotCommands    = 100
+	maxBotCommandBytes        = 32
+	maxBotDescriptionRunes    = 256
 )
 
 type ClientOptions struct {
@@ -130,6 +133,23 @@ func (c *Client) GetMe(ctx context.Context) (BotUser, error) {
 		return BotUser{}, &ProtocolError{Method: "getMe", Reason: "result does not match the token bot identity"}
 	}
 	return user, nil
+}
+
+func (c *Client) SetMyCommands(ctx context.Context, commands []BotCommand) error {
+	normalized, err := normalizeBotCommands(commands)
+	if err != nil {
+		return err
+	}
+	var accepted bool
+	if err := c.call(ctx, "setMyCommands", setMyCommandsPayload{
+		Commands: normalized,
+	}, c.requestTimeout, &accepted); err != nil {
+		return err
+	}
+	if !accepted {
+		return &ProtocolError{Method: "setMyCommands", Reason: "result was false"}
+	}
+	return nil
 }
 
 func (c *Client) SendMessage(ctx context.Context, request SendMessageRequest) (Message, error) {
@@ -247,6 +267,54 @@ func (c *Client) GetUpdates(ctx context.Context, request GetUpdatesRequest) ([]U
 	return updates, nil
 }
 
+func normalizeBotCommands(commands []BotCommand) ([]BotCommand, error) {
+	if len(commands) == 0 || len(commands) > maxTelegramBotCommands {
+		return nil, fmt.Errorf(
+			"telegram setMyCommands requires between 1 and %d commands",
+			maxTelegramBotCommands,
+		)
+	}
+	normalized := make([]BotCommand, 0, len(commands))
+	seen := make(map[string]struct{}, len(commands))
+	for _, command := range commands {
+		name := strings.TrimSpace(command.Command)
+		description := strings.TrimSpace(command.Description)
+		if len(name) == 0 || len(name) > maxBotCommandBytes || !validBotCommandName(name) {
+			return nil, fmt.Errorf(
+				"telegram bot command must use 1-%d lowercase ASCII letters, digits, or underscores",
+				maxBotCommandBytes,
+			)
+		}
+		if _, exists := seen[name]; exists {
+			return nil, fmt.Errorf("telegram bot command %q is duplicated", name)
+		}
+		if description == "" || utf8.RuneCountInString(description) > maxBotDescriptionRunes {
+			return nil, fmt.Errorf(
+				"telegram bot command description must use 1-%d runes",
+				maxBotDescriptionRunes,
+			)
+		}
+		seen[name] = struct{}{}
+		normalized = append(normalized, BotCommand{
+			Command:     name,
+			Description: description,
+		})
+	}
+	return normalized, nil
+}
+
+func validBotCommandName(value string) bool {
+	for _, character := range value {
+		if character >= 'a' && character <= 'z' ||
+			character >= '0' && character <= '9' ||
+			character == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func (c *Client) call(ctx context.Context, method string, payload any, timeout time.Duration, result any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -330,6 +398,10 @@ type sendMessagePayload struct {
 	Text            string                `json:"text"`
 	ReplyParameters *replyParameters      `json:"reply_parameters,omitempty"`
 	ReplyMarkup     *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
+}
+
+type setMyCommandsPayload struct {
+	Commands []BotCommand `json:"commands"`
 }
 
 type replyParameters struct {

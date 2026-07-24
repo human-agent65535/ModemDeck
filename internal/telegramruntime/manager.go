@@ -201,7 +201,7 @@ func (m *Manager) startUnit(parent context.Context, unitID string) (unitRuntime,
 		return unitRuntime{}, err
 	}
 	verifyContext, verifyCancel := context.WithTimeout(parent, 10*time.Second)
-	user, err := service.VerifyBot(verifyContext)
+	user, err := service.InitializeBot(verifyContext)
 	verifyCancel()
 	if err != nil {
 		return unitRuntime{}, err

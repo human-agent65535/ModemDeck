@@ -71,6 +71,46 @@ func TestServiceVerifyBot(t *testing.T) {
 	}
 }
 
+func TestServiceInitializeBotConfiguresCanonicalCommands(t *testing.T) {
+	t.Parallel()
+
+	var registrations [][]BotCommand
+	dependencies := completeDependencies()
+	dependencies.Bot = botStub{setCommands: func(_ context.Context, commands []BotCommand) error {
+		registrations = append(registrations, append([]BotCommand(nil), commands...))
+		return nil
+	}}
+	service := mustService(t, validServiceConfig(), dependencies)
+	for range 2 {
+		user, err := service.InitializeBot(context.Background())
+		if err != nil {
+			t.Fatalf("InitializeBot() error = %v", err)
+		}
+		if user.ID != testBotID {
+			t.Fatalf("InitializeBot() user = %#v", user)
+		}
+	}
+	want := botCommands()
+	if len(registrations) != 2 ||
+		!reflect.DeepEqual(registrations[0], want) ||
+		!reflect.DeepEqual(registrations[1], want) {
+		t.Fatalf("command registrations = %#v, want %#v twice", registrations, want)
+	}
+
+	dependencies = completeDependencies()
+	dependencies.Bot = botStub{setCommands: func(context.Context, []BotCommand) error {
+		return &APIError{Code: 401, Description: "Unauthorized"}
+	}}
+	service = mustService(t, validServiceConfig(), dependencies)
+	_, err := service.InitializeBot(context.Background())
+	var operationErr *OperationError
+	if !errors.As(err, &operationErr) ||
+		operationErr.Operation != "configure_bot_commands" ||
+		operationErr.Kind != "telegram_api" {
+		t.Fatalf("InitializeBot() error = %#v", err)
+	}
+}
+
 func TestServiceHonorsAddressedBotUsername(t *testing.T) {
 	t.Parallel()
 
@@ -380,7 +420,9 @@ func TestServiceNotificationsAndReplyBinding(t *testing.T) {
 	}
 	if len(sent) != 1 ||
 		!strings.Contains(sent[0].Text, "notification body") ||
-		!strings.Contains(sent[0].Text, "+818012345678") {
+		!strings.Contains(sent[0].Text, "+818012345678") ||
+		!strings.Contains(sent[0].Text, "线路：Primary · +818012345678") ||
+		strings.Contains(sent[0].Text, "line-a") {
 		t.Fatalf("incoming notification = %#v", sent)
 	}
 	if !reflect.DeepEqual(bindings, []ReplyBinding{{LineID: "line-a", Number: "+81 80-1234-5678"}}) {
@@ -413,8 +455,51 @@ func TestServiceNotificationsAndReplyBinding(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("NotifyMissedCall() error = %v", err)
 	}
-	if len(sent) != 2 || !strings.Contains(sent[1].Text, "未接来电") {
+	if len(sent) != 2 ||
+		!strings.Contains(sent[1].Text, "未接来电") ||
+		!strings.Contains(sent[1].Text, "线路：Primary · +818012345678") ||
+		strings.Contains(sent[1].Text, "line-a") {
 		t.Fatalf("missed-call notification = %#v", sent)
+	}
+}
+
+func TestServiceNotificationsNeverExposeInternalLineID(t *testing.T) {
+	t.Parallel()
+
+	var sent []SendMessageRequest
+	dependencies := completeDependencies()
+	dependencies.Bot = botStub{send: func(_ context.Context, request SendMessageRequest) (Message, error) {
+		sent = append(sent, request)
+		return Message{MessageID: int64(len(sent)), Chat: Chat{ID: request.ChatID}}, nil
+	}}
+	dependencies.Lines = lineQuerierFunc(func(context.Context) ([]Line, error) {
+		return nil, errors.New("line snapshot unavailable")
+	})
+	service := mustService(t, validServiceConfig(), dependencies)
+
+	if err := service.NotifyIncomingSMS(context.Background(), IncomingSMS{
+		MessageID: "sms-1",
+		LineID:    "line-a",
+		From:      "+818012345678",
+		Body:      "fallback identity",
+	}); err != nil {
+		t.Fatalf("NotifyIncomingSMS() error = %v", err)
+	}
+	if err := service.NotifyMissedCall(context.Background(), MissedCall{
+		CallID: "call-1",
+		LineID: "line-a",
+		From:   "+818012345678",
+	}); err != nil {
+		t.Fatalf("NotifyMissedCall() error = %v", err)
+	}
+	if len(sent) != 2 {
+		t.Fatalf("notifications = %d, want 2", len(sent))
+	}
+	for _, request := range sent {
+		if !strings.Contains(request.Text, "线路：线路") ||
+			strings.Contains(request.Text, "line-a") {
+			t.Fatalf("notification text = %q", request.Text)
+		}
 	}
 }
 

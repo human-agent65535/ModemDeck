@@ -2,6 +2,7 @@ package telegramruntime
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -103,6 +104,99 @@ func TestManagerVerifiesBotAndDispatchesDurableNotification(t *testing.T) {
 	if repository.bound.LineID != "line-1" || repository.bound.Number != "+818012345678" {
 		t.Fatalf("reply binding = %+v", repository.bound)
 	}
+	commands, messages := bot.snapshots()
+	if len(commands) != 1 || len(commands[0]) != 5 ||
+		commands[0][0].Command != "lines" || commands[0][4].Command != "help" {
+		t.Fatalf("registered commands = %+v", commands)
+	}
+	if len(messages) != 1 ||
+		!strings.Contains(messages[0].Text, "主线路 · +818000000001") ||
+		strings.Contains(messages[0].Text, "line-1") {
+		t.Fatalf("notification text = %q", messages[0].Text)
+	}
+}
+
+func TestManagerRegistersBotCommandsOnStartupAndReload(t *testing.T) {
+	t.Parallel()
+
+	settings := &fakeSettings{
+		changes: make(chan struct{}, 1),
+		units: []telegramsettings.Unit{{
+			ID:      "unit-1",
+			Enabled: true,
+		}},
+		config: telegram.Config{
+			Enabled:  true,
+			BotToken: "100001:abcdefghijklmnopqrstuvwxyz",
+			ChatID:   10,
+			AdminID:  20,
+		},
+	}
+	repository := &fakeRepository{}
+	bot := &fakeBot{configured: make(chan struct{}, 2)}
+	manager, err := New(
+		settings,
+		fakeCommunications{},
+		repository,
+		Options{
+			BotFactory: func(string) (telegram.BotAPI, error) {
+				return bot, nil
+			},
+			PollOptions: telegram.PollOptions{
+				LongPollTimeout:        time.Second,
+				BatchSize:              1,
+				MinFailureBackoff:      10 * time.Millisecond,
+				MaxFailureBackoff:      10 * time.Millisecond,
+				MaxConsecutiveFailures: 1,
+				MinimumEmptyInterval:   10 * time.Millisecond,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	runResult := make(chan error, 1)
+	go func() {
+		runResult <- manager.Run(ctx)
+	}()
+	waitForBotConfiguration(t, bot.configured)
+	settings.changes <- struct{}{}
+	waitForBotConfiguration(t, bot.configured)
+	cancel()
+	select {
+	case err := <-runResult:
+		if err != context.Canceled {
+			t.Fatalf("Run() error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Run() did not stop")
+	}
+
+	commands, _ := bot.snapshots()
+	if len(commands) != 2 {
+		t.Fatalf("command registrations = %d, want 2", len(commands))
+	}
+	for _, registration := range commands {
+		if len(registration) != 5 ||
+			registration[0].Command != "lines" ||
+			registration[1].Command != "sms" ||
+			registration[2].Command != "call" ||
+			registration[3].Command != "reply" ||
+			registration[4].Command != "help" {
+			t.Fatalf("registered commands = %+v", registration)
+		}
+	}
+}
+
+func waitForBotConfiguration(t *testing.T, configured <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-configured:
+	case <-time.After(time.Second):
+		t.Fatal("bot command menu was not configured")
+	}
 }
 
 type fakeSettings struct {
@@ -129,8 +223,10 @@ func (fakeCommunications) Status(context.Context) (communication.Status, error) 
 	return communication.Status{
 		Connected: true,
 		Lines: []store.LineSummary{{
-			ID:    "line-1",
-			State: "registered",
+			ID:          "line-1",
+			LineLabel:   "主线路",
+			PhoneNumber: "+818000000001",
+			State:       "registered",
 		}},
 	}, nil
 }
@@ -266,7 +362,12 @@ func (r *fakeRepository) FinishTelegramNotificationDelivery(
 	return nil
 }
 
-type fakeBot struct{}
+type fakeBot struct {
+	mu         sync.Mutex
+	commands   [][]telegram.BotCommand
+	messages   []telegram.SendMessageRequest
+	configured chan struct{}
+}
 
 func (*fakeBot) GetMe(context.Context) (telegram.BotUser, error) {
 	return telegram.BotUser{
@@ -276,10 +377,31 @@ func (*fakeBot) GetMe(context.Context) (telegram.BotUser, error) {
 	}, nil
 }
 
-func (*fakeBot) SendMessage(
+func (b *fakeBot) SetMyCommands(
+	_ context.Context,
+	commands []telegram.BotCommand,
+) error {
+	copied := append([]telegram.BotCommand(nil), commands...)
+	b.mu.Lock()
+	b.commands = append(b.commands, copied)
+	configured := b.configured
+	b.mu.Unlock()
+	if configured != nil {
+		select {
+		case configured <- struct{}{}:
+		default:
+		}
+	}
+	return nil
+}
+
+func (b *fakeBot) SendMessage(
 	_ context.Context,
 	request telegram.SendMessageRequest,
 ) (telegram.Message, error) {
+	b.mu.Lock()
+	b.messages = append(b.messages, request)
+	b.mu.Unlock()
 	return telegram.Message{
 		MessageID: 1,
 		Chat:      telegram.Chat{ID: request.ChatID},
@@ -306,4 +428,14 @@ func (*fakeBot) GetUpdates(
 ) ([]telegram.Update, error) {
 	<-ctx.Done()
 	return nil, ctx.Err()
+}
+
+func (b *fakeBot) snapshots() ([][]telegram.BotCommand, []telegram.SendMessageRequest) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	commands := make([][]telegram.BotCommand, len(b.commands))
+	for index := range b.commands {
+		commands[index] = append([]telegram.BotCommand(nil), b.commands[index]...)
+	}
+	return commands, append([]telegram.SendMessageRequest(nil), b.messages...)
 }

@@ -78,8 +78,14 @@ type GetUpdatesRequest struct {
 	Timeout time.Duration
 }
 
+type BotCommand struct {
+	Command     string `json:"command"`
+	Description string `json:"description"`
+}
+
 type BotAPI interface {
 	GetMe(context.Context) (BotUser, error)
+	SetMyCommands(context.Context, []BotCommand) error
 	SendMessage(context.Context, SendMessageRequest) (Message, error)
 	AnswerCallbackQuery(context.Context, AnswerCallbackQueryRequest) error
 	EditMessageReplyMarkup(context.Context, EditMessageReplyMarkupRequest) error

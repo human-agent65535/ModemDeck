@@ -95,13 +95,31 @@ func (s *Service) VerifyBot(ctx context.Context) (BotUser, error) {
 	return user, nil
 }
 
-// Run is the standard service entrypoint: it verifies getMe before accepting
-// commands, then starts bounded long polling with a durable per-bot checkpoint.
+// InitializeBot verifies the configured identity and writes the canonical
+// command menu. Repeating it is safe because setMyCommands replaces that menu.
+func (s *Service) InitializeBot(ctx context.Context) (BotUser, error) {
+	user, err := s.VerifyBot(ctx)
+	if err != nil || !s.config.Enabled {
+		return user, err
+	}
+	if err := s.bot.SetMyCommands(ctx, botCommands()); err != nil {
+		return BotUser{}, &OperationError{
+			Operation: "configure_bot_commands",
+			Kind:      errorClass(err),
+			Err:       err,
+		}
+	}
+	return user, nil
+}
+
+// Run is the standard service entrypoint: it initializes the bot before
+// accepting commands, then starts bounded long polling with a durable
+// per-bot checkpoint.
 func (s *Service) Run(ctx context.Context, checkpoint Checkpoint, options PollOptions) error {
 	if !s.config.Enabled {
 		return nil
 	}
-	if _, err := s.VerifyBot(ctx); err != nil {
+	if _, err := s.InitializeBot(ctx); err != nil {
 		return err
 	}
 	poller, err := NewPoller(s.bot, s, checkpoint, s.observer, options)
@@ -233,7 +251,8 @@ func (s *Service) NotifyIncomingSMS(ctx context.Context, incoming IncomingSMS) e
 	}
 
 	displayPeer, _, replyable := notificationPeer(incoming.From)
-	text := formatIncomingSMS(incoming, displayPeer, replyable)
+	lineIdentity := s.notificationLineIdentity(ctx, incoming.LineID, incoming.LineLabel)
+	text := formatIncomingSMS(incoming, displayPeer, replyable, lineIdentity)
 	peer := strings.TrimSpace(incoming.From)
 	request := SendMessageRequest{ChatID: s.config.ChatID, Text: text}
 	if peer != "" {
@@ -268,14 +287,50 @@ func (s *Service) NotifyMissedCall(ctx context.Context, missed MissedCall) error
 		return &OperationError{Operation: "notify_missed_call", Kind: "invalid_line", Err: err}
 	}
 	displayPeer, _, _ := notificationPeer(missed.From)
+	lineIdentity := s.notificationLineIdentity(ctx, missed.LineID, missed.LineLabel)
 	if _, err := s.bot.SendMessage(ctx, SendMessageRequest{
 		ChatID: s.config.ChatID,
-		Text:   formatMissedCall(missed, displayPeer),
+		Text:   formatMissedCall(missed, displayPeer, lineIdentity),
 	}); err != nil {
 		s.observe(ctx, Event{Kind: EventOperationFailed, Operation: "notify_missed_call", ErrorClass: errorClass(err)})
 		return &OperationError{Operation: "notify_missed_call", Kind: errorClass(err), Err: err}
 	}
 	return nil
+}
+
+func (s *Service) notificationLineIdentity(
+	ctx context.Context,
+	lineID, fallbackLabel string,
+) string {
+	label := safeNotificationLineLabel(fallbackLabel, lineID)
+	phoneNumber := ""
+	if lines, err := s.lines.Lines(ctx); err == nil {
+		for _, line := range lines {
+			if line.ID != lineID {
+				continue
+			}
+			if current := safeNotificationLineLabel(line.Label, lineID); current != "" {
+				label = current
+			}
+			phoneNumber = strings.TrimSpace(line.PhoneNumber)
+			break
+		}
+	}
+	if label == "" || label == phoneNumber {
+		label = "线路"
+	}
+	if phoneNumber != "" {
+		return label + " · " + phoneNumber
+	}
+	return label
+}
+
+func safeNotificationLineLabel(value, lineID string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || value == strings.TrimSpace(lineID) {
+		return ""
+	}
+	return value
 }
 
 func (s *Service) handleLines(ctx context.Context, updateID, replyTo int64) error {
@@ -509,6 +564,16 @@ func helpText() string {
 	}, "\n")
 }
 
+func botCommands() []BotCommand {
+	return []BotCommand{
+		{Command: "lines", Description: "查看授权线路"},
+		{Command: "sms", Description: "查看最近短信"},
+		{Command: "call", Description: "通过蜂窝线路拨号"},
+		{Command: "reply", Description: "回复短信"},
+		{Command: "help", Description: "查看帮助"},
+	}
+}
+
 func formatLines(lines []Line) string {
 	if len(lines) == 0 {
 		return "没有授权线路。"
@@ -555,14 +620,15 @@ func formatSMS(messages []SMS) string {
 	return truncateRunes(strings.TrimSpace(builder.String()), MaxTelegramMessageRunes)
 }
 
-func formatIncomingSMS(incoming IncomingSMS, peer string, replyable bool) string {
-	label := incoming.LineLabel
-	if label == "" {
-		label = incoming.LineID
-	}
+func formatIncomingSMS(
+	incoming IncomingSMS,
+	peer string,
+	replyable bool,
+	lineIdentity string,
+) string {
 	var builder strings.Builder
 	builder.WriteString("新短信\n")
-	fmt.Fprintf(&builder, "线路：%s (%s)\n来自：%s", label, incoming.LineID, peer)
+	fmt.Fprintf(&builder, "线路：%s\n来自：%s", lineIdentity, peer)
 	if !incoming.ReceivedAt.IsZero() {
 		fmt.Fprintf(&builder, "\n时间：%s", incoming.ReceivedAt.Format(time.RFC3339))
 	}
@@ -576,12 +642,8 @@ func formatIncomingSMS(incoming IncomingSMS, peer string, replyable bool) string
 	return truncateRunes(builder.String(), MaxTelegramMessageRunes)
 }
 
-func formatMissedCall(missed MissedCall, number string) string {
-	label := missed.LineLabel
-	if label == "" {
-		label = missed.LineID
-	}
-	text := fmt.Sprintf("未接来电\n线路：%s (%s)\n号码：%s", label, missed.LineID, number)
+func formatMissedCall(missed MissedCall, number, lineIdentity string) string {
+	text := fmt.Sprintf("未接来电\n线路：%s\n号码：%s", lineIdentity, number)
 	if !missed.CalledAt.IsZero() {
 		text += "\n时间：" + missed.CalledAt.Format(time.RFC3339)
 	}

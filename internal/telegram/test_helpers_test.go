@@ -9,11 +9,12 @@ const testBotToken = "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcd"
 const testBotID = int64(123456789)
 
 type botStub struct {
-	getMe      func(context.Context) (BotUser, error)
-	send       func(context.Context, SendMessageRequest) (Message, error)
-	answer     func(context.Context, AnswerCallbackQueryRequest) error
-	editMarkup func(context.Context, EditMessageReplyMarkupRequest) error
-	updates    func(context.Context, GetUpdatesRequest) ([]Update, error)
+	getMe       func(context.Context) (BotUser, error)
+	setCommands func(context.Context, []BotCommand) error
+	send        func(context.Context, SendMessageRequest) (Message, error)
+	answer      func(context.Context, AnswerCallbackQueryRequest) error
+	editMarkup  func(context.Context, EditMessageReplyMarkupRequest) error
+	updates     func(context.Context, GetUpdatesRequest) ([]Update, error)
 }
 
 func (b botStub) GetMe(ctx context.Context) (BotUser, error) {
@@ -21,6 +22,13 @@ func (b botStub) GetMe(ctx context.Context) (BotUser, error) {
 		return BotUser{ID: testBotID, IsBot: true, Username: "modemdeck_test_bot"}, nil
 	}
 	return b.getMe(ctx)
+}
+
+func (b botStub) SetMyCommands(ctx context.Context, commands []BotCommand) error {
+	if b.setCommands == nil {
+		return nil
+	}
+	return b.setCommands(ctx, commands)
 }
 
 func (b botStub) SendMessage(ctx context.Context, request SendMessageRequest) (Message, error) {

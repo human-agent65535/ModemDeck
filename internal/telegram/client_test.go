@@ -29,6 +29,17 @@ func TestClientGetMeAndSendMessage(t *testing.T) {
 		case strings.HasSuffix(request.URL.Path, "/getMe"):
 			methods = append(methods, "getMe")
 			writeJSON(response, `{"ok":true,"result":{"id":123456789,"is_bot":true,"first_name":"Deck","username":"deck_bot"}}`)
+		case strings.HasSuffix(request.URL.Path, "/setMyCommands"):
+			methods = append(methods, "setMyCommands")
+			var payload setMyCommandsPayload
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Errorf("decode command payload: %v", err)
+			}
+			want := []BotCommand{{Command: "help", Description: "查看帮助"}}
+			if len(payload.Commands) != 1 || payload.Commands[0] != want[0] {
+				t.Errorf("command payload = %#v", payload)
+			}
+			writeJSON(response, `{"ok":true,"result":true}`)
 		case strings.HasSuffix(request.URL.Path, "/sendMessage"):
 			methods = append(methods, "sendMessage")
 			var payload sendMessagePayload
@@ -82,6 +93,12 @@ func TestClientGetMeAndSendMessage(t *testing.T) {
 	if user.ID != testBotID || !user.IsBot || user.Username != "deck_bot" {
 		t.Fatalf("GetMe() = %#v", user)
 	}
+	if err := client.SetMyCommands(context.Background(), []BotCommand{{
+		Command:     " help ",
+		Description: " 查看帮助 ",
+	}}); err != nil {
+		t.Fatalf("SetMyCommands() error = %v", err)
+	}
 
 	message, err := client.SendMessage(context.Background(), SendMessageRequest{
 		ChatID:           -100,
@@ -114,8 +131,51 @@ func TestClientGetMeAndSendMessage(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("EditMessageReplyMarkup() error = %v", err)
 	}
-	if got := strings.Join(methods, ","); got != "getMe,sendMessage,answerCallbackQuery,editMessageReplyMarkup" {
+	if got := strings.Join(methods, ","); got != "getMe,setMyCommands,sendMessage,answerCallbackQuery,editMessageReplyMarkup" {
 		t.Fatalf("methods = %q", got)
+	}
+}
+
+func TestClientSetMyCommandsValidationAndProtocol(t *testing.T) {
+	t.Parallel()
+
+	client := mustTestClient(t, "https://api.telegram.org", ClientOptions{
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			t.Fatal("transport called for invalid command menu")
+			return nil, nil
+		})},
+	})
+	tooMany := make([]BotCommand, maxTelegramBotCommands+1)
+	invalid := [][]BotCommand{
+		nil,
+		tooMany,
+		{{Command: "/help", Description: "help"}},
+		{{Command: "Help", Description: "help"}},
+		{{Command: "help", Description: ""}},
+		{{Command: "help", Description: strings.Repeat("x", maxBotDescriptionRunes+1)}},
+		{
+			{Command: "help", Description: "help"},
+			{Command: "help", Description: "duplicate"},
+		},
+	}
+	for _, commands := range invalid {
+		if err := client.SetMyCommands(context.Background(), commands); err == nil {
+			t.Fatalf("SetMyCommands(%#v) returned nil error", commands)
+		}
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		writeJSON(response, `{"ok":true,"result":false}`)
+	}))
+	defer server.Close()
+	client = mustTestClient(t, server.URL, ClientOptions{})
+	err := client.SetMyCommands(context.Background(), []BotCommand{{
+		Command:     "help",
+		Description: "help",
+	}})
+	var protocolErr *ProtocolError
+	if !errors.As(err, &protocolErr) || protocolErr.Method != "setMyCommands" {
+		t.Fatalf("SetMyCommands() error = %v, want setMyCommands ProtocolError", err)
 	}
 }
 

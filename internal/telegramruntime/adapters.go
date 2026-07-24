@@ -138,8 +138,8 @@ func (c checkpoint) Advance(ctx context.Context, next int64) error {
 
 func lineLabel(line store.LineSummary) string {
 	for _, value := range []string{
+		line.LineLabel,
 		line.DeviceAlias,
-		line.PhoneNumber,
 		line.Model,
 		line.Operator,
 		line.ID,
