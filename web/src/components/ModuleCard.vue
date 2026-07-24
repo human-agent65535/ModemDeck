@@ -5,15 +5,12 @@ import {
   CircleCheck,
   MessageSquareText,
   Phone,
-  RadioTower,
-  SignalHigh,
-  SignalLow,
-  SignalMedium,
-  SignalZero
+  RadioTower
 } from '@lucide/vue'
 import { computed } from 'vue'
 import type { Device, LineSummary } from '../api/types'
 import { lineLabel } from '../state/workspace'
+import SignalBars from './SignalBars.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -44,13 +41,6 @@ const online = computed(() =>
 const signal = computed(
   () => props.line.signal_quality ?? props.device?.signal_quality ?? null
 )
-const signalIcon = computed(() => {
-  const value = signal.value
-  if (value === null || value <= 0) return SignalZero
-  if (value < 34) return SignalLow
-  if (value < 67) return SignalMedium
-  return SignalHigh
-})
 const model = computed(
   () => props.line.model || props.device?.model || '未知型号'
 )
@@ -116,12 +106,7 @@ const stateLabel = computed(() => {
         <div>
           <dt>信号</dt>
           <dd class="module-card__signal-value">
-            <component
-              :is="signalIcon"
-              class="module-card__signal-icon"
-              :size="14"
-              aria-hidden="true"
-            />
+            <SignalBars :value="signal" />
             <span>{{ signal === null ? '—' : `${signal}%` }}</span>
           </dd>
         </div>
@@ -356,12 +341,7 @@ const stateLabel = computed(() => {
 .module-card__signal-value {
   display: flex;
   align-items: center;
-  gap: 4px;
-}
-
-.module-card__signal-icon {
-  flex: 0 0 auto;
-  color: var(--accent-strong);
+  gap: 5px;
 }
 
 .module-card__footer {

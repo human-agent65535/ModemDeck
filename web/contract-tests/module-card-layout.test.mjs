@@ -102,17 +102,11 @@ test('voice capability describes call control without implying an audio path', (
   assert.doesNotMatch(capabilities, /通话|音频|USB|声卡/)
 })
 
-test('signal percentage uses graded bars without changing the reported value', () => {
+test('module cards use real graded bars without changing the reported value', () => {
+  assert.match(moduleCard, /import SignalBars from '\.\/SignalBars\.vue'/)
   assert.match(
     moduleCard,
-    /SignalHigh,[\s\S]*SignalLow,[\s\S]*SignalMedium,[\s\S]*SignalZero/
+    /class="module-card__signal-value"[\s\S]*<SignalBars :value="signal" \/>[\s\S]*\{\{ signal === null \? '—' : `\$\{signal\}%` \}\}/
   )
-  assert.match(
-    moduleCard,
-    /if \(value === null \|\| value <= 0\) return SignalZero[\s\S]*if \(value < 34\) return SignalLow[\s\S]*if \(value < 67\) return SignalMedium[\s\S]*return SignalHigh/
-  )
-  assert.match(
-    moduleCard,
-    /class="module-card__signal-value"[\s\S]*:is="signalIcon"[\s\S]*\{\{ signal === null \? '—' : `\$\{signal\}%` \}\}/
-  )
+  assert.doesNotMatch(moduleCard, /SignalHigh|SignalMedium|SignalLow|SignalZero/)
 })
