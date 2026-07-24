@@ -169,6 +169,9 @@ const selectedNetworkSelection = computed(() =>
 )
 const configuration = computed(() => selectedResource.value?.data || null)
 const hardware = computed(() => configuration.value?.hardware)
+const requiresPhysicalPowerCycle = computed(
+  () => hardware.value?.volte.profile_id === 'qdc507glefm21-qcfg-ims'
+)
 const apnPlaceholder = computed(() => automaticAPNLabel(hardware.value?.automatic_apn))
 const incomingCalls = computed(() => configuration.value?.incoming_calls)
 const savingOperation = computed(() => selectedResource.value?.savingOperation || '')
@@ -265,7 +268,11 @@ const volteStatusLabel = computed(() => {
   if (!capability.supported) return '不支持'
   if (!capability.implemented) return '未实现'
   if (!volte.policy_known) return '状态未知'
-  if (volte.restart_required) return '已保存，重启模组后生效'
+  if (volte.restart_required) {
+    return requiresPhysicalPowerCycle.value
+      ? '已保存，断电重启后生效'
+      : '已保存，重启模组后生效'
+  }
   if (volte.policy !== 'enabled') {
     return volte.modem_capability_known && volte.modem_capability_enabled
       ? '已关闭，尚未生效'
@@ -1682,10 +1689,17 @@ onBeforeUnmount(() => {
               role="status"
             >
               <span>
-                <strong>等待重启</strong>
-                <small>VoLTE 配置已写入</small>
+                <strong>{{ requiresPhysicalPowerCycle ? '等待断电重启' : '等待重启' }}</strong>
+                <small>
+                  {{
+                    requiresPhysicalPowerCycle
+                      ? 'VoLTE 配置已写入，请断电重插模组'
+                      : 'VoLTE 配置已写入'
+                  }}
+                </small>
               </span>
               <button
+                v-if="!requiresPhysicalPowerCycle"
                 class="primary-action restart-action"
                 type="button"
                 :disabled="hardwareBusy"

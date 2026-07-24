@@ -14,9 +14,11 @@ var QDC507GLEFM21Identity = Identity{
 	Firmware:     "QDC507GLEFM21",
 }
 
+const QDC507GLEFM21ProfileID = "qdc507glefm21-qcfg-ims"
+
 func QDC507GLEFM21Profile() Profile {
 	return Profile{
-		ID:                   "qdc507glefm21-qcfg-ims",
+		ID:                   QDC507GLEFM21ProfileID,
 		Identity:             QDC507GLEFM21Identity,
 		OperationTimeout:     5 * time.Second,
 		Read:                 ATRead(`AT+QCFG="ims"`, decodeQuectelIMS),

@@ -90,6 +90,13 @@ func (s *Service) ApplyDeviceConfiguration(
 			"device configuration changed; read the latest revision before applying",
 		)
 	}
+	if request.Operation == domain.DeviceConfigurationRestartModem &&
+		current.VoLTE.ProfileID == volte.QDC507GLEFM21ProfileID {
+		return domain.DeviceConfiguration{}, domain.NotSupported(
+			operation,
+			"QDC507GLEFM21 requires a physical power cycle; ModemManager Reset leaves this firmware in CFUN=7",
+		)
+	}
 
 	if request.Operation != domain.DeviceConfigurationSetVoLTEPolicy {
 		request.ExpectedRevision = base.Revision

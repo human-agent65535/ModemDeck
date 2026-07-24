@@ -3,6 +3,7 @@ package deviceconfig
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -41,6 +42,8 @@ type fakeATTransport struct {
 func (transport *fakeATTransport) Command(_ context.Context, command string) (string, error) {
 	transport.commands = append(transport.commands, command)
 	switch command {
+	case `AT+QCFG="ims"`:
+		return `+QCFG: "ims",0,1`, nil
 	case "AT+TESTVOLTE?":
 		if transport.readErr != nil {
 			return "", transport.readErr
@@ -303,6 +306,57 @@ func TestVoLTERestartRequirementPersistsUntilUserRestartsModem(t *testing.T) {
 	}
 	if afterRestart.VoLTE.RestartRequired {
 		t.Fatalf("VoLTE after restart GET = %+v, want pending restart cleared", afterRestart.VoLTE)
+	}
+}
+
+func TestQDC507RejectsUnsafeModemManagerRestart(t *testing.T) {
+	t.Parallel()
+
+	profile := volte.QDC507GLEFM21Profile()
+	identity := domain.DeviceIdentity{
+		Manufacturer: profile.Identity.Manufacturer,
+		Model:        profile.Identity.Model,
+		Firmware:     profile.Identity.Firmware,
+	}
+	registry, err := volte.NewRegistry(profile)
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+	generic := &fakeGenericProvider{configuration: baseConfiguration(t, identity)}
+	service, err := New(
+		generic,
+		registry,
+		func(context.Context, string, volte.Identity) (volte.Transports, error) {
+			return volte.Transports{AT: &fakeATTransport{}}, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	current, err := service.DeviceConfiguration(context.Background(), "line-1")
+	if err != nil {
+		t.Fatalf("DeviceConfiguration() error = %v", err)
+	}
+	_, err = service.ApplyDeviceConfiguration(
+		context.Background(),
+		domain.ApplyDeviceConfigurationRequest{
+			RequestID:        "reject-qdc507-reset",
+			LineID:           "line-1",
+			ExpectedRevision: current.Revision,
+			Operation:        domain.DeviceConfigurationRestartModem,
+		},
+	)
+	if err == nil {
+		t.Fatal("ApplyDeviceConfiguration(restart modem) error = nil")
+	}
+	typed, ok := domain.AsOperationError(err)
+	if !ok || typed.Code != domain.ErrorNotSupported ||
+		!strings.Contains(typed.Message, "physical power cycle") {
+		t.Fatalf("restart error = %#v", err)
+	}
+	if generic.applyCalls != 0 {
+		t.Fatalf("unsafe generic restart calls = %d, want 0", generic.applyCalls)
 	}
 }
 
