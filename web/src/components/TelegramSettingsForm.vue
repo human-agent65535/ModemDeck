@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { Check, LoaderCircle, Plus, Save, Trash2 } from '@lucide/vue'
-import type { TelegramUnit } from '../api/types'
+import type { LineSummary, TelegramUnit } from '../api/types'
 import { ApiError } from '../api/types'
 import {
   bootstrapResource,
@@ -36,14 +36,21 @@ const selectedUnit = computed(() =>
   telegramResource.data.find(unit => unit.id === selectedID.value)
 )
 const lines = computed(() => bootstrapResource.data?.lines || [])
+
+function telegramLineIdentity(line: LineSummary): string {
+  const alias = lineLabel(line)
+  const phoneNumber = line.phone_number.trim()
+  return phoneNumber ? `${alias} · ${phoneNumber}` : alias
+}
+
 const scopeOptions = computed(() => {
   const options = lines.value.map(line => ({
     id: lineKey(line),
-    label: lineLabel(line)
+    label: telegramLineIdentity(line)
   }))
   for (const scope of lineScopes.value) {
     if (!options.some(option => option.id === scope)) {
-      options.push({ id: scope, label: `未知线路 · ${scope}` })
+      options.push({ id: scope, label: '未知线路' })
     }
   }
   return options

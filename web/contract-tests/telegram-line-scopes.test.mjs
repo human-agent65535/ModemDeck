@@ -46,3 +46,18 @@ test('Telegram save payload has one canonical line-scope representation', () => 
   assert.match(form, /line_scopes: normalizedLineScopes\(\)/)
   assert.doesNotMatch(form, /line_scopes: allLines\.value \? \[\]/)
 })
+
+test('Telegram line scopes show the alias and reliable phone number without internal IDs', () => {
+  const identityStart = form.indexOf('function telegramLineIdentity')
+  const identityEnd = form.indexOf('const scopeOptions', identityStart)
+  assert.ok(identityStart >= 0)
+  assert.ok(identityEnd > identityStart)
+  const identity = form.slice(identityStart, identityEnd)
+
+  assert.match(identity, /const alias = lineLabel\(line\)/)
+  assert.match(identity, /const phoneNumber = line\.phone_number\.trim\(\)/)
+  assert.match(identity, /return phoneNumber \? `\$\{alias\} · \$\{phoneNumber\}` : alias/)
+  assert.match(form, /label: telegramLineIdentity\(line\)/)
+  assert.match(form, /options\.push\(\{ id: scope, label: '未知线路' \}\)/)
+  assert.doesNotMatch(form, /未知线路 · \$\{scope\}/)
+})
