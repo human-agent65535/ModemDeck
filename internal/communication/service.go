@@ -1133,6 +1133,10 @@ func projectSnapshot(
 		if !found || strings.TrimSpace(message.Number) == "" || strings.TrimSpace(message.Text) == "" {
 			continue
 		}
+		if normalizeMessageDirection(message.Direction) == "incoming" &&
+			strings.ToLower(strings.TrimSpace(message.State)) != "received" {
+			continue
+		}
 		messages = append(messages, projectMessage(
 			message,
 			line,
@@ -1211,8 +1215,8 @@ func projectMessage(
 	observedAt time.Time,
 	revision int64,
 ) store.HardwareMessage {
-	timestamp, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(message.Timestamp))
-	if err != nil {
+	timestamp, parsed := parseModemManagerTimestamp(message.Timestamp)
+	if !parsed {
 		timestamp = observedAt
 	}
 	return store.HardwareMessage{

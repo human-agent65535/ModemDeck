@@ -567,10 +567,11 @@ func TestOpaqueObjectIDsFollowModemManagerOwnerEpoch(t *testing.T) {
 	}
 	objects[messagePath] = Interfaces{
 		smsInterface: {
-			"Number":  dbus.MakeVariant("+818000000001"),
-			"Text":    dbus.MakeVariant("hello"),
-			"PduType": dbus.MakeVariant(uint32(1)),
-			"State":   dbus.MakeVariant(uint32(3)),
+			"Number":    dbus.MakeVariant("+818000000001"),
+			"Text":      dbus.MakeVariant("hello"),
+			"PduType":   dbus.MakeVariant(uint32(1)),
+			"State":     dbus.MakeVariant(uint32(3)),
+			"Timestamp": dbus.MakeVariant("2026-07-24T14:30:17+08"),
 		},
 	}
 	firstIDs := newInstanceIDsForTest(":1.41")
@@ -597,8 +598,12 @@ func TestOpaqueObjectIDsFollowModemManagerOwnerEpoch(t *testing.T) {
 	if first.Messages[0].ID != restartedAgent.Messages[0].ID {
 		t.Fatalf("agent restart changed message ID under the same ModemManager owner: %q != %q", first.Messages[0].ID, restartedAgent.Messages[0].ID)
 	}
-	if first.Messages[0].ID == restartedModemManager.Messages[0].ID {
-		t.Fatalf("ModemManager owner change reused message ID %q", first.Messages[0].ID)
+	if first.Messages[0].ID != restartedModemManager.Messages[0].ID {
+		t.Fatalf(
+			"ModemManager owner change duplicated a stored incoming message: %q != %q",
+			first.Messages[0].ID,
+			restartedModemManager.Messages[0].ID,
+		)
 	}
 	if first.Lines[0].ID != restartedModemManager.Lines[0].ID {
 		t.Fatalf("hardware line ID changed with provider owner: %q != %q", first.Lines[0].ID, restartedModemManager.Lines[0].ID)

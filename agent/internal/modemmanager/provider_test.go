@@ -34,6 +34,8 @@ type fakeCaller struct {
 	connectionProfiles []map[string]dbus.Variant
 	ussdResponse       string
 	externalSIMs       map[dbus.ObjectPath]Properties
+	externalMessages   map[dbus.ObjectPath]Properties
+	messageLists       map[dbus.ObjectPath][]dbus.ObjectPath
 	signalAfterSetup   map[dbus.ObjectPath]Properties
 	errors             map[string]error
 	calls              []dbusInvocation
@@ -73,11 +75,27 @@ func (f *fakeCaller) Call(
 	case propertiesInterface + ".Get":
 		return []any{dbus.MakeVariant(f.runtimeVersion)}, nil
 	case propertiesInterface + ".GetAll":
-		return []any{f.externalSIMs[path]}, nil
+		if len(args) != 1 {
+			return nil, errors.New("GetAll interface was missing")
+		}
+		switch args[0] {
+		case simInterface:
+			return []any{f.externalSIMs[path]}, nil
+		case smsInterface:
+			return []any{f.externalMessages[path]}, nil
+		default:
+			return nil, errors.New("GetAll interface was unexpected")
+		}
 	case introspectableInterface + ".Introspect":
 		return []any{f.callIntrospection}, nil
 	case voiceInterface + ".CreateCall":
 		return []any{f.createdCallPath}, nil
+	case messagingInterface + ".List":
+		if paths, found := f.messageLists[path]; found {
+			return []any{append([]dbus.ObjectPath(nil), paths...)}, nil
+		}
+		paths, _ := objectPathValuesProperty(f.objects[path][messagingInterface], "Messages")
+		return []any{paths}, nil
 	case messagingInterface + ".Create":
 		return []any{f.createdMessagePath}, nil
 	case modemInterface + ".Command":
@@ -132,10 +150,78 @@ func TestSnapshotHydratesReferencedSIMOutsideManagedObjects(t *testing.T) {
 		t,
 		invocations,
 		objectManagerInterface+".GetManagedObjects",
+		messagingInterface+".List",
 		propertiesInterface+".GetAll",
 	)
-	if len(invocations[1].Args) != 1 || invocations[1].Args[0] != simInterface {
-		t.Fatalf("GetAll args = %#v", invocations[1].Args)
+	if len(invocations[2].Args) != 1 || invocations[2].Args[0] != simInterface {
+		t.Fatalf("GetAll args = %#v", invocations[2].Args)
+	}
+}
+
+func TestSnapshotListsAndHydratesMessagesMissingFromManagedObjects(t *testing.T) {
+	t.Parallel()
+	objects := emptyLineObjects(true, true)
+	messagePath := dbus.ObjectPath("/org/freedesktop/ModemManager1/SMS/7")
+	caller := newFakeCaller(objects)
+	caller.messageLists[testModemPath] = []dbus.ObjectPath{messagePath}
+	caller.externalMessages[messagePath] = Properties{
+		"Number":    dbus.MakeVariant("+818012345678"),
+		"Text":      dbus.MakeVariant("persisted while the app was offline"),
+		"PduType":   dbus.MakeVariant(uint32(1)),
+		"State":     dbus.MakeVariant(uint32(3)),
+		"Timestamp": dbus.MakeVariant("2026-07-24T14:30:17+08"),
+	}
+	provider := newTestProvider(caller)
+
+	snapshot, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if len(snapshot.Messages) != 1 ||
+		snapshot.Messages[0].Text != "persisted while the app was offline" {
+		t.Fatalf("messages = %+v, want hydrated persisted SMS", snapshot.Messages)
+	}
+	if len(snapshot.Lines) != 1 ||
+		len(snapshot.Lines[0].MessageIDs) != 1 ||
+		snapshot.Lines[0].MessageIDs[0] != snapshot.Messages[0].ID {
+		t.Fatalf("line message references = %+v", snapshot.Lines)
+	}
+	invocations := caller.invocations()
+	assertMethods(
+		t,
+		invocations,
+		objectManagerInterface+".GetManagedObjects",
+		messagingInterface+".List",
+		propertiesInterface+".GetAll",
+	)
+	if invocations[1].Path != testModemPath {
+		t.Fatalf("List path = %q, want %q", invocations[1].Path, testModemPath)
+	}
+	if invocations[2].Path != messagePath ||
+		len(invocations[2].Args) != 1 ||
+		invocations[2].Args[0] != smsInterface {
+		t.Fatalf("SMS GetAll invocation = %+v", invocations[2])
+	}
+}
+
+func TestSnapshotSkipsMessageRemovedBetweenListAndPropertyRead(t *testing.T) {
+	t.Parallel()
+	objects := emptyLineObjects(true, true)
+	messagePath := dbus.ObjectPath("/org/freedesktop/ModemManager1/SMS/8")
+	caller := newFakeCaller(objects)
+	caller.messageLists[testModemPath] = []dbus.ObjectPath{messagePath}
+	caller.errors[propertiesInterface+".GetAll"] = dbus.NewError(
+		"org.freedesktop.DBus.Error.UnknownObject",
+		nil,
+	)
+	provider := newTestProvider(caller)
+
+	snapshot, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if len(snapshot.Messages) != 0 || len(snapshot.Lines[0].MessageIDs) != 0 {
+		t.Fatalf("snapshot retained a vanished message: %+v", snapshot)
 	}
 }
 
@@ -314,14 +400,16 @@ func TestSnapshotUsesOneManagedObjectsCallAndStableContentRevision(t *testing.T)
 		t.Fatalf("changed content kept revision %q", third.Revision)
 	}
 
-	for _, call := range caller.invocations() {
-		if call.Method != objectManagerInterface+".GetManagedObjects" {
-			t.Fatalf("Snapshot made non-authoritative D-Bus call %q", call.Method)
-		}
-	}
-	if len(caller.invocations()) != 3 {
-		t.Fatalf("GetManagedObjects calls = %d, want 3", len(caller.invocations()))
-	}
+	assertMethods(
+		t,
+		caller.invocations(),
+		objectManagerInterface+".GetManagedObjects",
+		messagingInterface+".List",
+		objectManagerInterface+".GetManagedObjects",
+		messagingInterface+".List",
+		objectManagerInterface+".GetManagedObjects",
+		messagingInterface+".List",
+	)
 }
 
 func TestSnapshotStartsExtendedSignalPollingOnceAndReadsMetrics(t *testing.T) {
@@ -359,6 +447,7 @@ func TestSnapshotStartsExtendedSignalPollingOnceAndReadsMetrics(t *testing.T) {
 		objectManagerInterface+".GetManagedObjects",
 		signalInterface+".Setup",
 		objectManagerInterface+".GetManagedObjects",
+		messagingInterface+".List",
 	)
 
 	caller.resetInvocations()
@@ -369,6 +458,7 @@ func TestSnapshotStartsExtendedSignalPollingOnceAndReadsMetrics(t *testing.T) {
 		t,
 		caller.invocations(),
 		objectManagerInterface+".GetManagedObjects",
+		messagingInterface+".List",
 	)
 }
 
@@ -397,6 +487,7 @@ func TestSnapshotKeepsCoreDataWhenExtendedSignalSetupFails(t *testing.T) {
 		caller.invocations(),
 		objectManagerInterface+".GetManagedObjects",
 		signalInterface+".Setup",
+		messagingInterface+".List",
 	)
 
 	caller.resetInvocations()
@@ -407,6 +498,7 @@ func TestSnapshotKeepsCoreDataWhenExtendedSignalSetupFails(t *testing.T) {
 		t,
 		caller.invocations(),
 		objectManagerInterface+".GetManagedObjects",
+		messagingInterface+".List",
 	)
 }
 
@@ -435,6 +527,7 @@ func TestSnapshotRetriesTransientExtendedSignalSetupFailure(t *testing.T) {
 		caller.invocations(),
 		objectManagerInterface+".GetManagedObjects",
 		signalInterface+".Setup",
+		messagingInterface+".List",
 	)
 
 	caller.resetInvocations()
@@ -445,6 +538,7 @@ func TestSnapshotRetriesTransientExtendedSignalSetupFailure(t *testing.T) {
 		t,
 		caller.invocations(),
 		objectManagerInterface+".GetManagedObjects",
+		messagingInterface+".List",
 	)
 
 	now = now.Add(signalSetupRetryDelay)
@@ -472,6 +566,7 @@ func TestSnapshotRetriesTransientExtendedSignalSetupFailure(t *testing.T) {
 		objectManagerInterface+".GetManagedObjects",
 		signalInterface+".Setup",
 		objectManagerInterface+".GetManagedObjects",
+		messagingInterface+".List",
 	)
 }
 
@@ -1119,6 +1214,8 @@ func newFakeCaller(objects ManagedObjects) *fakeCaller {
 			</interface>
 		</node>`,
 		externalSIMs:     make(map[dbus.ObjectPath]Properties),
+		externalMessages: make(map[dbus.ObjectPath]Properties),
+		messageLists:     make(map[dbus.ObjectPath][]dbus.ObjectPath),
 		signalAfterSetup: make(map[dbus.ObjectPath]Properties),
 		errors:           make(map[string]error),
 	}

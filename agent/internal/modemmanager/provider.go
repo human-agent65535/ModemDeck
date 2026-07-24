@@ -193,6 +193,10 @@ func (p *Provider) Snapshot(ctx context.Context) (domain.Snapshot, error) {
 			return domain.Snapshot{}, err
 		}
 	}
+	objects, err = p.hydrateMessages(ctx, operation, objects)
+	if err != nil {
+		return domain.Snapshot{}, err
+	}
 	objects, err = p.hydrateReferencedSIMs(ctx, operation, objects)
 	if err != nil {
 		return domain.Snapshot{}, err

@@ -166,6 +166,80 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 	}
 }
 
+func TestHardwareSnapshotDoesNotDuplicateMessageAcrossProviderRestart(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	ctx := context.Background()
+	observed := time.Date(2026, time.July, 24, 6, 30, 20, 0, time.UTC)
+	line := HardwareLine{
+		ID:                  "line-stable",
+		EquipmentIdentifier: "990000000000099",
+		ICCID:               "8986012345678900099",
+		IMSI:                "460011234567899",
+	}
+	message := HardwareMessage{
+		LineID:            line.ID,
+		EndpointMessageID: "message_stable_transport_identity",
+		IMSI:              line.IMSI,
+		ICCID:             line.ICCID,
+		Number:            "106900000000000",
+		Text:              "stored while the app was offline",
+		Direction:         "incoming",
+		State:             "received",
+		StateCode:         3,
+		Timestamp:         observed.Add(-3 * time.Second),
+		ObservedAt:        observed,
+	}
+	if err := repository.ApplyHardwareSnapshot(ctx, HardwareSnapshot{
+		BootEpoch:  ":1.41",
+		Revision:   "snapshot-before-restart",
+		ObservedAt: observed,
+		Lines:      []HardwareLine{line},
+		Messages:   []HardwareMessage{message},
+	}); err != nil {
+		t.Fatalf("first ApplyHardwareSnapshot() error = %v", err)
+	}
+	if err := repository.ApplyHardwareSnapshot(ctx, HardwareSnapshot{
+		BootEpoch:  ":1.42",
+		Revision:   "snapshot-after-restart",
+		ObservedAt: observed.Add(time.Second),
+		Lines:      []HardwareLine{line},
+		Messages:   []HardwareMessage{message},
+	}); err != nil {
+		t.Fatalf("restarted ApplyHardwareSnapshot() error = %v", err)
+	}
+
+	messages, err := repository.Messages(ctx, MessageQuery{
+		ICCID: line.ICCID,
+		Peer:  message.Number,
+	})
+	if err != nil {
+		t.Fatalf("Messages() error = %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("messages = %+v, want one persisted SMS", messages)
+	}
+	threads, err := repository.MessageThreads(ctx, ThreadQuery{})
+	if err != nil {
+		t.Fatalf("MessageThreads() error = %v", err)
+	}
+	if len(threads) != 1 || threads[0].UnreadCount != 1 {
+		t.Fatalf("threads = %+v, want one unread SMS", threads)
+	}
+	var notifications int
+	if err := repository.database.QueryRowContext(
+		ctx,
+		"SELECT COUNT(*) FROM modemdeck_notification_events WHERE event_type = ?",
+		NotificationIncomingSMS,
+	).Scan(&notifications); err != nil {
+		t.Fatalf("count incoming SMS notifications: %v", err)
+	}
+	if notifications != 1 {
+		t.Fatalf("incoming SMS notifications = %d, want 1", notifications)
+	}
+}
+
 func TestMarkMessageThreadReadByLineOnlyUsesCurrentSIM(t *testing.T) {
 	t.Parallel()
 

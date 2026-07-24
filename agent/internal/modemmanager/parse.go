@@ -292,8 +292,12 @@ func parseMessage(path dbus.ObjectPath, lineID string, properties Properties, id
 	number, _ := stringProperty(properties, "Number")
 	text, _ := stringProperty(properties, "Text")
 	timestamp, _ := stringProperty(properties, "Timestamp")
+	messageID := ids.messageID(path)
+	if stableID, ok := stableIncomingMessageID(lineID, properties); ok {
+		messageID = stableID
+	}
 	return domain.Message{
-		ID:        ids.messageID(path),
+		ID:        messageID,
 		LineID:    lineID,
 		Number:    number,
 		Text:      text,
