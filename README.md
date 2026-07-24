@@ -50,7 +50,9 @@ make build
 Software capability does not imply support for every modem, firmware, SIM, or
 carrier. Voice media requires an exact ModemManager audio port mapped to an
 explicit PCM binding. Unknown devices remain unsupported instead of receiving
-guessed vendor commands.
+guessed vendor commands. The exact QDC507 VoLTE profile uses the production
+ModemManager package described under [`packaging/modemmanager/`](packaging/modemmanager/);
+it does not require ModemManager debug mode.
 
 Technical notes live under [`docs/`](docs/), including the
 [architecture](docs/architecture.md), [call and WebRTC validation
