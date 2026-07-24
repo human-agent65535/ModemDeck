@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -92,10 +93,7 @@ func (s *Service) ApplyDeviceConfiguration(
 	}
 	if request.Operation == domain.DeviceConfigurationRestartModem &&
 		current.VoLTE.ProfileID == volte.QDC507GLEFM21ProfileID {
-		return domain.DeviceConfiguration{}, domain.NotSupported(
-			operation,
-			"QDC507GLEFM21 requires a physical power cycle; ModemManager Reset leaves this firmware in CFUN=7",
-		)
+		return s.restartQDC507(ctx, current)
 	}
 
 	if request.Operation != domain.DeviceConfigurationSetVoLTEPolicy {
@@ -159,6 +157,73 @@ func (s *Service) ApplyDeviceConfiguration(
 		)
 	}
 	return updated, nil
+}
+
+func (s *Service) restartQDC507(
+	ctx context.Context,
+	current domain.DeviceConfiguration,
+) (domain.DeviceConfiguration, error) {
+	const operation = "apply_device_configuration"
+	_, transports, _, err := s.resolveDriver(ctx, current)
+	if err != nil {
+		return domain.DeviceConfiguration{}, err
+	}
+	if transports.AT == nil {
+		return domain.DeviceConfiguration{}, domain.Unavailable(
+			operation,
+			"QDC507GLEFM21 AT restart transport is unavailable",
+			nil,
+		)
+	}
+	response, err := transports.AT.Command(ctx, "AT+CFUN?")
+	if err != nil {
+		return domain.DeviceConfiguration{}, domain.Unavailable(
+			operation,
+			"QDC507GLEFM21 functional mode could not be read before restart",
+			err,
+		)
+	}
+	mode, err := parseCFUN(response)
+	if err != nil {
+		return domain.DeviceConfiguration{}, domain.VerificationFailed(
+			operation,
+			"QDC507GLEFM21 returned an invalid functional mode",
+			err,
+		)
+	}
+	if mode == 7 {
+		return domain.DeviceConfiguration{}, domain.FailedPrecondition(
+			operation,
+			"QDC507GLEFM21 is already in CFUN=7 and requires a physical power cycle",
+			nil,
+		)
+	}
+	if _, err := transports.AT.Command(ctx, "AT+CFUN=1,1"); err != nil {
+		return domain.DeviceConfiguration{}, domain.Unavailable(
+			operation,
+			"QDC507GLEFM21 vendor restart command failed",
+			err,
+		)
+	}
+	s.setRestartPending(current.LineID, false)
+	current.VoLTE.RestartRequired = false
+	return current, nil
+}
+
+func parseCFUN(response string) (int, error) {
+	for _, line := range strings.Split(strings.ReplaceAll(response, "\r\n", "\n"), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "+CFUN:") {
+			continue
+		}
+		value := strings.TrimSpace(strings.TrimPrefix(line, "+CFUN:"))
+		mode, err := strconv.Atoi(value)
+		if err != nil {
+			return 0, err
+		}
+		return mode, nil
+	}
+	return 0, fmt.Errorf("AT+CFUN? response did not contain +CFUN")
 }
 
 func (s *Service) enrich(

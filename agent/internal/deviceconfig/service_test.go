@@ -34,9 +34,10 @@ func (provider *fakeGenericProvider) ApplyGenericDeviceConfiguration(
 }
 
 type fakeATTransport struct {
-	policy   volte.Policy
-	commands []string
-	readErr  error
+	policy         volte.Policy
+	functionalMode int
+	commands       []string
+	readErr        error
 }
 
 func (transport *fakeATTransport) Command(_ context.Context, command string) (string, error) {
@@ -44,6 +45,11 @@ func (transport *fakeATTransport) Command(_ context.Context, command string) (st
 	switch command {
 	case `AT+QCFG="ims"`:
 		return `+QCFG: "ims",0,1`, nil
+	case "AT+CFUN?":
+		return fmt.Sprintf("+CFUN: %d", transport.functionalMode), nil
+	case "AT+CFUN=1,1":
+		transport.functionalMode = 1
+		return "", nil
 	case "AT+TESTVOLTE?":
 		if transport.readErr != nil {
 			return "", transport.readErr
@@ -309,31 +315,44 @@ func TestVoLTERestartRequirementPersistsUntilUserRestartsModem(t *testing.T) {
 	}
 }
 
-func TestQDC507RejectsUnsafeModemManagerRestart(t *testing.T) {
+func TestQDC507UsesVendorRestartInsteadOfModemManagerReset(t *testing.T) {
 	t.Parallel()
 
-	profile := volte.QDC507GLEFM21Profile()
-	identity := domain.DeviceIdentity{
-		Manufacturer: profile.Identity.Manufacturer,
-		Model:        profile.Identity.Model,
-		Firmware:     profile.Identity.Firmware,
-	}
-	registry, err := volte.NewRegistry(profile)
+	service, generic, at := newQDC507Service(t, 1)
+
+	current, err := service.DeviceConfiguration(context.Background(), "line-1")
 	if err != nil {
-		t.Fatalf("NewRegistry() error = %v", err)
+		t.Fatalf("DeviceConfiguration() error = %v", err)
 	}
-	generic := &fakeGenericProvider{configuration: baseConfiguration(t, identity)}
-	service, err := New(
-		generic,
-		registry,
-		func(context.Context, string, volte.Identity) (volte.Transports, error) {
-			return volte.Transports{AT: &fakeATTransport{}}, nil
+	updated, err := service.ApplyDeviceConfiguration(
+		context.Background(),
+		domain.ApplyDeviceConfigurationRequest{
+			RequestID:        "restart-qdc507-with-vendor-command",
+			LineID:           "line-1",
+			ExpectedRevision: current.Revision,
+			Operation:        domain.DeviceConfigurationRestartModem,
 		},
 	)
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf("ApplyDeviceConfiguration(restart modem) error = %v", err)
 	}
+	if updated.VoLTE.RestartRequired {
+		t.Fatalf("updated VoLTE = %+v, want restart marker cleared", updated.VoLTE)
+	}
+	if generic.applyCalls != 0 {
+		t.Fatalf("generic restart calls = %d, want 0", generic.applyCalls)
+	}
+	commands := strings.Join(at.commands, "\n")
+	if !strings.Contains(commands, "AT+CFUN?") ||
+		!strings.Contains(commands, "AT+CFUN=1,1") {
+		t.Fatalf("AT commands = %v, want guarded vendor restart", at.commands)
+	}
+}
 
+func TestQDC507CFUN7RequiresPhysicalPowerCycle(t *testing.T) {
+	t.Parallel()
+
+	service, generic, at := newQDC507Service(t, 7)
 	current, err := service.DeviceConfiguration(context.Background(), "line-1")
 	if err != nil {
 		t.Fatalf("DeviceConfiguration() error = %v", err)
@@ -341,22 +360,20 @@ func TestQDC507RejectsUnsafeModemManagerRestart(t *testing.T) {
 	_, err = service.ApplyDeviceConfiguration(
 		context.Background(),
 		domain.ApplyDeviceConfigurationRequest{
-			RequestID:        "reject-qdc507-reset",
+			RequestID:        "reject-stuck-qdc507-restart",
 			LineID:           "line-1",
 			ExpectedRevision: current.Revision,
 			Operation:        domain.DeviceConfigurationRestartModem,
 		},
 	)
-	if err == nil {
-		t.Fatal("ApplyDeviceConfiguration(restart modem) error = nil")
-	}
 	typed, ok := domain.AsOperationError(err)
-	if !ok || typed.Code != domain.ErrorNotSupported ||
+	if !ok || typed.Code != domain.ErrorFailedPrecondition ||
 		!strings.Contains(typed.Message, "physical power cycle") {
 		t.Fatalf("restart error = %#v", err)
 	}
-	if generic.applyCalls != 0 {
-		t.Fatalf("unsafe generic restart calls = %d, want 0", generic.applyCalls)
+	if generic.applyCalls != 0 ||
+		strings.Contains(strings.Join(at.commands, "\n"), "AT+CFUN=1,1") {
+		t.Fatalf("stuck restart escaped guard: generic=%d commands=%v", generic.applyCalls, at.commands)
 	}
 }
 
@@ -538,6 +555,36 @@ func newRestartingVoLTEService(
 	}
 	generic := &fakeGenericProvider{configuration: baseConfiguration(t, identity)}
 	at := &fakeATTransport{policy: initialPolicy}
+	service, err := New(
+		generic,
+		registry,
+		func(context.Context, string, volte.Identity) (volte.Transports, error) {
+			return volte.Transports{AT: at}, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	return service, generic, at
+}
+
+func newQDC507Service(
+	t *testing.T,
+	functionalMode int,
+) (*Service, *fakeGenericProvider, *fakeATTransport) {
+	t.Helper()
+	profile := volte.QDC507GLEFM21Profile()
+	identity := domain.DeviceIdentity{
+		Manufacturer: profile.Identity.Manufacturer,
+		Model:        profile.Identity.Model,
+		Firmware:     profile.Identity.Firmware,
+	}
+	registry, err := volte.NewRegistry(profile)
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+	generic := &fakeGenericProvider{configuration: baseConfiguration(t, identity)}
+	at := &fakeATTransport{functionalMode: functionalMode}
 	service, err := New(
 		generic,
 		registry,
