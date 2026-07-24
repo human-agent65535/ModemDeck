@@ -31,6 +31,7 @@ type Capabilities struct {
 	Discovery           bool `json:"discovery"`
 	DeviceConfiguration bool `json:"device_configuration"`
 	Network             bool `json:"network"`
+	NetworkSelection    bool `json:"network_selection"`
 	Proxy               bool `json:"proxy"`
 	Dial                bool `json:"dial"`
 	AnswerCall          bool `json:"answer_call"`

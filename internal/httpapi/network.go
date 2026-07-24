@@ -4,9 +4,15 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
 	"github.com/human-agent65535/modemdeck/internal/networkruntime"
+)
+
+const (
+	networkScanWriteTimeout      = 130 * time.Second
+	networkSelectionWriteTimeout = 55 * time.Second
 )
 
 type proxyCreateRequest struct {
@@ -38,6 +44,12 @@ type proxyUpdateRequest struct {
 
 type proxyCollectionResponse struct {
 	Proxies []networkruntime.Proxy `json:"proxies"`
+}
+
+type networkSelectionUpdateRequest struct {
+	ExpectedRevision *int64                           `json:"expected_revision"`
+	Mode             agentclient.NetworkSelectionMode `json:"mode"`
+	OperatorCode     string                           `json:"operator_code"`
 }
 
 func (api *API) networkStatus(response http.ResponseWriter, request *http.Request) {
@@ -172,6 +184,146 @@ func (api *API) proxyResource(
 	}
 }
 
+func (api *API) networkSelectionResource(
+	response http.ResponseWriter,
+	request *http.Request,
+	lineID string,
+	resource string,
+) {
+	if !api.requireNetworkService(response) {
+		return
+	}
+	switch resource {
+	case "network-selection":
+		api.networkSelection(response, request, lineID)
+	case "network-scan":
+		api.networkScan(response, request, lineID)
+	default:
+		writeError(response, http.StatusNotFound, "not_found", "API endpoint was not found", "")
+	}
+}
+
+func (api *API) networkSelection(
+	response http.ResponseWriter,
+	request *http.Request,
+	lineID string,
+) {
+	switch request.Method {
+	case http.MethodGet:
+		selection, err := api.network.NetworkSelection(request.Context(), lineID)
+		if err != nil {
+			api.writeNetworkError(response, request, "read network selection", err)
+			return
+		}
+		writeJSON(response, http.StatusOK, selection)
+	case http.MethodPut:
+		if err := http.NewResponseController(response).SetWriteDeadline(
+			time.Now().Add(networkSelectionWriteTimeout),
+		); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			writeError(
+				response,
+				http.StatusServiceUnavailable,
+				"network_runtime_unavailable",
+				"Network selection response deadline could not be extended",
+				"",
+			)
+			return
+		}
+		var body networkSelectionUpdateRequest
+		if !decodeJSONBody(response, request, &body) {
+			return
+		}
+		if body.ExpectedRevision == nil || *body.ExpectedRevision <= 0 {
+			writeError(
+				response,
+				http.StatusBadRequest,
+				"invalid_argument",
+				"A positive expected_revision is required",
+				"expected_revision",
+			)
+			return
+		}
+		selection, err := api.network.UpdateNetworkSelection(
+			request.Context(),
+			lineID,
+			networkruntime.UpdateNetworkSelectionInput{
+				ExpectedRevision: *body.ExpectedRevision,
+				Mode:             body.Mode,
+				OperatorCode:     body.OperatorCode,
+			},
+		)
+		if err != nil {
+			api.writeNetworkError(response, request, "update network selection", err)
+			return
+		}
+		writeJSON(response, http.StatusOK, selection)
+	default:
+		response.Header().Set("Allow", http.MethodGet+", "+http.MethodPut)
+		writeError(
+			response,
+			http.StatusMethodNotAllowed,
+			"method_not_allowed",
+			"Only GET and PUT are supported",
+			"",
+		)
+	}
+}
+
+func (api *API) networkScan(
+	response http.ResponseWriter,
+	request *http.Request,
+	lineID string,
+) {
+	if request.Method != http.MethodPost {
+		response.Header().Set("Allow", http.MethodPost)
+		writeError(
+			response,
+			http.StatusMethodNotAllowed,
+			"method_not_allowed",
+			"Only POST is supported",
+			"",
+		)
+		return
+	}
+	if err := http.NewResponseController(response).SetWriteDeadline(
+		time.Now().Add(networkScanWriteTimeout),
+	); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		writeError(
+			response,
+			http.StatusServiceUnavailable,
+			"network_runtime_unavailable",
+			"Network scan response deadline could not be extended",
+			"",
+		)
+		return
+	}
+	result, err := api.network.ScanNetworks(request.Context(), lineID)
+	if err != nil {
+		api.writeNetworkError(response, request, "scan mobile networks", err)
+		return
+	}
+	writeJSON(response, http.StatusOK, result)
+}
+
+func networkSelectionResource(path string) (lineID string, resource string, ok bool) {
+	const prefix = "/api/v1/devices/"
+	if !strings.HasPrefix(path, prefix) {
+		return "", "", false
+	}
+	parts := strings.Split(strings.TrimPrefix(path, prefix), "/")
+	if len(parts) != 2 ||
+		strings.TrimSpace(parts[0]) == "" ||
+		len(parts[0]) > maxIdentifierLength {
+		return "", "", false
+	}
+	switch parts[1] {
+	case "network-selection", "network-scan":
+		return parts[0], parts[1], true
+	default:
+		return "", "", false
+	}
+}
+
 func proxyResourceID(path string) (string, bool) {
 	const prefix = "/api/v1/proxies/"
 	if !strings.HasPrefix(path, prefix) {
@@ -228,6 +380,38 @@ func (api *API) writeNetworkError(
 				response,
 				http.StatusConflict,
 				"revision_conflict",
+				runtimeError.Message,
+				runtimeError.Field,
+			)
+		case networkruntime.CodeOperationConflict:
+			writeError(
+				response,
+				http.StatusConflict,
+				"operation_conflict",
+				runtimeError.Message,
+				runtimeError.Field,
+			)
+		case networkruntime.CodeNotSupported:
+			writeError(
+				response,
+				http.StatusNotImplemented,
+				"not_supported",
+				runtimeError.Message,
+				runtimeError.Field,
+			)
+		case networkruntime.CodeFailedPrecondition:
+			writeError(
+				response,
+				http.StatusPreconditionFailed,
+				"failed_precondition",
+				runtimeError.Message,
+				runtimeError.Field,
+			)
+		case networkruntime.CodeNetworkRejected:
+			writeError(
+				response,
+				http.StatusUnprocessableEntity,
+				"network_rejected",
 				runtimeError.Message,
 				runtimeError.Field,
 			)

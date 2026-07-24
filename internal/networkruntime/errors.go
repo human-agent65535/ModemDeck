@@ -10,11 +10,15 @@ import (
 type ErrorCode string
 
 const (
-	CodeInvalidArgument ErrorCode = "invalid_argument"
-	CodeNotFound        ErrorCode = "not_found"
-	CodeConflict        ErrorCode = "revision_conflict"
-	CodeUnavailable     ErrorCode = "unavailable"
-	CodeInternal        ErrorCode = "internal"
+	CodeInvalidArgument    ErrorCode = "invalid_argument"
+	CodeNotFound           ErrorCode = "not_found"
+	CodeConflict           ErrorCode = "revision_conflict"
+	CodeOperationConflict  ErrorCode = "operation_conflict"
+	CodeNotSupported       ErrorCode = "not_supported"
+	CodeFailedPrecondition ErrorCode = "failed_precondition"
+	CodeNetworkRejected    ErrorCode = "network_rejected"
+	CodeUnavailable        ErrorCode = "unavailable"
+	CodeInternal           ErrorCode = "internal"
 )
 
 type Error struct {
@@ -60,5 +64,28 @@ func classifyStoreError(err error) error {
 		)
 	default:
 		return operationError(CodeInternal, "", "Proxy settings could not be saved", err)
+	}
+}
+
+func classifyNetworkSelectionStoreError(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, store.ErrNetworkSelectionPolicyNotFound):
+		return operationError(CodeNotFound, "line_id", "Line was not found", err)
+	case errors.Is(err, store.ErrNetworkSelectionRevisionConflict):
+		return operationError(
+			CodeConflict,
+			"expected_revision",
+			"Network selection changed since it was loaded",
+			err,
+		)
+	default:
+		return operationError(
+			CodeInternal,
+			"",
+			"Network selection settings could not be saved",
+			err,
+		)
 	}
 }

@@ -163,6 +163,16 @@ type NetworkService interface {
 		networkruntime.UpdateInput,
 	) (networkruntime.ProxyMutation, error)
 	Delete(context.Context, string, int64) (networkruntime.DeleteResult, error)
+	NetworkSelection(
+		context.Context,
+		string,
+	) (networkruntime.NetworkSelection, error)
+	UpdateNetworkSelection(
+		context.Context,
+		string,
+		networkruntime.UpdateNetworkSelectionInput,
+	) (networkruntime.NetworkSelection, error)
+	ScanNetworks(context.Context, string) (networkruntime.NetworkScan, error)
 }
 
 type Options struct {
@@ -348,6 +358,10 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		}
 		if id, ok := deviceConfigurationResourceID(request.URL.Path); ok {
 			api.deviceConfiguration(response, request, id)
+			return
+		}
+		if id, resource, ok := networkSelectionResource(request.URL.Path); ok {
+			api.networkSelectionResource(response, request, id, resource)
 			return
 		}
 		if id, resource, ok := lineServiceResource(request.URL.Path); ok {

@@ -15,21 +15,35 @@ import (
 )
 
 type fakeNetworkService struct {
-	status       networkruntime.Status
-	statusError  error
-	proxies      []networkruntime.Proxy
-	proxiesError error
-	createInput  networkruntime.CreateInput
-	createResult networkruntime.ProxyMutation
-	createError  error
-	updateID     string
-	updateInput  networkruntime.UpdateInput
-	updateResult networkruntime.ProxyMutation
-	updateError  error
-	deleteID     string
-	deleteRev    int64
-	deleteResult networkruntime.DeleteResult
-	deleteError  error
+	status                  networkruntime.Status
+	statusError             error
+	proxies                 []networkruntime.Proxy
+	proxiesError            error
+	createInput             networkruntime.CreateInput
+	createResult            networkruntime.ProxyMutation
+	createError             error
+	updateID                string
+	updateInput             networkruntime.UpdateInput
+	updateResult            networkruntime.ProxyMutation
+	updateError             error
+	deleteID                string
+	deleteRev               int64
+	deleteResult            networkruntime.DeleteResult
+	deleteError             error
+	selectionLineID         string
+	selectionResult         networkruntime.NetworkSelection
+	selectionError          error
+	selectionUpdateLineID   string
+	selectionUpdateInput    networkruntime.UpdateNetworkSelectionInput
+	selectionUpdateResult   networkruntime.NetworkSelection
+	selectionUpdateError    error
+	selectionUpdateDeadline time.Time
+	selectionUpdateHasLimit bool
+	scanLineID              string
+	scanResult              networkruntime.NetworkScan
+	scanError               error
+	scanDeadline            time.Time
+	scanHasLimit            bool
 }
 
 func (service *fakeNetworkService) Status(context.Context) (networkruntime.Status, error) {
@@ -68,6 +82,34 @@ func (service *fakeNetworkService) Delete(
 	service.deleteID = id
 	service.deleteRev = revision
 	return service.deleteResult, service.deleteError
+}
+
+func (service *fakeNetworkService) NetworkSelection(
+	_ context.Context,
+	lineID string,
+) (networkruntime.NetworkSelection, error) {
+	service.selectionLineID = lineID
+	return service.selectionResult, service.selectionError
+}
+
+func (service *fakeNetworkService) UpdateNetworkSelection(
+	ctx context.Context,
+	lineID string,
+	input networkruntime.UpdateNetworkSelectionInput,
+) (networkruntime.NetworkSelection, error) {
+	service.selectionUpdateLineID = lineID
+	service.selectionUpdateInput = input
+	service.selectionUpdateDeadline, service.selectionUpdateHasLimit = ctx.Deadline()
+	return service.selectionUpdateResult, service.selectionUpdateError
+}
+
+func (service *fakeNetworkService) ScanNetworks(
+	ctx context.Context,
+	lineID string,
+) (networkruntime.NetworkScan, error) {
+	service.scanLineID = lineID
+	service.scanDeadline, service.scanHasLimit = ctx.Deadline()
+	return service.scanResult, service.scanError
 }
 
 func TestNetworkStatusIncludesCurrentAndAggregatedUsage(t *testing.T) {
@@ -314,6 +356,233 @@ func TestProxyErrorsMapWithoutLeakingInternalDetails(t *testing.T) {
 	if bytes.Contains(response.Body.Bytes(), []byte("database detail")) {
 		t.Fatalf("response leaks internal error: %s", response.Body)
 	}
+}
+
+func TestNetworkSelectionHTTPContract(t *testing.T) {
+	t.Parallel()
+
+	appliedAt := "2026-07-24T12:00:00Z"
+	network := &fakeNetworkService{
+		selectionResult: networkruntime.NetworkSelection{
+			LineID:       "line-1",
+			Mode:         agentclient.NetworkSelectionModeManual,
+			OperatorCode: "44010",
+			Revision:     3,
+			Applied:      false,
+			LastError:    "Operator rejected manual registration",
+			AppliedAt:    appliedAt,
+			Registration: networkruntime.NetworkRegistration{
+				Known:        true,
+				State:        "roaming",
+				Roaming:      true,
+				OperatorCode: "44020",
+				OperatorName: "SoftBank",
+			},
+		},
+		selectionUpdateResult: networkruntime.NetworkSelection{
+			LineID:       "line-1",
+			Mode:         agentclient.NetworkSelectionModeAuto,
+			OperatorCode: "",
+			Revision:     4,
+			Applied:      true,
+			AppliedAt:    appliedAt,
+			Registration: networkruntime.NetworkRegistration{Known: false},
+		},
+	}
+	api := newNetworkTestAPI(t, network)
+
+	getResponse := httptest.NewRecorder()
+	api.ServeHTTP(
+		getResponse,
+		httptest.NewRequest(
+			http.MethodGet,
+			"/api/v1/devices/line-1/network-selection",
+			nil,
+		),
+	)
+	if getResponse.Code != http.StatusOK ||
+		network.selectionLineID != "line-1" ||
+		!bytes.Contains(getResponse.Body.Bytes(), []byte(`"mode":"manual"`)) ||
+		!bytes.Contains(getResponse.Body.Bytes(), []byte(`"revision":3`)) ||
+		!bytes.Contains(getResponse.Body.Bytes(), []byte(`"known":true`)) ||
+		bytes.Contains(getResponse.Body.Bytes(), []byte("request_id")) {
+		t.Fatalf(
+			"GET status=%d line=%q body=%s",
+			getResponse.Code,
+			network.selectionLineID,
+			getResponse.Body,
+		)
+	}
+
+	putRequest := httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/devices/line-1/network-selection",
+		bytes.NewBufferString(`{
+			"mode":"auto",
+			"expected_revision":3
+		}`),
+	)
+	putRequest.Header.Set("Content-Type", "application/json")
+	putResponse := httptest.NewRecorder()
+	api.ServeHTTP(putResponse, putRequest)
+	if putResponse.Code != http.StatusOK ||
+		network.selectionUpdateLineID != "line-1" ||
+		network.selectionUpdateInput.ExpectedRevision != 3 ||
+		network.selectionUpdateInput.Mode != agentclient.NetworkSelectionModeAuto ||
+		network.selectionUpdateInput.OperatorCode != "" ||
+		!bytes.Contains(putResponse.Body.Bytes(), []byte(`"revision":4`)) ||
+		bytes.Contains(putResponse.Body.Bytes(), []byte("request_id")) {
+		t.Fatalf(
+			"PUT status=%d line=%q input=%+v body=%s",
+			putResponse.Code,
+			network.selectionUpdateLineID,
+			network.selectionUpdateInput,
+			putResponse.Body,
+		)
+	}
+}
+
+func TestNetworkScanHTTPContract(t *testing.T) {
+	t.Parallel()
+
+	observedAt := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	network := &fakeNetworkService{scanResult: networkruntime.NetworkScan{
+		LineID:     "line-1",
+		ObservedAt: observedAt,
+		Networks: []agentclient.MobileNetwork{{
+			Status:                agentclient.NetworkAvailabilityAvailable,
+			OperatorCode:          "44010",
+			OperatorLong:          "NTT DOCOMO",
+			OperatorShort:         "docomo",
+			AccessTechnologies:    16384,
+			AccessTechnologyNames: []string{"lte"},
+		}},
+	}}
+	api := newNetworkTestAPI(t, network)
+	response := httptest.NewRecorder()
+	api.ServeHTTP(
+		response,
+		httptest.NewRequest(
+			http.MethodPost,
+			"/api/v1/devices/line-1/network-scan",
+			nil,
+		),
+	)
+	if response.Code != http.StatusOK ||
+		network.scanLineID != "line-1" ||
+		!bytes.Contains(response.Body.Bytes(), []byte(`"operator_code":"44010"`)) ||
+		!bytes.Contains(response.Body.Bytes(), []byte(`"access_technologies":16384`)) ||
+		!bytes.Contains(response.Body.Bytes(), []byte(`"access_technology_names":["lte"]`)) ||
+		bytes.Contains(response.Body.Bytes(), []byte("request_id")) {
+		t.Fatalf(
+			"status=%d line=%q body=%s",
+			response.Code,
+			network.scanLineID,
+			response.Body,
+		)
+	}
+}
+
+func TestNetworkOperationsExtendOnlyTheirResponseDeadlines(t *testing.T) {
+	t.Parallel()
+
+	network := &fakeNetworkService{
+		selectionUpdateResult: networkruntime.NetworkSelection{
+			LineID:       "line-1",
+			Mode:         agentclient.NetworkSelectionModeAuto,
+			Revision:     2,
+			Applied:      true,
+			Registration: networkruntime.NetworkRegistration{Known: false},
+		},
+		scanResult: networkruntime.NetworkScan{
+			LineID:     "line-1",
+			ObservedAt: time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC),
+			Networks:   []agentclient.MobileNetwork{},
+		},
+	}
+	api := newNetworkTestAPI(t, network)
+
+	putStarted := time.Now()
+	putResponse := newDeadlineRecorder()
+	putRequest := httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/devices/line-1/network-selection",
+		bytes.NewBufferString(`{"mode":"auto","expected_revision":1}`),
+	)
+	putRequest.Header.Set("Content-Type", "application/json")
+	api.ServeHTTP(putResponse, putRequest)
+	if putResponse.Code != http.StatusOK ||
+		putResponse.deadlineCalls != 1 ||
+		putResponse.deadline.Sub(putStarted) < 54*time.Second ||
+		putResponse.deadline.Sub(putStarted) > 56*time.Second {
+		t.Fatalf(
+			"PUT status=%d deadline=%v calls=%d",
+			putResponse.Code,
+			putResponse.deadline,
+			putResponse.deadlineCalls,
+		)
+	}
+
+	scanStarted := time.Now()
+	scanResponse := newDeadlineRecorder()
+	api.ServeHTTP(
+		scanResponse,
+		httptest.NewRequest(
+			http.MethodPost,
+			"/api/v1/devices/line-1/network-scan",
+			nil,
+		),
+	)
+	if scanResponse.Code != http.StatusOK ||
+		scanResponse.deadlineCalls != 1 ||
+		scanResponse.deadline.Sub(scanStarted) < 129*time.Second ||
+		scanResponse.deadline.Sub(scanStarted) > 131*time.Second {
+		t.Fatalf(
+			"scan status=%d deadline=%v calls=%d",
+			scanResponse.Code,
+			scanResponse.deadline,
+			scanResponse.deadlineCalls,
+		)
+	}
+}
+
+func TestNetworkOperationConflictIsDistinctFromRevisionConflict(t *testing.T) {
+	t.Parallel()
+
+	api := newNetworkTestAPI(t, &fakeNetworkService{
+		selectionUpdateError: &networkruntime.Error{
+			Code:    networkruntime.CodeOperationConflict,
+			Message: "Network scan is already running",
+		},
+	})
+	request := httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/devices/line-1/network-selection",
+		bytes.NewBufferString(`{"mode":"auto","expected_revision":1}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+	assertAPIError(t, response, http.StatusConflict, "operation_conflict")
+	if bytes.Contains(response.Body.Bytes(), []byte("revision_conflict")) {
+		t.Fatalf("response conflates operation and revision conflicts: %s", response.Body)
+	}
+}
+
+type deadlineRecorder struct {
+	*httptest.ResponseRecorder
+	deadline      time.Time
+	deadlineCalls int
+}
+
+func newDeadlineRecorder() *deadlineRecorder {
+	return &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+}
+
+func (recorder *deadlineRecorder) SetWriteDeadline(deadline time.Time) error {
+	recorder.deadline = deadline
+	recorder.deadlineCalls++
+	return nil
 }
 
 func newNetworkTestAPI(t *testing.T, network NetworkService) *API {

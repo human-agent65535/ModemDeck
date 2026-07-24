@@ -43,13 +43,31 @@ func waitForAgentCalls(t *testing.T, agent *fakeAgent, putMinimum, getMinimum in
 }
 
 type fakeAgent struct {
-	mu           sync.Mutex
-	err          error
-	networkErr   error
-	putErr       error
-	networkCalls int
-	snapshots    []agentclient.NetworkSnapshot
-	received     [][]agentclient.ProxyConfiguration
+	mu                   sync.Mutex
+	err                  error
+	networkErr           error
+	putErr               error
+	snapshotErr          error
+	networkCalls         int
+	fullSnapshotCalls    int
+	snapshots            []agentclient.NetworkSnapshot
+	fullSnapshot         agentclient.Snapshot
+	received             [][]agentclient.ProxyConfiguration
+	scanResult           agentclient.NetworkScanResult
+	scanErr              error
+	scanCalls            []networkAgentCall
+	selectionErrors      map[string]error
+	selectionCalls       []networkAgentCall
+	beforeSelectionApply func(string, agentclient.ApplyNetworkSelectionRequest) error
+}
+
+type networkAgentCall struct {
+	LineID       string
+	RequestID    string
+	Mode         agentclient.NetworkSelectionMode
+	OperatorCode string
+	Deadline     time.Time
+	HasDeadline  bool
 }
 
 func (agent *fakeAgent) Network(context.Context) (agentclient.NetworkSnapshot, error) {
@@ -98,6 +116,93 @@ func (agent *fakeAgent) PutProxies(
 		}
 	}
 	return snapshot, nil
+}
+
+func (agent *fakeAgent) Snapshot(context.Context) (agentclient.Snapshot, error) {
+	agent.mu.Lock()
+	defer agent.mu.Unlock()
+	agent.fullSnapshotCalls++
+	if agent.snapshotErr != nil {
+		return agentclient.Snapshot{}, agent.snapshotErr
+	}
+	if agent.err != nil {
+		return agentclient.Snapshot{}, agent.err
+	}
+	return agent.fullSnapshot, nil
+}
+
+func (agent *fakeAgent) ScanNetworks(
+	ctx context.Context,
+	lineID string,
+	request agentclient.NetworkScanRequest,
+) (agentclient.NetworkScanResult, error) {
+	deadline, hasDeadline := ctx.Deadline()
+	agent.mu.Lock()
+	defer agent.mu.Unlock()
+	agent.scanCalls = append(agent.scanCalls, networkAgentCall{
+		LineID:      lineID,
+		RequestID:   request.RequestID,
+		Deadline:    deadline,
+		HasDeadline: hasDeadline,
+	})
+	if agent.scanErr != nil {
+		return agentclient.NetworkScanResult{}, agent.scanErr
+	}
+	if agent.err != nil {
+		return agentclient.NetworkScanResult{}, agent.err
+	}
+	result := agent.scanResult
+	if strings.TrimSpace(result.RequestID) == "" {
+		result.RequestID = request.RequestID
+	}
+	if strings.TrimSpace(result.LineID) == "" {
+		result.LineID = lineID
+	}
+	if result.ObservedAt.IsZero() {
+		result.ObservedAt = time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	}
+	if result.Networks == nil {
+		result.Networks = []agentclient.MobileNetwork{}
+	}
+	return result, nil
+}
+
+func (agent *fakeAgent) SetNetworkSelection(
+	ctx context.Context,
+	lineID string,
+	request agentclient.ApplyNetworkSelectionRequest,
+) (agentclient.NetworkSelectionReceipt, error) {
+	deadline, hasDeadline := ctx.Deadline()
+	agent.mu.Lock()
+	agent.selectionCalls = append(agent.selectionCalls, networkAgentCall{
+		LineID:       lineID,
+		RequestID:    request.RequestID,
+		Mode:         request.Mode,
+		OperatorCode: request.OperatorCode,
+		Deadline:     deadline,
+		HasDeadline:  hasDeadline,
+	})
+	hook := agent.beforeSelectionApply
+	err := agent.selectionErrors[lineID]
+	if err == nil {
+		err = agent.err
+	}
+	agent.mu.Unlock()
+	if hook != nil {
+		if hookErr := hook(lineID, request); hookErr != nil {
+			return agentclient.NetworkSelectionReceipt{}, hookErr
+		}
+	}
+	if err != nil {
+		return agentclient.NetworkSelectionReceipt{}, err
+	}
+	return agentclient.NetworkSelectionReceipt{
+		RequestID:    request.RequestID,
+		LineID:       lineID,
+		Mode:         request.Mode,
+		OperatorCode: request.OperatorCode,
+		AppliedAt:    time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC),
+	}, nil
 }
 
 func (agent *fakeAgent) snapshotLocked() agentclient.NetworkSnapshot {

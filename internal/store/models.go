@@ -272,6 +272,19 @@ type ProxyApplyToken struct {
 	DesiredDeleted bool
 }
 
+type NetworkSelectionPolicyRecord struct {
+	LineID           string
+	Mode             string
+	OperatorCode     string
+	Revision         int64
+	AppliedRevision  int64
+	AppliedBootEpoch string
+	AppliedAt        string
+	LastError        string
+	CreatedAt        string
+	UpdatedAt        string
+}
+
 type NetworkScopeKind string
 
 const (

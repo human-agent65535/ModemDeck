@@ -289,6 +289,26 @@ CREATE TABLE modemdeck_proxy_instances (
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
 
+CREATE TABLE modemdeck_network_selection_policies (
+			line_id TEXT PRIMARY KEY,
+			mode TEXT NOT NULL DEFAULT 'auto'
+				CHECK (mode IN ('auto', 'manual')),
+			operator_code TEXT NOT NULL DEFAULT '',
+			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+			applied_revision INTEGER NOT NULL DEFAULT 0
+				CHECK (applied_revision >= 0 AND applied_revision <= revision),
+			applied_boot_epoch TEXT NOT NULL DEFAULT '',
+			applied_at DATETIME,
+			last_error TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			CHECK (
+				(mode = 'auto' AND operator_code = '') OR
+				(mode = 'manual' AND length(operator_code) IN (5, 6)
+					AND operator_code NOT GLOB '*[^0-9]*')
+			)
+		);
+
 CREATE TABLE modemdeck_network_counter_checkpoints (
 			scope_kind TEXT NOT NULL CHECK (scope_kind IN ('line', 'proxy')),
 			scope_id TEXT NOT NULL,

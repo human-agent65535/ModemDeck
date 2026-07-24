@@ -54,6 +54,30 @@ type Repository interface {
 		[]string,
 	) error
 	NetworkUsage(context.Context, string, string) ([]store.NetworkUsage, error)
+	NetworkSelectionPolicy(
+		context.Context,
+		string,
+	) (store.NetworkSelectionPolicyRecord, error)
+	EnsureNetworkSelectionPolicy(
+		context.Context,
+		string,
+	) (store.NetworkSelectionPolicyRecord, error)
+	NetworkSelectionPolicies(context.Context) ([]store.NetworkSelectionPolicyRecord, error)
+	UpdateNetworkSelectionPolicy(
+		context.Context,
+		string,
+		string,
+		string,
+		int64,
+	) (store.NetworkSelectionPolicyRecord, error)
+	MarkNetworkSelectionApplied(
+		context.Context,
+		string,
+		int64,
+		string,
+		time.Time,
+	) (bool, error)
+	MarkNetworkSelectionApplyFailed(context.Context, string, int64, string) error
 }
 
 type SecretBox interface {
@@ -63,10 +87,21 @@ type SecretBox interface {
 
 type Agent interface {
 	Network(context.Context) (agentclient.NetworkSnapshot, error)
+	Snapshot(context.Context) (agentclient.Snapshot, error)
 	PutProxies(
 		context.Context,
 		[]agentclient.ProxyConfiguration,
 	) (agentclient.NetworkSnapshot, error)
+	ScanNetworks(
+		context.Context,
+		string,
+		agentclient.NetworkScanRequest,
+	) (agentclient.NetworkScanResult, error)
+	SetNetworkSelection(
+		context.Context,
+		string,
+		agentclient.ApplyNetworkSelectionRequest,
+	) (agentclient.NetworkSelectionReceipt, error)
 }
 
 type Proxy struct {
@@ -199,6 +234,7 @@ type Service struct {
 	report           func(error)
 
 	mutationsMu sync.Mutex
+	randomMu    sync.Mutex
 	reconcileMu sync.Mutex
 	stateMu     sync.RWMutex
 	state       Status
@@ -361,11 +397,33 @@ func (s *Service) Reconcile(ctx context.Context) ApplyResult {
 		s.report(fmt.Errorf("finalize applied proxy state: %w", err))
 		return ApplyResult{Status: ApplyStatusRuntimeUnavailable}
 	}
+	fullSnapshot, err := s.agent.Snapshot(ctx)
+	if err != nil {
+		if observeErr := s.observeSnapshot(ctx, snapshot); observeErr != nil {
+			s.report(observeErr)
+		}
+		s.setSnapshot(snapshot)
+		status := classifyAgentApplyError(err)
+		s.markApplyFailure(status)
+		s.report(fmt.Errorf("read lines for network selection reconciliation: %w", err))
+		return ApplyResult{Status: status}
+	}
+	selectionPending, err := s.reconcileNetworkSelections(ctx, snapshot, fullSnapshot)
+	if err != nil {
+		if observeErr := s.observeSnapshot(ctx, snapshot); observeErr != nil {
+			s.report(observeErr)
+		}
+		s.setSnapshot(snapshot)
+		status := classifyAgentApplyError(err)
+		s.markApplyFailure(status)
+		s.report(fmt.Errorf("reconcile network selection policies: %w", err))
+		return ApplyResult{Status: status}
+	}
 	if err := s.observeSnapshot(ctx, snapshot); err != nil {
 		s.report(err)
 	}
 	s.setSnapshot(snapshot)
-	if pending {
+	if pending || selectionPending {
 		s.markApplyPending()
 		return ApplyResult{Status: ApplyStatusPending}
 	}
@@ -380,6 +438,10 @@ func (s *Service) Refresh(ctx context.Context) error {
 }
 
 func (s *Service) refreshLocked(ctx context.Context) error {
+	s.stateMu.RLock()
+	previousBootEpoch := s.state.BootEpoch
+	wasAvailable := s.state.Available
+	s.stateMu.RUnlock()
 	snapshot, err := s.agent.Network(ctx)
 	if err != nil {
 		s.setUnavailable("Host agent is unavailable")
@@ -389,6 +451,19 @@ func (s *Service) refreshLocked(ctx context.Context) error {
 		s.report(err)
 	}
 	s.setSnapshot(snapshot)
+	if snapshot.BootEpoch != previousBootEpoch || !wasAvailable {
+		fullSnapshot, snapshotErr := s.agent.Snapshot(ctx)
+		if snapshotErr != nil {
+			return fmt.Errorf("read lines for network selection replay: %w", snapshotErr)
+		}
+		pending, pendingErr := s.networkSelectionsPending(ctx, snapshot, fullSnapshot)
+		if pendingErr != nil {
+			return fmt.Errorf("inspect network selection replay state: %w", pendingErr)
+		}
+		if pending {
+			s.markDirty()
+		}
+	}
 	return nil
 }
 
@@ -957,6 +1032,8 @@ func (s *Service) shouldApply() bool {
 }
 
 func (s *Service) newProxyID() (string, error) {
+	s.randomMu.Lock()
+	defer s.randomMu.Unlock()
 	random := make([]byte, generatedProxyIDBytes)
 	if _, err := io.ReadFull(s.random, random); err != nil {
 		return "", err
