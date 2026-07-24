@@ -59,12 +59,13 @@ const validationError = computed(() => {
 })
 
 function applyUnit(unit?: TelegramUnit): void {
+  const scopes = [...new Set(unit?.line_scopes || [])]
   displayName.value = unit?.display_name || ''
   enabled.value = unit?.enabled ?? true
   chatID.value = unit?.chat_id || ''
   adminID.value = unit?.admin_id || ''
-  allLines.value = !unit || unit.line_scopes.length === 0
-  lineScopes.value = unit ? [...unit.line_scopes] : []
+  allLines.value = scopes.length === 0
+  lineScopes.value = scopes
   incomingSMS.value = unit?.incoming_sms ?? true
   missedCalls.value = unit?.missed_calls ?? true
   botToken.value = ''
@@ -92,10 +93,6 @@ watch(
   { immediate: true }
 )
 
-watch(allLines, value => {
-  if (value) lineScopes.value = []
-})
-
 watch(
   [displayName, enabled, chatID, adminID, allLines, lineScopes, incomingSMS, missedCalls, botToken],
   () => {
@@ -105,6 +102,32 @@ watch(
   },
   { deep: true }
 )
+
+function selectAllLines(): void {
+  allLines.value = true
+  lineScopes.value = []
+}
+
+function toggleLineScope(lineID: string, event: Event): void {
+  const checked = (event.currentTarget as HTMLInputElement).checked
+  const scopes = checked
+    ? [...new Set([...lineScopes.value, lineID])]
+    : lineScopes.value.filter(scope => scope !== lineID)
+
+  lineScopes.value = scopes
+  allLines.value = scopes.length === 0
+}
+
+function normalizedLineScopes(): string[] {
+  const scopes = [...new Set(lineScopes.value.filter(Boolean))]
+  if (allLines.value || scopes.length === 0) {
+    selectAllLines()
+    return []
+  }
+  allLines.value = false
+  lineScopes.value = scopes
+  return scopes
+}
 
 function selectUnit(id: string): void {
   if (saving.value || deleting.value) return
@@ -132,7 +155,7 @@ async function submit(): Promise<void> {
         enabled: enabled.value,
         chat_id: chatID.value,
         admin_id: adminID.value,
-        line_scopes: allLines.value ? [] : [...lineScopes.value],
+        line_scopes: normalizedLineScopes(),
         incoming_sms: incomingSMS.value,
         missed_calls: missedCalls.value,
         ...(botToken.value.trim() ? { bot_token: botToken.value.trim() } : {}),
@@ -292,13 +315,21 @@ onMounted(() => {
 
         <fieldset class="telegram-options telegram-line-scopes">
           <legend>线路范围</legend>
-          <label><input v-model="allLines" type="checkbox" />全部线路</label>
+          <label>
+            <input
+              :checked="allLines"
+              type="checkbox"
+              :disabled="saving || deleting"
+              @click.prevent="selectAllLines"
+            />
+            全部线路
+          </label>
           <label v-for="line in scopeOptions" :key="line.id">
             <input
-              v-model="lineScopes"
+              :checked="lineScopes.includes(line.id)"
               type="checkbox"
-              :value="line.id"
-              :disabled="allLines"
+              :disabled="saving || deleting"
+              @change="toggleLineScope(line.id, $event)"
             />
             {{ line.label }}
           </label>
