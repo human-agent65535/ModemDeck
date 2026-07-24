@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/store"
 	"github.com/human-agent65535/modemdeck/internal/telegramruntime"
 	"github.com/human-agent65535/modemdeck/internal/telegramsettings"
+	"github.com/human-agent65535/modemdeck/internal/tlsmanager"
 	"github.com/human-agent65535/modemdeck/internal/webapp"
 )
 
@@ -37,18 +39,32 @@ const hostAgentRequestTimeout = 15 * time.Second
 func main() {
 	logBuffer := diagnostics.NewLogBuffer(diagnostics.DefaultLogCapacity)
 	logger := slog.New(logBuffer.Handler(slog.NewJSONHandler(os.Stdout, nil)))
-	secureCookiesDefault, err := environmentBool("MODEMDECK_SECURE_COOKIES", false)
+	secureCookiesDefault, err := environmentBool("MODEMDECK_SECURE_COOKIES", true)
 	if err != nil {
 		logger.Error("invalid authentication configuration", "error", err)
 		os.Exit(1)
 	}
-	listenAddress := flag.String("listen", ":8080", "HTTP listen address")
+	listenAddress := flag.String(
+		"listen",
+		environmentOrDefault("MODEMDECK_LISTEN_ADDRESS", ":8080"),
+		"HTTPS listen address",
+	)
 	databasePath := flag.String("database", database.DefaultPath, "ModemDeck SQLite database path")
 	agentSocketPath := flag.String("agent-socket", environmentOrDefault("MODEMDECK_AGENT_SOCKET", "/run/modemdeck/agent.sock"), "ModemDeck host agent Unix socket")
 	adminUsername := flag.String("admin-username", environmentOrDefault("MODEMDECK_ADMIN_USERNAME", defaultAdminUsername), "administrator username")
 	adminPasswordFile := flag.String("admin-password-file", os.Getenv("MODEMDECK_ADMIN_PASSWORD_FILE"), "path to the administrator password secret")
 	settingsKeyFile := flag.String("settings-key-file", os.Getenv("MODEMDECK_SETTINGS_KEY_FILE"), "path to the 32-byte settings encryption key")
 	recordingsPath := flag.String("recordings", environmentOrDefault("MODEMDECK_RECORDINGS_PATH", "/data/recordings"), "call recording directory")
+	tlsDirectory := flag.String(
+		"tls-directory",
+		environmentOrDefault("MODEMDECK_TLS_DIRECTORY", "/var/lib/modemdeck/tls"),
+		"TLS certificate state directory",
+	)
+	tlsHosts := flag.String(
+		"tls-hosts",
+		environmentOrDefault("MODEMDECK_TLS_HOSTS", "localhost,127.0.0.1,::1"),
+		"comma-separated DNS names and IP addresses for automatic certificates",
+	)
 	secureCookies := flag.Bool("secure-cookies", secureCookiesDefault, "require HTTPS for authentication cookies")
 	flag.Parse()
 
@@ -68,6 +84,8 @@ func main() {
 		*databasePath,
 		*agentSocketPath,
 		*recordingsPath,
+		*tlsDirectory,
+		parseCommaSeparatedList(*tlsHosts),
 		admin,
 		settingsSecrets,
 		logBuffer,
@@ -80,11 +98,20 @@ func main() {
 func run(
 	logger *slog.Logger,
 	listenAddress, databasePath, agentSocketPath, recordingsPath string,
+	tlsDirectory string,
+	tlsHosts []string,
 	admin adminConfig,
 	settingsSecrets *secretbox.Box,
 	logBuffer diagnostics.LogSource,
 ) error {
 	ctx := context.Background()
+	tlsCertificates, err := tlsmanager.Open(tlsmanager.Config{
+		Directory: tlsDirectory,
+		Hosts:     tlsHosts,
+	})
+	if err != nil {
+		return fmt.Errorf("open TLS certificate manager: %w", err)
+	}
 	db, err := database.Open(ctx, database.Config{
 		TargetPath: databasePath,
 	})
@@ -213,6 +240,7 @@ func run(
 		Recording:            recordings,
 		Network:              networkRuntime,
 		TelegramSettings:     telegramSettings,
+		TLSSettings:          tlsSettingsService{manager: tlsCertificates},
 		Authenticator:        authenticator,
 		AdminUsername:        admin.Username,
 		SecureCookies:        admin.SecureCookies,
@@ -252,17 +280,18 @@ func run(
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       90 * time.Second,
+		TLSConfig:         tlsCertificates.TLSConfig(),
 	}
 	serverErrors := make(chan error, 1)
 	go func() {
 		logger.Info(
-			"ModemDeck HTTP server started",
+			"ModemDeck HTTPS server started",
 			"component",
 			"http",
 			"address",
 			listenAddress,
 		)
-		serverErrors <- server.ListenAndServe()
+		serverErrors <- server.ListenAndServeTLS("", "")
 	}()
 
 	var runErr error
@@ -274,7 +303,7 @@ func run(
 	case serveErr := <-serverErrors:
 		serverStopped = true
 		if !errors.Is(serveErr, http.ErrServerClosed) {
-			runErr = fmt.Errorf("serve HTTP: %w", serveErr)
+			runErr = fmt.Errorf("serve HTTPS: %w", serveErr)
 		}
 	case telegramErr := <-telegramDone:
 		telegramStopped = true
@@ -298,7 +327,7 @@ func run(
 		}
 		serveErr := <-serverErrors
 		if !errors.Is(serveErr, http.ErrServerClosed) {
-			runErr = errors.Join(runErr, fmt.Errorf("serve HTTP: %w", serveErr))
+			runErr = errors.Join(runErr, fmt.Errorf("serve HTTPS: %w", serveErr))
 		}
 	}
 	<-syncDone
@@ -333,4 +362,15 @@ func environmentOrDefault(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func parseCommaSeparatedList(value string) []string {
+	parts := strings.Split(value, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			values = append(values, trimmed)
+		}
+	}
+	return values
 }

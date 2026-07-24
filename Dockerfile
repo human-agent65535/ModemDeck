@@ -82,11 +82,14 @@ LABEL org.opencontainers.image.title="ModemDeck" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}"
 
-ENV MODEMDECK_HTTP_ADDRESS=0.0.0.0:7575 \
+ENV MODEMDECK_LISTEN_ADDRESS=0.0.0.0:7575 \
     MODEMDECK_DATABASE_PATH=/var/lib/modemdeck/modemdeck.db \
     MODEMDECK_RECORDINGS_PATH=/data/recordings \
     MODEMDECK_AGENT_SOCKET=/run/modemdeck/agent.sock \
-    MODEMDECK_HEALTHCHECK_URL=http://127.0.0.1:7575/api/v1/health
+    MODEMDECK_TLS_DIRECTORY=/var/lib/modemdeck/tls \
+    MODEMDECK_TLS_HOSTS=localhost,127.0.0.1,::1 \
+    MODEMDECK_SECURE_COOKIES=true \
+    MODEMDECK_HEALTHCHECK_URL=https://127.0.0.1:7575/api/v1/health
 
 USER ${MODEMDECK_UID}:${MODEMDECK_GID}
 WORKDIR /var/lib/modemdeck
@@ -95,6 +98,6 @@ EXPOSE 7575
 STOPSIGNAL SIGTERM
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD wget -q -T 3 -O /dev/null "${MODEMDECK_HEALTHCHECK_URL}" || exit 1
+    CMD wget -q --no-check-certificate -T 3 -O /dev/null "${MODEMDECK_HEALTHCHECK_URL}" || exit 1
 
 ENTRYPOINT ["/usr/local/bin/modemdeck-entrypoint"]

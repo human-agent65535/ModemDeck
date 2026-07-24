@@ -22,14 +22,16 @@ services:
     ports:
       - "${MODEMDECK_BIND_ADDRESS:-127.0.0.1}:${MODEMDECK_PORT:-7575}:7575"
     environment:
-      MODEMDECK_HTTP_ADDRESS: 0.0.0.0:7575
+      MODEMDECK_LISTEN_ADDRESS: 0.0.0.0:7575
       MODEMDECK_DATABASE_PATH: /var/lib/modemdeck/modemdeck.db
       MODEMDECK_AGENT_SOCKET: /run/modemdeck/agent.sock
+      MODEMDECK_TLS_DIRECTORY: /var/lib/modemdeck/tls
+      MODEMDECK_TLS_HOSTS: ${MODEMDECK_TLS_HOSTS:-localhost,127.0.0.1,::1}
       MODEMDECK_ADMIN_USERNAME: ${MODEMDECK_ADMIN_USERNAME:-admin}
       MODEMDECK_ADMIN_PASSWORD_FILE: /run/secrets/modemdeck_admin_password
       MODEMDECK_SETTINGS_KEY_FILE: /run/secrets/modemdeck_settings_key
-      MODEMDECK_SECURE_COOKIES: ${MODEMDECK_SECURE_COOKIES:-false}
-      MODEMDECK_HEALTHCHECK_URL: http://127.0.0.1:7575/api/v1/health
+      MODEMDECK_SECURE_COOKIES: "true"
+      MODEMDECK_HEALTHCHECK_URL: https://127.0.0.1:7575/api/v1/health
     secrets:
       - modemdeck_admin_password
       - modemdeck_settings_key
@@ -57,7 +59,7 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - wget -q -T 3 -O /dev/null "$${MODEMDECK_HEALTHCHECK_URL}" || exit 1
+        - wget -q --no-check-certificate -T 3 -O /dev/null "$${MODEMDECK_HEALTHCHECK_URL}" || exit 1
       interval: 30s
       timeout: 5s
       start_period: 15s
