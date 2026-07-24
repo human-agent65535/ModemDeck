@@ -2,7 +2,6 @@ package modemmanager
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/godbus/dbus/v5"
@@ -72,9 +71,5 @@ func (p *Provider) commandAT(ctx context.Context, lineID, command string) (strin
 	if err := dbus.Store(body, &response); err != nil {
 		return "", domain.Internal(operation, "ModemManager AT response was malformed", err)
 	}
-	response = strings.TrimSpace(response)
-	if response == "" {
-		return "", domain.Internal(operation, "ModemManager returned an empty AT response", fmt.Errorf("empty response"))
-	}
-	return response, nil
+	return strings.TrimSpace(response), nil
 }

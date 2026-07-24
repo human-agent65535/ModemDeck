@@ -20,7 +20,7 @@ func QDC507GLEFM21Profile() Profile {
 		Identity:             QDC507GLEFM21Identity,
 		OperationTimeout:     5 * time.Second,
 		Read:                 ATRead(`AT+QCFG="ims"`, decodeQuectelIMS),
-		Write:                ATWrite(encodeQuectelIMS, validateATOK),
+		Write:                ATWrite(encodeQuectelIMS, validateATWriteResponse),
 		ApplyRequiresRestart: true,
 	}
 }
@@ -82,7 +82,10 @@ func encodeQuectelIMS(policy Policy) (string, error) {
 	}
 }
 
-func validateATOK(response string) error {
+func validateATWriteResponse(response string) error {
+	if strings.TrimSpace(response) == "" {
+		return nil
+	}
 	for _, line := range atResponseLines(response) {
 		if line == "OK" {
 			return nil

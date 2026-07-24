@@ -50,7 +50,9 @@ func TestQDC507GLEFM21ProfileUsesVerifiedQCFGCommands(t *testing.T) {
 				return "+QCFG: \"ims\",2,1\r\nOK\r\n", nil
 			case `AT+QCFG="ims",1`:
 				policy = PolicyEnabled
-				return "OK\r\n", nil
+				// ModemManager removes the final OK and returns an empty
+				// payload for commands without response data.
+				return "", nil
 			default:
 				return "", fmt.Errorf("unexpected command %q", command)
 			}
