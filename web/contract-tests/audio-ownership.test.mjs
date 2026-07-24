@@ -32,6 +32,8 @@ test('browser audio is a global diagnostic and enumeration does not request a mi
   const source = await readFile(diagnosticsPanel, 'utf8')
 
   assert.match(source, /<strong>浏览器音频<\/strong>/)
+  assert.match(source, /\{ name: '呼叫控制', available: line\.capabilities\?\.voice === true \}/)
+  assert.doesNotMatch(source, /\{ name: '语音通话'/)
   assert.match(source, /\{ name: '浏览器音频', available: capabilities\.media \}/)
   assert.doesNotMatch(source, /voice_interface/)
   assert.match(source, /refreshAudioDevices\(\)/)

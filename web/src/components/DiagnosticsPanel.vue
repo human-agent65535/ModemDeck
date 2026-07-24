@@ -164,7 +164,7 @@ const knownComponents = computed(() =>
 function lineCapabilities(line: LineSummary) {
   return [
     { name: '模组控制', available: line.capabilities?.modem === true },
-    { name: '语音通话', available: line.capabilities?.voice === true },
+    { name: '呼叫控制', available: line.capabilities?.voice === true },
     { name: 'SIM 卡', available: line.capabilities?.sim === true },
     { name: '短信', available: line.capabilities?.messaging === true }
   ]
