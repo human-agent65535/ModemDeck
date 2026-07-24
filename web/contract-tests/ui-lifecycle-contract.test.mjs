@@ -98,7 +98,7 @@ test('desktop shell has one permanent dialer and dashboard renders every line', 
   assert.ok(messagesIndex < callsIndex)
   assert.ok(callsIndex < recordingsIndex)
   assert.match(shell, /window\.matchMedia\('\(min-width: 1101px\)'\)/)
-  assert.match(shell, /<IncomingCallModeControl \/>\s*<AudioSettingsMenu \/>/)
+  assert.ok(shell.indexOf('<IncomingCallModeControl />') < shell.indexOf('<AudioSettingsMenu />'))
   assert.match(shell, /<DialerPanel :permanent="permanentDialer" \/>/)
   assert.doesNotMatch(shell, /dialer-fab|Grid3X3|dialerOpen/)
   assert.match(dialer, /v-if="permanent \|\| uiState\.dialerOpen"/)

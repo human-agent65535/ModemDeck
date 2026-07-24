@@ -21,6 +21,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/diagnostics"
 	"github.com/human-agent65535/modemdeck/internal/httpapi"
 	"github.com/human-agent65535/modemdeck/internal/mediaapp"
+	"github.com/human-agent65535/modemdeck/internal/messageevents"
 	"github.com/human-agent65535/modemdeck/internal/networkruntime"
 	"github.com/human-agent65535/modemdeck/internal/platform/database"
 	"github.com/human-agent65535/modemdeck/internal/recording"
@@ -116,7 +117,8 @@ func run(
 		return fmt.Errorf("create host agent client: %w", err)
 	}
 	defer agent.CloseIdleConnections()
-	communications, err := communication.New(agent, repository)
+	messageEvents := messageevents.NewBuffer(messageevents.DefaultCapacity)
+	communications, err := communication.New(agent, repository, messageEvents)
 	if err != nil {
 		_ = db.Close()
 		return fmt.Errorf("create communication service: %w", err)
@@ -216,6 +218,7 @@ func run(
 		SecureCookies:        admin.SecureCookies,
 		Logger:               logger.With("component", "http"),
 		DiagnosticLogs:       logBuffer,
+		MessageEvents:        messageEvents,
 		Web:                  webapp.Embedded(),
 	})
 	if err != nil {

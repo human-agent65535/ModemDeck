@@ -23,48 +23,61 @@ const (
 )
 
 func (s *Store) ApplyHardwareSnapshot(ctx context.Context, snapshot HardwareSnapshot) error {
+	_, err := s.ApplyHardwareSnapshotWithResult(ctx, snapshot)
+	return err
+}
+
+func (s *Store) ApplyHardwareSnapshotWithResult(
+	ctx context.Context,
+	snapshot HardwareSnapshot,
+) (HardwareSnapshotResult, error) {
 	snapshot.BootEpoch = strings.TrimSpace(snapshot.BootEpoch)
 	snapshot.Revision = strings.TrimSpace(snapshot.Revision)
 	if snapshot.BootEpoch == "" || snapshot.Revision == "" || snapshot.ObservedAt.IsZero() {
-		return ErrSnapshotInvalid
+		return HardwareSnapshotResult{}, ErrSnapshotInvalid
 	}
 	transaction, err := s.database.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin hardware snapshot: %w", err)
+		return HardwareSnapshotResult{}, fmt.Errorf("begin hardware snapshot: %w", err)
 	}
 	defer transaction.Rollback()
 	sequence, duplicate, err := allocateSnapshotSequence(ctx, transaction, snapshot)
 	if err != nil {
-		return err
+		return HardwareSnapshotResult{}, err
 	}
 	if duplicate {
-		return nil
+		return HardwareSnapshotResult{CreatedIncomingMessages: []Message{}}, nil
 	}
 
+	createdIncoming := make([]Message, 0)
 	for _, line := range snapshot.Lines {
 		if err := upsertHardwareLine(ctx, transaction, line, snapshot.ObservedAt); err != nil {
-			return err
+			return HardwareSnapshotResult{}, err
 		}
 	}
 	for _, message := range snapshot.Messages {
 		message.Revision = sequence
-		if _, _, err := upsertHardwareMessage(ctx, transaction, message); err != nil {
-			return err
+		stored, created, err := upsertHardwareMessage(ctx, transaction, message)
+		if err != nil {
+			return HardwareSnapshotResult{}, err
+		}
+		if created && stored.Direction == "incoming" && stored.State == "received" {
+			createdIncoming = append(createdIncoming, stored)
 		}
 	}
 	for _, call := range snapshot.Calls {
 		call.Revision = sequence
 		if _, err := upsertHardwareCall(ctx, transaction, call); err != nil {
-			return err
+			return HardwareSnapshotResult{}, err
 		}
 	}
 	if err := closeMissingCalls(ctx, transaction, snapshot, sequence); err != nil {
-		return err
+		return HardwareSnapshotResult{}, err
 	}
 	if err := transaction.Commit(); err != nil {
-		return fmt.Errorf("commit hardware snapshot: %w", err)
+		return HardwareSnapshotResult{}, fmt.Errorf("commit hardware snapshot: %w", err)
 	}
-	return nil
+	return HardwareSnapshotResult{CreatedIncomingMessages: createdIncoming}, nil
 }
 
 func (s *Store) UpsertHardwareMessage(ctx context.Context, message HardwareMessage) (Message, bool, error) {

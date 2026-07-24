@@ -24,6 +24,7 @@ import type {
   LineSettings,
   LoginInput,
   Message,
+  MessageEventStreamHandlers,
   MessageReadInput,
   MessageThread,
   NetworkStatus,
@@ -78,6 +79,7 @@ export interface ModemDeckGateway {
   listContacts(query?: ListQuery): Promise<Contact[]>
   listThreads(query?: ListQuery): Promise<MessageThread[]>
   listMessages(query: MessageQuery): Promise<Message[]>
+  subscribeMessageEvents(handlers: MessageEventStreamHandlers): () => void
   markThreadRead(input: MessageReadInput): Promise<void>
   listCalls(filter?: CallFilter, query?: ListQuery): Promise<CallRecord[]>
   listDevices(): Promise<Device[]>

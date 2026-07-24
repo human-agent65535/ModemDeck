@@ -166,6 +166,72 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 	}
 }
 
+func TestHardwareSnapshotResultReturnsOnlyNewCommittedIncomingMessages(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	ctx := context.Background()
+	observed := time.Date(2026, time.July, 24, 7, 0, 0, 0, time.UTC)
+	line := HardwareLine{
+		ID:                  "line-result",
+		EquipmentIdentifier: "990000000000099",
+		ICCID:               "8901000000000000099",
+		IMSI:                "440500000000099",
+	}
+	incoming := HardwareMessage{
+		LineID:            line.ID,
+		EndpointMessageID: "/sms/incoming",
+		IMSI:              line.IMSI,
+		ICCID:             line.ICCID,
+		Number:            "+818012345678",
+		Text:              "committed",
+		Direction:         "incoming",
+		State:             "received",
+		Timestamp:         observed,
+		ObservedAt:        observed,
+	}
+	outgoing := HardwareMessage{
+		LineID:            line.ID,
+		EndpointMessageID: "/sms/outgoing",
+		IMSI:              line.IMSI,
+		ICCID:             line.ICCID,
+		Number:            "+818098765432",
+		Text:              "sent",
+		Direction:         "outgoing",
+		State:             "sent",
+		Timestamp:         observed,
+		ObservedAt:        observed,
+	}
+	snapshot := HardwareSnapshot{
+		BootEpoch:  "boot-result",
+		Revision:   "snapshot-result",
+		ObservedAt: observed,
+		Lines:      []HardwareLine{line},
+		Messages:   []HardwareMessage{incoming, outgoing},
+	}
+
+	result, err := repository.ApplyHardwareSnapshotWithResult(ctx, snapshot)
+	if err != nil {
+		t.Fatalf("ApplyHardwareSnapshotWithResult() error = %v", err)
+	}
+	if len(result.CreatedIncomingMessages) != 1 {
+		t.Fatalf("created incoming messages = %+v, want one", result.CreatedIncomingMessages)
+	}
+	created := result.CreatedIncomingMessages[0]
+	if created.ID == 0 || created.EndpointMessageID != incoming.EndpointMessageID ||
+		created.Direction != "incoming" || created.State != "received" {
+		t.Fatalf("created incoming message = %+v", created)
+	}
+
+	replayed, err := repository.ApplyHardwareSnapshotWithResult(ctx, snapshot)
+	if err != nil {
+		t.Fatalf("replayed ApplyHardwareSnapshotWithResult() error = %v", err)
+	}
+	if len(replayed.CreatedIncomingMessages) != 0 {
+		t.Fatalf("replayed created messages = %+v, want none", replayed.CreatedIncomingMessages)
+	}
+}
+
 func TestHardwareSnapshotDoesNotDuplicateMessageAcrossProviderRestart(t *testing.T) {
 	t.Parallel()
 

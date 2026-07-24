@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
+	"github.com/human-agent65535/modemdeck/internal/messageevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -107,7 +108,7 @@ func TestLineServicesUseLiveLineAndDeduplicateSensitiveCommands(t *testing.T) {
 		},
 	}
 	repository := &fakeRepository{}
-	service, err := New(agent, repository)
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

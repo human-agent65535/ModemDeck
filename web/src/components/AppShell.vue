@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import {
   AudioLines,
+  Bell,
+  BellRing,
   ChartNoAxesCombined,
   House,
   MessageSquareText,
@@ -14,6 +16,12 @@ import {
 } from '@lucide/vue'
 import { fixtureMode } from '../api/client'
 import { initializeCallRuntime, shutdownCallRuntime } from '../state/call'
+import {
+  initializeMessageRuntime,
+  messageNotificationState,
+  shutdownMessageRuntime,
+  toggleMessageNotifications
+} from '../state/messageRuntime'
 import { sessionState } from '../state/session'
 import { openDialer } from '../state/ui'
 import {
@@ -30,6 +38,12 @@ import IncomingCallModeControl from './IncomingCallModeControl.vue'
 const route = useRoute()
 const router = useRouter()
 const permanentDialer = ref(false)
+const messageNotificationTitle = computed(() => {
+  if (!messageNotificationState.supported) return '短信通知需要 HTTPS'
+  if (messageNotificationState.enabled) return '关闭短信通知'
+  if (messageNotificationState.permission === 'denied') return '短信通知已被浏览器阻止'
+  return '启用短信通知'
+})
 let dialerMediaQuery: MediaQueryList | undefined
 const primaryNav = [
   { name: 'dashboard', label: '首页', icon: House },
@@ -61,6 +75,7 @@ function syncDialerMode(): void {
 
 onMounted(() => {
   initializeCallRuntime()
+  initializeMessageRuntime(router)
   void bootstrap()
   void loadContacts()
   dialerMediaQuery = window.matchMedia('(min-width: 1101px)')
@@ -70,6 +85,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   dialerMediaQuery?.removeEventListener('change', syncDialerMode)
+  shutdownMessageRuntime()
   shutdownCallRuntime()
 })
 </script>
@@ -119,6 +135,22 @@ onBeforeUnmount(() => {
         </div>
         <div class="shell-header__controls">
           <IncomingCallModeControl />
+          <button
+            class="icon-button"
+            :class="{ 'is-active': messageNotificationState.enabled }"
+            type="button"
+            :disabled="
+              !messageNotificationState.supported ||
+              messageNotificationState.permission === 'denied'
+            "
+            :title="messageNotificationTitle"
+            :aria-label="messageNotificationTitle"
+            :aria-pressed="messageNotificationState.enabled"
+            @click="toggleMessageNotifications"
+          >
+            <BellRing v-if="messageNotificationState.enabled" :size="19" />
+            <Bell v-else :size="19" />
+          </button>
           <AudioSettingsMenu />
           <button
             class="icon-button shell-dialer-toggle"

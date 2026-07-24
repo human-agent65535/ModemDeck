@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
+	"github.com/human-agent65535/modemdeck/internal/messageevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -106,6 +107,7 @@ func (agent *fakeAgent) ApplyDeviceConfiguration(
 
 type fakeRepository struct {
 	snapshot                    store.HardwareSnapshot
+	snapshotResult              store.HardwareSnapshotResult
 	snapshotError               error
 	message                     store.Message
 	messageInput                store.HardwareMessage
@@ -137,9 +139,12 @@ func (observer *fakeCallLifecycleObserver) ReconcileAuthoritativeCalls(
 	return observer.err
 }
 
-func (repository *fakeRepository) ApplyHardwareSnapshot(_ context.Context, snapshot store.HardwareSnapshot) error {
+func (repository *fakeRepository) ApplyHardwareSnapshotWithResult(
+	_ context.Context,
+	snapshot store.HardwareSnapshot,
+) (store.HardwareSnapshotResult, error) {
 	repository.snapshot = snapshot
-	return repository.snapshotError
+	return repository.snapshotResult, repository.snapshotError
 }
 
 func (repository *fakeRepository) UpsertHardwareMessage(
@@ -394,7 +399,7 @@ func TestServiceRequiresExplicitCapableLine(t *testing.T) {
 		ResourceID: "call-endpoint-1",
 	}
 	repository := &fakeRepository{}
-	service, err := New(agent, repository)
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -469,7 +474,7 @@ func TestCallActionUsesReceiptWithoutInventingState(t *testing.T) {
 		Phase:          "active",
 		Bearer:         "volte",
 	}}
-	service, err := New(agent, repository)
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -505,7 +510,7 @@ func TestStartCallRejectsBusyLineBeforeAgentMutation(t *testing.T) {
 		DeviceID: "line-1",
 		Phase:    "active",
 	}}}
-	service, err := New(agent, repository)
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -529,7 +534,7 @@ func TestRefreshDoesNotServeStaleConnectedStateAfterFailure(t *testing.T) {
 	now := time.Date(2026, time.July, 23, 14, 0, 0, 0, time.UTC)
 	agent := connectedAgent(now)
 	repository := &fakeRepository{}
-	service, err := New(agent, repository)
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -548,6 +553,72 @@ func TestRefreshDoesNotServeStaleConnectedStateAfterFailure(t *testing.T) {
 	}
 }
 
+func TestRefreshPublishesCommittedIncomingMessage(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.July, 24, 7, 30, 0, 0, time.UTC)
+	agent := connectedAgent(now)
+	repository := &fakeRepository{snapshotResult: store.HardwareSnapshotResult{
+		CreatedIncomingMessages: []store.Message{{
+			ID:        42,
+			LineID:    "line-1",
+			ICCID:     "8901000000000000001",
+			Peer:      "+818012345678",
+			Content:   "hello",
+			Direction: "incoming",
+			State:     "received",
+			Timestamp: now.Format(time.RFC3339),
+		}},
+	}}
+	events := messageevents.NewBuffer(8)
+	service, err := New(agent, repository, events)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if _, err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	window, _, cancel := events.Subscribe(0)
+	cancel()
+	if len(window.Events) != 1 {
+		t.Fatalf("published events = %+v, want one", window.Events)
+	}
+	event := window.Events[0]
+	if event.EventKey != "sms:42" || event.MessageID != "42" ||
+		event.ThreadKey != "8901000000000000001|+818012345678" ||
+		event.LineID != "line-1" || event.Content != "hello" {
+		t.Fatalf("published event = %+v", event)
+	}
+}
+
+func TestRefreshDoesNotPublishWhenSnapshotCommitFails(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.July, 24, 7, 45, 0, 0, time.UTC)
+	agent := connectedAgent(now)
+	repository := &fakeRepository{
+		snapshotResult: store.HardwareSnapshotResult{
+			CreatedIncomingMessages: []store.Message{{ID: 43}},
+		},
+		snapshotError: errors.New("commit failed"),
+	}
+	events := messageevents.NewBuffer(8)
+	service, err := New(agent, repository, events)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if _, err := service.Refresh(context.Background()); err == nil {
+		t.Fatal("Refresh() error = nil, want commit failure")
+	}
+	window, _, cancel := events.Subscribe(0)
+	cancel()
+	if len(window.Events) != 0 {
+		t.Fatalf("published events = %+v, want none", window.Events)
+	}
+}
+
 func TestRefreshReconcilesRemoteCallRemovalImmediately(t *testing.T) {
 	now := time.Date(2026, time.July, 23, 14, 30, 0, 0, time.UTC)
 	agent := connectedAgent(now)
@@ -556,7 +627,7 @@ func TestRefreshReconcilesRemoteCallRemovalImmediately(t *testing.T) {
 		DeviceID: "line-1",
 		Phase:    "active",
 	}}}
-	service, err := New(agent, repository)
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -601,7 +672,7 @@ func TestRefreshPreservesSixDiscoveredLines(t *testing.T) {
 		})
 	}
 	repository := &fakeRepository{}
-	service, err := New(agent, repository)
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -721,7 +792,7 @@ func TestDNDRejectsNewRingingIncomingCallOnceAndRecordsOutcome(t *testing.T) {
 			Status:          store.IncomingCallActionSending,
 		}},
 	}
-	service, err := New(agent, repository)
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -796,7 +867,7 @@ func TestDNDRecordsFailureAndIndeterminateWithoutRetry(t *testing.T) {
 					RequestID:       "dnd-request-failure",
 				}},
 			}
-			service, err := New(agent, repository)
+			service, err := New(agent, repository, messageevents.NewBuffer(8))
 			if err != nil {
 				t.Fatalf("New() error = %v", err)
 			}
@@ -831,7 +902,7 @@ func TestDeviceConfigurationUsesExplicitLineAndOpaqueRevision(t *testing.T) {
 		DataConnections: []agentclient.DataConnection{},
 	}
 	repository := &fakeRepository{}
-	service, err := New(agent, repository)
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -906,7 +977,7 @@ func TestHardwareMutationSeparatesRejectedFromUnknownOutcome(t *testing.T) {
 			agent := connectedAgent(time.Date(2026, time.July, 23, 18, 30, 0, 0, time.UTC))
 			agent.startError = test.startError
 			repository := &fakeRepository{}
-			service, err := New(agent, repository)
+			service, err := New(agent, repository, messageevents.NewBuffer(8))
 			if err != nil {
 				t.Fatal(err)
 			}

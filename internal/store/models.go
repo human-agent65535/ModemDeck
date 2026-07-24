@@ -294,6 +294,10 @@ type HardwareSnapshot struct {
 	Messages   []HardwareMessage
 }
 
+type HardwareSnapshotResult struct {
+	CreatedIncomingMessages []Message
+}
+
 type HardwareCommand struct {
 	RequestID     string
 	Operation     string

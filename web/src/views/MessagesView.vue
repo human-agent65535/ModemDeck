@@ -22,6 +22,8 @@ import {
   loadThreads,
   markThreadRead,
   messagesFor,
+  recentIncomingMessageIDs,
+  recentIncomingThreadKeys,
   resolveLine,
   sendMessage,
   threadReadErrors,
@@ -439,7 +441,10 @@ onMounted(() => {
           v-for="thread in filteredThreads"
           :key="thread.key"
           class="list-item list-item--thread"
-          :class="{ 'is-selected': thread.key === selectedKey && !composingNew }"
+          :class="{
+            'is-selected': thread.key === selectedKey && !composingNew,
+            'is-arriving': recentIncomingThreadKeys[thread.key]
+          }"
           type="button"
           @click="chooseThread(thread.key)"
         >
@@ -546,7 +551,10 @@ onMounted(() => {
               v-for="message in currentMessages?.data || []"
               :key="message.id"
               class="message-row"
-              :class="`message-row--${message.direction}`"
+              :class="[
+                `message-row--${message.direction}`,
+                { 'is-arriving': recentIncomingMessageIDs[message.id] }
+              ]"
             >
               <div class="message-bubble">
                 <p>{{ message.content }}</p>
@@ -664,6 +672,35 @@ onMounted(() => {
 
 .message-line-select {
   margin-bottom: 10px;
+}
+
+.list-item--thread.is-arriving {
+  animation: incoming-thread 700ms ease-out;
+}
+
+.message-row.is-arriving {
+  animation: incoming-message 520ms ease-out;
+}
+
+@keyframes incoming-thread {
+  from {
+    background: var(--accent-soft);
+    box-shadow: inset 3px 0 var(--accent);
+  }
+}
+
+@keyframes incoming-message {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .list-item--thread.is-arriving,
+  .message-row.is-arriving {
+    animation: none;
+  }
 }
 
 .message-thread-meta {

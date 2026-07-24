@@ -88,10 +88,12 @@ import type {
   DiagnosticStatus,
   DiagnosticsSnapshot,
   GlobalCallSettings,
+  IncomingMessageEvent,
   LineLabelResult,
   LineSummary,
   LoginInput,
   Message,
+  MessageEventStreamHandlers,
   MessageThread,
   NetworkStatus,
   ProxyDeleteResult,
@@ -531,6 +533,21 @@ function parseDiagnosticLogEntry(value: unknown, path = 'diagnostic_log'): Diagn
   }
 }
 
+function parseIncomingMessageEvent(value: unknown): IncomingMessageEvent {
+  const source = requiredRecord(value, 'incoming_message_event')
+  return {
+    id: numberValue(source, 'incoming_message_event', 'id'),
+    event_key: requiredStringValue(source, 'incoming_message_event', 'event_key'),
+    message_id: requiredStringValue(source, 'incoming_message_event', 'message_id'),
+    thread_key: requiredStringValue(source, 'incoming_message_event', 'thread_key'),
+    line_id: requiredStringValue(source, 'incoming_message_event', 'line_id'),
+    iccid: requiredStringValue(source, 'incoming_message_event', 'iccid'),
+    peer: requiredStringValue(source, 'incoming_message_event', 'peer'),
+    content: stringValue(source, 'content'),
+    timestamp: requiredStringValue(source, 'incoming_message_event', 'timestamp')
+  }
+}
+
 function parseDiagnosticLogPage(value: unknown): DiagnosticLogPage {
   const source = requiredRecord(value, 'diagnostic_logs')
   if (!Array.isArray(source.entries)) {
@@ -902,6 +919,55 @@ const realGateway: ConfiguredModemDeckGateway = {
     return parseDiagnosticLogPage(
       await get(`${API_ROOT}/diagnostics/logs${diagnosticLogQueryString(query)}`)
     )
+  },
+
+  subscribeMessageEvents(handlers: MessageEventStreamHandlers): () => void {
+    const source = new EventSource(`${API_ROOT}/messages/events`, { withCredentials: true })
+    let closed = false
+    const close = () => {
+      if (closed) return
+      closed = true
+      source.close()
+    }
+    source.onopen = () => {
+      if (!closed) handlers.onOpen()
+    }
+    source.addEventListener('sms', event => {
+      if (closed) return
+      try {
+        handlers.onMessage(parseIncomingMessageEvent(JSON.parse(event.data) as unknown))
+      } catch (error) {
+        close()
+        handlers.onError(error instanceof Error ? error : new Error('短信事件格式无效'))
+      }
+    })
+    source.addEventListener('ready', event => {
+      if (closed) return
+      try {
+        const ready = requiredRecord(JSON.parse(event.data) as unknown, 'message_event_ready')
+        handlers.onReady(numberValue(ready, 'message_event_ready', 'newest_id'))
+      } catch (error) {
+        close()
+        handlers.onError(error instanceof Error ? error : new Error('短信事件就绪状态无效'))
+      }
+    })
+    source.addEventListener('reset', event => {
+      if (closed) return
+      try {
+        const reset = requiredRecord(JSON.parse(event.data) as unknown, 'message_event_reset')
+        handlers.onReset(
+          numberValue(reset, 'message_event_reset', 'oldest_id'),
+          numberValue(reset, 'message_event_reset', 'newest_id')
+        )
+      } catch (error) {
+        close()
+        handlers.onError(error instanceof Error ? error : new Error('短信事件重置状态无效'))
+      }
+    })
+    source.onerror = () => {
+      if (!closed) handlers.onError()
+    }
+    return close
   },
 
   subscribeDiagnosticLogs(

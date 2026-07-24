@@ -9,12 +9,14 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
+	"github.com/human-agent65535/modemdeck/internal/messageevents"
 	"github.com/human-agent65535/modemdeck/internal/phone"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
@@ -47,7 +49,10 @@ type Agent interface {
 }
 
 type Repository interface {
-	ApplyHardwareSnapshot(context.Context, store.HardwareSnapshot) error
+	ApplyHardwareSnapshotWithResult(
+		context.Context,
+		store.HardwareSnapshot,
+	) (store.HardwareSnapshotResult, error)
 	UpsertHardwareMessage(context.Context, store.HardwareMessage) (store.Message, bool, error)
 	UpsertHardwareCall(context.Context, store.HardwareCall) (store.Call, error)
 	BeginHardwareCommand(context.Context, string, string, []byte) (store.HardwareCommand, bool, error)
@@ -113,6 +118,7 @@ type CallActionInput struct {
 type Service struct {
 	agent      Agent
 	repository Repository
+	events     messageevents.Publisher
 	random     io.Reader
 	now        func() time.Time
 
@@ -125,16 +131,24 @@ type Service struct {
 	lifecycleObserver CallLifecycleObserver
 }
 
-func New(agent Agent, repository Repository) (*Service, error) {
+func New(
+	agent Agent,
+	repository Repository,
+	events messageevents.Publisher,
+) (*Service, error) {
 	if agent == nil {
 		return nil, operationError(CodeInvalidArgument, "create communication service", "host agent is required", nil)
 	}
 	if repository == nil {
 		return nil, operationError(CodeInvalidArgument, "create communication service", "repository is required", nil)
 	}
+	if events == nil {
+		return nil, operationError(CodeInvalidArgument, "create communication service", "message event publisher is required", nil)
+	}
 	return &Service{
 		agent:      agent,
 		repository: repository,
+		events:     events,
 		random:     rand.Reader,
 		now:        time.Now,
 	}, nil
@@ -171,9 +185,14 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 	}
 
 	hardwareSnapshot, lines := projectSnapshot(snapshot, health.Provider.BootEpoch)
-	if err := s.repository.ApplyHardwareSnapshot(refreshContext, hardwareSnapshot); err != nil {
+	snapshotResult, err := s.repository.ApplyHardwareSnapshotWithResult(
+		refreshContext,
+		hardwareSnapshot,
+	)
+	if err != nil {
 		return s.recordRefreshFailure("persist host agent snapshot", err)
 	}
+	s.publishIncomingMessages(snapshotResult.CreatedIncomingMessages)
 	activeCalls, err := s.repository.ActiveCalls(refreshContext)
 	if err != nil {
 		return s.recordRefreshFailure("read authoritative active calls", err)
@@ -210,6 +229,22 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 		)
 	}
 	return cloneStatus(status), nil
+}
+
+func (s *Service) publishIncomingMessages(messages []store.Message) {
+	for _, message := range messages {
+		messageID := strconv.FormatInt(message.ID, 10)
+		s.events.Publish(messageevents.IncomingSMS{
+			EventKey:  "sms:" + messageID,
+			MessageID: messageID,
+			ThreadKey: message.ICCID + "|" + message.Peer,
+			LineID:    message.LineID,
+			ICCID:     message.ICCID,
+			Peer:      message.Peer,
+			Content:   message.Content,
+			Timestamp: message.Timestamp,
+		})
+	}
 }
 
 func (s *Service) SetCallLifecycleObserver(observer CallLifecycleObserver) error {

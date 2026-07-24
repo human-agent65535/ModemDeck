@@ -12,6 +12,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/communication"
 	"github.com/human-agent65535/modemdeck/internal/diagnostics"
+	"github.com/human-agent65535/modemdeck/internal/messageevents"
 	"github.com/human-agent65535/modemdeck/internal/networkruntime"
 	"github.com/human-agent65535/modemdeck/internal/recording"
 	"github.com/human-agent65535/modemdeck/internal/store"
@@ -179,6 +180,7 @@ type Options struct {
 	SecureCookies         bool
 	Logger                *slog.Logger
 	DiagnosticLogs        diagnostics.LogSource
+	MessageEvents         messageevents.Source
 	Web                   http.Handler
 	disableAuthentication bool
 }
@@ -200,6 +202,7 @@ type API struct {
 	loginSlots           chan struct{}
 	logger               *slog.Logger
 	diagnosticLogs       diagnostics.LogSource
+	messageEvents        messageevents.Source
 	web                  http.Handler
 }
 
@@ -235,6 +238,7 @@ func New(repository Repository, options Options) (*API, error) {
 		loginSlots:           make(chan struct{}, 2),
 		logger:               logger,
 		diagnosticLogs:       options.DiagnosticLogs,
+		messageEvents:        options.MessageEvents,
 		web:                  options.Web,
 	}, nil
 }
@@ -272,6 +276,8 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.messagesCollection(response, request)
 	case "/api/v1/messages/read":
 		api.messageRead(response, request)
+	case "/api/v1/messages/events":
+		api.getOnly(response, request, api.messageEventStream)
 	case "/api/v1/calls":
 		api.callsCollection(response, request)
 	case "/api/v1/calls/active":

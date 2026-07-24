@@ -28,6 +28,7 @@ import type {
   LineSettings,
   LineSummary,
   Message,
+  MessageEventStreamHandlers,
   MessageThread,
   NetworkStatus,
   ProxyDeleteResult,
@@ -1040,6 +1041,10 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
 
     async listMessages(query: MessageQuery): Promise<Message[]> {
       return clone(messagesByThread[threadKey(query.iccid, query.peer)] || [])
+    },
+
+    subscribeMessageEvents(_handlers: MessageEventStreamHandlers): () => void {
+      return () => undefined
     },
 
     async markThreadRead(query: MessageQuery): Promise<void> {

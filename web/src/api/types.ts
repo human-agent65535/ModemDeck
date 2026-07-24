@@ -315,6 +315,26 @@ export type Message = {
   status: number
 }
 
+export type IncomingMessageEvent = {
+  id: number
+  event_key: string
+  message_id: string
+  thread_key: string
+  line_id: string
+  iccid: string
+  peer: string
+  content: string
+  timestamp: string
+}
+
+export type MessageEventStreamHandlers = {
+  onOpen: () => void
+  onReady: (newestID: number) => void
+  onMessage: (event: IncomingMessageEvent) => void
+  onReset: (oldestID: number, newestID: number) => void
+  onError: (error?: Error) => void
+}
+
 export type MessageReadInput = {
   iccid: string
   peer: string

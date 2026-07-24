@@ -9,6 +9,7 @@ import type {
   ContactInput,
   CreateDeviceInput,
   Device,
+  IncomingMessageEvent,
   LineSummary,
   Message,
   MessageReadInput,
@@ -53,10 +54,15 @@ export const devicesResource = resource<Device[]>([])
 export const telegramResource = resource<TelegramUnit[]>([])
 export const messageResources = reactive<Record<string, Resource<Message[]>>>({})
 export const threadReadErrors = reactive<Record<string, string>>({})
+export const recentIncomingMessageIDs = reactive<Record<string, boolean>>({})
+export const recentIncomingThreadKeys = reactive<Record<string, boolean>>({})
 export const contactEditingAvailable = gateway.interactions.contacts
 
 let threadsLoad: Promise<MessageThread[] | null> | undefined
+let threadsRefresh: Promise<MessageThread[] | null> | undefined
 const messageLoads = new Map<string, Promise<Message[] | null>>()
+const messageRefreshes = new Map<string, Promise<Message[] | null>>()
+const arrivalTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 export function createMessageReadCoordinator(
   request: (input: MessageReadInput) => Promise<void>
@@ -189,6 +195,14 @@ export function loadThreads(force = false): Promise<MessageThread[] | null> {
   return threadsLoad
 }
 
+export function refreshThreads(): Promise<MessageThread[] | null> {
+  if (threadsRefresh) return threadsRefresh
+  threadsRefresh = refreshResource(threadsResource, () => gateway.listThreads()).finally(() => {
+    threadsRefresh = undefined
+  })
+  return threadsRefresh
+}
+
 export function loadCalls(force = false, filter: CallFilter = 'all'): Promise<CallRecord[] | null> {
   if (!force && filter === 'all' && callsResource.status === 'ready') {
     return Promise.resolve(callsResource.data)
@@ -265,6 +279,94 @@ export async function loadMessages(
   })
   messageLoads.set(thread.key, operation)
   return operation
+}
+
+export function refreshMessages(thread: MessageThread): Promise<Message[] | null> {
+  const pending = messageRefreshes.get(thread.key)
+  if (pending) return pending
+  const target = messagesFor(thread.key)
+  const operation = refreshResource(target, () =>
+    gateway.listMessages({ iccid: thread.iccid, peer: thread.peer })
+  ).finally(() => {
+    if (messageRefreshes.get(thread.key) === operation) messageRefreshes.delete(thread.key)
+  })
+  messageRefreshes.set(thread.key, operation)
+  return operation
+}
+
+export async function refreshIncomingMessage(
+  event: IncomingMessageEvent,
+  activeThreadKey = '',
+  animate = true
+): Promise<void> {
+  const previousThread = threadsResource.data.find(thread => thread.key === event.thread_key)
+  const threadWasPresent = Boolean(previousThread)
+  const activeResource = activeThreadKey === event.thread_key
+    ? messageResources[event.thread_key]
+    : undefined
+  const messagesWereReady = activeResource?.status === 'ready'
+  const previousMessageIDs = new Set(activeResource?.data.map(message => message.id) || [])
+
+  const threads = await refreshThreads()
+  const thread = threads?.find(item => item.key === event.thread_key)
+  if (
+    animate &&
+    thread &&
+    (!threadWasPresent || thread.last_timestamp !== previousThread?.last_timestamp)
+  ) {
+    markArrival(recentIncomingThreadKeys, `thread:${event.thread_key}`, event.thread_key)
+  }
+  if (!thread || activeThreadKey !== event.thread_key) return
+
+  const messages = await refreshMessages(thread)
+  if (!messages || !messagesWereReady || !animate) return
+  const inserted = messages.filter(message => !previousMessageIDs.has(message.id))
+  const eventMessage = inserted.find(message => message.id === event.message_id)
+  if (eventMessage) {
+    markArrival(recentIncomingMessageIDs, `message:${event.message_id}`, event.message_id)
+    return
+  }
+  for (const message of inserted) {
+    markArrival(recentIncomingMessageIDs, `message:${message.id}`, message.id)
+  }
+}
+
+export async function refreshMessageWorkspace(activeThreadKey = ''): Promise<void> {
+  const threads = await refreshThreads()
+  if (!activeThreadKey) return
+  const thread = threads?.find(item => item.key === activeThreadKey)
+  if (thread) await refreshMessages(thread)
+}
+
+async function refreshResource<T>(
+  target: Resource<T>,
+  loader: () => Promise<T>
+): Promise<T | null> {
+  try {
+    const data = await loader()
+    target.data = data
+    target.status = 'ready'
+    target.error = ''
+    return data
+  } catch (error) {
+    target.error = errorText(error)
+    if (target.status === 'idle') target.status = 'error'
+    return null
+  }
+}
+
+function markArrival(
+  target: Record<string, boolean>,
+  timerKey: string,
+  resourceKey: string
+): void {
+  target[resourceKey] = true
+  const existing = arrivalTimers.get(timerKey)
+  if (existing) clearTimeout(existing)
+  arrivalTimers.set(timerKey, setTimeout(() => {
+    delete target[resourceKey]
+    arrivalTimers.delete(timerKey)
+  }, 1400))
 }
 
 function messageReadError(error: unknown): string {
