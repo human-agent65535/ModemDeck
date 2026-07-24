@@ -329,6 +329,19 @@ test('device configuration distinguishes module identity from the line label', (
   )
 })
 
+test('device discovery is automatic and does not ask for a manually entered IMEI', () => {
+  const workspaceSource = readFileSync(
+    new URL('../src/state/workspace.ts', import.meta.url),
+    'utf8'
+  )
+
+  assert.doesNotMatch(devicePanelSource, /addIMEI|addModule|新增模组/)
+  assert.doesNotMatch(devicePanelSource, /<span>IMEI<\/span>\s*<input/)
+  assert.match(devicePanelSource, /refreshDeviceWorkspace/)
+  assert.match(devicePanelSource, /setInterval\(/)
+  assert.match(workspaceSource, /export async function refreshDeviceWorkspace/)
+})
+
 test('fixture applies successful revisioned updates and rejects stale revisions', async () => {
   const gateway = createFixtureGateway()
   const global = parseGlobalCallSettings(await gateway.getGlobalCallSettings())

@@ -16,10 +16,9 @@ import {
   Send,
   ShieldAlert,
   Tag,
-  Trash2,
-  X
+  Trash2
 } from '@lucide/vue'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { gateway } from '../api/client'
 import type {
   ConnectionProfile,
@@ -47,12 +46,12 @@ import {
 } from '../state/deviceConfiguration'
 import {
   bootstrapResource,
-  createDevice,
   devicesResource,
   lineKey,
   lineLabel,
   loadBootstrap,
   loadDevices,
+  refreshDeviceWorkspace,
   updateDefaultLine,
   updateLineLabel
 } from '../state/workspace'
@@ -78,11 +77,6 @@ const ipFamily = ref<IPFamily>('ipv4v6')
 const incomingPolicyDraft = ref<IncomingCallPolicy>('follow_global')
 const voltePolicyDraft = ref<'enabled' | 'disabled' | ''>('')
 
-const addOpen = ref(false)
-const addIMEI = ref('')
-const addAlias = ref('')
-const addPending = ref(false)
-const addError = ref('')
 const moduleError = ref('')
 const lineLabelDraft = ref('')
 const lineLabelPending = ref(false)
@@ -98,6 +92,7 @@ const simNewPIN = ref('')
 const simProtectionEnabled = ref(true)
 const simPending = ref(false)
 let lineServiceGeneration = 0
+let discoveryTimer: ReturnType<typeof setInterval> | undefined
 
 const profiles = ref<ConnectionProfile[]>([])
 const profileLoadStatus = ref<AsyncStatus>('idle')
@@ -144,6 +139,16 @@ const selectedModuleName = computed(() => {
 const selectedExplicitLineLabel = computed(() => {
   const label = selectedLine.value?.line_label.trim() || ''
   return label.toLocaleLowerCase() === selectedModuleName.value.toLocaleLowerCase() ? '' : label
+})
+const currentSIMIdentity = computed(() => {
+  const line = selectedLine.value
+  if (!line) return ''
+  const label = lineLabel(line).trim()
+  const number = line.phone_number.trim()
+  if (label && number && label !== number) return `${label} · ${number}`
+  if (label || number) return label || number
+  const identifier = simStatus.value?.identifier.trim()
+  return identifier ? `ICCID 尾号 ${identifier.slice(-4)}` : ''
 })
 const selectedResource = computed(() =>
   selectedLineID.value ? deviceConfigurationResource(selectedLineID.value) : null
@@ -554,23 +559,6 @@ async function saveLineLabel(): Promise<void> {
   }
 }
 
-async function addModule(): Promise<void> {
-  if (addPending.value || !addIMEI.value.trim()) return
-  addPending.value = true
-  addError.value = ''
-  try {
-    await createDevice({ imei: addIMEI.value.trim(), alias: addAlias.value.trim() })
-    addIMEI.value = ''
-    addAlias.value = ''
-    addOpen.value = false
-    await Promise.all([loadDevices(true), loadBootstrap(true)])
-  } catch (error) {
-    addError.value = error instanceof Error ? error.message : '新增模组失败'
-  } finally {
-    addPending.value = false
-  }
-}
-
 async function changeRadio(event: Event): Promise<void> {
   if (!selectedLineID.value) return
   const control = event.target as HTMLInputElement
@@ -837,6 +825,13 @@ async function submitUSSD(action: 'initiate' | 'respond' | 'cancel'): Promise<vo
 
 onMounted(() => {
   void Promise.all([loadBootstrap(), loadDevices()])
+  discoveryTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') void refreshDeviceWorkspace()
+  }, 5000)
+})
+
+onBeforeUnmount(() => {
+  if (discoveryTimer) clearInterval(discoveryTimer)
 })
 </script>
 
@@ -844,34 +839,10 @@ onMounted(() => {
   <section class="device-configuration" aria-labelledby="device-configuration-title">
     <header class="module-toolbar">
       <div>
-        <h3 id="device-configuration-title">选择模组</h3>
+        <h3 id="device-configuration-title">模组</h3>
         <span>{{ lines.length }} 个</span>
       </div>
-      <button class="secondary-action" type="button" @click="addOpen = !addOpen">
-        <Plus :size="16" />
-        新增
-      </button>
     </header>
-
-    <form v-if="addOpen" class="module-edit-row" @submit.prevent="addModule">
-      <label>
-        <span>IMEI</span>
-        <input v-model.trim="addIMEI" inputmode="numeric" autocomplete="off" required />
-      </label>
-      <label>
-        <span>名称</span>
-        <input v-model.trim="addAlias" autocomplete="off" />
-      </label>
-      <button class="primary-action" type="submit" :disabled="addPending || !addIMEI">
-        <LoaderCircle v-if="addPending" class="spin" :size="16" />
-        <Save v-else :size="16" />
-        保存
-      </button>
-      <button class="icon-button" type="button" title="取消" @click="addOpen = false">
-        <X :size="18" />
-      </button>
-      <p v-if="addError" class="field-error">{{ addError }}</p>
-    </form>
 
     <StatePanel
       v-if="bootstrapResource.status === 'loading' || bootstrapResource.status === 'idle'"
@@ -1253,7 +1224,10 @@ onMounted(() => {
               <dl class="configuration-facts">
                 <div><dt>ICCID</dt><dd>{{ simStatus.identifier || '—' }}</dd></div>
                 <div><dt>IMSI</dt><dd>{{ simStatus.imsi || '—' }}</dd></div>
-                <div><dt>SIM 类型</dt><dd>{{ simTypeLabel(simStatus.sim_type) }}</dd></div>
+                <div v-if="simStatus.sim_type !== 'unknown'">
+                  <dt>SIM 类型</dt>
+                  <dd>{{ simTypeLabel(simStatus.sim_type) }}</dd>
+                </div>
                 <div v-for="fact in simOperatorFacts" :key="fact.id">
                   <dt>{{ fact.label }}</dt>
                   <dd>{{ fact.value }}</dd>
@@ -1289,9 +1263,18 @@ onMounted(() => {
                   class="sim-slot"
                   :class="{ 'is-current': slot.current }"
                 >
-                  <span>卡槽 {{ slot.index }}</span>
-                  <strong>{{ slot.present ? simTypeLabel(slot.sim_type) : '空' }}</strong>
-                  <small v-if="slot.current">当前</small>
+                  <span class="sim-slot__name">卡槽 {{ slot.index }}</span>
+                  <strong class="sim-slot__state">{{ slot.present ? '已插卡' : '未插卡' }}</strong>
+                  <span
+                    v-if="slot.present && slot.sim_type !== 'unknown'"
+                    class="sim-slot__type"
+                  >
+                    {{ simTypeLabel(slot.sim_type) }}
+                  </span>
+                  <span v-if="slot.current" class="sim-slot__badge">使用中</span>
+                  <span v-if="slot.current && currentSIMIdentity" class="sim-slot__identity">
+                    {{ currentSIMIdentity }}
+                  </span>
                 </div>
               </div>
               <div class="retry-row">
@@ -1555,20 +1538,6 @@ onMounted(() => {
   max-width: 420px;
 }
 
-.module-edit-row {
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(160px, 1fr) auto auto;
-  align-items: end;
-  gap: 9px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.module-edit-row__wide {
-  grid-column: span 2;
-}
-
-.module-edit-row label,
 .data-apn-field,
 .profile-form label,
 .sim-form label,
@@ -1577,7 +1546,6 @@ onMounted(() => {
   gap: 5px;
 }
 
-.module-edit-row label > span,
 .data-apn-field > span,
 .profile-form label > span,
 .sim-form label > span,
@@ -1587,7 +1555,6 @@ onMounted(() => {
   font-weight: 650;
 }
 
-.module-edit-row input,
 .data-apn-field input,
 .profile-form input,
 .profile-form select,
@@ -2310,33 +2277,59 @@ onMounted(() => {
 
 .sim-slot {
   display: grid;
-  min-width: 116px;
-  grid-template-columns: 1fr auto;
-  gap: 2px 10px;
-  padding: 7px 9px;
+  min-width: 190px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "name badge"
+    "state badge"
+    "type badge"
+    "identity identity";
+  gap: 3px 10px;
+  padding: 10px 12px;
   background: var(--surface-subtle);
   border: 1px solid var(--border);
   border-radius: 6px;
 }
 
-.sim-slot > span,
-.sim-slot > small {
+.sim-slot__name {
+  grid-area: name;
   color: var(--muted);
   font-size: 11px;
 }
 
-.sim-slot > strong {
-  grid-row: 2;
-  font-size: 12px;
+.sim-slot__state {
+  grid-area: state;
+  font-size: 13px;
   font-weight: 650;
 }
 
-.sim-slot > small {
-  grid-row: 2;
+.sim-slot__type {
+  grid-area: type;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.sim-slot__badge {
+  grid-area: badge;
+  align-self: center;
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.sim-slot__identity {
+  grid-area: identity;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sim-slot.is-current {
   border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .retry-row span {
@@ -2589,7 +2582,6 @@ pre {
     max-width: none;
   }
 
-  .module-edit-row,
   .line-label-form,
   .data-primary-settings,
   .profile-form,
@@ -2599,10 +2591,6 @@ pre {
   .configuration-facts,
   .data-connection-facts {
     grid-template-columns: 1fr;
-  }
-
-  .module-edit-row__wide {
-    grid-column: auto;
   }
 
   .line-label-form > :deep(.line-tag) {

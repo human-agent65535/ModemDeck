@@ -60,6 +60,8 @@ export const contactEditingAvailable = gateway.interactions.contacts
 
 let threadsLoad: Promise<MessageThread[] | null> | undefined
 let threadsRefresh: Promise<MessageThread[] | null> | undefined
+let bootstrapRefresh: Promise<BootstrapResponse | null> | undefined
+let devicesRefresh: Promise<Device[] | null> | undefined
 const messageLoads = new Map<string, Promise<Message[] | null>>()
 const messageRefreshes = new Map<string, Promise<Message[] | null>>()
 const arrivalTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -213,6 +215,22 @@ export function loadCalls(force = false, filter: CallFilter = 'all'): Promise<Ca
 export function loadDevices(force = false): Promise<Device[] | null> {
   if (!force && devicesResource.status === 'ready') return Promise.resolve(devicesResource.data)
   return load(devicesResource, () => gateway.listDevices())
+}
+
+export async function refreshDeviceWorkspace(): Promise<void> {
+  if (!bootstrapRefresh) {
+    bootstrapRefresh = refreshResource(bootstrapResource, () => gateway.getBootstrap()).finally(
+      () => {
+        bootstrapRefresh = undefined
+      }
+    )
+  }
+  if (!devicesRefresh) {
+    devicesRefresh = refreshResource(devicesResource, () => gateway.listDevices()).finally(() => {
+      devicesRefresh = undefined
+    })
+  }
+  await Promise.all([bootstrapRefresh, devicesRefresh])
 }
 
 export async function createDevice(input: CreateDeviceInput): Promise<Device> {
