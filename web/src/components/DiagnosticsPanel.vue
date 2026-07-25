@@ -285,7 +285,7 @@ function agentCapabilities() {
     { name: 'USSD', available: capabilities.ussd },
     { name: '拨号', available: capabilities.dial },
     { name: '短信', available: capabilities.send_message },
-    { name: '浏览器音频', available: capabilities.media }
+    { name: '模组音频桥接', available: capabilities.media }
   ]
 }
 
@@ -337,13 +337,18 @@ function callBearerLabel(bearer: string): string {
 }
 
 function audioDescription(call: DiagnosticActiveCall): string {
-  if (!call.media_available) return '音频通道未建立'
+  if (call.phase !== 'active') return '接通后建立'
+  if (!call.media_available) return '模组音频不可用'
   const values = [
     call.audio_encoding,
     call.audio_resolution,
     call.audio_rate ? `${call.audio_rate / 1000} kHz` : ''
   ].filter(Boolean)
   return values.length ? values.join(' · ') : '音频可用'
+}
+
+function callAudioUnavailable(call: DiagnosticActiveCall): boolean {
+  return call.phase === 'active' && !call.media_available
 }
 
 function formatTimestamp(value: string, timeOnly = false): string {
@@ -796,7 +801,10 @@ onBeforeUnmount(() => {
                 {{ callBearerLabel(call.bearer) }}
               </small>
             </span>
-            <span class="active-call__audio" :class="{ 'is-unavailable': !call.media_available }">
+            <span
+              class="active-call__audio"
+              :class="{ 'is-unavailable': callAudioUnavailable(call) }"
+            >
               <Volume2 :size="15" />
               {{ audioDescription(call) }}
             </span>

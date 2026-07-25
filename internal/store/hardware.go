@@ -20,6 +20,7 @@ var (
 const (
 	modemManagerEndpointID         = "modemmanager"
 	defaultHardwareCallFailureCode = ""
+	missingCallConfirmationWindow  = 9 * time.Second
 )
 
 func (s *Store) ApplyHardwareSnapshot(ctx context.Context, snapshot HardwareSnapshot) error {
@@ -46,6 +47,15 @@ func (s *Store) ApplyHardwareSnapshotWithResult(
 		return HardwareSnapshotResult{}, err
 	}
 	if duplicate {
+		if err := closeMissingCalls(ctx, transaction, snapshot, sequence); err != nil {
+			return HardwareSnapshotResult{}, err
+		}
+		if err := transaction.Commit(); err != nil {
+			return HardwareSnapshotResult{}, fmt.Errorf(
+				"commit duplicate hardware snapshot reconciliation: %w",
+				err,
+			)
+		}
 		return HardwareSnapshotResult{CreatedIncomingMessages: []Message{}}, nil
 	}
 
@@ -877,16 +887,26 @@ func closeMissingCalls(
 	sequence int64,
 ) error {
 	activeIDs := make(map[string]struct{}, len(snapshot.Calls))
+	activeLineIDs := make(map[string]struct{}, len(snapshot.Calls))
 	for _, call := range snapshot.Calls {
 		phase := strings.ToLower(strings.TrimSpace(call.Phase))
 		if phase != "ended" && phase != "failed" && strings.TrimSpace(call.AppID) != "" {
 			activeIDs[strings.TrimSpace(call.AppID)] = struct{}{}
+			if lineID := strings.TrimSpace(call.LineID); lineID != "" {
+				activeLineIDs[lineID] = struct{}{}
+			}
+		}
+	}
+	lineIDs := make(map[string]struct{}, len(snapshot.Lines))
+	for _, line := range snapshot.Lines {
+		if lineID := strings.TrimSpace(line.ID); lineID != "" {
+			lineIDs[lineID] = struct{}{}
 		}
 	}
 	rows, err := transaction.QueryContext(
 		ctx,
 		`SELECT id, device_id, remote_number, created_at, direction,
-			active_at, end_reason, failure_code
+			active_at, end_reason, failure_code, updated_at
 		 FROM call_history
 		 WHERE endpoint_id = ? AND phase NOT IN ('ended', 'failed')`,
 		modemManagerEndpointID,
@@ -896,6 +916,7 @@ func closeMissingCalls(
 	}
 	type missingCall struct {
 		id, lineID, peer, createdAt, direction string
+		lastObserved                           sql.NullString
 		missed                                 bool
 	}
 	missing := make([]missingCall, 0)
@@ -913,11 +934,20 @@ func closeMissingCalls(
 			&activeAt,
 			&endReason,
 			&failureCode,
+			&call.lastObserved,
 		); err != nil {
 			_ = rows.Close()
 			return fmt.Errorf("scan open hardware call: %w", err)
 		}
 		if _, stillActive := activeIDs[call.id]; stillActive {
+			continue
+		}
+		_, replacementPresent := activeLineIDs[call.lineID]
+		lastObservedAt, hasLastObservation := parseDatabaseTime(stringValue(call.lastObserved))
+		if _, linePresent := lineIDs[call.lineID]; linePresent &&
+			!replacementPresent &&
+			hasLastObservation &&
+			snapshot.ObservedAt.Before(lastObservedAt.Add(missingCallConfirmationWindow)) {
 			continue
 		}
 		call.missed = call.direction == "incoming" &&
@@ -943,7 +973,10 @@ func closeMissingCalls(
 						WHEN end_reason = '' THEN 'not_present_in_snapshot'
 						ELSE end_reason
 					END,
-					revision = ?,
+					revision = CASE
+						WHEN revision < ? THEN ?
+						ELSE revision + 1
+					END,
 					audio_port = '',
 					audio_encoding = '',
 					audio_resolution = '',
@@ -953,6 +986,7 @@ func closeMissingCalls(
 					AND phase NOT IN ('ended', 'failed')`,
 			databaseTime(snapshot.ObservedAt),
 			databaseTime(snapshot.ObservedAt),
+			sequence,
 			sequence,
 			call.id,
 			call.lineID,
