@@ -28,11 +28,9 @@ export function browserNotificationsActive(
 
 export function shouldDisplayBrowserNotification(
   live: boolean,
-  active: boolean,
-  visibility: DocumentVisibilityState,
-  focused: boolean
+  active: boolean
 ): boolean {
-  return live && active && (visibility !== 'visible' || !focused)
+  return live && active
 }
 
 export function initializeBrowserNotifications(): void {
@@ -118,14 +116,7 @@ export function showBrowserNotification(input: {
   onClick: () => void
 }): boolean {
   syncBrowserNotificationState()
-  if (
-    !shouldDisplayBrowserNotification(
-      true,
-      state.active,
-      document.visibilityState,
-      document.hasFocus()
-    )
-  ) {
+  if (!shouldDisplayBrowserNotification(true, state.active)) {
     return false
   }
 

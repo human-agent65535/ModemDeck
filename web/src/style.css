@@ -1435,6 +1435,10 @@ dd {
   display: flex;
 }
 
+.message-row--incoming {
+  justify-content: flex-start;
+}
+
 .message-row--outgoing {
   justify-content: flex-end;
 }

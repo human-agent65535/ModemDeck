@@ -156,7 +156,8 @@ func TestMessagesUseLocalPhoneIdentity(t *testing.T) {
 	}
 	if repository.messageQuery.LocalPhone != "+81 90 1234 5678" ||
 		repository.messageQuery.ICCID != "stale-iccid" ||
-		repository.messageQuery.Peer != "+818012345678" {
+		repository.messageQuery.Peer != "+818012345678" ||
+		!repository.messageQuery.Chronological {
 		t.Fatalf("message query = %+v", repository.messageQuery)
 	}
 }

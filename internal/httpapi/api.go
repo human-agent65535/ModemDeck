@@ -729,10 +729,11 @@ func (api *API) messages(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 	messages, err := api.repository.Messages(request.Context(), store.MessageQuery{
-		LocalPhone: localPhone,
-		ICCID:      iccid,
-		Peer:       peer,
-		Limit:      limit,
+		LocalPhone:    localPhone,
+		ICCID:         iccid,
+		Peer:          peer,
+		Limit:         limit,
+		Chronological: true,
 	})
 	if err != nil {
 		api.writeInternalError(response, request, "list messages", err)

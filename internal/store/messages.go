@@ -222,7 +222,15 @@ func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, er
 		message.CreatedAt = stringValue(createdAt)
 		messages = append(messages, message)
 	}
-	return messages, rowsError("read messages", rows.Err())
+	if err := rowsError("read messages", rows.Err()); err != nil {
+		return nil, err
+	}
+	if query.Chronological {
+		for left, right := 0, len(messages)-1; left < right; left, right = left+1, right-1 {
+			messages[left], messages[right] = messages[right], messages[left]
+		}
+	}
+	return messages, nil
 }
 
 func uniqueNonEmptyStrings(values []string) []string {

@@ -43,12 +43,10 @@ test('browser permission and the local notification preference remain independen
   assert.equal(browserNotificationsActive(true, true, true, 'granted'), true)
 })
 
-test('browser notifications require a live event, an active preference, and background page', () => {
-  assert.equal(shouldDisplayBrowserNotification(true, true, 'hidden', true), true)
-  assert.equal(shouldDisplayBrowserNotification(true, true, 'visible', false), true)
-  assert.equal(shouldDisplayBrowserNotification(true, true, 'visible', true), false)
-  assert.equal(shouldDisplayBrowserNotification(false, true, 'hidden', false), false)
-  assert.equal(shouldDisplayBrowserNotification(true, false, 'hidden', false), false)
+test('enabled browser notifications are delivered for every live event', () => {
+  assert.equal(shouldDisplayBrowserNotification(true, true), true)
+  assert.equal(shouldDisplayBrowserNotification(false, true), false)
+  assert.equal(shouldDisplayBrowserNotification(true, false), false)
 })
 
 test('notification click route preserves the exact line and peer thread identity', () => {
@@ -234,6 +232,7 @@ test('communication notifications share one explicit browser preference', async 
     new URL('../src/views/MessagesView.vue', import.meta.url),
     'utf8'
   )
+  const styles = await readFile(new URL('../src/style.css', import.meta.url), 'utf8')
 
   assert.match(runtime, /gateway\.subscribeMessageEvents\(/)
   assert.match(runtime, /fallbackRefreshMilliseconds = 30_000/)
@@ -271,5 +270,8 @@ test('communication notifications share one explicit browser preference', async 
   assert.match(workspace, /activeThreadKey !== event\.thread_key/)
   assert.match(workspace, /thread\.unread_count > 0\) await markThreadRead\(thread\)/)
   assert.match(messages, /recentIncomingMessageIDs\[message\.id\]/)
+  assert.match(messages, /`message-row--\$\{message\.direction\}`/)
+  assert.match(styles, /\.message-row--incoming\s*\{[^}]*justify-content: flex-start/s)
+  assert.match(styles, /\.message-row--outgoing\s*\{[^}]*justify-content: flex-end/s)
   assert.match(messages, /prefers-reduced-motion: reduce/)
 })

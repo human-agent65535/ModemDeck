@@ -75,11 +75,12 @@ type MessageThread struct {
 }
 
 type MessageQuery struct {
-	LocalPhone string
-	ICCID      string
-	Peer       string
-	LineIDs    []string
-	Limit      int
+	LocalPhone    string
+	ICCID         string
+	Peer          string
+	LineIDs       []string
+	Limit         int
+	Chronological bool
 }
 
 type MessageThreadIdentity struct {
