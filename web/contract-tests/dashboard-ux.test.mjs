@@ -6,6 +6,10 @@ const dashboard = await readFile(
   new URL('../src/views/DashboardView.vue', import.meta.url),
   'utf8'
 )
+const contacts = await readFile(
+  new URL('../src/views/ContactsView.vue', import.meta.url),
+  'utf8'
+)
 
 test('dashboard orders communication status, lines, traffic, and favorites', () => {
   const summaryIndex = dashboard.indexOf('class="dashboard-summary-grid"')
@@ -17,6 +21,38 @@ test('dashboard orders communication status, lines, traffic, and favorites', () 
   assert.ok(linesIndex > summaryIndex)
   assert.ok(trafficIndex > linesIndex)
   assert.ok(favoritesIndex > trafficIndex)
+})
+
+test('dashboard keeps creation actions with activity and omits the duplicate overview header', () => {
+  const activityHeaderStart = dashboard.indexOf('<header class="pane-header">')
+  const activityHeaderEnd = dashboard.indexOf('</header>', activityHeaderStart)
+  const activityHeader = dashboard.slice(activityHeaderStart, activityHeaderEnd)
+
+  assert.equal((dashboard.match(/@click="composeMessage"/g) || []).length, 1)
+  assert.match(activityHeader, /@click="composeMessage"/)
+  assert.match(activityHeader, /@click="createContact"/)
+  assert.match(activityHeader, /<MessageSquareText/)
+  assert.match(activityHeader, /<UserPlus/)
+  assert.doesNotMatch(dashboard, /dashboard-detail-header/)
+  assert.doesNotMatch(dashboard, /dashboard-header-actions/)
+  assert.doesNotMatch(dashboard, /dashboard-command-button/)
+  assert.match(dashboard, /mobile-back dashboard-overview-back/)
+  assert.doesNotMatch(dashboard, /\bSettings\b/)
+  assert.match(
+    dashboard,
+    /id="dashboard-lines-title"[\s\S]*t\('dashboard\.manageDevices'\)/
+  )
+})
+
+test('dashboard new-contact action opens the shared contacts editor flow', () => {
+  assert.match(
+    dashboard,
+    /router\.push\(\{ name: 'contacts', query: \{ create: '1' \} \}\)/
+  )
+  assert.doesNotMatch(dashboard, /import ContactEditor/)
+  assert.match(contacts, /\(\) => route\.query\.create/)
+  assert.match(contacts, /requested !== '1'[\s\S]*openNew\(\)/)
+  assert.equal((contacts.match(/<ContactEditor/g) || []).length, 1)
 })
 
 test('dashboard uses existing network data for a traffic summary and entry point', () => {

@@ -16,8 +16,8 @@ import {
   PhoneMissed,
   PhoneOutgoing,
   RadioTower,
-  Settings,
-  Star
+  Star,
+  UserPlus
 } from '@lucide/vue'
 import type { CallRecord, Contact, LineSummary, MessageThread } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
@@ -34,6 +34,7 @@ import {
   bootstrapResource,
   callsResource,
   capabilityReason,
+  contactEditingAvailable,
   contactForNumber,
   contactsResource,
   devicesResource,
@@ -368,6 +369,11 @@ function composeMessage(): void {
   void router.push({ name: 'messages', query: { compose: '' } })
 }
 
+function createContact(): void {
+  if (!contactEditingAvailable) return
+  void router.push({ name: 'contacts', query: { create: '1' } })
+}
+
 function retryActivities(): void {
   if (callsResource.status === 'error') void loadCalls(true)
   if (threadsResource.status === 'error') void loadThreads(true)
@@ -396,7 +402,7 @@ onMounted(loadDashboard)
           <span v-if="!activityLoading">{{ activities.length }}</span>
         </div>
         <button
-          class="icon-button dashboard-pane-action"
+          class="icon-button dashboard-activity-action"
           type="button"
           :disabled="Boolean(messageUnavailable)"
           :title="messageUnavailable || t('dashboard.newMessage')"
@@ -404,6 +410,16 @@ onMounted(loadDashboard)
           @click="composeMessage"
         >
           <MessageSquareText :size="19" />
+        </button>
+        <button
+          v-if="contactEditingAvailable"
+          class="icon-button dashboard-activity-action"
+          type="button"
+          :title="t('contacts.new')"
+          :aria-label="t('contacts.new')"
+          @click="createContact"
+        >
+          <UserPlus :size="19" />
         </button>
       </header>
 
@@ -499,59 +515,15 @@ onMounted(loadDashboard)
 
     <article class="detail-pane dashboard-detail-pane">
       <template v-if="overviewSelected">
-        <header class="detail-header dashboard-detail-header">
+        <div class="dashboard-detail-scroll">
           <button
-            class="icon-button mobile-back"
+            class="icon-button mobile-back dashboard-overview-back"
             type="button"
             :title="t('dashboard.backHome')"
             @click="backToList"
           >
             <ArrowLeft :size="20" />
           </button>
-          <span class="dashboard-detail-symbol"><RadioTower :size="21" /></span>
-          <div class="detail-header__identity">
-            <h2>{{ t('dashboard.workspace') }}</h2>
-            <span>
-              {{
-                t('dashboard.linesOnline', {
-                  online: onlineLines,
-                  total: lines.length
-                })
-              }}
-            </span>
-          </div>
-          <div class="detail-header__actions dashboard-header-actions">
-            <button
-              class="dashboard-command-button"
-              type="button"
-              :disabled="Boolean(messageUnavailable)"
-              :title="messageUnavailable || t('dashboard.newMessage')"
-              @click="composeMessage"
-            >
-              <MessageSquareText :size="17" />
-              <span>{{ t('dashboard.newMessage') }}</span>
-            </button>
-            <button
-              class="dashboard-command-button"
-              type="button"
-              :disabled="Boolean(dialUnavailable)"
-              :title="dialUnavailable || t('dashboard.dial')"
-              @click="openDialer()"
-            >
-              <Phone :size="17" />
-              <span>{{ t('dashboard.dial') }}</span>
-            </button>
-            <RouterLink
-              class="icon-button"
-              :to="{ name: 'settings', params: { section: 'devices' } }"
-              :title="t('dashboard.deviceSettings')"
-            >
-              <Settings :size="18" />
-            </RouterLink>
-          </div>
-        </header>
-
-        <div class="dashboard-detail-scroll">
           <section
             class="dashboard-summary-grid"
             :aria-label="t('dashboard.communicationSummary')"
@@ -990,12 +962,6 @@ onMounted(loadDashboard)
   background: var(--surface);
 }
 
-.dashboard-pane-action {
-  width: 38px;
-  height: 38px;
-  flex: 0 0 38px;
-}
-
 .dashboard-overview-row {
   min-height: 70px;
   padding-inline: 16px;
@@ -1044,44 +1010,27 @@ onMounted(loadDashboard)
   font-size: 12px;
 }
 
-.dashboard-detail-header {
-  min-height: 76px;
+.dashboard-activity-pane > .pane-header {
+  gap: 6px;
 }
 
-.dashboard-detail-symbol {
-  width: 42px;
-  height: 42px;
-  flex-basis: 42px;
-  border-radius: 7px;
+.dashboard-activity-pane > .pane-header > div {
+  margin-right: auto;
 }
 
-.dashboard-header-actions {
-  gap: 8px;
-}
-
-.dashboard-command-button {
-  display: inline-flex;
-  min-height: 40px;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 0 13px;
-  color: var(--accent-strong);
-  font-size: 13px;
-  font-weight: 650;
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-}
-
-.dashboard-command-button:hover:not(:disabled) {
-  background: var(--surface-hover);
-  border-color: var(--accent);
+.dashboard-activity-action {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
 }
 
 .dashboard-detail-scroll {
   padding: 20px 24px 28px;
   container-type: inline-size;
+}
+
+.dashboard-overview-back {
+  margin-bottom: 12px;
 }
 
 .dashboard-summary-grid {
@@ -1311,13 +1260,8 @@ onMounted(loadDashboard)
 }
 
 @media (max-width: 640px) {
-  .dashboard-header-actions .dashboard-command-button {
-    width: 40px;
-    padding: 0;
-  }
-
-  .dashboard-header-actions .dashboard-command-button span {
-    display: none;
+  .dashboard-activity-pane > .pane-header {
+    justify-content: flex-end;
   }
 
   .dashboard-summary-grid {
@@ -1363,10 +1307,6 @@ onMounted(loadDashboard)
 @media (max-width: 390px) {
   .dashboard-detail-scroll {
     padding-inline: 12px;
-  }
-
-  .dashboard-detail-symbol {
-    display: none;
   }
 }
 </style>
