@@ -18,16 +18,22 @@ const props = withDefaults(
     contacts: Contact[]
     placeholder?: string
     autofocus?: boolean
+    invalid?: boolean
+    describedBy?: string
   }>(),
   {
     placeholder: '',
-    autofocus: false
+    autofocus: false,
+    invalid: false,
+    describedBy: ''
   }
 )
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   select: [suggestion: Suggestion]
+  focus: [event: FocusEvent]
+  blur: [event: FocusEvent]
 }>()
 
 const input = ref<HTMLInputElement | null>(null)
@@ -96,7 +102,13 @@ function onKeydown(event: KeyboardEvent): void {
   }
 }
 
-function onBlur(): void {
+function onFocus(event: FocusEvent): void {
+  focused.value = true
+  emit('focus', event)
+}
+
+function onBlur(event: FocusEvent): void {
+  emit('blur', event)
   window.setTimeout(() => {
     focused.value = false
   }, 120)
@@ -119,9 +131,11 @@ function onBlur(): void {
         :aria-expanded="showSuggestions"
         :aria-controls="listboxId"
         :aria-activedescendant="activeDescendant"
+        :aria-invalid="invalid || undefined"
+        :aria-describedby="describedBy || undefined"
         :placeholder="resolvedPlaceholder"
         @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
-        @focus="focused = true"
+        @focus="onFocus"
         @blur="onBlur"
         @keydown="onKeydown"
       />

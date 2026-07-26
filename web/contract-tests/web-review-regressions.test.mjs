@@ -99,8 +99,9 @@ test('dialer separates the primary call action from backspace', async () => {
   assert.match(dialer, /\.dialer-primary-actions\s*\{[\s\S]*?border-top: 1px solid var\(--border\)/)
   assert.match(
     dialer,
-    /\.dialer-number-control > \.dialer-backspace-button\s*\{[\s\S]*?position: absolute[\s\S]*?right: 7px/
+    /\.dialer-number-trailing\s*\{[\s\S]*?position: absolute[\s\S]*?right: 7px/
   )
+  assert.match(dialer, /\.dialer-number-trailing \.dialer-backspace-button\s*\{/)
   assert.doesNotMatch(dialer, /class="dialer-actions"/)
   assert.match(styles, /grid-template-columns: repeat\(3, 62px\)/)
   assert.match(dialer, /<small v-if="key\.letters">\{\{ key\.letters \}\}<\/small>/)

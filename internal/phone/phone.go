@@ -3,9 +3,13 @@ package phone
 import (
 	"errors"
 	"strings"
+	"unicode"
 )
 
-const MaxNumberRunes = 64
+const (
+	MaxNumberRunes      = 64
+	MaxDialTargetDigits = 32
+)
 
 type ErrorCode string
 
@@ -73,4 +77,39 @@ func Normalize(value string) (original string, canonical string, err error) {
 		return "", "", &Error{Code: CodeInvalidCountryCode}
 	}
 	return value, "+" + canonicalDigits, nil
+}
+
+// NormalizeDialTarget accepts a dial string without attempting to determine
+// whether a national number exists. The selected mobile network remains the
+// authority for local and short numbers.
+func NormalizeDialTarget(value string) (original string, normalized string, err error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", "", &Error{Code: CodeRequired}
+	}
+	if len([]rune(value)) > MaxNumberRunes {
+		return "", "", &Error{Code: CodeTooLong}
+	}
+
+	var target strings.Builder
+	target.Grow(len(value))
+	digitCount := 0
+	for index, character := range value {
+		switch {
+		case character >= '0' && character <= '9':
+			target.WriteRune(character)
+			digitCount++
+		case character == '+' && index == 0:
+			target.WriteRune(character)
+		case unicode.IsControl(character):
+			return "", "", &Error{Code: CodeInvalidCharacter}
+		case unicode.IsSpace(character) || strings.ContainsRune("().-/", character):
+		default:
+			return "", "", &Error{Code: CodeInvalidCharacter}
+		}
+	}
+	if digitCount == 0 || digitCount > MaxDialTargetDigits {
+		return "", "", &Error{Code: CodeInvalidLength}
+	}
+	return value, target.String(), nil
 }

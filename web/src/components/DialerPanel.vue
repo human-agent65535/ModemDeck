@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   CassetteTape,
@@ -26,6 +26,7 @@ import {
   resolveLine
 } from '../state/workspace'
 import { playDTMFTone } from '../state/dtmfAudio'
+import { normalizeDialTarget } from '../utils/dialTarget'
 import { phoneKeypad } from '../utils/phoneKeypad'
 import ContactSuggestInput from './ContactSuggestInput.vue'
 import CallSurface from './CallSurface.vue'
@@ -47,7 +48,11 @@ const selectedLineId = ref('')
 const inputAutofocus = ref(false)
 const draftContextLineKey = ref('')
 const lineSelectionOverridden = ref(false)
+const numberFocused = ref(false)
+const numberTouched = ref(false)
+const validationAttempted = ref(false)
 const panelRef = ref<HTMLElement>()
+const validationMessageId = `dialer-validation-${useId()}`
 let resettingDraft = false
 let zeroHoldTimer: number | undefined
 let zeroPointerId: number | undefined
@@ -68,13 +73,25 @@ const activeCallUnavailable = computed(() => {
   const phase = callState.session?.phase
   return phase && phase !== 'ended' && phase !== 'failed' ? t('dialer.activeCall') : ''
 })
+const dialTarget = computed(() => normalizeDialTarget(number.value))
 const validationError = computed(() => {
-  if (!number.value.trim()) return ''
-  return /^\+?[\d*#][\d\s().*#-]{2,}$/.test(number.value.trim())
-    ? ''
-    : t('dialer.invalidNumber')
+  switch (dialTarget.value.error) {
+    case 'too_long':
+      return t('dialer.numberTooLong')
+    case 'invalid_character':
+      return t('dialer.useDialableCharacters')
+    case 'invalid_length':
+      return t('dialer.enterDialableNumber')
+    default:
+      return ''
+  }
 })
-const disabledReason = computed(
+const validationVisible = computed(
+  () =>
+    Boolean(validationError.value) &&
+    (validationAttempted.value || (numberTouched.value && !numberFocused.value))
+)
+const callUnavailableReason = computed(
   () =>
     dialUnavailable.value ||
     activeCallUnavailable.value ||
@@ -82,9 +99,19 @@ const disabledReason = computed(
     (!selectedLineId.value ? t('dialer.selectLine') : '') ||
     (lineSupports(selectedLine.value, 'dial') === false
       ? t('dialer.selectedLineUnsupported')
-      : '') ||
+      : '')
+)
+const disabledReason = computed(
+  () =>
+    callUnavailableReason.value ||
     validationError.value ||
     (!number.value.trim() ? t('dialer.enterNumber') : '')
+)
+const callButtonDisabled = computed(
+  () =>
+    callState.busy ||
+    Boolean(callUnavailableReason.value) ||
+    !number.value.trim()
 )
 function focusNumber(): void {
   inputAutofocus.value = false
@@ -111,6 +138,8 @@ function beginDraft(target = '', label = '', focus = false, contextLineKey = '')
   contactLabel.value = label
   draftContextLineKey.value = contextLineKey
   lineSelectionOverridden.value = false
+  numberTouched.value = false
+  validationAttempted.value = false
   syncResolvedLine(true)
   resettingDraft = false
   void resetDialerRecording()
@@ -168,6 +197,8 @@ watch(
 )
 
 watch(number, (value, previous) => {
+  numberTouched.value = false
+  validationAttempted.value = false
   if (resettingDraft || !previous.trim() || value.trim()) return
   contactLabel.value = ''
   void resetDialerRecording()
@@ -238,7 +269,18 @@ function chooseContact(suggestion: {
 }): void {
   number.value = suggestion.phone.number
   contactLabel.value = suggestion.contact.display_name
+  numberTouched.value = false
+  validationAttempted.value = false
   syncResolvedLine()
+}
+
+function focusNumberInput(): void {
+  numberFocused.value = true
+}
+
+function blurNumberInput(): void {
+  numberFocused.value = false
+  numberTouched.value = true
 }
 
 function changeLine(): void {
@@ -246,11 +288,19 @@ function changeLine(): void {
 }
 
 async function placeCall(): Promise<void> {
-  if (disabledReason.value) return
+  validationAttempted.value = true
+  if (
+    callState.busy ||
+    callUnavailableReason.value ||
+    !number.value.trim() ||
+    dialTarget.value.error
+  ) {
+    return
+  }
   const recordingReady = dialerRecordingState.status === 'ready'
   const recordingEnabled = dialerRecordingState.enabled
   const placed = await dial(
-    number.value.trim(),
+    dialTarget.value.normalized,
     selectedLineId.value,
     recordingReady ? recordingEnabled : undefined
   )
@@ -372,24 +422,45 @@ onBeforeUnmount(() => {
               </div>
 
               <div class="dialer-number-entry">
-                <div class="dialer-number-control">
+                <div
+                  class="dialer-number-control"
+                  :class="{
+                    'has-inline-validation': validationVisible,
+                    'is-invalid': validationVisible
+                  }"
+                >
                   <ContactSuggestInput
                     v-model="number"
                     :contacts="contactsResource.data"
                     :autofocus="inputAutofocus"
+                    :invalid="validationVisible"
+                    :described-by="validationVisible ? validationMessageId : ''"
                     @select="chooseContact"
+                    @focus="focusNumberInput"
+                    @blur="blurNumberInput"
                   />
-                  <button
-                    v-if="number"
-                    class="icon-button dialer-backspace-button"
-                    type="button"
-                    :title="t('dialer.backspace')"
-                    :aria-label="t('dialer.backspace')"
-                    @mousedown.prevent
-                    @click="removeDigit"
-                  >
-                    <Delete :size="18" />
-                  </button>
+                  <span v-if="number" class="dialer-number-trailing">
+                    <span
+                      v-if="validationVisible"
+                      :id="validationMessageId"
+                      class="dialer-inline-validation"
+                      role="status"
+                      :title="validationError"
+                    >
+                      <span aria-hidden="true">{{ t('dialer.invalidShort') }}</span>
+                      <span class="sr-only">{{ validationError }}</span>
+                    </span>
+                    <button
+                      class="icon-button dialer-backspace-button"
+                      type="button"
+                      :title="t('dialer.backspace')"
+                      :aria-label="t('dialer.backspace')"
+                      @mousedown.prevent
+                      @click="removeDigit"
+                    >
+                      <Delete :size="18" />
+                    </button>
+                  </span>
                 </div>
                 <span v-if="contactLabel" class="dialer-contact-name">{{ contactLabel }}</span>
               </div>
@@ -401,7 +472,6 @@ onBeforeUnmount(() => {
               <p v-if="dialUnavailable || lines.length === 0" class="unavailable-note">
                 {{ dialUnavailable || t('dialer.noLines') }}
               </p>
-              <p v-else-if="validationError" class="field-error">{{ validationError }}</p>
               <p v-if="callState.error" class="field-error">{{ callState.error }}</p>
 
               <div class="dialer-keypad-stage">
@@ -453,7 +523,7 @@ onBeforeUnmount(() => {
                 <button
                   class="call-button"
                   type="button"
-                  :disabled="Boolean(disabledReason) || callState.busy"
+                  :disabled="callButtonDisabled"
                   :title="disabledReason || t('calls.dial')"
                   :aria-label="t('calls.dial')"
                   @click="placeCall"
@@ -568,22 +638,48 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
+.dialer-number-control.has-inline-validation :deep(.suggest-input__field input) {
+  padding-right: 92px;
+}
+
+.dialer-number-control.is-invalid :deep(.suggest-input__field),
+.dialer-number-control.is-invalid :deep(.suggest-input__field:focus-within) {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px rgb(196 53 74 / 11%);
+}
+
 .dialer-number-entry :deep(.suggest-menu) {
   max-height: min(220px, 28dvh);
 }
 
-.dialer-number-control > .dialer-backspace-button {
+.dialer-number-trailing {
   position: absolute;
   z-index: 2;
   top: 50%;
   right: 7px;
-  width: 38px;
-  height: 38px;
-  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   transform: translateY(-50%);
 }
 
-.dialer-number-control > .dialer-backspace-button:hover {
+.dialer-inline-validation {
+  max-width: 52px;
+  overflow: hidden;
+  color: var(--danger);
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dialer-number-trailing .dialer-backspace-button {
+  width: 38px;
+  height: 38px;
+  color: var(--muted);
+}
+
+.dialer-number-trailing .dialer-backspace-button:hover {
   color: var(--text);
 }
 

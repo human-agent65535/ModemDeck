@@ -51,7 +51,8 @@ test('pre-call delete stays in the number field and the call action owns a foote
   )
   assert.match(dialer, /class="dialer-primary-actions"[\s\S]*class="call-button"/)
   assert.match(dialer, /\.dialer-primary-actions \{[\s\S]*border-top: 1px solid var\(--border\)/)
-  assert.match(dialer, /\.dialer-number-control > \.dialer-backspace-button \{[\s\S]*position: absolute/)
+  assert.match(dialer, /\.dialer-number-trailing \{[\s\S]*position: absolute/)
+  assert.match(dialer, /\.dialer-number-trailing \.dialer-backspace-button \{/)
   assert.doesNotMatch(dialer, /class="dialer-actions"/)
 })
 

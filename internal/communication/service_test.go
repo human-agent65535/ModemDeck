@@ -420,7 +420,7 @@ func TestServiceRequiresExplicitCapableLine(t *testing.T) {
 	call, err := service.StartCall(context.Background(), StartCallInput{
 		RequestID: "request-call-1",
 		LineID:    "line-1",
-		Number:    "+81 (80) 1234-5678",
+		Number:    "090-1234-5678",
 	})
 	if err != nil {
 		t.Fatalf("StartCall() error = %v", err)
@@ -429,11 +429,11 @@ func TestServiceRequiresExplicitCapableLine(t *testing.T) {
 		t.Fatalf("agent start request count = %d, want 1", len(agent.startRequests))
 	}
 	request := agent.startRequests[0]
-	if request.LineID != "line-1" || request.Number != "+818012345678" ||
+	if request.LineID != "line-1" || request.Number != "09012345678" ||
 		request.RequestID != "request-call-1" {
 		t.Fatalf("agent start request = %+v", request)
 	}
-	if call.DeviceID != "line-1" || call.RemoteNumber != "+818012345678" ||
+	if call.DeviceID != "line-1" || call.RemoteNumber != "09012345678" ||
 		call.LocalPhone != "+819012345678" ||
 		call.LineIMSI != "440500000000001" ||
 		call.LineICCID != "8901000000000000001" ||
@@ -443,7 +443,7 @@ func TestServiceRequiresExplicitCapableLine(t *testing.T) {
 	replayed, err := service.StartCall(context.Background(), StartCallInput{
 		RequestID: "request-call-1",
 		LineID:    "line-1",
-		Number:    "+818012345678",
+		Number:    "09012345678",
 	})
 	if err != nil {
 		t.Fatalf("replayed StartCall() error = %v", err)

@@ -62,6 +62,7 @@ import type {
   USSDStatus
 } from './types'
 import { ApiError } from './types'
+import { normalizeDialTarget } from '../utils/dialTarget'
 import { isIPAddress, isLoopbackAddress } from '../utils/ipAddress'
 import { normalizedPhoneIdentity } from '../utils/lineIdentity'
 import { proxyCredentialError } from '../utils/proxyCredentials'
@@ -1231,14 +1232,24 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       number: string,
       recordingEnabled?: boolean
     ): Promise<CallSession> {
+      const dialTarget = normalizeDialTarget(number)
+      if (dialTarget.error) {
+        throw new ApiError('Dial target is invalid', 400, 'invalid_argument', 'number')
+      }
       sequence += 1
       callPolls = 0
-      const contact = contacts.find(item => item.phones.some(phone => phone.number === number))
+      const contact = contacts.find(item =>
+        item.phones.some(
+          phone =>
+            normalizedPhoneIdentity(phone.number) ===
+            normalizedPhoneIdentity(dialTarget.normalized)
+        )
+      )
       activeCall = {
         id: `call-fixture-${sequence}`,
         line_key: lineKey,
         direction: 'outgoing',
-        remote_number: number,
+        remote_number: dialTarget.normalized,
         display_name: contact?.display_name,
         phase: 'dialing',
         media_available: false,

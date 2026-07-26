@@ -808,9 +808,9 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 	if err != nil {
 		return store.Call{}, fmt.Errorf("%s: %w", operation, err)
 	}
-	_, number, err := phone.Normalize(input.Number)
+	_, number, err := phone.NormalizeDialTarget(input.Number)
 	if err != nil {
-		return store.Call{}, operationError(CodeInvalidArgument, operation, "destination must be an international phone number", err)
+		return store.Call{}, operationError(CodeInvalidArgument, operation, "destination is not dialable", err)
 	}
 	requestID, err := s.requestID(input.RequestID)
 	if err != nil {
