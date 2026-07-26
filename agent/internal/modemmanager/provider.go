@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -200,6 +201,10 @@ func (p *Provider) Snapshot(ctx context.Context) (domain.Snapshot, error) {
 			return domain.Snapshot{}, err
 		}
 	}
+	objects, err = p.hydrateCalls(ctx, operation, objects)
+	if err != nil {
+		return domain.Snapshot{}, err
+	}
 	objects, err = p.hydrateMessages(ctx, operation, objects)
 	if err != nil {
 		return domain.Snapshot{}, err
@@ -261,6 +266,12 @@ func (p *Provider) StartCall(ctx context.Context, request domain.StartCallReques
 	properties := map[string]dbus.Variant{
 		"number": dbus.MakeVariant(request.Number),
 	}
+	slog.Info(
+		"outgoing call create requested",
+		"component", "modemmanager",
+		"request_id", request.RequestID,
+		"line_id", line.ID,
+	)
 	body, err := p.call(
 		ctx,
 		linePath,
@@ -270,6 +281,13 @@ func (p *Provider) StartCall(ctx context.Context, request domain.StartCallReques
 		properties,
 	)
 	if err != nil {
+		slog.Warn(
+			"outgoing call create failed",
+			"component", "modemmanager",
+			"request_id", request.RequestID,
+			"line_id", line.ID,
+			"error", err,
+		)
 		return domain.CommandReceipt{}, err
 	}
 	callPath, err := objectPathResult(operation, "ModemManager returned an invalid call path", body)
@@ -279,6 +297,13 @@ func (p *Provider) StartCall(ctx context.Context, request domain.StartCallReques
 	if !strings.HasPrefix(string(callPath), "/org/freedesktop/ModemManager1/Call/") {
 		return domain.CommandReceipt{}, domain.Internal(operation, "ModemManager returned an unexpected call path", nil)
 	}
+	slog.Info(
+		"outgoing call object created",
+		"component", "modemmanager",
+		"request_id", request.RequestID,
+		"line_id", line.ID,
+		"call_path", callPath,
+	)
 	if _, err := p.call(
 		ctx,
 		callPath,
@@ -286,8 +311,23 @@ func (p *Provider) StartCall(ctx context.Context, request domain.StartCallReques
 		operation,
 		"ModemManager failed to start the outgoing call",
 	); err != nil {
+		slog.Warn(
+			"outgoing call start failed",
+			"component", "modemmanager",
+			"request_id", request.RequestID,
+			"line_id", line.ID,
+			"call_path", callPath,
+			"error", err,
+		)
 		return domain.CommandReceipt{}, err
 	}
+	slog.Info(
+		"outgoing call start accepted",
+		"component", "modemmanager",
+		"request_id", request.RequestID,
+		"line_id", line.ID,
+		"call_path", callPath,
+	)
 	return domain.CommandReceipt{RequestID: request.RequestID, ResourceID: parsed.ids.callID(callPath)}, nil
 }
 
@@ -659,6 +699,10 @@ func (p *Provider) snapshotContent(
 		return ParsedObjects{}, err
 	}
 	objects, err := p.managedObjects(ctx, operation)
+	if err != nil {
+		return ParsedObjects{}, err
+	}
+	objects, err = p.hydrateCalls(ctx, operation, objects)
 	if err != nil {
 		return ParsedObjects{}, err
 	}

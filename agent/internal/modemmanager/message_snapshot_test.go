@@ -60,7 +60,7 @@ func (c *smsCacheCaller) Call(
 	case busInterface + ".GetNameOwner":
 		return []any{c.owner}, nil
 	case objectManagerInterface + ".GetManagedObjects":
-		return []any{cloneSMSCacheManagedObjects(c.objects)}, nil
+		return []any{cloneTestManagedObjects(c.objects)}, nil
 	case messagingInterface + ".List":
 		c.messageLists++
 		return []any{append([]dbus.ObjectPath(nil), c.listedPaths...)}, nil
@@ -508,7 +508,7 @@ func smsCacheTestProperties(state uint32, text string) Properties {
 	}
 }
 
-func cloneSMSCacheManagedObjects(objects ManagedObjects) ManagedObjects {
+func cloneTestManagedObjects(objects ManagedObjects) ManagedObjects {
 	cloned := make(ManagedObjects, len(objects))
 	for path, interfaces := range objects {
 		interfaceClone := make(Interfaces, len(interfaces))

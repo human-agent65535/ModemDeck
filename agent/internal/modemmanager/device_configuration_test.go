@@ -43,6 +43,9 @@ type configurationCaller struct {
 	activationDisappears bool
 	verificationMismatch bool
 	externalBearers      map[dbus.ObjectPath]Properties
+	externalCalls        map[dbus.ObjectPath]Properties
+	objectSnapshots      []ManagedObjects
+	objectSnapshotIndex  int
 }
 
 func (caller *configurationCaller) Call(
@@ -68,7 +71,12 @@ func (caller *configurationCaller) Call(
 	})
 	switch method {
 	case objectManagerInterface + ".GetManagedObjects":
-		return []any{caller.objects}, nil
+		objects := caller.objects
+		if caller.objectSnapshotIndex < len(caller.objectSnapshots) {
+			objects = caller.objectSnapshots[caller.objectSnapshotIndex]
+			caller.objectSnapshotIndex++
+		}
+		return []any{cloneTestManagedObjects(objects)}, nil
 	case modemInterface + ".Enable":
 		enabled, ok := args[0].(bool)
 		if !ok {
@@ -88,6 +96,13 @@ func (caller *configurationCaller) Call(
 		return []any{[]dbus.ObjectPath{testNetworkManagerDevicePath}}, nil
 	case propertiesInterface + ".GetAll":
 		if destination == serviceName {
+			if len(args) == 1 && args[0] == callInterface {
+				properties, found := caller.externalCalls[path]
+				if !found {
+					return nil, dbus.NewError(dbusErrorPrefix+"UnknownObject", nil)
+				}
+				return []any{properties}, nil
+			}
 			properties, found := caller.externalBearers[path]
 			if !found {
 				return nil, dbus.NewError(dbusErrorPrefix+"UnknownObject", nil)
@@ -512,6 +527,7 @@ func TestApplyDeviceConfigurationWritesOnceAndVerifiesReadBack(t *testing.T) {
 		t,
 		caller.methods(),
 		objectManagerInterface+".GetManagedObjects",
+		objectManagerInterface+".GetManagedObjects",
 		modemInterface+".Enable",
 		objectManagerInterface+".GetManagedObjects",
 	)
@@ -543,6 +559,53 @@ func TestApplyDeviceConfigurationRejectsStaleRevisionBeforeWrite(t *testing.T) {
 		t,
 		caller.methods(),
 		objectManagerInterface+".GetManagedObjects",
+	)
+}
+
+func TestApplyDeviceConfigurationRejectsRadioDisableForHydratedCall(t *testing.T) {
+	t.Parallel()
+	objects := configurationObjects()
+	callPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/Call/42")
+	callObjects := cloneTestManagedObjects(objects)
+	callObjects[testModemPath][voiceInterface]["Calls"] =
+		dbus.MakeVariant([]dbus.ObjectPath{callPath})
+	caller := &configurationCaller{
+		objects: objects,
+		objectSnapshots: []ManagedObjects{
+			objects,
+			objects,
+			callObjects,
+		},
+		externalCalls: map[dbus.ObjectPath]Properties{
+			callPath: testCallProperties(4, 1),
+		},
+	}
+	provider := newTestProvider(caller)
+	lineID := parsedLineID(objects, provider.ids)
+	current, err := provider.ReadDeviceConfiguration(context.Background(), lineID)
+	if err != nil {
+		t.Fatalf("ReadDeviceConfiguration() error = %v", err)
+	}
+	caller.calls = nil
+	disabled := false
+
+	_, err = provider.ApplyGenericDeviceConfiguration(
+		context.Background(),
+		domain.ApplyDeviceConfigurationRequest{
+			RequestID:        "disable-radio-during-call",
+			LineID:           lineID,
+			ExpectedRevision: current.Revision,
+			Operation:        domain.DeviceConfigurationSetRadioEnabled,
+			RadioEnabled:     &disabled,
+		},
+	)
+	assertOperationError(t, err, domain.ErrorConflict, "apply_device_configuration")
+	assertConfigurationMethods(
+		t,
+		caller.methods(),
+		objectManagerInterface+".GetManagedObjects",
+		objectManagerInterface+".GetManagedObjects",
+		propertiesInterface+".GetAll",
 	)
 }
 

@@ -34,7 +34,9 @@ type fakeCaller struct {
 	connectionProfiles []map[string]dbus.Variant
 	ussdResponse       string
 	externalSIMs       map[dbus.ObjectPath]Properties
+	externalCalls      map[dbus.ObjectPath]Properties
 	externalMessages   map[dbus.ObjectPath]Properties
+	callLists          map[dbus.ObjectPath][]dbus.ObjectPath
 	messageLists       map[dbus.ObjectPath][]dbus.ObjectPath
 	signalAfterSetup   map[dbus.ObjectPath]Properties
 	errors             map[string]error
@@ -71,7 +73,7 @@ func (f *fakeCaller) Call(
 		}
 		return []any{f.ownerName}, nil
 	case objectManagerInterface + ".GetManagedObjects":
-		return []any{f.objects}, nil
+		return []any{cloneTestManagedObjects(f.objects)}, nil
 	case propertiesInterface + ".Get":
 		return []any{dbus.MakeVariant(f.runtimeVersion)}, nil
 	case propertiesInterface + ".GetAll":
@@ -81,6 +83,12 @@ func (f *fakeCaller) Call(
 		switch args[0] {
 		case simInterface:
 			return []any{f.externalSIMs[path]}, nil
+		case callInterface:
+			properties, found := f.externalCalls[path]
+			if !found {
+				return nil, dbus.NewError(dbusErrorPrefix+"UnknownObject", nil)
+			}
+			return []any{properties}, nil
 		case smsInterface:
 			return []any{f.externalMessages[path]}, nil
 		default:
@@ -90,6 +98,12 @@ func (f *fakeCaller) Call(
 		return []any{f.callIntrospection}, nil
 	case voiceInterface + ".CreateCall":
 		return []any{f.createdCallPath}, nil
+	case voiceInterface + ".ListCalls":
+		if paths, found := f.callLists[path]; found {
+			return []any{append([]dbus.ObjectPath(nil), paths...)}, nil
+		}
+		paths, _ := objectPathValuesProperty(f.objects[path][voiceInterface], "Calls")
+		return []any{paths}, nil
 	case messagingInterface + ".List":
 		if paths, found := f.messageLists[path]; found {
 			return []any{append([]dbus.ObjectPath(nil), paths...)}, nil
@@ -1216,7 +1230,9 @@ func newFakeCaller(objects ManagedObjects) *fakeCaller {
 			</interface>
 		</node>`,
 		externalSIMs:     make(map[dbus.ObjectPath]Properties),
+		externalCalls:    make(map[dbus.ObjectPath]Properties),
 		externalMessages: make(map[dbus.ObjectPath]Properties),
+		callLists:        make(map[dbus.ObjectPath][]dbus.ObjectPath),
 		messageLists:     make(map[dbus.ObjectPath][]dbus.ObjectPath),
 		signalAfterSetup: make(map[dbus.ObjectPath]Properties),
 		errors:           make(map[string]error),

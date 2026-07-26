@@ -100,6 +100,17 @@ func (p *Provider) ApplyGenericDeviceConfiguration(
 			return current, nil
 		}
 		if !*request.RadioEnabled {
+			p.callMu.Lock()
+			defer p.callMu.Unlock()
+
+			objects, err = p.managedObjects(bounded, operation)
+			if err != nil {
+				return domain.DeviceConfiguration{}, err
+			}
+			objects, err = p.hydrateCalls(bounded, operation, objects)
+			if err != nil {
+				return domain.DeviceConfiguration{}, err
+			}
 			parsed := ParseManagedObjects(objects, p.ids)
 			if lineHasCall(parsed.Calls, request.LineID, "") {
 				return domain.DeviceConfiguration{}, domain.Conflict(
