@@ -1,4 +1,5 @@
 import { reactive, readonly } from 'vue'
+import { translate } from '../i18n'
 
 const notificationPreferenceKey = 'modemdeck.browserNotifications'
 
@@ -75,15 +76,15 @@ export async function toggleBrowserNotifications(): Promise<void> {
     return
   }
   if (!state.secureContext) {
-    state.error = '浏览器通知需要 HTTPS'
+    state.error = translate('shell.notificationsRequireHTTPS')
     return
   }
   if (!state.supported) {
-    state.error = '当前浏览器不支持通知'
+    state.error = translate('shell.notificationsUnsupported')
     return
   }
   if (state.permission === 'denied') {
-    state.error = '通知已被浏览器阻止，请在浏览器设置中允许'
+    state.error = translate('shell.notificationsDenied')
     return
   }
 
@@ -99,10 +100,11 @@ export async function toggleBrowserNotifications(): Promise<void> {
       writeNotificationPreference(true)
     } else {
       writeNotificationPreference(false)
-      state.error = '未获得浏览器通知权限'
+      state.error = translate('runtime.notificationPermissionMissing')
     }
   } catch (error) {
-    state.error = error instanceof Error ? error.message : '无法请求浏览器通知权限'
+    state.error =
+      error instanceof Error ? error.message : translate('runtime.notificationPermissionFailed')
   } finally {
     state.requesting = false
     syncBrowserNotificationState()

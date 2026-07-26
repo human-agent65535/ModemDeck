@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Cable, CircleAlert, CircleCheck, Clock3 } from '@lucide/vue'
 import type { LineSummary, NetworkLineStatus, NetworkUsage } from '../api/types'
 import LineTag from './LineTag.vue'
 import TrafficUsage from './TrafficUsage.vue'
 import { trafficLineState } from './trafficLineState'
 
+const { t } = useI18n()
 const props = defineProps<{
   line: LineSummary
   fallback: string
@@ -41,23 +43,23 @@ function secondaryIdentity(): string {
         <CircleCheck v-if="connection.kind === 'connected'" :size="15" />
         <CircleAlert v-else-if="connection.kind === 'error'" :size="15" />
         <Clock3 v-else :size="15" />
-        {{ connection.label }}
+        {{ t(connection.labelKey) }}
       </span>
     </header>
 
     <dl>
       <div>
-        <dt><Cable :size="14" /> 接口</dt>
+        <dt><Cable :size="14" /> {{ t('traffic.interface') }}</dt>
         <dd>{{ runtime?.interface || '—' }}</dd>
       </div>
       <div>
-        <dt>今日</dt>
+        <dt>{{ t('traffic.today') }}</dt>
         <dd>
           <TrafficUsage :rx="today?.rx_bytes || 0" :tx="today?.tx_bytes || 0" />
         </dd>
       </div>
       <div>
-        <dt>本月</dt>
+        <dt>{{ t('traffic.month') }}</dt>
         <dd>
           <TrafficUsage :rx="month?.rx_bytes || 0" :tx="month?.tx_bytes || 0" />
         </dd>

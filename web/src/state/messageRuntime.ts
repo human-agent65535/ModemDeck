@@ -2,6 +2,7 @@ import { reactive, readonly } from 'vue'
 import type { Router } from 'vue-router'
 import { fixtureMode, gateway } from '../api/client'
 import type { IncomingMessageEvent } from '../api/types'
+import { translate } from '../i18n'
 import {
   contactForNumber,
   lineForKey,
@@ -113,7 +114,7 @@ function showIncomingMessageNotification(event: IncomingMessageEvent, router: Ro
   const title = line ? `${sender} · ${lineLabel(line)}` : sender
   showBrowserNotification({
     title,
-    body: event.content || '收到新短信',
+    body: event.content || translate('runtime.newMessage'),
     tag: `modemdeck-sms-${event.message_id}`,
     onClick: () => {
       window.focus()

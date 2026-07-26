@@ -9,6 +9,7 @@ import type {
   ResourceStatus
 } from '../api/types'
 import { ApiError } from '../api/types'
+import { translate } from '../i18n'
 
 type DialerRecordingStatus = 'idle' | 'loading' | 'ready' | 'error'
 type ActiveRecordingStatus = 'idle' | 'initializing' | 'ready' | 'error'
@@ -89,7 +90,9 @@ let recordingListGeneration = 0
 let recordingCatalogGeneration = 0
 
 function failureMessage(error: unknown, fallback: string): string {
-  if (error instanceof ApiError && error.status === 403) return '无权管理通话录音'
+  if (error instanceof ApiError && error.status === 403) {
+    return translate('runtime.recordingForbidden')
+  }
   return error instanceof Error ? error.message : fallback
 }
 
@@ -107,7 +110,7 @@ function acceptRecordingSettings(settings: RecordingSettings): void {
 
 function acceptCallRecording(callID: string, state: CallRecordingState): void {
   if (state.call_id !== callID) {
-    throw new Error('录音接口返回了其他通话的状态')
+    throw new Error(translate('runtime.recordingCallMismatch'))
   }
   callRecordingState.callID = callID
   callRecordingState.status = state.error ? 'error' : 'ready'
@@ -135,7 +138,10 @@ export async function loadRecordingSettings(force = false): Promise<RecordingSet
     .catch(error => {
       recordingSettingsState.status =
         error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
-      recordingSettingsState.error = failureMessage(error, '无法载入录音设置')
+      recordingSettingsState.error = failureMessage(
+        error,
+        translate('runtime.recordingSettingsLoadFailed')
+      )
       return null
     })
     .finally(() => {
@@ -162,7 +168,10 @@ export async function updateDefaultRecording(enabled: boolean): Promise<boolean>
     recordingSettingsState.status = 'ready'
     return true
   } catch (error) {
-    recordingSettingsState.error = failureMessage(error, '无法保存录音设置')
+    recordingSettingsState.error = failureMessage(
+      error,
+      translate('runtime.recordingSettingsSaveFailed')
+    )
     return false
   } finally {
     recordingSettingsState.saving = false
@@ -181,7 +190,7 @@ export async function resetDialerRecording(): Promise<void> {
     dialerRecordingState.status = 'error'
     dialerRecordingState.enabled = false
     dialerRecordingState.error =
-      recordingSettingsState.error || '无法载入录音设置'
+      recordingSettingsState.error || translate('runtime.recordingSettingsLoadFailed')
     return
   }
   dialerRecordingState.enabled = settings.default_enabled
@@ -246,7 +255,7 @@ export function syncCallRecording(session: CallSession | null): void {
         if (token !== callSyncGeneration || callRecordingState.callID !== session.id) return
         callRecordingState.status = 'error'
         callRecordingState.error =
-          recordingSettingsState.error || '无法读取默认录音设置'
+          recordingSettingsState.error || translate('runtime.defaultRecordingReadFailed')
         return
       }
       enabled = settings.default_enabled
@@ -259,7 +268,10 @@ export function syncCallRecording(session: CallSession | null): void {
     } catch (error) {
       if (token !== callSyncGeneration || callRecordingState.callID !== session.id) return
       callRecordingState.status = 'error'
-      callRecordingState.error = failureMessage(error, '无法应用通话录音设置')
+      callRecordingState.error = failureMessage(
+        error,
+        translate('runtime.recordingApplyFailed')
+      )
     }
   })()
 }
@@ -278,7 +290,10 @@ export async function setActiveCallRecording(enabled: boolean): Promise<void> {
   } catch (error) {
     if (token !== callSyncGeneration || callRecordingState.callID !== callID) return
     callRecordingState.status = 'error'
-    callRecordingState.error = failureMessage(error, '无法切换通话录音')
+    callRecordingState.error = failureMessage(
+      error,
+      translate('runtime.recordingToggleFailed')
+    )
   } finally {
     if (token === callSyncGeneration && callRecordingState.callID === callID) {
       callRecordingState.busy = false
@@ -320,7 +335,10 @@ export async function loadCallRecordings(callID: string, force = false): Promise
     if (token !== recordingListGeneration) return
     recordingListState.status =
       error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
-    recordingListState.error = failureMessage(error, '无法载入通话录音')
+    recordingListState.error = failureMessage(
+      error,
+      translate('runtime.callRecordingsLoadFailed')
+    )
   }
 }
 
@@ -356,8 +374,8 @@ export async function loadRecordingEntries(
       error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
     recordingCatalogState.error =
       error instanceof ApiError && error.status === 403
-        ? '无权查看通话录音'
-        : failureMessage(error, '无法载入通话录音')
+        ? translate('runtime.callRecordingsForbidden')
+        : failureMessage(error, translate('runtime.callRecordingsLoadFailed'))
     return null
   }
 }

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Download, LoaderCircle, RefreshCw } from '@lucide/vue'
 import { loadCallRecordings, recordingListState } from '../state/recording'
 import { formatDateTime, formatDuration } from '../utils/format'
 
+const { t } = useI18n()
 const props = defineProps<{
   callId: string
 }>()
@@ -50,13 +52,13 @@ watch(
 <template>
   <section class="recording-list" aria-labelledby="call-recordings-title">
     <header>
-      <h3 id="call-recordings-title">录音</h3>
+      <h3 id="call-recordings-title">{{ t('recordings.title') }}</h3>
       <span v-if="current.status === 'ready'">{{ current.data.length }}</span>
     </header>
 
     <div v-if="current.status === 'loading' || current.status === 'idle'" class="recording-list__state">
       <LoaderCircle class="spin" :size="17" />
-      正在载入录音
+      {{ t('recordings.loading') }}
     </div>
     <div
       v-else-if="current.status === 'error' || current.status === 'forbidden'"
@@ -67,18 +69,20 @@ watch(
       <button
         v-if="current.status === 'error'"
         type="button"
-        title="重试"
-        aria-label="重新载入录音"
+        :title="t('common.retry')"
+        :aria-label="t('recordings.reload')"
         @click="loadCallRecordings(callId, true)"
       >
         <RefreshCw :size="16" />
       </button>
     </div>
-    <p v-else-if="current.data.length === 0" class="recording-list__empty">没有录音</p>
+    <p v-else-if="current.data.length === 0" class="recording-list__empty">
+      {{ t('recordings.emptyForCall') }}
+    </p>
     <ol v-else>
       <li v-for="(recording, index) in current.data" :key="recording.id">
         <div class="recording-list__meta">
-          <strong>片段 {{ index + 1 }}</strong>
+          <strong>{{ t('recordings.segment', { number: index + 1 }) }}</strong>
           <span>
             {{ formatDateTime(recording.started_at) }} ·
             {{ formatDuration(recording.duration_seconds) }} ·
@@ -86,13 +90,13 @@ watch(
           </span>
         </div>
         <audio :src="recording.download_url" controls preload="metadata">
-          浏览器不支持音频播放。
+          {{ t('recordings.audioUnsupported') }}
         </audio>
         <a
           :href="recording.download_url"
           :download="downloadName(recording.id, recording.content_type)"
-          title="下载录音"
-          aria-label="下载录音"
+          :title="t('recordings.download')"
+          :aria-label="t('recordings.download')"
         >
           <Download :size="18" />
         </a>

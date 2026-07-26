@@ -8,6 +8,7 @@ import {
   useId,
   watch
 } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ChevronDown, RadioTower, Star } from '@lucide/vue'
 import type { CommunicationCapabilityName, LineSummary } from '../api/types'
 import { lineKey, lineLabel, lineSupports } from '../state/workspace'
@@ -19,6 +20,7 @@ type SelectorOption = {
   defaultLine: boolean
 }
 
+const { t } = useI18n()
 const props = withDefaults(
   defineProps<{
     modelValue: string
@@ -37,15 +39,15 @@ const props = withDefaults(
     disabled?: boolean
   }>(),
   {
-    label: '线路',
-    placeholder: '选择线路',
+    label: '',
+    placeholder: '',
     defaultDeviceImei: '',
     capability: undefined,
-    unavailableLabel: '不可用',
+    unavailableLabel: '',
     includeAll: false,
     allValue: 'all',
-    allLabel: '全部线路',
-    allDescription: '显示所有线路',
+    allLabel: '',
+    allDescription: '',
     valueField: 'line_key',
     placement: 'down',
     disabled: false
@@ -64,6 +66,15 @@ const activeIndex = ref(0)
 const componentID = useId()
 const labelID = `${componentID}-label`
 const listboxID = `${componentID}-listbox`
+const resolvedLabel = computed(() => props.label || t('lines.line'))
+const resolvedPlaceholder = computed(() => props.placeholder || t('lines.selectLine'))
+const resolvedUnavailableLabel = computed(
+  () => props.unavailableLabel || t('lines.unavailable')
+)
+const resolvedAllLabel = computed(() => props.allLabel || t('lines.allLines'))
+const resolvedAllDescription = computed(
+  () => props.allDescription || t('lines.showAllLines')
+)
 
 function lineValue(line: LineSummary): string {
   return props.valueField === 'device_imei' ? line.device_imei : lineKey(line)
@@ -88,9 +99,9 @@ function lineDetails(line: LineSummary): string {
     props.capability &&
     lineSupports(line, props.capability) === false
   ) {
-    details.push(props.unavailableLabel)
+    details.push(resolvedUnavailableLabel.value)
   }
-  return details.join(' · ') || '蜂窝线路'
+  return details.join(' · ') || t('lines.cellularLine')
 }
 
 const options = computed<SelectorOption[]>(() => {
@@ -98,8 +109,8 @@ const options = computed<SelectorOption[]>(() => {
     ? [
         {
           value: props.allValue,
-          name: props.allLabel,
-          details: props.allDescription,
+          name: resolvedAllLabel.value,
+          details: resolvedAllDescription.value,
           defaultLine: false
         }
       ]
@@ -122,10 +133,10 @@ const selectedOption = computed(() =>
   options.value.find(option => option.value === props.modelValue)
 )
 const displayName = computed(
-  () => selectedOption.value?.name || props.placeholder
+  () => selectedOption.value?.name || resolvedPlaceholder.value
 )
 const displayDetails = computed(
-  () => selectedOption.value?.details || '请选择要使用的线路'
+  () => selectedOption.value?.details || t('lines.chooseLine')
 )
 
 function selectedIndex(): number {
@@ -272,13 +283,13 @@ onBeforeUnmount(() => {
     class="line-selector"
     :class="{ 'is-disabled': disabled, 'is-open': open }"
   >
-    <span :id="labelID" class="line-selector__label">{{ label }}</span>
+    <span :id="labelID" class="line-selector__label">{{ resolvedLabel }}</span>
     <button
       ref="trigger"
       class="line-selector__control"
       type="button"
       :disabled="disabled"
-      :aria-label="`${label}：${displayName}`"
+      :aria-label="`${resolvedLabel}: ${displayName}`"
       aria-haspopup="listbox"
       :aria-expanded="open"
       :aria-controls="listboxID"
@@ -294,7 +305,7 @@ onBeforeUnmount(() => {
       </span>
       <span v-if="selectedIsDefault" class="line-selector__default">
         <Star :size="12" fill="currentColor" aria-hidden="true" />
-        默认
+        {{ t('lines.default') }}
       </span>
       <ChevronDown
         class="line-selector__chevron"
@@ -337,7 +348,7 @@ onBeforeUnmount(() => {
         </span>
         <span v-if="option.defaultLine" class="line-selector__option-default">
           <Star :size="12" fill="currentColor" />
-          默认
+          {{ t('lines.default') }}
         </span>
       </button>
     </div>

@@ -54,8 +54,15 @@ test('dashboard and device settings use the same stable module-card tracks', () 
 })
 
 test('module cards expose one fixed information skeleton in both views', () => {
-  const labels = ['信号', '型号', '固件', 'IMEI', 'ICCID', '端口']
-  const positions = labels.map(label => moduleCard.indexOf(`${label}</dt>`))
+  const labels = [
+    "t('lines.signal')",
+    "t('lines.model')",
+    "t('lines.firmware')",
+    'IMEI',
+    'ICCID',
+    "t('lines.port')"
+  ]
+  const positions = labels.map(label => moduleCard.indexOf(label))
 
   assert.ok(positions.every(position => position >= 0))
   assert.deepEqual(positions, positions.slice().sort((left, right) => left - right))
@@ -99,9 +106,9 @@ test('voice capability describes call control without implying an audio path', (
 
   assert.match(
     capabilities,
-    /:class="\{ 'is-enabled': line\.capabilities\?\.voice \}"[\s\S]*<Phone :size="14" \/>[\s\S]*呼叫控制/
+    /:class="\{ 'is-enabled': line\.capabilities\?\.voice \}"[\s\S]*<Phone :size="14" \/>[\s\S]*t\('lines\.callControl'\)/
   )
-  assert.doesNotMatch(capabilities, /通话|音频|USB|声卡/)
+  assert.doesNotMatch(capabilities, /browserAudio|mediaBridge|USB/)
 })
 
 test('module cards use real graded bars without changing the reported value', () => {

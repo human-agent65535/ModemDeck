@@ -3,6 +3,7 @@ import type { Router } from 'vue-router'
 import { gateway } from '../api/client'
 import type { CallAction, CallSession, ResourceStatus } from '../api/types'
 import { ApiError } from '../api/types'
+import { translate } from '../i18n'
 import { showBrowserNotification } from './browserNotifications'
 import { capabilityReason, contactForNumber, lineForKey, lineLabel } from './workspace'
 import { closeDialer } from './ui'
@@ -97,7 +98,9 @@ function showIncomingCallNotification(session: CallSession): void {
   const line = lineForKey(session.line_key)
   showBrowserNotification({
     title: caller,
-    body: line ? `来电 · ${lineLabel(line)}` : '来电',
+    body: line
+      ? translate('runtime.incomingCallOnLine', { line: lineLabel(line) })
+      : translate('runtime.incomingCall'),
     tag: `modemdeck-call-${session.id}`,
     onClick: () => {
       window.focus()
@@ -132,7 +135,7 @@ async function pollActiveCalls(): Promise<void> {
     schedulePoll(active ? ACTIVE_POLL_MS : IDLE_POLL_MS)
   } catch (error) {
     if (!runtimeStarted || startedAtEpoch !== mutationEpoch) return
-    const failure = requestError(error, '无法同步活动通话')
+    const failure = requestError(error, translate('runtime.syncCallsFailed'))
     callState.syncStatus = failure.status === 403 ? 'forbidden' : 'error'
     callState.syncError = failure.message
     if (failure.status === 403) {
@@ -186,12 +189,12 @@ export async function dial(
     return false
   }
   if (callState.session && !TERMINAL_PHASES.has(callState.session.phase)) {
-    callState.error = '已有通话正在进行'
+    callState.error = translate('runtime.callInProgress')
     callState.errorStatus = 409
     return false
   }
   if (callState.busy) {
-    callState.error = '已有拨号请求正在准备'
+    callState.error = translate('runtime.dialPreparing')
     callState.errorStatus = 409
     return false
   }
@@ -207,7 +210,7 @@ export async function dial(
     schedulePoll(ACTIVE_POLL_MS)
     return true
   } catch (error) {
-    const failure = requestError(error, '无法发起通话')
+    const failure = requestError(error, translate('runtime.dialFailed'))
     callState.error = failure.message
     callState.errorStatus = failure.status
     return false
@@ -230,7 +233,7 @@ async function act(action: CallAction): Promise<void> {
     acceptSession(await gateway.callAction(id, action))
     schedulePoll(ACTIVE_POLL_MS)
   } catch (error) {
-    const failure = requestError(error, '通话操作失败')
+    const failure = requestError(error, translate('runtime.callActionFailed'))
     callState.error = failure.message
     callState.errorStatus = failure.status
   } finally {
@@ -264,7 +267,7 @@ export async function sendDTMF(digit: string): Promise<void> {
     acceptSession(await gateway.sendDTMF(id, digit))
     schedulePoll(ACTIVE_POLL_MS)
   } catch (error) {
-    const failure = requestError(error, '无法发送按键音')
+    const failure = requestError(error, translate('runtime.dtmfFailed'))
     callState.error = failure.message
     callState.errorStatus = failure.status
   } finally {

@@ -19,6 +19,7 @@ import {
   Trash2
 } from '@lucide/vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { gateway } from '../api/client'
 import type {
   ConnectionProfile,
@@ -74,13 +75,14 @@ import StatePanel from './StatePanel.vue'
 type DeviceTab = 'overview' | 'network' | 'sim' | 'voice' | 'ussd'
 type AsyncStatus = 'idle' | 'loading' | 'ready' | 'error'
 
-const tabs: Array<{ id: DeviceTab; label: string; icon: typeof RadioTower }> = [
-  { id: 'overview', label: '概览', icon: RadioTower },
-  { id: 'network', label: '网络', icon: Network },
+const { t } = useI18n()
+const tabs = computed<Array<{ id: DeviceTab; label: string; icon: typeof RadioTower }>>(() => [
+  { id: 'overview', label: t('device.overview'), icon: RadioTower },
+  { id: 'network', label: t('device.network'), icon: Network },
   { id: 'sim', label: 'SIM', icon: CardSim },
-  { id: 'voice', label: '通话', icon: Phone },
+  { id: 'voice', label: t('device.calls'), icon: Phone },
   { id: 'ussd', label: 'USSD', icon: Send }
-]
+])
 
 const activeTab = ref<DeviceTab>('overview')
 const apn = ref('')
@@ -134,8 +136,12 @@ const selectedLine = computed(() =>
 const selectedDevice = computed(() =>
   devicesResource.data.find(device => device.imei === selectedLine.value?.device_imei)
 )
-const selectedOperatorFacts = computed(() => operatorFacts(selectedLine.value, '—'))
-const simOperatorFacts = computed(() => operatorFacts(simStatus.value, '—'))
+const selectedOperatorFacts = computed(() =>
+  operatorFacts(selectedLine.value, '—', key => t(key))
+)
+const simOperatorFacts = computed(() =>
+  operatorFacts(simStatus.value, '—', key => t(key))
+)
 const selectedModuleName = computed(() => {
   const line = selectedLine.value
   const device = selectedDevice.value
@@ -159,7 +165,7 @@ const currentSIMIdentity = computed(() => {
   if (label && number && label !== number) return `${label} · ${number}`
   if (label || number) return label || number
   const identifier = simStatus.value?.identifier.trim()
-  return identifier ? `ICCID 尾号 ${identifier.slice(-4)}` : ''
+  return identifier ? t('device.iccidSuffix', { suffix: identifier.slice(-4) }) : ''
 })
 const selectedResource = computed(() =>
   selectedLineID.value ? deviceConfigurationResource(selectedLineID.value) : null
@@ -177,8 +183,10 @@ const connectedDataConnection = computed(() =>
   hardware.value?.data_connections.find(connection => connection.connected)
 )
 const dataConnectionStatusLabel = computed(() => {
-  if (connectedDataConnection.value) return '已连接'
-  return hardware.value?.network_enabled ? '连接中' : '未连接'
+  if (connectedDataConnection.value) return t('device.dataConnected')
+  return hardware.value?.network_enabled
+    ? t('device.dataConnecting')
+    : t('device.dataDisconnected')
 })
 const dataConnectionFacts = computed(() => {
   const connection = connectedDataConnection.value
@@ -194,17 +202,19 @@ const dataConnectionFacts = computed(() => {
     configuration: typeof connection.ipv4
   ) => {
     if (configuration.address) {
-      add(`${family} 地址`, configuration.address)
-      add(`${family} 前缀`, `/${configuration.prefix}`)
+      add(t('device.ipAddress', { family }), configuration.address)
+      add(t('device.ipPrefix', { family }), `/${configuration.prefix}`)
     }
-    add(`${family} 网关`, configuration.gateway)
-    if (configuration.dns.length) add(`${family} DNS`, configuration.dns.join('、'))
+    add(t('device.ipGateway', { family }), configuration.gateway)
+    if (configuration.dns.length) {
+      add(`${family} DNS`, configuration.dns.join(t('common.listSeparator')))
+    }
     if (configuration.mtu > 0) add(`${family} MTU`, configuration.mtu)
   }
 
-  add('接口', connection.interface)
+  add(t('traffic.interface'), connection.interface)
   add('APN', connection.apn)
-  add('协议族', ipFamilyLabel(connection.ip_family))
+  add(t('device.ipMode'), ipFamilyLabel(connection.ip_family))
   addIPConfiguration('IPv4', connection.ipv4)
   addIPConfiguration('IPv6', connection.ipv6)
   return facts
@@ -216,7 +226,7 @@ const selectedLineFallback = computed(() => {
   const line = selectedLine.value
   if (line) return lineLabel({ ...line, line_label: '' })
   const index = lines.value.findIndex(line => lineKey(line) === selectedLineID.value)
-  return `线路 ${index >= 0 ? index + 1 : 1}`
+  return t('device.lineNumber', { number: index >= 0 ? index + 1 : 1 })
 })
 const lineLabelDirty = computed(
   () => lineLabelDraft.value.trim() !== (selectedLine.value?.line_label || '')
@@ -261,29 +271,29 @@ const flightModeWritable = computed(
 const volteStatusLabel = computed(() => {
   const capability = hardware.value?.capabilities.volte
   const volte = hardware.value?.volte
-  if (!capability || !volte) return '状态未知'
-  if (!capability.supported) return '不支持'
-  if (!capability.implemented) return '未实现'
-  if (!volte.policy_known) return '状态未知'
-  if (volte.restart_required) return '已保存，重启模组后生效'
+  if (!capability || !volte) return t('lines.unknownState')
+  if (!capability.supported) return t('device.unsupported')
+  if (!capability.implemented) return t('device.notImplemented')
+  if (!volte.policy_known) return t('lines.unknownState')
+  if (volte.restart_required) return t('device.savedRestartRequired')
   if (volte.policy !== 'enabled') {
     return volte.modem_capability_known && volte.modem_capability_enabled
-      ? '已关闭，尚未生效'
-      : '已关闭'
+      ? t('device.disabledPending')
+      : t('device.disabled')
   }
   if (volte.modem_capability_known && !volte.modem_capability_enabled) {
-    return '已开启，尚未生效'
+    return t('device.enabledPending')
   }
-  return '已开启'
+  return t('device.enabled')
 })
 const volteStatusDetail = computed(() => {
   const capability = hardware.value?.capabilities.volte
   const volte = hardware.value?.volte
-  if (!capability || !volte) return '能力未知'
-  if (!capability.supported) return capability.reason || '不支持'
-  if (!capability.implemented) return capability.reason || '未实现'
-  if (!capability.writable) return capability.reason || '只读'
-  if (!volte.policy_known) return '当前状态不可读取'
+  if (!capability || !volte) return t('device.capabilityUnknown')
+  if (!capability.supported) return capability.reason || t('device.unsupported')
+  if (!capability.implemented) return capability.reason || t('device.notImplemented')
+  if (!capability.writable) return capability.reason || t('device.readOnly')
+  if (!volte.policy_known) return t('device.unreadableStatus')
   return ''
 })
 
@@ -291,15 +301,15 @@ const otherCapabilities = computed(() => {
   const capabilities = hardware.value?.capabilities
   if (!capabilities) return []
   return [
-    { id: 'voice', label: '呼叫控制', capability: capabilities.voice },
-    { id: 'flight_mode', label: '飞行模式', capability: capabilities.flight_mode },
+    { id: 'voice', label: t('diagnostics.callControl'), capability: capabilities.voice },
+    { id: 'flight_mode', label: t('device.flightMode'), capability: capabilities.flight_mode },
     { id: 'vowifi', label: 'VoWiFi', capability: capabilities.vowifi },
     { id: 'volte', label: 'VoLTE', capability: capabilities.volte },
     { id: 'esim', label: 'eSIM', capability: capabilities.esim },
     { id: 'ussd', label: 'USSD', capability: capabilities.ussd },
     {
       id: 'connection_profile',
-      label: '连接配置',
+      label: t('device.connectionProfiles'),
       capability: capabilities.connection_profile
     }
   ]
@@ -307,7 +317,9 @@ const otherCapabilities = computed(() => {
 
 function automaticAPNLabel(value?: string): string {
   const resolvedAPN = value?.trim()
-  return resolvedAPN ? `自动（${resolvedAPN}）` : '自动'
+  return resolvedAPN
+    ? t('device.automaticAPN', { apn: resolvedAPN })
+    : t('device.automatic')
 }
 
 function ipFamilyLabel(value: string): string {
@@ -326,22 +338,22 @@ function ipFamilyLabel(value: string): string {
 function simTypeLabel(value: SIMStatus['sim_type']): string {
   switch (value) {
     case 'physical':
-      return '实体 SIM'
+      return t('device.physicalSIM')
     case 'esim':
       return 'eSIM'
     default:
-      return '未知'
+      return t('common.unknown')
   }
 }
 
 function esimStatusLabel(value: SIMStatus['esim_status']): string {
   switch (value) {
     case 'with_profiles':
-      return '已有 Profile'
+      return t('device.existingProfiles')
     case 'no_profiles':
-      return '无 Profile'
+      return t('device.noProfiles')
     default:
-      return '未知'
+      return t('common.unknown')
   }
 }
 
@@ -377,30 +389,34 @@ function accessTechnologyLabel(value: number | null): string {
     0
   )
   const unknownMask = (unsigned & ~knownMask) >>> 0
-  if (unknownMask !== 0) labels.push(`其他 0x${unknownMask.toString(16).toUpperCase()}`)
+  if (unknownMask !== 0) {
+    labels.push(
+      t('device.otherMask', { mask: unknownMask.toString(16).toUpperCase() })
+    )
+  }
   return labels.join(' / ') || `0x${unsigned.toString(16).toUpperCase()}`
 }
 
 function modemPortTypeLabel(type: string): string {
   switch (type) {
     case 'net':
-      return '网络'
+      return t('device.portNetwork')
     case 'at':
-      return 'AT 控制'
+      return t('device.portAT')
     case 'qcdm':
-      return 'QCDM 诊断'
+      return t('device.portQCDM')
     case 'gps':
       return 'GNSS'
     case 'qmi':
-      return 'QMI 控制'
+      return t('device.portQMI')
     case 'mbim':
-      return 'MBIM 控制'
+      return t('device.portMBIM')
     case 'audio':
-      return '音频'
+      return t('device.portAudio')
     case 'ignored':
-      return '已忽略'
+      return t('device.portIgnored')
     default:
-      return '未知'
+      return t('common.unknown')
   }
 }
 
@@ -520,19 +536,19 @@ function mobileNetworkTechnology(network: MobileNetwork): string {
   if (network.access_technology_names.length) {
     return network.access_technology_names.join(' / ')
   }
-  return accessTechnologyLabel(network.access_technologies) || '未知制式'
+  return accessTechnologyLabel(network.access_technologies) || t('device.unknownTechnology')
 }
 
 function mobileNetworkStatusLabel(network: MobileNetwork): string {
   switch (network.status) {
     case 'current':
-      return '当前'
+      return t('device.current')
     case 'available':
-      return '可用'
+      return t('device.available')
     case 'forbidden':
-      return '不可用'
+      return t('device.unavailable')
     default:
-      return '状态未知'
+      return t('lines.unknownState')
   }
 }
 
@@ -562,9 +578,9 @@ function deviceFor(line: LineSummary) {
 }
 
 function readOnlyReason(capability: DeviceFeatureCapability): string {
-  if (!capability.supported) return capability.reason || '不支持'
-  if (!capability.implemented) return capability.reason || '未实现'
-  if (!capability.readable) return capability.reason || '不可读取'
+  if (!capability.supported) return capability.reason || t('device.unsupported')
+  if (!capability.implemented) return capability.reason || t('device.notImplemented')
+  if (!capability.readable) return capability.reason || t('device.unreadable')
   return ''
 }
 
@@ -575,13 +591,15 @@ function capabilityStatus(capability: DeviceFeatureCapability, id = ''): string 
     capability.supported &&
     capability.implemented
   ) {
-    return '状态未知'
+    return t('lines.unknownState')
   }
-  if (capability.writable) return '可读写'
-  if (capability.readable) return '只读'
-  if (capability.supported && capability.implemented) return '暂不可用'
-  if (capability.supported) return '未实现'
-  return '不支持'
+  if (capability.writable) return t('device.readWrite')
+  if (capability.readable) return t('device.readOnly')
+  if (capability.supported && capability.implemented) {
+    return t('device.temporarilyUnavailable')
+  }
+  if (capability.supported) return t('device.notImplemented')
+  return t('device.unsupported')
 }
 
 function capabilityDetail(capability: DeviceFeatureCapability, id = ''): string {
@@ -591,15 +609,15 @@ function capabilityDetail(capability: DeviceFeatureCapability, id = ''): string 
     capability.supported &&
     capability.implemented
   ) {
-    return '当前无法读取'
+    return t('device.cannotReadNow')
   }
   return readOnlyReason(capability)
 }
 
 function policyLabel(policy: IncomingCallPolicy): string {
-  if (policy === 'follow_global') return '跟随全局'
-  if (policy === 'receive') return '接听来电'
-  return '免打扰'
+  if (policy === 'follow_global') return t('device.followGlobal')
+  if (policy === 'receive') return t('device.receiveCalls')
+  return t('device.doNotDisturb')
 }
 
 async function makeDefault(line: LineSummary): Promise<void> {
@@ -608,7 +626,8 @@ async function makeDefault(line: LineSummary): Promise<void> {
   try {
     await updateDefaultLine(line.device_imei)
   } catch (error) {
-    moduleError.value = error instanceof Error ? error.message : '默认线路保存失败'
+    moduleError.value =
+      error instanceof Error ? error.message : t('device.defaultLineSaveFailed')
   }
 }
 
@@ -617,7 +636,7 @@ async function saveLineLabel(): Promise<void> {
   if (!line?.iccid || lineLabelPending.value || !lineLabelDirty.value) return
   const value = lineLabelDraft.value.trim()
   if (Array.from(value).length > 16) {
-    lineLabelError.value = '线路标签不能超过 16 个字符'
+    lineLabelError.value = t('device.lineLabelTooLong')
     return
   }
   lineLabelPending.value = true
@@ -625,7 +644,8 @@ async function saveLineLabel(): Promise<void> {
   try {
     await updateLineLabel(line.iccid, { line_label: value })
   } catch (error) {
-    lineLabelError.value = error instanceof Error ? error.message : '线路标签保存失败'
+    lineLabelError.value =
+      error instanceof Error ? error.message : t('device.lineLabelSaveFailed')
   } finally {
     lineLabelPending.value = false
   }
@@ -638,9 +658,9 @@ async function changeRadio(event: Event): Promise<void> {
   if (
     flightModeEnabled &&
     !(await requestConfirmation({
-      title: '开启飞行模式？',
-      message: '驻网、通话和移动数据将立即中断。',
-      confirmLabel: '开启'
+      title: t('device.enableFlightModeTitle'),
+      message: t('device.enableFlightModeMessage'),
+      confirmLabel: t('device.turnOn')
     }))
   ) {
     control.checked = Boolean(hardware.value?.flight_mode)
@@ -658,9 +678,9 @@ async function applyDataConnection(): Promise<boolean> {
 async function stopDataConnection(): Promise<boolean> {
   if (!selectedLineID.value) return false
   const confirmed = await requestConfirmation({
-    title: '关闭移动数据？',
-    message: '此模组当前的数据连接将中断。',
-    confirmLabel: '关闭'
+    title: t('device.disableDataTitle'),
+    message: t('device.disableDataMessage'),
+    confirmLabel: t('device.turnOff')
   })
   if (!confirmed) return false
   return disconnectData(selectedLineID.value)
@@ -683,9 +703,11 @@ async function applyVoLTE(event: Event): Promise<void> {
   const nextPolicy = control.checked ? 'enabled' : 'disabled'
   voltePolicyDraft.value = nextPolicy
   const confirmed = await requestConfirmation({
-    title: `${nextPolicy === 'enabled' ? '开启' : '关闭'} VoLTE？`,
-    message: '配置将在重启模组后生效。',
-    confirmLabel: '保存（重启生效）'
+    title: t('device.volteTitle', {
+      action: nextPolicy === 'enabled' ? t('device.turnOn') : t('device.turnOff')
+    }),
+    message: t('device.restartRequiredMessage'),
+    confirmLabel: t('device.saveRestartRequired')
   })
   if (!confirmed) {
     control.checked = previousPolicy === 'enabled'
@@ -702,9 +724,9 @@ async function applyVoLTE(event: Event): Promise<void> {
 async function applyModemRestart(): Promise<void> {
   if (!selectedLineID.value) return
   const confirmed = await requestConfirmation({
-    title: '重启模组？',
-    message: '当前通话和移动数据将中断。',
-    confirmLabel: '重启',
+    title: t('device.restartTitle'),
+    message: t('device.restartMessage'),
+    confirmLabel: t('device.restart'),
     tone: 'danger'
   })
   if (!confirmed) return
@@ -736,21 +758,23 @@ async function loadSIM(force = false): Promise<void> {
   } catch (error) {
     if (!isCurrentLineServiceRequest(lineID, generation)) return
     simLoadStatus.value = 'error'
-    simError.value = error instanceof Error ? error.message : 'SIM 状态读取失败'
+    simError.value = error instanceof Error ? error.message : t('device.simLoadFailed')
   }
 }
 
 async function applySIMCommand(): Promise<void> {
   if (!selectedLineID.value || simPending.value) return
   const label: Record<SIMOperation, string> = {
-    send_pin: '提交 PIN',
-    send_puk: '提交 PUK 并设置新 PIN',
-    enable_pin: simProtectionEnabled.value ? '开启 PIN 保护' : '关闭 PIN 保护',
-    change_pin: '修改 PIN'
+    send_pin: t('device.submitPIN'),
+    send_puk: t('device.submitPUK'),
+    enable_pin: simProtectionEnabled.value
+      ? t('device.enablePINProtection')
+      : t('device.disablePINProtection'),
+    change_pin: t('device.changePIN')
   }
   const confirmed = await requestConfirmation({
     title: `${label[simOperation.value]}？`,
-    confirmLabel: '确认'
+    confirmLabel: t('device.confirm')
   })
   if (!confirmed) return
   simPending.value = true
@@ -770,7 +794,7 @@ async function applySIMCommand(): Promise<void> {
     simNewPIN.value = ''
     await loadSIM(true)
   } catch (error) {
-    simError.value = error instanceof Error ? error.message : 'SIM 操作失败'
+    simError.value = error instanceof Error ? error.message : t('device.simOperationFailed')
   } finally {
     simPending.value = false
   }
@@ -790,7 +814,8 @@ async function loadProfiles(force = false): Promise<void> {
   } catch (error) {
     if (!isCurrentLineServiceRequest(lineID, generation)) return
     profileLoadStatus.value = 'error'
-    profileError.value = error instanceof Error ? error.message : '连接配置读取失败'
+    profileError.value =
+      error instanceof Error ? error.message : t('device.profilesLoadFailed')
   }
 }
 
@@ -806,12 +831,12 @@ function editProfile(profile?: ConnectionProfile): void {
 async function saveProfile(): Promise<void> {
   if (!selectedLineID.value || profilePending.value) return
   if (!profileName.value.trim() && !profileAPN.value.trim()) {
-    profileError.value = '名称或 APN 至少填写一项'
+    profileError.value = t('device.profileNameOrAPN')
     return
   }
   const confirmed = await requestConfirmation({
-    title: '保存连接配置？',
-    confirmLabel: '保存'
+    title: t('device.saveProfileTitle'),
+    confirmLabel: t('common.save')
   })
   if (!confirmed) return
   profilePending.value = true
@@ -828,7 +853,8 @@ async function saveProfile(): Promise<void> {
     editProfile()
     await loadProfiles(true)
   } catch (error) {
-    profileError.value = error instanceof Error ? error.message : '连接配置保存失败'
+    profileError.value =
+      error instanceof Error ? error.message : t('device.profileSaveFailed')
   } finally {
     profilePending.value = false
   }
@@ -837,9 +863,11 @@ async function saveProfile(): Promise<void> {
 async function deleteProfile(profile: ConnectionProfile): Promise<void> {
   if (!selectedLineID.value || profilePending.value) return
   const confirmed = await requestConfirmation({
-    title: '删除连接配置？',
-    message: `“${profile.profile_name || profile.profile_id}”将被永久删除。`,
-    confirmLabel: '删除',
+    title: t('device.deleteProfileTitle'),
+    message: t('device.deleteProfileMessage', {
+      name: profile.profile_name || profile.profile_id
+    }),
+    confirmLabel: t('common.delete'),
     tone: 'danger'
   })
   if (!confirmed) return
@@ -852,7 +880,8 @@ async function deleteProfile(profile: ConnectionProfile): Promise<void> {
     if (editingProfileID.value === profile.profile_id) editProfile()
     await loadProfiles(true)
   } catch (error) {
-    profileError.value = error instanceof Error ? error.message : '连接配置删除失败'
+    profileError.value =
+      error instanceof Error ? error.message : t('device.profileDeleteFailed')
   } finally {
     profilePending.value = false
   }
@@ -872,7 +901,7 @@ async function loadUSSD(force = false): Promise<void> {
   } catch (error) {
     if (!isCurrentLineServiceRequest(lineID, generation)) return
     ussdLoadStatus.value = 'error'
-    ussdError.value = error instanceof Error ? error.message : 'USSD 状态读取失败'
+    ussdError.value = error instanceof Error ? error.message : t('device.ussdLoadFailed')
   }
 }
 
@@ -889,7 +918,7 @@ async function submitUSSD(action: 'initiate' | 'respond' | 'cancel'): Promise<vo
     if (action !== 'respond') ussdCommand.value = ''
     await loadUSSD(true)
   } catch (error) {
-    ussdError.value = error instanceof Error ? error.message : 'USSD 请求失败'
+    ussdError.value = error instanceof Error ? error.message : t('device.ussdRequestFailed')
   } finally {
     ussdPending.value = false
   }
@@ -911,20 +940,20 @@ onBeforeUnmount(() => {
   <section class="device-configuration" aria-labelledby="device-configuration-title">
     <header class="module-toolbar">
       <div>
-        <h3 id="device-configuration-title">模组</h3>
-        <span>{{ lines.length }} 个</span>
+        <h3 id="device-configuration-title">{{ t('device.modules') }}</h3>
+        <span>{{ t('device.moduleCount', { count: lines.length }) }}</span>
       </div>
     </header>
 
     <StatePanel
       v-if="bootstrapResource.status === 'loading' || bootstrapResource.status === 'idle'"
       state="loading"
-      title="正在载入模组"
+      :title="t('device.loadingModules')"
     />
     <StatePanel
       v-else-if="bootstrapResource.status === 'error'"
       state="error"
-      title="无法载入模组"
+      :title="t('device.modulesLoadFailed')"
       :detail="bootstrapResource.error"
       retryable
       @retry="loadBootstrap(true)"
@@ -932,7 +961,7 @@ onBeforeUnmount(() => {
     <StatePanel
       v-else-if="lines.length === 0"
       state="empty"
-      title="没有检测到模组"
+      :title="t('device.noModules')"
     />
     <div v-else class="module-grid">
       <ModuleCard
@@ -952,7 +981,7 @@ onBeforeUnmount(() => {
     <template v-if="selectedLineID">
       <header class="selected-module-context">
         <div class="selected-module-context__identity">
-          <span>当前配置模组</span>
+          <span>{{ t('device.currentModule') }}</span>
           <div class="selected-module-context__name">
             <strong>{{ selectedModuleName }}</strong>
             <LineTag
@@ -962,10 +991,12 @@ onBeforeUnmount(() => {
             />
           </div>
         </div>
-        <span v-if="selectedIsDefault" class="selected-module-context__default">默认线路</span>
+        <span v-if="selectedIsDefault" class="selected-module-context__default">
+          {{ t('lines.defaultLine') }}
+        </span>
       </header>
 
-      <nav class="device-tabs" aria-label="模组设置">
+      <nav class="device-tabs" :aria-label="t('device.moduleSettings')">
         <button
           v-for="tab in tabs"
           :key="tab.id"
@@ -981,12 +1012,12 @@ onBeforeUnmount(() => {
       <StatePanel
         v-if="selectedResource?.status === 'loading' || selectedResource?.status === 'idle'"
         state="loading"
-        title="正在读取模组"
+        :title="t('device.loadingModule')"
       />
       <StatePanel
         v-else-if="selectedResource?.status === 'error' && !configuration"
         state="error"
-        title="无法读取模组"
+        :title="t('device.moduleLoadFailed')"
         :detail="selectedResource.error"
         retryable
         @retry="loadDeviceConfiguration(selectedLineID, true)"
@@ -1000,15 +1031,15 @@ onBeforeUnmount(() => {
 
         <template v-if="activeTab === 'overview'">
           <section class="configuration-section">
-            <header><Tag :size="18" /><h4>线路标识</h4></header>
+            <header><Tag :size="18" /><h4>{{ t('device.lineIdentity') }}</h4></header>
             <form class="line-label-form" @submit.prevent="saveLineLabel">
               <label>
-                <span>线路标签</span>
+                <span>{{ t('device.lineLabel') }}</span>
                 <input
                   v-model="lineLabelDraft"
                   maxlength="16"
                   autocomplete="off"
-                  :placeholder="`${selectedLineFallback}（建议）`"
+                  :placeholder="t('device.suggested', { label: selectedLineFallback })"
                   :disabled="lineLabelPending || !selectedLine?.iccid"
                   aria-describedby="line-label-status"
                 />
@@ -1025,7 +1056,7 @@ onBeforeUnmount(() => {
               >
                 <LoaderCircle v-if="lineLabelPending" class="spin" :size="16" />
                 <Save v-else :size="16" />
-                保存
+                {{ t('common.save') }}
               </button>
             </form>
             <p
@@ -1036,7 +1067,7 @@ onBeforeUnmount(() => {
             >
               {{
                 !selectedLine?.iccid
-                  ? '未检测到 SIM，无法保存标签'
+                  ? t('device.simMissingLabel')
                   : lineLabelError
               }}
             </p>
@@ -1044,30 +1075,39 @@ onBeforeUnmount(() => {
 
           <section class="configuration-section configuration-summary">
             <header>
-              <h4>硬件信息</h4>
-              <span v-if="selectedIsDefault">默认线路</span>
+              <h4>{{ t('device.hardwareInformation') }}</h4>
+              <span v-if="selectedIsDefault">{{ t('lines.defaultLine') }}</span>
             </header>
             <dl>
-              <div><dt>制造商</dt><dd>{{ hardware.identity.manufacturer || '—' }}</dd></div>
-              <div><dt>型号</dt><dd>{{ hardware.identity.model || '—' }}</dd></div>
+              <div>
+                <dt>{{ t('device.manufacturer') }}</dt>
+                <dd>{{ hardware.identity.manufacturer || '—' }}</dd>
+              </div>
+              <div><dt>{{ t('lines.model') }}</dt><dd>{{ hardware.identity.model || '—' }}</dd></div>
               <div v-if="hardware.details.hardware_revision">
-                <dt>硬件版本</dt>
+                <dt>{{ t('device.hardwareVersion') }}</dt>
                 <dd>{{ hardware.details.hardware_revision }}</dd>
               </div>
               <div v-for="fact in selectedOperatorFacts" :key="fact.id">
                 <dt>{{ fact.label }}</dt>
                 <dd>{{ fact.value }}</dd>
               </div>
-              <div><dt>信号</dt><dd>{{ selectedLine?.signal_quality == null ? '—' : `${selectedLine.signal_quality}%` }}</dd></div>
+              <div>
+                <dt>{{ t('lines.signal') }}</dt>
+                <dd>{{ selectedLine?.signal_quality == null ? '—' : `${selectedLine.signal_quality}%` }}</dd>
+              </div>
               <div v-if="hardware.details.access_technologies != null">
-                <dt>接入制式</dt>
+                <dt>{{ t('device.accessTechnology') }}</dt>
                 <dd>{{ accessTechnologyLabel(hardware.details.access_technologies) }}</dd>
               </div>
               <div><dt>IMEI</dt><dd>{{ hardware.identity.equipment_identifier || '—' }}</dd></div>
-              <div><dt>固件</dt><dd>{{ hardware.identity.firmware || '—' }}</dd></div>
+              <div>
+                <dt>{{ t('lines.firmware') }}</dt>
+                <dd>{{ hardware.identity.firmware || '—' }}</dd>
+              </div>
               <div><dt>ICCID</dt><dd>{{ selectedLine?.iccid || '—' }}</dd></div>
               <div>
-                <dt>主端口</dt>
+                <dt>{{ t('device.primaryPort') }}</dt>
                 <dd>{{ hardware.details.primary_port || selectedDevice?.port || '—' }}</dd>
               </div>
               <div v-if="selectedDevice?.signal_dbm != null">
@@ -1089,8 +1129,8 @@ onBeforeUnmount(() => {
             </dl>
             <details v-if="hardware.details.ports.length" class="hardware-ports">
               <summary>
-                <span><Cable :size="16" />端口详情</span>
-                <small>{{ hardware.details.ports.length }} 个</small>
+                <span><Cable :size="16" />{{ t('device.portDetails') }}</span>
+                <small>{{ t('device.moduleCount', { count: hardware.details.ports.length }) }}</small>
               </summary>
               <ul>
                 <li v-for="port in hardware.details.ports" :key="`${port.name}:${port.type_code}`">
@@ -1102,7 +1142,7 @@ onBeforeUnmount(() => {
           </section>
 
           <section class="configuration-section">
-            <header><h4>能力</h4></header>
+            <header><h4>{{ t('device.capabilities') }}</h4></header>
             <div class="capability-grid">
               <div v-for="item in otherCapabilities" :key="item.id">
                 <span>
@@ -1119,12 +1159,12 @@ onBeforeUnmount(() => {
 
         <template v-else-if="activeTab === 'network'">
           <section class="configuration-section">
-            <header><Network :size="18" /><h4>移动网络</h4></header>
+            <header><Network :size="18" /><h4>{{ t('device.mobileNetwork') }}</h4></header>
             <label class="configuration-toggle data-toggle">
               <span>
-                <strong>移动数据</strong>
+                <strong>{{ t('device.mobileData') }}</strong>
                 <small v-if="!hardware.capabilities.data_connection.writable">
-                  {{ readOnlyReason(hardware.capabilities.data_connection) || '不可写' }}
+                  {{ readOnlyReason(hardware.capabilities.data_connection) || t('device.notWritable') }}
                 </small>
               </span>
               <span class="configuration-toggle__control">
@@ -1163,7 +1203,7 @@ onBeforeUnmount(() => {
                   !hardware.capabilities.data_connection.writable
                 "
               >
-                <legend>IP 模式</legend>
+                <legend>{{ t('device.ipMode') }}</legend>
                 <div class="ip-mode-options">
                   <label>
                     <input v-model="ipFamily" type="radio" value="ipv4" />
@@ -1199,21 +1239,25 @@ onBeforeUnmount(() => {
 
             <div class="network-selection">
               <header>
-                <strong>网络选择</strong>
+                <strong>{{ t('device.networkSelection') }}</strong>
                 <small
                   v-if="
                     selectedNetworkSelection?.policy?.mode === 'manual' &&
                     selectedNetworkSelection.policy.operator_code
                   "
                 >
-                  当前目标 {{ selectedNetworkSelection.policy.operator_code }}
+                  {{
+                    t('device.currentTarget', {
+                      operator: selectedNetworkSelection.policy.operator_code
+                    })
+                  }}
                 </small>
               </header>
 
               <StatePanel
                 v-if="selectedNetworkSelection?.policyStatus === 'loading'"
                 state="loading"
-                title="正在读取网络设置"
+                :title="t('device.loadingNetworkSettings')"
               />
               <div
                 v-else-if="
@@ -1228,7 +1272,7 @@ onBeforeUnmount(() => {
                   type="button"
                   @click="loadNetworkSelection(selectedLineID, true)"
                 >
-                  重试
+                  {{ t('common.retry') }}
                 </button>
               </div>
               <template v-else-if="selectedNetworkSelection?.policyStatus === 'ready'">
@@ -1237,7 +1281,7 @@ onBeforeUnmount(() => {
                   :data-selection="selectedNetworkSelection.mode"
                   :disabled="selectedNetworkSelection.saving"
                 >
-                  <legend class="sr-only">网络选择方式</legend>
+                  <legend class="sr-only">{{ t('device.networkSelectionMode') }}</legend>
                   <div class="network-selection-mode__options">
                     <span class="network-selection-mode__slider" aria-hidden="true" />
                     <label>
@@ -1247,7 +1291,7 @@ onBeforeUnmount(() => {
                         :checked="selectedNetworkSelection.mode === 'auto'"
                         @change="changeNetworkSelectionMode('auto')"
                       />
-                      <span>自动</span>
+                      <span>{{ t('device.automatic') }}</span>
                     </label>
                     <label>
                       <input
@@ -1256,7 +1300,7 @@ onBeforeUnmount(() => {
                         :checked="selectedNetworkSelection.mode === 'manual'"
                         @change="changeNetworkSelectionMode('manual')"
                       />
-                      <span>手动</span>
+                      <span>{{ t('device.manual') }}</span>
                     </label>
                   </div>
                   <LoaderCircle
@@ -1279,7 +1323,7 @@ onBeforeUnmount(() => {
                   class="manual-network-selection"
                 >
                   <header>
-                    <strong>可用网络</strong>
+                    <strong>{{ t('device.availableNetworks') }}</strong>
                     <button
                       class="secondary-action"
                       type="button"
@@ -1293,7 +1337,7 @@ onBeforeUnmount(() => {
                         :class="{ spin: selectedNetworkSelection.scanStatus === 'loading' }"
                         :size="15"
                       />
-                      重新搜索
+                      {{ t('device.searchAgain') }}
                     </button>
                   </header>
 
@@ -1303,7 +1347,7 @@ onBeforeUnmount(() => {
                     role="status"
                   >
                     <LoaderCircle class="spin" :size="17" />
-                    正在搜索网络
+                    {{ t('device.searchingNetworks') }}
                   </div>
                   <div
                     v-else-if="selectedNetworkSelection.scanStatus === 'error'"
@@ -1317,13 +1361,13 @@ onBeforeUnmount(() => {
                     v-else-if="selectedNetworkSelection.scanStatus === 'idle'"
                     class="network-scan-state"
                   >
-                    搜索后选择运营商
+                    {{ t('device.searchToSelect') }}
                   </p>
                   <p
                     v-else-if="!selectedNetworkSelection.scan?.networks.length"
                     class="network-scan-state"
                   >
-                    未找到可用网络
+                    {{ t('device.noAvailableNetworks') }}
                   </p>
                   <div v-else class="mobile-network-list">
                     <button
@@ -1376,13 +1420,13 @@ onBeforeUnmount(() => {
           </section>
 
           <section class="configuration-section">
-            <header><RadioTower :size="18" /><h4>无线电</h4></header>
+            <header><RadioTower :size="18" /><h4>{{ t('device.radio') }}</h4></header>
             <label class="configuration-toggle">
               <span>
-                <strong>飞行模式</strong>
-                <small v-if="!hardware.flight_mode_known">状态未知</small>
+                <strong>{{ t('device.flightMode') }}</strong>
+                <small v-if="!hardware.flight_mode_known">{{ t('lines.unknownState') }}</small>
                 <small v-else-if="!flightModeWritable">
-                  {{ readOnlyReason(hardware.capabilities.flight_mode) || '不可写' }}
+                  {{ readOnlyReason(hardware.capabilities.flight_mode) || t('device.notWritable') }}
                 </small>
               </span>
               <span class="configuration-toggle__control">
@@ -1408,17 +1452,25 @@ onBeforeUnmount(() => {
           <section class="configuration-section">
             <details class="advanced-profiles">
               <summary>
-                <span><Database :size="18" /><strong>高级连接配置</strong></span>
-                <small v-if="profiles.length">{{ profiles.length }} 个</small>
+                <span>
+                  <Database :size="18" /><strong>{{ t('device.advancedProfiles') }}</strong>
+                </span>
+                <small v-if="profiles.length">
+                  {{ t('device.moduleCount', { count: profiles.length }) }}
+                </small>
               </summary>
               <div class="advanced-profiles__body">
                 <div class="advanced-profiles__actions">
                   <button class="secondary-action" type="button" @click="editProfile()">
                     <Plus :size="15" />
-                    新增
+                    {{ t('common.add') }}
                   </button>
                 </div>
-                <StatePanel v-if="profileLoadStatus === 'loading'" state="loading" title="正在读取配置" />
+                <StatePanel
+                  v-if="profileLoadStatus === 'loading'"
+                  state="loading"
+                  :title="t('device.loadingProfiles')"
+                />
                 <p v-else-if="profileError" class="inline-error">{{ profileError }}</p>
                 <div v-else class="profile-list">
                   <div
@@ -1427,13 +1479,16 @@ onBeforeUnmount(() => {
                     :class="{ 'is-selected': editingProfileID === profile.profile_id }"
                   >
                     <button type="button" @click="editProfile(profile)">
-                      <span><strong>{{ profile.profile_name || `Profile ${profile.profile_id}` }}</strong><small>{{ profile.apn || '无 APN' }}</small></span>
+                      <span>
+                        <strong>{{ profile.profile_name || `Profile ${profile.profile_id}` }}</strong>
+                        <small>{{ profile.apn || t('device.noAPN') }}</small>
+                      </span>
                       <span>{{ profile.ip_family || profile.ip_type }}</span>
                     </button>
                     <button
                       class="icon-button"
                       type="button"
-                      title="删除连接配置"
+                      :title="t('device.deleteProfile')"
                       @click.stop="deleteProfile(profile)"
                     >
                       <Trash2 :size="16" />
@@ -1441,7 +1496,7 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
                 <form class="profile-form" @submit.prevent="saveProfile">
-                  <label><span>名称</span><input v-model.trim="profileName" /></label>
+                  <label><span>{{ t('device.name') }}</span><input v-model.trim="profileName" /></label>
                   <label><span>APN</span><input v-model.trim="profileAPN" /></label>
                   <label>
                     <span>IP</span>
@@ -1451,12 +1506,22 @@ onBeforeUnmount(() => {
                       <option value="ipv4v6">IPv4 + IPv6</option>
                     </select>
                   </label>
-                  <label><span>用户名</span><input v-model.trim="profileUser" autocomplete="username" /></label>
-                  <label><span>密码</span><input v-model="profilePassword" type="password" autocomplete="new-password" /></label>
+                  <label>
+                    <span>{{ t('common.username') }}</span>
+                    <input v-model.trim="profileUser" autocomplete="username" />
+                  </label>
+                  <label>
+                    <span>{{ t('common.password') }}</span>
+                    <input
+                      v-model="profilePassword"
+                      type="password"
+                      autocomplete="new-password"
+                    />
+                  </label>
                   <button class="primary-action" type="submit" :disabled="profilePending">
                     <LoaderCircle v-if="profilePending" class="spin" :size="16" />
                     <Save v-else :size="16" />
-                    保存
+                    {{ t('common.save') }}
                   </button>
                 </form>
               </div>
@@ -1467,44 +1532,60 @@ onBeforeUnmount(() => {
         <template v-else-if="activeTab === 'sim'">
           <section class="configuration-section">
             <header><CardSim :size="18" /><h4>SIM</h4></header>
-            <StatePanel v-if="simLoadStatus === 'loading'" state="loading" title="正在读取 SIM" />
+            <StatePanel
+              v-if="simLoadStatus === 'loading'"
+              state="loading"
+              :title="t('device.loadingSIM')"
+            />
             <p v-else-if="simError" class="inline-error">{{ simError }}</p>
             <template v-else-if="simStatus">
               <dl class="configuration-facts">
                 <div><dt>ICCID</dt><dd>{{ simStatus.identifier || '—' }}</dd></div>
                 <div><dt>IMSI</dt><dd>{{ simStatus.imsi || '—' }}</dd></div>
                 <div v-if="simStatus.sim_type !== 'unknown'">
-                  <dt>SIM 类型</dt>
+                  <dt>{{ t('device.simType') }}</dt>
                   <dd>{{ simTypeLabel(simStatus.sim_type) }}</dd>
                 </div>
                 <div v-for="fact in simOperatorFacts" :key="fact.id">
                   <dt>{{ fact.label }}</dt>
                   <dd>{{ fact.value }}</dd>
                 </div>
-                <div><dt>锁定</dt><dd>{{ simStatus.unlock_required || 'none' }}</dd></div>
+                <div>
+                  <dt>{{ t('device.locked') }}</dt>
+                  <dd>{{ simStatus.unlock_required || 'none' }}</dd>
+                </div>
                 <template v-if="simStatus.sim_slots_known">
                   <div>
-                    <dt>当前卡槽</dt>
+                    <dt>{{ t('device.currentSlot') }}</dt>
                     <dd>{{ simStatus.current_sim_slot_known ? simStatus.current_sim_slot : '—' }}</dd>
                   </div>
                   <div>
-                    <dt>主卡槽</dt>
+                    <dt>{{ t('device.primarySlot') }}</dt>
                     <dd>{{ simStatus.primary_sim_slot_known ? simStatus.primary_sim_slot : '—' }}</dd>
                   </div>
                 </template>
                 <template v-if="simStatus.sim_type === 'esim'">
-                  <div><dt>eSIM 状态</dt><dd>{{ esimStatusLabel(simStatus.esim_status) }}</dd></div>
+                  <div>
+                    <dt>{{ t('device.esimStatus') }}</dt>
+                    <dd>{{ esimStatusLabel(simStatus.esim_status) }}</dd>
+                  </div>
                   <div><dt>EID</dt><dd>{{ simStatus.eid || '—' }}</dd></div>
                   <div>
-                    <dt>Profile 管理</dt>
-                    <dd>{{ simStatus.profile_management.supported ? '可用' : '暂不支持' }}</dd>
+                    <dt>{{ t('device.profileManagement') }}</dt>
+                    <dd>
+                      {{
+                        simStatus.profile_management.supported
+                          ? t('device.available')
+                          : t('device.notSupportedYet')
+                      }}
+                    </dd>
                   </div>
                 </template>
               </dl>
               <div
                 v-if="simStatus.sim_slots_known"
                 class="sim-slot-list"
-                aria-label="SIM 卡槽"
+                :aria-label="t('device.simSlots')"
               >
                 <div
                   v-for="slot in simStatus.sim_slots"
@@ -1512,15 +1593,19 @@ onBeforeUnmount(() => {
                   class="sim-slot"
                   :class="{ 'is-current': slot.current }"
                 >
-                  <span class="sim-slot__name">卡槽 {{ slot.index }}</span>
-                  <strong class="sim-slot__state">{{ slot.present ? '已插卡' : '未插卡' }}</strong>
+                  <span class="sim-slot__name">
+                    {{ t('device.slot', { number: slot.index }) }}
+                  </span>
+                  <strong class="sim-slot__state">
+                    {{ slot.present ? t('device.cardInserted') : t('device.noCard') }}
+                  </strong>
                   <span
                     v-if="slot.present && slot.sim_type !== 'unknown'"
                     class="sim-slot__type"
                   >
                     {{ simTypeLabel(slot.sim_type) }}
                   </span>
-                  <span v-if="slot.current" class="sim-slot__badge">使用中</span>
+                  <span v-if="slot.current" class="sim-slot__badge">{{ t('device.inUse') }}</span>
                   <span v-if="slot.current && currentSIMIdentity" class="sim-slot__identity">
                     {{ currentSIMIdentity }}
                   </span>
@@ -1538,16 +1623,16 @@ onBeforeUnmount(() => {
             <header><ShieldAlert :size="18" /><h4>PIN</h4></header>
             <form class="sim-form" @submit.prevent="applySIMCommand">
               <label>
-                <span>操作</span>
+                <span>{{ t('device.operation') }}</span>
                 <select v-model="simOperation">
-                  <option value="send_pin">解锁 PIN</option>
-                  <option value="send_puk">解锁 PUK</option>
-                  <option value="enable_pin">PIN 保护</option>
-                  <option value="change_pin">修改 PIN</option>
+                  <option value="send_pin">{{ t('device.unlockPIN') }}</option>
+                  <option value="send_puk">{{ t('device.unlockPUK') }}</option>
+                  <option value="enable_pin">{{ t('device.pinProtection') }}</option>
+                  <option value="change_pin">{{ t('device.changePIN') }}</option>
                 </select>
               </label>
               <label v-if="simOperation !== 'send_puk'">
-                <span>{{ simOperation === 'change_pin' ? '当前 PIN' : 'PIN' }}</span>
+                <span>{{ simOperation === 'change_pin' ? t('device.currentPIN') : 'PIN' }}</span>
                 <input v-model="simPIN" type="password" inputmode="numeric" maxlength="8" autocomplete="off" />
               </label>
               <label v-if="simOperation === 'send_puk'">
@@ -1555,16 +1640,16 @@ onBeforeUnmount(() => {
                 <input v-model="simPUK" type="password" inputmode="numeric" maxlength="8" autocomplete="off" />
               </label>
               <label v-if="simOperation === 'send_puk' || simOperation === 'change_pin'">
-                <span>新 PIN</span>
+                <span>{{ t('device.newPIN') }}</span>
                 <input v-model="simNewPIN" type="password" inputmode="numeric" maxlength="8" autocomplete="off" />
               </label>
               <label v-if="simOperation === 'enable_pin'" class="inline-check">
                 <input v-model="simProtectionEnabled" type="checkbox" />
-                <span>开启保护</span>
+                <span>{{ t('device.enableProtection') }}</span>
               </label>
               <button class="primary-action" type="submit" :disabled="simPending">
                 <LoaderCircle v-if="simPending" class="spin" :size="16" />
-                应用
+                {{ t('device.apply') }}
               </button>
             </form>
           </section>
@@ -1572,12 +1657,17 @@ onBeforeUnmount(() => {
 
         <template v-else-if="activeTab === 'voice'">
           <section class="configuration-section">
-            <header><Phone :size="18" /><h4>语音</h4></header>
+            <header><Phone :size="18" /><h4>{{ t('device.voice') }}</h4></header>
             <div class="voice-capabilities">
               <div class="voice-status" :class="{ 'is-available': voiceAvailable }">
                 <CheckCircle2 v-if="voiceAvailable" :size="18" />
                 <AlertCircle v-else :size="18" />
-                <span><strong>通话控制</strong><small>{{ voiceAvailable ? '可用' : '不可用' }}</small></span>
+                <span>
+                  <strong>{{ t('diagnostics.callControl') }}</strong>
+                  <small>
+                    {{ voiceAvailable ? t('device.available') : t('device.unavailable') }}
+                  </small>
+                </span>
               </div>
               <div
                 class="voice-status"
@@ -1585,7 +1675,7 @@ onBeforeUnmount(() => {
               >
                 <RadioTower :size="18" />
                 <span>
-                  <strong>通话路径</strong>
+                  <strong>{{ t('device.callPath') }}</strong>
                   <small>{{ selectedCallPathLabel }}</small>
                 </span>
               </div>
@@ -1603,9 +1693,11 @@ onBeforeUnmount(() => {
           </section>
 
           <section class="configuration-section">
-            <header><PhoneIncoming :size="18" /><h4>来电</h4></header>
+            <header>
+              <PhoneIncoming :size="18" /><h4>{{ t('device.incomingCalls') }}</h4>
+            </header>
             <fieldset class="incoming-policy" :disabled="Boolean(savingOperation)">
-              <legend>线路策略</legend>
+              <legend>{{ t('device.linePolicy') }}</legend>
               <div
                 class="incoming-policy__options"
                 :data-selection="incomingPolicyDraft"
@@ -1618,7 +1710,7 @@ onBeforeUnmount(() => {
                     value="follow_global"
                     @change="applyIncomingPolicy"
                   />
-                  <span>跟随全局</span>
+                  <span>{{ t('device.followGlobal') }}</span>
                 </label>
                 <label>
                   <input
@@ -1627,7 +1719,7 @@ onBeforeUnmount(() => {
                     value="receive"
                     @change="applyIncomingPolicy"
                   />
-                  <span>接听</span>
+                  <span>{{ t('device.receive') }}</span>
                 </label>
                 <label>
                   <input
@@ -1636,19 +1728,25 @@ onBeforeUnmount(() => {
                     value="do_not_disturb"
                     @change="applyIncomingPolicy"
                   />
-                  <span>免打扰</span>
+                  <span>{{ t('device.doNotDisturb') }}</span>
                 </label>
               </div>
             </fieldset>
             <div class="incoming-policy__status">
-              <span>当前</span>
+              <span>{{ t('device.current') }}</span>
               <strong>{{ policyLabel(incomingCalls.effective_policy) }}</strong>
               <small v-if="incomingPolicyDraft === 'follow_global'">
-                全局：{{ incomingCalls.global_receive_calls ? '接听来电' : '免打扰' }}
+                {{
+                  t('device.globalPolicy', {
+                    policy: incomingCalls.global_receive_calls
+                      ? t('device.receiveCalls')
+                      : t('device.doNotDisturb')
+                  })
+                }}
               </small>
             </div>
             <p v-if="incomingCalls.enforcement.config_only" class="inline-warning">
-              当前模组未报告拒接能力
+              {{ t('device.rejectCapabilityMissing') }}
             </p>
           </section>
 
@@ -1656,7 +1754,7 @@ onBeforeUnmount(() => {
             <header><RadioTower :size="18" /><h4>VoLTE</h4></header>
             <label class="configuration-toggle">
               <span>
-                <strong>启用 VoLTE（重启生效）</strong>
+                <strong>{{ t('device.enableVolte') }}</strong>
                 <small v-if="volteStatusDetail">{{ volteStatusDetail }}</small>
                 <small v-else>{{ volteStatusLabel }}</small>
               </span>
@@ -1669,7 +1767,7 @@ onBeforeUnmount(() => {
                 <input
                   type="checkbox"
                   role="switch"
-                  aria-label="启用 VoLTE（重启生效）"
+                  :aria-label="t('device.enableVolte')"
                   :checked="voltePolicyDraft === 'enabled'"
                   :disabled="hardwareBusy || !hardware.capabilities.volte.writable"
                   @change="applyVoLTE"
@@ -1682,8 +1780,8 @@ onBeforeUnmount(() => {
               role="status"
             >
               <span>
-                <strong>等待重启</strong>
-                <small>VoLTE 配置已写入</small>
+                <strong>{{ t('device.waitingRestart') }}</strong>
+                <small>{{ t('device.volteWritten') }}</small>
               </span>
               <button
                 class="primary-action restart-action"
@@ -1697,7 +1795,7 @@ onBeforeUnmount(() => {
                   :size="16"
                 />
                 <RotateCw v-else :size="16" />
-                重启模组
+                {{ t('device.restartModem') }}
               </button>
             </div>
           </section>
@@ -1706,7 +1804,11 @@ onBeforeUnmount(() => {
         <template v-else>
           <section class="configuration-section">
             <header><Send :size="18" /><h4>USSD</h4></header>
-            <StatePanel v-if="ussdLoadStatus === 'loading'" state="loading" title="正在读取 USSD" />
+            <StatePanel
+              v-if="ussdLoadStatus === 'loading'"
+              state="loading"
+              :title="t('device.loadingUSSD')"
+            />
             <p v-else-if="ussdError" class="inline-error">{{ ussdError }}</p>
             <div v-else-if="ussdStatus" class="ussd-status">
               <strong>{{ ussdStatus.state }}</strong>
@@ -1718,7 +1820,7 @@ onBeforeUnmount(() => {
               <button class="primary-action" type="submit" :disabled="ussdPending || !ussdCommand">
                 <LoaderCircle v-if="ussdPending" class="spin" :size="16" />
                 <Send v-else :size="16" />
-                发送
+                {{ t('device.send') }}
               </button>
               <button
                 v-if="ussdStatus && ussdStatus.state !== 'idle'"
@@ -1727,7 +1829,7 @@ onBeforeUnmount(() => {
                 :disabled="ussdPending"
                 @click="submitUSSD('cancel')"
               >
-                取消会话
+                {{ t('device.cancelSession') }}
               </button>
             </form>
             <pre v-if="ussdResult">{{ ussdResult }}</pre>

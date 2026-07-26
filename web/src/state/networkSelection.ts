@@ -8,6 +8,7 @@ import type {
   ResourceStatus
 } from '../api/types'
 import { ApiError } from '../api/types'
+import { translate } from '../i18n'
 
 type ScanStatus = 'idle' | 'loading' | 'ready' | 'error'
 
@@ -35,7 +36,7 @@ export const networkSelectionState = reactive<{
 })
 
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : '请求失败'
+  return error instanceof Error ? error.message : translate('runtime.requestFailed')
 }
 
 function errorStatus(error: unknown): ResourceStatus {
@@ -122,7 +123,7 @@ export async function loadNetworkSelection(lineID: string, force = false): Promi
     const policy = await gateway.getNetworkSelection(normalizedLineID)
     if (!isCurrentRequest(normalizedLineID, context)) return false
     if (policy.line_id !== normalizedLineID) {
-      throw new Error('网络设置返回了错误的线路')
+      throw new Error(translate('runtime.invalidNetworkLine'))
     }
     target.policy = policy
     target.mode = policy.mode
@@ -148,7 +149,9 @@ export async function scanMobileNetworks(lineID: string): Promise<boolean> {
   try {
     const scan = await gateway.scanMobileNetworks(normalizedLineID)
     if (!isCurrentRequest(normalizedLineID, context)) return false
-    if (scan.line_id !== normalizedLineID) throw new Error('网络扫描返回了错误的线路')
+    if (scan.line_id !== normalizedLineID) {
+      throw new Error(translate('runtime.invalidNetworkScanLine'))
+    }
     target.scan = scan
     target.scanStatus = 'ready'
     return true
@@ -192,7 +195,7 @@ async function saveNetworkSelection(
     })
     if (!isCurrentRequest(normalizedLineID, context)) return false
     if (updated.line_id !== normalizedLineID) {
-      throw new Error('网络设置返回了错误的线路')
+      throw new Error(translate('runtime.invalidNetworkLine'))
     }
     target.policy = updated
     target.mode = updated.mode
@@ -206,7 +209,7 @@ async function saveNetworkSelection(
       const latest = await gateway.getNetworkSelection(normalizedLineID)
       if (!isCurrentRequest(normalizedLineID, context)) return false
       if (latest.line_id !== normalizedLineID) {
-        throw new Error('网络设置返回了错误的线路')
+        throw new Error(translate('runtime.invalidNetworkLine'))
       }
       target.policy = latest
       target.mode = latest.mode

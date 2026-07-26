@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { CalendarDays, ChartNoAxesCombined, RadioTower, Waypoints } from '@lucide/vue'
+import { useI18n } from 'vue-i18n'
 
+const { t } = useI18n()
 defineProps<{
   todayBytes: number
   monthBytes: number
@@ -25,32 +27,32 @@ function formatBytes(bytes: number): string {
 </script>
 
 <template>
-  <section class="traffic-summary" aria-label="流量概览">
+  <section class="traffic-summary" :aria-label="t('traffic.overview')">
     <div>
       <span class="traffic-summary__icon"><ChartNoAxesCombined :size="19" /></span>
       <span>
-        <small>今日流量</small>
+        <small>{{ t('traffic.todayTraffic') }}</small>
         <strong>{{ formatBytes(todayBytes) }}</strong>
       </span>
     </div>
     <div>
       <span class="traffic-summary__icon is-blue"><CalendarDays :size="19" /></span>
       <span>
-        <small>本月流量</small>
+        <small>{{ t('traffic.monthTraffic') }}</small>
         <strong>{{ formatBytes(monthBytes) }}</strong>
       </span>
     </div>
     <div>
       <span class="traffic-summary__icon is-green"><RadioTower :size="19" /></span>
       <span>
-        <small>联网线路</small>
+        <small>{{ t('traffic.connectedLines') }}</small>
         <strong>{{ connectedLines }} / {{ totalLines }}</strong>
       </span>
     </div>
     <div>
       <span class="traffic-summary__icon is-rose"><Waypoints :size="19" /></span>
       <span>
-        <small>运行代理</small>
+        <small>{{ t('traffic.runningProxies') }}</small>
         <strong>{{ runningProxies }} / {{ totalProxies }}</strong>
       </span>
     </div>

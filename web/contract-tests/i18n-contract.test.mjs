@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import test from 'node:test'
 import {
   createSystemSettingsPayload,
@@ -27,8 +27,33 @@ function leafKeys(value, prefix = '') {
   })
 }
 
+async function vueFiles(root) {
+  const entries = await readdir(root, { withFileTypes: true })
+  const files = await Promise.all(
+    entries.map(entry => {
+      const url = new URL(`${entry.name}${entry.isDirectory() ? '/' : ''}`, root)
+      if (entry.isDirectory()) return vueFiles(url)
+      return entry.name.endsWith('.vue') ? [url] : []
+    })
+  )
+  return files.flat()
+}
+
 test('Chinese and English catalogs contain the same message keys', () => {
   assert.deepEqual(leafKeys(zhCN).sort(), leafKeys(enUS).sort())
+})
+
+test('English-capable Vue UI has no hard-coded Chinese interface copy', async () => {
+  const roots = [
+    new URL('../src/components/', import.meta.url),
+    new URL('../src/views/', import.meta.url)
+  ]
+  const files = (await Promise.all(roots.map(vueFiles))).flat()
+
+  for (const file of files) {
+    const source = await readFile(file, 'utf8')
+    assert.doesNotMatch(source, /[\u3400-\u9fff]/u, file.pathname)
+  }
 })
 
 test('automatic language follows Chinese browser preferences and otherwise uses English', () => {

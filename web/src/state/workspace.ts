@@ -22,6 +22,7 @@ import type {
   UpdateLineLabelInput
 } from '../api/types'
 import { ApiError } from '../api/types'
+import { translate } from '../i18n'
 import {
   createLineLookup,
   findLine,
@@ -33,7 +34,7 @@ function resource<T>(data: T): Resource<T> {
 }
 
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : '请求失败'
+  return error instanceof Error ? error.message : translate('runtime.requestFailed')
 }
 
 async function load<T>(target: Resource<T>, loader: () => Promise<T>): Promise<T | null> {
@@ -93,12 +94,15 @@ const requestThreadRead = createMessageReadCoordinator(input => gateway.markThre
 
 export function capabilityReason(capability: 'dial' | 'message'): string {
   const bootstrap = bootstrapResource.data
-  if (!bootstrap) return '通信能力尚未载入'
+  if (!bootstrap) return translate('runtime.capabilityNotLoaded')
   const available = bootstrap.capabilities[capability]
   if (!available) {
-    return bootstrap.capabilities.unavailable_reasons?.[capability] || 'Host agent 未提供此能力'
+    return (
+      bootstrap.capabilities.unavailable_reasons?.[capability] ||
+      translate('runtime.hostCapabilityMissing')
+    )
   }
-  if (!gateway.interactions[capability]) return '当前版本尚未开放此控制接口'
+  if (!gateway.interactions[capability]) return translate('runtime.controlUnavailable')
   return ''
 }
 
@@ -114,7 +118,9 @@ export function lineLabel(line: LineSummary): string {
   if (moduleName) return moduleName
 
   const identifier = (line.iccid || line.id || line.device_imei).trim()
-  return identifier ? `线路 ${identifier.slice(-4)}` : '未命名线路'
+  return identifier
+    ? translate('runtime.lineSuffix', { suffix: identifier.slice(-4) })
+    : translate('runtime.unnamedLine')
 }
 
 export function lineName(key: string): string {
@@ -268,7 +274,7 @@ export async function updateLineLabel(
   const saved = await gateway.updateLineLabel(iccid, input)
   const normalizedICCID = iccid.trim()
   if (saved.iccid !== normalizedICCID) {
-    throw new ApiError('线路标签响应与请求线路不一致', 0, 'invalid_response')
+    throw new ApiError(translate('runtime.lineLabelMismatch'), 0, 'invalid_response')
   }
   const line = bootstrapResource.data?.lines.find(item => item.iccid === normalizedICCID)
   if (line) line.line_label = saved.line_label
@@ -405,19 +411,19 @@ function markArrival(
 function messageReadError(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.code === 'authentication_required' || error.code === 'csrf_failed') {
-      return '无法标记已读：登录校验已失效，请刷新页面后重试'
+      return translate('runtime.markReadUnauthorized')
     }
     if (error.code === 'message_thread_not_found') {
-      return '无法标记已读：这段会话已不存在，请刷新消息列表'
+      return translate('runtime.markReadMissing')
     }
     if (error.code === 'message_thread_identity_invalid') {
-      return '无法标记已读：线路身份不明确，请刷新消息列表'
+      return translate('runtime.markReadAmbiguousLine')
     }
     if (error.code === 'internal_error') {
-      return '无法标记已读：服务端未能保存状态，请稍后重试'
+      return translate('runtime.markReadSaveFailed')
     }
   }
-  return `无法标记已读：${errorText(error)}`
+  return translate('runtime.markReadFailed', { error: errorText(error) })
 }
 
 export async function markThreadRead(thread: MessageThread): Promise<boolean> {
@@ -441,7 +447,7 @@ export async function markThreadRead(thread: MessageThread): Promise<boolean> {
 
 export async function updateDefaultLine(deviceIMEI: string): Promise<void> {
   const bootstrap = bootstrapResource.data
-  if (!bootstrap) throw new Error('线路设置尚未载入')
+  if (!bootstrap) throw new Error(translate('runtime.lineSettingsNotLoaded'))
   const settings = await gateway.updateLineSettings({
     default_device_imei: deviceIMEI,
     expected_revision: bootstrap.line_settings.revision
@@ -452,10 +458,10 @@ export async function updateDefaultLine(deviceIMEI: string): Promise<void> {
 export async function saveContact(input: ContactInput, id?: string): Promise<Contact> {
   let saved: Contact
   if (id) {
-    if (!gateway.updateContact) throw new Error('当前版本不支持联系人写入')
+    if (!gateway.updateContact) throw new Error(translate('runtime.contactWriteUnsupported'))
     saved = await gateway.updateContact(id, input)
   } else {
-    if (!gateway.createContact) throw new Error('当前版本不支持联系人写入')
+    if (!gateway.createContact) throw new Error(translate('runtime.contactWriteUnsupported'))
     saved = await gateway.createContact(input)
   }
   contactsResource.data = contactsResource.data
@@ -467,7 +473,7 @@ export async function saveContact(input: ContactInput, id?: string): Promise<Con
 }
 
 export async function deleteContact(contact: Contact): Promise<void> {
-  if (!gateway.deleteContact) throw new Error('当前版本不支持联系人写入')
+  if (!gateway.deleteContact) throw new Error(translate('runtime.contactWriteUnsupported'))
   await gateway.deleteContact(contact.id, contact.revision)
   contactsResource.data = contactsResource.data.filter(item => item.id !== contact.id)
 }

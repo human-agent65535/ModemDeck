@@ -1,6 +1,7 @@
 import { reactive, watch } from 'vue'
 import { gateway } from '../api/client'
 import type { CallSession } from '../api/types'
+import { translate } from '../i18n'
 import {
   applySelectedAudioOutput,
   audioState,
@@ -86,13 +87,15 @@ function setIdle(status: 'idle' | 'unavailable', callID = ''): void {
 
 function mediaError(error: unknown): string {
   if (error instanceof DOMException) {
-    if (error.name === 'NotAllowedError') return '未授权浏览器使用麦克风'
+    if (error.name === 'NotAllowedError') return translate('runtime.microphoneUnauthorized')
     if (error.name === 'NotFoundError' || error.name === 'OverconstrainedError') {
-      return audioState.selectedInputID ? '所选麦克风当前不可用' : '未找到可用麦克风'
+      return audioState.selectedInputID
+        ? translate('runtime.microphoneUnavailable')
+        : translate('runtime.noMicrophone')
     }
-    if (error.name === 'NotReadableError') return '麦克风无法读取，可能正被其他应用占用'
+    if (error.name === 'NotReadableError') return translate('runtime.microphoneBusy')
   }
-  return error instanceof Error ? error.message : '无法建立通话音频'
+  return error instanceof Error ? error.message : translate('runtime.callAudioFailed')
 }
 
 function waitForICEGathering(connection: RTCPeerConnection): Promise<void> {
@@ -101,7 +104,7 @@ function waitForICEGathering(connection: RTCPeerConnection): Promise<void> {
   return new Promise((resolve, reject) => {
     const timeout = window.setTimeout(() => {
       connection.removeEventListener('icegatheringstatechange', onStateChange)
-      reject(new Error('浏览器音频协商超时'))
+      reject(new Error(translate('runtime.audioNegotiationTimeout')))
     }, ICE_GATHERING_TIMEOUT_MS)
     const onStateChange = () => {
       if (connection.iceGatheringState !== 'complete') return
@@ -156,7 +159,7 @@ async function connect(callID: string, token: number): Promise<void> {
   try {
     callMediaState.status = 'requesting'
     if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('浏览器需要通过 HTTPS 才能使用麦克风')
+      throw new Error(translate('runtime.microphoneHTTPSRequired'))
     }
     const microphone = await navigator.mediaDevices.getUserMedia({
       audio: selectedAudioInputConstraints(),
@@ -192,9 +195,9 @@ async function connect(callID: string, token: number): Promise<void> {
       } else if (connection.connectionState === 'connecting') {
         callMediaState.status = 'connecting'
       } else if (connection.connectionState === 'disconnected') {
-        failConnection(callID, token, new Error('通话音频连接已断开'))
+        failConnection(callID, token, new Error(translate('runtime.callAudioDisconnected')))
       } else if (connection.connectionState === 'failed') {
-        failConnection(callID, token, new Error('通话音频连接失败'))
+        failConnection(callID, token, new Error(translate('runtime.callAudioConnectionFailed')))
       }
     }
 
@@ -207,7 +210,7 @@ async function connect(callID: string, token: number): Promise<void> {
     if (generation !== token || currentCallID !== callID) return
 
     const offerSDP = connection.localDescription?.sdp
-    if (!offerSDP) throw new Error('浏览器没有生成音频协商信息')
+    if (!offerSDP) throw new Error(translate('runtime.audioOfferMissing'))
     callMediaState.status = 'connecting'
     const answerSDP = await gateway.exchangeCallMedia(callID, offerSDP)
     if (generation !== token || currentCallID !== callID) return
@@ -288,7 +291,7 @@ async function replaceCallInput(deviceID: string): Promise<void> {
     const sender = connection
       .getSenders()
       .find(candidate => candidate.track?.kind === 'audio')
-    if (!newTrack || !sender) throw new Error('当前通话没有可替换的麦克风轨道')
+    if (!newTrack || !sender) throw new Error(translate('runtime.microphoneTrackMissing'))
 
     await sender.replaceTrack(newTrack)
     if (

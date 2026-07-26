@@ -120,7 +120,7 @@ test('settings edit only the ICCID-backed line label', () => {
   assert.match(devicePanelSource, /!selectedLine\?\.iccid/)
   assert.match(devicePanelSource, /updateLineLabel\(line\.iccid,\s*\{\s*line_label: value\s*\}\)/)
   assert.match(devicePanelSource, /lineLabelDraft\.value = selectedLine\.value\?\.line_label \|\| ''/)
-  assert.match(devicePanelSource, /`\$\{selectedLineFallback\}（建议）`/)
+  assert.match(devicePanelSource, /t\('device\.suggested', \{ label: selectedLineFallback \}\)/)
   assert.match(workspaceSource, /gateway\.updateLineLabel\(iccid, input\)/)
   assert.match(workspaceSource, /if \(saved\.iccid !== normalizedICCID\)/)
   assert.match(workspaceSource, /line\.line_label = saved\.line_label/)

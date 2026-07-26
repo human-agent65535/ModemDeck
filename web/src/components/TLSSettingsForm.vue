@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -20,13 +21,7 @@ import { requestConfirmation } from '../state/confirmation'
 const MAX_PEM_BYTES = 1024 * 1024
 const PEM_ACCEPT =
   '.pem,.crt,.cer,.key,application/x-pem-file,application/pem-certificate-chain,text/plain'
-const timestampFormatter = new Intl.DateTimeFormat('zh-CN', {
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit'
-})
+const { t, locale } = useI18n()
 
 const settings = ref<TLSSettings | null>(null)
 const loading = ref(true)
@@ -43,14 +38,24 @@ const certificateInput = ref<HTMLInputElement | null>(null)
 const privateKeyInput = ref<HTMLInputElement | null>(null)
 
 const modeLabel = computed(() =>
-  settings.value?.mode === 'automatic' ? '自动证书' : '用户证书'
+  settings.value?.mode === 'automatic'
+    ? t('tls.automaticCertificate')
+    : t('tls.userCertificate')
 )
 const renewalLabel = computed(() =>
-  settings.value?.renews_automatically ? '自动续期' : '不自动续期'
+  settings.value?.renews_automatically
+    ? t('tls.automaticRenewal')
+    : t('tls.noAutomaticRenewal')
 )
 
 function formatTimestamp(value: string): string {
-  return timestampFormatter.format(new Date(value))
+  return new Intl.DateTimeFormat(locale.value, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(new Date(value))
 }
 
 function formatFileSize(bytes: number): string {
@@ -60,7 +65,7 @@ function formatFileSize(bytes: number): string {
 
 function errorMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiError && error.status === 403) {
-    return '当前账户无权修改 HTTPS 证书'
+    return t('tls.updateForbidden')
   }
   return error instanceof Error && error.message ? error.message : fallback
 }
@@ -71,7 +76,7 @@ async function loadTLSSettings(): Promise<void> {
   try {
     settings.value = await gateway.getTLSSettings()
   } catch (error) {
-    loadError.value = errorMessage(error, '无法载入 HTTPS 证书设置')
+    loadError.value = errorMessage(error, t('tls.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -85,28 +90,32 @@ function handleFileSelection(kind: 'certificate' | 'private-key', event: Event):
   operationError.value = ''
   if (kind === 'certificate') {
     certificateFile.value = tooLarge ? null : file
-    certificateError.value = tooLarge ? '证书文件不能超过 1 MiB' : ''
+    certificateError.value = tooLarge ? t('tls.certificateTooLarge') : ''
   } else {
     privateKeyFile.value = tooLarge ? null : file
-    privateKeyError.value = tooLarge ? '私钥文件不能超过 1 MiB' : ''
+    privateKeyError.value = tooLarge ? t('tls.privateKeyTooLarge') : ''
   }
   if (tooLarge) input.value = ''
 }
 
 async function readPEM(file: File, kind: 'certificate' | 'private-key'): Promise<string> {
   if (file.size > MAX_PEM_BYTES) {
-    throw new Error(kind === 'certificate' ? '证书文件不能超过 1 MiB' : '私钥文件不能超过 1 MiB')
+    throw new Error(
+      kind === 'certificate' ? t('tls.certificateTooLarge') : t('tls.privateKeyTooLarge')
+    )
   }
 
   let text: string
   try {
     text = await file.text()
   } catch {
-    throw new Error(kind === 'certificate' ? '无法读取证书文件' : '无法读取私钥文件')
+    throw new Error(
+      kind === 'certificate' ? t('tls.readCertificateFailed') : t('tls.readPrivateKeyFailed')
+    )
   }
   if (!text.trim() || text.includes('\0') || text.includes('\uFFFD')) {
     throw new Error(
-      kind === 'certificate' ? '证书必须是文本 PEM 文件' : '私钥必须是文本 PEM 文件'
+      kind === 'certificate' ? t('tls.certificateMustBePEM') : t('tls.privateKeyMustBePEM')
     )
   }
   const validPEM =
@@ -117,7 +126,7 @@ async function readPEM(file: File, kind: 'certificate' | 'private-key'): Promise
         )
   if (!validPEM) {
     throw new Error(
-      kind === 'certificate' ? '证书文件缺少有效的 PEM 标记' : '私钥文件缺少有效的 PEM 标记'
+      kind === 'certificate' ? t('tls.certificateInvalidPEM') : t('tls.privateKeyInvalidPEM')
     )
   }
   return text
@@ -134,8 +143,8 @@ function clearSelectedFiles(): void {
 
 async function installUserCertificate(): Promise<void> {
   operationError.value = ''
-  certificateError.value = certificateFile.value ? '' : '请选择证书 PEM 文件'
-  privateKeyError.value = privateKeyFile.value ? '' : '请选择私钥 PEM 文件'
+  certificateError.value = certificateFile.value ? '' : t('tls.selectCertificate')
+  privateKeyError.value = privateKeyFile.value ? '' : t('tls.selectPrivateKey')
   if (!certificateFile.value || !privateKeyFile.value || saving.value) return
 
   saving.value = true
@@ -145,12 +154,12 @@ async function installUserCertificate(): Promise<void> {
     try {
       certificatePEM = await readPEM(certificateFile.value, 'certificate')
     } catch (error) {
-      certificateError.value = errorMessage(error, '无法读取证书文件')
+      certificateError.value = errorMessage(error, t('tls.readCertificateFailed'))
     }
     try {
       privateKeyPEM = await readPEM(privateKeyFile.value, 'private-key')
     } catch (error) {
-      privateKeyError.value = errorMessage(error, '无法读取私钥文件')
+      privateKeyError.value = errorMessage(error, t('tls.readPrivateKeyFailed'))
     }
     if (certificateError.value || privateKeyError.value) return
 
@@ -161,9 +170,9 @@ async function installUserCertificate(): Promise<void> {
     })
     clearSelectedFiles()
     connectionNotice.value =
-      '证书设置已保存。当前 HTTPS 连接可能仍使用旧证书，请按需刷新页面。'
+      t('tls.savedNotice')
   } catch (error) {
-    operationError.value = errorMessage(error, '无法安装用户证书')
+    operationError.value = errorMessage(error, t('tls.installFailed'))
   } finally {
     saving.value = false
   }
@@ -172,9 +181,9 @@ async function installUserCertificate(): Promise<void> {
 async function useAutomaticCertificate(): Promise<void> {
   if (saving.value) return
   const confirmed = await requestConfirmation({
-    title: '使用自动证书？',
-    message: '将停止使用当前用户证书。当前 HTTPS 连接可能需要刷新。',
-    confirmLabel: '使用自动证书'
+    title: t('tls.useAutomaticTitle'),
+    message: t('tls.useAutomaticMessage'),
+    confirmLabel: t('tls.useAutomatic')
   })
   if (!confirmed) return
 
@@ -183,9 +192,9 @@ async function useAutomaticCertificate(): Promise<void> {
   try {
     settings.value = await gateway.updateTLSSettings({ operation: 'use_automatic' })
     connectionNotice.value =
-      '证书设置已保存。当前 HTTPS 连接可能仍使用旧证书，请按需刷新页面。'
+      t('tls.savedNotice')
   } catch (error) {
-    operationError.value = errorMessage(error, '无法切换到自动证书')
+    operationError.value = errorMessage(error, t('tls.switchFailed'))
   } finally {
     saving.value = false
   }
@@ -200,14 +209,14 @@ onMounted(() => {
   <section class="tls-settings" aria-labelledby="tls-settings-title">
     <div v-if="loading" class="tls-settings__state" role="status">
       <LoaderCircle class="spin" :size="18" />
-      <span>正在载入 HTTPS 证书</span>
+      <span>{{ t('tls.loading') }}</span>
     </div>
 
     <div v-else-if="loadError" class="tls-settings__state tls-settings__state--error" role="alert">
       <span>{{ loadError }}</span>
       <button class="secondary-button" type="button" @click="loadTLSSettings">
         <RefreshCw :size="15" />
-        <span>重试</span>
+        <span>{{ t('common.retry') }}</span>
       </button>
     </div>
 
@@ -215,12 +224,12 @@ onMounted(() => {
       <header class="tls-summary">
         <span class="tls-summary__icon"><ShieldCheck :size="21" /></span>
         <div class="tls-summary__heading">
-          <h3 id="tls-settings-title">当前证书</h3>
+          <h3 id="tls-settings-title">{{ t('tls.currentCertificate') }}</h3>
           <p>{{ modeLabel }} · {{ renewalLabel }}</p>
         </div>
-        <div class="tls-summary__status" aria-label="证书状态">
+        <div class="tls-summary__status" :aria-label="t('tls.certificateStatus')">
           <span class="status-label" :class="{ 'status-label--danger': settings.expired }">
-            {{ settings.expired ? '已过期' : '有效' }}
+            {{ settings.expired ? t('tls.expired') : t('tls.valid') }}
           </span>
           <span class="status-label status-label--neutral">{{ modeLabel }}</span>
         </div>
@@ -232,36 +241,36 @@ onMounted(() => {
         role="alert"
       >
         <AlertTriangle :size="16" />
-        <span>用户证书已过期，不会自动替换。</span>
+        <span>{{ t('tls.expiredWarning') }}</span>
       </p>
 
       <dl class="tls-facts">
         <div>
-          <dt>生效时间</dt>
+          <dt>{{ t('tls.validFrom') }}</dt>
           <dd>{{ formatTimestamp(settings.not_before) }}</dd>
         </div>
         <div>
-          <dt>到期时间</dt>
+          <dt>{{ t('tls.expiresAt') }}</dt>
           <dd>{{ formatTimestamp(settings.not_after) }}</dd>
         </div>
         <div class="tls-facts__wide">
-          <dt>主题</dt>
-          <dd>{{ settings.subject || '未提供' }}</dd>
+          <dt>{{ t('tls.subject') }}</dt>
+          <dd>{{ settings.subject || t('tls.notProvided') }}</dd>
         </div>
         <div class="tls-facts__wide">
-          <dt>签发者</dt>
-          <dd>{{ settings.issuer || '未提供' }}</dd>
+          <dt>{{ t('tls.issuer') }}</dt>
+          <dd>{{ settings.issuer || t('tls.notProvided') }}</dd>
         </div>
         <div class="tls-facts__wide">
           <dt>DNS SAN</dt>
-          <dd>{{ settings.dns_names.join('、') || '无' }}</dd>
+          <dd>{{ settings.dns_names.join(t('common.listSeparator')) || t('common.none') }}</dd>
         </div>
         <div class="tls-facts__wide">
           <dt>IP SAN</dt>
-          <dd>{{ settings.ip_addresses.join('、') || '无' }}</dd>
+          <dd>{{ settings.ip_addresses.join(t('common.listSeparator')) || t('common.none') }}</dd>
         </div>
         <div class="tls-facts__wide">
-          <dt>SHA-256 指纹</dt>
+          <dt>{{ t('tls.fingerprint') }}</dt>
           <dd><code>{{ settings.fingerprint_sha256 }}</code></dd>
         </div>
       </dl>
@@ -269,16 +278,16 @@ onMounted(() => {
       <div v-if="settings.mode === 'automatic'" class="tls-ca-download">
         <a class="secondary-button" :href="tlsCAPath">
           <Download :size="16" />
-          <span>下载根证书</span>
+          <span>{{ t('tls.downloadRoot') }}</span>
         </a>
-        <p>导入系统信任库后，浏览器音频与通知才能正常使用</p>
+        <p>{{ t('tls.trustHint') }}</p>
       </div>
 
       <section class="tls-install" aria-labelledby="tls-install-title">
         <header>
           <div>
-            <h3 id="tls-install-title">安装用户证书</h3>
-            <p>证书和私钥需为 PEM 文本，每个文件最大 1 MiB。</p>
+            <h3 id="tls-install-title">{{ t('tls.installUser') }}</h3>
+            <p>{{ t('tls.pemHint') }}</p>
           </div>
           <button
             v-if="settings.mode === 'user'"
@@ -288,14 +297,14 @@ onMounted(() => {
             @click="useAutomaticCertificate"
           >
             <RefreshCw :size="16" />
-            <span>使用自动证书</span>
+            <span>{{ t('tls.useAutomatic') }}</span>
           </button>
         </header>
 
         <form @submit.prevent="installUserCertificate">
           <div class="tls-file-grid">
             <div class="tls-file-field" :class="{ 'has-error': certificateError }">
-              <span class="tls-file-field__label">证书 PEM</span>
+              <span class="tls-file-field__label">{{ t('tls.certificatePEM') }}</span>
               <label
                 class="tls-file-picker"
                 :class="{ 'is-disabled': saving }"
@@ -303,12 +312,12 @@ onMounted(() => {
               >
                 <FileText :size="18" />
                 <span>
-                  <strong>{{ certificateFile?.name || '选择证书文件' }}</strong>
+                  <strong>{{ certificateFile?.name || t('tls.chooseCertificate') }}</strong>
                   <small>
                     {{
                       certificateFile
                         ? formatFileSize(certificateFile.size)
-                        : '证书或证书链'
+                        : t('tls.certificateChain')
                     }}
                   </small>
                 </span>
@@ -334,7 +343,7 @@ onMounted(() => {
             </div>
 
             <div class="tls-file-field" :class="{ 'has-error': privateKeyError }">
-              <span class="tls-file-field__label">私钥 PEM</span>
+              <span class="tls-file-field__label">{{ t('tls.privateKeyPEM') }}</span>
               <label
                 class="tls-file-picker"
                 :class="{ 'is-disabled': saving }"
@@ -342,9 +351,13 @@ onMounted(() => {
               >
                 <KeyRound :size="18" />
                 <span>
-                  <strong>{{ privateKeyFile?.name || '选择私钥文件' }}</strong>
+                  <strong>{{ privateKeyFile?.name || t('tls.choosePrivateKey') }}</strong>
                   <small>
-                    {{ privateKeyFile ? formatFileSize(privateKeyFile.size) : '匹配证书的私钥' }}
+                    {{
+                      privateKeyFile
+                        ? formatFileSize(privateKeyFile.size)
+                        : t('tls.matchingPrivateKey')
+                    }}
                   </small>
                 </span>
               </label>
@@ -382,7 +395,7 @@ onMounted(() => {
             <button class="primary-button" type="submit" :disabled="saving">
               <LoaderCircle v-if="saving" class="spin" :size="17" />
               <Upload v-else :size="17" />
-              <span>安装证书</span>
+              <span>{{ t('tls.install') }}</span>
             </button>
           </footer>
         </form>

@@ -51,6 +51,6 @@ test('dangerous device, contact, and proxy actions await the shared confirmation
   }
 
   const devicePanel = source('../src/components/DeviceConfigurationPanel.vue')
-  assert.match(devicePanel, /启用 VoLTE（重启生效）/)
-  assert.match(devicePanel, /保存（重启生效）/)
+  assert.match(devicePanel, /t\('device\.enableVolte'\)/)
+  assert.match(devicePanel, /t\('device\.saveRestartRequired'\)/)
 })

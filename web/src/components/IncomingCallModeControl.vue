@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   AlertCircle,
   BellOff,
@@ -14,6 +15,7 @@ import {
   updateGlobalIncomingCallSettings
 } from '../state/deviceConfiguration'
 
+const { t } = useI18n()
 const root = ref<HTMLElement | null>(null)
 const trigger = ref<HTMLButtonElement | null>(null)
 const menu = ref<HTMLElement | null>(null)
@@ -24,10 +26,10 @@ const menuId = `incoming-call-mode-${useId()}`
 const receiveCalls = computed(() => globalIncomingCallState.data?.receive_calls)
 const label = computed(() =>
   receiveCalls.value === undefined
-    ? '来电设置'
+    ? t('incomingCallMode.settings')
     : receiveCalls.value
-      ? '接听来电'
-      : '免打扰'
+      ? t('incomingCallMode.receive')
+      : t('incomingCallMode.doNotDisturb')
 )
 
 function enabledOptions(): HTMLButtonElement[] {
@@ -162,12 +164,12 @@ onBeforeUnmount(() => {
       class="incoming-call-mode__menu"
       role="menu"
       tabindex="-1"
-      aria-label="全局来电策略"
+      :aria-label="t('incomingCallMode.globalPolicy')"
       @keydown="onMenuKeydown"
     >
       <header>
-        <strong>全局来电策略</strong>
-        <small>所有选择“跟随全局”的线路都会使用此设置</small>
+        <strong>{{ t('incomingCallMode.globalPolicy') }}</strong>
+        <small>{{ t('incomingCallMode.globalPolicyDescription') }}</small>
       </header>
 
       <button
@@ -180,8 +182,8 @@ onBeforeUnmount(() => {
       >
         <span class="incoming-call-mode__option-icon"><PhoneIncoming :size="17" /></span>
         <span>
-          <strong>接听来电</strong>
-          <small>允许新来电正常响铃</small>
+          <strong>{{ t('incomingCallMode.receive') }}</strong>
+          <small>{{ t('incomingCallMode.receiveDescription') }}</small>
         </span>
         <LoaderCircle
           v-if="globalIncomingCallState.saving && receiveCalls === false"
@@ -201,8 +203,8 @@ onBeforeUnmount(() => {
       >
         <span class="incoming-call-mode__option-icon"><BellOff :size="17" /></span>
         <span>
-          <strong>免打扰</strong>
-          <small>作为跟随全局线路的来电偏好</small>
+          <strong>{{ t('incomingCallMode.doNotDisturb') }}</strong>
+          <small>{{ t('incomingCallMode.doNotDisturbDescription') }}</small>
         </span>
         <LoaderCircle
           v-if="globalIncomingCallState.saving && receiveCalls === true"
@@ -212,11 +214,15 @@ onBeforeUnmount(() => {
         <Check v-else-if="receiveCalls === false" :size="17" />
       </button>
 
-      <p class="incoming-call-mode__notice">线路实际执行能力见设备设置。</p>
+      <p class="incoming-call-mode__notice">
+        {{ t('incomingCallMode.deviceCapabilityNotice') }}
+      </p>
       <p v-if="globalIncomingCallState.error" class="incoming-call-mode__error" role="alert">
         <AlertCircle :size="15" />
         <span>{{ globalIncomingCallState.error }}</span>
-        <button type="button" @click="loadGlobalIncomingCallSettings(true)">重新读取</button>
+        <button type="button" @click="loadGlobalIncomingCallSettings(true)">
+          {{ t('incomingCallMode.reload') }}
+        </button>
       </p>
     </section>
   </div>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Check, LoaderCircle, Plus, Save, Trash2, X } from '@lucide/vue'
 import type { LineSummary, TelegramUnit } from '../api/types'
 import { ApiError } from '../api/types'
@@ -15,6 +16,7 @@ import {
 } from '../state/workspace'
 import StatePanel from './StatePanel.vue'
 
+const { t } = useI18n()
 const selectedID = ref('')
 const creating = ref(false)
 const draftReturnID = ref('')
@@ -51,18 +53,18 @@ const scopeOptions = computed(() => {
   }))
   for (const scope of lineScopes.value) {
     if (!options.some(option => option.id === scope)) {
-      options.push({ id: scope, label: '未知线路' })
+      options.push({ id: scope, label: t('telegram.unknownLine') })
     }
   }
   return options
 })
 const tokenConfigured = computed(() => selectedUnit.value?.token_configured === true)
 const validationError = computed(() => {
-  if (!displayName.value.trim()) return '请输入名称'
-  if (!chatID.value.trim()) return '请输入 Chat ID'
-  if (!adminID.value.trim()) return '请输入管理员 ID'
-  if (creating.value && !botToken.value.trim()) return '新建 Bot 需要 token'
-  if (!allLines.value && lineScopes.value.length === 0) return '请选择至少一条线路'
+  if (!displayName.value.trim()) return t('telegram.enterName')
+  if (!chatID.value.trim()) return t('telegram.enterChatID')
+  if (!adminID.value.trim()) return t('telegram.enterAdminID')
+  if (creating.value && !botToken.value.trim()) return t('telegram.tokenRequired')
+  if (!allLines.value && lineScopes.value.length === 0) return t('telegram.selectLine')
   return ''
 })
 
@@ -200,10 +202,10 @@ async function submit(): Promise<void> {
   } catch (error) {
     saveError.value =
       error instanceof ApiError && error.status === 403
-        ? '当前账户无权修改 Telegram Bot'
+        ? t('telegram.updateForbidden')
         : error instanceof Error
           ? error.message
-          : '无法保存 Telegram Bot'
+          : t('telegram.saveFailed')
   } finally {
     saving.value = false
   }
@@ -227,10 +229,10 @@ async function remove(): Promise<void> {
   } catch (error) {
     saveError.value =
       error instanceof ApiError && error.status === 403
-        ? '当前账户无权删除 Telegram Bot'
+        ? t('telegram.deleteForbidden')
         : error instanceof Error
           ? error.message
-          : '无法删除 Telegram Bot'
+          : t('telegram.deleteFailed')
   } finally {
     deleting.value = false
     deleteConfirm.value = false
@@ -246,18 +248,18 @@ onMounted(() => {
   <StatePanel
     v-if="telegramResource.status === 'loading' || telegramResource.status === 'idle'"
     state="loading"
-    title="正在载入 Telegram Bot"
+    :title="t('telegram.loading')"
   />
   <StatePanel
     v-else-if="telegramResource.status === 'forbidden'"
     state="forbidden"
-    title="无权查看 Telegram 设置"
+    :title="t('telegram.viewForbidden')"
     :detail="telegramResource.error"
   />
   <StatePanel
     v-else-if="telegramResource.status === 'error'"
     state="error"
-    title="无法载入 Telegram 设置"
+    :title="t('telegram.loadFailed')"
     :detail="telegramResource.error"
     retryable
     @retry="loadTelegramUnits(true)"
@@ -269,15 +271,15 @@ onMounted(() => {
         <button
           class="icon-button"
           type="button"
-          title="新建 Bot"
-          aria-label="新建 Telegram Bot"
+          :title="t('telegram.newBot')"
+          :aria-label="t('telegram.newTelegramBot')"
           @click="startCreate"
         >
           <Plus :size="18" />
         </button>
       </header>
       <div v-if="telegramResource.data.length === 0 && !creating" class="telegram-unit-empty">
-        还没有 Telegram Bot
+        {{ t('telegram.empty') }}
       </div>
       <button
         v-if="creating"
@@ -287,8 +289,8 @@ onMounted(() => {
       >
         <span class="telegram-unit-row__status" />
         <span>
-          <strong>{{ displayName.trim() || '未命名 Bot' }}</strong>
-          <small>未保存</small>
+          <strong>{{ displayName.trim() || t('telegram.unnamed') }}</strong>
+          <small>{{ t('telegram.unsaved') }}</small>
         </span>
       </button>
       <button
@@ -311,20 +313,20 @@ onMounted(() => {
       <StatePanel
         v-if="!creating && !selectedUnit"
         state="empty"
-        title="选择或新建 Telegram Bot"
+        :title="t('telegram.selectOrCreate')"
       />
       <form v-else class="settings-form" @submit.prevent="submit">
         <div class="telegram-form-heading">
-          <h3>{{ creating ? '新建 Bot' : 'Bot 设置' }}</h3>
+          <h3>{{ creating ? t('telegram.newBot') : t('telegram.botSettings') }}</h3>
           <label class="compact-switch">
-            <span>启用</span>
+            <span>{{ t('telegram.enabled') }}</span>
             <input v-model="enabled" type="checkbox" role="switch" />
           </label>
         </div>
 
         <div class="settings-form-grid">
           <label class="field">
-            <span>名称</span>
+            <span>{{ t('telegram.name') }}</span>
             <input v-model="displayName" type="text" autocomplete="off" :disabled="saving || deleting" />
           </label>
           <label class="field">
@@ -332,7 +334,7 @@ onMounted(() => {
             <input v-model="chatID" type="text" autocomplete="off" :disabled="saving || deleting" />
           </label>
           <label class="field">
-            <span>管理员 ID</span>
+            <span>{{ t('telegram.administratorID') }}</span>
             <input v-model="adminID" type="text" autocomplete="off" :disabled="saving || deleting" />
           </label>
           <label class="field">
@@ -341,21 +343,23 @@ onMounted(() => {
               v-model="botToken"
               type="password"
               autocomplete="new-password"
-              :placeholder="tokenConfigured ? '已配置' : ''"
+              :placeholder="tokenConfigured ? t('telegram.configured') : ''"
               :disabled="saving || deleting"
             />
-            <small class="field-status">{{ tokenConfigured ? '已配置' : '未配置' }}</small>
+            <small class="field-status">
+              {{ tokenConfigured ? t('telegram.configured') : t('telegram.notConfigured') }}
+            </small>
           </label>
         </div>
 
         <fieldset class="telegram-options">
-          <legend>通知</legend>
-          <label><input v-model="incomingSMS" type="checkbox" />收到短信</label>
-          <label><input v-model="missedCalls" type="checkbox" />未接来电</label>
+          <legend>{{ t('telegram.notifications') }}</legend>
+          <label><input v-model="incomingSMS" type="checkbox" />{{ t('telegram.incomingSMS') }}</label>
+          <label><input v-model="missedCalls" type="checkbox" />{{ t('telegram.missedCalls') }}</label>
         </fieldset>
 
         <fieldset class="telegram-options telegram-line-scopes">
-          <legend>线路范围</legend>
+          <legend>{{ t('telegram.lineScope') }}</legend>
           <label>
             <input
               :checked="allLines"
@@ -363,7 +367,7 @@ onMounted(() => {
               :disabled="saving || deleting"
               @click.prevent="selectAllLines"
             />
-            全部线路
+            {{ t('telegram.allLines') }}
           </label>
           <label v-for="line in scopeOptions" :key="line.id">
             <input
@@ -385,7 +389,7 @@ onMounted(() => {
             @click="cancelCreate"
           >
             <X :size="16" />
-            <span>取消</span>
+            <span>{{ t('common.cancel') }}</span>
           </button>
           <button
             v-else-if="selectedUnit"
@@ -396,14 +400,16 @@ onMounted(() => {
           >
             <LoaderCircle v-if="deleting" class="spin" :size="16" />
             <Trash2 v-else :size="16" />
-            <span>{{ deleteConfirm ? '确认删除' : '删除' }}</span>
+            <span>{{ deleteConfirm ? t('telegram.confirmDelete') : t('common.delete') }}</span>
           </button>
           <span v-else />
 
           <div class="settings-form-feedback">
             <p v-if="validationError" class="field-error" role="alert">{{ validationError }}</p>
             <p v-else-if="saveError" class="field-error" role="alert">{{ saveError }}</p>
-            <span v-else-if="saved" class="save-status"><Check :size="15" />已保存</span>
+            <span v-else-if="saved" class="save-status">
+              <Check :size="15" />{{ t('telegram.saved') }}
+            </span>
           </div>
 
           <button
@@ -413,7 +419,7 @@ onMounted(() => {
           >
             <LoaderCircle v-if="saving" class="spin" :size="17" />
             <Save v-else :size="17" />
-            <span>保存</span>
+            <span>{{ t('common.save') }}</span>
           </button>
         </footer>
       </form>

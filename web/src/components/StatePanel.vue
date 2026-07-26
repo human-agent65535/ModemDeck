@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { AlertCircle, Inbox, LoaderCircle, ShieldAlert } from '@lucide/vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 withDefaults(
   defineProps<{
@@ -26,7 +29,7 @@ const emit = defineEmits<{ retry: [] }>()
     <strong>{{ title }}</strong>
     <p v-if="detail">{{ detail }}</p>
     <button v-if="state === 'error' && retryable" class="text-button" type="button" @click="emit('retry')">
-      重试
+      {{ t('common.retry') }}
     </button>
   </div>
 </template>

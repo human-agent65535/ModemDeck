@@ -23,6 +23,7 @@ import {
   XCircle
 } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { fixtureMode, gateway } from '../api/client'
 import type {
   DiagnosticActiveCall,
@@ -51,6 +52,7 @@ type LogConnectionState =
   | 'fixture'
   | 'error'
 
+const { t, locale } = useI18n()
 const MAX_LOCAL_LOGS = 1000
 const HISTORY_LIMIT = 500
 const SNAPSHOT_INTERVAL_MS = 10_000
@@ -82,31 +84,16 @@ let reconnectAttempt = 0
 let streamGeneration = 0
 let disposed = false
 
-const fullTimestampFormatter = new Intl.DateTimeFormat('zh-CN', {
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hour12: false
-})
-const timeTimestampFormatter = new Intl.DateTimeFormat('zh-CN', {
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hour12: false
-})
-
 const statusLabel = computed(() => {
   switch (snapshot.value?.status) {
     case 'ok':
-      return '正常'
+      return t('diagnostics.statusOK')
     case 'degraded':
-      return '部分可用'
+      return t('diagnostics.statusDegraded')
     case 'unavailable':
-      return '不可用'
+      return t('diagnostics.statusUnavailable')
     default:
-      return '读取中'
+      return t('diagnostics.statusLoading')
   }
 })
 
@@ -131,38 +118,41 @@ const browserAudioTone = computed(() => {
 const browserAudioDetail = computed(() => {
   switch (audioState.microphoneAccessStatus) {
     case 'insecure-context':
-      return '需要 HTTPS 安全上下文'
+      return t('diagnostics.httpsRequired')
     case 'unsupported':
-      return '当前浏览器不支持 WebRTC 麦克风'
+      return t('diagnostics.webrtcUnsupported')
     case 'prompt':
-      return '等待麦克风授权'
+      return t('diagnostics.microphonePermissionWaiting')
     case 'pending':
-      return '正在请求麦克风权限'
+      return t('diagnostics.microphonePermissionRequesting')
     case 'granted':
-      return `已授权 · 输入 ${audioState.inputs.length} · 输出 ${audioState.outputs.length}`
+      return t('diagnostics.audioAuthorized', {
+        inputs: audioState.inputs.length,
+        outputs: audioState.outputs.length
+      })
     case 'denied':
-      return '麦克风权限已被阻止'
+      return t('diagnostics.microphoneBlocked')
     case 'no-device':
-      return '已授权，但未检测到麦克风'
+      return t('diagnostics.noMicrophone')
     default:
-      return audioState.microphoneAccessError || '浏览器音频初始化失败'
+      return audioState.microphoneAccessError || t('diagnostics.audioInitializationFailed')
   }
 })
 
 const connectionLabel = computed(() => {
   switch (connectionState.value) {
     case 'live':
-      return '实时'
+      return t('diagnostics.live')
     case 'connecting':
-      return '连接中'
+      return t('diagnostics.connecting')
     case 'reconnecting':
-      return '重连中'
+      return t('diagnostics.reconnecting')
     case 'paused':
-      return '已暂停'
+      return t('diagnostics.paused')
     case 'fixture':
-      return '静态数据'
+      return t('diagnostics.fixture')
     default:
-      return '已断开'
+      return t('diagnostics.disconnected')
   }
 })
 
@@ -170,9 +160,9 @@ const runtimeErrors = computed(() => {
   const current = snapshot.value
   if (!current) return []
   return [
-    { scope: '数据库', message: current.database.error },
+    { scope: t('diagnostics.database'), message: current.database.error },
     { scope: 'Host agent', message: current.host_agent.last_error },
-    { scope: '通话运行时', message: current.call_runtime.error }
+    { scope: t('diagnostics.callRuntime'), message: current.call_runtime.error }
   ].filter((item): item is { scope: string; message: string } => Boolean(item.message))
 })
 
@@ -184,50 +174,50 @@ const knownComponents = computed(() =>
 
 function lineCapabilities(line: LineSummary) {
   return [
-    { name: '模组控制', available: line.capabilities?.modem === true },
-    { name: '呼叫控制', available: line.capabilities?.voice === true },
-    { name: 'SIM 卡', available: line.capabilities?.sim === true },
-    { name: '短信', available: line.capabilities?.messaging === true }
+    { name: t('diagnostics.modemControl'), available: line.capabilities?.modem === true },
+    { name: t('diagnostics.callControl'), available: line.capabilities?.voice === true },
+    { name: t('diagnostics.simCard'), available: line.capabilities?.sim === true },
+    { name: t('diagnostics.messages'), available: line.capabilities?.messaging === true }
   ]
 }
 
 function lineOperatorFacts(line: LineSummary) {
-  return operatorFacts(line)
+  return operatorFacts(line, t('network.unrecognized'), key => t(key))
 }
 
 function lineStateLabel(state?: string): string {
   switch (state?.toLowerCase()) {
     case 'connected':
-      return '已连接'
+      return t('lines.connected')
     case 'registered':
-      return '已驻网'
+      return t('lines.registered')
     case 'enabled':
-      return '已启用'
+      return t('lines.enabled')
     case 'searching':
-      return '正在搜网'
+      return t('network.searching')
     case 'connecting':
-      return '正在连接'
+      return t('diagnostics.stateConnecting')
     case 'disconnecting':
-      return '正在断开'
+      return t('diagnostics.stateDisconnecting')
     case 'disabled':
-      return '已停用'
+      return t('lines.disabled')
     case 'disabling':
-      return '正在停用'
+      return t('diagnostics.stateDisabling')
     case 'enabling':
-      return '正在启用'
+      return t('diagnostics.stateEnabling')
     case 'locked':
-      return 'SIM 已锁定'
+      return t('lines.simLocked')
     case 'failed':
-      return '异常'
+      return t('lines.failed')
     case 'initializing':
-      return '正在初始化'
+      return t('diagnostics.stateInitializing')
     default:
-      return state || '状态未知'
+      return state || t('lines.unknownState')
   }
 }
 
 function lineRegistrationLabel(line: LineSummary): string {
-  return registrationStateLabel(line, lineStateLabel(line.state))
+  return registrationStateLabel(line, lineStateLabel(line.state), key => t(key))
 }
 
 function lineStateTone(
@@ -268,24 +258,24 @@ function lineStateTone(
 }
 
 function lineSignalLabel(line: LineSummary): string {
-  return line.signal_quality === undefined ? '未报告' : `${line.signal_quality}%`
+  return line.signal_quality === undefined ? t('diagnostics.notReported') : `${line.signal_quality}%`
 }
 
 function agentCapabilities() {
   const capabilities = snapshot.value?.host_agent.capabilities
   if (!capabilities) return []
   return [
-    { name: '发现', available: capabilities.discovery },
-    { name: '快照', available: capabilities.snapshot },
-    { name: '设备配置', available: capabilities.device_configuration },
-    { name: 'SIM / PIN', available: capabilities.sim_management },
-    { name: '连接配置', available: capabilities.connection_profiles },
-    { name: '网络状态', available: capabilities.network },
-    { name: '代理', available: capabilities.proxy },
+    { name: t('diagnostics.discovery'), available: capabilities.discovery },
+    { name: t('diagnostics.snapshot'), available: capabilities.snapshot },
+    { name: t('diagnostics.deviceConfiguration'), available: capabilities.device_configuration },
+    { name: t('diagnostics.simPin'), available: capabilities.sim_management },
+    { name: t('diagnostics.connectionProfiles'), available: capabilities.connection_profiles },
+    { name: t('diagnostics.networkStatus'), available: capabilities.network },
+    { name: t('diagnostics.proxy'), available: capabilities.proxy },
     { name: 'USSD', available: capabilities.ussd },
-    { name: '拨号', available: capabilities.dial },
-    { name: '短信', available: capabilities.send_message },
-    { name: '模组音频桥接', available: capabilities.media }
+    { name: t('diagnostics.dial'), available: capabilities.dial },
+    { name: t('diagnostics.messages'), available: capabilities.send_message },
+    { name: t('diagnostics.mediaBridge'), available: capabilities.media }
   ]
 }
 
@@ -295,29 +285,29 @@ function callLineLabel(call: DiagnosticActiveCall): string {
 }
 
 function callDirectionLabel(direction: string): string {
-  if (direction === 'incoming') return '来电'
-  if (direction === 'outgoing') return '呼出'
-  return direction || '方向未知'
+  if (direction === 'incoming') return t('calls.incoming')
+  if (direction === 'outgoing') return t('dashboard.outgoing')
+  return direction || t('diagnostics.directionUnknown')
 }
 
 function callPhaseLabel(phase: string): string {
   switch (phase) {
     case 'dialing':
-      return '正在拨号'
+      return t('calls.dialing')
     case 'ringing':
-      return '正在响铃'
+      return t('diagnostics.ringing')
     case 'connecting':
-      return '正在接通'
+      return t('diagnostics.connectingCall')
     case 'active':
-      return '通话中'
+      return t('diagnostics.activeCall')
     case 'ending':
-      return '正在结束'
+      return t('diagnostics.endingCall')
     case 'ended':
-      return '已结束'
+      return t('diagnostics.endedCall')
     case 'failed':
-      return '失败'
+      return t('diagnostics.failedCall')
     default:
-      return phase || '状态未知'
+      return phase || t('lines.unknownState')
   }
 }
 
@@ -332,19 +322,19 @@ function callBearerLabel(bearer: string): string {
     case 'circuit-switched':
       return 'GSM / CS'
     default:
-      return bearer || '承载未确认'
+      return bearer || t('diagnostics.bearerUnknown')
   }
 }
 
 function audioDescription(call: DiagnosticActiveCall): string {
-  if (call.phase !== 'active') return '接通后建立'
-  if (!call.media_available) return '模组音频不可用'
+  if (call.phase !== 'active') return t('diagnostics.audioAfterConnect')
+  if (!call.media_available) return t('diagnostics.modemAudioUnavailable')
   const values = [
     call.audio_encoding,
     call.audio_resolution,
     call.audio_rate ? `${call.audio_rate / 1000} kHz` : ''
   ].filter(Boolean)
-  return values.length ? values.join(' · ') : '音频可用'
+  return values.length ? values.join(' · ') : t('diagnostics.audioAvailable')
 }
 
 function callAudioUnavailable(call: DiagnosticActiveCall): boolean {
@@ -354,9 +344,13 @@ function callAudioUnavailable(call: DiagnosticActiveCall): boolean {
 function formatTimestamp(value: string, timeOnly = false): string {
   const parsed = Date.parse(value)
   if (!Number.isFinite(parsed)) return value || '—'
-  return (timeOnly ? timeTimestampFormatter : fullTimestampFormatter).format(
-    new Date(parsed)
-  )
+  return new Intl.DateTimeFormat(locale.value, {
+    ...(timeOnly ? {} : { month: '2-digit', day: '2-digit' }),
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).format(new Date(parsed))
 }
 
 function formatFields(fields?: Record<string, unknown>): string {
@@ -445,7 +439,7 @@ function connectLogStream(generation = streamGeneration): void {
     onError(error) {
       if (generation !== streamGeneration || disposed || paused.value) return
       closeLogStream = null
-      logError.value = error?.message || '实时日志连接中断'
+      logError.value = error?.message || t('diagnostics.logStreamInterrupted')
       scheduleReconnect(generation)
     }
   })
@@ -459,7 +453,7 @@ async function loadSnapshot(): Promise<void> {
     snapshotState.value = 'ready'
     snapshotError.value = ''
   } catch (error) {
-    snapshotError.value = error instanceof Error ? error.message : '无法读取诊断状态'
+    snapshotError.value = error instanceof Error ? error.message : t('diagnostics.snapshotFailed')
     if (snapshot.value) {
       snapshotState.value = 'ready'
       return
@@ -496,7 +490,7 @@ async function loadLogs(): Promise<void> {
     }
   } catch (error) {
     if (generation !== streamGeneration || disposed) return
-    logError.value = error instanceof Error ? error.message : '无法读取运行日志'
+    logError.value = error instanceof Error ? error.message : t('diagnostics.logsFailed')
     connectionState.value = 'error'
     scheduleReconnect(generation)
   } finally {
@@ -536,7 +530,7 @@ async function downloadLogs(): Promise<void> {
     link.remove()
     URL.revokeObjectURL(url)
   } catch (error) {
-    logError.value = error instanceof Error ? error.message : '日志下载失败'
+    logError.value = error instanceof Error ? error.message : t('diagnostics.downloadFailed')
   } finally {
     downloading.value = false
   }
@@ -585,18 +579,18 @@ onBeforeUnmount(() => {
     <StatePanel
       v-if="snapshotState === 'idle' || snapshotState === 'loading'"
       state="loading"
-      title="正在读取运行状态"
+      :title="t('diagnostics.loadingStatus')"
     />
     <StatePanel
       v-else-if="snapshotState === 'forbidden'"
       state="forbidden"
-      title="无权查看诊断信息"
+      :title="t('diagnostics.viewForbidden')"
       :detail="snapshotError"
     />
     <StatePanel
       v-else-if="snapshotState === 'error'"
       state="error"
-      title="无法读取诊断状态"
+      :title="t('diagnostics.snapshotFailed')"
       :detail="snapshotError"
       retryable
       @retry="loadSnapshot"
@@ -606,7 +600,7 @@ onBeforeUnmount(() => {
       <section class="diagnostics-section">
         <header class="section-heading">
           <div>
-            <h3 id="diagnostics-title">运行状态</h3>
+            <h3 id="diagnostics-title">{{ t('diagnostics.runtimeStatus') }}</h3>
             <span>{{ formatTimestamp(snapshot.observed_at) }}</span>
           </div>
           <span class="overall-status" :class="`is-${snapshot.status}`">
@@ -624,8 +618,14 @@ onBeforeUnmount(() => {
           <article class="service-status" :class="{ 'is-unavailable': !snapshot.database.available }">
             <span class="service-status__icon"><Database :size="19" /></span>
             <span>
-              <strong>数据库</strong>
-              <small>{{ snapshot.database.available ? '可用' : '不可用' }}</small>
+              <strong>{{ t('diagnostics.database') }}</strong>
+              <small>
+                {{
+                  snapshot.database.available
+                    ? t('diagnostics.available')
+                    : t('diagnostics.unavailable')
+                }}
+              </small>
             </span>
             <CheckCircle2 v-if="snapshot.database.available" :size="18" />
             <XCircle v-else :size="18" />
@@ -634,7 +634,13 @@ onBeforeUnmount(() => {
             <span class="service-status__icon"><Server :size="19" /></span>
             <span>
               <strong>Host agent</strong>
-              <small>{{ snapshot.host_agent.connected ? '已连接' : '未连接' }}</small>
+              <small>
+                {{
+                  snapshot.host_agent.connected
+                    ? t('diagnostics.connected')
+                    : t('diagnostics.disconnectedStatus')
+                }}
+              </small>
             </span>
             <CheckCircle2 v-if="snapshot.host_agent.connected" :size="18" />
             <XCircle v-else :size="18" />
@@ -642,8 +648,14 @@ onBeforeUnmount(() => {
           <article class="service-status" :class="{ 'is-unavailable': !snapshot.call_runtime.available }">
             <span class="service-status__icon"><PhoneCall :size="19" /></span>
             <span>
-              <strong>通话运行时</strong>
-              <small>{{ snapshot.call_runtime.available ? '可用' : '不可用' }}</small>
+              <strong>{{ t('diagnostics.callRuntime') }}</strong>
+              <small>
+                {{
+                  snapshot.call_runtime.available
+                    ? t('diagnostics.available')
+                    : t('diagnostics.unavailable')
+                }}
+              </small>
             </span>
             <CheckCircle2 v-if="snapshot.call_runtime.available" :size="18" />
             <XCircle v-else :size="18" />
@@ -654,7 +666,7 @@ onBeforeUnmount(() => {
           >
             <span class="service-status__icon"><AudioLines :size="19" /></span>
             <span>
-              <strong>浏览器音频</strong>
+              <strong>{{ t('diagnostics.browserAudio') }}</strong>
               <small>{{ browserAudioDetail }}</small>
             </span>
             <CheckCircle2 v-if="browserAudioAvailable" :size="18" />
@@ -686,10 +698,22 @@ onBeforeUnmount(() => {
         </div>
 
         <dl class="agent-facts">
-          <div><dt>硬件服务</dt><dd>{{ snapshot.host_agent.provider || '—' }}</dd></div>
-          <div><dt>Agent 版本</dt><dd>{{ snapshot.host_agent.agent_version || '—' }}</dd></div>
-          <div><dt>运行时</dt><dd>{{ snapshot.host_agent.runtime_version || '—' }}</dd></div>
-          <div><dt>构建版本</dt><dd>{{ snapshot.host_agent.revision || '—' }}</dd></div>
+          <div>
+            <dt>{{ t('diagnostics.hardwareService') }}</dt>
+            <dd>{{ snapshot.host_agent.provider || '—' }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('diagnostics.agentVersion') }}</dt>
+            <dd>{{ snapshot.host_agent.agent_version || '—' }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('diagnostics.runtimeVersion') }}</dt>
+            <dd>{{ snapshot.host_agent.runtime_version || '—' }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('diagnostics.buildRevision') }}</dt>
+            <dd>{{ snapshot.host_agent.revision || '—' }}</dd>
+          </div>
         </dl>
         <div class="agent-capabilities">
           <span
@@ -716,8 +740,8 @@ onBeforeUnmount(() => {
       <section class="diagnostics-section">
         <header class="section-heading">
           <div>
-            <h3>模组能力</h3>
-            <span>{{ snapshot.lines.length }} 条线路</span>
+            <h3>{{ t('diagnostics.modemCapabilities') }}</h3>
+            <span>{{ t('diagnostics.lineCount', { count: snapshot.lines.length }) }}</span>
           </div>
         </header>
 
@@ -731,7 +755,7 @@ onBeforeUnmount(() => {
               <span class="line-status__icon"><RadioTower :size="18" /></span>
               <span class="line-status__identity">
                 <strong>{{ lineLabel(line) }}</strong>
-                <small>{{ line.model || '型号未报告' }}</small>
+                <small>{{ line.model || t('diagnostics.modelNotReported') }}</small>
               </span>
               <span
                 class="line-state"
@@ -746,24 +770,24 @@ onBeforeUnmount(() => {
                 <dd>{{ fact.value }}</dd>
               </div>
               <div>
-                <dt>网络状态</dt>
+                <dt>{{ t('diagnostics.networkStatus') }}</dt>
                 <dd>{{ lineRegistrationLabel(line) }}</dd>
               </div>
               <div>
-                <dt>信号强度</dt>
+                <dt>{{ t('diagnostics.signalStrength') }}</dt>
                 <dd>{{ lineSignalLabel(line) }}</dd>
               </div>
               <div class="is-code">
                 <dt>SIM ICCID</dt>
-                <dd>{{ line.iccid || '未报告' }}</dd>
+                <dd>{{ line.iccid || t('diagnostics.notReported') }}</dd>
               </div>
               <div class="is-code">
-                <dt>模组 IMEI</dt>
-                <dd>{{ line.device_imei || '未报告' }}</dd>
+                <dt>{{ t('diagnostics.modemIMEI') }}</dt>
+                <dd>{{ line.device_imei || t('diagnostics.notReported') }}</dd>
               </div>
               <div class="is-code">
-                <dt>固件版本</dt>
-                <dd>{{ line.firmware || '未报告' }}</dd>
+                <dt>{{ t('diagnostics.firmwareVersion') }}</dt>
+                <dd>{{ line.firmware || t('diagnostics.notReported') }}</dd>
               </div>
             </dl>
             <div class="capability-row">
@@ -780,14 +804,14 @@ onBeforeUnmount(() => {
             </div>
           </article>
         </div>
-        <p v-else class="empty-row">Host agent 未返回线路</p>
+        <p v-else class="empty-row">{{ t('diagnostics.noLines') }}</p>
       </section>
 
       <section class="diagnostics-section">
         <header class="section-heading">
           <div>
-            <h3>当前通话</h3>
-            <span>{{ snapshot.active_calls.length }} 路</span>
+            <h3>{{ t('diagnostics.currentCalls') }}</h3>
+            <span>{{ t('diagnostics.callCount', { count: snapshot.active_calls.length }) }}</span>
           </div>
         </header>
         <div v-if="snapshot.active_calls.length" class="active-call-list">
@@ -810,14 +834,14 @@ onBeforeUnmount(() => {
             </span>
           </article>
         </div>
-        <p v-else class="empty-row">没有进行中的通话</p>
+        <p v-else class="empty-row">{{ t('diagnostics.noActiveCalls') }}</p>
       </section>
     </template>
 
     <section class="diagnostics-section log-section">
       <header class="section-heading log-heading">
         <div>
-          <h3>运行日志</h3>
+          <h3>{{ t('diagnostics.runtimeLogs') }}</h3>
           <span class="connection-state" :class="`is-${connectionState}`">
             <span />
             {{ connectionLabel }}
@@ -827,13 +851,13 @@ onBeforeUnmount(() => {
           <label class="follow-control">
             <input v-model="autoFollow" type="checkbox" />
             <ChevronsDown :size="15" />
-            <span>自动追尾</span>
+            <span>{{ t('diagnostics.autoFollow') }}</span>
           </label>
           <button
             class="diagnostic-action"
             type="button"
-            :title="paused ? '继续实时日志' : '暂停实时日志'"
-            :aria-label="paused ? '继续实时日志' : '暂停实时日志'"
+            :title="paused ? t('diagnostics.resumeLogs') : t('diagnostics.pauseLogs')"
+            :aria-label="paused ? t('diagnostics.resumeLogs') : t('diagnostics.pauseLogs')"
             :disabled="fixtureMode"
             @click="togglePause"
           >
@@ -843,8 +867,8 @@ onBeforeUnmount(() => {
           <button
             class="diagnostic-action"
             type="button"
-            title="清空本地日志"
-            aria-label="清空本地日志"
+            :title="t('diagnostics.clearLogs')"
+            :aria-label="t('diagnostics.clearLogs')"
             :disabled="logs.length === 0"
             @click="clearLocalLogs"
           >
@@ -853,8 +877,8 @@ onBeforeUnmount(() => {
           <button
             class="diagnostic-action"
             type="button"
-            title="下载日志"
-            aria-label="下载日志"
+            :title="t('diagnostics.downloadLogs')"
+            :aria-label="t('diagnostics.downloadLogs')"
             :disabled="downloading"
             @click="downloadLogs"
           >
@@ -866,9 +890,9 @@ onBeforeUnmount(() => {
 
       <div class="log-filters">
         <label>
-          <span class="sr-only">日志级别</span>
-          <select v-model="logLevel" aria-label="日志级别">
-            <option value="">全部级别</option>
+          <span class="sr-only">{{ t('diagnostics.logLevel') }}</span>
+          <select v-model="logLevel" :aria-label="t('diagnostics.logLevel')">
+            <option value="">{{ t('diagnostics.allLevels') }}</option>
             <option value="debug">Debug</option>
             <option value="info">Info</option>
             <option value="warn">Warn</option>
@@ -877,14 +901,14 @@ onBeforeUnmount(() => {
         </label>
         <label class="filter-input">
           <Server :size="15" />
-          <span class="sr-only">组件</span>
+          <span class="sr-only">{{ t('diagnostics.component') }}</span>
           <input
             v-model="logComponent"
             type="search"
             list="diagnostic-components"
             maxlength="64"
-            placeholder="组件"
-            aria-label="组件"
+            :placeholder="t('diagnostics.component')"
+            :aria-label="t('diagnostics.component')"
           />
           <datalist id="diagnostic-components">
             <option v-for="component in knownComponents" :key="component" :value="component" />
@@ -892,13 +916,13 @@ onBeforeUnmount(() => {
         </label>
         <label class="filter-input filter-input--search">
           <Search :size="15" />
-          <span class="sr-only">搜索日志</span>
+          <span class="sr-only">{{ t('diagnostics.searchLogs') }}</span>
           <input
             v-model="logSearch"
             type="search"
             maxlength="200"
-            placeholder="搜索日志"
-            aria-label="搜索日志"
+            :placeholder="t('diagnostics.searchLogs')"
+            :aria-label="t('diagnostics.searchLogs')"
           />
         </label>
       </div>
@@ -907,7 +931,7 @@ onBeforeUnmount(() => {
         <AlertTriangle :size="15" />
         {{ logError }}
       </p>
-      <p v-if="logsTruncated" class="log-notice">仅显示当前缓冲区内的最新日志</p>
+      <p v-if="logsTruncated" class="log-notice">{{ t('diagnostics.truncatedLogs') }}</p>
 
       <div
         ref="logViewport"
@@ -918,11 +942,11 @@ onBeforeUnmount(() => {
       >
         <div v-if="logsLoading && logs.length === 0" class="log-empty">
           <LoaderCircle class="spin" :size="18" />
-          正在读取日志
+          {{ t('diagnostics.loadingLogs') }}
         </div>
         <div v-else-if="logs.length === 0" class="log-empty">
           <MessageSquare :size="18" />
-          暂无日志
+          {{ t('diagnostics.emptyLogs') }}
         </div>
         <article
           v-for="entry in logs"

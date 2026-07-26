@@ -45,16 +45,16 @@ test('shared line identity keeps known and historical records distinct', () => {
   assert.equal(secondary, lines[1])
   assert.equal(findLine(lookup, '+81 (80) 1234-5678'), lines[0])
   assert.equal(findLine(lookup, '001020000000002'), lines[1])
-  assert.equal(lineTagFallback(main, lines, 'imei-main', 'line-main'), '主卡')
+  assert.equal(lineTagFallback(main, lines, 'imei-main', 'line-main'), 'Primary line')
   assert.equal(
     lineTagFallback(secondary, lines, 'imei-main', 'line-secondary'),
-    '线路 2'
+    'Line 2'
   )
   assert.equal(
     lineTagFallback(undefined, lines, 'imei-main', 'removed-line-1937'),
-    '线路 1937'
+    'Line 1937'
   )
-  assert.equal(lineTagFallback(undefined, lines, 'imei-main'), '未知线路')
+  assert.equal(lineTagFallback(undefined, lines, 'imei-main'), 'Unknown line')
   assert.deepEqual(lineTagLine(undefined, 'removed-line-1937'), {
     id: 'removed-line-1937',
     iccid: '',

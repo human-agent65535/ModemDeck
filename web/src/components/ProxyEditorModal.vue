@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { X } from '@lucide/vue'
 import type { LineSummary, ProxyInstance, ProxyMode } from '../api/types'
 import type { ProxyDraft } from '../state/network'
@@ -7,6 +8,7 @@ import { isIPAddress } from '../utils/ipAddress'
 import { proxyCredentialError } from '../utils/proxyCredentials'
 import LineSelector from './LineSelector.vue'
 
+const { t } = useI18n()
 const props = withDefaults(
   defineProps<{
     open: boolean
@@ -41,7 +43,7 @@ const localError = reactive({ message: '' })
 const dialog = ref<HTMLElement>()
 let previousFocus: HTMLElement | null = null
 
-const title = computed(() => (props.proxy ? '编辑代理' : '添加代理'))
+const title = computed(() => (props.proxy ? t('proxy.edit') : t('proxy.add')))
 const visibleError = computed(() => localError.message || props.error)
 
 function resetForm(): void {
@@ -110,15 +112,15 @@ function submit(): void {
   const username = form.username.trim()
   const password = form.password
   if (!form.line_id) {
-    localError.message = '请选择线路'
+    localError.message = t('proxy.selectLine')
     return
   }
   if (!form.listen_address.trim()) {
-    localError.message = '请输入监听地址'
+    localError.message = t('proxy.enterListenAddress')
     return
   }
   if (!isIPAddress(form.listen_address)) {
-    localError.message = '监听地址必须是 IPv4 或 IPv6 地址'
+    localError.message = t('proxy.invalidListenAddress')
     return
   }
   if (
@@ -126,14 +128,15 @@ function submit(): void {
     form.listen_port < 1024 ||
     form.listen_port > 65535
   ) {
-    localError.message = '端口范围为 1024–65535'
+    localError.message = t('proxy.invalidPort')
     return
   }
   const credentialError = proxyCredentialError(
     form.mode,
     username,
     password,
-    props.proxy?.has_password
+    props.proxy?.has_password,
+    key => t(key)
   )
   if (credentialError) {
     localError.message = credentialError
@@ -203,8 +206,8 @@ watch(
           <button
             class="icon-button"
             type="button"
-            title="关闭"
-            aria-label="关闭"
+            :title="t('common.close')"
+            :aria-label="t('common.close')"
             :disabled="busy"
             @click="close"
           >
@@ -217,12 +220,12 @@ watch(
             v-model="form.line_id"
             class="proxy-field"
             :lines="lines"
-            label="线路"
+            :label="t('proxy.line')"
             :disabled="busy"
           />
 
           <fieldset class="proxy-field">
-            <legend>协议</legend>
+            <legend>{{ t('common.protocol') }}</legend>
             <div class="proxy-segmented">
               <button
                 type="button"
@@ -247,7 +250,7 @@ watch(
 
           <div class="proxy-fields-row">
             <label class="proxy-field">
-              <span>监听地址</span>
+              <span>{{ t('proxy.listenAddress') }}</span>
               <input
                 v-model="form.listen_address"
                 type="text"
@@ -258,7 +261,7 @@ watch(
               />
             </label>
             <label class="proxy-field is-port">
-              <span>端口</span>
+              <span>{{ t('common.port') }}</span>
               <input
                 v-model.number="form.listen_port"
                 type="number"
@@ -272,7 +275,7 @@ watch(
 
           <div class="proxy-fields-row is-even">
             <label class="proxy-field">
-              <span>用户名</span>
+              <span>{{ t('common.username') }}</span>
               <input
                 v-model="form.username"
                 type="text"
@@ -281,12 +284,12 @@ watch(
               />
             </label>
             <label class="proxy-field">
-              <span>密码</span>
+              <span>{{ t('common.password') }}</span>
               <input
                 v-model="form.password"
                 type="password"
                 autocomplete="new-password"
-                :placeholder="proxy?.has_password ? '留空则保留' : ''"
+                :placeholder="proxy?.has_password ? t('proxy.keepPassword') : ''"
                 :disabled="busy"
               />
             </label>
@@ -303,14 +306,14 @@ watch(
 
           <footer>
             <button class="secondary-button" type="button" :disabled="busy" @click="close">
-              取消
+              {{ t('common.cancel') }}
             </button>
             <button
               class="primary-button"
               type="submit"
               :disabled="busy || lines.length === 0"
             >
-              {{ busy ? '保存中' : '保存' }}
+              {{ busy ? t('common.saving') : t('common.save') }}
             </button>
           </footer>
         </form>

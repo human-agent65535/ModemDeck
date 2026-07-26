@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, useId, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Search } from '@lucide/vue'
 import type { Contact, ContactPhone } from '../api/types'
 import { primaryPhone } from '../utils/format'
@@ -10,6 +11,7 @@ type Suggestion = {
   phone: ContactPhone
 }
 
+const { t } = useI18n()
 const props = withDefaults(
   defineProps<{
     modelValue: string
@@ -18,7 +20,7 @@ const props = withDefaults(
     autofocus?: boolean
   }>(),
   {
-    placeholder: '输入号码或搜索联系人',
+    placeholder: '',
     autofocus: false
   }
 )
@@ -33,6 +35,7 @@ const focused = ref(false)
 const activeIndex = ref(0)
 const inputId = `contact-suggest-${useId()}`
 const listboxId = `${inputId}-listbox`
+const resolvedPlaceholder = computed(() => props.placeholder || t('dialer.numberOrContact'))
 
 const suggestions = computed<Suggestion[]>(() => {
   const query = props.modelValue.trim().toLocaleLowerCase()
@@ -116,7 +119,7 @@ function onBlur(): void {
         :aria-expanded="showSuggestions"
         :aria-controls="listboxId"
         :aria-activedescendant="activeDescendant"
-        :placeholder="placeholder"
+        :placeholder="resolvedPlaceholder"
         @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
         @focus="focused = true"
         @blur="onBlur"
@@ -144,7 +147,9 @@ function onBlur(): void {
           <strong>{{ suggestion.contact.display_name }}</strong>
           <small>{{ suggestion.phone.label }} · {{ suggestion.phone.number }}</small>
         </span>
-        <small v-if="suggestion.phone.number === primaryPhone(suggestion.contact.phones)">主要</small>
+        <small v-if="suggestion.phone.number === primaryPhone(suggestion.contact.phones)">
+          {{ t('contacts.primary') }}
+        </small>
       </button>
     </div>
   </div>

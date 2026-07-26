@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Circle, LoaderCircle } from '@lucide/vue'
 import {
   loadRecordingSettings,
@@ -7,6 +8,7 @@ import {
   updateDefaultRecording
 } from '../state/recording'
 
+const { t } = useI18n()
 const pendingEnabled = ref(false)
 const displayedEnabled = computed(() =>
   recordingSettingsState.saving
@@ -29,8 +31,8 @@ onMounted(() => {
     <header>
       <span class="recording-settings__icon"><Circle :size="19" fill="currentColor" /></span>
       <div>
-        <h3 id="recording-settings-title">通话录音</h3>
-        <p>新通话的默认录音状态</p>
+        <h3 id="recording-settings-title">{{ t('recordingSettings.title') }}</h3>
+        <p>{{ t('recordingSettings.description') }}</p>
       </div>
     </header>
 
@@ -43,7 +45,7 @@ onMounted(() => {
       role="status"
     >
       <LoaderCircle class="spin" :size="18" />
-      正在载入
+      {{ t('recordingSettings.loading') }}
     </div>
 
     <div
@@ -60,14 +62,16 @@ onMounted(() => {
         type="button"
         @click="loadRecordingSettings(true)"
       >
-        重试
+        {{ t('common.retry') }}
       </button>
     </div>
 
     <label v-else class="recording-settings__toggle">
       <span>
-        <strong>默认录音</strong>
-        <small>{{ displayedEnabled ? '开启' : '关闭' }}</small>
+        <strong>{{ t('recordingSettings.defaultRecording') }}</strong>
+        <small>
+          {{ displayedEnabled ? t('recordingSettings.enabled') : t('recordingSettings.disabled') }}
+        </small>
       </span>
       <span class="recording-settings__control">
         <LoaderCircle
@@ -81,7 +85,7 @@ onMounted(() => {
           role="switch"
           :checked="displayedEnabled"
           :disabled="recordingSettingsState.saving"
-          aria-label="新通话默认录音"
+          :aria-label="t('recordingSettings.defaultForNewCalls')"
           @change="changeDefault"
         />
       </span>

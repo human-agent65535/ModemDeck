@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   CircleAlert,
   CircleCheck,
@@ -19,6 +20,7 @@ import { lineTagLine } from '../utils/lineIdentity'
 import LineTag from './LineTag.vue'
 import TrafficUsage from './TrafficUsage.vue'
 
+const { t } = useI18n()
 const props = defineProps<{
   proxy: ProxyInstance
   line?: LineSummary
@@ -46,26 +48,26 @@ function runtimeState(): DisplayRuntimeState {
 function stateLabel(): string {
   switch (runtimeState()) {
     case 'running':
-      return '运行中'
+      return t('proxy.running')
     case 'waiting_for_bearer':
-      return '等待线路联网'
+      return t('proxy.waitingForLine')
     case 'error':
-      return '配置错误'
+      return t('proxy.configurationError')
     case 'unknown':
-      return '运行态未知'
+      return t('proxy.runtimeUnknown')
     default:
-      return '已停用'
+      return t('proxy.disabled')
   }
 }
 
 function applyStateLabel(): string {
   switch (props.proxy.apply_state) {
     case 'pending_create':
-      return '等待创建'
+      return t('proxy.pendingCreate')
     case 'pending_update':
-      return '等待同步'
+      return t('proxy.pendingUpdate')
     case 'pending_delete':
-      return '正在删除'
+      return t('proxy.deleting')
     default:
       return ''
   }
@@ -88,8 +90,8 @@ function applyStateLabel(): string {
         type="button"
         role="switch"
         :aria-checked="proxy.enabled"
-        :aria-label="proxy.enabled ? '停用代理' : '启用代理'"
-        :title="pendingDelete ? '正在删除' : proxy.enabled ? '停用代理' : '启用代理'"
+        :aria-label="proxy.enabled ? t('proxy.disable') : t('proxy.enable')"
+        :title="pendingDelete ? t('proxy.deleting') : proxy.enabled ? t('proxy.disable') : t('proxy.enable')"
         :disabled="busy || pendingDelete"
         @click="$emit('toggle', proxy, !proxy.enabled)"
       >
@@ -117,27 +119,27 @@ function applyStateLabel(): string {
 
     <dl>
       <div>
-        <dt>监听</dt>
+        <dt>{{ t('traffic.listen') }}</dt>
         <dd>{{ proxy.listen_address }}:{{ proxy.listen_port }}</dd>
       </div>
       <div>
-        <dt>接口</dt>
+        <dt>{{ t('traffic.interface') }}</dt>
         <dd>{{ runtime?.interface || '—' }}</dd>
       </div>
       <div>
-        <dt>今日</dt>
+        <dt>{{ t('traffic.today') }}</dt>
         <dd><TrafficUsage :rx="today?.rx_bytes || 0" :tx="today?.tx_bytes || 0" /></dd>
       </div>
       <div>
-        <dt>本月</dt>
+        <dt>{{ t('traffic.month') }}</dt>
         <dd><TrafficUsage :rx="month?.rx_bytes || 0" :tx="month?.tx_bytes || 0" /></dd>
       </div>
       <div>
-        <dt>连接</dt>
+        <dt>{{ t('traffic.connections') }}</dt>
         <dd>
           {{
             runtime
-              ? `${runtime.active_connections} 活跃 · ${runtime.connections} 累计`
+              ? `${t('traffic.activeConnections', { count: runtime.active_connections })} · ${t('traffic.cumulativeConnections', { count: runtime.connections })}`
               : '—'
           }}
         </dd>
@@ -148,8 +150,8 @@ function applyStateLabel(): string {
       <button
         class="icon-button"
         type="button"
-        title="编辑代理"
-        aria-label="编辑代理"
+        :title="t('proxy.edit')"
+        :aria-label="t('proxy.edit')"
         :disabled="busy || pendingDelete"
         @click="$emit('edit', proxy)"
       >
@@ -158,8 +160,8 @@ function applyStateLabel(): string {
       <button
         class="icon-button is-danger"
         type="button"
-        :title="pendingDelete ? '正在删除' : '删除代理'"
-        aria-label="删除代理"
+        :title="pendingDelete ? t('proxy.deleting') : t('proxy.delete')"
+        :aria-label="t('proxy.delete')"
         :disabled="busy || pendingDelete"
         @click="$emit('remove', proxy)"
       >

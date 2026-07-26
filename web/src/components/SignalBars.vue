@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
+const { t } = useI18n()
 const props = defineProps<{
   value: number | null | undefined
 }>()
@@ -21,9 +23,13 @@ const stateClass = computed(() => {
   return `is-level-${activeBars.value}`
 })
 const accessibleLabel = computed(() => {
-  if (!isKnown.value) return '信号质量未知'
-  if (activeBars.value === 0) return `信号质量 ${props.value}%，无信号`
-  return `信号质量 ${props.value}%，${barCount} 格中 ${activeBars.value} 格`
+  if (!isKnown.value) return t('signal.unknown')
+  if (activeBars.value === 0) return t('signal.none', { value: props.value })
+  return t('signal.level', {
+    value: props.value,
+    total: barCount,
+    active: activeBars.value
+  })
 })
 </script>
 

@@ -8,6 +8,7 @@ import {
   RadioTower
 } from '@lucide/vue'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { Device, LineSummary } from '../api/types'
 import { lineLabel } from '../state/workspace'
 import {
@@ -17,6 +18,7 @@ import {
 } from '../utils/operatorNetwork'
 import SignalBars from './SignalBars.vue'
 
+const { t } = useI18n()
 const props = withDefaults(
   defineProps<{
     line: LineSummary
@@ -41,7 +43,7 @@ const emit = defineEmits<{
 const online = computed(() => isRegisteredNetwork(props.line))
 const signal = computed(() => props.line.signal_quality ?? null)
 const model = computed(
-  () => props.line.model || props.device?.model || '未知型号'
+  () => props.line.model || props.device?.model || t('lines.unknownModel')
 )
 const firmware = computed(
   () => props.line.firmware || props.device?.firmware || ''
@@ -52,19 +54,19 @@ const equipmentIdentifier = computed(
 const simIdentifier = computed(
   () => props.line.iccid || props.device?.current_iccid || ''
 )
-const networkFacts = computed(() => operatorFacts(props.line, '—'))
+const networkFacts = computed(() => operatorFacts(props.line, '—', key => t(key)))
 const stateLabel = computed(() => {
   const state = (props.line.state || '').toLocaleLowerCase()
-  let label = props.line.state || '状态未知'
-  if (state === 'connected') label = '已连接'
-  if (state === 'registered') label = '已驻网'
-  if (state === 'enabled') label = '已启用'
-  if (state === 'searching') label = '搜索网络'
-  if (state === 'disabled') label = '已停用'
-  if (state === 'locked') label = 'SIM 已锁定'
-  if (state === 'failed') label = '异常'
+  let label = props.line.state || t('lines.unknownState')
+  if (state === 'connected') label = t('lines.connected')
+  if (state === 'registered') label = t('lines.registered')
+  if (state === 'enabled') label = t('lines.enabled')
+  if (state === 'searching') label = t('lines.searching')
+  if (state === 'disabled') label = t('lines.disabled')
+  if (state === 'locked') label = t('lines.simLocked')
+  if (state === 'failed') label = t('lines.failed')
   if (['failed', 'locked', 'disabled'].includes(state)) return label
-  return registrationStateLabel(props.line, label)
+  return registrationStateLabel(props.line, label, key => t(key))
 })
 </script>
 
@@ -76,7 +78,7 @@ const stateLabel = computed(() => {
     <button
       class="module-card__main"
       type="button"
-      :aria-label="`配置模组 ${lineLabel(line)}`"
+      :aria-label="t('lines.configureModule', { label: lineLabel(line) })"
       :aria-pressed="selected"
       @click="emit('select')"
     >
@@ -96,7 +98,7 @@ const stateLabel = computed(() => {
             :aria-hidden="!selected"
           >
             <Check :size="13" />
-            当前配置
+            {{ t('lines.currentConfiguration') }}
           </span>
         </span>
       </header>
@@ -107,18 +109,18 @@ const stateLabel = computed(() => {
           <dd>{{ fact.value }}</dd>
         </div>
         <div>
-          <dt>信号</dt>
+          <dt>{{ t('lines.signal') }}</dt>
           <dd class="module-card__signal-value">
             <SignalBars :value="signal" />
             <span>{{ signal === null ? '—' : `${signal}%` }}</span>
           </dd>
         </div>
         <div>
-          <dt>型号</dt>
+          <dt>{{ t('lines.model') }}</dt>
           <dd>{{ model }}</dd>
         </div>
         <div>
-          <dt>固件</dt>
+          <dt>{{ t('lines.firmware') }}</dt>
           <dd>{{ firmware || '—' }}</dd>
         </div>
         <div class="is-code">
@@ -130,7 +132,7 @@ const stateLabel = computed(() => {
           <dd :title="simIdentifier">{{ simIdentifier || '—' }}</dd>
         </div>
         <div class="is-code">
-          <dt>端口</dt>
+          <dt>{{ t('lines.port') }}</dt>
           <dd>{{ device?.port || '—' }}</dd>
         </div>
       </dl>
@@ -138,10 +140,10 @@ const stateLabel = computed(() => {
     </button>
 
     <footer class="module-card__footer">
-      <div class="module-card__capabilities" aria-label="模组能力">
+      <div class="module-card__capabilities" :aria-label="t('lines.moduleCapabilities')">
         <span :class="{ 'is-enabled': line.capabilities?.voice }">
           <Phone :size="14" />
-          呼叫控制
+          {{ t('lines.callControl') }}
         </span>
         <span :class="{ 'is-enabled': line.capabilities?.messaging }">
           <MessageSquareText :size="14" />
@@ -157,23 +159,23 @@ const stateLabel = computed(() => {
         <button
           class="module-card__default-action"
           type="button"
-          :title="defaultLine ? '当前默认线路' : '设为默认线路'"
-          :aria-label="defaultLine ? '当前默认线路' : '设为默认线路'"
+          :title="defaultLine ? t('lines.currentDefaultLine') : t('lines.setDefaultLine')"
+          :aria-label="defaultLine ? t('lines.currentDefaultLine') : t('lines.setDefaultLine')"
           :aria-pressed="defaultLine"
           :disabled="defaultLine"
           @click="emit('makeDefault')"
         >
           <CircleCheck :size="16" />
-          <span>{{ defaultLine ? '默认线路' : '设为默认' }}</span>
+          <span>{{ defaultLine ? t('lines.defaultLine') : t('lines.setAsDefault') }}</span>
         </button>
       </div>
       <span
         v-else-if="defaultLine"
         class="module-card__default-status"
-        title="当前默认线路"
+        :title="t('lines.currentDefaultLine')"
       >
         <CircleCheck :size="16" />
-        默认线路
+        {{ t('lines.defaultLine') }}
       </span>
     </footer>
   </article>

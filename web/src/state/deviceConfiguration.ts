@@ -9,6 +9,7 @@ import type {
   UpdateDeviceConfigurationInput
 } from '../api/types'
 import { ApiError } from '../api/types'
+import { translate } from '../i18n'
 
 type DeviceConfigurationResource = {
   status: ResourceStatus
@@ -38,7 +39,7 @@ export const deviceConfigurationState = reactive<{
 })
 
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : '请求失败'
+  return error instanceof Error ? error.message : translate('runtime.requestFailed')
 }
 
 function errorStatus(error: unknown): ResourceStatus {
@@ -133,9 +134,10 @@ export async function updateGlobalIncomingCallSettings(
     } catch (refreshError) {
       globalIncomingCallState.data = current
       globalIncomingCallState.status = errorStatus(refreshError)
-      globalIncomingCallState.error = `${saveError}；重新读取服务端状态失败：${errorText(
-        refreshError
-      )}`
+      globalIncomingCallState.error = translate('runtime.refreshAfterSaveFailed', {
+        error: saveError,
+        refreshError: errorText(refreshError)
+      })
     }
     return false
   } finally {
@@ -171,7 +173,7 @@ export async function loadDeviceConfiguration(
   try {
     const configuration = await gateway.getDeviceConfiguration(normalizedLineID)
     if (!configuration.hardware || !configuration.incoming_calls) {
-      throw new Error('设备配置响应缺少 hardware 或 incoming_calls')
+      throw new Error(translate('runtime.invalidDeviceConfiguration'))
     }
     target.data = configuration
     target.status = 'ready'
@@ -194,7 +196,10 @@ async function restoreDeviceConfiguration(
     target.error = saveError
   } catch (refreshError) {
     target.status = errorStatus(refreshError)
-    target.error = `${saveError}；重新读取服务端状态失败：${errorText(refreshError)}`
+    target.error = translate('runtime.refreshAfterSaveFailed', {
+      error: saveError,
+      refreshError: errorText(refreshError)
+    })
   }
 }
 
@@ -300,7 +305,7 @@ export async function restartModem(lineID: string): Promise<boolean> {
     await wait(1000)
   }
   target.status = 'error'
-  target.error = '模组重启后未在 45 秒内重新上线'
+  target.error = translate('runtime.modemRestartTimeout')
   return false
 }
 

@@ -1,4 +1,5 @@
 import type { LineSummary } from '../api/types'
+import { translate } from '../i18n'
 
 export type LineTagLine = Pick<LineSummary, 'id' | 'iccid' | 'line_label'>
 
@@ -63,10 +64,14 @@ export function lineTagFallback(
   if (line) {
     const moduleName = line.device_alias.trim() || line.model?.trim()
     if (moduleName) return moduleName
-    if (line.device_imei && line.device_imei === defaultDeviceIMEI) return '主卡'
+    if (line.device_imei && line.device_imei === defaultDeviceIMEI) {
+      return translate('lines.primaryLine')
+    }
     const index = lines.findIndex(candidate => candidate === line)
-    return `线路 ${index >= 0 ? index + 1 : 1}`
+    return translate('device.lineNumber', { number: index >= 0 ? index + 1 : 1 })
   }
   const identifier = identifiers.find(value => value?.trim())?.trim()
-  return identifier ? `线路 ${identifier.slice(-4)}` : '未知线路'
+  return identifier
+    ? translate('runtime.lineSuffix', { suffix: identifier.slice(-4) })
+    : translate('lines.unknownLine')
 }

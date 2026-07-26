@@ -21,9 +21,9 @@ test('new Telegram Bot is represented by one selected local draft row', () => {
   const list = form.slice(listStart, listEnd)
 
   assert.match(list, /v-if="creating"[\s\S]*class="telegram-unit-row is-selected"/)
-  assert.match(list, /displayName\.trim\(\) \|\| '未命名 Bot'/)
-  assert.match(list, /<small>未保存<\/small>/)
-  assert.equal((list.match(/'未命名 Bot'/g) || []).length, 1)
+  assert.match(list, /displayName\.trim\(\) \|\| t\('telegram\.unnamed'\)/)
+  assert.match(list, /<small>\{\{ t\('telegram\.unsaved'\) \}\}<\/small>/)
+  assert.equal((list.match(/t\('telegram\.unnamed'\)/g) || []).length, 1)
   assert.match(list, /telegramResource\.data\.length === 0 && !creating/)
 })
 
@@ -51,7 +51,10 @@ test('new Bot has a local cancel action and never uses backend deletion', () => 
 
   assert.match(cancel, /discardDraft\(\)/)
   assert.doesNotMatch(cancel, /deleteTelegramUnit/)
-  assert.match(footer, /v-if="creating"[\s\S]*@click="cancelCreate"[\s\S]*<span>取消<\/span>/)
+  assert.match(
+    footer,
+    /v-if="creating"[\s\S]*@click="cancelCreate"[\s\S]*<span>\{\{ t\('common\.cancel'\) \}\}<\/span>/
+  )
   assert.match(footer, /v-else-if="selectedUnit"[\s\S]*@click="remove"/)
 })
 

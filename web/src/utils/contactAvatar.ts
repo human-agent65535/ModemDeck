@@ -1,3 +1,5 @@
+import { translate } from '../i18n'
+
 const MAX_SOURCE_BYTES = 10 << 20
 const MAX_AVATAR_BYTES = 256 << 10
 const OUTPUT_SIZES = [384, 320, 256, 192]
@@ -11,7 +13,7 @@ function loadImage(file: File): Promise<{ image: HTMLImageElement; release: () =
     image.onload = () => resolve({ image, release: () => URL.revokeObjectURL(url) })
     image.onerror = () => {
       URL.revokeObjectURL(url)
-      reject(new Error('无法读取这张图片'))
+      reject(new Error(translate('runtime.imageReadFailed')))
     }
     image.src = url
   })
@@ -22,7 +24,7 @@ function encodeCanvas(canvas: HTMLCanvasElement, quality: number): Promise<Blob>
     canvas.toBlob(
       blob => {
         if (!blob) {
-          reject(new Error('浏览器无法处理这张图片'))
+          reject(new Error(translate('runtime.imageUnsupported')))
           return
         }
         resolve(blob)
@@ -37,27 +39,29 @@ function blobDataURL(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result || ''))
-    reader.onerror = () => reject(new Error('无法读取处理后的头像'))
+    reader.onerror = () => reject(new Error(translate('runtime.processedAvatarReadFailed')))
     reader.readAsDataURL(blob)
   })
 }
 
 export async function createContactAvatar(file: File): Promise<string> {
-  if (!file.type.startsWith('image/')) throw new Error('请选择图片文件')
-  if (file.size > MAX_SOURCE_BYTES) throw new Error('原图不能超过 10 MB')
+  if (!file.type.startsWith('image/')) throw new Error(translate('runtime.selectImage'))
+  if (file.size > MAX_SOURCE_BYTES) throw new Error(translate('runtime.imageTooLarge'))
 
   const { image, release } = await loadImage(file)
   try {
     const sourceWidth = image.naturalWidth
     const sourceHeight = image.naturalHeight
-    if (!sourceWidth || !sourceHeight) throw new Error('图片尺寸无效')
+    if (!sourceWidth || !sourceHeight) {
+      throw new Error(translate('runtime.invalidImageDimensions'))
+    }
 
     const cropSize = Math.min(sourceWidth, sourceHeight)
     const sourceX = Math.floor((sourceWidth - cropSize) / 2)
     const sourceY = Math.floor((sourceHeight - cropSize) / 2)
     const canvas = document.createElement('canvas')
     const context = canvas.getContext('2d')
-    if (!context) throw new Error('浏览器无法处理这张图片')
+    if (!context) throw new Error(translate('runtime.imageUnsupported'))
 
     for (let index = 0; index < OUTPUT_SIZES.length; index += 1) {
       const size = Math.min(OUTPUT_SIZES[index] || 192, cropSize)
@@ -90,5 +94,5 @@ export async function createContactAvatar(file: File): Promise<string> {
   } finally {
     release()
   }
-  throw new Error('图片内容过于复杂，请选择更小的图片')
+  throw new Error(translate('runtime.imageTooComplex'))
 }

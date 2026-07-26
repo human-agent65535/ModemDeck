@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ArrowDown, ArrowUp } from '@lucide/vue'
+import { useI18n } from 'vue-i18n'
 
+const { t } = useI18n()
 defineProps<{
   rx: number
   tx: number
@@ -22,11 +24,11 @@ function formatBytes(bytes: number): string {
 
 <template>
   <span class="traffic-usage">
-    <span title="下行">
+    <span :title="t('traffic.download')">
       <ArrowDown :size="14" aria-hidden="true" />
       {{ formatBytes(rx) }}
     </span>
-    <span title="上行">
+    <span :title="t('traffic.upload')">
       <ArrowUp :size="14" aria-hidden="true" />
       {{ formatBytes(tx) }}
     </span>

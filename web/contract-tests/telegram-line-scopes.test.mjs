@@ -58,6 +58,6 @@ test('Telegram line scopes show the alias and reliable phone number without inte
   assert.match(identity, /const phoneNumber = line\.phone_number\.trim\(\)/)
   assert.match(identity, /return phoneNumber \? `\$\{alias\} · \$\{phoneNumber\}` : alias/)
   assert.match(form, /label: telegramLineIdentity\(line\)/)
-  assert.match(form, /options\.push\(\{ id: scope, label: '未知线路' \}\)/)
-  assert.doesNotMatch(form, /未知线路 · \$\{scope\}/)
+  assert.match(form, /options\.push\(\{ id: scope, label: t\('telegram\.unknownLine'\) \}\)/)
+  assert.doesNotMatch(form, /unknownLine.*\$\{scope\}/)
 })

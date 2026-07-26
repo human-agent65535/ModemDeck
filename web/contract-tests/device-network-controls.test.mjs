@@ -43,10 +43,10 @@ test('mobile data switch uses APN and IP settings for connect and disconnect', (
     /connectData\(selectedLineID\.value, apn\.value, ipFamily\.value\)/
   )
   assert.match(switchBody, /enabled \? await applyDataConnection\(\) : await stopDataConnection\(\)/)
-  assert.match(source, /<strong>移动数据<\/strong>/)
+  assert.match(source, /<strong>\{\{ t\('device\.mobileData'\) \}\}<\/strong>/)
   assert.match(source, /:checked="hardware\.network_enabled"/)
   assert.match(source, /<span>APN<\/span>/)
-  assert.match(networkSection, /<legend>IP 模式<\/legend>/)
+  assert.match(networkSection, /<legend>\{\{ t\('device\.ipMode'\) \}\}<\/legend>/)
   assert.match(networkSection, /type="radio" value="ipv4"/)
   assert.match(networkSection, /type="radio" value="ipv6"/)
   assert.match(networkSection, /type="radio" value="ipv4v6"/)
@@ -65,7 +65,7 @@ test('empty APN remains automatic and only displays a server-resolved value', ()
   )
   assert.match(
     source,
-    /function automaticAPNLabel\(value\?: string\): string \{[\s\S]*return resolvedAPN \? `自动（\$\{resolvedAPN\}）` : '自动'[\s\S]*\}/
+    /function automaticAPNLabel\(value\?: string\): string \{[\s\S]*t\('device\.automaticAPN', \{ apn: resolvedAPN \}\)[\s\S]*t\('device\.automatic'\)/
   )
   assert.match(source, /v-model\.trim="apn"[\s\S]*:placeholder="apnPlaceholder"/)
   assert.match(
@@ -86,7 +86,7 @@ test('network keeps a compact bearer status and folds full profiles into details
   assert.doesNotMatch(networkSection, /v-for="connection in hardware\.data_connections"/)
   assert.match(
     networkSection,
-    /<details class="advanced-profiles">[\s\S]*<strong>高级连接配置<\/strong>/
+    /<details class="advanced-profiles">[\s\S]*t\('device\.advancedProfiles'\)/
   )
   assert.doesNotMatch(networkSection, /<details class="advanced-profiles"[^>]*\sopen/)
   assert.match(networkSection, /@submit\.prevent="saveProfile"/)
@@ -107,7 +107,7 @@ test('VoWiFi is status-only while VoLTE uses the shared binary switch', () => {
   assert.doesNotMatch(networkSection, />VoWiFi</)
   assert.match(voiceSection, /<strong>VoWiFi<\/strong>/)
   assert.match(voiceSection, /capabilityStatus\(hardware\.capabilities\.vowifi/)
-  assert.match(voiceSection, /<strong>通话路径<\/strong>/)
+  assert.match(voiceSection, /<strong>\{\{ t\('device\.callPath'\) \}\}<\/strong>/)
   assert.match(voiceSection, /:class="\{ 'is-available': voiceAvailable \}"/)
   assert.doesNotMatch(
     voiceSection.slice(
@@ -130,7 +130,7 @@ test('incoming call override uses a compact three-state segmented control', () =
   const voiceStart = source.indexOf("<template v-else-if=\"activeTab === 'voice'\">")
   const voiceEnd = source.indexOf('<template v-else>', voiceStart)
   const voiceSection = source.slice(voiceStart, voiceEnd)
-  const incomingStart = voiceSection.indexOf('<h4>来电</h4>')
+  const incomingStart = voiceSection.indexOf("t('device.incomingCalls')")
   const incomingEnd = voiceSection.indexOf('</section>', incomingStart)
   const incomingSection = voiceSection.slice(incomingStart, incomingEnd)
 
@@ -191,7 +191,7 @@ test('hardware details show only backend-provided radio measurements', () => {
   )
   assert.match(
     source,
-    /<dt>主端口<\/dt>[\s\S]*?hardware\.details\.primary_port/
+    /t\('device\.primaryPort'\)[\s\S]*?hardware\.details\.primary_port/
   )
   assert.match(
     source,

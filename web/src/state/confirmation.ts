@@ -1,4 +1,5 @@
 import { reactive, readonly } from 'vue'
+import { translate } from '../i18n'
 
 export type ConfirmationTone = 'default' | 'danger'
 
@@ -33,8 +34,8 @@ export function requestConfirmation(options: ConfirmationOptions): Promise<boole
     id: nextID,
     title: options.title,
     message: options.message,
-    confirmLabel: options.confirmLabel || '确认',
-    cancelLabel: options.cancelLabel || '取消',
+    confirmLabel: options.confirmLabel || translate('device.confirm'),
+    cancelLabel: options.cancelLabel || translate('common.cancel'),
     tone: options.tone || 'default'
   }
   nextID += 1

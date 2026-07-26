@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { LineSummary } from '../api/types'
 
+const { t } = useI18n()
 const props = withDefaults(
   defineProps<{
     line: Pick<LineSummary, 'id' | 'iccid' | 'line_label'>
     fallback?: string
   }>(),
   {
-    fallback: '线路'
+    fallback: ''
   }
 )
 
@@ -21,7 +23,7 @@ function stableHash(value: string): number {
   return hash >>> 0
 }
 
-const label = computed(() => props.line.line_label.trim() || props.fallback.trim() || '线路')
+const label = computed(() => props.line.line_label.trim() || props.fallback.trim() || t('lines.line'))
 const tone = computed(() => {
   const stableKey = props.line.id?.trim() || props.line.iccid.trim() || label.value
   return `line-tag--tone-${stableHash(stableKey) % 6}`
@@ -33,7 +35,7 @@ const tone = computed(() => {
     class="line-tag"
     :class="tone"
     :title="label"
-    :aria-label="`通信线路：${label}`"
+    :aria-label="t('lines.communicationLine', { label })"
   >
     {{ label }}
   </span>

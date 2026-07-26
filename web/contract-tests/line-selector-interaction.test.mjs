@@ -84,7 +84,7 @@ test('VoLTE is a styled binary switch and never a native select', () => {
   assert.ok(start >= 0)
   assert.match(section, /type="checkbox"/)
   assert.match(section, /role="switch"/)
-  assert.match(section, /aria-label="启用 VoLTE（重启生效）"/)
+  assert.match(section, /:aria-label="t\('device\.enableVolte'\)"/)
   assert.doesNotMatch(section, /<select/)
   assert.match(panel, /-webkit-appearance: none/)
   assert.match(panel, /\.configuration-toggle input:focus-visible/)

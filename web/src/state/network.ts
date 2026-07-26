@@ -8,6 +8,7 @@ import type {
   ResourceStatus
 } from '../api/types'
 import { ApiError } from '../api/types'
+import { translate } from '../i18n'
 import { isIPAddress, isLoopbackAddress } from '../utils/ipAddress'
 import { proxyCredentialError } from '../utils/proxyCredentials'
 
@@ -40,38 +41,47 @@ let loadGeneration = 0
 let loadRequest: Promise<void> | undefined
 
 function failureMessage(error: unknown, fallback: string): string {
-  if (error instanceof ApiError && error.status === 403) return '无权管理网络与代理'
+  if (error instanceof ApiError && error.status === 403) {
+    return translate('runtime.networkForbidden')
+  }
   return error instanceof Error ? error.message : fallback
 }
 
 function proxyName(draft: ProxyDraft, lineLabel: string): string {
   const protocol = draft.mode === 'http' ? 'HTTP' : 'SOCKS5'
-  return `${lineLabel.trim() || '线路'} ${protocol} ${draft.listen_port}`.slice(0, 100)
+  return translate('runtime.proxyName', {
+    line: lineLabel.trim() || translate('lines.line'),
+    protocol,
+    port: draft.listen_port
+  }).slice(0, 100)
 }
 
 function validateDraft(draft: ProxyDraft, existing?: ProxyInstance): string {
   const username = draft.username.trim()
   const password = draft.password
-  if (!draft.line_id.trim()) return '请选择线路'
-  if (draft.mode !== 'http' && draft.mode !== 'socks5') return '请选择代理协议'
-  if (!draft.listen_address.trim()) return '请输入监听地址'
-  if (!isIPAddress(draft.listen_address)) return '监听地址必须是 IPv4 或 IPv6 地址'
+  if (!draft.line_id.trim()) return translate('proxy.selectLine')
+  if (draft.mode !== 'http' && draft.mode !== 'socks5') {
+    return translate('runtime.selectProxyProtocol')
+  }
+  if (!draft.listen_address.trim()) return translate('proxy.enterListenAddress')
+  if (!isIPAddress(draft.listen_address)) return translate('proxy.invalidListenAddress')
   if (
     !Number.isSafeInteger(draft.listen_port) ||
     draft.listen_port < 1024 ||
     draft.listen_port > 65535
   ) {
-    return '端口范围为 1024–65535'
+    return translate('proxy.invalidPort')
   }
   const credentialError = proxyCredentialError(
     draft.mode,
     username,
     password,
-    existing?.has_password
+    existing?.has_password,
+    key => translate(key)
   )
   if (credentialError) return credentialError
   if (!isLoopbackAddress(draft.listen_address) && !username) {
-    return '非本机监听必须设置用户名和密码'
+    return translate('runtime.localCredentialsRequired')
   }
   return ''
 }
@@ -80,13 +90,13 @@ function applyNotice(applied: boolean, status: ProxyApplyStatus): string {
   if (applied) return ''
   switch (status) {
     case 'agent_unavailable':
-      return '配置已保存，主机服务当前不可用'
+      return translate('runtime.proxySavedAgentUnavailable')
     case 'agent_rejected':
-      return '配置已保存，但主机服务拒绝了配置'
+      return translate('runtime.proxySavedAgentRejected')
     case 'runtime_unavailable':
-      return '配置已保存，但网络运行时暂不可用'
+      return translate('runtime.proxySavedRuntimeUnavailable')
     default:
-      return '配置已保存，等待主机服务同步'
+      return translate('runtime.proxySavedPending')
   }
 }
 
@@ -110,7 +120,7 @@ export function loadNetwork(force = false, silent = false): Promise<void> {
       if (token !== loadGeneration) return
       networkState.status =
         error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
-      networkState.error = failureMessage(error, '无法载入流量数据')
+      networkState.error = failureMessage(error, translate('runtime.trafficLoadFailed'))
     })
     .finally(() => {
       if (loadRequest === request) loadRequest = undefined
@@ -123,7 +133,7 @@ async function handleMutationFailure(error: unknown, fallback: string): Promise<
   const message = failureMessage(error, fallback)
   if (error instanceof ApiError && error.status === 409) {
     await loadNetwork(true, true)
-    networkState.error = '代理已由其他操作更新，请确认后重试'
+    networkState.error = translate('runtime.proxyConflict')
     return
   }
   networkState.error = message
@@ -176,7 +186,7 @@ export async function saveProxy(
     networkState.notice = applyNotice(result.applied, result.status)
     return true
   } catch (error) {
-    await handleMutationFailure(error, '无法保存代理')
+    await handleMutationFailure(error, translate('runtime.proxySaveFailed'))
     return false
   } finally {
     networkState.busyID = ''
@@ -209,7 +219,7 @@ export async function setProxyEnabled(
     networkState.notice = applyNotice(result.applied, result.status)
     return true
   } catch (error) {
-    await handleMutationFailure(error, '无法切换代理')
+    await handleMutationFailure(error, translate('runtime.proxyToggleFailed'))
     return false
   } finally {
     networkState.busyID = ''
@@ -228,7 +238,7 @@ export async function removeProxy(proxy: ProxyInstance): Promise<boolean> {
     networkState.notice = applyNotice(result.applied, result.status)
     return true
   } catch (error) {
-    await handleMutationFailure(error, '无法删除代理')
+    await handleMutationFailure(error, translate('runtime.proxyDeleteFailed'))
     return false
   } finally {
     networkState.busyID = ''

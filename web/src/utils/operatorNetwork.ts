@@ -15,9 +15,11 @@ export type OperatorNetworkSource = {
 
 export type OperatorFact = {
   id: 'current' | 'serving' | 'home'
-  label: '运营商' | '当前网络' | '归属运营商'
+  label: string
   value: string
 }
+
+type Translator = (key: string) => string
 
 const registeredStates = new Set([
   'home',
@@ -110,8 +112,10 @@ export function isMessagingServiceReady(
 
 export function operatorFacts(
   source?: OperatorNetworkSource | null,
-  unknownLabel = '未识别'
+  unknownLabel = '未识别',
+  translator?: Translator
 ): OperatorFact[] {
+  const label = (key: string, fallback: string) => translator?.(key) || fallback
   const home = formatOperator(
     clean(source?.home_operator_name) ||
       clean(source?.operator_name) ||
@@ -127,7 +131,7 @@ export function operatorFacts(
     return [
       {
         id: 'home',
-        label: '归属运营商',
+        label: label('network.homeOperator', '归属运营商'),
         value: home || unknownLabel
       }
     ]
@@ -137,12 +141,12 @@ export function operatorFacts(
     return [
       {
         id: 'serving',
-        label: '当前网络',
+        label: label('network.currentNetwork', '当前网络'),
         value: serving || unknownLabel
       },
       {
         id: 'home',
-        label: '归属运营商',
+        label: label('network.homeOperator', '归属运营商'),
         value: home || unknownLabel
       }
     ]
@@ -151,7 +155,7 @@ export function operatorFacts(
   return [
     {
       id: 'current',
-      label: '运营商',
+      label: label('network.operator', '运营商'),
       value: serving || home || unknownLabel
     }
   ]
@@ -159,40 +163,42 @@ export function operatorFacts(
 
 export function registrationStateLabel(
   source: OperatorNetworkSource,
-  fallback: string
+  fallback: string,
+  translator?: Translator
 ): string {
-  if (isRoamingNetwork(source)) return '漫游'
+  const label = (key: string, defaultLabel: string) => translator?.(key) || defaultLabel
+  if (isRoamingNetwork(source)) return label('network.roaming', '漫游')
   if (!source.registration_state_known) return fallback
   if (
     source.emergency_only &&
     clean(source.registration_state).toLocaleLowerCase() !== 'searching'
   ) {
-    return '仅限紧急呼叫'
+    return label('network.emergencyOnly', '仅限紧急呼叫')
   }
 
   switch (clean(source.registration_state).toLocaleLowerCase()) {
     case 'home':
-      return '本地驻网'
+      return label('network.home', '本地驻网')
     case 'home-sms-only':
-      return '本地驻网 · 仅短信'
+      return label('network.homeSmsOnly', '本地驻网 · 仅短信')
     case 'roaming-sms-only':
-      return '漫游 · 仅短信'
+      return label('network.roamingSmsOnly', '漫游 · 仅短信')
     case 'home-csfb-not-preferred':
-      return '本地驻网'
+      return label('network.home', '本地驻网')
     case 'roaming-csfb-not-preferred':
-      return '漫游'
+      return label('network.roaming', '漫游')
     case 'attached-rlos':
-      return '受限驻网'
+      return label('network.restricted', '受限驻网')
     case 'emergency-only':
-      return '仅限紧急呼叫'
+      return label('network.emergencyOnly', '仅限紧急呼叫')
     case 'searching':
-      return '正在搜网'
+      return label('network.searching', '正在搜网')
     case 'denied':
-      return '注册被拒绝'
+      return label('network.denied', '注册被拒绝')
     case 'idle':
-      return '等待驻网'
+      return label('network.idle', '等待驻网')
     case 'unknown':
-      return '状态未知'
+      return label('network.unknown', '状态未知')
     default:
       return clean(source.registration_state) || fallback
   }

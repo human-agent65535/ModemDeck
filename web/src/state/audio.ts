@@ -1,4 +1,5 @@
 import { reactive } from 'vue'
+import { translate } from '../i18n'
 
 export type AudioDeviceLoadStatus = 'idle' | 'loading' | 'ready' | 'error'
 export type MicrophoneAccessStatus =
@@ -115,7 +116,7 @@ export const audioState = reactive<AudioState>({
     : 'default',
   outputRoutingError:
     selectedOutputID && !outputSelectionSupported
-      ? '当前浏览器不支持指定音频输出设备'
+      ? translate('runtime.audioOutputUnsupported')
       : '',
   microphoneTestStatus: 'idle',
   microphoneTestLevel: 0,
@@ -154,12 +155,12 @@ function updateOutputSelectionStatus(preserveActive = true): void {
   }
   if (!audioState.outputSelectionSupported) {
     audioState.outputRoutingStatus = 'unsupported'
-    audioState.outputRoutingError = '当前浏览器不支持指定音频输出设备'
+    audioState.outputRoutingError = translate('runtime.audioOutputUnsupported')
     return
   }
   if (selectedDeviceMissing('output')) {
     audioState.outputRoutingStatus = 'unavailable'
-    audioState.outputRoutingError = '所选音频输出设备当前不可用'
+    audioState.outputRoutingError = translate('runtime.audioOutputUnavailable')
     return
   }
   if (!preserveActive || audioState.outputRoutingStatus !== 'active') {
@@ -176,7 +177,7 @@ function updateInputSelectionStatus(preserveActive = true): void {
   }
   if (selectedDeviceMissing('input')) {
     audioState.inputRoutingStatus = 'unavailable'
-    audioState.inputRoutingError = '所选麦克风当前不可用'
+    audioState.inputRoutingError = translate('runtime.microphoneUnavailable')
     return
   }
   if (
@@ -228,7 +229,7 @@ export function refreshAudioDevices(): Promise<void> {
   refreshPromise = (async () => {
     if (!navigator.mediaDevices?.enumerateDevices) {
       audioState.devicesStatus = 'error'
-      audioState.devicesError = '当前浏览器无法枚举音频设备'
+      audioState.devicesError = translate('runtime.enumerateAudioFailed')
       return
     }
 
@@ -253,7 +254,7 @@ export function refreshAudioDevices(): Promise<void> {
     } catch (error) {
       audioState.devicesStatus = 'error'
       audioState.devicesError =
-        error instanceof Error ? error.message : '无法读取音频设备'
+        error instanceof Error ? error.message : translate('runtime.readAudioDevicesFailed')
     }
   })().finally(() => {
     refreshPromise = undefined
@@ -299,14 +300,14 @@ async function setMicrophoneAccessFailure(error: unknown): Promise<void> {
     }
     if (error.name === 'NotReadableError') {
       audioState.microphoneAccessStatus = 'error'
-      audioState.microphoneAccessError = '麦克风无法读取，可能正被其他应用占用'
+      audioState.microphoneAccessError = translate('runtime.microphoneBusy')
       return
     }
   }
 
   audioState.microphoneAccessStatus = 'error'
   audioState.microphoneAccessError =
-    error instanceof Error ? error.message : '无法请求麦克风权限'
+    error instanceof Error ? error.message : translate('runtime.microphonePermissionFailed')
 }
 
 export function initializeBrowserAudio(): Promise<void> {
@@ -346,7 +347,7 @@ export function initializeBrowserAudio(): Promise<void> {
         if (audioState.devicesStatus === 'error') {
           audioState.microphoneAccessStatus = 'error'
           audioState.microphoneAccessError =
-            audioState.devicesError || '无法读取音频设备'
+            audioState.devicesError || translate('runtime.readAudioDevicesFailed')
         } else {
           audioState.microphoneAccessStatus =
             audioState.inputs.length > 0 ? 'granted' : 'no-device'
@@ -396,7 +397,9 @@ export async function applySelectedAudioOutput(
       if (token !== outputApplyGeneration) return false
       audioState.outputRoutingStatus = 'error'
       audioState.outputRoutingError =
-        error instanceof Error ? error.message : '无法恢复系统默认音频输出'
+        error instanceof Error
+          ? error.message
+          : translate('runtime.restoreDefaultOutputFailed')
       return false
     }
   }
@@ -404,13 +407,13 @@ export async function applySelectedAudioOutput(
   if (typeof sinkElement.setSinkId !== 'function') {
     if (token !== outputApplyGeneration) return false
     audioState.outputRoutingStatus = 'unsupported'
-    audioState.outputRoutingError = '当前浏览器不支持指定音频输出设备'
+    audioState.outputRoutingError = translate('runtime.audioOutputUnsupported')
     return false
   }
   if (selectedDeviceMissing('output')) {
     if (token !== outputApplyGeneration) return false
     audioState.outputRoutingStatus = 'unavailable'
-    audioState.outputRoutingError = '所选音频输出设备当前不可用'
+    audioState.outputRoutingError = translate('runtime.audioOutputUnavailable')
     return false
   }
 
@@ -424,7 +427,7 @@ export async function applySelectedAudioOutput(
     if (token !== outputApplyGeneration) return false
     audioState.outputRoutingStatus = 'error'
     audioState.outputRoutingError =
-      error instanceof Error ? error.message : '无法使用所选音频输出设备'
+      error instanceof Error ? error.message : translate('runtime.useOutputFailed')
     return false
   }
 }
@@ -478,15 +481,15 @@ export function stopMicrophoneTest(): void {
 
 function microphoneTestError(error: unknown): string {
   if (error instanceof DOMException) {
-    if (error.name === 'NotAllowedError') return '未授权浏览器使用麦克风'
+    if (error.name === 'NotAllowedError') return translate('runtime.microphoneUnauthorized')
     if (error.name === 'NotFoundError' || error.name === 'OverconstrainedError') {
       return audioState.selectedInputID
-        ? '所选麦克风当前不可用'
-        : '未找到可用麦克风'
+        ? translate('runtime.microphoneUnavailable')
+        : translate('runtime.noMicrophone')
     }
-    if (error.name === 'NotReadableError') return '麦克风无法读取，可能正被其他应用占用'
+    if (error.name === 'NotReadableError') return translate('runtime.microphoneBusy')
   }
-  return error instanceof Error ? error.message : '麦克风测试失败'
+  return error instanceof Error ? error.message : translate('runtime.microphoneTestFailed')
 }
 
 export async function startMicrophoneTest(): Promise<void> {
@@ -496,7 +499,7 @@ export async function startMicrophoneTest(): Promise<void> {
 
   try {
     if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('浏览器需要通过 HTTPS 才能使用麦克风')
+      throw new Error(translate('runtime.microphoneHTTPSRequired'))
     }
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: selectedAudioInputConstraints(),

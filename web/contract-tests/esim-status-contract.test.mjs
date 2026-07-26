@@ -129,13 +129,20 @@ test('SIM settings render read-only eSIM facts through the shared decoder', () =
   )
   const client = readFileSync(new URL('../src/api/client.ts', import.meta.url), 'utf8')
 
-  for (const label of ['SIM 类型', 'eSIM 状态', 'EID', '当前卡槽', '主卡槽', 'Profile 管理']) {
-    assert.match(panel, new RegExp(label))
+  for (const label of [
+    "t('device.simType')",
+    "t('device.esimStatus')",
+    'EID',
+    "t('device.currentSlot')",
+    "t('device.primarySlot')",
+    "t('device.profileManagement')"
+  ]) {
+    assert.ok(panel.includes(label), `missing ${label}`)
   }
   assert.match(panel, /v-if="simStatus\.sim_type !== 'unknown'"/)
   assert.match(panel, /simStatus\.sim_slots/)
   assert.match(panel, /v-if="simStatus\.sim_slots_known"/)
-  assert.match(panel, /slot\.present \? '已插卡' : '未插卡'/)
+  assert.match(panel, /slot\.present \? t\('device\.cardInserted'\) : t\('device\.noCard'\)/)
   assert.match(panel, /slot\.present && slot\.sim_type !== 'unknown'/)
   assert.match(panel, /slot\.current && currentSIMIdentity/)
   assert.doesNotMatch(

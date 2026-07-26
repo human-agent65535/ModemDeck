@@ -1,17 +1,22 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Search, X } from '@lucide/vue'
 
-withDefaults(
+const { t } = useI18n()
+const props = withDefaults(
   defineProps<{
     modelValue: string
     placeholder?: string
     label?: string
   }>(),
   {
-    placeholder: '搜索',
-    label: '搜索'
+    placeholder: '',
+    label: ''
   }
 )
+const resolvedPlaceholder = computed(() => props.placeholder || t('common.search'))
+const resolvedLabel = computed(() => props.label || t('common.search'))
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
@@ -22,11 +27,11 @@ const emit = defineEmits<{
 <template>
   <label class="search-field">
     <Search :size="18" aria-hidden="true" />
-    <span class="sr-only">{{ label }}</span>
+    <span class="sr-only">{{ resolvedLabel }}</span>
     <input
       :value="modelValue"
       type="search"
-      :placeholder="placeholder"
+      :placeholder="resolvedPlaceholder"
       @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
       @focus="emit('focus')"
     />
@@ -34,8 +39,8 @@ const emit = defineEmits<{
       v-if="modelValue"
       class="icon-button icon-button--quiet"
       type="button"
-      title="清除"
-      aria-label="清除搜索"
+      :title="t('common.clear')"
+      :aria-label="t('common.clearSearch')"
       @click="emit('update:modelValue', '')"
     >
       <X :size="16" />

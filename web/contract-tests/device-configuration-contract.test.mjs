@@ -258,7 +258,9 @@ test('global call settings contain only preference and revision', async () => {
   assert.equal(incomingCallModeSource.includes('enforcement'), false)
   assert.equal(incomingCallModeSource.includes('当前策略已保存'), false)
   assert.equal(incomingCallModeSource.includes('当前无法自动拒接'), false)
-  assert.match(incomingCallModeSource, /线路实际执行能力见设备设置/)
+  assert.match(incomingCallModeSource, /useI18n/)
+  assert.match(incomingCallModeSource, /t\('incomingCallMode\.deviceCapabilityNotice'\)/)
+  assert.doesNotMatch(incomingCallModeSource, /全局来电策略|接听来电|免打扰|重新读取/)
 })
 
 test('fixture can return no devices and does not invent a selection target', async () => {
@@ -304,7 +306,10 @@ test('module cards keep selection and default actions in a stable shared footer'
   assert.ok(actionsStart > capabilitiesStart, '默认线路与编辑动作不在能力右侧')
   assert.doesNotMatch(moduleCardSource, /\bStar\b/)
   assert.match(moduleCardSource, /\bCircleCheck\b/)
-  assert.match(moduleCardSource, /defaultLine \? '默认线路' : '设为默认'/)
+  assert.match(
+    moduleCardSource,
+    /defaultLine \? t\('lines\.defaultLine'\) : t\('lines\.setAsDefault'\)/
+  )
   assert.match(moduleCardSource, /:disabled="defaultLine"/)
   assert.match(moduleCardSource, /\.module-card__current\s*\{[^}]*visibility: hidden/s)
   assert.match(
@@ -421,16 +426,16 @@ test('connected data details render only values reported by the device API', () 
   assert.match(devicePanelSource, /v-if="dataConnectionFacts\.length"/)
   assert.match(devicePanelSource, /addIPConfiguration\('IPv4', connection\.ipv4\)/)
   assert.match(devicePanelSource, /addIPConfiguration\('IPv6', connection\.ipv6\)/)
-  for (const label of [
-    '接口',
-    'APN',
-    '协议族',
-    '地址',
-    '前缀',
-    '网关',
-    'DNS',
-    'MTU'
+  for (const key of [
+    'traffic.interface',
+    'device.ipMode',
+    'device.ipAddress',
+    'device.ipPrefix',
+    'device.ipGateway'
   ]) {
-    assert.match(devicePanelSource, new RegExp(label))
+    assert.match(devicePanelSource, new RegExp(`t\\('${key.replace('.', '\\.')}\\'`))
+  }
+  for (const protocolLabel of ['APN', 'DNS', 'MTU']) {
+    assert.match(devicePanelSource, new RegExp(protocolLabel))
   }
 })
