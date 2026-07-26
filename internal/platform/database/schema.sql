@@ -82,6 +82,7 @@ CREATE TABLE call_history (
 			line_iccid TEXT NOT NULL DEFAULT '',
 			direction TEXT NOT NULL DEFAULT '',
 			remote_number TEXT NOT NULL DEFAULT '',
+			reported_remote_number TEXT NOT NULL DEFAULT '',
 			endpoint_id TEXT NOT NULL DEFAULT '',
 			endpoint_call_id TEXT NOT NULL DEFAULT '',
 			phase TEXT NOT NULL DEFAULT '',

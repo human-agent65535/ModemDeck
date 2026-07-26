@@ -45,7 +45,7 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 		LineIMSI:       line.IMSI,
 		LineICCID:      line.ICCID,
 		EndpointCallID: "boot-1:/call/1",
-		Number:         "+818012345678",
+		Number:         "00818012345678",
 		Direction:      "incoming",
 		Phase:          "ringing",
 		Bearer:         "volte",
@@ -74,6 +74,15 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 		Lines:      []HardwareLine{line},
 		Calls:      []HardwareCall{call},
 		Messages:   []HardwareMessage{message},
+	}
+	contact, err := repository.CreateContact(ctx, ContactInput{
+		DisplayName: "Prefix Contact",
+		Phones: []ContactPhoneInput{
+			{Label: "mobile", Number: "+81 80 1234 5678", Primary: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateContact() error = %v", err)
 	}
 
 	if err := repository.ApplyHardwareSnapshot(ctx, snapshot); err != nil {
@@ -109,9 +118,20 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 		t.Fatalf("CallControlTarget() error = %v", err)
 	}
 	if target.LineID != call.LineID || target.EndpointCallID != call.EndpointCallID ||
-		target.Number != call.Number || target.Direction != call.Direction ||
+		target.Number != "+818012345678" || target.Direction != call.Direction ||
 		target.Bearer != call.Bearer || target.Revision < call.Revision {
 		t.Fatalf("call target = %+v", target)
+	}
+	var reportedNumber string
+	if err := repository.database.QueryRowContext(
+		ctx,
+		"SELECT reported_remote_number FROM call_history WHERE id = ?",
+		call.AppID,
+	).Scan(&reportedNumber); err != nil {
+		t.Fatalf("reported call number query error = %v", err)
+	}
+	if reportedNumber != call.Number {
+		t.Fatalf("reported call number = %q, want %q", reportedNumber, call.Number)
 	}
 	devices, err := repository.Devices(ctx)
 	if err != nil {
@@ -173,6 +193,9 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 		t.Fatalf("Calls() error = %v", err)
 	}
 	if len(calls) != 1 || calls[0].Phase != "ended" || calls[0].EndedAt == "" ||
+		calls[0].RemoteNumber != "+818012345678" ||
+		calls[0].ContactID != contact.ID ||
+		calls[0].ContactName != contact.DisplayName ||
 		calls[0].LocalPhone != line.PhoneNumber ||
 		calls[0].LineIMSI != line.IMSI ||
 		calls[0].LineICCID != line.ICCID {

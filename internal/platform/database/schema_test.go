@@ -290,6 +290,73 @@ func TestOpenMigratesSIMLineColorAndPreservesExistingData(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesReportedAndCanonicalPhoneIdentities(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "without-reported-call-number.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacySchema := strings.Replace(
+		currentSchemaSQL,
+		"\n\t\t\treported_remote_number TEXT NOT NULL DEFAULT '',",
+		"",
+		1,
+	)
+	if legacySchema == currentSchemaSQL {
+		t.Fatal("legacy schema fixture did not remove reported call number")
+	}
+	if _, err := database.Exec(legacySchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(
+		`INSERT INTO call_history (id, direction, remote_number)
+		 VALUES ('call-prefix-fixture', 'incoming', '00818000000001');
+		 INSERT INTO contacts (id, display_name)
+		 VALUES ('contact-prefix-fixture', 'Prefix Fixture');
+		 INSERT INTO contact_phones (
+			id, contact_id, label, original_number, canonical_e164, is_primary
+		 ) VALUES (
+			'phone-prefix-fixture', 'contact-prefix-fixture', 'mobile',
+			'0081 80 0000 0001', '00818000000001', 1
+		 );`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	var remote, reported string
+	if err := database.QueryRow(
+		`SELECT remote_number, reported_remote_number
+		 FROM call_history WHERE id = 'call-prefix-fixture'`,
+	).Scan(&remote, &reported); err != nil {
+		t.Fatal(err)
+	}
+	if remote != "+818000000001" || reported != "00818000000001" {
+		t.Fatalf("migrated call numbers = (%q, %q)", remote, reported)
+	}
+
+	var original, canonical string
+	if err := database.QueryRow(
+		`SELECT original_number, canonical_e164
+		 FROM contact_phones WHERE id = 'phone-prefix-fixture'`,
+	).Scan(&original, &canonical); err != nil {
+		t.Fatal(err)
+	}
+	if original != "0081 80 0000 0001" || canonical != "+818000000001" {
+		t.Fatalf("migrated contact number = (%q, %q)", original, canonical)
+	}
+}
+
 func TestOpenDoesNotRepairMissingCurrentIndex(t *testing.T) {
 	t.Parallel()
 

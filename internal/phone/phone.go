@@ -46,6 +46,7 @@ func (e *Error) Unwrap() error {
 
 // Normalize preserves the operator-entered representation and returns a
 // canonical E.164 value suitable for ownership and routing comparisons.
+// Both "+" and the international "00" prefix resolve to the same identity.
 func Normalize(value string) (original string, canonical string, err error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -54,13 +55,19 @@ func Normalize(value string) (original string, canonical string, err error) {
 	if len([]rune(value)) > MaxNumberRunes {
 		return "", "", &Error{Code: CodeTooLong}
 	}
-	if value[0] != '+' {
+	prefixLength := 0
+	switch {
+	case strings.HasPrefix(value, "+"):
+		prefixLength = 1
+	case strings.HasPrefix(value, "00"):
+		prefixLength = 2
+	default:
 		return "", "", &Error{Code: CodeInternationalPrefixRequired}
 	}
 
 	var digits strings.Builder
-	digits.Grow(len(value) - 1)
-	for _, character := range value[1:] {
+	digits.Grow(len(value) - prefixLength)
+	for _, character := range value[prefixLength:] {
 		switch {
 		case character >= '0' && character <= '9':
 			digits.WriteRune(character)
@@ -77,6 +84,18 @@ func Normalize(value string) (original string, canonical string, err error) {
 		return "", "", &Error{Code: CodeInvalidCountryCode}
 	}
 	return value, "+" + canonicalDigits, nil
+}
+
+// NormalizeNetworkNumber canonicalizes only an explicitly international
+// network-reported number. Local, short, withheld, and otherwise unknown
+// values remain untouched because their interpretation belongs to the network.
+func NormalizeNetworkNumber(value string) string {
+	value = strings.TrimSpace(value)
+	_, canonical, err := Normalize(value)
+	if err != nil {
+		return value
+	}
+	return canonical
 }
 
 // NormalizeDialTarget accepts a dial string without attempting to determine

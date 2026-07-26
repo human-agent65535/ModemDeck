@@ -5,7 +5,8 @@ import {
   createLineLookup,
   findLine,
   lineTagFallback,
-  lineTagLine
+  lineTagLine,
+  phoneIdentitiesMatch
 } from '../src/utils/lineIdentity.ts'
 
 const messagesView = new URL('../src/views/MessagesView.vue', import.meta.url)
@@ -52,6 +53,7 @@ test('shared line identity keeps known and historical records distinct', () => {
   assert.equal(main, lines[0])
   assert.equal(secondary, lines[1])
   assert.equal(findLine(lookup, '+81 (80) 1234-5678'), lines[0])
+  assert.equal(findLine(lookup, '0081 80 1234 5678'), lines[0])
   assert.equal(findLine(lookup, '001020000000002'), lines[1])
   assert.equal(lineTagFallback(main, lines, 'imei-main', 'line-main'), 'Primary line')
   assert.equal(
@@ -68,6 +70,13 @@ test('shared line identity keeps known and historical records distinct', () => {
     iccid: '',
     line_label: ''
   })
+})
+
+test('international plus and 00 prefixes share one phone identity', () => {
+  assert.equal(phoneIdentitiesMatch('+1 202 555 0101', '0081 80 1234 5678'), true)
+  assert.equal(phoneIdentitiesMatch('+1 202 555 0101', '+81 (80) 1234-5678'), true)
+  assert.equal(phoneIdentitiesMatch('00123', '+123'), false)
+  assert.equal(phoneIdentitiesMatch('', ''), false)
 })
 
 test('message rows and conversation detail identify the original line', async () => {

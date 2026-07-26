@@ -130,9 +130,13 @@ func TestContactTypedConflictsAndPhoneOwnership(t *testing.T) {
 	first := mustCreateContact(t, repository, ContactInput{
 		DisplayName: "First",
 		Phones: []ContactPhoneInput{
-			{Label: "mobile", Number: "+81 (90) 1234-5678", Primary: true},
+			{Label: "mobile", Number: "0081 (90) 1234-5678", Primary: true},
 		},
 	})
+	if first.Phones[0].OriginalNumber != "0081 (90) 1234-5678" ||
+		first.Phones[0].CanonicalE164 != "+819012345678" {
+		t.Fatalf("00-prefixed contact phone = %#v", first.Phones[0])
+	}
 
 	_, err := repository.CreateContact(ctx, ContactInput{
 		DisplayName: "Duplicate",

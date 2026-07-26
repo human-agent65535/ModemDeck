@@ -27,7 +27,8 @@ import { playOutgoingMessageSound } from './browserSounds'
 import {
   createLineLookup,
   findLine,
-  normalizedPhoneIdentity
+  normalizedPhoneIdentity,
+  phoneIdentitiesMatch
 } from '../utils/lineIdentity'
 
 function resource<T>(data: T): Resource<T> {
@@ -176,9 +177,12 @@ export function deviceName(id: string): string {
 }
 
 export function contactForNumber(number: string): Contact | undefined {
-  const compact = number.replace(/\D/g, '')
   return contactsResource.data.find(contact =>
-    contact.phones.some(phone => phone.number.replace(/\D/g, '') === compact)
+    contact.phones.some(
+      phone =>
+        phoneIdentitiesMatch(phone.normalized_number, number) ||
+        phoneIdentitiesMatch(phone.number, number)
+    )
   )
 }
 

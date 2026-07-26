@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/human-agent65535/modemdeck/internal/phone"
 )
 
 var (
@@ -705,7 +707,8 @@ func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareC
 	call.AppID = strings.TrimSpace(call.AppID)
 	call.LineID = strings.TrimSpace(call.LineID)
 	call.EndpointCallID = strings.TrimSpace(call.EndpointCallID)
-	call.Number = strings.TrimSpace(call.Number)
+	reportedNumber := strings.TrimSpace(call.Number)
+	call.Number = phone.NormalizeNetworkNumber(reportedNumber)
 	call.Direction = strings.ToLower(strings.TrimSpace(call.Direction))
 	call.Phase = strings.ToLower(strings.TrimSpace(call.Phase))
 	call.Bearer = strings.TrimSpace(call.Bearer)
@@ -754,14 +757,15 @@ func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareC
 		ctx,
 		`INSERT INTO call_history (
 			id, request_id, device_id, local_phone, line_imsi, line_iccid,
-			direction, remote_number, endpoint_id, endpoint_call_id, phase,
+			direction, remote_number, reported_remote_number, endpoint_id,
+			endpoint_call_id, phase,
 			revision, created_at, updated_at, active_at, ended_at, end_reason,
 			failure_code, bearer, state_reason, state_reason_code, multiparty,
 			audio_port, audio_encoding, audio_resolution, audio_rate,
 			media_available
 		 ) VALUES (
 			?, ?, ?, ?, ?, ?,
-			?, ?, ?, ?, ?, ?,
+			?, ?, ?, ?, ?, ?, ?,
 			?, ?, ?, ?, ?, ?,
 			?, ?, ?, ?, ?, ?,
 			?, ?, ?
@@ -778,6 +782,11 @@ func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareC
 			line_iccid = CASE
 				WHEN excluded.line_iccid <> '' THEN excluded.line_iccid
 				ELSE call_history.line_iccid
+			END,
+			reported_remote_number = CASE
+				WHEN call_history.reported_remote_number = ''
+					THEN excluded.reported_remote_number
+				ELSE call_history.reported_remote_number
 			END,
 			endpoint_call_id = excluded.endpoint_call_id,
 			phase = excluded.phase,
@@ -828,6 +837,7 @@ func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareC
 		strings.TrimSpace(call.LineICCID),
 		call.Direction,
 		call.Number,
+		reportedNumber,
 		modemManagerEndpointID,
 		call.EndpointCallID,
 		call.Phase,

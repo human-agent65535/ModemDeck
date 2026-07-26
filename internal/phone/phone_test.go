@@ -9,12 +9,54 @@ import (
 func TestNormalize(t *testing.T) {
 	t.Parallel()
 
-	original, canonical, err := Normalize(" +81 (80) 1234-5678 ")
-	if err != nil {
-		t.Fatalf("Normalize() error = %v", err)
+	for _, test := range []struct {
+		value     string
+		original  string
+		canonical string
+	}{
+		{
+			value:     " +81 (80) 1234-5678 ",
+			original:  "+81 (80) 1234-5678",
+			canonical: "+818012345678",
+		},
+		{
+			value:     " 0081 80 1234 5678 ",
+			original:  "0081 80 1234 5678",
+			canonical: "+818012345678",
+		},
+	} {
+		original, canonical, err := Normalize(test.value)
+		if err != nil {
+			t.Fatalf("Normalize(%q) error = %v", test.value, err)
+		}
+		if original != test.original || canonical != test.canonical {
+			t.Fatalf(
+				"Normalize(%q) = %q, %q; want %q, %q",
+				test.value,
+				original,
+				canonical,
+				test.original,
+				test.canonical,
+			)
+		}
 	}
-	if original != "+81 (80) 1234-5678" || canonical != "+818012345678" {
-		t.Fatalf("Normalize() = %q, %q", original, canonical)
+}
+
+func TestNormalizeNetworkNumberKeepsNonInternationalValuesTruthful(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"0081 80 1234 5678":  "+818012345678",
+		"+81 (80) 1234-5678": "+818012345678",
+		"090-1234-5678":      "090-1234-5678",
+		"10655526":           "10655526",
+		"00123":              "00123",
+		"unknown":            "unknown",
+	}
+	for input, expected := range tests {
+		if actual := NormalizeNetworkNumber(input); actual != expected {
+			t.Fatalf("NormalizeNetworkNumber(%q) = %q, want %q", input, actual, expected)
+		}
 	}
 }
 

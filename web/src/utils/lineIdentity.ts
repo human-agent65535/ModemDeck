@@ -4,7 +4,21 @@ import { translate } from '../i18n'
 export type LineTagLine = Pick<LineSummary, 'id' | 'iccid' | 'line_label' | 'line_color'>
 
 export function normalizedPhoneIdentity(value: string | undefined): string {
-  return value?.replace(/\D/g, '') || ''
+  const source = value?.trim() || ''
+  const digits = source.replace(/\D/g, '')
+  if (source.startsWith('00')) {
+    const internationalDigits = digits.slice(2)
+    if (/^[1-9]\d{7,14}$/.test(internationalDigits)) return internationalDigits
+  }
+  return digits
+}
+
+export function phoneIdentitiesMatch(
+  left: string | undefined,
+  right: string | undefined
+): boolean {
+  const leftIdentity = normalizedPhoneIdentity(left)
+  return leftIdentity !== '' && leftIdentity === normalizedPhoneIdentity(right)
 }
 
 function lookupKeys(value: string | undefined): string[] {

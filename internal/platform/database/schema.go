@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/human-agent65535/modemdeck/internal/phone"
 )
 
 //go:embed schema.sql
@@ -34,7 +36,13 @@ func InitializeSchema(ctx context.Context, database *sql.DB) (bool, error) {
 		if err := migrateSchema(ctx, database); err != nil {
 			return false, err
 		}
-		return false, ValidateSchema(ctx, database)
+		if err := ValidateSchema(ctx, database); err != nil {
+			return false, err
+		}
+		if err := migratePhoneIdentities(ctx, database); err != nil {
+			return false, err
+		}
+		return false, nil
 	}
 	if err := createSchema(ctx, database); err != nil {
 		return false, err
@@ -57,12 +65,19 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 	_, lineColorExists := simCardColumns["line_color"]
 	adminColumns, adminCredentialsExist := actual.tables["modemdeck_admin_credentials"]
 	_, adminUsernameExists := adminColumns["username"]
+	callColumns, callHistoryExists := actual.tables["call_history"]
+	_, reportedRemoteNumberExists := callColumns["reported_remote_number"]
 	_, systemSettingsExist := actual.tables["modemdeck_system_settings"]
 	needsAvatar := contactsExist && !avatarExists
 	needsLineColor := simCardsExist && !lineColorExists
 	needsAdminUsername := adminCredentialsExist && !adminUsernameExists
+	needsReportedRemoteNumber := callHistoryExists && !reportedRemoteNumberExists
 	needsSystemSettings := !systemSettingsExist
-	if !needsAvatar && !needsLineColor && !needsAdminUsername && !needsSystemSettings {
+	if !needsAvatar &&
+		!needsLineColor &&
+		!needsAdminUsername &&
+		!needsReportedRemoteNumber &&
+		!needsSystemSettings {
 		return nil
 	}
 	if !schemaMatchesSupportedMigration(expected, actual) {
@@ -108,6 +123,15 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 			return fmt.Errorf("migrate administrator username: %w", err)
 		}
 	}
+	if needsReportedRemoteNumber {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`ALTER TABLE call_history
+			 ADD COLUMN reported_remote_number TEXT NOT NULL DEFAULT ''`,
+		); err != nil {
+			return fmt.Errorf("migrate reported remote call number: %w", err)
+		}
+	}
 	if needsSystemSettings {
 		if _, err := transaction.ExecContext(
 			ctx,
@@ -150,6 +174,9 @@ func schemaMatchesSupportedMigration(expected schemaShape, actual schemaShape) b
 			if table == "sim_cards" && column == "line_color" {
 				continue
 			}
+			if table == "call_history" && column == "reported_remote_number" {
+				continue
+			}
 			if _, exists := actualColumns[column]; !exists {
 				return false
 			}
@@ -161,6 +188,115 @@ func schemaMatchesSupportedMigration(expected schemaShape, actual schemaShape) b
 		}
 	}
 	return true
+}
+
+func migratePhoneIdentities(ctx context.Context, database *sql.DB) error {
+	transaction, err := database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin phone identity migration: %w", err)
+	}
+	defer transaction.Rollback()
+
+	rows, err := transaction.QueryContext(
+		ctx,
+		`SELECT id, remote_number, reported_remote_number
+		 FROM call_history`,
+	)
+	if err != nil {
+		return fmt.Errorf("read call phone identities: %w", err)
+	}
+	type callIdentity struct {
+		id        string
+		canonical string
+		reported  string
+	}
+	calls := make([]callIdentity, 0)
+	for rows.Next() {
+		var id, remote, reported string
+		if err := rows.Scan(&id, &remote, &reported); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan call phone identity: %w", err)
+		}
+		originalReported := reported
+		if strings.TrimSpace(reported) == "" {
+			reported = remote
+		}
+		canonical := phone.NormalizeNetworkNumber(remote)
+		reported = strings.TrimSpace(reported)
+		if canonical == remote && reported == originalReported {
+			continue
+		}
+		calls = append(calls, callIdentity{
+			id:        id,
+			canonical: canonical,
+			reported:  reported,
+		})
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close call phone identities: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read call phone identities: %w", err)
+	}
+	for _, call := range calls {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`UPDATE call_history
+			 SET remote_number = ?, reported_remote_number = ?
+			 WHERE id = ?`,
+			call.canonical,
+			call.reported,
+			call.id,
+		); err != nil {
+			return fmt.Errorf("migrate call phone identity: %w", err)
+		}
+	}
+
+	phoneRows, err := transaction.QueryContext(
+		ctx,
+		`SELECT id, original_number, canonical_e164
+		 FROM contact_phones`,
+	)
+	if err != nil {
+		return fmt.Errorf("read contact phone identities: %w", err)
+	}
+	type contactIdentity struct {
+		id        string
+		canonical string
+	}
+	contacts := make([]contactIdentity, 0)
+	for phoneRows.Next() {
+		var id, original, canonical string
+		if err := phoneRows.Scan(&id, &original, &canonical); err != nil {
+			_ = phoneRows.Close()
+			return fmt.Errorf("scan contact phone identity: %w", err)
+		}
+		_, normalized, normalizeErr := phone.Normalize(original)
+		if normalizeErr == nil && normalized != canonical {
+			contacts = append(contacts, contactIdentity{id: id, canonical: normalized})
+		}
+	}
+	if err := phoneRows.Close(); err != nil {
+		return fmt.Errorf("close contact phone identities: %w", err)
+	}
+	if err := phoneRows.Err(); err != nil {
+		return fmt.Errorf("read contact phone identities: %w", err)
+	}
+	for _, contact := range contacts {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`UPDATE contact_phones SET canonical_e164 = ? WHERE id = ?`,
+			contact.canonical,
+			contact.id,
+		); err != nil {
+			return fmt.Errorf("migrate contact phone identity: %w", err)
+		}
+	}
+
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit phone identity migration: %w", err)
+	}
+	return nil
 }
 
 func requiredRowsAreCurrent(
