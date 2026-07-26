@@ -48,16 +48,26 @@ test('Telegram save payload has one canonical line-scope representation', () => 
 })
 
 test('Telegram line scopes show the alias and reliable phone number without internal IDs', () => {
-  const identityStart = form.indexOf('function telegramLineIdentity')
-  const identityEnd = form.indexOf('const scopeOptions', identityStart)
-  assert.ok(identityStart >= 0)
-  assert.ok(identityEnd > identityStart)
-  const identity = form.slice(identityStart, identityEnd)
+  const optionsStart = form.indexOf('const scopeOptions')
+  const optionsEnd = form.indexOf('function scopedLine', optionsStart)
+  assert.ok(optionsStart >= 0)
+  assert.ok(optionsEnd > optionsStart)
+  const options = form.slice(optionsStart, optionsEnd)
 
-  assert.match(identity, /const alias = lineLabel\(line\)/)
-  assert.match(identity, /const phoneNumber = line\.phone_number\.trim\(\)/)
-  assert.match(identity, /return phoneNumber \? `\$\{alias\} · \$\{phoneNumber\}` : alias/)
-  assert.match(form, /label: telegramLineIdentity\(line\)/)
-  assert.match(form, /options\.push\(\{ id: scope, label: t\('telegram\.unknownLine'\) \}\)/)
+  assert.match(options, /label: lineLabel\(line\)/)
+  assert.match(options, /phoneNumber: line\.phone_number\.trim\(\)/)
+  assert.match(options, /\bline\b/)
+  assert.match(options, /label: t\('telegram\.unknownLine'\)/)
+  assert.match(options, /phoneNumber: ''/)
   assert.doesNotMatch(form, /unknownLine.*\$\{scope\}/)
+
+  const scopeFieldset = form.slice(
+    form.indexOf('<fieldset class="telegram-options telegram-line-scopes">'),
+    form.indexOf('</fieldset>', form.indexOf('<fieldset class="telegram-options telegram-line-scopes">'))
+  )
+  assert.match(scopeFieldset, /<ListFilter/)
+  assert.match(scopeFieldset, /<CardSim/)
+  assert.match(scopeFieldset, /<LineTag v-if="line\.line"/)
+  assert.match(scopeFieldset, /line\.phoneNumber \|\| t\('lines\.cellularLine'\)/)
+  assert.match(form, /const tone = lineTone\(line, lineLabel\(line\)\)/)
 })

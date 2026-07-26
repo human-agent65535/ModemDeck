@@ -1,7 +1,23 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Check, LoaderCircle, Plus, Save, Trash2, X } from '@lucide/vue'
+import {
+  Bell,
+  CardSim,
+  Check,
+  CircleCheck,
+  CircleOff,
+  KeyRound,
+  ListFilter,
+  LoaderCircle,
+  MessageSquareText,
+  PhoneMissed,
+  Plus,
+  Save,
+  Send,
+  Trash2,
+  X
+} from '@lucide/vue'
 import type { LineSummary, TelegramUnit } from '../api/types'
 import { ApiError } from '../api/types'
 import {
@@ -14,7 +30,16 @@ import {
   saveTelegramUnit,
   telegramResource
 } from '../state/workspace'
+import { lineTone } from '../utils/lineTone'
+import LineTag from './LineTag.vue'
 import StatePanel from './StatePanel.vue'
+
+type TelegramScopeOption = {
+  id: string
+  label: string
+  phoneNumber: string
+  line?: LineSummary
+}
 
 const { t } = useI18n()
 const selectedID = ref('')
@@ -40,24 +65,53 @@ const selectedUnit = computed(() =>
 )
 const lines = computed(() => bootstrapResource.data?.lines || [])
 
-function telegramLineIdentity(line: LineSummary): string {
-  const alias = lineLabel(line)
-  const phoneNumber = line.phone_number.trim()
-  return phoneNumber ? `${alias} · ${phoneNumber}` : alias
-}
-
-const scopeOptions = computed(() => {
-  const options = lines.value.map(line => ({
+const scopeOptions = computed<TelegramScopeOption[]>(() => {
+  const options: TelegramScopeOption[] = lines.value.map(line => ({
     id: lineKey(line),
-    label: telegramLineIdentity(line)
+    label: lineLabel(line),
+    phoneNumber: line.phone_number.trim(),
+    line
   }))
   for (const scope of lineScopes.value) {
     if (!options.some(option => option.id === scope)) {
-      options.push({ id: scope, label: t('telegram.unknownLine') })
+      options.push({
+        id: scope,
+        label: t('telegram.unknownLine'),
+        phoneNumber: ''
+      })
     }
   }
   return options
 })
+
+function scopedLine(scopeID: string): LineSummary | undefined {
+  return lines.value.find(line => lineKey(line) === scopeID)
+}
+
+function unitScopeSummary(unit: TelegramUnit): string {
+  if (unit.line_scopes.length === 0) return t('telegram.allLines')
+
+  return unit.line_scopes
+    .map(scopeID => {
+      const line = scopedLine(scopeID)
+      if (!line) return t('telegram.unknownLine')
+      const alias = lineLabel(line)
+      const phoneNumber = line.phone_number.trim()
+      return phoneNumber ? `${alias} · ${phoneNumber}` : alias
+    })
+    .join(t('common.listSeparator'))
+}
+
+function scopeToneStyle(line?: LineSummary): Record<string, string> | undefined {
+  if (!line) return undefined
+  const tone = lineTone(line, lineLabel(line))
+  return {
+    color: tone.foreground,
+    backgroundColor: tone.background,
+    borderColor: tone.border
+  }
+}
+
 const tokenConfigured = computed(() => selectedUnit.value?.token_configured === true)
 const validationError = computed(() => {
   if (!displayName.value.trim()) return t('telegram.enterName')
@@ -264,10 +318,14 @@ onMounted(() => {
     retryable
     @retry="loadTelegramUnits(true)"
   />
-  <div v-else class="telegram-settings">
-    <aside class="telegram-unit-list" aria-label="Telegram Bot">
-      <header>
-        <h3>Bot</h3>
+  <div v-else class="telegram-settings-container">
+    <div class="telegram-settings">
+      <aside class="telegram-unit-list" :aria-label="t('telegram.notifications')">
+      <header class="telegram-unit-list__heading">
+        <span class="telegram-unit-list__title">
+          <strong>{{ t('telegram.notifications') }}</strong>
+          <small>Telegram</small>
+        </span>
         <button
           class="icon-button"
           type="button"
@@ -287,10 +345,21 @@ onMounted(() => {
         type="button"
         aria-current="true"
       >
-        <span class="telegram-unit-row__status" />
-        <span>
-          <strong>{{ displayName.trim() || t('telegram.unnamed') }}</strong>
-          <small>{{ t('telegram.unsaved') }}</small>
+        <span class="telegram-unit-row__icon is-enabled" aria-hidden="true">
+          <Send :size="18" />
+        </span>
+        <span class="telegram-unit-row__copy">
+          <span class="telegram-unit-row__topline">
+            <strong>{{ displayName.trim() || t('telegram.unnamed') }}</strong>
+            <span class="telegram-unit-row__state is-draft">
+              {{ t('telegram.unsaved') }}
+            </span>
+          </span>
+          <small>Telegram Bot</small>
+          <span class="telegram-unit-row__scope">
+            <ListFilter :size="13" aria-hidden="true" />
+            {{ t('telegram.allLines') }}
+          </span>
         </span>
       </button>
       <button
@@ -301,15 +370,36 @@ onMounted(() => {
         type="button"
         @click="selectUnit(unit.id)"
       >
-        <span class="telegram-unit-row__status" :class="{ 'is-enabled': unit.enabled }" />
-        <span>
-          <strong>{{ unit.display_name }}</strong>
+        <span
+          class="telegram-unit-row__icon"
+          :class="{ 'is-enabled': unit.enabled }"
+          aria-hidden="true"
+        >
+          <Send :size="18" />
+        </span>
+        <span class="telegram-unit-row__copy">
+          <span class="telegram-unit-row__topline">
+            <strong>{{ unit.display_name }}</strong>
+            <span
+              class="telegram-unit-row__state"
+              :class="{ 'is-enabled': unit.enabled }"
+            >
+              <CircleCheck v-if="unit.enabled" :size="12" aria-hidden="true" />
+              <CircleOff v-else :size="12" aria-hidden="true" />
+              {{ unit.enabled ? t('lines.enabled') : t('lines.disabled') }}
+            </span>
+          </span>
           <small>{{ unit.bot_username ? `@${unit.bot_username}` : unit.chat_id }}</small>
+          <span class="telegram-unit-row__scope" :title="unitScopeSummary(unit)">
+            <ListFilter v-if="unit.line_scopes.length === 0" :size="13" aria-hidden="true" />
+            <CardSim v-else :size="13" aria-hidden="true" />
+            {{ unitScopeSummary(unit) }}
+          </span>
         </span>
       </button>
-    </aside>
+      </aside>
 
-    <section class="telegram-unit-editor">
+      <section class="telegram-unit-editor">
       <StatePanel
         v-if="!creating && !selectedUnit"
         state="empty"
@@ -317,67 +407,171 @@ onMounted(() => {
       />
       <form v-else class="settings-form" @submit.prevent="submit">
         <div class="telegram-form-heading">
-          <h3>{{ creating ? t('telegram.newBot') : t('telegram.botSettings') }}</h3>
+          <span class="telegram-form-heading__icon" aria-hidden="true">
+            <Send :size="19" />
+          </span>
+          <span class="telegram-form-heading__copy">
+            <h3>{{ creating ? t('telegram.newBot') : t('telegram.notifications') }}</h3>
+            <small>Telegram Bot</small>
+          </span>
           <label class="compact-switch">
             <span>{{ t('telegram.enabled') }}</span>
-            <input v-model="enabled" type="checkbox" role="switch" />
-          </label>
-        </div>
-
-        <div class="settings-form-grid">
-          <label class="field">
-            <span>{{ t('telegram.name') }}</span>
-            <input v-model="displayName" type="text" autocomplete="off" :disabled="saving || deleting" />
-          </label>
-          <label class="field">
-            <span>Chat ID</span>
-            <input v-model="chatID" type="text" autocomplete="off" :disabled="saving || deleting" />
-          </label>
-          <label class="field">
-            <span>{{ t('telegram.administratorID') }}</span>
-            <input v-model="adminID" type="text" autocomplete="off" :disabled="saving || deleting" />
-          </label>
-          <label class="field">
-            <span>Bot token</span>
             <input
-              v-model="botToken"
-              type="password"
-              autocomplete="new-password"
-              :placeholder="tokenConfigured ? t('telegram.configured') : ''"
+              v-model="enabled"
+              type="checkbox"
+              role="switch"
               :disabled="saving || deleting"
             />
-            <small class="field-status">
-              {{ tokenConfigured ? t('telegram.configured') : t('telegram.notConfigured') }}
-            </small>
           </label>
         </div>
 
+        <section class="telegram-editor-section telegram-bot-identity">
+          <header class="telegram-editor-section__heading">
+            <span class="telegram-editor-section__icon" aria-hidden="true">
+              <KeyRound :size="17" />
+            </span>
+            <h4>{{ t('telegram.botSettings') }}</h4>
+          </header>
+          <div class="settings-form-grid">
+            <label class="field">
+              <span>{{ t('telegram.name') }}</span>
+              <input
+                v-model="displayName"
+                type="text"
+                autocomplete="off"
+                :disabled="saving || deleting"
+              />
+            </label>
+            <label class="field">
+              <span>Chat ID</span>
+              <input
+                v-model="chatID"
+                type="text"
+                autocomplete="off"
+                :disabled="saving || deleting"
+              />
+            </label>
+            <label class="field">
+              <span>{{ t('telegram.administratorID') }}</span>
+              <input
+                v-model="adminID"
+                type="text"
+                autocomplete="off"
+                :disabled="saving || deleting"
+              />
+            </label>
+            <label class="field">
+              <span>Bot token</span>
+              <input
+                v-model="botToken"
+                type="password"
+                autocomplete="new-password"
+                :placeholder="tokenConfigured ? t('telegram.configured') : ''"
+                :disabled="saving || deleting"
+              />
+              <small class="field-status">
+                {{ tokenConfigured ? t('telegram.configured') : t('telegram.notConfigured') }}
+              </small>
+            </label>
+          </div>
+        </section>
+
         <fieldset class="telegram-options">
-          <legend>{{ t('telegram.notifications') }}</legend>
-          <label><input v-model="incomingSMS" type="checkbox" />{{ t('telegram.incomingSMS') }}</label>
-          <label><input v-model="missedCalls" type="checkbox" />{{ t('telegram.missedCalls') }}</label>
+          <legend class="sr-only">{{ t('telegram.notifications') }}</legend>
+          <header class="telegram-editor-section__heading">
+            <span class="telegram-editor-section__icon" aria-hidden="true">
+              <Bell :size="17" />
+            </span>
+            <h4>{{ t('telegram.notifications') }}</h4>
+          </header>
+          <div class="telegram-event-options">
+            <label :class="{ 'is-selected': incomingSMS }">
+              <span class="telegram-event-option__icon" aria-hidden="true">
+                <MessageSquareText :size="18" />
+              </span>
+              <strong>{{ t('telegram.incomingSMS') }}</strong>
+              <input
+                v-model="incomingSMS"
+                type="checkbox"
+                :disabled="saving || deleting"
+              />
+            </label>
+            <label :class="{ 'is-selected': missedCalls }">
+              <span class="telegram-event-option__icon" aria-hidden="true">
+                <PhoneMissed :size="18" />
+              </span>
+              <strong>{{ t('telegram.missedCalls') }}</strong>
+              <input
+                v-model="missedCalls"
+                type="checkbox"
+                :disabled="saving || deleting"
+              />
+            </label>
+          </div>
         </fieldset>
 
         <fieldset class="telegram-options telegram-line-scopes">
-          <legend>{{ t('telegram.lineScope') }}</legend>
-          <label>
-            <input
-              :checked="allLines"
-              type="checkbox"
-              :disabled="saving || deleting"
-              @click.prevent="selectAllLines"
-            />
-            {{ t('telegram.allLines') }}
-          </label>
-          <label v-for="line in scopeOptions" :key="line.id">
-            <input
-              :checked="lineScopes.includes(line.id)"
-              type="checkbox"
-              :disabled="saving || deleting"
-              @change="toggleLineScope(line.id, $event)"
-            />
-            {{ line.label }}
-          </label>
+          <legend class="sr-only">{{ t('telegram.lineScope') }}</legend>
+          <header class="telegram-editor-section__heading">
+            <span class="telegram-editor-section__icon" aria-hidden="true">
+              <CardSim :size="17" />
+            </span>
+            <h4>{{ t('telegram.lineScope') }}</h4>
+          </header>
+          <div class="telegram-scope-options">
+            <label class="telegram-scope-option" :class="{ 'is-selected': allLines }">
+              <input
+                :checked="allLines"
+                type="checkbox"
+                :disabled="saving || deleting"
+                @click.prevent="selectAllLines"
+              />
+              <span class="telegram-scope-option__icon is-all" aria-hidden="true">
+                <ListFilter :size="18" />
+              </span>
+              <span class="telegram-scope-option__copy">
+                <strong>{{ t('telegram.allLines') }}</strong>
+                <small>{{ t('lines.showAllLines') }}</small>
+              </span>
+              <Check
+                v-if="allLines"
+                class="telegram-scope-option__check"
+                :size="17"
+                aria-hidden="true"
+              />
+            </label>
+            <label
+              v-for="line in scopeOptions"
+              :key="line.id"
+              class="telegram-scope-option"
+              :class="{ 'is-selected': lineScopes.includes(line.id) }"
+            >
+              <input
+                :checked="lineScopes.includes(line.id)"
+                type="checkbox"
+                :disabled="saving || deleting"
+                @change="toggleLineScope(line.id, $event)"
+              />
+              <span
+                class="telegram-scope-option__icon"
+                :style="scopeToneStyle(line.line)"
+                aria-hidden="true"
+              >
+                <CardSim :size="18" />
+              </span>
+              <span class="telegram-scope-option__copy">
+                <LineTag v-if="line.line" :line="line.line" :fallback="line.label" />
+                <strong v-else>{{ line.label }}</strong>
+                <small>{{ line.phoneNumber || t('lines.cellularLine') }}</small>
+              </span>
+              <Check
+                v-if="lineScopes.includes(line.id)"
+                class="telegram-scope-option__check"
+                :size="17"
+                aria-hidden="true"
+              />
+            </label>
+          </div>
         </fieldset>
 
         <footer class="settings-form-actions">
@@ -423,6 +617,513 @@ onMounted(() => {
           </button>
         </footer>
       </form>
-    </section>
+      </section>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.telegram-settings-container {
+  min-width: 0;
+  container-type: inline-size;
+}
+
+.telegram-settings {
+  min-height: 520px;
+  grid-template-columns: 280px minmax(0, 1fr);
+}
+
+.telegram-unit-list {
+  min-width: 0;
+  background: var(--surface-subtle);
+}
+
+.telegram-unit-list__heading {
+  min-height: 64px;
+  padding: 8px 12px;
+  background: var(--surface);
+}
+
+.telegram-unit-list__title,
+.telegram-form-heading__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.telegram-unit-list__title strong,
+.telegram-form-heading__copy h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.telegram-unit-list__title small,
+.telegram-form-heading__copy small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 550;
+}
+
+.telegram-unit-row {
+  min-height: 86px;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface);
+}
+
+.telegram-unit-row.is-selected {
+  background: var(--accent-soft);
+}
+
+.telegram-unit-row__icon {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+}
+
+.telegram-unit-row__icon.is-enabled {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-color: #b9ddd5;
+}
+
+.telegram-unit-row__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.telegram-unit-row__topline {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.telegram-unit-row__topline > strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.telegram-unit-row__copy > small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.telegram-unit-row__state {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.telegram-unit-row__state.is-enabled {
+  color: var(--success);
+}
+
+.telegram-unit-row__state.is-draft {
+  color: var(--accent-strong);
+}
+
+.telegram-unit-row__scope {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.telegram-unit-row__scope svg {
+  flex: 0 0 auto;
+}
+
+.telegram-unit-editor {
+  min-width: 0;
+  padding-left: 24px;
+}
+
+.telegram-unit-editor .settings-form {
+  width: 100%;
+  max-width: 920px;
+}
+
+.telegram-form-heading {
+  display: grid;
+  min-height: 64px;
+  align-items: center;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.telegram-form-heading__icon,
+.telegram-editor-section__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border: 1px solid #c8e5de;
+  border-radius: 7px;
+}
+
+.telegram-form-heading__icon {
+  width: 36px;
+  height: 36px;
+}
+
+.telegram-editor-section {
+  min-width: 0;
+  padding: 18px 0;
+  border-top: 1px solid var(--border);
+}
+
+.telegram-bot-identity {
+  border-top: 0;
+}
+
+.telegram-editor-section__heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 14px;
+}
+
+.telegram-editor-section__icon {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 6px;
+}
+
+.telegram-editor-section__heading h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.telegram-bot-identity .settings-form-grid {
+  gap: 16px;
+  padding: 0;
+}
+
+.telegram-bot-identity .field {
+  min-width: 0;
+}
+
+.telegram-bot-identity .field > input {
+  width: 100%;
+  min-width: 0;
+}
+
+.telegram-options {
+  display: block;
+  max-height: none;
+  padding: 18px 0;
+}
+
+.telegram-options .telegram-editor-section__heading {
+  margin-bottom: 12px;
+}
+
+.telegram-event-options,
+.telegram-scope-options {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.telegram-event-options label {
+  display: grid;
+  min-width: 0;
+  min-height: 52px;
+  align-items: center;
+  grid-template-columns: 32px minmax(0, 1fr) 18px;
+  gap: 9px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.telegram-event-options label:hover,
+.telegram-event-options label.is-selected {
+  border-color: #9fcfc4;
+}
+
+.telegram-event-options label.is-selected {
+  background: var(--accent-soft);
+}
+
+.telegram-event-options label:has(input:focus-visible) {
+  outline: 3px solid rgb(17 120 100 / 14%);
+  outline-offset: 1px;
+}
+
+.telegram-event-option__icon {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-radius: 50%;
+}
+
+.telegram-event-options strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.telegram-event-options input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.telegram-line-scopes {
+  max-height: none;
+  overflow: visible;
+}
+
+.telegram-scope-option {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 64px;
+  align-items: center;
+  grid-template-columns: 38px minmax(0, 1fr) 20px;
+  gap: 10px;
+  padding: 9px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.telegram-scope-option:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-subtle);
+}
+
+.telegram-scope-option.is-selected {
+  background: var(--surface-subtle);
+  border-color: var(--accent);
+}
+
+.telegram-scope-option:has(input:focus-visible) {
+  outline: 3px solid rgb(17 120 100 / 14%);
+  outline-offset: 1px;
+}
+
+.telegram-scope-option > input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.telegram-scope-option__icon {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+}
+
+.telegram-scope-option__icon.is-all {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-color: #c8e5de;
+}
+
+.telegram-scope-option__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.telegram-scope-option__copy > strong,
+.telegram-scope-option__copy > small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.telegram-scope-option__copy > strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.telegram-scope-option__copy > small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.telegram-scope-option__check {
+  color: var(--accent-strong);
+}
+
+.settings-form-actions {
+  margin-top: 0;
+}
+
+@media (max-width: 860px) {
+  .telegram-settings {
+    grid-template-columns: 250px minmax(0, 1fr);
+  }
+
+  .telegram-event-options,
+  .telegram-scope-options {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .telegram-settings {
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .telegram-unit-list {
+    max-height: 232px;
+    overflow-y: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .telegram-unit-list__heading {
+    position: sticky;
+    z-index: 2;
+    top: 0;
+  }
+
+  .telegram-unit-row {
+    min-height: 78px;
+  }
+
+  .telegram-unit-editor {
+    padding: 12px 0 0;
+  }
+
+  .telegram-form-heading {
+    min-height: 60px;
+  }
+
+  .telegram-bot-identity .settings-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .telegram-event-options,
+  .telegram-scope-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container (max-width: 700px) {
+  .telegram-settings {
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .telegram-unit-list {
+    max-height: 232px;
+    overflow-y: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .telegram-unit-list__heading {
+    position: sticky;
+    z-index: 2;
+    top: 0;
+  }
+
+  .telegram-unit-editor {
+    padding: 12px 0 0;
+  }
+
+  .telegram-bot-identity .settings-form-grid,
+  .telegram-event-options,
+  .telegram-scope-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 420px) {
+  .telegram-form-heading {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .telegram-form-heading__icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .compact-switch {
+    gap: 6px;
+  }
+
+  .compact-switch > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .settings-form-actions {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 6px;
+  }
+}
+</style>
