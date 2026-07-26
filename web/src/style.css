@@ -1778,10 +1778,17 @@ dd {
   color: var(--text);
   background: #f1f3f5;
   border-radius: 50%;
+  transition: background 90ms ease, transform 90ms ease;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .keypad__key:hover {
   background: #e7eaee;
+}
+
+.keypad__key:active:not(:disabled) {
+  background: #dce1e5;
+  transform: scale(0.9);
 }
 
 .keypad__key strong {
@@ -1803,133 +1810,10 @@ dd {
   font-weight: 650;
 }
 
-.dialer-actions {
-  display: grid;
-  width: 238px;
-  align-items: center;
-  justify-content: space-between;
-  margin: 0 auto;
-  grid-template-columns: repeat(3, 62px);
-}
-
-.dialer-actions .call-button {
-  width: 56px;
-  height: 56px;
-  justify-self: center;
-}
-
-.dialer-actions > .dialer-backspace-button {
-  width: 44px;
-  height: 44px;
-  justify-self: center;
-}
-
-.call-surface {
-  position: fixed;
-  z-index: 45;
-  right: 92px;
-  bottom: 24px;
-  display: grid;
-  width: min(520px, calc(100vw - 210px));
-  min-height: 72px;
-  align-items: center;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 18px;
-  padding: 12px 14px 12px 18px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: var(--shadow);
-}
-
-.call-surface__identity,
-.call-surface__status {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.call-surface__identity strong,
-.call-surface__identity span,
-.call-surface__identity small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.call-surface__identity strong {
-  font-size: 14px;
-}
-
-.call-surface__identity span,
-.call-surface__identity small,
-.call-surface__status span,
-.call-surface__status small {
-  color: var(--muted);
-  font-size: 10px;
-}
-
-.call-surface__identity .call-surface__bearer {
-  color: var(--accent-strong);
-  font-weight: 650;
-}
-
-.call-surface__status .call-surface__media {
-  color: var(--muted);
-}
-
-.call-surface__status strong {
-  font-variant-numeric: tabular-nums;
-  font-size: 13px;
-}
-
-.call-surface__actions {
-  display: flex;
-  gap: 8px;
-}
-
-.call-surface .call-button {
-  width: 42px;
-  height: 42px;
-  flex-basis: 42px;
-}
-
-.call-surface .icon-button.is-active {
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-}
-
-.call-surface__dtmf {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 8px);
-  display: grid;
-  width: 178px;
-  padding: 12px;
-  grid-template-columns: repeat(3, 44px);
-  gap: 9px;
-  justify-content: space-between;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: var(--shadow);
-}
-
-.call-surface__dtmf button {
-  display: grid;
-  width: 44px;
-  height: 44px;
-  place-items: center;
-  color: var(--text);
-  font-size: 16px;
-  font-weight: 650;
-  background: var(--surface-hover);
-  border-radius: 50%;
-}
-
-.call-surface__dtmf button:hover:not(:disabled) {
-  background: #e6eaed;
+@media (prefers-reduced-motion: reduce) {
+  .keypad__key {
+    transition: none;
+  }
 }
 
 .call-button--hangup {
@@ -2843,21 +2727,13 @@ dd {
 }
 
 .fade-enter-active,
-.fade-leave-active,
-.call-surface-enter-active,
-.call-surface-leave-active {
+.fade-leave-active {
   transition: opacity 150ms ease, transform 150ms ease;
 }
 
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
-}
-
-.call-surface-enter-from,
-.call-surface-leave-to {
-  opacity: 0;
-  transform: translateY(8px);
 }
 
 @media (min-width: 1101px) {
@@ -2879,9 +2755,6 @@ dd {
     height: calc(100dvh - var(--header-height));
   }
 
-  .call-surface {
-    right: calc(var(--dialer-width) + 16px);
-  }
 }
 
 @media (max-width: 1100px) {
@@ -2986,13 +2859,6 @@ dd {
     height: 2px;
     content: "";
     background: var(--accent);
-  }
-
-  .call-surface {
-    right: 12px;
-    bottom: calc(var(--mobile-nav-height) + 82px);
-    left: 12px;
-    width: auto;
   }
 
   .drawer-backdrop {
@@ -3116,16 +2982,6 @@ dd {
 
   .message-composer {
     padding: 9px 10px 10px;
-  }
-
-  .call-surface {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 10px;
-    padding: 10px 11px 10px 14px;
-  }
-
-  .call-surface__status {
-    display: none;
   }
 
   .phone-row {

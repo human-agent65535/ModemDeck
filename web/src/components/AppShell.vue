@@ -27,6 +27,7 @@ import {
   initializeMessageRuntime,
   shutdownMessageRuntime
 } from '../state/messageRuntime'
+import { shutdownDTMFAudio } from '../state/dtmfAudio'
 import {
   initializeRuntimeEvents,
   shutdownRuntimeEvents
@@ -39,7 +40,6 @@ import {
   loadContacts
 } from '../state/workspace'
 import AudioSettingsMenu from './AudioSettingsMenu.vue'
-import CallSurface from './CallSurface.vue'
 import DialerPanel from './DialerPanel.vue'
 import GlobalSearch from './GlobalSearch.vue'
 import IncomingCallModeControl from './IncomingCallModeControl.vue'
@@ -105,6 +105,7 @@ onBeforeUnmount(() => {
   shutdownRuntimeEvents()
   shutdownMessageRuntime()
   shutdownCallRuntime()
+  shutdownDTMFAudio()
   shutdownBrowserNotifications()
 })
 </script>
@@ -230,7 +231,6 @@ onBeforeUnmount(() => {
     </nav>
 
     <DialerPanel :permanent="permanentDialer" />
-    <CallSurface />
   </div>
 </template>
 

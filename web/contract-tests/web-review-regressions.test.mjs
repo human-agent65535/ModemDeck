@@ -20,14 +20,17 @@ test('dialing and messages resolve context, contact, and global default lines', 
   assert.match(dialer, /resolveLine\('dial'/)
   assert.match(dialer, /contextKey: draftContextLineKey\.value/)
   assert.match(dialer, /lineSelectionOverridden/)
-  assert.match(dialer, /\(!selectedLineId\.value \? '选择线路' : ''\)/)
+  assert.match(dialer, /\(!selectedLineId\.value \? t\('dialer\.selectLine'\) : ''\)/)
   assert.match(dialer, /<LineSelector/)
   assert.doesNotMatch(dialer, /lines\.length === 1/)
 
   assert.match(messages, /resolveLine\('message'/)
   assert.match(messages, /contextKey: composeContextLineKey\.value/)
   assert.match(messages, /threadUsesLine\(thread, line\)/)
-  assert.match(messages, /if \(!activeLineID\.value && !activeICCID\.value\) return '请选择线路'/)
+  assert.match(
+    messages,
+    /if \(!activeLineID\.value && !activeICCID\.value\) return t\('messages\.selectLine'\)/
+  )
   assert.match(messages, /<LineSelector/)
   assert.doesNotMatch(messages, /lines\.length === 1/)
   assert.doesNotMatch(lineSelector, /<select|<option/)
@@ -52,7 +55,7 @@ test('line switching uses one custom selector instead of native dropdowns', asyn
   assert.doesNotMatch(contactEditor, /<select v-model="draft\.preferredDeviceIMEI"/)
   assert.match(proxyEditor, /<LineSelector[\s\S]*v-model="form\.line_id"/)
   assert.doesNotMatch(proxyEditor, /<select v-model="form\.line_id"/)
-  assert.match(messages, /label="发送线路"[\s\S]*placement="up"/)
+  assert.match(messages, /:label="t\('messages\.sendingLine'\)"[\s\S]*placement="up"/)
 })
 
 test('every dialer request has a monotonic event revision even for the same number', async () => {
@@ -83,17 +86,19 @@ test('dialer separates the primary call action from backspace', async () => {
 
   assert.match(
     dialer,
-    /<button[\s\S]*?v-if="number"[\s\S]*?class="icon-button dialer-backspace-button"/
+    /class="dialer-number-control"[\s\S]*?v-if="number"[\s\S]*?class="icon-button dialer-backspace-button"/
   )
-  assert.match(styles, /\.dialer-actions\s*\{[\s\S]*?width: 238px/)
+  assert.match(dialer, /class="dialer-primary-actions"[\s\S]*?class="call-button"/)
+  assert.match(dialer, /\.dialer-primary-actions\s*\{[\s\S]*?border-top: 1px solid var\(--border\)/)
+  assert.match(
+    dialer,
+    /\.dialer-number-control > \.dialer-backspace-button\s*\{[\s\S]*?position: absolute[\s\S]*?right: 7px/
+  )
+  assert.doesNotMatch(dialer, /class="dialer-actions"/)
   assert.match(styles, /grid-template-columns: repeat\(3, 62px\)/)
   assert.match(dialer, /<small v-if="key\.letters">\{\{ key\.letters \}\}<\/small>/)
   assert.match(styles, /\.keypad__key strong\s*\{[\s\S]*?font-size: 26px/)
   assert.match(styles, /\.keypad__key--zero small\s*\{[\s\S]*?font-size: 14px/)
-  assert.match(
-    styles,
-    /\.dialer-actions > \.dialer-backspace-button\s*\{[\s\S]*?width: 44px[\s\S]*?height: 44px/
-  )
 })
 
 test('header menu and audio dialog implement bounded keyboard focus behavior', async () => {

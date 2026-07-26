@@ -105,7 +105,17 @@ test('desktop shell has one permanent dialer and dashboard renders every line', 
   assert.ok(shell.indexOf('<IncomingCallModeControl />') < shell.indexOf('<AudioSettingsMenu />'))
   assert.match(shell, /<DialerPanel :permanent="permanentDialer" \/>/)
   assert.doesNotMatch(shell, /dialer-fab|Grid3X3|dialerOpen/)
-  assert.match(dialer, /v-if="permanent \|\| uiState\.dialerOpen"/)
+  assert.doesNotMatch(shell, /<CallSurface/)
+  assert.match(dialer, /v-if="permanent \|\| uiState\.dialerOpen \|\| showingCall"/)
+  assert.match(dialer, /<CallSurface v-if="showingCall" \/>/)
+  assert.match(
+    dialer,
+    /@mousedown\.self="!permanent && !showingCall && closeDialer\(\)"/
+  )
+  assert.match(
+    dialer,
+    /@keydown\.esc="!permanent && !showingCall && closeDialer\(\)"/
+  )
   assert.match(dashboard, /v-for="line in lines"/)
   assert.doesNotMatch(dashboard, /lines(?:\.value)?\.slice/)
   assert.match(dialer, /<LineSelector/)
@@ -113,6 +123,25 @@ test('desktop shell has one permanent dialer and dashboard renders every line', 
   assert.match(lineSelector, /v-for="\(option, index\) in options"/)
   assert.doesNotMatch(lineSelector, /lines(?:\.value)?\.slice/)
   assert.doesNotMatch(styles, /\.dialer-fab/)
+})
+
+test('active calls own the dialer surface and keep modal call controls reachable', async () => {
+  const dialer = await source('../src/components/DialerPanel.vue')
+  const surface = await source('../src/components/CallSurface.vue')
+
+  assert.match(dialer, /ref="panelRef"/)
+  assert.match(dialer, /:tabindex="!permanent && showingCall \? -1 : undefined"/)
+  assert.match(dialer, /function trapCallFocus\(event: KeyboardEvent\)/)
+  assert.match(dialer, /function restoreDialogFocus\(\): void/)
+  assert.match(dialer, /dialerReturnFocus\?\.isConnected/)
+  assert.match(dialer, /panelRef\.value\?\.focus\(\)/)
+  assert.match(dialer, /@keydown="trapCallFocus"/)
+  assert.match(dialer, /@media \(max-width: 1100px\)/)
+  assert.match(surface, /role="group"\s+:aria-label="t\('calls\.controls'\)"/)
+  assert.match(surface, /role="group"\s+:aria-label="t\('calls\.keypad'\)"/)
+  assert.match(surface, /class="call-surface__content" :class="\{ 'is-dtmf-open': dtmfOpen \}"/)
+  assert.match(surface, /@media \(prefers-reduced-motion: reduce\)/)
+  assert.match(surface, /max\(20px, env\(safe-area-inset-top\)\)/)
 })
 
 test('recordings are a communication workspace with native playback and call linkage', async () => {

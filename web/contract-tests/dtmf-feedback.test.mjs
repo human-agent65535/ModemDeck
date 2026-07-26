@@ -1,0 +1,56 @@
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import test from 'node:test'
+
+import { dtmfFrequencies } from '../src/state/dtmfAudio.ts'
+
+const source = path => readFile(new URL(path, import.meta.url), 'utf8')
+
+test('DTMF feedback uses the standard dual-tone frequency grid', () => {
+  assert.deepEqual(dtmfFrequencies('1'), [697, 1209])
+  assert.deepEqual(dtmfFrequencies('5'), [770, 1336])
+  assert.deepEqual(dtmfFrequencies('9'), [852, 1477])
+  assert.deepEqual(dtmfFrequencies('*'), [941, 1209])
+  assert.deepEqual(dtmfFrequencies('0'), [941, 1336])
+  assert.deepEqual(dtmfFrequencies('#'), [941, 1477])
+  assert.equal(dtmfFrequencies('+'), undefined)
+})
+
+test('DTMF feedback creates two short browser-audio oscillators per key press', async () => {
+  const audio = await source('../src/state/dtmfAudio.ts')
+
+  assert.match(audio, /new AudioContext\(\)/)
+  assert.match(audio, /for \(const frequency of pair\)/)
+  assert.match(audio, /audioContext\.createOscillator\(\)/)
+  assert.match(audio, /const stop = start \+ 0\.12/)
+  assert.match(audio, /oscillator\.stop\(stop\)/)
+  assert.match(audio, /oscillator\.disconnect\(\)/)
+  assert.match(audio, /if \(remainingOscillators === 0\) gain\.disconnect\(\)/)
+})
+
+test('dial and in-call keypads share visual data, sound, and pressed-digit feedback', async () => {
+  const dialer = await source('../src/components/DialerPanel.vue')
+  const call = await source('../src/components/CallSurface.vue')
+  const styles = await source('../src/style.css')
+
+  assert.match(dialer, /v-for="key in phoneKeypad"/)
+  assert.match(call, /v-for="key in phoneKeypad"/)
+  assert.match(dialer, /playDTMFTone\(digit\)/)
+  assert.match(call, /playDTMFTone\(digit\)/)
+  assert.match(call, /dtmfDigits\.value \+= digit/)
+  assert.match(call, /class="call-surface__dtmf-display"/)
+  assert.match(styles, /\.keypad__key:active:not\(:disabled\)/)
+})
+
+test('pre-call delete stays in the number field and the call action owns a footer', async () => {
+  const dialer = await source('../src/components/DialerPanel.vue')
+
+  assert.match(
+    dialer,
+    /class="dialer-number-control"[\s\S]*class="icon-button dialer-backspace-button"/
+  )
+  assert.match(dialer, /class="dialer-primary-actions"[\s\S]*class="call-button"/)
+  assert.match(dialer, /\.dialer-primary-actions \{[\s\S]*border-top: 1px solid var\(--border\)/)
+  assert.match(dialer, /\.dialer-number-control > \.dialer-backspace-button \{[\s\S]*position: absolute/)
+  assert.doesNotMatch(dialer, /class="dialer-actions"/)
+})

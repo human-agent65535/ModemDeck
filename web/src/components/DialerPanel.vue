@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   Circle,
   Delete,
@@ -24,10 +25,14 @@ import {
   loadContacts,
   resolveLine
 } from '../state/workspace'
+import { playDTMFTone } from '../state/dtmfAudio'
+import { phoneKeypad } from '../utils/phoneKeypad'
 import ContactSuggestInput from './ContactSuggestInput.vue'
+import CallSurface from './CallSurface.vue'
 import LineSelector from './LineSelector.vue'
 
-withDefaults(
+const { t } = useI18n()
+const props = withDefaults(
   defineProps<{
     permanent?: boolean
   }>(),
@@ -42,29 +47,18 @@ const selectedLineId = ref('')
 const inputAutofocus = ref(false)
 const draftContextLineKey = ref('')
 const lineSelectionOverridden = ref(false)
+const panelRef = ref<HTMLElement>()
 let resettingDraft = false
 let zeroHoldTimer: number | undefined
 let zeroPointerId: number | undefined
 let zeroLongPressTriggered = false
+let callReturnFocus: HTMLElement | null = null
+let dialerReturnFocus: HTMLElement | null = null
 
 const zeroLongPressDelay = 500
 
-const keypad = [
-  { digit: '1', letters: '' },
-  { digit: '2', letters: 'ABC' },
-  { digit: '3', letters: 'DEF' },
-  { digit: '4', letters: 'GHI' },
-  { digit: '5', letters: 'JKL' },
-  { digit: '6', letters: 'MNO' },
-  { digit: '7', letters: 'PQRS' },
-  { digit: '8', letters: 'TUV' },
-  { digit: '9', letters: 'WXYZ' },
-  { digit: '*', letters: '' },
-  { digit: '0', letters: '+' },
-  { digit: '#', letters: '' }
-]
-
 const lines = computed(() => bootstrapResource.data?.lines || [])
+const showingCall = computed(() => Boolean(callState.session))
 const defaultLineDeviceIMEI = computed(
   () => bootstrapResource.data?.line_settings.default_device_imei || ''
 )
@@ -72,21 +66,25 @@ const selectedLine = computed(() => lines.value.find(line => lineKey(line) === s
 const dialUnavailable = computed(() => capabilityReason('dial'))
 const activeCallUnavailable = computed(() => {
   const phase = callState.session?.phase
-  return phase && phase !== 'ended' && phase !== 'failed' ? '已有通话正在进行' : ''
+  return phase && phase !== 'ended' && phase !== 'failed' ? t('dialer.activeCall') : ''
 })
 const validationError = computed(() => {
   if (!number.value.trim()) return ''
-  return /^\+?[\d*#][\d\s().*#-]{2,}$/.test(number.value.trim()) ? '' : '号码格式无效'
+  return /^\+?[\d*#][\d\s().*#-]{2,}$/.test(number.value.trim())
+    ? ''
+    : t('dialer.invalidNumber')
 })
 const disabledReason = computed(
   () =>
     dialUnavailable.value ||
     activeCallUnavailable.value ||
-    (lines.value.length === 0 ? '没有可用线路' : '') ||
-    (!selectedLineId.value ? '选择线路' : '') ||
-    (lineSupports(selectedLine.value, 'dial') === false ? '所选线路不支持拨号' : '') ||
+    (lines.value.length === 0 ? t('dialer.noLines') : '') ||
+    (!selectedLineId.value ? t('dialer.selectLine') : '') ||
+    (lineSupports(selectedLine.value, 'dial') === false
+      ? t('dialer.selectedLineUnsupported')
+      : '') ||
     validationError.value ||
-    (!number.value.trim() ? '请输入号码' : '')
+    (!number.value.trim() ? t('dialer.enterNumber') : '')
 )
 function focusNumber(): void {
   inputAutofocus.value = false
@@ -131,12 +129,37 @@ watch(
 
 watch(
   () => uiState.dialerOpen,
-  open => {
-    if (!open) return
-    focusNumber()
-    void loadContacts()
+  (open, previous) => {
+    if (open) {
+      if (!props.permanent && !previous && document.activeElement instanceof HTMLElement) {
+        dialerReturnFocus = document.activeElement
+      }
+      focusNumber()
+      void loadContacts()
+      return
+    }
+    if (previous && !showingCall.value && !props.permanent) restoreDialogFocus()
   }
 )
+
+watch([showingCall, () => props.permanent], async ([showing, permanent], [previous, wasPermanent]) => {
+  if (showing && !permanent && (!previous || wasPermanent)) {
+    callReturnFocus =
+      dialerReturnFocus?.isConnected
+        ? dialerReturnFocus
+        : document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null
+    await nextTick()
+    panelRef.value?.focus()
+    return
+  }
+  if (!showing && previous) restoreDialogFocus()
+  if (permanent) {
+    callReturnFocus = null
+    dialerReturnFocus = null
+  }
+})
 
 watch(
   [lines, defaultLineDeviceIMEI, () => contactsResource.data, number],
@@ -153,6 +176,7 @@ watch(number, (value, previous) => {
 function appendDigit(digit: string): void {
   number.value += digit
   contactLabel.value = ''
+  void playDTMFTone(digit)
 }
 
 function clearZeroHold(): void {
@@ -241,39 +265,89 @@ function changeRecording(event: Event): void {
   setDialerRecording((event.target as HTMLInputElement).checked)
 }
 
+function restoreDialogFocus(): void {
+  const target = callReturnFocus?.isConnected
+    ? callReturnFocus
+    : dialerReturnFocus?.isConnected
+      ? dialerReturnFocus
+      : null
+  callReturnFocus = null
+  dialerReturnFocus = null
+  target?.focus()
+}
+
+function trapCallFocus(event: KeyboardEvent): void {
+  if (props.permanent || !showingCall.value || event.key !== 'Tab' || !panelRef.value) return
+
+  const focusable = Array.from(
+    panelRef.value.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), [href], input:not(:disabled), [tabindex]:not([tabindex="-1"])'
+    )
+  ).filter(element => !element.hidden && element.getClientRects().length > 0)
+  if (focusable.length === 0) {
+    event.preventDefault()
+    panelRef.value.focus()
+    return
+  }
+
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  if (!first || !last) return
+  const current = document.activeElement
+  if (event.shiftKey && (current === first || current === panelRef.value)) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && (current === last || current === panelRef.value)) {
+    event.preventDefault()
+    first.focus()
+  }
+}
+
 onMounted(() => {
   beginDraft(uiState.dialTarget, uiState.dialLabel, false, uiState.dialLineKey)
   void loadContacts()
 })
 
-onBeforeUnmount(clearZeroHold)
+onBeforeUnmount(() => {
+  clearZeroHold()
+  restoreDialogFocus()
+})
 </script>
 
 <template>
   <Teleport to="body" :disabled="permanent">
     <Transition name="fade">
       <div
-        v-if="permanent || uiState.dialerOpen"
-        :class="permanent ? 'dialer-host dialer-host--permanent' : 'drawer-backdrop'"
-        @mousedown.self="!permanent && closeDialer()"
+        v-if="permanent || uiState.dialerOpen || showingCall"
+        :class="[
+          permanent ? 'dialer-host dialer-host--permanent' : 'drawer-backdrop',
+          { 'drawer-backdrop--call': !permanent && showingCall }
+        ]"
+        @mousedown.self="!permanent && !showingCall && closeDialer()"
       >
         <aside
+          ref="panelRef"
           class="dialer-panel"
-          :class="{ 'dialer-panel--permanent': permanent }"
+          :class="{
+            'dialer-panel--permanent': permanent,
+            'dialer-panel--call': showingCall
+          }"
           :role="permanent ? undefined : 'dialog'"
           :aria-modal="permanent ? undefined : true"
-          aria-label="拨号"
-          @keydown.esc="!permanent && closeDialer()"
+          :aria-label="showingCall ? t('shell.calls') : t('dialer.title')"
+          :tabindex="!permanent && showingCall ? -1 : undefined"
+          @keydown="trapCallFocus"
+          @keydown.esc="!permanent && !showingCall && closeDialer()"
         >
-          <header class="tool-header dialer-toolbar">
-            <h2>拨号</h2>
+          <header v-if="permanent || !showingCall" class="tool-header dialer-toolbar">
+            <h2>{{ showingCall ? t('shell.calls') : t('dialer.title') }}</h2>
             <span class="dialer-header-actions">
               <button
-                v-if="!permanent"
+                v-if="!permanent && !showingCall"
                 class="icon-button"
                 type="button"
-                title="关闭"
-                aria-label="关闭拨号盘"
+                :title="t('common.close')"
+                :aria-label="t('dialer.close')"
                 @click="closeDialer"
               >
                 <X :size="19" />
@@ -281,96 +355,102 @@ onBeforeUnmount(clearZeroHold)
             </span>
           </header>
 
-          <div class="dialer-panel__body">
-            <div v-if="lines.length > 0" class="dialer-line-switcher">
-              <LineSelector
-                v-model="selectedLineId"
-                :lines="lines"
-                :default-device-imei="defaultLineDeviceIMEI"
-                label="通话线路"
-                capability="dial"
-                unavailable-label="不支持拨号"
-                @change="changeLine"
-              />
+          <CallSurface v-if="showingCall" />
+
+          <div v-else class="dialer-panel__body">
+            <div class="dialer-panel__scroll">
+              <div v-if="lines.length > 0" class="dialer-line-switcher">
+                <LineSelector
+                  v-model="selectedLineId"
+                  :lines="lines"
+                  :default-device-imei="defaultLineDeviceIMEI"
+                  :label="t('dialer.line')"
+                  capability="dial"
+                  :unavailable-label="t('dialer.lineUnsupported')"
+                  @change="changeLine"
+                />
+              </div>
+
+              <div class="dialer-number-entry">
+                <div class="dialer-number-control">
+                  <ContactSuggestInput
+                    v-model="number"
+                    :contacts="contactsResource.data"
+                    :autofocus="inputAutofocus"
+                    @select="chooseContact"
+                  />
+                  <button
+                    v-if="number"
+                    class="icon-button dialer-backspace-button"
+                    type="button"
+                    :title="t('dialer.backspace')"
+                    :aria-label="t('dialer.backspace')"
+                    @mousedown.prevent
+                    @click="removeDigit"
+                  >
+                    <Delete :size="18" />
+                  </button>
+                </div>
+                <span v-if="contactLabel" class="dialer-contact-name">{{ contactLabel }}</span>
+              </div>
+
+              <label class="dialer-recording">
+                <span class="dialer-recording__identity">
+                  <Circle :size="16" fill="currentColor" aria-hidden="true" />
+                  <strong>{{ t('dialer.recording') }}</strong>
+                </span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  :checked="dialerRecordingState.enabled"
+                  :disabled="dialerRecordingState.status !== 'ready'"
+                  :aria-label="t('dialer.recording')"
+                  @change="changeRecording"
+                />
+              </label>
+              <p v-if="dialerRecordingState.error" class="dialer-recording__error" role="alert">
+                {{ dialerRecordingState.error }}
+              </p>
+
+              <div class="keypad" role="group" :aria-label="t('dialer.keypad')">
+                <button
+                  v-for="key in phoneKeypad"
+                  :key="key.digit"
+                  class="keypad__key"
+                  :class="{ 'keypad__key--zero': key.digit === '0' }"
+                  type="button"
+                  :aria-label="key.digit"
+                  @click="handleKeyClick(key.digit, $event)"
+                  @contextmenu="preventZeroContextMenu(key.digit, $event)"
+                  @pointerdown="key.digit === '0' && startZeroHold($event)"
+                  @pointerup="key.digit === '0' && finishZeroHold($event)"
+                  @pointercancel="key.digit === '0' && cancelZeroHold($event)"
+                >
+                  <strong>{{ key.digit }}</strong>
+                  <small v-if="key.letters">{{ key.letters }}</small>
+                </button>
+              </div>
+
+              <p v-if="dialUnavailable || lines.length === 0" class="unavailable-note">
+                {{ dialUnavailable || t('dialer.noLines') }}
+              </p>
+              <p v-else-if="validationError" class="field-error">{{ validationError }}</p>
+              <p v-if="callState.error" class="field-error">{{ callState.error }}</p>
             </div>
 
-            <div class="dialer-number-entry">
-              <ContactSuggestInput
-                v-model="number"
-                :contacts="contactsResource.data"
-                :autofocus="inputAutofocus"
-                @select="chooseContact"
-              />
-              <span v-if="contactLabel" class="dialer-contact-name">{{ contactLabel }}</span>
-            </div>
-
-            <label class="dialer-recording">
-              <span class="dialer-recording__identity">
-                <Circle :size="16" fill="currentColor" aria-hidden="true" />
-                <strong>通话录音</strong>
-              </span>
-              <input
-                type="checkbox"
-                role="switch"
-                :checked="dialerRecordingState.enabled"
-                :disabled="dialerRecordingState.status !== 'ready'"
-                aria-label="通话录音"
-                @change="changeRecording"
-              />
-            </label>
-            <p v-if="dialerRecordingState.error" class="dialer-recording__error" role="alert">
-              {{ dialerRecordingState.error }}
-            </p>
-
-            <div class="keypad" aria-label="拨号键盘">
-              <button
-                v-for="key in keypad"
-                :key="key.digit"
-                class="keypad__key"
-                :class="{ 'keypad__key--zero': key.digit === '0' }"
-                type="button"
-                :aria-label="key.digit"
-                @click="handleKeyClick(key.digit, $event)"
-                @contextmenu="preventZeroContextMenu(key.digit, $event)"
-                @pointerdown="key.digit === '0' && startZeroHold($event)"
-                @pointerup="key.digit === '0' && finishZeroHold($event)"
-                @pointercancel="key.digit === '0' && cancelZeroHold($event)"
-              >
-                <strong>{{ key.digit }}</strong>
-                <small v-if="key.letters">{{ key.letters }}</small>
-              </button>
-            </div>
-
-            <div class="dialer-actions">
-              <span class="dialer-actions__spacer" />
+            <div class="dialer-primary-actions">
               <button
                 class="call-button"
                 type="button"
                 :disabled="Boolean(disabledReason) || callState.busy"
-                :title="disabledReason || '拨打'"
-                aria-label="拨打"
+                :title="disabledReason || t('calls.dial')"
+                :aria-label="t('calls.dial')"
                 @click="placeCall"
               >
                 <LoaderCircle v-if="callState.pendingAction === 'dial'" class="spin" :size="22" />
                 <Phone v-else :size="22" />
               </button>
-              <button
-                v-if="number"
-                class="icon-button dialer-backspace-button"
-                type="button"
-                title="退格"
-                aria-label="退格"
-                @click="removeDigit"
-              >
-                <Delete :size="19" />
-              </button>
             </div>
-
-            <p v-if="dialUnavailable || lines.length === 0" class="unavailable-note">
-              {{ dialUnavailable || '没有可用线路' }}
-            </p>
-            <p v-else-if="validationError" class="field-error">{{ validationError }}</p>
-            <p v-if="callState.error" class="field-error">{{ callState.error }}</p>
           </div>
         </aside>
       </div>
@@ -397,6 +477,30 @@ onBeforeUnmount(clearZeroHold)
   box-shadow: none;
 }
 
+.dialer-panel--call {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.dialer-panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.drawer-backdrop--call {
+  z-index: 105;
+  align-items: center;
+  justify-content: center;
+}
+
+.drawer-backdrop--call .dialer-panel--call {
+  width: min(420px, calc(100vw - 40px));
+  height: min(720px, calc(100dvh - 40px));
+  max-height: none;
+}
+
 .dialer-header-actions {
   display: flex;
   align-items: center;
@@ -413,13 +517,28 @@ onBeforeUnmount(clearZeroHold)
 }
 
 .dialer-panel__body {
+  display: flex;
   min-height: 0;
   flex: 1;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.dialer-panel__scroll {
+  min-height: 0;
+  flex: 1;
+  padding: 16px 20px 14px;
+  overflow-y: auto;
 }
 
 .dialer-number-entry {
   position: relative;
   padding: 14px 0 8px;
+}
+
+.dialer-number-control {
+  position: relative;
 }
 
 .dialer-number-entry :deep(.suggest-input__field) {
@@ -429,8 +548,24 @@ onBeforeUnmount(clearZeroHold)
 }
 
 .dialer-number-entry :deep(.suggest-input__field input) {
+  padding-right: 40px;
   font-size: 20px;
   font-weight: 600;
+}
+
+.dialer-number-control > .dialer-backspace-button {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  right: 7px;
+  width: 38px;
+  height: 38px;
+  color: var(--muted);
+  transform: translateY(-50%);
+}
+
+.dialer-number-control > .dialer-backspace-button:hover {
+  color: var(--text);
 }
 
 .dialer-contact-name {
@@ -513,6 +648,48 @@ onBeforeUnmount(clearZeroHold)
   margin-top: 7px;
   color: var(--danger);
   font-size: 12px;
+}
+
+.dialer-primary-actions {
+  display: flex;
+  min-height: 96px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 28px 18px;
+  border-top: 1px solid var(--border);
+}
+
+.dialer-primary-actions .call-button {
+  width: 64px;
+  height: 64px;
+  flex-basis: 64px;
+}
+
+@media (max-width: 1100px) {
+  .drawer-backdrop--call {
+    padding: 12px;
+  }
+
+  .drawer-backdrop--call .dialer-panel--call {
+    width: 100%;
+    height: calc(100dvh - 24px);
+    max-height: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .drawer-backdrop--call {
+    padding: 0;
+  }
+
+  .drawer-backdrop--call .dialer-panel--call {
+    width: 100%;
+    height: 100dvh;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+  }
 }
 
 </style>
