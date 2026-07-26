@@ -154,3 +154,10 @@ function onBlur(): void {
     </div>
   </div>
 </template>
+
+<style scoped>
+.suggest-input__field input::placeholder {
+  font-size: 15px;
+  font-weight: 500;
+}
+</style>

@@ -16,6 +16,7 @@ import type { CallFilter, CallRecord } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
 import ContactHeaderIdentity from '../components/ContactHeaderIdentity.vue'
 import ContactNumberActions from '../components/ContactNumberActions.vue'
+import LineSelector from '../components/LineSelector.vue'
 import LineTag from '../components/LineTag.vue'
 import RecordingList from '../components/RecordingList.vue'
 import SearchField from '../components/SearchField.vue'
@@ -49,6 +50,12 @@ const router = useRouter()
 const { t } = useI18n()
 const search = ref('')
 const filter = ref<CallFilter>('all')
+const lineFilterKey = ref('all')
+const lines = computed(() => bootstrapResource.data?.lines || [])
+const lineLookup = computed(() => createLineLookup(lines.value))
+const defaultDeviceIMEI = computed(
+  () => bootstrapResource.data?.line_settings.default_device_imei || ''
+)
 
 const filters = computed<Array<{ value: CallFilter; label: string }>>(() => [
   { value: 'all', label: t('common.all') },
@@ -60,18 +67,25 @@ const filters = computed<Array<{ value: CallFilter; label: string }>>(() => [
 const filteredCalls = computed(() => {
   const query = search.value.trim().toLocaleLowerCase()
   const digits = query.replace(/\D/g, '')
+  const filteredLine =
+    lineFilterKey.value === 'all'
+      ? undefined
+      : lines.value.find(line => lineKey(line) === lineFilterKey.value)
   return callsResource.data
     .filter(call => {
+      const callLine = lineForCall(call)
       const matchesFilter =
         filter.value === 'all' ||
         (filter.value === 'missed' && call.missed) ||
         (filter.value === 'incoming' && call.direction === 'incoming') ||
         (filter.value === 'outgoing' && call.direction === 'outgoing')
+      const matchesLine =
+        !filteredLine || (callLine ? lineKey(callLine) === lineFilterKey.value : false)
       const matchesSearch =
         !query ||
         (call.display_name || '').toLocaleLowerCase().includes(query) ||
         (digits.length > 0 && call.remote_number.replace(/\D/g, '').includes(digits))
-      return matchesFilter && matchesSearch
+      return matchesFilter && matchesLine && matchesSearch
     })
     .slice()
     .sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at))
@@ -91,11 +105,6 @@ const playableRecordingCallIDs = computed(
 )
 const dialUnavailable = computed(() => capabilityReason('dial'))
 const messageUnavailable = computed(() => capabilityReason('message'))
-const lines = computed(() => bootstrapResource.data?.lines || [])
-const lineLookup = computed(() => createLineLookup(lines.value))
-const defaultDeviceIMEI = computed(
-  () => bootstrapResource.data?.line_settings.default_device_imei || ''
-)
 
 function displayName(call: CallRecord): string {
   return call.display_name || contactForNumber(call.remote_number)?.display_name || call.remote_number
@@ -175,6 +184,15 @@ function sendMessage(call: CallRecord): void {
   })
 }
 
+watch(lines, availableLines => {
+  if (
+    lineFilterKey.value !== 'all' &&
+    !availableLines.some(line => lineKey(line) === lineFilterKey.value)
+  ) {
+    lineFilterKey.value = 'all'
+  }
+})
+
 watch(
   () => callState.session?.phase,
   phase => {
@@ -203,6 +221,17 @@ onMounted(() => {
       </header>
       <div class="pane-search pane-search--calls">
         <SearchField v-model="search" :placeholder="t('contacts.searchNameOrNumber')" />
+        <LineSelector
+          v-if="lines.length > 1"
+          v-model="lineFilterKey"
+          class="call-line-filter"
+          :lines="lines"
+          :default-device-imei="defaultDeviceIMEI"
+          :label="t('calls.lineFilter')"
+          include-all
+          :all-label="t('calls.allLines')"
+          :all-description="t('calls.allLinesDescription')"
+        />
         <div class="segmented-control" :aria-label="t('calls.filter')">
           <button
             v-for="item in filters"
@@ -254,7 +283,7 @@ onMounted(() => {
         v-else-if="filteredCalls.length === 0"
         state="empty"
         :title="
-          search || filter !== 'all'
+          search || filter !== 'all' || lineFilterKey !== 'all'
             ? t('calls.noMatches')
             : t('calls.empty')
         "

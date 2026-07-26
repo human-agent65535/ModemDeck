@@ -288,6 +288,9 @@ export default {
     closeStatus: 'Close call status',
     missed: 'Missed',
     filter: 'Call filter',
+    lineFilter: 'Call line',
+    allLines: 'All lines',
+    allLinesDescription: 'Show calls from every modem',
     connecting: 'Connecting to call service',
     loading: 'Loading call history',
     forbidden: 'You do not have access to call history',
@@ -482,6 +485,9 @@ export default {
     passwordRequired: 'Enter a password'
   },
   recordings: {
+    lineFilter: 'Recording line',
+    allLines: 'All lines',
+    allLinesDescription: 'Show recordings from every modem',
     playable: 'Playable',
     pending: 'Waiting to record',
     recording: 'Recording',

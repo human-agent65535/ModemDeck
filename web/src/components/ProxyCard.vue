@@ -297,13 +297,14 @@ function applyStateLabel(): string {
   display: grid;
   min-width: 0;
   align-items: center;
-  grid-template-columns: 48px minmax(0, 1fr);
+  grid-template-columns: 84px minmax(0, 1fr);
   gap: 8px;
 }
 
 .proxy-card dt {
   color: var(--muted);
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .proxy-card dd {

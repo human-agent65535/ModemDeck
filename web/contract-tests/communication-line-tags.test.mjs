@@ -125,6 +125,26 @@ test('recording rows and recording detail identify the call line', async () => {
   )
 })
 
+test('call and recording histories can be filtered by communication line', async () => {
+  const [calls, recordings] = await Promise.all([
+    readFile(callsView, 'utf8'),
+    readFile(recordingsView, 'utf8')
+  ])
+
+  for (const source of [calls, recordings]) {
+    assert.match(source, /import LineSelector from '\.\.\/components\/LineSelector\.vue'/)
+    assert.match(source, /const lineFilterKey = ref\('all'\)/)
+    assert.match(source, /lineKey\(line\) === lineFilterKey\.value/)
+    assert.match(source, /<LineSelector[\s\S]*?v-model="lineFilterKey"[\s\S]*?include-all/)
+  }
+  assert.match(calls, /const filteredLine =[\s\S]*?lineFilterKey\.value === 'all'/)
+  assert.match(calls, /const callLine = lineForCall\(call\)/)
+  assert.match(recordings, /const filteredRecordings = computed/)
+  assert.match(recordings, /lineForRecording\(recording\)/)
+  assert.match(calls, /t\('calls\.allLinesDescription'\)/)
+  assert.match(recordings, /t\('recordings\.allLinesDescription'\)/)
+})
+
 test('dashboard recent activity and details retain line identity', async () => {
   const source = await readFile(dashboardView, 'utf8')
 

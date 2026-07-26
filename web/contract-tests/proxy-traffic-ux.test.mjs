@@ -100,6 +100,14 @@ test('traffic line cards use the device-card responsive width contract', () => {
   )
 })
 
+test('proxy facts reserve enough space for localized labels', () => {
+  assert.match(
+    proxyCard,
+    /\.proxy-card dl > div\s*\{[\s\S]*grid-template-columns:\s*84px minmax\(0,\s*1fr\)/
+  )
+  assert.match(proxyCard, /\.proxy-card dt\s*\{[\s\S]*white-space:\s*nowrap/)
+})
+
 test('proxy editor exposes product fields but no interface input', () => {
   assert.match(proxyEditor, /:label="t\('proxy\.line'\)"/)
   assert.match(proxyEditor, /t\('common\.protocol'\)/)

@@ -288,6 +288,9 @@ export default {
     closeStatus: '关闭通话状态',
     missed: '未接',
     filter: '通话筛选',
+    lineFilter: '通话线路',
+    allLines: '全部线路',
+    allLinesDescription: '显示所有模组的通话',
     connecting: '正在连接通话服务',
     loading: '正在载入通话记录',
     forbidden: '无权查看通话记录',
@@ -482,6 +485,9 @@ export default {
     passwordRequired: '请输入密码'
   },
   recordings: {
+    lineFilter: '录音线路',
+    allLines: '全部线路',
+    allLinesDescription: '显示所有模组的录音',
     playable: '可播放',
     pending: '等待录音',
     recording: '录音中',

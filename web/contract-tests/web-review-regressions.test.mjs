@@ -134,6 +134,10 @@ test('contact suggestions expose a complete combobox relationship', async () => 
   assert.match(suggest, /:id="`\$\{listboxId\}-option-\$\{index\}`"/)
   assert.match(suggest, /role="option"/)
   assert.match(suggest, /:aria-selected="index === activeIndex"/)
+  assert.match(
+    suggest,
+    /\.suggest-input__field input::placeholder\s*\{[\s\S]*font-size:\s*15px[\s\S]*font-weight:\s*500/
+  )
 })
 
 test('call rows use sibling buttons and callback cannot trigger row selection', async () => {

@@ -7,6 +7,7 @@ import type { RecordingEntry } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
 import ContactHeaderIdentity from '../components/ContactHeaderIdentity.vue'
 import ContactNumberActions from '../components/ContactNumberActions.vue'
+import LineSelector from '../components/LineSelector.vue'
 import LineTag from '../components/LineTag.vue'
 import SearchField from '../components/SearchField.vue'
 import StatePanel from '../components/StatePanel.vue'
@@ -18,6 +19,7 @@ import {
   bootstrapResource,
   contactForNumber,
   deviceName,
+  lineKey,
   loadBootstrap,
   loadContacts,
   loadDevices
@@ -34,6 +36,7 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const search = ref('')
+const lineFilterKey = ref('all')
 let searchTimer: number | undefined
 
 const selectedID = computed(() =>
@@ -50,6 +53,13 @@ const defaultDeviceIMEI = computed(
 const selectedContact = computed(() =>
   selected.value ? contactForNumber(selected.value.call.remote_number) : undefined
 )
+const filteredRecordings = computed(() => {
+  if (lineFilterKey.value === 'all') return recordingCatalogState.data
+  return recordingCatalogState.data.filter(recording => {
+    const line = lineForRecording(recording)
+    return line ? lineKey(line) === lineFilterKey.value : false
+  })
+})
 
 function displayName(recording: RecordingEntry): string {
   return (
@@ -133,6 +143,15 @@ function scheduleSearch(value: string): void {
 
 watch(search, scheduleSearch)
 
+watch(lines, availableLines => {
+  if (
+    lineFilterKey.value !== 'all' &&
+    !availableLines.some(line => lineKey(line) === lineFilterKey.value)
+  ) {
+    lineFilterKey.value = 'all'
+  }
+})
+
 onMounted(() => {
   void Promise.all([loadBootstrap(), loadRecordingEntries(), loadContacts(), loadDevices()])
 })
@@ -156,6 +175,17 @@ onBeforeUnmount(() => {
 
       <div class="pane-search">
         <SearchField v-model="search" :placeholder="t('contacts.searchNameOrNumber')" />
+        <LineSelector
+          v-if="lines.length > 1"
+          v-model="lineFilterKey"
+          class="recording-line-filter"
+          :lines="lines"
+          :default-device-imei="defaultDeviceIMEI"
+          :label="t('recordings.lineFilter')"
+          include-all
+          :all-label="t('recordings.allLines')"
+          :all-description="t('recordings.allLinesDescription')"
+        />
       </div>
 
       <StatePanel
@@ -178,13 +208,17 @@ onBeforeUnmount(() => {
         @retry="loadRecordingEntries(search, true)"
       />
       <StatePanel
-        v-else-if="recordingCatalogState.data.length === 0"
+        v-else-if="filteredRecordings.length === 0"
         state="empty"
-        :title="search ? t('recordings.noMatches') : t('recordings.empty')"
+        :title="
+          search || lineFilterKey !== 'all'
+            ? t('recordings.noMatches')
+            : t('recordings.empty')
+        "
       />
       <div v-else class="item-list">
         <button
-          v-for="recording in recordingCatalogState.data"
+          v-for="recording in filteredRecordings"
           :key="recording.id"
           class="list-item recording-list-item"
           :class="{ 'is-selected': recording.id === selectedID }"
