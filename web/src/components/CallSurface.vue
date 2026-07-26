@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
-  Circle,
+  CassetteTape,
   Grip,
   LoaderCircle,
   Mic,
@@ -10,7 +10,6 @@ import {
   PhoneCall,
   PhoneOff,
   RefreshCw,
-  Square,
   Volume2,
   X
 } from '@lucide/vue'
@@ -133,6 +132,14 @@ const mediaLabel = computed(() => {
 const mediaControllable = computed(
   () => callMediaState.status === 'connecting' || callMediaState.status === 'active'
 )
+const showMediaControls = computed(
+  () =>
+    active.value &&
+    !dtmfOpen.value &&
+    (mediaControllable.value ||
+      callMediaState.playbackBlocked ||
+      callMediaState.status === 'error')
+)
 const recordingLabel = computed(() => {
   if (!active.value) return ''
   if (callRecordingState.status === 'initializing') return t('calls.applyingRecording')
@@ -254,107 +261,53 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-          v-if="active"
+          v-if="showMediaControls"
           class="call-surface__controls"
           role="group"
           :aria-label="t('calls.controls')"
         >
           <button
+            v-if="mediaControllable"
             class="call-control"
-            :class="{ 'is-active': dtmfOpen }"
+            :class="{ 'is-active': callMediaState.muted }"
             type="button"
-            :title="dtmfUnavailable || t('calls.keypad')"
-            :aria-label="dtmfOpen ? t('calls.hideKeypad') : t('calls.keypad')"
-            :aria-expanded="dtmfOpen"
-            :disabled="Boolean(dtmfUnavailable)"
-            @click="dtmfOpen = !dtmfOpen"
+            :title="callMediaState.muted ? t('calls.unmute') : t('calls.mute')"
+            :aria-label="
+              callMediaState.muted
+                ? t('calls.unmuteMicrophone')
+                : t('calls.muteMicrophone')
+            "
+            :aria-pressed="callMediaState.muted"
+            @click="toggleCallMute"
           >
-            <span class="call-control__icon"><Grip :size="25" /></span>
-            <span>{{ dtmfOpen ? t('calls.hideKeypadShort') : t('calls.keypadShort') }}</span>
+            <span class="call-control__icon">
+              <MicOff v-if="callMediaState.muted" :size="24" />
+              <Mic v-else :size="24" />
+            </span>
+            <span>{{ callMediaState.muted ? t('calls.unmute') : t('calls.mute') }}</span>
           </button>
-          <template v-if="!dtmfOpen">
-            <button
-              v-if="mediaControllable"
-              class="call-control"
-              :class="{ 'is-active': callMediaState.muted }"
-              type="button"
-              :title="callMediaState.muted ? t('calls.unmute') : t('calls.mute')"
-              :aria-label="
-                callMediaState.muted
-                  ? t('calls.unmuteMicrophone')
-                  : t('calls.muteMicrophone')
-              "
-              :aria-pressed="callMediaState.muted"
-              @click="toggleCallMute"
-            >
-              <span class="call-control__icon">
-                <MicOff v-if="callMediaState.muted" :size="24" />
-                <Mic v-else :size="24" />
-              </span>
-              <span>{{ callMediaState.muted ? t('calls.unmute') : t('calls.mute') }}</span>
-            </button>
-            <button
-              class="call-control"
-              :class="{ 'is-recording': callRecordingState.active }"
-              type="button"
-              :title="
-                callRecordingState.enabled
-                  ? t('calls.stopRecording')
-                  : t('calls.startRecording')
-              "
-              :aria-label="
-                callRecordingState.enabled
-                  ? t('calls.stopCallRecording')
-                  : t('calls.startCallRecording')
-              "
-              :aria-pressed="callRecordingState.enabled"
-              :disabled="
-                callRecordingState.busy ||
-                callRecordingState.status === 'initializing'
-              "
-              @click="toggleRecording"
-            >
-              <span class="call-control__icon">
-                <LoaderCircle
-                  v-if="
-                    callRecordingState.busy ||
-                    callRecordingState.status === 'initializing'
-                  "
-                  class="spin"
-                  :size="22"
-                />
-                <Square
-                  v-else-if="callRecordingState.enabled"
-                  :size="20"
-                  fill="currentColor"
-                />
-                <Circle v-else :size="21" fill="currentColor" />
-              </span>
-              <span>{{ t('calls.recording') }}</span>
-            </button>
-            <button
-              v-if="callMediaState.playbackBlocked"
-              class="call-control"
-              type="button"
-              :title="t('calls.enableSpeaker')"
-              :aria-label="t('calls.enableCallAudio')"
-              @click="resumeCallAudio"
-            >
-              <span class="call-control__icon"><Volume2 :size="24" /></span>
-              <span>{{ t('calls.speaker') }}</span>
-            </button>
-            <button
-              v-if="callMediaState.status === 'error'"
-              class="call-control"
-              type="button"
-              :title="t('calls.retryBrowserAudio')"
-              :aria-label="t('calls.retryBrowserAudio')"
-              @click="retryCallMedia(session)"
-            >
-              <span class="call-control__icon"><RefreshCw :size="23" /></span>
-              <span>{{ t('calls.retryAudio') }}</span>
-            </button>
-          </template>
+          <button
+            v-if="callMediaState.playbackBlocked"
+            class="call-control"
+            type="button"
+            :title="t('calls.enableSpeaker')"
+            :aria-label="t('calls.enableCallAudio')"
+            @click="resumeCallAudio"
+          >
+            <span class="call-control__icon"><Volume2 :size="24" /></span>
+            <span>{{ t('calls.speaker') }}</span>
+          </button>
+          <button
+            v-if="callMediaState.status === 'error'"
+            class="call-control"
+            type="button"
+            :title="t('calls.retryBrowserAudio')"
+            :aria-label="t('calls.retryBrowserAudio')"
+            @click="retryCallMedia(session)"
+          >
+            <span class="call-control__icon"><RefreshCw :size="23" /></span>
+            <span>{{ t('calls.retryAudio') }}</span>
+          </button>
         </div>
 
         <Transition name="dtmf">
@@ -391,7 +344,7 @@ onBeforeUnmount(() => {
 
       <div class="call-surface__primary-actions">
         <template v-if="incoming">
-          <span class="call-primary-action">
+          <span class="call-primary-action call-primary-action--start">
             <button
               class="call-button call-button--hangup"
               type="button"
@@ -406,7 +359,7 @@ onBeforeUnmount(() => {
             </button>
             <small>{{ t('calls.reject') }}</small>
           </span>
-          <span class="call-primary-action">
+          <span class="call-primary-action call-primary-action--end">
             <button
               class="call-button call-button--answer"
               type="button"
@@ -422,22 +375,82 @@ onBeforeUnmount(() => {
             <small>{{ t('calls.answer') }}</small>
           </span>
         </template>
-        <span v-else-if="canHangup" class="call-primary-action">
+        <template v-else-if="canHangup">
           <button
-            class="call-button call-button--hangup"
+            v-if="active"
+            class="call-footer-action call-footer-action--recording"
+            :class="{ 'is-active': callRecordingState.enabled }"
             type="button"
-            :title="hangupUnavailable || t('calls.hangup')"
-            :aria-label="t('calls.hangup')"
-            :aria-describedby="hangupUnavailable ? 'call-capability-notice' : undefined"
-            :disabled="callState.busy || Boolean(hangupUnavailable)"
-            @click="hangupCall"
+            :title="
+              callRecordingState.enabled
+                ? t('calls.stopRecording')
+                : t('calls.startRecording')
+            "
+            :aria-label="
+              callRecordingState.enabled
+                ? t('calls.stopCallRecording')
+                : t('calls.startCallRecording')
+            "
+            :aria-pressed="callRecordingState.enabled"
+            :disabled="
+              callRecordingState.busy ||
+              callRecordingState.status === 'initializing'
+            "
+            @click="toggleRecording"
           >
-            <LoaderCircle v-if="callState.pendingAction === 'hangup'" class="spin" :size="25" />
-            <PhoneOff v-else :size="25" />
+            <span class="call-footer-action__icon" aria-hidden="true">
+              <LoaderCircle
+                v-if="
+                  callRecordingState.busy ||
+                  callRecordingState.status === 'initializing'
+                "
+                class="spin"
+                :size="20"
+              />
+              <CassetteTape v-else :size="21" />
+              <span class="call-footer-action__state">
+                {{
+                  callRecordingState.enabled
+                    ? t('recordingSettings.enabled')
+                    : t('recordingSettings.disabled')
+                }}
+              </span>
+            </span>
+            <small>{{ t('calls.record') }}</small>
           </button>
-          <small>{{ t('calls.hangup') }}</small>
-        </span>
-        <span v-else-if="terminal" class="call-primary-action">
+          <span class="call-primary-action call-primary-action--center">
+            <button
+              class="call-button call-button--hangup"
+              type="button"
+              :title="hangupUnavailable || t('calls.hangup')"
+              :aria-label="t('calls.hangup')"
+              :aria-describedby="hangupUnavailable ? 'call-capability-notice' : undefined"
+              :disabled="callState.busy || Boolean(hangupUnavailable)"
+              @click="hangupCall"
+            >
+              <LoaderCircle v-if="callState.pendingAction === 'hangup'" class="spin" :size="25" />
+              <PhoneOff v-else :size="25" />
+            </button>
+            <small>{{ t('calls.hangup') }}</small>
+          </span>
+          <button
+            v-if="active"
+            class="call-footer-action call-footer-action--keypad"
+            :class="{ 'is-active': dtmfOpen }"
+            type="button"
+            :title="dtmfUnavailable || t('calls.keypad')"
+            :aria-label="dtmfOpen ? t('calls.hideKeypad') : t('calls.keypad')"
+            :aria-expanded="dtmfOpen"
+            :disabled="Boolean(dtmfUnavailable)"
+            @click="dtmfOpen = !dtmfOpen"
+          >
+            <span class="call-footer-action__icon" aria-hidden="true">
+              <Grip :size="24" />
+            </span>
+            <small>{{ t('calls.keypadShort') }}</small>
+          </button>
+        </template>
+        <span v-else-if="terminal" class="call-primary-action call-primary-action--center">
           <button
             class="call-button call-button--dismiss"
             type="button"
@@ -647,12 +660,6 @@ onBeforeUnmount(() => {
   border-color: var(--accent);
 }
 
-.call-control.is-recording .call-control__icon {
-  color: #ffffff;
-  background: var(--danger);
-  border-color: var(--danger);
-}
-
 .call-surface__dtmf {
   display: grid;
   width: 238px;
@@ -685,6 +692,7 @@ onBeforeUnmount(() => {
 
 .call-surface__content.is-dtmf-open {
   padding-top: 18px;
+  padding-bottom: 26px;
 }
 
 .call-surface__content.is-dtmf-open .call-surface__identity :deep(.avatar--large) {
@@ -700,23 +708,16 @@ onBeforeUnmount(() => {
   margin-top: 5px;
 }
 
-.call-surface__content.is-dtmf-open .call-surface__controls {
-  min-height: 72px;
-  margin-top: 4px;
-  padding-top: 4px;
-}
-
 .call-surface__content.is-dtmf-open .call-surface__dtmf {
-  margin-top: 10px;
+  margin-top: auto;
 }
 
 .call-surface__primary-actions {
-  display: flex;
+  display: grid;
   min-height: 112px;
   flex: 0 0 auto;
   align-items: center;
-  justify-content: space-evenly;
-  gap: 40px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   padding: 14px 28px 18px;
   border-top: 1px solid var(--border);
 }
@@ -729,6 +730,18 @@ onBeforeUnmount(() => {
   gap: 6px;
 }
 
+.call-primary-action--start {
+  grid-column: 1;
+}
+
+.call-primary-action--center {
+  grid-column: 2;
+}
+
+.call-primary-action--end {
+  grid-column: 3;
+}
+
 .call-primary-action .call-button {
   width: 64px;
   height: 64px;
@@ -738,6 +751,76 @@ onBeforeUnmount(() => {
 .call-primary-action small {
   color: var(--muted);
   font-size: 11px;
+}
+
+.call-footer-action {
+  display: flex;
+  width: 72px;
+  min-height: 80px;
+  flex-direction: column;
+  align-items: center;
+  justify-self: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  background: transparent;
+}
+
+.call-footer-action--recording {
+  grid-column: 1;
+}
+
+.call-footer-action--keypad {
+  grid-column: 3;
+}
+
+.call-footer-action__icon {
+  display: inline-flex;
+  width: 58px;
+  height: 58px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  color: var(--text);
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  transition:
+    color 150ms ease,
+    background 150ms ease,
+    border-color 150ms ease,
+    transform 150ms ease;
+}
+
+.call-footer-action:hover:not(:disabled) .call-footer-action__icon {
+  background: #e7ebee;
+  transform: translateY(-1px);
+}
+
+.call-footer-action--recording.is-active .call-footer-action__icon {
+  color: #ffffff;
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+.call-footer-action--keypad.is-active .call-footer-action__icon {
+  color: #ffffff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.call-footer-action__state {
+  color: inherit;
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.call-footer-action > small {
+  color: inherit;
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .call-button--dismiss {
@@ -785,7 +868,7 @@ onBeforeUnmount(() => {
   }
 }
 
-@media (max-height: 700px) {
+@media (max-height: 760px) {
   .call-surface__content {
     padding-top: max(20px, env(safe-area-inset-top));
   }
@@ -806,18 +889,23 @@ onBeforeUnmount(() => {
     padding-top: 12px;
   }
 
-  .call-surface__dtmf {
-    gap: 7px 9px;
-    margin-top: 10px;
+  .call-surface__content.is-dtmf-open {
+    padding-bottom: 18px;
+  }
+
+  .call-surface__content.is-dtmf-open .call-surface__identity > span,
+  .call-surface__content.is-dtmf-open .call-surface__line {
+    display: none;
   }
 
   .call-surface__dtmf {
-    grid-template-rows: 34px repeat(4, 56px);
+    grid-template-rows: 34px repeat(4, 62px);
   }
 
   .call-surface__dtmf .keypad__key {
     width: 56px;
     height: 56px;
+    align-self: center;
     justify-self: center;
   }
 
@@ -832,7 +920,8 @@ onBeforeUnmount(() => {
   .call-surface-leave-active,
   .dtmf-enter-active,
   .dtmf-leave-active,
-  .call-control__icon {
+  .call-control__icon,
+  .call-footer-action__icon {
     transition: none;
   }
 }

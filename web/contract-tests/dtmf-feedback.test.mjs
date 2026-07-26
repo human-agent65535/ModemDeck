@@ -54,3 +54,41 @@ test('pre-call delete stays in the number field and the call action owns a foote
   assert.match(dialer, /\.dialer-number-control > \.dialer-backspace-button \{[\s\S]*position: absolute/)
   assert.doesNotMatch(dialer, /class="dialer-actions"/)
 })
+
+test('per-call recording is a footer action and does not crowd the search area', async () => {
+  const dialer = await source('../src/components/DialerPanel.vue')
+
+  assert.match(
+    dialer,
+    /class="dialer-primary-actions"[\s\S]*class="dialer-recording-action"[\s\S]*class="dialer-primary-action"/
+  )
+  assert.match(dialer, /:aria-pressed="dialerRecordingState\.enabled"/)
+  assert.doesNotMatch(dialer, /<label class="dialer-recording">/)
+})
+
+test('dial and in-call keypads share a bottom-aligned interaction stage', async () => {
+  const dialer = await source('../src/components/DialerPanel.vue')
+  const call = await source('../src/components/CallSurface.vue')
+
+  assert.match(dialer, /class="dialer-keypad-stage"[\s\S]*class="keypad"/)
+  assert.match(
+    dialer,
+    /\.dialer-keypad-stage \{[\s\S]*flex: 1 0 311px;[\s\S]*align-items: flex-end;/
+  )
+  assert.match(
+    dialer,
+    /\.dialer-primary-actions \{[\s\S]*min-height: 112px;/
+  )
+  assert.match(
+    call,
+    /\.call-surface__content\.is-dtmf-open \.call-surface__dtmf \{[\s\S]*margin-top: auto;/
+  )
+  assert.match(
+    call,
+    /\.call-surface__primary-actions \{[\s\S]*min-height: 112px;/
+  )
+  assert.match(
+    call,
+    /class="call-footer-action call-footer-action--recording"[\s\S]*class="call-primary-action call-primary-action--center"[\s\S]*class="call-footer-action call-footer-action--keypad"/
+  )
+})

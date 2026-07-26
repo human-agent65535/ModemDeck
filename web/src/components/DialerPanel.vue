@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
-  Circle,
+  CassetteTape,
   Delete,
   LoaderCircle,
   Phone,
@@ -261,8 +261,8 @@ async function placeCall(): Promise<void> {
   beginDraft()
 }
 
-function changeRecording(event: Event): void {
-  setDialerRecording((event.target as HTMLInputElement).checked)
+function changeRecording(): void {
+  setDialerRecording(!dialerRecordingState.enabled)
 }
 
 function restoreDialogFocus(): void {
@@ -394,62 +394,75 @@ onBeforeUnmount(() => {
                 <span v-if="contactLabel" class="dialer-contact-name">{{ contactLabel }}</span>
               </div>
 
-              <label class="dialer-recording">
-                <span class="dialer-recording__identity">
-                  <Circle :size="16" fill="currentColor" aria-hidden="true" />
-                  <strong>{{ t('dialer.recording') }}</strong>
-                </span>
-                <input
-                  type="checkbox"
-                  role="switch"
-                  :checked="dialerRecordingState.enabled"
-                  :disabled="dialerRecordingState.status !== 'ready'"
-                  :aria-label="t('dialer.recording')"
-                  @change="changeRecording"
-                />
-              </label>
               <p v-if="dialerRecordingState.error" class="dialer-recording__error" role="alert">
                 {{ dialerRecordingState.error }}
               </p>
-
-              <div class="keypad" role="group" :aria-label="t('dialer.keypad')">
-                <button
-                  v-for="key in phoneKeypad"
-                  :key="key.digit"
-                  class="keypad__key"
-                  :class="{ 'keypad__key--zero': key.digit === '0' }"
-                  type="button"
-                  :aria-label="key.digit"
-                  @click="handleKeyClick(key.digit, $event)"
-                  @contextmenu="preventZeroContextMenu(key.digit, $event)"
-                  @pointerdown="key.digit === '0' && startZeroHold($event)"
-                  @pointerup="key.digit === '0' && finishZeroHold($event)"
-                  @pointercancel="key.digit === '0' && cancelZeroHold($event)"
-                >
-                  <strong>{{ key.digit }}</strong>
-                  <small v-if="key.letters">{{ key.letters }}</small>
-                </button>
-              </div>
 
               <p v-if="dialUnavailable || lines.length === 0" class="unavailable-note">
                 {{ dialUnavailable || t('dialer.noLines') }}
               </p>
               <p v-else-if="validationError" class="field-error">{{ validationError }}</p>
               <p v-if="callState.error" class="field-error">{{ callState.error }}</p>
+
+              <div class="dialer-keypad-stage">
+                <div class="keypad" role="group" :aria-label="t('dialer.keypad')">
+                  <button
+                    v-for="key in phoneKeypad"
+                    :key="key.digit"
+                    class="keypad__key"
+                    :class="{ 'keypad__key--zero': key.digit === '0' }"
+                    type="button"
+                    :aria-label="key.digit"
+                    @click="handleKeyClick(key.digit, $event)"
+                    @contextmenu="preventZeroContextMenu(key.digit, $event)"
+                    @pointerdown="key.digit === '0' && startZeroHold($event)"
+                    @pointerup="key.digit === '0' && finishZeroHold($event)"
+                    @pointercancel="key.digit === '0' && cancelZeroHold($event)"
+                  >
+                    <strong>{{ key.digit }}</strong>
+                    <small v-if="key.letters">{{ key.letters }}</small>
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div class="dialer-primary-actions">
               <button
-                class="call-button"
+                class="dialer-recording-action"
+                :class="{ 'is-active': dialerRecordingState.enabled }"
                 type="button"
-                :disabled="Boolean(disabledReason) || callState.busy"
-                :title="disabledReason || t('calls.dial')"
-                :aria-label="t('calls.dial')"
-                @click="placeCall"
+                :disabled="dialerRecordingState.status !== 'ready'"
+                :title="dialerRecordingState.error || t('dialer.recording')"
+                :aria-label="t('dialer.recording')"
+                :aria-pressed="dialerRecordingState.enabled"
+                @click="changeRecording"
               >
-                <LoaderCircle v-if="callState.pendingAction === 'dial'" class="spin" :size="22" />
-                <Phone v-else :size="22" />
+                <span class="dialer-recording-action__icon" aria-hidden="true">
+                  <CassetteTape :size="21" aria-hidden="true" />
+                  <span class="dialer-recording-action__state">
+                    {{
+                      dialerRecordingState.enabled
+                        ? t('recordingSettings.enabled')
+                        : t('recordingSettings.disabled')
+                    }}
+                  </span>
+                </span>
+                <small>{{ t('calls.record') }}</small>
               </button>
+              <span class="dialer-primary-action">
+                <button
+                  class="call-button"
+                  type="button"
+                  :disabled="Boolean(disabledReason) || callState.busy"
+                  :title="disabledReason || t('calls.dial')"
+                  :aria-label="t('calls.dial')"
+                  @click="placeCall"
+                >
+                  <LoaderCircle v-if="callState.pendingAction === 'dial'" class="spin" :size="22" />
+                  <Phone v-else :size="22" />
+                </button>
+                <small>{{ t('calls.dial') }}</small>
+              </span>
             </div>
           </div>
         </aside>
@@ -526,8 +539,10 @@ onBeforeUnmount(() => {
 }
 
 .dialer-panel__scroll {
+  display: flex;
   min-height: 0;
   flex: 1;
+  flex-direction: column;
   padding: 16px 20px 14px;
   overflow-y: auto;
 }
@@ -551,6 +566,10 @@ onBeforeUnmount(() => {
   padding-right: 40px;
   font-size: 20px;
   font-weight: 600;
+}
+
+.dialer-number-entry :deep(.suggest-menu) {
+  max-height: min(220px, 28dvh);
 }
 
 .dialer-number-control > .dialer-backspace-button {
@@ -578,70 +597,9 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.dialer-recording {
-  display: flex;
-  min-height: 56px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 10px;
-  padding: 8px 2px;
-  border-bottom: 1px solid var(--border);
-}
-
-.dialer-recording__identity {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 9px;
-  color: var(--danger);
-}
-
-.dialer-recording__identity strong {
-  color: var(--text);
-  font-size: 13px;
-}
-
 .keypad__key {
   touch-action: manipulation;
   user-select: none;
-}
-
-.dialer-recording > input {
-  position: relative;
-  width: 38px;
-  height: 22px;
-  flex: 0 0 38px;
-  appearance: none;
-  background: #d8dde2;
-  border-radius: 11px;
-  cursor: pointer;
-}
-
-.dialer-recording > input::before {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 16px;
-  height: 16px;
-  content: "";
-  background: #ffffff;
-  border-radius: 50%;
-  box-shadow: 0 1px 3px rgb(16 24 40 / 20%);
-  transition: transform 150ms ease;
-}
-
-.dialer-recording > input:checked {
-  background: var(--danger);
-}
-
-.dialer-recording > input:checked::before {
-  transform: translateX(16px);
-}
-
-.dialer-recording > input:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
 }
 
 .dialer-recording__error {
@@ -650,20 +608,157 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 
-.dialer-primary-actions {
+.dialer-keypad-stage {
   display: flex;
-  min-height: 96px;
+  min-height: 311px;
+  flex: 1 0 311px;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 24px 0 12px;
+}
+
+.dialer-keypad-stage > .keypad {
+  margin: 0;
+}
+
+.dialer-primary-actions {
+  display: grid;
+  min-height: 112px;
   flex: 0 0 auto;
   align-items: center;
-  justify-content: center;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   padding: 14px 28px 18px;
   border-top: 1px solid var(--border);
 }
 
-.dialer-primary-actions .call-button {
+.dialer-recording-action {
+  display: flex;
+  width: 72px;
+  min-height: 80px;
+  flex-direction: column;
+  align-items: center;
+  justify-self: end;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  background: transparent;
+}
+
+.dialer-recording-action__icon {
+  display: inline-flex;
+  width: 58px;
+  height: 58px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  color: var(--text);
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  transition:
+    color 150ms ease,
+    background 150ms ease,
+    border-color 150ms ease,
+    transform 150ms ease;
+}
+
+.dialer-recording-action:hover:not(:disabled) .dialer-recording-action__icon {
+  background: #e7ebee;
+  transform: translateY(-1px);
+}
+
+.dialer-recording-action.is-active .dialer-recording-action__icon {
+  color: #ffffff;
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+.dialer-recording-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.dialer-recording-action__state {
+  color: inherit;
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.dialer-recording-action > small {
+  color: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.dialer-primary-action {
+  display: flex;
+  min-width: 72px;
+  flex-direction: column;
+  align-items: center;
+  grid-column: 2;
+  gap: 6px;
+}
+
+.dialer-primary-action .call-button {
   width: 64px;
   height: 64px;
   flex-basis: 64px;
+}
+
+.dialer-primary-action small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+@media (max-height: 760px) {
+  .dialer-panel__scroll {
+    padding-block: 10px 8px;
+  }
+
+  .dialer-line-switcher {
+    padding-bottom: 8px;
+  }
+
+  .dialer-line-switcher :deep(.line-selector) {
+    gap: 4px;
+  }
+
+  .dialer-line-switcher :deep(.line-selector__control) {
+    min-height: 52px;
+    padding-block: 4px;
+  }
+
+  .dialer-line-switcher :deep(.line-selector__icon) {
+    width: 32px;
+    height: 32px;
+  }
+
+  .dialer-number-entry {
+    padding: 8px 0 4px;
+  }
+
+  .dialer-number-entry :deep(.suggest-input__field) {
+    height: 50px;
+  }
+
+  .dialer-keypad-stage {
+    min-height: 255px;
+    flex-basis: 255px;
+    padding: 0 0 4px;
+  }
+
+  .dialer-keypad-stage .keypad__key {
+    width: 56px;
+    height: 56px;
+    justify-self: center;
+  }
+
+  .dialer-primary-actions {
+    min-height: 96px;
+    padding-block: 10px;
+  }
 }
 
 @media (max-width: 1100px) {
