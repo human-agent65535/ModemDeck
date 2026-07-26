@@ -12,7 +12,7 @@ test('Telegram bot list exposes channel identity, status, and line scope', () =>
   const listEnd = form.indexOf('</aside>', listStart)
   const list = form.slice(listStart, listEnd)
 
-  assert.match(list, /telegram-unit-list__title[\s\S]*t\('telegram\.notifications'\)/)
+  assert.match(list, /telegram-unit-list__title[\s\S]*t\('telegram\.bots'\)/)
   assert.match(list, /<small>Telegram<\/small>/)
   assert.match(list, /telegram-unit-row__icon[\s\S]*<Send/)
   assert.match(list, /unit\.enabled \? t\('lines\.enabled'\) : t\('lines\.disabled'\)/)
@@ -25,7 +25,7 @@ test('Telegram bot list exposes channel identity, status, and line scope', () =>
 test('Telegram editor uses distinct identity, event, and line sections', () => {
   assert.match(
     form,
-    /telegram-form-heading__copy[\s\S]*t\('telegram\.notifications'\)[\s\S]*<small>Telegram Bot<\/small>/
+    /telegram-form-heading__copy[\s\S]*displayName\.trim\(\)[\s\S]*<small>Telegram Bot<\/small>/
   )
   assert.match(
     form,

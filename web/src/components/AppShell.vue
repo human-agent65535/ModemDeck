@@ -87,7 +87,7 @@ const mobileSettingsSection = computed(() => {
     audio: t('settings.audio'),
     devices: t('settings.devices'),
     recording: t('settings.recording'),
-    telegram: 'Telegram',
+    telegram: t('settings.telegram'),
     tls: 'HTTPS',
     diagnostics: t('settings.diagnostics')
   }

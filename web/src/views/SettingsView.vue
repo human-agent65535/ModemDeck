@@ -100,7 +100,7 @@ const sections = computed<Array<{
   },
   {
     id: 'telegram',
-    label: 'Telegram',
+    label: t('settings.telegram'),
     description: t('settings.telegramDescription'),
     icon: Send
   },

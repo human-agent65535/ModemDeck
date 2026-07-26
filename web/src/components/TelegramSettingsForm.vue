@@ -320,10 +320,10 @@ onMounted(() => {
   />
   <div v-else class="telegram-settings-container">
     <div class="telegram-settings">
-      <aside class="telegram-unit-list" :aria-label="t('telegram.notifications')">
+      <aside class="telegram-unit-list" :aria-label="t('telegram.bots')">
       <header class="telegram-unit-list__heading">
         <span class="telegram-unit-list__title">
-          <strong>{{ t('telegram.notifications') }}</strong>
+          <strong>{{ t('telegram.bots') }}</strong>
           <small>Telegram</small>
         </span>
         <button
@@ -411,7 +411,9 @@ onMounted(() => {
             <Send :size="19" />
           </span>
           <span class="telegram-form-heading__copy">
-            <h3>{{ creating ? t('telegram.newBot') : t('telegram.notifications') }}</h3>
+            <h3>
+              {{ displayName.trim() || (creating ? t('telegram.newBot') : t('telegram.unnamed')) }}
+            </h3>
             <small>Telegram Bot</small>
           </span>
           <label class="compact-switch">
