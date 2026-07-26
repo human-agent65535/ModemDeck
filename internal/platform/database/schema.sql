@@ -4,6 +4,7 @@
 
 CREATE TABLE modemdeck_admin_credentials (
 			singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+			username TEXT NOT NULL DEFAULT 'admin',
 			password_hash TEXT NOT NULL,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);

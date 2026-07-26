@@ -78,6 +78,7 @@ import type {
   CallRecordingState,
   CallRecord,
   CallSession,
+  ChangePasswordInput,
   CommandReceipt,
   ConnectionProfile,
   Contact,
@@ -120,6 +121,7 @@ import type {
   SaveConnectionProfileInput,
   SendMessageInput,
   SessionResponse,
+  SetupInput,
   SystemLanguage,
   SIMCommandInput,
   SIMStatus,
@@ -222,7 +224,11 @@ function errorDetails(value: unknown): ApiErrorBody | undefined {
 
 function parseSession(value: unknown): SessionResponse {
   const source = recordValue(value)
-  if (!source || typeof source.authenticated !== 'boolean') {
+  if (
+    !source ||
+    typeof source.authenticated !== 'boolean' ||
+    typeof source.setup_required !== 'boolean'
+  ) {
     throw new ApiError('ModemDeck 服务返回了无效的会话状态', 0, 'invalid_response')
   }
 
@@ -232,6 +238,7 @@ function parseSession(value: unknown): SessionResponse {
   }
   const session: SessionResponse = {
     authenticated: source.authenticated,
+    setup_required: source.setup_required,
     username: stringProperty(source, 'username'),
     csrf_token: stringProperty(source, 'csrf_token'),
     language: language as SystemLanguage
@@ -688,8 +695,16 @@ const realGateway: ConfiguredModemDeckGateway = {
     return parseSession(await get(`${API_ROOT}/session`))
   },
 
+  async setup(input: SetupInput): Promise<SessionResponse> {
+    return parseSession(await writeJSON(`${API_ROOT}/setup`, 'POST', input, 201))
+  },
+
   async login(input: LoginInput): Promise<SessionResponse> {
     return parseSession(await writeJSON(`${API_ROOT}/session`, 'POST', input, 200))
+  },
+
+  async changePassword(input: ChangePasswordInput): Promise<void> {
+    await writeJSON(`${API_ROOT}/account/password`, 'PUT', input, 204)
   },
 
   async logout(): Promise<void> {
@@ -1354,6 +1369,7 @@ const realGateway: ConfiguredModemDeckGateway = {
 function configureFixture(gateway: ModemDeckGateway): ConfiguredModemDeckGateway {
   const session: SessionResponse = {
     authenticated: true,
+    setup_required: false,
     username: 'fixture',
     language: 'auto'
   }
@@ -1363,8 +1379,14 @@ function configureFixture(gateway: ModemDeckGateway): ConfiguredModemDeckGateway
     async getSession() {
       return session
     },
+    async setup() {
+      return session
+    },
     async login() {
       return session
+    },
+    async changePassword() {
+      return undefined
     },
     async logout() {
       return undefined

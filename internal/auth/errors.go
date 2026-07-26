@@ -8,7 +8,13 @@ type ErrorCode string
 
 const (
 	CodeRepositoryRequired       ErrorCode = "repository_required"
+	CodeUsernameInvalid          ErrorCode = "username_invalid"
+	CodeAlreadyConfigured        ErrorCode = "already_configured"
 	CodePasswordRequired         ErrorCode = "password_required"
+	CodePasswordTooShort         ErrorCode = "password_too_short"
+	CodePasswordTooLong          ErrorCode = "password_too_long"
+	CodePasswordInvalid          ErrorCode = "password_invalid"
+	CodePasswordUnchanged        ErrorCode = "password_unchanged"
 	CodeInvalidPasswordHash      ErrorCode = "invalid_password_hash"
 	CodePasswordHashTooExpensive ErrorCode = "password_hash_too_expensive"
 	CodeInvalidCredentials       ErrorCode = "invalid_credentials"
@@ -58,7 +64,13 @@ func (e *Error) Is(target error) bool {
 
 var (
 	ErrRepositoryRequired       = &Error{Code: CodeRepositoryRequired}
+	ErrUsernameInvalid          = &Error{Code: CodeUsernameInvalid}
+	ErrAlreadyConfigured        = &Error{Code: CodeAlreadyConfigured}
 	ErrPasswordRequired         = &Error{Code: CodePasswordRequired}
+	ErrPasswordTooShort         = &Error{Code: CodePasswordTooShort}
+	ErrPasswordTooLong          = &Error{Code: CodePasswordTooLong}
+	ErrPasswordInvalid          = &Error{Code: CodePasswordInvalid}
+	ErrPasswordUnchanged        = &Error{Code: CodePasswordUnchanged}
 	ErrInvalidPasswordHash      = &Error{Code: CodeInvalidPasswordHash}
 	ErrPasswordHashTooExpensive = &Error{Code: CodePasswordHashTooExpensive}
 	ErrInvalidCredentials       = &Error{Code: CodeInvalidCredentials}

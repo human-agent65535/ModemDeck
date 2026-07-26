@@ -81,7 +81,10 @@ type HealthProbe interface {
 }
 
 type Authenticator interface {
-	Login(context.Context, string) (auth.LoginResult, error)
+	Status(context.Context) (auth.AdminStatus, error)
+	Setup(context.Context, string, string) error
+	Login(context.Context, string, string) (auth.LoginResult, error)
+	ChangePassword(context.Context, string, string) error
 	Authenticate(context.Context, auth.SessionToken) (auth.Authentication, error)
 	Logout(context.Context, auth.SessionToken) error
 }
@@ -204,7 +207,6 @@ type Options struct {
 	TelegramSettings      TelegramSettingsService
 	TLSSettings           TLSSettingsService
 	Authenticator         Authenticator
-	AdminUsername         string
 	SecureCookies         bool
 	Logger                *slog.Logger
 	DiagnosticLogs        diagnostics.LogSource
@@ -228,7 +230,6 @@ type API struct {
 	telegram             TelegramSettingsService
 	tlsSettingsService   TLSSettingsService
 	authenticator        Authenticator
-	adminUsername        string
 	secureCookies        bool
 	loginSlots           chan struct{}
 	logger               *slog.Logger
@@ -244,10 +245,6 @@ func New(repository Repository, options Options) (*API, error) {
 	}
 	if options.Authenticator == nil && !options.disableAuthentication {
 		return nil, ErrAuthenticatorRequired
-	}
-	adminUsername := strings.TrimSpace(options.AdminUsername)
-	if adminUsername == "" {
-		adminUsername = "admin"
 	}
 	logger := options.Logger
 	if logger == nil {
@@ -271,7 +268,6 @@ func New(repository Repository, options Options) (*API, error) {
 		telegram:             options.TelegramSettings,
 		tlsSettingsService:   options.TLSSettings,
 		authenticator:        options.Authenticator,
-		adminUsername:        adminUsername,
 		secureCookies:        options.SecureCookies,
 		loginSlots:           make(chan struct{}, 2),
 		logger:               logger,
@@ -304,6 +300,10 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.session(response, request)
 		return
 	}
+	if request.URL.Path == "/api/v1/setup" {
+		api.setup(response, request)
+		return
+	}
 	if !api.authorizeAPI(response, request) {
 		return
 	}
@@ -311,6 +311,8 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	switch request.URL.Path {
 	case "/api/v1/bootstrap":
 		api.getOnly(response, request, api.bootstrap)
+	case "/api/v1/account/password":
+		api.accountPassword(response, request)
 	case "/api/v1/contacts":
 		api.contactsCollection(response, request)
 	case "/api/v1/messages/threads":

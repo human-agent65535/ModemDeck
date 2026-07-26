@@ -14,14 +14,27 @@ func TestAuthStorePasswordAndSessionLifecycle(t *testing.T) {
 
 	repository, _ := newContactTestStore(t)
 	ctx := context.Background()
-	if passwordHash, configured, err := repository.AdminPasswordHash(ctx); err != nil || configured || passwordHash != "" {
-		t.Fatalf("initial AdminPasswordHash() = %q, %v, %v", passwordHash, configured, err)
+	if credentials, configured, err := repository.AdminCredentials(ctx); err != nil || configured || credentials != (auth.AdminCredentials{}) {
+		t.Fatalf("initial AdminCredentials() = %+v, %v, %v", credentials, configured, err)
 	}
-	if err := repository.ReplaceAdminPasswordHashAndRevokeSessions(ctx, "hash-1"); err != nil {
-		t.Fatalf("ReplaceAdminPasswordHashAndRevokeSessions() error = %v", err)
+	created, err := repository.CreateAdminIfAbsent(ctx, auth.AdminCredentials{
+		Username:     "owner",
+		PasswordHash: "hash-1",
+	})
+	if err != nil || !created {
+		t.Fatalf("CreateAdminIfAbsent() = %v, %v", created, err)
 	}
-	if passwordHash, configured, err := repository.AdminPasswordHash(ctx); err != nil || !configured || passwordHash != "hash-1" {
-		t.Fatalf("AdminPasswordHash() = %q, %v, %v", passwordHash, configured, err)
+	created, err = repository.CreateAdminIfAbsent(ctx, auth.AdminCredentials{
+		Username:     "other",
+		PasswordHash: "hash-other",
+	})
+	if err != nil || created {
+		t.Fatalf("second CreateAdminIfAbsent() = %v, %v", created, err)
+	}
+	if credentials, configured, err := repository.AdminCredentials(ctx); err != nil ||
+		!configured ||
+		credentials != (auth.AdminCredentials{Username: "owner", PasswordHash: "hash-1"}) {
+		t.Fatalf("AdminCredentials() = %+v, %v, %v", credentials, configured, err)
 	}
 
 	createdAt := time.Date(2026, 7, 23, 1, 2, 3, 0, time.UTC)
@@ -31,7 +44,7 @@ func TestAuthStorePasswordAndSessionLifecycle(t *testing.T) {
 		CreatedAt:          createdAt,
 		ExpiresAt:          createdAt.Add(auth.SessionLifetime),
 	}
-	created, err := repository.CreateSessionIfPasswordHash(ctx, "wrong-hash", session)
+	created, err = repository.CreateSessionIfPasswordHash(ctx, "wrong-hash", session)
 	if err != nil || created {
 		t.Fatalf("CreateSessionIfPasswordHash(wrong) = %v, %v", created, err)
 	}
@@ -47,8 +60,22 @@ func TestAuthStorePasswordAndSessionLifecycle(t *testing.T) {
 		t.Fatalf("stored session = %+v, want %+v", stored, session)
 	}
 
-	if err := repository.ReplaceAdminPasswordHashAndRevokeSessions(ctx, "hash-2"); err != nil {
-		t.Fatalf("replace password and revoke: %v", err)
+	if replaced, err := repository.ReplaceAdminPasswordHashIfCurrentAndRevokeSessions(
+		ctx,
+		"wrong-hash",
+		"hash-2",
+	); err != nil || replaced {
+		t.Fatalf("conditional replacement with stale hash = %v, %v", replaced, err)
+	}
+	if _, found, err := repository.SessionByTokenDigest(ctx, session.SessionTokenDigest); err != nil || !found {
+		t.Fatalf("stale replacement revoked session; found = %v, err = %v", found, err)
+	}
+	if replaced, err := repository.ReplaceAdminPasswordHashIfCurrentAndRevokeSessions(
+		ctx,
+		"hash-1",
+		"hash-2",
+	); err != nil || !replaced {
+		t.Fatalf("conditional replacement = %v, %v", replaced, err)
 	}
 	if _, found, err := repository.SessionByTokenDigest(ctx, session.SessionTokenDigest); err != nil || found {
 		t.Fatalf("revoked SessionByTokenDigest() found = %v, err = %v", found, err)
@@ -73,8 +100,11 @@ func TestAuthStoreBoundsAndExpiresSessions(t *testing.T) {
 
 	repository, database := newContactTestStore(t)
 	ctx := context.Background()
-	if err := repository.ReplaceAdminPasswordHashAndRevokeSessions(ctx, "hash"); err != nil {
-		t.Fatalf("configure password: %v", err)
+	if created, err := repository.CreateAdminIfAbsent(ctx, auth.AdminCredentials{
+		Username:     "admin",
+		PasswordHash: "hash",
+	}); err != nil || !created {
+		t.Fatalf("configure administrator = %v, %v", created, err)
 	}
 	base := time.Date(2026, 7, 23, 2, 0, 0, 0, time.UTC)
 	var first auth.SessionTokenDigest

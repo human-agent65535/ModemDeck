@@ -27,7 +27,6 @@ git -C "$repo_dir" check-ignore -q secrets/admin-password ||
 git -C "$repo_dir" check-ignore -q deploy/device-assignments.json ||
     fail "common real assignment path is not ignored"
 
-MODEMDECK_ADMIN_PASSWORD_FILE=/dev/null \
 MODEMDECK_SETTINGS_KEY_FILE=/dev/null \
 MODEMDECK_DATA_DIR="${test_root}/data" \
 docker compose \
@@ -35,7 +34,6 @@ docker compose \
     -f "${repo_dir}/docker-compose.yml" \
     config >"${test_root}/compose.yml"
 
-MODEMDECK_ADMIN_PASSWORD_FILE=/dev/null \
 MODEMDECK_SETTINGS_KEY_FILE=/dev/null \
 MODEMDECK_DATA_DIR="${test_root}/data" \
 MODEMDECK_ASSIGNMENT_FILE="${repo_dir}/deploy/advanced-assignment.example.json" \

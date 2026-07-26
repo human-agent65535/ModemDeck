@@ -15,7 +15,6 @@ assignment_arg=
 bind_address_arg=
 port_arg=
 tls_hosts_arg=
-admin_username_arg=
 media_bindings_arg=
 version_arg=
 allow_dirty=false
@@ -53,7 +52,6 @@ Options:
   --bind-address ADDRESS  Host address exposed by Docker (default: 127.0.0.1)
   --port PORT             HTTPS port (default: 7575)
   --tls-hosts LIST        Comma-separated certificate DNS names and IPs
-  --admin-user USER       Administrator username (default: admin)
   --media-bindings-file FILE
                           Optional explicit modem audio bindings JSON
   --version TAG           Docker image tag (default: current Git revision)
@@ -63,6 +61,8 @@ Options:
 
 The installer preserves application data, secrets, automatic TLS state, and
 user-installed certificates. It never replaces an expired user certificate.
+On a first installation, open the Web UI and complete Quick Start to create the
+administrator username and password.
 EOF
 }
 
@@ -216,11 +216,6 @@ while [ "$#" -gt 0 ]; do
             tls_hosts_arg=$2
             shift 2
             ;;
-        --admin-user)
-            [ "$#" -ge 2 ] || fail "--admin-user requires a value"
-            admin_username_arg=$2
-            shift 2
-            ;;
         --media-bindings-file)
             [ "$#" -ge 2 ] || fail "--media-bindings-file requires a value"
             media_bindings_arg=$2
@@ -352,13 +347,11 @@ fi
 bind_address=${MODEMDECK_BIND_ADDRESS:-$(env_or_default MODEMDECK_BIND_ADDRESS 127.0.0.1)}
 port=${MODEMDECK_PORT:-$(env_or_default MODEMDECK_PORT 7575)}
 tls_hosts=${MODEMDECK_TLS_HOSTS:-$(env_or_default MODEMDECK_TLS_HOSTS localhost,127.0.0.1,::1)}
-admin_username=${MODEMDECK_ADMIN_USERNAME:-$(env_or_default MODEMDECK_ADMIN_USERNAME admin)}
 app_uid=${MODEMDECK_UID:-$(env_or_default MODEMDECK_UID 10001)}
 app_gid=${MODEMDECK_GID:-$(env_or_default MODEMDECK_GID 10001)}
 agent_gid=${MODEMDECK_AGENT_GID:-$(env_or_default MODEMDECK_AGENT_GID 10002)}
 image_name=${MODEMDECK_IMAGE:-$(env_or_default MODEMDECK_IMAGE modemdeck)}
 hardware_image=${MODEMDECK_HARDWARE_IMAGE:-$(env_or_default MODEMDECK_HARDWARE_IMAGE modemdeck-hardware)}
-password_path=${MODEMDECK_ADMIN_PASSWORD_FILE:-$(env_or_default MODEMDECK_ADMIN_PASSWORD_FILE ./secrets/admin-password)}
 settings_key_path=${MODEMDECK_SETTINGS_KEY_FILE:-$(env_or_default MODEMDECK_SETTINGS_KEY_FILE ./secrets/settings-key)}
 data_path=${MODEMDECK_DATA_DIR:-$(env_or_default MODEMDECK_DATA_DIR ./data)}
 media_bindings_path=${MODEMDECK_MEDIA_BINDINGS_FILE:-$(env_or_default MODEMDECK_MEDIA_BINDINGS_FILE ./hardware/config/media-bindings.empty.json)}
@@ -366,7 +359,6 @@ media_bindings_path=${MODEMDECK_MEDIA_BINDINGS_FILE:-$(env_or_default MODEMDECK_
 [ -z "$bind_address_arg" ] || bind_address=$bind_address_arg
 [ -z "$port_arg" ] || port=$port_arg
 [ -z "$tls_hosts_arg" ] || tls_hosts=$tls_hosts_arg
-[ -z "$admin_username_arg" ] || admin_username=$admin_username_arg
 [ -z "$media_bindings_arg" ] || media_bindings_path=$media_bindings_arg
 
 case "$bind_address" in
@@ -386,12 +378,6 @@ case "$tls_hosts" in
         fail "--tls-hosts must be a non-empty comma-separated list without spaces"
         ;;
 esac
-case "$admin_username" in
-    ""|*[[:space:]]*)
-        fail "--admin-user must be a non-empty single-line value"
-        ;;
-esac
-
 for numeric_value in "$app_uid" "$app_gid" "$agent_gid"; do
     case "$numeric_value" in
         ""|*[!0-9]*)
@@ -413,7 +399,6 @@ case ",$tls_hosts," in
         ;;
 esac
 
-password_file=$(absolute_path "$password_path")
 settings_key_file=$(absolute_path "$settings_key_path")
 data_dir=$(absolute_path "$data_path")
 media_bindings_file=$(absolute_path "$media_bindings_path")
@@ -550,8 +535,6 @@ upsert_env MODEMDECK_PORT "$port"
 upsert_env MODEMDECK_UID "$app_uid"
 upsert_env MODEMDECK_GID "$app_gid"
 upsert_env MODEMDECK_AGENT_GID "$agent_gid"
-upsert_env MODEMDECK_ADMIN_USERNAME "$admin_username"
-upsert_env MODEMDECK_ADMIN_PASSWORD_FILE "$password_file"
 upsert_env MODEMDECK_SETTINGS_KEY_FILE "$settings_key_file"
 upsert_env MODEMDECK_DATA_DIR "$data_dir"
 upsert_env MODEMDECK_MEDIA_BINDINGS_FILE "$media_bindings_file"
@@ -666,9 +649,6 @@ prepare_secret() {
     rm -f -- "$raw_secret" "$encoded_secret"
 }
 
-password_was_missing=false
-[ -e "$password_file" ] || password_was_missing=true
-prepare_secret "$password_file" 24 "administrator password"
 prepare_secret "$settings_key_file" 32 "settings encryption key"
 
 if [ -L "$data_dir" ]; then
@@ -895,10 +875,7 @@ services_changed=false
 
 log "Installation complete"
 printf 'Open:           https://%s:%s\n' "$bind_address" "$port"
-printf 'Administrator:  %s\n' "$admin_username"
 printf 'Hardware mode:  %s\n' "$mode"
-if [ "$password_was_missing" = true ]; then
-    printf 'Password file:  %s\n' "$password_file"
-fi
+printf '%s\n' 'First install: complete Web Quick Start to create the administrator account.'
 printf '%s\n' \
     'Application data, Agent ownership state, ModemManager state, secrets, and TLS files are persistent.'

@@ -322,7 +322,6 @@ common_env() {
         MODEMDECK_SYSTEMD_RUNTIME_DIR="${test_root}/run/systemd/system" \
         MODEMDECK_INSTALL_STATE_DIR="${test_root}/state/install" \
         MODEMDECK_DATA_DIR="${test_root}/data" \
-        MODEMDECK_ADMIN_PASSWORD_FILE="${test_root}/secrets/password" \
         MODEMDECK_SETTINGS_KEY_FILE="${test_root}/secrets/settings" \
         "$@"
 }
@@ -333,7 +332,6 @@ mkdir -p \
     "${test_root}/systemctl"
 printf '%s\n' database-before >"${test_root}/data/modemdeck.db"
 printf '%s\n' user-certificate-before >"${test_root}/data/tls/user.crt"
-printf '%s\n' password-before >"${test_root}/secrets/password"
 printf '%s\n' settings-key-before >"${test_root}/secrets/settings"
 
 # A failed simple startup must return host service state to its exact baseline.
@@ -428,7 +426,6 @@ grep -Fq "MODEMDECK_ASSIGNMENT_FILE=${test_root}/assignments.json" \
 for preserved_file in \
     "${test_root}/data/modemdeck.db:database-before" \
     "${test_root}/data/tls/user.crt:user-certificate-before" \
-    "${test_root}/secrets/password:password-before" \
     "${test_root}/secrets/settings:settings-key-before"
 do
     preserved_path=${preserved_file%%:*}
@@ -450,8 +447,6 @@ grep -qx 'user-certificate-before' "${test_root}/data/tls/user.crt" ||
     fail "repeat installation replaced the user certificate"
 grep -qx 'database-before' "${test_root}/data/modemdeck.db" ||
     fail "repeat installation replaced the database"
-grep -qx 'password-before' "${test_root}/secrets/password" ||
-    fail "repeat installation replaced the administrator secret"
 grep -qx 'settings-key-before' "${test_root}/secrets/settings" ||
     fail "repeat installation replaced the settings key"
 

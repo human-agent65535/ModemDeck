@@ -9,6 +9,7 @@ import (
 
 type sessionResponse struct {
 	Authenticated bool   `json:"authenticated"`
+	SetupRequired bool   `json:"setup_required"`
 	Username      string `json:"username,omitempty"`
 	CSRFToken     string `json:"csrf_token,omitempty"`
 	Language      string `json:"language"`

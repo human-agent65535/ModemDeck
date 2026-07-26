@@ -78,7 +78,6 @@ command_log="${test_root}/commands.log"
 : >"$command_log"
 state_dir="${test_root}/state/install"
 data_dir="${test_root}/data"
-password_file="${test_root}/secrets/password"
 settings_file="${test_root}/secrets/settings"
 
 env \
@@ -92,7 +91,6 @@ env \
     MODEMDECK_SYSTEMD_RUNTIME_DIR="${test_root}/run/systemd/system" \
     MODEMDECK_INSTALL_STATE_DIR="$state_dir" \
     MODEMDECK_DATA_DIR="$data_dir" \
-    MODEMDECK_ADMIN_PASSWORD_FILE="$password_file" \
     MODEMDECK_SETTINGS_KEY_FILE="$settings_file" \
     "${repo_dir}/install.sh" \
         --check \
@@ -116,8 +114,6 @@ fi
     fail "--check created installer state"
 [ ! -e "$data_dir" ] ||
     fail "--check created application data"
-[ ! -e "$password_file" ] ||
-    fail "--check created the administrator secret"
 [ ! -e "$settings_file" ] ||
     fail "--check created the settings secret"
 

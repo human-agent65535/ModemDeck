@@ -975,14 +975,25 @@ export type ApiErrorBody = {
 
 export type SessionResponse = {
   authenticated: boolean
+  setup_required: boolean
   username?: string
   csrf_token?: string
   language: SystemLanguage
 }
 
+export type SetupInput = {
+  username: string
+  password: string
+}
+
 export type LoginInput = {
   username: string
   password: string
+}
+
+export type ChangePasswordInput = {
+  current_password: string
+  new_password: string
 }
 
 export class ApiError extends Error {

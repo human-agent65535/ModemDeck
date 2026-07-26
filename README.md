@@ -164,6 +164,10 @@ sudo ./install.sh \
 会保留 SQLite 数据、密钥、自动 TLS 状态和用户证书。自动证书可按需更新，用户
 安装的证书即使过期也不会被替换。完整参数见 `./install.sh --help`。
 
+首次打开 Web 界面时会进入“快速开始”，由首位访问者创建管理员用户名和密码。
+完成后页面切换为普通登录，不再开放初始化接口。管理员可在“设置 > 系统”修改
+密码；修改会撤销所有现有登录会话。
+
 ## 许可证
 
 ModemDeck 使用 [PolyForm Noncommercial License 1.0.0](LICENSE)。
@@ -357,6 +361,12 @@ the HTTPS port. Re-running the installer preserves SQLite data, secrets,
 automatic TLS state, and user-installed certificates. Automatic certificates
 may be renewed when needed; user-installed certificates are never replaced,
 even after expiry. See `./install.sh --help` for all options.
+
+The first Web visit opens Quick Start, where the first visitor creates the
+administrator username and password. After setup, the page becomes the normal
+login screen and the setup endpoint closes. The administrator can change the
+password under Settings > System; doing so revokes every existing login
+session.
 
 ## License
 

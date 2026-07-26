@@ -55,11 +55,14 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 	_, avatarExists := contactColumns["avatar"]
 	simCardColumns, simCardsExist := actual.tables["sim_cards"]
 	_, lineColorExists := simCardColumns["line_color"]
+	adminColumns, adminCredentialsExist := actual.tables["modemdeck_admin_credentials"]
+	_, adminUsernameExists := adminColumns["username"]
 	_, systemSettingsExist := actual.tables["modemdeck_system_settings"]
 	needsAvatar := contactsExist && !avatarExists
 	needsLineColor := simCardsExist && !lineColorExists
+	needsAdminUsername := adminCredentialsExist && !adminUsernameExists
 	needsSystemSettings := !systemSettingsExist
-	if !needsAvatar && !needsLineColor && !needsSystemSettings {
+	if !needsAvatar && !needsLineColor && !needsAdminUsername && !needsSystemSettings {
 		return nil
 	}
 	if !schemaMatchesSupportedMigration(expected, actual) {
@@ -96,6 +99,15 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 			return fmt.Errorf("migrate SIM line color: %w", err)
 		}
 	}
+	if needsAdminUsername {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`ALTER TABLE modemdeck_admin_credentials
+			 ADD COLUMN username TEXT NOT NULL DEFAULT 'admin'`,
+		); err != nil {
+			return fmt.Errorf("migrate administrator username: %w", err)
+		}
+	}
 	if needsSystemSettings {
 		if _, err := transaction.ExecContext(
 			ctx,
@@ -129,6 +141,9 @@ func schemaMatchesSupportedMigration(expected schemaShape, actual schemaShape) b
 			return false
 		}
 		for column := range expectedColumns {
+			if table == "modemdeck_admin_credentials" && column == "username" {
+				continue
+			}
 			if table == "contacts" && column == "avatar" {
 				continue
 			}

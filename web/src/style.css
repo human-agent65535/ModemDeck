@@ -171,6 +171,13 @@ strong {
   font-size: 22px;
 }
 
+.login-panel > header p {
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .login-form {
   display: flex;
   flex-direction: column;
@@ -188,6 +195,16 @@ strong {
   line-height: 1.45;
   background: var(--danger-soft);
   border: 1px solid #f4cbd1;
+  border-radius: 8px;
+}
+
+.login-notice {
+  padding: 10px 12px;
+  color: var(--accent-strong);
+  font-size: 12px;
+  line-height: 1.45;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
   border-radius: 8px;
 }
 

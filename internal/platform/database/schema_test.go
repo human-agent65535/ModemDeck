@@ -68,6 +68,53 @@ func TestOpenRejectsOutdatedSchemaWithoutAlteringIt(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesAdministratorUsernameAndPreservesPassword(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "without-admin-username.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacySchema := strings.Replace(
+		currentSchemaSQL,
+		"\n\t\t\tusername TEXT NOT NULL DEFAULT 'admin',",
+		"",
+		1,
+	)
+	if legacySchema == currentSchemaSQL {
+		t.Fatal("legacy schema fixture did not remove administrator username")
+	}
+	if _, err := database.Exec(legacySchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(
+		`INSERT INTO modemdeck_admin_credentials (singleton, password_hash)
+		 VALUES (1, 'legacy-hash')`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	var username, passwordHash string
+	if err := database.QueryRow(
+		`SELECT username, password_hash
+		 FROM modemdeck_admin_credentials WHERE singleton = 1`,
+	).Scan(&username, &passwordHash); err != nil {
+		t.Fatal(err)
+	}
+	if username != "admin" || passwordHash != "legacy-hash" {
+		t.Fatalf("migrated credentials = (%q, %q)", username, passwordHash)
+	}
+}
+
 func TestOpenMigratesContactAvatarColumn(t *testing.T) {
 	t.Parallel()
 

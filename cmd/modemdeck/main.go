@@ -52,8 +52,6 @@ func main() {
 	)
 	databasePath := flag.String("database", database.DefaultPath, "ModemDeck SQLite database path")
 	agentSocketPath := flag.String("agent-socket", environmentOrDefault("MODEMDECK_AGENT_SOCKET", "/run/modemdeck/agent.sock"), "ModemDeck host agent Unix socket")
-	adminUsername := flag.String("admin-username", environmentOrDefault("MODEMDECK_ADMIN_USERNAME", defaultAdminUsername), "administrator username")
-	adminPasswordFile := flag.String("admin-password-file", os.Getenv("MODEMDECK_ADMIN_PASSWORD_FILE"), "path to the administrator password secret")
 	settingsKeyFile := flag.String("settings-key-file", os.Getenv("MODEMDECK_SETTINGS_KEY_FILE"), "path to the 32-byte settings encryption key")
 	recordingsPath := flag.String("recordings", environmentOrDefault("MODEMDECK_RECORDINGS_PATH", "/data/recordings"), "call recording directory")
 	tlsDirectory := flag.String(
@@ -69,11 +67,6 @@ func main() {
 	secureCookies := flag.Bool("secure-cookies", secureCookiesDefault, "require HTTPS for authentication cookies")
 	flag.Parse()
 
-	admin, err := loadAdminConfig(*adminUsername, *adminPasswordFile, *secureCookies)
-	if err != nil {
-		logger.Error("load authentication configuration", "error", err)
-		os.Exit(1)
-	}
 	settingsSecrets, err := secretbox.OpenFile(*settingsKeyFile)
 	if err != nil {
 		logger.Error("load settings encryption key", "error", err)
@@ -87,7 +80,7 @@ func main() {
 		*recordingsPath,
 		*tlsDirectory,
 		parseCommaSeparatedList(*tlsHosts),
-		admin,
+		*secureCookies,
 		settingsSecrets,
 		logBuffer,
 	); err != nil {
@@ -101,7 +94,7 @@ func run(
 	listenAddress, databasePath, agentSocketPath, recordingsPath string,
 	tlsDirectory string,
 	tlsHosts []string,
-	admin adminConfig,
+	secureCookies bool,
 	settingsSecrets *secretbox.Box,
 	logBuffer diagnostics.LogSource,
 ) error {
@@ -134,11 +127,6 @@ func run(
 		_ = db.Close()
 		return fmt.Errorf("create authentication service: %w", err)
 	}
-	if err := authenticator.EnsureAdmin(ctx, admin.Password); err != nil {
-		_ = db.Close()
-		return fmt.Errorf("configure administrator: %w", err)
-	}
-	admin.Password = ""
 	agent, err := agentclient.New(agentSocketPath, hostAgentRequestTimeout)
 	if err != nil {
 		_ = db.Close()
@@ -249,8 +237,7 @@ func run(
 		TelegramSettings:     telegramSettings,
 		TLSSettings:          tlsSettingsService{manager: tlsCertificates},
 		Authenticator:        authenticator,
-		AdminUsername:        admin.Username,
-		SecureCookies:        admin.SecureCookies,
+		SecureCookies:        secureCookies,
 		Logger:               logger.With("component", "http"),
 		DiagnosticLogs:       logBuffer,
 		MessageEvents:        messageEvents,

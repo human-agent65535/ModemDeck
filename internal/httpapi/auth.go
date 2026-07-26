@@ -24,6 +24,16 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
+type setupRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type changePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
 func (api *API) session(response http.ResponseWriter, request *http.Request) {
 	switch request.Method {
 	case http.MethodGet:
@@ -42,6 +52,29 @@ func (api *API) session(response http.ResponseWriter, request *http.Request) {
 
 func (api *API) getSession(response http.ResponseWriter, request *http.Request) {
 	language := api.sessionLanguage(request.Context())
+	if api.authenticator == nil {
+		writeJSON(response, http.StatusOK, sessionResponse{
+			Authenticated: false,
+			SetupRequired: false,
+			Language:      language,
+		})
+		return
+	}
+	status, err := api.authenticator.Status(request.Context())
+	if err != nil {
+		api.logger.Error("read administrator status", "error", err)
+		writeError(response, http.StatusServiceUnavailable, "authentication_unavailable", "Authentication is unavailable", "")
+		return
+	}
+	if !status.Configured {
+		api.clearAuthCookies(response)
+		writeJSON(response, http.StatusOK, sessionResponse{
+			Authenticated: false,
+			SetupRequired: true,
+			Language:      language,
+		})
+		return
+	}
 	sessionToken, authentication, ok, handled := api.requestAuthentication(response, request, false)
 	if !ok {
 		if handled {
@@ -49,6 +82,7 @@ func (api *API) getSession(response http.ResponseWriter, request *http.Request) 
 		}
 		writeJSON(response, http.StatusOK, sessionResponse{
 			Authenticated: false,
+			SetupRequired: false,
 			Language:      language,
 		})
 		return
@@ -63,15 +97,80 @@ func (api *API) getSession(response http.ResponseWriter, request *http.Request) 
 		api.clearAuthCookies(response)
 		writeJSON(response, http.StatusOK, sessionResponse{
 			Authenticated: false,
+			SetupRequired: false,
 			Language:      language,
 		})
 		return
 	}
 	writeJSON(response, http.StatusOK, sessionResponse{
 		Authenticated: true,
-		Username:      api.adminUsername,
+		SetupRequired: false,
+		Username:      status.Username,
 		CSRFToken:     csrfCookie.Value,
 		Language:      language,
+	})
+}
+
+func (api *API) setup(response http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		response.Header().Set("Allow", http.MethodPost)
+		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only POST is supported", "")
+		return
+	}
+
+	var input setupRequest
+	if !decodeJSONBody(response, request, &input) {
+		return
+	}
+	input.Username = strings.TrimSpace(input.Username)
+	if input.Username == "" ||
+		utf8.RuneCountInString(input.Username) > maxUsernameRunes ||
+		len(input.Password) == 0 ||
+		len(input.Password) > maxPasswordBytes {
+		writeError(response, http.StatusUnprocessableEntity, "invalid_setup", "Enter a valid username and password", "")
+		return
+	}
+
+	select {
+	case api.loginSlots <- struct{}{}:
+		defer func() { <-api.loginSlots }()
+	default:
+		writeError(response, http.StatusTooManyRequests, "setup_busy", "Another setup is in progress", "")
+		return
+	}
+
+	if err := api.authenticator.Setup(request.Context(), input.Username, input.Password); err != nil {
+		switch {
+		case errors.Is(err, auth.ErrAlreadyConfigured):
+			writeError(response, http.StatusConflict, "setup_complete", "Administrator setup is already complete", "")
+		case errors.Is(err, auth.ErrUsernameInvalid):
+			writeError(response, http.StatusUnprocessableEntity, "username_invalid", "Enter a valid username", "username")
+		case errors.Is(err, auth.ErrPasswordTooShort):
+			writeError(response, http.StatusUnprocessableEntity, "password_too_short", "Password must contain at least 12 bytes", "password")
+		case errors.Is(err, auth.ErrPasswordTooLong):
+			writeError(response, http.StatusUnprocessableEntity, "password_too_long", "Password cannot exceed 1024 bytes", "password")
+		case errors.Is(err, auth.ErrPasswordInvalid):
+			writeError(response, http.StatusUnprocessableEntity, "password_invalid", "Password contains unsupported characters", "password")
+		default:
+			api.logger.Error("set up administrator", "error", err)
+			writeError(response, http.StatusServiceUnavailable, "authentication_unavailable", "Authentication is unavailable", "")
+		}
+		return
+	}
+
+	result, err := api.authenticator.Login(request.Context(), input.Username, input.Password)
+	if err != nil {
+		api.logger.Error("start administrator session after setup", "error", err)
+		writeError(response, http.StatusServiceUnavailable, "authentication_unavailable", "Authentication is unavailable", "")
+		return
+	}
+	api.setAuthCookies(response, result)
+	writeJSON(response, http.StatusCreated, sessionResponse{
+		Authenticated: true,
+		SetupRequired: false,
+		Username:      input.Username,
+		CSRFToken:     string(result.CSRFToken),
+		Language:      api.sessionLanguage(request.Context()),
 	})
 }
 
@@ -88,10 +187,6 @@ func (api *API) login(response http.ResponseWriter, request *http.Request) {
 		writeError(response, http.StatusUnauthorized, "invalid_credentials", "Username or password is incorrect", "")
 		return
 	}
-	if credentials.Username != api.adminUsername {
-		writeError(response, http.StatusUnauthorized, "invalid_credentials", "Username or password is incorrect", "")
-		return
-	}
 	select {
 	case api.loginSlots <- struct{}{}:
 		defer func() { <-api.loginSlots }()
@@ -100,7 +195,11 @@ func (api *API) login(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	result, err := api.authenticator.Login(request.Context(), credentials.Password)
+	result, err := api.authenticator.Login(
+		request.Context(),
+		credentials.Username,
+		credentials.Password,
+	)
 	if err != nil {
 		if errors.Is(err, auth.ErrInvalidCredentials) || errors.Is(err, auth.ErrPasswordRequired) {
 			writeError(response, http.StatusUnauthorized, "invalid_credentials", "Username or password is incorrect", "")
@@ -113,7 +212,8 @@ func (api *API) login(response http.ResponseWriter, request *http.Request) {
 	api.setAuthCookies(response, result)
 	writeJSON(response, http.StatusOK, sessionResponse{
 		Authenticated: true,
-		Username:      api.adminUsername,
+		SetupRequired: false,
+		Username:      credentials.Username,
 		CSRFToken:     string(result.CSRFToken),
 		Language:      api.sessionLanguage(request.Context()),
 	})
@@ -140,6 +240,52 @@ func (api *API) logout(response http.ResponseWriter, request *http.Request) {
 	api.clearAuthCookies(response)
 	response.Header().Set("Cache-Control", "no-store")
 	response.WriteHeader(http.StatusNoContent)
+}
+
+func (api *API) accountPassword(response http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPut {
+		response.Header().Set("Allow", http.MethodPut)
+		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only PUT is supported", "")
+		return
+	}
+
+	var input changePasswordRequest
+	if !decodeJSONBody(response, request, &input) {
+		return
+	}
+
+	select {
+	case api.loginSlots <- struct{}{}:
+		defer func() { <-api.loginSlots }()
+	default:
+		writeError(response, http.StatusTooManyRequests, "password_change_busy", "Another password operation is in progress", "")
+		return
+	}
+
+	err := api.authenticator.ChangePassword(
+		request.Context(),
+		input.CurrentPassword,
+		input.NewPassword,
+	)
+	switch {
+	case err == nil:
+		api.clearAuthCookies(response)
+		response.Header().Set("Cache-Control", "no-store")
+		response.WriteHeader(http.StatusNoContent)
+	case errors.Is(err, auth.ErrInvalidCredentials):
+		writeError(response, http.StatusBadRequest, "invalid_current_password", "Current password is incorrect", "current_password")
+	case errors.Is(err, auth.ErrPasswordTooShort):
+		writeError(response, http.StatusUnprocessableEntity, "password_too_short", "New password must contain at least 12 bytes", "new_password")
+	case errors.Is(err, auth.ErrPasswordTooLong):
+		writeError(response, http.StatusUnprocessableEntity, "password_too_long", "New password cannot exceed 1024 bytes", "new_password")
+	case errors.Is(err, auth.ErrPasswordInvalid):
+		writeError(response, http.StatusUnprocessableEntity, "password_invalid", "New password contains unsupported characters", "new_password")
+	case errors.Is(err, auth.ErrPasswordUnchanged):
+		writeError(response, http.StatusUnprocessableEntity, "password_unchanged", "New password must differ from the current password", "new_password")
+	default:
+		api.logger.Error("change administrator password", "error", err)
+		writeError(response, http.StatusServiceUnavailable, "authentication_unavailable", "Authentication is unavailable", "")
+	}
 }
 
 func (api *API) authorizeAPI(response http.ResponseWriter, request *http.Request) bool {

@@ -14,6 +14,7 @@ export type SessionStatus = 'unknown' | 'checking' | 'authenticated' | 'anonymou
 const state = reactive({
   status: (fixtureMode ? 'authenticated' : 'unknown') as SessionStatus,
   username: fixtureMode ? 'fixture' : '',
+  setupRequired: false,
   error: ''
 })
 
@@ -22,21 +23,23 @@ let inspection: Promise<boolean> | undefined
 function applySession(session: SessionResponse): boolean {
   setSystemLanguage(session.language)
   if (!session.authenticated) {
-    clearSession()
+    clearSession('', session.setup_required)
     return false
   }
 
   state.status = 'authenticated'
   state.username = session.username || ''
+  state.setupRequired = false
   state.error = ''
   setClientCSRFToken(session.csrf_token)
   return true
 }
 
-export function clearSession(message = ''): void {
+export function clearSession(message = '', setupRequired = false): void {
   if (fixtureMode) return
   state.status = 'anonymous'
   state.username = ''
+  state.setupRequired = setupRequired
   state.error = message
   setClientCSRFToken()
 }
@@ -86,6 +89,27 @@ export async function login(username: string, password: string): Promise<void> {
   } catch (error) {
     const message = error instanceof Error ? error.message : translate('auth.loginFailed')
     clearSession(message)
+    throw error
+  }
+}
+
+export async function setup(username: string, password: string): Promise<void> {
+  if (fixtureMode) return
+
+  state.status = 'checking'
+  state.error = ''
+  try {
+    const session = await gateway.setup({ username, password })
+    if (!applySession(session)) {
+      throw new ApiError(
+        translate('auth.setupFailed'),
+        409,
+        'setup_complete'
+      )
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : translate('auth.setupFailed')
+    clearSession(message, true)
     throw error
   }
 }

@@ -6,6 +6,7 @@ import type {
   CallRecordingState,
   CallRecord,
   CallSession,
+  ChangePasswordInput,
   CommandReceipt,
   ConnectionProfile,
   Contact,
@@ -40,6 +41,7 @@ import type {
   SaveConnectionProfileInput,
   SendMessageInput,
   SessionResponse,
+  SetupInput,
   SystemSettings,
   SIMCommandInput,
   SIMStatus,
@@ -78,7 +80,9 @@ export type GatewayInteractions = Readonly<{
 
 export interface SessionGateway {
   getSession(): Promise<SessionResponse>
+  setup(input: SetupInput): Promise<SessionResponse>
   login(input: LoginInput): Promise<SessionResponse>
+  changePassword(input: ChangePasswordInput): Promise<void>
   logout(): Promise<void>
 }
 

@@ -17,17 +17,41 @@ import (
 )
 
 type apiAuthRepository struct {
-	session auth.SessionRecord
-	found   bool
-	err     error
+	credentials auth.AdminCredentials
+	configured  bool
+	session     auth.SessionRecord
+	found       bool
+	err         error
 }
 
-func (*apiAuthRepository) AdminPasswordHash(context.Context) (string, bool, error) {
-	return "", false, nil
+func (repository *apiAuthRepository) AdminCredentials(context.Context) (auth.AdminCredentials, bool, error) {
+	if repository.err != nil {
+		return auth.AdminCredentials{}, false, repository.err
+	}
+	return repository.credentials, repository.configured, nil
 }
 
-func (*apiAuthRepository) ReplaceAdminPasswordHashAndRevokeSessions(context.Context, string) error {
-	return nil
+func (repository *apiAuthRepository) CreateAdminIfAbsent(
+	_ context.Context,
+	credentials auth.AdminCredentials,
+) (bool, error) {
+	if repository.err != nil {
+		return false, repository.err
+	}
+	if repository.configured {
+		return false, nil
+	}
+	repository.credentials = credentials
+	repository.configured = true
+	return true, nil
+}
+
+func (*apiAuthRepository) ReplaceAdminPasswordHashIfCurrentAndRevokeSessions(
+	context.Context,
+	string,
+	string,
+) (bool, error) {
+	return false, nil
 }
 
 func (*apiAuthRepository) CreateSessionIfPasswordHash(context.Context, string, auth.SessionRecord) (bool, error) {
@@ -55,16 +79,54 @@ func (repository *apiAuthRepository) DeleteSessionByTokenDigest(_ context.Contex
 }
 
 type apiTestAuthenticator struct {
-	service     *auth.Service
-	loginResult auth.LoginResult
-	loginError  error
-	loginCalls  int
-	logoutError error
+	service         *auth.Service
+	loginResult     auth.LoginResult
+	loginError      error
+	loginCalls      int
+	loginUsername   string
+	loginPassword   string
+	logoutError     error
+	setupError      error
+	setupCalls      int
+	changeError     error
+	changeCalls     int
+	currentPassword string
+	newPassword     string
 }
 
-func (authenticator *apiTestAuthenticator) Login(context.Context, string) (auth.LoginResult, error) {
+func (authenticator *apiTestAuthenticator) Status(ctx context.Context) (auth.AdminStatus, error) {
+	return authenticator.service.Status(ctx)
+}
+
+func (authenticator *apiTestAuthenticator) Setup(
+	ctx context.Context,
+	username, password string,
+) error {
+	authenticator.setupCalls++
+	if authenticator.setupError != nil {
+		return authenticator.setupError
+	}
+	return authenticator.service.Setup(ctx, username, password)
+}
+
+func (authenticator *apiTestAuthenticator) Login(
+	_ context.Context,
+	username, password string,
+) (auth.LoginResult, error) {
 	authenticator.loginCalls++
+	authenticator.loginUsername = username
+	authenticator.loginPassword = password
 	return authenticator.loginResult, authenticator.loginError
+}
+
+func (authenticator *apiTestAuthenticator) ChangePassword(
+	_ context.Context,
+	currentPassword, newPassword string,
+) error {
+	authenticator.changeCalls++
+	authenticator.currentPassword = currentPassword
+	authenticator.newPassword = newPassword
+	return authenticator.changeError
 }
 
 func (authenticator *apiTestAuthenticator) Authenticate(ctx context.Context, token auth.SessionToken) (auth.Authentication, error) {
@@ -92,7 +154,7 @@ func TestSessionAndProtectedAPI(t *testing.T) {
 
 	authenticator, sessionToken, csrfToken := newAPIAuthenticator(t)
 	repository := &fakeRepository{lines: []store.LineSummary{}}
-	api, err := New(repository, Options{Authenticator: authenticator, AdminUsername: "admin"})
+	api, err := New(repository, Options{Authenticator: authenticator})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -107,7 +169,9 @@ func TestSessionAndProtectedAPI(t *testing.T) {
 		t.Fatalf("anonymous session status = %d", anonymousSession.Code)
 	}
 	var anonymous sessionResponse
-	if err := json.Unmarshal(anonymousSession.Body.Bytes(), &anonymous); err != nil || anonymous.Authenticated {
+	if err := json.Unmarshal(anonymousSession.Body.Bytes(), &anonymous); err != nil ||
+		anonymous.Authenticated ||
+		anonymous.SetupRequired {
 		t.Fatalf("anonymous session = %+v, err = %v", anonymous, err)
 	}
 
@@ -168,22 +232,30 @@ func TestLoginAndLogoutCookies(t *testing.T) {
 	}
 	api, err := New(&fakeRepository{}, Options{
 		Authenticator: authenticator,
-		AdminUsername: "owner",
 		SecureCookies: true,
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
 
+	authenticator.loginError = auth.ErrInvalidCredentials
 	wrongUsername := httptest.NewRequest(http.MethodPost, "/api/v1/session", bytes.NewBufferString(`{"username":"other","password":"secret"}`))
 	wrongUsername.Header.Set("Content-Type", "application/json")
 	wrongResponse := httptest.NewRecorder()
 	api.ServeHTTP(wrongResponse, wrongUsername)
 	assertAPIError(t, wrongResponse, http.StatusUnauthorized, "invalid_credentials")
-	if authenticator.loginCalls != 0 {
-		t.Fatalf("login calls = %d, want 0 for wrong username", authenticator.loginCalls)
+	if authenticator.loginCalls != 1 ||
+		authenticator.loginUsername != "other" ||
+		authenticator.loginPassword != "secret" {
+		t.Fatalf(
+			"wrong login call = %d, %q, %q",
+			authenticator.loginCalls,
+			authenticator.loginUsername,
+			authenticator.loginPassword,
+		)
 	}
 
+	authenticator.loginError = nil
 	login := httptest.NewRequest(http.MethodPost, "/api/v1/session", bytes.NewBufferString(`{"username":"owner","password":"secret"}`))
 	login.Header.Set("Content-Type", "application/json")
 	loginResponse := httptest.NewRecorder()
@@ -214,6 +286,207 @@ func TestLoginAndLogoutCookies(t *testing.T) {
 		if cookie.MaxAge >= 0 {
 			t.Fatalf("cleared cookie %s MaxAge = %d", cookie.Name, cookie.MaxAge)
 		}
+	}
+}
+
+func TestQuickStartCreatesAdministratorAndSession(t *testing.T) {
+	t.Parallel()
+
+	authRepository := &apiAuthRepository{}
+	service, err := auth.NewService(authRepository)
+	if err != nil {
+		t.Fatalf("auth.NewService() error = %v", err)
+	}
+	authenticator := &apiTestAuthenticator{
+		service: service,
+		loginResult: auth.LoginResult{
+			SessionToken: auth.SessionToken(opaqueTestToken(11)),
+			CSRFToken:    auth.CSRFToken(opaqueTestToken(12)),
+			ExpiresAt:    time.Now().UTC().Add(auth.SessionLifetime),
+		},
+	}
+	api, err := New(&fakeRepository{}, Options{Authenticator: authenticator})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	sessionRecorder := httptest.NewRecorder()
+	api.ServeHTTP(
+		sessionRecorder,
+		httptest.NewRequest(http.MethodGet, "/api/v1/session", nil),
+	)
+	var before sessionResponse
+	if err := json.Unmarshal(sessionRecorder.Body.Bytes(), &before); err != nil {
+		t.Fatalf("decode setup status: %v", err)
+	}
+	if before.Authenticated || !before.SetupRequired {
+		t.Fatalf("session before setup = %+v", before)
+	}
+
+	setupRequest := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/setup",
+		bytes.NewBufferString(`{"username":"owner","password":"a secure initial password"}`),
+	)
+	setupRequest.Header.Set("Content-Type", "application/json")
+	setupRecorder := httptest.NewRecorder()
+	api.ServeHTTP(setupRecorder, setupRequest)
+	if setupRecorder.Code != http.StatusCreated {
+		t.Fatalf("setup status = %d; body = %s", setupRecorder.Code, setupRecorder.Body.String())
+	}
+	var after sessionResponse
+	if err := json.Unmarshal(setupRecorder.Body.Bytes(), &after); err != nil {
+		t.Fatalf("decode setup response: %v", err)
+	}
+	if !after.Authenticated || after.SetupRequired || after.Username != "owner" || after.CSRFToken == "" {
+		t.Fatalf("setup response = %+v", after)
+	}
+	if authenticator.setupCalls != 1 ||
+		authenticator.loginCalls != 1 ||
+		authenticator.loginUsername != "owner" {
+		t.Fatalf(
+			"setup/login calls = %d/%d, login username %q",
+			authenticator.setupCalls,
+			authenticator.loginCalls,
+			authenticator.loginUsername,
+		)
+	}
+	matches, err := auth.VerifyPassword(
+		"a secure initial password",
+		authRepository.credentials.PasswordHash,
+	)
+	if err != nil || !matches || authRepository.credentials.Username != "owner" {
+		t.Fatalf("stored credentials = %+v, matches = %v, error = %v", authRepository.credentials, matches, err)
+	}
+
+	second := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/setup",
+		bytes.NewBufferString(`{"username":"other","password":"another secure password"}`),
+	)
+	second.Header.Set("Content-Type", "application/json")
+	secondRecorder := httptest.NewRecorder()
+	api.ServeHTTP(secondRecorder, second)
+	assertAPIError(t, secondRecorder, http.StatusConflict, "setup_complete")
+}
+
+func TestChangePasswordRequiresCSRFAndClearsSession(t *testing.T) {
+	t.Parallel()
+
+	authenticator, sessionToken, csrfToken := newAPIAuthenticator(t)
+	api, err := New(&fakeRepository{}, Options{Authenticator: authenticator})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	body := []byte(`{"current_password":"current password","new_password":"new secure password"}`)
+
+	withoutCSRF := authorizedAPIRequest(
+		http.MethodPut,
+		"/api/v1/account/password",
+		bytes.NewReader(body),
+		sessionToken,
+		"",
+	)
+	withoutCSRF.Header.Set("Content-Type", "application/json")
+	denied := httptest.NewRecorder()
+	api.ServeHTTP(denied, withoutCSRF)
+	assertAPIError(t, denied, http.StatusForbidden, "csrf_failed")
+	if authenticator.changeCalls != 0 {
+		t.Fatalf("change calls without CSRF = %d, want 0", authenticator.changeCalls)
+	}
+
+	change := authorizedAPIRequest(
+		http.MethodPut,
+		"/api/v1/account/password",
+		bytes.NewReader(body),
+		sessionToken,
+		csrfToken,
+	)
+	change.Header.Set("Content-Type", "application/json")
+	changed := httptest.NewRecorder()
+	api.ServeHTTP(changed, change)
+	if changed.Code != http.StatusNoContent {
+		t.Fatalf("change status = %d; body = %s", changed.Code, changed.Body.String())
+	}
+	if authenticator.changeCalls != 1 ||
+		authenticator.currentPassword != "current password" ||
+		authenticator.newPassword != "new secure password" {
+		t.Fatalf(
+			"change call = %d, %q, %q",
+			authenticator.changeCalls,
+			authenticator.currentPassword,
+			authenticator.newPassword,
+		)
+	}
+	cookies := changed.Result().Cookies()
+	if len(cookies) != 2 {
+		t.Fatalf("cleared cookies = %d, want 2", len(cookies))
+	}
+	for _, cookie := range cookies {
+		if cookie.MaxAge >= 0 {
+			t.Fatalf("cleared cookie %s MaxAge = %d", cookie.Name, cookie.MaxAge)
+		}
+	}
+}
+
+func TestChangePasswordMapsValidationErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		failure    error
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name:       "current password",
+			failure:    auth.ErrInvalidCredentials,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "invalid_current_password",
+		},
+		{
+			name:       "short password",
+			failure:    auth.ErrPasswordTooShort,
+			wantStatus: http.StatusUnprocessableEntity,
+			wantCode:   "password_too_short",
+		},
+		{
+			name:       "unchanged password",
+			failure:    auth.ErrPasswordUnchanged,
+			wantStatus: http.StatusUnprocessableEntity,
+			wantCode:   "password_unchanged",
+		},
+		{
+			name:       "repository",
+			failure:    auth.ErrRepository,
+			wantStatus: http.StatusServiceUnavailable,
+			wantCode:   "authentication_unavailable",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			authenticator, sessionToken, csrfToken := newAPIAuthenticator(t)
+			authenticator.changeError = test.failure
+			api, err := New(&fakeRepository{}, Options{Authenticator: authenticator})
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			request := authorizedAPIRequest(
+				http.MethodPut,
+				"/api/v1/account/password",
+				bytes.NewReader([]byte(`{"current_password":"current password","new_password":"new secure password"}`)),
+				sessionToken,
+				csrfToken,
+			)
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			api.ServeHTTP(response, request)
+			assertAPIError(t, response, test.wantStatus, test.wantCode)
+			if cookies := response.Result().Cookies(); len(cookies) != 0 {
+				t.Fatalf("failed password change cleared %d cookies", len(cookies))
+			}
+		})
 	}
 }
 
@@ -260,6 +533,11 @@ func newAPIAuthenticator(t *testing.T) (*apiTestAuthenticator, string, string) {
 	csrfHash := sha256.Sum256([]byte(csrfToken))
 	now := time.Now().UTC()
 	repository := &apiAuthRepository{
+		configured: true,
+		credentials: auth.AdminCredentials{
+			Username:     "admin",
+			PasswordHash: "test-password-hash",
+		},
 		found: true,
 		session: auth.SessionRecord{
 			SessionTokenDigest: auth.SessionTokenDigest(sessionHash),

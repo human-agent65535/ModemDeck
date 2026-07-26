@@ -19,7 +19,6 @@ TARGETARCH ?= amd64
 MODEMDECK_UID ?= 10001
 MODEMDECK_GID ?= 10001
 MODEMDECK_AGENT_GID ?= 10002
-COMPOSE_ADMIN_PASSWORD_FILE ?= /dev/null
 COMPOSE_SETTINGS_KEY_FILE ?= /dev/null
 COMPOSE_ASSIGNMENT_FILE ?= $(CURDIR)/deploy/advanced-assignment.example.json
 HOST_UID := $(shell id -u)
@@ -54,13 +53,14 @@ AGENT_GO_RW = docker run --rm \
 	$(GO_IMAGE)
 
 WEB_NODE_RO = docker run --rm \
-	--mount type=bind,source="$(CURDIR)/web",target=/workspace/web,readonly \
+	--mount type=bind,source="$(CURDIR)",target=/workspace,readonly \
 	--mount type=volume,source=modemdeck-web-node-modules,target=/workspace/web/node_modules \
 	--mount type=volume,source=modemdeck-web-npm-cache,target=/root/.npm \
 	-w /workspace/web \
 	$(NODE_IMAGE)
 
 WEB_NODE_RW = docker run --rm \
+	--mount type=bind,source="$(CURDIR)",target=/workspace,readonly \
 	--mount type=bind,source="$(CURDIR)/web",target=/workspace/web \
 	--mount type=volume,source=modemdeck-web-node-modules,target=/workspace/web/node_modules \
 	--mount type=volume,source=modemdeck-web-npm-cache,target=/root/.npm \
@@ -181,14 +181,12 @@ compose-config:
 	MODEMDECK_BUILD_DATE="$(BUILD_DATE)" \
 	MODEMDECK_VCS_REF="$(VCS_REF)" \
 	MODEMDECK_AGENT_GID="$(MODEMDECK_AGENT_GID)" \
-	MODEMDECK_ADMIN_PASSWORD_FILE="$(COMPOSE_ADMIN_PASSWORD_FILE)" \
 	MODEMDECK_SETTINGS_KEY_FILE="$(COMPOSE_SETTINGS_KEY_FILE)" \
 	docker compose config --quiet
 	@if [ -f docker-compose.advanced.yml ]; then \
 		MODEMDECK_BUILD_DATE="$(BUILD_DATE)" \
 		MODEMDECK_VCS_REF="$(VCS_REF)" \
 		MODEMDECK_AGENT_GID="$(MODEMDECK_AGENT_GID)" \
-		MODEMDECK_ADMIN_PASSWORD_FILE="$(COMPOSE_ADMIN_PASSWORD_FILE)" \
 		MODEMDECK_SETTINGS_KEY_FILE="$(COMPOSE_SETTINGS_KEY_FILE)" \
 		MODEMDECK_ASSIGNMENT_FILE="$(COMPOSE_ASSIGNMENT_FILE)" \
 		docker compose \

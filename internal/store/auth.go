@@ -14,49 +14,102 @@ var ErrInvalidAuthSession = errors.New("invalid authentication session record")
 
 const maxAdminSessions = 32
 
-func (s *Store) AdminPasswordHash(ctx context.Context) (string, bool, error) {
-	var passwordHash string
+func (s *Store) AdminCredentials(
+	ctx context.Context,
+) (auth.AdminCredentials, bool, error) {
+	var credentials auth.AdminCredentials
 	err := s.database.QueryRowContext(
 		ctx,
-		"SELECT password_hash FROM modemdeck_admin_credentials WHERE singleton = 1",
-	).Scan(&passwordHash)
+		`SELECT username, password_hash
+		 FROM modemdeck_admin_credentials
+		 WHERE singleton = 1`,
+	).Scan(&credentials.Username, &credentials.PasswordHash)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", false, nil
+		return auth.AdminCredentials{}, false, nil
 	}
 	if err != nil {
-		return "", false, fmt.Errorf("query admin password hash: %w", err)
+		return auth.AdminCredentials{}, false, fmt.Errorf("query admin credentials: %w", err)
 	}
-	return passwordHash, true, nil
+	return credentials, true, nil
 }
 
-func (s *Store) ReplaceAdminPasswordHashAndRevokeSessions(ctx context.Context, passwordHash string) error {
-	if passwordHash == "" {
-		return fmt.Errorf("replace admin password hash: password hash is empty")
+func (s *Store) CreateAdminIfAbsent(
+	ctx context.Context,
+	credentials auth.AdminCredentials,
+) (bool, error) {
+	if credentials.Username == "" {
+		return false, fmt.Errorf("create admin credentials: username is empty")
+	}
+	if credentials.PasswordHash == "" {
+		return false, fmt.Errorf("create admin credentials: password hash is empty")
+	}
+	result, err := s.database.ExecContext(
+		ctx,
+		`INSERT INTO modemdeck_admin_credentials (
+			singleton, username, password_hash, updated_at
+		 )
+		 VALUES (1, ?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(singleton) DO NOTHING`,
+		credentials.Username,
+		credentials.PasswordHash,
+	)
+	if err != nil {
+		return false, fmt.Errorf("create admin credentials: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("read created admin credential count: %w", err)
+	}
+	if affected > 1 {
+		return false, fmt.Errorf("create admin credentials: unexpected row count %d", affected)
+	}
+	return affected == 1, nil
+}
+
+func (s *Store) ReplaceAdminPasswordHashIfCurrentAndRevokeSessions(
+	ctx context.Context,
+	expectedPasswordHash, replacementPasswordHash string,
+) (bool, error) {
+	if expectedPasswordHash == "" {
+		return false, fmt.Errorf("replace admin password hash: expected password hash is empty")
+	}
+	if replacementPasswordHash == "" {
+		return false, fmt.Errorf("replace admin password hash: replacement password hash is empty")
 	}
 	transaction, err := s.database.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin admin password replacement: %w", err)
+		return false, fmt.Errorf("begin conditional admin password replacement: %w", err)
 	}
 	defer transaction.Rollback()
 
-	if _, err := transaction.ExecContext(
+	result, err := transaction.ExecContext(
 		ctx,
-		`INSERT INTO modemdeck_admin_credentials (singleton, password_hash, updated_at)
-		 VALUES (1, ?, CURRENT_TIMESTAMP)
-		 ON CONFLICT(singleton) DO UPDATE SET
-			password_hash = excluded.password_hash,
-			updated_at = CURRENT_TIMESTAMP`,
-		passwordHash,
-	); err != nil {
-		return fmt.Errorf("replace admin password hash: %w", err)
+		`UPDATE modemdeck_admin_credentials
+		 SET password_hash = ?, updated_at = CURRENT_TIMESTAMP
+		 WHERE singleton = 1 AND password_hash = ?`,
+		replacementPasswordHash,
+		expectedPasswordHash,
+	)
+	if err != nil {
+		return false, fmt.Errorf("conditionally replace admin password hash: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("read replaced admin password count: %w", err)
+	}
+	if affected == 0 {
+		return false, nil
+	}
+	if affected != 1 {
+		return false, fmt.Errorf("replace admin password hash: unexpected row count %d", affected)
 	}
 	if _, err := transaction.ExecContext(ctx, "DELETE FROM modemdeck_auth_sessions"); err != nil {
-		return fmt.Errorf("revoke admin sessions: %w", err)
+		return false, fmt.Errorf("revoke admin sessions: %w", err)
 	}
 	if err := transaction.Commit(); err != nil {
-		return fmt.Errorf("commit admin password replacement: %w", err)
+		return false, fmt.Errorf("commit conditional admin password replacement: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
 func (s *Store) CreateSessionIfPasswordHash(

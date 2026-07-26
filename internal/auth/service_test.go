@@ -21,137 +21,183 @@ func TestNewServiceRequiresRepository(t *testing.T) {
 	}
 }
 
-func TestEnsureAdminCreatesOrRotatesPasswordAndRevokesSessions(t *testing.T) {
+func TestSetupCreatesAdministratorOnce(t *testing.T) {
 	ctx := context.Background()
-	oldHash := mustPasswordHash(t, "old password", 0x10)
+	repository := newMemoryRepository()
+	service := mustService(t, repository)
+	service.random = bytes.NewReader(bytes.Repeat([]byte{0x29}, PasswordHashSaltBytes))
+
+	status, err := service.Status(ctx)
+	if err != nil || status.Configured {
+		t.Fatalf("Status() before setup = %+v, %v", status, err)
+	}
+	if err := service.Setup(ctx, "  owner  ", "a secure initial password"); err != nil {
+		t.Fatalf("Setup() error = %v", err)
+	}
+	if repository.username != "owner" {
+		t.Fatalf("username = %q, want owner", repository.username)
+	}
+	matches, err := VerifyPassword("a secure initial password", repository.passwordHash)
+	if err != nil || !matches {
+		t.Fatalf("configured password matches = %v, error = %v", matches, err)
+	}
+	status, err = service.Status(ctx)
+	if err != nil || !status.Configured || status.Username != "owner" {
+		t.Fatalf("Status() after setup = %+v, %v", status, err)
+	}
+	if err := service.Setup(ctx, "other", "another secure password"); !errors.Is(err, ErrAlreadyConfigured) {
+		t.Fatalf("second Setup() error = %v, want ErrAlreadyConfigured", err)
+	}
+}
+
+func TestSetupValidatesCredentials(t *testing.T) {
+	tests := []struct {
+		name     string
+		username string
+		password string
+		want     error
+	}{
+		{name: "username required", password: "a secure initial password", want: ErrUsernameInvalid},
+		{name: "username newline", username: "owner\nroot", password: "a secure initial password", want: ErrUsernameInvalid},
+		{name: "password too short", username: "owner", password: "short", want: ErrPasswordTooShort},
+		{name: "password invalid", username: "owner", password: "secure pass\x00word", want: ErrPasswordInvalid},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := mustService(t, newMemoryRepository())
+			err := service.Setup(context.Background(), test.username, test.password)
+			if !errors.Is(err, test.want) {
+				t.Fatalf("Setup() error = %v, want %v", err, test.want)
+			}
+		})
+	}
+}
+
+func TestChangePasswordReplacesHashAndRevokesSessions(t *testing.T) {
+	ctx := context.Background()
+	currentHash := mustPasswordHash(t, "current password", 0x10)
 	existingDigest := mustSessionDigest(t, 0x20)
+	repository := newMemoryRepository()
+	repository.configured = true
+	repository.username = "admin"
+	repository.passwordHash = currentHash
+	repository.sessions[existingDigest] = SessionRecord{SessionTokenDigest: existingDigest}
+
+	service := mustService(t, repository)
+	service.random = bytes.NewReader(bytes.Repeat([]byte{0x31}, PasswordHashSaltBytes))
+
+	if err := service.ChangePassword(ctx, "current password", "a new secure password"); err != nil {
+		t.Fatalf("ChangePassword() error = %v", err)
+	}
+	if repository.conditionalReplaceCalls != 1 {
+		t.Fatalf("conditional replace calls = %d, want 1", repository.conditionalReplaceCalls)
+	}
+	if _, found := repository.sessions[existingDigest]; found {
+		t.Fatal("ChangePassword() did not revoke existing sessions")
+	}
+	matches, err := VerifyPassword("a new secure password", repository.passwordHash)
+	if err != nil || !matches {
+		t.Fatalf("replacement password matches = %v, error = %v", matches, err)
+	}
+}
+
+func TestChangePasswordValidationAndFailures(t *testing.T) {
+	ctx := context.Background()
+	currentHash := mustPasswordHash(t, "current password", 0x41)
 
 	tests := []struct {
-		name           string
-		configured     bool
-		currentHash    string
-		password       string
-		wantReplace    bool
-		wantOldSession bool
+		name          string
+		current       string
+		replacement   string
+		configure     func(*memoryRepository)
+		want          error
+		wantCondition int
 	}{
 		{
-			name:        "initial password",
-			password:    "initial password",
-			wantReplace: true,
+			name:        "current password required",
+			replacement: "a new secure password",
+			want:        ErrInvalidCredentials,
 		},
 		{
-			name:           "matching password",
-			configured:     true,
-			currentHash:    oldHash,
-			password:       "old password",
-			wantOldSession: true,
+			name:        "current password incorrect",
+			current:     "wrong password",
+			replacement: "a new secure password",
+			want:        ErrInvalidCredentials,
 		},
 		{
-			name:        "changed password",
-			configured:  true,
-			currentHash: oldHash,
-			password:    "new password",
-			wantReplace: true,
+			name:        "new password too short",
+			current:     "current password",
+			replacement: "short",
+			want:        ErrPasswordTooShort,
 		},
 		{
-			name:        "malformed persisted hash",
-			configured:  true,
-			currentHash: "malformed",
-			password:    "recovered password",
-			wantReplace: true,
+			name:        "new password too long",
+			current:     "current password",
+			replacement: string(bytes.Repeat([]byte{'x'}, MaximumPasswordBytes+1)),
+			want:        ErrPasswordTooLong,
 		},
 		{
-			name:        "excessive persisted hash",
-			configured:  true,
-			currentHash: excessivePasswordHash(),
-			password:    "recovered password",
-			wantReplace: true,
+			name:        "new password contains NUL",
+			current:     "current password",
+			replacement: "new password\x00value",
+			want:        ErrPasswordInvalid,
+		},
+		{
+			name:        "new password unchanged",
+			current:     "current password",
+			replacement: "current password",
+			want:        ErrPasswordUnchanged,
+		},
+		{
+			name:        "password changed concurrently",
+			current:     "current password",
+			replacement: "a new secure password",
+			configure: func(repository *memoryRepository) {
+				repository.rejectConditionalReplace = true
+			},
+			want:          ErrInvalidCredentials,
+			wantCondition: 1,
+		},
+		{
+			name:        "repository replacement fails",
+			current:     "current password",
+			replacement: "a new secure password",
+			configure: func(repository *memoryRepository) {
+				repository.replaceErr = errors.New("replace failed")
+			},
+			want:          ErrRepository,
+			wantCondition: 1,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			repository := newMemoryRepository()
-			repository.configured = test.configured
-			repository.passwordHash = test.currentHash
-			repository.sessions[existingDigest] = SessionRecord{SessionTokenDigest: existingDigest}
-
+			repository.configured = true
+			repository.username = "admin"
+			repository.passwordHash = currentHash
+			if test.configure != nil {
+				test.configure(repository)
+			}
 			service := mustService(t, repository)
-			service.random = bytes.NewReader(bytes.Repeat([]byte{0x31}, PasswordHashSaltBytes))
+			service.random = bytes.NewReader(bytes.Repeat([]byte{0x52}, PasswordHashSaltBytes))
 
-			if err := service.EnsureAdmin(ctx, test.password); err != nil {
-				t.Fatalf("EnsureAdmin() error = %v", err)
+			err := service.ChangePassword(ctx, test.current, test.replacement)
+			if !errors.Is(err, test.want) {
+				t.Fatalf("ChangePassword() error = %v, want %v", err, test.want)
 			}
-			if repository.replaceCalls != boolInt(test.wantReplace) {
-				t.Fatalf("replace calls = %d, want %d", repository.replaceCalls, boolInt(test.wantReplace))
+			if repository.conditionalReplaceCalls != test.wantCondition {
+				t.Fatalf(
+					"conditional replace calls = %d, want %d",
+					repository.conditionalReplaceCalls,
+					test.wantCondition,
+				)
 			}
-			if _, found := repository.sessions[existingDigest]; found != test.wantOldSession {
-				t.Fatalf("old session found = %t, want %t", found, test.wantOldSession)
-			}
-
-			if test.wantReplace {
-				matches, err := VerifyPassword(test.password, repository.passwordHash)
-				if err != nil {
-					t.Fatalf("VerifyPassword(replacement) error = %v", err)
-				}
-				if !matches {
-					t.Fatal("replacement password does not match")
-				}
-			} else if repository.passwordHash != test.currentHash {
-				t.Fatal("matching hash was unexpectedly changed")
+			if repository.passwordHash != currentHash {
+				t.Fatal("failed password change modified the stored hash")
 			}
 		})
 	}
-}
-
-func TestEnsureAdminFailures(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("empty password", func(t *testing.T) {
-		repository := newMemoryRepository()
-		service := mustService(t, repository)
-
-		if err := service.EnsureAdmin(ctx, ""); !errors.Is(err, ErrPasswordRequired) {
-			t.Fatalf("EnsureAdmin() error = %v, want ErrPasswordRequired", err)
-		}
-		if repository.adminReadCalls != 0 {
-			t.Fatalf("admin read calls = %d, want 0", repository.adminReadCalls)
-		}
-	})
-
-	t.Run("repository read", func(t *testing.T) {
-		cause := errors.New("read failed")
-		repository := newMemoryRepository()
-		repository.adminReadErr = cause
-		service := mustService(t, repository)
-
-		err := service.EnsureAdmin(ctx, "password")
-		assertErrorAndCause(t, err, ErrRepository, cause)
-	})
-
-	t.Run("random source", func(t *testing.T) {
-		cause := errors.New("random failed")
-		repository := newMemoryRepository()
-		service := mustService(t, repository)
-		service.random = failingReader{err: cause}
-
-		err := service.EnsureAdmin(ctx, "password")
-		assertErrorAndCause(t, err, ErrRandomSource, cause)
-		if repository.replaceCalls != 0 {
-			t.Fatalf("replace calls = %d, want 0", repository.replaceCalls)
-		}
-	})
-
-	t.Run("repository replace", func(t *testing.T) {
-		cause := errors.New("replace failed")
-		repository := newMemoryRepository()
-		repository.replaceErr = cause
-		service := mustService(t, repository)
-		service.random = bytes.NewReader(bytes.Repeat([]byte{0x40}, PasswordHashSaltBytes))
-
-		err := service.EnsureAdmin(ctx, "password")
-		assertErrorAndCause(t, err, ErrRepository, cause)
-	})
 }
 
 func TestLoginCreatesIndependentTokensAndDigestOnlyRecord(t *testing.T) {
@@ -160,6 +206,7 @@ func TestLoginCreatesIndependentTokensAndDigestOnlyRecord(t *testing.T) {
 	passwordHash := mustPasswordHash(t, "password", 0x41)
 	repository := newMemoryRepository()
 	repository.configured = true
+	repository.username = "admin"
 	repository.passwordHash = passwordHash
 
 	service := mustService(t, repository)
@@ -169,7 +216,7 @@ func TestLoginCreatesIndependentTokensAndDigestOnlyRecord(t *testing.T) {
 		bytes.Repeat([]byte{0x62}, TokenBytes)...,
 	))
 
-	result, err := service.Login(ctx, "password")
+	result, err := service.Login(ctx, "admin", "password")
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
@@ -252,6 +299,7 @@ func TestLoginFailures(t *testing.T) {
 			password: "wrong",
 			configure: func(repository *memoryRepository) {
 				repository.configured = true
+				repository.username = "admin"
 				repository.passwordHash = passwordHash
 			},
 			want: ErrInvalidCredentials,
@@ -261,6 +309,7 @@ func TestLoginFailures(t *testing.T) {
 			password: "password",
 			configure: func(repository *memoryRepository) {
 				repository.configured = true
+				repository.username = "admin"
 				repository.passwordHash = "malformed"
 			},
 			want: ErrInvalidPasswordHash,
@@ -279,6 +328,7 @@ func TestLoginFailures(t *testing.T) {
 			password: "password",
 			configure: func(repository *memoryRepository) {
 				repository.configured = true
+				repository.username = "admin"
 				repository.passwordHash = passwordHash
 			},
 			random:    failingReader{err: randomFailure},
@@ -290,6 +340,7 @@ func TestLoginFailures(t *testing.T) {
 			password: "password",
 			configure: func(repository *memoryRepository) {
 				repository.configured = true
+				repository.username = "admin"
 				repository.passwordHash = passwordHash
 			},
 			random: io.MultiReader(
@@ -304,6 +355,7 @@ func TestLoginFailures(t *testing.T) {
 			password: "password",
 			configure: func(repository *memoryRepository) {
 				repository.configured = true
+				repository.username = "admin"
 				repository.passwordHash = passwordHash
 				repository.rejectCreate = true
 			},
@@ -316,6 +368,7 @@ func TestLoginFailures(t *testing.T) {
 			password: "password",
 			configure: func(repository *memoryRepository) {
 				repository.configured = true
+				repository.username = "admin"
 				repository.passwordHash = passwordHash
 				repository.createErr = storageFailure
 			},
@@ -337,7 +390,7 @@ func TestLoginFailures(t *testing.T) {
 				service.random = test.random
 			}
 
-			result, err := service.Login(ctx, test.password)
+			result, err := service.Login(ctx, "admin", test.password)
 			if !errors.Is(err, test.want) {
 				t.Fatalf("Login() error = %v, want %v", err, test.want)
 			}
@@ -606,24 +659,28 @@ func TestErrorSupportsCodeMatchingAndConcreteInspection(t *testing.T) {
 
 type memoryRepository struct {
 	configured   bool
+	username     string
 	passwordHash string
 	sessions     map[SessionTokenDigest]SessionRecord
 
-	adminReadErr   error
-	replaceErr     error
-	createErr      error
-	sessionReadErr error
-	deleteErr      error
-	rejectCreate   bool
+	adminReadErr             error
+	createAdminErr           error
+	replaceErr               error
+	createErr                error
+	sessionReadErr           error
+	deleteErr                error
+	rejectCreate             bool
+	rejectConditionalReplace bool
 
-	adminReadCalls     int
-	replaceCalls       int
-	createCalls        int
-	sessionReadCalls   int
-	deleteCalls        int
-	createExpectedHash string
-	lastLookupDigest   SessionTokenDigest
-	lastDeleteDigest   SessionTokenDigest
+	adminReadCalls          int
+	createAdminCalls        int
+	conditionalReplaceCalls int
+	createCalls             int
+	sessionReadCalls        int
+	deleteCalls             int
+	createExpectedHash      string
+	lastLookupDigest        SessionTokenDigest
+	lastDeleteDigest        SessionTokenDigest
 }
 
 func newMemoryRepository() *memoryRepository {
@@ -632,23 +689,57 @@ func newMemoryRepository() *memoryRepository {
 	}
 }
 
-func (r *memoryRepository) AdminPasswordHash(context.Context) (string, bool, error) {
+func (r *memoryRepository) AdminCredentials(
+	context.Context,
+) (AdminCredentials, bool, error) {
 	r.adminReadCalls++
 	if r.adminReadErr != nil {
-		return "", false, r.adminReadErr
+		return AdminCredentials{}, false, r.adminReadErr
 	}
-	return r.passwordHash, r.configured, nil
+	if !r.configured {
+		return AdminCredentials{}, false, nil
+	}
+	return AdminCredentials{
+		Username:     r.username,
+		PasswordHash: r.passwordHash,
+	}, true, nil
 }
 
-func (r *memoryRepository) ReplaceAdminPasswordHashAndRevokeSessions(_ context.Context, passwordHash string) error {
-	r.replaceCalls++
-	if r.replaceErr != nil {
-		return r.replaceErr
+func (r *memoryRepository) CreateAdminIfAbsent(
+	_ context.Context,
+	credentials AdminCredentials,
+) (bool, error) {
+	r.createAdminCalls++
+	if r.createAdminErr != nil {
+		return false, r.createAdminErr
 	}
-	r.passwordHash = passwordHash
+	if r.configured {
+		return false, nil
+	}
 	r.configured = true
+	r.username = credentials.Username
+	r.passwordHash = credentials.PasswordHash
+	return true, nil
+}
+
+func (r *memoryRepository) ReplaceAdminPasswordHashIfCurrentAndRevokeSessions(
+	_ context.Context,
+	expectedPasswordHash, replacementPasswordHash string,
+) (bool, error) {
+	r.conditionalReplaceCalls++
+	if r.replaceErr != nil {
+		return false, r.replaceErr
+	}
+	if r.rejectConditionalReplace || r.passwordHash != expectedPasswordHash {
+		return false, nil
+	}
+	r.passwordHash = replacementPasswordHash
+	r.configured = true
+	if r.username == "" {
+		r.username = "admin"
+	}
 	clear(r.sessions)
-	return nil
+	return true, nil
 }
 
 func (r *memoryRepository) CreateSessionIfPasswordHash(
@@ -760,11 +851,4 @@ func assertErrorAndCause(t *testing.T, err, kind, cause error) {
 	if !errors.Is(err, cause) {
 		t.Fatalf("error = %v, want cause %v", err, cause)
 	}
-}
-
-func boolInt(value bool) int {
-	if value {
-		return 1
-	}
-	return 0
 }

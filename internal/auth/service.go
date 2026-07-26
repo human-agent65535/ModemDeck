@@ -3,12 +3,29 @@ package auth
 import (
 	"context"
 	"crypto/rand"
-	"errors"
+	"crypto/subtle"
 	"io"
+	"strings"
 	"time"
+	"unicode/utf8"
 )
 
-const SessionLifetime = 24 * time.Hour
+const (
+	SessionLifetime      = 24 * time.Hour
+	MinimumPasswordBytes = 12
+	MaximumPasswordBytes = 1024
+	MaximumUsernameRunes = 64
+)
+
+type AdminCredentials struct {
+	Username     string
+	PasswordHash string
+}
+
+type AdminStatus struct {
+	Configured bool
+	Username   string
+}
 
 // SessionRecord is the complete session representation exposed to the
 // persistence layer. It deliberately contains digests rather than either
@@ -22,11 +39,20 @@ type SessionRecord struct {
 
 // Repository owns persistence and transaction boundaries for the single admin.
 type Repository interface {
-	AdminPasswordHash(ctx context.Context) (passwordHash string, configured bool, err error)
+	AdminCredentials(ctx context.Context) (credentials AdminCredentials, configured bool, err error)
 
-	// ReplaceAdminPasswordHashAndRevokeSessions must atomically store the hash
-	// and delete every existing session.
-	ReplaceAdminPasswordHashAndRevokeSessions(ctx context.Context, passwordHash string) error
+	CreateAdminIfAbsent(
+		ctx context.Context,
+		credentials AdminCredentials,
+	) (created bool, err error)
+
+	// ReplaceAdminPasswordHashIfCurrentAndRevokeSessions must atomically replace
+	// the hash and delete every session only when the persisted hash still
+	// matches expectedPasswordHash.
+	ReplaceAdminPasswordHashIfCurrentAndRevokeSessions(
+		ctx context.Context,
+		expectedPasswordHash, replacementPasswordHash string,
+	) (replaced bool, err error)
 
 	// CreateSessionIfPasswordHash must atomically compare the current admin
 	// hash with expectedPasswordHash and insert session only when they match.
@@ -92,58 +118,127 @@ func NewService(repository Repository) (*Service, error) {
 	}, nil
 }
 
-// EnsureAdmin synchronizes the authoritative password-file value into
-// persistence. A changed or invalid persisted hash is replaced and all prior
-// sessions are revoked by one repository transaction.
-func (s *Service) EnsureAdmin(ctx context.Context, passwordFileValue string) error {
-	const op = "ensure admin"
+func (s *Service) Status(ctx context.Context) (AdminStatus, error) {
+	const op = "read admin status"
 
-	if passwordFileValue == "" {
-		return newError(op, CodePasswordRequired, nil)
-	}
-
-	currentHash, configured, err := s.repository.AdminPasswordHash(ctx)
+	credentials, configured, err := s.repository.AdminCredentials(ctx)
 	if err != nil {
-		return repositoryError(op, err)
+		return AdminStatus{}, repositoryError(op, err)
 	}
-	if configured {
-		matches, verifyErr := VerifyPassword(passwordFileValue, currentHash)
-		if verifyErr == nil && matches {
-			return nil
-		}
-		if verifyErr != nil &&
-			!errors.Is(verifyErr, ErrInvalidPasswordHash) &&
-			!errors.Is(verifyErr, ErrPasswordHashTooExpensive) {
-			return verifyErr
-		}
-	}
+	return AdminStatus{
+		Configured: configured,
+		Username:   credentials.Username,
+	}, nil
+}
 
-	replacement, err := hashPassword(passwordFileValue, s.random)
+func (s *Service) Setup(ctx context.Context, username, password string) error {
+	const op = "set up admin"
+
+	if _, configured, err := s.repository.AdminCredentials(ctx); err != nil {
+		return repositoryError(op, err)
+	} else if configured {
+		return newError(op, CodeAlreadyConfigured, nil)
+	}
+	normalizedUsername, err := normalizeUsername(username)
 	if err != nil {
 		return err
 	}
-	if err := s.repository.ReplaceAdminPasswordHashAndRevokeSessions(ctx, replacement); err != nil {
+	if err := validateNewPassword(password); err != nil {
+		return err
+	}
+	passwordHash, err := hashPassword(password, s.random)
+	if err != nil {
+		return err
+	}
+	created, err := s.repository.CreateAdminIfAbsent(ctx, AdminCredentials{
+		Username:     normalizedUsername,
+		PasswordHash: passwordHash,
+	})
+	if err != nil {
 		return repositoryError(op, err)
+	}
+	if !created {
+		return newError(op, CodeAlreadyConfigured, nil)
 	}
 	return nil
 }
 
-func (s *Service) Login(ctx context.Context, password string) (LoginResult, error) {
+// ChangePassword verifies the current password, replaces it with a new
+// Argon2id hash, and revokes every active session in one conditional
+// transaction.
+func (s *Service) ChangePassword(ctx context.Context, currentPassword, newPassword string) error {
+	const op = "change password"
+
+	if currentPassword == "" || len(currentPassword) > MaximumPasswordBytes {
+		return newError(op, CodeInvalidCredentials, nil)
+	}
+	if err := validateNewPassword(newPassword); err != nil {
+		return err
+	}
+	if currentPassword == newPassword {
+		return newError(op, CodePasswordUnchanged, nil)
+	}
+
+	credentials, configured, err := s.repository.AdminCredentials(ctx)
+	if err != nil {
+		return repositoryError(op, err)
+	}
+	if !configured {
+		return newError(op, CodeInvalidCredentials, nil)
+	}
+	matches, err := VerifyPassword(currentPassword, credentials.PasswordHash)
+	if err != nil {
+		return err
+	}
+	if !matches {
+		return newError(op, CodeInvalidCredentials, nil)
+	}
+
+	replacement, err := hashPassword(newPassword, s.random)
+	if err != nil {
+		return err
+	}
+	replaced, err := s.repository.ReplaceAdminPasswordHashIfCurrentAndRevokeSessions(
+		ctx,
+		credentials.PasswordHash,
+		replacement,
+	)
+	if err != nil {
+		return repositoryError(op, err)
+	}
+	if !replaced {
+		return newError(op, CodeInvalidCredentials, nil)
+	}
+	return nil
+}
+
+func (s *Service) Login(ctx context.Context, username, password string) (LoginResult, error) {
 	const op = "login"
 
-	if password == "" {
+	normalizedUsername := strings.TrimSpace(username)
+	if normalizedUsername == "" ||
+		utf8.RuneCountInString(normalizedUsername) > MaximumUsernameRunes ||
+		strings.ContainsAny(normalizedUsername, "\x00\r\n") ||
+		password == "" ||
+		len(password) > MaximumPasswordBytes {
 		return LoginResult{}, newError(op, CodeInvalidCredentials, nil)
 	}
 
-	passwordHash, configured, err := s.repository.AdminPasswordHash(ctx)
+	credentials, configured, err := s.repository.AdminCredentials(ctx)
 	if err != nil {
 		return LoginResult{}, repositoryError(op, err)
 	}
 	if !configured {
 		return LoginResult{}, newError(op, CodeInvalidCredentials, nil)
 	}
+	if subtle.ConstantTimeCompare(
+		[]byte(normalizedUsername),
+		[]byte(credentials.Username),
+	) != 1 {
+		return LoginResult{}, newError(op, CodeInvalidCredentials, nil)
+	}
 
-	matches, err := VerifyPassword(password, passwordHash)
+	matches, err := VerifyPassword(password, credentials.PasswordHash)
 	if err != nil {
 		return LoginResult{}, err
 	}
@@ -179,7 +274,11 @@ func (s *Service) Login(ctx context.Context, password string) (LoginResult, erro
 		CreatedAt:          createdAt,
 		ExpiresAt:          expiresAt,
 	}
-	created, err := s.repository.CreateSessionIfPasswordHash(ctx, passwordHash, record)
+	created, err := s.repository.CreateSessionIfPasswordHash(
+		ctx,
+		credentials.PasswordHash,
+		record,
+	)
 	if err != nil {
 		return LoginResult{}, repositoryError(op, err)
 	}
@@ -192,6 +291,33 @@ func (s *Service) Login(ctx context.Context, password string) (LoginResult, erro
 		CSRFToken:    csrfToken,
 		ExpiresAt:    expiresAt,
 	}, nil
+}
+
+func normalizeUsername(username string) (string, error) {
+	const op = "validate username"
+
+	username = strings.TrimSpace(username)
+	if username == "" ||
+		utf8.RuneCountInString(username) > MaximumUsernameRunes ||
+		strings.ContainsAny(username, "\x00\r\n") {
+		return "", newError(op, CodeUsernameInvalid, nil)
+	}
+	return username, nil
+}
+
+func validateNewPassword(password string) error {
+	const op = "validate new password"
+
+	if len(password) < MinimumPasswordBytes {
+		return newError(op, CodePasswordTooShort, nil)
+	}
+	if len(password) > MaximumPasswordBytes {
+		return newError(op, CodePasswordTooLong, nil)
+	}
+	if strings.ContainsRune(password, '\x00') {
+		return newError(op, CodePasswordInvalid, nil)
+	}
+	return nil
 }
 
 func (s *Service) Authenticate(ctx context.Context, token SessionToken) (Authentication, error) {
