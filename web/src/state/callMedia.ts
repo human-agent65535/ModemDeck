@@ -49,6 +49,58 @@ let inputReplaceGeneration = 0
 let queuedInputDeviceID: string | undefined
 let inputSwitchPromise: Promise<void> | undefined
 
+type MicrophonePipeline = {
+  capture: MediaStream
+  context: AudioContext
+  source: MediaStreamAudioSourceNode
+  gain: GainNode
+  limiter: DynamicsCompressorNode
+  destination: MediaStreamAudioDestinationNode
+  track: MediaStreamTrack
+}
+
+let microphonePipeline: MicrophonePipeline | undefined
+
+function stopMicrophonePipeline(pipeline: MicrophonePipeline): void {
+  for (const track of pipeline.capture.getTracks()) track.stop()
+  for (const track of pipeline.destination.stream.getTracks()) track.stop()
+  pipeline.source.disconnect()
+  pipeline.gain.disconnect()
+  pipeline.limiter.disconnect()
+  pipeline.destination.disconnect()
+  void pipeline.context.close()
+}
+
+async function createMicrophonePipeline(
+  capture: MediaStream
+): Promise<MicrophonePipeline> {
+  const context = new AudioContext()
+  try {
+    await context.resume()
+    const source = context.createMediaStreamSource(capture)
+    const gain = context.createGain()
+    gain.gain.value = audioState.microphoneGain / 100
+
+    const limiter = context.createDynamicsCompressor()
+    limiter.threshold.value = -3
+    limiter.knee.value = 0
+    limiter.ratio.value = 20
+    limiter.attack.value = 0.003
+    limiter.release.value = 0.1
+
+    const destination = context.createMediaStreamDestination()
+    source.connect(gain).connect(limiter).connect(destination)
+    const track = destination.stream.getAudioTracks()[0]
+    if (!track) throw new Error(translate('runtime.microphoneTrackMissing'))
+
+    return { capture, context, source, gain, limiter, destination, track }
+  } catch (error) {
+    for (const track of capture.getTracks()) track.stop()
+    void context.close()
+    throw error
+  }
+}
+
 function stopResources(): void {
   generation += 1
   inputReplaceGeneration += 1
@@ -61,7 +113,12 @@ function stopResources(): void {
     peer.close()
     peer = undefined
   }
-  for (const track of localStream?.getTracks() || []) track.stop()
+  if (microphonePipeline) {
+    stopMicrophonePipeline(microphonePipeline)
+    microphonePipeline = undefined
+  } else {
+    for (const track of localStream?.getTracks() || []) track.stop()
+  }
   for (const track of remoteStream?.getTracks() || []) track.stop()
   localStream = undefined
   remoteStream = undefined
@@ -118,6 +175,7 @@ function waitForICEGathering(connection: RTCPeerConnection): Promise<void> {
 
 async function playRemoteAudio(): Promise<void> {
   if (!remoteAudio) return
+  remoteAudio.volume = audioState.callVolume / 100
   if (!(await applySelectedAudioOutput(remoteAudio))) {
     remoteAudio.pause()
     callMediaState.playbackBlocked = false
@@ -156,20 +214,28 @@ function failConnection(callID: string, token: number, error: unknown): void {
 }
 
 async function connect(callID: string, token: number): Promise<void> {
+  let pendingMicrophone: MediaStream | undefined
+  let pendingPipeline: MicrophonePipeline | undefined
   try {
     callMediaState.status = 'requesting'
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error(translate('runtime.microphoneHTTPSRequired'))
     }
-    const microphone = await navigator.mediaDevices.getUserMedia({
+    pendingMicrophone = await navigator.mediaDevices.getUserMedia({
       audio: selectedAudioInputConstraints(),
       video: false
     })
+    pendingPipeline = await createMicrophonePipeline(pendingMicrophone)
     if (generation !== token || currentCallID !== callID) {
-      for (const track of microphone.getTracks()) track.stop()
+      stopMicrophonePipeline(pendingPipeline)
       return
     }
+    const microphone = pendingMicrophone
+    const pipeline = pendingPipeline
     localStream = microphone
+    microphonePipeline = pipeline
+    pendingMicrophone = undefined
+    pendingPipeline = undefined
     markAudioInputActive()
 
     const connection = new RTCPeerConnection()
@@ -201,8 +267,8 @@ async function connect(callID: string, token: number): Promise<void> {
       }
     }
 
-    for (const track of microphone.getAudioTracks()) {
-      connection.addTrack(track, microphone)
+    for (const track of pipeline.destination.stream.getAudioTracks()) {
+      connection.addTrack(track, pipeline.destination.stream)
     }
     const offer = await connection.createOffer()
     await connection.setLocalDescription(offer)
@@ -216,6 +282,8 @@ async function connect(callID: string, token: number): Promise<void> {
     if (generation !== token || currentCallID !== callID) return
     await connection.setRemoteDescription({ type: 'answer', sdp: answerSDP })
   } catch (error) {
+    if (pendingPipeline) stopMicrophonePipeline(pendingPipeline)
+    else for (const track of pendingMicrophone?.getTracks() || []) track.stop()
     failConnection(callID, token, error)
   }
 }
@@ -255,6 +323,9 @@ export function toggleCallMute(): void {
   if (!localStream) return
   const muted = !callMediaState.muted
   for (const track of localStream.getAudioTracks()) track.enabled = !muted
+  for (const track of microphonePipeline?.destination.stream.getAudioTracks() || []) {
+    track.enabled = !muted
+  }
   callMediaState.muted = muted
 }
 
@@ -264,12 +335,14 @@ export function resumeCallAudio(): void {
 }
 
 async function replaceCallInput(deviceID: string): Promise<void> {
-  if (!peer || !localStream || !currentCallID) return
+  if (!peer || !localStream || !microphonePipeline || !currentCallID) return
   const connection = peer
   const stream = localStream
+  const pipeline = microphonePipeline
   const callID = currentCallID
   const token = ++inputReplaceGeneration
   let replacement: MediaStream | undefined
+  let replacementPipeline: MicrophonePipeline | undefined
 
   markAudioInputSwitching()
   try {
@@ -277,17 +350,18 @@ async function replaceCallInput(deviceID: string): Promise<void> {
       audio: selectedAudioInputConstraints(deviceID),
       video: false
     })
+    replacementPipeline = await createMicrophonePipeline(replacement)
     if (
       token !== inputReplaceGeneration ||
       connection !== peer ||
       stream !== localStream ||
       callID !== currentCallID
     ) {
-      for (const track of replacement.getTracks()) track.stop()
+      stopMicrophonePipeline(replacementPipeline)
       return
     }
 
-    const newTrack = replacement.getAudioTracks()[0]
+    const newTrack = replacementPipeline.track
     const sender = connection
       .getSenders()
       .find(candidate => candidate.track?.kind === 'audio')
@@ -300,18 +374,21 @@ async function replaceCallInput(deviceID: string): Promise<void> {
       stream !== localStream ||
       callID !== currentCallID
     ) {
-      newTrack.stop()
+      stopMicrophonePipeline(replacementPipeline)
       return
     }
 
     localStream = replacement
+    microphonePipeline = replacementPipeline
     replacement = undefined
-    for (const track of stream.getTracks()) track.stop()
+    replacementPipeline = undefined
+    stopMicrophonePipeline(pipeline)
     callMediaState.muted = false
     markAudioInputActive()
     void refreshAudioDevices()
   } catch (error) {
-    for (const track of replacement?.getTracks() || []) track.stop()
+    if (replacementPipeline) stopMicrophonePipeline(replacementPipeline)
+    else for (const track of replacement?.getTracks() || []) track.stop()
     if (token !== inputReplaceGeneration || callID !== currentCallID) return
     markAudioInputError(mediaError(error))
   }
@@ -341,6 +418,26 @@ watch(
   () => [audioState.selectedOutputID, audioState.devicesRevision] as const,
   () => {
     if (remoteAudio) void playRemoteAudio()
+  }
+)
+
+watch(
+  () => audioState.callVolume,
+  volume => {
+    if (remoteAudio) remoteAudio.volume = volume / 100
+  }
+)
+
+watch(
+  () => audioState.microphoneGain,
+  gain => {
+    const pipeline = microphonePipeline
+    if (!pipeline) return
+    pipeline.gain.gain.setTargetAtTime(
+      gain / 100,
+      pipeline.context.currentTime,
+      0.015
+    )
   }
 )
 

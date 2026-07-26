@@ -1,3 +1,5 @@
+import { audioState } from './audio'
+
 const frequencies: Record<string, readonly [number, number]> = {
   '1': [697, 1209],
   '2': [697, 1336],
@@ -22,6 +24,8 @@ export function dtmfFrequencies(digit: string): readonly [number, number] | unde
 export async function playDTMFTone(digit: string): Promise<void> {
   const pair = dtmfFrequencies(digit)
   if (!pair) return
+  const peak = 0.055 * (audioState.callVolume / 100)
+  if (peak <= 0) return
 
   try {
     if (!audioContext || audioContext.state === 'closed') audioContext = new AudioContext()
@@ -31,8 +35,8 @@ export async function playDTMFTone(digit: string): Promise<void> {
     const stop = start + 0.12
     const gain = audioContext.createGain()
     gain.gain.setValueAtTime(0.0001, start)
-    gain.gain.exponentialRampToValueAtTime(0.055, start + 0.008)
-    gain.gain.setValueAtTime(0.055, start + 0.085)
+    gain.gain.exponentialRampToValueAtTime(peak, start + 0.008)
+    gain.gain.setValueAtTime(peak, start + 0.085)
     gain.gain.exponentialRampToValueAtTime(0.0001, stop)
     gain.connect(audioContext.destination)
 

@@ -3,6 +3,7 @@ import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Download, LoaderCircle, RefreshCw } from '@lucide/vue'
 import { loadCallRecordings, recordingListState } from '../state/recording'
+import { audioState } from '../state/audio'
 import { formatDateTime, formatDuration } from '../utils/format'
 
 const { t } = useI18n()
@@ -89,7 +90,12 @@ watch(
             {{ formatSize(recording.size_bytes) }}
           </span>
         </div>
-        <audio :src="recording.download_url" controls preload="metadata">
+        <audio
+          :src="recording.download_url"
+          :volume="audioState.recordingPlaybackVolume / 100"
+          controls
+          preload="metadata"
+        >
           {{ t('recordings.audioUnsupported') }}
         </audio>
         <a

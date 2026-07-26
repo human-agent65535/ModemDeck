@@ -160,7 +160,7 @@ export const notificationCatalog = [
 ] as const
 
 export const waitingToneSource = new URL(
-  '../assets/tones/waiting.mp3',
+  '../assets/tones/waiting.ogg',
   import.meta.url
 ).href
 
@@ -187,6 +187,10 @@ type BrowserSoundPreferences = {
 
 const SOUND_STORAGE_KEY = 'modemdeck.audio.sound-preferences.v1'
 const MESSAGE_SOUND_HISTORY_LIMIT = 256
+const RINGTONE_BASE_VOLUME = 0.82
+const WAITING_BASE_VOLUME = 0.55
+const INCOMING_MESSAGE_BASE_VOLUME = 0.72
+const OUTGOING_MESSAGE_BASE_VOLUME = 0.5
 const VALID_RINGTONES = new Set<RingtoneID>(
   ringtoneCatalog.map(ringtone => ringtone.id)
 )
@@ -230,9 +234,10 @@ export const browserSoundState = reactive<{
 })
 
 let initialized = false
-let outputWatchStop: WatchStopHandle | undefined
+let audioWatchStop: WatchStopHandle | undefined
 let callAudio: HTMLAudioElement | undefined
 let effectAudio: HTMLAudioElement | undefined
+let effectBaseVolume = 0
 let previewAudio: HTMLAudioElement | undefined
 let currentSession: CallSession | null = null
 let activeCallPlaybackKey = ''
@@ -427,11 +432,14 @@ function callPlaybackSource(mode: CallSoundMode): {
     if (!browserSoundState.ringtoneEnabled) return null
     return {
       source: ringtoneSources[browserSoundState.ringtone],
-      volume: 0.82
+      volume: RINGTONE_BASE_VOLUME * (audioState.ringAlertsVolume / 100)
     }
   }
   if (mode === 'waiting' && browserSoundState.waiting) {
-    return { source: waitingToneSource, volume: 0.55 }
+    return {
+      source: waitingToneSource,
+      volume: WAITING_BASE_VOLUME * (audioState.callVolume / 100)
+    }
   }
   return null
 }
@@ -488,14 +496,15 @@ export function claimIncomingMessageSound(
 
 async function playEffect(
   sound: AudibleNotificationID,
-  volume: number
+  baseVolume: number
 ): Promise<void> {
   effectAudio ||= createAudioElement()
   if (!effectAudio) return
+  effectBaseVolume = baseVolume
   try {
     await playAudio(effectAudio, notificationSources[sound], {
       loop: false,
-      volume,
+      volume: baseVolume * (audioState.ringAlertsVolume / 100),
       restart: true
     })
     browserSoundState.playbackBlocked = false
@@ -510,23 +519,26 @@ async function playEffect(
 export function playIncomingMessageSound(messageID: string): void {
   const firstDelivery = claimIncomingMessageSound(messageID)
   if (!firstDelivery || !browserSoundState.incomingMessageEnabled) return
-  void playEffect(browserSoundState.incomingMessage, 0.72)
+  void playEffect(browserSoundState.incomingMessage, INCOMING_MESSAGE_BASE_VOLUME)
 }
 
 export function playOutgoingMessageSound(): void {
   if (!browserSoundState.outgoingMessageEnabled) return
-  void playEffect(browserSoundState.outgoingMessage, 0.5)
+  void playEffect(browserSoundState.outgoingMessage, OUTGOING_MESSAGE_BASE_VOLUME)
 }
 
 function previewSource(preview: SoundPreview): { source: string; volume: number } {
   if (preview.startsWith('ringtone:')) {
     const ringtone = preview.slice('ringtone:'.length) as AudibleRingtoneID
-    return { source: ringtoneSources[ringtone], volume: 0.82 }
+    return {
+      source: ringtoneSources[ringtone],
+      volume: RINGTONE_BASE_VOLUME * (audioState.ringAlertsVolume / 100)
+    }
   }
   if (preview === 'waiting') {
     return {
       source: waitingToneSource,
-      volume: 0.55
+      volume: WAITING_BASE_VOLUME * (audioState.callVolume / 100)
     }
   }
   const [channel, sound] = preview.split(':') as [
@@ -535,7 +547,11 @@ function previewSource(preview: SoundPreview): { source: string; volume: number 
   ]
   return {
     source: notificationSources[sound],
-    volume: channel === 'incoming-message' ? 0.72 : 0.5
+    volume:
+      (channel === 'incoming-message'
+        ? INCOMING_MESSAGE_BASE_VOLUME
+        : OUTGOING_MESSAGE_BASE_VOLUME) *
+      (audioState.ringAlertsVolume / 100)
   }
 }
 
@@ -631,6 +647,19 @@ async function reroutePlayingAudio(): Promise<void> {
   }
 }
 
+function applyActiveAudioLevels(): void {
+  if (callAudio) {
+    const source = callPlaybackSource(callSoundMode(currentSession))
+    if (source) callAudio.volume = source.volume
+  }
+  if (effectAudio && effectBaseVolume > 0) {
+    effectAudio.volume = effectBaseVolume * (audioState.ringAlertsVolume / 100)
+  }
+  if (previewAudio && browserSoundState.preview) {
+    previewAudio.volume = previewSource(browserSoundState.preview).volume
+  }
+}
+
 export function initializeBrowserSounds(): void {
   if (initialized) return
   initialized = true
@@ -638,9 +667,15 @@ export function initializeBrowserSounds(): void {
   if (typeof window !== 'undefined') {
     window.addEventListener('storage', onPreferenceStorage)
   }
-  outputWatchStop = watch(
-    () => audioState.selectedOutputID,
+  audioWatchStop = watch(
+    () =>
+      [
+        audioState.selectedOutputID,
+        audioState.callVolume,
+        audioState.ringAlertsVolume
+      ] as const,
     () => {
+      applyActiveAudioLevels()
       void reroutePlayingAudio()
     }
   )
@@ -656,9 +691,10 @@ export function shutdownBrowserSounds(): void {
   stopAudio(effectAudio)
   callAudio = undefined
   effectAudio = undefined
+  effectBaseVolume = 0
   previewAudio = undefined
-  outputWatchStop?.()
-  outputWatchStop = undefined
+  audioWatchStop?.()
+  audioWatchStop = undefined
   if (typeof window !== 'undefined') {
     window.removeEventListener('storage', onPreferenceStorage)
   }

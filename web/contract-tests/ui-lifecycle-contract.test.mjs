@@ -63,7 +63,7 @@ test('active calls apply output changes and replace input before stopping the ol
   const replaceTrackIndex = replaceInput.indexOf('await sender.replaceTrack(newTrack)')
   const commitStreamIndex = replaceInput.indexOf('localStream = replacement')
   const stopOldStreamIndex = replaceInput.indexOf(
-    'for (const track of stream.getTracks()) track.stop()'
+    'stopMicrophonePipeline(pipeline)'
   )
 
   assert.ok(replaceTrackIndex >= 0)
@@ -153,7 +153,10 @@ test('recordings are a communication workspace with native playback and call lin
   assert.match(view, /class="workspace"/)
   assert.match(view, /class="list-pane"/)
   assert.match(view, /class="detail-pane"/)
-  assert.match(view, /<audio :src="selected\.download_url" controls preload="metadata">/)
+  assert.match(
+    view,
+    /<audio[\s\S]*:src="selected\.download_url"[\s\S]*:volume="audioState\.recordingPlaybackVolume \/ 100"[\s\S]*controls/
+  )
   assert.match(view, /:download="`modemdeck-\$\{selected\.id\}\.ogg`"/)
   assert.match(view, /:to="\{ name: 'calls', query: \{ selected: selected\.call\.id \} \}"/)
   assert.doesNotMatch(view, /marketing|hero/)

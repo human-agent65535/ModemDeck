@@ -50,12 +50,98 @@ type AudioState = {
   microphoneTestLevel: number
   microphoneTestSeconds: number
   microphoneTestError: string
+  microphoneGain: number
+  callVolume: number
+  ringAlertsVolume: number
+  recordingPlaybackVolume: number
 }
 
 const INPUT_STORAGE_KEY = 'modemdeck.audio.input-device'
 const OUTPUT_STORAGE_KEY = 'modemdeck.audio.output-device'
+const LEVELS_STORAGE_KEY = 'modemdeck.audio.levels.v1'
 const MICROPHONE_TEST_LIMIT_MS = 30_000
 const MICROPHONE_SAMPLE_MS = 80
+
+export type BrowserAudioLevels = {
+  microphoneGain: number
+  callVolume: number
+  ringAlertsVolume: number
+  recordingPlaybackVolume: number
+}
+
+const DEFAULT_AUDIO_LEVELS: BrowserAudioLevels = {
+  microphoneGain: 100,
+  callVolume: 100,
+  ringAlertsVolume: 100,
+  recordingPlaybackVolume: 100
+}
+
+function normalizedLevel(
+  value: unknown,
+  fallback: number,
+  minimum: number,
+  maximum: number
+): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.round(Math.min(maximum, Math.max(minimum, value)))
+    : fallback
+}
+
+export function normalizeAudioLevels(raw: unknown): BrowserAudioLevels {
+  if (!raw || typeof raw !== 'object') return { ...DEFAULT_AUDIO_LEVELS }
+  const value = raw as Record<string, unknown>
+  return {
+    microphoneGain: normalizedLevel(
+      value.microphoneGain,
+      DEFAULT_AUDIO_LEVELS.microphoneGain,
+      0,
+      200
+    ),
+    callVolume: normalizedLevel(
+      value.callVolume,
+      DEFAULT_AUDIO_LEVELS.callVolume,
+      0,
+      100
+    ),
+    ringAlertsVolume: normalizedLevel(
+      value.ringAlertsVolume,
+      DEFAULT_AUDIO_LEVELS.ringAlertsVolume,
+      0,
+      100
+    ),
+    recordingPlaybackVolume: normalizedLevel(
+      value.recordingPlaybackVolume,
+      DEFAULT_AUDIO_LEVELS.recordingPlaybackVolume,
+      0,
+      100
+    )
+  }
+}
+
+function storedAudioLevels(): BrowserAudioLevels {
+  try {
+    const stored = window.localStorage.getItem(LEVELS_STORAGE_KEY)
+    return stored ? normalizeAudioLevels(JSON.parse(stored)) : { ...DEFAULT_AUDIO_LEVELS }
+  } catch {
+    return { ...DEFAULT_AUDIO_LEVELS }
+  }
+}
+
+function persistAudioLevels(): void {
+  try {
+    window.localStorage.setItem(
+      LEVELS_STORAGE_KEY,
+      JSON.stringify({
+        microphoneGain: audioState.microphoneGain,
+        callVolume: audioState.callVolume,
+        ringAlertsVolume: audioState.ringAlertsVolume,
+        recordingPlaybackVolume: audioState.recordingPlaybackVolume
+      } satisfies BrowserAudioLevels)
+    )
+  } catch {
+    // The in-memory levels still apply when browser storage is unavailable.
+  }
+}
 
 function storedDeviceID(key: string): string {
   try {
@@ -95,6 +181,7 @@ function initialMicrophoneAccessStatus(): MicrophoneAccessStatus {
 const selectedInputID = storedDeviceID(INPUT_STORAGE_KEY)
 const selectedOutputID = storedDeviceID(OUTPUT_STORAGE_KEY)
 const outputSelectionSupported = supportsOutputSelection()
+const storedLevels = storedAudioLevels()
 
 export const audioState = reactive<AudioState>({
   inputs: [],
@@ -121,7 +208,8 @@ export const audioState = reactive<AudioState>({
   microphoneTestStatus: 'idle',
   microphoneTestLevel: 0,
   microphoneTestSeconds: 0,
-  microphoneTestError: ''
+  microphoneTestError: '',
+  ...storedLevels
 })
 
 let deviceListenerActive = false
@@ -134,6 +222,7 @@ let microphoneTestGeneration = 0
 let microphoneTestStream: MediaStream | undefined
 let microphoneTestContext: AudioContext | undefined
 let microphoneTestAnalyser: AnalyserNode | undefined
+let microphoneTestGain: GainNode | undefined
 let microphoneSampleTimer: number | undefined
 let microphoneLimitTimer: number | undefined
 let microphoneCountdownTimer: number | undefined
@@ -208,6 +297,43 @@ export function setSelectedAudioOutput(deviceID: string): void {
   audioState.selectedOutputID = deviceID.trim()
   persistDeviceID(OUTPUT_STORAGE_KEY, audioState.selectedOutputID)
   updateOutputSelectionStatus()
+}
+
+export function setMicrophoneGain(value: number): void {
+  audioState.microphoneGain = normalizedLevel(value, audioState.microphoneGain, 0, 200)
+  if (microphoneTestGain && microphoneTestContext) {
+    microphoneTestGain.gain.setTargetAtTime(
+      audioState.microphoneGain / 100,
+      microphoneTestContext.currentTime,
+      0.015
+    )
+  }
+  persistAudioLevels()
+}
+
+export function setCallVolume(value: number): void {
+  audioState.callVolume = normalizedLevel(value, audioState.callVolume, 0, 100)
+  persistAudioLevels()
+}
+
+export function setRingAlertsVolume(value: number): void {
+  audioState.ringAlertsVolume = normalizedLevel(
+    value,
+    audioState.ringAlertsVolume,
+    0,
+    100
+  )
+  persistAudioLevels()
+}
+
+export function setRecordingPlaybackVolume(value: number): void {
+  audioState.recordingPlaybackVolume = normalizedLevel(
+    value,
+    audioState.recordingPlaybackVolume,
+    0,
+    100
+  )
+  persistAudioLevels()
 }
 
 export function selectedAudioInputConstraints(
@@ -466,6 +592,8 @@ function releaseMicrophoneTestResources(): void {
   for (const track of microphoneTestStream?.getTracks() || []) track.stop()
   microphoneTestStream = undefined
   microphoneTestAnalyser = undefined
+  microphoneTestGain?.disconnect()
+  microphoneTestGain = undefined
   if (microphoneTestContext) void microphoneTestContext.close()
   microphoneTestContext = undefined
 }
@@ -516,8 +644,11 @@ export async function startMicrophoneTest(): Promise<void> {
     await context.resume()
     const analyser = context.createAnalyser()
     analyser.fftSize = 256
-    context.createMediaStreamSource(stream).connect(analyser)
+    const gain = context.createGain()
+    gain.gain.value = audioState.microphoneGain / 100
+    context.createMediaStreamSource(stream).connect(gain).connect(analyser)
 
+    microphoneTestGain = gain
     microphoneTestAnalyser = analyser
     audioState.microphoneTestStatus = 'active'
     audioState.microphoneTestSeconds = MICROPHONE_TEST_LIMIT_MS / 1000

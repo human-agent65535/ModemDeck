@@ -11,6 +11,7 @@ import LineSelector from '../components/LineSelector.vue'
 import LineTag from '../components/LineTag.vue'
 import SearchField from '../components/SearchField.vue'
 import StatePanel from '../components/StatePanel.vue'
+import { audioState } from '../state/audio'
 import {
   loadRecordingEntries,
   recordingCatalogState
@@ -295,7 +296,12 @@ onBeforeUnmount(() => {
         <div class="recording-detail">
           <section class="recording-player" :aria-label="t('recordings.playback')">
             <template v-if="selected.playable && selected.download_url">
-              <audio :src="selected.download_url" controls preload="metadata">
+              <audio
+                :src="selected.download_url"
+                :volume="audioState.recordingPlaybackVolume / 100"
+                controls
+                preload="metadata"
+              >
                 {{ t('recordings.audioUnsupported') }}
               </audio>
               <a

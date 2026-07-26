@@ -4,13 +4,23 @@ import {
   AudioLines,
   BellRing,
   MessageSquareText,
+  Mic,
+  PhoneCall,
   PhoneOutgoing,
   Play,
   Send,
-  Square
+  Square,
+  Volume2
 } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import AudioDeviceControls from './AudioDeviceControls.vue'
+import {
+  audioState,
+  setCallVolume,
+  setMicrophoneGain,
+  setRecordingPlaybackVolume,
+  setRingAlertsVolume
+} from '../state/audio'
 import {
   browserSoundState,
   notificationCatalog,
@@ -93,6 +103,10 @@ function changeOutgoingMessageEnabled(event: Event): void {
   setOutgoingMessageSoundEnabled((event.currentTarget as HTMLInputElement).checked)
 }
 
+function inputNumber(event: Event): number {
+  return Number((event.currentTarget as HTMLInputElement).value)
+}
+
 onBeforeUnmount(() => {
   stopSoundPreview()
 })
@@ -109,6 +123,92 @@ onBeforeUnmount(() => {
         </div>
       </header>
       <AudioDeviceControls />
+    </section>
+
+    <section class="audio-preferences__section" aria-labelledby="audio-levels-title">
+      <header class="audio-preferences__header">
+        <span class="audio-preferences__icon is-level"><Volume2 :size="20" /></span>
+        <div>
+          <h3 id="audio-levels-title">{{ t('audio.levels') }}</h3>
+          <p>{{ t('audio.levelsDescription') }}</p>
+        </div>
+      </header>
+
+      <label class="audio-preference-row">
+        <span class="audio-preference-row__identity">
+          <Mic :size="18" />
+          <strong>{{ t('audio.microphoneGain') }}</strong>
+        </span>
+        <span class="audio-level-control">
+          <input
+            type="range"
+            min="0"
+            max="200"
+            step="5"
+            :value="audioState.microphoneGain"
+            :aria-label="t('audio.microphoneGain')"
+            @input="setMicrophoneGain(inputNumber($event))"
+          />
+          <output>{{ audioState.microphoneGain }}%</output>
+        </span>
+      </label>
+
+      <label class="audio-preference-row">
+        <span class="audio-preference-row__identity">
+          <PhoneCall :size="18" />
+          <strong>{{ t('audio.callVolume') }}</strong>
+        </span>
+        <span class="audio-level-control">
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="5"
+            :value="audioState.callVolume"
+            :aria-label="t('audio.callVolume')"
+            @input="setCallVolume(inputNumber($event))"
+          />
+          <output>{{ audioState.callVolume }}%</output>
+        </span>
+      </label>
+
+      <label class="audio-preference-row">
+        <span class="audio-preference-row__identity">
+          <BellRing :size="18" />
+          <strong>{{ t('audio.ringAlertsVolume') }}</strong>
+        </span>
+        <span class="audio-level-control">
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="5"
+            :value="audioState.ringAlertsVolume"
+            :aria-label="t('audio.ringAlertsVolume')"
+            @input="setRingAlertsVolume(inputNumber($event))"
+          />
+          <output>{{ audioState.ringAlertsVolume }}%</output>
+        </span>
+      </label>
+
+      <label class="audio-preference-row">
+        <span class="audio-preference-row__identity">
+          <AudioLines :size="18" />
+          <strong>{{ t('audio.recordingPlaybackVolume') }}</strong>
+        </span>
+        <span class="audio-level-control">
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="5"
+            :value="audioState.recordingPlaybackVolume"
+            :aria-label="t('audio.recordingPlaybackVolume')"
+            @input="setRecordingPlaybackVolume(inputNumber($event))"
+          />
+          <output>{{ audioState.recordingPlaybackVolume }}%</output>
+        </span>
+      </label>
     </section>
 
     <section class="audio-preferences__section" aria-labelledby="call-sounds-title">
@@ -393,6 +493,11 @@ onBeforeUnmount(() => {
   background: #fff4d6;
 }
 
+.audio-preferences__icon.is-level {
+  color: #725200;
+  background: #fff3c6;
+}
+
 .audio-preferences h3 {
   margin: 0;
   color: var(--text);
@@ -454,6 +559,28 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
+.audio-level-control {
+  display: grid;
+  width: min(250px, 36vw);
+  flex: 0 0 auto;
+  grid-template-columns: minmax(0, 1fr) 48px;
+  align-items: center;
+  gap: 12px;
+}
+
+.audio-level-control input {
+  width: 100%;
+  accent-color: var(--accent-strong);
+  cursor: pointer;
+}
+
+.audio-level-control output {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
 .audio-preference-row select {
   width: min(230px, 30vw);
   min-height: 40px;
@@ -486,6 +613,10 @@ onBeforeUnmount(() => {
   .audio-preference-row__controls {
     width: 100%;
     justify-content: flex-end;
+  }
+
+  .audio-level-control {
+    width: 100%;
   }
 
   .audio-preference-row select {

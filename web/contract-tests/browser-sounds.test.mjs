@@ -11,6 +11,7 @@ import {
   ringtoneCatalog,
   waitingToneSource
 } from '../src/state/browserSounds.ts'
+import { normalizeAudioLevels } from '../src/state/audio.ts'
 
 const incomingCall = {
   id: 'call-incoming',
@@ -95,6 +96,29 @@ test('legacy silent choices migrate to disabled sounds without losing the model'
   )
 })
 
+test('browser audio levels are bounded and retain independent channels', () => {
+  assert.deepEqual(normalizeAudioLevels(null), {
+    microphoneGain: 100,
+    callVolume: 100,
+    ringAlertsVolume: 100,
+    recordingPlaybackVolume: 100
+  })
+  assert.deepEqual(
+    normalizeAudioLevels({
+      microphoneGain: 275,
+      callVolume: -20,
+      ringAlertsVolume: 55.4,
+      recordingPlaybackVolume: 35
+    }),
+    {
+      microphoneGain: 200,
+      callVolume: 0,
+      ringAlertsVolume: 55,
+      recordingPlaybackVolume: 35
+    }
+  )
+})
+
 test('the curated AOSP ringtone catalog is complete, unique, and compact', async () => {
   assert.equal(ringtoneCatalog.length, 20)
   assert.equal(new Set(ringtoneCatalog.map(ringtone => ringtone.id)).size, 20)
@@ -140,7 +164,7 @@ test('waiting calls and previews use one bundled browser-compatible audio asset'
     'utf8'
   )
 
-  assert.match(waitingToneSource, /\.mp3$/)
+  assert.match(waitingToneSource, /\.ogg$/)
   assert.ok(asset.size > 0, 'waiting tone must contain audio data')
   assert.ok(asset.size < 50_000, `waiting tone is unexpectedly large: ${asset.size}`)
   assert.doesNotMatch(implementation, /createObjectURL|audio\/wav/)
@@ -171,7 +195,21 @@ test('live call and SMS paths own sound playback instead of view components', as
 })
 
 test('audio settings expose persisted devices and browser-local communication sounds', async () => {
-  const [settings, form, devices, menu, shell, notice, ignore, dockerIgnore] =
+  const [
+    settings,
+    form,
+    devices,
+    menu,
+    shell,
+    audio,
+    callMedia,
+    dtmf,
+    recordings,
+    recordingList,
+    notice,
+    ignore,
+    dockerIgnore
+  ] =
     await Promise.all([
       readFile(new URL('../src/views/SettingsView.vue', import.meta.url), 'utf8'),
       readFile(new URL('../src/components/AudioSettingsForm.vue', import.meta.url), 'utf8'),
@@ -181,6 +219,11 @@ test('audio settings expose persisted devices and browser-local communication so
       ),
       readFile(new URL('../src/components/AudioSettingsMenu.vue', import.meta.url), 'utf8'),
       readFile(new URL('../src/components/AppShell.vue', import.meta.url), 'utf8'),
+      readFile(new URL('../src/state/audio.ts', import.meta.url), 'utf8'),
+      readFile(new URL('../src/state/callMedia.ts', import.meta.url), 'utf8'),
+      readFile(new URL('../src/state/dtmfAudio.ts', import.meta.url), 'utf8'),
+      readFile(new URL('../src/views/RecordingsView.vue', import.meta.url), 'utf8'),
+      readFile(new URL('../src/components/RecordingList.vue', import.meta.url), 'utf8'),
       readFile(new URL('../../NOTICE.md', import.meta.url), 'utf8'),
       readFile(new URL('../../.gitignore', import.meta.url), 'utf8'),
       readFile(new URL('../../.dockerignore', import.meta.url), 'utf8')
@@ -197,12 +240,24 @@ test('audio settings expose persisted devices and browser-local communication so
   assert.match(form, /setRingtoneEnabled/)
   assert.match(form, /setWaitingSound/)
   assert.equal((form.match(/role="switch"/g) || []).length, 4)
+  assert.equal((form.match(/type="range"/g) || []).length, 4)
+  assert.match(form, /setMicrophoneGain/)
+  assert.match(form, /setCallVolume/)
+  assert.match(form, /setRingAlertsVolume/)
+  assert.match(form, /setRecordingPlaybackVolume/)
   assert.doesNotMatch(form, /<option value="silent"/)
   assert.match(devices, /setSelectedAudioInput/)
   assert.match(devices, /setSelectedAudioOutput/)
   assert.match(menu, /<AudioDeviceControls compact/)
   assert.match(shell, /initializeBrowserSounds\(\)/)
   assert.match(shell, /shutdownBrowserSounds\(\)/)
+  assert.match(audio, /modemdeck\.audio\.levels\.v1/)
+  assert.match(callMedia, /createMediaStreamDestination\(\)/)
+  assert.match(callMedia, /createDynamicsCompressor\(\)/)
+  assert.match(callMedia, /audioState\.callVolume \/ 100/)
+  assert.match(dtmf, /audioState\.callVolume \/ 100/)
+  assert.match(recordings, /audioState\.recordingPlaybackVolume \/ 100/)
+  assert.match(recordingList, /audioState\.recordingPlaybackVolume \/ 100/)
   assert.match(notice, /Android Open Source Project ringtones/)
   assert.match(notice, /SMS alert sounds/)
   assert.match(notice, /Apache License 2\.0/)
