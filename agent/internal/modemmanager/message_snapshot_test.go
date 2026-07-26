@@ -16,6 +16,7 @@ var smsCacheTestModemPath = dbus.ObjectPath(
 
 type smsCacheCaller struct {
 	mu           sync.Mutex
+	busID        string
 	owner        string
 	objects      ManagedObjects
 	listedPaths  []dbus.ObjectPath
@@ -26,6 +27,7 @@ type smsCacheCaller struct {
 
 func newSMSCacheCaller() *smsCacheCaller {
 	return &smsCacheCaller{
+		busID: "bus-sms",
 		owner: ":1.41",
 		objects: ManagedObjects{
 			smsCacheTestModemPath: {
@@ -59,6 +61,8 @@ func (c *smsCacheCaller) Call(
 	switch method {
 	case busInterface + ".GetNameOwner":
 		return []any{c.owner}, nil
+	case busInterface + ".GetId":
+		return []any{c.busID}, nil
 	case objectManagerInterface + ".GetManagedObjects":
 		return []any{cloneTestManagedObjects(c.objects)}, nil
 	case messagingInterface + ".List":

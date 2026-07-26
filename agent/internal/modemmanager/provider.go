@@ -35,7 +35,7 @@ const (
 
 type Provider struct {
 	caller        Caller
-	ownerResolver ownerResolver
+	epochResolver providerEpochResolver
 	close         func() error
 	now           func() time.Time
 	ids           *instanceIDs
@@ -67,15 +67,15 @@ type signalSetupState struct {
 	nextAttempt time.Time
 }
 
-type ownerResolver interface {
-	ResolveOwner(context.Context) (string, error)
+type providerEpochResolver interface {
+	ResolveEpoch(context.Context) (string, error)
 }
 
-type callerOwnerResolver struct {
+type callerProviderEpochResolver struct {
 	caller Caller
 }
 
-func (r callerOwnerResolver) ResolveOwner(ctx context.Context) (string, error) {
+func (r callerProviderEpochResolver) ResolveEpoch(ctx context.Context) (string, error) {
 	body, err := r.caller.Call(
 		ctx,
 		busServiceName,
@@ -91,15 +91,38 @@ func (r callerOwnerResolver) ResolveOwner(ctx context.Context) (string, error) {
 	if err := dbus.Store(body, &owner); err != nil {
 		return "", fmt.Errorf("decode ModemManager D-Bus owner: %w", err)
 	}
-	return strings.TrimSpace(owner), nil
+	owner = strings.TrimSpace(owner)
+	if owner == "" {
+		return "", fmt.Errorf("ModemManager D-Bus owner is empty")
+	}
+
+	body, err = r.caller.Call(
+		ctx,
+		busServiceName,
+		busPath,
+		busInterface+".GetId",
+		dbus.FlagNoAutoStart,
+	)
+	if err != nil {
+		return "", err
+	}
+	var busID string
+	if err := dbus.Store(body, &busID); err != nil {
+		return "", fmt.Errorf("decode D-Bus instance ID: %w", err)
+	}
+	busID = strings.TrimSpace(busID)
+	if busID == "" {
+		return "", fmt.Errorf("D-Bus instance ID is empty")
+	}
+	return busID + "/" + owner, nil
 }
 
-type staticOwnerResolver struct {
-	owner string
+type staticProviderEpochResolver struct {
+	epoch string
 }
 
-func (r staticOwnerResolver) ResolveOwner(context.Context) (string, error) {
-	return r.owner, nil
+func (r staticProviderEpochResolver) ResolveEpoch(context.Context) (string, error) {
+	return r.epoch, nil
 }
 
 func New(caller Caller) (*Provider, error) {
@@ -137,13 +160,13 @@ func newProviderWithOptions(
 	if err != nil {
 		return nil, fmt.Errorf("load radio state: %w", err)
 	}
-	var resolver ownerResolver = callerOwnerResolver{caller: caller}
-	if owner := ids.providerEpoch(); owner != "" {
-		resolver = staticOwnerResolver{owner: owner}
+	var resolver providerEpochResolver = callerProviderEpochResolver{caller: caller}
+	if epoch := ids.providerEpoch(); epoch != "" {
+		resolver = staticProviderEpochResolver{epoch: epoch}
 	}
 	return &Provider{
 		caller:            caller,
-		ownerResolver:     resolver,
+		epochResolver:     resolver,
 		now:               time.Now,
 		ids:               ids,
 		dataPlane:         options.DataPlane,
@@ -753,21 +776,21 @@ func (p *Provider) resolveProviderIdentity(
 	if err := p.requireCaller(ctx, operation); err != nil {
 		return nil, err
 	}
-	if p.ownerResolver == nil {
-		return nil, domain.Unavailable(operation, "ModemManager owner resolver is unavailable", nil)
+	if p.epochResolver == nil {
+		return nil, domain.Unavailable(operation, "ModemManager epoch resolver is unavailable", nil)
 	}
-	owner, err := p.ownerResolver.ResolveOwner(ctx)
+	epoch, err := p.epochResolver.ResolveEpoch(ctx)
 	if err != nil {
-		return nil, mapCallError(operation, "failed to resolve the ModemManager D-Bus owner", err)
+		return nil, mapCallError(operation, "failed to resolve the ModemManager provider epoch", err)
 	}
-	if owner == "" {
-		return nil, domain.Unavailable(operation, "ModemManager D-Bus owner is unavailable", nil)
+	if epoch == "" {
+		return nil, domain.Unavailable(operation, "ModemManager provider epoch is unavailable", nil)
 	}
-	previousOwner := p.ids.providerEpoch()
-	if err := p.ids.setProviderOwner(owner); err != nil {
-		return nil, domain.Internal(operation, "ModemManager D-Bus owner was invalid", err)
+	previousEpoch := p.ids.providerEpoch()
+	if err := p.ids.setProviderEpoch(epoch); err != nil {
+		return nil, domain.Internal(operation, "ModemManager provider epoch was invalid", err)
 	}
-	if previousOwner != "" && previousOwner != owner {
+	if previousEpoch != "" && previousEpoch != epoch {
 		p.messageProperties.clear()
 		p.snapshotMu.Lock()
 		p.terminalCalls = make(map[string]terminalCallProjection)
@@ -787,7 +810,7 @@ func (p *Provider) clearProviderIdentity() {
 	if p == nil || p.ids == nil {
 		return
 	}
-	p.ids.clearProviderOwner()
+	p.ids.clearProviderEpoch()
 	p.messageProperties.clear()
 	p.snapshotMu.Lock()
 	p.terminalCalls = make(map[string]terminalCallProjection)

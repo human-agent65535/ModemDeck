@@ -25,6 +25,7 @@ type fakeCaller struct {
 	mu                 sync.Mutex
 	owner              bool
 	ownerName          string
+	busID              string
 	objects            ManagedObjects
 	createdCallPath    dbus.ObjectPath
 	createdMessagePath dbus.ObjectPath
@@ -72,6 +73,8 @@ func (f *fakeCaller) Call(
 			return nil, dbus.NewError("org.freedesktop.DBus.Error.NameHasNoOwner", nil)
 		}
 		return []any{f.ownerName}, nil
+	case busInterface + ".GetId":
+		return []any{f.busID}, nil
 	case objectManagerInterface + ".GetManagedObjects":
 		return []any{cloneTestManagedObjects(f.objects)}, nil
 	case propertiesInterface + ".Get":
@@ -407,6 +410,12 @@ func (f *fakeCaller) setOwnerName(ownerName string) {
 	f.mu.Unlock()
 }
 
+func (f *fakeCaller) setBusID(busID string) {
+	f.mu.Lock()
+	f.busID = busID
+	f.mu.Unlock()
+}
+
 func TestHealthAdvertisesImplementedCapabilitiesOnlyWithOwner(t *testing.T) {
 	caller := newFakeCaller(emptyLineObjects(true, true))
 	caller.owner = true
@@ -683,7 +692,7 @@ func TestSnapshotRetriesTransientExtendedSignalSetupFailure(t *testing.T) {
 	)
 }
 
-func TestProviderIdentityFollowsModemManagerOwnerAcrossAgentRestarts(t *testing.T) {
+func TestProviderIdentityFollowsDBusAndModemManagerAcrossRestarts(t *testing.T) {
 	t.Parallel()
 
 	objects := emptyLineObjects(true, false)
@@ -726,8 +735,22 @@ func TestProviderIdentityFollowsModemManagerOwnerAcrossAgentRestarts(t *testing.
 	if err != nil {
 		t.Fatalf("Health() error = %v", err)
 	}
-	if health.BootEpoch != ":1.42" {
-		t.Fatalf("provider boot_epoch = %q, want ModemManager owner :1.42", health.BootEpoch)
+	if health.BootEpoch != "bus-1/:1.42" {
+		t.Fatalf("provider boot_epoch = %q, want bus-1/:1.42", health.BootEpoch)
+	}
+
+	caller.setBusID("bus-2")
+	restartedBus, err := firstProvider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("new D-Bus Snapshot() error = %v", err)
+	}
+	if len(restartedBus.Calls) != 1 ||
+		restartedBus.Calls[0].ID == restartedModemManager.Calls[0].ID {
+		t.Fatalf(
+			"D-Bus restart did not change call identity: before=%+v after=%+v",
+			restartedModemManager.Calls,
+			restartedBus.Calls,
+		)
 	}
 }
 
@@ -1318,6 +1341,7 @@ func newFakeCaller(objects ManagedObjects) *fakeCaller {
 	return &fakeCaller{
 		objects:            objects,
 		ownerName:          ":1.41",
+		busID:              "bus-1",
 		createdCallPath:    "/org/freedesktop/ModemManager1/Call/99",
 		createdMessagePath: "/org/freedesktop/ModemManager1/SMS/99",
 		runtimeVersion:     "1.24.2",

@@ -15,8 +15,8 @@ import (
 const missingStableLineIdentity = "physical_device, equipment_identifier, and device_identifier are all unavailable"
 
 type instanceIDs struct {
-	mu            sync.RWMutex
-	providerOwner string
+	mu    sync.RWMutex
+	epoch string
 }
 
 type lineIdentity struct {
@@ -31,28 +31,28 @@ func newInstanceIDs() *instanceIDs {
 	return &instanceIDs{}
 }
 
-func newInstanceIDsForTest(providerOwner string) *instanceIDs {
+func newInstanceIDsForTest(providerEpoch string) *instanceIDs {
 	ids := newInstanceIDs()
-	if err := ids.setProviderOwner(providerOwner); err != nil {
+	if err := ids.setProviderEpoch(providerEpoch); err != nil {
 		panic(err)
 	}
 	return ids
 }
 
-func (ids *instanceIDs) setProviderOwner(providerOwner string) error {
-	providerOwner = strings.TrimSpace(providerOwner)
-	if providerOwner == "" {
-		return fmt.Errorf("ModemManager D-Bus unique owner is empty")
+func (ids *instanceIDs) setProviderEpoch(providerEpoch string) error {
+	providerEpoch = strings.TrimSpace(providerEpoch)
+	if providerEpoch == "" {
+		return fmt.Errorf("ModemManager provider epoch is empty")
 	}
 	ids.mu.Lock()
-	ids.providerOwner = providerOwner
+	ids.epoch = providerEpoch
 	ids.mu.Unlock()
 	return nil
 }
 
-func (ids *instanceIDs) clearProviderOwner() {
+func (ids *instanceIDs) clearProviderEpoch() {
 	ids.mu.Lock()
-	ids.providerOwner = ""
+	ids.epoch = ""
 	ids.mu.Unlock()
 }
 
@@ -62,7 +62,7 @@ func (ids *instanceIDs) providerEpoch() string {
 	}
 	ids.mu.RLock()
 	defer ids.mu.RUnlock()
-	return ids.providerOwner
+	return ids.epoch
 }
 
 func (ids *instanceIDs) freeze() (*instanceIDs, error) {
