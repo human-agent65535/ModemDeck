@@ -2,14 +2,16 @@
 import {
   CardSim,
   Check,
+  CircleAlert,
   CircleCheck,
+  Clock3,
   MessageSquareText,
   Phone,
   RadioTower
 } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { Device, LineSummary } from '../api/types'
+import type { Device, LineSummary, NetworkLineStatus } from '../api/types'
 import { lineLabel } from '../state/workspace'
 import {
   isRegisteredNetwork,
@@ -17,6 +19,7 @@ import {
   registrationStateLabel
 } from '../utils/operatorNetwork'
 import SignalBars from './SignalBars.vue'
+import { trafficLineState } from './trafficLineState'
 
 const { t } = useI18n()
 const props = withDefaults(
@@ -27,12 +30,15 @@ const props = withDefaults(
     defaultLine?: boolean
     actions?: boolean
     flightMode?: boolean
+    runtime?: NetworkLineStatus
   }>(),
   {
     device: undefined,
     selected: false,
     defaultLine: false,
-    actions: false
+    actions: false,
+    flightMode: undefined,
+    runtime: undefined
   }
 )
 
@@ -99,6 +105,10 @@ const stateLabel = computed(() => {
   if (['failed', 'locked', 'disabled'].includes(state)) return label
   return registrationStateLabel(props.line, label, key => t(key))
 })
+const dataConnection = computed(() => {
+  if (!props.runtime) return null
+  return trafficLineState(props.runtime)
+})
 </script>
 
 <template>
@@ -123,6 +133,16 @@ const stateLabel = computed(() => {
           </small>
         </span>
         <span class="module-card__status">
+          <span
+            v-if="dataConnection"
+            class="module-card__data-status"
+            :class="`is-${dataConnection.kind}`"
+          >
+            <CircleCheck v-if="dataConnection.kind === 'connected'" :size="13" />
+            <CircleAlert v-else-if="dataConnection.kind === 'error'" :size="13" />
+            <Clock3 v-else :size="13" />
+            {{ t(dataConnection.labelKey) }}
+          </span>
           <span
             class="module-card__current"
             :class="{ 'is-visible': selected }"
@@ -322,25 +342,46 @@ const stateLabel = computed(() => {
 
 .module-card__status {
   display: flex;
-  width: 82px;
+  width: 96px;
   min-height: 24px;
-  flex: 0 0 82px;
+  flex: 0 0 96px;
   align-items: flex-end;
+  flex-direction: column;
   justify-content: flex-end;
+  gap: 4px;
 }
 
-.module-card__current {
+.module-card__current,
+.module-card__data-status {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
   gap: 3px;
-  color: var(--accent-strong);
   font-size: 12px;
   font-weight: 650;
   padding: 3px 6px;
+  border-radius: 4px;
+}
+
+.module-card__current {
+  color: var(--accent-strong);
   visibility: hidden;
   background: var(--accent-soft);
-  border-radius: 4px;
+}
+
+.module-card__data-status {
+  color: var(--muted);
+  background: var(--surface-subtle);
+}
+
+.module-card__data-status.is-connected {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+
+.module-card__data-status.is-error {
+  color: var(--danger);
+  background: var(--danger-soft);
 }
 
 .module-card__current.is-visible {
@@ -478,8 +519,8 @@ const stateLabel = computed(() => {
 
 @media (max-width: 560px) {
   .module-card__status {
-    width: 78px;
-    flex-basis: 78px;
+    width: 92px;
+    flex-basis: 92px;
   }
 }
 

@@ -102,7 +102,7 @@ function applyNotice(applied: boolean, status: ProxyApplyStatus): string {
 
 export function loadNetwork(force = false, silent = false): Promise<void> {
   if (!force && networkState.status === 'ready') return Promise.resolve()
-  if (!force && loadRequest) return loadRequest
+  if (loadRequest) return loadRequest
 
   const token = ++loadGeneration
   if (!silent || !networkState.snapshot) networkState.status = 'loading'
@@ -111,9 +111,7 @@ export function loadNetwork(force = false, silent = false): Promise<void> {
   request = Promise.all([gateway.getNetworkStatus(), gateway.listProxies()])
     .then(([snapshot, proxies]) => {
       if (token !== loadGeneration) return
-      networkState.snapshot = snapshot
-      networkState.proxies = proxies
-      networkState.status = 'ready'
+      acceptNetworkSnapshot(snapshot, proxies)
       networkState.notice = ''
     })
     .catch(error => {
@@ -127,6 +125,25 @@ export function loadNetwork(force = false, silent = false): Promise<void> {
     })
   loadRequest = request
   return request
+}
+
+export function acceptNetworkSnapshot(
+  snapshot: NetworkStatus,
+  proxies?: ProxyInstance[]
+): void {
+  const current = networkState.snapshot
+  if (
+    current?.boot_epoch === snapshot.boot_epoch &&
+    current.observed_at &&
+    snapshot.observed_at &&
+    Date.parse(snapshot.observed_at) < Date.parse(current.observed_at)
+  ) {
+    return
+  }
+  networkState.snapshot = snapshot
+  if (proxies) networkState.proxies = proxies
+  networkState.status = 'ready'
+  networkState.error = ''
 }
 
 async function handleMutationFailure(error: unknown, fallback: string): Promise<void> {

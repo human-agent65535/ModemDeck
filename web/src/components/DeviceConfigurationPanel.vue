@@ -20,7 +20,7 @@ import {
   Tag,
   Trash2
 } from '@lucide/vue'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { gateway } from '../api/client'
 import type {
@@ -50,6 +50,7 @@ import {
   setRadioEnabled,
   setVoLTEPolicy
 } from '../state/deviceConfiguration'
+import { loadNetwork, networkState } from '../state/network'
 import {
   activateNetworkSelection,
   enterManualNetworkSelection,
@@ -66,7 +67,6 @@ import {
   lineLabel,
   loadBootstrap,
   loadDevices,
-  refreshDeviceWorkspace,
   updateDefaultLine,
   updateLineLabel
 } from '../state/workspace'
@@ -112,8 +112,6 @@ const simNewPIN = ref('')
 const simProtectionEnabled = ref(true)
 const simPending = ref(false)
 let lineServiceGeneration = 0
-let discoveryTimer: ReturnType<typeof setInterval> | undefined
-
 const profiles = ref<ConnectionProfile[]>([])
 const profileLoadStatus = ref<AsyncStatus>('idle')
 const profileError = ref('')
@@ -133,6 +131,7 @@ const ussdResult = ref('')
 const ussdPending = ref(false)
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
+const networkSnapshot = computed(() => networkState.snapshot)
 const defaultDeviceIMEI = computed(
   () => bootstrapResource.data?.line_settings.default_device_imei || ''
 )
@@ -286,6 +285,10 @@ const selectedCallPathLabel = computed(() => {
     ? 'VoLTE'
     : 'GSM'
 })
+
+function networkRuntime(line: LineSummary) {
+  return networkSnapshot.value?.lines.find(runtime => runtime.line_id === lineKey(line))
+}
 const flightModeWritable = computed(
   () =>
     hardware.value?.flight_mode_known === true &&
@@ -984,14 +987,7 @@ async function submitUSSD(action: 'initiate' | 'respond' | 'cancel'): Promise<vo
 }
 
 onMounted(() => {
-  void Promise.all([loadBootstrap(), loadDevices()])
-  discoveryTimer = setInterval(() => {
-    if (document.visibilityState === 'visible') void refreshDeviceWorkspace()
-  }, 5000)
-})
-
-onBeforeUnmount(() => {
-  if (discoveryTimer) clearInterval(discoveryTimer)
+  void Promise.all([loadBootstrap(), loadDevices(), loadNetwork(true, true)])
 })
 </script>
 
@@ -1028,6 +1024,7 @@ onBeforeUnmount(() => {
         :key="lineKey(line)"
         :line="line"
         :device="deviceFor(line)"
+        :runtime="networkRuntime(line)"
         :selected="line.id === selectedLineID"
         :default-line="line.device_imei === defaultDeviceIMEI"
         :flight-mode="

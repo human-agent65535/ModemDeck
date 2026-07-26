@@ -157,6 +157,11 @@ const runningProxies = computed(
   () => trafficSnapshot.value?.proxies.filter(proxy => proxy.running).length || 0
 )
 
+function networkRuntime(line: LineSummary) {
+  const id = lineKey(line)
+  return trafficSnapshot.value?.lines.find(runtime => runtime.line_id === id)
+}
+
 const activities = computed<DashboardActivity[]>(() => {
   const calls: DashboardActivity[] = callsResource.data.map(call => ({
     key: `call:${call.id}`,
@@ -393,7 +398,9 @@ function loadDashboard(): void {
   ])
 }
 
-onMounted(loadDashboard)
+onMounted(() => {
+  loadDashboard()
+})
 </script>
 
 <template>
@@ -638,6 +645,7 @@ onMounted(loadDashboard)
                 :key="lineKey(line)"
                 :line="line"
                 :device="deviceFor(line)"
+                :runtime="networkRuntime(line)"
                 :default-line="line.device_imei === defaultDeviceIMEI"
                 @select="openLineSettings(line)"
               />

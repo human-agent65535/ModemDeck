@@ -717,6 +717,7 @@ function parseNetworkLine(value: unknown, index: number): NetworkLineStatus {
     line_id: requiredString(source, path, 'line_id'),
     connected: requiredBoolean(source, path, 'connected'),
     interface: requiredString(source, path, 'interface', true),
+    addresses: stringList(source, path, 'addresses'),
     dns: stringList(source, path, 'dns'),
     rx_bytes: requiredNonNegativeInteger(source, path, 'rx_bytes'),
     tx_bytes: requiredNonNegativeInteger(source, path, 'tx_bytes'),

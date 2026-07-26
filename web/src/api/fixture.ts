@@ -865,6 +865,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       line_id: fixtureLineKey(line),
       connected: index === 0,
       interface: index === 0 ? 'wwan0' : '',
+      addresses: index === 0 ? ['192.0.2.10', '2001:db8::10'] : [],
       dns: index === 0 ? ['1.1.1.1', '8.8.8.8'] : [],
       rx_bytes: index === 0 ? 4_820_001_423 : 736_010_442,
       tx_bytes: index === 0 ? 682_040_112 : 95_100_882,

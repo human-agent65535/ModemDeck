@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Plus, Waypoints } from '@lucide/vue'
 import type {
@@ -29,7 +29,6 @@ const { t } = useI18n()
 const selectedLineID = ref('all')
 const editorOpen = ref(false)
 const editorProxy = ref<ProxyInstance>()
-let refreshTimer: number | undefined
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const snapshot = computed(() => networkState.snapshot)
@@ -221,13 +220,6 @@ watch(lines, current => {
 
 onMounted(() => {
   void Promise.all([loadBootstrap(true), loadNetwork(true)])
-  refreshTimer = window.setInterval(() => {
-    void Promise.all([loadBootstrap(true), loadNetwork(true, true)])
-  }, 30_000)
-})
-
-onBeforeUnmount(() => {
-  if (refreshTimer !== undefined) window.clearInterval(refreshTimer)
 })
 </script>
 
@@ -330,6 +322,8 @@ onBeforeUnmount(() => {
               :line="line"
               :fallback="lineFallback(line)"
               :runtime="lineRuntime(line)"
+              :boot-epoch="snapshot?.boot_epoch"
+              :observed-at="snapshot?.observed_at"
               :today="usageFor('today', 'line', stableLineID(line))"
               :month="usageFor('month', 'line', stableLineID(line))"
             />

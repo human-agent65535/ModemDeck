@@ -499,9 +499,10 @@ func (manager *Manager) lineStatuses(
 	for _, lineID := range observation.lineIDs {
 		if _, discovered := observation.discovered[lineID]; !discovered {
 			statuses = append(statuses, domain.LineNetworkStatus{
-				LineID: lineID,
-				DNS:    []string{},
-				Error:  "line is absent from authoritative ModemManager discovery",
+				LineID:    lineID,
+				Addresses: []string{},
+				DNS:       []string{},
+				Error:     "line is absent from authoritative ModemManager discovery",
 			})
 			continue
 		}
@@ -517,8 +518,9 @@ func (manager *Manager) lineStatus(
 	configuration domain.DeviceConfiguration,
 ) domain.LineNetworkStatus {
 	status := domain.LineNetworkStatus{
-		LineID: configuration.LineID,
-		DNS:    []string{},
+		LineID:    configuration.LineID,
+		Addresses: []string{},
+		DNS:       []string{},
 	}
 	for _, connection := range configuration.DataConnections {
 		if connection.Connected {
@@ -542,6 +544,14 @@ func (manager *Manager) lineStatus(
 	}
 
 	status.Interface = selected.Interface
+	for _, address := range []string{
+		strings.TrimSpace(connection.IPv4.Address),
+		strings.TrimSpace(connection.IPv6.Address),
+	} {
+		if address != "" {
+			status.Addresses = append(status.Addresses, address)
+		}
+	}
 	status.DNS = selected.DNS
 	var statusErrors []string
 	if len(status.DNS) == 0 {
