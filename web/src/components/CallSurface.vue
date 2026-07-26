@@ -42,11 +42,11 @@ import LineTag from './LineTag.vue'
 const { t } = useI18n()
 const now = ref(Date.now())
 const dtmfOpen = ref(false)
-const dtmfDigits = ref('')
 const dtmfDisplay = ref<HTMLOutputElement>()
 let timer: number | undefined
 
 const session = computed(() => callState.session)
+const dtmfDigits = computed(() => callState.dtmfDigits)
 const line = computed(() => (session.value ? lineForKey(session.value.line_key) : undefined))
 const contact = computed(() =>
   session.value ? contactForNumber(session.value.remote_number) : undefined
@@ -169,8 +169,7 @@ const capabilityNotice = computed(() => {
 
 watch(
   () => [session.value?.id, session.value?.phase] as const,
-  ([id, phase], [previousID]) => {
-    if (id !== previousID) dtmfDigits.value = ''
+  ([, phase]) => {
     if (phase !== 'active') dtmfOpen.value = false
   }
 )
@@ -184,7 +183,6 @@ watch(
 )
 
 function tone(digit: string): void {
-  dtmfDigits.value += digit
   void playDTMFTone(digit)
   void nextTick(() => {
     if (dtmfDisplay.value) dtmfDisplay.value.scrollLeft = dtmfDisplay.value.scrollWidth
@@ -343,8 +341,50 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="call-surface__primary-actions">
+        <button
+          v-if="incoming || active"
+          class="call-footer-action call-footer-action--recording"
+          :class="{ 'is-active': callRecordingState.enabled }"
+          type="button"
+          :title="
+            callRecordingState.enabled
+              ? t('calls.stopRecording')
+              : t('calls.startRecording')
+          "
+          :aria-label="
+            callRecordingState.enabled
+              ? t('calls.stopCallRecording')
+              : t('calls.startCallRecording')
+          "
+          :aria-pressed="callRecordingState.enabled"
+          :disabled="
+            callRecordingState.busy ||
+            callRecordingState.status === 'initializing'
+          "
+          @click="toggleRecording"
+        >
+          <span class="call-footer-action__icon" aria-hidden="true">
+            <LoaderCircle
+              v-if="
+                callRecordingState.busy ||
+                callRecordingState.status === 'initializing'
+              "
+              class="spin"
+              :size="20"
+            />
+            <CassetteTape v-else :size="21" />
+            <span class="call-footer-action__state">
+              {{
+                callRecordingState.enabled
+                  ? t('recordingSettings.enabled')
+                  : t('recordingSettings.disabled')
+              }}
+            </span>
+          </span>
+          <small>{{ t('calls.record') }}</small>
+        </button>
         <template v-if="incoming">
-          <span class="call-primary-action call-primary-action--start">
+          <span class="call-primary-action call-primary-action--center">
             <button
               class="call-button call-button--hangup"
               type="button"
@@ -376,48 +416,6 @@ onBeforeUnmount(() => {
           </span>
         </template>
         <template v-else-if="canHangup">
-          <button
-            v-if="active"
-            class="call-footer-action call-footer-action--recording"
-            :class="{ 'is-active': callRecordingState.enabled }"
-            type="button"
-            :title="
-              callRecordingState.enabled
-                ? t('calls.stopRecording')
-                : t('calls.startRecording')
-            "
-            :aria-label="
-              callRecordingState.enabled
-                ? t('calls.stopCallRecording')
-                : t('calls.startCallRecording')
-            "
-            :aria-pressed="callRecordingState.enabled"
-            :disabled="
-              callRecordingState.busy ||
-              callRecordingState.status === 'initializing'
-            "
-            @click="toggleRecording"
-          >
-            <span class="call-footer-action__icon" aria-hidden="true">
-              <LoaderCircle
-                v-if="
-                  callRecordingState.busy ||
-                  callRecordingState.status === 'initializing'
-                "
-                class="spin"
-                :size="20"
-              />
-              <CassetteTape v-else :size="21" />
-              <span class="call-footer-action__state">
-                {{
-                  callRecordingState.enabled
-                    ? t('recordingSettings.enabled')
-                    : t('recordingSettings.disabled')
-                }}
-              </span>
-            </span>
-            <small>{{ t('calls.record') }}</small>
-          </button>
           <span class="call-primary-action call-primary-action--center">
             <button
               class="call-button call-button--hangup"

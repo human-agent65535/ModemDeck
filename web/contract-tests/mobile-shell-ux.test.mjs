@@ -12,10 +12,48 @@ test('mobile shell uses page context and a dedicated central dial action', async
   assert.match(shell, /const mobilePageTitle = computed/)
   assert.match(shell, /<div class="mobile-brand">\{\{ mobilePageTitle \}\}<\/div>/)
   assert.match(shell, /class="mobile-nav__dial"/)
-  assert.match(shell, /:aria-pressed="uiState\.dialerOpen"/)
+  assert.match(shell, /:aria-pressed="uiState\.dialerOpen \|\| activeCallPresent"/)
   assert.match(shell, /@click="openDialer\(\)"/)
   assert.match(shell, /<span>\{\{ t\('shell\.mobileCall'\) \}\}<\/span>/)
   assert.match(shell, /:to="\{ name: 'settings' \}"/)
+})
+
+test('ringing calls animate the central call action and remain restorable when minimized', async () => {
+  const shell = await source('../src/components/AppShell.vue')
+  const dialer = await source('../src/components/DialerPanel.vue')
+  const callSurface = await source('../src/components/CallSurface.vue')
+  const ui = await source('../src/state/ui.ts')
+  const styles = await source('../src/style.css')
+
+  assert.match(shell, /const incomingCallRinging = computed/)
+  assert.match(shell, /const minimizedIncomingCall = computed/)
+  assert.match(shell, /'is-ringing': minimizedIncomingCall/)
+  assert.match(shell, /mobile-nav__ring-wave--inner/)
+  assert.match(shell, /mobile-nav__ring-wave--outer/)
+  assert.match(styles, /@keyframes mobile-call-ring/)
+  assert.match(styles, /@keyframes mobile-call-wave/)
+  assert.match(ui, /export function minimizeCallSurface\(\): void/)
+  assert.match(ui, /uiState\.callMinimized = true/)
+  assert.match(dialer, /showingCall \? minimizeCallSurface\(\) : closeDialer\(\)/)
+  assert.match(dialer, /<Minus v-if="showingCall"/)
+  assert.match(
+    callSurface,
+    /v-if="incoming \|\| active"[\s\S]*call-footer-action--recording/
+  )
+})
+
+test('a minimized connected call animates the existing phone audio waves', async () => {
+  const shell = await source('../src/components/AppShell.vue')
+  const styles = await source('../src/style.css')
+
+  assert.match(shell, /const minimizedActiveCall = computed/)
+  assert.match(shell, /'is-active-call': minimizedActiveCall/)
+  assert.match(
+    styles,
+    /\.mobile-nav__dial\.is-active-call \.mobile-nav__dial-icon > svg path:nth-child\(1\)/
+  )
+  assert.match(styles, /@keyframes mobile-call-audio-wave/)
+  assert.doesNotMatch(shell, /mobile-nav__audio-bars/)
 })
 
 test('mobile shell removes duplicate global search and compacts page toolbars', async () => {

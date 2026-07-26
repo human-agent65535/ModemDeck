@@ -17,7 +17,7 @@ import {
   UsersRound
 } from '@lucide/vue'
 import { fixtureMode } from '../api/client'
-import { initializeCallRuntime, shutdownCallRuntime } from '../state/call'
+import { callState, initializeCallRuntime, shutdownCallRuntime } from '../state/call'
 import {
   browserNotificationState,
   initializeBrowserNotifications,
@@ -53,6 +53,24 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const permanentDialer = ref(false)
+const activeCallPresent = computed(() => {
+  const phase = callState.session?.phase
+  return Boolean(phase && phase !== 'ended' && phase !== 'failed')
+})
+const incomingCallRinging = computed(
+  () => callState.session?.direction === 'incoming' && callState.session.phase === 'ringing'
+)
+const minimizedIncomingCall = computed(
+  () => incomingCallRinging.value && uiState.callMinimized
+)
+const minimizedActiveCall = computed(
+  () => callState.session?.phase === 'active' && uiState.callMinimized
+)
+const mobileCallTitle = computed(() => {
+  if (incomingCallRinging.value) return t('shell.openIncomingCall')
+  if (activeCallPresent.value) return t('shell.returnToCall')
+  return t('shell.openDialer')
+})
 const browserNotificationTitle = computed(() => {
   if (!browserNotificationState.secureContext) return t('shell.notificationsRequireHTTPS')
   if (!browserNotificationState.supported) return t('shell.notificationsUnsupported')
@@ -275,14 +293,28 @@ onBeforeUnmount(() => {
       </RouterLink>
       <button
         class="mobile-nav__dial"
-        :class="{ 'is-current': uiState.dialerOpen }"
+        :class="{
+          'is-current': uiState.dialerOpen || activeCallPresent,
+          'is-ringing': minimizedIncomingCall,
+          'is-active-call': minimizedActiveCall
+        }"
         type="button"
-        :title="t('shell.openDialer')"
-        :aria-label="t('shell.openDialer')"
-        :aria-pressed="uiState.dialerOpen"
+        :title="mobileCallTitle"
+        :aria-label="mobileCallTitle"
+        :aria-pressed="uiState.dialerOpen || activeCallPresent"
         @click="openDialer()"
       >
         <span class="mobile-nav__dial-icon">
+          <span
+            v-if="minimizedIncomingCall"
+            class="mobile-nav__ring-wave mobile-nav__ring-wave--inner"
+            aria-hidden="true"
+          />
+          <span
+            v-if="minimizedIncomingCall"
+            class="mobile-nav__ring-wave mobile-nav__ring-wave--outer"
+            aria-hidden="true"
+          />
           <PhoneCall :size="23" />
         </span>
         <span>{{ t('shell.mobileCall') }}</span>

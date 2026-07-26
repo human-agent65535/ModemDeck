@@ -105,9 +105,12 @@ test('desktop shell has one permanent dialer and dashboard renders every line', 
   assert.ok(shell.indexOf('<IncomingCallModeControl />') < shell.indexOf('<AudioSettingsMenu />'))
   assert.match(shell, /<DialerPanel :permanent="permanentDialer" \/>/)
   assert.doesNotMatch(shell, /dialer-fab|Grid3X3/)
-  assert.match(shell, /:aria-pressed="uiState\.dialerOpen"/)
+  assert.match(shell, /:aria-pressed="uiState\.dialerOpen \|\| activeCallPresent"/)
   assert.doesNotMatch(shell, /<CallSurface/)
-  assert.match(dialer, /v-if="permanent \|\| uiState\.dialerOpen \|\| showingCall"/)
+  assert.match(
+    dialer,
+    /v-if="permanent \|\| uiState\.dialerOpen \|\| callSurfaceVisible"/
+  )
   assert.match(dialer, /<CallSurface v-if="showingCall" \/>/)
   assert.match(
     dialer,
@@ -115,7 +118,7 @@ test('desktop shell has one permanent dialer and dashboard renders every line', 
   )
   assert.match(
     dialer,
-    /@keydown\.esc="!permanent && !showingCall && closeDialer\(\)"/
+    /@keydown\.esc="[\s\S]*showingCall \? minimizeCallSurface\(\) : closeDialer\(\)/
   )
   assert.match(dashboard, /v-for="line in lines"/)
   assert.doesNotMatch(dashboard, /lines(?:\.value)?\.slice/)
@@ -131,7 +134,7 @@ test('active calls own the dialer surface and keep modal call controls reachable
   const surface = await source('../src/components/CallSurface.vue')
 
   assert.match(dialer, /ref="panelRef"/)
-  assert.match(dialer, /:tabindex="!permanent && showingCall \? -1 : undefined"/)
+  assert.match(dialer, /:tabindex="!permanent && callSurfaceVisible \? -1 : undefined"/)
   assert.match(dialer, /function trapCallFocus\(event: KeyboardEvent\)/)
   assert.match(dialer, /function restoreDialogFocus\(\): void/)
   assert.match(dialer, /dialerReturnFocus\?\.isConnected/)

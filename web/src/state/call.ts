@@ -7,7 +7,7 @@ import { translate } from '../i18n'
 import { showBrowserNotification } from './browserNotifications'
 import { syncCallSounds } from './browserSounds'
 import { capabilityReason, contactForNumber, lineForKey, lineLabel } from './workspace'
-import { closeDialer } from './ui'
+import { closeDialer, showCallSurface } from './ui'
 import { shutdownCallMedia, syncCallMedia } from './callMedia'
 
 const TERMINAL_PHASES = new Set<CallSession['phase']>(['ended', 'failed'])
@@ -27,6 +27,7 @@ const notifiedIncomingCallIDs = new Set<string>()
 
 export const callState = reactive<{
   session: CallSession | null
+  dtmfDigits: string
   busy: boolean
   pendingAction: PendingCallAction
   error: string
@@ -35,6 +36,7 @@ export const callState = reactive<{
   syncError: string
 }>({
   session: null,
+  dtmfDigits: '',
   busy: false,
   pendingAction: '',
   error: '',
@@ -65,7 +67,10 @@ function requestError(error: unknown, fallback: string): { message: string; stat
 }
 
 function acceptSession(session: CallSession): void {
+  const newCall = callState.session?.id !== session.id
+  if (newCall) callState.dtmfDigits = ''
   callState.session = session
+  if (newCall) showCallSurface()
   syncCallSounds(session)
   syncCallMedia(session)
   showIncomingCallNotification(session)
@@ -130,6 +135,7 @@ async function pollActiveCalls(): Promise<void> {
       acceptSession(active)
     } else if (callState.session && !TERMINAL_PHASES.has(callState.session.phase)) {
       callState.session = null
+      callState.dtmfDigits = ''
       syncCallSounds(null)
       syncCallMedia(null)
     }
@@ -173,6 +179,7 @@ export function shutdownCallRuntime(): void {
   syncCallSounds(null)
   shutdownCallMedia()
   callState.session = null
+  callState.dtmfDigits = ''
   callState.busy = false
   callState.pendingAction = ''
   callState.error = ''
@@ -265,6 +272,7 @@ export async function sendDTMF(digit: string): Promise<void> {
   const id = callState.session?.id
   if (!id || callState.session?.phase !== 'active' || callState.busy) return
 
+  callState.dtmfDigits += digit
   mutationEpoch += 1
   callState.busy = true
   callState.pendingAction = 'dtmf'
@@ -286,6 +294,7 @@ export async function sendDTMF(digit: string): Promise<void> {
 export function dismissCall(): void {
   if (callState.session && !TERMINAL_PHASES.has(callState.session.phase)) return
   callState.session = null
+  callState.dtmfDigits = ''
   syncCallSounds(null)
   syncCallMedia(null)
   callState.error = ''

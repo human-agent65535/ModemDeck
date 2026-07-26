@@ -2,6 +2,7 @@ import { reactive } from 'vue'
 
 export const uiState = reactive({
   dialerOpen: false,
+  callMinimized: false,
   dialTarget: '',
   dialLabel: '',
   dialLineKey: '',
@@ -9,6 +10,7 @@ export const uiState = reactive({
 })
 
 export function openDialer(target = '', label = '', lineKey = ''): void {
+  uiState.callMinimized = false
   uiState.dialTarget = target
   uiState.dialLabel = label
   uiState.dialLineKey = lineKey
@@ -17,5 +19,14 @@ export function openDialer(target = '', label = '', lineKey = ''): void {
 }
 
 export function closeDialer(): void {
+  uiState.dialerOpen = false
+}
+
+export function showCallSurface(): void {
+  uiState.callMinimized = false
+}
+
+export function minimizeCallSurface(): void {
+  uiState.callMinimized = true
   uiState.dialerOpen = false
 }

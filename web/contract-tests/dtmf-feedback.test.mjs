@@ -37,9 +37,20 @@ test('dial and in-call keypads share visual data, sound, and pressed-digit feedb
   assert.match(call, /v-for="key in phoneKeypad"/)
   assert.match(dialer, /playDTMFTone\(digit\)/)
   assert.match(call, /playDTMFTone\(digit\)/)
-  assert.match(call, /dtmfDigits\.value \+= digit/)
+  assert.match(call, /const dtmfDigits = computed\(\(\) => callState\.dtmfDigits\)/)
   assert.match(call, /class="call-surface__dtmf-display"/)
   assert.match(styles, /\.keypad__key:active:not\(:disabled\)/)
+})
+
+test('in-call keypad digits survive keypad and call-surface minimization', async () => {
+  const callState = await source('../src/state/call.ts')
+  const call = await source('../src/components/CallSurface.vue')
+
+  assert.match(callState, /dtmfDigits: string/)
+  assert.match(callState, /callState\.dtmfDigits \+= digit/)
+  assert.match(callState, /if \(newCall\) callState\.dtmfDigits = ''/)
+  assert.match(call, /const dtmfDigits = computed\(\(\) => callState\.dtmfDigits\)/)
+  assert.doesNotMatch(call, /const dtmfDigits = ref/)
 })
 
 test('pre-call delete stays in the number field and the call action owns a footer', async () => {

@@ -7,6 +7,7 @@ import { parseContact } from '../src/api/normalize.ts'
 const editor = new URL('../src/components/ContactEditor.vue', import.meta.url)
 const avatarPicker = new URL('../src/components/ContactAvatarPicker.vue', import.meta.url)
 const numberActions = new URL('../src/components/ContactNumberActions.vue', import.meta.url)
+const callSurface = new URL('../src/components/CallSurface.vue', import.meta.url)
 const contactsView = new URL('../src/views/ContactsView.vue', import.meta.url)
 const messagesView = new URL('../src/views/MessagesView.vue', import.meta.url)
 const recordingsView = new URL('../src/views/RecordingsView.vue', import.meta.url)
@@ -63,6 +64,13 @@ test('recordings reuse the compact contact identity and actions in the header', 
   assert.match(source, /:number="selected\.call\.remote_number"/)
   assert.match(source, /class="recording-header__contact-actions"/)
   assert.match(source, /<ContactNumberActions[\s\S]*:contact="selectedContact"[\s\S]*compact/)
+})
+
+test('incoming and outgoing call surfaces reuse a matched contact avatar', async () => {
+  const source = await readFile(callSurface, 'utf8')
+
+  assert.match(source, /contactForNumber\(session\.value\.remote_number\)/)
+  assert.match(source, /<BaseAvatar[\s\S]*:src="contact\?\.avatar"/)
 })
 
 test('fixture persists favorite and preferred line through contact writes', async () => {

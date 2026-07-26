@@ -5,11 +5,12 @@ import {
   CassetteTape,
   Delete,
   LoaderCircle,
+  Minus,
   Phone,
   X
 } from '@lucide/vue'
 import { callState, dial } from '../state/call'
-import { closeDialer, uiState } from '../state/ui'
+import { closeDialer, minimizeCallSurface, uiState } from '../state/ui'
 import {
   dialerRecordingState,
   rememberCallRecordingPreference,
@@ -64,6 +65,9 @@ const zeroLongPressDelay = 500
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const showingCall = computed(() => Boolean(callState.session))
+const callSurfaceVisible = computed(
+  () => showingCall.value && (props.permanent || !uiState.callMinimized)
+)
 const defaultLineDeviceIMEI = computed(
   () => bootstrapResource.data?.line_settings.default_device_imei || ''
 )
@@ -171,7 +175,7 @@ watch(
   }
 )
 
-watch([showingCall, () => props.permanent], async ([showing, permanent], [previous, wasPermanent]) => {
+watch([callSurfaceVisible, () => props.permanent], async ([showing, permanent], [previous, wasPermanent]) => {
   if (showing && !permanent && (!previous || wasPermanent)) {
     callReturnFocus =
       dialerReturnFocus?.isConnected
@@ -327,7 +331,7 @@ function restoreDialogFocus(): void {
 }
 
 function trapCallFocus(event: KeyboardEvent): void {
-  if (props.permanent || !showingCall.value || event.key !== 'Tab' || !panelRef.value) return
+  if (props.permanent || !callSurfaceVisible.value || event.key !== 'Tab' || !panelRef.value) return
 
   const focusable = Array.from(
     panelRef.value.querySelectorAll<HTMLElement>(
@@ -368,10 +372,10 @@ onBeforeUnmount(() => {
   <Teleport to="body" :disabled="permanent">
     <Transition name="fade">
       <div
-        v-if="permanent || uiState.dialerOpen || showingCall"
+        v-if="permanent || uiState.dialerOpen || callSurfaceVisible"
         :class="[
           permanent ? 'dialer-host dialer-host--permanent' : 'drawer-backdrop',
-          { 'drawer-backdrop--call': !permanent && showingCall }
+          { 'drawer-backdrop--call': !permanent && callSurfaceVisible }
         ]"
         @mousedown.self="!permanent && !showingCall && closeDialer()"
       >
@@ -385,22 +389,25 @@ onBeforeUnmount(() => {
           :role="permanent ? undefined : 'dialog'"
           :aria-modal="permanent ? undefined : true"
           :aria-label="showingCall ? t('shell.calls') : t('dialer.title')"
-          :tabindex="!permanent && showingCall ? -1 : undefined"
+          :tabindex="!permanent && callSurfaceVisible ? -1 : undefined"
           @keydown="trapCallFocus"
-          @keydown.esc="!permanent && !showingCall && closeDialer()"
+          @keydown.esc="
+            !permanent && (showingCall ? minimizeCallSurface() : closeDialer())
+          "
         >
-          <header v-if="permanent || !showingCall" class="tool-header dialer-toolbar">
+          <header class="tool-header dialer-toolbar">
             <h2>{{ showingCall ? t('shell.calls') : t('dialer.title') }}</h2>
             <span class="dialer-header-actions">
               <button
-                v-if="!permanent && !showingCall"
+                v-if="!permanent"
                 class="icon-button"
                 type="button"
-                :title="t('common.close')"
-                :aria-label="t('dialer.close')"
-                @click="closeDialer"
+                :title="showingCall ? t('calls.minimize') : t('common.close')"
+                :aria-label="showingCall ? t('calls.minimizeCall') : t('dialer.close')"
+                @click="showingCall ? minimizeCallSurface() : closeDialer()"
               >
-                <X :size="19" />
+                <Minus v-if="showingCall" :size="20" />
+                <X v-else :size="19" />
               </button>
             </span>
           </header>
