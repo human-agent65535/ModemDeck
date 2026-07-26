@@ -7,10 +7,6 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
-type healthResponse struct {
-	Status string `json:"status"`
-}
-
 type sessionResponse struct {
 	Authenticated bool   `json:"authenticated"`
 	Username      string `json:"username,omitempty"`

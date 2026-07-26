@@ -76,6 +76,10 @@ type CapabilitySource interface {
 	Capabilities(context.Context) (Capabilities, error)
 }
 
+type HealthProbe interface {
+	Health(context.Context) (agentclient.Health, error)
+}
+
 type Authenticator interface {
 	Login(context.Context, string) (auth.LoginResult, error)
 	Authenticate(context.Context, auth.SessionToken) (auth.Authentication, error)
@@ -188,6 +192,7 @@ type NetworkService interface {
 }
 
 type Options struct {
+	HealthProbe           HealthProbe
 	Capabilities          CapabilitySource
 	Communications        CommunicationService
 	DeviceConfigurations  DeviceConfigurationService
@@ -211,6 +216,7 @@ type Options struct {
 
 type API struct {
 	repository           Repository
+	healthProbe          HealthProbe
 	capabilities         CapabilitySource
 	communications       CommunicationService
 	deviceConfigurations DeviceConfigurationService
@@ -247,8 +253,13 @@ func New(repository Repository, options Options) (*API, error) {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
+	healthProbe := options.HealthProbe
+	if healthProbe == nil && options.Communications != nil {
+		healthProbe, _ = options.Communications.(HealthProbe)
+	}
 	return &API{
 		repository:           repository,
+		healthProbe:          healthProbe,
 		capabilities:         options.Capabilities,
 		communications:       options.Communications,
 		deviceConfigurations: options.DeviceConfigurations,
@@ -281,8 +292,12 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		http.NotFound(response, request)
 		return
 	}
-	if request.URL.Path == "/api/v1/health" {
-		api.getOnly(response, request, api.health)
+	switch request.URL.Path {
+	case "/api/v1/health/live":
+		api.getOnly(response, request, api.liveness)
+		return
+	case "/api/v1/health", "/api/v1/health/ready":
+		api.getOnly(response, request, api.readiness)
 		return
 	}
 	if request.URL.Path == "/api/v1/session" {
@@ -398,15 +413,6 @@ func (api *API) getOnly(response http.ResponseWriter, request *http.Request, han
 		return
 	}
 	handler(response, request)
-}
-
-func (api *API) health(response http.ResponseWriter, request *http.Request) {
-	if err := api.repository.Ping(request.Context()); err != nil {
-		api.logger.Error("health check failed", "error", err)
-		writeError(response, http.StatusServiceUnavailable, "database_unavailable", "Database is unavailable", "")
-		return
-	}
-	writeJSON(response, http.StatusOK, healthResponse{Status: "ok"})
 }
 
 func (api *API) bootstrap(response http.ResponseWriter, request *http.Request) {
