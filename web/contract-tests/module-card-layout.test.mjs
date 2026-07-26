@@ -112,12 +112,28 @@ test('voice capability describes call control without implying an audio path', (
 })
 
 test('module cards use graded bars and reserve the airplane icon for flight mode', () => {
+  const flightModeStart = moduleCard.indexOf('const flightMode = computed(')
+  const flightModeEnd = moduleCard.indexOf(
+    'const radioWaitingForRegistration = computed(',
+    flightModeStart
+  )
+  const flightModeProjection = moduleCard.slice(flightModeStart, flightModeEnd)
+
   assert.match(moduleCard, /import SignalBars from '\.\/SignalBars\.vue'/)
+  assert.match(
+    flightModeProjection,
+    /props\.line\.radio_desired_enabled_known[\s\S]*!props\.line\.radio_desired_enabled/
+  )
+  assert.doesNotMatch(flightModeProjection, /state|disabled/)
   assert.match(
     moduleCard,
     /!flightMode\.value[\s\S]*!radioWaitingForRegistration\.value[\s\S]*isRegisteredNetwork\(props\.line\)/
   )
   assert.match(moduleCard, /if \(flightMode\.value\) return t\('device\.flightMode'\)/)
+  assert.match(
+    moduleCard,
+    /if \(radioWaitingForRegistration\.value\) return t\('device\.radioRecovering'\)/
+  )
   assert.match(
     moduleCard,
     /class="module-card__signal-value"[\s\S]*<SignalBars :value="signal" :flight-mode="flightMode" \/>[\s\S]*flightMode[\s\S]*t\('device\.flightMode'\)[\s\S]*signal === null[\s\S]*`\$\{signal\}%`/

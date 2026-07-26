@@ -402,6 +402,8 @@ function fixtureLines(count: number): LineSummary[] {
       model: 'Fixture modem 1',
       firmware: 'Fixture 1.0',
       state: 'registered',
+      radio_desired_enabled: true,
+      radio_desired_enabled_known: true,
       signal_quality: 82,
       capabilities: {
         modem: true,
@@ -441,6 +443,8 @@ function fixtureLines(count: number): LineSummary[] {
       model: 'Fixture modem 2',
       firmware: 'Fixture 1.0',
       state: 'registered',
+      radio_desired_enabled: true,
+      radio_desired_enabled_known: true,
       signal_quality: 76,
       capabilities: {
         modem: true,
@@ -481,6 +485,8 @@ function fixtureLines(count: number): LineSummary[] {
       model: `Fixture modem ${displayIndex}`,
       firmware: 'Fixture 1.0',
       state: 'registered',
+      radio_desired_enabled: true,
+      radio_desired_enabled_known: true,
       signal_quality: Math.max(10, 80 - displayIndex),
       capabilities: {
         modem: true,

@@ -84,8 +84,11 @@ function deviceConfigurationErrorText(
     if (!hardware.radio.enabled_known || !hardware.flight_mode_known) {
       return translate('device.radioStateUnavailableForData')
     }
-    if (!hardware.radio.enabled || hardware.flight_mode) {
+    if (hardware.flight_mode) {
       return translate('runtime.turnOffFlightModeForData')
+    }
+    if (!hardware.radio.enabled) {
+      return translate('runtime.waitForRadioRecoveryForData')
     }
   }
   return errorText(error)

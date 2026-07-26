@@ -89,6 +89,8 @@ func TestSnapshotJSONContractUsesArraysAndRequiredTruthFields(t *testing.T) {
 		"identity_persistent",
 		"identity_source",
 		"saved_policy_supported",
+		"radio_desired_enabled",
+		"radio_desired_enabled_known",
 	} {
 		if _, ok := line[key]; !ok {
 			t.Fatalf("line JSON missing %q: %s", key, encoded)

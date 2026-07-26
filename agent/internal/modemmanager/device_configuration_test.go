@@ -335,6 +335,45 @@ func TestDeviceConfigurationReadsGenericModemManagerState(t *testing.T) {
 	)
 }
 
+func TestDeviceConfigurationSeparatesDesiredRadioFromTransientDisabledState(t *testing.T) {
+	t.Parallel()
+	objects := configurationObjects()
+	objects[testModemPath][modemInterface]["State"] =
+		dbus.MakeVariant(int32(modemStateDisabled))
+	objects[testModemPath][modemInterface]["PowerState"] =
+		dbus.MakeVariant(uint32(modemPowerStateOn))
+	caller := &configurationCaller{objects: objects}
+	provider := newTestProvider(caller)
+	lineID := parsedLineID(objects, provider.ids)
+
+	configuration, err := provider.ReadDeviceConfiguration(context.Background(), lineID)
+	if err != nil {
+		t.Fatalf("ReadDeviceConfiguration() error = %v", err)
+	}
+	if !configuration.Radio.EnabledKnown || configuration.Radio.Enabled ||
+		!configuration.FlightModeKnown || configuration.FlightMode {
+		t.Fatalf("transient disabled state was represented as airplane mode: %+v", configuration)
+	}
+
+	disabled := false
+	configuration, err = provider.ApplyGenericDeviceConfiguration(
+		context.Background(),
+		domain.ApplyDeviceConfigurationRequest{
+			RequestID:        "persist-explicit-flight-mode",
+			LineID:           lineID,
+			ExpectedRevision: configuration.Revision,
+			Operation:        domain.DeviceConfigurationSetRadioEnabled,
+			RadioEnabled:     &disabled,
+		},
+	)
+	if err != nil {
+		t.Fatalf("ApplyGenericDeviceConfiguration() error = %v", err)
+	}
+	if !configuration.FlightModeKnown || !configuration.FlightMode {
+		t.Fatalf("explicit disabled intent was not represented as airplane mode: %+v", configuration)
+	}
+}
+
 func TestParseDataConnectionPreservesAPNType(t *testing.T) {
 	t.Parallel()
 

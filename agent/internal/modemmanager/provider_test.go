@@ -273,6 +273,8 @@ func TestSnapshotReturnsDisabledLineWithoutServiceHydration(t *testing.T) {
 	}
 	if len(snapshot.Lines) != 1 ||
 		snapshot.Lines[0].State != "disabled" ||
+		!snapshot.Lines[0].RadioDesiredEnabledKnown ||
+		!snapshot.Lines[0].RadioDesiredEnabled ||
 		len(snapshot.Calls) != 0 ||
 		len(snapshot.Messages) != 0 {
 		t.Fatalf("disabled snapshot = %+v", snapshot)

@@ -121,6 +121,8 @@ func TestSnapshotDecodesAgentContract(t *testing.T) {
 				"state":"registered",
 				"state_code":8,
 				"power_state_code":3,
+				"radio_desired_enabled":true,
+				"radio_desired_enabled_known":true,
 				"access_technologies":16384,
 				"signal_quality_known":true,
 				"signal_quality":73,
@@ -198,6 +200,8 @@ func TestSnapshotDecodesAgentContract(t *testing.T) {
 	}
 	if !snapshot.Lines[0].IdentityPersistent ||
 		!snapshot.Lines[0].SavedPolicySupported ||
+		!snapshot.Lines[0].RadioDesiredEnabled ||
+		!snapshot.Lines[0].RadioDesiredEnabledKnown ||
 		snapshot.Lines[0].IdentitySource != "physical_device+equipment_identifier+device_identifier" ||
 		snapshot.Lines[0].UnsupportedPolicyReason != "" {
 		t.Fatalf("unexpected line identity: %+v", snapshot.Lines[0])

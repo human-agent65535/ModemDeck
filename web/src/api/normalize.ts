@@ -341,6 +341,12 @@ export function parseLine(value: unknown): LineSummary {
         ? rawAccessTechnologies
         : undefined,
     state: stringValue(source, 'state') || undefined,
+    radio_desired_enabled: requiredBoolean(source, 'line', 'radio_desired_enabled'),
+    radio_desired_enabled_known: requiredBoolean(
+      source,
+      'line',
+      'radio_desired_enabled_known'
+    ),
     signal_quality: nullableNumber(source, 'signal_quality') ?? undefined,
     signal_snr: rawSignalSNR ?? undefined,
     capabilities: parseCommunicationCapabilities(source.capabilities, 'line.capabilities')

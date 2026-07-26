@@ -280,6 +280,7 @@ func (p *Provider) Snapshot(ctx context.Context) (domain.Snapshot, error) {
 		return domain.Snapshot{}, err
 	}
 	parsed := ParseManagedObjects(objects, identity)
+	p.projectDesiredRadioState(parsed.Lines)
 	observedAt := p.now().UTC()
 	p.projectTerminatedCalls(&parsed, observedAt)
 	revision, err := snapshotRevision(parsed.Lines, parsed.Calls, parsed.Messages)
@@ -293,6 +294,17 @@ func (p *Provider) Snapshot(ctx context.Context) (domain.Snapshot, error) {
 		Calls:      parsed.Calls,
 		Messages:   parsed.Messages,
 	}, nil
+}
+
+func (p *Provider) projectDesiredRadioState(lines []domain.Line) {
+	for index := range lines {
+		line := &lines[index]
+		if !line.SavedPolicySupported || p.radioStates == nil {
+			continue
+		}
+		line.RadioDesiredEnabled = p.radioStates.enabled(line.ID)
+		line.RadioDesiredEnabledKnown = true
+	}
 }
 
 func (p *Provider) StartCall(ctx context.Context, request domain.StartCallRequest) (domain.CommandReceipt, error) {

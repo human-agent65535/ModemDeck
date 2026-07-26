@@ -49,12 +49,18 @@ const signal = computed(() => props.line.signal_quality ?? null)
 const flightMode = computed(
   () =>
     props.flightMode ??
-    (props.line.state || '').trim().toLocaleLowerCase() === 'disabled'
+    (props.line.radio_desired_enabled_known
+      ? !props.line.radio_desired_enabled
+      : false)
 )
 const radioWaitingForRegistration = computed(
   () =>
-    props.flightMode === false &&
-    (props.line.state || '').trim().toLocaleLowerCase() === 'disabled'
+    !flightMode.value &&
+    props.line.radio_desired_enabled_known &&
+    props.line.radio_desired_enabled &&
+    ['disabled', 'disabling', 'enabling', 'initializing'].includes(
+      (props.line.state || '').trim().toLocaleLowerCase()
+    )
 )
 const online = computed(
   () =>
@@ -90,7 +96,7 @@ const networkFacts = computed(() =>
 )
 const stateLabel = computed(() => {
   if (flightMode.value) return t('device.flightMode')
-  if (radioWaitingForRegistration.value) return t('lines.enabled')
+  if (radioWaitingForRegistration.value) return t('device.radioRecovering')
   const state = (props.line.state || '').toLocaleLowerCase()
   let label = props.line.state || t('lines.unknownState')
   if (state === 'connected') label = t('lines.connected')

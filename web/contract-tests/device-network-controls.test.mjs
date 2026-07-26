@@ -60,6 +60,7 @@ test('mobile data is unavailable while airplane mode or radio state prevents it'
   assert.match(source, /:checked="hardware\.network_enabled"/)
   assert.match(source, /:disabled="hardwareBusy \|\| !dataConnectionWritable"/)
   assert.match(source, /t\('runtime\.turnOffFlightModeForData'\)/)
+  assert.match(source, /t\('runtime\.waitForRadioRecoveryForData'\)/)
   assert.match(source, /<span>APN<\/span>/)
   assert.match(networkSection, /<legend>\{\{ t\('device\.ipMode'\) \}\}<\/legend>/)
   assert.match(networkSection, /type="radio" value="ipv4"/)

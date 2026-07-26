@@ -701,17 +701,19 @@ func TestProjectLinePreservesDetectedInterfaces(t *testing.T) {
 	t.Parallel()
 	snr := 8.75
 	projected := projectLine(agentclient.Line{
-		ID:                      "line-voice",
-		Model:                   "QDC507",
-		HardwareRevision:        "fixture-hw-1",
-		PrimaryPort:             "cdc-wdm0",
-		AccessTechnologies:      1 << 14,
-		AccessTechnologiesKnown: true,
-		SignalQualityKnown:      true,
-		SignalQualityRecent:     true,
-		SignalQuality:           73,
-		SignalMetricsRecent:     true,
-		SignalSNR:               &snr,
+		ID:                       "line-voice",
+		Model:                    "QDC507",
+		HardwareRevision:         "fixture-hw-1",
+		PrimaryPort:              "cdc-wdm0",
+		AccessTechnologies:       1 << 14,
+		AccessTechnologiesKnown:  true,
+		SignalQualityKnown:       true,
+		SignalQualityRecent:      true,
+		SignalQuality:            73,
+		RadioDesiredEnabled:      true,
+		RadioDesiredEnabledKnown: true,
+		SignalMetricsRecent:      true,
+		SignalSNR:                &snr,
 		Ports: []agentclient.ModemPort{{
 			Name:     "cdc-wdm0",
 			Type:     "qmi",
@@ -748,6 +750,9 @@ func TestProjectLinePreservesDetectedInterfaces(t *testing.T) {
 			projected.DeviceAlias,
 			projected.Model,
 		)
+	}
+	if !projected.RadioDesiredEnabledKnown || !projected.RadioDesiredEnabled {
+		t.Fatalf("projected radio intent = %+v", projected)
 	}
 	if projected.HardwareRevision != "fixture-hw-1" ||
 		projected.PrimaryPort != "cdc-wdm0" ||

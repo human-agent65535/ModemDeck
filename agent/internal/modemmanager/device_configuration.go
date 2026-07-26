@@ -111,7 +111,12 @@ func (p *Provider) ApplyGenericDeviceConfiguration(
 					err,
 				)
 			}
-			return current, nil
+			updated, _, _, err := p.readDeviceConfiguration(
+				bounded,
+				request.LineID,
+				operation,
+			)
+			return updated, err
 		}
 		if !*request.RadioEnabled {
 			p.callMu.Lock()
@@ -179,10 +184,17 @@ func (p *Provider) ApplyGenericDeviceConfiguration(
 				nil,
 			)
 		}
-		if !current.Radio.Enabled {
+		if current.FlightModeKnown && current.FlightMode {
 			return domain.DeviceConfiguration{}, domain.FailedPrecondition(
 				operation,
 				"airplane mode must be turned off before starting mobile data",
+				nil,
+			)
+		}
+		if !current.Radio.Enabled {
+			return domain.DeviceConfiguration{}, domain.FailedPrecondition(
+				operation,
+				"the cellular radio is still recovering and cannot start mobile data yet",
 				nil,
 			)
 		}
@@ -384,6 +396,11 @@ func (p *Provider) readDeviceConfiguration(
 	}
 
 	radioEnabled, radioKnown := modemEnabled(line.StateCode)
+	radioDesiredEnabled := false
+	radioDesiredEnabledKnown := line.SavedPolicySupported && p.radioStates != nil
+	if radioDesiredEnabledKnown {
+		radioDesiredEnabled = p.radioStates.enabled(line.ID)
+	}
 	var accessTechnologies *uint32
 	if line.AccessTechnologiesKnown {
 		value := line.AccessTechnologies
@@ -411,8 +428,8 @@ func (p *Provider) readDeviceConfiguration(
 			PowerState:     modemPowerStateName(line.PowerStateCode),
 			PowerStateCode: line.PowerStateCode,
 		},
-		FlightMode:      !radioEnabled,
-		FlightModeKnown: radioKnown,
+		FlightMode:      radioDesiredEnabledKnown && !radioDesiredEnabled,
+		FlightModeKnown: radioDesiredEnabledKnown,
 		DataConnections: []domain.DataConnection{},
 	}
 	configuration.Capabilities = genericConfigurationCapabilities(interfaces)

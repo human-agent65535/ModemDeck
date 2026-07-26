@@ -64,6 +64,8 @@ function roamingLine() {
     imsi: '001020000000001',
     device_imei: '867530900000099',
     state: 'registered',
+    radio_desired_enabled: true,
+    radio_desired_enabled_known: true,
     emergency_only: false,
     ...networkFields
   }

@@ -96,6 +96,8 @@ type Line struct {
 	State                    string           `json:"state"`
 	StateCode                int32            `json:"state_code"`
 	PowerStateCode           uint32           `json:"power_state_code"`
+	RadioDesiredEnabled      bool             `json:"radio_desired_enabled"`
+	RadioDesiredEnabledKnown bool             `json:"radio_desired_enabled_known"`
 	AccessTechnologies       uint32           `json:"access_technologies"`
 	AccessTechnologiesKnown  bool             `json:"access_technologies_known"`
 	SignalQualityKnown       bool             `json:"signal_quality_known"`

@@ -355,6 +355,16 @@ function parseDiagnosticLine(value: unknown, index: number): LineSummary {
     model: stringValue(source, 'model') || undefined,
     firmware: stringValue(source, 'firmware') || undefined,
     state: stringValue(source, 'state') || undefined,
+    radio_desired_enabled: requiredBooleanValue(
+      source,
+      path,
+      'radio_desired_enabled'
+    ),
+    radio_desired_enabled_known: requiredBooleanValue(
+      source,
+      path,
+      'radio_desired_enabled_known'
+    ),
     signal_quality: signalQuality,
     capabilities: parseDiagnosticCapabilities(source.capabilities, `${path}.capabilities`)
   }

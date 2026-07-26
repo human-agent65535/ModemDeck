@@ -316,8 +316,11 @@ const dataConnectionDetail = computed(() => {
   if (!current.radio.enabled_known || !current.flight_mode_known) {
     return t('device.radioStateUnavailableForData')
   }
-  if (!current.radio.enabled || current.flight_mode) {
+  if (current.flight_mode) {
     return t('runtime.turnOffFlightModeForData')
+  }
+  if (!current.radio.enabled) {
+    return t('runtime.waitForRadioRecoveryForData')
   }
   return ''
 })

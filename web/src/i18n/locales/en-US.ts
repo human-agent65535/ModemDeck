@@ -794,6 +794,7 @@ export default {
     disabledPending: 'Disabled; not yet applied',
     disabled: 'Disabled',
     enabledPending: 'Enabled; not yet applied',
+    radioRecovering: 'Recovering radio',
     enabled: 'Enabled',
     capabilityUnknown: 'Capability unknown',
     readOnly: 'Read only',
@@ -1006,6 +1007,7 @@ export default {
     deviceConfigurationChanged:
       'The modem state changed again. The latest state has been loaded; try again.',
     turnOffFlightModeForData: 'Turn off airplane mode before enabling mobile data.',
+    waitForRadioRecoveryForData: 'Wait for the modem radio to finish recovering before enabling mobile data.',
     invalidDeviceConfiguration: 'Device configuration response is missing hardware or incoming_calls',
     modemRestartTimeout: 'The modem did not come back online within 45 seconds',
     usbResetTimeout: 'The modem did not come back online within 60 seconds of the USB reset',
