@@ -149,6 +149,7 @@ export function parseContact(value: unknown): Contact {
   return {
     id,
     display_name: requiredString(source, 'contact', 'display_name'),
+    avatar: stringValue(source, 'avatar') || undefined,
     phones: rawPhones.map((phone, index) => normalizePhone(phone, id, index)),
     favorite: requiredBoolean(source, 'contact', 'favorite'),
     notes: stringValue(source, 'notes') || undefined,

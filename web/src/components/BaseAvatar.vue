@@ -5,6 +5,7 @@ import { initials } from '../utils/format'
 const props = withDefaults(
   defineProps<{
     name: string
+    src?: string
     size?: 'small' | 'medium' | 'large'
   }>(),
   { size: 'medium' }
@@ -19,6 +20,7 @@ const palette = computed(() => {
 
 <template>
   <span class="avatar" :class="[`avatar--${size}`, palette]" aria-hidden="true">
-    {{ initials(name) }}
+    <img v-if="src" :src="src" alt="" />
+    <template v-else>{{ initials(name) }}</template>
   </span>
 </template>

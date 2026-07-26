@@ -219,6 +219,14 @@ function threadName(thread: MessageThread): string {
   )
 }
 
+function callAvatar(call: CallRecord): string {
+  return contactForNumber(call.remote_number)?.avatar || ''
+}
+
+function threadAvatar(thread: MessageThread): string {
+  return contactForNumber(thread.peer)?.avatar || ''
+}
+
 function lineForCall(call: CallRecord): LineSummary | undefined {
   return findLine(lineLookup.value, call.device_id)
 }
@@ -709,7 +717,7 @@ onMounted(loadDashboard)
                 class="dashboard-contact-row"
               >
                 <RouterLink :to="{ name: 'contacts', params: { contactId: contact.id } }">
-                  <BaseAvatar :name="contact.display_name" />
+                  <BaseAvatar :name="contact.display_name" :src="contact.avatar" />
                   <span>
                     <strong>{{ contact.display_name }}</strong>
                     <small>{{ primaryPhone(contact.phones) || '没有号码' }}</small>
@@ -748,7 +756,11 @@ onMounted(loadDashboard)
           <button class="icon-button mobile-back" type="button" title="返回首页" @click="backToList">
             <ArrowLeft :size="20" />
           </button>
-          <BaseAvatar :name="callName(selectedCall)" size="large" />
+          <BaseAvatar
+            :name="callName(selectedCall)"
+            :src="callAvatar(selectedCall)"
+            size="large"
+          />
           <div class="detail-header__identity">
             <h2>{{ callName(selectedCall) }}</h2>
             <span>{{ selectedCall.remote_number }}</span>
@@ -832,7 +844,11 @@ onMounted(loadDashboard)
           <button class="icon-button mobile-back" type="button" title="返回首页" @click="backToList">
             <ArrowLeft :size="20" />
           </button>
-          <BaseAvatar :name="threadName(selectedThread)" size="large" />
+          <BaseAvatar
+            :name="threadName(selectedThread)"
+            :src="threadAvatar(selectedThread)"
+            size="large"
+          />
           <div class="detail-header__identity">
             <h2>{{ threadName(selectedThread) }}</h2>
             <span>{{ selectedThread.peer }}</span>

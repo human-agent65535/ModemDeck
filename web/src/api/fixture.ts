@@ -1070,6 +1070,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       const contact: Contact = {
         id: `contact-fixture-${sequence}`,
         display_name: input.display_name,
+        avatar: input.avatar,
         favorite: input.favorite,
         notes: input.notes,
         preferred_device_imei: input.preferred_device_imei,
@@ -1092,6 +1093,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       const updated: Contact = {
         ...current,
         display_name: input.display_name,
+        avatar: input.avatar,
         favorite: input.favorite,
         notes: input.notes,
         preferred_device_imei: input.preferred_device_imei,

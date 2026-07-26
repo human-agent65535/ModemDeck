@@ -304,7 +304,11 @@ onMounted(() => {
           <button class="icon-button mobile-back" type="button" title="返回通话" @click="backToList">
             <ArrowLeft :size="20" />
           </button>
-          <BaseAvatar :name="displayName(selected)" size="large" />
+          <BaseAvatar
+            :name="displayName(selected)"
+            :src="selectedContact?.avatar"
+            size="large"
+          />
           <div class="detail-header__identity">
             <h2>{{ displayName(selected) }}</h2>
             <span>{{ selected.remote_number }}</span>

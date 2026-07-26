@@ -1,9 +1,11 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -101,6 +103,7 @@ func (e *ContactPhoneConflictError) Unwrap() error {
 
 type normalizedContactInput struct {
 	displayName         string
+	avatar              string
 	notes               string
 	preferredDeviceIMEI string
 	favorite            bool
@@ -165,11 +168,12 @@ func (s *Store) CreateContact(ctx context.Context, input ContactInput) (Contact,
 	if _, err := transaction.ExecContext(
 		ctx,
 		`INSERT INTO contacts (
-			id, display_name, notes, preferred_device_imei, is_favorite,
+			id, display_name, avatar, notes, preferred_device_imei, is_favorite,
 			revision, created_at, updated_at
-		 ) VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		 ) VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
 		contactID,
 		normalized.displayName,
+		normalized.avatar,
 		normalized.notes,
 		normalized.preferredDeviceIMEI,
 		normalized.favorite,
@@ -237,10 +241,11 @@ func (s *Store) UpdateContact(ctx context.Context, id string, input ContactInput
 	result, err := transaction.ExecContext(
 		ctx,
 		`UPDATE contacts
-		 SET display_name = ?, notes = ?, preferred_device_imei = ?, is_favorite = ?,
+		 SET display_name = ?, avatar = ?, notes = ?, preferred_device_imei = ?, is_favorite = ?,
 			revision = revision + 1, updated_at = CURRENT_TIMESTAMP
 		 WHERE id = ? AND revision = ?`,
 		normalized.displayName,
+		normalized.avatar,
 		normalized.notes,
 		normalized.preferredDeviceIMEI,
 		normalized.favorite,
@@ -328,7 +333,7 @@ func (s *Store) DeleteContact(ctx context.Context, id string, revision int64) er
 
 func (s *Store) Contacts(ctx context.Context, query ContactQuery) ([]Contact, error) {
 	limit := boundedLimit(query.Limit)
-	statement := `SELECT id, display_name, notes, preferred_device_imei, is_favorite,
+	statement := `SELECT id, display_name, avatar, notes, preferred_device_imei, is_favorite,
 			revision, created_at, updated_at
 		FROM contacts`
 	arguments := []any{}
@@ -360,14 +365,15 @@ func (s *Store) Contacts(ctx context.Context, query ContactQuery) ([]Contact, er
 	contacts := make([]Contact, 0)
 	for rows.Next() {
 		var (
-			contact                                 Contact
-			displayName, notes, preferredDeviceIMEI sql.NullString
-			favorite, revision                      sql.NullInt64
-			createdAt, updatedAt                    sql.NullString
+			contact                                         Contact
+			displayName, avatar, notes, preferredDeviceIMEI sql.NullString
+			favorite, revision                              sql.NullInt64
+			createdAt, updatedAt                            sql.NullString
 		)
 		if err := rows.Scan(
 			&contact.ID,
 			&displayName,
+			&avatar,
 			&notes,
 			&preferredDeviceIMEI,
 			&favorite,
@@ -378,6 +384,7 @@ func (s *Store) Contacts(ctx context.Context, query ContactQuery) ([]Contact, er
 			return nil, fmt.Errorf("scan contact: %w", err)
 		}
 		contact.DisplayName = stringValue(displayName)
+		contact.Avatar = stringValue(avatar)
 		contact.Notes = stringValue(notes)
 		contact.PreferredDeviceIMEI = stringValue(preferredDeviceIMEI)
 		contact.Favorite = boolValue(favorite)
@@ -459,6 +466,10 @@ func normalizeContactInput(input ContactInput, creating bool) (normalizedContact
 	if len([]rune(displayName)) > MaxContactDisplayNameLength {
 		return normalizedContactInput{}, contactValidation("display_name", "too_long")
 	}
+	avatar, err := normalizeContactAvatar(input.Avatar)
+	if err != nil {
+		return normalizedContactInput{}, err
+	}
 	notes := strings.TrimSpace(input.Notes)
 	if len([]rune(notes)) > MaxContactNotesLength {
 		return normalizedContactInput{}, contactValidation("notes", "too_long")
@@ -477,6 +488,7 @@ func normalizeContactInput(input ContactInput, creating bool) (normalizedContact
 
 	normalized := normalizedContactInput{
 		displayName:         displayName,
+		avatar:              avatar,
 		notes:               notes,
 		preferredDeviceIMEI: preferredDeviceIMEI,
 		favorite:            input.Favorite,
@@ -528,6 +540,57 @@ func normalizeContactInput(input ContactInput, creating bool) (normalizedContact
 		return normalizedContactInput{}, contactValidation("phones", "exactly_one_primary_required")
 	}
 	return normalized, nil
+}
+
+func normalizeContactAvatar(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	if len(value) > MaxContactAvatarDataLength {
+		return "", contactValidation("avatar", "too_large")
+	}
+
+	header, encoded, found := strings.Cut(value, ",")
+	if !found || encoded == "" {
+		return "", contactValidation("avatar", "invalid_data_url")
+	}
+	var expectedType string
+	switch header {
+	case "data:image/jpeg;base64":
+		expectedType = "jpeg"
+	case "data:image/png;base64":
+		expectedType = "png"
+	case "data:image/webp;base64":
+		expectedType = "webp"
+	default:
+		return "", contactValidation("avatar", "unsupported_type")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(decoded) == 0 {
+		return "", contactValidation("avatar", "invalid_base64")
+	}
+	if len(decoded) > MaxContactAvatarBytes {
+		return "", contactValidation("avatar", "too_large")
+	}
+
+	validType := false
+	switch expectedType {
+	case "jpeg":
+		validType = len(decoded) >= 3 &&
+			decoded[0] == 0xff && decoded[1] == 0xd8 && decoded[2] == 0xff
+	case "png":
+		validType = len(decoded) >= 8 &&
+			bytes.Equal(decoded[:8], []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'})
+	case "webp":
+		validType = len(decoded) >= 12 &&
+			bytes.Equal(decoded[:4], []byte("RIFF")) &&
+			bytes.Equal(decoded[8:12], []byte("WEBP"))
+	}
+	if !validType {
+		return "", contactValidation("avatar", "content_type_mismatch")
+	}
+	return value, nil
 }
 
 func normalizeContactNumber(number, field string) (string, string, error) {
@@ -726,14 +789,14 @@ func insertContactPhones(
 
 func contactByID(ctx context.Context, queryer contactQueryer, contactID string) (Contact, error) {
 	var (
-		contact                                 Contact
-		displayName, notes, preferredDeviceIMEI sql.NullString
-		favorite, revision                      sql.NullInt64
-		createdAt, updatedAt                    sql.NullString
+		contact                                         Contact
+		displayName, avatar, notes, preferredDeviceIMEI sql.NullString
+		favorite, revision                              sql.NullInt64
+		createdAt, updatedAt                            sql.NullString
 	)
 	err := queryer.QueryRowContext(
 		ctx,
-		`SELECT id, display_name, notes, preferred_device_imei, is_favorite,
+		`SELECT id, display_name, avatar, notes, preferred_device_imei, is_favorite,
 			revision, created_at, updated_at
 		 FROM contacts
 		 WHERE id = ?`,
@@ -741,6 +804,7 @@ func contactByID(ctx context.Context, queryer contactQueryer, contactID string) 
 	).Scan(
 		&contact.ID,
 		&displayName,
+		&avatar,
 		&notes,
 		&preferredDeviceIMEI,
 		&favorite,
@@ -755,6 +819,7 @@ func contactByID(ctx context.Context, queryer contactQueryer, contactID string) 
 		return Contact{}, fmt.Errorf("query contact: %w", err)
 	}
 	contact.DisplayName = stringValue(displayName)
+	contact.Avatar = stringValue(avatar)
 	contact.Notes = stringValue(notes)
 	contact.PreferredDeviceIMEI = stringValue(preferredDeviceIMEI)
 	contact.Favorite = boolValue(favorite)

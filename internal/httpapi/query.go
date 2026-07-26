@@ -18,10 +18,12 @@ const (
 	maxIdentifierLength = 128
 	maxPhoneLength      = 64
 	maxJSONBodyBytes    = 64 << 10
+	maxContactBodyBytes = 512 << 10
 )
 
 type contactInputRequest struct {
 	DisplayName         string                     `json:"display_name"`
+	Avatar              string                     `json:"avatar"`
 	Notes               string                     `json:"notes"`
 	PreferredDeviceIMEI string                     `json:"preferred_device_imei"`
 	Favorite            bool                       `json:"favorite"`
@@ -38,7 +40,7 @@ type contactPhoneInputRequest struct {
 
 func decodeContactInput(response http.ResponseWriter, request *http.Request) (store.ContactInput, bool) {
 	var body contactInputRequest
-	if !decodeJSONBody(response, request, &body) {
+	if !decodeJSONBodyWithLimit(response, request, &body, maxContactBodyBytes) {
 		return store.ContactInput{}, false
 	}
 	phones := make([]store.ContactPhoneInput, len(body.Phones))
@@ -52,6 +54,7 @@ func decodeContactInput(response http.ResponseWriter, request *http.Request) (st
 	}
 	return store.ContactInput{
 		DisplayName:         body.DisplayName,
+		Avatar:              body.Avatar,
 		Notes:               body.Notes,
 		PreferredDeviceIMEI: body.PreferredDeviceIMEI,
 		Favorite:            body.Favorite,

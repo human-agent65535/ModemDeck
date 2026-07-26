@@ -19,6 +19,7 @@ func TestContactCRUD(t *testing.T) {
 
 	created, err := repository.CreateContact(ctx, ContactInput{
 		DisplayName: "  Ada Lovelace  ",
+		Avatar:      "data:image/png;base64,iVBORw0KGgo=",
 		Notes:       "  first programmer  ",
 		Favorite:    true,
 		Phones: []ContactPhoneInput{
@@ -34,6 +35,9 @@ func TestContactCRUD(t *testing.T) {
 	}
 	if created.DisplayName != "Ada Lovelace" || created.Notes != "first programmer" {
 		t.Fatalf("CreateContact() text = %q / %q", created.DisplayName, created.Notes)
+	}
+	if created.Avatar != "data:image/png;base64,iVBORw0KGgo=" {
+		t.Fatalf("CreateContact() avatar = %q", created.Avatar)
 	}
 	if !created.Favorite {
 		t.Fatal("CreateContact() favorite = false, want true")
@@ -57,7 +61,10 @@ func TestContactCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Contact() error = %v", err)
 	}
-	if read.ID != created.ID || read.Revision != created.Revision || len(read.Phones) != 2 {
+	if read.ID != created.ID ||
+		read.Avatar != created.Avatar ||
+		read.Revision != created.Revision ||
+		len(read.Phones) != 2 {
 		t.Fatalf("Contact() = %#v, want created contact", read)
 	}
 
@@ -83,6 +90,9 @@ func TestContactCRUD(t *testing.T) {
 	}
 	if updated.DisplayName != "Ada Byron" || updated.Notes != "updated" {
 		t.Fatalf("UpdateContact() text = %q / %q", updated.DisplayName, updated.Notes)
+	}
+	if updated.Avatar != "" {
+		t.Fatalf("UpdateContact() avatar = %q, want removed", updated.Avatar)
 	}
 	if updated.Favorite {
 		t.Fatal("UpdateContact() favorite = true, want false")
@@ -242,6 +252,18 @@ func TestContactValidation(t *testing.T) {
 		}},
 		{name: "notes too long", mutate: func(input *ContactInput) {
 			input.Notes = strings.Repeat("n", MaxContactNotesLength+1)
+		}},
+		{name: "avatar unsupported", mutate: func(input *ContactInput) {
+			input.Avatar = "data:image/gif;base64,R0lGODlh"
+		}},
+		{name: "avatar invalid base64", mutate: func(input *ContactInput) {
+			input.Avatar = "data:image/png;base64,not-base64"
+		}},
+		{name: "avatar type mismatch", mutate: func(input *ContactInput) {
+			input.Avatar = "data:image/jpeg;base64,iVBORw0KGgo="
+		}},
+		{name: "avatar too large", mutate: func(input *ContactInput) {
+			input.Avatar = "data:image/png;base64," + strings.Repeat("A", MaxContactAvatarDataLength)
 		}},
 		{name: "phones required", mutate: func(input *ContactInput) { input.Phones = nil }},
 		{name: "too many phones", mutate: func(input *ContactInput) {

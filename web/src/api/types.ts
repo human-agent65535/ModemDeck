@@ -332,6 +332,7 @@ export type ContactPhone = {
 export type Contact = {
   id: string
   display_name: string
+  avatar?: string
   phones: ContactPhone[]
   favorite: boolean
   notes?: string
@@ -343,6 +344,7 @@ export type Contact = {
 
 export type ContactInput = {
   display_name: string
+  avatar?: string
   favorite: boolean
   phones: Array<{
     id?: string

@@ -18,6 +18,7 @@ CREATE TABLE modemdeck_auth_sessions (
 CREATE TABLE contacts (
 			id TEXT PRIMARY KEY,
 			display_name TEXT NOT NULL,
+			avatar TEXT NOT NULL DEFAULT '',
 			notes TEXT NOT NULL DEFAULT '',
 			preferred_device_imei TEXT NOT NULL DEFAULT '',
 			is_favorite NUMERIC NOT NULL DEFAULT 0,

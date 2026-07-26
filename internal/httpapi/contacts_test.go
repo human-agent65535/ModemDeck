@@ -19,7 +19,7 @@ func TestCreateContact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	body := `{"display_name":"Aiko","notes":"Tokyo","preferred_device_imei":"imei-main","favorite":true,"phones":[{"label":"mobile","number":"+81 90-1234-5678","primary":true}]}`
+	body := `{"display_name":"Aiko","avatar":"data:image/png;base64,iVBORw0KGgo=","notes":"Tokyo","preferred_device_imei":"imei-main","favorite":true,"phones":[{"label":"mobile","number":"+81 90-1234-5678","primary":true}]}`
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/contacts", bytes.NewBufferString(body))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -30,6 +30,9 @@ func TestCreateContact(t *testing.T) {
 	}
 	if repository.createContactInput.DisplayName != "Aiko" || len(repository.createContactInput.Phones) != 1 {
 		t.Fatalf("create input = %+v", repository.createContactInput)
+	}
+	if repository.createContactInput.Avatar != "data:image/png;base64,iVBORw0KGgo=" {
+		t.Fatalf("create avatar = %q", repository.createContactInput.Avatar)
 	}
 	if repository.createContactInput.PreferredDeviceIMEI != "imei-main" ||
 		!repository.createContactInput.Favorite {

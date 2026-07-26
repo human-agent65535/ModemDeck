@@ -141,6 +141,7 @@ async function toggleFavorite(contact: Contact): Promise<void> {
     await saveContact(
       {
         display_name: contact.display_name,
+        avatar: contact.avatar,
         favorite: !contact.favorite,
         notes: contact.notes,
         preferred_device_imei: contact.preferred_device_imei,
@@ -249,7 +250,7 @@ onMounted(() => {
           type="button"
           @click="selectContact(contact)"
         >
-          <BaseAvatar :name="contact.display_name" />
+          <BaseAvatar :name="contact.display_name" :src="contact.avatar" />
           <span class="list-item__content">
             <strong>{{ contact.display_name }}</strong>
             <small>{{ primaryPhone(contact.phones) || '没有号码' }}</small>
@@ -271,7 +272,7 @@ onMounted(() => {
           <button class="icon-button mobile-back" type="button" title="返回联系人" @click="backToList">
             <ArrowLeft :size="20" />
           </button>
-          <BaseAvatar :name="selected.display_name" size="large" />
+          <BaseAvatar :name="selected.display_name" :src="selected.avatar" size="large" />
           <div class="detail-header__identity">
             <h2>{{ selected.display_name }}</h2>
             <span v-if="selected.notes">{{ selected.notes }}</span>

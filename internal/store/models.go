@@ -10,6 +10,8 @@ const (
 	MaxContactPhoneLabelLength  = 50
 	MaxContactPhoneNumberLength = 64
 	MaxContactPhones            = 50
+	MaxContactAvatarBytes       = 256 << 10
+	MaxContactAvatarDataLength  = ((MaxContactAvatarBytes + 2) / 3 * 4) + 64
 )
 
 type ContactQuery struct {
@@ -20,6 +22,7 @@ type ContactQuery struct {
 type Contact struct {
 	ID                  string         `json:"id"`
 	DisplayName         string         `json:"display_name"`
+	Avatar              string         `json:"avatar"`
 	Notes               string         `json:"notes"`
 	PreferredDeviceIMEI string         `json:"preferred_device_imei"`
 	Favorite            bool           `json:"favorite"`
@@ -39,6 +42,7 @@ type ContactPhone struct {
 
 type ContactInput struct {
 	DisplayName         string              `json:"display_name"`
+	Avatar              string              `json:"avatar"`
 	Notes               string              `json:"notes"`
 	PreferredDeviceIMEI string              `json:"preferred_device_imei"`
 	Favorite            bool                `json:"favorite"`

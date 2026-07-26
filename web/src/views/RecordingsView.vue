@@ -52,6 +52,10 @@ function displayName(recording: RecordingEntry): string {
   )
 }
 
+function avatar(recording: RecordingEntry): string {
+  return contactForNumber(recording.call.remote_number)?.avatar || ''
+}
+
 function directionLabel(recording: RecordingEntry): string {
   return recording.call.direction === 'incoming' ? '呼入' : '呼出'
 }
@@ -220,7 +224,11 @@ onBeforeUnmount(() => {
           >
             <ArrowLeft :size="20" />
           </button>
-          <BaseAvatar :name="displayName(selected)" size="large" />
+          <BaseAvatar
+            :name="displayName(selected)"
+            :src="avatar(selected)"
+            size="large"
+          />
           <div class="detail-header__identity">
             <h2>{{ displayName(selected) }}</h2>
             <span>{{ selected.call.remote_number }}</span>

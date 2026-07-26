@@ -19,8 +19,9 @@ type schemaShape struct {
 	indexes map[string]struct{}
 }
 
-// InitializeSchema creates the current schema only when the database is empty.
-// Existing databases are validated and never altered.
+// InitializeSchema creates the current schema when the database is empty.
+// Existing databases receive only explicitly supported, shape-checked migrations
+// before the resulting schema is validated.
 func InitializeSchema(ctx context.Context, database *sql.DB) (bool, error) {
 	if database == nil {
 		return false, errors.New("initialize schema: nil database")
@@ -30,12 +31,100 @@ func InitializeSchema(ctx context.Context, database *sql.DB) (bool, error) {
 		return false, err
 	}
 	if !empty {
+		if err := migrateSchema(ctx, database); err != nil {
+			return false, err
+		}
 		return false, ValidateSchema(ctx, database)
 	}
 	if err := createSchema(ctx, database); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+func migrateSchema(ctx context.Context, database *sql.DB) error {
+	expected, err := expectedSchemaShape(ctx)
+	if err != nil {
+		return err
+	}
+	actual, err := readSchemaShape(ctx, database)
+	if err != nil {
+		return err
+	}
+	contactColumns, contactsExist := actual.tables["contacts"]
+	if !contactsExist {
+		return nil
+	}
+	if _, avatarExists := contactColumns["avatar"]; avatarExists {
+		return nil
+	}
+	if !schemaMatchesExcept(expected, actual, "contacts", "avatar") {
+		return nil
+	}
+	if current, err := requiredRowsAreCurrent(ctx, database); err != nil {
+		return err
+	} else if !current {
+		return nil
+	}
+	if _, err := database.ExecContext(
+		ctx,
+		`ALTER TABLE contacts ADD COLUMN avatar TEXT NOT NULL DEFAULT ''`,
+	); err != nil {
+		return fmt.Errorf("migrate contacts avatar: %w", err)
+	}
+	return nil
+}
+
+func schemaMatchesExcept(
+	expected schemaShape,
+	actual schemaShape,
+	exceptTable string,
+	exceptColumn string,
+) bool {
+	for table, expectedColumns := range expected.tables {
+		actualColumns, exists := actual.tables[table]
+		if !exists {
+			return false
+		}
+		for column := range expectedColumns {
+			if table == exceptTable && column == exceptColumn {
+				continue
+			}
+			if _, exists := actualColumns[column]; !exists {
+				return false
+			}
+		}
+	}
+	for index := range expected.indexes {
+		if _, exists := actual.indexes[index]; !exists {
+			return false
+		}
+	}
+	return true
+}
+
+func requiredRowsAreCurrent(ctx context.Context, database *sql.DB) (bool, error) {
+	for _, requiredRow := range requiredSchemaRows {
+		var count int
+		query := "SELECT COUNT(*) FROM " + quoteIdentifier(requiredRow.table) +
+			" WHERE " + quoteIdentifier(requiredRow.key) + " = 1"
+		if err := database.QueryRowContext(ctx, query).Scan(&count); err != nil {
+			return false, fmt.Errorf("validate required row in %s: %w", requiredRow.table, err)
+		}
+		if count != 1 {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+var requiredSchemaRows = []struct {
+	table string
+	key   string
+}{
+	{table: "modemdeck_call_settings", key: "singleton"},
+	{table: "modemdeck_line_settings", key: "singleton"},
+	{table: "modemdeck_recording_settings", key: "singleton"},
 }
 
 func ValidateSchema(ctx context.Context, database *sql.DB) error {
@@ -71,14 +160,7 @@ func ValidateSchema(ctx context.Context, database *sql.DB) error {
 			return fmt.Errorf("%w: index %s is missing", ErrSchemaOutdated, index)
 		}
 	}
-	for _, requiredRow := range []struct {
-		table string
-		key   string
-	}{
-		{table: "modemdeck_call_settings", key: "singleton"},
-		{table: "modemdeck_line_settings", key: "singleton"},
-		{table: "modemdeck_recording_settings", key: "singleton"},
-	} {
+	for _, requiredRow := range requiredSchemaRows {
 		var count int
 		query := "SELECT COUNT(*) FROM " + quoteIdentifier(requiredRow.table) +
 			" WHERE " + quoteIdentifier(requiredRow.key) + " = 1"

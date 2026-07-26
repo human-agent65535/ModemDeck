@@ -11,6 +11,7 @@ test('contact parsing requires a real favorite value', () => {
   const contact = parseContact({
     id: 'contact-1',
     display_name: 'Aiko',
+    avatar: 'data:image/png;base64,iVBORw0KGgo=',
     favorite: true,
     phones: [
       {
@@ -24,6 +25,7 @@ test('contact parsing requires a real favorite value', () => {
   })
 
   assert.equal(contact.favorite, true)
+  assert.equal(contact.avatar, 'data:image/png;base64,iVBORw0KGgo=')
   assert.throws(
     () =>
       parseContact({
@@ -39,16 +41,19 @@ test('fixture persists favorite and preferred line through contact writes', asyn
   const gateway = createFixtureGateway()
   const created = await gateway.createContact?.({
     display_name: 'Favorite',
+    avatar: 'data:image/png;base64,iVBORw0KGgo=',
     favorite: true,
     preferred_device_imei: 'fixture-001',
     phones: [{ label: 'mobile', number: '+81 80 9999 0000', primary: true }]
   })
 
   assert.equal(created?.favorite, true)
+  assert.equal(created?.avatar, 'data:image/png;base64,iVBORw0KGgo=')
   assert.equal(created?.preferred_device_imei, 'fixture-001')
 
   const updated = await gateway.updateContact?.(created?.id || '', {
     display_name: 'Favorite',
+    avatar: created?.avatar,
     favorite: false,
     preferred_device_imei: 'fixture-002',
     revision: created?.revision,
@@ -62,6 +67,7 @@ test('fixture persists favorite and preferred line through contact writes', asyn
   })
 
   assert.equal(updated?.favorite, false)
+  assert.equal(updated?.avatar, created?.avatar)
   assert.equal(updated?.preferred_device_imei, 'fixture-002')
 })
 
@@ -73,6 +79,8 @@ test('contacts expose editor and quick favorite controls', async () => {
 
   assert.match(editorSource, /v-model="draft\.favorite"[^>]*role="switch"/)
   assert.match(editorSource, /favorite: draft\.favorite/)
+  assert.match(editorSource, /createContactAvatar\(file\)/)
+  assert.match(editorSource, /avatar: draft\.avatar/)
   assert.match(viewSource, /async function toggleFavorite\(contact: Contact\)/)
   assert.match(viewSource, /favorite: !contact\.favorite/)
   assert.match(viewSource, /:aria-pressed="selected\.favorite"/)

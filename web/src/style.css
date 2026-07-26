@@ -1064,6 +1064,13 @@ textarea::placeholder {
   font-weight: 700;
   border: 1px solid rgb(52 64 84 / 8%);
   border-radius: 50%;
+  overflow: hidden;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .avatar--palette-0 { background: #e6eefc; }

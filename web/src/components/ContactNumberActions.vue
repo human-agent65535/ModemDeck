@@ -121,6 +121,7 @@ async function addToContact(): Promise<void> {
     const saved = await saveContact(
       {
         display_name: contact.display_name,
+        avatar: contact.avatar,
         favorite: contact.favorite,
         notes: contact.notes,
         preferred_device_imei: contact.preferred_device_imei,
@@ -264,7 +265,7 @@ async function addToContact(): Promise<void> {
                 :aria-selected="candidate.id === selectedContactID"
                 @click="selectedContactID = candidate.id"
               >
-                <BaseAvatar :name="candidate.display_name" />
+                <BaseAvatar :name="candidate.display_name" :src="candidate.avatar" />
                 <span>
                   <strong>{{ candidate.display_name }}</strong>
                   <small>{{ candidate.phones[0]?.number || '没有号码' }}</small>

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -64,6 +65,51 @@ func TestOpenRejectsOutdatedSchemaWithoutAlteringIt(t *testing.T) {
 	}
 	if addedColumns != 0 {
 		t.Fatalf("outdated schema was altered: added columns = %d", addedColumns)
+	}
+}
+
+func TestOpenMigratesContactAvatarColumn(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "without-avatar.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacySchema := strings.Replace(
+		currentSchemaSQL,
+		"\n\t\t\tavatar TEXT NOT NULL DEFAULT '',",
+		"",
+		1,
+	)
+	if legacySchema == currentSchemaSQL {
+		t.Fatal("legacy schema fixture did not remove contacts.avatar")
+	}
+	if _, err := database.Exec(legacySchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(
+		`INSERT INTO contacts (id, display_name) VALUES ('contact-1', 'Aiko')`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	var avatar string
+	if err := database.QueryRow(
+		`SELECT avatar FROM contacts WHERE id = 'contact-1'`,
+	).Scan(&avatar); err != nil {
+		t.Fatal(err)
+	}
+	if avatar != "" {
+		t.Fatalf("migrated avatar = %q, want empty", avatar)
 	}
 }
 

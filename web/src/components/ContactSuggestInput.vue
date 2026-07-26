@@ -135,7 +135,11 @@ function onBlur(): void {
         :aria-selected="index === activeIndex"
         @mousedown.prevent="choose(suggestion)"
       >
-        <BaseAvatar :name="suggestion.contact.display_name" size="small" />
+        <BaseAvatar
+          :name="suggestion.contact.display_name"
+          :src="suggestion.contact.avatar"
+          size="small"
+        />
         <span>
           <strong>{{ suggestion.contact.display_name }}</strong>
           <small>{{ suggestion.phone.label }} · {{ suggestion.phone.number }}</small>

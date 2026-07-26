@@ -13,6 +13,7 @@ import { openDialer } from '../state/ui'
 import {
   bootstrapResource,
   capabilityReason,
+  contactForNumber,
   contactsResource,
   lineKey,
   lineSupports,
@@ -152,6 +153,10 @@ function threadLineFallback(thread: MessageThread): string {
     thread.imsi,
     thread.iccid
   )
+}
+
+function avatarForNumber(number: string): string {
+  return contactForNumber(number)?.avatar || ''
 }
 
 function syncComposeLine(force = false): void {
@@ -456,7 +461,10 @@ onMounted(() => {
           type="button"
           @click="chooseThread(thread.key)"
         >
-          <BaseAvatar :name="thread.contact_name || thread.peer" />
+          <BaseAvatar
+            :name="thread.contact_name || thread.peer"
+            :src="avatarForNumber(thread.peer)"
+          />
           <span class="list-item__content">
             <span class="list-item__title">
               <strong>{{ thread.contact_name || thread.peer }}</strong>
@@ -503,7 +511,11 @@ onMounted(() => {
             </div>
           </template>
           <template v-else-if="selectedThread">
-            <BaseAvatar :name="selectedThread.contact_name || selectedThread.peer" size="small" />
+            <BaseAvatar
+              :name="selectedThread.contact_name || selectedThread.peer"
+              :src="avatarForNumber(selectedThread.peer)"
+              size="small"
+            />
             <div class="conversation-title">
               <h2>{{ selectedThread.contact_name || selectedThread.peer }}</h2>
               <span v-if="selectedThread.contact_name">{{ selectedThread.peer }}</span>
