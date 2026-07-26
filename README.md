@@ -2,41 +2,36 @@
 
 [![许可证：PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm--Noncommercial--1.0.0-blue.svg)](LICENSE)
 
-ModemDeck 是一个自托管控制台，用于管理蜂窝通话、消息、联系人、流量和已连接的
-模组线路。项目的早期产品构想受到
-[VoHive](https://github.com/iniwex5/vohive) 启发，我们在此感谢其作者；
-ModemDeck 是独立项目，与 VoHive 没有官方关系，也未获得其背书。
+ModemDeck 是一个管理蜂窝通话、短信、联系人、流量和多条线路的自托管控制台。
+项目受到 [VoHive](https://github.com/iniwex5/vohive) 启发，但与其没有官方关系。
 
 ## 功能
 
-- 多线路仪表盘、线路标签、默认线路以及每位联系人的首选线路。
-- 支持按线路回复、已读状态、重连对账和 SSE 实时更新的短信会话。
-- 通话历史与控制、DTMF、全局和单线路来电策略，以及在媒体路径经过验证后提供的
-  录音控制。
-- 每条线路的数据用量、活动连接详情，以及绑定到模组承载的 HTTP/SOCKS5 代理。
-- ModemManager 可提供时显示 SIM/eSIM 身份、卡槽状态和脱敏 EID。
-- 分别显示归属运营商和当前服务运营商身份，包括漫游状态。
-- 对设备、联系人和代理等重要操作使用无障碍的应用内确认对话框。
-- 使用加密凭据并具有明确线路作用域的 Telegram 机器人。
+- 多线路仪表盘、可自定义线路标签、默认线路和联系人首选线路。
+- 联系人头像、收藏、通话与短信入口。
+- 按线路收发短信、已读状态、断线重连和实时更新。
+- 通话记录、拨号、DTMF、录音以及全局或单线路来电策略。
+- 分线路流量统计、连接状态和 HTTP/SOCKS5 代理。
+- SIM/eSIM、卡槽、归属与当前运营商及漫游状态。
+- 设备、联系人和代理操作的应用内确认。
+- 加密凭据、限定线路范围的 Telegram 机器人。
 
 ## 界面
 
 | 场景 | 桌面端 | 手机端 |
 | --- | --- | --- |
-| 多线路仪表盘 | ![桌面端多线路仪表盘，包含合成活动状态和拨号器](docs/images/readme-dashboard.png) | ![手机端多线路仪表盘，包含合成最近活动](docs/images/readme-dashboard-mobile.png) |
-| 按线路区分的消息 | ![桌面端合成短信会话，包含线路标签和直接回复](docs/images/readme-messages.png) | ![手机端合成短信会话，包含联系人操作和直接回复](docs/images/readme-messages-mobile.png) |
-| 通话历史和录音 | ![桌面端合成通话详情，包含录音播放和拨号器](docs/images/readme-calls.png) | ![手机端合成通话详情，包含录音播放](docs/images/readme-calls-mobile.png) |
-| 网络详情 | ![桌面端合成模组网络设置](docs/images/readme-network-settings.png) | ![手机端合成模组网络设置](docs/images/readme-network-settings-mobile.png) |
+| 多线路仪表盘 | ![桌面端多线路仪表盘](docs/images/readme-dashboard.png) | ![手机端多线路仪表盘](docs/images/readme-dashboard-mobile.png) |
+| 按线路区分的消息 | ![桌面端短信会话](docs/images/readme-messages.png) | ![手机端短信会话](docs/images/readme-messages-mobile.png) |
+| 通话和录音 | ![桌面端通话详情](docs/images/readme-calls.png) | ![手机端通话详情](docs/images/readme-calls-mobile.png) |
+| 网络详情 | ![桌面端网络设置](docs/images/readme-network-settings.png) | ![手机端网络设置](docs/images/readme-network-settings-mobile.png) |
 
 ## 架构
 
-Web 应用运行在非特权容器中，负责身份验证、通信工作流和 SQLite 数据。专用的
-Linux 主机代理是唯一与 ModemManager 和硬件通信的组件。应用通过权限受限的
-Unix 套接字访问代理；应用容器不会获得 `/dev`、主机 D-Bus 套接字、主机网络
-或 Linux capabilities。
+Web 应用在非特权容器中运行，负责身份验证、通信流程和 SQLite 数据。Linux
+主机代理独占 ModemManager 和硬件。两者只通过受限 Unix 套接字通信。应用容器
+不接触 `/dev`、主机 D-Bus、主机网络或 Linux capabilities。
 
-不支持的硬件操作会明确失败。ModemDeck 不会猜测设备路径，也不会静默切换控制
-后端。
+不支持的硬件操作会明确失败，不猜测设备路径或切换控制后端。
 
 ## 硬件兼容性
 
@@ -93,9 +88,13 @@ AT+QCFG="usbcfg",0x2C7C,0x0125,1,1,1,1,1,0,1
 D-Bus 接口执行配置，不需要调试模式。配置成功不等于 IMS 已注册，也不能证明
 实时通话的承载或音频路径。
 
-QDC507 使用定制固件。不要刷入标准 EC25/EG25 固件。当前设备可枚举 UAC，
-但 `AT+QPCMV=1,2` 返回 `ERROR`。拨号、接听和挂断可用，通话音频不可用。
-浏览器双向语音需要经过验证的主机媒体端点。
+`QDC507GLEFM21` 是定制固件，不是标准 EC25/EG25 版本。已确认刷入标准
+EC25/EG25 固件会使 QDC507 变砖，严禁刷入。
+
+实测 QDC507 将 `usbcfg` 最后一位设为 `1` 后会枚举 USB 音频接口，但媒体路由
+命令 `AT+QPCMV=1,2` 返回 `ERROR`。ModemManager Voice 可以拨号、接听和挂断，
+通话接通后却没有可用音频路径。因此当前 QDC507 不支持浏览器双向语音。
+ModemDeck 的 WebRTC/Opus 桥接只适用于已验证主机媒体端点的硬件。
 
 ### eSIM/eUICC
 
@@ -117,31 +116,39 @@ Quectel
 
 ## 构建
 
-构建和检查使用固定版本的 Docker 工具链；主机无需安装 Go、Node.js、npm、
-C 工具链或 libopus 开发包。
-
 ```sh
 make check
 make build
 ```
 
-`make check` 执行 Go、主机代理、Web、Compose 和 Dockerfile 检查。
-`make build` 将发布产物写入 `dist/`。
+工具链固定在 Docker 中，主机无需安装 Go、Node.js 或 C 工具链。`make check`
+运行后端、主机代理、Web、Compose 和 Dockerfile 检查；`make build` 输出到
+`dist/`。
 
-## 运行
+## 安装
+
+需要 Debian 13、systemd、Docker Compose 和 ModemManager。
+
+```sh
+sudo ./install.sh --bind-address SERVER_IP
+```
+
+省略 `--bind-address` 时仅监听本机；可用 `--port` 修改 HTTPS 端口。重复运行会
+保留数据、密钥和证书，完整参数见 `./install.sh --help`。
+
+本地开发也可直接启动：
 
 ```sh
 docker compose up -d
 ```
 
-容器部署默认提供 HTTPS。自动模式会创建本地 CA 和叶证书；请从设置中下载并
-信任该 CA。用户上传的证书仍由用户管理，过期时不会被自动替换。
+容器默认提供 HTTPS。自动模式生成本地 CA 和站点证书；用户上传的证书不会被自动
+替换。
 
 ## 许可证
 
-ModemDeck 按
-[PolyForm Noncommercial License 1.0.0](LICENSE) 分发。项目与归档分支说明
-记录在 [NOTICE.md](NOTICE.md) 中。
+ModemDeck 使用 [PolyForm Noncommercial License 1.0.0](LICENSE)。
+项目来源说明见 [NOTICE.md](NOTICE.md)。
 
 ---
 
@@ -150,47 +157,42 @@ ModemDeck 按
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm--Noncommercial--1.0.0-blue.svg)](LICENSE)
 
 ModemDeck is a self-hosted console for cellular calls, messages, contacts,
-traffic, and attached modem lines. Early product ideas were inspired by
-[VoHive](https://github.com/iniwex5/vohive), whose author we thank; ModemDeck is
-independent, has no official relationship with that project, and is not
-endorsed by it.
+traffic, and multiple modem lines. It was inspired by
+[VoHive](https://github.com/iniwex5/vohive) but has no official relationship
+with that project.
 
 ## Features
 
-- Multi-line dashboard, line labels, a default line, and per-contact preferred
-  lines.
-- SMS conversations with line-aware replies, read state, reconnect
-  reconciliation, and real-time updates over SSE.
-- Call history and control, DTMF, global and per-line incoming-call policies,
-  and recording controls when a verified media path is available.
-- Per-line data usage, active connection details, and HTTP/SOCKS5 proxies bound
-  to modem bearers.
-- SIM and eSIM identity, slot status, and masked EID when exposed by
-  ModemManager.
-- Separate home and serving operator identity, including roaming state.
-- Accessible in-app confirmation dialogs for consequential device, contact,
-  and proxy actions.
+- Multi-line dashboard, customizable line labels, a default line, and
+  per-contact preferred lines.
+- Contact avatars, favorites, and direct call and message actions.
+- Line-aware SMS, read state, reconnect reconciliation, and real-time updates.
+- Call history, dialing, DTMF, recordings, and global or per-line incoming-call
+  policies.
+- Per-line traffic, connection status, and HTTP/SOCKS5 proxies.
+- SIM/eSIM and slot details, home and serving operators, and roaming status.
+- In-app confirmation for device, contact, and proxy actions.
 - Telegram bots with encrypted credentials and explicit line scopes.
 
 ## Interface
 
 | Scene | Desktop | Mobile |
 | --- | --- | --- |
-| Multi-line dashboard | ![Desktop dashboard with synthetic activity, two modem lines, and the dialer](docs/images/readme-dashboard.png) | ![Mobile dashboard with synthetic recent activity](docs/images/readme-dashboard-mobile.png) |
-| Line-aware messages | ![Desktop synthetic SMS conversation with line labels and direct replies](docs/images/readme-messages.png) | ![Mobile synthetic SMS conversation with contact actions and direct replies](docs/images/readme-messages-mobile.png) |
-| Call history and recording | ![Desktop synthetic call details with recording playback and the dialer](docs/images/readme-calls.png) | ![Mobile synthetic call details with recording playback](docs/images/readme-calls-mobile.png) |
-| Network details | ![Desktop synthetic modem network settings](docs/images/readme-network-settings.png) | ![Mobile synthetic modem network settings](docs/images/readme-network-settings-mobile.png) |
+| Multi-line dashboard | ![Desktop multi-line dashboard](docs/images/readme-dashboard.png) | ![Mobile multi-line dashboard](docs/images/readme-dashboard-mobile.png) |
+| Line-aware messages | ![Desktop message conversation](docs/images/readme-messages.png) | ![Mobile message conversation](docs/images/readme-messages-mobile.png) |
+| Calls and recordings | ![Desktop call details](docs/images/readme-calls.png) | ![Mobile call details](docs/images/readme-calls-mobile.png) |
+| Network details | ![Desktop network settings](docs/images/readme-network-settings.png) | ![Mobile network settings](docs/images/readme-network-settings-mobile.png) |
 
 ## Architecture
 
 The Web application runs in an unprivileged container and owns authentication,
-communication workflows, and SQLite data. A dedicated Linux host agent is the
-only component that talks to ModemManager and hardware. The application reaches
-it through a permission-restricted Unix socket and does not receive `/dev`, the
-host D-Bus socket, host networking, or Linux capabilities.
+communication workflows, and SQLite data. A Linux host agent exclusively owns
+ModemManager and hardware. They communicate only through a restricted Unix
+socket. The application container receives no `/dev`, host D-Bus, host
+networking, or Linux capabilities.
 
-Unsupported hardware operations fail explicitly. ModemDeck does not guess a
-device path or silently switch control backends.
+Unsupported hardware operations fail explicitly without guessing device paths
+or switching control backends.
 
 ## Hardware compatibility
 
@@ -251,10 +253,16 @@ ModemManager applies it through the production AT D-Bus interface without
 debug mode. A successful configuration does not prove IMS registration, the
 live-call bearer, or an audio path.
 
-QDC507 uses custom firmware. Do not flash standard EC25/EG25 firmware onto it.
-The current device exposes UAC, but `AT+QPCMV=1,2` returns `ERROR`. Dial,
-answer, and hangup work; call audio does not. Browser bidirectional voice
-requires a validated host media endpoint.
+`QDC507GLEFM21` is custom firmware, not a standard EC25/EG25 release. Flashing
+standard EC25/EG25 firmware has been confirmed to brick QDC507 and must never
+be attempted.
+
+On the tested QDC507, setting the final `usbcfg` value to `1` exposes a USB
+audio interface, but the media-routing command `AT+QPCMV=1,2` returns `ERROR`.
+ModemManager Voice can dial, answer, and hang up, yet an established call has
+no usable audio path. The current QDC507 therefore does not support browser
+bidirectional voice. ModemDeck's WebRTC/Opus bridge is limited to hardware with
+a validated host media endpoint.
 
 ### eSIM/eUICC
 
@@ -278,30 +286,37 @@ profile management is unsupported. VoWiFi is not yet validated.
 
 ## Build
 
-Builds and checks use pinned Docker toolchains; Go, Node.js, npm, C toolchains,
-and libopus development packages are not required on the host.
-
 ```sh
 make check
 make build
 ```
 
-`make check` runs the Go, host-agent, Web, Compose, and Dockerfile checks.
-`make build` writes release artifacts to `dist/`.
+Toolchains are pinned in Docker, so the host does not need Go, Node.js, or a C
+toolchain. `make check` covers the backend, host agent, Web app, Compose, and
+Dockerfile; `make build` writes artifacts to `dist/`.
 
-## Run
+## Install
+
+Requires Debian 13, systemd, Docker Compose, and ModemManager.
+
+```sh
+sudo ./install.sh --bind-address SERVER_IP
+```
+
+Without `--bind-address`, the service listens locally; use `--port` to change
+the HTTPS port. Re-running the installer keeps data, secrets, and certificates.
+See `./install.sh --help` for all options.
+
+For local development:
 
 ```sh
 docker compose up -d
 ```
 
-Container deployments serve HTTPS by default. Automatic mode creates a local
-CA and leaf certificate; download and trust that CA from Settings. Uploaded
-certificates remain user-managed and are not replaced automatically when they
-expire.
+Containers serve HTTPS by default. Automatic mode creates a local CA and site
+certificate; user-provided certificates are never replaced automatically.
 
 ## License
 
-ModemDeck is distributed under the
-[PolyForm Noncommercial License 1.0.0](LICENSE). Project and archive-branch
-information is recorded in [NOTICE.md](NOTICE.md).
+ModemDeck uses the [PolyForm Noncommercial License 1.0.0](LICENSE).
+See [NOTICE.md](NOTICE.md) for project provenance.
