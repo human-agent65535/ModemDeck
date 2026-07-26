@@ -5,6 +5,7 @@ import type { CallAction, CallSession, ResourceStatus } from '../api/types'
 import { ApiError } from '../api/types'
 import { translate } from '../i18n'
 import { showBrowserNotification } from './browserNotifications'
+import { syncCallSounds } from './browserSounds'
 import { capabilityReason, contactForNumber, lineForKey, lineLabel } from './workspace'
 import { closeDialer } from './ui'
 import { shutdownCallMedia, syncCallMedia } from './callMedia'
@@ -65,6 +66,7 @@ function requestError(error: unknown, fallback: string): { message: string; stat
 
 function acceptSession(session: CallSession): void {
   callState.session = session
+  syncCallSounds(session)
   syncCallMedia(session)
   showIncomingCallNotification(session)
 }
@@ -128,6 +130,7 @@ async function pollActiveCalls(): Promise<void> {
       acceptSession(active)
     } else if (callState.session && !TERMINAL_PHASES.has(callState.session.phase)) {
       callState.session = null
+      syncCallSounds(null)
       syncCallMedia(null)
     }
     callState.syncStatus = 'ready'
@@ -167,6 +170,7 @@ export function shutdownCallRuntime(): void {
   activeRouter = undefined
   mutationEpoch += 1
   stopPolling()
+  syncCallSounds(null)
   shutdownCallMedia()
   callState.session = null
   callState.busy = false
@@ -223,12 +227,14 @@ export async function dial(
 async function act(action: CallAction): Promise<void> {
   const id = callState.session?.id
   if (!id || callState.busy) return
+  const previousSession = callState.session
 
   mutationEpoch += 1
   callState.busy = true
   callState.pendingAction = action
   callState.error = ''
   callState.errorStatus = 0
+  syncCallSounds(null)
   try {
     acceptSession(await gateway.callAction(id, action))
     schedulePoll(ACTIVE_POLL_MS)
@@ -236,6 +242,7 @@ async function act(action: CallAction): Promise<void> {
     const failure = requestError(error, translate('runtime.callActionFailed'))
     callState.error = failure.message
     callState.errorStatus = failure.status
+    syncCallSounds(previousSession)
   } finally {
     callState.busy = false
     callState.pendingAction = ''
@@ -279,6 +286,7 @@ export async function sendDTMF(digit: string): Promise<void> {
 export function dismissCall(): void {
   if (callState.session && !TERMINAL_PHASES.has(callState.session.phase)) return
   callState.session = null
+  syncCallSounds(null)
   syncCallMedia(null)
   callState.error = ''
   callState.errorStatus = 0

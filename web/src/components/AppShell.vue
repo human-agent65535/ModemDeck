@@ -25,6 +25,10 @@ import {
   toggleBrowserNotifications
 } from '../state/browserNotifications'
 import {
+  initializeBrowserSounds,
+  shutdownBrowserSounds
+} from '../state/browserSounds'
+import {
   initializeMessageRuntime,
   shutdownMessageRuntime
 } from '../state/messageRuntime'
@@ -80,6 +84,7 @@ const mobileSettingsSection = computed(() => {
   const section = String(route.params.section || '')
   const labels: Record<string, string> = {
     system: t('settings.system'),
+    audio: t('settings.audio'),
     devices: t('settings.devices'),
     recording: t('settings.recording'),
     telegram: 'Telegram',
@@ -125,6 +130,7 @@ function backToSettingsMenu(): void {
 
 onMounted(() => {
   initializeBrowserNotifications()
+  initializeBrowserSounds()
   initializeCallRuntime(router)
   initializeMessageRuntime(router)
   initializeRuntimeEvents()
@@ -140,6 +146,7 @@ onBeforeUnmount(() => {
   shutdownRuntimeEvents()
   shutdownMessageRuntime()
   shutdownCallRuntime()
+  shutdownBrowserSounds()
   shutdownDTMFAudio()
   shutdownBrowserNotifications()
 })

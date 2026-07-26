@@ -13,8 +13,10 @@ import {
   RadioTower,
   Send,
   ShieldCheck,
-  UserRound
+  UserRound,
+  Volume2
 } from '@lucide/vue'
+import AudioSettingsForm from '../components/AudioSettingsForm.vue'
 import StatePanel from '../components/StatePanel.vue'
 import DeviceConfigurationPanel from '../components/DeviceConfigurationPanel.vue'
 import DiagnosticsPanel from '../components/DiagnosticsPanel.vue'
@@ -34,7 +36,14 @@ import {
 } from '../state/workspace'
 import { isRegisteredNetwork } from '../utils/operatorNetwork'
 
-type SettingsSection = 'system' | 'devices' | 'recording' | 'telegram' | 'tls' | 'diagnostics'
+type SettingsSection =
+  | 'system'
+  | 'audio'
+  | 'devices'
+  | 'recording'
+  | 'telegram'
+  | 'tls'
+  | 'diagnostics'
 
 const route = useRoute()
 const router = useRouter()
@@ -70,6 +79,12 @@ const sections = computed<Array<{
     label: t('settings.system'),
     description: t('settings.systemDescription'),
     icon: Languages
+  },
+  {
+    id: 'audio',
+    label: t('settings.audio'),
+    description: t('settings.audioDescription'),
+    icon: Volume2
   },
   {
     id: 'devices',
@@ -225,6 +240,10 @@ onMounted(() => {
 
         <div v-if="selectedSection === 'system'" class="settings-content">
           <SystemSettingsForm />
+        </div>
+
+        <div v-else-if="selectedSection === 'audio'" class="settings-content">
+          <AudioSettingsForm />
         </div>
 
         <div v-else-if="selectedSection === 'devices'" class="settings-content">

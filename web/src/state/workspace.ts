@@ -23,6 +23,7 @@ import type {
 } from '../api/types'
 import { ApiError } from '../api/types'
 import { translate } from '../i18n'
+import { playOutgoingMessageSound } from './browserSounds'
 import {
   createLineLookup,
   findLine,
@@ -519,6 +520,7 @@ export async function sendMessage(
   input: SendMessageInput
 ): Promise<{ message: Message; thread?: MessageThread }> {
   const sent = await gateway.sendMessage(input)
+  playOutgoingMessageSound()
   const threads = await refreshThreads()
   const thread = findThreadForSentMessage(threads || threadsResource.data, input, sent)
   if (thread) {

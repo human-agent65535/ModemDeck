@@ -121,7 +121,8 @@ test('app loads the public session before mounting the i18n-enabled UI', () => {
 })
 
 test('settings makes system language a first-class section', () => {
-  assert.match(settingsView, /type SettingsSection = 'system'/)
+  assert.match(settingsView, /id: 'system'/)
+  assert.match(settingsView, /selectedSection === 'system'/)
   assert.match(settingsView, /<SystemSettingsForm \/>/)
   assert.match(systemForm, /value: 'auto'/)
   assert.match(systemForm, /value: 'zh-CN'/)

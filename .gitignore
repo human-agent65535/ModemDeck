@@ -92,6 +92,8 @@ id_ed25519*
 *.ogg
 *.opus
 *.wav
+!/web/src/assets/ringtones/*.ogg
+!/web/src/assets/notifications/*.ogg
 
 # Test coverage
 coverage.out

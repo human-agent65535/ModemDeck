@@ -10,6 +10,22 @@ ModemDeck 是一个独立项目，与 VoHive 没有官方关系，也未获得�
 ModemDeck `modemdeck` 分支的分发和使用受 `LICENSE` 中的许可条款约束，包括
 其中仅限非商业用途的要求。
 
+## Android Open Source Project 铃声
+
+`web/src/assets/ringtones/` 中的铃声来自 Android Open Source Project。
+其中 `classic.ogg`、`digital.ogg`、`chime.ogg` 和 `soft.ogg` 分别对应
+`Ring_Classic_02.ogg`、`Ring_Digital_02.ogg`、`Ring_Synth_02.ogg` 和
+`Ring_Synth_04.ogg`；其余文件来自 `ringtones/ogg/` 中的同名文件。这些文件
+由 Android Open Source Project 按 Apache License 2.0 授权：
+
+https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/data/sounds/
+
+https://www.apache.org/licenses/LICENSE-2.0
+
+`web/src/assets/notifications/` 中的短信提示音同样来自上述 Android Open
+Source Project 目录下的 `notifications/` 与 `newwavelabs/`，并采用相同的
+Apache License 2.0。
+
 ---
 
 # Notices (English)
@@ -26,3 +42,20 @@ ModemDeck `modemdeck` branch.
 
 The license terms in `LICENSE`, including their noncommercial-use requirements,
 govern distribution and use of the ModemDeck `modemdeck` branch.
+
+## Android Open Source Project ringtones
+
+The ringtones under `web/src/assets/ringtones/` come from the Android Open
+Source Project. `classic.ogg`, `digital.ogg`, `chime.ogg`, and `soft.ogg`
+correspond respectively to `Ring_Classic_02.ogg`, `Ring_Digital_02.ogg`,
+`Ring_Synth_02.ogg`, and `Ring_Synth_04.ogg`; the remaining files correspond
+to the same-named files under `ringtones/ogg/`. These files are licensed by
+the Android Open Source Project under the Apache License 2.0:
+
+https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/data/sounds/
+
+https://www.apache.org/licenses/LICENSE-2.0
+
+The SMS alert sounds under `web/src/assets/notifications/` likewise come from
+the `notifications/` and `newwavelabs/` directories in the Android Open Source
+Project source tree above and are licensed under the same Apache License 2.0.

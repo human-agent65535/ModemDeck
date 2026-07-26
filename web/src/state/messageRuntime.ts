@@ -11,6 +11,7 @@ import {
   refreshMessageWorkspace
 } from './workspace'
 import { showBrowserNotification } from './browserNotifications'
+import { playIncomingMessageSound } from './browserSounds'
 
 const fallbackRefreshMilliseconds = 30_000
 
@@ -44,7 +45,10 @@ export function initializeMessageRuntime(router: Router): void {
       enqueue(async () => {
         if (currentGeneration !== generation) return
         await refreshIncomingMessage(event, activeThreadKey(router))
-        if (allowNotification) showIncomingMessageNotification(event, router)
+        if (allowNotification) {
+          playIncomingMessageSound(event.message_id)
+          showIncomingMessageNotification(event, router)
+        }
       })
     },
     onReset: () => {
