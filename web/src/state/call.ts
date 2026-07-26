@@ -11,14 +11,10 @@ import { closeDialer, showCallSurface } from './ui'
 import { shutdownCallMedia, syncCallMedia } from './callMedia'
 
 const TERMINAL_PHASES = new Set<CallSession['phase']>(['ended', 'failed'])
-const ACTIVE_POLL_MS = 2000
-const IDLE_POLL_MS = 5000
-const ERROR_POLL_MS = 10000
 const NOTIFIED_CALL_HISTORY_LIMIT = 256
 
 type PendingCallAction = '' | 'dial' | CallAction | 'dtmf'
 
-let pollTimer: number | undefined
 let runtimeStarted = false
 let pollInFlight = false
 let mutationEpoch = 0
@@ -44,20 +40,6 @@ export const callState = reactive<{
   syncStatus: 'idle',
   syncError: ''
 })
-
-function stopPolling(): void {
-  if (pollTimer !== undefined) window.clearTimeout(pollTimer)
-  pollTimer = undefined
-}
-
-function schedulePoll(delay: number): void {
-  stopPolling()
-  if (!runtimeStarted) return
-  pollTimer = window.setTimeout(() => {
-    pollTimer = undefined
-    void pollActiveCalls()
-  }, delay)
-}
 
 function requestError(error: unknown, fallback: string): { message: string; status: number } {
   return {
@@ -116,12 +98,9 @@ function showIncomingCallNotification(session: CallSession): void {
   })
 }
 
-async function pollActiveCalls(): Promise<void> {
+export async function refreshActiveCalls(): Promise<void> {
   if (!runtimeStarted) return
-  if (pollInFlight) {
-    schedulePoll(ACTIVE_POLL_MS)
-    return
-  }
+  if (pollInFlight) return
   pollInFlight = true
   const startedAtEpoch = mutationEpoch
   if (callState.syncStatus === 'idle') callState.syncStatus = 'loading'
@@ -141,17 +120,11 @@ async function pollActiveCalls(): Promise<void> {
     }
     callState.syncStatus = 'ready'
     callState.syncError = ''
-    schedulePoll(active ? ACTIVE_POLL_MS : IDLE_POLL_MS)
   } catch (error) {
     if (!runtimeStarted || startedAtEpoch !== mutationEpoch) return
     const failure = requestError(error, translate('runtime.syncCallsFailed'))
     callState.syncStatus = failure.status === 403 ? 'forbidden' : 'error'
     callState.syncError = failure.message
-    if (failure.status === 403) {
-      stopPolling()
-    } else {
-      schedulePoll(ERROR_POLL_MS)
-    }
   } finally {
     pollInFlight = false
   }
@@ -163,19 +136,18 @@ export function initializeCallRuntime(router?: Router): void {
   activeRouter = router
   callState.syncStatus = 'idle'
   callState.syncError = ''
-  schedulePoll(0)
+  void refreshActiveCalls()
 }
 
 export function requestActiveCallRefresh(): void {
   if (!runtimeStarted) return
-  schedulePoll(0)
+  void refreshActiveCalls()
 }
 
 export function shutdownCallRuntime(): void {
   runtimeStarted = false
   activeRouter = undefined
   mutationEpoch += 1
-  stopPolling()
   syncCallSounds(null)
   shutdownCallMedia()
   callState.session = null
@@ -218,7 +190,6 @@ export async function dial(
   try {
     acceptSession(await gateway.startCall(lineKey, number, recordingEnabled))
     closeDialer()
-    schedulePoll(ACTIVE_POLL_MS)
     return true
   } catch (error) {
     const failure = requestError(error, translate('runtime.dialFailed'))
@@ -244,7 +215,6 @@ async function act(action: CallAction): Promise<void> {
   syncCallSounds(null)
   try {
     acceptSession(await gateway.callAction(id, action))
-    schedulePoll(ACTIVE_POLL_MS)
   } catch (error) {
     const failure = requestError(error, translate('runtime.callActionFailed'))
     callState.error = failure.message
@@ -280,7 +250,6 @@ export async function sendDTMF(digit: string): Promise<void> {
   callState.errorStatus = 0
   try {
     acceptSession(await gateway.sendDTMF(id, digit))
-    schedulePoll(ACTIVE_POLL_MS)
   } catch (error) {
     const failure = requestError(error, translate('runtime.dtmfFailed'))
     callState.error = failure.message

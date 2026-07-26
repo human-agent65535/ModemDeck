@@ -20,6 +20,10 @@ import {
   proxyCredentialError,
   utf8ByteLength
 } from '../src/utils/proxyCredentials.ts'
+import {
+  calculateNetworkRate,
+  formatNetworkRate
+} from '../src/utils/networkRate.ts'
 
 const networkResponse = {
   available: true,
@@ -36,6 +40,7 @@ const networkResponse = {
       line_id: 'line-main',
       connected: true,
       interface: 'wwan0',
+      addresses: ['192.0.2.10', '2001:db8::10'],
       dns: ['1.1.1.1'],
       rx_bytes: 1200,
       tx_bytes: 500,
@@ -110,6 +115,7 @@ test('network and proxy endpoints use one explicit REST contract', () => {
 test('network parser keeps line and proxy counters separate', () => {
   const parsed = parseNetworkStatusResponse(networkResponse)
   assert.equal(parsed.lines[0].interface, 'wwan0')
+  assert.deepEqual(parsed.lines[0].addresses, ['192.0.2.10', '2001:db8::10'])
   assert.equal(parsed.proxies[0].state, 'running')
   assert.deepEqual(parsed.today_total, { rx_bytes: 700, tx_bytes: 200 })
   assert.equal(parsed.today_usage[0].rx_bytes, 700)
@@ -133,6 +139,43 @@ test('network parser keeps line and proxy counters separate', () => {
   assert.throws(
     () => parseNetworkStatusResponse({ ...networkResponse, apply_attempts: -1 }),
     /apply_attempts/
+  )
+})
+
+test('network rate uses monotonic samples and rejects counter resets', () => {
+  const previous = {
+    bootEpoch: 'boot-1',
+    observedAt: '2026-07-23T12:00:00Z',
+    interface: 'wwan0',
+    connected: true,
+    rxBytes: 1_000,
+    txBytes: 500
+  }
+  assert.deepEqual(
+    calculateNetworkRate(previous, {
+      ...previous,
+      observedAt: '2026-07-23T12:00:05Z',
+      rxBytes: 626_000,
+      txBytes: 63_000
+    }),
+    { rxBytesPerSecond: 125_000, txBytesPerSecond: 12_500 }
+  )
+  assert.equal(formatNetworkRate(125_000), '1.00 Mbps')
+  assert.equal(
+    calculateNetworkRate(previous, {
+      ...previous,
+      observedAt: '2026-07-23T12:00:05Z',
+      rxBytes: 100
+    }),
+    undefined
+  )
+  assert.equal(
+    calculateNetworkRate(previous, {
+      ...previous,
+      bootEpoch: 'boot-2',
+      observedAt: '2026-07-23T12:00:05Z'
+    }),
+    undefined
   )
 })
 

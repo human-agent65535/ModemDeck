@@ -15,6 +15,14 @@ const proxyEditor = readFileSync(
   'utf8'
 )
 const proxyCard = readFileSync(new URL('../src/components/ProxyCard.vue', import.meta.url), 'utf8')
+const runtimeEvents = readFileSync(
+  new URL('../src/state/runtimeEvents.ts', import.meta.url),
+  'utf8'
+)
+const networkState = readFileSync(
+  new URL('../src/state/network.ts', import.meta.url),
+  'utf8'
+)
 
 test('traffic is a primary route after recordings with exact active state', () => {
   const recordingIndex = appShell.indexOf("{ name: 'recordings'")
@@ -148,9 +156,18 @@ test('proxy cards keep runtime truth separate from desired apply state', () => {
   assert.match(trafficView, /t\('traffic\.addProxy'\)/)
 })
 
-test('traffic refreshes line inventory and guards newer proxy state', () => {
+test('runtime SSE refreshes line inventory and guards newer proxy state', () => {
   assert.match(trafficView, /loadBootstrap\(true\)/)
-  assert.match(trafficView, /Promise\.all\(\[loadBootstrap\(true\), loadNetwork\(true, true\)\]\)/)
+  assert.doesNotMatch(trafficView, /setInterval/)
+  assert.match(runtimeEvents, /gateway\.subscribeRuntimeEvents/)
+  assert.match(
+    runtimeEvents,
+    /case 'lines':[\s\S]*?await refreshDeviceWorkspace\(\)/
+  )
+  assert.match(runtimeEvents, /case 'network':[\s\S]*?await loadNetwork\(true, true\)/)
+  assert.match(runtimeEvents, /case 'calls':[\s\S]*?requestActiveCallRefresh\(\)/)
+  assert.match(networkState, /acceptNetworkSnapshot\(snapshot, proxies\)/)
+  assert.match(runtimeEvents, /if \(currentGeneration !== generation \|\| state\.connected\) return/)
   assert.match(trafficView, /:error="networkState\.error"/)
 })
 

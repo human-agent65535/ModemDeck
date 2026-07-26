@@ -41,6 +41,7 @@ type LineNetworkStatus struct {
 	LineID    string   `json:"line_id"`
 	Connected bool     `json:"connected"`
 	Interface string   `json:"interface"`
+	Addresses []string `json:"addresses"`
 	DNS       []string `json:"dns"`
 	RXBytes   uint64   `json:"rx_bytes"`
 	TXBytes   uint64   `json:"tx_bytes"`

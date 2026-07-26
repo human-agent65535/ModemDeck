@@ -50,6 +50,7 @@ type NetworkLine struct {
 	LineID    string   `json:"line_id"`
 	Connected bool     `json:"connected"`
 	Interface string   `json:"interface"`
+	Addresses []string `json:"addresses"`
 	DNS       []string `json:"dns"`
 	RXBytes   uint64   `json:"rx_bytes"`
 	TXBytes   uint64   `json:"tx_bytes"`
@@ -220,6 +221,18 @@ func validatedNetworkSnapshot(wire networkSnapshotWire) (NetworkSnapshot, error)
 				"%w: connected network line has neither interface nor error",
 				ErrProtocol,
 			)
+		}
+		if line.Addresses == nil {
+			line.Addresses = []string{}
+		}
+		for addressIndex := range line.Addresses {
+			line.Addresses[addressIndex] = strings.TrimSpace(line.Addresses[addressIndex])
+			if net.ParseIP(line.Addresses[addressIndex]) == nil {
+				return NetworkSnapshot{}, fmt.Errorf(
+					"%w: network line contains an invalid IP address",
+					ErrProtocol,
+				)
+			}
 		}
 		if line.DNS == nil {
 			line.DNS = []string{}

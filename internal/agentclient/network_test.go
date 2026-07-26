@@ -34,6 +34,7 @@ func TestNetworkAndPutProxiesUseTypedContract(t *testing.T) {
 				"line_id":"line-1",
 				"connected":true,
 				"interface":"wwan0",
+				"addresses":["192.0.2.10","2001:db8::10"],
 				"dns":["1.1.1.1"],
 				"rx_bytes":100,
 				"tx_bytes":200,
@@ -67,6 +68,7 @@ func TestNetworkAndPutProxiesUseTypedContract(t *testing.T) {
 	if snapshot.BootEpoch != "boot-1" ||
 		len(snapshot.Lines) != 1 ||
 		snapshot.Lines[0].Interface != "wwan0" ||
+		len(snapshot.Lines[0].Addresses) != 2 ||
 		len(snapshot.Proxies) != 1 ||
 		!snapshot.Proxies[0].Running {
 		t.Fatalf("Network() = %+v", snapshot)
@@ -90,6 +92,34 @@ func TestNetworkAndPutProxiesUseTypedContract(t *testing.T) {
 		received.Proxies[0].Password != "secret" ||
 		snapshot.Proxies[0].RuntimeEpoch != "proxy-epoch-1" {
 		t.Fatalf("received = %+v snapshot = %+v", received, snapshot)
+	}
+}
+
+func TestNetworkRejectsInvalidLineAddress(t *testing.T) {
+	t.Parallel()
+
+	client := newUnixTestClient(t, http.HandlerFunc(func(
+		response http.ResponseWriter,
+		_ *http.Request,
+	) {
+		_, _ = response.Write([]byte(`{
+			"boot_epoch":"boot-1",
+			"observed_at":"2026-07-24T00:00:00Z",
+			"lines":[{
+				"line_id":"line-1",
+				"connected":true,
+				"interface":"wwan0",
+				"addresses":["not-an-address"],
+				"dns":[],
+				"rx_bytes":0,
+				"tx_bytes":0,
+				"error":""
+			}],
+			"proxies":[]
+		}`))
+	}))
+	if _, err := client.Network(context.Background()); !errors.Is(err, ErrProtocol) {
+		t.Fatalf("Network() error = %v, want protocol error", err)
 	}
 }
 

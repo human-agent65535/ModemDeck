@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	DefaultInterval       = 30 * time.Second
+	DefaultInterval       = 5 * time.Second
 	DefaultApplyAttempts  = 3
 	maxProxyCount         = 64
 	maxProxyIDLength      = 64
@@ -1137,6 +1137,10 @@ func cloneLines(source []agentclient.NetworkLine) []agentclient.NetworkLine {
 		return []agentclient.NetworkLine{}
 	}
 	for index := range lines {
+		lines[index].Addresses = append([]string(nil), lines[index].Addresses...)
+		if lines[index].Addresses == nil {
+			lines[index].Addresses = []string{}
+		}
 		lines[index].DNS = append([]string(nil), lines[index].DNS...)
 		if lines[index].DNS == nil {
 			lines[index].DNS = []string{}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -598,10 +599,57 @@ func TestNetworkSnapshotKeepsInterfaceCountersWhenDNSIsMissing(t *testing.T) {
 	line := snapshot.Lines[0]
 	if !line.Connected ||
 		line.Interface != "wwan0" ||
+		len(line.Addresses) != 0 ||
 		line.RXBytes != 700 ||
 		line.TXBytes != 800 ||
 		line.Error == "" {
 		t.Fatalf("unexpected line status: %+v", line)
+	}
+}
+
+func TestNetworkSnapshotIncludesSelectedBearerAddresses(t *testing.T) {
+	source := &fakeNetworkSource{
+		lines: []domain.Line{{ID: "line-main"}},
+		configurations: map[string]domain.DeviceConfiguration{
+			"line-main": {
+				LineID: "line-main",
+				DataConnections: []domain.DataConnection{{
+					ID:        "bearer-1",
+					Connected: true,
+					APNType:   apnTypeDefault,
+					Interface: "wwan0",
+					IPv4: domain.IPConfiguration{
+						Address: "192.0.2.10",
+						DNS:     []string{"8.8.8.8"},
+					},
+					IPv6: domain.IPConfiguration{
+						Address: "2001:db8::10",
+					},
+				}},
+			},
+		},
+	}
+	manager, err := newManager(source, source, managerOptions{
+		statsReader:        fakeStatsReader{},
+		runnerFactory:      (&fakeRunnerFactory{}).new,
+		interfaceReadiness: alwaysReadyBearer,
+		epoch:              deterministicEpoch(),
+	})
+	if err != nil {
+		t.Fatalf("new manager: %v", err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+
+	snapshot, err := manager.NetworkSnapshot(context.Background())
+	if err != nil {
+		t.Fatalf("network snapshot: %v", err)
+	}
+	if len(snapshot.Lines) != 1 ||
+		!reflect.DeepEqual(
+			snapshot.Lines[0].Addresses,
+			[]string{"192.0.2.10", "2001:db8::10"},
+		) {
+		t.Fatalf("network addresses = %+v", snapshot.Lines)
 	}
 }
 

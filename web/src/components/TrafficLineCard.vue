@@ -1,8 +1,23 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Cable, CircleAlert, CircleCheck, Clock3 } from '@lucide/vue'
+import {
+  ArrowDown,
+  ArrowUp,
+  Cable,
+  CircleAlert,
+  CircleCheck,
+  Clock3,
+  Gauge,
+  Network
+} from '@lucide/vue'
 import type { LineSummary, NetworkLineStatus, NetworkUsage } from '../api/types'
+import {
+  calculateNetworkRate,
+  formatNetworkRate,
+  type NetworkCounterSample,
+  type NetworkRate
+} from '../utils/networkRate'
 import LineTag from './LineTag.vue'
 import TrafficUsage from './TrafficUsage.vue'
 import { trafficLineState } from './trafficLineState'
@@ -14,9 +29,42 @@ const props = defineProps<{
   runtime?: NetworkLineStatus
   today?: NetworkUsage
   month?: NetworkUsage
+  bootEpoch?: string
+  observedAt?: string
 }>()
 
 const connection = computed(() => trafficLineState(props.runtime))
+const rate = ref<NetworkRate>()
+let previousSample: NetworkCounterSample | undefined
+
+watch(
+  () => [
+    props.bootEpoch,
+    props.observedAt,
+    props.runtime?.connected,
+    props.runtime?.interface,
+    props.runtime?.rx_bytes,
+    props.runtime?.tx_bytes
+  ],
+  () => {
+    if (!props.runtime || !props.observedAt) {
+      rate.value = undefined
+      previousSample = undefined
+      return
+    }
+    const sample: NetworkCounterSample = {
+      bootEpoch: props.bootEpoch || '',
+      observedAt: props.observedAt,
+      interface: props.runtime.interface,
+      connected: props.runtime.connected,
+      rxBytes: props.runtime.rx_bytes,
+      txBytes: props.runtime.tx_bytes
+    }
+    rate.value = calculateNetworkRate(previousSample, sample)
+    previousSample = sample
+  },
+  { immediate: true }
+)
 
 function primaryIdentity(): string {
   return props.line.phone_number.trim() || props.fallback
@@ -51,6 +99,25 @@ function secondaryIdentity(): string {
       <div>
         <dt><Cable :size="14" /> {{ t('traffic.interface') }}</dt>
         <dd>{{ runtime?.interface || '—' }}</dd>
+      </div>
+      <div>
+        <dt><Network :size="14" /> {{ t('traffic.ipAddress') }}</dt>
+        <dd :title="runtime?.addresses.join('、')">
+          {{ runtime?.addresses.join(' · ') || '—' }}
+        </dd>
+      </div>
+      <div>
+        <dt><Gauge :size="14" /> {{ t('traffic.currentRate') }}</dt>
+        <dd class="traffic-line-card__rate">
+          <span :title="t('traffic.downloadRate')">
+            <ArrowDown :size="14" />
+            {{ rate ? formatNetworkRate(rate.rxBytesPerSecond) : '—' }}
+          </span>
+          <span :title="t('traffic.uploadRate')">
+            <ArrowUp :size="14" />
+            {{ rate ? formatNetworkRate(rate.txBytesPerSecond) : '—' }}
+          </span>
+        </dd>
       </div>
       <div>
         <dt>{{ t('traffic.today') }}</dt>
@@ -162,6 +229,26 @@ function secondaryIdentity(): string {
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.traffic-line-card__rate {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.traffic-line-card__rate span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.traffic-line-card__rate span:first-child svg {
+  color: var(--blue);
+}
+
+.traffic-line-card__rate span:last-child svg {
+  color: var(--accent);
 }
 
 @media (max-width: 430px) {

@@ -201,6 +201,7 @@ export type NetworkLineStatus = {
   line_id: string
   connected: boolean
   interface: string
+  addresses: string[]
   dns: string[]
   rx_bytes: number
   tx_bytes: number
