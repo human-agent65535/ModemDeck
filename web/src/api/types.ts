@@ -14,6 +14,25 @@ export type CommunicationCapabilityName =
 
 export type CommunicationCapabilities = Partial<Record<CommunicationCapabilityName, boolean>>
 
+export const LINE_COLOR_PRESET_IDS = [
+  'teal',
+  'blue',
+  'indigo',
+  'violet',
+  'green',
+  'amber',
+  'orange',
+  'red'
+] as const
+
+export type LineColorPresetID = (typeof LINE_COLOR_PRESET_IDS)[number]
+
+const LINE_COLOR_PRESET_ID_SET = new Set<string>(LINE_COLOR_PRESET_IDS)
+
+export function isLineColorPresetID(value: unknown): value is LineColorPresetID {
+  return typeof value === 'string' && LINE_COLOR_PRESET_ID_SET.has(value)
+}
+
 export type Capabilities = {
   agent_connected: boolean
   dial: boolean
@@ -43,6 +62,7 @@ export type LineSummary = {
   device_imei: string
   device_alias: string
   line_label: string
+  line_color?: LineColorPresetID | ''
   model?: string
   firmware?: string
   hardware_revision?: string
@@ -520,11 +540,13 @@ export type RenameDeviceInput = {
 
 export type UpdateLineLabelInput = {
   line_label: string
+  line_color?: LineColorPresetID
 }
 
 export type LineLabelResult = {
   iccid: string
   line_label: string
+  line_color: LineColorPresetID | ''
 }
 
 export type CommandReceipt = {

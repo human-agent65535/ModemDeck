@@ -799,6 +799,18 @@ export default {
     moduleLoadFailed: 'Unable to load modem',
     lineIdentity: 'Line identity',
     lineLabel: 'Line label',
+    lineTagColor: 'Tag color',
+    selectLineColor: 'Use {color} for this line',
+    lineColors: {
+      teal: 'Teal',
+      blue: 'Blue',
+      indigo: 'Indigo',
+      violet: 'Violet',
+      green: 'Green',
+      amber: 'Amber',
+      orange: 'Orange',
+      red: 'Red'
+    },
     suggested: '{label} (suggested)',
     simMissingLabel: 'No SIM detected; the label cannot be saved',
     hardwareInformation: 'Hardware information',

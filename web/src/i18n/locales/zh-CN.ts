@@ -799,6 +799,18 @@ export default {
     moduleLoadFailed: '无法读取模组',
     lineIdentity: '线路标识',
     lineLabel: '线路标签',
+    lineTagColor: '标签颜色',
+    selectLineColor: '为此线路使用{color}',
+    lineColors: {
+      teal: '青绿',
+      blue: '蓝色',
+      indigo: '靛蓝色',
+      violet: '紫色',
+      green: '绿色',
+      amber: '琥珀色',
+      orange: '橙色',
+      red: '红色'
+    },
     suggested: '{label}（建议）',
     simMissingLabel: '未检测到 SIM，无法保存标签',
     hardwareInformation: '硬件信息',

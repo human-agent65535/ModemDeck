@@ -13,6 +13,7 @@ import type {
   MessageThread,
   SystemLanguage
 } from './types'
+import { isLineColorPresetID } from './types'
 
 type JsonRecord = Record<string, unknown>
 
@@ -310,6 +311,7 @@ export function parseLine(value: unknown): LineSummary {
   const source = objectValue(value, 'line')
   const rawAccessTechnologies = nullableNumber(source, 'access_technologies')
   const rawSignalSNR = nullableNumber(source, 'signal_snr', true)
+  const rawLineColor = stringValue(source, 'line_color')
   const line: LineSummary = {
     id: stringValue(source, 'id') || undefined,
     iccid: stringValue(source, 'iccid'),
@@ -328,6 +330,7 @@ export function parseLine(value: unknown): LineSummary {
     device_imei: stringValue(source, 'device_imei'),
     device_alias: stringValue(source, 'device_alias'),
     line_label: stringValue(source, 'line_label'),
+    line_color: isLineColorPresetID(rawLineColor) ? rawLineColor : '',
     model: stringValue(source, 'model') || undefined,
     firmware: stringValue(source, 'firmware') || undefined,
     hardware_revision: stringValue(source, 'hardware_revision') || undefined,

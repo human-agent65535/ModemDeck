@@ -138,7 +138,7 @@ import type {
   USSDResponse,
   USSDStatus
 } from './types'
-import { ApiError } from './types'
+import { ApiError, isLineColorPresetID } from './types'
 import { createFixtureGateway } from './fixture'
 
 const API_ROOT = '/api/v1'
@@ -313,6 +313,7 @@ function parseDiagnosticLine(value: unknown, index: number): LineSummary {
   const rawSignal = source.signal_quality
   const signalQuality =
     typeof rawSignal === 'number' && Number.isFinite(rawSignal) ? rawSignal : undefined
+  const rawLineColor = stringValue(source, 'line_color')
   return {
     id: id || undefined,
     iccid,
@@ -335,6 +336,7 @@ function parseDiagnosticLine(value: unknown, index: number): LineSummary {
     device_imei: deviceIMEI,
     device_alias: stringValue(source, 'device_alias'),
     line_label: stringValue(source, 'line_label'),
+    line_color: isLineColorPresetID(rawLineColor) ? rawLineColor : '',
     model: stringValue(source, 'model') || undefined,
     firmware: stringValue(source, 'firmware') || undefined,
     state: stringValue(source, 'state') || undefined,

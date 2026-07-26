@@ -198,6 +198,51 @@ func TestOpenMigratesSystemSettingsAndPreservesExistingData(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesSIMLineColorAndPreservesExistingData(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "without-line-color.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacySchema := strings.Replace(
+		currentSchemaSQL,
+		"\n\t\t\tline_color TEXT NOT NULL DEFAULT ''\n\t\t\t\tCHECK (line_color IN (\n\t\t\t\t\t'', 'teal', 'blue', 'indigo', 'violet',\n\t\t\t\t\t'green', 'amber', 'orange', 'red'\n\t\t\t\t)),",
+		"",
+		1,
+	)
+	if legacySchema == currentSchemaSQL {
+		t.Fatal("legacy schema fixture did not remove sim_cards.line_color")
+	}
+	if _, err := database.Exec(legacySchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(
+		`INSERT INTO sim_cards (iccid, line_label) VALUES ('iccid-1', '主卡')`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	var label, color string
+	if err := database.QueryRow(
+		`SELECT line_label, line_color FROM sim_cards WHERE iccid = 'iccid-1'`,
+	).Scan(&label, &color); err != nil {
+		t.Fatal(err)
+	}
+	if label != "主卡" || color != "" {
+		t.Fatalf("migrated line identity = (%q, %q), want (主卡, empty)", label, color)
+	}
+}
+
 func TestOpenDoesNotRepairMissingCurrentIndex(t *testing.T) {
 	t.Parallel()
 

@@ -217,6 +217,11 @@ CREATE TABLE sim_cards (
 			iccid TEXT PRIMARY KEY,
 			imsi TEXT NOT NULL DEFAULT '',
 			line_label TEXT NOT NULL DEFAULT '',
+			line_color TEXT NOT NULL DEFAULT ''
+				CHECK (line_color IN (
+					'', 'teal', 'blue', 'indigo', 'violet',
+					'green', 'amber', 'orange', 'red'
+				)),
 			operator TEXT NOT NULL DEFAULT '',
 			current_imei TEXT,
 			reg_status INTEGER NOT NULL DEFAULT 0,

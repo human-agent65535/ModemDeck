@@ -9,11 +9,12 @@ import (
 )
 
 var (
-	ErrDeviceNotFound   = errors.New("device not found")
-	ErrDeviceConflict   = errors.New("device already exists")
-	ErrDeviceValidation = errors.New("device validation failed")
-	ErrLineNotFound     = errors.New("line not found")
-	ErrLineValidation   = errors.New("line validation failed")
+	ErrDeviceNotFound      = errors.New("device not found")
+	ErrDeviceConflict      = errors.New("device already exists")
+	ErrDeviceValidation    = errors.New("device validation failed")
+	ErrLineNotFound        = errors.New("line not found")
+	ErrLineValidation      = errors.New("line validation failed")
+	ErrLineColorValidation = errors.New("line color validation failed")
 )
 
 const (
@@ -21,6 +22,35 @@ const (
 	maxLineLabelLength   = 16
 	maxLineICCIDLength   = 64
 )
+
+type LineColor string
+
+const (
+	LineColorTeal   LineColor = "teal"
+	LineColorBlue   LineColor = "blue"
+	LineColorIndigo LineColor = "indigo"
+	LineColorAmber  LineColor = "amber"
+	LineColorOrange LineColor = "orange"
+	LineColorRed    LineColor = "red"
+	LineColorGreen  LineColor = "green"
+	LineColorViolet LineColor = "violet"
+)
+
+func (color LineColor) Valid() bool {
+	switch color {
+	case LineColorTeal,
+		LineColorBlue,
+		LineColorIndigo,
+		LineColorAmber,
+		LineColorOrange,
+		LineColorRed,
+		LineColorGreen,
+		LineColorViolet:
+		return true
+	default:
+		return false
+	}
+}
 
 func (s *Store) CreateDevice(ctx context.Context, input DeviceInput) (Device, error) {
 	imei, alias, err := normalizeDeviceInput(input)
@@ -79,7 +109,12 @@ func (s *Store) RenameDevice(ctx context.Context, imei, alias string) (Device, e
 	return s.device(ctx, imei)
 }
 
-func (s *Store) UpdateLineLabel(ctx context.Context, iccid, label string) (LineSummary, error) {
+func (s *Store) UpdateLineLabel(
+	ctx context.Context,
+	iccid,
+	label string,
+	color *LineColor,
+) (LineSummary, error) {
 	iccid = strings.TrimSpace(iccid)
 	if iccid == "" || len([]rune(iccid)) > maxLineICCIDLength {
 		return LineSummary{}, fmt.Errorf("%w: ICCID is invalid", ErrLineValidation)
@@ -88,12 +123,21 @@ func (s *Store) UpdateLineLabel(ctx context.Context, iccid, label string) (LineS
 	if len([]rune(label)) > maxLineLabelLength {
 		return LineSummary{}, fmt.Errorf("%w: label is too long", ErrLineValidation)
 	}
+	var colorValue any
+	if color != nil {
+		normalized := LineColor(strings.TrimSpace(string(*color)))
+		if !normalized.Valid() {
+			return LineSummary{}, fmt.Errorf("%w: unsupported preset", ErrLineColorValidation)
+		}
+		colorValue = string(normalized)
+	}
 	result, err := s.database.ExecContext(
 		ctx,
 		`UPDATE sim_cards
-		 SET line_label = ?, updated_at = CURRENT_TIMESTAMP
+		 SET line_label = ?, line_color = COALESCE(?, line_color), updated_at = CURRENT_TIMESTAMP
 		 WHERE iccid = ?`,
 		label,
+		colorValue,
 		iccid,
 	)
 	if err != nil {
@@ -242,6 +286,7 @@ func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
 		SELECT
 			s.iccid AS iccid,
 			s.line_label AS line_label,
+			s.line_color AS line_color,
 			s.imsi AS imsi,
 			COALESCE(NULLIF(ss.phone_number, ''), NULLIF(ss.modem_phone_number, ''), NULLIF(ss.vowifi_phone_number, ''), '') AS phone_number,
 			COALESCE(NULLIF(s.operator, ''), ss.operator, '') AS operator,
@@ -254,6 +299,7 @@ func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
 		SELECT
 			ss.current_iccid,
 			COALESCE((SELECT sim_cards.line_label FROM sim_cards WHERE sim_cards.iccid = ss.current_iccid), ''),
+			COALESCE((SELECT sim_cards.line_color FROM sim_cards WHERE sim_cards.iccid = ss.current_iccid), ''),
 			ss.imsi,
 			COALESCE(NULLIF(ss.phone_number, ''), NULLIF(ss.modem_phone_number, ''), NULLIF(ss.vowifi_phone_number, ''), ''),
 			ss.operator,
@@ -261,7 +307,7 @@ func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
 		FROM sim_subscriptions ss
 		WHERE NOT EXISTS (SELECT 1 FROM sim_cards WHERE sim_cards.imsi = ss.imsi)
 	)
-	SELECT line_rows.iccid, line_rows.line_label, line_rows.imsi, line_rows.phone_number,
+	SELECT line_rows.iccid, line_rows.line_label, line_rows.line_color, line_rows.imsi, line_rows.phone_number,
 		line_rows.operator, line_rows.device_imei, COALESCE(devices.alias, '')
 	FROM line_rows
 	LEFT JOIN devices ON devices.imei = line_rows.device_imei
@@ -274,12 +320,13 @@ func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
 	lines := make([]LineSummary, 0)
 	for rows.Next() {
 		var (
-			line                                                             LineSummary
-			iccid, lineLabel, imsi, phone, operator, deviceIMEI, deviceAlias sql.NullString
+			line                                                                        LineSummary
+			iccid, lineLabel, lineColor, imsi, phone, operator, deviceIMEI, deviceAlias sql.NullString
 		)
 		if err := rows.Scan(
 			&iccid,
 			&lineLabel,
+			&lineColor,
 			&imsi,
 			&phone,
 			&operator,
@@ -290,6 +337,7 @@ func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
 		}
 		line.ICCID = stringValue(iccid)
 		line.LineLabel = stringValue(lineLabel)
+		line.LineColor = LineColor(stringValue(lineColor))
 		line.IMSI = stringValue(imsi)
 		line.PhoneNumber = stringValue(phone)
 		line.Operator = stringValue(operator)

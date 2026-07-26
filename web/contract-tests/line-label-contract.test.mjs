@@ -8,6 +8,7 @@ import {
 } from '../src/api/contract.ts'
 import { createFixtureGateway } from '../src/api/fixture.ts'
 import { lineLabel } from '../src/state/workspace.ts'
+import { LINE_TONE_PRESETS, lineTone } from '../src/utils/lineTone.ts'
 
 const devicePanelSource = readFileSync(
   new URL('../src/components/DeviceConfigurationPanel.vue', import.meta.url),
@@ -35,6 +36,7 @@ const line = {
   device_imei: '860000000000001',
   device_alias: '客厅模组',
   line_label: '主卡',
+  line_color: 'violet',
   state: 'registered'
 }
 
@@ -49,25 +51,46 @@ test('line label API uses ICCID identity and a bounded payload', () => {
   assert.deepEqual(createLineLabelPayload({ line_label: '   ' }), {
     line_label: ''
   })
+  assert.deepEqual(
+    createLineLabelPayload({ line_label: '  工作  ', line_color: 'orange' }),
+    {
+      line_label: '工作',
+      line_color: 'orange'
+    }
+  )
   assert.throws(
     () => createLineLabelPayload({ line_label: '一二三四五六七八九十一二三四五六七' }),
     /16/
+  )
+  assert.throws(
+    () => createLineLabelPayload({ line_label: '主卡', line_color: 'magenta' }),
+    /预设/
   )
 })
 
 test('line label response accepts the documented direct and envelope forms', () => {
   const direct = parseLineLabelResponse({
     iccid: line.iccid,
-    line_label: line.line_label
+    line_label: line.line_label,
+    line_color: line.line_color
   })
   const enveloped = parseLineLabelResponse({
-    line: { iccid: line.iccid, line_label: '副卡' }
+    line: { iccid: line.iccid, line_label: '副卡', line_color: 'teal' }
   })
   assert.equal(direct.iccid, line.iccid)
   assert.equal(direct.line_label, '主卡')
+  assert.equal(direct.line_color, 'violet')
   assert.equal(enveloped.iccid, line.iccid)
   assert.equal(enveloped.line_label, '副卡')
+  assert.equal(enveloped.line_color, 'teal')
   assert.equal('state' in enveloped, false)
+  assert.throws(
+    () =>
+      parseLineLabelResponse({
+        line: { iccid: line.iccid, line_label: '副卡', line_color: 'magenta' }
+      }),
+    /预设/
+  )
 })
 
 test('fixture keeps module aliases separate from editable line labels', async () => {
@@ -75,21 +98,37 @@ test('fixture keeps module aliases separate from editable line labels', async ()
   const initial = await gateway.getBootstrap()
 
   assert.deepEqual(
-    initial.lines.slice(0, 2).map(item => item.line_label),
-    ['主卡', '副卡']
+    initial.lines.slice(0, 2).map(item => [item.line_label, item.line_color]),
+    [
+      ['主卡', 'violet'],
+      ['副卡', 'teal']
+    ]
   )
 
   const main = initial.lines[0]
-  const saved = await gateway.updateLineLabel(main.iccid, { line_label: '工作' })
+  const saved = await gateway.updateLineLabel(main.iccid, {
+    line_label: '工作',
+    line_color: 'orange'
+  })
   assert.equal(saved.line_label, '工作')
-  assert.deepEqual(saved, { iccid: main.iccid, line_label: '工作' })
+  assert.deepEqual(saved, {
+    iccid: main.iccid,
+    line_label: '工作',
+    line_color: 'orange'
+  })
   assert.equal((await gateway.getBootstrap()).lines[0].line_label, '工作')
+  assert.equal((await gateway.getBootstrap()).lines[0].line_color, 'orange')
 
   const cleared = await gateway.updateLineLabel(main.iccid, { line_label: '' })
   assert.equal(cleared.line_label, '')
+  assert.equal(cleared.line_color, 'orange')
   await assert.rejects(
     () => gateway.updateLineLabel(main.iccid, { line_label: '一二三四五六七八九十一二三四五六七' }),
     error => error?.status === 400 && error?.code === 'invalid_line_label'
+  )
+  await assert.rejects(
+    () => gateway.updateLineLabel(main.iccid, { line_label: '主卡', line_color: 'magenta' }),
+    error => error?.status === 400 && error?.code === 'invalid_line_color'
   )
 })
 
@@ -119,19 +158,43 @@ test('line names prefer the line label and otherwise use the module name', () =>
   )
 })
 
-test('settings edit only the ICCID-backed line label', () => {
+test('settings edit the ICCID-backed line identity from preset colors', () => {
   assert.match(devicePanelSource, /maxlength="16"/)
   assert.match(devicePanelSource, /!selectedLine\?\.iccid/)
-  assert.match(devicePanelSource, /updateLineLabel\(line\.iccid,\s*\{\s*line_label: value\s*\}\)/)
+  assert.match(
+    devicePanelSource,
+    /updateLineLabel\(line\.iccid,\s*\{\s*line_label: value,\s*line_color: lineColorDraft\.value\s*\}\)/
+  )
   assert.match(devicePanelSource, /lineLabelDraft\.value = selectedLine\.value\?\.line_label \|\| ''/)
+  assert.match(devicePanelSource, /lineColorDraft\.value = selectedLineColor\.value/)
+  assert.match(devicePanelSource, /class="line-color-picker"/)
+  assert.match(devicePanelSource, /v-for="preset in lineTonePresets"/)
+  assert.match(
+    devicePanelSource,
+    /\.line-color-picker__options\s*\{[^}]*grid-template-columns: repeat\(8, 30px\)/s
+  )
+  assert.match(devicePanelSource, /\.line-label-form__controls\s*\{[^}]*flex-wrap: wrap/s)
+  assert.match(devicePanelSource, /\.line-label-form__actions\s*\{[^}]*margin-left: auto/s)
+  assert.match(
+    devicePanelSource,
+    /\.line-label-form__actions > :deep\(\.line-tag\)\s*\{[^}]*height: 34px/s
+  )
+  assert.doesNotMatch(devicePanelSource, /repeat\(4, 30px\)/)
   assert.match(devicePanelSource, /t\('device\.suggested', \{ label: selectedLineFallback \}\)/)
   assert.match(workspaceSource, /gateway\.updateLineLabel\(iccid, input\)/)
   assert.match(workspaceSource, /if \(saved\.iccid !== normalizedICCID\)/)
   assert.match(workspaceSource, /line\.line_label = saved\.line_label/)
+  assert.match(workspaceSource, /line\.line_color = saved\.line_color/)
   assert.doesNotMatch(workspaceSource, /Object\.assign\(line, saved\)/)
   assert.doesNotMatch(devicePanelSource, /renameDevice|修改模组名称|@rename/)
   assert.match(lineTagSource, /line\.line_label\.trim\(\) \|\| props\.fallback\.trim\(\)/)
   assert.match(lineTagSource, /lineTone\(props\.line, label\.value\)/)
-  assert.match(lineToneSource, /stableHash\(stableKey\) % LINE_TONES\.length/)
+  assert.match(lineToneSource, /preset\.id === line\.line_color/)
+  assert.match(
+    lineToneSource,
+    /stableHash\(stableKey\) % AUTO_LINE_TONE_PRESETS\.length/
+  )
   assert.match(lineTagSource, /flex:\s*0 0 auto/)
+  assert.equal(LINE_TONE_PRESETS.length, 8)
+  assert.equal(lineTone(line).foreground, '#6b3287')
 })

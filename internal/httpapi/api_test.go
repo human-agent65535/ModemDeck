@@ -36,6 +36,7 @@ type fakeRepository struct {
 	lines               []store.LineSummary
 	updateLineICCID     string
 	updateLineLabel     string
+	updateLineColor     *store.LineColor
 	updateLineResult    store.LineSummary
 	updateLineError     error
 	systemSettings      store.SystemSettings
@@ -132,9 +133,11 @@ func (repository *fakeRepository) UpdateLineLabel(
 	_ context.Context,
 	iccid string,
 	label string,
+	color *store.LineColor,
 ) (store.LineSummary, error) {
 	repository.updateLineICCID = iccid
 	repository.updateLineLabel = label
+	repository.updateLineColor = color
 	return repository.updateLineResult, repository.updateLineError
 }
 

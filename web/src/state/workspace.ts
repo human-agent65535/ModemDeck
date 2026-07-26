@@ -277,7 +277,10 @@ export async function updateLineLabel(
     throw new ApiError(translate('runtime.lineLabelMismatch'), 0, 'invalid_response')
   }
   const line = bootstrapResource.data?.lines.find(item => item.iccid === normalizedICCID)
-  if (line) line.line_label = saved.line_label
+  if (line) {
+    line.line_label = saved.line_label
+    line.line_color = saved.line_color
+  }
   bootstrapResource.error = ''
 }
 

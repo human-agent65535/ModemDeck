@@ -1,7 +1,7 @@
 import type { LineSummary } from '../api/types'
 import { translate } from '../i18n'
 
-export type LineTagLine = Pick<LineSummary, 'id' | 'iccid' | 'line_label'>
+export type LineTagLine = Pick<LineSummary, 'id' | 'iccid' | 'line_label' | 'line_color'>
 
 export function normalizedPhoneIdentity(value: string | undefined): string {
   return value?.replace(/\D/g, '') || ''

@@ -18,13 +18,14 @@ func TestLineLabelResourceUpdatesByICCID(t *testing.T) {
 	repository := &fakeRepository{updateLineResult: store.LineSummary{
 		ICCID:       iccid,
 		LineLabel:   "主卡",
+		LineColor:   store.LineColorViolet,
 		DeviceAlias: "机房模组",
 	}}
 	api, err := New(repository, Options{disableAuthentication: true})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	body := bytes.NewBufferString(`{"line_label":"  主卡  "}`)
+	body := bytes.NewBufferString(`{"line_label":"  主卡  ","line_color":"violet"}`)
 	request := httptest.NewRequest(
 		http.MethodPatch,
 		"/api/v1/lines/"+url.PathEscape(iccid)+"/label",
@@ -46,11 +47,17 @@ func TestLineLabelResourceUpdatesByICCID(t *testing.T) {
 			"  主卡  ",
 		)
 	}
+	if repository.updateLineColor == nil ||
+		*repository.updateLineColor != store.LineColorViolet {
+		t.Fatalf("repository line color = %v, want violet", repository.updateLineColor)
+	}
 	var payload lineResponse
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if payload.Line.ICCID != iccid || payload.Line.LineLabel != "主卡" {
+	if payload.Line.ICCID != iccid ||
+		payload.Line.LineLabel != "主卡" ||
+		payload.Line.LineColor != store.LineColorViolet {
 		t.Fatalf("line = %+v", payload.Line)
 	}
 }
@@ -87,6 +94,14 @@ func TestLineLabelResourceRejectsInvalidRequests(t *testing.T) {
 			storeError: store.ErrLineValidation,
 			wantStatus: http.StatusBadRequest,
 			wantCode:   "invalid_line_label",
+		},
+		{
+			name:       "invalid color",
+			method:     http.MethodPatch,
+			body:       `{"line_label":"主卡","line_color":"magenta"}`,
+			storeError: store.ErrLineColorValidation,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "invalid_line_color",
 		},
 		{
 			name:       "unknown ICCID",

@@ -35,12 +35,16 @@ func TestUpdateLineLabelUsesSIMIdentityAndSurvivesHardwareRefresh(t *testing.T) 
 		t.Fatalf("RenameDevice() error = %v", err)
 	}
 
-	updated, err := repository.UpdateLineLabel(ctx, line.ICCID, "  主卡  ")
+	color := LineColorViolet
+	updated, err := repository.UpdateLineLabel(ctx, line.ICCID, "  主卡  ", &color)
 	if err != nil {
 		t.Fatalf("UpdateLineLabel() error = %v", err)
 	}
 	if updated.LineLabel != "主卡" {
 		t.Fatalf("line label = %q, want 主卡", updated.LineLabel)
+	}
+	if updated.LineColor != LineColorViolet {
+		t.Fatalf("line color = %q, want violet", updated.LineColor)
 	}
 	if updated.DeviceAlias != "机房模组" {
 		t.Fatalf("device alias = %q, want 机房模组", updated.DeviceAlias)
@@ -55,8 +59,10 @@ func TestUpdateLineLabelUsesSIMIdentityAndSurvivesHardwareRefresh(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Lines() error = %v", err)
 	}
-	if len(lines) != 1 || lines[0].LineLabel != "主卡" {
-		t.Fatalf("lines = %+v, want persisted line label", lines)
+	if len(lines) != 1 ||
+		lines[0].LineLabel != "主卡" ||
+		lines[0].LineColor != LineColorViolet {
+		t.Fatalf("lines = %+v, want persisted line identity", lines)
 	}
 	if lines[0].Operator != "Fixture Telecom" ||
 		lines[0].HomeOperatorName != "Fixture Telecom" ||
@@ -84,20 +90,31 @@ func TestUpdateLineLabelValidatesUnicodeLengthAndICCID(t *testing.T) {
 
 	repository := newHardwareTestStore(t)
 	ctx := context.Background()
-	if _, err := repository.UpdateLineLabel(ctx, "", "主卡"); !errors.Is(err, ErrLineValidation) {
+	if _, err := repository.UpdateLineLabel(ctx, "", "主卡", nil); !errors.Is(err, ErrLineValidation) {
 		t.Fatalf("blank ICCID error = %v, want ErrLineValidation", err)
 	}
 	if _, err := repository.UpdateLineLabel(
 		ctx,
 		"8986010000000000001",
 		strings.Repeat("卡", maxLineLabelLength+1),
+		nil,
 	); !errors.Is(err, ErrLineValidation) {
 		t.Fatalf("long label error = %v, want ErrLineValidation", err)
+	}
+	invalidColor := LineColor("magenta")
+	if _, err := repository.UpdateLineLabel(
+		ctx,
+		"8986010000000000001",
+		"主卡",
+		&invalidColor,
+	); !errors.Is(err, ErrLineColorValidation) {
+		t.Fatalf("invalid color error = %v, want ErrLineColorValidation", err)
 	}
 	if _, err := repository.UpdateLineLabel(
 		ctx,
 		"8986010000000000001",
 		strings.Repeat("卡", maxLineLabelLength),
+		nil,
 	); !errors.Is(err, ErrLineNotFound) {
 		t.Fatalf("unknown ICCID error = %v, want ErrLineNotFound", err)
 	}

@@ -219,6 +219,7 @@ type LineSummary struct {
 	ID                     string           `json:"id"`
 	ICCID                  string           `json:"iccid"`
 	LineLabel              string           `json:"line_label"`
+	LineColor              LineColor        `json:"line_color"`
 	IMSI                   string           `json:"imsi"`
 	PhoneNumber            string           `json:"phone_number"`
 	Operator               string           `json:"operator"`

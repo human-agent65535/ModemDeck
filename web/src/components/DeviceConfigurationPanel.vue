@@ -3,6 +3,7 @@ import {
   AlertCircle,
   Cable,
   CardSim,
+  Check,
   CheckCircle2,
   Database,
   LoaderCircle,
@@ -26,6 +27,7 @@ import type {
   DeviceFeatureCapability,
   IncomingCallPolicy,
   IPFamily,
+  LineColorPresetID,
   LineSummary,
   MobileNetwork,
   NetworkSelectionMode,
@@ -68,6 +70,7 @@ import {
   updateLineLabel
 } from '../state/workspace'
 import { operatorFacts } from '../utils/operatorNetwork'
+import { LINE_TONE_PRESETS, lineTonePreset } from '../utils/lineTone'
 import LineTag from './LineTag.vue'
 import ModuleCard from './ModuleCard.vue'
 import StatePanel from './StatePanel.vue'
@@ -92,8 +95,10 @@ const voltePolicyDraft = ref<'enabled' | 'disabled' | ''>('')
 
 const moduleError = ref('')
 const lineLabelDraft = ref('')
+const lineColorDraft = ref<LineColorPresetID>('teal')
 const lineLabelPending = ref(false)
 const lineLabelError = ref('')
+const lineTonePresets = LINE_TONE_PRESETS
 
 const simStatus = ref<SIMStatus | null>(null)
 const simLoadStatus = ref<AsyncStatus>('idle')
@@ -219,17 +224,20 @@ const dataConnectionFacts = computed(() => {
   addIPConfiguration('IPv6', connection.ipv6)
   return facts
 })
-const selectedIsDefault = computed(
-  () => selectedLine.value?.device_imei === defaultDeviceIMEI.value
-)
 const selectedLineFallback = computed(() => {
   const line = selectedLine.value
   if (line) return lineLabel({ ...line, line_label: '' })
   const index = lines.value.findIndex(line => lineKey(line) === selectedLineID.value)
   return t('device.lineNumber', { number: index >= 0 ? index + 1 : 1 })
 })
-const lineLabelDirty = computed(
-  () => lineLabelDraft.value.trim() !== (selectedLine.value?.line_label || '')
+const selectedLineColor = computed<LineColorPresetID>(() => {
+  const line = selectedLine.value
+  return line ? lineTonePreset(line, selectedLineFallback.value).id : 'teal'
+})
+const lineIdentityDirty = computed(
+  () =>
+    lineLabelDraft.value.trim() !== (selectedLine.value?.line_label || '') ||
+    lineColorDraft.value !== selectedLineColor.value
 )
 const voiceAvailable = computed(() => selectedLine.value?.capabilities?.voice === true)
 const selectedLineCall = computed(() => {
@@ -474,9 +482,14 @@ watch(
 )
 
 watch(
-  [() => selectedLine.value?.iccid, () => selectedLine.value?.line_label],
+  [
+    () => selectedLine.value?.iccid,
+    () => selectedLine.value?.line_label,
+    () => selectedLine.value?.line_color
+  ],
   () => {
     lineLabelDraft.value = selectedLine.value?.line_label || ''
+    lineColorDraft.value = selectedLineColor.value
     lineLabelError.value = ''
   },
   { immediate: true }
@@ -633,7 +646,7 @@ async function makeDefault(line: LineSummary): Promise<void> {
 
 async function saveLineLabel(): Promise<void> {
   const line = selectedLine.value
-  if (!line?.iccid || lineLabelPending.value || !lineLabelDirty.value) return
+  if (!line?.iccid || lineLabelPending.value || !lineIdentityDirty.value) return
   const value = lineLabelDraft.value.trim()
   if (Array.from(value).length > 16) {
     lineLabelError.value = t('device.lineLabelTooLong')
@@ -642,13 +655,20 @@ async function saveLineLabel(): Promise<void> {
   lineLabelPending.value = true
   lineLabelError.value = ''
   try {
-    await updateLineLabel(line.iccid, { line_label: value })
+    await updateLineLabel(line.iccid, {
+      line_label: value,
+      line_color: lineColorDraft.value
+    })
   } catch (error) {
     lineLabelError.value =
       error instanceof Error ? error.message : t('device.lineLabelSaveFailed')
   } finally {
     lineLabelPending.value = false
   }
+}
+
+function lineColorLabel(color: LineColorPresetID): string {
+  return t(`device.lineColors.${color}`)
 }
 
 async function changeRadio(event: Event): Promise<void> {
@@ -991,9 +1011,6 @@ onBeforeUnmount(() => {
             />
           </div>
         </div>
-        <span v-if="selectedIsDefault" class="selected-module-context__default">
-          {{ t('lines.defaultLine') }}
-        </span>
       </header>
 
       <nav class="device-tabs" :aria-label="t('device.moduleSettings')">
@@ -1044,20 +1061,61 @@ onBeforeUnmount(() => {
                   aria-describedby="line-label-status"
                 />
               </label>
-              <LineTag
-                v-if="selectedLine"
-                :line="{ ...selectedLine, line_label: lineLabelDraft.trim() }"
-                :fallback="selectedLineFallback"
-              />
-              <button
-                class="primary-action"
-                type="submit"
-                :disabled="lineLabelPending || !selectedLine?.iccid || !lineLabelDirty"
-              >
-                <LoaderCircle v-if="lineLabelPending" class="spin" :size="16" />
-                <Save v-else :size="16" />
-                {{ t('common.save') }}
-              </button>
+              <div class="line-label-form__controls">
+                <fieldset
+                  class="line-color-picker"
+                  :disabled="lineLabelPending || !selectedLine?.iccid"
+                >
+                  <legend>{{ t('device.lineTagColor') }}</legend>
+                  <div class="line-color-picker__options">
+                    <label v-for="preset in lineTonePresets" :key="preset.id">
+                      <input
+                        v-model="lineColorDraft"
+                        type="radio"
+                        name="line-color"
+                        :value="preset.id"
+                        :aria-label="
+                          t('device.selectLineColor', {
+                            color: lineColorLabel(preset.id)
+                          })
+                        "
+                      />
+                      <span
+                        :title="lineColorLabel(preset.id)"
+                        :style="{
+                          color: preset.foreground,
+                          backgroundColor: preset.background,
+                          borderColor: preset.border
+                        }"
+                      >
+                        <Check v-if="lineColorDraft === preset.id" :size="14" />
+                      </span>
+                    </label>
+                  </div>
+                </fieldset>
+                <div class="line-label-form__actions">
+                  <LineTag
+                    v-if="selectedLine"
+                    :line="{
+                      ...selectedLine,
+                      line_label: lineLabelDraft.trim(),
+                      line_color: lineColorDraft
+                    }"
+                    :fallback="selectedLineFallback"
+                  />
+                  <button
+                    class="primary-action"
+                    type="submit"
+                    :disabled="
+                      lineLabelPending || !selectedLine?.iccid || !lineIdentityDirty
+                    "
+                  >
+                    <LoaderCircle v-if="lineLabelPending" class="spin" :size="16" />
+                    <Save v-else :size="16" />
+                    {{ t('common.save') }}
+                  </button>
+                </div>
+              </div>
             </form>
             <p
               id="line-label-status"
@@ -1076,7 +1134,6 @@ onBeforeUnmount(() => {
           <section class="configuration-section configuration-summary">
             <header>
               <h4>{{ t('device.hardwareInformation') }}</h4>
-              <span v-if="selectedIsDefault">{{ t('lines.defaultLine') }}</span>
             </header>
             <dl>
               <div>
@@ -1980,11 +2037,7 @@ onBeforeUnmount(() => {
 }
 
 .selected-module-context {
-  display: grid;
   min-width: 0;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 18px;
   padding: 13px 2px;
   border-top: 1px solid var(--border-strong);
   border-bottom: 1px solid var(--border);
@@ -1997,8 +2050,7 @@ onBeforeUnmount(() => {
   gap: 3px;
 }
 
-.selected-module-context__identity > span,
-.selected-module-context__default {
+.selected-module-context__identity > span {
   color: var(--muted);
   font-size: 12px;
   font-weight: 650;
@@ -2017,10 +2069,6 @@ onBeforeUnmount(() => {
   font-size: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.selected-module-context__default {
-  color: var(--accent-strong);
 }
 
 .device-configuration__body {
@@ -2044,24 +2092,23 @@ onBeforeUnmount(() => {
 
 .line-label-form {
   display: grid;
-  grid-template-columns: minmax(180px, 320px) auto auto;
-  align-items: end;
-  justify-content: start;
-  gap: 10px;
+  width: min(100%, 720px);
+  gap: 12px;
 }
 
-.line-label-form label {
+.line-label-form > label {
   display: grid;
   gap: 5px;
 }
 
-.line-label-form label > span {
+.line-label-form > label > span,
+.line-color-picker legend {
   color: var(--muted);
   font-size: 12px;
   font-weight: 650;
 }
 
-.line-label-form input {
+.line-label-form > label input {
   width: 100%;
   height: 36px;
   min-width: 0;
@@ -2073,9 +2120,94 @@ onBeforeUnmount(() => {
   border-radius: 5px;
 }
 
-.line-label-form > :deep(.line-tag) {
-  align-self: end;
-  margin-bottom: 7px;
+.line-color-picker {
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+
+.line-color-picker legend {
+  padding: 0;
+  margin-bottom: 5px;
+}
+
+.line-color-picker__options {
+  display: grid;
+  grid-template-columns: repeat(8, 30px);
+  gap: 7px 6px;
+}
+
+.line-color-picker__options label {
+  position: relative;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.line-color-picker__options input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.line-color-picker__options span {
+  display: grid;
+  width: 30px;
+  height: 26px;
+  place-items: center;
+  border: 1px solid;
+  border-radius: 5px;
+  transition:
+    box-shadow 120ms ease,
+    transform 120ms ease;
+}
+
+.line-color-picker__options label:hover span {
+  transform: translateY(-1px);
+}
+
+.line-color-picker__options input:checked + span {
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 4px currentColor;
+}
+
+.line-color-picker__options input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.line-color-picker:disabled label {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.line-label-form__controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.line-label-form__actions {
+  display: flex;
+  margin-left: auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.line-label-form__actions .primary-action {
+  width: auto;
+}
+
+.line-label-form__actions > :deep(.line-tag) {
+  height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
+  line-height: 32px;
+  border-radius: 5px;
 }
 
 .line-label-status {
@@ -2091,17 +2223,6 @@ onBeforeUnmount(() => {
 
 .section-action {
   margin-left: auto;
-}
-
-.configuration-summary > header {
-  justify-content: flex-start;
-}
-
-.configuration-summary > header span {
-  margin-left: auto;
-  color: var(--accent-strong);
-  font-size: 12px;
-  font-weight: 650;
 }
 
 .configuration-summary dl,
@@ -3168,10 +3289,6 @@ pre {
     grid-template-columns: 1fr;
   }
 
-  .line-label-form > :deep(.line-tag) {
-    margin-bottom: 0;
-  }
-
   .primary-action,
   .secondary-action {
     width: 100%;
@@ -3197,4 +3314,5 @@ pre {
     grid-template-columns: 1fr;
   }
 }
+
 </style>

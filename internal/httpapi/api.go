@@ -41,7 +41,12 @@ type Repository interface {
 	CreateDevice(context.Context, store.DeviceInput) (store.Device, error)
 	RenameDevice(context.Context, string, string) (store.Device, error)
 	Lines(context.Context) ([]store.LineSummary, error)
-	UpdateLineLabel(context.Context, string, string) (store.LineSummary, error)
+	UpdateLineLabel(
+		context.Context,
+		string,
+		string,
+		*store.LineColor,
+	) (store.LineSummary, error)
 	LineSettings(context.Context) (store.LineSettings, error)
 	UpdateLineSettings(context.Context, string, int64) (store.LineSettings, error)
 	SystemSettings(context.Context) (store.SystemSettings, error)
@@ -491,6 +496,7 @@ func mergePersistedLineMetadata(
 		}
 		if found {
 			line.LineLabel = persisted.LineLabel
+			line.LineColor = persisted.LineColor
 			if line.PhoneNumber == "" {
 				line.PhoneNumber = persisted.PhoneNumber
 			}

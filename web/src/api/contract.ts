@@ -18,6 +18,7 @@ import type {
   IncomingCallActionResult,
   IncomingCallPolicy,
   IPConfiguration,
+  LineColorPresetID,
   LineLabelResult,
   LineSettings,
   LineIncomingCallConfiguration,
@@ -64,6 +65,7 @@ import type {
   UpdateProxyInput,
   UpdateTLSSettingsInput
 } from './types.ts'
+import { isLineColorPresetID } from './types.ts'
 
 type JsonRecord = Record<string, unknown>
 
@@ -544,15 +546,26 @@ export function lineLabelPath(iccid: string): string {
 export function createLineLabelPayload(input: UpdateLineLabelInput): UpdateLineLabelInput {
   const lineLabel = input.line_label.trim()
   if (Array.from(lineLabel).length > 16) throw new Error('线路标签不能超过 16 个字符')
-  return { line_label: lineLabel }
+  if (input.line_color !== undefined && !isLineColorPresetID(input.line_color)) {
+    throw new Error('线路标签颜色不是受支持的预设')
+  }
+  return {
+    line_label: lineLabel,
+    ...(input.line_color === undefined ? {} : { line_color: input.line_color })
+  }
 }
 
 export function parseLineLabelResponse(value: unknown): LineLabelResult {
   const response = objectValue(value, 'line_label_response')
   const source = objectValue(response.line ?? response, 'line_label_response.line')
+  const rawLineColor = optionalString(source, 'line_color') || ''
+  if (rawLineColor && !isLineColorPresetID(rawLineColor)) {
+    throw new Error('line_label_response.line.line_color 不是受支持的预设')
+  }
   return {
     iccid: requiredString(source, 'line_label_response.line', 'iccid'),
-    line_label: requiredString(source, 'line_label_response.line', 'line_label', true)
+    line_label: requiredString(source, 'line_label_response.line', 'line_label', true),
+    line_color: rawLineColor as LineColorPresetID | ''
   }
 }
 

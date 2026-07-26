@@ -61,7 +61,7 @@ import type {
   USSDResponse,
   USSDStatus
 } from './types'
-import { ApiError } from './types'
+import { ApiError, isLineColorPresetID } from './types'
 import { normalizeDialTarget } from '../utils/dialTarget'
 import { isIPAddress, isLoopbackAddress } from '../utils/ipAddress'
 import { normalizedPhoneIdentity } from '../utils/lineIdentity'
@@ -397,6 +397,7 @@ function fixtureLines(count: number): LineSummary[] {
       device_imei: 'fixture-001',
       device_alias: 'Main cellular line',
       line_label: '主卡',
+      line_color: 'violet',
       model: 'Fixture modem 1',
       firmware: 'Fixture 1.0',
       state: 'registered',
@@ -435,6 +436,7 @@ function fixtureLines(count: number): LineSummary[] {
       device_imei: 'fixture-002',
       device_alias: 'Travel cellular line',
       line_label: '副卡',
+      line_color: 'teal',
       model: 'Fixture modem 2',
       firmware: 'Fixture 1.0',
       state: 'registered',
@@ -474,6 +476,7 @@ function fixtureLines(count: number): LineSummary[] {
       device_imei: `fixture-${String(displayIndex).padStart(3, '0')}`,
       device_alias: `Cellular line ${displayIndex}`,
       line_label: '',
+      line_color: '',
       model: `Fixture modem ${displayIndex}`,
       firmware: 'Fixture 1.0',
       state: 'registered',
@@ -1460,8 +1463,16 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       if (Array.from(label).length > 16) {
         throw new ApiError('线路标签不能超过 16 个字符', 400, 'invalid_line_label')
       }
+      if (input.line_color !== undefined && !isLineColorPresetID(input.line_color)) {
+        throw new ApiError('线路标签颜色无效', 400, 'invalid_line_color')
+      }
       line.line_label = label
-      return { iccid: line.iccid, line_label: line.line_label }
+      if (input.line_color !== undefined) line.line_color = input.line_color
+      return {
+        iccid: line.iccid,
+        line_label: line.line_label,
+        line_color: line.line_color || ''
+      }
     },
 
     async getNetworkStatus(): Promise<NetworkStatus> {

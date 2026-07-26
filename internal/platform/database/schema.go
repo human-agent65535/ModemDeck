@@ -53,10 +53,13 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 	}
 	contactColumns, contactsExist := actual.tables["contacts"]
 	_, avatarExists := contactColumns["avatar"]
+	simCardColumns, simCardsExist := actual.tables["sim_cards"]
+	_, lineColorExists := simCardColumns["line_color"]
 	_, systemSettingsExist := actual.tables["modemdeck_system_settings"]
 	needsAvatar := contactsExist && !avatarExists
+	needsLineColor := simCardsExist && !lineColorExists
 	needsSystemSettings := !systemSettingsExist
-	if !needsAvatar && !needsSystemSettings {
+	if !needsAvatar && !needsLineColor && !needsSystemSettings {
 		return nil
 	}
 	if !schemaMatchesSupportedMigration(expected, actual) {
@@ -79,6 +82,18 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 			`ALTER TABLE contacts ADD COLUMN avatar TEXT NOT NULL DEFAULT ''`,
 		); err != nil {
 			return fmt.Errorf("migrate contacts avatar: %w", err)
+		}
+	}
+	if needsLineColor {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`ALTER TABLE sim_cards ADD COLUMN line_color TEXT NOT NULL DEFAULT ''
+				CHECK (line_color IN (
+					'', 'teal', 'blue', 'indigo', 'violet',
+					'green', 'amber', 'orange', 'red'
+				))`,
+		); err != nil {
+			return fmt.Errorf("migrate SIM line color: %w", err)
 		}
 	}
 	if needsSystemSettings {
@@ -115,6 +130,9 @@ func schemaMatchesSupportedMigration(expected schemaShape, actual schemaShape) b
 		}
 		for column := range expectedColumns {
 			if table == "contacts" && column == "avatar" {
+				continue
+			}
+			if table == "sim_cards" && column == "line_color" {
 				continue
 			}
 			if _, exists := actualColumns[column]; !exists {

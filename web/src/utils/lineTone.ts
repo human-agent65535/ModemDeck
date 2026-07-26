@@ -1,4 +1,4 @@
-import type { LineSummary } from '../api/types'
+import type { LineColorPresetID, LineSummary } from '../api/types'
 
 export type LineTone = {
   foreground: string
@@ -6,13 +6,28 @@ export type LineTone = {
   border: string
 }
 
-const LINE_TONES: readonly LineTone[] = [
-  { foreground: '#075e54', background: '#e0f2ef', border: '#a7d8d1' },
-  { foreground: '#20558c', background: '#e7f0fa', border: '#b8d0e9' },
-  { foreground: '#7a4b00', background: '#fff2d6', border: '#e9cf93' },
-  { foreground: '#8a3448', background: '#fae9ed', border: '#e4b9c3' },
-  { foreground: '#3e6a25', background: '#eaf3e4', border: '#bed4ae' },
-  { foreground: '#5c4b8a', background: '#efebf8', border: '#cbc1e2' }
+export type LineTonePreset = LineTone & {
+  id: LineColorPresetID
+}
+
+export const LINE_TONE_PRESETS: readonly LineTonePreset[] = [
+  { id: 'teal', foreground: '#075e54', background: '#d7f1ed', border: '#78c4ba' },
+  { id: 'blue', foreground: '#1e4f8a', background: '#dfeafa', border: '#87add6' },
+  { id: 'indigo', foreground: '#343d91', background: '#e2e5fb', border: '#9199dc' },
+  { id: 'violet', foreground: '#6b3287', background: '#f0e1f8', border: '#bf8bd7' },
+  { id: 'green', foreground: '#35651e', background: '#e2f1d9', border: '#91c277' },
+  { id: 'amber', foreground: '#765000', background: '#fff0bd', border: '#e2ba55' },
+  { id: 'orange', foreground: '#8b3e08', background: '#ffe3cf', border: '#e9a16d' },
+  { id: 'red', foreground: '#982d22', background: '#f8dad5', border: '#de8072' }
+]
+
+const AUTO_LINE_TONE_PRESETS: readonly LineTonePreset[] = [
+  LINE_TONE_PRESETS[0]!,
+  LINE_TONE_PRESETS[1]!,
+  LINE_TONE_PRESETS[5]!,
+  LINE_TONE_PRESETS[7]!,
+  LINE_TONE_PRESETS[4]!,
+  LINE_TONE_PRESETS[3]!
 ]
 
 function stableHash(value: string): number {
@@ -24,15 +39,28 @@ function stableHash(value: string): number {
   return hash >>> 0
 }
 
-export function lineTone(
-  line: Pick<LineSummary, 'id' | 'iccid' | 'line_label'>,
+export function lineTonePreset(
+  line: Pick<LineSummary, 'id' | 'iccid' | 'line_label' | 'line_color'>,
   fallback = ''
-): LineTone {
+): LineTonePreset {
+  const selected = LINE_TONE_PRESETS.find(preset => preset.id === line.line_color)
+  if (selected) return selected
+
   const stableKey =
     line.id?.trim() ||
     line.iccid.trim() ||
     line.line_label.trim() ||
     fallback.trim() ||
     'line'
-  return LINE_TONES[stableHash(stableKey) % LINE_TONES.length] ?? LINE_TONES[0]!
+  return (
+    AUTO_LINE_TONE_PRESETS[stableHash(stableKey) % AUTO_LINE_TONE_PRESETS.length] ??
+    AUTO_LINE_TONE_PRESETS[0]!
+  )
+}
+
+export function lineTone(
+  line: Pick<LineSummary, 'id' | 'iccid' | 'line_label' | 'line_color'>,
+  fallback = ''
+): LineTone {
+  return lineTonePreset(line, fallback)
 }

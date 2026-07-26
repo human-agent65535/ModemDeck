@@ -20,12 +20,14 @@ type deviceResponse struct {
 }
 
 type updateLineLabelRequest struct {
-	LineLabel *string `json:"line_label"`
+	LineLabel *string          `json:"line_label"`
+	LineColor *store.LineColor `json:"line_color"`
 }
 
 type lineLabel struct {
-	ICCID     string `json:"iccid"`
-	LineLabel string `json:"line_label"`
+	ICCID     string          `json:"iccid"`
+	LineLabel string          `json:"line_label"`
+	LineColor store.LineColor `json:"line_color"`
 }
 
 type lineResponse struct {
@@ -105,9 +107,22 @@ func (api *API) lineLabelResource(
 		)
 		return
 	}
-	line, err := api.repository.UpdateLineLabel(request.Context(), iccid, *input.LineLabel)
+	line, err := api.repository.UpdateLineLabel(
+		request.Context(),
+		iccid,
+		*input.LineLabel,
+		input.LineColor,
+	)
 	if err != nil {
 		switch {
+		case errors.Is(err, store.ErrLineColorValidation):
+			writeError(
+				response,
+				http.StatusBadRequest,
+				"invalid_line_color",
+				"Line color is invalid",
+				"line_color",
+			)
 		case errors.Is(err, store.ErrLineValidation):
 			writeError(
 				response,
@@ -132,6 +147,7 @@ func (api *API) lineLabelResource(
 	writeJSON(response, http.StatusOK, lineResponse{Line: lineLabel{
 		ICCID:     line.ICCID,
 		LineLabel: line.LineLabel,
+		LineColor: line.LineColor,
 	}})
 }
 

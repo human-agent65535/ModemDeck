@@ -322,6 +322,14 @@ test('module cards keep selection and default actions in a stable shared footer'
   )
 })
 
+test('default line status is shown once in the module card action', () => {
+  assert.doesNotMatch(devicePanelSource, /t\('lines\.defaultLine'\)/)
+  assert.match(
+    moduleCardSource,
+    /<span>\{\{ defaultLine \? t\('lines\.defaultLine'\) : t\('lines\.setAsDefault'\) \}\}<\/span>/
+  )
+})
+
 test('device configuration distinguishes module identity from the line label', () => {
   assert.match(devicePanelSource, /<strong>\{\{ selectedModuleName \}\}<\/strong>/)
   assert.match(
