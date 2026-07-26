@@ -163,6 +163,28 @@ test('USB hard reset is an explicit confirmed recovery action', () => {
   assert.doesNotMatch(devicePanelSource, /\/dev\/bus\/usb|\/sys\/devices/)
 })
 
+test('device details recover when a selected modem reappears after reset', () => {
+  const loadBody = functionBody(
+    deviceConfigurationStateSource,
+    'export async function loadDeviceConfiguration'
+  )
+  const selectBody = functionBody(devicePanelSource, 'function selectLine')
+
+  assert.match(deviceConfigurationStateSource, /const deviceConfigurationLoads = new Map/)
+  assert.match(deviceConfigurationStateSource, /const deviceConfigurationGenerations = new Map/)
+  assert.match(loadBody, /const pending = deviceConfigurationLoads\.get/)
+  assert.match(loadBody, /if \(!force && pending\) return pending/)
+  assert.doesNotMatch(loadBody, /target\.status === ['"]loading['"]/)
+  assert.match(loadBody, /isCurrentDeviceConfigurationRequest/)
+  assert.match(
+    devicePanelSource,
+    /\[selectedLineID,\s*\(\) => selectedLine\.value\?\.id \|\| ['"]['"]\]/
+  )
+  assert.match(devicePanelSource, /previousAvailableLineID !== lineID/)
+  assert.match(selectBody, /resource\.status !== ['"]ready['"]/)
+  assert.match(selectBody, /loadDeviceConfiguration\(line\.id,\s*true\)/)
+})
+
 test('VoLTE restart remains an explicit user action', () => {
   const applyVoLTEBody = functionBody(devicePanelSource, 'async function applyVoLTE')
   const setVoLTEPolicyBody = functionBody(

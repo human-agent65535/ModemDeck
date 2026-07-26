@@ -502,6 +502,15 @@ watch(
   { immediate: true }
 )
 
+watch(
+  [selectedLineID, () => selectedLine.value?.id || ''],
+  ([lineID, availableLineID], [, previousAvailableLineID]) => {
+    if (!lineID || availableLineID !== lineID) return
+    void loadDeviceConfiguration(lineID, previousAvailableLineID !== lineID)
+  },
+  { immediate: true }
+)
+
 watch(selectedLineID, lineID => activateNetworkSelection(lineID), { immediate: true })
 
 watch(
@@ -547,11 +556,15 @@ watch(
 watch(activeTab, tab => void loadActiveLineService(tab))
 
 function selectLine(line: LineSummary): void {
-  if (!line.id || line.id === selectedLineID.value) return
+  if (!line.id) return
+  if (line.id === selectedLineID.value) {
+    const resource = deviceConfigurationResource(line.id)
+    if (resource.status !== 'ready') void loadDeviceConfiguration(line.id, true)
+    return
+  }
   resetLineServices()
   activateNetworkSelection(line.id)
   selectDeviceConfiguration(line.id)
-  void loadDeviceConfiguration(line.id)
   void loadActiveLineService()
 }
 

@@ -59,6 +59,9 @@ export const deviceConfigurationState = reactive<{
   resources: {}
 })
 
+const deviceConfigurationLoads = new Map<string, Promise<boolean>>()
+const deviceConfigurationGenerations = new Map<string, number>()
+
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : translate('runtime.requestFailed')
 }
@@ -116,6 +119,21 @@ function resourceFor(lineID: string): DeviceConfigurationResource {
     }
   }
   return deviceConfigurationState.resources[lineID]
+}
+
+function beginDeviceConfigurationRequest(lineID: string): number {
+  const generation = (deviceConfigurationGenerations.get(lineID) || 0) + 1
+  deviceConfigurationGenerations.set(lineID, generation)
+  return generation
+}
+
+function isCurrentDeviceConfigurationRequest(lineID: string, generation: number): boolean {
+  return deviceConfigurationGenerations.get(lineID) === generation
+}
+
+function beginDeviceRecovery(lineID: string): number {
+  deviceConfigurationLoads.delete(lineID)
+  return beginDeviceConfigurationRequest(lineID)
 }
 
 function mergeConfiguration(
@@ -217,25 +235,40 @@ export async function loadDeviceConfiguration(
   const normalizedLineID = lineID.trim()
   if (!normalizedLineID) return false
   const target = resourceFor(normalizedLineID)
-  if (!force && (target.status === 'ready' || target.status === 'loading')) {
-    return target.status === 'ready'
-  }
+  if (!force && target.status === 'ready') return true
+  const pending = deviceConfigurationLoads.get(normalizedLineID)
+  if (!force && pending) return pending
+
   const hasConfiguration = target.data !== null
   if (!hasConfiguration) target.status = 'loading'
   target.error = ''
-  try {
-    const configuration = await gateway.getDeviceConfiguration(normalizedLineID)
-    if (!configuration.hardware || !configuration.incoming_calls) {
-      throw new Error(translate('runtime.invalidDeviceConfiguration'))
+  const generation = beginDeviceConfigurationRequest(normalizedLineID)
+  let operation: Promise<boolean> = Promise.resolve(false)
+  operation = (async () => {
+    try {
+      const configuration = await gateway.getDeviceConfiguration(normalizedLineID)
+      if (!configuration.hardware || !configuration.incoming_calls) {
+        throw new Error(translate('runtime.invalidDeviceConfiguration'))
+      }
+      if (isCurrentDeviceConfigurationRequest(normalizedLineID, generation)) {
+        target.data = configuration
+        target.status = 'ready'
+      }
+      return true
+    } catch (error) {
+      if (isCurrentDeviceConfigurationRequest(normalizedLineID, generation)) {
+        target.status = hasConfiguration ? 'ready' : errorStatus(error)
+        target.error = errorText(error)
+      }
+      return false
+    } finally {
+      if (deviceConfigurationLoads.get(normalizedLineID) === operation) {
+        deviceConfigurationLoads.delete(normalizedLineID)
+      }
     }
-    target.data = configuration
-    target.status = 'ready'
-    return true
-  } catch (error) {
-    target.status = hasConfiguration ? 'ready' : errorStatus(error)
-    target.error = errorText(error)
-    return false
-  }
+  })()
+  deviceConfigurationLoads.set(normalizedLineID, operation)
+  return operation
 }
 
 async function restoreDeviceConfiguration(
@@ -362,6 +395,7 @@ export async function restartModem(lineID: string): Promise<boolean> {
   })
   if (!accepted) return false
 
+  const generation = beginDeviceRecovery(lineID)
   target.status = 'loading'
   target.error = ''
   await wait(1500)
@@ -373,8 +407,10 @@ export async function restartModem(lineID: string): Promise<boolean> {
         configuration.hardware?.volte.policy_known &&
         !configuration.hardware.volte.restart_required
       ) {
-        target.data = configuration
-        target.status = 'ready'
+        if (isCurrentDeviceConfigurationRequest(lineID, generation)) {
+          target.data = configuration
+          target.status = 'ready'
+        }
         return true
       }
     } catch {
@@ -382,8 +418,10 @@ export async function restartModem(lineID: string): Promise<boolean> {
     }
     await wait(1000)
   }
-  target.status = 'error'
-  target.error = translate('runtime.modemRestartTimeout')
+  if (isCurrentDeviceConfigurationRequest(lineID, generation)) {
+    target.status = 'error'
+    target.error = translate('runtime.modemRestartTimeout')
+  }
   return false
 }
 
@@ -394,6 +432,7 @@ export async function resetUSBDevice(lineID: string): Promise<boolean> {
   })
   if (!accepted) return false
 
+  const generation = beginDeviceRecovery(lineID)
   target.status = 'loading'
   target.error = ''
   await wait(1500)
@@ -402,8 +441,10 @@ export async function resetUSBDevice(lineID: string): Promise<boolean> {
     try {
       const configuration = await gateway.getDeviceConfiguration(lineID)
       if (configuration.hardware) {
-        target.data = configuration
-        target.status = 'ready'
+        if (isCurrentDeviceConfigurationRequest(lineID, generation)) {
+          target.data = configuration
+          target.status = 'ready'
+        }
         return true
       }
     } catch {
@@ -411,8 +452,10 @@ export async function resetUSBDevice(lineID: string): Promise<boolean> {
     }
     await wait(1000)
   }
-  target.status = 'error'
-  target.error = translate('runtime.usbResetTimeout')
+  if (isCurrentDeviceConfigurationRequest(lineID, generation)) {
+    target.status = 'error'
+    target.error = translate('runtime.usbResetTimeout')
+  }
   return false
 }
 
