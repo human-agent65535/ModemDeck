@@ -2,6 +2,7 @@ package modemmanager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -12,16 +13,7 @@ import (
 )
 
 const (
-	testNetworkManagerDevicePath = dbus.ObjectPath(
-		"/org/freedesktop/NetworkManager/Devices/42",
-	)
-	testNetworkManagerSettingsPath = dbus.ObjectPath(
-		"/org/freedesktop/NetworkManager/Settings/42",
-	)
-	testNetworkManagerActivePath = dbus.ObjectPath(
-		"/org/freedesktop/NetworkManager/ActiveConnection/42",
-	)
-	testNetworkManagerBearerPath = dbus.ObjectPath(
+	testOwnedBearerPath = dbus.ObjectPath(
 		"/org/freedesktop/ModemManager1/Bearer/42",
 	)
 )
@@ -32,20 +24,43 @@ type configurationCaller struct {
 	calls                []dbusInvocation
 	connectErr           error
 	deactivateErr        error
+	deleteErr            error
 	cancelCall           func()
-	activeConnection     dbus.ObjectPath
-	activeConnectionID   string
-	activeState          uint32
-	deviceState          uint32
-	deviceStateReason    uint32
 	negotiatedIPFamily   uint32
-	activationState      uint32
 	activationDisappears bool
 	verificationMismatch bool
 	externalBearers      map[dbus.ObjectPath]Properties
 	externalCalls        map[dbus.ObjectPath]Properties
 	objectSnapshots      []ManagedObjects
 	objectSnapshotIndex  int
+}
+
+type recordingDataPlane struct {
+	configured   []domain.DataConnection
+	released     []string
+	configureErr error
+	releaseErr   error
+}
+
+func (dataPlane *recordingDataPlane) Configure(
+	_ context.Context,
+	_ string,
+	connection domain.DataConnection,
+) error {
+	dataPlane.configured = append(dataPlane.configured, connection)
+	return dataPlane.configureErr
+}
+
+func (dataPlane *recordingDataPlane) Release(
+	_ context.Context,
+	lineID string,
+) error {
+	dataPlane.released = append(dataPlane.released, lineID)
+	return dataPlane.releaseErr
+}
+
+func (dataPlane *recordingDataPlane) OwnedLines() []string {
+	return nil
 }
 
 func (caller *configurationCaller) Call(
@@ -92,8 +107,72 @@ func (caller *configurationCaller) Call(
 		return []any{}, nil
 	case modemInterface + ".Reset":
 		return []any{}, nil
-	case networkManagerInterface + ".GetDevices":
-		return []any{[]dbus.ObjectPath{testNetworkManagerDevicePath}}, nil
+	case modemInterface + ".CreateBearer":
+		settings, ok := args[0].(map[string]dbus.Variant)
+		if !ok {
+			return nil, fmt.Errorf("bearer settings are %T", args[0])
+		}
+		apn, _ := stringProperty(settings, "apn")
+		if caller.verificationMismatch {
+			apn = "mismatch.example"
+		}
+		ipType, _ := uint32Property(settings, "ip-type")
+		if ipType == 0 {
+			ipType = bearerIPFamilyIPv4V6
+		}
+		if caller.negotiatedIPFamily != 0 {
+			ipType = caller.negotiatedIPFamily
+		}
+		apnType, _ := uint32Property(settings, "apn-type")
+		caller.objects[testModemPath][modemInterface]["Bearers"] =
+			dbus.MakeVariant([]dbus.ObjectPath{testOwnedBearerPath})
+		caller.objects[testOwnedBearerPath] = Interfaces{
+			bearerInterface: testBearerProperties(false, apn, apnType, ipType),
+		}
+		return []any{testOwnedBearerPath}, nil
+	case bearerInterface + ".Connect":
+		if caller.connectErr != nil {
+			return nil, caller.connectErr
+		}
+		properties, found := caller.objects[path][bearerInterface]
+		if !found {
+			return nil, dbus.NewError(dbusErrorPrefix+"UnknownObject", nil)
+		}
+		properties["Connected"] = dbus.MakeVariant(true)
+		if caller.activationDisappears {
+			delete(caller.objects, path)
+			caller.objects[testModemPath][modemInterface]["Bearers"] =
+				dbus.MakeVariant([]dbus.ObjectPath{})
+		}
+		if caller.cancelCall != nil {
+			caller.cancelCall()
+		}
+		return []any{}, nil
+	case bearerInterface + ".Disconnect":
+		if caller.deactivateErr != nil {
+			return nil, caller.deactivateErr
+		}
+		properties, found := caller.objects[path][bearerInterface]
+		if !found {
+			return nil, dbus.NewError(dbusErrorPrefix+"UnknownObject", nil)
+		}
+		properties["Connected"] = dbus.MakeVariant(false)
+		return []any{}, nil
+	case modemInterface + ".DeleteBearer":
+		if caller.deleteErr != nil {
+			return nil, caller.deleteErr
+		}
+		bearerPath, ok := args[0].(dbus.ObjectPath)
+		if !ok {
+			return nil, fmt.Errorf("DeleteBearer argument is %T", args[0])
+		}
+		if _, found := caller.objects[bearerPath]; !found {
+			return nil, dbus.NewError(dbusErrorPrefix+"UnknownObject", nil)
+		}
+		delete(caller.objects, bearerPath)
+		caller.objects[testModemPath][modemInterface]["Bearers"] =
+			dbus.MakeVariant([]dbus.ObjectPath{})
+		return []any{}, nil
 	case propertiesInterface + ".GetAll":
 		if destination == serviceName {
 			if len(args) == 1 && args[0] == callInterface {
@@ -103,172 +182,59 @@ func (caller *configurationCaller) Call(
 				}
 				return []any{properties}, nil
 			}
+			if properties, found := caller.objects[path][bearerInterface]; found {
+				return []any{properties}, nil
+			}
 			properties, found := caller.externalBearers[path]
 			if !found {
 				return nil, dbus.NewError(dbusErrorPrefix+"UnknownObject", nil)
 			}
 			return []any{properties}, nil
 		}
-		if destination != networkManagerServiceName {
-			return nil, fmt.Errorf("unexpected GetAll destination %s", destination)
-		}
-		switch path {
-		case testNetworkManagerDevicePath:
-			active := caller.activeConnection
-			if active == "" {
-				active = networkManagerNoObject
-			}
-			state := caller.deviceState
-			if state == 0 {
-				state = 30
-			}
-			return []any{Properties{
-				"Udi":              dbus.MakeVariant(string(testModemPath)),
-				"DeviceType":       dbus.MakeVariant(networkManagerDeviceTypeModem),
-				"State":            dbus.MakeVariant(state),
-				"StateReason":      dbus.MakeVariant([]any{state, caller.deviceStateReason}),
-				"ActiveConnection": dbus.MakeVariant(active),
-			}}, nil
-		case testNetworkManagerActivePath:
-			if caller.activeConnection != path {
-				return nil, dbus.NewError(dbusErrorPrefix+"UnknownObject", nil)
-			}
-			return []any{Properties{
-				"Id":    dbus.MakeVariant(caller.activeConnectionID),
-				"State": dbus.MakeVariant(caller.activeState),
-			}}, nil
-		default:
-			return nil, fmt.Errorf("unexpected NetworkManager object %s", path)
-		}
-	case networkManagerInterface + ".AddAndActivateConnection2":
-		if caller.connectErr != nil {
-			return nil, caller.connectErr
-		}
-		settings, ok := args[0].(map[string]map[string]dbus.Variant)
-		if !ok {
-			return nil, fmt.Errorf("NetworkManager connection settings are %T", args[0])
-		}
-		connectionID, _ := stringProperty(settings["connection"], "id")
-		apn, _ := stringProperty(settings["gsm"], "apn")
-		if caller.verificationMismatch {
-			apn = "mismatch.example"
-		}
-		ipType := networkManagerSettingsIPFamily(settings)
-		if caller.negotiatedIPFamily != 0 {
-			ipType = caller.negotiatedIPFamily
-		}
-		ipv4 := map[string]dbus.Variant{}
-		if ipType == bearerIPFamilyIPv4 || ipType == bearerIPFamilyIPv4V6 {
-			ipv4 = map[string]dbus.Variant{
-				"method":  dbus.MakeVariant(uint32(3)),
-				"address": dbus.MakeVariant("10.0.0.2"),
-				"prefix":  dbus.MakeVariant(uint32(30)),
-				"gateway": dbus.MakeVariant("10.0.0.1"),
-				"dns":     dbus.MakeVariant([]string{"1.1.1.1"}),
-				"mtu":     dbus.MakeVariant(uint32(1500)),
-			}
-		}
-		ipv6 := map[string]dbus.Variant{}
-		if ipType == bearerIPFamilyIPv6 || ipType == bearerIPFamilyIPv4V6 {
-			ipv6 = map[string]dbus.Variant{
-				"method":  dbus.MakeVariant(uint32(3)),
-				"address": dbus.MakeVariant("2001:db8::2"),
-				"prefix":  dbus.MakeVariant(uint32(64)),
-				"gateway": dbus.MakeVariant("2001:db8::1"),
-				"dns":     dbus.MakeVariant([]string{"2606:4700:4700::1111"}),
-				"mtu":     dbus.MakeVariant(uint32(1500)),
-			}
-		}
-		caller.objects[testModemPath][modemInterface]["Bearers"] =
-			dbus.MakeVariant([]dbus.ObjectPath{testNetworkManagerBearerPath})
-		caller.objects[testNetworkManagerBearerPath] = Interfaces{
-			bearerInterface: {
-				"Connected": dbus.MakeVariant(true),
-				"Interface": dbus.MakeVariant("wwan0"),
-				"Properties": dbus.MakeVariant(map[string]dbus.Variant{
-					"apn":      dbus.MakeVariant(apn),
-					"apn-type": dbus.MakeVariant(domain.APNTypeDefault),
-					"ip-type":  dbus.MakeVariant(ipType),
-				}),
-				"Ip4Config": dbus.MakeVariant(ipv4),
-				"Ip6Config": dbus.MakeVariant(ipv6),
-			},
-		}
-		caller.activeConnection = testNetworkManagerActivePath
-		caller.activeConnectionID = connectionID
-		caller.activeState = caller.activationState
-		if caller.activeState == 0 {
-			caller.activeState = networkManagerActiveActivated
-		}
-		if caller.activeState == networkManagerActiveActivated {
-			caller.deviceState = networkManagerStateActivated
-		} else {
-			caller.deviceState = networkManagerStateFailed
-		}
-		if caller.activationDisappears {
-			caller.activeConnection = networkManagerNoObject
-		}
-		if caller.cancelCall != nil {
-			caller.cancelCall()
-		}
-		return []any{
-			testNetworkManagerSettingsPath,
-			testNetworkManagerActivePath,
-			map[string]dbus.Variant{},
-		}, nil
-	case networkManagerInterface + ".DeactivateConnection":
-		if caller.deactivateErr != nil {
-			return nil, caller.deactivateErr
-		}
-		if caller.activationDisappears {
-			return nil, dbus.NewError(
-				networkManagerErrorPrefix+"ConnectionNotActive",
-				nil,
-			)
-		}
-		caller.activeConnection = networkManagerNoObject
-		caller.activeConnectionID = ""
-		caller.activeState = networkManagerActiveDeactivated
-		caller.deviceState = 30
-		delete(caller.objects, testNetworkManagerBearerPath)
-		caller.objects[testModemPath][modemInterface]["Bearers"] =
-			dbus.MakeVariant([]dbus.ObjectPath{})
-		return []any{}, nil
+		return nil, fmt.Errorf("unexpected GetAll destination %s", destination)
 	default:
 		return nil, fmt.Errorf("unexpected D-Bus method %s", method)
 	}
 }
 
-func networkManagerSettingsIPFamily(
-	settings map[string]map[string]dbus.Variant,
-) uint32 {
-	ipv4, _ := stringProperty(settings["ipv4"], "method")
-	ipv6, _ := stringProperty(settings["ipv6"], "method")
-	switch {
-	case ipv4 == "auto" && ipv6 == "auto":
-		return bearerIPFamilyIPv4V6
-	case ipv4 == "auto":
-		return bearerIPFamilyIPv4
-	case ipv6 == "auto":
-		return bearerIPFamilyIPv6
-	default:
-		return bearerIPFamilyAny
+func testBearerProperties(
+	connected bool,
+	apn string,
+	apnType uint32,
+	ipType uint32,
+) Properties {
+	ipv4 := map[string]dbus.Variant{}
+	if ipType == bearerIPFamilyIPv4 || ipType == bearerIPFamilyIPv4V6 {
+		ipv4 = map[string]dbus.Variant{
+			"method":  dbus.MakeVariant(uint32(2)),
+			"address": dbus.MakeVariant("10.0.0.2"),
+			"prefix":  dbus.MakeVariant(uint32(30)),
+			"gateway": dbus.MakeVariant("10.0.0.1"),
+			"dns":     dbus.MakeVariant([]string{"1.1.1.1"}),
+			"mtu":     dbus.MakeVariant(uint32(1500)),
+		}
 	}
-}
-
-func TestNetworkManagerActiveStateValuesMatchDBusAPI(t *testing.T) {
-	t.Parallel()
-	if networkManagerActiveActivating != 1 ||
-		networkManagerActiveActivated != 2 ||
-		networkManagerActiveDeactivating != 3 ||
-		networkManagerActiveDeactivated != 4 {
-		t.Fatalf(
-			"active connection states = %d/%d/%d/%d",
-			networkManagerActiveActivating,
-			networkManagerActiveActivated,
-			networkManagerActiveDeactivating,
-			networkManagerActiveDeactivated,
-		)
+	ipv6 := map[string]dbus.Variant{}
+	if ipType == bearerIPFamilyIPv6 || ipType == bearerIPFamilyIPv4V6 {
+		ipv6 = map[string]dbus.Variant{
+			"method":  dbus.MakeVariant(uint32(2)),
+			"address": dbus.MakeVariant("2001:db8::2"),
+			"prefix":  dbus.MakeVariant(uint32(64)),
+			"gateway": dbus.MakeVariant("2001:db8::1"),
+			"dns":     dbus.MakeVariant([]string{"2606:4700:4700::1111"}),
+			"mtu":     dbus.MakeVariant(uint32(1500)),
+		}
+	}
+	return Properties{
+		"Connected": dbus.MakeVariant(connected),
+		"Interface": dbus.MakeVariant("wwan0"),
+		"Properties": dbus.MakeVariant(map[string]dbus.Variant{
+			"apn":      dbus.MakeVariant(apn),
+			"apn-type": dbus.MakeVariant(apnType),
+			"ip-type":  dbus.MakeVariant(ipType),
+		}),
+		"Ip4Config": dbus.MakeVariant(ipv4),
+		"Ip6Config": dbus.MakeVariant(ipv6),
 	}
 }
 
@@ -418,11 +384,11 @@ func TestDeviceConfigurationHydratesReferencedDataBearer(t *testing.T) {
 	t.Parallel()
 	objects := configurationObjects()
 	objects[testModemPath][modemInterface]["Bearers"] =
-		dbus.MakeVariant([]dbus.ObjectPath{testNetworkManagerBearerPath})
+		dbus.MakeVariant([]dbus.ObjectPath{testOwnedBearerPath})
 	caller := &configurationCaller{
 		objects: objects,
 		externalBearers: map[dbus.ObjectPath]Properties{
-			testNetworkManagerBearerPath: {
+			testOwnedBearerPath: {
 				"BearerType": dbus.MakeVariant(uint32(bearerTypeDefault)),
 				"Connected":  dbus.MakeVariant(true),
 				"Interface":  dbus.MakeVariant("wwan0"),
@@ -497,9 +463,9 @@ func TestApplyDeviceConfigurationWritesOnceAndVerifiesReadBack(t *testing.T) {
 		t,
 		caller.methods(),
 		objectManagerInterface+".GetManagedObjects",
-		networkManagerInterface+".GetDevices",
-		propertiesInterface+".GetAll",
-		networkManagerInterface+".AddAndActivateConnection2",
+		objectManagerInterface+".GetManagedObjects",
+		modemInterface+".CreateBearer",
+		bearerInterface+".Connect",
 		propertiesInterface+".GetAll",
 		objectManagerInterface+".GetManagedObjects",
 	)
@@ -531,6 +497,61 @@ func TestApplyDeviceConfigurationWritesOnceAndVerifiesReadBack(t *testing.T) {
 		modemInterface+".Enable",
 		objectManagerInterface+".GetManagedObjects",
 	)
+}
+
+func TestApplyDeviceConfigurationRollsBackBearerWhenDataPlaneFails(t *testing.T) {
+	t.Parallel()
+	objects := configurationObjects()
+	caller := &configurationCaller{objects: objects}
+	dataPlane := &recordingDataPlane{
+		configureErr: errors.New("fixture netlink failure"),
+	}
+	provider, err := newProviderWithOptions(
+		caller,
+		newInstanceIDsForTest("boot-test"),
+		Options{DataPlane: dataPlane},
+	)
+	if err != nil {
+		t.Fatalf("newProviderWithOptions() error = %v", err)
+	}
+	lineID := parsedLineID(objects, provider.ids)
+	current, err := provider.ReadDeviceConfiguration(context.Background(), lineID)
+	if err != nil {
+		t.Fatalf("ReadDeviceConfiguration() error = %v", err)
+	}
+	caller.calls = nil
+
+	_, err = provider.ApplyGenericDeviceConfiguration(
+		context.Background(),
+		domain.ApplyDeviceConfigurationRequest{
+			RequestID:        "connect-data-plane-failure",
+			LineID:           lineID,
+			ExpectedRevision: current.Revision,
+			Operation:        domain.DeviceConfigurationConnectData,
+			APN:              "internet.example",
+			IPFamily:         "ipv4",
+		},
+	)
+	operationError, ok := domain.AsOperationError(err)
+	if !ok || operationError.Code != domain.ErrorFailedPrecondition {
+		t.Fatalf("error = %#v, want failed precondition", err)
+	}
+	if len(dataPlane.configured) != 1 ||
+		dataPlane.configured[0].Interface != "wwan0" {
+		t.Fatalf("configured data plane = %+v", dataPlane.configured)
+	}
+	if len(dataPlane.released) != 1 || dataPlane.released[0] != lineID {
+		t.Fatalf("released data plane lines = %v", dataPlane.released)
+	}
+	if count := caller.methodCount(bearerInterface + ".Disconnect"); count != 1 {
+		t.Fatalf("bearer disconnect calls = %d", count)
+	}
+	if count := caller.methodCount(modemInterface + ".DeleteBearer"); count != 1 {
+		t.Fatalf("bearer delete calls = %d", count)
+	}
+	if _, found := provider.ownedBearers.get(lineID, provider.ids.providerEpoch()); found {
+		t.Fatal("failed activation retained bearer ownership")
+	}
 }
 
 func TestApplyDeviceConfigurationRejectsStaleRevisionBeforeWrite(t *testing.T) {
@@ -688,24 +709,20 @@ func TestApplyDeviceConfigurationResolvesAutomaticAPN(t *testing.T) {
 		t.Fatalf("connected configuration = %+v", connected)
 	}
 	for _, call := range caller.calls {
-		if call.Method != networkManagerInterface+".AddAndActivateConnection2" {
+		if call.Method != modemInterface+".CreateBearer" {
 			continue
 		}
-		settings, ok := call.Args[0].(map[string]map[string]dbus.Variant)
+		settings, ok := call.Args[0].(map[string]dbus.Variant)
 		if !ok {
-			t.Fatalf("NetworkManager settings = %T", call.Args[0])
+			t.Fatalf("bearer settings = %T", call.Args[0])
 		}
-		apn, found := settings["gsm"]["apn"]
+		apn, found := settings["apn"]
 		if !found || apn.Value() != "automatic.example" {
-			t.Fatalf("automatic NetworkManager APN = %+v", settings)
-		}
-		options, ok := call.Args[3].(map[string]dbus.Variant)
-		if !ok || options["persist"].Value() != "volatile" {
-			t.Fatalf("NetworkManager options = %+v", call.Args[3])
+			t.Fatalf("automatic bearer APN = %+v", settings)
 		}
 		return
 	}
-	t.Fatal("NetworkManager activation was not called")
+	t.Fatal("ModemManager bearer creation was not called")
 }
 
 func TestDeviceConfigurationHydratesAutomaticAPNFromInitialEPSBearer(t *testing.T) {
@@ -807,20 +824,16 @@ func TestApplyDeviceConfigurationUsesProviderAutoConfigWithoutResolvedAPN(t *tes
 		t.Fatalf("connected configuration = %+v", connected)
 	}
 	for _, call := range caller.calls {
-		if call.Method != networkManagerInterface+".AddAndActivateConnection2" {
+		if call.Method != modemInterface+".CreateBearer" {
 			continue
 		}
-		settings := call.Args[0].(map[string]map[string]dbus.Variant)
-		autoConfig, found := settings["gsm"]["auto-config"]
-		if !found || autoConfig.Value() != true {
-			t.Fatalf("automatic NetworkManager settings = %+v", settings)
-		}
-		if _, found := settings["gsm"]["apn"]; found {
+		settings := call.Args[0].(map[string]dbus.Variant)
+		if _, found := settings["apn"]; found {
 			t.Fatalf("automatic settings unexpectedly forced APN = %+v", settings)
 		}
 		return
 	}
-	t.Fatal("NetworkManager activation was not called")
+	t.Fatal("ModemManager bearer creation was not called")
 }
 
 func TestApplyDeviceConfigurationAcceptsDualStackSingleFamilyFallback(t *testing.T) {
@@ -857,7 +870,7 @@ func TestApplyDeviceConfigurationAcceptsDualStackSingleFamilyFallback(t *testing
 	}
 }
 
-func TestApplyDeviceConfigurationReusesOwnedNetworkManagerConnection(t *testing.T) {
+func TestApplyDeviceConfigurationReusesOwnedBearer(t *testing.T) {
 	t.Parallel()
 	objects := configurationObjects()
 	caller := &configurationCaller{objects: objects}
@@ -902,18 +915,18 @@ func TestApplyDeviceConfigurationReusesOwnedNetworkManagerConnection(t *testing.
 		t.Fatalf("reused configuration = %+v", reused)
 	}
 	if count := caller.methodCount(
-		networkManagerInterface + ".AddAndActivateConnection2",
+		modemInterface + ".CreateBearer",
 	); count != 0 {
 		t.Fatalf("second activation calls = %d, methods = %v", count, caller.methods())
 	}
 	if count := caller.methodCount(
-		networkManagerInterface + ".DeactivateConnection",
+		bearerInterface + ".Disconnect",
 	); count != 0 {
 		t.Fatalf("second deactivation calls = %d, methods = %v", count, caller.methods())
 	}
 }
 
-func TestApplyDeviceConfigurationDisconnectsOwnedNetworkManagerConnection(t *testing.T) {
+func TestApplyDeviceConfigurationDisconnectsOwnedBearer(t *testing.T) {
 	t.Parallel()
 	objects := configurationObjects()
 	caller := &configurationCaller{objects: objects}
@@ -954,22 +967,30 @@ func TestApplyDeviceConfigurationDisconnectsOwnedNetworkManagerConnection(t *tes
 		t.Fatalf("disconnected configuration = %+v", disconnected)
 	}
 	if count := caller.methodCount(
-		networkManagerInterface + ".DeactivateConnection",
+		bearerInterface + ".Disconnect",
 	); count != 1 {
 		t.Fatalf("deactivation calls = %d, methods = %v", count, caller.methods())
+	}
+	if count := caller.methodCount(modemInterface + ".DeleteBearer"); count != 1 {
+		t.Fatalf("bearer deletion calls = %d, methods = %v", count, caller.methods())
 	}
 }
 
 func TestApplyDeviceConfigurationDoesNotDisconnectExternalConnection(t *testing.T) {
 	t.Parallel()
 	objects := configurationObjects()
-	caller := &configurationCaller{
-		objects:            objects,
-		activeConnection:   testNetworkManagerActivePath,
-		activeConnectionID: "External cellular connection",
-		activeState:        networkManagerActiveActivated,
-		deviceState:        networkManagerStateActivated,
+	externalPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/Bearer/external")
+	objects[testModemPath][modemInterface]["Bearers"] =
+		dbus.MakeVariant([]dbus.ObjectPath{externalPath})
+	objects[externalPath] = Interfaces{
+		bearerInterface: testBearerProperties(
+			true,
+			"external.example",
+			domain.APNTypeDefault,
+			bearerIPFamilyIPv4,
+		),
 	}
+	caller := &configurationCaller{objects: objects}
 	provider := newTestProvider(caller)
 	lineID := parsedLineID(objects, provider.ids)
 	current, err := provider.ReadDeviceConfiguration(context.Background(), lineID)
@@ -992,19 +1013,21 @@ func TestApplyDeviceConfigurationDoesNotDisconnectExternalConnection(t *testing.
 		t.Fatalf("error = %#v, want conflict", err)
 	}
 	if count := caller.methodCount(
-		networkManagerInterface + ".DeactivateConnection",
+		bearerInterface + ".Disconnect",
 	); count != 0 {
 		t.Fatalf("external deactivation calls = %d", count)
 	}
 }
 
-func TestApplyDeviceConfigurationReportsNetworkManagerAPNRejection(t *testing.T) {
+func TestApplyDeviceConfigurationReportsBearerAPNRejection(t *testing.T) {
 	t.Parallel()
 	objects := configurationObjects()
 	caller := &configurationCaller{
-		objects:           objects,
-		activationState:   networkManagerActiveDeactivated,
-		deviceStateReason: 29,
+		objects: objects,
+		connectErr: dbus.NewError(
+			mobileEquipmentErrorPrefix+"MissingOrUnknownApn",
+			[]any{"fixture APN rejection"},
+		),
 	}
 	provider := newTestProvider(caller)
 	lineID := parsedLineID(objects, provider.ids)
@@ -1026,16 +1049,21 @@ func TestApplyDeviceConfigurationReportsNetworkManagerAPNRejection(t *testing.T)
 		},
 	)
 	operationError, ok := domain.AsOperationError(err)
-	if !ok || operationError.Code != domain.ErrorFailedPrecondition {
-		t.Fatalf("error = %#v, want failed precondition", err)
+	if !ok || operationError.Code != domain.ErrorNetworkRejected {
+		t.Fatalf("error = %#v, want network rejected", err)
 	}
 	if !strings.Contains(strings.ToLower(operationError.Message), "apn") {
 		t.Fatalf("error message = %q, want APN diagnosis", operationError.Message)
 	}
 	if count := caller.methodCount(
-		networkManagerInterface + ".DeactivateConnection",
+		bearerInterface + ".Disconnect",
+	); count != 0 {
+		t.Fatalf("disconnect calls = %d, methods = %v", count, caller.methods())
+	}
+	if count := caller.methodCount(
+		modemInterface + ".DeleteBearer",
 	); count != 1 {
-		t.Fatalf("cleanup calls = %d, methods = %v", count, caller.methods())
+		t.Fatalf("delete calls = %d, methods = %v", count, caller.methods())
 	}
 }
 
@@ -1044,9 +1072,7 @@ func TestApplyDeviceConfigurationHandlesVanishedFailedActivation(t *testing.T) {
 	objects := configurationObjects()
 	caller := &configurationCaller{
 		objects:              objects,
-		activationState:      networkManagerActiveDeactivated,
 		activationDisappears: true,
-		deviceStateReason:    29,
 	}
 	provider := newTestProvider(caller)
 	lineID := parsedLineID(objects, provider.ids)
@@ -1068,20 +1094,25 @@ func TestApplyDeviceConfigurationHandlesVanishedFailedActivation(t *testing.T) {
 		},
 	)
 	operationError, ok := domain.AsOperationError(err)
-	if !ok || operationError.Code != domain.ErrorFailedPrecondition {
-		t.Fatalf("error = %#v, want failed precondition", err)
+	if !ok || operationError.Code != domain.ErrorVerification {
+		t.Fatalf("error = %#v, want verification failure", err)
 	}
 	if strings.Contains(operationError.Message, "cleanup also failed") {
 		t.Fatalf("error misreported completed cleanup: %q", operationError.Message)
 	}
 	if count := caller.methodCount(
-		networkManagerInterface + ".DeactivateConnection",
+		bearerInterface + ".Disconnect",
+	); count != 0 {
+		t.Fatalf("disconnect calls = %d, methods = %v", count, caller.methods())
+	}
+	if count := caller.methodCount(
+		modemInterface + ".DeleteBearer",
 	); count != 1 {
-		t.Fatalf("cleanup calls = %d, methods = %v", count, caller.methods())
+		t.Fatalf("delete calls = %d, methods = %v", count, caller.methods())
 	}
 }
 
-func TestApplyDeviceConfigurationReportsNetworkManagerActivationFailure(t *testing.T) {
+func TestApplyDeviceConfigurationReportsBearerActivationFailure(t *testing.T) {
 	t.Parallel()
 	objects := configurationObjects()
 	caller := &configurationCaller{
@@ -1117,9 +1148,11 @@ func TestApplyDeviceConfigurationReportsNetworkManagerActivationFailure(t *testi
 		t,
 		caller.methods(),
 		objectManagerInterface+".GetManagedObjects",
-		networkManagerInterface+".GetDevices",
+		objectManagerInterface+".GetManagedObjects",
+		modemInterface+".CreateBearer",
+		bearerInterface+".Connect",
 		propertiesInterface+".GetAll",
-		networkManagerInterface+".AddAndActivateConnection2",
+		modemInterface+".DeleteBearer",
 	)
 	if paths, _ := objectPathValuesProperty(
 		caller.objects[testModemPath][modemInterface],
@@ -1129,14 +1162,14 @@ func TestApplyDeviceConfigurationReportsNetworkManagerActivationFailure(t *testi
 	}
 }
 
-func TestApplyDeviceConfigurationReportsFailedNetworkManagerCleanup(t *testing.T) {
+func TestApplyDeviceConfigurationReportsFailedBearerCleanup(t *testing.T) {
 	t.Parallel()
 	objects := configurationObjects()
 	caller := &configurationCaller{
 		objects:              objects,
 		verificationMismatch: true,
 		deactivateErr: dbus.NewError(
-			networkManagerErrorPrefix+"Failed",
+			modemManagerCoreErrorPrefix+"WrongState",
 			[]any{"fixture deactivation failure"},
 		),
 	}
@@ -1166,15 +1199,12 @@ func TestApplyDeviceConfigurationReportsFailedNetworkManagerCleanup(t *testing.T
 		t,
 		caller.methods(),
 		objectManagerInterface+".GetManagedObjects",
-		networkManagerInterface+".GetDevices",
-		propertiesInterface+".GetAll",
-		networkManagerInterface+".AddAndActivateConnection2",
-		propertiesInterface+".GetAll",
 		objectManagerInterface+".GetManagedObjects",
-		networkManagerInterface+".GetDevices",
+		modemInterface+".CreateBearer",
+		bearerInterface+".Connect",
 		propertiesInterface+".GetAll",
 		propertiesInterface+".GetAll",
-		networkManagerInterface+".DeactivateConnection",
+		bearerInterface+".Disconnect",
 	)
 	if paths, _ := objectPathValuesProperty(
 		caller.objects[testModemPath][modemInterface],
@@ -1218,11 +1248,12 @@ func TestApplyDeviceConfigurationCleanupOutlivesCanceledRequest(t *testing.T) {
 		t,
 		caller.methods(),
 		objectManagerInterface+".GetManagedObjects",
-		networkManagerInterface+".GetDevices",
+		objectManagerInterface+".GetManagedObjects",
+		modemInterface+".CreateBearer",
+		bearerInterface+".Connect",
 		propertiesInterface+".GetAll",
-		networkManagerInterface+".AddAndActivateConnection2",
-		networkManagerInterface+".DeactivateConnection",
-		propertiesInterface+".GetAll",
+		bearerInterface+".Disconnect",
+		modemInterface+".DeleteBearer",
 	)
 }
 

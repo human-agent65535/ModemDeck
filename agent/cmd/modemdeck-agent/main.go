@@ -41,6 +41,16 @@ func run() error {
 		os.Getenv("MODEMDECK_MEDIA_BINDINGS_FILE"),
 		"absolute path to explicit host audio-port bindings JSON",
 	)
+	bearerStateFile := flag.String(
+		"bearer-state-file",
+		envOrDefault("MODEMDECK_BEARER_STATE_FILE", "/run/modemdeck/bearers.json"),
+		"persistent file recording only ModemDeck-owned ModemManager bearers",
+	)
+	networkStateFile := flag.String(
+		"network-state-file",
+		envOrDefault("MODEMDECK_NETWORK_STATE_FILE", "/run/modemdeck/network.json"),
+		"persistent file recording only ModemDeck-owned kernel network state",
+	)
 	flag.Parse()
 
 	mode, err := parseSocketMode(*socketMode)
@@ -48,11 +58,29 @@ func run() error {
 		return err
 	}
 
-	provider, err := modemmanager.OpenSystemBus()
+	dataPlane, err := networking.NewDataPlane(networking.DataPlaneOptions{
+		StateFile: *networkStateFile,
+	})
+	if err != nil {
+		return fmt.Errorf("create cellular data plane: %w", err)
+	}
+	provider, err := modemmanager.OpenSystemBusWithOptions(modemmanager.Options{
+		DataPlane:       dataPlane,
+		BearerStateFile: *bearerStateFile,
+	})
 	if err != nil {
 		return err
 	}
 	defer provider.Close()
+	reconcileContext, cancelReconcile := context.WithTimeout(
+		context.Background(),
+		30*time.Second,
+	)
+	if err := provider.ReconcileDataPlane(reconcileContext); err != nil {
+		cancelReconcile()
+		return fmt.Errorf("reconcile cellular data plane: %w", err)
+	}
+	cancelReconcile()
 	bindings, err := loadMediaBindings(*mediaBindingsFile)
 	if err != nil {
 		return err
@@ -184,6 +212,13 @@ func run() error {
 		}
 		return nil
 	}
+}
+
+func envOrDefault(name string, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func parseSocketMode(value string) (os.FileMode, error) {

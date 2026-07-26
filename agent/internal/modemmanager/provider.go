@@ -39,6 +39,8 @@ type Provider struct {
 	close         func() error
 	now           func() time.Time
 	ids           *instanceIDs
+	dataPlane     DataPlane
+	ownedBearers  *bearerOwnershipStore
 
 	callMu        sync.Mutex
 	configMu      sync.Mutex
@@ -100,12 +102,35 @@ func (r staticOwnerResolver) ResolveOwner(context.Context) (string, error) {
 }
 
 func New(caller Caller) (*Provider, error) {
-	return newProvider(caller, newInstanceIDs()), nil
+	return NewWithOptions(caller, Options{})
 }
 
 func newProvider(caller Caller, ids *instanceIDs) *Provider {
+	provider, err := newProviderWithOptions(caller, ids, Options{})
+	if err != nil {
+		panic(err)
+	}
+	return provider
+}
+
+func NewWithOptions(caller Caller, options Options) (*Provider, error) {
+	return newProviderWithOptions(caller, newInstanceIDs(), options)
+}
+
+func newProviderWithOptions(
+	caller Caller,
+	ids *instanceIDs,
+	options Options,
+) (*Provider, error) {
 	if ids == nil {
 		ids = newInstanceIDs()
+	}
+	if options.DataPlane == nil {
+		options.DataPlane = noopDataPlane{}
+	}
+	ownedBearers, err := newBearerOwnershipStore(options.BearerStateFile)
+	if err != nil {
+		return nil, fmt.Errorf("load owned bearer state: %w", err)
 	}
 	var resolver ownerResolver = callerOwnerResolver{caller: caller}
 	if owner := ids.providerEpoch(); owner != "" {
@@ -116,19 +141,25 @@ func newProvider(caller Caller, ids *instanceIDs) *Provider {
 		ownerResolver:     resolver,
 		now:               time.Now,
 		ids:               ids,
+		dataPlane:         options.DataPlane,
+		ownedBearers:      ownedBearers,
 		terminalCalls:     make(map[string]terminalCallProjection),
 		networkOperations: make(map[string]struct{}),
 		signalSetupStates: make(map[string]signalSetupState),
 		messageProperties: newMessagePropertyCache(defaultMessagePropertyCacheLimit),
-	}
+	}, nil
 }
 
 func OpenSystemBus() (*Provider, error) {
+	return OpenSystemBusWithOptions(Options{})
+}
+
+func OpenSystemBusWithOptions(options Options) (*Provider, error) {
 	conn, err := dbus.ConnectSystemBus()
 	if err != nil {
 		return nil, fmt.Errorf("connect to system D-Bus: %w", err)
 	}
-	provider, err := New(&connectionCaller{conn: conn})
+	provider, err := NewWithOptions(&connectionCaller{conn: conn}, options)
 	if err != nil {
 		_ = conn.Close()
 		return nil, err

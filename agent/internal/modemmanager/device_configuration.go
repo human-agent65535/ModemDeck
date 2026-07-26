@@ -156,7 +156,7 @@ func (p *Provider) ApplyGenericDeviceConfiguration(
 			effectiveAPN,
 			requestedFamily,
 		)
-		if _, err := p.activateNetworkManagerData(
+		if _, err := p.activateOwnedBearerData(
 			bounded,
 			modemPath,
 			request.LineID,
@@ -169,10 +169,10 @@ func (p *Provider) ApplyGenericDeviceConfiguration(
 		}
 		verified, _, _, err := p.readDeviceConfiguration(bounded, request.LineID, operation)
 		if err != nil {
-			if rollbackErr := p.cleanupOwnedNetworkManagerData(modemPath, request.LineID); rollbackErr != nil {
+			if rollbackErr := p.cleanupOwnedBearerData(modemPath, request.LineID); rollbackErr != nil {
 				return domain.DeviceConfiguration{}, domain.VerificationFailed(
 					operation,
-					"cellular data state could not be verified and NetworkManager rollback failed",
+					"cellular data state could not be verified and bearer rollback failed",
 					errors.Join(err, rollbackErr),
 				)
 			}
@@ -180,12 +180,12 @@ func (p *Provider) ApplyGenericDeviceConfiguration(
 		}
 		if !matchingConnectedData(verified.DataConnections, effectiveAPN, requestedFamily) {
 			verificationErr := errors.New(
-				"NetworkManager activated the modem but no matching connected Internet bearer was reported",
+				"ModemManager activated the modem but no matching connected Internet bearer was reported",
 			)
-			if rollbackErr := p.cleanupOwnedNetworkManagerData(modemPath, request.LineID); rollbackErr != nil {
+			if rollbackErr := p.cleanupOwnedBearerData(modemPath, request.LineID); rollbackErr != nil {
 				return domain.DeviceConfiguration{}, domain.VerificationFailed(
 					operation,
-					"cellular data verification failed and NetworkManager rollback failed",
+					"cellular data verification failed and bearer rollback failed",
 					errors.Join(verificationErr, rollbackErr),
 				)
 			}
@@ -203,7 +203,7 @@ func (p *Provider) ApplyGenericDeviceConfiguration(
 				current.Capabilities.DataConnection.Reason,
 			)
 		}
-		deactivated, err := p.deactivateOwnedNetworkManagerData(
+		deactivated, err := p.deactivateOwnedBearerData(
 			bounded,
 			modemPath,
 			request.LineID,
@@ -279,6 +279,9 @@ func (p *Provider) readDeviceConfiguration(
 	lineID = strings.TrimSpace(lineID)
 	if lineID == "" {
 		return domain.DeviceConfiguration{}, nil, "", domain.InvalidArgument(operation, "line id is required")
+	}
+	if _, err := p.resolveProviderIdentity(ctx, operation); err != nil {
+		return domain.DeviceConfiguration{}, nil, "", err
 	}
 	objects, err := p.managedObjects(ctx, operation)
 	if err != nil {
@@ -388,14 +391,11 @@ func (p *Provider) readDeviceConfiguration(
 
 func genericConfigurationCapabilities(interfaces Interfaces) domain.DeviceConfigurationCapabilities {
 	modemManager := "modemmanager"
-	networkManager := "networkmanager"
+	agent := "modemdeck_agent"
 	vendor := "vendor_extension"
 	application := "application"
 	_, voiceSupported := interfaces[voiceInterface]
-	dataWritable := false
-	if _, found := interfaces[simpleInterface]; found {
-		dataWritable = true
-	}
+	_, dataWritable := interfaces[modemInterface]
 	ussdSupported := false
 	if _, found := interfaces[ussdInterface]; found {
 		ussdSupported = true
@@ -406,7 +406,7 @@ func genericConfigurationCapabilities(interfaces Interfaces) domain.DeviceConfig
 	}
 	dataReason := ""
 	if !dataWritable {
-		dataReason = "NetworkManager requires the ModemManager Simple interface for cellular activation"
+		dataReason = "ModemManager does not expose bearer creation for this line"
 	}
 	ussdReason := ""
 	if !ussdSupported {
@@ -437,7 +437,7 @@ func genericConfigurationCapabilities(interfaces Interfaces) domain.DeviceConfig
 			Writable:    true,
 		},
 		DataConnection: domain.FeatureCapability{
-			Backend:     networkManager,
+			Backend:     agent,
 			Supported:   true,
 			Implemented: true,
 			Readable:    true,
