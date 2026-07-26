@@ -1,0 +1,356 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly program="${0##*/}"
+
+mode="${MODEMDECK_HARDWARE_MODE:-simple}"
+assignments_file="${MODEMDECK_DEVICE_ASSIGNMENTS_FILE:-}"
+shutdown_timeout="${MODEMDECK_SHUTDOWN_TIMEOUT_SECONDS:-10}"
+
+usage() {
+  cat <<'EOF'
+Usage: modemdeck-hardware-entrypoint [--mode simple|advanced]
+                                     [--assignments FILE]
+
+simple
+  ModemManager performs normal automatic device discovery. Host /proc and the
+  host system D-Bus are never inspected.
+
+advanced
+  ModemManager always starts with --no-auto-scan. FILE is required and must
+  explicitly assign stable physical devices. The device owner reports only
+  matching real kernel add/remove events to the private ModemManager bus.
+EOF
+}
+
+log() {
+  printf '%s: %s\n' "${program}" "$*" >&2
+}
+
+core_pids=()
+declare -A core_names=()
+stopping=0
+
+stop_core_processes() {
+  local pid deadline still_running
+
+  if (( stopping )); then
+    return
+  fi
+  stopping=1
+  trap - TERM INT
+
+  for pid in "${core_pids[@]:-}"; do
+    if kill -0 "${pid}" 2>/dev/null; then
+      kill -TERM -- "-${pid}" 2>/dev/null || kill -TERM "${pid}" 2>/dev/null || true
+    fi
+  done
+
+  deadline=$((SECONDS + shutdown_timeout))
+  while (( SECONDS < deadline )); do
+    still_running=0
+    for pid in "${core_pids[@]:-}"; do
+      if kill -0 "${pid}" 2>/dev/null; then
+        still_running=1
+        break
+      fi
+    done
+    (( still_running == 0 )) && break
+    sleep 0.1
+  done
+
+  for pid in "${core_pids[@]:-}"; do
+    if kill -0 "${pid}" 2>/dev/null; then
+      kill -KILL -- "-${pid}" 2>/dev/null || kill -KILL "${pid}" 2>/dev/null || true
+    fi
+  done
+  for pid in "${core_pids[@]:-}"; do
+    wait "${pid}" 2>/dev/null || true
+  done
+}
+
+fatal() {
+  log "$*"
+  stop_core_processes
+  exit 1
+}
+
+handle_signal() {
+  log "received shutdown signal"
+  stop_core_processes
+  exit 0
+}
+
+trap handle_signal TERM INT
+
+while (( $# > 0 )); do
+  case "$1" in
+    --mode)
+      (( $# >= 2 )) || fatal "--mode requires a value"
+      mode="$2"
+      shift 2
+      ;;
+    --assignments)
+      (( $# >= 2 )) || fatal "--assignments requires a file"
+      assignments_file="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      fatal "unknown argument: $1"
+      ;;
+  esac
+done
+
+case "${mode}" in
+  simple|advanced) ;;
+  *) fatal "invalid mode ${mode@Q}; expected simple or advanced" ;;
+esac
+
+if [[ "${mode}" == "simple" ]]; then
+  [[ -z "${assignments_file}" ]] \
+    || fatal "--assignments and MODEMDECK_DEVICE_ASSIGNMENTS_FILE are advanced-only"
+else
+  [[ -n "${assignments_file}" ]] \
+    || fatal "advanced mode requires --assignments FILE"
+  [[ "${assignments_file}" == /* ]] \
+    || fatal "device assignments file must use an absolute path"
+  [[ -r "${assignments_file}" ]] \
+    || fatal "device assignments file is not readable: ${assignments_file}"
+fi
+
+readonly runtime_dir="${MODEMDECK_RUNTIME_DIR:-/run/modemdeck}"
+readonly dbus_socket="${MODEMDECK_DBUS_SOCKET:-/run/dbus/system_bus_socket}"
+readonly dbus_config="${MODEMDECK_DBUS_CONFIG:-/etc/dbus-1/modemdeck-system.conf}"
+readonly mm_state_dir="${MODEMDECK_MM_STATE_DIR:-/var/lib/ModemManager}"
+readonly agent_socket="${MODEMDECK_AGENT_SOCKET:-${runtime_dir}/agent.sock}"
+readonly agent_socket_mode="${MODEMDECK_AGENT_SOCKET_MODE:-0660}"
+readonly agent_socket_gid="${MODEMDECK_AGENT_SOCKET_GID:-10002}"
+readonly bearer_state_file="${runtime_dir}/bearers.json"
+readonly network_state_file="${runtime_dir}/network.json"
+readonly owner_status="${MODEMDECK_DEVICE_OWNER_STATUS:-${runtime_dir}/device-owner-status.json}"
+readonly owner_max_age="${MODEMDECK_DEVICE_OWNER_MAX_AGE_SECONDS:-30}"
+readonly startup_timeout="${MODEMDECK_STARTUP_TIMEOUT_SECONDS:-20}"
+readonly mm_log_level="${MODEMDECK_MM_LOG_LEVEL:-INFO}"
+readonly shutdown_timeout
+
+readonly dbus_daemon="${MODEMDECK_DBUS_DAEMON_BIN:-/usr/bin/dbus-daemon}"
+readonly dbus_send="${MODEMDECK_DBUS_SEND_BIN:-/usr/bin/dbus-send}"
+readonly modem_manager="${MODEMDECK_MODEM_MANAGER_BIN:-/usr/sbin/ModemManager}"
+readonly device_owner="${MODEMDECK_DEVICE_OWNER_BIN:-/usr/local/bin/modemdeck-device-owner}"
+readonly agent="${MODEMDECK_AGENT_BIN:-/usr/local/bin/modemdeck-agent}"
+readonly healthcheck="${MODEMDECK_HEALTHCHECK_BIN:-/usr/local/bin/modemdeck-hardware-healthcheck}"
+readonly setsid_bin="${MODEMDECK_SETSID_BIN:-/usr/bin/setsid}"
+
+[[ "${runtime_dir}" == /* ]] || fatal "MODEMDECK_RUNTIME_DIR must be absolute"
+[[ "${dbus_socket}" == /* ]] || fatal "MODEMDECK_DBUS_SOCKET must be absolute"
+[[ "${mm_state_dir}" == /* ]] || fatal "MODEMDECK_MM_STATE_DIR must be absolute"
+[[ "${agent_socket}" == "${runtime_dir}/"* ]] \
+  || fatal "MODEMDECK_AGENT_SOCKET must be below MODEMDECK_RUNTIME_DIR"
+[[ "${owner_status}" == "${runtime_dir}/"* ]] \
+  || fatal "MODEMDECK_DEVICE_OWNER_STATUS must be below MODEMDECK_RUNTIME_DIR"
+[[ "${startup_timeout}" =~ ^[1-9][0-9]*$ ]] \
+  || fatal "MODEMDECK_STARTUP_TIMEOUT_SECONDS must be a positive integer"
+[[ "${shutdown_timeout}" =~ ^[1-9][0-9]*$ ]] \
+  || fatal "MODEMDECK_SHUTDOWN_TIMEOUT_SECONDS must be a positive integer"
+[[ "${owner_max_age}" =~ ^[1-9][0-9]*$ ]] \
+  || fatal "MODEMDECK_DEVICE_OWNER_MAX_AGE_SECONDS must be a positive integer"
+[[ "${agent_socket_gid}" =~ ^[0-9]+$ ]] \
+  || fatal "MODEMDECK_AGENT_SOCKET_GID must be numeric"
+[[ "${agent_socket_mode}" =~ ^0[0-7]{3}$ ]] \
+  || fatal "MODEMDECK_AGENT_SOCKET_MODE must be a four-digit octal mode"
+case "${mm_log_level}" in
+  ERR|WARN|INFO|DEBUG) ;;
+  *) fatal "MODEMDECK_MM_LOG_LEVEL must be ERR, WARN, INFO, or DEBUG" ;;
+esac
+
+required_executables=(
+  "${dbus_daemon}"
+  "${dbus_send}"
+  "${modem_manager}"
+  "${agent}"
+  "${healthcheck}"
+  "${setsid_bin}"
+)
+if [[ "${mode}" == "advanced" ]]; then
+  required_executables+=("${device_owner}")
+fi
+for executable in "${required_executables[@]}"; do
+  [[ -x "${executable}" ]] || fatal "required executable is missing: ${executable}"
+done
+[[ -r "${dbus_config}" ]] || fatal "private D-Bus config is not readable: ${dbus_config}"
+
+prepare_writable_directory() {
+  local path="$1"
+  local mode_bits="$2"
+  local probe="${path}/.modemdeck-write-probe.$$"
+
+  install -d -m "${mode_bits}" "${path}" \
+    || fatal "cannot create required writable directory: ${path}"
+  if ! (umask 077 && : > "${probe}"); then
+    fatal "required runtime directory is not writable: ${path}"
+  fi
+  rm -f "${probe}" || fatal "cannot clean write probe from ${path}"
+}
+
+prepare_writable_directory "${mm_state_dir}" 0700
+prepare_writable_directory "$(dirname "${dbus_socket}")" 0770
+prepare_writable_directory "${runtime_dir}" 0770
+prepare_writable_directory "${runtime_dir}/tmp" 0770
+
+chgrp "${agent_socket_gid}" "${runtime_dir}" \
+  || fatal "cannot assign runtime directory group ${agent_socket_gid}"
+rm -f "${dbus_socket}" "${agent_socket}" "${owner_status}"
+printf '%s\n' "${mode}" > "${runtime_dir}/hardware-mode"
+
+export DBUS_SYSTEM_BUS_ADDRESS="unix:path=${dbus_socket}"
+export TMPDIR="${runtime_dir}/tmp"
+
+start_core() {
+  local name="$1"
+  shift
+
+  log "starting ${name}"
+  "${setsid_bin}" "$@" &
+  local pid=$!
+  core_pids+=("${pid}")
+  core_names["${pid}"]="${name}"
+}
+
+process_is_running() {
+  kill -0 "$1" 2>/dev/null
+}
+
+wait_for_private_bus() {
+  local pid="$1"
+  local deadline=$((SECONDS + startup_timeout))
+
+  while (( SECONDS < deadline )); do
+    process_is_running "${pid}" || fatal "private D-Bus exited during startup"
+    if "${dbus_send}" \
+      --system \
+      --print-reply \
+      --dest=org.freedesktop.DBus \
+      /org/freedesktop/DBus \
+      org.freedesktop.DBus.ListNames >/dev/null 2>&1; then
+      return
+    fi
+    sleep 0.1
+  done
+  fatal "private D-Bus did not become ready within ${startup_timeout}s"
+}
+
+wait_for_modem_manager() {
+  local pid="$1"
+  local deadline=$((SECONDS + startup_timeout))
+  local reply
+
+  while (( SECONDS < deadline )); do
+    process_is_running "${pid}" || fatal "ModemManager exited during startup"
+    if reply="$("${dbus_send}" \
+      --system \
+      --print-reply \
+      --dest=org.freedesktop.DBus \
+      /org/freedesktop/DBus \
+      org.freedesktop.DBus.NameHasOwner \
+      string:org.freedesktop.ModemManager1 2>/dev/null)" \
+      && grep -q 'boolean true' <<<"${reply}"; then
+      return
+    fi
+    sleep 0.1
+  done
+  fatal "ModemManager did not own its D-Bus name within ${startup_timeout}s"
+}
+
+wait_for_device_owner() {
+  local pid="$1"
+  local deadline=$((SECONDS + startup_timeout))
+
+  while (( SECONDS < deadline )); do
+    process_is_running "${pid}" || fatal "advanced device owner exited during startup"
+    if "${device_owner}" health \
+      --status-file "${owner_status}" \
+      --max-age-seconds "${owner_max_age}" >/dev/null 2>&1; then
+      return
+    fi
+    sleep 0.1
+  done
+  fatal "advanced device assignments did not become ready within ${startup_timeout}s"
+}
+
+wait_for_agent() {
+  local pid="$1"
+  local deadline=$((SECONDS + startup_timeout))
+
+  while (( SECONDS < deadline )); do
+    process_is_running "${pid}" || fatal "ModemDeck agent exited during startup"
+    if "${healthcheck}" >/dev/null 2>&1; then
+      return
+    fi
+    sleep 0.1
+  done
+  fatal "ModemDeck agent health did not become ready within ${startup_timeout}s"
+}
+
+start_core \
+  "private D-Bus" \
+  "${dbus_daemon}" \
+  --nofork \
+  --nopidfile \
+  --config-file="${dbus_config}"
+dbus_pid="${core_pids[-1]}"
+wait_for_private_bus "${dbus_pid}"
+
+mm_args=(
+  "--log-level=${mm_log_level}"
+  "--log-timestamps"
+)
+if [[ "${mode}" == "advanced" ]]; then
+  mm_args+=("--no-auto-scan")
+fi
+
+start_core "ModemManager" "${modem_manager}" "${mm_args[@]}"
+mm_pid="${core_pids[-1]}"
+wait_for_modem_manager "${mm_pid}"
+
+if [[ "${mode}" == "advanced" ]]; then
+  start_core \
+    "advanced device owner" \
+    "${device_owner}" run \
+    --config "${assignments_file}" \
+    --status-file "${owner_status}" \
+    --startup-timeout-seconds "${startup_timeout}"
+  owner_pid="${core_pids[-1]}"
+  wait_for_device_owner "${owner_pid}"
+fi
+
+start_core \
+  "ModemDeck agent" \
+  "${agent}" \
+  --socket "${agent_socket}" \
+  --socket-mode "${agent_socket_mode}" \
+  --socket-gid "${agent_socket_gid}" \
+  --bearer-state-file "${bearer_state_file}" \
+  --network-state-file "${network_state_file}"
+agent_pid="${core_pids[-1]}"
+wait_for_agent "${agent_pid}"
+
+log "hardware runtime ready in ${mode} mode"
+
+set +e
+exited_pid=""
+wait -n -p exited_pid "${core_pids[@]}"
+exit_status=$?
+set -e
+
+exited_name="${core_names[${exited_pid}]:-core process}"
+log "${exited_name} exited unexpectedly with status ${exit_status}"
+stop_core_processes
+
+if (( exit_status == 0 )); then
+  exit 1
+fi
+exit "${exit_status}"

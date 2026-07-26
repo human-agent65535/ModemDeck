@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "poll_interval_ms": 1000,
+  "settle_ms": 750,
+  "port_ready_timeout_ms": 5000,
+  "host": {
+    "proc_root": "/run/host-proc",
+    "system_bus_address": "unix:path=/run/host-dbus/system_bus_socket"
+  },
+  "assignments": [
+    {
+      "id": "modem-bay-a",
+      "required_at_startup": false,
+      "match": {
+        "usb": {
+          "vendor_id": "2c7c",
+          "product_id": "0125",
+          "port_path": "/devices/pci0000:00/0000:00:14.0/usb1/1-2"
+        }
+      }
+    }
+  ]
+}

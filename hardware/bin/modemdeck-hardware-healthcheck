@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly runtime_dir="${MODEMDECK_RUNTIME_DIR:-/run/modemdeck}"
+readonly dbus_socket="${MODEMDECK_DBUS_SOCKET:-/run/dbus/system_bus_socket}"
+readonly agent_socket="${MODEMDECK_AGENT_SOCKET:-${runtime_dir}/agent.sock}"
+readonly owner_status="${MODEMDECK_DEVICE_OWNER_STATUS:-${runtime_dir}/device-owner-status.json}"
+readonly owner_max_age="${MODEMDECK_DEVICE_OWNER_MAX_AGE_SECONDS:-30}"
+readonly request_timeout="${MODEMDECK_HEALTH_REQUEST_TIMEOUT_SECONDS:-3}"
+
+readonly dbus_send="${MODEMDECK_DBUS_SEND_BIN:-/usr/bin/dbus-send}"
+readonly device_owner="${MODEMDECK_DEVICE_OWNER_BIN:-/usr/local/bin/modemdeck-device-owner}"
+readonly curl_bin="${MODEMDECK_CURL_BIN:-/usr/bin/curl}"
+readonly jq_bin="${MODEMDECK_JQ_BIN:-/usr/bin/jq}"
+
+[[ "${request_timeout}" =~ ^[1-9][0-9]*$ ]]
+[[ "${owner_max_age}" =~ ^[1-9][0-9]*$ ]]
+[[ -x "${dbus_send}" ]]
+[[ -x "${curl_bin}" ]]
+[[ -x "${jq_bin}" ]]
+[[ -S "${dbus_socket}" ]]
+[[ -S "${agent_socket}" ]]
+[[ -s "${runtime_dir}/hardware-mode" ]]
+
+mode="$(<"${runtime_dir}/hardware-mode")"
+case "${mode}" in
+  simple) ;;
+  advanced)
+    [[ -x "${device_owner}" ]]
+    "${device_owner}" health \
+      --status-file "${owner_status}" \
+      --max-age-seconds "${owner_max_age}" >/dev/null
+    ;;
+  *)
+    printf 'invalid hardware mode in %s/hardware-mode: %s\n' \
+      "${runtime_dir}" "${mode}" >&2
+    exit 1
+    ;;
+esac
+
+export DBUS_SYSTEM_BUS_ADDRESS="unix:path=${dbus_socket}"
+reply="$("${dbus_send}" \
+  --system \
+  --print-reply \
+  --dest=org.freedesktop.DBus \
+  /org/freedesktop/DBus \
+  org.freedesktop.DBus.NameHasOwner \
+  string:org.freedesktop.ModemManager1 2>/dev/null)"
+grep -q 'boolean true' <<<"${reply}"
+
+response="$("${curl_bin}" \
+  --silent \
+  --show-error \
+  --max-time "${request_timeout}" \
+  --unix-socket "${agent_socket}" \
+  --request GET \
+  --header 'Accept: application/json' \
+  --write-out $'\n%{http_code}' \
+  http://localhost/v1/health)"
+http_status="${response##*$'\n'}"
+body="${response%$'\n'*}"
+
+[[ "${http_status}" == "200" ]]
+"${jq_bin}" -e '
+  .status == "ok"
+  and .provider.available == true
+  and (.provider.boot_epoch | type == "string" and length > 0)
+' <<<"${body}" >/dev/null
