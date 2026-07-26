@@ -19,7 +19,7 @@
   --shadow: 0 12px 30px rgb(16 24 40 / 12%);
   --rail-width: 92px;
   --header-height: 72px;
-  --dialer-width: 320px;
+  --dialer-width: clamp(360px, 28vw, 420px);
   --mobile-nav-height: 66px;
   font-family:
     Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
