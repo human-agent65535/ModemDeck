@@ -90,6 +90,9 @@ const defaultDeviceIMEI = computed(
 const selectionKey = computed(() =>
   typeof route.query.item === 'string' ? route.query.item : ''
 )
+const backLabel = computed(() =>
+  route.query.from === 'settings' ? t('settings.back') : t('dashboard.backHome')
+)
 const hasSelection = computed(() => Boolean(selectionKey.value))
 const overviewSelected = computed(
   () => !selectionKey.value || selectionKey.value === 'overview'
@@ -325,6 +328,10 @@ function selectActivity(activity: DashboardActivity): void {
 }
 
 function backToList(): void {
+  if (route.query.from === 'settings') {
+    void router.push({ name: 'settings' })
+    return
+  }
   void router.push({ name: 'dashboard' })
 }
 
@@ -518,8 +525,10 @@ onMounted(loadDashboard)
         <div class="dashboard-detail-scroll">
           <button
             class="icon-button mobile-back dashboard-overview-back"
+            :class="{ 'is-shell-managed': route.query.from === 'settings' }"
             type="button"
-            :title="t('dashboard.backHome')"
+            :title="backLabel"
+            :aria-label="backLabel"
             @click="backToList"
           >
             <ArrowLeft :size="20" />
@@ -771,7 +780,8 @@ onMounted(loadDashboard)
           <button
             class="icon-button mobile-back"
             type="button"
-            :title="t('dashboard.backHome')"
+            :title="backLabel"
+            :aria-label="backLabel"
             @click="backToList"
           >
             <ArrowLeft :size="20" />
@@ -873,7 +883,8 @@ onMounted(loadDashboard)
           <button
             class="icon-button mobile-back"
             type="button"
-            :title="t('dashboard.backHome')"
+            :title="backLabel"
+            :aria-label="backLabel"
             @click="backToList"
           >
             <ArrowLeft :size="20" />

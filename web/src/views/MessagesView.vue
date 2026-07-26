@@ -405,7 +405,7 @@ onMounted(() => {
           <span v-if="threadsResource.status === 'ready'">{{ threadsResource.data.length }}</span>
         </div>
         <button
-          class="new-message-button"
+          class="pane-create-button mobile-list-fab"
           type="button"
           :disabled="Boolean(messageWriteUnavailable)"
           :title="messageWriteUnavailable || t('dashboard.newMessage')"
@@ -692,26 +692,12 @@ onMounted(() => {
   gap: 8px;
 }
 
-.new-message-button,
 .existing-thread-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
   font-weight: 700;
-}
-
-.new-message-button {
-  min-height: 36px;
-  padding: 0 11px;
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-  border-radius: 6px;
-}
-
-.new-message-button:disabled {
-  color: var(--faint);
-  background: var(--surface-subtle);
 }
 
 .message-list-empty {

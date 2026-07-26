@@ -51,6 +51,7 @@ export default {
     audioDevices: '音频设备',
     primaryNavigation: '主导航',
     mobileNavigation: '移动导航',
+    mobileCall: '拨号',
     openDialer: '打开拨号栏',
     notificationsRequireHTTPS: '浏览器通知需要 HTTPS',
     notificationsUnsupported: '当前浏览器不支持通知',
@@ -357,6 +358,7 @@ export default {
   dashboard: {
     activity: '活动',
     newMessage: '新消息',
+    mobileOverview: '概览',
     overview: '通信概览',
     linesOnline: '{online}/{total} 线路在线',
     attention: '{count} 待处理',

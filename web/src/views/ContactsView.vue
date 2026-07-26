@@ -218,12 +218,14 @@ onMounted(() => {
         </div>
         <button
           v-if="contactEditingAvailable"
-          class="icon-button"
+          class="pane-create-button mobile-list-fab"
           type="button"
           :title="t('contacts.new')"
+          :aria-label="t('contacts.new')"
           @click="openNew"
         >
           <UserPlus :size="19" />
+          <span>{{ t('contacts.new') }}</span>
         </button>
       </header>
       <div class="pane-search">

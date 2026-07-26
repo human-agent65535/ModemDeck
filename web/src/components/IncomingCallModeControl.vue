@@ -141,6 +141,7 @@ onBeforeUnmount(() => {
       class="incoming-call-mode__trigger"
       type="button"
       aria-haspopup="menu"
+      :aria-label="label"
       :aria-controls="menuId"
       :aria-expanded="open"
       :disabled="globalIncomingCallState.status === 'forbidden'"
@@ -352,5 +353,49 @@ onBeforeUnmount(() => {
   color: inherit;
   font-weight: 650;
   background: transparent;
+}
+
+@media (max-width: 560px) {
+  .incoming-call-mode__menu {
+    position: fixed;
+    top: 58px;
+    right: 10px;
+    left: 10px;
+    width: auto;
+    max-height: calc(100dvh - 70px);
+    overflow-y: auto;
+  }
+
+  .incoming-call-mode__menu > header {
+    padding: 11px 12px 9px;
+  }
+
+  .incoming-call-mode__menu > header strong,
+  .incoming-call-mode__menu > button strong {
+    font-size: 12px;
+  }
+
+  .incoming-call-mode__menu small,
+  .incoming-call-mode__notice,
+  .incoming-call-mode__error {
+    font-size: 10px;
+  }
+
+  .incoming-call-mode__menu > button {
+    min-height: 54px;
+    grid-template-columns: 30px minmax(0, 1fr) 16px;
+    gap: 8px;
+    padding: 7px 11px;
+  }
+
+  .incoming-call-mode__option-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .incoming-call-mode__notice,
+  .incoming-call-mode__error {
+    padding: 8px 11px;
+  }
 }
 </style>

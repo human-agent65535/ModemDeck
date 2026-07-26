@@ -51,6 +51,7 @@ export default {
     audioDevices: 'Audio devices',
     primaryNavigation: 'Primary navigation',
     mobileNavigation: 'Mobile navigation',
+    mobileCall: 'Call',
     openDialer: 'Open dialer',
     notificationsRequireHTTPS: 'Browser notifications require HTTPS',
     notificationsUnsupported: 'This browser does not support notifications',
@@ -357,6 +358,7 @@ export default {
   dashboard: {
     activity: 'Activity',
     newMessage: 'New message',
+    mobileOverview: 'Overview',
     overview: 'Communication overview',
     linesOnline: '{online}/{total} lines online',
     attention: '{count} need attention',

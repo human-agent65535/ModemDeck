@@ -6,6 +6,7 @@ import {
   Activity,
   ArrowLeft,
   Circle,
+  House,
   LoaderCircle,
   LogOut,
   Languages,
@@ -24,8 +25,14 @@ import TLSSettingsForm from '../components/TLSSettingsForm.vue'
 import { fixtureMode } from '../api/client'
 import { logout as logoutSession, sessionState } from '../state/session'
 import {
-  loadBootstrap
+  bootstrapResource,
+  callsResource,
+  loadBootstrap,
+  loadCalls,
+  loadThreads,
+  threadsResource
 } from '../state/workspace'
+import { isRegisteredNetwork } from '../utils/operatorNetwork'
 
 type SettingsSection = 'system' | 'devices' | 'recording' | 'telegram' | 'tls' | 'diagnostics'
 
@@ -34,6 +41,24 @@ const router = useRouter()
 const { t } = useI18n()
 const logoutPending = ref(false)
 const logoutError = ref('')
+const lines = computed(() => bootstrapResource.data?.lines || [])
+const onlineLines = computed(
+  () => lines.value.filter(line => isRegisteredNetwork(line)).length
+)
+const attentionCount = computed(
+  () =>
+    threadsResource.data.reduce((total, thread) => total + thread.unread_count, 0) +
+    callsResource.data.filter(call => call.missed).length
+)
+const overviewSummary = computed(() => {
+  const online = t('dashboard.linesOnline', {
+    online: onlineLines.value,
+    total: lines.value.length
+  })
+  return attentionCount.value
+    ? `${online} · ${t('dashboard.attention', { count: attentionCount.value })}`
+    : online
+})
 const sections = computed<Array<{
   id: SettingsSection
   label: string
@@ -103,6 +128,13 @@ function backToSettings(): void {
   void router.push({ name: 'settings', params: { section: '' } })
 }
 
+function openDashboard(): void {
+  void router.push({
+    name: 'dashboard',
+    query: { item: 'overview', from: 'settings' }
+  })
+}
+
 async function logout(): Promise<void> {
   if (logoutPending.value) return
   logoutPending.value = true
@@ -119,7 +151,7 @@ async function logout(): Promise<void> {
 }
 
 onMounted(() => {
-  void loadBootstrap()
+  void Promise.all([loadBootstrap(), loadThreads(), loadCalls()])
 })
 </script>
 
@@ -128,6 +160,17 @@ onMounted(() => {
     <aside class="list-pane settings-list-pane">
       <header class="pane-header"><h1>{{ t('settings.title') }}</h1></header>
       <div class="item-list settings-list">
+        <button
+          class="list-item settings-overview-link"
+          type="button"
+          @click="openDashboard"
+        >
+          <span class="settings-icon"><House :size="19" /></span>
+          <span class="list-item__content">
+            <strong>{{ t('dashboard.mobileOverview') }}</strong>
+            <small>{{ overviewSummary }}</small>
+          </span>
+        </button>
         <button
           v-for="section in sections"
           :key="section.id"

@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import {
   AudioLines,
+  ArrowLeft,
   BellOff,
   BellRing,
   ChartNoAxesCombined,
@@ -33,7 +34,7 @@ import {
   shutdownRuntimeEvents
 } from '../state/runtimeEvents'
 import { sessionState } from '../state/session'
-import { openDialer } from '../state/ui'
+import { openDialer, uiState } from '../state/ui'
 import {
   bootstrapResource,
   loadBootstrap,
@@ -68,6 +69,36 @@ const primaryNav = computed(() => [
   { name: 'recordings', label: t('shell.recordings'), icon: AudioLines },
   { name: 'traffic', label: t('shell.traffic'), icon: ChartNoAxesCombined }
 ])
+const mobileNavBeforeDial = computed(() =>
+  primaryNav.value.filter(item => ['contacts', 'messages', 'calls'].includes(item.name))
+)
+const mobileNavAfterDial = computed(() =>
+  primaryNav.value.filter(item => ['recordings', 'traffic'].includes(item.name))
+)
+const mobileSettingsSection = computed(() => {
+  if (route.name !== 'settings') return ''
+  const section = String(route.params.section || '')
+  const labels: Record<string, string> = {
+    system: t('settings.system'),
+    devices: t('settings.devices'),
+    recording: t('settings.recording'),
+    telegram: 'Telegram',
+    tls: 'HTTPS',
+    diagnostics: t('settings.diagnostics')
+  }
+  return labels[section] || ''
+})
+const mobileOverviewFromSettings = computed(
+  () => route.name === 'dashboard' && route.query.from === 'settings'
+)
+const mobileShellBackVisible = computed(
+  () => Boolean(mobileSettingsSection.value) || mobileOverviewFromSettings.value
+)
+const mobilePageTitle = computed(() => {
+  if (route.name === 'dashboard') return t('dashboard.mobileOverview')
+  if (route.name === 'settings') return mobileSettingsSection.value || t('shell.settings')
+  return primaryNav.value.find(item => item.name === route.name)?.label || ''
+})
 
 watch(
   () => sessionState.status,
@@ -86,6 +117,10 @@ async function bootstrap(): Promise<void> {
 
 function syncDialerMode(): void {
   permanentDialer.value = dialerMediaQuery?.matches ?? false
+}
+
+function backToSettingsMenu(): void {
+  void router.push({ name: 'settings' })
 }
 
 onMounted(() => {
@@ -151,7 +186,17 @@ onBeforeUnmount(() => {
 
     <main class="shell-main">
       <header class="shell-header">
-        <div class="mobile-brand">ModemDeck</div>
+        <button
+          v-if="mobileShellBackVisible"
+          class="icon-button mobile-shell-back"
+          type="button"
+          :title="t('settings.back')"
+          :aria-label="t('settings.back')"
+          @click="backToSettingsMenu"
+        >
+          <ArrowLeft :size="20" />
+        </button>
+        <div class="mobile-brand">{{ mobilePageTitle }}</div>
         <GlobalSearch />
         <div
           v-if="fixtureMode"
@@ -213,7 +258,30 @@ onBeforeUnmount(() => {
 
     <nav class="mobile-nav" :aria-label="t('shell.mobileNavigation')">
       <RouterLink
-        v-for="item in primaryNav"
+        v-for="item in mobileNavBeforeDial"
+        :key="item.name"
+        :class="{ 'is-current': route.name === item.name }"
+        :to="{ name: item.name }"
+      >
+        <component :is="item.icon" :size="21" />
+        <span>{{ item.label }}</span>
+      </RouterLink>
+      <button
+        class="mobile-nav__dial"
+        :class="{ 'is-current': uiState.dialerOpen }"
+        type="button"
+        :title="t('shell.openDialer')"
+        :aria-label="t('shell.openDialer')"
+        :aria-pressed="uiState.dialerOpen"
+        @click="openDialer()"
+      >
+        <span class="mobile-nav__dial-icon">
+          <PhoneCall :size="23" />
+        </span>
+        <span>{{ t('shell.mobileCall') }}</span>
+      </button>
+      <RouterLink
+        v-for="item in mobileNavAfterDial"
         :key="item.name"
         :class="{ 'is-current': route.name === item.name }"
         :to="{ name: item.name }"
@@ -223,7 +291,7 @@ onBeforeUnmount(() => {
       </RouterLink>
       <RouterLink
         :class="{ 'is-current': route.name === 'settings' }"
-        :to="{ name: 'settings', params: { section: 'system' } }"
+        :to="{ name: 'settings' }"
       >
         <Settings :size="21" />
         <span>{{ t('shell.settings') }}</span>
@@ -237,7 +305,7 @@ onBeforeUnmount(() => {
 <style scoped>
 @media (max-width: 860px) {
   .mobile-nav {
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr)) 58px repeat(3, minmax(0, 1fr));
   }
 }
 </style>
