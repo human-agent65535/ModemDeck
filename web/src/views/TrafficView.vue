@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Plus, Waypoints } from '@lucide/vue'
 import type {
   LineSummary,
@@ -22,7 +23,9 @@ import {
   type ProxyDraft
 } from '../state/network'
 import { bootstrapResource, lineLabel, loadBootstrap } from '../state/workspace'
+import { resolvedLocale } from '../i18n'
 
+const { t } = useI18n()
 const selectedLineID = ref('all')
 const editorOpen = ref(false)
 const editorProxy = ref<ProxyInstance>()
@@ -50,7 +53,9 @@ function lineForID(lineID: string): LineSummary | undefined {
 
 function lineFallback(line: LineSummary | undefined, lineID = ''): string {
   if (line) return lineLabel(line)
-  return lineID.trim() ? `线路 ${lineID.trim().slice(-4)}` : '未知线路'
+  return lineID.trim()
+    ? t('traffic.lineFallback', { suffix: lineID.trim().slice(-4) })
+    : t('traffic.unknownLine')
 }
 
 function usageFor(
@@ -115,22 +120,22 @@ const synchronizationNotice = computed(() => {
   if (!current) return ''
 
   const notices: string[] = []
-  if (current.stale) notices.push('运行状态暂未更新')
+  if (current.stale) notices.push(t('traffic.runtimeStale'))
   if (current.apply_exhausted) {
-    notices.push('代理配置同步失败，已停止重试')
+    notices.push(t('traffic.syncExhausted'))
   } else if (current.apply_pending) {
     switch (current.apply_status) {
       case 'agent_unavailable':
-        notices.push('主机服务不可用，代理配置等待同步')
+        notices.push(t('traffic.agentUnavailable'))
         break
       case 'agent_rejected':
-        notices.push('主机服务拒绝代理配置')
+        notices.push(t('traffic.agentRejected'))
         break
       case 'runtime_unavailable':
-        notices.push('网络运行时不可用，代理配置等待同步')
+        notices.push(t('traffic.runtimeUnavailable'))
         break
       default:
-        notices.push('代理配置等待同步')
+        notices.push(t('traffic.syncPending'))
     }
   }
   return notices.join('；')
@@ -186,9 +191,9 @@ async function toggleProxy(proxy: ProxyInstance, enabled: boolean): Promise<void
 async function deleteProxy(proxy: ProxyInstance): Promise<void> {
   const protocol = proxy.mode === 'http' ? 'HTTP CONNECT' : 'SOCKS5'
   const confirmed = await requestConfirmation({
-    title: `删除 ${protocol} 代理？`,
-    message: '代理将立即停止并从配置中移除。',
-    confirmLabel: '删除',
+    title: t('traffic.deleteProxyTitle', { protocol }),
+    message: t('traffic.deleteProxyMessage'),
+    confirmLabel: t('common.delete'),
     tone: 'danger'
   })
   if (!confirmed) return
@@ -199,7 +204,7 @@ function observedAt(): string {
   if (!snapshot.value?.observed_at) return ''
   const date = new Date(snapshot.value.observed_at)
   if (!Number.isFinite(date.getTime())) return ''
-  return new Intl.DateTimeFormat('zh-CN', {
+  return new Intl.DateTimeFormat(resolvedLocale(), {
     hour: '2-digit',
     minute: '2-digit'
   }).format(date)
@@ -230,26 +235,28 @@ onBeforeUnmount(() => {
   <section class="traffic-page">
     <header class="traffic-page__header">
       <div>
-        <h1>流量</h1>
-        <span v-if="observedAt()">更新于 {{ observedAt() }}</span>
+        <h1>{{ t('shell.traffic') }}</h1>
+        <span v-if="observedAt()">
+          {{ t('traffic.updatedAt', { time: observedAt() }) }}
+        </span>
       </div>
     </header>
 
     <StatePanel
       v-if="networkState.status === 'loading' && !snapshot"
       state="loading"
-      title="正在载入流量"
+      :title="t('traffic.loading')"
     />
     <StatePanel
       v-else-if="networkState.status === 'forbidden'"
       state="forbidden"
-      title="无权查看流量"
+      :title="t('traffic.forbidden')"
       :detail="networkState.error"
     />
     <StatePanel
       v-else-if="networkState.status === 'error' && !snapshot"
       state="error"
-      title="无法载入流量"
+      :title="t('traffic.loadFailed')"
       :detail="networkState.error"
       retryable
       @retry="loadNetwork(true)"
@@ -262,7 +269,7 @@ onBeforeUnmount(() => {
           class="traffic-banner is-warning"
           role="status"
         >
-          {{ snapshot.unavailable_reason || '网络服务暂不可用' }}
+          {{ snapshot.unavailable_reason || t('traffic.serviceUnavailable') }}
         </div>
         <div
           v-if="synchronizationNotice"
@@ -288,14 +295,14 @@ onBeforeUnmount(() => {
           :total-proxies="visibleProxies.length"
         />
 
-        <nav class="traffic-line-filter" aria-label="筛选线路">
+        <nav class="traffic-line-filter" :aria-label="t('traffic.filterLines')">
           <button
             type="button"
             :class="{ 'is-selected': selectedLineID === 'all' }"
             :aria-pressed="selectedLineID === 'all'"
             @click="selectLine('all')"
           >
-            全部线路
+            {{ t('traffic.allLines') }}
           </button>
           <button
             v-for="line in lines"
@@ -312,7 +319,7 @@ onBeforeUnmount(() => {
         <section class="traffic-section">
           <header>
             <div>
-              <h2>线路</h2>
+              <h2>{{ t('traffic.lines') }}</h2>
               <span>{{ visibleLines.length }}</span>
             </div>
           </header>
@@ -327,13 +334,13 @@ onBeforeUnmount(() => {
               :month="usageFor('month', 'line', stableLineID(line))"
             />
           </div>
-          <StatePanel v-else state="empty" title="暂无线路" />
+          <StatePanel v-else state="empty" :title="t('traffic.noLines')" />
         </section>
 
         <section class="traffic-section">
           <header>
             <div>
-              <h2>代理</h2>
+              <h2>{{ t('traffic.proxies') }}</h2>
               <span>{{ visibleProxies.length }}</span>
             </div>
           </header>
@@ -345,7 +352,7 @@ onBeforeUnmount(() => {
               @click="openCreate"
             >
               <span><Plus :size="22" /></span>
-              <strong>添加代理</strong>
+              <strong>{{ t('traffic.addProxy') }}</strong>
             </button>
 
             <ProxyCard
@@ -365,7 +372,7 @@ onBeforeUnmount(() => {
           </div>
           <div v-if="visibleProxies.length === 0" class="proxy-empty">
             <Waypoints :size="18" />
-            此筛选下没有代理
+            {{ t('traffic.noProxies') }}
           </div>
         </section>
       </div>

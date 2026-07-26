@@ -44,6 +44,12 @@ type Repository interface {
 	UpdateLineLabel(context.Context, string, string) (store.LineSummary, error)
 	LineSettings(context.Context) (store.LineSettings, error)
 	UpdateLineSettings(context.Context, string, int64) (store.LineSettings, error)
+	SystemSettings(context.Context) (store.SystemSettings, error)
+	UpdateSystemSettings(
+		context.Context,
+		store.SystemLanguage,
+		int64,
+	) (store.SystemSettings, error)
 }
 
 type Capabilities struct {
@@ -323,6 +329,8 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.callSettings(response, request)
 	case "/api/v1/settings/lines":
 		api.lineSettings(response, request)
+	case "/api/v1/settings/system":
+		api.systemSettings(response, request)
 	case "/api/v1/settings/recording":
 		api.recordingSettings(response, request)
 	case "/api/v1/settings/tls":
@@ -430,10 +438,16 @@ func (api *API) bootstrap(response http.ResponseWriter, request *http.Request) {
 		api.writeInternalError(response, request, "load line settings", err)
 		return
 	}
+	systemSettings, err := api.repository.SystemSettings(request.Context())
+	if err != nil {
+		api.writeInternalError(response, request, "load system settings", err)
+		return
+	}
 	writeJSON(response, http.StatusOK, bootstrapResponse{
-		Capabilities: capabilities,
-		Lines:        lines,
-		LineSettings: lineSettings,
+		Capabilities:   capabilities,
+		Lines:          lines,
+		LineSettings:   lineSettings,
+		SystemSettings: systemSettings,
 	})
 }
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ContactRound, UserPlus, X } from '@lucide/vue'
 import type { Contact, ContactInput } from '../api/types'
 import BaseAvatar from './BaseAvatar.vue'
@@ -21,6 +22,7 @@ const props = withDefaults(
   }>(),
   { compact: false }
 )
+const { t } = useI18n()
 
 const emit = defineEmits<{
   saved: [contact: Contact]
@@ -28,7 +30,7 @@ const emit = defineEmits<{
 
 const createOpen = ref(false)
 const addOpen = ref(false)
-const phoneLabel = ref('手机')
+const phoneLabel = ref(t('contacts.mobile'))
 const search = ref('')
 const selectedContactID = ref('')
 const saving = ref(false)
@@ -87,7 +89,7 @@ function openCreate(): void {
 }
 
 async function openAdd(): Promise<void> {
-  phoneLabel.value = '手机'
+  phoneLabel.value = t('contacts.mobile')
   search.value = ''
   selectedContactID.value = ''
   error.value = ''
@@ -104,7 +106,7 @@ async function createContact(input: ContactInput): Promise<void> {
     createOpen.value = false
     emit('saved', saved)
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : '联系人保存失败'
+    error.value = cause instanceof Error ? cause.message : t('contacts.saveFailed')
   } finally {
     saving.value = false
   }
@@ -115,7 +117,7 @@ async function addToContact(): Promise<void> {
   if (!contact || !props.number.trim() || saving.value) return
   const digits = props.number.replace(/\D/g, '')
   if (contact.phones.some(phone => phone.number.replace(/\D/g, '') === digits)) {
-    error.value = '该联系人已经包含此号码'
+    error.value = t('contacts.duplicateNumber')
     return
   }
 
@@ -138,7 +140,7 @@ async function addToContact(): Promise<void> {
             primary: phone.primary
           })),
           {
-            label: phoneLabel.value.trim() || '其他',
+            label: phoneLabel.value.trim() || t('contacts.other'),
             number: props.number.trim(),
             primary: !contact.phones.some(phone => phone.primary)
           }
@@ -149,7 +151,7 @@ async function addToContact(): Promise<void> {
     addOpen.value = false
     emit('saved', saved)
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : '联系人保存失败'
+    error.value = cause instanceof Error ? cause.message : t('contacts.saveFailed')
   } finally {
     saving.value = false
   }
@@ -162,32 +164,32 @@ async function addToContact(): Promise<void> {
       v-if="contact"
       class="secondary-button"
       :to="{ name: 'contacts', params: { contactId: contact.id } }"
-      aria-label="查看联系人"
-      title="查看联系人"
+      :aria-label="t('contacts.view')"
+      :title="t('contacts.view')"
     >
       <ContactRound :size="17" />
-      <span class="contact-number-action__label">查看联系人</span>
+      <span class="contact-number-action__label">{{ t('contacts.view') }}</span>
     </RouterLink>
     <template v-else-if="contactEditingAvailable">
       <button
         class="secondary-button"
         type="button"
-        aria-label="新建联系人"
-        title="新建联系人"
+        :aria-label="t('contacts.new')"
+        :title="t('contacts.new')"
         @click="openCreate"
       >
         <UserPlus :size="17" />
-        <span class="contact-number-action__label">新建联系人</span>
+        <span class="contact-number-action__label">{{ t('contacts.new') }}</span>
       </button>
       <button
         class="secondary-button"
         type="button"
-        aria-label="加入已有联系人"
-        title="加入已有联系人"
+        :aria-label="t('contacts.addExisting')"
+        :title="t('contacts.addExisting')"
         @click="openAdd"
       >
         <ContactRound :size="17" />
-        <span class="contact-number-action__label">加入已有联系人</span>
+        <span class="contact-number-action__label">{{ t('contacts.addExisting') }}</span>
       </button>
     </template>
   </div>
@@ -209,15 +211,15 @@ async function addToContact(): Promise<void> {
           class="editor-dialog quick-contact-dialog"
           role="dialog"
           aria-modal="true"
-          aria-label="加入已有联系人"
+          :aria-label="t('contacts.addExisting')"
           @keydown.esc="closeAdd"
         >
           <header class="tool-header">
-            <h2>加入已有联系人</h2>
+            <h2>{{ t('contacts.addExisting') }}</h2>
             <button
               class="icon-button"
               type="button"
-              title="关闭"
+              :title="t('common.close')"
               :disabled="saving"
               @click="closeAdd"
             >
@@ -227,26 +229,26 @@ async function addToContact(): Promise<void> {
 
           <form class="quick-contact-form" @submit.prevent="addToContact">
             <div class="quick-contact-target">
-              <span>电话号码</span>
+              <span>{{ t('contacts.phoneNumber') }}</span>
               <strong>{{ number }}</strong>
             </div>
             <label class="field">
-              <span>号码类型</span>
-              <input v-model="phoneLabel" aria-label="号码类型" />
+              <span>{{ t('contacts.phoneType') }}</span>
+              <input v-model="phoneLabel" :aria-label="t('contacts.phoneType')" />
             </label>
-            <SearchField v-model="search" placeholder="搜索联系人" />
+            <SearchField v-model="search" :placeholder="t('contacts.search')" />
             <p
               v-if="contactsResource.status === 'loading' || contactsResource.status === 'idle'"
               class="quick-contact-state"
             >
-              正在载入联系人
+              {{ t('contacts.loading') }}
             </p>
             <p
               v-else-if="contactsResource.status === 'error' || contactsResource.status === 'forbidden'"
               class="field-error"
               role="alert"
             >
-              {{ contactsResource.error || '无法载入联系人' }}
+              {{ contactsResource.error || t('contacts.loadFailed') }}
             </p>
             <div v-else-if="filteredContacts.length" class="quick-contact-list" role="listbox">
               <button
@@ -262,22 +264,22 @@ async function addToContact(): Promise<void> {
                 <BaseAvatar :name="candidate.display_name" :src="candidate.avatar" />
                 <span>
                   <strong>{{ candidate.display_name }}</strong>
-                  <small>{{ candidate.phones[0]?.number || '没有号码' }}</small>
+                  <small>{{ candidate.phones[0]?.number || t('contacts.noNumber') }}</small>
                 </span>
               </button>
             </div>
-            <p v-else class="quick-contact-state">没有匹配的联系人</p>
+            <p v-else class="quick-contact-state">{{ t('contacts.noMatches') }}</p>
             <p v-if="error" class="field-error" role="alert">{{ error }}</p>
             <footer class="dialog-actions">
               <button class="secondary-button" type="button" :disabled="saving" @click="closeAdd">
-                取消
+                {{ t('common.cancel') }}
               </button>
               <button
                 class="primary-button"
                 type="submit"
                 :disabled="!selectedContact || saving"
               >
-                {{ saving ? '正在保存…' : '添加号码' }}
+                {{ saving ? t('common.saving') : t('contacts.addNumber') }}
               </button>
             </footer>
           </form>

@@ -7,6 +7,7 @@ import {
   setAuthenticationRequiredHandler,
   setClientCSRFToken
 } from '../api/client'
+import { setSystemLanguage, translate } from '../i18n'
 
 export type SessionStatus = 'unknown' | 'checking' | 'authenticated' | 'anonymous'
 
@@ -19,6 +20,7 @@ const state = reactive({
 let inspection: Promise<boolean> | undefined
 
 function applySession(session: SessionResponse): boolean {
+  setSystemLanguage(session.language)
   if (!session.authenticated) {
     clearSession()
     return false
@@ -40,7 +42,7 @@ export function clearSession(message = ''): void {
 }
 
 setAuthenticationRequiredHandler(() => {
-  clearSession('登录状态已失效，请重新登录')
+  clearSession(translate('auth.sessionExpired'))
 })
 
 export const sessionState = readonly(state)
@@ -57,7 +59,7 @@ export async function ensureSession(): Promise<boolean> {
     .getSession()
     .then(applySession)
     .catch(error => {
-      const message = error instanceof Error ? error.message : '无法确认登录状态'
+      const message = error instanceof Error ? error.message : translate('auth.checkFailed')
       clearSession(message)
       return false
     })
@@ -75,10 +77,14 @@ export async function login(username: string, password: string): Promise<void> {
   try {
     const session = await gateway.login({ username, password })
     if (!applySession(session)) {
-      throw new ApiError('用户名或密码不正确', 401, 'authentication_required')
+      throw new ApiError(
+        translate('auth.invalidCredentials'),
+        401,
+        'authentication_required'
+      )
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : '登录失败'
+    const message = error instanceof Error ? error.message : translate('auth.loginFailed')
     clearSession(message)
     throw error
   }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowLeft,
@@ -33,6 +34,7 @@ import { primaryPhone } from '../utils/format'
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 const search = ref('')
 const editorOpen = ref(false)
 const editing = ref<Contact | undefined>()
@@ -108,7 +110,7 @@ async function save(input: ContactInput): Promise<void> {
     editorOpen.value = false
     await router.push({ name: 'contacts', params: { contactId: contact.id } })
   } catch (error) {
-    editorError.value = error instanceof Error ? error.message : '联系人保存失败'
+    editorError.value = error instanceof Error ? error.message : t('contacts.saveFailed')
   } finally {
     saving.value = false
   }
@@ -116,9 +118,9 @@ async function save(input: ContactInput): Promise<void> {
 
 async function remove(contact: Contact): Promise<void> {
   const confirmed = await requestConfirmation({
-    title: '删除联系人？',
-    message: `“${contact.display_name}”将被永久删除。`,
-    confirmLabel: '删除',
+    title: t('contacts.deleteConfirmTitle'),
+    message: t('contacts.deleteConfirmMessage', { name: contact.display_name }),
+    confirmLabel: t('common.delete'),
     tone: 'danger'
   })
   if (!confirmed) return
@@ -127,7 +129,7 @@ async function remove(contact: Contact): Promise<void> {
     await deleteContact(contact)
     await router.replace({ name: 'contacts' })
   } catch (error) {
-    editorError.value = error instanceof Error ? error.message : '联系人删除失败'
+    editorError.value = error instanceof Error ? error.message : t('contacts.deleteFailed')
   } finally {
     deleting.value = false
   }
@@ -156,7 +158,8 @@ async function toggleFavorite(contact: Contact): Promise<void> {
       contact.id
     )
   } catch (error) {
-    favoriteError.value = error instanceof Error ? error.message : '收藏状态保存失败'
+    favoriteError.value =
+      error instanceof Error ? error.message : t('contacts.favoriteSaveFailed')
   } finally {
     favoritePending.value = false
   }
@@ -200,32 +203,38 @@ onMounted(() => {
     <aside class="list-pane">
       <header class="pane-header">
         <div>
-          <h1>联系人</h1>
+          <h1>{{ t('shell.contacts') }}</h1>
           <span v-if="contactsResource.status === 'ready'">{{ contactsResource.data.length }}</span>
         </div>
-        <button v-if="contactEditingAvailable" class="icon-button" type="button" title="新建联系人" @click="openNew">
+        <button
+          v-if="contactEditingAvailable"
+          class="icon-button"
+          type="button"
+          :title="t('contacts.new')"
+          @click="openNew"
+        >
           <UserPlus :size="19" />
         </button>
       </header>
       <div class="pane-search">
-        <SearchField v-model="search" placeholder="搜索姓名或号码" />
+        <SearchField v-model="search" :placeholder="t('contacts.searchNameOrNumber')" />
       </div>
 
       <StatePanel
         v-if="contactsResource.status === 'loading'"
         state="loading"
-        title="正在载入联系人"
+        :title="t('contacts.loading')"
       />
       <StatePanel
         v-else-if="contactsResource.status === 'forbidden'"
         state="forbidden"
-        title="无权查看联系人"
+        :title="t('contacts.forbidden')"
         :detail="contactsResource.error"
       />
       <StatePanel
         v-else-if="contactsResource.status === 'error'"
         state="error"
-        title="无法载入联系人"
+        :title="t('contacts.loadFailed')"
         :detail="contactsResource.error"
         retryable
         @retry="loadContacts(true)"
@@ -233,7 +242,7 @@ onMounted(() => {
       <div v-else-if="filteredContacts.length === 0" class="contact-empty-state">
         <StatePanel
           state="empty"
-          :title="search ? '没有匹配的联系人' : '还没有联系人'"
+          :title="search ? t('contacts.noMatches') : t('contacts.empty')"
         />
         <ContactNumberActions
           v-if="searchedPhone"
@@ -253,14 +262,14 @@ onMounted(() => {
           <BaseAvatar :name="contact.display_name" :src="contact.avatar" />
           <span class="list-item__content">
             <strong>{{ contact.display_name }}</strong>
-            <small>{{ primaryPhone(contact.phones) || '没有号码' }}</small>
+            <small>{{ primaryPhone(contact.phones) || t('contacts.noNumber') }}</small>
           </span>
           <Star
             v-if="contact.favorite"
             class="contact-favorite-mark"
             :size="15"
             fill="currentColor"
-            aria-label="已收藏"
+            :aria-label="t('contacts.favorited')"
           />
         </button>
       </div>
@@ -269,7 +278,12 @@ onMounted(() => {
     <article class="detail-pane">
       <template v-if="selected">
         <header class="detail-header">
-          <button class="icon-button mobile-back" type="button" title="返回联系人" @click="backToList">
+          <button
+            class="icon-button mobile-back"
+            type="button"
+            :title="t('contacts.back')"
+            @click="backToList"
+          >
             <ArrowLeft :size="20" />
           </button>
           <BaseAvatar :name="selected.display_name" :src="selected.avatar" size="large" />
@@ -282,20 +296,29 @@ onMounted(() => {
               class="icon-button contact-favorite-button"
               :class="{ 'is-active': selected.favorite }"
               type="button"
-              :title="selected.favorite ? '取消收藏' : '收藏联系人'"
+              :title="
+                selected.favorite
+                  ? t('contacts.unfavorite')
+                  : t('contacts.favorite')
+              "
               :aria-pressed="selected.favorite"
               :disabled="favoritePending"
               @click="toggleFavorite(selected)"
             >
               <Star :size="18" :fill="selected.favorite ? 'currentColor' : 'none'" />
             </button>
-            <button class="icon-button" type="button" title="编辑联系人" @click="openEdit(selected)">
+            <button
+              class="icon-button"
+              type="button"
+              :title="t('contacts.edit')"
+              @click="openEdit(selected)"
+            >
               <Pencil :size="18" />
             </button>
             <button
               class="icon-button icon-button--danger"
               type="button"
-              title="删除联系人"
+              :title="t('contacts.delete')"
               :disabled="deleting"
               @click="remove(selected)"
             >
@@ -307,10 +330,13 @@ onMounted(() => {
         <div class="contact-detail">
           <p v-if="favoriteError" class="field-error" role="alert">{{ favoriteError }}</p>
           <section class="detail-section">
-            <h3>电话号码</h3>
+            <h3>{{ t('contacts.phoneNumbers') }}</h3>
             <div v-for="phone in selected.phones" :key="phone.id" class="phone-detail-row">
               <span>
-                <small>{{ phone.label }}{{ phone.primary ? ' · 主要' : '' }}</small>
+                <small>
+                  {{ phone.label
+                  }}{{ phone.primary ? ` · ${t('contacts.primary')}` : '' }}
+                </small>
                 <strong>{{ phone.number }}</strong>
               </span>
               <span class="row-actions">
@@ -318,7 +344,7 @@ onMounted(() => {
                   class="icon-button"
                   type="button"
                   :disabled="Boolean(dialUnavailable)"
-                  :title="dialUnavailable || '拨打'"
+                  :title="dialUnavailable || t('calls.dial')"
                   @click="call(selected, phone.number)"
                 >
                   <Phone :size="18" />
@@ -327,7 +353,7 @@ onMounted(() => {
                   class="icon-button"
                   type="button"
                   :disabled="Boolean(messageUnavailable)"
-                  :title="messageUnavailable || '发送消息'"
+                  :title="messageUnavailable || t('messages.sendMessage')"
                   @click="message(selected, phone.number)"
                 >
                   <MessageSquareText :size="18" />
@@ -335,7 +361,7 @@ onMounted(() => {
               </span>
             </div>
             <p v-if="selected.preferred_device_imei" class="contact-preferred-line">
-              首选线路：{{ preferredLineName(selected) }}
+              {{ t('contacts.preferredLine') }}：{{ preferredLineName(selected) }}
             </p>
           </section>
           <p v-if="dialUnavailable || messageUnavailable" class="unavailable-note">
@@ -347,8 +373,8 @@ onMounted(() => {
       <StatePanel
         v-else
         state="empty"
-        title="选择一个联系人"
-        detail="联系人详情会显示在这里"
+        :title="t('contacts.select')"
+        :detail="t('contacts.detailPlaceholder')"
       />
     </article>
 

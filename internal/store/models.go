@@ -457,6 +457,20 @@ type LineSettings struct {
 	UpdatedAt         string `json:"updated_at"`
 }
 
+type SystemLanguage string
+
+const (
+	SystemLanguageAuto SystemLanguage = "auto"
+	SystemLanguageZhCN SystemLanguage = "zh-CN"
+	SystemLanguageEnUS SystemLanguage = "en-US"
+)
+
+type SystemSettings struct {
+	Language  SystemLanguage `json:"language"`
+	Revision  int64          `json:"revision"`
+	UpdatedAt string         `json:"updated_at"`
+}
+
 type LineCallPolicy struct {
 	LineID    string              `json:"line_id"`
 	Policy    LineCallPolicyValue `json:"policy"`

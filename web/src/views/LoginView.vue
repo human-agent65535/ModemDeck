@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { LoaderCircle, LogIn } from '@lucide/vue'
 import { login, sessionState } from '../state/session'
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 const username = ref('')
 const password = ref('')
 const submitting = ref(false)
@@ -28,7 +30,7 @@ function destination(): string {
 async function submit(): Promise<void> {
   const normalizedUsername = username.value.trim()
   if (!normalizedUsername || !password.value) {
-    submitError.value = '请输入用户名和密码'
+    submitError.value = t('auth.enterCredentials')
     return
   }
 
@@ -38,7 +40,7 @@ async function submit(): Promise<void> {
     await login(normalizedUsername, password.value)
     await router.replace(destination())
   } catch (error) {
-    submitError.value = error instanceof Error ? error.message : '登录失败'
+    submitError.value = error instanceof Error ? error.message : t('auth.loginFailed')
   } finally {
     submitting.value = false
   }
@@ -54,12 +56,12 @@ async function submit(): Promise<void> {
 
     <section class="login-panel" aria-labelledby="login-title">
       <header>
-        <h1 id="login-title">管理员登录</h1>
+        <h1 id="login-title">{{ t('auth.title') }}</h1>
       </header>
 
       <form class="login-form" @submit.prevent="submit">
         <label class="field">
-          <span>用户名</span>
+          <span>{{ t('auth.username') }}</span>
           <input
             v-model="username"
             name="username"
@@ -73,7 +75,7 @@ async function submit(): Promise<void> {
         </label>
 
         <label class="field">
-          <span>密码</span>
+          <span>{{ t('auth.password') }}</span>
           <input
             v-model="password"
             name="password"
@@ -88,7 +90,7 @@ async function submit(): Promise<void> {
         <button class="primary-button login-submit" type="submit" :disabled="submitting">
           <LoaderCircle v-if="submitting" class="spin" :size="18" />
           <LogIn v-else :size="18" />
-          {{ submitting ? '正在登录' : '登录' }}
+          {{ submitting ? t('auth.loggingIn') : t('auth.login') }}
         </button>
       </form>
     </section>

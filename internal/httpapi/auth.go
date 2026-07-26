@@ -1,12 +1,14 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
+	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
 const (
@@ -39,12 +41,16 @@ func (api *API) session(response http.ResponseWriter, request *http.Request) {
 }
 
 func (api *API) getSession(response http.ResponseWriter, request *http.Request) {
+	language := api.sessionLanguage(request.Context())
 	sessionToken, authentication, ok, handled := api.requestAuthentication(response, request, false)
 	if !ok {
 		if handled {
 			return
 		}
-		writeJSON(response, http.StatusOK, sessionResponse{Authenticated: false})
+		writeJSON(response, http.StatusOK, sessionResponse{
+			Authenticated: false,
+			Language:      language,
+		})
 		return
 	}
 	csrfCookie, err := request.Cookie(csrfCookieName)
@@ -55,13 +61,17 @@ func (api *API) getSession(response http.ResponseWriter, request *http.Request) 
 			return
 		}
 		api.clearAuthCookies(response)
-		writeJSON(response, http.StatusOK, sessionResponse{Authenticated: false})
+		writeJSON(response, http.StatusOK, sessionResponse{
+			Authenticated: false,
+			Language:      language,
+		})
 		return
 	}
 	writeJSON(response, http.StatusOK, sessionResponse{
 		Authenticated: true,
 		Username:      api.adminUsername,
 		CSRFToken:     csrfCookie.Value,
+		Language:      language,
 	})
 }
 
@@ -105,7 +115,17 @@ func (api *API) login(response http.ResponseWriter, request *http.Request) {
 		Authenticated: true,
 		Username:      api.adminUsername,
 		CSRFToken:     string(result.CSRFToken),
+		Language:      api.sessionLanguage(request.Context()),
 	})
+}
+
+func (api *API) sessionLanguage(ctx context.Context) string {
+	settings, err := api.repository.SystemSettings(ctx)
+	if err != nil {
+		api.logger.Warn("system language is unavailable", "error", err)
+		return string(store.SystemLanguageAuto)
+	}
+	return string(settings.Language)
 }
 
 func (api *API) logout(response http.ResponseWriter, request *http.Request) {

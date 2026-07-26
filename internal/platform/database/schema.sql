@@ -116,6 +116,14 @@ CREATE TABLE modemdeck_line_settings (
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
 
+CREATE TABLE modemdeck_system_settings (
+			singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+			language TEXT NOT NULL DEFAULT 'auto'
+				CHECK (language IN ('auto', 'zh-CN', 'en-US')),
+			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+
 CREATE TABLE modemdeck_line_call_policies (
 			line_id TEXT PRIMARY KEY,
 			policy TEXT NOT NULL DEFAULT 'follow_global'
@@ -450,6 +458,10 @@ INSERT INTO modemdeck_call_settings (
 INSERT INTO modemdeck_line_settings (
 	singleton, default_device_imei, revision, updated_at
 ) VALUES (1, '', 1, CURRENT_TIMESTAMP);
+
+INSERT INTO modemdeck_system_settings (
+	singleton, language, revision, updated_at
+) VALUES (1, 'auto', 1, CURRENT_TIMESTAMP);
 
 INSERT INTO modemdeck_recording_settings (
 	singleton, default_enabled, revision, updated_at

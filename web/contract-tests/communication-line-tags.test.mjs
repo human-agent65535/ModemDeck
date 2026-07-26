@@ -79,7 +79,7 @@ test('message rows and conversation detail identify the original line', async ()
   )
   assert.match(
     source,
-    /class="conversation-line-tag"[\s\S]*?:line="lineTagLine\(lineForThread\(selectedThread\), selectedThread\.local_phone, selectedThread\.imsi, selectedThread\.iccid\)"[\s\S]*?:fallback="threadLineFallback\(selectedThread\)"/
+    /<ContactHeaderIdentity[\s\S]*?:line="lineTagLine\(lineForThread\(selectedThread\), selectedThread\.local_phone, selectedThread\.imsi, selectedThread\.iccid\)"[\s\S]*?:line-fallback="threadLineFallback\(selectedThread\)"/
   )
 })
 
@@ -100,7 +100,7 @@ test('call rows and call detail identify the original line', async () => {
   )
   assert.match(
     source,
-    /<dt>线路<\/dt>[\s\S]*?:line="lineTagLine\(lineForCall\(selected\), selected\.local_phone, selected\.line_iccid, selected\.line_imsi\)"[\s\S]*?:fallback="callLineFallback\(selected\)"/
+    /<ContactHeaderIdentity[\s\S]*?:line="lineTagLine\(lineForCall\(selected\), selected\.local_phone, selected\.line_iccid, selected\.line_imsi\)"[\s\S]*?:line-fallback="callLineFallback\(selected\)"/
   )
   assert.match(source, /function actionLineKey\(call: CallRecord\)/)
   assert.match(source, /openDialer\(call\.remote_number, displayName\(call\), actionLineKey\(call\)\)/)
@@ -121,7 +121,7 @@ test('recording rows and recording detail identify the call line', async () => {
   )
   assert.match(
     source,
-    /<dt>线路<\/dt>[\s\S]*?:line="lineTagLine\(lineForRecording\(selected\), selected\.call\.device_id\)"[\s\S]*?:fallback="recordingLineFallback\(selected\)"/
+    /<ContactHeaderIdentity[\s\S]*?:line="lineTagLine\(lineForRecording\(selected\), selected\.call\.device_id\)"[\s\S]*?:line-fallback="recordingLineFallback\(selected\)"/
   )
 })
 
@@ -135,11 +135,11 @@ test('dashboard recent activity and details retain line identity', async () => {
   )
   assert.match(
     source,
-    /<dt>线路<\/dt>[\s\S]*?:line="lineTagLine\(lineForCall\(selectedCall\), selectedCall\.device_id\)"[\s\S]*?:fallback="callLineFallback\(selectedCall\)"/
+    /<ContactHeaderIdentity[\s\S]*?:line="lineTagLine\(lineForCall\(selectedCall\), selectedCall\.device_id\)"[\s\S]*?:line-fallback="callLineFallback\(selectedCall\)"/
   )
   assert.match(
     source,
-    /class="dashboard-detail-line-tag"[\s\S]*?:line="lineTagLine\(lineForThread\(selectedThread\), selectedThread\.line_id, selectedThread\.iccid\)"[\s\S]*?:fallback="threadLineFallback\(selectedThread\)"/
+    /<ContactHeaderIdentity[\s\S]*?:line="lineTagLine\(lineForThread\(selectedThread\), selectedThread\.line_id, selectedThread\.iccid\)"[\s\S]*?:line-fallback="threadLineFallback\(selectedThread\)"/
   )
   assert.match(
     source,

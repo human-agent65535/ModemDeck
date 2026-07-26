@@ -44,6 +44,8 @@ import type {
   RecordingSettings,
   RecordingStatus,
   SendMessageInput,
+  SystemLanguage,
+  SystemSettings,
   ESIMStatus,
   SIMProfileManagementCapability,
   SIMSlot,
@@ -57,6 +59,7 @@ import type {
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
   UpdateLineSettingsInput,
+  UpdateSystemSettingsInput,
   UpdateNetworkSelectionInput,
   UpdateProxyInput,
   UpdateTLSSettingsInput
@@ -1130,6 +1133,21 @@ export function createLineSettingsPayload(
   }
 }
 
+export function createSystemSettingsPayload(
+  input: UpdateSystemSettingsInput
+): UpdateSystemSettingsInput {
+  if (input.language !== 'auto' && input.language !== 'zh-CN' && input.language !== 'en-US') {
+    throw new Error('system settings language is invalid')
+  }
+  if (!Number.isSafeInteger(input.expected_revision) || input.expected_revision < 1) {
+    throw new Error('system settings expected_revision must be a positive integer')
+  }
+  return {
+    language: input.language,
+    expected_revision: input.expected_revision
+  }
+}
+
 export function createDeviceConfigurationPayload(
   input: UpdateDeviceConfigurationInput
 ): UpdateDeviceConfigurationInput {
@@ -1722,6 +1740,24 @@ export function parseLineSettingsResponse(value: unknown): LineSettings {
     default_device_imei: requiredString(source, 'line_settings', 'default_device_imei'),
     revision: requiredRevision(source, 'line_settings')
   }
+}
+
+function systemLanguage(value: unknown, path: string): SystemLanguage {
+  if (value === 'auto' || value === 'zh-CN' || value === 'en-US') return value
+  throw new Error(`${path}.language is not supported`)
+}
+
+function parseSystemSettings(value: unknown, path: string): SystemSettings {
+  const source = objectValue(value, path)
+  return {
+    language: systemLanguage(source.language, path),
+    revision: requiredRevision(source, path)
+  }
+}
+
+export function parseSystemSettingsResponse(value: unknown): SystemSettings {
+  const response = objectValue(value, 'system_settings_response')
+  return parseSystemSettings(response.settings, 'system_settings')
 }
 
 export function parseCallResponse(value: unknown): CallSession {

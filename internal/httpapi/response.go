@@ -15,16 +15,22 @@ type sessionResponse struct {
 	Authenticated bool   `json:"authenticated"`
 	Username      string `json:"username,omitempty"`
 	CSRFToken     string `json:"csrf_token,omitempty"`
+	Language      string `json:"language"`
 }
 
 type bootstrapResponse struct {
-	Capabilities Capabilities        `json:"capabilities"`
-	Lines        []store.LineSummary `json:"lines"`
-	LineSettings store.LineSettings  `json:"line_settings"`
+	Capabilities   Capabilities         `json:"capabilities"`
+	Lines          []store.LineSummary  `json:"lines"`
+	LineSettings   store.LineSettings   `json:"line_settings"`
+	SystemSettings store.SystemSettings `json:"system_settings"`
 }
 
 type lineSettingsResponse struct {
 	Settings store.LineSettings `json:"settings"`
+}
+
+type systemSettingsResponse struct {
+	Settings store.SystemSettings `json:"settings"`
 }
 
 type responseMeta struct {

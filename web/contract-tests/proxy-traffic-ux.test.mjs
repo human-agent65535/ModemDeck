@@ -20,7 +20,7 @@ test('traffic is a primary route after recordings with exact active state', () =
   const recordingIndex = appShell.indexOf("{ name: 'recordings'")
   const trafficIndex = appShell.indexOf("{ name: 'traffic'")
   assert.ok(recordingIndex >= 0 && trafficIndex > recordingIndex)
-  assert.match(appShell, /label: '流量', icon: ChartNoAxesCombined/)
+  assert.match(appShell, /label: t\('shell\.traffic'\), icon: ChartNoAxesCombined/)
   assert.match(appShell, /route\.name === item\.name/)
   assert.match(router, /path: 'traffic',\s*name: 'traffic'/)
   assert.match(router, /views\/TrafficView\.vue/)
@@ -28,7 +28,7 @@ test('traffic is a primary route after recordings with exact active state', () =
 
 test('traffic defaults to all lines and never selects the first module', () => {
   assert.match(trafficView, /const selectedLineID = ref\('all'\)/)
-  assert.match(trafficView, />\s*全部线路\s*</)
+  assert.match(trafficView, /t\('traffic\.allLines'\)/)
   assert.doesNotMatch(trafficView, /selectedLineID\.value\s*=\s*lines\.value\[0\]/)
   assert.match(trafficView, /line_settings\.default_device_imei/)
   assert.match(trafficView, /:initial-line-id="editorInitialLineID"/)
@@ -132,7 +132,7 @@ test('proxy cards keep runtime truth separate from desired apply state', () => {
   )
   assert.match(proxyCard, /role="switch"/)
   assert.match(trafficView, /class="proxy-add-card"/)
-  assert.match(trafficView, />\s*添加代理\s*</)
+  assert.match(trafficView, /t\('traffic\.addProxy'\)/)
 })
 
 test('traffic refreshes line inventory and guards newer proxy state', () => {
@@ -142,8 +142,8 @@ test('traffic refreshes line inventory and guards newer proxy state', () => {
 })
 
 test('traffic reports stale and exhausted synchronization without verbose detail', () => {
-  assert.match(trafficView, /运行状态暂未更新/)
-  assert.match(trafficView, /代理配置同步失败，已停止重试/)
+  assert.match(trafficView, /t\('traffic\.runtimeStale'\)/)
+  assert.match(trafficView, /t\('traffic\.syncExhausted'\)/)
   assert.match(trafficView, /current\.apply_pending/)
   assert.match(trafficView, /current\.apply_exhausted/)
 })

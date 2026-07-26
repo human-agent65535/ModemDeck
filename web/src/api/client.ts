@@ -17,6 +17,7 @@ import {
   createDTMFPayload,
   createGlobalCallSettingsPayload,
   createLineSettingsPayload,
+  createSystemSettingsPayload,
   createLineLabelPayload,
   createMessageReadPayload,
   createMessagePayload,
@@ -34,6 +35,7 @@ import {
   parseDeviceConfigurationResponse,
   parseGlobalCallSettings,
   parseLineSettingsResponse,
+  parseSystemSettingsResponse,
   parseLineLabelResponse,
   parseMessageResponse,
   parseMobileNetworkScanResponse,
@@ -118,6 +120,7 @@ import type {
   SaveConnectionProfileInput,
   SendMessageInput,
   SessionResponse,
+  SystemLanguage,
   SIMCommandInput,
   SIMStatus,
   TelegramUnit,
@@ -127,6 +130,7 @@ import type {
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
   UpdateLineSettingsInput,
+  UpdateSystemSettingsInput,
   UpdateNetworkSelectionInput,
   UpdateProxyInput,
   UpdateTLSSettingsInput,
@@ -214,10 +218,15 @@ function parseSession(value: unknown): SessionResponse {
     throw new ApiError('ModemDeck 服务返回了无效的会话状态', 0, 'invalid_response')
   }
 
+  const language = source.language
+  if (language !== 'auto' && language !== 'zh-CN' && language !== 'en-US') {
+    throw new ApiError('ModemDeck returned an unsupported system language', 0, 'invalid_response')
+  }
   const session: SessionResponse = {
     authenticated: source.authenticated,
     username: stringProperty(source, 'username'),
-    csrf_token: stringProperty(source, 'csrf_token')
+    csrf_token: stringProperty(source, 'csrf_token'),
+    language: language as SystemLanguage
   }
   if (session.authenticated && (!session.username || !session.csrf_token)) {
     throw new ApiError('ModemDeck 服务返回了不完整的会话状态', 0, 'invalid_response')
@@ -686,6 +695,21 @@ const realGateway: ConfiguredModemDeckGateway = {
 
   async getBootstrap(): Promise<BootstrapResponse> {
     return parseBootstrap(await get(`${API_ROOT}/bootstrap`))
+  },
+
+  async getSystemSettings() {
+    return parseSystemSettingsResponse(await get(`${API_ROOT}/settings/system`))
+  },
+
+  async updateSystemSettings(input: UpdateSystemSettingsInput) {
+    return parseSystemSettingsResponse(
+      await writeJSON(
+        `${API_ROOT}/settings/system`,
+        'PATCH',
+        createSystemSettingsPayload(input),
+        200
+      )
+    )
   },
 
   async listContacts(query: ListQuery = {}): Promise<Contact[]> {
@@ -1320,7 +1344,8 @@ const realGateway: ConfiguredModemDeckGateway = {
 function configureFixture(gateway: ModemDeckGateway): ConfiguredModemDeckGateway {
   const session: SessionResponse = {
     authenticated: true,
-    username: 'fixture'
+    username: 'fixture',
+    language: 'auto'
   }
   return {
     ...gateway,

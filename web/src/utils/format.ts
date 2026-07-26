@@ -1,3 +1,5 @@
+import { resolvedLocale, translate } from '../i18n'
+
 export function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean)
   if (parts.length === 0) return '#'
@@ -10,20 +12,30 @@ export function formatRelativeDate(value: string): string {
   if (!Number.isFinite(date.getTime())) return value
   const now = new Date()
   const sameDay = date.toDateString() === now.toDateString()
-  if (sameDay) return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(date)
+  const locale = resolvedLocale()
+  if (sameDay) {
+    return new Intl.DateTimeFormat(locale, {
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(date)
+  }
   const yesterday = new Date(now)
   yesterday.setDate(now.getDate() - 1)
-  if (date.toDateString() === yesterday.toDateString()) return '昨天'
+  if (date.toDateString() === yesterday.toDateString()) return translate('common.yesterday')
   if (date.getFullYear() === now.getFullYear()) {
-    return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(date)
+    return new Intl.DateTimeFormat(locale, { month: 'numeric', day: 'numeric' }).format(date)
   }
-  return new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' }).format(date)
+  return new Intl.DateTimeFormat(locale, {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric'
+  }).format(date)
 }
 
 export function formatDateTime(value: string): string {
   const date = new Date(value)
   if (!Number.isFinite(date.getTime())) return value
-  return new Intl.DateTimeFormat('zh-CN', {
+  return new Intl.DateTimeFormat(resolvedLocale(), {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -36,7 +48,9 @@ export function formatDuration(seconds: number): string {
   const safe = Math.max(0, Math.floor(seconds))
   const minutes = Math.floor(safe / 60)
   const remainder = safe % 60
-  return minutes > 0 ? `${minutes}:${String(remainder).padStart(2, '0')}` : `${remainder} 秒`
+  return minutes > 0
+    ? `${minutes}:${String(remainder).padStart(2, '0')}`
+    : translate('common.durationSeconds', { count: remainder })
 }
 
 export function primaryPhone(phones: Array<{ number: string; primary: boolean }>): string {

@@ -113,6 +113,91 @@ func TestOpenMigratesContactAvatarColumn(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesSystemSettingsAndPreservesExistingData(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "without-system-settings.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacySchema := strings.Replace(
+		currentSchemaSQL,
+		`CREATE TABLE modemdeck_system_settings (
+			singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+			language TEXT NOT NULL DEFAULT 'auto'
+				CHECK (language IN ('auto', 'zh-CN', 'en-US')),
+			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+
+`,
+		"",
+		1,
+	)
+	legacySchema = strings.Replace(
+		legacySchema,
+		`INSERT INTO modemdeck_system_settings (
+	singleton, language, revision, updated_at
+) VALUES (1, 'auto', 1, CURRENT_TIMESTAMP);
+
+`,
+		"",
+		1,
+	)
+	legacySchema = strings.Replace(
+		legacySchema,
+		"\n\t\t\tavatar TEXT NOT NULL DEFAULT '',",
+		"",
+		1,
+	)
+	if legacySchema == currentSchemaSQL {
+		t.Fatal("legacy schema fixture did not remove system settings")
+	}
+	if _, err := database.Exec(legacySchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(
+		`INSERT INTO contacts (id, display_name) VALUES ('contact-1', 'Aiko')`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	var (
+		language string
+		revision int64
+		name     string
+		avatar   string
+	)
+	if err := database.QueryRow(
+		`SELECT language, revision FROM modemdeck_system_settings WHERE singleton = 1`,
+	).Scan(&language, &revision); err != nil {
+		t.Fatal(err)
+	}
+	if language != "auto" || revision != 1 {
+		t.Fatalf("migrated settings = %q revision %d", language, revision)
+	}
+	if err := database.QueryRow(
+		`SELECT display_name, avatar FROM contacts WHERE id = 'contact-1'`,
+	).Scan(&name, &avatar); err != nil {
+		t.Fatal(err)
+	}
+	if name != "Aiko" {
+		t.Fatalf("preserved contact name = %q, want Aiko", name)
+	}
+	if avatar != "" {
+		t.Fatalf("migrated contact avatar = %q, want empty", avatar)
+	}
+}
+
 func TestOpenDoesNotRepairMissingCurrentIndex(t *testing.T) {
 	t.Parallel()
 

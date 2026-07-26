@@ -38,6 +38,12 @@ type fakeRepository struct {
 	updateLineLabel     string
 	updateLineResult    store.LineSummary
 	updateLineError     error
+	systemSettings      store.SystemSettings
+	systemSettingsError error
+	updateSystemInput   store.SystemLanguage
+	updateSystemRev     int64
+	updateSystemResult  store.SystemSettings
+	updateSystemError   error
 }
 
 func (repository *fakeRepository) Ping(context.Context) error {
@@ -142,6 +148,26 @@ func (repository *fakeRepository) UpdateLineSettings(
 	int64,
 ) (store.LineSettings, error) {
 	return store.LineSettings{Revision: 2}, nil
+}
+
+func (repository *fakeRepository) SystemSettings(context.Context) (store.SystemSettings, error) {
+	if repository.systemSettings.Language == "" {
+		return store.SystemSettings{
+			Language: store.SystemLanguageAuto,
+			Revision: 1,
+		}, repository.systemSettingsError
+	}
+	return repository.systemSettings, repository.systemSettingsError
+}
+
+func (repository *fakeRepository) UpdateSystemSettings(
+	_ context.Context,
+	language store.SystemLanguage,
+	expectedRevision int64,
+) (store.SystemSettings, error) {
+	repository.updateSystemInput = language
+	repository.updateSystemRev = expectedRevision
+	return repository.updateSystemResult, repository.updateSystemError
 }
 
 type fixedCapabilities struct {

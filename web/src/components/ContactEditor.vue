@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Plus, Star, Trash2, X } from '@lucide/vue'
 import type { Contact, ContactInput, LineSummary } from '../api/types'
 import ContactAvatarPicker from './ContactAvatarPicker.vue'
@@ -12,6 +13,7 @@ type PhoneDraft = {
   primary: boolean
 }
 
+const { t } = useI18n()
 const props = defineProps<{
   open: boolean
   contact?: Contact
@@ -67,14 +69,14 @@ watch(
           number: phone.number,
           primary: phone.primary
         }))
-      : [{ label: '手机', number: props.initialPhone?.trim() || '', primary: true }]
+      : [{ label: t('contacts.mobile'), number: props.initialPhone?.trim() || '', primary: true }]
   },
   { immediate: true }
 )
 
 function addPhone(): void {
   draft.phones.push({
-    label: draft.phones.length === 0 ? '手机' : '其他',
+    label: draft.phones.length === 0 ? t('contacts.mobile') : t('contacts.other'),
     number: '',
     primary: draft.phones.length === 0
   })
@@ -103,7 +105,7 @@ function submit(): void {
     revision: props.contact?.revision,
     phones: draft.phones.map(phone => ({
       id: phone.id,
-      label: phone.label.trim() || '电话',
+      label: phone.label.trim() || t('contacts.phone'),
       number: phone.number.trim(),
       primary: phone.primary
     }))
@@ -119,12 +121,17 @@ function submit(): void {
           class="editor-dialog"
           role="dialog"
           aria-modal="true"
-          :aria-label="contact ? '编辑联系人' : '新建联系人'"
+          :aria-label="contact ? t('contacts.edit') : t('contacts.new')"
           @keydown.esc="emit('close')"
         >
           <header class="tool-header">
-            <h2>{{ contact ? '编辑联系人' : '新建联系人' }}</h2>
-            <button class="icon-button" type="button" title="关闭" @click="emit('close')">
+            <h2>{{ contact ? t('contacts.edit') : t('contacts.new') }}</h2>
+            <button
+              class="icon-button"
+              type="button"
+              :title="t('common.close')"
+              @click="emit('close')"
+            >
               <X :size="19" />
             </button>
           </header>
@@ -138,36 +145,53 @@ function submit(): void {
             />
 
             <label class="field">
-              <span>姓名</span>
+              <span>{{ t('contacts.name') }}</span>
               <input v-model="draft.name" autocomplete="name" required />
             </label>
 
             <label class="contact-favorite-toggle">
               <span>
                 <Star :size="18" :fill="draft.favorite ? 'currentColor' : 'none'" />
-                <strong>收藏联系人</strong>
+                <strong>{{ t('contacts.favorite') }}</strong>
               </span>
               <input v-model="draft.favorite" type="checkbox" role="switch" />
             </label>
 
             <fieldset class="phone-fields">
-              <legend>电话号码</legend>
+              <legend>{{ t('contacts.phoneNumbers') }}</legend>
               <div v-for="(phone, index) in draft.phones" :key="phone.id || index" class="phone-row">
-                <input v-model="phone.label" class="phone-row__label" aria-label="号码类型" />
-                <input v-model="phone.number" type="tel" autocomplete="tel" aria-label="电话号码" required />
-                <label class="primary-radio" :title="phone.primary ? '主要号码' : '设为主要号码'">
+                <input
+                  v-model="phone.label"
+                  class="phone-row__label"
+                  :aria-label="t('contacts.phoneType')"
+                />
+                <input
+                  v-model="phone.number"
+                  type="tel"
+                  autocomplete="tel"
+                  :aria-label="t('contacts.phoneNumber')"
+                  required
+                />
+                <label
+                  class="primary-radio"
+                  :title="
+                    phone.primary
+                      ? t('contacts.primaryNumber')
+                      : t('contacts.makePrimary')
+                  "
+                >
                   <input
                     type="radio"
                     name="primary-phone"
                     :checked="phone.primary"
                     @change="setPrimary(index)"
                   />
-                  <span>主要</span>
+                  <span>{{ t('contacts.primary') }}</span>
                 </label>
                 <button
                   class="icon-button icon-button--quiet"
                   type="button"
-                  title="移除号码"
+                  :title="t('contacts.removeNumber')"
                   :disabled="draft.phones.length === 1"
                   @click="removePhone(index)"
                 >
@@ -175,7 +199,7 @@ function submit(): void {
                 </button>
               </div>
               <button class="text-button" type="button" @click="addPhone">
-                <Plus :size="16" />添加号码
+                <Plus :size="16" />{{ t('contacts.addNumber') }}
               </button>
             </fieldset>
 
@@ -183,24 +207,26 @@ function submit(): void {
               v-if="lines?.length"
               v-model="draft.preferredDeviceIMEI"
               :lines="lines"
-              label="首选线路"
+              :label="t('contacts.preferredLine')"
               value-field="device_imei"
               include-all
               all-value=""
-              all-label="跟随默认线路"
-              all-description="未指定时使用全局默认线路"
+              :all-label="t('contacts.followDefaultLine')"
+              :all-description="t('contacts.followDefaultLineDescription')"
             />
 
             <label class="field">
-              <span>备注</span>
+              <span>{{ t('contacts.notes') }}</span>
               <textarea v-model="draft.notes" rows="3" />
             </label>
 
             <p v-if="error" class="field-error" role="alert">{{ error }}</p>
             <footer class="dialog-actions">
-              <button class="secondary-button" type="button" @click="emit('close')">取消</button>
+              <button class="secondary-button" type="button" @click="emit('close')">
+                {{ t('common.cancel') }}
+              </button>
               <button class="primary-button" type="submit" :disabled="!valid || saving">
-                {{ saving ? '正在保存…' : '保存' }}
+                {{ saving ? t('common.saving') : t('common.save') }}
               </button>
             </footer>
           </form>

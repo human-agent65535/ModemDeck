@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
   AlertCircle,
@@ -78,6 +79,7 @@ type DashboardActivity =
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const lineLookup = computed(() => createLineLookup(lines.value))
@@ -175,10 +177,10 @@ const activityLoading = computed(
 const activityErrors = computed(() =>
   [
     callsResource.status === 'error' || callsResource.status === 'forbidden'
-      ? callsResource.error || '无法载入通话'
+      ? callsResource.error || t('dashboard.loadCallsFailed')
       : '',
     threadsResource.status === 'error' || threadsResource.status === 'forbidden'
-      ? threadsResource.error || '无法载入消息'
+      ? threadsResource.error || t('dashboard.loadMessagesFailed')
       : ''
   ].filter(Boolean)
 )
@@ -297,9 +299,13 @@ function activityDescription(activity: DashboardActivity): string {
   if (activity.kind === 'message') {
     return activity.thread.last_content || activity.thread.peer
   }
-  if (activity.call.missed) return `未接来电 · ${activity.call.remote_number}`
+  if (activity.call.missed) {
+    return `${t('dashboard.missedCall')} · ${activity.call.remote_number}`
+  }
   return `${
-    activity.call.direction === 'incoming' ? '呼入' : '呼出'
+    activity.call.direction === 'incoming'
+      ? t('dashboard.incoming')
+      : t('dashboard.outgoing')
   } · ${activity.call.remote_number}`
 }
 
@@ -386,15 +392,15 @@ onMounted(loadDashboard)
     <aside class="list-pane dashboard-activity-pane">
       <header class="pane-header">
         <div>
-          <h1>活动</h1>
+          <h1>{{ t('dashboard.activity') }}</h1>
           <span v-if="!activityLoading">{{ activities.length }}</span>
         </div>
         <button
           class="icon-button dashboard-pane-action"
           type="button"
           :disabled="Boolean(messageUnavailable)"
-          :title="messageUnavailable || '新消息'"
-          aria-label="新消息"
+          :title="messageUnavailable || t('dashboard.newMessage')"
+          :aria-label="t('dashboard.newMessage')"
           @click="composeMessage"
         >
           <MessageSquareText :size="19" />
@@ -409,26 +415,33 @@ onMounted(loadDashboard)
       >
         <span class="dashboard-activity-icon"><House :size="18" /></span>
         <span class="list-item__content">
-          <strong>通信概览</strong>
+          <strong>{{ t('dashboard.overview') }}</strong>
           <small>
-            {{ onlineLines }}/{{ lines.length }} 线路在线
-            <template v-if="attentionCount"> · {{ attentionCount }} 待处理</template>
+            {{
+              t('dashboard.linesOnline', {
+                online: onlineLines,
+                total: lines.length
+              })
+            }}
+            <template v-if="attentionCount">
+              · {{ t('dashboard.attention', { count: attentionCount }) }}
+            </template>
           </small>
         </span>
         <ChevronRight :size="16" />
       </button>
 
-      <div class="dashboard-list-label">最近活动</div>
+      <div class="dashboard-list-label">{{ t('dashboard.recentActivity') }}</div>
 
       <StatePanel
         v-if="activityLoading"
         state="loading"
-        title="正在载入活动"
+        :title="t('dashboard.loadingActivities')"
       />
       <StatePanel
         v-else-if="activities.length === 0 && activityErrors.length > 0"
         :state="activityRetryable ? 'error' : 'forbidden'"
-        title="无法载入通信活动"
+        :title="t('dashboard.loadActivitiesFailed')"
         :detail="activityErrors.join('；')"
         :retryable="activityRetryable"
         @retry="retryActivities"
@@ -436,13 +449,15 @@ onMounted(loadDashboard)
       <StatePanel
         v-else-if="activities.length === 0"
         state="empty"
-        title="还没有通信活动"
+        :title="t('dashboard.noActivities')"
       />
       <div v-else class="item-list dashboard-activity-list">
         <div v-if="activityErrors.length > 0" class="dashboard-inline-error" role="alert">
           <AlertCircle :size="15" />
           <span>{{ activityErrors.join('；') }}</span>
-          <button v-if="activityRetryable" type="button" @click="retryActivities">重试</button>
+          <button v-if="activityRetryable" type="button" @click="retryActivities">
+            {{ t('common.retry') }}
+          </button>
         </div>
         <button
           v-for="activity in activities"
@@ -488,41 +503,48 @@ onMounted(loadDashboard)
           <button
             class="icon-button mobile-back"
             type="button"
-            title="返回首页"
+            :title="t('dashboard.backHome')"
             @click="backToList"
           >
             <ArrowLeft :size="20" />
           </button>
           <span class="dashboard-detail-symbol"><RadioTower :size="21" /></span>
           <div class="detail-header__identity">
-            <h2>通信工作台</h2>
-            <span>{{ onlineLines }}/{{ lines.length }} 条线路在线</span>
+            <h2>{{ t('dashboard.workspace') }}</h2>
+            <span>
+              {{
+                t('dashboard.linesOnline', {
+                  online: onlineLines,
+                  total: lines.length
+                })
+              }}
+            </span>
           </div>
           <div class="detail-header__actions dashboard-header-actions">
             <button
               class="dashboard-command-button"
               type="button"
               :disabled="Boolean(messageUnavailable)"
-              :title="messageUnavailable || '新消息'"
+              :title="messageUnavailable || t('dashboard.newMessage')"
               @click="composeMessage"
             >
               <MessageSquareText :size="17" />
-              <span>新消息</span>
+              <span>{{ t('dashboard.newMessage') }}</span>
             </button>
             <button
               class="dashboard-command-button"
               type="button"
               :disabled="Boolean(dialUnavailable)"
-              :title="dialUnavailable || '拨号'"
+              :title="dialUnavailable || t('dashboard.dial')"
               @click="openDialer()"
             >
               <Phone :size="17" />
-              <span>拨号</span>
+              <span>{{ t('dashboard.dial') }}</span>
             </button>
             <RouterLink
               class="icon-button"
               :to="{ name: 'settings', params: { section: 'devices' } }"
-              title="设备设置"
+              :title="t('dashboard.deviceSettings')"
             >
               <Settings :size="18" />
             </RouterLink>
@@ -530,13 +552,18 @@ onMounted(loadDashboard)
         </header>
 
         <div class="dashboard-detail-scroll">
-          <section class="dashboard-summary-grid" aria-label="通信汇总">
+          <section
+            class="dashboard-summary-grid"
+            :aria-label="t('dashboard.communicationSummary')"
+          >
             <RouterLink class="dashboard-summary-card is-message" :to="{ name: 'messages' }">
               <span class="dashboard-summary-icon">
                 <MessageSquareText :size="20" />
               </span>
               <span class="dashboard-summary-value">{{ unreadMessages }}</span>
-              <span class="dashboard-summary-label">未读消息</span>
+              <span class="dashboard-summary-label">
+                {{ t('dashboard.unreadMessages') }}
+              </span>
               <ChevronRight :size="17" />
             </RouterLink>
             <RouterLink class="dashboard-summary-card is-missed" :to="{ name: 'calls' }">
@@ -544,7 +571,9 @@ onMounted(loadDashboard)
                 <PhoneMissed :size="20" />
               </span>
               <span class="dashboard-summary-value">{{ missedCalls }}</span>
-              <span class="dashboard-summary-label">未接来电</span>
+              <span class="dashboard-summary-label">
+                {{ t('dashboard.missedCalls') }}
+              </span>
               <ChevronRight :size="17" />
             </RouterLink>
             <RouterLink
@@ -557,7 +586,9 @@ onMounted(loadDashboard)
               <span class="dashboard-summary-value">
                 {{ onlineLines }}<small>/{{ lines.length }}</small>
               </span>
-              <span class="dashboard-summary-label">在线线路</span>
+              <span class="dashboard-summary-label">
+                {{ t('dashboard.onlineLines') }}
+              </span>
               <ChevronRight :size="17" />
             </RouterLink>
             <RouterLink class="dashboard-summary-card is-traffic" :to="{ name: 'traffic' }">
@@ -565,7 +596,9 @@ onMounted(loadDashboard)
                 <ChartNoAxesCombined :size="20" />
               </span>
               <span class="dashboard-summary-value">{{ formatBytes(monthTraffic) }}</span>
-              <span class="dashboard-summary-label">本月流量</span>
+              <span class="dashboard-summary-label">
+                {{ t('dashboard.monthTraffic') }}
+              </span>
               <ChevronRight :size="17" />
             </RouterLink>
           </section>
@@ -573,15 +606,15 @@ onMounted(loadDashboard)
           <section class="dashboard-detail-section" aria-labelledby="dashboard-lines-title">
             <header>
               <div>
-                <h3 id="dashboard-lines-title">线路状态</h3>
+                <h3 id="dashboard-lines-title">{{ t('dashboard.lineStatus') }}</h3>
                 <span class="dashboard-section-metrics">
-                  <span><b>{{ onlineLines }}</b> 在线</span>
-                  <span><b>{{ callReadyLines }}</b> 可通话</span>
-                  <span><b>{{ messageReadyLines }}</b> 可短信</span>
+                  <span><b>{{ onlineLines }}</b> {{ t('dashboard.online') }}</span>
+                  <span><b>{{ callReadyLines }}</b> {{ t('dashboard.callReady') }}</span>
+                  <span><b>{{ messageReadyLines }}</b> {{ t('dashboard.messageReady') }}</span>
                 </span>
               </div>
               <RouterLink :to="{ name: 'settings', params: { section: 'devices' } }">
-                管理设备
+                {{ t('dashboard.manageDevices') }}
                 <ChevronRight :size="15" />
               </RouterLink>
             </header>
@@ -590,7 +623,7 @@ onMounted(loadDashboard)
               class="dashboard-section-state"
             >
               <LoaderCircle class="spin" :size="17" />
-              正在载入线路
+              {{ t('dashboard.loadingLines') }}
             </div>
             <div
               v-else-if="bootstrapResource.status === 'error' || bootstrapResource.status === 'forbidden'"
@@ -598,18 +631,18 @@ onMounted(loadDashboard)
               role="alert"
             >
               <AlertCircle :size="17" />
-              <span>{{ bootstrapResource.error || '无法载入线路' }}</span>
+              <span>{{ bootstrapResource.error || t('dashboard.loadLinesFailed') }}</span>
               <button
                 v-if="bootstrapResource.status === 'error'"
                 type="button"
                 @click="loadBootstrap(true)"
               >
-                重试
+                {{ t('common.retry') }}
               </button>
             </div>
             <div v-else-if="lines.length === 0" class="dashboard-section-state">
               <Inbox :size="17" />
-              尚未发现线路
+              {{ t('dashboard.noLines') }}
             </div>
             <div v-else class="dashboard-module-grid">
               <ModuleCard
@@ -626,10 +659,10 @@ onMounted(loadDashboard)
           <section class="dashboard-detail-section" aria-labelledby="dashboard-traffic-title">
             <header>
               <div>
-                <h3 id="dashboard-traffic-title">流量</h3>
+                <h3 id="dashboard-traffic-title">{{ t('shell.traffic') }}</h3>
               </div>
               <RouterLink :to="{ name: 'traffic' }">
-                查看流量
+                {{ t('dashboard.viewTraffic') }}
                 <ChevronRight :size="15" />
               </RouterLink>
             </header>
@@ -638,7 +671,7 @@ onMounted(loadDashboard)
               class="dashboard-section-state"
             >
               <LoaderCircle class="spin" :size="17" />
-              正在载入流量
+              {{ t('dashboard.loadingTraffic') }}
             </div>
             <div
               v-else-if="networkState.status === 'error' || networkState.status === 'forbidden'"
@@ -646,13 +679,13 @@ onMounted(loadDashboard)
               role="alert"
             >
               <AlertCircle :size="17" />
-              <span>{{ networkState.error || '无法载入流量' }}</span>
+              <span>{{ networkState.error || t('dashboard.loadTrafficFailed') }}</span>
               <button
                 v-if="networkState.status === 'error'"
                 type="button"
                 @click="loadNetwork(true)"
               >
-                重试
+                {{ t('common.retry') }}
               </button>
             </div>
             <div
@@ -660,7 +693,7 @@ onMounted(loadDashboard)
               class="dashboard-section-state"
             >
               <ChartNoAxesCombined :size="17" />
-              流量状态不可用
+              {{ t('dashboard.trafficUnavailable') }}
             </div>
             <TrafficSummary
               v-else
@@ -676,10 +709,12 @@ onMounted(loadDashboard)
           <section class="dashboard-detail-section" aria-labelledby="dashboard-contacts-title">
             <header>
               <div>
-                <h3 id="dashboard-contacts-title">收藏联系人</h3>
+                <h3 id="dashboard-contacts-title">
+                  {{ t('dashboard.favoriteContacts') }}
+                </h3>
               </div>
               <RouterLink :to="{ name: 'contacts' }">
-                全部联系人
+                {{ t('dashboard.allContacts') }}
                 <ChevronRight :size="15" />
               </RouterLink>
             </header>
@@ -688,7 +723,7 @@ onMounted(loadDashboard)
               class="dashboard-section-state"
             >
               <LoaderCircle class="spin" :size="17" />
-              正在载入联系人
+              {{ t('contacts.loading') }}
             </div>
             <div
               v-else-if="contactsResource.status === 'error' || contactsResource.status === 'forbidden'"
@@ -696,13 +731,13 @@ onMounted(loadDashboard)
               role="alert"
             >
               <AlertCircle :size="17" />
-              <span>{{ contactsResource.error || '无法载入联系人' }}</span>
+              <span>{{ contactsResource.error || t('contacts.loadFailed') }}</span>
               <button
                 v-if="contactsResource.status === 'error'"
                 type="button"
                 @click="loadContacts(true)"
               >
-                重试
+                {{ t('common.retry') }}
               </button>
             </div>
             <div
@@ -710,7 +745,7 @@ onMounted(loadDashboard)
               class="dashboard-section-state dashboard-favorites-empty"
             >
               <Star :size="17" />
-              暂无收藏联系人
+              {{ t('dashboard.noFavoriteContacts') }}
             </div>
             <div v-else class="dashboard-detail-list">
               <div
@@ -726,7 +761,9 @@ onMounted(loadDashboard)
                   />
                   <span class="dashboard-contact-identity">
                     <strong>{{ contact.display_name }}</strong>
-                    <small>{{ primaryPhone(contact.phones) || '没有号码' }}</small>
+                    <small>
+                      {{ primaryPhone(contact.phones) || t('contacts.noNumber') }}
+                    </small>
                   </span>
                 </RouterLink>
                 <span class="dashboard-contact-actions">
@@ -734,8 +771,8 @@ onMounted(loadDashboard)
                     class="icon-button"
                     type="button"
                     :disabled="!primaryPhone(contact.phones) || Boolean(dialUnavailable)"
-                    :title="dialUnavailable || '拨号'"
-                    :aria-label="`呼叫 ${contact.display_name}`"
+                    :title="dialUnavailable || t('dashboard.dial')"
+                    :aria-label="t('dashboard.callContact', { name: contact.display_name })"
                     @click="callContact(contact)"
                   >
                     <Phone :size="17" />
@@ -744,8 +781,8 @@ onMounted(loadDashboard)
                     class="icon-button"
                     type="button"
                     :disabled="!primaryPhone(contact.phones) || Boolean(messageUnavailable)"
-                    :title="messageUnavailable || '发消息'"
-                    :aria-label="`给 ${contact.display_name} 发消息`"
+                    :title="messageUnavailable || t('dashboard.message')"
+                    :aria-label="t('dashboard.messageContact', { name: contact.display_name })"
                     @click="messageContact(contact)"
                   >
                     <MessageSquareText :size="17" />
@@ -759,7 +796,12 @@ onMounted(loadDashboard)
 
       <template v-else-if="selectedCall">
         <header class="detail-header">
-          <button class="icon-button mobile-back" type="button" title="返回首页" @click="backToList">
+          <button
+            class="icon-button mobile-back"
+            type="button"
+            :title="t('dashboard.backHome')"
+            @click="backToList"
+          >
             <ArrowLeft :size="20" />
           </button>
           <ContactHeaderIdentity
@@ -783,51 +825,54 @@ onMounted(loadDashboard)
               class="action-button"
               type="button"
               :disabled="Boolean(dialUnavailable)"
-              :title="dialUnavailable || '回拨'"
+              :title="dialUnavailable || t('dashboard.callBack')"
               @click="callNumber(selectedCall.remote_number, callName(selectedCall), selectedCall.device_id)"
             >
               <Phone :size="19" />
-              <span>回拨</span>
+              <span>{{ t('dashboard.callBack') }}</span>
             </button>
             <button
               class="action-button"
               type="button"
               :disabled="Boolean(messageUnavailable)"
-              :title="messageUnavailable || '发消息'"
+              :title="messageUnavailable || t('dashboard.message')"
               @click="startMessage(selectedCall.remote_number, callName(selectedCall), selectedCall.device_id)"
             >
               <MessageSquareText :size="19" />
-              <span>消息</span>
+              <span>{{ t('shell.messages') }}</span>
             </button>
           </div>
           <section class="detail-section detail-facts">
-            <h3>通话详情</h3>
+            <h3>{{ t('dashboard.callDetails') }}</h3>
             <dl>
               <div>
-                <dt>方向</dt>
+                <dt>{{ t('dashboard.direction') }}</dt>
                 <dd>
                   {{
                     selectedCall.missed
-                      ? '未接来电'
+                      ? t('dashboard.missedCall')
                       : selectedCall.direction === 'incoming'
-                        ? '呼入'
-                        : '呼出'
+                        ? t('dashboard.incoming')
+                        : t('dashboard.outgoing')
                   }}
                 </dd>
               </div>
-              <div><dt>时间</dt><dd>{{ formatDateTime(selectedCall.started_at) }}</dd></div>
               <div>
-                <dt>时长</dt>
+                <dt>{{ t('dashboard.time') }}</dt>
+                <dd>{{ formatDateTime(selectedCall.started_at) }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('dashboard.duration') }}</dt>
                 <dd>
                   {{
                     selectedCall.missed
-                      ? '未接通'
+                      ? t('dashboard.notConnected')
                       : formatDuration(selectedCall.duration_seconds)
                   }}
                 </dd>
               </div>
               <div>
-                <dt>线路</dt>
+                <dt>{{ t('dashboard.line') }}</dt>
                 <dd>
                   <LineTag
                     :line="lineTagLine(lineForCall(selectedCall), selectedCall.device_id)"
@@ -836,7 +881,8 @@ onMounted(loadDashboard)
                 </dd>
               </div>
               <div v-if="selectedCall.failure_reason">
-                <dt>结果</dt><dd>{{ selectedCall.failure_reason }}</dd>
+                <dt>{{ t('dashboard.result') }}</dt>
+                <dd>{{ selectedCall.failure_reason }}</dd>
               </div>
             </dl>
           </section>
@@ -844,7 +890,7 @@ onMounted(loadDashboard)
             class="dashboard-open-resource"
             :to="{ name: 'calls', query: { selected: selectedCall.id } }"
           >
-            打开通话记录
+            {{ t('dashboard.openCallRecord') }}
             <ChevronRight :size="16" />
           </RouterLink>
         </div>
@@ -852,7 +898,12 @@ onMounted(loadDashboard)
 
       <template v-else-if="selectedThread">
         <header class="detail-header">
-          <button class="icon-button mobile-back" type="button" title="返回首页" @click="backToList">
+          <button
+            class="icon-button mobile-back"
+            type="button"
+            :title="t('dashboard.backHome')"
+            @click="backToList"
+          >
             <ArrowLeft :size="20" />
           </button>
           <ContactHeaderIdentity
@@ -876,32 +927,32 @@ onMounted(loadDashboard)
               class="action-button"
               type="button"
               :disabled="Boolean(messageUnavailable)"
-              :title="messageUnavailable || '发消息'"
+              :title="messageUnavailable || t('dashboard.message')"
               @click="startMessage(selectedThread.peer, threadName(selectedThread), selectedThread.line_id || selectedThread.iccid)"
             >
               <MessageSquareText :size="19" />
-              <span>消息</span>
+              <span>{{ t('shell.messages') }}</span>
             </button>
             <button
               class="action-button"
               type="button"
               :disabled="Boolean(dialUnavailable)"
-              :title="dialUnavailable || '拨号'"
+              :title="dialUnavailable || t('dashboard.dial')"
               @click="callNumber(selectedThread.peer, threadName(selectedThread), selectedThread.line_id || selectedThread.iccid)"
             >
               <Phone :size="19" />
-              <span>拨号</span>
+              <span>{{ t('dashboard.dial') }}</span>
             </button>
           </div>
           <section class="detail-section">
-            <h3>最近消息</h3>
+            <h3>{{ t('dashboard.recentMessage') }}</h3>
             <LineTag
               class="dashboard-detail-line-tag"
               :line="lineTagLine(lineForThread(selectedThread), selectedThread.line_id, selectedThread.iccid)"
               :fallback="threadLineFallback(selectedThread)"
             />
             <p class="dashboard-message-preview">
-              {{ selectedThread.last_content || '没有消息内容' }}
+              {{ selectedThread.last_content || t('dashboard.noMessageContent') }}
             </p>
             <small>{{ formatDateTime(selectedThread.last_timestamp) }}</small>
           </section>
@@ -909,7 +960,7 @@ onMounted(loadDashboard)
             class="dashboard-open-resource"
             :to="{ name: 'messages', params: { threadKey: selectedThread.key } }"
           >
-            打开对话
+            {{ t('dashboard.openConversation') }}
             <ChevronRight :size="16" />
           </RouterLink>
         </div>
@@ -918,13 +969,13 @@ onMounted(loadDashboard)
       <StatePanel
         v-else-if="activityLoading"
         state="loading"
-        title="正在载入活动详情"
+        :title="t('dashboard.loadingActivityDetail')"
       />
       <StatePanel
         v-else
         state="empty"
-        title="活动不存在"
-        detail="返回列表选择其他通信活动"
+        :title="t('dashboard.activityMissing')"
+        :detail="t('dashboard.activityMissingDetail')"
       />
     </article>
   </section>

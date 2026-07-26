@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, LoaderCircle, MessageSquarePlus, Phone, Send, X } from '@lucide/vue'
 import type { Contact, LineSummary, MessageThread } from '../api/types'
@@ -47,6 +48,7 @@ import {
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 const search = ref('')
 const composingNew = ref(false)
 const newRecipient = ref('')
@@ -89,7 +91,9 @@ const replyThreadKey = computed(() => {
 })
 const messageUnavailable = computed(() => capabilityReason('message'))
 const messageWriteUnavailable = computed(() =>
-  threadsResource.status === 'forbidden' ? '当前账户无权发送消息' : messageUnavailable.value
+  threadsResource.status === 'forbidden'
+    ? t('messages.sendForbidden')
+    : messageUnavailable.value
 )
 const dialUnavailable = computed(() => capabilityReason('dial'))
 const filteredThreads = computed(() => {
@@ -117,10 +121,12 @@ const activeICCID = computed(() => activeLine.value?.iccid || '')
 const activeLineID = computed(() => (activeLine.value ? lineKey(activeLine.value) : ''))
 const sendDisabledReason = computed(() => {
   if (messageWriteUnavailable.value) return messageWriteUnavailable.value
-  if (!activeRecipient.value) return '请选择联系人或输入号码'
-  if (!activeLineID.value && !activeICCID.value) return '请选择线路'
-  if (lineSupports(activeLine.value, 'message') === false) return '所选线路不支持发送消息'
-  if (!draft.value.trim()) return '请输入消息'
+  if (!activeRecipient.value) return t('messages.selectRecipient')
+  if (!activeLineID.value && !activeICCID.value) return t('messages.selectLine')
+  if (lineSupports(activeLine.value, 'message') === false) {
+    return t('messages.lineUnsupported')
+  }
+  if (!draft.value.trim()) return t('messages.enterMessage')
   return ''
 })
 
@@ -364,7 +370,7 @@ async function submit(): Promise<void> {
     }
     scrollToEnd()
   } catch (error) {
-    sendError.value = error instanceof Error ? error.message : '消息发送失败'
+    sendError.value = error instanceof Error ? error.message : t('messages.sendFailed')
   } finally {
     sending.value = false
   }
@@ -380,8 +386,8 @@ function callCurrent(): void {
 }
 
 function statusLabel(status: number): string {
-  if (status === 2) return '已发送'
-  if (status === 3) return '发送失败'
+  if (status === 2) return t('messages.sent')
+  if (status === 3) return t('messages.sendFailed')
   return ''
 }
 
@@ -395,32 +401,32 @@ onMounted(() => {
     <aside class="list-pane">
       <header class="pane-header">
         <div>
-          <h1>消息</h1>
+          <h1>{{ t('shell.messages') }}</h1>
           <span v-if="threadsResource.status === 'ready'">{{ threadsResource.data.length }}</span>
         </div>
         <button
           class="new-message-button"
           type="button"
           :disabled="Boolean(messageWriteUnavailable)"
-          :title="messageWriteUnavailable || '新消息'"
+          :title="messageWriteUnavailable || t('dashboard.newMessage')"
           @click="startMessage"
         >
           <MessageSquarePlus :size="19" />
-          <span>新消息</span>
+          <span>{{ t('dashboard.newMessage') }}</span>
         </button>
       </header>
       <div class="pane-search">
-        <SearchField v-model="search" placeholder="搜索对话" />
+        <SearchField v-model="search" :placeholder="t('messages.search')" />
         <LineSelector
           v-if="lines.length > 1"
           v-model="lineFilterKey"
           class="message-line-filter"
           :lines="lines"
           :default-device-imei="defaultLineDeviceIMEI"
-          label="消息线路"
+          :label="t('messages.lineFilter')"
           include-all
-          all-label="全部线路"
-          all-description="显示所有模组的对话"
+          :all-label="t('messages.allLines')"
+          :all-description="t('messages.allLinesDescription')"
         />
       </div>
       <p
@@ -431,17 +437,21 @@ onMounted(() => {
         {{ threadsResource.error }}
       </p>
 
-      <StatePanel v-if="threadsResource.status === 'loading'" state="loading" title="正在载入消息" />
+      <StatePanel
+        v-if="threadsResource.status === 'loading'"
+        state="loading"
+        :title="t('messages.loading')"
+      />
       <StatePanel
         v-else-if="threadsResource.status === 'forbidden'"
         state="forbidden"
-        title="无权查看消息"
+        :title="t('messages.forbidden')"
         :detail="threadsResource.error"
       />
       <StatePanel
         v-else-if="threadsResource.status === 'error'"
         state="error"
-        title="无法载入消息"
+        :title="t('messages.loadFailed')"
         :detail="threadsResource.error"
         retryable
         @retry="loadThreads(true)"
@@ -449,7 +459,7 @@ onMounted(() => {
       <div v-else-if="filteredThreads.length === 0" class="message-list-empty">
         <StatePanel
           state="empty"
-          :title="search ? '没有匹配的对话' : '还没有消息'"
+          :title="search ? t('messages.noMatches') : t('messages.empty')"
         />
         <button
           v-if="!search && !messageWriteUnavailable"
@@ -458,7 +468,7 @@ onMounted(() => {
           @click="startMessage"
         >
           <MessageSquarePlus :size="17" />
-          新消息
+          {{ t('dashboard.newMessage') }}
         </button>
       </div>
       <div v-else class="item-list">
@@ -504,7 +514,11 @@ onMounted(() => {
             class="icon-button"
             :class="{ 'mobile-back': !composingNew }"
             type="button"
-            :title="composingNew ? '取消新消息' : '返回消息'"
+            :title="
+              composingNew
+                ? t('messages.cancelNew')
+                : t('messages.back')
+            "
             @click="backToList"
           >
             <X v-if="composingNew" :size="20" />
@@ -512,7 +526,9 @@ onMounted(() => {
           </button>
           <template v-if="composingNew">
             <div class="conversation-recipient">
-              <span class="conversation-recipient__label">收件人</span>
+              <span class="conversation-recipient__label">
+                {{ t('messages.recipient') }}
+              </span>
               <ContactSuggestInput
                 v-model="newRecipient"
                 :contacts="contactsResource.data"
@@ -546,7 +562,7 @@ onMounted(() => {
             class="icon-button"
             type="button"
             :disabled="Boolean(dialUnavailable) || !activeRecipient"
-            :title="dialUnavailable || '拨打'"
+            :title="dialUnavailable || t('calls.dial')"
             @click="callCurrent"
           >
             <Phone :size="19" />
@@ -556,23 +572,25 @@ onMounted(() => {
         <div class="messages-scroll">
           <p v-if="selectedReadError" class="message-read-error" role="alert">
             <span>{{ selectedReadError }}</span>
-            <button type="button" @click="retryThreadRead">重试</button>
+            <button type="button" @click="retryThreadRead">
+              {{ t('common.retry') }}
+            </button>
           </p>
           <StatePanel
             v-if="!composingNew && currentMessages?.status === 'loading'"
             state="loading"
-            title="正在载入对话"
+            :title="t('messages.loadingConversation')"
           />
           <StatePanel
             v-else-if="!composingNew && currentMessages?.status === 'forbidden'"
             state="forbidden"
-            title="无权查看这段对话"
+            :title="t('messages.conversationForbidden')"
             :detail="currentMessages.error"
           />
           <StatePanel
             v-else-if="!composingNew && currentMessages?.status === 'error'"
             state="error"
-            title="无法载入对话"
+            :title="t('messages.conversationLoadFailed')"
             :detail="currentMessages.error"
             retryable
             @retry="selectedThread && openThread(selectedThread, true)"
@@ -580,7 +598,7 @@ onMounted(() => {
           <StatePanel
             v-else-if="!composingNew && currentMessages?.status === 'ready' && currentMessages.data.length === 0"
             state="empty"
-            title="这段对话还没有消息"
+            :title="t('messages.conversationEmpty')"
           />
           <div v-else-if="!composingNew" class="message-stack">
             <div
@@ -605,14 +623,14 @@ onMounted(() => {
           </div>
           <div v-else class="new-message-empty">
             <MessageSquarePlus :size="30" />
-            <strong>新消息</strong>
+            <strong>{{ t('dashboard.newMessage') }}</strong>
             <button
               v-if="existingRecipientThread"
               class="existing-thread-button"
               type="button"
               @click="viewExistingRecipientThread"
             >
-              查看该线路上的已有对话
+              {{ t('messages.viewExistingConversation') }}
             </button>
           </div>
           <div ref="messagesEnd" />
@@ -625,18 +643,18 @@ onMounted(() => {
             class="message-line-select"
             :lines="lines"
             :default-device-imei="defaultLineDeviceIMEI"
-            label="发送线路"
+            :label="t('messages.sendingLine')"
             placement="up"
             capability="message"
-            unavailable-label="不支持消息"
+            :unavailable-label="t('messages.unsupported')"
             @change="changeSendingLine"
           />
-          <p v-else class="unavailable-note">没有可用线路</p>
+          <p v-else class="unavailable-note">{{ t('messages.noAvailableLines') }}</p>
           <div class="composer-row">
             <textarea
               v-model="draft"
               rows="1"
-              placeholder="输入消息"
+              :placeholder="t('messages.enterMessage')"
               :disabled="Boolean(messageWriteUnavailable)"
               @keydown.enter.exact.prevent="submit"
             />
@@ -644,7 +662,7 @@ onMounted(() => {
               class="send-button"
               type="button"
               :disabled="Boolean(sendDisabledReason) || sending"
-              :title="sendDisabledReason || '发送'"
+              :title="sendDisabledReason || t('messages.send')"
               @click="submit"
             >
               <LoaderCircle v-if="sending" class="spin" :size="19" />
@@ -658,7 +676,12 @@ onMounted(() => {
         </footer>
       </template>
 
-      <StatePanel v-else state="empty" title="选择一段对话" detail="消息会显示在这里" />
+      <StatePanel
+        v-else
+        state="empty"
+        :title="t('messages.selectConversation')"
+        :detail="t('messages.detailPlaceholder')"
+      />
     </article>
   </section>
 </template>

@@ -52,42 +52,69 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 		return err
 	}
 	contactColumns, contactsExist := actual.tables["contacts"]
-	if !contactsExist {
+	_, avatarExists := contactColumns["avatar"]
+	_, systemSettingsExist := actual.tables["modemdeck_system_settings"]
+	needsAvatar := contactsExist && !avatarExists
+	needsSystemSettings := !systemSettingsExist
+	if !needsAvatar && !needsSystemSettings {
 		return nil
 	}
-	if _, avatarExists := contactColumns["avatar"]; avatarExists {
+	if !schemaMatchesSupportedMigration(expected, actual) {
 		return nil
 	}
-	if !schemaMatchesExcept(expected, actual, "contacts", "avatar") {
-		return nil
-	}
-	if current, err := requiredRowsAreCurrent(ctx, database); err != nil {
+	if current, err := requiredRowsAreCurrent(ctx, database, legacyRequiredSchemaRows); err != nil {
 		return err
 	} else if !current {
 		return nil
 	}
-	if _, err := database.ExecContext(
-		ctx,
-		`ALTER TABLE contacts ADD COLUMN avatar TEXT NOT NULL DEFAULT ''`,
-	); err != nil {
-		return fmt.Errorf("migrate contacts avatar: %w", err)
+
+	transaction, err := database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin schema migration: %w", err)
+	}
+	defer transaction.Rollback()
+	if needsAvatar {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`ALTER TABLE contacts ADD COLUMN avatar TEXT NOT NULL DEFAULT ''`,
+		); err != nil {
+			return fmt.Errorf("migrate contacts avatar: %w", err)
+		}
+	}
+	if needsSystemSettings {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`CREATE TABLE modemdeck_system_settings (
+				singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+				language TEXT NOT NULL DEFAULT 'auto'
+					CHECK (language IN ('auto', 'zh-CN', 'en-US')),
+				revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+				updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+			);
+			INSERT INTO modemdeck_system_settings (
+				singleton, language, revision, updated_at
+			) VALUES (1, 'auto', 1, CURRENT_TIMESTAMP);`,
+		); err != nil {
+			return fmt.Errorf("migrate system settings: %w", err)
+		}
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit schema migration: %w", err)
 	}
 	return nil
 }
 
-func schemaMatchesExcept(
-	expected schemaShape,
-	actual schemaShape,
-	exceptTable string,
-	exceptColumn string,
-) bool {
+func schemaMatchesSupportedMigration(expected schemaShape, actual schemaShape) bool {
 	for table, expectedColumns := range expected.tables {
 		actualColumns, exists := actual.tables[table]
 		if !exists {
+			if table == "modemdeck_system_settings" {
+				continue
+			}
 			return false
 		}
 		for column := range expectedColumns {
-			if table == exceptTable && column == exceptColumn {
+			if table == "contacts" && column == "avatar" {
 				continue
 			}
 			if _, exists := actualColumns[column]; !exists {
@@ -103,8 +130,15 @@ func schemaMatchesExcept(
 	return true
 }
 
-func requiredRowsAreCurrent(ctx context.Context, database *sql.DB) (bool, error) {
-	for _, requiredRow := range requiredSchemaRows {
+func requiredRowsAreCurrent(
+	ctx context.Context,
+	database *sql.DB,
+	requiredRows []struct {
+		table string
+		key   string
+	},
+) (bool, error) {
+	for _, requiredRow := range requiredRows {
 		var count int
 		query := "SELECT COUNT(*) FROM " + quoteIdentifier(requiredRow.table) +
 			" WHERE " + quoteIdentifier(requiredRow.key) + " = 1"
@@ -118,7 +152,7 @@ func requiredRowsAreCurrent(ctx context.Context, database *sql.DB) (bool, error)
 	return true, nil
 }
 
-var requiredSchemaRows = []struct {
+var legacyRequiredSchemaRows = []struct {
 	table string
 	key   string
 }{
@@ -126,6 +160,14 @@ var requiredSchemaRows = []struct {
 	{table: "modemdeck_line_settings", key: "singleton"},
 	{table: "modemdeck_recording_settings", key: "singleton"},
 }
+
+var requiredSchemaRows = append(
+	legacyRequiredSchemaRows,
+	struct {
+		table string
+		key   string
+	}{table: "modemdeck_system_settings", key: "singleton"},
+)
 
 func ValidateSchema(ctx context.Context, database *sql.DB) error {
 	if database == nil {

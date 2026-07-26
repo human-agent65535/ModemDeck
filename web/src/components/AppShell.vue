@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import {
   AudioLines,
@@ -45,27 +46,28 @@ import IncomingCallModeControl from './IncomingCallModeControl.vue'
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 const permanentDialer = ref(false)
 const browserNotificationTitle = computed(() => {
-  if (!browserNotificationState.secureContext) return '浏览器通知需要 HTTPS'
-  if (!browserNotificationState.supported) return '当前浏览器不支持通知'
-  if (browserNotificationState.requesting) return '正在请求浏览器通知权限'
-  if (browserNotificationState.preferenceEnabled) return '关闭短信与来电通知'
+  if (!browserNotificationState.secureContext) return t('shell.notificationsRequireHTTPS')
+  if (!browserNotificationState.supported) return t('shell.notificationsUnsupported')
+  if (browserNotificationState.requesting) return t('shell.notificationsRequesting')
+  if (browserNotificationState.preferenceEnabled) return t('shell.notificationsDisable')
   if (browserNotificationState.permission === 'denied') {
-    return '通知已被浏览器阻止，请在浏览器设置中允许'
+    return t('shell.notificationsDenied')
   }
   if (browserNotificationState.error) return browserNotificationState.error
-  return '启用短信与来电通知'
+  return t('shell.notificationsEnable')
 })
 let dialerMediaQuery: MediaQueryList | undefined
-const primaryNav = [
-  { name: 'dashboard', label: '首页', icon: House },
-  { name: 'contacts', label: '联系人', icon: UsersRound },
-  { name: 'messages', label: '消息', icon: MessageSquareText },
-  { name: 'calls', label: '通话', icon: Phone },
-  { name: 'recordings', label: '录音', icon: AudioLines },
-  { name: 'traffic', label: '流量', icon: ChartNoAxesCombined }
-]
+const primaryNav = computed(() => [
+  { name: 'dashboard', label: t('shell.home'), icon: House },
+  { name: 'contacts', label: t('shell.contacts'), icon: UsersRound },
+  { name: 'messages', label: t('shell.messages'), icon: MessageSquareText },
+  { name: 'calls', label: t('shell.calls'), icon: Phone },
+  { name: 'recordings', label: t('shell.recordings'), icon: AudioLines },
+  { name: 'traffic', label: t('shell.traffic'), icon: ChartNoAxesCombined }
+])
 
 watch(
   () => sessionState.status,
@@ -109,8 +111,12 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="app-shell">
-    <aside class="rail" aria-label="主导航">
-      <RouterLink class="brand-mark" :to="{ name: 'dashboard' }" aria-label="ModemDeck 首页">
+    <aside class="rail" :aria-label="t('shell.primaryNavigation')">
+      <RouterLink
+        class="brand-mark"
+        :to="{ name: 'dashboard' }"
+        :aria-label="`ModemDeck ${t('shell.home')}`"
+      >
         <span>M</span>
         <strong>Modem<br />Deck</strong>
       </RouterLink>
@@ -133,11 +139,11 @@ onBeforeUnmount(() => {
         <RouterLink
           class="rail-link"
           :class="{ 'is-current': route.name === 'settings' }"
-          :to="{ name: 'settings', params: { section: 'devices' } }"
-          title="设置"
+          :to="{ name: 'settings', params: { section: 'system' } }"
+          :title="t('shell.settings')"
         >
           <Settings :size="22" />
-          <span>设置</span>
+          <span>{{ t('shell.settings') }}</span>
         </RouterLink>
       </nav>
     </aside>
@@ -146,9 +152,13 @@ onBeforeUnmount(() => {
       <header class="shell-header">
         <div class="mobile-brand">ModemDeck</div>
         <GlobalSearch />
-        <div v-if="fixtureMode" class="fixture-badge" title="仅在显式开发模式下启用">
+        <div
+          v-if="fixtureMode"
+          class="fixture-badge"
+          :title="t('shell.fixtureDataHint')"
+        >
           <TestTube2 :size="15" />
-          开发数据
+          {{ t('shell.fixtureData') }}
         </div>
         <div class="shell-header__controls">
           <IncomingCallModeControl />
@@ -175,8 +185,8 @@ onBeforeUnmount(() => {
           <button
             class="icon-button shell-dialer-toggle"
             type="button"
-            title="打开拨号栏"
-            aria-label="打开拨号栏"
+            :title="t('shell.openDialer')"
+            :aria-label="t('shell.openDialer')"
             @click="openDialer()"
           >
             <PhoneCall :size="19" />
@@ -191,7 +201,7 @@ onBeforeUnmount(() => {
       >
         <span>{{ bootstrapResource.error }}</span>
         <button v-if="bootstrapResource.status === 'error'" type="button" @click="bootstrap">
-          重试
+          {{ t('common.retry') }}
         </button>
       </div>
 
@@ -200,7 +210,7 @@ onBeforeUnmount(() => {
       </div>
     </main>
 
-    <nav class="mobile-nav" aria-label="移动导航">
+    <nav class="mobile-nav" :aria-label="t('shell.mobileNavigation')">
       <RouterLink
         v-for="item in primaryNav"
         :key="item.name"
@@ -212,10 +222,10 @@ onBeforeUnmount(() => {
       </RouterLink>
       <RouterLink
         :class="{ 'is-current': route.name === 'settings' }"
-        :to="{ name: 'settings', params: { section: 'devices' } }"
+        :to="{ name: 'settings', params: { section: 'system' } }"
       >
         <Settings :size="21" />
-        <span>设置</span>
+        <span>{{ t('shell.settings') }}</span>
       </RouterLink>
     </nav>
 

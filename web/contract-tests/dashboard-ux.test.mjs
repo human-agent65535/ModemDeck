@@ -84,7 +84,7 @@ test('dashboard summary cards may fill their grid while entity cards fill only n
 test('dashboard favorites never substitute recent or alphabetic contacts', () => {
   assert.match(dashboard, /const favoriteContacts = computed/)
   assert.match(dashboard, /\.filter\(contact => contact\.favorite\)/)
-  assert.match(dashboard, /暂无收藏联系人/)
+  assert.match(dashboard, /t\('dashboard\.noFavoriteContacts'\)/)
   assert.doesNotMatch(dashboard, /const quickContacts/)
   assert.doesNotMatch(dashboard, /localeCompare/)
 })

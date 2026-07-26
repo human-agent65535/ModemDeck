@@ -155,6 +155,7 @@ export type BootstrapResponse = {
   capabilities: Capabilities
   lines: LineSummary[]
   line_settings: LineSettings
+  system_settings: SystemSettings
 }
 
 export type LineSettings = {
@@ -318,6 +319,18 @@ export type ProxyDeleteResult = {
 
 export type UpdateLineSettingsInput = {
   default_device_imei: string
+  expected_revision: number
+}
+
+export type SystemLanguage = 'auto' | 'zh-CN' | 'en-US'
+
+export type SystemSettings = {
+  language: SystemLanguage
+  revision: number
+}
+
+export type UpdateSystemSettingsInput = {
+  language: SystemLanguage
   expected_revision: number
 }
 
@@ -942,6 +955,7 @@ export type SessionResponse = {
   authenticated: boolean
   username?: string
   csrf_token?: string
+  language: SystemLanguage
 }
 
 export type LoginInput = {

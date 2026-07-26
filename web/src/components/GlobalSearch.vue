@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { History, MessageSquareText, Phone, UsersRound } from '@lucide/vue'
 import {
@@ -12,6 +13,7 @@ import { formatRelativeDate, primaryPhone } from '../utils/format'
 import SearchField from './SearchField.vue'
 
 const router = useRouter()
+const { t } = useI18n()
 const root = ref<HTMLElement | null>(null)
 const query = ref('')
 const open = ref(false)
@@ -94,15 +96,19 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
   <div ref="root" class="global-search" @keydown.esc="close">
     <SearchField
       v-model="query"
-      placeholder="搜索姓名、号码、消息或通话"
-      label="全局搜索"
+      :placeholder="t('shell.globalSearchPlaceholder')"
+      :label="t('shell.globalSearch')"
       @focus="activate"
     />
     <div v-if="open && normalized" class="global-search__panel">
-      <div v-if="loading && !hasResults" class="global-search__status">正在搜索…</div>
+      <div v-if="loading && !hasResults" class="global-search__status">
+        {{ t('shell.searching') }}
+      </div>
 
       <template v-if="contactResults.length">
-        <div class="search-group-label"><UsersRound :size="15" />联系人</div>
+        <div class="search-group-label">
+          <UsersRound :size="15" />{{ t('shell.contacts') }}
+        </div>
         <button
           v-for="contact in contactResults"
           :key="contact.id"
@@ -116,7 +122,9 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
       </template>
 
       <template v-if="threadResults.length">
-        <div class="search-group-label"><MessageSquareText :size="15" />消息</div>
+        <div class="search-group-label">
+          <MessageSquareText :size="15" />{{ t('shell.messages') }}
+        </div>
         <button
           v-for="thread in threadResults"
           :key="thread.key"
@@ -130,7 +138,9 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
       </template>
 
       <template v-if="callResults.length">
-        <div class="search-group-label"><History :size="15" />通话</div>
+        <div class="search-group-label">
+          <History :size="15" />{{ t('shell.calls') }}
+        </div>
         <button
           v-for="call in callResults"
           :key="call.id"
@@ -143,7 +153,9 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
         </button>
       </template>
 
-      <div v-if="!loading && !hasResults" class="global-search__status">没有匹配结果</div>
+      <div v-if="!loading && !hasResults" class="global-search__status">
+        {{ t('shell.noSearchResults') }}
+      </div>
     </div>
   </div>
 </template>

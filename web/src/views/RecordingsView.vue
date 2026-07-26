@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, AudioLines, Download } from '@lucide/vue'
 import type { RecordingEntry } from '../api/types'
@@ -31,6 +32,7 @@ import {
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 const search = ref('')
 let searchTimer: number | undefined
 
@@ -62,7 +64,9 @@ function avatar(recording: RecordingEntry): string {
 }
 
 function directionLabel(recording: RecordingEntry): string {
-  return recording.call.direction === 'incoming' ? '呼入' : '呼出'
+  return recording.call.direction === 'incoming'
+    ? t('dashboard.incoming')
+    : t('dashboard.outgoing')
 }
 
 function lineForRecording(recording: RecordingEntry) {
@@ -79,29 +83,29 @@ function recordingLineFallback(recording: RecordingEntry): string {
 }
 
 function statusLabel(recording: RecordingEntry): string {
-  if (recording.playable) return '可播放'
+  if (recording.playable) return t('recordings.playable')
   switch (recording.status) {
     case 'pending':
-      return '等待录音'
+      return t('recordings.pending')
     case 'recording':
-      return '录音中'
+      return t('recordings.recording')
     case 'failed':
-      return '录音失败'
+      return t('recordings.failed')
     default:
-      return '不可播放'
+      return t('recordings.unplayable')
   }
 }
 
 function unavailableDetail(recording: RecordingEntry): string {
   switch (recording.status) {
     case 'pending':
-      return '录音尚未开始'
+      return t('recordings.notStarted')
     case 'recording':
-      return '录音尚未结束'
+      return t('recordings.notEnded')
     case 'failed':
-      return '录音未完成'
+      return t('recordings.incomplete')
     default:
-      return '录音文件不可用'
+      return t('recordings.fileUnavailable')
   }
 }
 
@@ -143,7 +147,7 @@ onBeforeUnmount(() => {
     <aside class="list-pane">
       <header class="pane-header">
         <div>
-          <h1>录音</h1>
+          <h1>{{ t('shell.recordings') }}</h1>
           <span v-if="recordingCatalogState.status === 'ready'">
             {{ recordingCatalogState.data.length }}
           </span>
@@ -151,24 +155,24 @@ onBeforeUnmount(() => {
       </header>
 
       <div class="pane-search">
-        <SearchField v-model="search" placeholder="搜索姓名或号码" />
+        <SearchField v-model="search" :placeholder="t('contacts.searchNameOrNumber')" />
       </div>
 
       <StatePanel
         v-if="recordingCatalogState.status === 'loading'"
         state="loading"
-        title="正在载入录音"
+        :title="t('recordings.loading')"
       />
       <StatePanel
         v-else-if="recordingCatalogState.status === 'forbidden'"
         state="forbidden"
-        title="无权查看通话录音"
+        :title="t('recordings.forbidden')"
         :detail="recordingCatalogState.error"
       />
       <StatePanel
         v-else-if="recordingCatalogState.status === 'error'"
         state="error"
-        title="无法载入通话录音"
+        :title="t('recordings.loadFailed')"
         :detail="recordingCatalogState.error"
         retryable
         @retry="loadRecordingEntries(search, true)"
@@ -176,7 +180,7 @@ onBeforeUnmount(() => {
       <StatePanel
         v-else-if="recordingCatalogState.data.length === 0"
         state="empty"
-        :title="search ? '没有匹配的录音' : '还没有通话录音'"
+        :title="search ? t('recordings.noMatches') : t('recordings.empty')"
       />
       <div v-else class="item-list">
         <button
@@ -226,8 +230,8 @@ onBeforeUnmount(() => {
           <button
             class="icon-button mobile-back"
             type="button"
-            title="返回录音"
-            aria-label="返回录音列表"
+            :title="t('recordings.back')"
+            :aria-label="t('recordings.backList')"
             @click="backToList"
           >
             <ArrowLeft :size="20" />
@@ -249,17 +253,17 @@ onBeforeUnmount(() => {
         </header>
 
         <div class="recording-detail">
-          <section class="recording-player" aria-label="录音播放">
+          <section class="recording-player" :aria-label="t('recordings.playback')">
             <template v-if="selected.playable && selected.download_url">
               <audio :src="selected.download_url" controls preload="metadata">
-                浏览器不支持音频播放。
+                {{ t('recordings.audioUnsupported') }}
               </audio>
               <a
                 class="icon-button recording-download"
                 :href="selected.download_url"
                 :download="`modemdeck-${selected.id}.ogg`"
-                title="下载录音"
-                aria-label="下载录音"
+                :title="t('recordings.download')"
+                :aria-label="t('recordings.download')"
               >
                 <Download :size="19" />
               </a>
@@ -267,28 +271,28 @@ onBeforeUnmount(() => {
             <StatePanel
               v-else
               state="empty"
-              title="没有可播放片段"
+              :title="t('recordings.noPlayableSegment')"
               :detail="unavailableDetail(selected)"
             />
           </section>
 
           <section class="detail-section detail-facts">
-            <h3>录音详情</h3>
+            <h3>{{ t('recordings.details') }}</h3>
             <dl>
               <div>
-                <dt>时间</dt>
+                <dt>{{ t('dashboard.time') }}</dt>
                 <dd>{{ formatDateTime(selected.recorded_at) }}</dd>
               </div>
               <div>
-                <dt>时长</dt>
+                <dt>{{ t('dashboard.duration') }}</dt>
                 <dd>{{ formatDuration(selected.duration_seconds) }}</dd>
               </div>
               <div>
-                <dt>方向</dt>
+                <dt>{{ t('dashboard.direction') }}</dt>
                 <dd>{{ directionLabel(selected) }}</dd>
               </div>
               <div>
-                <dt>线路</dt>
+                <dt>{{ t('dashboard.line') }}</dt>
                 <dd>
                   <LineTag
                     :line="lineTagLine(lineForRecording(selected), selected.call.device_id)"
@@ -297,15 +301,15 @@ onBeforeUnmount(() => {
                 </dd>
               </div>
               <div>
-                <dt>设备</dt>
+                <dt>{{ t('recordings.device') }}</dt>
                 <dd>{{ deviceName(selected.call.device_id) }}</dd>
               </div>
               <div>
-                <dt>大小</dt>
+                <dt>{{ t('recordings.size') }}</dt>
                 <dd>{{ formatSize(selected.size_bytes) }}</dd>
               </div>
               <div>
-                <dt>对应通话</dt>
+                <dt>{{ t('recordings.relatedCall') }}</dt>
                 <dd>
                   <RouterLink
                     class="recording-call-link"
@@ -323,12 +327,12 @@ onBeforeUnmount(() => {
       <StatePanel
         v-else-if="selectedID && recordingCatalogState.status === 'ready'"
         state="empty"
-        title="录音不在当前结果中"
+        :title="t('recordings.notInResults')"
       />
       <StatePanel
         v-else
         state="empty"
-        title="选择一条录音"
+        :title="t('recordings.select')"
       />
     </article>
   </section>

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ImagePlus, Trash2 } from '@lucide/vue'
 import { createContactAvatar } from '../utils/contactAvatar'
 import BaseAvatar from './BaseAvatar.vue'
 
+const { t } = useI18n()
 const props = withDefaults(
   defineProps<{
     modelValue: string
@@ -36,7 +38,7 @@ async function processFile(file?: File): Promise<void> {
   try {
     emit('update:modelValue', await createContactAvatar(file))
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : '头像处理失败'
+    error.value = cause instanceof Error ? cause.message : t('contacts.avatarProcessFailed')
   } finally {
     busy.value = false
     emit('processing', false)
@@ -69,7 +71,9 @@ function removeAvatar(): void {
       :class="{ 'is-dragging': dragging, 'has-image': modelValue }"
       type="button"
       :disabled="disabled || busy"
-      :aria-label="modelValue ? '更换联系人头像' : '添加联系人头像'"
+      :aria-label="
+        modelValue ? t('contacts.replaceAvatar') : t('contacts.addAvatar')
+      "
       @click="openPicker"
       @dragenter.prevent="dragging = true"
       @dragover.prevent="dragging = true"
@@ -80,16 +84,18 @@ function removeAvatar(): void {
       <span class="contact-avatar-picker__overlay" aria-hidden="true">
         <ImagePlus :size="21" />
       </span>
-      <span v-if="busy" class="contact-avatar-picker__busy">处理中</span>
+      <span v-if="busy" class="contact-avatar-picker__busy">
+        {{ t('contacts.processing') }}
+      </span>
     </button>
 
     <div class="contact-avatar-picker__copy">
-      <strong>头像</strong>
+      <strong>{{ t('contacts.avatar') }}</strong>
       <span>
         {{
           modelValue
-            ? '点击头像或拖入图片即可替换'
-            : '点击圆形头像，或将图片拖到头像上'
+            ? t('contacts.avatarReplaceHint')
+            : t('contacts.avatarEmptyHint')
         }}
       </span>
       <div class="contact-avatar-picker__actions">
@@ -100,7 +106,11 @@ function removeAvatar(): void {
           @click="openPicker"
         >
           <ImagePlus :size="15" />
-          {{ modelValue ? '更换头像' : '上传头像' }}
+          {{
+            modelValue
+              ? t('contacts.replaceAvatarAction')
+              : t('contacts.uploadAvatar')
+          }}
         </button>
         <button
           v-if="modelValue"
@@ -110,7 +120,7 @@ function removeAvatar(): void {
           @click="removeAvatar"
         >
           <Trash2 :size="15" />
-          删除头像
+          {{ t('contacts.deleteAvatar') }}
         </button>
       </div>
       <small v-if="error" class="field-error" role="alert">{{ error }}</small>

@@ -249,9 +249,9 @@ test('communication notifications share one explicit browser preference', async 
   assert.match(browserNotifications, /Notification\.requestPermission\(\)/)
   assert.match(browserNotifications, /window\.addEventListener\('storage'/)
   assert.match(shell, /@click="toggleBrowserNotifications"/)
-  assert.match(shell, /浏览器通知需要 HTTPS/)
-  assert.match(shell, /关闭短信与来电通知/)
-  assert.match(shell, /启用短信与来电通知/)
+  assert.match(shell, /t\('shell\.notificationsRequireHTTPS'\)/)
+  assert.match(shell, /t\('shell\.notificationsDisable'\)/)
+  assert.match(shell, /t\('shell\.notificationsEnable'\)/)
   const notificationClick = shell.indexOf('@click="toggleBrowserNotifications"')
   const notificationButton = shell.slice(
     shell.lastIndexOf('<button', notificationClick),

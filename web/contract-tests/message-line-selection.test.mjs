@@ -23,7 +23,7 @@ test('existing conversations default to their original line and expose the selec
   )
   assert.match(
     source,
-    /<LineSelector[\s\S]*?v-if="lines\.length > 0"[\s\S]*?v-model="selectedLineKey"[\s\S]*?label="发送线路"/
+    /<LineSelector[\s\S]*?v-if="lines\.length > 0"[\s\S]*?v-model="selectedLineKey"[\s\S]*?:label="t\('messages\.sendingLine'\)"/
   )
   assert.doesNotMatch(source, /v-if="composingNew && lines\.length > 0"/)
 })
@@ -79,5 +79,8 @@ test('new messages retain contact preference then global default resolution', as
   assert.match(source, /findRecipientThread\(/)
   assert.match(source, /messageReturnRoute\(composeReturnThreadKey\)/)
   assert.match(source, /:class="\{ 'mobile-back': !composingNew \}"/)
-  assert.match(source, /composingNew \? '取消新消息' : '返回消息'/)
+  assert.match(
+    source,
+    /composingNew[\s\S]*?\? t\('messages\.cancelNew'\)[\s\S]*?: t\('messages\.back'\)/
+  )
 })

@@ -10,7 +10,8 @@ import type {
   DeviceSIM,
   LineSummary,
   Message,
-  MessageThread
+  MessageThread,
+  SystemLanguage
 } from './types'
 
 type JsonRecord = Record<string, unknown>
@@ -377,6 +378,15 @@ export function parseBootstrap(value: unknown): BootstrapResponse {
   if (!Number.isSafeInteger(lineSettingsRevision) || lineSettingsRevision < 1) {
     throw new Error('bootstrap.line_settings.revision 必须是正整数')
   }
+  const systemSettings = objectValue(source.system_settings, 'bootstrap.system_settings')
+  const language = stringValue(systemSettings, 'language')
+  if (language !== 'auto' && language !== 'zh-CN' && language !== 'en-US') {
+    throw new Error('bootstrap.system_settings.language is not supported')
+  }
+  const systemSettingsRevision = numberValue(systemSettings, 'revision')
+  if (!Number.isSafeInteger(systemSettingsRevision) || systemSettingsRevision < 1) {
+    throw new Error('bootstrap.system_settings.revision must be a positive integer')
+  }
   return {
     capabilities: {
       agent_connected: capabilities.agent_connected as boolean,
@@ -395,6 +405,10 @@ export function parseBootstrap(value: unknown): BootstrapResponse {
     line_settings: {
       default_device_imei: stringValue(lineSettings, 'default_device_imei'),
       revision: lineSettingsRevision
+    },
+    system_settings: {
+      language: language as SystemLanguage,
+      revision: systemSettingsRevision
     }
   }
 }

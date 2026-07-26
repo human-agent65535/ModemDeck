@@ -40,6 +40,7 @@ import type {
   SaveConnectionProfileInput,
   SendMessageInput,
   SessionResponse,
+  SystemSettings,
   SIMCommandInput,
   SIMStatus,
   TelegramUnit,
@@ -49,6 +50,7 @@ import type {
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
   UpdateLineSettingsInput,
+  UpdateSystemSettingsInput,
   UpdateNetworkSelectionInput,
   UpdateProxyInput,
   UpdateTLSSettingsInput,
@@ -128,6 +130,8 @@ export interface ModemDeckGateway {
   getGlobalCallSettings(): Promise<GlobalCallSettings>
   updateGlobalCallSettings(input: UpdateGlobalCallSettingsInput): Promise<GlobalCallSettings>
   updateLineSettings(input: UpdateLineSettingsInput): Promise<LineSettings>
+  getSystemSettings(): Promise<SystemSettings>
+  updateSystemSettings(input: UpdateSystemSettingsInput): Promise<SystemSettings>
   getDeviceConfiguration(lineID: string): Promise<DeviceConfiguration>
   updateDeviceConfiguration(
     lineID: string,

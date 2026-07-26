@@ -45,6 +45,7 @@ import type {
   SendMessageInput,
   SIMCommandInput,
   SIMStatus,
+  SystemSettings,
   TelegramUnit,
   TelegramUnitInput,
   TLSSettings,
@@ -52,6 +53,7 @@ import type {
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
   UpdateLineSettingsInput,
+  UpdateSystemSettingsInput,
   UpdateNetworkSelectionInput,
   UpdateProxyInput,
   UpdateTLSSettingsInput,
@@ -724,6 +726,10 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     default_device_imei: lines[0]?.device_imei || '',
     revision: 1
   }
+  let systemSettings: SystemSettings = {
+    language: 'auto',
+    revision: 1
+  }
   const connectionProfiles = new Map<string, ConnectionProfile[]>(
     lines.map(line => [
       fixtureLineKey(line),
@@ -1049,7 +1055,8 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           unavailable_reasons: {}
         },
         lines: clone(lines),
-        line_settings: clone(lineSettings)
+        line_settings: clone(lineSettings),
+        system_settings: clone(systemSettings)
       }
     },
 
@@ -1840,6 +1847,23 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         revision: lineSettings.revision + 1
       }
       return clone(lineSettings)
+    },
+
+    async getSystemSettings(): Promise<SystemSettings> {
+      return clone(systemSettings)
+    },
+
+    async updateSystemSettings(
+      input: UpdateSystemSettingsInput
+    ): Promise<SystemSettings> {
+      if (input.expected_revision !== systemSettings.revision) {
+        throw new ApiError('System settings changed in another session', 409, 'conflict')
+      }
+      systemSettings = {
+        language: input.language,
+        revision: systemSettings.revision + 1
+      }
+      return clone(systemSettings)
     },
 
     async getDeviceConfiguration(lineID: string): Promise<DeviceConfiguration> {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowLeft,
@@ -45,15 +46,16 @@ import {
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 const search = ref('')
 const filter = ref<CallFilter>('all')
 
-const filters: Array<{ value: CallFilter; label: string }> = [
-  { value: 'all', label: '全部' },
-  { value: 'missed', label: '未接' },
-  { value: 'incoming', label: '呼入' },
-  { value: 'outgoing', label: '呼出' }
-]
+const filters = computed<Array<{ value: CallFilter; label: string }>>(() => [
+  { value: 'all', label: t('common.all') },
+  { value: 'missed', label: t('calls.missed') },
+  { value: 'incoming', label: t('dashboard.incoming') },
+  { value: 'outgoing', label: t('dashboard.outgoing') }
+])
 
 const filteredCalls = computed(() => {
   const query = search.value.trim().toLocaleLowerCase()
@@ -109,8 +111,10 @@ function iconFor(call: CallRecord) {
 }
 
 function directionLabel(call: CallRecord): string {
-  if (call.missed) return '未接来电'
-  return call.direction === 'incoming' ? '呼入' : '呼出'
+  if (call.missed) return t('dashboard.missedCall')
+  return call.direction === 'incoming'
+    ? t('dashboard.incoming')
+    : t('dashboard.outgoing')
 }
 
 function hasPlayableRecording(call: CallRecord): boolean {
@@ -193,13 +197,13 @@ onMounted(() => {
     <aside class="list-pane">
       <header class="pane-header">
         <div>
-          <h1>通话</h1>
+          <h1>{{ t('shell.calls') }}</h1>
           <span v-if="callsResource.status === 'ready'">{{ callsResource.data.length }}</span>
         </div>
       </header>
       <div class="pane-search pane-search--calls">
-        <SearchField v-model="search" placeholder="搜索姓名或号码" />
-        <div class="segmented-control" aria-label="通话筛选">
+        <SearchField v-model="search" :placeholder="t('contacts.searchNameOrNumber')" />
+        <div class="segmented-control" :aria-label="t('calls.filter')">
           <button
             v-for="item in filters"
             :key="item.value"
@@ -217,7 +221,7 @@ onMounted(() => {
         role="status"
       >
         <LoaderCircle class="spin" :size="14" />
-        正在连接通话服务
+        {{ t('calls.connecting') }}
       </div>
       <div
         v-else-if="callState.syncStatus === 'error' || callState.syncStatus === 'forbidden'"
@@ -230,18 +234,18 @@ onMounted(() => {
       <StatePanel
         v-if="callsResource.status === 'loading'"
         state="loading"
-        title="正在载入通话记录"
+        :title="t('calls.loading')"
       />
       <StatePanel
         v-else-if="callsResource.status === 'forbidden'"
         state="forbidden"
-        title="无权查看通话记录"
+        :title="t('calls.forbidden')"
         :detail="callsResource.error"
       />
       <StatePanel
         v-else-if="callsResource.status === 'error'"
         state="error"
-        title="无法载入通话记录"
+        :title="t('calls.loadFailed')"
         :detail="callsResource.error"
         retryable
         @retry="loadCalls(true)"
@@ -249,7 +253,11 @@ onMounted(() => {
       <StatePanel
         v-else-if="filteredCalls.length === 0"
         state="empty"
-        :title="search || filter !== 'all' ? '没有匹配的通话' : '还没有通话记录'"
+        :title="
+          search || filter !== 'all'
+            ? t('calls.noMatches')
+            : t('calls.empty')
+        "
       />
       <div v-else class="item-list">
         <div
@@ -261,7 +269,7 @@ onMounted(() => {
           <button
             class="call-list-item__select"
             type="button"
-            :aria-label="`查看 ${displayName(call)} 的通话详情`"
+            :aria-label="t('calls.viewDetails', { name: displayName(call) })"
             @click="selectCall(call)"
           >
             <span class="call-list-item__avatar">
@@ -285,8 +293,8 @@ onMounted(() => {
                   v-if="hasPlayableRecording(call)"
                   class="call-list-item__recording"
                   role="img"
-                  aria-label="有通话录音"
-                  title="有通话录音"
+                  :aria-label="t('calls.hasRecording')"
+                  :title="t('calls.hasRecording')"
                 >
                   <CassetteTape :size="15" aria-hidden="true" />
                 </span>
@@ -297,8 +305,8 @@ onMounted(() => {
             class="icon-button icon-button--quiet call-list-item__call"
             type="button"
             :disabled="Boolean(dialUnavailable)"
-            :title="dialUnavailable || '回拨'"
-            :aria-label="`回拨 ${displayName(call)}`"
+            :title="dialUnavailable || t('dashboard.callBack')"
+            :aria-label="t('calls.callBackName', { name: displayName(call) })"
             @click="callBack(call)"
             @keydown.enter.prevent="callBack(call)"
           >
@@ -311,7 +319,12 @@ onMounted(() => {
     <article class="detail-pane">
       <template v-if="selected">
         <header class="detail-header">
-          <button class="icon-button mobile-back" type="button" title="返回通话" @click="backToList">
+          <button
+            class="icon-button mobile-back"
+            type="button"
+            :title="t('calls.back')"
+            @click="backToList"
+          >
             <ArrowLeft :size="20" />
           </button>
           <ContactHeaderIdentity
@@ -331,36 +344,51 @@ onMounted(() => {
               class="call-detail__command call-detail__command--primary"
               type="button"
               :disabled="Boolean(dialUnavailable)"
-              :title="dialUnavailable || '回拨'"
-              :aria-label="`回拨 ${displayName(selected)}`"
+              :title="dialUnavailable || t('dashboard.callBack')"
+              :aria-label="t('calls.callBackName', { name: displayName(selected) })"
               @click="callBack(selected)"
             >
               <Phone :size="17" />
-              <span>回拨</span>
+              <span>{{ t('dashboard.callBack') }}</span>
             </button>
             <button
               class="call-detail__command"
               type="button"
               :disabled="Boolean(messageUnavailable)"
-              :title="messageUnavailable || '发送消息'"
-              :aria-label="`给 ${displayName(selected)} 发送消息`"
+              :title="messageUnavailable || t('messages.sendMessage')"
+              :aria-label="t('calls.messageName', { name: displayName(selected) })"
               @click="sendMessage(selected)"
             >
               <MessageSquareText :size="17" />
-              <span>消息</span>
+              <span>{{ t('shell.messages') }}</span>
             </button>
           </div>
         </header>
 
         <div class="call-detail">
           <section class="detail-section detail-facts">
-            <h3>通话详情</h3>
+            <h3>{{ t('dashboard.callDetails') }}</h3>
             <dl>
-              <div><dt>方向</dt><dd>{{ directionLabel(selected) }}</dd></div>
-              <div><dt>时间</dt><dd>{{ formatDateTime(selected.started_at) }}</dd></div>
-              <div><dt>时长</dt><dd>{{ selected.missed ? '未接通' : formatDuration(selected.duration_seconds) }}</dd></div>
               <div>
-                <dt>线路</dt>
+                <dt>{{ t('dashboard.direction') }}</dt>
+                <dd>{{ directionLabel(selected) }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('dashboard.time') }}</dt>
+                <dd>{{ formatDateTime(selected.started_at) }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('dashboard.duration') }}</dt>
+                <dd>
+                  {{
+                    selected.missed
+                      ? t('dashboard.notConnected')
+                      : formatDuration(selected.duration_seconds)
+                  }}
+                </dd>
+              </div>
+              <div>
+                <dt>{{ t('dashboard.line') }}</dt>
                 <dd>
                   <LineTag
                     :line="lineTagLine(lineForCall(selected), selected.local_phone, selected.line_iccid, selected.line_imsi)"
@@ -368,7 +396,10 @@ onMounted(() => {
                   />
                 </dd>
               </div>
-              <div v-if="selected.failure_reason"><dt>结果</dt><dd>{{ selected.failure_reason }}</dd></div>
+              <div v-if="selected.failure_reason">
+                <dt>{{ t('dashboard.result') }}</dt>
+                <dd>{{ selected.failure_reason }}</dd>
+              </div>
             </dl>
           </section>
 
@@ -383,8 +414,8 @@ onMounted(() => {
       <StatePanel
         v-else
         state="empty"
-        title="选择一条通话记录"
-        detail="通话详情会显示在这里"
+        :title="t('calls.select')"
+        :detail="t('calls.detailPlaceholder')"
       />
     </article>
   </section>

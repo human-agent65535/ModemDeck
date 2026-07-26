@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Activity,
@@ -7,6 +8,7 @@ import {
   Circle,
   LoaderCircle,
   LogOut,
+  Languages,
   RadioTower,
   Send,
   ShieldCheck,
@@ -16,6 +18,7 @@ import StatePanel from '../components/StatePanel.vue'
 import DeviceConfigurationPanel from '../components/DeviceConfigurationPanel.vue'
 import DiagnosticsPanel from '../components/DiagnosticsPanel.vue'
 import RecordingSettingsForm from '../components/RecordingSettingsForm.vue'
+import SystemSettingsForm from '../components/SystemSettingsForm.vue'
 import TelegramSettingsForm from '../components/TelegramSettingsForm.vue'
 import TLSSettingsForm from '../components/TLSSettingsForm.vue'
 import { fixtureMode } from '../api/client'
@@ -24,30 +27,64 @@ import {
   loadBootstrap
 } from '../state/workspace'
 
-type SettingsSection = 'devices' | 'recording' | 'telegram' | 'tls' | 'diagnostics'
+type SettingsSection = 'system' | 'devices' | 'recording' | 'telegram' | 'tls' | 'diagnostics'
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 const logoutPending = ref(false)
 const logoutError = ref('')
-const sections: Array<{
+const sections = computed<Array<{
   id: SettingsSection
   label: string
   description: string
   icon: typeof RadioTower
-}> = [
-  { id: 'devices', label: '设备', description: '蜂窝线路与模组', icon: RadioTower },
-  { id: 'recording', label: '通话录音', description: '默认录音设置', icon: Circle },
-  { id: 'telegram', label: 'Telegram', description: '消息通知', icon: Send },
-  { id: 'tls', label: 'HTTPS', description: '证书与安全连接', icon: ShieldCheck },
-  { id: 'diagnostics', label: '诊断', description: '运行状态与实时日志', icon: Activity }
-]
+}>>(() => [
+  {
+    id: 'system',
+    label: t('settings.system'),
+    description: t('settings.systemDescription'),
+    icon: Languages
+  },
+  {
+    id: 'devices',
+    label: t('settings.devices'),
+    description: t('settings.devicesDescription'),
+    icon: RadioTower
+  },
+  {
+    id: 'recording',
+    label: t('settings.recording'),
+    description: t('settings.recordingDescription'),
+    icon: Circle
+  },
+  {
+    id: 'telegram',
+    label: 'Telegram',
+    description: t('settings.telegramDescription'),
+    icon: Send
+  },
+  {
+    id: 'tls',
+    label: 'HTTPS',
+    description: t('settings.tlsDescription'),
+    icon: ShieldCheck
+  },
+  {
+    id: 'diagnostics',
+    label: t('settings.diagnostics'),
+    description: t('settings.diagnosticsDescription'),
+    icon: Activity
+  }
+])
 const selectedSection = computed<SettingsSection | ''>(() => {
   const value = String(route.params.section || '')
-  return sections.some(section => section.id === value) ? (value as SettingsSection) : ''
+  return sections.value.some(section => section.id === value) ? (value as SettingsSection) : ''
 })
 const currentTitle = computed(
-  () => sections.find(section => section.id === selectedSection.value)?.label || '设置'
+  () =>
+    sections.value.find(section => section.id === selectedSection.value)?.label ||
+    t('settings.title')
 )
 
 watch(
@@ -74,7 +111,8 @@ async function logout(): Promise<void> {
     await logoutSession()
     await router.replace({ name: 'login' })
   } catch (error) {
-    logoutError.value = error instanceof Error ? error.message : '退出登录失败'
+    logoutError.value =
+      error instanceof Error ? error.message : t('settings.logoutFailed')
   } finally {
     logoutPending.value = false
   }
@@ -88,7 +126,7 @@ onMounted(() => {
 <template>
   <section class="workspace settings-workspace" :class="{ 'has-selection': selectedSection }">
     <aside class="list-pane settings-list-pane">
-      <header class="pane-header"><h1>设置</h1></header>
+      <header class="pane-header"><h1>{{ t('settings.title') }}</h1></header>
       <div class="item-list settings-list">
         <button
           v-for="section in sections"
@@ -108,8 +146,8 @@ onMounted(() => {
       <footer v-if="!fixtureMode" class="settings-account">
         <span class="settings-account__icon"><UserRound :size="19" /></span>
         <span class="settings-account__identity">
-          <strong>{{ sessionState.username || '管理员' }}</strong>
-          <small>管理员账户</small>
+          <strong>{{ sessionState.username || t('settings.administrator') }}</strong>
+          <small>{{ t('settings.administratorAccount') }}</small>
           <small v-if="logoutError" class="settings-account__error" role="alert">
             {{ logoutError }}
           </small>
@@ -117,8 +155,8 @@ onMounted(() => {
         <button
           class="icon-button"
           type="button"
-          title="退出登录"
-          aria-label="退出登录"
+          :title="t('settings.logout')"
+          :aria-label="t('settings.logout')"
           :disabled="logoutPending"
           @click="logout"
         >
@@ -131,13 +169,22 @@ onMounted(() => {
     <article class="detail-pane settings-detail-pane">
       <template v-if="selectedSection">
         <header class="settings-detail-header">
-          <button class="icon-button mobile-back" type="button" title="返回设置" @click="backToSettings">
+          <button
+            class="icon-button mobile-back"
+            type="button"
+            :title="t('settings.back')"
+            @click="backToSettings"
+          >
             <ArrowLeft :size="20" />
           </button>
           <h2>{{ currentTitle }}</h2>
         </header>
 
-        <div v-if="selectedSection === 'devices'" class="settings-content">
+        <div v-if="selectedSection === 'system'" class="settings-content">
+          <SystemSettingsForm />
+        </div>
+
+        <div v-else-if="selectedSection === 'devices'" class="settings-content">
           <DeviceConfigurationPanel />
         </div>
 
@@ -158,7 +205,7 @@ onMounted(() => {
         </div>
       </template>
 
-      <StatePanel v-else state="empty" title="选择一项设置" />
+      <StatePanel v-else state="empty" :title="t('settings.selectSetting')" />
     </article>
   </section>
 </template>
