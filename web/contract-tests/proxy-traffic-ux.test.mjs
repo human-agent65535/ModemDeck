@@ -93,7 +93,18 @@ test('traffic line state treats inactive data as neutral and preserves explicit 
   )
 })
 
-test('traffic line cards use the device-card responsive width contract', () => {
+test('traffic line cards use a balanced responsive information grid', () => {
+  assert.doesNotMatch(trafficLineCard, /<Cable|t\('traffic\.interface'\)/)
+  assert.doesNotMatch(trafficLineCard, /v-if="connection\.kind !== 'idle'"/)
+  assert.match(trafficLineCard, /<Clock3 v-else/)
+  assert.match(
+    trafficLineCard,
+    /\.traffic-line-card dl\s*\{[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/
+  )
+  assert.match(
+    trafficLineCard,
+    /@container \(max-width:\s*340px\)[\s\S]*\.traffic-line-card dl\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)/
+  )
   assert.match(
     trafficView,
     /\.traffic-line-grid\s*\{[\s\S]*grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(320px,\s*420px\)\)[\s\S]*justify-content:\s*start/

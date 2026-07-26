@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import {
   CardSim,
-  Check,
   CircleAlert,
   CircleCheck,
-  Clock3,
   MessageSquareText,
   Phone,
   RadioTower
@@ -132,25 +130,14 @@ const dataConnection = computed(() => {
             {{ stateLabel }}
           </small>
         </span>
-        <span class="module-card__status">
-          <span
-            v-if="dataConnection"
-            class="module-card__data-status"
-            :class="`is-${dataConnection.kind}`"
-          >
-            <CircleCheck v-if="dataConnection.kind === 'connected'" :size="13" />
-            <CircleAlert v-else-if="dataConnection.kind === 'error'" :size="13" />
-            <Clock3 v-else :size="13" />
-            {{ t(dataConnection.labelKey) }}
-          </span>
-          <span
-            class="module-card__current"
-            :class="{ 'is-visible': selected }"
-            :aria-hidden="!selected"
-          >
-            <Check :size="13" />
-            {{ t('lines.currentConfiguration') }}
-          </span>
+        <span
+          v-if="dataConnection && dataConnection.kind !== 'idle'"
+          class="module-card__data-status"
+          :class="`is-${dataConnection.kind}`"
+        >
+          <CircleCheck v-if="dataConnection.kind === 'connected'" :size="13" />
+          <CircleAlert v-else :size="13" />
+          {{ t(dataConnection.labelKey) }}
         </span>
       </header>
 
@@ -340,18 +327,6 @@ const dataConnection = computed(() => {
   background: #18a46f;
 }
 
-.module-card__status {
-  display: flex;
-  width: 96px;
-  min-height: 24px;
-  flex: 0 0 96px;
-  align-items: flex-end;
-  flex-direction: column;
-  justify-content: flex-end;
-  gap: 4px;
-}
-
-.module-card__current,
 .module-card__data-status {
   display: inline-flex;
   flex: 0 0 auto;
@@ -361,12 +336,6 @@ const dataConnection = computed(() => {
   font-weight: 650;
   padding: 3px 6px;
   border-radius: 4px;
-}
-
-.module-card__current {
-  color: var(--accent-strong);
-  visibility: hidden;
-  background: var(--accent-soft);
 }
 
 .module-card__data-status {
@@ -382,10 +351,6 @@ const dataConnection = computed(() => {
 .module-card__data-status.is-error {
   color: var(--danger);
   background: var(--danger-soft);
-}
-
-.module-card__current.is-visible {
-  visibility: visible;
 }
 
 .module-card__facts {
@@ -515,13 +480,6 @@ const dataConnection = computed(() => {
   width: 34px;
   height: 34px;
   flex: 0 0 34px;
-}
-
-@media (max-width: 560px) {
-  .module-card__status {
-    width: 92px;
-    flex-basis: 92px;
-  }
 }
 
 @container (max-width: 350px) {

@@ -4,7 +4,6 @@ import { useI18n } from 'vue-i18n'
 import {
   ArrowDown,
   ArrowUp,
-  Cable,
   CircleAlert,
   CircleCheck,
   Clock3,
@@ -97,10 +96,6 @@ function secondaryIdentity(): string {
 
     <dl>
       <div>
-        <dt><Cable :size="14" /> {{ t('traffic.interface') }}</dt>
-        <dd>{{ runtime?.interface || '—' }}</dd>
-      </div>
-      <div>
         <dt><Network :size="14" /> {{ t('traffic.ipAddress') }}</dt>
         <dd :title="runtime?.addresses.join('、')">
           {{ runtime?.addresses.join(' · ') || '—' }}
@@ -139,6 +134,7 @@ function secondaryIdentity(): string {
 .traffic-line-card {
   min-width: 0;
   padding: 16px;
+  container-type: inline-size;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -201,16 +197,30 @@ function secondaryIdentity(): string {
 
 .traffic-line-card dl {
   display: grid;
-  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 14px 0 0;
+  overflow: hidden;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 6px;
 }
 
 .traffic-line-card dl > div {
-  display: grid;
+  display: flex;
   min-width: 0;
-  align-items: center;
-  grid-template-columns: 64px minmax(0, 1fr);
-  gap: 10px;
+  min-height: 72px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 7px;
+  padding: 11px 12px;
+}
+
+.traffic-line-card dl > div:nth-child(even) {
+  border-left: 1px solid var(--border);
+}
+
+.traffic-line-card dl > div:nth-child(n + 3) {
+  border-top: 1px solid var(--border);
 }
 
 .traffic-line-card dt {
@@ -219,13 +229,14 @@ function secondaryIdentity(): string {
   gap: 5px;
   color: var(--muted);
   font-size: 12px;
+  font-weight: 600;
 }
 
 .traffic-line-card dd {
   min-width: 0;
   margin: 0;
   overflow: hidden;
-  font-size: 12px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -234,7 +245,7 @@ function secondaryIdentity(): string {
 .traffic-line-card__rate {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 12px;
+  gap: 5px 10px;
 }
 
 .traffic-line-card__rate span {
@@ -251,7 +262,7 @@ function secondaryIdentity(): string {
   color: var(--accent);
 }
 
-@media (max-width: 430px) {
+@container (max-width: 340px) {
   .traffic-line-card > header {
     align-items: stretch;
     flex-direction: column;
@@ -259,6 +270,18 @@ function secondaryIdentity(): string {
 
   .traffic-line-card__state {
     align-self: flex-start;
+  }
+
+  .traffic-line-card dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .traffic-line-card dl > div:nth-child(even) {
+    border-left: 0;
+  }
+
+  .traffic-line-card dl > div:nth-child(n + 2) {
+    border-top: 1px solid var(--border);
   }
 }
 </style>

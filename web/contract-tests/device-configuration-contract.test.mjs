@@ -311,11 +311,12 @@ test('module cards keep selection and default actions in a stable shared footer'
     /defaultLine \? t\('lines\.defaultLine'\) : t\('lines\.setAsDefault'\)/
   )
   assert.match(moduleCardSource, /:disabled="defaultLine"/)
-  assert.match(moduleCardSource, /\.module-card__current\s*\{[^}]*visibility: hidden/s)
+  assert.doesNotMatch(moduleCardSource, /module-card__current|currentConfiguration/)
   assert.match(
     moduleCardSource,
-    /\.module-card__current\.is-visible\s*\{[^}]*visibility: visible/s
+    /v-if="dataConnection && dataConnection\.kind !== 'idle'"[\s\S]*class="module-card__data-status"/
   )
+  assert.match(moduleCardSource, /\.module-card\.is-selected\s*\{[^}]*border-color: var\(--accent\)/s)
   assert.match(
     moduleCardSource,
     /grid-template-columns: minmax\(0, 1fr\) auto/
