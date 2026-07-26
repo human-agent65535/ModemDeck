@@ -4,10 +4,14 @@ package networking
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/human-agent65535/modemdeck/agent/internal/domain"
 	"github.com/vishvananda/netlink"
@@ -17,6 +21,7 @@ import (
 type fakeNetlinkController struct {
 	link               netlink.Link
 	linkUpCalls        int
+	linkDownCalls      int
 	mtuValues          []int
 	addedAddrs         []string
 	deletedAddrs       []string
@@ -24,6 +29,10 @@ type fakeNetlinkController struct {
 	deletedRoutes      []netlink.Route
 	addedRules         []netlink.Rule
 	deletedRules       []netlink.Rule
+	existingAddrs      map[int][]netlink.Addr
+	existingRoutes     map[int][]netlink.Route
+	existingRules      map[int][]netlink.Rule
+	routeAddErrors     []error
 	addrAlreadyExists  bool
 	routeAlreadyExists bool
 	ruleAlreadyExists  bool
@@ -38,6 +47,13 @@ func (fake *fakeNetlinkController) LinkByName(name string) (netlink.Link, error)
 
 func (fake *fakeNetlinkController) LinkSetUp(netlink.Link) error {
 	fake.linkUpCalls++
+	fake.link.Attrs().Flags |= net.FlagUp
+	return nil
+}
+
+func (fake *fakeNetlinkController) LinkSetDown(netlink.Link) error {
+	fake.linkDownCalls++
+	fake.link.Attrs().Flags &^= net.FlagUp
 	return nil
 }
 
@@ -45,6 +61,13 @@ func (fake *fakeNetlinkController) LinkSetMTU(link netlink.Link, mtu int) error 
 	fake.mtuValues = append(fake.mtuValues, mtu)
 	link.Attrs().MTU = mtu
 	return nil
+}
+
+func (fake *fakeNetlinkController) AddrList(
+	_ netlink.Link,
+	family int,
+) ([]netlink.Addr, error) {
+	return append([]netlink.Addr(nil), fake.existingAddrs[family]...), nil
 }
 
 func (fake *fakeNetlinkController) AddrAdd(
@@ -55,6 +78,22 @@ func (fake *fakeNetlinkController) AddrAdd(
 	if fake.addrAlreadyExists {
 		return unix.EEXIST
 	}
+	if fake.existingAddrs == nil {
+		fake.existingAddrs = make(map[int][]netlink.Addr)
+	}
+	family := netlink.FAMILY_V6
+	if address.IP.To4() != nil {
+		family = netlink.FAMILY_V4
+	}
+	for _, existing := range fake.existingAddrs[family] {
+		if existing.Equal(*address) {
+			return unix.EEXIST
+		}
+	}
+	fake.existingAddrs[family] = append(
+		fake.existingAddrs[family],
+		*address,
+	)
 	return nil
 }
 
@@ -63,20 +102,75 @@ func (fake *fakeNetlinkController) AddrDel(
 	address *netlink.Addr,
 ) error {
 	fake.deletedAddrs = append(fake.deletedAddrs, address.String())
+	family := netlink.FAMILY_V6
+	if address.IP.To4() != nil {
+		family = netlink.FAMILY_V4
+	}
+	current := fake.existingAddrs[family]
+	for index := range current {
+		if current[index].Equal(*address) {
+			fake.existingAddrs[family] = append(
+				current[:index],
+				current[index+1:]...,
+			)
+			break
+		}
+	}
 	return nil
 }
 
 func (fake *fakeNetlinkController) RouteAdd(route *netlink.Route) error {
 	fake.addedRoutes = append(fake.addedRoutes, *route)
+	if len(fake.routeAddErrors) > 0 {
+		err := fake.routeAddErrors[0]
+		fake.routeAddErrors = fake.routeAddErrors[1:]
+		if err != nil {
+			return err
+		}
+	}
 	if fake.routeAlreadyExists {
 		return unix.EEXIST
 	}
+	if fake.existingRoutes == nil {
+		fake.existingRoutes = make(map[int][]netlink.Route)
+	}
+	for _, existing := range fake.existingRoutes[route.Table] {
+		if netlinkRoutesEqual(existing, *route) {
+			return unix.EEXIST
+		}
+	}
+	fake.existingRoutes[route.Table] = append(
+		fake.existingRoutes[route.Table],
+		*route,
+	)
 	return nil
 }
 
 func (fake *fakeNetlinkController) RouteDel(route *netlink.Route) error {
 	fake.deletedRoutes = append(fake.deletedRoutes, *route)
+	current := fake.existingRoutes[route.Table]
+	for index := range current {
+		if netlinkRoutesEqual(current[index], *route) {
+			fake.existingRoutes[route.Table] = append(
+				current[:index],
+				current[index+1:]...,
+			)
+			break
+		}
+	}
 	return nil
+}
+
+func (fake *fakeNetlinkController) RouteListFiltered(
+	_ int,
+	filter *netlink.Route,
+	_ uint64,
+) ([]netlink.Route, error) {
+	return append([]netlink.Route(nil), fake.existingRoutes[filter.Table]...), nil
+}
+
+func (fake *fakeNetlinkController) RuleList(family int) ([]netlink.Rule, error) {
+	return append([]netlink.Rule(nil), fake.existingRules[family]...), nil
 }
 
 func (fake *fakeNetlinkController) RuleAdd(rule *netlink.Rule) error {
@@ -84,11 +178,33 @@ func (fake *fakeNetlinkController) RuleAdd(rule *netlink.Rule) error {
 	if fake.ruleAlreadyExists {
 		return unix.EEXIST
 	}
+	if fake.existingRules == nil {
+		fake.existingRules = make(map[int][]netlink.Rule)
+	}
+	for _, existing := range fake.existingRules[rule.Family] {
+		if netlinkRulesEqual(existing, *rule) {
+			return unix.EEXIST
+		}
+	}
+	fake.existingRules[rule.Family] = append(
+		fake.existingRules[rule.Family],
+		*rule,
+	)
 	return nil
 }
 
 func (fake *fakeNetlinkController) RuleDel(rule *netlink.Rule) error {
 	fake.deletedRules = append(fake.deletedRules, *rule)
+	current := fake.existingRules[rule.Family]
+	for index := range current {
+		if netlinkRulesEqual(current[index], *rule) {
+			fake.existingRules[rule.Family] = append(
+				current[:index],
+				current[index+1:]...,
+			)
+			break
+		}
+	}
 	return nil
 }
 
@@ -198,7 +314,15 @@ func TestLinuxDataPlaneRejectsDynamicBearerWithoutLease(t *testing.T) {
 			MTU:   1500,
 		}},
 	}
-	dataPlane, err := newLinuxDataPlane(DataPlaneOptions{}, fake)
+	dataPlane, err := newLinuxDataPlaneWithDependencies(
+		DataPlaneOptions{},
+		fake,
+		newFakeSysctlController("wwan1"),
+		&fakeDynamicAcquirer{ipv4: []acquireResult{{
+			err: errors.New("lease client unavailable"),
+		}}},
+		time.Now,
+	)
 	if err != nil {
 		t.Fatalf("newLinuxDataPlane() error = %v", err)
 	}
@@ -212,10 +336,12 @@ func TestLinuxDataPlaneRejectsDynamicBearerWithoutLease(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "lease client") {
 		t.Fatalf("Configure() error = %v, want lease client diagnosis", err)
 	}
-	if fake.linkUpCalls != 0 ||
+	if fake.linkUpCalls != 1 ||
+		fake.linkDownCalls != 1 ||
+		fake.link.Attrs().Flags&net.FlagUp != 0 ||
 		len(fake.addedAddrs) != 0 ||
 		len(fake.addedRoutes) != 0 {
-		t.Fatalf("dynamic failure mutated netlink state")
+		t.Fatalf("dynamic failure did not restore its interface preparation")
 	}
 }
 
@@ -346,6 +472,88 @@ func TestLinuxDataPlaneRejectsCorruptPersistentState(t *testing.T) {
 	_, err := newLinuxDataPlane(DataPlaneOptions{StateFile: stateFile}, &fakeNetlinkController{})
 	if err == nil || !strings.Contains(err.Error(), "invalid entry") {
 		t.Fatalf("newLinuxDataPlane() error = %v", err)
+	}
+}
+
+func TestLinuxDataPlaneRejectsForgedPersistentOwnership(t *testing.T) {
+	t.Parallel()
+	table, mark := routingIdentityForLine("line-forged-state")
+	base := appliedNetwork{
+		LineID:      "line-forged-state",
+		Interface:   "wwan-state",
+		LinkIndex:   46,
+		Table:       table,
+		Mark:        mark,
+		OriginalMTU: 1500,
+		Addresses:   []string{"10.46.0.2/30"},
+		Routes: []appliedRoute{
+			{
+				Family: unix.AF_INET,
+				Dst:    "10.46.0.0/30",
+				Source: "10.46.0.2",
+			},
+			{
+				Family:  unix.AF_INET,
+				Gateway: "10.46.0.1",
+				Source:  "10.46.0.2",
+			},
+		},
+	}
+	rules, err := appliedRulesForNetwork(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base.Rules = rules
+	if err := validateAppliedNetworkState(base); err != nil {
+		t.Fatalf("valid fixture rejected: %v", err)
+	}
+	tests := map[string]func(*appliedNetwork){
+		"routing identity": func(network *appliedNetwork) {
+			network.Table++
+		},
+		"policy rule": func(network *appliedNetwork) {
+			network.Rules[0].Priority++
+		},
+		"route source": func(network *appliedNetwork) {
+			network.Routes[0].Source = ""
+		},
+		"owned address": func(network *appliedNetwork) {
+			network.Addresses[0] = "192.0.2.46/24"
+		},
+	}
+	for name, mutate := range tests {
+		name, mutate := name, mutate
+		t.Run(name, func(t *testing.T) {
+			stateFile := filepath.Join(t.TempDir(), "network.json")
+			network := base
+			network.Addresses = append([]string(nil), base.Addresses...)
+			network.Routes = append([]appliedRoute(nil), base.Routes...)
+			network.Rules = append([]appliedRule(nil), base.Rules...)
+			mutate(&network)
+			content, err := json.Marshal(dataPlaneStateDocument{
+				Version:  dataPlaneStateVersion,
+				Networks: []appliedNetwork{network},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(stateFile, content, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			fake := newFakeNetlink("wwan-state", 46)
+			_, err = newLinuxDataPlane(
+				DataPlaneOptions{StateFile: stateFile},
+				fake,
+			)
+			if err == nil {
+				t.Fatal("forged persistent ownership was accepted")
+			}
+			if len(fake.deletedAddrs) != 0 ||
+				len(fake.deletedRoutes) != 0 ||
+				len(fake.deletedRules) != 0 {
+				t.Fatal("rejecting forged state mutated netlink")
+			}
+		})
 	}
 }
 

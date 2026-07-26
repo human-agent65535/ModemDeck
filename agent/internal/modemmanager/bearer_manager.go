@@ -335,6 +335,13 @@ func (p *Provider) deactivateOwnedBearerData(
 	if err != nil {
 		return false, err
 	}
+	if err := p.dataPlane.Release(ctx, lineID); err != nil {
+		return false, domain.VerificationFailed(
+			operation,
+			"the ModemDeck bearer network state could not be released before disconnect",
+			err,
+		)
+	}
 	if bearerFound && connection.Connected {
 		if _, err := p.call(
 			ctx,
@@ -345,13 +352,6 @@ func (p *Provider) deactivateOwnedBearerData(
 		); err != nil && !operationErrorIsNotFound(err) {
 			return false, err
 		}
-	}
-	if err := p.dataPlane.Release(ctx, lineID); err != nil {
-		return false, domain.VerificationFailed(
-			operation,
-			"the ModemDeck bearer disconnected but its network state could not be removed",
-			err,
-		)
 	}
 	if _, err := p.call(
 		ctx,

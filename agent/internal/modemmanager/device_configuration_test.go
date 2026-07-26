@@ -22,6 +22,7 @@ type configurationCaller struct {
 	mu                   sync.Mutex
 	objects              ManagedObjects
 	calls                []dbusInvocation
+	events               *[]string
 	connectErr           error
 	deactivateErr        error
 	deleteErr            error
@@ -38,6 +39,7 @@ type configurationCaller struct {
 type recordingDataPlane struct {
 	configured   []domain.DataConnection
 	released     []string
+	events       *[]string
 	configureErr error
 	releaseErr   error
 }
@@ -56,6 +58,9 @@ func (dataPlane *recordingDataPlane) Release(
 	lineID string,
 ) error {
 	dataPlane.released = append(dataPlane.released, lineID)
+	if dataPlane.events != nil {
+		*dataPlane.events = append(*dataPlane.events, "data-plane-release")
+	}
 	return dataPlane.releaseErr
 }
 
@@ -149,6 +154,9 @@ func (caller *configurationCaller) Call(
 		}
 		return []any{}, nil
 	case bearerInterface + ".Disconnect":
+		if caller.events != nil {
+			*caller.events = append(*caller.events, "bearer-disconnect")
+		}
 		if caller.deactivateErr != nil {
 			return nil, caller.deactivateErr
 		}
@@ -929,8 +937,17 @@ func TestApplyDeviceConfigurationReusesOwnedBearer(t *testing.T) {
 func TestApplyDeviceConfigurationDisconnectsOwnedBearer(t *testing.T) {
 	t.Parallel()
 	objects := configurationObjects()
-	caller := &configurationCaller{objects: objects}
-	provider := newTestProvider(caller)
+	events := []string{}
+	caller := &configurationCaller{objects: objects, events: &events}
+	dataPlane := &recordingDataPlane{events: &events}
+	provider, err := newProviderWithOptions(
+		caller,
+		newInstanceIDsForTest("boot-test"),
+		Options{DataPlane: dataPlane},
+	)
+	if err != nil {
+		t.Fatalf("newProviderWithOptions() error = %v", err)
+	}
 	lineID := parsedLineID(objects, provider.ids)
 	current, err := provider.ReadDeviceConfiguration(context.Background(), lineID)
 	if err != nil {
@@ -950,6 +967,7 @@ func TestApplyDeviceConfigurationDisconnectsOwnedBearer(t *testing.T) {
 		t.Fatalf("connect error = %v", err)
 	}
 	caller.calls = nil
+	events = nil
 
 	disconnected, err := provider.ApplyGenericDeviceConfiguration(
 		context.Background(),
@@ -973,6 +991,9 @@ func TestApplyDeviceConfigurationDisconnectsOwnedBearer(t *testing.T) {
 	}
 	if count := caller.methodCount(modemInterface + ".DeleteBearer"); count != 1 {
 		t.Fatalf("bearer deletion calls = %d, methods = %v", count, caller.methods())
+	}
+	if got := strings.Join(events, ","); got != "data-plane-release,bearer-disconnect" {
+		t.Fatalf("disconnect event order = %q", got)
 	}
 }
 
