@@ -315,6 +315,57 @@ func TestVoLTERestartRequirementPersistsUntilUserRestartsModem(t *testing.T) {
 	}
 }
 
+func TestUSBResetClearsPendingRestartThroughGenericProvider(t *testing.T) {
+	t.Parallel()
+	service, generic, _ := newRestartingVoLTEService(t, volte.PolicyDisabled)
+
+	current, err := service.DeviceConfiguration(context.Background(), "line-1")
+	if err != nil {
+		t.Fatalf("DeviceConfiguration() error = %v", err)
+	}
+	pending, err := service.ApplyDeviceConfiguration(
+		context.Background(),
+		domain.ApplyDeviceConfigurationRequest{
+			RequestID:        "enable-volte-before-usb-reset",
+			LineID:           "line-1",
+			ExpectedRevision: current.Revision,
+			Operation:        domain.DeviceConfigurationSetVoLTEPolicy,
+			VoLTEPolicy:      string(volte.PolicyEnabled),
+		},
+	)
+	if err != nil {
+		t.Fatalf("ApplyDeviceConfiguration(enable VoLTE) error = %v", err)
+	}
+	if !pending.VoLTE.RestartRequired {
+		t.Fatalf("VoLTE = %+v, want restart required", pending.VoLTE)
+	}
+
+	reset, err := service.ApplyDeviceConfiguration(
+		context.Background(),
+		domain.ApplyDeviceConfigurationRequest{
+			RequestID:        "usb-reset-after-volte",
+			LineID:           "line-1",
+			ExpectedRevision: pending.Revision,
+			Operation:        domain.DeviceConfigurationResetUSB,
+		},
+	)
+	if err != nil {
+		t.Fatalf("ApplyDeviceConfiguration(reset USB) error = %v", err)
+	}
+	if reset.VoLTE.RestartRequired {
+		t.Fatalf("VoLTE after reset = %+v, want pending restart cleared", reset.VoLTE)
+	}
+	if generic.applyCalls != 1 ||
+		len(generic.applyRequests) != 1 ||
+		generic.applyRequests[0].Operation != domain.DeviceConfigurationResetUSB {
+		t.Fatalf(
+			"generic apply calls = %d, requests = %+v",
+			generic.applyCalls,
+			generic.applyRequests,
+		)
+	}
+}
+
 func TestQDC507UsesVendorRestartInsteadOfModemManagerReset(t *testing.T) {
 	t.Parallel()
 

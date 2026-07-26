@@ -643,6 +643,11 @@ function fixtureHardware(line: LineSummary, index: number): DeviceHardwareConfig
         implemented: true,
         readable: true,
         writable: true
+      }),
+      usb_reset: feature('linux_usbfs', {
+        implemented: true,
+        readable: true,
+        writable: true
       })
     }
   }
@@ -2018,6 +2023,19 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
             ...hardware.volte,
             restart_required: false,
             modem_capability_enabled: hardware.volte.policy === 'enabled'
+          }
+          break
+        case 'reset_usb':
+          if (!hardware.capabilities.usb_reset.writable) {
+            throw new ApiError(
+              hardware.capabilities.usb_reset.reason || 'USB 硬复位不可用',
+              501,
+              'not_supported'
+            )
+          }
+          hardware.volte = {
+            ...hardware.volte,
+            restart_required: false
           }
           break
       }

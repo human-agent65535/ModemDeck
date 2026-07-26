@@ -16,6 +16,7 @@ const (
 	DeviceConfigurationDisconnectData  DeviceConfigurationOperation = "disconnect_data"
 	DeviceConfigurationSetVoLTEPolicy  DeviceConfigurationOperation = "set_volte_policy"
 	DeviceConfigurationRestartModem    DeviceConfigurationOperation = "restart_modem"
+	DeviceConfigurationResetUSB        DeviceConfigurationOperation = "reset_usb"
 )
 
 type FeatureCapability struct {
@@ -96,6 +97,7 @@ type DeviceConfigurationCapabilities struct {
 	ATTerminal        FeatureCapability `json:"at_terminal"`
 	USSD              FeatureCapability `json:"ussd"`
 	ConnectionProfile FeatureCapability `json:"connection_profile"`
+	USBReset          FeatureCapability `json:"usb_reset"`
 }
 
 type DeviceConfiguration struct {

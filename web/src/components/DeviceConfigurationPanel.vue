@@ -44,6 +44,7 @@ import {
   deviceConfigurationState,
   disconnectData,
   loadDeviceConfiguration,
+  resetUSBDevice,
   restartModem,
   selectDeviceConfiguration,
   setIncomingCallPolicy,
@@ -199,6 +200,8 @@ const apnPlaceholder = computed(() => automaticAPNLabel(hardware.value?.automati
 const incomingCalls = computed(() => configuration.value?.incoming_calls)
 const savingOperation = computed(() => selectedResource.value?.savingOperation || '')
 const hardwareBusy = computed(() => savingOperation.value !== '')
+const usbResetCapability = computed(() => hardware.value?.capabilities.usb_reset)
+const usbResetWritable = computed(() => Boolean(usbResetCapability.value?.writable))
 const connectedDataConnection = computed(() =>
   hardware.value?.data_connections.find(connection => connection.connected)
 )
@@ -361,7 +364,8 @@ const otherCapabilities = computed(() => {
       id: 'connection_profile',
       label: t('device.connectionProfiles'),
       capability: capabilities.connection_profile
-    }
+    },
+    { id: 'usb_reset', label: t('device.usbHardReset'), capability: capabilities.usb_reset }
   ]
 })
 
@@ -793,6 +797,18 @@ async function applyModemRestart(): Promise<void> {
   })
   if (!confirmed) return
   await restartModem(selectedLineID.value)
+}
+
+async function applyUSBReset(): Promise<void> {
+  if (!selectedLineID.value || !usbResetWritable.value) return
+  const confirmed = await requestConfirmation({
+    title: t('device.usbResetTitle'),
+    message: t('device.usbResetMessage'),
+    confirmLabel: t('device.usbHardReset'),
+    tone: 'danger'
+  })
+  if (!confirmed) return
+  await resetUSBDevice(selectedLineID.value)
 }
 
 async function applyIncomingPolicy(): Promise<void> {
@@ -1265,6 +1281,39 @@ onMounted(() => {
                 <strong>{{ capabilityStatus(item.capability, item.id) }}</strong>
                 <small>{{ capabilityDetail(item.capability, item.id) }}</small>
               </div>
+            </div>
+          </section>
+
+          <section
+            v-if="usbResetCapability?.supported && usbResetCapability.implemented"
+            class="configuration-section"
+          >
+            <header><Cable :size="18" /><h4>{{ t('device.faultRecovery') }}</h4></header>
+            <div class="usb-recovery">
+              <span>
+                <strong>{{ t('device.usbHardReset') }}</strong>
+                <small>
+                  {{
+                    usbResetCapability.writable
+                      ? t('device.usbResetDescription')
+                      : readOnlyReason(usbResetCapability)
+                  }}
+                </small>
+              </span>
+              <button
+                class="primary-action usb-reset-action"
+                type="button"
+                :disabled="hardwareBusy || !usbResetWritable"
+                @click="applyUSBReset"
+              >
+                <LoaderCircle
+                  v-if="savingOperation === 'reset_usb'"
+                  class="spin"
+                  :size="16"
+                />
+                <RotateCw v-else :size="16" />
+                {{ t('device.usbHardReset') }}
+              </button>
             </div>
           </section>
         </template>
@@ -2501,6 +2550,37 @@ onMounted(() => {
   border-radius: 6px;
 }
 
+.usb-recovery {
+  display: flex;
+  width: 100%;
+  max-width: 720px;
+  min-height: 64px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.usb-recovery > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.usb-recovery small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.usb-reset-action {
+  flex: 0 0 auto;
+  background: #a13f35;
+}
+
 .restart-required > span {
   display: flex;
   min-width: 0;
@@ -3353,6 +3433,12 @@ pre {
   }
 
   .restart-required {
+    max-width: none;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .usb-recovery {
     max-width: none;
     align-items: stretch;
     flex-direction: column;

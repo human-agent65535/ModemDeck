@@ -15,10 +15,16 @@ type DataPlane interface {
 	OwnedLines() []string
 }
 
+type USBRecovery interface {
+	Capability(string) domain.FeatureCapability
+	Reset(context.Context, string) error
+}
+
 type Options struct {
 	DataPlane       DataPlane
 	BearerStateFile string
 	RadioStateFile  string
+	USBRecovery     USBRecovery
 }
 
 type noopDataPlane struct{}

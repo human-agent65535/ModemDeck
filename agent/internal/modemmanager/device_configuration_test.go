@@ -44,6 +44,26 @@ type recordingDataPlane struct {
 	releaseErr   error
 }
 
+type recordingUSBRecovery struct {
+	capability    domain.FeatureCapability
+	capabilityFor []string
+	resetFor      []string
+	resetErr      error
+}
+
+func (recovery *recordingUSBRecovery) Capability(physicalDevice string) domain.FeatureCapability {
+	recovery.capabilityFor = append(recovery.capabilityFor, physicalDevice)
+	return recovery.capability
+}
+
+func (recovery *recordingUSBRecovery) Reset(
+	_ context.Context,
+	physicalDevice string,
+) error {
+	recovery.resetFor = append(recovery.resetFor, physicalDevice)
+	return recovery.resetErr
+}
+
 func (dataPlane *recordingDataPlane) Configure(
 	_ context.Context,
 	_ string,
@@ -799,6 +819,60 @@ func TestApplyDeviceConfigurationRestartsModemExactlyOnce(t *testing.T) {
 	}
 	if resetCalls != 1 {
 		t.Fatalf("Reset calls = %d, methods = %v", resetCalls, caller.methods())
+	}
+}
+
+func TestApplyDeviceConfigurationResetsResolvedUSBDeviceExactlyOnce(t *testing.T) {
+	t.Parallel()
+	objects := configurationObjects()
+	caller := &configurationCaller{objects: objects}
+	recovery := &recordingUSBRecovery{capability: domain.FeatureCapability{
+		Backend:     "linux_usbfs",
+		Supported:   true,
+		Implemented: true,
+		Readable:    true,
+		Writable:    true,
+	}}
+	provider, err := newProviderWithOptions(
+		caller,
+		newInstanceIDsForTest("boot-test"),
+		Options{USBRecovery: recovery},
+	)
+	if err != nil {
+		t.Fatalf("newProviderWithOptions() error = %v", err)
+	}
+	lineID := parsedLineID(objects, provider.ids)
+	current, err := provider.ReadDeviceConfiguration(context.Background(), lineID)
+	if err != nil {
+		t.Fatalf("ReadDeviceConfiguration() error = %v", err)
+	}
+	if !current.Capabilities.USBReset.Writable {
+		t.Fatalf("USB reset capability = %#v", current.Capabilities.USBReset)
+	}
+
+	reset, err := provider.ApplyGenericDeviceConfiguration(
+		context.Background(),
+		domain.ApplyDeviceConfigurationRequest{
+			RequestID:        "reset-usb-1",
+			LineID:           lineID,
+			ExpectedRevision: current.Revision,
+			Operation:        domain.DeviceConfigurationResetUSB,
+		},
+	)
+	if err != nil {
+		t.Fatalf("ApplyGenericDeviceConfiguration(reset USB) error = %v", err)
+	}
+	if reset.LineID != lineID {
+		t.Fatalf("reset line = %q, want %q", reset.LineID, lineID)
+	}
+	if len(recovery.resetFor) != 1 ||
+		recovery.resetFor[0] != "/sys/devices/usb1/1-2" {
+		t.Fatalf("USB reset physical devices = %#v", recovery.resetFor)
+	}
+	for _, call := range caller.calls {
+		if call.Method == modemInterface+".Reset" {
+			t.Fatalf("USB reset unexpectedly called ModemManager Reset")
+		}
 	}
 }
 

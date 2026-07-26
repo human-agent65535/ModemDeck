@@ -330,7 +330,8 @@ func TestDeviceConfigurationReadsAndAppliesTypedContract(t *testing.T) {
 				"esim":{"backend":"vendor_extension","supported":false,"implemented":false,"readable":false,"writable":false},
 				"at_terminal":{"backend":"vendor_extension","supported":false,"implemented":false,"readable":false,"writable":false},
 				"ussd":{"backend":"modemmanager","supported":false,"implemented":false,"readable":false,"writable":false},
-				"connection_profile":{"backend":"modemmanager","supported":false,"implemented":false,"readable":false,"writable":false}
+				"connection_profile":{"backend":"modemmanager","supported":false,"implemented":false,"readable":false,"writable":false},
+				"usb_reset":{"backend":"linux_usbfs","supported":true,"implemented":true,"readable":true,"writable":true}
 			}
 		}`))
 	}))
@@ -349,6 +350,10 @@ func TestDeviceConfigurationReadsAndAppliesTypedContract(t *testing.T) {
 		configuration.VoLTE.ModemCapabilityEnabled ||
 		!configuration.VoLTE.RestartRequired {
 		t.Fatalf("configuration = %+v", configuration)
+	}
+	if !configuration.Capabilities.USBReset.Writable ||
+		configuration.Capabilities.USBReset.Backend != "linux_usbfs" {
+		t.Fatalf("USB reset capability = %+v", configuration.Capabilities.USBReset)
 	}
 	if configuration.Details.HardwareRevision != "fixture-hw-1" ||
 		configuration.Details.PrimaryPort != "cdc-wdm0" ||

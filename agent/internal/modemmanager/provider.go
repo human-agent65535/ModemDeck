@@ -17,6 +17,7 @@ import (
 
 	"github.com/godbus/dbus/v5"
 	"github.com/human-agent65535/modemdeck/agent/internal/domain"
+	"github.com/human-agent65535/modemdeck/agent/internal/usbrecovery"
 )
 
 const (
@@ -42,6 +43,7 @@ type Provider struct {
 	dataPlane     DataPlane
 	ownedBearers  *bearerOwnershipStore
 	radioStates   *radioStateStore
+	usbRecovery   USBRecovery
 
 	callMu        sync.Mutex
 	configMu      sync.Mutex
@@ -152,6 +154,9 @@ func newProviderWithOptions(
 	if options.DataPlane == nil {
 		options.DataPlane = noopDataPlane{}
 	}
+	if options.USBRecovery == nil {
+		options.USBRecovery = usbrecovery.New()
+	}
 	ownedBearers, err := newBearerOwnershipStore(options.BearerStateFile)
 	if err != nil {
 		return nil, fmt.Errorf("load owned bearer state: %w", err)
@@ -172,6 +177,7 @@ func newProviderWithOptions(
 		dataPlane:         options.DataPlane,
 		ownedBearers:      ownedBearers,
 		radioStates:       radioStates,
+		usbRecovery:       options.USBRecovery,
 		terminalCalls:     make(map[string]terminalCallProjection),
 		networkOperations: make(map[string]struct{}),
 		signalSetupStates: make(map[string]signalSetupState),

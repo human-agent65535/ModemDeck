@@ -102,7 +102,8 @@ func (s *Service) ApplyDeviceConfiguration(
 		if err != nil {
 			return domain.DeviceConfiguration{}, err
 		}
-		if request.Operation == domain.DeviceConfigurationRestartModem {
+		if request.Operation == domain.DeviceConfigurationRestartModem ||
+			request.Operation == domain.DeviceConfigurationResetUSB {
 			s.setRestartPending(request.LineID, false)
 			current.VoLTE.RestartRequired = false
 			return current, nil
@@ -392,7 +393,8 @@ func validateRequest(request domain.ApplyDeviceConfigurationRequest) error {
 	case domain.DeviceConfigurationSetRadioEnabled,
 		domain.DeviceConfigurationConnectData,
 		domain.DeviceConfigurationDisconnectData,
-		domain.DeviceConfigurationRestartModem:
+		domain.DeviceConfigurationRestartModem,
+		domain.DeviceConfigurationResetUSB:
 		return nil
 	case domain.DeviceConfigurationSetVoLTEPolicy:
 		if request.RadioEnabled != nil || request.APN != "" || request.IPFamily != "" {

@@ -1226,6 +1226,7 @@ export function createDeviceConfigurationPayload(
         volte_policy: input.volte_policy
       }
     case 'restart_modem':
+    case 'reset_usb':
       return {
         request_id: requestID,
         operation: input.operation,
@@ -1425,7 +1426,8 @@ function parseDeviceCapabilities(value: unknown): DeviceConfigurationCapabilitie
     connection_profile: parseFeatureCapability(
       source.connection_profile,
       'hardware.capabilities.connection_profile'
-    )
+    ),
+    usb_reset: parseFeatureCapability(source.usb_reset, 'hardware.capabilities.usb_reset')
   }
 }
 

@@ -35,6 +35,7 @@ type HardwareUpdateIntent =
   | { operation: 'disconnect_data' }
   | { operation: 'set_volte_policy'; volte_policy: 'enabled' | 'disabled' }
   | { operation: 'restart_modem' }
+  | { operation: 'reset_usb' }
 
 type DeviceUpdateIntent = IncomingPolicyUpdate | HardwareUpdateIntent
 
@@ -380,6 +381,35 @@ export async function restartModem(lineID: string): Promise<boolean> {
   }
   target.status = 'error'
   target.error = translate('runtime.modemRestartTimeout')
+  return false
+}
+
+export async function resetUSBDevice(lineID: string): Promise<boolean> {
+  const target = resourceFor(lineID)
+  const accepted = await updateDevice(lineID, {
+    operation: 'reset_usb'
+  })
+  if (!accepted) return false
+
+  target.status = 'loading'
+  target.error = ''
+  await wait(1500)
+  const deadline = Date.now() + 60_000
+  while (Date.now() < deadline) {
+    try {
+      const configuration = await gateway.getDeviceConfiguration(lineID)
+      if (configuration.hardware) {
+        target.data = configuration
+        target.status = 'ready'
+        return true
+      }
+    } catch {
+      // The ModemManager object disappears while USB re-enumeration is in progress.
+    }
+    await wait(1000)
+  }
+  target.status = 'error'
+  target.error = translate('runtime.usbResetTimeout')
   return false
 }
 

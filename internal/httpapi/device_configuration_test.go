@@ -349,6 +349,44 @@ func TestAppHardwareConfigurationForwardsOpaqueDeviceRevision(t *testing.T) {
 	}
 }
 
+func TestAppHardwareConfigurationAcceptsControlledUSBReset(t *testing.T) {
+	t.Parallel()
+	configurations := &fakeDeviceConfigurations{configuration: agentclient.DeviceConfiguration{
+		LineID:     "line-1",
+		Revision:   "sha256:updated",
+		ObservedAt: time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC),
+	}}
+	api, err := New(&fakeRepository{}, Options{
+		DeviceConfigurations:  configurations,
+		CallPolicies:          &fakeCallPolicies{},
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/v1/devices/line-1/configuration",
+		bytes.NewBufferString(`{
+			"request_id":"usb-reset-1",
+			"operation":"reset_usb",
+			"expected_device_revision":"sha256:current"
+		}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if configurations.applyRequest.Operation != agentclient.DeviceConfigurationResetUSB ||
+		configurations.applyRequest.RequestID != "usb-reset-1" ||
+		configurations.applyRequest.ExpectedRevision != "sha256:current" {
+		t.Fatalf("USB reset request = %+v", configurations.applyRequest)
+	}
+}
+
 func communicationStatusWithReject(lineID string) communication.Status {
 	return communication.Status{
 		Connected:  true,

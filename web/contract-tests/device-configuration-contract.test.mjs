@@ -119,6 +119,19 @@ test('call policy and device configuration contracts match the root API', () => 
     'operation',
     'request_id'
   ])
+  assert.deepEqual(
+    createDeviceConfigurationPayload({
+      request_id: ' request-usb-reset-1 ',
+      operation: 'reset_usb',
+      expected_device_revision: ' sha256:current ',
+      apn: 'must-not-be-forwarded'
+    }),
+    {
+      request_id: 'request-usb-reset-1',
+      operation: 'reset_usb',
+      expected_device_revision: 'sha256:current'
+    }
+  )
   assert.throws(
     () =>
       createDeviceConfigurationPayload({
@@ -130,6 +143,24 @@ test('call policy and device configuration contracts match the root API', () => 
       }),
     /APN/
   )
+})
+
+test('USB hard reset is an explicit confirmed recovery action', () => {
+  const applyUSBResetBody = functionBody(
+    devicePanelSource,
+    'async function applyUSBReset'
+  )
+  const resetUSBDeviceBody = functionBody(
+    deviceConfigurationStateSource,
+    'export async function resetUSBDevice'
+  )
+
+  assert.match(devicePanelSource, /usbResetCapability\?\.supported/)
+  assert.match(applyUSBResetBody, /requestConfirmation/)
+  assert.match(applyUSBResetBody, /tone:\s*['"]danger['"]/)
+  assert.match(resetUSBDeviceBody, /operation:\s*['"]reset_usb['"]/)
+  assert.match(resetUSBDeviceBody, /60_000/)
+  assert.doesNotMatch(devicePanelSource, /\/dev\/bus\/usb|\/sys\/devices/)
 })
 
 test('VoLTE restart remains an explicit user action', () => {

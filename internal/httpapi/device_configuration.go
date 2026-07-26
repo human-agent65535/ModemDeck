@@ -365,7 +365,8 @@ func validHardwareConfigurationOperation(
 		agentclient.DeviceConfigurationConnectData,
 		agentclient.DeviceConfigurationDisconnectData,
 		agentclient.DeviceConfigurationSetVoLTEPolicy,
-		agentclient.DeviceConfigurationRestartModem:
+		agentclient.DeviceConfigurationRestartModem,
+		agentclient.DeviceConfigurationResetUSB:
 		return true
 	default:
 		return false

@@ -10,6 +10,7 @@ import (
 
 	"github.com/godbus/dbus/v5"
 	"github.com/human-agent65535/modemdeck/agent/internal/domain"
+	"github.com/human-agent65535/modemdeck/agent/internal/usbrecovery"
 )
 
 const (
@@ -286,6 +287,22 @@ func (p *Provider) ApplyGenericDeviceConfiguration(
 			return domain.DeviceConfiguration{}, err
 		}
 		return current, nil
+	case domain.DeviceConfigurationResetUSB:
+		if !current.Capabilities.USBReset.Writable {
+			return domain.DeviceConfiguration{}, domain.NotSupported(
+				operation,
+				current.Capabilities.USBReset.Reason,
+			)
+		}
+		parsed := ParseManagedObjects(objects, p.ids)
+		line, found := findLine(parsed.Lines, request.LineID)
+		if !found {
+			return domain.DeviceConfiguration{}, domain.NotFound(operation, "line was not found")
+		}
+		if err := p.usbRecovery.Reset(bounded, line.PhysicalDevice); err != nil {
+			return domain.DeviceConfiguration{}, mapUSBRecoveryError(operation, err)
+		}
+		return current, nil
 	case domain.DeviceConfigurationSetVoLTEPolicy:
 		return domain.DeviceConfiguration{}, domain.NotSupported(
 			operation,
@@ -399,6 +416,7 @@ func (p *Provider) readDeviceConfiguration(
 		DataConnections: []domain.DataConnection{},
 	}
 	configuration.Capabilities = genericConfigurationCapabilities(interfaces)
+	configuration.Capabilities.USBReset = p.usbRecovery.Capability(line.PhysicalDevice)
 	configuration.AutomaticAPN = p.resolveAutomaticAPN(
 		ctx,
 		objects,
@@ -763,6 +781,10 @@ func validateConfigurationRequest(request domain.ApplyDeviceConfigurationRequest
 		if request.RadioEnabled != nil || request.APN != "" || request.IPFamily != "" || request.VoLTEPolicy != "" {
 			return domain.InvalidArgument(operation, "restart_modem does not accept operation parameters")
 		}
+	case domain.DeviceConfigurationResetUSB:
+		if request.RadioEnabled != nil || request.APN != "" || request.IPFamily != "" || request.VoLTEPolicy != "" {
+			return domain.InvalidArgument(operation, "reset_usb does not accept operation parameters")
+		}
 	case domain.DeviceConfigurationSetVoLTEPolicy:
 		if request.RadioEnabled != nil || request.APN != "" || request.IPFamily != "" {
 			return domain.InvalidArgument(operation, "set_volte_policy accepts only volte_policy")
@@ -774,6 +796,26 @@ func validateConfigurationRequest(request domain.ApplyDeviceConfigurationRequest
 		return domain.InvalidArgument(operation, "unsupported device configuration operation")
 	}
 	return nil
+}
+
+func mapUSBRecoveryError(operation string, err error) error {
+	var unsupported *usbrecovery.UnsupportedError
+	var cooldown *usbrecovery.CooldownError
+	var permission *usbrecovery.PermissionError
+	switch {
+	case errors.As(err, &unsupported):
+		return domain.NotSupported(operation, unsupported.Reason)
+	case errors.Is(err, usbrecovery.ErrBusy):
+		return domain.Conflict(operation, "another USB reset is already in progress")
+	case errors.As(err, &cooldown):
+		return domain.FailedPrecondition(operation, cooldown.Error(), err)
+	case errors.As(err, &permission):
+		return domain.PermissionDenied(operation, permission.Error(), err)
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return domain.Unavailable(operation, "USB reset did not complete before the request ended", err)
+	default:
+		return domain.Unavailable(operation, "Linux usbfs failed to reset the modem", err)
+	}
 }
 
 func configurationContext(

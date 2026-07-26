@@ -782,6 +782,7 @@ export type DeviceConfigurationCapabilities = {
   at_terminal: DeviceFeatureCapability
   ussd: DeviceFeatureCapability
   connection_profile: DeviceFeatureCapability
+  usb_reset: DeviceFeatureCapability
 }
 
 export type DeviceHardwareConfiguration = {
@@ -938,6 +939,11 @@ export type UpdateDeviceConfigurationInput =
   | {
       request_id: string
       operation: 'restart_modem'
+      expected_device_revision: string
+    }
+  | {
+      request_id: string
+      operation: 'reset_usb'
       expected_device_revision: string
     }
 

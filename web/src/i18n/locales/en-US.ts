@@ -840,6 +840,13 @@ export default {
     restartTitle: 'Restart modem?',
     restartMessage: 'Current calls and mobile data will be interrupted.',
     restart: 'Restart',
+    faultRecovery: 'Fault recovery',
+    usbHardReset: 'USB hard reset',
+    usbResetDescription:
+      'Re-enumerate the USB device for manual recovery when the modem stops responding.',
+    usbResetTitle: 'Perform a USB hard reset?',
+    usbResetMessage:
+      'The modem will disconnect from USB and re-enumerate. Current calls, messaging operations, and mobile data will be interrupted.',
     simLoadFailed: 'Unable to load SIM status',
     submitPIN: 'Submit PIN',
     submitPUK: 'Submit PUK and set a new PIN',
@@ -1001,6 +1008,7 @@ export default {
     turnOffFlightModeForData: 'Turn off airplane mode before enabling mobile data.',
     invalidDeviceConfiguration: 'Device configuration response is missing hardware or incoming_calls',
     modemRestartTimeout: 'The modem did not come back online within 45 seconds',
+    usbResetTimeout: 'The modem did not come back online within 60 seconds of the USB reset',
     audioOutputUnsupported: 'This browser does not support selecting an audio output device',
     audioOutputUnavailable: 'The selected audio output device is currently unavailable',
     microphoneUnavailable: 'The selected microphone is currently unavailable',
