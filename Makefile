@@ -7,6 +7,7 @@ NODE_IMAGE ?= node:22.17.1-bookworm-slim@sha256:2fa754a9ba4d7adbd2a51d182eaabbe3
 GITLEAKS_IMAGE ?= ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 AGENT_NAME ?= modemdeck-agent
 IMAGE ?= modemdeck
+HARDWARE_IMAGE ?= modemdeck-hardware
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || printf '%s' dev)
 BUILD_DATE ?= $(shell git show -s --format=%cI HEAD 2>/dev/null || printf '%s' unknown)
 VCS_REF ?= $(shell git rev-parse HEAD 2>/dev/null || printf '%s' unknown)
@@ -20,6 +21,7 @@ MODEMDECK_GID ?= 10001
 MODEMDECK_AGENT_GID ?= 10002
 COMPOSE_ADMIN_PASSWORD_FILE ?= /dev/null
 COMPOSE_SETTINGS_KEY_FILE ?= /dev/null
+COMPOSE_ASSIGNMENT_FILE ?= $(CURDIR)/deploy/advanced-assignment.example.json
 HOST_UID := $(shell id -u)
 HOST_GID := $(shell id -g)
 
@@ -65,10 +67,11 @@ WEB_NODE_RW = docker run --rm \
 	-w /workspace/web \
 	$(NODE_IMAGE)
 
-.PHONY: all build app-build agent-build image check root-toolchain root-test \
+.PHONY: all build app-build agent-build image app-image hardware-image check \
+	hardware-check deployment-check root-toolchain root-test \
 	agent-test root-vet agent-vet web-install web-test web-typecheck web-lint \
 	web-check web-build compose-config dockerfile-check compose-up compose-down \
-	compose-logs prepare-data install-agent repository-check secret-scan clean
+	compose-logs prepare-data install-check repository-check secret-scan clean
 
 all: check build
 
@@ -93,7 +96,9 @@ agent-build:
 		-o /workspace/$(AGENT_OUT) $(AGENT_MAIN); \
 		chown $(HOST_UID):$(HOST_GID) /workspace/$(AGENT_OUT)'
 
-image:
+image: app-image hardware-image
+
+app-image:
 	docker build \
 		--platform "$(TARGETOS)/$(TARGETARCH)" \
 		--target runtime \
@@ -105,7 +110,19 @@ image:
 		-t "$(IMAGE):$(VERSION)" \
 		.
 
-check: repository-check root-test agent-test root-vet agent-vet web-check compose-config dockerfile-check
+hardware-image:
+	docker build \
+		--platform "$(TARGETOS)/$(TARGETARCH)" \
+		--file hardware/Dockerfile \
+		--target runtime \
+		--build-arg VERSION="$(VERSION)" \
+		--build-arg BUILD_DATE="$(BUILD_DATE)" \
+		--build-arg VCS_REF="$(VCS_REF)" \
+		-t "$(HARDWARE_IMAGE):$(VERSION)" \
+		.
+
+check: repository-check root-test agent-test root-vet agent-vet web-check \
+	hardware-check deployment-check compose-config dockerfile-check
 
 repository-check:
 	./scripts/check-repository-hygiene.sh
@@ -132,6 +149,12 @@ root-vet: root-toolchain
 
 agent-vet:
 	$(AGENT_GO_RO) go vet -mod=readonly ./...
+
+hardware-check:
+	./hardware/tests/run.sh
+
+deployment-check:
+	./deploy/tests/run.sh
 
 web-install:
 	$(WEB_NODE_RO) npm ci --include=dev --no-audit --no-fund
@@ -161,17 +184,26 @@ compose-config:
 	MODEMDECK_ADMIN_PASSWORD_FILE="$(COMPOSE_ADMIN_PASSWORD_FILE)" \
 	MODEMDECK_SETTINGS_KEY_FILE="$(COMPOSE_SETTINGS_KEY_FILE)" \
 	docker compose config --quiet
+	@if [ -f docker-compose.advanced.yml ]; then \
+		MODEMDECK_BUILD_DATE="$(BUILD_DATE)" \
+		MODEMDECK_VCS_REF="$(VCS_REF)" \
+		MODEMDECK_AGENT_GID="$(MODEMDECK_AGENT_GID)" \
+		MODEMDECK_ADMIN_PASSWORD_FILE="$(COMPOSE_ADMIN_PASSWORD_FILE)" \
+		MODEMDECK_SETTINGS_KEY_FILE="$(COMPOSE_SETTINGS_KEY_FILE)" \
+		MODEMDECK_ASSIGNMENT_FILE="$(COMPOSE_ASSIGNMENT_FILE)" \
+		docker compose \
+			-f docker-compose.yml \
+			-f docker-compose.advanced.yml \
+			config --quiet; \
+	fi
 
 dockerfile-check:
 	docker build --check .
+	docker build --check --file hardware/Dockerfile .
 
 prepare-data:
 	sudo env MODEMDECK_UID="$(MODEMDECK_UID)" MODEMDECK_GID="$(MODEMDECK_GID)" \
 		./scripts/prepare-modemdeck-data.sh "$(CURDIR)/data"
-
-install-agent: agent-build
-	sudo env MODEMDECK_AGENT_GID="$(MODEMDECK_AGENT_GID)" \
-		./scripts/install-modemdeck-agent.sh "$(CURDIR)/$(AGENT_OUT)"
 
 compose-up:
 	docker compose up --detach --build
@@ -180,7 +212,10 @@ compose-down:
 	docker compose down
 
 compose-logs:
-	docker compose logs --follow modemdeck
+	docker compose logs --follow hardware modemdeck
+
+install-check:
+	./install.sh --check --allow-dirty
 
 clean:
 	rm -rf "$(DIST_DIR)" web/dist

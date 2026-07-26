@@ -1,0 +1,29 @@
+services:
+  hardware:
+    environment:
+      MODEMDECK_HARDWARE_MODE: advanced
+      MODEMDECK_DEVICE_ASSIGNMENTS_FILE: /etc/modemdeck/device-assignments.json
+    command:
+      - --mode
+      - advanced
+      - --assignments
+      - /etc/modemdeck/device-assignments.json
+    volumes:
+      - type: bind
+        source: ${MODEMDECK_ASSIGNMENT_FILE:?MODEMDECK_ASSIGNMENT_FILE must point to an advanced assignment JSON file}
+        target: /etc/modemdeck/device-assignments.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MODEMDECK_HOST_PROC_ROOT:-/proc}
+        target: /run/host-proc
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MODEMDECK_HOST_DBUS_SOCKET:-/run/dbus/system_bus_socket}
+        target: /run/host-dbus/system_bus_socket
+        read_only: true
+        bind:
+          create_host_path: false

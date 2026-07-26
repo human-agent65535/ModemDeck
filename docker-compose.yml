@@ -1,6 +1,77 @@
 name: modemdeck
 
 services:
+  hardware:
+    build:
+      context: .
+      dockerfile: hardware/Dockerfile
+      target: runtime
+      args:
+        VERSION: ${MODEMDECK_VERSION:-dev}
+        BUILD_DATE: ${MODEMDECK_BUILD_DATE:-unknown}
+        VCS_REF: ${MODEMDECK_VCS_REF:-unknown}
+    image: ${MODEMDECK_HARDWARE_IMAGE:-modemdeck-hardware}:${MODEMDECK_VERSION:-dev}
+    container_name: modemdeck-hardware
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    read_only: true
+    environment:
+      MODEMDECK_HARDWARE_MODE: simple
+      MODEMDECK_AGENT_SOCKET: /run/modemdeck/agent.sock
+      MODEMDECK_AGENT_SOCKET_MODE: "0660"
+      MODEMDECK_AGENT_SOCKET_GID: ${MODEMDECK_AGENT_GID:-10002}
+      MODEMDECK_BEARER_STATE_FILE: /run/modemdeck/bearers.json
+      MODEMDECK_NETWORK_STATE_FILE: /run/modemdeck/network.json
+      MODEMDECK_MEDIA_BINDINGS_FILE: /etc/modemdeck/media-bindings.json
+      MODEMDECK_MM_LOG_LEVEL: ${MODEMDECK_MM_LOG_LEVEL:-INFO}
+    command:
+      - --mode
+      - simple
+    volumes:
+      - type: volume
+        source: agent-runtime
+        target: /run/modemdeck
+        volume:
+          nocopy: true
+      - type: volume
+        source: hardware-state
+        target: /var/lib/ModemManager
+        volume:
+          nocopy: true
+      - type: bind
+        source: ${MODEMDECK_MEDIA_BINDINGS_FILE:-./hardware/config/media-bindings.empty.json}
+        target: /etc/modemdeck/media-bindings.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /dev
+        target: /dev
+      - type: bind
+        source: /sys
+        target: /sys
+        read_only: true
+        bind:
+          propagation: rslave
+      - type: bind
+        source: /run/udev
+        target: /run/udev
+        read_only: true
+    tmpfs:
+      - /run:rw,nosuid,nodev,noexec,size=32m,mode=0755
+      - /run/dbus:rw,nosuid,nodev,noexec,size=4m,mode=0755
+      - /tmp:rw,nosuid,nodev,noexec,size=32m,mode=1777
+    healthcheck:
+      test:
+        - CMD
+        - /usr/local/bin/modemdeck-hardware-healthcheck
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 4
+    stop_grace_period: 20s
+
   modemdeck:
     build:
       context: .
@@ -18,7 +89,11 @@ services:
     init: true
     user: "${MODEMDECK_UID:-10001}:${MODEMDECK_GID:-10001}"
     group_add:
-      - "${MODEMDECK_AGENT_GID:?MODEMDECK_AGENT_GID must match the host modemdeck group}"
+      - "${MODEMDECK_AGENT_GID:-10002}"
+    depends_on:
+      hardware:
+        condition: service_healthy
+        restart: true
     ports:
       - "${MODEMDECK_BIND_ADDRESS:-127.0.0.1}:${MODEMDECK_PORT:-7575}:7575"
     environment:
@@ -31,23 +106,23 @@ services:
       MODEMDECK_ADMIN_PASSWORD_FILE: /run/secrets/modemdeck_admin_password
       MODEMDECK_SETTINGS_KEY_FILE: /run/secrets/modemdeck_settings_key
       MODEMDECK_SECURE_COOKIES: "true"
-      MODEMDECK_HEALTHCHECK_URL: https://127.0.0.1:7575/api/v1/health
+      MODEMDECK_HEALTHCHECK_URL: https://127.0.0.1:7575/api/v1/health/ready
+      MODEMDECK_LIVENESS_URL: https://127.0.0.1:7575/api/v1/health/live
     secrets:
       - modemdeck_admin_password
       - modemdeck_settings_key
     volumes:
       - type: bind
-        source: ./data
+        source: ${MODEMDECK_DATA_DIR:-./data}
         target: /var/lib/modemdeck
-        read_only: false
         bind:
           create_host_path: false
-      - type: bind
-        source: /run/modemdeck
+      - type: volume
+        source: agent-runtime
         target: /run/modemdeck
         read_only: true
-        bind:
-          create_host_path: false
+        volume:
+          nocopy: true
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
@@ -60,10 +135,10 @@ services:
       test:
         - CMD-SHELL
         - wget -q --no-check-certificate -T 3 -O /dev/null "$${MODEMDECK_HEALTHCHECK_URL}" || exit 1
-      interval: 30s
+      interval: 20s
       timeout: 5s
-      start_period: 15s
-      retries: 3
+      start_period: 25s
+      retries: 4
     stop_grace_period: 20s
 
 secrets:
@@ -71,3 +146,9 @@ secrets:
     file: ${MODEMDECK_ADMIN_PASSWORD_FILE:?MODEMDECK_ADMIN_PASSWORD_FILE must point to a host secret file}
   modemdeck_settings_key:
     file: ${MODEMDECK_SETTINGS_KEY_FILE:?MODEMDECK_SETTINGS_KEY_FILE must point to a host secret file}
+
+volumes:
+  agent-runtime:
+    name: ${MODEMDECK_AGENT_RUNTIME_VOLUME:-modemdeck-agent-runtime}
+  hardware-state:
+    name: ${MODEMDECK_HARDWARE_STATE_VOLUME:-modemdeck-hardware-state}
