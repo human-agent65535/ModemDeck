@@ -1,9 +1,0 @@
-{
-  "bindings": [
-    {
-      "audio_port": "REPLACE_WITH_EXACT_MODEMMANAGER_AUDIO_PORT",
-      "backend": "char-pcm",
-      "endpoint": "/dev/REPLACE_WITH_EXACT_PCM_CHARACTER_DEVICE"
-    }
-  ]
-}
