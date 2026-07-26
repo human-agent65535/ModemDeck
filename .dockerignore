@@ -53,6 +53,8 @@ config/config.yaml
 **/*.flac
 **/*.ogg
 **/*.opus
+!web/src/assets/ringtones/*.ogg
+!web/src/assets/notifications/*.ogg
 
 web/node_modules
 web/dist

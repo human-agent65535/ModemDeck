@@ -17,8 +17,11 @@ import {
   previewSound,
   ringtoneCatalog,
   setIncomingMessageSound,
+  setIncomingMessageSoundEnabled,
   setOutgoingMessageSound,
+  setOutgoingMessageSoundEnabled,
   setRingtone,
+  setRingtoneEnabled,
   setWaitingSound,
   stopSoundPreview,
   type MessageSoundID,
@@ -30,34 +33,28 @@ const { t } = useI18n()
 const selectedRingtone = computed(
   () =>
     ringtoneCatalog.find(ringtone => ringtone.id === browserSoundState.ringtone)?.name ||
-    t('audio.silent')
+    ''
 )
-const selectedRingtonePreview = computed<SoundPreview | ''>(() =>
-  browserSoundState.ringtone === 'silent'
-    ? ''
-    : `ringtone:${browserSoundState.ringtone}`
+const selectedRingtonePreview = computed<SoundPreview>(
+  () => `ringtone:${browserSoundState.ringtone}`
 )
 const selectedIncomingMessage = computed(
   () =>
     notificationCatalog.find(
       notification => notification.id === browserSoundState.incomingMessage
-    )?.name || t('audio.silent')
+    )?.name || ''
 )
 const selectedOutgoingMessage = computed(
   () =>
     notificationCatalog.find(
       notification => notification.id === browserSoundState.outgoingMessage
-    )?.name || t('audio.silent')
+    )?.name || ''
 )
-const selectedIncomingMessagePreview = computed<SoundPreview | ''>(() =>
-  browserSoundState.incomingMessage === 'silent'
-    ? ''
-    : `incoming-message:${browserSoundState.incomingMessage}`
+const selectedIncomingMessagePreview = computed<SoundPreview>(
+  () => `incoming-message:${browserSoundState.incomingMessage}`
 )
-const selectedOutgoingMessagePreview = computed<SoundPreview | ''>(() =>
-  browserSoundState.outgoingMessage === 'silent'
-    ? ''
-    : `outgoing-message:${browserSoundState.outgoingMessage}`
+const selectedOutgoingMessagePreview = computed<SoundPreview>(
+  () => `outgoing-message:${browserSoundState.outgoingMessage}`
 )
 
 function changeRingtone(event: Event): void {
@@ -82,6 +79,18 @@ function changeOutgoingMessage(event: Event): void {
 
 function changeWaiting(event: Event): void {
   setWaitingSound((event.currentTarget as HTMLInputElement).checked)
+}
+
+function changeRingtoneEnabled(event: Event): void {
+  setRingtoneEnabled((event.currentTarget as HTMLInputElement).checked)
+}
+
+function changeIncomingMessageEnabled(event: Event): void {
+  setIncomingMessageSoundEnabled((event.currentTarget as HTMLInputElement).checked)
+}
+
+function changeOutgoingMessageEnabled(event: Event): void {
+  setOutgoingMessageSoundEnabled((event.currentTarget as HTMLInputElement).checked)
 }
 
 onBeforeUnmount(() => {
@@ -132,12 +141,10 @@ onBeforeUnmount(() => {
             >
               {{ ringtone.name }}
             </option>
-            <option value="silent">{{ t('audio.silent') }}</option>
           </select>
           <button
             class="icon-button"
             type="button"
-            :disabled="!selectedRingtonePreview"
             :title="
               browserSoundState.preview === selectedRingtonePreview
                 ? t('audio.stopPreview')
@@ -157,6 +164,15 @@ onBeforeUnmount(() => {
             />
             <Play v-else :size="17" fill="currentColor" />
           </button>
+          <label class="compact-switch">
+            <span class="sr-only">{{ t('audio.incomingRingtone') }}</span>
+            <input
+              type="checkbox"
+              role="switch"
+              :checked="browserSoundState.ringtoneEnabled"
+              @change="changeRingtoneEnabled"
+            />
+          </label>
         </span>
       </div>
 
@@ -236,12 +252,10 @@ onBeforeUnmount(() => {
             >
               {{ notification.name }}
             </option>
-            <option value="silent">{{ t('audio.silent') }}</option>
           </select>
           <button
             class="icon-button"
             type="button"
-            :disabled="!selectedIncomingMessagePreview"
             :title="
               browserSoundState.preview === selectedIncomingMessagePreview
                 ? t('audio.stopPreview')
@@ -261,6 +275,15 @@ onBeforeUnmount(() => {
             />
             <Play v-else :size="17" fill="currentColor" />
           </button>
+          <label class="compact-switch">
+            <span class="sr-only">{{ t('audio.incomingMessage') }}</span>
+            <input
+              type="checkbox"
+              role="switch"
+              :checked="browserSoundState.incomingMessageEnabled"
+              @change="changeIncomingMessageEnabled"
+            />
+          </label>
         </span>
       </div>
 
@@ -285,12 +308,10 @@ onBeforeUnmount(() => {
             >
               {{ notification.name }}
             </option>
-            <option value="silent">{{ t('audio.silent') }}</option>
           </select>
           <button
             class="icon-button"
             type="button"
-            :disabled="!selectedOutgoingMessagePreview"
             :title="
               browserSoundState.preview === selectedOutgoingMessagePreview
                 ? t('audio.stopPreview')
@@ -310,6 +331,15 @@ onBeforeUnmount(() => {
             />
             <Play v-else :size="17" fill="currentColor" />
           </button>
+          <label class="compact-switch">
+            <span class="sr-only">{{ t('audio.outgoingMessage') }}</span>
+            <input
+              type="checkbox"
+              role="switch"
+              :checked="browserSoundState.outgoingMessageEnabled"
+              @change="changeOutgoingMessageEnabled"
+            />
+          </label>
         </span>
       </div>
 

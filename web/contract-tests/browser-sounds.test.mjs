@@ -6,6 +6,7 @@ import test from 'node:test'
 import {
   callSoundMode,
   claimIncomingMessageSound,
+  normalizeBrowserSoundPreferences,
   notificationCatalog,
   ringtoneCatalog
 } from '../src/state/browserSounds.ts'
@@ -50,6 +51,47 @@ test('incoming message sounds are claimed once and retain bounded history', () =
   assert.equal(claimed.size, 256)
   assert.equal(claimed.has('message-1'), false)
   assert.equal(claimed.has('message-300'), true)
+})
+
+test('legacy silent choices migrate to disabled sounds without losing the model', () => {
+  assert.deepEqual(
+    normalizeBrowserSoundPreferences({
+      ringtone: 'silent',
+      incomingMessage: 'silent',
+      outgoingMessage: false,
+      waiting: false
+    }),
+    {
+      ringtone: 'orion',
+      ringtoneEnabled: false,
+      incomingMessage: 'pixie-dust',
+      incomingMessageEnabled: false,
+      outgoingMessage: 'pizzicato',
+      outgoingMessageEnabled: false,
+      waiting: false
+    }
+  )
+
+  assert.deepEqual(
+    normalizeBrowserSoundPreferences({
+      ringtone: 'digital',
+      ringtoneEnabled: false,
+      incomingMessage: 'drip',
+      incomingMessageEnabled: true,
+      outgoingMessage: 'voila',
+      outgoingMessageEnabled: false,
+      waiting: true
+    }),
+    {
+      ringtone: 'digital',
+      ringtoneEnabled: false,
+      incomingMessage: 'drip',
+      incomingMessageEnabled: true,
+      outgoingMessage: 'voila',
+      outgoingMessageEnabled: false,
+      waiting: true
+    }
+  )
 })
 
 test('the curated AOSP ringtone catalog is complete, unique, and compact', async () => {
@@ -110,23 +152,33 @@ test('live call and SMS paths own sound playback instead of view components', as
 })
 
 test('audio settings expose persisted devices and browser-local communication sounds', async () => {
-  const [settings, form, devices, menu, shell, notice, ignore] = await Promise.all([
-    readFile(new URL('../src/views/SettingsView.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../src/components/AudioSettingsForm.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../src/components/AudioDeviceControls.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../src/components/AudioSettingsMenu.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../src/components/AppShell.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../../NOTICE.md', import.meta.url), 'utf8'),
-    readFile(new URL('../../.gitignore', import.meta.url), 'utf8')
-  ])
+  const [settings, form, devices, menu, shell, notice, ignore, dockerIgnore] =
+    await Promise.all([
+      readFile(new URL('../src/views/SettingsView.vue', import.meta.url), 'utf8'),
+      readFile(new URL('../src/components/AudioSettingsForm.vue', import.meta.url), 'utf8'),
+      readFile(
+        new URL('../src/components/AudioDeviceControls.vue', import.meta.url),
+        'utf8'
+      ),
+      readFile(new URL('../src/components/AudioSettingsMenu.vue', import.meta.url), 'utf8'),
+      readFile(new URL('../src/components/AppShell.vue', import.meta.url), 'utf8'),
+      readFile(new URL('../../NOTICE.md', import.meta.url), 'utf8'),
+      readFile(new URL('../../.gitignore', import.meta.url), 'utf8'),
+      readFile(new URL('../../.dockerignore', import.meta.url), 'utf8')
+    ])
 
   assert.match(settings, /id: 'audio'/)
   assert.match(settings, /<AudioSettingsForm/)
   assert.match(form, /ringtoneCatalog/)
   assert.match(form, /notificationCatalog/)
   assert.match(form, /setIncomingMessageSound/)
+  assert.match(form, /setIncomingMessageSoundEnabled/)
   assert.match(form, /setOutgoingMessageSound/)
+  assert.match(form, /setOutgoingMessageSoundEnabled/)
+  assert.match(form, /setRingtoneEnabled/)
   assert.match(form, /setWaitingSound/)
+  assert.equal((form.match(/role="switch"/g) || []).length, 4)
+  assert.doesNotMatch(form, /<option value="silent"/)
   assert.match(devices, /setSelectedAudioInput/)
   assert.match(devices, /setSelectedAudioOutput/)
   assert.match(menu, /<AudioDeviceControls compact/)
@@ -137,4 +189,6 @@ test('audio settings expose persisted devices and browser-local communication so
   assert.match(notice, /Apache License 2\.0/)
   assert.match(ignore, /!\/web\/src\/assets\/ringtones\/\*\.ogg/)
   assert.match(ignore, /!\/web\/src\/assets\/notifications\/\*\.ogg/)
+  assert.match(dockerIgnore, /!web\/src\/assets\/ringtones\/\*\.ogg/)
+  assert.match(dockerIgnore, /!web\/src\/assets\/notifications\/\*\.ogg/)
 })

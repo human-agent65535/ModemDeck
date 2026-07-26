@@ -160,9 +160,9 @@ export const notificationCatalog = [
 ] as const
 
 export type AudibleRingtoneID = (typeof ringtoneCatalog)[number]['id']
-export type RingtoneID = AudibleRingtoneID | 'silent'
+export type RingtoneID = AudibleRingtoneID
 export type AudibleNotificationID = (typeof notificationCatalog)[number]['id']
-export type MessageSoundID = AudibleNotificationID | 'silent'
+export type MessageSoundID = AudibleNotificationID
 export type SoundPreview =
   | `ringtone:${AudibleRingtoneID}`
   | `incoming-message:${AudibleNotificationID}`
@@ -172,8 +172,11 @@ export type CallSoundMode = 'idle' | 'incoming' | 'waiting'
 
 type BrowserSoundPreferences = {
   ringtone: RingtoneID
+  ringtoneEnabled: boolean
   incomingMessage: MessageSoundID
+  incomingMessageEnabled: boolean
   outgoingMessage: MessageSoundID
+  outgoingMessageEnabled: boolean
   waiting: boolean
 }
 
@@ -189,19 +192,20 @@ type ToneSegment = {
 const SOUND_STORAGE_KEY = 'modemdeck.audio.sound-preferences.v1'
 const MESSAGE_SOUND_HISTORY_LIMIT = 256
 const SAMPLE_RATE = 16_000
-const VALID_RINGTONES = new Set<RingtoneID>([
-  ...ringtoneCatalog.map(ringtone => ringtone.id),
-  'silent'
-])
-const VALID_NOTIFICATIONS = new Set<MessageSoundID>([
-  ...notificationCatalog.map(notification => notification.id),
-  'silent'
-])
+const VALID_RINGTONES = new Set<RingtoneID>(
+  ringtoneCatalog.map(ringtone => ringtone.id)
+)
+const VALID_NOTIFICATIONS = new Set<MessageSoundID>(
+  notificationCatalog.map(notification => notification.id)
+)
 
 const DEFAULT_PREFERENCES: BrowserSoundPreferences = {
   ringtone: 'orion',
+  ringtoneEnabled: true,
   incomingMessage: 'pixie-dust',
+  incomingMessageEnabled: true,
   outgoingMessage: 'pizzicato',
+  outgoingMessageEnabled: true,
   waiting: true
 }
 
@@ -231,8 +235,11 @@ const generatedToneDefinitions: Record<
 
 export const browserSoundState = reactive<{
   ringtone: RingtoneID
+  ringtoneEnabled: boolean
   incomingMessage: MessageSoundID
+  incomingMessageEnabled: boolean
   outgoingMessage: MessageSoundID
+  outgoingMessageEnabled: boolean
   waiting: boolean
   preview: SoundPreview | ''
   playbackBlocked: boolean
@@ -261,46 +268,81 @@ function storedPreferences(): BrowserSoundPreferences {
   try {
     const raw = window.localStorage.getItem(SOUND_STORAGE_KEY)
     if (!raw) return { ...DEFAULT_PREFERENCES }
-    const value = JSON.parse(raw) as Record<string, unknown>
-    return {
-      ringtone:
-        typeof value.ringtone === 'string' &&
-        VALID_RINGTONES.has(value.ringtone as RingtoneID)
-          ? (value.ringtone as RingtoneID)
-          : DEFAULT_PREFERENCES.ringtone,
-      incomingMessage: storedMessageSound(
-        value.incomingMessage,
-        DEFAULT_PREFERENCES.incomingMessage
-      ),
-      outgoingMessage: storedMessageSound(
-        value.outgoingMessage,
-        DEFAULT_PREFERENCES.outgoingMessage
-      ),
-      waiting:
-        typeof value.waiting === 'boolean'
-          ? value.waiting
-          : DEFAULT_PREFERENCES.waiting
-    }
+    return normalizeBrowserSoundPreferences(JSON.parse(raw))
   } catch {
     return { ...DEFAULT_PREFERENCES }
   }
 }
 
-function storedMessageSound(
+function storedAudibleMessageSound(
   value: unknown,
   fallback: MessageSoundID
 ): MessageSoundID {
   if (typeof value === 'string' && VALID_NOTIFICATIONS.has(value as MessageSoundID)) {
     return value as MessageSoundID
   }
-  if (typeof value === 'boolean') return value ? fallback : 'silent'
   return fallback
+}
+
+function storedEnabled(
+  explicit: unknown,
+  legacyValue: unknown,
+  fallback: boolean
+): boolean {
+  if (typeof explicit === 'boolean') return explicit
+  if (legacyValue === 'silent') return false
+  if (typeof legacyValue === 'boolean') return legacyValue
+  return fallback
+}
+
+export function normalizeBrowserSoundPreferences(
+  raw: unknown
+): BrowserSoundPreferences {
+  if (!raw || typeof raw !== 'object') return { ...DEFAULT_PREFERENCES }
+  const value = raw as Record<string, unknown>
+  return {
+    ringtone:
+      typeof value.ringtone === 'string' &&
+      VALID_RINGTONES.has(value.ringtone as RingtoneID)
+        ? (value.ringtone as RingtoneID)
+        : DEFAULT_PREFERENCES.ringtone,
+    ringtoneEnabled: storedEnabled(
+      value.ringtoneEnabled,
+      value.ringtone,
+      DEFAULT_PREFERENCES.ringtoneEnabled
+    ),
+    incomingMessage: storedAudibleMessageSound(
+      value.incomingMessage,
+      DEFAULT_PREFERENCES.incomingMessage
+    ),
+    incomingMessageEnabled: storedEnabled(
+      value.incomingMessageEnabled,
+      value.incomingMessage,
+      DEFAULT_PREFERENCES.incomingMessageEnabled
+    ),
+    outgoingMessage: storedAudibleMessageSound(
+      value.outgoingMessage,
+      DEFAULT_PREFERENCES.outgoingMessage
+    ),
+    outgoingMessageEnabled: storedEnabled(
+      value.outgoingMessageEnabled,
+      value.outgoingMessage,
+      DEFAULT_PREFERENCES.outgoingMessageEnabled
+    ),
+    waiting:
+      typeof value.waiting === 'boolean'
+        ? value.waiting
+        : DEFAULT_PREFERENCES.waiting
+  }
 }
 
 function applyPreferences(preferences: BrowserSoundPreferences): void {
   browserSoundState.ringtone = preferences.ringtone
+  browserSoundState.ringtoneEnabled = preferences.ringtoneEnabled
   browserSoundState.incomingMessage = preferences.incomingMessage
+  browserSoundState.incomingMessageEnabled = preferences.incomingMessageEnabled
   browserSoundState.outgoingMessage = preferences.outgoingMessage
+  browserSoundState.outgoingMessageEnabled = preferences.outgoingMessageEnabled
   browserSoundState.waiting = preferences.waiting
 }
 
@@ -311,8 +353,11 @@ function persistPreferences(): void {
       SOUND_STORAGE_KEY,
       JSON.stringify({
         ringtone: browserSoundState.ringtone,
+        ringtoneEnabled: browserSoundState.ringtoneEnabled,
         incomingMessage: browserSoundState.incomingMessage,
+        incomingMessageEnabled: browserSoundState.incomingMessageEnabled,
         outgoingMessage: browserSoundState.outgoingMessage,
+        outgoingMessageEnabled: browserSoundState.outgoingMessageEnabled,
         waiting: browserSoundState.waiting
       } satisfies BrowserSoundPreferences)
     )
@@ -467,7 +512,7 @@ function callPlaybackSource(mode: CallSoundMode): {
   volume: number
 } | null {
   if (mode === 'incoming') {
-    if (browserSoundState.ringtone === 'silent') return null
+    if (!browserSoundState.ringtoneEnabled) return null
     return {
       source: ringtoneSources[browserSoundState.ringtone],
       volume: 0.82
@@ -551,17 +596,13 @@ async function playEffect(
 }
 
 export function playIncomingMessageSound(messageID: string): void {
-  if (
-    browserSoundState.incomingMessage === 'silent' ||
-    !claimIncomingMessageSound(messageID)
-  ) {
-    return
-  }
+  const firstDelivery = claimIncomingMessageSound(messageID)
+  if (!firstDelivery || !browserSoundState.incomingMessageEnabled) return
   void playEffect(browserSoundState.incomingMessage, 0.72)
 }
 
 export function playOutgoingMessageSound(): void {
-  if (browserSoundState.outgoingMessage === 'silent') return
+  if (!browserSoundState.outgoingMessageEnabled) return
   void playEffect(browserSoundState.outgoingMessage, 0.5)
 }
 
@@ -636,15 +677,32 @@ export function setRingtone(ringtone: RingtoneID): void {
   syncCallSounds(currentSession)
 }
 
+export function setRingtoneEnabled(enabled: boolean): void {
+  browserSoundState.ringtoneEnabled = enabled
+  persistPreferences()
+  activeCallPlaybackKey = ''
+  syncCallSounds(currentSession)
+}
+
 export function setIncomingMessageSound(sound: MessageSoundID): void {
   if (!VALID_NOTIFICATIONS.has(sound)) return
   browserSoundState.incomingMessage = sound
   persistPreferences()
 }
 
+export function setIncomingMessageSoundEnabled(enabled: boolean): void {
+  browserSoundState.incomingMessageEnabled = enabled
+  persistPreferences()
+}
+
 export function setOutgoingMessageSound(sound: MessageSoundID): void {
   if (!VALID_NOTIFICATIONS.has(sound)) return
   browserSoundState.outgoingMessage = sound
+  persistPreferences()
+}
+
+export function setOutgoingMessageSoundEnabled(enabled: boolean): void {
+  browserSoundState.outgoingMessageEnabled = enabled
   persistPreferences()
 }
 
