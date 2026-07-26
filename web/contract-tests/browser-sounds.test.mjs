@@ -8,7 +8,8 @@ import {
   claimIncomingMessageSound,
   normalizeBrowserSoundPreferences,
   notificationCatalog,
-  ringtoneCatalog
+  ringtoneCatalog,
+  waitingToneSource
 } from '../src/state/browserSounds.ts'
 
 const incomingCall = {
@@ -129,6 +130,24 @@ test('SMS received and sent sounds share a compact AOSP notification catalog', a
   assert.ok(
     totalBytes < 500_000,
     `notification catalog is unexpectedly large: ${totalBytes}`
+  )
+})
+
+test('waiting calls and previews use one bundled browser-compatible audio asset', async () => {
+  const asset = await stat(fileURLToPath(waitingToneSource))
+  const implementation = await readFile(
+    new URL('../src/state/browserSounds.ts', import.meta.url),
+    'utf8'
+  )
+
+  assert.match(waitingToneSource, /\.mp3$/)
+  assert.ok(asset.size > 0, 'waiting tone must contain audio data')
+  assert.ok(asset.size < 50_000, `waiting tone is unexpectedly large: ${asset.size}`)
+  assert.doesNotMatch(implementation, /createObjectURL|audio\/wav/)
+  assert.equal(
+    implementation.match(/source: waitingToneSource/g)?.length,
+    2,
+    'call playback and settings preview must use the same waiting tone'
   )
 })
 

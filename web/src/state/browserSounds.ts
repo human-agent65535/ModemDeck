@@ -159,6 +159,11 @@ export const notificationCatalog = [
   }
 ] as const
 
+export const waitingToneSource = new URL(
+  '../assets/tones/waiting.mp3',
+  import.meta.url
+).href
+
 export type AudibleRingtoneID = (typeof ringtoneCatalog)[number]['id']
 export type RingtoneID = AudibleRingtoneID
 export type AudibleNotificationID = (typeof notificationCatalog)[number]['id']
@@ -180,18 +185,8 @@ type BrowserSoundPreferences = {
   waiting: boolean
 }
 
-type GeneratedToneID = 'waiting'
-
-type ToneSegment = {
-  startMilliseconds: number
-  durationMilliseconds: number
-  frequency: number
-  amplitude: number
-}
-
 const SOUND_STORAGE_KEY = 'modemdeck.audio.sound-preferences.v1'
 const MESSAGE_SOUND_HISTORY_LIMIT = 256
-const SAMPLE_RATE = 16_000
 const VALID_RINGTONES = new Set<RingtoneID>(
   ringtoneCatalog.map(ringtone => ringtone.id)
 )
@@ -215,23 +210,6 @@ const ringtoneSources = Object.fromEntries(
 const notificationSources = Object.fromEntries(
   notificationCatalog.map(notification => [notification.id, notification.source])
 ) as Record<AudibleNotificationID, string>
-
-const generatedToneDefinitions: Record<
-  GeneratedToneID,
-  { durationMilliseconds: number; segments: ToneSegment[] }
-> = {
-  waiting: {
-    durationMilliseconds: 3000,
-    segments: [
-      {
-        startMilliseconds: 0,
-        durationMilliseconds: 1000,
-        frequency: 425,
-        amplitude: 0.22
-      }
-    ]
-  }
-}
 
 export const browserSoundState = reactive<{
   ringtone: RingtoneID
@@ -260,7 +238,6 @@ let currentSession: CallSession | null = null
 let activeCallPlaybackKey = ''
 let callPlaybackGeneration = 0
 let previewGeneration = 0
-const generatedToneURLs = new Map<GeneratedToneID, string>()
 const playedIncomingMessageIDs = new Set<string>()
 
 function storedPreferences(): BrowserSoundPreferences {
@@ -391,71 +368,6 @@ function stopAudio(element: HTMLAudioElement | undefined): void {
   }
 }
 
-function writeASCII(view: DataView, offset: number, value: string): void {
-  for (let index = 0; index < value.length; index += 1) {
-    view.setUint8(offset + index, value.charCodeAt(index))
-  }
-}
-
-function segmentSample(segment: ToneSegment, sampleIndex: number): number {
-  const start = Math.round((segment.startMilliseconds / 1000) * SAMPLE_RATE)
-  const length = Math.round((segment.durationMilliseconds / 1000) * SAMPLE_RATE)
-  const relative = sampleIndex - start
-  if (relative < 0 || relative >= length) return 0
-
-  const fadeSamples = Math.min(Math.round(SAMPLE_RATE * 0.018), Math.floor(length / 2))
-  const fadeIn = fadeSamples > 0 ? Math.min(1, relative / fadeSamples) : 1
-  const fadeOut =
-    fadeSamples > 0 ? Math.min(1, (length - relative - 1) / fadeSamples) : 1
-  const envelope = Math.max(0, Math.min(fadeIn, fadeOut))
-  return (
-    Math.sin((2 * Math.PI * segment.frequency * relative) / SAMPLE_RATE) *
-    segment.amplitude *
-    envelope
-  )
-}
-
-function generatedToneSource(id: GeneratedToneID): string {
-  const existing = generatedToneURLs.get(id)
-  if (existing) return existing
-
-  const definition = generatedToneDefinitions[id]
-  const sampleCount = Math.round(
-    (definition.durationMilliseconds / 1000) * SAMPLE_RATE
-  )
-  const buffer = new ArrayBuffer(44 + sampleCount * 2)
-  const view = new DataView(buffer)
-  writeASCII(view, 0, 'RIFF')
-  view.setUint32(4, 36 + sampleCount * 2, true)
-  writeASCII(view, 8, 'WAVE')
-  writeASCII(view, 12, 'fmt ')
-  view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true)
-  view.setUint16(22, 1, true)
-  view.setUint32(24, SAMPLE_RATE, true)
-  view.setUint32(28, SAMPLE_RATE * 2, true)
-  view.setUint16(32, 2, true)
-  view.setUint16(34, 16, true)
-  writeASCII(view, 36, 'data')
-  view.setUint32(40, sampleCount * 2, true)
-
-  for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
-    const sample = definition.segments.reduce(
-      (sum, segment) => sum + segmentSample(segment, sampleIndex),
-      0
-    )
-    view.setInt16(
-      44 + sampleIndex * 2,
-      Math.round(Math.max(-1, Math.min(1, sample)) * 0x7fff),
-      true
-    )
-  }
-
-  const url = URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }))
-  generatedToneURLs.set(id, url)
-  return url
-}
-
 function setAudioSource(element: HTMLAudioElement, source: string): void {
   if (element.dataset.modemdeckSource === source) return
   element.dataset.modemdeckSource = source
@@ -519,7 +431,7 @@ function callPlaybackSource(mode: CallSoundMode): {
     }
   }
   if (mode === 'waiting' && browserSoundState.waiting) {
-    return { source: generatedToneSource('waiting'), volume: 0.55 }
+    return { source: waitingToneSource, volume: 0.55 }
   }
   return null
 }
@@ -613,7 +525,7 @@ function previewSource(preview: SoundPreview): { source: string; volume: number 
   }
   if (preview === 'waiting') {
     return {
-      source: generatedToneSource('waiting'),
+      source: waitingToneSource,
       volume: 0.55
     }
   }
@@ -750,8 +662,6 @@ export function shutdownBrowserSounds(): void {
   if (typeof window !== 'undefined') {
     window.removeEventListener('storage', onPreferenceStorage)
   }
-  for (const url of generatedToneURLs.values()) URL.revokeObjectURL(url)
-  generatedToneURLs.clear()
   playedIncomingMessageIDs.clear()
   browserSoundState.playbackBlocked = false
   browserSoundState.error = ''
