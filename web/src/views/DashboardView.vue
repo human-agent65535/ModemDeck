@@ -20,6 +20,8 @@ import {
 } from '@lucide/vue'
 import type { CallRecord, Contact, LineSummary, MessageThread } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
+import ContactHeaderIdentity from '../components/ContactHeaderIdentity.vue'
+import ContactNumberActions from '../components/ContactNumberActions.vue'
 import LineTag from '../components/LineTag.vue'
 import ModuleCard from '../components/ModuleCard.vue'
 import StatePanel from '../components/StatePanel.vue'
@@ -717,8 +719,12 @@ onMounted(loadDashboard)
                 class="dashboard-contact-row"
               >
                 <RouterLink :to="{ name: 'contacts', params: { contactId: contact.id } }">
-                  <BaseAvatar :name="contact.display_name" :src="contact.avatar" />
-                  <span>
+                  <BaseAvatar
+                    class="dashboard-favorite-avatar"
+                    :name="contact.display_name"
+                    :src="contact.avatar"
+                  />
+                  <span class="dashboard-contact-identity">
                     <strong>{{ contact.display_name }}</strong>
                     <small>{{ primaryPhone(contact.phones) || '没有号码' }}</small>
                   </span>
@@ -756,14 +762,19 @@ onMounted(loadDashboard)
           <button class="icon-button mobile-back" type="button" title="返回首页" @click="backToList">
             <ArrowLeft :size="20" />
           </button>
-          <BaseAvatar
+          <ContactHeaderIdentity
             :name="callName(selectedCall)"
-            :src="callAvatar(selectedCall)"
-            size="large"
+            :number="selectedCall.remote_number"
+            :avatar="callAvatar(selectedCall)"
+            :line="lineTagLine(lineForCall(selectedCall), selectedCall.device_id)"
+            :line-fallback="callLineFallback(selectedCall)"
           />
-          <div class="detail-header__identity">
-            <h2>{{ callName(selectedCall) }}</h2>
-            <span>{{ selectedCall.remote_number }}</span>
+          <div class="detail-header__actions">
+            <ContactNumberActions
+              :number="selectedCall.remote_number"
+              :contact="contactForNumber(selectedCall.remote_number)"
+              compact
+            />
           </div>
         </header>
         <div class="call-detail">
@@ -844,14 +855,19 @@ onMounted(loadDashboard)
           <button class="icon-button mobile-back" type="button" title="返回首页" @click="backToList">
             <ArrowLeft :size="20" />
           </button>
-          <BaseAvatar
+          <ContactHeaderIdentity
             :name="threadName(selectedThread)"
-            :src="threadAvatar(selectedThread)"
-            size="large"
+            :number="selectedThread.peer"
+            :avatar="threadAvatar(selectedThread)"
+            :line="lineTagLine(lineForThread(selectedThread), selectedThread.line_id, selectedThread.iccid)"
+            :line-fallback="threadLineFallback(selectedThread)"
           />
-          <div class="detail-header__identity">
-            <h2>{{ threadName(selectedThread) }}</h2>
-            <span>{{ selectedThread.peer }}</span>
+          <div class="detail-header__actions">
+            <ContactNumberActions
+              :number="selectedThread.peer"
+              :contact="contactForNumber(selectedThread.peer)"
+              compact
+            />
           </div>
         </header>
         <div class="call-detail dashboard-message-detail">
@@ -1171,6 +1187,14 @@ onMounted(loadDashboard)
 
 .dashboard-contact-row:last-child {
   border-bottom: 1px solid var(--border);
+}
+
+.dashboard-contact-row > a > :deep(.dashboard-favorite-avatar) {
+  display: inline-grid;
+  min-width: 0;
+  place-items: center;
+  flex-direction: initial;
+  gap: 0;
 }
 
 .dashboard-contact-row strong {

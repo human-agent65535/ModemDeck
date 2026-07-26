@@ -88,3 +88,21 @@ test('dashboard favorites never substitute recent or alphabetic contacts', () =>
   assert.doesNotMatch(dashboard, /const quickContacts/)
   assert.doesNotMatch(dashboard, /localeCompare/)
 })
+
+test('dashboard keeps favorite initials centered and reuses contact actions for activities', () => {
+  assert.match(dashboard, /class="dashboard-favorite-avatar"/)
+  assert.match(
+    dashboard,
+    /\.dashboard-contact-row > a > :deep\(\.dashboard-favorite-avatar\)[\s\S]*?place-items: center/
+  )
+  assert.match(dashboard, /import ContactHeaderIdentity/)
+  assert.match(dashboard, /import ContactNumberActions/)
+  assert.match(
+    dashboard,
+    /<ContactNumberActions\s+:number="selectedCall\.remote_number"\s+:contact="contactForNumber\(selectedCall\.remote_number\)"/
+  )
+  assert.match(
+    dashboard,
+    /<ContactNumberActions\s+:number="selectedThread\.peer"\s+:contact="contactForNumber\(selectedThread\.peer\)"/
+  )
+})
