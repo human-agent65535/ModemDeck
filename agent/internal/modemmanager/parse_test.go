@@ -160,6 +160,9 @@ func TestParseManagedObjectsMapsLineCallsAndMessages(t *testing.T) {
 	if !line.SignalQualityKnown || line.SignalQuality != 76 || !line.SignalQualityRecent {
 		t.Fatalf("unexpected signal quality: %+v", line)
 	}
+	if !line.SignalMetricsRecent {
+		t.Fatalf("extended signal was not marked recent: %+v", line)
+	}
 	if line.SignalDBM == nil || *line.SignalDBM != -67.5 ||
 		line.SignalRSRP == nil || *line.SignalRSRP != -93 ||
 		line.SignalRSRQ == nil || *line.SignalRSRQ != -9.5 ||
@@ -258,6 +261,7 @@ func TestParseManagedObjectsKeepsUnknownHardwareTelemetryAbsent(t *testing.T) {
 	line := parsed.Lines[0]
 	if line.HardwareRevision != "" ||
 		line.AccessTechnologiesKnown ||
+		line.SignalMetricsRecent ||
 		line.SignalSNR != nil ||
 		line.Ports != nil {
 		t.Fatalf("unknown hardware telemetry was invented: %+v", line)

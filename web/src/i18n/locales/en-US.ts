@@ -783,7 +783,8 @@ export default {
     lineLabelTooLong: 'Line label cannot exceed 16 characters',
     lineLabelSaveFailed: 'Unable to save the line label',
     enableFlightModeTitle: 'Turn on airplane mode?',
-    enableFlightModeMessage: 'Network registration, calls, and mobile data will stop immediately.',
+    enableFlightModeMessage:
+      'Network registration and mobile data will stop. Airplane mode cannot be enabled during a call.',
     turnOn: 'Turn on',
     turnOff: 'Turn off',
     disableDataTitle: 'Turn off mobile data?',
@@ -846,6 +847,8 @@ export default {
     mobileNetwork: 'Mobile network',
     mobileData: 'Mobile data',
     notWritable: 'Not writable',
+    radioStateUnavailableForData:
+      'Mobile data is unavailable until the modem radio state can be read.',
     ipMode: 'IP mode',
     networkSelection: 'Network selection',
     currentTarget: 'Current target: {operator}',
@@ -948,6 +951,9 @@ export default {
     callRecordingsLoadFailed: 'Unable to load call recordings',
     callRecordingsForbidden: 'You do not have access to call recordings',
     refreshAfterSaveFailed: '{error}; failed to reload server state: {refreshError}',
+    deviceConfigurationChanged:
+      'The modem state changed again. The latest state has been loaded; try again.',
+    turnOffFlightModeForData: 'Turn off airplane mode before enabling mobile data.',
     invalidDeviceConfiguration: 'Device configuration response is missing hardware or incoming_calls',
     modemRestartTimeout: 'The modem did not come back online within 45 seconds',
     audioOutputUnsupported: 'This browser does not support selecting an audio output device',

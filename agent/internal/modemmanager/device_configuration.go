@@ -96,7 +96,13 @@ func (p *Provider) ApplyGenericDeviceConfiguration(
 		if request.RadioEnabled == nil {
 			return domain.DeviceConfiguration{}, domain.InvalidArgument(operation, "radio_enabled is required")
 		}
-		if current.Radio.EnabledKnown && current.Radio.Enabled == *request.RadioEnabled {
+		radioAlreadySet :=
+			current.Radio.EnabledKnown &&
+				current.Radio.Enabled == *request.RadioEnabled
+		radioStateConsistent :=
+			*request.RadioEnabled ||
+				!current.NetworkEnabled
+		if radioAlreadySet && radioStateConsistent {
 			if err := p.radioStates.setEnabled(request.LineID, *request.RadioEnabled); err != nil {
 				return domain.DeviceConfiguration{}, domain.Internal(
 					operation,
@@ -124,6 +130,13 @@ func (p *Provider) ApplyGenericDeviceConfiguration(
 					operation,
 					"the cellular radio cannot be disabled while this line has an ongoing call",
 				)
+			}
+			if _, err := p.deactivateOwnedBearerData(
+				bounded,
+				modemPath,
+				request.LineID,
+			); err != nil {
+				return domain.DeviceConfiguration{}, err
 			}
 		}
 		previousDesired := p.radioStates.enabled(request.LineID)
@@ -156,6 +169,20 @@ func (p *Provider) ApplyGenericDeviceConfiguration(
 			return domain.DeviceConfiguration{}, domain.NotSupported(
 				operation,
 				current.Capabilities.DataConnection.Reason,
+			)
+		}
+		if !current.Radio.EnabledKnown {
+			return domain.DeviceConfiguration{}, domain.FailedPrecondition(
+				operation,
+				"the cellular radio state is unavailable; mobile data cannot be started safely",
+				nil,
+			)
+		}
+		if !current.Radio.Enabled {
+			return domain.DeviceConfiguration{}, domain.FailedPrecondition(
+				operation,
+				"airplane mode must be turned off before starting mobile data",
+				nil,
 			)
 		}
 		requestedFamily, err := bearerIPFamilyValue(request.IPFamily)
@@ -278,6 +305,13 @@ func (p *Provider) ApplyGenericDeviceConfiguration(
 			return domain.DeviceConfiguration{}, domain.VerificationFailed(
 				operation,
 				"radio state read-back did not match the requested value",
+				nil,
+			)
+		}
+		if !*request.RadioEnabled && verified.NetworkEnabled {
+			return domain.DeviceConfiguration{}, domain.VerificationFailed(
+				operation,
+				"packet data remained connected after airplane mode was enabled",
 				nil,
 			)
 		}

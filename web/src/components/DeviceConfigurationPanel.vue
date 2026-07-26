@@ -10,6 +10,7 @@ import {
   Network,
   Phone,
   PhoneIncoming,
+  Plane,
   Plus,
   RadioTower,
   RotateCw,
@@ -73,6 +74,7 @@ import { operatorFacts } from '../utils/operatorNetwork'
 import { LINE_TONE_PRESETS, lineTonePreset } from '../utils/lineTone'
 import LineTag from './LineTag.vue'
 import ModuleCard from './ModuleCard.vue'
+import SignalBars from './SignalBars.vue'
 import StatePanel from './StatePanel.vue'
 
 type DeviceTab = 'overview' | 'network' | 'sim' | 'voice' | 'ussd'
@@ -141,9 +143,6 @@ const selectedLine = computed(() =>
 const selectedDevice = computed(() =>
   devicesResource.data.find(device => device.imei === selectedLine.value?.device_imei)
 )
-const selectedOperatorFacts = computed(() =>
-  operatorFacts(selectedLine.value, '—', key => t(key))
-)
 const simOperatorFacts = computed(() =>
   operatorFacts(simStatus.value, '—', key => t(key))
 )
@@ -180,6 +179,23 @@ const selectedNetworkSelection = computed(() =>
 )
 const configuration = computed(() => selectedResource.value?.data || null)
 const hardware = computed(() => configuration.value?.hardware)
+const selectedOperatorFacts = computed(() => {
+  const line = selectedLine.value
+  const flightMode =
+    hardware.value?.flight_mode_known === true && hardware.value.flight_mode
+  return operatorFacts(
+    line && flightMode
+      ? {
+          ...line,
+          state: 'disabled',
+          registration_state_known: false,
+          roaming: false
+        }
+      : line,
+    '—',
+    key => t(key)
+  )
+})
 const apnPlaceholder = computed(() => automaticAPNLabel(hardware.value?.automatic_apn))
 const incomingCalls = computed(() => configuration.value?.incoming_calls)
 const savingOperation = computed(() => selectedResource.value?.savingOperation || '')
@@ -276,6 +292,29 @@ const flightModeWritable = computed(
     hardware.value.capabilities.flight_mode.writable &&
     hardware.value.capabilities.radio.writable
 )
+const dataConnectionWritable = computed(() => {
+  const current = hardware.value
+  return Boolean(
+    current?.capabilities.data_connection.writable &&
+      current.radio.enabled_known &&
+      current.radio.enabled &&
+      current.flight_mode_known &&
+      !current.flight_mode
+  )
+})
+const dataConnectionDetail = computed(() => {
+  const current = hardware.value
+  if (!current) return ''
+  const capability = current.capabilities.data_connection
+  if (!capability.writable) return readOnlyReason(capability) || t('device.notWritable')
+  if (!current.radio.enabled_known || !current.flight_mode_known) {
+    return t('device.radioStateUnavailableForData')
+  }
+  if (!current.radio.enabled || current.flight_mode) {
+    return t('runtime.turnOffFlightModeForData')
+  }
+  return ''
+})
 const volteStatusLabel = computed(() => {
   const capability = hardware.value?.capabilities.volte
   const volte = hardware.value?.volte
@@ -691,7 +730,7 @@ async function changeRadio(event: Event): Promise<void> {
 }
 
 async function applyDataConnection(): Promise<boolean> {
-  if (!selectedLineID.value) return false
+  if (!selectedLineID.value || !dataConnectionWritable.value) return false
   return connectData(selectedLineID.value, apn.value, ipFamily.value)
 }
 
@@ -991,6 +1030,11 @@ onBeforeUnmount(() => {
         :device="deviceFor(line)"
         :selected="line.id === selectedLineID"
         :default-line="line.device_imei === defaultDeviceIMEI"
+        :flight-mode="
+          line.id === selectedLineID && hardware?.flight_mode_known
+            ? hardware.flight_mode
+            : undefined
+        "
         actions
         @select="selectLine(line)"
         @make-default="makeDefault(line)"
@@ -1151,7 +1195,21 @@ onBeforeUnmount(() => {
               </div>
               <div>
                 <dt>{{ t('lines.signal') }}</dt>
-                <dd>{{ selectedLine?.signal_quality == null ? '—' : `${selectedLine.signal_quality}%` }}</dd>
+                <dd class="configuration-summary__signal">
+                  <SignalBars
+                    :value="selectedLine?.signal_quality"
+                    :flight-mode="hardware.flight_mode_known && hardware.flight_mode"
+                  />
+                  <span>
+                    {{
+                      hardware.flight_mode_known && hardware.flight_mode
+                        ? t('device.flightMode')
+                        : selectedLine?.signal_quality == null
+                          ? '—'
+                          : `${selectedLine.signal_quality}%`
+                    }}
+                  </span>
+                </dd>
               </div>
               <div v-if="hardware.details.access_technologies != null">
                 <dt>{{ t('device.accessTechnology') }}</dt>
@@ -1216,12 +1274,39 @@ onBeforeUnmount(() => {
 
         <template v-else-if="activeTab === 'network'">
           <section class="configuration-section">
+            <header><Plane :size="18" /><h4>{{ t('device.radio') }}</h4></header>
+            <label class="configuration-toggle">
+              <span>
+                <strong>{{ t('device.flightMode') }}</strong>
+                <small v-if="!hardware.flight_mode_known">{{ t('lines.unknownState') }}</small>
+                <small v-else-if="!flightModeWritable">
+                  {{ readOnlyReason(hardware.capabilities.flight_mode) || t('device.notWritable') }}
+                </small>
+              </span>
+              <span class="configuration-toggle__control">
+                <LoaderCircle
+                  v-if="savingOperation === 'set_radio_enabled'"
+                  class="spin"
+                  :size="16"
+                />
+                <input
+                  type="checkbox"
+                  role="switch"
+                  :checked="hardware.flight_mode"
+                  :disabled="hardwareBusy || !flightModeWritable"
+                  @change="changeRadio"
+                />
+              </span>
+            </label>
+          </section>
+
+          <section class="configuration-section">
             <header><Network :size="18" /><h4>{{ t('device.mobileNetwork') }}</h4></header>
             <label class="configuration-toggle data-toggle">
               <span>
                 <strong>{{ t('device.mobileData') }}</strong>
-                <small v-if="!hardware.capabilities.data_connection.writable">
-                  {{ readOnlyReason(hardware.capabilities.data_connection) || t('device.notWritable') }}
+                <small v-if="dataConnectionDetail">
+                  {{ dataConnectionDetail }}
                 </small>
               </span>
               <span class="configuration-toggle__control">
@@ -1234,7 +1319,7 @@ onBeforeUnmount(() => {
                   type="checkbox"
                   role="switch"
                   :checked="hardware.network_enabled"
-                  :disabled="hardwareBusy || !hardware.capabilities.data_connection.writable"
+                  :disabled="hardwareBusy || !dataConnectionWritable"
                   @change="changeDataConnection"
                 />
               </span>
@@ -1248,7 +1333,7 @@ onBeforeUnmount(() => {
                   :disabled="
                     hardwareBusy ||
                     hardware.network_enabled ||
-                    !hardware.capabilities.data_connection.writable
+                    !dataConnectionWritable
                   "
                 />
               </label>
@@ -1257,7 +1342,7 @@ onBeforeUnmount(() => {
                 :disabled="
                   hardwareBusy ||
                   hardware.network_enabled ||
-                  !hardware.capabilities.data_connection.writable
+                  !dataConnectionWritable
                 "
               >
                 <legend>{{ t('device.ipMode') }}</legend>
@@ -1474,36 +1559,6 @@ onBeforeUnmount(() => {
                 </div>
               </template>
             </div>
-          </section>
-
-          <section class="configuration-section">
-            <header><RadioTower :size="18" /><h4>{{ t('device.radio') }}</h4></header>
-            <label class="configuration-toggle">
-              <span>
-                <strong>{{ t('device.flightMode') }}</strong>
-                <small v-if="!hardware.flight_mode_known">{{ t('lines.unknownState') }}</small>
-                <small v-else-if="!flightModeWritable">
-                  {{ readOnlyReason(hardware.capabilities.flight_mode) || t('device.notWritable') }}
-                </small>
-              </span>
-              <span class="configuration-toggle__control">
-                <LoaderCircle
-                  v-if="savingOperation === 'set_radio_enabled'"
-                  class="spin"
-                  :size="16"
-                />
-                <input
-                  type="checkbox"
-                  role="switch"
-                  :checked="hardware.flight_mode"
-                  :disabled="
-                    hardwareBusy ||
-                    !flightModeWritable
-                  "
-                  @change="changeRadio"
-                />
-              </span>
-            </label>
           </section>
 
           <section class="configuration-section">
@@ -2245,6 +2300,12 @@ onBeforeUnmount(() => {
   margin: 3px 0 0;
   overflow-wrap: anywhere;
   font-size: 13px;
+}
+
+.configuration-summary__signal {
+  display: flex;
+  align-items: center;
+  gap: 7px;
 }
 
 .hardware-ports {

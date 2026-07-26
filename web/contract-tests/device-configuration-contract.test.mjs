@@ -382,7 +382,22 @@ test('fixture applies successful revisioned updates and rejects stale revisions'
     radio_enabled: false
   })
   assert.equal(updated.hardware?.radio.enabled, false)
+  assert.equal(updated.hardware?.flight_mode, true)
+  assert.equal(updated.hardware?.network_enabled, false)
+  assert.deepEqual(updated.hardware?.data_connections, [])
   assert.notEqual(updated.hardware?.revision, initial.hardware.revision)
+
+  await assert.rejects(
+    () =>
+      gateway.updateDeviceConfiguration('line-fixture-main', {
+        request_id: 'request-connect-flight-mode',
+        operation: 'connect_data',
+        expected_device_revision: updated.hardware.revision,
+        apn: '',
+        ip_family: 'ipv4v6'
+      }),
+    error => error?.status === 412 && error?.code === 'failed_precondition'
+  )
 
   await assert.rejects(
     () =>
@@ -403,6 +418,20 @@ test('fixture applies successful revisioned updates and rejects stale revisions'
   })
   assert.equal(updatedPolicy.incoming_calls?.policy, 'do_not_disturb')
   assert.equal(updatedPolicy.incoming_calls?.effective_policy, 'do_not_disturb')
+})
+
+test('hardware writes refresh their revision and retry one concurrent change', () => {
+  const body = functionBody(
+    deviceConfigurationStateSource,
+    'async function applyHardwareUpdate'
+  )
+
+  assert.match(body, /for \(let attempt = 0; attempt < 2; attempt \+= 1\)/)
+  assert.match(body, /const latest = await gateway\.getDeviceConfiguration\(lineID\)/)
+  assert.match(body, /request_id: requestID\(\)/)
+  assert.match(body, /expected_device_revision: latest\.hardware\.revision/)
+  assert.match(body, /error instanceof ApiError/)
+  assert.match(body, /error\.code !== 'conflict'/)
 })
 
 test('risky hardware writes return on cancelled confirmation before invoking state writes', () => {

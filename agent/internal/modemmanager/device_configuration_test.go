@@ -494,17 +494,135 @@ func TestApplyDeviceConfigurationWritesOnceAndVerifiesReadBack(t *testing.T) {
 		t.Fatalf("ApplyGenericDeviceConfiguration(disable) error = %v", err)
 	}
 	if !updated.Radio.EnabledKnown || updated.Radio.Enabled ||
-		!updated.FlightModeKnown || !updated.FlightMode {
+		!updated.FlightModeKnown || !updated.FlightMode ||
+		updated.NetworkEnabled || len(updated.DataConnections) != 0 {
 		t.Fatalf("disabled configuration = %+v", updated)
+	}
+	if _, found := provider.ownedBearers.get(lineID, provider.ids.providerEpoch()); found {
+		t.Fatal("radio disable retained bearer ownership")
 	}
 	assertConfigurationMethods(
 		t,
 		caller.methods(),
 		objectManagerInterface+".GetManagedObjects",
 		objectManagerInterface+".GetManagedObjects",
+		propertiesInterface+".GetAll",
+		bearerInterface+".Disconnect",
+		modemInterface+".DeleteBearer",
 		modemInterface+".Enable",
 		objectManagerInterface+".GetManagedObjects",
 	)
+}
+
+func TestApplyDeviceConfigurationRejectsDataConnectWhileRadioIsDisabled(t *testing.T) {
+	t.Parallel()
+
+	objects := configurationObjects()
+	objects[testModemPath][modemInterface]["State"] =
+		dbus.MakeVariant(int32(modemStateDisabled))
+	objects[testModemPath][modemInterface]["PowerState"] =
+		dbus.MakeVariant(uint32(modemPowerStateLow))
+	caller := &configurationCaller{objects: objects}
+	provider := newTestProvider(caller)
+	lineID := parsedLineID(objects, provider.ids)
+	current, err := provider.ReadDeviceConfiguration(context.Background(), lineID)
+	if err != nil {
+		t.Fatalf("ReadDeviceConfiguration() error = %v", err)
+	}
+	caller.calls = nil
+
+	_, err = provider.ApplyGenericDeviceConfiguration(
+		context.Background(),
+		domain.ApplyDeviceConfigurationRequest{
+			RequestID:        "connect-data-flight-mode",
+			LineID:           lineID,
+			ExpectedRevision: current.Revision,
+			Operation:        domain.DeviceConfigurationConnectData,
+			IPFamily:         "ipv4v6",
+		},
+	)
+	assertOperationError(t, err, domain.ErrorFailedPrecondition, "apply_device_configuration")
+	assertConfigurationMethods(
+		t,
+		caller.methods(),
+		objectManagerInterface+".GetManagedObjects",
+	)
+	if paths, _ := objectPathValuesProperty(
+		caller.objects[testModemPath][modemInterface],
+		"Bearers",
+	); len(paths) != 0 {
+		t.Fatalf("disabled radio created bearers: %v", paths)
+	}
+}
+
+func TestApplyDeviceConfigurationRepairsDataWhenRadioIsAlreadyDisabled(t *testing.T) {
+	t.Parallel()
+
+	objects := configurationObjects()
+	caller := &configurationCaller{objects: objects}
+	provider := newTestProvider(caller)
+	lineID := parsedLineID(objects, provider.ids)
+	current, err := provider.ReadDeviceConfiguration(context.Background(), lineID)
+	if err != nil {
+		t.Fatalf("ReadDeviceConfiguration() error = %v", err)
+	}
+	connected, err := provider.ApplyGenericDeviceConfiguration(
+		context.Background(),
+		domain.ApplyDeviceConfigurationRequest{
+			RequestID:        "connect-before-disabled-drift",
+			LineID:           lineID,
+			ExpectedRevision: current.Revision,
+			Operation:        domain.DeviceConfigurationConnectData,
+			IPFamily:         "ipv4v6",
+		},
+	)
+	if err != nil {
+		t.Fatalf("ApplyGenericDeviceConfiguration(connect) error = %v", err)
+	}
+	if !connected.NetworkEnabled {
+		t.Fatalf("connected configuration = %+v", connected)
+	}
+
+	caller.objects[testModemPath][modemInterface]["State"] =
+		dbus.MakeVariant(int32(modemStateDisabled))
+	caller.objects[testModemPath][modemInterface]["PowerState"] =
+		dbus.MakeVariant(uint32(modemPowerStateLow))
+	drifted, err := provider.ReadDeviceConfiguration(context.Background(), lineID)
+	if err != nil {
+		t.Fatalf("ReadDeviceConfiguration(drifted) error = %v", err)
+	}
+	if drifted.Radio.Enabled || !drifted.NetworkEnabled {
+		t.Fatalf("drifted configuration = %+v", drifted)
+	}
+	caller.calls = nil
+
+	disabled := false
+	repaired, err := provider.ApplyGenericDeviceConfiguration(
+		context.Background(),
+		domain.ApplyDeviceConfigurationRequest{
+			RequestID:        "repair-disabled-data-drift",
+			LineID:           lineID,
+			ExpectedRevision: drifted.Revision,
+			Operation:        domain.DeviceConfigurationSetRadioEnabled,
+			RadioEnabled:     &disabled,
+		},
+	)
+	if err != nil {
+		t.Fatalf("ApplyGenericDeviceConfiguration(repair) error = %v", err)
+	}
+	if repaired.Radio.Enabled ||
+		repaired.NetworkEnabled ||
+		len(repaired.DataConnections) != 0 {
+		t.Fatalf("repaired configuration = %+v", repaired)
+	}
+	if caller.methodCount(bearerInterface+".Disconnect") != 1 ||
+		caller.methodCount(modemInterface+".DeleteBearer") != 1 ||
+		caller.methodCount(modemInterface+".Enable") != 1 {
+		t.Fatalf("repair methods = %v", caller.methods())
+	}
+	if _, found := provider.ownedBearers.get(lineID, provider.ids.providerEpoch()); found {
+		t.Fatal("repair retained bearer ownership")
+	}
 }
 
 func TestApplyDeviceConfigurationRollsBackBearerWhenDataPlaneFails(t *testing.T) {

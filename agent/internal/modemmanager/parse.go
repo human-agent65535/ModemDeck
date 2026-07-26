@@ -103,6 +103,12 @@ func ParseManagedObjects(objects ManagedObjects, ids *instanceIDs) ParsedObjects
 					signalProperties,
 					line.AccessTechnologies,
 				)
+			rate, rateKnown := uint32Property(signalProperties, "Rate")
+			line.SignalMetricsRecent =
+				rateKnown &&
+					rate > 0 &&
+					line.StateCode >= modemStateEnabled &&
+					signalMetricsAvailable(line)
 		}
 		line.OwnNumbers, _ = stringsProperty(modemProperties, "OwnNumbers")
 
@@ -606,6 +612,13 @@ func extendedSignalProperties(
 		return rssi, rsrp, rsrq, snr
 	}
 	return nil, nil, nil, nil
+}
+
+func signalMetricsAvailable(line domain.Line) bool {
+	return line.SignalDBM != nil ||
+		line.SignalRSRP != nil ||
+		line.SignalRSRQ != nil ||
+		line.SignalSNR != nil
 }
 
 func modemPortsProperty(properties Properties, name string) ([]domain.ModemPort, bool) {

@@ -6,6 +6,10 @@ const source = readFileSync(
   new URL('../src/components/DeviceConfigurationPanel.vue', import.meta.url),
   'utf8'
 )
+const signalBarsSource = readFileSync(
+  new URL('../src/components/SignalBars.vue', import.meta.url),
+  'utf8'
+)
 
 function functionBody(name, nextName) {
   const start = source.indexOf(`async function ${name}`)
@@ -25,10 +29,11 @@ test('flight mode is the inverse of the existing radio operation', () => {
     /setRadioEnabled\(selectedLineID\.value, !flightModeEnabled\)/
   )
   assert.match(source, /:checked="hardware\.flight_mode"/)
+  assert.match(source, /<Plane :size="18" \/><h4>\{\{ t\('device\.radio'\) \}\}<\/h4>/)
   assert.doesNotMatch(source, /<h4>蜂窝射频<\/h4>/)
 })
 
-test('mobile data switch uses APN and IP settings for connect and disconnect', () => {
+test('mobile data is unavailable while airplane mode or radio state prevents it', () => {
   const connectBody = functionBody('applyDataConnection', 'stopDataConnection')
   const switchBody = functionBody('changeDataConnection', 'applyVoLTE')
   const networkStart = source.indexOf("<template v-else-if=\"activeTab === 'network'\">")
@@ -40,11 +45,21 @@ test('mobile data switch uses APN and IP settings for connect and disconnect', (
 
   assert.match(
     connectBody,
+    /!selectedLineID\.value \|\| !dataConnectionWritable\.value/
+  )
+  assert.match(
+    connectBody,
     /connectData\(selectedLineID\.value, apn\.value, ipFamily\.value\)/
+  )
+  assert.match(
+    source,
+    /current\.radio\.enabled_known[\s\S]*current\.radio\.enabled[\s\S]*current\.flight_mode_known[\s\S]*!current\.flight_mode/
   )
   assert.match(switchBody, /enabled \? await applyDataConnection\(\) : await stopDataConnection\(\)/)
   assert.match(source, /<strong>\{\{ t\('device\.mobileData'\) \}\}<\/strong>/)
   assert.match(source, /:checked="hardware\.network_enabled"/)
+  assert.match(source, /:disabled="hardwareBusy \|\| !dataConnectionWritable"/)
+  assert.match(source, /t\('runtime\.turnOffFlightModeForData'\)/)
   assert.match(source, /<span>APN<\/span>/)
   assert.match(networkSection, /<legend>\{\{ t\('device\.ipMode'\) \}\}<\/legend>/)
   assert.match(networkSection, /type="radio" value="ipv4"/)
@@ -56,6 +71,13 @@ test('mobile data switch uses APN and IP settings for connect and disconnect', (
     source,
     /connection\.ip_family\s*:\s*'ipv4v6'/
   )
+})
+
+test('airplane mode and zero signal have distinct icons', () => {
+  assert.match(signalBarsSource, /import \{ Plane \} from '@lucide\/vue'/)
+  assert.match(signalBarsSource, /v-if="flightMode"/)
+  assert.match(signalBarsSource, /if \(props\.flightMode\) return 'is-flight-mode'/)
+  assert.doesNotMatch(signalBarsSource, /\.signal-bars\.is-zero::after/)
 })
 
 test('empty APN remains automatic and only displays a server-resolved value', () => {

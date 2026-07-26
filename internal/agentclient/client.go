@@ -101,6 +101,7 @@ type Line struct {
 	SignalQualityKnown       bool             `json:"signal_quality_known"`
 	SignalQuality            uint32           `json:"signal_quality"`
 	SignalQualityRecent      bool             `json:"signal_quality_recent"`
+	SignalMetricsRecent      bool             `json:"signal_metrics_recent"`
 	SignalDBM                *float64         `json:"signal_dbm"`
 	SignalRSRP               *float64         `json:"signal_rsrp"`
 	SignalRSRQ               *float64         `json:"signal_rsrq"`

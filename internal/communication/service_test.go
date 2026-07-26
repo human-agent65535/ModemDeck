@@ -710,6 +710,7 @@ func TestProjectLinePreservesDetectedInterfaces(t *testing.T) {
 		SignalQualityKnown:      true,
 		SignalQualityRecent:     true,
 		SignalQuality:           73,
+		SignalMetricsRecent:     true,
 		SignalSNR:               &snr,
 		Ports: []agentclient.ModemPort{{
 			Name:     "cdc-wdm0",
@@ -792,6 +793,46 @@ func TestProjectSnapshotDropsStaleSignalTelemetry(t *testing.T) {
 	if line.SignalKnown || line.SignalDBM != nil || line.SignalRSRP != nil ||
 		line.SignalRSRQ != nil || line.SignalSNR != nil {
 		t.Fatalf("stale persisted signal was projected: %+v", line)
+	}
+}
+
+func TestProjectSnapshotUsesFreshExtendedSignalWhenGenericQualityIsStale(t *testing.T) {
+	t.Parallel()
+
+	dbm := -76.0
+	rsrp := -106.0
+	rsrq := -8.0
+	snr := 8.0
+	hardware, lines := projectSnapshot(agentclient.Snapshot{
+		ObservedAt: time.Date(2026, time.July, 26, 10, 0, 0, 0, time.UTC),
+		Lines: []agentclient.Line{{
+			ID:                  "line-fresh-extended-signal",
+			EquipmentIdentifier: "990000000000002",
+			SignalQualityKnown:  true,
+			SignalQuality:       57,
+			SignalQualityRecent: false,
+			SignalMetricsRecent: true,
+			SignalDBM:           &dbm,
+			SignalRSRP:          &rsrp,
+			SignalRSRQ:          &rsrq,
+			SignalSNR:           &snr,
+		}},
+	}, "boot-fresh-extended-signal")
+
+	if len(lines) != 1 || lines[0].Signal == nil || *lines[0].Signal != 57 ||
+		lines[0].SignalSNR == nil || *lines[0].SignalSNR != snr {
+		t.Fatalf("fresh extended live signal was not projected: %+v", lines)
+	}
+	if len(hardware.Lines) != 1 {
+		t.Fatalf("hardware lines = %d, want 1", len(hardware.Lines))
+	}
+	line := hardware.Lines[0]
+	if !line.SignalKnown || line.SignalQuality != 57 ||
+		line.SignalDBM == nil || *line.SignalDBM != -76 ||
+		line.SignalRSRP == nil || *line.SignalRSRP != -106 ||
+		line.SignalRSRQ == nil || *line.SignalRSRQ != -8 ||
+		line.SignalSNR == nil || *line.SignalSNR != snr {
+		t.Fatalf("fresh extended persisted signal was not projected: %+v", line)
 	}
 }
 

@@ -2,6 +2,7 @@ import { reactive } from 'vue'
 import { gateway } from '../api/client'
 import type {
   DeviceConfiguration,
+  DeviceHardwareConfiguration,
   GlobalCallSettings,
   IncomingCallPolicy,
   IPFamily,
@@ -17,6 +18,25 @@ type DeviceConfigurationResource = {
   error: string
   savingOperation: UpdateDeviceConfigurationInput['operation'] | ''
 }
+
+type IncomingPolicyUpdate = Extract<
+  UpdateDeviceConfigurationInput,
+  { operation: 'set_incoming_call_policy' }
+>
+
+type HardwareUpdateInput = Exclude<
+  UpdateDeviceConfigurationInput,
+  { operation: 'set_incoming_call_policy' }
+>
+
+type HardwareUpdateIntent =
+  | { operation: 'set_radio_enabled'; radio_enabled: boolean }
+  | { operation: 'connect_data'; apn: string; ip_family: IPFamily }
+  | { operation: 'disconnect_data' }
+  | { operation: 'set_volte_policy'; volte_policy: 'enabled' | 'disabled' }
+  | { operation: 'restart_modem' }
+
+type DeviceUpdateIntent = IncomingPolicyUpdate | HardwareUpdateIntent
 
 export const globalIncomingCallState = reactive<{
   status: ResourceStatus
@@ -40,6 +60,34 @@ export const deviceConfigurationState = reactive<{
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : translate('runtime.requestFailed')
+}
+
+function deviceConfigurationErrorText(
+  error: unknown,
+  input: DeviceUpdateIntent,
+  hardware?: DeviceHardwareConfiguration
+): string {
+  if (
+    error instanceof ApiError &&
+    error.code === 'conflict' &&
+    input.operation !== 'set_incoming_call_policy'
+  ) {
+    return translate('runtime.deviceConfigurationChanged')
+  }
+  if (
+    error instanceof ApiError &&
+    error.code === 'failed_precondition' &&
+    input.operation === 'connect_data' &&
+    hardware
+  ) {
+    if (!hardware.radio.enabled_known || !hardware.flight_mode_known) {
+      return translate('device.radioStateUnavailableForData')
+    }
+    if (!hardware.radio.enabled || hardware.flight_mode) {
+      return translate('runtime.turnOffFlightModeForData')
+    }
+  }
+  return errorText(error)
 }
 
 function errorStatus(error: unknown): ResourceStatus {
@@ -168,7 +216,8 @@ export async function loadDeviceConfiguration(
   if (!force && (target.status === 'ready' || target.status === 'loading')) {
     return target.status === 'ready'
   }
-  target.status = 'loading'
+  const hasConfiguration = target.data !== null
+  if (!hasConfiguration) target.status = 'loading'
   target.error = ''
   try {
     const configuration = await gateway.getDeviceConfiguration(normalizedLineID)
@@ -179,7 +228,7 @@ export async function loadDeviceConfiguration(
     target.status = 'ready'
     return true
   } catch (error) {
-    target.status = errorStatus(error)
+    target.status = hasConfiguration ? 'ready' : errorStatus(error)
     target.error = errorText(error)
     return false
   }
@@ -205,34 +254,67 @@ async function restoreDeviceConfiguration(
 
 async function updateDevice(
   lineID: string,
-  input: UpdateDeviceConfigurationInput
+  input: DeviceUpdateIntent
 ): Promise<boolean> {
   const target = resourceFor(lineID)
   if (!target.data || target.savingOperation) return false
   target.savingOperation = input.operation
   target.error = ''
   try {
-    const updated = await gateway.updateDeviceConfiguration(lineID, input)
+    const updated =
+      input.operation === 'set_incoming_call_policy'
+        ? await gateway.updateDeviceConfiguration(lineID, input)
+        : await applyHardwareUpdate(lineID, target, input)
     target.data = mergeConfiguration(target.data, updated)
     target.status = 'ready'
     return true
   } catch (error) {
-    await restoreDeviceConfiguration(lineID, target, errorText(error))
+    await restoreDeviceConfiguration(
+      lineID,
+      target,
+      deviceConfigurationErrorText(error, input, target.data?.hardware)
+    )
     return false
   } finally {
     target.savingOperation = ''
   }
 }
 
-function hardwareRevision(lineID: string): string {
-  return resourceFor(lineID).data?.hardware?.revision || ''
+async function applyHardwareUpdate(
+  lineID: string,
+  target: DeviceConfigurationResource,
+  input: HardwareUpdateIntent
+): Promise<DeviceConfiguration> {
+  let lastConflict: unknown
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const latest = await gateway.getDeviceConfiguration(lineID)
+    if (!latest.hardware || !latest.incoming_calls) {
+      throw new Error(translate('runtime.invalidDeviceConfiguration'))
+    }
+    target.data = mergeConfiguration(target.data, latest)
+    target.status = 'ready'
+
+    const request = {
+      ...input,
+      request_id: requestID(),
+      expected_device_revision: latest.hardware.revision
+    } as HardwareUpdateInput
+    try {
+      return await gateway.updateDeviceConfiguration(lineID, request)
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.code !== 'conflict' || attempt > 0) {
+        throw error
+      }
+      lastConflict = error
+    }
+  }
+  if (lastConflict) throw lastConflict
+  throw new Error(translate('runtime.requestFailed'))
 }
 
 export function setRadioEnabled(lineID: string, enabled: boolean): Promise<boolean> {
   return updateDevice(lineID, {
-    request_id: requestID(),
     operation: 'set_radio_enabled',
-    expected_device_revision: hardwareRevision(lineID),
     radio_enabled: enabled
   })
 }
@@ -243,9 +325,7 @@ export function connectData(
   ipFamily: IPFamily
 ): Promise<boolean> {
   return updateDevice(lineID, {
-    request_id: requestID(),
     operation: 'connect_data',
-    expected_device_revision: hardwareRevision(lineID),
     apn,
     ip_family: ipFamily
   })
@@ -253,9 +333,7 @@ export function connectData(
 
 export function disconnectData(lineID: string): Promise<boolean> {
   return updateDevice(lineID, {
-    request_id: requestID(),
-    operation: 'disconnect_data',
-    expected_device_revision: hardwareRevision(lineID)
+    operation: 'disconnect_data'
   })
 }
 
@@ -264,9 +342,7 @@ export function setVoLTEPolicy(
   policy: 'enabled' | 'disabled'
 ): Promise<boolean> {
   return updateDevice(lineID, {
-    request_id: requestID(),
     operation: 'set_volte_policy',
-    expected_device_revision: hardwareRevision(lineID),
     volte_policy: policy
   })
 }
@@ -278,9 +354,7 @@ function wait(milliseconds: number): Promise<void> {
 export async function restartModem(lineID: string): Promise<boolean> {
   const target = resourceFor(lineID)
   const accepted = await updateDevice(lineID, {
-    request_id: requestID(),
-    operation: 'restart_modem',
-    expected_device_revision: hardwareRevision(lineID)
+    operation: 'restart_modem'
   })
   if (!accepted) return false
 

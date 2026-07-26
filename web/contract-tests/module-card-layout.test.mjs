@@ -111,11 +111,16 @@ test('voice capability describes call control without implying an audio path', (
   assert.doesNotMatch(capabilities, /browserAudio|mediaBridge|USB/)
 })
 
-test('module cards use real graded bars without changing the reported value', () => {
+test('module cards use graded bars and reserve the airplane icon for flight mode', () => {
   assert.match(moduleCard, /import SignalBars from '\.\/SignalBars\.vue'/)
   assert.match(
     moduleCard,
-    /class="module-card__signal-value"[\s\S]*<SignalBars :value="signal" \/>[\s\S]*\{\{ signal === null \? '—' : `\$\{signal\}%` \}\}/
+    /!flightMode\.value[\s\S]*!radioWaitingForRegistration\.value[\s\S]*isRegisteredNetwork\(props\.line\)/
+  )
+  assert.match(moduleCard, /if \(flightMode\.value\) return t\('device\.flightMode'\)/)
+  assert.match(
+    moduleCard,
+    /class="module-card__signal-value"[\s\S]*<SignalBars :value="signal" :flight-mode="flightMode" \/>[\s\S]*flightMode[\s\S]*t\('device\.flightMode'\)[\s\S]*signal === null[\s\S]*`\$\{signal\}%`/
   )
   assert.doesNotMatch(moduleCard, /SignalHigh|SignalMedium|SignalLow|SignalZero/)
 })

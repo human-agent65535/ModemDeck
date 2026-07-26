@@ -1243,7 +1243,12 @@ func projectSnapshot(
 		lines = append(lines, projected)
 		lineIndex[line.ID] = projected
 		accessTechnologies := knownAccessTechnologies(line)
-		signalFresh := line.SignalQualityKnown && line.SignalQualityRecent
+		signal := projectedSignalQuality(line)
+		signalQuality := uint32(0)
+		if signal != nil {
+			signalQuality = *signal
+		}
+		signalMetricsFresh := line.SignalMetricsRecent
 		hardwareLines = append(hardwareLines, store.HardwareLine{
 			ID:                  line.ID,
 			Manufacturer:        line.Manufacturer,
@@ -1257,12 +1262,12 @@ func projectSnapshot(
 			Ports:               projectHardwarePorts(line.Ports),
 			AccessTechnologies:  accessTechnologies,
 			State:               line.State,
-			SignalKnown:         signalFresh,
-			SignalQuality:       line.SignalQuality,
-			SignalDBM:           freshRoundedSignal(signalFresh, line.SignalDBM),
-			SignalRSRQ:          freshRoundedSignal(signalFresh, line.SignalRSRQ),
-			SignalRSRP:          freshRoundedSignal(signalFresh, line.SignalRSRP),
-			SignalSNR:           freshSignal(signalFresh, line.SignalSNR),
+			SignalKnown:         signal != nil,
+			SignalQuality:       signalQuality,
+			SignalDBM:           freshRoundedSignal(signalMetricsFresh, line.SignalDBM),
+			SignalRSRQ:          freshRoundedSignal(signalMetricsFresh, line.SignalRSRQ),
+			SignalRSRP:          freshRoundedSignal(signalMetricsFresh, line.SignalRSRP),
+			SignalSNR:           freshSignal(signalMetricsFresh, line.SignalSNR),
 			PhoneNumber:         firstString(line.OwnNumbers),
 			ICCID:               line.SIMIdentifier,
 			IMSI:                line.IMSI,
@@ -1364,12 +1369,7 @@ func projectHardwarePorts(ports []agentclient.ModemPort) []store.HardwarePort {
 }
 
 func projectLine(line agentclient.Line) store.LineSummary {
-	var signal *uint32
-	signalFresh := line.SignalQualityKnown && line.SignalQualityRecent
-	if signalFresh {
-		value := line.SignalQuality
-		signal = &value
-	}
+	signal := projectedSignalQuality(line)
 	homeOperatorCode := firstNonEmpty(line.HomeOperatorCode, line.OperatorIdentifier)
 	homeOperatorName := firstNonEmpty(line.HomeOperatorName, line.OperatorName)
 	return store.LineSummary{
@@ -1397,7 +1397,7 @@ func projectLine(line agentclient.Line) store.LineSummary {
 		AccessTechnologies:     knownAccessTechnologies(line),
 		State:                  line.State,
 		Signal:                 signal,
-		SignalSNR:              freshSignal(signalFresh, line.SignalSNR),
+		SignalSNR:              freshSignal(line.SignalMetricsRecent, line.SignalSNR),
 		Capabilities: store.LineCapabilities{
 			Modem:       line.Capabilities.ModemInterface,
 			SIM:         line.Capabilities.SIMInterface,
@@ -1411,6 +1411,36 @@ func projectLine(line agentclient.Line) store.LineSummary {
 			SendMessage: line.Capabilities.SendMessage,
 		},
 	}
+}
+
+func projectedSignalQuality(line agentclient.Line) *uint32 {
+	if line.SignalQualityKnown && line.SignalQualityRecent {
+		value := min(line.SignalQuality, uint32(100))
+		return &value
+	}
+	if !line.SignalMetricsRecent {
+		return nil
+	}
+	switch {
+	case line.SignalRSRP != nil:
+		value := normalizedSignalQuality(*line.SignalRSRP, -140, -80)
+		return &value
+	case line.SignalDBM != nil:
+		value := normalizedSignalQuality(*line.SignalDBM, -110, -50)
+		return &value
+	default:
+		return nil
+	}
+}
+
+func normalizedSignalQuality(value, minimum, maximum float64) uint32 {
+	if value <= minimum {
+		return 0
+	}
+	if value >= maximum {
+		return 100
+	}
+	return uint32(math.Round((value - minimum) * 100 / (maximum - minimum)))
 }
 
 func projectMessage(

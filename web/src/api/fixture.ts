@@ -1925,8 +1925,24 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           hardware.radio.power_state_code = input.radio_enabled ? 3 : 2
           hardware.flight_mode = !input.radio_enabled
           hardware.flight_mode_known = true
+          if (!input.radio_enabled) {
+            hardware.network_enabled = false
+            hardware.data_connections = []
+          }
           break
         case 'connect_data':
+          if (
+            !hardware.radio.enabled_known ||
+            !hardware.radio.enabled ||
+            !hardware.flight_mode_known ||
+            hardware.flight_mode
+          ) {
+            throw new ApiError(
+              '关闭飞行模式后才能开启移动数据',
+              412,
+              'failed_precondition'
+            )
+          }
           hardware.network_enabled = true
           hardware.data_connections = [
             {

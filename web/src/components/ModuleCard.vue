@@ -26,6 +26,7 @@ const props = withDefaults(
     selected?: boolean
     defaultLine?: boolean
     actions?: boolean
+    flightMode?: boolean
   }>(),
   {
     device: undefined,
@@ -40,8 +41,23 @@ const emit = defineEmits<{
   makeDefault: []
 }>()
 
-const online = computed(() => isRegisteredNetwork(props.line))
 const signal = computed(() => props.line.signal_quality ?? null)
+const flightMode = computed(
+  () =>
+    props.flightMode ??
+    (props.line.state || '').trim().toLocaleLowerCase() === 'disabled'
+)
+const radioWaitingForRegistration = computed(
+  () =>
+    props.flightMode === false &&
+    (props.line.state || '').trim().toLocaleLowerCase() === 'disabled'
+)
+const online = computed(
+  () =>
+    !flightMode.value &&
+    !radioWaitingForRegistration.value &&
+    isRegisteredNetwork(props.line)
+)
 const model = computed(
   () => props.line.model || props.device?.model || t('lines.unknownModel')
 )
@@ -54,8 +70,23 @@ const equipmentIdentifier = computed(
 const simIdentifier = computed(
   () => props.line.iccid || props.device?.current_iccid || ''
 )
-const networkFacts = computed(() => operatorFacts(props.line, '—', key => t(key)))
+const networkFacts = computed(() =>
+  operatorFacts(
+    flightMode.value || radioWaitingForRegistration.value
+      ? {
+          ...props.line,
+          state: 'disabled',
+          registration_state_known: false,
+          roaming: false
+        }
+      : props.line,
+    '—',
+    key => t(key)
+  )
+)
 const stateLabel = computed(() => {
+  if (flightMode.value) return t('device.flightMode')
+  if (radioWaitingForRegistration.value) return t('lines.enabled')
   const state = (props.line.state || '').toLocaleLowerCase()
   let label = props.line.state || t('lines.unknownState')
   if (state === 'connected') label = t('lines.connected')
@@ -111,8 +142,16 @@ const stateLabel = computed(() => {
         <div>
           <dt>{{ t('lines.signal') }}</dt>
           <dd class="module-card__signal-value">
-            <SignalBars :value="signal" />
-            <span>{{ signal === null ? '—' : `${signal}%` }}</span>
+            <SignalBars :value="signal" :flight-mode="flightMode" />
+            <span>
+              {{
+                flightMode
+                  ? t('device.flightMode')
+                  : signal === null
+                    ? '—'
+                    : `${signal}%`
+              }}
+            </span>
           </dd>
         </div>
         <div>

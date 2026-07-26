@@ -27,7 +27,15 @@ test('unknown and zero signal have distinct visual and accessible states', () =>
   assert.match(source, /t\('signal\.none'/)
   assert.match(source, /\.signal-bars\.is-unknown \.signal-bars__bar/)
   assert.match(source, /border: 1px dashed/)
-  assert.match(source, /\.signal-bars\.is-zero::after/)
+  assert.match(source, /\.signal-bars\.is-zero \.signal-bars__bar/)
+  assert.doesNotMatch(source, /\.signal-bars\.is-zero::after/)
+})
+
+test('flight mode uses an explicit airplane icon instead of the zero-signal mark', () => {
+  assert.match(source, /import \{ Plane \} from '@lucide\/vue'/)
+  assert.match(source, /if \(props\.flightMode\) return 'is-flight-mode'/)
+  assert.match(source, /if \(props\.flightMode\) return t\('device\.flightMode'\)/)
+  assert.match(source, /<Plane[\s\S]*v-if="flightMode"/)
 })
 
 test('signal bars expose the reported percentage without inventing dBm', () => {

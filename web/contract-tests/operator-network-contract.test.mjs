@@ -380,7 +380,10 @@ test('device cards, settings, and diagnostics share the operator fact mapping', 
     )
   ])
 
-  assert.match(moduleCard, /operatorFacts\(props\.line/)
+  assert.match(
+    moduleCard,
+    /const networkFacts = computed\(\(\) =>[\s\S]*operatorFacts\([\s\S]*props\.line/
+  )
   assert.match(moduleCard, /isRegisteredNetwork\(props\.line\)/)
   assert.doesNotMatch(moduleCard, /'searching'\]\.includes/)
   assert.match(moduleCard, /v-for="fact in networkFacts"/)

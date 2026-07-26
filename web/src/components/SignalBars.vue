@@ -1,11 +1,18 @@
 <script setup lang="ts">
+import { Plane } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
-const props = defineProps<{
-  value: number | null | undefined
-}>()
+const props = withDefaults(
+  defineProps<{
+    value: number | null | undefined
+    flightMode?: boolean
+  }>(),
+  {
+    flightMode: false
+  }
+)
 
 const barCount = 4
 const isKnown = computed(
@@ -18,11 +25,13 @@ const activeBars = computed(() => {
   return Math.ceil(Math.min(props.value, 100) / (100 / barCount))
 })
 const stateClass = computed(() => {
+  if (props.flightMode) return 'is-flight-mode'
   if (!isKnown.value) return 'is-unknown'
   if (activeBars.value === 0) return 'is-zero'
   return `is-level-${activeBars.value}`
 })
 const accessibleLabel = computed(() => {
+  if (props.flightMode) return t('device.flightMode')
   if (!isKnown.value) return t('signal.unknown')
   if (activeBars.value === 0) return t('signal.none', { value: props.value })
   return t('signal.level', {
@@ -40,13 +49,22 @@ const accessibleLabel = computed(() => {
     role="img"
     :aria-label="accessibleLabel"
   >
-    <span
-      v-for="bar in barCount"
-      :key="bar"
-      class="signal-bars__bar"
-      :class="{ 'is-active': bar <= activeBars }"
+    <Plane
+      v-if="flightMode"
+      class="signal-bars__flight-icon"
+      :size="17"
+      :stroke-width="1.8"
       aria-hidden="true"
     />
+    <template v-else>
+      <span
+        v-for="bar in barCount"
+        :key="bar"
+        class="signal-bars__bar"
+        :class="{ 'is-active': bar <= activeBars }"
+        aria-hidden="true"
+      />
+    </template>
   </span>
 </template>
 
@@ -93,19 +111,17 @@ const accessibleLabel = computed(() => {
 }
 
 .signal-bars.is-zero .signal-bars__bar {
-  background: color-mix(in srgb, var(--danger) 20%, transparent);
+  background: color-mix(in srgb, var(--danger) 28%, transparent);
 }
 
-.signal-bars.is-zero::after {
-  position: absolute;
-  width: 21px;
-  height: 1.5px;
-  left: -1px;
-  bottom: 6px;
-  content: '';
-  background: var(--danger);
-  border-radius: 1px;
-  transform: rotate(-36deg);
-  transform-origin: center;
+.signal-bars.is-flight-mode {
+  height: 17px;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+.signal-bars__flight-icon {
+  display: block;
 }
 </style>
