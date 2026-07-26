@@ -4,16 +4,12 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowLeft,
-  CassetteTape,
-  MessageSquareText,
-  Phone,
-  PhoneIncoming,
   LoaderCircle,
-  PhoneMissed,
-  PhoneOutgoing
+  MessageSquareText,
+  Phone
 } from '@lucide/vue'
 import type { CallFilter, CallRecord } from '../api/types'
-import BaseAvatar from '../components/BaseAvatar.vue'
+import CallHistoryListItem from '../components/CallHistoryListItem.vue'
 import ContactHeaderIdentity from '../components/ContactHeaderIdentity.vue'
 import ContactNumberActions from '../components/ContactNumberActions.vue'
 import LineSelector from '../components/LineSelector.vue'
@@ -37,13 +33,26 @@ import {
   loadCalls,
   loadContacts
 } from '../state/workspace'
-import { formatDateTime, formatDuration, formatRelativeDate } from '../utils/format'
+import { formatDateTime, formatDuration } from '../utils/format'
 import {
   createLineLookup,
   findLine,
   lineTagFallback,
   lineTagLine
 } from '../utils/lineIdentity'
+
+const props = withDefaults(
+  defineProps<{
+    embeddedCallId?: string
+  }>(),
+  {
+    embeddedCallId: ''
+  }
+)
+const emit = defineEmits<{
+  close: []
+  message: [request: { number: string; name: string; contextLineKey: string }]
+}>()
 
 const route = useRoute()
 const router = useRouter()
@@ -90,7 +99,11 @@ const filteredCalls = computed(() => {
     .slice()
     .sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at))
 })
-const selectedId = computed(() => (typeof route.query.selected === 'string' ? route.query.selected : ''))
+const embedded = computed(() => Boolean(props.embeddedCallId))
+const selectedId = computed(() =>
+  props.embeddedCallId ||
+  (typeof route.query.selected === 'string' ? route.query.selected : '')
+)
 const selected = computed(() => callsResource.data.find(call => call.id === selectedId.value))
 const selectedContact = computed(() =>
   selected.value ? contactForNumber(selected.value.remote_number) : undefined
@@ -112,11 +125,6 @@ function displayName(call: CallRecord): string {
 
 function avatarForCall(call: CallRecord): string {
   return contactForNumber(call.remote_number)?.avatar || ''
-}
-
-function iconFor(call: CallRecord) {
-  if (call.missed) return PhoneMissed
-  return call.direction === 'incoming' ? PhoneIncoming : PhoneOutgoing
 }
 
 function directionLabel(call: CallRecord): string {
@@ -163,6 +171,10 @@ function selectCall(call: CallRecord): void {
 }
 
 function backToList(): void {
+  if (embedded.value) {
+    emit('close')
+    return
+  }
   void router.push({ name: 'calls' })
 }
 
@@ -171,9 +183,29 @@ function callBack(call: CallRecord): void {
   openDialer(call.remote_number, displayName(call), actionLineKey(call))
 }
 
+function callActionLabel(call: CallRecord): string {
+  return call.direction === 'outgoing'
+    ? t('calls.callAgain')
+    : t('dashboard.callBack')
+}
+
+function callActionAriaLabel(call: CallRecord): string {
+  return call.direction === 'outgoing'
+    ? t('calls.callAgainName', { name: displayName(call) })
+    : t('calls.callBackName', { name: displayName(call) })
+}
+
 function sendMessage(call: CallRecord): void {
   if (messageUnavailable.value) return
   const selectedLineKey = actionLineKey(call)
+  if (embedded.value) {
+    emit('message', {
+      number: call.remote_number,
+      name: displayName(call),
+      contextLineKey: selectedLineKey
+    })
+    return
+  }
   void router.push({
     name: 'messages',
     query: {
@@ -211,8 +243,11 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="workspace" :class="{ 'has-selection': selected }">
-    <aside class="list-pane">
+  <section
+    class="workspace calls-workspace"
+    :class="{ 'has-selection': selected, 'is-embedded': embedded }"
+  >
+    <aside v-if="!embedded" class="list-pane">
       <header class="pane-header">
         <div>
           <h1>{{ t('shell.calls') }}</h1>
@@ -289,59 +324,18 @@ onMounted(() => {
         "
       />
       <div v-else class="item-list">
-        <div
+        <CallHistoryListItem
           v-for="call in filteredCalls"
           :key="call.id"
-          class="list-item call-list-item"
-          :class="{ 'is-selected': call.id === selectedId, 'is-missed': call.missed }"
-        >
-          <button
-            class="call-list-item__select"
-            type="button"
-            :aria-label="t('calls.viewDetails', { name: displayName(call) })"
-            @click="selectCall(call)"
-          >
-            <span class="call-list-item__avatar">
-              <BaseAvatar :name="displayName(call)" :src="avatarForCall(call)" />
-              <span class="call-direction-icon">
-                <component :is="iconFor(call)" :size="12" />
-              </span>
-            </span>
-            <span class="list-item__content">
-              <span class="list-item__title">
-                <strong>{{ displayName(call) }}</strong>
-                <time>{{ formatRelativeDate(call.started_at) }}</time>
-              </span>
-              <span class="call-list-item__meta">
-                <LineTag
-                  :line="lineTagLine(lineForCall(call), call.local_phone, call.line_iccid, call.line_imsi)"
-                  :fallback="callLineFallback(call)"
-                />
-                <small>{{ directionLabel(call) }} · {{ call.remote_number }}</small>
-                <span
-                  v-if="hasPlayableRecording(call)"
-                  class="call-list-item__recording"
-                  role="img"
-                  :aria-label="t('calls.hasRecording')"
-                  :title="t('calls.hasRecording')"
-                >
-                  <CassetteTape :size="15" aria-hidden="true" />
-                </span>
-              </span>
-            </span>
-          </button>
-          <button
-            class="icon-button icon-button--quiet call-list-item__call"
-            type="button"
-            :disabled="Boolean(dialUnavailable)"
-            :title="dialUnavailable || t('dashboard.callBack')"
-            :aria-label="t('calls.callBackName', { name: displayName(call) })"
-            @click="callBack(call)"
-            @keydown.enter.prevent="callBack(call)"
-          >
-            <Phone :size="17" />
-          </button>
-        </div>
+          :call="call"
+          :name="displayName(call)"
+          :avatar="avatarForCall(call)"
+          :line="lineTagLine(lineForCall(call), call.local_phone, call.line_iccid, call.line_imsi)"
+          :line-fallback="callLineFallback(call)"
+          :selected="call.id === selectedId"
+          :has-recording="hasPlayableRecording(call)"
+          @select="selectCall"
+        />
       </div>
     </aside>
 
@@ -373,12 +367,12 @@ onMounted(() => {
               class="call-detail__command call-detail__command--primary"
               type="button"
               :disabled="Boolean(dialUnavailable)"
-              :title="dialUnavailable || t('dashboard.callBack')"
-              :aria-label="t('calls.callBackName', { name: displayName(selected) })"
+              :title="dialUnavailable || callActionLabel(selected)"
+              :aria-label="callActionAriaLabel(selected)"
               @click="callBack(selected)"
             >
               <Phone :size="17" />
-              <span>{{ t('dashboard.callBack') }}</span>
+              <span>{{ callActionLabel(selected) }}</span>
             </button>
             <button
               class="call-detail__command"
@@ -451,76 +445,8 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.call-list-item {
-  gap: 0;
-  padding: 0;
-  cursor: default;
-}
-
-.call-list-item__select {
-  display: flex;
-  min-width: 0;
-  min-height: 76px;
-  flex: 1;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 6px 10px 14px;
-  color: inherit;
-  text-align: left;
-  background: transparent;
-}
-
-.call-list-item__select:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
-.call-list-item__call {
-  margin-right: 10px;
-}
-
-.call-list-item__avatar {
-  position: relative;
-  display: inline-flex;
-  flex: 0 0 auto;
-}
-
-.call-list-item__avatar .call-direction-icon {
-  position: absolute;
-  right: -4px;
-  bottom: -4px;
-  width: 21px;
-  height: 21px;
-  flex: 0 0 21px;
-  color: var(--blue);
-  background: var(--blue-soft);
-  border: 2px solid var(--surface);
-  box-shadow: 0 1px 3px rgb(16 24 40 / 14%);
-}
-
-.call-list-item__meta {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 6px;
-}
-
-.call-list-item__meta small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.call-list-item__recording {
-  display: inline-grid;
-  width: 22px;
-  height: 22px;
-  flex: 0 0 22px;
-  place-items: center;
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-  border-radius: 50%;
+.calls-workspace.is-embedded {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .call-detail__header-actions {

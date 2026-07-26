@@ -3,17 +3,25 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 const callsView = new URL('../src/views/CallsView.vue', import.meta.url)
+const callHistoryListItem = new URL(
+  '../src/components/CallHistoryListItem.vue',
+  import.meta.url
+)
 
 async function source() {
   return readFile(callsView, 'utf8')
 }
 
 test('call history marks only calls with playable recordings', async () => {
-  const calls = await source()
+  const [calls, row] = await Promise.all([
+    source(),
+    readFile(callHistoryListItem, 'utf8')
+  ])
 
-  assert.match(calls, /<BaseAvatar :name="displayName\(call\)" :src="avatarForCall\(call\)"/)
-  assert.match(calls, /class="call-list-item__avatar"/)
-  assert.match(calls, /CassetteTape/)
+  assert.match(calls, /import CallHistoryListItem from/)
+  assert.match(row, /<BaseAvatar :name="name" :src="avatar"/)
+  assert.match(row, /class="call-list-item__avatar"/)
+  assert.match(row, /CassetteTape/)
   assert.match(
     calls,
     /recordingCatalogState\.data[\s\S]*?\.filter\(recording => recording\.playable\)[\s\S]*?\.map\(recording => recording\.call_id\)/
@@ -21,7 +29,11 @@ test('call history marks only calls with playable recordings', async () => {
   assert.match(calls, /function hasPlayableRecording\(call: CallRecord\)/)
   assert.match(
     calls,
-    /v-if="hasPlayableRecording\(call\)"[\s\S]*?class="call-list-item__recording"[\s\S]*?:aria-label="t\('calls\.hasRecording'\)"[\s\S]*?<CassetteTape/
+    /<CallHistoryListItem[\s\S]*?:has-recording="hasPlayableRecording\(call\)"/
+  )
+  assert.match(
+    row,
+    /v-if="hasRecording"[\s\S]*?class="call-list-item__recording"[\s\S]*?:aria-label="t\('calls\.hasRecording'\)"[\s\S]*?<CassetteTape/
   )
   assert.match(calls, /loadRecordingEntries\(\)/)
 })
@@ -39,4 +51,15 @@ test('call detail keeps communication and contact actions in one compact header'
   )
   assert.doesNotMatch(calls, /<div class="call-detail__actions">/)
   assert.doesNotMatch(calls, /class="call-detail__contact-actions"/)
+})
+
+test('outgoing call detail uses call-again copy', async () => {
+  const calls = await source()
+
+  assert.match(
+    calls,
+    /function callActionLabel\(call: CallRecord\)[\s\S]*?call\.direction === 'outgoing'[\s\S]*?t\('calls\.callAgain'\)/
+  )
+  assert.match(calls, /:title="dialUnavailable \|\| callActionLabel\(selected\)"/)
+  assert.match(calls, /<span>\{\{ callActionLabel\(selected\) \}\}<\/span>/)
 })

@@ -6,8 +6,20 @@ const dashboard = await readFile(
   new URL('../src/views/DashboardView.vue', import.meta.url),
   'utf8'
 )
-const contacts = await readFile(
-  new URL('../src/views/ContactsView.vue', import.meta.url),
+const messages = await readFile(
+  new URL('../src/views/MessagesView.vue', import.meta.url),
+  'utf8'
+)
+const calls = await readFile(
+  new URL('../src/views/CallsView.vue', import.meta.url),
+  'utf8'
+)
+const messageThreadListItem = await readFile(
+  new URL('../src/components/MessageThreadListItem.vue', import.meta.url),
+  'utf8'
+)
+const callHistoryListItem = await readFile(
+  new URL('../src/components/CallHistoryListItem.vue', import.meta.url),
   'utf8'
 )
 
@@ -44,15 +56,65 @@ test('dashboard keeps creation actions with activity and omits the duplicate ove
   )
 })
 
-test('dashboard new-contact action opens the shared contacts editor flow', () => {
+test('dashboard new-contact action opens the shared editor in place', () => {
+  assert.match(dashboard, /import ContactEditor from/)
+  assert.match(dashboard, /const contactEditorOpen = ref\(false\)/)
+  assert.match(dashboard, /contactEditorOpen\.value = true/)
+  assert.match(dashboard, /await saveContact\(input\)/)
+  assert.match(dashboard, /<ContactEditor[\s\S]*:open="contactEditorOpen"/)
+  assert.match(dashboard, /@save="saveNewContact"/)
+  assert.doesNotMatch(dashboard, /query: \{ create: '1' \}/)
+})
+
+test('dashboard reuses message and call detail surfaces in the middle pane', () => {
+  assert.match(dashboard, /import CallsView from/)
+  assert.match(dashboard, /import MessagesView from/)
   assert.match(
     dashboard,
-    /router\.push\(\{ name: 'contacts', query: \{ create: '1' \} \}\)/
+    /<MessagesView[\s\S]*v-if="composingMessage"[\s\S]*embedded-compose/
   )
-  assert.doesNotMatch(dashboard, /import ContactEditor/)
-  assert.match(contacts, /\(\) => route\.query\.create/)
-  assert.match(contacts, /requested !== '1'[\s\S]*openNew\(\)/)
-  assert.equal((contacts.match(/<ContactEditor/g) || []).length, 1)
+  assert.match(
+    dashboard,
+    /<MessagesView[\s\S]*v-else-if="selectedThread"[\s\S]*:embedded-thread-key="selectedThread\.key"/
+  )
+  assert.match(
+    dashboard,
+    /<CallsView[\s\S]*v-else-if="selectedCall"[\s\S]*:embedded-call-id="selectedCall\.id"/
+  )
+  assert.doesNotMatch(dashboard, /<template v-else-if="selectedThread">/)
+  assert.doesNotMatch(dashboard, /<template v-else-if="selectedCall">/)
+  assert.doesNotMatch(dashboard, /dashboard-message-detail/)
+
+  assert.match(messages, /embeddedThreadKey\?: string/)
+  assert.match(
+    messages,
+    /props\.embeddedThreadKey \|\| String\(route\.params\.threadKey \|\| ''\)/
+  )
+  assert.match(messages, /<aside v-if="!embedded" class="list-pane">/)
+  assert.match(calls, /embeddedCallId\?: string/)
+  assert.match(calls, /props\.embeddedCallId \|\|/)
+  assert.match(calls, /<aside v-if="!embedded" class="list-pane">/)
+})
+
+test('dashboard activity reuses the same message and call list items as their modules', () => {
+  assert.match(dashboard, /import MessageThreadListItem from/)
+  assert.match(dashboard, /import CallHistoryListItem from/)
+  assert.match(messages, /import MessageThreadListItem from/)
+  assert.match(calls, /import CallHistoryListItem from/)
+  assert.match(
+    dashboard,
+    /<MessageThreadListItem[\s\S]*?:thread="activity\.thread"[\s\S]*?:selected="selectionKey === activity\.key"/
+  )
+  assert.match(
+    dashboard,
+    /<CallHistoryListItem[\s\S]*?:call="activity\.call"[\s\S]*?:selected="selectionKey === activity\.key"/
+  )
+  assert.match(messages, /<MessageThreadListItem[\s\S]*?@select="chooseThread"/)
+  assert.match(calls, /<CallHistoryListItem[\s\S]*?@select="selectCall"/)
+  assert.match(messageThreadListItem, /class="list-item list-item--thread"/)
+  assert.match(callHistoryListItem, /class="list-item call-list-item"/)
+  assert.doesNotMatch(dashboard, /dashboard-activity-row/)
+  assert.doesNotMatch(dashboard, /dashboard-activity-meta/)
 })
 
 test('dashboard uses existing network data for a traffic summary and entry point', () => {
@@ -125,20 +187,20 @@ test('dashboard favorites never substitute recent or alphabetic contacts', () =>
   assert.doesNotMatch(dashboard, /localeCompare/)
 })
 
-test('dashboard keeps favorite initials centered and reuses contact actions for activities', () => {
+test('dashboard keeps favorite initials centered and delegated details retain contact actions', () => {
   assert.match(dashboard, /class="dashboard-favorite-avatar"/)
   assert.match(
     dashboard,
     /\.dashboard-contact-row > a > :deep\(\.dashboard-favorite-avatar\)[\s\S]*?place-items: center/
   )
-  assert.match(dashboard, /import ContactHeaderIdentity/)
-  assert.match(dashboard, /import ContactNumberActions/)
+  assert.match(messages, /import ContactNumberActions/)
+  assert.match(calls, /import ContactNumberActions/)
   assert.match(
-    dashboard,
-    /<ContactNumberActions\s+:number="selectedCall\.remote_number"\s+:contact="contactForNumber\(selectedCall\.remote_number\)"/
+    calls,
+    /<ContactNumberActions[\s\S]*:number="selected\.remote_number"[\s\S]*:contact="selectedContact"/
   )
   assert.match(
-    dashboard,
-    /<ContactNumberActions\s+:number="selectedThread\.peer"\s+:contact="contactForNumber\(selectedThread\.peer\)"/
+    messages,
+    /<ContactNumberActions[\s\S]*:number="selectedThread\.peer"[\s\S]*:contact="activeContact"/
   )
 })

@@ -140,17 +140,22 @@ test('contact suggestions expose a complete combobox relationship', async () => 
   )
 })
 
-test('call rows use sibling buttons and callback cannot trigger row selection', async () => {
-  const calls = await source('../src/views/CallsView.vue')
+test('call rows reuse one selectable surface without a trailing callback button', async () => {
+  const [calls, row] = await Promise.all([
+    source('../src/views/CallsView.vue'),
+    source('../src/components/CallHistoryListItem.vue')
+  ])
 
-  assert.doesNotMatch(calls, /role="button"/)
-  assert.match(calls, /class="call-list-item__select"[\s\S]*?@click="selectCall\(call\)"/)
   assert.match(
     calls,
-    /class="icon-button icon-button--quiet call-list-item__call"[\s\S]*?@click="callBack\(call\)"[\s\S]*?@keydown\.enter\.prevent="callBack\(call\)"/
+    /<CallHistoryListItem[\s\S]*?:call="call"[\s\S]*?@select="selectCall"/
   )
-  assert.doesNotMatch(calls, /@keydown\.enter="selectCall\(call\)"/)
-  assert.doesNotMatch(calls, /@click\.stop="callBack\(call\)"/)
+  assert.match(
+    row,
+    /<button[\s\S]*?class="list-item call-list-item"[\s\S]*?@click="emit\('select', props\.call\)"/
+  )
+  assert.doesNotMatch(calls, /call-list-item__call/)
+  assert.doesNotMatch(row, /call-list-item__call/)
 })
 
 test('call timer is excluded from live announcements', async () => {

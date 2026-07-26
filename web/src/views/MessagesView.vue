@@ -4,12 +4,11 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, LoaderCircle, MessageSquarePlus, Phone, Send, X } from '@lucide/vue'
 import type { Contact, LineSummary, MessageThread } from '../api/types'
-import BaseAvatar from '../components/BaseAvatar.vue'
 import ContactHeaderIdentity from '../components/ContactHeaderIdentity.vue'
 import ContactNumberActions from '../components/ContactNumberActions.vue'
 import ContactSuggestInput from '../components/ContactSuggestInput.vue'
 import LineSelector from '../components/LineSelector.vue'
-import LineTag from '../components/LineTag.vue'
+import MessageThreadListItem from '../components/MessageThreadListItem.vue'
 import SearchField from '../components/SearchField.vue'
 import StatePanel from '../components/StatePanel.vue'
 import { openDialer } from '../state/ui'
@@ -46,22 +45,48 @@ import {
   messageThreadUsesLine
 } from './messages/messageFlow'
 
+const props = withDefaults(
+  defineProps<{
+    embeddedCompose?: boolean
+    embeddedThreadKey?: string
+    initialRecipient?: string
+    initialRecipientName?: string
+    contextLineKey?: string
+  }>(),
+  {
+    embeddedCompose: false,
+    embeddedThreadKey: '',
+    initialRecipient: '',
+    initialRecipientName: '',
+    contextLineKey: ''
+  }
+)
+const emit = defineEmits<{
+  close: []
+  sent: [threadKey?: string]
+}>()
+
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const search = ref('')
-const composingNew = ref(false)
-const newRecipient = ref('')
-const newRecipientName = ref('')
+const composingNew = ref(props.embeddedCompose)
+const newRecipient = ref(props.initialRecipient)
+const newRecipientName = ref(props.initialRecipientName)
 const selectedLineKey = ref('')
-const composeContextLineKey = ref('')
+const composeContextLineKey = ref(props.contextLineKey)
 const lineFilterKey = ref('all')
 const draft = ref('')
 const sending = ref(false)
 const sendError = ref('')
 const messagesEnd = ref<HTMLElement | null>(null)
 
-const selectedKey = computed(() => String(route.params.threadKey || ''))
+const embedded = computed(
+  () => props.embeddedCompose || Boolean(props.embeddedThreadKey)
+)
+const selectedKey = computed(() =>
+  props.embeddedThreadKey || String(route.params.threadKey || '')
+)
 const selectedThread = computed(() =>
   threadsResource.data.find(thread => thread.key === selectedKey.value)
 )
@@ -232,6 +257,7 @@ watch(
 watch(
   () => [route.params.threadKey, route.query.compose] as const,
   ([, compose]) => {
+    if (embedded.value) return
     if (typeof compose === 'string') {
       composingNew.value = true
       newRecipient.value = compose
@@ -332,6 +358,12 @@ function chooseRecipient(suggestion: { contact: Contact; phone: { number: string
 }
 
 function backToList(): void {
+  if (embedded.value) {
+    draft.value = ''
+    sendError.value = ''
+    emit('close')
+    return
+  }
   composingNew.value = false
   const destination = messageReturnRoute(composeReturnThreadKey)
   composeReturnThreadKey = ''
@@ -363,6 +395,10 @@ async function submit(): Promise<void> {
     })
     draft.value = ''
     const sentThread = result.thread
+    if (props.embeddedCompose) {
+      emit('sent', sentThread?.key)
+      return
+    }
     if (sentThread && (composingNew.value || sentThread.key !== replyKey)) {
       composingNew.value = false
       await router.replace({ name: 'messages', params: { threadKey: sentThread.key } })
@@ -397,8 +433,14 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="workspace" :class="{ 'has-selection': selectedThread || composingNew }">
-    <aside class="list-pane">
+  <section
+    class="workspace messages-workspace"
+    :class="{
+      'has-selection': selectedThread || composingNew,
+      'is-embedded': embedded
+    }"
+  >
+    <aside v-if="!embedded" class="list-pane">
       <header class="pane-header">
         <div>
           <h1>{{ t('shell.messages') }}</h1>
@@ -472,38 +514,18 @@ onMounted(() => {
         </button>
       </div>
       <div v-else class="item-list">
-        <button
+        <MessageThreadListItem
           v-for="thread in filteredThreads"
           :key="thread.key"
-          class="list-item list-item--thread"
-          :class="{
-            'is-selected': thread.key === selectedKey && !composingNew,
-            'is-arriving': recentIncomingThreadKeys[thread.key]
-          }"
-          type="button"
-          @click="chooseThread(thread.key)"
-        >
-          <BaseAvatar
-            :name="displayNameForThread(thread)"
-            :src="avatarForNumber(thread.peer)"
-          />
-          <span class="list-item__content">
-            <span class="list-item__title">
-              <strong>{{ displayNameForThread(thread) }}</strong>
-              <time>{{ formatRelativeDate(thread.last_timestamp) }}</time>
-            </span>
-            <span class="list-item__preview">
-              <span class="message-thread-meta">
-                <LineTag
-                  :line="lineTagLine(lineForThread(thread), thread.local_phone, thread.imsi, thread.iccid)"
-                  :fallback="threadLineFallback(thread)"
-                />
-                <small>{{ thread.last_content || thread.peer }}</small>
-              </span>
-              <b v-if="thread.unread_count">{{ thread.unread_count }}</b>
-            </span>
-          </span>
-        </button>
+          :thread="thread"
+          :name="displayNameForThread(thread)"
+          :avatar="avatarForNumber(thread.peer)"
+          :line="lineTagLine(lineForThread(thread), thread.local_phone, thread.imsi, thread.iccid)"
+          :line-fallback="threadLineFallback(thread)"
+          :selected="thread.key === selectedKey && !composingNew"
+          :arriving="recentIncomingThreadKeys[thread.key]"
+          @select="chooseThread"
+        />
       </div>
     </aside>
 
@@ -687,6 +709,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.messages-workspace.is-embedded {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .pane-search {
   display: grid;
   gap: 8px;
@@ -719,19 +745,8 @@ onMounted(() => {
   margin-bottom: 10px;
 }
 
-.list-item--thread.is-arriving {
-  animation: incoming-thread 700ms ease-out;
-}
-
 .message-row.is-arriving {
   animation: incoming-message 520ms ease-out;
-}
-
-@keyframes incoming-thread {
-  from {
-    background: var(--accent-soft);
-    box-shadow: inset 3px 0 var(--accent);
-  }
 }
 
 @keyframes incoming-message {
@@ -742,24 +757,9 @@ onMounted(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .list-item--thread.is-arriving,
   .message-row.is-arriving {
     animation: none;
   }
-}
-
-.message-thread-meta {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 6px;
-}
-
-.message-thread-meta small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .conversation-header__contact-actions {

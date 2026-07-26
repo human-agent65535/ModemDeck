@@ -82,16 +82,6 @@ watch(
   }
 )
 
-watch(
-  () => route.query.create,
-  requested => {
-    if (requested !== '1' || !contactEditingAvailable) return
-    openNew()
-    void router.replace({ name: 'contacts' })
-  },
-  { immediate: true }
-)
-
 function selectContact(contact: Contact): void {
   void router.push({ name: 'contacts', params: { contactId: contact.id } })
 }

@@ -301,6 +301,8 @@ export default {
     viewDetails: '查看 {name} 的通话详情',
     hasRecording: '有通话录音',
     callBackName: '回拨 {name}',
+    callAgain: '再次呼叫',
+    callAgainName: '再次呼叫 {name}',
     messageName: '给 {name} 发送消息',
     back: '返回通话',
     select: '选择一条通话记录',

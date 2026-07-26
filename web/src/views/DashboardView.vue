@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -12,24 +12,30 @@ import {
   LoaderCircle,
   MessageSquareText,
   Phone,
-  PhoneIncoming,
   PhoneMissed,
-  PhoneOutgoing,
   RadioTower,
   Star,
   UserPlus
 } from '@lucide/vue'
-import type { CallRecord, Contact, LineSummary, MessageThread } from '../api/types'
+import type {
+  CallRecord,
+  Contact,
+  ContactInput,
+  LineSummary,
+  MessageThread
+} from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
-import ContactHeaderIdentity from '../components/ContactHeaderIdentity.vue'
-import ContactNumberActions from '../components/ContactNumberActions.vue'
-import LineTag from '../components/LineTag.vue'
+import CallHistoryListItem from '../components/CallHistoryListItem.vue'
+import ContactEditor from '../components/ContactEditor.vue'
+import MessageThreadListItem from '../components/MessageThreadListItem.vue'
 import ModuleCard from '../components/ModuleCard.vue'
 import StatePanel from '../components/StatePanel.vue'
 import TrafficSummary from '../components/TrafficSummary.vue'
 import { selectDeviceConfiguration } from '../state/deviceConfiguration'
 import { loadNetwork, networkState } from '../state/network'
 import { openDialer } from '../state/ui'
+import CallsView from './CallsView.vue'
+import MessagesView from './MessagesView.vue'
 import {
   bootstrapResource,
   callsResource,
@@ -44,6 +50,8 @@ import {
   loadContacts,
   loadDevices,
   loadThreads,
+  recentIncomingThreadKeys,
+  saveContact,
   threadsResource
 } from '../state/workspace'
 import {
@@ -51,12 +59,7 @@ import {
   isRegisteredNetwork,
   isVoiceServiceReady
 } from '../utils/operatorNetwork'
-import {
-  formatDateTime,
-  formatDuration,
-  formatRelativeDate,
-  primaryPhone
-} from '../utils/format'
+import { primaryPhone } from '../utils/format'
 import {
   createLineLookup,
   findLine,
@@ -81,8 +84,13 @@ type DashboardActivity =
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+const composingMessage = ref(false)
+const messageComposeRecipient = ref('')
+const messageComposeRecipientName = ref('')
+const messageComposeLineKey = ref('')
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
+const contactLines = computed(() => lines.value.filter(line => Boolean(line.device_imei)))
 const lineLookup = computed(() => createLineLookup(lines.value))
 const defaultDeviceIMEI = computed(
   () => bootstrapResource.data?.line_settings.default_device_imei || ''
@@ -93,12 +101,17 @@ const selectionKey = computed(() =>
 const backLabel = computed(() =>
   route.query.from === 'settings' ? t('settings.back') : t('dashboard.backHome')
 )
-const hasSelection = computed(() => Boolean(selectionKey.value))
+const hasSelection = computed(() => Boolean(selectionKey.value) || composingMessage.value)
 const overviewSelected = computed(
-  () => !selectionKey.value || selectionKey.value === 'overview'
+  () =>
+    !composingMessage.value &&
+    (!selectionKey.value || selectionKey.value === 'overview')
 )
 const dialUnavailable = computed(() => capabilityReason('dial'))
 const messageUnavailable = computed(() => capabilityReason('message'))
+const contactEditorOpen = ref(false)
+const contactSaving = ref(false)
+const contactEditorError = ref('')
 const unreadMessages = computed(() =>
   threadsResource.data.reduce((total, thread) => total + thread.unread_count, 0)
 )
@@ -227,51 +240,22 @@ function threadName(thread: MessageThread): string {
   )
 }
 
-function callAvatar(call: CallRecord): string {
-  return contactForNumber(call.remote_number)?.avatar || ''
-}
-
-function threadAvatar(thread: MessageThread): string {
-  return contactForNumber(thread.peer)?.avatar || ''
-}
-
 function lineForCall(call: CallRecord): LineSummary | undefined {
-  return findLine(lineLookup.value, call.device_id)
+  if (call.local_phone) {
+    return findLine(lineLookup.value, call.local_phone)
+  }
+  return findLine(lineLookup.value, call.line_iccid, call.line_imsi)
 }
 
 function lineForThread(thread: MessageThread): LineSummary | undefined {
-  return findLine(lineLookup.value, thread.line_id, thread.iccid)
+  if (thread.local_phone) {
+    return findLine(lineLookup.value, thread.local_phone)
+  }
+  return findLine(lineLookup.value, thread.imsi, thread.iccid)
 }
 
-function lineForActivity(activity: DashboardActivity): LineSummary | undefined {
-  return activity.kind === 'call'
-    ? lineForCall(activity.call)
-    : lineForThread(activity.thread)
-}
-
-function activityLineFallback(activity: DashboardActivity): string {
-  const line = lineForActivity(activity)
-  const identifiers =
-    activity.kind === 'call'
-      ? [activity.call.device_id]
-      : [activity.thread.line_id, activity.thread.iccid]
-  return lineTagFallback(
-    line,
-    lines.value,
-    defaultDeviceIMEI.value,
-    ...identifiers
-  )
-}
-
-function activityLineTagLine(activity: DashboardActivity) {
-  const line = lineForActivity(activity)
-  return activity.kind === 'call'
-    ? lineTagLine(line, activity.call.device_id)
-    : lineTagLine(
-        line,
-        activity.thread.line_id,
-        activity.thread.iccid
-      )
+function avatarForNumber(number: string): string {
+  return contactForNumber(number)?.avatar || ''
 }
 
 function callLineFallback(call: CallRecord): string {
@@ -279,7 +263,9 @@ function callLineFallback(call: CallRecord): string {
     lineForCall(call),
     lines.value,
     defaultDeviceIMEI.value,
-    call.device_id
+    call.local_phone,
+    call.line_iccid,
+    call.line_imsi
   )
 }
 
@@ -288,42 +274,19 @@ function threadLineFallback(thread: MessageThread): string {
     lineForThread(thread),
     lines.value,
     defaultDeviceIMEI.value,
-    thread.line_id,
+    thread.local_phone,
+    thread.imsi,
     thread.iccid
   )
 }
 
-function activityName(activity: DashboardActivity): string {
-  return activity.kind === 'call'
-    ? callName(activity.call)
-    : threadName(activity.thread)
-}
-
-function activityDescription(activity: DashboardActivity): string {
-  if (activity.kind === 'message') {
-    return activity.thread.last_content || activity.thread.peer
-  }
-  if (activity.call.missed) {
-    return `${t('dashboard.missedCall')} · ${activity.call.remote_number}`
-  }
-  return `${
-    activity.call.direction === 'incoming'
-      ? t('dashboard.incoming')
-      : t('dashboard.outgoing')
-  } · ${activity.call.remote_number}`
-}
-
-function activityIcon(activity: DashboardActivity) {
-  if (activity.kind === 'message') return MessageSquareText
-  if (activity.call.missed) return PhoneMissed
-  return activity.call.direction === 'incoming' ? PhoneIncoming : PhoneOutgoing
-}
-
 function selectOverview(): void {
+  composingMessage.value = false
   void router.push({ name: 'dashboard', query: { item: 'overview' } })
 }
 
 function selectActivity(activity: DashboardActivity): void {
+  composingMessage.value = false
   void router.push({ name: 'dashboard', query: { item: activity.key } })
 }
 
@@ -342,14 +305,10 @@ function callNumber(number: string, label = '', contextLineKey = ''): void {
 
 function startMessage(number: string, name = '', contextLineKey = ''): void {
   if (messageUnavailable.value) return
-  void router.push({
-    name: 'messages',
-    query: {
-      compose: number,
-      ...(name ? { name } : {}),
-      ...(contextLineKey ? { line: contextLineKey } : {})
-    }
-  })
+  messageComposeRecipient.value = number
+  messageComposeRecipientName.value = name
+  messageComposeLineKey.value = contextLineKey
+  composingMessage.value = true
 }
 
 function deviceFor(line: LineSummary) {
@@ -372,13 +331,50 @@ function messageContact(contact: Contact): void {
 }
 
 function composeMessage(): void {
-  if (messageUnavailable.value) return
-  void router.push({ name: 'messages', query: { compose: '' } })
+  startMessage('')
+}
+
+function closeMessageComposer(): void {
+  composingMessage.value = false
+}
+
+function finishMessageComposer(threadKey?: string): void {
+  composingMessage.value = false
+  void loadThreads(true)
+  if (threadKey) {
+    void router.replace({
+      name: 'dashboard',
+      query: { item: `message:${threadKey}` }
+    })
+  }
+}
+
+function messageFromCall(request: {
+  number: string
+  name: string
+  contextLineKey: string
+}): void {
+  startMessage(request.number, request.name, request.contextLineKey)
 }
 
 function createContact(): void {
   if (!contactEditingAvailable) return
-  void router.push({ name: 'contacts', query: { create: '1' } })
+  contactEditorError.value = ''
+  contactEditorOpen.value = true
+}
+
+async function saveNewContact(input: ContactInput): Promise<void> {
+  contactSaving.value = true
+  contactEditorError.value = ''
+  try {
+    await saveContact(input)
+    contactEditorOpen.value = false
+  } catch (error) {
+    contactEditorError.value =
+      error instanceof Error ? error.message : t('contacts.saveFailed')
+  } finally {
+    contactSaving.value = false
+  }
 }
 
 function retryActivities(): void {
@@ -482,45 +478,56 @@ onMounted(loadDashboard)
             {{ t('common.retry') }}
           </button>
         </div>
-        <button
-          v-for="activity in activities"
-          :key="activity.key"
-          class="list-item dashboard-activity-row"
-          :class="{
-            'is-selected': selectionKey === activity.key,
-            'is-missed': activity.kind === 'call' && activity.call.missed
-          }"
-          type="button"
-          @click="selectActivity(activity)"
-        >
-          <span class="dashboard-activity-icon">
-            <component :is="activityIcon(activity)" :size="18" />
-          </span>
-          <span class="list-item__content">
-            <span class="list-item__title">
-              <strong>{{ activityName(activity) }}</strong>
-              <time>{{ formatRelativeDate(activity.timestamp) }}</time>
-            </span>
-            <span class="list-item__preview">
-              <span class="dashboard-activity-meta">
-                <LineTag
-                  :line="activityLineTagLine(activity)"
-                  :fallback="activityLineFallback(activity)"
-                />
-                <small>{{ activityDescription(activity) }}</small>
-              </span>
-              <b
-                v-if="activity.kind === 'message' && activity.thread.unread_count > 0"
-              >
-                {{ activity.thread.unread_count }}
-              </b>
-            </span>
-          </span>
-        </button>
+        <template v-for="activity in activities" :key="activity.key">
+          <MessageThreadListItem
+            v-if="activity.kind === 'message'"
+            :thread="activity.thread"
+            :name="threadName(activity.thread)"
+            :avatar="avatarForNumber(activity.thread.peer)"
+            :line="lineTagLine(lineForThread(activity.thread), activity.thread.local_phone, activity.thread.imsi, activity.thread.iccid)"
+            :line-fallback="threadLineFallback(activity.thread)"
+            :selected="selectionKey === activity.key"
+            :arriving="recentIncomingThreadKeys[activity.thread.key]"
+            @select="selectActivity(activity)"
+          />
+          <CallHistoryListItem
+            v-else
+            :call="activity.call"
+            :name="callName(activity.call)"
+            :avatar="avatarForNumber(activity.call.remote_number)"
+            :line="lineTagLine(lineForCall(activity.call), activity.call.local_phone, activity.call.line_iccid, activity.call.line_imsi)"
+            :line-fallback="callLineFallback(activity.call)"
+            :selected="selectionKey === activity.key"
+            @select="selectActivity(activity)"
+          />
+        </template>
       </div>
     </aside>
 
-    <article class="detail-pane dashboard-detail-pane">
+    <MessagesView
+      v-if="composingMessage"
+      embedded-compose
+      :initial-recipient="messageComposeRecipient"
+      :initial-recipient-name="messageComposeRecipientName"
+      :context-line-key="messageComposeLineKey"
+      @close="closeMessageComposer"
+      @sent="finishMessageComposer"
+    />
+
+    <MessagesView
+      v-else-if="selectedThread"
+      :embedded-thread-key="selectedThread.key"
+      @close="backToList"
+    />
+
+    <CallsView
+      v-else-if="selectedCall"
+      :embedded-call-id="selectedCall.id"
+      @close="backToList"
+      @message="messageFromCall"
+    />
+
+    <article v-else class="detail-pane dashboard-detail-pane">
       <template v-if="overviewSelected">
         <div class="dashboard-detail-scroll">
           <button
@@ -775,180 +782,6 @@ onMounted(loadDashboard)
         </div>
       </template>
 
-      <template v-else-if="selectedCall">
-        <header class="detail-header">
-          <button
-            class="icon-button mobile-back"
-            type="button"
-            :title="backLabel"
-            :aria-label="backLabel"
-            @click="backToList"
-          >
-            <ArrowLeft :size="20" />
-          </button>
-          <ContactHeaderIdentity
-            :name="callName(selectedCall)"
-            :number="selectedCall.remote_number"
-            :avatar="callAvatar(selectedCall)"
-            :line="lineTagLine(lineForCall(selectedCall), selectedCall.device_id)"
-            :line-fallback="callLineFallback(selectedCall)"
-          />
-          <div class="detail-header__actions">
-            <ContactNumberActions
-              :number="selectedCall.remote_number"
-              :contact="contactForNumber(selectedCall.remote_number)"
-              compact
-            />
-          </div>
-        </header>
-        <div class="call-detail">
-          <div class="call-detail__actions">
-            <button
-              class="action-button"
-              type="button"
-              :disabled="Boolean(dialUnavailable)"
-              :title="dialUnavailable || t('dashboard.callBack')"
-              @click="callNumber(selectedCall.remote_number, callName(selectedCall), selectedCall.device_id)"
-            >
-              <Phone :size="19" />
-              <span>{{ t('dashboard.callBack') }}</span>
-            </button>
-            <button
-              class="action-button"
-              type="button"
-              :disabled="Boolean(messageUnavailable)"
-              :title="messageUnavailable || t('dashboard.message')"
-              @click="startMessage(selectedCall.remote_number, callName(selectedCall), selectedCall.device_id)"
-            >
-              <MessageSquareText :size="19" />
-              <span>{{ t('shell.messages') }}</span>
-            </button>
-          </div>
-          <section class="detail-section detail-facts">
-            <h3>{{ t('dashboard.callDetails') }}</h3>
-            <dl>
-              <div>
-                <dt>{{ t('dashboard.direction') }}</dt>
-                <dd>
-                  {{
-                    selectedCall.missed
-                      ? t('dashboard.missedCall')
-                      : selectedCall.direction === 'incoming'
-                        ? t('dashboard.incoming')
-                        : t('dashboard.outgoing')
-                  }}
-                </dd>
-              </div>
-              <div>
-                <dt>{{ t('dashboard.time') }}</dt>
-                <dd>{{ formatDateTime(selectedCall.started_at) }}</dd>
-              </div>
-              <div>
-                <dt>{{ t('dashboard.duration') }}</dt>
-                <dd>
-                  {{
-                    selectedCall.missed
-                      ? t('dashboard.notConnected')
-                      : formatDuration(selectedCall.duration_seconds)
-                  }}
-                </dd>
-              </div>
-              <div>
-                <dt>{{ t('dashboard.line') }}</dt>
-                <dd>
-                  <LineTag
-                    :line="lineTagLine(lineForCall(selectedCall), selectedCall.device_id)"
-                    :fallback="callLineFallback(selectedCall)"
-                  />
-                </dd>
-              </div>
-              <div v-if="selectedCall.failure_reason">
-                <dt>{{ t('dashboard.result') }}</dt>
-                <dd>{{ selectedCall.failure_reason }}</dd>
-              </div>
-            </dl>
-          </section>
-          <RouterLink
-            class="dashboard-open-resource"
-            :to="{ name: 'calls', query: { selected: selectedCall.id } }"
-          >
-            {{ t('dashboard.openCallRecord') }}
-            <ChevronRight :size="16" />
-          </RouterLink>
-        </div>
-      </template>
-
-      <template v-else-if="selectedThread">
-        <header class="detail-header">
-          <button
-            class="icon-button mobile-back"
-            type="button"
-            :title="backLabel"
-            :aria-label="backLabel"
-            @click="backToList"
-          >
-            <ArrowLeft :size="20" />
-          </button>
-          <ContactHeaderIdentity
-            :name="threadName(selectedThread)"
-            :number="selectedThread.peer"
-            :avatar="threadAvatar(selectedThread)"
-            :line="lineTagLine(lineForThread(selectedThread), selectedThread.line_id, selectedThread.iccid)"
-            :line-fallback="threadLineFallback(selectedThread)"
-          />
-          <div class="detail-header__actions">
-            <ContactNumberActions
-              :number="selectedThread.peer"
-              :contact="contactForNumber(selectedThread.peer)"
-              compact
-            />
-          </div>
-        </header>
-        <div class="call-detail dashboard-message-detail">
-          <div class="call-detail__actions">
-            <button
-              class="action-button"
-              type="button"
-              :disabled="Boolean(messageUnavailable)"
-              :title="messageUnavailable || t('dashboard.message')"
-              @click="startMessage(selectedThread.peer, threadName(selectedThread), selectedThread.line_id || selectedThread.iccid)"
-            >
-              <MessageSquareText :size="19" />
-              <span>{{ t('shell.messages') }}</span>
-            </button>
-            <button
-              class="action-button"
-              type="button"
-              :disabled="Boolean(dialUnavailable)"
-              :title="dialUnavailable || t('dashboard.dial')"
-              @click="callNumber(selectedThread.peer, threadName(selectedThread), selectedThread.line_id || selectedThread.iccid)"
-            >
-              <Phone :size="19" />
-              <span>{{ t('dashboard.dial') }}</span>
-            </button>
-          </div>
-          <section class="detail-section">
-            <h3>{{ t('dashboard.recentMessage') }}</h3>
-            <LineTag
-              class="dashboard-detail-line-tag"
-              :line="lineTagLine(lineForThread(selectedThread), selectedThread.line_id, selectedThread.iccid)"
-              :fallback="threadLineFallback(selectedThread)"
-            />
-            <p class="dashboard-message-preview">
-              {{ selectedThread.last_content || t('dashboard.noMessageContent') }}
-            </p>
-            <small>{{ formatDateTime(selectedThread.last_timestamp) }}</small>
-          </section>
-          <RouterLink
-            class="dashboard-open-resource"
-            :to="{ name: 'messages', params: { threadKey: selectedThread.key } }"
-          >
-            {{ t('dashboard.openConversation') }}
-            <ChevronRight :size="16" />
-          </RouterLink>
-        </div>
-      </template>
-
       <StatePanel
         v-else-if="activityLoading"
         state="loading"
@@ -961,6 +794,15 @@ onMounted(loadDashboard)
         :detail="t('dashboard.activityMissingDetail')"
       />
     </article>
+
+    <ContactEditor
+      :open="contactEditorOpen"
+      :lines="contactLines"
+      :saving="contactSaving"
+      :error="contactEditorError"
+      @close="contactEditorOpen = false"
+      @save="saveNewContact"
+    />
   </section>
 </template>
 
@@ -986,33 +828,8 @@ onMounted(loadDashboard)
   text-transform: none;
 }
 
-.dashboard-activity-row {
-  min-height: 72px;
-  padding: 10px 16px;
-}
-
-.dashboard-activity-row .list-item__content strong {
-  font-size: 14px;
-}
-
-.dashboard-activity-row .list-item__content small,
-.dashboard-overview-row .list-item__content small,
-.dashboard-activity-row time {
+.dashboard-overview-row .list-item__content small {
   font-size: 12px;
-}
-
-.dashboard-activity-meta {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 6px;
-}
-
-.dashboard-activity-meta small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .dashboard-inline-error {
@@ -1237,15 +1054,6 @@ onMounted(loadDashboard)
 
 .dashboard-favorites-empty {
   min-height: 72px;
-}
-
-.dashboard-open-resource,
-.dashboard-message-detail .detail-section > small {
-  font-size: 12px;
-}
-
-.dashboard-detail-line-tag {
-  margin-bottom: 10px;
 }
 
 @container (max-width: 920px) {

@@ -12,6 +12,14 @@ const messagesView = new URL('../src/views/MessagesView.vue', import.meta.url)
 const callsView = new URL('../src/views/CallsView.vue', import.meta.url)
 const recordingsView = new URL('../src/views/RecordingsView.vue', import.meta.url)
 const dashboardView = new URL('../src/views/DashboardView.vue', import.meta.url)
+const messageThreadListItem = new URL(
+  '../src/components/MessageThreadListItem.vue',
+  import.meta.url
+)
+const callHistoryListItem = new URL(
+  '../src/components/CallHistoryListItem.vue',
+  import.meta.url
+)
 
 const lines = [
   {
@@ -63,9 +71,13 @@ test('shared line identity keeps known and historical records distinct', () => {
 })
 
 test('message rows and conversation detail identify the original line', async () => {
-  const source = await readFile(messagesView, 'utf8')
+  const [source, row] = await Promise.all([
+    readFile(messagesView, 'utf8'),
+    readFile(messageThreadListItem, 'utf8')
+  ])
 
-  assert.match(source, /import LineTag from '\.\.\/components\/LineTag\.vue'/)
+  assert.match(source, /import MessageThreadListItem from/)
+  assert.match(row, /import LineTag from '\.\/LineTag\.vue'/)
   assert.match(source, /createLineLookup\(lines\.value\)/)
   assert.match(source, /function threadLineFallback\(thread: MessageThread\)/)
   assert.match(
@@ -75,8 +87,9 @@ test('message rows and conversation detail identify the original line', async ()
   assert.match(source, /findLine\([\s\S]*?thread\.imsi,[\s\S]*?thread\.iccid/)
   assert.match(
     source,
-    /<LineTag[\s\S]*?:line="lineTagLine\(lineForThread\(thread\), thread\.local_phone, thread\.imsi, thread\.iccid\)"[\s\S]*?:fallback="threadLineFallback\(thread\)"/
+    /<MessageThreadListItem[\s\S]*?:line="lineTagLine\(lineForThread\(thread\), thread\.local_phone, thread\.imsi, thread\.iccid\)"[\s\S]*?:line-fallback="threadLineFallback\(thread\)"/
   )
+  assert.match(row, /<LineTag :line="line" :fallback="lineFallback"/)
   assert.match(
     source,
     /<ContactHeaderIdentity[\s\S]*?:line="lineTagLine\(lineForThread\(selectedThread\), selectedThread\.local_phone, selectedThread\.imsi, selectedThread\.iccid\)"[\s\S]*?:line-fallback="threadLineFallback\(selectedThread\)"/
@@ -84,9 +97,14 @@ test('message rows and conversation detail identify the original line', async ()
 })
 
 test('call rows and call detail identify the original line', async () => {
-  const source = await readFile(callsView, 'utf8')
+  const [source, row] = await Promise.all([
+    readFile(callsView, 'utf8'),
+    readFile(callHistoryListItem, 'utf8')
+  ])
 
+  assert.match(source, /import CallHistoryListItem from/)
   assert.match(source, /import LineTag from '\.\.\/components\/LineTag\.vue'/)
+  assert.match(row, /import LineTag from '\.\/LineTag\.vue'/)
   assert.match(source, /function lineForCall\(call: CallRecord\)/)
   assert.match(source, /function callLineFallback\(call: CallRecord\)/)
   assert.match(
@@ -96,8 +114,9 @@ test('call rows and call detail identify the original line', async () => {
   assert.match(source, /findLine\([\s\S]*?call\.line_iccid,[\s\S]*?call\.line_imsi/)
   assert.match(
     source,
-    /<LineTag[\s\S]*?:line="lineTagLine\(lineForCall\(call\), call\.local_phone, call\.line_iccid, call\.line_imsi\)"[\s\S]*?:fallback="callLineFallback\(call\)"/
+    /<CallHistoryListItem[\s\S]*?:line="lineTagLine\(lineForCall\(call\), call\.local_phone, call\.line_iccid, call\.line_imsi\)"[\s\S]*?:line-fallback="callLineFallback\(call\)"/
   )
+  assert.match(row, /<LineTag :line="line" :fallback="lineFallback"/)
   assert.match(
     source,
     /<ContactHeaderIdentity[\s\S]*?:line="lineTagLine\(lineForCall\(selected\), selected\.local_phone, selected\.line_iccid, selected\.line_imsi\)"[\s\S]*?:line-fallback="callLineFallback\(selected\)"/
@@ -145,28 +164,35 @@ test('call and recording histories can be filtered by communication line', async
   assert.match(recordings, /t\('recordings\.allLinesDescription'\)/)
 })
 
-test('dashboard recent activity and details retain line identity', async () => {
-  const source = await readFile(dashboardView, 'utf8')
+test('dashboard recent activity retains line identity and delegates detail surfaces', async () => {
+  const [source, messages, calls] = await Promise.all([
+    readFile(dashboardView, 'utf8'),
+    readFile(messagesView, 'utf8'),
+    readFile(callsView, 'utf8')
+  ])
 
-  assert.match(source, /function lineForActivity\(activity: DashboardActivity\)/)
   assert.match(
     source,
-    /class="dashboard-activity-meta"[\s\S]*?:line="activityLineTagLine\(activity\)"[\s\S]*?:fallback="activityLineFallback\(activity\)"/
+    /<MessageThreadListItem[\s\S]*?:line="lineTagLine\(lineForThread\(activity\.thread\), activity\.thread\.local_phone, activity\.thread\.imsi, activity\.thread\.iccid\)"[\s\S]*?:line-fallback="threadLineFallback\(activity\.thread\)"/
   )
   assert.match(
     source,
-    /<ContactHeaderIdentity[\s\S]*?:line="lineTagLine\(lineForCall\(selectedCall\), selectedCall\.device_id\)"[\s\S]*?:line-fallback="callLineFallback\(selectedCall\)"/
+    /<CallHistoryListItem[\s\S]*?:line="lineTagLine\(lineForCall\(activity\.call\), activity\.call\.local_phone, activity\.call\.line_iccid, activity\.call\.line_imsi\)"[\s\S]*?:line-fallback="callLineFallback\(activity\.call\)"/
   )
   assert.match(
     source,
-    /<ContactHeaderIdentity[\s\S]*?:line="lineTagLine\(lineForThread\(selectedThread\), selectedThread\.line_id, selectedThread\.iccid\)"[\s\S]*?:line-fallback="threadLineFallback\(selectedThread\)"/
+    /<MessagesView[\s\S]*?:embedded-thread-key="selectedThread\.key"/
   )
   assert.match(
     source,
-    /callNumber\(selectedCall\.remote_number, callName\(selectedCall\), selectedCall\.device_id\)/
+    /<CallsView[\s\S]*?:embedded-call-id="selectedCall\.id"/
   )
   assert.match(
-    source,
-    /startMessage\(selectedThread\.peer, threadName\(selectedThread\), selectedThread\.line_id \|\| selectedThread\.iccid\)/
+    messages,
+    /:line="lineTagLine\(lineForThread\(selectedThread\), selectedThread\.local_phone, selectedThread\.imsi, selectedThread\.iccid\)"/
+  )
+  assert.match(
+    calls,
+    /:line="lineTagLine\(lineForCall\(selected\), selected\.local_phone, selected\.line_iccid, selected\.line_imsi\)"/
   )
 })

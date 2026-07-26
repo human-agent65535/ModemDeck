@@ -301,6 +301,8 @@ export default {
     viewDetails: 'View call details for {name}',
     hasRecording: 'Call has a recording',
     callBackName: 'Call back {name}',
+    callAgain: 'Call again',
+    callAgainName: 'Call {name} again',
     messageName: 'Message {name}',
     back: 'Back to calls',
     select: 'Select a call',
