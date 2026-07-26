@@ -27,11 +27,24 @@ ModemDeck 是一个管理蜂窝通话、短信、联系人、流量和多条线�
 
 ## 架构
 
-Web 应用在非特权容器中运行，负责身份验证、通信流程和 SQLite 数据。Linux
-主机代理独占 ModemManager 和硬件。两者只通过受限 Unix 套接字通信。应用容器
-不接触 `/dev`、主机 D-Bus、主机网络或 Linux capabilities。
+ModemDeck 由两个职责隔离的容器组成：
 
-不支持的硬件操作会明确失败，不猜测设备路径或切换控制后端。
+- `app` 是非特权容器，负责身份验证、通信流程和 SQLite 数据。它不接触
+  `/dev`、D-Bus、硬件状态或主机网络，只通过只读挂载的 Unix 套接字调用
+  Agent。
+- `hardware` 运行私有 D-Bus、定制生产版 ModemManager 1.24.0 和 Agent，
+  独占 ModemDeck 的设备控制、蜂窝数据面和网络配置。ModemManager 的生产版
+  AT 接口已在构建时启用，不依赖调试模式。
+
+默认的 **simple** 模式会停用宿主 ModemManager 和旧 `modemdeck-agent`，
+阻止宿主 ModemManager 自动启动，再由容器自动发现模组。**advanced** 模式只
+管理 assignment 文件中明确分配的设备；它绝不修改宿主 ModemManager、udev、
+Polkit、防火墙或其他服务。宿主系统和设备分配由用户负责，发现设备缺失、歧义
+或所有权冲突时 ModemDeck 会拒绝启动，而不是抢占设备。
+
+更多边界和 assignment 格式见[部署说明](deploy/README.md)与
+[硬件运行时说明](hardware/README.md)。不支持的硬件操作会明确失败，不猜测
+设备路径或切换控制后端。
 
 ## 硬件兼容性
 
@@ -122,28 +135,34 @@ make build
 ```
 
 工具链固定在 Docker 中，主机无需安装 Go、Node.js 或 C 工具链。`make check`
-运行后端、主机代理、Web、Compose 和 Dockerfile 检查；`make build` 输出到
+运行后端、硬件 Agent、Web、Compose 和 Dockerfile 检查；`make build` 输出到
 `dist/`。
 
 ## 安装
 
-需要 Debian 13、systemd、Docker Compose 和 ModemManager。
+需要 Linux（x86_64 或 arm64）、Docker Engine 和 Docker Compose 插件。
+simple 模式还需要 systemd；宿主无需安装 ModemManager、Go、Node.js 或构建
+工具。
+
+默认使用 simple 模式，适合宿主不再由其他软件管理蜂窝模组的部署：
 
 ```sh
 sudo ./install.sh --bind-address SERVER_IP
 ```
 
-省略 `--bind-address` 时仅监听本机；可用 `--port` 修改 HTTPS 端口。重复运行会
-保留数据、密钥和证书，完整参数见 `./install.sh --help`。
-
-本地开发也可直接启动：
+advanced 模式不改动宿主服务，只接管 assignment 中的设备。用户必须自行确保
+这些设备未被宿主 ModemManager 或其他程序占用：
 
 ```sh
-docker compose up -d
+sudo ./install.sh \
+  --mode advanced \
+  --assignment-file /etc/modemdeck/device-assignments.json \
+  --bind-address SERVER_IP
 ```
 
-容器默认提供 HTTPS。自动模式生成本地 CA 和站点证书；用户上传的证书不会被自动
-替换。
+省略 `--bind-address` 时仅监听本机；可用 `--port` 修改 HTTPS 端口。重复安装
+会保留 SQLite 数据、密钥、自动 TLS 状态和用户证书。自动证书可按需更新，用户
+安装的证书即使过期也不会被替换。完整参数见 `./install.sh --help`。
 
 ## 许可证
 
@@ -185,14 +204,28 @@ with that project.
 
 ## Architecture
 
-The Web application runs in an unprivileged container and owns authentication,
-communication workflows, and SQLite data. A Linux host agent exclusively owns
-ModemManager and hardware. They communicate only through a restricted Unix
-socket. The application container receives no `/dev`, host D-Bus, host
-networking, or Linux capabilities.
+ModemDeck uses two containers with separate responsibilities:
 
-Unsupported hardware operations fail explicitly without guessing device paths
-or switching control backends.
+- `app` is unprivileged and owns authentication, communication workflows, and
+  SQLite data. It receives no `/dev`, D-Bus, hardware state, or host networking
+  and calls the Agent only through a read-only Unix socket mount.
+- `hardware` runs a private D-Bus, a custom production build of ModemManager
+  1.24.0, and the Agent. It exclusively owns ModemDeck device control, the
+  cellular data plane, and network configuration. The production AT interface
+  is enabled at build time and does not depend on debug mode.
+
+The default **simple** mode stops host ModemManager and the legacy
+`modemdeck-agent`, prevents host ModemManager from starting automatically, and
+then lets the container discover modems. **Advanced** mode manages only devices
+explicitly listed in its assignment file. It never changes host ModemManager,
+udev, Polkit, firewall rules, or other services. The operator owns the host
+configuration and device partitioning; ModemDeck fails closed if a device is
+missing, ambiguous, or already owned instead of taking it over.
+
+See the [deployment guide](deploy/README.md) and
+[hardware runtime guide](hardware/README.md) for the boundaries and assignment
+format. Unsupported hardware operations fail explicitly without guessing
+device paths or switching control backends.
 
 ## Hardware compatibility
 
@@ -292,29 +325,38 @@ make build
 ```
 
 Toolchains are pinned in Docker, so the host does not need Go, Node.js, or a C
-toolchain. `make check` covers the backend, host agent, Web app, Compose, and
+toolchain. `make check` covers the backend, hardware Agent, Web app, Compose, and
 Dockerfile; `make build` writes artifacts to `dist/`.
 
 ## Install
 
-Requires Debian 13, systemd, Docker Compose, and ModemManager.
+Requires Linux on x86_64 or arm64, Docker Engine, and the Docker Compose plugin.
+Simple mode also requires systemd. The host does not need ModemManager, Go,
+Node.js, or build toolchains.
+
+Simple mode is the default and is intended for hosts where no other software
+needs to manage the cellular modems:
 
 ```sh
 sudo ./install.sh --bind-address SERVER_IP
 ```
 
-Without `--bind-address`, the service listens locally; use `--port` to change
-the HTTPS port. Re-running the installer keeps data, secrets, and certificates.
-See `./install.sh --help` for all options.
-
-For local development:
+Advanced mode leaves host services untouched and claims only assigned devices.
+The operator must ensure that host ModemManager and other software do not own
+those devices:
 
 ```sh
-docker compose up -d
+sudo ./install.sh \
+  --mode advanced \
+  --assignment-file /etc/modemdeck/device-assignments.json \
+  --bind-address SERVER_IP
 ```
 
-Containers serve HTTPS by default. Automatic mode creates a local CA and site
-certificate; user-provided certificates are never replaced automatically.
+Without `--bind-address`, the service listens locally; use `--port` to change
+the HTTPS port. Re-running the installer preserves SQLite data, secrets,
+automatic TLS state, and user-installed certificates. Automatic certificates
+may be renewed when needed; user-installed certificates are never replaced,
+even after expiry. See `./install.sh --help` for all options.
 
 ## License
 
