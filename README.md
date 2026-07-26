@@ -139,8 +139,8 @@ docker compose up -d
 ## 许可证
 
 ModemDeck 按
-[PolyForm Noncommercial License 1.0.0](LICENSE) 分发。必要声明和项目
-归属记录在 [NOTICE.md](NOTICE.md) 中。
+[PolyForm Noncommercial License 1.0.0](LICENSE) 分发。项目与归档分支说明
+记录在 [NOTICE.md](NOTICE.md) 中。
 
 ---
 
@@ -301,5 +301,5 @@ expire.
 ## License
 
 ModemDeck is distributed under the
-[PolyForm Noncommercial License 1.0.0](LICENSE). Required notices and project
-attribution are recorded in [NOTICE.md](NOTICE.md).
+[PolyForm Noncommercial License 1.0.0](LICENSE). Project and archive-branch
+information is recorded in [NOTICE.md](NOTICE.md).
