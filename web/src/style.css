@@ -848,6 +848,22 @@ strong {
   border-bottom: 1px solid var(--border);
 }
 
+.pane-search-row {
+  position: relative;
+  min-width: 0;
+}
+
+.pane-search-row .search-field {
+  padding-right: 50px;
+}
+
+.pane-search-row > .line-selector.is-filter {
+  position: absolute;
+  z-index: 4;
+  top: 3px;
+  right: 3px;
+}
+
 .pane-search--calls {
   padding-bottom: 12px;
 }
@@ -2791,6 +2807,10 @@ dd {
 }
 
 @media (max-width: 860px) {
+  .pane-search {
+    padding-top: 8px;
+  }
+
   .app-shell {
     display: block;
   }

@@ -174,18 +174,24 @@ onBeforeUnmount(() => {
       </header>
 
       <div class="pane-search">
-        <SearchField v-model="search" :placeholder="t('contacts.searchNameOrNumber')" />
-        <LineSelector
-          v-if="lines.length > 1"
-          v-model="lineFilterKey"
-          class="recording-line-filter"
-          :lines="lines"
-          :default-device-imei="defaultDeviceIMEI"
-          :label="t('recordings.lineFilter')"
-          include-all
-          :all-label="t('recordings.allLines')"
-          :all-description="t('recordings.allLinesDescription')"
-        />
+        <div class="pane-search-row">
+          <SearchField
+            v-model="search"
+            :placeholder="t('contacts.searchNameOrNumber')"
+          />
+          <LineSelector
+            v-if="lines.length > 1"
+            v-model="lineFilterKey"
+            class="recording-line-filter"
+            :lines="lines"
+            :default-device-imei="defaultDeviceIMEI"
+            :label="t('recordings.lineFilter')"
+            include-all
+            filter-mode
+            :all-label="t('recordings.allLines')"
+            :all-description="t('recordings.allLinesDescription')"
+          />
+        </div>
       </div>
 
       <StatePanel

@@ -47,6 +47,9 @@ test('incoming call policy becomes a viewport-bound compact mobile sheet', async
     /@media \(max-width: 560px\)[\s\S]*\.incoming-call-mode__menu > button \{[\s\S]*min-height: 54px;/
   )
   assert.match(incomingCallMode, /:aria-label="label"/)
+  assert.match(incomingCallMode, /incoming-call-mode__option-icon--quiet/)
+  assert.match(incomingCallMode, /<Moon v-else/)
+  assert.doesNotMatch(incomingCallMode, /BellOff/)
 })
 
 test('mobile list creation actions share one bottom-right floating treatment', async () => {

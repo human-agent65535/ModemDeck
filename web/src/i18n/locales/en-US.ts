@@ -333,7 +333,7 @@ export default {
     enterMessage: 'Enter a message',
     sendFailed: 'Message failed to send',
     sent: 'Sent',
-    search: 'Search conversations',
+    search: 'Search messages, names, or numbers',
     lineFilter: 'Message line',
     allLines: 'All lines',
     allLinesDescription: 'Show conversations from every modem',

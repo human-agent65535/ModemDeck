@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { LineSummary } from '../api/types'
+import { lineTone } from '../utils/lineTone'
 
 const { t } = useI18n()
 const props = withDefaults(
@@ -14,26 +15,19 @@ const props = withDefaults(
   }
 )
 
-function stableHash(value: string): number {
-  let hash = 2166136261
-  for (const character of value) {
-    hash ^= character.codePointAt(0) || 0
-    hash = Math.imul(hash, 16777619)
-  }
-  return hash >>> 0
-}
-
 const label = computed(() => props.line.line_label.trim() || props.fallback.trim() || t('lines.line'))
-const tone = computed(() => {
-  const stableKey = props.line.id?.trim() || props.line.iccid.trim() || label.value
-  return `line-tag--tone-${stableHash(stableKey) % 6}`
-})
+const tone = computed(() => lineTone(props.line, label.value))
+const toneStyle = computed(() => ({
+  color: tone.value.foreground,
+  backgroundColor: tone.value.background,
+  borderColor: tone.value.border
+}))
 </script>
 
 <template>
   <span
     class="line-tag"
-    :class="tone"
+    :style="toneStyle"
     :title="label"
     :aria-label="t('lines.communicationLine', { label })"
   >
@@ -60,39 +54,4 @@ const tone = computed(() => {
   border-radius: 4px;
 }
 
-.line-tag--tone-0 {
-  color: #075e54;
-  background: #e0f2ef;
-  border-color: #a7d8d1;
-}
-
-.line-tag--tone-1 {
-  color: #20558c;
-  background: #e7f0fa;
-  border-color: #b8d0e9;
-}
-
-.line-tag--tone-2 {
-  color: #7a4b00;
-  background: #fff2d6;
-  border-color: #e9cf93;
-}
-
-.line-tag--tone-3 {
-  color: #8a3448;
-  background: #fae9ed;
-  border-color: #e4b9c3;
-}
-
-.line-tag--tone-4 {
-  color: #3e6a25;
-  background: #eaf3e4;
-  border-color: #bed4ae;
-}
-
-.line-tag--tone-5 {
-  color: #5c4b8a;
-  background: #efebf8;
-  border-color: #cbc1e2;
-}
 </style>

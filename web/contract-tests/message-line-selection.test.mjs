@@ -5,33 +5,34 @@ import test from 'node:test'
 const messagesView = new URL('../src/views/MessagesView.vue', import.meta.url)
 const workspace = new URL('../src/state/workspace.ts', import.meta.url)
 
-test('existing conversations default to their original line and expose the selector', async () => {
+test('existing conversations stay pinned to their original line', async () => {
   const source = await readFile(messagesView, 'utf8')
 
-  assert.match(source, /\[selectedThread, lines, composingNew\]/)
   assert.match(source, /thread\.local_phone/)
   assert.match(source, /thread\.imsi/)
   assert.match(source, /thread\.iccid/)
-  assert.match(source, /const threadLine = lineForThread\(thread\)/)
   assert.match(
     source,
-    /selectedLineKey\.value = threadLine \? lineKey\(threadLine\) : ''/
+    /const activeLine = computed\(\(\) =>[\s\S]*composingNew\.value[\s\S]*selectedLine\.value[\s\S]*lineForThread\(selectedThread\.value\)/
   )
+  assert.doesNotMatch(source, /replyLineThreadKey/)
   assert.match(
     source,
-    /if \(replyLineThreadKey === thread\.key && selectedStillExists\) return/
+    /<template v-if="composingNew">[\s\S]*?<LineSelector[\s\S]*?v-model="selectedLineKey"[\s\S]*?compact/
   )
-  assert.match(
+  assert.doesNotMatch(
     source,
-    /<LineSelector[\s\S]*?v-if="lines\.length > 0"[\s\S]*?v-model="selectedLineKey"[\s\S]*?:label="t\('messages\.sendingLine'\)"/
+    /<footer class="message-composer">[\s\S]*?<LineSelector/
   )
-  assert.doesNotMatch(source, /v-if="composingNew && lines\.length > 0"/)
 })
 
-test('switching an existing conversation sends through the selected line', async () => {
+test('sending an existing conversation uses its original line identity', async () => {
   const source = await readFile(messagesView, 'utf8')
 
-  assert.match(source, /const activeLine = computed\(\(\) => selectedLine\.value\)/)
+  assert.match(
+    source,
+    /const activeLine = computed\(\(\) =>[\s\S]*lineForThread\(selectedThread\.value\)/
+  )
   assert.match(source, /const activeICCID = computed\(\(\) => activeLine\.value\?\.iccid \|\| ''\)/)
   assert.match(
     source,
@@ -50,7 +51,6 @@ test('switching an existing conversation sends through the selected line', async
   )
   assert.doesNotMatch(source, /`\$\{sent\.iccid\}\|\$\{sent\.peer\}`/)
   assert.doesNotMatch(source, /thread_key: selectedThread\.value\?\.key/)
-  assert.doesNotMatch(source, /selectedThread\.value\?\.iccid \|\| ''/)
 })
 
 test('message loads, reads, and post-send reconciliation use backend line identity', async () => {

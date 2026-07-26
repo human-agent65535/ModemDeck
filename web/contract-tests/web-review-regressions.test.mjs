@@ -55,7 +55,14 @@ test('line switching uses one custom selector instead of native dropdowns', asyn
   assert.doesNotMatch(contactEditor, /<select v-model="draft\.preferredDeviceIMEI"/)
   assert.match(proxyEditor, /<LineSelector[\s\S]*v-model="form\.line_id"/)
   assert.doesNotMatch(proxyEditor, /<select v-model="form\.line_id"/)
-  assert.match(messages, /:label="t\('messages\.sendingLine'\)"[\s\S]*placement="up"/)
+  assert.match(
+    messages,
+    /<template v-if="composingNew">[\s\S]*:label="t\('messages\.sendingLine'\)"[\s\S]*compact/
+  )
+  assert.doesNotMatch(
+    messages,
+    /<footer class="message-composer">[\s\S]*<LineSelector/
+  )
 })
 
 test('every dialer request has a monotonic event revision even for the same number', async () => {

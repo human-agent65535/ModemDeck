@@ -333,7 +333,7 @@ export default {
     enterMessage: '请输入消息',
     sendFailed: '消息发送失败',
     sent: '已发送',
-    search: '搜索对话',
+    search: '搜索短信、姓名或号码',
     lineFilter: '消息线路',
     allLines: '全部线路',
     allLinesDescription: '显示所有模组的对话',

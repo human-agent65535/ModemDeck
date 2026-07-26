@@ -9,15 +9,17 @@ import {
   watch
 } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ChevronDown, RadioTower, Star } from '@lucide/vue'
+import { CardSim, ChevronDown, ListFilter, Star } from '@lucide/vue'
 import type { CommunicationCapabilityName, LineSummary } from '../api/types'
 import { lineKey, lineLabel, lineSupports } from '../state/workspace'
+import { lineTone } from '../utils/lineTone'
 
 type SelectorOption = {
   value: string
   name: string
   details: string
   defaultLine: boolean
+  line?: LineSummary
 }
 
 const { t } = useI18n()
@@ -37,6 +39,8 @@ const props = withDefaults(
     valueField?: 'line_key' | 'device_imei'
     placement?: 'down' | 'up'
     disabled?: boolean
+    compact?: boolean
+    filterMode?: boolean
   }>(),
   {
     label: '',
@@ -50,7 +54,9 @@ const props = withDefaults(
     allDescription: '',
     valueField: 'line_key',
     placement: 'down',
-    disabled: false
+    disabled: false,
+    compact: false,
+    filterMode: false
   }
 )
 
@@ -88,6 +94,19 @@ const selectedIsDefault = computed(
     Boolean(selectedLine.value?.device_imei) &&
     selectedLine.value?.device_imei === props.defaultDeviceImei
 )
+const isAllSelected = computed(
+  () => props.includeAll && props.modelValue === props.allValue
+)
+function toneStyle(line?: LineSummary): Record<string, string> | undefined {
+  if (!line) return undefined
+  const tone = lineTone(line, lineLabel(line))
+  return {
+    '--line-tone-color': tone.foreground,
+    '--line-tone-background': tone.background,
+    '--line-tone-border': tone.border
+  }
+}
+const selectedToneStyle = computed(() => toneStyle(selectedLine.value))
 
 function lineDetails(line: LineSummary): string {
   const name = lineLabel(line)
@@ -122,6 +141,7 @@ const options = computed<SelectorOption[]>(() => {
       value,
       name: lineLabel(line),
       details: lineDetails(line),
+      line,
       defaultLine:
         Boolean(line.device_imei) && line.device_imei === props.defaultDeviceImei
     })
@@ -281,7 +301,16 @@ onBeforeUnmount(() => {
   <div
     ref="root"
     class="line-selector"
-    :class="{ 'is-disabled': disabled, 'is-open': open }"
+    :class="{
+      'is-disabled': disabled,
+      'is-open': open,
+      'is-compact': compact,
+      'is-filter': filterMode,
+      'is-filtered': filterMode && Boolean(selectedLine),
+      'has-line-tone': Boolean(selectedLine),
+      'is-all': isAllSelected
+    }"
+    :style="selectedToneStyle"
   >
     <span :id="labelID" class="line-selector__label">{{ resolvedLabel }}</span>
     <button
@@ -297,7 +326,8 @@ onBeforeUnmount(() => {
       @keydown="onTriggerKeydown"
     >
       <span class="line-selector__icon" aria-hidden="true">
-        <RadioTower :size="20" />
+        <ListFilter v-if="isAllSelected" :size="17" />
+        <CardSim v-else :size="compact || filterMode ? 17 : 20" />
       </span>
       <span class="line-selector__identity">
         <strong>{{ displayName }}</strong>
@@ -339,8 +369,13 @@ onBeforeUnmount(() => {
         @click="selectOption(option.value)"
         @keydown="onOptionKeydown($event, index)"
       >
-        <span class="line-selector__option-icon" aria-hidden="true">
-          <RadioTower :size="17" />
+        <span
+          class="line-selector__option-icon"
+          :style="toneStyle(option.line)"
+          aria-hidden="true"
+        >
+          <CardSim v-if="option.line" :size="17" />
+          <ListFilter v-else :size="17" />
         </span>
         <span class="line-selector__option-copy">
           <strong>{{ option.name }}</strong>
@@ -412,6 +447,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   color: var(--accent-strong);
   background: var(--accent-soft);
+  border: 1px solid transparent;
   border-radius: 50%;
 }
 
@@ -514,6 +550,134 @@ onBeforeUnmount(() => {
 .line-selector__option:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
+}
+
+.line-selector.is-compact {
+  width: 112px;
+  max-width: 112px;
+  gap: 0;
+}
+
+.line-selector.is-compact .line-selector__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.line-selector.is-compact .line-selector__control {
+  min-height: 40px;
+  grid-template-columns: 26px minmax(0, auto) 14px;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 6px;
+}
+
+.line-selector.is-compact .line-selector__icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+}
+
+.line-selector.is-compact.is-all .line-selector__control {
+  color: var(--muted);
+  background: var(--surface-subtle);
+  border-color: var(--border);
+}
+
+.line-selector.is-compact.is-all .line-selector__icon {
+  color: var(--muted);
+  background: transparent;
+}
+
+.line-selector.is-filter {
+  width: 36px;
+  max-width: 36px;
+  gap: 0;
+}
+
+.line-selector.is-filter .line-selector__label,
+.line-selector.is-filter .line-selector__identity,
+.line-selector.is-filter .line-selector__default,
+.line-selector.is-filter .line-selector__chevron {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.line-selector.is-filter .line-selector__control {
+  width: 36px;
+  min-height: 36px;
+  grid-template-columns: 1fr;
+  gap: 0;
+  padding: 4px;
+  background: var(--surface-subtle);
+  border-color: transparent;
+  border-radius: 6px;
+}
+
+.line-selector.is-filter .line-selector__icon {
+  width: 26px;
+  height: 26px;
+  color: var(--muted);
+  background: transparent;
+  border-radius: 5px;
+}
+
+.line-selector.is-filter.is-filtered .line-selector__control {
+  background: var(--surface);
+  border-color: var(--line-tone-border);
+}
+
+.line-selector.has-line-tone .line-selector__icon,
+.line-selector__option-icon[style] {
+  color: var(--line-tone-color);
+  background: var(--line-tone-background);
+  border-color: var(--line-tone-border);
+}
+
+.line-selector.is-filter .line-selector__options {
+  right: 0;
+  left: auto;
+  width: min(300px, calc(100vw - 28px));
+}
+
+.line-selector.is-compact .line-selector__identity strong {
+  font-size: 12px;
+}
+
+.line-selector.is-compact .line-selector__identity small,
+.line-selector.is-compact .line-selector__default {
+  display: none;
+}
+
+.line-selector.is-compact .line-selector__chevron {
+  width: 14px;
+  height: 14px;
+}
+
+.line-selector.is-compact .line-selector__options {
+  right: 0;
+  left: auto;
+  width: min(300px, calc(100vw - 28px));
+}
+
+@media (max-width: 560px) {
+  .line-selector.is-compact {
+    width: 96px;
+    max-width: 96px;
+  }
 }
 
 .line-selector__option-icon {

@@ -101,7 +101,9 @@ const defaultLineDeviceIMEI = computed(
   () => bootstrapResource.data?.line_settings.default_device_imei || ''
 )
 const selectedLine = computed(() => lines.value.find(line => lineKey(line) === selectedLineKey.value))
-const activeLine = computed(() => selectedLine.value)
+const activeLine = computed(() =>
+  composingNew.value ? selectedLine.value : lineForThread(selectedThread.value)
+)
 const lineLookup = computed(() => createLineLookup(lines.value))
 const existingRecipientThread = computed(() =>
   composingNew.value
@@ -156,7 +158,6 @@ const sendDisabledReason = computed(() => {
 })
 
 let lineSelectionOverridden = false
-let replyLineThreadKey = ''
 let openedThreadKey = ''
 let attemptedReadKey = ''
 let composeReturnThreadKey = ''
@@ -229,29 +230,6 @@ watch(
 watch(
   [lines, defaultLineDeviceIMEI, () => contactsResource.data, newRecipient, composingNew],
   () => syncComposeLine()
-)
-
-watch(
-  [selectedThread, lines, composingNew],
-  () => {
-    if (composingNew.value) {
-      replyLineThreadKey = ''
-      return
-    }
-    const thread = selectedThread.value
-    if (!thread) {
-      replyLineThreadKey = ''
-      selectedLineKey.value = ''
-      return
-    }
-    const selectedStillExists = lines.value.some(line => lineKey(line) === selectedLineKey.value)
-    if (replyLineThreadKey === thread.key && selectedStillExists) return
-
-    replyLineThreadKey = thread.key
-    const threadLine = lineForThread(thread)
-    selectedLineKey.value = threadLine ? lineKey(threadLine) : ''
-  },
-  { immediate: true }
 )
 
 watch(
@@ -458,18 +436,21 @@ onMounted(() => {
         </button>
       </header>
       <div class="pane-search">
-        <SearchField v-model="search" :placeholder="t('messages.search')" />
-        <LineSelector
-          v-if="lines.length > 1"
-          v-model="lineFilterKey"
-          class="message-line-filter"
-          :lines="lines"
-          :default-device-imei="defaultLineDeviceIMEI"
-          :label="t('messages.lineFilter')"
-          include-all
-          :all-label="t('messages.allLines')"
-          :all-description="t('messages.allLinesDescription')"
-        />
+        <div class="pane-search-row">
+          <SearchField v-model="search" :placeholder="t('messages.search')" />
+          <LineSelector
+            v-if="lines.length > 1"
+            v-model="lineFilterKey"
+            class="message-line-filter"
+            :lines="lines"
+            :default-device-imei="defaultLineDeviceIMEI"
+            :label="t('messages.lineFilter')"
+            include-all
+            filter-mode
+            :all-label="t('messages.allLines')"
+            :all-description="t('messages.allLinesDescription')"
+          />
+        </div>
       </div>
       <p
         v-if="threadsResource.status === 'ready' && threadsResource.error"
@@ -548,15 +529,27 @@ onMounted(() => {
           </button>
           <template v-if="composingNew">
             <div class="conversation-recipient">
-              <span class="conversation-recipient__label">
-                {{ t('messages.recipient') }}
-              </span>
               <ContactSuggestInput
                 v-model="newRecipient"
                 :contacts="contactsResource.data"
                 autofocus
                 @select="chooseRecipient"
               />
+              <LineSelector
+                v-if="lines.length > 0"
+                v-model="selectedLineKey"
+                class="compose-line-select"
+                :lines="lines"
+                :default-device-imei="defaultLineDeviceIMEI"
+                :label="t('messages.sendingLine')"
+                capability="message"
+                compact
+                :unavailable-label="t('messages.unsupported')"
+                @change="changeSendingLine"
+              />
+              <p v-else class="unavailable-note">
+                {{ t('messages.noAvailableLines') }}
+              </p>
               <small v-if="newRecipientName">{{ newRecipientName }}</small>
             </div>
           </template>
@@ -581,6 +574,7 @@ onMounted(() => {
             />
           </div>
           <button
+            v-if="selectedThread && !composingNew"
             class="icon-button"
             type="button"
             :disabled="Boolean(dialUnavailable) || !activeRecipient"
@@ -659,19 +653,6 @@ onMounted(() => {
         </div>
 
         <footer class="message-composer">
-          <LineSelector
-            v-if="lines.length > 0"
-            v-model="selectedLineKey"
-            class="message-line-select"
-            :lines="lines"
-            :default-device-imei="defaultLineDeviceIMEI"
-            :label="t('messages.sendingLine')"
-            placement="up"
-            capability="message"
-            :unavailable-label="t('messages.unsupported')"
-            @change="changeSendingLine"
-          />
-          <p v-else class="unavailable-note">{{ t('messages.noAvailableLines') }}</p>
           <div class="composer-row">
             <textarea
               v-model="draft"
@@ -741,10 +722,6 @@ onMounted(() => {
   flex: 0 0 auto;
 }
 
-.message-line-select {
-  margin-bottom: 10px;
-}
-
 .message-row.is-arriving {
   animation: incoming-message 520ms ease-out;
 }
@@ -769,20 +746,23 @@ onMounted(() => {
 
 .conversation-recipient {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
 }
 
-.conversation-recipient__label {
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 700;
+.conversation-recipient :deep(.suggest-input) {
+  min-width: 0;
 }
 
 .conversation-recipient > small {
-  grid-column: 2;
+  grid-column: 1 / -1;
   margin-top: -2px;
+}
+
+.conversation-recipient > .unavailable-note {
+  grid-column: 1 / -1;
 }
 
 .existing-thread-button {

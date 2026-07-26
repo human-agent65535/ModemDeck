@@ -3,10 +3,10 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   AlertCircle,
-  BellOff,
   Check,
   ChevronDown,
   LoaderCircle,
+  Moon,
   PhoneIncoming
 } from '@lucide/vue'
 import {
@@ -153,7 +153,7 @@ onBeforeUnmount(() => {
         :size="17"
       />
       <PhoneIncoming v-else-if="receiveCalls !== false" :size="17" />
-      <BellOff v-else :size="17" />
+      <Moon v-else :size="17" />
       <span>{{ label }}</span>
       <ChevronDown :size="15" />
     </button>
@@ -202,7 +202,11 @@ onBeforeUnmount(() => {
         :disabled="globalIncomingCallState.saving || !globalIncomingCallState.data"
         @click="choose(false)"
       >
-        <span class="incoming-call-mode__option-icon"><BellOff :size="17" /></span>
+        <span
+          class="incoming-call-mode__option-icon incoming-call-mode__option-icon--quiet"
+        >
+          <Moon :size="17" />
+        </span>
         <span>
           <strong>{{ t('incomingCallMode.doNotDisturb') }}</strong>
           <small>{{ t('incomingCallMode.doNotDisturbDescription') }}</small>
@@ -322,6 +326,11 @@ onBeforeUnmount(() => {
   color: var(--accent);
   background: var(--accent-soft);
   border-radius: 50%;
+}
+
+.incoming-call-mode__option-icon--quiet {
+  color: var(--muted);
+  background: var(--surface-subtle);
 }
 
 .incoming-call-mode__notice,

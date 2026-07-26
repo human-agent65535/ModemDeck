@@ -255,18 +255,24 @@ onMounted(() => {
         </div>
       </header>
       <div class="pane-search pane-search--calls">
-        <SearchField v-model="search" :placeholder="t('contacts.searchNameOrNumber')" />
-        <LineSelector
-          v-if="lines.length > 1"
-          v-model="lineFilterKey"
-          class="call-line-filter"
-          :lines="lines"
-          :default-device-imei="defaultDeviceIMEI"
-          :label="t('calls.lineFilter')"
-          include-all
-          :all-label="t('calls.allLines')"
-          :all-description="t('calls.allLinesDescription')"
-        />
+        <div class="pane-search-row">
+          <SearchField
+            v-model="search"
+            :placeholder="t('contacts.searchNameOrNumber')"
+          />
+          <LineSelector
+            v-if="lines.length > 1"
+            v-model="lineFilterKey"
+            class="call-line-filter"
+            :lines="lines"
+            :default-device-imei="defaultDeviceIMEI"
+            :label="t('calls.lineFilter')"
+            include-all
+            filter-mode
+            :all-label="t('calls.allLines')"
+            :all-description="t('calls.allLinesDescription')"
+          />
+        </div>
         <div class="segmented-control" :aria-label="t('calls.filter')">
           <button
             v-for="item in filters"

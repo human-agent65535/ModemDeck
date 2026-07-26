@@ -17,6 +17,10 @@ const lineTagSource = readFileSync(
   new URL('../src/components/LineTag.vue', import.meta.url),
   'utf8'
 )
+const lineToneSource = readFileSync(
+  new URL('../src/utils/lineTone.ts', import.meta.url),
+  'utf8'
+)
 const workspaceSource = readFileSync(
   new URL('../src/state/workspace.ts', import.meta.url),
   'utf8'
@@ -127,6 +131,7 @@ test('settings edit only the ICCID-backed line label', () => {
   assert.doesNotMatch(workspaceSource, /Object\.assign\(line, saved\)/)
   assert.doesNotMatch(devicePanelSource, /renameDevice|修改模组名称|@rename/)
   assert.match(lineTagSource, /line\.line_label\.trim\(\) \|\| props\.fallback\.trim\(\)/)
-  assert.match(lineTagSource, /stableHash\(stableKey\) % 6/)
+  assert.match(lineTagSource, /lineTone\(props\.line, label\.value\)/)
+  assert.match(lineToneSource, /stableHash\(stableKey\) % LINE_TONES\.length/)
   assert.match(lineTagSource, /flex:\s*0 0 auto/)
 })
