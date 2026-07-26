@@ -148,6 +148,14 @@ const runtimeEnvironment = import.meta.env
 export const fixtureMode =
   Boolean(runtimeEnvironment?.DEV) && runtimeEnvironment?.VITE_MODEMDECK_FIXTURE === '1'
 
+const fixturePreviewOptions =
+  fixtureMode && typeof window !== 'undefined'
+    ? {
+        initialIncomingCall:
+          new URLSearchParams(window.location.search).get('incomingCallFixture') === '1'
+      }
+    : {}
+
 const REAL_INTERACTIONS: GatewayInteractions = {
   contacts: true,
   message: true,
@@ -1365,5 +1373,5 @@ function configureFixture(gateway: ModemDeckGateway): ConfiguredModemDeckGateway
 }
 
 export const gateway: ConfiguredModemDeckGateway = fixtureMode
-  ? configureFixture(createFixtureGateway())
+  ? configureFixture(createFixtureGateway(fixturePreviewOptions))
   : realGateway

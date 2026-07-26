@@ -374,6 +374,7 @@ function recordingFixtureURL(): string {
 export type FixtureGatewayOptions = {
   lineCount?: number
   noDevices?: boolean
+  initialIncomingCall?: boolean
 }
 
 function fixtureLines(count: number): LineSummary[] {
@@ -765,8 +766,26 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       ]
     ])
   )
-  let activeCall: CallSession | undefined
-  let activeCallRecording: CallRecordingState | undefined
+  let activeCall: CallSession | undefined =
+    options.initialIncomingCall && lines[0]
+      ? {
+          id: 'call-fixture-incoming',
+          line_key: fixtureLineKey(lines[0]),
+          direction: 'incoming',
+          remote_number: '+1 202 555 0103',
+          display_name: 'Alex Rowan',
+          phase: 'ringing',
+          media_available: false,
+          created_at: new Date().toISOString()
+        }
+      : undefined
+  let activeCallRecording: CallRecordingState | undefined = activeCall
+    ? {
+        call_id: activeCall.id,
+        enabled: false,
+        active: false
+      }
+    : undefined
   let callPolls = 0
   let recordingSettings: RecordingSettings = {
     default_enabled: false,
@@ -1220,12 +1239,14 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
 
     async getActiveCalls(): Promise<CallSession[]> {
       if (!activeCall || activeCall.phase === 'ended' || activeCall.phase === 'failed') return []
-      callPolls += 1
-      if (activeCall.phase === 'dialing' && callPolls >= 1) activeCall.phase = 'ringing'
-      else if (activeCall.phase === 'ringing' && callPolls >= 2) {
-        activeCall.phase = 'active'
-        activeCall.active_at = '2026-07-23T12:05:04Z'
-        activeCall.bearer = 'volte'
+      if (activeCall.direction === 'outgoing') {
+        callPolls += 1
+        if (activeCall.phase === 'dialing' && callPolls >= 1) activeCall.phase = 'ringing'
+        else if (activeCall.phase === 'ringing' && callPolls >= 2) {
+          activeCall.phase = 'active'
+          activeCall.active_at = '2026-07-23T12:05:04Z'
+          activeCall.bearer = 'volte'
+        }
       }
       return [clone(activeCall)]
     },
