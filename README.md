@@ -21,11 +21,12 @@ ModemDeck 是独立项目，与 VoHive 没有官方关系，也未获得其背�
 
 ## 界面
 
-| 多线路仪表盘 | 按线路区分的消息 |
-| --- | --- |
-| ![包含两条合成模组线路、活动状态和拨号器的仪表盘](docs/images/readme-dashboard.png) | ![带线路标签和回复路由的合成短信会话](docs/images/readme-messages.png) |
-| 通话历史和录音 | 网络详情和确认 |
-| ![包含录音播放和拨号器的合成通话详情](docs/images/readme-calls.png) | ![带应用内确认对话框的合成模组网络设置](docs/images/readme-network-settings.png) |
+| 场景 | 桌面端 | 手机端 |
+| --- | --- | --- |
+| 多线路仪表盘 | ![桌面端多线路仪表盘，包含合成活动状态和拨号器](docs/images/readme-dashboard.png) | ![手机端多线路仪表盘，包含合成最近活动](docs/images/readme-dashboard-mobile.png) |
+| 按线路区分的消息 | ![桌面端合成短信会话，包含线路标签和直接回复](docs/images/readme-messages.png) | ![手机端合成短信会话，包含联系人操作和直接回复](docs/images/readme-messages-mobile.png) |
+| 通话历史和录音 | ![桌面端合成通话详情，包含录音播放和拨号器](docs/images/readme-calls.png) | ![手机端合成通话详情，包含录音播放](docs/images/readme-calls-mobile.png) |
+| 网络详情 | ![桌面端合成模组网络设置](docs/images/readme-network-settings.png) | ![手机端合成模组网络设置](docs/images/readme-network-settings-mobile.png) |
 
 ## 架构
 
@@ -173,11 +174,12 @@ endorsed by it.
 
 ## Interface
 
-| Multi-line dashboard | Line-aware messages |
-| --- | --- |
-| ![Dashboard with two synthetic modem lines, activity, and dialer](docs/images/readme-dashboard.png) | ![Synthetic SMS conversation with line labels and reply routing](docs/images/readme-messages.png) |
-| Call history and recording | Network details and confirmation |
-| ![Synthetic call details with recording playback and dialer](docs/images/readme-calls.png) | ![Synthetic modem network settings with an in-app confirmation dialog](docs/images/readme-network-settings.png) |
+| Scene | Desktop | Mobile |
+| --- | --- | --- |
+| Multi-line dashboard | ![Desktop dashboard with synthetic activity, two modem lines, and the dialer](docs/images/readme-dashboard.png) | ![Mobile dashboard with synthetic recent activity](docs/images/readme-dashboard-mobile.png) |
+| Line-aware messages | ![Desktop synthetic SMS conversation with line labels and direct replies](docs/images/readme-messages.png) | ![Mobile synthetic SMS conversation with contact actions and direct replies](docs/images/readme-messages-mobile.png) |
+| Call history and recording | ![Desktop synthetic call details with recording playback and the dialer](docs/images/readme-calls.png) | ![Mobile synthetic call details with recording playback](docs/images/readme-calls-mobile.png) |
+| Network details | ![Desktop synthetic modem network settings](docs/images/readme-network-settings.png) | ![Mobile synthetic modem network settings](docs/images/readme-network-settings-mobile.png) |
 
 ## Architecture
 
