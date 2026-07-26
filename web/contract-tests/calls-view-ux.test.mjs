@@ -11,6 +11,8 @@ async function source() {
 test('call history marks only calls with playable recordings', async () => {
   const calls = await source()
 
+  assert.match(calls, /<BaseAvatar :name="displayName\(call\)" :src="avatarForCall\(call\)"/)
+  assert.match(calls, /class="call-list-item__avatar"/)
   assert.match(calls, /CassetteTape/)
   assert.match(
     calls,
@@ -24,7 +26,7 @@ test('call history marks only calls with playable recordings', async () => {
   assert.match(calls, /loadRecordingEntries\(\)/)
 })
 
-test('call detail keeps communication commands primary and contact management secondary', async () => {
+test('call detail keeps communication and contact actions in one compact header', async () => {
   const calls = await source()
 
   assert.match(
@@ -33,8 +35,8 @@ test('call detail keeps communication commands primary and contact management se
   )
   assert.match(
     calls,
-    /<\/header>[\s\S]*?<div class="call-detail">[\s\S]*?<div class="call-detail__contact-actions">[\s\S]*?<ContactNumberActions[\s\S]*?:contact="selectedContact"[\s\S]*?<section class="detail-section detail-facts">/
+    /<ContactHeaderIdentity[\s\S]*?:number="selected\.remote_number"[\s\S]*?<div class="detail-header__actions call-detail__header-actions">[\s\S]*?<ContactNumberActions[\s\S]*?:contact="selectedContact"[\s\S]*?compact/
   )
   assert.doesNotMatch(calls, /<div class="call-detail__actions">/)
-  assert.doesNotMatch(calls, /<ContactNumberActions[\s\S]*?class="call-detail__contact-actions"/)
+  assert.doesNotMatch(calls, /class="call-detail__contact-actions"/)
 })

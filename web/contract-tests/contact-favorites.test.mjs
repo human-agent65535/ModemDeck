@@ -5,7 +5,11 @@ import { createFixtureGateway } from '../src/api/fixture.ts'
 import { parseContact } from '../src/api/normalize.ts'
 
 const editor = new URL('../src/components/ContactEditor.vue', import.meta.url)
+const avatarPicker = new URL('../src/components/ContactAvatarPicker.vue', import.meta.url)
+const numberActions = new URL('../src/components/ContactNumberActions.vue', import.meta.url)
 const contactsView = new URL('../src/views/ContactsView.vue', import.meta.url)
+const messagesView = new URL('../src/views/MessagesView.vue', import.meta.url)
+const recordingsView = new URL('../src/views/RecordingsView.vue', import.meta.url)
 
 test('contact parsing requires a real favorite value', () => {
   const contact = parseContact({
@@ -35,6 +39,30 @@ test('contact parsing requires a real favorite value', () => {
       }),
     /favorite/
   )
+})
+
+test('message conversations reuse contact create and add actions', async () => {
+  const source = await readFile(messagesView, 'utf8')
+
+  assert.match(source, /import ContactNumberActions/)
+  assert.match(source, /<ContactHeaderIdentity/)
+  assert.match(source, /class="conversation-header__contact-actions"[\s\S]*<ContactNumberActions/)
+  assert.match(source, /<ContactNumberActions[\s\S]*:number="selectedThread\.peer"/)
+  assert.match(source, /:contact="activeContact"/)
+  assert.match(source, /compact/)
+  assert.match(source, /@saved="contactSaved"/)
+  assert.doesNotMatch(source, /class="conversation-contact-actions"/)
+})
+
+test('recordings reuse the compact contact identity and actions in the header', async () => {
+  const source = await readFile(recordingsView, 'utf8')
+
+  assert.match(source, /<ContactHeaderIdentity/)
+  assert.match(source, /<BaseAvatar :name="displayName\(recording\)" :src="avatar\(recording\)"/)
+  assert.match(source, /class="recording-list-item__avatar"/)
+  assert.match(source, /:number="selected\.call\.remote_number"/)
+  assert.match(source, /class="recording-header__contact-actions"/)
+  assert.match(source, /<ContactNumberActions[\s\S]*:contact="selectedContact"[\s\S]*compact/)
 })
 
 test('fixture persists favorite and preferred line through contact writes', async () => {
@@ -71,16 +99,26 @@ test('fixture persists favorite and preferred line through contact writes', asyn
   assert.equal(updated?.preferred_device_imei, 'fixture-002')
 })
 
-test('contacts expose editor and quick favorite controls', async () => {
-  const [editorSource, viewSource] = await Promise.all([
+test('contacts expose avatar upload in full and quick create flows', async () => {
+  const [editorSource, pickerSource, numberActionsSource, viewSource] = await Promise.all([
     readFile(editor, 'utf8'),
+    readFile(avatarPicker, 'utf8'),
+    readFile(numberActions, 'utf8'),
     readFile(contactsView, 'utf8')
   ])
 
   assert.match(editorSource, /v-model="draft\.favorite"[^>]*role="switch"/)
   assert.match(editorSource, /favorite: draft\.favorite/)
-  assert.match(editorSource, /createContactAvatar\(file\)/)
   assert.match(editorSource, /avatar: draft\.avatar/)
+  assert.match(editorSource, /<ContactAvatarPicker[\s\S]*v-model="draft\.avatar"/)
+  assert.match(pickerSource, /createContactAvatar\(file\)/)
+  assert.match(pickerSource, /@drop\.prevent="dropFile"/)
+  assert.match(pickerSource, /@click="openPicker"/)
+  assert.match(pickerSource, /@click="removeAvatar"/)
+  assert.match(numberActionsSource, /<ContactEditor/)
+  assert.match(numberActionsSource, /:initial-phone="number"/)
+  assert.match(numberActionsSource, /@save="createContact"/)
+  assert.doesNotMatch(numberActionsSource, /createName|createAvatar|ContactAvatarPicker/)
   assert.match(viewSource, /async function toggleFavorite\(contact: Contact\)/)
   assert.match(viewSource, /favorite: !contact\.favorite/)
   assert.match(viewSource, /:aria-pressed="selected\.favorite"/)

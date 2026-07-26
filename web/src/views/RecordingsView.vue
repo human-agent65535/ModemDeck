@@ -4,6 +4,8 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, AudioLines, Download } from '@lucide/vue'
 import type { RecordingEntry } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
+import ContactHeaderIdentity from '../components/ContactHeaderIdentity.vue'
+import ContactNumberActions from '../components/ContactNumberActions.vue'
 import LineTag from '../components/LineTag.vue'
 import SearchField from '../components/SearchField.vue'
 import StatePanel from '../components/StatePanel.vue'
@@ -42,6 +44,9 @@ const lines = computed(() => bootstrapResource.data?.lines || [])
 const lineLookup = computed(() => createLineLookup(lines.value))
 const defaultDeviceIMEI = computed(
   () => bootstrapResource.data?.line_settings.default_device_imei || ''
+)
+const selectedContact = computed(() =>
+  selected.value ? contactForNumber(selected.value.call.remote_number) : undefined
 )
 
 function displayName(recording: RecordingEntry): string {
@@ -182,11 +187,14 @@ onBeforeUnmount(() => {
           type="button"
           @click="selectRecording(recording)"
         >
-          <span
-            class="recording-list-item__icon"
-            :class="{ 'is-unavailable': !recording.playable }"
-          >
-            <AudioLines :size="18" />
+          <span class="recording-list-item__avatar">
+            <BaseAvatar :name="displayName(recording)" :src="avatar(recording)" />
+            <span
+              class="recording-list-item__icon"
+              :class="{ 'is-unavailable': !recording.playable }"
+            >
+              <AudioLines :size="12" />
+            </span>
           </span>
           <span class="list-item__content">
             <span class="list-item__title">
@@ -224,14 +232,19 @@ onBeforeUnmount(() => {
           >
             <ArrowLeft :size="20" />
           </button>
-          <BaseAvatar
+          <ContactHeaderIdentity
             :name="displayName(selected)"
-            :src="avatar(selected)"
-            size="large"
+            :number="selected.call.remote_number"
+            :avatar="avatar(selected)"
+            :line="lineTagLine(lineForRecording(selected), selected.call.device_id)"
+            :line-fallback="recordingLineFallback(selected)"
           />
-          <div class="detail-header__identity">
-            <h2>{{ displayName(selected) }}</h2>
-            <span>{{ selected.call.remote_number }}</span>
+          <div class="recording-header__contact-actions">
+            <ContactNumberActions
+              :number="selected.call.remote_number"
+              :contact="selectedContact"
+              compact
+            />
           </div>
         </header>
 
@@ -326,15 +339,26 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
+.recording-list-item__avatar {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
 .recording-list-item__icon {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
   display: inline-grid;
-  width: 38px;
-  height: 38px;
-  flex: 0 0 38px;
+  width: 21px;
+  height: 21px;
+  flex: 0 0 21px;
   place-items: center;
   color: var(--accent-strong);
   background: var(--accent-soft);
+  border: 2px solid var(--surface);
   border-radius: 50%;
+  box-shadow: 0 1px 3px rgb(16 24 40 / 14%);
 }
 
 .recording-list-item__icon.is-unavailable {
@@ -360,6 +384,11 @@ onBeforeUnmount(() => {
   min-height: 0;
   padding: 26px;
   overflow-y: auto;
+}
+
+.recording-header__contact-actions {
+  display: flex;
+  align-items: center;
 }
 
 .recording-player {

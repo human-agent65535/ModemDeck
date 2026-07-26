@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { ImagePlus, Plus, Star, Trash2, X } from '@lucide/vue'
+import { Plus, Star, Trash2, X } from '@lucide/vue'
 import type { Contact, ContactInput, LineSummary } from '../api/types'
-import { createContactAvatar } from '../utils/contactAvatar'
-import BaseAvatar from './BaseAvatar.vue'
+import ContactAvatarPicker from './ContactAvatarPicker.vue'
 import LineSelector from './LineSelector.vue'
 
 type PhoneDraft = {
@@ -17,6 +16,7 @@ const props = defineProps<{
   open: boolean
   contact?: Contact
   lines?: LineSummary[]
+  initialPhone?: string
   saving?: boolean
   error?: string
 }>()
@@ -41,10 +41,7 @@ const draft = reactive<{
   preferredDeviceIMEI: '',
   phones: []
 })
-const avatarInput = ref<HTMLInputElement | null>(null)
 const avatarBusy = ref(false)
-const avatarError = ref('')
-
 const valid = computed(
   () =>
     !avatarBusy.value &&
@@ -70,33 +67,10 @@ watch(
           number: phone.number,
           primary: phone.primary
         }))
-      : [{ label: '手机', number: '', primary: true }]
-    avatarError.value = ''
+      : [{ label: '手机', number: props.initialPhone?.trim() || '', primary: true }]
   },
   { immediate: true }
 )
-
-async function selectAvatar(event: Event): Promise<void> {
-  const input = event.currentTarget as HTMLInputElement
-  const file = input.files?.[0]
-  input.value = ''
-  if (!file) return
-
-  avatarBusy.value = true
-  avatarError.value = ''
-  try {
-    draft.avatar = await createContactAvatar(file)
-  } catch (error) {
-    avatarError.value = error instanceof Error ? error.message : '头像处理失败'
-  } finally {
-    avatarBusy.value = false
-  }
-}
-
-function removeAvatar(): void {
-  draft.avatar = ''
-  avatarError.value = ''
-}
 
 function addPhone(): void {
   draft.phones.push({
@@ -156,41 +130,12 @@ function submit(): void {
           </header>
 
           <form class="editor-form" @submit.prevent="submit">
-            <div class="contact-avatar-field">
-              <BaseAvatar :name="draft.name || '#'" :src="draft.avatar" size="large" />
-              <div>
-                <strong>头像</strong>
-                <span>图片会自动居中裁剪并压缩</span>
-                <div class="contact-avatar-actions">
-                  <button
-                    class="secondary-button"
-                    type="button"
-                    :disabled="avatarBusy"
-                    @click="avatarInput?.click()"
-                  >
-                    <ImagePlus :size="16" />
-                    {{ avatarBusy ? '正在处理…' : draft.avatar ? '更换头像' : '选择头像' }}
-                  </button>
-                  <button
-                    v-if="draft.avatar"
-                    class="text-button"
-                    type="button"
-                    :disabled="avatarBusy"
-                    @click="removeAvatar"
-                  >
-                    移除
-                  </button>
-                </div>
-                <input
-                  ref="avatarInput"
-                  hidden
-                  type="file"
-                  accept="image/*"
-                  @change="selectAvatar"
-                />
-                <small v-if="avatarError" class="field-error" role="alert">{{ avatarError }}</small>
-              </div>
-            </div>
+            <ContactAvatarPicker
+              v-model="draft.avatar"
+              :name="draft.name"
+              :disabled="saving"
+              @processing="avatarBusy = $event"
+            />
 
             <label class="field">
               <span>姓名</span>
@@ -266,43 +211,6 @@ function submit(): void {
 </template>
 
 <style scoped>
-.contact-avatar-field {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 2px 0 8px;
-}
-
-.contact-avatar-field > div {
-  display: grid;
-  gap: 3px;
-}
-
-.contact-avatar-field span {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.contact-avatar-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 6px;
-}
-
-.contact-avatar-actions .secondary-button {
-  min-height: 34px;
-  padding: 0 12px;
-}
-
-.contact-avatar-actions .text-button {
-  min-height: 34px;
-}
-
-.contact-avatar-field .field-error {
-  margin-top: 3px;
-}
-
 .contact-favorite-toggle {
   display: flex;
   min-height: 48px;

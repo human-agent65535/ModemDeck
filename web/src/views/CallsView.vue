@@ -13,6 +13,7 @@ import {
 } from '@lucide/vue'
 import type { CallFilter, CallRecord } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
+import ContactHeaderIdentity from '../components/ContactHeaderIdentity.vue'
 import ContactNumberActions from '../components/ContactNumberActions.vue'
 import LineTag from '../components/LineTag.vue'
 import RecordingList from '../components/RecordingList.vue'
@@ -96,6 +97,10 @@ const defaultDeviceIMEI = computed(
 
 function displayName(call: CallRecord): string {
   return call.display_name || contactForNumber(call.remote_number)?.display_name || call.remote_number
+}
+
+function avatarForCall(call: CallRecord): string {
+  return contactForNumber(call.remote_number)?.avatar || ''
 }
 
 function iconFor(call: CallRecord) {
@@ -259,7 +264,12 @@ onMounted(() => {
             :aria-label="`查看 ${displayName(call)} 的通话详情`"
             @click="selectCall(call)"
           >
-            <span class="call-direction-icon"><component :is="iconFor(call)" :size="18" /></span>
+            <span class="call-list-item__avatar">
+              <BaseAvatar :name="displayName(call)" :src="avatarForCall(call)" />
+              <span class="call-direction-icon">
+                <component :is="iconFor(call)" :size="12" />
+              </span>
+            </span>
             <span class="list-item__content">
               <span class="list-item__title">
                 <strong>{{ displayName(call) }}</strong>
@@ -304,16 +314,19 @@ onMounted(() => {
           <button class="icon-button mobile-back" type="button" title="返回通话" @click="backToList">
             <ArrowLeft :size="20" />
           </button>
-          <BaseAvatar
+          <ContactHeaderIdentity
             :name="displayName(selected)"
-            :src="selectedContact?.avatar"
-            size="large"
+            :number="selected.remote_number"
+            :avatar="selectedContact?.avatar"
+            :line="lineTagLine(lineForCall(selected), selected.local_phone, selected.line_iccid, selected.line_imsi)"
+            :line-fallback="callLineFallback(selected)"
           />
-          <div class="detail-header__identity">
-            <h2>{{ displayName(selected) }}</h2>
-            <span>{{ selected.remote_number }}</span>
-          </div>
           <div class="detail-header__actions call-detail__header-actions">
+            <ContactNumberActions
+              :number="selected.remote_number"
+              :contact="selectedContact"
+              compact
+            />
             <button
               class="call-detail__command call-detail__command--primary"
               type="button"
@@ -340,13 +353,6 @@ onMounted(() => {
         </header>
 
         <div class="call-detail">
-          <div class="call-detail__contact-actions">
-            <ContactNumberActions
-              :number="selected.remote_number"
-              :contact="selectedContact"
-            />
-          </div>
-
           <section class="detail-section detail-facts">
             <h3>通话详情</h3>
             <dl>
@@ -413,6 +419,25 @@ onMounted(() => {
   margin-right: 10px;
 }
 
+.call-list-item__avatar {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.call-list-item__avatar .call-direction-icon {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 21px;
+  height: 21px;
+  flex: 0 0 21px;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border: 2px solid var(--surface);
+  box-shadow: 0 1px 3px rgb(16 24 40 / 14%);
+}
+
 .call-list-item__meta {
   display: flex;
   min-width: 0;
@@ -471,25 +496,6 @@ onMounted(() => {
 .call-detail__command--primary:hover:not(:disabled) {
   background: var(--accent-strong);
   border-color: var(--accent-strong);
-}
-
-.call-detail__contact-actions {
-  max-width: 760px;
-  margin-bottom: 20px;
-  padding-bottom: 18px;
-  border-bottom: 1px solid var(--border);
-}
-
-.call-detail__contact-actions :deep(.secondary-button) {
-  min-height: 32px;
-  padding: 0 4px;
-  color: var(--accent-strong);
-  background: transparent;
-  border: 0;
-}
-
-.call-detail__contact-actions :deep(.secondary-button:hover:not(:disabled)) {
-  background: var(--accent-soft);
 }
 
 @media (max-width: 720px) {

@@ -4,6 +4,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, LoaderCircle, MessageSquarePlus, Phone, Send, X } from '@lucide/vue'
 import type { Contact, LineSummary, MessageThread } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
+import ContactHeaderIdentity from '../components/ContactHeaderIdentity.vue'
+import ContactNumberActions from '../components/ContactNumberActions.vue'
 import ContactSuggestInput from '../components/ContactSuggestInput.vue'
 import LineSelector from '../components/LineSelector.vue'
 import LineTag from '../components/LineTag.vue'
@@ -110,6 +112,7 @@ const filteredThreads = computed(() => {
 const activeRecipient = computed(() =>
   composingNew.value ? newRecipient.value.trim() : selectedThread.value?.peer || ''
 )
+const activeContact = computed(() => contactForNumber(activeRecipient.value))
 const activeICCID = computed(() => activeLine.value?.iccid || '')
 const activeLineID = computed(() => (activeLine.value ? lineKey(activeLine.value) : ''))
 const sendDisabledReason = computed(() => {
@@ -157,6 +160,15 @@ function threadLineFallback(thread: MessageThread): string {
 
 function avatarForNumber(number: string): string {
   return contactForNumber(number)?.avatar || ''
+}
+
+function displayNameForThread(thread: MessageThread): string {
+  return contactForNumber(thread.peer)?.display_name || thread.contact_name || thread.peer
+}
+
+async function contactSaved(contact: Contact): Promise<void> {
+  if (composingNew.value) newRecipientName.value = contact.display_name
+  await loadThreads(true)
 }
 
 function syncComposeLine(force = false): void {
@@ -462,12 +474,12 @@ onMounted(() => {
           @click="chooseThread(thread.key)"
         >
           <BaseAvatar
-            :name="thread.contact_name || thread.peer"
+            :name="displayNameForThread(thread)"
             :src="avatarForNumber(thread.peer)"
           />
           <span class="list-item__content">
             <span class="list-item__title">
-              <strong>{{ thread.contact_name || thread.peer }}</strong>
+              <strong>{{ displayNameForThread(thread) }}</strong>
               <time>{{ formatRelativeDate(thread.last_timestamp) }}</time>
             </span>
             <span class="list-item__preview">
@@ -511,21 +523,25 @@ onMounted(() => {
             </div>
           </template>
           <template v-else-if="selectedThread">
-            <BaseAvatar
-              :name="selectedThread.contact_name || selectedThread.peer"
-              :src="avatarForNumber(selectedThread.peer)"
-              size="small"
+            <ContactHeaderIdentity
+              :name="displayNameForThread(selectedThread)"
+              :number="selectedThread.peer"
+              :avatar="avatarForNumber(selectedThread.peer)"
+              :line="lineTagLine(lineForThread(selectedThread), selectedThread.local_phone, selectedThread.imsi, selectedThread.iccid)"
+              :line-fallback="threadLineFallback(selectedThread)"
             />
-            <div class="conversation-title">
-              <h2>{{ selectedThread.contact_name || selectedThread.peer }}</h2>
-              <span v-if="selectedThread.contact_name">{{ selectedThread.peer }}</span>
-              <LineTag
-                class="conversation-line-tag"
-                :line="lineTagLine(lineForThread(selectedThread), selectedThread.local_phone, selectedThread.imsi, selectedThread.iccid)"
-                :fallback="threadLineFallback(selectedThread)"
-              />
-            </div>
           </template>
+          <div
+            v-if="selectedThread && !composingNew"
+            class="conversation-header__contact-actions"
+          >
+            <ContactNumberActions
+              :number="selectedThread.peer"
+              :contact="activeContact"
+              compact
+              @saved="contactSaved"
+            />
+          </div>
           <button
             class="icon-button"
             type="button"
@@ -737,8 +753,9 @@ onMounted(() => {
   white-space: nowrap;
 }
 
-.conversation-line-tag {
-  margin-top: 3px;
+.conversation-header__contact-actions {
+  display: flex;
+  align-items: center;
 }
 
 .conversation-recipient {
@@ -791,4 +808,5 @@ onMounted(() => {
 .pane-error {
   margin: 0 16px 8px;
 }
+
 </style>

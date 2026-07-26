@@ -1,27 +1,33 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ContactRound, UserPlus, X } from '@lucide/vue'
-import type { Contact } from '../api/types'
+import type { Contact, ContactInput } from '../api/types'
 import BaseAvatar from './BaseAvatar.vue'
+import ContactEditor from './ContactEditor.vue'
 import SearchField from './SearchField.vue'
 import {
+  bootstrapResource,
   contactEditingAvailable,
   contactsResource,
   loadContacts,
   saveContact
 } from '../state/workspace'
 
-const props = defineProps<{
-  number: string
-  contact?: Contact
-}>()
+const props = withDefaults(
+  defineProps<{
+    number: string
+    contact?: Contact
+    compact?: boolean
+  }>(),
+  { compact: false }
+)
 
 const emit = defineEmits<{
   saved: [contact: Contact]
 }>()
 
-const mode = ref<'create' | 'add' | null>(null)
-const createName = ref('')
+const createOpen = ref(false)
+const addOpen = ref(false)
 const phoneLabel = ref('手机')
 const search = ref('')
 const selectedContactID = ref('')
@@ -43,6 +49,9 @@ const filteredContacts = computed(() => {
     .slice()
     .sort((a, b) => a.display_name.localeCompare(b.display_name))
 })
+const contactLines = computed(
+  () => bootstrapResource.data?.lines.filter(line => Boolean(line.device_imei)) || []
+)
 
 const selectedContact = computed(() =>
   contactsResource.data.find(contact => contact.id === selectedContactID.value)
@@ -51,53 +60,48 @@ const selectedContact = computed(() =>
 watch(
   () => props.contact,
   contact => {
-    if (contact) closeDialog()
+    if (contact) {
+      closeCreate()
+      closeAdd()
+    }
   }
 )
 
-function closeDialog(): void {
+function closeCreate(): void {
   if (saving.value) return
-  mode.value = null
-  createName.value = ''
-  phoneLabel.value = '手机'
+  createOpen.value = false
+  error.value = ''
+}
+
+function closeAdd(): void {
+  if (saving.value) return
+  addOpen.value = false
   search.value = ''
   selectedContactID.value = ''
   error.value = ''
 }
 
 function openCreate(): void {
-  createName.value = ''
-  phoneLabel.value = '手机'
   error.value = ''
-  mode.value = 'create'
+  createOpen.value = true
 }
 
 async function openAdd(): Promise<void> {
+  phoneLabel.value = '手机'
   search.value = ''
   selectedContactID.value = ''
   error.value = ''
-  mode.value = 'add'
+  addOpen.value = true
   await loadContacts()
 }
 
-async function createContact(): Promise<void> {
-  const name = createName.value.trim()
-  if (!name || !props.number.trim() || saving.value) return
+async function createContact(input: ContactInput): Promise<void> {
+  if (saving.value) return
   saving.value = true
   error.value = ''
   try {
-    const saved = await saveContact({
-      display_name: name,
-      favorite: false,
-      phones: [
-        {
-          label: phoneLabel.value.trim() || '手机',
-          number: props.number.trim(),
-          primary: true
-        }
-      ]
-    })
-    mode.value = null
+    const saved = await saveContact(input)
+    createOpen.value = false
     emit('saved', saved)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '联系人保存失败'
@@ -142,7 +146,7 @@ async function addToContact(): Promise<void> {
       },
       contact.id
     )
-    mode.value = null
+    addOpen.value = false
     emit('saved', saved)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '联系人保存失败'
@@ -153,85 +157,75 @@ async function addToContact(): Promise<void> {
 </script>
 
 <template>
-  <div class="contact-number-actions">
+  <div class="contact-number-actions" :class="{ 'is-compact': compact }">
     <RouterLink
       v-if="contact"
       class="secondary-button"
       :to="{ name: 'contacts', params: { contactId: contact.id } }"
+      aria-label="查看联系人"
+      title="查看联系人"
     >
       <ContactRound :size="17" />
-      查看联系人
+      <span class="contact-number-action__label">查看联系人</span>
     </RouterLink>
     <template v-else-if="contactEditingAvailable">
-      <button class="secondary-button" type="button" @click="openCreate">
+      <button
+        class="secondary-button"
+        type="button"
+        aria-label="新建联系人"
+        title="新建联系人"
+        @click="openCreate"
+      >
         <UserPlus :size="17" />
-        新建联系人
+        <span class="contact-number-action__label">新建联系人</span>
       </button>
-      <button class="secondary-button" type="button" @click="openAdd">
+      <button
+        class="secondary-button"
+        type="button"
+        aria-label="加入已有联系人"
+        title="加入已有联系人"
+        @click="openAdd"
+      >
         <ContactRound :size="17" />
-        加入已有联系人
+        <span class="contact-number-action__label">加入已有联系人</span>
       </button>
     </template>
   </div>
 
+  <ContactEditor
+    :open="createOpen"
+    :initial-phone="number"
+    :lines="contactLines"
+    :saving="saving"
+    :error="error"
+    @close="closeCreate"
+    @save="createContact"
+  />
+
   <Teleport to="body">
     <Transition name="fade">
-      <div v-if="mode" class="modal-backdrop" @mousedown.self="closeDialog">
+      <div v-if="addOpen" class="modal-backdrop" @mousedown.self="closeAdd">
         <section
           class="editor-dialog quick-contact-dialog"
           role="dialog"
           aria-modal="true"
-          :aria-label="mode === 'create' ? '新建联系人' : '加入已有联系人'"
-          @keydown.esc="closeDialog"
+          aria-label="加入已有联系人"
+          @keydown.esc="closeAdd"
         >
           <header class="tool-header">
-            <h2>{{ mode === 'create' ? '新建联系人' : '加入已有联系人' }}</h2>
+            <h2>加入已有联系人</h2>
             <button
               class="icon-button"
               type="button"
               title="关闭"
               :disabled="saving"
-              @click="closeDialog"
+              @click="closeAdd"
             >
               <X :size="19" />
             </button>
           </header>
 
-          <form
-            v-if="mode === 'create'"
-            class="quick-contact-form"
-            @submit.prevent="createContact"
-          >
-            <label class="field">
-              <span>姓名</span>
-              <input v-model="createName" autocomplete="name" autofocus required />
-            </label>
-            <div class="quick-contact-phone">
-              <label class="field">
-                <span>类型</span>
-                <input v-model="phoneLabel" aria-label="号码类型" />
-              </label>
-              <label class="field quick-contact-phone__number">
-                <span>电话号码</span>
-                <input :value="number" type="tel" readonly />
-              </label>
-            </div>
-            <p v-if="error" class="field-error" role="alert">{{ error }}</p>
-            <footer class="dialog-actions">
-              <button class="secondary-button" type="button" :disabled="saving" @click="closeDialog">
-                取消
-              </button>
-              <button
-                class="primary-button"
-                type="submit"
-                :disabled="!createName.trim() || saving"
-              >
-                {{ saving ? '正在保存…' : '创建' }}
-              </button>
-            </footer>
-          </form>
-
-          <form v-else class="quick-contact-form" @submit.prevent="addToContact">
+          <form class="quick-contact-form" @submit.prevent="addToContact">
             <div class="quick-contact-target">
               <span>电话号码</span>
               <strong>{{ number }}</strong>
@@ -275,7 +269,7 @@ async function addToContact(): Promise<void> {
             <p v-else class="quick-contact-state">没有匹配的联系人</p>
             <p v-if="error" class="field-error" role="alert">{{ error }}</p>
             <footer class="dialog-actions">
-              <button class="secondary-button" type="button" :disabled="saving" @click="closeDialog">
+              <button class="secondary-button" type="button" :disabled="saving" @click="closeAdd">
                 取消
               </button>
               <button
@@ -300,6 +294,16 @@ async function addToContact(): Promise<void> {
   gap: 8px;
 }
 
+.contact-number-actions.is-compact {
+  flex-wrap: nowrap;
+}
+
+.contact-number-actions.is-compact .secondary-button {
+  min-height: 34px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
 .quick-contact-dialog {
   width: min(520px, calc(100vw - 32px));
 }
@@ -311,16 +315,6 @@ async function addToContact(): Promise<void> {
   gap: 16px;
   padding: 18px;
   overflow-y: auto;
-}
-
-.quick-contact-phone {
-  display: grid;
-  grid-template-columns: 120px minmax(0, 1fr);
-  gap: 10px;
-}
-
-.quick-contact-phone__number {
-  min-width: 0;
 }
 
 .quick-contact-target {
@@ -406,14 +400,23 @@ async function addToContact(): Promise<void> {
   text-align: center;
 }
 
+@media (max-width: 760px) {
+  .contact-number-actions.is-compact .secondary-button {
+    width: 36px;
+    min-width: 36px;
+    padding: 0;
+  }
+
+  .contact-number-actions.is-compact .contact-number-action__label {
+    display: none;
+  }
+}
+
 @media (max-width: 560px) {
-  .contact-number-actions,
-  .contact-number-actions .secondary-button {
+  .contact-number-actions:not(.is-compact),
+  .contact-number-actions:not(.is-compact) .secondary-button {
     width: 100%;
   }
 
-  .quick-contact-phone {
-    grid-template-columns: 1fr;
-  }
 }
 </style>
