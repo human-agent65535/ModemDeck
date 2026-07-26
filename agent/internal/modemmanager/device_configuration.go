@@ -97,6 +97,13 @@ func (p *Provider) ApplyGenericDeviceConfiguration(
 			return domain.DeviceConfiguration{}, domain.InvalidArgument(operation, "radio_enabled is required")
 		}
 		if current.Radio.EnabledKnown && current.Radio.Enabled == *request.RadioEnabled {
+			if err := p.radioStates.setEnabled(request.LineID, *request.RadioEnabled); err != nil {
+				return domain.DeviceConfiguration{}, domain.Internal(
+					operation,
+					"radio preference could not be persisted",
+					err,
+				)
+			}
 			return current, nil
 		}
 		if !*request.RadioEnabled {
@@ -119,6 +126,14 @@ func (p *Provider) ApplyGenericDeviceConfiguration(
 				)
 			}
 		}
+		previousDesired := p.radioStates.enabled(request.LineID)
+		if err := p.radioStates.setEnabled(request.LineID, *request.RadioEnabled); err != nil {
+			return domain.DeviceConfiguration{}, domain.Internal(
+				operation,
+				"radio preference could not be persisted",
+				err,
+			)
+		}
 		if _, err := p.call(
 			bounded,
 			modemPath,
@@ -127,6 +142,13 @@ func (p *Provider) ApplyGenericDeviceConfiguration(
 			"ModemManager failed to change the modem radio state",
 			*request.RadioEnabled,
 		); err != nil {
+			if rollbackErr := p.radioStates.setEnabled(request.LineID, previousDesired); rollbackErr != nil {
+				return domain.DeviceConfiguration{}, domain.Internal(
+					operation,
+					"radio state failed and its persisted preference could not be restored",
+					errors.Join(err, rollbackErr),
+				)
+			}
 			return domain.DeviceConfiguration{}, err
 		}
 	case domain.DeviceConfigurationConnectData:

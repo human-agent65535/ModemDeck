@@ -51,6 +51,11 @@ func run() error {
 		envOrDefault("MODEMDECK_NETWORK_STATE_FILE", "/run/modemdeck/network.json"),
 		"persistent file recording only ModemDeck-owned kernel network state",
 	)
+	radioStateFile := flag.String(
+		"radio-state-file",
+		envOrDefault("MODEMDECK_RADIO_STATE_FILE", "/run/modemdeck/radio-state.json"),
+		"persistent file recording user-disabled modem radios",
+	)
 	flag.Parse()
 
 	mode, err := parseSocketMode(*socketMode)
@@ -67,6 +72,7 @@ func run() error {
 	provider, err := modemmanager.OpenSystemBusWithOptions(modemmanager.Options{
 		DataPlane:       dataPlane,
 		BearerStateFile: *bearerStateFile,
+		RadioStateFile:  *radioStateFile,
 	})
 	if err != nil {
 		return err
@@ -173,6 +179,10 @@ func run() error {
 	}
 	defer listener.Close()
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	go runRadioReconciler(ctx, provider)
+
 	server := &http.Server{
 		Handler: httpapi.NewWithOptions(provider, version, httpapi.Options{
 			Media:                mediaManager,
@@ -191,8 +201,6 @@ func run() error {
 		serveResult <- server.Serve(listener)
 	}()
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	slog.Info("agent listening", "socket", *socketPath, "api_version", "v1", "version", version)
 
 	select {
@@ -211,6 +219,33 @@ func run() error {
 			return fmt.Errorf("serve unix socket: %w", err)
 		}
 		return nil
+	}
+}
+
+func runRadioReconciler(ctx context.Context, provider *modemmanager.Provider) {
+	const (
+		interval       = 5 * time.Second
+		attemptTimeout = 45 * time.Second
+	)
+	reconcile := func() {
+		attemptContext, cancel := context.WithTimeout(ctx, attemptTimeout)
+		defer cancel()
+		if err := provider.ReconcileRadioState(attemptContext); err != nil &&
+			!errors.Is(err, context.Canceled) {
+			slog.Warn("reconcile modem radio state", "error", err)
+		}
+	}
+
+	reconcile()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			reconcile()
+		}
 	}
 }
 

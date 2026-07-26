@@ -32,6 +32,14 @@ func (p *Provider) hydrateCalls(
 
 	for _, modemPath := range modemPaths {
 		voiceProperties := objects[modemPath][voiceInterface]
+		if !modemServiceHydrationReady(objects[modemPath]) {
+			if voiceProperties == nil {
+				voiceProperties = Properties{}
+				objects[modemPath][voiceInterface] = voiceProperties
+			}
+			voiceProperties["Calls"] = dbus.MakeVariant([]dbus.ObjectPath{})
+			continue
+		}
 		listedPaths, known := objectPathValuesProperty(voiceProperties, "Calls")
 		if !known {
 			body, err := p.call(
@@ -42,14 +50,19 @@ func (p *Provider) hydrateCalls(
 				"ModemManager failed to list calls",
 			)
 			if err != nil {
-				return nil, err
-			}
-			if err := dbus.Store(body, &listedPaths); err != nil {
-				return nil, domain.Internal(
-					operation,
-					"ModemManager call list response was malformed",
-					err,
-				)
+				if serviceHydrationUnavailable(err) {
+					listedPaths = []dbus.ObjectPath{}
+				} else {
+					return nil, err
+				}
+			} else {
+				if err := dbus.Store(body, &listedPaths); err != nil {
+					return nil, domain.Internal(
+						operation,
+						"ModemManager call list response was malformed",
+						err,
+					)
+				}
 			}
 		}
 

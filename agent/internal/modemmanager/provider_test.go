@@ -172,6 +172,34 @@ func TestSnapshotHydratesReferencedSIMOutsideManagedObjects(t *testing.T) {
 	}
 }
 
+func TestSnapshotKeepsCoreLineWhenReferencedSIMIsTemporarilyUnavailable(t *testing.T) {
+	t.Parallel()
+	objects := emptyLineObjects(false, false)
+	delete(objects, testSIMPath)
+	caller := newFakeCaller(objects)
+	caller.errors[propertiesInterface+".GetAll"] = dbus.NewError(
+		mobileEquipmentErrorPrefix+"SimPin",
+		nil,
+	)
+	provider := newTestProvider(caller)
+
+	snapshot, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if len(snapshot.Lines) != 1 ||
+		!snapshot.Lines[0].SIMPresent ||
+		snapshot.Lines[0].Capabilities.SIMInterface {
+		t.Fatalf("temporarily unavailable SIM snapshot = %+v", snapshot)
+	}
+	assertMethods(
+		t,
+		caller.invocations(),
+		objectManagerInterface+".GetManagedObjects",
+		propertiesInterface+".GetAll",
+	)
+}
+
 func TestSnapshotListsAndHydratesMessagesMissingFromManagedObjects(t *testing.T) {
 	t.Parallel()
 	objects := emptyLineObjects(true, true)
@@ -216,6 +244,75 @@ func TestSnapshotListsAndHydratesMessagesMissingFromManagedObjects(t *testing.T)
 		invocations[2].Args[0] != smsInterface {
 		t.Fatalf("SMS GetAll invocation = %+v", invocations[2])
 	}
+}
+
+func TestSnapshotReturnsDisabledLineWithoutServiceHydration(t *testing.T) {
+	t.Parallel()
+	objects := emptyLineObjects(true, true)
+	objects[testModemPath][modemInterface]["State"] =
+		dbus.MakeVariant(int32(modemStateDisabled))
+	delete(objects[testModemPath][voiceInterface], "Calls")
+	delete(objects[testModemPath][messagingInterface], "Messages")
+	caller := newFakeCaller(objects)
+	caller.errors[voiceInterface+".ListCalls"] = dbus.NewError(
+		modemManagerCoreErrorPrefix+"WrongState",
+		nil,
+	)
+	caller.errors[messagingInterface+".List"] = dbus.NewError(
+		modemManagerCoreErrorPrefix+"WrongState",
+		nil,
+	)
+	provider := newTestProvider(caller)
+
+	snapshot, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if len(snapshot.Lines) != 1 ||
+		snapshot.Lines[0].State != "disabled" ||
+		len(snapshot.Calls) != 0 ||
+		len(snapshot.Messages) != 0 {
+		t.Fatalf("disabled snapshot = %+v", snapshot)
+	}
+	assertMethods(
+		t,
+		caller.invocations(),
+		objectManagerInterface+".GetManagedObjects",
+	)
+}
+
+func TestSnapshotKeepsCoreLineDuringServiceStateRace(t *testing.T) {
+	t.Parallel()
+	objects := emptyLineObjects(true, true)
+	delete(objects[testModemPath][voiceInterface], "Calls")
+	delete(objects[testModemPath][messagingInterface], "Messages")
+	caller := newFakeCaller(objects)
+	caller.errors[voiceInterface+".ListCalls"] = dbus.NewError(
+		modemManagerCoreErrorPrefix+"WrongState",
+		nil,
+	)
+	caller.errors[messagingInterface+".List"] = dbus.NewError(
+		modemManagerCoreErrorPrefix+"WrongState",
+		nil,
+	)
+	provider := newTestProvider(caller)
+
+	snapshot, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if len(snapshot.Lines) != 1 ||
+		len(snapshot.Calls) != 0 ||
+		len(snapshot.Messages) != 0 {
+		t.Fatalf("service-race snapshot = %+v", snapshot)
+	}
+	assertMethods(
+		t,
+		caller.invocations(),
+		objectManagerInterface+".GetManagedObjects",
+		voiceInterface+".ListCalls",
+		messagingInterface+".List",
+	)
 }
 
 func TestSnapshotSkipsMessageRemovedBetweenListAndPropertyRead(t *testing.T) {

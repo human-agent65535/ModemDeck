@@ -18,6 +18,7 @@ type DataPlane interface {
 type Options struct {
 	DataPlane       DataPlane
 	BearerStateFile string
+	RadioStateFile  string
 }
 
 type noopDataPlane struct{}

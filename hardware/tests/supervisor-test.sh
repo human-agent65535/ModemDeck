@@ -196,6 +196,8 @@ run_clean_shutdown_case() {
   grep -Fqx -- "${case_dir}/run/bearers.json" "${case_dir}/agent.args"
   grep -Fqx -- '--network-state-file' "${case_dir}/agent.args"
   grep -Fqx -- "${case_dir}/run/network.json" "${case_dir}/agent.args"
+  grep -Fqx -- '--radio-state-file' "${case_dir}/agent.args"
+  grep -Fqx -- "${case_dir}/run/radio-state.json" "${case_dir}/agent.args"
 
   assert_stopped "${case_dir}/dbus.pid"
   assert_stopped "${case_dir}/mm.pid"

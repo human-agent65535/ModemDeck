@@ -78,6 +78,10 @@ for hardware_mount in '/dev' '/sys' '/run/udev'; do
     grep -Fq "source: ${hardware_mount}" "${test_root}/hardware.yml" ||
         fail "hardware mount is missing: ${hardware_mount}"
 done
+if grep -A5 -F 'source: /sys' "${test_root}/hardware.yml" |
+    grep -Fq 'read_only: true'; then
+    fail "hardware sysfs mount is read-only; QMI raw_ip cannot be configured"
+fi
 
 grep -Fq 'cap_drop:' "${test_root}/app.yml" ||
     fail "application capability drop is missing"

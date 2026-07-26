@@ -66,3 +66,24 @@ body="${response%$'\n'*}"
   and .provider.available == true
   and (.provider.boot_epoch | type == "string" and length > 0)
 ' <<<"${body}" >/dev/null
+
+snapshot_response="$("${curl_bin}" \
+  --silent \
+  --show-error \
+  --max-time "${request_timeout}" \
+  --unix-socket "${agent_socket}" \
+  --request GET \
+  --header 'Accept: application/json' \
+  --write-out $'\n%{http_code}' \
+  http://localhost/v1/snapshot)"
+snapshot_status="${snapshot_response##*$'\n'}"
+snapshot_body="${snapshot_response%$'\n'*}"
+
+[[ "${snapshot_status}" == "200" ]]
+"${jq_bin}" -e '
+  (.revision | type == "string" and length > 0)
+  and (.observed_at | type == "string" and length > 0)
+  and (.lines | type == "array")
+  and (.calls | type == "array")
+  and (.messages | type == "array")
+' <<<"${snapshot_body}" >/dev/null

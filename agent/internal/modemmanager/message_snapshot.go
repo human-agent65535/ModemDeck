@@ -48,6 +48,15 @@ func (p *Provider) hydrateMessagesLocked(
 
 	listedKeys := make(map[messagePropertyCacheKey]struct{})
 	for _, modemPath := range modemPaths {
+		if !modemServiceHydrationReady(objects[modemPath]) {
+			messagingProperties := objects[modemPath][messagingInterface]
+			if messagingProperties == nil {
+				messagingProperties = Properties{}
+				objects[modemPath][messagingInterface] = messagingProperties
+			}
+			messagingProperties["Messages"] = dbus.MakeVariant([]dbus.ObjectPath{})
+			continue
+		}
 		body, err := p.call(
 			ctx,
 			modemPath,
@@ -56,6 +65,15 @@ func (p *Provider) hydrateMessagesLocked(
 			"ModemManager failed to list SMS messages",
 		)
 		if err != nil {
+			if serviceHydrationUnavailable(err) {
+				messagingProperties := objects[modemPath][messagingInterface]
+				if messagingProperties == nil {
+					messagingProperties = Properties{}
+					objects[modemPath][messagingInterface] = messagingProperties
+				}
+				messagingProperties["Messages"] = dbus.MakeVariant([]dbus.ObjectPath{})
+				continue
+			}
 			return err
 		}
 		var listedPaths []dbus.ObjectPath
@@ -129,6 +147,16 @@ func (p *Provider) hydrateMessagesLocked(
 	}
 	cache.reconcileLocked(listedKeys)
 	return nil
+}
+
+func modemServiceHydrationReady(interfaces Interfaces) bool {
+	state, known := int32Property(interfaces[modemInterface], "State")
+	return known && state >= modemStateEnabled
+}
+
+func serviceHydrationUnavailable(err error) bool {
+	operationError, ok := domain.AsOperationError(err)
+	return ok && operationError.Code == domain.ErrorFailedPrecondition
 }
 
 func (p *Provider) readMessageProperties(

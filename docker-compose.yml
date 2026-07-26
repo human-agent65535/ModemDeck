@@ -23,6 +23,7 @@ services:
       MODEMDECK_AGENT_SOCKET_GID: ${MODEMDECK_AGENT_GID:-10002}
       MODEMDECK_BEARER_STATE_FILE: /run/modemdeck/bearers.json
       MODEMDECK_NETWORK_STATE_FILE: /run/modemdeck/network.json
+      MODEMDECK_RADIO_STATE_FILE: /run/modemdeck/radio-state.json
       MODEMDECK_MEDIA_BINDINGS_FILE: /etc/modemdeck/media-bindings.json
       MODEMDECK_MM_LOG_LEVEL: ${MODEMDECK_MM_LOG_LEVEL:-INFO}
     command:
@@ -51,7 +52,6 @@ services:
       - type: bind
         source: /sys
         target: /sys
-        read_only: true
         bind:
           propagation: rslave
       - type: bind

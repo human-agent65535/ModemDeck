@@ -41,6 +41,7 @@ type Provider struct {
 	ids           *instanceIDs
 	dataPlane     DataPlane
 	ownedBearers  *bearerOwnershipStore
+	radioStates   *radioStateStore
 
 	callMu        sync.Mutex
 	configMu      sync.Mutex
@@ -132,6 +133,10 @@ func newProviderWithOptions(
 	if err != nil {
 		return nil, fmt.Errorf("load owned bearer state: %w", err)
 	}
+	radioStates, err := newRadioStateStore(options.RadioStateFile)
+	if err != nil {
+		return nil, fmt.Errorf("load radio state: %w", err)
+	}
 	var resolver ownerResolver = callerOwnerResolver{caller: caller}
 	if owner := ids.providerEpoch(); owner != "" {
 		resolver = staticOwnerResolver{owner: owner}
@@ -143,6 +148,7 @@ func newProviderWithOptions(
 		ids:               ids,
 		dataPlane:         options.DataPlane,
 		ownedBearers:      ownedBearers,
+		radioStates:       radioStates,
 		terminalCalls:     make(map[string]terminalCallProjection),
 		networkOperations: make(map[string]struct{}),
 		signalSetupStates: make(map[string]signalSetupState),
@@ -946,7 +952,8 @@ func (p *Provider) hydrateReferencedSIMs(
 		)
 		if err != nil {
 			if operationError, ok := domain.AsOperationError(err); ok &&
-				operationError.Code == domain.ErrorNotFound {
+				(operationError.Code == domain.ErrorNotFound ||
+					operationError.Code == domain.ErrorFailedPrecondition) {
 				continue
 			}
 			return nil, err

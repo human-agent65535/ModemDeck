@@ -24,11 +24,18 @@ are writable:
 | --- | --- | --- |
 | `/var/lib/ModemManager` | dedicated persistent volume | ModemManager state |
 | `/run/dbus` | private tmpfs | private system-bus socket |
-| `/run/modemdeck` | dedicated persistent/shared volume | Agent socket, device-owner status, bearer ownership, network ownership, and temporary files |
+| `/run/modemdeck` | dedicated persistent/shared volume | Agent socket, device-owner status, bearer ownership, network ownership, radio preferences, and temporary files |
 
 `TMPDIR` is `/run/modemdeck/tmp`. PID 1 performs a write probe against all
 three locations before starting D-Bus. Agent state is explicitly passed as
-`/run/modemdeck/bearers.json` and `/run/modemdeck/network.json`.
+`/run/modemdeck/bearers.json`, `/run/modemdeck/network.json`, and
+`/run/modemdeck/radio-state.json`.
+
+The hardware container receives `/sys` read-write because ModemManager must
+configure kernel-owned modem attributes such as QMI `raw_ip`. The application
+container never receives sysfs. In advanced mode, ModemManager runs with
+`--no-auto-scan`, so only devices resolved by the assignment owner are
+introduced to its private bus.
 
 The application container may receive `/run/modemdeck/agent.sock`; it must not
 receive the private D-Bus socket, `/dev`, sysfs, host udev state, or the host

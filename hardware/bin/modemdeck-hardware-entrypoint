@@ -131,6 +131,7 @@ readonly agent_socket_mode="${MODEMDECK_AGENT_SOCKET_MODE:-0660}"
 readonly agent_socket_gid="${MODEMDECK_AGENT_SOCKET_GID:-10002}"
 readonly bearer_state_file="${runtime_dir}/bearers.json"
 readonly network_state_file="${runtime_dir}/network.json"
+readonly radio_state_file="${runtime_dir}/radio-state.json"
 readonly owner_status="${MODEMDECK_DEVICE_OWNER_STATUS:-${runtime_dir}/device-owner-status.json}"
 readonly owner_max_age="${MODEMDECK_DEVICE_OWNER_MAX_AGE_SECONDS:-30}"
 readonly startup_timeout="${MODEMDECK_STARTUP_TIMEOUT_SECONDS:-20}"
@@ -334,7 +335,8 @@ start_core \
   --socket-mode "${agent_socket_mode}" \
   --socket-gid "${agent_socket_gid}" \
   --bearer-state-file "${bearer_state_file}" \
-  --network-state-file "${network_state_file}"
+  --network-state-file "${network_state_file}" \
+  --radio-state-file "${radio_state_file}"
 agent_pid="${core_pids[-1]}"
 wait_for_agent "${agent_pid}"
 
