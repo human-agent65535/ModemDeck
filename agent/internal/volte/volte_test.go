@@ -15,7 +15,7 @@ var testIdentity = Identity{
 	Firmware:     "TEST_01.001",
 }
 
-func TestUnknownQDC507AndEG25ProfilesAreUnsupported(t *testing.T) {
+func TestEmptyRegistryLeavesQDC507AndEG25Unsupported(t *testing.T) {
 	registry, err := NewRegistry()
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
@@ -37,18 +37,30 @@ func TestUnknownQDC507AndEG25ProfilesAreUnsupported(t *testing.T) {
 	}
 }
 
-func TestQDC507GLEFM21ProfileUsesVerifiedQCFGCommands(t *testing.T) {
+func TestQuectelQCFGProfileUsesDocumentedCommands(t *testing.T) {
 	t.Parallel()
 	policy := PolicyDisabled
+	identity := Identity{
+		Manufacturer: "QUALCOMM INCORPORATED",
+		Model:        "QUECTEL Mobile Broadband Module",
+		Firmware:     "EG25GGCR07A02M1G",
+	}
 	at := &fakeAT{
 		command: func(_ context.Context, command string) (string, error) {
 			switch command {
 			case `AT+QCFG="ims"`:
 				if policy == PolicyEnabled {
-					return "+QCFG: \"ims\",1,0\r\nOK\r\n", nil
+					return "+QCFG: \"ims\",0,0\r\nOK\r\n", nil
 				}
 				return "+QCFG: \"ims\",2,1\r\nOK\r\n", nil
-			case `AT+QCFG="ims",1`:
+			case `AT+QCFG="volte_disable"`:
+				if policy == PolicyEnabled {
+					return "+QCFG: \"volte/disable\",0\r\nOK\r\n", nil
+				}
+				return "+QCFG: \"volte/disable\",1\r\nOK\r\n", nil
+			case `AT+QCFG="volte_disable",0`:
+				return "", nil
+			case `AT+QCFG="ims",0`:
 				policy = PolicyEnabled
 				// ModemManager removes the final OK and returns an empty
 				// payload for commands without response data.
@@ -58,8 +70,8 @@ func TestQDC507GLEFM21ProfileUsesVerifiedQCFGCommands(t *testing.T) {
 			}
 		},
 	}
-	registry := mustRegistry(t, QDC507GLEFM21Profile())
-	driver := registry.Resolve(QDC507GLEFM21Identity, Transports{AT: at})
+	registry := mustRegistry(t, QuectelLTEStandardQCFGIMSProfile())
+	driver := registry.Resolve(identity, Transports{AT: at})
 
 	state, err := driver.Apply(context.Background(), PolicyEnabled)
 	if err != nil {
@@ -68,12 +80,17 @@ func TestQDC507GLEFM21ProfileUsesVerifiedQCFGCommands(t *testing.T) {
 	if state.Policy != PolicyEnabled {
 		t.Fatalf("state = %+v", state)
 	}
-	if state.ConfigurationMode != ConfigurationModeForcedEnabled ||
+	if state.ConfigurationMode != ConfigurationModeAutomatic ||
 		state.ModemCapabilityEnabled ||
 		!state.RestartRequired {
 		t.Fatalf("state did not preserve QCFG mode and capability: %+v", state)
 	}
-	want := []string{`AT+QCFG="ims",1`, `AT+QCFG="ims"`}
+	want := []string{
+		`AT+QCFG="volte_disable",0`,
+		`AT+QCFG="ims",0`,
+		`AT+QCFG="ims"`,
+		`AT+QCFG="volte_disable"`,
+	}
 	if !slices.Equal(at.commands, want) {
 		t.Fatalf("commands = %#v, want %#v", at.commands, want)
 	}
@@ -95,7 +112,7 @@ func TestDecodeQuectelIMSPreservesConfigurationAndCapability(t *testing.T) {
 		},
 		{
 			response:       "+QCFG: \"ims\",0,0\r\nOK\r\n",
-			wantPolicy:     PolicyDisabled,
+			wantPolicy:     PolicyEnabled,
 			wantMode:       ConfigurationModeAutomatic,
 			wantCapability: false,
 		},
@@ -127,6 +144,45 @@ func TestDecodeQuectelIMSPreservesConfigurationAndCapability(t *testing.T) {
 	}
 }
 
+func TestQuectelQCFGProfileMatchesOnlyDocumentedFamilies(t *testing.T) {
+	t.Parallel()
+	registry := mustRegistry(t, QuectelLTEStandardQCFGIMSProfile())
+	for _, identity := range []Identity{
+		{Firmware: "EC20CEFAGR06A10M1G"},
+		{Firmware: "EC21EUXGAR06A07M1G"},
+		{Firmware: "EC25EUXGAR08A01M1G"},
+		{Firmware: "EG21GGBR07A08M2G"},
+		{Firmware: "EG25GGCR07A02M1G"},
+		{Model: "EG91-NA"},
+		{Model: "EG95-E"},
+		{Model: "EM05-G"},
+	} {
+		if capability := registry.Resolve(identity, Transports{}).Capability(); !capability.Supported {
+			t.Fatalf("documented family was not matched: %+v", identity)
+		}
+	}
+	for _, identity := range []Identity{
+		{Firmware: "RM520NGLAAR03A03M4G"},
+		{Firmware: "QDC507GLEFM21"},
+		{Firmware: "EC200UEUABR03A01M08"},
+		{Model: "EG96"},
+		{Model: "QDC507"},
+		{Model: "SIM7600"},
+		{Model: "EG25ish"},
+	} {
+		if capability := registry.Resolve(identity, Transports{}).Capability(); capability.Supported {
+			t.Fatalf("uncovered family unexpectedly matched: %+v", identity)
+		}
+	}
+}
+
+func TestCompleteTokenMatcherContinuesAfterAnInvalidPartialMatch(t *testing.T) {
+	t.Parallel()
+	if !hasCompleteToken("EG25ISH EG25-G", "EG25") {
+		t.Fatal("matcher stopped at an invalid partial match")
+	}
+}
+
 func TestProfileIdentityMatchIsExact(t *testing.T) {
 	registry := mustRegistry(t, readOnlyProfile(testIdentity))
 	cases := []Identity{
@@ -144,7 +200,7 @@ func TestProfileIdentityMatchIsExact(t *testing.T) {
 func TestReadUsesOnlyDeclaredQMIRequest(t *testing.T) {
 	profile := Profile{
 		ID:               "test-qmi-read",
-		Identity:         testIdentity,
+		Matches:          exactMatcher(testIdentity),
 		OperationTimeout: time.Second,
 		Read: QMIRead("dms", "get-volte-policy", []byte{0x01}, func(response []byte) (State, error) {
 			if !slices.Equal(response, []byte{0x01}) {
@@ -243,7 +299,7 @@ func TestApplyUsesDeclaredQMIWriteAndReadBack(t *testing.T) {
 	}
 	profile := Profile{
 		ID:               "test-qmi",
-		Identity:         testIdentity,
+		Matches:          exactMatcher(testIdentity),
 		OperationTimeout: time.Second,
 		Read: QMIRead("nas", "get-volte-policy", nil, func(response []byte) (State, error) {
 			switch {
@@ -365,10 +421,10 @@ func TestApplyHasBoundedDeadlineAndReturnsTypedTimeout(t *testing.T) {
 	}
 }
 
-func TestRegistrationRejectsWildcardAndWriteWithoutRead(t *testing.T) {
-	wildcard := readOnlyProfile(testIdentity)
-	wildcard.Identity.Firmware = "TEST_*"
-	_, err := NewRegistry(wildcard)
+func TestRegistrationRejectsMissingMatcherAndWriteWithoutRead(t *testing.T) {
+	missingMatcher := readOnlyProfile(testIdentity)
+	missingMatcher.Matches = nil
+	_, err := NewRegistry(missingMatcher)
 	assertErrorCode(t, err, ErrorInvalidProfile)
 
 	writeOnly := writableATProfile(testIdentity)
@@ -380,7 +436,7 @@ func TestRegistrationRejectsWildcardAndWriteWithoutRead(t *testing.T) {
 func readOnlyProfile(identity Identity) Profile {
 	return Profile{
 		ID:               "test-read-only",
-		Identity:         identity,
+		Matches:          exactMatcher(identity),
 		OperationTimeout: time.Second,
 		Read: ATRead("AT+TESTVOLTE?", func(string) (State, error) {
 			return State{Policy: PolicyDisabled}, nil
@@ -391,7 +447,7 @@ func readOnlyProfile(identity Identity) Profile {
 func writableATProfile(identity Identity) Profile {
 	return Profile{
 		ID:               "test-at",
-		Identity:         identity,
+		Matches:          exactMatcher(identity),
 		OperationTimeout: time.Second,
 		Read: ATRead("AT+TESTVOLTE?", func(response string) (State, error) {
 			switch response {
@@ -418,6 +474,12 @@ func writableATProfile(identity Identity) Profile {
 			}
 			return nil
 		}),
+	}
+}
+
+func exactMatcher(identity Identity) IdentityMatcher {
+	return func(candidate Identity) bool {
+		return candidate == identity
 	}
 }
 

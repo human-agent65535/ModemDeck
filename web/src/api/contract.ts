@@ -599,10 +599,6 @@ export function parseSIMStatusResponse(value: unknown): SIMStatus {
     }
     unlockRetries[name] = retryValue
   }
-  if (!slotsKnown && slots.length > 0) {
-    throw new Error(`${path}.sim_slots 未知时必须为空`)
-  }
-
   return {
     line_id: requiredString(source, path, 'line_id'),
     present: requiredBoolean(source, path, 'present'),

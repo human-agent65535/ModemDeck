@@ -8,11 +8,15 @@ import (
 
 type Registry struct {
 	mu       sync.RWMutex
-	profiles map[Identity]Profile
+	profiles []Profile
+	ids      map[string]struct{}
 }
 
 func NewRegistry(profiles ...Profile) (*Registry, error) {
-	registry := &Registry{profiles: make(map[Identity]Profile, len(profiles))}
+	registry := &Registry{
+		profiles: make([]Profile, 0, len(profiles)),
+		ids:      make(map[string]struct{}, len(profiles)),
+	}
 	for _, profile := range profiles {
 		if err := registry.Register(profile); err != nil {
 			return nil, err
@@ -36,42 +40,65 @@ func (r *Registry) Register(profile Profile) error {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.profiles == nil {
-		r.profiles = make(map[Identity]Profile)
+	if r.ids == nil {
+		r.ids = make(map[string]struct{})
 	}
-	if existing, found := r.profiles[profile.Identity]; found {
+	if _, found := r.ids[profile.ID]; found {
 		return newError(
 			ErrorInvalidProfile,
 			operation,
 			profile.ID,
 			"",
-			"an exact profile is already registered for this modem identity",
-			errors.New(existing.ID),
+			"a profile with this id is already registered",
+			errors.New(profile.ID),
 		)
 	}
-	r.profiles[profile.Identity] = profile
+	r.ids[profile.ID] = struct{}{}
+	r.profiles = append(r.profiles, profile)
 	return nil
 }
 
-// Resolve uses direct map equality for all three identity fields. It performs
-// no normalization, wildcard matching, model aliasing, or firmware fallback.
+// Resolve selects a documented modem-family driver. A profile matcher may use
+// manufacturer, model, or firmware facts because some QMI devices report only
+// a generic manufacturer/model pair. The driver's read still verifies that
+// the expected vendor command is actually available.
 func (r *Registry) Resolve(identity Identity, transports Transports) Driver {
 	if r != nil {
 		r.mu.RLock()
-		profile, found := r.profiles[identity]
+		var matched Profile
+		matchedProfile := false
+		for _, profile := range r.profiles {
+			if !profile.Matches(identity) {
+				continue
+			}
+			if matchedProfile {
+				r.mu.RUnlock()
+				return unsupportedDriver{
+					identity: identity,
+					reason:   "multiple VoLTE vendor profiles matched this modem family",
+				}
+			}
+			matched = profile
+			matchedProfile = true
+		}
 		r.mu.RUnlock()
-		if found {
+		if matchedProfile {
 			return &profileDriver{
-				profile:    profile,
+				profile:    matched,
+				identity:   identity,
 				transports: transports,
 			}
 		}
 	}
-	return unsupportedDriver{identity: identity}
+	return unsupportedDriver{
+		identity: identity,
+		reason:   "no documented VoLTE vendor profile matched this modem family",
+	}
 }
 
 type unsupportedDriver struct {
 	identity Identity
+	reason   string
 }
 
 func (d unsupportedDriver) Capability() Capability {
@@ -84,7 +111,7 @@ func (d unsupportedDriver) Read(context.Context) (State, error) {
 		"read",
 		"",
 		"",
-		"no exact VoLTE vendor profile is registered for this modem identity",
+		d.reason,
 		nil,
 	)
 }
@@ -95,18 +122,19 @@ func (d unsupportedDriver) Apply(context.Context, Policy) (State, error) {
 		"apply",
 		"",
 		"",
-		"no exact VoLTE vendor profile is registered for this modem identity",
+		d.reason,
 		nil,
 	)
 }
 
 type profileDriver struct {
 	profile    Profile
+	identity   Identity
 	transports Transports
 }
 
 func (d *profileDriver) Capability() Capability {
-	return d.profile.capability()
+	return d.profile.capability(d.identity)
 }
 
 func (d *profileDriver) Read(ctx context.Context) (State, error) {

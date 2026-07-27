@@ -108,6 +108,34 @@ test('empty EID remains absent rather than becoming display data', () => {
   assert.equal(parsed.sim_slots[1]?.eid, undefined)
 })
 
+test('SIM decoder preserves an observed current SIM without inventing hardware slots', () => {
+  const response = esimResponse()
+  response.sim.sim_type = 'unknown'
+  response.sim.esim_status = 'unknown'
+  delete response.sim.eid
+  response.sim.sim_slots = [
+    {
+      index: 1,
+      present: true,
+      current: true,
+      sim_type: 'unknown',
+      esim_status: 'unknown'
+    }
+  ]
+  response.sim.sim_slots_known = false
+  response.sim.primary_sim_slot = 0
+  response.sim.primary_sim_slot_known = false
+  response.sim.current_sim_slot = 0
+  response.sim.current_sim_slot_known = false
+
+  const parsed = parseSIMStatusResponse(response)
+  assert.equal(parsed.sim_slots_known, false)
+  assert.equal(parsed.sim_slots.length, 1)
+  assert.equal(parsed.sim_slots[0]?.present, true)
+  assert.equal(parsed.sim_slots[0]?.current, true)
+  assert.equal(parsed.current_sim_slot_known, false)
+})
+
 test('fixture distinguishes a physical SIM from an eSIM', async () => {
   const gateway = createFixtureGateway()
   const physical = await gateway.getSIMStatus('line-fixture-main')
@@ -141,7 +169,8 @@ test('SIM settings render read-only eSIM facts through the shared decoder', () =
   }
   assert.match(panel, /v-if="simStatus\.sim_type !== 'unknown'"/)
   assert.match(panel, /simStatus\.sim_slots/)
-  assert.match(panel, /v-if="simStatus\.sim_slots_known"/)
+  assert.match(panel, /v-if="simStatus\.sim_slots\.length > 0"/)
+  assert.match(panel, /t\('device\.currentSIM'\)/)
   assert.match(panel, /slot\.present \? t\('device\.cardInserted'\) : t\('device\.noCard'\)/)
   assert.match(panel, /slot\.present && slot\.sim_type !== 'unknown'/)
   assert.match(panel, /slot\.current && currentSIMIdentity/)

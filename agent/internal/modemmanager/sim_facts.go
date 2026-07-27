@@ -58,13 +58,15 @@ func readStandardSIMSlotFacts(
 	modemProperties Properties,
 	objects ManagedObjects,
 	currentSIMPath dbus.ObjectPath,
+	currentSIMPresent bool,
 ) standardSIMSlotFacts {
-	paths, known := objectPathValuesProperty(modemProperties, "SimSlots")
+	paths, reported := objectPathValuesProperty(modemProperties, "SimSlots")
+	topologyKnown := reported && len(paths) > 0
 	result := standardSIMSlotFacts{
 		Slots:      []domain.SIMSlot{},
-		SlotsKnown: known,
+		SlotsKnown: topologyKnown,
 	}
-	if known {
+	if topologyKnown {
 		result.Slots = make([]domain.SIMSlot, 0, len(paths))
 		currentMatches := make([]int, 0, 1)
 		for index, path := range paths {
@@ -94,10 +96,26 @@ func readStandardSIMSlotFacts(
 			result.CurrentSlotKnown = true
 		}
 	}
+	if !topologyKnown && currentSIMPresent && validSIMObjectPath(currentSIMPath) {
+		slot := domain.SIMSlot{
+			Index:      1,
+			Present:    true,
+			Current:    true,
+			SIMType:    domain.SIMTypeUnknown,
+			ESIMStatus: domain.ESIMStatusUnknown,
+		}
+		if properties, found := objects[currentSIMPath][simInterface]; found {
+			facts := readStandardSIMFacts(properties)
+			slot.SIMType = facts.SIMType
+			slot.ESIMStatus = facts.ESIMStatus
+			slot.EIDMasked = facts.EIDMasked
+		}
+		result.Slots = append(result.Slots, slot)
+	}
 
 	if primary, primaryKnown := uint32Property(modemProperties, "PrimarySimSlot"); primaryKnown &&
 		primary > 0 &&
-		(!known || primary <= uint32(len(paths))) {
+		(!topologyKnown || primary <= uint32(len(paths))) {
 		result.PrimarySlot = primary
 		result.PrimarySlotKnown = true
 	}

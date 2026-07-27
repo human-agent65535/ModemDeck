@@ -45,7 +45,12 @@ func (p *Provider) SIMStatus(ctx context.Context, lineID string) (domain.SIMStat
 	status.UnlockRequired = modemLockName(status.UnlockRequiredCode)
 	status.UnlockRetries = unlockRetriesProperty(modemProperties)
 	currentSIMPath, _ := objectPathProperty(modemProperties, "Sim")
-	slotFacts := readStandardSIMSlotFacts(modemProperties, objects, currentSIMPath)
+	slotFacts := readStandardSIMSlotFacts(
+		modemProperties,
+		objects,
+		currentSIMPath,
+		line.SIMPresent,
+	)
 	status.SIMSlots = slotFacts.Slots
 	status.SIMSlotsKnown = slotFacts.SlotsKnown
 	status.PrimarySIMSlot = slotFacts.PrimarySlot

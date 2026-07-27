@@ -8,7 +8,7 @@ import (
 
 type Profile struct {
 	ID                   string
-	Identity             Identity
+	Matches              IdentityMatcher
 	OperationTimeout     time.Duration
 	Read                 ReadMethod
 	Write                WriteMethod
@@ -22,8 +22,8 @@ func (p Profile) validate() error {
 	if p.ID != strings.TrimSpace(p.ID) {
 		return fmt.Errorf("profile id must not contain surrounding whitespace")
 	}
-	if err := validateIdentity(p.Identity); err != nil {
-		return err
+	if p.Matches == nil {
+		return fmt.Errorf("identity matcher is required")
 	}
 	if p.OperationTimeout <= 0 {
 		return fmt.Errorf("operation timeout must be positive")
@@ -47,34 +47,11 @@ func (p Profile) validate() error {
 	return nil
 }
 
-func validateIdentity(identity Identity) error {
-	fields := []struct {
-		name  string
-		value string
-	}{
-		{name: "manufacturer", value: identity.Manufacturer},
-		{name: "model", value: identity.Model},
-		{name: "firmware", value: identity.Firmware},
-	}
-	for _, field := range fields {
-		if strings.TrimSpace(field.value) == "" {
-			return fmt.Errorf("%s is required", field.name)
-		}
-		if field.value != strings.TrimSpace(field.value) {
-			return fmt.Errorf("%s must not contain surrounding whitespace", field.name)
-		}
-		if strings.ContainsAny(field.value, "*?") {
-			return fmt.Errorf("%s must be exact and cannot contain wildcard characters", field.name)
-		}
-	}
-	return nil
-}
-
-func (p Profile) capability() Capability {
+func (p Profile) capability(identity Identity) Capability {
 	capability := Capability{
 		Supported:            true,
 		ProfileID:            p.ID,
-		Identity:             p.Identity,
+		Identity:             identity,
 		Readable:             p.Read != nil,
 		Writable:             p.Write != nil,
 		ApplyRequiresRestart: p.ApplyRequiresRestart,

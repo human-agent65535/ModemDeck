@@ -318,7 +318,7 @@ func (p *Provider) ApplyGenericDeviceConfiguration(
 	case domain.DeviceConfigurationSetVoLTEPolicy:
 		return domain.DeviceConfiguration{}, domain.NotSupported(
 			operation,
-			"VoLTE is owned by the exact vendor-profile extension",
+			"this ModemManager build does not expose a standard VoLTE policy interface",
 		)
 	default:
 		return domain.DeviceConfiguration{}, domain.InvalidArgument(operation, "unsupported device configuration operation")
@@ -549,7 +549,7 @@ func genericConfigurationCapabilities(interfaces Interfaces) domain.DeviceConfig
 		},
 		VoLTE: domain.FeatureCapability{
 			Backend: vendor,
-			Reason:  "no exact manufacturer, model, and firmware profile was resolved",
+			Reason:  "no documented modem-family vendor profile was resolved",
 		},
 		Alias: domain.FeatureCapability{
 			Backend: application,

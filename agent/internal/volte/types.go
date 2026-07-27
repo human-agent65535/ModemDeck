@@ -2,13 +2,15 @@ package volte
 
 import "context"
 
-// Identity is the complete modem identity used to select a vendor profile.
-// Every field participates in an exact, case-sensitive match.
+// Identity is the modem identity reported by the hardware backend. Vendor
+// drivers use it to limit probes to documented modem families.
 type Identity struct {
 	Manufacturer string
 	Model        string
 	Firmware     string
 }
+
+type IdentityMatcher func(Identity) bool
 
 type Protocol string
 

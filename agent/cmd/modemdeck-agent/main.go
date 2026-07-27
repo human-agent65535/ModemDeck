@@ -140,7 +140,7 @@ func run() error {
 		return err
 	}
 	defer mediaManager.Close()
-	volteRegistry, err := volte.NewRegistry(volte.QDC507GLEFM21Profile())
+	volteRegistry, err := volte.NewRegistry(volte.QuectelLTEStandardQCFGIMSProfile())
 	if err != nil {
 		return fmt.Errorf("create VoLTE profile registry: %w", err)
 	}

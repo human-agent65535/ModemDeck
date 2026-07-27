@@ -35,6 +35,9 @@ type SIMProfileManagementCapability struct {
 	Reason    string `json:"reason"`
 }
 
+// SIMStatus contains a complete slot inventory only when SIMSlotsKnown is
+// true. Otherwise SIMSlots may contain the current SIM as a synthetic entry
+// with an ordinal Index.
 type SIMStatus struct {
 	LineID                 string                         `json:"line_id"`
 	Present                bool                           `json:"present"`

@@ -46,6 +46,13 @@ func TestSIMStatusAndPINCommandUseReferencedSIM(t *testing.T) {
 		status.RegistrationState != "roaming" || !status.Roaming {
 		t.Fatalf("SIM network status = %+v", status)
 	}
+	if status.SIMSlotsKnown ||
+		len(status.SIMSlots) != 1 ||
+		!status.SIMSlots[0].Present ||
+		!status.SIMSlots[0].Current ||
+		status.CurrentSIMSlotKnown {
+		t.Fatalf("observed SIM fallback = %+v", status)
+	}
 	caller.calls = nil
 	receipt, err := provider.SIMCommand(context.Background(), domain.SIMCommandRequest{
 		RequestID: "sim-pin-1",
@@ -175,10 +182,34 @@ func TestSIMStatusPreservesUnknownForMalformedStandardProperties(t *testing.T) {
 		status.ESIMStatus != domain.ESIMStatusUnknown ||
 		status.EIDMasked != "" ||
 		status.SIMSlotsKnown ||
-		len(status.SIMSlots) != 0 ||
+		len(status.SIMSlots) != 1 ||
+		!status.SIMSlots[0].Present ||
+		!status.SIMSlots[0].Current ||
+		status.SIMSlots[0].SIMType != domain.SIMTypeUnknown ||
+		status.SIMSlots[0].ESIMStatus != domain.ESIMStatusUnknown ||
 		status.PrimarySIMSlotKnown ||
 		status.CurrentSIMSlotKnown {
 		t.Fatalf("malformed standard properties were guessed: %+v", status)
+	}
+}
+
+func TestSIMStatusTreatsEmptyReportedSlotInventoryAsUnknown(t *testing.T) {
+	t.Parallel()
+	objects := emptyLineObjects(true, true)
+	objects[testModemPath][modemInterface]["SimSlots"] =
+		dbus.MakeVariant([]dbus.ObjectPath{})
+	provider := newTestProvider(newFakeCaller(objects))
+
+	status, err := provider.SIMStatus(context.Background(), parsedLineID(objects, provider.ids))
+	if err != nil {
+		t.Fatalf("SIMStatus() error = %v", err)
+	}
+	if status.SIMSlotsKnown ||
+		len(status.SIMSlots) != 1 ||
+		!status.SIMSlots[0].Present ||
+		!status.SIMSlots[0].Current ||
+		status.CurrentSIMSlotKnown {
+		t.Fatalf("empty reported slot inventory = %+v", status)
 	}
 }
 

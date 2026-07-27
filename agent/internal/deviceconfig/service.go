@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -91,11 +90,24 @@ func (s *Service) ApplyDeviceConfiguration(
 			"device configuration changed; read the latest revision before applying",
 		)
 	}
-	if request.Operation == domain.DeviceConfigurationRestartModem &&
-		current.VoLTE.ProfileID == volte.QDC507GLEFM21ProfileID {
-		return s.restartQDC507(ctx, current)
+	if request.Operation == domain.DeviceConfigurationSetVoLTEPolicy &&
+		genericVoLTEAuthoritative(current) {
+		if !current.Capabilities.VoLTE.Writable {
+			return domain.DeviceConfiguration{}, domain.NotSupported(
+				operation,
+				firstNonEmpty(
+					current.Capabilities.VoLTE.Reason,
+					"ModemManager reports VoLTE as read-only for this line",
+				),
+			)
+		}
+		request.ExpectedRevision = base.Revision
+		updated, err := s.generic.ApplyGenericDeviceConfiguration(ctx, request)
+		if err != nil {
+			return domain.DeviceConfiguration{}, err
+		}
+		return s.enrich(ctx, updated)
 	}
-
 	if request.Operation != domain.DeviceConfigurationSetVoLTEPolicy {
 		request.ExpectedRevision = base.Revision
 		updated, err := s.generic.ApplyGenericDeviceConfiguration(ctx, request)
@@ -160,77 +172,22 @@ func (s *Service) ApplyDeviceConfiguration(
 	return updated, nil
 }
 
-func (s *Service) restartQDC507(
-	ctx context.Context,
-	current domain.DeviceConfiguration,
-) (domain.DeviceConfiguration, error) {
-	const operation = "apply_device_configuration"
-	_, transports, _, err := s.resolveDriver(ctx, current)
-	if err != nil {
-		return domain.DeviceConfiguration{}, err
-	}
-	if transports.AT == nil {
-		return domain.DeviceConfiguration{}, domain.Unavailable(
-			operation,
-			"QDC507GLEFM21 AT restart transport is unavailable",
-			nil,
-		)
-	}
-	response, err := transports.AT.Command(ctx, "AT+CFUN?")
-	if err != nil {
-		return domain.DeviceConfiguration{}, domain.Unavailable(
-			operation,
-			"QDC507GLEFM21 functional mode could not be read before restart",
-			err,
-		)
-	}
-	mode, err := parseCFUN(response)
-	if err != nil {
-		return domain.DeviceConfiguration{}, domain.VerificationFailed(
-			operation,
-			"QDC507GLEFM21 returned an invalid functional mode",
-			err,
-		)
-	}
-	if mode == 7 {
-		return domain.DeviceConfiguration{}, domain.FailedPrecondition(
-			operation,
-			"QDC507GLEFM21 is already in CFUN=7 and requires a physical power cycle",
-			nil,
-		)
-	}
-	if _, err := transports.AT.Command(ctx, "AT+CFUN=1,1"); err != nil {
-		return domain.DeviceConfiguration{}, domain.Unavailable(
-			operation,
-			"QDC507GLEFM21 vendor restart command failed",
-			err,
-		)
-	}
-	s.setRestartPending(current.LineID, false)
-	current.VoLTE.RestartRequired = false
-	return current, nil
-}
-
-func parseCFUN(response string) (int, error) {
-	for _, line := range strings.Split(strings.ReplaceAll(response, "\r\n", "\n"), "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "+CFUN:") {
-			continue
-		}
-		value := strings.TrimSpace(strings.TrimPrefix(line, "+CFUN:"))
-		mode, err := strconv.Atoi(value)
-		if err != nil {
-			return 0, err
-		}
-		return mode, nil
-	}
-	return 0, fmt.Errorf("AT+CFUN? response did not contain +CFUN")
-}
-
 func (s *Service) enrich(
 	ctx context.Context,
 	configuration domain.DeviceConfiguration,
 ) (domain.DeviceConfiguration, error) {
+	if genericVoLTEAuthoritative(configuration) {
+		revision, err := domain.RevisionDeviceConfiguration(configuration)
+		if err != nil {
+			return domain.DeviceConfiguration{}, domain.Internal(
+				"read_device_configuration",
+				"failed to revision the ModemManager device configuration",
+				err,
+			)
+		}
+		configuration.Revision = revision
+		return configuration, nil
+	}
 	driver, _, capability, err := s.resolveDriver(ctx, configuration)
 	if err != nil {
 		return domain.DeviceConfiguration{}, err
@@ -268,6 +225,13 @@ func (s *Service) enrich(
 	return configuration, nil
 }
 
+func genericVoLTEAuthoritative(configuration domain.DeviceConfiguration) bool {
+	return strings.EqualFold(
+		strings.TrimSpace(configuration.Capabilities.VoLTE.Backend),
+		"modemmanager",
+	)
+}
+
 func (s *Service) restartPending(lineID string) bool {
 	s.pendingMu.RLock()
 	defer s.pendingMu.RUnlock()
@@ -303,7 +267,7 @@ func (s *Service) resolveDriver(
 	if !profile.Supported {
 		return candidate, transports, domain.FeatureCapability{
 			Backend: "vendor_extension",
-			Reason:  "no exact manufacturer, model, and firmware VoLTE profile was resolved",
+			Reason:  "no documented modem-family VoLTE profile was resolved",
 		}, nil
 	}
 	if s.resolve != nil {
@@ -314,7 +278,7 @@ func (s *Service) resolveDriver(
 				Backend:     "vendor_extension",
 				Supported:   true,
 				Implemented: true,
-				Reason:      "exact VoLTE profile resolved, but its transport is unavailable",
+				Reason:      "VoLTE family profile resolved, but its transport is unavailable",
 			}, nil
 		}
 	}
@@ -325,18 +289,18 @@ func (s *Service) resolveDriver(
 	reason := ""
 	if !readable {
 		reason = fmt.Sprintf(
-			"exact profile %q resolved, but its %s read transport is unavailable",
+			"profile %q resolved, but its %s read transport is unavailable",
 			capability.ProfileID,
 			capability.ReadProtocol,
 		)
 	} else if capability.Writable && !writable {
 		reason = fmt.Sprintf(
-			"exact profile %q is readable, but its %s write transport is unavailable",
+			"profile %q is readable, but its %s write transport is unavailable",
 			capability.ProfileID,
 			capability.WriteProtocol,
 		)
 	} else if !capability.Writable {
-		reason = fmt.Sprintf("exact profile %q is read-only", capability.ProfileID)
+		reason = fmt.Sprintf("profile %q is read-only", capability.ProfileID)
 	}
 	return driver, transports, domain.FeatureCapability{
 		Backend:     "vendor_extension",
@@ -351,9 +315,9 @@ func (s *Service) resolveDriver(
 func volteReadFailureReason(err error) string {
 	typed, ok := volte.AsError(err)
 	if !ok || strings.TrimSpace(typed.Message) == "" {
-		return "exact VoLTE profile resolved, but current policy could not be read"
+		return "VoLTE family profile resolved, but current policy could not be read"
 	}
-	return "exact VoLTE profile resolved, but current policy could not be read: " +
+	return "VoLTE family profile resolved, but current policy could not be read: " +
 		strings.TrimSpace(typed.Message)
 }
 

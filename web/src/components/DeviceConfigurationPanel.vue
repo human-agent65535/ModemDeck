@@ -338,7 +338,7 @@ const volteStatusLabel = computed(() => {
       : t('device.disabled')
   }
   if (volte.modem_capability_known && !volte.modem_capability_enabled) {
-    return t('device.enabledPending')
+    return t('device.enabledNetworkUnavailable')
   }
   return t('device.enabled')
 })
@@ -1757,7 +1757,7 @@ onMounted(() => {
                 </template>
               </dl>
               <div
-                v-if="simStatus.sim_slots_known"
+                v-if="simStatus.sim_slots.length > 0"
                 class="sim-slot-list"
                 :aria-label="t('device.simSlots')"
               >
@@ -1768,7 +1768,11 @@ onMounted(() => {
                   :class="{ 'is-current': slot.current }"
                 >
                   <span class="sim-slot__name">
-                    {{ t('device.slot', { number: slot.index }) }}
+                    {{
+                      simStatus.sim_slots_known
+                        ? t('device.slot', { number: slot.index })
+                        : t('device.currentSIM')
+                    }}
                   </span>
                   <strong class="sim-slot__state">
                     {{ slot.present ? t('device.cardInserted') : t('device.noCard') }}

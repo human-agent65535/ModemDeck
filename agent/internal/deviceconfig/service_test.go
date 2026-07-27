@@ -3,7 +3,6 @@ package deviceconfig
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -30,14 +29,18 @@ func (provider *fakeGenericProvider) ApplyGenericDeviceConfiguration(
 ) (domain.DeviceConfiguration, error) {
 	provider.applyCalls++
 	provider.applyRequests = append(provider.applyRequests, request)
+	if request.Operation == domain.DeviceConfigurationSetVoLTEPolicy &&
+		provider.configuration.Capabilities.VoLTE.Backend == "modemmanager" {
+		provider.configuration.VoLTE.PolicyKnown = true
+		provider.configuration.VoLTE.Policy = request.VoLTEPolicy
+	}
 	return provider.configuration, nil
 }
 
 type fakeATTransport struct {
-	policy         volte.Policy
-	functionalMode int
-	commands       []string
-	readErr        error
+	policy   volte.Policy
+	commands []string
+	readErr  error
 }
 
 func (transport *fakeATTransport) Command(_ context.Context, command string) (string, error) {
@@ -45,10 +48,11 @@ func (transport *fakeATTransport) Command(_ context.Context, command string) (st
 	switch command {
 	case `AT+QCFG="ims"`:
 		return `+QCFG: "ims",0,1`, nil
-	case "AT+CFUN?":
-		return fmt.Sprintf("+CFUN: %d", transport.functionalMode), nil
-	case "AT+CFUN=1,1":
-		transport.functionalMode = 1
+	case `AT+QCFG="volte_disable"`:
+		return `+QCFG: "volte/disable",0`, nil
+	case `AT+QCFG="volte_disable",0`,
+		`AT+QCFG="volte_disable",1`,
+		`AT+QCFG="ims",0`:
 		return "", nil
 	case "AT+TESTVOLTE?":
 		if transport.readErr != nil {
@@ -66,7 +70,7 @@ func (transport *fakeATTransport) Command(_ context.Context, command string) (st
 	}
 }
 
-func TestExactVoLTEReadFailureKeepsGenericConfiguration(t *testing.T) {
+func TestMatchedVoLTEReadFailureKeepsGenericConfiguration(t *testing.T) {
 	t.Parallel()
 	identity := domain.DeviceIdentity{
 		Manufacturer: "Fixture Vendor",
@@ -74,12 +78,8 @@ func TestExactVoLTEReadFailureKeepsGenericConfiguration(t *testing.T) {
 		Firmware:     "fixture-fw-1",
 	}
 	profile := volte.Profile{
-		ID: "fixture-volte-v1",
-		Identity: volte.Identity{
-			Manufacturer: identity.Manufacturer,
-			Model:        identity.Model,
-			Firmware:     identity.Firmware,
-		},
+		ID:               "fixture-volte-v1",
+		Matches:          matchDeviceIdentity(identity),
 		OperationTimeout: time.Second,
 		Read: volte.ATRead("AT+TESTVOLTE?", func(response string) (volte.State, error) {
 			return volte.State{Policy: volte.Policy(response)}, nil
@@ -130,7 +130,87 @@ func TestExactVoLTEReadFailureKeepsGenericConfiguration(t *testing.T) {
 	}
 }
 
-func TestUnknownQDC507AndEG25IdentitiesRemainUnsupported(t *testing.T) {
+func TestModemManagerVoLTEReportTakesPrecedenceOverVendorProfile(t *testing.T) {
+	t.Parallel()
+	identity := domain.DeviceIdentity{
+		Manufacturer: "Fixture Vendor",
+		Model:        "Fixture Model",
+		Firmware:     "fixture-fw-mm-volte",
+	}
+	profile := volte.Profile{
+		ID:               "vendor-profile-must-not-run",
+		Matches:          matchDeviceIdentity(identity),
+		OperationTimeout: time.Second,
+		Read: volte.ATRead("AT+VENDORVOLTE?", func(string) (volte.State, error) {
+			return volte.State{Policy: volte.PolicyEnabled}, nil
+		}),
+	}
+	registry, err := volte.NewRegistry(profile)
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+	configuration := baseConfiguration(t, identity)
+	configuration.Capabilities.VoLTE = domain.FeatureCapability{
+		Backend:     "modemmanager",
+		Supported:   true,
+		Implemented: true,
+		Readable:    true,
+		Writable:    true,
+	}
+	configuration.VoLTE = domain.VoLTEConfiguration{
+		PolicyKnown: true,
+		Policy:      string(volte.PolicyEnabled),
+	}
+	generic := &fakeGenericProvider{configuration: configuration}
+	resolverCalls := 0
+	service, err := New(
+		generic,
+		registry,
+		func(context.Context, string, volte.Identity) (volte.Transports, error) {
+			resolverCalls++
+			return volte.Transports{AT: &fakeATTransport{}}, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	current, err := service.DeviceConfiguration(context.Background(), "line-1")
+	if err != nil {
+		t.Fatalf("DeviceConfiguration() error = %v", err)
+	}
+	if resolverCalls != 0 ||
+		current.Capabilities.VoLTE.Backend != "modemmanager" ||
+		current.VoLTE.Policy != string(volte.PolicyEnabled) {
+		t.Fatalf("ModemManager VoLTE report was not authoritative: %+v", current)
+	}
+
+	updated, err := service.ApplyDeviceConfiguration(
+		context.Background(),
+		domain.ApplyDeviceConfigurationRequest{
+			RequestID:        "mm-volte-policy",
+			LineID:           "line-1",
+			ExpectedRevision: current.Revision,
+			Operation:        domain.DeviceConfigurationSetVoLTEPolicy,
+			VoLTEPolicy:      string(volte.PolicyDisabled),
+		},
+	)
+	if err != nil {
+		t.Fatalf("ApplyDeviceConfiguration() error = %v", err)
+	}
+	if resolverCalls != 0 ||
+		generic.applyCalls != 1 ||
+		updated.VoLTE.Policy != string(volte.PolicyDisabled) {
+		t.Fatalf(
+			"ModemManager VoLTE apply was not authoritative: resolver=%d applies=%d state=%+v",
+			resolverCalls,
+			generic.applyCalls,
+			updated,
+		)
+	}
+}
+
+func TestEmptyRegistryLeavesQDC507AndEG25Unsupported(t *testing.T) {
 	t.Parallel()
 	registry, err := volte.NewRegistry()
 	if err != nil {
@@ -160,7 +240,7 @@ func TestUnknownQDC507AndEG25IdentitiesRemainUnsupported(t *testing.T) {
 	}
 }
 
-func TestExactVoLTEProfileReadsAppliesAndVerifies(t *testing.T) {
+func TestMatchedVoLTEProfileReadsAppliesAndVerifies(t *testing.T) {
 	t.Parallel()
 	identity := domain.DeviceIdentity{
 		Manufacturer: "Fixture Vendor",
@@ -168,12 +248,8 @@ func TestExactVoLTEProfileReadsAppliesAndVerifies(t *testing.T) {
 		Firmware:     "fixture-fw-1",
 	}
 	profile := volte.Profile{
-		ID: "fixture-volte-v1",
-		Identity: volte.Identity{
-			Manufacturer: identity.Manufacturer,
-			Model:        identity.Model,
-			Firmware:     identity.Firmware,
-		},
+		ID:               "fixture-volte-v1",
+		Matches:          matchDeviceIdentity(identity),
 		OperationTimeout: time.Second,
 		Read: volte.ATRead("AT+TESTVOLTE?", func(response string) (volte.State, error) {
 			return volte.State{Policy: volte.Policy(response)}, nil
@@ -366,68 +442,6 @@ func TestUSBResetClearsPendingRestartThroughGenericProvider(t *testing.T) {
 	}
 }
 
-func TestQDC507UsesVendorRestartInsteadOfModemManagerReset(t *testing.T) {
-	t.Parallel()
-
-	service, generic, at := newQDC507Service(t, 1)
-
-	current, err := service.DeviceConfiguration(context.Background(), "line-1")
-	if err != nil {
-		t.Fatalf("DeviceConfiguration() error = %v", err)
-	}
-	updated, err := service.ApplyDeviceConfiguration(
-		context.Background(),
-		domain.ApplyDeviceConfigurationRequest{
-			RequestID:        "restart-qdc507-with-vendor-command",
-			LineID:           "line-1",
-			ExpectedRevision: current.Revision,
-			Operation:        domain.DeviceConfigurationRestartModem,
-		},
-	)
-	if err != nil {
-		t.Fatalf("ApplyDeviceConfiguration(restart modem) error = %v", err)
-	}
-	if updated.VoLTE.RestartRequired {
-		t.Fatalf("updated VoLTE = %+v, want restart marker cleared", updated.VoLTE)
-	}
-	if generic.applyCalls != 0 {
-		t.Fatalf("generic restart calls = %d, want 0", generic.applyCalls)
-	}
-	commands := strings.Join(at.commands, "\n")
-	if !strings.Contains(commands, "AT+CFUN?") ||
-		!strings.Contains(commands, "AT+CFUN=1,1") {
-		t.Fatalf("AT commands = %v, want guarded vendor restart", at.commands)
-	}
-}
-
-func TestQDC507CFUN7RequiresPhysicalPowerCycle(t *testing.T) {
-	t.Parallel()
-
-	service, generic, at := newQDC507Service(t, 7)
-	current, err := service.DeviceConfiguration(context.Background(), "line-1")
-	if err != nil {
-		t.Fatalf("DeviceConfiguration() error = %v", err)
-	}
-	_, err = service.ApplyDeviceConfiguration(
-		context.Background(),
-		domain.ApplyDeviceConfigurationRequest{
-			RequestID:        "reject-stuck-qdc507-restart",
-			LineID:           "line-1",
-			ExpectedRevision: current.Revision,
-			Operation:        domain.DeviceConfigurationRestartModem,
-		},
-	)
-	typed, ok := domain.AsOperationError(err)
-	if !ok || typed.Code != domain.ErrorFailedPrecondition ||
-		!strings.Contains(typed.Message, "physical power cycle") {
-		t.Fatalf("restart error = %#v", err)
-	}
-	if generic.applyCalls != 0 ||
-		strings.Contains(strings.Join(at.commands, "\n"), "AT+CFUN=1,1") {
-		t.Fatalf("stuck restart escaped guard: generic=%d commands=%v", generic.applyCalls, at.commands)
-	}
-}
-
 func TestApplyingCurrentVoLTEPolicyDoesNotWriteOrCreatePendingRestart(t *testing.T) {
 	t.Parallel()
 	service, generic, at := newRestartingVoLTEService(t, volte.PolicyEnabled)
@@ -472,7 +486,7 @@ func TestApplyingCurrentVoLTEPolicyDoesNotWriteOrCreatePendingRestart(t *testing
 	}
 }
 
-func TestExactVoLTEProfilePreservesVendorCapabilityState(t *testing.T) {
+func TestMatchedVoLTEProfilePreservesVendorCapabilityState(t *testing.T) {
 	t.Parallel()
 	identity := domain.DeviceIdentity{
 		Manufacturer: "Fixture Vendor",
@@ -480,12 +494,8 @@ func TestExactVoLTEProfilePreservesVendorCapabilityState(t *testing.T) {
 		Firmware:     "fixture-fw-capability",
 	}
 	profile := volte.Profile{
-		ID: "fixture-volte-capability",
-		Identity: volte.Identity{
-			Manufacturer: identity.Manufacturer,
-			Model:        identity.Model,
-			Firmware:     identity.Firmware,
-		},
+		ID:               "fixture-volte-capability",
+		Matches:          matchDeviceIdentity(identity),
 		OperationTimeout: time.Second,
 		Read: volte.ATRead("AT+TESTVOLTE?", func(string) (volte.State, error) {
 			return volte.State{
@@ -527,11 +537,11 @@ func TestNearMatchDoesNotUseRegisteredVoLTEProfile(t *testing.T) {
 	t.Parallel()
 	profile := volte.Profile{
 		ID: "exact-only",
-		Identity: volte.Identity{
+		Matches: matchDeviceIdentity(domain.DeviceIdentity{
 			Manufacturer: "Vendor",
 			Model:        "Model",
 			Firmware:     "fw-1",
-		},
+		}),
 		OperationTimeout: time.Second,
 		Read: volte.ATRead("AT+TESTVOLTE?", func(string) (volte.State, error) {
 			return volte.State{Policy: volte.PolicyEnabled}, nil
@@ -577,12 +587,8 @@ func newRestartingVoLTEService(
 		Firmware:     "restart-fixture-fw-1",
 	}
 	profile := volte.Profile{
-		ID: "restart-fixture-volte",
-		Identity: volte.Identity{
-			Manufacturer: identity.Manufacturer,
-			Model:        identity.Model,
-			Firmware:     identity.Firmware,
-		},
+		ID:               "restart-fixture-volte",
+		Matches:          matchDeviceIdentity(identity),
 		OperationTimeout: time.Second,
 		Read: volte.ATRead("AT+TESTVOLTE?", func(response string) (volte.State, error) {
 			return volte.State{Policy: volte.Policy(response)}, nil
@@ -619,34 +625,15 @@ func newRestartingVoLTEService(
 	return service, generic, at
 }
 
-func newQDC507Service(
-	t *testing.T,
-	functionalMode int,
-) (*Service, *fakeGenericProvider, *fakeATTransport) {
-	t.Helper()
-	profile := volte.QDC507GLEFM21Profile()
-	identity := domain.DeviceIdentity{
-		Manufacturer: profile.Identity.Manufacturer,
-		Model:        profile.Identity.Model,
-		Firmware:     profile.Identity.Firmware,
+func matchDeviceIdentity(identity domain.DeviceIdentity) volte.IdentityMatcher {
+	expected := volte.Identity{
+		Manufacturer: identity.Manufacturer,
+		Model:        identity.Model,
+		Firmware:     identity.Firmware,
 	}
-	registry, err := volte.NewRegistry(profile)
-	if err != nil {
-		t.Fatalf("NewRegistry() error = %v", err)
+	return func(candidate volte.Identity) bool {
+		return candidate == expected
 	}
-	generic := &fakeGenericProvider{configuration: baseConfiguration(t, identity)}
-	at := &fakeATTransport{functionalMode: functionalMode}
-	service, err := New(
-		generic,
-		registry,
-		func(context.Context, string, volte.Identity) (volte.Transports, error) {
-			return volte.Transports{AT: at}, nil
-		},
-	)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	return service, generic, at
 }
 
 func baseConfiguration(
