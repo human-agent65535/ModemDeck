@@ -16,7 +16,7 @@ func TestLineSettingsPersistDefaultAndContactPreference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LineSettings() error = %v", err)
 	}
-	if initial.DefaultDeviceIMEI != "" || initial.Revision != 1 {
+	if initial.DefaultLineID != "" || initial.Revision != 1 {
 		t.Fatalf("initial settings = %+v", initial)
 	}
 
@@ -42,38 +42,40 @@ func TestLineSettingsPersistDefaultAndContactPreference(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("ApplyHardwareSnapshot() error = %v", err)
 	}
+	mainLineID := stableLineIDForICCID(t, repository, "iccid-main")
+	travelLineID := stableLineIDForICCID(t, repository, "iccid-travel")
 
 	discovered, err := repository.LineSettings(ctx)
 	if err != nil {
 		t.Fatalf("LineSettings(after discovery) error = %v", err)
 	}
-	if discovered.DefaultDeviceIMEI != "imei-main" || discovered.Revision != 2 {
+	if discovered.DefaultLineID != mainLineID || discovered.Revision != 2 {
 		t.Fatalf("discovered settings = %+v", discovered)
 	}
 
-	updated, err := repository.UpdateLineSettings(ctx, "imei-travel", discovered.Revision)
+	updated, err := repository.UpdateLineSettings(ctx, travelLineID, discovered.Revision)
 	if err != nil {
 		t.Fatalf("UpdateLineSettings() error = %v", err)
 	}
-	if updated.DefaultDeviceIMEI != "imei-travel" || updated.Revision != 3 {
+	if updated.DefaultLineID != travelLineID || updated.Revision != 3 {
 		t.Fatalf("updated settings = %+v", updated)
 	}
-	if _, err := repository.UpdateLineSettings(ctx, "imei-main", discovered.Revision); !errors.Is(
+	if _, err := repository.UpdateLineSettings(ctx, mainLineID, discovered.Revision); !errors.Is(
 		err,
 		ErrLineSettingsRevisionConflict,
 	) {
 		t.Fatalf("stale UpdateLineSettings() error = %v", err)
 	}
-	if _, err := repository.UpdateLineSettings(ctx, "imei-missing", updated.Revision); !errors.Is(
+	if _, err := repository.UpdateLineSettings(ctx, "line_missing", updated.Revision); !errors.Is(
 		err,
-		ErrLineSettingsInvalidDevice,
+		ErrLineSettingsInvalidLine,
 	) {
 		t.Fatalf("unknown UpdateLineSettings() error = %v", err)
 	}
 
 	contact, err := repository.CreateContact(ctx, ContactInput{
-		DisplayName:         "Preferred line",
-		PreferredDeviceIMEI: "imei-main",
+		DisplayName:     "Preferred line",
+		PreferredLineID: mainLineID,
 		Phones: []ContactPhoneInput{
 			{Label: "mobile", Number: "+81 80 0000 0000", Primary: true},
 		},
@@ -81,12 +83,12 @@ func TestLineSettingsPersistDefaultAndContactPreference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateContact() error = %v", err)
 	}
-	if contact.PreferredDeviceIMEI != "imei-main" {
+	if contact.PreferredLineID != mainLineID {
 		t.Fatalf("contact = %+v", contact)
 	}
 	if _, err := repository.CreateContact(ctx, ContactInput{
-		DisplayName:         "Unknown line",
-		PreferredDeviceIMEI: "imei-missing",
+		DisplayName:     "Unknown line",
+		PreferredLineID: "line_missing",
 		Phones: []ContactPhoneInput{
 			{Label: "mobile", Number: "+81 80 0000 0001", Primary: true},
 		},

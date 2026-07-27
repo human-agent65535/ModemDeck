@@ -46,7 +46,8 @@ func TestDiagnosticsReportsRuntimeAndLineCapabilities(t *testing.T) {
 		},
 		active: []store.Call{{
 			ID:             "call-1",
-			DeviceID:       "line-1",
+			LineID:         "line-stable",
+			EndpointLineID: "endpoint-1",
 			Phase:          "active",
 			Bearer:         "volte",
 			MediaAvailable: true,
@@ -81,7 +82,9 @@ func TestDiagnosticsReportsRuntimeAndLineCapabilities(t *testing.T) {
 		!body.HostAgent.Capabilities.USSD {
 		t.Fatalf("agent capabilities = %+v", body.HostAgent.Capabilities)
 	}
-	if len(body.ActiveCalls) != 1 || body.ActiveCalls[0].AudioRate != 8000 {
+	if len(body.ActiveCalls) != 1 || body.ActiveCalls[0].AudioRate != 8000 ||
+		body.ActiveCalls[0].LineID != "line-stable" ||
+		body.ActiveCalls[0].EndpointLineID != "endpoint-1" {
 		t.Fatalf("active calls = %+v", body.ActiveCalls)
 	}
 }

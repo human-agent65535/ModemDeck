@@ -146,10 +146,20 @@ func (s *Service) UpdateNetworkSelection(
 			return NetworkSelection{}, translateNetworkSelectionAgentError(snapshotErr)
 		}
 		bootEpoch = snapshot.BootEpoch
-		if observeErr := s.observeSnapshot(ctx, snapshot); observeErr != nil {
+		publicSnapshot, endpointIDs, bindErr := s.bindNetworkSnapshot(ctx, snapshot)
+		if bindErr != nil {
+			s.recordNetworkSelectionFailure(ctx, updated, bindErr)
+			return NetworkSelection{}, operationError(
+				CodeUnavailable,
+				"line_id",
+				"Network line identities are unavailable",
+				bindErr,
+			)
+		}
+		if observeErr := s.observeSnapshot(ctx, publicSnapshot, endpointIDs); observeErr != nil {
 			s.report(observeErr)
 		}
-		s.setSnapshot(snapshot)
+		s.setSnapshot(publicSnapshot)
 	}
 	requestID, err := s.newNetworkRequestID("selection")
 	if err != nil {
@@ -166,9 +176,19 @@ func (s *Service) UpdateNetworkSelection(
 		NetworkSelectionTimeout,
 	)
 	defer cancel()
+	endpointID, err := s.repository.ResolveLineEndpoint(ctx, lineID)
+	if err != nil {
+		s.recordNetworkSelectionFailure(ctx, updated, err)
+		return NetworkSelection{}, operationError(
+			CodeNotFound,
+			"line_id",
+			"Line is not attached",
+			err,
+		)
+	}
 	receipt, err := s.agent.SetNetworkSelection(
 		bounded,
-		lineID,
+		endpointID,
 		agentclient.ApplyNetworkSelectionRequest{
 			RequestID:    requestID,
 			Mode:         input.Mode,
@@ -223,9 +243,18 @@ func (s *Service) ScanNetworks(
 	}
 	bounded, cancel := context.WithTimeout(normalizeNetworkContext(ctx), NetworkScanTimeout)
 	defer cancel()
+	endpointID, err := s.repository.ResolveLineEndpoint(ctx, lineID)
+	if err != nil {
+		return NetworkScan{}, operationError(
+			CodeNotFound,
+			"line_id",
+			"Line is not attached",
+			err,
+		)
+	}
 	result, err := s.agent.ScanNetworks(
 		bounded,
-		lineID,
+		endpointID,
 		agentclient.NetworkScanRequest{RequestID: requestID},
 	)
 	if err != nil {
@@ -236,7 +265,7 @@ func (s *Service) ScanNetworks(
 		networks = []agentclient.MobileNetwork{}
 	}
 	return NetworkScan{
-		LineID:     result.LineID,
+		LineID:     lineID,
 		ObservedAt: result.ObservedAt.UTC(),
 		Networks:   networks,
 	}, nil
@@ -254,7 +283,8 @@ func (s *Service) reconcileNetworkSelections(
 	pending := false
 	failures := make([]error, 0)
 	for _, policy := range policies {
-		if _, attached := active[policy.LineID]; !attached {
+		endpointID, attached := active[policy.LineID]
+		if !attached {
 			continue
 		}
 		if !policy.Configured {
@@ -280,7 +310,7 @@ func (s *Service) reconcileNetworkSelections(
 		)
 		receipt, err := s.agent.SetNetworkSelection(
 			bounded,
-			policy.LineID,
+			endpointID,
 			agentclient.ApplyNetworkSelectionRequest{
 				RequestID:    requestID,
 				Mode:         agentclient.NetworkSelectionMode(policy.Mode),
@@ -346,14 +376,18 @@ func (s *Service) networkSelectionsPending(
 func (s *Service) networkSelectionPolicies(
 	ctx context.Context,
 	snapshot agentclient.Snapshot,
-) (map[string]struct{}, []store.NetworkSelectionPolicyRecord, error) {
-	active := make(map[string]struct{}, len(snapshot.Lines))
+) (map[string]string, []store.NetworkSelectionPolicyRecord, error) {
+	active := make(map[string]string, len(snapshot.Lines))
 	for _, line := range snapshot.Lines {
-		lineID := strings.TrimSpace(line.ID)
-		if lineID == "" || !line.SIMPresent || !line.SavedPolicySupported {
+		endpointID := strings.TrimSpace(line.ID)
+		if endpointID == "" || !line.SIMPresent || !line.SavedPolicySupported {
 			continue
 		}
-		active[lineID] = struct{}{}
+		lineID, err := s.lineIDForEndpoint(ctx, endpointID)
+		if err != nil {
+			return nil, nil, err
+		}
+		active[lineID] = endpointID
 		if _, err := s.repository.EnsureNetworkSelectionPolicy(ctx, lineID); err != nil {
 			return nil, nil, fmt.Errorf(
 				"initialize network selection policy for %q: %w",
@@ -379,8 +413,17 @@ func (s *Service) liveRegistrationLine(
 	if err != nil {
 		return agentclient.Line{}, translateNetworkSelectionAgentError(err)
 	}
+	endpointID, err := s.repository.ResolveLineEndpoint(ctx, lineID)
+	if err != nil {
+		return agentclient.Line{}, operationError(
+			CodeNotFound,
+			"line_id",
+			"Line is not attached",
+			err,
+		)
+	}
 	for _, line := range snapshot.Lines {
-		if strings.TrimSpace(line.ID) == lineID {
+		if strings.TrimSpace(line.ID) == endpointID {
 			if !line.SIMPresent || !line.SavedPolicySupported {
 				return agentclient.Line{}, operationError(
 					CodeFailedPrecondition,
@@ -396,6 +439,29 @@ func (s *Service) liveRegistrationLine(
 		CodeNotFound,
 		"line_id",
 		"Line is not attached",
+		nil,
+	)
+}
+
+func (s *Service) lineIDForEndpoint(
+	ctx context.Context,
+	endpointID string,
+) (string, error) {
+	lines, err := s.repository.Lines(ctx)
+	if err != nil {
+		return "", fmt.Errorf("load stable line identities: %w", err)
+	}
+	endpointID = strings.TrimSpace(endpointID)
+	for _, line := range lines {
+		if strings.TrimSpace(line.EndpointID) == endpointID &&
+			strings.TrimSpace(line.ID) != "" {
+			return strings.TrimSpace(line.ID), nil
+		}
+	}
+	return "", operationError(
+		CodeNotFound,
+		"line_id",
+		"Endpoint is not bound to a stable line",
 		nil,
 	)
 }

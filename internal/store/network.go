@@ -309,9 +309,10 @@ func (s *Store) applyNetworkCounterSamples(
 		if err := validateNetworkCounterSample(sample); err != nil {
 			return err
 		}
-		key := string(sample.ScopeKind) + "\x00" + sample.ScopeID
+		endpointScopeID := networkCounterEndpointScopeID(sample)
+		key := string(sample.ScopeKind) + "\x00" + endpointScopeID
 		if _, exists := seen[key]; exists {
-			return errors.New("apply network counters: duplicate scope")
+			return errors.New("apply network counters: duplicate endpoint scope")
 		}
 		seen[key] = struct{}{}
 
@@ -325,9 +326,9 @@ func (s *Store) applyNetworkCounterSamples(
 			ctx,
 			`SELECT epoch, rx_bytes, tx_bytes, observed_at
 			 FROM modemdeck_network_counter_checkpoints
-			 WHERE scope_kind = ? AND scope_id = ?`,
+			 WHERE scope_kind = ? AND endpoint_scope_id = ?`,
 			sample.ScopeKind,
-			sample.ScopeID,
+			endpointScopeID,
 		).Scan(&previousEpoch, &previousRX, &previousTX, &previousObservedAt)
 
 		previousTime, previousTimeKnown := parseDatabaseTime(stringValue(previousObservedAt))
@@ -350,15 +351,17 @@ func (s *Store) applyNetworkCounterSamples(
 		if _, err := transaction.ExecContext(
 			ctx,
 			`INSERT INTO modemdeck_network_counter_checkpoints (
-				scope_kind, scope_id, epoch, rx_bytes, tx_bytes, observed_at
-			 ) VALUES (?, ?, ?, ?, ?, ?)
-			 ON CONFLICT(scope_kind, scope_id) DO UPDATE SET
+				scope_kind, scope_id, endpoint_scope_id, epoch, rx_bytes, tx_bytes, observed_at
+			 ) VALUES (?, ?, ?, ?, ?, ?, ?)
+			 ON CONFLICT(scope_kind, endpoint_scope_id) DO UPDATE SET
+				scope_id = excluded.scope_id,
 				epoch = excluded.epoch,
 				rx_bytes = excluded.rx_bytes,
 				tx_bytes = excluded.tx_bytes,
 				observed_at = excluded.observed_at`,
 			sample.ScopeKind,
 			sample.ScopeID,
+			endpointScopeID,
 			sample.Epoch,
 			int64(sample.RXBytes),
 			int64(sample.TXBytes),
@@ -500,7 +503,7 @@ func resetInactiveLineCheckpoints(
 ) error {
 	rows, err := transaction.QueryContext(
 		ctx,
-		`SELECT scope_id
+		`SELECT scope_id, endpoint_scope_id
 		 FROM modemdeck_network_counter_checkpoints
 		 WHERE scope_kind = ?`,
 		NetworkScopeLine,
@@ -510,13 +513,13 @@ func resetInactiveLineCheckpoints(
 	}
 	var inactive []string
 	for rows.Next() {
-		var lineID string
-		if err := rows.Scan(&lineID); err != nil {
+		var lineID, endpointScopeID string
+		if err := rows.Scan(&lineID, &endpointScopeID); err != nil {
 			_ = rows.Close()
 			return fmt.Errorf("scan line counter checkpoint: %w", err)
 		}
 		if _, active := activeLineIDs[lineID]; !active {
-			inactive = append(inactive, lineID)
+			inactive = append(inactive, endpointScopeID)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -526,13 +529,13 @@ func resetInactiveLineCheckpoints(
 	if err := rows.Close(); err != nil {
 		return fmt.Errorf("close line counter checkpoints: %w", err)
 	}
-	for _, lineID := range inactive {
+	for _, endpointScopeID := range inactive {
 		if _, err := transaction.ExecContext(
 			ctx,
 			`DELETE FROM modemdeck_network_counter_checkpoints
-			 WHERE scope_kind = ? AND scope_id = ?`,
+			 WHERE scope_kind = ? AND endpoint_scope_id = ?`,
 			NetworkScopeLine,
-			lineID,
+			endpointScopeID,
 		); err != nil {
 			return fmt.Errorf("reset inactive line counter checkpoint: %w", err)
 		}
@@ -620,6 +623,7 @@ func validateNetworkCounterSample(sample NetworkCounterSample) error {
 		return errors.New("apply network counters: scope kind is invalid")
 	}
 	if strings.TrimSpace(sample.ScopeID) == "" ||
+		networkCounterEndpointScopeID(sample) == "" ||
 		strings.TrimSpace(sample.Epoch) == "" ||
 		sample.ObservedAt.IsZero() {
 		return errors.New("apply network counters: sample is incomplete")
@@ -628,6 +632,14 @@ func validateNetworkCounterSample(sample NetworkCounterSample) error {
 		return errors.New("apply network counters: counter exceeds SQLite integer range")
 	}
 	return nil
+}
+
+func networkCounterEndpointScopeID(sample NetworkCounterSample) string {
+	endpointScopeID := strings.TrimSpace(sample.EndpointScopeID)
+	if endpointScopeID == "" && sample.ScopeKind == NetworkScopeProxy {
+		return strings.TrimSpace(sample.ScopeID)
+	}
+	return endpointScopeID
 }
 
 func validateActiveLineSamples(

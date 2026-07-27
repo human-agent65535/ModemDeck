@@ -50,7 +50,7 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 		return
 	}
 	for _, event := range window.Events {
-		if !writeSSE(response, flusher, "sms", event.ID, event) {
+		if !writeSSE(response, flusher, "sms", event.ID, incomingMessageEvent(event)) {
 			return
 		}
 	}
@@ -67,7 +67,7 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 		case <-request.Context().Done():
 			return
 		case event, open := <-updates:
-			if !open || !writeSSE(response, flusher, "sms", event.ID, event) {
+			if !open || !writeSSE(response, flusher, "sms", event.ID, incomingMessageEvent(event)) {
 				return
 			}
 		case <-heartbeat.C:
@@ -76,5 +76,18 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 			}
 			flusher.Flush()
 		}
+	}
+}
+
+func incomingMessageEvent(event messageevents.IncomingSMS) incomingMessageEventResponse {
+	return incomingMessageEventResponse{
+		ID:        event.ID,
+		EventKey:  event.EventKey,
+		MessageID: event.MessageID,
+		ThreadKey: event.ThreadKey,
+		LineID:    event.LineID,
+		Peer:      event.Peer,
+		Content:   event.Content,
+		Timestamp: event.Timestamp,
 	}
 }

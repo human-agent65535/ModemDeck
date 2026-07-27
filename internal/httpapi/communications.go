@@ -12,15 +12,13 @@ import (
 type sendMessageRequest struct {
 	RequestID string `json:"request_id"`
 	LineID    string `json:"line_id"`
-	ICCID     string `json:"iccid"`
 	To        string `json:"to"`
 	Content   string `json:"content"`
 }
 
 type markMessageReadRequest struct {
-	LocalPhone string `json:"local_phone"`
-	ICCID      string `json:"iccid"`
-	Peer       string `json:"peer"`
+	LineID string `json:"line_id"`
+	Peer   string `json:"peer"`
 }
 
 type startCallRequest struct {
@@ -62,7 +60,8 @@ func (api *API) sendMessage(response http.ResponseWriter, request *http.Request)
 	}
 	lineID := strings.TrimSpace(input.LineID)
 	if lineID == "" {
-		lineID = strings.TrimSpace(input.ICCID)
+		writeError(response, http.StatusBadRequest, "invalid_argument", "line_id is required", "line_id")
+		return
 	}
 	message, err := api.communications.SendMessage(request.Context(), communication.SendMessageInput{
 		RequestID: requestID,
@@ -83,7 +82,9 @@ func (api *API) sendMessage(response http.ResponseWriter, request *http.Request)
 		"state",
 		message.State,
 	)
-	writeJSON(response, http.StatusCreated, messageResponse{Message: message})
+	writeJSON(response, http.StatusCreated, messageResponse{
+		Message: messageResponseItemFromStore(message),
+	})
 }
 
 func (api *API) messageRead(response http.ResponseWriter, request *http.Request) {
@@ -97,17 +98,16 @@ func (api *API) messageRead(response http.ResponseWriter, request *http.Request)
 		return
 	}
 	identity := store.MessageThreadIdentity{
-		LocalPhone: strings.TrimSpace(input.LocalPhone),
-		ICCID:      strings.TrimSpace(input.ICCID),
-		Peer:       strings.TrimSpace(input.Peer),
+		LineID: strings.TrimSpace(input.LineID),
+		Peer:   strings.TrimSpace(input.Peer),
 	}
-	if identity.Peer == "" || (identity.LocalPhone == "" && identity.ICCID == "") {
+	if identity.LineID == "" || identity.Peer == "" {
 		writeError(
 			response,
 			http.StatusBadRequest,
 			"invalid_argument",
-			"local_phone or iccid and peer are required",
-			"",
+			"line_id and peer are required",
+			"line_id",
 		)
 		return
 	}
@@ -115,8 +115,6 @@ func (api *API) messageRead(response http.ResponseWriter, request *http.Request)
 		switch {
 		case errors.Is(err, store.ErrMessageThreadNotFound):
 			writeError(response, http.StatusNotFound, "message_thread_not_found", "Message thread no longer exists", "")
-		case errors.Is(err, store.ErrMessageThreadIdentityInvalid):
-			writeError(response, http.StatusConflict, "message_thread_identity_invalid", "Message thread identity is ambiguous", "")
 		default:
 			api.writeInternalError(response, request, "mark message thread read", err)
 		}
@@ -179,7 +177,7 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 	api.logger.Info(
 		"call started",
 		"line_id",
-		call.DeviceID,
+		call.LineID,
 		"call_id",
 		call.ID,
 		"request_id",
@@ -296,7 +294,7 @@ func callSession(call store.Call) callSessionResponse {
 	}
 	return callSessionResponse{
 		ID:             call.ID,
-		LineKey:        call.DeviceID,
+		LineID:         call.LineID,
 		Direction:      call.Direction,
 		RemoteNumber:   call.RemoteNumber,
 		DisplayName:    call.ContactName,

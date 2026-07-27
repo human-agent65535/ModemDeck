@@ -38,6 +38,7 @@ type fakeAgent struct {
 	messageRequests                  []agentclient.SendMessageRequest
 	deviceConfiguration              agentclient.DeviceConfiguration
 	deviceConfigurationError         error
+	deviceConfigurationLineIDs       []string
 	applyDeviceConfigurationRequests []agentclient.ApplyDeviceConfigurationRequest
 	applyDeviceConfigurationError    error
 }
@@ -91,16 +92,18 @@ func (agent *fakeAgent) SendMessage(
 
 func (agent *fakeAgent) DeviceConfiguration(
 	_ context.Context,
-	_ string,
+	lineID string,
 ) (agentclient.DeviceConfiguration, error) {
+	agent.deviceConfigurationLineIDs = append(agent.deviceConfigurationLineIDs, lineID)
 	return agent.deviceConfiguration, agent.deviceConfigurationError
 }
 
 func (agent *fakeAgent) ApplyDeviceConfiguration(
 	_ context.Context,
-	_ string,
+	lineID string,
 	request agentclient.ApplyDeviceConfigurationRequest,
 ) (agentclient.DeviceConfiguration, error) {
+	agent.deviceConfigurationLineIDs = append(agent.deviceConfigurationLineIDs, lineID)
 	agent.applyDeviceConfigurationRequests = append(agent.applyDeviceConfigurationRequests, request)
 	return agent.deviceConfiguration, agent.applyDeviceConfigurationError
 }
@@ -144,6 +147,12 @@ func (repository *fakeRepository) ApplyHardwareSnapshotWithResult(
 	snapshot store.HardwareSnapshot,
 ) (store.HardwareSnapshotResult, error) {
 	repository.snapshot = snapshot
+	if repository.snapshotResult.LineIDsByEndpoint == nil {
+		repository.snapshotResult.LineIDsByEndpoint = make(map[string]string, len(snapshot.Lines))
+		for _, line := range snapshot.Lines {
+			repository.snapshotResult.LineIDsByEndpoint[line.ID] = line.ID
+		}
+	}
 	return repository.snapshotResult, repository.snapshotError
 }
 
@@ -157,6 +166,7 @@ func (repository *fakeRepository) UpsertHardwareMessage(
 			ID:                1,
 			RequestID:         message.RequestID,
 			LineID:            message.LineID,
+			EndpointLineID:    message.EndpointLineID,
 			EndpointMessageID: message.EndpointMessageID,
 			Peer:              message.Number,
 			Content:           message.Text,
@@ -176,7 +186,8 @@ func (repository *fakeRepository) UpsertHardwareCall(
 		repository.call = store.Call{
 			ID:             call.AppID,
 			RequestID:      call.RequestID,
-			DeviceID:       call.LineID,
+			LineID:         call.LineID,
+			EndpointLineID: call.EndpointLineID,
 			LocalPhone:     call.LocalPhone,
 			LineIMSI:       call.LineIMSI,
 			LineICCID:      call.LineICCID,
@@ -401,7 +412,11 @@ func TestServiceRequiresExplicitCapableLine(t *testing.T) {
 		RequestID:  "request-call-1",
 		ResourceID: "call-endpoint-1",
 	}
-	repository := &fakeRepository{}
+	repository := &fakeRepository{
+		snapshotResult: store.HardwareSnapshotResult{
+			LineIDsByEndpoint: map[string]string{"line-1": "line-stable"},
+		},
+	}
 	service, err := New(agent, repository, messageevents.NewBuffer(8))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -419,7 +434,7 @@ func TestServiceRequiresExplicitCapableLine(t *testing.T) {
 
 	call, err := service.StartCall(context.Background(), StartCallInput{
 		RequestID: "request-call-1",
-		LineID:    "line-1",
+		LineID:    "line-stable",
 		Number:    "090-1234-5678",
 	})
 	if err != nil {
@@ -433,7 +448,8 @@ func TestServiceRequiresExplicitCapableLine(t *testing.T) {
 		request.RequestID != "request-call-1" {
 		t.Fatalf("agent start request = %+v", request)
 	}
-	if call.DeviceID != "line-1" || call.RemoteNumber != "09012345678" ||
+	if call.LineID != "line-stable" || call.EndpointLineID != "line-1" ||
+		call.RemoteNumber != "09012345678" ||
 		call.LocalPhone != "+819012345678" ||
 		call.LineIMSI != "440500000000001" ||
 		call.LineICCID != "8901000000000000001" ||
@@ -442,7 +458,7 @@ func TestServiceRequiresExplicitCapableLine(t *testing.T) {
 	}
 	replayed, err := service.StartCall(context.Background(), StartCallInput{
 		RequestID: "request-call-1",
-		LineID:    "line-1",
+		LineID:    "line-stable",
 		Number:    "09012345678",
 	})
 	if err != nil {
@@ -450,6 +466,76 @@ func TestServiceRequiresExplicitCapableLine(t *testing.T) {
 	}
 	if replayed.ID != call.ID || len(agent.startRequests) != 1 {
 		t.Fatalf("replayed call = %+v, agent requests = %d", replayed, len(agent.startRequests))
+	}
+}
+
+func TestServiceRoutesStableLineThroughReplacementEndpoint(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.July, 27, 11, 0, 0, 0, time.UTC)
+	agent := connectedAgent(now)
+	repository := &fakeRepository{
+		snapshotResult: store.HardwareSnapshotResult{
+			LineIDsByEndpoint: map[string]string{"line-1": "line-stable"},
+		},
+	}
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	service.now = func() time.Time { return now }
+
+	status, err := service.Refresh(context.Background())
+	if err != nil {
+		t.Fatalf("initial Refresh() error = %v", err)
+	}
+	if len(status.Lines) != 1 ||
+		status.Lines[0].ID != "line-stable" ||
+		status.Lines[0].EndpointID != "line-1" {
+		t.Fatalf("initial lines = %+v", status.Lines)
+	}
+
+	agent.snapshot.Revision = "snapshot-replacement"
+	agent.snapshot.ObservedAt = now.Add(time.Minute)
+	agent.snapshot.Lines[0].ID = "line-replacement"
+	agent.snapshot.Lines[0].EquipmentIdentifier = "990000000000002"
+	agent.snapshot.Lines[0].SIMIdentifier = "8901000000000000002"
+	agent.snapshot.Lines[0].IMSI = "440500000000002"
+	repository.snapshotResult.LineIDsByEndpoint = map[string]string{
+		"line-replacement": "line-stable",
+	}
+	status, err = service.Refresh(context.Background())
+	if err != nil {
+		t.Fatalf("replacement Refresh() error = %v", err)
+	}
+	if len(status.Lines) != 1 ||
+		status.Lines[0].ID != "line-stable" ||
+		status.Lines[0].EndpointID != "line-replacement" {
+		t.Fatalf("replacement lines = %+v", status.Lines)
+	}
+
+	agent.messageResult = agentclient.CommandReceipt{
+		RequestID:  "request-message-replacement",
+		ResourceID: "message-endpoint-1",
+	}
+	message, err := service.SendMessage(context.Background(), SendMessageInput{
+		RequestID: "request-message-replacement",
+		LineID:    "line-stable",
+		Number:    "+818012345678",
+		Text:      "replacement route",
+	})
+	if err != nil {
+		t.Fatalf("SendMessage() error = %v", err)
+	}
+	if len(agent.messageRequests) != 1 ||
+		agent.messageRequests[0].LineID != "line-replacement" {
+		t.Fatalf("agent message requests = %+v", agent.messageRequests)
+	}
+	if message.LineID != "line-stable" ||
+		message.EndpointLineID != "line-replacement" ||
+		repository.messageInput.LineID != "line-stable" ||
+		repository.messageInput.EndpointLineID != "line-replacement" {
+		t.Fatalf("stored replacement message = %+v, input = %+v", message, repository.messageInput)
 	}
 }
 
@@ -473,7 +559,8 @@ func TestCallActionUsesReceiptWithoutInventingState(t *testing.T) {
 		Revision:       7,
 	}, call: store.Call{
 		ID:             "call-app-1",
-		DeviceID:       "line-1",
+		LineID:         "line-1",
+		EndpointLineID: "line-1",
 		EndpointCallID: "call-endpoint-4",
 		RemoteNumber:   "+818012345678",
 		Direction:      "incoming",
@@ -512,9 +599,9 @@ func TestStartCallRejectsBusyLineBeforeAgentMutation(t *testing.T) {
 	now := time.Date(2026, time.July, 23, 13, 0, 0, 0, time.UTC)
 	agent := connectedAgent(now)
 	repository := &fakeRepository{activeCalls: []store.Call{{
-		ID:       "call-active",
-		DeviceID: "line-1",
-		Phase:    "active",
+		ID:     "call-active",
+		LineID: "line-1",
+		Phase:  "active",
 	}}}
 	service, err := New(agent, repository, messageevents.NewBuffer(8))
 	if err != nil {
@@ -539,7 +626,11 @@ func TestRefreshDoesNotServeStaleConnectedStateAfterFailure(t *testing.T) {
 
 	now := time.Date(2026, time.July, 23, 14, 0, 0, 0, time.UTC)
 	agent := connectedAgent(now)
-	repository := &fakeRepository{}
+	repository := &fakeRepository{
+		snapshotResult: store.HardwareSnapshotResult{
+			LineIDsByEndpoint: map[string]string{"line-1": "line-stable"},
+		},
+	}
 	service, err := New(agent, repository, messageevents.NewBuffer(8))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -594,7 +685,7 @@ func TestRefreshPublishesCommittedIncomingMessage(t *testing.T) {
 	}
 	event := window.Events[0]
 	if event.EventKey != "sms:42" || event.MessageID != "42" ||
-		event.ThreadKey != "phone:819000000001|+818012345678" ||
+		event.ThreadKey != "line-1|+818012345678" ||
 		event.LineID != "line-1" || event.Content != "hello" {
 		t.Fatalf("published event = %+v", event)
 	}
@@ -631,9 +722,9 @@ func TestRefreshReconcilesRemoteCallRemovalImmediately(t *testing.T) {
 	now := time.Date(2026, time.July, 23, 14, 30, 0, 0, time.UTC)
 	agent := connectedAgent(now)
 	repository := &fakeRepository{activeCalls: []store.Call{{
-		ID:       "call-remote",
-		DeviceID: "line-1",
-		Phase:    "active",
+		ID:     "call-remote",
+		LineID: "line-1",
+		Phase:  "active",
 	}}}
 	service, err := New(agent, repository, messageevents.NewBuffer(8))
 	if err != nil {
@@ -898,9 +989,13 @@ func TestDNDRejectsNewRingingIncomingCallOnceAndRecordsOutcome(t *testing.T) {
 		ResourceID: "endpoint-dnd-1",
 	}
 	repository := &fakeRepository{
+		snapshotResult: store.HardwareSnapshotResult{
+			LineIDsByEndpoint: map[string]string{"line-1": "line-stable"},
+		},
 		incomingCallActions: []store.IncomingCallAction{{
 			CallID:          "app-call-dnd-1",
-			LineID:          "line-1",
+			LineID:          "line-stable",
+			EndpointLineID:  "line-1",
 			EndpointCallID:  "endpoint-dnd-1",
 			EffectivePolicy: store.EffectiveCallPolicyDND,
 			RequestID:       "dnd-request-1",
@@ -974,9 +1069,13 @@ func TestDNDRecordsFailureAndIndeterminateWithoutRetry(t *testing.T) {
 			}}
 			agent.actionError = test.actionError
 			repository := &fakeRepository{
+				snapshotResult: store.HardwareSnapshotResult{
+					LineIDsByEndpoint: map[string]string{"line-1": "line-stable"},
+				},
 				incomingCallActions: []store.IncomingCallAction{{
 					CallID:          "app-call-dnd-failure",
-					LineID:          "line-1",
+					LineID:          "line-stable",
+					EndpointLineID:  "line-1",
 					EndpointCallID:  "endpoint-dnd-failure",
 					EffectivePolicy: store.EffectiveCallPolicyDND,
 					RequestID:       "dnd-request-failure",
@@ -1016,7 +1115,11 @@ func TestDeviceConfigurationUsesExplicitLineAndOpaqueRevision(t *testing.T) {
 		ObservedAt:      now,
 		DataConnections: []agentclient.DataConnection{},
 	}
-	repository := &fakeRepository{}
+	repository := &fakeRepository{
+		snapshotResult: store.HardwareSnapshotResult{
+			LineIDsByEndpoint: map[string]string{"line-1": "line-stable"},
+		},
+	}
 	service, err := New(agent, repository, messageevents.NewBuffer(8))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -1024,7 +1127,7 @@ func TestDeviceConfigurationUsesExplicitLineAndOpaqueRevision(t *testing.T) {
 	enabled := false
 	configuration, err := service.ApplyDeviceConfiguration(
 		context.Background(),
-		"line-1",
+		"line-stable",
 		agentclient.ApplyDeviceConfigurationRequest{
 			RequestID:        "device-config-1",
 			ExpectedRevision: "sha256:current",
@@ -1035,8 +1138,11 @@ func TestDeviceConfigurationUsesExplicitLineAndOpaqueRevision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ApplyDeviceConfiguration() error = %v", err)
 	}
-	if configuration.Revision != "sha256:updated" ||
-		len(agent.applyDeviceConfigurationRequests) != 1 {
+	if configuration.LineID != "line-stable" ||
+		configuration.Revision != "sha256:updated" ||
+		len(agent.applyDeviceConfigurationRequests) != 1 ||
+		len(agent.deviceConfigurationLineIDs) != 1 ||
+		agent.deviceConfigurationLineIDs[0] != "line-1" {
 		t.Fatalf(
 			"configuration = %+v, requests = %+v",
 			configuration,

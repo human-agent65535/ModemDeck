@@ -85,7 +85,8 @@ type RecordingQuery struct {
 
 type RecordingCall struct {
 	ID              string `json:"id"`
-	DeviceID        string `json:"device_id"`
+	LineID          string `json:"line_id"`
+	EndpointLineID  string `json:"endpoint_line_id"`
 	LocalPhone      string `json:"local_phone"`
 	LineIMSI        string `json:"line_imsi"`
 	LineICCID       string `json:"line_iccid"`
@@ -680,7 +681,7 @@ func (s *Store) RecordingEntries(
 		recording.started_at, recording.ended_at, recording.duration_ms,
 		recording.size_bytes, recording.relative_path, recording.failure_code,
 		recording.created_at, recording.updated_at,
-		call.device_id, call.local_phone, call.line_imsi, call.line_iccid,
+		call.line_id, call.endpoint_line_id, call.local_phone, call.line_imsi, call.line_iccid,
 		call.direction, call.remote_number,
 		%s, %s,
 		call.created_at, call.active_at, call.ended_at,
@@ -696,7 +697,8 @@ func (s *Store) RecordingEntries(
 		statement += ` WHERE (
 			LOWER(COALESCE(call.remote_number, '')) LIKE ? ESCAPE '\' OR
 			LOWER(COALESCE(call.local_phone, '')) LIKE ? ESCAPE '\' OR
-			LOWER(COALESCE(call.device_id, '')) LIKE ? ESCAPE '\' OR
+			LOWER(COALESCE(call.line_id, '')) LIKE ? ESCAPE '\' OR
+			LOWER(COALESCE(call.endpoint_line_id, '')) LIKE ? ESCAPE '\' OR
 			LOWER(COALESCE(recording.id, '')) LIKE ? ESCAPE '\' OR
 			EXISTS (
 				SELECT 1
@@ -711,11 +713,20 @@ func (s *Store) RecordingEntries(
 			EXISTS (
 				SELECT 1
 				FROM devices
-				WHERE devices.imei = call.device_id
+				WHERE devices.endpoint_id = call.endpoint_line_id
 				AND LOWER(COALESCE(devices.alias, '')) LIKE ? ESCAPE '\'
 			)
 		)`
-		arguments = append(arguments, pattern, pattern, pattern, pattern, pattern, pattern)
+		arguments = append(
+			arguments,
+			pattern,
+			pattern,
+			pattern,
+			pattern,
+			pattern,
+			pattern,
+			pattern,
+		)
 	}
 	statement += ` ORDER BY
 		COALESCE(recording.started_at, recording.created_at) DESC,
@@ -1048,7 +1059,8 @@ func scanRecordingEntry(scanner recordingSegmentScanner) (RecordingEntry, error)
 		segmentFailure, segmentCreated, segmentUpdate sql.NullString
 		segmentIndex, durationMS, sizeBytes           sql.NullInt64
 		segmentStatus                                 sql.NullString
-		deviceID, localPhone, lineIMSI, lineICCID     sql.NullString
+		lineID, endpointLineID, localPhone            sql.NullString
+		lineIMSI, lineICCID                           sql.NullString
 		direction, remoteNumber                       sql.NullString
 		contactID, contactName, callCreated           sql.NullString
 		activeAt, callEnded, endReason, callFailure   sql.NullString
@@ -1066,7 +1078,8 @@ func scanRecordingEntry(scanner recordingSegmentScanner) (RecordingEntry, error)
 		&segmentFailure,
 		&segmentCreated,
 		&segmentUpdate,
-		&deviceID,
+		&lineID,
+		&endpointLineID,
 		&localPhone,
 		&lineIMSI,
 		&lineICCID,
@@ -1096,19 +1109,20 @@ func scanRecordingEntry(scanner recordingSegmentScanner) (RecordingEntry, error)
 		entry.Segment.RelativePath != ""
 
 	entry.Call = RecordingCall{
-		ID:           entry.Segment.CallID,
-		DeviceID:     stringValue(deviceID),
-		LocalPhone:   stringValue(localPhone),
-		LineIMSI:     stringValue(lineIMSI),
-		LineICCID:    stringValue(lineICCID),
-		Direction:    stringValue(direction),
-		RemoteNumber: stringValue(remoteNumber),
-		ContactID:    stringValue(contactID),
-		ContactName:  stringValue(contactName),
-		StartedAt:    stringValue(callCreated),
-		EndedAt:      stringValue(callEnded),
-		EndReason:    stringValue(endReason),
-		FailureCode:  stringValue(callFailure),
+		ID:             entry.Segment.CallID,
+		LineID:         stringValue(lineID),
+		EndpointLineID: stringValue(endpointLineID),
+		LocalPhone:     stringValue(localPhone),
+		LineIMSI:       stringValue(lineIMSI),
+		LineICCID:      stringValue(lineICCID),
+		Direction:      stringValue(direction),
+		RemoteNumber:   stringValue(remoteNumber),
+		ContactID:      stringValue(contactID),
+		ContactName:    stringValue(contactName),
+		StartedAt:      stringValue(callCreated),
+		EndedAt:        stringValue(callEnded),
+		EndReason:      stringValue(endReason),
+		FailureCode:    stringValue(callFailure),
 	}
 	if activeAt.Valid {
 		entry.Call.DurationSeconds = durationSeconds(activeAt.String, entry.Call.EndedAt)

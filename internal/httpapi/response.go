@@ -16,10 +16,10 @@ type sessionResponse struct {
 }
 
 type bootstrapResponse struct {
-	Capabilities   Capabilities         `json:"capabilities"`
-	Lines          []store.LineSummary  `json:"lines"`
-	LineSettings   store.LineSettings   `json:"line_settings"`
-	SystemSettings store.SystemSettings `json:"system_settings"`
+	Capabilities   Capabilities          `json:"capabilities"`
+	Lines          []lineSummaryResponse `json:"lines"`
+	LineSettings   store.LineSettings    `json:"line_settings"`
+	SystemSettings store.SystemSettings  `json:"system_settings"`
 }
 
 type lineSettingsResponse struct {
@@ -44,22 +44,22 @@ type contactResponse struct {
 }
 
 type threadsResponse struct {
-	Threads []store.MessageThread `json:"threads"`
-	Meta    responseMeta          `json:"meta"`
+	Threads []messageThreadResponse `json:"threads"`
+	Meta    responseMeta            `json:"meta"`
 }
 
 type messageResponse struct {
-	Message store.Message `json:"message"`
+	Message messageResponseItem `json:"message"`
 }
 
 type messagesResponse struct {
-	Messages []store.Message `json:"messages"`
-	Meta     responseMeta    `json:"meta"`
+	Messages []messageResponseItem `json:"messages"`
+	Meta     responseMeta          `json:"meta"`
 }
 
 type callSessionResponse struct {
 	ID             string  `json:"id"`
-	LineKey        string  `json:"line_key"`
+	LineID         string  `json:"line_id"`
 	Direction      string  `json:"direction"`
 	RemoteNumber   string  `json:"remote_number"`
 	DisplayName    string  `json:"display_name,omitempty"`
@@ -81,8 +81,8 @@ type activeCallsResponse struct {
 }
 
 type callsResponse struct {
-	Calls []store.Call `json:"calls"`
-	Meta  responseMeta `json:"meta"`
+	Calls []callRecordResponse `json:"calls"`
+	Meta  responseMeta         `json:"meta"`
 }
 
 type devicesResponse struct {

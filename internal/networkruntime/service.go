@@ -33,6 +33,8 @@ const (
 )
 
 type Repository interface {
+	Lines(context.Context) ([]store.LineSummary, error)
+	ResolveLineEndpoint(context.Context, string) (string, error)
 	ProxyInstances(context.Context) ([]store.ProxyInstanceRecord, error)
 	ProxyInstance(context.Context, string) (store.ProxyInstanceRecord, error)
 	CreateProxyInstance(
@@ -363,7 +365,7 @@ func (s *Service) Reconcile(ctx context.Context) ApplyResult {
 		if record.DesiredDeleted {
 			continue
 		}
-		proxy, err := s.desiredProxy(record)
+		proxy, err := s.desiredProxy(ctx, record)
 		if err != nil {
 			return s.applyFailedWithRefresh(
 				ctx,
@@ -393,20 +395,38 @@ func (s *Service) Reconcile(ctx context.Context) ApplyResult {
 	}
 	pending, err := s.repository.FinalizeProxyApply(ctx, tokens)
 	if err != nil {
-		if observeErr := s.observeSnapshot(ctx, snapshot); observeErr != nil {
+		publicSnapshot, endpointIDs, bindErr := s.bindNetworkSnapshot(ctx, snapshot)
+		if bindErr != nil {
+			s.report(bindErr)
+		} else if observeErr := s.observeSnapshot(
+			ctx,
+			publicSnapshot,
+			endpointIDs,
+		); observeErr != nil {
 			s.report(observeErr)
 		}
-		s.setSnapshot(snapshot)
+		if bindErr == nil {
+			s.setSnapshot(publicSnapshot)
+		}
 		s.markApplyFailure(ApplyStatusRuntimeUnavailable)
 		s.report(fmt.Errorf("finalize applied proxy state: %w", err))
 		return ApplyResult{Status: ApplyStatusRuntimeUnavailable}
 	}
 	fullSnapshot, err := s.agent.Snapshot(ctx)
 	if err != nil {
-		if observeErr := s.observeSnapshot(ctx, snapshot); observeErr != nil {
+		publicSnapshot, endpointIDs, bindErr := s.bindNetworkSnapshot(ctx, snapshot)
+		if bindErr != nil {
+			s.report(bindErr)
+		} else if observeErr := s.observeSnapshot(
+			ctx,
+			publicSnapshot,
+			endpointIDs,
+		); observeErr != nil {
 			s.report(observeErr)
 		}
-		s.setSnapshot(snapshot)
+		if bindErr == nil {
+			s.setSnapshot(publicSnapshot)
+		}
 		status := classifyAgentApplyError(err)
 		s.markApplyFailure(status)
 		s.report(fmt.Errorf("read lines for network selection reconciliation: %w", err))
@@ -414,19 +434,37 @@ func (s *Service) Reconcile(ctx context.Context) ApplyResult {
 	}
 	selectionPending, err := s.reconcileNetworkSelections(ctx, snapshot, fullSnapshot)
 	if err != nil {
-		if observeErr := s.observeSnapshot(ctx, snapshot); observeErr != nil {
+		publicSnapshot, endpointIDs, bindErr := s.bindNetworkSnapshot(ctx, snapshot)
+		if bindErr != nil {
+			s.report(bindErr)
+		} else if observeErr := s.observeSnapshot(
+			ctx,
+			publicSnapshot,
+			endpointIDs,
+		); observeErr != nil {
 			s.report(observeErr)
 		}
-		s.setSnapshot(snapshot)
+		if bindErr == nil {
+			s.setSnapshot(publicSnapshot)
+		}
 		status := classifyAgentApplyError(err)
 		s.markApplyFailure(status)
 		s.report(fmt.Errorf("reconcile network selection policies: %w", err))
 		return ApplyResult{Status: status}
 	}
-	if err := s.observeSnapshot(ctx, snapshot); err != nil {
+	publicSnapshot, endpointIDs, err := s.bindNetworkSnapshot(ctx, snapshot)
+	if err != nil {
+		return s.applyFailedWithRefresh(
+			ctx,
+			ApplyStatusRuntimeUnavailable,
+			"resolve host network line identities",
+			err,
+		)
+	}
+	if err := s.observeSnapshot(ctx, publicSnapshot, endpointIDs); err != nil {
 		s.report(err)
 	}
-	s.setSnapshot(snapshot)
+	s.setSnapshot(publicSnapshot)
 	if pending || selectionPending {
 		s.markApplyPending()
 		return ApplyResult{Status: ApplyStatusPending}
@@ -451,10 +489,15 @@ func (s *Service) refreshLocked(ctx context.Context) error {
 		s.setUnavailable("Host agent is unavailable")
 		return fmt.Errorf("refresh host network state: %w", err)
 	}
-	if err := s.observeSnapshot(ctx, snapshot); err != nil {
+	publicSnapshot, endpointIDs, err := s.bindNetworkSnapshot(ctx, snapshot)
+	if err != nil {
+		s.setUnavailable("Network line identities are unavailable")
+		return fmt.Errorf("resolve host network line identities: %w", err)
+	}
+	if err := s.observeSnapshot(ctx, publicSnapshot, endpointIDs); err != nil {
 		s.report(err)
 	}
-	s.setSnapshot(snapshot)
+	s.setSnapshot(publicSnapshot)
 	if snapshot.BootEpoch != previousBootEpoch || !wasAvailable {
 		fullSnapshot, snapshotErr := s.agent.Snapshot(ctx)
 		if snapshotErr != nil {
@@ -882,11 +925,20 @@ func (s *Service) buildRecord(
 }
 
 func (s *Service) desiredProxy(
+	ctx context.Context,
 	record store.ProxyInstanceRecord,
 ) (agentclient.ProxyConfiguration, error) {
+	endpointID, err := s.repository.ResolveLineEndpoint(ctx, record.LineID)
+	if err != nil {
+		return agentclient.ProxyConfiguration{}, fmt.Errorf(
+			"resolve proxy %q line endpoint: %w",
+			record.ID,
+			err,
+		)
+	}
 	proxy := agentclient.ProxyConfiguration{
 		ID:            record.ID,
-		LineID:        record.LineID,
+		LineID:        endpointID,
 		Enabled:       record.Enabled,
 		Mode:          agentclient.ProxyMode(record.Mode),
 		ListenAddress: record.ListenAddress,
@@ -917,6 +969,7 @@ func (s *Service) desiredProxy(
 func (s *Service) observeSnapshot(
 	ctx context.Context,
 	snapshot agentclient.NetworkSnapshot,
+	endpointIDs map[string]string,
 ) error {
 	samples := make([]store.NetworkCounterSample, 0, len(snapshot.Lines)+len(snapshot.Proxies))
 	interfaceOwners := make(map[string]int, len(snapshot.Lines))
@@ -936,15 +989,23 @@ func (s *Service) observeSnapshot(
 			interfaceOwners[interfaceName] != 1 {
 			continue
 		}
+		endpointID := strings.TrimSpace(endpointIDs[lineID])
+		if endpointID == "" {
+			return fmt.Errorf(
+				"network counter line %q has no snapshot endpoint",
+				lineID,
+			)
+		}
 		activeLineIDs = append(activeLineIDs, lineID)
 		samples = append(samples, store.NetworkCounterSample{
-			ScopeKind:  store.NetworkScopeLine,
-			ScopeID:    lineID,
-			Epoch:      snapshot.BootEpoch + "\x00" + interfaceName,
-			RXBytes:    line.RXBytes,
-			TXBytes:    line.TXBytes,
-			ObservedAt: snapshot.ObservedAt,
-			Location:   s.location,
+			ScopeKind:       store.NetworkScopeLine,
+			ScopeID:         lineID,
+			EndpointScopeID: endpointID,
+			Epoch:           snapshot.BootEpoch + "\x00" + interfaceName,
+			RXBytes:         line.RXBytes,
+			TXBytes:         line.TXBytes,
+			ObservedAt:      snapshot.ObservedAt,
+			Location:        s.location,
 		})
 	}
 	for _, proxy := range snapshot.Proxies {
@@ -952,19 +1013,86 @@ func (s *Service) observeSnapshot(
 			continue
 		}
 		samples = append(samples, store.NetworkCounterSample{
-			ScopeKind:  store.NetworkScopeProxy,
-			ScopeID:    proxy.ID,
-			Epoch:      proxy.RuntimeEpoch,
-			RXBytes:    proxy.BytesDown,
-			TXBytes:    proxy.BytesUp,
-			ObservedAt: snapshot.ObservedAt,
-			Location:   s.location,
+			ScopeKind:       store.NetworkScopeProxy,
+			ScopeID:         proxy.ID,
+			EndpointScopeID: proxy.ID,
+			Epoch:           proxy.RuntimeEpoch,
+			RXBytes:         proxy.BytesDown,
+			TXBytes:         proxy.BytesUp,
+			ObservedAt:      snapshot.ObservedAt,
+			Location:        s.location,
 		})
 	}
 	if err := s.repository.ApplyNetworkCounterSnapshot(ctx, samples, activeLineIDs); err != nil {
 		return fmt.Errorf("persist network usage sample: %w", err)
 	}
 	return nil
+}
+
+func (s *Service) bindNetworkSnapshot(
+	ctx context.Context,
+	snapshot agentclient.NetworkSnapshot,
+) (agentclient.NetworkSnapshot, map[string]string, error) {
+	lines, err := s.repository.Lines(ctx)
+	if err != nil {
+		return agentclient.NetworkSnapshot{}, nil, fmt.Errorf(
+			"load stable line identities: %w",
+			err,
+		)
+	}
+	lineIDByEndpoint := make(map[string]string, len(lines))
+	attachedEndpointIDByLine := make(map[string]string, len(lines))
+	for _, line := range lines {
+		lineID := strings.TrimSpace(line.ID)
+		endpointID := strings.TrimSpace(line.EndpointID)
+		if lineID == "" || endpointID == "" {
+			continue
+		}
+		if existing := lineIDByEndpoint[endpointID]; existing != "" && existing != lineID {
+			return agentclient.NetworkSnapshot{}, nil, fmt.Errorf(
+				"endpoint %q is bound to multiple lines",
+				endpointID,
+			)
+		}
+		if existing := attachedEndpointIDByLine[lineID]; existing != "" && existing != endpointID {
+			return agentclient.NetworkSnapshot{}, nil, fmt.Errorf(
+				"line %q is attached to multiple endpoints",
+				lineID,
+			)
+		}
+		lineIDByEndpoint[endpointID] = lineID
+		attachedEndpointIDByLine[lineID] = endpointID
+	}
+
+	publicLines := make([]agentclient.NetworkLine, 0, len(snapshot.Lines))
+	snapshotEndpointIDByLine := make(map[string]string, len(snapshot.Lines))
+	for _, line := range snapshot.Lines {
+		endpointID := strings.TrimSpace(line.LineID)
+		lineID := lineIDByEndpoint[endpointID]
+		if lineID == "" {
+			continue
+		}
+		line.LineID = lineID
+		publicLines = append(publicLines, line)
+		snapshotEndpointIDByLine[lineID] = endpointID
+	}
+	publicProxies := make([]agentclient.NetworkProxy, 0, len(snapshot.Proxies))
+	for _, proxy := range snapshot.Proxies {
+		endpointID := strings.TrimSpace(proxy.LineID)
+		lineID := lineIDByEndpoint[endpointID]
+		if lineID == "" {
+			return agentclient.NetworkSnapshot{}, nil, fmt.Errorf(
+				"proxy %q references unattached endpoint %q",
+				proxy.ID,
+				endpointID,
+			)
+		}
+		proxy.LineID = lineID
+		publicProxies = append(publicProxies, proxy)
+	}
+	snapshot.Lines = publicLines
+	snapshot.Proxies = publicProxies
+	return snapshot, snapshotEndpointIDByLine, nil
 }
 
 func (s *Service) setUnavailable(reason string) {

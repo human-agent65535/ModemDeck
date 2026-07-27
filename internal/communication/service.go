@@ -220,6 +220,7 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 	if err != nil {
 		return s.recordRefreshFailure("persist host agent snapshot", err)
 	}
+	lines = bindProjectedLines(lines, snapshotResult.LineIDsByEndpoint)
 	s.publishIncomingMessages(snapshotResult.CreatedIncomingMessages)
 	activeCalls, err := s.repository.ActiveCalls(refreshContext)
 	if err != nil {
@@ -330,9 +331,7 @@ func (s *Service) publishIncomingMessages(messages []store.Message) {
 			EventKey:  "sms:" + messageID,
 			MessageID: messageID,
 			ThreadKey: store.MessageThreadKey(
-				message.LocalPhone,
-				message.IMSI,
-				message.ICCID,
+				message.LineID,
 				message.Peer,
 			),
 			LineID:    message.LineID,
@@ -580,7 +579,11 @@ func (s *Service) executeIncomingCallAction(
 	if action.EffectivePolicy != store.EffectiveCallPolicyDND {
 		return store.IncomingCallActionSkipped, "policy_not_dnd"
 	}
-	call, found := currentIncomingRingingCall(snapshot, action.LineID, action.EndpointCallID)
+	call, found := currentIncomingRingingCall(
+		snapshot,
+		action.EndpointLineID,
+		action.EndpointCallID,
+	)
 	if !found {
 		return store.IncomingCallActionSkipped, "call_no_longer_ringing"
 	}
@@ -740,7 +743,7 @@ func (s *Service) SendMessage(ctx context.Context, input SendMessageInput) (stor
 	defer cancel()
 	receipt, err := s.agent.SendMessage(commandContext, agentclient.SendMessageRequest{
 		RequestID: requestID,
-		LineID:    line.ID,
+		LineID:    line.EndpointID,
 		Number:    number,
 		Text:      text,
 	})
@@ -761,6 +764,7 @@ func (s *Service) SendMessage(ctx context.Context, input SendMessageInput) (stor
 	stored, _, err := s.repository.UpsertHardwareMessage(outcomeContext, store.HardwareMessage{
 		RequestID:         requestID,
 		LineID:            line.ID,
+		EndpointLineID:    line.EndpointID,
 		EndpointMessageID: receipt.ResourceID,
 		IMSI:              line.IMSI,
 		ICCID:             line.ICCID,
@@ -842,7 +846,7 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 		return store.Call{}, s.failLocalCommand(ctx, command, operation, "cannot inspect active calls", err)
 	}
 	for _, call := range active {
-		if call.DeviceID == line.ID {
+		if call.LineID == line.ID {
 			return store.Call{}, s.failLocalCommand(
 				ctx,
 				command,
@@ -856,7 +860,7 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 	defer cancel()
 	receipt, err := s.agent.StartCall(commandContext, agentclient.StartCallRequest{
 		RequestID: requestID,
-		LineID:    line.ID,
+		LineID:    line.EndpointID,
 		Number:    number,
 	})
 	if err != nil {
@@ -871,13 +875,14 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 		}
 		return store.Call{}, operationError(CodeUnavailable, operation, "host agent returned an invalid command receipt", err)
 	}
-	appID := stableInstanceID("call", line.ID, receipt.ResourceID)
+	appID := stableInstanceID("call", line.EndpointID, receipt.ResourceID)
 	outcomeContext, outcomeCancel := durableContext(ctx)
 	defer outcomeCancel()
 	stored, err := s.repository.UpsertHardwareCall(outcomeContext, store.HardwareCall{
 		AppID:          appID,
 		RequestID:      requestID,
 		LineID:         line.ID,
+		EndpointLineID: line.EndpointID,
 		LocalPhone:     line.PhoneNumber,
 		LineIMSI:       line.IMSI,
 		LineICCID:      line.ICCID,
@@ -1374,6 +1379,7 @@ func projectLine(line agentclient.Line) store.LineSummary {
 	homeOperatorName := firstNonEmpty(line.HomeOperatorName, line.OperatorName)
 	return store.LineSummary{
 		ID:                       line.ID,
+		EndpointID:               line.ID,
 		ICCID:                    line.SIMIdentifier,
 		IMSI:                     line.IMSI,
 		PhoneNumber:              firstString(line.OwnNumbers),
@@ -1460,6 +1466,7 @@ func projectMessage(
 	return store.HardwareMessage{
 		RequestID:         requestID,
 		LineID:            line.ID,
+		EndpointLineID:    line.EndpointID,
 		EndpointMessageID: message.ID,
 		IMSI:              line.IMSI,
 		ICCID:             line.ICCID,
@@ -1486,6 +1493,7 @@ func projectCall(
 		AppID:           stableInstanceID("call", call.LineID, call.ID),
 		RequestID:       requestID,
 		LineID:          call.LineID,
+		EndpointLineID:  call.LineID,
 		LocalPhone:      line.PhoneNumber,
 		LineIMSI:        line.IMSI,
 		LineICCID:       line.ICCID,
@@ -1540,8 +1548,16 @@ func resolveLine(
 		return store.LineSummary{}, operationError(CodeInvalidArgument, "select line", "line_id is required", nil)
 	}
 	for _, line := range lines {
-		if selector != line.ID && selector != line.ICCID {
+		if selector != line.ID {
 			continue
+		}
+		if strings.TrimSpace(line.EndpointID) == "" {
+			return store.LineSummary{}, operationError(
+				CodeConflict,
+				"select line",
+				"selected line is not attached to a modem endpoint",
+				nil,
+			)
 		}
 		if !supported(line.Capabilities) {
 			return store.LineSummary{}, operationError(CodeNotSupported, "select line", "selected line does not support this operation", nil)
@@ -1549,6 +1565,27 @@ func resolveLine(
 		return line, nil
 	}
 	return store.LineSummary{}, operationError(CodeNotFound, "select line", "selected line is not attached", nil)
+}
+
+func bindProjectedLines(
+	lines []store.LineSummary,
+	lineIDsByEndpoint map[string]string,
+) []store.LineSummary {
+	bound := make([]store.LineSummary, 0, len(lines))
+	for _, line := range lines {
+		endpointID := strings.TrimSpace(line.EndpointID)
+		if endpointID == "" {
+			endpointID = strings.TrimSpace(line.ID)
+		}
+		lineID := strings.TrimSpace(lineIDsByEndpoint[endpointID])
+		if lineID == "" {
+			continue
+		}
+		line.ID = lineID
+		line.EndpointID = endpointID
+		bound = append(bound, line)
+	}
+	return bound
 }
 
 func callPhase(state string) string {

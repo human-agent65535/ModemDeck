@@ -20,7 +20,7 @@ var (
 const (
 	maxDeviceAliasLength = 100
 	maxLineLabelLength   = 16
-	maxLineICCIDLength   = 64
+	maxLineIDLength      = 64
 )
 
 type LineColor string
@@ -111,13 +111,13 @@ func (s *Store) RenameDevice(ctx context.Context, imei, alias string) (Device, e
 
 func (s *Store) UpdateLineLabel(
 	ctx context.Context,
-	iccid,
+	lineID,
 	label string,
 	color *LineColor,
 ) (LineSummary, error) {
-	iccid = strings.TrimSpace(iccid)
-	if iccid == "" || len([]rune(iccid)) > maxLineICCIDLength {
-		return LineSummary{}, fmt.Errorf("%w: ICCID is invalid", ErrLineValidation)
+	lineID = strings.TrimSpace(lineID)
+	if lineID == "" || len([]rune(lineID)) > maxLineIDLength {
+		return LineSummary{}, fmt.Errorf("%w: line ID is invalid", ErrLineValidation)
 	}
 	label = strings.TrimSpace(label)
 	if len([]rune(label)) > maxLineLabelLength {
@@ -133,12 +133,12 @@ func (s *Store) UpdateLineLabel(
 	}
 	result, err := s.database.ExecContext(
 		ctx,
-		`UPDATE sim_cards
+		`UPDATE modemdeck_lines
 		 SET line_label = ?, line_color = COALESCE(?, line_color), updated_at = CURRENT_TIMESTAMP
-		 WHERE iccid = ?`,
+		 WHERE line_id = ?`,
 		label,
 		colorValue,
-		iccid,
+		lineID,
 	)
 	if err != nil {
 		return LineSummary{}, fmt.Errorf("update line label: %w", err)
@@ -155,7 +155,7 @@ func (s *Store) UpdateLineLabel(
 		return LineSummary{}, err
 	}
 	for _, line := range lines {
-		if line.ICCID == iccid {
+		if line.ID == lineID {
 			return line, nil
 		}
 	}
@@ -185,11 +185,11 @@ func normalizeDeviceInput(input DeviceInput) (string, string, error) {
 
 func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 	rows, err := s.database.QueryContext(ctx, `SELECT
-		d.imei, d.alias, d.model, d.firmware, d.port,
+		d.imei, d.endpoint_id, d.alias, d.model, d.firmware, d.port,
 		d.public_ip, d.private_ip, d.public_ipv6, d.private_ipv6,
 			d.iccid, d.sim_inserted, d.signal_quality, d.signal_db_m, d.signal_rsrq, d.signal_rsrp,
 		d.last_seen, d.created_at, d.updated_at,
-		s.iccid, s.imsi,
+		s.iccid, s.line_id, s.imsi,
 		COALESCE(NULLIF(ss.phone_number, ''), NULLIF(ss.modem_phone_number, ''), NULLIF(ss.vowifi_phone_number, ''), ''),
 		COALESCE(NULLIF(s.operator, ''), ss.operator, ''), s.current_imei,
 		s.reg_status, s.reg_status_text, s.lac, s.cell_id, s.apn, s.ims_status, s.last_seen
@@ -205,27 +205,28 @@ func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 	devices := make([]Device, 0)
 	for rows.Next() {
 		var (
-			device                                                        Device
-			alias, model, firmware, port                                  sql.NullString
-			publicIP, privateIP, publicIPv6, privateIPv6, iccid           sql.NullString
-			simInserted, signalQuality, signalDBM, signalRSRQ, signalRSRP sql.NullInt64
-			lastSeen, createdAt, updatedAt                                sql.NullString
-			simICCID, simIMSI, phoneNumber, operator, currentIMEI         sql.NullString
-			regStatus                                                     sql.NullInt64
-			regStatusText, lac, cellID, apn                               sql.NullString
-			imsStatus                                                     sql.NullInt64
-			simLastSeen                                                   sql.NullString
+			device                                                           Device
+			endpointID, alias, model, firmware, port                         sql.NullString
+			publicIP, privateIP, publicIPv6, privateIPv6, iccid              sql.NullString
+			simInserted, signalQuality, signalDBM, signalRSRQ, signalRSRP    sql.NullInt64
+			lastSeen, createdAt, updatedAt                                   sql.NullString
+			simICCID, simLineID, simIMSI, phoneNumber, operator, currentIMEI sql.NullString
+			regStatus                                                        sql.NullInt64
+			regStatusText, lac, cellID, apn                                  sql.NullString
+			imsStatus                                                        sql.NullInt64
+			simLastSeen                                                      sql.NullString
 		)
 		if err := rows.Scan(
-			&device.IMEI, &alias, &model, &firmware, &port,
+			&device.IMEI, &endpointID, &alias, &model, &firmware, &port,
 			&publicIP, &privateIP, &publicIPv6, &privateIPv6,
 			&iccid, &simInserted, &signalQuality, &signalDBM, &signalRSRQ, &signalRSRP,
 			&lastSeen, &createdAt, &updatedAt,
-			&simICCID, &simIMSI, &phoneNumber, &operator, &currentIMEI,
+			&simICCID, &simLineID, &simIMSI, &phoneNumber, &operator, &currentIMEI,
 			&regStatus, &regStatusText, &lac, &cellID, &apn, &imsStatus, &simLastSeen,
 		); err != nil {
 			return nil, fmt.Errorf("scan device: %w", err)
 		}
+		device.EndpointID = stringValue(endpointID)
 		device.Alias = stringValue(alias)
 		device.Model = stringValue(model)
 		device.Firmware = stringValue(firmware)
@@ -249,6 +250,7 @@ func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 		if stringValue(simICCID) != "" {
 			device.SIM = &SIMCard{
 				ICCID:            stringValue(simICCID),
+				LineID:           stringValue(simLineID),
 				IMSI:             stringValue(simIMSI),
 				PhoneNumber:      stringValue(phoneNumber),
 				Operator:         stringValue(operator),
@@ -282,36 +284,50 @@ func (s *Store) device(ctx context.Context, imei string) (Device, error) {
 }
 
 func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
-	rows, err := s.database.QueryContext(ctx, `WITH line_rows AS (
-		SELECT
-			s.iccid AS iccid,
-			s.line_label AS line_label,
-			s.line_color AS line_color,
-			s.imsi AS imsi,
-			COALESCE(NULLIF(ss.phone_number, ''), NULLIF(ss.modem_phone_number, ''), NULLIF(ss.vowifi_phone_number, ''), '') AS phone_number,
-			COALESCE(NULLIF(s.operator, ''), ss.operator, '') AS operator,
-			COALESCE(NULLIF(s.current_imei, ''), (
-				SELECT devices.imei FROM devices WHERE devices.iccid = s.iccid ORDER BY devices.imei LIMIT 1
-			), '') AS device_imei
-		FROM sim_cards s
-		LEFT JOIN sim_subscriptions ss ON ss.imsi = s.imsi
-		UNION ALL
-		SELECT
-			ss.current_iccid,
-			COALESCE((SELECT sim_cards.line_label FROM sim_cards WHERE sim_cards.iccid = ss.current_iccid), ''),
-			COALESCE((SELECT sim_cards.line_color FROM sim_cards WHERE sim_cards.iccid = ss.current_iccid), ''),
-			ss.imsi,
-			COALESCE(NULLIF(ss.phone_number, ''), NULLIF(ss.modem_phone_number, ''), NULLIF(ss.vowifi_phone_number, ''), ''),
-			ss.operator,
-			COALESCE((SELECT devices.imei FROM devices WHERE devices.iccid = ss.current_iccid ORDER BY devices.imei LIMIT 1), '')
-		FROM sim_subscriptions ss
-		WHERE NOT EXISTS (SELECT 1 FROM sim_cards WHERE sim_cards.imsi = ss.imsi)
+	rows, err := s.database.QueryContext(ctx, `WITH ranked_sim_cards AS (
+		SELECT sim_cards.*,
+			ROW_NUMBER() OVER (
+				PARTITION BY line_id
+				ORDER BY
+					CASE WHEN current_imei <> '' THEN 0 ELSE 1 END,
+					last_seen DESC,
+					updated_at DESC,
+					iccid
+			) AS line_rank
+		FROM sim_cards
+	),
+	ranked_subscriptions AS (
+		SELECT sim_subscriptions.*,
+			ROW_NUMBER() OVER (
+				PARTITION BY line_id
+				ORDER BY last_seen DESC, updated_at DESC, imsi
+			) AS line_rank
+		FROM sim_subscriptions
 	)
-	SELECT line_rows.iccid, line_rows.line_label, line_rows.line_color, line_rows.imsi, line_rows.phone_number,
-		line_rows.operator, line_rows.device_imei, COALESCE(devices.alias, '')
-	FROM line_rows
-	LEFT JOIN devices ON devices.imei = line_rows.device_imei
-	ORDER BY COALESCE(NULLIF(line_rows.phone_number, ''), line_rows.iccid, line_rows.imsi) ASC`)
+	SELECT
+		lines.line_id,
+		COALESCE(devices.endpoint_id, ''),
+		COALESCE(sim.iccid, subscription.current_iccid, ''),
+		lines.line_label,
+		lines.line_color,
+		COALESCE(sim.imsi, subscription.imsi, ''),
+		lines.phone_number,
+		COALESCE(NULLIF(sim.operator, ''), subscription.operator, ''),
+		COALESCE(sim.current_imei, devices.imei, ''),
+		COALESCE(devices.alias, '')
+	FROM modemdeck_lines lines
+	LEFT JOIN ranked_sim_cards sim
+		ON sim.line_id = lines.line_id AND sim.line_rank = 1
+	LEFT JOIN ranked_subscriptions subscription
+		ON subscription.line_id = lines.line_id AND subscription.line_rank = 1
+	LEFT JOIN devices ON devices.imei = sim.current_imei
+	ORDER BY COALESCE(
+		NULLIF(lines.line_label, ''),
+		NULLIF(lines.phone_number, ''),
+		sim.iccid,
+		subscription.imsi,
+		lines.line_id
+	) ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("query lines: %w", err)
 	}
@@ -320,10 +336,13 @@ func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
 	lines := make([]LineSummary, 0)
 	for rows.Next() {
 		var (
-			line                                                                        LineSummary
-			iccid, lineLabel, lineColor, imsi, phone, operator, deviceIMEI, deviceAlias sql.NullString
+			line                                                                   LineSummary
+			lineID, endpointID, iccid, lineLabel, lineColor, imsi, phone, operator sql.NullString
+			deviceIMEI, deviceAlias                                                sql.NullString
 		)
 		if err := rows.Scan(
+			&lineID,
+			&endpointID,
 			&iccid,
 			&lineLabel,
 			&lineColor,
@@ -335,6 +354,8 @@ func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
 		); err != nil {
 			return nil, fmt.Errorf("scan line: %w", err)
 		}
+		line.ID = stringValue(lineID)
+		line.EndpointID = stringValue(endpointID)
 		line.ICCID = stringValue(iccid)
 		line.LineLabel = stringValue(lineLabel)
 		line.LineColor = LineColor(stringValue(lineColor))

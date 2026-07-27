@@ -12,11 +12,10 @@ import (
 )
 
 var (
-	ErrCallNotFound                 = errors.New("call not found")
-	ErrMessageNotFound              = errors.New("message not found")
-	ErrMessageThreadNotFound        = errors.New("message thread not found")
-	ErrMessageThreadIdentityInvalid = errors.New("message thread identity is not unique")
-	ErrSnapshotInvalid              = errors.New("hardware snapshot is invalid")
+	ErrCallNotFound          = errors.New("call not found")
+	ErrMessageNotFound       = errors.New("message not found")
+	ErrMessageThreadNotFound = errors.New("message thread not found")
+	ErrSnapshotInvalid       = errors.New("hardware snapshot is invalid")
 )
 
 const (
@@ -48,8 +47,39 @@ func (s *Store) ApplyHardwareSnapshotWithResult(
 	if err != nil {
 		return HardwareSnapshotResult{}, err
 	}
+	lineIDsByEndpoint := make(map[string]string, len(snapshot.Lines))
+	endpointsByLineID := make(map[string]string, len(snapshot.Lines))
+	for _, line := range snapshot.Lines {
+		lineID, err := upsertHardwareLine(ctx, transaction, line, snapshot.ObservedAt)
+		if err != nil {
+			return HardwareSnapshotResult{}, err
+		}
+		endpointID := strings.TrimSpace(line.ID)
+		if endpointID != "" && lineID != "" {
+			if existingEndpoint := endpointsByLineID[lineID]; existingEndpoint != "" &&
+				existingEndpoint != endpointID {
+				return HardwareSnapshotResult{}, fmt.Errorf(
+					"%w: stable line %q is attached to endpoints %q and %q",
+					ErrSnapshotInvalid,
+					lineID,
+					existingEndpoint,
+					endpointID,
+				)
+			}
+			endpointsByLineID[lineID] = endpointID
+			lineIDsByEndpoint[endpointID] = lineID
+		}
+	}
+	if err := rewriteSnapshotLineIdentities(
+		ctx,
+		transaction,
+		&snapshot,
+		lineIDsByEndpoint,
+	); err != nil {
+		return HardwareSnapshotResult{}, err
+	}
 	if duplicate {
-		if err := closeMissingCalls(ctx, transaction, snapshot, sequence); err != nil {
+		if err := closeMissingCalls(ctx, transaction, snapshot, sequence, lineIDsByEndpoint); err != nil {
 			return HardwareSnapshotResult{}, err
 		}
 		if err := transaction.Commit(); err != nil {
@@ -58,15 +88,13 @@ func (s *Store) ApplyHardwareSnapshotWithResult(
 				err,
 			)
 		}
-		return HardwareSnapshotResult{CreatedIncomingMessages: []Message{}}, nil
+		return HardwareSnapshotResult{
+			CreatedIncomingMessages: []Message{},
+			LineIDsByEndpoint:       lineIDsByEndpoint,
+		}, nil
 	}
 
 	createdIncoming := make([]Message, 0)
-	for _, line := range snapshot.Lines {
-		if err := upsertHardwareLine(ctx, transaction, line, snapshot.ObservedAt); err != nil {
-			return HardwareSnapshotResult{}, err
-		}
-	}
 	for _, message := range snapshot.Messages {
 		message.Revision = sequence
 		stored, created, err := upsertHardwareMessage(ctx, transaction, message)
@@ -83,13 +111,16 @@ func (s *Store) ApplyHardwareSnapshotWithResult(
 			return HardwareSnapshotResult{}, err
 		}
 	}
-	if err := closeMissingCalls(ctx, transaction, snapshot, sequence); err != nil {
+	if err := closeMissingCalls(ctx, transaction, snapshot, sequence, lineIDsByEndpoint); err != nil {
 		return HardwareSnapshotResult{}, err
 	}
 	if err := transaction.Commit(); err != nil {
 		return HardwareSnapshotResult{}, fmt.Errorf("commit hardware snapshot: %w", err)
 	}
-	return HardwareSnapshotResult{CreatedIncomingMessages: createdIncoming}, nil
+	return HardwareSnapshotResult{
+		CreatedIncomingMessages: createdIncoming,
+		LineIDsByEndpoint:       lineIDsByEndpoint,
+	}, nil
 }
 
 func (s *Store) UpsertHardwareMessage(ctx context.Context, message HardwareMessage) (Message, bool, error) {
@@ -103,6 +134,18 @@ func (s *Store) UpsertHardwareMessage(ctx context.Context, message HardwareMessa
 		if err != nil {
 			return Message{}, false, err
 		}
+	}
+	message.LineID, message.EndpointLineID, err = resolveStoredHardwareLine(
+		ctx,
+		transaction,
+		message.LineID,
+		message.EndpointLineID,
+		message.ICCID,
+		message.IMSI,
+		message.LocalPhone,
+	)
+	if err != nil {
+		return Message{}, false, fmt.Errorf("resolve message line: %w", err)
 	}
 	stored, created, err := upsertHardwareMessage(ctx, transaction, message)
 	if err != nil {
@@ -126,6 +169,18 @@ func (s *Store) UpsertHardwareCall(ctx context.Context, call HardwareCall) (Call
 			return Call{}, err
 		}
 	}
+	call.LineID, call.EndpointLineID, err = resolveStoredHardwareLine(
+		ctx,
+		transaction,
+		call.LineID,
+		call.EndpointLineID,
+		call.LineICCID,
+		call.LineIMSI,
+		call.LocalPhone,
+	)
+	if err != nil {
+		return Call{}, fmt.Errorf("resolve call line: %w", err)
+	}
 	stored, err := upsertHardwareCall(ctx, transaction, call)
 	if err != nil {
 		return Call{}, err
@@ -144,13 +199,15 @@ func (s *Store) CallControlTarget(ctx context.Context, appID string) (CallContro
 	var target CallControlTarget
 	err := s.database.QueryRowContext(
 		ctx,
-		`SELECT id, device_id, endpoint_call_id, remote_number, direction, phase, bearer, revision
+		`SELECT id, line_id, endpoint_line_id, endpoint_call_id,
+			remote_number, direction, phase, bearer, revision
 		 FROM call_history
 		 WHERE id = ?`,
 		appID,
 	).Scan(
 		&target.AppID,
 		&target.LineID,
+		&target.EndpointLineID,
 		&target.EndpointCallID,
 		&target.Number,
 		&target.Direction,
@@ -170,7 +227,7 @@ func (s *Store) CallControlTarget(ctx context.Context, appID string) (CallContro
 func (s *Store) ActiveCalls(ctx context.Context) ([]Call, error) {
 	rows, err := s.database.QueryContext(
 		ctx,
-		`SELECT id, request_id, device_id, local_phone, line_imsi, line_iccid,
+		`SELECT id, request_id, line_id, endpoint_line_id, local_phone, line_imsi, line_iccid,
 			direction, remote_number,
 			endpoint_id, endpoint_call_id, phase, revision, created_at, updated_at,
 			active_at, ended_at, end_reason, failure_code, bearer, state_reason,
@@ -199,57 +256,17 @@ func (s *Store) MarkMessageThreadRead(
 	ctx context.Context,
 	identity MessageThreadIdentity,
 ) error {
-	localPhone := normalizePhoneIdentity(identity.LocalPhone)
-	iccid := strings.TrimSpace(identity.ICCID)
+	lineID := strings.TrimSpace(identity.LineID)
 	peer := strings.TrimSpace(identity.Peer)
-	if peer == "" || (localPhone == "" && iccid == "") {
-		return fmt.Errorf("mark message thread read: local phone or ICCID and peer are required")
-	}
-	if localPhone != "" {
-		result, err := s.database.ExecContext(
-			ctx,
-			`UPDATE sms_contacts
-			 SET unread_count = 0, updated_at = CURRENT_TIMESTAMP
-			 WHERE peer = ? AND EXISTS (
-				SELECT 1
-				FROM sms
-				WHERE sms.imsi = sms_contacts.imsi
-					AND sms.peer = sms_contacts.peer
-					AND `+normalizedPhoneSQL("sms.local_phone")+` = ?
-			 )`,
-			peer,
-			localPhone,
-		)
-		if err != nil {
-			return fmt.Errorf("mark message thread read by local phone: %w", err)
-		}
-		affected, err := result.RowsAffected()
-		if err != nil {
-			return fmt.Errorf("mark message thread read by local phone: read affected rows: %w", err)
-		}
-		if affected == 0 {
-			return ErrMessageThreadNotFound
-		}
-		return nil
+	if lineID == "" || peer == "" {
+		return fmt.Errorf("mark message thread read: line ID and peer are required")
 	}
 	result, err := s.database.ExecContext(
 		ctx,
 		`UPDATE sms_contacts
 		 SET unread_count = 0, updated_at = CURRENT_TIMESTAMP
-		 WHERE rowid = (
-			SELECT rowid
-			FROM sms_contacts
-			WHERE iccid = ? AND peer = ?
-			LIMIT 1
-		 )
-		 AND 1 = (
-			SELECT COUNT(*)
-			FROM sms_contacts
-			WHERE iccid = ? AND peer = ?
-		 )`,
-		iccid,
-		peer,
-		iccid,
+		 WHERE line_id = ? AND peer = ?`,
+		lineID,
 		peer,
 	)
 	if err != nil {
@@ -262,73 +279,132 @@ func (s *Store) MarkMessageThreadRead(
 	if affected == 1 {
 		return nil
 	}
-	var matches int
+	var exists int
 	if err := s.database.QueryRowContext(
 		ctx,
-		"SELECT COUNT(*) FROM sms_contacts WHERE iccid = ? AND peer = ?",
-		iccid,
-		peer,
-	).Scan(&matches); err != nil {
-		return fmt.Errorf("mark message thread read: count matching threads: %w", err)
-	}
-	if matches == 0 {
-		return ErrMessageThreadNotFound
-	}
-	return ErrMessageThreadIdentityInvalid
-}
-
-func (s *Store) MarkMessageThreadReadByLine(ctx context.Context, lineID, peer string) error {
-	lineID = strings.TrimSpace(lineID)
-	peer = strings.TrimSpace(peer)
-	if lineID == "" || peer == "" {
-		return fmt.Errorf("mark message thread read by line: line ID and peer are required")
-	}
-	if _, err := s.database.ExecContext(
-		ctx,
-		`UPDATE sms_contacts
-		 SET unread_count = 0, updated_at = CURRENT_TIMESTAMP
-		 WHERE peer = ? AND iccid = (
-			SELECT iccid
-			FROM sms
-			WHERE line_id = ? AND peer = ? AND COALESCE(iccid, '') <> ''
-			ORDER BY timestamp DESC, id DESC
-			LIMIT 1
+		`SELECT EXISTS(
+			SELECT 1 FROM sms_contacts WHERE line_id = ? AND peer = ?
 		 )`,
-		peer,
 		lineID,
 		peer,
-	); err != nil {
-		return fmt.Errorf("mark message thread read by line: %w", err)
+	).Scan(&exists); err != nil {
+		return fmt.Errorf("mark message thread read: inspect thread: %w", err)
+	}
+	if exists == 0 {
+		return ErrMessageThreadNotFound
 	}
 	return nil
 }
 
-func upsertHardwareLine(ctx context.Context, transaction *sql.Tx, line HardwareLine, observedAt time.Time) error {
-	line.ID = strings.TrimSpace(line.ID)
-	if line.ID == "" {
-		return nil
-	}
-	if err := ensureLineCallPolicy(ctx, transaction, line.ID); err != nil {
-		return err
+func (s *Store) MarkMessageThreadReadByLine(ctx context.Context, lineID, peer string) error {
+	return s.MarkMessageThreadRead(ctx, MessageThreadIdentity{
+		LineID: lineID,
+		Peer:   peer,
+	})
+}
+
+func upsertHardwareLine(
+	ctx context.Context,
+	transaction *sql.Tx,
+	line HardwareLine,
+	observedAt time.Time,
+) (string, error) {
+	endpointID := strings.TrimSpace(line.ID)
+	if endpointID == "" {
+		return "", nil
 	}
 	imei := strings.TrimSpace(line.EquipmentIdentifier)
 	if imei == "" {
 		imei = strings.TrimSpace(line.DeviceIdentifier)
 	}
 	if imei == "" {
-		return nil
+		return "", nil
 	}
+	provisionalLineIDs, err := resolveLegacyEndpointLines(ctx, transaction, endpointID, imei)
+	if err != nil {
+		return "", err
+	}
+	lineID, err := resolveOrCreateStableLine(
+		ctx,
+		transaction,
+		line.ICCID,
+		line.IMSI,
+		line.PhoneNumber,
+		observedAt,
+	)
+	if err != nil && !errors.Is(err, ErrLineNotFound) {
+		return "", err
+	}
+	if errors.Is(err, ErrLineNotFound) {
+		lineID = ""
+	}
+	provisionalAliases := uniqueStableLineAliases(lineID, provisionalLineIDs...)
+	if lineID != "" && len(provisionalAliases) > 0 {
+		if err := mergeStableLines(
+			ctx,
+			transaction,
+			lineID,
+			provisionalAliases,
+		); err != nil {
+			return "", err
+		}
+	}
+	if lineID != "" && len(provisionalLineIDs) > 0 {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`DELETE FROM modemdeck_legacy_endpoint_lines
+			 WHERE endpoint_id IN (?, ?)`,
+			endpointID,
+			imei,
+		); err != nil {
+			return "", fmt.Errorf("release provisional stable line endpoint: %w", err)
+		}
+	}
+	if lineID != "" {
+		if err := ensureLineCallPolicy(ctx, transaction, lineID); err != nil {
+			return "", err
+		}
+	}
+	currentICCID := strings.TrimSpace(line.ICCID)
 	var signal any
 	if line.SignalKnown {
 		signal = int64(line.SignalQuality)
 	}
 	if _, err := transaction.ExecContext(
 		ctx,
+		`UPDATE sim_cards
+		 SET current_imei = '', updated_at = CURRENT_TIMESTAMP
+		 WHERE current_imei IN (
+			SELECT imei FROM devices WHERE endpoint_id = ? AND imei <> ?
+		 );
+		 UPDATE devices
+		 SET endpoint_id = '', iccid = NULL, sim_inserted = 0,
+			updated_at = CURRENT_TIMESTAMP
+		 WHERE endpoint_id = ? AND imei <> ?`,
+		endpointID,
+		imei,
+		endpointID,
+		imei,
+	); err != nil {
+		return "", fmt.Errorf("release previous hardware endpoint: %w", err)
+	}
+	if err := reconcileCurrentSIMAttachment(
+		ctx,
+		transaction,
+		lineID,
+		imei,
+		currentICCID,
+	); err != nil {
+		return "", err
+	}
+	if _, err := transaction.ExecContext(
+		ctx,
 		`INSERT INTO devices (
-			imei, model, firmware, port, iccid, sim_inserted, signal_quality,
+			imei, endpoint_id, model, firmware, port, iccid, sim_inserted, signal_quality,
 			signal_db_m, signal_rsrq, signal_rsrp, last_seen, created_at, updated_at
-		 ) VALUES (?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?)
+		 ) VALUES (?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(imei) DO UPDATE SET
+			endpoint_id = excluded.endpoint_id,
 			model = excluded.model,
 			firmware = excluded.firmware,
 			port = excluded.port,
@@ -341,11 +417,12 @@ func upsertHardwareLine(ctx context.Context, transaction *sql.Tx, line HardwareL
 			last_seen = excluded.last_seen,
 			updated_at = excluded.updated_at`,
 		imei,
+		endpointID,
 		strings.TrimSpace(line.Model),
 		strings.TrimSpace(line.Firmware),
 		strings.TrimSpace(line.PrimaryPort),
-		strings.TrimSpace(line.ICCID),
-		line.ICCID != "",
+		currentICCID,
+		currentICCID != "",
 		signal,
 		signalMetricValue(line.SignalDBM),
 		signalMetricValue(line.SignalRSRQ),
@@ -354,33 +431,27 @@ func upsertHardwareLine(ctx context.Context, transaction *sql.Tx, line HardwareL
 		databaseTime(observedAt),
 		databaseTime(observedAt),
 	); err != nil {
-		return fmt.Errorf("upsert hardware line device: %w", err)
+		return "", fmt.Errorf("upsert hardware line device: %w", err)
 	}
-	if _, err := transaction.ExecContext(
-		ctx,
-		`UPDATE modemdeck_line_settings
-		 SET default_device_imei = ?, revision = revision + 1, updated_at = CURRENT_TIMESTAMP
-		 WHERE singleton = 1 AND default_device_imei = ''`,
-		imei,
-	); err != nil {
-		return fmt.Errorf("initialize default line: %w", err)
-	}
-	if strings.TrimSpace(line.ICCID) == "" {
-		return nil
+	if currentICCID == "" {
+		return lineID, nil
 	}
 	if _, err := transaction.ExecContext(
 		ctx,
 		`INSERT INTO sim_cards (
-			iccid, imsi, operator, current_imei, reg_status_text, last_seen, created_at, updated_at
-		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			iccid, line_id, imsi, operator, current_imei, reg_status_text,
+			last_seen, created_at, updated_at
+		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(iccid) DO UPDATE SET
+			line_id = excluded.line_id,
 			imsi = excluded.imsi,
 			operator = excluded.operator,
 			current_imei = excluded.current_imei,
 			reg_status_text = excluded.reg_status_text,
 			last_seen = excluded.last_seen,
 			updated_at = excluded.updated_at`,
-		strings.TrimSpace(line.ICCID),
+		currentICCID,
+		lineID,
 		strings.TrimSpace(line.IMSI),
 		strings.TrimSpace(line.Operator),
 		imei,
@@ -389,18 +460,22 @@ func upsertHardwareLine(ctx context.Context, transaction *sql.Tx, line HardwareL
 		databaseTime(observedAt),
 		databaseTime(observedAt),
 	); err != nil {
-		return fmt.Errorf("upsert hardware line SIM: %w", err)
+		return "", fmt.Errorf("upsert hardware line SIM: %w", err)
 	}
 	if strings.TrimSpace(line.IMSI) == "" {
-		return nil
+		if err := initializeDefaultLine(ctx, transaction, lineID); err != nil {
+			return "", err
+		}
+		return lineID, nil
 	}
 	if _, err := transaction.ExecContext(
 		ctx,
 		`INSERT INTO sim_subscriptions (
-			imsi, current_iccid, phone_number, modem_phone_number, operator,
+			imsi, line_id, current_iccid, phone_number, modem_phone_number, operator,
 			last_seen, created_at, updated_at
-		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(imsi) DO UPDATE SET
+			line_id = excluded.line_id,
 			current_iccid = excluded.current_iccid,
 			phone_number = CASE
 				WHEN excluded.phone_number <> '' THEN excluded.phone_number
@@ -414,7 +489,8 @@ func upsertHardwareLine(ctx context.Context, transaction *sql.Tx, line HardwareL
 			last_seen = excluded.last_seen,
 			updated_at = excluded.updated_at`,
 		strings.TrimSpace(line.IMSI),
-		strings.TrimSpace(line.ICCID),
+		lineID,
+		currentICCID,
 		strings.TrimSpace(line.PhoneNumber),
 		strings.TrimSpace(line.PhoneNumber),
 		strings.TrimSpace(line.Operator),
@@ -422,7 +498,147 @@ func upsertHardwareLine(ctx context.Context, transaction *sql.Tx, line HardwareL
 		databaseTime(observedAt),
 		databaseTime(observedAt),
 	); err != nil {
-		return fmt.Errorf("upsert hardware line subscription: %w", err)
+		return "", fmt.Errorf("upsert hardware line subscription: %w", err)
+	}
+	if err := initializeDefaultLine(ctx, transaction, lineID); err != nil {
+		return "", err
+	}
+	return lineID, nil
+}
+
+func reconcileCurrentSIMAttachment(
+	ctx context.Context,
+	transaction *sql.Tx,
+	lineID, imei, currentICCID string,
+) error {
+	if _, err := transaction.ExecContext(
+		ctx,
+		`UPDATE sim_cards
+		 SET current_imei = '', updated_at = CURRENT_TIMESTAMP
+		 WHERE current_imei = ? AND iccid <> ?`,
+		imei,
+		currentICCID,
+	); err != nil {
+		return fmt.Errorf("detach replaced SIM from current modem: %w", err)
+	}
+	if _, err := transaction.ExecContext(
+		ctx,
+		`UPDATE devices
+		 SET iccid = NULL, sim_inserted = 0, updated_at = CURRENT_TIMESTAMP
+		 WHERE imei <> ? AND (
+			(? <> '' AND COALESCE(iccid, '') = ?) OR
+			imei IN (
+				SELECT current_imei
+				FROM sim_cards
+				WHERE line_id = ? AND COALESCE(current_imei, '') <> ''
+			)
+		 )`,
+		imei,
+		currentICCID,
+		currentICCID,
+		lineID,
+	); err != nil {
+		return fmt.Errorf("detach stable line from previous modem: %w", err)
+	}
+	if _, err := transaction.ExecContext(
+		ctx,
+		`UPDATE sim_cards
+		 SET current_imei = '', updated_at = CURRENT_TIMESTAMP
+		 WHERE line_id = ? AND (
+			iccid <> ? OR COALESCE(current_imei, '') <> ?
+		 )`,
+		lineID,
+		currentICCID,
+		imei,
+	); err != nil {
+		return fmt.Errorf("detach previous SIM attachment for stable line: %w", err)
+	}
+	if _, err := transaction.ExecContext(
+		ctx,
+		`UPDATE devices
+		 SET iccid = NULL, sim_inserted = 0, updated_at = CURRENT_TIMESTAMP
+		 WHERE ? <> '' AND imei <> ? AND COALESCE(iccid, '') = ?`,
+		currentICCID,
+		imei,
+		currentICCID,
+	); err != nil {
+		return fmt.Errorf("detach duplicate SIM device attachment: %w", err)
+	}
+	return nil
+}
+
+func initializeDefaultLine(ctx context.Context, transaction *sql.Tx, lineID string) error {
+	lineID = strings.TrimSpace(lineID)
+	if lineID == "" {
+		return nil
+	}
+	if _, err := transaction.ExecContext(
+		ctx,
+		`UPDATE modemdeck_line_settings
+		 SET default_line_id = ?, revision = revision + 1, updated_at = CURRENT_TIMESTAMP
+		 WHERE singleton = 1 AND default_line_id = ''`,
+		lineID,
+	); err != nil {
+		return fmt.Errorf("initialize default line: %w", err)
+	}
+	return nil
+}
+
+func rewriteSnapshotLineIdentities(
+	ctx context.Context,
+	transaction *sql.Tx,
+	snapshot *HardwareSnapshot,
+	lineIDsByEndpoint map[string]string,
+) error {
+	for index := range snapshot.Messages {
+		message := &snapshot.Messages[index]
+		endpointLineID := strings.TrimSpace(message.EndpointLineID)
+		if endpointLineID == "" {
+			endpointLineID = strings.TrimSpace(message.LineID)
+		}
+		lineID := lineIDsByEndpoint[endpointLineID]
+		if lineID == "" {
+			var err error
+			lineID, endpointLineID, err = resolveStoredHardwareLine(
+				ctx,
+				transaction,
+				message.LineID,
+				endpointLineID,
+				message.ICCID,
+				message.IMSI,
+				message.LocalPhone,
+			)
+			if err != nil {
+				return fmt.Errorf("resolve snapshot message line: %w", err)
+			}
+		}
+		message.LineID = lineID
+		message.EndpointLineID = endpointLineID
+	}
+	for index := range snapshot.Calls {
+		call := &snapshot.Calls[index]
+		endpointLineID := strings.TrimSpace(call.EndpointLineID)
+		if endpointLineID == "" {
+			endpointLineID = strings.TrimSpace(call.LineID)
+		}
+		lineID := lineIDsByEndpoint[endpointLineID]
+		if lineID == "" {
+			var err error
+			lineID, endpointLineID, err = resolveStoredHardwareLine(
+				ctx,
+				transaction,
+				call.LineID,
+				endpointLineID,
+				call.LineICCID,
+				call.LineIMSI,
+				call.LocalPhone,
+			)
+			if err != nil {
+				return fmt.Errorf("resolve snapshot call line: %w", err)
+			}
+		}
+		call.LineID = lineID
+		call.EndpointLineID = endpointLineID
 	}
 	return nil
 }
@@ -433,13 +649,15 @@ func upsertHardwareMessage(
 	message HardwareMessage,
 ) (Message, bool, error) {
 	message.LineID = strings.TrimSpace(message.LineID)
+	message.EndpointLineID = strings.TrimSpace(message.EndpointLineID)
 	message.EndpointMessageID = strings.TrimSpace(message.EndpointMessageID)
 	message.RequestID = strings.TrimSpace(message.RequestID)
 	message.Number = strings.TrimSpace(message.Number)
 	message.Text = strings.TrimSpace(message.Text)
 	message.Direction = strings.ToLower(strings.TrimSpace(message.Direction))
 	message.State = strings.ToLower(strings.TrimSpace(message.State))
-	if message.LineID == "" || message.Number == "" || message.Text == "" {
+	if message.LineID == "" || message.EndpointLineID == "" ||
+		message.Number == "" || message.Text == "" {
 		return Message{}, false, fmt.Errorf("%w: message identity or content is empty", ErrSnapshotInvalid)
 	}
 	if message.Direction != "incoming" && message.Direction != "outgoing" {
@@ -472,8 +690,8 @@ func upsertHardwareMessage(
 	if existingID == 0 && message.EndpointMessageID != "" {
 		err := transaction.QueryRowContext(
 			ctx,
-			"SELECT id FROM sms WHERE line_id = ? AND endpoint_message_id = ?",
-			message.LineID,
+			"SELECT id FROM sms WHERE endpoint_line_id = ? AND endpoint_message_id = ?",
+			message.EndpointLineID,
 			message.EndpointMessageID,
 		).Scan(&existingID)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -493,12 +711,13 @@ func upsertHardwareMessage(
 		result, err := transaction.ExecContext(
 			ctx,
 			`INSERT INTO sms (
-				request_id, line_id, endpoint_message_id, imsi, iccid, peer,
+				request_id, line_id, endpoint_line_id, endpoint_message_id, imsi, iccid, peer,
 				local_phone, sender, recipient, content, type, status, state,
 				failure_code, revision, timestamp, created_at
-			 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)`,
+			 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)`,
 			message.RequestID,
 			message.LineID,
+			message.EndpointLineID,
 			message.EndpointMessageID,
 			strings.TrimSpace(message.IMSI),
 			strings.TrimSpace(message.ICCID),
@@ -576,8 +795,8 @@ func updateMessageThread(
 	messageID int64,
 	message HardwareMessage,
 ) error {
-	if strings.TrimSpace(message.IMSI) == "" {
-		return nil
+	if strings.TrimSpace(message.LineID) == "" {
+		return fmt.Errorf("%w: message stable line is empty", ErrSnapshotInvalid)
 	}
 	unread := 0
 	if message.Direction == "incoming" {
@@ -590,11 +809,18 @@ func updateMessageThread(
 	if _, err := transaction.ExecContext(
 		ctx,
 		`INSERT INTO sms_contacts (
-			imsi, iccid, peer, last_sms_id, last_timestamp, last_content,
+			line_id, imsi, iccid, peer, last_sms_id, last_timestamp, last_content,
 			last_type, unread_count, created_at, updated_at
-		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(imsi, peer) DO UPDATE SET
-			iccid = excluded.iccid,
+		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(line_id, peer) DO UPDATE SET
+			imsi = CASE
+				WHEN COALESCE(sms_contacts.last_timestamp, '') <= excluded.last_timestamp
+				THEN excluded.imsi ELSE sms_contacts.imsi
+			END,
+			iccid = CASE
+				WHEN COALESCE(sms_contacts.last_timestamp, '') <= excluded.last_timestamp
+				THEN excluded.iccid ELSE sms_contacts.iccid
+			END,
 			last_sms_id = CASE
 				WHEN COALESCE(sms_contacts.last_timestamp, '') <= excluded.last_timestamp
 				THEN excluded.last_sms_id ELSE sms_contacts.last_sms_id
@@ -613,6 +839,7 @@ func updateMessageThread(
 			END,
 			unread_count = sms_contacts.unread_count + excluded.unread_count,
 			updated_at = excluded.updated_at`,
+		strings.TrimSpace(message.LineID),
 		strings.TrimSpace(message.IMSI),
 		strings.TrimSpace(message.ICCID),
 		message.Number,
@@ -633,14 +860,14 @@ func messageByID(ctx context.Context, queryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, id int64) (Message, error) {
 	var (
-		message                                                                    Message
-		requestID, lineID, endpointID, imsi, iccid, peer, local, sender, recipient sql.NullString
-		content, state, failureCode, timestamp, createdAt                          sql.NullString
-		messageType, status, revision                                              sql.NullInt64
+		message                                                                     Message
+		requestID, lineID, endpointLineID, endpointID, imsi, iccid, peer            sql.NullString
+		local, sender, recipient, content, state, failureCode, timestamp, createdAt sql.NullString
+		messageType, status, revision                                               sql.NullInt64
 	)
 	err := queryer.QueryRowContext(
 		ctx,
-		`SELECT id, request_id, line_id, endpoint_message_id, imsi, iccid, peer,
+		`SELECT id, request_id, line_id, endpoint_line_id, endpoint_message_id, imsi, iccid, peer,
 			local_phone, sender, recipient, content, type, status, state,
 			failure_code, revision, timestamp, created_at
 		 FROM sms WHERE id = ?`,
@@ -649,6 +876,7 @@ func messageByID(ctx context.Context, queryer interface {
 		&message.ID,
 		&requestID,
 		&lineID,
+		&endpointLineID,
 		&endpointID,
 		&imsi,
 		&iccid,
@@ -673,6 +901,7 @@ func messageByID(ctx context.Context, queryer interface {
 	}
 	message.RequestID = stringValue(requestID)
 	message.LineID = stringValue(lineID)
+	message.EndpointLineID = stringValue(endpointLineID)
 	message.EndpointMessageID = stringValue(endpointID)
 	message.IMSI = stringValue(imsi)
 	message.ICCID = stringValue(iccid)
@@ -706,6 +935,7 @@ func signalMetricValue(value *int64) int64 {
 func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareCall) (Call, error) {
 	call.AppID = strings.TrimSpace(call.AppID)
 	call.LineID = strings.TrimSpace(call.LineID)
+	call.EndpointLineID = strings.TrimSpace(call.EndpointLineID)
 	call.EndpointCallID = strings.TrimSpace(call.EndpointCallID)
 	reportedNumber := strings.TrimSpace(call.Number)
 	call.Number = phone.NormalizeNetworkNumber(reportedNumber)
@@ -716,7 +946,8 @@ func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareC
 	call.AudioPort = strings.TrimSpace(call.AudioPort)
 	call.AudioEncoding = strings.TrimSpace(call.AudioEncoding)
 	call.AudioResolution = strings.TrimSpace(call.AudioResolution)
-	if call.AppID == "" || call.LineID == "" || call.EndpointCallID == "" ||
+	if call.AppID == "" || call.LineID == "" || call.EndpointLineID == "" ||
+		call.EndpointCallID == "" ||
 		(call.Direction != "incoming" && call.Direction != "outgoing") {
 		return Call{}, fmt.Errorf("%w: invalid call identity", ErrSnapshotInvalid)
 	}
@@ -756,7 +987,7 @@ func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareC
 	if _, err := transaction.ExecContext(
 		ctx,
 		`INSERT INTO call_history (
-			id, request_id, device_id, local_phone, line_imsi, line_iccid,
+			id, request_id, line_id, endpoint_line_id, local_phone, line_imsi, line_iccid,
 			direction, remote_number, reported_remote_number, endpoint_id,
 			endpoint_call_id, phase,
 			revision, created_at, updated_at, active_at, ended_at, end_reason,
@@ -764,7 +995,7 @@ func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareC
 			audio_port, audio_encoding, audio_resolution, audio_rate,
 			media_available
 		 ) VALUES (
-			?, ?, ?, ?, ?, ?,
+			?, ?, ?, ?, ?, ?, ?,
 			?, ?, ?, ?, ?, ?, ?,
 			?, ?, ?, ?, ?, ?,
 			?, ?, ?, ?, ?, ?,
@@ -832,6 +1063,7 @@ func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareC
 		call.AppID,
 		call.RequestID,
 		call.LineID,
+		call.EndpointLineID,
 		strings.TrimSpace(call.LocalPhone),
 		strings.TrimSpace(call.LineIMSI),
 		strings.TrimSpace(call.LineICCID),
@@ -879,7 +1111,7 @@ func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareC
 			"call:"+stored.ID,
 			NotificationMissedCall,
 			stored.ID,
-			stored.DeviceID,
+			stored.LineID,
 			stored.RemoteNumber,
 			"",
 			call.ObservedAt,
@@ -895,27 +1127,26 @@ func closeMissingCalls(
 	transaction *sql.Tx,
 	snapshot HardwareSnapshot,
 	sequence int64,
+	lineIDsByEndpoint map[string]string,
 ) error {
 	activeIDs := make(map[string]struct{}, len(snapshot.Calls))
-	activeLineIDs := make(map[string]struct{}, len(snapshot.Calls))
+	activeEndpointIDs := make(map[string]struct{}, len(snapshot.Calls))
 	for _, call := range snapshot.Calls {
 		phase := strings.ToLower(strings.TrimSpace(call.Phase))
 		if phase != "ended" && phase != "failed" && strings.TrimSpace(call.AppID) != "" {
 			activeIDs[strings.TrimSpace(call.AppID)] = struct{}{}
-			if lineID := strings.TrimSpace(call.LineID); lineID != "" {
-				activeLineIDs[lineID] = struct{}{}
+			if endpointID := strings.TrimSpace(call.EndpointLineID); endpointID != "" {
+				activeEndpointIDs[endpointID] = struct{}{}
 			}
 		}
 	}
-	lineIDs := make(map[string]struct{}, len(snapshot.Lines))
-	for _, line := range snapshot.Lines {
-		if lineID := strings.TrimSpace(line.ID); lineID != "" {
-			lineIDs[lineID] = struct{}{}
-		}
+	endpointIDs := make(map[string]struct{}, len(lineIDsByEndpoint))
+	for endpointID := range lineIDsByEndpoint {
+		endpointIDs[endpointID] = struct{}{}
 	}
 	rows, err := transaction.QueryContext(
 		ctx,
-		`SELECT id, device_id, remote_number, created_at, direction,
+		`SELECT id, line_id, endpoint_line_id, remote_number, created_at, direction,
 			active_at, end_reason, failure_code, updated_at
 		 FROM call_history
 		 WHERE endpoint_id = ? AND phase NOT IN ('ended', 'failed')`,
@@ -925,9 +1156,9 @@ func closeMissingCalls(
 		return fmt.Errorf("query open hardware calls: %w", err)
 	}
 	type missingCall struct {
-		id, lineID, peer, createdAt, direction string
-		lastObserved                           sql.NullString
-		missed                                 bool
+		id, lineID, endpointLineID, peer, createdAt, direction string
+		lastObserved                                           sql.NullString
+		missed                                                 bool
 	}
 	missing := make([]missingCall, 0)
 	for rows.Next() {
@@ -938,6 +1169,7 @@ func closeMissingCalls(
 		if err := rows.Scan(
 			&call.id,
 			&call.lineID,
+			&call.endpointLineID,
 			&call.peer,
 			&call.createdAt,
 			&call.direction,
@@ -952,9 +1184,9 @@ func closeMissingCalls(
 		if _, stillActive := activeIDs[call.id]; stillActive {
 			continue
 		}
-		_, replacementPresent := activeLineIDs[call.lineID]
+		_, replacementPresent := activeEndpointIDs[call.endpointLineID]
 		lastObservedAt, hasLastObservation := parseDatabaseTime(stringValue(call.lastObserved))
-		if _, linePresent := lineIDs[call.lineID]; linePresent &&
+		if _, linePresent := endpointIDs[call.endpointLineID]; linePresent &&
 			!replacementPresent &&
 			hasLastObservation &&
 			snapshot.ObservedAt.Before(lastObservedAt.Add(missingCallConfirmationWindow)) {
@@ -992,7 +1224,7 @@ func closeMissingCalls(
 					audio_resolution = '',
 					audio_rate = 0,
 					media_available = 0
-				 WHERE id = ? AND device_id = ? AND endpoint_id = ?
+				 WHERE id = ? AND line_id = ? AND endpoint_line_id = ? AND endpoint_id = ?
 					AND phase NOT IN ('ended', 'failed')`,
 			databaseTime(snapshot.ObservedAt),
 			databaseTime(snapshot.ObservedAt),
@@ -1000,6 +1232,7 @@ func closeMissingCalls(
 			sequence,
 			call.id,
 			call.lineID,
+			call.endpointLineID,
 			modemManagerEndpointID,
 		); err != nil {
 			return fmt.Errorf("close missing hardware call: %w", err)
@@ -1106,7 +1339,7 @@ func callByID(ctx context.Context, queryer interface {
 }, id string) (Call, error) {
 	row := queryer.QueryRowContext(
 		ctx,
-		`SELECT id, request_id, device_id, local_phone, line_imsi, line_iccid,
+		`SELECT id, request_id, line_id, endpoint_line_id, local_phone, line_imsi, line_iccid,
 			direction, remote_number,
 			endpoint_id, endpoint_call_id, phase, revision, created_at, updated_at,
 			active_at, ended_at, end_reason, failure_code, bearer, state_reason,
@@ -1129,7 +1362,7 @@ type callScanner interface {
 func scanCallRow(scanner callScanner) (Call, error) {
 	var (
 		call                                                                    Call
-		requestID, deviceID, localPhone, lineIMSI, lineICCID                    sql.NullString
+		requestID, lineID, endpointLineID, localPhone, lineIMSI, lineICCID      sql.NullString
 		direction, remoteNumber, endpointID, endpointCallID                     sql.NullString
 		phase, createdAt, updatedAt, activeAt, endedAt, endReason               sql.NullString
 		failure, bearer, stateReason, audioPort, audioEncoding, audioResolution sql.NullString
@@ -1138,7 +1371,8 @@ func scanCallRow(scanner callScanner) (Call, error) {
 	if err := scanner.Scan(
 		&call.ID,
 		&requestID,
-		&deviceID,
+		&lineID,
+		&endpointLineID,
 		&localPhone,
 		&lineIMSI,
 		&lineICCID,
@@ -1167,7 +1401,8 @@ func scanCallRow(scanner callScanner) (Call, error) {
 		return Call{}, err
 	}
 	call.RequestID = stringValue(requestID)
-	call.DeviceID = stringValue(deviceID)
+	call.LineID = stringValue(lineID)
+	call.EndpointLineID = stringValue(endpointLineID)
 	call.LocalPhone = stringValue(localPhone)
 	call.LineIMSI = stringValue(lineIMSI)
 	call.LineICCID = stringValue(lineICCID)

@@ -70,6 +70,29 @@ type networkAgentCall struct {
 	HasDeadline  bool
 }
 
+type networkTestRepository struct {
+	*store.Store
+	lines []store.LineSummary
+}
+
+func (repository *networkTestRepository) Lines(
+	context.Context,
+) ([]store.LineSummary, error) {
+	return append([]store.LineSummary(nil), repository.lines...), nil
+}
+
+func (repository *networkTestRepository) ResolveLineEndpoint(
+	_ context.Context,
+	lineID string,
+) (string, error) {
+	for _, line := range repository.lines {
+		if line.ID == lineID && strings.TrimSpace(line.EndpointID) != "" {
+			return line.EndpointID, nil
+		}
+	}
+	return "", fmt.Errorf("line %q is not attached", lineID)
+}
+
 func (agent *fakeAgent) Network(context.Context) (agentclient.NetworkSnapshot, error) {
 	agent.mu.Lock()
 	defer agent.mu.Unlock()
@@ -225,6 +248,7 @@ func TestProxyPasswordIsEncryptedAndNeverReturned(t *testing.T) {
 	t.Parallel()
 
 	service, repository, agent := newNetworkTestService(t, nil)
+	repository.lines[0].EndpointID = "endpoint-1"
 	mutation, err := service.Create(context.Background(), CreateInput{
 		ID:            "proxy-1",
 		Name:          "Primary",
@@ -265,6 +289,7 @@ func TestProxyPasswordIsEncryptedAndNeverReturned(t *testing.T) {
 	}
 	if len(agent.received) != 1 ||
 		len(agent.received[0]) != 1 ||
+		agent.received[0][0].LineID != "endpoint-1" ||
 		agent.received[0][0].Password != "super-secret-password" {
 		t.Fatalf("agent desired state = %+v", agent.received)
 	}
@@ -799,7 +824,11 @@ func TestDisconnectedStaleInterfaceDoesNotHideConnectedLineUsage(t *testing.T) {
 		lineSnapshot(at.Add(2*time.Minute), networkLine("line-b", true, "wwan0", 200)),
 		lineSnapshot(at.Add(3*time.Minute), networkLine("line-b", true, "wwan0", 220)),
 	}}
-	service, _, _ := newNetworkTestService(t, agent)
+	service, repository, _ := newNetworkTestService(t, agent)
+	repository.lines = []store.LineSummary{
+		{ID: "line-a", EndpointID: "line-a"},
+		{ID: "line-b", EndpointID: "line-b"},
+	}
 	for range 4 {
 		if err := service.Refresh(context.Background()); err != nil {
 			t.Fatalf("Refresh() error = %v", err)
@@ -866,7 +895,7 @@ func TestStatusUsesConfiguredAccountingLocation(t *testing.T) {
 func newNetworkTestService(
 	t *testing.T,
 	agent *fakeAgent,
-) (*Service, *store.Store, *fakeAgent) {
+) (*Service, *networkTestRepository, *fakeAgent) {
 	t.Helper()
 	database, err := platformdb.Open(context.Background(), platformdb.Config{
 		TargetPath: filepath.Join(t.TempDir(), "modemdeck.db"),
@@ -875,9 +904,16 @@ func newNetworkTestService(
 		t.Fatalf("database.Open() error = %v", err)
 	}
 	t.Cleanup(func() { _ = database.Close() })
-	repository, err := store.New(database)
+	persistentStore, err := store.New(database)
 	if err != nil {
 		t.Fatalf("store.New() error = %v", err)
+	}
+	repository := &networkTestRepository{
+		Store: persistentStore,
+		lines: []store.LineSummary{{
+			ID:         "line-1",
+			EndpointID: "line-1",
+		}},
 	}
 	secrets, err := secretbox.New([]byte(strings.Repeat("k", secretbox.KeySize)))
 	if err != nil {

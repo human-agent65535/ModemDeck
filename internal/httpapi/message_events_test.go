@@ -17,12 +17,15 @@ func TestMessageEventStreamReplaysLastEventID(t *testing.T) {
 	events.Publish(messageevents.IncomingSMS{
 		EventKey:  "sms:1",
 		MessageID: "1",
-		ThreadKey: "iccid|+818000000001",
+		ThreadKey: "line-main|+818000000001",
+		LineID:    "line-main",
 	})
 	events.Publish(messageevents.IncomingSMS{
 		EventKey:  "sms:2",
 		MessageID: "2",
-		ThreadKey: "iccid|+818000000002",
+		ThreadKey: "line-main|+818000000002",
+		LineID:    "line-main",
+		ICCID:     "legacy-hardware-id",
 	})
 	api, err := New(&fakeRepository{}, Options{
 		MessageEvents:         events,
@@ -45,7 +48,9 @@ func TestMessageEventStreamReplaysLastEventID(t *testing.T) {
 	body := response.Body.String()
 	if !strings.Contains(body, "event: sms") ||
 		!strings.Contains(body, `"message_id":"2"`) ||
+		!strings.Contains(body, `"line_id":"line-main"`) ||
 		strings.Contains(body, `"message_id":"1"`) ||
+		strings.Contains(body, `"iccid"`) ||
 		!strings.Contains(body, "event: ready") {
 		t.Fatalf("stream = %q", body)
 	}
@@ -58,12 +63,14 @@ func TestMessageEventStreamInitialSubscriptionStartsAtCurrentWatermark(t *testin
 	events.Publish(messageevents.IncomingSMS{
 		EventKey:  "sms:1",
 		MessageID: "1",
-		ThreadKey: "iccid|+818000000001",
+		ThreadKey: "line-main|+818000000001",
+		LineID:    "line-main",
 	})
 	second, _ := events.Publish(messageevents.IncomingSMS{
 		EventKey:  "sms:2",
 		MessageID: "2",
-		ThreadKey: "iccid|+818000000002",
+		ThreadKey: "line-main|+818000000002",
+		LineID:    "line-main",
 	})
 	api, err := New(&fakeRepository{}, Options{
 		MessageEvents:         events,
@@ -97,7 +104,8 @@ func TestMessageEventStreamReplaysExplicitAfterCursor(t *testing.T) {
 	events.Publish(messageevents.IncomingSMS{
 		EventKey:  "sms:1",
 		MessageID: "1",
-		ThreadKey: "iccid|+818000000001",
+		ThreadKey: "line-main|+818000000001",
+		LineID:    "line-main",
 	})
 	api, err := New(&fakeRepository{}, Options{
 		MessageEvents:         events,

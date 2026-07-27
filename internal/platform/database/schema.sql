@@ -21,7 +21,7 @@ CREATE TABLE contacts (
 			display_name TEXT NOT NULL,
 			avatar TEXT NOT NULL DEFAULT '',
 			notes TEXT NOT NULL DEFAULT '',
-			preferred_device_imei TEXT NOT NULL DEFAULT '',
+			preferred_line_id TEXT NOT NULL DEFAULT '',
 			is_favorite NUMERIC NOT NULL DEFAULT 0,
 			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -42,6 +42,7 @@ CREATE TABLE sms (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				request_id TEXT NOT NULL DEFAULT '',
 				line_id TEXT NOT NULL DEFAULT '',
+				endpoint_line_id TEXT NOT NULL DEFAULT '',
 				endpoint_message_id TEXT NOT NULL DEFAULT '',
 				imsi TEXT NOT NULL DEFAULT '',
 				iccid TEXT NOT NULL DEFAULT '',
@@ -60,23 +61,25 @@ CREATE TABLE sms (
 			);
 
 CREATE TABLE sms_contacts (
-			imsi TEXT NOT NULL,
-			iccid TEXT NOT NULL DEFAULT '',
-			peer TEXT NOT NULL,
+				line_id TEXT NOT NULL,
+				imsi TEXT NOT NULL,
+				iccid TEXT NOT NULL DEFAULT '',
+				peer TEXT NOT NULL,
 			last_sms_id INTEGER NOT NULL DEFAULT 0,
 			last_timestamp DATETIME,
 			last_content TEXT NOT NULL DEFAULT '',
 			last_type INTEGER NOT NULL DEFAULT 0,
-			unread_count INTEGER NOT NULL DEFAULT 0,
-			created_at DATETIME,
-			updated_at DATETIME,
-			PRIMARY KEY (imsi, peer)
-		);
+				unread_count INTEGER NOT NULL DEFAULT 0,
+				created_at DATETIME,
+				updated_at DATETIME,
+				PRIMARY KEY (line_id, peer)
+			);
 
 CREATE TABLE call_history (
 			id TEXT PRIMARY KEY,
 			request_id TEXT NOT NULL DEFAULT '',
-			device_id TEXT NOT NULL DEFAULT '',
+			line_id TEXT NOT NULL DEFAULT '',
+			endpoint_line_id TEXT NOT NULL DEFAULT '',
 			local_phone TEXT NOT NULL DEFAULT '',
 			line_imsi TEXT NOT NULL DEFAULT '',
 			line_iccid TEXT NOT NULL DEFAULT '',
@@ -113,7 +116,7 @@ CREATE TABLE modemdeck_call_settings (
 
 CREATE TABLE modemdeck_line_settings (
 			singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-			default_device_imei TEXT NOT NULL DEFAULT '',
+			default_line_id TEXT NOT NULL DEFAULT '',
 			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
@@ -137,6 +140,7 @@ CREATE TABLE modemdeck_line_call_policies (
 CREATE TABLE modemdeck_incoming_call_actions (
 			call_id TEXT PRIMARY KEY,
 			line_id TEXT NOT NULL,
+			endpoint_line_id TEXT NOT NULL,
 			endpoint_call_id TEXT NOT NULL,
 			effective_policy TEXT NOT NULL
 				CHECK (effective_policy IN ('receive', 'do_not_disturb')),
@@ -194,8 +198,29 @@ CREATE TABLE modemdeck_call_recordings (
 				FOREIGN KEY (call_id) REFERENCES call_history(id) ON DELETE CASCADE ON UPDATE CASCADE
 			);
 
+CREATE TABLE modemdeck_lines (
+			line_id TEXT PRIMARY KEY,
+			phone_number TEXT NOT NULL DEFAULT '',
+			line_label TEXT NOT NULL DEFAULT '',
+			line_color TEXT NOT NULL DEFAULT ''
+				CHECK (line_color IN (
+					'', 'teal', 'blue', 'indigo', 'violet',
+					'green', 'amber', 'orange', 'red'
+				)),
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			CHECK (line_id GLOB 'line_*' AND length(line_id) > 5)
+		);
+
+CREATE TABLE modemdeck_legacy_endpoint_lines (
+			endpoint_id TEXT PRIMARY KEY,
+			line_id TEXT NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+
 CREATE TABLE devices (
 			imei TEXT PRIMARY KEY,
+			endpoint_id TEXT NOT NULL DEFAULT '',
 			alias TEXT NOT NULL DEFAULT '',
 			model TEXT NOT NULL DEFAULT '',
 			firmware TEXT NOT NULL DEFAULT '',
@@ -217,13 +242,8 @@ CREATE TABLE devices (
 
 CREATE TABLE sim_cards (
 			iccid TEXT PRIMARY KEY,
+			line_id TEXT NOT NULL,
 			imsi TEXT NOT NULL DEFAULT '',
-			line_label TEXT NOT NULL DEFAULT '',
-			line_color TEXT NOT NULL DEFAULT ''
-				CHECK (line_color IN (
-					'', 'teal', 'blue', 'indigo', 'violet',
-					'green', 'amber', 'orange', 'red'
-				)),
 			operator TEXT NOT NULL DEFAULT '',
 			current_imei TEXT,
 			reg_status INTEGER NOT NULL DEFAULT 0,
@@ -234,11 +254,13 @@ CREATE TABLE sim_cards (
 			ims_status INTEGER NOT NULL DEFAULT 0,
 			last_seen DATETIME,
 			created_at DATETIME,
-			updated_at DATETIME
+			updated_at DATETIME,
+			FOREIGN KEY (line_id) REFERENCES modemdeck_lines(line_id)
 		);
 
 CREATE TABLE sim_subscriptions (
 			imsi TEXT PRIMARY KEY,
+			line_id TEXT NOT NULL,
 			current_iccid TEXT NOT NULL DEFAULT '',
 			phone_number TEXT NOT NULL DEFAULT '',
 			modem_phone_number TEXT NOT NULL DEFAULT '',
@@ -246,7 +268,8 @@ CREATE TABLE sim_subscriptions (
 			operator TEXT NOT NULL DEFAULT '',
 			last_seen DATETIME,
 			created_at DATETIME,
-			updated_at DATETIME
+			updated_at DATETIME,
+			FOREIGN KEY (line_id) REFERENCES modemdeck_lines(line_id)
 		);
 
 CREATE TABLE modemdeck_telegram_units (
@@ -333,11 +356,12 @@ CREATE TABLE modemdeck_network_selection_policies (
 CREATE TABLE modemdeck_network_counter_checkpoints (
 			scope_kind TEXT NOT NULL CHECK (scope_kind IN ('line', 'proxy')),
 			scope_id TEXT NOT NULL,
+			endpoint_scope_id TEXT NOT NULL,
 			epoch TEXT NOT NULL,
 			rx_bytes INTEGER NOT NULL CHECK (rx_bytes >= 0),
 			tx_bytes INTEGER NOT NULL CHECK (tx_bytes >= 0),
 			observed_at DATETIME NOT NULL,
-			PRIMARY KEY (scope_kind, scope_id)
+			PRIMARY KEY (scope_kind, endpoint_scope_id)
 		);
 
 CREATE TABLE modemdeck_network_daily_usage (
@@ -398,7 +422,7 @@ CREATE INDEX idx_modemdeck_auth_sessions_expiry ON modemdeck_auth_sessions(expir
 
 CREATE INDEX idx_contacts_display_name ON contacts(display_name);
 
-CREATE INDEX idx_contacts_preferred_device ON contacts(preferred_device_imei);
+CREATE INDEX idx_contacts_preferred_line ON contacts(preferred_line_id);
 
 CREATE INDEX idx_contact_phones_contact_id ON contact_phones(contact_id);
 
@@ -414,7 +438,7 @@ CREATE INDEX idx_sms_imsi_peer_timestamp ON sms(imsi, peer, timestamp DESC);
 
 CREATE UNIQUE INDEX ux_sms_request_id ON sms(request_id) WHERE request_id <> '';
 
-CREATE UNIQUE INDEX ux_sms_endpoint_message ON sms(line_id, endpoint_message_id) WHERE line_id <> '' AND endpoint_message_id <> '';
+CREATE UNIQUE INDEX ux_sms_endpoint_line_message ON sms(endpoint_line_id, endpoint_message_id) WHERE endpoint_line_id <> '' AND endpoint_message_id <> '';
 
 CREATE INDEX idx_sms_contacts_iccid_timestamp ON sms_contacts(iccid, last_timestamp DESC);
 
@@ -422,7 +446,9 @@ CREATE INDEX idx_sms_contacts_timestamp ON sms_contacts(last_timestamp DESC);
 
 CREATE INDEX idx_call_history_ended_at ON call_history(ended_at DESC);
 
-CREATE INDEX idx_call_history_device_ended_at ON call_history(device_id, ended_at DESC);
+CREATE INDEX idx_call_history_line_ended_at ON call_history(line_id, ended_at DESC);
+
+CREATE INDEX idx_call_history_endpoint_line_ended_at ON call_history(endpoint_line_id, ended_at DESC);
 
 CREATE INDEX idx_call_history_local_phone_ended_at ON call_history(local_phone, ended_at DESC);
 
@@ -440,9 +466,21 @@ CREATE INDEX idx_modemdeck_call_recordings_call ON modemdeck_call_recordings(cal
 
 CREATE INDEX idx_modemdeck_call_recordings_status ON modemdeck_call_recordings(status, updated_at);
 
+CREATE UNIQUE INDEX ux_modemdeck_lines_phone_number ON modemdeck_lines(phone_number) WHERE phone_number <> '';
+
+CREATE UNIQUE INDEX ux_devices_endpoint_id ON devices(endpoint_id) WHERE endpoint_id <> '';
+
+CREATE UNIQUE INDEX ux_devices_current_iccid ON devices(iccid) WHERE COALESCE(iccid, '') <> '';
+
 CREATE INDEX idx_devices_iccid ON devices(iccid);
 
+CREATE INDEX idx_sim_cards_line_id ON sim_cards(line_id);
+
+CREATE UNIQUE INDEX ux_sim_cards_current_imei ON sim_cards(current_imei) WHERE COALESCE(current_imei, '') <> '';
+
 CREATE INDEX idx_sim_cards_imsi ON sim_cards(imsi);
+
+CREATE INDEX idx_sim_subscriptions_line_id ON sim_subscriptions(line_id);
 
 CREATE INDEX idx_sim_subscriptions_current_iccid ON sim_subscriptions(current_iccid);
 
@@ -463,7 +501,7 @@ INSERT INTO modemdeck_call_settings (
 ) VALUES (1, 1, 1, CURRENT_TIMESTAMP);
 
 INSERT INTO modemdeck_line_settings (
-	singleton, default_device_imei, revision, updated_at
+	singleton, default_line_id, revision, updated_at
 ) VALUES (1, '', 1, CURRENT_TIMESTAMP);
 
 INSERT INTO modemdeck_system_settings (

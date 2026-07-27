@@ -20,6 +20,7 @@ func TestCallPolicyDefaultsOverridesAndOptimisticLock(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("ApplyHardwareSnapshot() error = %v", err)
 	}
+	stableLineID := stableLineIDForICCID(t, repository, line.ICCID)
 
 	global, err := repository.GlobalCallSettings(ctx)
 	if err != nil {
@@ -28,7 +29,7 @@ func TestCallPolicyDefaultsOverridesAndOptimisticLock(t *testing.T) {
 	if !global.ReceiveCalls || global.Revision != 1 {
 		t.Fatalf("global defaults = %+v, want receive_calls=true revision=1", global)
 	}
-	linePolicy, err := repository.LineCallPolicy(ctx, line.ID)
+	linePolicy, err := repository.LineCallPolicy(ctx, stableLineID)
 	if err != nil {
 		t.Fatalf("LineCallPolicy() error = %v", err)
 	}
@@ -40,7 +41,7 @@ func TestCallPolicyDefaultsOverridesAndOptimisticLock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateGlobalCallSettings() error = %v", err)
 	}
-	effective, err := repository.EffectiveCallPolicy(ctx, line.ID)
+	effective, err := repository.EffectiveCallPolicy(ctx, stableLineID)
 	if err != nil {
 		t.Fatalf("EffectiveCallPolicy() error = %v", err)
 	}
@@ -49,7 +50,7 @@ func TestCallPolicyDefaultsOverridesAndOptimisticLock(t *testing.T) {
 		effective.LineRevision != linePolicy.Revision {
 		t.Fatalf("effective global DND = %+v", effective)
 	}
-	configuration, err := repository.CallPolicyConfiguration(ctx, line.ID)
+	configuration, err := repository.CallPolicyConfiguration(ctx, stableLineID)
 	if err != nil {
 		t.Fatalf("CallPolicyConfiguration() error = %v", err)
 	}
@@ -63,14 +64,14 @@ func TestCallPolicyDefaultsOverridesAndOptimisticLock(t *testing.T) {
 
 	linePolicy, err = repository.UpdateLineCallPolicy(
 		ctx,
-		line.ID,
+		stableLineID,
 		LineCallPolicyReceive,
 		linePolicy.Revision,
 	)
 	if err != nil {
 		t.Fatalf("UpdateLineCallPolicy() error = %v", err)
 	}
-	effective, err = repository.EffectiveCallPolicy(ctx, line.ID)
+	effective, err = repository.EffectiveCallPolicy(ctx, stableLineID)
 	if err != nil {
 		t.Fatalf("EffectiveCallPolicy() error = %v", err)
 	}
@@ -79,7 +80,7 @@ func TestCallPolicyDefaultsOverridesAndOptimisticLock(t *testing.T) {
 	}
 	if _, err := repository.UpdateLineCallPolicy(
 		ctx,
-		line.ID,
+		stableLineID,
 		LineCallPolicyDND,
 		linePolicy.Revision-1,
 	); !errors.Is(err, ErrRevisionConflict) {
@@ -108,13 +109,14 @@ func TestDNDEnqueuesEachNewRingingIncomingCallOnlyOnce(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("initial ApplyHardwareSnapshot() error = %v", err)
 	}
-	linePolicy, err := repository.LineCallPolicy(ctx, line.ID)
+	stableLineID := stableLineIDForICCID(t, repository, line.ICCID)
+	linePolicy, err := repository.LineCallPolicy(ctx, stableLineID)
 	if err != nil {
 		t.Fatalf("LineCallPolicy() error = %v", err)
 	}
 	if _, err := repository.UpdateLineCallPolicy(
 		ctx,
-		line.ID,
+		stableLineID,
 		LineCallPolicyDND,
 		linePolicy.Revision,
 	); err != nil {
@@ -144,6 +146,8 @@ func TestDNDEnqueuesEachNewRingingIncomingCallOnlyOnce(t *testing.T) {
 	}
 	if len(claimed) != 1 ||
 		claimed[0].CallID != call.AppID ||
+		claimed[0].LineID != stableLineID ||
+		claimed[0].EndpointLineID != line.ID ||
 		claimed[0].EffectivePolicy != EffectiveCallPolicyDND ||
 		claimed[0].Status != IncomingCallActionSending {
 		t.Fatalf("claimed actions = %+v", claimed)
@@ -159,7 +163,7 @@ func TestDNDEnqueuesEachNewRingingIncomingCallOnlyOnce(t *testing.T) {
 	); err != nil {
 		t.Fatalf("FinishIncomingCallAction() error = %v", err)
 	}
-	latest, err := repository.LatestIncomingCallAction(ctx, line.ID)
+	latest, err := repository.LatestIncomingCallAction(ctx, stableLineID)
 	if err != nil {
 		t.Fatalf("LatestIncomingCallAction() error = %v", err)
 	}
@@ -215,10 +219,11 @@ func TestInterruptedDNDSubmissionBecomesIndeterminateWithoutRetry(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("initial ApplyHardwareSnapshot() error = %v", err)
 	}
-	policy, _ := repository.LineCallPolicy(ctx, line.ID)
+	stableLineID := stableLineIDForICCID(t, repository, line.ICCID)
+	policy, _ := repository.LineCallPolicy(ctx, stableLineID)
 	if _, err := repository.UpdateLineCallPolicy(
 		ctx,
-		line.ID,
+		stableLineID,
 		LineCallPolicyDND,
 		policy.Revision,
 	); err != nil {

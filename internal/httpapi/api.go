@@ -388,8 +388,8 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 			api.deviceResource(response, request, imei)
 			return
 		}
-		if iccid, ok := lineLabelResourceICCID(request.URL.EscapedPath()); ok {
-			api.lineLabelResource(response, request, iccid)
+		if lineID, ok := lineLabelResourceID(request.URL.EscapedPath()); ok {
+			api.lineLabelResource(response, request, lineID)
 			return
 		}
 		if id, ok := deviceConfigurationResourceID(request.URL.Path); ok {
@@ -458,7 +458,7 @@ func (api *API) bootstrap(response http.ResponseWriter, request *http.Request) {
 	}
 	writeJSON(response, http.StatusOK, bootstrapResponse{
 		Capabilities:   capabilities,
-		Lines:          lines,
+		Lines:          lineSummaryResponses(lines),
 		LineSettings:   lineSettings,
 		SystemSettings: systemSettings,
 	})
@@ -468,40 +468,17 @@ func mergePersistedLineMetadata(
 	liveLines []store.LineSummary,
 	persistedLines []store.LineSummary,
 ) []store.LineSummary {
-	aliasesByIMEI := make(map[string]string, len(persistedLines))
-	byICCID := make(map[string]store.LineSummary, len(persistedLines))
-	byIMSI := make(map[string]store.LineSummary, len(persistedLines))
+	byLineID := make(map[string]store.LineSummary, len(persistedLines))
 	for _, line := range persistedLines {
-		if imei := strings.TrimSpace(line.DeviceIMEI); imei != "" {
-			if alias := strings.TrimSpace(line.DeviceAlias); alias != "" {
-				aliasesByIMEI[imei] = alias
-			}
-		}
-		if iccid := strings.TrimSpace(line.ICCID); iccid != "" {
-			byICCID[iccid] = line
-		}
-		if imsi := strings.TrimSpace(line.IMSI); imsi != "" {
-			byIMSI[imsi] = line
+		if lineID := strings.TrimSpace(line.ID); lineID != "" {
+			byLineID[lineID] = line
 		}
 	}
 
 	merged := make([]store.LineSummary, len(liveLines))
 	for index, live := range liveLines {
 		line := live
-		if alias := aliasesByIMEI[strings.TrimSpace(line.DeviceIMEI)]; alias != "" {
-			line.DeviceAlias = alias
-		}
-
-		var persisted store.LineSummary
-		var found bool
-		if iccid := strings.TrimSpace(line.ICCID); iccid != "" {
-			persisted, found = byICCID[iccid]
-		}
-		if !found {
-			if imsi := strings.TrimSpace(line.IMSI); imsi != "" {
-				persisted, found = byIMSI[imsi]
-			}
-		}
+		persisted, found := byLineID[strings.TrimSpace(line.ID)]
 		if found {
 			line.LineLabel = persisted.LineLabel
 			line.LineColor = persisted.LineColor
@@ -717,7 +694,10 @@ func (api *API) messageThreads(response http.ResponseWriter, request *http.Reque
 		api.writeInternalError(response, request, "list message threads", err)
 		return
 	}
-	writeJSON(response, http.StatusOK, threadsResponse{Threads: threads, Meta: responseMeta{Limit: limit}})
+	writeJSON(response, http.StatusOK, threadsResponse{
+		Threads: messageThreadResponses(threads),
+		Meta:    responseMeta{Limit: limit},
+	})
 }
 
 func (api *API) messages(response http.ResponseWriter, request *http.Request) {
@@ -725,26 +705,22 @@ func (api *API) messages(response http.ResponseWriter, request *http.Request) {
 	if !ok {
 		return
 	}
-	localPhone, ok := boundedFilter(
+	lineID, ok := boundedFilter(
 		response,
-		request.URL.Query().Get("local_phone"),
-		"local_phone",
-		maxPhoneLength,
+		request.URL.Query().Get("line_id"),
+		"line_id",
+		maxIdentifierLength,
 	)
 	if !ok {
 		return
 	}
-	iccid, ok := boundedFilter(response, request.URL.Query().Get("iccid"), "iccid", maxIdentifierLength)
-	if !ok {
-		return
-	}
-	if localPhone == "" && iccid == "" {
+	if lineID == "" {
 		writeError(
 			response,
 			http.StatusBadRequest,
 			"invalid_argument",
-			"local_phone or iccid is required",
-			"local_phone",
+			"line_id is required",
+			"line_id",
 		)
 		return
 	}
@@ -757,8 +733,7 @@ func (api *API) messages(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 	messages, err := api.repository.Messages(request.Context(), store.MessageQuery{
-		LocalPhone:    localPhone,
-		ICCID:         iccid,
+		LineID:        lineID,
 		Peer:          peer,
 		Limit:         limit,
 		Chronological: true,
@@ -767,7 +742,10 @@ func (api *API) messages(response http.ResponseWriter, request *http.Request) {
 		api.writeInternalError(response, request, "list messages", err)
 		return
 	}
-	writeJSON(response, http.StatusOK, messagesResponse{Messages: messages, Meta: responseMeta{Limit: limit}})
+	writeJSON(response, http.StatusOK, messagesResponse{
+		Messages: messageResponseItems(messages),
+		Meta:     responseMeta{Limit: limit},
+	})
 }
 
 func (api *API) calls(response http.ResponseWriter, request *http.Request) {
@@ -790,7 +768,10 @@ func (api *API) calls(response http.ResponseWriter, request *http.Request) {
 		api.writeInternalError(response, request, "list calls", err)
 		return
 	}
-	writeJSON(response, http.StatusOK, callsResponse{Calls: calls, Meta: responseMeta{Limit: limit}})
+	writeJSON(response, http.StatusOK, callsResponse{
+		Calls: callRecordResponses(calls),
+		Meta:  responseMeta{Limit: limit},
+	})
 }
 
 func (api *API) devices(response http.ResponseWriter, request *http.Request) {

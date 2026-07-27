@@ -89,6 +89,10 @@ func TestReconcileInitializesImplicitAutomaticPolicyForStableSIMLines(t *testing
 	t.Parallel()
 
 	service, repository, agent := newNetworkTestService(t, nil)
+	repository.lines = []store.LineSummary{{
+		ID:         "line-stable",
+		EndpointID: "endpoint-stable",
+	}}
 	agent.fullSnapshot = agentclient.Snapshot{Lines: []agentclient.Line{
 		{
 			ID:                   "line-no-sim",
@@ -101,7 +105,7 @@ func TestReconcileInitializesImplicitAutomaticPolicyForStableSIMLines(t *testing
 			SavedPolicySupported: false,
 		},
 		{
-			ID:                   "line-stable",
+			ID:                   "endpoint-stable",
 			SIMPresent:           true,
 			SavedPolicySupported: true,
 		},
@@ -251,6 +255,10 @@ func TestReconcileNetworkSelectionsContinuesAfterPerLineFailure(t *testing.T) {
 	t.Parallel()
 
 	service, repository, agent := newNetworkTestService(t, nil)
+	repository.lines = []store.LineSummary{
+		{ID: "line-a", EndpointID: "endpoint-a"},
+		{ID: "line-b", EndpointID: "endpoint-b"},
+	}
 	for _, lineID := range []string{"line-a", "line-b"} {
 		policy, err := repository.EnsureNetworkSelectionPolicy(
 			context.Background(),
@@ -270,11 +278,11 @@ func TestReconcileNetworkSelectionsContinuesAfterPerLineFailure(t *testing.T) {
 		}
 	}
 	agent.fullSnapshot = agentclient.Snapshot{Lines: []agentclient.Line{
-		{ID: "line-a", SIMPresent: true, SavedPolicySupported: true},
-		{ID: "line-b", SIMPresent: true, SavedPolicySupported: true},
+		{ID: "endpoint-a", SIMPresent: true, SavedPolicySupported: true},
+		{ID: "endpoint-b", SIMPresent: true, SavedPolicySupported: true},
 	}}
 	agent.selectionErrors = map[string]error{
-		"line-a": &agentclient.OperationError{
+		"endpoint-a": &agentclient.OperationError{
 			Status:  409,
 			Code:    "conflict",
 			Message: "Another network operation is running",
@@ -289,8 +297,8 @@ func TestReconcileNetworkSelectionsContinuesAfterPerLineFailure(t *testing.T) {
 	calls := append([]networkAgentCall(nil), agent.selectionCalls...)
 	agent.mu.Unlock()
 	if len(calls) != 2 ||
-		calls[0].LineID != "line-a" ||
-		calls[1].LineID != "line-b" {
+		calls[0].LineID != "endpoint-a" ||
+		calls[1].LineID != "endpoint-b" {
 		t.Fatalf("selection calls = %+v", calls)
 	}
 	lineA, err := repository.NetworkSelectionPolicy(context.Background(), "line-a")
@@ -316,6 +324,7 @@ func TestNetworkOperationContextsCoverHostLimits(t *testing.T) {
 	t.Parallel()
 
 	service, repository, agent := newNetworkTestService(t, nil)
+	repository.lines[0].EndpointID = "endpoint-1"
 	if _, err := repository.EnsureNetworkSelectionPolicy(
 		context.Background(),
 		"line-1",
@@ -351,12 +360,14 @@ func TestNetworkOperationContextsCoverHostLimits(t *testing.T) {
 	scanCalls := append([]networkAgentCall(nil), agent.scanCalls...)
 	agent.mu.Unlock()
 	if len(selectionCalls) != 1 ||
+		selectionCalls[0].LineID != "endpoint-1" ||
 		!selectionCalls[0].HasDeadline ||
 		selectionCalls[0].Deadline.Sub(updateStarted) < 49*time.Second ||
 		selectionCalls[0].Deadline.Sub(updateStarted) > 51*time.Second {
 		t.Fatalf("selection calls = %+v", selectionCalls)
 	}
 	if len(scanCalls) != 1 ||
+		scanCalls[0].LineID != "endpoint-1" ||
 		!scanCalls[0].HasDeadline ||
 		scanCalls[0].Deadline.Sub(scanStarted) < 124*time.Second ||
 		scanCalls[0].Deadline.Sub(scanStarted) > 126*time.Second {

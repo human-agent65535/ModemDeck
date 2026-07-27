@@ -13,6 +13,42 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/telegramsettings"
 )
 
+func TestMergePersistedLineMetadataUsesStableLineID(t *testing.T) {
+	t.Parallel()
+
+	live := []store.LineSummary{{
+		ID:         "line-phone",
+		ICCID:      "iccid-new",
+		DeviceIMEI: "imei-new",
+	}}
+	persisted := []store.LineSummary{
+		{
+			ID:          "line-phone",
+			ICCID:       "iccid-old",
+			LineLabel:   "Main",
+			LineColor:   store.LineColorAmber,
+			PhoneNumber: "+819012345678",
+		},
+		{
+			ID:        "line-other",
+			ICCID:     "iccid-new",
+			LineLabel: "Wrong ICCID match",
+			LineColor: store.LineColorRed,
+		},
+	}
+
+	merged := mergePersistedLineMetadata(live, persisted)
+	if len(merged) != 1 {
+		t.Fatalf("merged lines = %+v", merged)
+	}
+	if merged[0].ID != "line-phone" ||
+		merged[0].LineLabel != "Main" ||
+		merged[0].LineColor != store.LineColorAmber ||
+		merged[0].PhoneNumber != "+819012345678" {
+		t.Fatalf("merged line = %+v", merged[0])
+	}
+}
+
 func TestManagerVerifiesBotAndDispatchesDurableNotification(t *testing.T) {
 	t.Parallel()
 
@@ -205,16 +241,17 @@ func TestAdaptersExposeHumanLineMetadataAndRecentCalls(t *testing.T) {
 
 	repository := &fakeRepository{
 		calls: []store.Call{{
-			ID:           "call-1",
-			DeviceID:     "legacy-modem-id",
-			LocalPhone:   "+81 80-0000-0001",
-			LineIMSI:     "legacy-imsi",
-			LineICCID:    "legacy-iccid",
-			Direction:    "incoming",
-			RemoteNumber: "+818012345678",
-			ContactName:  "Aiko Tanaka",
-			EndedAt:      "2026-07-24T08:30:00Z",
-			Missed:       true,
+			ID:             "call-1",
+			LineID:         "line-1",
+			EndpointLineID: "legacy-modem-id",
+			LocalPhone:     "+81 80-0000-0001",
+			LineIMSI:       "legacy-imsi",
+			LineICCID:      "legacy-iccid",
+			Direction:      "incoming",
+			RemoteNumber:   "+818012345678",
+			ContactName:    "Aiko Tanaka",
+			EndedAt:        "2026-07-24T08:30:00Z",
+			Missed:         true,
 		}},
 		recordings: []store.RecordingEntry{{
 			Call:     store.RecordingCall{ID: "call-1"},
@@ -313,6 +350,7 @@ type fakeRepository struct {
 
 func (r *fakeRepository) Lines(context.Context) ([]store.LineSummary, error) {
 	return []store.LineSummary{{
+		ID:          "line-1",
 		ICCID:       "iccid-1",
 		LineLabel:   "主线路",
 		PhoneNumber: "+818000000001",

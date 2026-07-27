@@ -91,8 +91,9 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 	if err := repository.ApplyHardwareSnapshot(ctx, snapshot); err != nil {
 		t.Fatalf("replay ApplyHardwareSnapshot() error = %v", err)
 	}
+	stableLineID := stableLineIDForICCID(t, repository, line.ICCID)
 
-	messages, err := repository.Messages(ctx, MessageQuery{ICCID: line.ICCID, Peer: message.Number})
+	messages, err := repository.Messages(ctx, MessageQuery{LineID: stableLineID, Peer: message.Number})
 	if err != nil {
 		t.Fatalf("Messages() error = %v", err)
 	}
@@ -117,7 +118,8 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CallControlTarget() error = %v", err)
 	}
-	if target.LineID != call.LineID || target.EndpointCallID != call.EndpointCallID ||
+	if target.LineID != stableLineID || target.EndpointLineID != call.LineID ||
+		target.EndpointCallID != call.EndpointCallID ||
 		target.Number != "+818012345678" || target.Direction != call.Direction ||
 		target.Bearer != call.Bearer || target.Revision < call.Revision {
 		t.Fatalf("call target = %+v", target)
@@ -146,7 +148,7 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 		t.Fatalf("devices = %+v, want persisted extended signal", devices)
 	}
 
-	if err := repository.MarkMessageThreadReadByLine(ctx, line.ID, message.Number); err != nil {
+	if err := repository.MarkMessageThreadReadByLine(ctx, stableLineID, message.Number); err != nil {
 		t.Fatalf("MarkMessageThreadReadByLine() error = %v", err)
 	}
 	threads, err = repository.MessageThreads(ctx, ThreadQuery{})
@@ -155,15 +157,15 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 	}
 	if _, err := repository.database.ExecContext(
 		ctx,
-		"UPDATE sms_contacts SET unread_count = 1 WHERE iccid = ? AND peer = ?",
-		line.ICCID,
+		"UPDATE sms_contacts SET unread_count = 1 WHERE line_id = ? AND peer = ?",
+		stableLineID,
 		message.Number,
 	); err != nil {
 		t.Fatalf("restore unread fixture: %v", err)
 	}
 	if err := repository.MarkMessageThreadRead(ctx, MessageThreadIdentity{
-		ICCID: line.ICCID,
-		Peer:  message.Number,
+		LineID: stableLineID,
+		Peer:   message.Number,
 	}); err != nil {
 		t.Fatalf("MarkMessageThreadRead() error = %v", err)
 	}
@@ -313,9 +315,10 @@ func TestHardwareSnapshotDoesNotDuplicateMessageAcrossProviderRestart(t *testing
 		t.Fatalf("restarted ApplyHardwareSnapshot() error = %v", err)
 	}
 
+	stableLineID := stableLineIDForICCID(t, repository, line.ICCID)
 	messages, err := repository.Messages(ctx, MessageQuery{
-		ICCID: line.ICCID,
-		Peer:  message.Number,
+		LineID: stableLineID,
+		Peer:   message.Number,
 	})
 	if err != nil {
 		t.Fatalf("Messages() error = %v", err)
@@ -343,13 +346,14 @@ func TestHardwareSnapshotDoesNotDuplicateMessageAcrossProviderRestart(t *testing
 	}
 }
 
-func TestMarkMessageThreadReadByLineOnlyUsesCurrentSIM(t *testing.T) {
+func TestMessageThreadStaysStableAcrossSIMReplacementAndMarksAllRead(t *testing.T) {
 	t.Parallel()
 
 	repository := newHardwareTestStore(t)
 	ctx := context.Background()
 	observed := time.Date(2026, time.July, 23, 10, 30, 0, 0, time.UTC)
-	line := hardwareLifecycleTestLine("line-reused", "990000000000200")
+	line := hardwareLifecycleTestLine("endpoint-old-sim", "990000000000200")
+	line.PhoneNumber = "+819012345678"
 	line.ICCID = "8901000000000000200"
 	line.IMSI = "440500000000200"
 	peer := "+818012345678"
@@ -376,10 +380,14 @@ func TestMarkMessageThreadReadByLineOnlyUsesCurrentSIM(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("apply old SIM snapshot: %v", err)
 	}
+	stableLineID := stableLineIDForICCID(t, repository, oldMessage.ICCID)
 
+	line.ID = "endpoint-new-sim"
+	line.EquipmentIdentifier = "990000000000201"
 	line.ICCID = "8901000000000000201"
 	line.IMSI = "440500000000201"
 	newMessage := oldMessage
+	newMessage.LineID = line.ID
 	newMessage.EndpointMessageID = "new-sim:/sms/1"
 	newMessage.ICCID = line.ICCID
 	newMessage.IMSI = line.IMSI
@@ -395,33 +403,47 @@ func TestMarkMessageThreadReadByLineOnlyUsesCurrentSIM(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("apply new SIM snapshot: %v", err)
 	}
-
-	if err := repository.MarkMessageThreadReadByLine(ctx, line.ID, peer); err != nil {
+	if got := stableLineIDForICCID(t, repository, newMessage.ICCID); got != stableLineID {
+		t.Fatalf("replacement SIM line ID = %q, want %q", got, stableLineID)
+	}
+	threads, err := repository.MessageThreads(ctx, ThreadQuery{})
+	if err != nil {
+		t.Fatalf("MessageThreads() error = %v", err)
+	}
+	if len(threads) != 1 ||
+		threads[0].Key != MessageThreadKey(stableLineID, peer) ||
+		threads[0].UnreadCount != 2 {
+		t.Fatalf("threads = %+v, want one stable thread with two unread messages", threads)
+	}
+	messages, err := repository.Messages(ctx, MessageQuery{
+		LineID: stableLineID,
+		Peer:   peer,
+	})
+	if err != nil {
+		t.Fatalf("Messages() error = %v", err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("messages = %+v, want both SIM histories", messages)
+	}
+	if err := repository.MarkMessageThreadReadByLine(ctx, stableLineID, peer); err != nil {
 		t.Fatalf("MarkMessageThreadReadByLine() error = %v", err)
 	}
-	var oldUnread, newUnread int
+	var unread, threadCount int
 	if err := repository.database.QueryRowContext(
 		ctx,
-		"SELECT unread_count FROM sms_contacts WHERE imsi = ? AND peer = ?",
-		oldMessage.IMSI,
+		`SELECT COALESCE(SUM(unread_count), 0), COUNT(*)
+		 FROM sms_contacts WHERE line_id = ? AND peer = ?`,
+		stableLineID,
 		peer,
-	).Scan(&oldUnread); err != nil {
-		t.Fatalf("read old SIM unread count: %v", err)
+	).Scan(&unread, &threadCount); err != nil {
+		t.Fatalf("read stable thread summary: %v", err)
 	}
-	if err := repository.database.QueryRowContext(
-		ctx,
-		"SELECT unread_count FROM sms_contacts WHERE imsi = ? AND peer = ?",
-		newMessage.IMSI,
-		peer,
-	).Scan(&newUnread); err != nil {
-		t.Fatalf("read new SIM unread count: %v", err)
-	}
-	if oldUnread != 1 || newUnread != 0 {
-		t.Fatalf("unread counts old=%d new=%d, want old=1 new=0", oldUnread, newUnread)
+	if unread != 0 || threadCount != 1 {
+		t.Fatalf("stable thread unread=%d rows=%d, want 0 and 1", unread, threadCount)
 	}
 }
 
-func TestMarkMessageThreadReadUsesExactSIMIdentity(t *testing.T) {
+func TestMarkMessageThreadReadUsesExactStableLine(t *testing.T) {
 	t.Parallel()
 
 	repository := newHardwareTestStore(t)
@@ -430,10 +452,10 @@ func TestMarkMessageThreadReadUsesExactSIMIdentity(t *testing.T) {
 	if _, err := repository.database.ExecContext(
 		ctx,
 		`INSERT INTO sms_contacts (
-			imsi, iccid, peer, unread_count, created_at, updated_at
+			line_id, imsi, iccid, peer, unread_count, created_at, updated_at
 		 ) VALUES
-			('imsi-a', 'iccid-a', ?, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-			('imsi-b', 'iccid-b', ?, 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+			('line_a', 'imsi-a', 'iccid-a', ?, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+			('line_b', 'imsi-b', 'iccid-b', ?, 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
 		peer,
 		peer,
 	); err != nil {
@@ -441,22 +463,22 @@ func TestMarkMessageThreadReadUsesExactSIMIdentity(t *testing.T) {
 	}
 
 	if err := repository.MarkMessageThreadRead(ctx, MessageThreadIdentity{
-		ICCID: "iccid-a",
-		Peer:  peer,
+		LineID: "line_a",
+		Peer:   peer,
 	}); err != nil {
 		t.Fatalf("MarkMessageThreadRead() error = %v", err)
 	}
 	var firstUnread, secondUnread int
 	if err := repository.database.QueryRowContext(
 		ctx,
-		"SELECT unread_count FROM sms_contacts WHERE imsi = 'imsi-a' AND peer = ?",
+		"SELECT unread_count FROM sms_contacts WHERE line_id = 'line_a' AND peer = ?",
 		peer,
 	).Scan(&firstUnread); err != nil {
 		t.Fatalf("read first SIM unread count: %v", err)
 	}
 	if err := repository.database.QueryRowContext(
 		ctx,
-		"SELECT unread_count FROM sms_contacts WHERE imsi = 'imsi-b' AND peer = ?",
+		"SELECT unread_count FROM sms_contacts WHERE line_id = 'line_b' AND peer = ?",
 		peer,
 	).Scan(&secondUnread); err != nil {
 		t.Fatalf("read second SIM unread count: %v", err)
@@ -466,14 +488,14 @@ func TestMarkMessageThreadReadUsesExactSIMIdentity(t *testing.T) {
 	}
 
 	if err := repository.MarkMessageThreadRead(ctx, MessageThreadIdentity{
-		ICCID: "missing-iccid",
-		Peer:  peer,
+		LineID: "line_missing",
+		Peer:   peer,
 	}); !errors.Is(err, ErrMessageThreadNotFound) {
 		t.Fatalf("missing thread error = %v, want ErrMessageThreadNotFound", err)
 	}
 }
 
-func TestMessageHistoryUsesLocalPhoneAcrossSIMIdentities(t *testing.T) {
+func TestMessageHistoryUsesStableLineAcrossSIMIdentities(t *testing.T) {
 	t.Parallel()
 
 	repository := newHardwareTestStore(t)
@@ -486,13 +508,14 @@ func TestMessageHistoryUsesLocalPhoneAcrossSIMIdentities(t *testing.T) {
 	}{
 		{
 			line: HardwareLine{
-				ID:          "line-before",
-				PhoneNumber: "+81 90-1234-5678",
-				ICCID:       "iccid-before",
-				IMSI:        "imsi-before",
+				ID:                  "endpoint-before",
+				EquipmentIdentifier: "imei-before",
+				PhoneNumber:         "+81 90-1234-5678",
+				ICCID:               "iccid-before",
+				IMSI:                "imsi-before",
 			},
 			message: HardwareMessage{
-				LineID:            "line-before",
+				LineID:            "endpoint-before",
 				EndpointMessageID: "message-before",
 				IMSI:              "imsi-before",
 				ICCID:             "iccid-before",
@@ -509,13 +532,14 @@ func TestMessageHistoryUsesLocalPhoneAcrossSIMIdentities(t *testing.T) {
 		},
 		{
 			line: HardwareLine{
-				ID:          "line-after",
-				PhoneNumber: "+819012345678",
-				ICCID:       "iccid-after",
-				IMSI:        "imsi-after",
+				ID:                  "endpoint-after",
+				EquipmentIdentifier: "imei-after",
+				PhoneNumber:         "+819012345678",
+				ICCID:               "iccid-after",
+				IMSI:                "imsi-after",
 			},
 			message: HardwareMessage{
-				LineID:            "line-after",
+				LineID:            "endpoint-after",
 				EndpointMessageID: "message-after",
 				IMSI:              "imsi-after",
 				ICCID:             "iccid-after",
@@ -542,21 +566,25 @@ func TestMessageHistoryUsesLocalPhoneAcrossSIMIdentities(t *testing.T) {
 			t.Fatalf("apply fixture %d: %v", index, err)
 		}
 	}
+	stableLineID := stableLineIDForICCID(t, repository, fixtures[0].line.ICCID)
+	if got := stableLineIDForICCID(t, repository, fixtures[1].line.ICCID); got != stableLineID {
+		t.Fatalf("replacement SIM line ID = %q, want %q", got, stableLineID)
+	}
 
 	threads, err := repository.MessageThreads(ctx, ThreadQuery{})
 	if err != nil {
 		t.Fatalf("MessageThreads() error = %v", err)
 	}
 	if len(threads) != 1 ||
-		threads[0].Key != "phone:819012345678|"+peer ||
+		threads[0].Key != MessageThreadKey(stableLineID, peer) ||
 		threads[0].UnreadCount != 2 ||
 		threads[0].LastContent != "after" {
-		t.Fatalf("threads = %+v, want one phone-owned logical thread", threads)
+		t.Fatalf("threads = %+v, want one stable-line thread", threads)
 	}
 
 	messages, err := repository.Messages(ctx, MessageQuery{
-		LocalPhone: "+81 (90) 1234-5678",
-		Peer:       peer,
+		LineID: stableLineID,
+		Peer:   peer,
 	})
 	if err != nil {
 		t.Fatalf("Messages() error = %v", err)
@@ -568,8 +596,8 @@ func TestMessageHistoryUsesLocalPhoneAcrossSIMIdentities(t *testing.T) {
 	}
 
 	if err := repository.MarkMessageThreadRead(ctx, MessageThreadIdentity{
-		LocalPhone: "+81 90 1234 5678",
-		Peer:       peer,
+		LineID: stableLineID,
+		Peer:   peer,
 	}); err != nil {
 		t.Fatalf("MarkMessageThreadRead() error = %v", err)
 	}
@@ -579,42 +607,15 @@ func TestMessageHistoryUsesLocalPhoneAcrossSIMIdentities(t *testing.T) {
 	}
 }
 
-func TestMarkMessageThreadReadRejectsAmbiguousSIMIdentity(t *testing.T) {
+func TestMarkMessageThreadReadRejectsMissingStableIdentity(t *testing.T) {
 	t.Parallel()
 
 	repository := newHardwareTestStore(t)
-	ctx := context.Background()
-	peer := "+818012345678"
-	if _, err := repository.database.ExecContext(
-		ctx,
-		`INSERT INTO sms_contacts (
-			imsi, iccid, peer, unread_count, created_at, updated_at
-		 ) VALUES
-			('imsi-a', 'shared-iccid', ?, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-			('imsi-b', 'shared-iccid', ?, 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-		peer,
-		peer,
-	); err != nil {
-		t.Fatalf("insert ambiguous message threads: %v", err)
-	}
-
-	err := repository.MarkMessageThreadRead(ctx, MessageThreadIdentity{
-		ICCID: "shared-iccid",
-		Peer:  peer,
+	err := repository.MarkMessageThreadRead(context.Background(), MessageThreadIdentity{
+		Peer: "+818012345678",
 	})
-	if !errors.Is(err, ErrMessageThreadIdentityInvalid) {
-		t.Fatalf("MarkMessageThreadRead() error = %v, want ErrMessageThreadIdentityInvalid", err)
-	}
-	var unreadTotal int
-	if err := repository.database.QueryRowContext(
-		ctx,
-		"SELECT SUM(unread_count) FROM sms_contacts WHERE iccid = 'shared-iccid' AND peer = ?",
-		peer,
-	).Scan(&unreadTotal); err != nil {
-		t.Fatalf("read ambiguous unread total: %v", err)
-	}
-	if unreadTotal != 5 {
-		t.Fatalf("ambiguous unread total = %d, want 5", unreadTotal)
+	if err == nil {
+		t.Fatal("MarkMessageThreadRead() error = nil, want stable line validation error")
 	}
 }
 
@@ -837,14 +838,15 @@ func TestHardwareSnapshotWithZeroLinesClosesOnlyModemManagerCallsAcrossBoots(t *
 	if _, err := repository.database.ExecContext(
 		ctx,
 		`INSERT INTO call_history (
-			id, device_id, direction, remote_number, endpoint_id, endpoint_call_id,
+			id, line_id, endpoint_line_id, direction, remote_number, endpoint_id, endpoint_call_id,
 			phase, revision, created_at, updated_at, active_at, bearer,
 			state_reason, state_reason_code, audio_port, audio_encoding,
 			audio_resolution, audio_rate, media_available
-		 ) VALUES (?, ?, 'incoming', ?, 'sip', ?, 'active', 1, ?, ?, ?, 'sip',
+		 ) VALUES (?, ?, ?, 'incoming', ?, 'sip', ?, 'active', 1, ?, ?, ?, 'sip',
 			'external_active', 99, 'sip:audio', 'pcm', 's16le', 16000, 1)`,
 		externalCallID,
-		"external-line",
+		"line_external",
+		"sip-line",
 		"+15550000300",
 		"external-endpoint-call",
 		databaseTime(observed),
@@ -890,13 +892,14 @@ func TestHardwareSnapshotIncomingRingingEnqueuesDNDAction(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("initial ApplyHardwareSnapshot() error = %v", err)
 	}
-	policy, err := repository.LineCallPolicy(ctx, line.ID)
+	stableLineID := stableLineIDForICCID(t, repository, line.ICCID)
+	policy, err := repository.LineCallPolicy(ctx, stableLineID)
 	if err != nil {
 		t.Fatalf("LineCallPolicy() error = %v", err)
 	}
 	if _, err := repository.UpdateLineCallPolicy(
 		ctx,
-		line.ID,
+		stableLineID,
 		LineCallPolicyDND,
 		policy.Revision,
 	); err != nil {
@@ -925,6 +928,8 @@ func TestHardwareSnapshotIncomingRingingEnqueuesDNDAction(t *testing.T) {
 		t.Fatalf("ClaimIncomingCallActions() error = %v", err)
 	}
 	if len(actions) != 1 || actions[0].CallID != call.AppID ||
+		actions[0].LineID != stableLineID ||
+		actions[0].EndpointLineID != line.ID ||
 		actions[0].EndpointCallID != call.EndpointCallID ||
 		actions[0].EffectivePolicy != EffectiveCallPolicyDND {
 		t.Fatalf("incoming DND actions = %+v", actions)
@@ -982,13 +987,14 @@ func TestHardwareSnapshotCommitsIncomingAndOutgoingCallsWithPolicyAndRecordingSt
 	}); err != nil {
 		t.Fatalf("seed ApplyHardwareSnapshot() error = %v", err)
 	}
-	policy, err := repository.LineCallPolicy(ctx, line.ID)
+	stableLineID := stableLineIDForICCID(t, repository, line.ICCID)
+	policy, err := repository.LineCallPolicy(ctx, stableLineID)
 	if err != nil {
 		t.Fatalf("LineCallPolicy() error = %v", err)
 	}
 	if _, err := repository.UpdateLineCallPolicy(
 		ctx,
-		line.ID,
+		stableLineID,
 		LineCallPolicyDND,
 		policy.Revision,
 	); err != nil {
@@ -1047,8 +1053,8 @@ func TestHardwareSnapshotCommitsIncomingAndOutgoingCallsWithPolicyAndRecordingSt
 		t.Fatalf("call ApplyHardwareSnapshot() error = %v", err)
 	}
 
-	assertHardwareCallRow(t, repository, incoming, defaultHardwareCallFailureCode)
-	assertHardwareCallRow(t, repository, outgoing, defaultHardwareCallFailureCode)
+	assertHardwareCallRow(t, repository, incoming, stableLineID, defaultHardwareCallFailureCode)
+	assertHardwareCallRow(t, repository, outgoing, stableLineID, defaultHardwareCallFailureCode)
 
 	incomingRecording, err := repository.CallRecordingState(ctx, incoming.AppID)
 	if err != nil {
@@ -1088,6 +1094,8 @@ func TestHardwareSnapshotCommitsIncomingAndOutgoingCallsWithPolicyAndRecordingSt
 	}
 	if len(actions) != 1 ||
 		actions[0].CallID != incoming.AppID ||
+		actions[0].LineID != stableLineID ||
+		actions[0].EndpointLineID != line.ID ||
 		actions[0].EndpointCallID != incoming.EndpointCallID ||
 		actions[0].EffectivePolicy != EffectiveCallPolicyDND {
 		t.Fatalf("incoming DND actions = %+v", actions)
@@ -1115,6 +1123,21 @@ func TestHardwareMessageRejectsStateRegression(t *testing.T) {
 		Timestamp:         now,
 		ObservedAt:        now,
 	}
+	if err := repository.ApplyHardwareSnapshot(ctx, HardwareSnapshot{
+		BootEpoch:  "message-regression",
+		Revision:   "message-regression-line",
+		ObservedAt: now.Add(-time.Second),
+		Lines: []HardwareLine{{
+			ID:                  base.LineID,
+			EquipmentIdentifier: "990000000000001",
+			PhoneNumber:         base.LocalPhone,
+			ICCID:               base.ICCID,
+			IMSI:                base.IMSI,
+		}},
+	}); err != nil {
+		t.Fatalf("apply line snapshot: %v", err)
+	}
+	stableLineID := stableLineIDForICCID(t, repository, base.ICCID)
 	if _, created, err := repository.UpsertHardwareMessage(ctx, base); err != nil || !created {
 		t.Fatalf("initial UpsertHardwareMessage() created = %v, error = %v", created, err)
 	}
@@ -1126,7 +1149,10 @@ func TestHardwareMessageRejectsStateRegression(t *testing.T) {
 	if _, created, err := repository.UpsertHardwareMessage(ctx, stale); err != nil || created {
 		t.Fatalf("stale UpsertHardwareMessage() created = %v, error = %v", created, err)
 	}
-	messages, err := repository.Messages(ctx, MessageQuery{ICCID: base.ICCID, Peer: base.Number})
+	messages, err := repository.Messages(ctx, MessageQuery{
+		LineID: stableLineID,
+		Peer:   base.Number,
+	})
 	if err != nil {
 		t.Fatalf("Messages() error = %v", err)
 	}
@@ -1203,19 +1229,21 @@ func assertHardwareCallRow(
 	t *testing.T,
 	repository *Store,
 	expected HardwareCall,
+	expectedLineID string,
 	expectedFailureCode string,
 ) {
 	t.Helper()
 	var (
-		id, requestID, lineID, direction, remoteNumber, endpointID, endpointCallID string
-		phase, createdAt, updatedAt, endReason, failureCode, bearer, stateReason   string
-		audioPort, audioEncoding, audioResolution                                  string
-		revision, stateReasonCode, multiparty, audioRate, mediaAvailable           int64
-		activeAt, endedAt                                                          sql.NullString
+		id, requestID, lineID, endpointLineID, direction, remoteNumber   string
+		endpointID, endpointCallID, phase, createdAt, updatedAt          string
+		endReason, failureCode, bearer, stateReason                      string
+		audioPort, audioEncoding, audioResolution                        string
+		revision, stateReasonCode, multiparty, audioRate, mediaAvailable int64
+		activeAt, endedAt                                                sql.NullString
 	)
 	if err := repository.database.QueryRowContext(
 		context.Background(),
-		`SELECT id, request_id, device_id, direction, remote_number, endpoint_id,
+		`SELECT id, request_id, line_id, endpoint_line_id, direction, remote_number, endpoint_id,
 			endpoint_call_id, phase, revision, created_at, updated_at, active_at,
 			ended_at, end_reason, failure_code, bearer, state_reason,
 			state_reason_code, multiparty, audio_port, audio_encoding,
@@ -1226,6 +1254,7 @@ func assertHardwareCallRow(
 		&id,
 		&requestID,
 		&lineID,
+		&endpointLineID,
 		&direction,
 		&remoteNumber,
 		&endpointID,
@@ -1252,7 +1281,8 @@ func assertHardwareCallRow(
 	}
 	if id != expected.AppID ||
 		requestID != expected.RequestID ||
-		lineID != expected.LineID ||
+		lineID != expectedLineID ||
+		endpointLineID != expected.LineID ||
 		direction != expected.Direction ||
 		remoteNumber != expected.Number ||
 		endpointID != modemManagerEndpointID ||
@@ -1310,4 +1340,20 @@ func newHardwareTestStore(t *testing.T) *Store {
 		t.Fatalf("New() error = %v", err)
 	}
 	return repository
+}
+
+func stableLineIDForICCID(t *testing.T, repository *Store, iccid string) string {
+	t.Helper()
+	var lineID string
+	if err := repository.database.QueryRowContext(
+		context.Background(),
+		"SELECT line_id FROM sim_cards WHERE iccid = ?",
+		iccid,
+	).Scan(&lineID); err != nil {
+		t.Fatalf("read stable line ID for ICCID %q: %v", iccid, err)
+	}
+	if lineID == "" {
+		t.Fatalf("stable line ID for ICCID %q is empty", iccid)
+	}
+	return lineID
 }

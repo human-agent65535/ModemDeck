@@ -34,9 +34,10 @@ func TestUpdateLineLabelUsesSIMIdentityAndSurvivesHardwareRefresh(t *testing.T) 
 	if _, err := repository.RenameDevice(ctx, line.EquipmentIdentifier, "机房模组"); err != nil {
 		t.Fatalf("RenameDevice() error = %v", err)
 	}
+	stableLineID := stableLineIDForICCID(t, repository, line.ICCID)
 
 	color := LineColorViolet
-	updated, err := repository.UpdateLineLabel(ctx, line.ICCID, "  主卡  ", &color)
+	updated, err := repository.UpdateLineLabel(ctx, stableLineID, "  主卡  ", &color)
 	if err != nil {
 		t.Fatalf("UpdateLineLabel() error = %v", err)
 	}
@@ -85,7 +86,7 @@ func TestUpdateLineLabelUsesSIMIdentityAndSurvivesHardwareRefresh(t *testing.T) 
 	}
 }
 
-func TestUpdateLineLabelValidatesUnicodeLengthAndICCID(t *testing.T) {
+func TestUpdateLineLabelValidatesUnicodeLengthAndStableLineID(t *testing.T) {
 	t.Parallel()
 
 	repository := newHardwareTestStore(t)
@@ -95,7 +96,7 @@ func TestUpdateLineLabelValidatesUnicodeLengthAndICCID(t *testing.T) {
 	}
 	if _, err := repository.UpdateLineLabel(
 		ctx,
-		"8986010000000000001",
+		"line_fixture",
 		strings.Repeat("卡", maxLineLabelLength+1),
 		nil,
 	); !errors.Is(err, ErrLineValidation) {
@@ -104,7 +105,7 @@ func TestUpdateLineLabelValidatesUnicodeLengthAndICCID(t *testing.T) {
 	invalidColor := LineColor("magenta")
 	if _, err := repository.UpdateLineLabel(
 		ctx,
-		"8986010000000000001",
+		"line_fixture",
 		"主卡",
 		&invalidColor,
 	); !errors.Is(err, ErrLineColorValidation) {
@@ -112,10 +113,10 @@ func TestUpdateLineLabelValidatesUnicodeLengthAndICCID(t *testing.T) {
 	}
 	if _, err := repository.UpdateLineLabel(
 		ctx,
-		"8986010000000000001",
+		"line_fixture",
 		strings.Repeat("卡", maxLineLabelLength),
 		nil,
 	); !errors.Is(err, ErrLineNotFound) {
-		t.Fatalf("unknown ICCID error = %v, want ErrLineNotFound", err)
+		t.Fatalf("unknown line error = %v, want ErrLineNotFound", err)
 	}
 }

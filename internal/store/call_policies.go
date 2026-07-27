@@ -176,7 +176,7 @@ func (s *Store) ClaimIncomingCallActions(
 	defer transaction.Rollback()
 	rows, err := transaction.QueryContext(
 		ctx,
-		`SELECT call_id, line_id, endpoint_call_id, effective_policy,
+		`SELECT call_id, line_id, endpoint_line_id, endpoint_call_id, effective_policy,
 			global_revision, line_revision, request_id, status, error_code,
 			created_at, updated_at
 		 FROM modemdeck_incoming_call_actions
@@ -283,7 +283,7 @@ func (s *Store) LatestIncomingCallAction(
 	}
 	row := s.database.QueryRowContext(
 		ctx,
-		`SELECT call_id, line_id, endpoint_call_id, effective_policy,
+		`SELECT call_id, line_id, endpoint_line_id, endpoint_call_id, effective_policy,
 			global_revision, line_revision, request_id, status, error_code,
 			created_at, updated_at
 		 FROM modemdeck_incoming_call_actions
@@ -339,13 +339,14 @@ func enqueueIncomingCallAction(
 	if _, err := transaction.ExecContext(
 		ctx,
 		`INSERT INTO modemdeck_incoming_call_actions (
-			call_id, line_id, endpoint_call_id, effective_policy,
+			call_id, line_id, endpoint_line_id, endpoint_call_id, effective_policy,
 			global_revision, line_revision, request_id, status, error_code,
 			created_at, updated_at
-		 ) VALUES (?, ?, ?, 'do_not_disturb', ?, ?, ?, 'pending', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		 ) VALUES (?, ?, ?, ?, 'do_not_disturb', ?, ?, ?, 'pending', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		 ON CONFLICT(call_id) DO NOTHING`,
 		call.AppID,
 		call.LineID,
+		call.EndpointLineID,
 		call.EndpointCallID,
 		effective.GlobalRevision,
 		effective.LineRevision,
@@ -462,7 +463,7 @@ func incomingCallAction(
 	}
 	row := query.QueryRowContext(
 		ctx,
-		`SELECT call_id, line_id, endpoint_call_id, effective_policy,
+		`SELECT call_id, line_id, endpoint_line_id, endpoint_call_id, effective_policy,
 			global_revision, line_revision, request_id, status, error_code,
 			created_at, updated_at
 		 FROM modemdeck_incoming_call_actions
@@ -484,6 +485,7 @@ func scanIncomingCallAction(scanner rowScanner) (IncomingCallAction, error) {
 	if err := scanner.Scan(
 		&action.CallID,
 		&action.LineID,
+		&action.EndpointLineID,
 		&action.EndpointCallID,
 		&policy,
 		&action.GlobalRevision,

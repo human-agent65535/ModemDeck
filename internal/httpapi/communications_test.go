@@ -103,7 +103,7 @@ func TestMessageCommandForwardsExplicitLineAndIdempotencyKey(t *testing.T) {
 	}
 }
 
-func TestMessageReadUsesExactSIMAndPeer(t *testing.T) {
+func TestMessageReadUsesExactLineAndPeer(t *testing.T) {
 	t.Parallel()
 
 	repository := &fakeRepository{}
@@ -114,7 +114,7 @@ func TestMessageReadUsesExactSIMAndPeer(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPatch,
 		"/api/v1/messages/read",
-		bytes.NewBufferString(`{"iccid":"  iccid-main  ","peer":"  +818012345678  "}`),
+		bytes.NewBufferString(`{"line_id":"  line-main  ","peer":"  +818012345678  "}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -124,17 +124,17 @@ func TestMessageReadUsesExactSIMAndPeer(t *testing.T) {
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204; body = %s", response.Code, response.Body.String())
 	}
-	if repository.messageReadIdentity.ICCID != "iccid-main" ||
+	if repository.messageReadIdentity.LineID != "line-main" ||
 		repository.messageReadIdentity.Peer != "+818012345678" {
 		t.Fatalf(
 			"message read identity = %q %q",
-			repository.messageReadIdentity.ICCID,
+			repository.messageReadIdentity.LineID,
 			repository.messageReadIdentity.Peer,
 		)
 	}
 }
 
-func TestMessagesUseLocalPhoneIdentity(t *testing.T) {
+func TestMessagesUseStableLineIdentity(t *testing.T) {
 	t.Parallel()
 
 	repository := &fakeRepository{}
@@ -144,7 +144,7 @@ func TestMessagesUseLocalPhoneIdentity(t *testing.T) {
 	}
 	request := httptest.NewRequest(
 		http.MethodGet,
-		"/api/v1/messages?local_phone=%2B81+90+1234+5678&iccid=stale-iccid&peer=%2B818012345678",
+		"/api/v1/messages?line_id=line-main&peer=%2B818012345678",
 		nil,
 	)
 	response := httptest.NewRecorder()
@@ -154,15 +154,14 @@ func TestMessagesUseLocalPhoneIdentity(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body = %s", response.Code, response.Body.String())
 	}
-	if repository.messageQuery.LocalPhone != "+81 90 1234 5678" ||
-		repository.messageQuery.ICCID != "stale-iccid" ||
+	if repository.messageQuery.LineID != "line-main" ||
 		repository.messageQuery.Peer != "+818012345678" ||
 		!repository.messageQuery.Chronological {
 		t.Fatalf("message query = %+v", repository.messageQuery)
 	}
 }
 
-func TestMessageReadPrefersLocalPhoneIdentity(t *testing.T) {
+func TestMessageReadRejectsLegacyHardwareIdentity(t *testing.T) {
 	t.Parallel()
 
 	repository := &fakeRepository{}
@@ -182,13 +181,11 @@ func TestMessageReadPrefersLocalPhoneIdentity(t *testing.T) {
 
 	api.ServeHTTP(response, request)
 
-	if response.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204; body = %s", response.Code, response.Body.String())
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body = %s", response.Code, response.Body.String())
 	}
-	if repository.messageReadIdentity.LocalPhone != "+81 90 1234 5678" ||
-		repository.messageReadIdentity.ICCID != "stale-iccid" ||
-		repository.messageReadIdentity.Peer != "+818012345678" {
-		t.Fatalf("message read identity = %+v", repository.messageReadIdentity)
+	if repository.messageReadIdentity != (store.MessageThreadIdentity{}) {
+		t.Fatalf("repository was called with legacy identity: %+v", repository.messageReadIdentity)
 	}
 }
 
@@ -200,20 +197,12 @@ func TestMessageReadReportsIdentityFailures(t *testing.T) {
 		storeError error
 		wantStatus int
 		wantCode   string
-	}{
-		{
-			name:       "missing exact thread",
-			storeError: store.ErrMessageThreadNotFound,
-			wantStatus: http.StatusNotFound,
-			wantCode:   "message_thread_not_found",
-		},
-		{
-			name:       "ambiguous identity",
-			storeError: store.ErrMessageThreadIdentityInvalid,
-			wantStatus: http.StatusConflict,
-			wantCode:   "message_thread_identity_invalid",
-		},
-	}
+	}{{
+		name:       "missing exact thread",
+		storeError: store.ErrMessageThreadNotFound,
+		wantStatus: http.StatusNotFound,
+		wantCode:   "message_thread_not_found",
+	}}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			repository := &fakeRepository{messageReadError: test.storeError}
@@ -224,7 +213,7 @@ func TestMessageReadReportsIdentityFailures(t *testing.T) {
 			request := httptest.NewRequest(
 				http.MethodPatch,
 				"/api/v1/messages/read",
-				bytes.NewBufferString(`{"iccid":"iccid-main","peer":"+818012345678"}`),
+				bytes.NewBufferString(`{"line_id":"line-main","peer":"+818012345678"}`),
 			)
 			request.Header.Set("Content-Type", "application/json")
 			response := httptest.NewRecorder()
@@ -267,13 +256,14 @@ func TestCallControlAndActiveCallRoutes(t *testing.T) {
 	t.Parallel()
 
 	call := store.Call{
-		ID:           "call-app-1",
-		DeviceID:     "line-1",
-		Direction:    "incoming",
-		RemoteNumber: "+818012345678",
-		Phase:        "active",
-		CreatedAt:    "2026-07-23T12:00:00Z",
-		Bearer:       "volte",
+		ID:             "call-app-1",
+		LineID:         "line-stable",
+		EndpointLineID: "endpoint-1",
+		Direction:      "incoming",
+		RemoteNumber:   "+818012345678",
+		Phase:          "active",
+		CreatedAt:      "2026-07-23T12:00:00Z",
+		Bearer:         "volte",
 	}
 	communications := &fakeCommunications{call: call, active: []store.Call{call}}
 	api, err := New(&fakeRepository{}, Options{
@@ -291,7 +281,8 @@ func TestCallControlAndActiveCallRoutes(t *testing.T) {
 	}
 	var active activeCallsResponse
 	if err := json.Unmarshal(activeResponse.Body.Bytes(), &active); err != nil ||
-		len(active.Calls) != 1 || active.Calls[0].Bearer != "volte" {
+		len(active.Calls) != 1 || active.Calls[0].Bearer != "volte" ||
+		active.Calls[0].LineID != "line-stable" {
 		t.Fatalf("active response = %+v, error = %v", active, err)
 	}
 

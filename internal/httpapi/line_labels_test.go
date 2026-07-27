@@ -11,12 +11,12 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
-func TestLineLabelResourceUpdatesByICCID(t *testing.T) {
+func TestLineLabelResourceUpdatesByStableLineID(t *testing.T) {
 	t.Parallel()
 
-	const iccid = "8986010000000000001"
+	const lineID = "line-main"
 	repository := &fakeRepository{updateLineResult: store.LineSummary{
-		ICCID:       iccid,
+		ID:          lineID,
 		LineLabel:   "主卡",
 		LineColor:   store.LineColorViolet,
 		DeviceAlias: "机房模组",
@@ -28,7 +28,7 @@ func TestLineLabelResourceUpdatesByICCID(t *testing.T) {
 	body := bytes.NewBufferString(`{"line_label":"  主卡  ","line_color":"violet"}`)
 	request := httptest.NewRequest(
 		http.MethodPatch,
-		"/api/v1/lines/"+url.PathEscape(iccid)+"/label",
+		"/api/v1/lines/"+url.PathEscape(lineID)+"/label",
 		body,
 	)
 	request.Header.Set("Content-Type", "application/json")
@@ -38,12 +38,12 @@ func TestLineLabelResourceUpdatesByICCID(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body = %s", response.Code, response.Body.String())
 	}
-	if repository.updateLineICCID != iccid || repository.updateLineLabel != "  主卡  " {
+	if repository.updateLineID != lineID || repository.updateLineLabel != "  主卡  " {
 		t.Fatalf(
 			"repository input = (%q, %q), want (%q, %q)",
-			repository.updateLineICCID,
+			repository.updateLineID,
 			repository.updateLineLabel,
-			iccid,
+			lineID,
 			"  主卡  ",
 		)
 	}
@@ -55,7 +55,7 @@ func TestLineLabelResourceUpdatesByICCID(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if payload.Line.ICCID != iccid ||
+	if payload.Line.LineID != lineID ||
 		payload.Line.LineLabel != "主卡" ||
 		payload.Line.LineColor != store.LineColorViolet {
 		t.Fatalf("line = %+v", payload.Line)
@@ -65,7 +65,7 @@ func TestLineLabelResourceUpdatesByICCID(t *testing.T) {
 func TestLineLabelResourceRejectsInvalidRequests(t *testing.T) {
 	t.Parallel()
 
-	const path = "/api/v1/lines/8986010000000000001/label"
+	const path = "/api/v1/lines/line-main/label"
 	tests := []struct {
 		name       string
 		method     string
@@ -104,7 +104,7 @@ func TestLineLabelResourceRejectsInvalidRequests(t *testing.T) {
 			wantCode:   "invalid_line_color",
 		},
 		{
-			name:       "unknown ICCID",
+			name:       "unknown line ID",
 			method:     http.MethodPatch,
 			body:       `{"line_label":"主卡"}`,
 			storeError: store.ErrLineNotFound,

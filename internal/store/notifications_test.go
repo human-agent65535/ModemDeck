@@ -11,6 +11,22 @@ func TestNotificationOutboxAllocatesScopedDeliveryOnce(t *testing.T) {
 
 	repository := newHardwareTestStore(t)
 	ctx := context.Background()
+	observed := time.Date(2026, time.July, 23, 12, 0, 0, 0, time.UTC)
+	line := HardwareLine{
+		ID:                  "endpoint-notification-1",
+		EquipmentIdentifier: "990000000000301",
+		ICCID:               "8901000000000000301",
+		IMSI:                "440500000000301",
+	}
+	if err := repository.ApplyHardwareSnapshot(ctx, HardwareSnapshot{
+		BootEpoch:  "notification-1",
+		Revision:   "notification-line-1",
+		ObservedAt: observed,
+		Lines:      []HardwareLine{line},
+	}); err != nil {
+		t.Fatalf("ApplyHardwareSnapshot() error = %v", err)
+	}
+	stableLineID := stableLineIDForICCID(t, repository, line.ICCID)
 	for _, unit := range []TelegramUnitRecord{
 		{
 			ID:                 "matching",
@@ -21,7 +37,7 @@ func TestNotificationOutboxAllocatesScopedDeliveryOnce(t *testing.T) {
 			BotTokenCiphertext: []byte("ciphertext"),
 			ChatID:             1,
 			AdminID:            2,
-			LineScopes:         []string{"line-1"},
+			LineScopes:         []string{stableLineID},
 			IncomingSMS:        true,
 			MissedCalls:        true,
 		},
@@ -56,9 +72,8 @@ func TestNotificationOutboxAllocatesScopedDeliveryOnce(t *testing.T) {
 		}
 	}
 
-	observed := time.Date(2026, time.July, 23, 12, 0, 0, 0, time.UTC)
 	message := HardwareMessage{
-		LineID:            "line-1",
+		LineID:            line.ID,
 		EndpointMessageID: "message-1",
 		Number:            "+818012345678",
 		Text:              "fixture",
@@ -81,7 +96,7 @@ func TestNotificationOutboxAllocatesScopedDeliveryOnce(t *testing.T) {
 	if len(deliveries) != 1 ||
 		deliveries[0].UnitID != "matching" ||
 		deliveries[0].EventType != NotificationIncomingSMS ||
-		deliveries[0].LineID != message.LineID {
+		deliveries[0].LineID != stableLineID {
 		t.Fatalf("deliveries = %+v", deliveries)
 	}
 
@@ -115,6 +130,21 @@ func TestNotificationOutboxMarksInterruptedDeliveryIndeterminate(t *testing.T) {
 
 	repository := newHardwareTestStore(t)
 	ctx := context.Background()
+	now := time.Date(2026, time.July, 23, 12, 30, 0, 0, time.UTC)
+	line := HardwareLine{
+		ID:                  "endpoint-notification-2",
+		EquipmentIdentifier: "990000000000302",
+		ICCID:               "8901000000000000302",
+		IMSI:                "440500000000302",
+	}
+	if err := repository.ApplyHardwareSnapshot(ctx, HardwareSnapshot{
+		BootEpoch:  "notification-2",
+		Revision:   "notification-line-2",
+		ObservedAt: now,
+		Lines:      []HardwareLine{line},
+	}); err != nil {
+		t.Fatalf("ApplyHardwareSnapshot() error = %v", err)
+	}
 	if _, err := repository.CreateTelegramUnit(ctx, TelegramUnitRecord{
 		ID:                 "unit-1",
 		DisplayName:        "Unit",
@@ -128,9 +158,8 @@ func TestNotificationOutboxMarksInterruptedDeliveryIndeterminate(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateTelegramUnit() error = %v", err)
 	}
-	now := time.Date(2026, time.July, 23, 12, 30, 0, 0, time.UTC)
 	if _, _, err := repository.UpsertHardwareMessage(ctx, HardwareMessage{
-		LineID:            "line-1",
+		LineID:            line.ID,
 		EndpointMessageID: "message-1",
 		Number:            "+818012345678",
 		Text:              "fixture",

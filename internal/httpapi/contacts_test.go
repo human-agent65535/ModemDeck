@@ -19,7 +19,7 @@ func TestCreateContact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	body := `{"display_name":"Aiko","avatar":"data:image/png;base64,iVBORw0KGgo=","notes":"Tokyo","preferred_device_imei":"imei-main","favorite":true,"phones":[{"label":"mobile","number":"+81 90-1234-5678","primary":true}]}`
+	body := `{"display_name":"Aiko","avatar":"data:image/png;base64,iVBORw0KGgo=","notes":"Tokyo","preferred_line_id":"line-main","favorite":true,"phones":[{"label":"mobile","number":"+81 90-1234-5678","primary":true}]}`
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/contacts", bytes.NewBufferString(body))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -34,7 +34,7 @@ func TestCreateContact(t *testing.T) {
 	if repository.createContactInput.Avatar != "data:image/png;base64,iVBORw0KGgo=" {
 		t.Fatalf("create avatar = %q", repository.createContactInput.Avatar)
 	}
-	if repository.createContactInput.PreferredDeviceIMEI != "imei-main" ||
+	if repository.createContactInput.PreferredLineID != "line-main" ||
 		!repository.createContactInput.Favorite {
 		t.Fatalf("create contact preferences = %+v", repository.createContactInput)
 	}
@@ -55,7 +55,7 @@ func TestUpdateAndDeleteContactCarryRevision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	updateBody := `{"display_name":"Aiko","preferred_device_imei":"imei-main","favorite":true,"revision":7,"phones":[{"id":"phone-1","label":"mobile","number":"+819012345678","primary":true}]}`
+	updateBody := `{"display_name":"Aiko","preferred_line_id":"line-main","favorite":true,"revision":7,"phones":[{"id":"phone-1","label":"mobile","number":"+819012345678","primary":true}]}`
 	update := httptest.NewRequest(http.MethodPut, "/api/v1/contacts/contact-1", bytes.NewBufferString(updateBody))
 	update.Header.Set("Content-Type", "application/json; charset=utf-8")
 	updateResponse := httptest.NewRecorder()
@@ -66,7 +66,7 @@ func TestUpdateAndDeleteContactCarryRevision(t *testing.T) {
 	if repository.updateContactID != "contact-1" || repository.updateContactInput.Revision != 7 {
 		t.Fatalf("update = id %q input %+v", repository.updateContactID, repository.updateContactInput)
 	}
-	if repository.updateContactInput.PreferredDeviceIMEI != "imei-main" ||
+	if repository.updateContactInput.PreferredLineID != "line-main" ||
 		!repository.updateContactInput.Favorite {
 		t.Fatalf("update contact preferences = %+v", repository.updateContactInput)
 	}

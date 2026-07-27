@@ -41,6 +41,7 @@ type diagnosticAgent struct {
 type diagnosticCall struct {
 	ID              string `json:"id"`
 	LineID          string `json:"line_id"`
+	EndpointLineID  string `json:"endpoint_line_id,omitempty"`
 	Direction       string `json:"direction"`
 	Phase           string `json:"phase"`
 	Bearer          string `json:"bearer"`
@@ -116,7 +117,8 @@ func (api *API) diagnostics(response http.ResponseWriter, request *http.Request)
 		for _, call := range calls {
 			result.ActiveCalls = append(result.ActiveCalls, diagnosticCall{
 				ID:              call.ID,
-				LineID:          call.DeviceID,
+				LineID:          call.LineID,
+				EndpointLineID:  call.EndpointLineID,
 				Direction:       call.Direction,
 				Phase:           call.Phase,
 				Bearer:          call.Bearer,

@@ -19,12 +19,14 @@ type lineServiceTestAgent struct {
 	deleteRequests  []agentclient.DeleteConnectionProfileRequest
 	ussdStatus      agentclient.USSDStatus
 	ussdRequests    []agentclient.USSDRequest
+	endpointLineIDs []string
 }
 
 func (agent *lineServiceTestAgent) SIMStatus(
-	context.Context,
-	string,
+	_ context.Context,
+	lineID string,
 ) (agentclient.SIMStatus, error) {
+	agent.endpointLineIDs = append(agent.endpointLineIDs, lineID)
 	return agent.simStatus, nil
 }
 
@@ -33,6 +35,7 @@ func (agent *lineServiceTestAgent) SIMCommand(
 	lineID string,
 	request agentclient.SIMCommandRequest,
 ) (agentclient.CommandReceipt, error) {
+	agent.endpointLineIDs = append(agent.endpointLineIDs, lineID)
 	agent.simRequests = append(agent.simRequests, request)
 	return agentclient.CommandReceipt{
 		RequestID:  request.RequestID,
@@ -41,17 +44,19 @@ func (agent *lineServiceTestAgent) SIMCommand(
 }
 
 func (agent *lineServiceTestAgent) ConnectionProfiles(
-	context.Context,
-	string,
+	_ context.Context,
+	lineID string,
 ) ([]agentclient.ConnectionProfile, error) {
+	agent.endpointLineIDs = append(agent.endpointLineIDs, lineID)
 	return append([]agentclient.ConnectionProfile(nil), agent.profiles...), nil
 }
 
 func (agent *lineServiceTestAgent) SaveConnectionProfile(
 	_ context.Context,
-	_ string,
+	lineID string,
 	request agentclient.SaveConnectionProfileRequest,
 ) (agentclient.ConnectionProfile, error) {
+	agent.endpointLineIDs = append(agent.endpointLineIDs, lineID)
 	agent.profileRequests = append(agent.profileRequests, request)
 	profile := agentclient.ConnectionProfile{
 		ProfileID:   7,
@@ -68,6 +73,7 @@ func (agent *lineServiceTestAgent) DeleteConnectionProfile(
 	lineID string,
 	request agentclient.DeleteConnectionProfileRequest,
 ) (agentclient.CommandReceipt, error) {
+	agent.endpointLineIDs = append(agent.endpointLineIDs, lineID)
 	agent.deleteRequests = append(agent.deleteRequests, request)
 	return agentclient.CommandReceipt{
 		RequestID:  request.RequestID,
@@ -76,17 +82,19 @@ func (agent *lineServiceTestAgent) DeleteConnectionProfile(
 }
 
 func (agent *lineServiceTestAgent) USSDStatus(
-	context.Context,
-	string,
+	_ context.Context,
+	lineID string,
 ) (agentclient.USSDStatus, error) {
+	agent.endpointLineIDs = append(agent.endpointLineIDs, lineID)
 	return agent.ussdStatus, nil
 }
 
 func (agent *lineServiceTestAgent) USSDCommand(
 	_ context.Context,
-	_ string,
+	lineID string,
 	request agentclient.USSDRequest,
 ) (agentclient.USSDResponse, error) {
+	agent.endpointLineIDs = append(agent.endpointLineIDs, lineID)
 	agent.ussdRequests = append(agent.ussdRequests, request)
 	return agentclient.USSDResponse{Response: "balance"}, nil
 }
@@ -120,12 +128,16 @@ func TestLineServicesUseLiveLineAndDeduplicateSensitiveCommands(t *testing.T) {
 	service.status = Status{
 		Connected:  true,
 		ObservedAt: observedAt,
-		Lines:      []store.LineSummary{{ID: "line-1"}},
+		Lines: []store.LineSummary{{
+			ID:         "line-stable",
+			EndpointID: "line-1",
+		}},
 	}
 
-	status, err := service.SIMStatus(context.Background(), "line-1")
+	status, err := service.SIMStatus(context.Background(), "line-stable")
 	if err != nil || status.UnlockRetries["sim-pin"] != 3 ||
-		status.EIDMasked != "****5678" {
+		status.EIDMasked != "****5678" ||
+		status.LineID != "line-stable" {
 		t.Fatalf("SIMStatus() = %+v, %v", status, err)
 	}
 	if repository.snapshot.ObservedAt != (time.Time{}) ||
@@ -136,26 +148,26 @@ func TestLineServicesUseLiveLineAndDeduplicateSensitiveCommands(t *testing.T) {
 	}
 	firstReceipt, err := service.SIMCommand(
 		context.Background(),
-		"line-1",
+		"line-stable",
 		agentclient.SIMCommandRequest{
 			RequestID: "sim-request-1",
 			Operation: agentclient.SIMSendPIN,
 			PIN:       "1234",
 		},
 	)
-	if err != nil || firstReceipt.ResourceID != "line-1" {
+	if err != nil || firstReceipt.ResourceID != "line-stable" {
 		t.Fatalf("SIMCommand() = %+v, %v", firstReceipt, err)
 	}
 	replayedReceipt, err := service.SIMCommand(
 		context.Background(),
-		"line-1",
+		"line-stable",
 		agentclient.SIMCommandRequest{
 			RequestID: "sim-request-1",
 			Operation: agentclient.SIMSendPIN,
 			PIN:       "9999",
 		},
 	)
-	if err != nil || replayedReceipt.ResourceID != "line-1" || len(agent.simRequests) != 1 {
+	if err != nil || replayedReceipt.ResourceID != "line-stable" || len(agent.simRequests) != 1 {
 		t.Fatalf(
 			"replayed SIMCommand() = %+v, %v; requests = %+v",
 			replayedReceipt,
@@ -166,7 +178,7 @@ func TestLineServicesUseLiveLineAndDeduplicateSensitiveCommands(t *testing.T) {
 
 	profile, err := service.SaveConnectionProfile(
 		context.Background(),
-		"line-1",
+		"line-stable",
 		agentclient.SaveConnectionProfileRequest{
 			RequestID:   "profile-request-1",
 			ProfileName: "data",
@@ -180,7 +192,7 @@ func TestLineServicesUseLiveLineAndDeduplicateSensitiveCommands(t *testing.T) {
 	}
 	replayedProfile, err := service.SaveConnectionProfile(
 		context.Background(),
-		"line-1",
+		"line-stable",
 		agentclient.SaveConnectionProfileRequest{
 			RequestID:   "profile-request-1",
 			ProfileName: "data",
@@ -200,7 +212,7 @@ func TestLineServicesUseLiveLineAndDeduplicateSensitiveCommands(t *testing.T) {
 
 	result, err := service.USSDCommand(
 		context.Background(),
-		"line-1",
+		"line-stable",
 		agentclient.USSDRequest{
 			RequestID: "ussd-request-1",
 			Action:    agentclient.USSDInitiate,
@@ -212,7 +224,7 @@ func TestLineServicesUseLiveLineAndDeduplicateSensitiveCommands(t *testing.T) {
 	}
 	result, err = service.USSDCommand(
 		context.Background(),
-		"line-1",
+		"line-stable",
 		agentclient.USSDRequest{
 			RequestID: "ussd-request-1",
 			Action:    agentclient.USSDInitiate,
@@ -221,5 +233,10 @@ func TestLineServicesUseLiveLineAndDeduplicateSensitiveCommands(t *testing.T) {
 	)
 	if err != nil || result.Response != "" || len(agent.ussdRequests) != 1 {
 		t.Fatalf("replayed USSDCommand() = %+v, %v; requests = %+v", result, err, agent.ussdRequests)
+	}
+	for _, endpointLineID := range agent.endpointLineIDs {
+		if endpointLineID != "line-1" {
+			t.Fatalf("agent line id = %q, want endpoint line-1", endpointLineID)
+		}
 	}
 }

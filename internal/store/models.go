@@ -20,16 +20,16 @@ type ContactQuery struct {
 }
 
 type Contact struct {
-	ID                  string         `json:"id"`
-	DisplayName         string         `json:"display_name"`
-	Avatar              string         `json:"avatar"`
-	Notes               string         `json:"notes"`
-	PreferredDeviceIMEI string         `json:"preferred_device_imei"`
-	Favorite            bool           `json:"favorite"`
-	Revision            int64          `json:"revision"`
-	CreatedAt           string         `json:"created_at"`
-	UpdatedAt           string         `json:"updated_at"`
-	Phones              []ContactPhone `json:"phones"`
+	ID              string         `json:"id"`
+	DisplayName     string         `json:"display_name"`
+	Avatar          string         `json:"avatar"`
+	Notes           string         `json:"notes"`
+	PreferredLineID string         `json:"preferred_line_id"`
+	Favorite        bool           `json:"favorite"`
+	Revision        int64          `json:"revision"`
+	CreatedAt       string         `json:"created_at"`
+	UpdatedAt       string         `json:"updated_at"`
+	Phones          []ContactPhone `json:"phones"`
 }
 
 type ContactPhone struct {
@@ -41,13 +41,13 @@ type ContactPhone struct {
 }
 
 type ContactInput struct {
-	DisplayName         string              `json:"display_name"`
-	Avatar              string              `json:"avatar"`
-	Notes               string              `json:"notes"`
-	PreferredDeviceIMEI string              `json:"preferred_device_imei"`
-	Favorite            bool                `json:"favorite"`
-	Revision            int64               `json:"revision"`
-	Phones              []ContactPhoneInput `json:"phones"`
+	DisplayName     string              `json:"display_name"`
+	Avatar          string              `json:"avatar"`
+	Notes           string              `json:"notes"`
+	PreferredLineID string              `json:"preferred_line_id"`
+	Favorite        bool                `json:"favorite"`
+	Revision        int64               `json:"revision"`
+	Phones          []ContactPhoneInput `json:"phones"`
 }
 
 type ContactPhoneInput struct {
@@ -79,8 +79,7 @@ type MessageThread struct {
 }
 
 type MessageQuery struct {
-	LocalPhone    string
-	ICCID         string
+	LineID        string
 	Peer          string
 	LineIDs       []string
 	Limit         int
@@ -88,15 +87,15 @@ type MessageQuery struct {
 }
 
 type MessageThreadIdentity struct {
-	LocalPhone string
-	ICCID      string
-	Peer       string
+	LineID string
+	Peer   string
 }
 
 type Message struct {
 	ID                int64  `json:"id"`
 	RequestID         string `json:"request_id"`
 	LineID            string `json:"line_id"`
+	EndpointLineID    string `json:"endpoint_line_id"`
 	EndpointMessageID string `json:"endpoint_message_id"`
 	IMSI              string `json:"imsi"`
 	ICCID             string `json:"iccid"`
@@ -133,7 +132,8 @@ type CallQuery struct {
 type Call struct {
 	ID              string  `json:"id"`
 	RequestID       string  `json:"request_id"`
-	DeviceID        string  `json:"device_id"`
+	LineID          string  `json:"line_id"`
+	EndpointLineID  string  `json:"endpoint_line_id"`
 	LocalPhone      string  `json:"local_phone"`
 	LineIMSI        string  `json:"line_imsi"`
 	LineICCID       string  `json:"line_iccid"`
@@ -167,6 +167,7 @@ type Call struct {
 
 type Device struct {
 	IMEI          string   `json:"imei"`
+	EndpointID    string   `json:"endpoint_id"`
 	Alias         string   `json:"alias"`
 	Model         string   `json:"model"`
 	Firmware      string   `json:"firmware"`
@@ -194,6 +195,7 @@ type DeviceInput struct {
 
 type SIMCard struct {
 	ICCID                  string `json:"iccid"`
+	LineID                 string `json:"line_id"`
 	IMSI                   string `json:"imsi"`
 	PhoneNumber            string `json:"phone_number"`
 	Operator               string `json:"operator"`
@@ -217,6 +219,7 @@ type SIMCard struct {
 
 type LineSummary struct {
 	ID                       string           `json:"id"`
+	EndpointID               string           `json:"endpoint_id"`
 	ICCID                    string           `json:"iccid"`
 	LineLabel                string           `json:"line_label"`
 	LineColor                LineColor        `json:"line_color"`
@@ -315,13 +318,14 @@ const (
 )
 
 type NetworkCounterSample struct {
-	ScopeKind  NetworkScopeKind
-	ScopeID    string
-	Epoch      string
-	RXBytes    uint64
-	TXBytes    uint64
-	ObservedAt time.Time
-	Location   *time.Location
+	ScopeKind       NetworkScopeKind
+	ScopeID         string
+	EndpointScopeID string
+	Epoch           string
+	RXBytes         uint64
+	TXBytes         uint64
+	ObservedAt      time.Time
+	Location        *time.Location
 }
 
 type NetworkUsage struct {
@@ -342,6 +346,7 @@ type HardwareSnapshot struct {
 
 type HardwareSnapshotResult struct {
 	CreatedIncomingMessages []Message
+	LineIDsByEndpoint       map[string]string
 }
 
 type HardwareCommand struct {
@@ -385,6 +390,7 @@ type HardwareCall struct {
 	AppID           string
 	RequestID       string
 	LineID          string
+	EndpointLineID  string `json:"endpoint_line_id"`
 	LocalPhone      string
 	LineIMSI        string
 	LineICCID       string
@@ -408,6 +414,7 @@ type HardwareCall struct {
 type HardwareMessage struct {
 	RequestID         string
 	LineID            string
+	EndpointLineID    string `json:"endpoint_line_id"`
 	EndpointMessageID string
 	IMSI              string
 	ICCID             string
@@ -425,6 +432,7 @@ type HardwareMessage struct {
 type CallControlTarget struct {
 	AppID          string
 	LineID         string
+	EndpointLineID string
 	EndpointCallID string
 	Number         string
 	Direction      string
@@ -455,9 +463,9 @@ type GlobalCallSettings struct {
 }
 
 type LineSettings struct {
-	DefaultDeviceIMEI string `json:"default_device_imei"`
-	Revision          int64  `json:"revision"`
-	UpdatedAt         string `json:"updated_at"`
+	DefaultLineID string `json:"default_line_id"`
+	Revision      int64  `json:"revision"`
+	UpdatedAt     string `json:"updated_at"`
 }
 
 type SystemLanguage string
@@ -506,6 +514,7 @@ const (
 type IncomingCallAction struct {
 	CallID          string
 	LineID          string
+	EndpointLineID  string
 	EndpointCallID  string
 	EffectivePolicy EffectiveCallPolicyValue
 	GlobalRevision  int64

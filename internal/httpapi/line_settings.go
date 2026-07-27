@@ -9,8 +9,8 @@ import (
 )
 
 type updateLineSettingsRequest struct {
-	DefaultDeviceIMEI string `json:"default_device_imei"`
-	ExpectedRevision  int64  `json:"expected_revision"`
+	DefaultLineID    string `json:"default_line_id"`
+	ExpectedRevision int64  `json:"expected_revision"`
 }
 
 func (api *API) lineSettings(response http.ResponseWriter, request *http.Request) {
@@ -27,30 +27,30 @@ func (api *API) lineSettings(response http.ResponseWriter, request *http.Request
 		if !decodeJSONBody(response, request, &input) {
 			return
 		}
-		if strings.TrimSpace(input.DefaultDeviceIMEI) == "" || input.ExpectedRevision <= 0 {
+		if strings.TrimSpace(input.DefaultLineID) == "" || input.ExpectedRevision <= 0 {
 			writeError(
 				response,
 				http.StatusBadRequest,
 				"invalid_argument",
-				"default_device_imei and a positive expected_revision are required",
+				"default_line_id and a positive expected_revision are required",
 				"",
 			)
 			return
 		}
 		settings, err := api.repository.UpdateLineSettings(
 			request.Context(),
-			input.DefaultDeviceIMEI,
+			input.DefaultLineID,
 			input.ExpectedRevision,
 		)
 		if err != nil {
 			switch {
-			case errors.Is(err, store.ErrLineSettingsInvalidDevice):
+			case errors.Is(err, store.ErrLineSettingsInvalidLine):
 				writeError(
 					response,
 					http.StatusBadRequest,
 					"invalid_line",
 					"The selected default line does not exist",
-					"default_device_imei",
+					"default_line_id",
 				)
 			case errors.Is(err, store.ErrLineSettingsRevisionConflict):
 				writeError(

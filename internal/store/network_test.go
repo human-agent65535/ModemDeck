@@ -112,13 +112,14 @@ func TestNetworkCountersRebaselineOnResetAndEpochChange(t *testing.T) {
 		if err := repository.ApplyNetworkCounterSamples(
 			context.Background(),
 			[]NetworkCounterSample{{
-				ScopeKind:  NetworkScopeLine,
-				ScopeID:    "line-1",
-				Epoch:      epoch,
-				RXBytes:    rx,
-				TXBytes:    tx,
-				ObservedAt: at,
-				Location:   time.UTC,
+				ScopeKind:       NetworkScopeLine,
+				ScopeID:         "line-1",
+				EndpointScopeID: "endpoint-line-1",
+				Epoch:           epoch,
+				RXBytes:         rx,
+				TXBytes:         tx,
+				ObservedAt:      at,
+				Location:        time.UTC,
 			}},
 		); err != nil {
 			t.Fatalf("ApplyNetworkCounterSamples() error = %v", err)
@@ -227,13 +228,14 @@ func TestNetworkCountersIgnoreOutOfOrderSnapshots(t *testing.T) {
 		if err := repository.ApplyNetworkCounterSamples(
 			context.Background(),
 			[]NetworkCounterSample{{
-				ScopeKind:  NetworkScopeLine,
-				ScopeID:    "line-1",
-				Epoch:      "boot-1|wwan0",
-				RXBytes:    rx,
-				TXBytes:    rx,
-				ObservedAt: observedAt,
-				Location:   time.UTC,
+				ScopeKind:       NetworkScopeLine,
+				ScopeID:         "line-1",
+				EndpointScopeID: "endpoint-line-1",
+				Epoch:           "boot-1|wwan0",
+				RXBytes:         rx,
+				TXBytes:         rx,
+				ObservedAt:      observedAt,
+				Location:        time.UTC,
 			}},
 		); err != nil {
 			t.Fatalf("ApplyNetworkCounterSamples() error = %v", err)
@@ -267,13 +269,14 @@ func TestNetworkCountersResetDirectionsIndependently(t *testing.T) {
 		if err := repository.ApplyNetworkCounterSamples(
 			context.Background(),
 			[]NetworkCounterSample{{
-				ScopeKind:  NetworkScopeLine,
-				ScopeID:    "line-1",
-				Epoch:      "boot-1|wwan0",
-				RXBytes:    rx,
-				TXBytes:    tx,
-				ObservedAt: observedAt,
-				Location:   time.UTC,
+				ScopeKind:       NetworkScopeLine,
+				ScopeID:         "line-1",
+				EndpointScopeID: "endpoint-line-1",
+				Epoch:           "boot-1|wwan0",
+				RXBytes:         rx,
+				TXBytes:         tx,
+				ObservedAt:      observedAt,
+				Location:        time.UTC,
 			}},
 		); err != nil {
 			t.Fatalf("ApplyNetworkCounterSamples() error = %v", err)
@@ -306,13 +309,14 @@ func TestNetworkCounterSnapshotRebaselinesMissingLineBeforeInterfaceReuse(t *tes
 		if err := repository.ApplyNetworkCounterSnapshot(
 			context.Background(),
 			[]NetworkCounterSample{{
-				ScopeKind:  NetworkScopeLine,
-				ScopeID:    lineID,
-				Epoch:      "boot-1|wwan0",
-				RXBytes:    counter,
-				TXBytes:    counter,
-				ObservedAt: observedAt,
-				Location:   time.UTC,
+				ScopeKind:       NetworkScopeLine,
+				ScopeID:         lineID,
+				EndpointScopeID: "wwan0",
+				Epoch:           "boot-1|wwan0",
+				RXBytes:         counter,
+				TXBytes:         counter,
+				ObservedAt:      observedAt,
+				Location:        time.UTC,
 			}},
 			[]string{lineID},
 		); err != nil {
@@ -352,13 +356,14 @@ func TestNetworkCounterSnapshotRequiresExactActiveLineSamples(t *testing.T) {
 
 	repository := newNetworkTestStore(t)
 	sample := NetworkCounterSample{
-		ScopeKind:  NetworkScopeLine,
-		ScopeID:    "line-a",
-		Epoch:      "boot-1|wwan0",
-		RXBytes:    100,
-		TXBytes:    100,
-		ObservedAt: time.Date(2026, 7, 24, 5, 0, 0, 0, time.UTC),
-		Location:   time.UTC,
+		ScopeKind:       NetworkScopeLine,
+		ScopeID:         "line-a",
+		EndpointScopeID: "wwan0",
+		Epoch:           "boot-1|wwan0",
+		RXBytes:         100,
+		TXBytes:         100,
+		ObservedAt:      time.Date(2026, 7, 24, 5, 0, 0, 0, time.UTC),
+		Location:        time.UTC,
 	}
 	if err := repository.ApplyNetworkCounterSnapshot(
 		context.Background(),

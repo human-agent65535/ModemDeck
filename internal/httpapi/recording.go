@@ -33,8 +33,8 @@ type recordingListResponse struct {
 }
 
 type recordingEntriesResponse struct {
-	Recordings []store.RecordingEntry `json:"recordings"`
-	Meta       responseMeta           `json:"meta"`
+	Recordings []recordingEntryResponse `json:"recordings"`
+	Meta       responseMeta             `json:"meta"`
 }
 
 type recordingMutationErrorResponse struct {
@@ -113,7 +113,7 @@ func (api *API) recordingEntries(response http.ResponseWriter, request *http.Req
 		return
 	}
 	writeJSON(response, http.StatusOK, recordingEntriesResponse{
-		Recordings: entries,
+		Recordings: recordingEntryResponses(entries),
 		Meta:       responseMeta{Limit: limit},
 	})
 }

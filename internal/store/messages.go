@@ -27,75 +27,41 @@ const contactNameForNumberSQL = `COALESCE((
 
 func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]MessageThread, error) {
 	limit := boundedLimit(query.Limit)
-	normalizedLocalPhone := normalizedPhoneSQL("local_phone")
-	statement := `WITH raw_threads AS (
-			SELECT
-				COALESCE(sc.imsi, '') AS imsi,
-				COALESCE(sc.iccid, '') AS iccid,
-				COALESCE((
-					SELECT sms.local_phone FROM sms
-					WHERE sms.id = sc.last_sms_id
-					LIMIT 1
-				), '') AS local_phone,
-				COALESCE((
-					SELECT sms.line_id FROM sms
-					WHERE sms.id = sc.last_sms_id
-					LIMIT 1
-				), '') AS line_id,
-				COALESCE(sc.peer, '') AS peer,
-				COALESCE(sc.last_sms_id, 0) AS last_sms_id,
-				sc.last_timestamp AS last_timestamp,
-				COALESCE(sc.last_content, '') AS last_content,
-				COALESCE(sc.last_type, 0) AS last_type,
-				COALESCE(sc.unread_count, 0) AS unread_count
-			FROM sms_contacts sc
-		),
-		identified_threads AS (
-			SELECT raw_threads.*,
-				CASE
-					WHEN ` + normalizedLocalPhone + ` <> ''
-						THEN 'phone:' || ` + normalizedLocalPhone + `
-					WHEN imsi <> '' THEN 'imsi:' || imsi
-					ELSE 'iccid:' || iccid
-				END AS line_identity
-			FROM raw_threads
-		),
-		ranked_threads AS (
-			SELECT identified_threads.*,
-				ROW_NUMBER() OVER (
-					PARTITION BY line_identity, peer
-					ORDER BY last_timestamp DESC, last_sms_id DESC, imsi ASC
-				) AS line_rank,
-				SUM(unread_count) OVER (
-					PARTITION BY line_identity, peer
-				) AS logical_unread_count
-			FROM identified_threads
-		)
-		SELECT
-			rt.line_identity || '|' || rt.peer,
-			rt.imsi, rt.iccid, rt.local_phone, rt.line_id, rt.peer,
-			` + fmt.Sprintf(contactIDForNumberSQL, "rt.peer", "rt.peer") + `,
-			` + fmt.Sprintf(contactNameForNumberSQL, "rt.peer", "rt.peer") + `,
-			rt.last_sms_id, rt.last_timestamp, rt.last_content, rt.last_type,
-			rt.logical_unread_count
-		FROM ranked_threads rt
-		WHERE rt.line_rank = 1`
+	statement := `SELECT
+			sc.line_id || '|' || sc.peer,
+			sc.imsi,
+			sc.iccid,
+			COALESCE((
+				SELECT sms.local_phone FROM sms
+				WHERE sms.id = sc.last_sms_id
+				LIMIT 1
+			), '') AS local_phone,
+			sc.line_id,
+			sc.peer,
+			` + fmt.Sprintf(contactIDForNumberSQL, "sc.peer", "sc.peer") + `,
+			` + fmt.Sprintf(contactNameForNumberSQL, "sc.peer", "sc.peer") + `,
+			sc.last_sms_id,
+			sc.last_timestamp,
+			sc.last_content,
+			sc.last_type,
+			sc.unread_count
+		FROM sms_contacts sc`
 	arguments := []any{}
 	if strings.TrimSpace(query.Search) != "" {
 		pattern := searchPattern(query.Search)
-		statement += ` AND (
-			LOWER(COALESCE(rt.peer, '')) LIKE ? ESCAPE '\' OR
-			LOWER(COALESCE(rt.last_content, '')) LIKE ? ESCAPE '\' OR
+		statement += ` WHERE (
+			LOWER(COALESCE(sc.peer, '')) LIKE ? ESCAPE '\' OR
+			LOWER(COALESCE(sc.last_content, '')) LIKE ? ESCAPE '\' OR
 			EXISTS (
 				SELECT 1 FROM contact_phones
 				JOIN contacts ON contacts.id = contact_phones.contact_id
-				WHERE (contact_phones.canonical_e164 = rt.peer OR contact_phones.original_number = rt.peer)
+				WHERE (contact_phones.canonical_e164 = sc.peer OR contact_phones.original_number = sc.peer)
 				AND LOWER(COALESCE(contacts.display_name, '')) LIKE ? ESCAPE '\'
 			)
 		)`
 		arguments = append(arguments, pattern, pattern, pattern)
 	}
-	statement += ` ORDER BY rt.last_timestamp DESC, rt.last_sms_id DESC, rt.peer ASC LIMIT ?`
+	statement += ` ORDER BY sc.last_timestamp DESC, sc.last_sms_id DESC, sc.peer ASC LIMIT ?`
 	arguments = append(arguments, limit)
 
 	rows, err := s.database.QueryContext(ctx, statement, arguments...)
@@ -138,12 +104,16 @@ func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]Messag
 
 func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, error) {
 	limit := boundedLimit(query.Limit)
-	statement := `SELECT id, request_id, line_id, endpoint_message_id,
+	statement := `SELECT id, request_id, line_id, endpoint_line_id, endpoint_message_id,
 		imsi, iccid, peer, local_phone, sender, recipient,
 		content, type, status, state, failure_code, revision, timestamp, created_at
 		FROM sms`
 	conditions := make([]string, 0, 4)
 	arguments := make([]any, 0, 5)
+	if lineID := strings.TrimSpace(query.LineID); lineID != "" {
+		conditions = append(conditions, "line_id = ?")
+		arguments = append(arguments, lineID)
+	}
 	if len(query.LineIDs) > 0 {
 		lineIDs := uniqueNonEmptyStrings(query.LineIDs)
 		if len(lineIDs) == 0 {
@@ -156,13 +126,6 @@ func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, er
 		for _, lineID := range lineIDs {
 			arguments = append(arguments, lineID)
 		}
-	}
-	if localPhone := normalizePhoneIdentity(query.LocalPhone); localPhone != "" {
-		conditions = append(conditions, normalizedPhoneSQL("local_phone")+" = ?")
-		arguments = append(arguments, localPhone)
-	} else if iccid := strings.TrimSpace(query.ICCID); iccid != "" {
-		conditions = append(conditions, "iccid = ?")
-		arguments = append(arguments, iccid)
 	}
 	if peer := strings.TrimSpace(query.Peer); peer != "" {
 		conditions = append(conditions, "peer = ?")
@@ -183,14 +146,14 @@ func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, er
 	messages := make([]Message, 0)
 	for rows.Next() {
 		var (
-			message                                               Message
-			requestID, lineID, endpointID, imsi, iccid, peer      sql.NullString
-			local, sender, recipient, content, state, failureCode sql.NullString
-			messageType, status, revision                         sql.NullInt64
-			timestamp, createdAt                                  sql.NullString
+			message                                                          Message
+			requestID, lineID, endpointLineID, endpointID, imsi, iccid, peer sql.NullString
+			local, sender, recipient, content, state, failureCode            sql.NullString
+			messageType, status, revision                                    sql.NullInt64
+			timestamp, createdAt                                             sql.NullString
 		)
 		if err := rows.Scan(
-			&message.ID, &requestID, &lineID, &endpointID,
+			&message.ID, &requestID, &lineID, &endpointLineID, &endpointID,
 			&imsi, &iccid, &peer, &local, &sender, &recipient,
 			&content, &messageType, &status, &state, &failureCode, &revision,
 			&timestamp, &createdAt,
@@ -199,6 +162,7 @@ func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, er
 		}
 		message.RequestID = stringValue(requestID)
 		message.LineID = stringValue(lineID)
+		message.EndpointLineID = stringValue(endpointLineID)
 		message.EndpointMessageID = stringValue(endpointID)
 		message.IMSI = stringValue(imsi)
 		message.ICCID = stringValue(iccid)

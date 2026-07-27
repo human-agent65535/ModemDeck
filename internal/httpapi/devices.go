@@ -9,7 +9,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
-const maxLineLabelICCIDLength = 64
+const maxLineIDLength = 128
 
 type renameDeviceRequest struct {
 	Alias *string `json:"alias"`
@@ -25,7 +25,7 @@ type updateLineLabelRequest struct {
 }
 
 type lineLabel struct {
-	ICCID     string          `json:"iccid"`
+	LineID    string          `json:"line_id"`
 	LineLabel string          `json:"line_label"`
 	LineColor store.LineColor `json:"line_color"`
 }
@@ -86,7 +86,7 @@ func (api *API) deviceResource(response http.ResponseWriter, request *http.Reque
 func (api *API) lineLabelResource(
 	response http.ResponseWriter,
 	request *http.Request,
-	iccid string,
+	lineID string,
 ) {
 	if request.Method != http.MethodPatch {
 		response.Header().Set("Allow", http.MethodPatch)
@@ -109,7 +109,7 @@ func (api *API) lineLabelResource(
 	}
 	line, err := api.repository.UpdateLineLabel(
 		request.Context(),
-		iccid,
+		lineID,
 		*input.LineLabel,
 		input.LineColor,
 	)
@@ -137,7 +137,7 @@ func (api *API) lineLabelResource(
 				http.StatusNotFound,
 				"line_not_found",
 				"Line was not found",
-				"iccid",
+				"line_id",
 			)
 		default:
 			api.writeInternalError(response, request, "update line label", err)
@@ -145,7 +145,7 @@ func (api *API) lineLabelResource(
 		return
 	}
 	writeJSON(response, http.StatusOK, lineResponse{Line: lineLabel{
-		ICCID:     line.ICCID,
+		LineID:    line.ID,
 		LineLabel: line.LineLabel,
 		LineColor: line.LineColor,
 	}})
@@ -189,7 +189,7 @@ func deviceResourceIMEI(path string) (string, bool) {
 	return imei, true
 }
 
-func lineLabelResourceICCID(path string) (string, bool) {
+func lineLabelResourceID(path string) (string, bool) {
 	const (
 		prefix = "/api/v1/lines/"
 		suffix = "/label"
@@ -201,15 +201,15 @@ func lineLabelResourceICCID(path string) (string, bool) {
 	if encoded == "" || strings.Contains(encoded, "/") || len(encoded) > 192 {
 		return "", false
 	}
-	iccid, err := url.PathUnescape(encoded)
+	lineID, err := url.PathUnescape(encoded)
 	if err != nil {
 		return "", false
 	}
-	iccid = strings.TrimSpace(iccid)
-	if iccid == "" ||
-		strings.Contains(iccid, "/") ||
-		len([]rune(iccid)) > maxLineLabelICCIDLength {
+	lineID = strings.TrimSpace(lineID)
+	if lineID == "" ||
+		strings.Contains(lineID, "/") ||
+		len([]rune(lineID)) > maxLineIDLength {
 		return "", false
 	}
-	return iccid, true
+	return lineID, true
 }

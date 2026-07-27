@@ -22,13 +22,13 @@ const (
 )
 
 type contactInputRequest struct {
-	DisplayName         string                     `json:"display_name"`
-	Avatar              string                     `json:"avatar"`
-	Notes               string                     `json:"notes"`
-	PreferredDeviceIMEI string                     `json:"preferred_device_imei"`
-	Favorite            bool                       `json:"favorite"`
-	Revision            int64                      `json:"revision"`
-	Phones              []contactPhoneInputRequest `json:"phones"`
+	DisplayName     string                     `json:"display_name"`
+	Avatar          string                     `json:"avatar"`
+	Notes           string                     `json:"notes"`
+	PreferredLineID string                     `json:"preferred_line_id"`
+	Favorite        bool                       `json:"favorite"`
+	Revision        int64                      `json:"revision"`
+	Phones          []contactPhoneInputRequest `json:"phones"`
 }
 
 type contactPhoneInputRequest struct {
@@ -53,13 +53,13 @@ func decodeContactInput(response http.ResponseWriter, request *http.Request) (st
 		}
 	}
 	return store.ContactInput{
-		DisplayName:         body.DisplayName,
-		Avatar:              body.Avatar,
-		Notes:               body.Notes,
-		PreferredDeviceIMEI: body.PreferredDeviceIMEI,
-		Favorite:            body.Favorite,
-		Revision:            body.Revision,
-		Phones:              phones,
+		DisplayName:     body.DisplayName,
+		Avatar:          body.Avatar,
+		Notes:           body.Notes,
+		PreferredLineID: body.PreferredLineID,
+		Favorite:        body.Favorite,
+		Revision:        body.Revision,
+		Phones:          phones,
 	}, true
 }
 

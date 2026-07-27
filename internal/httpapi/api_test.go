@@ -34,7 +34,7 @@ type fakeRepository struct {
 	recordingError      error
 	devices             []store.Device
 	lines               []store.LineSummary
-	updateLineICCID     string
+	updateLineID        string
 	updateLineLabel     string
 	updateLineColor     *store.LineColor
 	updateLineResult    store.LineSummary
@@ -131,18 +131,18 @@ func (repository *fakeRepository) Lines(context.Context) ([]store.LineSummary, e
 
 func (repository *fakeRepository) UpdateLineLabel(
 	_ context.Context,
-	iccid string,
+	lineID string,
 	label string,
 	color *store.LineColor,
 ) (store.LineSummary, error) {
-	repository.updateLineICCID = iccid
+	repository.updateLineID = lineID
 	repository.updateLineLabel = label
 	repository.updateLineColor = color
 	return repository.updateLineResult, repository.updateLineError
 }
 
 func (repository *fakeRepository) LineSettings(context.Context) (store.LineSettings, error) {
-	return store.LineSettings{DefaultDeviceIMEI: "", Revision: 1}, nil
+	return store.LineSettings{DefaultLineID: "", Revision: 1}, nil
 }
 
 func (repository *fakeRepository) UpdateLineSettings(
@@ -360,6 +360,7 @@ func TestBootstrapMergesPersistedIdentityIntoLiveLines(t *testing.T) {
 	t.Parallel()
 
 	repository := &fakeRepository{lines: []store.LineSummary{{
+		ID:          "line-1",
 		ICCID:       "8986010000000000001",
 		LineLabel:   "主卡",
 		IMSI:        "460010000000001",
@@ -372,10 +373,10 @@ func TestBootstrapMergesPersistedIdentityIntoLiveLines(t *testing.T) {
 		Connected: true,
 		Lines: []store.LineSummary{{
 			ID:         "line-1",
-			ICCID:      "8986010000000000001",
-			IMSI:       "460010000000001",
+			ICCID:      "8986010000000000999",
+			IMSI:       "460010000000999",
 			Operator:   "46001",
-			DeviceIMEI: "860000000000001",
+			DeviceIMEI: "860000000000999",
 			Model:      "QDC507",
 			State:      "registered",
 			Capabilities: store.LineCapabilities{
@@ -488,10 +489,11 @@ func TestDevicesExposeLiveServingNetworkWithoutReplacingHomeOperator(t *testing.
 	}
 }
 
-func TestBootstrapMergesPersistedLineLabelByIMSI(t *testing.T) {
+func TestBootstrapDoesNotMergePersistedLineLabelByIMSI(t *testing.T) {
 	t.Parallel()
 
 	repository := &fakeRepository{lines: []store.LineSummary{{
+		ID:         "line-persisted",
 		ICCID:      "8986010000000000001",
 		LineLabel:  "副卡",
 		IMSI:       "460010000000001",
@@ -526,8 +528,8 @@ func TestBootstrapMergesPersistedLineLabelByIMSI(t *testing.T) {
 	if len(body.Lines) != 1 {
 		t.Fatalf("line count = %d, want 1", len(body.Lines))
 	}
-	if body.Lines[0].LineLabel != "副卡" {
-		t.Fatalf("line label = %q, want 副卡", body.Lines[0].LineLabel)
+	if body.Lines[0].LineLabel != "" {
+		t.Fatalf("line label = %q, want no metadata merged across stable line IDs", body.Lines[0].LineLabel)
 	}
 	if body.Lines[0].ICCID != "" {
 		t.Fatalf("live ICCID = %q, want empty ICCID to remain non-editable", body.Lines[0].ICCID)

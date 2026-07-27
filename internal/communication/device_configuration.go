@@ -24,11 +24,11 @@ func (s *Service) DeviceConfiguration(
 		snapshotTimeout,
 	)
 	defer cancel()
-	configuration, err := s.agent.DeviceConfiguration(readContext, line.ID)
+	configuration, err := s.agent.DeviceConfiguration(readContext, line.EndpointID)
 	if err != nil {
 		return agentclient.DeviceConfiguration{}, translateAgentError(operation, err)
 	}
-	if err := validateDeviceConfiguration(configuration, line.ID); err != nil {
+	if err := validateDeviceConfiguration(configuration, line.EndpointID); err != nil {
 		return agentclient.DeviceConfiguration{}, operationError(
 			CodeUnavailable,
 			operation,
@@ -36,6 +36,7 @@ func (s *Service) DeviceConfiguration(
 			err,
 		)
 	}
+	configuration.LineID = line.ID
 	return configuration, nil
 }
 
@@ -79,7 +80,7 @@ func (s *Service) ApplyDeviceConfiguration(
 	defer cancel()
 	configuration, err := s.agent.ApplyDeviceConfiguration(
 		commandContext,
-		line.ID,
+		line.EndpointID,
 		request,
 	)
 	if err != nil {
@@ -88,7 +89,7 @@ func (s *Service) ApplyDeviceConfiguration(
 		}
 		return agentclient.DeviceConfiguration{}, translateAgentError(operation, err)
 	}
-	if err := validateDeviceConfiguration(configuration, line.ID); err != nil {
+	if err := validateDeviceConfiguration(configuration, line.EndpointID); err != nil {
 		if finishErr := s.finishIndeterminateCommand(ctx, command, err); finishErr != nil {
 			return agentclient.DeviceConfiguration{}, finishErr
 		}
@@ -115,6 +116,7 @@ func (s *Service) ApplyDeviceConfiguration(
 			err,
 		)
 	}
+	configuration.LineID = line.ID
 	return configuration, nil
 }
 

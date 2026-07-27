@@ -50,11 +50,11 @@ func (s *Service) SIMStatus(
 	}
 	readContext, cancel := context.WithTimeout(normalizeContext(ctx), snapshotTimeout)
 	defer cancel()
-	status, err := agent.SIMStatus(readContext, line.ID)
+	status, err := agent.SIMStatus(readContext, line.EndpointID)
 	if err != nil {
 		return agentclient.SIMStatus{}, translateAgentError(operation, err)
 	}
-	if status.LineID != line.ID || status.ObservedAt.IsZero() {
+	if status.LineID != line.EndpointID || status.ObservedAt.IsZero() {
 		return agentclient.SIMStatus{}, operationError(
 			CodeUnavailable,
 			operation,
@@ -68,6 +68,7 @@ func (s *Service) SIMStatus(
 	if status.SIMSlots == nil {
 		status.SIMSlots = []agentclient.SIMSlot{}
 	}
+	status.LineID = line.ID
 	return status, nil
 }
 
@@ -107,20 +108,20 @@ func (s *Service) SIMCommand(
 	if replay {
 		return agentclient.CommandReceipt{
 			RequestID:  requestID,
-			ResourceID: command.ResourceID,
+			ResourceID: line.ID,
 		}, nil
 	}
 
 	commandContext, cancel := context.WithTimeout(normalizeContext(ctx), commandTimeout)
 	defer cancel()
-	receipt, err := agent.SIMCommand(commandContext, line.ID, request)
+	receipt, err := agent.SIMCommand(commandContext, line.EndpointID, request)
 	if err != nil {
 		if finishErr := s.finishFailedCommand(ctx, command, err); finishErr != nil {
 			return agentclient.CommandReceipt{}, finishErr
 		}
 		return agentclient.CommandReceipt{}, translateAgentError(operation, err)
 	}
-	if err := validateLineReceipt(receipt, requestID, line.ID); err != nil {
+	if err := validateLineReceipt(receipt, requestID, line.EndpointID); err != nil {
 		if finishErr := s.finishIndeterminateCommand(ctx, command, err); finishErr != nil {
 			return agentclient.CommandReceipt{}, finishErr
 		}
@@ -131,9 +132,10 @@ func (s *Service) SIMCommand(
 			err,
 		)
 	}
-	if err := s.completeLineCommand(ctx, command, line.ID); err != nil {
+	if err := s.completeLineCommand(ctx, command, line.EndpointID); err != nil {
 		return agentclient.CommandReceipt{}, err
 	}
+	receipt.ResourceID = line.ID
 	return receipt, nil
 }
 
@@ -148,7 +150,7 @@ func (s *Service) ConnectionProfiles(
 	}
 	readContext, cancel := context.WithTimeout(normalizeContext(ctx), snapshotTimeout)
 	defer cancel()
-	profiles, err := agent.ConnectionProfiles(readContext, line.ID)
+	profiles, err := agent.ConnectionProfiles(readContext, line.EndpointID)
 	if err != nil {
 		return nil, translateAgentError(operation, err)
 	}
@@ -204,12 +206,12 @@ func (s *Service) SaveConnectionProfile(
 		return agentclient.ConnectionProfile{}, err
 	}
 	if replay {
-		return s.replayedConnectionProfile(ctx, line.ID, command.ResourceID, agent)
+		return s.replayedConnectionProfile(ctx, line.EndpointID, command.ResourceID, agent)
 	}
 
 	commandContext, cancel := context.WithTimeout(normalizeContext(ctx), commandTimeout)
 	defer cancel()
-	profile, err := agent.SaveConnectionProfile(commandContext, line.ID, request)
+	profile, err := agent.SaveConnectionProfile(commandContext, line.EndpointID, request)
 	if err != nil {
 		if finishErr := s.finishFailedCommand(ctx, command, err); finishErr != nil {
 			return agentclient.ConnectionProfile{}, finishErr
@@ -274,14 +276,14 @@ func (s *Service) DeleteConnectionProfile(
 
 	commandContext, cancel := context.WithTimeout(normalizeContext(ctx), commandTimeout)
 	defer cancel()
-	receipt, err := agent.DeleteConnectionProfile(commandContext, line.ID, request)
+	receipt, err := agent.DeleteConnectionProfile(commandContext, line.EndpointID, request)
 	if err != nil {
 		if finishErr := s.finishFailedCommand(ctx, command, err); finishErr != nil {
 			return agentclient.CommandReceipt{}, finishErr
 		}
 		return agentclient.CommandReceipt{}, translateAgentError(operation, err)
 	}
-	if err := validateLineReceipt(receipt, requestID, line.ID); err != nil {
+	if err := validateLineReceipt(receipt, requestID, line.EndpointID); err != nil {
 		if finishErr := s.finishIndeterminateCommand(ctx, command, err); finishErr != nil {
 			return agentclient.CommandReceipt{}, finishErr
 		}
@@ -292,9 +294,10 @@ func (s *Service) DeleteConnectionProfile(
 			err,
 		)
 	}
-	if err := s.completeLineCommand(ctx, command, line.ID); err != nil {
+	if err := s.completeLineCommand(ctx, command, line.EndpointID); err != nil {
 		return agentclient.CommandReceipt{}, err
 	}
+	receipt.ResourceID = line.ID
 	return receipt, nil
 }
 
@@ -309,11 +312,11 @@ func (s *Service) USSDStatus(
 	}
 	readContext, cancel := context.WithTimeout(normalizeContext(ctx), snapshotTimeout)
 	defer cancel()
-	status, err := agent.USSDStatus(readContext, line.ID)
+	status, err := agent.USSDStatus(readContext, line.EndpointID)
 	if err != nil {
 		return agentclient.USSDStatus{}, translateAgentError(operation, err)
 	}
-	if status.LineID != line.ID || status.ObservedAt.IsZero() {
+	if status.LineID != line.EndpointID || status.ObservedAt.IsZero() {
 		return agentclient.USSDStatus{}, operationError(
 			CodeUnavailable,
 			operation,
@@ -321,6 +324,7 @@ func (s *Service) USSDStatus(
 			nil,
 		)
 	}
+	status.LineID = line.ID
 	return status, nil
 }
 
@@ -359,14 +363,14 @@ func (s *Service) USSDCommand(
 
 	commandContext, cancel := context.WithTimeout(normalizeContext(ctx), commandTimeout)
 	defer cancel()
-	result, err := agent.USSDCommand(commandContext, line.ID, request)
+	result, err := agent.USSDCommand(commandContext, line.EndpointID, request)
 	if err != nil {
 		if finishErr := s.finishFailedCommand(ctx, command, err); finishErr != nil {
 			return agentclient.USSDResponse{}, finishErr
 		}
 		return agentclient.USSDResponse{}, translateAgentError(operation, err)
 	}
-	if err := s.completeLineCommand(ctx, command, line.ID); err != nil {
+	if err := s.completeLineCommand(ctx, command, line.EndpointID); err != nil {
 		return agentclient.USSDResponse{}, err
 	}
 	return result, nil

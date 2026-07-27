@@ -33,8 +33,9 @@ func TestMessagesChronologicalReturnsLatestWindowOldestFirst(t *testing.T) {
 		_, err := database.ExecContext(
 			ctx,
 			`INSERT INTO sms (
-				iccid, peer, content, type, timestamp, created_at
-			) VALUES (?, ?, ?, ?, ?, ?)`,
+				line_id, iccid, peer, content, type, timestamp, created_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			"line_test",
 			"test-iccid",
 			"+818012345678",
 			"message",
@@ -48,9 +49,9 @@ func TestMessagesChronologicalReturnsLatestWindowOldestFirst(t *testing.T) {
 	}
 
 	recent, err := repository.Messages(ctx, MessageQuery{
-		ICCID: "test-iccid",
-		Peer:  "+818012345678",
-		Limit: 3,
+		LineID: "line_test",
+		Peer:   "+818012345678",
+		Limit:  3,
 	})
 	if err != nil {
 		t.Fatalf("query recent messages: %v", err)
@@ -58,7 +59,7 @@ func TestMessagesChronologicalReturnsLatestWindowOldestFirst(t *testing.T) {
 	assertMessageIDs(t, recent, []int64{4, 3, 2})
 
 	chronological, err := repository.Messages(ctx, MessageQuery{
-		ICCID:         "test-iccid",
+		LineID:        "line_test",
 		Peer:          "+818012345678",
 		Limit:         3,
 		Chronological: true,

@@ -59,6 +59,39 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 	if err != nil {
 		return err
 	}
+	if schemaContains(expected, actual) {
+		return nil
+	}
+	legacyExpected := legacyV1SchemaShape(expected)
+	if err := migrateLegacySchemaAdditions(
+		ctx,
+		database,
+		legacyExpected,
+		actual,
+	); err != nil {
+		return err
+	}
+	actual, err = readSchemaShape(ctx, database)
+	if err != nil {
+		return err
+	}
+	if !schemaShapesEqual(legacyExpected, actual) {
+		return nil
+	}
+	if current, err := requiredRowsAreCurrent(ctx, database, legacyRequiredSchemaRows); err != nil {
+		return err
+	} else if !current {
+		return nil
+	}
+	return migrateStableLineIdentity(ctx, database)
+}
+
+func migrateLegacySchemaAdditions(
+	ctx context.Context,
+	database *sql.DB,
+	expected schemaShape,
+	actual schemaShape,
+) error {
 	contactColumns, contactsExist := actual.tables["contacts"]
 	_, avatarExists := contactColumns["avatar"]
 	simCardColumns, simCardsExist := actual.tables["sim_cards"]
@@ -153,6 +186,127 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 		return fmt.Errorf("commit schema migration: %w", err)
 	}
 	return nil
+}
+
+func schemaContains(expected, actual schemaShape) bool {
+	for table, expectedColumns := range expected.tables {
+		actualColumns, exists := actual.tables[table]
+		if !exists {
+			return false
+		}
+		for column := range expectedColumns {
+			if _, exists := actualColumns[column]; !exists {
+				return false
+			}
+		}
+	}
+	for index := range expected.indexes {
+		if _, exists := actual.indexes[index]; !exists {
+			return false
+		}
+	}
+	return true
+}
+
+func schemaShapesEqual(expected, actual schemaShape) bool {
+	if len(expected.tables) != len(actual.tables) || len(expected.indexes) != len(actual.indexes) {
+		return false
+	}
+	for table, expectedColumns := range expected.tables {
+		actualColumns, exists := actual.tables[table]
+		if !exists || len(expectedColumns) != len(actualColumns) {
+			return false
+		}
+		for column := range expectedColumns {
+			if _, exists := actualColumns[column]; !exists {
+				return false
+			}
+		}
+	}
+	for index := range expected.indexes {
+		if _, exists := actual.indexes[index]; !exists {
+			return false
+		}
+	}
+	return true
+}
+
+func legacyV1SchemaShape(current schemaShape) schemaShape {
+	legacy := schemaShape{
+		tables:  make(map[string]map[string]struct{}, len(current.tables)),
+		indexes: make(map[string]struct{}, len(current.indexes)),
+	}
+	for table, columns := range current.tables {
+		if table == "modemdeck_lines" || table == "modemdeck_legacy_endpoint_lines" {
+			continue
+		}
+		copyColumns := make(map[string]struct{}, len(columns))
+		for column := range columns {
+			copyColumns[column] = struct{}{}
+		}
+		legacy.tables[table] = copyColumns
+	}
+	replaceColumns := func(table string, remove []string, add []string) {
+		columns := legacy.tables[table]
+		for _, column := range remove {
+			delete(columns, column)
+		}
+		for _, column := range add {
+			columns[column] = struct{}{}
+		}
+	}
+	replaceColumns("contacts", []string{"preferred_line_id"}, []string{"preferred_device_imei"})
+	replaceColumns("sms", []string{"endpoint_line_id"}, nil)
+	replaceColumns("sms_contacts", []string{"line_id"}, nil)
+	replaceColumns(
+		"call_history",
+		[]string{"line_id", "endpoint_line_id"},
+		[]string{"device_id"},
+	)
+	replaceColumns(
+		"modemdeck_line_settings",
+		[]string{"default_line_id"},
+		[]string{"default_device_imei"},
+	)
+	replaceColumns("modemdeck_incoming_call_actions", []string{"endpoint_line_id"}, nil)
+	replaceColumns("devices", []string{"endpoint_id"}, nil)
+	replaceColumns(
+		"sim_cards",
+		[]string{"line_id"},
+		[]string{"line_label", "line_color"},
+	)
+	replaceColumns("sim_subscriptions", []string{"line_id"}, nil)
+	replaceColumns(
+		"modemdeck_network_counter_checkpoints",
+		[]string{"endpoint_scope_id"},
+		nil,
+	)
+
+	for index := range current.indexes {
+		legacy.indexes[index] = struct{}{}
+	}
+	for _, index := range []string{
+		"idx_contacts_preferred_line",
+		"ux_sms_endpoint_line_message",
+		"idx_call_history_line_ended_at",
+		"idx_call_history_endpoint_line_ended_at",
+		"ux_modemdeck_lines_phone_number",
+		"ux_devices_endpoint_id",
+		"ux_devices_current_iccid",
+		"idx_sim_cards_line_id",
+		"ux_sim_cards_current_imei",
+		"idx_sim_subscriptions_line_id",
+	} {
+		delete(legacy.indexes, index)
+	}
+	for _, index := range []string{
+		"idx_contacts_preferred_device",
+		"ux_sms_endpoint_message",
+		"idx_call_history_device_ended_at",
+	} {
+		legacy.indexes[index] = struct{}{}
+	}
+	return legacy
 }
 
 func schemaMatchesSupportedMigration(expected schemaShape, actual schemaShape) bool {

@@ -10,7 +10,7 @@ import (
 
 var (
 	ErrLineSettingsRevisionConflict = errors.New("line settings revision conflict")
-	ErrLineSettingsInvalidDevice    = errors.New("line settings device is invalid")
+	ErrLineSettingsInvalidLine      = errors.New("line settings line is invalid")
 )
 
 type LineSettingsRevisionConflictError struct {
@@ -40,12 +40,12 @@ func (s *Store) LineSettings(ctx context.Context) (LineSettings, error) {
 
 func (s *Store) UpdateLineSettings(
 	ctx context.Context,
-	defaultDeviceIMEI string,
+	defaultLineID string,
 	expectedRevision int64,
 ) (LineSettings, error) {
-	defaultDeviceIMEI = strings.TrimSpace(defaultDeviceIMEI)
-	if defaultDeviceIMEI == "" {
-		return LineSettings{}, fmt.Errorf("%w: default_device_imei is required", ErrLineSettingsInvalidDevice)
+	defaultLineID = strings.TrimSpace(defaultLineID)
+	if defaultLineID == "" {
+		return LineSettings{}, fmt.Errorf("%w: default_line_id is required", ErrLineSettingsInvalidLine)
 	}
 	if expectedRevision <= 0 {
 		return LineSettings{}, fmt.Errorf("%w: expected_revision must be positive", ErrLineSettingsRevisionConflict)
@@ -57,7 +57,7 @@ func (s *Store) UpdateLineSettings(
 	}
 	defer transaction.Rollback()
 
-	if err := requireDevice(ctx, transaction, defaultDeviceIMEI); err != nil {
+	if err := requireLine(ctx, transaction, defaultLineID); err != nil {
 		return LineSettings{}, err
 	}
 	current, err := readLineSettings(ctx, transaction)
@@ -73,9 +73,9 @@ func (s *Store) UpdateLineSettings(
 	result, err := transaction.ExecContext(
 		ctx,
 		`UPDATE modemdeck_line_settings
-		 SET default_device_imei = ?, revision = revision + 1, updated_at = CURRENT_TIMESTAMP
+		 SET default_line_id = ?, revision = revision + 1, updated_at = CURRENT_TIMESTAMP
 		 WHERE singleton = 1 AND revision = ?`,
-		defaultDeviceIMEI,
+		defaultLineID,
 		expectedRevision,
 	)
 	if err != nil {
@@ -111,36 +111,36 @@ type lineSettingsQueryer interface {
 
 func readLineSettings(ctx context.Context, queryer lineSettingsQueryer) (LineSettings, error) {
 	var (
-		settings   LineSettings
-		deviceIMEI sql.NullString
-		updatedAt  sql.NullString
+		settings  LineSettings
+		lineID    sql.NullString
+		updatedAt sql.NullString
 	)
 	err := queryer.QueryRowContext(
 		ctx,
-		`SELECT default_device_imei, revision, updated_at
+		`SELECT default_line_id, revision, updated_at
 		 FROM modemdeck_line_settings
 		 WHERE singleton = 1`,
-	).Scan(&deviceIMEI, &settings.Revision, &updatedAt)
+	).Scan(&lineID, &settings.Revision, &updatedAt)
 	if err != nil {
 		return LineSettings{}, fmt.Errorf("read line settings: %w", err)
 	}
-	settings.DefaultDeviceIMEI = stringValue(deviceIMEI)
+	settings.DefaultLineID = stringValue(lineID)
 	settings.UpdatedAt = stringValue(updatedAt)
 	return settings, nil
 }
 
-func requireDevice(ctx context.Context, queryer lineSettingsQueryer, imei string) error {
+func requireLine(ctx context.Context, queryer lineSettingsQueryer, lineID string) error {
 	var exists int
 	err := queryer.QueryRowContext(
 		ctx,
-		"SELECT 1 FROM devices WHERE imei = ?",
-		strings.TrimSpace(imei),
+		"SELECT 1 FROM modemdeck_lines WHERE line_id = ?",
+		strings.TrimSpace(lineID),
 	).Scan(&exists)
 	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("%w: %s", ErrLineSettingsInvalidDevice, imei)
+		return fmt.Errorf("%w: %s", ErrLineSettingsInvalidLine, lineID)
 	}
 	if err != nil {
-		return fmt.Errorf("validate line settings device: %w", err)
+		return fmt.Errorf("validate line settings line: %w", err)
 	}
 	return nil
 }
