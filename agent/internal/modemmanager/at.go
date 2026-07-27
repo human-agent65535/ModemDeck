@@ -55,6 +55,15 @@ func (p *Provider) commandAT(ctx context.Context, lineID, command string) (strin
 	if !found || !path.IsValid() {
 		return "", domain.NotFound(operation, "line does not have a routable ModemManager path")
 	}
+	return p.commandATPath(ctx, path, operation, command)
+}
+
+func (p *Provider) commandATPath(
+	ctx context.Context,
+	path dbus.ObjectPath,
+	operation string,
+	command string,
+) (string, error) {
 	body, err := p.call(
 		ctx,
 		path,

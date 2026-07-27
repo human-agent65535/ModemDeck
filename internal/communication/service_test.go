@@ -821,6 +821,7 @@ func TestProjectLinePreservesDetectedInterfaces(t *testing.T) {
 			RejectCall:         true,
 			SendDTMF:           true,
 			SendMessage:        true,
+			Media:              true,
 		},
 	})
 	if !projected.Capabilities.Modem ||
@@ -832,7 +833,8 @@ func TestProjectLinePreservesDetectedInterfaces(t *testing.T) {
 		!projected.Capabilities.HangupCall ||
 		!projected.Capabilities.RejectCall ||
 		!projected.Capabilities.SendDTMF ||
-		!projected.Capabilities.SendMessage {
+		!projected.Capabilities.SendMessage ||
+		!projected.Capabilities.Media {
 		t.Fatalf("projected capabilities = %+v", projected.Capabilities)
 	}
 	if projected.DeviceName != "" || projected.Model != "QDC507" {

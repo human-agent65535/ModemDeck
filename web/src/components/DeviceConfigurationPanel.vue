@@ -66,6 +66,7 @@ import {
 import {
   bootstrapResource,
   devicesResource,
+  lineHasCallControl,
   lineKey,
   lineLabel,
   loadBootstrap,
@@ -271,7 +272,7 @@ const lineIdentityDirty = computed(
     lineLabelDraft.value.trim() !== (selectedLine.value?.line_label || '') ||
     lineColorDraft.value !== selectedLineColor.value
 )
-const voiceAvailable = computed(() => selectedLine.value?.capabilities?.voice === true)
+const voiceAvailable = computed(() => lineHasCallControl(selectedLine.value))
 const selectedLineCall = computed(() => {
   const line = selectedLine.value
   const session = callState.session

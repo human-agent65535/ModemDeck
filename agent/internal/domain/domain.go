@@ -47,6 +47,7 @@ type LineCapabilities struct {
 	HangupCall         bool `json:"hangup_call"`
 	SendDTMF           bool `json:"send_dtmf"`
 	SendMessage        bool `json:"send_message"`
+	Media              bool `json:"media"`
 }
 
 type ModemPort struct {

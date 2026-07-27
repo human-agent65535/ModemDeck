@@ -708,6 +708,7 @@ export default {
     callRuntime: 'Call runtime',
     modemControl: 'Modem control',
     callControl: 'Call control',
+    modemMediaRoute: 'Modem media routing',
     simCard: 'SIM card',
     messages: 'Messages',
     stateConnecting: 'Connecting',

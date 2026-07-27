@@ -35,7 +35,7 @@ import type {
 } from '../api/types'
 import { ApiError } from '../api/types'
 import { audioState, refreshAudioDevices } from '../state/audio'
-import { lineLabel } from '../state/workspace'
+import { lineHasCallControl, lineLabel } from '../state/workspace'
 import {
   isRegisteredNetwork,
   operatorFacts,
@@ -175,7 +175,8 @@ const knownComponents = computed(() =>
 function lineCapabilities(line: LineSummary) {
   return [
     { name: t('diagnostics.modemControl'), available: line.capabilities?.modem === true },
-    { name: t('diagnostics.callControl'), available: line.capabilities?.voice === true },
+    { name: t('diagnostics.callControl'), available: lineHasCallControl(line) },
+    { name: t('diagnostics.modemMediaRoute'), available: line.capabilities?.media === true },
     { name: t('diagnostics.simCard'), available: line.capabilities?.sim === true },
     { name: t('diagnostics.messages'), available: line.capabilities?.messaging === true }
   ]

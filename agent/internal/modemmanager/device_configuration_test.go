@@ -335,6 +335,31 @@ func TestDeviceConfigurationReadsGenericModemManagerState(t *testing.T) {
 	)
 }
 
+func TestDeviceConfigurationDoesNotAdvertiseUnverifiedQuectelVoice(t *testing.T) {
+	t.Parallel()
+
+	objects := configurationObjects()
+	properties := objects[testModemPath][modemInterface]
+	properties["Manufacturer"] = dbus.MakeVariant("QUALCOMM INCORPORATED")
+	properties["Model"] = dbus.MakeVariant("QUECTEL Mobile Broadband Module")
+	properties["Revision"] = dbus.MakeVariant("QDC507GLEFM21")
+	caller := newFakeCaller(objects)
+	caller.owner = true
+	caller.atResponses[quectelUSBVoiceQuery] =
+		`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,0`
+	provider := newTestProvider(caller)
+	lineID := parsedLineID(objects, provider.ids)
+
+	configuration, err := provider.ReadDeviceConfiguration(context.Background(), lineID)
+	if err != nil {
+		t.Fatalf("ReadDeviceConfiguration() error = %v", err)
+	}
+	if configuration.Capabilities.Voice.Supported ||
+		configuration.Capabilities.Voice.Reason == "" {
+		t.Fatalf("voice capability = %+v", configuration.Capabilities.Voice)
+	}
+}
+
 func TestDeviceConfigurationSeparatesDesiredRadioFromTransientDisabledState(t *testing.T) {
 	t.Parallel()
 	objects := configurationObjects()

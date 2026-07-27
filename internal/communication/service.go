@@ -1418,6 +1418,7 @@ func projectLine(line agentclient.Line) store.LineSummary {
 			RejectCall:  line.Capabilities.RejectCall,
 			SendDTMF:    line.Capabilities.SendDTMF,
 			SendMessage: line.Capabilities.SendMessage,
+			Media:       line.Capabilities.Media,
 		},
 	}
 }

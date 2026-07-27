@@ -169,6 +169,15 @@ export function lineSupports(
   return typeof value === 'boolean' ? value : null
 }
 
+export function lineHasCallControl(line: LineSummary | undefined): boolean {
+  return (
+    lineSupports(line, 'dial') === true ||
+    line?.capabilities?.answer === true ||
+    line?.capabilities?.reject === true ||
+    line?.capabilities?.hangup === true
+  )
+}
+
 export function deviceName(id: string): string {
   const device = devicesResource.data.find(item => item.imei === id)
   return device?.name || device?.model || id

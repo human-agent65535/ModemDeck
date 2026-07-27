@@ -34,7 +34,11 @@ test('browser audio is a global diagnostic with explicit microphone access state
   assert.match(source, /t\('diagnostics\.browserAudio'\)/)
   assert.match(
     source,
-    /\{ name: t\('diagnostics\.callControl'\), available: line\.capabilities\?\.voice === true \}/
+    /\{ name: t\('diagnostics\.callControl'\), available: lineHasCallControl\(line\) \}/
+  )
+  assert.match(
+    source,
+    /\{ name: t\('diagnostics\.modemMediaRoute'\), available: line\.capabilities\?\.media === true \}/
   )
   assert.doesNotMatch(source, /\{ name: '语音通话'/)
   assert.match(

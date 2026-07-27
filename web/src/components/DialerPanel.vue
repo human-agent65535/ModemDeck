@@ -64,6 +64,9 @@ let dialerReturnFocus: HTMLElement | null = null
 const zeroLongPressDelay = 500
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
+const dialLines = computed(() =>
+  lines.value.filter(line => lineSupports(line, 'dial') === true)
+)
 const showingCall = computed(() => Boolean(callState.session))
 const callSurfaceVisible = computed(
   () => showingCall.value && (props.permanent || !uiState.callMinimized)
@@ -71,7 +74,9 @@ const callSurfaceVisible = computed(
 const defaultLineID = computed(
   () => bootstrapResource.data?.line_settings.default_line_id || ''
 )
-const selectedLine = computed(() => lines.value.find(line => lineKey(line) === selectedLineId.value))
+const selectedLine = computed(() =>
+  dialLines.value.find(line => lineKey(line) === selectedLineId.value)
+)
 const dialUnavailable = computed(() => capabilityReason('dial'))
 const activeCallUnavailable = computed(() => {
   const phase = callState.session?.phase
@@ -99,7 +104,7 @@ const callUnavailableReason = computed(
   () =>
     dialUnavailable.value ||
     activeCallUnavailable.value ||
-    (lines.value.length === 0 ? t('dialer.noLines') : '') ||
+    (dialLines.value.length === 0 ? t('dialer.noLines') : '') ||
     (!selectedLineId.value ? t('dialer.selectLine') : '') ||
     (lineSupports(selectedLine.value, 'dial') === false
       ? t('dialer.selectedLineUnsupported')
@@ -125,7 +130,9 @@ function focusNumber(): void {
 }
 
 function syncResolvedLine(force = false): void {
-  const selectedStillExists = lines.value.some(line => lineKey(line) === selectedLineId.value)
+  const selectedStillExists = dialLines.value.some(
+    line => lineKey(line) === selectedLineId.value
+  )
   if (!selectedStillExists) lineSelectionOverridden.value = false
   if (!force && lineSelectionOverridden.value) return
 
@@ -133,7 +140,9 @@ function syncResolvedLine(force = false): void {
     contextKey: draftContextLineKey.value,
     number: number.value
   })
-  selectedLineId.value = resolved ? lineKey(resolved) : ''
+  const supportedResolved =
+    resolved && lineSupports(resolved, 'dial') === true ? resolved : dialLines.value[0]
+  selectedLineId.value = supportedResolved ? lineKey(supportedResolved) : ''
 }
 
 function beginDraft(target = '', label = '', focus = false, contextLineKey = ''): void {
@@ -195,7 +204,7 @@ watch([callSurfaceVisible, () => props.permanent], async ([showing, permanent], 
 })
 
 watch(
-  [lines, defaultLineID, () => contactsResource.data, number],
+  [dialLines, defaultLineID, () => contactsResource.data, number],
   () => syncResolvedLine(),
   { immediate: true }
 )
@@ -416,10 +425,10 @@ onBeforeUnmount(() => {
 
           <div v-else class="dialer-panel__body">
             <div class="dialer-panel__scroll">
-              <div v-if="lines.length > 0" class="dialer-line-switcher">
+              <div v-if="dialLines.length > 0" class="dialer-line-switcher">
                 <LineSelector
                   v-model="selectedLineId"
-                  :lines="lines"
+                  :lines="dialLines"
                   :default-line-id="defaultLineID"
                   :label="t('dialer.line')"
                   capability="dial"
@@ -476,7 +485,7 @@ onBeforeUnmount(() => {
                 {{ dialerRecordingState.error }}
               </p>
 
-              <p v-if="dialUnavailable || lines.length === 0" class="unavailable-note">
+              <p v-if="dialUnavailable || dialLines.length === 0" class="unavailable-note">
                 {{ dialUnavailable || t('dialer.noLines') }}
               </p>
               <p v-if="callState.error" class="field-error">{{ callState.error }}</p>

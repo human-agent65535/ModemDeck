@@ -708,6 +708,7 @@ export default {
     callRuntime: '通话运行时',
     modemControl: '模组控制',
     callControl: '呼叫控制',
+    modemMediaRoute: '模组媒体路由',
     simCard: 'SIM 卡',
     messages: '短信',
     stateConnecting: '正在连接',

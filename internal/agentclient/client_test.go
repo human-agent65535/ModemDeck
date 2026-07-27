@@ -158,7 +158,8 @@ func TestSnapshotDecodesAgentContract(t *testing.T) {
 					"reject_call":true,
 					"hangup_call":true,
 					"send_dtmf":true,
-					"send_message":true
+					"send_message":true,
+					"media":true
 				}
 			}],
 			"calls":[{
@@ -211,6 +212,9 @@ func TestSnapshotDecodesAgentContract(t *testing.T) {
 		snapshot.Lines[0].RegistrationState != "roaming" ||
 		!snapshot.Lines[0].Roaming {
 		t.Fatalf("unexpected line operator state: %+v", snapshot.Lines[0])
+	}
+	if !snapshot.Lines[0].Capabilities.Media {
+		t.Fatalf("unexpected line media capability: %+v", snapshot.Lines[0].Capabilities)
 	}
 	if snapshot.Calls[0].AudioFormat == nil ||
 		snapshot.Calls[0].AudioFormat.Rate != 8000 ||

@@ -59,7 +59,7 @@ Linux 基线使用 Quectel EC2x USB、`qmi_wwan`、ModemManager 和
 ```text
 AT+QCFG="usbcfg",0x2C7C,0x0125,1,1,1,1,1,0,0
                          |      | | | | | | |
-                         |      | | | | | | +-- UAC：禁用
+                         |      | | | | | | +-- USB 语音接口：禁用
                          |      | | | | | +---- ADB：禁用
                          |      | | | | +------ USB 网络接口：启用
                          |      | | | +-------- Modem 端口：启用
@@ -87,27 +87,33 @@ QDC507 的 ECM 模式可用于 macOS 和 iPadOS。这只证明网络接口可用
 短信或语音功能。[Apple 文档](https://support.apple.com/zh-cn/108894)列出了
 iPadOS 的 USB 转以太网支持。Windows 是否可用取决于 QMI、ECM 或 MBIM 驱动。
 
-语音媒体还需要启用 UAC：
+实测固件需要将 USB 语音接口设为 `1`，ModemManager 才能可靠拨号、接听和挂断：
 
 ```text
 AT+QCFG="usbcfg",0x2C7C,0x0125,1,1,1,1,1,0,1
 ```
 
-枚举出 UAC 接口不代表固件已经提供通话音频路由。
+这个字段只作为呼叫控制前置条件。它为 `1` 不代表固件已经提供通话音频路由，
+也不代表主机已枚举出可用声卡。
 
-### QDC507 固件与 VoLTE
+### Quectel 语音与 VoLTE
 
-系统只为 `QDC507GLEFM21` 加载 VoLTE 配置。ModemManager 通过生产级 AT
-D-Bus 接口执行配置，不需要调试模式。配置成功不等于 IMS 已注册，也不能证明
-实时通话的承载或音频路径。
+系统只为 Quectel 官方 QCFG 手册列出的 EC20/EC21/EC25、EG21/EG25、
+EG91/EG95 和 EM05 系列加载 VoLTE 配置。启用和关闭分别写入
+`AT+QCFG="ims",1` 与 `AT+QCFG="ims",2`，重启后生效。配置成功不等于 IMS
+已注册，也不能证明实时通话的承载或音频路径。
+
+呼叫控制和媒体能力单独探测。已验证的 `usbcfg` 末位 `1` 允许系统发布拨号、
+接听和挂断能力；`AT+QPCMV=1,2` 成功并回读为 `1,2` 才发布模组媒体路由能力。
+浏览器双向音频还必须存在主机声卡和已配置的媒体桥。
 
 `QDC507GLEFM21` 是定制固件，不是标准 EC25/EG25 版本。已确认刷入标准
 EC25/EG25 固件会使 QDC507 变砖，严禁刷入。
 
-实测 QDC507 将 `usbcfg` 最后一位设为 `1` 后会枚举 USB 音频接口，但媒体路由
-命令 `AT+QPCMV=1,2` 返回 `ERROR`。ModemManager Voice 可以拨号、接听和挂断，
-通话接通后却没有可用音频路径。因此当前 QDC507 不支持浏览器双向语音。
-ModemDeck 的 WebRTC/Opus 桥接只适用于已验证主机媒体端点的硬件。
+当前实测 QDC507 的 `usbcfg` 末位为 `0`，无法可靠拨号，来电也会立即断开；
+`AT+QPCMV=1,2` 同时返回 `ERROR`。ModemManager 暴露的 Voice 接口因此只作为
+原始诊断信息，不会让该线路进入拨号盘，也不会被显示为可通话。QDC507 不匹配
+标准 Quectel VoLTE 配置。
 
 ### eSIM/eUICC
 
@@ -244,7 +250,7 @@ The validated USB identity and interface configuration is:
 ```text
 AT+QCFG="usbcfg",0x2C7C,0x0125,1,1,1,1,1,0,0
                          |      | | | | | | |
-                         |      | | | | | | +-- UAC: disabled
+                         |      | | | | | | +-- USB voice interface: disabled
                          |      | | | | | +---- ADB: disabled
                          |      | | | | +------ USB network: enabled
                          |      | | | +-------- modem port: enabled
@@ -275,31 +281,40 @@ iPadOS. This confirms the network interface only, not AT, messaging, or voice.
 [Apple documents](https://support.apple.com/en-us/108894) iPadOS USB Ethernet
 support. Windows support depends on its QMI, ECM, or MBIM driver.
 
-Voice media also requires UAC:
+The tested firmware requires the USB voice interface to be `1` before
+ModemManager can dial, answer, or hang up reliably:
 
 ```text
 AT+QCFG="usbcfg",0x2C7C,0x0125,1,1,1,1,1,0,1
 ```
 
-An enumerated UAC interface does not prove that call audio is routed to it.
+This field is only a prerequisite for call control. A value of `1` does not
+prove that the firmware routes call audio or that the host has enumerated a
+usable sound device.
 
-### QDC507 firmware and VoLTE
+### Quectel voice and VoLTE
 
-The system loads the VoLTE configuration only for `QDC507GLEFM21`.
-ModemManager applies it through the production AT D-Bus interface without
-debug mode. A successful configuration does not prove IMS registration, the
-live-call bearer, or an audio path.
+The system loads its VoLTE configuration only for the EC20/EC21/EC25,
+EG21/EG25, EG91/EG95, and EM05 families listed by Quectel's QCFG manual.
+Enable and disable write `AT+QCFG="ims",1` and `AT+QCFG="ims",2`
+respectively and take effect after restart. A successful configuration does
+not prove IMS registration, the live-call bearer, or an audio path.
+
+Call control and media are probed separately. A verified final `usbcfg` value
+of `1` allows dialing, answering, and hangup capabilities to be published.
+Modem media routing is published only after `AT+QPCMV=1,2` succeeds and reads
+back as `1,2`. Browser bidirectional audio additionally requires a host sound
+device and a configured media bridge.
 
 `QDC507GLEFM21` is custom firmware, not a standard EC25/EG25 release. Flashing
 standard EC25/EG25 firmware has been confirmed to brick QDC507 and must never
 be attempted.
 
-On the tested QDC507, setting the final `usbcfg` value to `1` exposes a USB
-audio interface, but the media-routing command `AT+QPCMV=1,2` returns `ERROR`.
-ModemManager Voice can dial, answer, and hang up, yet an established call has
-no usable audio path. The current QDC507 therefore does not support browser
-bidirectional voice. ModemDeck's WebRTC/Opus bridge is limited to hardware with
-a validated host media endpoint.
+The tested QDC507 currently reports a final `usbcfg` value of `0`, cannot dial
+reliably, drops incoming calls immediately, and rejects `AT+QPCMV=1,2`.
+ModemManager's exposed Voice interface is therefore retained only as raw
+diagnostic evidence: the line is excluded from the dialer and is not presented
+as call-capable. QDC507 does not match the standard Quectel VoLTE profile.
 
 ### eSIM/eUICC
 

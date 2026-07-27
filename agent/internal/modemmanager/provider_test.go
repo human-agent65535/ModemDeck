@@ -32,6 +32,8 @@ type fakeCaller struct {
 	runtimeVersion     string
 	callIntrospection  string
 	atResponse         string
+	atResponses        map[string]string
+	atCommandErrors    map[string]error
 	connectionProfiles []map[string]dbus.Variant
 	ussdResponse       string
 	externalSIMs       map[dbus.ObjectPath]Properties
@@ -116,6 +118,19 @@ func (f *fakeCaller) Call(
 	case messagingInterface + ".Create":
 		return []any{f.createdMessagePath}, nil
 	case modemInterface + ".Command":
+		if len(args) != 2 {
+			return nil, errors.New("AT command arguments were malformed")
+		}
+		command, ok := args[0].(string)
+		if !ok {
+			return nil, errors.New("AT command was malformed")
+		}
+		if err := f.atCommandErrors[command]; err != nil {
+			return nil, err
+		}
+		if response, found := f.atResponses[command]; found {
+			return []any{response}, nil
+		}
 		return []any{f.atResponse}, nil
 	case signalInterface + ".Setup":
 		rate, ok := args[0].(uint32)
@@ -1358,6 +1373,8 @@ func newFakeCaller(objects ManagedObjects) *fakeCaller {
 		callLists:        make(map[dbus.ObjectPath][]dbus.ObjectPath),
 		messageLists:     make(map[dbus.ObjectPath][]dbus.ObjectPath),
 		signalAfterSetup: make(map[dbus.ObjectPath]Properties),
+		atResponses:      make(map[string]string),
+		atCommandErrors:  make(map[string]error),
 		errors:           make(map[string]error),
 	}
 }

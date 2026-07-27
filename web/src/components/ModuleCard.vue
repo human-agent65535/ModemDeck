@@ -10,7 +10,7 @@ import {
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Device, LineSummary, NetworkLineStatus } from '../api/types'
-import { lineLabel } from '../state/workspace'
+import { lineHasCallControl, lineLabel } from '../state/workspace'
 import {
   isRegisteredNetwork,
   operatorFacts,
@@ -193,7 +193,7 @@ const dataConnection = computed(() => {
 
     <footer class="module-card__footer">
       <div class="module-card__capabilities" :aria-label="t('lines.moduleCapabilities')">
-        <span :class="{ 'is-enabled': line.capabilities?.voice }">
+        <span :class="{ 'is-enabled': lineHasCallControl(line) }">
           <Phone :size="14" />
           {{ t('lines.callControl') }}
         </span>

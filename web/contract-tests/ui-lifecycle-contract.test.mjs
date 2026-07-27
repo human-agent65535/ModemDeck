@@ -123,7 +123,11 @@ test('desktop shell has one permanent dialer and dashboard renders every line', 
   assert.match(dashboard, /v-for="line in lines"/)
   assert.doesNotMatch(dashboard, /lines(?:\.value)?\.slice/)
   assert.match(dialer, /<LineSelector/)
-  assert.match(dialer, /:lines="lines"/)
+  assert.match(dialer, /:lines="dialLines"/)
+  assert.match(
+    dialer,
+    /const dialLines = computed\(\(\) =>[\s\S]*lineSupports\(line, 'dial'\) === true/
+  )
   assert.match(lineSelector, /v-for="\(option, index\) in options"/)
   assert.doesNotMatch(lineSelector, /lines(?:\.value)?\.slice/)
   assert.doesNotMatch(styles, /\.dialer-fab/)

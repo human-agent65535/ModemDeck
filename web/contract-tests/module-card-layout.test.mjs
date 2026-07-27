@@ -106,7 +106,7 @@ test('voice capability describes call control without implying an audio path', (
 
   assert.match(
     capabilities,
-    /:class="\{ 'is-enabled': line\.capabilities\?\.voice \}"[\s\S]*<Phone :size="14" \/>[\s\S]*t\('lines\.callControl'\)/
+    /:class="\{ 'is-enabled': lineHasCallControl\(line\) \}"[\s\S]*<Phone :size="14" \/>[\s\S]*t\('lines\.callControl'\)/
   )
   assert.doesNotMatch(capabilities, /browserAudio|mediaBridge|USB/)
 })

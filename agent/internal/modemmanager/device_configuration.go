@@ -373,6 +373,7 @@ func (p *Provider) readDeviceConfiguration(
 		return domain.DeviceConfiguration{}, nil, "", err
 	}
 	parsed := ParseManagedObjects(objects, p.ids)
+	p.projectVoiceCapabilities(ctx, operation, &parsed)
 	line, found := findLine(parsed.Lines, lineID)
 	if !found {
 		return domain.DeviceConfiguration{}, nil, "", domain.NotFound(operation, "line was not found")
@@ -432,7 +433,7 @@ func (p *Provider) readDeviceConfiguration(
 		FlightModeKnown: radioDesiredEnabledKnown,
 		DataConnections: []domain.DataConnection{},
 	}
-	configuration.Capabilities = genericConfigurationCapabilities(interfaces)
+	configuration.Capabilities = genericConfigurationCapabilities(interfaces, line)
 	configuration.Capabilities.USBReset = p.usbRecovery.Capability(line.PhysicalDevice)
 	configuration.AutomaticAPN = p.resolveAutomaticAPN(
 		ctx,
@@ -480,11 +481,19 @@ func (p *Provider) readDeviceConfiguration(
 	return configuration, objects, modemPath, nil
 }
 
-func genericConfigurationCapabilities(interfaces Interfaces) domain.DeviceConfigurationCapabilities {
+func genericConfigurationCapabilities(
+	interfaces Interfaces,
+	line domain.Line,
+) domain.DeviceConfigurationCapabilities {
 	modemManager := "modemmanager"
 	agent := "modemdeck_agent"
 	vendor := "vendor_extension"
-	_, voiceSupported := interfaces[voiceInterface]
+	_, voiceInterfacePresent := interfaces[voiceInterface]
+	voiceSupported :=
+		line.Capabilities.Dial ||
+			line.Capabilities.AnswerCall ||
+			line.Capabilities.RejectCall ||
+			line.Capabilities.HangupCall
 	_, dataWritable := interfaces[modemInterface]
 	ussdSupported := false
 	if _, found := interfaces[ussdInterface]; found {
@@ -515,6 +524,9 @@ func genericConfigurationCapabilities(interfaces Interfaces) domain.DeviceConfig
 			Reason: func() string {
 				if voiceSupported {
 					return ""
+				}
+				if voiceInterfacePresent {
+					return "ModemManager Voice is exposed, but USB call control did not pass runtime verification"
 				}
 				return "ModemManager Voice is not exposed for this line"
 			}(),

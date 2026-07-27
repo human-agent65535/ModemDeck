@@ -44,6 +44,7 @@ import {
   contactForNumber,
   contactsResource,
   devicesResource,
+  lineHasCallControl,
   lineKey,
   loadBootstrap,
   loadCalls,
@@ -120,7 +121,7 @@ const callReadyLines = computed(
     lines.value.filter(
       line =>
         isVoiceServiceReady(line) &&
-        (line.capabilities?.dial === true || line.capabilities?.voice === true)
+        lineHasCallControl(line)
     ).length
 )
 const messageReadyLines = computed(

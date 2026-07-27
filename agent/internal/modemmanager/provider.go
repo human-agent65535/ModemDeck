@@ -56,6 +56,9 @@ type Provider struct {
 	telemetryMu       sync.Mutex
 	signalSetupStates map[string]signalSetupState
 
+	voiceProbeMu sync.Mutex
+	voiceProbes  map[string]voiceProbeResult
+
 	messageProperties *messagePropertyCache
 }
 
@@ -181,6 +184,7 @@ func newProviderWithOptions(
 		terminalCalls:     make(map[string]terminalCallProjection),
 		networkOperations: make(map[string]struct{}),
 		signalSetupStates: make(map[string]signalSetupState),
+		voiceProbes:       make(map[string]voiceProbeResult),
 		messageProperties: newMessagePropertyCache(defaultMessagePropertyCacheLimit),
 	}, nil
 }
@@ -280,6 +284,7 @@ func (p *Provider) Snapshot(ctx context.Context) (domain.Snapshot, error) {
 		return domain.Snapshot{}, err
 	}
 	parsed := ParseManagedObjects(objects, identity)
+	p.projectVoiceCapabilities(ctx, operation, &parsed)
 	p.projectDesiredRadioState(parsed.Lines)
 	observedAt := p.now().UTC()
 	p.projectTerminatedCalls(&parsed, observedAt)
@@ -329,12 +334,16 @@ func (p *Provider) StartCall(ctx context.Context, request domain.StartCallReques
 	if err != nil {
 		return domain.CommandReceipt{}, err
 	}
+	p.projectVoiceCapabilities(ctx, operation, &parsed)
 	line, found := findLine(parsed.Lines, request.LineID)
 	if !found {
 		return domain.CommandReceipt{}, domain.NotFound(operation, "line was not found")
 	}
-	if !line.Capabilities.VoiceInterface {
-		return domain.CommandReceipt{}, domain.NotSupported(operation, "line does not expose the ModemManager Voice interface")
+	if !line.Capabilities.Dial {
+		return domain.CommandReceipt{}, domain.NotSupported(
+			operation,
+			"line does not expose verified outgoing call control",
+		)
 	}
 	if lineHasCall(parsed.Calls, line.ID, "") {
 		return domain.CommandReceipt{}, domain.Conflict(operation, "line already has an ongoing call")
@@ -485,6 +494,7 @@ func (p *Provider) SendDTMF(ctx context.Context, request domain.DTMFRequest) (do
 	if err != nil {
 		return domain.CommandReceipt{}, err
 	}
+	p.projectVoiceCapabilities(ctx, operation, &parsed)
 	call, found := findCall(parsed.Calls, request.CallID)
 	if !found {
 		return domain.CommandReceipt{}, domain.NotFound(operation, "active call was not found")
@@ -608,6 +618,7 @@ func (p *Provider) controlCall(
 	if err != nil {
 		return domain.CommandReceipt{}, err
 	}
+	p.projectVoiceCapabilities(ctx, operation, &parsed)
 	call, found := findCall(parsed.Calls, request.CallID)
 	if !found {
 		return domain.CommandReceipt{}, domain.NotFound(operation, "active call was not found")
