@@ -361,12 +361,16 @@ func (s *Service) handleSMSQuery(ctx context.Context, updateID, replyTo int64, c
 		return s.sendText(ctx, updateID, replyTo, "没有可用线路。")
 	}
 
-	messages, err := s.sms.RecentSMS(ctx, SMSQuery{LineIDs: queryLineIDs, Limit: command.Limit})
+	messages, err := s.sms.RecentSMS(ctx, SMSQuery{
+		LineIDs:       queryLineIDs,
+		Limit:         command.Limit,
+		Chronological: true,
+	})
 	if err != nil {
 		return s.reportOperationFailure(ctx, updateID, replyTo, "query_sms", err)
 	}
 	messages = filterSMS(messages, queryLineIDs)
-	return s.sendText(ctx, updateID, replyTo, formatSMS(messages))
+	return s.sendText(ctx, updateID, replyTo, formatSMS(messages, lines))
 }
 
 func (s *Service) handleCall(ctx context.Context, updateID, replyTo int64, command Command) error {
@@ -678,6 +682,15 @@ func linePhoneNumber(line Line) string {
 	return number
 }
 
+func lineDisplayIdentity(line Line, index int) string {
+	name := lineDisplayName(line, index)
+	number := singleLine(line.PhoneNumber)
+	if number == "" || number == name {
+		return name
+	}
+	return name + " · " + number
+}
+
 func lineRegistrationLabel(line Line) string {
 	if line.RegistrationKnown {
 		switch strings.ToLower(strings.TrimSpace(line.RegistrationState)) {
@@ -741,24 +754,43 @@ func singleLine(value string) string {
 	return strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
 }
 
-func formatSMS(messages []SMS) string {
+const smsMessageDivider = "────────"
+
+func formatSMS(messages []SMS, lines []Line) string {
 	if len(messages) == 0 {
 		return "没有短信。"
 	}
+	lineIdentities := make(map[string]string, len(lines))
+	for index, line := range lines {
+		lineIdentities[line.ID] = lineDisplayIdentity(line, index)
+	}
 	var builder strings.Builder
-	builder.WriteString("最近短信\n")
-	for _, message := range messages {
-		direction := "收"
-		if strings.EqualFold(message.Direction, "outgoing") {
-			direction = "发"
+	builder.WriteString("最近短信\n\n")
+	for index, message := range messages {
+		if index > 0 {
+			builder.WriteString("\n")
+			builder.WriteString(smsMessageDivider)
+			builder.WriteString("\n\n")
 		}
-		fmt.Fprintf(&builder, "\n[%s] %s · %s", direction, message.LineID, message.Peer)
+		direction := "收到"
+		if strings.EqualFold(message.Direction, "outgoing") {
+			direction = "发出"
+		}
+		lineIdentity := lineIdentities[message.LineID]
+		if lineIdentity == "" {
+			lineIdentity = "线路"
+		}
+		fmt.Fprintf(&builder, "%s · %s\n", direction, lineIdentity)
+		peer := singleLine(message.Peer)
+		if peer == "" {
+			peer = "未知号码"
+		}
+		fmt.Fprintf(&builder, "对方：%s", peer)
 		if !message.ReceivedAt.IsZero() {
-			fmt.Fprintf(&builder, " · %s", message.ReceivedAt.Format(time.RFC3339))
+			fmt.Fprintf(&builder, "\n时间：%s", message.ReceivedAt.Format(time.RFC3339))
 		}
 		builder.WriteByte('\n')
 		builder.WriteString(truncateRunes(strings.TrimSpace(message.Body), 320))
-		builder.WriteByte('\n')
 	}
 	return truncateRunes(strings.TrimSpace(builder.String()), MaxTelegramMessageRunes)
 }

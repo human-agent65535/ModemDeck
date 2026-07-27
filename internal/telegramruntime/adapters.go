@@ -83,8 +83,9 @@ func (a adapters) lineSummaries(ctx context.Context) ([]store.LineSummary, error
 
 func (a adapters) RecentSMS(ctx context.Context, query telegram.SMSQuery) ([]telegram.SMS, error) {
 	messages, err := a.repository.Messages(ctx, store.MessageQuery{
-		LineIDs: query.LineIDs,
-		Limit:   query.Limit,
+		LineIDs:       query.LineIDs,
+		Limit:         query.Limit,
+		Chronological: query.Chronological,
 	})
 	if err != nil {
 		return nil, err

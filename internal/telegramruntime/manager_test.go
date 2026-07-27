@@ -49,6 +49,51 @@ func TestMergePersistedLineMetadataUsesStableLineID(t *testing.T) {
 	}
 }
 
+func TestAdaptersRecentSMSRequestsChronologicalWindow(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeRepository{
+		messages: []store.Message{{
+			EndpointMessageID: "sms-1",
+			LineID:            "line-1",
+			Direction:         "incoming",
+			Peer:              "+818012345678",
+			Content:           "message",
+			Timestamp:         "2026-07-24T08:30:00Z",
+		}},
+	}
+	result, err := (adapters{repository: repository}).RecentSMS(
+		context.Background(),
+		telegram.SMSQuery{
+			LineIDs:       []string{"line-1"},
+			Limit:         5,
+			Chronological: true,
+		},
+	)
+	if err != nil {
+		t.Fatalf("RecentSMS() error = %v", err)
+	}
+	if len(result) != 1 ||
+		result[0].LineID != "line-1" ||
+		result[0].Body != "message" ||
+		result[0].ReceivedAt.IsZero() {
+		t.Fatalf("RecentSMS() = %+v", result)
+	}
+
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	if len(repository.messageQueries) != 1 {
+		t.Fatalf("message queries = %+v", repository.messageQueries)
+	}
+	query := repository.messageQueries[0]
+	if len(query.LineIDs) != 1 ||
+		query.LineIDs[0] != "line-1" ||
+		query.Limit != 5 ||
+		!query.Chronological {
+		t.Fatalf("message query = %+v", query)
+	}
+}
+
 func TestManagerVerifiesBotAndDispatchesDurableNotification(t *testing.T) {
 	t.Parallel()
 
@@ -346,6 +391,9 @@ type fakeRepository struct {
 	bound       store.TelegramReplyBinding
 	calls       []store.Call
 	recordings  []store.RecordingEntry
+	messages    []store.Message
+
+	messageQueries []store.MessageQuery
 }
 
 func (r *fakeRepository) Lines(context.Context) ([]store.LineSummary, error) {
@@ -357,8 +405,11 @@ func (r *fakeRepository) Lines(context.Context) ([]store.LineSummary, error) {
 	}}, nil
 }
 
-func (r *fakeRepository) Messages(context.Context, store.MessageQuery) ([]store.Message, error) {
-	return []store.Message{}, nil
+func (r *fakeRepository) Messages(_ context.Context, query store.MessageQuery) ([]store.Message, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.messageQueries = append(r.messageQueries, query)
+	return append([]store.Message(nil), r.messages...), nil
 }
 
 func (r *fakeRepository) Calls(context.Context, store.CallQuery) ([]store.Call, error) {

@@ -267,7 +267,22 @@ func TestServiceLinesAndSMSRespectScopes(t *testing.T) {
 	dependencies.SMS = smsQuerierFunc(func(_ context.Context, query SMSQuery) ([]SMS, error) {
 		queries = append(queries, query)
 		return []SMS{
-			{ID: "1", LineID: "line-a", Direction: "incoming", Peer: "+818011111111", Body: "allowed body"},
+			{
+				ID:         "1",
+				LineID:     "line-a",
+				Direction:  "incoming",
+				Peer:       "+818011111111",
+				Body:       "older allowed body",
+				ReceivedAt: time.Date(2026, 7, 24, 8, 0, 0, 0, time.UTC),
+			},
+			{
+				ID:         "2",
+				LineID:     "line-a",
+				Direction:  "outgoing",
+				Peer:       "+818022222222",
+				Body:       "newer allowed body",
+				ReceivedAt: time.Date(2026, 7, 24, 9, 0, 0, 0, time.UTC),
+			},
 			{ID: "2", LineID: "line-b", Direction: "incoming", Peer: "+14155550123", Body: "hidden body"},
 		}, nil
 	})
@@ -292,10 +307,23 @@ func TestServiceLinesAndSMSRespectScopes(t *testing.T) {
 	if err := service.HandleUpdate(context.Background(), commandUpdate(21, -100, 42, "/sms")); err != nil {
 		t.Fatalf("/sms error = %v", err)
 	}
-	if len(queries) != 1 || !reflect.DeepEqual(queries[0], SMSQuery{LineIDs: []string{"line-a"}, Limit: 10}) {
+	if len(queries) != 1 || !reflect.DeepEqual(queries[0], SMSQuery{
+		LineIDs:       []string{"line-a"},
+		Limit:         10,
+		Chronological: true,
+	}) {
 		t.Fatalf("queries = %#v", queries)
 	}
-	if !strings.Contains(sent[1].Text, "allowed body") || strings.Contains(sent[1].Text, "hidden body") {
+	olderIndex := strings.Index(sent[1].Text, "older allowed body")
+	newerIndex := strings.Index(sent[1].Text, "newer allowed body")
+	if olderIndex < 0 ||
+		newerIndex < 0 ||
+		olderIndex >= newerIndex ||
+		strings.Count(sent[1].Text, smsMessageDivider) != 1 ||
+		!strings.Contains(sent[1].Text, "收到 · Primary · +818012345678") ||
+		!strings.Contains(sent[1].Text, "发出 · Primary · +818012345678") ||
+		strings.Contains(sent[1].Text, "line-a") ||
+		strings.Contains(sent[1].Text, "hidden body") {
 		t.Fatalf("/sms response = %q", sent[1].Text)
 	}
 

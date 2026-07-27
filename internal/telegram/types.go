@@ -120,8 +120,9 @@ type SMS struct {
 }
 
 type SMSQuery struct {
-	LineIDs []string
-	Limit   int
+	LineIDs       []string
+	Limit         int
+	Chronological bool
 }
 
 type SMSRequest struct {
