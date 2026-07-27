@@ -66,8 +66,7 @@ export type ListQuery = {
 }
 
 export type MessageQuery = {
-  local_phone?: string
-  iccid?: string
+  line_id: string
   peer: string
 }
 
@@ -99,7 +98,7 @@ export interface ModemDeckGateway {
   listDevices(): Promise<Device[]>
   createDevice(input: CreateDeviceInput): Promise<Device>
   renameDevice(imei: string, input: RenameDeviceInput): Promise<Device>
-  updateLineLabel(iccid: string, input: UpdateLineLabelInput): Promise<LineLabelResult>
+  updateLineLabel(lineID: string, input: UpdateLineLabelInput): Promise<LineLabelResult>
   getNetworkStatus(): Promise<NetworkStatus>
   getNetworkSelection(lineID: string): Promise<NetworkSelectionPolicy>
   updateNetworkSelection(

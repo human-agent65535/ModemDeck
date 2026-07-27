@@ -13,9 +13,11 @@ test('dialing and messages resolve context, contact, and global default lines', 
   const workspace = await source('../src/state/workspace.ts')
 
   assert.match(workspace, /export function resolveLine\(/)
-  assert.match(workspace, /const contextLine = byKey\(options\.contextKey\)/)
-  assert.match(workspace, /contact\?\.preferred_device_imei/)
-  assert.match(workspace, /line_settings\.default_device_imei/)
+  assert.match(workspace, /const contextLine = byID\(options\.contextKey\)/)
+  assert.match(workspace, /contact\?\.preferred_line_id/)
+  assert.match(workspace, /line_settings\.default_line_id/)
+  assert.match(workspace, /return line\.id\.trim\(\)/)
+  assert.doesNotMatch(workspace, /return line\.id \|\| line\.iccid/)
 
   assert.match(dialer, /resolveLine\('dial'/)
   assert.match(dialer, /contextKey: draftContextLineKey\.value/)
@@ -29,8 +31,9 @@ test('dialing and messages resolve context, contact, and global default lines', 
   assert.match(messages, /threadUsesLine\(thread, line\)/)
   assert.match(
     messages,
-    /if \(!activeLineID\.value && !activeICCID\.value\) return t\('messages\.selectLine'\)/
+    /if \(!activeLineID\.value\) return t\('messages\.selectLine'\)/
   )
+  assert.doesNotMatch(messages, /activeICCID/)
   assert.match(messages, /<LineSelector/)
   assert.doesNotMatch(messages, /lines\.length === 1/)
   assert.doesNotMatch(lineSelector, /<select|<option/)
@@ -50,9 +53,9 @@ test('line switching uses one custom selector instead of native dropdowns', asyn
   assert.doesNotMatch(lineSelector, /<select|<option/)
   assert.match(lineSelector, /role="listbox"/)
   assert.match(lineSelector, /role="option"/)
-  assert.match(lineSelector, /valueField: 'line_key'/)
-  assert.match(contactEditor, /<LineSelector[\s\S]*value-field="device_imei"/)
-  assert.doesNotMatch(contactEditor, /<select v-model="draft\.preferredDeviceIMEI"/)
+  assert.doesNotMatch(lineSelector, /valueField|device_imei/)
+  assert.match(contactEditor, /<LineSelector[\s\S]*v-model="draft\.preferredLineID"/)
+  assert.doesNotMatch(contactEditor, /<select v-model="draft\.preferredLineID"/)
   assert.match(proxyEditor, /<LineSelector[\s\S]*v-model="form\.line_id"/)
   assert.doesNotMatch(proxyEditor, /<select v-model="form\.line_id"/)
   assert.match(

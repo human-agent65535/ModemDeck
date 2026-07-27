@@ -15,7 +15,7 @@ import { normalizeAudioLevels } from '../src/state/audio.ts'
 
 const incomingCall = {
   id: 'call-incoming',
-  line_key: 'line-main',
+  line_id: 'line-main',
   direction: 'incoming',
   remote_number: '+818012345678',
   phase: 'ringing',

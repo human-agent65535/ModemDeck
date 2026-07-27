@@ -26,9 +26,8 @@ const event = {
   id: 7,
   event_key: 'sms:42',
   message_id: '42',
-  thread_key: '8986010000000000001|+818012345678',
+  thread_key: 'line-main|+818012345678',
   line_id: 'line-main',
-  iccid: '8986010000000000001',
   peer: '+818012345678',
   content: 'hello',
   timestamp: '2026-07-24T07:30:00Z'
@@ -60,7 +59,7 @@ test('incoming call notification is claimed once for one genuinely ringing call'
   const claimed = new Set()
   const incomingCall = {
     id: 'call-incoming-1',
-    line_key: 'line-main',
+    line_id: 'line-main',
     direction: 'incoming',
     remote_number: '+818012345678',
     phase: 'ringing',
@@ -98,7 +97,7 @@ test('incoming call notification history stays bounded', () => {
       claimIncomingCallNotification(
         {
           id: `call-${index}`,
-          line_key: 'line-main',
+          line_id: 'line-main',
           direction: 'incoming',
           remote_number: '+818012345678',
           phase: 'ringing',
@@ -124,8 +123,6 @@ test('active-thread SMS invalidation refreshes messages and persists the read st
   const key = event.thread_key
   const initialThread = {
     key,
-    imsi: 'imsi-main',
-    iccid: event.iccid,
     line_id: event.line_id,
     peer: event.peer,
     last_timestamp: '2026-07-24T07:00:00Z',
@@ -140,7 +137,7 @@ test('active-thread SMS invalidation refreshes messages and persists the read st
   }
   const initialMessage = {
     id: '41',
-    iccid: event.iccid,
+    line_id: event.line_id,
     peer: event.peer,
     direction: 'incoming',
     state: 'received',
@@ -187,7 +184,7 @@ test('active-thread SMS invalidation refreshes messages and persists the read st
   try {
     await refreshIncomingMessage(event, key, false)
 
-    assert.deepEqual(reads, [{ iccid: event.iccid, peer: event.peer }])
+    assert.deepEqual(reads, [{ line_id: event.line_id, peer: event.peer }])
     assert.deepEqual(messagesFor(key).data.map(message => message.id), ['41', event.message_id])
     assert.equal(threadsResource.data[0].unread_count, 0)
   } finally {

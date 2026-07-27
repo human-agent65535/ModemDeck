@@ -29,14 +29,13 @@ const props = withDefaults(
     lines: LineSummary[]
     label?: string
     placeholder?: string
-    defaultDeviceImei?: string
+    defaultLineId?: string
     capability?: CommunicationCapabilityName
     unavailableLabel?: string
     includeAll?: boolean
     allValue?: string
     allLabel?: string
     allDescription?: string
-    valueField?: 'line_key' | 'device_imei'
     placement?: 'down' | 'up'
     disabled?: boolean
     compact?: boolean
@@ -45,14 +44,13 @@ const props = withDefaults(
   {
     label: '',
     placeholder: '',
-    defaultDeviceImei: '',
+    defaultLineId: '',
     capability: undefined,
     unavailableLabel: '',
     includeAll: false,
     allValue: 'all',
     allLabel: '',
     allDescription: '',
-    valueField: 'line_key',
     placement: 'down',
     disabled: false,
     compact: false,
@@ -83,7 +81,7 @@ const resolvedAllDescription = computed(
 )
 
 function lineValue(line: LineSummary): string {
-  return props.valueField === 'device_imei' ? line.device_imei : lineKey(line)
+  return lineKey(line)
 }
 
 const selectedLine = computed(() =>
@@ -91,15 +89,15 @@ const selectedLine = computed(() =>
 )
 const selectedIsDefault = computed(
   () =>
-    Boolean(selectedLine.value?.device_imei) &&
-    selectedLine.value?.device_imei === props.defaultDeviceImei
+    Boolean(selectedLine.value?.id) &&
+    selectedLine.value?.id === props.defaultLineId
 )
 const isAllSelected = computed(
   () => props.includeAll && props.modelValue === props.allValue
 )
 function toneStyle(line?: LineSummary): Record<string, string> | undefined {
   if (!line) return undefined
-  const tone = lineTone(line, lineLabel(line))
+  const tone = lineTone(line)
   return {
     '--line-tone-color': tone.foreground,
     '--line-tone-background': tone.background,
@@ -143,7 +141,7 @@ const options = computed<SelectorOption[]>(() => {
       details: lineDetails(line),
       line,
       defaultLine:
-        Boolean(line.device_imei) && line.device_imei === props.defaultDeviceImei
+        Boolean(line.id) && line.id === props.defaultLineId
     })
   }
   return result

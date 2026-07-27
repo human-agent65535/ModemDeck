@@ -318,19 +318,16 @@ function parseDiagnosticCapabilities(value: unknown, path: string): Communicatio
 function parseDiagnosticLine(value: unknown, index: number): LineSummary {
   const path = `diagnostics.lines[${index}]`
   const source = requiredRecord(value, path)
-  const id = stringValue(source, 'id')
+  const id = requiredStringValue(source, path, 'id')
   const iccid = stringValue(source, 'iccid')
   const imsi = stringValue(source, 'imsi')
   const deviceIMEI = stringValue(source, 'device_imei')
-  if (!id && !iccid && !imsi && !deviceIMEI) {
-    throw new ApiError(`${path} 缺少稳定标识`, 0, 'invalid_response')
-  }
   const rawSignal = source.signal_quality
   const signalQuality =
     typeof rawSignal === 'number' && Number.isFinite(rawSignal) ? rawSignal : undefined
   const rawLineColor = stringValue(source, 'line_color')
   return {
-    id: id || undefined,
+    id,
     iccid,
     imsi,
     phone_number: stringValue(source, 'phone_number'),
@@ -470,6 +467,7 @@ function parseDiagnosticCall(value: unknown, index: number): DiagnosticActiveCal
   return {
     id: requiredStringValue(source, path, 'id'),
     line_id: requiredStringValue(source, path, 'line_id'),
+    endpoint_line_id: stringValue(source, 'endpoint_line_id') || undefined,
     direction: requiredStringValue(source, path, 'direction'),
     phase: requiredStringValue(source, path, 'phase'),
     bearer: stringValue(source, 'bearer'),
@@ -547,7 +545,6 @@ function parseIncomingMessageEvent(value: unknown): IncomingMessageEvent {
     message_id: requiredStringValue(source, 'incoming_message_event', 'message_id'),
     thread_key: requiredStringValue(source, 'incoming_message_event', 'thread_key'),
     line_id: requiredStringValue(source, 'incoming_message_event', 'line_id'),
-    iccid: requiredStringValue(source, 'incoming_message_event', 'iccid'),
     peer: requiredStringValue(source, 'incoming_message_event', 'peer'),
     content: stringValue(source, 'content'),
     timestamp: requiredStringValue(source, 'incoming_message_event', 'timestamp')
@@ -785,8 +782,7 @@ const realGateway: ConfiguredModemDeckGateway = {
     return parseMessages(
       await get(
         `${API_ROOT}/messages${queryString({
-          local_phone: query.local_phone,
-          iccid: query.iccid,
+          line_id: query.line_id,
           peer: query.peer
         })}`
       )
@@ -851,10 +847,10 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
-  async updateLineLabel(iccid: string, input: UpdateLineLabelInput): Promise<LineLabelResult> {
+  async updateLineLabel(lineID: string, input: UpdateLineLabelInput): Promise<LineLabelResult> {
     return parseLineLabelResponse(
       await writeJSON(
-        lineLabelPath(iccid),
+        lineLabelPath(lineID),
         'PATCH',
         createLineLabelPayload(input),
         200

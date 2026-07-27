@@ -7,7 +7,7 @@ import { lineTone } from '../utils/lineTone'
 const { t } = useI18n()
 const props = withDefaults(
   defineProps<{
-    line: Pick<LineSummary, 'id' | 'iccid' | 'line_label' | 'line_color'>
+    line: Pick<LineSummary, 'id' | 'line_label' | 'line_color'>
     fallback?: string
   }>(),
   {
@@ -16,7 +16,7 @@ const props = withDefaults(
 )
 
 const label = computed(() => props.line.line_label.trim() || props.fallback.trim() || t('lines.line'))
-const tone = computed(() => lineTone(props.line, label.value))
+const tone = computed(() => lineTone(props.line))
 const toneStyle = computed(() => ({
   color: tone.value.foreground,
   backgroundColor: tone.value.background,

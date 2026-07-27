@@ -84,7 +84,7 @@ function showIncomingCallNotification(session: CallSession): void {
 
   const contact = contactForNumber(session.remote_number)
   const caller = session.display_name || contact?.display_name || session.remote_number
-  const line = lineForKey(session.line_key)
+  const line = lineForKey(session.line_id)
   showBrowserNotification({
     title: caller,
     body: line

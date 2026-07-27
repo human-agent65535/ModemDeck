@@ -45,7 +45,7 @@ export type Capabilities = {
 }
 
 export type LineSummary = {
-  id?: string
+  id: string
   iccid: string
   imsi: string
   phone_number: string
@@ -92,7 +92,7 @@ export type CallAction = 'answer' | 'reject' | 'hangup'
 
 export type CallSession = {
   id: string
-  line_key: string
+  line_id: string
   direction: CallDirection
   remote_number: string
   display_name?: string
@@ -181,7 +181,7 @@ export type BootstrapResponse = {
 }
 
 export type LineSettings = {
-  default_device_imei: string
+  default_line_id: string
   revision: number
 }
 
@@ -341,7 +341,7 @@ export type ProxyDeleteResult = {
 }
 
 export type UpdateLineSettingsInput = {
-  default_device_imei: string
+  default_line_id: string
   expected_revision: number
 }
 
@@ -372,7 +372,7 @@ export type Contact = {
   phones: ContactPhone[]
   favorite: boolean
   notes?: string
-  preferred_device_imei?: string
+  preferred_line_id?: string
   revision?: number
   created_at?: string
   updated_at?: string
@@ -389,16 +389,13 @@ export type ContactInput = {
     primary: boolean
   }>
   notes?: string
-  preferred_device_imei?: string
+  preferred_line_id?: string
   revision?: number
 }
 
 export type MessageThread = {
   key: string
-  local_phone?: string
-  imsi: string
-  iccid: string
-  line_id?: string
+  line_id: string
   peer: string
   contact_name?: string
   last_timestamp: string
@@ -408,9 +405,7 @@ export type MessageThread = {
 
 export type Message = {
   id: string
-  imsi: string
-  iccid: string
-  line_id?: string
+  line_id: string
   peer: string
   direction: CallDirection
   content: string
@@ -425,7 +420,6 @@ export type IncomingMessageEvent = {
   message_id: string
   thread_key: string
   line_id: string
-  iccid: string
   peer: string
   content: string
   timestamp: string
@@ -456,26 +450,21 @@ export type RuntimeEventStreamHandlers = {
 }
 
 export type MessageReadInput = {
-  local_phone?: string
-  iccid?: string
+  line_id: string
   peer: string
 }
 
 export type SendMessageInput = {
   thread_key?: string
   request_id?: string
-  line_id?: string
-  iccid?: string
+  line_id: string
   to: string
   content: string
 }
 
 export type CallRecord = {
   id: string
-  device_id: string
-  local_phone?: string
-  line_iccid?: string
-  line_imsi?: string
+  line_id: string
   direction: CallDirection
   remote_number: string
   display_name?: string
@@ -547,7 +536,7 @@ export type UpdateLineLabelInput = {
 }
 
 export type LineLabelResult = {
-  iccid: string
+  line_id: string
   line_label: string
   line_color: LineColorPresetID | ''
 }
@@ -848,6 +837,7 @@ export type DiagnosticAgentCapabilities = {
 export type DiagnosticActiveCall = {
   id: string
   line_id: string
+  endpoint_line_id?: string
   direction: string
   phase: string
   bearer: string

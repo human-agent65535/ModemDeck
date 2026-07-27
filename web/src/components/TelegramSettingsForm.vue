@@ -66,12 +66,17 @@ const selectedUnit = computed(() =>
 const lines = computed(() => bootstrapResource.data?.lines || [])
 
 const scopeOptions = computed<TelegramScopeOption[]>(() => {
-  const options: TelegramScopeOption[] = lines.value.map(line => ({
-    id: lineKey(line),
-    label: lineLabel(line),
-    phoneNumber: line.phone_number.trim(),
-    line
-  }))
+  const options: TelegramScopeOption[] = lines.value.flatMap(line => {
+    const id = lineKey(line)
+    return id
+      ? [{
+          id,
+          label: lineLabel(line),
+          phoneNumber: line.phone_number.trim(),
+          line
+        }]
+      : []
+  })
   for (const scope of lineScopes.value) {
     if (!options.some(option => option.id === scope)) {
       options.push({
@@ -104,7 +109,7 @@ function unitScopeSummary(unit: TelegramUnit): string {
 
 function scopeToneStyle(line?: LineSummary): Record<string, string> | undefined {
   if (!line) return undefined
-  const tone = lineTone(line, lineLabel(line))
+  const tone = lineTone(line)
   return {
     color: tone.foreground,
     backgroundColor: tone.background,

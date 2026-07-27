@@ -60,12 +60,7 @@ import {
   isVoiceServiceReady
 } from '../utils/operatorNetwork'
 import { primaryPhone } from '../utils/format'
-import {
-  createLineLookup,
-  findLine,
-  lineTagFallback,
-  lineTagLine
-} from '../utils/lineIdentity'
+import { lineTagFallback, lineTagLine } from '../utils/lineIdentity'
 
 type DashboardActivity =
   | {
@@ -90,10 +85,9 @@ const messageComposeRecipientName = ref('')
 const messageComposeLineKey = ref('')
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
-const contactLines = computed(() => lines.value.filter(line => Boolean(line.device_imei)))
-const lineLookup = computed(() => createLineLookup(lines.value))
-const defaultDeviceIMEI = computed(
-  () => bootstrapResource.data?.line_settings.default_device_imei || ''
+const contactLines = computed(() => lines.value.filter(line => Boolean(lineKey(line))))
+const defaultLineID = computed(
+  () => bootstrapResource.data?.line_settings.default_line_id || ''
 )
 const selectionKey = computed(() =>
   typeof route.query.item === 'string' ? route.query.item : ''
@@ -246,17 +240,11 @@ function threadName(thread: MessageThread): string {
 }
 
 function lineForCall(call: CallRecord): LineSummary | undefined {
-  if (call.local_phone) {
-    return findLine(lineLookup.value, call.local_phone)
-  }
-  return findLine(lineLookup.value, call.line_iccid, call.line_imsi)
+  return lines.value.find(line => lineKey(line) === call.line_id)
 }
 
 function lineForThread(thread: MessageThread): LineSummary | undefined {
-  if (thread.local_phone) {
-    return findLine(lineLookup.value, thread.local_phone)
-  }
-  return findLine(lineLookup.value, thread.imsi, thread.iccid)
+  return lines.value.find(line => lineKey(line) === thread.line_id)
 }
 
 function avatarForNumber(number: string): string {
@@ -267,10 +255,8 @@ function callLineFallback(call: CallRecord): string {
   return lineTagFallback(
     lineForCall(call),
     lines.value,
-    defaultDeviceIMEI.value,
-    call.local_phone,
-    call.line_iccid,
-    call.line_imsi
+    defaultLineID.value,
+    call.line_id
   )
 }
 
@@ -278,10 +264,8 @@ function threadLineFallback(thread: MessageThread): string {
   return lineTagFallback(
     lineForThread(thread),
     lines.value,
-    defaultDeviceIMEI.value,
-    thread.local_phone,
-    thread.imsi,
-    thread.iccid
+    defaultLineID.value,
+    thread.line_id
   )
 }
 
@@ -491,7 +475,7 @@ onMounted(() => {
             :thread="activity.thread"
             :name="threadName(activity.thread)"
             :avatar="avatarForNumber(activity.thread.peer)"
-            :line="lineTagLine(lineForThread(activity.thread), activity.thread.local_phone, activity.thread.imsi, activity.thread.iccid)"
+            :line="lineTagLine(lineForThread(activity.thread), activity.thread.line_id)"
             :line-fallback="threadLineFallback(activity.thread)"
             :selected="selectionKey === activity.key"
             :arriving="recentIncomingThreadKeys[activity.thread.key]"
@@ -502,7 +486,7 @@ onMounted(() => {
             :call="activity.call"
             :name="callName(activity.call)"
             :avatar="avatarForNumber(activity.call.remote_number)"
-            :line="lineTagLine(lineForCall(activity.call), activity.call.local_phone, activity.call.line_iccid, activity.call.line_imsi)"
+            :line="lineTagLine(lineForCall(activity.call), activity.call.line_id)"
             :line-fallback="callLineFallback(activity.call)"
             :selected="selectionKey === activity.key"
             @select="selectActivity(activity)"
@@ -646,7 +630,7 @@ onMounted(() => {
                 :line="line"
                 :device="deviceFor(line)"
                 :runtime="networkRuntime(line)"
-                :default-line="line.device_imei === defaultDeviceIMEI"
+                :default-line="lineKey(line) === defaultLineID"
                 @select="openLineSettings(line)"
               />
             </div>

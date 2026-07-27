@@ -268,6 +268,15 @@ test('bootstrap and device decoders preserve the complete network identity', () 
   assert.equal(device.sim.roaming, true)
 })
 
+test('bootstrap line decoding requires the stable public line id', () => {
+  const legacyHardwareOnlyLine = {
+    ...roamingLine(),
+    id: undefined
+  }
+
+  assert.throws(() => parseLine(legacyHardwareOnlyLine), /line 缺少 id/)
+})
+
 test('SIM and diagnostics HTTP decoders preserve serving and home operators', async () => {
   const originalFetch = globalThis.fetch
   const requestedPaths = []

@@ -113,7 +113,7 @@ function enqueue(operation: () => Promise<void>): void {
 
 function showIncomingMessageNotification(event: IncomingMessageEvent, router: Router): void {
   const contact = contactForNumber(event.peer)
-  const line = lineForKey(event.line_id) || lineForKey(event.iccid)
+  const line = lineForKey(event.line_id)
   const sender = contact?.display_name || event.peer
   const title = line ? `${sender} · ${lineLabel(line)}` : sender
   showBrowserNotification({

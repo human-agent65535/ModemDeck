@@ -86,7 +86,7 @@ test('device settings add selection actions without changing card content', () =
   for (const usage of [dashboardUse, settingsUse]) {
     assert.match(usage, /:line="line"/)
     assert.match(usage, /:device="deviceFor\(line\)"/)
-    assert.match(usage, /:default-line="line\.device_imei === defaultDeviceIMEI"/)
+    assert.match(usage, /:default-line="lineKey\(line\) === defaultLineID"/)
     assert.doesNotMatch(usage, /compact/)
   }
 

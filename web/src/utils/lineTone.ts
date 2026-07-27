@@ -40,18 +40,12 @@ function stableHash(value: string): number {
 }
 
 export function lineTonePreset(
-  line: Pick<LineSummary, 'id' | 'iccid' | 'line_label' | 'line_color'>,
-  fallback = ''
+  line: Pick<LineSummary, 'id' | 'line_color'>
 ): LineTonePreset {
   const selected = LINE_TONE_PRESETS.find(preset => preset.id === line.line_color)
   if (selected) return selected
 
-  const stableKey =
-    line.id?.trim() ||
-    line.iccid.trim() ||
-    line.line_label.trim() ||
-    fallback.trim() ||
-    'line'
+  const stableKey = line.id.trim() || 'line'
   return (
     AUTO_LINE_TONE_PRESETS[stableHash(stableKey) % AUTO_LINE_TONE_PRESETS.length] ??
     AUTO_LINE_TONE_PRESETS[0]!
@@ -59,8 +53,7 @@ export function lineTonePreset(
 }
 
 export function lineTone(
-  line: Pick<LineSummary, 'id' | 'iccid' | 'line_label' | 'line_color'>,
-  fallback = ''
+  line: Pick<LineSummary, 'id' | 'line_color'>
 ): LineTone {
-  return lineTonePreset(line, fallback)
+  return lineTonePreset(line)
 }

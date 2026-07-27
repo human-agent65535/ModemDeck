@@ -133,8 +133,8 @@ const ussdPending = ref(false)
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const networkSnapshot = computed(() => networkState.snapshot)
-const defaultDeviceIMEI = computed(
-  () => bootstrapResource.data?.line_settings.default_device_imei || ''
+const defaultLineID = computed(
+  () => bootstrapResource.data?.line_settings.default_line_id || ''
 )
 const selectedLineID = computed(() => deviceConfigurationState.selectedLineID)
 const selectedLine = computed(() =>
@@ -250,7 +250,7 @@ const selectedLineFallback = computed(() => {
 })
 const selectedLineColor = computed<LineColorPresetID>(() => {
   const line = selectedLine.value
-  return line ? lineTonePreset(line, selectedLineFallback.value).id : 'teal'
+  return line ? lineTonePreset(line).id : 'teal'
 })
 const lineIdentityDirty = computed(
   () =>
@@ -262,9 +262,7 @@ const selectedLineCall = computed(() => {
   const line = selectedLine.value
   const session = callState.session
   if (!line || !session) return null
-  const belongsToSelectedLine = [line.id, lineKey(line), line.device_imei]
-    .filter(Boolean)
-    .includes(session.line_key)
+  const belongsToSelectedLine = lineKey(line) === session.line_id
   return belongsToSelectedLine ? session : null
 })
 const selectedCallBearer = computed(() => {
@@ -478,8 +476,8 @@ function modemPortTypeLabel(type: string): string {
 }
 
 watch(
-  [lines, defaultDeviceIMEI],
-  ([currentLines, defaultIMEI]) => {
+  [lines, defaultLineID],
+  ([currentLines, currentDefaultLineID]) => {
     if (
       selectedLineID.value &&
       currentLines.some(line => line.id === selectedLineID.value)
@@ -487,7 +485,7 @@ watch(
       return
     }
     const next =
-      currentLines.find(line => line.device_imei === defaultIMEI && line.id) ||
+      currentLines.find(line => line.id === currentDefaultLineID) ||
       currentLines.find(line => line.id)
     if (next?.id) selectLine(next)
   },
@@ -696,10 +694,11 @@ function policyLabel(policy: IncomingCallPolicy): string {
 }
 
 async function makeDefault(line: LineSummary): Promise<void> {
-  if (!line.device_imei || line.device_imei === defaultDeviceIMEI.value) return
+  const lineID = lineKey(line)
+  if (!lineID || lineID === defaultLineID.value) return
   moduleError.value = ''
   try {
-    await updateDefaultLine(line.device_imei)
+    await updateDefaultLine(lineID)
   } catch (error) {
     moduleError.value =
       error instanceof Error ? error.message : t('device.defaultLineSaveFailed')
@@ -708,7 +707,8 @@ async function makeDefault(line: LineSummary): Promise<void> {
 
 async function saveLineLabel(): Promise<void> {
   const line = selectedLine.value
-  if (!line?.iccid || lineLabelPending.value || !lineIdentityDirty.value) return
+  const lineID = line ? lineKey(line) : ''
+  if (!lineID || lineLabelPending.value || !lineIdentityDirty.value) return
   const value = lineLabelDraft.value.trim()
   if (Array.from(value).length > 16) {
     lineLabelError.value = t('device.lineLabelTooLong')
@@ -717,7 +717,7 @@ async function saveLineLabel(): Promise<void> {
   lineLabelPending.value = true
   lineLabelError.value = ''
   try {
-    await updateLineLabel(line.iccid, {
+    await updateLineLabel(lineID, {
       line_label: value,
       line_color: lineColorDraft.value
     })
@@ -1058,7 +1058,7 @@ onMounted(() => {
         :device="deviceFor(line)"
         :runtime="networkRuntime(line)"
         :selected="line.id === selectedLineID"
-        :default-line="line.device_imei === defaultDeviceIMEI"
+        :default-line="lineKey(line) === defaultLineID"
         :flight-mode="
           line.id === selectedLineID && hardware?.flight_mode_known
             ? hardware.flight_mode
@@ -1130,14 +1130,14 @@ onMounted(() => {
                   maxlength="16"
                   autocomplete="off"
                   :placeholder="t('device.suggested', { label: selectedLineFallback })"
-                  :disabled="lineLabelPending || !selectedLine?.iccid"
+                  :disabled="lineLabelPending || !selectedLine || !lineKey(selectedLine)"
                   aria-describedby="line-label-status"
                 />
               </label>
               <div class="line-label-form__controls">
                 <fieldset
                   class="line-color-picker"
-                  :disabled="lineLabelPending || !selectedLine?.iccid"
+                  :disabled="lineLabelPending || !selectedLine || !lineKey(selectedLine)"
                 >
                   <legend>{{ t('device.lineTagColor') }}</legend>
                   <div class="line-color-picker__options">
@@ -1180,7 +1180,10 @@ onMounted(() => {
                     class="primary-action"
                     type="submit"
                     :disabled="
-                      lineLabelPending || !selectedLine?.iccid || !lineIdentityDirty
+                      lineLabelPending ||
+                      !selectedLine ||
+                      !lineKey(selectedLine) ||
+                      !lineIdentityDirty
                     "
                   >
                     <LoaderCircle v-if="lineLabelPending" class="spin" :size="16" />
@@ -1197,7 +1200,7 @@ onMounted(() => {
               :role="lineLabelError ? 'alert' : 'status'"
             >
               {{
-                !selectedLine?.iccid
+                !selectedLine || !lineKey(selectedLine)
                   ? t('device.simMissingLabel')
                   : lineLabelError
               }}

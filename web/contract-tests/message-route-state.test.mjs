@@ -4,9 +4,10 @@ import test from 'node:test'
 import { createFixtureGateway } from '../src/api/fixture.ts'
 import { parseCallRecord, parseThread } from '../src/api/normalize.ts'
 
-test('thread parsing preserves the backend key and stable local phone', () => {
+test('thread parsing preserves only the stable line and peer identity', () => {
   const thread = parseThread({
     key: 'backend-thread-key',
+    line_id: 'line-main',
     local_phone: '+1 202 555 0101',
     imsi: '001010000000001',
     iccid: '8986012345678900001',
@@ -16,13 +17,18 @@ test('thread parsing preserves the backend key and stable local phone', () => {
   })
 
   assert.equal(thread.key, 'backend-thread-key')
-  assert.equal(thread.local_phone, '+1 202 555 0101')
+  assert.equal(thread.line_id, 'line-main')
+  assert.equal(thread.peer, '+1 202 555 0103')
+  assert.equal('local_phone' in thread, false)
+  assert.equal('imsi' in thread, false)
+  assert.equal('iccid' in thread, false)
 })
 
 test('call parsing preserves stable historical line identities', () => {
   const call = parseCallRecord({
     id: 'call-history',
-    device_id: 'retired-modem',
+    line_id: 'line-history',
+    endpoint_line_id: 'retired-modem',
     local_phone: '+12025550198',
     line_iccid: '8986012345678900001',
     line_imsi: '001010000000001',
@@ -33,32 +39,32 @@ test('call parsing preserves stable historical line identities', () => {
     missed: false
   })
 
-  assert.equal(call.local_phone, '+12025550198')
-  assert.equal(call.line_iccid, '8986012345678900001')
-  assert.equal(call.line_imsi, '001010000000001')
-  assert.equal(call.device_id, 'retired-modem')
+  assert.equal(call.line_id, 'line-history')
+  assert.equal('local_phone' in call, false)
+  assert.equal('line_iccid' in call, false)
+  assert.equal('line_imsi' in call, false)
+  assert.equal('endpoint_line_id' in call, false)
 })
 
-test('message queries send local phone and ICCID while fixtures normalize phone format', async () => {
+test('message queries and reads use only stable line id and peer', async () => {
   const client = await readFile(new URL('../src/api/client.ts', import.meta.url), 'utf8')
   assert.match(
     client,
-    /local_phone: query\.local_phone,[\s\S]*?iccid: query\.iccid,[\s\S]*?peer: query\.peer/
+    /line_id: query\.line_id,[\s\S]*?peer: query\.peer/
   )
+  assert.doesNotMatch(client, /local_phone: query\.local_phone|iccid: query\.iccid/)
 
   const gateway = createFixtureGateway()
   const thread = (await gateway.listThreads()).find(item => item.contact_name === 'Alex Rowan')
   assert.ok(thread)
   const messages = await gateway.listMessages({
-    local_phone: '818012345678',
-    iccid: thread.iccid,
+    line_id: thread.line_id,
     peer: thread.peer
   })
   assert.ok(messages.length > 0)
 
   await gateway.markThreadRead({
-    local_phone: '+81 (80) 1234-5678',
-    iccid: thread.iccid,
+    line_id: thread.line_id,
     peer: thread.peer
   })
   const updated = (await gateway.listThreads()).find(item => item.key === thread.key)

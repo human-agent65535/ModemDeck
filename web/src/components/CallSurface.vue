@@ -47,7 +47,7 @@ let timer: number | undefined
 
 const session = computed(() => callState.session)
 const dtmfDigits = computed(() => callState.dtmfDigits)
-const line = computed(() => (session.value ? lineForKey(session.value.line_key) : undefined))
+const line = computed(() => (session.value ? lineForKey(session.value.line_id) : undefined))
 const contact = computed(() =>
   session.value ? contactForNumber(session.value.remote_number) : undefined
 )
@@ -221,9 +221,9 @@ onBeforeUnmount(() => {
             <LineTag
               v-if="line"
               :line="line"
-              :fallback="session.line_key"
+              :fallback="session.line_id"
             />
-            <small v-else>{{ session.line_key }}</small>
+            <small v-else>{{ session.line_id }}</small>
             <small v-if="bearerLabel" class="call-surface__bearer">{{ bearerLabel }}</small>
           </div>
         </div>

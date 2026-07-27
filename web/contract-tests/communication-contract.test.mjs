@@ -36,7 +36,7 @@ import {
 
 const canonicalCall = {
   id: 'call-1',
-  line_key: 'line-main',
+  line_id: 'line-main',
   direction: 'outgoing',
   remote_number: '+818012345678',
   phase: 'active',
@@ -156,46 +156,32 @@ test('message payload keeps only the finalized wire fields', () => {
       thread_key: 'local-thread-key',
       request_id: 'request-message-1',
       line_id: 'line-main',
-      iccid: '8986012345678900001',
       to: '+818012345678',
       content: 'hello'
     }),
     {
       request_id: 'request-message-1',
       line_id: 'line-main',
-      iccid: '8986012345678900001',
       to: '+818012345678',
       content: 'hello'
     }
   )
 })
 
-test('message read payload prefers local phone and retains ICCID fallback', () => {
+test('message read payload uses the stable line and peer identity', () => {
   assert.deepEqual(
     createMessageReadPayload({
-      local_phone: '  +1 202 555 0101  ',
-      iccid: '  8986012345678900001  ',
+      line_id: '  line-main  ',
       peer: '  +818012345678  '
     }),
     {
-      local_phone: '+1 202 555 0101',
-      iccid: '8986012345678900001',
-      peer: '+818012345678'
-    }
-  )
-  assert.deepEqual(
-    createMessageReadPayload({
-      iccid: '8986012345678900001',
-      peer: '+818012345678'
-    }),
-    {
-      iccid: '8986012345678900001',
+      line_id: 'line-main',
       peer: '+818012345678'
     }
   )
   assert.throws(
-    () => createMessageReadPayload({ local_phone: '', iccid: '', peer: '+818012345678' }),
-    /local_phone 或 iccid/
+    () => createMessageReadPayload({ line_id: '', peer: '+818012345678' }),
+    /line_id/
   )
 })
 
@@ -340,7 +326,7 @@ test('recording metadata derives same-origin authenticated API downloads', () =>
 test('recording aggregation preserves call metadata and only exposes ready downloads', () => {
   const call = {
     id: 'call-1',
-    device_id: 'device-1',
+    line_id: 'line-main',
     direction: 'incoming',
     remote_number: '+818012345678',
     contact_name: 'Alex Rowan',
@@ -378,10 +364,7 @@ test('recording aggregation preserves call metadata and only exposes ready downl
     download_url: '/api/v1/calls/call-1/recordings/segment-1/download',
     call: {
       id: 'call-1',
-      device_id: 'device-1',
-      local_phone: undefined,
-      line_iccid: undefined,
-      line_imsi: undefined,
+      line_id: 'line-main',
       direction: 'incoming',
       remote_number: '+818012345678',
       display_name: 'Alex Rowan',
@@ -409,6 +392,7 @@ test('recording aggregation preserves call metadata and only exposes ready downl
   assert.equal(failed.playable, false)
   assert.equal(failed.failure_code, 'interrupted')
   assert.equal(failed.download_url, undefined)
+  assert.equal('endpoint_line_id' in recording.call, false)
   assert.throws(
     () =>
       parseRecordingEntriesResponse({
@@ -422,8 +406,7 @@ test('message response unwraps the finalized message envelope', () => {
   const message = parseMessageResponse({
     message: {
       id: 'message-1',
-      imsi: '001010000000001',
-      iccid: '8986012345678900001',
+      line_id: 'line-main',
       peer: '+818012345678',
       content: 'hello',
       timestamp: '2026-07-23T12:00:00Z',

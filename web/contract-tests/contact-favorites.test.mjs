@@ -79,19 +79,19 @@ test('fixture persists favorite and preferred line through contact writes', asyn
     display_name: 'Favorite',
     avatar: 'data:image/png;base64,iVBORw0KGgo=',
     favorite: true,
-    preferred_device_imei: 'fixture-001',
+    preferred_line_id: 'line-fixture-main',
     phones: [{ label: 'mobile', number: '+81 80 9999 0000', primary: true }]
   })
 
   assert.equal(created?.favorite, true)
   assert.equal(created?.avatar, 'data:image/png;base64,iVBORw0KGgo=')
-  assert.equal(created?.preferred_device_imei, 'fixture-001')
+  assert.equal(created?.preferred_line_id, 'line-fixture-main')
 
   const updated = await gateway.updateContact?.(created?.id || '', {
     display_name: 'Favorite',
     avatar: created?.avatar,
     favorite: false,
-    preferred_device_imei: 'fixture-002',
+    preferred_line_id: 'line-fixture-travel',
     revision: created?.revision,
     phones:
       created?.phones.map(phone => ({
@@ -104,7 +104,7 @@ test('fixture persists favorite and preferred line through contact writes', asyn
 
   assert.equal(updated?.favorite, false)
   assert.equal(updated?.avatar, created?.avatar)
-  assert.equal(updated?.preferred_device_imei, 'fixture-002')
+  assert.equal(updated?.preferred_line_id, 'line-fixture-travel')
 })
 
 test('contacts expose avatar upload in full and quick create flows', async () => {

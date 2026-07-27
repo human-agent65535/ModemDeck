@@ -25,7 +25,7 @@ test('module voice settings show an observed bearer or a capability-confirmed pa
   assert.doesNotMatch(source, /'无通话'/)
   assert.doesNotMatch(source, /'待接通'/)
   assert.match(source, /\{\{ selectedCallPathLabel \}\}/)
-  assert.match(source, /\.includes\(session\.line_key\)/)
+  assert.match(source, /lineKey\(line\) === session\.line_id/)
 })
 
 test('browser audio is a global diagnostic with explicit microphone access states', async () => {

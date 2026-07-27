@@ -10,6 +10,7 @@ import {
   bootstrapResource,
   contactEditingAvailable,
   contactsResource,
+  lineKey,
   loadContacts,
   saveContact
 } from '../state/workspace'
@@ -52,7 +53,7 @@ const filteredContacts = computed(() => {
     .sort((a, b) => a.display_name.localeCompare(b.display_name))
 })
 const contactLines = computed(
-  () => bootstrapResource.data?.lines.filter(line => Boolean(line.device_imei)) || []
+  () => bootstrapResource.data?.lines.filter(line => Boolean(lineKey(line))) || []
 )
 
 const selectedContact = computed(() =>
@@ -130,7 +131,7 @@ async function addToContact(): Promise<void> {
         avatar: contact.avatar,
         favorite: contact.favorite,
         notes: contact.notes,
-        preferred_device_imei: contact.preferred_device_imei,
+        preferred_line_id: contact.preferred_line_id,
         revision: contact.revision,
         phones: [
           ...contact.phones.map(phone => ({

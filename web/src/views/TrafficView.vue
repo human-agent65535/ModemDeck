@@ -32,18 +32,15 @@ const editorProxy = ref<ProxyInstance>()
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const snapshot = computed(() => networkState.snapshot)
-const defaultLineID = computed(() => {
-  const defaultDeviceIMEI =
-    bootstrapResource.data?.line_settings.default_device_imei || ''
-  const line = lines.value.find(item => item.device_imei === defaultDeviceIMEI)
-  return line ? stableLineID(line) : ''
-})
+const defaultLineID = computed(
+  () => bootstrapResource.data?.line_settings.default_line_id || ''
+)
 const editorInitialLineID = computed(() =>
   selectedLineID.value === 'all' ? defaultLineID.value : selectedLineID.value
 )
 
 function stableLineID(line: LineSummary): string {
-  return line.id || line.iccid || line.device_imei
+  return line.id.trim()
 }
 
 function lineForID(lineID: string): LineSummary | undefined {

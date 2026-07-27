@@ -69,5 +69,5 @@ test('Telegram line scopes show the alias and reliable phone number without inte
   assert.match(scopeFieldset, /<CardSim/)
   assert.match(scopeFieldset, /<LineTag v-if="line\.line"/)
   assert.match(scopeFieldset, /line\.phoneNumber \|\| t\('lines\.cellularLine'\)/)
-  assert.match(form, /const tone = lineTone\(line, lineLabel\(line\)\)/)
+  assert.match(form, /const tone = lineTone\(line\)/)
 })

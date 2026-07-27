@@ -29,9 +29,6 @@ const secondaryLine = {
 
 const mainThread = {
   key: 'backend-main-thread',
-  local_phone: '818012345678',
-  imsi: '46001',
-  iccid: '898601',
   line_id: 'line-main',
   peer: '+1 202 555 0103',
   last_timestamp: '2026-07-24T01:00:00Z',
@@ -41,13 +38,10 @@ const mainThread = {
 const secondaryThread = {
   ...mainThread,
   key: 'backend-secondary-thread',
-  local_phone: '+84 (90) 000-0000',
-  imsi: '00102',
-  iccid: '898602',
-  line_id: 'imei-secondary'
+  line_id: 'line-secondary'
 }
 
-test('message conversations match every stable identity of their line', () => {
+test('message conversations match only the stable line id', () => {
   assert.equal(messageThreadUsesLine(mainThread, mainLine), true)
   assert.equal(messageThreadUsesLine(secondaryThread, secondaryLine), true)
   assert.equal(messageThreadUsesLine(mainThread, secondaryLine), false)

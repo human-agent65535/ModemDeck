@@ -33,12 +33,7 @@ import {
   threadsResource
 } from '../state/workspace'
 import { formatRelativeDate } from '../utils/format'
-import {
-  createLineLookup,
-  findLine,
-  lineTagFallback,
-  lineTagLine
-} from '../utils/lineIdentity'
+import { lineTagFallback, lineTagLine } from '../utils/lineIdentity'
 import {
   findRecipientThread,
   messageReturnRoute,
@@ -97,14 +92,13 @@ const selectedReadError = computed(() =>
   selectedThread.value ? threadReadErrors[selectedThread.value.key] || '' : ''
 )
 const lines = computed(() => bootstrapResource.data?.lines || [])
-const defaultLineDeviceIMEI = computed(
-  () => bootstrapResource.data?.line_settings.default_device_imei || ''
+const defaultLineID = computed(
+  () => bootstrapResource.data?.line_settings.default_line_id || ''
 )
 const selectedLine = computed(() => lines.value.find(line => lineKey(line) === selectedLineKey.value))
 const activeLine = computed(() =>
   composingNew.value ? selectedLine.value : lineForThread(selectedThread.value)
 )
-const lineLookup = computed(() => createLineLookup(lines.value))
 const existingRecipientThread = computed(() =>
   composingNew.value
     ? findRecipientThread(threadsResource.data, newRecipient.value, activeLine.value)
@@ -144,12 +138,11 @@ const activeRecipient = computed(() =>
   composingNew.value ? newRecipient.value.trim() : selectedThread.value?.peer || ''
 )
 const activeContact = computed(() => contactForNumber(activeRecipient.value))
-const activeICCID = computed(() => activeLine.value?.iccid || '')
 const activeLineID = computed(() => (activeLine.value ? lineKey(activeLine.value) : ''))
 const sendDisabledReason = computed(() => {
   if (messageWriteUnavailable.value) return messageWriteUnavailable.value
   if (!activeRecipient.value) return t('messages.selectRecipient')
-  if (!activeLineID.value && !activeICCID.value) return t('messages.selectLine')
+  if (!activeLineID.value) return t('messages.selectLine')
   if (lineSupports(activeLine.value, 'message') === false) {
     return t('messages.lineUnsupported')
   }
@@ -168,25 +161,16 @@ function threadUsesLine(thread: MessageThread, line: LineSummary): boolean {
 
 function lineForThread(thread?: MessageThread): LineSummary | undefined {
   if (!thread) return undefined
-  if (thread.local_phone) {
-    return findLine(lineLookup.value, thread.local_phone)
-  }
-  return findLine(
-    lineLookup.value,
-    thread.imsi,
-    thread.iccid
-  )
+  return lines.value.find(line => lineKey(line) === thread.line_id)
 }
 
 function threadLineFallback(thread: MessageThread): string {
   const line = lineForThread(thread)
-  if (!line && thread.local_phone?.trim()) return thread.local_phone.trim()
   return lineTagFallback(
     line,
     lines.value,
-    defaultLineDeviceIMEI.value,
-    thread.imsi,
-    thread.iccid
+    defaultLineID.value,
+    thread.line_id
   )
 }
 
@@ -228,7 +212,7 @@ watch(
 )
 
 watch(
-  [lines, defaultLineDeviceIMEI, () => contactsResource.data, newRecipient, composingNew],
+  [lines, defaultLineID, () => contactsResource.data, newRecipient, composingNew],
   () => syncComposeLine()
 )
 
@@ -366,8 +350,7 @@ async function submit(): Promise<void> {
     const replyKey = replyThreadKey.value
     const result = await sendMessage({
       thread_key: replyKey,
-      line_id: activeLineID.value || undefined,
-      iccid: activeICCID.value || undefined,
+      line_id: activeLineID.value,
       to: activeRecipient.value,
       content: draft.value.trim()
     })
@@ -443,7 +426,7 @@ onMounted(() => {
             v-model="lineFilterKey"
             class="message-line-filter"
             :lines="lines"
-            :default-device-imei="defaultLineDeviceIMEI"
+            :default-line-id="defaultLineID"
             :label="t('messages.lineFilter')"
             include-all
             filter-mode
@@ -501,7 +484,7 @@ onMounted(() => {
           :thread="thread"
           :name="displayNameForThread(thread)"
           :avatar="avatarForNumber(thread.peer)"
-          :line="lineTagLine(lineForThread(thread), thread.local_phone, thread.imsi, thread.iccid)"
+          :line="lineTagLine(lineForThread(thread), thread.line_id)"
           :line-fallback="threadLineFallback(thread)"
           :selected="thread.key === selectedKey && !composingNew"
           :arriving="recentIncomingThreadKeys[thread.key]"
@@ -540,7 +523,7 @@ onMounted(() => {
                 v-model="selectedLineKey"
                 class="compose-line-select"
                 :lines="lines"
-                :default-device-imei="defaultLineDeviceIMEI"
+                :default-line-id="defaultLineID"
                 :label="t('messages.sendingLine')"
                 capability="message"
                 compact
@@ -558,7 +541,7 @@ onMounted(() => {
               :name="displayNameForThread(selectedThread)"
               :number="selectedThread.peer"
               :avatar="avatarForNumber(selectedThread.peer)"
-              :line="lineTagLine(lineForThread(selectedThread), selectedThread.local_phone, selectedThread.imsi, selectedThread.iccid)"
+              :line="lineTagLine(lineForThread(selectedThread), selectedThread.line_id)"
               :line-fallback="threadLineFallback(selectedThread)"
             />
           </template>

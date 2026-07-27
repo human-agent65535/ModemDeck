@@ -68,8 +68,8 @@ const showingCall = computed(() => Boolean(callState.session))
 const callSurfaceVisible = computed(
   () => showingCall.value && (props.permanent || !uiState.callMinimized)
 )
-const defaultLineDeviceIMEI = computed(
-  () => bootstrapResource.data?.line_settings.default_device_imei || ''
+const defaultLineID = computed(
+  () => bootstrapResource.data?.line_settings.default_line_id || ''
 )
 const selectedLine = computed(() => lines.value.find(line => lineKey(line) === selectedLineId.value))
 const dialUnavailable = computed(() => capabilityReason('dial'))
@@ -195,7 +195,7 @@ watch([callSurfaceVisible, () => props.permanent], async ([showing, permanent], 
 })
 
 watch(
-  [lines, defaultLineDeviceIMEI, () => contactsResource.data, number],
+  [lines, defaultLineID, () => contactsResource.data, number],
   () => syncResolvedLine(),
   { immediate: true }
 )
@@ -420,7 +420,7 @@ onBeforeUnmount(() => {
                 <LineSelector
                   v-model="selectedLineId"
                   :lines="lines"
-                  :default-device-imei="defaultLineDeviceIMEI"
+                  :default-line-id="defaultLineID"
                   :label="t('dialer.line')"
                   capability="dial"
                   :unavailable-label="t('dialer.lineUnsupported')"

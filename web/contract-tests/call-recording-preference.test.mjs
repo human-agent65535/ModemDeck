@@ -8,7 +8,7 @@ function callResponse(id, lineKey, number) {
   return {
     call: {
       id,
-      line_key: lineKey,
+      line_id: lineKey,
       direction: 'outgoing',
       remote_number: number,
       phase: 'dialing',

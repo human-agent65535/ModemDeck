@@ -537,10 +537,10 @@ export function callRecordingContract(id: string): {
   }
 }
 
-export function lineLabelPath(iccid: string): string {
-  const normalizedICCID = iccid.trim()
-  if (!normalizedICCID) throw new Error('ICCID 不能为空')
-  return `/api/v1/lines/${encodeURIComponent(normalizedICCID)}/label`
+export function lineLabelPath(lineID: string): string {
+  const normalizedLineID = lineID.trim()
+  if (!normalizedLineID) throw new Error('line_id 不能为空')
+  return `/api/v1/lines/${encodeURIComponent(normalizedLineID)}/label`
 }
 
 export function createLineLabelPayload(input: UpdateLineLabelInput): UpdateLineLabelInput {
@@ -563,7 +563,7 @@ export function parseLineLabelResponse(value: unknown): LineLabelResult {
     throw new Error('line_label_response.line.line_color 不是受支持的预设')
   }
   return {
-    iccid: requiredString(source, 'line_label_response.line', 'iccid'),
+    line_id: requiredString(source, 'line_label_response.line', 'line_id'),
     line_label: requiredString(source, 'line_label_response.line', 'line_label', true),
     line_color: rawLineColor as LineColorPresetID | ''
   }
@@ -1001,33 +1001,29 @@ export function telegramUnitDeletePath(id: string, revision: number): string {
 }
 
 export function createMessagePayload(input: SendMessageInput): SendMessageInput {
-  const lineID = input.line_id?.trim()
-  const iccid = input.iccid?.trim()
+  const lineID = input.line_id.trim()
   const to = input.to.trim()
   const content = input.content.trim()
   const requestID = input.request_id?.trim()
-  if ((!lineID && !iccid) || !to || !content) {
-    throw new Error('line_id 或 iccid，以及 to 和 content 不能为空')
+  if (!lineID || !to || !content) {
+    throw new Error('line_id、to 和 content 不能为空')
   }
   return {
     ...(requestID ? { request_id: requestID } : {}),
-    ...(lineID ? { line_id: lineID } : {}),
-    ...(iccid ? { iccid } : {}),
+    line_id: lineID,
     to,
     content
   }
 }
 
 export function createMessageReadPayload(input: MessageReadInput): MessageReadInput {
-  const localPhone = input.local_phone?.trim()
-  const iccid = input.iccid?.trim()
+  const lineID = input.line_id.trim()
   const peer = input.peer.trim()
-  if ((!localPhone && !iccid) || !peer) {
-    throw new Error('local_phone 或 iccid，以及 peer 不能为空')
+  if (!lineID || !peer) {
+    throw new Error('line_id 和 peer 不能为空')
   }
   return {
-    ...(localPhone ? { local_phone: localPhone } : {}),
-    ...(iccid ? { iccid } : {}),
+    line_id: lineID,
     peer
   }
 }
@@ -1132,13 +1128,13 @@ export function createGlobalCallSettingsPayload(
 export function createLineSettingsPayload(
   input: UpdateLineSettingsInput
 ): UpdateLineSettingsInput {
-  const defaultDeviceIMEI = input.default_device_imei.trim()
-  if (!defaultDeviceIMEI) throw new Error('default_device_imei 不能为空')
+  const defaultLineID = input.default_line_id.trim()
+  if (!defaultLineID) throw new Error('default_line_id 不能为空')
   if (!Number.isSafeInteger(input.expected_revision) || input.expected_revision < 1) {
     throw new Error('line settings expected_revision 必须是正整数')
   }
   return {
-    default_device_imei: defaultDeviceIMEI,
+    default_line_id: defaultLineID,
     expected_revision: input.expected_revision
   }
 }
@@ -1574,7 +1570,7 @@ export function parseCallSession(value: unknown): CallSession {
   const failureReason = optionalString(source, 'failure_reason')
   return {
     id: requiredString(source, 'call', 'id'),
-    line_key: requiredString(source, 'call', 'line_key'),
+    line_id: requiredString(source, 'call', 'line_id'),
     direction,
     remote_number: requiredString(source, 'call', 'remote_number', true),
     ...(displayName ? { display_name: displayName } : {}),
@@ -1749,7 +1745,7 @@ export function parseLineSettingsResponse(value: unknown): LineSettings {
   const response = objectValue(value, 'line_settings_response')
   const source = objectValue(response.settings, 'line_settings')
   return {
-    default_device_imei: requiredString(source, 'line_settings', 'default_device_imei'),
+    default_line_id: requiredString(source, 'line_settings', 'default_line_id'),
     revision: requiredRevision(source, 'line_settings')
   }
 }

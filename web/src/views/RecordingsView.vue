@@ -19,19 +19,12 @@ import {
 import {
   bootstrapResource,
   contactForNumber,
-  deviceName,
   lineKey,
   loadBootstrap,
-  loadContacts,
-  loadDevices
+  loadContacts
 } from '../state/workspace'
 import { formatDateTime, formatDuration, formatRelativeDate } from '../utils/format'
-import {
-  createLineLookup,
-  findLine,
-  lineTagFallback,
-  lineTagLine
-} from '../utils/lineIdentity'
+import { lineTagFallback, lineTagLine } from '../utils/lineIdentity'
 
 const route = useRoute()
 const router = useRouter()
@@ -47,9 +40,8 @@ const selected = computed(() =>
   recordingCatalogState.data.find(recording => recording.id === selectedID.value)
 )
 const lines = computed(() => bootstrapResource.data?.lines || [])
-const lineLookup = computed(() => createLineLookup(lines.value))
-const defaultDeviceIMEI = computed(
-  () => bootstrapResource.data?.line_settings.default_device_imei || ''
+const defaultLineID = computed(
+  () => bootstrapResource.data?.line_settings.default_line_id || ''
 )
 const selectedContact = computed(() =>
   selected.value ? contactForNumber(selected.value.call.remote_number) : undefined
@@ -81,15 +73,15 @@ function directionLabel(recording: RecordingEntry): string {
 }
 
 function lineForRecording(recording: RecordingEntry) {
-  return findLine(lineLookup.value, recording.call.device_id)
+  return lines.value.find(line => lineKey(line) === recording.call.line_id)
 }
 
 function recordingLineFallback(recording: RecordingEntry): string {
   return lineTagFallback(
     lineForRecording(recording),
     lines.value,
-    defaultDeviceIMEI.value,
-    recording.call.device_id
+    defaultLineID.value,
+    recording.call.line_id
   )
 }
 
@@ -154,7 +146,7 @@ watch(lines, availableLines => {
 })
 
 onMounted(() => {
-  void Promise.all([loadBootstrap(), loadRecordingEntries(), loadContacts(), loadDevices()])
+  void Promise.all([loadBootstrap(), loadRecordingEntries(), loadContacts()])
 })
 
 onBeforeUnmount(() => {
@@ -185,7 +177,7 @@ onBeforeUnmount(() => {
             v-model="lineFilterKey"
             class="recording-line-filter"
             :lines="lines"
-            :default-device-imei="defaultDeviceIMEI"
+            :default-line-id="defaultLineID"
             :label="t('recordings.lineFilter')"
             include-all
             filter-mode
@@ -248,7 +240,7 @@ onBeforeUnmount(() => {
             </span>
             <span class="recording-list-item__meta">
               <LineTag
-                :line="lineTagLine(lineForRecording(recording), recording.call.device_id)"
+                :line="lineTagLine(lineForRecording(recording), recording.call.line_id)"
                 :fallback="recordingLineFallback(recording)"
               />
               <small>
@@ -281,7 +273,7 @@ onBeforeUnmount(() => {
             :name="displayName(selected)"
             :number="selected.call.remote_number"
             :avatar="avatar(selected)"
-            :line="lineTagLine(lineForRecording(selected), selected.call.device_id)"
+            :line="lineTagLine(lineForRecording(selected), selected.call.line_id)"
             :line-fallback="recordingLineFallback(selected)"
           />
           <div class="recording-header__contact-actions">
@@ -341,14 +333,10 @@ onBeforeUnmount(() => {
                 <dt>{{ t('dashboard.line') }}</dt>
                 <dd>
                   <LineTag
-                    :line="lineTagLine(lineForRecording(selected), selected.call.device_id)"
+                    :line="lineTagLine(lineForRecording(selected), selected.call.line_id)"
                     :fallback="recordingLineFallback(selected)"
                   />
                 </dd>
-              </div>
-              <div>
-                <dt>{{ t('recordings.device') }}</dt>
-                <dd>{{ deviceName(selected.call.device_id) }}</dd>
               </div>
               <div>
                 <dt>{{ t('recordings.size') }}</dt>

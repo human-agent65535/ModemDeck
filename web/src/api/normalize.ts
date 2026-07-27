@@ -155,7 +155,7 @@ export function parseContact(value: unknown): Contact {
     phones: rawPhones.map((phone, index) => normalizePhone(phone, id, index)),
     favorite: requiredBoolean(source, 'contact', 'favorite'),
     notes: stringValue(source, 'notes') || undefined,
-    preferred_device_imei: stringValue(source, 'preferred_device_imei') || undefined,
+    preferred_line_id: stringValue(source, 'preferred_line_id') || undefined,
     revision: Number.isFinite(Number(source.revision)) ? Number(source.revision) : undefined,
     created_at: optionalTimestamp(source, 'created_at'),
     updated_at: optionalTimestamp(source, 'updated_at')
@@ -173,16 +173,10 @@ export function parseContactResponse(value: unknown): Contact {
 
 export function parseThread(value: unknown): MessageThread {
   const source = objectValue(value, 'thread')
-  const localPhone = stringValue(source, 'local_phone')
-  const imsi = stringValue(source, 'imsi')
-  const iccid = stringValue(source, 'iccid')
   const peer = requiredString(source, 'thread', 'peer')
   return {
     key: requiredString(source, 'thread', 'key'),
-    local_phone: localPhone || undefined,
-    imsi,
-    iccid,
-    line_id: stringValue(source, 'line_id') || undefined,
+    line_id: requiredString(source, 'thread', 'line_id'),
     peer,
     contact_name: stringValue(source, 'contact_name') || undefined,
     last_timestamp: stringValue(source, 'last_timestamp'),
@@ -201,9 +195,7 @@ export function parseMessage(value: unknown): Message {
   if (type !== 1 && type !== 2) throw new Error(`message.type 未知：${type}`)
   return {
     id: requiredString(source, 'message', 'id'),
-    imsi: stringValue(source, 'imsi'),
-    iccid: requiredString(source, 'message', 'iccid'),
-    line_id: stringValue(source, 'line_id') || undefined,
+    line_id: requiredString(source, 'message', 'line_id'),
     peer: requiredString(source, 'message', 'peer'),
     direction: type === 1 ? 'incoming' : 'outgoing',
     content: stringValue(source, 'content'),
@@ -227,10 +219,7 @@ export function parseCallRecord(value: unknown): CallRecord {
   const source = objectValue(value, 'call')
   return {
     id: requiredString(source, 'call', 'id'),
-    device_id: requiredString(source, 'call', 'device_id'),
-    local_phone: stringValue(source, 'local_phone') || undefined,
-    line_iccid: stringValue(source, 'line_iccid') || undefined,
-    line_imsi: stringValue(source, 'line_imsi') || undefined,
+    line_id: requiredString(source, 'call', 'line_id'),
     direction: directionValue(source, 'call'),
     remote_number: requiredString(source, 'call', 'remote_number'),
     display_name: stringValue(source, 'contact_name') || undefined,
@@ -313,7 +302,7 @@ export function parseLine(value: unknown): LineSummary {
   const rawSignalSNR = nullableNumber(source, 'signal_snr', true)
   const rawLineColor = stringValue(source, 'line_color')
   const line: LineSummary = {
-    id: stringValue(source, 'id') || undefined,
+    id: requiredString(source, 'line', 'id'),
     iccid: stringValue(source, 'iccid'),
     imsi: stringValue(source, 'imsi'),
     phone_number: stringValue(source, 'phone_number'),
@@ -351,7 +340,6 @@ export function parseLine(value: unknown): LineSummary {
     signal_snr: rawSignalSNR ?? undefined,
     capabilities: parseCommunicationCapabilities(source.capabilities, 'line.capabilities')
   }
-  if (!line.id && !line.iccid && !line.imsi && !line.device_imei) throw new Error('line 缺少稳定标识')
   return line
 }
 
@@ -412,7 +400,7 @@ export function parseBootstrap(value: unknown): BootstrapResponse {
     },
     lines,
     line_settings: {
-      default_device_imei: stringValue(lineSettings, 'default_device_imei'),
+      default_line_id: stringValue(lineSettings, 'default_line_id'),
       revision: lineSettingsRevision
     },
     system_settings: {

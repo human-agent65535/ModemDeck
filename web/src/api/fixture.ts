@@ -75,28 +75,19 @@ const MAIN_PHONE = '+1 202 555 0101'
 const TRAVEL_PHONE = '+1 202 555 0102'
 
 function fixtureThreadKey(
-  localPhone: string,
-  imsi: string,
-  iccid: string,
+  lineID: string,
   peer: string
 ): string {
-  const lineIdentity = normalizedPhoneIdentity(localPhone) || imsi.trim() || iccid.trim()
-  const peerIdentity = normalizedPhoneIdentity(peer) || peer.trim()
-  return `${lineIdentity}|${peerIdentity}`
+  return `${lineID.trim()}|${peer.trim()}`
 }
 
 function fixtureThreadForQuery(
   query: MessageQuery | MessageReadInput
 ): MessageThread | undefined {
-  const localPhone = normalizedPhoneIdentity(query.local_phone)
-  const peer = normalizedPhoneIdentity(query.peer) || query.peer.trim()
+  const lineID = query.line_id.trim()
+  const peer = query.peer.trim()
   return threads.find(thread => {
-    const threadPeer = normalizedPhoneIdentity(thread.peer) || thread.peer.trim()
-    if (threadPeer !== peer) return false
-    const phoneMatches =
-      Boolean(localPhone) &&
-      normalizedPhoneIdentity(thread.local_phone) === localPhone
-    return phoneMatches || Boolean(query.iccid && thread.iccid === query.iccid)
+    return thread.line_id === lineID && thread.peer.trim() === peer
   })
 }
 
@@ -105,7 +96,7 @@ const contacts: Contact[] = [
     id: 'contact-alex',
     display_name: 'Alex Rowan',
     favorite: true,
-    preferred_device_imei: 'fixture-001',
+    preferred_line_id: 'line-fixture-main',
     phones: [{ id: 'phone-alex', label: '手机', number: '+1 202 555 0103', primary: true }],
     notes: '东京',
     revision: 3
@@ -114,7 +105,7 @@ const contacts: Contact[] = [
     id: 'contact-casey',
     display_name: 'Casey Morgan',
     favorite: false,
-    preferred_device_imei: 'fixture-002',
+    preferred_line_id: 'line-fixture-travel',
     phones: [
       { id: 'phone-casey-mobile', label: '手机', number: '+1 202 555 0104', primary: true },
       { id: 'phone-casey-work', label: '工作', number: '+1 202 555 0105', primary: false }
@@ -132,10 +123,7 @@ const contacts: Contact[] = [
 
 const threads: MessageThread[] = [
   {
-    key: fixtureThreadKey(MAIN_PHONE, MAIN_IMSI, MAIN_ICCID, '+1 202 555 0103'),
-    local_phone: MAIN_PHONE,
-    imsi: MAIN_IMSI,
-    iccid: MAIN_ICCID,
+    key: fixtureThreadKey('line-fixture-main', '+1 202 555 0103'),
     line_id: 'line-fixture-main',
     peer: '+1 202 555 0103',
     contact_name: 'Alex Rowan',
@@ -144,10 +132,7 @@ const threads: MessageThread[] = [
     unread_count: 1
   },
   {
-    key: fixtureThreadKey(TRAVEL_PHONE, TRAVEL_IMSI, TRAVEL_ICCID, '+1 202 555 0104'),
-    local_phone: TRAVEL_PHONE,
-    imsi: TRAVEL_IMSI,
-    iccid: TRAVEL_ICCID,
+    key: fixtureThreadKey('line-fixture-travel', '+1 202 555 0104'),
     line_id: 'line-fixture-travel',
     peer: '+1 202 555 0104',
     contact_name: 'Casey Morgan',
@@ -156,10 +141,7 @@ const threads: MessageThread[] = [
     unread_count: 0
   },
   {
-    key: fixtureThreadKey(MAIN_PHONE, MAIN_IMSI, MAIN_ICCID, '+1 202 555 0106'),
-    local_phone: MAIN_PHONE,
-    imsi: MAIN_IMSI,
-    iccid: MAIN_ICCID,
+    key: fixtureThreadKey('line-fixture-main', '+1 202 555 0106'),
     line_id: 'line-fixture-main',
     peer: '+1 202 555 0106',
     contact_name: 'Riley Quinn',
@@ -170,11 +152,9 @@ const threads: MessageThread[] = [
 ]
 
 const messagesByThread: Record<string, Message[]> = {
-  [fixtureThreadKey(MAIN_PHONE, MAIN_IMSI, MAIN_ICCID, '+1 202 555 0103')]: [
+  [fixtureThreadKey('line-fixture-main', '+1 202 555 0103')]: [
     {
       id: '101',
-      imsi: MAIN_IMSI,
-      iccid: MAIN_ICCID,
       line_id: 'line-fixture-main',
       peer: '+1 202 555 0103',
       direction: 'outgoing',
@@ -185,8 +165,6 @@ const messagesByThread: Record<string, Message[]> = {
     },
     {
       id: '102',
-      imsi: MAIN_IMSI,
-      iccid: MAIN_ICCID,
       line_id: 'line-fixture-main',
       peer: '+1 202 555 0103',
       direction: 'incoming',
@@ -196,11 +174,10 @@ const messagesByThread: Record<string, Message[]> = {
       status: 1
     }
   ],
-  [fixtureThreadKey(TRAVEL_PHONE, TRAVEL_IMSI, TRAVEL_ICCID, '+1 202 555 0104')]: [
+  [fixtureThreadKey('line-fixture-travel', '+1 202 555 0104')]: [
     {
       id: '103',
-      imsi: TRAVEL_IMSI,
-      iccid: TRAVEL_ICCID,
+      line_id: 'line-fixture-travel',
       peer: '+1 202 555 0104',
       direction: 'incoming',
       content: 'The demo workspace is ready.',
@@ -209,11 +186,10 @@ const messagesByThread: Record<string, Message[]> = {
       status: 1
     }
   ],
-  [fixtureThreadKey(MAIN_PHONE, MAIN_IMSI, MAIN_ICCID, '+1 202 555 0106')]: [
+  [fixtureThreadKey('line-fixture-main', '+1 202 555 0106')]: [
     {
       id: '104',
-      imsi: MAIN_IMSI,
-      iccid: MAIN_ICCID,
+      line_id: 'line-fixture-main',
       peer: '+1 202 555 0106',
       direction: 'outgoing',
       content: '配置已发送。',
@@ -223,8 +199,7 @@ const messagesByThread: Record<string, Message[]> = {
     },
     {
       id: '105',
-      imsi: MAIN_IMSI,
-      iccid: MAIN_ICCID,
+      line_id: 'line-fixture-main',
       peer: '+1 202 555 0106',
       direction: 'incoming',
       content: '收到，谢谢。',
@@ -238,10 +213,7 @@ const messagesByThread: Record<string, Message[]> = {
 const calls: CallRecord[] = [
   {
     id: 'call-1',
-    device_id: 'fixture-001',
-    local_phone: MAIN_PHONE,
-    line_iccid: MAIN_ICCID,
-    line_imsi: MAIN_IMSI,
+    line_id: 'line-fixture-main',
     direction: 'incoming',
     remote_number: '+1 202 555 0103',
     display_name: 'Alex Rowan',
@@ -253,10 +225,7 @@ const calls: CallRecord[] = [
   },
   {
     id: 'call-2',
-    device_id: 'fixture-001',
-    local_phone: MAIN_PHONE,
-    line_iccid: MAIN_ICCID,
-    line_imsi: MAIN_IMSI,
+    line_id: 'line-fixture-main',
     direction: 'incoming',
     remote_number: '+1 202 555 0107',
     started_at: '2026-07-22T11:14:00Z',
@@ -266,10 +235,7 @@ const calls: CallRecord[] = [
   },
   {
     id: 'call-3',
-    device_id: 'fixture-002',
-    local_phone: TRAVEL_PHONE,
-    line_iccid: TRAVEL_ICCID,
-    line_imsi: TRAVEL_IMSI,
+    line_id: 'line-fixture-travel',
     direction: 'outgoing',
     remote_number: '+1 202 555 0104',
     display_name: 'Casey Morgan',
@@ -325,7 +291,7 @@ function clone<T>(value: T): T {
 }
 
 function fixtureLineKey(line: LineSummary): string {
-  return line.id || line.iccid || line.imsi || line.device_imei
+  return line.id.trim()
 }
 
 function includes(value: string | undefined, query: string): boolean {
@@ -523,7 +489,7 @@ function feature(
 function fixtureHardware(line: LineSummary, index: number): DeviceHardwareConfiguration {
   const volteAvailable = index === 0
   return {
-    line_id: line.id || '',
+    line_id: line.id,
     revision: 'fixture-revision-1',
     observed_at: '2026-07-23T12:00:00Z',
     identity: {
@@ -707,12 +673,12 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         }
       }))
   const hardwareByLine = new Map(
-    lines.map((line, index) => [line.id || '', fixtureHardware(line, index)])
+    lines.map((line, index) => [line.id, fixtureHardware(line, index)])
   )
-  const hardwareRevisionByLine = new Map(lines.map(line => [line.id || '', 1]))
+  const hardwareRevisionByLine = new Map(lines.map(line => [line.id, 1]))
   const policyByLine = new Map(
     lines.map(line => [
-      line.id || '',
+      line.id,
       {
         policy: 'follow_global' as IncomingCallPolicy,
         revision: 1,
@@ -739,7 +705,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     revision: 1
   }
   let lineSettings: LineSettings = {
-    default_device_imei: lines[0]?.device_imei || '',
+    default_line_id: lines[0] ? fixtureLineKey(lines[0]) : '',
     revision: 1
   }
   let systemSettings: SystemSettings = {
@@ -781,7 +747,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     options.initialIncomingCall && lines[0]
       ? {
           id: 'call-fixture-incoming',
-          line_key: fixtureLineKey(lines[0]),
+          line_id: fixtureLineKey(lines[0]),
           direction: 'incoming',
           remote_number: '+1 202 555 0103',
           display_name: 'Alex Rowan',
@@ -1115,7 +1081,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         avatar: input.avatar,
         favorite: input.favorite,
         notes: input.notes,
-        preferred_device_imei: input.preferred_device_imei,
+        preferred_line_id: input.preferred_line_id,
         revision: 1,
         phones: input.phones.map((phone, index) => ({
           id: `phone-fixture-${sequence}-${index + 1}`,
@@ -1138,7 +1104,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         avatar: input.avatar,
         favorite: input.favorite,
         notes: input.notes,
-        preferred_device_imei: input.preferred_device_imei,
+        preferred_line_id: input.preferred_line_id,
         revision: (current.revision || 0) + 1,
         phones: input.phones.map((phone, phoneIndex) => ({
           id: phone.id || `phone-fixture-${sequence}-${phoneIndex + 1}`,
@@ -1192,22 +1158,14 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
 
     async sendMessage(input: SendMessageInput): Promise<Message> {
       sequence += 1
-      const line = lines.find(
-        item => item.id === input.line_id || item.iccid === input.iccid
-      )
-      const iccid = line?.iccid || input.iccid || ''
-      if (!iccid) throw new ApiError('请选择线路', 400)
-      const localPhone = line?.phone_number || ''
-      const imsi = line?.imsi || ''
-      const key = fixtureThreadKey(localPhone, imsi, iccid, input.to)
+      const line = lines.find(item => fixtureLineKey(item) === input.line_id)
+      if (!line) throw new ApiError('请选择线路', 400)
+      const key = fixtureThreadKey(input.line_id, input.to)
       let thread = threads.find(item => item.key === key)
       if (!thread) {
         const contact = contacts.find(item => item.phones.some(phone => phone.number === input.to))
         thread = {
           key,
-          local_phone: localPhone || undefined,
-          imsi,
-          iccid,
           line_id: input.line_id,
           peer: input.to,
           contact_name: contact?.display_name,
@@ -1219,9 +1177,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       }
       const message: Message = {
         id: String(sequence),
-        imsi: thread.imsi,
-        iccid,
-        line_id: input.line_id,
+        line_id: thread.line_id,
         peer: input.to,
         direction: 'outgoing',
         content: input.content,
@@ -1283,7 +1239,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       )
       activeCall = {
         id: `call-fixture-${sequence}`,
-        line_key: lineKey,
+        line_id: lineKey,
         direction: 'outgoing',
         remote_number: dialTarget.normalized,
         display_name: contact?.display_name,
@@ -1488,9 +1444,9 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       return clone(device)
     },
 
-    async updateLineLabel(iccid: string, input: UpdateLineLabelInput): Promise<LineLabelResult> {
-      const normalizedICCID = iccid.trim()
-      const line = lines.find(item => item.iccid === normalizedICCID)
+    async updateLineLabel(lineID: string, input: UpdateLineLabelInput): Promise<LineLabelResult> {
+      const normalizedLineID = lineID.trim()
+      const line = lines.find(item => fixtureLineKey(item) === normalizedLineID)
       if (!line) throw new ApiError('线路不存在', 404, 'line_not_found')
       const label = input.line_label.trim()
       if (Array.from(label).length > 16) {
@@ -1502,7 +1458,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       line.line_label = label
       if (input.line_color !== undefined) line.line_color = input.line_color
       return {
-        iccid: line.iccid,
+        line_id: fixtureLineKey(line),
         line_label: line.line_label,
         line_color: line.line_color || ''
       }
@@ -1837,7 +1793,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
             ? [
                 {
                   id: activeCall.id,
-                  line_id: activeCall.line_key,
+                  line_id: activeCall.line_id,
                   direction: activeCall.direction,
                   phase: activeCall.phase,
                   bearer: activeCall.bearer || '',
@@ -1894,11 +1850,11 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       if (input.expected_revision !== lineSettings.revision) {
         throw new ApiError('默认线路已被其他会话修改', 409, 'conflict')
       }
-      if (!lines.some(line => line.device_imei === input.default_device_imei)) {
+      if (!lines.some(line => fixtureLineKey(line) === input.default_line_id)) {
         throw new ApiError('线路不存在', 400, 'invalid_line')
       }
       lineSettings = {
-        default_device_imei: input.default_device_imei,
+        default_line_id: input.default_line_id,
         revision: lineSettings.revision + 1
       }
       return clone(lineSettings)

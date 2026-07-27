@@ -1,5 +1,4 @@
 import type { LineSummary, MessageThread } from '../../api/types'
-import { normalizedPhoneIdentity } from '../../utils/lineIdentity'
 
 export type MessageRouteLocation = {
   name: 'messages'
@@ -18,11 +17,8 @@ export function messageThreadUsesLine(
   thread: MessageThread,
   line: LineSummary
 ): boolean {
-  const threadPhone = normalizedPhoneIdentity(thread.local_phone)
-  const linePhone = normalizedPhoneIdentity(line.phone_number)
-  if (threadPhone && linePhone) return threadPhone === linePhone
-  if (thread.imsi && line.imsi) return thread.imsi === line.imsi
-  return Boolean(thread.iccid && line.iccid === thread.iccid)
+  const stableLineID = line.id.trim()
+  return Boolean(stableLineID && thread.line_id.trim() === stableLineID)
 }
 
 export function findRecipientThread(

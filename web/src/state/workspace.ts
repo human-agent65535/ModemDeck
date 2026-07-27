@@ -25,8 +25,6 @@ import { ApiError } from '../api/types'
 import { translate } from '../i18n'
 import { playOutgoingMessageSound } from './browserSounds'
 import {
-  createLineLookup,
-  findLine,
   normalizedPhoneIdentity,
   phoneIdentitiesMatch
 } from '../utils/lineIdentity'
@@ -80,8 +78,7 @@ export function createMessageReadCoordinator(
 ): (input: MessageReadInput) => Promise<void> {
   const requests = new Map<string, Promise<void>>()
   return input => {
-    const identity = normalizedPhoneIdentity(input.local_phone) || input.iccid?.trim() || ''
-    const key = `${identity}\u0000${input.peer}`
+    const key = `${input.line_id.trim()}\u0000${input.peer.trim()}`
     const pending = requests.get(key)
     if (pending) return pending
     const operation = request(input).finally(() => {
@@ -109,7 +106,7 @@ export function capabilityReason(capability: 'dial' | 'message'): string {
 }
 
 export function lineKey(line: LineSummary): string {
-  return line.id || line.iccid || line.imsi || line.device_imei
+  return line.id.trim()
 }
 
 export function lineLabel(line: LineSummary): string {
@@ -132,35 +129,36 @@ export function lineName(key: string): string {
 
 export function lineForKey(key: string): LineSummary | undefined {
   const lines = bootstrapResource.data?.lines || []
-  return findLine(createLineLookup(lines), key)
+  const normalizedKey = key.trim()
+  if (!normalizedKey) return undefined
+  return lines.find(line => lineKey(line) === normalizedKey)
 }
 
 export function resolveLine(
   capability: CommunicationCapabilityName,
   options: {
     contextKey?: string
-    preferredDeviceIMEI?: string
+    preferredLineID?: string
     number?: string
   } = {}
 ): LineSummary | undefined {
   const lines = bootstrapResource.data?.lines || []
-  const lookup = createLineLookup(lines)
   const supported = (line: LineSummary | undefined) =>
     line && lineSupports(line, capability) !== false ? line : undefined
-  const byKey = (key?: string) =>
-    supported(key ? findLine(lookup, key) : undefined)
+  const byID = (id?: string) =>
+    supported(id ? lines.find(line => lineKey(line) === id.trim()) : undefined)
 
-  const contextLine = byKey(options.contextKey)
+  const contextLine = byID(options.contextKey)
   if (contextLine) return contextLine
 
   const contact =
-    options.preferredDeviceIMEI || !options.number
+    options.preferredLineID || !options.number
       ? undefined
       : contactForNumber(options.number)
-  const preferredLine = byKey(options.preferredDeviceIMEI || contact?.preferred_device_imei)
+  const preferredLine = byID(options.preferredLineID || contact?.preferred_line_id)
   if (preferredLine) return preferredLine
 
-  return byKey(bootstrapResource.data?.line_settings.default_device_imei)
+  return byID(bootstrapResource.data?.line_settings.default_line_id)
 }
 
 export function lineSupports(
@@ -273,15 +271,15 @@ export async function renameDevice(imei: string, input: RenameDeviceInput): Prom
 }
 
 export async function updateLineLabel(
-  iccid: string,
+  lineID: string,
   input: UpdateLineLabelInput
 ): Promise<void> {
-  const saved = await gateway.updateLineLabel(iccid, input)
-  const normalizedICCID = iccid.trim()
-  if (saved.iccid !== normalizedICCID) {
+  const saved = await gateway.updateLineLabel(lineID, input)
+  const normalizedLineID = lineID.trim()
+  if (saved.line_id !== normalizedLineID) {
     throw new ApiError(translate('runtime.lineLabelMismatch'), 0, 'invalid_response')
   }
-  const line = bootstrapResource.data?.lines.find(item => item.iccid === normalizedICCID)
+  const line = bootstrapResource.data?.lines.find(item => lineKey(item) === normalizedLineID)
   if (line) {
     line.line_label = saved.line_label
     line.line_color = saved.line_color
@@ -303,8 +301,7 @@ export function messagesFor(threadKey: string): Resource<Message[]> {
 
 export function messageQueryForThread(thread: MessageThread): MessageReadInput {
   return {
-    ...(thread.local_phone ? { local_phone: thread.local_phone } : {}),
-    ...(thread.iccid ? { iccid: thread.iccid } : {}),
+    line_id: thread.line_id,
     peer: thread.peer
   }
 }
@@ -453,11 +450,11 @@ export async function markThreadRead(thread: MessageThread): Promise<boolean> {
   return true
 }
 
-export async function updateDefaultLine(deviceIMEI: string): Promise<void> {
+export async function updateDefaultLine(lineID: string): Promise<void> {
   const bootstrap = bootstrapResource.data
   if (!bootstrap) throw new Error(translate('runtime.lineSettingsNotLoaded'))
   const settings = await gateway.updateLineSettings({
-    default_device_imei: deviceIMEI,
+    default_line_id: lineID,
     expected_revision: bootstrap.line_settings.revision
   })
   bootstrap.line_settings = settings
@@ -495,29 +492,12 @@ function findThreadForSentMessage(
   input: SendMessageInput,
   sent: Message
 ): MessageThread | undefined {
-  const line = lineForKey(input.line_id || sent.line_id || input.iccid || sent.iccid)
-  const candidates = threads.filter(
-    thread => normalizedAddress(thread.peer) === normalizedAddress(sent.peer)
+  const lineID = sent.line_id || input.line_id
+  return threads.find(
+    thread =>
+      thread.line_id === lineID &&
+      normalizedAddress(thread.peer) === normalizedAddress(sent.peer)
   )
-  const localPhone = normalizedPhoneIdentity(line?.phone_number)
-  if (localPhone) {
-    return candidates.find(
-      thread => normalizedPhoneIdentity(thread.local_phone) === localPhone
-    )
-  }
-  const imsi = line?.imsi || sent.imsi
-  if (imsi) {
-    const match = candidates.find(thread => thread.imsi === imsi)
-    if (match) return match
-  }
-  const iccid = line?.iccid || sent.iccid || input.iccid
-  if (iccid) {
-    const match = candidates.find(thread => thread.iccid === iccid)
-    if (match) return match
-  }
-  return input.thread_key
-    ? candidates.find(thread => thread.key === input.thread_key)
-    : undefined
 }
 
 export async function sendMessage(

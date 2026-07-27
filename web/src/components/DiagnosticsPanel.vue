@@ -748,7 +748,7 @@ onBeforeUnmount(() => {
         <div v-if="snapshot.lines.length" class="line-grid">
           <article
             v-for="line in snapshot.lines"
-            :key="line.id || line.device_imei || line.iccid"
+            :key="line.id"
             class="line-status"
           >
             <header>

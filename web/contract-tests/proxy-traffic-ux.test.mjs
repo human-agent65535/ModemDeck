@@ -38,7 +38,7 @@ test('traffic defaults to all lines and never selects the first module', () => {
   assert.match(trafficView, /const selectedLineID = ref\('all'\)/)
   assert.match(trafficView, /t\('traffic\.allLines'\)/)
   assert.doesNotMatch(trafficView, /selectedLineID\.value\s*=\s*lines\.value\[0\]/)
-  assert.match(trafficView, /line_settings\.default_device_imei/)
+  assert.match(trafficView, /line_settings\.default_line_id/)
   assert.match(trafficView, /:initial-line-id="editorInitialLineID"/)
 })
 

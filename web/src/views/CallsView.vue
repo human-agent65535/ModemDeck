@@ -34,12 +34,7 @@ import {
   loadContacts
 } from '../state/workspace'
 import { formatDateTime, formatDuration } from '../utils/format'
-import {
-  createLineLookup,
-  findLine,
-  lineTagFallback,
-  lineTagLine
-} from '../utils/lineIdentity'
+import { lineTagFallback, lineTagLine } from '../utils/lineIdentity'
 
 const props = withDefaults(
   defineProps<{
@@ -61,9 +56,8 @@ const search = ref('')
 const filter = ref<CallFilter>('all')
 const lineFilterKey = ref('all')
 const lines = computed(() => bootstrapResource.data?.lines || [])
-const lineLookup = computed(() => createLineLookup(lines.value))
-const defaultDeviceIMEI = computed(
-  () => bootstrapResource.data?.line_settings.default_device_imei || ''
+const defaultLineID = computed(
+  () => bootstrapResource.data?.line_settings.default_line_id || ''
 )
 
 const filters = computed<Array<{ value: CallFilter; label: string }>>(() => [
@@ -139,31 +133,22 @@ function hasPlayableRecording(call: CallRecord): boolean {
 }
 
 function lineForCall(call: CallRecord) {
-  if (call.local_phone) {
-    return findLine(lineLookup.value, call.local_phone)
-  }
-  return findLine(
-    lineLookup.value,
-    call.line_iccid,
-    call.line_imsi
-  )
+  return lines.value.find(line => lineKey(line) === call.line_id)
 }
 
 function callLineFallback(call: CallRecord): string {
   const line = lineForCall(call)
-  if (!line && call.local_phone?.trim()) return call.local_phone.trim()
   return lineTagFallback(
     line,
     lines.value,
-    defaultDeviceIMEI.value,
-    call.line_iccid,
-    call.line_imsi
+    defaultLineID.value,
+    call.line_id
   )
 }
 
 function actionLineKey(call: CallRecord): string {
   const line = lineForCall(call)
-  return line ? lineKey(line) : ''
+  return line ? call.line_id : ''
 }
 
 function selectCall(call: CallRecord): void {
@@ -265,7 +250,7 @@ onMounted(() => {
             v-model="lineFilterKey"
             class="call-line-filter"
             :lines="lines"
-            :default-device-imei="defaultDeviceIMEI"
+            :default-line-id="defaultLineID"
             :label="t('calls.lineFilter')"
             include-all
             filter-mode
@@ -336,7 +321,7 @@ onMounted(() => {
           :call="call"
           :name="displayName(call)"
           :avatar="avatarForCall(call)"
-          :line="lineTagLine(lineForCall(call), call.local_phone, call.line_iccid, call.line_imsi)"
+          :line="lineTagLine(lineForCall(call), call.line_id)"
           :line-fallback="callLineFallback(call)"
           :selected="call.id === selectedId"
           :has-recording="hasPlayableRecording(call)"
@@ -360,7 +345,7 @@ onMounted(() => {
             :name="displayName(selected)"
             :number="selected.remote_number"
             :avatar="selectedContact?.avatar"
-            :line="lineTagLine(lineForCall(selected), selected.local_phone, selected.line_iccid, selected.line_imsi)"
+            :line="lineTagLine(lineForCall(selected), selected.line_id)"
             :line-fallback="callLineFallback(selected)"
           />
           <div class="detail-header__actions call-detail__header-actions">
@@ -420,7 +405,7 @@ onMounted(() => {
                 <dt>{{ t('dashboard.line') }}</dt>
                 <dd>
                   <LineTag
-                    :line="lineTagLine(lineForCall(selected), selected.local_phone, selected.line_iccid, selected.line_imsi)"
+                    :line="lineTagLine(lineForCall(selected), selected.line_id)"
                     :fallback="callLineFallback(selected)"
                   />
                 </dd>

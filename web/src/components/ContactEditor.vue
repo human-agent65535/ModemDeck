@@ -33,14 +33,14 @@ const draft = reactive<{
   avatar: string
   notes: string
   favorite: boolean
-  preferredDeviceIMEI: string
+  preferredLineID: string
   phones: PhoneDraft[]
 }>({
   name: '',
   avatar: '',
   notes: '',
   favorite: false,
-  preferredDeviceIMEI: '',
+  preferredLineID: '',
   phones: []
 })
 const avatarBusy = ref(false)
@@ -61,7 +61,7 @@ watch(
     draft.avatar = contact?.avatar || ''
     draft.notes = contact?.notes || ''
     draft.favorite = contact?.favorite || false
-    draft.preferredDeviceIMEI = contact?.preferred_device_imei || ''
+    draft.preferredLineID = contact?.preferred_line_id || ''
     draft.phones = contact?.phones.length
       ? contact.phones.map(phone => ({
           id: phone.id,
@@ -101,7 +101,7 @@ function submit(): void {
     avatar: draft.avatar || undefined,
     favorite: draft.favorite,
     notes: draft.notes.trim() || undefined,
-    preferred_device_imei: draft.preferredDeviceIMEI || undefined,
+    preferred_line_id: draft.preferredLineID || undefined,
     revision: props.contact?.revision,
     phones: draft.phones.map(phone => ({
       id: phone.id,
@@ -205,10 +205,9 @@ function submit(): void {
 
             <LineSelector
               v-if="lines?.length"
-              v-model="draft.preferredDeviceIMEI"
+              v-model="draft.preferredLineID"
               :lines="lines"
               :label="t('contacts.preferredLine')"
-              value-field="device_imei"
               include-all
               all-value=""
               :all-label="t('contacts.followDefaultLine')"

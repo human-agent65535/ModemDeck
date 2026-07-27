@@ -8,9 +8,8 @@ const workspace = new URL('../src/state/workspace.ts', import.meta.url)
 test('existing conversations stay pinned to their original line', async () => {
   const source = await readFile(messagesView, 'utf8')
 
-  assert.match(source, /thread\.local_phone/)
-  assert.match(source, /thread\.imsi/)
-  assert.match(source, /thread\.iccid/)
+  assert.match(source, /lineKey\(line\) === thread\.line_id/)
+  assert.doesNotMatch(source, /thread\.(?:local_phone|imsi|iccid)/)
   assert.match(
     source,
     /const activeLine = computed\(\(\) =>[\s\S]*composingNew\.value[\s\S]*selectedLine\.value[\s\S]*lineForThread\(selectedThread\.value\)/
@@ -33,15 +32,14 @@ test('sending an existing conversation uses its original line identity', async (
     source,
     /const activeLine = computed\(\(\) =>[\s\S]*lineForThread\(selectedThread\.value\)/
   )
-  assert.match(source, /const activeICCID = computed\(\(\) => activeLine\.value\?\.iccid \|\| ''\)/)
   assert.match(
     source,
     /return threadUsesLine\(thread, line\) \? thread\.key : undefined/
   )
   assert.match(source, /thread_key: replyKey/)
   assert.match(source, /const replyKey = replyThreadKey\.value/)
-  assert.match(source, /line_id: activeLineID\.value \|\| undefined/)
-  assert.match(source, /iccid: activeICCID\.value \|\| undefined/)
+  assert.match(source, /line_id: activeLineID\.value/)
+  assert.doesNotMatch(source, /activeICCID|iccid:/)
   assert.match(source, /to: activeRecipient\.value/)
   assert.match(source, /const sentThread = result\.thread/)
   assert.match(source, /sentThread\.key !== replyKey/)
@@ -57,12 +55,17 @@ test('message loads, reads, and post-send reconciliation use backend line identi
   const source = await readFile(workspace, 'utf8')
 
   assert.match(source, /function messageQueryForThread\(thread: MessageThread\)/)
-  assert.match(source, /local_phone: thread\.local_phone/)
-  assert.match(source, /iccid: thread\.iccid/)
+  assert.match(source, /line_id: thread\.line_id/)
+  assert.match(source, /peer: thread\.peer/)
   assert.match(source, /gateway\.listMessages\(messageQueryForThread\(thread\)\)/)
   assert.match(source, /requestThreadRead\(messageQueryForThread\(thread\)\)/)
   assert.match(source, /const threads = await refreshThreads\(\)/)
-  assert.match(source, /normalizedPhoneIdentity\(thread\.local_phone\) === localPhone/)
+  assert.match(source, /thread\.line_id === lineID/)
+  assert.match(
+    source,
+    /normalizedAddress\(thread\.peer\) === normalizedAddress\(sent\.peer\)/
+  )
+  assert.doesNotMatch(source, /thread\.(?:local_phone|imsi|iccid)/)
   assert.doesNotMatch(source, /const key = `\$\{sent\.iccid\}\|\$\{sent\.peer\}`/)
 })
 

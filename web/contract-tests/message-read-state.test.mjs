@@ -14,15 +14,14 @@ test('message read coordinator sends one request for concurrent opens', async ()
     })
   })
   const input = {
-    local_phone: '+81 (80) 1234-5678',
-    iccid: 'iccid-main',
+    line_id: ' line-main ',
     peer: '+819012345678'
   }
 
   const first = coordinator(input)
   const second = coordinator({
     ...input,
-    local_phone: '818012345678'
+    line_id: 'line-main'
   })
 
   assert.equal(first, second)

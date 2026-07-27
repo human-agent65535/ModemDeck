@@ -25,6 +25,7 @@ import {
   contactsResource,
   contactEditingAvailable,
   deleteContact,
+  lineKey,
   lineLabel,
   loadBootstrap,
   loadContacts,
@@ -70,7 +71,7 @@ const searchedPhone = computed(() => {
   return digits.length >= 3 && /^[+\d\s().-]+$/.test(value) ? value : ''
 })
 const contactLines = computed(
-  () => bootstrapResource.data?.lines.filter(line => Boolean(line.device_imei)) || []
+  () => bootstrapResource.data?.lines.filter(line => Boolean(lineKey(line))) || []
 )
 
 watch(
@@ -146,7 +147,7 @@ async function toggleFavorite(contact: Contact): Promise<void> {
         avatar: contact.avatar,
         favorite: !contact.favorite,
         notes: contact.notes,
-        preferred_device_imei: contact.preferred_device_imei,
+        preferred_line_id: contact.preferred_line_id,
         revision: contact.revision,
         phones: contact.phones.map(phone => ({
           id: phone.id,
@@ -167,7 +168,7 @@ async function toggleFavorite(contact: Contact): Promise<void> {
 
 function call(contact: Contact, number: string): void {
   if (dialUnavailable.value) return
-  openDialer(number, contact.display_name, contact.preferred_device_imei || '')
+  openDialer(number, contact.display_name, contact.preferred_line_id || '')
 }
 
 function message(contact: Contact, number: string): void {
@@ -177,7 +178,7 @@ function message(contact: Contact, number: string): void {
     query: {
       compose: number,
       name: contact.display_name,
-      ...(contact.preferred_device_imei ? { line: contact.preferred_device_imei } : {})
+      ...(contact.preferred_line_id ? { line: contact.preferred_line_id } : {})
     }
   })
 }
@@ -188,8 +189,8 @@ function openSavedContact(contact: Contact): void {
 }
 
 function preferredLineName(contact: Contact): string {
-  const line = contactLines.value.find(item => item.device_imei === contact.preferred_device_imei)
-  return line ? lineLabel(line) : contact.preferred_device_imei || ''
+  const line = contactLines.value.find(item => lineKey(item) === contact.preferred_line_id)
+  return line ? lineLabel(line) : contact.preferred_line_id || ''
 }
 
 onMounted(() => {
@@ -362,7 +363,7 @@ onMounted(() => {
                 </button>
               </span>
             </div>
-            <p v-if="selected.preferred_device_imei" class="contact-preferred-line">
+            <p v-if="selected.preferred_line_id" class="contact-preferred-line">
               {{ t('contacts.preferredLine') }}：{{ preferredLineName(selected) }}
             </p>
           </section>
