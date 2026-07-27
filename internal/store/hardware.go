@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/human-agent65535/modemdeck/internal/modemidentity"
 	"github.com/human-agent65535/modemdeck/internal/phone"
 )
 
@@ -418,7 +419,7 @@ func upsertHardwareLine(
 			updated_at = excluded.updated_at`,
 		imei,
 		endpointID,
-		strings.TrimSpace(line.Model),
+		modemidentity.DisplayModel(line.Model, line.Firmware, line.HardwareRevision),
 		strings.TrimSpace(line.Firmware),
 		strings.TrimSpace(line.PrimaryPort),
 		currentICCID,

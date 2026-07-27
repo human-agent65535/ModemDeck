@@ -12,7 +12,7 @@ import (
 const maxLineIDLength = 128
 
 type renameDeviceRequest struct {
-	Alias *string `json:"alias"`
+	Name *string `json:"name"`
 }
 
 type deviceResponse struct {
@@ -71,11 +71,11 @@ func (api *API) deviceResource(response http.ResponseWriter, request *http.Reque
 	if !decodeJSONBody(response, request, &input) {
 		return
 	}
-	if input.Alias == nil {
-		writeError(response, http.StatusBadRequest, "invalid_argument", "alias is required", "alias")
+	if input.Name == nil {
+		writeError(response, http.StatusBadRequest, "invalid_argument", "name is required", "name")
 		return
 	}
-	device, err := api.repository.RenameDevice(request.Context(), imei, *input.Alias)
+	device, err := api.repository.RenameDevice(request.Context(), imei, *input.Name)
 	if err != nil {
 		api.writeDeviceError(response, request, "rename device", err)
 		return

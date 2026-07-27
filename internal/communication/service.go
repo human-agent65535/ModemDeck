@@ -20,6 +20,7 @@ import (
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
 	"github.com/human-agent65535/modemdeck/internal/messageevents"
+	"github.com/human-agent65535/modemdeck/internal/modemidentity"
 	"github.com/human-agent65535/modemdeck/internal/phone"
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
@@ -1257,7 +1258,7 @@ func projectSnapshot(
 		hardwareLines = append(hardwareLines, store.HardwareLine{
 			ID:                  line.ID,
 			Manufacturer:        line.Manufacturer,
-			Model:               line.Model,
+			Model:               modemidentity.DisplayModel(line.Model, line.Revision, line.HardwareRevision),
 			Firmware:            line.Revision,
 			HardwareRevision:    line.HardwareRevision,
 			DeviceIdentifier:    line.DeviceIdentifier,
@@ -1394,8 +1395,8 @@ func projectLine(line agentclient.Line) store.LineSummary {
 		Roaming:                  line.Roaming,
 		EmergencyOnly:            line.EmergencyOnly,
 		DeviceIMEI:               firstNonEmpty(line.EquipmentIdentifier, line.DeviceIdentifier),
-		DeviceAlias:              "",
-		Model:                    line.Model,
+		DeviceName:               "",
+		Model:                    modemidentity.DisplayModel(line.Model, line.Revision, line.HardwareRevision),
 		Firmware:                 line.Revision,
 		HardwareRevision:         line.HardwareRevision,
 		PrimaryPort:              line.PrimaryPort,

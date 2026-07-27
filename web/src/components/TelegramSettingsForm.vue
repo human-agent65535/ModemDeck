@@ -100,9 +100,9 @@ function unitScopeSummary(unit: TelegramUnit): string {
     .map(scopeID => {
       const line = scopedLine(scopeID)
       if (!line) return t('telegram.unknownLine')
-      const alias = lineLabel(line)
+      const label = lineLabel(line)
       const phoneNumber = line.phone_number.trim()
-      return phoneNumber ? `${alias} · ${phoneNumber}` : alias
+      return phoneNumber ? `${label} · ${phoneNumber}` : label
     })
     .join(t('common.listSeparator'))
 }

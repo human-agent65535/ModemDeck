@@ -835,10 +835,10 @@ func TestProjectLinePreservesDetectedInterfaces(t *testing.T) {
 		!projected.Capabilities.SendMessage {
 		t.Fatalf("projected capabilities = %+v", projected.Capabilities)
 	}
-	if projected.DeviceAlias != "" || projected.Model != "QDC507" {
+	if projected.DeviceName != "" || projected.Model != "QDC507" {
 		t.Fatalf(
-			"projected identity = alias %q, model %q; want empty alias and detected model",
-			projected.DeviceAlias,
+			"projected identity = name %q, model %q; want empty name and detected model",
+			projected.DeviceName,
 			projected.Model,
 		)
 	}

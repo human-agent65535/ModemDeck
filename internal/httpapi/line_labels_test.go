@@ -16,10 +16,10 @@ func TestLineLabelResourceUpdatesByStableLineID(t *testing.T) {
 
 	const lineID = "line-main"
 	repository := &fakeRepository{updateLineResult: store.LineSummary{
-		ID:          lineID,
-		LineLabel:   "主卡",
-		LineColor:   store.LineColorViolet,
-		DeviceAlias: "机房模组",
+		ID:         lineID,
+		LineLabel:  "主卡",
+		LineColor:  store.LineColorViolet,
+		DeviceName: "机房模组",
 	}}
 	api, err := New(repository, Options{disableAuthentication: true})
 	if err != nil {

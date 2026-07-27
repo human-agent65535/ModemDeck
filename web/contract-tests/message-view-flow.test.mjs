@@ -13,7 +13,7 @@ const mainLine = {
   phone_number: '+1 202 555 0101',
   operator: 'China Unicom',
   device_imei: 'imei-main',
-  device_alias: '',
+  device_name: '',
   line_label: '主卡'
 }
 

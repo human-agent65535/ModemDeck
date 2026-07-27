@@ -47,8 +47,8 @@ func TestUpdateLineLabelUsesSIMIdentityAndSurvivesHardwareRefresh(t *testing.T) 
 	if updated.LineColor != LineColorViolet {
 		t.Fatalf("line color = %q, want violet", updated.LineColor)
 	}
-	if updated.DeviceAlias != "机房模组" {
-		t.Fatalf("device alias = %q, want 机房模组", updated.DeviceAlias)
+	if updated.DeviceName != "机房模组" {
+		t.Fatalf("device name = %q, want 机房模组", updated.DeviceName)
 	}
 
 	snapshot.Revision = "snapshot-line-label-2"
@@ -75,8 +75,8 @@ func TestUpdateLineLabelUsesSIMIdentityAndSurvivesHardwareRefresh(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Devices() error = %v", err)
 	}
-	if len(devices) != 1 || devices[0].Alias != "机房模组" {
-		t.Fatalf("devices = %+v, want unchanged device alias", devices)
+	if len(devices) != 1 || devices[0].Name != "机房模组" {
+		t.Fatalf("devices = %+v, want unchanged device name", devices)
 	}
 	if devices[0].SIM == nil ||
 		devices[0].SIM.Operator != "Fixture Telecom" ||
@@ -118,5 +118,29 @@ func TestUpdateLineLabelValidatesUnicodeLengthAndStableLineID(t *testing.T) {
 		nil,
 	); !errors.Is(err, ErrLineNotFound) {
 		t.Fatalf("unknown line error = %v, want ErrLineNotFound", err)
+	}
+}
+
+func TestDevicesDerivesConcreteModelFromStoredFirmware(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	if _, err := repository.database.Exec(
+		`INSERT INTO devices (
+			imei, model, firmware, created_at, updated_at
+		 ) VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		"860000000000001",
+		"QUECTEL Mobile Broadband Module",
+		"EG25GGBR07A08M2G",
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	devices, err := repository.Devices(context.Background())
+	if err != nil {
+		t.Fatalf("Devices() error = %v", err)
+	}
+	if len(devices) != 1 || devices[0].Model != "EG25-G" {
+		t.Fatalf("devices = %+v, want concrete EG25-G model", devices)
 	}
 }

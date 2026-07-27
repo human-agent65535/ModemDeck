@@ -214,7 +214,7 @@ func (c checkpoint) Advance(ctx context.Context, next int64) error {
 func lineLabel(line store.LineSummary) string {
 	for _, value := range []string{
 		line.LineLabel,
-		line.DeviceAlias,
+		line.DeviceName,
 		line.Model,
 	} {
 		if value = strings.TrimSpace(value); value != "" {
@@ -246,20 +246,20 @@ func mergePersistedLineMetadata(
 	persistedLines []store.LineSummary,
 ) []store.LineSummary {
 	byID := make(map[string]store.LineSummary, len(persistedLines))
-	aliasesByIMEI := make(map[string]string, len(persistedLines))
+	namesByIMEI := make(map[string]string, len(persistedLines))
 	for _, line := range persistedLines {
 		if lineID := strings.TrimSpace(line.ID); lineID != "" {
 			byID[lineID] = line
 		}
 		if imei := strings.TrimSpace(line.DeviceIMEI); imei != "" {
-			aliasesByIMEI[imei] = strings.TrimSpace(line.DeviceAlias)
+			namesByIMEI[imei] = strings.TrimSpace(line.DeviceName)
 		}
 	}
 	merged := make([]store.LineSummary, len(liveLines))
 	for index, live := range liveLines {
 		line := live
-		if line.DeviceAlias == "" {
-			line.DeviceAlias = aliasesByIMEI[strings.TrimSpace(line.DeviceIMEI)]
+		if line.DeviceName == "" {
+			line.DeviceName = namesByIMEI[strings.TrimSpace(line.DeviceIMEI)]
 		}
 		persisted, found := byID[strings.TrimSpace(line.ID)]
 		if found {

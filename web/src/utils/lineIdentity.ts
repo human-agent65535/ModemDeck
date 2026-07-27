@@ -39,7 +39,7 @@ export function lineTagFallback(
   lineID?: string
 ): string {
   if (line) {
-    const moduleName = line.device_alias.trim() || line.model?.trim()
+    const moduleName = line.device_name.trim() || line.model?.trim()
     if (moduleName) return moduleName
     if (line.id === defaultLineID) {
       return translate('lines.primaryLine')

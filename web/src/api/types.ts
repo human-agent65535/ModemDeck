@@ -60,7 +60,7 @@ export type LineSummary = {
   roaming: boolean
   emergency_only: boolean
   device_imei: string
-  device_alias: string
+  device_name: string
   line_label: string
   line_color?: LineColorPresetID | ''
   model?: string
@@ -501,7 +501,7 @@ export type DeviceSIM = {
 
 export type Device = {
   imei: string
-  alias: string
+  name: string
   model: string
   firmware: string
   port: string
@@ -523,11 +523,11 @@ export type Device = {
 
 export type CreateDeviceInput = {
   imei: string
-  alias?: string
+  name?: string
 }
 
 export type RenameDeviceInput = {
-  alias: string
+  name: string
 }
 
 export type UpdateLineLabelInput = {
@@ -768,7 +768,6 @@ export type DeviceConfigurationCapabilities = {
   flight_mode: DeviceFeatureCapability
   vowifi: DeviceFeatureCapability
   volte: DeviceFeatureCapability
-  alias: DeviceFeatureCapability
   esim: DeviceFeatureCapability
   at_terminal: DeviceFeatureCapability
   ussd: DeviceFeatureCapability

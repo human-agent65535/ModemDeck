@@ -113,7 +113,7 @@ export function lineLabel(line: LineSummary): string {
   const explicit = line.line_label.trim()
   if (explicit) return explicit
 
-  const moduleName = line.device_alias.trim() || line.model?.trim()
+  const moduleName = line.device_name.trim() || line.model?.trim()
   if (moduleName) return moduleName
 
   const identifier = (line.iccid || line.id || line.device_imei).trim()
@@ -171,7 +171,7 @@ export function lineSupports(
 
 export function deviceName(id: string): string {
   const device = devicesResource.data.find(item => item.imei === id)
-  return device?.alias || device?.model || id
+  return device?.name || device?.model || id
 }
 
 export function contactForNumber(number: string): Contact | undefined {
@@ -252,7 +252,7 @@ export async function createDevice(input: CreateDeviceInput): Promise<Device> {
   devicesResource.data = devicesResource.data
     .filter(device => device.imei !== saved.imei)
     .concat(saved)
-    .sort((a, b) => (a.alias || a.model || a.imei).localeCompare(b.alias || b.model || b.imei))
+    .sort((a, b) => (a.name || a.model || a.imei).localeCompare(b.name || b.model || b.imei))
   devicesResource.status = 'ready'
   devicesResource.error = ''
   return saved
@@ -262,11 +262,12 @@ export async function renameDevice(imei: string, input: RenameDeviceInput): Prom
   const saved = await gateway.renameDevice(imei, input)
   devicesResource.data = devicesResource.data
     .map(device => (device.imei === saved.imei ? saved : device))
-    .sort((a, b) => (a.alias || a.model || a.imei).localeCompare(b.alias || b.model || b.imei))
+    .sort((a, b) => (a.name || a.model || a.imei).localeCompare(b.name || b.model || b.imei))
   devicesResource.status = 'ready'
   devicesResource.error = ''
-  const line = bootstrapResource.data?.lines.find(item => item.device_imei === saved.imei)
-  if (line) line.device_alias = saved.alias
+  for (const line of bootstrapResource.data?.lines ?? []) {
+    if (line.device_imei === saved.imei) line.device_name = saved.name
+  }
   return saved
 }
 

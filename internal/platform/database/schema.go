@@ -59,6 +59,21 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 	if err != nil {
 		return err
 	}
+	migratedDeviceName, err := migrateCurrentDeviceNameColumn(
+		ctx,
+		database,
+		expected,
+		actual,
+	)
+	if err != nil {
+		return err
+	}
+	if migratedDeviceName {
+		actual, err = readSchemaShape(ctx, database)
+		if err != nil {
+			return err
+		}
+	}
 	if schemaContains(expected, actual) {
 		return nil
 	}
@@ -86,6 +101,48 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 	return migrateStableLineIdentity(ctx, database)
 }
 
+func migrateCurrentDeviceNameColumn(
+	ctx context.Context,
+	database *sql.DB,
+	expected schemaShape,
+	actual schemaShape,
+) (bool, error) {
+	legacy := legacyDeviceNameSchemaShape(expected)
+	deviceColumns := actual.tables["devices"]
+	_, hasLegacyName := deviceColumns["alias"]
+	_, hasCurrentName := deviceColumns["name"]
+	if !hasLegacyName || hasCurrentName || !schemaContains(legacy, actual) {
+		return false, nil
+	}
+	if _, err := database.ExecContext(
+		ctx,
+		`ALTER TABLE devices RENAME COLUMN alias TO name`,
+	); err != nil {
+		return false, fmt.Errorf("migrate device name: %w", err)
+	}
+	return true, nil
+}
+
+func legacyDeviceNameSchemaShape(current schemaShape) schemaShape {
+	legacy := schemaShape{
+		tables:  make(map[string]map[string]struct{}, len(current.tables)),
+		indexes: make(map[string]struct{}, len(current.indexes)),
+	}
+	for table, columns := range current.tables {
+		copyColumns := make(map[string]struct{}, len(columns))
+		for column := range columns {
+			copyColumns[column] = struct{}{}
+		}
+		legacy.tables[table] = copyColumns
+	}
+	for index := range current.indexes {
+		legacy.indexes[index] = struct{}{}
+	}
+	delete(legacy.tables["devices"], "name")
+	legacy.tables["devices"]["alias"] = struct{}{}
+	return legacy
+}
+
 func migrateLegacySchemaAdditions(
 	ctx context.Context,
 	database *sql.DB,
@@ -100,16 +157,21 @@ func migrateLegacySchemaAdditions(
 	_, adminUsernameExists := adminColumns["username"]
 	callColumns, callHistoryExists := actual.tables["call_history"]
 	_, reportedRemoteNumberExists := callColumns["reported_remote_number"]
+	deviceColumns, devicesExist := actual.tables["devices"]
+	_, deviceNameExists := deviceColumns["name"]
+	_, deviceAliasExists := deviceColumns["alias"]
 	_, systemSettingsExist := actual.tables["modemdeck_system_settings"]
 	needsAvatar := contactsExist && !avatarExists
 	needsLineColor := simCardsExist && !lineColorExists
 	needsAdminUsername := adminCredentialsExist && !adminUsernameExists
 	needsReportedRemoteNumber := callHistoryExists && !reportedRemoteNumberExists
+	needsDeviceName := devicesExist && !deviceNameExists && deviceAliasExists
 	needsSystemSettings := !systemSettingsExist
 	if !needsAvatar &&
 		!needsLineColor &&
 		!needsAdminUsername &&
 		!needsReportedRemoteNumber &&
+		!needsDeviceName &&
 		!needsSystemSettings {
 		return nil
 	}
@@ -163,6 +225,14 @@ func migrateLegacySchemaAdditions(
 			 ADD COLUMN reported_remote_number TEXT NOT NULL DEFAULT ''`,
 		); err != nil {
 			return fmt.Errorf("migrate reported remote call number: %w", err)
+		}
+	}
+	if needsDeviceName {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`ALTER TABLE devices RENAME COLUMN alias TO name`,
+		); err != nil {
+			return fmt.Errorf("migrate device name: %w", err)
 		}
 	}
 	if needsSystemSettings {
@@ -330,6 +400,11 @@ func schemaMatchesSupportedMigration(expected schemaShape, actual schemaShape) b
 			}
 			if table == "call_history" && column == "reported_remote_number" {
 				continue
+			}
+			if table == "devices" && column == "name" {
+				if _, legacyNameExists := actualColumns["alias"]; legacyNameExists {
+					continue
+				}
 			}
 			if _, exists := actualColumns[column]; !exists {
 				return false

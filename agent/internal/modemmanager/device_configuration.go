@@ -484,7 +484,6 @@ func genericConfigurationCapabilities(interfaces Interfaces) domain.DeviceConfig
 	modemManager := "modemmanager"
 	agent := "modemdeck_agent"
 	vendor := "vendor_extension"
-	application := "application"
 	_, voiceSupported := interfaces[voiceInterface]
 	_, dataWritable := interfaces[modemInterface]
 	ussdSupported := false
@@ -550,10 +549,6 @@ func genericConfigurationCapabilities(interfaces Interfaces) domain.DeviceConfig
 		VoLTE: domain.FeatureCapability{
 			Backend: vendor,
 			Reason:  "no documented modem-family vendor profile was resolved",
-		},
-		Alias: domain.FeatureCapability{
-			Backend: application,
-			Reason:  "display aliases are owned by the ModemDeck application database",
 		},
 		ESIM: domain.FeatureCapability{
 			Backend: vendor,

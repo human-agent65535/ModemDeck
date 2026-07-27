@@ -221,7 +221,7 @@ CREATE TABLE modemdeck_legacy_endpoint_lines (
 CREATE TABLE devices (
 			imei TEXT PRIMARY KEY,
 			endpoint_id TEXT NOT NULL DEFAULT '',
-			alias TEXT NOT NULL DEFAULT '',
+			name TEXT NOT NULL DEFAULT '',
 			model TEXT NOT NULL DEFAULT '',
 			firmware TEXT NOT NULL DEFAULT '',
 			port TEXT NOT NULL DEFAULT '',

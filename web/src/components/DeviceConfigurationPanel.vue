@@ -8,6 +8,7 @@ import {
   Database,
   LoaderCircle,
   Network,
+  Pencil,
   Phone,
   PhoneIncoming,
   Plane,
@@ -18,9 +19,10 @@ import {
   Send,
   ShieldAlert,
   Tag,
-  Trash2
+  Trash2,
+  X
 } from '@lucide/vue'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { gateway } from '../api/client'
 import type {
@@ -68,6 +70,7 @@ import {
   lineLabel,
   loadBootstrap,
   loadDevices,
+  renameDevice,
   updateDefaultLine,
   updateLineLabel
 } from '../state/workspace'
@@ -97,6 +100,11 @@ const incomingPolicyDraft = ref<IncomingCallPolicy>('follow_global')
 const voltePolicyDraft = ref<'enabled' | 'disabled' | ''>('')
 
 const moduleError = ref('')
+const moduleNameEditing = ref(false)
+const moduleNameDraft = ref('')
+const moduleNamePending = ref(false)
+const moduleNameError = ref('')
+const moduleNameInput = ref<HTMLInputElement | null>(null)
 const lineLabelDraft = ref('')
 const lineColorDraft = ref<LineColorPresetID>('teal')
 const lineLabelPending = ref(false)
@@ -150,13 +158,19 @@ const selectedModuleName = computed(() => {
   const line = selectedLine.value
   const device = selectedDevice.value
   return (
-    device?.alias.trim() ||
-    line?.device_alias.trim() ||
-    line?.model?.trim() ||
+    device?.name.trim() ||
+    line?.device_name.trim() ||
     device?.model.trim() ||
+    line?.model?.trim() ||
     selectedLineID.value
   )
 })
+const selectedStoredModuleName = computed(
+  () => selectedDevice.value?.name.trim() || selectedLine.value?.device_name.trim() || ''
+)
+const moduleNameDirty = computed(
+  () => moduleNameDraft.value.trim() !== selectedStoredModuleName.value
+)
 const selectedExplicitLineLabel = computed(() => {
   const label = selectedLine.value?.line_label.trim() || ''
   return label.toLocaleLowerCase() === selectedModuleName.value.toLocaleLowerCase() ? '' : label
@@ -551,6 +565,20 @@ watch(
   { immediate: true }
 )
 
+watch(
+  [
+    () => selectedLine.value?.device_imei,
+    () => selectedDevice.value?.name,
+    () => selectedLine.value?.device_name
+  ],
+  () => {
+    moduleNameEditing.value = false
+    moduleNameDraft.value = selectedStoredModuleName.value
+    moduleNameError.value = ''
+  },
+  { immediate: true }
+)
+
 watch(activeTab, tab => void loadActiveLineService(tab))
 
 function selectLine(line: LineSummary): void {
@@ -702,6 +730,44 @@ async function makeDefault(line: LineSummary): Promise<void> {
   } catch (error) {
     moduleError.value =
       error instanceof Error ? error.message : t('device.defaultLineSaveFailed')
+  }
+}
+
+async function beginModuleNameEdit(): Promise<void> {
+  if (!selectedLine.value?.device_imei || moduleNamePending.value) return
+  moduleNameDraft.value = selectedStoredModuleName.value
+  moduleNameError.value = ''
+  moduleNameEditing.value = true
+  await nextTick()
+  moduleNameInput.value?.focus()
+  moduleNameInput.value?.select()
+}
+
+function cancelModuleNameEdit(): void {
+  if (moduleNamePending.value) return
+  moduleNameDraft.value = selectedStoredModuleName.value
+  moduleNameError.value = ''
+  moduleNameEditing.value = false
+}
+
+async function saveModuleName(): Promise<void> {
+  const imei = selectedLine.value?.device_imei.trim() || ''
+  if (!imei || moduleNamePending.value || !moduleNameDirty.value) return
+  const name = moduleNameDraft.value.trim()
+  if (Array.from(name).length > 100) {
+    moduleNameError.value = t('device.moduleNameTooLong')
+    return
+  }
+  moduleNamePending.value = true
+  moduleNameError.value = ''
+  try {
+    await renameDevice(imei, { name })
+    moduleNameEditing.value = false
+  } catch (error) {
+    moduleNameError.value =
+      error instanceof Error ? error.message : t('device.moduleNameSaveFailed')
+  } finally {
+    moduleNamePending.value = false
   }
 }
 
@@ -1076,13 +1142,62 @@ onMounted(() => {
         <div class="selected-module-context__identity">
           <span>{{ t('device.currentModule') }}</span>
           <div class="selected-module-context__name">
-            <strong>{{ selectedModuleName }}</strong>
+            <form
+              v-if="moduleNameEditing"
+              class="module-name-editor"
+              @submit.prevent="saveModuleName"
+            >
+              <input
+                ref="moduleNameInput"
+                v-model="moduleNameDraft"
+                maxlength="100"
+                autocomplete="off"
+                :placeholder="selectedModuleName"
+                :aria-label="t('device.moduleName')"
+                :disabled="moduleNamePending"
+                @keydown.escape.prevent="cancelModuleNameEdit"
+              />
+              <button
+                type="submit"
+                :title="t('common.save')"
+                :aria-label="t('common.save')"
+                :disabled="moduleNamePending || !moduleNameDirty"
+              >
+                <LoaderCircle v-if="moduleNamePending" class="spin" :size="16" />
+                <Check v-else :size="16" />
+              </button>
+              <button
+                type="button"
+                :title="t('common.cancel')"
+                :aria-label="t('common.cancel')"
+                :disabled="moduleNamePending"
+                @click="cancelModuleNameEdit"
+              >
+                <X :size="16" />
+              </button>
+            </form>
+            <template v-else>
+              <strong>{{ selectedModuleName }}</strong>
+              <button
+                v-if="selectedLine?.device_imei"
+                class="module-name-edit-button"
+                type="button"
+                :title="t('device.editModuleName')"
+                :aria-label="t('device.editModuleName')"
+                @click="beginModuleNameEdit"
+              >
+                <Pencil :size="15" />
+              </button>
+            </template>
             <LineTag
               v-if="selectedLine && selectedExplicitLineLabel"
               :line="selectedLine"
               :fallback="selectedLineFallback"
             />
           </div>
+          <p v-if="moduleNameError" class="module-name-error" role="alert">
+            {{ moduleNameError }}
+          </p>
         </div>
       </header>
 
@@ -2193,6 +2308,47 @@ onMounted(() => {
   font-size: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.module-name-edit-button,
+.module-name-editor button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  place-items: center;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 5px;
+}
+
+.module-name-edit-button:hover,
+.module-name-editor button:hover:not(:disabled) {
+  color: var(--accent-strong);
+  background: var(--surface-selected);
+  border-color: var(--border-strong);
+}
+
+.module-name-editor {
+  display: flex;
+  min-width: 0;
+  max-width: min(100%, 460px);
+  align-items: center;
+  gap: 5px;
+}
+
+.module-name-editor input {
+  width: min(360px, 55vw);
+  height: 34px;
+  min-width: 160px;
+  padding: 0 9px;
+  font-size: 15px;
+}
+
+.module-name-error {
+  margin: 2px 0 0;
+  color: var(--danger);
+  font-size: 12px;
 }
 
 .device-configuration__body {

@@ -47,7 +47,7 @@ test('Telegram save payload has one canonical line-scope representation', () => 
   assert.doesNotMatch(form, /line_scopes: allLines\.value \? \[\]/)
 })
 
-test('Telegram line scopes show the alias and reliable phone number without internal IDs', () => {
+test('Telegram line scopes show the line label and reliable phone number without internal IDs', () => {
   const optionsStart = form.indexOf('const scopeOptions')
   const optionsEnd = form.indexOf('function scopedLine', optionsStart)
   assert.ok(optionsStart >= 0)

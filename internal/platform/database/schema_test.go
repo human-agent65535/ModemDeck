@@ -31,6 +31,76 @@ func TestOpenCreatesAndReopensCurrentSchema(t *testing.T) {
 	t.Cleanup(func() { _ = database.Close() })
 }
 
+func TestOpenMigratesDeviceAliasToNameAndPreservesValue(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "device-name.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacySchema := strings.Replace(
+		currentSchemaSQL,
+		"\n\t\t\tname TEXT NOT NULL DEFAULT '',",
+		"\n\t\t\talias TEXT NOT NULL DEFAULT '',",
+		1,
+	)
+	if legacySchema == currentSchemaSQL {
+		t.Fatal("legacy schema fixture did not replace the device name column")
+	}
+	if _, err := database.Exec(legacySchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(
+		`INSERT INTO devices (imei, alias) VALUES ('860000000000001', '机房模组')`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(
+		`CREATE INDEX idx_devices_model_legacy_extra ON devices(model)`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	var name string
+	if err := database.QueryRow(
+		`SELECT name FROM devices WHERE imei = '860000000000001'`,
+	).Scan(&name); err != nil {
+		t.Fatal(err)
+	}
+	if name != "机房模组" {
+		t.Fatalf("migrated device name = %q, want 机房模组", name)
+	}
+	var aliasColumns int
+	if err := database.QueryRow(
+		`SELECT COUNT(*) FROM pragma_table_info('devices') WHERE name = 'alias'`,
+	).Scan(&aliasColumns); err != nil {
+		t.Fatal(err)
+	}
+	if aliasColumns != 0 {
+		t.Fatalf("legacy alias columns = %d, want 0", aliasColumns)
+	}
+	var extraIndexes int
+	if err := database.QueryRow(
+		`SELECT COUNT(*) FROM sqlite_master
+		 WHERE type = 'index' AND name = 'idx_devices_model_legacy_extra'`,
+	).Scan(&extraIndexes); err != nil {
+		t.Fatal(err)
+	}
+	if extraIndexes != 1 {
+		t.Fatalf("legacy extra indexes = %d, want preserved", extraIndexes)
+	}
+}
+
 func TestOpenRejectsOutdatedSchemaWithoutAlteringIt(t *testing.T) {
 	t.Parallel()
 
@@ -822,7 +892,7 @@ func legacyV1SchemaFixture(t *testing.T) string {
 		"line_id TEXT NOT NULL,\n\t\t\tendpoint_call_id",
 	)
 	removeBlock("CREATE TABLE modemdeck_lines (", "CREATE TABLE devices")
-	replace("\t\t\tendpoint_id TEXT NOT NULL DEFAULT '',\n\t\t\talias TEXT", "\t\t\talias TEXT")
+	replace("\t\t\tendpoint_id TEXT NOT NULL DEFAULT '',\n\t\t\tname TEXT", "\t\t\talias TEXT")
 	replace(
 		`			line_id TEXT NOT NULL,
 			imsi TEXT NOT NULL DEFAULT '',`,

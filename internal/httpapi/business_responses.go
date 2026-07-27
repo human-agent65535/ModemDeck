@@ -31,7 +31,7 @@ type lineSummaryResponse struct {
 	Roaming                  bool                   `json:"roaming"`
 	EmergencyOnly            bool                   `json:"emergency_only"`
 	DeviceIMEI               string                 `json:"device_imei"`
-	DeviceAlias              string                 `json:"device_alias"`
+	DeviceName               string                 `json:"device_name"`
 	Model                    string                 `json:"model"`
 	Firmware                 string                 `json:"firmware"`
 	HardwareRevision         string                 `json:"hardware_revision,omitempty"`
@@ -65,7 +65,7 @@ func lineSummaryResponseFromStore(line store.LineSummary) lineSummaryResponse {
 		Roaming:                  line.Roaming,
 		EmergencyOnly:            line.EmergencyOnly,
 		DeviceIMEI:               line.DeviceIMEI,
-		DeviceAlias:              line.DeviceAlias,
+		DeviceName:               line.DeviceName,
 		Model:                    line.Model,
 		Firmware:                 line.Firmware,
 		HardwareRevision:         line.HardwareRevision,

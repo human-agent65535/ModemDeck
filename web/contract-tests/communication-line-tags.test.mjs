@@ -28,7 +28,7 @@ const lines = [
     phone_number: '+1 202 555 0101',
     operator: '',
     device_imei: 'imei-main',
-    device_alias: '',
+    device_name: '',
     line_label: ''
   },
   {
@@ -38,7 +38,7 @@ const lines = [
     phone_number: '+1 202 555 0102',
     operator: '',
     device_imei: 'imei-secondary',
-    device_alias: '',
+    device_name: '',
     line_label: '工作'
   }
 ]

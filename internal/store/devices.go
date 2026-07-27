@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/human-agent65535/modemdeck/internal/modemidentity"
 )
 
 var (
@@ -18,9 +20,9 @@ var (
 )
 
 const (
-	maxDeviceAliasLength = 100
-	maxLineLabelLength   = 16
-	maxLineIDLength      = 64
+	maxDeviceNameLength = 100
+	maxLineLabelLength  = 16
+	maxLineIDLength     = 64
 )
 
 type LineColor string
@@ -53,17 +55,17 @@ func (color LineColor) Valid() bool {
 }
 
 func (s *Store) CreateDevice(ctx context.Context, input DeviceInput) (Device, error) {
-	imei, alias, err := normalizeDeviceInput(input)
+	imei, name, err := normalizeDeviceInput(input)
 	if err != nil {
 		return Device{}, err
 	}
 	_, err = s.database.ExecContext(
 		ctx,
 		`INSERT INTO devices (
-			imei, alias, created_at, updated_at
+			imei, name, created_at, updated_at
 		 ) VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
 		imei,
-		alias,
+		name,
 	)
 	if err != nil {
 		var exists int
@@ -79,21 +81,21 @@ func (s *Store) CreateDevice(ctx context.Context, input DeviceInput) (Device, er
 	return s.device(ctx, imei)
 }
 
-func (s *Store) RenameDevice(ctx context.Context, imei, alias string) (Device, error) {
+func (s *Store) RenameDevice(ctx context.Context, imei, name string) (Device, error) {
 	imei, _, err := normalizeDeviceInput(DeviceInput{IMEI: imei})
 	if err != nil {
 		return Device{}, err
 	}
-	alias = strings.TrimSpace(alias)
-	if len([]rune(alias)) > maxDeviceAliasLength {
-		return Device{}, fmt.Errorf("%w: alias is too long", ErrDeviceValidation)
+	name = strings.TrimSpace(name)
+	if len([]rune(name)) > maxDeviceNameLength {
+		return Device{}, fmt.Errorf("%w: name is too long", ErrDeviceValidation)
 	}
 	result, err := s.database.ExecContext(
 		ctx,
 		`UPDATE devices
-		 SET alias = ?, updated_at = CURRENT_TIMESTAMP
+		 SET name = ?, updated_at = CURRENT_TIMESTAMP
 		 WHERE imei = ?`,
-		alias,
+		name,
 		imei,
 	)
 	if err != nil {
@@ -176,16 +178,16 @@ func normalizeDeviceInput(input DeviceInput) (string, string, error) {
 		}
 		return "", "", fmt.Errorf("%w: imei contains invalid characters", ErrDeviceValidation)
 	}
-	alias := strings.TrimSpace(input.Alias)
-	if len([]rune(alias)) > maxDeviceAliasLength {
-		return "", "", fmt.Errorf("%w: alias is too long", ErrDeviceValidation)
+	name := strings.TrimSpace(input.Name)
+	if len([]rune(name)) > maxDeviceNameLength {
+		return "", "", fmt.Errorf("%w: name is too long", ErrDeviceValidation)
 	}
-	return imei, alias, nil
+	return imei, name, nil
 }
 
 func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 	rows, err := s.database.QueryContext(ctx, `SELECT
-		d.imei, d.endpoint_id, d.alias, d.model, d.firmware, d.port,
+		d.imei, d.endpoint_id, d.name, d.model, d.firmware, d.port,
 		d.public_ip, d.private_ip, d.public_ipv6, d.private_ipv6,
 			d.iccid, d.sim_inserted, d.signal_quality, d.signal_db_m, d.signal_rsrq, d.signal_rsrp,
 		d.last_seen, d.created_at, d.updated_at,
@@ -196,7 +198,7 @@ func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 		FROM devices d
 		LEFT JOIN sim_cards s ON s.iccid = d.iccid
 		LEFT JOIN sim_subscriptions ss ON ss.imsi = s.imsi
-		ORDER BY LOWER(COALESCE(d.alias, '')) ASC, d.imei ASC`)
+		ORDER BY LOWER(COALESCE(d.name, '')) ASC, d.imei ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("query devices: %w", err)
 	}
@@ -206,7 +208,7 @@ func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 	for rows.Next() {
 		var (
 			device                                                           Device
-			endpointID, alias, model, firmware, port                         sql.NullString
+			endpointID, name, model, firmware, port                          sql.NullString
 			publicIP, privateIP, publicIPv6, privateIPv6, iccid              sql.NullString
 			simInserted, signalQuality, signalDBM, signalRSRQ, signalRSRP    sql.NullInt64
 			lastSeen, createdAt, updatedAt                                   sql.NullString
@@ -217,7 +219,7 @@ func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 			simLastSeen                                                      sql.NullString
 		)
 		if err := rows.Scan(
-			&device.IMEI, &endpointID, &alias, &model, &firmware, &port,
+			&device.IMEI, &endpointID, &name, &model, &firmware, &port,
 			&publicIP, &privateIP, &publicIPv6, &privateIPv6,
 			&iccid, &simInserted, &signalQuality, &signalDBM, &signalRSRQ, &signalRSRP,
 			&lastSeen, &createdAt, &updatedAt,
@@ -227,9 +229,9 @@ func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 			return nil, fmt.Errorf("scan device: %w", err)
 		}
 		device.EndpointID = stringValue(endpointID)
-		device.Alias = stringValue(alias)
-		device.Model = stringValue(model)
+		device.Name = stringValue(name)
 		device.Firmware = stringValue(firmware)
+		device.Model = modemidentity.DisplayModel(stringValue(model), device.Firmware, "")
 		device.Port = stringValue(port)
 		device.PublicIP = stringValue(publicIP)
 		device.PrivateIP = stringValue(privateIP)
@@ -314,7 +316,7 @@ func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
 		lines.phone_number,
 		COALESCE(NULLIF(sim.operator, ''), subscription.operator, ''),
 		COALESCE(sim.current_imei, devices.imei, ''),
-		COALESCE(devices.alias, '')
+			COALESCE(devices.name, '')
 	FROM modemdeck_lines lines
 	LEFT JOIN ranked_sim_cards sim
 		ON sim.line_id = lines.line_id AND sim.line_rank = 1
@@ -338,7 +340,7 @@ func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
 		var (
 			line                                                                   LineSummary
 			lineID, endpointID, iccid, lineLabel, lineColor, imsi, phone, operator sql.NullString
-			deviceIMEI, deviceAlias                                                sql.NullString
+			deviceIMEI, deviceName                                                 sql.NullString
 		)
 		if err := rows.Scan(
 			&lineID,
@@ -350,7 +352,7 @@ func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
 			&phone,
 			&operator,
 			&deviceIMEI,
-			&deviceAlias,
+			&deviceName,
 		); err != nil {
 			return nil, fmt.Errorf("scan line: %w", err)
 		}
@@ -364,7 +366,7 @@ func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
 		line.Operator = stringValue(operator)
 		line.HomeOperatorName = line.Operator
 		line.DeviceIMEI = stringValue(deviceIMEI)
-		line.DeviceAlias = stringValue(deviceAlias)
+		line.DeviceName = stringValue(deviceName)
 		lines = append(lines, line)
 	}
 	return lines, rowsError("read lines", rows.Err())

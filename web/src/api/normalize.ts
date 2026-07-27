@@ -266,7 +266,7 @@ export function parseDevice(value: unknown): Device {
   const source = objectValue(value, 'device')
   return {
     imei: requiredString(source, 'device', 'imei'),
-    alias: stringValue(source, 'alias'),
+    name: stringValue(source, 'name'),
     model: stringValue(source, 'model'),
     firmware: stringValue(source, 'firmware'),
     port: stringValue(source, 'port'),
@@ -317,7 +317,7 @@ export function parseLine(value: unknown): LineSummary {
     roaming: source.roaming === true,
     emergency_only: source.emergency_only === true,
     device_imei: stringValue(source, 'device_imei'),
-    device_alias: stringValue(source, 'device_alias'),
+    device_name: stringValue(source, 'device_name'),
     line_label: stringValue(source, 'line_label'),
     line_color: isLineColorPresetID(rawLineColor) ? rawLineColor : '',
     model: stringValue(source, 'model') || undefined,

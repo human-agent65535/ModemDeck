@@ -90,7 +90,6 @@ type DeviceConfigurationCapabilities struct {
 	FlightMode        FeatureCapability `json:"flight_mode"`
 	VoWiFi            FeatureCapability `json:"vowifi"`
 	VoLTE             FeatureCapability `json:"volte"`
-	Alias             FeatureCapability `json:"alias"`
 	ESIM              FeatureCapability `json:"esim"`
 	ATTerminal        FeatureCapability `json:"at_terminal"`
 	USSD              FeatureCapability `json:"ussd"`

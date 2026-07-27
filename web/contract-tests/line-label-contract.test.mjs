@@ -34,7 +34,7 @@ const line = {
   phone_number: '+86 138 0000 0000',
   operator: 'China Unicom',
   device_imei: '860000000000001',
-  device_alias: '客厅模组',
+  device_name: '客厅模组',
   line_label: '主卡',
   line_color: 'violet',
   state: 'registered'
@@ -93,7 +93,7 @@ test('line label response accepts the documented direct and envelope forms', () 
   )
 })
 
-test('fixture keeps module aliases separate from editable line labels', async () => {
+test('fixture keeps module names separate from editable line labels', async () => {
   const gateway = createFixtureGateway()
   const initial = await gateway.getBootstrap()
 
@@ -139,7 +139,7 @@ test('line names prefer the line label and otherwise use the module name', () =>
       ...line,
       id: 'line-secondary',
       iccid: '8986012345678901937',
-      device_alias: '楼上模组',
+      device_name: '楼上模组',
       model: 'EC25',
       line_label: ''
     }),
@@ -150,7 +150,7 @@ test('line names prefer the line label and otherwise use the module name', () =>
       ...line,
       id: 'line-third',
       iccid: '8986012345678901942',
-      device_alias: '',
+      device_name: '',
       model: 'EC25',
       line_label: ''
     }),
@@ -186,7 +186,11 @@ test('settings edit the stable line identity from preset colors', () => {
   assert.match(workspaceSource, /line\.line_label = saved\.line_label/)
   assert.match(workspaceSource, /line\.line_color = saved\.line_color/)
   assert.doesNotMatch(workspaceSource, /Object\.assign\(line, saved\)/)
-  assert.doesNotMatch(devicePanelSource, /renameDevice|修改模组名称|@rename/)
+  assert.match(devicePanelSource, /class="module-name-edit-button"/)
+  assert.match(devicePanelSource, /<Pencil :size="15" \/>/)
+  assert.match(devicePanelSource, /await renameDevice\(imei, \{ name \}\)/)
+  assert.match(devicePanelSource, /selectedLine\.value\?\.device_imei\.trim\(\)/)
+  assert.match(devicePanelSource, /maxlength="100"/)
   assert.match(lineTagSource, /line\.line_label\.trim\(\) \|\| props\.fallback\.trim\(\)/)
   assert.match(lineTagSource, /lineTone\(props\.line\)/)
   assert.match(lineToneSource, /preset\.id === line\.line_color/)

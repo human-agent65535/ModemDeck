@@ -346,7 +346,7 @@ function parseDiagnosticLine(value: unknown, index: number): LineSummary {
     roaming: requiredBooleanValue(source, path, 'roaming'),
     emergency_only: requiredBooleanValue(source, path, 'emergency_only'),
     device_imei: deviceIMEI,
-    device_alias: stringValue(source, 'device_alias'),
+    device_name: stringValue(source, 'device_name'),
     line_label: stringValue(source, 'line_label'),
     line_color: isLineColorPresetID(rawLineColor) ? rawLineColor : '',
     model: stringValue(source, 'model') || undefined,
@@ -828,7 +828,7 @@ const realGateway: ConfiguredModemDeckGateway = {
       await writeJSON(
         `${API_ROOT}/devices`,
         'POST',
-        { imei, alias: input.alias?.trim() || '' },
+        { imei, name: input.name?.trim() || '' },
         201
       )
     )
@@ -841,7 +841,7 @@ const realGateway: ConfiguredModemDeckGateway = {
       await writeJSON(
         `${API_ROOT}/devices/${encodeURIComponent(normalizedIMEI)}`,
         'PATCH',
-        { alias: input.alias.trim() },
+        { name: input.name.trim() },
         200
       )
     )

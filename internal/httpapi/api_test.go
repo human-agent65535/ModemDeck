@@ -367,7 +367,7 @@ func TestBootstrapMergesPersistedIdentityIntoLiveLines(t *testing.T) {
 		PhoneNumber: "+818000000001",
 		Operator:    "China Unicom",
 		DeviceIMEI:  "860000000000001",
-		DeviceAlias: "主线路",
+		DeviceName:  "主线路",
 	}}}
 	communications := &fakeCommunications{status: communication.Status{
 		Connected: true,
@@ -408,7 +408,7 @@ func TestBootstrapMergesPersistedIdentityIntoLiveLines(t *testing.T) {
 	}
 	line := body.Lines[0]
 	if line.LineLabel != "主卡" ||
-		line.DeviceAlias != "主线路" ||
+		line.DeviceName != "主线路" ||
 		line.PhoneNumber != "+818000000001" ||
 		line.Model != "QDC507" ||
 		line.State != "registered" ||

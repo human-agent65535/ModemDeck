@@ -362,7 +362,7 @@ function fixtureLines(count: number): LineSummary[] {
       roaming: false,
       emergency_only: false,
       device_imei: 'fixture-001',
-      device_alias: 'Main cellular line',
+      device_name: 'Main cellular modem',
       line_label: '主卡',
       line_color: 'violet',
       model: 'Fixture modem 1',
@@ -403,7 +403,7 @@ function fixtureLines(count: number): LineSummary[] {
       roaming: true,
       emergency_only: false,
       device_imei: 'fixture-002',
-      device_alias: 'Travel cellular line',
+      device_name: 'Travel cellular modem',
       line_label: '副卡',
       line_color: 'teal',
       model: 'Fixture modem 2',
@@ -445,7 +445,7 @@ function fixtureLines(count: number): LineSummary[] {
       roaming: false,
       emergency_only: false,
       device_imei: `fixture-${String(displayIndex).padStart(3, '0')}`,
-      device_alias: `Cellular line ${displayIndex}`,
+      device_name: `Cellular modem ${displayIndex}`,
       line_label: '',
       line_color: '',
       model: `Fixture modem ${displayIndex}`,
@@ -585,13 +585,6 @@ function fixtureHardware(line: LineSummary, index: number): DeviceHardwareConfig
           ? undefined
           : 'no exact manufacturer, model, and firmware profile was resolved'
       }),
-      alias: feature('application', {
-        supported: false,
-        implemented: false,
-        readable: false,
-        writable: false,
-        reason: 'display aliases are owned by the ModemDeck application database'
-      }),
       esim: feature('vendor_extension', {
         supported: false,
         implemented: false,
@@ -632,7 +625,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     ? []
     : lines.map((line, index): Device => ({
         imei: line.device_imei,
-        alias: line.device_alias,
+        name: line.device_name,
         model: `Fixture modem ${index + 1}`,
         firmware: 'Fixture 1.0',
         port: `cdc-wdm${index}`,
@@ -1418,7 +1411,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       }
       const device: Device = {
         imei,
-        alias: input.alias?.trim() || '',
+        name: input.name?.trim() || '',
         model: '',
         firmware: '',
         port: '',
@@ -1440,7 +1433,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     async renameDevice(imei: string, input: RenameDeviceInput): Promise<Device> {
       const device = fixtureDeviceList.find(item => item.imei === imei)
       if (!device) throw new ApiError('设备不存在', 404, 'device_not_found')
-      device.alias = input.alias.trim()
+      device.name = input.name.trim()
       return clone(device)
     },
 

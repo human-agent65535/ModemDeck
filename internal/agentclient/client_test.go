@@ -330,7 +330,6 @@ func TestDeviceConfigurationReadsAndAppliesTypedContract(t *testing.T) {
 				"flight_mode":{"backend":"modemmanager","supported":true,"implemented":true,"readable":true,"writable":true},
 				"vowifi":{"backend":"vendor_extension","supported":false,"implemented":false,"readable":false,"writable":false},
 				"volte":{"backend":"vendor_extension","supported":false,"implemented":false,"readable":false,"writable":false},
-				"alias":{"backend":"application","supported":false,"implemented":false,"readable":false,"writable":false},
 				"esim":{"backend":"vendor_extension","supported":false,"implemented":false,"readable":false,"writable":false},
 				"at_terminal":{"backend":"vendor_extension","supported":false,"implemented":false,"readable":false,"writable":false},
 				"ussd":{"backend":"modemmanager","supported":false,"implemented":false,"readable":false,"writable":false},

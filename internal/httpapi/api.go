@@ -500,8 +500,8 @@ func mergePersistedLineMetadata(
 			if line.DeviceIMEI == "" {
 				line.DeviceIMEI = persisted.DeviceIMEI
 			}
-			if line.DeviceAlias == "" {
-				line.DeviceAlias = persisted.DeviceAlias
+			if line.DeviceName == "" {
+				line.DeviceName = persisted.DeviceName
 			}
 		}
 		merged[index] = line

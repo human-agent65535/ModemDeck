@@ -1408,7 +1408,6 @@ function parseDeviceCapabilities(value: unknown): DeviceConfigurationCapabilitie
     ),
     vowifi: parseFeatureCapability(source.vowifi, 'hardware.capabilities.vowifi'),
     volte: parseFeatureCapability(source.volte, 'hardware.capabilities.volte'),
-    alias: parseFeatureCapability(source.alias, 'hardware.capabilities.alias'),
     esim: parseFeatureCapability(source.esim, 'hardware.capabilities.esim'),
     at_terminal: parseFeatureCapability(
       source.at_terminal,

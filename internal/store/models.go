@@ -168,7 +168,7 @@ type Call struct {
 type Device struct {
 	IMEI          string   `json:"imei"`
 	EndpointID    string   `json:"endpoint_id"`
-	Alias         string   `json:"alias"`
+	Name          string   `json:"name"`
 	Model         string   `json:"model"`
 	Firmware      string   `json:"firmware"`
 	Port          string   `json:"port"`
@@ -189,8 +189,8 @@ type Device struct {
 }
 
 type DeviceInput struct {
-	IMEI  string `json:"imei"`
-	Alias string `json:"alias"`
+	IMEI string `json:"imei"`
+	Name string `json:"name"`
 }
 
 type SIMCard struct {
@@ -236,7 +236,7 @@ type LineSummary struct {
 	Roaming                  bool             `json:"roaming"`
 	EmergencyOnly            bool             `json:"emergency_only"`
 	DeviceIMEI               string           `json:"device_imei"`
-	DeviceAlias              string           `json:"device_alias"`
+	DeviceName               string           `json:"device_name"`
 	Model                    string           `json:"model"`
 	Firmware                 string           `json:"firmware"`
 	HardwareRevision         string           `json:"hardware_revision,omitempty"`

@@ -714,7 +714,7 @@ func (s *Store) RecordingEntries(
 				SELECT 1
 				FROM devices
 				WHERE devices.endpoint_id = call.endpoint_line_id
-				AND LOWER(COALESCE(devices.alias, '')) LIKE ? ESCAPE '\'
+					AND LOWER(COALESCE(devices.name, '')) LIKE ? ESCAPE '\'
 			)
 		)`
 		arguments = append(
