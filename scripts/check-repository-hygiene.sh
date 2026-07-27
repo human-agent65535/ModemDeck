@@ -5,6 +5,9 @@ set -eu
 violations="$(
     git ls-files | awk '
         BEGIN { IGNORECASE = 1 }
+        /^web\/src\/assets\/(notifications|ringtones|tones)\/[^\/]+\.ogg$/ {
+            next
+        }
         /(^|\/)(data|logs|secrets|recordings|private|scratch|backups|one-off|migration|migrations)\// ||
         /(^|\/)cmd\/modemdeck-(import-legacy-telegram|migrate)\// ||
         /(^|\/)internal\/(legacymigrate|legacytelegram)\// ||
