@@ -48,11 +48,8 @@ func (transport *fakeATTransport) Command(_ context.Context, command string) (st
 	switch command {
 	case `AT+QCFG="ims"`:
 		return `+QCFG: "ims",0,1`, nil
-	case `AT+QCFG="volte_disable"`:
-		return `+QCFG: "volte/disable",0`, nil
-	case `AT+QCFG="volte_disable",0`,
-		`AT+QCFG="volte_disable",1`,
-		`AT+QCFG="ims",0`:
+	case `AT+QCFG="ims",1`,
+		`AT+QCFG="ims",2`:
 		return "", nil
 	case "AT+TESTVOLTE?":
 		if transport.readErr != nil {

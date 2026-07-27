@@ -50,20 +50,16 @@ func TestQuectelQCFGProfileUsesDocumentedCommands(t *testing.T) {
 			switch command {
 			case `AT+QCFG="ims"`:
 				if policy == PolicyEnabled {
-					return "+QCFG: \"ims\",0,0\r\nOK\r\n", nil
+					return "+QCFG: \"ims\",1,0\r\nOK\r\n", nil
 				}
 				return "+QCFG: \"ims\",2,1\r\nOK\r\n", nil
-			case `AT+QCFG="volte_disable"`:
-				if policy == PolicyEnabled {
-					return "+QCFG: \"volte/disable\",0\r\nOK\r\n", nil
-				}
-				return "+QCFG: \"volte/disable\",1\r\nOK\r\n", nil
-			case `AT+QCFG="volte_disable",0`:
-				return "", nil
-			case `AT+QCFG="ims",0`:
+			case `AT+QCFG="ims",1`:
 				policy = PolicyEnabled
 				// ModemManager removes the final OK and returns an empty
 				// payload for commands without response data.
+				return "", nil
+			case `AT+QCFG="ims",2`:
+				policy = PolicyDisabled
 				return "", nil
 			default:
 				return "", fmt.Errorf("unexpected command %q", command)
@@ -80,16 +76,14 @@ func TestQuectelQCFGProfileUsesDocumentedCommands(t *testing.T) {
 	if state.Policy != PolicyEnabled {
 		t.Fatalf("state = %+v", state)
 	}
-	if state.ConfigurationMode != ConfigurationModeAutomatic ||
+	if state.ConfigurationMode != ConfigurationModeForcedEnabled ||
 		state.ModemCapabilityEnabled ||
 		!state.RestartRequired {
 		t.Fatalf("state did not preserve QCFG mode and capability: %+v", state)
 	}
 	want := []string{
-		`AT+QCFG="volte_disable",0`,
-		`AT+QCFG="ims",0`,
+		`AT+QCFG="ims",1`,
 		`AT+QCFG="ims"`,
-		`AT+QCFG="volte_disable"`,
 	}
 	if !slices.Equal(at.commands, want) {
 		t.Fatalf("commands = %#v, want %#v", at.commands, want)
@@ -112,7 +106,7 @@ func TestDecodeQuectelIMSPreservesConfigurationAndCapability(t *testing.T) {
 		},
 		{
 			response:       "+QCFG: \"ims\",0,0\r\nOK\r\n",
-			wantPolicy:     PolicyEnabled,
+			wantPolicy:     PolicyDisabled,
 			wantMode:       ConfigurationModeAutomatic,
 			wantCapability: false,
 		},
