@@ -175,3 +175,45 @@ func (s *Store) MarkMissedCallsRead(ctx context.Context) error {
 	}
 	return nil
 }
+
+func (s *Store) MarkMissedCallsReadByIDs(ctx context.Context, callIDs []string) error {
+	normalized := make([]string, 0, len(callIDs))
+	seen := make(map[string]struct{}, len(callIDs))
+	for _, value := range callIDs {
+		callID := strings.TrimSpace(value)
+		if callID == "" {
+			continue
+		}
+		if _, exists := seen[callID]; exists {
+			continue
+		}
+		seen[callID] = struct{}{}
+		normalized = append(normalized, callID)
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	arguments := make([]any, len(normalized))
+	for index, callID := range normalized {
+		arguments[index] = callID
+	}
+	if _, err := s.database.ExecContext(
+		ctx,
+		`UPDATE call_history
+		 SET read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
+		 WHERE read_at IS NULL
+			AND direction = 'incoming'
+			AND active_at IS NULL
+			AND COALESCE(end_reason, '') <> 'rejected'
+			AND COALESCE(failure_code, '') <> 'rejected'
+			AND (
+				phase IN ('ended', 'failed') OR
+				COALESCE(ended_at, '') <> ''
+			)
+			AND id IN (`+placeholders(len(normalized))+`)`,
+		arguments...,
+	); err != nil {
+		return fmt.Errorf("mark missed calls read by ID: %w", err)
+	}
+	return nil
+}

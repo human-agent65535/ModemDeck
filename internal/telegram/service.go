@@ -19,6 +19,7 @@ type Dependencies struct {
 	SMSSender SMSSender
 	Replies   ReplyBindingStore
 	Read      MessageReadMarker
+	CallRead  CallReadMarker
 	Observer  Observer
 }
 
@@ -32,6 +33,7 @@ type Service struct {
 	sender   SMSSender
 	replies  ReplyBindingStore
 	read     MessageReadMarker
+	callRead CallReadMarker
 	observer Observer
 
 	identityMu  sync.RWMutex
@@ -60,6 +62,8 @@ func NewService(config Config, dependencies Dependencies) (*Service, error) {
 			return nil, &ConfigError{Field: "replies", Reason: "dependency is required"}
 		case dependencies.Read == nil:
 			return nil, &ConfigError{Field: "read_marker", Reason: "dependency is required"}
+		case dependencies.CallRead == nil:
+			return nil, &ConfigError{Field: "call_read_marker", Reason: "dependency is required"}
 		}
 	}
 
@@ -73,6 +77,7 @@ func NewService(config Config, dependencies Dependencies) (*Service, error) {
 		sender:   dependencies.SMSSender,
 		replies:  dependencies.Replies,
 		read:     dependencies.Read,
+		callRead: dependencies.CallRead,
 		observer: dependencies.Observer,
 	}, nil
 }
@@ -392,7 +397,40 @@ func (s *Service) handleCall(ctx context.Context, updateID, replyTo int64, comma
 	if err != nil {
 		return s.reportOperationFailure(ctx, updateID, replyTo, "query_calls", err)
 	}
-	return s.sendText(ctx, updateID, replyTo, formatCalls(filterCalls(calls, lineIDs), lines))
+	calls = filterCalls(calls, lineIDs)
+	if err := s.sendText(ctx, updateID, replyTo, formatCalls(calls, lines)); err != nil {
+		return err
+	}
+	callIDs := unreadMissedCallIDs(calls)
+	if len(callIDs) == 0 {
+		return nil
+	}
+	if err := s.callRead.MarkMissedCallsRead(ctx, callIDs); err != nil {
+		s.observe(ctx, Event{
+			Kind:       EventOperationFailed,
+			Operation:  "mark_missed_calls_read",
+			ErrorClass: errorClass(err),
+			UpdateID:   updateID,
+		})
+	}
+	return nil
+}
+
+func unreadMissedCallIDs(calls []Call) []string {
+	callIDs := make([]string, 0, len(calls))
+	seen := make(map[string]struct{}, len(calls))
+	for _, call := range calls {
+		callID := strings.TrimSpace(call.ID)
+		if !call.Missed || call.Read || callID == "" {
+			continue
+		}
+		if _, exists := seen[callID]; exists {
+			continue
+		}
+		seen[callID] = struct{}{}
+		callIDs = append(callIDs, callID)
+	}
+	return callIDs
 }
 
 func (s *Service) handleReplyCommand(ctx context.Context, updateID, replyTo int64, command Command) error {

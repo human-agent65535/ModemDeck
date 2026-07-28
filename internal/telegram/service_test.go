@@ -31,6 +31,7 @@ func TestNewServiceRequiresEnabledDependencies(t *testing.T) {
 		{name: "sender", mutate: func(d *Dependencies) { d.SMSSender = nil }, field: "sms_sender"},
 		{name: "replies", mutate: func(d *Dependencies) { d.Replies = nil }, field: "replies"},
 		{name: "read marker", mutate: func(d *Dependencies) { d.Read = nil }, field: "read_marker"},
+		{name: "call read marker", mutate: func(d *Dependencies) { d.CallRead = nil }, field: "call_read_marker"},
 	}
 	for _, test := range tests {
 		test := test
@@ -430,6 +431,79 @@ func TestServiceRecentCallsAndSMSCommands(t *testing.T) {
 		if response.ChatID != -100 || response.ReplyToMessageID == 0 {
 			t.Fatalf("response routing = %#v", response)
 		}
+	}
+}
+
+func TestServiceCallCommandMarksDisplayedUnreadMissedCallsRead(t *testing.T) {
+	t.Parallel()
+
+	responseSent := false
+	var markedCallIDs []string
+	dependencies := completeDependencies()
+	dependencies.Bot = botStub{send: func(_ context.Context, request SendMessageRequest) (Message, error) {
+		responseSent = true
+		return Message{MessageID: 1, Chat: Chat{ID: request.ChatID}}, nil
+	}}
+	dependencies.Calls = callQuerierFunc(func(context.Context, CallQuery) ([]Call, error) {
+		return []Call{
+			{ID: "call-unread", LineID: "line-a", Direction: "incoming", Missed: true},
+			{ID: "call-read", LineID: "line-a", Direction: "incoming", Missed: true, Read: true},
+			{ID: "call-normal", LineID: "line-a", Direction: "incoming"},
+			{ID: "call-hidden", LineID: "line-b", Direction: "incoming", Missed: true},
+			{ID: "call-unread", LineID: "line-a", Direction: "incoming", Missed: true},
+		}, nil
+	})
+	dependencies.CallRead = callReadMarkerFunc(func(_ context.Context, callIDs []string) error {
+		if !responseSent {
+			t.Fatal("missed calls were marked read before the /call response was sent")
+		}
+		markedCallIDs = append([]string(nil), callIDs...)
+		return nil
+	})
+	service := mustService(t, validServiceConfig(), dependencies)
+
+	if err := service.HandleUpdate(
+		context.Background(),
+		commandUpdate(33, -100, 42, "/call 10"),
+	); err != nil {
+		t.Fatalf("/call error = %v", err)
+	}
+	if !reflect.DeepEqual(markedCallIDs, []string{"call-unread"}) {
+		t.Fatalf("marked call IDs = %#v", markedCallIDs)
+	}
+}
+
+func TestServiceCallCommandDoesNotMarkReadWhenResponseFails(t *testing.T) {
+	t.Parallel()
+
+	marked := false
+	dependencies := completeDependencies()
+	dependencies.Bot = botStub{send: func(context.Context, SendMessageRequest) (Message, error) {
+		return Message{}, &APIError{Code: 503, Description: "Unavailable"}
+	}}
+	dependencies.Calls = callQuerierFunc(func(context.Context, CallQuery) ([]Call, error) {
+		return []Call{{
+			ID:        "call-unread",
+			LineID:    "line-a",
+			Direction: "incoming",
+			Missed:    true,
+		}}, nil
+	})
+	dependencies.CallRead = callReadMarkerFunc(func(context.Context, []string) error {
+		marked = true
+		return nil
+	})
+	service := mustService(t, validServiceConfig(), dependencies)
+
+	err := service.HandleUpdate(
+		context.Background(),
+		commandUpdate(34, -100, 42, "/call"),
+	)
+	if err == nil {
+		t.Fatal("/call error = nil, want Telegram send failure")
+	}
+	if marked {
+		t.Fatal("missed calls were marked read after the /call response failed")
 	}
 }
 
@@ -932,6 +1006,9 @@ func completeDependencies() Dependencies {
 		}),
 		Replies: replyStoreStub{},
 		Read: messageReadMarkerFunc(func(context.Context, string, string) error {
+			return nil
+		}),
+		CallRead: callReadMarkerFunc(func(context.Context, []string) error {
 			return nil
 		}),
 	}

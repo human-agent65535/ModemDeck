@@ -52,9 +52,17 @@ const directionLabel = computed(() => {
 <template>
   <button
     class="list-item call-list-item"
-    :class="{ 'is-selected': selected, 'is-missed': call.missed }"
+    :class="{
+      'is-selected': selected,
+      'is-missed': call.missed,
+      'is-unread': call.missed && !call.read
+    }"
     type="button"
-    :aria-label="t('calls.viewDetails', { name })"
+    :aria-label="
+      call.missed && !call.read
+        ? t('calls.viewUnreadDetails', { name })
+        : t('calls.viewDetails', { name })
+    "
     @click="emit('select', props.call)"
   >
     <span class="call-list-item__avatar">
@@ -65,7 +73,16 @@ const directionLabel = computed(() => {
     </span>
     <span class="list-item__content">
       <span class="list-item__title">
-        <strong>{{ name }}</strong>
+        <span class="call-list-item__identity">
+          <strong>{{ name }}</strong>
+          <span
+            v-if="call.missed && !call.read"
+            class="call-list-item__unread"
+            aria-hidden="true"
+          >
+            {{ t('calls.unread') }}
+          </span>
+        </span>
         <time>{{ formatRelativeDate(call.started_at) }}</time>
       </span>
       <span class="call-list-item__meta">
@@ -121,6 +138,28 @@ const directionLabel = computed(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.call-list-item__identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.call-list-item__identity strong {
+  min-width: 0;
+}
+
+.call-list-item__unread {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  color: var(--danger);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  background: var(--danger-soft);
+  border-radius: 999px;
 }
 
 .call-list-item__recording {

@@ -23,6 +23,7 @@ type Repository interface {
 	Calls(context.Context, store.CallQuery) ([]store.Call, error)
 	RecordingEntries(context.Context, store.RecordingQuery) ([]store.RecordingEntry, error)
 	MarkMessageThreadReadByLine(context.Context, string, string) error
+	MarkMissedCallsReadByIDs(context.Context, []string) error
 	TelegramNextOffset(context.Context, string) (int64, error)
 	AdvanceTelegramOffset(context.Context, string, int64) error
 	BindTelegramReply(context.Context, int64, int64, int64, store.TelegramReplyBinding) error
@@ -152,6 +153,7 @@ func (a adapters) RecentCalls(ctx context.Context, query telegram.CallQuery) ([]
 			ContactName:  call.ContactName,
 			OccurredAt:   occurredAt,
 			Missed:       call.Missed,
+			Read:         call.Read,
 			HasRecording: hasRecording,
 		})
 		if len(result) == limit {
@@ -178,6 +180,18 @@ func (a adapters) MarkMessageThreadRead(ctx context.Context, lineID, peer string
 	if a.runtimeEvents != nil {
 		a.runtimeEvents.Publish(runtimeevents.Event{
 			Resources: []runtimeevents.Resource{runtimeevents.ResourceMessages},
+		})
+	}
+	return nil
+}
+
+func (a adapters) MarkMissedCallsRead(ctx context.Context, callIDs []string) error {
+	if err := a.repository.MarkMissedCallsReadByIDs(ctx, callIDs); err != nil {
+		return err
+	}
+	if a.runtimeEvents != nil {
+		a.runtimeEvents.Publish(runtimeevents.Event{
+			Resources: []runtimeevents.Resource{runtimeevents.ResourceCalls},
 		})
 	}
 	return nil

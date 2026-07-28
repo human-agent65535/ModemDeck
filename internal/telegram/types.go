@@ -140,6 +140,7 @@ type Call struct {
 	ContactName  string
 	OccurredAt   time.Time
 	Missed       bool
+	Read         bool
 	HasRecording bool
 }
 
@@ -200,6 +201,10 @@ type ReplyBindingStore interface {
 
 type MessageReadMarker interface {
 	MarkMessageThreadRead(context.Context, string, string) error
+}
+
+type CallReadMarker interface {
+	MarkMissedCallsRead(context.Context, []string) error
 }
 
 type EventKind string

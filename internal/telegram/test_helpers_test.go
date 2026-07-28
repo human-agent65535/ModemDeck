@@ -89,6 +89,12 @@ func (f messageReadMarkerFunc) MarkMessageThreadRead(ctx context.Context, lineID
 	return f(ctx, lineID, peer)
 }
 
+type callReadMarkerFunc func(context.Context, []string) error
+
+func (f callReadMarkerFunc) MarkMissedCallsRead(ctx context.Context, callIDs []string) error {
+	return f(ctx, callIDs)
+}
+
 type replyStoreStub struct {
 	bind    func(context.Context, int64, int64, int64, ReplyBinding) error
 	resolve func(context.Context, int64, int64, int64) (ReplyBinding, error)

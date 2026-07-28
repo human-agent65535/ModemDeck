@@ -3,6 +3,7 @@ package telegramruntime
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -146,6 +147,63 @@ func TestAdaptersDoNotPublishMessageInvalidationWhenMarkReadFails(t *testing.T) 
 	}).MarkMessageThreadRead(context.Background(), "line-1", "+818012345678")
 	if !errors.Is(err, markErr) {
 		t.Fatalf("MarkMessageThreadRead() error = %v, want %v", err, markErr)
+	}
+	select {
+	case event := <-updates:
+		t.Fatalf("unexpected runtime event = %+v", event)
+	default:
+	}
+}
+
+func TestAdaptersPublishCallInvalidationAfterMarkingMissedCallsRead(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeRepository{}
+	events := runtimeevents.NewBuffer(4)
+	_, updates, cancel := events.SubscribeCurrent()
+	defer cancel()
+
+	err := (adapters{
+		repository:    repository,
+		runtimeEvents: events,
+	}).MarkMissedCallsRead(context.Background(), []string{"call-1", "call-2"})
+	if err != nil {
+		t.Fatalf("MarkMissedCallsRead() error = %v", err)
+	}
+
+	repository.mu.Lock()
+	markedCallIDs := append([]string(nil), repository.markedCallIDs...)
+	repository.mu.Unlock()
+	if !reflect.DeepEqual(markedCallIDs, []string{"call-1", "call-2"}) {
+		t.Fatalf("marked call IDs = %#v", markedCallIDs)
+	}
+
+	select {
+	case event := <-updates:
+		if len(event.Resources) != 1 ||
+			event.Resources[0] != runtimeevents.ResourceCalls {
+			t.Fatalf("runtime event = %+v", event)
+		}
+	default:
+		t.Fatal("call invalidation event was not published")
+	}
+}
+
+func TestAdaptersDoNotPublishCallInvalidationWhenMarkReadFails(t *testing.T) {
+	t.Parallel()
+
+	markErr := errors.New("database unavailable")
+	repository := &fakeRepository{markCallsReadError: markErr}
+	events := runtimeevents.NewBuffer(4)
+	_, updates, cancel := events.SubscribeCurrent()
+	defer cancel()
+
+	err := (adapters{
+		repository:    repository,
+		runtimeEvents: events,
+	}).MarkMissedCallsRead(context.Background(), []string{"call-1"})
+	if !errors.Is(err, markErr) {
+		t.Fatalf("MarkMissedCallsRead() error = %v, want %v", err, markErr)
 	}
 	select {
 	case event := <-updates:
@@ -357,6 +415,7 @@ func TestAdaptersExposeHumanLineMetadataAndRecentCalls(t *testing.T) {
 			ContactName:    "Aiko Tanaka",
 			EndedAt:        "2026-07-24T08:30:00Z",
 			Missed:         true,
+			Read:           true,
 		}},
 		recordings: []store.RecordingEntry{{
 			Call:     store.RecordingCall{ID: "call-1"},
@@ -390,6 +449,7 @@ func TestAdaptersExposeHumanLineMetadataAndRecentCalls(t *testing.T) {
 		calls[0].LineID != "line-1" ||
 		calls[0].ContactName != "Aiko Tanaka" ||
 		!calls[0].Missed ||
+		!calls[0].Read ||
 		!calls[0].HasRecording ||
 		calls[0].OccurredAt.Format(time.RFC3339) != "2026-07-24T08:30:00Z" {
 		t.Fatalf("RecentCalls() = %+v", calls)
@@ -453,10 +513,12 @@ type fakeRepository struct {
 	recordings  []store.RecordingEntry
 	messages    []store.Message
 
-	messageQueries []store.MessageQuery
-	markedLine     string
-	markedPeer     string
-	markReadError  error
+	messageQueries     []store.MessageQuery
+	markedLine         string
+	markedPeer         string
+	markReadError      error
+	markedCallIDs      []string
+	markCallsReadError error
 }
 
 func (r *fakeRepository) Lines(context.Context) ([]store.LineSummary, error) {
@@ -495,6 +557,16 @@ func (r *fakeRepository) MarkMessageThreadReadByLine(
 	r.markedLine = lineID
 	r.markedPeer = peer
 	return r.markReadError
+}
+
+func (r *fakeRepository) MarkMissedCallsReadByIDs(
+	_ context.Context,
+	callIDs []string,
+) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.markedCallIDs = append([]string(nil), callIDs...)
+	return r.markCallsReadError
 }
 
 func (r *fakeRepository) TelegramNextOffset(context.Context, string) (int64, error) {
