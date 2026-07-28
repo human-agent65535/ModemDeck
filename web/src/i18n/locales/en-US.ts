@@ -240,6 +240,9 @@ export default {
     notAvailable: 'Not available',
     updateTitle: 'Software update',
     updateDescription: 'Automatically check the latest published GitHub Release',
+    checkingTitle: 'Checking for updates',
+    checkingDescription:
+      'Reading the latest GitHub Release. Other version and license information remains available.',
     checkedAt: 'Checked {date}',
     viewRelease: 'View release',
     legalTitle: 'Licenses & notices',

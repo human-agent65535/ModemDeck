@@ -240,6 +240,8 @@ export default {
     notAvailable: '不可用',
     updateTitle: '版本更新',
     updateDescription: '自动检查 GitHub 上最新发布的正式版本',
+    checkingTitle: '正在检查更新',
+    checkingDescription: '正在读取 GitHub 最新 Release，其他版本和许可信息仍可使用。',
     checkedAt: '检查于 {date}',
     viewRelease: '查看 Release',
     legalTitle: '许可与声明',

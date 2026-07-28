@@ -10,16 +10,18 @@ import {
   FileText,
   Info,
   LoaderCircle,
-  RefreshCw,
   Scale
 } from '@lucide/vue'
 import { gateway } from '../api/client'
 import type { AboutInfo, UpdateCheck, UpdateStatus } from '../api/types'
 
 const { locale, t } = useI18n()
+const repositoryURL = 'https://github.com/human-agent65535/ModemDeck'
+const licenseURL = `${repositoryURL}/blob/modemdeck/LICENSE`
+const noticesURL = `${repositoryURL}/blob/modemdeck/THIRD_PARTY_NOTICES.md`
+const licenseName = 'PolyForm Noncommercial 1.0.0'
 const about = ref<AboutInfo | null>(null)
 const update = ref<UpdateCheck | null>(null)
-const loading = ref(true)
 const checking = ref(false)
 const loadError = ref('')
 
@@ -36,16 +38,18 @@ const statusIcon = computed(() => {
   }
 })
 
-const statusTitle = computed(() =>
-  t(`about.updateStatus.${update.value?.status || 'unavailable'}.title`)
-)
+const statusTitle = computed(() => {
+  if (checking.value && !update.value) return t('about.checkingTitle')
+  return t(`about.updateStatus.${update.value?.status || 'unavailable'}.title`)
+})
 
-const statusDescription = computed(() =>
-  t(`about.updateStatus.${update.value?.status || 'unavailable'}.description`, {
+const statusDescription = computed(() => {
+  if (checking.value && !update.value) return t('about.checkingDescription')
+  return t(`about.updateStatus.${update.value?.status || 'unavailable'}.description`, {
     current: update.value?.current_version || about.value?.version || '—',
     latest: update.value?.latest_version || '—'
   })
-)
+})
 
 function formatDate(value?: string): string {
   if (!value || value === 'unknown') return t('about.notAvailable')
@@ -60,8 +64,8 @@ function formatDate(value?: string): string {
   }).format(date)
 }
 
-function compactCommit(value: string): string {
-  return value === 'unknown' ? t('about.notAvailable') : value.slice(0, 12)
+function compactCommit(value?: string): string {
+  return !value || value === 'unknown' ? t('about.notAvailable') : value.slice(0, 12)
 }
 
 async function checkForUpdates(): Promise<void> {
@@ -81,71 +85,61 @@ async function checkForUpdates(): Promise<void> {
 }
 
 async function load(): Promise<void> {
-  loading.value = true
   loadError.value = ''
   try {
     about.value = await gateway.getAbout()
-    await checkForUpdates()
   } catch (error) {
     loadError.value =
       error instanceof Error && error.message ? error.message : t('about.loadFailed')
-  } finally {
-    loading.value = false
   }
 }
 
 function statusClass(status?: UpdateStatus): string {
+  if (checking.value && !update.value) return 'about-status--checking'
   return status ? `about-status--${status}` : 'about-status--unavailable'
 }
 
 onMounted(() => {
   void load()
+  void checkForUpdates()
 })
 </script>
 
 <template>
   <section class="about-settings" aria-labelledby="about-product-title">
-    <div v-if="loading" class="about-state" role="status">
-      <LoaderCircle class="spin" :size="18" />
-      <span>{{ t('about.loading') }}</span>
-    </div>
-
-    <div v-else-if="loadError" class="about-state about-state--error" role="alert">
-      <span>{{ loadError }}</span>
-      <button class="secondary-button" type="button" @click="load">
-        <RefreshCw :size="15" />
-        <span>{{ t('common.retry') }}</span>
-      </button>
-    </div>
-
-    <template v-else-if="about">
-      <section class="about-card about-product">
+    <section class="about-card about-product">
         <header class="about-product__header">
           <span class="about-product__mark" aria-hidden="true">M</span>
           <div>
-            <h3 id="about-product-title">{{ about.name }}</h3>
+            <h3 id="about-product-title">{{ about?.name || 'ModemDeck' }}</h3>
             <p>{{ t('about.productDescription') }}</p>
           </div>
-          <span class="about-version">{{ about.version }}</span>
+          <span class="about-version">{{ about?.version || '—' }}</span>
         </header>
+
+        <p v-if="loadError" class="about-product__error" role="alert">{{ loadError }}</p>
 
         <dl class="about-facts">
           <div>
             <dt>{{ t('about.version') }}</dt>
-            <dd>{{ about.version }}</dd>
+            <dd>{{ about?.version || t('about.notAvailable') }}</dd>
           </div>
           <div>
             <dt>{{ t('about.commit') }}</dt>
-            <dd><code>{{ compactCommit(about.commit) }}</code></dd>
+            <dd><code>{{ compactCommit(about?.commit) }}</code></dd>
           </div>
           <div>
             <dt>{{ t('about.buildDate') }}</dt>
-            <dd>{{ formatDate(about.build_date) }}</dd>
+            <dd>{{ formatDate(about?.build_date) }}</dd>
           </div>
           <div>
             <dt>{{ t('about.sourceCode') }}</dt>
             <dd>
-              <a :href="about.repository_url" target="_blank" rel="noopener noreferrer">
+              <a
+                :href="about?.repository_url || repositoryURL"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 <Code2 :size="14" />
                 GitHub
                 <ExternalLink :size="12" />
@@ -153,9 +147,9 @@ onMounted(() => {
             </dd>
           </div>
         </dl>
-      </section>
+    </section>
 
-      <section class="about-card about-update">
+    <section class="about-card about-update">
         <header class="about-card__header">
           <div>
             <h3>{{ t('about.updateTitle') }}</h3>
@@ -185,9 +179,9 @@ onMounted(() => {
           </a>
         </div>
 
-      </section>
+    </section>
 
-      <section class="about-card about-legal">
+    <section class="about-card about-legal">
         <header class="about-card__header">
           <div>
             <h3>{{ t('about.legalTitle') }}</h3>
@@ -196,15 +190,23 @@ onMounted(() => {
         </header>
 
         <div class="about-legal__links">
-          <a :href="about.license_url" target="_blank" rel="noopener noreferrer">
+          <a
+            :href="about?.license_url || licenseURL"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             <span class="about-legal__icon"><Scale :size="18" /></span>
             <span>
               <strong>{{ t('about.projectLicense') }}</strong>
-              <small>{{ about.license_name }}</small>
+              <small>{{ about?.license_name || licenseName }}</small>
             </span>
             <ExternalLink :size="14" />
           </a>
-          <a :href="about.notices_url" target="_blank" rel="noopener noreferrer">
+          <a
+            :href="about?.notices_url || noticesURL"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             <span class="about-legal__icon"><FileText :size="18" /></span>
             <span>
               <strong>{{ t('about.thirdPartyNotices') }}</strong>
@@ -213,8 +215,7 @@ onMounted(() => {
             <ExternalLink :size="14" />
           </a>
         </div>
-      </section>
-    </template>
+    </section>
   </section>
 </template>
 
@@ -222,21 +223,6 @@ onMounted(() => {
 .about-settings {
   display: grid;
   gap: 14px;
-}
-
-.about-state {
-  display: flex;
-  min-height: 120px;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.about-state--error {
-  flex-direction: column;
-  color: var(--danger);
 }
 
 .about-card {
@@ -296,6 +282,12 @@ onMounted(() => {
   background: var(--accent-soft);
   border: 1px solid var(--accent);
   border-radius: 999px;
+}
+
+.about-product__error {
+  margin: 12px 0 0;
+  color: var(--danger);
+  font-size: 11px;
 }
 
 .about-facts {
@@ -373,6 +365,12 @@ onMounted(() => {
   color: var(--accent-strong);
   background: var(--accent-soft);
   border-left-color: var(--accent);
+}
+
+.about-status--checking {
+  color: var(--muted);
+  background: var(--surface-subtle);
+  border-left-color: var(--border-strong);
 }
 
 .about-status--update_available {
