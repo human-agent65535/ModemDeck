@@ -338,8 +338,14 @@ func TestCallControlAndActiveCallRoutes(t *testing.T) {
 	actionRequest.Header.Set("Content-Type", "application/json")
 	actionResponse := httptest.NewRecorder()
 	api.ServeHTTP(actionResponse, actionRequest)
-	if actionResponse.Code != http.StatusOK {
+	if actionResponse.Code != http.StatusAccepted {
 		t.Fatalf("action status = %d; body = %s", actionResponse.Code, actionResponse.Body.String())
+	}
+	var accepted map[string]string
+	if err := json.Unmarshal(actionResponse.Body.Bytes(), &accepted); err != nil ||
+		accepted["request_id"] != "request-dtmf-1" ||
+		accepted["call_id"] != "call-app-1" {
+		t.Fatalf("accepted action = %+v, error = %v", accepted, err)
 	}
 	if communications.actionInput.CallID != "call-app-1" ||
 		communications.actionInput.Action != "dtmf" ||

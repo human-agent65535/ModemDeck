@@ -1298,7 +1298,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       return clone(activeCall)
     },
 
-    async callAction(id: string, action: 'answer' | 'reject' | 'hangup'): Promise<CallSession> {
+    async callAction(id: string, action: 'answer' | 'reject' | 'hangup'): Promise<void> {
       if (!activeCall || activeCall.id !== id) throw new ApiError('通话不存在', 404)
       if (action === 'answer') {
         activeCall.phase = 'active'
@@ -1313,14 +1313,12 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         activeCall.ended_at = '2026-07-23T12:08:00Z'
         if (activeCallRecording) activeCallRecording.active = false
       }
-      return clone(activeCall)
     },
 
-    async sendDTMF(id: string, digit: string): Promise<CallSession> {
+    async sendDTMF(id: string, digit: string): Promise<void> {
       if (!activeCall || activeCall.id !== id) throw new ApiError('通话不存在', 404)
       if (activeCall.phase !== 'active') throw new ApiError('通话尚未接通', 409)
       if (!/^[0-9*#A-D]$/.test(digit)) throw new ApiError('DTMF 按键无效', 400)
-      return clone(activeCall)
     },
 
     async renewCallLease(id: string) {
@@ -2055,7 +2053,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           hardware.voice_verification = hardware.capabilities.voice.supported
             ? {
                 usb_configuration: 'enabled',
-                media_routing: 'call_required'
+                media_routing: 'supported'
               }
             : {
                 usb_configuration: 'disabled',

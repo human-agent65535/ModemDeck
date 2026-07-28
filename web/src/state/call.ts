@@ -17,7 +17,12 @@ const LEASED_PHASES = new Set<CallSession['phase']>([
   'connecting',
   'active'
 ])
-const LEASED_MEDIA_STATES = new Set(['requesting', 'connecting', 'active'])
+const LEASED_MEDIA_STATES = new Set([
+  'requesting',
+  'connecting',
+  'active',
+  'recovering'
+])
 const NOTIFIED_CALL_HISTORY_LIMIT = 256
 
 type PendingCallAction = '' | 'dial' | CallAction | 'dtmf'
@@ -112,6 +117,13 @@ watch(
   () => callMediaState.status,
   status => {
     if (LEASED_MEDIA_STATES.has(status)) void renewActiveCallLease()
+    if (
+      status === 'error' &&
+      callState.session?.phase === 'active' &&
+      callState.session.media_available
+    ) {
+      void act('hangup')
+    }
   }
 )
 
@@ -289,7 +301,8 @@ async function act(action: CallAction): Promise<void> {
   callState.errorStatus = 0
   syncCallSounds(null)
   try {
-    acceptSession(await gateway.callAction(id, action))
+    await gateway.callAction(id, action)
+    await requestActiveCallRefresh()
   } catch (error) {
     const failure = requestError(error, translate('runtime.callActionFailed'))
     callState.error = failure.message
@@ -324,7 +337,7 @@ export async function sendDTMF(digit: string): Promise<void> {
   callState.error = ''
   callState.errorStatus = 0
   try {
-    acceptSession(await gateway.sendDTMF(id, digit))
+    await gateway.sendDTMF(id, digit)
   } catch (error) {
     const failure = requestError(error, translate('runtime.dtmfFailed'))
     callState.error = failure.message

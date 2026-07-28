@@ -237,7 +237,7 @@ func (api *API) callAction(response http.ResponseWriter, request *http.Request, 
 	if !ok {
 		return
 	}
-	call, err := api.communications.CallAction(request.Context(), communication.CallActionInput{
+	_, err := api.communications.CallAction(request.Context(), communication.CallActionInput{
 		RequestID: requestID,
 		CallID:    callID,
 		Action:    action,
@@ -247,28 +247,19 @@ func (api *API) callAction(response http.ResponseWriter, request *http.Request, 
 		api.writeCommunicationError(response, request, "control call", err)
 		return
 	}
-	if api.callMedia != nil && (action == "hangup" || action == "reject") {
-		if api.recordings != nil {
-			if finalizeErr := api.recordings.FinalizeCall(request.Context(), callID); finalizeErr != nil {
-				api.logger.Warn("finalize call recording", "error", finalizeErr)
-			}
-		}
-		if closeErr := api.callMedia.CloseCall(request.Context(), callID); closeErr != nil {
-			api.logger.Warn("close call media", "error", closeErr)
-		}
-	}
 	api.logger.Info(
-		"call control completed",
+		"call control accepted",
 		"call_id",
 		callID,
 		"action",
 		action,
 		"request_id",
 		requestID,
-		"phase",
-		call.Phase,
 	)
-	writeJSON(response, http.StatusOK, callSessionEnvelope{Call: callSession(call)})
+	writeJSON(response, http.StatusAccepted, map[string]string{
+		"request_id": requestID,
+		"call_id":    callID,
+	})
 }
 
 func callActionResource(path string) (id string, action string, ok bool) {

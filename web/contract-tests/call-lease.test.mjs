@@ -33,10 +33,14 @@ test('browser call ownership follows the existing runtime SSE connection', async
     /session\.phase !== 'active' \|\| !session\.media_available[\s\S]*?LEASED_MEDIA_STATES\.has\(callMediaState\.status\)/
   )
   assert.match(callState, /gateway[\s\S]*?\.renewCallLease\(callID\)/)
-  assert.doesNotMatch(callState, /LEASED_MEDIA_STATES[\s\S]{0,100}'recovering'/)
+  assert.match(callState, /LEASED_MEDIA_STATES[\s\S]{0,100}'recovering'/)
   assert.match(
     callState,
     /callMediaState\.status[\s\S]*?LEASED_MEDIA_STATES\.has\(status\)[\s\S]*?renewActiveCallLease\(\)/
+  )
+  assert.match(
+    callState,
+    /status === 'error'[\s\S]*?session\?\.phase === 'active'[\s\S]*?media_available[\s\S]*?act\('hangup'\)/
   )
   assert.doesNotMatch(
     callState,

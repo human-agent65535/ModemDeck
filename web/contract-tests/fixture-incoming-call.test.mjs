@@ -14,7 +14,8 @@ test('incoming-call preview remains ringing until the user acts', async () => {
     assert.equal(call?.display_name, 'Alex Rowan')
   }
 
-  const answered = await gateway.callAction('call-fixture-incoming', 'answer')
+  await gateway.callAction('call-fixture-incoming', 'answer')
+  const [answered] = await gateway.getActiveCalls()
   assert.equal(answered.phase, 'active')
 })
 

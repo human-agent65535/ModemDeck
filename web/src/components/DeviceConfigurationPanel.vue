@@ -336,8 +336,10 @@ const voiceMediaDetail = computed(() => {
       return t('device.mediaRoutingRejected')
     case 'inactive':
       return t('device.mediaRoutingInactive')
-    case 'call_required':
-      return t('device.mediaRoutingCallRequired')
+    case 'probe_pending':
+      return t('device.mediaRoutingProbePending')
+    case 'supported':
+      return t('device.mediaRoutingSupported')
     default:
       return voiceMediaAvailable.value ? t('device.available') : t('device.unavailable')
   }

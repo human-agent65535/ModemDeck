@@ -1004,12 +1004,12 @@ export function callLeaseContract(id: string): {
 export function callActionContract(id: string, action: CallAction | 'dtmf'): {
   method: 'POST'
   path: string
-  successStatus: 200
+  successStatus: 202
 } {
   return {
     method: 'POST',
     path: callActionPath(id, action),
-    successStatus: 200
+    successStatus: 202
   }
 }
 
@@ -1519,7 +1519,8 @@ function parseDeviceHardwareConfiguration(value: unknown): DeviceHardwareConfigu
     'invalid_response',
     'rejected',
     'inactive',
-    'call_required'
+    'probe_pending',
+    'supported'
   ])
   if (voiceVerification && !usbConfigurationStatuses.has(usbConfiguration)) {
     throw new Error(

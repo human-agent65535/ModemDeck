@@ -2,25 +2,21 @@ package calllease
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/human-agent65535/modemdeck/internal/communication"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
 const (
-	defaultDuration      = 15 * time.Second
-	defaultCheckInterval = 250 * time.Millisecond
-	defaultHangupTimeout = 5 * time.Second
-	defaultRetryDelay    = time.Second
-	maxHolderIDLength    = 128
-	maxCallIDLength      = 256
+	defaultDuration       = 15 * time.Second
+	defaultCheckInterval  = 250 * time.Millisecond
+	defaultReleaseTimeout = 20 * time.Second
+	maxHolderIDLength     = 128
+	maxCallIDLength       = 256
 )
 
 var (
@@ -34,16 +30,15 @@ type CallStore interface {
 }
 
 type CallController interface {
-	CallAction(context.Context, communication.CallActionInput) (store.Call, error)
+	ReleaseCallControl(context.Context) error
 }
 
 type Options struct {
-	Duration      time.Duration
-	CheckInterval time.Duration
-	HangupTimeout time.Duration
-	RetryDelay    time.Duration
-	Now           func() time.Time
-	Report        func(error)
+	Duration       time.Duration
+	CheckInterval  time.Duration
+	ReleaseTimeout time.Duration
+	Now            func() time.Time
+	Report         func(error)
 }
 
 type Status struct {
@@ -60,14 +55,13 @@ type callEntry struct {
 }
 
 type Manager struct {
-	calls         CallStore
-	controller    CallController
-	duration      time.Duration
-	checkInterval time.Duration
-	hangupTimeout time.Duration
-	retryDelay    time.Duration
-	now           func() time.Time
-	report        func(error)
+	calls          CallStore
+	controller     CallController
+	duration       time.Duration
+	checkInterval  time.Duration
+	releaseTimeout time.Duration
+	now            func() time.Time
+	report         func(error)
 
 	mu      sync.Mutex
 	entries map[string]*callEntry
@@ -83,8 +77,7 @@ func New(
 	}
 	if options.Duration < 0 ||
 		options.CheckInterval < 0 ||
-		options.HangupTimeout < 0 ||
-		options.RetryDelay < 0 {
+		options.ReleaseTimeout < 0 {
 		return nil, errors.New("browser call lease durations cannot be negative")
 	}
 	duration := options.Duration
@@ -95,28 +88,23 @@ func New(
 	if checkInterval == 0 {
 		checkInterval = defaultCheckInterval
 	}
-	hangupTimeout := options.HangupTimeout
-	if hangupTimeout == 0 {
-		hangupTimeout = defaultHangupTimeout
-	}
-	retryDelay := options.RetryDelay
-	if retryDelay == 0 {
-		retryDelay = defaultRetryDelay
+	releaseTimeout := options.ReleaseTimeout
+	if releaseTimeout == 0 {
+		releaseTimeout = defaultReleaseTimeout
 	}
 	now := options.Now
 	if now == nil {
 		now = time.Now
 	}
 	return &Manager{
-		calls:         calls,
-		controller:    controller,
-		duration:      duration,
-		checkInterval: checkInterval,
-		hangupTimeout: hangupTimeout,
-		retryDelay:    retryDelay,
-		now:           now,
-		report:        options.Report,
-		entries:       make(map[string]*callEntry),
+		calls:          calls,
+		controller:     controller,
+		duration:       duration,
+		checkInterval:  checkInterval,
+		releaseTimeout: releaseTimeout,
+		now:            now,
+		report:         options.Report,
+		entries:        make(map[string]*callEntry),
 	}, nil
 }
 
@@ -250,27 +238,18 @@ func (m *Manager) endExpiredCall(
 	if !valid {
 		return
 	}
-	commandContext, cancel := context.WithTimeout(
-		normalizeContext(ctx),
-		m.hangupTimeout,
+	releaseContext, cancel := context.WithTimeout(
+		context.WithoutCancel(normalizeContext(ctx)),
+		m.releaseTimeout,
 	)
-	_, err := m.controller.CallAction(
-		commandContext,
-		communication.CallActionInput{
-			RequestID: expirationRequestID(callID, attempt),
-			CallID:    callID,
-			Action:    "hangup",
-		},
-	)
+	err := m.controller.ReleaseCallControl(releaseContext)
 	cancel()
-	m.mu.Lock()
-	if entry := m.entries[callID]; entry != nil && entry.attempt == attempt {
-		entry.ending = false
-		entry.unclaimedExpires = m.now().UTC().Add(m.retryDelay)
-	}
-	m.mu.Unlock()
 	if err != nil && m.report != nil {
-		m.report(fmt.Errorf("end browser-disconnected call %s: %w", callID, err))
+		m.report(fmt.Errorf(
+			"release call control after browser lease expired for %s: %w",
+			callID,
+			err,
+		))
 	}
 }
 
@@ -298,15 +277,6 @@ func leaseablePhase(phase string) bool {
 func trackedPhase(phase string) bool {
 	return strings.EqualFold(strings.TrimSpace(phase), "unknown") ||
 		leaseablePhase(phase)
-}
-
-func expirationRequestID(callID string, attempt uint64) string {
-	digest := sha256.Sum256([]byte(callID))
-	return fmt.Sprintf(
-		"browser-expiry-%s-%d",
-		hex.EncodeToString(digest[:10]),
-		attempt,
-	)
 }
 
 func normalizeContext(ctx context.Context) context.Context {

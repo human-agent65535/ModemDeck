@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"math"
 	"slices"
 	"strconv"
@@ -64,14 +63,6 @@ type AgentChangeSource interface {
 type AgentControlLease interface {
 	RenewControlLease(context.Context) (agentclient.ControlLeaseStatus, error)
 	ReleaseControlLease(context.Context) error
-}
-
-type AgentCallMediaActivator interface {
-	ActivateCallMedia(
-		context.Context,
-		string,
-		agentclient.CallActionRequest,
-	) (agentclient.CallMediaActivation, error)
 }
 
 type Repository interface {
@@ -157,12 +148,11 @@ type Service struct {
 	lifecycleMu       sync.RWMutex
 	lifecycleObserver CallLifecycleObserver
 
-	mediaActivationCalls map[string]struct{}
-
 	controlMu             sync.RWMutex
 	controlLeaseSupported bool
 	agentEventsRequired   bool
 	agentEventsHealthy    bool
+	controlLeaseWanted    bool
 	controlLeaseActive    bool
 }
 
@@ -181,12 +171,11 @@ func New(
 		return nil, operationError(CodeInvalidArgument, "create communication service", "message event publisher is required", nil)
 	}
 	return &Service{
-		agent:                agent,
-		repository:           repository,
-		events:               events,
-		random:               rand.Reader,
-		now:                  time.Now,
-		mediaActivationCalls: make(map[string]struct{}),
+		agent:      agent,
+		repository: repository,
+		events:     events,
+		random:     rand.Reader,
+		now:        time.Now,
 	}, nil
 }
 
@@ -275,7 +264,6 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 	s.mu.Unlock()
 	s.updateAgentControlCapabilities(status.Capabilities)
 	s.publishRuntimeSnapshot(snapshot, lines)
-	s.activatePendingCallMedia(ctx, snapshot)
 	if err := s.reconcileAuthoritativeCalls(refreshContext, activeCalls); err != nil {
 		return cloneStatus(status), operationError(
 			CodeInternal,
@@ -293,89 +281,6 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 		)
 	}
 	return cloneStatus(status), nil
-}
-
-func (s *Service) activatePendingCallMedia(
-	ctx context.Context,
-	snapshot agentclient.Snapshot,
-) {
-	activator, ok := s.agent.(AgentCallMediaActivator)
-	if !ok {
-		return
-	}
-	currentCalls := make(map[string]struct{}, len(snapshot.Calls))
-	for _, call := range snapshot.Calls {
-		if call.StateCode != 7 {
-			currentCalls[call.ID] = struct{}{}
-		}
-	}
-	for callID := range s.mediaActivationCalls {
-		if _, found := currentCalls[callID]; !found {
-			delete(s.mediaActivationCalls, callID)
-		}
-	}
-	lines := make(map[string]agentclient.Line, len(snapshot.Lines))
-	for _, line := range snapshot.Lines {
-		lines[line.ID] = line
-	}
-	for _, call := range snapshot.Calls {
-		if call.StateCode != 4 || call.MediaAvailable {
-			continue
-		}
-		if _, attempted := s.mediaActivationCalls[call.ID]; attempted {
-			continue
-		}
-		line, found := lines[call.LineID]
-		if !found ||
-			line.VoiceVerification == nil ||
-			line.VoiceVerification.MediaRouting != "call_required" {
-			continue
-		}
-		if err := s.ensureAgentControlLease(ctx); err != nil {
-			slog.Warn(
-				"call media activation deferred until agent control is healthy",
-				"component", "communications",
-				"call_id", call.ID,
-				"line_id", call.LineID,
-				"error", err,
-			)
-			continue
-		}
-		commandContext, cancel := context.WithTimeout(normalizeContext(ctx), commandTimeout)
-		activation, err := activator.ActivateCallMedia(
-			commandContext,
-			call.ID,
-			agentclient.CallActionRequest{
-				RequestID: stableInstanceID("media", call.LineID, call.ID),
-			},
-		)
-		cancel()
-		if err != nil {
-			slog.Warn(
-				"call media activation failed",
-				"component", "communications",
-				"call_id", call.ID,
-				"line_id", call.LineID,
-				"error", err,
-			)
-			continue
-		}
-		s.mediaActivationCalls[call.ID] = struct{}{}
-		logArgs := []any{
-			"component", "communications",
-			"call_id", call.ID,
-			"line_id", call.LineID,
-			"routing", activation.MediaRouting,
-			"media_available", activation.MediaAvailable,
-			"media_configured", activation.MediaConfigured,
-		}
-		if activation.MediaAvailable {
-			slog.Info("call media activation observed", logArgs...)
-		} else {
-			logArgs = append(logArgs, "reason", activation.Reason)
-			slog.Warn("call media activation unavailable", logArgs...)
-		}
-	}
 }
 
 func (s *Service) publishRuntimeSnapshot(
@@ -965,6 +870,7 @@ func (s *Service) updateAgentControlCapabilities(
 		s.agentEventsHealthy = false
 	}
 	if !s.controlLeaseSupported {
+		s.controlLeaseWanted = false
 		s.controlLeaseActive = false
 	}
 	s.controlMu.Unlock()
@@ -980,27 +886,35 @@ func (s *Service) agentControlLeaseRenewable() bool {
 	s.controlMu.RLock()
 	defer s.controlMu.RUnlock()
 	return s.controlLeaseSupported &&
+		s.controlLeaseWanted &&
 		(!s.agentEventsRequired || s.agentEventsHealthy)
 }
 
 func (s *Service) ensureAgentControlLease(ctx context.Context) error {
-	if !s.agentControlLeaseRenewable() {
-		s.controlMu.RLock()
-		supported := s.controlLeaseSupported
-		eventsRequired := s.agentEventsRequired
-		eventsHealthy := s.agentEventsHealthy
-		s.controlMu.RUnlock()
-		if supported && eventsRequired && !eventsHealthy {
-			return operationError(
-				CodeUnavailable,
-				"acquire host agent control",
-				"host agent event stream is not healthy",
-				nil,
-			)
-		}
+	s.controlMu.Lock()
+	supported := s.controlLeaseSupported
+	eventsRequired := s.agentEventsRequired
+	eventsHealthy := s.agentEventsHealthy
+	if !supported {
+		s.controlMu.Unlock()
 		return nil
 	}
+	if eventsRequired && !eventsHealthy {
+		s.controlMu.Unlock()
+		return operationError(
+			CodeUnavailable,
+			"acquire host agent control",
+			"host agent event stream is not healthy",
+			nil,
+		)
+	}
+	s.controlLeaseWanted = true
+	s.controlMu.Unlock()
 	if err := s.renewAgentControlLease(ctx); err != nil {
+		s.controlMu.Lock()
+		s.controlLeaseWanted = false
+		s.controlLeaseActive = false
+		s.controlMu.Unlock()
 		return operationError(
 			CodeUnavailable,
 			"acquire host agent control",
@@ -1037,12 +951,59 @@ func (s *Service) releaseAgentControlLease(ctx context.Context) error {
 	}
 	s.controlMu.Lock()
 	active := s.controlLeaseActive
+	s.controlLeaseWanted = false
 	s.controlLeaseActive = false
 	s.controlMu.Unlock()
 	if !active {
 		return nil
 	}
 	return lease.ReleaseControlLease(normalizeContext(ctx))
+}
+
+func (s *Service) ReleaseCallControl(ctx context.Context) error {
+	lease, ok := s.agent.(AgentControlLease)
+	if !ok {
+		return nil
+	}
+	s.controlMu.Lock()
+	s.controlLeaseWanted = false
+	s.controlLeaseActive = false
+	s.controlMu.Unlock()
+	return lease.ReleaseControlLease(normalizeContext(ctx))
+}
+
+func (s *Service) relinquishAcceptedCallControl(
+	ctx context.Context,
+	cause error,
+) error {
+	releaseContext, cancel := context.WithTimeout(
+		context.WithoutCancel(normalizeContext(ctx)),
+		commandTimeout,
+	)
+	releaseErr := s.ReleaseCallControl(releaseContext)
+	cancel()
+	if releaseErr == nil {
+		return cause
+	}
+	return errors.Join(
+		cause,
+		fmt.Errorf("release host-agent control after an indeterminate call start: %w", releaseErr),
+	)
+}
+
+func (s *Service) recordIndeterminateAcceptedCall(
+	ctx context.Context,
+	command store.HardwareCommand,
+	cause error,
+) error {
+	cause = s.relinquishAcceptedCallControl(ctx, cause)
+	finishContext, cancel := durableContext(ctx)
+	finishErr := s.finishIndeterminateCommand(finishContext, command, cause)
+	cancel()
+	if finishErr != nil {
+		return errors.Join(cause, finishErr)
+	}
+	return cause
 }
 
 func resetTimer(timer *time.Timer, duration time.Duration) {
@@ -1207,16 +1168,14 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 	if err != nil {
 		return store.Call{}, s.failLocalCommand(ctx, command, operation, "cannot inspect active calls", err)
 	}
-	for _, call := range active {
-		if call.LineID == line.ID {
-			return store.Call{}, s.failLocalCommand(
-				ctx,
-				command,
-				operation,
-				"this line already has an active call",
-				nil,
-			)
-		}
+	if len(active) > 0 {
+		return store.Call{}, s.failLocalCommand(
+			ctx,
+			command,
+			operation,
+			"another call is already active",
+			nil,
+		)
 	}
 	if err := s.ensureAgentControlLease(ctx); err != nil {
 		return store.Call{}, s.failLocalCommand(
@@ -1241,29 +1200,65 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 		return store.Call{}, translateAgentError(operation, err)
 	}
 	if err := validateReceipt(receipt, requestID); err != nil {
-		if finishErr := s.finishIndeterminateCommand(ctx, command, err); finishErr != nil {
-			return store.Call{}, finishErr
-		}
+		err = s.recordIndeterminateAcceptedCall(ctx, command, err)
 		return store.Call{}, operationError(CodeUnavailable, operation, "host agent returned an invalid command receipt", err)
 	}
 	appID := stableInstanceID("call", line.EndpointID, receipt.ResourceID)
 	outcomeContext, outcomeCancel := durableContext(ctx)
 	defer outcomeCancel()
-	stored, err := s.repository.UpsertHardwareCall(outcomeContext, store.HardwareCall{
-		AppID:          appID,
-		RequestID:      requestID,
-		LineID:         line.ID,
-		EndpointLineID: line.EndpointID,
-		LocalPhone:     line.PhoneNumber,
-		LineIMSI:       line.IMSI,
-		LineICCID:      line.ICCID,
-		EndpointCallID: receipt.ResourceID,
-		Number:         number,
-		Direction:      "outgoing",
-		Phase:          "dialing",
-		ObservedAt:     s.now().UTC(),
-	})
+	snapshot, err := s.agent.Snapshot(outcomeContext)
 	if err != nil {
+		err = s.recordIndeterminateAcceptedCall(ctx, command, err)
+		return store.Call{}, operationError(
+			CodeUnavailable,
+			operation,
+			"host agent accepted the call but its state could not be observed",
+			err,
+		)
+	}
+	var observed agentclient.Call
+	found := false
+	for _, candidate := range snapshot.Calls {
+		if candidate.ID == receipt.ResourceID &&
+			candidate.LineID == line.EndpointID {
+			observed = candidate
+			found = true
+			break
+		}
+	}
+	phase := callPhase(observed.State)
+	if !found || phase == "unknown" || phase == "ended" || phase == "failed" {
+		stateErr := errors.New("accepted call is missing from the authoritative host-agent snapshot")
+		if found {
+			stateErr = fmt.Errorf("accepted call has non-active state %q", observed.State)
+		}
+		stateErr = s.recordIndeterminateAcceptedCall(ctx, command, stateErr)
+		return store.Call{}, operationError(
+			CodeUnavailable,
+			operation,
+			"host agent accepted the call but did not report an active call state",
+			stateErr,
+		)
+	}
+	if snapshot.ObservedAt.IsZero() {
+		snapshot.ObservedAt = s.now().UTC()
+	}
+	projected := projectCall(
+		observed,
+		line,
+		requestID,
+		snapshot.ObservedAt,
+		0,
+	)
+	projected.AppID = appID
+	projected.LineID = line.ID
+	projected.EndpointLineID = line.EndpointID
+	if strings.TrimSpace(projected.Number) == "" {
+		projected.Number = number
+	}
+	stored, err := s.repository.UpsertHardwareCall(outcomeContext, projected)
+	if err != nil {
+		err = s.relinquishAcceptedCallControl(ctx, err)
 		return store.Call{}, operationError(
 			CodeInternal,
 			operation,
@@ -1278,6 +1273,7 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 		appID,
 		"",
 	); err != nil {
+		err = s.relinquishAcceptedCallControl(ctx, err)
 		return store.Call{}, operationError(CodeInternal, operation, "call command result could not be finalized", err)
 	}
 	return stored, nil

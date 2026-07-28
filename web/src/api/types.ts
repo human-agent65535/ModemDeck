@@ -804,7 +804,8 @@ export type VoiceRuntimeVerification = {
     | 'invalid_response'
     | 'rejected'
     | 'inactive'
-    | 'call_required'
+    | 'probe_pending'
+    | 'supported'
 }
 
 export type VoLTEConfiguration = {

@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/human-agent65535/modemdeck/internal/communication"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -30,19 +29,15 @@ func (calls *fakeCalls) CallByID(
 }
 
 type fakeController struct {
-	actions chan communication.CallActionInput
-	err     error
+	releases   chan struct{}
+	releaseErr error
 }
 
-func (controller *fakeController) CallAction(
-	_ context.Context,
-	input communication.CallActionInput,
-) (store.Call, error) {
-	controller.actions <- input
-	if controller.err != nil {
-		return store.Call{}, controller.err
+func (controller *fakeController) ReleaseCallControl(context.Context) error {
+	if controller.releases != nil {
+		controller.releases <- struct{}{}
 	}
-	return store.Call{ID: input.CallID, Phase: "ending"}, nil
+	return controller.releaseErr
 }
 
 func TestLeaseExpiryEndsCall(t *testing.T) {
@@ -51,12 +46,12 @@ func TestLeaseExpiryEndsCall(t *testing.T) {
 		"call-1": {ID: "call-1", Phase: "active"},
 	}}
 	controller := &fakeController{
-		actions: make(chan communication.CallActionInput, 1),
+		releases: make(chan struct{}, 1),
 	}
 	manager, err := New(calls, controller, Options{
-		Duration:      30 * time.Millisecond,
-		CheckInterval: 5 * time.Millisecond,
-		HangupTimeout: time.Second,
+		Duration:       30 * time.Millisecond,
+		CheckInterval:  5 * time.Millisecond,
+		ReleaseTimeout: time.Second,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -69,14 +64,9 @@ func TestLeaseExpiryEndsCall(t *testing.T) {
 	defer cancel()
 	go manager.Run(ctx)
 	select {
-	case action := <-controller.actions:
-		if action.CallID != "call-1" ||
-			action.Action != "hangup" ||
-			action.RequestID == "" {
-			t.Fatalf("call action = %+v", action)
-		}
+	case <-controller.releases:
 	case <-time.After(time.Second):
-		t.Fatal("expired browser call lease did not end the call")
+		t.Fatal("expired browser call lease did not release call control")
 	}
 }
 
@@ -86,12 +76,12 @@ func TestReconciledCallGetsUnclaimedGracePeriod(t *testing.T) {
 		"call-1": {ID: "call-1", Phase: "ringing"},
 	}}
 	controller := &fakeController{
-		actions: make(chan communication.CallActionInput, 1),
+		releases: make(chan struct{}, 1),
 	}
 	manager, err := New(calls, controller, Options{
-		Duration:      30 * time.Millisecond,
-		CheckInterval: 5 * time.Millisecond,
-		HangupTimeout: time.Second,
+		Duration:       30 * time.Millisecond,
+		CheckInterval:  5 * time.Millisecond,
+		ReleaseTimeout: time.Second,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -107,7 +97,7 @@ func TestReconciledCallGetsUnclaimedGracePeriod(t *testing.T) {
 	defer cancel()
 	go manager.Run(ctx)
 	select {
-	case <-controller.actions:
+	case <-controller.releases:
 	case <-time.After(time.Second):
 		t.Fatal("unclaimed active call did not expire")
 	}
@@ -119,12 +109,12 @@ func TestRenewalExtendsCallLease(t *testing.T) {
 		"call-1": {ID: "call-1", Phase: "active"},
 	}}
 	controller := &fakeController{
-		actions: make(chan communication.CallActionInput, 1),
+		releases: make(chan struct{}, 1),
 	}
 	manager, err := New(calls, controller, Options{
-		Duration:      80 * time.Millisecond,
-		CheckInterval: 5 * time.Millisecond,
-		HangupTimeout: time.Second,
+		Duration:       80 * time.Millisecond,
+		CheckInterval:  5 * time.Millisecond,
+		ReleaseTimeout: time.Second,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -141,12 +131,12 @@ func TestRenewalExtendsCallLease(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case action := <-controller.actions:
-		t.Fatalf("call ended before renewed lease expired: %+v", action)
+	case <-controller.releases:
+		t.Fatal("call control was released before the renewed lease expired")
 	case <-time.After(50 * time.Millisecond):
 	}
 	select {
-	case <-controller.actions:
+	case <-controller.releases:
 	case <-time.After(time.Second):
 		t.Fatal("renewed lease never expired")
 	}
@@ -163,7 +153,7 @@ func TestTerminalCallCannotRenew(t *testing.T) {
 			}}
 			manager, err := New(
 				calls,
-				&fakeController{actions: make(chan communication.CallActionInput, 1)},
+				&fakeController{releases: make(chan struct{}, 1)},
 				Options{},
 			)
 			if err != nil {
@@ -188,7 +178,7 @@ func TestAnyLiveBrowserHolderKeepsCallAlive(t *testing.T) {
 	}}
 	manager, err := New(
 		calls,
-		&fakeController{actions: make(chan communication.CallActionInput, 1)},
+		&fakeController{releases: make(chan struct{}, 1)},
 		Options{
 			Duration: 10 * time.Second,
 			Now:      func() time.Time { return now },
@@ -215,20 +205,21 @@ func TestAnyLiveBrowserHolderKeepsCallAlive(t *testing.T) {
 	}
 }
 
-func TestFailedHangupRetriesAfterShortDelay(t *testing.T) {
+func TestFailedReleaseIsNotRetriedWithoutNewAuthoritativeState(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
 	calls := &fakeCalls{calls: map[string]store.Call{
 		"call-1": {ID: "call-1", Phase: "active"},
 	}}
 	controller := &fakeController{
-		actions: make(chan communication.CallActionInput, 2),
-		err:     errors.New("temporary control failure"),
+		releases:   make(chan struct{}, 1),
+		releaseErr: errors.New("temporary control failure"),
 	}
+	reports := make(chan error, 1)
 	manager, err := New(calls, controller, Options{
-		Duration:   10 * time.Second,
-		RetryDelay: time.Second,
-		Now:        func() time.Time { return now },
+		Duration: 10 * time.Second,
+		Now:      func() time.Time { return now },
+		Report:   func(err error) { reports <- err },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -242,38 +233,27 @@ func TestFailedHangupRetriesAfterShortDelay(t *testing.T) {
 		t.Fatalf("first expiration = %+v", first)
 	}
 	manager.endExpiredCall(context.Background(), first[0].callID, first[0].attempt)
-	firstAction := <-controller.actions
+	<-controller.releases
+	<-reports
 
-	now = now.Add(500 * time.Millisecond)
+	now = now.Add(time.Hour)
 	if expired := manager.expiredCalls(); len(expired) != 0 {
-		t.Fatalf("call retried before retry delay = %+v", expired)
-	}
-	controller.err = nil
-	now = now.Add(500 * time.Millisecond)
-	second := manager.expiredCalls()
-	if len(second) != 1 {
-		t.Fatalf("second expiration = %+v", second)
-	}
-	manager.endExpiredCall(context.Background(), second[0].callID, second[0].attempt)
-	secondAction := <-controller.actions
-	if firstAction.RequestID == secondAction.RequestID {
-		t.Fatalf("retry reused request id %q", firstAction.RequestID)
+		t.Fatalf("failed release was retried without a new call state = %+v", expired)
 	}
 }
 
-func TestSuccessfulHangupRepeatsUntilAuthoritativeCallDisappears(t *testing.T) {
+func TestSuccessfulReleaseWaitsForAuthoritativeCallEnd(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
 	calls := &fakeCalls{calls: map[string]store.Call{
 		"call-1": {ID: "call-1", Phase: "active"},
 	}}
 	controller := &fakeController{
-		actions: make(chan communication.CallActionInput, 2),
+		releases: make(chan struct{}, 1),
 	}
 	manager, err := New(calls, controller, Options{
-		Duration:   10 * time.Second,
-		RetryDelay: time.Second,
-		Now:        func() time.Time { return now },
+		Duration: 10 * time.Second,
+		Now:      func() time.Time { return now },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -287,21 +267,14 @@ func TestSuccessfulHangupRepeatsUntilAuthoritativeCallDisappears(t *testing.T) {
 		t.Fatalf("first expiration = %+v", first)
 	}
 	manager.endExpiredCall(context.Background(), first[0].callID, first[0].attempt)
-	<-controller.actions
+	<-controller.releases
 
 	now = now.Add(time.Second)
-	second := manager.expiredCalls()
-	if len(second) != 1 {
-		t.Fatalf("active call was not checked again after hangup = %+v", second)
+	if expired := manager.expiredCalls(); len(expired) != 0 {
+		t.Fatalf("accepted release was repeated = %+v", expired)
 	}
 	if err := manager.ReconcileAuthoritativeCalls(context.Background(), nil); err != nil {
 		t.Fatal(err)
-	}
-	manager.endExpiredCall(context.Background(), second[0].callID, second[0].attempt)
-	select {
-	case action := <-controller.actions:
-		t.Fatalf("terminal authoritative snapshot triggered stale action = %+v", action)
-	default:
 	}
 	if expired := manager.expiredCalls(); len(expired) != 0 {
 		t.Fatalf("terminal authoritative snapshot retained lease = %+v", expired)

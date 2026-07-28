@@ -22,6 +22,7 @@ type fakeAgent struct {
 	snapshotError                    error
 	startResult                      agentclient.CommandReceipt
 	startError                       error
+	snapshotAfterStart               *agentclient.Snapshot
 	startRequests                    []agentclient.StartCallRequest
 	actionResult                     agentclient.CommandReceipt
 	actionError                      error
@@ -56,6 +57,9 @@ func (agent *fakeAgent) StartCall(
 	request agentclient.StartCallRequest,
 ) (agentclient.CommandReceipt, error) {
 	agent.startRequests = append(agent.startRequests, request)
+	if agent.snapshotAfterStart != nil {
+		agent.snapshot = *agent.snapshotAfterStart
+	}
 	return agent.startResult, agent.startError
 }
 
@@ -412,6 +416,18 @@ func TestServiceRequiresExplicitCapableLine(t *testing.T) {
 		RequestID:  "request-call-1",
 		ResourceID: "call-endpoint-1",
 	}
+	startedSnapshot := agent.snapshot
+	startedSnapshot.ObservedAt = now.Add(time.Second)
+	startedSnapshot.Calls = []agentclient.Call{{
+		ID:        "call-endpoint-1",
+		LineID:    "line-1",
+		Number:    "09012345678",
+		Direction: "outgoing",
+		State:     "active",
+		StateCode: 4,
+		Bearer:    "volte",
+	}}
+	agent.snapshotAfterStart = &startedSnapshot
 	repository := &fakeRepository{
 		snapshotResult: store.HardwareSnapshotResult{
 			LineIDsByEndpoint: map[string]string{"line-1": "line-stable"},
@@ -453,7 +469,9 @@ func TestServiceRequiresExplicitCapableLine(t *testing.T) {
 		call.LocalPhone != "+819012345678" ||
 		call.LineIMSI != "440500000000001" ||
 		call.LineICCID != "8901000000000000001" ||
-		call.Direction != "outgoing" || call.Phase != "dialing" {
+		call.Direction != "outgoing" ||
+		call.Phase != "active" ||
+		call.Bearer != "volte" {
 		t.Fatalf("call = %+v", call)
 	}
 	replayed, err := service.StartCall(context.Background(), StartCallInput{
@@ -466,6 +484,50 @@ func TestServiceRequiresExplicitCapableLine(t *testing.T) {
 	}
 	if replayed.ID != call.ID || len(agent.startRequests) != 1 {
 		t.Fatalf("replayed call = %+v, agent requests = %d", replayed, len(agent.startRequests))
+	}
+}
+
+func TestStartCallDoesNotInventStateMissingFromAgentSnapshot(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
+	baseAgent := connectedAgent(now)
+	baseAgent.health.Provider.Capabilities.ControlLease = true
+	baseAgent.startResult = agentclient.CommandReceipt{
+		RequestID:  "request-unobserved-call",
+		ResourceID: "call-endpoint-missing",
+	}
+	agent := &controlLeaseEventAgent{
+		fakeAgent: baseAgent,
+		released:  make(chan struct{}),
+	}
+	repository := &fakeRepository{
+		snapshotResult: store.HardwareSnapshotResult{
+			LineIDsByEndpoint: map[string]string{"line-1": "line-stable"},
+		},
+	}
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	_, err = service.StartCall(context.Background(), StartCallInput{
+		RequestID: "request-unobserved-call",
+		LineID:    "line-stable",
+		Number:    "+818012345678",
+	})
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("StartCall() error = %v, want ErrUnavailable", err)
+	}
+	if repository.callInput.AppID != "" {
+		t.Fatalf("invented call state was persisted: %+v", repository.callInput)
+	}
+	command := repository.commands["request-unobserved-call"]
+	if command.Status != store.HardwareCommandIndeterminate {
+		t.Fatalf("command status = %q, want indeterminate", command.Status)
+	}
+	if got := agent.releaseCalls.Load(); got != 1 {
+		t.Fatalf("control lease releases = %d, want 1", got)
 	}
 }
 
@@ -593,7 +655,7 @@ func TestCallActionUsesReceiptWithoutInventingState(t *testing.T) {
 	}
 }
 
-func TestStartCallRejectsBusyLineBeforeAgentMutation(t *testing.T) {
+func TestStartCallRejectsExistingCallBeforeAgentMutation(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, time.July, 23, 13, 0, 0, 0, time.UTC)

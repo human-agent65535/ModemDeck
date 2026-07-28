@@ -1422,27 +1422,23 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
-  async callAction(id, action): Promise<CallSession> {
+  async callAction(id, action): Promise<void> {
     const contract = callActionContract(id, action)
-    return parseCallResponse(
-      await writeJSON(
-        contract.path,
-        contract.method,
-        createCallActionPayload(action, requestID()),
-        contract.successStatus
-      )
+    await writeJSON(
+      contract.path,
+      contract.method,
+      createCallActionPayload(action, requestID()),
+      contract.successStatus
     )
   },
 
-  async sendDTMF(id: string, digit: string): Promise<CallSession> {
+  async sendDTMF(id: string, digit: string): Promise<void> {
     const contract = callActionContract(id, 'dtmf')
-    return parseCallResponse(
-      await writeJSON(
-        contract.path,
-        contract.method,
-        createDTMFPayload(digit, requestID()),
-        contract.successStatus
-      )
+    await writeJSON(
+      contract.path,
+      contract.method,
+      createDTMFPayload(digit, requestID()),
+      contract.successStatus
     )
   },
 
