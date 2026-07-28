@@ -17,6 +17,7 @@ import {
   capabilityReason,
   contactForNumber,
   contactsResource,
+  lineForKey,
   lineKey,
   lineSupports,
   loadBootstrap,
@@ -104,7 +105,7 @@ const defaultLineID = computed(
 )
 const selectedLine = computed(() => lines.value.find(line => lineKey(line) === selectedLineKey.value))
 const activeLine = computed(() =>
-  composingNew.value ? selectedLine.value : lineForThread(selectedThread.value)
+  composingNew.value ? selectedLine.value : activeLineForThread(selectedThread.value)
 )
 const existingRecipientThread = computed(() =>
   composingNew.value
@@ -191,6 +192,11 @@ function threadUsesLine(thread: MessageThread, line: LineSummary): boolean {
 }
 
 function lineForThread(thread?: MessageThread): LineSummary | undefined {
+  if (!thread) return undefined
+  return lineForKey(thread.line_id)
+}
+
+function activeLineForThread(thread?: MessageThread): LineSummary | undefined {
   if (!thread) return undefined
   return lines.value.find(line => lineKey(line) === thread.line_id)
 }

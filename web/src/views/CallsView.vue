@@ -28,6 +28,7 @@ import {
   callsResource,
   capabilityReason,
   contactForNumber,
+  lineForKey,
   lineKey,
   loadBootstrap,
   loadCalls,
@@ -166,7 +167,7 @@ function hasPlayableRecording(call: CallRecord): boolean {
 }
 
 function lineForCall(call: CallRecord) {
-  return lines.value.find(line => lineKey(line) === call.line_id)
+  return lineForKey(call.line_id)
 }
 
 function callLineFallback(call: CallRecord): string {
@@ -180,7 +181,7 @@ function callLineFallback(call: CallRecord): string {
 }
 
 function actionLineKey(call: CallRecord): string {
-  const line = lineForCall(call)
+  const line = lines.value.find(candidate => lineKey(candidate) === call.line_id)
   return line ? call.line_id : ''
 }
 

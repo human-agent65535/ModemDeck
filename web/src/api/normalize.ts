@@ -374,6 +374,9 @@ export function parseBootstrap(value: unknown): BootstrapResponse {
       ? (capabilities.unavailable_reasons as JsonRecord)
       : {}
   const lines = Array.isArray(source.lines) ? source.lines.map(parseLine) : []
+  const lineCatalog = Array.isArray(source.line_catalog)
+    ? source.line_catalog.map(parseLine)
+    : lines
   const lineSettings = objectValue(source.line_settings, 'bootstrap.line_settings')
   const lineSettingsRevision = numberValue(lineSettings, 'revision')
   if (!Number.isSafeInteger(lineSettingsRevision) || lineSettingsRevision < 1) {
@@ -403,6 +406,7 @@ export function parseBootstrap(value: unknown): BootstrapResponse {
       }
     },
     lines,
+    line_catalog: lineCatalog,
     line_settings: {
       default_line_id: stringValue(lineSettings, 'default_line_id'),
       revision: lineSettingsRevision

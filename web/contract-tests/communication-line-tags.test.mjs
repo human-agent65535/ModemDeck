@@ -68,6 +68,8 @@ test('shared line tags use only stable line ids', () => {
 test('international plus and 00 prefixes share one phone identity', () => {
   assert.equal(phoneIdentitiesMatch('+1 202 555 0101', '0081 80 1234 5678'), true)
   assert.equal(phoneIdentitiesMatch('+1 202 555 0101', '+81 (80) 1234-5678'), true)
+  assert.equal(phoneIdentitiesMatch('+8613800000001', '8618636812882'), true)
+  assert.equal(phoneIdentitiesMatch('008618636812882', '8618636812882'), true)
   assert.equal(phoneIdentitiesMatch('00123', '+123'), false)
   assert.equal(phoneIdentitiesMatch('', ''), false)
 })
@@ -108,7 +110,7 @@ test('call rows and call detail identify the original line', async () => {
   assert.match(row, /import LineTag from '\.\/LineTag\.vue'/)
   assert.match(source, /function lineForCall\(call: CallRecord\)/)
   assert.match(source, /function callLineFallback\(call: CallRecord\)/)
-  assert.match(source, /lineKey\(line\) === call\.line_id/)
+  assert.match(source, /return lineForKey\(call\.line_id\)/)
   assert.match(
     source,
     /<CallHistoryListItem[\s\S]*?:line="lineTagLine\(lineForCall\(call\), call\.line_id\)"[\s\S]*?:line-fallback="callLineFallback\(call\)"/
@@ -119,6 +121,10 @@ test('call rows and call detail identify the original line', async () => {
     /<ContactHeaderIdentity[\s\S]*?:line="lineTagLine\(lineForCall\(selected\), selected\.line_id\)"[\s\S]*?:line-fallback="callLineFallback\(selected\)"/
   )
   assert.match(source, /function actionLineKey\(call: CallRecord\)/)
+  assert.match(
+    source,
+    /lines\.value\.find\(candidate => lineKey\(candidate\) === call\.line_id\)/
+  )
   assert.match(source, /openDialerAndCall\(call\.remote_number, displayName\(call\), actionLineKey\(call\)\)/)
   assert.match(source, /const selectedLineKey = actionLineKey\(call\)/)
   assert.doesNotMatch(source, /call\.device_id/)

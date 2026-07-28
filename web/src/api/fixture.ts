@@ -1092,6 +1092,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           unavailable_reasons: {}
         },
         lines: clone(lines),
+        line_catalog: clone(lines),
         line_settings: clone(lineSettings),
         system_settings: clone(systemSettings)
       }

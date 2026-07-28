@@ -16,12 +16,14 @@ import (
 
 type stableLineQueryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }
 
 type stableLineIdentityMatches struct {
-	ICCID string
-	IMSI  string
-	Phone string
+	ICCID        string
+	IMSI         string
+	Phone        string
+	PhoneAliases []string
 }
 
 func resolveOrCreateStableLine(
@@ -47,6 +49,17 @@ func resolveOrCreateStableLine(
 	)
 	if err != nil {
 		return "", err
+	}
+	phoneAliases, err := stableLinePhones(
+		ctx,
+		transaction,
+		matches.PhoneAliases...,
+	)
+	if err != nil {
+		return "", err
+	}
+	for lineID, phone := range phoneAliases {
+		linePhones[lineID] = phone
 	}
 	lineID := chooseStableLineCanonical(matches, linePhones, number)
 	if lineID == "" {
@@ -77,13 +90,13 @@ func resolveOrCreateStableLine(
 	if canonicalPhone == "" {
 		canonicalPhone = number
 	}
+	matchedLineIDs := []string{matches.ICCID, matches.IMSI, matches.Phone}
+	matchedLineIDs = append(matchedLineIDs, matches.PhoneAliases...)
 	aliases := mergeableStableLineAliases(
 		lineID,
 		canonicalPhone,
 		linePhones,
-		matches.ICCID,
-		matches.IMSI,
-		matches.Phone,
+		matchedLineIDs...,
 	)
 	if err := mergeStableLines(ctx, transaction, lineID, aliases); err != nil {
 		return "", err
@@ -144,6 +157,9 @@ func chooseStableLineCanonical(
 		if matches.Phone != "" {
 			return matches.Phone
 		}
+		if len(matches.PhoneAliases) > 0 {
+			return matches.PhoneAliases[0]
+		}
 		for _, lineID := range []string{matches.ICCID, matches.IMSI} {
 			if lineID != "" && linePhones[lineID] == "" {
 				return lineID
@@ -170,7 +186,7 @@ func mergeableStableLineAliases(
 	for _, candidate := range candidates {
 		candidatePhone := linePhones[candidate]
 		if candidatePhone == "" ||
-			(canonicalPhone != "" && candidatePhone == canonicalPhone) {
+			(canonicalPhone != "" && stableLinePhonesMatch(candidatePhone, canonicalPhone)) {
 			result = append(result, candidate)
 		}
 	}
@@ -217,6 +233,36 @@ func resolveStableLineIdentityMatches(
 		}
 		*query.destination = strings.TrimSpace(*query.destination)
 	}
+	phoneIdentity := stableLinePhoneIdentity(number)
+	if phoneIdentity == "" {
+		return matches, nil
+	}
+	rows, err := queryer.QueryContext(
+		ctx,
+		`SELECT line_id, phone_number
+		 FROM modemdeck_lines
+		 WHERE phone_number <> ''
+		 ORDER BY line_id`,
+	)
+	if err != nil {
+		return stableLineIdentityMatches{}, fmt.Errorf("query stable line phone aliases: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var lineID, storedNumber string
+		if err := rows.Scan(&lineID, &storedNumber); err != nil {
+			return stableLineIdentityMatches{}, fmt.Errorf("scan stable line phone alias: %w", err)
+		}
+		lineID = strings.TrimSpace(lineID)
+		if lineID == "" || lineID == matches.Phone ||
+			stableLinePhoneIdentity(storedNumber) != phoneIdentity {
+			continue
+		}
+		matches.PhoneAliases = append(matches.PhoneAliases, lineID)
+	}
+	if err := rows.Err(); err != nil {
+		return stableLineIdentityMatches{}, fmt.Errorf("read stable line phone aliases: %w", err)
+	}
 	return matches, nil
 }
 
@@ -229,7 +275,12 @@ func resolveStableLineIdentity(
 	if err != nil {
 		return "", err
 	}
-	if lineID := firstNonEmpty(matches.Phone, matches.ICCID, matches.IMSI); lineID != "" {
+	if lineID := firstNonEmpty(
+		matches.Phone,
+		firstNonEmpty(matches.PhoneAliases...),
+		matches.ICCID,
+		matches.IMSI,
+	); lineID != "" {
 		return lineID, nil
 	}
 	return "", ErrLineNotFound
@@ -804,6 +855,30 @@ func (s *Store) ResolveLineEndpoint(ctx context.Context, lineID string) (string,
 
 func normalizeStableLinePhone(value string) string {
 	return phone.NormalizeNetworkNumber(strings.TrimSpace(value))
+}
+
+func stableLinePhonesMatch(left, right string) bool {
+	leftIdentity := stableLinePhoneIdentity(left)
+	return leftIdentity != "" && leftIdentity == stableLinePhoneIdentity(right)
+}
+
+func stableLinePhoneIdentity(value string) string {
+	value = normalizeStableLinePhone(value)
+	if value == "" {
+		return ""
+	}
+	if strings.HasPrefix(value, "+") {
+		return value
+	}
+	if len(value) < 8 || len(value) > 15 || value[0] == '0' {
+		return value
+	}
+	for index := range value {
+		if value[index] < '0' || value[index] > '9' {
+			return value
+		}
+	}
+	return "+" + value
 }
 
 func newStoreLineID() (string, error) {

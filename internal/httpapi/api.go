@@ -443,20 +443,21 @@ func (api *API) getOnly(response http.ResponseWriter, request *http.Request, han
 }
 
 func (api *API) bootstrap(response http.ResponseWriter, request *http.Request) {
-	lines, err := api.repository.Lines(request.Context())
+	persistedLines, err := api.repository.Lines(request.Context())
 	if err != nil {
 		api.writeInternalError(response, request, "load bootstrap lines", err)
 		return
 	}
+	lines := persistedLines
 	capabilities := Capabilities{}
 	if api.communications != nil {
 		status, statusErr := api.communications.Status(request.Context())
 		if statusErr != nil {
 			api.logger.Warn("live communication state is unavailable", "error", statusErr)
-			lines = attachedPersistedLines(lines)
+			lines = attachedPersistedLines(persistedLines)
 			capabilities = disconnectedCapabilities()
 		} else {
-			lines = mergePersistedLineMetadata(status.Lines, lines)
+			lines = mergePersistedLineMetadata(status.Lines, persistedLines)
 			capabilities = capabilitiesForLines(status.Lines)
 			capabilities.WebRTCAudio = status.Capabilities.Media && api.callMedia != nil
 		}
@@ -485,6 +486,7 @@ func (api *API) bootstrap(response http.ResponseWriter, request *http.Request) {
 	writeJSON(response, http.StatusOK, bootstrapResponse{
 		Capabilities:   capabilities,
 		Lines:          lineSummaryResponses(lines),
+		LineCatalog:    lineSummaryResponses(persistedLines),
 		LineSettings:   lineSettings,
 		SystemSettings: systemSettings,
 	})

@@ -46,6 +46,7 @@ import {
   devicesResource,
   displayModuleLines,
   lineHasCallControl,
+  lineForKey,
   lineKey,
   loadBootstrap,
   loadCalls,
@@ -246,11 +247,11 @@ function threadName(thread: MessageThread): string {
 }
 
 function lineForCall(call: CallRecord): LineSummary | undefined {
-  return lines.value.find(line => lineKey(line) === call.line_id)
+  return lineForKey(call.line_id)
 }
 
 function lineForThread(thread: MessageThread): LineSummary | undefined {
-  return lines.value.find(line => lineKey(line) === thread.line_id)
+  return lineForKey(thread.line_id)
 }
 
 function avatarForNumber(number: string): string {

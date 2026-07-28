@@ -197,6 +197,181 @@ func TestStableLineMergesProvisionalSIMWhenPhoneArrives(t *testing.T) {
 	assertActiveLineAttachmentCount(t, repository, stableLineID, 1)
 }
 
+func TestStableLineMergesEquivalentInternationalNumberRepresentations(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	ctx := context.Background()
+	observed := time.Date(2026, time.July, 28, 8, 30, 0, 0, time.UTC)
+	const (
+		historicalLineID = "line_historical_plus"
+		currentLineID    = "line_current_bare"
+		phoneWithPrefix  = "+8613800000001"
+		phoneWithoutPlus = "8618636812882"
+		iccid            = "8986012345678900001"
+		imsi             = "460010000000001"
+		peer             = "+818000000001"
+	)
+	if _, err := repository.database.ExecContext(
+		ctx,
+		`INSERT INTO modemdeck_lines (
+			line_id, phone_number, line_label, line_color, created_at, updated_at
+		 ) VALUES
+			(?, ?, '', '', ?, ?),
+			(?, ?, 'Bac', 'teal', ?, ?)`,
+		historicalLineID,
+		phoneWithPrefix,
+		databaseTime(observed.Add(-time.Hour)),
+		databaseTime(observed.Add(-time.Hour)),
+		currentLineID,
+		phoneWithoutPlus,
+		databaseTime(observed),
+		databaseTime(observed),
+	); err != nil {
+		t.Fatalf("seed equivalent phone lines: %v", err)
+	}
+	if _, err := repository.database.ExecContext(
+		ctx,
+		`INSERT INTO sim_cards (
+			iccid, line_id, imsi, current_imei, last_seen, created_at, updated_at
+		 ) VALUES (?, ?, ?, 'imei-current', ?, ?, ?)`,
+		iccid,
+		currentLineID,
+		imsi,
+		databaseTime(observed),
+		databaseTime(observed),
+		databaseTime(observed),
+	); err != nil {
+		t.Fatalf("seed current SIM card: %v", err)
+	}
+	if _, err := repository.database.ExecContext(
+		ctx,
+		`INSERT INTO sim_subscriptions (
+			imsi, line_id, current_iccid, phone_number, modem_phone_number,
+			last_seen, created_at, updated_at
+		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		imsi,
+		currentLineID,
+		iccid,
+		phoneWithoutPlus,
+		phoneWithoutPlus,
+		databaseTime(observed),
+		databaseTime(observed),
+		databaseTime(observed),
+	); err != nil {
+		t.Fatalf("seed current SIM subscription: %v", err)
+	}
+	if _, err := repository.database.ExecContext(
+		ctx,
+		`INSERT INTO sms (
+			line_id, iccid, peer, content, type, timestamp, created_at
+		 ) VALUES (?, 'iccid-historical', ?, 'historical message', 1, ?, ?)`,
+		historicalLineID,
+		peer,
+		databaseTime(observed.Add(-time.Hour)),
+		databaseTime(observed.Add(-time.Hour)),
+	); err != nil {
+		t.Fatalf("seed historical message: %v", err)
+	}
+	if _, err := repository.database.ExecContext(
+		ctx,
+		`INSERT INTO call_history (
+			id, line_id, direction, remote_number, phase, created_at, ended_at
+		 ) VALUES ('call-historical-plus', ?, 'outgoing', ?, 'ended', ?, ?)`,
+		historicalLineID,
+		peer,
+		databaseTime(observed.Add(-time.Hour)),
+		databaseTime(observed.Add(-time.Hour)),
+	); err != nil {
+		t.Fatalf("seed historical call: %v", err)
+	}
+
+	result, err := repository.ApplyHardwareSnapshotWithResult(ctx, HardwareSnapshot{
+		BootEpoch:  "boot-equivalent-phone",
+		Revision:   "snapshot-equivalent-phone",
+		ObservedAt: observed.Add(time.Minute),
+		Lines: []HardwareLine{{
+			ID:                  "endpoint-current",
+			EquipmentIdentifier: "imei-current",
+			PhoneNumber:         phoneWithoutPlus,
+			ICCID:               iccid,
+			IMSI:                imsi,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("apply equivalent phone snapshot: %v", err)
+	}
+	if got := result.LineIDsByEndpoint["endpoint-current"]; got != currentLineID {
+		t.Fatalf("resolved stable line = %q, want %q", got, currentLineID)
+	}
+
+	var (
+		lineCount, historicalMessages, historicalCalls int
+		phone, label, color                            string
+	)
+	if err := repository.database.QueryRowContext(
+		ctx,
+		`SELECT
+			(SELECT COUNT(*) FROM modemdeck_lines
+				WHERE line_id IN (?, ?)),
+			(SELECT phone_number FROM modemdeck_lines WHERE line_id = ?),
+			(SELECT line_label FROM modemdeck_lines WHERE line_id = ?),
+			(SELECT line_color FROM modemdeck_lines WHERE line_id = ?),
+			(SELECT COUNT(*) FROM sms
+				WHERE line_id = ? AND content = 'historical message'),
+			(SELECT COUNT(*) FROM call_history
+				WHERE line_id = ? AND id = 'call-historical-plus')`,
+		historicalLineID,
+		currentLineID,
+		currentLineID,
+		currentLineID,
+		currentLineID,
+		currentLineID,
+		currentLineID,
+	).Scan(
+		&lineCount,
+		&phone,
+		&label,
+		&color,
+		&historicalMessages,
+		&historicalCalls,
+	); err != nil {
+		t.Fatalf("read merged equivalent phone line: %v", err)
+	}
+	if lineCount != 1 ||
+		phone != phoneWithoutPlus ||
+		label != "Bac" ||
+		color != "teal" ||
+		historicalMessages != 1 ||
+		historicalCalls != 1 {
+		t.Fatalf(
+			"merged line = count %d, phone %q, label %q, color %q, messages %d, calls %d",
+			lineCount,
+			phone,
+			label,
+			color,
+			historicalMessages,
+			historicalCalls,
+		)
+	}
+	assertResolvedLineEndpoint(t, repository, currentLineID, "endpoint-current")
+}
+
+func TestStableLinePhoneIdentityTreatsInternationalPrefixesAsOne(t *testing.T) {
+	t.Parallel()
+
+	const expected = "+8613800000001"
+	for _, number := range []string{
+		"+8613800000001",
+		"8618636812882",
+		"008618636812882",
+	} {
+		if got := stableLinePhoneIdentity(number); got != expected {
+			t.Fatalf("identity for %q = %q, want %q", number, got, expected)
+		}
+	}
+}
+
 func TestLegacyEndpointProvisionalLineMergesOnFirstIdentitySnapshot(t *testing.T) {
 	t.Parallel()
 

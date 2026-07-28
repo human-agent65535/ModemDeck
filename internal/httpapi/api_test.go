@@ -471,6 +471,11 @@ func TestBootstrapDisconnectedFallbackHidesOrphanedStableLines(t *testing.T) {
 	if len(body.Lines) != 1 || body.Lines[0].ID != "line-attached" {
 		t.Fatalf("fallback lines = %+v, want only attached persisted line", body.Lines)
 	}
+	if len(body.LineCatalog) != 2 ||
+		body.LineCatalog[0].ID != "line-attached" ||
+		body.LineCatalog[1].ID != "line-orphaned" {
+		t.Fatalf("line catalog = %+v, want every persisted stable line", body.LineCatalog)
+	}
 	if body.Capabilities.AgentConnected {
 		t.Fatalf("capabilities = %+v, want disconnected", body.Capabilities)
 	}

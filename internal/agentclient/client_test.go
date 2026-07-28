@@ -148,6 +148,10 @@ func TestSnapshotDecodesAgentContract(t *testing.T) {
 				"message_ids":["message-1"],
 				"supported_message_storages":[1,2],
 				"default_message_storage":2,
+				"voice_verification":{
+					"usb_configuration":"enabled",
+					"media_routing":"enabled"
+				},
 				"capabilities":{
 					"modem_interface":true,
 					"sim_interface":true,
@@ -215,6 +219,11 @@ func TestSnapshotDecodesAgentContract(t *testing.T) {
 	}
 	if !snapshot.Lines[0].Capabilities.Media {
 		t.Fatalf("unexpected line media capability: %+v", snapshot.Lines[0].Capabilities)
+	}
+	if snapshot.Lines[0].VoiceVerification == nil ||
+		snapshot.Lines[0].VoiceVerification.USBConfiguration != "enabled" ||
+		snapshot.Lines[0].VoiceVerification.MediaRouting != "enabled" {
+		t.Fatalf("unexpected line voice verification: %+v", snapshot.Lines[0].VoiceVerification)
 	}
 	if snapshot.Calls[0].AudioFormat == nil ||
 		snapshot.Calls[0].AudioFormat.Rate != 8000 ||

@@ -205,6 +205,7 @@ export type RecordingEntry = {
 export type BootstrapResponse = {
   capabilities: Capabilities
   lines: LineSummary[]
+  line_catalog: LineSummary[]
   line_settings: LineSettings
   system_settings: SystemSettings
 }

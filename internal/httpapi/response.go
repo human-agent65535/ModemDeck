@@ -18,6 +18,7 @@ type sessionResponse struct {
 type bootstrapResponse struct {
 	Capabilities   Capabilities          `json:"capabilities"`
 	Lines          []lineSummaryResponse `json:"lines"`
+	LineCatalog    []lineSummaryResponse `json:"line_catalog"`
 	LineSettings   store.LineSettings    `json:"line_settings"`
 	SystemSettings store.SystemSettings  `json:"system_settings"`
 }

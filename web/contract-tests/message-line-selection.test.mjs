@@ -12,8 +12,9 @@ test('existing conversations stay pinned to their original line', async () => {
   assert.doesNotMatch(source, /thread\.(?:local_phone|imsi|iccid)/)
   assert.match(
     source,
-    /const activeLine = computed\(\(\) =>[\s\S]*composingNew\.value[\s\S]*selectedLine\.value[\s\S]*lineForThread\(selectedThread\.value\)/
+    /const activeLine = computed\(\(\) =>[\s\S]*composingNew\.value[\s\S]*selectedLine\.value[\s\S]*activeLineForThread\(selectedThread\.value\)/
   )
+  assert.match(source, /return lineForKey\(thread\.line_id\)/)
   assert.doesNotMatch(source, /replyLineThreadKey/)
   assert.match(
     source,
@@ -30,7 +31,7 @@ test('sending an existing conversation uses its original line identity', async (
 
   assert.match(
     source,
-    /const activeLine = computed\(\(\) =>[\s\S]*lineForThread\(selectedThread\.value\)/
+    /const activeLine = computed\(\(\) =>[\s\S]*activeLineForThread\(selectedThread\.value\)/
   )
   assert.match(
     source,

@@ -19,6 +19,7 @@ import {
 import {
   bootstrapResource,
   contactForNumber,
+  lineForKey,
   lineKey,
   loadBootstrap,
   loadContacts
@@ -73,7 +74,7 @@ function directionLabel(recording: RecordingEntry): string {
 }
 
 function lineForRecording(recording: RecordingEntry) {
-  return lines.value.find(line => lineKey(line) === recording.call.line_id)
+  return lineForKey(recording.call.line_id)
 }
 
 function recordingLineFallback(recording: RecordingEntry): string {
