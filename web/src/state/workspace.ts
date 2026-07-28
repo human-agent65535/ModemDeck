@@ -130,10 +130,12 @@ export function lineName(key: string): string {
 
 export function lineForKey(key: string): LineSummary | undefined {
   const bootstrap = bootstrapResource.data
-  const lines = bootstrap?.line_catalog || bootstrap?.lines || []
   const normalizedKey = key.trim()
   if (!normalizedKey) return undefined
-  return lines.find(line => lineKey(line) === normalizedKey)
+  return (
+    bootstrap?.lines.find(line => lineKey(line) === normalizedKey) ||
+    bootstrap?.line_catalog.find(line => lineKey(line) === normalizedKey)
+  )
 }
 
 export function resolveLine(

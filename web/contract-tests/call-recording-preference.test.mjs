@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { gateway } from '../src/api/client.ts'
-import { callState, dial, shutdownCallRuntime } from '../src/state/call.ts'
+import {
+  callState,
+  dial,
+  initializeCallRuntime,
+  requestActiveCallRefresh,
+  shutdownCallRuntime
+} from '../src/state/call.ts'
 import { bootstrapResource } from '../src/state/workspace.ts'
 
 function callResponse(id, lineKey, number) {
@@ -125,4 +131,46 @@ test('dial forwards the current recording preference and keeps one call in fligh
     received.map(request => request.recordingEnabled),
     [true, false, true]
   )
+})
+
+test('call reconciliation repeats when a terminal event arrives during an active read', async () => {
+  const originalGetActiveCalls = gateway.getActiveCalls
+  let requestCount = 0
+  let resolveFirst
+
+  gateway.getActiveCalls = () => {
+    requestCount += 1
+    if (requestCount === 1) {
+      return new Promise(resolve => {
+        resolveFirst = resolve
+      })
+    }
+    return Promise.resolve([])
+  }
+
+  try {
+    initializeCallRuntime()
+    await Promise.resolve()
+    assert.equal(requestCount, 1)
+
+    const terminalRefresh = requestActiveCallRefresh()
+    resolveFirst([
+      {
+        id: 'call-reconcile-1',
+        line_id: 'line-main',
+        direction: 'outgoing',
+        remote_number: '+818000000015',
+        phase: 'dialing',
+        media_available: false,
+        created_at: '2026-07-28T09:34:07Z'
+      }
+    ])
+    await terminalRefresh
+
+    assert.equal(requestCount, 2)
+    assert.equal(callState.session, null)
+  } finally {
+    shutdownCallRuntime()
+    gateway.getActiveCalls = originalGetActiveCalls
+  }
 })

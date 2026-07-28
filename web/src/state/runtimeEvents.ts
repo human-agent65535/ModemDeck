@@ -77,7 +77,7 @@ async function refreshResource(resource: RuntimeResource): Promise<void> {
       await loadNetwork(true, true)
       break
     case 'calls':
-      requestActiveCallRefresh()
+      await requestActiveCallRefresh()
       await refreshCalls()
       break
     case 'messages':

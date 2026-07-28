@@ -59,6 +59,7 @@ test('runtime SSE is global to the authenticated application shell', async () =>
   assert.match(shell, /shutdownRuntimeEvents\(\)/)
   assert.match(runtime, /refreshDeviceWorkspace\(\)/)
   assert.match(runtime, /loadNetwork\(true, true\)/)
+  assert.match(runtime, /case 'calls':[\s\S]*?await requestActiveCallRefresh\(\)/)
   assert.match(runtime, /refreshCalls\(\)/)
   assert.match(runtime, /case 'messages':[\s\S]*?refreshMessageWorkspace\(\)/)
   assert.match(

@@ -69,10 +69,10 @@ test('bootstrap keeps active routes separate from the stable line catalog', () =
   )
 })
 
-test('display identity resolution reads the stable catalog, not active routes', () => {
+test('display identity resolution keeps live capabilities and falls back to stable history', () => {
   assert.match(
     workspaceSource,
-    /const lines = bootstrap\?\.line_catalog \|\| bootstrap\?\.lines \|\| \[\]/
+    /bootstrap\?\.lines\.find\(line => lineKey\(line\) === normalizedKey\)[\s\S]*bootstrap\?\.line_catalog\.find\(line => lineKey\(line\) === normalizedKey\)/
   )
   assert.match(
     dashboardSource,

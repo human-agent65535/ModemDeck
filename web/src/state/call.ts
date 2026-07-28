@@ -16,7 +16,8 @@ const NOTIFIED_CALL_HISTORY_LIMIT = 256
 type PendingCallAction = '' | 'dial' | CallAction | 'dtmf'
 
 let runtimeStarted = false
-let pollInFlight = false
+let activeCallRefreshRequested = false
+let activeCallRefreshLoop: Promise<void> | undefined
 let mutationEpoch = 0
 let activeRouter: Router | undefined
 const notifiedIncomingCallIDs = new Set<string>()
@@ -98,10 +99,7 @@ function showIncomingCallNotification(session: CallSession): void {
   })
 }
 
-export async function refreshActiveCalls(): Promise<void> {
-  if (!runtimeStarted) return
-  if (pollInFlight) return
-  pollInFlight = true
+async function refreshActiveCallsOnce(): Promise<void> {
   const startedAtEpoch = mutationEpoch
   if (callState.syncStatus === 'idle') callState.syncStatus = 'loading'
 
@@ -125,9 +123,27 @@ export async function refreshActiveCalls(): Promise<void> {
     const failure = requestError(error, translate('runtime.syncCallsFailed'))
     callState.syncStatus = failure.status === 403 ? 'forbidden' : 'error'
     callState.syncError = failure.message
-  } finally {
-    pollInFlight = false
   }
+}
+
+async function drainActiveCallRefreshes(): Promise<void> {
+  while (runtimeStarted && activeCallRefreshRequested) {
+    activeCallRefreshRequested = false
+    await refreshActiveCallsOnce()
+  }
+}
+
+export function refreshActiveCalls(): Promise<void> {
+  if (!runtimeStarted) return Promise.resolve()
+  activeCallRefreshRequested = true
+  if (!activeCallRefreshLoop) {
+    const loop = drainActiveCallRefreshes()
+    activeCallRefreshLoop = loop.finally(() => {
+      activeCallRefreshLoop = undefined
+      if (runtimeStarted && activeCallRefreshRequested) void refreshActiveCalls()
+    })
+  }
+  return activeCallRefreshLoop
 }
 
 export function initializeCallRuntime(router?: Router): void {
@@ -139,13 +155,13 @@ export function initializeCallRuntime(router?: Router): void {
   void refreshActiveCalls()
 }
 
-export function requestActiveCallRefresh(): void {
-  if (!runtimeStarted) return
-  void refreshActiveCalls()
+export function requestActiveCallRefresh(): Promise<void> {
+  return refreshActiveCalls()
 }
 
 export function shutdownCallRuntime(): void {
   runtimeStarted = false
+  activeCallRefreshRequested = false
   activeRouter = undefined
   mutationEpoch += 1
   syncCallSounds(null)
