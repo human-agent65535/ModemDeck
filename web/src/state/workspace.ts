@@ -225,6 +225,27 @@ export function displayModuleLines(lines: LineSummary[], devices: Device[]): Lin
   return result
 }
 
+export function presentModuleLines(lines: LineSummary[], devices: Device[]): LineSummary[] {
+  const devicesByIMEI = new Map(
+    devices
+      .map(device => [device.imei.trim(), device] as const)
+      .filter(([imei]) => Boolean(imei))
+  )
+  const seen = new Set<string>()
+
+  return displayModuleLines(lines, devices).filter(line => {
+    const imei = line.device_imei.trim()
+    const device = imei ? devicesByIMEI.get(imei) : undefined
+    if (device?.present === false) return false
+    if (line.module_only && device?.present !== true) return false
+
+    const identity = imei ? `imei:${imei}` : `line:${lineKey(line)}`
+    if (seen.has(identity)) return false
+    seen.add(identity)
+    return true
+  })
+}
+
 export function deviceName(id: string): string {
   const device = devicesResource.data.find(item => item.imei === id)
   return device?.name || device?.model || id

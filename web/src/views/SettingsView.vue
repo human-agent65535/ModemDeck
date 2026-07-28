@@ -29,9 +29,12 @@ import { logout as logoutSession, sessionState } from '../state/session'
 import {
   bootstrapResource,
   callsResource,
+  devicesResource,
   loadBootstrap,
   loadCalls,
+  loadDevices,
   loadThreads,
+  presentModuleLines,
   threadsResource
 } from '../state/workspace'
 import { isRegisteredNetwork } from '../utils/operatorNetwork'
@@ -51,8 +54,11 @@ const { t } = useI18n()
 const logoutPending = ref(false)
 const logoutError = ref('')
 const lines = computed(() => bootstrapResource.data?.lines || [])
-const onlineLines = computed(
-  () => lines.value.filter(line => isRegisteredNetwork(line)).length
+const presentModules = computed(() =>
+  presentModuleLines(lines.value, devicesResource.data)
+)
+const onlineModules = computed(
+  () => presentModules.value.filter(line => isRegisteredNetwork(line)).length
 )
 const attentionCount = computed(
   () =>
@@ -60,9 +66,9 @@ const attentionCount = computed(
     callsResource.data.filter(call => call.missed).length
 )
 const overviewSummary = computed(() => {
-  const online = t('dashboard.linesOnline', {
-    online: onlineLines.value,
-    total: lines.value.length
+  const online = t('dashboard.modulesOnline', {
+    online: onlineModules.value,
+    total: presentModules.value.length
   })
   return attentionCount.value
     ? `${online} · ${t('dashboard.attention', { count: attentionCount.value })}`
@@ -166,7 +172,7 @@ async function logout(): Promise<void> {
 }
 
 onMounted(() => {
-  void Promise.all([loadBootstrap(), loadThreads(), loadCalls()])
+  void Promise.all([loadBootstrap(), loadDevices(), loadThreads(), loadCalls()])
 })
 </script>
 

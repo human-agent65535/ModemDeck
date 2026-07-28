@@ -283,7 +283,10 @@ const dataConnection = computed(() => {
 <style scoped>
 .module-card {
   position: relative;
+  display: flex;
+  height: 100%;
   min-width: 0;
+  flex-direction: column;
   container-type: inline-size;
   overflow: hidden;
   background: var(--surface);
@@ -307,6 +310,8 @@ const dataConnection = computed(() => {
   display: grid;
   width: 100%;
   min-width: 0;
+  flex: 1 1 auto;
+  align-content: start;
   gap: 12px;
   padding: 15px;
   color: inherit;
@@ -459,6 +464,7 @@ const dataConnection = computed(() => {
 .module-card__footer {
   display: grid;
   min-height: 48px;
+  flex: 0 0 48px;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;

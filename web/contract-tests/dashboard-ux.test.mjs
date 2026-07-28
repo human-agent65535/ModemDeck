@@ -139,6 +139,26 @@ test('dashboard readiness counts require both service and backend capability', (
   )
 })
 
+test('dashboard reports physical modem inventory separately from service readiness', () => {
+  assert.match(dashboard, /presentModuleLines\(lines\.value, devicesResource\.data\)/)
+  assert.match(
+    dashboard,
+    /presentModules\.value\.filter\(line => isRegisteredNetwork\(line\)\)/
+  )
+  assert.match(
+    dashboard,
+    /t\('dashboard\.modulesOnline', \{[\s\S]*online: onlineModules,[\s\S]*total: presentModules\.length/
+  )
+  assert.match(
+    dashboard,
+    /\{\{ onlineModules \}\}<small>\/\{\{ presentModules\.length \}\}<\/small>/
+  )
+  assert.match(
+    dashboard,
+    /t\('dashboard\.moduleStatus'\)[\s\S]*\{\{ presentModules\.length \}\}[\s\S]*t\('device\.modules'\)/
+  )
+})
+
 test('dashboard entity grids retain stable desktop columns and card widths', () => {
   const entityGridBlock =
     dashboard.match(

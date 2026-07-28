@@ -77,6 +77,20 @@ test('module cards expose one fixed information skeleton in both views', () => {
   assert.doesNotMatch(moduleCard, /repeat\(3, minmax\(0, 1fr\)\)/)
 })
 
+test('module cards stretch their body while keeping every footer fixed to the bottom', () => {
+  const card = cssBlock(moduleCard, '.module-card')
+  const main = cssBlock(moduleCard, '.module-card__main')
+  const footer = cssBlock(moduleCard, '.module-card__footer')
+
+  assert.match(card, /display: flex/)
+  assert.match(card, /height: 100%/)
+  assert.match(card, /flex-direction: column/)
+  assert.match(main, /flex: 1 1 auto/)
+  assert.match(main, /align-content: start/)
+  assert.match(footer, /min-height: 48px/)
+  assert.match(footer, /flex: 0 0 48px/)
+})
+
 test('device settings add selection actions without changing card content', () => {
   const dashboardUse =
     dashboard.match(/<ModuleCard[\s\S]*?\/>/)?.[0] || ''

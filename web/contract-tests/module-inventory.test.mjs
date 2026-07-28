@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { createFixtureGateway } from '../src/api/fixture.ts'
-import { displayModuleLines } from '../src/state/workspace.ts'
+import {
+  displayModuleLines,
+  presentModuleLines
+} from '../src/state/workspace.ts'
 
 test('module inventory includes SIM-less and disconnected devices without creating service lines', async () => {
   const gateway = createFixtureGateway({ lineCount: 1 })
@@ -60,6 +63,18 @@ test('module inventory includes SIM-less and disconnected devices without creati
       moduleOnly: true,
       modem: false
     }
+  )
+
+  const present = presentModuleLines(
+    bootstrap.lines.concat({
+      ...bootstrap.lines[0],
+      id: 'duplicate-service-line'
+    }),
+    devices.concat(simless, historical)
+  )
+  assert.deepEqual(
+    present.map(line => line.device_imei),
+    [bootstrap.lines[0]?.device_imei, 'fixture-no-sim']
   )
 })
 

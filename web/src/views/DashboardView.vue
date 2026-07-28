@@ -52,6 +52,7 @@ import {
   loadContacts,
   loadDevices,
   loadThreads,
+  presentModuleLines,
   recentIncomingThreadKeys,
   saveContact,
   threadsResource
@@ -88,6 +89,9 @@ const messageComposeLineKey = ref('')
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const moduleLines = computed(() => displayModuleLines(lines.value, devicesResource.data))
+const presentModules = computed(() =>
+  presentModuleLines(lines.value, devicesResource.data)
+)
 const contactLines = computed(() => lines.value.filter(line => Boolean(lineKey(line))))
 const defaultLineID = computed(
   () => bootstrapResource.data?.line_settings.default_line_id || ''
@@ -115,8 +119,8 @@ const unreadMessages = computed(() =>
 const missedCalls = computed(
   () => callsResource.data.filter(call => call.missed).length
 )
-const onlineLines = computed(
-  () => lines.value.filter(line => isRegisteredNetwork(line)).length
+const onlineModules = computed(
+  () => presentModules.value.filter(line => isRegisteredNetwork(line)).length
 )
 const callReadyLines = computed(
   () =>
@@ -432,9 +436,9 @@ onMounted(() => {
           <strong>{{ t('dashboard.overview') }}</strong>
           <small>
             {{
-              t('dashboard.linesOnline', {
-                online: onlineLines,
-                total: lines.length
+              t('dashboard.modulesOnline', {
+                online: onlineModules,
+                total: presentModules.length
               })
             }}
             <template v-if="attentionCount">
@@ -567,10 +571,10 @@ onMounted(() => {
                 <RadioTower :size="20" />
               </span>
               <span class="dashboard-summary-value">
-                {{ onlineLines }}<small>/{{ lines.length }}</small>
+                {{ onlineModules }}<small>/{{ presentModules.length }}</small>
               </span>
               <span class="dashboard-summary-label">
-                {{ t('dashboard.onlineLines') }}
+                {{ t('dashboard.onlineModules') }}
               </span>
               <ChevronRight :size="17" />
             </RouterLink>
@@ -589,9 +593,10 @@ onMounted(() => {
           <section class="dashboard-detail-section" aria-labelledby="dashboard-lines-title">
             <header>
               <div>
-                <h3 id="dashboard-lines-title">{{ t('dashboard.lineStatus') }}</h3>
+                <h3 id="dashboard-lines-title">{{ t('dashboard.moduleStatus') }}</h3>
                 <span class="dashboard-section-metrics">
-                  <span><b>{{ onlineLines }}</b> {{ t('dashboard.online') }}</span>
+                  <span><b>{{ presentModules.length }}</b> {{ t('device.modules') }}</span>
+                  <span><b>{{ onlineModules }}</b> {{ t('dashboard.online') }}</span>
                   <span><b>{{ callReadyLines }}</b> {{ t('dashboard.callReady') }}</span>
                   <span><b>{{ messageReadyLines }}</b> {{ t('dashboard.messageReady') }}</span>
                 </span>
