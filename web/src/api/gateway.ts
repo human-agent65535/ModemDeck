@@ -1,4 +1,5 @@
 import type {
+  AboutInfo,
   BootstrapResponse,
   CallAction,
   CallFilter,
@@ -48,6 +49,7 @@ import type {
   TelegramUnit,
   TelegramUnitInput,
   TLSSettings,
+  UpdateCheck,
   UpdateDeviceConfigurationInput,
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
@@ -87,6 +89,8 @@ export interface SessionGateway {
 
 export interface ModemDeckGateway {
   readonly interactions?: GatewayInteractions
+  getAbout(): Promise<AboutInfo>
+  checkForUpdates(): Promise<UpdateCheck>
   getBootstrap(): Promise<BootstrapResponse>
   listContacts(query?: ListQuery): Promise<Contact[]>
   listThreads(query?: ListQuery): Promise<MessageThread[]>

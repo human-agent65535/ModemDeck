@@ -126,6 +126,34 @@ export type TLSSettings = {
   renews_automatically: boolean
 }
 
+export type AboutInfo = {
+  name: string
+  version: string
+  commit: string
+  build_date: string
+  repository_url: string
+  license_name: string
+  license_url: string
+  notices_url: string
+}
+
+export type UpdateStatus =
+  | 'up_to_date'
+  | 'update_available'
+  | 'development'
+  | 'unavailable'
+
+export type UpdateCheck = {
+  status: UpdateStatus
+  current_version: string
+  latest_version?: string
+  release_name?: string
+  release_url?: string
+  published_at?: string
+  checked_at: string
+  error_code?: string
+}
+
 export type UpdateTLSSettingsInput =
   | {
       operation: 'install_user'

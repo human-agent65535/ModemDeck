@@ -71,6 +71,7 @@ import {
   parseThreads
 } from './normalize'
 import type {
+  AboutInfo,
   ApiErrorBody,
   BootstrapResponse,
   CallFilter,
@@ -128,6 +129,8 @@ import type {
   TelegramUnit,
   TelegramUnitInput,
   TLSSettings,
+  UpdateCheck,
+  UpdateStatus,
   UpdateDeviceConfigurationInput,
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
@@ -282,6 +285,45 @@ function requiredBooleanValue(
     throw new ApiError(`${path}.${key} 必须是布尔值`, 0, 'invalid_response')
   }
   return value
+}
+
+const UPDATE_STATUSES = new Set<UpdateStatus>([
+  'up_to_date',
+  'update_available',
+  'development',
+  'unavailable'
+])
+
+function parseAbout(value: unknown): AboutInfo {
+  const source = requiredRecord(value, 'about')
+  return {
+    name: requiredStringValue(source, 'about', 'name'),
+    version: requiredStringValue(source, 'about', 'version'),
+    commit: requiredStringValue(source, 'about', 'commit'),
+    build_date: requiredStringValue(source, 'about', 'build_date'),
+    repository_url: requiredStringValue(source, 'about', 'repository_url'),
+    license_name: requiredStringValue(source, 'about', 'license_name'),
+    license_url: requiredStringValue(source, 'about', 'license_url'),
+    notices_url: requiredStringValue(source, 'about', 'notices_url')
+  }
+}
+
+function parseUpdateCheck(value: unknown): UpdateCheck {
+  const source = requiredRecord(value, 'update_check')
+  const status = requiredStringValue(source, 'update_check', 'status') as UpdateStatus
+  if (!UPDATE_STATUSES.has(status)) {
+    throw new ApiError(`update_check.status 未知：${status}`, 0, 'invalid_response')
+  }
+  return {
+    status,
+    current_version: requiredStringValue(source, 'update_check', 'current_version'),
+    latest_version: stringValue(source, 'latest_version') || undefined,
+    release_name: stringValue(source, 'release_name') || undefined,
+    release_url: stringValue(source, 'release_url') || undefined,
+    published_at: stringValue(source, 'published_at') || undefined,
+    checked_at: requiredStringValue(source, 'update_check', 'checked_at'),
+    error_code: stringValue(source, 'error_code') || undefined
+  }
 }
 
 function numberValue(source: Record<string, unknown>, path: string, key: string): number {
@@ -705,6 +747,14 @@ function writeJSON(
 
 const realGateway: ConfiguredModemDeckGateway = {
   interactions: REAL_INTERACTIONS,
+
+  async getAbout(): Promise<AboutInfo> {
+    return parseAbout(await get(`${API_ROOT}/about`))
+  },
+
+  async checkForUpdates(): Promise<UpdateCheck> {
+    return parseUpdateCheck(await get(`${API_ROOT}/updates/check`))
+  },
 
   async getSession(): Promise<SessionResponse> {
     return parseSession(await get(`${API_ROOT}/session`))

@@ -214,6 +214,8 @@ export default {
     tlsDescription: '证书与安全连接',
     diagnostics: '诊断',
     diagnosticsDescription: '运行状态与实时日志',
+    about: '关于与更新',
+    aboutDescription: '版本、更新检查与许可',
     systemLanguage: '系统语言',
     systemLanguageDescription: '应用于登录页和所有管理界面',
     languageSaved: '系统语言已更新',
@@ -226,6 +228,43 @@ export default {
     logoutFailed: '退出登录失败',
     back: '返回设置',
     selectSetting: '选择一项设置'
+  },
+  about: {
+    loading: '正在载入版本信息',
+    loadFailed: '无法载入版本信息',
+    productDescription: '自托管蜂窝通信控制台',
+    version: '当前版本',
+    commit: '构建提交',
+    buildDate: '构建时间',
+    sourceCode: '源代码',
+    notAvailable: '不可用',
+    updateTitle: '版本更新',
+    updateDescription: '自动检查 GitHub 上最新发布的正式版本',
+    checkedAt: '检查于 {date}',
+    viewRelease: '查看 Release',
+    legalTitle: '许可与声明',
+    legalDescription: '项目许可及随附第三方组件的授权信息',
+    projectLicense: '项目许可',
+    thirdPartyNotices: '第三方组件声明',
+    thirdPartySummary: 'Web 组件、音频素材、运营商数据与运行时',
+    updateStatus: {
+      up_to_date: {
+        title: '已是最新版本',
+        description: '当前版本 {current} 与 GitHub 最新正式版本一致。'
+      },
+      update_available: {
+        title: '有新版本可用',
+        description: 'GitHub 已发布 {latest}，当前版本为 {current}。'
+      },
+      development: {
+        title: '开发构建',
+        description: '当前构建 {current} 不低于最新正式版本 {latest}。'
+      },
+      unavailable: {
+        title: '检查更新失败',
+        description: '无法获取 GitHub 最新 Release，请稍后再试。'
+      }
+    }
   },
   account: {
     changePassword: '修改密码',

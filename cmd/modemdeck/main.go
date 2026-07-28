@@ -32,10 +32,17 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/telegramruntime"
 	"github.com/human-agent65535/modemdeck/internal/telegramsettings"
 	"github.com/human-agent65535/modemdeck/internal/tlsmanager"
+	"github.com/human-agent65535/modemdeck/internal/updatecheck"
 	"github.com/human-agent65535/modemdeck/internal/webapp"
 )
 
 const hostAgentRequestTimeout = 15 * time.Second
+
+var (
+	version   = "dev"
+	commit    = "unknown"
+	buildDate = "unknown"
+)
 
 func main() {
 	logBuffer := diagnostics.NewLogBuffer(diagnostics.DefaultLogCapacity)
@@ -245,6 +252,10 @@ func run(
 		DiagnosticLogs:       logBuffer,
 		MessageEvents:        messageEvents,
 		RuntimeEvents:        runtimeEvents,
+		UpdateChecker:        updatecheck.New(updatecheck.Options{CurrentVersion: version}),
+		ApplicationVersion:   version,
+		BuildCommit:          commit,
+		BuildDate:            buildDate,
 		Web:                  webapp.Embedded(),
 	})
 	if err != nil {

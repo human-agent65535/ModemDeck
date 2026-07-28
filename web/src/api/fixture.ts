@@ -1,5 +1,6 @@
 import type { ListQuery, MessageQuery, ModemDeckGateway } from './gateway'
 import type {
+  AboutInfo,
   BootstrapResponse,
   CallFilter,
   CallRecording,
@@ -49,6 +50,7 @@ import type {
   TelegramUnit,
   TelegramUnitInput,
   TLSSettings,
+  UpdateCheck,
   UpdateDeviceConfigurationInput,
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
@@ -1054,6 +1056,29 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
   }
 
   return {
+    async getAbout(): Promise<AboutInfo> {
+      return {
+        name: 'ModemDeck',
+        version: 'v1.0.0',
+        commit: 'fixture',
+        build_date: '2026-07-28T00:00:00Z',
+        repository_url: 'https://github.com/human-agent65535/ModemDeck',
+        license_name: 'PolyForm Noncommercial 1.0.0',
+        license_url: 'https://github.com/human-agent65535/ModemDeck/blob/modemdeck/LICENSE',
+        notices_url:
+          'https://github.com/human-agent65535/ModemDeck/blob/modemdeck/THIRD_PARTY_NOTICES.md'
+      }
+    },
+
+    async checkForUpdates(): Promise<UpdateCheck> {
+      return {
+        status: 'unavailable',
+        current_version: 'v1.0.0',
+        checked_at: new Date().toISOString(),
+        error_code: 'github_no_release'
+      }
+    },
+
     async getBootstrap(): Promise<BootstrapResponse> {
       return {
         capabilities: {

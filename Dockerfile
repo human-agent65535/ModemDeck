@@ -21,6 +21,8 @@ FROM --platform=${TARGETPLATFORM} ${GO_IMAGE} AS app-builder
 
 ARG TARGETOS
 ARG TARGETARCH
+ARG BUILD_DATE=unknown
+ARG VCS_REF=unknown
 
 ENV GOTOOLCHAIN=local \
     CGO_ENABLED=1
@@ -38,15 +40,20 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY cmd/modemdeck/ ./cmd/modemdeck/
 COPY internal/ ./internal/
+COPY VERSION ./
 RUN rm -rf ./internal/webapp/dist \
     && mkdir -p ./internal/webapp/dist
 COPY --from=web-builder /workspace/web/dist/ ./internal/webapp/dist/
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
+    app_version="v$(tr -d '\r\n' < VERSION)" \
+    && test "${app_version}" != "v" \
+    && \
     GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
     go build -mod=readonly -tags=netgo,osusergo -trimpath -buildvcs=false \
-    -ldflags="-s -w -linkmode=external -extldflags=-static" \
+    -ldflags="-s -w -linkmode=external -extldflags=-static \
+      -X main.version=${app_version} -X main.commit=${VCS_REF} -X main.buildDate=${BUILD_DATE}" \
     -o /out/modemdeck ./cmd/modemdeck
 
 
@@ -75,6 +82,7 @@ RUN apk add --no-cache ca-certificates=20260611-r0 \
 
 COPY --from=app-builder /out/modemdeck /usr/local/bin/modemdeck
 COPY --chmod=0755 scripts/docker-entrypoint.sh /usr/local/bin/modemdeck-entrypoint
+COPY LICENSE NOTICE.md THIRD_PARTY_NOTICES.md /usr/share/licenses/modemdeck/
 
 LABEL org.opencontainers.image.title="ModemDeck" \
       org.opencontainers.image.description="Self-hosted cellular communications console" \

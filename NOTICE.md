@@ -59,3 +59,6 @@ https://www.apache.org/licenses/LICENSE-2.0
 The SMS alert sounds under `web/src/assets/notifications/` likewise come from
 the `notifications/` and `newwavelabs/` directories in the Android Open Source
 Project source tree above and are licensed under the same Apache License 2.0.
+
+For a summary of other bundled components and their licenses, see
+`THIRD_PARTY_NOTICES.md`.

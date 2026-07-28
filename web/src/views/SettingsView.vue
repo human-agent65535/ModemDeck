@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   Circle,
   House,
+  Info,
   LoaderCircle,
   LogOut,
   Languages,
@@ -17,6 +18,7 @@ import {
   Volume2
 } from '@lucide/vue'
 import AudioSettingsForm from '../components/AudioSettingsForm.vue'
+import AboutSettingsPanel from '../components/AboutSettingsPanel.vue'
 import StatePanel from '../components/StatePanel.vue'
 import DeviceConfigurationPanel from '../components/DeviceConfigurationPanel.vue'
 import DiagnosticsPanel from '../components/DiagnosticsPanel.vue'
@@ -43,6 +45,7 @@ type SettingsSection =
   | 'telegram'
   | 'tls'
   | 'diagnostics'
+  | 'about'
 
 const route = useRoute()
 const router = useRouter()
@@ -109,6 +112,12 @@ const sections = computed<Array<{
     label: t('settings.diagnostics'),
     description: t('settings.diagnosticsDescription'),
     icon: Activity
+  },
+  {
+    id: 'about',
+    label: t('settings.about'),
+    description: t('settings.aboutDescription'),
+    icon: Info
   }
 ])
 const selectedSection = computed<SettingsSection | ''>(() => {
@@ -256,8 +265,12 @@ onMounted(() => {
           <TLSSettingsForm />
         </div>
 
-        <div v-else class="settings-content">
+        <div v-else-if="selectedSection === 'diagnostics'" class="settings-content">
           <DiagnosticsPanel />
+        </div>
+
+        <div v-else class="settings-content">
+          <AboutSettingsPanel />
         </div>
       </template>
 

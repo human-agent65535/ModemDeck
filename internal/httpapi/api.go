@@ -18,6 +18,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 	"github.com/human-agent65535/modemdeck/internal/telegramsettings"
+	"github.com/human-agent65535/modemdeck/internal/updatecheck"
 )
 
 var (
@@ -80,6 +81,10 @@ type CapabilitySource interface {
 
 type HealthProbe interface {
 	Health(context.Context) (agentclient.Health, error)
+}
+
+type UpdateChecker interface {
+	Check(context.Context) updatecheck.Result
 }
 
 type Authenticator interface {
@@ -214,6 +219,10 @@ type Options struct {
 	DiagnosticLogs        diagnostics.LogSource
 	MessageEvents         messageevents.Source
 	RuntimeEvents         runtimeevents.Source
+	UpdateChecker         UpdateChecker
+	ApplicationVersion    string
+	BuildCommit           string
+	BuildDate             string
 	Web                   http.Handler
 	disableAuthentication bool
 }
@@ -238,6 +247,10 @@ type API struct {
 	diagnosticLogs       diagnostics.LogSource
 	messageEvents        messageevents.Source
 	runtimeEvents        runtimeevents.Source
+	updateChecker        UpdateChecker
+	applicationVersion   string
+	buildCommit          string
+	buildDate            string
 	web                  http.Handler
 }
 
@@ -276,6 +289,10 @@ func New(repository Repository, options Options) (*API, error) {
 		diagnosticLogs:       options.DiagnosticLogs,
 		messageEvents:        options.MessageEvents,
 		runtimeEvents:        options.RuntimeEvents,
+		updateChecker:        options.UpdateChecker,
+		applicationVersion:   normalizedBuildValue(options.ApplicationVersion, "dev"),
+		buildCommit:          normalizedBuildValue(options.BuildCommit, "unknown"),
+		buildDate:            normalizedBuildValue(options.BuildDate, "unknown"),
 		web:                  options.Web,
 	}, nil
 }
@@ -313,6 +330,10 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	switch request.URL.Path {
 	case "/api/v1/bootstrap":
 		api.getOnly(response, request, api.bootstrap)
+	case "/api/v1/about":
+		api.getOnly(response, request, api.about)
+	case "/api/v1/updates/check":
+		api.getOnly(response, request, api.updateCheck)
 	case "/api/v1/account/password":
 		api.accountPassword(response, request)
 	case "/api/v1/contacts":

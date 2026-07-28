@@ -214,6 +214,8 @@ export default {
     tlsDescription: 'Certificates and secure connections',
     diagnostics: 'Diagnostics',
     diagnosticsDescription: 'Runtime status and live logs',
+    about: 'About & updates',
+    aboutDescription: 'Version, update checks, and licenses',
     systemLanguage: 'System language',
     systemLanguageDescription: 'Used on the login page and throughout the admin interface',
     languageSaved: 'System language updated',
@@ -226,6 +228,43 @@ export default {
     logoutFailed: 'Unable to log out',
     back: 'Back to settings',
     selectSetting: 'Select a setting'
+  },
+  about: {
+    loading: 'Loading version information',
+    loadFailed: 'Unable to load version information',
+    productDescription: 'Self-hosted cellular communications console',
+    version: 'Current version',
+    commit: 'Build commit',
+    buildDate: 'Build date',
+    sourceCode: 'Source code',
+    notAvailable: 'Not available',
+    updateTitle: 'Software update',
+    updateDescription: 'Automatically check the latest published GitHub Release',
+    checkedAt: 'Checked {date}',
+    viewRelease: 'View release',
+    legalTitle: 'Licenses & notices',
+    legalDescription: 'Project license and notices for bundled third-party components',
+    projectLicense: 'Project license',
+    thirdPartyNotices: 'Third-party notices',
+    thirdPartySummary: 'Web components, audio assets, operator data, and runtime',
+    updateStatus: {
+      up_to_date: {
+        title: 'Up to date',
+        description: 'The current version {current} matches the latest GitHub Release.'
+      },
+      update_available: {
+        title: 'Update available',
+        description: 'GitHub has published {latest}; the current version is {current}.'
+      },
+      development: {
+        title: 'Development build',
+        description: 'The current build {current} is not behind the latest release {latest}.'
+      },
+      unavailable: {
+        title: 'Update check failed',
+        description: 'The latest GitHub Release could not be retrieved. Try again later.'
+      }
+    }
   },
   account: {
     changePassword: 'Change password',
