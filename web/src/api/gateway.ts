@@ -107,7 +107,7 @@ export interface ModemDeckGateway {
     lineID: string,
     input: UpdateNetworkSelectionInput
   ): Promise<NetworkSelectionPolicy>
-  scanMobileNetworks(lineID: string): Promise<MobileNetworkScan>
+  scanMobileNetworks(lineID: string, signal?: AbortSignal): Promise<MobileNetworkScan>
   listProxies(): Promise<ProxyInstance[]>
   createProxy(input: CreateProxyInput): Promise<ProxyMutation>
   updateProxy(id: string, input: UpdateProxyInput): Promise<ProxyMutation>

@@ -633,7 +633,8 @@ async function request(path: string, init: RequestInit, expectedStatus: number):
   let response: Response
   try {
     response = await fetch(path, { ...init, headers, credentials: 'same-origin' })
-  } catch {
+  } catch (error) {
+    if (init.signal?.aborted) throw error
     throw new ApiError('无法连接 ModemDeck 服务')
   }
 
@@ -679,7 +680,8 @@ function writeJSON(
   path: string,
   method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   input: unknown,
-  expectedStatus: number
+  expectedStatus: number,
+  signal?: AbortSignal
 ) {
   return request(
     path,
@@ -689,7 +691,8 @@ function writeJSON(
         Accept: 'application/json',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(input)
+      body: JSON.stringify(input),
+      signal
     },
     expectedStatus
   )
@@ -900,10 +903,19 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
-  async scanMobileNetworks(lineID: string): Promise<MobileNetworkScan> {
+  async scanMobileNetworks(
+    lineID: string,
+    signal?: AbortSignal
+  ): Promise<MobileNetworkScan> {
     const contract = networkSelectionContract(lineID).scan
     return parseMobileNetworkScanResponse(
-      await writeJSON(contract.path, contract.method, {}, contract.successStatus)
+      await writeJSON(
+        contract.path,
+        contract.method,
+        {},
+        contract.successStatus,
+        signal
+      )
     )
   },
 

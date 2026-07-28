@@ -1523,7 +1523,11 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       return clone(updated)
     },
 
-    async scanMobileNetworks(lineID: string): Promise<MobileNetworkScan> {
+    async scanMobileNetworks(
+      lineID: string,
+      signal?: AbortSignal
+    ): Promise<MobileNetworkScan> {
+      signal?.throwIfAborted()
       if (!networkSelectionByLine.has(lineID)) {
         throw new ApiError('线路不存在', 404, 'not_found')
       }

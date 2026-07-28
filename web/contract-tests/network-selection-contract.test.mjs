@@ -206,13 +206,15 @@ test('manual entry scans locally while writes require a selected operator', () =
   const saveStart = stateSource.indexOf('async function saveNetworkSelection', enterStart)
   const enterBody = stateSource.slice(enterStart, saveStart)
   assert.match(enterBody, /target\.mode = 'manual'/)
-  assert.match(enterBody, /scanMobileNetworks\(lineID\)/)
+  assert.match(enterBody, /scanMobileNetworks\(normalizedLineID\)/)
   assert.doesNotMatch(enterBody, /updateNetworkSelection/)
 
   assert.match(stateSource, /operator\.status === 'forbidden'/)
   assert.match(stateSource, /expected_revision: policy\.revision/)
-  assert.match(stateSource, /networkSelectionState\.activation === context\.activation/)
-  assert.match(stateSource, /networkSelectionState\.activeLineID === lineID/)
+  assert.match(stateSource, /policyRequestSequence/)
+  assert.match(stateSource, /scanRequestSequence/)
+  assert.match(stateSource, /pendingNetworkScans/)
+  assert.doesNotMatch(stateSource, /resetInterruptedResource/)
   assert.match(
     stateSource,
     /!updated\.applied && updated\.last_error \? updated\.last_error : ''/
@@ -345,15 +347,13 @@ test('failed device apply reloads the persisted desired policy and concise error
   }
 })
 
-test('late scan and save responses never cross the active line boundary', async () => {
-  const scanLineID = 'line-stale-scan'
-  const saveLineID = 'line-stale-save'
-  const currentLineID = 'line-current'
+test('switching to automatic cancels an in-flight manual network scan', async () => {
+  const lineID = 'line-cancel-scan'
   const originalGet = gateway.getNetworkSelection
   const originalScan = gateway.scanMobileNetworks
   const originalUpdate = gateway.updateNetworkSelection
-  const pendingScan = deferred()
-  const pendingSave = deferred()
+  let scanSignal
+  let writes = 0
 
   gateway.getNetworkSelection = async requestedLineID => ({
     line_id: requestedLineID,
@@ -361,7 +361,64 @@ test('late scan and save responses never cross the active line boundary', async 
     revision: 1,
     applied: true
   })
-  gateway.scanMobileNetworks = async () => pendingScan.promise
+  gateway.scanMobileNetworks = async (requestedLineID, signal) => {
+    assert.equal(requestedLineID, lineID)
+    scanSignal = signal
+    return new Promise((resolve, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+    })
+  }
+  gateway.updateNetworkSelection = async () => {
+    writes += 1
+    throw new Error('automatic policy should not be written again')
+  }
+
+  try {
+    activateNetworkSelection(lineID)
+    assert.equal(await loadNetworkSelection(lineID, true), true)
+    const scanRequest = enterManualNetworkSelection(lineID)
+    assert.equal(networkSelectionResource(lineID).scanStatus, 'loading')
+
+    assert.equal(await useAutomaticNetworkSelection(lineID), true)
+    assert.equal(await scanRequest, false)
+    assert.equal(scanSignal.aborted, true)
+    assert.equal(writes, 0)
+
+    const resource = networkSelectionResource(lineID)
+    assert.equal(resource.mode, 'auto')
+    assert.equal(resource.scanStatus, 'idle')
+    assert.equal(resource.scanError, '')
+    assert.equal(resource.saving, false)
+  } finally {
+    gateway.getNetworkSelection = originalGet
+    gateway.scanMobileNetworks = originalScan
+    gateway.updateNetworkSelection = originalUpdate
+    delete networkSelectionState.resources[lineID]
+    activateNetworkSelection('')
+  }
+})
+
+test('in-flight network operations remain attached to their line across module switches', async () => {
+  const scanLineID = 'line-pending-scan'
+  const saveLineID = 'line-pending-save'
+  const currentLineID = 'line-current'
+  const originalGet = gateway.getNetworkSelection
+  const originalScan = gateway.scanMobileNetworks
+  const originalUpdate = gateway.updateNetworkSelection
+  const pendingScan = deferred()
+  const pendingSave = deferred()
+  const scanCalls = []
+
+  gateway.getNetworkSelection = async requestedLineID => ({
+    line_id: requestedLineID,
+    mode: 'auto',
+    revision: 1,
+    applied: true
+  })
+  gateway.scanMobileNetworks = async requestedLineID => {
+    scanCalls.push(requestedLineID)
+    return pendingScan.promise
+  }
   gateway.updateNetworkSelection = async () => pendingSave.promise
 
   try {
@@ -370,12 +427,24 @@ test('late scan and save responses never cross the active line boundary', async 
     const scanRequest = enterManualNetworkSelection(scanLineID)
     activateNetworkSelection(currentLineID)
     await loadNetworkSelection(currentLineID, true)
+    activateNetworkSelection(scanLineID)
+
+    const resumedResource = networkSelectionResource(scanLineID)
+    assert.equal(resumedResource.mode, 'manual')
+    assert.equal(resumedResource.scanStatus, 'loading')
+    const resumedScanRequest = enterManualNetworkSelection(scanLineID)
+    assert.equal(resumedScanRequest, scanRequest)
+    assert.deepEqual(scanCalls, [scanLineID])
+
     pendingScan.resolve({
       line_id: scanLineID,
       observed_at: '2026-07-24T12:01:00Z',
       networks: [availableNetwork()]
     })
-    assert.equal(await scanRequest, false)
+    assert.equal(await scanRequest, true)
+    assert.equal(await resumedScanRequest, true)
+    assert.equal(resumedResource.scanStatus, 'ready')
+    assert.equal(resumedResource.scan.networks[0].operator_code, '00102')
     assert.equal(networkSelectionResource(currentLineID).scan, null)
     assert.equal(networkSelectionResource(currentLineID).mode, 'auto')
 
@@ -390,7 +459,8 @@ test('late scan and save responses never cross the active line boundary', async 
       revision: 2,
       applied: true
     })
-    assert.equal(await saveRequest, false)
+    assert.equal(await saveRequest, true)
+    assert.equal(networkSelectionResource(saveLineID).policy.mode, 'manual')
     assert.equal(networkSelectionResource(currentLineID).policy.line_id, currentLineID)
     assert.equal(networkSelectionResource(currentLineID).policy.mode, 'auto')
   } finally {
