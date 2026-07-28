@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,7 +21,9 @@ import (
 const (
 	APIVersion            = "v1"
 	defaultRequestTimeout = 2 * time.Second
+	defaultEventIdleLimit = 5 * time.Second
 	maxResponseBodyBytes  = 4 << 20
+	controlLeaseHeader    = "X-ModemDeck-Controller"
 )
 
 var (
@@ -31,6 +35,7 @@ var (
 type Capabilities struct {
 	Discovery           bool `json:"discovery"`
 	Events              bool `json:"events"`
+	ControlLease        bool `json:"control_lease"`
 	DeviceConfiguration bool `json:"device_configuration"`
 	Network             bool `json:"network"`
 	NetworkSelection    bool `json:"network_selection"`
@@ -193,6 +198,11 @@ type CallMediaActivation struct {
 	Reason          string           `json:"reason"`
 }
 
+type ControlLeaseStatus struct {
+	ControllerID string    `json:"controller_id"`
+	ExpiresAt    time.Time `json:"expires_at"`
+}
+
 type StartCallRequest struct {
 	RequestID string `json:"request_id"`
 	LineID    string `json:"line_id"`
@@ -235,6 +245,8 @@ func (e *OperationError) Error() string {
 type Client struct {
 	httpClient     *http.Client
 	requestTimeout time.Duration
+	eventIdleLimit time.Duration
+	controllerID   string
 }
 
 func New(socketPath string, timeout time.Duration) (*Client, error) {
@@ -254,9 +266,15 @@ func New(socketPath string, timeout time.Duration) (*Client, error) {
 		MaxIdleConnsPerHost: 2,
 		IdleConnTimeout:     30 * time.Second,
 	}
+	controllerID, err := newControllerID()
+	if err != nil {
+		return nil, err
+	}
 	return &Client{
 		httpClient:     &http.Client{Transport: transport},
 		requestTimeout: timeout,
+		eventIdleLimit: defaultEventIdleLimit,
+		controllerID:   controllerID,
 	}, nil
 }
 
@@ -308,6 +326,7 @@ func (client *Client) WatchChanges(ctx context.Context, notify func()) error {
 		return fmt.Errorf("create host agent event request: %w", err)
 	}
 	request.Header.Set("Accept", "text/event-stream")
+	request.Header.Set(controlLeaseHeader, client.controllerID)
 	response, err := client.httpClient.Do(request)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -331,31 +350,115 @@ func (client *Client) WatchChanges(ctx context.Context, notify func()) error {
 		return fmt.Errorf("%w: host agent event stream has content type %q", ErrProtocol, contentType)
 	}
 
-	scanner := bufio.NewScanner(response.Body)
-	eventName := ""
-	for scanner.Scan() {
-		line := strings.TrimSuffix(scanner.Text(), "\r")
-		if line == "" {
-			if eventName == "ready" || eventName == "change" {
-				notify()
+	type scanResult struct {
+		line string
+		err  error
+		done bool
+	}
+	scanContext, cancelScan := context.WithCancel(ctx)
+	defer cancelScan()
+	results := make(chan scanResult)
+	scannerDone := make(chan struct{})
+	go func() {
+		defer close(scannerDone)
+		scanner := bufio.NewScanner(response.Body)
+		for scanner.Scan() {
+			select {
+			case results <- scanResult{line: scanner.Text()}:
+			case <-scanContext.Done():
+				return
 			}
-			eventName = ""
-			continue
 		}
-		if strings.HasPrefix(line, ":") {
-			continue
+		result := scanResult{err: scanner.Err(), done: true}
+		select {
+		case results <- result:
+		case <-scanContext.Done():
 		}
-		if value, found := strings.CutPrefix(line, "event:"); found {
-			eventName = strings.TrimSpace(value)
+	}()
+
+	idleLimit := client.eventIdleLimit
+	if idleLimit <= 0 {
+		idleLimit = defaultEventIdleLimit
+	}
+	idle := time.NewTimer(idleLimit)
+	defer idle.Stop()
+	eventName := ""
+	for {
+		select {
+		case <-ctx.Done():
+			cancelScan()
+			_ = response.Body.Close()
+			<-scannerDone
+			return nil
+		case <-idle.C:
+			cancelScan()
+			_ = response.Body.Close()
+			<-scannerDone
+			return fmt.Errorf(
+				"read host agent events: no activity for %s",
+				idleLimit,
+			)
+		case result := <-results:
+			if result.done {
+				if ctx.Err() != nil {
+					return nil
+				}
+				if result.err != nil {
+					return fmt.Errorf("read host agent events: %w", result.err)
+				}
+				return io.ErrUnexpectedEOF
+			}
+			resetTimer(idle, idleLimit)
+			line := strings.TrimSuffix(result.line, "\r")
+			if line == "" {
+				if eventName == "ready" || eventName == "change" {
+					notify()
+				}
+				eventName = ""
+				continue
+			}
+			if strings.HasPrefix(line, ":") {
+				continue
+			}
+			if value, found := strings.CutPrefix(line, "event:"); found {
+				eventName = strings.TrimSpace(value)
+			}
 		}
 	}
-	if ctx.Err() != nil {
-		return nil
+}
+
+func (client *Client) RenewControlLease(
+	ctx context.Context,
+) (ControlLeaseStatus, error) {
+	var status ControlLeaseStatus
+	if err := client.doJSON(
+		ctx,
+		http.MethodPut,
+		"/v1/control-lease",
+		nil,
+		http.StatusOK,
+		&status,
+	); err != nil {
+		return ControlLeaseStatus{}, err
 	}
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("read host agent events: %w", err)
+	if status.ControllerID != client.controllerID || status.ExpiresAt.IsZero() {
+		return ControlLeaseStatus{}, fmt.Errorf(
+			"%w: invalid control lease response",
+			ErrProtocol,
+		)
 	}
-	return io.ErrUnexpectedEOF
+	return status, nil
+}
+
+func (client *Client) ReleaseControlLease(ctx context.Context) error {
+	return client.doJSON(
+		ctx,
+		http.MethodDelete,
+		"/v1/control-lease",
+		nil,
+		http.StatusNoContent,
+		nil,
+	)
 }
 
 func (client *Client) StartCall(ctx context.Context, request StartCallRequest) (CommandReceipt, error) {
@@ -487,6 +590,7 @@ func (client *Client) doJSON(
 		return fmt.Errorf("create host agent request: %w", err)
 	}
 	request.Header.Set("Accept", "application/json")
+	request.Header.Set(controlLeaseHeader, client.controllerID)
 	if input != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
@@ -521,6 +625,24 @@ func (client *Client) doJSON(
 		return fmt.Errorf("%w: response contains multiple JSON values", ErrProtocol)
 	}
 	return nil
+}
+
+func newControllerID() (string, error) {
+	random := make([]byte, 16)
+	if _, err := rand.Read(random); err != nil {
+		return "", fmt.Errorf("generate host agent controller id: %w", err)
+	}
+	return "app-" + hex.EncodeToString(random), nil
+}
+
+func resetTimer(timer *time.Timer, duration time.Duration) {
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	timer.Reset(duration)
 }
 
 func decodeOperationError(status int, body []byte) error {

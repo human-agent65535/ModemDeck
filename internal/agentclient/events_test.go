@@ -62,3 +62,37 @@ func TestWatchChangesRejectsNonEventStream(t *testing.T) {
 		t.Fatal("WatchChanges() accepted a non-event response")
 	}
 }
+
+func TestWatchChangesFailsWhenAgentStreamStalls(t *testing.T) {
+	client := newUnixTestClient(t, http.HandlerFunc(func(
+		response http.ResponseWriter,
+		request *http.Request,
+	) {
+		flusher, ok := response.(http.Flusher)
+		if !ok {
+			t.Fatal("test response does not support flushing")
+		}
+		response.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(response, "event: ready\ndata: {}\n\n")
+		flusher.Flush()
+		<-request.Context().Done()
+	}))
+	client.eventIdleLimit = 25 * time.Millisecond
+
+	started := make(chan struct{})
+	err := client.WatchChanges(context.Background(), func() {
+		select {
+		case <-started:
+		default:
+			close(started)
+		}
+	})
+	if err == nil {
+		t.Fatal("WatchChanges() accepted a stalled event stream")
+	}
+	select {
+	case <-started:
+	default:
+		t.Fatal("ready event was not observed before the stream stalled")
+	}
+}

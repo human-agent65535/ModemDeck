@@ -38,6 +38,8 @@ const (
 	maxIncomingCallActions     = 8
 	incomingCallActionTimeout  = 5 * time.Second
 	deviceConfigurationTimeout = 50 * time.Second
+	controlLeaseRenewInterval  = time.Second
+	controlLeaseRequestTimeout = 5 * time.Second
 )
 
 type Agent interface {
@@ -57,6 +59,11 @@ type Agent interface {
 
 type AgentChangeSource interface {
 	WatchChanges(context.Context, func()) error
+}
+
+type AgentControlLease interface {
+	RenewControlLease(context.Context) (agentclient.ControlLeaseStatus, error)
+	ReleaseControlLease(context.Context) error
 }
 
 type AgentCallMediaActivator interface {
@@ -151,6 +158,12 @@ type Service struct {
 	lifecycleObserver CallLifecycleObserver
 
 	mediaActivationCalls map[string]struct{}
+
+	controlMu             sync.RWMutex
+	controlLeaseSupported bool
+	agentEventsRequired   bool
+	agentEventsHealthy    bool
+	controlLeaseActive    bool
 }
 
 func New(
@@ -260,6 +273,7 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 	s.status = cloneStatus(status)
 	s.lastSnapshot = snapshot
 	s.mu.Unlock()
+	s.updateAgentControlCapabilities(status.Capabilities)
 	s.publishRuntimeSnapshot(snapshot, lines)
 	s.activatePendingCallMedia(ctx, snapshot)
 	if err := s.reconcileAuthoritativeCalls(refreshContext, activeCalls); err != nil {
@@ -315,6 +329,16 @@ func (s *Service) activatePendingCallMedia(
 		if !found ||
 			line.VoiceVerification == nil ||
 			line.VoiceVerification.MediaRouting != "call_required" {
+			continue
+		}
+		if err := s.ensureAgentControlLease(ctx); err != nil {
+			slog.Warn(
+				"call media activation deferred until agent control is healthy",
+				"component", "communications",
+				"call_id", call.ID,
+				"line_id", call.LineID,
+				"error", err,
+			)
 			continue
 		}
 		commandContext, cancel := context.WithTimeout(normalizeContext(ctx), commandTimeout)
@@ -767,8 +791,11 @@ func (s *Service) Run(ctx context.Context, every time.Duration, report func(erro
 	}
 	timer := time.NewTimer(every)
 	defer timer.Stop()
+	controlLeaseTicker := time.NewTicker(controlLeaseRenewInterval)
+	defer controlLeaseTicker.Stop()
 	changeEvents := make(chan struct{}, 1)
 	watchFailures := make(chan error, 1)
+	watchStates := make(chan bool)
 	var watchCancel context.CancelFunc
 	defer func() {
 		if watchCancel != nil {
@@ -777,6 +804,7 @@ func (s *Service) Run(ctx context.Context, every time.Duration, report func(erro
 	}()
 	lastRefreshError := ""
 	lastWatchError := ""
+	lastControlLeaseError := ""
 	watchStarted := false
 
 	reportDistinct := func(err error, previous *string) {
@@ -805,16 +833,52 @@ func (s *Service) Run(ctx context.Context, every time.Duration, report func(erro
 		watchStarted = true
 		watchContext, cancel := context.WithCancel(ctx)
 		watchCancel = cancel
-		go watchAgentChanges(watchContext, source, changeEvents, watchFailures)
+		go watchAgentChanges(
+			watchContext,
+			source,
+			changeEvents,
+			watchFailures,
+			watchStates,
+		)
 	}
 
 	if status, ok := refresh(); ok {
 		startWatcher(status)
+		if !status.Capabilities.Events {
+			reportDistinct(s.renewAgentControlLease(ctx), &lastControlLeaseError)
+		}
 	}
 	for {
 		select {
 		case <-ctx.Done():
+			releaseContext, cancel := context.WithTimeout(
+				context.Background(),
+				controlLeaseRequestTimeout,
+			)
+			reportDistinct(
+				s.releaseAgentControlLease(releaseContext),
+				&lastControlLeaseError,
+			)
+			cancel()
 			return
+		case healthy := <-watchStates:
+			s.setAgentEventsHealthy(healthy)
+			if healthy {
+				reportDistinct(
+					s.renewAgentControlLease(ctx),
+					&lastControlLeaseError,
+				)
+				continue
+			}
+			releaseContext, cancel := context.WithTimeout(
+				context.Background(),
+				controlLeaseRequestTimeout,
+			)
+			reportDistinct(
+				s.releaseAgentControlLease(releaseContext),
+				&lastControlLeaseError,
+			)
+			cancel()
 		case <-changeEvents:
 			lastWatchError = ""
 			if status, ok := refresh(); ok {
@@ -828,6 +892,13 @@ func (s *Service) Run(ctx context.Context, every time.Duration, report func(erro
 				startWatcher(status)
 			}
 			timer.Reset(every)
+		case <-controlLeaseTicker.C:
+			if s.agentControlLeaseRenewable() {
+				reportDistinct(
+					s.renewAgentControlLease(ctx),
+					&lastControlLeaseError,
+				)
+			}
 		}
 	}
 }
@@ -837,17 +908,34 @@ func watchAgentChanges(
 	source AgentChangeSource,
 	changes chan<- struct{},
 	failures chan<- error,
+	states chan<- bool,
 ) {
-	notify := func() {
-		select {
-		case changes <- struct{}{}:
-		default:
-		}
-	}
 	for {
+		connected := false
+		notify := func() {
+			if !connected {
+				select {
+				case states <- true:
+					connected = true
+				case <-ctx.Done():
+					return
+				}
+			}
+			select {
+			case changes <- struct{}{}:
+			default:
+			}
+		}
 		err := source.WatchChanges(ctx, notify)
 		if ctx.Err() != nil {
 			return
+		}
+		if connected {
+			select {
+			case states <- false:
+			case <-ctx.Done():
+				return
+			}
 		}
 		if err == nil {
 			err = errors.New("host agent event stream ended")
@@ -864,6 +952,97 @@ func watchAgentChanges(
 		case <-timer.C:
 		}
 	}
+}
+
+func (s *Service) updateAgentControlCapabilities(
+	capabilities agentclient.Capabilities,
+) {
+	_, available := s.agent.(AgentControlLease)
+	s.controlMu.Lock()
+	s.controlLeaseSupported = capabilities.ControlLease && available
+	s.agentEventsRequired = capabilities.Events
+	if !capabilities.Events {
+		s.agentEventsHealthy = false
+	}
+	if !s.controlLeaseSupported {
+		s.controlLeaseActive = false
+	}
+	s.controlMu.Unlock()
+}
+
+func (s *Service) setAgentEventsHealthy(healthy bool) {
+	s.controlMu.Lock()
+	s.agentEventsHealthy = healthy
+	s.controlMu.Unlock()
+}
+
+func (s *Service) agentControlLeaseRenewable() bool {
+	s.controlMu.RLock()
+	defer s.controlMu.RUnlock()
+	return s.controlLeaseSupported &&
+		(!s.agentEventsRequired || s.agentEventsHealthy)
+}
+
+func (s *Service) ensureAgentControlLease(ctx context.Context) error {
+	if !s.agentControlLeaseRenewable() {
+		s.controlMu.RLock()
+		supported := s.controlLeaseSupported
+		eventsRequired := s.agentEventsRequired
+		eventsHealthy := s.agentEventsHealthy
+		s.controlMu.RUnlock()
+		if supported && eventsRequired && !eventsHealthy {
+			return operationError(
+				CodeUnavailable,
+				"acquire host agent control",
+				"host agent event stream is not healthy",
+				nil,
+			)
+		}
+		return nil
+	}
+	if err := s.renewAgentControlLease(ctx); err != nil {
+		return operationError(
+			CodeUnavailable,
+			"acquire host agent control",
+			"host agent control lease could not be renewed",
+			err,
+		)
+	}
+	return nil
+}
+
+func (s *Service) renewAgentControlLease(ctx context.Context) error {
+	lease, ok := s.agent.(AgentControlLease)
+	if !ok || !s.agentControlLeaseRenewable() {
+		return nil
+	}
+	renewContext, cancel := context.WithTimeout(
+		normalizeContext(ctx),
+		controlLeaseRequestTimeout,
+	)
+	_, err := lease.RenewControlLease(renewContext)
+	cancel()
+	if err == nil {
+		s.controlMu.Lock()
+		s.controlLeaseActive = true
+		s.controlMu.Unlock()
+	}
+	return err
+}
+
+func (s *Service) releaseAgentControlLease(ctx context.Context) error {
+	lease, ok := s.agent.(AgentControlLease)
+	if !ok {
+		return nil
+	}
+	s.controlMu.Lock()
+	active := s.controlLeaseActive
+	s.controlLeaseActive = false
+	s.controlMu.Unlock()
+	if !active {
+		return nil
+	}
+	return lease.ReleaseControlLease(normalizeContext(ctx))
 }
 
 func resetTimer(timer *time.Timer, duration time.Duration) {
@@ -1039,6 +1218,15 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 			)
 		}
 	}
+	if err := s.ensureAgentControlLease(ctx); err != nil {
+		return store.Call{}, s.failLocalCommand(
+			ctx,
+			command,
+			operation,
+			"host agent control is unavailable",
+			err,
+		)
+	}
 	commandContext, cancel := context.WithTimeout(normalizeContext(ctx), commandTimeout)
 	defer cancel()
 	receipt, err := s.agent.StartCall(commandContext, agentclient.StartCallRequest{
@@ -1142,6 +1330,17 @@ func (s *Service) CallAction(ctx context.Context, input CallActionInput) (store.
 	}
 	if target.Phase == "ended" || target.Phase == "failed" {
 		return store.Call{}, s.failLocalCommand(ctx, command, operation, "call has already ended", nil)
+	}
+	if action == "answer" || action == "dtmf" {
+		if err := s.ensureAgentControlLease(ctx); err != nil {
+			return store.Call{}, s.failLocalCommand(
+				ctx,
+				command,
+				operation,
+				"host agent control is unavailable",
+				err,
+			)
+		}
 	}
 
 	commandContext, cancel := context.WithTimeout(normalizeContext(ctx), commandTimeout)

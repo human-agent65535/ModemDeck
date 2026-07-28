@@ -19,6 +19,7 @@ const maxRequestBodyBytes = 256 << 10
 type handler struct {
 	provider             domain.Provider
 	changes              domain.ChangeSource
+	controlLease         domain.ControlLease
 	callMedia            domain.CallMediaActivator
 	deviceConfigurations domain.DeviceConfigurationProvider
 	lineServices         domain.LineServiceProvider
@@ -60,6 +61,7 @@ func NewWithMedia(
 
 type Options struct {
 	Media                *media.Manager
+	ControlLease         domain.ControlLease
 	DeviceConfigurations domain.DeviceConfigurationProvider
 	LineServices         domain.LineServiceProvider
 	Network              domain.NetworkProvider
@@ -78,6 +80,7 @@ func NewWithOptions(
 	h := &handler{
 		provider:             provider,
 		changes:              nil,
+		controlLease:         options.ControlLease,
 		deviceConfigurations: options.DeviceConfigurations,
 		lineServices:         lineServices,
 		network:              options.Network,
@@ -90,6 +93,8 @@ func NewWithOptions(
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", h.health)
 	mux.HandleFunc("GET /v1/events", h.events)
+	mux.HandleFunc("PUT /v1/control-lease", h.renewControlLease)
+	mux.HandleFunc("DELETE /v1/control-lease", h.releaseControlLease)
 	mux.HandleFunc("GET /v1/snapshot", h.snapshot)
 	mux.HandleFunc("GET /v1/lines/{id}/configuration", h.getDeviceConfiguration)
 	mux.HandleFunc("PATCH /v1/lines/{id}/configuration", h.patchDeviceConfiguration)
@@ -139,6 +144,7 @@ func (h *handler) health(w http.ResponseWriter, r *http.Request) {
 	health.Capabilities.NetworkSelection = h.networkSelection != nil
 	health.Capabilities.Proxy = h.network != nil
 	health.Capabilities.Media = h.media != nil && h.media.Configured()
+	health.Capabilities.ControlLease = h.controlLease != nil
 	h.writeJSON(w, http.StatusOK, healthResponse{
 		Status:       status,
 		APIVersion:   domain.APIVersion,
@@ -167,6 +173,9 @@ func (h *handler) startCall(w http.ResponseWriter, r *http.Request) {
 		request.RequestID = requestID
 	} else {
 		h.writeAPIError(w, http.StatusBadRequest, domain.ErrorInvalidArgument, "start_call", "", "request_id is required and must be valid")
+		return
+	}
+	if !h.requireControlLease(w, r, request.RequestID) {
 		return
 	}
 	receipt, err := h.provider.StartCall(r.Context(), request)
@@ -211,6 +220,10 @@ func (h *handler) callCommand(
 		h.writeAPIError(w, http.StatusBadRequest, domain.ErrorInvalidArgument, operation, strings.TrimSpace(request.RequestID), "call id is required")
 		return
 	}
+	if operation == "answer_call" &&
+		!h.requireControlLease(w, r, request.RequestID) {
+		return
+	}
 	receipt, err := run(r.Context(), request)
 	if err != nil {
 		h.writeError(w, err, strings.TrimSpace(request.RequestID))
@@ -234,6 +247,9 @@ func (h *handler) sendDTMF(w http.ResponseWriter, r *http.Request) {
 	request.CallID = strings.TrimSpace(r.PathValue("id"))
 	if request.CallID == "" {
 		h.writeAPIError(w, http.StatusBadRequest, domain.ErrorInvalidArgument, "send_dtmf", strings.TrimSpace(request.RequestID), "call id is required")
+		return
+	}
+	if !h.requireControlLease(w, r, request.RequestID) {
 		return
 	}
 	receipt, err := h.provider.SendDTMF(r.Context(), request)

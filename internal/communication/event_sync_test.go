@@ -2,11 +2,13 @@ package communication
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/human-agent65535/modemdeck/internal/agentclient"
 	"github.com/human-agent65535/modemdeck/internal/messageevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
@@ -35,6 +37,52 @@ type eventCountingRepository struct {
 	*fakeRepository
 	applied atomic.Int32
 	signal  chan struct{}
+}
+
+type controlLeaseEventAgent struct {
+	*fakeAgent
+	started      chan struct{}
+	disconnect   chan struct{}
+	released     chan struct{}
+	startOnce    sync.Once
+	releaseOnce  sync.Once
+	watchCalls   atomic.Int32
+	renewals     atomic.Int32
+	releaseCalls atomic.Int32
+}
+
+func (agent *controlLeaseEventAgent) WatchChanges(
+	ctx context.Context,
+	notify func(),
+) error {
+	if agent.watchCalls.Add(1) != 1 {
+		<-ctx.Done()
+		return nil
+	}
+	agent.startOnce.Do(func() { close(agent.started) })
+	notify()
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-agent.disconnect:
+		return errors.New("fixture agent event stream disconnected")
+	}
+}
+
+func (agent *controlLeaseEventAgent) RenewControlLease(
+	context.Context,
+) (agentclient.ControlLeaseStatus, error) {
+	agent.renewals.Add(1)
+	return agentclient.ControlLeaseStatus{
+		ControllerID: "fixture",
+		ExpiresAt:    time.Now().Add(5 * time.Second),
+	}, nil
+}
+
+func (agent *controlLeaseEventAgent) ReleaseControlLease(context.Context) error {
+	agent.releaseCalls.Add(1)
+	agent.releaseOnce.Do(func() { close(agent.released) })
+	return nil
 }
 
 func (repository *eventCountingRepository) ApplyHardwareSnapshotWithResult(
@@ -93,6 +141,83 @@ func TestRunRefreshesImmediatelyFromAgentEvents(t *testing.T) {
 	waitForAppliedSnapshots(t, repository, before+1)
 }
 
+func TestRunReleasesControlLeaseWhenAgentEventStreamDisconnects(t *testing.T) {
+	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
+	baseAgent := connectedAgent(now)
+	baseAgent.health.Provider.Capabilities.Events = true
+	baseAgent.health.Provider.Capabilities.ControlLease = true
+	agent := &controlLeaseEventAgent{
+		fakeAgent:  baseAgent,
+		started:    make(chan struct{}),
+		disconnect: make(chan struct{}),
+		released:   make(chan struct{}),
+	}
+	service, err := New(agent, &fakeRepository{}, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		service.Run(ctx, time.Hour, func(err error) {
+			t.Logf("Run() report = %v", err)
+		})
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+
+	select {
+	case <-agent.started:
+	case <-time.After(time.Second):
+		t.Fatal("event watcher did not start")
+	}
+	waitForCount(t, &agent.renewals, 1, "control lease renewals")
+	close(agent.disconnect)
+	select {
+	case <-agent.released:
+	case <-time.After(time.Second):
+		t.Fatal("control lease was not released after agent event disconnect")
+	}
+	if got := agent.releaseCalls.Load(); got != 1 {
+		t.Fatalf("control lease releases = %d, want 1", got)
+	}
+}
+
+func TestStartCallRenewsControlLeaseWithoutAgentEvents(t *testing.T) {
+	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
+	baseAgent := connectedAgent(now)
+	baseAgent.health.Provider.Capabilities.ControlLease = true
+	baseAgent.startResult = agentclient.CommandReceipt{
+		RequestID:  "request-call-lease",
+		ResourceID: "call-endpoint-1",
+	}
+	agent := &controlLeaseEventAgent{fakeAgent: baseAgent}
+	repository := &fakeRepository{
+		snapshotResult: store.HardwareSnapshotResult{
+			LineIDsByEndpoint: map[string]string{"line-1": "line-stable"},
+		},
+	}
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if _, err := service.StartCall(context.Background(), StartCallInput{
+		RequestID: "request-call-lease",
+		LineID:    "line-stable",
+		Number:    "+818012345678",
+	}); err != nil {
+		t.Fatalf("StartCall() error = %v", err)
+	}
+	if got := agent.renewals.Load(); got != 1 {
+		t.Fatalf("control lease renewals = %d, want 1", got)
+	}
+}
+
 func waitForAppliedSnapshots(
 	t *testing.T,
 	repository *eventCountingRepository,
@@ -110,6 +235,29 @@ func waitForAppliedSnapshots(
 	}
 }
 
+func waitForCount(
+	t *testing.T,
+	value *atomic.Int32,
+	expected int32,
+	label string,
+) {
+	t.Helper()
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for value.Load() < expected {
+		select {
+		case <-ticker.C:
+		case <-deadline.C:
+			t.Fatalf("%s = %d, want at least %d", label, value.Load(), expected)
+		}
+	}
+}
+
 var _ Agent = (*eventTestAgent)(nil)
 var _ AgentChangeSource = (*eventTestAgent)(nil)
+var _ Agent = (*controlLeaseEventAgent)(nil)
+var _ AgentChangeSource = (*controlLeaseEventAgent)(nil)
+var _ AgentControlLease = (*controlLeaseEventAgent)(nil)
 var _ Repository = (*eventCountingRepository)(nil)

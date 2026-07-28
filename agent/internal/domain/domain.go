@@ -9,10 +9,13 @@ import (
 
 const APIVersion = "v1"
 
+const ControlLeaseHeader = "X-ModemDeck-Controller"
+
 type AgentCapabilities struct {
 	Discovery           bool `json:"discovery"`
 	Snapshot            bool `json:"snapshot"`
 	Events              bool `json:"events"`
+	ControlLease        bool `json:"control_lease"`
 	DeviceConfiguration bool `json:"device_configuration"`
 	Network             bool `json:"network"`
 	NetworkSelection    bool `json:"network_selection"`
@@ -172,6 +175,18 @@ type ChangeEvent struct {
 
 type ChangeSource interface {
 	SubscribeChanges(context.Context) (<-chan ChangeEvent, error)
+}
+
+type ControlLeaseStatus struct {
+	ControllerID string    `json:"controller_id"`
+	ExpiresAt    time.Time `json:"expires_at"`
+}
+
+type ControlLease interface {
+	Renew(string) (ControlLeaseStatus, error)
+	Require(string) error
+	Release(context.Context, string) error
+	Shutdown(context.Context) error
 }
 
 type CallMediaActivation struct {

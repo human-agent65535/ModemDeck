@@ -9,7 +9,7 @@ import (
 	"github.com/human-agent65535/modemdeck/agent/internal/domain"
 )
 
-const eventHeartbeatInterval = 15 * time.Second
+const eventHeartbeatInterval = 2 * time.Second
 
 func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 	if h.changes == nil {

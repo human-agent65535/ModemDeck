@@ -56,6 +56,9 @@ func (h *handler) activateCallMedia(w http.ResponseWriter, r *http.Request) {
 		)
 		return
 	}
+	if !h.requireControlLease(w, r, request.RequestID) {
+		return
+	}
 	activation, err := h.callMedia.ActivateCallMedia(r.Context(), request)
 	if err != nil {
 		h.writeError(w, err, request.RequestID)

@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/human-agent65535/modemdeck/agent/internal/controllease"
 	"github.com/human-agent65535/modemdeck/agent/internal/deviceconfig"
 	"github.com/human-agent65535/modemdeck/agent/internal/httpapi"
 	"github.com/human-agent65535/modemdeck/agent/internal/media"
@@ -78,6 +79,30 @@ func run() error {
 		return err
 	}
 	defer provider.Close()
+	controlLease, err := controllease.New(provider, controllease.Options{
+		Report: func(err error) {
+			slog.Error("enforce application control lease", "error", err)
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("create application control lease: %w", err)
+	}
+	recoveryContext, cancelRecovery := context.WithTimeout(
+		context.Background(),
+		15*time.Second,
+	)
+	if err := controlLease.Recover(recoveryContext); err != nil {
+		cancelRecovery()
+		return fmt.Errorf("recover orphan modem calls: %w", err)
+	}
+	cancelRecovery()
+	defer func() {
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := controlLease.Shutdown(shutdownContext); err != nil {
+			slog.Error("end calls during agent shutdown", "error", err)
+		}
+	}()
 	reconcileContext, cancelReconcile := context.WithTimeout(
 		context.Background(),
 		30*time.Second,
@@ -182,10 +207,12 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	go runRadioReconciler(ctx, provider)
+	go controlLease.Run(ctx)
 
 	server := &http.Server{
 		Handler: httpapi.NewWithOptions(provider, version, httpapi.Options{
 			Media:                mediaManager,
+			ControlLease:         controlLease,
 			DeviceConfigurations: deviceConfigurations,
 			Network:              networkManager,
 			NetworkSelection:     provider,
@@ -210,6 +237,14 @@ func run() error {
 		}
 		return fmt.Errorf("serve unix socket: %w", err)
 	case <-ctx.Done():
+		callShutdownContext, callShutdownCancel := context.WithTimeout(
+			context.Background(),
+			5*time.Second,
+		)
+		if err := controlLease.Shutdown(callShutdownContext); err != nil {
+			slog.Error("end calls before agent server shutdown", "error", err)
+		}
+		callShutdownCancel()
 		shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := server.Shutdown(shutdownContext); err != nil {
