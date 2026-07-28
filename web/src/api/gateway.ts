@@ -98,6 +98,7 @@ export interface ModemDeckGateway {
   listDevices(): Promise<Device[]>
   createDevice(input: CreateDeviceInput): Promise<Device>
   renameDevice(imei: string, input: RenameDeviceInput): Promise<Device>
+  deleteDevice(imei: string): Promise<void>
   updateLineLabel(lineID: string, input: UpdateLineLabelInput): Promise<LineLabelResult>
   getNetworkStatus(): Promise<NetworkStatus>
   getNetworkSelection(lineID: string): Promise<NetworkSelectionPolicy>

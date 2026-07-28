@@ -266,6 +266,7 @@ export function parseDevice(value: unknown): Device {
   const source = objectValue(value, 'device')
   return {
     imei: requiredString(source, 'device', 'imei'),
+    endpoint_id: stringValue(source, 'endpoint_id'),
     name: stringValue(source, 'name'),
     model: stringValue(source, 'model'),
     firmware: stringValue(source, 'firmware'),
@@ -282,6 +283,7 @@ export function parseDevice(value: unknown): Device {
     signal_rsrq: nullableNumber(source, 'signal_rsrq', true),
     signal_rsrp: nullableNumber(source, 'signal_rsrp', true),
     last_seen: optionalTimestamp(source, 'last_seen'),
+    present: source.present === true,
     sim: source.sim ? parseSIM(source.sim) : undefined,
     capabilities: parseCommunicationCapabilities(source.capabilities, 'device.capabilities')
   }

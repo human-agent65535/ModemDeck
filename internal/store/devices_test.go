@@ -144,3 +144,54 @@ func TestDevicesDerivesConcreteModelFromStoredFirmware(t *testing.T) {
 		t.Fatalf("devices = %+v, want concrete EG25-G model", devices)
 	}
 }
+
+func TestDeleteDeviceAllowsOnlyAbsentInventoryRecords(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	ctx := context.Background()
+	observed := time.Date(2026, time.July, 28, 1, 0, 0, 0, time.UTC)
+	removed := HardwareLine{
+		ID:                  "endpoint-delete-removed",
+		EquipmentIdentifier: "860000000000101",
+		ICCID:               "8986010000000000101",
+		IMSI:                "460010000000101",
+	}
+	if err := repository.ApplyHardwareSnapshot(ctx, HardwareSnapshot{
+		BootEpoch:  "boot-device-delete",
+		Revision:   "snapshot-device-delete-1",
+		ObservedAt: observed,
+		Lines:      []HardwareLine{removed},
+	}); err != nil {
+		t.Fatalf("apply present device: %v", err)
+	}
+	if err := repository.DeleteDevice(ctx, removed.EquipmentIdentifier); !errors.Is(err, ErrDevicePresent) {
+		t.Fatalf("DeleteDevice(present) error = %v, want ErrDevicePresent", err)
+	}
+
+	retained := HardwareLine{
+		ID:                  "endpoint-delete-retained",
+		EquipmentIdentifier: "860000000000102",
+		ICCID:               "8986010000000000102",
+		IMSI:                "460010000000102",
+	}
+	if err := repository.ApplyHardwareSnapshot(ctx, HardwareSnapshot{
+		BootEpoch:  "boot-device-delete",
+		Revision:   "snapshot-device-delete-2",
+		ObservedAt: observed.Add(time.Minute),
+		Lines:      []HardwareLine{retained},
+	}); err != nil {
+		t.Fatalf("apply removed device snapshot: %v", err)
+	}
+	if err := repository.DeleteDevice(ctx, removed.EquipmentIdentifier); err != nil {
+		t.Fatalf("DeleteDevice(absent) error = %v", err)
+	}
+	devices, err := repository.Devices(ctx)
+	if err != nil {
+		t.Fatalf("list devices after deletion: %v", err)
+	}
+	if len(devices) != 1 || devices[0].IMEI != retained.EquipmentIdentifier {
+		t.Fatalf("devices after deletion = %+v, want only retained device", devices)
+	}
+	assertSIMAttachment(t, repository, removed.ICCID, "")
+}

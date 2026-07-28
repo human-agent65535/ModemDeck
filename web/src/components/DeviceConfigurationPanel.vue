@@ -25,6 +25,7 @@ import {
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { gateway } from '../api/client'
+import { ApiError } from '../api/types'
 import type {
   ConnectionProfile,
   DeviceFeatureCapability,
@@ -65,7 +66,9 @@ import {
 } from '../state/networkSelection'
 import {
   bootstrapResource,
+  deleteDevice as deleteDeviceRecord,
   devicesResource,
+  displayModuleLines,
   lineHasCallControl,
   lineKey,
   lineLabel,
@@ -101,6 +104,7 @@ const incomingPolicyDraft = ref<IncomingCallPolicy>('follow_global')
 const voltePolicyDraft = ref<'enabled' | 'disabled' | ''>('')
 
 const moduleError = ref('')
+const moduleDeletePending = ref('')
 const moduleNameEditing = ref(false)
 const moduleNameDraft = ref('')
 const moduleNamePending = ref(false)
@@ -141,6 +145,7 @@ const ussdResult = ref('')
 const ussdPending = ref(false)
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
+const moduleLines = computed(() => displayModuleLines(lines.value, devicesResource.data))
 const networkSnapshot = computed(() => networkState.snapshot)
 const defaultLineID = computed(
   () => bootstrapResource.data?.line_settings.default_line_id || ''
@@ -622,7 +627,7 @@ watch(
 watch(activeTab, tab => void loadActiveLineService(tab))
 
 function selectLine(line: LineSummary): void {
-  if (!line.id) return
+  if (!line.id || line.module_only) return
   if (line.id === selectedLineID.value) {
     const resource = deviceConfigurationResource(line.id)
     if (resource.status !== 'ready') void loadDeviceConfiguration(line.id, true)
@@ -770,6 +775,43 @@ async function makeDefault(line: LineSummary): Promise<void> {
   } catch (error) {
     moduleError.value =
       error instanceof Error ? error.message : t('device.defaultLineSaveFailed')
+  }
+}
+
+async function deleteHistoricalModule(line: LineSummary): Promise<void> {
+  const device = deviceFor(line)
+  if (
+    !line.module_only ||
+    !device ||
+    device.present ||
+    moduleDeletePending.value
+  ) {
+    return
+  }
+  const confirmed = await requestConfirmation({
+    title: t('device.deleteModuleTitle'),
+    message: t('device.deleteModuleMessage', {
+      name: lineLabel(line),
+      imei: device.imei
+    }),
+    confirmLabel: t('common.delete'),
+    tone: 'danger'
+  })
+  if (!confirmed) return
+
+  moduleDeletePending.value = device.imei
+  moduleError.value = ''
+  try {
+    await deleteDeviceRecord(device.imei)
+  } catch (error) {
+    moduleError.value =
+      error instanceof ApiError && error.code === 'device_present'
+        ? t('device.deleteConnectedModuleFailed')
+        : error instanceof Error
+          ? error.message
+          : t('device.deleteModuleFailed')
+  } finally {
+    moduleDeletePending.value = ''
   }
 }
 
@@ -1134,7 +1176,7 @@ onMounted(() => {
     <header class="module-toolbar">
       <div>
         <h3 id="device-configuration-title">{{ t('device.modules') }}</h3>
-        <span>{{ t('device.moduleCount', { count: lines.length }) }}</span>
+        <span>{{ t('device.moduleCount', { count: moduleLines.length }) }}</span>
       </div>
     </header>
 
@@ -1152,18 +1194,21 @@ onMounted(() => {
       @retry="loadBootstrap(true)"
     />
     <StatePanel
-      v-else-if="lines.length === 0"
+      v-else-if="moduleLines.length === 0"
       state="empty"
       :title="t('device.noModules')"
     />
     <div v-else class="module-grid">
       <ModuleCard
-        v-for="line in lines"
+        v-for="line in moduleLines"
         :key="lineKey(line)"
         :line="line"
         :device="deviceFor(line)"
         :runtime="networkRuntime(line)"
         :selected="line.id === selectedLineID"
+        :selectable="!line.module_only"
+        :deletable="Boolean(line.module_only && deviceFor(line)?.present === false)"
+        :delete-pending="moduleDeletePending === line.device_imei"
         :default-line="lineKey(line) === defaultLineID"
         :flight-mode="
           line.id === selectedLineID && hardware?.flight_mode_known
@@ -1173,6 +1218,7 @@ onMounted(() => {
         actions
         @select="selectLine(line)"
         @make-default="makeDefault(line)"
+        @delete="deleteHistoricalModule(line)"
       />
     </div>
     <p v-if="moduleError" class="field-error" role="alert">{{ moduleError }}</p>

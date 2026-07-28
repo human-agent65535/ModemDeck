@@ -109,8 +109,8 @@ EC20/EC21/EC25、EG21/EG25、EG91/EG95、EM05，以及实机验证过的 QDC507�
 接听和挂断能力；`AT+QPCMV=1,2` 成功并回读为 `1,2` 才发布模组媒体路由能力。
 浏览器双向音频还必须存在主机声卡和已配置的媒体桥。
 
-QDC507 是 EC25 系的定制变种，但固件不能与标准 EC25/EG25 互换。已确认刷入
-标准 EC25/EG25 固件会使 QDC507 变砖，严禁刷入。
+QDC507 是 EC25 系的定制变种，固件与标准 EC25/EG25 不互换。实机测试中，
+刷入标准 EC25/EG25 固件后 QDC507 无法启动。
 
 实测 QDC507 在 `usbcfg` 末位为 `1` 时可以拨号、接听和挂断。当前固件的
 `AT+QPCMV=1,2` 返回 `ERROR`，所以已确认的边界是：支持呼叫控制，不支持
@@ -309,9 +309,9 @@ Modem media routing is published only after `AT+QPCMV=1,2` succeeds and reads
 back as `1,2`. Browser bidirectional audio additionally requires a host sound
 device and a configured media bridge.
 
-QDC507 is a customized EC25-family derivative, but its firmware is not
-interchangeable with standard EC25/EG25 releases. Flashing standard EC25/EG25
-firmware has been confirmed to brick QDC507 and must never be attempted.
+QDC507 is a customized EC25-family derivative, and its firmware is not
+interchangeable with standard EC25/EG25 releases. In a hardware test, the
+QDC507 did not boot after a standard EC25/EG25 release was flashed.
 
 The tested QDC507 can dial, answer, and hang up when the final `usbcfg` value
 is `1`. The current firmware rejects `AT+QPCMV=1,2`; the verified boundary is

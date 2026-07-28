@@ -183,6 +183,7 @@ type Device struct {
 	SignalRSRQ    *int64   `json:"signal_rsrq"`
 	SignalRSRP    *int64   `json:"signal_rsrp"`
 	LastSeen      string   `json:"last_seen"`
+	Present       bool     `json:"present"`
 	CreatedAt     string   `json:"created_at"`
 	UpdatedAt     string   `json:"updated_at"`
 	SIM           *SIMCard `json:"sim,omitempty"`

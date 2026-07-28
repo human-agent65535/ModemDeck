@@ -84,7 +84,7 @@ test('active calls apply output changes and replace input before stopping the ol
   )
 })
 
-test('desktop shell has one permanent dialer and dashboard renders every line', async () => {
+test('desktop shell has one permanent dialer and dashboard renders every modem record', async () => {
   const shell = await source('../src/components/AppShell.vue')
   const dashboard = await source('../src/views/DashboardView.vue')
   const dialer = await source('../src/components/DialerPanel.vue')
@@ -120,8 +120,12 @@ test('desktop shell has one permanent dialer and dashboard renders every line', 
     dialer,
     /@keydown\.esc="[\s\S]*showingCall \? minimizeCallSurface\(\) : closeDialer\(\)/
   )
-  assert.match(dashboard, /v-for="line in lines"/)
-  assert.doesNotMatch(dashboard, /lines(?:\.value)?\.slice/)
+  assert.match(
+    dashboard,
+    /const moduleLines = computed\(\(\) => displayModuleLines\(lines\.value, devicesResource\.data\)\)/
+  )
+  assert.match(dashboard, /v-for="line in moduleLines"/)
+  assert.doesNotMatch(dashboard, /moduleLines(?:\.value)?\.slice/)
   assert.match(dialer, /<LineSelector/)
   assert.match(dialer, /:lines="dialLines"/)
   assert.match(

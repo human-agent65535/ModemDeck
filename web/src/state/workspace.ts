@@ -178,6 +178,53 @@ export function lineHasCallControl(line: LineSummary | undefined): boolean {
   )
 }
 
+export function displayModuleLines(lines: LineSummary[], devices: Device[]): LineSummary[] {
+  const result = lines.slice()
+  const boundIMEIs = new Set(
+    lines.map(line => line.device_imei.trim()).filter(identifier => Boolean(identifier))
+  )
+  for (const device of devices) {
+    const imei = device.imei.trim()
+    if (!imei || boundIMEIs.has(imei)) continue
+    const sim = device.sim
+    result.push({
+      id: `module_${imei}`,
+      iccid: device.sim_inserted ? device.current_iccid : '',
+      imsi: device.sim_inserted ? sim?.imsi || '' : '',
+      phone_number: device.sim_inserted ? sim?.phone_number || '' : '',
+      operator: device.sim_inserted ? sim?.operator || '' : '',
+      home_operator_code: device.sim_inserted ? sim?.home_operator_code || '' : '',
+      home_operator_name: device.sim_inserted ? sim?.home_operator_name || '' : '',
+      serving_operator_code: device.sim_inserted ? sim?.serving_operator_code || '' : '',
+      serving_operator_name: device.sim_inserted ? sim?.serving_operator_name || '' : '',
+      registration_state_known:
+        device.sim_inserted && sim?.registration_state_known === true,
+      registration_state_code: device.sim_inserted ? sim?.registration_state_code || 0 : 0,
+      registration_state: device.sim_inserted ? sim?.registration_state || '' : '',
+      roaming: device.sim_inserted && sim?.roaming === true,
+      emergency_only: false,
+      device_imei: imei,
+      device_name: device.name,
+      line_label: '',
+      line_color: '',
+      model: device.model || undefined,
+      firmware: device.firmware || undefined,
+      primary_port: device.port || undefined,
+      state: !device.present
+        ? 'disconnected'
+        : device.sim_inserted
+          ? device.state || 'unknown'
+          : 'sim-missing',
+      radio_desired_enabled: false,
+      radio_desired_enabled_known: false,
+      signal_quality: device.present ? device.signal_quality ?? undefined : undefined,
+      capabilities: { modem: device.present },
+      module_only: true
+    })
+  }
+  return result
+}
+
 export function deviceName(id: string): string {
   const device = devicesResource.data.find(item => item.imei === id)
   return device?.name || device?.model || id
@@ -278,6 +325,17 @@ export async function renameDevice(imei: string, input: RenameDeviceInput): Prom
     if (line.device_imei === saved.imei) line.device_name = saved.name
   }
   return saved
+}
+
+export async function deleteDevice(imei: string): Promise<void> {
+  const normalizedIMEI = imei.trim()
+  if (!normalizedIMEI) return
+  await gateway.deleteDevice(normalizedIMEI)
+  devicesResource.data = devicesResource.data.filter(
+    device => device.imei !== normalizedIMEI
+  )
+  devicesResource.status = 'ready'
+  devicesResource.error = ''
 }
 
 export async function updateLineLabel(

@@ -62,25 +62,38 @@ func (api *API) devicesCollection(response http.ResponseWriter, request *http.Re
 }
 
 func (api *API) deviceResource(response http.ResponseWriter, request *http.Request, imei string) {
-	if request.Method != http.MethodPatch {
-		response.Header().Set("Allow", http.MethodPatch)
-		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only PATCH is supported", "")
-		return
+	switch request.Method {
+	case http.MethodPatch:
+		var input renameDeviceRequest
+		if !decodeJSONBody(response, request, &input) {
+			return
+		}
+		if input.Name == nil {
+			writeError(response, http.StatusBadRequest, "invalid_argument", "name is required", "name")
+			return
+		}
+		device, err := api.repository.RenameDevice(request.Context(), imei, *input.Name)
+		if err != nil {
+			api.writeDeviceError(response, request, "rename device", err)
+			return
+		}
+		writeJSON(response, http.StatusOK, deviceResponse{Device: device})
+	case http.MethodDelete:
+		if err := api.repository.DeleteDevice(request.Context(), imei); err != nil {
+			api.writeDeviceError(response, request, "delete device", err)
+			return
+		}
+		response.WriteHeader(http.StatusNoContent)
+	default:
+		response.Header().Set("Allow", http.MethodPatch+", "+http.MethodDelete)
+		writeError(
+			response,
+			http.StatusMethodNotAllowed,
+			"method_not_allowed",
+			"Only PATCH and DELETE are supported",
+			"",
+		)
 	}
-	var input renameDeviceRequest
-	if !decodeJSONBody(response, request, &input) {
-		return
-	}
-	if input.Name == nil {
-		writeError(response, http.StatusBadRequest, "invalid_argument", "name is required", "name")
-		return
-	}
-	device, err := api.repository.RenameDevice(request.Context(), imei, *input.Name)
-	if err != nil {
-		api.writeDeviceError(response, request, "rename device", err)
-		return
-	}
-	writeJSON(response, http.StatusOK, deviceResponse{Device: device})
 }
 
 func (api *API) lineLabelResource(
@@ -162,6 +175,14 @@ func (api *API) writeDeviceError(
 		writeError(response, http.StatusBadRequest, "invalid_device", "Device input is invalid", "")
 	case errors.Is(err, store.ErrDeviceConflict):
 		writeError(response, http.StatusConflict, "device_exists", "Device already exists", "imei")
+	case errors.Is(err, store.ErrDevicePresent):
+		writeError(
+			response,
+			http.StatusConflict,
+			"device_present",
+			"Connected devices cannot be deleted",
+			"imei",
+		)
 	case errors.Is(err, store.ErrDeviceNotFound):
 		writeError(response, http.StatusNotFound, "device_not_found", "Device was not found", "")
 	default:

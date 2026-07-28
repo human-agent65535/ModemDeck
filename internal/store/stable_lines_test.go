@@ -654,6 +654,20 @@ func TestHardwareSIMMoveDetachesPreviousModem(t *testing.T) {
 	if retainedEndpoint != oldEndpointID {
 		t.Fatalf("detached modem endpoint = %q, want %q", retainedEndpoint, oldEndpointID)
 	}
+	devices, err := repository.Devices(ctx)
+	if err != nil {
+		t.Fatalf("list devices after SIM move: %v", err)
+	}
+	presentByIMEI := make(map[string]bool, len(devices))
+	for _, device := range devices {
+		presentByIMEI[device.IMEI] = device.Present
+	}
+	if presentByIMEI[oldIMEI] {
+		t.Fatalf("old modem %q is still marked present after replacement", oldIMEI)
+	}
+	if !presentByIMEI[line.EquipmentIdentifier] {
+		t.Fatalf("replacement modem %q is not marked present", line.EquipmentIdentifier)
+	}
 }
 
 func TestHardwareSnapshotWithoutSIMDetachesPreviousAttachment(t *testing.T) {

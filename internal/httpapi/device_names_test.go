@@ -64,6 +64,60 @@ func TestDeviceResourceRenamesPersistedDeviceName(t *testing.T) {
 	}
 }
 
+func TestDeviceResourceDeletesAbsentInventoryRecord(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeRepository{}
+	api, err := New(repository, Options{disableAuthentication: true})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	response := httptest.NewRecorder()
+	api.ServeHTTP(
+		response,
+		httptest.NewRequest(
+			http.MethodDelete,
+			"/api/v1/devices/860000000000001",
+			nil,
+		),
+	)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body = %s", response.Code, response.Body.String())
+	}
+	if repository.deleteDeviceIMEI != "860000000000001" {
+		t.Fatalf("deleted IMEI = %q", repository.deleteDeviceIMEI)
+	}
+}
+
+func TestDeviceResourceRejectsDeletingPresentDevice(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeRepository{deleteDeviceError: store.ErrDevicePresent}
+	api, err := New(repository, Options{disableAuthentication: true})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	response := httptest.NewRecorder()
+	api.ServeHTTP(
+		response,
+		httptest.NewRequest(
+			http.MethodDelete,
+			"/api/v1/devices/860000000000001",
+			nil,
+		),
+	)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body = %s", response.Code, response.Body.String())
+	}
+	var payload errorResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if payload.Code != "device_present" {
+		t.Fatalf("error = %+v, want device_present", payload)
+	}
+}
+
 func TestDeviceResourceRequiresNameInsteadOfAlias(t *testing.T) {
 	t.Parallel()
 

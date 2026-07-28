@@ -314,10 +314,7 @@ func upsertHardwareLine(
 	if endpointID == "" {
 		return "", nil
 	}
-	imei := strings.TrimSpace(line.EquipmentIdentifier)
-	if imei == "" {
-		imei = strings.TrimSpace(line.DeviceIdentifier)
-	}
+	imei := hardwareLineIMEI(line)
 	if imei == "" {
 		return "", nil
 	}
@@ -505,6 +502,13 @@ func upsertHardwareLine(
 		return "", err
 	}
 	return lineID, nil
+}
+
+func hardwareLineIMEI(line HardwareLine) string {
+	if imei := strings.TrimSpace(line.EquipmentIdentifier); imei != "" {
+		return imei
+	}
+	return strings.TrimSpace(line.DeviceIdentifier)
 }
 
 func reconcileCurrentSIMAttachment(

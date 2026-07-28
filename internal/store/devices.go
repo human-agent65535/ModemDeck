@@ -13,6 +13,7 @@ import (
 var (
 	ErrDeviceNotFound      = errors.New("device not found")
 	ErrDeviceConflict      = errors.New("device already exists")
+	ErrDevicePresent       = errors.New("device is currently present")
 	ErrDeviceValidation    = errors.New("device validation failed")
 	ErrLineNotFound        = errors.New("line not found")
 	ErrLineValidation      = errors.New("line validation failed")
@@ -111,6 +112,53 @@ func (s *Store) RenameDevice(ctx context.Context, imei, name string) (Device, er
 	return s.device(ctx, imei)
 }
 
+func (s *Store) DeleteDevice(ctx context.Context, imei string) error {
+	imei, _, err := normalizeDeviceInput(DeviceInput{IMEI: imei})
+	if err != nil {
+		return err
+	}
+	transaction, err := s.database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin device deletion: %w", err)
+	}
+	defer transaction.Rollback()
+
+	var present int
+	err = transaction.QueryRowContext(
+		ctx,
+		`SELECT CASE WHEN d.last_seen IS NOT NULL AND d.last_seen = (
+			SELECT observed_at FROM modemdeck_hardware_sync WHERE singleton = 1
+		 ) THEN 1 ELSE 0 END
+		 FROM devices d
+		 WHERE d.imei = ?`,
+		imei,
+	).Scan(&present)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrDeviceNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("inspect device deletion: %w", err)
+	}
+	if present != 0 {
+		return ErrDevicePresent
+	}
+	if _, err := transaction.ExecContext(
+		ctx,
+		`UPDATE sim_cards
+		 SET current_imei = '', updated_at = CURRENT_TIMESTAMP
+		 WHERE current_imei = ?;
+		 DELETE FROM devices WHERE imei = ?`,
+		imei,
+		imei,
+	); err != nil {
+		return fmt.Errorf("delete device: %w", err)
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit device deletion: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) UpdateLineLabel(
 	ctx context.Context,
 	lineID,
@@ -189,8 +237,12 @@ func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 	rows, err := s.database.QueryContext(ctx, `SELECT
 		d.imei, d.endpoint_id, d.name, d.model, d.firmware, d.port,
 		d.public_ip, d.private_ip, d.public_ipv6, d.private_ipv6,
-			d.iccid, d.sim_inserted, d.signal_quality, d.signal_db_m, d.signal_rsrq, d.signal_rsrp,
-		d.last_seen, d.created_at, d.updated_at,
+		d.iccid, d.sim_inserted, d.signal_quality, d.signal_db_m, d.signal_rsrq, d.signal_rsrp,
+		d.last_seen,
+		CASE WHEN d.last_seen IS NOT NULL AND d.last_seen = (
+			SELECT observed_at FROM modemdeck_hardware_sync WHERE singleton = 1
+		) THEN 1 ELSE 0 END,
+		d.created_at, d.updated_at,
 		s.iccid, s.line_id, s.imsi,
 		COALESCE(NULLIF(ss.phone_number, ''), NULLIF(ss.modem_phone_number, ''), NULLIF(ss.vowifi_phone_number, ''), ''),
 		COALESCE(NULLIF(s.operator, ''), ss.operator, ''), s.current_imei,
@@ -211,6 +263,7 @@ func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 			endpointID, name, model, firmware, port                          sql.NullString
 			publicIP, privateIP, publicIPv6, privateIPv6, iccid              sql.NullString
 			simInserted, signalQuality, signalDBM, signalRSRQ, signalRSRP    sql.NullInt64
+			present                                                          sql.NullInt64
 			lastSeen, createdAt, updatedAt                                   sql.NullString
 			simICCID, simLineID, simIMSI, phoneNumber, operator, currentIMEI sql.NullString
 			regStatus                                                        sql.NullInt64
@@ -222,7 +275,7 @@ func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 			&device.IMEI, &endpointID, &name, &model, &firmware, &port,
 			&publicIP, &privateIP, &publicIPv6, &privateIPv6,
 			&iccid, &simInserted, &signalQuality, &signalDBM, &signalRSRQ, &signalRSRP,
-			&lastSeen, &createdAt, &updatedAt,
+			&lastSeen, &present, &createdAt, &updatedAt,
 			&simICCID, &simLineID, &simIMSI, &phoneNumber, &operator, &currentIMEI,
 			&regStatus, &regStatusText, &lac, &cellID, &apn, &imsStatus, &simLastSeen,
 		); err != nil {
@@ -247,6 +300,7 @@ func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 		device.SignalRSRQ = nullableSignalMetric(signalRSRQ)
 		device.SignalRSRP = nullableSignalMetric(signalRSRP)
 		device.LastSeen = stringValue(lastSeen)
+		device.Present = boolValue(present)
 		device.CreatedAt = stringValue(createdAt)
 		device.UpdatedAt = stringValue(updatedAt)
 		if stringValue(simICCID) != "" {
@@ -315,14 +369,18 @@ func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
 		COALESCE(sim.imsi, subscription.imsi, ''),
 		lines.phone_number,
 		COALESCE(NULLIF(sim.operator, ''), subscription.operator, ''),
-		COALESCE(sim.current_imei, devices.imei, ''),
+		COALESCE(devices.imei, ''),
 			COALESCE(devices.name, '')
 	FROM modemdeck_lines lines
 	LEFT JOIN ranked_sim_cards sim
 		ON sim.line_id = lines.line_id AND sim.line_rank = 1
 	LEFT JOIN ranked_subscriptions subscription
 		ON subscription.line_id = lines.line_id AND subscription.line_rank = 1
-	LEFT JOIN devices ON devices.imei = sim.current_imei
+	LEFT JOIN devices
+		ON devices.imei = sim.current_imei
+		AND devices.last_seen = (
+			SELECT observed_at FROM modemdeck_hardware_sync WHERE singleton = 1
+		)
 	ORDER BY COALESCE(
 		NULLIF(lines.line_label, ''),
 		NULLIF(lines.phone_number, ''),

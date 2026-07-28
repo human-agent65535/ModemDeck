@@ -33,6 +33,8 @@ type fakeRepository struct {
 	recordingEntries    []store.RecordingEntry
 	recordingError      error
 	devices             []store.Device
+	deleteDeviceIMEI    string
+	deleteDeviceError   error
 	lines               []store.LineSummary
 	updateLineID        string
 	updateLineLabel     string
@@ -123,6 +125,11 @@ func (repository *fakeRepository) RenameDevice(
 	string,
 ) (store.Device, error) {
 	return store.Device{}, nil
+}
+
+func (repository *fakeRepository) DeleteDevice(_ context.Context, imei string) error {
+	repository.deleteDeviceIMEI = imei
+	return repository.deleteDeviceError
 }
 
 func (repository *fakeRepository) Lines(context.Context) ([]store.LineSummary, error) {
@@ -417,6 +424,48 @@ func TestBootstrapMergesPersistedIdentityIntoLiveLines(t *testing.T) {
 	}
 	if line.Operator != "46001" {
 		t.Fatalf("operator = %q, want live value to remain authoritative", line.Operator)
+	}
+}
+
+func TestBootstrapDisconnectedFallbackHidesOrphanedStableLines(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeRepository{lines: []store.LineSummary{
+		{
+			ID:         "line-attached",
+			EndpointID: "endpoint-attached",
+			DeviceIMEI: "860000000000001",
+			LineLabel:  "Attached",
+		},
+		{
+			ID:        "line-orphaned",
+			LineLabel: "Historical orphan",
+		},
+	}}
+	api, err := New(repository, Options{
+		Communications: &fakeCommunications{
+			statusError: errors.New("live hardware state is unavailable"),
+		},
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/bootstrap", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", response.Code, response.Body.String())
+	}
+	var body bootstrapResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode bootstrap: %v", err)
+	}
+	if len(body.Lines) != 1 || body.Lines[0].ID != "line-attached" {
+		t.Fatalf("fallback lines = %+v, want only attached persisted line", body.Lines)
+	}
+	if body.Capabilities.AgentConnected {
+		t.Fatalf("capabilities = %+v, want disconnected", body.Capabilities)
 	}
 }
 

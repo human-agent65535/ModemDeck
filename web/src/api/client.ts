@@ -847,6 +847,19 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
+  async deleteDevice(imei: string): Promise<void> {
+    const normalizedIMEI = imei.trim()
+    if (!normalizedIMEI) throw new Error('IMEI 不能为空')
+    await request(
+      `${API_ROOT}/devices/${encodeURIComponent(normalizedIMEI)}`,
+      {
+        method: 'DELETE',
+        headers: { Accept: 'application/json' }
+      },
+      204
+    )
+  },
+
   async updateLineLabel(lineID: string, input: UpdateLineLabelInput): Promise<LineLabelResult> {
     return parseLineLabelResponse(
       await writeJSON(

@@ -40,6 +40,7 @@ type Repository interface {
 	Devices(context.Context) ([]store.Device, error)
 	CreateDevice(context.Context, store.DeviceInput) (store.Device, error)
 	RenameDevice(context.Context, string, string) (store.Device, error)
+	DeleteDevice(context.Context, string) error
 	Lines(context.Context) ([]store.LineSummary, error)
 	UpdateLineLabel(
 		context.Context,
@@ -428,6 +429,7 @@ func (api *API) bootstrap(response http.ResponseWriter, request *http.Request) {
 		status, statusErr := api.communications.Status(request.Context())
 		if statusErr != nil {
 			api.logger.Warn("live communication state is unavailable", "error", statusErr)
+			lines = attachedPersistedLines(lines)
 			capabilities = disconnectedCapabilities()
 		} else {
 			lines = mergePersistedLineMetadata(status.Lines, lines)
@@ -462,6 +464,18 @@ func (api *API) bootstrap(response http.ResponseWriter, request *http.Request) {
 		LineSettings:   lineSettings,
 		SystemSettings: systemSettings,
 	})
+}
+
+func attachedPersistedLines(lines []store.LineSummary) []store.LineSummary {
+	attached := make([]store.LineSummary, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line.EndpointID) == "" ||
+			strings.TrimSpace(line.DeviceIMEI) == "" {
+			continue
+		}
+		attached = append(attached, line)
+	}
+	return attached
 }
 
 func mergePersistedLineMetadata(

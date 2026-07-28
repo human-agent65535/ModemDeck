@@ -634,6 +634,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     ? []
     : lines.map((line, index): Device => ({
         imei: line.device_imei,
+        endpoint_id: line.id,
         name: line.device_name,
         model: `Fixture modem ${index + 1}`,
         firmware: 'Fixture 1.0',
@@ -650,6 +651,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         signal_rsrq: -10 - index,
         signal_rsrp: -95 - index,
         last_seen: '2026-07-23T12:00:00Z',
+        present: true,
         capabilities: clone(line.capabilities || {}),
         sim: {
           iccid: line.iccid,
@@ -1420,6 +1422,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       }
       const device: Device = {
         imei,
+        endpoint_id: '',
         name: input.name?.trim() || '',
         model: '',
         firmware: '',
@@ -1433,7 +1436,8 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         signal_quality: null,
         signal_dbm: null,
         signal_rsrq: null,
-        signal_rsrp: null
+        signal_rsrp: null,
+        present: false
       }
       fixtureDeviceList.push(device)
       return clone(device)
@@ -1444,6 +1448,15 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       if (!device) throw new ApiError('设备不存在', 404, 'device_not_found')
       device.name = input.name.trim()
       return clone(device)
+    },
+
+    async deleteDevice(imei: string): Promise<void> {
+      const index = fixtureDeviceList.findIndex(item => item.imei === imei)
+      if (index < 0) throw new ApiError('设备不存在', 404, 'device_not_found')
+      if (fixtureDeviceList[index]?.present) {
+        throw new ApiError('已连接的模组不能删除', 409, 'device_present')
+      }
+      fixtureDeviceList.splice(index, 1)
     },
 
     async updateLineLabel(lineID: string, input: UpdateLineLabelInput): Promise<LineLabelResult> {

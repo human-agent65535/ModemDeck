@@ -212,6 +212,7 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 	if snapshot.ObservedAt.IsZero() {
 		return s.recordRefreshFailure("read host agent snapshot", errors.New("snapshot observed_at is missing"))
 	}
+	snapshot, _ = quarantineDuplicateSubscriptionAttachments(snapshot)
 
 	hardwareSnapshot, lines := projectSnapshot(snapshot, health.Provider.BootEpoch)
 	snapshotResult, err := s.repository.ApplyHardwareSnapshotWithResult(

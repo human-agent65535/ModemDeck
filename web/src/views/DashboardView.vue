@@ -44,6 +44,7 @@ import {
   contactForNumber,
   contactsResource,
   devicesResource,
+  displayModuleLines,
   lineHasCallControl,
   lineKey,
   loadBootstrap,
@@ -86,6 +87,7 @@ const messageComposeRecipientName = ref('')
 const messageComposeLineKey = ref('')
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
+const moduleLines = computed(() => displayModuleLines(lines.value, devicesResource.data))
 const contactLines = computed(() => lines.value.filter(line => Boolean(lineKey(line))))
 const defaultLineID = computed(
   () => bootstrapResource.data?.line_settings.default_line_id || ''
@@ -306,6 +308,7 @@ function deviceFor(line: LineSummary) {
 }
 
 function openLineSettings(line: LineSummary): void {
+  if (line.module_only) return
   if (line.id) selectDeviceConfiguration(line.id)
   void router.push({ name: 'settings', params: { section: 'devices' } })
 }
@@ -620,17 +623,18 @@ onMounted(() => {
                 {{ t('common.retry') }}
               </button>
             </div>
-            <div v-else-if="lines.length === 0" class="dashboard-section-state">
+            <div v-else-if="moduleLines.length === 0" class="dashboard-section-state">
               <Inbox :size="17" />
               {{ t('dashboard.noLines') }}
             </div>
             <div v-else class="dashboard-module-grid">
               <ModuleCard
-                v-for="line in lines"
+                v-for="line in moduleLines"
                 :key="lineKey(line)"
                 :line="line"
                 :device="deviceFor(line)"
                 :runtime="networkRuntime(line)"
+                :selectable="!line.module_only"
                 :default-line="lineKey(line) === defaultLineID"
                 @select="openLineSettings(line)"
               />

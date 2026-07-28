@@ -3,14 +3,17 @@ import {
   CardSim,
   CircleAlert,
   CircleCheck,
+  LoaderCircle,
   MessageSquareText,
   Phone,
-  RadioTower
+  RadioTower,
+  Trash2
 } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Device, LineSummary, NetworkLineStatus } from '../api/types'
 import { lineHasCallControl, lineLabel } from '../state/workspace'
+import { formatDateTime } from '../utils/format'
 import {
   isRegisteredNetwork,
   operatorFacts,
@@ -27,6 +30,9 @@ const props = withDefaults(
     selected?: boolean
     defaultLine?: boolean
     actions?: boolean
+    selectable?: boolean
+    deletable?: boolean
+    deletePending?: boolean
     flightMode?: boolean
     runtime?: NetworkLineStatus
   }>(),
@@ -35,6 +41,9 @@ const props = withDefaults(
     selected: false,
     defaultLine: false,
     actions: false,
+    selectable: true,
+    deletable: false,
+    deletePending: false,
     flightMode: undefined,
     runtime: undefined
   }
@@ -43,15 +52,23 @@ const props = withDefaults(
 const emit = defineEmits<{
   select: []
   makeDefault: []
+  delete: []
 }>()
 
-const signal = computed(() => props.line.signal_quality ?? null)
+const moduleOnly = computed(() => props.line.module_only === true)
+const signal = computed(
+  () =>
+    props.device?.present === false
+      ? null
+      : props.line.signal_quality ?? props.device?.signal_quality ?? null
+)
 const flightMode = computed(
   () =>
-    props.flightMode ??
-    (props.line.radio_desired_enabled_known
-      ? !props.line.radio_desired_enabled
-      : false)
+    !moduleOnly.value &&
+    (props.flightMode ??
+      (props.line.radio_desired_enabled_known
+        ? !props.line.radio_desired_enabled
+        : false))
 )
 const radioWaitingForRegistration = computed(
   () =>
@@ -80,6 +97,10 @@ const equipmentIdentifier = computed(
 const simIdentifier = computed(
   () => props.line.iccid || props.device?.current_iccid || ''
 )
+const lastSeen = computed(() => {
+  const value = props.device?.last_seen || ''
+  return value ? formatDateTime(value) : '—'
+})
 const networkFacts = computed(() =>
   operatorFacts(
     flightMode.value || radioWaitingForRegistration.value
@@ -95,6 +116,10 @@ const networkFacts = computed(() =>
   )
 )
 const stateLabel = computed(() => {
+  if (moduleOnly.value && props.device?.present === false) {
+    return t('device.disconnected')
+  }
+  if (moduleOnly.value && !props.device?.sim_inserted) return t('device.noCard')
   if (flightMode.value) return t('device.flightMode')
   if (radioWaitingForRegistration.value) return t('device.radioRecovering')
   const state = (props.line.state || '').toLocaleLowerCase()
@@ -125,7 +150,8 @@ const dataConnection = computed(() => {
       type="button"
       :aria-label="t('lines.configureModule', { label: lineLabel(line) })"
       :aria-pressed="selected"
-      @click="emit('select')"
+      :disabled="!selectable"
+      @click="selectable && emit('select')"
     >
       <header>
         <span class="module-card__icon"><RadioTower :size="19" /></span>
@@ -187,6 +213,13 @@ const dataConnection = computed(() => {
           <dt>{{ t('lines.port') }}</dt>
           <dd>{{ device?.port || '—' }}</dd>
         </div>
+        <div>
+          <dt>{{ t('device.lastSeen') }}</dt>
+          <dd>
+            <time v-if="device?.last_seen" :datetime="device.last_seen">{{ lastSeen }}</time>
+            <span v-else>—</span>
+          </dd>
+        </div>
       </dl>
 
     </button>
@@ -207,7 +240,21 @@ const dataConnection = computed(() => {
         </span>
       </div>
 
-      <div v-if="actions" class="module-card__actions">
+      <div v-if="deletable" class="module-card__actions">
+        <button
+          class="module-card__delete-action"
+          type="button"
+          :title="t('device.deleteModule')"
+          :aria-label="t('device.deleteModule')"
+          :disabled="deletePending"
+          @click="emit('delete')"
+        >
+          <LoaderCircle v-if="deletePending" class="spin" :size="16" />
+          <Trash2 v-else :size="16" />
+          <span>{{ t('common.delete') }}</span>
+        </button>
+      </div>
+      <div v-else-if="actions && !moduleOnly" class="module-card__actions">
         <button
           class="module-card__default-action"
           type="button"
@@ -270,6 +317,15 @@ const dataConnection = computed(() => {
 
 .module-card__main:hover {
   background: var(--surface-hover);
+}
+
+.module-card__main:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.module-card__main:disabled:hover {
+  background: transparent;
 }
 
 .module-card.is-selected .module-card__main:hover {
@@ -444,6 +500,7 @@ const dataConnection = computed(() => {
 }
 
 .module-card__default-action,
+.module-card__delete-action,
 .module-card__default-status {
   display: inline-flex;
   min-width: 0;
@@ -463,6 +520,25 @@ const dataConnection = computed(() => {
   border: 1px solid var(--border-strong);
   border-radius: 5px;
   cursor: pointer;
+}
+
+.module-card__delete-action {
+  padding: 0 8px;
+  color: var(--danger);
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--danger) 42%, var(--border));
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.module-card__delete-action:hover:not(:disabled) {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+}
+
+.module-card__delete-action:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 .module-card__default-action:hover:not(:disabled) {

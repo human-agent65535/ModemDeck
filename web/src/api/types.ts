@@ -75,6 +75,7 @@ export type LineSummary = {
   signal_quality?: number
   signal_snr?: number
   capabilities?: CommunicationCapabilities
+  module_only?: boolean
 }
 
 export type CallDirection = 'incoming' | 'outgoing'
@@ -501,6 +502,7 @@ export type DeviceSIM = {
 
 export type Device = {
   imei: string
+  endpoint_id: string
   name: string
   model: string
   firmware: string
@@ -517,6 +519,7 @@ export type Device = {
   signal_rsrq: number | null
   signal_rsrp: number | null
   last_seen?: string
+  present: boolean
   sim?: DeviceSIM
   capabilities?: CommunicationCapabilities
 }
