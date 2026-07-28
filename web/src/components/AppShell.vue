@@ -83,6 +83,7 @@ const browserNotificationTitle = computed(() => {
   return t('shell.notificationsEnable')
 })
 let dialerMediaQuery: MediaQueryList | undefined
+let mountGeneration = 0
 const primaryNav = computed(() => [
   { name: 'dashboard', label: t('shell.home'), icon: House },
   { name: 'contacts', label: t('shell.contacts'), icon: UsersRound },
@@ -138,6 +139,12 @@ async function bootstrap(): Promise<void> {
   await loadBootstrap(true)
 }
 
+async function initializeWorkspaceRuntime(currentGeneration: number): Promise<void> {
+  await bootstrap()
+  if (currentGeneration !== mountGeneration) return
+  initializeRuntimeEvents()
+}
+
 function syncDialerMode(): void {
   permanentDialer.value = dialerMediaQuery?.matches ?? false
 }
@@ -147,12 +154,13 @@ function backToSettingsMenu(): void {
 }
 
 onMounted(() => {
+  mountGeneration += 1
+  const currentGeneration = mountGeneration
   initializeBrowserNotifications()
   initializeBrowserSounds()
   initializeCallRuntime(router)
   initializeMessageRuntime(router)
-  initializeRuntimeEvents()
-  void bootstrap()
+  void initializeWorkspaceRuntime(currentGeneration)
   void loadContacts()
   dialerMediaQuery = window.matchMedia('(min-width: 1101px)')
   dialerMediaQuery.addEventListener('change', syncDialerMode)
@@ -160,6 +168,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  mountGeneration += 1
   dialerMediaQuery?.removeEventListener('change', syncDialerMode)
   shutdownRuntimeEvents()
   shutdownMessageRuntime()

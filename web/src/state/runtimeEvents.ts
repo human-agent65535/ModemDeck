@@ -100,6 +100,9 @@ export function initializeRuntimeEvents(): void {
     onReady: newestID => {
       if (currentGeneration !== generation) return
       lastEventID = Math.max(lastEventID, newestID)
+      // Reconcile once at the snapshot-to-stream boundary so events emitted
+      // before this subscription cannot leave the workspace stale.
+      void refreshQueue?.enqueue(ALL_RESOURCES)
     },
     onEvent: event => {
       if (currentGeneration !== generation || event.id <= lastEventID) return

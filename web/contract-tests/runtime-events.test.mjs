@@ -52,11 +52,18 @@ test('runtime SSE is global to the authenticated application shell', async () =>
   assert.match(client, /source\.addEventListener\('runtime'/)
   assert.match(client, /source\.addEventListener\('reset'/)
   assert.match(client, /RUNTIME_RESOURCES[\s\S]*?'messages'/)
-  assert.match(shell, /initializeRuntimeEvents\(\)/)
+  assert.match(
+    shell,
+    /async function initializeWorkspaceRuntime[\s\S]*?await bootstrap\(\)[\s\S]*?initializeRuntimeEvents\(\)/
+  )
   assert.match(shell, /shutdownRuntimeEvents\(\)/)
   assert.match(runtime, /refreshDeviceWorkspace\(\)/)
   assert.match(runtime, /loadNetwork\(true, true\)/)
   assert.match(runtime, /refreshCalls\(\)/)
   assert.match(runtime, /case 'messages':[\s\S]*?refreshMessageWorkspace\(\)/)
+  assert.match(
+    runtime,
+    /onReady:[\s\S]*?lastEventID = Math\.max\(lastEventID, newestID\)[\s\S]*?refreshQueue\?\.enqueue\(ALL_RESOURCES\)/
+  )
   assert.match(runtime, /if \(wasConnected\) void refreshQueue\?\.enqueue\(ALL_RESOURCES\)/)
 })
