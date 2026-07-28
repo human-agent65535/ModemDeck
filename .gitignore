@@ -73,6 +73,7 @@ id_ed25519*
 /internal/legacytelegram/
 /integration/legacy_*
 /integration/private/
+/firmware/
 /migration/
 /migrations/
 /one-off/
