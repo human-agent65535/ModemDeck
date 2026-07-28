@@ -58,6 +58,7 @@ export function createRuntimeRefreshQueue(
 
 const state = reactive({
   connected: false,
+  lastHeartbeatAt: '',
   lastObservedAt: ''
 })
 
@@ -96,6 +97,11 @@ export function initializeRuntimeEvents(): void {
   closeStream = gateway.subscribeRuntimeEvents({
     onOpen: () => {
       if (currentGeneration === generation) state.connected = true
+    },
+    onHeartbeat: observedAt => {
+      if (currentGeneration !== generation) return
+      state.connected = true
+      state.lastHeartbeatAt = observedAt
     },
     onReady: newestID => {
       if (currentGeneration !== generation) return
@@ -136,5 +142,6 @@ export function shutdownRuntimeEvents(): void {
   refreshQueue?.stop()
   refreshQueue = undefined
   state.connected = false
+  state.lastHeartbeatAt = ''
   state.lastObservedAt = ''
 }

@@ -178,3 +178,21 @@ func TestRuntimeEventStreamRequiresConfiguredSource(t *testing.T) {
 		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
 	}
 }
+
+func TestRuntimeHeartbeatIsObservableWithoutChangingCursor(t *testing.T) {
+	t.Parallel()
+
+	response := httptest.NewRecorder()
+	observedAt := time.Date(2026, time.July, 28, 7, 30, 0, 0, time.UTC)
+
+	if !writeRuntimeHeartbeat(response, response, observedAt) {
+		t.Fatal("writeRuntimeHeartbeat() = false")
+	}
+
+	body := response.Body.String()
+	if !strings.Contains(body, "event: heartbeat") ||
+		!strings.Contains(body, `"at":"2026-07-28T07:30:00Z"`) ||
+		strings.Contains(body, "id:") {
+		t.Fatalf("heartbeat = %q", body)
+	}
+}

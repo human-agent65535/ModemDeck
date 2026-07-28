@@ -150,6 +150,7 @@ const API_ROOT = '/api/v1'
 const READ_REQUEST_TIMEOUT_MS = 15_000
 const WRITE_REQUEST_TIMEOUT_MS = 60_000
 const NETWORK_SCAN_REQUEST_TIMEOUT_MS = 130_000
+const RUNTIME_EVENT_INACTIVITY_TIMEOUT_MS = 40_000
 
 const runtimeEnvironment = import.meta.env
 
@@ -782,11 +783,20 @@ function subscribeEventSource(
   bind: (
     source: EventSource,
     restart: (error: Error) => void,
-    isActive: () => boolean
-  ) => void
+    isActive: () => boolean,
+    markActivity: () => void
+  ) => void,
+  inactivityTimeoutMilliseconds?: number
 ): () => void {
   let source: EventSource | undefined
+  let inactivityTimer: number | undefined
   let stopped = false
+
+  const clearInactivityTimer = () => {
+    if (inactivityTimer === undefined) return
+    globalThis.clearTimeout(inactivityTimer)
+    inactivityTimer = undefined
+  }
 
   const connect = () => {
     if (stopped) return
@@ -795,23 +805,35 @@ function subscribeEventSource(
     const isActive = () => !stopped && source === current
     const restart = (error: Error) => {
       if (!isActive()) return
+      clearInactivityTimer()
       current.close()
       handlers.onError(error)
       connect()
     }
+    const markActivity = () => {
+      if (!isActive() || !inactivityTimeoutMilliseconds) return
+      clearInactivityTimer()
+      inactivityTimer = globalThis.setTimeout(() => {
+        restart(new Error('运行时事件流长时间没有响应'))
+      }, inactivityTimeoutMilliseconds)
+    }
     current.onopen = () => {
-      if (isActive()) handlers.onOpen()
+      if (!isActive()) return
+      markActivity()
+      handlers.onOpen()
     }
     current.onerror = () => {
       if (isActive()) handlers.onError()
     }
-    bind(current, restart, isActive)
+    bind(current, restart, isActive, markActivity)
+    markActivity()
   }
 
   connect()
   return () => {
     if (stopped) return
     stopped = true
+    clearInactivityTimer()
     source?.close()
   }
 }
@@ -1208,17 +1230,34 @@ const realGateway: ConfiguredModemDeckGateway = {
     return subscribeEventSource(
       `${API_ROOT}/runtime/events`,
       handlers,
-      (source, restart, isActive) => {
+      (source, restart, isActive, markActivity) => {
         source.addEventListener('runtime', event => {
           if (!isActive()) return
+          markActivity()
           try {
             handlers.onEvent(parseRuntimeEvent(JSON.parse(event.data) as unknown))
           } catch (error) {
             restart(error instanceof Error ? error : new Error('运行时事件格式无效'))
           }
         })
+        source.addEventListener('heartbeat', event => {
+          if (!isActive()) return
+          markActivity()
+          try {
+            const heartbeat = requiredRecord(
+              JSON.parse(event.data) as unknown,
+              'runtime_event_heartbeat'
+            )
+            handlers.onHeartbeat(
+              requiredStringValue(heartbeat, 'runtime_event_heartbeat', 'at')
+            )
+          } catch (error) {
+            restart(error instanceof Error ? error : new Error('运行时事件心跳无效'))
+          }
+        })
         source.addEventListener('ready', event => {
           if (!isActive()) return
+          markActivity()
           try {
             const ready = requiredRecord(JSON.parse(event.data) as unknown, 'runtime_event_ready')
             handlers.onReady(numberValue(ready, 'runtime_event_ready', 'newest_id'))
@@ -1228,6 +1267,7 @@ const realGateway: ConfiguredModemDeckGateway = {
         })
         source.addEventListener('reset', event => {
           if (!isActive()) return
+          markActivity()
           try {
             const reset = requiredRecord(JSON.parse(event.data) as unknown, 'runtime_event_reset')
             handlers.onReset(
@@ -1238,7 +1278,8 @@ const realGateway: ConfiguredModemDeckGateway = {
             restart(error instanceof Error ? error : new Error('运行时事件重置状态无效'))
           }
         })
-      }
+      },
+      RUNTIME_EVENT_INACTIVITY_TIMEOUT_MS
     )
   },
 

@@ -8,6 +8,10 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 )
 
+type runtimeHeartbeat struct {
+	At time.Time `json:"at"`
+}
+
 func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.Request) {
 	if api.runtimeEvents == nil {
 		writeError(response, http.StatusServiceUnavailable, "runtime_events_unavailable", "Runtime events are unavailable", "")
@@ -70,11 +74,20 @@ func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.R
 			if !open || !writeSSE(response, flusher, "runtime", event.ID, event) {
 				return
 			}
-		case <-heartbeat.C:
-			if _, err := fmt.Fprint(response, ": keepalive\n\n"); err != nil {
+		case observedAt := <-heartbeat.C:
+			if !writeRuntimeHeartbeat(response, flusher, observedAt) {
 				return
 			}
-			flusher.Flush()
 		}
 	}
+}
+
+func writeRuntimeHeartbeat(
+	response http.ResponseWriter,
+	flusher http.Flusher,
+	observedAt time.Time,
+) bool {
+	return writeSSE(response, flusher, "heartbeat", 0, runtimeHeartbeat{
+		At: observedAt.UTC(),
+	})
 }

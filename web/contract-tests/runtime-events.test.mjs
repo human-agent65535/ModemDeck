@@ -86,8 +86,12 @@ test('API requests abort at the shared deadline', async () => {
   }
 })
 
-test('runtime SSE recreates the EventSource after a protocol error', () => {
+test('runtime SSE reports heartbeats and recreates stale or malformed streams', () => {
   const originalEventSource = globalThis.EventSource
+  const originalSetTimeout = globalThis.setTimeout
+  const originalClearTimeout = globalThis.clearTimeout
+  const timers = new Map()
+  let nextTimerID = 0
 
   class FakeEventSource {
     static instances = []
@@ -113,9 +117,21 @@ test('runtime SSE recreates the EventSource after a protocol error', () => {
 
   try {
     globalThis.EventSource = FakeEventSource
+    globalThis.setTimeout = callback => {
+      nextTimerID += 1
+      timers.set(nextTimerID, callback)
+      return nextTimerID
+    }
+    globalThis.clearTimeout = timerID => {
+      timers.delete(timerID)
+    }
     let errors = 0
+    let heartbeatAt = ''
     const close = gateway.subscribeRuntimeEvents({
       onOpen() {},
+      onHeartbeat(observedAt) {
+        heartbeatAt = observedAt
+      },
       onReady() {},
       onEvent() {},
       onReset() {},
@@ -124,15 +140,31 @@ test('runtime SSE recreates the EventSource after a protocol error', () => {
       }
     })
 
-    FakeEventSource.instances[0].emit('runtime', '{')
+    FakeEventSource.instances[0].emit(
+      'heartbeat',
+      '{"at":"2026-07-28T07:30:00Z"}'
+    )
+    assert.equal(heartbeatAt, '2026-07-28T07:30:00Z')
+    assert.equal(timers.size, 1)
 
+    const [timerID, expire] = timers.entries().next().value
+    timers.delete(timerID)
+    expire()
     assert.equal(errors, 1)
     assert.equal(FakeEventSource.instances.length, 2)
     assert.equal(FakeEventSource.instances[0].closed, true)
 
-    close()
+    FakeEventSource.instances[1].emit('runtime', '{')
+    assert.equal(errors, 2)
+    assert.equal(FakeEventSource.instances.length, 3)
     assert.equal(FakeEventSource.instances[1].closed, true)
+
+    close()
+    assert.equal(FakeEventSource.instances[2].closed, true)
+    assert.equal(timers.size, 0)
   } finally {
+    globalThis.setTimeout = originalSetTimeout
+    globalThis.clearTimeout = originalClearTimeout
     if (originalEventSource === undefined) {
       delete globalThis.EventSource
     } else {
@@ -158,7 +190,9 @@ test('runtime SSE is global to the authenticated application shell', async () =>
     /subscribeEventSource\(\s*`\$\{API_ROOT\}\/runtime\/events`/
   )
   assert.match(client, /source\.addEventListener\('runtime'/)
+  assert.match(client, /source\.addEventListener\('heartbeat'/)
   assert.match(client, /source\.addEventListener\('reset'/)
+  assert.match(client, /RUNTIME_EVENT_INACTIVITY_TIMEOUT_MS = 40_000/)
   assert.match(client, /RUNTIME_RESOURCES[\s\S]*?'messages'/)
   assert.match(
     shell,

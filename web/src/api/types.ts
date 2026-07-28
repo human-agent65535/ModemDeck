@@ -473,6 +473,7 @@ export type RuntimeEvent = {
 
 export type RuntimeEventStreamHandlers = {
   onOpen: () => void
+  onHeartbeat: (observedAt: string) => void
   onReady: (newestID: number) => void
   onEvent: (event: RuntimeEvent) => void
   onReset: (oldestID: number, newestID: number) => void
