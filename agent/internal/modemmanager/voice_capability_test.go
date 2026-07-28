@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/human-agent65535/modemdeck/agent/internal/domain"
@@ -13,18 +14,35 @@ func TestQuectelVoiceSeparatesCallControlFromMediaProof(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		revision    string
-		usbConfig   string
-		enableErr   error
-		status      string
-		wantControl bool
-		wantMedia   bool
+		name         string
+		revision     string
+		usbConfig    string
+		usbConfigErr error
+		enableErr    error
+		status       string
+		wantControl  bool
+		wantMedia    bool
 	}{
 		{
 			name:        "documented EG25 path is verified",
 			revision:    "EG25GGCR07A02M1G",
 			usbConfig:   `+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`,
+			status:      "+QPCMV: 1,2",
+			wantControl: true,
+			wantMedia:   true,
+		},
+		{
+			name:         "unsupported USB config query keeps ModemManager call control",
+			revision:     "EG25GGCR07A02M1G",
+			usbConfigErr: errors.New("AT command returned ERROR"),
+			status:       "+QPCMV: 1,2",
+			wantControl:  true,
+			wantMedia:    true,
+		},
+		{
+			name:        "unrecognized USB config response is inconclusive",
+			revision:    "EG25GGCR07A02M1G",
+			usbConfig:   "OK",
 			status:      "+QPCMV: 1,2",
 			wantControl: true,
 			wantMedia:   true,
@@ -65,6 +83,9 @@ func TestQuectelVoiceSeparatesCallControlFromMediaProof(t *testing.T) {
 			caller.atResponses[quectelPCMStatusQuery] = test.status
 			if test.enableErr != nil {
 				caller.atCommandErrors[quectelPCMEnable] = test.enableErr
+			}
+			if test.usbConfigErr != nil {
+				caller.atCommandErrors[quectelUSBVoiceQuery] = test.usbConfigErr
 			}
 			provider := newTestProvider(caller)
 
@@ -115,6 +136,46 @@ func TestParseQuectelUSBCallControlRejectsMalformedResponses(t *testing.T) {
 		if _, err := parseQuectelUSBCallControl(response); err == nil {
 			t.Fatalf("parseQuectelUSBCallControl(%q) accepted malformed response", response)
 		}
+	}
+}
+
+func TestQuectelVoiceRetriesTransientPCMReadbackFailure(t *testing.T) {
+	t.Parallel()
+
+	objects := emptyLineObjects(true, false)
+	properties := objects[testModemPath][modemInterface]
+	properties["Manufacturer"] = dbus.MakeVariant("QUALCOMM INCORPORATED")
+	properties["Model"] = dbus.MakeVariant("QUECTEL Mobile Broadband Module")
+	properties["Revision"] = dbus.MakeVariant("EG25GGCR07A02M1G")
+
+	caller := newFakeCaller(objects)
+	caller.owner = true
+	caller.atCommandErrors[quectelUSBVoiceQuery] = errors.New("AT command returned ERROR")
+	caller.atResponses[quectelPCMEnable] = ""
+	caller.atCommandErrors[quectelPCMStatusQuery] = errors.New("AT port temporarily busy")
+	provider := newTestProvider(caller)
+	now := time.Unix(1_700_000_000, 0)
+	provider.now = func() time.Time { return now }
+
+	first, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("first Snapshot() error = %v", err)
+	}
+	if !first.Lines[0].Capabilities.Dial || first.Lines[0].Capabilities.Media {
+		t.Fatalf("first capabilities = %+v", first.Lines[0].Capabilities)
+	}
+
+	delete(caller.atCommandErrors, quectelPCMStatusQuery)
+	caller.atResponses[quectelPCMStatusQuery] = quectelPCMReadyStatus
+	now = now.Add(voiceProbeNotReadyTTL + time.Second)
+
+	recovered, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("recovered Snapshot() error = %v", err)
+	}
+	if !recovered.Lines[0].Capabilities.Dial ||
+		!recovered.Lines[0].Capabilities.Media {
+		t.Fatalf("recovered capabilities = %+v", recovered.Lines[0].Capabilities)
 	}
 }
 

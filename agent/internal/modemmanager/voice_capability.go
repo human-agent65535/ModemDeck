@@ -26,6 +26,7 @@ type voiceProbeResult struct {
 	callControl bool
 	media       bool
 	reason      string
+	retrySoon   bool
 	expiresAt   time.Time
 }
 
@@ -124,39 +125,41 @@ func (p *Provider) probeQuectelVoice(
 		return cached
 	}
 
-	result := voiceProbeResult{}
+	// ModemManager's Voice interface is the call-control authority. Some
+	// production Quectel firmware supports the configured USB composition but
+	// rejects the vendor-specific USBCFG query. Only an explicit disabled flag
+	// may override the capability ModemManager already reported.
+	result := voiceProbeResult{callControl: true}
 	usbVoiceResponse, err := p.commandATPath(ctx, path, operation, quectelUSBVoiceQuery)
-	if err != nil {
-		result.reason = "USB voice configuration could not be read"
-	} else {
+	if err == nil {
 		callControlEnabled, decodeErr := parseQuectelUSBCallControl(usbVoiceResponse)
-		switch {
-		case decodeErr != nil:
-			result.reason = decodeErr.Error()
-		case !callControlEnabled:
+		if decodeErr == nil && !callControlEnabled {
+			result.callControl = false
 			result.reason = "USB call control is disabled"
-		default:
-			result.callControl = true
-			if _, err = p.commandATPath(ctx, path, operation, quectelPCMEnable); err != nil {
-				result.reason = "PCM voice routing command was rejected"
-			} else {
-				status, statusErr := p.commandATPath(
-					ctx,
-					path,
-					operation,
-					quectelPCMStatusQuery,
-				)
-				if statusErr != nil {
-					result.reason = "PCM voice routing state could not be read"
-				} else if !strings.EqualFold(strings.TrimSpace(status), quectelPCMReadyStatus) {
-					result.reason = "PCM voice routing did not become active"
-				} else {
-					result.media = true
-				}
-			}
 		}
 	}
 	if result.callControl {
+		if _, err = p.commandATPath(ctx, path, operation, quectelPCMEnable); err != nil {
+			result.reason = "PCM voice routing command was rejected"
+		} else {
+			status, statusErr := p.commandATPath(
+				ctx,
+				path,
+				operation,
+				quectelPCMStatusQuery,
+			)
+			if statusErr != nil {
+				result.reason = "PCM voice routing state could not be read"
+				result.retrySoon = true
+			} else if !strings.EqualFold(strings.TrimSpace(status), quectelPCMReadyStatus) {
+				result.reason = "PCM voice routing did not become active"
+				result.retrySoon = true
+			} else {
+				result.media = true
+			}
+		}
+	}
+	if result.callControl && !result.retrySoon {
 		result.expiresAt = now.Add(voiceProbeReadyTTL)
 	} else {
 		result.expiresAt = now.Add(voiceProbeNotReadyTTL)
