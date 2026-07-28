@@ -443,8 +443,9 @@ func testCore(
 
 func testOffer(callID, sdp string) Offer {
 	return Offer{
-		Call: ActiveCall{ID: callID, State: CallStateActive},
-		SDP:  sdp,
+		Call:       ActiveCall{ID: callID, State: CallStateActive},
+		OwnerToken: "owner-" + callID,
+		SDP:        sdp,
 	}
 }
 

@@ -977,6 +977,18 @@ export function callMediaContract(id: string): {
   }
 }
 
+export function callMediaReleaseContract(id: string): {
+  method: 'DELETE'
+  path: string
+  successStatus: 204
+} {
+  return {
+    method: 'DELETE',
+    path: callMediaPath(id),
+    successStatus: 204
+  }
+}
+
 export function callLeaseContract(id: string): {
   method: 'PUT'
   path: string
@@ -1098,10 +1110,23 @@ export function createDTMFPayload(
   }
 }
 
-export function createCallMediaPayload(offerSDP: string): { offer_sdp: string } {
+export function createCallMediaPayload(
+  ownerToken: string,
+  offerSDP: string
+): { owner_token: string; offer_sdp: string } {
+  const normalizedOwnerToken = ownerToken.trim()
   const normalizedOffer = offerSDP.trim()
+  if (!normalizedOwnerToken) throw new Error('owner_token 不能为空')
   if (!normalizedOffer) throw new Error('offer_sdp 不能为空')
-  return { offer_sdp: normalizedOffer }
+  return { owner_token: normalizedOwnerToken, offer_sdp: normalizedOffer }
+}
+
+export function createCallMediaReleasePayload(
+  ownerToken: string
+): { owner_token: string } {
+  const normalizedOwnerToken = ownerToken.trim()
+  if (!normalizedOwnerToken) throw new Error('owner_token 不能为空')
+  return { owner_token: normalizedOwnerToken }
 }
 
 export function createCallLeasePayload(holderID: string): { holder_id: string } {

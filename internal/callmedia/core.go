@@ -10,13 +10,17 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
-const defaultGatheringTimeout = 5 * time.Second
+const (
+	defaultGatheringTimeout = 5 * time.Second
+	defaultRecoveryTimeout  = 15 * time.Second
+)
 
 type Options struct {
 	EndpointOpener    MediaEndpointOpener
 	CodecFactory      OpusCodecFactory
 	PeerConfiguration webrtc.Configuration
 	GatheringTimeout  time.Duration
+	RecoveryTimeout   time.Duration
 	Jitter            JitterConfig
 }
 
@@ -26,6 +30,7 @@ type Core struct {
 	api           *webrtc.API
 	configuration webrtc.Configuration
 	gatherTimeout time.Duration
+	recoveryTime  time.Duration
 	jitter        JitterConfig
 
 	ctx    context.Context
@@ -33,7 +38,7 @@ type Core struct {
 
 	mu             sync.Mutex
 	closed         bool
-	sessions       map[string]*Session
+	owners         map[string]*mediaOwner
 	hubs           map[string]*hubEntry
 	lifetimes      map[string]*callLifetime
 	authority      map[string]struct{}
@@ -47,6 +52,22 @@ type callLifetime struct {
 	cancel context.CancelFunc
 }
 
+type mediaOwner struct {
+	token   string
+	ctx     context.Context
+	cancel  context.CancelFunc
+	session *Session
+	done    chan struct{}
+	once    sync.Once
+}
+
+func (o *mediaOwner) finish() {
+	if o == nil {
+		return
+	}
+	o.once.Do(func() { close(o.done) })
+}
+
 type hubEntry struct {
 	ready chan struct{}
 	hub   *mediaHub
@@ -54,7 +75,9 @@ type hubEntry struct {
 }
 
 func New(options Options) (*Core, error) {
-	if options.EndpointOpener == nil || options.GatheringTimeout < 0 {
+	if options.EndpointOpener == nil ||
+		options.GatheringTimeout < 0 ||
+		options.RecoveryTimeout < 0 {
 		return nil, fmt.Errorf("create call media core: %w", ErrInvalidArgument)
 	}
 	codecs := options.CodecFactory
@@ -77,6 +100,10 @@ func New(options Options) (*Core, error) {
 	if timeout == 0 {
 		timeout = defaultGatheringTimeout
 	}
+	recoveryTime := options.RecoveryTimeout
+	if recoveryTime == 0 {
+		recoveryTime = defaultRecoveryTimeout
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Core{
 		opener:        options.EndpointOpener,
@@ -84,10 +111,11 @@ func New(options Options) (*Core, error) {
 		api:           api,
 		configuration: clonePeerConfiguration(options.PeerConfiguration),
 		gatherTimeout: timeout,
+		recoveryTime:  recoveryTime,
 		jitter:        jitter,
 		ctx:           ctx,
 		cancel:        cancel,
-		sessions:      make(map[string]*Session),
+		owners:        make(map[string]*mediaOwner),
 		hubs:          make(map[string]*hubEntry),
 		lifetimes:     make(map[string]*callLifetime),
 		authority:     make(map[string]struct{}),
@@ -103,10 +131,14 @@ func (c *Core) Exchange(ctx context.Context, offer Offer) (ExchangeResult, error
 	if err != nil {
 		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: %w", err)
 	}
+	ownerToken, err := normalizeOwnerToken(offer.OwnerToken)
+	if err != nil {
+		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: owner token: %w", err)
+	}
 	if err := validateOfferSDP(offer.SDP); err != nil {
 		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: %w", err)
 	}
-	lifetime, err := c.reserve(call.ID)
+	lifetime, owner, err := c.reserve(call.ID, ownerToken)
 	if err != nil {
 		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: %w", err)
 	}
@@ -114,14 +146,16 @@ func (c *Core) Exchange(ctx context.Context, offer Offer) (ExchangeResult, error
 	committed := false
 	defer func() {
 		if !committed {
-			c.release(call.ID)
+			c.releaseReservation(call.ID, owner)
 		}
 	}()
 
 	prepareContext, cancel := context.WithCancel(ctx)
 	stopCallCancel := context.AfterFunc(lifetime.ctx, cancel)
+	stopOwnerCancel := context.AfterFunc(owner.ctx, cancel)
 	defer func() {
 		stopCallCancel()
+		stopOwnerCancel()
 		cancel()
 	}()
 
@@ -216,7 +250,7 @@ func (c *Core) Exchange(ctx context.Context, offer Offer) (ExchangeResult, error
 	}
 
 	session := newSession(
-		c.ctx,
+		owner.ctx,
 		call.ID,
 		format,
 		hub,
@@ -227,8 +261,9 @@ func (c *Core) Exchange(ctx context.Context, offer Offer) (ExchangeResult, error
 		sender,
 		events,
 		c.jitter,
+		c.recoveryTime,
 	)
-	if err := c.commit(call.ID, lifetime, session); err != nil {
+	if err := c.commit(call.ID, lifetime, owner, session); err != nil {
 		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: %w", err)
 	}
 	committed = true
@@ -253,7 +288,7 @@ func (c *Core) CloseCall(ctx context.Context, callID string) error {
 		return err
 	}
 	c.mu.Lock()
-	session, sessionExists := c.sessions[callID]
+	owner := c.owners[callID]
 	entry := c.hubs[callID]
 	lifetime := c.lifetimes[callID]
 	if lifetime != nil {
@@ -272,18 +307,66 @@ func (c *Core) CloseCall(ctx context.Context, callID string) error {
 	}
 	c.mu.Unlock()
 	var closeErr error
-	if sessionExists && session != nil {
-		closeErr = session.shutdown(ctx)
+	if owner != nil {
+		owner.cancel()
+		if owner.session != nil {
+			closeErr = owner.session.shutdown(ctx)
+		}
 	}
-	c.mu.Lock()
-	if c.sessions[callID] == session {
-		delete(c.sessions, callID)
-	}
-	c.mu.Unlock()
 	if hub != nil {
 		closeErr = errors.Join(closeErr, hub.shutdown(ctx))
 	}
+	c.mu.Lock()
+	if c.owners[callID] == owner {
+		delete(c.owners, callID)
+		owner.finish()
+	}
+	c.mu.Unlock()
 	return closeErr
+}
+
+// ReleaseOwner releases only the matching browser media owner. The call
+// lifetime and shared PCM hub remain available to recording and a later owner.
+func (c *Core) ReleaseOwner(ctx context.Context, callID, ownerToken string) error {
+	if c == nil {
+		return nil
+	}
+	ctx = normalizeContext(ctx)
+	callID, err := normalizeCallID(callID)
+	if err != nil {
+		return err
+	}
+	ownerToken, err = normalizeOwnerToken(ownerToken)
+	if err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	owner := c.owners[callID]
+	if owner == nil {
+		c.mu.Unlock()
+		return nil
+	}
+	if owner.token != ownerToken {
+		c.mu.Unlock()
+		return ErrNotMediaOwner
+	}
+	owner.cancel()
+	session := owner.session
+	done := owner.done
+	c.mu.Unlock()
+
+	if session != nil {
+		if err := session.shutdown(ctx); err != nil {
+			return err
+		}
+	}
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ErrCanceled
+	}
 }
 
 // ReconcileActiveCalls closes every call media lifetime no longer present in
@@ -311,7 +394,7 @@ func (c *Core) ReconcileActiveCalls(ctx context.Context, activeCallIDs []string)
 			stale[callID] = struct{}{}
 		}
 	}
-	for callID := range c.sessions {
+	for callID := range c.owners {
 		if _, exists := active[callID]; !exists {
 			stale[callID] = struct{}{}
 		}
@@ -371,10 +454,13 @@ func (c *Core) Close(ctx context.Context) error {
 	}
 
 	c.mu.Lock()
-	sessions := make([]*Session, 0, len(c.sessions))
-	for _, session := range c.sessions {
-		if session != nil {
-			sessions = append(sessions, session)
+	sessions := make([]*Session, 0, len(c.owners))
+	for _, owner := range c.owners {
+		if owner != nil {
+			owner.cancel()
+			if owner.session != nil {
+				sessions = append(sessions, owner.session)
+			}
 		}
 	}
 	hubs := make([]*mediaHub, 0, len(c.hubs))
@@ -400,7 +486,7 @@ func (c *Core) Close(ctx context.Context) error {
 		}
 	}
 	c.mu.Lock()
-	clear(c.sessions)
+	clear(c.owners)
 	clear(c.hubs)
 	clear(c.lifetimes)
 	clear(c.authority)
@@ -550,28 +636,40 @@ func (c *Core) releaseHubWhenDone(callID string, entry *hubEntry, hub *mediaHub)
 	c.mu.Unlock()
 }
 
-func (c *Core) reserve(callID string) (*callLifetime, error) {
+func (c *Core) reserve(
+	callID string,
+	ownerToken string,
+) (*callLifetime, *mediaOwner, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
-		return nil, ErrCoreClosed
+		return nil, nil, ErrCoreClosed
 	}
-	if _, exists := c.sessions[callID]; exists {
-		return nil, ErrCallInUse
+	if _, exists := c.owners[callID]; exists {
+		return nil, nil, ErrCallInUse
 	}
 	lifetime, err := c.activeLifetimeLocked(callID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	c.sessions[callID] = nil
+	ownerContext, ownerCancel := context.WithCancel(c.ctx)
+	owner := &mediaOwner{
+		token:  ownerToken,
+		ctx:    ownerContext,
+		cancel: ownerCancel,
+		done:   make(chan struct{}),
+	}
+	c.owners[callID] = owner
 	c.prepares.Add(1)
-	return lifetime, nil
+	return lifetime, owner, nil
 }
 
-func (c *Core) release(callID string) {
+func (c *Core) releaseReservation(callID string, owner *mediaOwner) {
 	c.mu.Lock()
-	if c.sessions[callID] == nil {
-		delete(c.sessions, callID)
+	if c.owners[callID] == owner && owner != nil && owner.session == nil {
+		delete(c.owners, callID)
+		owner.cancel()
+		owner.finish()
 	}
 	c.mu.Unlock()
 }
@@ -579,6 +677,7 @@ func (c *Core) release(callID string) {
 func (c *Core) commit(
 	callID string,
 	lifetime *callLifetime,
+	owner *mediaOwner,
 	session *Session,
 ) error {
 	c.mu.Lock()
@@ -591,11 +690,11 @@ func (c *Core) commit(
 		c.lifetimes[callID] != lifetime {
 		return ErrCanceled
 	}
-	current, exists := c.sessions[callID]
-	if !exists || current != nil {
+	current, exists := c.owners[callID]
+	if !exists || current != owner || owner == nil || owner.session != nil {
 		return ErrCallInUse
 	}
-	c.sessions[callID] = session
+	owner.session = session
 	return nil
 }
 
@@ -630,8 +729,11 @@ func (c *Core) activeLifetimeLocked(callID string) (*callLifetime, error) {
 func (c *Core) releaseWhenDone(callID string, session *Session) {
 	<-session.Done()
 	c.mu.Lock()
-	if c.sessions[callID] == session {
-		delete(c.sessions, callID)
+	owner := c.owners[callID]
+	if owner != nil && owner.session == session {
+		delete(c.owners, callID)
+		owner.cancel()
+		owner.finish()
 	}
 	c.mu.Unlock()
 }

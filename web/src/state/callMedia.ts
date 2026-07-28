@@ -25,6 +25,8 @@ export type CallMediaStatus =
   | 'error'
 
 const ICE_GATHERING_TIMEOUT_MS = 5000
+const MEDIA_RECOVERY_TIMEOUT_MS = 15_000
+const MEDIA_LOCK_PREFIX = 'modemdeck-call-media:'
 
 export const callMediaState = reactive<{
   callID: string
@@ -50,6 +52,16 @@ let remoteAudio: HTMLAudioElement | undefined
 let inputReplaceGeneration = 0
 let queuedInputDeviceID: string | undefined
 let inputSwitchPromise: Promise<void> | undefined
+let recoveryTimeoutID: number | undefined
+let mediaLockAbort: AbortController | undefined
+
+type MediaOwnership = {
+  ownerToken: string
+  claimed: boolean
+  release: () => void
+}
+
+let mediaOwnership: MediaOwnership | undefined
 
 type MicrophonePipeline = {
   capture: MediaStream
@@ -62,6 +74,12 @@ type MicrophonePipeline = {
 }
 
 let microphonePipeline: MicrophonePipeline | undefined
+
+function clearRecoveryWindow(): void {
+  if (recoveryTimeoutID === undefined) return
+  window.clearTimeout(recoveryTimeoutID)
+  recoveryTimeoutID = undefined
+}
 
 function stopMicrophonePipeline(pipeline: MicrophonePipeline): void {
   for (const track of pipeline.capture.getTracks()) track.stop()
@@ -108,6 +126,10 @@ function stopResources(): void {
   inputReplaceGeneration += 1
   queuedInputDeviceID = undefined
   currentCallID = ''
+  clearRecoveryWindow()
+  mediaLockAbort?.abort()
+  mediaLockAbort = undefined
+  mediaOwnership?.release()
 
   if (peer) {
     peer.onconnectionstatechange = null
@@ -218,7 +240,23 @@ function failConnection(callID: string, token: number, error: unknown): void {
   markAudioInputError(callMediaState.error)
 }
 
-async function connect(callID: string, token: number): Promise<void> {
+function beginRecoveryWindow(callID: string, token: number): void {
+  if (recoveryTimeoutID !== undefined) return
+  recoveryTimeoutID = window.setTimeout(() => {
+    recoveryTimeoutID = undefined
+    failConnection(
+      callID,
+      token,
+      new Error(translate('runtime.callAudioConnectionFailed'))
+    )
+  }, MEDIA_RECOVERY_TIMEOUT_MS)
+}
+
+async function connect(
+  callID: string,
+  token: number,
+  ownership: MediaOwnership
+): Promise<void> {
   let pendingMicrophone: MediaStream | undefined
   let pendingPipeline: MicrophonePipeline | undefined
   try {
@@ -263,15 +301,22 @@ async function connect(callID: string, token: number): Promise<void> {
       if (generation !== token || currentCallID !== callID) return
       if (connection.connectionState === 'connected') {
         recovering = false
+        clearRecoveryWindow()
         callMediaState.status = 'active'
         callMediaState.error = ''
       } else if (connection.connectionState === 'connecting') {
         callMediaState.status = recovering ? 'recovering' : 'connecting'
       } else if (connection.connectionState === 'disconnected') {
         recovering = true
+        beginRecoveryWindow(callID, token)
         callMediaState.status = 'recovering'
         callMediaState.error = ''
       } else if (connection.connectionState === 'failed') {
+        recovering = true
+        beginRecoveryWindow(callID, token)
+        callMediaState.status = 'recovering'
+        callMediaState.error = ''
+      } else if (connection.connectionState === 'closed') {
         failConnection(callID, token, new Error(translate('runtime.callAudioConnectionFailed')))
       }
     }
@@ -287,13 +332,64 @@ async function connect(callID: string, token: number): Promise<void> {
     const offerSDP = connection.localDescription?.sdp
     if (!offerSDP) throw new Error(translate('runtime.audioOfferMissing'))
     callMediaState.status = 'connecting'
-    const answerSDP = await gateway.exchangeCallMedia(callID, offerSDP)
+    ownership.claimed = true
+    const answerSDP = await gateway.exchangeCallMedia(
+      callID,
+      ownership.ownerToken,
+      offerSDP
+    )
     if (generation !== token || currentCallID !== callID) return
     await connection.setRemoteDescription({ type: 'answer', sdp: answerSDP })
   } catch (error) {
     if (pendingPipeline) stopMicrophonePipeline(pendingPipeline)
     else for (const track of pendingMicrophone?.getTracks() || []) track.stop()
     failConnection(callID, token, error)
+  }
+}
+
+async function ownAndConnect(
+  callID: string,
+  token: number,
+  controller: AbortController
+): Promise<void> {
+  try {
+    if (!navigator.locks?.request) {
+      throw new Error(translate('runtime.callAudioFailed'))
+    }
+    await navigator.locks.request(
+      `${MEDIA_LOCK_PREFIX}${callID}`,
+      { mode: 'exclusive', signal: controller.signal },
+      async lock => {
+        if (!lock || generation !== token || currentCallID !== callID) return
+
+        let releaseLock: () => void = () => undefined
+        const released = new Promise<void>(resolve => {
+          releaseLock = resolve
+        })
+        const ownership: MediaOwnership = {
+          ownerToken: globalThis.crypto.randomUUID(),
+          claimed: false,
+          release: releaseLock
+        }
+        mediaOwnership = ownership
+        try {
+          await connect(callID, token, ownership)
+          await released
+        } finally {
+          if (ownership.claimed) {
+            await gateway.releaseCallMedia(callID, ownership.ownerToken).catch(() => undefined)
+          }
+          if (mediaOwnership === ownership) mediaOwnership = undefined
+        }
+      }
+    )
+  } catch (error) {
+    if (controller.signal.aborted || generation !== token || currentCallID !== callID) {
+      return
+    }
+    failConnection(callID, token, error)
+  } finally {
+    if (mediaLockAbort === controller) mediaLockAbort = undefined
   }
 }
 
@@ -319,7 +415,9 @@ export function syncCallMedia(session: CallSession | null): void {
   callMediaState.muted = false
   callMediaState.playbackBlocked = false
   const token = generation
-  void connect(session.id, token)
+  const controller = new AbortController()
+  mediaLockAbort = controller
+  void ownAndConnect(session.id, token, controller)
 }
 
 export function retryCallMedia(session: CallSession | null): void {

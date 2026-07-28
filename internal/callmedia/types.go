@@ -12,6 +12,7 @@ const (
 	RTPClockRate       = 48000
 	OpusPayloadType    = 111
 	maxCallIDBytes     = 256
+	maxOwnerTokenBytes = 128
 	bitsPerPCMSample   = 16
 	bytesPerPCMSample  = bitsPerPCMSample / 8
 	defaultFramePeriod = 20 * time.Millisecond
@@ -103,8 +104,9 @@ type MediaEndpointOpener interface {
 }
 
 type Offer struct {
-	Call ActiveCall
-	SDP  string
+	Call       ActiveCall
+	OwnerToken string
+	SDP        string
 }
 
 type ExchangeResult struct {
@@ -126,6 +128,19 @@ func normalizeActiveCall(call ActiveCall) (ActiveCall, error) {
 		}
 	}
 	return call, nil
+}
+
+func normalizeOwnerToken(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > maxOwnerTokenBytes {
+		return "", ErrInvalidArgument
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) {
+			return "", ErrInvalidArgument
+		}
+	}
+	return value, nil
 }
 
 func normalizeContext(ctx context.Context) context.Context {

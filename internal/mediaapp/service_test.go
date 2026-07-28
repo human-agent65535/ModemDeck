@@ -22,7 +22,12 @@ func TestExchangeRequiresAuthoritativeActiveMediaCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	if _, err := service.Exchange(context.Background(), "call-1", "offer"); !errors.Is(err, ErrNotActive) {
+	if _, err := service.Exchange(
+		context.Background(),
+		"call-1",
+		"owner-1",
+		"offer",
+	); !errors.Is(err, ErrNotActive) {
 		t.Fatalf("Exchange() error = %v, want ErrNotActive", err)
 	}
 	if core.exchanges != 0 {
@@ -42,12 +47,34 @@ func TestExchangeReturnsCoreAnswerForActiveMediaCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	answer, err := service.Exchange(context.Background(), "call-1", "offer")
+	answer, err := service.Exchange(context.Background(), "call-1", "owner-1", "offer")
 	if err != nil {
 		t.Fatalf("Exchange() error = %v", err)
 	}
-	if answer != "answer" || core.exchanges != 1 {
-		t.Fatalf("answer = %q, exchanges = %d", answer, core.exchanges)
+	if answer != "answer" ||
+		core.exchanges != 1 ||
+		core.offer.OwnerToken != "owner-1" {
+		t.Fatalf("answer = %q, exchanges = %d, offer = %+v", answer, core.exchanges, core.offer)
+	}
+}
+
+func TestReleaseOwnerForwardsOpaqueOwnerToken(t *testing.T) {
+	t.Parallel()
+
+	core := &fakeCore{}
+	service, err := New(fakeRefresher{}, fakeCallStore{}, core)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if err := service.ReleaseOwner(context.Background(), "call-1", "owner-1"); err != nil {
+		t.Fatalf("ReleaseOwner() error = %v", err)
+	}
+	if core.releasedCallID != "call-1" || core.releasedOwnerToken != "owner-1" {
+		t.Fatalf(
+			"released call = %q, owner = %q",
+			core.releasedCallID,
+			core.releasedOwnerToken,
+		)
 	}
 }
 
@@ -90,15 +117,28 @@ func (f fakeCallStore) CallByID(context.Context, string) (store.Call, error) {
 }
 
 type fakeCore struct {
-	answer     string
-	err        error
-	exchanges  int
-	reconciled []string
+	answer             string
+	err                error
+	exchanges          int
+	offer              callmedia.Offer
+	reconciled         []string
+	releasedCallID     string
+	releasedOwnerToken string
 }
 
-func (f *fakeCore) Exchange(context.Context, callmedia.Offer) (callmedia.ExchangeResult, error) {
+func (f *fakeCore) Exchange(
+	_ context.Context,
+	offer callmedia.Offer,
+) (callmedia.ExchangeResult, error) {
 	f.exchanges++
+	f.offer = offer
 	return callmedia.ExchangeResult{AnswerSDP: f.answer}, f.err
+}
+
+func (f *fakeCore) ReleaseOwner(_ context.Context, callID, ownerToken string) error {
+	f.releasedCallID = callID
+	f.releasedOwnerToken = ownerToken
+	return f.err
 }
 
 func (*fakeCore) CloseCall(context.Context, string) error {

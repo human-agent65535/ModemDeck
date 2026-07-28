@@ -1336,6 +1336,10 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       throw new ApiError('测试数据未连接音频设备', 503)
     },
 
+    async releaseCallMedia(): Promise<void> {
+      return undefined
+    },
+
     async listRecordings(query: ListQuery = {}): Promise<RecordingEntry[]> {
       const q = normalizedQuery(query)
       return clone(

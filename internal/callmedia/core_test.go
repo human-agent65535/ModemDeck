@@ -153,7 +153,7 @@ func TestOnePeerOwnsConsumerCallUntilSessionCloses(t *testing.T) {
 	deadline := time.Now().Add(testTimeout)
 	for {
 		core.mu.Lock()
-		_, retained := core.sessions["call-exclusive"]
+		_, retained := core.owners["call-exclusive"]
 		core.mu.Unlock()
 		if !retained {
 			break
@@ -300,7 +300,7 @@ func TestAuthoritativeCallRemovalPreventsLateHubRecreation(t *testing.T) {
 	}
 }
 
-func TestWebRTCDisconnectedFailsSessionWithoutReopeningEndpoint(t *testing.T) {
+func TestWebRTCDisconnectedRecoversWithoutReopeningEndpoint(t *testing.T) {
 	format := testFormat(8000)
 	core, opener, _ := testCore(t, format)
 	authorizeCall(t, core, "call-disconnected")
@@ -320,11 +320,14 @@ func TestWebRTCDisconnectedFailsSessionWithoutReopeningEndpoint(t *testing.T) {
 	result.Session.events.updateState(webrtc.PeerConnectionStateDisconnected)
 	select {
 	case <-result.Session.Done():
-	case <-time.After(testTimeout):
-		t.Fatal("disconnected session did not close")
+		t.Fatal("transient disconnect closed the media session")
+	case <-time.After(25 * time.Millisecond):
 	}
-	if !errors.Is(result.Session.Err(), ErrTransportClosed) {
-		t.Fatalf("session error = %v, want ErrTransportClosed", result.Session.Err())
+	result.Session.events.updateState(webrtc.PeerConnectionStateConnected)
+	select {
+	case <-result.Session.Done():
+		t.Fatal("reconnected media session closed")
+	case <-time.After(25 * time.Millisecond):
 	}
 	if got := opener.opens.Load(); got != 1 {
 		t.Fatalf("endpoint opens after disconnect = %d, want 1", got)

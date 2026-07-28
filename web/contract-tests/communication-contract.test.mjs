@@ -6,6 +6,7 @@ import {
   callLeaseContract,
   callLeasePath,
   callMediaContract,
+  callMediaReleaseContract,
   callMediaPath,
   callRecordingContract,
   callRecordingPath,
@@ -15,6 +16,7 @@ import {
   createCallActionPayload,
   createCallLeasePayload,
   createCallMediaPayload,
+  createCallMediaReleasePayload,
   createCallPayload,
   createCallRecordingPayload,
   createDTMFPayload,
@@ -129,6 +131,11 @@ test('communication and Telegram endpoints match the root API', () => {
     path: '/api/v1/calls/call-1/media',
     successStatus: 200
   })
+  assert.deepEqual(callMediaReleaseContract('call-1'), {
+    method: 'DELETE',
+    path: '/api/v1/calls/call-1/media',
+    successStatus: 204
+  })
   assert.deepEqual(callRecordingContract('call-1'), {
     update: {
       method: 'PUT',
@@ -164,6 +171,18 @@ test('communication and Telegram endpoints match the root API', () => {
     telegramUnitDeletePath('bot-main', 4),
     '/api/v1/settings/telegram/bot-main?revision=4'
   )
+})
+
+test('call media exchange and release require the same owner token', () => {
+  assert.deepEqual(createCallMediaPayload(' owner-1 ', ' offer-sdp '), {
+    owner_token: 'owner-1',
+    offer_sdp: 'offer-sdp'
+  })
+  assert.deepEqual(createCallMediaReleasePayload(' owner-1 '), {
+    owner_token: 'owner-1'
+  })
+  assert.throws(() => createCallMediaPayload('', 'offer-sdp'), /owner_token/)
+  assert.throws(() => createCallMediaReleasePayload(''), /owner_token/)
 })
 
 test('message payload keeps only the finalized wire fields', () => {
@@ -231,7 +250,8 @@ test('call and DTMF payloads use line_id, number, request_id, and digits', () =>
     request_id: 'request-dtmf-1',
     digits: '12#'
   })
-  assert.deepEqual(createCallMediaPayload('v=0\r\n'), {
+  assert.deepEqual(createCallMediaPayload(' owner-1 ', 'v=0\r\n'), {
+    owner_token: 'owner-1',
     offer_sdp: 'v=0'
   })
   assert.deepEqual(createCallRecordingPayload(false), { enabled: false })

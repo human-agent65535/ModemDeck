@@ -17,6 +17,7 @@ type peerEvents struct {
 	track       chan *webrtc.TrackRemote
 	failure     chan error
 	connected   chan struct{}
+	state       chan webrtc.PeerConnectionState
 	trackSeen   atomic.Bool
 	connectOnce sync.Once
 }
@@ -26,6 +27,7 @@ func newPeerEvents() *peerEvents {
 		track:     make(chan *webrtc.TrackRemote, 1),
 		failure:   make(chan error, 1),
 		connected: make(chan struct{}),
+		state:     make(chan webrtc.PeerConnectionState, 1),
 	}
 }
 
@@ -45,10 +47,28 @@ func (e *peerEvents) updateState(state webrtc.PeerConnectionState) {
 	switch state {
 	case webrtc.PeerConnectionStateConnected:
 		e.connectOnce.Do(func() { close(e.connected) })
+		e.publishState(state)
 	case webrtc.PeerConnectionStateDisconnected,
-		webrtc.PeerConnectionStateFailed,
-		webrtc.PeerConnectionStateClosed:
+		webrtc.PeerConnectionStateFailed:
+		e.publishState(state)
+	case webrtc.PeerConnectionStateClosed:
 		e.fail(ErrTransportClosed)
+	}
+}
+
+func (e *peerEvents) publishState(state webrtc.PeerConnectionState) {
+	select {
+	case e.state <- state:
+		return
+	default:
+	}
+	select {
+	case <-e.state:
+	default:
+	}
+	select {
+	case e.state <- state:
+	default:
 	}
 }
 
@@ -106,6 +126,7 @@ type Session struct {
 	events       *peerEvents
 	jitter       *jitterBuffer
 	playout      *rtpPlayout
+	recoveryTime time.Duration
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -131,6 +152,7 @@ func newSession(
 	sender *webrtc.RTPSender,
 	events *peerEvents,
 	jitterConfig JitterConfig,
+	recoveryTime time.Duration,
 ) *Session {
 	ctx, cancel := context.WithCancel(parent)
 	jitter := newJitterBuffer(jitterConfig.PacketCapacity)
@@ -146,6 +168,7 @@ func newSession(
 		events:       events,
 		jitter:       jitter,
 		playout:      newRTPPlayout(format, codec, jitter, jitterConfig),
+		recoveryTime: recoveryTime,
 		ctx:          ctx,
 		cancel:       cancel,
 		done:         make(chan struct{}),
@@ -382,11 +405,45 @@ func (s *Session) rtcpLoop() error {
 }
 
 func (s *Session) connectionLoop() error {
-	select {
-	case err := <-s.events.failure:
-		return err
-	case <-s.ctx.Done():
-		return nil
+	var (
+		recoveryTimer *time.Timer
+		recovery      <-chan time.Time
+	)
+	stopRecovery := func() {
+		if recoveryTimer == nil {
+			return
+		}
+		if !recoveryTimer.Stop() {
+			select {
+			case <-recoveryTimer.C:
+			default:
+			}
+		}
+		recoveryTimer = nil
+		recovery = nil
+	}
+	defer stopRecovery()
+
+	for {
+		select {
+		case state := <-s.events.state:
+			switch state {
+			case webrtc.PeerConnectionStateConnected:
+				stopRecovery()
+			case webrtc.PeerConnectionStateDisconnected,
+				webrtc.PeerConnectionStateFailed:
+				if recoveryTimer == nil {
+					recoveryTimer = time.NewTimer(s.recoveryTime)
+					recovery = recoveryTimer.C
+				}
+			}
+		case <-recovery:
+			return ErrTransportClosed
+		case err := <-s.events.failure:
+			return err
+		case <-s.ctx.Done():
+			return nil
+		}
 	}
 }
 

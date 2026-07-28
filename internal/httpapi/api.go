@@ -163,7 +163,8 @@ type TelegramSettingsService interface {
 }
 
 type CallMediaService interface {
-	Exchange(context.Context, string, string) (string, error)
+	Exchange(context.Context, string, string, string) (string, error)
+	ReleaseOwner(context.Context, string, string) error
 	CloseCall(context.Context, string) error
 }
 

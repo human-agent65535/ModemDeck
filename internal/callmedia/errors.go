@@ -6,6 +6,7 @@ var (
 	ErrInvalidArgument      = errors.New("invalid call media argument")
 	ErrCallNotActive        = errors.New("call is not active")
 	ErrCallInUse            = errors.New("call already has a browser media peer")
+	ErrNotMediaOwner        = errors.New("media owner token does not own this call")
 	ErrCoreClosed           = errors.New("call media core is closed")
 	ErrUnsupported          = errors.New("call media feature is unsupported")
 	ErrUnsupportedMedia     = errors.New("WebRTC offer contains unsupported media")

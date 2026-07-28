@@ -9,7 +9,12 @@ import (
 )
 
 type callMediaRequest struct {
-	OfferSDP string `json:"offer_sdp"`
+	OwnerToken string `json:"owner_token"`
+	OfferSDP   string `json:"offer_sdp"`
+}
+
+type callMediaReleaseRequest struct {
+	OwnerToken string `json:"owner_token"`
 }
 
 type callMediaResponse struct {
@@ -21,11 +26,28 @@ func (api *API) callMediaExchange(
 	request *http.Request,
 	callID string,
 ) {
-	if request.Method != http.MethodPost {
-		response.Header().Set("Allow", http.MethodPost)
-		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only POST is supported", "")
-		return
+	switch request.Method {
+	case http.MethodPost:
+		api.exchangeCallMedia(response, request, callID)
+	case http.MethodDelete:
+		api.releaseCallMedia(response, request, callID)
+	default:
+		response.Header().Set("Allow", http.MethodPost+", "+http.MethodDelete)
+		writeError(
+			response,
+			http.StatusMethodNotAllowed,
+			"method_not_allowed",
+			"Only POST and DELETE are supported",
+			"",
+		)
 	}
+}
+
+func (api *API) exchangeCallMedia(
+	response http.ResponseWriter,
+	request *http.Request,
+	callID string,
+) {
 	if api.callMedia == nil {
 		writeError(response, http.StatusServiceUnavailable, "media_unavailable", "Call media is unavailable", "")
 		return
@@ -34,26 +56,61 @@ func (api *API) callMediaExchange(
 	if !decodeJSONBody(response, request, &input) {
 		return
 	}
-	answer, err := api.callMedia.Exchange(request.Context(), callID, input.OfferSDP)
+	answer, err := api.callMedia.Exchange(
+		request.Context(),
+		callID,
+		input.OwnerToken,
+		input.OfferSDP,
+	)
 	if err != nil {
-		switch {
-		case errors.Is(err, mediaapp.ErrInvalidArgument),
-			errors.Is(err, mediaapp.ErrNegotiation):
-			writeError(response, http.StatusBadRequest, "invalid_media_offer", err.Error(), "offer_sdp")
-		case errors.Is(err, mediaapp.ErrNotFound):
-			writeError(response, http.StatusNotFound, "not_found", "Call was not found", "")
-		case errors.Is(err, mediaapp.ErrNotActive):
-			writeError(response, http.StatusConflict, "call_not_active", "Call is not active", "")
-		case errors.Is(err, mediaapp.ErrConflict):
-			writeError(response, http.StatusConflict, "media_in_use", "Call already has a browser audio session", "")
-		case errors.Is(err, mediaapp.ErrUnavailable):
-			writeError(response, http.StatusServiceUnavailable, "media_unavailable", "Call media is unavailable", "")
-		default:
-			api.writeInternalError(response, request, "exchange call media", err)
-		}
+		api.writeCallMediaError(response, request, err)
 		return
 	}
 	writeJSON(response, http.StatusOK, callMediaResponse{AnswerSDP: answer})
+}
+
+func (api *API) releaseCallMedia(
+	response http.ResponseWriter,
+	request *http.Request,
+	callID string,
+) {
+	if api.callMedia == nil {
+		writeError(response, http.StatusServiceUnavailable, "media_unavailable", "Call media is unavailable", "")
+		return
+	}
+	var input callMediaReleaseRequest
+	if !decodeJSONBody(response, request, &input) {
+		return
+	}
+	err := api.callMedia.ReleaseOwner(request.Context(), callID, input.OwnerToken)
+	if err != nil {
+		api.writeCallMediaError(response, request, err)
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (api *API) writeCallMediaError(
+	response http.ResponseWriter,
+	request *http.Request,
+	err error,
+) {
+	switch {
+	case errors.Is(err, mediaapp.ErrInvalidArgument):
+		writeError(response, http.StatusBadRequest, "invalid_media_request", err.Error(), "")
+	case errors.Is(err, mediaapp.ErrNegotiation):
+		writeError(response, http.StatusBadRequest, "invalid_media_offer", err.Error(), "offer_sdp")
+	case errors.Is(err, mediaapp.ErrNotFound):
+		writeError(response, http.StatusNotFound, "not_found", "Call was not found", "")
+	case errors.Is(err, mediaapp.ErrNotActive):
+		writeError(response, http.StatusConflict, "call_not_active", "Call is not active", "")
+	case errors.Is(err, mediaapp.ErrConflict):
+		writeError(response, http.StatusConflict, "media_in_use", "Call already has a browser audio owner", "")
+	case errors.Is(err, mediaapp.ErrUnavailable):
+		writeError(response, http.StatusServiceUnavailable, "media_unavailable", "Call media is unavailable", "")
+	default:
+		api.writeInternalError(response, request, "control call media owner", err)
+	}
 }
 
 func callMediaResourceID(path string) (string, bool) {

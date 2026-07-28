@@ -8,11 +8,13 @@ import {
   callActionContract,
   callLeaseContract,
   callMediaContract,
+  callMediaReleaseContract,
   callRecordingContract,
   communicationContracts,
   createCallActionPayload,
   createCallLeasePayload,
   createCallMediaPayload,
+  createCallMediaReleasePayload,
   createCallPayload,
   createCallRecordingPayload,
   createDeviceConfigurationPayload,
@@ -1458,15 +1460,25 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
-  async exchangeCallMedia(id: string, offerSDP: string): Promise<string> {
+  async exchangeCallMedia(id: string, ownerToken: string, offerSDP: string): Promise<string> {
     const contract = callMediaContract(id)
     return parseCallMediaResponse(
       await writeJSON(
         contract.path,
         contract.method,
-        createCallMediaPayload(offerSDP),
+        createCallMediaPayload(ownerToken, offerSDP),
         contract.successStatus
       )
+    )
+  },
+
+  async releaseCallMedia(id: string, ownerToken: string): Promise<void> {
+    const contract = callMediaReleaseContract(id)
+    await writeJSON(
+      contract.path,
+      contract.method,
+      createCallMediaReleasePayload(ownerToken),
+      contract.successStatus
     )
   },
 

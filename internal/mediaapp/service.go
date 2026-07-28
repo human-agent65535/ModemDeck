@@ -30,6 +30,7 @@ type CallStore interface {
 
 type Core interface {
 	Exchange(context.Context, callmedia.Offer) (callmedia.ExchangeResult, error)
+	ReleaseOwner(context.Context, string, string) error
 	CloseCall(context.Context, string) error
 	ReconcileActiveCalls(context.Context, []string) error
 	Close(context.Context) error
@@ -48,10 +49,17 @@ func New(refresher Refresher, calls CallStore, core Core) (*Service, error) {
 	return &Service{refresher: refresher, calls: calls, core: core}, nil
 }
 
-func (s *Service) Exchange(ctx context.Context, callID, offerSDP string) (string, error) {
+func (s *Service) Exchange(
+	ctx context.Context,
+	callID, ownerToken, offerSDP string,
+) (string, error) {
 	callID = strings.TrimSpace(callID)
-	if callID == "" || strings.TrimSpace(offerSDP) == "" {
-		return "", fmt.Errorf("%w: call id and SDP offer are required", ErrInvalidArgument)
+	ownerToken = strings.TrimSpace(ownerToken)
+	if callID == "" || ownerToken == "" || strings.TrimSpace(offerSDP) == "" {
+		return "", fmt.Errorf(
+			"%w: call id, owner token, and SDP offer are required",
+			ErrInvalidArgument,
+		)
 	}
 	if _, err := s.refresher.Refresh(ctx); err != nil {
 		return "", fmt.Errorf("%w: authoritative call state could not be refreshed: %v", ErrUnavailable, err)
@@ -74,12 +82,23 @@ func (s *Service) Exchange(ctx context.Context, callID, offerSDP string) (string
 			ID:    call.ID,
 			State: callmedia.CallStateActive,
 		},
-		SDP: offerSDP,
+		OwnerToken: ownerToken,
+		SDP:        offerSDP,
 	})
 	if err != nil {
 		return "", classifyCoreError(err)
 	}
 	return result.AnswerSDP, nil
+}
+
+func (s *Service) ReleaseOwner(ctx context.Context, callID, ownerToken string) error {
+	if strings.TrimSpace(callID) == "" || strings.TrimSpace(ownerToken) == "" {
+		return fmt.Errorf("%w: call id and owner token are required", ErrInvalidArgument)
+	}
+	if err := s.core.ReleaseOwner(ctx, callID, ownerToken); err != nil {
+		return classifyCoreError(err)
+	}
+	return nil
 }
 
 func (s *Service) CloseCall(ctx context.Context, callID string) error {
@@ -115,6 +134,8 @@ func classifyCoreError(err error) error {
 	case errors.Is(err, callmedia.ErrCallNotActive):
 		return ErrNotActive
 	case errors.Is(err, callmedia.ErrCallInUse):
+		return ErrConflict
+	case errors.Is(err, callmedia.ErrNotMediaOwner):
 		return ErrConflict
 	case errors.Is(err, callmedia.ErrNegotiation),
 		errors.Is(err, callmedia.ErrGatheringTimeout):
