@@ -29,6 +29,7 @@ import {
 import { playDTMFTone } from '../state/dtmfAudio'
 import { normalizeDialTarget } from '../utils/dialTarget'
 import { phoneKeypad } from '../utils/phoneKeypad'
+import BaseAvatar from './BaseAvatar.vue'
 import ContactSuggestInput from './ContactSuggestInput.vue'
 import CallSurface from './CallSurface.vue'
 import LineSelector from './LineSelector.vue'
@@ -159,12 +160,17 @@ function beginDraft(target = '', label = '', focus = false, contextLineKey = '')
   if (focus) focusNumber()
 }
 
+function applyDialRequest(focus: boolean): void {
+  const dialImmediately = uiState.dialImmediately
+  uiState.dialImmediately = false
+  beginDraft(uiState.dialTarget, uiState.dialLabel, focus, uiState.dialLineKey)
+  if (dialImmediately) void nextTick(placeCall)
+}
+
 watch(
   () => uiState.dialRequestRevision,
   revision => {
-    if (revision > 0) {
-      beginDraft(uiState.dialTarget, uiState.dialLabel, true, uiState.dialLineKey)
-    }
+    if (revision > 0) applyDialRequest(true)
     void loadContacts()
   }
 )
@@ -367,7 +373,7 @@ function trapCallFocus(event: KeyboardEvent): void {
 }
 
 onMounted(() => {
-  beginDraft(uiState.dialTarget, uiState.dialLabel, false, uiState.dialLineKey)
+  applyDialRequest(false)
   void loadContacts()
 })
 
@@ -452,6 +458,7 @@ onBeforeUnmount(() => {
                     :invalid="validationVisible"
                     :described-by="validationVisible ? validationMessageId : ''"
                     @select="chooseContact"
+                    @submit="placeCall"
                     @focus="focusNumberInput"
                     @blur="blurNumberInput"
                   />
@@ -478,7 +485,13 @@ onBeforeUnmount(() => {
                     </button>
                   </span>
                 </div>
-                <span v-if="contactLabel" class="dialer-contact-name">{{ contactLabel }}</span>
+                <div v-if="contactLabel" class="dialer-contact-match">
+                  <BaseAvatar :name="contactLabel" size="small" />
+                  <span class="dialer-contact-match__copy">
+                    <small>{{ t('dialer.matchedContact') }}</small>
+                    <strong>{{ contactLabel }}</strong>
+                  </span>
+                </div>
               </div>
 
               <p v-if="dialerRecordingState.error" class="dialer-recording__error" role="alert">
@@ -643,19 +656,55 @@ onBeforeUnmount(() => {
 }
 
 .dialer-number-entry :deep(.suggest-input__field) {
-  height: 58px;
-  padding: 0 14px;
-  background: var(--background);
+  height: 68px;
+  justify-content: center;
+  padding: 0 50px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid var(--border);
+  border-radius: 0;
+  box-shadow: none;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease;
+}
+
+.dialer-number-entry :deep(.suggest-input__field:focus-within) {
+  color: var(--accent);
+  background: rgb(17 120 100 / 4%);
+  border-color: var(--accent);
+  box-shadow: none;
+}
+
+.dialer-number-entry :deep(.suggest-input__field > svg) {
+  display: none;
 }
 
 .dialer-number-entry :deep(.suggest-input__field input) {
-  padding-right: 40px;
-  font-size: 20px;
+  padding: 0;
+  color: var(--text);
+  font-size: clamp(22px, 2vw, 28px);
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.035em;
+  text-align: center;
+}
+
+.dialer-number-entry :deep(.suggest-input__field input:focus-visible) {
+  outline: none;
+  box-shadow: none;
+}
+
+.dialer-number-entry :deep(.suggest-input__field input::placeholder) {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
 }
 
 .dialer-number-control.has-inline-validation :deep(.suggest-input__field input) {
-  padding-right: 92px;
+  padding: 0;
 }
 
 .dialer-number-control.is-invalid :deep(.suggest-input__field),
@@ -699,12 +748,34 @@ onBeforeUnmount(() => {
   color: var(--text);
 }
 
-.dialer-contact-name {
-  display: block;
-  margin: 6px 2px 0;
-  overflow: hidden;
+.dialer-contact-match {
+  display: flex;
+  width: fit-content;
+  max-width: calc(100% - 16px);
+  align-items: center;
+  gap: 8px;
+  margin: 9px auto 0;
+  padding: 5px 11px 5px 6px;
+  background: var(--accent-soft);
+  border: 1px solid rgb(17 120 100 / 12%);
+  border-radius: 999px;
+}
+
+.dialer-contact-match__copy {
+  display: grid;
+  min-width: 0;
+  line-height: 1.15;
+}
+
+.dialer-contact-match__copy small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 10px;
+}
+
+.dialer-contact-match__copy strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -852,7 +923,7 @@ onBeforeUnmount(() => {
   }
 
   .dialer-number-entry :deep(.suggest-input__field) {
-    height: 50px;
+    height: 58px;
   }
 
   .dialer-keypad-stage {

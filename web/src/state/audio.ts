@@ -217,7 +217,9 @@ let refreshPromise: Promise<void> | undefined
 let startupAccessAttempted = false
 let startupAccessPromise: Promise<void> | undefined
 let microphonePermissionGranted = false
-let outputApplyGeneration = 0
+// Call media, waiting tones, and notifications can route at the same time.
+// Only a newer request for the same element should cancel an in-flight request.
+const outputApplyGenerations = new WeakMap<HTMLMediaElement, number>()
 let microphoneTestGeneration = 0
 let microphoneTestStream: MediaStream | undefined
 let microphoneTestContext: AudioContext | undefined
@@ -236,7 +238,6 @@ function selectedDeviceMissing(kind: 'input' | 'output'): boolean {
 }
 
 function updateOutputSelectionStatus(preserveActive = true): void {
-  outputApplyGeneration += 1
   if (!audioState.selectedOutputID) {
     audioState.outputRoutingStatus = 'default'
     audioState.outputRoutingError = ''
@@ -505,22 +506,32 @@ export function shutdownAudioDevices(): void {
   stopMicrophoneTest()
 }
 
+export function cancelSelectedAudioOutputApplication(
+  element: HTMLMediaElement
+): void {
+  outputApplyGenerations.set(element, (outputApplyGenerations.get(element) || 0) + 1)
+}
+
 export async function applySelectedAudioOutput(
   element: HTMLMediaElement
 ): Promise<boolean> {
-  const token = ++outputApplyGeneration
+  const token = (outputApplyGenerations.get(element) || 0) + 1
+  outputApplyGenerations.set(element, token)
   const selectedID = audioState.selectedOutputID
   const sinkElement = element as SinkSelectableMediaElement
+  const isCurrent = () =>
+    outputApplyGenerations.get(element) === token &&
+    audioState.selectedOutputID === selectedID
 
   if (!selectedID) {
     try {
       if (typeof sinkElement.setSinkId === 'function') await sinkElement.setSinkId('')
-      if (token !== outputApplyGeneration) return false
+      if (!isCurrent()) return false
       audioState.outputRoutingStatus = 'default'
       audioState.outputRoutingError = ''
       return true
     } catch (error) {
-      if (token !== outputApplyGeneration) return false
+      if (!isCurrent()) return false
       audioState.outputRoutingStatus = 'error'
       audioState.outputRoutingError =
         error instanceof Error
@@ -531,13 +542,13 @@ export async function applySelectedAudioOutput(
   }
 
   if (typeof sinkElement.setSinkId !== 'function') {
-    if (token !== outputApplyGeneration) return false
+    if (!isCurrent()) return false
     audioState.outputRoutingStatus = 'unsupported'
     audioState.outputRoutingError = translate('runtime.audioOutputUnsupported')
     return false
   }
   if (selectedDeviceMissing('output')) {
-    if (token !== outputApplyGeneration) return false
+    if (!isCurrent()) return false
     audioState.outputRoutingStatus = 'unavailable'
     audioState.outputRoutingError = translate('runtime.audioOutputUnavailable')
     return false
@@ -545,12 +556,12 @@ export async function applySelectedAudioOutput(
 
   try {
     await sinkElement.setSinkId(selectedID)
-    if (token !== outputApplyGeneration) return false
+    if (!isCurrent() || selectedDeviceMissing('output')) return false
     audioState.outputRoutingStatus = 'active'
     audioState.outputRoutingError = ''
     return true
   } catch (error) {
-    if (token !== outputApplyGeneration) return false
+    if (!isCurrent()) return false
     audioState.outputRoutingStatus = 'error'
     audioState.outputRoutingError =
       error instanceof Error ? error.message : translate('runtime.useOutputFailed')

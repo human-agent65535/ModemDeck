@@ -6,16 +6,31 @@ export const uiState = reactive({
   dialTarget: '',
   dialLabel: '',
   dialLineKey: '',
+  dialImmediately: false,
   dialRequestRevision: 0
 })
 
-export function openDialer(target = '', label = '', lineKey = ''): void {
+function requestDialer(
+  target: string,
+  label: string,
+  lineKey: string,
+  dialImmediately: boolean
+): void {
   uiState.callMinimized = false
   uiState.dialTarget = target
   uiState.dialLabel = label
   uiState.dialLineKey = lineKey
+  uiState.dialImmediately = dialImmediately
   uiState.dialRequestRevision += 1
   uiState.dialerOpen = true
+}
+
+export function openDialer(target = '', label = '', lineKey = ''): void {
+  requestDialer(target, label, lineKey, false)
+}
+
+export function openDialerAndCall(target: string, label = '', lineKey = ''): void {
+  requestDialer(target, label, lineKey, true)
 }
 
 export function closeDialer(): void {

@@ -5,6 +5,7 @@ import { translate } from '../i18n'
 import {
   applySelectedAudioOutput,
   audioState,
+  cancelSelectedAudioOutputApplication,
   markAudioInputActive,
   markAudioInputError,
   markAudioInputInactive,
@@ -124,6 +125,7 @@ function stopResources(): void {
   remoteStream = undefined
 
   if (remoteAudio) {
+    cancelSelectedAudioOutputApplication(remoteAudio)
     remoteAudio.pause()
     remoteAudio.srcObject = null
     remoteAudio.remove()
@@ -174,14 +176,16 @@ function waitForICEGathering(connection: RTCPeerConnection): Promise<void> {
 }
 
 async function playRemoteAudio(): Promise<void> {
-  if (!remoteAudio) return
-  remoteAudio.volume = audioState.callVolume / 100
-  if (!(await applySelectedAudioOutput(remoteAudio))) {
-    remoteAudio.pause()
+  const element = remoteAudio
+  if (!element) return
+  element.volume = audioState.callVolume / 100
+  if (!(await applySelectedAudioOutput(element))) {
+    element.pause()
     callMediaState.playbackBlocked = false
     return
   }
-  await remoteAudio.play().then(
+  if (remoteAudio !== element) return
+  await element.play().then(
     () => {
       callMediaState.playbackBlocked = false
     },

@@ -392,6 +392,7 @@ export default {
     keypad: '拨号键盘',
     backspace: '退格',
     close: '关闭拨号盘',
+    matchedContact: '匹配联系人',
     numberOrContact: '输入号码或搜索联系人'
   },
   messages: {

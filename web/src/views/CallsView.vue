@@ -22,7 +22,7 @@ import {
   loadRecordingEntries,
   recordingCatalogState
 } from '../state/recording'
-import { openDialer } from '../state/ui'
+import { openDialerAndCall } from '../state/ui'
 import {
   bootstrapResource,
   callsResource,
@@ -201,7 +201,7 @@ function backToList(): void {
 
 function callBack(call: CallRecord): void {
   if (dialUnavailable.value) return
-  openDialer(call.remote_number, displayName(call), actionLineKey(call))
+  openDialerAndCall(call.remote_number, displayName(call), actionLineKey(call))
 }
 
 function callActionLabel(call: CallRecord): string {

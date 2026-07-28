@@ -32,6 +32,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   select: [suggestion: Suggestion]
+  submit: []
   focus: [event: FocusEvent]
   blur: [event: FocusEvent]
 }>()
@@ -84,6 +85,18 @@ function choose(suggestion: Suggestion): void {
 }
 
 function onKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    const suggestion = showSuggestions.value
+      ? suggestions.value[activeIndex.value]
+      : undefined
+    if (suggestion) {
+      choose(suggestion)
+      return
+    }
+    emit('submit')
+    return
+  }
   if (!showSuggestions.value) return
   if (event.key === 'ArrowDown') {
     event.preventDefault()
@@ -91,12 +104,6 @@ function onKeydown(event: KeyboardEvent): void {
   } else if (event.key === 'ArrowUp') {
     event.preventDefault()
     activeIndex.value = (activeIndex.value - 1 + suggestions.value.length) % suggestions.value.length
-  } else if (event.key === 'Enter') {
-    const suggestion = suggestions.value[activeIndex.value]
-    if (suggestion) {
-      event.preventDefault()
-      choose(suggestion)
-    }
   } else if (event.key === 'Escape') {
     focused.value = false
   }

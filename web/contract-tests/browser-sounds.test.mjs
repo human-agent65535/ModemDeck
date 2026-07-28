@@ -11,7 +11,12 @@ import {
   ringtoneCatalog,
   waitingToneSource
 } from '../src/state/browserSounds.ts'
-import { normalizeAudioLevels } from '../src/state/audio.ts'
+import {
+  applySelectedAudioOutput,
+  audioState,
+  markAudioOutputInactive,
+  normalizeAudioLevels
+} from '../src/state/audio.ts'
 
 const incomingCall = {
   id: 'call-incoming',
@@ -117,6 +122,45 @@ test('browser audio levels are bounded and retain independent channels', () => {
       recordingPlaybackVolume: 35
     }
   )
+})
+
+test('call sound output routing survives inactive call media and concurrent sounds', async () => {
+  const originalOutputID = audioState.selectedOutputID
+  const originalStatus = audioState.outputRoutingStatus
+  const originalError = audioState.outputRoutingError
+  audioState.selectedOutputID = ''
+
+  let releaseWaitingTone
+  let releaseNotification
+  const waitingTone = {
+    setSinkId: () =>
+      new Promise(resolve => {
+        releaseWaitingTone = resolve
+      })
+  }
+  const notification = {
+    setSinkId: () =>
+      new Promise(resolve => {
+        releaseNotification = resolve
+      })
+  }
+
+  try {
+    const waitingRouting = applySelectedAudioOutput(waitingTone)
+    const notificationRouting = applySelectedAudioOutput(notification)
+    markAudioOutputInactive()
+    releaseNotification()
+    releaseWaitingTone()
+
+    assert.deepEqual(await Promise.all([waitingRouting, notificationRouting]), [
+      true,
+      true
+    ])
+  } finally {
+    audioState.selectedOutputID = originalOutputID
+    audioState.outputRoutingStatus = originalStatus
+    audioState.outputRoutingError = originalError
+  }
 })
 
 test('the curated AOSP ringtone catalog is complete, unique, and compact', async () => {

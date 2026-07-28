@@ -1,7 +1,11 @@
 import { reactive, watch, type WatchStopHandle } from 'vue'
 import type { CallSession } from '../api/types'
 import { translate } from '../i18n'
-import { applySelectedAudioOutput, audioState } from './audio'
+import {
+  applySelectedAudioOutput,
+  audioState,
+  cancelSelectedAudioOutputApplication
+} from './audio'
 
 export const ringtoneCatalog = [
   {
@@ -365,6 +369,7 @@ function createAudioElement(): HTMLAudioElement | undefined {
 
 function stopAudio(element: HTMLAudioElement | undefined): void {
   if (!element) return
+  cancelSelectedAudioOutputApplication(element)
   element.pause()
   try {
     element.currentTime = 0

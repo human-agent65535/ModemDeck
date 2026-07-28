@@ -119,7 +119,7 @@ test('call rows and call detail identify the original line', async () => {
     /<ContactHeaderIdentity[\s\S]*?:line="lineTagLine\(lineForCall\(selected\), selected\.line_id\)"[\s\S]*?:line-fallback="callLineFallback\(selected\)"/
   )
   assert.match(source, /function actionLineKey\(call: CallRecord\)/)
-  assert.match(source, /openDialer\(call\.remote_number, displayName\(call\), actionLineKey\(call\)\)/)
+  assert.match(source, /openDialerAndCall\(call\.remote_number, displayName\(call\), actionLineKey\(call\)\)/)
   assert.match(source, /const selectedLineKey = actionLineKey\(call\)/)
   assert.doesNotMatch(source, /call\.device_id/)
 })

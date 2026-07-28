@@ -392,6 +392,7 @@ export default {
     keypad: 'Dial pad',
     backspace: 'Backspace',
     close: 'Close dialer',
+    matchedContact: 'Matched contact',
     numberOrContact: 'Enter a number or search contacts'
   },
   messages: {

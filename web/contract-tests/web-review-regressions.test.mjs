@@ -71,25 +71,46 @@ test('line switching uses one custom selector instead of native dropdowns', asyn
 })
 
 test('every dialer request has a monotonic event revision even for the same number', async () => {
-  const { closeDialer, openDialer, uiState } = await import('../src/state/ui.ts')
+  const {
+    closeDialer,
+    openDialer,
+    openDialerAndCall,
+    uiState
+  } = await import('../src/state/ui.ts')
   const before = uiState.dialRequestRevision
 
   openDialer('+81 3 1234 5678', 'Test contact')
   const first = uiState.dialRequestRevision
+  assert.equal(uiState.dialImmediately, false)
   closeDialer()
-  openDialer('+81 3 1234 5678', 'Test contact')
+  openDialerAndCall('+81 3 1234 5678', 'Test contact')
 
   assert.equal(first, before + 1)
   assert.equal(uiState.dialRequestRevision, before + 2)
+  assert.equal(uiState.dialImmediately, true)
 
   const dialer = await source('../src/components/DialerPanel.vue')
   assert.match(dialer, /\(\) => uiState\.dialRequestRevision/)
   assert.match(
     dialer,
-    /beginDraft\(uiState\.dialTarget, uiState\.dialLabel, true, uiState\.dialLineKey\)/
+    /beginDraft\(uiState\.dialTarget, uiState\.dialLabel, focus, uiState\.dialLineKey\)/
   )
+  assert.match(dialer, /if \(dialImmediately\) void nextTick\(placeCall\)/)
   assert.doesNotMatch(dialer, /\(\) => \[uiState\.dialTarget, uiState\.dialLabel\]/)
   closeDialer()
+})
+
+test('call-again and callback dial immediately while Enter submits the number field', async () => {
+  const calls = await source('../src/views/CallsView.vue')
+  const dialer = await source('../src/components/DialerPanel.vue')
+  const suggest = await source('../src/components/ContactSuggestInput.vue')
+
+  assert.match(calls, /openDialerAndCall\(call\.remote_number, displayName\(call\), actionLineKey\(call\)\)/)
+  assert.match(dialer, /<ContactSuggestInput[\s\S]*?@submit="placeCall"/)
+  assert.match(
+    suggest,
+    /if \(event\.key === 'Enter'\)[\s\S]*?if \(suggestion\) \{[\s\S]*?choose\(suggestion\)[\s\S]*?return[\s\S]*?\}[\s\S]*?emit\('submit'\)/
+  )
 })
 
 test('dialer separates the primary call action from backspace', async () => {
@@ -107,6 +128,19 @@ test('dialer separates the primary call action from backspace', async () => {
     /\.dialer-number-trailing\s*\{[\s\S]*?position: absolute[\s\S]*?right: 7px/
   )
   assert.match(dialer, /\.dialer-number-trailing \.dialer-backspace-button\s*\{/)
+  assert.match(
+    dialer,
+    /\.dialer-number-entry :deep\(\.suggest-input__field\)\s*\{[\s\S]*?background: transparent[\s\S]*?border-bottom: 2px solid var\(--border\)[\s\S]*?border-radius: 0/
+  )
+  assert.match(
+    dialer,
+    /\.dialer-number-entry :deep\(\.suggest-input__field input:focus-visible\)\s*\{[\s\S]*?outline: none[\s\S]*?box-shadow: none/
+  )
+  assert.match(
+    dialer,
+    /class="dialer-contact-match"[\s\S]*?<BaseAvatar[\s\S]*?t\('dialer\.matchedContact'\)[\s\S]*?<strong>\{\{ contactLabel \}\}/
+  )
+  assert.match(dialer, /text-align: center/)
   assert.doesNotMatch(dialer, /class="dialer-actions"/)
   assert.match(styles, /grid-template-columns: repeat\(3, 62px\)/)
   assert.match(dialer, /<small v-if="key\.letters">\{\{ key\.letters \}\}<\/small>/)
