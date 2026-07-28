@@ -453,7 +453,7 @@ func TestServiceRequiresExplicitCapableLine(t *testing.T) {
 		call.LocalPhone != "+819012345678" ||
 		call.LineIMSI != "440500000000001" ||
 		call.LineICCID != "8901000000000000001" ||
-		call.Direction != "outgoing" || call.Phase != "unknown" {
+		call.Direction != "outgoing" || call.Phase != "dialing" {
 		t.Fatalf("call = %+v", call)
 	}
 	replayed, err := service.StartCall(context.Background(), StartCallInput{

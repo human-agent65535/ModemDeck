@@ -66,6 +66,7 @@ type Provider struct {
 	atCallSequence uint64
 
 	messageProperties *messagePropertyCache
+	changes           *changeHub
 }
 
 type terminalCallProjection struct {
@@ -195,6 +196,7 @@ func newProviderWithOptions(
 		atCalls:           make(map[string]map[int]atCallLifecycle),
 		atPendingCalls:    make(map[string]atCallLifecycle),
 		messageProperties: newMessagePropertyCache(defaultMessagePropertyCacheLimit),
+		changes:           newChangeHub(),
 	}, nil
 }
 
@@ -212,7 +214,15 @@ func OpenSystemBusWithOptions(options Options) (*Provider, error) {
 		_ = conn.Close()
 		return nil, err
 	}
-	provider.close = conn.Close
+	stopChanges, err := provider.startSystemBusChangeWatcher(conn)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	provider.close = func() error {
+		stopChanges()
+		return conn.Close()
+	}
 	return provider, nil
 }
 
@@ -1145,6 +1155,7 @@ func implementedCapabilities() domain.AgentCapabilities {
 	return domain.AgentCapabilities{
 		Discovery:           true,
 		Snapshot:            true,
+		Events:              true,
 		DeviceConfiguration: true,
 		Dial:                true,
 		AnswerCall:          true,

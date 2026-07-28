@@ -1,6 +1,7 @@
 package agentclient
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -29,6 +30,7 @@ var (
 
 type Capabilities struct {
 	Discovery           bool `json:"discovery"`
+	Events              bool `json:"events"`
 	DeviceConfiguration bool `json:"device_configuration"`
 	Network             bool `json:"network"`
 	NetworkSelection    bool `json:"network_selection"`
@@ -181,6 +183,16 @@ type CommandReceipt struct {
 	ResourceID string `json:"resource_id"`
 }
 
+type CallMediaActivation struct {
+	CallID          string           `json:"call_id"`
+	MediaRouting    string           `json:"media_routing"`
+	MediaAvailable  bool             `json:"media_available"`
+	MediaConfigured bool             `json:"media_configured"`
+	AudioPort       string           `json:"audio_port"`
+	AudioFormat     *CallAudioFormat `json:"audio_format"`
+	Reason          string           `json:"reason"`
+}
+
 type StartCallRequest struct {
 	RequestID string `json:"request_id"`
 	LineID    string `json:"line_id"`
@@ -276,6 +288,76 @@ func (client *Client) Snapshot(ctx context.Context) (Snapshot, error) {
 	return snapshot, nil
 }
 
+func (client *Client) WatchChanges(ctx context.Context, notify func()) error {
+	if client == nil || client.httpClient == nil {
+		return errors.New("host agent client is not initialized")
+	}
+	if notify == nil {
+		return ErrInvalidRequest
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	request, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		"http://modemdeck-agent/v1/events",
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("create host agent event request: %w", err)
+	}
+	request.Header.Set("Accept", "text/event-stream")
+	response, err := client.httpClient.Do(request)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return fmt.Errorf("request host agent events: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		responseBody, readErr := io.ReadAll(io.LimitReader(response.Body, maxResponseBodyBytes+1))
+		if readErr != nil {
+			return fmt.Errorf("read host agent event error: %w", readErr)
+		}
+		if len(responseBody) > maxResponseBodyBytes {
+			return fmt.Errorf("%w: host agent response is too large", ErrProtocol)
+		}
+		return decodeOperationError(response.StatusCode, responseBody)
+	}
+	contentType := response.Header.Get("Content-Type")
+	if !strings.HasPrefix(strings.ToLower(contentType), "text/event-stream") {
+		return fmt.Errorf("%w: host agent event stream has content type %q", ErrProtocol, contentType)
+	}
+
+	scanner := bufio.NewScanner(response.Body)
+	eventName := ""
+	for scanner.Scan() {
+		line := strings.TrimSuffix(scanner.Text(), "\r")
+		if line == "" {
+			if eventName == "ready" || eventName == "change" {
+				notify()
+			}
+			eventName = ""
+			continue
+		}
+		if strings.HasPrefix(line, ":") {
+			continue
+		}
+		if value, found := strings.CutPrefix(line, "event:"); found {
+			eventName = strings.TrimSpace(value)
+		}
+	}
+	if ctx.Err() != nil {
+		return nil
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("read host agent events: %w", err)
+	}
+	return io.ErrUnexpectedEOF
+}
+
 func (client *Client) StartCall(ctx context.Context, request StartCallRequest) (CommandReceipt, error) {
 	if strings.TrimSpace(request.RequestID) == "" ||
 		strings.TrimSpace(request.LineID) == "" ||
@@ -311,6 +393,38 @@ func (client *Client) CallAction(
 		return CommandReceipt{}, err
 	}
 	return receipt, nil
+}
+
+func (client *Client) ActivateCallMedia(
+	ctx context.Context,
+	callID string,
+	request CallActionRequest,
+) (CallMediaActivation, error) {
+	callID = strings.TrimSpace(callID)
+	if callID == "" || strings.TrimSpace(request.RequestID) == "" {
+		return CallMediaActivation{}, ErrInvalidRequest
+	}
+	var activation CallMediaActivation
+	path := "/v1/calls/" + url.PathEscape(callID) + "/media/activate"
+	if err := client.doJSON(
+		ctx,
+		http.MethodPost,
+		path,
+		request,
+		http.StatusOK,
+		&activation,
+	); err != nil {
+		return CallMediaActivation{}, err
+	}
+	if activation.CallID != callID {
+		return CallMediaActivation{}, fmt.Errorf(
+			"%w: call media activation references %q instead of %q",
+			ErrProtocol,
+			activation.CallID,
+			callID,
+		)
+	}
+	return activation, nil
 }
 
 func (client *Client) SendDTMF(ctx context.Context, callID string, request DTMFRequest) (CommandReceipt, error) {

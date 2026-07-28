@@ -270,7 +270,7 @@ func run(
 	syncDone := make(chan struct{})
 	go func() {
 		defer close(syncDone)
-		communications.Run(signals, 3*time.Second, func(err error) {
+		communications.Run(signals, 30*time.Second, func(err error) {
 			logger.Warn("hardware snapshot unavailable", "component", "communications", "error", err)
 		})
 	}()

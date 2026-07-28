@@ -18,6 +18,8 @@ const maxRequestBodyBytes = 256 << 10
 
 type handler struct {
 	provider             domain.Provider
+	changes              domain.ChangeSource
+	callMedia            domain.CallMediaActivator
 	deviceConfigurations domain.DeviceConfigurationProvider
 	lineServices         domain.LineServiceProvider
 	network              domain.NetworkProvider
@@ -75,6 +77,7 @@ func NewWithOptions(
 	}
 	h := &handler{
 		provider:             provider,
+		changes:              nil,
 		deviceConfigurations: options.DeviceConfigurations,
 		lineServices:         lineServices,
 		network:              options.Network,
@@ -82,8 +85,11 @@ func NewWithOptions(
 		agentVersion:         agentVersion,
 		media:                options.Media,
 	}
+	h.changes, _ = provider.(domain.ChangeSource)
+	h.callMedia, _ = provider.(domain.CallMediaActivator)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", h.health)
+	mux.HandleFunc("GET /v1/events", h.events)
 	mux.HandleFunc("GET /v1/snapshot", h.snapshot)
 	mux.HandleFunc("GET /v1/lines/{id}/configuration", h.getDeviceConfiguration)
 	mux.HandleFunc("PATCH /v1/lines/{id}/configuration", h.patchDeviceConfiguration)
@@ -101,6 +107,7 @@ func NewWithOptions(
 	mux.HandleFunc("POST /v1/calls/{id}/reject", h.rejectCall)
 	mux.HandleFunc("POST /v1/calls/{id}/hangup", h.hangupCall)
 	mux.HandleFunc("POST /v1/calls/{id}/dtmf", h.sendDTMF)
+	mux.HandleFunc("POST /v1/calls/{id}/media/activate", h.activateCallMedia)
 	mux.HandleFunc("POST /v1/messages", h.sendMessage)
 	mux.HandleFunc("PUT /v1/proxies", h.putProxies)
 	mux.HandleFunc("GET /v1/network", h.getNetwork)

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"slices"
 	"strconv"
@@ -29,8 +30,9 @@ import (
 const (
 	snapshotTimeout            = 5 * time.Second
 	commandTimeout             = 20 * time.Second
-	defaultSyncEvery           = 3 * time.Second
-	freshSnapshotAge           = 5 * time.Second
+	defaultSyncEvery           = 30 * time.Second
+	freshSnapshotAge           = 35 * time.Second
+	eventReconnectDelay        = 2 * time.Second
 	maxMessageRunes            = 1600
 	maxRequestIDLen            = 128
 	maxIncomingCallActions     = 8
@@ -51,6 +53,18 @@ type Agent interface {
 		string,
 		agentclient.ApplyDeviceConfigurationRequest,
 	) (agentclient.DeviceConfiguration, error)
+}
+
+type AgentChangeSource interface {
+	WatchChanges(context.Context, func()) error
+}
+
+type AgentCallMediaActivator interface {
+	ActivateCallMedia(
+		context.Context,
+		string,
+		agentclient.CallActionRequest,
+	) (agentclient.CallMediaActivation, error)
 }
 
 type Repository interface {
@@ -135,6 +149,8 @@ type Service struct {
 
 	lifecycleMu       sync.RWMutex
 	lifecycleObserver CallLifecycleObserver
+
+	mediaActivationCalls map[string]struct{}
 }
 
 func New(
@@ -152,11 +168,12 @@ func New(
 		return nil, operationError(CodeInvalidArgument, "create communication service", "message event publisher is required", nil)
 	}
 	return &Service{
-		agent:      agent,
-		repository: repository,
-		events:     events,
-		random:     rand.Reader,
-		now:        time.Now,
+		agent:                agent,
+		repository:           repository,
+		events:               events,
+		random:               rand.Reader,
+		now:                  time.Now,
+		mediaActivationCalls: make(map[string]struct{}),
 	}, nil
 }
 
@@ -244,6 +261,7 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 	s.lastSnapshot = snapshot
 	s.mu.Unlock()
 	s.publishRuntimeSnapshot(snapshot, lines)
+	s.activatePendingCallMedia(ctx, snapshot)
 	if err := s.reconcileAuthoritativeCalls(refreshContext, activeCalls); err != nil {
 		return cloneStatus(status), operationError(
 			CodeInternal,
@@ -261,6 +279,79 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 		)
 	}
 	return cloneStatus(status), nil
+}
+
+func (s *Service) activatePendingCallMedia(
+	ctx context.Context,
+	snapshot agentclient.Snapshot,
+) {
+	activator, ok := s.agent.(AgentCallMediaActivator)
+	if !ok {
+		return
+	}
+	currentCalls := make(map[string]struct{}, len(snapshot.Calls))
+	for _, call := range snapshot.Calls {
+		if call.StateCode != 7 {
+			currentCalls[call.ID] = struct{}{}
+		}
+	}
+	for callID := range s.mediaActivationCalls {
+		if _, found := currentCalls[callID]; !found {
+			delete(s.mediaActivationCalls, callID)
+		}
+	}
+	lines := make(map[string]agentclient.Line, len(snapshot.Lines))
+	for _, line := range snapshot.Lines {
+		lines[line.ID] = line
+	}
+	for _, call := range snapshot.Calls {
+		if call.StateCode != 4 || call.MediaAvailable {
+			continue
+		}
+		if _, attempted := s.mediaActivationCalls[call.ID]; attempted {
+			continue
+		}
+		line, found := lines[call.LineID]
+		if !found ||
+			line.VoiceVerification == nil ||
+			line.VoiceVerification.MediaRouting != "call_required" {
+			continue
+		}
+		commandContext, cancel := context.WithTimeout(normalizeContext(ctx), commandTimeout)
+		activation, err := activator.ActivateCallMedia(
+			commandContext,
+			call.ID,
+			agentclient.CallActionRequest{
+				RequestID: stableInstanceID("media", call.LineID, call.ID),
+			},
+		)
+		cancel()
+		if err != nil {
+			slog.Warn(
+				"call media activation failed",
+				"component", "communications",
+				"call_id", call.ID,
+				"line_id", call.LineID,
+				"error", err,
+			)
+			continue
+		}
+		s.mediaActivationCalls[call.ID] = struct{}{}
+		logArgs := []any{
+			"component", "communications",
+			"call_id", call.ID,
+			"line_id", call.LineID,
+			"routing", activation.MediaRouting,
+			"media_available", activation.MediaAvailable,
+			"media_configured", activation.MediaConfigured,
+		}
+		if activation.MediaAvailable {
+			slog.Info("call media activation observed", logArgs...)
+		} else {
+			logArgs = append(logArgs, "reason", activation.Reason)
+			slog.Warn("call media activation unavailable", logArgs...)
+		}
+	}
 }
 
 func (s *Service) publishRuntimeSnapshot(
@@ -674,25 +765,115 @@ func (s *Service) Run(ctx context.Context, every time.Duration, report func(erro
 	if every <= 0 {
 		every = defaultSyncEvery
 	}
-	timer := time.NewTimer(0)
+	timer := time.NewTimer(every)
 	defer timer.Stop()
-	lastReportedError := ""
+	changeEvents := make(chan struct{}, 1)
+	watchFailures := make(chan error, 1)
+	var watchCancel context.CancelFunc
+	defer func() {
+		if watchCancel != nil {
+			watchCancel()
+		}
+	}()
+	lastRefreshError := ""
+	lastWatchError := ""
+	watchStarted := false
+
+	reportDistinct := func(err error, previous *string) {
+		if err == nil {
+			*previous = ""
+			return
+		}
+		if report != nil && err.Error() != *previous {
+			report(err)
+		}
+		*previous = err.Error()
+	}
+	refresh := func() (Status, bool) {
+		status, err := s.Refresh(ctx)
+		reportDistinct(err, &lastRefreshError)
+		return status, err == nil
+	}
+	startWatcher := func(status Status) {
+		if watchStarted || !status.Capabilities.Events {
+			return
+		}
+		source, ok := s.agent.(AgentChangeSource)
+		if !ok {
+			return
+		}
+		watchStarted = true
+		watchContext, cancel := context.WithCancel(ctx)
+		watchCancel = cancel
+		go watchAgentChanges(watchContext, source, changeEvents, watchFailures)
+	}
+
+	if status, ok := refresh(); ok {
+		startWatcher(status)
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-changeEvents:
+			lastWatchError = ""
+			if status, ok := refresh(); ok {
+				startWatcher(status)
+			}
+			resetTimer(timer, every)
+		case err := <-watchFailures:
+			reportDistinct(err, &lastWatchError)
 		case <-timer.C:
-			if _, err := s.Refresh(ctx); err != nil {
-				if report != nil && err.Error() != lastReportedError {
-					report(err)
-				}
-				lastReportedError = err.Error()
-			} else {
-				lastReportedError = ""
+			if status, ok := refresh(); ok {
+				startWatcher(status)
 			}
 			timer.Reset(every)
 		}
 	}
+}
+
+func watchAgentChanges(
+	ctx context.Context,
+	source AgentChangeSource,
+	changes chan<- struct{},
+	failures chan<- error,
+) {
+	notify := func() {
+		select {
+		case changes <- struct{}{}:
+		default:
+		}
+	}
+	for {
+		err := source.WatchChanges(ctx, notify)
+		if ctx.Err() != nil {
+			return
+		}
+		if err == nil {
+			err = errors.New("host agent event stream ended")
+		}
+		select {
+		case failures <- fmt.Errorf("watch host agent changes: %w", err):
+		default:
+		}
+		timer := time.NewTimer(eventReconnectDelay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+func resetTimer(timer *time.Timer, duration time.Duration) {
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	timer.Reset(duration)
 }
 
 func (s *Service) SendMessage(ctx context.Context, input SendMessageInput) (store.Message, error) {
@@ -891,7 +1072,7 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 		EndpointCallID: receipt.ResourceID,
 		Number:         number,
 		Direction:      "outgoing",
-		Phase:          "unknown",
+		Phase:          "dialing",
 		ObservedAt:     s.now().UTC(),
 	})
 	if err != nil {
@@ -910,10 +1091,6 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 		"",
 	); err != nil {
 		return store.Call{}, operationError(CodeInternal, operation, "call command result could not be finalized", err)
-	}
-	_, _ = s.Refresh(ctx)
-	if refreshed, err := s.repository.CallByID(outcomeContext, appID); err == nil {
-		return refreshed, nil
 	}
 	return stored, nil
 }
@@ -1011,7 +1188,6 @@ func (s *Service) CallAction(ctx context.Context, input CallActionInput) (store.
 	); err != nil {
 		return store.Call{}, operationError(CodeInternal, operation, "call command result could not be finalized", err)
 	}
-	_, _ = s.Refresh(ctx)
 	call, err := s.repository.CallByID(outcomeContext, target.AppID)
 	if err != nil {
 		return store.Call{}, operationError(CodeInternal, operation, "call state could not be loaded", err)

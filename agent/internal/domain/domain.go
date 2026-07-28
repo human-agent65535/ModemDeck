@@ -12,6 +12,7 @@ const APIVersion = "v1"
 type AgentCapabilities struct {
 	Discovery           bool `json:"discovery"`
 	Snapshot            bool `json:"snapshot"`
+	Events              bool `json:"events"`
 	DeviceConfiguration bool `json:"device_configuration"`
 	Network             bool `json:"network"`
 	NetworkSelection    bool `json:"network_selection"`
@@ -161,6 +162,30 @@ type Snapshot struct {
 	Lines      []Line    `json:"lines"`
 	Calls      []Call    `json:"calls"`
 	Messages   []Message `json:"messages"`
+}
+
+type ChangeEvent struct {
+	Sequence   uint64    `json:"sequence"`
+	Source     string    `json:"source"`
+	ObservedAt time.Time `json:"observed_at"`
+}
+
+type ChangeSource interface {
+	SubscribeChanges(context.Context) (<-chan ChangeEvent, error)
+}
+
+type CallMediaActivation struct {
+	CallID          string           `json:"call_id"`
+	MediaRouting    string           `json:"media_routing"`
+	MediaAvailable  bool             `json:"media_available"`
+	MediaConfigured bool             `json:"media_configured"`
+	AudioPort       string           `json:"audio_port"`
+	AudioFormat     *CallAudioFormat `json:"audio_format,omitempty"`
+	Reason          string           `json:"reason,omitempty"`
+}
+
+type CallMediaActivator interface {
+	ActivateCallMedia(context.Context, CallCommandRequest) (CallMediaActivation, error)
 }
 
 type StartCallRequest struct {

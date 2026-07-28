@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/human-agent65535/modemdeck/agent/internal/domain"
@@ -112,7 +113,7 @@ func (p *Provider) projectVoiceCapabilities(
 		parsed.Calls = calls
 	}
 	p.projectATCalls(ctx, operation, parsed)
-	p.activateQuectelMediaForActiveCalls(ctx, operation, parsed)
+	p.projectQuectelMediaState(parsed)
 }
 
 func projectVoiceProbeResult(line *domain.Line, result voiceProbeResult) {
@@ -222,11 +223,7 @@ func (p *Provider) probeQuectelVoice(
 	return result
 }
 
-func (p *Provider) activateQuectelMediaForActiveCalls(
-	ctx context.Context,
-	operation string,
-	parsed *ParsedObjects,
-) {
+func (p *Provider) projectQuectelMediaState(parsed *ParsedObjects) {
 	if parsed == nil {
 		return
 	}
@@ -240,37 +237,31 @@ func (p *Provider) activateQuectelMediaForActiveCalls(
 	p.pruneVoiceMediaActivations(parsed.Calls)
 	for index := range parsed.Calls {
 		call := &parsed.Calls[index]
-		if call.StateCode != 4 {
-			continue
-		}
 		line := lines[call.LineID]
 		if line == nil {
 			continue
 		}
-		path, found := parsed.LinePaths[line.ID]
-		if !found || !path.IsValid() {
-			continue
-		}
 		key := voiceProbeKey(*line)
-		result, found := p.voiceProbeResult(key)
+		activation, found := p.voiceMediaActivation(call.ID, key)
 		if !found {
 			continue
-		}
-		activation, shouldActivate := p.beginVoiceMediaActivation(call.ID, key, result)
-		if shouldActivate {
-			activation.result = p.activateQuectelMedia(ctx, operation, path, result)
-			p.storeVoiceMediaActivation(call.ID, activation)
 		}
 		projectVoiceProbeResult(line, activation.result)
 		projectQuectelUACCall(call, *line, activation.result)
 	}
 }
 
-func (p *Provider) voiceProbeResult(key string) (voiceProbeResult, bool) {
+func (p *Provider) voiceMediaActivation(
+	callID string,
+	key string,
+) (voiceMediaActivation, bool) {
 	p.voiceProbeMu.Lock()
 	defer p.voiceProbeMu.Unlock()
-	result, found := p.voiceProbes[key]
-	return result, found
+	activation, found := p.voiceMedia[callID]
+	if !found || activation.probeKey != key {
+		return voiceMediaActivation{}, false
+	}
+	return activation, true
 }
 
 func (p *Provider) beginVoiceMediaActivation(
@@ -300,13 +291,13 @@ func (p *Provider) activateQuectelMedia(
 	operation string,
 	path dbus.ObjectPath,
 	result voiceProbeResult,
-) voiceProbeResult {
+) (voiceProbeResult, error) {
 	result.media = false
 
 	if _, err := p.commandATPath(ctx, path, operation, quectelPCMEnable); err != nil {
 		result.mediaRouting = voiceVerificationRejected
 		result.reason = "PCM voice routing command was rejected for the active call"
-		return result
+		return result, err
 	}
 	status, err := p.commandATPath(ctx, path, operation, quectelPCMStatusQuery)
 	switch {
@@ -321,7 +312,114 @@ func (p *Provider) activateQuectelMedia(
 		result.media = true
 		result.reason = ""
 	}
-	return result
+	return result, err
+}
+
+func (p *Provider) ActivateCallMedia(
+	ctx context.Context,
+	request domain.CallCommandRequest,
+) (domain.CallMediaActivation, error) {
+	const operation = "activate_call_media"
+	request.RequestID = strings.TrimSpace(request.RequestID)
+	request.CallID = strings.TrimSpace(request.CallID)
+	if err := validateRequestID(operation, request.RequestID); err != nil {
+		return domain.CallMediaActivation{}, err
+	}
+	if request.CallID == "" {
+		return domain.CallMediaActivation{}, domain.InvalidArgument(operation, "call id is required")
+	}
+
+	p.callMu.Lock()
+	defer p.callMu.Unlock()
+
+	parsed, err := p.snapshotContent(ctx, operation)
+	if err != nil {
+		return domain.CallMediaActivation{}, err
+	}
+	p.projectVoiceCapabilities(ctx, operation, &parsed)
+	call, found := findCall(parsed.Calls, request.CallID)
+	if !found {
+		return domain.CallMediaActivation{}, domain.NotFound(operation, "call was not found")
+	}
+	if call.StateCode != 4 {
+		return domain.CallMediaActivation{}, domain.Conflict(
+			operation,
+			"call media can only be activated after the call is connected",
+		)
+	}
+	line, found := findLine(parsed.Lines, call.LineID)
+	if !found {
+		return domain.CallMediaActivation{}, domain.NotFound(operation, "call line was not found")
+	}
+	if !requiresQuectelPCMProbe(line) {
+		return domain.CallMediaActivation{}, domain.NotSupported(
+			operation,
+			"line does not use the supported Quectel call-media route",
+		)
+	}
+	path, found := parsed.LinePaths[line.ID]
+	if !found || !path.IsValid() {
+		return domain.CallMediaActivation{}, domain.Unavailable(
+			operation,
+			"line AT path is unavailable",
+			nil,
+		)
+	}
+	key := voiceProbeKey(line)
+	result, found := p.voiceProbeResult(key)
+	if !found || !result.callControl {
+		return domain.CallMediaActivation{}, domain.NotSupported(
+			operation,
+			"line call media capability has not been verified",
+		)
+	}
+	activation, shouldActivate := p.beginVoiceMediaActivation(call.ID, key, result)
+	if shouldActivate {
+		started := time.Now()
+		slog.Info(
+			"call media activation requested",
+			"component", "modemmanager",
+			"call_id", call.ID,
+			"line_id", line.ID,
+		)
+		activation.result, err = p.activateQuectelMedia(ctx, operation, path, result)
+		p.storeVoiceMediaActivation(call.ID, activation)
+		logArgs := []any{
+			"component", "modemmanager",
+			"call_id", call.ID,
+			"line_id", line.ID,
+			"routing", activation.result.mediaRouting,
+			"media_available", activation.result.media,
+			"duration", time.Since(started).Round(time.Millisecond),
+		}
+		if err != nil {
+			logArgs = append(logArgs, "error", err)
+			slog.Warn("call media activation completed", logArgs...)
+		} else if activation.result.media {
+			slog.Info("call media activation completed", logArgs...)
+		} else {
+			logArgs = append(logArgs, "reason", activation.result.reason)
+			slog.Warn("call media activation completed", logArgs...)
+		}
+		p.publishChange("call-media")
+	}
+	projectVoiceProbeResult(&line, activation.result)
+	projectQuectelUACCall(&call, line, activation.result)
+	return domain.CallMediaActivation{
+		CallID:         call.ID,
+		MediaRouting:   activation.result.mediaRouting,
+		MediaAvailable: call.MediaAvailable,
+		AudioPort:      call.AudioPort,
+		AudioFormat:    call.AudioFormat,
+		Reason:         activation.result.reason,
+	}, nil
+}
+
+func (p *Provider) voiceProbeResult(key string) (voiceProbeResult, bool) {
+	p.voiceProbeMu.Lock()
+	defer p.voiceProbeMu.Unlock()
+	result, found := p.voiceProbes[key]
+	return result, found
 }
 
 func (p *Provider) storeVoiceMediaActivation(

@@ -146,19 +146,32 @@ func TestQuectelPCMActivationRunsOnceWhenCallBecomesActive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("active Snapshot() error = %v", err)
 	}
-	if !active.Lines[0].Capabilities.Media ||
+	if active.Lines[0].Capabilities.Media ||
 		active.Lines[0].VoiceVerification == nil ||
-		active.Lines[0].VoiceVerification.MediaRouting != voiceVerificationEnabled {
+		active.Lines[0].VoiceVerification.MediaRouting != voiceVerificationCallRequired {
 		t.Fatalf("active line = %+v", active.Lines[0])
 	}
-	if len(active.Calls) != 1 ||
-		active.Calls[0].AudioPort != quectelUACPortPrefix+"/sys/devices/usb1/1-2" ||
-		active.Calls[0].AudioFormat == nil ||
-		active.Calls[0].AudioFormat.Encoding != "pcm" ||
-		active.Calls[0].AudioFormat.Resolution != "s16le" ||
-		active.Calls[0].AudioFormat.Rate != 8000 ||
-		!active.Calls[0].MediaAvailable {
-		t.Fatalf("active call media = %+v", active.Calls)
+	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 0)
+	assertATInvocationCount(t, caller.invocations(), quectelPCMStatusQuery, 0)
+
+	activation, err := provider.ActivateCallMedia(
+		context.Background(),
+		domain.CallCommandRequest{
+			RequestID: "activate-media-71",
+			CallID:    active.Calls[0].ID,
+		},
+	)
+	if err != nil {
+		t.Fatalf("ActivateCallMedia() error = %v", err)
+	}
+	if activation.MediaRouting != voiceVerificationEnabled ||
+		!activation.MediaAvailable ||
+		activation.AudioPort != quectelUACPortPrefix+"/sys/devices/usb1/1-2" ||
+		activation.AudioFormat == nil ||
+		activation.AudioFormat.Encoding != "pcm" ||
+		activation.AudioFormat.Resolution != "s16le" ||
+		activation.AudioFormat.Rate != 8000 {
+		t.Fatalf("activation = %+v", activation)
 	}
 	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 1)
 	assertATInvocationCount(t, caller.invocations(), quectelPCMStatusQuery, 1)
@@ -172,6 +185,21 @@ func TestQuectelPCMActivationRunsOnceWhenCallBecomesActive(t *testing.T) {
 	}
 	if len(repeated.Calls) != 1 || !repeated.Calls[0].MediaAvailable {
 		t.Fatalf("repeated active calls = %+v", repeated.Calls)
+	}
+	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 1)
+	assertATInvocationCount(t, caller.invocations(), quectelPCMStatusQuery, 1)
+	repeatedActivation, err := provider.ActivateCallMedia(
+		context.Background(),
+		domain.CallCommandRequest{
+			RequestID: "activate-media-71-repeat",
+			CallID:    active.Calls[0].ID,
+		},
+	)
+	if err != nil {
+		t.Fatalf("repeated ActivateCallMedia() error = %v", err)
+	}
+	if !repeatedActivation.MediaAvailable {
+		t.Fatalf("repeated activation = %+v", repeatedActivation)
 	}
 	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 1)
 	assertATInvocationCount(t, caller.invocations(), quectelPCMStatusQuery, 1)
@@ -194,10 +222,19 @@ func TestQuectelPCMActivationRunsOnceWhenCallBecomesActive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("next Snapshot() error = %v", err)
 	}
-	if !next.Lines[0].Capabilities.Media ||
+	if next.Lines[0].Capabilities.Media ||
 		next.Lines[0].VoiceVerification == nil ||
-		next.Lines[0].VoiceVerification.MediaRouting != voiceVerificationEnabled {
+		next.Lines[0].VoiceVerification.MediaRouting != voiceVerificationCallRequired {
 		t.Fatalf("next active line = %+v", next.Lines[0])
+	}
+	if _, err := provider.ActivateCallMedia(
+		context.Background(),
+		domain.CallCommandRequest{
+			RequestID: "activate-media-72",
+			CallID:    next.Calls[0].ID,
+		},
+	); err != nil {
+		t.Fatalf("next ActivateCallMedia() error = %v", err)
 	}
 	assertATInvocationCount(t, caller.invocations(), quectelUSBVoiceQuery, 1)
 	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 2)
@@ -328,17 +365,41 @@ func TestQuectelPCMActivationFailureIsScopedToActiveCall(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Snapshot() error = %v", err)
 			}
-			line := snapshot.Lines[0]
+			if snapshot.Lines[0].VoiceVerification == nil ||
+				snapshot.Lines[0].VoiceVerification.MediaRouting != voiceVerificationCallRequired {
+				t.Fatalf("pre-activation line = %+v", snapshot.Lines[0])
+			}
+			activation, err := provider.ActivateCallMedia(
+				context.Background(),
+				domain.CallCommandRequest{
+					RequestID: "activate-media-failure",
+					CallID:    snapshot.Calls[0].ID,
+				},
+			)
+			if err != nil {
+				t.Fatalf("ActivateCallMedia() error = %v", err)
+			}
+			if activation.MediaRouting != test.wantRouting ||
+				activation.MediaAvailable ||
+				activation.AudioPort != "" ||
+				activation.AudioFormat != nil {
+				t.Fatalf("activation = %+v, want routing %q", activation, test.wantRouting)
+			}
+			projected, err := provider.Snapshot(context.Background())
+			if err != nil {
+				t.Fatalf("projected Snapshot() error = %v", err)
+			}
+			line := projected.Lines[0]
 			if !line.Capabilities.Dial || line.Capabilities.Media ||
 				line.VoiceVerification == nil ||
 				line.VoiceVerification.MediaRouting != test.wantRouting {
 				t.Fatalf("line = %+v, want routing %q", line, test.wantRouting)
 			}
-			if len(snapshot.Calls) != 1 ||
-				snapshot.Calls[0].MediaAvailable ||
-				snapshot.Calls[0].AudioPort != "" ||
-				snapshot.Calls[0].AudioFormat != nil {
-				t.Fatalf("failed route exposed call media: %+v", snapshot.Calls)
+			if len(projected.Calls) != 1 ||
+				projected.Calls[0].MediaAvailable ||
+				projected.Calls[0].AudioPort != "" ||
+				projected.Calls[0].AudioFormat != nil {
+				t.Fatalf("failed route exposed call media: %+v", projected.Calls)
 			}
 			assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 1)
 			if test.enableErr == nil {
