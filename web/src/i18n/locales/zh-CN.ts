@@ -888,6 +888,8 @@ export default {
     mediaRoutingInvalid: '音频路径返回无法识别',
     mediaRoutingRejected: '固件拒绝 AT+QPCMV=1,2',
     mediaRoutingInactive: 'USB 音频路径未激活',
+    mediaRoutingCallRequired: '通话接通后检测音频路径',
+    reprobeVoice: '重新检测',
     unreadable: '不可读取',
     readWrite: '可读写',
     temporarilyUnavailable: '暂不可用',

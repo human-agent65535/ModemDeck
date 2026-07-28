@@ -75,14 +75,18 @@ bindings, so the Agent does not advertise browser call audio without a verified
 media endpoint. `install.sh --media-bindings-file FILE` selects an explicit
 deployment file.
 
-Each binding maps the exact `audio_port` reported by ModemManager to either an
-`alsa-pcm` device name or a `char-pcm` device node:
+Each binding maps an exact call audio route to either an `alsa-pcm` device name
+or a `char-pcm` device node. The route is normally the `audio_port` reported by
+ModemManager. Its QMI Voice implementation does not publish host audio
+metadata for Quectel UAC, so the Agent publishes
+`quectel-uac:<physical-device>` only after an active call accepts and confirms
+`AT+QPCMV=1,2`:
 
 ```json
 {
   "bindings": [
     {
-      "audio_port": "usb:REPLACE_WITH_PHYSICAL_PORT",
+      "audio_port": "quectel-uac:/sys/devices/REPLACE_WITH_PHYSICAL_DEVICE",
       "backend": "alsa-pcm",
       "endpoint": "hw:CARD=REPLACE_WITH_CARD,DEV=0"
     }
@@ -90,8 +94,10 @@ Each binding maps the exact `audio_port` reported by ModemManager to either an
 }
 ```
 
-Bindings are hardware-specific deployment data and should remain outside the
-repository.
+The physical-device value must be copied from the Agent inventory and the ALSA
+card must belong to that same USB topology. Bindings are hardware-specific
+deployment data and should remain outside the repository. The Agent never
+guesses a card name or falls back to another sound device.
 
 ## Simple mode
 

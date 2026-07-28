@@ -797,6 +797,7 @@ export type VoiceRuntimeVerification = {
     | 'invalid_response'
     | 'rejected'
     | 'inactive'
+    | 'call_required'
 }
 
 export type VoLTEConfiguration = {
@@ -986,6 +987,11 @@ export type UpdateDeviceConfigurationInput =
       operation: 'set_volte_policy'
       expected_device_revision: string
       volte_policy: 'enabled' | 'disabled'
+    }
+  | {
+      request_id: string
+      operation: 'reprobe_voice'
+      expected_device_revision: string
     }
   | {
       request_id: string

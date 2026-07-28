@@ -34,6 +34,7 @@ type HardwareUpdateIntent =
   | { operation: 'connect_data'; apn: string; ip_family: IPFamily }
   | { operation: 'disconnect_data' }
   | { operation: 'set_volte_policy'; volte_policy: 'enabled' | 'disabled' }
+  | { operation: 'reprobe_voice' }
   | { operation: 'restart_modem' }
   | { operation: 'reset_usb' }
 
@@ -381,6 +382,12 @@ export function setVoLTEPolicy(
   return updateDevice(lineID, {
     operation: 'set_volte_policy',
     volte_policy: policy
+  })
+}
+
+export function reprobeVoiceCapabilities(lineID: string): Promise<boolean> {
+  return updateDevice(lineID, {
+    operation: 'reprobe_voice'
   })
 }
 

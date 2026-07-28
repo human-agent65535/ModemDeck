@@ -889,6 +889,8 @@ export default {
     mediaRoutingInvalid: 'Audio route response was invalid',
     mediaRoutingRejected: 'Firmware rejected AT+QPCMV=1,2',
     mediaRoutingInactive: 'USB audio route did not become active',
+    mediaRoutingCallRequired: 'Audio routing is tested after a call connects',
+    reprobeVoice: 'Recheck',
     unreadable: 'Unreadable',
     readWrite: 'Read and write',
     temporarilyUnavailable: 'Temporarily unavailable',

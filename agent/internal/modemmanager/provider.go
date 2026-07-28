@@ -58,6 +58,7 @@ type Provider struct {
 
 	voiceProbeMu sync.Mutex
 	voiceProbes  map[string]voiceProbeResult
+	voiceMedia   map[string]voiceMediaActivation
 
 	atCallStateMu  sync.Mutex
 	atCalls        map[string]map[int]atCallLifecycle
@@ -190,6 +191,7 @@ func newProviderWithOptions(
 		networkOperations: make(map[string]struct{}),
 		signalSetupStates: make(map[string]signalSetupState),
 		voiceProbes:       make(map[string]voiceProbeResult),
+		voiceMedia:        make(map[string]voiceMediaActivation),
 		atCalls:           make(map[string]map[int]atCallLifecycle),
 		atPendingCalls:    make(map[string]atCallLifecycle),
 		messageProperties: newMessagePropertyCache(defaultMessagePropertyCacheLimit),
@@ -888,6 +890,7 @@ func (p *Provider) resolveProviderIdentity(
 		p.signalSetupStates = make(map[string]signalSetupState)
 		p.telemetryMu.Unlock()
 		p.clearATCallState()
+		p.clearVoiceMediaActivations()
 	}
 	identity, err := p.ids.freeze()
 	if err != nil {

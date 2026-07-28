@@ -109,8 +109,10 @@ EC20/EC21/EC25、EG21/EG25、EG91/EG95、EM05，以及实机验证过的 QDC507�
 可读的 `usbcfg` 末位 `0` 会明确禁用，末位 `1` 会确认控制；固件返回
 `ERROR` 时只标记为不可读，并由安全的 `AT+CLCC` 查询继续确认，不会把读取失败
 误判成禁用。ModemManager Voice 存在时作为优先控制接口，否则由 Agent 使用
-同一组 AT 呼叫命令。`AT+QPCMV=1,2` 成功并回读为 `1,2` 后才发布模组媒体
-路由能力。浏览器双向音频还必须存在主机声卡和已配置的媒体桥。
+同一组 AT 呼叫命令。静态能力只在设备和固件首次建模时读取一次，也可由用户
+手动重新检测；普通状态刷新不会重复发送 AT 探测。`AT+QPCMV=1,2` 是每通电话
+接通后的媒体路由激活命令，不属于静态探测，只有成功并回读为 `1,2` 后才发布
+该通电话的 UAC PCM 路径。浏览器双向音频还必须存在主机声卡和已配置的媒体桥。
 
 实测 EG25 固件 `EG25GGCR07A02M1G_A0.301.A0.301` 可读写 `usbcfg`，并能
 启用及回读 `QPCMV: 1,2`。同一硬件上的 A0.302 会对 `usbcfg` 读写返回
@@ -316,9 +318,13 @@ state is authoritative for call-control capability. A readable final
 `ERROR` is reported as unreadable and followed by the safe `AT+CLCC` query
 instead of being misclassified as disabled. ModemManager Voice is the
 preferred control interface when present; otherwise the Agent uses the same
-AT call commands directly. Modem media routing is published only after
-`AT+QPCMV=1,2` succeeds and reads back as `1,2`. Browser bidirectional audio
-additionally requires a host sound device and a configured media bridge.
+AT call commands directly. Static capability reads run once when a device and
+firmware are first modeled, or when the user explicitly requests a recheck;
+ordinary status refreshes never repeat AT probing. `AT+QPCMV=1,2` is a
+per-call media-route activation after the call becomes active, not a static
+probe. That call's UAC PCM route is published only after the command succeeds
+and reads back as `1,2`. Browser bidirectional audio additionally requires a
+host sound device and a configured media bridge.
 
 The tested EG25 release `EG25GGCR07A02M1G_A0.301.A0.301` reads and writes
 `usbcfg` and enables and reads back `QPCMV: 1,2`. A0.302 on the same hardware

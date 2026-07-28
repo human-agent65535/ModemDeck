@@ -14,6 +14,9 @@ type fakeGenericProvider struct {
 	configuration domain.DeviceConfiguration
 	applyCalls    int
 	applyRequests []domain.ApplyDeviceConfigurationRequest
+	reprobeCalls  int
+	reprobeLines  []string
+	reprobeError  error
 }
 
 func (provider *fakeGenericProvider) ReadDeviceConfiguration(
@@ -35,6 +38,33 @@ func (provider *fakeGenericProvider) ApplyGenericDeviceConfiguration(
 		provider.configuration.VoLTE.Policy = request.VoLTEPolicy
 	}
 	return provider.configuration, nil
+}
+
+func (provider *fakeGenericProvider) ReprobeVoiceCapabilities(
+	_ context.Context,
+	lineID string,
+) error {
+	provider.reprobeCalls++
+	provider.reprobeLines = append(provider.reprobeLines, lineID)
+	if provider.reprobeError != nil {
+		return provider.reprobeError
+	}
+	provider.configuration.VoiceVerification = &domain.VoiceRuntimeVerification{
+		USBConfiguration: "enabled",
+		MediaRouting:     "call_required",
+	}
+	provider.configuration.Capabilities.Voice = domain.FeatureCapability{
+		Backend:     "modemmanager",
+		Supported:   true,
+		Implemented: true,
+		Readable:    true,
+	}
+	revision, err := domain.RevisionDeviceConfiguration(provider.configuration)
+	if err != nil {
+		return err
+	}
+	provider.configuration.Revision = revision
+	return nil
 }
 
 type fakeATTransport struct {
@@ -64,6 +94,58 @@ func (transport *fakeATTransport) Command(_ context.Context, command string) (st
 		return "OK", nil
 	default:
 		return "", fmt.Errorf("unexpected command %q", command)
+	}
+}
+
+func TestManualVoiceReprobeUsesReadOnlyProviderOperation(t *testing.T) {
+	t.Parallel()
+
+	registry, err := volte.NewRegistry()
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+	generic := &fakeGenericProvider{
+		configuration: baseConfiguration(t, domain.DeviceIdentity{
+			Manufacturer: "Fixture",
+			Model:        "Voice modem",
+			Firmware:     "voice-fw-1",
+		}),
+	}
+	service, err := New(generic, registry, nil)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	current, err := service.DeviceConfiguration(context.Background(), "line-1")
+	if err != nil {
+		t.Fatalf("DeviceConfiguration() error = %v", err)
+	}
+
+	updated, err := service.ApplyDeviceConfiguration(
+		context.Background(),
+		domain.ApplyDeviceConfigurationRequest{
+			RequestID:        "manual-voice-reprobe",
+			LineID:           "line-1",
+			ExpectedRevision: current.Revision,
+			Operation:        domain.DeviceConfigurationReprobeVoice,
+		},
+	)
+	if err != nil {
+		t.Fatalf("ApplyDeviceConfiguration() error = %v", err)
+	}
+	if generic.reprobeCalls != 1 ||
+		fmt.Sprint(generic.reprobeLines) != "[line-1]" ||
+		generic.applyCalls != 0 {
+		t.Fatalf(
+			"reprobe calls = %d, lines = %v, generic apply calls = %d",
+			generic.reprobeCalls,
+			generic.reprobeLines,
+			generic.applyCalls,
+		)
+	}
+	if updated.VoiceVerification == nil ||
+		updated.VoiceVerification.USBConfiguration != "enabled" ||
+		updated.VoiceVerification.MediaRouting != "call_required" {
+		t.Fatalf("updated voice verification = %+v", updated.VoiceVerification)
 	}
 }
 

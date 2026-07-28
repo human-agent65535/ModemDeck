@@ -2038,6 +2038,17 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
             restart_required: true
           }
           break
+        case 'reprobe_voice':
+          hardware.voice_verification = hardware.capabilities.voice.supported
+            ? {
+                usb_configuration: 'enabled',
+                media_routing: 'call_required'
+              }
+            : {
+                usb_configuration: 'disabled',
+                media_routing: 'disabled'
+              }
+          break
         case 'restart_modem':
           hardware.volte = {
             ...hardware.volte,

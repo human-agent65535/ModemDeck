@@ -1223,6 +1223,7 @@ export function createDeviceConfigurationPayload(
         expected_device_revision: expectedRevision,
         volte_policy: input.volte_policy
       }
+    case 'reprobe_voice':
     case 'restart_modem':
     case 'reset_usb':
       return {
@@ -1467,7 +1468,8 @@ function parseDeviceHardwareConfiguration(value: unknown): DeviceHardwareConfigu
     'read_failed',
     'invalid_response',
     'rejected',
-    'inactive'
+    'inactive',
+    'call_required'
   ])
   if (voiceVerification && !usbConfigurationStatuses.has(usbConfiguration)) {
     throw new Error(

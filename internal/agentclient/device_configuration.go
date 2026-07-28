@@ -15,6 +15,7 @@ const (
 	DeviceConfigurationConnectData     DeviceConfigurationOperation = "connect_data"
 	DeviceConfigurationDisconnectData  DeviceConfigurationOperation = "disconnect_data"
 	DeviceConfigurationSetVoLTEPolicy  DeviceConfigurationOperation = "set_volte_policy"
+	DeviceConfigurationReprobeVoice    DeviceConfigurationOperation = "reprobe_voice"
 	DeviceConfigurationRestartModem    DeviceConfigurationOperation = "restart_modem"
 	DeviceConfigurationResetUSB        DeviceConfigurationOperation = "reset_usb"
 )

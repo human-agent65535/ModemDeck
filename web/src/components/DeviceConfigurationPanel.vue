@@ -48,6 +48,7 @@ import {
   deviceConfigurationState,
   disconnectData,
   loadDeviceConfiguration,
+  reprobeVoiceCapabilities,
   resetUSBDevice,
   restartModem,
   selectDeviceConfiguration,
@@ -335,6 +336,8 @@ const voiceMediaDetail = computed(() => {
       return t('device.mediaRoutingRejected')
     case 'inactive':
       return t('device.mediaRoutingInactive')
+    case 'call_required':
+      return t('device.mediaRoutingCallRequired')
     default:
       return voiceMediaAvailable.value ? t('device.available') : t('device.unavailable')
   }
@@ -1003,6 +1006,11 @@ async function applyVoLTE(event: Event): Promise<void> {
     control.checked = previousPolicy === 'enabled'
     voltePolicyDraft.value = previousPolicy
   }
+}
+
+async function reprobeVoice(): Promise<void> {
+  if (!selectedLineID.value) return
+  await reprobeVoiceCapabilities(selectedLineID.value)
 }
 
 async function applyModemRestart(): Promise<void> {
@@ -2093,7 +2101,24 @@ onMounted(() => {
 
         <template v-else-if="activeTab === 'voice'">
           <section class="configuration-section">
-            <header><Phone :size="18" /><h4>{{ t('device.voice') }}</h4></header>
+            <header>
+              <Phone :size="18" />
+              <h4>{{ t('device.voice') }}</h4>
+              <button
+                class="secondary-action voice-reprobe"
+                type="button"
+                :disabled="hardwareBusy"
+                @click="reprobeVoice"
+              >
+                <LoaderCircle
+                  v-if="savingOperation === 'reprobe_voice'"
+                  class="spin"
+                  :size="16"
+                />
+                <RotateCw v-else :size="16" />
+                {{ t('device.reprobeVoice') }}
+              </button>
+            </header>
             <div class="voice-capabilities">
               <div
                 class="voice-status"
@@ -2554,6 +2579,10 @@ onMounted(() => {
 
 .configuration-section > header h4 {
   color: var(--text);
+}
+
+.voice-reprobe {
+  margin-left: auto;
 }
 
 .line-label-form {

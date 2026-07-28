@@ -132,6 +132,22 @@ test('call policy and device configuration contracts match the root API', () => 
       expected_device_revision: 'sha256:current'
     }
   )
+  const voiceReprobePayload = createDeviceConfigurationPayload({
+    request_id: ' request-voice-reprobe-1 ',
+    operation: 'reprobe_voice',
+    expected_device_revision: ' sha256:current ',
+    apn: 'must-not-be-forwarded'
+  })
+  assert.deepEqual(voiceReprobePayload, {
+    request_id: 'request-voice-reprobe-1',
+    operation: 'reprobe_voice',
+    expected_device_revision: 'sha256:current'
+  })
+  assert.deepEqual(Object.keys(voiceReprobePayload).sort(), [
+    'expected_device_revision',
+    'operation',
+    'request_id'
+  ])
   assert.throws(
     () =>
       createDeviceConfigurationPayload({
@@ -143,6 +159,28 @@ test('call policy and device configuration contracts match the root API', () => 
       }),
     /APN/
   )
+})
+
+test('voice support is modeled once and exposed through an explicit manual recheck', async () => {
+  const reprobeBody = functionBody(
+    deviceConfigurationStateSource,
+    'export function reprobeVoiceCapabilities'
+  )
+  assert.match(reprobeBody, /operation:\s*['"]reprobe_voice['"]/)
+  assert.match(devicePanelSource, /@click="reprobeVoice"/)
+  assert.match(devicePanelSource, /savingOperation === ['"]reprobe_voice['"]/)
+  assert.match(devicePanelSource, /mediaRoutingCallRequired/)
+
+  const gateway = createFixtureGateway()
+  const current = await gateway.getDeviceConfiguration('line-fixture-main')
+  const updated = await gateway.updateDeviceConfiguration('line-fixture-main', {
+    request_id: 'fixture-voice-reprobe',
+    operation: 'reprobe_voice',
+    expected_device_revision: current.hardware.revision
+  })
+  const parsed = parseDeviceConfigurationResponse(updated)
+  assert.equal(parsed.hardware?.voice_verification?.usb_configuration, 'enabled')
+  assert.equal(parsed.hardware?.voice_verification?.media_routing, 'call_required')
 })
 
 test('USB hard reset is an explicit confirmed recovery action', () => {

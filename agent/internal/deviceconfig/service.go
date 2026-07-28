@@ -19,6 +19,10 @@ type GenericProvider interface {
 	) (domain.DeviceConfiguration, error)
 }
 
+type VoiceProbeProvider interface {
+	ReprobeVoiceCapabilities(context.Context, string) error
+}
+
 type TransportResolver func(
 	context.Context,
 	string,
@@ -89,6 +93,23 @@ func (s *Service) ApplyDeviceConfiguration(
 			operation,
 			"device configuration changed; read the latest revision before applying",
 		)
+	}
+	if request.Operation == domain.DeviceConfigurationReprobeVoice {
+		probe, ok := s.generic.(VoiceProbeProvider)
+		if !ok {
+			return domain.DeviceConfiguration{}, domain.NotSupported(
+				operation,
+				"voice capability reprobe is unavailable",
+			)
+		}
+		if err := probe.ReprobeVoiceCapabilities(ctx, request.LineID); err != nil {
+			return domain.DeviceConfiguration{}, err
+		}
+		updated, err := s.generic.ReadDeviceConfiguration(ctx, request.LineID)
+		if err != nil {
+			return domain.DeviceConfiguration{}, err
+		}
+		return s.enrich(ctx, updated)
 	}
 	if request.Operation == domain.DeviceConfigurationSetVoLTEPolicy &&
 		genericVoLTEAuthoritative(current) {
@@ -362,8 +383,19 @@ func validateRequest(request domain.ApplyDeviceConfigurationRequest) error {
 	case domain.DeviceConfigurationSetRadioEnabled,
 		domain.DeviceConfigurationConnectData,
 		domain.DeviceConfigurationDisconnectData,
+		domain.DeviceConfigurationReprobeVoice,
 		domain.DeviceConfigurationRestartModem,
 		domain.DeviceConfigurationResetUSB:
+		if request.Operation == domain.DeviceConfigurationReprobeVoice &&
+			(request.RadioEnabled != nil ||
+				request.APN != "" ||
+				request.IPFamily != "" ||
+				request.VoLTEPolicy != "") {
+			return domain.InvalidArgument(
+				operation,
+				"reprobe_voice does not accept configuration values",
+			)
+		}
 		return nil
 	case domain.DeviceConfigurationSetVoLTEPolicy:
 		if request.RadioEnabled != nil || request.APN != "" || request.IPFamily != "" {
