@@ -152,7 +152,11 @@ func (m *Manager) Release(ctx context.Context, controllerID string) error {
 		m.mu.Unlock()
 		return nil
 	}
-	if m.controllerID != "" && m.controllerID != controllerID {
+	if m.controllerID == "" {
+		m.mu.Unlock()
+		return nil
+	}
+	if m.controllerID != controllerID {
 		m.mu.Unlock()
 		return domain.Conflict(
 			"release_control_lease",

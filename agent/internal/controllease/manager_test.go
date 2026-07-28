@@ -238,6 +238,37 @@ func TestManagerDoesNotRepeatFailedTerminationOnSameLine(t *testing.T) {
 	}
 }
 
+func TestManagerDoesNotRepeatReleaseCleanupWithoutOwner(t *testing.T) {
+	t.Parallel()
+
+	controller := &controllerStub{
+		calls: []domain.Call{{
+			ID:        "call-1",
+			LineID:    "line-1",
+			StateCode: 4,
+		}},
+		hangupErr: errors.New("hangup and reset failed"),
+	}
+	manager, err := New(controller, Options{CommandTimeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Renew("app-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Release(context.Background(), "app-a"); err == nil {
+		t.Fatal("first Release() succeeded despite termination failure")
+	}
+	if err := manager.Release(context.Background(), "app-a"); err != nil {
+		t.Fatalf("duplicate Release() error = %v", err)
+	}
+	controller.mu.Lock()
+	defer controller.mu.Unlock()
+	if controller.hangupCount != 1 {
+		t.Fatalf("hangupCount = %d, want 1", controller.hangupCount)
+	}
+}
+
 func TestManagerRecordsForcedTerminationAndAllowsRecovery(t *testing.T) {
 	t.Parallel()
 	controller := &controllerStub{

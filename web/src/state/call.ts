@@ -117,13 +117,6 @@ watch(
   () => callMediaState.status,
   status => {
     if (LEASED_MEDIA_STATES.has(status)) void renewActiveCallLease()
-    if (
-      status === 'error' &&
-      callState.session?.phase === 'active' &&
-      callState.session.media_available
-    ) {
-      void act('hangup')
-    }
   }
 )
 

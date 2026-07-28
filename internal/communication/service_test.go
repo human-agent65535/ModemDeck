@@ -531,6 +531,42 @@ func TestStartCallDoesNotInventStateMissingFromAgentSnapshot(t *testing.T) {
 	}
 }
 
+func TestStartCallFailureRelinquishesControlLease(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
+	baseAgent := connectedAgent(now)
+	baseAgent.health.Provider.Capabilities.ControlLease = true
+	baseAgent.startError = errors.New("socket closed without response")
+	agent := &controlLeaseEventAgent{fakeAgent: baseAgent}
+	service, err := New(agent, &fakeRepository{}, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	_, err = service.StartCall(context.Background(), StartCallInput{
+		RequestID: "request-start-transport-failure",
+		LineID:    "line-1",
+		Number:    "+818012345678",
+	})
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("StartCall() error = %v, want ErrUnavailable", err)
+	}
+	if got := agent.renewals.Load(); got != 1 {
+		t.Fatalf("control lease renewals = %d, want 1", got)
+	}
+	if got := agent.releaseCalls.Load(); got != 1 {
+		t.Fatalf("control lease releases = %d, want 1", got)
+	}
+	service.controlMu.RLock()
+	wanted := service.controlLeaseWanted
+	active := service.controlLeaseActive
+	service.controlMu.RUnlock()
+	if wanted || active {
+		t.Fatalf("control lease state after failed start = wanted:%t active:%t", wanted, active)
+	}
+}
+
 func TestServiceRoutesStableLineThroughReplacementEndpoint(t *testing.T) {
 	t.Parallel()
 

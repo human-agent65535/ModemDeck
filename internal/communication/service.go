@@ -891,16 +891,16 @@ func (s *Service) agentControlLeaseRenewable() bool {
 }
 
 func (s *Service) ensureAgentControlLease(ctx context.Context) error {
+	lease, available := s.agent.(AgentControlLease)
 	s.controlMu.Lock()
+	defer s.controlMu.Unlock()
 	supported := s.controlLeaseSupported
 	eventsRequired := s.agentEventsRequired
 	eventsHealthy := s.agentEventsHealthy
-	if !supported {
-		s.controlMu.Unlock()
+	if !supported || !available {
 		return nil
 	}
 	if eventsRequired && !eventsHealthy {
-		s.controlMu.Unlock()
 		return operationError(
 			CodeUnavailable,
 			"acquire host agent control",
@@ -909,12 +909,9 @@ func (s *Service) ensureAgentControlLease(ctx context.Context) error {
 		)
 	}
 	s.controlLeaseWanted = true
-	s.controlMu.Unlock()
-	if err := s.renewAgentControlLease(ctx); err != nil {
-		s.controlMu.Lock()
+	if err := s.renewAgentControlLeaseLocked(ctx, lease); err != nil {
 		s.controlLeaseWanted = false
 		s.controlLeaseActive = false
-		s.controlMu.Unlock()
 		return operationError(
 			CodeUnavailable,
 			"acquire host agent control",
@@ -927,7 +924,21 @@ func (s *Service) ensureAgentControlLease(ctx context.Context) error {
 
 func (s *Service) renewAgentControlLease(ctx context.Context) error {
 	lease, ok := s.agent.(AgentControlLease)
-	if !ok || !s.agentControlLeaseRenewable() {
+	if !ok {
+		return nil
+	}
+	s.controlMu.Lock()
+	defer s.controlMu.Unlock()
+	return s.renewAgentControlLeaseLocked(ctx, lease)
+}
+
+func (s *Service) renewAgentControlLeaseLocked(
+	ctx context.Context,
+	lease AgentControlLease,
+) error {
+	if !s.controlLeaseSupported ||
+		!s.controlLeaseWanted ||
+		(s.agentEventsRequired && !s.agentEventsHealthy) {
 		return nil
 	}
 	renewContext, cancel := context.WithTimeout(
@@ -937,9 +948,7 @@ func (s *Service) renewAgentControlLease(ctx context.Context) error {
 	_, err := lease.RenewControlLease(renewContext)
 	cancel()
 	if err == nil {
-		s.controlMu.Lock()
 		s.controlLeaseActive = true
-		s.controlMu.Unlock()
 	}
 	return err
 }
@@ -950,10 +959,10 @@ func (s *Service) releaseAgentControlLease(ctx context.Context) error {
 		return nil
 	}
 	s.controlMu.Lock()
+	defer s.controlMu.Unlock()
 	active := s.controlLeaseActive
 	s.controlLeaseWanted = false
 	s.controlLeaseActive = false
-	s.controlMu.Unlock()
 	if !active {
 		return nil
 	}
@@ -966,9 +975,9 @@ func (s *Service) ReleaseCallControl(ctx context.Context) error {
 		return nil
 	}
 	s.controlMu.Lock()
+	defer s.controlMu.Unlock()
 	s.controlLeaseWanted = false
 	s.controlLeaseActive = false
-	s.controlMu.Unlock()
 	return lease.ReleaseControlLease(normalizeContext(ctx))
 }
 
@@ -1194,10 +1203,11 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 		Number:    number,
 	})
 	if err != nil {
+		controlErr := s.relinquishAcceptedCallControl(ctx, err)
 		if finishErr := s.finishFailedCommand(ctx, command, err); finishErr != nil {
 			return store.Call{}, finishErr
 		}
-		return store.Call{}, translateAgentError(operation, err)
+		return store.Call{}, translateAgentError(operation, controlErr)
 	}
 	if err := validateReceipt(receipt, requestID); err != nil {
 		err = s.recordIndeterminateAcceptedCall(ctx, command, err)

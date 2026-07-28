@@ -41,15 +41,18 @@ type eventCountingRepository struct {
 
 type controlLeaseEventAgent struct {
 	*fakeAgent
-	started      chan struct{}
-	disconnect   chan struct{}
-	released     chan struct{}
-	startOnce    sync.Once
-	releaseOnce  sync.Once
-	watchCalls   atomic.Int32
-	renewals     atomic.Int32
-	releaseCalls atomic.Int32
-	releaseErr   error
+	started       chan struct{}
+	disconnect    chan struct{}
+	released      chan struct{}
+	renewStarted  chan struct{}
+	renewContinue chan struct{}
+	startOnce     sync.Once
+	renewOnce     sync.Once
+	releaseOnce   sync.Once
+	watchCalls    atomic.Int32
+	renewals      atomic.Int32
+	releaseCalls  atomic.Int32
+	releaseErr    error
 }
 
 func (agent *controlLeaseEventAgent) WatchChanges(
@@ -71,9 +74,19 @@ func (agent *controlLeaseEventAgent) WatchChanges(
 }
 
 func (agent *controlLeaseEventAgent) RenewControlLease(
-	context.Context,
+	ctx context.Context,
 ) (agentclient.ControlLeaseStatus, error) {
 	agent.renewals.Add(1)
+	if agent.renewStarted != nil {
+		agent.renewOnce.Do(func() { close(agent.renewStarted) })
+	}
+	if agent.renewContinue != nil {
+		select {
+		case <-agent.renewContinue:
+		case <-ctx.Done():
+			return agentclient.ControlLeaseStatus{}, ctx.Err()
+		}
+	}
 	return agentclient.ControlLeaseStatus{
 		ControllerID: "fixture",
 		ExpiresAt:    time.Now().Add(5 * time.Second),
@@ -222,6 +235,64 @@ func TestFailedControlReleaseIsNotRenewed(t *testing.T) {
 	}
 	if got := agent.renewals.Load(); got != 1 {
 		t.Fatalf("control lease renewals = %d, want 1", got)
+	}
+}
+
+func TestControlReleaseWaitsForInFlightRenewal(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
+	baseAgent := connectedAgent(now)
+	baseAgent.health.Provider.Capabilities.ControlLease = true
+	agent := &controlLeaseEventAgent{
+		fakeAgent:     baseAgent,
+		renewStarted:  make(chan struct{}),
+		renewContinue: make(chan struct{}),
+	}
+	service, err := New(agent, &fakeRepository{}, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if _, err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+
+	renewed := make(chan error, 1)
+	go func() {
+		renewed <- service.ensureAgentControlLease(context.Background())
+	}()
+	select {
+	case <-agent.renewStarted:
+	case <-time.After(time.Second):
+		t.Fatal("control lease renewal did not start")
+	}
+
+	released := make(chan error, 1)
+	go func() {
+		released <- service.ReleaseCallControl(context.Background())
+	}()
+	close(agent.renewContinue)
+	if err := <-renewed; err != nil {
+		t.Fatalf("ensureAgentControlLease() error = %v", err)
+	}
+	if err := <-released; err != nil {
+		t.Fatalf("ReleaseCallControl() error = %v", err)
+	}
+	if err := service.renewAgentControlLease(context.Background()); err != nil {
+		t.Fatalf("renewAgentControlLease() error after release = %v", err)
+	}
+	if got := agent.renewals.Load(); got != 1 {
+		t.Fatalf("control lease renewals = %d, want 1", got)
+	}
+	if got := agent.releaseCalls.Load(); got != 1 {
+		t.Fatalf("control lease releases = %d, want 1", got)
+	}
+	service.controlMu.RLock()
+	wanted := service.controlLeaseWanted
+	active := service.controlLeaseActive
+	service.controlMu.RUnlock()
+	if wanted || active {
+		t.Fatalf("control lease state after release = wanted:%t active:%t", wanted, active)
 	}
 }
 
