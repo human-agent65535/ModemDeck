@@ -145,20 +145,6 @@ func (p *Provider) terminateCall(
 		return p.forceTerminateCall(ctx, operation, call, parsed, err)
 	}
 
-	line, found := findLine(parsed.Lines, lineID)
-	if found && requiresQuectelPCMProbe(line) {
-		cleanupContext, cancelCleanup := detachedTimeoutContext(
-			ctx,
-			callTerminationVerificationTimeout,
-		)
-		p.disableQuectelMedia(
-			cleanupContext,
-			operation,
-			parsed.LinePaths[lineID],
-			call.ID,
-		)
-		cancelCleanup()
-	}
 	if _, isATCall := parsed.ATCallLines[call.ID]; isATCall {
 		p.publishChange("at-call-command")
 	} else {
@@ -227,6 +213,9 @@ func (p *Provider) forceTerminateCall(
 		)
 	}
 
+	if line, found := findLine(parsed.Lines, call.LineID); found {
+		p.deleteVoiceProbe(voiceProbeKey(parsed.ids, line, modemPath))
+	}
 	p.clearLineCallRuntime(call.LineID)
 	p.publishChange("call-forced-modem-reset")
 	slog.Error(
@@ -247,12 +236,4 @@ func (p *Provider) clearLineCallRuntime(lineID string) {
 	delete(p.atCalls, lineID)
 	delete(p.atPendingCalls, lineID)
 	p.atCallStateMu.Unlock()
-
-	p.voiceProbeMu.Lock()
-	for callID, activation := range p.voiceMedia {
-		if activation.lineID == lineID {
-			delete(p.voiceMedia, callID)
-		}
-	}
-	p.voiceProbeMu.Unlock()
 }

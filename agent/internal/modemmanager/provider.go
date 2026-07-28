@@ -40,6 +40,7 @@ type Provider struct {
 	close         func() error
 	now           func() time.Time
 	ids           *instanceIDs
+	identityMu    sync.Mutex
 	dataPlane     DataPlane
 	ownedBearers  *bearerOwnershipStore
 	radioStates   *radioStateStore
@@ -58,7 +59,6 @@ type Provider struct {
 
 	voiceProbeMu sync.Mutex
 	voiceProbes  map[string]voiceProbeResult
-	voiceMedia   map[string]voiceMediaActivation
 
 	atCallStateMu  sync.Mutex
 	atCalls        map[string]map[int]atCallLifecycle
@@ -192,7 +192,6 @@ func newProviderWithOptions(
 		networkOperations: make(map[string]struct{}),
 		signalSetupStates: make(map[string]signalSetupState),
 		voiceProbes:       make(map[string]voiceProbeResult),
-		voiceMedia:        make(map[string]voiceMediaActivation),
 		atCalls:           make(map[string]map[int]atCallLifecycle),
 		atPendingCalls:    make(map[string]atCallLifecycle),
 		messageProperties: newMessagePropertyCache(defaultMessagePropertyCacheLimit),
@@ -303,7 +302,7 @@ func (p *Provider) Snapshot(ctx context.Context) (domain.Snapshot, error) {
 		return domain.Snapshot{}, err
 	}
 	parsed := ParseManagedObjects(objects, identity)
-	p.projectVoiceCapabilities(ctx, operation, &parsed)
+	p.initializeVoiceModel(ctx, operation, &parsed)
 	p.projectDesiredRadioState(parsed.Lines)
 	observedAt := p.now().UTC()
 	p.projectTerminatedCalls(&parsed, observedAt)
@@ -420,10 +419,6 @@ func (p *Provider) StartCall(ctx context.Context, request domain.StartCallReques
 		"call_path", callPath,
 	)
 	callID := parsed.ids.callID(callPath)
-	activation, prepared := p.prepareQuectelMedia(ctx, operation, line, linePath)
-	if prepared {
-		p.storeVoiceMediaActivation(callID, activation)
-	}
 	if _, err := p.call(
 		ctx,
 		callPath,
@@ -439,9 +434,6 @@ func (p *Provider) StartCall(ctx context.Context, request domain.StartCallReques
 			"call_path", callPath,
 			"error", err,
 		)
-		if prepared {
-			p.disableQuectelMedia(ctx, operation, linePath, callID)
-		}
 		return domain.CommandReceipt{}, err
 	}
 	slog.Info(
@@ -467,11 +459,6 @@ func (p *Provider) AnswerCall(ctx context.Context, request domain.CallCommandReq
 		if !found {
 			return domain.NotFound(operation, "call line was not found")
 		}
-		path := parsed.LinePaths[line.ID]
-		activation, prepared := p.prepareQuectelMedia(ctx, operation, line, path)
-		if prepared {
-			p.storeVoiceMediaActivation(call.ID, activation)
-		}
 		if lineID, isATCall := parsed.ATCallLines[call.ID]; isATCall {
 			_, err := p.commandATPath(
 				ctx,
@@ -479,9 +466,6 @@ func (p *Provider) AnswerCall(ctx context.Context, request domain.CallCommandReq
 				operation,
 				quectelAnswerCall,
 			)
-			if err != nil && prepared {
-				p.disableQuectelMedia(ctx, operation, path, call.ID)
-			}
 			if err == nil {
 				p.refreshATLine(ctx, operation, &line, parsed.LinePaths[lineID])
 				p.publishChange("at-call-command")
@@ -495,9 +479,6 @@ func (p *Provider) AnswerCall(ctx context.Context, request domain.CallCommandReq
 			operation,
 			"ModemManager failed to answer the call",
 		)
-		if err != nil && prepared {
-			p.disableQuectelMedia(ctx, operation, path, call.ID)
-		}
 		return err
 	})
 }
@@ -879,6 +860,9 @@ func (p *Provider) resolveProviderIdentity(
 	ctx context.Context,
 	operation string,
 ) (*instanceIDs, error) {
+	p.identityMu.Lock()
+	defer p.identityMu.Unlock()
+
 	if err := p.requireCaller(ctx, operation); err != nil {
 		return nil, err
 	}
@@ -905,7 +889,7 @@ func (p *Provider) resolveProviderIdentity(
 		p.signalSetupStates = make(map[string]signalSetupState)
 		p.telemetryMu.Unlock()
 		p.clearATCallState()
-		p.clearVoiceMediaActivations()
+		p.clearVoiceProbes()
 	}
 	identity, err := p.ids.freeze()
 	if err != nil {
@@ -918,6 +902,9 @@ func (p *Provider) clearProviderIdentity() {
 	if p == nil || p.ids == nil {
 		return
 	}
+	p.identityMu.Lock()
+	defer p.identityMu.Unlock()
+
 	p.ids.clearProviderEpoch()
 	p.messageProperties.clear()
 	p.snapshotMu.Lock()
@@ -927,6 +914,7 @@ func (p *Provider) clearProviderIdentity() {
 	p.signalSetupStates = make(map[string]signalSetupState)
 	p.telemetryMu.Unlock()
 	p.clearATCallState()
+	p.clearVoiceProbes()
 }
 
 func (p *Provider) prepareExtendedSignal(

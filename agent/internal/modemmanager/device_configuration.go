@@ -365,15 +365,16 @@ func (p *Provider) readDeviceConfiguration(
 	if lineID == "" {
 		return domain.DeviceConfiguration{}, nil, "", domain.InvalidArgument(operation, "line id is required")
 	}
-	if _, err := p.resolveProviderIdentity(ctx, operation); err != nil {
+	identity, err := p.resolveProviderIdentity(ctx, operation)
+	if err != nil {
 		return domain.DeviceConfiguration{}, nil, "", err
 	}
 	objects, err := p.managedObjects(ctx, operation)
 	if err != nil {
 		return domain.DeviceConfiguration{}, nil, "", err
 	}
-	parsed := ParseManagedObjects(objects, p.ids)
-	p.projectVoiceCapabilities(ctx, operation, &parsed)
+	parsed := ParseManagedObjects(objects, identity)
+	p.initializeVoiceModel(ctx, operation, &parsed)
 	line, found := findLine(parsed.Lines, lineID)
 	if !found {
 		return domain.DeviceConfiguration{}, nil, "", domain.NotFound(operation, "line was not found")

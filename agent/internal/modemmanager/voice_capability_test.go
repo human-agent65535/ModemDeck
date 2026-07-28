@@ -33,7 +33,7 @@ func TestQuectelVoiceModelingProbesCallAudioOnce(t *testing.T) {
 			wantControl:    true,
 			wantMedia:      true,
 			wantUSB:        voiceVerificationEnabled,
-			wantRouting:    voiceVerificationSupported,
+			wantRouting:    voiceVerificationEnabled,
 			wantMediaProbe: true,
 		},
 		{
@@ -44,7 +44,7 @@ func TestQuectelVoiceModelingProbesCallAudioOnce(t *testing.T) {
 			wantControl:    true,
 			wantMedia:      true,
 			wantUSB:        voiceVerificationReadFailed,
-			wantRouting:    voiceVerificationSupported,
+			wantRouting:    voiceVerificationEnabled,
 			wantMediaProbe: true,
 		},
 		{
@@ -126,14 +126,35 @@ func TestQuectelVoiceModelingProbesCallAudioOnce(t *testing.T) {
 				wantProbeCount = 1
 			}
 			assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, wantProbeCount)
-			if test.wantMediaProbe && test.pcmEnableErr == nil {
-				assertATInvocationCount(t, caller.invocations(), quectelPCMDisable, 1)
-			}
+			assertATInvocationCount(t, caller.invocations(), "AT+QPCMV=0", 0)
 		})
 	}
 }
 
-func TestQuectelPCMIsPreparedBeforeOutgoingCallStarts(t *testing.T) {
+func TestQuectelCallCommandDoesNotInitializeMissingVoiceModel(t *testing.T) {
+	t.Parallel()
+
+	objects := emptyLineObjects(false, true)
+	properties := objects[testModemPath][modemInterface]
+	properties["Revision"] = dbus.MakeVariant("QDC507GLEFM21")
+	caller := newFakeCaller(objects)
+	caller.atResponses[quectelUSBVoiceQuery] =
+		`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`
+	caller.atResponses[quectelPCMStatusQuery] = quectelPCMReadyStatus
+	provider := newTestProvider(caller)
+	lineID := ParseManagedObjects(objects, provider.ids).Lines[0].ID
+
+	_, err := provider.StartCall(context.Background(), domain.StartCallRequest{
+		RequestID: "start-without-voice-model",
+		LineID:    lineID,
+		Number:    "+818012345678",
+	})
+	assertOperationError(t, err, domain.ErrorNotSupported, "start_call")
+	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 0)
+	assertATInvocationCount(t, caller.invocations(), "ATD+818012345678;", 0)
+}
+
+func TestQuectelPCMIsInitializedOnceBeforeOutgoingCallStarts(t *testing.T) {
 	t.Parallel()
 
 	objects := emptyLineObjects(true, false)
@@ -151,7 +172,11 @@ func TestQuectelPCMIsPreparedBeforeOutgoingCallStarts(t *testing.T) {
 	caller.atResponses[quectelPCMEnable] = ""
 	caller.atResponses[quectelPCMStatusQuery] = quectelPCMReadyStatus
 	provider := newTestProvider(caller)
-	lineID := ParseManagedObjects(objects, provider.ids).Lines[0].ID
+	modeled, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("modeling Snapshot() error = %v", err)
+	}
+	lineID := modeled.Lines[0].ID
 
 	receipt, err := provider.StartCall(context.Background(), domain.StartCallRequest{
 		RequestID: "start-media-71",
@@ -180,9 +205,9 @@ func TestQuectelPCMIsPreparedBeforeOutgoingCallStarts(t *testing.T) {
 	if lastEnable < 0 || startCall < 0 || lastEnable > startCall {
 		t.Fatalf("PCM enable index = %d, call start index = %d", lastEnable, startCall)
 	}
-	assertATInvocationCount(t, invocations, quectelPCMEnable, 2)
-	assertATInvocationCount(t, invocations, quectelPCMStatusQuery, 2)
-	assertATInvocationCount(t, invocations, quectelPCMDisable, 1)
+	assertATInvocationCount(t, invocations, quectelPCMEnable, 1)
+	assertATInvocationCount(t, invocations, quectelPCMStatusQuery, 1)
+	assertATInvocationCount(t, invocations, "AT+QPCMV=0", 0)
 
 	addCall(objects, callPath, 4)
 	active, err := provider.Snapshot(context.Background())
@@ -206,7 +231,7 @@ func TestQuectelPCMIsPreparedBeforeOutgoingCallStarts(t *testing.T) {
 	if !activation.MediaAvailable || activation.MediaRouting != voiceVerificationEnabled {
 		t.Fatalf("activation = %+v", activation)
 	}
-	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 2)
+	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 1)
 }
 
 func TestQuectelPCMActivationKeepsAuthoritativeModemManagerAudio(t *testing.T) {
@@ -498,7 +523,7 @@ func TestBusyQuectelVoiceModelWaitsForManualReprobe(t *testing.T) {
 	}
 	if !reprobed.Lines[0].Capabilities.Media ||
 		reprobed.Lines[0].VoiceVerification == nil ||
-		reprobed.Lines[0].VoiceVerification.MediaRouting != voiceVerificationSupported {
+		reprobed.Lines[0].VoiceVerification.MediaRouting != voiceVerificationEnabled {
 		t.Fatalf("reprobed line = %+v", reprobed.Lines[0])
 	}
 	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 1)
@@ -539,6 +564,50 @@ func TestQuectelVoiceModelRebuildsWhenFirmwareChanges(t *testing.T) {
 	}
 	assertATInvocationCount(t, caller.invocations(), quectelUSBVoiceQuery, 2)
 	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 1)
+}
+
+func TestQuectelVoiceModelReinitializesAfterModemReenumeration(t *testing.T) {
+	t.Parallel()
+
+	objects := emptyLineObjects(true, false)
+	properties := objects[testModemPath][modemInterface]
+	properties["Manufacturer"] = dbus.MakeVariant("QUALCOMM INCORPORATED")
+	properties["Model"] = dbus.MakeVariant("QUECTEL Mobile Broadband Module")
+	properties["Revision"] = dbus.MakeVariant("EG25GGCR07A02M1G")
+
+	caller := newFakeCaller(objects)
+	caller.owner = true
+	caller.atResponses[quectelUSBVoiceQuery] =
+		`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`
+	caller.atResponses[quectelPCMStatusQuery] = quectelPCMReadyStatus
+	provider := newTestProvider(caller)
+
+	first, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("first Snapshot() error = %v", err)
+	}
+	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 1)
+
+	reenumeratedPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/Modem/42")
+	objects[reenumeratedPath] = objects[testModemPath]
+	delete(objects, testModemPath)
+
+	second, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("second Snapshot() error = %v", err)
+	}
+	if first.Lines[0].ID != second.Lines[0].ID {
+		t.Fatalf(
+			"stable line identity changed after re-enumeration: %q != %q",
+			first.Lines[0].ID,
+			second.Lines[0].ID,
+		)
+	}
+	if !second.Lines[0].Capabilities.Media {
+		t.Fatalf("re-enumerated line = %+v", second.Lines[0])
+	}
+	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 2)
+	assertATInvocationCount(t, caller.invocations(), "AT+QPCMV=0", 0)
 }
 
 func assertATInvocationCount(

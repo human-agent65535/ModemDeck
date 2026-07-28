@@ -81,10 +81,6 @@ func (p *Provider) startATCall(
 	}
 	p.atCallStateMu.Unlock()
 
-	activation, prepared := p.prepareQuectelMedia(ctx, operation, line, path)
-	if prepared {
-		p.storeVoiceMediaActivation(callID, activation)
-	}
 	_, dialErr := p.commandATPath(ctx, path, operation, command)
 	call, observationErr := p.waitForATCallStart(
 		ctx,
@@ -103,19 +99,6 @@ func (p *Provider) startATCall(
 				"error", dialErr,
 			)
 		} else {
-			if prepared {
-				cleanupContext, cancelCleanup := detachedTimeoutContext(
-					ctx,
-					callTerminationVerificationTimeout,
-				)
-				p.disableQuectelMedia(
-					cleanupContext,
-					operation,
-					path,
-					callID,
-				)
-				cancelCleanup()
-			}
 			return domain.CommandReceipt{}, dialErr
 		}
 	}
@@ -374,9 +357,6 @@ func (p *Provider) refreshATLine(
 		ATCallLines: make(map[string]string),
 	}
 	changed := p.projectKnownATCalls(&parsed, line, records, true)
-	if !p.hasATLineActivity(line.ID) {
-		p.releaseLineVoiceMedia(ctx, operation, path, line.ID)
-	}
 	return changed
 }
 
@@ -394,7 +374,7 @@ func (p *Provider) observeATCalls(ctx context.Context) {
 		)
 		return
 	}
-	p.projectVoiceCapabilities(ctx, operation, &parsed)
+	p.initializeVoiceModel(ctx, operation, &parsed)
 	changed := false
 	for index := range parsed.Lines {
 		line := &parsed.Lines[index]

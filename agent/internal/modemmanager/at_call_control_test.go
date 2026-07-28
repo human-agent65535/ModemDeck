@@ -80,12 +80,17 @@ func TestQuectelATDialTransportErrorUsesObservedCall(t *testing.T) {
 	caller.atResponses[quectelUSBVoiceQuery] =
 		`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`
 	caller.atCommandErrors[quectelPCMEnable] = errors.New("unsupported")
-	caller.atResponses[quectelCallListQuery] =
-		`+CLCC: 1,0,2,0,0,"+818012345678",145`
+	caller.atResponses[quectelCallListQuery] = ""
 	dialCommand := "ATD+818012345678;"
 	caller.atCommandErrors[dialCommand] = errors.New("AT transport disconnected")
 	provider := newTestProvider(caller)
-	lineID := ParseManagedObjects(objects, provider.ids).Lines[0].ID
+	snapshot, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	lineID := snapshot.Lines[0].ID
+	caller.atResponses[quectelCallListQuery] =
+		`+CLCC: 1,0,2,0,0,"+818012345678",145`
 
 	receipt, err := provider.StartCall(
 		context.Background(),
@@ -121,9 +126,13 @@ func TestQuectelATDialRequiresCLCCAndRollsBackOnce(t *testing.T) {
 	caller.atCommandErrors[quectelPCMEnable] = errors.New("unsupported")
 	caller.atResponses[quectelCallListQuery] = ""
 	provider := newTestProvider(caller)
-	lineID := ParseManagedObjects(objects, provider.ids).Lines[0].ID
+	snapshot, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	lineID := snapshot.Lines[0].ID
 
-	_, err := provider.StartCall(
+	_, err = provider.StartCall(
 		context.Background(),
 		domain.StartCallRequest{
 			RequestID: "request-unobserved-at-dial",
@@ -331,6 +340,11 @@ func TestQuectelATHangupFailureForcesModemReset(t *testing.T) {
 	if err != nil || len(snapshot.Calls) != 1 {
 		t.Fatalf("Snapshot() calls = %+v, error = %v", snapshot.Calls, err)
 	}
+	resetProbeKey := voiceProbeKey(provider.ids, snapshot.Lines[0], testModemPath)
+	const otherProbeKey = "other-modem-voice-model"
+	provider.voiceProbeMu.Lock()
+	provider.voiceProbes[otherProbeKey] = voiceProbeResult{callControl: true}
+	provider.voiceProbeMu.Unlock()
 	caller.atCommandErrors[quectelHangupCall] = errors.New("AT+CHUP failed")
 	before := len(caller.invocations())
 
@@ -357,9 +371,15 @@ func TestQuectelATHangupFailureForcesModemReset(t *testing.T) {
 	if provider.hasATLineActivity(snapshot.Lines[0].ID) {
 		t.Fatal("forced modem reset retained stale AT call state")
 	}
+	if _, found := provider.voiceProbeResult(resetProbeKey); found {
+		t.Fatal("forced modem reset retained the affected voice model")
+	}
+	if _, found := provider.voiceProbeResult(otherProbeKey); !found {
+		t.Fatal("forced modem reset cleared another modem's voice model")
+	}
 }
 
-func TestQuectelATAnswerPreparesPCMBeforeATA(t *testing.T) {
+func TestQuectelATAnswerUsesPCMInitializedDuringModeling(t *testing.T) {
 	t.Parallel()
 
 	objects := emptyLineObjects(false, true)
@@ -369,9 +389,14 @@ func TestQuectelATAnswerPreparesPCMBeforeATA(t *testing.T) {
 	caller.atResponses[quectelUSBVoiceQuery] =
 		`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`
 	caller.atResponses[quectelPCMStatusQuery] = quectelPCMReadyStatus
+	caller.atResponses[quectelCallListQuery] = ""
+	provider := newTestProvider(caller)
+
+	if _, err := provider.Snapshot(context.Background()); err != nil {
+		t.Fatalf("initial Snapshot() error = %v", err)
+	}
 	caller.atResponses[quectelCallListQuery] =
 		`+CLCC: 1,1,4,0,0,"+818012345678",145`
-	provider := newTestProvider(caller)
 	provider.observeATCalls(context.Background())
 
 	snapshot, err := provider.Snapshot(context.Background())
@@ -404,14 +429,11 @@ func TestQuectelATAnswerPreparesPCMBeforeATA(t *testing.T) {
 	if lastEnable < 0 || answer < 0 || lastEnable > answer {
 		t.Fatalf("PCM enable index = %d, ATA index = %d", lastEnable, answer)
 	}
+	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 1)
 
 	caller.atResponses[quectelCallListQuery] = ""
 	provider.observeATCalls(context.Background())
-	invocations := caller.invocations()
-	if invocations[len(invocations)-1].Method != modemInterface+".Command" ||
-		invocations[len(invocations)-1].Args[0] != quectelPCMDisable {
-		t.Fatalf("last invocation after remote hangup = %+v", invocations[len(invocations)-1])
-	}
+	assertATInvocationCount(t, caller.invocations(), "AT+QPCMV=0", 0)
 }
 
 func TestATCallObserverPublishesOnlyStateChanges(t *testing.T) {
