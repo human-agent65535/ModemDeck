@@ -112,6 +112,7 @@ test('mobile settings starts with a live communication overview entry', async ()
   const styles = await source('../src/style.css')
 
   assert.match(settings, /const overviewSummary = computed/)
+  assert.doesNotMatch(settings, /attentionCount|dashboard\.attention/)
   assert.match(settings, /class="list-item settings-overview-link"/)
   assert.match(settings, /\{\{ t\('dashboard\.mobileOverview'\) \}\}/)
   assert.match(settings, /\{\{ overviewSummary \}\}/)

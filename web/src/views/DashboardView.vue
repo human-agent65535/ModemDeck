@@ -139,7 +139,6 @@ const messageReadyLines = computed(
           line.capabilities?.messaging === true)
     ).length
 )
-const attentionCount = computed(() => unreadMessages.value + missedCalls.value)
 const trafficSnapshot = computed(() => networkState.snapshot)
 const todayTraffic = computed(
   () =>
@@ -441,9 +440,6 @@ onMounted(() => {
                 total: presentModules.length
               })
             }}
-            <template v-if="attentionCount">
-              · {{ t('dashboard.attention', { count: attentionCount }) }}
-            </template>
           </small>
         </span>
         <ChevronRight :size="16" />

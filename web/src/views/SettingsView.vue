@@ -28,14 +28,10 @@ import { fixtureMode } from '../api/client'
 import { logout as logoutSession, sessionState } from '../state/session'
 import {
   bootstrapResource,
-  callsResource,
   devicesResource,
   loadBootstrap,
-  loadCalls,
   loadDevices,
-  loadThreads,
-  presentModuleLines,
-  threadsResource
+  presentModuleLines
 } from '../state/workspace'
 import { isRegisteredNetwork } from '../utils/operatorNetwork'
 
@@ -60,20 +56,12 @@ const presentModules = computed(() =>
 const onlineModules = computed(
   () => presentModules.value.filter(line => isRegisteredNetwork(line)).length
 )
-const attentionCount = computed(
-  () =>
-    threadsResource.data.reduce((total, thread) => total + thread.unread_count, 0) +
-    callsResource.data.filter(call => call.missed).length
-)
-const overviewSummary = computed(() => {
-  const online = t('dashboard.modulesOnline', {
+const overviewSummary = computed(() =>
+  t('dashboard.modulesOnline', {
     online: onlineModules.value,
     total: presentModules.value.length
   })
-  return attentionCount.value
-    ? `${online} · ${t('dashboard.attention', { count: attentionCount.value })}`
-    : online
-})
+)
 const sections = computed<Array<{
   id: SettingsSection
   label: string
@@ -172,7 +160,7 @@ async function logout(): Promise<void> {
 }
 
 onMounted(() => {
-  void Promise.all([loadBootstrap(), loadDevices(), loadThreads(), loadCalls()])
+  void Promise.all([loadBootstrap(), loadDevices()])
 })
 </script>
 

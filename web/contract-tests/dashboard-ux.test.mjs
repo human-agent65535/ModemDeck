@@ -157,6 +157,7 @@ test('dashboard reports physical modem inventory separately from service readine
     dashboard,
     /t\('dashboard\.moduleStatus'\)[\s\S]*\{\{ presentModules\.length \}\}[\s\S]*t\('device\.modules'\)/
   )
+  assert.doesNotMatch(dashboard, /attentionCount|dashboard\.attention/)
 })
 
 test('dashboard entity grids retain stable desktop columns and card widths', () => {
