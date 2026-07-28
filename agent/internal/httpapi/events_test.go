@@ -33,7 +33,9 @@ func TestEventsStreamsReadyAndProviderChanges(t *testing.T) {
 		events:       make(chan domain.ChangeEvent, 1),
 		subscribed:   make(chan struct{}),
 	}
-	server := httptest.NewServer(New(provider, "test"))
+	server := httptest.NewUnstartedServer(New(provider, "test"))
+	server.Config.WriteTimeout = 25 * time.Millisecond
+	server.Start()
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -52,6 +54,7 @@ func TestEventsStreamsReadyAndProviderChanges(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("event handler did not subscribe")
 	}
+	time.Sleep(75 * time.Millisecond)
 	provider.events <- domain.ChangeEvent{
 		Sequence:   1,
 		Source:     "org.freedesktop.DBus.Properties.PropertiesChanged",
