@@ -201,7 +201,10 @@ func run(
 		telegramSettings,
 		communications,
 		repository,
-		telegramruntime.Options{Logger: logger.With("component", "telegram")},
+		telegramruntime.Options{
+			Logger:        logger.With("component", "telegram"),
+			RuntimeEvents: runtimeEvents,
+		},
 	)
 	if err != nil {
 		_ = recordings.Close(context.Background())

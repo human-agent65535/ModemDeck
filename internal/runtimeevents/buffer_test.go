@@ -30,9 +30,13 @@ func TestBufferPublishesIdempotentlyAndReplaysAfterID(t *testing.T) {
 	}
 	second, created := buffer.Publish(Event{
 		EventKey:  "network:1",
-		Resources: []Resource{ResourceNetwork, ResourceCalls},
+		Resources: []Resource{ResourceNetwork, ResourceCalls, ResourceMessages},
 	})
-	if !created || second.ID != 2 || second.ObservedAt.IsZero() {
+	if !created || second.ID != 2 || second.ObservedAt.IsZero() ||
+		!reflect.DeepEqual(
+			second.Resources,
+			[]Resource{ResourceNetwork, ResourceCalls, ResourceMessages},
+		) {
 		t.Fatalf("second publish = %+v, created = %v", second, created)
 	}
 

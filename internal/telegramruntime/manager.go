@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 	"github.com/human-agent65535/modemdeck/internal/telegram"
 	"github.com/human-agent65535/modemdeck/internal/telegramsettings"
@@ -38,6 +39,7 @@ type Options struct {
 	Logger            *slog.Logger
 	Now               func() time.Time
 	NotificationEvery time.Duration
+	RuntimeEvents     runtimeevents.Publisher
 }
 
 type Manager struct {
@@ -49,6 +51,7 @@ type Manager struct {
 	logger            *slog.Logger
 	now               func() time.Time
 	notificationEvery time.Duration
+	runtimeEvents     runtimeevents.Publisher
 }
 
 type unitRuntime struct {
@@ -99,6 +102,7 @@ func New(
 		logger:            logger,
 		now:               now,
 		notificationEvery: notificationEvery,
+		runtimeEvents:     options.RuntimeEvents,
 	}, nil
 }
 
@@ -179,6 +183,7 @@ func (m *Manager) startUnit(parent context.Context, unitID string) (unitRuntime,
 	dependencies := adapters{
 		communications: m.communications,
 		repository:     m.repository,
+		runtimeEvents:  m.runtimeEvents,
 	}
 	service, err := telegram.NewService(config, telegram.Dependencies{
 		Bot:       bot,

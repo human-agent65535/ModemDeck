@@ -434,7 +434,7 @@ export type MessageEventStreamHandlers = {
   onError: (error?: Error) => void
 }
 
-export type RuntimeResource = 'lines' | 'network' | 'calls'
+export type RuntimeResource = 'lines' | 'network' | 'calls' | 'messages'
 
 export type RuntimeEvent = {
   id: number

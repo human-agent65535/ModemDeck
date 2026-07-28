@@ -2,12 +2,14 @@ package telegramruntime
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/communication"
+	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 	"github.com/human-agent65535/modemdeck/internal/telegram"
 	"github.com/human-agent65535/modemdeck/internal/telegramsettings"
@@ -91,6 +93,64 @@ func TestAdaptersRecentSMSRequestsChronologicalWindow(t *testing.T) {
 		query.Limit != 5 ||
 		!query.Chronological {
 		t.Fatalf("message query = %+v", query)
+	}
+}
+
+func TestAdaptersPublishMessageInvalidationAfterMarkingThreadRead(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeRepository{}
+	events := runtimeevents.NewBuffer(4)
+	_, updates, cancel := events.SubscribeCurrent()
+	defer cancel()
+
+	err := (adapters{
+		repository:    repository,
+		runtimeEvents: events,
+	}).MarkMessageThreadRead(context.Background(), "line-1", "+818012345678")
+	if err != nil {
+		t.Fatalf("MarkMessageThreadRead() error = %v", err)
+	}
+
+	repository.mu.Lock()
+	markedLine := repository.markedLine
+	markedPeer := repository.markedPeer
+	repository.mu.Unlock()
+	if markedLine != "line-1" || markedPeer != "+818012345678" {
+		t.Fatalf("marked thread = %q %q", markedLine, markedPeer)
+	}
+
+	select {
+	case event := <-updates:
+		if len(event.Resources) != 1 ||
+			event.Resources[0] != runtimeevents.ResourceMessages {
+			t.Fatalf("runtime event = %+v", event)
+		}
+	default:
+		t.Fatal("message invalidation event was not published")
+	}
+}
+
+func TestAdaptersDoNotPublishMessageInvalidationWhenMarkReadFails(t *testing.T) {
+	t.Parallel()
+
+	markErr := errors.New("database unavailable")
+	repository := &fakeRepository{markReadError: markErr}
+	events := runtimeevents.NewBuffer(4)
+	_, updates, cancel := events.SubscribeCurrent()
+	defer cancel()
+
+	err := (adapters{
+		repository:    repository,
+		runtimeEvents: events,
+	}).MarkMessageThreadRead(context.Background(), "line-1", "+818012345678")
+	if !errors.Is(err, markErr) {
+		t.Fatalf("MarkMessageThreadRead() error = %v, want %v", err, markErr)
+	}
+	select {
+	case event := <-updates:
+		t.Fatalf("unexpected runtime event = %+v", event)
+	default:
 	}
 }
 
@@ -394,6 +454,9 @@ type fakeRepository struct {
 	messages    []store.Message
 
 	messageQueries []store.MessageQuery
+	markedLine     string
+	markedPeer     string
+	markReadError  error
 }
 
 func (r *fakeRepository) Lines(context.Context) ([]store.LineSummary, error) {
@@ -423,8 +486,15 @@ func (r *fakeRepository) RecordingEntries(
 	return append([]store.RecordingEntry(nil), r.recordings...), nil
 }
 
-func (r *fakeRepository) MarkMessageThreadReadByLine(context.Context, string, string) error {
-	return nil
+func (r *fakeRepository) MarkMessageThreadReadByLine(
+	_ context.Context,
+	lineID, peer string,
+) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.markedLine = lineID
+	r.markedPeer = peer
+	return r.markReadError
 }
 
 func (r *fakeRepository) TelegramNextOffset(context.Context, string) (int64, error) {

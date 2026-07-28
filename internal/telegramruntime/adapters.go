@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/communication"
+	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 	"github.com/human-agent65535/modemdeck/internal/telegram"
 )
@@ -36,6 +37,7 @@ type Repository interface {
 type adapters struct {
 	communications CommunicationService
 	repository     Repository
+	runtimeEvents  runtimeevents.Publisher
 }
 
 func (a adapters) Lines(ctx context.Context) ([]telegram.Line, error) {
@@ -170,7 +172,15 @@ func (a adapters) SendSMS(ctx context.Context, request telegram.SMSRequest) erro
 }
 
 func (a adapters) MarkMessageThreadRead(ctx context.Context, lineID, peer string) error {
-	return a.repository.MarkMessageThreadReadByLine(ctx, lineID, peer)
+	if err := a.repository.MarkMessageThreadReadByLine(ctx, lineID, peer); err != nil {
+		return err
+	}
+	if a.runtimeEvents != nil {
+		a.runtimeEvents.Publish(runtimeevents.Event{
+			Resources: []runtimeevents.Resource{runtimeevents.ResourceMessages},
+		})
+	}
+	return nil
 }
 
 func (a adapters) Bind(

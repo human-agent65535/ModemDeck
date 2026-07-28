@@ -551,7 +551,12 @@ function parseIncomingMessageEvent(value: unknown): IncomingMessageEvent {
   }
 }
 
-const RUNTIME_RESOURCES = new Set<RuntimeResource>(['lines', 'network', 'calls'])
+const RUNTIME_RESOURCES = new Set<RuntimeResource>([
+  'lines',
+  'network',
+  'calls',
+  'messages'
+])
 
 function parseRuntimeEvent(value: unknown): RuntimeEvent {
   const source = requiredRecord(value, 'runtime_event')

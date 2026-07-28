@@ -3,9 +3,13 @@ import { fixtureMode, gateway } from '../api/client'
 import type { RuntimeResource } from '../api/types'
 import { requestActiveCallRefresh } from './call'
 import { loadNetwork } from './network'
-import { refreshCalls, refreshDeviceWorkspace } from './workspace'
+import {
+  refreshCalls,
+  refreshDeviceWorkspace,
+  refreshMessageWorkspace
+} from './workspace'
 
-const ALL_RESOURCES: RuntimeResource[] = ['lines', 'network', 'calls']
+const ALL_RESOURCES: RuntimeResource[] = ['lines', 'network', 'calls', 'messages']
 const FALLBACK_REFRESH_MS = 30_000
 
 type RuntimeResourceRefresher = (resource: RuntimeResource) => Promise<void>
@@ -75,6 +79,9 @@ async function refreshResource(resource: RuntimeResource): Promise<void> {
     case 'calls':
       requestActiveCallRefresh()
       await refreshCalls()
+      break
+    case 'messages':
+      await refreshMessageWorkspace()
       break
   }
 }
