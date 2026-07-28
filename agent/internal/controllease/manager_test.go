@@ -92,12 +92,19 @@ func TestManagerRequiresCurrentController(t *testing.T) {
 func TestManagerExpirationHangsUpCall(t *testing.T) {
 	t.Parallel()
 	controller := &controllerStub{
-		calls: []domain.Call{{
-			ID:        "call-1",
-			LineID:    "line-1",
-			StateCode: 4,
-		}},
-		hangupSignal: make(chan struct{}, 1),
+		calls: []domain.Call{
+			{
+				ID:        "call-1",
+				LineID:    "line-1",
+				StateCode: 4,
+			},
+			{
+				ID:        "call-2",
+				LineID:    "line-1",
+				StateCode: 3,
+			},
+		},
+		hangupSignal: make(chan struct{}, 2),
 	}
 	manager, err := New(controller, Options{
 		Duration:       30 * time.Millisecond,
@@ -114,15 +121,17 @@ func TestManagerExpirationHangsUpCall(t *testing.T) {
 	defer cancel()
 	go manager.Run(ctx)
 
-	select {
-	case <-controller.hangupSignal:
-	case <-time.After(time.Second):
-		t.Fatal("expired lease did not hang up the call")
+	for range 2 {
+		select {
+		case <-controller.hangupSignal:
+		case <-time.After(time.Second):
+			t.Fatal("expired lease did not hang up every observed call")
+		}
 	}
 	controller.mu.Lock()
 	defer controller.mu.Unlock()
-	if controller.hangupCount != 1 ||
-		controller.lastRequest.CallID != "call-1" ||
+	if controller.hangupCount != 2 ||
+		controller.lastRequest.CallID != "call-2" ||
 		controller.lastRequest.RequestID == "" {
 		t.Fatalf(
 			"hangupCount=%d request=%+v",
@@ -178,7 +187,7 @@ func TestManagerReleaseAndRecoveryHangUpCalls(t *testing.T) {
 	}
 }
 
-func TestManagerReportsBoundedCleanupFailure(t *testing.T) {
+func TestManagerReportsCleanupFailureOnce(t *testing.T) {
 	t.Parallel()
 	controller := &controllerStub{
 		calls: []domain.Call{{
@@ -196,11 +205,79 @@ func TestManagerReportsBoundedCleanupFailure(t *testing.T) {
 	}
 	err = manager.Recover(context.Background())
 	if err == nil {
-		t.Fatal("Recover() succeeded despite repeated hangup failures")
+		t.Fatal("Recover() succeeded despite hangup failure")
 	}
 	controller.mu.Lock()
 	defer controller.mu.Unlock()
-	if controller.hangupCount != hangupAttempts {
-		t.Fatalf("hangupCount = %d, want %d", controller.hangupCount, hangupAttempts)
+	if controller.hangupCount != 1 {
+		t.Fatalf("hangupCount = %d, want 1", controller.hangupCount)
+	}
+}
+
+func TestManagerDoesNotRepeatFailedTerminationOnSameLine(t *testing.T) {
+	t.Parallel()
+
+	controller := &controllerStub{
+		calls: []domain.Call{
+			{ID: "call-1", LineID: "line-1", StateCode: 4},
+			{ID: "call-2", LineID: "line-1", StateCode: 3},
+		},
+		hangupErr: errors.New("hangup and reset failed"),
+	}
+	manager, err := New(controller, Options{CommandTimeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Recover(context.Background()); err == nil {
+		t.Fatal("Recover() succeeded despite termination failure")
+	}
+	controller.mu.Lock()
+	defer controller.mu.Unlock()
+	if controller.hangupCount != 1 {
+		t.Fatalf("hangupCount = %d, want 1", controller.hangupCount)
+	}
+}
+
+func TestManagerRecordsForcedTerminationAndAllowsRecovery(t *testing.T) {
+	t.Parallel()
+	controller := &controllerStub{
+		calls: []domain.Call{
+			{
+				ID:        "call-1",
+				LineID:    "line-1",
+				StateCode: 4,
+			},
+			{
+				ID:        "stale-call-on-reset-line",
+				LineID:    "line-1",
+				StateCode: 3,
+			},
+		},
+		hangupErr: errors.Join(
+			errors.New("hangup failed"),
+			domain.ErrForcedCallTermination,
+		),
+	}
+	var reported []error
+	manager, err := New(controller, Options{
+		CommandTimeout: time.Second,
+		Report: func(err error) {
+			reported = append(reported, err)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Recover(context.Background()); err != nil {
+		t.Fatalf("Recover() error after forced termination = %v", err)
+	}
+	if len(reported) != 1 ||
+		!errors.Is(reported[0], domain.ErrForcedCallTermination) {
+		t.Fatalf("reported incidents = %#v", reported)
+	}
+	controller.mu.Lock()
+	defer controller.mu.Unlock()
+	if controller.hangupCount != 1 {
+		t.Fatalf("hangupCount = %d, want 1", controller.hangupCount)
 	}
 }

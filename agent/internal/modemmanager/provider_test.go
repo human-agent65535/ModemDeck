@@ -14,6 +14,7 @@ import (
 
 type dbusInvocation struct {
 	Context     context.Context
+	ContextErr  error
 	Destination string
 	Path        dbus.ObjectPath
 	Method      string
@@ -44,6 +45,10 @@ type fakeCaller struct {
 	signalAfterSetup   map[dbus.ObjectPath]Properties
 	errors             map[string]error
 	calls              []dbusInvocation
+	terminateOnHangup  bool
+	hangupObserved     bool
+	terminateAfterPoll int
+	hangupPolls        int
 }
 
 func (f *fakeCaller) Call(
@@ -58,6 +63,7 @@ func (f *fakeCaller) Call(
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, dbusInvocation{
 		Context:     ctx,
+		ContextErr:  ctx.Err(),
 		Destination: destination,
 		Path:        path,
 		Method:      method,
@@ -78,6 +84,12 @@ func (f *fakeCaller) Call(
 	case busInterface + ".GetId":
 		return []any{f.busID}, nil
 	case objectManagerInterface + ".GetManagedObjects":
+		if f.hangupObserved && f.terminateAfterPoll > 0 {
+			f.hangupPolls++
+			if f.hangupPolls >= f.terminateAfterPoll {
+				terminateTestCalls(f.objects)
+			}
+		}
 		return []any{cloneTestManagedObjects(f.objects)}, nil
 	case propertiesInterface + ".Get":
 		return []any{dbus.MakeVariant(f.runtimeVersion)}, nil
@@ -117,6 +129,14 @@ func (f *fakeCaller) Call(
 		return []any{paths}, nil
 	case messagingInterface + ".Create":
 		return []any{f.createdMessagePath}, nil
+	case callInterface + ".Hangup":
+		f.hangupObserved = true
+		if f.terminateOnHangup {
+			if callInterfaces, found := f.objects[path]; found {
+				terminateTestCall(callInterfaces)
+			}
+		}
+		return []any{}, nil
 	case modemInterface + ".Command":
 		if len(args) != 2 {
 			return nil, errors.New("AT command arguments were malformed")
@@ -152,6 +172,18 @@ func (f *fakeCaller) Call(
 		return []any{f.ussdResponse}, nil
 	default:
 		return []any{}, nil
+	}
+}
+
+func terminateTestCalls(objects ManagedObjects) {
+	for _, interfaces := range objects {
+		terminateTestCall(interfaces)
+	}
+}
+
+func terminateTestCall(interfaces Interfaces) {
+	if callProperties, found := interfaces[callInterface]; found {
+		callProperties["State"] = dbus.MakeVariant(int32(callStateTerminated))
 	}
 }
 
@@ -967,10 +999,11 @@ func TestStartCallConflictIsScopedToOneLine(t *testing.T) {
 
 func TestCallControlsEnforceStateAndUseCurrentOpaqueMapping(t *testing.T) {
 	tests := []struct {
-		name       string
-		state      int32
-		run        func(*Provider, string) (domain.CommandReceipt, error)
-		wantMethod string
+		name        string
+		state       int32
+		run         func(*Provider, string) (domain.CommandReceipt, error)
+		wantMethods []string
+		terminate   bool
 	}{
 		{
 			name:  "answer",
@@ -981,7 +1014,7 @@ func TestCallControlsEnforceStateAndUseCurrentOpaqueMapping(t *testing.T) {
 					CallID:    callID,
 				})
 			},
-			wantMethod: callInterface + ".Accept",
+			wantMethods: []string{callInterface + ".Accept"},
 		},
 		{
 			name:  "reject",
@@ -992,7 +1025,11 @@ func TestCallControlsEnforceStateAndUseCurrentOpaqueMapping(t *testing.T) {
 					CallID:    callID,
 				})
 			},
-			wantMethod: callInterface + ".Hangup",
+			wantMethods: []string{
+				callInterface + ".Hangup",
+				objectManagerInterface + ".GetManagedObjects",
+			},
+			terminate: true,
 		},
 		{
 			name:  "hangup",
@@ -1003,7 +1040,11 @@ func TestCallControlsEnforceStateAndUseCurrentOpaqueMapping(t *testing.T) {
 					CallID:    callID,
 				})
 			},
-			wantMethod: callInterface + ".Hangup",
+			wantMethods: []string{
+				callInterface + ".Hangup",
+				objectManagerInterface + ".GetManagedObjects",
+			},
+			terminate: true,
 		},
 	}
 
@@ -1013,6 +1054,7 @@ func TestCallControlsEnforceStateAndUseCurrentOpaqueMapping(t *testing.T) {
 			path := dbus.ObjectPath("/org/freedesktop/ModemManager1/Call/7")
 			addCall(objects, path, test.state)
 			caller := newFakeCaller(objects)
+			caller.terminateOnHangup = test.terminate
 			provider := newTestProvider(caller)
 			callID := ParseManagedObjects(objects, provider.ids).Calls[0].ID
 
@@ -1024,7 +1066,11 @@ func TestCallControlsEnforceStateAndUseCurrentOpaqueMapping(t *testing.T) {
 				t.Fatalf("receipt = %+v", receipt)
 			}
 			calls := caller.invocations()
-			assertMethods(t, calls, objectManagerInterface+".GetManagedObjects", test.wantMethod)
+			wantMethods := append(
+				[]string{objectManagerInterface + ".GetManagedObjects"},
+				test.wantMethods...,
+			)
+			assertMethods(t, calls, wantMethods...)
 			if calls[1].Path != path {
 				t.Fatalf("D-Bus path = %q, want %q", calls[1].Path, path)
 			}
@@ -1095,6 +1141,172 @@ func TestCallControlsRejectInvalidStateAndOldBootID(t *testing.T) {
 		assertOperationError(t, err, domain.ErrorConflict, "hangup_call")
 		assertMethods(t, caller.invocations(), objectManagerInterface+".GetManagedObjects")
 	})
+}
+
+func TestHangupFailureForcesModemResetAndRemainsRecordedAsFailure(t *testing.T) {
+	t.Parallel()
+
+	objects := emptyLineObjects(true, false)
+	callPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/Call/7")
+	addCall(objects, callPath, 4)
+	caller := newFakeCaller(objects)
+	caller.errors[callInterface+".Hangup"] = errors.New("voice service rejected hangup")
+	provider := newTestProvider(caller)
+	callID := ParseManagedObjects(objects, provider.ids).Calls[0].ID
+	commandContext, cancelCommand := context.WithCancel(context.Background())
+	cancelCommand()
+
+	_, err := provider.HangupCall(
+		commandContext,
+		domain.CallCommandRequest{
+			RequestID: "request-force-reset",
+			CallID:    callID,
+		},
+	)
+	assertOperationError(t, err, domain.ErrorVerification, "hangup_call")
+
+	invocations := caller.invocations()
+	assertMethods(
+		t,
+		invocations,
+		objectManagerInterface+".GetManagedObjects",
+		callInterface+".Hangup",
+		modemInterface+".Reset",
+	)
+	if invocations[2].Path != testModemPath {
+		t.Fatalf(
+			"forced Reset path = %q, want %q",
+			invocations[2].Path,
+			testModemPath,
+		)
+	}
+	if err := invocations[2].ContextErr; err != nil {
+		t.Fatalf("forced Reset inherited a canceled command context: %v", err)
+	}
+}
+
+func TestRejectFailureUsesTheSameForcedTerminationPath(t *testing.T) {
+	t.Parallel()
+
+	objects := emptyLineObjects(true, false)
+	addCall(objects, "/org/freedesktop/ModemManager1/Call/7", 3)
+	caller := newFakeCaller(objects)
+	caller.errors[callInterface+".Hangup"] = errors.New("voice service rejected call rejection")
+	provider := newTestProvider(caller)
+	callID := ParseManagedObjects(objects, provider.ids).Calls[0].ID
+
+	_, err := provider.RejectCall(
+		context.Background(),
+		domain.CallCommandRequest{
+			RequestID: "request-force-reject-reset",
+			CallID:    callID,
+		},
+	)
+	assertOperationError(t, err, domain.ErrorVerification, "reject_call")
+	assertMethods(
+		t,
+		caller.invocations(),
+		objectManagerInterface+".GetManagedObjects",
+		callInterface+".Hangup",
+		modemInterface+".Reset",
+	)
+}
+
+func TestHangupOKWithoutTerminationForcesModemReset(t *testing.T) {
+	t.Parallel()
+
+	objects := emptyLineObjects(true, false)
+	addCall(objects, "/org/freedesktop/ModemManager1/Call/7", 4)
+	caller := newFakeCaller(objects)
+	provider := newTestProvider(caller)
+	callID := ParseManagedObjects(objects, provider.ids).Calls[0].ID
+
+	_, err := provider.HangupCall(
+		context.Background(),
+		domain.CallCommandRequest{
+			RequestID: "request-stuck-mm-call",
+			CallID:    callID,
+		},
+	)
+	assertOperationError(t, err, domain.ErrorVerification, "hangup_call")
+	invocations := caller.invocations()
+	if countMethod(invocations, callInterface+".Hangup") != 1 {
+		t.Fatalf("Hangup calls = %d, want 1", countMethod(invocations, callInterface+".Hangup"))
+	}
+	if countMethod(invocations, modemInterface+".Reset") != 1 {
+		t.Fatalf("Reset calls = %d, want 1", countMethod(invocations, modemInterface+".Reset"))
+	}
+	if countMethod(invocations, objectManagerInterface+".GetManagedObjects") < 2 {
+		t.Fatalf("state observations = %d, want at least 2", countMethod(
+			invocations,
+			objectManagerInterface+".GetManagedObjects",
+		))
+	}
+	if invocations[len(invocations)-1].Method != modemInterface+".Reset" {
+		t.Fatalf("last method = %q, want Reset", invocations[len(invocations)-1].Method)
+	}
+}
+
+func TestHangupAllowsBoundedStatePropagationBeforeReset(t *testing.T) {
+	t.Parallel()
+
+	objects := emptyLineObjects(true, false)
+	addCall(objects, "/org/freedesktop/ModemManager1/Call/7", 4)
+	caller := newFakeCaller(objects)
+	caller.terminateAfterPoll = 2
+	provider := newTestProvider(caller)
+	callID := ParseManagedObjects(objects, provider.ids).Calls[0].ID
+
+	if _, err := provider.HangupCall(
+		context.Background(),
+		domain.CallCommandRequest{
+			RequestID: "request-delayed-hangup",
+			CallID:    callID,
+		},
+	); err != nil {
+		t.Fatalf("HangupCall() error = %v", err)
+	}
+	invocations := caller.invocations()
+	if countMethod(invocations, callInterface+".Hangup") != 1 {
+		t.Fatalf("Hangup calls = %d, want 1", countMethod(invocations, callInterface+".Hangup"))
+	}
+	if countMethod(invocations, objectManagerInterface+".GetManagedObjects") != 3 {
+		t.Fatalf("snapshots = %d, want 3", countMethod(
+			invocations,
+			objectManagerInterface+".GetManagedObjects",
+		))
+	}
+	if countMethod(invocations, modemInterface+".Reset") != 0 {
+		t.Fatalf("Reset calls = %d, want 0", countMethod(invocations, modemInterface+".Reset"))
+	}
+}
+
+func TestHangupReportsWhenForcedModemResetAlsoFails(t *testing.T) {
+	t.Parallel()
+
+	objects := emptyLineObjects(true, false)
+	addCall(objects, "/org/freedesktop/ModemManager1/Call/7", 4)
+	caller := newFakeCaller(objects)
+	caller.errors[callInterface+".Hangup"] = errors.New("voice service rejected hangup")
+	caller.errors[modemInterface+".Reset"] = errors.New("modem reset failed")
+	provider := newTestProvider(caller)
+	callID := ParseManagedObjects(objects, provider.ids).Calls[0].ID
+
+	_, err := provider.HangupCall(
+		context.Background(),
+		domain.CallCommandRequest{
+			RequestID: "request-force-reset-failed",
+			CallID:    callID,
+		},
+	)
+	assertOperationError(t, err, domain.ErrorInternal, "hangup_call")
+	assertMethods(
+		t,
+		caller.invocations(),
+		objectManagerInterface+".GetManagedObjects",
+		callInterface+".Hangup",
+		modemInterface+".Reset",
+	)
 }
 
 func TestSendDTMFUsesSequentialDigitsBeforeModemManager126(t *testing.T) {
@@ -1465,6 +1677,16 @@ func assertMethods(t *testing.T, calls []dbusInvocation, methods ...string) {
 			t.Fatalf("D-Bus call %d flags = %v", index, calls[index].Flags)
 		}
 	}
+}
+
+func countMethod(calls []dbusInvocation, method string) int {
+	count := 0
+	for _, call := range calls {
+		if call.Method == method {
+			count++
+		}
+	}
+	return count
 }
 
 func assertContexts(t *testing.T, calls []dbusInvocation, want context.Context) {

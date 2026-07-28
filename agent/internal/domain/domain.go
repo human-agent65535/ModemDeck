@@ -11,6 +11,8 @@ const APIVersion = "v1"
 
 const ControlLeaseHeader = "X-ModemDeck-Controller"
 
+var ErrForcedCallTermination = errors.New("call was terminated by forced modem reset")
+
 type AgentCapabilities struct {
 	Discovery           bool `json:"discovery"`
 	Snapshot            bool `json:"snapshot"`

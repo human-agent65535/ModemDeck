@@ -51,7 +51,7 @@ func (provider *fakeGenericProvider) ReprobeVoiceCapabilities(
 	}
 	provider.configuration.VoiceVerification = &domain.VoiceRuntimeVerification{
 		USBConfiguration: "enabled",
-		MediaRouting:     "call_required",
+		MediaRouting:     "supported",
 	}
 	provider.configuration.Capabilities.Voice = domain.FeatureCapability{
 		Backend:     "modemmanager",
@@ -144,7 +144,7 @@ func TestManualVoiceReprobeUsesReadOnlyProviderOperation(t *testing.T) {
 	}
 	if updated.VoiceVerification == nil ||
 		updated.VoiceVerification.USBConfiguration != "enabled" ||
-		updated.VoiceVerification.MediaRouting != "call_required" {
+		updated.VoiceVerification.MediaRouting != "supported" {
 		t.Fatalf("updated voice verification = %+v", updated.VoiceVerification)
 	}
 }

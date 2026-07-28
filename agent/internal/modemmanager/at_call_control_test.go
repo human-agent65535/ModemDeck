@@ -3,7 +3,9 @@ package modemmanager
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/human-agent65535/modemdeck/agent/internal/domain"
@@ -42,6 +44,8 @@ func TestQuectelATCallControlWithoutModemManagerVoice(t *testing.T) {
 		t.Fatalf("QPCMV rejection exposed media capability: %+v", line.Capabilities)
 	}
 
+	caller.atResponses[quectelCallListQuery] =
+		`+CLCC: 1,0,2,0,0,"+818012345678",145`
 	receipt, err := provider.StartCall(context.Background(), domain.StartCallRequest{
 		RequestID: "request-at-dial",
 		LineID:    line.ID,
@@ -55,8 +59,6 @@ func TestQuectelATCallControlWithoutModemManagerVoice(t *testing.T) {
 	}
 	assertATInvocation(t, caller.invocations(), "ATD+818012345678;")
 
-	caller.atResponses[quectelCallListQuery] =
-		`+CLCC: 1,0,2,0,0,"+818012345678",145`
 	dialing, err := provider.Snapshot(context.Background())
 	if err != nil {
 		t.Fatalf("dialing Snapshot() error = %v", err)
@@ -65,6 +67,79 @@ func TestQuectelATCallControlWithoutModemManagerVoice(t *testing.T) {
 		dialing.Calls[0].ID != receipt.ResourceID ||
 		dialing.Calls[0].State != "dialing" {
 		t.Fatalf("dialing calls = %+v", dialing.Calls)
+	}
+}
+
+func TestQuectelATDialTransportErrorUsesObservedCall(t *testing.T) {
+	t.Parallel()
+
+	objects := emptyLineObjects(false, true)
+	properties := objects[testModemPath][modemInterface]
+	properties["Revision"] = dbus.MakeVariant("QDC507GLEFM21")
+	caller := newFakeCaller(objects)
+	caller.atResponses[quectelUSBVoiceQuery] =
+		`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`
+	caller.atCommandErrors[quectelPCMEnable] = errors.New("unsupported")
+	caller.atResponses[quectelCallListQuery] =
+		`+CLCC: 1,0,2,0,0,"+818012345678",145`
+	dialCommand := "ATD+818012345678;"
+	caller.atCommandErrors[dialCommand] = errors.New("AT transport disconnected")
+	provider := newTestProvider(caller)
+	lineID := ParseManagedObjects(objects, provider.ids).Lines[0].ID
+
+	receipt, err := provider.StartCall(
+		context.Background(),
+		domain.StartCallRequest{
+			RequestID: "request-ambiguous-at-dial",
+			LineID:    lineID,
+			Number:    "+818012345678",
+		},
+	)
+	if err != nil {
+		t.Fatalf("StartCall() error = %v", err)
+	}
+	if receipt.ResourceID == "" {
+		t.Fatal("StartCall() returned an empty call ID")
+	}
+	invocations := caller.invocations()
+	assertATInvocationCount(t, invocations, dialCommand, 1)
+	assertATInvocationCount(t, invocations, quectelHangupCall, 0)
+	if countMethod(invocations, modemInterface+".Reset") != 0 {
+		t.Fatalf("Reset calls = %d, want 0", countMethod(invocations, modemInterface+".Reset"))
+	}
+}
+
+func TestQuectelATDialRequiresCLCCAndRollsBackOnce(t *testing.T) {
+	t.Parallel()
+
+	objects := emptyLineObjects(false, true)
+	properties := objects[testModemPath][modemInterface]
+	properties["Revision"] = dbus.MakeVariant("QDC507GLEFM21")
+	caller := newFakeCaller(objects)
+	caller.atResponses[quectelUSBVoiceQuery] =
+		`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`
+	caller.atCommandErrors[quectelPCMEnable] = errors.New("unsupported")
+	caller.atResponses[quectelCallListQuery] = ""
+	provider := newTestProvider(caller)
+	lineID := ParseManagedObjects(objects, provider.ids).Lines[0].ID
+
+	_, err := provider.StartCall(
+		context.Background(),
+		domain.StartCallRequest{
+			RequestID: "request-unobserved-at-dial",
+			LineID:    lineID,
+			Number:    "+818012345678",
+		},
+	)
+	assertOperationError(t, err, domain.ErrorVerification, "start_call")
+	invocations := caller.invocations()
+	assertATInvocationCount(t, invocations, "ATD+818012345678;", 1)
+	assertATInvocationCount(t, invocations, quectelHangupCall, 1)
+	if countMethod(invocations, modemInterface+".Reset") != 0 {
+		t.Fatalf("Reset calls = %d, want 0", countMethod(invocations, modemInterface+".Reset"))
+	}
+	if provider.hasATLineActivity(lineID) {
+		t.Fatal("failed dial retained synthetic AT call state")
 	}
 }
 
@@ -84,6 +159,7 @@ func TestQuectelATIncomingCallCommands(t *testing.T) {
 	caller.atResponses[quectelCallListQuery] =
 		`+CLCC: 2,1,4,0,0,"+818012345678",145`
 	provider := newTestProvider(caller)
+	provider.observeATCalls(context.Background())
 
 	snapshot, err := provider.Snapshot(context.Background())
 	if err != nil {
@@ -103,6 +179,7 @@ func TestQuectelATIncomingCallCommands(t *testing.T) {
 
 	caller.atResponses[quectelCallListQuery] =
 		`+CLCC: 2,1,0,0,0,"+818012345678",145`
+	provider.observeATCalls(context.Background())
 	if _, err := provider.SendDTMF(
 		context.Background(),
 		domain.DTMFRequest{
@@ -117,6 +194,7 @@ func TestQuectelATIncomingCallCommands(t *testing.T) {
 		assertATInvocation(t, caller.invocations(), command)
 	}
 
+	caller.atResponses[quectelCallListQuery] = ""
 	if _, err := provider.HangupCall(
 		context.Background(),
 		domain.CallCommandRequest{RequestID: "request-at-hangup", CallID: callID},
@@ -124,6 +202,267 @@ func TestQuectelATIncomingCallCommands(t *testing.T) {
 		t.Fatalf("HangupCall() error = %v", err)
 	}
 	assertATInvocation(t, caller.invocations(), quectelHangupCall)
+}
+
+func TestQuectelATRejectWaitingCallPreservesActiveCall(t *testing.T) {
+	t.Parallel()
+
+	objects := emptyLineObjects(false, true)
+	properties := objects[testModemPath][modemInterface]
+	properties["Manufacturer"] = dbus.MakeVariant("Quectel")
+	properties["Model"] = dbus.MakeVariant("QDC507")
+	properties["Revision"] = dbus.MakeVariant("QDC507GLEFM21")
+
+	caller := newFakeCaller(objects)
+	caller.atResponses[quectelUSBVoiceQuery] =
+		`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`
+	caller.atCommandErrors[quectelPCMEnable] = errors.New("unsupported")
+	caller.atResponses[quectelCallListQuery] = strings.Join([]string{
+		`+CLCC: 1,0,0,0,0,"+818011111111",145`,
+		`+CLCC: 2,1,5,0,0,"+818022222222",145`,
+	}, "\r\n")
+	provider := newTestProvider(caller)
+	provider.observeATCalls(context.Background())
+
+	snapshot, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	var waitingCallID string
+	for _, call := range snapshot.Calls {
+		if call.StateCode == 6 {
+			waitingCallID = call.ID
+		}
+	}
+	if waitingCallID == "" {
+		t.Fatalf("waiting call was not projected: %+v", snapshot.Calls)
+	}
+
+	caller.atResponses[quectelCallListQuery] =
+		`+CLCC: 1,0,0,0,0,"+818011111111",145`
+	before := len(caller.invocations())
+	if _, err := provider.RejectCall(
+		context.Background(),
+		domain.CallCommandRequest{
+			RequestID: "request-at-reject-waiting",
+			CallID:    waitingCallID,
+		},
+	); err != nil {
+		t.Fatalf("RejectCall() error = %v", err)
+	}
+
+	invocations := caller.invocations()[before:]
+	assertATInvocationCount(t, invocations, quectelRejectWaitingCall, 1)
+	assertATInvocationCount(t, invocations, quectelHangupCall, 0)
+	if countMethod(invocations, modemInterface+".Reset") != 0 {
+		t.Fatalf("Reset calls = %d, want 0", countMethod(invocations, modemInterface+".Reset"))
+	}
+
+	remaining, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("remaining Snapshot() error = %v", err)
+	}
+	if len(remaining.Calls) != 1 ||
+		remaining.Calls[0].Number != "+818011111111" ||
+		remaining.Calls[0].StateCode != 4 {
+		t.Fatalf("remaining calls = %+v, want only the active call", remaining.Calls)
+	}
+}
+
+func TestQuectelATHangupOKWithoutTerminationForcesModemReset(t *testing.T) {
+	t.Parallel()
+
+	objects := emptyLineObjects(false, true)
+	properties := objects[testModemPath][modemInterface]
+	properties["Revision"] = dbus.MakeVariant("QDC507GLEFM21")
+	caller := newFakeCaller(objects)
+	caller.atResponses[quectelUSBVoiceQuery] =
+		`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`
+	caller.atCommandErrors[quectelPCMEnable] = errors.New("unsupported")
+	caller.atResponses[quectelCallListQuery] =
+		`+CLCC: 1,0,0,0,0,"+818012345678",145`
+	provider := newTestProvider(caller)
+	provider.observeATCalls(context.Background())
+
+	snapshot, err := provider.Snapshot(context.Background())
+	if err != nil || len(snapshot.Calls) != 1 {
+		t.Fatalf("Snapshot() calls = %+v, error = %v", snapshot.Calls, err)
+	}
+	before := len(caller.invocations())
+	_, err = provider.HangupCall(
+		context.Background(),
+		domain.CallCommandRequest{
+			RequestID: "request-at-stuck-call",
+			CallID:    snapshot.Calls[0].ID,
+		},
+	)
+	assertOperationError(t, err, domain.ErrorVerification, "hangup_call")
+
+	after := caller.invocations()[before:]
+	assertATInvocation(t, after, quectelHangupCall)
+	resetFound := false
+	for _, invocation := range after {
+		if invocation.Method == modemInterface+".Reset" &&
+			invocation.Path == testModemPath {
+			resetFound = true
+		}
+	}
+	if !resetFound {
+		t.Fatalf("stuck call did not force a modem reset: %+v", after)
+	}
+}
+
+func TestQuectelATHangupFailureForcesModemReset(t *testing.T) {
+	t.Parallel()
+
+	objects := emptyLineObjects(false, true)
+	properties := objects[testModemPath][modemInterface]
+	properties["Revision"] = dbus.MakeVariant("QDC507GLEFM21")
+	caller := newFakeCaller(objects)
+	caller.atResponses[quectelUSBVoiceQuery] =
+		`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`
+	caller.atCommandErrors[quectelPCMEnable] = errors.New("unsupported")
+	caller.atResponses[quectelCallListQuery] =
+		`+CLCC: 1,0,0,0,0,"+818012345678",145`
+	provider := newTestProvider(caller)
+	provider.observeATCalls(context.Background())
+
+	snapshot, err := provider.Snapshot(context.Background())
+	if err != nil || len(snapshot.Calls) != 1 {
+		t.Fatalf("Snapshot() calls = %+v, error = %v", snapshot.Calls, err)
+	}
+	caller.atCommandErrors[quectelHangupCall] = errors.New("AT+CHUP failed")
+	before := len(caller.invocations())
+
+	_, err = provider.HangupCall(
+		context.Background(),
+		domain.CallCommandRequest{
+			RequestID: "request-at-force-reset",
+			CallID:    snapshot.Calls[0].ID,
+		},
+	)
+	assertOperationError(t, err, domain.ErrorVerification, "hangup_call")
+
+	after := caller.invocations()[before:]
+	resetFound := false
+	for _, invocation := range after {
+		if invocation.Method == modemInterface+".Reset" &&
+			invocation.Path == testModemPath {
+			resetFound = true
+		}
+	}
+	if !resetFound {
+		t.Fatalf("forced modem reset was not invoked: %+v", after)
+	}
+	if provider.hasATLineActivity(snapshot.Lines[0].ID) {
+		t.Fatal("forced modem reset retained stale AT call state")
+	}
+}
+
+func TestQuectelATAnswerPreparesPCMBeforeATA(t *testing.T) {
+	t.Parallel()
+
+	objects := emptyLineObjects(false, true)
+	properties := objects[testModemPath][modemInterface]
+	properties["Revision"] = dbus.MakeVariant("EG25GGCR07A02M1G")
+	caller := newFakeCaller(objects)
+	caller.atResponses[quectelUSBVoiceQuery] =
+		`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`
+	caller.atResponses[quectelPCMStatusQuery] = quectelPCMReadyStatus
+	caller.atResponses[quectelCallListQuery] =
+		`+CLCC: 1,1,4,0,0,"+818012345678",145`
+	provider := newTestProvider(caller)
+	provider.observeATCalls(context.Background())
+
+	snapshot, err := provider.Snapshot(context.Background())
+	if err != nil || len(snapshot.Calls) != 1 {
+		t.Fatalf("Snapshot() calls = %+v, error = %v", snapshot.Calls, err)
+	}
+	if _, err := provider.AnswerCall(
+		context.Background(),
+		domain.CallCommandRequest{
+			RequestID: "answer-with-media",
+			CallID:    snapshot.Calls[0].ID,
+		},
+	); err != nil {
+		t.Fatalf("AnswerCall() error = %v", err)
+	}
+
+	lastEnable := -1
+	answer := -1
+	for index, invocation := range caller.invocations() {
+		if invocation.Method != modemInterface+".Command" || len(invocation.Args) == 0 {
+			continue
+		}
+		switch invocation.Args[0] {
+		case quectelPCMEnable:
+			lastEnable = index
+		case quectelAnswerCall:
+			answer = index
+		}
+	}
+	if lastEnable < 0 || answer < 0 || lastEnable > answer {
+		t.Fatalf("PCM enable index = %d, ATA index = %d", lastEnable, answer)
+	}
+
+	caller.atResponses[quectelCallListQuery] = ""
+	provider.observeATCalls(context.Background())
+	invocations := caller.invocations()
+	if invocations[len(invocations)-1].Method != modemInterface+".Command" ||
+		invocations[len(invocations)-1].Args[0] != quectelPCMDisable {
+		t.Fatalf("last invocation after remote hangup = %+v", invocations[len(invocations)-1])
+	}
+}
+
+func TestATCallObserverPublishesOnlyStateChanges(t *testing.T) {
+	t.Parallel()
+
+	objects := emptyLineObjects(false, true)
+	properties := objects[testModemPath][modemInterface]
+	properties["Revision"] = dbus.MakeVariant("QDC507GLEFM21")
+	caller := newFakeCaller(objects)
+	caller.atResponses[quectelUSBVoiceQuery] =
+		`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`
+	caller.atCommandErrors[quectelPCMEnable] = errors.New("unsupported")
+	caller.atResponses[quectelCallListQuery] = ""
+	provider := newTestProvider(caller)
+	events, err := provider.SubscribeChanges(context.Background())
+	if err != nil {
+		t.Fatalf("SubscribeChanges() error = %v", err)
+	}
+
+	provider.observeATCalls(context.Background())
+	assertNoChangeEvent(t, events)
+
+	caller.atResponses[quectelCallListQuery] =
+		`+CLCC: 1,1,4,0,0,"+818012345678",145`
+	provider.observeATCalls(context.Background())
+	assertChangeEvent(t, events)
+
+	provider.observeATCalls(context.Background())
+	assertNoChangeEvent(t, events)
+
+	caller.atResponses[quectelCallListQuery] = ""
+	provider.observeATCalls(context.Background())
+	assertChangeEvent(t, events)
+}
+
+func assertChangeEvent(t *testing.T, events <-chan domain.ChangeEvent) {
+	t.Helper()
+	select {
+	case <-events:
+	case <-time.After(time.Second):
+		t.Fatal("expected call state change event")
+	}
+}
+
+func assertNoChangeEvent(t *testing.T, events <-chan domain.ChangeEvent) {
+	t.Helper()
+	select {
+	case event := <-events:
+		t.Fatalf("unexpected call state change event: %+v", event)
+	case <-time.After(10 * time.Millisecond):
+	}
 }
 
 func TestUSBCFGReadFailureDoesNotDiscardExistingVoiceControl(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,10 +20,14 @@ const (
 	callControlModemManager callControlBackend = "modemmanager"
 	callControlQuectelAT    callControlBackend = "quectel_at"
 
-	quectelAnswerCall = "ATA"
-	quectelHangupCall = "AT+CHUP"
+	quectelAnswerCall        = "ATA"
+	quectelHangupCall        = "AT+CHUP"
+	quectelRejectWaitingCall = "AT+CHLD=0"
 
-	atPendingCallTTL = 10 * time.Second
+	atCallStartVerificationTimeout = 2 * time.Second
+
+	atCallIdleObservationInterval   = time.Second
+	atCallActiveObservationInterval = 500 * time.Millisecond
 )
 
 type callControlBackend string
@@ -60,10 +65,6 @@ func (p *Provider) startATCall(
 			"number cannot be represented safely as a voice AT command",
 		)
 	}
-	if _, err := p.commandATPath(ctx, path, operation, command); err != nil {
-		return domain.CommandReceipt{}, err
-	}
-
 	p.atCallStateMu.Lock()
 	p.atCallSequence++
 	now := p.now().UTC()
@@ -80,10 +81,126 @@ func (p *Provider) startATCall(
 	}
 	p.atCallStateMu.Unlock()
 
+	activation, prepared := p.prepareQuectelMedia(ctx, operation, line, path)
+	if prepared {
+		p.storeVoiceMediaActivation(callID, activation)
+	}
+	_, dialErr := p.commandATPath(ctx, path, operation, command)
+	call, observationErr := p.waitForATCallStart(
+		ctx,
+		operation,
+		line,
+		path,
+		callID,
+	)
+	if dialErr != nil {
+		if observationErr == nil {
+			slog.Warn(
+				"ATD transport returned an error after the modem started the call",
+				"component", "modemmanager",
+				"call_id", call.ID,
+				"line_id", line.ID,
+				"error", dialErr,
+			)
+		} else {
+			if prepared {
+				cleanupContext, cancelCleanup := detachedTimeoutContext(
+					ctx,
+					callTerminationVerificationTimeout,
+				)
+				p.disableQuectelMedia(
+					cleanupContext,
+					operation,
+					path,
+					callID,
+				)
+				cancelCleanup()
+			}
+			return domain.CommandReceipt{}, dialErr
+		}
+	}
+	if observationErr != nil {
+		rollback := ParsedObjects{
+			Lines:       []domain.Line{line},
+			LinePaths:   map[string]dbus.ObjectPath{line.ID: path},
+			ATCallLines: map[string]string{callID: line.ID},
+		}
+		if rollbackErr := p.terminateCall(
+			ctx,
+			operation,
+			domain.Call{
+				ID:        callID,
+				LineID:    line.ID,
+				Number:    number,
+				Direction: "outgoing",
+				StateCode: 1,
+			},
+			rollback,
+		); rollbackErr != nil {
+			return domain.CommandReceipt{}, rollbackErr
+		}
+		return domain.CommandReceipt{}, observationErr
+	}
+	p.publishChange("at-call-command")
+
 	return domain.CommandReceipt{
 		RequestID:  request.RequestID,
-		ResourceID: callID,
+		ResourceID: call.ID,
 	}, nil
+}
+
+func (p *Provider) waitForATCallStart(
+	ctx context.Context,
+	operation string,
+	line domain.Line,
+	path dbus.ObjectPath,
+	callID string,
+) (domain.Call, error) {
+	verifyContext, cancelVerify := detachedTimeoutContext(
+		ctx,
+		atCallStartVerificationTimeout,
+	)
+	defer cancelVerify()
+
+	var lastObservationErr error
+	for {
+		response, err := p.commandATPath(
+			verifyContext,
+			path,
+			operation,
+			quectelCallListQuery,
+		)
+		if err == nil {
+			records, parseErr := parseQuectelCLCC(response)
+			if parseErr == nil {
+				state := ParsedObjects{ATCallLines: make(map[string]string)}
+				p.projectKnownATCalls(&state, &line, records, true)
+				if call, found := findCall(state.Calls, callID); found &&
+					call.StateCode != callStateTerminated {
+					return call, nil
+				}
+			} else {
+				lastObservationErr = parseErr
+			}
+		} else {
+			lastObservationErr = err
+		}
+
+		timer := time.NewTimer(callTerminationObservationInterval)
+		select {
+		case <-verifyContext.Done():
+			timer.Stop()
+			p.atCallStateMu.Lock()
+			delete(p.atPendingCalls, line.ID)
+			p.atCallStateMu.Unlock()
+			return domain.Call{}, domain.VerificationFailed(
+				operation,
+				"ATD was accepted but CLCC did not report the outgoing call",
+				lastObservationErr,
+			)
+		case <-timer.C:
+		}
+	}
 }
 
 func quectelDialCommand(value string) (command string, number string, ok bool) {
@@ -112,8 +229,8 @@ func quectelDialCommand(value string) (command string, number string, ok bool) {
 }
 
 func (p *Provider) projectATCalls(
-	ctx context.Context,
-	operation string,
+	_ context.Context,
+	_ string,
 	parsed *ParsedObjects,
 ) {
 	for lineIndex := range parsed.Lines {
@@ -121,23 +238,7 @@ func (p *Provider) projectATCalls(
 		if parsed.CallBackends[line.ID] != callControlQuectelAT {
 			continue
 		}
-		path := parsed.LinePaths[line.ID]
-		response, err := p.commandATPath(
-			ctx,
-			path,
-			operation,
-			quectelCallListQuery,
-		)
-		if err != nil {
-			p.projectKnownATCalls(parsed, line, nil, false)
-			continue
-		}
-		records, parseErr := parseQuectelCLCC(response)
-		if parseErr != nil {
-			p.projectKnownATCalls(parsed, line, nil, false)
-			continue
-		}
-		p.projectKnownATCalls(parsed, line, records, true)
+		p.projectKnownATCalls(parsed, line, nil, false)
 	}
 	sort.Slice(parsed.Calls, func(i, j int) bool {
 		return parsed.Calls[i].ID < parsed.Calls[j].ID
@@ -149,10 +250,11 @@ func (p *Provider) projectKnownATCalls(
 	line *domain.Line,
 	records []atCallRecord,
 	authoritative bool,
-) {
+) bool {
 	p.atCallStateMu.Lock()
 	defer p.atCallStateMu.Unlock()
 
+	before := p.atLineStateFingerprintLocked(line.ID)
 	now := p.now().UTC()
 	lineCalls := p.atCalls[line.ID]
 	if lineCalls == nil {
@@ -192,15 +294,163 @@ func (p *Provider) projectKnownATCalls(
 			appendATCall(parsed, line, lifecycle)
 			delete(lineCalls, index)
 		}
+	} else {
+		indexes := make([]int, 0, len(lineCalls))
+		for index := range lineCalls {
+			if _, alreadyProjected := seen[index]; !alreadyProjected {
+				indexes = append(indexes, index)
+			}
+		}
+		sort.Ints(indexes)
+		for _, index := range indexes {
+			appendATCall(parsed, line, lineCalls[index])
+		}
 	}
 
-	if pending, found := p.atPendingCalls[line.ID]; found {
-		if now.Sub(pending.observedAt) < atPendingCallTTL || !authoritative {
-			appendATCall(parsed, line, pending)
-		} else {
-			pending.stateCode = callStateTerminated
-			appendATCall(parsed, line, pending)
-			delete(p.atPendingCalls, line.ID)
+	return before != p.atLineStateFingerprintLocked(line.ID)
+}
+
+func (p *Provider) atLineStateFingerprintLocked(lineID string) string {
+	var fingerprint strings.Builder
+	indexes := make([]int, 0, len(p.atCalls[lineID]))
+	for index := range p.atCalls[lineID] {
+		indexes = append(indexes, index)
+	}
+	sort.Ints(indexes)
+	for _, index := range indexes {
+		call := p.atCalls[lineID][index]
+		fmt.Fprintf(
+			&fingerprint,
+			"%d:%s:%s:%d:%t;",
+			index,
+			call.direction,
+			call.number,
+			call.stateCode,
+			call.multiparty,
+		)
+	}
+	if pending, found := p.atPendingCalls[lineID]; found {
+		fmt.Fprintf(
+			&fingerprint,
+			"pending:%s:%s:%d;",
+			pending.direction,
+			pending.number,
+			pending.stateCode,
+		)
+	}
+	return fingerprint.String()
+}
+
+func (p *Provider) refreshATLine(
+	ctx context.Context,
+	operation string,
+	line *domain.Line,
+	path dbus.ObjectPath,
+) bool {
+	if line == nil || !path.IsValid() {
+		return false
+	}
+	response, err := p.commandATPath(ctx, path, operation, quectelCallListQuery)
+	if err != nil {
+		slog.Debug(
+			"observe AT calls",
+			"component", "modemmanager",
+			"line_id", line.ID,
+			"error", err,
+		)
+		return false
+	}
+	records, err := parseQuectelCLCC(response)
+	if err != nil {
+		slog.Warn(
+			"decode AT call state",
+			"component", "modemmanager",
+			"line_id", line.ID,
+			"error", err,
+		)
+		return false
+	}
+	parsed := ParsedObjects{
+		ATCallLines: make(map[string]string),
+	}
+	changed := p.projectKnownATCalls(&parsed, line, records, true)
+	if !p.hasATLineActivity(line.ID) {
+		p.releaseLineVoiceMedia(ctx, operation, path, line.ID)
+	}
+	return changed
+}
+
+func (p *Provider) observeATCalls(ctx context.Context) {
+	const operation = "observe_at_calls"
+	p.callMu.Lock()
+	defer p.callMu.Unlock()
+
+	parsed, err := p.snapshotContent(ctx, operation)
+	if err != nil {
+		slog.Debug(
+			"resolve AT call lines",
+			"component", "modemmanager",
+			"error", err,
+		)
+		return
+	}
+	p.projectVoiceCapabilities(ctx, operation, &parsed)
+	changed := false
+	for index := range parsed.Lines {
+		line := &parsed.Lines[index]
+		if parsed.CallBackends[line.ID] != callControlQuectelAT {
+			continue
+		}
+		if p.refreshATLine(ctx, operation, line, parsed.LinePaths[line.ID]) {
+			changed = true
+		}
+	}
+	if changed {
+		p.publishChange("at-call-state")
+	}
+}
+
+func (p *Provider) hasATCallActivity() bool {
+	p.atCallStateMu.Lock()
+	defer p.atCallStateMu.Unlock()
+	if len(p.atPendingCalls) > 0 {
+		return true
+	}
+	for _, calls := range p.atCalls {
+		if len(calls) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Provider) hasATLineActivity(lineID string) bool {
+	p.atCallStateMu.Lock()
+	defer p.atCallStateMu.Unlock()
+	if _, found := p.atPendingCalls[lineID]; found {
+		return true
+	}
+	return len(p.atCalls[lineID]) > 0
+}
+
+func (p *Provider) RunATCallObserver(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for {
+		p.observeATCalls(ctx)
+		interval := atCallIdleObservationInterval
+		if p.hasATCallActivity() {
+			interval = atCallActiveObservationInterval
+		}
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-timer.C:
 		}
 	}
 }

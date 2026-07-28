@@ -419,6 +419,11 @@ func (p *Provider) StartCall(ctx context.Context, request domain.StartCallReques
 		"line_id", line.ID,
 		"call_path", callPath,
 	)
+	callID := parsed.ids.callID(callPath)
+	activation, prepared := p.prepareQuectelMedia(ctx, operation, line, linePath)
+	if prepared {
+		p.storeVoiceMediaActivation(callID, activation)
+	}
 	if _, err := p.call(
 		ctx,
 		callPath,
@@ -434,6 +439,9 @@ func (p *Provider) StartCall(ctx context.Context, request domain.StartCallReques
 			"call_path", callPath,
 			"error", err,
 		)
+		if prepared {
+			p.disableQuectelMedia(ctx, operation, linePath, callID)
+		}
 		return domain.CommandReceipt{}, err
 	}
 	slog.Info(
@@ -443,7 +451,7 @@ func (p *Provider) StartCall(ctx context.Context, request domain.StartCallReques
 		"line_id", line.ID,
 		"call_path", callPath,
 	)
-	return domain.CommandReceipt{RequestID: request.RequestID, ResourceID: parsed.ids.callID(callPath)}, nil
+	return domain.CommandReceipt{RequestID: request.RequestID, ResourceID: callID}, nil
 }
 
 func (p *Provider) AnswerCall(ctx context.Context, request domain.CallCommandRequest) (domain.CommandReceipt, error) {
@@ -455,6 +463,15 @@ func (p *Provider) AnswerCall(ctx context.Context, request domain.CallCommandReq
 		if lineHasCall(parsed.Calls, call.LineID, call.ID) {
 			return domain.Conflict(operation, "line already has another ongoing call")
 		}
+		line, found := findLine(parsed.Lines, call.LineID)
+		if !found {
+			return domain.NotFound(operation, "call line was not found")
+		}
+		path := parsed.LinePaths[line.ID]
+		activation, prepared := p.prepareQuectelMedia(ctx, operation, line, path)
+		if prepared {
+			p.storeVoiceMediaActivation(call.ID, activation)
+		}
 		if lineID, isATCall := parsed.ATCallLines[call.ID]; isATCall {
 			_, err := p.commandATPath(
 				ctx,
@@ -462,6 +479,13 @@ func (p *Provider) AnswerCall(ctx context.Context, request domain.CallCommandReq
 				operation,
 				quectelAnswerCall,
 			)
+			if err != nil && prepared {
+				p.disableQuectelMedia(ctx, operation, path, call.ID)
+			}
+			if err == nil {
+				p.refreshATLine(ctx, operation, &line, parsed.LinePaths[lineID])
+				p.publishChange("at-call-command")
+			}
 			return err
 		}
 		_, err := p.call(
@@ -471,59 +495,40 @@ func (p *Provider) AnswerCall(ctx context.Context, request domain.CallCommandReq
 			operation,
 			"ModemManager failed to answer the call",
 		)
+		if err != nil && prepared {
+			p.disableQuectelMedia(ctx, operation, path, call.ID)
+		}
 		return err
 	})
 }
 
 func (p *Provider) RejectCall(ctx context.Context, request domain.CallCommandRequest) (domain.CommandReceipt, error) {
 	const operation = "reject_call"
-	return p.controlCall(ctx, operation, request, func(call domain.Call, parsed ParsedObjects) error {
+	terminationContext, cancelTermination := detachedTimeoutContext(
+		ctx,
+		callTerminationCommandTimeout,
+	)
+	defer cancelTermination()
+	return p.controlCall(terminationContext, operation, request, func(call domain.Call, parsed ParsedObjects) error {
 		if call.StateCode != 3 && call.StateCode != 6 {
 			return domain.Conflict(operation, "call is not an incoming ringing or waiting call")
 		}
-		if lineID, isATCall := parsed.ATCallLines[call.ID]; isATCall {
-			_, err := p.commandATPath(
-				ctx,
-				parsed.LinePaths[lineID],
-				operation,
-				quectelHangupCall,
-			)
-			return err
-		}
-		_, err := p.call(
-			ctx,
-			parsed.CallPaths[call.ID],
-			callInterface+".Hangup",
-			operation,
-			"ModemManager failed to reject the call",
-		)
-		return err
+		return p.terminateCall(terminationContext, operation, call, parsed)
 	})
 }
 
 func (p *Provider) HangupCall(ctx context.Context, request domain.CallCommandRequest) (domain.CommandReceipt, error) {
 	const operation = "hangup_call"
-	return p.controlCall(ctx, operation, request, func(call domain.Call, parsed ParsedObjects) error {
+	terminationContext, cancelTermination := detachedTimeoutContext(
+		ctx,
+		callTerminationCommandTimeout,
+	)
+	defer cancelTermination()
+	return p.controlCall(terminationContext, operation, request, func(call domain.Call, parsed ParsedObjects) error {
 		if call.StateCode == callStateTerminated {
 			return domain.Conflict(operation, "call is already terminated")
 		}
-		if lineID, isATCall := parsed.ATCallLines[call.ID]; isATCall {
-			_, err := p.commandATPath(
-				ctx,
-				parsed.LinePaths[lineID],
-				operation,
-				quectelHangupCall,
-			)
-			return err
-		}
-		_, err := p.call(
-			ctx,
-			parsed.CallPaths[call.ID],
-			callInterface+".Hangup",
-			operation,
-			"ModemManager failed to hang up the call",
-		)
-		return err
+		return p.terminateCall(terminationContext, operation, call, parsed)
 	})
 }
 

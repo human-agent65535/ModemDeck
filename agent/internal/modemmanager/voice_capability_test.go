@@ -9,44 +9,56 @@ import (
 	"github.com/human-agent65535/modemdeck/agent/internal/domain"
 )
 
-func TestQuectelVoiceModelingIsReadOnly(t *testing.T) {
+func TestQuectelVoiceModelingProbesCallAudioOnce(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		revision     string
-		usbConfig    string
-		usbConfigErr error
-		wantControl  bool
-		wantUSB      string
-		wantRouting  string
+		name           string
+		revision       string
+		usbConfig      string
+		usbConfigErr   error
+		pcmEnableErr   error
+		pcmStatus      string
+		wantControl    bool
+		wantMedia      bool
+		wantUSB        string
+		wantRouting    string
+		wantMediaProbe bool
 	}{
 		{
-			name:        "documented EG25 call control is modeled",
-			revision:    "EG25GGCR07A02M1G",
-			usbConfig:   `+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`,
-			wantControl: true,
-			wantUSB:     voiceVerificationEnabled,
-			wantRouting: voiceVerificationCallRequired,
+			name:           "documented EG25 call audio is verified",
+			revision:       "EG25GGCR07A02M1G",
+			usbConfig:      `+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`,
+			pcmStatus:      quectelPCMReadyStatus,
+			wantControl:    true,
+			wantMedia:      true,
+			wantUSB:        voiceVerificationEnabled,
+			wantRouting:    voiceVerificationSupported,
+			wantMediaProbe: true,
 		},
 		{
-			name:         "unsupported USB config query keeps ModemManager call control",
-			revision:     "EG25GGCR07A02M1G",
-			usbConfigErr: errors.New("AT command returned ERROR"),
-			wantControl:  true,
-			wantUSB:      voiceVerificationReadFailed,
-			wantRouting:  voiceVerificationCallRequired,
+			name:           "unsupported USB config query keeps ModemManager control and probes audio",
+			revision:       "EG25GGCR07A02M1G",
+			usbConfigErr:   errors.New("AT command returned ERROR"),
+			pcmStatus:      quectelPCMReadyStatus,
+			wantControl:    true,
+			wantMedia:      true,
+			wantUSB:        voiceVerificationReadFailed,
+			wantRouting:    voiceVerificationSupported,
+			wantMediaProbe: true,
 		},
 		{
-			name:        "unrecognized USB config response is inconclusive",
-			revision:    "EG25GGCR07A02M1G",
-			usbConfig:   "OK",
-			wantControl: true,
-			wantUSB:     voiceVerificationInvalidResponse,
-			wantRouting: voiceVerificationCallRequired,
+			name:           "firmware can expose call control without call audio",
+			revision:       "QDC507GLEFM21",
+			usbConfig:      `+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`,
+			pcmEnableErr:   errors.New("AT command returned ERROR"),
+			wantControl:    true,
+			wantUSB:        voiceVerificationEnabled,
+			wantRouting:    voiceVerificationRejected,
+			wantMediaProbe: true,
 		},
 		{
-			name:        "USB call control disabled",
+			name:        "USB call control disabled skips audio probe",
 			revision:    "EG25GGCR07A02M1G",
 			usbConfig:   `+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,0`,
 			wantUSB:     voiceVerificationDisabled,
@@ -65,8 +77,12 @@ func TestQuectelVoiceModelingIsReadOnly(t *testing.T) {
 			caller := newFakeCaller(objects)
 			caller.owner = true
 			caller.atResponses[quectelUSBVoiceQuery] = test.usbConfig
+			caller.atResponses[quectelPCMStatusQuery] = test.pcmStatus
 			if test.usbConfigErr != nil {
 				caller.atCommandErrors[quectelUSBVoiceQuery] = test.usbConfigErr
+			}
+			if test.pcmEnableErr != nil {
+				caller.atCommandErrors[quectelPCMEnable] = test.pcmEnableErr
 			}
 			provider := newTestProvider(caller)
 
@@ -92,8 +108,8 @@ func TestQuectelVoiceModelingIsReadOnly(t *testing.T) {
 					test.wantControl,
 				)
 			}
-			if line.Capabilities.Media {
-				t.Fatalf("modeling exposed unverified media capability: %+v", line.Capabilities)
+			if line.Capabilities.Media != test.wantMedia {
+				t.Fatalf("media capability = %v, want %v", line.Capabilities.Media, test.wantMedia)
 			}
 			if line.VoiceVerification == nil ||
 				line.VoiceVerification.USBConfiguration != test.wantUSB ||
@@ -105,13 +121,19 @@ func TestQuectelVoiceModelingIsReadOnly(t *testing.T) {
 					test.wantRouting,
 				)
 			}
-			assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 0)
-			assertATInvocationCount(t, caller.invocations(), quectelPCMStatusQuery, 0)
+			wantProbeCount := 0
+			if test.wantMediaProbe {
+				wantProbeCount = 1
+			}
+			assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, wantProbeCount)
+			if test.wantMediaProbe && test.pcmEnableErr == nil {
+				assertATInvocationCount(t, caller.invocations(), quectelPCMDisable, 1)
+			}
 		})
 	}
 }
 
-func TestQuectelPCMActivationRunsOnceWhenCallBecomesActive(t *testing.T) {
+func TestQuectelPCMIsPreparedBeforeOutgoingCallStarts(t *testing.T) {
 	t.Parallel()
 
 	objects := emptyLineObjects(true, false)
@@ -120,125 +142,71 @@ func TestQuectelPCMActivationRunsOnceWhenCallBecomesActive(t *testing.T) {
 	properties["Model"] = dbus.MakeVariant("QUECTEL Mobile Broadband Module")
 	properties["Revision"] = dbus.MakeVariant("EG25GGCR07A02M1G")
 	callPath := testCallPath(71)
-	addCall(objects, callPath, 2)
 
 	caller := newFakeCaller(objects)
 	caller.owner = true
+	caller.createdCallPath = callPath
 	caller.atResponses[quectelUSBVoiceQuery] =
 		`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`
 	caller.atResponses[quectelPCMEnable] = ""
 	caller.atResponses[quectelPCMStatusQuery] = quectelPCMReadyStatus
 	provider := newTestProvider(caller)
+	lineID := ParseManagedObjects(objects, provider.ids).Lines[0].ID
 
-	dialing, err := provider.Snapshot(context.Background())
+	receipt, err := provider.StartCall(context.Background(), domain.StartCallRequest{
+		RequestID: "start-media-71",
+		LineID:    lineID,
+		Number:    "+818012345678",
+	})
 	if err != nil {
-		t.Fatalf("dialing Snapshot() error = %v", err)
+		t.Fatalf("StartCall() error = %v", err)
 	}
-	if dialing.Lines[0].Capabilities.Media ||
-		dialing.Lines[0].VoiceVerification == nil ||
-		dialing.Lines[0].VoiceVerification.MediaRouting != voiceVerificationCallRequired {
-		t.Fatalf("dialing line = %+v", dialing.Lines[0])
+	if receipt.ResourceID == "" {
+		t.Fatalf("StartCall() receipt = %+v", receipt)
 	}
-	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 0)
+	invocations := caller.invocations()
+	lastEnable := -1
+	startCall := -1
+	for index, invocation := range invocations {
+		if invocation.Method == modemInterface+".Command" &&
+			len(invocation.Args) > 0 &&
+			invocation.Args[0] == quectelPCMEnable {
+			lastEnable = index
+		}
+		if invocation.Method == callInterface+".Start" {
+			startCall = index
+		}
+	}
+	if lastEnable < 0 || startCall < 0 || lastEnable > startCall {
+		t.Fatalf("PCM enable index = %d, call start index = %d", lastEnable, startCall)
+	}
+	assertATInvocationCount(t, invocations, quectelPCMEnable, 2)
+	assertATInvocationCount(t, invocations, quectelPCMStatusQuery, 2)
+	assertATInvocationCount(t, invocations, quectelPCMDisable, 1)
 
-	objects[callPath][callInterface]["State"] = dbus.MakeVariant(int32(4))
+	addCall(objects, callPath, 4)
 	active, err := provider.Snapshot(context.Background())
 	if err != nil {
 		t.Fatalf("active Snapshot() error = %v", err)
 	}
-	if active.Lines[0].Capabilities.Media ||
-		active.Lines[0].VoiceVerification == nil ||
-		active.Lines[0].VoiceVerification.MediaRouting != voiceVerificationCallRequired {
-		t.Fatalf("active line = %+v", active.Lines[0])
+	if len(active.Calls) != 1 ||
+		!active.Calls[0].MediaAvailable ||
+		active.Calls[0].AudioPort != quectelUACPortPrefix+"/sys/devices/usb1/1-2" ||
+		active.Calls[0].AudioFormat == nil ||
+		active.Calls[0].AudioFormat.Rate != 8000 {
+		t.Fatalf("active call = %+v", active.Calls)
 	}
-	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 0)
-	assertATInvocationCount(t, caller.invocations(), quectelPCMStatusQuery, 0)
-
 	activation, err := provider.ActivateCallMedia(
 		context.Background(),
-		domain.CallCommandRequest{
-			RequestID: "activate-media-71",
-			CallID:    active.Calls[0].ID,
-		},
+		domain.CallCommandRequest{RequestID: "inspect-media-71", CallID: receipt.ResourceID},
 	)
 	if err != nil {
 		t.Fatalf("ActivateCallMedia() error = %v", err)
 	}
-	if activation.MediaRouting != voiceVerificationEnabled ||
-		!activation.MediaAvailable ||
-		activation.AudioPort != quectelUACPortPrefix+"/sys/devices/usb1/1-2" ||
-		activation.AudioFormat == nil ||
-		activation.AudioFormat.Encoding != "pcm" ||
-		activation.AudioFormat.Resolution != "s16le" ||
-		activation.AudioFormat.Rate != 8000 {
+	if !activation.MediaAvailable || activation.MediaRouting != voiceVerificationEnabled {
 		t.Fatalf("activation = %+v", activation)
 	}
-	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 1)
-	assertATInvocationCount(t, caller.invocations(), quectelPCMStatusQuery, 1)
-
-	repeated, err := provider.Snapshot(context.Background())
-	if err != nil {
-		t.Fatalf("repeated active Snapshot() error = %v", err)
-	}
-	if !repeated.Lines[0].Capabilities.Media {
-		t.Fatalf("repeated active line = %+v", repeated.Lines[0])
-	}
-	if len(repeated.Calls) != 1 || !repeated.Calls[0].MediaAvailable {
-		t.Fatalf("repeated active calls = %+v", repeated.Calls)
-	}
-	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 1)
-	assertATInvocationCount(t, caller.invocations(), quectelPCMStatusQuery, 1)
-	repeatedActivation, err := provider.ActivateCallMedia(
-		context.Background(),
-		domain.CallCommandRequest{
-			RequestID: "activate-media-71-repeat",
-			CallID:    active.Calls[0].ID,
-		},
-	)
-	if err != nil {
-		t.Fatalf("repeated ActivateCallMedia() error = %v", err)
-	}
-	if !repeatedActivation.MediaAvailable {
-		t.Fatalf("repeated activation = %+v", repeatedActivation)
-	}
-	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 1)
-	assertATInvocationCount(t, caller.invocations(), quectelPCMStatusQuery, 1)
-
-	objects[callPath][callInterface]["State"] = dbus.MakeVariant(callStateTerminated)
-	terminated, err := provider.Snapshot(context.Background())
-	if err != nil {
-		t.Fatalf("terminated Snapshot() error = %v", err)
-	}
-	if terminated.Lines[0].Capabilities.Media ||
-		terminated.Lines[0].VoiceVerification == nil ||
-		terminated.Lines[0].VoiceVerification.MediaRouting != voiceVerificationCallRequired {
-		t.Fatalf("terminated line retained call-scoped media state: %+v", terminated.Lines[0])
-	}
-
-	delete(objects, callPath)
-	nextCallPath := testCallPath(72)
-	addCall(objects, nextCallPath, 4)
-	next, err := provider.Snapshot(context.Background())
-	if err != nil {
-		t.Fatalf("next Snapshot() error = %v", err)
-	}
-	if next.Lines[0].Capabilities.Media ||
-		next.Lines[0].VoiceVerification == nil ||
-		next.Lines[0].VoiceVerification.MediaRouting != voiceVerificationCallRequired {
-		t.Fatalf("next active line = %+v", next.Lines[0])
-	}
-	if _, err := provider.ActivateCallMedia(
-		context.Background(),
-		domain.CallCommandRequest{
-			RequestID: "activate-media-72",
-			CallID:    next.Calls[0].ID,
-		},
-	); err != nil {
-		t.Fatalf("next ActivateCallMedia() error = %v", err)
-	}
-	assertATInvocationCount(t, caller.invocations(), quectelUSBVoiceQuery, 1)
 	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 2)
-	assertATInvocationCount(t, caller.invocations(), quectelPCMStatusQuery, 2)
 }
 
 func TestQuectelPCMActivationKeepsAuthoritativeModemManagerAudio(t *testing.T) {
@@ -311,7 +279,7 @@ func TestQuectelPCMActivationDoesNotReplaceIncompleteModemManagerAudio(t *testin
 	}
 }
 
-func TestQuectelPCMActivationFailureIsScopedToActiveCall(t *testing.T) {
+func TestQuectelPCMCapabilityProbeFailureKeepsCallControl(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -345,7 +313,6 @@ func TestQuectelPCMActivationFailureIsScopedToActiveCall(t *testing.T) {
 			properties["Manufacturer"] = dbus.MakeVariant("QUALCOMM INCORPORATED")
 			properties["Model"] = dbus.MakeVariant("QUECTEL Mobile Broadband Module")
 			properties["Revision"] = dbus.MakeVariant("QDC507GLEFM21")
-			addCall(objects, testCallPath(72), 4)
 
 			caller := newFakeCaller(objects)
 			caller.owner = true
@@ -366,40 +333,10 @@ func TestQuectelPCMActivationFailureIsScopedToActiveCall(t *testing.T) {
 				t.Fatalf("Snapshot() error = %v", err)
 			}
 			if snapshot.Lines[0].VoiceVerification == nil ||
-				snapshot.Lines[0].VoiceVerification.MediaRouting != voiceVerificationCallRequired {
-				t.Fatalf("pre-activation line = %+v", snapshot.Lines[0])
-			}
-			activation, err := provider.ActivateCallMedia(
-				context.Background(),
-				domain.CallCommandRequest{
-					RequestID: "activate-media-failure",
-					CallID:    snapshot.Calls[0].ID,
-				},
-			)
-			if err != nil {
-				t.Fatalf("ActivateCallMedia() error = %v", err)
-			}
-			if activation.MediaRouting != test.wantRouting ||
-				activation.MediaAvailable ||
-				activation.AudioPort != "" ||
-				activation.AudioFormat != nil {
-				t.Fatalf("activation = %+v, want routing %q", activation, test.wantRouting)
-			}
-			projected, err := provider.Snapshot(context.Background())
-			if err != nil {
-				t.Fatalf("projected Snapshot() error = %v", err)
-			}
-			line := projected.Lines[0]
-			if !line.Capabilities.Dial || line.Capabilities.Media ||
-				line.VoiceVerification == nil ||
-				line.VoiceVerification.MediaRouting != test.wantRouting {
-				t.Fatalf("line = %+v, want routing %q", line, test.wantRouting)
-			}
-			if len(projected.Calls) != 1 ||
-				projected.Calls[0].MediaAvailable ||
-				projected.Calls[0].AudioPort != "" ||
-				projected.Calls[0].AudioFormat != nil {
-				t.Fatalf("failed route exposed call media: %+v", projected.Calls)
+				snapshot.Lines[0].VoiceVerification.MediaRouting != test.wantRouting ||
+				!snapshot.Lines[0].Capabilities.Dial ||
+				snapshot.Lines[0].Capabilities.Media {
+				t.Fatalf("line = %+v, want routing %q", snapshot.Lines[0], test.wantRouting)
 			}
 			assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 1)
 			if test.enableErr == nil {
@@ -439,17 +376,18 @@ func TestQuectelVoiceModelIsCachedUntilManualReprobe(t *testing.T) {
 	caller.owner = true
 	caller.atResponses[quectelUSBVoiceQuery] =
 		`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`
+	caller.atResponses[quectelPCMStatusQuery] = quectelPCMReadyStatus
 	provider := newTestProvider(caller)
 
 	first, err := provider.Snapshot(context.Background())
 	if err != nil {
 		t.Fatalf("first Snapshot() error = %v", err)
 	}
-	if !first.Lines[0].Capabilities.Dial || first.Lines[0].Capabilities.Media {
+	if !first.Lines[0].Capabilities.Dial || !first.Lines[0].Capabilities.Media {
 		t.Fatalf("first capabilities = %+v", first.Lines[0].Capabilities)
 	}
 	assertATInvocationCount(t, caller.invocations(), quectelUSBVoiceQuery, 1)
-	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 0)
+	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 1)
 
 	caller.atResponses[quectelUSBVoiceQuery] =
 		`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,0`
@@ -479,7 +417,91 @@ func TestQuectelVoiceModelIsCachedUntilManualReprobe(t *testing.T) {
 		t.Fatalf("reprobed line = %+v", reprobed.Lines[0])
 	}
 	assertATInvocationCount(t, caller.invocations(), quectelUSBVoiceQuery, 2)
+	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 1)
+}
+
+func TestBusyQuectelVoiceModelWaitsForManualReprobe(t *testing.T) {
+	t.Parallel()
+
+	objects := emptyLineObjects(true, false)
+	properties := objects[testModemPath][modemInterface]
+	properties["Revision"] = dbus.MakeVariant("EG25GGCR07A02M1G")
+	callPath := testCallPath(76)
+	addCall(objects, callPath, 4)
+
+	caller := newFakeCaller(objects)
+	caller.owner = true
+	caller.atResponses[quectelUSBVoiceQuery] =
+		`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`
+	caller.atResponses[quectelCallListQuery] =
+		`+CLCC: 1,0,0,0,0,"+818012345678",145`
+	caller.atResponses[quectelPCMStatusQuery] = quectelPCMReadyStatus
+	provider := newTestProvider(caller)
+
+	busy, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("busy Snapshot() error = %v", err)
+	}
+	if busy.Lines[0].VoiceVerification == nil ||
+		busy.Lines[0].VoiceVerification.MediaRouting != voiceVerificationProbePending {
+		t.Fatalf("busy voice verification = %+v", busy.Lines[0].VoiceVerification)
+	}
 	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 0)
+
+	err = provider.ReprobeVoiceCapabilities(
+		context.Background(),
+		busy.Lines[0].ID,
+	)
+	assertOperationError(
+		t,
+		err,
+		domain.ErrorConflict,
+		"reprobe_voice_capabilities",
+	)
+	stillBusy, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot() after rejected reprobe error = %v", err)
+	}
+	if stillBusy.Lines[0].VoiceVerification == nil ||
+		stillBusy.Lines[0].VoiceVerification.MediaRouting != voiceVerificationProbePending {
+		t.Fatalf(
+			"rejected reprobe changed cached voice verification = %+v",
+			stillBusy.Lines[0].VoiceVerification,
+		)
+	}
+	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 0)
+
+	delete(objects, callPath)
+	objects[testModemPath][voiceInterface]["Calls"] =
+		dbus.MakeVariant([]dbus.ObjectPath{})
+	caller.atResponses[quectelCallListQuery] = ""
+
+	idle, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("idle Snapshot() error = %v", err)
+	}
+	if idle.Lines[0].VoiceVerification == nil ||
+		idle.Lines[0].VoiceVerification.MediaRouting != voiceVerificationProbePending {
+		t.Fatalf("cached voice verification = %+v", idle.Lines[0].VoiceVerification)
+	}
+	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 0)
+
+	if err := provider.ReprobeVoiceCapabilities(
+		context.Background(),
+		idle.Lines[0].ID,
+	); err != nil {
+		t.Fatalf("ReprobeVoiceCapabilities() error = %v", err)
+	}
+	reprobed, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("reprobed Snapshot() error = %v", err)
+	}
+	if !reprobed.Lines[0].Capabilities.Media ||
+		reprobed.Lines[0].VoiceVerification == nil ||
+		reprobed.Lines[0].VoiceVerification.MediaRouting != voiceVerificationSupported {
+		t.Fatalf("reprobed line = %+v", reprobed.Lines[0])
+	}
+	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 1)
 }
 
 func TestQuectelVoiceModelRebuildsWhenFirmwareChanges(t *testing.T) {
@@ -494,6 +516,7 @@ func TestQuectelVoiceModelRebuildsWhenFirmwareChanges(t *testing.T) {
 	caller.owner = true
 	caller.atResponses[quectelUSBVoiceQuery] =
 		`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`
+	caller.atResponses[quectelPCMStatusQuery] = quectelPCMReadyStatus
 	provider := newTestProvider(caller)
 
 	first, err := provider.Snapshot(context.Background())
@@ -515,7 +538,7 @@ func TestQuectelVoiceModelRebuildsWhenFirmwareChanges(t *testing.T) {
 		t.Fatalf("updated line = %+v", updated.Lines[0])
 	}
 	assertATInvocationCount(t, caller.invocations(), quectelUSBVoiceQuery, 2)
-	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 0)
+	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 1)
 }
 
 func assertATInvocationCount(

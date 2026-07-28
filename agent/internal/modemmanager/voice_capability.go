@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/human-agent65535/modemdeck/agent/internal/domain"
@@ -17,6 +16,7 @@ const (
 	quectelUSBVoiceQuery  = `AT+QCFG="USBCFG"`
 	quectelCallListQuery  = "AT+CLCC"
 	quectelPCMEnable      = "AT+QPCMV=1,2"
+	quectelPCMDisable     = "AT+QPCMV=0"
 	quectelPCMStatusQuery = "AT+QPCMV?"
 	quectelPCMReadyStatus = "+QPCMV: 1,2"
 	quectelUACPortPrefix  = "quectel-uac:"
@@ -27,7 +27,8 @@ const (
 	voiceVerificationInvalidResponse = "invalid_response"
 	voiceVerificationRejected        = "rejected"
 	voiceVerificationInactive        = "inactive"
-	voiceVerificationCallRequired    = "call_required"
+	voiceVerificationProbePending    = "probe_pending"
+	voiceVerificationSupported       = "supported"
 )
 
 type voiceProbeResult struct {
@@ -41,6 +42,7 @@ type voiceProbeResult struct {
 
 type voiceMediaActivation struct {
 	probeKey string
+	lineID   string
 	result   voiceProbeResult
 }
 
@@ -113,7 +115,7 @@ func (p *Provider) projectVoiceCapabilities(
 		parsed.Calls = calls
 	}
 	p.projectATCalls(ctx, operation, parsed)
-	p.projectQuectelMediaState(parsed)
+	p.projectQuectelMediaState(ctx, operation, parsed)
 }
 
 func projectVoiceProbeResult(line *domain.Line, result voiceProbeResult) {
@@ -198,32 +200,88 @@ func (p *Provider) probeQuectelVoice(
 			result.atCallControl = true
 		}
 	}
-	if result.usbConfiguration != voiceVerificationDisabled &&
-		!result.atCallControl {
-		if _, listErr := p.commandATPath(
-			ctx,
-			path,
-			operation,
-			quectelCallListQuery,
-		); listErr == nil {
-			result.callControl = true
-			result.atCallControl = true
-		} else {
-			result.reason = "AT call control could not be verified"
-		}
-	}
-	if result.callControl {
-		// QPCMV mutates the live voice route and some firmware accepts it only
-		// after a call is connected. Device modeling must remain read-only.
-		result.mediaRouting = voiceVerificationCallRequired
-	} else {
+	if result.usbConfiguration == voiceVerificationDisabled {
+		result.callControl = false
 		result.mediaRouting = voiceVerificationDisabled
+		p.voiceProbes[key] = result
+		return result
 	}
+	callList, callListErr := p.commandATPath(
+		ctx,
+		path,
+		operation,
+		quectelCallListQuery,
+	)
+	callRecords, callListParseErr := parseQuectelCLCC(callList)
+	if callListErr == nil && callListParseErr == nil {
+		result.callControl = true
+		result.atCallControl = true
+	} else if !result.callControl {
+		result.reason = "AT call control could not be verified"
+	}
+	if !result.callControl {
+		result.mediaRouting = voiceVerificationDisabled
+		p.voiceProbes[key] = result
+		return result
+	}
+	if callListErr != nil || callListParseErr != nil {
+		result.mediaRouting = voiceVerificationReadFailed
+		result.reason = "call state could not be read before the PCM capability probe"
+		p.voiceProbes[key] = result
+		return result
+	}
+	if len(callRecords) > 0 {
+		result.mediaRouting = voiceVerificationProbePending
+		result.reason = "PCM voice routing was not probed because the line was busy"
+		p.voiceProbes[key] = result
+		return result
+	}
+
+	result = p.probeQuectelMediaCapability(ctx, operation, path, result)
 	p.voiceProbes[key] = result
 	return result
 }
 
-func (p *Provider) projectQuectelMediaState(parsed *ParsedObjects) {
+func (p *Provider) probeQuectelMediaCapability(
+	ctx context.Context,
+	operation string,
+	path dbus.ObjectPath,
+	result voiceProbeResult,
+) voiceProbeResult {
+	result.media = false
+	if _, err := p.commandATPath(ctx, path, operation, quectelPCMEnable); err != nil {
+		result.mediaRouting = voiceVerificationRejected
+		result.reason = "firmware rejected PCM voice routing"
+		return result
+	}
+	status, err := p.commandATPath(ctx, path, operation, quectelPCMStatusQuery)
+	switch {
+	case err != nil:
+		result.mediaRouting = voiceVerificationReadFailed
+		result.reason = "PCM voice routing state could not be read"
+	case !strings.EqualFold(strings.TrimSpace(status), quectelPCMReadyStatus):
+		result.mediaRouting = voiceVerificationInactive
+		result.reason = "PCM voice routing did not become ready"
+	default:
+		result.mediaRouting = voiceVerificationSupported
+		result.media = true
+		result.reason = ""
+	}
+	if _, err := p.commandATPath(ctx, path, operation, quectelPCMDisable); err != nil {
+		slog.Warn(
+			"disable PCM voice routing after capability probe",
+			"component", "modemmanager",
+			"error", err,
+		)
+	}
+	return result
+}
+
+func (p *Provider) projectQuectelMediaState(
+	ctx context.Context,
+	operation string,
+	parsed *ParsedObjects,
+) {
 	if parsed == nil {
 		return
 	}
@@ -234,7 +292,7 @@ func (p *Provider) projectQuectelMediaState(parsed *ParsedObjects) {
 			lines[line.ID] = line
 		}
 	}
-	p.pruneVoiceMediaActivations(parsed.Calls)
+	p.releaseEndedVoiceMedia(ctx, operation, parsed)
 	for index := range parsed.Calls {
 		call := &parsed.Calls[index]
 		line := lines[call.LineID]
@@ -246,7 +304,6 @@ func (p *Provider) projectQuectelMediaState(parsed *ParsedObjects) {
 		if !found {
 			continue
 		}
-		projectVoiceProbeResult(line, activation.result)
 		projectQuectelUACCall(call, *line, activation.result)
 	}
 }
@@ -264,28 +321,6 @@ func (p *Provider) voiceMediaActivation(
 	return activation, true
 }
 
-func (p *Provider) beginVoiceMediaActivation(
-	callID string,
-	key string,
-	result voiceProbeResult,
-) (voiceMediaActivation, bool) {
-	p.voiceProbeMu.Lock()
-	defer p.voiceProbeMu.Unlock()
-	if activation, found := p.voiceMedia[callID]; found &&
-		activation.probeKey == key {
-		return activation, false
-	}
-	activation := voiceMediaActivation{
-		probeKey: key,
-		result:   result,
-	}
-	if !result.callControl {
-		return activation, false
-	}
-	p.voiceMedia[callID] = activation
-	return activation, true
-}
-
 func (p *Provider) activateQuectelMedia(
 	ctx context.Context,
 	operation string,
@@ -296,23 +331,82 @@ func (p *Provider) activateQuectelMedia(
 
 	if _, err := p.commandATPath(ctx, path, operation, quectelPCMEnable); err != nil {
 		result.mediaRouting = voiceVerificationRejected
-		result.reason = "PCM voice routing command was rejected for the active call"
+		result.reason = "PCM voice routing command was rejected before call setup"
 		return result, err
 	}
 	status, err := p.commandATPath(ctx, path, operation, quectelPCMStatusQuery)
 	switch {
 	case err != nil:
 		result.mediaRouting = voiceVerificationReadFailed
-		result.reason = "PCM voice routing state could not be read for the active call"
+		result.reason = "PCM voice routing state could not be read before call setup"
 	case !strings.EqualFold(strings.TrimSpace(status), quectelPCMReadyStatus):
 		result.mediaRouting = voiceVerificationInactive
-		result.reason = "PCM voice routing did not become active for the connected call"
+		result.reason = "PCM voice routing did not become ready before call setup"
 	default:
 		result.mediaRouting = voiceVerificationEnabled
 		result.media = true
 		result.reason = ""
 	}
 	return result, err
+}
+
+func (p *Provider) prepareQuectelMedia(
+	ctx context.Context,
+	operation string,
+	line domain.Line,
+	path dbus.ObjectPath,
+) (voiceMediaActivation, bool) {
+	if !requiresQuectelPCMProbe(line) {
+		return voiceMediaActivation{}, false
+	}
+	key := voiceProbeKey(line)
+	result, found := p.voiceProbeResult(key)
+	if !found || !result.callControl {
+		return voiceMediaActivation{}, false
+	}
+	if !result.media && result.mediaRouting != voiceVerificationProbePending {
+		return voiceMediaActivation{}, false
+	}
+	activated, err := p.activateQuectelMedia(ctx, operation, path, result)
+	if err != nil {
+		slog.Warn(
+			"prepare PCM voice routing before call control",
+			"component", "modemmanager",
+			"line_id", line.ID,
+			"error", err,
+		)
+	}
+	if result.mediaRouting == voiceVerificationProbePending {
+		probed := activated
+		if probed.media {
+			probed.mediaRouting = voiceVerificationSupported
+		}
+		p.voiceProbeMu.Lock()
+		p.voiceProbes[key] = probed
+		p.voiceProbeMu.Unlock()
+	}
+	return voiceMediaActivation{
+		probeKey: key,
+		lineID:   line.ID,
+		result:   activated,
+	}, true
+}
+
+func (p *Provider) disableQuectelMedia(
+	ctx context.Context,
+	operation string,
+	path dbus.ObjectPath,
+	callID string,
+) {
+	if _, err := p.commandATPath(ctx, path, operation, quectelPCMDisable); err != nil {
+		slog.Warn(
+			"disable PCM voice routing",
+			"component", "modemmanager",
+			"call_id", callID,
+			"error", err,
+		)
+	}
+	p.deleteVoiceMediaActivation(callID)
 }
 
 func (p *Provider) ActivateCallMedia(
@@ -341,12 +435,6 @@ func (p *Provider) ActivateCallMedia(
 	if !found {
 		return domain.CallMediaActivation{}, domain.NotFound(operation, "call was not found")
 	}
-	if call.StateCode != 4 {
-		return domain.CallMediaActivation{}, domain.Conflict(
-			operation,
-			"call media can only be activated after the call is connected",
-		)
-	}
 	line, found := findLine(parsed.Lines, call.LineID)
 	if !found {
 		return domain.CallMediaActivation{}, domain.NotFound(operation, "call line was not found")
@@ -357,8 +445,7 @@ func (p *Provider) ActivateCallMedia(
 			"line does not use the supported Quectel call-media route",
 		)
 	}
-	path, found := parsed.LinePaths[line.ID]
-	if !found || !path.IsValid() {
+	if path, found := parsed.LinePaths[line.ID]; !found || !path.IsValid() {
 		return domain.CallMediaActivation{}, domain.Unavailable(
 			operation,
 			"line AT path is unavailable",
@@ -366,42 +453,12 @@ func (p *Provider) ActivateCallMedia(
 		)
 	}
 	key := voiceProbeKey(line)
-	result, found := p.voiceProbeResult(key)
-	if !found || !result.callControl {
-		return domain.CallMediaActivation{}, domain.NotSupported(
+	activation, found := p.voiceMediaActivation(call.ID, key)
+	if !found {
+		return domain.CallMediaActivation{}, domain.Conflict(
 			operation,
-			"line call media capability has not been verified",
+			"call media was not prepared before the call control command",
 		)
-	}
-	activation, shouldActivate := p.beginVoiceMediaActivation(call.ID, key, result)
-	if shouldActivate {
-		started := time.Now()
-		slog.Info(
-			"call media activation requested",
-			"component", "modemmanager",
-			"call_id", call.ID,
-			"line_id", line.ID,
-		)
-		activation.result, err = p.activateQuectelMedia(ctx, operation, path, result)
-		p.storeVoiceMediaActivation(call.ID, activation)
-		logArgs := []any{
-			"component", "modemmanager",
-			"call_id", call.ID,
-			"line_id", line.ID,
-			"routing", activation.result.mediaRouting,
-			"media_available", activation.result.media,
-			"duration", time.Since(started).Round(time.Millisecond),
-		}
-		if err != nil {
-			logArgs = append(logArgs, "error", err)
-			slog.Warn("call media activation completed", logArgs...)
-		} else if activation.result.media {
-			slog.Info("call media activation completed", logArgs...)
-		} else {
-			logArgs = append(logArgs, "reason", activation.result.reason)
-			slog.Warn("call media activation completed", logArgs...)
-		}
-		p.publishChange("call-media")
 	}
 	projectVoiceProbeResult(&line, activation.result)
 	projectQuectelUACCall(&call, line, activation.result)
@@ -431,20 +488,76 @@ func (p *Provider) storeVoiceMediaActivation(
 	p.voiceProbeMu.Unlock()
 }
 
-func (p *Provider) pruneVoiceMediaActivations(calls []domain.Call) {
-	current := make(map[string]struct{}, len(calls))
-	for _, call := range calls {
+func (p *Provider) deleteVoiceMediaActivation(callID string) {
+	p.voiceProbeMu.Lock()
+	delete(p.voiceMedia, callID)
+	p.voiceProbeMu.Unlock()
+}
+
+func (p *Provider) releaseEndedVoiceMedia(
+	ctx context.Context,
+	operation string,
+	parsed *ParsedObjects,
+) {
+	current := make(map[string]struct{}, len(parsed.Calls))
+	for _, call := range parsed.Calls {
 		if call.StateCode != callStateTerminated {
 			current[call.ID] = struct{}{}
 		}
 	}
+	staleLines := make(map[string]struct{})
 	p.voiceProbeMu.Lock()
-	for callID := range p.voiceMedia {
+	for callID, activation := range p.voiceMedia {
 		if _, found := current[callID]; !found {
 			delete(p.voiceMedia, callID)
+			staleLines[activation.lineID] = struct{}{}
 		}
 	}
 	p.voiceProbeMu.Unlock()
+	for lineID := range staleLines {
+		path := parsed.LinePaths[lineID]
+		if !path.IsValid() {
+			continue
+		}
+		p.disableQuectelMediaRoute(ctx, operation, path, lineID)
+	}
+}
+
+func (p *Provider) releaseLineVoiceMedia(
+	ctx context.Context,
+	operation string,
+	path dbus.ObjectPath,
+	lineID string,
+) {
+	found := false
+	p.voiceProbeMu.Lock()
+	for callID, activation := range p.voiceMedia {
+		if activation.lineID != lineID {
+			continue
+		}
+		delete(p.voiceMedia, callID)
+		found = true
+	}
+	p.voiceProbeMu.Unlock()
+	if found && path.IsValid() {
+		p.disableQuectelMediaRoute(ctx, operation, path, lineID)
+	}
+}
+
+func (p *Provider) disableQuectelMediaRoute(
+	ctx context.Context,
+	operation string,
+	path dbus.ObjectPath,
+	lineID string,
+) {
+	if _, err := p.commandATPath(ctx, path, operation, quectelPCMDisable); err != nil {
+		slog.Warn(
+			"disable PCM voice routing",
+			"component", "modemmanager",
+			"line_id", lineID,
+			"error", err,
+		)
+	}
 }
 
 func (p *Provider) clearVoiceMediaActivations() {
@@ -458,7 +571,7 @@ func projectQuectelUACCall(
 	line domain.Line,
 	result voiceProbeResult,
 ) {
-	if call == nil || !result.media {
+	if call == nil || call.StateCode != 4 || !result.media {
 		return
 	}
 	if strings.TrimSpace(call.AudioPort) != "" || call.AudioFormat != nil {
@@ -477,14 +590,17 @@ func projectQuectelUACCall(
 	call.MediaAvailable = true
 }
 
-// ReprobeVoiceCapabilities rebuilds the read-only voice model for one modem.
-// Live PCM routing remains tied to an active call and is never toggled here.
+// ReprobeVoiceCapabilities rebuilds the cached voice model for one idle modem.
+// The PCM route is enabled only for the probe and restored before returning.
 func (p *Provider) ReprobeVoiceCapabilities(ctx context.Context, lineID string) error {
 	const operation = "reprobe_voice_capabilities"
 	lineID = strings.TrimSpace(lineID)
 	if lineID == "" {
 		return domain.InvalidArgument(operation, "line id is required")
 	}
+	p.callMu.Lock()
+	defer p.callMu.Unlock()
+
 	parsed, err := p.snapshotContent(ctx, operation)
 	if err != nil {
 		return err
@@ -499,6 +615,11 @@ func (p *Provider) ReprobeVoiceCapabilities(ctx context.Context, lineID string) 
 	path, found := parsed.LinePaths[line.ID]
 	if !found || !path.IsValid() {
 		return domain.Unavailable(operation, "line AT path is unavailable", nil)
+	}
+	p.refreshATLine(ctx, operation, &line, path)
+	p.projectATCalls(ctx, operation, &parsed)
+	if lineHasCall(parsed.Calls, line.ID, "") {
+		return domain.Conflict(operation, "voice capabilities can only be reprobed while the line is idle")
 	}
 	key := voiceProbeKey(line)
 	p.voiceProbeMu.Lock()

@@ -19,8 +19,6 @@ const (
 	defaultCheckInterval  = 250 * time.Millisecond
 	defaultCommandTimeout = 5 * time.Second
 	maxControllerIDLength = 128
-	hangupAttempts        = 3
-	hangupRetryDelay      = time.Second
 )
 
 type CallController interface {
@@ -234,54 +232,68 @@ func (m *Manager) finishExpiration() {
 
 func (m *Manager) hangupAll(ctx context.Context, reason string) error {
 	ctx = normalizeContext(ctx)
+	snapshotContext, cancel := context.WithTimeout(ctx, m.timeout)
+	snapshot, err := m.controller.Snapshot(snapshotContext)
+	cancel()
+	if err != nil {
+		return fmt.Errorf("inspect calls during %s: %w", reason, err)
+	}
+
 	var result error
-	for attempt := 1; attempt <= hangupAttempts; attempt++ {
-		attemptContext, cancel := context.WithTimeout(ctx, m.timeout)
-		snapshot, err := m.controller.Snapshot(attemptContext)
-		cancel()
+	failedLines := make(map[string]struct{})
+	for _, call := range activeCalls(snapshot.Calls) {
+		if call.LineID != "" {
+			if _, failed := failedLines[call.LineID]; failed {
+				continue
+			}
+		}
+		commandContext, commandCancel := context.WithTimeout(ctx, m.timeout)
+		_, err := m.controller.HangupCall(
+			commandContext,
+			domain.CallCommandRequest{
+				RequestID: safetyRequestID(reason, call.ID),
+				CallID:    call.ID,
+			},
+		)
+		commandCancel()
 		if err != nil {
-			result = errors.Join(result, fmt.Errorf("inspect calls during %s: %w", reason, err))
-		} else {
-			active := activeCalls(snapshot.Calls)
-			if len(active) == 0 {
-				return nil
+			if call.LineID != "" {
+				failedLines[call.LineID] = struct{}{}
 			}
-			for _, call := range active {
-				commandContext, commandCancel := context.WithTimeout(ctx, m.timeout)
-				_, err := m.controller.HangupCall(
-					commandContext,
-					domain.CallCommandRequest{
-						RequestID: safetyRequestID(reason, call.ID),
-						CallID:    call.ID,
-					},
+			if errors.Is(err, domain.ErrForcedCallTermination) {
+				incident := fmt.Errorf(
+					"hang up call %s during %s required a forced modem reset: %w",
+					call.ID,
+					reason,
+					err,
 				)
-				commandCancel()
-				if err != nil {
-					result = errors.Join(
-						result,
-						fmt.Errorf("hang up call %s during %s: %w", call.ID, reason, err),
+				if m.report != nil {
+					m.report(incident)
+				} else {
+					slog.Error(
+						"control lease required forced modem reset",
+						"component", "control_lease",
+						"call_id", call.ID,
+						"line_id", call.LineID,
+						"reason", reason,
+						"error", err,
 					)
-					continue
 				}
-				slog.Warn(
-					"call ended by control lease",
-					"component", "control_lease",
-					"call_id", call.ID,
-					"line_id", call.LineID,
-					"reason", reason,
-				)
+				continue
 			}
+			result = errors.Join(
+				result,
+				fmt.Errorf("hang up call %s during %s: %w", call.ID, reason, err),
+			)
+			continue
 		}
-		if attempt == hangupAttempts {
-			break
-		}
-		timer := time.NewTimer(hangupRetryDelay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return errors.Join(result, ctx.Err())
-		case <-timer.C:
-		}
+		slog.Warn(
+			"call ended by control lease",
+			"component", "control_lease",
+			"call_id", call.ID,
+			"line_id", call.LineID,
+			"reason", reason,
+		)
 	}
 	return result
 }

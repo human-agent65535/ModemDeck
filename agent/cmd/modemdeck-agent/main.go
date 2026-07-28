@@ -208,6 +208,7 @@ func run() error {
 	defer stop()
 	go runRadioReconciler(ctx, provider)
 	go controlLease.Run(ctx)
+	go provider.RunATCallObserver(ctx)
 
 	server := &http.Server{
 		Handler: httpapi.NewWithOptions(provider, version, httpapi.Options{
