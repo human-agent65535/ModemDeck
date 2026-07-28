@@ -193,7 +193,11 @@ func (s *Service) enrich(
 		return domain.DeviceConfiguration{}, err
 	}
 	configuration.Capabilities.VoLTE = capability
-	configuration.VoLTE = domain.VoLTEConfiguration{ProfileID: driver.Capability().ProfileID}
+	provisioning := configuration.VoLTE.Provisioning
+	configuration.VoLTE = domain.VoLTEConfiguration{
+		ProfileID:    driver.Capability().ProfileID,
+		Provisioning: provisioning,
+	}
 	if capability.Readable {
 		state, err := driver.Read(ctx)
 		if err != nil {
@@ -209,6 +213,7 @@ func (s *Service) enrich(
 				ModemCapabilityEnabled: state.ModemCapabilityEnabled,
 				RestartRequired:        state.RestartRequired || s.restartPending(configuration.LineID),
 				ProfileID:              driver.Capability().ProfileID,
+				Provisioning:           provisioning,
 			}
 		}
 	}

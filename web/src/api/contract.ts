@@ -1431,6 +1431,10 @@ function parseDeviceHardwareConfiguration(value: unknown): DeviceHardwareConfigu
       : objectValue(source.details, 'hardware.details')
   const radio = objectValue(source.radio, 'hardware.radio')
   const volte = objectValue(source.volte, 'hardware.volte')
+  const provisioning = objectValue(
+    volte.provisioning,
+    'hardware.volte.provisioning'
+  )
   const policyValue = optionalString(volte, 'policy')
   if (policyValue && policyValue !== 'enabled' && policyValue !== 'disabled') {
     throw new Error(`hardware.volte.policy 未知：${policyValue}`)
@@ -1453,6 +1457,14 @@ function parseDeviceHardwareConfiguration(value: unknown): DeviceHardwareConfigu
   })
   const profileID = optionalString(volte, 'profile_id')
   const configurationMode = optionalString(volte, 'configuration_mode')
+  const carrierConfiguration = optionalString(
+    provisioning,
+    'carrier_configuration'
+  )
+  const carrierConfigurationRevision = optionalString(
+    provisioning,
+    'carrier_configuration_revision'
+  )
   if (
     configurationMode &&
     configurationMode !== 'automatic' &&
@@ -1524,7 +1536,40 @@ function parseDeviceHardwareConfiguration(value: unknown): DeviceHardwareConfigu
         'modem_capability_enabled'
       ),
       restart_required: optionalBoolean(volte, 'hardware.volte', 'restart_required'),
-      ...(profileID ? { profile_id: profileID } : {})
+      ...(profileID ? { profile_id: profileID } : {}),
+      provisioning: {
+        backend: requiredString(
+          provisioning,
+          'hardware.volte.provisioning',
+          'backend'
+        ),
+        carrier_configuration_reported: requiredBoolean(
+          provisioning,
+          'hardware.volte.provisioning',
+          'carrier_configuration_reported'
+        ),
+        carrier_configuration_revision_reported: requiredBoolean(
+          provisioning,
+          'hardware.volte.provisioning',
+          'carrier_configuration_revision_reported'
+        ),
+        ims_profile_reported: requiredBoolean(
+          provisioning,
+          'hardware.volte.provisioning',
+          'ims_profile_reported'
+        ),
+        ims_profile_present: requiredBoolean(
+          provisioning,
+          'hardware.volte.provisioning',
+          'ims_profile_present'
+        ),
+        ...(carrierConfiguration
+          ? { carrier_configuration: carrierConfiguration }
+          : {}),
+        ...(carrierConfigurationRevision
+          ? { carrier_configuration_revision: carrierConfigurationRevision }
+          : {})
+      }
     },
     capabilities: parseDeviceCapabilities(source.capabilities)
   }

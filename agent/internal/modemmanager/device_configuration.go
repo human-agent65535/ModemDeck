@@ -435,6 +435,14 @@ func (p *Provider) readDeviceConfiguration(
 	}
 	configuration.Capabilities = genericConfigurationCapabilities(interfaces, line)
 	configuration.Capabilities.USBReset = p.usbRecovery.Capability(line.PhysicalDevice)
+	configuration.VoLTE.Provisioning = modemManagerVoLTEProvisioning(modemProperties)
+	if _, found := interfaces[profileManagerInterface]; found {
+		profiles, profileErr := p.connectionProfilesAtPath(ctx, modemPath, operation)
+		if profileErr == nil {
+			configuration.VoLTE.Provisioning.IMSProfileReported = true
+			configuration.VoLTE.Provisioning.IMSProfilePresent = hasIMSProfile(profiles)
+		}
+	}
 	configuration.AutomaticAPN = p.resolveAutomaticAPN(
 		ctx,
 		objects,
@@ -479,6 +487,29 @@ func (p *Provider) readDeviceConfiguration(
 		)
 	}
 	return configuration, objects, modemPath, nil
+}
+
+func modemManagerVoLTEProvisioning(properties Properties) domain.VoLTEProvisioning {
+	carrierConfiguration, carrierConfigurationReported :=
+		stringProperty(properties, "CarrierConfiguration")
+	carrierRevision, carrierRevisionReported :=
+		stringProperty(properties, "CarrierConfigurationRevision")
+	return domain.VoLTEProvisioning{
+		Backend:                              "modemmanager",
+		CarrierConfiguration:                 strings.TrimSpace(carrierConfiguration),
+		CarrierConfigurationReported:         carrierConfigurationReported,
+		CarrierConfigurationRevision:         strings.TrimSpace(carrierRevision),
+		CarrierConfigurationRevisionReported: carrierRevisionReported,
+	}
+}
+
+func hasIMSProfile(profiles []domain.ConnectionProfile) bool {
+	for _, profile := range profiles {
+		if strings.EqualFold(strings.TrimSpace(profile.APN), "ims") {
+			return true
+		}
+	}
+	return false
 }
 
 func genericConfigurationCapabilities(

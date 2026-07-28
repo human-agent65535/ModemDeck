@@ -294,12 +294,27 @@ const selectedCallBearer = computed(() => {
       return ''
   }
 })
+const selectedLineVoLTEConfigured = computed(() => {
+  const volte = hardware.value?.volte
+  if (!volte?.policy_known || volte.policy !== 'enabled') return false
+  if (volte.modem_capability_known && !volte.modem_capability_enabled) return false
+  const provisioning = volte.provisioning
+  if (provisioning.ims_profile_reported && !provisioning.ims_profile_present) {
+    return false
+  }
+  const modemManagerProvisioned =
+    provisioning.carrier_configuration_reported &&
+    Boolean(provisioning.carrier_configuration) &&
+    provisioning.ims_profile_reported &&
+    provisioning.ims_profile_present
+  return (
+    (volte.modem_capability_known && volte.modem_capability_enabled) ||
+    modemManagerProvisioned
+  )
+})
 const selectedCallPathLabel = computed(() => {
   if (selectedCallBearer.value) return selectedCallBearer.value
-  const volte = hardware.value?.volte
-  return volte?.modem_capability_known && volte.modem_capability_enabled
-    ? 'VoLTE'
-    : 'GSM'
+  return selectedLineVoLTEConfigured.value ? 'VoLTE' : 'GSM'
 })
 
 function networkRuntime(line: LineSummary) {
@@ -350,10 +365,34 @@ const volteStatusLabel = computed(() => {
       ? t('device.disabledPending')
       : t('device.disabled')
   }
-  if (volte.modem_capability_known && !volte.modem_capability_enabled) {
+  if (
+    (volte.modem_capability_known && !volte.modem_capability_enabled) ||
+    (volte.provisioning.ims_profile_reported &&
+      !volte.provisioning.ims_profile_present)
+  ) {
     return t('device.enabledNetworkUnavailable')
   }
   return t('device.enabled')
+})
+const volteCarrierConfiguration = computed(() => {
+  const provisioning = hardware.value?.volte.provisioning
+  if (
+    !provisioning?.carrier_configuration_reported ||
+    !provisioning.carrier_configuration
+  ) {
+    return t('device.notReported')
+  }
+  return provisioning.carrier_configuration_revision_reported &&
+    provisioning.carrier_configuration_revision
+    ? `${provisioning.carrier_configuration} · ${provisioning.carrier_configuration_revision}`
+    : provisioning.carrier_configuration
+})
+const volteIMSProfile = computed(() => {
+  const provisioning = hardware.value?.volte.provisioning
+  if (!provisioning?.ims_profile_reported) return t('device.notReported')
+  return provisioning.ims_profile_present
+    ? t('device.detected')
+    : t('device.notDetected')
 })
 const volteStatusDetail = computed(() => {
   const capability = hardware.value?.capabilities.volte
@@ -2071,6 +2110,16 @@ onMounted(() => {
                 />
               </span>
             </label>
+            <dl class="configuration-facts volte-provisioning">
+              <div>
+                <dt>{{ t('device.carrierConfiguration') }}</dt>
+                <dd>{{ volteCarrierConfiguration }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('device.imsProfile') }}</dt>
+                <dd>{{ volteIMSProfile }}</dd>
+              </div>
+            </dl>
             <div
               v-if="hardware.volte.restart_required"
               class="restart-required"
@@ -2728,6 +2777,15 @@ onMounted(() => {
   background: #fff7e8;
   border: 1px solid #e9bd72;
   border-radius: 6px;
+}
+
+.volte-provisioning {
+  width: 100%;
+  max-width: 680px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding-top: 12px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
 }
 
 .usb-recovery {

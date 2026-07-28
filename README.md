@@ -98,10 +98,12 @@ AT+QCFG="usbcfg",0x2C7C,0x0125,1,1,1,1,1,0,1
 
 ### Quectel 语音与 VoLTE
 
-系统只为 Quectel 官方 QCFG 手册列出的 EC20/EC21/EC25、EG21/EG25、
-EG91/EG95 和 EM05 系列加载 VoLTE 配置。启用和关闭分别写入
+系统只为已验证的 QCFG IMS 家族加载 VoLTE 配置：Quectel 官方手册列出的
+EC20/EC21/EC25、EG21/EG25、EG91/EG95、EM05，以及实机验证过的 QDC507。
+启用和关闭分别写入
 `AT+QCFG="ims",1` 与 `AT+QCFG="ims",2`，重启后生效。配置成功不等于 IMS
-已注册，也不能证明实时通话的承载或音频路径。
+已注册，也不能证明实时通话的承载或音频路径。ModemManager 报告的运营商配置
+和 ProfileManager 中的 IMS profile 会作为独立只读信息显示。
 
 呼叫控制和媒体能力单独探测。已验证的 `usbcfg` 末位 `1` 允许系统发布拨号、
 接听和挂断能力；`AT+QPCMV=1,2` 成功并回读为 `1,2` 才发布模组媒体路由能力。
@@ -110,10 +112,9 @@ EG91/EG95 和 EM05 系列加载 VoLTE 配置。启用和关闭分别写入
 `QDC507GLEFM21` 是定制固件，不是标准 EC25/EG25 版本。已确认刷入标准
 EC25/EG25 固件会使 QDC507 变砖，严禁刷入。
 
-当前实测 QDC507 的 `usbcfg` 末位为 `0`，无法可靠拨号，来电也会立即断开；
-`AT+QPCMV=1,2` 同时返回 `ERROR`。ModemManager 暴露的 Voice 接口因此只作为
-原始诊断信息，不会让该线路进入拨号盘，也不会被显示为可通话。QDC507 不匹配
-标准 Quectel VoLTE 配置。
+QDC507 的通话控制仍按每块设备的 `usbcfg` 回读结果发布，不能仅凭型号启用。
+当前实测固件的 `AT+QPCMV=1,2` 返回 `ERROR`，因此尚未验证 QDC507 的浏览器
+双向音频路径。
 
 ### eSIM/eUICC
 
@@ -294,11 +295,13 @@ usable sound device.
 
 ### Quectel voice and VoLTE
 
-The system loads its VoLTE configuration only for the EC20/EC21/EC25,
-EG21/EG25, EG91/EG95, and EM05 families listed by Quectel's QCFG manual.
-Enable and disable write `AT+QCFG="ims",1` and `AT+QCFG="ims",2`
-respectively and take effect after restart. A successful configuration does
-not prove IMS registration, the live-call bearer, or an audio path.
+The system loads VoLTE configuration only for verified QCFG IMS families:
+EC20/EC21/EC25, EG21/EG25, EG91/EG95, and EM05 from Quectel's QCFG manual,
+plus the field-verified QDC507 family. Enable and disable write
+`AT+QCFG="ims",1` and `AT+QCFG="ims",2` respectively and take effect after
+restart. A successful configuration does not prove IMS registration, the
+live-call bearer, or an audio path. Carrier configuration and IMS profiles
+reported by ModemManager are displayed as separate read-only facts.
 
 Call control and media are probed separately. A verified final `usbcfg` value
 of `1` allows dialing, answering, and hangup capabilities to be published.
@@ -310,11 +313,10 @@ device and a configured media bridge.
 standard EC25/EG25 firmware has been confirmed to brick QDC507 and must never
 be attempted.
 
-The tested QDC507 currently reports a final `usbcfg` value of `0`, cannot dial
-reliably, drops incoming calls immediately, and rejects `AT+QPCMV=1,2`.
-ModemManager's exposed Voice interface is therefore retained only as raw
-diagnostic evidence: the line is excluded from the dialer and is not presented
-as call-capable. QDC507 does not match the standard Quectel VoLTE profile.
+QDC507 call control is published per device only after its `usbcfg` value is
+read back; the model name alone never enables calling. The currently tested
+firmware rejects `AT+QPCMV=1,2`, so a QDC507 browser bidirectional audio path
+has not been verified.
 
 ### eSIM/eUICC
 

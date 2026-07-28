@@ -20,8 +20,14 @@ test('module voice settings show an observed bearer or a capability-confirmed pa
   assert.match(source, /case 'gsm':[\s\S]*case 'cs':[\s\S]*return 'GSM \/ CS'/)
   assert.match(
     source,
-    /volte\?\.modem_capability_known[\s\S]*volte\.modem_capability_enabled[\s\S]*\? 'VoLTE'[\s\S]*: 'GSM'/
+    /const selectedLineVoLTEConfigured = computed[\s\S]*volte\.policy !== 'enabled'[\s\S]*provisioning\.ims_profile_reported[\s\S]*provisioning\.ims_profile_present/
   )
+  assert.match(
+    source,
+    /return selectedLineVoLTEConfigured\.value \? 'VoLTE' : 'GSM'/
+  )
+  assert.match(source, /t\('device\.carrierConfiguration'\)/)
+  assert.match(source, /t\('device\.imsProfile'\)/)
   assert.doesNotMatch(source, /'无通话'/)
   assert.doesNotMatch(source, /'待接通'/)
   assert.match(source, /\{\{ selectedCallPathLabel \}\}/)

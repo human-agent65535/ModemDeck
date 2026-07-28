@@ -34,6 +34,8 @@ type configurationCaller struct {
 	externalCalls        map[dbus.ObjectPath]Properties
 	objectSnapshots      []ManagedObjects
 	objectSnapshotIndex  int
+	connectionProfiles   []map[string]dbus.Variant
+	connectionProfileErr error
 }
 
 type recordingDataPlane struct {
@@ -201,6 +203,11 @@ func (caller *configurationCaller) Call(
 		caller.objects[testModemPath][modemInterface]["Bearers"] =
 			dbus.MakeVariant([]dbus.ObjectPath{})
 		return []any{}, nil
+	case profileManagerInterface + ".List":
+		if caller.connectionProfileErr != nil {
+			return nil, caller.connectionProfileErr
+		}
+		return []any{caller.connectionProfiles}, nil
 	case propertiesInterface + ".GetAll":
 		if destination == serviceName {
 			if len(args) == 1 && args[0] == callInterface {
@@ -333,6 +340,80 @@ func TestDeviceConfigurationReadsGenericModemManagerState(t *testing.T) {
 		caller.methods(),
 		objectManagerInterface+".GetManagedObjects",
 	)
+}
+
+func TestDeviceConfigurationReadsModemManagerVoLTEProvisioning(t *testing.T) {
+	t.Parallel()
+
+	objects := configurationObjects()
+	modem := objects[testModemPath][modemInterface]
+	modem["CarrierConfiguration"] = dbus.MakeVariant("CU-VoLTE")
+	modem["CarrierConfigurationRevision"] = dbus.MakeVariant("05011508")
+	objects[testModemPath][profileManagerInterface] = Properties{}
+	caller := &configurationCaller{
+		objects: objects,
+		connectionProfiles: []map[string]dbus.Variant{
+			{
+				"profile-id": dbus.MakeVariant(int32(1)),
+				"apn":        dbus.MakeVariant("3gnet"),
+				"ip-type":    dbus.MakeVariant(uint32(bearerIPFamilyIPv4V6)),
+			},
+			{
+				"profile-id": dbus.MakeVariant(int32(5)),
+				"apn":        dbus.MakeVariant("IMS"),
+				"ip-type":    dbus.MakeVariant(uint32(bearerIPFamilyIPv4V6)),
+			},
+		},
+	}
+	provider := newTestProvider(caller)
+
+	configuration, err := provider.ReadDeviceConfiguration(
+		context.Background(),
+		parsedLineID(objects, provider.ids),
+	)
+	if err != nil {
+		t.Fatalf("ReadDeviceConfiguration() error = %v", err)
+	}
+	provisioning := configuration.VoLTE.Provisioning
+	if provisioning.Backend != "modemmanager" ||
+		!provisioning.CarrierConfigurationReported ||
+		provisioning.CarrierConfiguration != "CU-VoLTE" ||
+		!provisioning.CarrierConfigurationRevisionReported ||
+		provisioning.CarrierConfigurationRevision != "05011508" ||
+		!provisioning.IMSProfileReported ||
+		!provisioning.IMSProfilePresent {
+		t.Fatalf("VoLTE provisioning = %+v", provisioning)
+	}
+	assertConfigurationMethods(
+		t,
+		caller.methods(),
+		objectManagerInterface+".GetManagedObjects",
+		profileManagerInterface+".List",
+	)
+}
+
+func TestDeviceConfigurationKeepsOptionalIMSProfileFailureUnknown(t *testing.T) {
+	t.Parallel()
+
+	objects := configurationObjects()
+	objects[testModemPath][profileManagerInterface] = Properties{}
+	caller := &configurationCaller{
+		objects:              objects,
+		connectionProfileErr: errors.New("profile manager unavailable"),
+	}
+	provider := newTestProvider(caller)
+
+	configuration, err := provider.ReadDeviceConfiguration(
+		context.Background(),
+		parsedLineID(objects, provider.ids),
+	)
+	if err != nil {
+		t.Fatalf("ReadDeviceConfiguration() error = %v", err)
+	}
+	if configuration.VoLTE.Provisioning.IMSProfileReported ||
+		configuration.VoLTE.Provisioning.IMSProfilePresent {
+		t.Fatalf("VoLTE provisioning = %+v", configuration.VoLTE.Provisioning)
+	}
 }
 
 func TestDeviceConfigurationDoesNotAdvertiseUnverifiedQuectelVoice(t *testing.T) {

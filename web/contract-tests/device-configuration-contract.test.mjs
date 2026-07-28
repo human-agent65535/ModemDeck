@@ -275,7 +275,7 @@ test('device configuration rejects invented or malformed hardware telemetry', as
   )
 })
 
-test('VoLTE configuration keeps policy and modem capability separate', async () => {
+test('VoLTE configuration separates policy, modem capability, and provisioning', async () => {
   const configuration = await createFixtureGateway().getDeviceConfiguration(
     'line-fixture-main'
   )
@@ -293,6 +293,13 @@ test('VoLTE configuration keeps policy and modem capability separate', async () 
   assert.equal(parsed.hardware?.volte.modem_capability_known, true)
   assert.equal(parsed.hardware?.volte.modem_capability_enabled, false)
   assert.equal(parsed.hardware?.volte.restart_required, true)
+  assert.equal(parsed.hardware?.volte.provisioning.backend, 'modemmanager')
+  assert.equal(
+    parsed.hardware?.volte.provisioning.carrier_configuration,
+    'Fixture-VoLTE'
+  )
+  assert.equal(parsed.hardware?.volte.provisioning.ims_profile_reported, true)
+  assert.equal(parsed.hardware?.volte.provisioning.ims_profile_present, true)
 })
 
 test('global call settings contain only preference and revision', async () => {

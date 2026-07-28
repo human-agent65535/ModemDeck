@@ -74,13 +74,24 @@ type DataConnection struct {
 }
 
 type VoLTEConfiguration struct {
-	PolicyKnown            bool   `json:"policy_known"`
-	Policy                 string `json:"policy,omitempty"`
-	ConfigurationMode      string `json:"configuration_mode,omitempty"`
-	ModemCapabilityKnown   bool   `json:"modem_capability_known"`
-	ModemCapabilityEnabled bool   `json:"modem_capability_enabled"`
-	RestartRequired        bool   `json:"restart_required"`
-	ProfileID              string `json:"profile_id,omitempty"`
+	PolicyKnown            bool              `json:"policy_known"`
+	Policy                 string            `json:"policy,omitempty"`
+	ConfigurationMode      string            `json:"configuration_mode,omitempty"`
+	ModemCapabilityKnown   bool              `json:"modem_capability_known"`
+	ModemCapabilityEnabled bool              `json:"modem_capability_enabled"`
+	RestartRequired        bool              `json:"restart_required"`
+	ProfileID              string            `json:"profile_id,omitempty"`
+	Provisioning           VoLTEProvisioning `json:"provisioning"`
+}
+
+type VoLTEProvisioning struct {
+	Backend                              string `json:"backend"`
+	CarrierConfiguration                 string `json:"carrier_configuration,omitempty"`
+	CarrierConfigurationReported         bool   `json:"carrier_configuration_reported"`
+	CarrierConfigurationRevision         string `json:"carrier_configuration_revision,omitempty"`
+	CarrierConfigurationRevisionReported bool   `json:"carrier_configuration_revision_reported"`
+	IMSProfileReported                   bool   `json:"ims_profile_reported"`
+	IMSProfilePresent                    bool   `json:"ims_profile_present"`
 }
 
 type DeviceConfigurationCapabilities struct {

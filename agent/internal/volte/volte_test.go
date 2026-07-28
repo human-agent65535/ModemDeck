@@ -138,10 +138,12 @@ func TestDecodeQuectelIMSPreservesConfigurationAndCapability(t *testing.T) {
 	}
 }
 
-func TestQuectelQCFGProfileMatchesOnlyDocumentedFamilies(t *testing.T) {
+func TestQuectelQCFGProfileMatchesDocumentedAndVerifiedFamilies(t *testing.T) {
 	t.Parallel()
 	registry := mustRegistry(t, QuectelLTEStandardQCFGIMSProfile())
 	for _, identity := range []Identity{
+		{Firmware: "QDC507GLEFM21_01.001.02.004"},
+		{Model: "QDC507"},
 		{Firmware: "EC20CEFAGR06A10M1G"},
 		{Firmware: "EC21EUXGAR06A07M1G"},
 		{Firmware: "EC25EUXGAR08A01M1G"},
@@ -157,10 +159,8 @@ func TestQuectelQCFGProfileMatchesOnlyDocumentedFamilies(t *testing.T) {
 	}
 	for _, identity := range []Identity{
 		{Firmware: "RM520NGLAAR03A03M4G"},
-		{Firmware: "QDC507GLEFM21"},
 		{Firmware: "EC200UEUABR03A01M08"},
 		{Model: "EG96"},
-		{Model: "QDC507"},
 		{Model: "SIM7600"},
 		{Model: "EG25ish"},
 	} {

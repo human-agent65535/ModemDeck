@@ -127,6 +127,14 @@ func (p *Provider) ConnectionProfiles(
 	if _, found := interfaces[profileManagerInterface]; !found {
 		return nil, domain.NotSupported(operation, "line does not expose the ModemManager ProfileManager interface")
 	}
+	return p.connectionProfilesAtPath(ctx, linePath, operation)
+}
+
+func (p *Provider) connectionProfilesAtPath(
+	ctx context.Context,
+	linePath dbus.ObjectPath,
+	operation string,
+) ([]domain.ConnectionProfile, error) {
 	body, err := p.call(
 		ctx,
 		linePath,

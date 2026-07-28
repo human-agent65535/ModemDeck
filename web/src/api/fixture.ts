@@ -552,6 +552,15 @@ function fixtureHardware(line: LineSummary, index: number): DeviceHardwareConfig
       modem_capability_known: volteAvailable,
       modem_capability_enabled: volteAvailable,
       restart_required: false,
+      provisioning: {
+        backend: 'modemmanager',
+        carrier_configuration: volteAvailable ? 'Fixture-VoLTE' : 'Fixture-Generic',
+        carrier_configuration_reported: true,
+        carrier_configuration_revision: '1',
+        carrier_configuration_revision_reported: true,
+        ims_profile_reported: true,
+        ims_profile_present: volteAvailable
+      },
       ...(volteAvailable
         ? {
             policy: 'enabled' as const,

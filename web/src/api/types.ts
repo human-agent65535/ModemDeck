@@ -759,6 +759,17 @@ export type VoLTEConfiguration = {
   modem_capability_enabled: boolean
   restart_required: boolean
   profile_id?: string
+  provisioning: VoLTEProvisioning
+}
+
+export type VoLTEProvisioning = {
+  backend: string
+  carrier_configuration?: string
+  carrier_configuration_reported: boolean
+  carrier_configuration_revision?: string
+  carrier_configuration_revision_reported: boolean
+  ims_profile_reported: boolean
+  ims_profile_present: boolean
 }
 
 export type DeviceConfigurationCapabilities = {

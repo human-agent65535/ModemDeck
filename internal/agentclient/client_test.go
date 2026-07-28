@@ -326,7 +326,16 @@ func TestDeviceConfigurationReadsAndAppliesTypedContract(t *testing.T) {
 				"modem_capability_known":true,
 				"modem_capability_enabled":false,
 				"restart_required":true,
-				"profile_id":"qdc507glefm21-qcfg-ims"
+				"profile_id":"quectel-lte-standard-qcfg-ims",
+				"provisioning":{
+					"backend":"modemmanager",
+					"carrier_configuration":"CU-VoLTE",
+					"carrier_configuration_reported":true,
+					"carrier_configuration_revision":"05011508",
+					"carrier_configuration_revision_reported":true,
+					"ims_profile_reported":true,
+					"ims_profile_present":true
+				}
 			},
 			"capabilities":{
 				"radio":{"backend":"modemmanager","supported":true,"implemented":true,"readable":true,"writable":true},
@@ -355,7 +364,10 @@ func TestDeviceConfigurationReadsAndAppliesTypedContract(t *testing.T) {
 		configuration.VoLTE.ConfigurationMode != "forced_enabled" ||
 		!configuration.VoLTE.ModemCapabilityKnown ||
 		configuration.VoLTE.ModemCapabilityEnabled ||
-		!configuration.VoLTE.RestartRequired {
+		!configuration.VoLTE.RestartRequired ||
+		configuration.VoLTE.Provisioning.Backend != "modemmanager" ||
+		configuration.VoLTE.Provisioning.CarrierConfiguration != "CU-VoLTE" ||
+		!configuration.VoLTE.Provisioning.IMSProfilePresent {
 		t.Fatalf("configuration = %+v", configuration)
 	}
 	if !configuration.Capabilities.USBReset.Writable ||

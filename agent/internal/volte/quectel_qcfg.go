@@ -12,7 +12,8 @@ import (
 const QuectelLTEStandardQCFGIMSProfileID = "quectel-lte-standard-qcfg-ims"
 
 // QuectelLTEStandardQCFGIMSProfile covers the EC2x, EG2x, EG9x, and EM05
-// families named by Quectel's QCFG command manual.
+// families named by Quectel's QCFG command manual plus the field-verified
+// QDC507 family. Every write is still verified through the same read command.
 func QuectelLTEStandardQCFGIMSProfile() Profile {
 	return Profile{
 		ID:                   QuectelLTEStandardQCFGIMSProfileID,
@@ -26,6 +27,7 @@ func QuectelLTEStandardQCFGIMSProfile() Profile {
 
 func matchesQuectelLTEStandardQCFG(identity Identity) bool {
 	documentedModels := []string{
+		"QDC507",
 		"EC20",
 		"EC21",
 		"EC25",

@@ -86,7 +86,22 @@ func TestMatchedVoLTEReadFailureKeepsGenericConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRegistry() error = %v", err)
 	}
-	generic := &fakeGenericProvider{configuration: baseConfiguration(t, identity)}
+	genericConfiguration := baseConfiguration(t, identity)
+	genericConfiguration.VoLTE.Provisioning = domain.VoLTEProvisioning{
+		Backend:                              "modemmanager",
+		CarrierConfiguration:                 "CU-VoLTE",
+		CarrierConfigurationReported:         true,
+		CarrierConfigurationRevision:         "05011508",
+		CarrierConfigurationRevisionReported: true,
+		IMSProfileReported:                   true,
+		IMSProfilePresent:                    true,
+	}
+	genericConfiguration.Revision, err =
+		domain.RevisionDeviceConfiguration(genericConfiguration)
+	if err != nil {
+		t.Fatalf("RevisionDeviceConfiguration() error = %v", err)
+	}
+	generic := &fakeGenericProvider{configuration: genericConfiguration}
 	at := &fakeATTransport{readErr: fmt.Errorf("ModemManager command disabled")}
 	service, err := New(
 		generic,
@@ -268,7 +283,22 @@ func TestMatchedVoLTEProfileReadsAppliesAndVerifies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRegistry() error = %v", err)
 	}
-	generic := &fakeGenericProvider{configuration: baseConfiguration(t, identity)}
+	genericConfiguration := baseConfiguration(t, identity)
+	genericConfiguration.VoLTE.Provisioning = domain.VoLTEProvisioning{
+		Backend:                              "modemmanager",
+		CarrierConfiguration:                 "CU-VoLTE",
+		CarrierConfigurationReported:         true,
+		CarrierConfigurationRevision:         "05011508",
+		CarrierConfigurationRevisionReported: true,
+		IMSProfileReported:                   true,
+		IMSProfilePresent:                    true,
+	}
+	genericConfiguration.Revision, err =
+		domain.RevisionDeviceConfiguration(genericConfiguration)
+	if err != nil {
+		t.Fatalf("RevisionDeviceConfiguration() error = %v", err)
+	}
+	generic := &fakeGenericProvider{configuration: genericConfiguration}
 	at := &fakeATTransport{policy: volte.PolicyDisabled}
 	service, err := New(
 		generic,
@@ -288,7 +318,9 @@ func TestMatchedVoLTEProfileReadsAppliesAndVerifies(t *testing.T) {
 		!current.Capabilities.VoLTE.Readable ||
 		!current.Capabilities.VoLTE.Writable ||
 		current.VoLTE.Policy != "disabled" ||
-		current.VoLTE.ProfileID != profile.ID {
+		current.VoLTE.ProfileID != profile.ID ||
+		!current.VoLTE.Provisioning.IMSProfilePresent ||
+		current.VoLTE.Provisioning.CarrierConfiguration != "CU-VoLTE" {
 		t.Fatalf("unexpected exact-profile configuration: %+v", current)
 	}
 	updated, err := service.ApplyDeviceConfiguration(
@@ -306,6 +338,7 @@ func TestMatchedVoLTEProfileReadsAppliesAndVerifies(t *testing.T) {
 	}
 	if updated.VoLTE.Policy != "enabled" ||
 		!updated.VoLTE.RestartRequired ||
+		!updated.VoLTE.Provisioning.IMSProfilePresent ||
 		generic.applyCalls != 0 {
 		t.Fatalf("updated configuration = %+v, generic apply calls = %d", updated, generic.applyCalls)
 	}
