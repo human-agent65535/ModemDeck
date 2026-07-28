@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bufio"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -32,14 +33,19 @@ func TestEventsStreamsReadyAndProviderChanges(t *testing.T) {
 		events:       make(chan domain.ChangeEvent, 1),
 		subscribed:   make(chan struct{}),
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	request := httptest.NewRequest(http.MethodGet, "/v1/events", nil).WithContext(ctx)
-	recorder := httptest.NewRecorder()
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		New(provider, "test").ServeHTTP(recorder, request)
-	}()
+	server := httptest.NewServer(New(provider, "test"))
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/v1/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
 
 	select {
 	case <-provider.subscribed:
@@ -51,25 +57,32 @@ func TestEventsStreamsReadyAndProviderChanges(t *testing.T) {
 		Source:     "org.freedesktop.DBus.Properties.PropertiesChanged",
 		ObservedAt: time.Date(2026, 7, 28, 12, 0, 0, 0, time.UTC),
 	}
-	deadline := time.Now().Add(time.Second)
-	for !strings.Contains(recorder.Body.String(), "event: change") && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("event handler did not stop after cancellation")
-	}
 
-	if contentType := recorder.Header().Get("Content-Type"); contentType != "text/event-stream" {
+	if contentType := response.Header.Get("Content-Type"); contentType != "text/event-stream" {
 		t.Fatalf("Content-Type = %q", contentType)
 	}
-	body := recorder.Body.String()
-	if !strings.Contains(body, "event: ready\ndata: {}") ||
-		!strings.Contains(body, "event: change") ||
-		!strings.Contains(body, `"sequence":1`) {
-		t.Fatalf("unexpected event stream: %q", body)
+	reader := bufio.NewReader(response.Body)
+	ready := readSSEFrame(t, reader)
+	change := readSSEFrame(t, reader)
+	if !strings.Contains(ready, "event: ready\ndata: {}") ||
+		!strings.Contains(change, "event: change") ||
+		!strings.Contains(change, `"sequence":1`) {
+		t.Fatalf("unexpected event stream: ready=%q change=%q", ready, change)
+	}
+}
+
+func readSSEFrame(t *testing.T, reader *bufio.Reader) string {
+	t.Helper()
+	var frame strings.Builder
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("read SSE frame: %v", err)
+		}
+		if line == "\n" {
+			return strings.TrimSuffix(frame.String(), "\n")
+		}
+		frame.WriteString(line)
 	}
 }
 
