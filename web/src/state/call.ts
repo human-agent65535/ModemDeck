@@ -1,4 +1,4 @@
-import { reactive } from 'vue'
+import { reactive, watch } from 'vue'
 import type { Router } from 'vue-router'
 import { gateway } from '../api/client'
 import type { CallAction, CallSession, ResourceStatus } from '../api/types'
@@ -8,9 +8,16 @@ import { showBrowserNotification } from './browserNotifications'
 import { syncCallSounds } from './browserSounds'
 import { capabilityReason, contactForNumber, lineForKey, lineLabel } from './workspace'
 import { closeDialer, showCallSurface } from './ui'
-import { shutdownCallMedia, syncCallMedia } from './callMedia'
+import { callMediaState, shutdownCallMedia, syncCallMedia } from './callMedia'
 
 const TERMINAL_PHASES = new Set<CallSession['phase']>(['ended', 'failed'])
+const LEASED_PHASES = new Set<CallSession['phase']>([
+  'dialing',
+  'ringing',
+  'connecting',
+  'active'
+])
+const LEASED_MEDIA_STATES = new Set(['requesting', 'connecting', 'active'])
 const NOTIFIED_CALL_HISTORY_LIMIT = 256
 
 type PendingCallAction = '' | 'dial' | CallAction | 'dtmf'
@@ -20,6 +27,9 @@ let activeCallRefreshRequested = false
 let activeCallRefreshLoop: Promise<void> | undefined
 let mutationEpoch = 0
 let activeRouter: Router | undefined
+let callLeaseRenewal: Promise<void> | undefined
+let callLeaseRenewalCallID = ''
+let callLeaseRenewalGeneration = 0
 const notifiedIncomingCallIDs = new Set<string>()
 
 export const callState = reactive<{
@@ -56,8 +66,54 @@ function acceptSession(session: CallSession): void {
   if (newCall) showCallSurface()
   syncCallSounds(session)
   syncCallMedia(session)
+  void renewActiveCallLease()
   showIncomingCallNotification(session)
 }
+
+function sessionCanRenewBrowserLease(session: CallSession): boolean {
+  if (!LEASED_PHASES.has(session.phase)) return false
+  if (session.phase !== 'active' || !session.media_available) return true
+  return LEASED_MEDIA_STATES.has(callMediaState.status)
+}
+
+export function renewActiveCallLease(): Promise<void> {
+  const session = callState.session
+  if (!session || !sessionCanRenewBrowserLease(session)) return Promise.resolve()
+  if (callLeaseRenewal && callLeaseRenewalCallID === session.id) {
+    return callLeaseRenewal
+  }
+
+  const callID = session.id
+  const generation = ++callLeaseRenewalGeneration
+  const operation = gateway
+    .renewCallLease(callID)
+    .then(() => undefined)
+    .catch(error => {
+      if (
+        callState.session?.id === callID &&
+        error instanceof ApiError &&
+        (error.status === 404 || error.status === 409)
+      ) {
+        void requestActiveCallRefresh()
+      }
+    })
+    .finally(() => {
+      if (callLeaseRenewalGeneration === generation) {
+        callLeaseRenewal = undefined
+        callLeaseRenewalCallID = ''
+      }
+    })
+  callLeaseRenewalCallID = callID
+  callLeaseRenewal = operation
+  return operation
+}
+
+watch(
+  () => callMediaState.status,
+  status => {
+    if (LEASED_MEDIA_STATES.has(status)) void renewActiveCallLease()
+  }
+)
 
 export function claimIncomingCallNotification(
   session: CallSession,
@@ -164,6 +220,9 @@ export function shutdownCallRuntime(): void {
   activeCallRefreshRequested = false
   activeRouter = undefined
   mutationEpoch += 1
+  callLeaseRenewalGeneration += 1
+  callLeaseRenewal = undefined
+  callLeaseRenewalCallID = ''
   syncCallSounds(null)
   shutdownCallMedia()
   callState.session = null

@@ -20,6 +20,7 @@ export type CallMediaStatus =
   | 'unavailable'
   | 'requesting'
   | 'connecting'
+  | 'recovering'
   | 'active'
   | 'error'
 
@@ -243,6 +244,7 @@ async function connect(callID: string, token: number): Promise<void> {
     markAudioInputActive()
 
     const connection = new RTCPeerConnection()
+    let recovering = false
     peer = connection
     remoteStream = new MediaStream()
     attachRemoteAudio(remoteStream)
@@ -260,12 +262,15 @@ async function connect(callID: string, token: number): Promise<void> {
     connection.onconnectionstatechange = () => {
       if (generation !== token || currentCallID !== callID) return
       if (connection.connectionState === 'connected') {
+        recovering = false
         callMediaState.status = 'active'
         callMediaState.error = ''
       } else if (connection.connectionState === 'connecting') {
-        callMediaState.status = 'connecting'
+        callMediaState.status = recovering ? 'recovering' : 'connecting'
       } else if (connection.connectionState === 'disconnected') {
-        failConnection(callID, token, new Error(translate('runtime.callAudioDisconnected')))
+        recovering = true
+        callMediaState.status = 'recovering'
+        callMediaState.error = ''
       } else if (connection.connectionState === 'failed') {
         failConnection(callID, token, new Error(translate('runtime.callAudioConnectionFailed')))
       }

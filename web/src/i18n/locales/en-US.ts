@@ -361,6 +361,7 @@ export default {
     serverAudioUnavailable: 'Server audio is unavailable',
     requestingMicrophone: 'Requesting microphone access',
     connectingBrowserAudio: 'Connecting browser audio',
+    reconnectingBrowserAudio: 'Reconnecting browser audio',
     browserAudioConnected: 'Browser audio connected',
     applyingRecording: 'Applying recording setting',
     recordingActive: 'Recording',

@@ -12,6 +12,8 @@ type runtimeHeartbeat struct {
 	At time.Time `json:"at"`
 }
 
+const runtimeHeartbeatInterval = 5 * time.Second
+
 func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.Request) {
 	if api.runtimeEvents == nil {
 		writeError(response, http.StatusServiceUnavailable, "runtime_events_unavailable", "Runtime events are unavailable", "")
@@ -64,7 +66,7 @@ func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.R
 		return
 	}
 
-	heartbeat := time.NewTicker(15 * time.Second)
+	heartbeat := time.NewTicker(runtimeHeartbeatInterval)
 	defer heartbeat.Stop()
 	for {
 		select {

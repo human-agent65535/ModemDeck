@@ -76,11 +76,11 @@ test('active calls apply output changes and replace input before stopping the ol
   assert.match(callMedia, /!session\.media_available/)
   assert.match(
     callMedia,
-    /connection\.connectionState === 'disconnected'\) \{\s*failConnection\(/
+    /connection\.connectionState === 'disconnected'\) \{[\s\S]*?callMediaState\.status = 'recovering'/
   )
   assert.doesNotMatch(
     callMedia,
-    /connection\.connectionState === 'disconnected'\) \{\s*callMediaState\.status = 'connecting'/
+    /connection\.connectionState === 'disconnected'\) \{\s*failConnection\(/
   )
 })
 

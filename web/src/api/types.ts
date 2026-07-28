@@ -106,6 +106,12 @@ export type CallSession = {
   failure_reason?: string
 }
 
+export type CallLeaseStatus = {
+  call_id: string
+  holder_id: string
+  expires_at: string
+}
+
 export type RecordingSettings = {
   default_enabled: boolean
   revision: number

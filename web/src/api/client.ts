@@ -6,10 +6,12 @@ import type {
 } from './gateway'
 import {
   callActionContract,
+  callLeaseContract,
   callMediaContract,
   callRecordingContract,
   communicationContracts,
   createCallActionPayload,
+  createCallLeasePayload,
   createCallMediaPayload,
   createCallPayload,
   createCallRecordingPayload,
@@ -29,6 +31,7 @@ import {
   createTLSSettingsPayload,
   parseActiveCallsResponse,
   parseCallMediaResponse,
+  parseCallLeaseStatus,
   parseCallRecordingState,
   parseCallRecordingsResponse,
   parseCallResponse,
@@ -150,7 +153,8 @@ const API_ROOT = '/api/v1'
 const READ_REQUEST_TIMEOUT_MS = 15_000
 const WRITE_REQUEST_TIMEOUT_MS = 60_000
 const NETWORK_SCAN_REQUEST_TIMEOUT_MS = 130_000
-const RUNTIME_EVENT_INACTIVITY_TIMEOUT_MS = 40_000
+const CALL_LEASE_REQUEST_TIMEOUT_MS = 4_000
+const RUNTIME_EVENT_INACTIVITY_TIMEOUT_MS = 12_000
 
 const runtimeEnvironment = import.meta.env
 
@@ -189,6 +193,8 @@ function requestID(): string {
   const encoded = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
   return `${encoded.slice(0, 8)}-${encoded.slice(8, 12)}-${encoded.slice(12, 16)}-${encoded.slice(16, 20)}-${encoded.slice(20)}`
 }
+
+const callLeaseHolderID = `browser-${requestID()}`
 
 export function setClientCSRFToken(token?: string): void {
   currentCSRFToken = token?.trim() || ''
@@ -1434,6 +1440,20 @@ const realGateway: ConfiguredModemDeckGateway = {
         contract.method,
         createDTMFPayload(digit, requestID()),
         contract.successStatus
+      )
+    )
+  },
+
+  async renewCallLease(id: string) {
+    const contract = callLeaseContract(id)
+    return parseCallLeaseStatus(
+      await writeJSON(
+        contract.path,
+        contract.method,
+        createCallLeasePayload(callLeaseHolderID),
+        contract.successStatus,
+        undefined,
+        CALL_LEASE_REQUEST_TIMEOUT_MS
       )
     )
   },

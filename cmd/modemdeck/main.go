@@ -16,6 +16,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
 	"github.com/human-agent65535/modemdeck/internal/agentmedia"
 	"github.com/human-agent65535/modemdeck/internal/auth"
+	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/calllifecycle"
 	"github.com/human-agent65535/modemdeck/internal/callmedia"
 	"github.com/human-agent65535/modemdeck/internal/communication"
@@ -184,7 +185,28 @@ func run(
 		_ = db.Close()
 		return fmt.Errorf("recover call recordings: %w", err)
 	}
-	callLifecycle, err := calllifecycle.New(callMedia, recordings)
+	callLeases, err := calllease.New(
+		repository,
+		communications,
+		calllease.Options{
+			Report: func(err error) {
+				logger.Warn(
+					"browser call lease failed",
+					"component",
+					"calls",
+					"error",
+					err,
+				)
+			},
+		},
+	)
+	if err != nil {
+		_ = recordings.Close(context.Background())
+		_ = mediaCore.Close(context.Background())
+		_ = db.Close()
+		return fmt.Errorf("create browser call lease manager: %w", err)
+	}
+	callLifecycle, err := calllifecycle.New(callMedia, recordings, callLeases)
 	if err != nil {
 		_ = recordings.Close(context.Background())
 		_ = mediaCore.Close(context.Background())
@@ -242,6 +264,7 @@ func run(
 		LineServices:         communications,
 		CallPolicies:         communications,
 		CallMedia:            callMedia,
+		CallLeases:           callLeases,
 		Recording:            recordings,
 		Network:              networkRuntime,
 		TelegramSettings:     telegramSettings,
@@ -273,6 +296,11 @@ func run(
 		communications.Run(signals, 30*time.Second, func(err error) {
 			logger.Warn("hardware snapshot unavailable", "component", "communications", "error", err)
 		})
+	}()
+	callLeaseDone := make(chan struct{})
+	go func() {
+		defer close(callLeaseDone)
+		callLeases.Run(signals)
 	}()
 	telegramDone := make(chan error, 1)
 	go func() {
@@ -340,6 +368,7 @@ func run(
 		}
 	}
 	<-syncDone
+	<-callLeaseDone
 	if !telegramStopped {
 		telegramErr := <-telegramDone
 		if telegramErr != nil && !errors.Is(telegramErr, context.Canceled) {

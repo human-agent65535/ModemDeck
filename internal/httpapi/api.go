@@ -10,6 +10,7 @@ import (
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
 	"github.com/human-agent65535/modemdeck/internal/auth"
+	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/communication"
 	"github.com/human-agent65535/modemdeck/internal/diagnostics"
 	"github.com/human-agent65535/modemdeck/internal/messageevents"
@@ -166,6 +167,10 @@ type CallMediaService interface {
 	CloseCall(context.Context, string) error
 }
 
+type CallLeaseService interface {
+	Renew(context.Context, string, string) (calllease.Status, error)
+}
+
 type RecordingService interface {
 	Settings(context.Context) (store.RecordingSettings, error)
 	UpdateSettings(context.Context, bool, int64) (store.RecordingSettings, error)
@@ -209,6 +214,7 @@ type Options struct {
 	LineServices          LineService
 	CallPolicies          CallPolicyService
 	CallMedia             CallMediaService
+	CallLeases            CallLeaseService
 	Recording             RecordingService
 	Network               NetworkService
 	TelegramSettings      TelegramSettingsService
@@ -236,6 +242,7 @@ type API struct {
 	lineServices         LineService
 	callPolicies         CallPolicyService
 	callMedia            CallMediaService
+	callLeases           CallLeaseService
 	recordings           RecordingService
 	network              NetworkService
 	telegram             TelegramSettingsService
@@ -278,6 +285,7 @@ func New(repository Repository, options Options) (*API, error) {
 		lineServices:         options.LineServices,
 		callPolicies:         options.CallPolicies,
 		callMedia:            options.CallMedia,
+		callLeases:           options.CallLeases,
 		recordings:           options.Recording,
 		network:              options.Network,
 		telegram:             options.TelegramSettings,
@@ -387,6 +395,10 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	default:
 		if id, ok := contactResourceID(request.URL.Path); ok {
 			api.contactResource(response, request, id)
+			return
+		}
+		if id, ok := callLeaseResourceID(request.URL.Path); ok {
+			api.renewCallLease(response, request, id)
 			return
 		}
 		if id, action, ok := callActionResource(request.URL.Path); ok {

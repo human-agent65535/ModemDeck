@@ -1323,6 +1323,15 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       return clone(activeCall)
     },
 
+    async renewCallLease(id: string) {
+      if (!activeCall || activeCall.id !== id) throw new ApiError('通话不存在', 404)
+      return {
+        call_id: id,
+        holder_id: 'fixture-browser',
+        expires_at: new Date(Date.now() + 15_000).toISOString()
+      }
+    },
+
     async exchangeCallMedia(): Promise<string> {
       throw new ApiError('测试数据未连接音频设备', 503)
     },

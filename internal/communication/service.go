@@ -279,8 +279,8 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 	if err := s.reconcileAuthoritativeCalls(refreshContext, activeCalls); err != nil {
 		return cloneStatus(status), operationError(
 			CodeInternal,
-			"reconcile call media lifecycle",
-			"terminal call media could not be closed",
+			"reconcile call lifecycle",
+			"call resources could not be reconciled",
 			err,
 		)
 	}

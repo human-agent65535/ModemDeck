@@ -192,7 +192,7 @@ test('runtime SSE is global to the authenticated application shell', async () =>
   assert.match(client, /source\.addEventListener\('runtime'/)
   assert.match(client, /source\.addEventListener\('heartbeat'/)
   assert.match(client, /source\.addEventListener\('reset'/)
-  assert.match(client, /RUNTIME_EVENT_INACTIVITY_TIMEOUT_MS = 40_000/)
+  assert.match(client, /RUNTIME_EVENT_INACTIVITY_TIMEOUT_MS = 12_000/)
   assert.match(client, /RUNTIME_RESOURCES[\s\S]*?'messages'/)
   assert.match(
     shell,
@@ -201,6 +201,8 @@ test('runtime SSE is global to the authenticated application shell', async () =>
   assert.match(shell, /shutdownRuntimeEvents\(\)/)
   assert.match(runtime, /refreshDeviceWorkspace\(\)/)
   assert.match(runtime, /loadNetwork\(true, true\)/)
+  assert.match(runtime, /onOpen:[\s\S]*?renewActiveCallLease\(\)/)
+  assert.match(runtime, /onHeartbeat:[\s\S]*?renewActiveCallLease\(\)/)
   assert.match(runtime, /case 'calls':[\s\S]*?await requestActiveCallRefresh\(\)/)
   assert.match(runtime, /refreshCalls\(\)/)
   assert.match(runtime, /case 'messages':[\s\S]*?refreshMessageWorkspace\(\)/)

@@ -2,6 +2,7 @@ import { parseCallRecord, parseMessage } from './normalize.ts'
 import type {
   CallAction,
   CallDirection,
+  CallLeaseStatus,
   CallPhase,
   CallRecording,
   CallRecordingState,
@@ -521,6 +522,12 @@ export function callMediaPath(id: string): string {
   return `${communicationPaths.calls}/${encodeURIComponent(callID)}/media`
 }
 
+export function callLeasePath(id: string): string {
+  const callID = id.trim()
+  if (!callID) throw new Error('call id 不能为空')
+  return `${communicationPaths.calls}/${encodeURIComponent(callID)}/lease`
+}
+
 export function callRecordingPath(id: string): string {
   const callID = id.trim()
   if (!callID) throw new Error('call id 不能为空')
@@ -970,6 +977,18 @@ export function callMediaContract(id: string): {
   }
 }
 
+export function callLeaseContract(id: string): {
+  method: 'PUT'
+  path: string
+  successStatus: 200
+} {
+  return {
+    method: 'PUT',
+    path: callLeasePath(id),
+    successStatus: 200
+  }
+}
+
 export function callActionContract(id: string, action: CallAction | 'dtmf'): {
   method: 'POST'
   path: string
@@ -1083,6 +1102,12 @@ export function createCallMediaPayload(offerSDP: string): { offer_sdp: string } 
   const normalizedOffer = offerSDP.trim()
   if (!normalizedOffer) throw new Error('offer_sdp 不能为空')
   return { offer_sdp: normalizedOffer }
+}
+
+export function createCallLeasePayload(holderID: string): { holder_id: string } {
+  const normalizedHolderID = holderID.trim()
+  if (!normalizedHolderID) throw new Error('holder_id 不能为空')
+  return { holder_id: normalizedHolderID }
 }
 
 export function createRecordingSettingsPayload(
@@ -1873,6 +1898,15 @@ export function parseSystemSettingsResponse(value: unknown): SystemSettings {
 export function parseCallResponse(value: unknown): CallSession {
   const source = objectValue(value, 'response')
   return parseCallSession(source.call)
+}
+
+export function parseCallLeaseStatus(value: unknown): CallLeaseStatus {
+  const source = objectValue(value, 'call_lease')
+  return {
+    call_id: requiredString(source, 'call_lease', 'call_id'),
+    holder_id: requiredString(source, 'call_lease', 'holder_id'),
+    expires_at: requiredTimestamp(source, 'call_lease', 'expires_at')
+  }
 }
 
 export function parseActiveCallsResponse(value: unknown): CallSession[] {

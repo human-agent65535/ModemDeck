@@ -2,6 +2,7 @@ import type {
   AboutInfo,
   BootstrapResponse,
   CallAction,
+  CallLeaseStatus,
   CallFilter,
   CallRecording,
   CallRecordingState,
@@ -154,6 +155,7 @@ export interface ModemDeckGateway {
   startCall(lineKey: string, number: string, recordingEnabled?: boolean): Promise<CallSession>
   callAction(id: string, action: CallAction): Promise<CallSession>
   sendDTMF(id: string, digit: string): Promise<CallSession>
+  renewCallLease(id: string): Promise<CallLeaseStatus>
   exchangeCallMedia(id: string, offerSDP: string): Promise<string>
   listRecordings(query?: ListQuery): Promise<RecordingEntry[]>
   getRecordingSettings(): Promise<RecordingSettings>

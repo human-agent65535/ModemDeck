@@ -127,11 +127,15 @@ const mediaLabel = computed(() => {
   if (callMediaState.status === 'unavailable') return t('calls.serverAudioUnavailable')
   if (callMediaState.status === 'requesting') return t('calls.requestingMicrophone')
   if (callMediaState.status === 'connecting') return t('calls.connectingBrowserAudio')
+  if (callMediaState.status === 'recovering') return t('calls.reconnectingBrowserAudio')
   if (callMediaState.status === 'active') return t('calls.browserAudioConnected')
   return ''
 })
 const mediaControllable = computed(
-  () => callMediaState.status === 'connecting' || callMediaState.status === 'active'
+  () =>
+    callMediaState.status === 'connecting' ||
+    callMediaState.status === 'recovering' ||
+    callMediaState.status === 'active'
 )
 const showMediaControls = computed(
   () =>

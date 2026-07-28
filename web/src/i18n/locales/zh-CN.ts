@@ -360,6 +360,7 @@ export default {
     serverAudioUnavailable: '服务器音频未接入',
     requestingMicrophone: '正在请求麦克风',
     connectingBrowserAudio: '正在连接浏览器音频',
+    reconnectingBrowserAudio: '正在恢复浏览器音频',
     browserAudioConnected: '浏览器音频已连接',
     applyingRecording: '应用录音设置',
     recordingActive: '录音中',

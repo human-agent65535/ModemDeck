@@ -1,7 +1,7 @@
 import { reactive, readonly } from 'vue'
 import { fixtureMode, gateway } from '../api/client'
 import type { RuntimeResource } from '../api/types'
-import { requestActiveCallRefresh } from './call'
+import { renewActiveCallLease, requestActiveCallRefresh } from './call'
 import { loadNetwork } from './network'
 import {
   refreshCalls,
@@ -96,12 +96,15 @@ export function initializeRuntimeEvents(): void {
   refreshQueue = createRuntimeRefreshQueue(refreshResource)
   closeStream = gateway.subscribeRuntimeEvents({
     onOpen: () => {
-      if (currentGeneration === generation) state.connected = true
+      if (currentGeneration !== generation) return
+      state.connected = true
+      void renewActiveCallLease()
     },
     onHeartbeat: observedAt => {
       if (currentGeneration !== generation) return
       state.connected = true
       state.lastHeartbeatAt = observedAt
+      void renewActiveCallLease()
     },
     onReady: newestID => {
       if (currentGeneration !== generation) return

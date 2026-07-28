@@ -3,6 +3,8 @@ import test from 'node:test'
 import {
   callActionPath,
   callActionContract,
+  callLeaseContract,
+  callLeasePath,
   callMediaContract,
   callMediaPath,
   callRecordingContract,
@@ -11,6 +13,7 @@ import {
   communicationContracts,
   communicationPaths,
   createCallActionPayload,
+  createCallLeasePayload,
   createCallMediaPayload,
   createCallPayload,
   createCallRecordingPayload,
@@ -20,6 +23,7 @@ import {
   createRecordingSettingsPayload,
   createTelegramUnitPayload,
   parseActiveCallsResponse,
+  parseCallLeaseStatus,
   parseCallMediaResponse,
   parseCallRecordingState,
   parseCallRecordingsResponse,
@@ -60,6 +64,7 @@ test('communication and Telegram endpoints match the root API', () => {
   })
   assert.equal(callActionPath('call / 1', 'answer'), '/api/v1/calls/call%20%2F%201/answer')
   assert.equal(callActionPath('call-1', 'dtmf'), '/api/v1/calls/call-1/dtmf')
+  assert.equal(callLeasePath('call / 1'), '/api/v1/calls/call%20%2F%201/lease')
   assert.equal(callMediaPath('call / 1'), '/api/v1/calls/call%20%2F%201/media')
   assert.equal(
     callRecordingPath('call / 1'),
@@ -112,6 +117,11 @@ test('communication and Telegram endpoints match the root API', () => {
   assert.deepEqual(callActionContract('call-1', 'reject'), {
     method: 'POST',
     path: '/api/v1/calls/call-1/reject',
+    successStatus: 200
+  })
+  assert.deepEqual(callLeaseContract('call-1'), {
+    method: 'PUT',
+    path: '/api/v1/calls/call-1/lease',
     successStatus: 200
   })
   assert.deepEqual(callMediaContract('call-1'), {
@@ -214,6 +224,9 @@ test('call and DTMF payloads use line_id, number, request_id, and digits', () =>
   assert.deepEqual(createCallActionPayload('hangup', 'request-hangup-1'), {
     request_id: 'request-hangup-1'
   })
+  assert.deepEqual(createCallLeasePayload(' browser-1 '), {
+    holder_id: 'browser-1'
+  })
   assert.deepEqual(createDTMFPayload('12#', 'request-dtmf-1'), {
     request_id: 'request-dtmf-1',
     digits: '12#'
@@ -225,6 +238,30 @@ test('call and DTMF payloads use line_id, number, request_id, and digits', () =>
   assert.deepEqual(
     createRecordingSettingsPayload({ default_enabled: true, revision: 3 }),
     { default_enabled: true, revision: 3 }
+  )
+})
+
+test('call lease status requires an active holder and a valid expiry', () => {
+  assert.deepEqual(
+    parseCallLeaseStatus({
+      call_id: 'call-1',
+      holder_id: 'browser-1',
+      expires_at: '2026-07-28T12:00:15Z'
+    }),
+    {
+      call_id: 'call-1',
+      holder_id: 'browser-1',
+      expires_at: '2026-07-28T12:00:15Z'
+    }
+  )
+  assert.throws(
+    () =>
+      parseCallLeaseStatus({
+        call_id: 'call-1',
+        holder_id: 'browser-1',
+        expires_at: 'not-a-time'
+      }),
+    /expires_at/
   )
 })
 
