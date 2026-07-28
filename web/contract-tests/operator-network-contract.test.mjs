@@ -222,7 +222,14 @@ test('service readiness requires a usable registration state', () => {
 })
 
 test('bootstrap and device decoders preserve the complete network identity', () => {
-  const line = parseLine(roamingLine())
+  const line = parseLine({
+    ...roamingLine(),
+    capabilities: {
+      ...diagnosticLineCapabilities,
+      media: true
+    }
+  })
+  assert.equal(line.capabilities?.media, true)
   assert.deepEqual(
     {
       operator: line.operator,

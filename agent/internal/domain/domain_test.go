@@ -34,6 +34,10 @@ func TestSnapshotJSONContractUsesArraysAndRequiredTruthFields(t *testing.T) {
 			IdentityPersistent:   true,
 			IdentitySource:       "physical_device+equipment_identifier",
 			SavedPolicySupported: true,
+			VoiceVerification: &VoiceRuntimeVerification{
+				USBConfiguration: "read_failed",
+				MediaRouting:     "enabled",
+			},
 		}},
 		Calls: []Call{{
 			ID:              "call_epoch_hash",
@@ -91,6 +95,7 @@ func TestSnapshotJSONContractUsesArraysAndRequiredTruthFields(t *testing.T) {
 		"saved_policy_supported",
 		"radio_desired_enabled",
 		"radio_desired_enabled_known",
+		"voice_verification",
 	} {
 		if _, ok := line[key]; !ok {
 			t.Fatalf("line JSON missing %q: %s", key, encoded)

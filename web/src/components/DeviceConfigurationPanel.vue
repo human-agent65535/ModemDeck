@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   AlertCircle,
+  AudioLines,
   Cable,
   CardSim,
   Check,
@@ -278,6 +279,52 @@ const lineIdentityDirty = computed(
     lineColorDraft.value !== selectedLineColor.value
 )
 const voiceAvailable = computed(() => lineHasCallControl(selectedLine.value))
+const voiceMediaAvailable = computed(
+  () => selectedLine.value?.capabilities?.media === true
+)
+const voiceCallControlWarning = computed(() => {
+  const status = hardware.value?.voice_verification?.usb_configuration
+  return status === 'read_failed' || status === 'invalid_response'
+})
+const voiceCallControlDetail = computed(() => {
+  const status = hardware.value?.voice_verification?.usb_configuration
+  switch (status) {
+    case 'enabled':
+      return voiceAvailable.value
+        ? t('device.usbConfigurationConfirmed')
+        : t('device.unavailable')
+    case 'disabled':
+      return t('device.usbCallControlDisabled')
+    case 'read_failed':
+      return voiceAvailable.value
+        ? t('device.availableUsbReadFailed')
+        : t('device.usbConfigurationReadFailed')
+    case 'invalid_response':
+      return voiceAvailable.value
+        ? t('device.availableUsbInvalid')
+        : t('device.usbConfigurationInvalid')
+    default:
+      return voiceAvailable.value ? t('device.available') : t('device.unavailable')
+  }
+})
+const voiceMediaDetail = computed(() => {
+  switch (hardware.value?.voice_verification?.media_routing) {
+    case 'enabled':
+      return t('device.mediaRoutingEnabled')
+    case 'disabled':
+      return t('device.mediaRoutingDisabled')
+    case 'read_failed':
+      return t('device.mediaRoutingReadFailed')
+    case 'invalid_response':
+      return t('device.mediaRoutingInvalid')
+    case 'rejected':
+      return t('device.mediaRoutingRejected')
+    case 'inactive':
+      return t('device.mediaRoutingInactive')
+    default:
+      return voiceMediaAvailable.value ? t('device.available') : t('device.unavailable')
+  }
+})
 const selectedLineCall = computed(() => {
   const line = selectedLine.value
   const session = callState.session
@@ -2029,14 +2076,28 @@ onMounted(() => {
           <section class="configuration-section">
             <header><Phone :size="18" /><h4>{{ t('device.voice') }}</h4></header>
             <div class="voice-capabilities">
-              <div class="voice-status" :class="{ 'is-available': voiceAvailable }">
+              <div
+                class="voice-status"
+                :class="{
+                  'is-available': voiceAvailable,
+                  'is-warning': voiceCallControlWarning
+                }"
+              >
                 <CheckCircle2 v-if="voiceAvailable" :size="18" />
                 <AlertCircle v-else :size="18" />
                 <span>
                   <strong>{{ t('diagnostics.callControl') }}</strong>
-                  <small>
-                    {{ voiceAvailable ? t('device.available') : t('device.unavailable') }}
-                  </small>
+                  <small>{{ voiceCallControlDetail }}</small>
+                </span>
+              </div>
+              <div
+                class="voice-status"
+                :class="{ 'is-available': voiceMediaAvailable }"
+              >
+                <AudioLines :size="18" />
+                <span>
+                  <strong>{{ t('lines.voiceCalling') }}</strong>
+                  <small>{{ voiceMediaDetail }}</small>
                 </span>
               </div>
               <div
@@ -3595,8 +3656,8 @@ onMounted(() => {
 .voice-capabilities {
   display: grid;
   width: 100%;
-  max-width: 860px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  max-width: 1120px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
   gap: 8px;
 }
 
@@ -3622,6 +3683,10 @@ onMounted(() => {
 
 .voice-status.is-available {
   color: var(--accent-strong);
+}
+
+.voice-status.is-warning {
+  color: #8a4b10;
 }
 
 .voice-status.is-pending {
@@ -3677,6 +3742,7 @@ pre {
   .sim-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
 }
 
 @media (max-width: 720px) {

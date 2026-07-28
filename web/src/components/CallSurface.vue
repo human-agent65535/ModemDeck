@@ -34,6 +34,7 @@ import {
 } from '../state/recording'
 import { playDTMFTone } from '../state/dtmfAudio'
 import { contactForNumber, lineForKey, lineSupports } from '../state/workspace'
+import { knownCallBearerLabel } from '../callBearer'
 import { formatDuration } from '../utils/format'
 import { phoneKeypad } from '../utils/phoneKeypad'
 import BaseAvatar from './BaseAvatar.vue'
@@ -104,9 +105,9 @@ const canHangup = computed(() => {
 const bearerLabel = computed(() => {
   const bearer = session.value?.bearer?.trim().toLocaleLowerCase()
   if (!bearer) return ''
+  const knownLabel = knownCallBearerLabel(bearer)
+  if (knownLabel) return knownLabel
   if (bearer === 'unknown') return t('calls.bearerUnknown')
-  if (bearer === 'volte') return 'VoLTE'
-  if (bearer === 'vowifi') return 'VoWiFi'
   return t('calls.otherBearer')
 })
 const answerUnavailable = computed(() =>

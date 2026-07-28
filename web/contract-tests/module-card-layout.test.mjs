@@ -111,7 +111,7 @@ test('device settings add selection actions without changing card content', () =
   assert.match(settingsUse, /@make-default="makeDefault\(line\)"/)
 })
 
-test('voice capability describes call control without implying an audio path', () => {
+test('module cards separate call control from verified voice media', () => {
   const capabilitiesStart = moduleCard.indexOf(
     '<div class="module-card__capabilities"'
   )
@@ -121,6 +121,10 @@ test('voice capability describes call control without implying an audio path', (
   assert.match(
     capabilities,
     /:class="\{ 'is-enabled': lineHasCallControl\(line\) \}"[\s\S]*<Phone :size="14" \/>[\s\S]*t\('lines\.callControl'\)/
+  )
+  assert.match(
+    capabilities,
+    /v-if="line\.capabilities\?\.media === true"[\s\S]*class="is-enabled"[\s\S]*<AudioLines :size="14" \/>[\s\S]*t\('lines\.voiceCalling'\)/
   )
   assert.doesNotMatch(capabilities, /browserAudio|mediaBridge|USB/)
 })

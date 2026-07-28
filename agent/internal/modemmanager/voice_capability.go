@@ -20,14 +20,23 @@ const (
 	quectelPCMEnable      = "AT+QPCMV=1,2"
 	quectelPCMStatusQuery = "AT+QPCMV?"
 	quectelPCMReadyStatus = "+QPCMV: 1,2"
+
+	voiceVerificationEnabled         = "enabled"
+	voiceVerificationDisabled        = "disabled"
+	voiceVerificationReadFailed      = "read_failed"
+	voiceVerificationInvalidResponse = "invalid_response"
+	voiceVerificationRejected        = "rejected"
+	voiceVerificationInactive        = "inactive"
 )
 
 type voiceProbeResult struct {
-	callControl bool
-	media       bool
-	reason      string
-	retrySoon   bool
-	expiresAt   time.Time
+	callControl      bool
+	media            bool
+	usbConfiguration string
+	mediaRouting     string
+	reason           string
+	retrySoon        bool
+	expiresAt        time.Time
 }
 
 func (p *Provider) projectVoiceCapabilities(
@@ -52,6 +61,10 @@ func (p *Provider) projectVoiceCapabilities(
 		}
 		result := p.probeQuectelVoice(ctx, operation, *line, path)
 		line.Capabilities.Media = result.media
+		line.VoiceVerification = &domain.VoiceRuntimeVerification{
+			USBConfiguration: result.usbConfiguration,
+			MediaRouting:     result.mediaRouting,
+		}
 		if result.callControl {
 			if !result.media {
 				slog.Debug(
@@ -131,15 +144,26 @@ func (p *Provider) probeQuectelVoice(
 	// may override the capability ModemManager already reported.
 	result := voiceProbeResult{callControl: true}
 	usbVoiceResponse, err := p.commandATPath(ctx, path, operation, quectelUSBVoiceQuery)
-	if err == nil {
+	if err != nil {
+		result.usbConfiguration = voiceVerificationReadFailed
+		result.reason = "USB configuration could not be read"
+	} else {
 		callControlEnabled, decodeErr := parseQuectelUSBCallControl(usbVoiceResponse)
-		if decodeErr == nil && !callControlEnabled {
+		switch {
+		case decodeErr != nil:
+			result.usbConfiguration = voiceVerificationInvalidResponse
+			result.reason = "USB configuration response was invalid"
+		case !callControlEnabled:
+			result.usbConfiguration = voiceVerificationDisabled
 			result.callControl = false
 			result.reason = "USB call control is disabled"
+		default:
+			result.usbConfiguration = voiceVerificationEnabled
 		}
 	}
 	if result.callControl {
 		if _, err = p.commandATPath(ctx, path, operation, quectelPCMEnable); err != nil {
+			result.mediaRouting = voiceVerificationRejected
 			result.reason = "PCM voice routing command was rejected"
 		} else {
 			status, statusErr := p.commandATPath(
@@ -149,15 +173,20 @@ func (p *Provider) probeQuectelVoice(
 				quectelPCMStatusQuery,
 			)
 			if statusErr != nil {
+				result.mediaRouting = voiceVerificationReadFailed
 				result.reason = "PCM voice routing state could not be read"
 				result.retrySoon = true
 			} else if !strings.EqualFold(strings.TrimSpace(status), quectelPCMReadyStatus) {
+				result.mediaRouting = voiceVerificationInactive
 				result.reason = "PCM voice routing did not become active"
 				result.retrySoon = true
 			} else {
+				result.mediaRouting = voiceVerificationEnabled
 				result.media = true
 			}
 		}
+	} else {
+		result.mediaRouting = voiceVerificationDisabled
 	}
 	if result.callControl && !result.retrySoon {
 		result.expiresAt = now.Add(voiceProbeReadyTTL)

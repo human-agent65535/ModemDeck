@@ -109,19 +109,20 @@ type DeviceConfigurationCapabilities struct {
 }
 
 type DeviceConfiguration struct {
-	LineID          string                          `json:"line_id"`
-	Revision        string                          `json:"revision"`
-	ObservedAt      time.Time                       `json:"observed_at"`
-	Identity        DeviceIdentity                  `json:"identity"`
-	Details         DeviceHardwareDetails           `json:"details"`
-	Radio           RadioConfiguration              `json:"radio"`
-	FlightMode      bool                            `json:"flight_mode"`
-	FlightModeKnown bool                            `json:"flight_mode_known"`
-	NetworkEnabled  bool                            `json:"network_enabled"`
-	AutomaticAPN    string                          `json:"automatic_apn,omitempty"`
-	DataConnections []DataConnection                `json:"data_connections"`
-	VoLTE           VoLTEConfiguration              `json:"volte"`
-	Capabilities    DeviceConfigurationCapabilities `json:"capabilities"`
+	LineID            string                          `json:"line_id"`
+	Revision          string                          `json:"revision"`
+	ObservedAt        time.Time                       `json:"observed_at"`
+	Identity          DeviceIdentity                  `json:"identity"`
+	Details           DeviceHardwareDetails           `json:"details"`
+	Radio             RadioConfiguration              `json:"radio"`
+	FlightMode        bool                            `json:"flight_mode"`
+	FlightModeKnown   bool                            `json:"flight_mode_known"`
+	NetworkEnabled    bool                            `json:"network_enabled"`
+	AutomaticAPN      string                          `json:"automatic_apn,omitempty"`
+	DataConnections   []DataConnection                `json:"data_connections"`
+	VoiceVerification *VoiceRuntimeVerification       `json:"voice_verification,omitempty"`
+	VoLTE             VoLTEConfiguration              `json:"volte"`
+	Capabilities      DeviceConfigurationCapabilities `json:"capabilities"`
 }
 
 type ApplyDeviceConfigurationRequest struct {
@@ -144,27 +145,29 @@ func RevisionDeviceConfiguration(configuration DeviceConfiguration) (string, err
 	revisionVoLTE := configuration.VoLTE
 	revisionVoLTE.RestartRequired = false
 	content := struct {
-		LineID          string                          `json:"line_id"`
-		Identity        DeviceIdentity                  `json:"identity"`
-		Radio           RadioConfiguration              `json:"radio"`
-		FlightMode      bool                            `json:"flight_mode"`
-		FlightModeKnown bool                            `json:"flight_mode_known"`
-		NetworkEnabled  bool                            `json:"network_enabled"`
-		AutomaticAPN    string                          `json:"automatic_apn,omitempty"`
-		DataConnections []DataConnection                `json:"data_connections"`
-		VoLTE           VoLTEConfiguration              `json:"volte"`
-		Capabilities    DeviceConfigurationCapabilities `json:"capabilities"`
+		LineID            string                          `json:"line_id"`
+		Identity          DeviceIdentity                  `json:"identity"`
+		Radio             RadioConfiguration              `json:"radio"`
+		FlightMode        bool                            `json:"flight_mode"`
+		FlightModeKnown   bool                            `json:"flight_mode_known"`
+		NetworkEnabled    bool                            `json:"network_enabled"`
+		AutomaticAPN      string                          `json:"automatic_apn,omitempty"`
+		DataConnections   []DataConnection                `json:"data_connections"`
+		VoiceVerification *VoiceRuntimeVerification       `json:"voice_verification,omitempty"`
+		VoLTE             VoLTEConfiguration              `json:"volte"`
+		Capabilities      DeviceConfigurationCapabilities `json:"capabilities"`
 	}{
-		LineID:          configuration.LineID,
-		Identity:        configuration.Identity,
-		Radio:           configuration.Radio,
-		FlightMode:      configuration.FlightMode,
-		FlightModeKnown: configuration.FlightModeKnown,
-		NetworkEnabled:  configuration.NetworkEnabled,
-		AutomaticAPN:    configuration.AutomaticAPN,
-		DataConnections: configuration.DataConnections,
-		VoLTE:           revisionVoLTE,
-		Capabilities:    configuration.Capabilities,
+		LineID:            configuration.LineID,
+		Identity:          configuration.Identity,
+		Radio:             configuration.Radio,
+		FlightMode:        configuration.FlightMode,
+		FlightModeKnown:   configuration.FlightModeKnown,
+		NetworkEnabled:    configuration.NetworkEnabled,
+		AutomaticAPN:      configuration.AutomaticAPN,
+		DataConnections:   configuration.DataConnections,
+		VoiceVerification: configuration.VoiceVerification,
+		VoLTE:             revisionVoLTE,
+		Capabilities:      configuration.Capabilities,
 	}
 	encoded, err := json.Marshal(content)
 	if err != nil {

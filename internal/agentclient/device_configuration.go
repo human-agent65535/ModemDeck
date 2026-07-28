@@ -75,6 +75,11 @@ type DataConnection struct {
 	IPv6      IPConfiguration `json:"ipv6"`
 }
 
+type VoiceRuntimeVerification struct {
+	USBConfiguration string `json:"usb_configuration"`
+	MediaRouting     string `json:"media_routing"`
+}
+
 type VoLTEConfiguration struct {
 	PolicyKnown            bool              `json:"policy_known"`
 	Policy                 string            `json:"policy"`
@@ -111,19 +116,20 @@ type DeviceConfigurationCapabilities struct {
 }
 
 type DeviceConfiguration struct {
-	LineID          string                          `json:"line_id"`
-	Revision        string                          `json:"revision"`
-	ObservedAt      time.Time                       `json:"observed_at"`
-	Identity        DeviceIdentity                  `json:"identity"`
-	Details         DeviceHardwareDetails           `json:"details"`
-	Radio           RadioConfiguration              `json:"radio"`
-	FlightMode      bool                            `json:"flight_mode"`
-	FlightModeKnown bool                            `json:"flight_mode_known"`
-	NetworkEnabled  bool                            `json:"network_enabled"`
-	AutomaticAPN    string                          `json:"automatic_apn"`
-	DataConnections []DataConnection                `json:"data_connections"`
-	VoLTE           VoLTEConfiguration              `json:"volte"`
-	Capabilities    DeviceConfigurationCapabilities `json:"capabilities"`
+	LineID            string                          `json:"line_id"`
+	Revision          string                          `json:"revision"`
+	ObservedAt        time.Time                       `json:"observed_at"`
+	Identity          DeviceIdentity                  `json:"identity"`
+	Details           DeviceHardwareDetails           `json:"details"`
+	Radio             RadioConfiguration              `json:"radio"`
+	FlightMode        bool                            `json:"flight_mode"`
+	FlightModeKnown   bool                            `json:"flight_mode_known"`
+	NetworkEnabled    bool                            `json:"network_enabled"`
+	AutomaticAPN      string                          `json:"automatic_apn"`
+	DataConnections   []DataConnection                `json:"data_connections"`
+	VoiceVerification *VoiceRuntimeVerification       `json:"voice_verification,omitempty"`
+	VoLTE             VoLTEConfiguration              `json:"volte"`
+	Capabilities      DeviceConfigurationCapabilities `json:"capabilities"`
 }
 
 type ApplyDeviceConfigurationRequest struct {

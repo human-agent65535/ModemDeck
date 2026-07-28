@@ -439,6 +439,11 @@ func TestDeviceConfigurationDoesNotAdvertiseUnverifiedQuectelVoice(t *testing.T)
 		configuration.Capabilities.Voice.Reason == "" {
 		t.Fatalf("voice capability = %+v", configuration.Capabilities.Voice)
 	}
+	if configuration.VoiceVerification == nil ||
+		configuration.VoiceVerification.USBConfiguration != voiceVerificationDisabled ||
+		configuration.VoiceVerification.MediaRouting != voiceVerificationDisabled {
+		t.Fatalf("voice verification = %+v", configuration.VoiceVerification)
+	}
 }
 
 func TestDeviceConfigurationSeparatesDesiredRadioFromTransientDisabledState(t *testing.T) {

@@ -755,6 +755,21 @@ export type DataConnection = {
   ipv6: IPConfiguration
 }
 
+export type VoiceRuntimeVerification = {
+  usb_configuration:
+    | 'enabled'
+    | 'disabled'
+    | 'read_failed'
+    | 'invalid_response'
+  media_routing:
+    | 'enabled'
+    | 'disabled'
+    | 'read_failed'
+    | 'invalid_response'
+    | 'rejected'
+    | 'inactive'
+}
+
 export type VoLTEConfiguration = {
   policy_known: boolean
   policy?: 'enabled' | 'disabled'
@@ -802,6 +817,7 @@ export type DeviceHardwareConfiguration = {
   network_enabled: boolean
   automatic_apn: string
   data_connections: DataConnection[]
+  voice_verification?: VoiceRuntimeVerification
   volte: VoLTEConfiguration
   capabilities: DeviceConfigurationCapabilities
 }

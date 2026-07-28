@@ -429,9 +429,10 @@ func (p *Provider) readDeviceConfiguration(
 			PowerState:     modemPowerStateName(line.PowerStateCode),
 			PowerStateCode: line.PowerStateCode,
 		},
-		FlightMode:      radioDesiredEnabledKnown && !radioDesiredEnabled,
-		FlightModeKnown: radioDesiredEnabledKnown,
-		DataConnections: []domain.DataConnection{},
+		FlightMode:        radioDesiredEnabledKnown && !radioDesiredEnabled,
+		FlightModeKnown:   radioDesiredEnabledKnown,
+		DataConnections:   []domain.DataConnection{},
+		VoiceVerification: line.VoiceVerification,
 	}
 	configuration.Capabilities = genericConfigurationCapabilities(interfaces, line)
 	configuration.Capabilities.USBReset = p.usbRecovery.Capability(line.PhysicalDevice)

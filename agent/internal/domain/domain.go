@@ -50,6 +50,11 @@ type LineCapabilities struct {
 	Media              bool `json:"media"`
 }
 
+type VoiceRuntimeVerification struct {
+	USBConfiguration string `json:"usb_configuration"`
+	MediaRouting     string `json:"media_routing"`
+}
+
 type ModemPort struct {
 	Name     string `json:"name"`
 	Type     string `json:"type"`
@@ -103,15 +108,16 @@ type Line struct {
 	RegistrationState        string      `json:"registration_state"`
 	Roaming                  bool        `json:"roaming"`
 	// OperatorIdentifier and OperatorName remain home-operator aliases for API compatibility.
-	OperatorIdentifier       string           `json:"operator_identifier"`
-	OperatorName             string           `json:"operator_name"`
-	EmergencyNumbers         []string         `json:"emergency_numbers"`
-	EmergencyOnly            bool             `json:"emergency_only"`
-	CallIDs                  []string         `json:"call_ids"`
-	MessageIDs               []string         `json:"message_ids"`
-	SupportedMessageStorages []uint32         `json:"supported_message_storages"`
-	DefaultMessageStorage    uint32           `json:"default_message_storage"`
-	Capabilities             LineCapabilities `json:"capabilities"`
+	OperatorIdentifier       string                    `json:"operator_identifier"`
+	OperatorName             string                    `json:"operator_name"`
+	EmergencyNumbers         []string                  `json:"emergency_numbers"`
+	EmergencyOnly            bool                      `json:"emergency_only"`
+	CallIDs                  []string                  `json:"call_ids"`
+	MessageIDs               []string                  `json:"message_ids"`
+	SupportedMessageStorages []uint32                  `json:"supported_message_storages"`
+	DefaultMessageStorage    uint32                    `json:"default_message_storage"`
+	Capabilities             LineCapabilities          `json:"capabilities"`
+	VoiceVerification        *VoiceRuntimeVerification `json:"voice_verification,omitempty"`
 }
 
 type CallAudioFormat struct {

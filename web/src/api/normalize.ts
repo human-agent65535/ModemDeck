@@ -79,6 +79,7 @@ const COMMUNICATION_CAPABILITIES: CommunicationCapabilityName[] = [
   'sim',
   'voice',
   'messaging',
+  'media',
   'dial',
   'answer',
   'reject',

@@ -105,9 +105,15 @@ EC20/EC21/EC25、EG21/EG25、EG91/EG95、EM05，以及实机验证过的 QDC507�
 已注册，也不能证明实时通话的承载或音频路径。ModemManager 报告的运营商配置
 和 ProfileManager 中的 IMS profile 会作为独立只读信息显示。
 
-呼叫控制和媒体能力单独探测。已验证的 `usbcfg` 末位 `1` 允许系统发布拨号、
-接听和挂断能力；`AT+QPCMV=1,2` 成功并回读为 `1,2` 才发布模组媒体路由能力。
-浏览器双向音频还必须存在主机声卡和已配置的媒体桥。
+呼叫控制和媒体能力单独探测。ModemManager Voice 是呼叫控制的主依据；
+可读的 `usbcfg` 末位 `0` 会明确禁用该能力，读取失败则如实显示为固件状态
+不可读，不会伪装成“已验证”或直接否定 ModemManager。`AT+QPCMV=1,2`
+成功并回读为 `1,2` 后才发布模组媒体路由能力。浏览器双向音频还必须存在
+主机声卡和已配置的媒体桥。
+
+实测 EG25 固件 `EG25GGCR07A02M1G_A0.301.A0.301` 可读写 `usbcfg`，并能
+启用及回读 `QPCMV: 1,2`。同一硬件上的 A0.302 会对 `usbcfg` 读写返回
+`ERROR`；系统将其报告为固件读取失败，而不是推断 USB 配置值。
 
 QDC507 是 EC25 系的定制变种，固件与标准 EC25/EG25 不互换。实机测试中，
 刷入标准 EC25/EG25 固件后 QDC507 无法启动。
@@ -303,11 +309,18 @@ restart. A successful configuration does not prove IMS registration, the
 live-call bearer, or an audio path. Carrier configuration and IMS profiles
 reported by ModemManager are displayed as separate read-only facts.
 
-Call control and media are probed separately. A verified final `usbcfg` value
-of `1` allows dialing, answering, and hangup capabilities to be published.
+Call control and media are probed separately. ModemManager Voice is the
+call-control authority. A readable final `usbcfg` value of `0` explicitly
+vetoes that capability; a read failure is reported as unreadable firmware
+state instead of being presented as verified or overriding ModemManager.
 Modem media routing is published only after `AT+QPCMV=1,2` succeeds and reads
 back as `1,2`. Browser bidirectional audio additionally requires a host sound
 device and a configured media bridge.
+
+The tested EG25 release `EG25GGCR07A02M1G_A0.301.A0.301` reads and writes
+`usbcfg` and enables and reads back `QPCMV: 1,2`. A0.302 on the same hardware
+returns `ERROR` for both `usbcfg` reads and writes; ModemDeck reports that as a
+firmware read failure instead of inferring a USB configuration value.
 
 QDC507 is a customized EC25-family derivative, and its firmware is not
 interchangeable with standard EC25/EG25 releases. In a hardware test, the

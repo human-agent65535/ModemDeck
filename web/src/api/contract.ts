@@ -1441,6 +1441,42 @@ function parseDeviceHardwareConfiguration(value: unknown): DeviceHardwareConfigu
     volte.provisioning,
     'hardware.volte.provisioning'
   )
+  const voiceVerification =
+    source.voice_verification === undefined || source.voice_verification === null
+      ? undefined
+      : objectValue(source.voice_verification, 'hardware.voice_verification')
+  const usbConfiguration = voiceVerification
+    ? requiredString(
+        voiceVerification,
+        'hardware.voice_verification',
+        'usb_configuration'
+      )
+    : ''
+  const mediaRouting = voiceVerification
+    ? requiredString(voiceVerification, 'hardware.voice_verification', 'media_routing')
+    : ''
+  const usbConfigurationStatuses = new Set([
+    'enabled',
+    'disabled',
+    'read_failed',
+    'invalid_response'
+  ])
+  const mediaRoutingStatuses = new Set([
+    'enabled',
+    'disabled',
+    'read_failed',
+    'invalid_response',
+    'rejected',
+    'inactive'
+  ])
+  if (voiceVerification && !usbConfigurationStatuses.has(usbConfiguration)) {
+    throw new Error(
+      `hardware.voice_verification.usb_configuration 未知：${usbConfiguration}`
+    )
+  }
+  if (voiceVerification && !mediaRoutingStatuses.has(mediaRouting)) {
+    throw new Error(`hardware.voice_verification.media_routing 未知：${mediaRouting}`)
+  }
   const policyValue = optionalString(volte, 'policy')
   if (policyValue && policyValue !== 'enabled' && policyValue !== 'disabled') {
     throw new Error(`hardware.volte.policy 未知：${policyValue}`)
@@ -1520,6 +1556,20 @@ function parseDeviceHardwareConfiguration(value: unknown): DeviceHardwareConfigu
     network_enabled: requiredBoolean(source, 'hardware', 'network_enabled'),
     automatic_apn: optionalString(source, 'automatic_apn') || '',
     data_connections: source.data_connections.map(parseDataConnection),
+    ...(voiceVerification
+      ? {
+          voice_verification: {
+            usb_configuration:
+              usbConfiguration as NonNullable<
+                DeviceHardwareConfiguration['voice_verification']
+              >['usb_configuration'],
+            media_routing:
+              mediaRouting as NonNullable<
+                DeviceHardwareConfiguration['voice_verification']
+              >['media_routing']
+          }
+        }
+      : {}),
     volte: {
       policy_known: requiredBoolean(volte, 'hardware.volte', 'policy_known'),
       ...(policyValue ? { policy: policyValue as 'enabled' | 'disabled' } : {}),

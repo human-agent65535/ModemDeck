@@ -319,6 +319,10 @@ func TestDeviceConfigurationReadsAndAppliesTypedContract(t *testing.T) {
 			"flight_mode_known":true,
 			"network_enabled":false,
 			"data_connections":[],
+			"voice_verification":{
+				"usb_configuration":"read_failed",
+				"media_routing":"enabled"
+			},
 			"volte":{
 				"policy_known":true,
 				"policy":"enabled",
@@ -369,6 +373,11 @@ func TestDeviceConfigurationReadsAndAppliesTypedContract(t *testing.T) {
 		configuration.VoLTE.Provisioning.CarrierConfiguration != "CU-VoLTE" ||
 		!configuration.VoLTE.Provisioning.IMSProfilePresent {
 		t.Fatalf("configuration = %+v", configuration)
+	}
+	if configuration.VoiceVerification == nil ||
+		configuration.VoiceVerification.USBConfiguration != "read_failed" ||
+		configuration.VoiceVerification.MediaRouting != "enabled" {
+		t.Fatalf("voice verification = %+v", configuration.VoiceVerification)
 	}
 	if !configuration.Capabilities.USBReset.Writable ||
 		configuration.Capabilities.USBReset.Backend != "linux_usbfs" {

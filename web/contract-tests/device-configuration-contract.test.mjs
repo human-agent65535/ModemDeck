@@ -244,6 +244,14 @@ test('device configuration preserves truthful hardware details and nullable tele
       ['wwan0', 'net', 2]
     ]
   )
+  assert.deepEqual(parsed.hardware?.voice_verification, {
+    usb_configuration: 'enabled',
+    media_routing: 'enabled'
+  })
+
+  configuration.hardware.voice_verification = null
+  const legacy = parseDeviceConfigurationResponse(configuration)
+  assert.equal(legacy.hardware?.voice_verification, undefined)
 
   delete configuration.hardware.details
   const missing = parseDeviceConfigurationResponse(configuration)
@@ -254,6 +262,26 @@ test('device configuration preserves truthful hardware details and nullable tele
     snr: null,
     ports: []
   })
+})
+
+test('voice verification rejects unknown USB and media probe states', async () => {
+  const configuration = await createFixtureGateway().getDeviceConfiguration(
+    'line-fixture-main'
+  )
+  assert.ok(configuration.hardware?.voice_verification)
+
+  configuration.hardware.voice_verification.usb_configuration = 'invented'
+  assert.throws(
+    () => parseDeviceConfigurationResponse(configuration),
+    /hardware\.voice_verification\.usb_configuration/
+  )
+
+  configuration.hardware.voice_verification.usb_configuration = 'read_failed'
+  configuration.hardware.voice_verification.media_routing = 'invented'
+  assert.throws(
+    () => parseDeviceConfigurationResponse(configuration),
+    /hardware\.voice_verification\.media_routing/
+  )
 })
 
 test('device configuration rejects invented or malformed hardware telemetry', async () => {

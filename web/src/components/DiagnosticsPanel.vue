@@ -25,6 +25,7 @@ import {
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { fixtureMode, gateway } from '../api/client'
+import { knownCallBearerLabel } from '../callBearer'
 import type {
   DiagnosticActiveCall,
   DiagnosticLogEntry,
@@ -313,18 +314,7 @@ function callPhaseLabel(phase: string): string {
 }
 
 function callBearerLabel(bearer: string): string {
-  switch (bearer.toLowerCase()) {
-    case 'volte':
-      return 'VoLTE'
-    case 'vowifi':
-      return 'VoWiFi'
-    case 'gsm':
-    case 'cs':
-    case 'circuit-switched':
-      return 'GSM / CS'
-    default:
-      return bearer || t('diagnostics.bearerUnknown')
-  }
+  return knownCallBearerLabel(bearer) || bearer || t('diagnostics.bearerUnknown')
 }
 
 function audioDescription(call: DiagnosticActiveCall): string {

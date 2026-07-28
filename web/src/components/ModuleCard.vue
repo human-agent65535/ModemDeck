@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  AudioLines,
   CardSim,
   CircleAlert,
   CircleCheck,
@@ -229,6 +230,13 @@ const dataConnection = computed(() => {
         <span :class="{ 'is-enabled': lineHasCallControl(line) }">
           <Phone :size="14" />
           {{ t('lines.callControl') }}
+        </span>
+        <span
+          v-if="line.capabilities?.media === true"
+          class="is-enabled"
+        >
+          <AudioLines :size="14" />
+          {{ t('lines.voiceCalling') }}
         </span>
         <span :class="{ 'is-enabled': line.capabilities?.messaging }">
           <MessageSquareText :size="14" />

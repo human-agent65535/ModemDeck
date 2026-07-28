@@ -550,6 +550,10 @@ function fixtureHardware(line: LineSummary, index: number): DeviceHardwareConfig
             }
           ]
         : [],
+    voice_verification: {
+      usb_configuration: 'enabled',
+      media_routing: line.capabilities?.media ? 'enabled' : 'rejected'
+    },
     volte: {
       policy_known: volteAvailable,
       modem_capability_known: volteAvailable,

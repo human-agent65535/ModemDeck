@@ -22,6 +22,8 @@ func TestQuectelVoiceSeparatesCallControlFromMediaProof(t *testing.T) {
 		status       string
 		wantControl  bool
 		wantMedia    bool
+		wantUSB      string
+		wantRouting  string
 	}{
 		{
 			name:        "documented EG25 path is verified",
@@ -30,6 +32,8 @@ func TestQuectelVoiceSeparatesCallControlFromMediaProof(t *testing.T) {
 			status:      "+QPCMV: 1,2",
 			wantControl: true,
 			wantMedia:   true,
+			wantUSB:     voiceVerificationEnabled,
+			wantRouting: voiceVerificationEnabled,
 		},
 		{
 			name:         "unsupported USB config query keeps ModemManager call control",
@@ -38,6 +42,8 @@ func TestQuectelVoiceSeparatesCallControlFromMediaProof(t *testing.T) {
 			status:       "+QPCMV: 1,2",
 			wantControl:  true,
 			wantMedia:    true,
+			wantUSB:      voiceVerificationReadFailed,
+			wantRouting:  voiceVerificationEnabled,
 		},
 		{
 			name:        "unrecognized USB config response is inconclusive",
@@ -46,11 +52,15 @@ func TestQuectelVoiceSeparatesCallControlFromMediaProof(t *testing.T) {
 			status:      "+QPCMV: 1,2",
 			wantControl: true,
 			wantMedia:   true,
+			wantUSB:     voiceVerificationInvalidResponse,
+			wantRouting: voiceVerificationEnabled,
 		},
 		{
-			name:      "USB call control disabled",
-			revision:  "EG25GGCR07A02M1G",
-			usbConfig: `+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,0`,
+			name:        "USB call control disabled",
+			revision:    "EG25GGCR07A02M1G",
+			usbConfig:   `+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,0`,
+			wantUSB:     voiceVerificationDisabled,
+			wantRouting: voiceVerificationDisabled,
 		},
 		{
 			name:        "QDC firmware rejects PCM routing",
@@ -58,6 +68,8 @@ func TestQuectelVoiceSeparatesCallControlFromMediaProof(t *testing.T) {
 			usbConfig:   `+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`,
 			enableErr:   errors.New("AT command returned ERROR"),
 			wantControl: true,
+			wantUSB:     voiceVerificationEnabled,
+			wantRouting: voiceVerificationRejected,
 		},
 		{
 			name:        "PCM readback does not confirm routing",
@@ -65,6 +77,8 @@ func TestQuectelVoiceSeparatesCallControlFromMediaProof(t *testing.T) {
 			usbConfig:   `+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`,
 			status:      "+QPCMV: 0,0",
 			wantControl: true,
+			wantUSB:     voiceVerificationEnabled,
+			wantRouting: voiceVerificationInactive,
 		},
 	}
 
@@ -116,6 +130,16 @@ func TestQuectelVoiceSeparatesCallControlFromMediaProof(t *testing.T) {
 					"media capability = %v, want %v",
 					line.Capabilities.Media,
 					test.wantMedia,
+				)
+			}
+			if line.VoiceVerification == nil ||
+				line.VoiceVerification.USBConfiguration != test.wantUSB ||
+				line.VoiceVerification.MediaRouting != test.wantRouting {
+				t.Fatalf(
+					"voice verification = %+v, want USB %q and media %q",
+					line.VoiceVerification,
+					test.wantUSB,
+					test.wantRouting,
 				)
 			}
 		})
