@@ -474,6 +474,7 @@ export type CallRecord = {
   ended_at?: string
   duration_seconds: number
   missed: boolean
+  read: boolean
   failure_reason?: string
 }
 

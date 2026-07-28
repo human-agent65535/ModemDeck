@@ -134,6 +134,50 @@ func TestMessageReadUsesExactLineAndPeer(t *testing.T) {
 	}
 }
 
+func TestMissedCallsReadPersistsThroughRepository(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeRepository{}
+	api, err := New(repository, Options{disableAuthentication: true})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(http.MethodPatch, "/api/v1/calls/missed/read", nil)
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body = %s", response.Code, response.Body.String())
+	}
+	if repository.missedReadCalls != 1 {
+		t.Fatalf("MarkMissedCallsRead() calls = %d, want 1", repository.missedReadCalls)
+	}
+}
+
+func TestMissedCallsReadRejectsOtherMethods(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeRepository{}
+	api, err := New(repository, Options{disableAuthentication: true})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(
+		response,
+		httptest.NewRequest(http.MethodGet, "/api/v1/calls/missed/read", nil),
+	)
+
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405; body = %s", response.Code, response.Body.String())
+	}
+	if repository.missedReadCalls != 0 {
+		t.Fatalf("MarkMissedCallsRead() calls = %d, want 0", repository.missedReadCalls)
+	}
+}
+
 func TestMessagesUseStableLineIdentity(t *testing.T) {
 	t.Parallel()
 

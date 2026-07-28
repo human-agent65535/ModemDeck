@@ -40,6 +40,8 @@ import {
   messageThreadUsesLine
 } from './messages/messageFlow'
 
+type MessageReadFilter = 'all' | 'unread' | 'read'
+
 const props = withDefaults(
   defineProps<{
     embeddedCompose?: boolean
@@ -65,6 +67,11 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const search = ref('')
+const messageFilter = ref<MessageReadFilter>(
+  props.embeddedThreadKey || props.embeddedCompose
+    ? 'all'
+    : messageFilterFromRoute(route.query.filter)
+)
 const composingNew = ref(props.embeddedCompose)
 const newRecipient = ref(props.initialRecipient)
 const newRecipientName = ref(props.initialRecipientName)
@@ -117,6 +124,11 @@ const messageWriteUnavailable = computed(() =>
     : messageUnavailable.value
 )
 const dialUnavailable = computed(() => capabilityReason('dial'))
+const messageFilters = computed<Array<{ value: MessageReadFilter; label: string }>>(() => [
+  { value: 'all', label: t('common.all') },
+  { value: 'unread', label: t('messages.unread') },
+  { value: 'read', label: t('messages.read') }
+])
 const filteredThreads = computed(() => {
   const query = search.value.trim().toLocaleLowerCase()
   const digits = query.replace(/\D/g, '')
@@ -126,6 +138,8 @@ const filteredThreads = computed(() => {
       : lines.value.find(line => lineKey(line) === lineFilterKey.value)
   return threadsResource.data.filter(thread => {
     if (filteredLine && !threadUsesLine(thread, filteredLine)) return false
+    if (messageFilter.value === 'unread' && thread.unread_count <= 0) return false
+    if (messageFilter.value === 'read' && thread.unread_count > 0) return false
     if (!query) return true
     return (
       (thread.contact_name || '').toLocaleLowerCase().includes(query) ||
@@ -154,6 +168,23 @@ let lineSelectionOverridden = false
 let openedThreadKey = ''
 let attemptedReadKey = ''
 let composeReturnThreadKey = ''
+
+function messageFilterFromRoute(value: unknown): MessageReadFilter {
+  return value === 'unread' || value === 'read' ? value : 'all'
+}
+
+function messageFilterQuery(value = messageFilter.value): { filter?: MessageReadFilter } {
+  return value === 'all' ? {} : { filter: value }
+}
+
+function setMessageFilter(value: MessageReadFilter): void {
+  messageFilter.value = value
+  if (embedded.value) return
+  const query = { ...route.query }
+  if (value === 'all') delete query.filter
+  else query.filter = value
+  void router.replace({ name: 'messages', params: route.params, query })
+}
 
 function threadUsesLine(thread: MessageThread, line: LineSummary): boolean {
   return messageThreadUsesLine(thread, line)
@@ -238,6 +269,13 @@ watch(
 )
 
 watch(
+  () => route.query.filter,
+  value => {
+    if (!embedded.value) messageFilter.value = messageFilterFromRoute(value)
+  }
+)
+
+watch(
   () =>
     [
       selectedKey.value,
@@ -296,7 +334,11 @@ function chooseThread(key: string): void {
   composeReturnThreadKey = ''
   draft.value = ''
   sendError.value = ''
-  void router.push({ name: 'messages', params: { threadKey: key } })
+  void router.push({
+    name: 'messages',
+    params: { threadKey: key },
+    query: messageFilterQuery()
+  })
 }
 
 function startMessage(): void {
@@ -310,7 +352,10 @@ function startMessage(): void {
   syncComposeLine(true)
   draft.value = ''
   sendError.value = ''
-  void router.push({ name: 'messages', query: { compose: '' } })
+  void router.push({
+    name: 'messages',
+    query: { compose: '', ...messageFilterQuery() }
+  })
 }
 
 function chooseRecipient(suggestion: { contact: Contact; phone: { number: string } }): void {
@@ -329,7 +374,7 @@ function backToList(): void {
   composingNew.value = false
   const destination = messageReturnRoute(composeReturnThreadKey)
   composeReturnThreadKey = ''
-  void router.push(destination)
+  void router.push({ ...destination, query: messageFilterQuery() })
 }
 
 function viewExistingRecipientThread(): void {
@@ -362,7 +407,11 @@ async function submit(): Promise<void> {
     }
     if (sentThread && (composingNew.value || sentThread.key !== replyKey)) {
       composingNew.value = false
-      await router.replace({ name: 'messages', params: { threadKey: sentThread.key } })
+      await router.replace({
+        name: 'messages',
+        params: { threadKey: sentThread.key },
+        query: messageFilterQuery()
+      })
       await loadMessages(sentThread)
     }
     scrollToEnd()
@@ -434,6 +483,17 @@ onMounted(() => {
             :all-description="t('messages.allLinesDescription')"
           />
         </div>
+        <div class="segmented-control" :aria-label="t('messages.filter')">
+          <button
+            v-for="item in messageFilters"
+            :key="item.value"
+            type="button"
+            :class="{ 'is-active': messageFilter === item.value }"
+            @click="setMessageFilter(item.value)"
+          >
+            {{ item.label }}
+          </button>
+        </div>
       </div>
       <p
         v-if="threadsResource.status === 'ready' && threadsResource.error"
@@ -465,7 +525,11 @@ onMounted(() => {
       <div v-else-if="filteredThreads.length === 0" class="message-list-empty">
         <StatePanel
           state="empty"
-          :title="search ? t('messages.noMatches') : t('messages.empty')"
+          :title="
+            search || messageFilter !== 'all' || lineFilterKey !== 'all'
+              ? t('messages.noMatches')
+              : t('messages.empty')
+          "
         />
         <button
           v-if="!search && !messageWriteUnavailable"

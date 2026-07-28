@@ -117,7 +117,7 @@ const unreadMessages = computed(() =>
   threadsResource.data.reduce((total, thread) => total + thread.unread_count, 0)
 )
 const missedCalls = computed(
-  () => callsResource.data.filter(call => call.missed).length
+  () => callsResource.data.filter(call => call.missed && !call.read).length
 )
 const onlineModules = computed(
   () => presentModules.value.filter(line => isRegisteredNetwork(line)).length
@@ -539,7 +539,10 @@ onMounted(() => {
             class="dashboard-summary-grid"
             :aria-label="t('dashboard.communicationSummary')"
           >
-            <RouterLink class="dashboard-summary-card is-message" :to="{ name: 'messages' }">
+            <RouterLink
+              class="dashboard-summary-card is-message"
+              :to="{ name: 'messages', query: { filter: 'unread' } }"
+            >
               <span class="dashboard-summary-icon">
                 <MessageSquareText :size="20" />
               </span>
@@ -549,7 +552,10 @@ onMounted(() => {
               </span>
               <ChevronRight :size="17" />
             </RouterLink>
-            <RouterLink class="dashboard-summary-card is-missed" :to="{ name: 'calls' }">
+            <RouterLink
+              class="dashboard-summary-card is-missed"
+              :to="{ name: 'calls', query: { filter: 'missed' } }"
+            >
               <span class="dashboard-summary-icon">
                 <PhoneMissed :size="20" />
               </span>

@@ -136,6 +136,20 @@ func (api *API) callsCollection(response http.ResponseWriter, request *http.Requ
 	}
 }
 
+func (api *API) missedCallsRead(response http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPatch {
+		response.Header().Set("Allow", http.MethodPatch)
+		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only PATCH is supported", "")
+		return
+	}
+	if err := api.repository.MarkMissedCallsRead(request.Context()); err != nil {
+		api.writeInternalError(response, request, "mark missed calls read", err)
+		return
+	}
+	response.Header().Set("Cache-Control", "no-store")
+	response.WriteHeader(http.StatusNoContent)
+}
+
 func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 	if api.communications == nil {
 		writeError(response, http.StatusServiceUnavailable, "communications_unavailable", "Live communications are unavailable", "")

@@ -31,7 +31,8 @@ import {
   lineKey,
   loadBootstrap,
   loadCalls,
-  loadContacts
+  loadContacts,
+  markMissedCallsRead
 } from '../state/workspace'
 import { formatDateTime, formatDuration } from '../utils/format'
 import { lineTagFallback, lineTagLine } from '../utils/lineIdentity'
@@ -53,8 +54,11 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const search = ref('')
-const filter = ref<CallFilter>('all')
+const filter = ref<CallFilter>(
+  props.embeddedCallId ? 'all' : callFilterFromRoute(route.query.filter)
+)
 const lineFilterKey = ref('all')
+const missedReadError = ref('')
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const defaultLineID = computed(
   () => bootstrapResource.data?.line_settings.default_line_id || ''
@@ -112,6 +116,35 @@ const playableRecordingCallIDs = computed(
 )
 const dialUnavailable = computed(() => capabilityReason('dial'))
 const messageUnavailable = computed(() => capabilityReason('message'))
+const unreadMissedCallIDs = computed(() =>
+  callsResource.data
+    .filter(call => call.missed && !call.read)
+    .map(call => call.id)
+    .sort()
+    .join('\u0000')
+)
+
+function callFilterFromRoute(value: unknown): CallFilter {
+  return value === 'missed' || value === 'incoming' || value === 'outgoing'
+    ? value
+    : 'all'
+}
+
+function callFilterQuery(value = filter.value): { filter?: CallFilter } {
+  return value === 'all' ? {} : { filter: value }
+}
+
+function setFilter(value: CallFilter): void {
+  filter.value = value
+  if (embedded.value) return
+  void router.replace({
+    name: 'calls',
+    query: {
+      ...(selectedId.value ? { selected: selectedId.value } : {}),
+      ...callFilterQuery(value)
+    }
+  })
+}
 
 function displayName(call: CallRecord): string {
   return call.display_name || contactForNumber(call.remote_number)?.display_name || call.remote_number
@@ -152,7 +185,10 @@ function actionLineKey(call: CallRecord): string {
 }
 
 function selectCall(call: CallRecord): void {
-  void router.push({ name: 'calls', query: { selected: call.id } })
+  void router.push({
+    name: 'calls',
+    query: { selected: call.id, ...callFilterQuery() }
+  })
 }
 
 function backToList(): void {
@@ -160,7 +196,7 @@ function backToList(): void {
     emit('close')
     return
   }
-  void router.push({ name: 'calls' })
+  void router.push({ name: 'calls', query: callFilterQuery() })
 }
 
 function callBack(call: CallRecord): void {
@@ -209,6 +245,38 @@ watch(lines, availableLines => {
     lineFilterKey.value = 'all'
   }
 })
+
+watch(
+  () => route.query.filter,
+  value => {
+    if (!embedded.value) filter.value = callFilterFromRoute(value)
+  }
+)
+
+async function acknowledgeMissedCalls(): Promise<void> {
+  missedReadError.value = ''
+  try {
+    await markMissedCallsRead()
+  } catch (error) {
+    missedReadError.value = t('calls.markReadFailed', {
+      error: error instanceof Error ? error.message : String(error)
+    })
+  }
+}
+
+function retryMissedCallsRead(): void {
+  void acknowledgeMissedCalls()
+}
+
+watch(
+  [filter, () => callsResource.status, unreadMissedCallIDs],
+  ([activeFilter, status, unreadIDs]) => {
+    if (!embedded.value && activeFilter === 'missed' && status === 'ready' && unreadIDs) {
+      void acknowledgeMissedCalls()
+    }
+  },
+  { immediate: true }
+)
 
 watch(
   () => callState.session?.phase,
@@ -264,7 +332,7 @@ onMounted(() => {
             :key="item.value"
             type="button"
             :class="{ 'is-active': filter === item.value }"
-            @click="filter = item.value"
+            @click="setFilter(item.value)"
           >
             {{ item.label }}
           </button>
@@ -284,6 +352,16 @@ onMounted(() => {
         role="alert"
       >
         {{ callState.syncError }}
+      </div>
+      <div
+        v-if="missedReadError"
+        class="call-sync-status call-sync-status--error"
+        role="alert"
+      >
+        <span>{{ missedReadError }}</span>
+        <button type="button" @click="retryMissedCallsRead">
+          {{ t('common.retry') }}
+        </button>
       </div>
 
       <StatePanel
@@ -473,6 +551,16 @@ onMounted(() => {
 .call-detail__command--primary:hover:not(:disabled) {
   background: var(--accent-strong);
   border-color: var(--accent-strong);
+}
+
+.call-sync-status span {
+  flex: 1 1 auto;
+}
+
+.call-sync-status button {
+  flex: 0 0 auto;
+  color: inherit;
+  font-weight: 700;
 }
 
 @media (max-width: 720px) {

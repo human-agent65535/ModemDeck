@@ -163,6 +163,7 @@ type Call struct {
 	MediaAvailable  bool    `json:"media_available"`
 	DurationSeconds int64   `json:"duration_seconds"`
 	Missed          bool    `json:"missed"`
+	Read            bool    `json:"read"`
 }
 
 type Device struct {

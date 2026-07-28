@@ -32,9 +32,9 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 		ch.id, ch.request_id, ch.line_id, ch.endpoint_line_id, ch.local_phone, ch.line_imsi,
 		ch.line_iccid, ch.direction, ch.remote_number,
 		%s, %s,
-		ch.endpoint_id, ch.endpoint_call_id, ch.phase, ch.revision,
+			ch.endpoint_id, ch.endpoint_call_id, ch.phase, ch.revision,
 			ch.created_at, ch.updated_at, ch.active_at, ch.ended_at,
-			ch.end_reason, ch.failure_code, ch.bearer, ch.state_reason,
+			ch.read_at, ch.end_reason, ch.failure_code, ch.bearer, ch.state_reason,
 			ch.state_reason_code, ch.multiparty, ch.audio_port,
 			ch.audio_encoding, ch.audio_resolution, ch.audio_rate,
 			ch.media_available
@@ -54,7 +54,11 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 	case CallKindMissed:
 		conditions = append(conditions, `ch.direction = 'incoming' AND ch.active_at IS NULL
 			AND COALESCE(ch.end_reason, '') <> 'rejected'
-			AND COALESCE(ch.failure_code, '') <> 'rejected'`)
+			AND COALESCE(ch.failure_code, '') <> 'rejected'
+			AND (
+				ch.phase IN ('ended', 'failed') OR
+				COALESCE(ch.ended_at, '') <> ''
+			)`)
 	}
 	if strings.TrimSpace(query.Search) != "" {
 		pattern := searchPattern(query.Search)
@@ -87,20 +91,21 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 	calls := make([]Call, 0)
 	for rows.Next() {
 		var (
-			call                                                                    Call
-			requestID, lineID, endpointLineID, localPhone, lineIMSI, lineICCID      sql.NullString
-			direction, remoteNumber                                                 sql.NullString
-			contactID, contactName, endpointID, endpointCallID, phase               sql.NullString
-			revision                                                                sql.NullInt64
-			createdAt, updatedAt, activeAt, endedAt, endReason, failureCode, bearer sql.NullString
-			stateReason, audioPort, audioEncoding, audioResolution                  sql.NullString
-			stateReasonCode, multiparty, audioRate, mediaAvailable                  sql.NullInt64
+			call                                                               Call
+			requestID, lineID, endpointLineID, localPhone, lineIMSI, lineICCID sql.NullString
+			direction, remoteNumber                                            sql.NullString
+			contactID, contactName, endpointID, endpointCallID, phase          sql.NullString
+			revision                                                           sql.NullInt64
+			createdAt, updatedAt, activeAt, endedAt, readAt, endReason         sql.NullString
+			failureCode, bearer                                                sql.NullString
+			stateReason, audioPort, audioEncoding, audioResolution             sql.NullString
+			stateReasonCode, multiparty, audioRate, mediaAvailable             sql.NullInt64
 		)
 		if err := rows.Scan(
 			&call.ID, &requestID, &lineID, &endpointLineID, &localPhone, &lineIMSI, &lineICCID,
 			&direction, &remoteNumber,
 			&contactID, &contactName, &endpointID, &endpointCallID, &phase,
-			&revision, &createdAt, &updatedAt, &activeAt, &endedAt,
+			&revision, &createdAt, &updatedAt, &activeAt, &endedAt, &readAt,
 			&endReason, &failureCode, &bearer, &stateReason, &stateReasonCode,
 			&multiparty, &audioPort, &audioEncoding, &audioResolution,
 			&audioRate, &mediaAvailable,
@@ -142,9 +147,31 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 		if call.ActiveAt != nil {
 			call.DurationSeconds = durationSeconds(*call.ActiveAt, call.EndedAt)
 		}
-		call.Missed = call.Direction == string(CallKindIncoming) && call.ActiveAt == nil &&
+		call.Missed = (call.Phase == "ended" || call.Phase == "failed" || call.EndedAt != "") &&
+			call.Direction == string(CallKindIncoming) && call.ActiveAt == nil &&
 			call.EndReason != "rejected" && call.FailureCode != "rejected"
+		call.Read = readAt.Valid && strings.TrimSpace(readAt.String) != ""
 		calls = append(calls, call)
 	}
 	return calls, rowsError("read calls", rows.Err())
+}
+
+func (s *Store) MarkMissedCallsRead(ctx context.Context) error {
+	if _, err := s.database.ExecContext(
+		ctx,
+		`UPDATE call_history
+		 SET read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
+		 WHERE read_at IS NULL
+			AND direction = 'incoming'
+			AND active_at IS NULL
+			AND COALESCE(end_reason, '') <> 'rejected'
+			AND COALESCE(failure_code, '') <> 'rejected'
+			AND (
+				phase IN ('ended', 'failed') OR
+				COALESCE(ended_at, '') <> ''
+			)`,
+	); err != nil {
+		return fmt.Errorf("mark missed calls read: %w", err)
+	}
+	return nil
 }

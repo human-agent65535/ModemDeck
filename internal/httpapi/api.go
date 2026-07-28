@@ -36,6 +36,7 @@ type Repository interface {
 	Messages(context.Context, store.MessageQuery) ([]store.Message, error)
 	MarkMessageThreadRead(context.Context, store.MessageThreadIdentity) error
 	Calls(context.Context, store.CallQuery) ([]store.Call, error)
+	MarkMissedCallsRead(context.Context) error
 	RecordingEntries(context.Context, store.RecordingQuery) ([]store.RecordingEntry, error)
 	Devices(context.Context) ([]store.Device, error)
 	CreateDevice(context.Context, store.DeviceInput) (store.Device, error)
@@ -328,6 +329,8 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.getOnly(response, request, api.runtimeEventStream)
 	case "/api/v1/calls":
 		api.callsCollection(response, request)
+	case "/api/v1/calls/missed/read":
+		api.missedCallsRead(response, request)
 	case "/api/v1/calls/active":
 		api.getOnly(response, request, api.activeCalls)
 	case "/api/v1/recordings":

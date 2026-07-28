@@ -221,7 +221,8 @@ const calls: CallRecord[] = [
     started_at: '2026-07-23T08:52:00Z',
     ended_at: '2026-07-23T08:57:12Z',
     duration_seconds: 312,
-    missed: false
+    missed: false,
+    read: false
   },
   {
     id: 'call-2',
@@ -231,7 +232,8 @@ const calls: CallRecord[] = [
     started_at: '2026-07-22T11:14:00Z',
     ended_at: '2026-07-22T11:14:31Z',
     duration_seconds: 0,
-    missed: true
+    missed: true,
+    read: false
   },
   {
     id: 'call-3',
@@ -243,7 +245,8 @@ const calls: CallRecord[] = [
     started_at: '2026-07-22T07:30:00Z',
     ended_at: '2026-07-22T07:33:46Z',
     duration_seconds: 226,
-    missed: false
+    missed: false,
+    read: false
   }
 ]
 
@@ -1207,6 +1210,12 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           return filterMatch && (!q || includes(call.display_name, q) || includes(call.remote_number, q))
         })
       )
+    },
+
+    async markMissedCallsRead(): Promise<void> {
+      for (const call of calls) {
+        if (call.missed) call.read = true
+      }
     },
 
     async getActiveCalls(): Promise<CallSession[]> {

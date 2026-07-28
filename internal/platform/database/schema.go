@@ -74,6 +74,21 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 			return err
 		}
 	}
+	migratedCallReadAt, err := migrateCurrentCallReadAtColumn(
+		ctx,
+		database,
+		expected,
+		actual,
+	)
+	if err != nil {
+		return err
+	}
+	if migratedCallReadAt {
+		actual, err = readSchemaShape(ctx, database)
+		if err != nil {
+			return err
+		}
+	}
 	if schemaContains(expected, actual) {
 		return nil
 	}
@@ -108,6 +123,11 @@ func migrateCurrentDeviceNameColumn(
 	actual schemaShape,
 ) (bool, error) {
 	legacy := legacyDeviceNameSchemaShape(expected)
+	if callColumns := actual.tables["call_history"]; callColumns != nil {
+		if _, readAtExists := callColumns["read_at"]; !readAtExists {
+			legacy = schemaWithoutColumn(legacy, "call_history", "read_at")
+		}
+	}
 	deviceColumns := actual.tables["devices"]
 	_, hasLegacyName := deviceColumns["alias"]
 	_, hasCurrentName := deviceColumns["name"]
@@ -121,6 +141,51 @@ func migrateCurrentDeviceNameColumn(
 		return false, fmt.Errorf("migrate device name: %w", err)
 	}
 	return true, nil
+}
+
+func migrateCurrentCallReadAtColumn(
+	ctx context.Context,
+	database *sql.DB,
+	expected schemaShape,
+	actual schemaShape,
+) (bool, error) {
+	callColumns, callHistoryExists := actual.tables["call_history"]
+	if !callHistoryExists {
+		return false, nil
+	}
+	if _, readAtExists := callColumns["read_at"]; readAtExists {
+		return false, nil
+	}
+	previous := schemaWithoutColumn(expected, "call_history", "read_at")
+	if !schemaContains(previous, actual) {
+		return false, nil
+	}
+	if _, err := database.ExecContext(
+		ctx,
+		`ALTER TABLE call_history ADD COLUMN read_at DATETIME`,
+	); err != nil {
+		return false, fmt.Errorf("migrate missed call read state: %w", err)
+	}
+	return true, nil
+}
+
+func schemaWithoutColumn(current schemaShape, table, column string) schemaShape {
+	result := schemaShape{
+		tables:  make(map[string]map[string]struct{}, len(current.tables)),
+		indexes: make(map[string]struct{}, len(current.indexes)),
+	}
+	for tableName, columns := range current.tables {
+		copyColumns := make(map[string]struct{}, len(columns))
+		for columnName := range columns {
+			copyColumns[columnName] = struct{}{}
+		}
+		result.tables[tableName] = copyColumns
+	}
+	for index := range current.indexes {
+		result.indexes[index] = struct{}{}
+	}
+	delete(result.tables[table], column)
+	return result
 }
 
 func legacyDeviceNameSchemaShape(current schemaShape) schemaShape {
@@ -157,6 +222,7 @@ func migrateLegacySchemaAdditions(
 	_, adminUsernameExists := adminColumns["username"]
 	callColumns, callHistoryExists := actual.tables["call_history"]
 	_, reportedRemoteNumberExists := callColumns["reported_remote_number"]
+	_, callReadAtExists := callColumns["read_at"]
 	deviceColumns, devicesExist := actual.tables["devices"]
 	_, deviceNameExists := deviceColumns["name"]
 	_, deviceAliasExists := deviceColumns["alias"]
@@ -165,12 +231,14 @@ func migrateLegacySchemaAdditions(
 	needsLineColor := simCardsExist && !lineColorExists
 	needsAdminUsername := adminCredentialsExist && !adminUsernameExists
 	needsReportedRemoteNumber := callHistoryExists && !reportedRemoteNumberExists
+	needsCallReadAt := callHistoryExists && !callReadAtExists
 	needsDeviceName := devicesExist && !deviceNameExists && deviceAliasExists
 	needsSystemSettings := !systemSettingsExist
 	if !needsAvatar &&
 		!needsLineColor &&
 		!needsAdminUsername &&
 		!needsReportedRemoteNumber &&
+		!needsCallReadAt &&
 		!needsDeviceName &&
 		!needsSystemSettings {
 		return nil
@@ -225,6 +293,14 @@ func migrateLegacySchemaAdditions(
 			 ADD COLUMN reported_remote_number TEXT NOT NULL DEFAULT ''`,
 		); err != nil {
 			return fmt.Errorf("migrate reported remote call number: %w", err)
+		}
+	}
+	if needsCallReadAt {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`ALTER TABLE call_history ADD COLUMN read_at DATETIME`,
+		); err != nil {
+			return fmt.Errorf("migrate missed call read state: %w", err)
 		}
 	}
 	if needsDeviceName {
@@ -399,6 +475,9 @@ func schemaMatchesSupportedMigration(expected schemaShape, actual schemaShape) b
 				continue
 			}
 			if table == "call_history" && column == "reported_remote_number" {
+				continue
+			}
+			if table == "call_history" && column == "read_at" {
 				continue
 			}
 			if table == "devices" && column == "name" {

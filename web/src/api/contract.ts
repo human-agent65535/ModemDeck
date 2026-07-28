@@ -345,6 +345,7 @@ export const communicationPaths = {
   messages: '/api/v1/messages',
   messageRead: '/api/v1/messages/read',
   calls: '/api/v1/calls',
+  missedCallsRead: '/api/v1/calls/missed/read',
   activeCalls: '/api/v1/calls/active',
   recordings: '/api/v1/recordings',
   callSettings: '/api/v1/settings/calls',
@@ -367,6 +368,11 @@ export const communicationContracts = {
     method: 'POST',
     path: communicationPaths.calls,
     successStatus: 201
+  },
+  markMissedCallsRead: {
+    method: 'PATCH',
+    path: communicationPaths.missedCallsRead,
+    successStatus: 204
   },
   activeCalls: {
     method: 'GET',

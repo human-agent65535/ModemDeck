@@ -51,6 +51,7 @@ test('communication and Telegram endpoints match the root API', () => {
     messages: '/api/v1/messages',
     messageRead: '/api/v1/messages/read',
     calls: '/api/v1/calls',
+    missedCallsRead: '/api/v1/calls/missed/read',
     activeCalls: '/api/v1/calls/active',
     recordings: '/api/v1/recordings',
     callSettings: '/api/v1/settings/calls',
@@ -82,6 +83,11 @@ test('communication and Telegram endpoints match the root API', () => {
     method: 'POST',
     path: '/api/v1/calls',
     successStatus: 201
+  })
+  assert.deepEqual(communicationContracts.markMissedCallsRead, {
+    method: 'PATCH',
+    path: '/api/v1/calls/missed/read',
+    successStatus: 204
   })
   assert.deepEqual(communicationContracts.activeCalls, {
     method: 'GET',
@@ -373,6 +379,7 @@ test('recording aggregation preserves call metadata and only exposes ready downl
       ended_at: '2026-07-23T12:02:00Z',
       duration_seconds: 120,
       missed: false,
+      read: false,
       failure_reason: undefined
     }
   })

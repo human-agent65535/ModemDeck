@@ -36,10 +36,12 @@ test('call parsing preserves stable historical line identities', () => {
     remote_number: '+12025550199',
     started_at: '2026-07-24T12:00:00Z',
     duration_seconds: 4,
-    missed: false
+    missed: false,
+    read: true
   })
 
   assert.equal(call.line_id, 'line-history')
+  assert.equal(call.read, true)
   assert.equal('local_phone' in call, false)
   assert.equal('line_iccid' in call, false)
   assert.equal('line_imsi' in call, false)

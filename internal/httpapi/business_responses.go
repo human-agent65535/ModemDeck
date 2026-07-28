@@ -191,6 +191,7 @@ type callRecordResponse struct {
 	MediaAvailable  bool    `json:"media_available"`
 	DurationSeconds int64   `json:"duration_seconds"`
 	Missed          bool    `json:"missed"`
+	Read            bool    `json:"read"`
 }
 
 func callRecordResponses(calls []store.Call) []callRecordResponse {
@@ -220,6 +221,7 @@ func callRecordResponses(calls []store.Call) []callRecordResponse {
 			MediaAvailable:  call.MediaAvailable,
 			DurationSeconds: call.DurationSeconds,
 			Missed:          call.Missed,
+			Read:            call.Read,
 		})
 	}
 	return result

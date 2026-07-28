@@ -95,6 +95,7 @@ export interface ModemDeckGateway {
   subscribeRuntimeEvents(handlers: RuntimeEventStreamHandlers): () => void
   markThreadRead(input: MessageReadInput): Promise<void>
   listCalls(filter?: CallFilter, query?: ListQuery): Promise<CallRecord[]>
+  markMissedCallsRead(): Promise<void>
   listDevices(): Promise<Device[]>
   createDevice(input: CreateDeviceInput): Promise<Device>
   renameDevice(imei: string, input: RenameDeviceInput): Promise<Device>

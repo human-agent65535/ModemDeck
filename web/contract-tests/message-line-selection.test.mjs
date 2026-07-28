@@ -45,7 +45,7 @@ test('sending an existing conversation uses its original line identity', async (
   assert.match(source, /sentThread\.key !== replyKey/)
   assert.match(
     source,
-    /router\.replace\(\{ name: 'messages', params: \{ threadKey: sentThread\.key \} \}\)/
+    /router\.replace\(\{[\s\S]*name: 'messages',[\s\S]*params: \{ threadKey: sentThread\.key \},[\s\S]*query: messageFilterQuery\(\)[\s\S]*\}\)/
   )
   assert.doesNotMatch(source, /`\$\{sent\.iccid\}\|\$\{sent\.peer\}`/)
   assert.doesNotMatch(source, /thread_key: selectedThread\.value\?\.key/)

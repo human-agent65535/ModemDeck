@@ -817,6 +817,11 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
+  async markMissedCallsRead(): Promise<void> {
+    const contract = communicationContracts.markMissedCallsRead
+    await writeJSON(contract.path, contract.method, {}, contract.successStatus)
+  },
+
   async listDevices(): Promise<Device[]> {
     return parseDevices(await get(`${API_ROOT}/devices`))
   },

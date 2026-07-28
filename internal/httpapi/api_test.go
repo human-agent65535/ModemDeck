@@ -29,6 +29,8 @@ type fakeRepository struct {
 	messageQuery        store.MessageQuery
 	messageReadIdentity store.MessageThreadIdentity
 	messageReadError    error
+	missedReadCalls     int
+	missedReadError     error
 	recordingQuery      store.RecordingQuery
 	recordingEntries    []store.RecordingEntry
 	recordingError      error
@@ -98,6 +100,11 @@ func (repository *fakeRepository) MarkMessageThreadRead(
 
 func (repository *fakeRepository) Calls(context.Context, store.CallQuery) ([]store.Call, error) {
 	return []store.Call{}, nil
+}
+
+func (repository *fakeRepository) MarkMissedCallsRead(context.Context) error {
+	repository.missedReadCalls++
+	return repository.missedReadError
 }
 
 func (repository *fakeRepository) RecordingEntries(
