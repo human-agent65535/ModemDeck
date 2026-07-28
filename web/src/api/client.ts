@@ -147,6 +147,9 @@ import { ApiError, isLineColorPresetID } from './types'
 import { createFixtureGateway } from './fixture'
 
 const API_ROOT = '/api/v1'
+const READ_REQUEST_TIMEOUT_MS = 15_000
+const WRITE_REQUEST_TIMEOUT_MS = 60_000
+const NETWORK_SCAN_REQUEST_TIMEOUT_MS = 130_000
 
 const runtimeEnvironment = import.meta.env
 
@@ -670,18 +673,35 @@ async function responseBody(response: Response): Promise<unknown> {
   }
 }
 
-async function request(path: string, init: RequestInit, expectedStatus: number): Promise<unknown> {
+async function request(
+  path: string,
+  init: RequestInit,
+  expectedStatus: number,
+  timeoutMilliseconds?: number
+): Promise<unknown> {
   const method = (init.method || 'GET').toUpperCase()
   const headers = new Headers(init.headers)
   if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS' && currentCSRFToken) {
     headers.set('X-ModemDeck-CSRF', currentCSRFToken)
   }
+  const timeoutSignal = AbortSignal.timeout(
+    timeoutMilliseconds ??
+      (method === 'GET' || method === 'HEAD' || method === 'OPTIONS'
+        ? READ_REQUEST_TIMEOUT_MS
+        : WRITE_REQUEST_TIMEOUT_MS)
+  )
+  const signal = init.signal
+    ? AbortSignal.any([init.signal, timeoutSignal])
+    : timeoutSignal
 
   let response: Response
   try {
-    response = await fetch(path, { ...init, headers, credentials: 'same-origin' })
+    response = await fetch(path, { ...init, headers, signal, credentials: 'same-origin' })
   } catch (error) {
     if (init.signal?.aborted) throw error
+    if (timeoutSignal.aborted) {
+      throw new ApiError('ModemDeck 请求超时', 0, 'request_timeout')
+    }
     throw new ApiError('无法连接 ModemDeck 服务')
   }
 
@@ -689,6 +709,10 @@ async function request(path: string, init: RequestInit, expectedStatus: number):
   try {
     body = await responseBody(response)
   } catch (error) {
+    if (init.signal?.aborted) throw error
+    if (timeoutSignal.aborted) {
+      throw new ApiError('ModemDeck 请求超时', 0, 'request_timeout')
+    }
     if (error instanceof ApiError) throw error
     throw new ApiError('无法读取 ModemDeck 服务响应', response.status, 'invalid_response')
   }
@@ -728,7 +752,8 @@ function writeJSON(
   method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   input: unknown,
   expectedStatus: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  timeoutMilliseconds?: number
 ) {
   return request(
     path,
@@ -741,8 +766,54 @@ function writeJSON(
       body: JSON.stringify(input),
       signal
     },
-    expectedStatus
+    expectedStatus,
+    timeoutMilliseconds
   )
+}
+
+type EventSourceLifecycleHandlers = {
+  onOpen: () => void
+  onError: (error?: Error) => void
+}
+
+function subscribeEventSource(
+  path: string,
+  handlers: EventSourceLifecycleHandlers,
+  bind: (
+    source: EventSource,
+    restart: (error: Error) => void,
+    isActive: () => boolean
+  ) => void
+): () => void {
+  let source: EventSource | undefined
+  let stopped = false
+
+  const connect = () => {
+    if (stopped) return
+    const current = new EventSource(path, { withCredentials: true })
+    source = current
+    const isActive = () => !stopped && source === current
+    const restart = (error: Error) => {
+      if (!isActive()) return
+      current.close()
+      handlers.onError(error)
+      connect()
+    }
+    current.onopen = () => {
+      if (isActive()) handlers.onOpen()
+    }
+    current.onerror = () => {
+      if (isActive()) handlers.onError()
+    }
+    bind(current, restart, isActive)
+  }
+
+  connect()
+  return () => {
+    if (stopped) return
+    stopped = true
+    source?.close()
+  }
 }
 
 const realGateway: ConfiguredModemDeckGateway = {
@@ -969,7 +1040,8 @@ const realGateway: ConfiguredModemDeckGateway = {
         contract.method,
         {},
         contract.successStatus,
-        signal
+        signal,
+        NETWORK_SCAN_REQUEST_TIMEOUT_MS
       )
     )
   },
@@ -1095,101 +1167,79 @@ const realGateway: ConfiguredModemDeckGateway = {
   },
 
   subscribeMessageEvents(handlers: MessageEventStreamHandlers): () => void {
-    const source = new EventSource(`${API_ROOT}/messages/events`, { withCredentials: true })
-    let closed = false
-    const close = () => {
-      if (closed) return
-      closed = true
-      source.close()
-    }
-    source.onopen = () => {
-      if (!closed) handlers.onOpen()
-    }
-    source.addEventListener('sms', event => {
-      if (closed) return
-      try {
-        handlers.onMessage(parseIncomingMessageEvent(JSON.parse(event.data) as unknown))
-      } catch (error) {
-        close()
-        handlers.onError(error instanceof Error ? error : new Error('短信事件格式无效'))
+    return subscribeEventSource(
+      `${API_ROOT}/messages/events`,
+      handlers,
+      (source, restart, isActive) => {
+        source.addEventListener('sms', event => {
+          if (!isActive()) return
+          try {
+            handlers.onMessage(parseIncomingMessageEvent(JSON.parse(event.data) as unknown))
+          } catch (error) {
+            restart(error instanceof Error ? error : new Error('短信事件格式无效'))
+          }
+        })
+        source.addEventListener('ready', event => {
+          if (!isActive()) return
+          try {
+            const ready = requiredRecord(JSON.parse(event.data) as unknown, 'message_event_ready')
+            handlers.onReady(numberValue(ready, 'message_event_ready', 'newest_id'))
+          } catch (error) {
+            restart(error instanceof Error ? error : new Error('短信事件就绪状态无效'))
+          }
+        })
+        source.addEventListener('reset', event => {
+          if (!isActive()) return
+          try {
+            const reset = requiredRecord(JSON.parse(event.data) as unknown, 'message_event_reset')
+            handlers.onReset(
+              numberValue(reset, 'message_event_reset', 'oldest_id'),
+              numberValue(reset, 'message_event_reset', 'newest_id')
+            )
+          } catch (error) {
+            restart(error instanceof Error ? error : new Error('短信事件重置状态无效'))
+          }
+        })
       }
-    })
-    source.addEventListener('ready', event => {
-      if (closed) return
-      try {
-        const ready = requiredRecord(JSON.parse(event.data) as unknown, 'message_event_ready')
-        handlers.onReady(numberValue(ready, 'message_event_ready', 'newest_id'))
-      } catch (error) {
-        close()
-        handlers.onError(error instanceof Error ? error : new Error('短信事件就绪状态无效'))
-      }
-    })
-    source.addEventListener('reset', event => {
-      if (closed) return
-      try {
-        const reset = requiredRecord(JSON.parse(event.data) as unknown, 'message_event_reset')
-        handlers.onReset(
-          numberValue(reset, 'message_event_reset', 'oldest_id'),
-          numberValue(reset, 'message_event_reset', 'newest_id')
-        )
-      } catch (error) {
-        close()
-        handlers.onError(error instanceof Error ? error : new Error('短信事件重置状态无效'))
-      }
-    })
-    source.onerror = () => {
-      if (!closed) handlers.onError()
-    }
-    return close
+    )
   },
 
   subscribeRuntimeEvents(handlers: RuntimeEventStreamHandlers): () => void {
-    const source = new EventSource(`${API_ROOT}/runtime/events`, { withCredentials: true })
-    let closed = false
-    const close = () => {
-      if (closed) return
-      closed = true
-      source.close()
-    }
-    source.onopen = () => {
-      if (!closed) handlers.onOpen()
-    }
-    source.addEventListener('runtime', event => {
-      if (closed) return
-      try {
-        handlers.onEvent(parseRuntimeEvent(JSON.parse(event.data) as unknown))
-      } catch (error) {
-        close()
-        handlers.onError(error instanceof Error ? error : new Error('运行时事件格式无效'))
+    return subscribeEventSource(
+      `${API_ROOT}/runtime/events`,
+      handlers,
+      (source, restart, isActive) => {
+        source.addEventListener('runtime', event => {
+          if (!isActive()) return
+          try {
+            handlers.onEvent(parseRuntimeEvent(JSON.parse(event.data) as unknown))
+          } catch (error) {
+            restart(error instanceof Error ? error : new Error('运行时事件格式无效'))
+          }
+        })
+        source.addEventListener('ready', event => {
+          if (!isActive()) return
+          try {
+            const ready = requiredRecord(JSON.parse(event.data) as unknown, 'runtime_event_ready')
+            handlers.onReady(numberValue(ready, 'runtime_event_ready', 'newest_id'))
+          } catch (error) {
+            restart(error instanceof Error ? error : new Error('运行时事件就绪状态无效'))
+          }
+        })
+        source.addEventListener('reset', event => {
+          if (!isActive()) return
+          try {
+            const reset = requiredRecord(JSON.parse(event.data) as unknown, 'runtime_event_reset')
+            handlers.onReset(
+              numberValue(reset, 'runtime_event_reset', 'oldest_id'),
+              numberValue(reset, 'runtime_event_reset', 'newest_id')
+            )
+          } catch (error) {
+            restart(error instanceof Error ? error : new Error('运行时事件重置状态无效'))
+          }
+        })
       }
-    })
-    source.addEventListener('ready', event => {
-      if (closed) return
-      try {
-        const ready = requiredRecord(JSON.parse(event.data) as unknown, 'runtime_event_ready')
-        handlers.onReady(numberValue(ready, 'runtime_event_ready', 'newest_id'))
-      } catch (error) {
-        close()
-        handlers.onError(error instanceof Error ? error : new Error('运行时事件就绪状态无效'))
-      }
-    })
-    source.addEventListener('reset', event => {
-      if (closed) return
-      try {
-        const reset = requiredRecord(JSON.parse(event.data) as unknown, 'runtime_event_reset')
-        handlers.onReset(
-          numberValue(reset, 'runtime_event_reset', 'oldest_id'),
-          numberValue(reset, 'runtime_event_reset', 'newest_id')
-        )
-      } catch (error) {
-        close()
-        handlers.onError(error instanceof Error ? error : new Error('运行时事件重置状态无效'))
-      }
-    })
-    source.onerror = () => {
-      if (!closed) handlers.onError()
-    }
-    return close
+    )
   },
 
   subscribeDiagnosticLogs(

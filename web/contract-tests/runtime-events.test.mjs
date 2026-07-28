@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
+import { gateway } from '../src/api/client.ts'
 import { createRuntimeRefreshQueue } from '../src/state/runtimeEvents.ts'
 
 test('runtime refresh queue coalesces duplicate resources without overlapping refreshes', async () => {
@@ -37,6 +38,109 @@ test('runtime refresh queue coalesces duplicate resources without overlapping re
   queue.stop()
 })
 
+test('runtime refresh queue continues after a failed resource refresh', async () => {
+  const calls = []
+  const queue = createRuntimeRefreshQueue(async resource => {
+    calls.push(resource)
+    if (resource === 'lines') throw new Error('request timed out')
+  })
+
+  await queue.enqueue(['lines'])
+  await queue.enqueue(['calls'])
+
+  assert.deepEqual(calls, ['lines', 'calls'])
+  queue.stop()
+})
+
+test('API requests abort at the shared deadline', async () => {
+  const originalFetch = globalThis.fetch
+  const originalTimeout = AbortSignal.timeout
+
+  try {
+    AbortSignal.timeout = () => {
+      const controller = new AbortController()
+      queueMicrotask(() => {
+        controller.abort(new DOMException('request timed out', 'TimeoutError'))
+      })
+      return controller.signal
+    }
+    globalThis.fetch = (_input, init) =>
+      new Promise((_resolve, reject) => {
+        const signal = init?.signal
+        assert.ok(signal)
+        const rejectAborted = () => reject(signal.reason)
+        if (signal.aborted) {
+          rejectAborted()
+        } else {
+          signal.addEventListener('abort', rejectAborted, { once: true })
+        }
+      })
+
+    await assert.rejects(gateway.getBootstrap(), error => {
+      assert.equal(error?.code, 'request_timeout')
+      return true
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+    AbortSignal.timeout = originalTimeout
+  }
+})
+
+test('runtime SSE recreates the EventSource after a protocol error', () => {
+  const originalEventSource = globalThis.EventSource
+
+  class FakeEventSource {
+    static instances = []
+
+    constructor() {
+      this.closed = false
+      this.listeners = new Map()
+      FakeEventSource.instances.push(this)
+    }
+
+    addEventListener(type, handler) {
+      this.listeners.set(type, handler)
+    }
+
+    close() {
+      this.closed = true
+    }
+
+    emit(type, data) {
+      this.listeners.get(type)?.({ data })
+    }
+  }
+
+  try {
+    globalThis.EventSource = FakeEventSource
+    let errors = 0
+    const close = gateway.subscribeRuntimeEvents({
+      onOpen() {},
+      onReady() {},
+      onEvent() {},
+      onReset() {},
+      onError() {
+        errors += 1
+      }
+    })
+
+    FakeEventSource.instances[0].emit('runtime', '{')
+
+    assert.equal(errors, 1)
+    assert.equal(FakeEventSource.instances.length, 2)
+    assert.equal(FakeEventSource.instances[0].closed, true)
+
+    close()
+    assert.equal(FakeEventSource.instances[1].closed, true)
+  } finally {
+    if (originalEventSource === undefined) {
+      delete globalThis.EventSource
+    } else {
+      globalThis.EventSource = originalEventSource
+    }
+  }
+})
+
 test('runtime SSE is global to the authenticated application shell', async () => {
   const shell = await readFile(
     new URL('../src/components/AppShell.vue', import.meta.url),
@@ -48,7 +152,11 @@ test('runtime SSE is global to the authenticated application shell', async () =>
     'utf8'
   )
 
-  assert.match(client, /new EventSource\(`\$\{API_ROOT\}\/runtime\/events`/)
+  assert.match(client, /function subscribeEventSource\(/)
+  assert.match(
+    client,
+    /subscribeEventSource\(\s*`\$\{API_ROOT\}\/runtime\/events`/
+  )
   assert.match(client, /source\.addEventListener\('runtime'/)
   assert.match(client, /source\.addEventListener\('reset'/)
   assert.match(client, /RUNTIME_RESOURCES[\s\S]*?'messages'/)
@@ -66,5 +174,8 @@ test('runtime SSE is global to the authenticated application shell', async () =>
     runtime,
     /onReady:[\s\S]*?lastEventID = Math\.max\(lastEventID, newestID\)[\s\S]*?refreshQueue\?\.enqueue\(ALL_RESOURCES\)/
   )
-  assert.match(runtime, /if \(wasConnected\) void refreshQueue\?\.enqueue\(ALL_RESOURCES\)/)
+  assert.doesNotMatch(
+    runtime,
+    /onError:[\s\S]*?if \(wasConnected\)[\s\S]*?refreshQueue\?\.enqueue\(ALL_RESOURCES\)/
+  )
 })

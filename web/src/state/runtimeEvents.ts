@@ -117,9 +117,7 @@ export function initializeRuntimeEvents(): void {
     },
     onError: () => {
       if (currentGeneration !== generation) return
-      const wasConnected = state.connected
       state.connected = false
-      if (wasConnected) void refreshQueue?.enqueue(ALL_RESOURCES)
     }
   })
 
