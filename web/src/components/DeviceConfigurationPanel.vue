@@ -299,27 +299,16 @@ const selectedCallBearer = computed(() => {
       return ''
   }
 })
-const selectedLineVoLTEConfigured = computed(() => {
+const selectedLineVoLTEEnabled = computed(() => {
   const volte = hardware.value?.volte
-  if (!volte?.policy_known || volte.policy !== 'enabled') return false
-  if (volte.modem_capability_known && !volte.modem_capability_enabled) return false
-  const provisioning = volte.provisioning
-  if (provisioning.ims_profile_reported && !provisioning.ims_profile_present) {
-    return false
-  }
-  const modemManagerProvisioned =
-    provisioning.carrier_configuration_reported &&
-    Boolean(provisioning.carrier_configuration) &&
-    provisioning.ims_profile_reported &&
-    provisioning.ims_profile_present
-  return (
-    (volte.modem_capability_known && volte.modem_capability_enabled) ||
-    modemManagerProvisioned
-  )
+  return volte?.policy_known === true && volte.policy === 'enabled'
 })
-const selectedCallPathLabel = computed(() => {
+const selectedVoiceModeTitle = computed(() =>
+  selectedCallBearer.value ? t('device.currentCallBearer') : t('device.voiceMode')
+)
+const selectedVoiceModeLabel = computed(() => {
   if (selectedCallBearer.value) return selectedCallBearer.value
-  return selectedLineVoLTEConfigured.value ? 'VoLTE' : 'GSM'
+  return selectedLineVoLTEEnabled.value ? t('device.voltePreferred') : 'GSM'
 })
 
 function networkRuntime(line: LineSummary) {
@@ -365,19 +354,7 @@ const volteStatusLabel = computed(() => {
   if (!capability.implemented) return t('device.notImplemented')
   if (!volte.policy_known) return t('lines.unknownState')
   if (volte.restart_required) return t('device.savedRestartRequired')
-  if (volte.policy !== 'enabled') {
-    return volte.modem_capability_known && volte.modem_capability_enabled
-      ? t('device.disabledPending')
-      : t('device.disabled')
-  }
-  if (
-    (volte.modem_capability_known && !volte.modem_capability_enabled) ||
-    (volte.provisioning.ims_profile_reported &&
-      !volte.provisioning.ims_profile_present)
-  ) {
-    return t('device.enabledNetworkUnavailable')
-  }
-  return t('device.enabled')
+  return volte.policy === 'enabled' ? t('device.enabled') : t('device.disabled')
 })
 const volteCarrierConfiguration = computed(() => {
   const provisioning = hardware.value?.volte.provisioning
@@ -589,11 +566,22 @@ watch(
       connection?.ip_family === 'ipv4v6'
         ? connection.ip_family
         : 'ipv4v6'
+  }
+)
+
+watch(
+  [
+    selectedLineID,
+    () => hardware.value?.volte.policy_known,
+    () => hardware.value?.volte.policy
+  ],
+  () => {
     voltePolicyDraft.value =
       hardware.value?.volte.policy_known && hardware.value.volte.policy
         ? hardware.value.volte.policy
         : ''
-  }
+  },
+  { immediate: true }
 )
 
 watch(
@@ -2057,8 +2045,8 @@ onMounted(() => {
               >
                 <RadioTower :size="18" />
                 <span>
-                  <strong>{{ t('device.callPath') }}</strong>
-                  <small>{{ selectedCallPathLabel }}</small>
+                  <strong>{{ selectedVoiceModeTitle }}</strong>
+                  <small>{{ selectedVoiceModeLabel }}</small>
                 </span>
               </div>
               <div

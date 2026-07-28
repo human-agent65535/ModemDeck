@@ -5,7 +5,7 @@ import test from 'node:test'
 const devicePanel = new URL('../src/components/DeviceConfigurationPanel.vue', import.meta.url)
 const diagnosticsPanel = new URL('../src/components/DiagnosticsPanel.vue', import.meta.url)
 
-test('module voice settings show an observed bearer or a capability-confirmed path', async () => {
+test('module voice settings separate the user policy from an observed bearer', async () => {
   const source = await readFile(devicePanel, 'utf8')
 
   assert.match(
@@ -14,24 +14,49 @@ test('module voice settings show an observed bearer or a capability-confirmed pa
   )
   assert.doesNotMatch(source, /\{ id: 'voice', label: 'Voice'/)
   assert.doesNotMatch(source, /diagnostics\.browserAudio/)
-  assert.match(source, /t\('device\.callPath'\)/)
+  assert.match(source, /t\('device\.voiceMode'\)/)
+  assert.match(source, /t\('device\.currentCallBearer'\)/)
   assert.match(source, /case 'volte':[\s\S]*return 'VoLTE'/)
   assert.match(source, /case 'vowifi':[\s\S]*return 'VoWiFi'/)
   assert.match(source, /case 'gsm':[\s\S]*case 'cs':[\s\S]*return 'GSM \/ CS'/)
   assert.match(
     source,
-    /const selectedLineVoLTEConfigured = computed[\s\S]*volte\.policy !== 'enabled'[\s\S]*provisioning\.ims_profile_reported[\s\S]*provisioning\.ims_profile_present/
+    /const selectedLineVoLTEEnabled = computed[\s\S]*volte\?\.policy_known === true && volte\.policy === 'enabled'/
   )
   assert.match(
     source,
-    /return selectedLineVoLTEConfigured\.value \? 'VoLTE' : 'GSM'/
+    /return selectedLineVoLTEEnabled\.value \? t\('device\.voltePreferred'\) : 'GSM'/
   )
+  const voiceModeStart = source.indexOf('const selectedVoiceModeLabel = computed')
+  const voiceModeEnd = source.indexOf('\n})', voiceModeStart)
+  assert.ok(voiceModeStart >= 0 && voiceModeEnd > voiceModeStart)
+  assert.doesNotMatch(source.slice(voiceModeStart, voiceModeEnd), /policy_known/)
+  const policyStart = source.indexOf('const selectedLineVoLTEEnabled = computed')
+  const policyEnd = source.indexOf('\n})', policyStart)
+  assert.ok(policyStart >= 0 && policyEnd > policyStart)
+  assert.doesNotMatch(source.slice(policyStart, policyEnd), /provisioning|modem_capability/)
   assert.match(source, /t\('device\.carrierConfiguration'\)/)
   assert.match(source, /t\('device\.imsProfile'\)/)
-  assert.doesNotMatch(source, /'无通话'/)
-  assert.doesNotMatch(source, /'待接通'/)
-  assert.match(source, /\{\{ selectedCallPathLabel \}\}/)
+  assert.match(source, /\{\{ selectedVoiceModeTitle \}\}/)
+  assert.match(source, /\{\{ selectedVoiceModeLabel \}\}/)
   assert.match(source, /lineKey\(line\) === session\.line_id/)
+})
+
+test('VoLTE switch follows the selected line policy and discovery only gates writes', async () => {
+  const source = await readFile(devicePanel, 'utf8')
+
+  assert.match(
+    source,
+    /watch\([\s\S]*selectedLineID,[\s\S]*hardware\.value\?\.volte\.policy_known,[\s\S]*hardware\.value\?\.volte\.policy[\s\S]*voltePolicyDraft\.value =/
+  )
+  assert.match(
+    source,
+    /:disabled="hardwareBusy \|\| !hardware\.capabilities\.volte\.writable"/
+  )
+  assert.match(
+    source,
+    /return volte\.policy === 'enabled' \? t\('device\.enabled'\) : t\('device\.disabled'\)/
+  )
 })
 
 test('browser audio is a global diagnostic with explicit microphone access states', async () => {

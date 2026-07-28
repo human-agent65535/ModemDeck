@@ -130,7 +130,8 @@ test('VoWiFi is status-only while VoLTE uses the shared binary switch', () => {
   assert.doesNotMatch(networkSection, />VoWiFi</)
   assert.match(voiceSection, /<strong>VoWiFi<\/strong>/)
   assert.match(voiceSection, /capabilityStatus\(hardware\.capabilities\.vowifi/)
-  assert.match(voiceSection, /<strong>\{\{ t\('device\.callPath'\) \}\}<\/strong>/)
+  assert.match(voiceSection, /<strong>\{\{ selectedVoiceModeTitle \}\}<\/strong>/)
+  assert.match(voiceSection, /<small>\{\{ selectedVoiceModeLabel \}\}<\/small>/)
   assert.match(voiceSection, /:class="\{ 'is-available': voiceAvailable \}"/)
   assert.doesNotMatch(
     voiceSection.slice(
