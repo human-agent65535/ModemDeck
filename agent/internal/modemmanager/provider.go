@@ -59,6 +59,11 @@ type Provider struct {
 	voiceProbeMu sync.Mutex
 	voiceProbes  map[string]voiceProbeResult
 
+	atCallStateMu  sync.Mutex
+	atCalls        map[string]map[int]atCallLifecycle
+	atPendingCalls map[string]atCallLifecycle
+	atCallSequence uint64
+
 	messageProperties *messagePropertyCache
 }
 
@@ -185,6 +190,8 @@ func newProviderWithOptions(
 		networkOperations: make(map[string]struct{}),
 		signalSetupStates: make(map[string]signalSetupState),
 		voiceProbes:       make(map[string]voiceProbeResult),
+		atCalls:           make(map[string]map[int]atCallLifecycle),
+		atPendingCalls:    make(map[string]atCallLifecycle),
 		messageProperties: newMessagePropertyCache(defaultMessagePropertyCacheLimit),
 	}, nil
 }
@@ -349,6 +356,15 @@ func (p *Provider) StartCall(ctx context.Context, request domain.StartCallReques
 		return domain.CommandReceipt{}, domain.Conflict(operation, "line already has an ongoing call")
 	}
 	linePath := parsed.LinePaths[line.ID]
+	if parsed.CallBackends[line.ID] == callControlQuectelAT {
+		return p.startATCall(
+			ctx,
+			operation,
+			request,
+			line,
+			linePath,
+		)
+	}
 
 	properties := map[string]dbus.Variant{
 		"number": dbus.MakeVariant(request.Number),
@@ -427,6 +443,15 @@ func (p *Provider) AnswerCall(ctx context.Context, request domain.CallCommandReq
 		if lineHasCall(parsed.Calls, call.LineID, call.ID) {
 			return domain.Conflict(operation, "line already has another ongoing call")
 		}
+		if lineID, isATCall := parsed.ATCallLines[call.ID]; isATCall {
+			_, err := p.commandATPath(
+				ctx,
+				parsed.LinePaths[lineID],
+				operation,
+				quectelAnswerCall,
+			)
+			return err
+		}
 		_, err := p.call(
 			ctx,
 			parsed.CallPaths[call.ID],
@@ -444,6 +469,15 @@ func (p *Provider) RejectCall(ctx context.Context, request domain.CallCommandReq
 		if call.StateCode != 3 && call.StateCode != 6 {
 			return domain.Conflict(operation, "call is not an incoming ringing or waiting call")
 		}
+		if lineID, isATCall := parsed.ATCallLines[call.ID]; isATCall {
+			_, err := p.commandATPath(
+				ctx,
+				parsed.LinePaths[lineID],
+				operation,
+				quectelHangupCall,
+			)
+			return err
+		}
 		_, err := p.call(
 			ctx,
 			parsed.CallPaths[call.ID],
@@ -460,6 +494,15 @@ func (p *Provider) HangupCall(ctx context.Context, request domain.CallCommandReq
 	return p.controlCall(ctx, operation, request, func(call domain.Call, parsed ParsedObjects) error {
 		if call.StateCode == callStateTerminated {
 			return domain.Conflict(operation, "call is already terminated")
+		}
+		if lineID, isATCall := parsed.ATCallLines[call.ID]; isATCall {
+			_, err := p.commandATPath(
+				ctx,
+				parsed.LinePaths[lineID],
+				operation,
+				quectelHangupCall,
+			)
+			return err
 		}
 		_, err := p.call(
 			ctx,
@@ -501,6 +544,23 @@ func (p *Provider) SendDTMF(ctx context.Context, request domain.DTMFRequest) (do
 	}
 	if call.StateCode != 4 {
 		return domain.CommandReceipt{}, domain.Conflict(operation, "DTMF requires an active call")
+	}
+	if lineID, isATCall := parsed.ATCallLines[call.ID]; isATCall {
+		for _, digit := range request.Digits {
+			command := fmt.Sprintf(`AT+VTS="%s"`, string(digit))
+			if _, err := p.commandATPath(
+				ctx,
+				parsed.LinePaths[lineID],
+				operation,
+				command,
+			); err != nil {
+				return domain.CommandReceipt{}, err
+			}
+		}
+		return domain.CommandReceipt{
+			RequestID:  request.RequestID,
+			ResourceID: call.ID,
+		}, nil
 	}
 	callPath := parsed.CallPaths[call.ID]
 	if err := p.requireCallMethod(ctx, callPath, "SendDtmf", operation); err != nil {
@@ -827,6 +887,7 @@ func (p *Provider) resolveProviderIdentity(
 		p.telemetryMu.Lock()
 		p.signalSetupStates = make(map[string]signalSetupState)
 		p.telemetryMu.Unlock()
+		p.clearATCallState()
 	}
 	identity, err := p.ids.freeze()
 	if err != nil {
@@ -847,6 +908,7 @@ func (p *Provider) clearProviderIdentity() {
 	p.telemetryMu.Lock()
 	p.signalSetupStates = make(map[string]signalSetupState)
 	p.telemetryMu.Unlock()
+	p.clearATCallState()
 }
 
 func (p *Provider) prepareExtendedSignal(

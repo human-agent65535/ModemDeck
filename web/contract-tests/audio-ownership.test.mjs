@@ -27,6 +27,14 @@ test('module voice settings separate the user policy from an observed bearer', a
     source,
     /return selectedLineVoLTEEnabled\.value \? t\('device\.voltePreferred'\) : 'GSM'/
   )
+  assert.match(
+    source,
+    /const selectedLineVoLTEAvailable = computed\([\s\S]*selectedLineVoLTEEnabled\.value &&[\s\S]*modem_capability_enabled === true/
+  )
+  assert.match(
+    source,
+    /:class="\{ 'is-available': selectedLineVoLTEAvailable \}"/
+  )
   const voiceModeStart = source.indexOf('const selectedVoiceModeLabel = computed')
   const voiceModeEnd = source.indexOf('\n})', voiceModeStart)
   assert.ok(voiceModeStart >= 0 && voiceModeEnd > voiceModeStart)

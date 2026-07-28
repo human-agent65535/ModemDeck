@@ -105,11 +105,12 @@ EC20/EC21/EC25、EG21/EG25、EG91/EG95、EM05，以及实机验证过的 QDC507�
 已注册，也不能证明实时通话的承载或音频路径。ModemManager 报告的运营商配置
 和 ProfileManager 中的 IMS profile 会作为独立只读信息显示。
 
-呼叫控制和媒体能力单独探测。ModemManager Voice 是呼叫控制的主依据；
-可读的 `usbcfg` 末位 `0` 会明确禁用该能力，读取失败则如实显示为固件状态
-不可读，不会伪装成“已验证”或直接否定 ModemManager。`AT+QPCMV=1,2`
-成功并回读为 `1,2` 后才发布模组媒体路由能力。浏览器双向音频还必须存在
-主机声卡和已配置的媒体桥。
+呼叫控制和媒体能力单独探测。上述白名单设备以 AT 状态作为呼叫控制能力依据：
+可读的 `usbcfg` 末位 `0` 会明确禁用，末位 `1` 会确认控制；固件返回
+`ERROR` 时只标记为不可读，并由安全的 `AT+CLCC` 查询继续确认，不会把读取失败
+误判成禁用。ModemManager Voice 存在时作为优先控制接口，否则由 Agent 使用
+同一组 AT 呼叫命令。`AT+QPCMV=1,2` 成功并回读为 `1,2` 后才发布模组媒体
+路由能力。浏览器双向音频还必须存在主机声卡和已配置的媒体桥。
 
 实测 EG25 固件 `EG25GGCR07A02M1G_A0.301.A0.301` 可读写 `usbcfg`，并能
 启用及回读 `QPCMV: 1,2`。同一硬件上的 A0.302 会对 `usbcfg` 读写返回
@@ -309,13 +310,15 @@ restart. A successful configuration does not prove IMS registration, the
 live-call bearer, or an audio path. Carrier configuration and IMS profiles
 reported by ModemManager are displayed as separate read-only facts.
 
-Call control and media are probed separately. ModemManager Voice is the
-call-control authority. A readable final `usbcfg` value of `0` explicitly
-vetoes that capability; a read failure is reported as unreadable firmware
-state instead of being presented as verified or overriding ModemManager.
-Modem media routing is published only after `AT+QPCMV=1,2` succeeds and reads
-back as `1,2`. Browser bidirectional audio additionally requires a host sound
-device and a configured media bridge.
+Call control and media are probed separately. For the whitelist above, AT
+state is authoritative for call-control capability. A readable final
+`usbcfg` value of `0` disables control and `1` confirms it. A firmware
+`ERROR` is reported as unreadable and followed by the safe `AT+CLCC` query
+instead of being misclassified as disabled. ModemManager Voice is the
+preferred control interface when present; otherwise the Agent uses the same
+AT call commands directly. Modem media routing is published only after
+`AT+QPCMV=1,2` succeeds and reads back as `1,2`. Browser bidirectional audio
+additionally requires a host sound device and a configured media bridge.
 
 The tested EG25 release `EG25GGCR07A02M1G_A0.301.A0.301` reads and writes
 `usbcfg` and enables and reads back `QPCMV: 1,2`. A0.302 on the same hardware

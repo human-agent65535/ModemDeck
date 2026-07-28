@@ -17,6 +17,7 @@ const (
 	voiceProbeReadyTTL    = 10 * time.Minute
 	voiceProbeNotReadyTTL = 15 * time.Second
 	quectelUSBVoiceQuery  = `AT+QCFG="USBCFG"`
+	quectelCallListQuery  = "AT+CLCC"
 	quectelPCMEnable      = "AT+QPCMV=1,2"
 	quectelPCMStatusQuery = "AT+QPCMV?"
 	quectelPCMReadyStatus = "+QPCMV: 1,2"
@@ -31,6 +32,7 @@ const (
 
 type voiceProbeResult struct {
 	callControl      bool
+	atCallControl    bool
 	media            bool
 	usbConfiguration string
 	mediaRouting     string
@@ -50,7 +52,7 @@ func (p *Provider) projectVoiceCapabilities(
 	blockedLines := make(map[string]struct{})
 	for index := range parsed.Lines {
 		line := &parsed.Lines[index]
-		if !line.Capabilities.VoiceInterface || !requiresQuectelPCMProbe(*line) {
+		if !requiresQuectelPCMProbe(*line) {
 			continue
 		}
 		path, found := parsed.LinePaths[line.ID]
@@ -66,6 +68,17 @@ func (p *Provider) projectVoiceCapabilities(
 			MediaRouting:     result.mediaRouting,
 		}
 		if result.callControl {
+			if line.Capabilities.VoiceInterface {
+				parsed.CallBackends[line.ID] = callControlModemManager
+			} else if result.atCallControl {
+				enableLineCallControl(line)
+				parsed.CallBackends[line.ID] = callControlQuectelAT
+			} else {
+				disableLineCallControl(line)
+				delete(parsed.CallBackends, line.ID)
+				blockedLines[line.ID] = struct{}{}
+				continue
+			}
 			if !result.media {
 				slog.Debug(
 					"line media capability withheld",
@@ -78,6 +91,7 @@ func (p *Provider) projectVoiceCapabilities(
 			continue
 		}
 		disableLineCallControl(line)
+		delete(parsed.CallBackends, line.ID)
 		blockedLines[line.ID] = struct{}{}
 		slog.Debug(
 			"line call control withheld",
@@ -87,19 +101,27 @@ func (p *Provider) projectVoiceCapabilities(
 			"reason", result.reason,
 		)
 	}
-	if len(blockedLines) == 0 {
-		return
-	}
 
-	calls := parsed.Calls[:0]
-	for _, call := range parsed.Calls {
-		if _, blocked := blockedLines[call.LineID]; blocked {
-			delete(parsed.CallPaths, call.ID)
-			continue
+	if len(blockedLines) > 0 {
+		calls := parsed.Calls[:0]
+		for _, call := range parsed.Calls {
+			if _, blocked := blockedLines[call.LineID]; blocked {
+				delete(parsed.CallPaths, call.ID)
+				continue
+			}
+			calls = append(calls, call)
 		}
-		calls = append(calls, call)
+		parsed.Calls = calls
 	}
-	parsed.Calls = calls
+	p.projectATCalls(ctx, operation, parsed)
+}
+
+func enableLineCallControl(line *domain.Line) {
+	line.Capabilities.Dial = true
+	line.Capabilities.AnswerCall = true
+	line.Capabilities.RejectCall = true
+	line.Capabilities.HangupCall = true
+	line.Capabilities.SendDTMF = true
 }
 
 func disableLineCallControl(line *domain.Line) {
@@ -112,15 +134,20 @@ func disableLineCallControl(line *domain.Line) {
 }
 
 func requiresQuectelPCMProbe(line domain.Line) bool {
-	manufacturer := strings.ToUpper(strings.TrimSpace(line.Manufacturer))
-	model := strings.ToUpper(strings.TrimSpace(line.Model))
 	revision := strings.ToUpper(strings.TrimSpace(line.Revision))
-	if !strings.Contains(manufacturer+" "+model, "QUECTEL") {
-		return false
+	for _, model := range []string{
+		"EC20",
+		"EC21",
+		"EC25",
+		"EG21",
+		"EG25",
+		"QDC507",
+	} {
+		if strings.HasPrefix(revision, model) {
+			return true
+		}
 	}
-	return strings.HasPrefix(revision, "EC2") ||
-		strings.HasPrefix(revision, "EG2") ||
-		strings.HasPrefix(revision, "QDC507")
+	return false
 }
 
 func (p *Provider) probeQuectelVoice(
@@ -138,27 +165,48 @@ func (p *Provider) probeQuectelVoice(
 		return cached
 	}
 
-	// ModemManager's Voice interface is the call-control authority. Some
-	// production Quectel firmware supports the configured USB composition but
-	// rejects the vendor-specific USBCFG query. Only an explicit disabled flag
-	// may override the capability ModemManager already reported.
-	result := voiceProbeResult{callControl: true}
+	// The supported Quectel family is verified from AT state. A firmware that
+	// rejects the USBCFG read is inconclusive, not disabled; CLCC provides a
+	// safe secondary proof without mutating the modem or an active call.
+	result := voiceProbeResult{
+		callControl: line.Capabilities.VoiceInterface,
+	}
 	usbVoiceResponse, err := p.commandATPath(ctx, path, operation, quectelUSBVoiceQuery)
 	if err != nil {
 		result.usbConfiguration = voiceVerificationReadFailed
 		result.reason = "USB configuration could not be read"
+		result.retrySoon = true
 	} else {
 		callControlEnabled, decodeErr := parseQuectelUSBCallControl(usbVoiceResponse)
 		switch {
 		case decodeErr != nil:
 			result.usbConfiguration = voiceVerificationInvalidResponse
 			result.reason = "USB configuration response was invalid"
+			result.retrySoon = true
 		case !callControlEnabled:
 			result.usbConfiguration = voiceVerificationDisabled
 			result.callControl = false
 			result.reason = "USB call control is disabled"
 		default:
 			result.usbConfiguration = voiceVerificationEnabled
+			result.callControl = true
+			result.atCallControl = true
+		}
+	}
+	if result.usbConfiguration != voiceVerificationDisabled &&
+		!result.atCallControl {
+		if _, listErr := p.commandATPath(
+			ctx,
+			path,
+			operation,
+			quectelCallListQuery,
+		); listErr == nil {
+			result.callControl = true
+			result.atCallControl = true
+			result.retrySoon = false
+		} else {
+			result.reason = "AT call control could not be verified"
+			result.retrySoon = true
 		}
 	}
 	if result.callControl {

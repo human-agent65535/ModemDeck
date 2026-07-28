@@ -41,6 +41,8 @@ type ParsedObjects struct {
 	Messages     []domain.Message
 	LinePaths    map[string]dbus.ObjectPath
 	CallPaths    map[string]dbus.ObjectPath
+	CallBackends map[string]callControlBackend
+	ATCallLines  map[string]string
 	MessagePaths map[string]dbus.ObjectPath
 	ids          *instanceIDs
 }
@@ -52,6 +54,8 @@ func ParseManagedObjects(objects ManagedObjects, ids *instanceIDs) ParsedObjects
 		Messages:     []domain.Message{},
 		LinePaths:    make(map[string]dbus.ObjectPath),
 		CallPaths:    make(map[string]dbus.ObjectPath),
+		CallBackends: make(map[string]callControlBackend),
+		ATCallLines:  make(map[string]string),
 		MessagePaths: make(map[string]dbus.ObjectPath),
 		ids:          ids,
 	}
@@ -166,6 +170,9 @@ func ParseManagedObjects(objects ManagedObjects, ids *instanceIDs) ParsedObjects
 			line.Capabilities.HangupCall = routable
 			line.Capabilities.SendDTMF = routable
 			line.EmergencyOnly, _ = boolProperty(voiceProperties, "EmergencyOnly")
+			if routable {
+				parsed.CallBackends[line.ID] = callControlModemManager
+			}
 
 			if routable {
 				callPaths, _ := objectPathValuesProperty(voiceProperties, "Calls")

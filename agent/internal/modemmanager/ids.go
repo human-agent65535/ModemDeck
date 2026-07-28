@@ -126,6 +126,19 @@ func (ids *instanceIDs) callID(path dbus.ObjectPath) string {
 	return ids.objectID("call", path)
 }
 
+func (ids *instanceIDs) atCallID(lineID, lifecycle string) string {
+	owner := ids.providerEpoch()
+	lineID = strings.TrimSpace(lineID)
+	lifecycle = strings.TrimSpace(lifecycle)
+	if owner == "" || lineID == "" || lifecycle == "" {
+		return ""
+	}
+	sum := sha256.Sum256(
+		[]byte("at_call\x00" + owner + "\x00" + lineID + "\x00" + lifecycle),
+	)
+	return "call_" + base64.RawURLEncoding.EncodeToString(sum[:18])
+}
+
 func (ids *instanceIDs) messageID(path dbus.ObjectPath) string {
 	return ids.objectID("message", path)
 }

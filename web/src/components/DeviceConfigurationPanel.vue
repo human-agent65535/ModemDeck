@@ -279,6 +279,20 @@ const lineIdentityDirty = computed(
     lineColorDraft.value !== selectedLineColor.value
 )
 const voiceAvailable = computed(() => lineHasCallControl(selectedLine.value))
+const incomingCallControlUnavailable = computed(() => {
+  const capabilities = selectedLine.value?.capabilities
+  return (
+    capabilities?.dial === false &&
+    capabilities.answer === false &&
+    capabilities.reject === false &&
+    capabilities.hangup === false
+  )
+})
+const rejectCallUnavailable = computed(
+  () =>
+    !incomingCallControlUnavailable.value &&
+    selectedLine.value?.capabilities?.reject === false
+)
 const voiceMediaAvailable = computed(
   () => selectedLine.value?.capabilities?.media === true
 )
@@ -350,6 +364,11 @@ const selectedLineVoLTEEnabled = computed(() => {
   const volte = hardware.value?.volte
   return volte?.policy_known === true && volte.policy === 'enabled'
 })
+const selectedLineVoLTEAvailable = computed(
+  () =>
+    selectedLineVoLTEEnabled.value &&
+    hardware.value?.volte.modem_capability_enabled === true
+)
 const selectedVoiceModeTitle = computed(() =>
   selectedCallBearer.value ? t('device.currentCallBearer') : t('device.voiceMode')
 )
@@ -2102,7 +2121,7 @@ onMounted(() => {
               </div>
               <div
                 class="voice-status"
-                :class="{ 'is-available': voiceAvailable }"
+                :class="{ 'is-available': selectedLineVoLTEAvailable }"
               >
                 <RadioTower :size="18" />
                 <span>
@@ -2127,7 +2146,17 @@ onMounted(() => {
             <header>
               <PhoneIncoming :size="18" /><h4>{{ t('device.incomingCalls') }}</h4>
             </header>
-            <fieldset class="incoming-policy" :disabled="Boolean(savingOperation)">
+            <fieldset
+              class="incoming-policy"
+              :disabled="Boolean(savingOperation) || incomingCallControlUnavailable"
+              :aria-describedby="
+                incomingCallControlUnavailable
+                  ? 'incoming-policy-call-control-unavailable'
+                  : rejectCallUnavailable
+                    ? 'incoming-policy-reject-unavailable'
+                    : undefined
+              "
+            >
               <legend>{{ t('device.linePolicy') }}</legend>
               <div
                 class="incoming-policy__options"
@@ -2157,13 +2186,14 @@ onMounted(() => {
                     v-model="incomingPolicyDraft"
                     type="radio"
                     value="do_not_disturb"
+                    :disabled="rejectCallUnavailable"
                     @change="applyIncomingPolicy"
                   />
                   <span>{{ t('device.doNotDisturb') }}</span>
                 </label>
               </div>
             </fieldset>
-            <div class="incoming-policy__status">
+            <div v-if="!incomingCallControlUnavailable" class="incoming-policy__status">
               <span>{{ t('device.current') }}</span>
               <strong>{{ policyLabel(incomingCalls.effective_policy) }}</strong>
               <small v-if="incomingPolicyDraft === 'follow_global'">
@@ -2176,8 +2206,19 @@ onMounted(() => {
                 }}
               </small>
             </div>
-            <p v-if="incomingCalls.enforcement.config_only" class="inline-warning">
-              {{ t('device.rejectCapabilityMissing') }}
+            <p
+              v-if="incomingCallControlUnavailable"
+              id="incoming-policy-call-control-unavailable"
+              class="incoming-policy__notice"
+            >
+              {{ t('device.callControlUnavailable') }}
+            </p>
+            <p
+              v-else-if="rejectCallUnavailable"
+              id="incoming-policy-reject-unavailable"
+              class="incoming-policy__notice"
+            >
+              {{ t('device.rejectUnavailable') }}
             </p>
           </section>
 
@@ -3651,6 +3692,19 @@ onMounted(() => {
 .incoming-policy__status small {
   margin-left: 4px;
   color: var(--muted);
+}
+
+.incoming-policy__notice {
+  min-height: 28px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 28px;
+}
+
+.incoming-policy__options input:disabled + span {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .voice-capabilities {

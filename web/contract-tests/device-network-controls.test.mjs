@@ -132,7 +132,23 @@ test('VoWiFi is status-only while VoLTE uses the shared binary switch', () => {
   assert.match(voiceSection, /capabilityStatus\(hardware\.capabilities\.vowifi/)
   assert.match(voiceSection, /<strong>\{\{ selectedVoiceModeTitle \}\}<\/strong>/)
   assert.match(voiceSection, /<small>\{\{ selectedVoiceModeLabel \}\}<\/small>/)
-  assert.match(voiceSection, /:class="\{ 'is-available': voiceAvailable \}"/)
+  assert.match(
+    voiceSection,
+    /:class="\{ 'is-available': selectedLineVoLTEAvailable \}"/
+  )
+  assert.match(
+    source,
+    /const selectedLineVoLTEAvailable = computed\(\s*\(\) =>\s*selectedLineVoLTEEnabled\.value &&\s*hardware\.value\?\.volte\.modem_capability_enabled === true\s*\)/
+  )
+  const voiceModeStatusStart = voiceSection.indexOf(
+    `:class="{ 'is-available': selectedLineVoLTEAvailable }"`
+  )
+  const voiceModeStatusEnd = voiceSection.indexOf('</div>', voiceModeStatusStart)
+  assert.ok(voiceModeStatusStart >= 0 && voiceModeStatusEnd > voiceModeStatusStart)
+  assert.doesNotMatch(
+    voiceSection.slice(voiceModeStatusStart, voiceModeStatusEnd),
+    /voiceAvailable/
+  )
   assert.doesNotMatch(
     voiceSection.slice(
       voiceSection.indexOf('<strong>VoWiFi</strong>'),
@@ -162,8 +178,33 @@ test('incoming call override uses a compact three-state segmented control', () =
   assert.match(incomingSection, /type="radio"\s+value="follow_global"/)
   assert.match(incomingSection, /type="radio"\s+value="receive"/)
   assert.match(incomingSection, /type="radio"\s+value="do_not_disturb"/)
+  assert.match(
+    incomingSection,
+    /value="do_not_disturb"\s+:disabled="rejectCallUnavailable"/
+  )
   assert.match(incomingSection, /@change="applyIncomingPolicy"/)
   assert.match(incomingSection, /:data-selection="incomingPolicyDraft"/)
+  assert.match(
+    incomingSection,
+    /:disabled="Boolean\(savingOperation\) \|\| incomingCallControlUnavailable"/
+  )
+  assert.match(
+    source,
+    /const incomingCallControlUnavailable = computed\(\(\) => \{[\s\S]*capabilities\?\.dial === false &&[\s\S]*capabilities\.answer === false &&[\s\S]*capabilities\.reject === false &&[\s\S]*capabilities\.hangup === false/
+  )
+  assert.match(
+    source,
+    /const rejectCallUnavailable = computed\([\s\S]*!incomingCallControlUnavailable\.value &&[\s\S]*capabilities\?\.reject === false/
+  )
+  assert.match(
+    incomingSection,
+    /v-if="incomingCallControlUnavailable"[\s\S]*t\('device\.callControlUnavailable'\)/
+  )
+  assert.match(
+    incomingSection,
+    /v-else-if="rejectCallUnavailable"[\s\S]*t\('device\.rejectUnavailable'\)/
+  )
+  assert.doesNotMatch(incomingSection, /inline-error|inline-warning/)
   assert.equal(
     (incomingSection.match(/class="incoming-policy__slider"/g) || []).length,
     1
