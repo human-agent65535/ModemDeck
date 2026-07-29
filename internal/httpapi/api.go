@@ -114,7 +114,7 @@ type CommunicationService interface {
 	StartCall(context.Context, communication.StartCallInput) (store.Call, error)
 	CallAction(context.Context, communication.CallActionInput) (store.Call, error)
 	ActiveCalls(context.Context) ([]store.Call, error)
-	ReleaseCallControl(context.Context) error
+	EndCall(context.Context, string) error
 }
 
 type DeviceConfigurationService interface {

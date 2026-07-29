@@ -1052,43 +1052,56 @@ func (s *Service) releaseAgentControlLease(ctx context.Context) error {
 	return lease.ReleaseControlLease(normalizeContext(ctx))
 }
 
-func (s *Service) ReleaseCallControl(ctx context.Context) error {
-	lease, ok := s.agent.(AgentControlLease)
-	if !ok {
-		return nil
-	}
-	s.controlMu.Lock()
-	defer s.controlMu.Unlock()
-	s.controlLeaseWanted = false
-	s.controlLeaseActive = false
-	return lease.ReleaseControlLease(normalizeContext(ctx))
-}
-
-func (s *Service) relinquishAcceptedCallControl(
+func (s *Service) terminateEndpointCall(
 	ctx context.Context,
+	endpointCallID string,
+	reason string,
 	cause error,
 ) error {
-	releaseContext, cancel := context.WithTimeout(
+	endpointCallID = strings.TrimSpace(endpointCallID)
+	if endpointCallID == "" {
+		return cause
+	}
+	requestID := stableInstanceID("end-call", reason, endpointCallID)
+	commandContext, cancel := context.WithTimeout(
 		context.WithoutCancel(normalizeContext(ctx)),
 		commandTimeout,
 	)
-	releaseErr := s.ReleaseCallControl(releaseContext)
+	receipt, commandErr := s.agent.CallAction(
+		commandContext,
+		endpointCallID,
+		"hangup",
+		agentclient.CallActionRequest{RequestID: requestID},
+	)
 	cancel()
-	if releaseErr == nil {
+	if commandErr == nil {
+		if receiptErr := validateReceipt(receipt, requestID); receiptErr != nil {
+			commandErr = receiptErr
+		} else if receipt.ResourceID != endpointCallID {
+			commandErr = errors.New("call termination receipt resource does not match")
+		}
+	}
+	if commandErr == nil {
 		return cause
 	}
 	return errors.Join(
 		cause,
-		fmt.Errorf("release host-agent control after an indeterminate call start: %w", releaseErr),
+		fmt.Errorf("terminate accepted call %s: %w", endpointCallID, commandErr),
 	)
 }
 
 func (s *Service) recordIndeterminateAcceptedCall(
 	ctx context.Context,
 	command store.HardwareCommand,
+	endpointCallID string,
 	cause error,
 ) error {
-	cause = s.relinquishAcceptedCallControl(ctx, cause)
+	cause = s.terminateEndpointCall(
+		ctx,
+		endpointCallID,
+		"indeterminate-call",
+		cause,
+	)
 	finishContext, cancel := durableContext(ctx)
 	finishErr := s.finishIndeterminateCommand(finishContext, command, cause)
 	cancel()
@@ -1096,6 +1109,34 @@ func (s *Service) recordIndeterminateAcceptedCall(
 		return errors.Join(cause, finishErr)
 	}
 	return cause
+}
+
+func (s *Service) EndCall(ctx context.Context, callID string) error {
+	callID = strings.TrimSpace(callID)
+	if callID == "" {
+		return operationError(
+			CodeInvalidArgument,
+			"end call",
+			"call_id is required",
+			nil,
+		)
+	}
+	target, err := s.repository.CallControlTarget(normalizeContext(ctx), callID)
+	if errors.Is(err, store.ErrCallNotFound) {
+		return nil
+	}
+	if err != nil {
+		return operationError(CodeInternal, "end call", "cannot load call", err)
+	}
+	if target.Phase == "ended" || target.Phase == "failed" {
+		return nil
+	}
+	_, err = s.CallAction(ctx, CallActionInput{
+		RequestID: stableInstanceID("end-call", "browser-lease", callID),
+		CallID:    callID,
+		Action:    "hangup",
+	})
+	return err
 }
 
 func resetTimer(timer *time.Timer, duration time.Duration) {
@@ -1260,19 +1301,6 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 		}
 		return call, nil
 	}
-	active, err := s.repository.ActiveCalls(ctx)
-	if err != nil {
-		return store.Call{}, s.failLocalCommand(ctx, command, operation, "cannot inspect active calls", err)
-	}
-	if len(active) > 0 {
-		return store.Call{}, s.failLocalCommand(
-			ctx,
-			command,
-			operation,
-			"another call is already active",
-			nil,
-		)
-	}
 	if err := s.ensureAgentControlLease(ctx); err != nil {
 		return store.Call{}, s.failLocalCommand(
 			ctx,
@@ -1290,14 +1318,18 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 		Number:    number,
 	})
 	if err != nil {
-		controlErr := s.relinquishAcceptedCallControl(ctx, err)
 		if finishErr := s.finishFailedCommand(ctx, command, err); finishErr != nil {
 			return store.Call{}, finishErr
 		}
-		return store.Call{}, translateAgentError(operation, controlErr)
+		return store.Call{}, translateAgentError(operation, err)
 	}
 	if err := validateReceipt(receipt, requestID); err != nil {
-		err = s.recordIndeterminateAcceptedCall(ctx, command, err)
+		err = s.recordIndeterminateAcceptedCall(
+			ctx,
+			command,
+			validEndpointResourceID(receipt.ResourceID),
+			err,
+		)
 		return store.Call{}, operationError(CodeUnavailable, operation, "host agent returned an invalid command receipt", err)
 	}
 	appID := stableInstanceID("call", line.EndpointID, receipt.ResourceID)
@@ -1305,7 +1337,12 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 	defer outcomeCancel()
 	snapshot, err := s.agent.Snapshot(outcomeContext)
 	if err != nil {
-		err = s.recordIndeterminateAcceptedCall(ctx, command, err)
+		err = s.recordIndeterminateAcceptedCall(
+			ctx,
+			command,
+			receipt.ResourceID,
+			err,
+		)
 		return store.Call{}, operationError(
 			CodeUnavailable,
 			operation,
@@ -1329,7 +1366,12 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 		if found {
 			stateErr = fmt.Errorf("accepted call has non-active state %q", observed.State)
 		}
-		stateErr = s.recordIndeterminateAcceptedCall(ctx, command, stateErr)
+		stateErr = s.recordIndeterminateAcceptedCall(
+			ctx,
+			command,
+			receipt.ResourceID,
+			stateErr,
+		)
 		return store.Call{}, operationError(
 			CodeUnavailable,
 			operation,
@@ -1355,7 +1397,12 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 	}
 	stored, err := s.repository.UpsertHardwareCall(outcomeContext, projected)
 	if err != nil {
-		err = s.relinquishAcceptedCallControl(ctx, err)
+		err = s.terminateEndpointCall(
+			ctx,
+			receipt.ResourceID,
+			"persist-call",
+			err,
+		)
 		return store.Call{}, operationError(
 			CodeInternal,
 			operation,
@@ -1370,7 +1417,12 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 		appID,
 		"",
 	); err != nil {
-		err = s.relinquishAcceptedCallControl(ctx, err)
+		err = s.terminateEndpointCall(
+			ctx,
+			receipt.ResourceID,
+			"finalize-call",
+			err,
+		)
 		return store.Call{}, operationError(CodeInternal, operation, "call command result could not be finalized", err)
 	}
 	return stored, nil
@@ -1494,9 +1546,6 @@ func (s *Service) ActiveCalls(ctx context.Context) ([]store.Call, error) {
 	calls, err := s.repository.ActiveCalls(ctx)
 	if err != nil {
 		return nil, operationError(CodeInternal, "list active calls", "active calls could not be loaded", err)
-	}
-	if len(calls) > 1 {
-		calls = calls[:1]
 	}
 	return calls, nil
 }
@@ -1693,16 +1742,23 @@ func validateReceipt(receipt agentclient.CommandReceipt, requestID string) error
 	if receipt.RequestID != requestID {
 		return errors.New("receipt request id does not match")
 	}
-	resourceID := strings.TrimSpace(receipt.ResourceID)
-	if resourceID == "" || len(resourceID) > 256 {
+	if validEndpointResourceID(receipt.ResourceID) == "" {
 		return errors.New("receipt resource id is invalid")
+	}
+	return nil
+}
+
+func validEndpointResourceID(resourceID string) string {
+	resourceID = strings.TrimSpace(resourceID)
+	if resourceID == "" || len(resourceID) > 256 {
+		return ""
 	}
 	for _, character := range resourceID {
 		if character < 0x20 || character == 0x7f {
-			return errors.New("receipt resource id contains a control character")
+			return ""
 		}
 	}
-	return nil
+	return resourceID
 }
 
 func durableContext(ctx context.Context) (context.Context, context.CancelFunc) {

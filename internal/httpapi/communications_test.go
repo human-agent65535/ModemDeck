@@ -29,6 +29,8 @@ type fakeCommunications struct {
 	actionCalls  int
 	active       []store.Call
 	activeError  error
+	endCallID    string
+	endCallError error
 }
 
 func (service *fakeCommunications) Status(context.Context) (communication.Status, error) {
@@ -64,8 +66,9 @@ func (service *fakeCommunications) ActiveCalls(context.Context) ([]store.Call, e
 	return service.active, service.activeError
 }
 
-func (service *fakeCommunications) ReleaseCallControl(context.Context) error {
-	return nil
+func (service *fakeCommunications) EndCall(_ context.Context, callID string) error {
+	service.endCallID = callID
+	return service.endCallError
 }
 
 func TestMessageCommandForwardsExplicitLineAndIdempotencyKey(t *testing.T) {
@@ -733,6 +736,44 @@ func TestStartCallClaimsTheDialingBrowser(t *testing.T) {
 	}
 	if body.Call.ControlState != string(calllease.ControlOwned) {
 		t.Fatalf("control state = %q", body.Call.ControlState)
+	}
+}
+
+func TestStartCallClaimFailureEndsOnlyCreatedCall(t *testing.T) {
+	t.Parallel()
+
+	communications := &fakeCommunications{call: store.Call{
+		ID:        "call-app-2",
+		LineID:    "line-stable-2",
+		Direction: "outgoing",
+		Phase:     "dialing",
+	}}
+	leases := &fakeCallLeases{err: calllease.ErrCallNotActive}
+	api, err := New(&fakeRepository{}, Options{
+		Communications:        communications,
+		CallLeases:            leases,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/calls",
+		bytes.NewBufferString(
+			`{"line_id":"line-stable-2","number":"+818012345678","holder_id":"browser-1"}`,
+		),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusConflict {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if communications.endCallID != "call-app-2" {
+		t.Fatalf("ended call = %q, want call-app-2", communications.endCallID)
 	}
 }
 

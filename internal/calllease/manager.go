@@ -32,7 +32,7 @@ type CallStore interface {
 }
 
 type CallController interface {
-	ReleaseCallControl(context.Context) error
+	EndCall(context.Context, string) error
 }
 
 type Options struct {
@@ -442,11 +442,11 @@ func (m *Manager) endExpiredCall(
 		context.WithoutCancel(normalizeContext(ctx)),
 		m.releaseTimeout,
 	)
-	err := m.controller.ReleaseCallControl(releaseContext)
+	err := m.controller.EndCall(releaseContext, callID)
 	cancel()
 	if err != nil && m.report != nil {
 		m.report(fmt.Errorf(
-			"release call control after browser lease expired for %s: %w",
+			"end call after browser lease expired for %s: %w",
 			callID,
 			err,
 		))

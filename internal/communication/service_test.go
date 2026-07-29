@@ -524,6 +524,14 @@ func TestStartCallDoesNotInventStateMissingFromAgentSnapshot(t *testing.T) {
 		RequestID:  "request-unobserved-call",
 		ResourceID: "call-endpoint-missing",
 	}
+	baseAgent.actionResult = agentclient.CommandReceipt{
+		RequestID: stableInstanceID(
+			"end-call",
+			"indeterminate-call",
+			"call-endpoint-missing",
+		),
+		ResourceID: "call-endpoint-missing",
+	}
 	agent := &controlLeaseEventAgent{
 		fakeAgent: baseAgent,
 		released:  make(chan struct{}),
@@ -553,12 +561,20 @@ func TestStartCallDoesNotInventStateMissingFromAgentSnapshot(t *testing.T) {
 	if command.Status != store.HardwareCommandIndeterminate {
 		t.Fatalf("command status = %q, want indeterminate", command.Status)
 	}
-	if got := agent.releaseCalls.Load(); got != 1 {
-		t.Fatalf("control lease releases = %d, want 1", got)
+	if agent.actionCallID != "call-endpoint-missing" ||
+		agent.actionName != "hangup" {
+		t.Fatalf(
+			"targeted cleanup = call %q action %q",
+			agent.actionCallID,
+			agent.actionName,
+		)
+	}
+	if got := agent.releaseCalls.Load(); got != 0 {
+		t.Fatalf("global control lease releases = %d, want 0", got)
 	}
 }
 
-func TestStartCallFailureRelinquishesControlLease(t *testing.T) {
+func TestStartCallFailureKeepsApplicationControlLease(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
@@ -582,14 +598,14 @@ func TestStartCallFailureRelinquishesControlLease(t *testing.T) {
 	if got := agent.renewals.Load(); got != 1 {
 		t.Fatalf("control lease renewals = %d, want 1", got)
 	}
-	if got := agent.releaseCalls.Load(); got != 1 {
-		t.Fatalf("control lease releases = %d, want 1", got)
+	if got := agent.releaseCalls.Load(); got != 0 {
+		t.Fatalf("global control lease releases = %d, want 0", got)
 	}
 	service.controlMu.RLock()
 	wanted := service.controlLeaseWanted
 	active := service.controlLeaseActive
 	service.controlMu.RUnlock()
-	if wanted || active {
+	if !wanted || !active {
 		t.Fatalf("control lease state after failed start = wanted:%t active:%t", wanted, active)
 	}
 }
@@ -901,14 +917,73 @@ func TestCallActionUsesReceiptWithoutInventingState(t *testing.T) {
 	}
 }
 
-func TestStartCallRejectsExistingCallBeforeAgentMutation(t *testing.T) {
+func TestEndCallTargetsOnlyRequestedCall(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.July, 29, 12, 0, 0, 0, time.UTC)
+	baseAgent := connectedAgent(now)
+	requestID := stableInstanceID("end-call", "browser-lease", "call-app-2")
+	baseAgent.actionResult = agentclient.CommandReceipt{
+		RequestID:  requestID,
+		ResourceID: "call-endpoint-2",
+	}
+	agent := &controlLeaseEventAgent{fakeAgent: baseAgent}
+	repository := &fakeRepository{
+		call: store.Call{
+			ID:    "call-app-2",
+			Phase: "active",
+		},
+		target: store.CallControlTarget{
+			AppID:          "call-app-2",
+			EndpointCallID: "call-endpoint-2",
+			Phase:          "active",
+		},
+	}
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := service.EndCall(context.Background(), "call-app-2"); err != nil {
+		t.Fatalf("EndCall() error = %v", err)
+	}
+	if agent.actionCallID != "call-endpoint-2" ||
+		agent.actionName != "hangup" ||
+		agent.actionRequest.RequestID != requestID {
+		t.Fatalf(
+			"targeted action = call %q action %q request %+v",
+			agent.actionCallID,
+			agent.actionName,
+			agent.actionRequest,
+		)
+	}
+	if got := agent.releaseCalls.Load(); got != 0 {
+		t.Fatalf("global control lease releases = %d, want 0", got)
+	}
+}
+
+func TestStartCallAllowsAnotherApplicationCallOnDifferentLine(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, time.July, 23, 13, 0, 0, 0, time.UTC)
 	agent := connectedAgent(now)
+	agent.startResult = agentclient.CommandReceipt{
+		RequestID:  "request-second-line",
+		ResourceID: "call-endpoint-2",
+	}
+	startedSnapshot := agent.snapshot
+	startedSnapshot.Calls = []agentclient.Call{{
+		ID:        "call-endpoint-2",
+		LineID:    "line-1",
+		Number:    "+818012345678",
+		Direction: "outgoing",
+		State:     "dialing",
+		StateCode: 1,
+	}}
+	agent.snapshotAfterStart = &startedSnapshot
 	repository := &fakeRepository{activeCalls: []store.Call{{
 		ID:     "call-active",
-		LineID: "line-1",
+		LineID: "line-2",
 		Phase:  "active",
 	}}}
 	service, err := New(agent, repository, messageevents.NewBuffer(8))
@@ -918,18 +993,19 @@ func TestStartCallRejectsExistingCallBeforeAgentMutation(t *testing.T) {
 	service.now = func() time.Time { return now }
 
 	_, err = service.StartCall(context.Background(), StartCallInput{
-		LineID: "line-1",
-		Number: "+818012345678",
+		RequestID: "request-second-line",
+		LineID:    "line-1",
+		Number:    "+818012345678",
 	})
-	if !errors.Is(err, ErrConflict) {
-		t.Fatalf("StartCall() error = %v, want conflict", err)
+	if err != nil {
+		t.Fatalf("StartCall() error = %v", err)
 	}
-	if len(agent.startRequests) != 0 {
-		t.Fatalf("agent start requests = %+v, want none", agent.startRequests)
+	if len(agent.startRequests) != 1 {
+		t.Fatalf("agent start requests = %+v, want one", agent.startRequests)
 	}
 }
 
-func TestActiveCallsExposesOnlyOldestCall(t *testing.T) {
+func TestActiveCallsExposesEveryCall(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, time.July, 23, 13, 30, 0, 0, time.UTC)
@@ -948,8 +1024,10 @@ func TestActiveCallsExposesOnlyOldestCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ActiveCalls() error = %v", err)
 	}
-	if len(calls) != 1 || calls[0].ID != "call-oldest" {
-		t.Fatalf("ActiveCalls() = %+v, want oldest call only", calls)
+	if len(calls) != 2 ||
+		calls[0].ID != "call-oldest" ||
+		calls[1].ID != "call-later" {
+		t.Fatalf("ActiveCalls() = %+v, want both calls", calls)
 	}
 }
 

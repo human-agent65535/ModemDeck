@@ -495,8 +495,9 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 				context.WithoutCancel(request.Context()),
 				callControlRollbackTimeout,
 			)
-			releaseErr := api.communications.ReleaseCallControl(
+			releaseErr := api.communications.EndCall(
 				rollbackContext,
+				call.ID,
 			)
 			cancel()
 			if releaseErr != nil {

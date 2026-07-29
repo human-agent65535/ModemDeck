@@ -29,15 +29,15 @@ func (calls *fakeCalls) CallByID(
 }
 
 type fakeController struct {
-	releases   chan struct{}
-	releaseErr error
+	ended    chan string
+	endError error
 }
 
-func (controller *fakeController) ReleaseCallControl(context.Context) error {
-	if controller.releases != nil {
-		controller.releases <- struct{}{}
+func (controller *fakeController) EndCall(_ context.Context, callID string) error {
+	if controller.ended != nil {
+		controller.ended <- callID
 	}
-	return controller.releaseErr
+	return controller.endError
 }
 
 func TestLeaseExpiryEndsCall(t *testing.T) {
@@ -46,7 +46,7 @@ func TestLeaseExpiryEndsCall(t *testing.T) {
 		"call-1": {ID: "call-1", Phase: "active"},
 	}}
 	controller := &fakeController{
-		releases: make(chan struct{}, 1),
+		ended: make(chan string, 1),
 	}
 	manager, err := New(calls, controller, Options{
 		Duration:       30 * time.Millisecond,
@@ -64,9 +64,58 @@ func TestLeaseExpiryEndsCall(t *testing.T) {
 	defer cancel()
 	go manager.Run(ctx)
 	select {
-	case <-controller.releases:
+	case callID := <-controller.ended:
+		if callID != "call-1" {
+			t.Fatalf("ended call = %q, want call-1", callID)
+		}
 	case <-time.After(time.Second):
-		t.Fatal("expired browser call lease did not release call control")
+		t.Fatal("expired browser call lease did not end its call")
+	}
+}
+
+func TestLeaseExpiryEndsOnlyItsCall(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.July, 29, 12, 0, 0, 0, time.UTC)
+	calls := &fakeCalls{calls: map[string]store.Call{
+		"call-1": {ID: "call-1", Phase: "active"},
+		"call-2": {ID: "call-2", Phase: "active"},
+	}}
+	controller := &fakeController{ended: make(chan string, 2)}
+	manager, err := New(calls, controller, Options{
+		Duration: 10 * time.Second,
+		Now:      func() time.Time { return now },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Claim(context.Background(), "call-1", "browser-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Claim(context.Background(), "call-2", "browser-2"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(6 * time.Second)
+	if _, err := manager.Renew(context.Background(), "call-2", "browser-2"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(5 * time.Second)
+
+	expired := manager.expiredCalls()
+	if len(expired) != 1 || expired[0].callID != "call-1" {
+		t.Fatalf("expired calls = %+v, want call-1 only", expired)
+	}
+	manager.endExpiredCall(context.Background(), expired[0].callID, expired[0].attempt)
+	if callID := <-controller.ended; callID != "call-1" {
+		t.Fatalf("ended call = %q, want call-1", callID)
+	}
+	select {
+	case callID := <-controller.ended:
+		t.Fatalf("unexpected second call termination: %s", callID)
+	default:
+	}
+	state, err := manager.ControlState(context.Background(), "call-2", "browser-2")
+	if err != nil || state != ControlOwned {
+		t.Fatalf("second call state = %q, %v; want owned", state, err)
 	}
 }
 
@@ -76,7 +125,7 @@ func TestReconciledCallGetsUnclaimedGracePeriod(t *testing.T) {
 		"call-1": {ID: "call-1", Phase: "ringing"},
 	}}
 	controller := &fakeController{
-		releases: make(chan struct{}, 1),
+		ended: make(chan string, 1),
 	}
 	manager, err := New(calls, controller, Options{
 		Duration:       30 * time.Millisecond,
@@ -97,7 +146,10 @@ func TestReconciledCallGetsUnclaimedGracePeriod(t *testing.T) {
 	defer cancel()
 	go manager.Run(ctx)
 	select {
-	case <-controller.releases:
+	case callID := <-controller.ended:
+		if callID != "call-1" {
+			t.Fatalf("ended call = %q, want call-1", callID)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("unclaimed active call did not expire")
 	}
@@ -109,7 +161,7 @@ func TestRenewalExtendsCallLease(t *testing.T) {
 		"call-1": {ID: "call-1", Phase: "active"},
 	}}
 	controller := &fakeController{
-		releases: make(chan struct{}, 1),
+		ended: make(chan string, 1),
 	}
 	manager, err := New(calls, controller, Options{
 		Duration:       80 * time.Millisecond,
@@ -131,12 +183,15 @@ func TestRenewalExtendsCallLease(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case <-controller.releases:
-		t.Fatal("call control was released before the renewed lease expired")
+	case <-controller.ended:
+		t.Fatal("call ended before the renewed lease expired")
 	case <-time.After(50 * time.Millisecond):
 	}
 	select {
-	case <-controller.releases:
+	case callID := <-controller.ended:
+		if callID != "call-1" {
+			t.Fatalf("ended call = %q, want call-1", callID)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("renewed lease never expired")
 	}
@@ -153,7 +208,7 @@ func TestTerminalCallCannotRenew(t *testing.T) {
 			}}
 			manager, err := New(
 				calls,
-				&fakeController{releases: make(chan struct{}, 1)},
+				&fakeController{ended: make(chan string, 1)},
 				Options{},
 			)
 			if err != nil {
@@ -178,7 +233,7 @@ func TestFirstBrowserClaimWins(t *testing.T) {
 	}}
 	manager, err := New(
 		calls,
-		&fakeController{releases: make(chan struct{}, 1)},
+		&fakeController{ended: make(chan string, 1)},
 		Options{
 			Duration: 10 * time.Second,
 			Now:      func() time.Time { return now },
@@ -223,7 +278,7 @@ func TestConcurrentBrowserClaimsHaveOneWinner(t *testing.T) {
 	}}
 	manager, err := New(
 		calls,
-		&fakeController{releases: make(chan struct{}, 1)},
+		&fakeController{ended: make(chan string, 1)},
 		Options{
 			Duration: 10 * time.Second,
 			Now:      func() time.Time { return now },
@@ -274,7 +329,7 @@ func TestControlStateIsRelativeToBrowser(t *testing.T) {
 	}}
 	manager, err := New(
 		calls,
-		&fakeController{releases: make(chan struct{}, 1)},
+		&fakeController{ended: make(chan string, 1)},
 		Options{
 			Duration: 10 * time.Second,
 			Now:      func() time.Time { return now },
@@ -325,7 +380,7 @@ func TestFailedIncomingAnswerCanReleaseClaim(t *testing.T) {
 	}}
 	manager, err := New(
 		calls,
-		&fakeController{releases: make(chan struct{}, 1)},
+		&fakeController{ended: make(chan string, 1)},
 		Options{
 			Duration: 10 * time.Second,
 			Now:      func() time.Time { return now },
@@ -357,7 +412,7 @@ func TestUnansweredIncomingCallDoesNotExpire(t *testing.T) {
 	}}
 	manager, err := New(
 		calls,
-		&fakeController{releases: make(chan struct{}, 1)},
+		&fakeController{ended: make(chan string, 1)},
 		Options{
 			Duration: 10 * time.Second,
 			Now:      func() time.Time { return now },
@@ -386,7 +441,7 @@ func TestStaleSnapshotDoesNotDropNewBrowserClaim(t *testing.T) {
 	}}
 	manager, err := New(
 		calls,
-		&fakeController{releases: make(chan struct{}, 1)},
+		&fakeController{ended: make(chan string, 1)},
 		Options{
 			Duration: 10 * time.Second,
 			Now:      func() time.Time { return now },
@@ -419,8 +474,8 @@ func TestFailedReleaseIsNotRetriedWithoutNewAuthoritativeState(t *testing.T) {
 		"call-1": {ID: "call-1", Phase: "active"},
 	}}
 	controller := &fakeController{
-		releases:   make(chan struct{}, 1),
-		releaseErr: errors.New("temporary control failure"),
+		ended:    make(chan string, 1),
+		endError: errors.New("temporary control failure"),
 	}
 	reports := make(chan error, 1)
 	manager, err := New(calls, controller, Options{
@@ -440,7 +495,9 @@ func TestFailedReleaseIsNotRetriedWithoutNewAuthoritativeState(t *testing.T) {
 		t.Fatalf("first expiration = %+v", first)
 	}
 	manager.endExpiredCall(context.Background(), first[0].callID, first[0].attempt)
-	<-controller.releases
+	if callID := <-controller.ended; callID != "call-1" {
+		t.Fatalf("ended call = %q, want call-1", callID)
+	}
 	<-reports
 
 	now = now.Add(time.Hour)
@@ -456,7 +513,7 @@ func TestSuccessfulReleaseWaitsForAuthoritativeCallEnd(t *testing.T) {
 		"call-1": {ID: "call-1", Phase: "active"},
 	}}
 	controller := &fakeController{
-		releases: make(chan struct{}, 1),
+		ended: make(chan string, 1),
 	}
 	manager, err := New(calls, controller, Options{
 		Duration: 10 * time.Second,
@@ -474,7 +531,9 @@ func TestSuccessfulReleaseWaitsForAuthoritativeCallEnd(t *testing.T) {
 		t.Fatalf("first expiration = %+v", first)
 	}
 	manager.endExpiredCall(context.Background(), first[0].callID, first[0].attempt)
-	<-controller.releases
+	if callID := <-controller.ended; callID != "call-1" {
+		t.Fatalf("ended call = %q, want call-1", callID)
+	}
 
 	now = now.Add(time.Second)
 	if expired := manager.expiredCalls(); len(expired) != 0 {

@@ -227,8 +227,8 @@ func TestFailedControlReleaseIsNotRenewed(t *testing.T) {
 	if err := service.ensureAgentControlLease(context.Background()); err != nil {
 		t.Fatalf("ensureAgentControlLease() error = %v", err)
 	}
-	if err := service.ReleaseCallControl(context.Background()); err == nil {
-		t.Fatal("ReleaseCallControl() succeeded")
+	if err := service.releaseAgentControlLease(context.Background()); err == nil {
+		t.Fatal("releaseAgentControlLease() succeeded")
 	}
 	if err := service.renewAgentControlLease(context.Background()); err != nil {
 		t.Fatalf("renewAgentControlLease() error after release = %v", err)
@@ -269,14 +269,14 @@ func TestControlReleaseWaitsForInFlightRenewal(t *testing.T) {
 
 	released := make(chan error, 1)
 	go func() {
-		released <- service.ReleaseCallControl(context.Background())
+		released <- service.releaseAgentControlLease(context.Background())
 	}()
 	close(agent.renewContinue)
 	if err := <-renewed; err != nil {
 		t.Fatalf("ensureAgentControlLease() error = %v", err)
 	}
 	if err := <-released; err != nil {
-		t.Fatalf("ReleaseCallControl() error = %v", err)
+		t.Fatalf("releaseAgentControlLease() error = %v", err)
 	}
 	if err := service.renewAgentControlLease(context.Background()); err != nil {
 		t.Fatalf("renewAgentControlLease() error after release = %v", err)
