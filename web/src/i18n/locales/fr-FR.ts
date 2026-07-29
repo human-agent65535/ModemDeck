@@ -426,6 +426,8 @@ export default {
     "failed": "L'appel a échoué",
     "lineInUse": "Ligne en service",
     "lineInUseDescription": "Cet appel est contrôlé par un autre navigateur",
+    "answeredElsewhere": "Pris sur un autre appareil",
+    "answeredElsewhereDescription": "Ce navigateur peut uniquement afficher l’état de l’appel",
     "bearerUnknown": "Porteur de voix inconnu",
     "otherBearer": "Autre porteur de voix",
     "answerUnsupported": "Cette ligne ne peut pas répondre aux appels",

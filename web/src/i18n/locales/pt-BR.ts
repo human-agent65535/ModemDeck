@@ -426,6 +426,8 @@ export default {
     "failed": "Falha na chamada",
     "lineInUse": "Linha em uso",
     "lineInUseDescription": "Esta chamada é controlada por outro navegador",
+    "answeredElsewhere": "Atendida em outro dispositivo",
+    "answeredElsewhereDescription": "Este navegador só pode mostrar o status da chamada",
     "bearerUnknown": "Portador de voz desconhecido",
     "otherBearer": "Outro portador de voz",
     "answerUnsupported": "Esta linha não pode atender chamadas",

@@ -110,6 +110,16 @@ const terminal = computed(
 const occupied = computed(
   () => Boolean(session.value?.control_state === 'occupied' && !terminal.value)
 )
+const occupiedLabel = computed(() =>
+  session.value?.direction === 'incoming'
+    ? t('calls.answeredElsewhere')
+    : t('calls.lineInUse')
+)
+const occupiedDescription = computed(() =>
+  session.value?.direction === 'incoming'
+    ? t('calls.answeredElsewhereDescription')
+    : t('calls.lineInUseDescription')
+)
 const active = computed(() => session.value?.phase === 'active')
 const recordingSegments = computed(() =>
   callRecordingState.callID === session.value?.id
@@ -284,7 +294,7 @@ onBeforeUnmount(() => {
 
         <div class="call-surface__status">
           <span role="status" aria-live="polite" aria-atomic="true">
-            {{ occupied ? t('calls.lineInUse') : phaseLabel }}
+            {{ occupied ? occupiedLabel : phaseLabel }}
           </span>
           <strong v-if="duration" aria-live="off">{{ duration }}</strong>
         </div>
@@ -300,7 +310,7 @@ onBeforeUnmount(() => {
           class="call-surface__notices"
         >
           <p v-if="occupied" class="call-surface__media">
-            {{ t('calls.lineInUseDescription') }}
+            {{ occupiedDescription }}
           </p>
           <p v-if="statusError" class="call-surface__error" role="alert">
             {{ statusError }}

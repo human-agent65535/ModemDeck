@@ -48,7 +48,7 @@ test('in-call keypad digits survive keypad and call-surface minimization', async
 
   assert.match(callState, /dtmfDigits: string/)
   assert.match(callState, /callState\.dtmfDigits \+= digit/)
-  assert.match(callState, /if \(newCall\) callState\.dtmfDigits = ''/)
+  assert.match(callState, /if \(newCall\) \{[\s\S]*callState\.dtmfDigits = ''/)
   assert.match(call, /const dtmfDigits = computed\(\(\) => callState\.dtmfDigits\)/)
   assert.doesNotMatch(call, /const dtmfDigits = ref/)
 })

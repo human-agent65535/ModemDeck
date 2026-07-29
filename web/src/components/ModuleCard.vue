@@ -142,9 +142,13 @@ const dataConnection = computed(() => {
   return trafficLineState(props.runtime)
 })
 const lineBusy = computed(() => {
-  const session = callState.session
-  if (!session || session.line_id !== lineKey(props.line)) return false
-  return session.phase !== 'ended' && session.phase !== 'failed'
+  const key = lineKey(props.line)
+  return callState.sessions.some(
+    session =>
+      session.line_id === key &&
+      session.phase !== 'ended' &&
+      session.phase !== 'failed'
+  )
 })
 </script>
 

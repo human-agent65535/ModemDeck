@@ -19,6 +19,7 @@ type SelectorOption = {
   name: string
   details: string
   defaultLine: boolean
+  disabled: boolean
   line?: LineSummary
 }
 
@@ -38,6 +39,8 @@ const props = withDefaults(
     allDescription?: string
     placement?: 'down' | 'up'
     disabled?: boolean
+    disabledValues?: string[]
+    disabledValueLabel?: string
     compact?: boolean
     filterMode?: boolean
   }>(),
@@ -53,6 +56,8 @@ const props = withDefaults(
     allDescription: '',
     placement: 'down',
     disabled: false,
+    disabledValues: () => [],
+    disabledValueLabel: '',
     compact: false,
     filterMode: false
   }
@@ -79,6 +84,7 @@ const resolvedAllLabel = computed(() => props.allLabel || t('lines.allLines'))
 const resolvedAllDescription = computed(
   () => props.allDescription || t('lines.showAllLines')
 )
+const disabledValueSet = computed(() => new Set(props.disabledValues))
 
 function lineValue(line: LineSummary): string {
   return lineKey(line)
@@ -106,7 +112,7 @@ function toneStyle(line?: LineSummary): Record<string, string> | undefined {
 }
 const selectedToneStyle = computed(() => toneStyle(selectedLine.value))
 
-function lineDetails(line: LineSummary): string {
+function lineDetails(line: LineSummary, value: string): string {
   const name = lineLabel(line)
   const details = [
     line.phone_number,
@@ -118,6 +124,9 @@ function lineDetails(line: LineSummary): string {
   ) {
     details.push(resolvedUnavailableLabel.value)
   }
+  if (disabledValueSet.value.has(value) && props.disabledValueLabel) {
+    details.push(props.disabledValueLabel)
+  }
   return details.join(' · ') || t('lines.cellularLine')
 }
 
@@ -128,7 +137,8 @@ const options = computed<SelectorOption[]>(() => {
           value: props.allValue,
           name: resolvedAllLabel.value,
           details: resolvedAllDescription.value,
-          defaultLine: false
+          defaultLine: false,
+          disabled: false
         }
       ]
     : []
@@ -138,8 +148,9 @@ const options = computed<SelectorOption[]>(() => {
     result.push({
       value,
       name: lineLabel(line),
-      details: lineDetails(line),
+      details: lineDetails(line, value),
       line,
+      disabled: disabledValueSet.value.has(value),
       defaultLine:
         Boolean(line.id) && line.id === props.defaultLineId
     })
@@ -192,10 +203,11 @@ function toggleMenu(): void {
   else openMenu()
 }
 
-function selectOption(value: string): void {
-  if (value !== props.modelValue) {
-    emit('update:modelValue', value)
-    emit('change', value)
+function selectOption(option: SelectorOption): void {
+  if (option.disabled) return
+  if (option.value !== props.modelValue) {
+    emit('update:modelValue', option.value)
+    emit('change', option.value)
   }
   closeMenu(true)
 }
@@ -258,7 +270,7 @@ function onOptionKeydown(event: KeyboardEvent, index: number): void {
     case 'Enter':
     case ' ':
       event.preventDefault()
-      if (option) selectOption(option.value)
+      if (option) selectOption(option)
       break
     case 'Escape':
       event.preventDefault()
@@ -358,15 +370,17 @@ onBeforeUnmount(() => {
         class="line-selector__option"
         :class="{
           'is-active': activeIndex === index,
-          'is-selected': modelValue === option.value
+          'is-selected': modelValue === option.value,
+          'is-disabled': option.disabled
         }"
         type="button"
         role="option"
         :aria-selected="modelValue === option.value"
+        :aria-disabled="option.disabled"
         :data-option-index="index"
         tabindex="-1"
         @pointermove="activeIndex = index"
-        @click="selectOption(option.value)"
+        @click="selectOption(option)"
         @keydown="onOptionKeydown($event, index)"
       >
         <span
@@ -554,6 +568,14 @@ onBeforeUnmount(() => {
 
 .line-selector__option.is-selected {
   background: var(--accent-soft);
+}
+
+.line-selector__option.is-disabled {
+  cursor: not-allowed;
+}
+
+.line-selector__option.is-disabled .line-selector__option-copy {
+  opacity: 0.62;
 }
 
 .line-selector__option:focus-visible {

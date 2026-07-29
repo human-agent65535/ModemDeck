@@ -552,9 +552,20 @@ watch(
 )
 
 watch(
-  () => callState.session?.phase,
-  phase => {
-    if (phase === 'ended' || phase === 'failed') void loadCalls(true)
+  () =>
+    callState.sessions
+      .map(session => session.id)
+      .sort()
+      .join('\u0000'),
+  (activeCallIDs, previousActiveCallIDs) => {
+    if (
+      previousActiveCallIDs &&
+      previousActiveCallIDs
+        .split('\u0000')
+        .some(callID => callID && !activeCallIDs.split('\u0000').includes(callID))
+    ) {
+      void loadCalls(true)
+    }
   }
 )
 

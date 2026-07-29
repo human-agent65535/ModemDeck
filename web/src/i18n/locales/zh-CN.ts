@@ -426,6 +426,8 @@ export default {
     failed: '通话失败',
     lineInUse: '线路占用中',
     lineInUseDescription: '这通电话正由另一个浏览器控制',
+    answeredElsewhere: '已在其他设备接听',
+    answeredElsewhereDescription: '此浏览器只能查看通话状态',
     bearerUnknown: '语音承载未知',
     otherBearer: '其他语音承载',
     answerUnsupported: '线路不支持接听',

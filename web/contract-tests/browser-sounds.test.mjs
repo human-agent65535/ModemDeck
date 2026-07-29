@@ -229,7 +229,7 @@ test('live call and SMS paths own sound playback instead of view components', as
 
   assert.match(
     calls,
-    /function acceptSession[\s\S]*syncCallSounds\([\s\S]*owned[\s\S]*incomingAvailable[\s\S]*\? session : null/
+    /function applyForegroundSession[\s\S]*syncCallSounds\([\s\S]*owned[\s\S]*incomingAvailable[\s\S]*\? session : null/
   )
   assert.match(calls, /shutdownCallRuntime[\s\S]*syncCallSounds\(null\)/)
   assert.match(

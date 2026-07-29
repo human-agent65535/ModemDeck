@@ -430,6 +430,8 @@ export default {
     failed: 'Call failed',
     lineInUse: 'Line in use',
     lineInUseDescription: 'This call is controlled by another browser',
+    answeredElsewhere: 'Answered on another device',
+    answeredElsewhereDescription: 'This browser can only view the call status',
     bearerUnknown: 'Voice bearer unknown',
     otherBearer: 'Other voice bearer',
     answerUnsupported: 'This line cannot answer calls',

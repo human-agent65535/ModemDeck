@@ -9,8 +9,17 @@ import {
   Phone,
   X
 } from '@lucide/vue'
-import { callState, dial } from '../state/call'
-import { closeDialer, minimizeCallSurface, uiState } from '../state/ui'
+import {
+  activeLineIDsForSessions,
+  callState,
+  dial
+} from '../state/call'
+import {
+  closeDialer,
+  minimizeCallSurface,
+  showCallSurface,
+  uiState
+} from '../state/ui'
 import {
   dialerRecordingState,
   rememberCallRecordingPreference,
@@ -70,20 +79,31 @@ const lines = computed(() => bootstrapResource.data?.lines || [])
 const dialLines = computed(() =>
   lines.value.filter(lineCanPlaceVoiceCall)
 )
-const showingCall = computed(() => Boolean(callState.session))
-const callSurfaceVisible = computed(
-  () => showingCall.value && (props.permanent || !uiState.callMinimized)
+const occupiedLineIDs = computed(() =>
+  activeLineIDsForSessions(callState.sessions)
 )
+const availableDialLines = computed(() =>
+  dialLines.value.filter(line => !occupiedLineIDs.value.has(lineKey(line)))
+)
+const activeCallPresent = computed(() => Boolean(callState.session))
+const showingCall = computed(
+  () => activeCallPresent.value && !uiState.callMinimized
+)
+const callSurfaceVisible = computed(() => showingCall.value)
 const defaultLineID = computed(
   () => bootstrapResource.data?.line_settings.default_line_id || ''
 )
 const selectedLine = computed(() =>
   dialLines.value.find(line => lineKey(line) === selectedLineId.value)
 )
+const selectedLineBusy = computed(() =>
+  selectedLine.value
+    ? occupiedLineIDs.value.has(lineKey(selectedLine.value))
+    : false
+)
 const dialUnavailable = computed(() => capabilityReason('dial'))
 const activeCallUnavailable = computed(() => {
-  const phase = callState.session?.phase
-  return phase && phase !== 'ended' && phase !== 'failed' ? t('dialer.activeCall') : ''
+  return callState.owned ? t('dialer.activeCall') : ''
 })
 const dialTarget = computed(() => normalizeDialTarget(number.value))
 const validationError = computed(() => {
@@ -109,6 +129,7 @@ const callUnavailableReason = computed(
     activeCallUnavailable.value ||
     (dialLines.value.length === 0 ? t('dialer.noLines') : '') ||
     (!selectedLineId.value ? t('dialer.selectLine') : '') ||
+    (selectedLineBusy.value ? t('calls.lineInUse') : '') ||
     (!lineCanPlaceVoiceCall(selectedLine.value)
       ? t('dialer.selectedLineUnsupported')
       : '')
@@ -133,7 +154,7 @@ function focusNumber(): void {
 }
 
 function syncResolvedLine(force = false): void {
-  const selectedStillExists = dialLines.value.some(
+  const selectedStillExists = availableDialLines.value.some(
     line => lineKey(line) === selectedLineId.value
   )
   if (!selectedStillExists) lineSelectionOverridden.value = false
@@ -145,7 +166,11 @@ function syncResolvedLine(force = false): void {
     number: number.value
   })
   const supportedResolved =
-    resolved && lineCanPlaceVoiceCall(resolved) ? resolved : dialLines.value[0]
+    resolved &&
+    lineCanPlaceVoiceCall(resolved) &&
+    !occupiedLineIDs.value.has(lineKey(resolved))
+      ? resolved
+      : availableDialLines.value[0] || dialLines.value[0]
   selectedLineId.value = supportedResolved ? lineKey(supportedResolved) : ''
 }
 
@@ -190,7 +215,7 @@ watch(
       void loadContacts()
       return
     }
-    if (previous && !showingCall.value && !props.permanent) restoreDialogFocus()
+    if (previous && !activeCallPresent.value && !props.permanent) restoreDialogFocus()
   }
 )
 
@@ -214,7 +239,7 @@ watch([callSurfaceVisible, () => props.permanent], async ([showing, permanent], 
 })
 
 watch(
-  [dialLines, defaultLineID, () => contactsResource.data, number],
+  [dialLines, occupiedLineIDs, defaultLineID, () => contactsResource.data, number],
   () => syncResolvedLine(),
   { immediate: true }
 )
@@ -424,10 +449,30 @@ onBeforeUnmount(() => {
           "
         >
           <header class="tool-header dialer-toolbar">
-            <h2>{{ showingCall ? t('shell.calls') : t('dialer.title') }}</h2>
+            <span class="dialer-toolbar__title">
+              <h2>{{ showingCall ? t('shell.calls') : t('dialer.title') }}</h2>
+              <button
+                v-if="!showingCall && activeCallPresent"
+                class="dialer-active-calls"
+                type="button"
+                :title="t('shell.returnToCall')"
+                :aria-label="`${t('shell.returnToCall')} · ${callState.sessions.length}`"
+                @click="showCallSurface"
+              >
+                <Phone :size="15" />
+                <span>{{ callState.sessions.length }}</span>
+              </button>
+              <span
+                v-else-if="showingCall && callState.sessions.length > 1"
+                class="dialer-active-calls dialer-active-calls--static"
+                :aria-label="`${callState.sessions.length} ${t('shell.calls')}`"
+              >
+                {{ callState.sessions.length }}
+              </span>
+            </span>
             <span class="dialer-header-actions">
               <button
-                v-if="!permanent"
+                v-if="showingCall || !permanent"
                 class="icon-button"
                 type="button"
                 :title="showingCall ? t('calls.minimize') : t('common.close')"
@@ -449,6 +494,8 @@ onBeforeUnmount(() => {
                   v-model="selectedLineId"
                   :lines="dialLines"
                   :default-line-id="defaultLineID"
+                  :disabled-values="[...occupiedLineIDs]"
+                  :disabled-value-label="t('calls.lineInUse')"
                   :label="t('dialer.line')"
                   capability="dial"
                   :unavailable-label="t('dialer.lineUnsupported')"
@@ -631,6 +678,35 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 3px;
+}
+
+.dialer-toolbar__title {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.dialer-active-calls {
+  display: inline-flex;
+  min-width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 7px;
+  color: var(--accent-strong);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  background: var(--accent-soft);
+  border: 1px solid transparent;
+  border-radius: 14px;
+  cursor: pointer;
+}
+
+.dialer-active-calls--static {
+  cursor: default;
 }
 
 .dialer-toolbar {

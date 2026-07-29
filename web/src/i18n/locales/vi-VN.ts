@@ -426,6 +426,8 @@ export default {
     "failed": "Cuộc gọi không thành công",
     "lineInUse": "Đường dây đang sử dụng",
     "lineInUseDescription": "Cuộc gọi này được điều khiển bởi một trình duyệt khác",
+    "answeredElsewhere": "Đã trả lời trên thiết bị khác",
+    "answeredElsewhereDescription": "Trình duyệt này chỉ có thể xem trạng thái cuộc gọi",
     "bearerUnknown": "Người mang giọng nói không xác định",
     "otherBearer": "Người mang tiếng nói khác",
     "answerUnsupported": "Đường dây này không thể trả lời cuộc gọi",

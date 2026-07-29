@@ -426,6 +426,8 @@ export default {
     "failed": "Anruf fehlgeschlagen",
     "lineInUse": "Leitung in Gebrauch",
     "lineInUseDescription": "Dieser Aufruf wird von einem anderen Browser gesteuert",
+    "answeredElsewhere": "Auf einem anderen Gerät angenommen",
+    "answeredElsewhereDescription": "Dieser Browser kann nur den Anrufstatus anzeigen",
     "bearerUnknown": "Stimmträger unbekannt",
     "otherBearer": "Anderer Stimmträger",
     "answerUnsupported": "Über diese Leitung können keine Anrufe entgegengenommen werden",

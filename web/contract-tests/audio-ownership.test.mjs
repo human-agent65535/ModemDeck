@@ -47,7 +47,10 @@ test('module voice settings separate the user policy from an observed bearer', a
   assert.match(source, /t\('device\.imsProfile'\)/)
   assert.match(source, /\{\{ selectedVoiceModeTitle \}\}/)
   assert.match(source, /\{\{ selectedVoiceModeLabel \}\}/)
-  assert.match(source, /lineKey\(line\) === session\.line_id/)
+  assert.match(
+    source,
+    /callState\.sessions\.find\([\s\S]*session\.line_id === key/
+  )
 })
 
 test('VoLTE switch follows the selected line policy and discovery only gates writes', async () => {

@@ -346,10 +346,16 @@ const voiceMediaDetail = computed(() => {
 })
 const selectedLineCall = computed(() => {
   const line = selectedLine.value
-  const session = callState.session
-  if (!line || !session) return null
-  const belongsToSelectedLine = lineKey(line) === session.line_id
-  return belongsToSelectedLine ? session : null
+  if (!line) return null
+  const key = lineKey(line)
+  return (
+    callState.sessions.find(
+      session =>
+        session.line_id === key &&
+        session.phase !== 'ended' &&
+        session.phase !== 'failed'
+    ) || null
+  )
 })
 const selectedCallBearer = computed(() => {
   switch (selectedLineCall.value?.bearer?.trim().toLowerCase()) {

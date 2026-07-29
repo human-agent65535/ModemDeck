@@ -44,6 +44,8 @@ let callLeaseRenewalGeneration = 0
 const notifiedIncomingCallIDs = new Set<string>()
 
 export const callState = reactive<{
+  sessions: CallSession[]
+  selectedCallID: string
   session: CallSession | null
   owned: boolean
   dtmfDigits: string
@@ -54,6 +56,8 @@ export const callState = reactive<{
   syncStatus: ResourceStatus
   syncError: string
 }>({
+  sessions: [],
+  selectedCallID: '',
   session: null,
   owned: false,
   dtmfDigits: '',
@@ -65,6 +69,59 @@ export const callState = reactive<{
   syncError: ''
 })
 
+export function isLiveCallSession(session: CallSession): boolean {
+  return !TERMINAL_PHASES.has(session.phase)
+}
+
+function foregroundPriority(session: CallSession): number {
+  if (session.control_state === 'owned') return 0
+  if (
+    session.control_state === 'available' &&
+    session.direction === 'incoming' &&
+    session.phase === 'ringing'
+  ) {
+    return 1
+  }
+  if (session.control_state === 'occupied') return 2
+  return 3
+}
+
+export function selectForegroundSession(
+  sessions: CallSession[],
+  selectedCallID = ''
+): CallSession | null {
+  const liveSessions = sessions.filter(isLiveCallSession)
+  if (liveSessions.length === 0) return null
+
+  const priority = Math.min(...liveSessions.map(foregroundPriority))
+  const selected = liveSessions.find(session => session.id === selectedCallID)
+  if (selected && foregroundPriority(selected) === priority) return selected
+  return liveSessions.find(session => foregroundPriority(session) === priority) || null
+}
+
+export function activeLineIDsForSessions(sessions: CallSession[]): Set<string> {
+  return new Set(
+    sessions
+      .filter(isLiveCallSession)
+      .map(session => session.line_id.trim())
+      .filter(Boolean)
+  )
+}
+
+export function lineHasActiveCall(
+  lineID: string,
+  sessions: CallSession[] = callState.sessions
+): boolean {
+  const normalizedLineID = lineID.trim()
+  return Boolean(
+    normalizedLineID &&
+      sessions.some(
+        session =>
+          isLiveCallSession(session) && session.line_id.trim() === normalizedLineID
+      )
+  )
+}
+
 function requestError(error: unknown, fallback: string): { message: string; status: number } {
   return {
     message: error instanceof Error ? error.message : fallback,
@@ -72,7 +129,32 @@ function requestError(error: unknown, fallback: string): { message: string; stat
   }
 }
 
-function acceptSession(session: CallSession): void {
+function ownedSession(): CallSession | null {
+  if (
+    callState.session &&
+    isLiveCallSession(callState.session) &&
+    callState.session.control_state === 'owned'
+  ) {
+    return callState.session
+  }
+  return (
+    callState.sessions.find(
+      session => isLiveCallSession(session) && session.control_state === 'owned'
+    ) || null
+  )
+}
+
+function clearForegroundSession(): void {
+  callState.selectedCallID = ''
+  callState.session = null
+  callState.owned = false
+  callState.dtmfDigits = ''
+  syncCallSounds(null)
+  syncCallMedia(null)
+  syncCallRecording(null)
+}
+
+function applyForegroundSession(session: CallSession): void {
   const newCall = callState.session?.id !== session.id
   const owned = session.control_state === 'owned'
   const incomingAvailable =
@@ -83,7 +165,12 @@ function acceptSession(session: CallSession): void {
     owned &&
     session.direction === 'incoming' &&
     session.phase === 'ringing'
-  if (newCall) callState.dtmfDigits = ''
+  if (newCall) {
+    callState.dtmfDigits = ''
+    callState.error = ''
+    callState.errorStatus = 0
+  }
+  callState.selectedCallID = session.id
   callState.session = session
   callState.owned = owned
   if (newCall && (owned || incomingAvailable)) showCallSurface()
@@ -93,7 +180,27 @@ function acceptSession(session: CallSession): void {
   syncCallMedia(owned ? session : null)
   syncCallRecording(owned || incomingAvailable ? session : null)
   if (owned) void renewActiveCallLease()
-  showIncomingCallNotification(session)
+}
+
+function reconcileActiveCalls(
+  sessions: CallSession[],
+  preferredCallID = callState.selectedCallID
+): void {
+  const liveSessions = sessions.filter(isLiveCallSession)
+  callState.sessions = liveSessions
+  for (const session of liveSessions) showIncomingCallNotification(session)
+
+  const foreground = selectForegroundSession(liveSessions, preferredCallID)
+  if (foreground) applyForegroundSession(foreground)
+  else clearForegroundSession()
+}
+
+function acceptSession(session: CallSession): void {
+  const sessions = callState.sessions.slice()
+  const index = sessions.findIndex(candidate => candidate.id === session.id)
+  if (index >= 0) sessions[index] = session
+  else sessions.push(session)
+  reconcileActiveCalls(sessions, session.id)
 }
 
 function sessionCanRenewBrowserLease(session: CallSession): boolean {
@@ -103,12 +210,8 @@ function sessionCanRenewBrowserLease(session: CallSession): boolean {
 }
 
 export function renewActiveCallLease(): Promise<void> {
-  const session = callState.session
-  if (
-    !session ||
-    !callState.owned ||
-    !sessionCanRenewBrowserLease(session)
-  ) {
+  const session = ownedSession()
+  if (!session || !sessionCanRenewBrowserLease(session)) {
     return Promise.resolve()
   }
   if (callLeaseRenewal && callLeaseRenewalCallID === session.id) {
@@ -122,7 +225,7 @@ export function renewActiveCallLease(): Promise<void> {
     .then(() => undefined)
     .catch(error => {
       if (
-        callState.session?.id === callID &&
+        ownedSession()?.id === callID &&
         error instanceof ApiError &&
         (error.status === 404 || error.status === 409)
       ) {
@@ -203,17 +306,7 @@ async function refreshActiveCallsOnce(): Promise<void> {
     const calls = await gateway.getActiveCalls()
     if (!runtimeStarted || startedAtEpoch !== mutationEpoch) return
 
-    const active = calls[0]
-    if (active) {
-      acceptSession(active)
-    } else if (callState.session && !TERMINAL_PHASES.has(callState.session.phase)) {
-      callState.session = null
-      callState.owned = false
-      callState.dtmfDigits = ''
-      syncCallSounds(null)
-      syncCallMedia(null)
-      syncCallRecording(null)
-    }
+    reconcileActiveCalls(calls)
     callState.syncStatus = 'ready'
     callState.syncError = ''
   } catch (error) {
@@ -268,6 +361,8 @@ export function shutdownCallRuntime(): void {
   syncCallSounds(null)
   shutdownCallMedia()
   syncCallRecording(null)
+  callState.sessions = []
+  callState.selectedCallID = ''
   callState.session = null
   callState.owned = false
   callState.dtmfDigits = ''
@@ -290,8 +385,13 @@ export async function dial(
     callState.errorStatus = 0
     return false
   }
-  if (callState.session && !TERMINAL_PHASES.has(callState.session.phase)) {
+  if (ownedSession()) {
     callState.error = translate('runtime.callInProgress')
+    callState.errorStatus = 409
+    return false
+  }
+  if (lineHasActiveCall(lineKey)) {
+    callState.error = translate('calls.lineInUse')
     callState.errorStatus = 409
     return false
   }
@@ -405,12 +505,10 @@ export async function sendDTMF(digit: string): Promise<void> {
 
 export function dismissCall(): void {
   if (callState.session && !TERMINAL_PHASES.has(callState.session.phase)) return
-  callState.session = null
-  callState.owned = false
-  callState.dtmfDigits = ''
-  syncCallSounds(null)
-  syncCallMedia(null)
-  syncCallRecording(null)
+  const selectedCallID = callState.selectedCallID
+  reconcileActiveCalls(
+    callState.sessions.filter(session => session.id !== selectedCallID)
+  )
   callState.error = ''
   callState.errorStatus = 0
 }

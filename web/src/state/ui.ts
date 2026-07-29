@@ -16,7 +16,7 @@ function requestDialer(
   lineKey: string,
   dialImmediately: boolean
 ): void {
-  uiState.callMinimized = false
+  uiState.callMinimized = true
   uiState.dialTarget = target
   uiState.dialLabel = label
   uiState.dialLineKey = lineKey

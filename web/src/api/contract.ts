@@ -2074,8 +2074,13 @@ export function parseCallLeaseStatus(value: unknown): CallLeaseStatus {
 export function parseActiveCallsResponse(value: unknown): CallSession[] {
   const source = objectValue(value, 'response')
   if (!Array.isArray(source.calls)) throw new Error('response.calls 必须是数组')
-  if (source.calls.length > 1) throw new Error('服务端返回了多个活动通话')
-  return source.calls.map(parseCallSession)
+  const calls = source.calls.map(parseCallSession)
+  const callIDs = new Set<string>()
+  for (const call of calls) {
+    if (callIDs.has(call.id)) throw new Error(`response.calls 包含重复通话：${call.id}`)
+    callIDs.add(call.id)
+  }
+  return calls
 }
 
 export function parseMessageResponse(value: unknown): Message {

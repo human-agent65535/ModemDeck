@@ -81,7 +81,7 @@ test('occupied calls are visible but cannot consume browser controls or media', 
   )
   assert.match(
     surface,
-    /session\.value\?\.control_state === 'occupied'[\s\S]*?calls\.lineInUse/
+    /session\.value\?\.control_state === 'occupied'[\s\S]*?calls\.answeredElsewhere/
   )
   assert.match(surface, /v-else-if="canHangup && callState\.owned"/)
   assert.match(surface, /active\.value &&[\s\S]*?callState\.owned/)
@@ -92,6 +92,9 @@ test('line cards expose the authoritative busy SIM from the active call', async 
     new URL('../src/components/ModuleCard.vue', import.meta.url),
     'utf8'
   )
-  assert.match(moduleCard, /session\.line_id !== lineKey\(props\.line\)/)
+  assert.match(
+    moduleCard,
+    /callState\.sessions\.some\([\s\S]*?session\.line_id === key/
+  )
   assert.match(moduleCard, /v-if="lineBusy"[\s\S]*?calls\.lineInUse/)
 })

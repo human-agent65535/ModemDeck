@@ -38,7 +38,7 @@ import {
   shutdownRuntimeEvents
 } from '../state/runtimeEvents'
 import { sessionState } from '../state/session'
-import { openDialer, uiState } from '../state/ui'
+import { openDialer, showCallSurface, uiState } from '../state/ui'
 import {
   bootstrapResource,
   loadBootstrap,
@@ -53,18 +53,25 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const permanentDialer = ref(false)
-const activeCallPresent = computed(() => {
-  const phase = callState.session?.phase
-  return Boolean(phase && phase !== 'ended' && phase !== 'failed')
-})
+const activeCallPresent = computed(() => callState.sessions.length > 0)
 const incomingCallRinging = computed(
-  () => callState.session?.direction === 'incoming' && callState.session.phase === 'ringing'
+  () =>
+    !callState.owned &&
+    callState.sessions.some(
+      session =>
+        session.direction === 'incoming' &&
+        session.phase === 'ringing' &&
+        session.control_state === 'available'
+    )
 )
 const minimizedIncomingCall = computed(
   () => incomingCallRinging.value && uiState.callMinimized
 )
 const minimizedActiveCall = computed(
-  () => callState.session?.phase === 'active' && uiState.callMinimized
+  () =>
+    callState.sessions.some(
+      session => session.control_state === 'owned' && session.phase === 'active'
+    ) && uiState.callMinimized
 )
 const mobileCallTitle = computed(() => {
   if (incomingCallRinging.value) return t('shell.openIncomingCall')
@@ -82,6 +89,11 @@ const browserNotificationTitle = computed(() => {
   if (browserNotificationState.error) return browserNotificationState.error
   return t('shell.notificationsEnable')
 })
+
+function openMobileCall(): void {
+  if (activeCallPresent.value) showCallSurface()
+  else openDialer()
+}
 let dialerMediaQuery: MediaQueryList | undefined
 let mountGeneration = 0
 const primaryNav = computed(() => [
@@ -313,7 +325,7 @@ onBeforeUnmount(() => {
         :title="mobileCallTitle"
         :aria-label="mobileCallTitle"
         :aria-pressed="uiState.dialerOpen || activeCallPresent"
-        @click="openDialer()"
+        @click="openMobileCall"
       >
         <span class="mobile-nav__dial-icon">
           <span
@@ -327,6 +339,13 @@ onBeforeUnmount(() => {
             aria-hidden="true"
           />
           <PhoneCall :size="23" />
+          <span
+            v-if="callState.sessions.length > 1"
+            class="mobile-nav__call-count"
+            aria-hidden="true"
+          >
+            {{ callState.sessions.length }}
+          </span>
         </span>
         <span class="mobile-nav__label">{{ t('shell.mobileCall') }}</span>
       </button>
@@ -357,6 +376,29 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.mobile-nav__dial-icon {
+  position: relative;
+}
+
+.mobile-nav__call-count {
+  position: absolute;
+  top: -7px;
+  right: -10px;
+  display: inline-flex;
+  min-width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  background: var(--danger);
+  border: 2px solid var(--surface);
+  border-radius: 9px;
+}
+
 @media (max-width: 860px) {
   .mobile-nav {
     grid-template-columns: repeat(3, minmax(0, 1fr)) 58px repeat(3, minmax(0, 1fr));

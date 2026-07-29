@@ -381,12 +381,18 @@ test('call response accepts unknown as an explicit phase without inventing a bea
   )
 })
 
-test('active calls response is authoritative and limited to one app call', () => {
+test('active calls response accepts every authoritative modem call', () => {
   assert.deepEqual(parseActiveCallsResponse({ calls: [canonicalCall] }), [canonicalCall])
   assert.deepEqual(parseActiveCallsResponse({ calls: [] }), [])
+  assert.deepEqual(
+    parseActiveCallsResponse({
+      calls: [canonicalCall, { ...canonicalCall, id: 'call-2', line_id: 'line-2' }]
+    }),
+    [canonicalCall, { ...canonicalCall, id: 'call-2', line_id: 'line-2' }]
+  )
   assert.throws(
-    () => parseActiveCallsResponse({ calls: [canonicalCall, { ...canonicalCall, id: 'call-2' }] }),
-    /多个活动通话/
+    () => parseActiveCallsResponse({ calls: [canonicalCall, canonicalCall] }),
+    /重复通话/
   )
 })
 

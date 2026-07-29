@@ -426,6 +426,8 @@ export default {
     "failed": "通話に失敗しました",
     "lineInUse": "使用中の回線",
     "lineInUseDescription": "この通話は別のブラウザによって制御されています",
+    "answeredElsewhere": "別のデバイスで応答済み",
+    "answeredElsewhereDescription": "このブラウザでは通話状態のみ確認できます",
     "bearerUnknown": "声の主は不明",
     "otherBearer": "他の音声伝達者",
     "answerUnsupported": "この回線は電話に出ることができません",

@@ -24,9 +24,9 @@ test('line selector is a single non-native listbox control', () => {
 })
 
 test('line selector commits model updates and exposes a change hook', () => {
-  assert.match(component, /emit\('update:modelValue', value\)/)
-  assert.match(component, /emit\('change', value\)/)
-  assert.match(component, /@click="selectOption\(option\.value\)"/)
+  assert.match(component, /emit\('update:modelValue', option\.value\)/)
+  assert.match(component, /emit\('change', option\.value\)/)
+  assert.match(component, /@click="selectOption\(option\)"/)
 })
 
 test('line selector closes after focus moves outside instead of racing option clicks', () => {
