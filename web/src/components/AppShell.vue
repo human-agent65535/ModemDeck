@@ -18,9 +18,10 @@ import {
 } from '@lucide/vue'
 import { fixtureMode } from '../api/client'
 import {
-  activeLineIDsForSessions,
   callState,
   initializeCallRuntime,
+  isLiveCallSession,
+  occupiedLineIDs,
   shutdownCallRuntime
 } from '../state/call'
 import {
@@ -58,10 +59,10 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const permanentDialer = ref(false)
-const activeCallLineCount = computed(
-  () => activeLineIDsForSessions(callState.sessions).size
+const occupiedLineCount = computed(() => occupiedLineIDs().size)
+const activeCallPresent = computed(() =>
+  callState.sessions.some(isLiveCallSession)
 )
-const activeCallPresent = computed(() => activeCallLineCount.value > 0)
 const incomingCallRinging = computed(
   () =>
     !callState.owned &&
@@ -348,11 +349,11 @@ onBeforeUnmount(() => {
           />
           <PhoneCall :size="23" />
           <span
-            v-if="activeCallLineCount > 0"
+            v-if="occupiedLineCount > 0"
             class="mobile-nav__call-count"
             aria-hidden="true"
           >
-            {{ activeCallLineCount }}
+            {{ occupiedLineCount }}
           </span>
         </span>
         <span class="mobile-nav__label">{{ t('shell.mobileCall') }}</span>

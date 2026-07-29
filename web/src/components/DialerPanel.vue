@@ -10,9 +10,10 @@ import {
   X
 } from '@lucide/vue'
 import {
-  activeLineIDsForSessions,
   callState,
   dial,
+  lineHasActiveCall,
+  occupiedLineIDs as collectOccupiedLineIDs,
   showActiveCallForLine
 } from '../state/call'
 import {
@@ -82,9 +83,9 @@ const dialLines = computed(() =>
   lines.value.filter(lineCanPlaceVoiceCall)
 )
 const occupiedLineIDs = computed(() =>
-  activeLineIDsForSessions(callState.sessions)
+  collectOccupiedLineIDs()
 )
-const activeCallLineCount = computed(() => occupiedLineIDs.value.size)
+const occupiedLineCount = computed(() => occupiedLineIDs.value.size)
 const availableDialLines = computed(() =>
   dialLines.value.filter(line => !occupiedLineIDs.value.has(lineKey(line)))
 )
@@ -104,8 +105,8 @@ const lineSwitcherID = computed({
       : selectedLineId.value,
   set: (lineID: string) => {
     if (callState.owned) return
-    if (occupiedLineIDs.value.has(lineID)) {
-      if (!showActiveCallForLine(lineID)) syncResolvedLine(true)
+    if (lineHasActiveCall(lineID)) {
+      showActiveCallForLine(lineID)
       return
     }
     selectedLineId.value = lineID
@@ -178,11 +179,17 @@ function focusNumber(): void {
 }
 
 function syncResolvedLine(force = false): void {
-  const selectedStillExists = availableDialLines.value.some(
+  const selectedStillExists = dialLines.value.some(
     line => lineKey(line) === selectedLineId.value
   )
   if (!selectedStillExists) lineSelectionOverridden.value = false
-  if (!force && lineSelectionOverridden.value) return
+  if (
+    !force &&
+    selectedStillExists &&
+    (lineSelectionOverridden.value || Boolean(number.value.trim()))
+  ) {
+    return
+  }
 
   const resolved = resolveLine('dial', {
     contextKey: draftContextLineKey.value,
@@ -352,7 +359,7 @@ function chooseContact(suggestion: {
   selectedContactPreferredLineID.value = suggestion.contact.preferred_line_id || ''
   numberTouched.value = false
   validationAttempted.value = false
-  syncResolvedLine()
+  syncResolvedLine(true)
 }
 
 function focusNumberInput(): void {
@@ -477,19 +484,19 @@ onBeforeUnmount(() => {
                   class="dialer-active-calls dialer-active-calls--busy"
                   type="button"
                   :title="t('shell.returnToCall')"
-                  :aria-label="`${t('shell.returnToCall')} · ${activeCallLineCount}`"
+                  :aria-label="`${t('shell.returnToCall')} · ${occupiedLineCount}`"
                   @click="showCallSurface"
                 >
                   <Phone :size="15" />
-                  <span>{{ activeCallLineCount }}</span>
+                  <span>{{ occupiedLineCount }}</span>
                 </button>
                 <span
-                  v-else-if="showingCall && activeCallLineCount > 0"
+                  v-else-if="occupiedLineCount > 0"
                   class="dialer-active-calls dialer-active-calls--busy dialer-active-calls--static"
-                  :aria-label="`${activeCallLineCount} ${t('calls.lineInUse')}`"
+                  :aria-label="`${occupiedLineCount} ${t('calls.lineInUse')}`"
                 >
                   <Phone :size="15" />
-                  <span>{{ activeCallLineCount }}</span>
+                  <span>{{ occupiedLineCount }}</span>
                 </span>
               </span>
             </span>

@@ -33,7 +33,7 @@ import {
   createRecordingSettingsPayload,
   createTelegramUnitPayload,
   createTLSSettingsPayload,
-  parseActiveCallsResponse,
+  parseActiveCallSnapshotResponse,
   parseCallMediaResponse,
   parseCallLeaseStatus,
   parseCallRecordingState,
@@ -80,6 +80,7 @@ import {
   parseThreads
 } from './normalize'
 import type {
+  ActiveCallSnapshot,
   AboutInfo,
   ApiErrorBody,
   BootstrapResponse,
@@ -173,11 +174,20 @@ const incomingCallFixture =
     : ''
 const initialIncomingCallFixture: boolean | 'occupied' =
   incomingCallFixture === 'occupied' ? 'occupied' : incomingCallFixture === '1'
+const outgoingReservationFixture =
+  fixtureMode && typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('outgoingReservationFixture')
+    : ''
+const initialOutgoingReservationFixture: 'owned' | 'occupied' | undefined =
+  outgoingReservationFixture === 'owned' || outgoingReservationFixture === 'occupied'
+    ? outgoingReservationFixture
+    : undefined
 
 const fixturePreviewOptions =
   fixtureMode && typeof window !== 'undefined'
     ? {
-        initialIncomingCall: initialIncomingCallFixture
+        initialIncomingCall: initialIncomingCallFixture,
+        initialOutgoingReservation: initialOutgoingReservationFixture
       }
     : {}
 
@@ -1449,8 +1459,8 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
-  async getActiveCalls(): Promise<CallSession[]> {
-    return parseActiveCallsResponse(
+  async getActiveCallSnapshot(): Promise<ActiveCallSnapshot> {
+    return parseActiveCallSnapshotResponse(
       await get(
         communicationContracts.activeCalls.path +
           queryString({ holder_id: callLeaseHolderID })

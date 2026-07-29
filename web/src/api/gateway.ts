@@ -1,4 +1,5 @@
 import type {
+  ActiveCallSnapshot,
   AboutInfo,
   BootstrapResponse,
   CallAction,
@@ -165,7 +166,7 @@ export interface ModemDeckGateway {
   deleteContact?(id: string, revision?: number): Promise<void>
   deleteContacts?(contacts: ContactRevision[]): Promise<void>
   sendMessage(input: SendMessageInput): Promise<Message>
-  getActiveCalls(): Promise<CallSession[]>
+  getActiveCallSnapshot(): Promise<ActiveCallSnapshot>
   startCall(
     lineKey: string,
     number: string,

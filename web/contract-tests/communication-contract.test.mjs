@@ -27,7 +27,7 @@ import {
   createRecordingSettingsPayload,
   createTelegramUnitPayload,
   missedCallReadPath,
-  parseActiveCallsResponse,
+  parseActiveCallSnapshotResponse,
   parseCallLeaseStatus,
   parseCallMediaResponse,
   parseCallRecordingState,
@@ -54,6 +54,13 @@ const canonicalCall = {
   created_at: '2026-07-23T12:00:00Z',
   active_at: '2026-07-23T12:00:03Z',
   bearer: 'VoLTE'
+}
+
+const canonicalReservation = {
+  request_id: 'request-call-2',
+  line_id: 'line-2',
+  control_state: 'occupied',
+  created_at: '2026-07-29T09:00:00Z'
 }
 
 test('communication and Telegram endpoints match the root API', () => {
@@ -381,18 +388,48 @@ test('call response accepts unknown as an explicit phase without inventing a bea
   )
 })
 
-test('active calls response accepts every authoritative modem call', () => {
-  assert.deepEqual(parseActiveCallsResponse({ calls: [canonicalCall] }), [canonicalCall])
-  assert.deepEqual(parseActiveCallsResponse({ calls: [] }), [])
+test('active call snapshot preserves calls and outgoing line reservations', () => {
   assert.deepEqual(
-    parseActiveCallsResponse({
-      calls: [canonicalCall, { ...canonicalCall, id: 'call-2', line_id: 'line-2' }]
+    parseActiveCallSnapshotResponse({
+      calls: [canonicalCall],
+      reservations: [canonicalReservation]
     }),
-    [canonicalCall, { ...canonicalCall, id: 'call-2', line_id: 'line-2' }]
+    {
+      calls: [canonicalCall],
+      reservations: [canonicalReservation]
+    }
+  )
+  assert.deepEqual(
+    parseActiveCallSnapshotResponse({ calls: [], reservations: [] }),
+    { calls: [], reservations: [] }
   )
   assert.throws(
-    () => parseActiveCallsResponse({ calls: [canonicalCall, canonicalCall] }),
+    () =>
+      parseActiveCallSnapshotResponse({
+        calls: [canonicalCall, canonicalCall],
+        reservations: []
+      }),
     /重复通话/
+  )
+  assert.throws(
+    () =>
+      parseActiveCallSnapshotResponse({
+        calls: [],
+        reservations: [canonicalReservation, canonicalReservation]
+      }),
+    /重复预占/
+  )
+  assert.throws(
+    () =>
+      parseActiveCallSnapshotResponse({
+        calls: [],
+        reservations: [{ ...canonicalReservation, control_state: 'available' }]
+      }),
+    /control_state/
+  )
+  assert.throws(
+    () => parseActiveCallSnapshotResponse({ calls: [] }),
+    /reservations/
   )
 })
 

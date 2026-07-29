@@ -1,5 +1,6 @@
 import type { ListQuery, MessageQuery, ModemDeckGateway } from './gateway'
 import type {
+  ActiveCallSnapshot,
   AboutInfo,
   BootstrapResponse,
   CallFilter,
@@ -35,6 +36,7 @@ import type {
   MobileNetworkScan,
   NetworkSelectionPolicy,
   NetworkStatus,
+  OutgoingCallReservation,
   ProxyDeleteResult,
   ProxyInstance,
   ProxyMutation,
@@ -357,6 +359,7 @@ export type FixtureGatewayOptions = {
   lineCount?: number
   noDevices?: boolean
   initialIncomingCall?: boolean | 'occupied'
+  initialOutgoingReservation?: 'owned' | 'occupied'
 }
 
 function fixtureLines(count: number): LineSummary[] {
@@ -804,6 +807,17 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
             : {})
         }
       : undefined
+  const outgoingReservations: OutgoingCallReservation[] =
+    options.initialOutgoingReservation && lines[0]
+      ? [
+          {
+            request_id: 'request-fixture-outgoing',
+            line_id: fixtureLineKey(lines[0]),
+            control_state: options.initialOutgoingReservation,
+            created_at: new Date().toISOString()
+          }
+        ]
+      : []
   let activeCallRecording: CallRecordingState | undefined = activeCall
     ? {
         call_id: activeCall.id,
@@ -1402,8 +1416,13 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       calls.splice(index, 1)
     },
 
-    async getActiveCalls(): Promise<CallSession[]> {
-      if (!activeCall || activeCall.phase === 'ended' || activeCall.phase === 'failed') return []
+    async getActiveCallSnapshot(): Promise<ActiveCallSnapshot> {
+      if (!activeCall || activeCall.phase === 'ended' || activeCall.phase === 'failed') {
+        return {
+          calls: [],
+          reservations: clone(outgoingReservations)
+        }
+      }
       if (activeCall.direction === 'outgoing') {
         callPolls += 1
         if (activeCall.phase === 'dialing' && callPolls >= 1) activeCall.phase = 'ringing'
@@ -1418,7 +1437,10 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           }
         }
       }
-      return [clone(activeCall)]
+      return {
+        calls: [clone(activeCall)],
+        reservations: clone(outgoingReservations)
+      }
     },
 
     async startCall(

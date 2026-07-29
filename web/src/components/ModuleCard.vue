@@ -14,7 +14,7 @@ import {
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Device, LineSummary, NetworkLineStatus } from '../api/types'
-import { callState } from '../state/call'
+import { lineIsOccupied } from '../state/call'
 import { lineHasCallControl, lineKey, lineLabel } from '../state/workspace'
 import { formatDateTime } from '../utils/format'
 import {
@@ -143,13 +143,7 @@ const dataConnection = computed(() => {
   return trafficLineState(props.runtime)
 })
 const lineBusy = computed(() => {
-  const key = lineKey(props.line)
-  return callState.sessions.some(
-    session =>
-      session.line_id === key &&
-      session.phase !== 'ended' &&
-      session.phase !== 'failed'
-  )
+  return lineIsOccupied(lineKey(props.line))
 })
 </script>
 

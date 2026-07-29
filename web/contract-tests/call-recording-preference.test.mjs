@@ -143,18 +143,18 @@ test('dial forwards the current recording preference and keeps one call in fligh
 })
 
 test('call reconciliation repeats when a terminal event arrives during an active read', async () => {
-  const originalGetActiveCalls = gateway.getActiveCalls
+  const originalGetActiveCallSnapshot = gateway.getActiveCallSnapshot
   let requestCount = 0
   let resolveFirst
 
-  gateway.getActiveCalls = () => {
+  gateway.getActiveCallSnapshot = () => {
     requestCount += 1
     if (requestCount === 1) {
       return new Promise(resolve => {
         resolveFirst = resolve
       })
     }
-    return Promise.resolve([])
+    return Promise.resolve({ calls: [], reservations: [] })
   }
 
   try {
@@ -163,24 +163,27 @@ test('call reconciliation repeats when a terminal event arrives during an active
     assert.equal(requestCount, 1)
 
     const terminalRefresh = requestActiveCallRefresh()
-    resolveFirst([
-      {
-        id: 'call-reconcile-1',
-        line_id: 'line-main',
-        direction: 'outgoing',
-        remote_number: '+818000000015',
-        phase: 'dialing',
-        control_state: 'owned',
-        media_available: false,
-        created_at: '2026-07-28T09:34:07Z'
-      }
-    ])
+    resolveFirst({
+      calls: [
+        {
+          id: 'call-reconcile-1',
+          line_id: 'line-main',
+          direction: 'outgoing',
+          remote_number: '+818000000015',
+          phase: 'dialing',
+          control_state: 'owned',
+          media_available: false,
+          created_at: '2026-07-28T09:34:07Z'
+        }
+      ],
+      reservations: []
+    })
     await terminalRefresh
 
     assert.equal(requestCount, 2)
     assert.equal(callState.session, null)
   } finally {
     shutdownCallRuntime()
-    gateway.getActiveCalls = originalGetActiveCalls
+    gateway.getActiveCallSnapshot = originalGetActiveCallSnapshot
   }
 })

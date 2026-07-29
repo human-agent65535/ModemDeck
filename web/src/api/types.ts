@@ -110,6 +110,18 @@ export type CallSession = {
   failure_reason?: string
 }
 
+export type OutgoingCallReservation = {
+  request_id: string
+  line_id: string
+  control_state: Extract<CallControlState, 'owned' | 'occupied'>
+  created_at: string
+}
+
+export type ActiveCallSnapshot = {
+  calls: CallSession[]
+  reservations: OutgoingCallReservation[]
+}
+
 export type CallLeaseStatus = {
   call_id: string
   holder_id: string

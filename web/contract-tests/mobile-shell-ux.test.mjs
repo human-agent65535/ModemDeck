@@ -13,8 +13,13 @@ test('mobile shell uses page context and a dedicated central dial action', async
   assert.match(shell, /<div class="mobile-brand">\{\{ mobilePageTitle \}\}<\/div>/)
   assert.match(shell, /class="mobile-nav__dial"/)
   assert.match(shell, /:aria-pressed="uiState\.dialerOpen \|\| activeCallPresent"/)
-  assert.match(shell, /activeLineIDsForSessions\(callState\.sessions\)\.size/)
-  assert.match(shell, /v-if="activeCallLineCount > 0"[\s\S]*mobile-nav__call-count/)
+  assert.match(shell, /const occupiedLineCount = computed\(\(\) => occupiedLineIDs\(\)\.size\)/)
+  assert.match(shell, /callState\.sessions\.some\(isLiveCallSession\)/)
+  assert.match(shell, /v-if="occupiedLineCount > 0"[\s\S]*mobile-nav__call-count/)
+  assert.match(
+    shell,
+    /function openMobileCall\(\)[\s\S]*if \(activeCallPresent\.value\) showCallSurface\(\)[\s\S]*else openDialer\(\)/
+  )
   assert.match(shell, /@click="openDialer\(\)"/)
   assert.match(
     shell,

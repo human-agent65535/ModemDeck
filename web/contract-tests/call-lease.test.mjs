@@ -87,14 +87,14 @@ test('occupied calls are visible but cannot consume browser controls or media', 
   assert.match(surface, /active\.value &&[\s\S]*?callState\.owned/)
 })
 
-test('line cards expose the authoritative busy SIM from the active call', async () => {
+test('line cards expose authoritative call and reservation occupancy', async () => {
   const moduleCard = await readFile(
     new URL('../src/components/ModuleCard.vue', import.meta.url),
     'utf8'
   )
   assert.match(
     moduleCard,
-    /callState\.sessions\.some\([\s\S]*?session\.line_id === key/
+    /lineIsOccupied\(lineKey\(props\.line\)\)/
   )
   assert.match(moduleCard, /v-if="lineBusy"[\s\S]*?calls\.lineInUse/)
 })

@@ -1,5 +1,6 @@
 import { parseCallRecord, parseMessage } from './normalize.ts'
 import type {
+  ActiveCallSnapshot,
   CallAction,
   CallControlState,
   CallDirection,
@@ -37,6 +38,7 @@ import type {
   NetworkStatus,
   NetworkUsage,
   NetworkUsageTotal,
+  OutgoingCallReservation,
   ProxyApplyState,
   ProxyApplyStatus,
   ProxyDeleteResult,
@@ -2071,16 +2073,46 @@ export function parseCallLeaseStatus(value: unknown): CallLeaseStatus {
   }
 }
 
-export function parseActiveCallsResponse(value: unknown): CallSession[] {
+export function parseActiveCallSnapshotResponse(value: unknown): ActiveCallSnapshot {
   const source = objectValue(value, 'response')
   if (!Array.isArray(source.calls)) throw new Error('response.calls 必须是数组')
+  if (!Array.isArray(source.reservations)) {
+    throw new Error('response.reservations 必须是数组')
+  }
   const calls = source.calls.map(parseCallSession)
   const callIDs = new Set<string>()
   for (const call of calls) {
     if (callIDs.has(call.id)) throw new Error(`response.calls 包含重复通话：${call.id}`)
     callIDs.add(call.id)
   }
-  return calls
+  const reservations = source.reservations.map((value, index) => {
+    const path = `response.reservations[${index}]`
+    const reservation = objectValue(value, path)
+    const controlState = requiredString(
+      reservation,
+      path,
+      'control_state'
+    ) as OutgoingCallReservation['control_state']
+    if (controlState !== 'owned' && controlState !== 'occupied') {
+      throw new Error(`${path}.control_state 未知：${controlState}`)
+    }
+    return {
+      request_id: requiredString(reservation, path, 'request_id'),
+      line_id: requiredString(reservation, path, 'line_id'),
+      control_state: controlState,
+      created_at: requiredTimestamp(reservation, path, 'created_at')
+    }
+  })
+  const reservationIDs = new Set<string>()
+  for (const reservation of reservations) {
+    if (reservationIDs.has(reservation.request_id)) {
+      throw new Error(
+        `response.reservations 包含重复预占：${reservation.request_id}`
+      )
+    }
+    reservationIDs.add(reservation.request_id)
+  }
+  return { calls, reservations }
 }
 
 export function parseMessageResponse(value: unknown): Message {

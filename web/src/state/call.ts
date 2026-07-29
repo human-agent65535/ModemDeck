@@ -1,7 +1,13 @@
 import { reactive, watch } from 'vue'
 import type { Router } from 'vue-router'
 import { gateway } from '../api/client'
-import type { CallAction, CallSession, ResourceStatus } from '../api/types'
+import type {
+  ActiveCallSnapshot,
+  CallAction,
+  CallSession,
+  OutgoingCallReservation,
+  ResourceStatus
+} from '../api/types'
 import { ApiError } from '../api/types'
 import { translate } from '../i18n'
 import { showBrowserNotification } from './browserNotifications'
@@ -45,6 +51,7 @@ const notifiedIncomingCallIDs = new Set<string>()
 
 export const callState = reactive<{
   sessions: CallSession[]
+  reservations: OutgoingCallReservation[]
   selectedCallID: string
   session: CallSession | null
   owned: boolean
@@ -57,6 +64,7 @@ export const callState = reactive<{
   syncError: string
 }>({
   sessions: [],
+  reservations: [],
   selectedCallID: '',
   session: null,
   owned: false,
@@ -99,18 +107,25 @@ export function selectForegroundSession(
   return liveSessions.find(session => foregroundPriority(session) === priority) || null
 }
 
-export function activeLineIDsForSessions(sessions: CallSession[]): Set<string> {
-  return new Set(
-    sessions
-      .filter(isLiveCallSession)
-      .map(session => session.line_id.trim())
-      .filter(Boolean)
-  )
+export function occupiedLineIDs(
+  sessions: readonly CallSession[] = callState.sessions,
+  reservations: readonly OutgoingCallReservation[] = callState.reservations
+): Set<string> {
+  const result = new Set<string>()
+  for (const session of sessions) {
+    const lineID = session.line_id.trim()
+    if (isLiveCallSession(session) && lineID) result.add(lineID)
+  }
+  for (const reservation of reservations) {
+    const lineID = reservation.line_id.trim()
+    if (lineID) result.add(lineID)
+  }
+  return result
 }
 
 export function lineHasActiveCall(
   lineID: string,
-  sessions: CallSession[] = callState.sessions
+  sessions: readonly CallSession[] = callState.sessions
 ): boolean {
   const normalizedLineID = lineID.trim()
   return Boolean(
@@ -119,6 +134,21 @@ export function lineHasActiveCall(
         session =>
           isLiveCallSession(session) && session.line_id.trim() === normalizedLineID
       )
+  )
+}
+
+export function lineIsOccupied(
+  lineID: string,
+  sessions: readonly CallSession[] = callState.sessions,
+  reservations: readonly OutgoingCallReservation[] = callState.reservations
+): boolean {
+  const normalizedLineID = lineID.trim()
+  return Boolean(
+    normalizedLineID &&
+      (lineHasActiveCall(normalizedLineID, sessions) ||
+        reservations.some(
+          reservation => reservation.line_id.trim() === normalizedLineID
+        ))
   )
 }
 
@@ -198,12 +228,13 @@ function applyForegroundSession(session: CallSession): void {
   if (owned) void renewActiveCallLease()
 }
 
-function reconcileActiveCalls(
-  sessions: CallSession[],
+function reconcileActiveSnapshot(
+  snapshot: ActiveCallSnapshot,
   preferredCallID = callState.selectedCallID
 ): void {
-  const liveSessions = sessions.filter(isLiveCallSession)
+  const liveSessions = snapshot.calls.filter(isLiveCallSession)
   callState.sessions = liveSessions
+  callState.reservations = snapshot.reservations.slice()
   for (const session of liveSessions) showIncomingCallNotification(session)
 
   const foreground = selectForegroundSession(liveSessions, preferredCallID)
@@ -216,7 +247,13 @@ function acceptSession(session: CallSession): void {
   const index = sessions.findIndex(candidate => candidate.id === session.id)
   if (index >= 0) sessions[index] = session
   else sessions.push(session)
-  reconcileActiveCalls(sessions, session.id)
+  reconcileActiveSnapshot(
+    {
+      calls: sessions,
+      reservations: callState.reservations
+    },
+    session.id
+  )
 }
 
 function sessionCanRenewBrowserLease(session: CallSession): boolean {
@@ -319,10 +356,10 @@ async function refreshActiveCallsOnce(): Promise<void> {
   if (callState.syncStatus === 'idle') callState.syncStatus = 'loading'
 
   try {
-    const calls = await gateway.getActiveCalls()
+    const snapshot = await gateway.getActiveCallSnapshot()
     if (!runtimeStarted || startedAtEpoch !== mutationEpoch) return
 
-    reconcileActiveCalls(calls)
+    reconcileActiveSnapshot(snapshot)
     callState.syncStatus = 'ready'
     callState.syncError = ''
   } catch (error) {
@@ -378,6 +415,7 @@ export function shutdownCallRuntime(): void {
   shutdownCallMedia()
   syncCallRecording(null)
   callState.sessions = []
+  callState.reservations = []
   callState.selectedCallID = ''
   callState.session = null
   callState.owned = false
@@ -406,7 +444,7 @@ export async function dial(
     callState.errorStatus = 409
     return false
   }
-  if (lineHasActiveCall(lineKey)) {
+  if (lineIsOccupied(lineKey)) {
     callState.error = translate('calls.lineInUse')
     callState.errorStatus = 409
     return false
@@ -522,9 +560,10 @@ export async function sendDTMF(digit: string): Promise<void> {
 export function dismissCall(): void {
   if (callState.session && !TERMINAL_PHASES.has(callState.session.phase)) return
   const selectedCallID = callState.selectedCallID
-  reconcileActiveCalls(
-    callState.sessions.filter(session => session.id !== selectedCallID)
-  )
+  reconcileActiveSnapshot({
+    calls: callState.sessions.filter(session => session.id !== selectedCallID),
+    reservations: callState.reservations
+  })
   callState.error = ''
   callState.errorStatus = 0
 }
