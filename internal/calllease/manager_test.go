@@ -15,6 +15,24 @@ type fakeCalls struct {
 	calls map[string]store.Call
 }
 
+type claimOnlyCalls struct {
+	call store.Call
+}
+
+func (calls *claimOnlyCalls) CallByID(
+	_ context.Context,
+	callID string,
+) (store.Call, error) {
+	if calls.call.ID != callID {
+		return store.Call{}, store.ErrCallNotFound
+	}
+	return calls.call, nil
+}
+
+func (*claimOnlyCalls) ActiveCalls(context.Context) ([]store.Call, error) {
+	return nil, nil
+}
+
 func (calls *fakeCalls) CallByID(
 	_ context.Context,
 	callID string,
@@ -280,6 +298,403 @@ func TestOutgoingReservationCanBeReleased(t *testing.T) {
 	released, err = manager.ReleaseOutgoing("request-1", "browser-1")
 	if err != nil || released {
 		t.Fatalf("second release = %t, error = %v", released, err)
+	}
+}
+
+func TestPendingOutgoingReservationBlocksClaim(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name              string
+		reservationLine   string
+		reservationHolder string
+		callLine          string
+		claimHolder       string
+		want              error
+	}{
+		{
+			name:              "same line",
+			reservationLine:   "line-1",
+			reservationHolder: "browser-1",
+			callLine:          "line-1",
+			claimHolder:       "browser-2",
+			want:              ErrCallOwned,
+		},
+		{
+			name:              "same holder",
+			reservationLine:   "line-1",
+			reservationHolder: "browser-1",
+			callLine:          "line-2",
+			claimHolder:       "browser-1",
+			want:              ErrHolderBusy,
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			calls := &fakeCalls{calls: map[string]store.Call{}}
+			manager, err := New(calls, &fakeController{}, Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := manager.ReserveOutgoing(
+				context.Background(),
+				"request-1",
+				test.reservationLine,
+				test.reservationHolder,
+			); err != nil {
+				t.Fatal(err)
+			}
+			calls.mu.Lock()
+			calls.calls["call-1"] = store.Call{
+				ID:        "call-1",
+				LineID:    test.callLine,
+				Direction: "incoming",
+				Phase:     "ringing",
+			}
+			calls.mu.Unlock()
+
+			if _, err := manager.Claim(
+				context.Background(),
+				"call-1",
+				test.claimHolder,
+			); !errors.Is(err, test.want) {
+				t.Fatalf("Claim() error = %v, want %v", err, test.want)
+			}
+		})
+	}
+}
+
+func TestBoundOutgoingReservationBlocksClaimWithoutLeaseEntry(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		call        store.Call
+		claimHolder string
+		want        error
+	}{
+		{
+			name: "same line",
+			call: store.Call{
+				ID:        "call-2",
+				LineID:    "line-1",
+				Direction: "incoming",
+				Phase:     "ringing",
+			},
+			claimHolder: "browser-2",
+			want:        ErrCallOwned,
+		},
+		{
+			name: "same holder",
+			call: store.Call{
+				ID:        "call-2",
+				LineID:    "line-2",
+				Direction: "incoming",
+				Phase:     "ringing",
+			},
+			claimHolder: "browser-1",
+			want:        ErrHolderBusy,
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			calls := &fakeCalls{calls: map[string]store.Call{}}
+			manager, err := New(calls, &fakeController{}, Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := manager.ReserveOutgoing(
+				context.Background(),
+				"request-1",
+				"line-1",
+				"browser-1",
+			); err != nil {
+				t.Fatal(err)
+			}
+			outgoing := store.Call{
+				ID:        "call-1",
+				RequestID: "request-1",
+				LineID:    "line-1",
+				Phase:     "dialing",
+			}
+			calls.mu.Lock()
+			calls.calls[outgoing.ID] = outgoing
+			calls.calls[test.call.ID] = test.call
+			calls.mu.Unlock()
+			if _, err := manager.ActivateOutgoing(
+				context.Background(),
+				"request-1",
+				outgoing.ID,
+				"browser-1",
+			); err != nil {
+				t.Fatal(err)
+			}
+
+			manager.mu.Lock()
+			delete(manager.entries, outgoing.ID)
+			manager.mu.Unlock()
+			if _, err := manager.Claim(
+				context.Background(),
+				test.call.ID,
+				test.claimHolder,
+			); !errors.Is(err, test.want) {
+				t.Fatalf("Claim() error = %v, want %v", err, test.want)
+			}
+		})
+	}
+}
+
+func TestReserveAndClaimSerializeLineAndHolderOwnership(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name              string
+		reservationLine   string
+		reservationHolder string
+		callLine          string
+		claimHolder       string
+		wantConflict      error
+	}{
+		{
+			name:              "line",
+			reservationLine:   "line-1",
+			reservationHolder: "browser-1",
+			callLine:          "line-1",
+			claimHolder:       "browser-2",
+			wantConflict:      ErrCallOwned,
+		},
+		{
+			name:              "holder",
+			reservationLine:   "line-1",
+			reservationHolder: "browser-1",
+			callLine:          "line-2",
+			claimHolder:       "browser-1",
+			wantConflict:      ErrHolderBusy,
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			calls := &claimOnlyCalls{call: store.Call{
+				ID:        "call-1",
+				LineID:    test.callLine,
+				Direction: "incoming",
+				Phase:     "ringing",
+			}}
+			manager, err := New(calls, &fakeController{}, Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			start := make(chan struct{})
+			results := make(chan error, 2)
+			go func() {
+				<-start
+				_, err := manager.ReserveOutgoing(
+					context.Background(),
+					"request-1",
+					test.reservationLine,
+					test.reservationHolder,
+				)
+				results <- err
+			}()
+			go func() {
+				<-start
+				_, err := manager.Claim(
+					context.Background(),
+					"call-1",
+					test.claimHolder,
+				)
+				results <- err
+			}()
+			close(start)
+
+			successes := 0
+			conflicts := 0
+			for range 2 {
+				switch err := <-results; {
+				case err == nil:
+					successes++
+				case errors.Is(err, test.wantConflict):
+					conflicts++
+				default:
+					t.Fatalf("ownership operation error = %v", err)
+				}
+			}
+			if successes != 1 || conflicts != 1 {
+				t.Fatalf(
+					"operations = %d success, %d conflict",
+					successes,
+					conflicts,
+				)
+			}
+		})
+	}
+}
+
+func TestActiveProjectionReplacesMatchingPendingReservation(t *testing.T) {
+	t.Parallel()
+	calls := &fakeCalls{calls: map[string]store.Call{}}
+	manager, err := New(calls, &fakeController{}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ReserveOutgoing(
+		context.Background(),
+		"request-1",
+		"line-1",
+		"browser-1",
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ReserveOutgoing(
+		context.Background(),
+		"request-2",
+		"line-2",
+		"browser-2",
+	); err != nil {
+		t.Fatal(err)
+	}
+	active := []store.Call{{
+		ID:        "call-1",
+		RequestID: "request-1",
+		LineID:    "line-1",
+		Phase:     "dialing",
+	}}
+
+	owner, err := manager.ProjectActive(active, "browser-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(owner.Calls) != 1 ||
+		owner.Calls[0].Call.ID != "call-1" ||
+		owner.Calls[0].ControlState != ControlOwned {
+		t.Fatalf("owner projection calls = %+v", owner.Calls)
+	}
+	if len(owner.Reservations) != 1 ||
+		owner.Reservations[0].ID != "request-2" ||
+		owner.Reservations[0].ControlState != ControlOccupied {
+		t.Fatalf("owner projection reservations = %+v", owner.Reservations)
+	}
+
+	other, err := manager.ProjectActive(active, "browser-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(other.Calls) != 1 ||
+		other.Calls[0].ControlState != ControlOccupied {
+		t.Fatalf("other projection calls = %+v", other.Calls)
+	}
+	if len(other.Reservations) != 1 ||
+		other.Reservations[0].ID != "request-2" ||
+		other.Reservations[0].ControlState != ControlOwned {
+		t.Fatalf("other projection reservations = %+v", other.Reservations)
+	}
+}
+
+func TestActiveProjectionRequiresRequestAndLineMatch(t *testing.T) {
+	t.Parallel()
+	manager, err := New(
+		&fakeCalls{calls: map[string]store.Call{}},
+		&fakeController{},
+		Options{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ReserveOutgoing(
+		context.Background(),
+		"request-1",
+		"line-1",
+		"browser-1",
+	); err != nil {
+		t.Fatal(err)
+	}
+	projection, err := manager.ProjectActive([]store.Call{{
+		ID:        "call-1",
+		RequestID: "request-1",
+		LineID:    "line-2",
+		Phase:     "dialing",
+	}}, "browser-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projection.Calls) != 1 ||
+		projection.Calls[0].ControlState != ControlOccupied {
+		t.Fatalf("calls = %+v", projection.Calls)
+	}
+	if len(projection.Reservations) != 1 ||
+		projection.Reservations[0].ID != "request-1" ||
+		projection.Reservations[0].ControlState != ControlOwned {
+		t.Fatalf("reservations = %+v", projection.Reservations)
+	}
+}
+
+func TestActiveProjectionIsStableAcrossActivationRace(t *testing.T) {
+	t.Parallel()
+	for range 32 {
+		calls := &fakeCalls{calls: map[string]store.Call{}}
+		manager, err := New(calls, &fakeController{}, Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := manager.ReserveOutgoing(
+			context.Background(),
+			"request-1",
+			"line-1",
+			"browser-1",
+		); err != nil {
+			t.Fatal(err)
+		}
+		call := store.Call{
+			ID:        "call-1",
+			RequestID: "request-1",
+			LineID:    "line-1",
+			Phase:     "dialing",
+		}
+		calls.mu.Lock()
+		calls.calls[call.ID] = call
+		calls.mu.Unlock()
+
+		start := make(chan struct{})
+		activation := make(chan error, 1)
+		projection := make(chan ActiveProjection, 1)
+		projectionError := make(chan error, 1)
+		go func() {
+			<-start
+			_, err := manager.ActivateOutgoing(
+				context.Background(),
+				"request-1",
+				"call-1",
+				"browser-1",
+			)
+			activation <- err
+		}()
+		go func() {
+			<-start
+			result, err := manager.ProjectActive(
+				[]store.Call{call},
+				"browser-1",
+			)
+			projection <- result
+			projectionError <- err
+		}()
+		close(start)
+
+		if err := <-activation; err != nil {
+			t.Fatal(err)
+		}
+		result := <-projection
+		if err := <-projectionError; err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Calls) != 1 ||
+			result.Calls[0].ControlState != ControlOwned ||
+			len(result.Reservations) != 0 {
+			t.Fatalf("projection = %+v", result)
+		}
 	}
 }
 

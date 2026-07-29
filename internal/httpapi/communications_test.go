@@ -586,10 +586,18 @@ func TestCallControlAndActiveCallRoutes(t *testing.T) {
 		active.Calls[0].ControlState != string(calllease.ControlOwned) {
 		t.Fatalf("active response = %+v, error = %v", active, err)
 	}
-	if leases.reads != 1 ||
-		leases.callID != "call-app-1" ||
+	if leases.projects != 1 ||
+		len(leases.projected) != 1 ||
+		leases.projected[0].ID != "call-app-1" ||
 		leases.holderID != "browser-1" {
-		t.Fatalf("ownership read = %+v", leases)
+		t.Fatalf("ownership projection = %+v", leases)
+	}
+	if leases.reads != 0 || leases.reservationReads != 0 {
+		t.Fatalf(
+			"active calls used split ownership reads: states=%d reservations=%d",
+			leases.reads,
+			leases.reservationReads,
+		)
 	}
 
 	actionRequest := httptest.NewRequest(
@@ -707,6 +715,11 @@ func TestActiveCallsIncludeOutgoingLineReservations(t *testing.T) {
 		reservation.ControlState != string(calllease.ControlOccupied) ||
 		reservation.CreatedAt != createdAt.Format(time.RFC3339Nano) {
 		t.Fatalf("reservation = %+v", reservation)
+	}
+	if leases.projects != 1 ||
+		leases.reads != 0 ||
+		leases.reservationReads != 0 {
+		t.Fatalf("ownership projection calls = %+v", leases)
 	}
 }
 

@@ -9,27 +9,32 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/calllease"
+	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
 type fakeCallLeases struct {
-	callID        string
-	holderID      string
-	reservationID string
-	lineID        string
-	status        calllease.Status
-	control       calllease.ControlState
-	reservations  []calllease.OutgoingReservation
-	err           error
-	reserveErr    error
-	activateErr   error
-	releaseErr    error
-	reserveReplay bool
-	claims        int
-	reserves      int
-	activations   int
-	reads         int
-	requires      int
-	releases      int
+	callID           string
+	holderID         string
+	reservationID    string
+	lineID           string
+	status           calllease.Status
+	control          calllease.ControlState
+	reservations     []calllease.OutgoingReservation
+	projection       *calllease.ActiveProjection
+	projected        []store.Call
+	err              error
+	reserveErr       error
+	activateErr      error
+	releaseErr       error
+	reserveReplay    bool
+	claims           int
+	reserves         int
+	activations      int
+	reads            int
+	projects         int
+	reservationReads int
+	requires         int
+	releases         int
 }
 
 func (leases *fakeCallLeases) ReserveOutgoing(
@@ -78,7 +83,37 @@ func (leases *fakeCallLeases) OutgoingReservations(
 	holderID string,
 ) ([]calllease.OutgoingReservation, error) {
 	leases.holderID = holderID
+	leases.reservationReads++
 	return append([]calllease.OutgoingReservation(nil), leases.reservations...), leases.err
+}
+
+func (leases *fakeCallLeases) ProjectActive(
+	calls []store.Call,
+	holderID string,
+) (calllease.ActiveProjection, error) {
+	leases.holderID = holderID
+	leases.projects++
+	leases.projected = append([]store.Call(nil), calls...)
+	if leases.err != nil {
+		return calllease.ActiveProjection{}, leases.err
+	}
+	if leases.projection != nil {
+		return *leases.projection, nil
+	}
+	projectedCalls := make([]calllease.ProjectedCall, 0, len(calls))
+	for _, call := range calls {
+		projectedCalls = append(projectedCalls, calllease.ProjectedCall{
+			Call:         call,
+			ControlState: leases.control,
+		})
+	}
+	return calllease.ActiveProjection{
+		Calls: projectedCalls,
+		Reservations: append(
+			[]calllease.OutgoingReservation(nil),
+			leases.reservations...,
+		),
+	}, nil
 }
 
 func (leases *fakeCallLeases) Claim(

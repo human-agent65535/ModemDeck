@@ -185,6 +185,7 @@ type CallLeaseService interface {
 	ActivateOutgoing(context.Context, string, string, string) (calllease.Status, error)
 	ReleaseOutgoing(string, string) (bool, error)
 	OutgoingReservations(string) ([]calllease.OutgoingReservation, error)
+	ProjectActive([]store.Call, string) (calllease.ActiveProjection, error)
 	Claim(context.Context, string, string) (calllease.Status, error)
 	Renew(context.Context, string, string) (calllease.Status, error)
 	Require(context.Context, string, string) error

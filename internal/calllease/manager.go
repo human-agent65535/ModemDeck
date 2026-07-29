@@ -62,6 +62,16 @@ type OutgoingReservation struct {
 	ControlState ControlState
 }
 
+type ProjectedCall struct {
+	Call         store.Call
+	ControlState ControlState
+}
+
+type ActiveProjection struct {
+	Calls        []ProjectedCall
+	Reservations []OutgoingReservation
+}
+
 type ControlState string
 
 const (
@@ -327,6 +337,69 @@ func (m *Manager) OutgoingReservations(
 	return result, nil
 }
 
+func (m *Manager) ProjectActive(
+	calls []store.Call,
+	holderID string,
+) (ActiveProjection, error) {
+	holderID, err := NormalizeHolderID(holderID)
+	if err != nil {
+		return ActiveProjection{}, err
+	}
+
+	now := m.now().UTC()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	projection := ActiveProjection{
+		Calls:        make([]ProjectedCall, 0, len(calls)),
+		Reservations: make([]OutgoingReservation, 0, len(m.reservations)),
+	}
+	matchedReservations := make(map[string]struct{}, len(calls))
+	for _, call := range calls {
+		reservation := m.projectedReservationLocked(
+			call,
+			matchedReservations,
+		)
+		if reservation != nil {
+			matchedReservations[reservation.id] = struct{}{}
+		}
+
+		controlState, controlled := m.entryControlStateLocked(
+			strings.TrimSpace(call.ID),
+			holderID,
+			now,
+		)
+		if !controlled {
+			if reservation != nil {
+				controlState = outgoingReservationStatus(
+					reservation,
+					holderID,
+					false,
+				).ControlState
+			} else {
+				controlState = unclaimedControlState(call)
+			}
+		}
+		projection.Calls = append(projection.Calls, ProjectedCall{
+			Call:         call,
+			ControlState: controlState,
+		})
+	}
+	for _, reservation := range m.reservations {
+		if reservation.callID != "" {
+			continue
+		}
+		if _, matched := matchedReservations[reservation.id]; matched {
+			continue
+		}
+		projection.Reservations = append(
+			projection.Reservations,
+			outgoingReservationStatus(reservation, holderID, false),
+		)
+	}
+	return projection, nil
+}
+
 func (m *Manager) Renew(
 	ctx context.Context,
 	callID string,
@@ -383,15 +456,28 @@ func (m *Manager) Claim(
 	expiresAt := now.Add(m.duration)
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	lineID := strings.TrimSpace(call.LineID)
+	for _, reservation := range m.reservations {
+		if reservation.callID == callID &&
+			reservation.holderID == holderID {
+			continue
+		}
+		if reservation.holderID == holderID {
+			return Status{}, ErrHolderBusy
+		}
+		if reservation.lineID == lineID {
+			return Status{}, ErrCallOwned
+		}
+	}
 	entry := m.entries[callID]
 	if entry == nil {
 		entry = &callEntry{
-			lineID:           strings.TrimSpace(call.LineID),
+			lineID:           lineID,
 			unclaimedExpires: m.unclaimedDeadline(call, now),
 		}
 		m.entries[callID] = entry
 	} else if entry.lineID == "" {
-		entry.lineID = strings.TrimSpace(call.LineID)
+		entry.lineID = lineID
 	}
 	if entry.ending {
 		return Status{}, ErrCallNotActive
@@ -476,26 +562,7 @@ func (m *Manager) ControlState(
 	now := m.now().UTC()
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	entry := m.entries[callID]
-	if entry != nil {
-		if entry.ending {
-			return ControlOccupied, nil
-		}
-		if entry.holderID != "" {
-			if !now.Before(entry.expiresAt) {
-				return ControlOccupied, nil
-			}
-			if entry.holderID == holderID {
-				return ControlOwned, nil
-			}
-			return ControlOccupied, nil
-		}
-	}
-	if strings.EqualFold(strings.TrimSpace(call.Direction), "incoming") &&
-		strings.EqualFold(strings.TrimSpace(call.Phase), "ringing") {
-		return ControlAvailable, nil
-	}
-	return ControlOccupied, nil
+	return m.controlStateLocked(call, holderID, now), nil
 }
 
 func (m *Manager) Release(
@@ -746,6 +813,85 @@ func outgoingReservationStatus(
 		CreatedAt:    reservation.createdAt,
 		ControlState: controlState,
 	}
+}
+
+func (m *Manager) projectedReservationLocked(
+	call store.Call,
+	matched map[string]struct{},
+) *outgoingReservation {
+	callID := strings.TrimSpace(call.ID)
+	if callID != "" {
+		for _, reservation := range m.reservations {
+			if _, used := matched[reservation.id]; used {
+				continue
+			}
+			if reservation.callID == callID {
+				return reservation
+			}
+		}
+	}
+
+	requestID := strings.TrimSpace(call.RequestID)
+	lineID := strings.TrimSpace(call.LineID)
+	if requestID == "" || lineID == "" {
+		return nil
+	}
+	reservation := m.reservations[requestID]
+	if reservation == nil || reservation.callID != "" ||
+		reservation.lineID != lineID {
+		return nil
+	}
+	if _, used := matched[reservation.id]; used {
+		return nil
+	}
+	return reservation
+}
+
+func (m *Manager) controlStateLocked(
+	call store.Call,
+	holderID string,
+	now time.Time,
+) ControlState {
+	if controlState, controlled := m.entryControlStateLocked(
+		strings.TrimSpace(call.ID),
+		holderID,
+		now,
+	); controlled {
+		return controlState
+	}
+	return unclaimedControlState(call)
+}
+
+func (m *Manager) entryControlStateLocked(
+	callID string,
+	holderID string,
+	now time.Time,
+) (ControlState, bool) {
+	entry := m.entries[callID]
+	if entry == nil {
+		return "", false
+	}
+	if entry.ending {
+		return ControlOccupied, true
+	}
+	if entry.holderID == "" {
+		return "", false
+	}
+	if !now.Before(entry.expiresAt) {
+		return ControlOccupied, true
+	}
+	if entry.holderID == holderID {
+		return ControlOwned, true
+	}
+	return ControlOccupied, true
+}
+
+func unclaimedControlState(call store.Call) ControlState {
+	if strings.EqualFold(strings.TrimSpace(call.Direction), "incoming") &&
+		strings.EqualFold(strings.TrimSpace(call.Phase), "ringing") {
+		return ControlAvailable
+	}
+	return ControlOccupied
 }
 
 func NormalizeHolderID(holderID string) (string, error) {

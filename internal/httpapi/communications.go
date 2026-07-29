@@ -589,40 +589,29 @@ func (api *API) activeCalls(response http.ResponseWriter, request *http.Request)
 		api.writeCommunicationError(response, request, "list active calls", err)
 		return
 	}
-	sessions := make([]callSessionResponse, 0, len(calls))
-	for _, call := range calls {
-		controlState, err := api.callLeases.ControlState(
-			request.Context(),
-			call.ID,
-			holderID,
-		)
-		if err != nil {
-			api.writeCallLeaseError(
-				response,
-				request,
-				"read browser call owner",
-				err,
-			)
-			return
-		}
-		sessions = append(sessions, callSession(call, controlState))
-	}
-	reservations, err := api.callLeases.OutgoingReservations(holderID)
+	projection, err := api.callLeases.ProjectActive(calls, holderID)
 	if err != nil {
 		api.writeCallLeaseError(
 			response,
 			request,
-			"read outgoing call reservations",
+			"project active browser calls",
 			err,
 		)
 		return
 	}
+	sessions := make([]callSessionResponse, 0, len(projection.Calls))
+	for _, projected := range projection.Calls {
+		sessions = append(
+			sessions,
+			callSession(projected.Call, projected.ControlState),
+		)
+	}
 	reservationResponses := make(
 		[]outgoingCallReservationResponse,
 		0,
-		len(reservations),
+		len(projection.Reservations),
 	)
-	for _, reservation := range reservations {
+	for _, reservation := range projection.Reservations {
 		reservationResponses = append(
 			reservationResponses,
 			outgoingCallReservationResponse{
