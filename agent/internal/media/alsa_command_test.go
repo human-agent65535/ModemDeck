@@ -214,4 +214,7 @@ func TestALSACommandCaptureErrorIncludesBoundedToolOutput(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "arecord: UAC capture failed") {
 		t.Fatalf("Read() error = %v", err)
 	}
+	if err := commandDevice.Close(); err != nil {
+		t.Fatalf("Close() after capture failure = %v", err)
+	}
 }

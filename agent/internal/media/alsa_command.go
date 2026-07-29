@@ -125,6 +125,8 @@ func (o *ALSACommandOpener) OpenDuplexPCM(
 		playback:         playback,
 		captureCommand:   captureCommand,
 		playbackCommand:  playbackCommand,
+		captureProcess:   commandProcess{command: captureCommand},
+		playbackProcess:  commandProcess{command: playbackCommand},
 		captureErrors:    captureErrors,
 		playbackErrors:   playbackErrors,
 		captureTransfer:  make([]byte, captureBytes),
@@ -146,6 +148,8 @@ type alsaCommandDevice struct {
 	playback        io.WriteCloser
 	captureCommand  *exec.Cmd
 	playbackCommand *exec.Cmd
+	captureProcess  commandProcess
+	playbackProcess commandProcess
 	captureErrors   *boundedCommandOutput
 	playbackErrors  *boundedCommandOutput
 
@@ -173,6 +177,9 @@ func (d *alsaCommandDevice) Read(destination []byte) (int, error) {
 
 	if d.captureOffset >= len(d.captureTransfer) {
 		if _, err := io.ReadFull(d.capture, d.captureTransfer); err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+				_ = d.captureProcess.wait()
+			}
 			return 0, commandIOError("arecord", d.captureErrors, err)
 		}
 		d.captureOffset = 0
@@ -253,12 +260,12 @@ func (d *alsaCommandDevice) Start(ctx context.Context) error {
 		return NewError(ErrorBackendUnavailable, operation, "start arecord", err)
 	}
 	if err := ctx.Err(); err != nil {
-		_ = stopCommand(d.captureCommand)
+		_ = d.captureProcess.stop()
 		d.captureCommand = nil
 		return NewError(ErrorTimeout, operation, "alsa-pcm start canceled", err)
 	}
 	if err := d.playbackCommand.Start(); err != nil {
-		_ = stopCommand(d.captureCommand)
+		_ = d.captureProcess.stop()
 		d.captureCommand = nil
 		return NewError(ErrorBackendUnavailable, operation, "start aplay", err)
 	}
@@ -274,8 +281,8 @@ func (d *alsaCommandDevice) Close() error {
 		d.closeErr = errors.Join(
 			closePipe(d.capture),
 			closePipe(d.playback),
-			stopCommand(d.captureCommand),
-			stopCommand(d.playbackCommand),
+			d.captureProcess.stop(),
+			d.playbackProcess.stop(),
 		)
 	})
 	return d.closeErr
@@ -292,12 +299,28 @@ func closePipe(closer io.Closer) error {
 	return err
 }
 
-func stopCommand(command *exec.Cmd) error {
-	if command == nil || command.Process == nil {
+type commandProcess struct {
+	command  *exec.Cmd
+	waitOnce sync.Once
+	waitErr  error
+}
+
+func (process *commandProcess) wait() error {
+	if process == nil || process.command == nil || process.command.Process == nil {
 		return nil
 	}
-	killErr := command.Process.Kill()
-	waitErr := command.Wait()
+	process.waitOnce.Do(func() {
+		process.waitErr = process.command.Wait()
+	})
+	return process.waitErr
+}
+
+func (process *commandProcess) stop() error {
+	if process == nil || process.command == nil || process.command.Process == nil {
+		return nil
+	}
+	killErr := process.command.Process.Kill()
+	waitErr := process.wait()
 	if errors.Is(killErr, os.ErrProcessDone) {
 		killErr = nil
 	}
