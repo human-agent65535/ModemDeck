@@ -84,12 +84,20 @@ test('dial forwards the current recording preference and keeps one call in fligh
       agent_connected: true,
       dial: true,
       message: true,
-      webrtc_audio: false,
+      webrtc_audio: true,
       device_control: false,
       volte_control: false,
       vowifi_control: false
     },
-    lines: []
+    lines: [
+      {
+        id: 'line-main',
+        capabilities: {
+          dial: true,
+          media: true
+        }
+      }
+    ]
   }
   bootstrapResource.status = 'ready'
   bootstrapResource.error = ''

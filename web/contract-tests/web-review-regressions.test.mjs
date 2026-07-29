@@ -25,7 +25,7 @@ test('dialing and messages resolve context, contact, and global default lines', 
   assert.match(dialer, /\(!selectedLineId\.value \? t\('dialer\.selectLine'\) : ''\)/)
   assert.match(dialer, /<LineSelector/)
   assert.match(dialer, /:lines="dialLines"/)
-  assert.match(dialer, /lineSupports\(line, 'dial'\) === true/)
+  assert.match(dialer, /lines\.value\.filter\(lineCanPlaceVoiceCall\)/)
   assert.doesNotMatch(dialer, /lines\.length === 1/)
 
   assert.match(messages, /resolveLine\('message'/)

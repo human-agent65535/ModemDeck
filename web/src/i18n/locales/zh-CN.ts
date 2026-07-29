@@ -1077,6 +1077,7 @@ export default {
     requestFailed: '请求失败',
     capabilityNotLoaded: '通信能力尚未载入',
     hostCapabilityMissing: 'Host agent 未提供此能力',
+    voiceCallingUnavailable: '当前没有可用于语音通话的线路',
     controlUnavailable: '当前版本尚未开放此控制接口',
     unnamedLine: '未命名线路',
     lineSuffix: '线路 {suffix}',

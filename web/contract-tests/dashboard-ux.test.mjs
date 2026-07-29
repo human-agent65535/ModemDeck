@@ -131,7 +131,7 @@ test('dashboard readiness counts require both service and backend capability', (
   assert.match(dashboard, /isMessagingServiceReady\(line\)/)
   assert.match(
     dashboard,
-    /isVoiceServiceReady\(line\)\s*&&\s*lineHasCallControl\(line\)/
+    /isVoiceServiceReady\(line\)\s*&&\s*lineCanPlaceVoiceCall\(line\)/
   )
   assert.match(
     dashboard,

@@ -21,8 +21,8 @@ import {
   bootstrapResource,
   capabilityReason,
   contactsResource,
+  lineCanPlaceVoiceCall,
   lineKey,
-  lineSupports,
   loadContacts,
   resolveLine
 } from '../state/workspace'
@@ -66,7 +66,7 @@ const zeroLongPressDelay = 500
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const dialLines = computed(() =>
-  lines.value.filter(line => lineSupports(line, 'dial') === true)
+  lines.value.filter(lineCanPlaceVoiceCall)
 )
 const showingCall = computed(() => Boolean(callState.session))
 const callSurfaceVisible = computed(
@@ -107,7 +107,7 @@ const callUnavailableReason = computed(
     activeCallUnavailable.value ||
     (dialLines.value.length === 0 ? t('dialer.noLines') : '') ||
     (!selectedLineId.value ? t('dialer.selectLine') : '') ||
-    (lineSupports(selectedLine.value, 'dial') === false
+    (!lineCanPlaceVoiceCall(selectedLine.value)
       ? t('dialer.selectedLineUnsupported')
       : '')
 )
@@ -142,7 +142,7 @@ function syncResolvedLine(force = false): void {
     number: number.value
   })
   const supportedResolved =
-    resolved && lineSupports(resolved, 'dial') === true ? resolved : dialLines.value[0]
+    resolved && lineCanPlaceVoiceCall(resolved) ? resolved : dialLines.value[0]
   selectedLineId.value = supportedResolved ? lineKey(supportedResolved) : ''
 }
 

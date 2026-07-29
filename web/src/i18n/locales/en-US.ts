@@ -1084,6 +1084,7 @@ export default {
     requestFailed: 'Request failed',
     capabilityNotLoaded: 'Communication capabilities have not loaded',
     hostCapabilityMissing: 'The host agent does not provide this capability',
+    voiceCallingUnavailable: 'No line is currently available for voice calling',
     controlUnavailable: 'This control is not available in the current version',
     unnamedLine: 'Unnamed line',
     lineSuffix: 'Line {suffix}',

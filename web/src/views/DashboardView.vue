@@ -45,7 +45,7 @@ import {
   contactsResource,
   devicesResource,
   displayModuleLines,
-  lineHasCallControl,
+  lineCanPlaceVoiceCall,
   lineForKey,
   lineKey,
   loadBootstrap,
@@ -123,14 +123,14 @@ const missedCalls = computed(
 const onlineModules = computed(
   () => presentModules.value.filter(line => isRegisteredNetwork(line)).length
 )
-const callReadyLines = computed(
-  () =>
-    lines.value.filter(
-      line =>
-        isVoiceServiceReady(line) &&
-        lineHasCallControl(line)
-    ).length
-)
+const callReadyLines = computed(() => {
+  if (bootstrapResource.data?.capabilities.webrtc_audio !== true) return 0
+  return lines.value.filter(
+    line =>
+      isVoiceServiceReady(line) &&
+      lineCanPlaceVoiceCall(line)
+  ).length
+})
 const messageReadyLines = computed(
   () =>
     lines.value.filter(

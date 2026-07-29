@@ -103,6 +103,13 @@ export function capabilityReason(capability: 'dial' | 'message'): string {
       translate('runtime.hostCapabilityMissing')
     )
   }
+  if (
+    capability === 'dial' &&
+    (!bootstrap.capabilities.webrtc_audio ||
+      !bootstrap.lines.some(lineCanPlaceVoiceCall))
+  ) {
+    return translate('runtime.voiceCallingUnavailable')
+  }
   if (!gateway.interactions[capability]) return translate('runtime.controlUnavailable')
   return ''
 }
@@ -180,6 +187,13 @@ export function lineHasCallControl(line: LineSummary | undefined): boolean {
     line?.capabilities?.answer === true ||
     line?.capabilities?.reject === true ||
     line?.capabilities?.hangup === true
+  )
+}
+
+export function lineCanPlaceVoiceCall(line: LineSummary | undefined): boolean {
+  return (
+    lineSupports(line, 'dial') === true &&
+    lineSupports(line, 'media') === true
   )
 }
 
