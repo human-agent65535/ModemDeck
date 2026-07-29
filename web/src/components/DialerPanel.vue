@@ -471,6 +471,8 @@ onBeforeUnmount(() => {
           <header class="tool-header dialer-toolbar">
             <span class="dialer-toolbar__title">
               <h2>{{ showingCall ? t('shell.calls') : t('dialer.title') }}</h2>
+            </span>
+            <span class="dialer-header-actions">
               <button
                 v-if="!showingCall && activeCallPresent"
                 class="dialer-active-calls dialer-active-calls--busy"
@@ -490,8 +492,6 @@ onBeforeUnmount(() => {
                 <Phone :size="15" />
                 <span>{{ activeCallLineCount }}</span>
               </span>
-            </span>
-            <span class="dialer-header-actions">
               <button
                 v-if="showingCall || !permanent"
                 class="icon-button"
@@ -697,6 +697,7 @@ onBeforeUnmount(() => {
 
 .dialer-header-actions {
   display: flex;
+  margin-left: auto;
   align-items: center;
   gap: 3px;
 }

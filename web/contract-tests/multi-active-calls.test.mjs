@@ -150,6 +150,10 @@ test('dialer keeps occupied lines viewable and retains a multi-call count', asyn
   assert.match(dialer, /showActiveCallForLine\(lineID\)/)
   assert.match(dialer, /callState\.owned \? t\('dialer\.activeCall'\)/)
   assert.match(dialer, /v-else-if="showingCall && activeCallLineCount > 0"/)
+  assert.match(
+    dialer,
+    /<span class="dialer-header-actions">[\s\S]*dialer-active-calls--busy[\s\S]*class="icon-button"/
+  )
   assert.match(dialer, /\.dialer-active-calls--busy \{[\s\S]*color: var\(--danger\);/)
   assert.match(selector, /:aria-disabled="option\.disabled"/)
   assert.match(selector, /if \(option\.disabled\) return/)
