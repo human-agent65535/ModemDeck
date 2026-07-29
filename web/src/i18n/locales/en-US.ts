@@ -312,6 +312,8 @@ export default {
     replaceAvatar: 'Replace contact avatar',
     uploadAvatar: 'Upload avatar',
     replaceAvatarAction: 'Replace avatar',
+    newShort: 'New',
+    addExistingShort: 'Link existing',
     deleteAvatar: 'Delete avatar',
     avatarEmptyHint: 'Click the circle or drop an image onto it',
     avatarReplaceHint: 'Click the avatar or drop an image to replace it',

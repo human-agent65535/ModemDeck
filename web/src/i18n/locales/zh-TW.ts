@@ -311,6 +311,8 @@ export default {
     replaceAvatar: '更換聯絡人頭像',
     uploadAvatar: '上傳頭像',
     replaceAvatarAction: '更換頭像',
+    newShort: '新增',
+    addExistingShort: '關聯現有',
     deleteAvatar: '刪除頭像',
     avatarEmptyHint: '點選圓形頭像，或將圖片拖到頭像上',
     avatarReplaceHint: '點選頭像或拖入圖片即可替換',

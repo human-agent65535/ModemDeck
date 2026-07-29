@@ -311,6 +311,8 @@ export default {
     "replaceAvatar": "Substitua o avatar do contato",
     "uploadAvatar": "Carregar avatar",
     "replaceAvatarAction": "Substituir avatar",
+    "newShort": "Novo",
+    "addExistingShort": "Vincular existente",
     "deleteAvatar": "Excluir avatar",
     "avatarEmptyHint": "Clique no círculo ou solte uma imagem nele",
     "avatarReplaceHint": "Clique no avatar ou solte uma imagem para substituí-la",

@@ -202,7 +202,7 @@ async function addToContact(): Promise<void> {
         @click="openCreate"
       >
         <UserPlus :size="17" />
-        <span class="contact-number-action__label">{{ t('contacts.new') }}</span>
+        <span class="contact-number-action__label">{{ t('contacts.newShort') }}</span>
       </button>
       <button
         class="secondary-button"
@@ -212,7 +212,7 @@ async function addToContact(): Promise<void> {
         @click="openAdd"
       >
         <ContactRound :size="17" />
-        <span class="contact-number-action__label">{{ t('contacts.addExisting') }}</span>
+        <span class="contact-number-action__label">{{ t('contacts.addExistingShort') }}</span>
       </button>
     </template>
   </div>

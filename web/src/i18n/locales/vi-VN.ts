@@ -311,6 +311,8 @@ export default {
     "replaceAvatar": "Thay thế hình đại diện liên hệ",
     "uploadAvatar": "Tải hình đại diện lên",
     "replaceAvatarAction": "Thay thế hình đại diện",
+    "newShort": "Tạo mới",
+    "addExistingShort": "Liên kết hiện có",
     "deleteAvatar": "Xóa hình đại diện",
     "avatarEmptyHint": "Nhấp vào vòng tròn hoặc thả hình ảnh vào đó",
     "avatarReplaceHint": "Bấm vào hình đại diện hoặc thả hình ảnh để thay thế",

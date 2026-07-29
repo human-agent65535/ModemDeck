@@ -107,6 +107,17 @@ test('message conversations reuse contact create and add actions', async () => {
   assert.doesNotMatch(source, /class="conversation-contact-actions"/)
 })
 
+test('contact actions use compact copy with complete accessible labels', async () => {
+  const source = await readFile(numberActions, 'utf8')
+
+  assert.match(source, /:aria-label="t\('contacts\.new'\)"/)
+  assert.match(source, /:title="t\('contacts\.new'\)"/)
+  assert.match(source, /t\('contacts\.newShort'\)/)
+  assert.match(source, /:aria-label="t\('contacts\.addExisting'\)"/)
+  assert.match(source, /:title="t\('contacts\.addExisting'\)"/)
+  assert.match(source, /t\('contacts\.addExistingShort'\)/)
+})
+
 test('recordings reuse the compact contact identity and actions in the header', async () => {
   const source = await readFile(recordingsView, 'utf8')
 

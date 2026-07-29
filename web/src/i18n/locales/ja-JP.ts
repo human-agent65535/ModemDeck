@@ -311,6 +311,8 @@ export default {
     "replaceAvatar": "連絡先のアバターを置き換える",
     "uploadAvatar": "アバターをアップロードする",
     "replaceAvatarAction": "アバターを置き換える",
+    "newShort": "新規",
+    "addExistingShort": "既存に関連付け",
     "deleteAvatar": "アバターの削除",
     "avatarEmptyHint": "円をクリックするか、その上に画像をドロップします",
     "avatarReplaceHint": "アバターをクリックするか画像をドロップして置き換えます",
