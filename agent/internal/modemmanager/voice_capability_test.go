@@ -154,7 +154,7 @@ func TestQuectelCallCommandDoesNotInitializeMissingVoiceModel(t *testing.T) {
 	assertATInvocationCount(t, caller.invocations(), "ATD+818012345678;", 0)
 }
 
-func TestQuectelPCMIsInitializedOnceBeforeOutgoingCallStarts(t *testing.T) {
+func TestQuectelPCMIsConfirmedAgainBeforeOutgoingCallStarts(t *testing.T) {
 	t.Parallel()
 
 	objects := emptyLineObjects(true, false)
@@ -206,7 +206,7 @@ func TestQuectelPCMIsInitializedOnceBeforeOutgoingCallStarts(t *testing.T) {
 		t.Fatalf("PCM enable index = %d, call start index = %d", lastEnable, startCall)
 	}
 	assertATInvocationCount(t, invocations, quectelPCMEnable, 1)
-	assertATInvocationCount(t, invocations, quectelPCMStatusQuery, 1)
+	assertATInvocationCount(t, invocations, quectelPCMStatusQuery, 2)
 	assertATInvocationCount(t, invocations, "AT+QPCMV=0", 0)
 
 	addCall(objects, callPath, 4)
@@ -232,6 +232,57 @@ func TestQuectelPCMIsInitializedOnceBeforeOutgoingCallStarts(t *testing.T) {
 		t.Fatalf("activation = %+v", activation)
 	}
 	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 1)
+}
+
+func TestQuectelPCMIsRestoredBeforeOutgoingCallWhenRuntimeStateChanged(t *testing.T) {
+	t.Parallel()
+
+	objects := emptyLineObjects(true, false)
+	properties := objects[testModemPath][modemInterface]
+	properties["Manufacturer"] = dbus.MakeVariant("QUALCOMM INCORPORATED")
+	properties["Model"] = dbus.MakeVariant("QUECTEL Mobile Broadband Module")
+	properties["Revision"] = dbus.MakeVariant("EG25GGCR07A02M1G")
+	callPath := testCallPath(72)
+
+	caller := newFakeCaller(objects)
+	caller.owner = true
+	caller.createdCallPath = callPath
+	caller.atResponses[quectelUSBVoiceQuery] =
+		`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`
+	caller.atResponses[quectelPCMStatusQuery] = quectelPCMReadyStatus
+	provider := newTestProvider(caller)
+	modeled, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("modeling Snapshot() error = %v", err)
+	}
+
+	caller.atResponses[quectelPCMStatusQuery] = "+QPCMV: 0,0"
+	if _, err := provider.StartCall(context.Background(), domain.StartCallRequest{
+		RequestID: "restore-media-72",
+		LineID:    modeled.Lines[0].ID,
+		Number:    "+818012345678",
+	}); err != nil {
+		t.Fatalf("StartCall() error = %v", err)
+	}
+
+	invocations := caller.invocations()
+	lastEnable := -1
+	startCall := -1
+	for index, invocation := range invocations {
+		if invocation.Method == modemInterface+".Command" &&
+			len(invocation.Args) > 0 &&
+			invocation.Args[0] == quectelPCMEnable {
+			lastEnable = index
+		}
+		if invocation.Method == callInterface+".Start" {
+			startCall = index
+		}
+	}
+	if lastEnable < 0 || startCall < 0 || lastEnable > startCall {
+		t.Fatalf("PCM enable index = %d, call start index = %d", lastEnable, startCall)
+	}
+	assertATInvocationCount(t, invocations, quectelPCMEnable, 2)
+	assertATInvocationCount(t, invocations, quectelPCMStatusQuery, 2)
 }
 
 func TestQuectelPCMActivationKeepsAuthoritativeModemManagerAudio(t *testing.T) {

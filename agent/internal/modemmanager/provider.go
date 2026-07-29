@@ -367,6 +367,15 @@ func (p *Provider) StartCall(ctx context.Context, request domain.StartCallReques
 		return domain.CommandReceipt{}, domain.Conflict(operation, "line already has an ongoing call")
 	}
 	linePath := parsed.LinePaths[line.ID]
+	if result, found := p.ensureQuectelMediaRouting(
+		ctx,
+		operation,
+		parsed.ids,
+		line,
+		linePath,
+	); found {
+		projectVoiceProbeResult(&line, result)
+	}
 	if parsed.CallBackends[line.ID] == callControlQuectelAT {
 		return p.startATCall(
 			ctx,
@@ -458,6 +467,16 @@ func (p *Provider) AnswerCall(ctx context.Context, request domain.CallCommandReq
 		line, found := findLine(parsed.Lines, call.LineID)
 		if !found {
 			return domain.NotFound(operation, "call line was not found")
+		}
+		linePath := parsed.LinePaths[line.ID]
+		if result, found := p.ensureQuectelMediaRouting(
+			ctx,
+			operation,
+			parsed.ids,
+			line,
+			linePath,
+		); found {
+			projectVoiceProbeResult(&line, result)
 		}
 		if lineID, isATCall := parsed.ATCallLines[call.ID]; isATCall {
 			_, err := p.commandATPath(

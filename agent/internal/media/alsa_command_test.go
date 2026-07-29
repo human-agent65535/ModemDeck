@@ -3,6 +3,7 @@ package media
 import (
 	"context"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 )
@@ -64,5 +65,33 @@ func TestALSACommandStartFailureIsTypedAndClosesCleanly(t *testing.T) {
 	}
 	if err := commandDevice.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
+	}
+}
+
+func TestALSACommandCaptureErrorIncludesBoundedToolOutput(t *testing.T) {
+	commandIndex := 0
+	opener := &ALSACommandOpener{
+		arecord: "arecord",
+		aplay:   "aplay",
+		command: func(string, ...string) *exec.Cmd {
+			commandIndex++
+			if commandIndex == 1 {
+				return exec.Command("sh", "-c", "printf 'UAC capture failed' >&2; exit 1")
+			}
+			return exec.Command("sh", "-c", "cat >/dev/null")
+		},
+	}
+	device, err := opener.OpenDuplexPCM(context.Background(), "hw:2,0", mustFormat(t, 8000))
+	if err != nil {
+		t.Fatalf("OpenDuplexPCM() error = %v", err)
+	}
+	commandDevice := device.(*alsaCommandDevice)
+	t.Cleanup(func() { _ = commandDevice.Close() })
+	if err := commandDevice.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	_, err = commandDevice.Read(make([]byte, 320))
+	if err == nil || !strings.Contains(err.Error(), "arecord: UAC capture failed") {
+		t.Fatalf("Read() error = %v", err)
 	}
 }

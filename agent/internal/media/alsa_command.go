@@ -3,15 +3,19 @@ package media
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
 
 type commandFactory func(string, ...string) *exec.Cmd
+
+const maxALSAErrorBytes = 4 << 10
 
 // ALSACommandOpener uses the established alsa-utils PCM tools as an explicit
 // full-duplex backend. It never discovers a device: the configured ALSA name
@@ -73,13 +77,15 @@ func (o *ALSACommandOpener) OpenDuplexPCM(
 		"--rate", strconv.FormatUint(uint64(format.Rate), 10),
 	}
 	captureCommand := o.command(o.arecord, args...)
-	captureCommand.Stderr = io.Discard
+	captureErrors := &boundedCommandOutput{limit: maxALSAErrorBytes}
+	captureCommand.Stderr = captureErrors
 	capture, err := captureCommand.StdoutPipe()
 	if err != nil {
 		return nil, NewError(ErrorBackendUnavailable, "open_alsa_pcm", "create arecord output", err)
 	}
 	playbackCommand := o.command(o.aplay, args...)
-	playbackCommand.Stderr = io.Discard
+	playbackErrors := &boundedCommandOutput{limit: maxALSAErrorBytes}
+	playbackCommand.Stderr = playbackErrors
 	playback, err := playbackCommand.StdinPipe()
 	if err != nil {
 		_ = capture.Close()
@@ -90,6 +96,8 @@ func (o *ALSACommandOpener) OpenDuplexPCM(
 		playback:        playback,
 		captureCommand:  captureCommand,
 		playbackCommand: playbackCommand,
+		captureErrors:   captureErrors,
+		playbackErrors:  playbackErrors,
 	}, nil
 }
 
@@ -98,6 +106,8 @@ type alsaCommandDevice struct {
 	playback        io.WriteCloser
 	captureCommand  *exec.Cmd
 	playbackCommand *exec.Cmd
+	captureErrors   *boundedCommandOutput
+	playbackErrors  *boundedCommandOutput
 
 	closeOnce sync.Once
 	closeErr  error
@@ -107,11 +117,19 @@ type alsaCommandDevice struct {
 }
 
 func (d *alsaCommandDevice) Read(destination []byte) (int, error) {
-	return d.capture.Read(destination)
+	read, err := d.capture.Read(destination)
+	if err != nil {
+		err = commandIOError("arecord", d.captureErrors, err)
+	}
+	return read, err
 }
 
 func (d *alsaCommandDevice) Write(source []byte) (int, error) {
-	return d.playback.Write(source)
+	written, err := d.playback.Write(source)
+	if err != nil {
+		err = commandIOError("aplay", d.playbackErrors, err)
+	}
+	return written, err
 }
 
 func (d *alsaCommandDevice) SetReadDeadline(deadline time.Time) error {
@@ -215,4 +233,38 @@ func stopCommand(command *exec.Cmd) error {
 		waitErr = nil
 	}
 	return errors.Join(killErr, waitErr)
+}
+
+type boundedCommandOutput struct {
+	mu    sync.Mutex
+	limit int
+	data  []byte
+}
+
+func (output *boundedCommandOutput) Write(payload []byte) (int, error) {
+	output.mu.Lock()
+	defer output.mu.Unlock()
+	if remaining := output.limit - len(output.data); remaining > 0 {
+		if len(payload) < remaining {
+			remaining = len(payload)
+		}
+		output.data = append(output.data, payload[:remaining]...)
+	}
+	return len(payload), nil
+}
+
+func (output *boundedCommandOutput) String() string {
+	if output == nil {
+		return ""
+	}
+	output.mu.Lock()
+	defer output.mu.Unlock()
+	return strings.TrimSpace(string(output.data))
+}
+
+func commandIOError(command string, output *boundedCommandOutput, err error) error {
+	if detail := output.String(); detail != "" {
+		return fmt.Errorf("%s: %s: %w", command, detail, err)
+	}
+	return err
 }

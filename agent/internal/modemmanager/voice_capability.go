@@ -270,11 +270,21 @@ func (p *Provider) probeQuectelMediaCapability(
 	path dbus.ObjectPath,
 	result voiceProbeResult,
 ) voiceProbeResult {
+	result, _ = p.applyQuectelMediaRouting(ctx, operation, path, result)
+	return result
+}
+
+func (p *Provider) applyQuectelMediaRouting(
+	ctx context.Context,
+	operation string,
+	path dbus.ObjectPath,
+	result voiceProbeResult,
+) (voiceProbeResult, error) {
 	result.media = false
 	if _, err := p.commandATPath(ctx, path, operation, quectelPCMEnable); err != nil {
 		result.mediaRouting = voiceVerificationRejected
 		result.reason = "firmware rejected PCM voice routing"
-		return result
+		return result, err
 	}
 	status, err := p.commandATPath(ctx, path, operation, quectelPCMStatusQuery)
 	switch {
@@ -289,7 +299,60 @@ func (p *Provider) probeQuectelMediaCapability(
 		result.media = true
 		result.reason = ""
 	}
-	return result
+	return result, err
+}
+
+func (p *Provider) ensureQuectelMediaRouting(
+	ctx context.Context,
+	operation string,
+	ids *instanceIDs,
+	line domain.Line,
+	path dbus.ObjectPath,
+) (voiceProbeResult, bool) {
+	if !requiresQuectelPCMProbe(line) || !path.IsValid() {
+		return voiceProbeResult{}, false
+	}
+	key := voiceProbeKey(ids, line, path)
+	result, found := p.voiceProbeResult(key)
+	if !found || !result.callControl {
+		return result, found
+	}
+
+	status, statusErr := p.commandATPath(ctx, path, operation, quectelPCMStatusQuery)
+	if statusErr == nil &&
+		strings.EqualFold(strings.TrimSpace(status), quectelPCMReadyStatus) {
+		result.media = true
+		result.mediaRouting = voiceVerificationEnabled
+		result.reason = ""
+		p.storeVoiceProbe(key, result)
+		return result, true
+	}
+
+	refreshed := result
+	refreshed.media = false
+	_, err := p.commandATPath(ctx, path, operation, quectelPCMEnable)
+	if err == nil {
+		refreshed.media = true
+		refreshed.mediaRouting = voiceVerificationEnabled
+		refreshed.reason = ""
+	} else {
+		refreshed.mediaRouting = voiceVerificationRejected
+		refreshed.reason = "firmware rejected PCM voice routing"
+	}
+	p.storeVoiceProbe(key, refreshed)
+	if !refreshed.media {
+		slog.Warn(
+			"Quectel call media route is unavailable",
+			"component", "modemmanager",
+			"operation", operation,
+			"line_id", line.ID,
+			"media_routing", refreshed.mediaRouting,
+			"reason", refreshed.reason,
+			"status_error", statusErr,
+			"error", err,
+		)
+	}
+	return refreshed, true
 }
 
 func (p *Provider) projectQuectelMediaState(parsed *ParsedObjects) {
@@ -400,6 +463,12 @@ func (p *Provider) clearVoiceProbes() {
 func (p *Provider) deleteVoiceProbe(key string) {
 	p.voiceProbeMu.Lock()
 	delete(p.voiceProbes, key)
+	p.voiceProbeMu.Unlock()
+}
+
+func (p *Provider) storeVoiceProbe(key string, result voiceProbeResult) {
+	p.voiceProbeMu.Lock()
+	p.voiceProbes[key] = result
 	p.voiceProbeMu.Unlock()
 }
 

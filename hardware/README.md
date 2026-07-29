@@ -79,8 +79,9 @@ Each binding maps an exact call audio route to either an `alsa-pcm` device name
 or a `char-pcm` device node. The route is normally the `audio_port` reported by
 ModemManager. Its QMI Voice implementation does not publish host audio
 metadata for Quectel UAC, so the Agent publishes
-`quectel-uac:<physical-device>` only after an active call accepts and confirms
-`AT+QPCMV=1,2`:
+`quectel-uac:<physical-device>` only for an active call after the supported
+firmware has passed the UAC probe. Before dialing or answering, the Agent reads
+`AT+QPCMV?` and writes `AT+QPCMV=1,2` only when the route is not already active:
 
 ```json
 {

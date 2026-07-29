@@ -379,7 +379,7 @@ func TestQuectelATHangupFailureForcesModemReset(t *testing.T) {
 	}
 }
 
-func TestQuectelATAnswerUsesPCMInitializedDuringModeling(t *testing.T) {
+func TestQuectelATAnswerConfirmsPCMInitializedDuringModeling(t *testing.T) {
 	t.Parallel()
 
 	objects := emptyLineObjects(false, true)

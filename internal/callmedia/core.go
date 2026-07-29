@@ -588,7 +588,7 @@ func (c *Core) openHub(call ActiveCall, lifetime *callLifetime, entry *hubEntry)
 	case c.ctx.Err() != nil:
 		hubErr = ErrCoreClosed
 	case openErr != nil || endpoint == nil:
-		hubErr = ErrEndpointUnavailable
+		hubErr = errors.Join(ErrEndpointUnavailable, openErr)
 	default:
 		hub, hubErr = newMediaHub(lifetime.ctx, call.ID, endpoint)
 	}

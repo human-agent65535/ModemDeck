@@ -63,9 +63,20 @@ func (api *API) exchangeCallMedia(
 		input.OfferSDP,
 	)
 	if err != nil {
+		api.logger.Warn(
+			"browser call media exchange failed",
+			"component", "media",
+			"call_id", callID,
+			"error", err,
+		)
 		api.writeCallMediaError(response, request, err)
 		return
 	}
+	api.logger.Info(
+		"browser call media exchange established",
+		"component", "media",
+		"call_id", callID,
+	)
 	writeJSON(response, http.StatusOK, callMediaResponse{AnswerSDP: answer})
 }
 

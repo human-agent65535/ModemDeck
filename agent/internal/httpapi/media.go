@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -70,6 +71,12 @@ func (h *mediaHandler) stream(w http.ResponseWriter, r *http.Request) {
 
 	session, err := h.manager.Open(r.Context(), callID)
 	if err != nil {
+		slog.Warn(
+			"host call media open failed",
+			"component", "media",
+			"call_id", callID,
+			"error", err,
+		)
 		status, code, message := mapMediaError(err)
 		writeMediaError(w, status, code, message)
 		return
@@ -93,14 +100,38 @@ func (h *mediaHandler) stream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := writeMediaHandshake(connection, buffered, session.Format(), h.options.HandshakeTimeout); err != nil {
+		slog.Warn(
+			"host call media handshake failed",
+			"component", "media",
+			"call_id", callID,
+			"error", err,
+		)
 		_ = connection.Close()
 		_ = session.Close()
 		return
 	}
-	_ = session.Serve(r.Context(), &bufferedMediaConnection{
+	slog.Info(
+		"host call media stream opened",
+		"component", "media",
+		"call_id", callID,
+	)
+	if err := session.Serve(r.Context(), &bufferedMediaConnection{
 		Conn:   connection,
 		reader: buffered.Reader,
-	})
+	}); err != nil {
+		slog.Warn(
+			"host call media stream ended with error",
+			"component", "media",
+			"call_id", callID,
+			"error", err,
+		)
+		return
+	}
+	slog.Info(
+		"host call media stream closed",
+		"component", "media",
+		"call_id", callID,
+	)
 }
 
 type bufferedMediaConnection struct {
