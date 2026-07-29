@@ -30,9 +30,16 @@ import ContactEditor from '../components/ContactEditor.vue'
 import MessageThreadListItem from '../components/MessageThreadListItem.vue'
 import ModuleCard from '../components/ModuleCard.vue'
 import StatePanel from '../components/StatePanel.vue'
+import SwipeActionRow from '../components/SwipeActionRow.vue'
 import TrafficSummary from '../components/TrafficSummary.vue'
+import { requestConfirmation } from '../state/confirmation'
 import { selectDeviceConfiguration } from '../state/deviceConfiguration'
 import { loadNetwork, networkState } from '../state/network'
+import {
+  forgetCallRecordings,
+  loadRecordingEntries,
+  recordingCatalogState
+} from '../state/recording'
 import { openDialer } from '../state/ui'
 import CallsView from './CallsView.vue'
 import MessagesView from './MessagesView.vue'
@@ -43,6 +50,8 @@ import {
   contactEditingAvailable,
   contactForNumber,
   contactsResource,
+  deleteCall,
+  deleteMessageThread,
   devicesResource,
   displayPhoneNumber,
   displayModuleLines,
@@ -54,9 +63,12 @@ import {
   loadContacts,
   loadDevices,
   loadThreads,
+  markMissedCallRead,
+  markThreadRead,
   presentModuleLines,
   recentIncomingThreadKeys,
   saveContact,
+  threadReadErrors,
   threadsResource
 } from '../state/workspace'
 import {
@@ -115,6 +127,8 @@ const messageUnavailable = computed(() => capabilityReason('message'))
 const contactEditorOpen = ref(false)
 const contactSaving = ref(false)
 const contactEditorError = ref('')
+const activityMutationError = ref('')
+const deletingActivityKey = ref('')
 const unreadMessages = computed(() =>
   threadsResource.data.reduce((total, thread) => total + thread.unread_count, 0)
 )
@@ -277,6 +291,92 @@ function threadLineFallback(thread: MessageThread): string {
   )
 }
 
+function activityCanRead(activity: DashboardActivity): boolean {
+  return activity.kind === 'message'
+    ? activity.thread.unread_count > 0
+    : activity.call.missed && !activity.call.read
+}
+
+function hasPlayableRecording(call: CallRecord): boolean {
+  return recordingCatalogState.data.some(
+    recording => recording.call_id === call.id && recording.playable
+  )
+}
+
+function recordingCount(call: CallRecord): number {
+  return recordingCatalogState.data.filter(recording => recording.call_id === call.id).length
+}
+
+async function markActivityRead(activity: DashboardActivity): Promise<void> {
+  activityMutationError.value = ''
+  if (activity.kind === 'message') {
+    const marked = await markThreadRead(activity.thread)
+    if (!marked) {
+      activityMutationError.value =
+        threadReadErrors[activity.thread.key] || t('runtime.requestFailed')
+    }
+    return
+  }
+
+  try {
+    await markMissedCallRead(activity.call)
+  } catch (error) {
+    activityMutationError.value = t('calls.markReadFailed', {
+      error: error instanceof Error ? error.message : String(error)
+    })
+  }
+}
+
+async function removeActivity(activity: DashboardActivity): Promise<void> {
+  const callRecordings =
+    activity.kind === 'call' ? recordingCount(activity.call) : 0
+  const confirmed = await requestConfirmation({
+    title:
+      activity.kind === 'message'
+        ? t('messages.deleteConfirmTitle')
+        : t('calls.deleteConfirmTitle'),
+    message:
+      activity.kind === 'message'
+        ? t('messages.deleteConfirmMessage', {
+            name: threadName(activity.thread)
+          })
+        : callRecordings
+          ? t('calls.deleteConfirmWithRecordings', {
+              name: callName(activity.call),
+              count: callRecordings
+            })
+          : t('calls.deleteConfirmMessage', {
+              name: callName(activity.call)
+            }),
+    confirmLabel: t('common.delete'),
+    tone: 'danger'
+  })
+  if (!confirmed) return
+
+  deletingActivityKey.value = activity.key
+  activityMutationError.value = ''
+  try {
+    if (activity.kind === 'message') {
+      await deleteMessageThread(activity.thread)
+    } else {
+      await deleteCall(activity.call)
+      forgetCallRecordings(activity.call.id)
+    }
+    if (selectionKey.value === activity.key) {
+      await router.replace({ name: 'dashboard' })
+    }
+  } catch (error) {
+    activityMutationError.value =
+      error instanceof Error
+        ? error.message
+        : activity.kind === 'message'
+          ? t('messages.deleteFailed')
+          : t('calls.deleteFailed')
+  } finally {
+    deletingActivityKey.value = ''
+  }
+}
+
 function selectOverview(): void {
   composingMessage.value = false
   void router.push({ name: 'dashboard', query: { item: 'overview' } })
@@ -387,6 +487,7 @@ function loadDashboard(): void {
     loadThreads(),
     loadContacts(),
     loadDevices(),
+    loadRecordingEntries(),
     loadNetwork()
   ])
 }
@@ -468,6 +569,10 @@ onMounted(() => {
         :title="t('dashboard.noActivities')"
       />
       <div v-else class="item-list dashboard-activity-list">
+        <div v-if="activityMutationError" class="dashboard-inline-error" role="alert">
+          <AlertCircle :size="15" />
+          <span>{{ activityMutationError }}</span>
+        </div>
         <div v-if="activityErrors.length > 0" class="dashboard-inline-error" role="alert">
           <AlertCircle :size="15" />
           <span>{{ activityErrors.join('；') }}</span>
@@ -475,7 +580,16 @@ onMounted(() => {
             {{ t('common.retry') }}
           </button>
         </div>
-        <template v-for="activity in activities" :key="activity.key">
+        <SwipeActionRow
+          v-for="activity in activities"
+          :key="activity.key"
+          :can-read="activityCanRead(activity)"
+          :read-label="t('common.markRead')"
+          :delete-label="t('common.delete')"
+          :disabled="Boolean(deletingActivityKey)"
+          @read="markActivityRead(activity)"
+          @delete="removeActivity(activity)"
+        >
           <MessageThreadListItem
             v-if="activity.kind === 'message'"
             :thread="activity.thread"
@@ -497,9 +611,10 @@ onMounted(() => {
             :line="lineTagLine(lineForCall(activity.call), activity.call.line_id)"
             :line-fallback="callLineFallback(activity.call)"
             :selected="selectionKey === activity.key"
+            :has-recording="hasPlayableRecording(activity.call)"
             @select="selectActivity(activity)"
           />
-        </template>
+        </SwipeActionRow>
       </div>
     </aside>
 

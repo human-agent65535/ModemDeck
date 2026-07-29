@@ -536,7 +536,6 @@ onMounted(() => {
               <span>{{ t('shell.messages') }}</span>
             </button>
             <button
-              v-if="!embedded"
               class="icon-button icon-button--danger desktop-delete-action"
               type="button"
               :disabled="Boolean(deletingCallID)"

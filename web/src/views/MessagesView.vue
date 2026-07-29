@@ -731,7 +731,7 @@ onMounted(() => {
             <Phone :size="19" />
           </button>
           <button
-            v-if="selectedThread && !composingNew && !embedded"
+            v-if="selectedThread && !composingNew"
             class="icon-button icon-button--danger desktop-delete-action"
             type="button"
             :disabled="Boolean(deletingThreadKey)"
