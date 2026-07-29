@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ContactRound, UserPlus, X } from '@lucide/vue'
+import { ContactRound, Link2, UserPlus, X } from '@lucide/vue'
 import type { Contact, ContactInput } from '../api/types'
 import BaseAvatar from './BaseAvatar.vue'
 import ContactEditor from './ContactEditor.vue'
@@ -211,7 +211,7 @@ async function addToContact(): Promise<void> {
         :title="t('contacts.addExisting')"
         @click="openAdd"
       >
-        <ContactRound :size="17" />
+        <Link2 :size="17" />
         <span class="contact-number-action__label">{{ t('contacts.addExistingShort') }}</span>
       </button>
     </template>

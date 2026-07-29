@@ -616,6 +616,10 @@ onMounted(() => {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.calls-workspace .detail-header {
+  container-type: inline-size;
+}
+
 .call-detail__header-actions {
   gap: 8px;
 }
@@ -667,9 +671,13 @@ onMounted(() => {
   }
 }
 
-@media (max-width: 720px) {
+@container (max-width: 760px) {
+  .desktop-delete-action {
+    display: none;
+  }
+
   .call-detail__header-actions {
-    gap: 4px;
+    gap: 6px;
   }
 
   .call-detail__command {
@@ -682,6 +690,21 @@ onMounted(() => {
   }
 
   .call-detail__command span {
+    display: none;
+  }
+
+  .call-detail__header-actions
+    :deep(.contact-number-actions.is-compact .secondary-button) {
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+    min-height: 36px;
+    padding: 0;
+    border-radius: 50%;
+  }
+
+  .call-detail__header-actions
+    :deep(.contact-number-actions.is-compact .contact-number-action__label) {
     display: none;
   }
 }

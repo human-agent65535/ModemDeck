@@ -47,10 +47,15 @@ test('call detail keeps communication and contact actions in one compact header'
   )
   assert.match(
     calls,
-    /<ContactHeaderIdentity[\s\S]*?:number="callDisplayNumber\(selected\)"[\s\S]*?<div class="detail-header__actions call-detail__header-actions">[\s\S]*?<ContactNumberActions[\s\S]*?:contact="selectedContact"[\s\S]*?compact/
+    /<ContactHeaderIdentity[\s\S]*?:number="callDisplayNumber\(selected\)"[\s\S]*?\/>[\s\S]*?<div class="detail-header__actions call-detail__header-actions">[\s\S]*?<ContactNumberActions[\s\S]*?:contact="selectedContact"[\s\S]*?compact/
   )
+  assert.doesNotMatch(calls, /<template #actions>/)
   assert.doesNotMatch(calls, /<div class="call-detail__actions">/)
   assert.doesNotMatch(calls, /class="call-detail__contact-actions"/)
+  assert.match(
+    calls,
+    /\.calls-workspace \.detail-header\s*\{[^}]*container-type: inline-size;[^}]*\}[\s\S]*?@container \(max-width: 760px\)[\s\S]*?\.call-detail__command span\s*\{[^}]*display: none;/s
+  )
 })
 
 test('outgoing call detail uses call-again copy', async () => {
