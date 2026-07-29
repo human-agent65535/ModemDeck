@@ -1137,10 +1137,9 @@ export function createCallMediaPayload(
   offerSDP: string
 ): { owner_token: string; offer_sdp: string } {
   const normalizedOwnerToken = ownerToken.trim()
-  const normalizedOffer = offerSDP.trim()
   if (!normalizedOwnerToken) throw new Error('owner_token 不能为空')
-  if (!normalizedOffer) throw new Error('offer_sdp 不能为空')
-  return { owner_token: normalizedOwnerToken, offer_sdp: normalizedOffer }
+  if (!offerSDP.trim()) throw new Error('offer_sdp 不能为空')
+  return { owner_token: normalizedOwnerToken, offer_sdp: offerSDP }
 }
 
 export function createCallMediaReleasePayload(
@@ -1761,7 +1760,11 @@ export function parseCallSession(value: unknown): CallSession {
 
 export function parseCallMediaResponse(value: unknown): string {
   const source = objectValue(value, 'response')
-  return requiredString(source, 'response', 'answer_sdp')
+  const answerSDP = source.answer_sdp
+  if (typeof answerSDP !== 'string' || !answerSDP.trim()) {
+    throw new Error('response 缺少 answer_sdp')
+  }
+  return answerSDP
 }
 
 export function parseRecordingSettingsResponse(value: unknown): RecordingSettings {

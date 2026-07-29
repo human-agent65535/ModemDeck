@@ -191,7 +191,7 @@ test('communication and Telegram endpoints match the root API', () => {
 test('call media exchange and release require the same owner token', () => {
   assert.deepEqual(createCallMediaPayload(' owner-1 ', ' offer-sdp '), {
     owner_token: 'owner-1',
-    offer_sdp: 'offer-sdp'
+    offer_sdp: ' offer-sdp '
   })
   assert.deepEqual(createCallMediaReleasePayload(' owner-1 '), {
     owner_token: 'owner-1'
@@ -267,7 +267,7 @@ test('call and DTMF payloads use line_id, number, request_id, and digits', () =>
   })
   assert.deepEqual(createCallMediaPayload(' owner-1 ', 'v=0\r\n'), {
     owner_token: 'owner-1',
-    offer_sdp: 'v=0'
+    offer_sdp: 'v=0\r\n'
   })
   assert.deepEqual(createCallRecordingPayload(false), { enabled: false })
   assert.deepEqual(
@@ -326,7 +326,7 @@ test('active calls response is authoritative and limited to one app call', () =>
 })
 
 test('call media response requires a non-empty SDP answer', () => {
-  assert.equal(parseCallMediaResponse({ answer_sdp: 'v=0\r\n' }), 'v=0')
+  assert.equal(parseCallMediaResponse({ answer_sdp: 'v=0\r\n' }), 'v=0\r\n')
   assert.throws(() => parseCallMediaResponse({ answer_sdp: '' }), /answer_sdp/)
   assert.throws(
     () => parseCallResponse({ call: { ...canonicalCall, media_available: null } }),
