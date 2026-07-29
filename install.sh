@@ -261,7 +261,7 @@ do
 done
 
 for command_name in \
-    awk base64 cat chmod chown cp date dd dirname docker grep id install \
+    awk base64 cat chmod chown cp date dd dirname docker find grep id install \
     mktemp mv readlink rm sed sleep stat tr uname
 do
     command -v "$command_name" >/dev/null 2>&1 ||

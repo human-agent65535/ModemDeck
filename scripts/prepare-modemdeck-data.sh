@@ -31,4 +31,18 @@ install -d -o "$uid" -g "$gid" -m 0770 "$data_dir"
 find "$data_dir" -xdev -exec chown "$uid:$gid" {} +
 find "$data_dir" -xdev -type d -exec chmod u+rwx,g+rwx,o-rwx {} +
 
+prepare_private_tree() {
+    private_tree=$1
+    [ -e "$private_tree" ] || return 0
+    [ -d "$private_tree" ] && [ ! -L "$private_tree" ] || {
+        echo "private data path must be a real directory: $private_tree" >&2
+        exit 1
+    }
+    find "$private_tree" -xdev -type d -exec chmod 0700 {} +
+    find "$private_tree" -xdev -type f -exec chmod 0600 {} +
+}
+
+prepare_private_tree "${data_dir}/recordings"
+prepare_private_tree "${data_dir}/tls"
+
 printf 'prepared %s for uid=%s gid=%s\n' "$data_dir" "$uid" "$gid"

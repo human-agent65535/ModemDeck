@@ -5,6 +5,7 @@ set -eu
 tests_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 source_repo=$(CDPATH='' cd -- "${tests_dir}/../.." && pwd)
 test_root=$(mktemp -d)
+real_stat=$(command -v stat)
 
 cleanup() {
     rm -rf -- "$test_root"
@@ -14,6 +15,14 @@ trap cleanup EXIT HUP INT TERM
 fail() {
     printf 'install-behavior-test: %s\n' "$*" >&2
     exit 1
+}
+
+file_mode() {
+    if "$real_stat" -c %a "$1" >/dev/null 2>&1; then
+        "$real_stat" -c %a "$1"
+    else
+        "$real_stat" -f %Lp "$1"
+    fi
 }
 
 fixture="${test_root}/repo"
@@ -327,12 +336,22 @@ common_env() {
 }
 
 mkdir -p \
+    "${test_root}/data/recordings/call_existing" \
     "${test_root}/data/tls" \
     "${test_root}/secrets" \
     "${test_root}/systemctl"
 printf '%s\n' database-before >"${test_root}/data/modemdeck.db"
+printf '%s\n' recording-before \
+    >"${test_root}/data/recordings/call_existing/segment.opus"
 printf '%s\n' user-certificate-before >"${test_root}/data/tls/user.crt"
 printf '%s\n' settings-key-before >"${test_root}/secrets/settings"
+chmod 0770 \
+    "${test_root}/data/recordings" \
+    "${test_root}/data/recordings/call_existing" \
+    "${test_root}/data/tls"
+chmod 0660 \
+    "${test_root}/data/recordings/call_existing/segment.opus" \
+    "${test_root}/data/tls/user.crt"
 
 # A failed simple startup must return host service state to its exact baseline.
 : >"${test_root}/commands.log"
@@ -367,6 +386,16 @@ grep -Eq '^docker\|compose .* down( |$)' "${test_root}/commands.log" ||
     fail "successful simple rollback retained transaction state"
 [ ! -e "${fixture}/.env" ] ||
     fail "failed simple installation persisted Compose environment"
+[ "$(file_mode "${test_root}/data/recordings")" = 700 ] ||
+    fail "recording root was not normalized to mode 0700"
+[ "$(file_mode "${test_root}/data/recordings/call_existing")" = 700 ] ||
+    fail "recording call directory was not normalized to mode 0700"
+[ "$(file_mode "${test_root}/data/recordings/call_existing/segment.opus")" = 600 ] ||
+    fail "recording file was not normalized to mode 0600"
+[ "$(file_mode "${test_root}/data/tls")" = 700 ] ||
+    fail "TLS directory was not normalized to mode 0700"
+[ "$(file_mode "${test_root}/data/tls/user.crt")" = 600 ] ||
+    fail "TLS file was not normalized to mode 0600"
 
 # Advanced mode must never mutate host services and must preserve local state.
 rm -f -- "${test_root}/docker-up"
