@@ -1481,6 +1481,9 @@ func (s *Service) ActiveCalls(ctx context.Context) ([]store.Call, error) {
 	if err != nil {
 		return nil, operationError(CodeInternal, "list active calls", "active calls could not be loaded", err)
 	}
+	if len(calls) > 1 {
+		calls = calls[:1]
+	}
 	return calls, nil
 }
 

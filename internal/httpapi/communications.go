@@ -1,14 +1,19 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/communication"
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
+
+const callControlRollbackTimeout = 5 * time.Second
 
 type sendMessageRequest struct {
 	RequestID string `json:"request_id"`
@@ -26,12 +31,14 @@ type startCallRequest struct {
 	RequestID        string `json:"request_id"`
 	LineID           string `json:"line_id"`
 	Number           string `json:"number"`
+	HolderID         string `json:"holder_id"`
 	RecordingEnabled *bool  `json:"recording_enabled,omitempty"`
 }
 
 type callActionRequest struct {
 	RequestID string `json:"request_id"`
 	Digits    string `json:"digits"`
+	HolderID  string `json:"holder_id"`
 }
 
 type callRecordPath struct {
@@ -277,8 +284,17 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 		writeError(response, http.StatusServiceUnavailable, "communications_unavailable", "Live communications are unavailable", "")
 		return
 	}
+	if api.callLeases == nil {
+		writeError(response, http.StatusServiceUnavailable, "call_lease_unavailable", "Browser call ownership is unavailable", "")
+		return
+	}
 	var input startCallRequest
 	if !decodeJSONBody(response, request, &input) {
+		return
+	}
+	holderID, err := calllease.NormalizeHolderID(input.HolderID)
+	if err != nil {
+		api.writeCallLeaseError(response, request, "validate browser call owner", err)
 		return
 	}
 	requestID, ok := commandRequestID(response, request, input.RequestID)
@@ -310,6 +326,28 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 		api.writeCommunicationError(response, request, "start call", err)
 		return
 	}
+	if _, err := api.callLeases.Claim(request.Context(), call.ID, holderID); err != nil {
+		if !errors.Is(err, calllease.ErrCallOwned) {
+			rollbackContext, cancel := context.WithTimeout(
+				context.WithoutCancel(request.Context()),
+				callControlRollbackTimeout,
+			)
+			releaseErr := api.communications.ReleaseCallControl(
+				rollbackContext,
+			)
+			cancel()
+			if releaseErr != nil {
+				api.logger.Error(
+					"call owner claim failed and call control could not be released",
+					"component", "calls",
+					"call_id", call.ID,
+					"error", errors.Join(err, releaseErr),
+				)
+			}
+		}
+		api.writeCallLeaseError(response, request, "claim outgoing call owner", err)
+		return
+	}
 	api.logger.Info(
 		"call started",
 		"line_id",
@@ -322,12 +360,25 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 		call.Phase,
 	)
 	api.publishRuntimeResources(runtimeevents.ResourceCalls)
-	writeJSON(response, http.StatusCreated, callSessionEnvelope{Call: callSession(call)})
+	writeJSON(response, http.StatusCreated, callSessionEnvelope{
+		Call: callSession(call, calllease.ControlOwned),
+	})
 }
 
 func (api *API) activeCalls(response http.ResponseWriter, request *http.Request) {
 	if api.communications == nil {
 		writeError(response, http.StatusServiceUnavailable, "communications_unavailable", "Live communications are unavailable", "")
+		return
+	}
+	if api.callLeases == nil {
+		writeError(response, http.StatusServiceUnavailable, "call_lease_unavailable", "Browser call ownership is unavailable", "")
+		return
+	}
+	holderID, err := calllease.NormalizeHolderID(
+		request.URL.Query().Get("holder_id"),
+	)
+	if err != nil {
+		api.writeCallLeaseError(response, request, "validate browser call owner", err)
 		return
 	}
 	calls, err := api.communications.ActiveCalls(request.Context())
@@ -337,7 +388,21 @@ func (api *API) activeCalls(response http.ResponseWriter, request *http.Request)
 	}
 	sessions := make([]callSessionResponse, 0, len(calls))
 	for _, call := range calls {
-		sessions = append(sessions, callSession(call))
+		controlState, err := api.callLeases.ControlState(
+			request.Context(),
+			call.ID,
+			holderID,
+		)
+		if err != nil {
+			api.writeCallLeaseError(
+				response,
+				request,
+				"read browser call owner",
+				err,
+			)
+			return
+		}
+		sessions = append(sessions, callSession(call, controlState))
 	}
 	writeJSON(response, http.StatusOK, activeCallsResponse{Calls: sessions})
 }
@@ -352,6 +417,10 @@ func (api *API) callAction(response http.ResponseWriter, request *http.Request, 
 		writeError(response, http.StatusServiceUnavailable, "communications_unavailable", "Live communications are unavailable", "")
 		return
 	}
+	if api.callLeases == nil {
+		writeError(response, http.StatusServiceUnavailable, "call_lease_unavailable", "Browser call ownership is unavailable", "")
+		return
+	}
 	var input callActionRequest
 	if !decodeJSONBody(response, request, &input) {
 		return
@@ -360,6 +429,28 @@ func (api *API) callAction(response http.ResponseWriter, request *http.Request, 
 	if !ok {
 		return
 	}
+	claimed := action == "answer" || action == "reject"
+	var leaseErr error
+	if claimed {
+		_, leaseErr = api.callLeases.Claim(
+			request.Context(),
+			callID,
+			input.HolderID,
+		)
+	} else {
+		leaseErr = api.callLeases.Require(
+			request.Context(),
+			callID,
+			input.HolderID,
+		)
+	}
+	if leaseErr != nil {
+		api.writeCallLeaseError(response, request, "authorize call control", leaseErr)
+		return
+	}
+	if claimed {
+		api.publishRuntimeResources(runtimeevents.ResourceCalls)
+	}
 	_, err := api.communications.CallAction(request.Context(), communication.CallActionInput{
 		RequestID: requestID,
 		CallID:    callID,
@@ -367,6 +458,27 @@ func (api *API) callAction(response http.ResponseWriter, request *http.Request, 
 		Digits:    input.Digits,
 	})
 	if err != nil {
+		if claimed {
+			rollbackContext, cancel := context.WithTimeout(
+				context.WithoutCancel(request.Context()),
+				callControlRollbackTimeout,
+			)
+			if releaseErr := api.callLeases.Release(
+				rollbackContext,
+				callID,
+				input.HolderID,
+			); releaseErr != nil {
+				api.logger.Warn(
+					"failed call action owner could not be released",
+					"component", "calls",
+					"call_id", callID,
+					"action", action,
+					"error", releaseErr,
+				)
+			}
+			cancel()
+			api.publishRuntimeResources(runtimeevents.ResourceCalls)
+		}
 		api.writeCommunicationError(response, request, "control call", err)
 		return
 	}
@@ -416,7 +528,10 @@ func commandRequestID(response http.ResponseWriter, request *http.Request, bodyV
 	return bodyValue, true
 }
 
-func callSession(call store.Call) callSessionResponse {
+func callSession(
+	call store.Call,
+	controlState calllease.ControlState,
+) callSessionResponse {
 	failure := call.FailureCode
 	if failure == "" && call.Phase == "failed" {
 		failure = call.EndReason
@@ -434,6 +549,7 @@ func callSession(call store.Call) callSessionResponse {
 		FailureReason:  failure,
 		Bearer:         call.Bearer,
 		MediaAvailable: call.MediaAvailable,
+		ControlState:   string(controlState),
 	}
 }
 

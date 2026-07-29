@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/mediaapp"
 )
 
@@ -17,6 +18,7 @@ func TestCallMediaExchangeReturnsAnswer(t *testing.T) {
 	media := &fakeCallMedia{answer: "answer-sdp"}
 	api, err := New(&fakeRepository{}, Options{
 		CallMedia:             media,
+		CallLeases:            &fakeCallLeases{},
 		disableAuthentication: true,
 	})
 	if err != nil {
@@ -25,7 +27,7 @@ func TestCallMediaExchangeReturnsAnswer(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/api/v1/calls/call-1/media",
-		bytes.NewBufferString(`{"owner_token":"owner-1","offer_sdp":"offer-sdp"}`),
+		bytes.NewBufferString(`{"owner_token":"owner-1","offer_sdp":"offer-sdp","holder_id":"browser-1"}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -51,6 +53,7 @@ func TestCallMediaErrorsHaveStableMapping(t *testing.T) {
 	media := &fakeCallMedia{err: mediaapp.ErrNotActive}
 	api, err := New(&fakeRepository{}, Options{
 		CallMedia:             media,
+		CallLeases:            &fakeCallLeases{},
 		disableAuthentication: true,
 	})
 	if err != nil {
@@ -59,12 +62,40 @@ func TestCallMediaErrorsHaveStableMapping(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/api/v1/calls/call-1/media",
-		bytes.NewBufferString(`{"owner_token":"owner-1","offer_sdp":"offer-sdp"}`),
+		bytes.NewBufferString(`{"owner_token":"owner-1","offer_sdp":"offer-sdp","holder_id":"browser-1"}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	api.ServeHTTP(response, request)
 	assertAPIError(t, response, http.StatusConflict, "call_not_active")
+}
+
+func TestCallMediaRejectsNonOwnerBeforeExchange(t *testing.T) {
+	t.Parallel()
+
+	media := &fakeCallMedia{}
+	api, err := New(&fakeRepository{}, Options{
+		CallMedia:             media,
+		CallLeases:            &fakeCallLeases{err: calllease.ErrNotOwner},
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/calls/call-1/media",
+		bytes.NewBufferString(`{"owner_token":"owner-2","offer_sdp":"offer-sdp","holder_id":"browser-2"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	assertAPIError(t, response, http.StatusConflict, "call_not_owned")
+	if media.callID != "" {
+		t.Fatalf("non-owner reached media exchange for call %q", media.callID)
+	}
 }
 
 func TestCallMediaDeleteReleasesMatchingOwner(t *testing.T) {
@@ -73,6 +104,7 @@ func TestCallMediaDeleteReleasesMatchingOwner(t *testing.T) {
 	media := &fakeCallMedia{}
 	api, err := New(&fakeRepository{}, Options{
 		CallMedia:             media,
+		CallLeases:            &fakeCallLeases{},
 		disableAuthentication: true,
 	})
 	if err != nil {
@@ -81,7 +113,7 @@ func TestCallMediaDeleteReleasesMatchingOwner(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodDelete,
 		"/api/v1/calls/call-1/media",
-		bytes.NewBufferString(`{"owner_token":"owner-1"}`),
+		bytes.NewBufferString(`{"owner_token":"owner-1","holder_id":"browser-1"}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -100,6 +132,7 @@ func TestCallMediaDeleteReportsInvalidOwnerAsMediaRequest(t *testing.T) {
 	media := &fakeCallMedia{err: mediaapp.ErrInvalidArgument}
 	api, err := New(&fakeRepository{}, Options{
 		CallMedia:             media,
+		CallLeases:            &fakeCallLeases{},
 		disableAuthentication: true,
 	})
 	if err != nil {
@@ -108,7 +141,7 @@ func TestCallMediaDeleteReportsInvalidOwnerAsMediaRequest(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodDelete,
 		"/api/v1/calls/call-1/media",
-		bytes.NewBufferString(`{"owner_token":""}`),
+		bytes.NewBufferString(`{"owner_token":"","holder_id":"browser-1"}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()

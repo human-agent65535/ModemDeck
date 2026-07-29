@@ -11,10 +11,12 @@ import (
 type callMediaRequest struct {
 	OwnerToken string `json:"owner_token"`
 	OfferSDP   string `json:"offer_sdp"`
+	HolderID   string `json:"holder_id"`
 }
 
 type callMediaReleaseRequest struct {
 	OwnerToken string `json:"owner_token"`
+	HolderID   string `json:"holder_id"`
 }
 
 type callMediaResponse struct {
@@ -52,8 +54,20 @@ func (api *API) exchangeCallMedia(
 		writeError(response, http.StatusServiceUnavailable, "media_unavailable", "Call media is unavailable", "")
 		return
 	}
+	if api.callLeases == nil {
+		writeError(response, http.StatusServiceUnavailable, "call_lease_unavailable", "Browser call ownership is unavailable", "")
+		return
+	}
 	var input callMediaRequest
 	if !decodeJSONBody(response, request, &input) {
+		return
+	}
+	if err := api.callLeases.Require(
+		request.Context(),
+		callID,
+		input.HolderID,
+	); err != nil {
+		api.writeCallLeaseError(response, request, "authorize browser call media", err)
 		return
 	}
 	answer, err := api.callMedia.Exchange(
@@ -89,8 +103,20 @@ func (api *API) releaseCallMedia(
 		writeError(response, http.StatusServiceUnavailable, "media_unavailable", "Call media is unavailable", "")
 		return
 	}
+	if api.callLeases == nil {
+		writeError(response, http.StatusServiceUnavailable, "call_lease_unavailable", "Browser call ownership is unavailable", "")
+		return
+	}
 	var input callMediaReleaseRequest
 	if !decodeJSONBody(response, request, &input) {
+		return
+	}
+	if err := api.callLeases.Require(
+		request.Context(),
+		callID,
+		input.HolderID,
+	); err != nil {
+		api.writeCallLeaseError(response, request, "authorize browser call media release", err)
 		return
 	}
 	err := api.callMedia.ReleaseOwner(request.Context(), callID, input.OwnerToken)

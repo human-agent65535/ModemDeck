@@ -372,12 +372,11 @@ func (s *Service) ReconcileAuthoritativeCalls(
 			MediaAvailable: call.MediaAvailable,
 			State:          state,
 		}
-		if call.Phase == "active" &&
-			state.Enabled &&
-			state.Status == store.RecordingStatePending &&
-			call.MediaAvailable {
-			if startErr := s.startTarget(target); startErr != nil {
-				result = errors.Join(result, startErr)
+		if call.Phase == "active" && state.Enabled && call.MediaAvailable {
+			if state.Status == store.RecordingStatePending {
+				if startErr := s.startTarget(target); startErr != nil {
+					result = errors.Join(result, startErr)
+				}
 			}
 			continue
 		}

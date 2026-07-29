@@ -17,7 +17,8 @@ type recordingSettingsRequest struct {
 }
 
 type recordingToggleRequest struct {
-	Enabled *bool `json:"enabled"`
+	Enabled  *bool  `json:"enabled"`
+	HolderID string `json:"holder_id"`
 }
 
 type recordingSettingsResponse struct {
@@ -156,6 +157,18 @@ func (api *API) toggleRecording(response http.ResponseWriter, request *http.Requ
 	}
 	if input.Enabled == nil {
 		writeError(response, http.StatusBadRequest, "invalid_argument", "enabled is required", "enabled")
+		return
+	}
+	if api.callLeases == nil {
+		writeError(response, http.StatusServiceUnavailable, "call_lease_unavailable", "Browser call ownership is unavailable", "")
+		return
+	}
+	if err := api.callLeases.Require(
+		request.Context(),
+		callID,
+		input.HolderID,
+	); err != nil {
+		api.writeCallLeaseError(response, request, "authorize call recording", err)
 		return
 	}
 	state, err := api.recordings.SetEnabled(request.Context(), callID, *input.Enabled)

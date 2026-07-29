@@ -48,38 +48,68 @@ func (api *API) renewCallLease(
 		input.HolderID,
 	)
 	if err != nil {
-		switch {
-		case errors.Is(err, calllease.ErrInvalidArgument):
-			writeError(
-				response,
-				http.StatusBadRequest,
-				"invalid_argument",
-				"call id and holder_id are required",
-				"holder_id",
-			)
-		case errors.Is(err, calllease.ErrCallNotFound):
-			writeError(
-				response,
-				http.StatusNotFound,
-				"call_not_found",
-				"Call no longer exists",
-				"",
-			)
-		case errors.Is(err, calllease.ErrCallNotActive):
-			writeError(
-				response,
-				http.StatusConflict,
-				"call_not_active",
-				"Call is no longer active",
-				"",
-			)
-		default:
-			api.writeInternalError(response, request, "renew browser call lease", err)
-		}
+		api.writeCallLeaseError(
+			response,
+			request,
+			"renew browser call lease",
+			err,
+		)
 		return
 	}
 	response.Header().Set("Cache-Control", "no-store")
 	writeJSON(response, http.StatusOK, status)
+}
+
+func (api *API) writeCallLeaseError(
+	response http.ResponseWriter,
+	request *http.Request,
+	operation string,
+	err error,
+) {
+	switch {
+	case errors.Is(err, calllease.ErrInvalidArgument):
+		writeError(
+			response,
+			http.StatusBadRequest,
+			"invalid_argument",
+			"call id and holder_id are required",
+			"holder_id",
+		)
+	case errors.Is(err, calllease.ErrCallNotFound):
+		writeError(
+			response,
+			http.StatusNotFound,
+			"call_not_found",
+			"Call no longer exists",
+			"",
+		)
+	case errors.Is(err, calllease.ErrCallNotActive):
+		writeError(
+			response,
+			http.StatusConflict,
+			"call_not_active",
+			"Call is no longer active",
+			"",
+		)
+	case errors.Is(err, calllease.ErrCallOwned):
+		writeError(
+			response,
+			http.StatusConflict,
+			"line_in_use",
+			"Line is already in use by another browser",
+			"",
+		)
+	case errors.Is(err, calllease.ErrNotOwner):
+		writeError(
+			response,
+			http.StatusConflict,
+			"call_not_owned",
+			"This browser does not own the call",
+			"",
+		)
+	default:
+		api.writeInternalError(response, request, operation, err)
+	}
 }
 
 func callLeaseResourceID(path string) (string, bool) {

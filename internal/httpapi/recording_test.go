@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/recording"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
@@ -33,6 +34,7 @@ func TestRecordingSettingsAndToggleReturnAuthoritativeState(t *testing.T) {
 	}
 	api, err := New(&fakeRepository{}, Options{
 		Recording:             recordings,
+		CallLeases:            &fakeCallLeases{},
 		disableAuthentication: true,
 	})
 	if err != nil {
@@ -61,7 +63,7 @@ func TestRecordingSettingsAndToggleReturnAuthoritativeState(t *testing.T) {
 	toggle := httptest.NewRequest(
 		http.MethodPut,
 		"/api/v1/calls/call-1/recording",
-		bytes.NewBufferString(`{"enabled":true}`),
+		bytes.NewBufferString(`{"enabled":true,"holder_id":"browser-1"}`),
 	)
 	toggle.Header.Set("Content-Type", "application/json")
 	toggleResponse := httptest.NewRecorder()
@@ -78,6 +80,34 @@ func TestRecordingSettingsAndToggleReturnAuthoritativeState(t *testing.T) {
 		recordings.toggleCallID != "call-1" ||
 		!recordings.toggleEnabled {
 		t.Fatalf("toggle payload = %+v, service = %+v", payload, recordings)
+	}
+}
+
+func TestRecordingToggleRejectsNonOwner(t *testing.T) {
+	t.Parallel()
+
+	recordings := &fakeRecordingService{}
+	api, err := New(&fakeRepository{}, Options{
+		Recording:             recordings,
+		CallLeases:            &fakeCallLeases{err: calllease.ErrNotOwner},
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/calls/call-1/recording",
+		bytes.NewBufferString(`{"enabled":true,"holder_id":"browser-2"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	assertAPIError(t, response, http.StatusConflict, "call_not_owned")
+	if recordings.toggleCallID != "" {
+		t.Fatalf("non-owner toggled recording for call %q", recordings.toggleCallID)
 	}
 }
 
@@ -105,6 +135,7 @@ func TestRecordingMetadataDoesNotLeakPathAndDownloadIsOgg(t *testing.T) {
 	}
 	api, err := New(&fakeRepository{}, Options{
 		Recording:             recordings,
+		CallLeases:            &fakeCallLeases{},
 		disableAuthentication: true,
 	})
 	if err != nil {
@@ -157,6 +188,7 @@ func TestRecordingDeleteUsesExactCallAndSegment(t *testing.T) {
 	recordings := &fakeRecordingService{}
 	api, err := New(&fakeRepository{}, Options{
 		Recording:             recordings,
+		CallLeases:            &fakeCallLeases{},
 		disableAuthentication: true,
 	})
 	if err != nil {
@@ -249,6 +281,7 @@ func TestRecordingErrorsAreTypedAndToggleIncludesState(t *testing.T) {
 	}
 	api, err := New(&fakeRepository{}, Options{
 		Recording:             recordings,
+		CallLeases:            &fakeCallLeases{},
 		disableAuthentication: true,
 	})
 	if err != nil {
@@ -267,7 +300,7 @@ func TestRecordingErrorsAreTypedAndToggleIncludesState(t *testing.T) {
 	toggle := httptest.NewRequest(
 		http.MethodPut,
 		"/api/v1/calls/call-1/recording",
-		bytes.NewBufferString(`{"enabled":true}`),
+		bytes.NewBufferString(`{"enabled":true,"holder_id":"browser-1"}`),
 	)
 	toggle.Header.Set("Content-Type", "application/json")
 	toggleResponse := httptest.NewRecorder()
@@ -317,6 +350,7 @@ func TestStartCallRecordingOverrideIsOptional(t *testing.T) {
 		api, err := New(&fakeRepository{}, Options{
 			Communications:        communications,
 			Recording:             recordings,
+			CallLeases:            &fakeCallLeases{},
 			disableAuthentication: true,
 		})
 		if err != nil {
@@ -326,7 +360,7 @@ func TestStartCallRecordingOverrideIsOptional(t *testing.T) {
 			http.MethodPost,
 			"/api/v1/calls",
 			bytes.NewBufferString(
-				`{"request_id":"request-default","line_id":"line-1","number":"+818000000077"}`,
+				`{"request_id":"request-default","line_id":"line-1","number":"+818000000077","holder_id":"browser-1"}`,
 			),
 		)
 		request.Header.Set("Content-Type", "application/json")
@@ -351,6 +385,7 @@ func TestStartCallRecordingOverrideIsOptional(t *testing.T) {
 		api, err := New(&fakeRepository{}, Options{
 			Communications:        communications,
 			Recording:             recordings,
+			CallLeases:            &fakeCallLeases{},
 			disableAuthentication: true,
 		})
 		if err != nil {
@@ -360,7 +395,7 @@ func TestStartCallRecordingOverrideIsOptional(t *testing.T) {
 			http.MethodPost,
 			"/api/v1/calls",
 			bytes.NewBufferString(
-				`{"line_id":"line-1","number":"+818000000077","recording_enabled":false}`,
+				`{"line_id":"line-1","number":"+818000000077","holder_id":"browser-1","recording_enabled":false}`,
 			),
 		)
 		request.Header.Set("Content-Type", "application/json")

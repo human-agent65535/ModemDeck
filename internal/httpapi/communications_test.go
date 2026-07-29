@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/communication"
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
@@ -25,6 +26,7 @@ type fakeCommunications struct {
 	startError   error
 	actionInput  communication.CallActionInput
 	actionError  error
+	actionCalls  int
 	active       []store.Call
 	activeError  error
 }
@@ -53,12 +55,17 @@ func (service *fakeCommunications) CallAction(
 	_ context.Context,
 	input communication.CallActionInput,
 ) (store.Call, error) {
+	service.actionCalls++
 	service.actionInput = input
 	return service.call, service.actionError
 }
 
 func (service *fakeCommunications) ActiveCalls(context.Context) ([]store.Call, error) {
 	return service.active, service.activeError
+}
+
+func (service *fakeCommunications) ReleaseCallControl(context.Context) error {
+	return nil
 }
 
 func TestMessageCommandForwardsExplicitLineAndIdempotencyKey(t *testing.T) {
@@ -357,6 +364,7 @@ func TestCommandRejectsConflictingRequestIdentities(t *testing.T) {
 	communications := &fakeCommunications{}
 	api, err := New(&fakeRepository{}, Options{
 		Communications:        communications,
+		CallLeases:            &fakeCallLeases{},
 		disableAuthentication: true,
 	})
 	if err != nil {
@@ -365,7 +373,7 @@ func TestCommandRejectsConflictingRequestIdentities(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/api/v1/calls",
-		bytes.NewBufferString(`{"request_id":"body-id","line_id":"line-1","number":"+818012345678"}`),
+		bytes.NewBufferString(`{"request_id":"body-id","line_id":"line-1","number":"+818012345678","holder_id":"browser-1"}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Idempotency-Key", "header-id")
@@ -392,8 +400,10 @@ func TestCallControlAndActiveCallRoutes(t *testing.T) {
 		Bearer:         "volte",
 	}
 	communications := &fakeCommunications{call: call, active: []store.Call{call}}
+	leases := &fakeCallLeases{control: calllease.ControlOwned}
 	api, err := New(&fakeRepository{}, Options{
 		Communications:        communications,
+		CallLeases:            leases,
 		disableAuthentication: true,
 	})
 	if err != nil {
@@ -401,21 +411,34 @@ func TestCallControlAndActiveCallRoutes(t *testing.T) {
 	}
 
 	activeResponse := httptest.NewRecorder()
-	api.ServeHTTP(activeResponse, httptest.NewRequest(http.MethodGet, "/api/v1/calls/active", nil))
+	api.ServeHTTP(
+		activeResponse,
+		httptest.NewRequest(
+			http.MethodGet,
+			"/api/v1/calls/active?holder_id=browser-1",
+			nil,
+		),
+	)
 	if activeResponse.Code != http.StatusOK {
 		t.Fatalf("active status = %d; body = %s", activeResponse.Code, activeResponse.Body.String())
 	}
 	var active activeCallsResponse
 	if err := json.Unmarshal(activeResponse.Body.Bytes(), &active); err != nil ||
 		len(active.Calls) != 1 || active.Calls[0].Bearer != "volte" ||
-		active.Calls[0].LineID != "line-stable" {
+		active.Calls[0].LineID != "line-stable" ||
+		active.Calls[0].ControlState != string(calllease.ControlOwned) {
 		t.Fatalf("active response = %+v, error = %v", active, err)
+	}
+	if leases.reads != 1 ||
+		leases.callID != "call-app-1" ||
+		leases.holderID != "browser-1" {
+		t.Fatalf("ownership read = %+v", leases)
 	}
 
 	actionRequest := httptest.NewRequest(
 		http.MethodPost,
 		"/api/v1/calls/call-app-1/dtmf",
-		bytes.NewBufferString(`{"request_id":"request-dtmf-1","digits":"12#"}`),
+		bytes.NewBufferString(`{"request_id":"request-dtmf-1","digits":"12#","holder_id":"browser-1"}`),
 	)
 	actionRequest.Header.Set("Content-Type", "application/json")
 	actionResponse := httptest.NewRecorder()
@@ -434,6 +457,239 @@ func TestCallControlAndActiveCallRoutes(t *testing.T) {
 		communications.actionInput.Digits != "12#" ||
 		communications.actionInput.RequestID != "request-dtmf-1" {
 		t.Fatalf("action input = %+v", communications.actionInput)
+	}
+}
+
+func TestActiveCallReportsOccupiedToAnotherBrowser(t *testing.T) {
+	t.Parallel()
+
+	call := store.Call{
+		ID:           "call-app-1",
+		LineID:       "line-stable",
+		Direction:    "incoming",
+		RemoteNumber: "+818012345678",
+		Phase:        "active",
+	}
+	leases := &fakeCallLeases{control: calllease.ControlOccupied}
+	api, err := New(&fakeRepository{}, Options{
+		Communications:        &fakeCommunications{active: []store.Call{call}},
+		CallLeases:            leases,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	api.ServeHTTP(
+		response,
+		httptest.NewRequest(
+			http.MethodGet,
+			"/api/v1/calls/active?holder_id=browser-2",
+			nil,
+		),
+	)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	var body activeCallsResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Calls) != 1 ||
+		body.Calls[0].ControlState != string(calllease.ControlOccupied) {
+		t.Fatalf("active calls = %+v", body.Calls)
+	}
+	if leases.holderID != "browser-2" {
+		t.Fatalf("ownership checked for holder %q", leases.holderID)
+	}
+}
+
+func TestSecondBrowserCannotAnswerClaimedIncomingCall(t *testing.T) {
+	t.Parallel()
+
+	communications := &fakeCommunications{}
+	leases := &fakeCallLeases{err: calllease.ErrCallOwned}
+	api, err := New(&fakeRepository{}, Options{
+		Communications:        communications,
+		CallLeases:            leases,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/calls/call-1/answer",
+		bytes.NewBufferString(
+			`{"request_id":"request-answer-2","holder_id":"browser-2"}`,
+		),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	assertAPIError(t, response, http.StatusConflict, "line_in_use")
+	if leases.claims != 1 {
+		t.Fatalf("claim calls = %d, want 1", leases.claims)
+	}
+	if communications.actionInput.CallID != "" {
+		t.Fatalf("second answer reached modem control: %+v", communications.actionInput)
+	}
+}
+
+func TestStartCallClaimsTheDialingBrowser(t *testing.T) {
+	t.Parallel()
+
+	communications := &fakeCommunications{call: store.Call{
+		ID:           "call-app-1",
+		LineID:       "line-stable",
+		Direction:    "outgoing",
+		RemoteNumber: "+818012345678",
+		Phase:        "dialing",
+	}}
+	leases := &fakeCallLeases{}
+	api, err := New(&fakeRepository{}, Options{
+		Communications:        communications,
+		CallLeases:            leases,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/calls",
+		bytes.NewBufferString(
+			`{"line_id":"line-stable","number":"+818012345678","holder_id":"browser-1"}`,
+		),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if leases.claims != 1 ||
+		leases.callID != "call-app-1" ||
+		leases.holderID != "browser-1" {
+		t.Fatalf("claimed lease = %+v", leases)
+	}
+	var body callSessionEnvelope
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Call.ControlState != string(calllease.ControlOwned) {
+		t.Fatalf("control state = %q", body.Call.ControlState)
+	}
+}
+
+func TestIncomingAnswerIsFirstClaimWins(t *testing.T) {
+	t.Parallel()
+
+	communications := &fakeCommunications{}
+	leases := &fakeCallLeases{err: calllease.ErrCallOwned}
+	api, err := New(&fakeRepository{}, Options{
+		Communications:        communications,
+		CallLeases:            leases,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/calls/call-app-1/answer",
+		bytes.NewBufferString(
+			`{"request_id":"request-answer-1","holder_id":"browser-2"}`,
+		),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	assertAPIError(t, response, http.StatusConflict, "line_in_use")
+	if leases.claims != 1 {
+		t.Fatalf("claim calls = %d, want 1", leases.claims)
+	}
+	if communications.actionCalls != 0 {
+		t.Fatalf("modem answer calls = %d, want 0", communications.actionCalls)
+	}
+}
+
+func TestFailedIncomingAnswerReleasesBrowserClaim(t *testing.T) {
+	t.Parallel()
+
+	communications := &fakeCommunications{
+		actionError: errors.New("modem answer failed"),
+	}
+	leases := &fakeCallLeases{}
+	api, err := New(&fakeRepository{}, Options{
+		Communications:        communications,
+		CallLeases:            leases,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/calls/call-app-1/answer",
+		bytes.NewBufferString(
+			`{"request_id":"request-answer-1","holder_id":"browser-1"}`,
+		),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if leases.claims != 1 || leases.releases != 1 {
+		t.Fatalf("lease operations = claims %d, releases %d", leases.claims, leases.releases)
+	}
+	if communications.actionCalls != 1 {
+		t.Fatalf("modem answer calls = %d, want 1", communications.actionCalls)
+	}
+}
+
+func TestNonOwnerCannotControlActiveCall(t *testing.T) {
+	t.Parallel()
+
+	communications := &fakeCommunications{}
+	leases := &fakeCallLeases{err: calllease.ErrNotOwner}
+	api, err := New(&fakeRepository{}, Options{
+		Communications:        communications,
+		CallLeases:            leases,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/calls/call-app-1/hangup",
+		bytes.NewBufferString(
+			`{"request_id":"request-hangup-1","holder_id":"browser-2"}`,
+		),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	assertAPIError(t, response, http.StatusConflict, "call_not_owned")
+	if leases.requires != 1 {
+		t.Fatalf("ownership checks = %d, want 1", leases.requires)
+	}
+	if communications.actionCalls != 0 {
+		t.Fatalf("modem hangup calls = %d, want 0", communications.actionCalls)
 	}
 }
 
@@ -482,6 +738,7 @@ func TestCommunicationErrorsHaveStableHTTPMapping(t *testing.T) {
 			communications := &fakeCommunications{startError: test.err}
 			api, err := New(&fakeRepository{}, Options{
 				Communications:        communications,
+				CallLeases:            &fakeCallLeases{},
 				disableAuthentication: true,
 			})
 			if err != nil {
@@ -490,7 +747,7 @@ func TestCommunicationErrorsHaveStableHTTPMapping(t *testing.T) {
 			request := httptest.NewRequest(
 				http.MethodPost,
 				"/api/v1/calls",
-				bytes.NewBufferString(`{"line_id":"line-1","number":"+818012345678"}`),
+				bytes.NewBufferString(`{"line_id":"line-1","number":"+818012345678","holder_id":"browser-1"}`),
 			)
 			request.Header.Set("Content-Type", "application/json")
 			response := httptest.NewRecorder()

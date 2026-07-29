@@ -71,6 +71,7 @@ type callSessionResponse struct {
 	FailureReason  string  `json:"failure_reason,omitempty"`
 	Bearer         string  `json:"bearer,omitempty"`
 	MediaAvailable bool    `json:"media_available"`
+	ControlState   string  `json:"control_state"`
 }
 
 type callSessionEnvelope struct {

@@ -56,7 +56,7 @@ func TestLeaseExpiryEndsCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.Renew(context.Background(), "call-1", "browser-1"); err != nil {
+	if _, err := manager.Claim(context.Background(), "call-1", "browser-1"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -119,7 +119,7 @@ func TestRenewalExtendsCallLease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.Renew(context.Background(), "call-1", "browser-1"); err != nil {
+	if _, err := manager.Claim(context.Background(), "call-1", "browser-1"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -170,7 +170,7 @@ func TestTerminalCallCannotRenew(t *testing.T) {
 	}
 }
 
-func TestAnyLiveBrowserHolderKeepsCallAlive(t *testing.T) {
+func TestFirstBrowserClaimWins(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
 	calls := &fakeCalls{calls: map[string]store.Call{
@@ -187,21 +187,228 @@ func TestAnyLiveBrowserHolderKeepsCallAlive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.Renew(context.Background(), "call-1", "browser-1"); err != nil {
+	if _, err := manager.Claim(context.Background(), "call-1", "browser-1"); err != nil {
 		t.Fatal(err)
 	}
-	now = now.Add(5 * time.Second)
-	if _, err := manager.Renew(context.Background(), "call-1", "browser-2"); err != nil {
-		t.Fatal(err)
+	if _, err := manager.Claim(
+		context.Background(),
+		"call-1",
+		"browser-2",
+	); !errors.Is(err, ErrCallOwned) {
+		t.Fatalf("second Claim() error = %v, want ErrCallOwned", err)
 	}
-	now = now.Add(6 * time.Second)
-	if expired := manager.expiredCalls(); len(expired) != 0 {
-		t.Fatalf("expired calls with a live browser holder = %+v", expired)
+	if _, err := manager.Renew(
+		context.Background(),
+		"call-1",
+		"browser-2",
+	); !errors.Is(err, ErrNotOwner) {
+		t.Fatalf("non-owner Renew() error = %v, want ErrNotOwner", err)
 	}
-	now = now.Add(5 * time.Second)
+	now = now.Add(11 * time.Second)
 	if expired := manager.expiredCalls(); len(expired) != 1 ||
 		expired[0].callID != "call-1" {
-		t.Fatalf("expired calls after every holder elapsed = %+v", expired)
+		t.Fatalf("expired owned call = %+v", expired)
+	}
+}
+
+func TestConcurrentBrowserClaimsHaveOneWinner(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
+	calls := &fakeCalls{calls: map[string]store.Call{
+		"call-1": {
+			ID:        "call-1",
+			Direction: "incoming",
+			Phase:     "ringing",
+		},
+	}}
+	manager, err := New(
+		calls,
+		&fakeController{releases: make(chan struct{}, 1)},
+		Options{
+			Duration: 10 * time.Second,
+			Now:      func() time.Time { return now },
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for _, holderID := range []string{"browser-1", "browser-2"} {
+		holderID := holderID
+		go func() {
+			<-start
+			_, err := manager.Claim(context.Background(), "call-1", holderID)
+			results <- err
+		}()
+	}
+	close(start)
+
+	successes := 0
+	conflicts := 0
+	for range 2 {
+		switch err := <-results; {
+		case err == nil:
+			successes++
+		case errors.Is(err, ErrCallOwned):
+			conflicts++
+		default:
+			t.Fatalf("Claim() error = %v", err)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("claims = %d success, %d conflict", successes, conflicts)
+	}
+}
+
+func TestControlStateIsRelativeToBrowser(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
+	calls := &fakeCalls{calls: map[string]store.Call{
+		"call-1": {
+			ID:        "call-1",
+			Direction: "incoming",
+			Phase:     "ringing",
+		},
+	}}
+	manager, err := New(
+		calls,
+		&fakeController{releases: make(chan struct{}, 1)},
+		Options{
+			Duration: 10 * time.Second,
+			Now:      func() time.Time { return now },
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	state, err := manager.ControlState(
+		context.Background(),
+		"call-1",
+		"browser-1",
+	)
+	if err != nil || state != ControlAvailable {
+		t.Fatalf("unclaimed state = %q, %v", state, err)
+	}
+	if _, err := manager.Claim(context.Background(), "call-1", "browser-1"); err != nil {
+		t.Fatal(err)
+	}
+	state, err = manager.ControlState(
+		context.Background(),
+		"call-1",
+		"browser-1",
+	)
+	if err != nil || state != ControlOwned {
+		t.Fatalf("owner state = %q, %v", state, err)
+	}
+	state, err = manager.ControlState(
+		context.Background(),
+		"call-1",
+		"browser-2",
+	)
+	if err != nil || state != ControlOccupied {
+		t.Fatalf("other browser state = %q, %v", state, err)
+	}
+}
+
+func TestFailedIncomingAnswerCanReleaseClaim(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
+	calls := &fakeCalls{calls: map[string]store.Call{
+		"call-1": {
+			ID:        "call-1",
+			Direction: "incoming",
+			Phase:     "ringing",
+		},
+	}}
+	manager, err := New(
+		calls,
+		&fakeController{releases: make(chan struct{}, 1)},
+		Options{
+			Duration: 10 * time.Second,
+			Now:      func() time.Time { return now },
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Claim(context.Background(), "call-1", "browser-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Release(context.Background(), "call-1", "browser-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Claim(context.Background(), "call-1", "browser-2"); err != nil {
+		t.Fatalf("second browser could not claim released call: %v", err)
+	}
+}
+
+func TestUnansweredIncomingCallDoesNotExpire(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
+	calls := &fakeCalls{calls: map[string]store.Call{
+		"call-1": {
+			ID:        "call-1",
+			Direction: "incoming",
+			Phase:     "ringing",
+		},
+	}}
+	manager, err := New(
+		calls,
+		&fakeController{releases: make(chan struct{}, 1)},
+		Options{
+			Duration: 10 * time.Second,
+			Now:      func() time.Time { return now },
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ReconcileAuthoritativeCalls(
+		context.Background(),
+		[]store.Call{calls.calls["call-1"]},
+	); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Hour)
+	if expired := manager.expiredCalls(); len(expired) != 0 {
+		t.Fatalf("unanswered incoming call expired = %+v", expired)
+	}
+}
+
+func TestStaleSnapshotDoesNotDropNewBrowserClaim(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
+	calls := &fakeCalls{calls: map[string]store.Call{
+		"call-1": {ID: "call-1", Phase: "active"},
+	}}
+	manager, err := New(
+		calls,
+		&fakeController{releases: make(chan struct{}, 1)},
+		Options{
+			Duration: 10 * time.Second,
+			Now:      func() time.Time { return now },
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Claim(context.Background(), "call-1", "browser-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := manager.ReconcileAuthoritativeCalls(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	state, err := manager.ControlState(
+		context.Background(),
+		"call-1",
+		"browser-1",
+	)
+	if err != nil || state != ControlOwned {
+		t.Fatalf("state after stale snapshot = %q, %v", state, err)
 	}
 }
 
@@ -224,7 +431,7 @@ func TestFailedReleaseIsNotRetriedWithoutNewAuthoritativeState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.Renew(context.Background(), "call-1", "browser-1"); err != nil {
+	if _, err := manager.Claim(context.Background(), "call-1", "browser-1"); err != nil {
 		t.Fatal(err)
 	}
 	now = now.Add(11 * time.Second)
@@ -258,7 +465,7 @@ func TestSuccessfulReleaseWaitsForAuthoritativeCallEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.Renew(context.Background(), "call-1", "browser-1"); err != nil {
+	if _, err := manager.Claim(context.Background(), "call-1", "browser-1"); err != nil {
 		t.Fatal(err)
 	}
 	now = now.Add(11 * time.Second)
@@ -273,6 +480,9 @@ func TestSuccessfulReleaseWaitsForAuthoritativeCallEnd(t *testing.T) {
 	if expired := manager.expiredCalls(); len(expired) != 0 {
 		t.Fatalf("accepted release was repeated = %+v", expired)
 	}
+	calls.mu.Lock()
+	delete(calls.calls, "call-1")
+	calls.mu.Unlock()
 	if err := manager.ReconcileAuthoritativeCalls(context.Background(), nil); err != nil {
 		t.Fatal(err)
 	}

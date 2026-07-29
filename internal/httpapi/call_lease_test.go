@@ -15,7 +15,23 @@ type fakeCallLeases struct {
 	callID   string
 	holderID string
 	status   calllease.Status
+	control  calllease.ControlState
 	err      error
+	claims   int
+	reads    int
+	requires int
+	releases int
+}
+
+func (leases *fakeCallLeases) Claim(
+	_ context.Context,
+	callID string,
+	holderID string,
+) (calllease.Status, error) {
+	leases.callID = callID
+	leases.holderID = holderID
+	leases.claims++
+	return leases.status, leases.err
 }
 
 func (leases *fakeCallLeases) Renew(
@@ -26,6 +42,39 @@ func (leases *fakeCallLeases) Renew(
 	leases.callID = callID
 	leases.holderID = holderID
 	return leases.status, leases.err
+}
+
+func (leases *fakeCallLeases) ControlState(
+	_ context.Context,
+	callID string,
+	holderID string,
+) (calllease.ControlState, error) {
+	leases.callID = callID
+	leases.holderID = holderID
+	leases.reads++
+	return leases.control, leases.err
+}
+
+func (leases *fakeCallLeases) Require(
+	_ context.Context,
+	callID string,
+	holderID string,
+) error {
+	leases.callID = callID
+	leases.holderID = holderID
+	leases.requires++
+	return leases.err
+}
+
+func (leases *fakeCallLeases) Release(
+	_ context.Context,
+	callID string,
+	holderID string,
+) error {
+	leases.callID = callID
+	leases.holderID = holderID
+	leases.releases++
+	return leases.err
 }
 
 func TestRenewCallLease(t *testing.T) {

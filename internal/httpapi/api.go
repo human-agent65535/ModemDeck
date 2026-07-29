@@ -105,6 +105,7 @@ type CommunicationService interface {
 	StartCall(context.Context, communication.StartCallInput) (store.Call, error)
 	CallAction(context.Context, communication.CallActionInput) (store.Call, error)
 	ActiveCalls(context.Context) ([]store.Call, error)
+	ReleaseCallControl(context.Context) error
 }
 
 type DeviceConfigurationService interface {
@@ -171,7 +172,11 @@ type CallMediaService interface {
 }
 
 type CallLeaseService interface {
+	Claim(context.Context, string, string) (calllease.Status, error)
 	Renew(context.Context, string, string) (calllease.Status, error)
+	Require(context.Context, string, string) error
+	ControlState(context.Context, string, string) (calllease.ControlState, error)
+	Release(context.Context, string, string) error
 }
 
 type RecordingService interface {

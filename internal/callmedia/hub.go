@@ -32,6 +32,7 @@ type DuplexSubscription struct {
 	id        uint64
 	frames    chan DuplexFrame
 	closeOnce sync.Once
+	active    bool
 
 	errMu sync.Mutex
 	err   error
@@ -43,7 +44,7 @@ func (s *DuplexSubscription) Start(ctx context.Context) error {
 	if s == nil || s.hub == nil {
 		return ErrEndpointUnavailable
 	}
-	return s.hub.Start(ctx)
+	return s.hub.startSubscription(ctx, s)
 }
 
 func (s *DuplexSubscription) Next(ctx context.Context) (DuplexFrame, error) {
@@ -215,6 +216,27 @@ func (h *mediaHub) Start(ctx context.Context) error {
 		}
 		return ErrCanceled
 	}
+}
+
+func (h *mediaHub) startSubscription(
+	ctx context.Context,
+	subscription *DuplexSubscription,
+) error {
+	if h == nil || subscription == nil {
+		return ErrEndpointUnavailable
+	}
+	h.mu.Lock()
+	current, exists := h.subscriptions[subscription.id]
+	if !exists || current != subscription || h.ctx.Err() != nil {
+		h.mu.Unlock()
+		if err := h.Error(); err != nil {
+			return err
+		}
+		return ErrEndpointUnavailable
+	}
+	subscription.active = true
+	h.mu.Unlock()
+	return h.Start(ctx)
 }
 
 func (h *mediaHub) WritePCM(ctx context.Context, frame []byte) error {
@@ -397,6 +419,9 @@ func (h *mediaHub) broadcast(frame DuplexFrame) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for id, subscription := range h.subscriptions {
+		if !subscription.active {
+			continue
+		}
 		cloned := DuplexFrame{
 			Sequence:    frame.Sequence,
 			DownlinkPCM: append([]byte(nil), frame.DownlinkPCM...),

@@ -63,6 +63,64 @@ func TestMediaHubStartsEndpointOnlyWhenConsumerStarts(t *testing.T) {
 	}
 }
 
+func TestMediaHubDoesNotQueueFramesBeforeSubscriptionStarts(t *testing.T) {
+	format := testFormat(8000)
+	endpoint := newFakeEndpoint(format)
+	hub, err := newMediaHub(context.Background(), "call-late-browser", endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+		defer cancel()
+		if err := hub.Close(ctx); err != nil {
+			t.Errorf("close hub: %v", err)
+		}
+	})
+	recording, err := hub.Subscribe(8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer recording.Close()
+	if err := recording.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	browser, err := hub.Subscribe(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer browser.Close()
+
+	for sequence := byte(1); sequence <= 3; sequence++ {
+		downlink := make([]byte, format.FrameBytes())
+		downlink[0] = sequence
+		endpoint.read <- downlink
+		if _, err := recording.Next(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := browser.Err(); err != nil {
+		t.Fatalf("unstarted browser subscription failed: %v", err)
+	}
+
+	if err := browser.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	downlink := make([]byte, format.FrameBytes())
+	downlink[0] = 4
+	endpoint.read <- downlink
+	if _, err := recording.Next(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	frame, err := browser.Next(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if frame.Sequence != 4 || frame.DownlinkPCM[0] != 4 {
+		t.Fatalf("first browser frame = %+v, want live sequence 4", frame)
+	}
+}
+
 func TestMediaHubStartFailureIsTerminal(t *testing.T) {
 	endpoint := newFakeEndpoint(testFormat(8000))
 	endpoint.startErr = errors.New("start failed")

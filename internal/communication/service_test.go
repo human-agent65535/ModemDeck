@@ -730,6 +730,30 @@ func TestStartCallRejectsExistingCallBeforeAgentMutation(t *testing.T) {
 	}
 }
 
+func TestActiveCallsExposesOnlyOldestCall(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.July, 23, 13, 30, 0, 0, time.UTC)
+	agent := connectedAgent(now)
+	repository := &fakeRepository{activeCalls: []store.Call{
+		{ID: "call-oldest", LineID: "line-1", Phase: "ringing"},
+		{ID: "call-later", LineID: "line-2", Phase: "ringing"},
+	}}
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	service.now = func() time.Time { return now }
+
+	calls, err := service.ActiveCalls(context.Background())
+	if err != nil {
+		t.Fatalf("ActiveCalls() error = %v", err)
+	}
+	if len(calls) != 1 || calls[0].ID != "call-oldest" {
+		t.Fatalf("ActiveCalls() = %+v, want oldest call only", calls)
+	}
+}
+
 func TestRefreshDoesNotServeStaleConnectedStateAfterFailure(t *testing.T) {
 	t.Parallel()
 

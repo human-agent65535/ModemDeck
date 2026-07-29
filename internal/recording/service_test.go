@@ -96,6 +96,47 @@ func TestServiceFollowsIncomingDefaultAndCreatesToggleSegments(t *testing.T) {
 	}
 }
 
+func TestServiceKeepsActiveRecordingAcrossAuthoritativeReconcile(t *testing.T) {
+	fixture := newServiceFixture(t, nil)
+	settings, err := fixture.repository.RecordingSettings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.repository.UpdateRecordingSettings(
+		context.Background(),
+		true,
+		settings.Revision,
+	); err != nil {
+		t.Fatal(err)
+	}
+	applyServiceTestCall(t, fixture.repository, "call-still-active", "", "incoming", true)
+	if err := fixture.reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	writer := receiveWriter(t, fixture.writers.created)
+
+	first := make([]byte, fixture.endpoint.format.FrameBytes())
+	first[0] = 1
+	fixture.endpoint.capture <- first
+	select {
+	case <-writer.writes:
+	case <-time.After(recordingTestTimeout):
+		t.Fatal("first recording frame was not written")
+	}
+
+	if err := fixture.reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	second := make([]byte, fixture.endpoint.format.FrameBytes())
+	second[0] = 2
+	fixture.endpoint.capture <- second
+	select {
+	case <-writer.writes:
+	case <-time.After(recordingTestTimeout):
+		t.Fatal("recording stopped during an active authoritative reconcile")
+	}
+}
+
 func TestServiceOutgoingOverrideCanDisableEnabledDefault(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
 	settings, err := fixture.repository.RecordingSettings(context.Background())

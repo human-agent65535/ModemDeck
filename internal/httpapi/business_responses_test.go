@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -31,7 +32,7 @@ func TestOrdinaryBusinessResponsesOmitEndpointIdentity(t *testing.T) {
 			Peer:           "+818012345678",
 		}),
 		"call history": callRecordResponses([]store.Call{call}),
-		"active call":  callSession(call),
+		"active call":  callSession(call, calllease.ControlOccupied),
 		"recording": recordingEntryResponses([]store.RecordingEntry{{
 			Call: store.RecordingCall{
 				ID:             "call-1",

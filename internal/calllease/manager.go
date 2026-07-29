@@ -23,6 +23,8 @@ var (
 	ErrInvalidArgument = errors.New("invalid browser call lease")
 	ErrCallNotFound    = errors.New("browser call lease call not found")
 	ErrCallNotActive   = errors.New("browser call lease call is not active")
+	ErrCallOwned       = errors.New("browser call lease is owned by another browser")
+	ErrNotOwner        = errors.New("browser does not own the call lease")
 )
 
 type CallStore interface {
@@ -47,8 +49,17 @@ type Status struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
+type ControlState string
+
+const (
+	ControlAvailable ControlState = "available"
+	ControlOwned     ControlState = "owned"
+	ControlOccupied  ControlState = "occupied"
+)
+
 type callEntry struct {
-	holders          map[string]time.Time
+	holderID         string
+	expiresAt        time.Time
 	unclaimedExpires time.Time
 	ending           bool
 	attempt          uint64
@@ -117,15 +128,47 @@ func (m *Manager) Renew(
 	if err != nil {
 		return Status{}, err
 	}
-	call, err := m.calls.CallByID(normalizeContext(ctx), callID)
-	if errors.Is(err, store.ErrCallNotFound) {
-		return Status{}, ErrCallNotFound
+	if _, err := m.leaseableCall(ctx, callID); err != nil {
+		return Status{}, err
 	}
-	if err != nil {
-		return Status{}, fmt.Errorf("read browser-leased call: %w", err)
+
+	now := m.now().UTC()
+	expiresAt := now.Add(m.duration)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	entry := m.entries[callID]
+	if entry == nil {
+		return Status{}, ErrNotOwner
 	}
-	if !leaseablePhase(call.Phase) {
+	if entry.ending {
 		return Status{}, ErrCallNotActive
+	}
+	if entry.holderID != holderID {
+		return Status{}, ErrNotOwner
+	}
+	if !now.Before(entry.expiresAt) {
+		return Status{}, ErrCallNotActive
+	}
+	entry.expiresAt = expiresAt
+	return Status{
+		CallID:    callID,
+		HolderID:  holderID,
+		ExpiresAt: expiresAt,
+	}, nil
+}
+
+func (m *Manager) Claim(
+	ctx context.Context,
+	callID string,
+	holderID string,
+) (Status, error) {
+	callID, holderID, err := normalizeIDs(callID, holderID)
+	if err != nil {
+		return Status{}, err
+	}
+	call, err := m.leaseableCall(ctx, callID)
+	if err != nil {
+		return Status{}, err
 	}
 
 	now := m.now().UTC()
@@ -135,15 +178,34 @@ func (m *Manager) Renew(
 	entry := m.entries[callID]
 	if entry == nil {
 		entry = &callEntry{
-			holders:          make(map[string]time.Time),
-			unclaimedExpires: expiresAt,
+			unclaimedExpires: m.unclaimedDeadline(call, now),
 		}
 		m.entries[callID] = entry
 	}
 	if entry.ending {
 		return Status{}, ErrCallNotActive
 	}
-	entry.holders[holderID] = expiresAt
+	if entry.holderID != "" {
+		if entry.holderID != holderID {
+			return Status{}, ErrCallOwned
+		}
+		if !now.Before(entry.expiresAt) {
+			return Status{}, ErrCallNotActive
+		}
+		entry.expiresAt = expiresAt
+		return Status{
+			CallID:    callID,
+			HolderID:  holderID,
+			ExpiresAt: expiresAt,
+		}, nil
+	}
+	if !entry.unclaimedExpires.IsZero() &&
+		!now.Before(entry.unclaimedExpires) {
+		return Status{}, ErrCallNotActive
+	}
+	entry.holderID = holderID
+	entry.expiresAt = expiresAt
+	entry.unclaimedExpires = time.Time{}
 	return Status{
 		CallID:    callID,
 		HolderID:  holderID,
@@ -151,33 +213,166 @@ func (m *Manager) Renew(
 	}, nil
 }
 
+func (m *Manager) Require(
+	ctx context.Context,
+	callID string,
+	holderID string,
+) error {
+	callID, holderID, err := normalizeIDs(callID, holderID)
+	if err != nil {
+		return err
+	}
+	if _, err := m.leaseableCall(ctx, callID); err != nil {
+		return err
+	}
+
+	now := m.now().UTC()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	entry := m.entries[callID]
+	if entry == nil || entry.holderID != holderID {
+		return ErrNotOwner
+	}
+	if entry.ending || !now.Before(entry.expiresAt) {
+		return ErrCallNotActive
+	}
+	return nil
+}
+
+func (m *Manager) ControlState(
+	ctx context.Context,
+	callID string,
+	holderID string,
+) (ControlState, error) {
+	callID, holderID, err := normalizeIDs(callID, holderID)
+	if err != nil {
+		return "", err
+	}
+	call, err := m.leaseableCall(ctx, callID)
+	if err != nil {
+		return "", err
+	}
+
+	now := m.now().UTC()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	entry := m.entries[callID]
+	if entry != nil {
+		if entry.ending {
+			return ControlOccupied, nil
+		}
+		if entry.holderID != "" {
+			if !now.Before(entry.expiresAt) {
+				return ControlOccupied, nil
+			}
+			if entry.holderID == holderID {
+				return ControlOwned, nil
+			}
+			return ControlOccupied, nil
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(call.Direction), "incoming") &&
+		strings.EqualFold(strings.TrimSpace(call.Phase), "ringing") {
+		return ControlAvailable, nil
+	}
+	return ControlOccupied, nil
+}
+
+func (m *Manager) Release(
+	ctx context.Context,
+	callID string,
+	holderID string,
+) error {
+	callID, holderID, err := normalizeIDs(callID, holderID)
+	if err != nil {
+		return err
+	}
+	call, err := m.leaseableCall(ctx, callID)
+	if err != nil {
+		return err
+	}
+
+	now := m.now().UTC()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	entry := m.entries[callID]
+	if entry == nil || entry.holderID != holderID {
+		return ErrNotOwner
+	}
+	if entry.ending {
+		return ErrCallNotActive
+	}
+	entry.holderID = ""
+	entry.expiresAt = time.Time{}
+	entry.unclaimedExpires = m.unclaimedDeadline(call, now)
+	return nil
+}
+
 func (m *Manager) ReconcileAuthoritativeCalls(
-	_ context.Context,
+	ctx context.Context,
 	calls []store.Call,
 ) error {
 	now := m.now().UTC()
 	active := make(map[string]struct{}, len(calls))
+	type missingEntry struct {
+		callID string
+		entry  *callEntry
+	}
+	missing := make([]missingEntry, 0)
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	for _, call := range calls {
 		callID := strings.TrimSpace(call.ID)
 		if callID == "" || !trackedPhase(call.Phase) {
 			continue
 		}
 		active[callID] = struct{}{}
-		if m.entries[callID] == nil {
+		entry := m.entries[callID]
+		if entry == nil {
 			m.entries[callID] = &callEntry{
-				holders:          make(map[string]time.Time),
-				unclaimedExpires: now.Add(m.duration),
+				unclaimedExpires: m.unclaimedDeadline(call, now),
 			}
+			continue
+		}
+		if entry.holderID == "" &&
+			entry.unclaimedExpires.IsZero() {
+			entry.unclaimedExpires = m.unclaimedDeadline(call, now)
 		}
 	}
-	for callID := range m.entries {
+	for callID, entry := range m.entries {
 		if _, found := active[callID]; !found {
-			delete(m.entries, callID)
+			missing = append(missing, missingEntry{
+				callID: callID,
+				entry:  entry,
+			})
 		}
 	}
-	return nil
+	m.mu.Unlock()
+
+	var result error
+	for _, candidate := range missing {
+		call, err := m.calls.CallByID(
+			normalizeContext(ctx),
+			candidate.callID,
+		)
+		if err == nil && trackedPhase(call.Phase) {
+			continue
+		}
+		if err != nil && !errors.Is(err, store.ErrCallNotFound) {
+			result = errors.Join(result, fmt.Errorf(
+				"verify browser call lease removal for %s: %w",
+				candidate.callID,
+				err,
+			))
+			continue
+		}
+
+		m.mu.Lock()
+		if m.entries[candidate.callID] == candidate.entry {
+			delete(m.entries, candidate.callID)
+		}
+		m.mu.Unlock()
+	}
+	return result
 }
 
 func (m *Manager) Run(ctx context.Context) {
@@ -206,13 +401,18 @@ func (m *Manager) expiredCalls() []expiredCall {
 	defer m.mu.Unlock()
 	expired := make([]expiredCall, 0)
 	for callID, entry := range m.entries {
-		for holderID, expiresAt := range entry.holders {
-			if !now.Before(expiresAt) {
-				delete(entry.holders, holderID)
-			}
+		if entry.ending {
+			continue
 		}
-		if entry.ending ||
-			len(entry.holders) > 0 ||
+		if entry.holderID != "" {
+			if now.Before(entry.expiresAt) {
+				continue
+			}
+			entry.holderID = ""
+			entry.expiresAt = time.Time{}
+			entry.unclaimedExpires = now
+		}
+		if entry.unclaimedExpires.IsZero() ||
 			now.Before(entry.unclaimedExpires) {
 			continue
 		}
@@ -255,14 +455,50 @@ func (m *Manager) endExpiredCall(
 
 func normalizeIDs(callID, holderID string) (string, string, error) {
 	callID = strings.TrimSpace(callID)
-	holderID = strings.TrimSpace(holderID)
-	if callID == "" ||
-		holderID == "" ||
-		len(callID) > maxCallIDLength ||
-		len(holderID) > maxHolderIDLength {
+	if callID == "" || len(callID) > maxCallIDLength {
 		return "", "", ErrInvalidArgument
 	}
+	holderID, err := NormalizeHolderID(holderID)
+	if err != nil {
+		return "", "", err
+	}
 	return callID, holderID, nil
+}
+
+func NormalizeHolderID(holderID string) (string, error) {
+	holderID = strings.TrimSpace(holderID)
+	if holderID == "" || len(holderID) > maxHolderIDLength {
+		return "", ErrInvalidArgument
+	}
+	return holderID, nil
+}
+
+func (m *Manager) leaseableCall(
+	ctx context.Context,
+	callID string,
+) (store.Call, error) {
+	call, err := m.calls.CallByID(normalizeContext(ctx), callID)
+	if errors.Is(err, store.ErrCallNotFound) {
+		return store.Call{}, ErrCallNotFound
+	}
+	if err != nil {
+		return store.Call{}, fmt.Errorf("read browser-leased call: %w", err)
+	}
+	if !leaseablePhase(call.Phase) {
+		return store.Call{}, ErrCallNotActive
+	}
+	return call, nil
+}
+
+func (m *Manager) unclaimedDeadline(
+	call store.Call,
+	now time.Time,
+) time.Time {
+	if strings.EqualFold(strings.TrimSpace(call.Direction), "incoming") &&
+		strings.EqualFold(strings.TrimSpace(call.Phase), "ringing") {
+		return time.Time{}
+	}
+	return now.Add(m.duration)
 }
 
 func leaseablePhase(phase string) bool {
