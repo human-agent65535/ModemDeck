@@ -23,13 +23,16 @@ test('only telephone-number syntax is offered to contact phone workflows', () =>
 })
 
 test('message and contact surfaces gate actions for one-way sender IDs', async () => {
-  const [messages, contactActions] = await Promise.all([
+  const [messages, calls, contactActions] = await Promise.all([
     readFile(new URL('../src/views/MessagesView.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/views/CallsView.vue', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/ContactNumberActions.vue', import.meta.url), 'utf8')
   ])
 
   assert.match(messages, /selectedThreadIsOneWay/)
   assert.match(messages, /v-if="!selectedThreadIsOneWay"/)
   assert.match(messages, /activeRecipientIsContactable/)
+  assert.match(calls, /v-if="selectedIsContactable"/)
+  assert.match(calls, /!isContactPhoneCandidate\(call\.remote_number\)/)
   assert.match(contactActions, /v-if="numberIsContactable"/)
 })

@@ -43,6 +43,7 @@ import {
   markMissedCallsRead
 } from '../state/workspace'
 import { formatDateTime, formatDuration } from '../utils/format'
+import { isContactPhoneCandidate } from '../utils/communicationAddress'
 import { lineTagFallback, lineTagLine } from '../utils/lineIdentity'
 
 const props = withDefaults(
@@ -113,8 +114,13 @@ const selectedId = computed(() =>
   (typeof route.query.selected === 'string' ? route.query.selected : '')
 )
 const selected = computed(() => callsResource.data.find(call => call.id === selectedId.value))
+const selectedIsContactable = computed(() =>
+  Boolean(selected.value && isContactPhoneCandidate(selected.value.remote_number))
+)
 const selectedContact = computed(() =>
-  selected.value ? contactForNumber(selected.value.remote_number) : undefined
+  selected.value && selectedIsContactable.value
+    ? contactForNumber(selected.value.remote_number)
+    : undefined
 )
 const playableRecordingCallIDs = computed(
   () =>
@@ -264,7 +270,7 @@ function backToList(): void {
 }
 
 function callBack(call: CallRecord): void {
-  if (dialUnavailable.value) return
+  if (dialUnavailable.value || !isContactPhoneCandidate(call.remote_number)) return
   openDialerAndCall(call.remote_number, displayName(call), actionLineKey(call))
 }
 
@@ -281,7 +287,7 @@ function callActionAriaLabel(call: CallRecord): string {
 }
 
 function sendMessage(call: CallRecord): void {
-  if (messageUnavailable.value) return
+  if (messageUnavailable.value || !isContactPhoneCandidate(call.remote_number)) return
   const selectedLineKey = actionLineKey(call)
   if (embedded.value) {
     emit('message', {
@@ -514,6 +520,7 @@ onMounted(() => {
               compact
             />
             <button
+              v-if="selectedIsContactable"
               class="call-detail__command call-detail__command--primary"
               type="button"
               :disabled="Boolean(dialUnavailable)"
@@ -525,6 +532,7 @@ onMounted(() => {
               <span>{{ callActionLabel(selected) }}</span>
             </button>
             <button
+              v-if="selectedIsContactable"
               class="call-detail__command"
               type="button"
               :disabled="Boolean(messageUnavailable)"
