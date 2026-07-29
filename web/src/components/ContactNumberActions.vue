@@ -6,6 +6,7 @@ import type { Contact, ContactInput } from '../api/types'
 import BaseAvatar from './BaseAvatar.vue'
 import ContactEditor from './ContactEditor.vue'
 import SearchField from './SearchField.vue'
+import { isContactPhoneCandidate } from '../utils/communicationAddress'
 import { phoneIdentitiesMatch } from '../utils/lineIdentity'
 import {
   bootstrapResource,
@@ -37,6 +38,7 @@ const search = ref('')
 const selectedContactID = ref('')
 const saving = ref(false)
 const error = ref('')
+const numberIsContactable = computed(() => isContactPhoneCandidate(props.number))
 
 const filteredContacts = computed(() => {
   const query = search.value.trim().toLocaleLowerCase()
@@ -74,6 +76,12 @@ watch(
   }
 )
 
+watch(numberIsContactable, contactable => {
+  if (contactable) return
+  createOpen.value = false
+  addOpen.value = false
+})
+
 function closeCreate(): void {
   if (saving.value) return
   createOpen.value = false
@@ -89,11 +97,13 @@ function closeAdd(): void {
 }
 
 function openCreate(): void {
+  if (!numberIsContactable.value) return
   error.value = ''
   createOpen.value = true
 }
 
 async function openAdd(): Promise<void> {
+  if (!numberIsContactable.value) return
   phoneLabel.value = t('contacts.mobile')
   search.value = ''
   selectedContactID.value = ''
@@ -119,7 +129,7 @@ async function createContact(input: ContactInput): Promise<void> {
 
 async function addToContact(): Promise<void> {
   const contact = selectedContact.value
-  if (!contact || !props.number.trim() || saving.value) return
+  if (!contact || !numberIsContactable.value || saving.value) return
   if (
     contact.phones.some(phone =>
       phoneIdentitiesMatch(phone.normalized_number || phone.number, props.number)
@@ -168,7 +178,11 @@ async function addToContact(): Promise<void> {
 </script>
 
 <template>
-  <div class="contact-number-actions" :class="{ 'is-compact': compact }">
+  <div
+    v-if="numberIsContactable"
+    class="contact-number-actions"
+    :class="{ 'is-compact': compact }"
+  >
     <RouterLink
       v-if="contact"
       class="secondary-button"
@@ -204,6 +218,7 @@ async function addToContact(): Promise<void> {
   </div>
 
   <ContactEditor
+    v-if="numberIsContactable"
     :open="createOpen"
     :initial-phone="number"
     :lines="contactLines"
@@ -214,7 +229,7 @@ async function addToContact(): Promise<void> {
     @save="createContact"
   />
 
-  <Teleport to="body">
+  <Teleport v-if="numberIsContactable" to="body">
     <Transition name="fade">
       <div v-if="addOpen" class="modal-backdrop" @mousedown.self="closeAdd">
         <section

@@ -459,6 +459,7 @@ export default {
     selectRecipient: 'Select a contact or enter a number',
     selectLine: 'Select a line',
     lineUnsupported: 'The selected line does not support messages',
+    senderDoesNotAcceptReplies: 'This sender does not accept replies',
     enterMessage: 'Enter a message',
     sendFailed: 'Message failed to send',
     sent: 'Sent',

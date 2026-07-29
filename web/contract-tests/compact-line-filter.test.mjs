@@ -48,7 +48,7 @@ test('existing message threads keep their original line', async () => {
   )
   assert.match(
     messages,
-    /v-if="selectedThread && !composingNew"[\s\S]*:title="dialUnavailable \|\| t\('calls\.dial'\)"/
+    /v-if="selectedThread && !composingNew && activeRecipientIsContactable"[\s\S]*:title="dialUnavailable \|\| t\('calls\.dial'\)"/
   )
   assert.match(english, /search: 'Search messages, names, or numbers'/)
   assert.match(chinese, /search: '搜索短信、姓名或号码'/)

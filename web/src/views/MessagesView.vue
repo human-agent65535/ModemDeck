@@ -24,6 +24,10 @@ import { requestConfirmation } from '../state/confirmation'
 import { openDialer } from '../state/ui'
 import { phoneDestination } from '../utils/format'
 import {
+  isContactPhoneCandidate,
+  isOneWayMessageSender
+} from '../utils/communicationAddress'
+import {
   bootstrapResource,
   capabilityReason,
   contactForNumber,
@@ -173,10 +177,19 @@ const filteredThreads = computed(() => {
 const activeRecipient = computed(() =>
   composingNew.value ? newRecipient.value.trim() : selectedThread.value?.peer || ''
 )
-const activeContact = computed(() => contactForNumber(activeRecipient.value))
+const activeRecipientIsContactable = computed(() =>
+  isContactPhoneCandidate(activeRecipient.value)
+)
+const selectedThreadIsOneWay = computed(() =>
+  Boolean(selectedThread.value && isOneWayMessageSender(selectedThread.value.peer))
+)
+const activeContact = computed(() =>
+  activeRecipientIsContactable.value ? contactForNumber(activeRecipient.value) : undefined
+)
 const activeLineID = computed(() => (activeLine.value ? lineKey(activeLine.value) : ''))
 const sendDisabledReason = computed(() => {
   if (messageWriteUnavailable.value) return messageWriteUnavailable.value
+  if (selectedThreadIsOneWay.value) return t('messages.senderDoesNotAcceptReplies')
   if (!activeRecipient.value) return t('messages.selectRecipient')
   if (!activeLineID.value) return t('messages.selectLine')
   if (lineSupports(activeLine.value, 'message') === false) {
@@ -509,7 +522,11 @@ async function submit(): Promise<void> {
 }
 
 function callCurrent(): void {
-  if (dialUnavailable.value || !activeRecipient.value) return
+  if (
+    dialUnavailable.value ||
+    !activeRecipient.value ||
+    !activeRecipientIsContactable.value
+  ) return
   openDialer(
     activeRecipient.value,
     composingNew.value ? newRecipientName.value : selectedThread.value?.contact_name || '',
@@ -710,7 +727,7 @@ onMounted(() => {
             />
           </template>
           <div
-            v-if="selectedThread && !composingNew"
+            v-if="selectedThread && !composingNew && activeRecipientIsContactable"
             class="conversation-header__contact-actions"
           >
             <ContactNumberActions
@@ -721,7 +738,7 @@ onMounted(() => {
             />
           </div>
           <button
-            v-if="selectedThread && !composingNew"
+            v-if="selectedThread && !composingNew && activeRecipientIsContactable"
             class="icon-button"
             type="button"
             :disabled="Boolean(dialUnavailable) || !activeRecipient"
@@ -809,7 +826,7 @@ onMounted(() => {
           <div ref="messagesEnd" />
         </div>
 
-        <footer class="message-composer">
+        <footer v-if="!selectedThreadIsOneWay" class="message-composer">
           <div class="composer-row">
             <textarea
               v-model="draft"
@@ -833,6 +850,9 @@ onMounted(() => {
             {{ messageWriteUnavailable }}
           </p>
           <p v-else-if="sendError" class="field-error">{{ sendError }}</p>
+        </footer>
+        <footer v-else class="message-composer message-composer--readonly">
+          <p class="unavailable-note">{{ t('messages.senderDoesNotAcceptReplies') }}</p>
         </footer>
       </template>
 
@@ -877,6 +897,11 @@ onMounted(() => {
 .message-list-empty :deep(.state-panel) {
   min-height: auto;
   flex: 0 0 auto;
+}
+
+.message-composer--readonly .unavailable-note {
+  margin: 0;
+  text-align: center;
 }
 
 .message-row.is-arriving {

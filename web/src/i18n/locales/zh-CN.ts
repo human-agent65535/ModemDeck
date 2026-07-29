@@ -458,6 +458,7 @@ export default {
     selectRecipient: '请选择联系人或输入号码',
     selectLine: '请选择线路',
     lineUnsupported: '所选线路不支持发送消息',
+    senderDoesNotAcceptReplies: '该发送方不接收回复',
     enterMessage: '请输入消息',
     sendFailed: '消息发送失败',
     sent: '已发送',
