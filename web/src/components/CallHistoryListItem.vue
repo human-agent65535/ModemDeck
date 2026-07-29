@@ -10,7 +10,7 @@ import {
 import type { CallRecord } from '../api/types'
 import type { LineTagLine } from '../utils/lineIdentity'
 import { formatRelativeDate } from '../utils/format'
-import BaseAvatar from './BaseAvatar.vue'
+import CommunicationAvatar from './CommunicationAvatar.vue'
 import LineTag from './LineTag.vue'
 import UnreadDot from './UnreadDot.vue'
 
@@ -71,7 +71,12 @@ const showNumber = computed(
     @click="emit('select', props.call)"
   >
     <span class="call-list-item__avatar">
-      <BaseAvatar :name="name" :src="avatar" />
+      <CommunicationAvatar
+        channel="call"
+        :name="name"
+        :address="number"
+        :src="avatar"
+      />
       <span class="call-direction-icon">
         <component :is="directionIcon" :size="12" />
       </span>

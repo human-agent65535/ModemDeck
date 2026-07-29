@@ -719,6 +719,7 @@ onMounted(() => {
           </template>
           <template v-else-if="selectedThread">
             <ContactHeaderIdentity
+              channel="message"
               :name="displayNameForThread(selectedThread)"
               :number="threadDisplayNumber(selectedThread)"
               :avatar="avatarForNumber(selectedThread.peer)"

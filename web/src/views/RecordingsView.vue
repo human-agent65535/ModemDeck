@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, AudioLines, Download, Trash2 } from '@lucide/vue'
 import type { RecordingEntry } from '../api/types'
-import BaseAvatar from '../components/BaseAvatar.vue'
+import CommunicationAvatar from '../components/CommunicationAvatar.vue'
 import ContactHeaderIdentity from '../components/ContactHeaderIdentity.vue'
 import ContactNumberActions from '../components/ContactNumberActions.vue'
 import LineSelector from '../components/LineSelector.vue'
@@ -272,7 +272,12 @@ onBeforeUnmount(() => {
             @click="selectRecording(recording)"
           >
             <span class="recording-list-item__avatar">
-              <BaseAvatar :name="displayName(recording)" :src="avatar(recording)" />
+              <CommunicationAvatar
+                channel="call"
+                :name="displayName(recording)"
+                :address="recordingDisplayNumber(recording)"
+                :src="avatar(recording)"
+              />
               <span
                 class="recording-list-item__icon"
                 :class="{ 'is-unavailable': !recording.playable }"

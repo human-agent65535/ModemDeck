@@ -19,7 +19,10 @@ test('call history marks only calls with playable recordings', async () => {
   ])
 
   assert.match(calls, /import CallHistoryListItem from/)
-  assert.match(row, /<BaseAvatar :name="name" :src="avatar"/)
+  assert.match(
+    row,
+    /<CommunicationAvatar[\s\S]*channel="call"[\s\S]*:address="number"[\s\S]*:src="avatar"/
+  )
   assert.match(row, /class="call-list-item__avatar"/)
   assert.match(row, /CassetteTape/)
   assert.match(

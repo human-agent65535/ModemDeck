@@ -2,7 +2,7 @@
 import type { MessageThread } from '../api/types'
 import type { LineTagLine } from '../utils/lineIdentity'
 import { formatRelativeDate } from '../utils/format'
-import BaseAvatar from './BaseAvatar.vue'
+import CommunicationAvatar from './CommunicationAvatar.vue'
 import LineTag from './LineTag.vue'
 import UnreadDot from './UnreadDot.vue'
 import { useI18n } from 'vue-i18n'
@@ -42,7 +42,12 @@ const { t } = useI18n()
     type="button"
     @click="emit('select', props.thread.key)"
   >
-    <BaseAvatar :name="name" :src="avatar" />
+    <CommunicationAvatar
+      channel="message"
+      :name="name"
+      :address="peer"
+      :src="avatar"
+    />
     <span class="list-item__content">
       <span class="list-item__title">
         <strong>{{ name }}</strong>

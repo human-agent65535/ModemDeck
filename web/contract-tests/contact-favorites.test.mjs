@@ -122,7 +122,10 @@ test('recordings reuse the compact contact identity and actions in the header', 
   const source = await readFile(recordingsView, 'utf8')
 
   assert.match(source, /<ContactHeaderIdentity/)
-  assert.match(source, /<BaseAvatar :name="displayName\(recording\)" :src="avatar\(recording\)"/)
+  assert.match(
+    source,
+    /<CommunicationAvatar[\s\S]*channel="call"[\s\S]*:address="recordingDisplayNumber\(recording\)"[\s\S]*:src="avatar\(recording\)"/
+  )
   assert.match(source, /class="recording-list-item__avatar"/)
   assert.match(source, /:number="selected\.call\.remote_number"/)
   assert.match(source, /class="recording-header__contact-actions"/)
@@ -133,7 +136,10 @@ test('incoming and outgoing call surfaces reuse a matched contact avatar', async
   const source = await readFile(callSurface, 'utf8')
 
   assert.match(source, /contactForNumber\(session\.value\.remote_number\)/)
-  assert.match(source, /<BaseAvatar[\s\S]*:src="contact\?\.avatar"/)
+  assert.match(
+    source,
+    /<CommunicationAvatar[\s\S]*channel="call"[\s\S]*:address="presentedNumber"[\s\S]*:src="contact\?\.avatar"/
+  )
 })
 
 test('fixture persists favorite and preferred line through contact writes', async () => {

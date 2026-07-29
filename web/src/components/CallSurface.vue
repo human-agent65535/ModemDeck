@@ -43,7 +43,7 @@ import {
 import { knownCallBearerLabel } from '../callBearer'
 import { formatDuration } from '../utils/format'
 import { phoneKeypad } from '../utils/phoneKeypad'
-import BaseAvatar from './BaseAvatar.vue'
+import CommunicationAvatar from './CommunicationAvatar.vue'
 import LineTag from './LineTag.vue'
 
 const { t } = useI18n()
@@ -262,8 +262,10 @@ onBeforeUnmount(() => {
     <section v-if="session" class="call-surface">
       <div class="call-surface__content" :class="{ 'is-dtmf-open': dtmfOpen }">
         <div class="call-surface__identity">
-          <BaseAvatar
+          <CommunicationAvatar
+            channel="call"
             :name="contactName"
+            :address="presentedNumber"
             :src="contact?.avatar"
             size="large"
           />

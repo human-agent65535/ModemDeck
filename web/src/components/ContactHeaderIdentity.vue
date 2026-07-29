@@ -1,16 +1,24 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { CommunicationChannel } from '../utils/communicationAvatar'
 import type { LineTagLine } from '../utils/lineIdentity'
-import BaseAvatar from './BaseAvatar.vue'
+import CommunicationAvatar from './CommunicationAvatar.vue'
 import LineTag from './LineTag.vue'
 
-const props = defineProps<{
-  name: string
-  number: string
-  avatar?: string
-  line: LineTagLine
-  lineFallback: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    channel?: CommunicationChannel
+    name: string
+    number: string
+    avatar?: string
+    line: LineTagLine
+    lineFallback: string
+  }>(),
+  {
+    channel: 'call',
+    avatar: ''
+  }
+)
 
 const showNumber = computed(
   () =>
@@ -20,7 +28,13 @@ const showNumber = computed(
 </script>
 
 <template>
-  <BaseAvatar :name="name" :src="avatar" size="small" />
+  <CommunicationAvatar
+    :channel="channel"
+    :name="name"
+    :address="number"
+    :src="avatar"
+    size="small"
+  />
   <div class="contact-header-identity">
     <h2>{{ name }}</h2>
     <div class="contact-header-identity__meta">
