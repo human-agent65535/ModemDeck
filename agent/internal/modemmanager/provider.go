@@ -306,16 +306,22 @@ func (p *Provider) Snapshot(ctx context.Context) (domain.Snapshot, error) {
 	p.projectDesiredRadioState(parsed.Lines)
 	observedAt := p.now().UTC()
 	p.projectTerminatedCalls(&parsed, observedAt)
-	revision, err := snapshotRevision(parsed.Lines, parsed.Calls, parsed.Messages)
+	revision, err := snapshotRevision(
+		parsed.Lines,
+		parsed.Calls,
+		parsed.Messages,
+		parsed.DeliveryReports,
+	)
 	if err != nil {
 		return domain.Snapshot{}, domain.Internal(operation, "failed to revision the ModemManager snapshot", err)
 	}
 	return domain.Snapshot{
-		Revision:   revision,
-		ObservedAt: observedAt,
-		Lines:      parsed.Lines,
-		Calls:      parsed.Calls,
-		Messages:   parsed.Messages,
+		Revision:        revision,
+		ObservedAt:      observedAt,
+		Lines:           parsed.Lines,
+		Calls:           parsed.Calls,
+		Messages:        parsed.Messages,
+		DeliveryReports: parsed.DeliveryReports,
 	}, nil
 }
 
@@ -639,38 +645,127 @@ func (p *Provider) SendMessage(ctx context.Context, request domain.SendMessageRe
 		return domain.CommandReceipt{}, domain.NotSupported(operation, "line does not expose the ModemManager Messaging interface")
 	}
 
+	linePath := parsed.LinePaths[line.ID]
+	messagePath, err := p.createSMS(
+		ctx,
+		linePath,
+		request.Number,
+		request.Text,
+		request.DeliveryReportRequested,
+	)
+	deliveryReportUnsupported := false
+	if err != nil {
+		if !request.DeliveryReportRequested || !deliveryReportCreateRejected(err) {
+			return domain.CommandReceipt{}, err
+		}
+		messagePath, err = p.createSMS(ctx, linePath, request.Number, request.Text, false)
+		if err != nil {
+			return domain.CommandReceipt{}, err
+		}
+		deliveryReportUnsupported = true
+	}
+
+	if err := p.sendSMS(ctx, messagePath); err != nil {
+		if !request.DeliveryReportRequested ||
+			deliveryReportUnsupported ||
+			!deliveryReportSendRejected(err) {
+			return domain.CommandReceipt{}, err
+		}
+		if deleteErr := p.deleteSMSPath(ctx, linePath, messagePath); deleteErr != nil {
+			return domain.CommandReceipt{}, deleteErr
+		}
+		messagePath, err = p.createSMS(ctx, linePath, request.Number, request.Text, false)
+		if err != nil {
+			return domain.CommandReceipt{}, err
+		}
+		if err := p.sendSMS(ctx, messagePath); err != nil {
+			return domain.CommandReceipt{}, err
+		}
+		deliveryReportUnsupported = true
+	}
+	return domain.CommandReceipt{
+		RequestID:                 request.RequestID,
+		ResourceID:                parsed.ids.messageID(messagePath),
+		DeliveryReportUnsupported: deliveryReportUnsupported,
+	}, nil
+}
+
+func (p *Provider) createSMS(
+	ctx context.Context,
+	linePath dbus.ObjectPath,
+	number string,
+	text string,
+	deliveryReportRequested bool,
+) (dbus.ObjectPath, error) {
+	const operation = "send_message"
 	properties := map[string]dbus.Variant{
-		"number": dbus.MakeVariant(request.Number),
-		"text":   dbus.MakeVariant(request.Text),
+		"number": dbus.MakeVariant(number),
+		"text":   dbus.MakeVariant(text),
+	}
+	if deliveryReportRequested {
+		properties["delivery-report-request"] = dbus.MakeVariant(true)
 	}
 	body, err := p.call(
 		ctx,
-		parsed.LinePaths[line.ID],
+		linePath,
 		messagingInterface+".Create",
 		operation,
 		"ModemManager failed to create the SMS",
 		properties,
 	)
 	if err != nil {
-		return domain.CommandReceipt{}, err
+		return "", err
 	}
-	messagePath, err := objectPathResult(operation, "ModemManager returned an invalid SMS path", body)
+	messagePath, err := objectPathResult(
+		operation,
+		"ModemManager returned an invalid SMS path",
+		body,
+	)
 	if err != nil {
-		return domain.CommandReceipt{}, err
+		return "", err
 	}
 	if !strings.HasPrefix(string(messagePath), "/org/freedesktop/ModemManager1/SMS/") {
-		return domain.CommandReceipt{}, domain.Internal(operation, "ModemManager returned an unexpected SMS path", nil)
+		return "", domain.Internal(
+			operation,
+			"ModemManager returned an unexpected SMS path",
+			nil,
+		)
 	}
-	if _, err := p.call(
+	return messagePath, nil
+}
+
+func (p *Provider) sendSMS(ctx context.Context, messagePath dbus.ObjectPath) error {
+	_, err := p.call(
 		ctx,
 		messagePath,
 		smsInterface+".Send",
-		operation,
+		"send_message",
 		"ModemManager failed to send the SMS",
-	); err != nil {
-		return domain.CommandReceipt{}, err
+	)
+	return err
+}
+
+func (p *Provider) deleteSMSPath(
+	ctx context.Context,
+	linePath dbus.ObjectPath,
+	messagePath dbus.ObjectPath,
+) error {
+	_, err := p.call(
+		ctx,
+		linePath,
+		messagingInterface+".Delete",
+		"send_message",
+		"ModemManager failed to remove the rejected delivery-report SMS",
+		messagePath,
+	)
+	if operationError, ok := domain.AsOperationError(err); ok &&
+		operationError.Code == domain.ErrorNotFound {
+		err = nil
 	}
-	return domain.CommandReceipt{RequestID: request.RequestID, ResourceID: parsed.ids.messageID(messagePath)}, nil
+	if err == nil {
+		p.messageProperties.clear()
+	}
+	return err
 }
 
 func (p *Provider) DeleteMessage(ctx context.Context, request domain.DeleteMessageRequest) error {
@@ -693,12 +788,12 @@ func (p *Provider) DeleteMessage(ctx context.Context, request domain.DeleteMessa
 		return err
 	}
 	parsed := ParseManagedObjects(objects, identity)
-	message, found := findMessage(parsed.Messages, request.MessageID)
+	lineID, found := messageLineID(parsed, request.MessageID)
 	if !found {
 		return nil
 	}
-	messagePath := parsed.MessagePaths[message.ID]
-	linePath := parsed.LinePaths[message.LineID]
+	messagePath := parsed.MessagePaths[request.MessageID]
+	linePath := parsed.LinePaths[lineID]
 	if messagePath == "" || linePath == "" {
 		return domain.Internal(operation, "message path mapping is unavailable", nil)
 	}
@@ -1244,15 +1339,22 @@ func implementedCapabilities() domain.AgentCapabilities {
 	}
 }
 
-func snapshotRevision(lines []domain.Line, calls []domain.Call, messages []domain.Message) (string, error) {
+func snapshotRevision(
+	lines []domain.Line,
+	calls []domain.Call,
+	messages []domain.Message,
+	deliveryReports []domain.MessageDeliveryReport,
+) (string, error) {
 	content := struct {
-		Lines    []domain.Line    `json:"lines"`
-		Calls    []domain.Call    `json:"calls"`
-		Messages []domain.Message `json:"messages"`
+		Lines           []domain.Line                  `json:"lines"`
+		Calls           []domain.Call                  `json:"calls"`
+		Messages        []domain.Message               `json:"messages"`
+		DeliveryReports []domain.MessageDeliveryReport `json:"delivery_reports"`
 	}{
-		Lines:    lines,
-		Calls:    calls,
-		Messages: messages,
+		Lines:           lines,
+		Calls:           calls,
+		Messages:        messages,
+		DeliveryReports: deliveryReports,
 	}
 	encoded, err := json.Marshal(content)
 	if err != nil {
@@ -1330,6 +1432,18 @@ func findMessage(messages []domain.Message, id string) (domain.Message, bool) {
 		}
 	}
 	return domain.Message{}, false
+}
+
+func messageLineID(parsed ParsedObjects, id string) (string, bool) {
+	if message, found := findMessage(parsed.Messages, id); found {
+		return message.LineID, true
+	}
+	for _, report := range parsed.DeliveryReports {
+		if report.ID == id {
+			return report.LineID, true
+		}
+	}
+	return "", false
 }
 
 func lineHasCall(calls []domain.Call, lineID, exceptCallID string) bool {

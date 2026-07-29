@@ -110,28 +110,42 @@ const (
 	MessageThreadDelete     MessageThreadAction = "delete"
 )
 
+type MessageDeliveryStatus string
+
+const (
+	MessageDeliveryUnknown   MessageDeliveryStatus = ""
+	MessageDeliverySubmitted MessageDeliveryStatus = "submitted"
+	MessageDeliveryDelivered MessageDeliveryStatus = "delivered"
+	MessageDeliveryFailed    MessageDeliveryStatus = "failed"
+)
+
 type Message struct {
-	ID                int64  `json:"id"`
-	RequestID         string `json:"request_id"`
-	LineID            string `json:"line_id"`
-	EndpointLineID    string `json:"endpoint_line_id"`
-	EndpointMessageID string `json:"endpoint_message_id"`
-	IMSI              string `json:"imsi"`
-	ICCID             string `json:"iccid"`
-	Peer              string `json:"peer"`
-	ReportedPeer      string `json:"reported_peer"`
-	Direction         string `json:"direction"`
-	LocalPhone        string `json:"local_phone"`
-	Sender            string `json:"sender"`
-	Recipient         string `json:"recipient"`
-	Content           string `json:"content"`
-	Type              int64  `json:"type"`
-	Status            int64  `json:"status"`
-	State             string `json:"state"`
-	FailureCode       string `json:"failure_code"`
-	Revision          int64  `json:"revision"`
-	Timestamp         string `json:"timestamp"`
-	CreatedAt         string `json:"created_at"`
+	ID                      int64                 `json:"id"`
+	RequestID               string                `json:"request_id"`
+	LineID                  string                `json:"line_id"`
+	EndpointLineID          string                `json:"endpoint_line_id"`
+	EndpointMessageID       string                `json:"endpoint_message_id"`
+	IMSI                    string                `json:"imsi"`
+	ICCID                   string                `json:"iccid"`
+	Peer                    string                `json:"peer"`
+	ReportedPeer            string                `json:"reported_peer"`
+	Direction               string                `json:"direction"`
+	LocalPhone              string                `json:"local_phone"`
+	Sender                  string                `json:"sender"`
+	Recipient               string                `json:"recipient"`
+	Content                 string                `json:"content"`
+	Type                    int64                 `json:"type"`
+	Status                  int64                 `json:"status"`
+	State                   string                `json:"state"`
+	DeliveryStatus          MessageDeliveryStatus `json:"delivery_status"`
+	FailureCode             string                `json:"failure_code"`
+	Revision                int64                 `json:"revision"`
+	Timestamp               string                `json:"timestamp"`
+	CreatedAt               string                `json:"created_at"`
+	MessageReference        *int64                `json:"-"`
+	DeliveryReportRequested bool                  `json:"-"`
+	DeliveryReportTrackable bool                  `json:"-"`
+	DeliveryReportCode      *int64                `json:"-"`
 }
 
 type CallKind string
@@ -364,17 +378,19 @@ type NetworkUsage struct {
 }
 
 type HardwareSnapshot struct {
-	BootEpoch  string
-	Revision   string
-	ObservedAt time.Time
-	Lines      []HardwareLine
-	Calls      []HardwareCall
-	Messages   []HardwareMessage
+	BootEpoch       string
+	Revision        string
+	ObservedAt      time.Time
+	Lines           []HardwareLine
+	Calls           []HardwareCall
+	Messages        []HardwareMessage
+	DeliveryReports []HardwareMessageDeliveryReport
 }
 
 type HardwareSnapshotResult struct {
-	CreatedIncomingMessages []Message
-	LineIDsByEndpoint       map[string]string
+	CreatedIncomingMessages  []Message
+	HandledDeliveryReportIDs []string
+	LineIDsByEndpoint        map[string]string
 }
 
 type HardwareCommand struct {
@@ -446,23 +462,42 @@ type HardwareCall struct {
 }
 
 type HardwareMessage struct {
-	RequestID         string
-	LineID            string
-	EndpointLineID    string `json:"endpoint_line_id"`
-	EndpointMessageID string
-	IMSI              string
-	ICCID             string
-	LocalPhone        string
-	HomeCountryISO    string
-	Number            string
-	ReportedNumber    string
-	Text              string
-	Direction         string
-	State             string
-	StateCode         int64
-	Revision          int64
-	Timestamp         time.Time
-	ObservedAt        time.Time
+	RequestID               string
+	LineID                  string
+	EndpointLineID          string `json:"endpoint_line_id"`
+	EndpointMessageID       string
+	IMSI                    string
+	ICCID                   string
+	LocalPhone              string
+	HomeCountryISO          string
+	Number                  string
+	ReportedNumber          string
+	Text                    string
+	Direction               string
+	State                   string
+	StateCode               int64
+	DeliveryStatus          MessageDeliveryStatus
+	MessageReference        uint32
+	MessageReferenceKnown   bool
+	DeliveryReportRequested bool
+	DeliveryReportTrackable bool
+	Revision                int64
+	Timestamp               time.Time
+	ObservedAt              time.Time
+}
+
+type HardwareMessageDeliveryReport struct {
+	EndpointReportID      string
+	LineID                string
+	EndpointLineID        string
+	HomeCountryISO        string
+	Number                string
+	MessageReference      uint32
+	MessageReferenceKnown bool
+	DeliveryState         uint32
+	DeliveryStateKnown    bool
+	Timestamp             time.Time
+	ObservedAt            time.Time
 }
 
 type CallControlTarget struct {
@@ -484,6 +519,20 @@ const (
 	LineCallPolicyReceive      LineCallPolicyValue = "receive"
 	LineCallPolicyDND          LineCallPolicyValue = "do_not_disturb"
 )
+
+type MessageDeliveryReportSupport string
+
+const (
+	MessageDeliveryReportSupportUnknown     MessageDeliveryReportSupport = "unknown"
+	MessageDeliveryReportSupportUnsupported MessageDeliveryReportSupport = "unsupported"
+)
+
+type MessageDeliveryPolicy struct {
+	LineID                 string                       `json:"line_id"`
+	DeliveryReportsEnabled bool                         `json:"delivery_reports_enabled"`
+	DeliveryReportsSupport MessageDeliveryReportSupport `json:"delivery_reports_support"`
+	Revision               int64                        `json:"revision"`
+}
 
 type EffectiveCallPolicyValue string
 

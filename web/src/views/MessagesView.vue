@@ -688,9 +688,10 @@ function callCurrent(): void {
   )
 }
 
-function statusLabel(status: number): string {
-  if (status === 2) return t('messages.sent')
-  if (status === 3) return t('messages.sendFailed')
+function statusLabel(status: 'submitted' | 'delivered' | 'failed' | ''): string {
+  if (status === 'submitted') return t('messages.submitted')
+  if (status === 'delivered') return t('messages.delivered')
+  if (status === 'failed') return t('messages.sendFailed')
   return ''
 }
 
@@ -1075,8 +1076,13 @@ onBeforeUnmount(() => {
                 <p>{{ message.content }}</p>
                 <span>
                   {{ formatRelativeDate(message.timestamp) }}
-                  <template v-if="message.direction === 'outgoing' && statusLabel(message.status)">
-                    · {{ statusLabel(message.status) }}
+                  <template
+                    v-if="
+                      message.direction === 'outgoing' &&
+                      statusLabel(message.delivery_status)
+                    "
+                  >
+                    · {{ statusLabel(message.delivery_status) }}
                   </template>
                 </span>
               </div>

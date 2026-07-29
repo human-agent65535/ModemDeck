@@ -14,6 +14,10 @@ func quarantineDuplicateSubscriptionAttachments(
 	snapshot.Lines = append([]agentclient.Line(nil), snapshot.Lines...)
 	snapshot.Calls = append([]agentclient.Call(nil), snapshot.Calls...)
 	snapshot.Messages = append([]agentclient.Message(nil), snapshot.Messages...)
+	snapshot.DeliveryReports = append(
+		[]agentclient.MessageDeliveryReport(nil),
+		snapshot.DeliveryReports...,
+	)
 	if len(snapshot.Lines) < 2 {
 		return snapshot, nil
 	}
@@ -112,6 +116,13 @@ func quarantineDuplicateSubscriptionAttachments(
 		}
 	}
 	snapshot.Messages = messages
+	reports := snapshot.DeliveryReports[:0]
+	for _, report := range snapshot.DeliveryReports {
+		if _, blocked := quarantined[strings.TrimSpace(report.LineID)]; !blocked {
+			reports = append(reports, report)
+		}
+	}
+	snapshot.DeliveryReports = reports
 
 	lineIDs := make([]string, 0, len(quarantined))
 	for lineID := range quarantined {

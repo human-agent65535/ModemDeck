@@ -157,7 +157,26 @@ func completeTerminalMessageProperties(properties Properties) bool {
 		return false
 	}
 	pduType, pduTypeKnown := uint32Property(properties, "PduType")
-	if !pduTypeKnown || messageDirectionName(pduType) == "unknown" {
+	if !pduTypeKnown {
+		return false
+	}
+	if classifySMSPDU(pduType) == smsKindStatusReport {
+		if _, found := stringProperty(properties, "Number"); !found {
+			return false
+		}
+		if _, found := uint32Property(properties, "MessageReference"); !found {
+			return false
+		}
+		if _, found := uint32Property(properties, "DeliveryState"); !found {
+			return false
+		}
+		if _, found := stringProperty(properties, "DischargeTimestamp"); found {
+			return true
+		}
+		_, found := stringProperty(properties, "Timestamp")
+		return found
+	}
+	if messageDirectionName(pduType) == "unknown" {
 		return false
 	}
 	if _, found := stringProperty(properties, "Number"); !found {

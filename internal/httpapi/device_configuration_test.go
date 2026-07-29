@@ -50,6 +50,35 @@ type fakeCallPolicies struct {
 	lineRevisionUpdate   int64
 }
 
+type fakeMessagePolicies struct {
+	policy         store.MessageDeliveryPolicy
+	enabledUpdate  bool
+	revisionUpdate int64
+}
+
+func (service *fakeMessagePolicies) MessageDeliveryPolicy(
+	context.Context,
+	string,
+) (store.MessageDeliveryPolicy, error) {
+	return service.policy, nil
+}
+
+func (service *fakeMessagePolicies) UpdateMessageDeliveryPolicy(
+	_ context.Context,
+	_ string,
+	enabled bool,
+	revision int64,
+) (store.MessageDeliveryPolicy, error) {
+	service.enabledUpdate = enabled
+	service.revisionUpdate = revision
+	service.policy.DeliveryReportsEnabled = enabled
+	if enabled {
+		service.policy.DeliveryReportsSupport = store.MessageDeliveryReportSupportUnknown
+	}
+	service.policy.Revision++
+	return service.policy, nil
+}
+
 func (service *fakeCallPolicies) GlobalCallSettings(
 	context.Context,
 ) (store.GlobalCallSettings, error) {
@@ -160,10 +189,17 @@ func TestAppDeviceConfigurationReturnsServerComputedPolicyAndVisibleDNDOutcome(t
 		},
 	}
 	communications := &fakeCommunications{status: communicationStatusWithReject("line-1")}
+	messagePolicies := &fakeMessagePolicies{policy: store.MessageDeliveryPolicy{
+		LineID:                 "line-1",
+		DeliveryReportsEnabled: false,
+		DeliveryReportsSupport: store.MessageDeliveryReportSupportUnsupported,
+		Revision:               3,
+	}}
 	api, err := New(&fakeRepository{}, Options{
 		Communications:        communications,
 		DeviceConfigurations:  configurations,
 		CallPolicies:          policies,
+		MessagePolicies:       messagePolicies,
 		disableAuthentication: true,
 	})
 	if err != nil {
@@ -192,8 +228,72 @@ func TestAppDeviceConfigurationReturnsServerComputedPolicyAndVisibleDNDOutcome(t
 		body.IncomingCalls.Enforcement.MaxSubmissionsPerCall != 1 ||
 		body.IncomingCalls.LastAction == nil ||
 		body.IncomingCalls.LastAction.Status != store.IncomingCallActionFailed ||
-		body.IncomingCalls.LastAction.ErrorCode != "agent_not_supported" {
+		body.IncomingCalls.LastAction.ErrorCode != "agent_not_supported" ||
+		body.Messaging == nil ||
+		body.Messaging.DeliveryReportsEnabled ||
+		body.Messaging.DeliveryReportsSupport !=
+			store.MessageDeliveryReportSupportUnsupported ||
+		body.Messaging.Revision != 3 {
 		t.Fatalf("configuration response = %+v", body)
+	}
+}
+
+func TestAppMessageDeliveryPolicyUsesRevisionedWrite(t *testing.T) {
+	t.Parallel()
+	configurations := &fakeDeviceConfigurations{configuration: agentclient.DeviceConfiguration{
+		LineID:     "line-1",
+		Revision:   "sha256:fixture",
+		ObservedAt: time.Date(2026, time.July, 29, 0, 0, 0, 0, time.UTC),
+	}}
+	messagePolicies := &fakeMessagePolicies{policy: store.MessageDeliveryPolicy{
+		LineID:                 "line-1",
+		DeliveryReportsSupport: store.MessageDeliveryReportSupportUnsupported,
+		Revision:               5,
+	}}
+	api, err := New(&fakeRepository{}, Options{
+		DeviceConfigurations:  configurations,
+		CallPolicies:          &fakeCallPolicies{},
+		MessagePolicies:       messagePolicies,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/v1/devices/line-1/configuration",
+		bytes.NewBufferString(`{
+			"operation":"set_delivery_reports_enabled",
+			"expected_message_policy_revision":5,
+			"delivery_reports_enabled":true
+		}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+	if response.Code != http.StatusOK ||
+		!messagePolicies.enabledUpdate ||
+		messagePolicies.revisionUpdate != 5 ||
+		configurations.applyRequest.Operation != "" {
+		t.Fatalf(
+			"status=%d update=(%t,%d) hardware=%+v body=%s",
+			response.Code,
+			messagePolicies.enabledUpdate,
+			messagePolicies.revisionUpdate,
+			configurations.applyRequest,
+			response.Body.String(),
+		)
+	}
+	var body deviceConfigurationResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Messaging == nil ||
+		!body.Messaging.DeliveryReportsEnabled ||
+		body.Messaging.DeliveryReportsSupport !=
+			store.MessageDeliveryReportSupportUnknown ||
+		body.Messaging.Revision != 6 {
+		t.Fatalf("messaging response = %+v", body.Messaging)
 	}
 }
 

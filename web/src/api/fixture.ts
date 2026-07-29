@@ -179,7 +179,8 @@ const messagesByThread: Record<string, Message[]> = {
       content: 'The test device is back online.',
       timestamp: '2026-07-23T09:38:00Z',
       type: 2,
-      status: 2
+      status: 2,
+      delivery_status: 'delivered'
     },
     {
       id: '102',
@@ -189,7 +190,8 @@ const messagesByThread: Record<string, Message[]> = {
       content: 'Thanks — I’ll check it later.',
       timestamp: '2026-07-23T09:42:00Z',
       type: 1,
-      status: 1
+      status: 1,
+      delivery_status: ''
     }
   ],
   [fixtureThreadKey('line-fixture-travel', CASEY_PHONE)]: [
@@ -201,7 +203,8 @@ const messagesByThread: Record<string, Message[]> = {
       content: 'The demo workspace is ready.',
       timestamp: '2026-07-22T14:18:00Z',
       type: 1,
-      status: 1
+      status: 1,
+      delivery_status: ''
     }
   ],
   [fixtureThreadKey('line-fixture-main', RILEY_PHONE)]: [
@@ -213,7 +216,8 @@ const messagesByThread: Record<string, Message[]> = {
       content: 'The sample report is available.',
       timestamp: '2026-07-20T05:59:00Z',
       type: 2,
-      status: 2
+      status: 2,
+      delivery_status: 'submitted'
     },
     {
       id: '105',
@@ -223,7 +227,8 @@ const messagesByThread: Record<string, Message[]> = {
       content: 'Got it, thank you.',
       timestamp: '2026-07-20T06:05:00Z',
       type: 1,
-      status: 1
+      status: 1,
+      delivery_status: ''
     }
   ]
 }
@@ -741,6 +746,16 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       }
     ])
   )
+  const messagePolicyByLine = new Map(
+    lines.map(line => [
+      line.id,
+      {
+        delivery_reports_enabled: false,
+        delivery_reports_support: 'unknown' as const,
+        revision: 1
+      }
+    ])
+  )
   const networkSelectionByLine = new Map<string, NetworkSelectionPolicy>(
     lines.map((line, index) => [
       fixtureLineKey(line),
@@ -1120,7 +1135,8 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     const line = lines.find(candidate => candidate.id === lineID)
     const hardware = hardwareByLine.get(lineID)
     const policy = policyByLine.get(lineID)
-    if (!line || !hardware || !policy) {
+    const messagePolicy = messagePolicyByLine.get(lineID)
+    if (!line || !hardware || !policy || !messagePolicy) {
       throw new ApiError('线路不存在', 404, 'not_found')
     }
     const rejectAvailable = line.capabilities?.reject === true
@@ -1149,7 +1165,8 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
             ? { reason: 'the attached line does not currently advertise reject-call capability' }
             : {})
         }
-      }
+      },
+      messaging: clone(messagePolicy)
     }
   }
 
@@ -1408,7 +1425,8 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         content: input.content,
         timestamp: '2026-07-23T12:00:00Z',
         type: 2,
-        status: 2
+        status: 2,
+        delivery_status: 'submitted'
       }
       messagesByThread[key]?.push(message)
       thread.last_content = message.content
@@ -2246,6 +2264,19 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         policy.revision += 1
         policy.updated_at = '2026-07-23 12:01:00'
         return { incoming_calls: configurationForLine(lineID).incoming_calls }
+      }
+      if (input.operation === 'set_delivery_reports_enabled') {
+        const policy = messagePolicyByLine.get(lineID)
+        if (!policy) throw new ApiError('线路不存在', 404, 'not_found')
+        if (input.expected_message_policy_revision !== policy.revision) {
+          throw new ApiError('短信送达回执设置已被其他会话修改', 409, 'conflict')
+        }
+        policy.delivery_reports_enabled = input.delivery_reports_enabled
+        if (input.delivery_reports_enabled) {
+          policy.delivery_reports_support = 'unknown'
+        }
+        policy.revision += 1
+        return { messaging: configurationForLine(lineID).messaging }
       }
 
       const hardware = hardwareByLine.get(lineID)

@@ -631,6 +631,37 @@ test('message response unwraps the finalized message envelope', () => {
   })
   assert.equal(message.id, 'message-1')
   assert.equal(message.direction, 'outgoing')
+  assert.equal(message.delivery_status, 'submitted')
+
+  const delivered = parseMessageResponse({
+    message: {
+      id: 'message-2',
+      line_id: 'line-main',
+      peer: '+818012345678',
+      content: 'delivered',
+      timestamp: '2026-07-23T12:01:00Z',
+      type: 2,
+      status: 2,
+      delivery_status: 'delivered'
+    }
+  })
+  assert.equal(delivered.delivery_status, 'delivered')
+  assert.throws(
+    () =>
+      parseMessageResponse({
+        message: {
+          id: 'message-3',
+          line_id: 'line-main',
+          peer: '+818012345678',
+          content: 'unknown status',
+          timestamp: '2026-07-23T12:02:00Z',
+          type: 2,
+          status: 2,
+          delivery_status: 'expired'
+        }
+      }),
+    /message\.delivery_status/
+  )
 })
 
 test('Telegram collection parsing drops tokens and preserves independent units', () => {

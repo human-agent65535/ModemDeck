@@ -44,6 +44,7 @@ type fakeCaller struct {
 	messageLists        map[dbus.ObjectPath][]dbus.ObjectPath
 	signalAfterSetup    map[dbus.ObjectPath]Properties
 	errors              map[string]error
+	errorSequences      map[string][]error
 	calls               []dbusInvocation
 	terminateOnHangup   bool
 	terminateATOnHangup bool
@@ -71,6 +72,13 @@ func (f *fakeCaller) Call(
 		Flags:       flags,
 		Args:        append([]any(nil), args...),
 	})
+	if sequence := f.errorSequences[method]; len(sequence) > 0 {
+		err := sequence[0]
+		f.errorSequences[method] = sequence[1:]
+		if err != nil {
+			return nil, err
+		}
+	}
 	if err := f.errors[method]; err != nil {
 		return nil, err
 	}
@@ -1466,9 +1474,102 @@ func TestSendMessageUsesMessagingCreateThenSmsSend(t *testing.T) {
 	if properties["number"].Value() != "+818012345678" || properties["text"].Value() != "hello" {
 		t.Fatalf("Create SMS properties = %#v", properties)
 	}
+	if _, found := properties["delivery-report-request"]; found {
+		t.Fatalf("default Create unexpectedly requested a delivery report: %#v", properties)
+	}
 	if calls[2].Path != caller.createdMessagePath {
 		t.Fatalf("Send SMS path = %q", calls[2].Path)
 	}
+}
+
+func TestSendMessageRequestsDeliveryReportWhenEnabled(t *testing.T) {
+	caller := newFakeCaller(emptyLineObjects(false, true))
+	provider := newTestProvider(caller)
+
+	receipt, err := provider.SendMessage(context.Background(), domain.SendMessageRequest{
+		RequestID:               "request-sms-report",
+		LineID:                  parsedLineID(caller.objects, provider.ids),
+		Number:                  "+818012345678",
+		Text:                    "hello",
+		DeliveryReportRequested: true,
+	})
+	if err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	if receipt.DeliveryReportUnsupported {
+		t.Fatalf("receipt = %+v", receipt)
+	}
+	calls := caller.invocations()
+	properties := calls[1].Args[0].(map[string]dbus.Variant)
+	if value, found := properties["delivery-report-request"]; !found || value.Value() != true {
+		t.Fatalf("Create SMS properties = %#v", properties)
+	}
+}
+
+func TestSendMessageFallsBackOnlyAfterExplicitDeliveryReportRejection(t *testing.T) {
+	caller := newFakeCaller(emptyLineObjects(false, true))
+	caller.errorSequences[smsInterface+".Send"] = []error{
+		dbus.NewError(
+			"org.freedesktop.ModemManager1.Error.Message.Unknown",
+			[]any{"Unknown message error: 50"},
+		),
+		nil,
+	}
+	provider := newTestProvider(caller)
+
+	receipt, err := provider.SendMessage(context.Background(), domain.SendMessageRequest{
+		RequestID:               "request-sms-report-fallback",
+		LineID:                  parsedLineID(caller.objects, provider.ids),
+		Number:                  "+818012345678",
+		Text:                    "hello",
+		DeliveryReportRequested: true,
+	})
+	if err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	if !receipt.DeliveryReportUnsupported {
+		t.Fatalf("receipt = %+v", receipt)
+	}
+	calls := caller.invocations()
+	assertMethods(t, calls,
+		objectManagerInterface+".GetManagedObjects",
+		messagingInterface+".Create",
+		smsInterface+".Send",
+		messagingInterface+".Delete",
+		messagingInterface+".Create",
+		smsInterface+".Send",
+	)
+	first := calls[1].Args[0].(map[string]dbus.Variant)
+	second := calls[4].Args[0].(map[string]dbus.Variant)
+	if _, found := first["delivery-report-request"]; !found {
+		t.Fatalf("first Create properties = %#v", first)
+	}
+	if _, found := second["delivery-report-request"]; found {
+		t.Fatalf("fallback Create properties = %#v", second)
+	}
+}
+
+func TestSendMessageDoesNotRetryAmbiguousDeliveryReportFailure(t *testing.T) {
+	caller := newFakeCaller(emptyLineObjects(false, true))
+	caller.errors[smsInterface+".Send"] = dbus.NewError(
+		"org.freedesktop.ModemManager1.Error.Message.NetworkTimeout",
+		[]any{"network timeout"},
+	)
+	provider := newTestProvider(caller)
+
+	_, err := provider.SendMessage(context.Background(), domain.SendMessageRequest{
+		RequestID:               "request-sms-report-timeout",
+		LineID:                  parsedLineID(caller.objects, provider.ids),
+		Number:                  "+818012345678",
+		Text:                    "hello",
+		DeliveryReportRequested: true,
+	})
+	assertOperationError(t, err, domain.ErrorUnavailable, "send_message")
+	assertMethods(t, caller.invocations(),
+		objectManagerInterface+".GetManagedObjects",
+		messagingInterface+".Create",
+		smsInterface+".Send",
+	)
 }
 
 func TestSendMessageFailureDoesNotInvokeFallbackOrDelete(t *testing.T) {
@@ -1592,6 +1693,7 @@ func newFakeCaller(objects ManagedObjects) *fakeCaller {
 		atResponses:      make(map[string]string),
 		atCommandErrors:  make(map[string]error),
 		errors:           make(map[string]error),
+		errorSequences:   make(map[string][]error),
 	}
 }
 

@@ -69,6 +69,7 @@ func TestSnapshotJSONContractUsesArraysAndRequiredTruthFields(t *testing.T) {
 			StateCode: 3,
 			Timestamp: "2026-07-23T10:00:00+09:00",
 		}},
+		DeliveryReports: []MessageDeliveryReport{},
 	}
 
 	encoded, err := json.Marshal(snapshot)
@@ -79,13 +80,23 @@ func TestSnapshotJSONContractUsesArraysAndRequiredTruthFields(t *testing.T) {
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	for _, key := range []string{"revision", "observed_at", "lines", "calls", "messages"} {
+	for _, key := range []string{
+		"revision",
+		"observed_at",
+		"lines",
+		"calls",
+		"messages",
+		"delivery_reports",
+	} {
 		if _, ok := decoded[key]; !ok {
 			t.Fatalf("snapshot JSON missing %q: %s", key, encoded)
 		}
 	}
 	if _, ok := decoded["lines"].([]any); !ok {
 		t.Fatalf("lines is not an array: %T", decoded["lines"])
+	}
+	if _, ok := decoded["delivery_reports"].([]any); !ok {
+		t.Fatalf("delivery_reports is not an array: %T", decoded["delivery_reports"])
 	}
 	lines := decoded["lines"].([]any)
 	line := lines[0].(map[string]any)

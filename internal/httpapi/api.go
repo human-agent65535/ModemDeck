@@ -167,6 +167,16 @@ type CallPolicyService interface {
 	LatestIncomingCallAction(context.Context, string) (*store.IncomingCallAction, error)
 }
 
+type MessagePolicyService interface {
+	MessageDeliveryPolicy(context.Context, string) (store.MessageDeliveryPolicy, error)
+	UpdateMessageDeliveryPolicy(
+		context.Context,
+		string,
+		bool,
+		int64,
+	) (store.MessageDeliveryPolicy, error)
+}
+
 type TelegramSettingsService interface {
 	List(context.Context) ([]telegramsettings.Unit, error)
 	Create(context.Context, telegramsettings.CreateInput) (telegramsettings.Unit, error)
@@ -237,6 +247,7 @@ type Options struct {
 	DeviceConfigurations  DeviceConfigurationService
 	LineServices          LineService
 	CallPolicies          CallPolicyService
+	MessagePolicies       MessagePolicyService
 	CallMedia             CallMediaService
 	CallLeases            CallLeaseService
 	Recording             RecordingService
@@ -265,6 +276,7 @@ type API struct {
 	deviceConfigurations DeviceConfigurationService
 	lineServices         LineService
 	callPolicies         CallPolicyService
+	messagePolicies      MessagePolicyService
 	callMedia            CallMediaService
 	callLeases           CallLeaseService
 	recordings           RecordingService
@@ -308,6 +320,7 @@ func New(repository Repository, options Options) (*API, error) {
 		deviceConfigurations: options.DeviceConfigurations,
 		lineServices:         options.LineServices,
 		callPolicies:         options.CallPolicies,
+		messagePolicies:      options.MessagePolicies,
 		callMedia:            options.CallMedia,
 		callLeases:           options.CallLeases,
 		recordings:           options.Recording,

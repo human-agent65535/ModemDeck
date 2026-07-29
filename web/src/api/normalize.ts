@@ -197,6 +197,17 @@ export function parseMessage(value: unknown): Message {
   const source = objectValue(value, 'message')
   const type = numberValue(source, 'type')
   if (type !== 1 && type !== 2) throw new Error(`message.type 未知：${type}`)
+  const reportedDeliveryStatus = stringValue(source, 'delivery_status')
+  const deliveryStatus =
+    reportedDeliveryStatus || (type === 2 ? 'submitted' : '')
+  if (
+    deliveryStatus !== '' &&
+    deliveryStatus !== 'submitted' &&
+    deliveryStatus !== 'delivered' &&
+    deliveryStatus !== 'failed'
+  ) {
+    throw new Error(`message.delivery_status 未知：${deliveryStatus}`)
+  }
   return {
     id: requiredString(source, 'message', 'id'),
     line_id: requiredString(source, 'message', 'line_id'),
@@ -205,7 +216,8 @@ export function parseMessage(value: unknown): Message {
     content: stringValue(source, 'content'),
     timestamp: stringValue(source, 'timestamp'),
     type,
-    status: numberValue(source, 'status')
+    status: numberValue(source, 'status'),
+    delivery_status: deliveryStatus
   }
 }
 

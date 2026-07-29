@@ -161,6 +161,52 @@ func TestMapCallErrorTreatsContextTerminationAsUnavailable(t *testing.T) {
 	}
 }
 
+func TestDeliveryReportSendRejectedRequiresExplicitFacilityError(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		message string
+		want    bool
+	}{
+		{name: "CMS 50", message: "+CMS ERROR: 50", want: true},
+		{name: "CMS 69", message: "+CMS ERROR: 69", want: true},
+		{name: "ModemManager 50", message: "Unknown message error: 50", want: true},
+		{name: "not subscribed", message: "Requested facility not subscribed", want: true},
+		{name: "service option not subscribed", message: "Requested service option not subscribed", want: true},
+		{name: "different numeric code", message: "+CMS ERROR: 500"},
+		{name: "ambiguous timeout", message: "Network timeout"},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			err := mapCallError(
+				"send_message",
+				"send failed",
+				dbus.NewError(
+					"org.freedesktop.ModemManager1.Error.Message.Unknown",
+					[]any{test.message},
+				),
+			)
+			if got := deliveryReportSendRejected(err); got != test.want {
+				t.Fatalf("deliveryReportSendRejected(%q) = %t, want %t", test.message, got, test.want)
+			}
+		})
+	}
+
+	notSupported := mapCallError(
+		"send_message",
+		"send failed",
+		dbus.NewError(
+			"org.freedesktop.ModemManager1.Error.Message.NotSupported",
+			[]any{"Operation not supported"},
+		),
+	)
+	if !deliveryReportSendRejected(notSupported) {
+		t.Fatal("explicit Message.NotSupported rejection was not recognized")
+	}
+}
+
 func assertMappedError(t *testing.T, err error, want domain.ErrorCode) {
 	t.Helper()
 

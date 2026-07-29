@@ -472,6 +472,8 @@ export type MessageThread = {
   favorite: boolean
 }
 
+export type MessageDeliveryStatus = '' | 'submitted' | 'delivered' | 'failed'
+
 export type Message = {
   id: string
   line_id: string
@@ -481,6 +483,7 @@ export type Message = {
   timestamp: string
   type: 1 | 2
   status: number
+  delivery_status: MessageDeliveryStatus
 }
 
 export type IncomingMessageEvent = {
@@ -805,6 +808,14 @@ export type LineIncomingCallConfiguration = {
   last_action?: IncomingCallActionResult
 }
 
+export type MessageDeliveryReportSupport = 'unknown' | 'unsupported'
+
+export type LineMessagingConfiguration = {
+  delivery_reports_enabled: boolean
+  delivery_reports_support: MessageDeliveryReportSupport
+  revision: number
+}
+
 export type DeviceFeatureCapability = {
   backend: string
   supported: boolean
@@ -933,6 +944,7 @@ export type DeviceHardwareConfiguration = {
 export type DeviceConfiguration = {
   hardware?: DeviceHardwareConfiguration
   incoming_calls?: LineIncomingCallConfiguration
+  messaging?: LineMessagingConfiguration
 }
 
 export type DiagnosticStatus = 'ok' | 'degraded' | 'unavailable'
@@ -1045,6 +1057,11 @@ export type UpdateDeviceConfigurationInput =
       operation: 'set_incoming_call_policy'
       expected_policy_revision: number
       incoming_call_policy: IncomingCallPolicy
+    }
+  | {
+      operation: 'set_delivery_reports_enabled'
+      expected_message_policy_revision: number
+      delivery_reports_enabled: boolean
     }
   | {
       request_id: string

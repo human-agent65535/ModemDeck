@@ -114,6 +114,18 @@ test('call policy and device configuration contracts match the root API', () => 
       incoming_call_policy: 'follow_global'
     }
   )
+  assert.deepEqual(
+    createDeviceConfigurationPayload({
+      operation: 'set_delivery_reports_enabled',
+      expected_message_policy_revision: 4,
+      delivery_reports_enabled: true
+    }),
+    {
+      operation: 'set_delivery_reports_enabled',
+      expected_message_policy_revision: 4,
+      delivery_reports_enabled: true
+    }
+  )
   const restartPayload = createDeviceConfigurationPayload({
     request_id: ' request-restart-1 ',
     operation: 'restart_modem',
@@ -585,6 +597,54 @@ test('fixture applies successful revisioned updates and rejects stale revisions'
   })
   assert.equal(updatedPolicy.incoming_calls?.policy, 'do_not_disturb')
   assert.equal(updatedPolicy.incoming_calls?.effective_policy, 'do_not_disturb')
+})
+
+test('SMS delivery reports are an opt-in revisioned device setting', async () => {
+  const gateway = createFixtureGateway()
+  const configuration = parseDeviceConfigurationResponse(
+    await gateway.getDeviceConfiguration('line-fixture-main')
+  )
+
+  assert.deepEqual(configuration.messaging, {
+    delivery_reports_enabled: false,
+    delivery_reports_support: 'unknown',
+    revision: 1
+  })
+
+  const updated = parseDeviceConfigurationResponse(
+    await gateway.updateDeviceConfiguration('line-fixture-main', {
+      operation: 'set_delivery_reports_enabled',
+      expected_message_policy_revision: configuration.messaging.revision,
+      delivery_reports_enabled: true
+    })
+  )
+  assert.deepEqual(updated.messaging, {
+    delivery_reports_enabled: true,
+    delivery_reports_support: 'unknown',
+    revision: 2
+  })
+
+  await assert.rejects(
+    () =>
+      gateway.updateDeviceConfiguration('line-fixture-main', {
+        operation: 'set_delivery_reports_enabled',
+        expected_message_policy_revision: configuration.messaging.revision,
+        delivery_reports_enabled: false
+      }),
+    error => error?.status === 409 && error?.code === 'conflict'
+  )
+
+  assert.match(devicePanelSource, /t\('device\.requestDeliveryReports'\)/)
+  assert.match(devicePanelSource, /messaging\.delivery_reports_support === 'unsupported'/)
+  assert.match(devicePanelSource, /class="configuration-toggle__unsupported"/)
+  assert.match(
+    devicePanelSource,
+    /\.configuration-toggle small\.configuration-toggle__unsupported\s*\{[^}]*color:\s*#c7352d/s
+  )
+  assert.match(
+    deviceConfigurationStateSource,
+    /operation:\s*['"]set_delivery_reports_enabled['"][\s\S]*expected_message_policy_revision:\s*revision/
+  )
 })
 
 test('hardware writes refresh their revision and retry one concurrent change', () => {

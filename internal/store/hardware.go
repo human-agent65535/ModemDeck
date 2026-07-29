@@ -80,7 +80,22 @@ func (s *Store) ApplyHardwareSnapshotWithResult(
 	); err != nil {
 		return HardwareSnapshotResult{}, err
 	}
+	handledReports := make([]string, 0, len(snapshot.DeliveryReports))
 	if duplicate {
+		for _, report := range snapshot.DeliveryReports {
+			handled, err := applyHardwareMessageDeliveryReport(
+				ctx,
+				transaction,
+				report,
+				sequence,
+			)
+			if err != nil {
+				return HardwareSnapshotResult{}, err
+			}
+			if handled {
+				handledReports = append(handledReports, report.EndpointReportID)
+			}
+		}
 		if err := closeMissingCalls(ctx, transaction, snapshot, sequence, lineIDsByEndpoint); err != nil {
 			return HardwareSnapshotResult{}, err
 		}
@@ -91,8 +106,9 @@ func (s *Store) ApplyHardwareSnapshotWithResult(
 			)
 		}
 		return HardwareSnapshotResult{
-			CreatedIncomingMessages: []Message{},
-			LineIDsByEndpoint:       lineIDsByEndpoint,
+			CreatedIncomingMessages:  []Message{},
+			HandledDeliveryReportIDs: handledReports,
+			LineIDsByEndpoint:        lineIDsByEndpoint,
 		}, nil
 	}
 
@@ -105,6 +121,20 @@ func (s *Store) ApplyHardwareSnapshotWithResult(
 		}
 		if created && stored.Direction == "incoming" && stored.State == "received" {
 			createdIncoming = append(createdIncoming, stored)
+		}
+	}
+	for _, report := range snapshot.DeliveryReports {
+		handled, err := applyHardwareMessageDeliveryReport(
+			ctx,
+			transaction,
+			report,
+			sequence,
+		)
+		if err != nil {
+			return HardwareSnapshotResult{}, err
+		}
+		if handled {
+			handledReports = append(handledReports, report.EndpointReportID)
 		}
 	}
 	for _, call := range snapshot.Calls {
@@ -120,8 +150,9 @@ func (s *Store) ApplyHardwareSnapshotWithResult(
 		return HardwareSnapshotResult{}, fmt.Errorf("commit hardware snapshot: %w", err)
 	}
 	return HardwareSnapshotResult{
-		CreatedIncomingMessages: createdIncoming,
-		LineIDsByEndpoint:       lineIDsByEndpoint,
+		CreatedIncomingMessages:  createdIncoming,
+		HandledDeliveryReportIDs: handledReports,
+		LineIDsByEndpoint:        lineIDsByEndpoint,
 	}, nil
 }
 
@@ -675,6 +706,28 @@ func rewriteSnapshotLineIdentities(
 		}
 		message.HomeCountryISO = homeCountry
 	}
+	for index := range snapshot.DeliveryReports {
+		report := &snapshot.DeliveryReports[index]
+		endpointLineID := strings.TrimSpace(report.EndpointLineID)
+		if endpointLineID == "" {
+			endpointLineID = strings.TrimSpace(report.LineID)
+		}
+		lineID := lineIDsByEndpoint[endpointLineID]
+		if lineID == "" {
+			return fmt.Errorf(
+				"%w: delivery report line %q is unavailable",
+				ErrSnapshotInvalid,
+				endpointLineID,
+			)
+		}
+		report.LineID = lineID
+		report.EndpointLineID = endpointLineID
+		homeCountry, err := lineHomeCountry(lineID, report.HomeCountryISO)
+		if err != nil {
+			return fmt.Errorf("resolve delivery report home country: %w", err)
+		}
+		report.HomeCountryISO = homeCountry
+	}
 	for index := range snapshot.Calls {
 		call := &snapshot.Calls[index]
 		endpointLineID := strings.TrimSpace(call.EndpointLineID)
@@ -730,12 +783,27 @@ func upsertHardwareMessage(
 	message.Text = strings.TrimSpace(message.Text)
 	message.Direction = strings.ToLower(strings.TrimSpace(message.Direction))
 	message.State = strings.ToLower(strings.TrimSpace(message.State))
+	if message.Direction == "incoming" {
+		message.DeliveryStatus = MessageDeliveryUnknown
+		message.DeliveryReportRequested = false
+		message.DeliveryReportTrackable = false
+	} else if message.DeliveryStatus == MessageDeliveryUnknown {
+		message.DeliveryStatus = MessageDeliverySubmitted
+	}
 	if message.LineID == "" || message.EndpointLineID == "" ||
 		message.Number == "" || message.Text == "" {
 		return Message{}, false, fmt.Errorf("%w: message identity or content is empty", ErrSnapshotInvalid)
 	}
 	if message.Direction != "incoming" && message.Direction != "outgoing" {
 		return Message{}, false, fmt.Errorf("%w: invalid message direction", ErrSnapshotInvalid)
+	}
+	switch message.DeliveryStatus {
+	case MessageDeliveryUnknown,
+		MessageDeliverySubmitted,
+		MessageDeliveryDelivered,
+		MessageDeliveryFailed:
+	default:
+		return Message{}, false, fmt.Errorf("%w: invalid message delivery status", ErrSnapshotInvalid)
 	}
 	if message.EndpointMessageID == "" && message.RequestID == "" {
 		return Message{}, false, fmt.Errorf("%w: message has no endpoint or request identity", ErrSnapshotInvalid)
@@ -782,13 +850,19 @@ func upsertHardwareMessage(
 			sender = message.LocalPhone
 			recipient = message.Number
 		}
+		var messageReference any
+		if message.MessageReferenceKnown {
+			messageReference = int64(message.MessageReference)
+		}
 		result, err := transaction.ExecContext(
 			ctx,
 			`INSERT INTO sms (
 				request_id, line_id, endpoint_line_id, endpoint_message_id, imsi, iccid, peer,
 				reported_peer, local_phone, sender, recipient, content, type, status, state,
+				delivery_status, message_reference, delivery_report_requested,
+				delivery_report_trackable, delivery_report_code,
 				failure_code, revision, timestamp, created_at
-			 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)`,
+			 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?, ?)`,
 			message.RequestID,
 			message.LineID,
 			message.EndpointLineID,
@@ -804,6 +878,10 @@ func upsertHardwareMessage(
 			messageType,
 			message.StateCode,
 			message.State,
+			string(message.DeliveryStatus),
+			messageReference,
+			message.DeliveryReportRequested,
+			message.DeliveryReportTrackable,
 			message.Revision,
 			databaseTime(message.Timestamp),
 			databaseTime(message.ObservedAt),
@@ -870,6 +948,17 @@ func upsertHardwareMessage(
 				recipient = ?,
 				status = CASE WHEN revision <= ? THEN ? ELSE status END,
 				state = CASE WHEN revision <= ? THEN ? ELSE state END,
+				delivery_status = CASE
+					WHEN delivery_status = '' AND ? <> '' THEN ?
+					ELSE delivery_status
+				END,
+				message_reference = CASE WHEN ? THEN ? ELSE message_reference END,
+				delivery_report_requested = CASE
+					WHEN ? THEN 1 ELSE delivery_report_requested
+				END,
+				delivery_report_trackable = CASE
+					WHEN ? THEN 1 ELSE delivery_report_trackable
+				END,
 				revision = CASE WHEN revision < ? THEN ? ELSE revision END
 			 WHERE id = ?`,
 			message.RequestID,
@@ -883,6 +972,12 @@ func upsertHardwareMessage(
 			message.StateCode,
 			message.Revision,
 			message.State,
+			string(message.DeliveryStatus),
+			string(message.DeliveryStatus),
+			message.MessageReferenceKnown,
+			int64(message.MessageReference),
+			message.DeliveryReportRequested,
+			message.DeliveryReportTrackable,
 			message.Revision,
 			message.Revision,
 			existingID,
@@ -912,6 +1007,90 @@ func upsertHardwareMessage(
 	}
 	stored, err := messageByID(ctx, transaction, existingID)
 	return stored, created, err
+}
+
+func applyHardwareMessageDeliveryReport(
+	ctx context.Context,
+	transaction *sql.Tx,
+	report HardwareMessageDeliveryReport,
+	revision int64,
+) (bool, error) {
+	report.EndpointReportID = strings.TrimSpace(report.EndpointReportID)
+	report.LineID = strings.TrimSpace(report.LineID)
+	if report.EndpointReportID == "" || report.LineID == "" {
+		return false, fmt.Errorf("%w: invalid delivery report identity", ErrSnapshotInvalid)
+	}
+	if !report.MessageReferenceKnown || !report.DeliveryStateKnown {
+		return false, nil
+	}
+	if report.Timestamp.IsZero() {
+		report.Timestamp = report.ObservedAt
+	}
+	if report.Timestamp.IsZero() {
+		return false, fmt.Errorf("%w: delivery report timestamp is empty", ErrSnapshotInvalid)
+	}
+	number := phone.CanonicalNetworkAddress(report.Number, report.HomeCountryISO)
+	reportTime := databaseTime(report.Timestamp)
+	var (
+		messageID      int64
+		deliveryStatus sql.NullString
+		trackable      sql.NullInt64
+	)
+	err := transaction.QueryRowContext(
+		ctx,
+		`SELECT id, delivery_status, delivery_report_trackable
+		 FROM sms
+		 WHERE line_id = ?
+			AND type = 2
+			AND delivery_report_requested = 1
+			AND message_reference = ?
+			AND (? = '' OR peer = ?)
+			AND datetime(timestamp) <= datetime(?, '+5 minutes')
+			AND datetime(timestamp) >= datetime(?, '-30 days')
+		 ORDER BY datetime(timestamp) DESC, id DESC
+		 LIMIT 1`,
+		report.LineID,
+		int64(report.MessageReference),
+		number,
+		number,
+		reportTime,
+		reportTime,
+	).Scan(&messageID, &deliveryStatus, &trackable)
+	if errors.Is(err, sql.ErrNoRows) {
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("match SMS delivery report: %w", err)
+	}
+
+	current := MessageDeliveryStatus(stringValue(deliveryStatus))
+	next := current
+	switch {
+	case report.DeliveryState == 0x00 &&
+		current == MessageDeliverySubmitted &&
+		boolValue(trackable):
+		next = MessageDeliveryDelivered
+	case report.DeliveryState >= 0x40 &&
+		report.DeliveryState <= 0x7f &&
+		current == MessageDeliverySubmitted:
+		next = MessageDeliveryFailed
+	}
+	if _, err := transaction.ExecContext(
+		ctx,
+		`UPDATE sms
+		 SET delivery_status = ?,
+			delivery_report_code = ?,
+			revision = CASE WHEN revision < ? THEN ? ELSE revision END
+		 WHERE id = ?`,
+		string(next),
+		int64(report.DeliveryState),
+		revision,
+		revision,
+		messageID,
+	); err != nil {
+		return false, fmt.Errorf("apply SMS delivery report: %w", err)
+	}
+	return true, nil
 }
 
 func updateMessageThread(
@@ -1125,13 +1304,17 @@ func messageByID(ctx context.Context, queryer interface {
 		message                                                             Message
 		requestID, lineID, endpointLineID, endpointID, imsi, iccid, peer    sql.NullString
 		reportedPeer, local, sender, recipient, content, state, failureCode sql.NullString
+		deliveryStatus                                                      sql.NullString
 		timestamp, createdAt                                                sql.NullString
-		messageType, status, revision                                       sql.NullInt64
+		messageType, status, messageReference, reportRequested              sql.NullInt64
+		reportTrackable, reportCode, revision                               sql.NullInt64
 	)
 	err := queryer.QueryRowContext(
 		ctx,
 		`SELECT id, request_id, line_id, endpoint_line_id, endpoint_message_id, imsi, iccid, peer,
 			reported_peer, local_phone, sender, recipient, content, type, status, state,
+			delivery_status, message_reference, delivery_report_requested,
+			delivery_report_trackable, delivery_report_code,
 			failure_code, revision, timestamp, created_at
 		 FROM sms WHERE id = ?`,
 		id,
@@ -1152,6 +1335,11 @@ func messageByID(ctx context.Context, queryer interface {
 		&messageType,
 		&status,
 		&state,
+		&deliveryStatus,
+		&messageReference,
+		&reportRequested,
+		&reportTrackable,
+		&reportCode,
 		&failureCode,
 		&revision,
 		&timestamp,
@@ -1178,6 +1366,11 @@ func messageByID(ctx context.Context, queryer interface {
 	message.Type = intValue(messageType)
 	message.Status = intValue(status)
 	message.State = stringValue(state)
+	message.DeliveryStatus = MessageDeliveryStatus(stringValue(deliveryStatus))
+	message.MessageReference = nullableIntValue(messageReference)
+	message.DeliveryReportRequested = boolValue(reportRequested)
+	message.DeliveryReportTrackable = boolValue(reportTrackable)
+	message.DeliveryReportCode = nullableIntValue(reportCode)
 	message.FailureCode = stringValue(failureCode)
 	message.Revision = intValue(revision)
 	message.Timestamp = stringValue(timestamp)

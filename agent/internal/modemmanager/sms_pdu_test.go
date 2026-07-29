@@ -48,7 +48,7 @@ func TestSMSPDUClassification(t *testing.T) {
 	}
 }
 
-func TestParseManagedObjectsExcludesSMSControlPDUs(t *testing.T) {
+func TestParseManagedObjectsSeparatesStatusReportsFromBusinessMessages(t *testing.T) {
 	t.Parallel()
 	objects := emptyLineObjects(false, true)
 	deliverPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/SMS/31")
@@ -56,6 +56,11 @@ func TestParseManagedObjectsExcludesSMSControlPDUs(t *testing.T) {
 	acknowledgementPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/SMS/33")
 	addMessage(objects, deliverPath, smsPDUDeliver, 3, "hello")
 	addMessage(objects, statusReportPath, smsPDUStatusReport, 3, "not a conversation")
+	objects[statusReportPath][smsInterface]["MessageReference"] = dbus.MakeVariant(uint32(37))
+	objects[statusReportPath][smsInterface]["DeliveryState"] = dbus.MakeVariant(uint32(0))
+	objects[statusReportPath][smsInterface]["DischargeTimestamp"] = dbus.MakeVariant(
+		"2026-07-29T10:15:00+09",
+	)
 	addMessage(
 		objects,
 		acknowledgementPath,
@@ -71,7 +76,17 @@ func TestParseManagedObjectsExcludesSMSControlPDUs(t *testing.T) {
 	if len(parsed.Lines) != 1 || len(parsed.Lines[0].MessageIDs) != 1 {
 		t.Fatalf("line message IDs = %+v, want one business message", parsed.Lines)
 	}
-	if len(parsed.MessagePaths) != 1 || parsed.MessagePaths[parsed.Messages[0].ID] != deliverPath {
-		t.Fatalf("message paths = %+v, want only %q", parsed.MessagePaths, deliverPath)
+	if len(parsed.DeliveryReports) != 1 ||
+		parsed.DeliveryReports[0].MessageReference != 37 ||
+		!parsed.DeliveryReports[0].MessageReferenceKnown ||
+		parsed.DeliveryReports[0].DeliveryState != 0 ||
+		!parsed.DeliveryReports[0].DeliveryStateKnown ||
+		parsed.DeliveryReports[0].Timestamp != "2026-07-29T10:15:00+09" {
+		t.Fatalf("delivery reports = %+v", parsed.DeliveryReports)
+	}
+	if len(parsed.MessagePaths) != 2 ||
+		parsed.MessagePaths[parsed.Messages[0].ID] != deliverPath ||
+		parsed.MessagePaths[parsed.DeliveryReports[0].ID] != statusReportPath {
+		t.Fatalf("message paths = %+v, want business and status-report paths", parsed.MessagePaths)
 	}
 }

@@ -24,9 +24,15 @@ type IncomingPolicyUpdate = Extract<
   { operation: 'set_incoming_call_policy' }
 >
 
+type MessagePolicyUpdate = Extract<
+  UpdateDeviceConfigurationInput,
+  { operation: 'set_delivery_reports_enabled' }
+>
+
 type HardwareUpdateInput = Exclude<
   UpdateDeviceConfigurationInput,
-  { operation: 'set_incoming_call_policy' }
+  | { operation: 'set_incoming_call_policy' }
+  | { operation: 'set_delivery_reports_enabled' }
 >
 
 type HardwareUpdateIntent =
@@ -38,7 +44,7 @@ type HardwareUpdateIntent =
   | { operation: 'restart_modem' }
   | { operation: 'reset_usb' }
 
-type DeviceUpdateIntent = IncomingPolicyUpdate | HardwareUpdateIntent
+type DeviceUpdateIntent = IncomingPolicyUpdate | MessagePolicyUpdate | HardwareUpdateIntent
 
 export const globalIncomingCallState = reactive<{
   status: ResourceStatus
@@ -75,7 +81,8 @@ function deviceConfigurationErrorText(
   if (
     error instanceof ApiError &&
     error.code === 'conflict' &&
-    input.operation !== 'set_incoming_call_policy'
+    input.operation !== 'set_incoming_call_policy' &&
+    input.operation !== 'set_delivery_reports_enabled'
   ) {
     return translate('runtime.deviceConfigurationChanged')
   }
@@ -144,8 +151,10 @@ function mergeConfiguration(
   return {
     ...(current?.hardware ? { hardware: current.hardware } : {}),
     ...(current?.incoming_calls ? { incoming_calls: current.incoming_calls } : {}),
+    ...(current?.messaging ? { messaging: current.messaging } : {}),
     ...(update.hardware ? { hardware: update.hardware } : {}),
-    ...(update.incoming_calls ? { incoming_calls: update.incoming_calls } : {})
+    ...(update.incoming_calls ? { incoming_calls: update.incoming_calls } : {}),
+    ...(update.messaging ? { messaging: update.messaging } : {})
   }
 }
 
@@ -248,7 +257,11 @@ export async function loadDeviceConfiguration(
   operation = (async () => {
     try {
       const configuration = await gateway.getDeviceConfiguration(normalizedLineID)
-      if (!configuration.hardware || !configuration.incoming_calls) {
+      if (
+        !configuration.hardware ||
+        !configuration.incoming_calls ||
+        !configuration.messaging
+      ) {
         throw new Error(translate('runtime.invalidDeviceConfiguration'))
       }
       if (isCurrentDeviceConfigurationRequest(normalizedLineID, generation)) {
@@ -300,7 +313,8 @@ async function updateDevice(
   target.error = ''
   try {
     const updated =
-      input.operation === 'set_incoming_call_policy'
+      input.operation === 'set_incoming_call_policy' ||
+      input.operation === 'set_delivery_reports_enabled'
         ? await gateway.updateDeviceConfiguration(lineID, input)
         : await applyHardwareUpdate(lineID, target, input)
     target.data = mergeConfiguration(target.data, updated)
@@ -326,7 +340,7 @@ async function applyHardwareUpdate(
   let lastConflict: unknown
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const latest = await gateway.getDeviceConfiguration(lineID)
-    if (!latest.hardware || !latest.incoming_calls) {
+    if (!latest.hardware || !latest.incoming_calls || !latest.messaging) {
       throw new Error(translate('runtime.invalidDeviceConfiguration'))
     }
     target.data = mergeConfiguration(target.data, latest)
@@ -475,5 +489,17 @@ export function setIncomingCallPolicy(
     operation: 'set_incoming_call_policy',
     expected_policy_revision: revision,
     incoming_call_policy: policy
+  })
+}
+
+export function setDeliveryReportsEnabled(
+  lineID: string,
+  enabled: boolean
+): Promise<boolean> {
+  const revision = resourceFor(lineID).data?.messaging?.revision || 0
+  return updateDevice(lineID, {
+    operation: 'set_delivery_reports_enabled',
+    expected_message_policy_revision: revision,
+    delivery_reports_enabled: enabled
   })
 }

@@ -268,6 +268,7 @@ func run(
 		DeviceConfigurations: communications,
 		LineServices:         communications,
 		CallPolicies:         communications,
+		MessagePolicies:      communications,
 		CallMedia:            callMedia,
 		CallLeases:           callLeases,
 		Recording:            recordings,

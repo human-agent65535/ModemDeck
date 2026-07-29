@@ -3,6 +3,8 @@ package modemmanager
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/human-agent65535/modemdeck/agent/internal/domain"
@@ -269,4 +271,79 @@ func dbusErrorName(err error) string {
 		return value.Name
 	}
 	return ""
+}
+
+func deliveryReportCreateRejected(err error) bool {
+	operationError, ok := domain.AsOperationError(err)
+	if !ok {
+		return false
+	}
+	return operationError.Code == domain.ErrorInvalidArgument ||
+		operationError.Code == domain.ErrorNotSupported
+}
+
+func deliveryReportSendRejected(err error) bool {
+	operationError, ok := domain.AsOperationError(err)
+	if ok && operationError.Code == domain.ErrorNotSupported {
+		return true
+	}
+	details := strings.ToLower(dbusErrorDetails(err))
+	if details == "" {
+		return false
+	}
+	for _, marker := range []string{
+		"requested facility not subscribed",
+		"requested facility not implemented",
+		"requested service option not subscribed",
+		"service option not supported",
+	} {
+		if strings.Contains(details, marker) {
+			return true
+		}
+	}
+	return containsExactErrorCode(details, "unknown message error:", "50") ||
+		containsExactErrorCode(details, "unknown message error:", "69") ||
+		containsExactErrorCode(details, "+cms error:", "50") ||
+		containsExactErrorCode(details, "+cms error:", "69")
+}
+
+func containsExactErrorCode(details, marker, code string) bool {
+	for {
+		index := strings.Index(details, marker)
+		if index < 0 {
+			return false
+		}
+		remainder := strings.TrimLeft(details[index+len(marker):], " \t")
+		if strings.HasPrefix(remainder, code) &&
+			(len(remainder) == len(code) ||
+				remainder[len(code)] < '0' ||
+				remainder[len(code)] > '9') {
+			return true
+		}
+		details = details[index+len(marker):]
+	}
+}
+
+func dbusErrorDetails(err error) string {
+	var pointer *dbus.Error
+	if errors.As(err, &pointer) && pointer != nil {
+		return dbusErrorBody(pointer)
+	}
+	var value dbus.Error
+	if errors.As(err, &value) {
+		return dbusErrorBody(&value)
+	}
+	return ""
+}
+
+func dbusErrorBody(err *dbus.Error) string {
+	if err == nil {
+		return ""
+	}
+	parts := make([]string, 0, len(err.Body)+1)
+	parts = append(parts, err.Name)
+	for _, value := range err.Body {
+		parts = append(parts, fmt.Sprint(value))
+	}
+	return strings.Join(parts, " ")
 }

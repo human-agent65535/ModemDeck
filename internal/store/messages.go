@@ -115,7 +115,9 @@ func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, er
 	limit := boundedLimit(query.Limit)
 	statement := `SELECT id, request_id, line_id, endpoint_line_id, endpoint_message_id,
 		imsi, iccid, peer, reported_peer, local_phone, sender, recipient,
-		content, type, status, state, failure_code, revision, timestamp, created_at
+		content, type, status, state, delivery_status, message_reference,
+		delivery_report_requested, delivery_report_trackable, delivery_report_code,
+		failure_code, revision, timestamp, created_at
 		FROM sms`
 	conditions := []string{"deleted_at IS NULL"}
 	arguments := make([]any, 0, 5)
@@ -158,14 +160,17 @@ func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, er
 			message                                                          Message
 			requestID, lineID, endpointLineID, endpointID, imsi, iccid, peer sql.NullString
 			reportedPeer, local, sender, recipient, content, state           sql.NullString
-			failureCode                                                      sql.NullString
-			messageType, status, revision                                    sql.NullInt64
+			deliveryStatus, failureCode                                      sql.NullString
+			messageType, status, messageReference, reportRequested           sql.NullInt64
+			reportTrackable, reportCode, revision                            sql.NullInt64
 			timestamp, createdAt                                             sql.NullString
 		)
 		if err := rows.Scan(
 			&message.ID, &requestID, &lineID, &endpointLineID, &endpointID,
 			&imsi, &iccid, &peer, &reportedPeer, &local, &sender, &recipient,
-			&content, &messageType, &status, &state, &failureCode, &revision,
+			&content, &messageType, &status, &state, &deliveryStatus,
+			&messageReference, &reportRequested, &reportTrackable, &reportCode,
+			&failureCode, &revision,
 			&timestamp, &createdAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
@@ -191,6 +196,11 @@ func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, er
 		}
 		message.Status = intValue(status)
 		message.State = stringValue(state)
+		message.DeliveryStatus = MessageDeliveryStatus(stringValue(deliveryStatus))
+		message.MessageReference = nullableIntValue(messageReference)
+		message.DeliveryReportRequested = boolValue(reportRequested)
+		message.DeliveryReportTrackable = boolValue(reportTrackable)
+		message.DeliveryReportCode = nullableIntValue(reportCode)
 		message.FailureCode = stringValue(failureCode)
 		message.Revision = intValue(revision)
 		message.Timestamp = stringValue(timestamp)

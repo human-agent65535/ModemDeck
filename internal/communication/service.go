@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
 	"unicode/utf8"
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
@@ -95,6 +96,18 @@ type Repository interface {
 		store.LineCallPolicyValue,
 		int64,
 	) (store.LineCallPolicy, error)
+	MessageDeliveryPolicy(context.Context, string) (store.MessageDeliveryPolicy, error)
+	UpdateMessageDeliveryPolicy(
+		context.Context,
+		string,
+		bool,
+		int64,
+	) (store.MessageDeliveryPolicy, error)
+	MarkMessageDeliveryReportsUnsupported(
+		context.Context,
+		string,
+		int64,
+	) (store.MessageDeliveryPolicy, error)
 	EffectiveCallPolicy(context.Context, string) (store.EffectiveCallPolicy, error)
 	CallPolicyConfiguration(context.Context, string) (store.CallPolicyConfiguration, error)
 	ClaimIncomingCallActions(context.Context, int) ([]store.IncomingCallAction, error)
@@ -258,7 +271,10 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 	if err != nil {
 		return s.recordRefreshFailure("persist host agent snapshot", err)
 	}
-	s.enqueueDeviceMessageCleanup(hardwareSnapshot.Messages)
+	s.enqueueDeviceMessageCleanup(
+		hardwareSnapshot.Messages,
+		snapshotResult.HandledDeliveryReportIDs,
+	)
 	stableLines, err = s.repository.Lines(refreshContext)
 	if err != nil {
 		return s.recordRefreshFailure("read persisted line identities", err)
@@ -305,7 +321,10 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 	return cloneStatus(status), nil
 }
 
-func (s *Service) enqueueDeviceMessageCleanup(messages []store.HardwareMessage) {
+func (s *Service) enqueueDeviceMessageCleanup(
+	messages []store.HardwareMessage,
+	deliveryReportIDs []string,
+) {
 	deleter, available := s.agent.(AgentMessageDeleter)
 	if !available {
 		return
@@ -318,6 +337,11 @@ func (s *Service) enqueueDeviceMessageCleanup(messages []store.HardwareMessage) 
 		}
 		if messageID := strings.TrimSpace(message.EndpointMessageID); messageID != "" {
 			s.messageCleanupPending[messageID] = struct{}{}
+		}
+	}
+	for _, reportID := range deliveryReportIDs {
+		if reportID = strings.TrimSpace(reportID); reportID != "" {
+			s.messageCleanupPending[reportID] = struct{}{}
 		}
 	}
 	if s.messageCleanupRunning || len(s.messageCleanupPending) == 0 {
@@ -586,6 +610,72 @@ func (s *Service) UpdateLineCallPolicy(
 		)
 	default:
 		return updated, nil
+	}
+}
+
+func (s *Service) MessageDeliveryPolicy(
+	ctx context.Context,
+	lineID string,
+) (store.MessageDeliveryPolicy, error) {
+	policy, err := s.repository.MessageDeliveryPolicy(
+		normalizeContext(ctx),
+		strings.TrimSpace(lineID),
+	)
+	if errors.Is(err, store.ErrInvalidMessagePolicy) {
+		return store.MessageDeliveryPolicy{}, operationError(
+			CodeInvalidArgument,
+			"read message delivery policy",
+			"line_id is invalid",
+			err,
+		)
+	}
+	if err != nil {
+		return store.MessageDeliveryPolicy{}, operationError(
+			CodeInternal,
+			"read message delivery policy",
+			"message delivery policy could not be read",
+			err,
+		)
+	}
+	return policy, nil
+}
+
+func (s *Service) UpdateMessageDeliveryPolicy(
+	ctx context.Context,
+	lineID string,
+	enabled bool,
+	expectedRevision int64,
+) (store.MessageDeliveryPolicy, error) {
+	policy, err := s.repository.UpdateMessageDeliveryPolicy(
+		normalizeContext(ctx),
+		strings.TrimSpace(lineID),
+		enabled,
+		expectedRevision,
+	)
+	switch {
+	case errors.Is(err, store.ErrInvalidMessagePolicy):
+		return store.MessageDeliveryPolicy{}, operationError(
+			CodeInvalidArgument,
+			"update message delivery policy",
+			"line_id is invalid",
+			err,
+		)
+	case errors.Is(err, store.ErrRevisionConflict):
+		return store.MessageDeliveryPolicy{}, operationError(
+			CodeConflict,
+			"update message delivery policy",
+			"message delivery policy changed; read the latest revision before updating",
+			err,
+		)
+	case err != nil:
+		return store.MessageDeliveryPolicy{}, operationError(
+			CodeInternal,
+			"update message delivery policy",
+			"message delivery policy could not be updated",
+			err,
+		)
+	default:
+		return policy, nil
 	}
 }
 
@@ -1195,14 +1285,25 @@ func (s *Service) SendMessage(ctx context.Context, input SendMessageInput) (stor
 		}
 		return message, nil
 	}
+	deliveryPolicy, err := s.MessageDeliveryPolicy(ctx, line.ID)
+	if err != nil {
+		return store.Message{}, s.failLocalCommand(
+			ctx,
+			command,
+			operation,
+			"message delivery policy could not be loaded",
+			err,
+		)
+	}
 
 	commandContext, cancel := context.WithTimeout(normalizeContext(ctx), commandTimeout)
 	defer cancel()
 	receipt, err := s.agent.SendMessage(commandContext, agentclient.SendMessageRequest{
-		RequestID: requestID,
-		LineID:    line.EndpointID,
-		Number:    number,
-		Text:      text,
+		RequestID:               requestID,
+		LineID:                  line.EndpointID,
+		Number:                  number,
+		Text:                    text,
+		DeliveryReportRequested: deliveryPolicy.DeliveryReportsEnabled,
 	})
 	if err != nil {
 		if finishErr := s.finishFailedCommand(ctx, command, err); finishErr != nil {
@@ -1218,22 +1319,41 @@ func (s *Service) SendMessage(ctx context.Context, input SendMessageInput) (stor
 	}
 	outcomeContext, outcomeCancel := durableContext(ctx)
 	defer outcomeCancel()
+	deliveryReportRequested := deliveryPolicy.DeliveryReportsEnabled &&
+		!receipt.DeliveryReportUnsupported
+	if receipt.DeliveryReportUnsupported {
+		if _, policyErr := s.repository.MarkMessageDeliveryReportsUnsupported(
+			outcomeContext,
+			line.ID,
+			deliveryPolicy.Revision,
+		); policyErr != nil && !errors.Is(policyErr, store.ErrRevisionConflict) {
+			slog.Warn(
+				"delivery-report rejection could not be persisted",
+				"component", "communication",
+				"line_id", line.ID,
+				"error", policyErr,
+			)
+		}
+	}
 	stored, _, err := s.repository.UpsertHardwareMessage(outcomeContext, store.HardwareMessage{
-		RequestID:         requestID,
-		LineID:            line.ID,
-		EndpointLineID:    line.EndpointID,
-		EndpointMessageID: receipt.ResourceID,
-		IMSI:              line.IMSI,
-		ICCID:             line.ICCID,
-		LocalPhone:        line.PhoneNumber,
-		HomeCountryISO:    line.HomeCountryISO,
-		Number:            number,
-		ReportedNumber:    input.Number,
-		Text:              text,
-		Direction:         "outgoing",
-		State:             "unknown",
-		Timestamp:         s.now().UTC(),
-		ObservedAt:        s.now().UTC(),
+		RequestID:               requestID,
+		LineID:                  line.ID,
+		EndpointLineID:          line.EndpointID,
+		EndpointMessageID:       receipt.ResourceID,
+		IMSI:                    line.IMSI,
+		ICCID:                   line.ICCID,
+		LocalPhone:              line.PhoneNumber,
+		HomeCountryISO:          line.HomeCountryISO,
+		Number:                  number,
+		ReportedNumber:          input.Number,
+		Text:                    text,
+		Direction:               "outgoing",
+		State:                   "unknown",
+		DeliveryStatus:          store.MessageDeliverySubmitted,
+		DeliveryReportRequested: deliveryReportRequested,
+		DeliveryReportTrackable: deliveryReportRequested && singlePartSMS(text),
+		Timestamp:               s.now().UTC(),
+		ObservedAt:              s.now().UTC(),
 	})
 	if err != nil {
 		return store.Message{}, operationError(
@@ -1761,6 +1881,29 @@ func validEndpointResourceID(resourceID string) string {
 	return resourceID
 }
 
+func singlePartSMS(text string) bool {
+	const (
+		gsmBasic     = "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà"
+		gsmExtension = "\f^{}\\[~]|€"
+	)
+	septets := 0
+	gsm := true
+	for _, character := range text {
+		switch {
+		case strings.ContainsRune(gsmBasic, character):
+			septets++
+		case strings.ContainsRune(gsmExtension, character):
+			septets += 2
+		default:
+			gsm = false
+		}
+	}
+	if gsm {
+		return septets <= 160
+	}
+	return len(utf16.Encode([]rune(text))) <= 70
+}
+
 func durableContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(normalizeContext(ctx)), snapshotTimeout)
 }
@@ -1844,13 +1987,42 @@ func projectSnapshot(
 			0,
 		))
 	}
+	deliveryReports := make(
+		[]store.HardwareMessageDeliveryReport,
+		0,
+		len(snapshot.DeliveryReports),
+	)
+	for _, report := range snapshot.DeliveryReports {
+		line, found := lineIndex[report.LineID]
+		if !found {
+			continue
+		}
+		timestamp, parsed := parseModemManagerTimestamp(report.Timestamp)
+		if !parsed {
+			timestamp = snapshot.ObservedAt
+		}
+		deliveryReports = append(deliveryReports, store.HardwareMessageDeliveryReport{
+			EndpointReportID:      report.ID,
+			LineID:                line.ID,
+			EndpointLineID:        line.EndpointID,
+			HomeCountryISO:        line.HomeCountryISO,
+			Number:                report.Number,
+			MessageReference:      report.MessageReference,
+			MessageReferenceKnown: report.MessageReferenceKnown,
+			DeliveryState:         report.DeliveryState,
+			DeliveryStateKnown:    report.DeliveryStateKnown,
+			Timestamp:             timestamp,
+			ObservedAt:            snapshot.ObservedAt,
+		})
+	}
 	return store.HardwareSnapshot{
-		BootEpoch:  bootEpoch,
-		Revision:   snapshot.Revision,
-		ObservedAt: snapshot.ObservedAt.UTC(),
-		Lines:      hardwareLines,
-		Calls:      calls,
-		Messages:   messages,
+		BootEpoch:       bootEpoch,
+		Revision:        snapshot.Revision,
+		ObservedAt:      snapshot.ObservedAt.UTC(),
+		Lines:           hardwareLines,
+		Calls:           calls,
+		Messages:        messages,
+		DeliveryReports: deliveryReports,
 	}, lines
 }
 
@@ -2019,9 +2191,17 @@ func projectMessage(
 		Direction:         normalizeMessageDirection(message.Direction),
 		State:             message.State,
 		StateCode:         int64(message.StateCode),
-		Revision:          revision,
-		Timestamp:         timestamp,
-		ObservedAt:        observedAt,
+		DeliveryStatus: func() store.MessageDeliveryStatus {
+			if normalizeMessageDirection(message.Direction) == "outgoing" {
+				return store.MessageDeliverySubmitted
+			}
+			return store.MessageDeliveryUnknown
+		}(),
+		MessageReference:      message.MessageReference,
+		MessageReferenceKnown: message.MessageReferenceKnown,
+		Revision:              revision,
+		Timestamp:             timestamp,
+		ObservedAt:            observedAt,
 	}
 }
 

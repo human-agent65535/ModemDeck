@@ -452,6 +452,118 @@ func TestOpenMigratesCommunicationStateFromPreviousRelease(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesSMSDeliveryStateAndMessagePolicy(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "without-sms-delivery.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousSchema := strings.Replace(
+		currentSchemaSQL,
+		`				delivery_status TEXT NOT NULL DEFAULT ''
+					CHECK (delivery_status IN ('', 'submitted', 'delivered', 'failed')),
+				message_reference INTEGER,
+				delivery_report_requested NUMERIC NOT NULL DEFAULT 0,
+				delivery_report_trackable NUMERIC NOT NULL DEFAULT 0,
+				delivery_report_code INTEGER,
+`,
+		"",
+		1,
+	)
+	previousSchema = strings.Replace(
+		previousSchema,
+		`			delivery_reports_enabled NUMERIC NOT NULL DEFAULT 0,
+			delivery_reports_support TEXT NOT NULL DEFAULT 'unknown'
+				CHECK (delivery_reports_support IN ('unknown', 'unsupported')),
+			message_policy_revision INTEGER NOT NULL DEFAULT 1
+				CHECK (message_policy_revision > 0),
+`,
+		"",
+		1,
+	)
+	if previousSchema == currentSchemaSQL {
+		t.Fatal("previous schema fixture did not remove SMS delivery columns")
+	}
+	if _, err := database.Exec(previousSchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(
+		`INSERT INTO modemdeck_lines (line_id) VALUES ('line_delivery');
+		 INSERT INTO sms (
+			line_id, peer, content, type, timestamp, created_at
+		 ) VALUES (
+			'line_delivery', '+818012345678', 'preserved outgoing', 2,
+			'2026-07-29T05:00:00Z', '2026-07-29T05:00:00Z'
+		 )`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	var (
+		deliveryStatus   string
+		messageReference sql.NullInt64
+		reportRequested  bool
+		reportTrackable  bool
+		reportCode       sql.NullInt64
+	)
+	if err := database.QueryRow(
+		`SELECT delivery_status, message_reference, delivery_report_requested,
+			delivery_report_trackable, delivery_report_code
+		 FROM sms WHERE content = 'preserved outgoing'`,
+	).Scan(
+		&deliveryStatus,
+		&messageReference,
+		&reportRequested,
+		&reportTrackable,
+		&reportCode,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if deliveryStatus != "submitted" ||
+		messageReference.Valid ||
+		reportRequested ||
+		reportTrackable ||
+		reportCode.Valid {
+		t.Fatalf(
+			"migrated message = status %q reference %+v requested %t trackable %t code %+v",
+			deliveryStatus,
+			messageReference,
+			reportRequested,
+			reportTrackable,
+			reportCode,
+		)
+	}
+	var (
+		enabled  bool
+		support  string
+		revision int64
+	)
+	if err := database.QueryRow(
+		`SELECT delivery_reports_enabled, delivery_reports_support,
+			message_policy_revision
+		 FROM modemdeck_lines WHERE line_id = 'line_delivery'`,
+	).Scan(&enabled, &support, &revision); err != nil {
+		t.Fatal(err)
+	}
+	if enabled || support != "unknown" || revision != 1 {
+		t.Fatalf(
+			"migrated message policy = enabled %t support %q revision %d",
+			enabled,
+			support,
+			revision,
+		)
+	}
+}
+
 func TestOpenRejectsOutdatedSchemaWithoutAlteringIt(t *testing.T) {
 	t.Parallel()
 

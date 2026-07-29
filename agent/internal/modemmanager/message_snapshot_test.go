@@ -536,6 +536,18 @@ func TestMessagePropertyCacheOnlyAcceptsCompleteTerminalStates(t *testing.T) {
 			want:       true,
 		},
 		{
+			name: "status report",
+			properties: Properties{
+				"State":              dbus.MakeVariant(uint32(3)),
+				"PduType":            dbus.MakeVariant(uint32(3)),
+				"Number":             dbus.MakeVariant("+818012345678"),
+				"MessageReference":   dbus.MakeVariant(uint32(0)),
+				"DeliveryState":      dbus.MakeVariant(uint32(0)),
+				"DischargeTimestamp": dbus.MakeVariant("2026-07-29T10:00:00+09"),
+			},
+			want: true,
+		},
+		{
 			name:       "stored",
 			properties: smsCacheTestProperties(1, "stored"),
 		},

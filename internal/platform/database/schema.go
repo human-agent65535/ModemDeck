@@ -146,6 +146,21 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 			return err
 		}
 	}
+	migratedSMSDelivery, err := migrateCurrentSMSDeliveryColumns(
+		ctx,
+		database,
+		expected,
+		actual,
+	)
+	if err != nil {
+		return err
+	}
+	if migratedSMSDelivery {
+		actual, err = readSchemaShape(ctx, database)
+		if err != nil {
+			return err
+		}
+	}
 	if schemaContains(expected, actual) {
 		return nil
 	}
@@ -535,6 +550,132 @@ func migrateCurrentCommunicationStateColumns(
 	}
 	if err := transaction.Commit(); err != nil {
 		return false, fmt.Errorf("commit communication state migration: %w", err)
+	}
+	return true, nil
+}
+
+func migrateCurrentSMSDeliveryColumns(
+	ctx context.Context,
+	database *sql.DB,
+	expected schemaShape,
+	actual schemaShape,
+) (bool, error) {
+	smsColumns, smsExists := actual.tables["sms"]
+	lineColumns, linesExist := actual.tables["modemdeck_lines"]
+	smsColumnDefinitions := []struct {
+		name       string
+		definition string
+	}{
+		{
+			name: "delivery_status",
+			definition: `TEXT NOT NULL DEFAULT ''
+				CHECK (delivery_status IN ('', 'submitted', 'delivered', 'failed'))`,
+		},
+		{name: "message_reference", definition: "INTEGER"},
+		{name: "delivery_report_requested", definition: "NUMERIC NOT NULL DEFAULT 0"},
+		{name: "delivery_report_trackable", definition: "NUMERIC NOT NULL DEFAULT 0"},
+		{name: "delivery_report_code", definition: "INTEGER"},
+	}
+	lineColumnDefinitions := []struct {
+		name       string
+		definition string
+	}{
+		{name: "delivery_reports_enabled", definition: "NUMERIC NOT NULL DEFAULT 0"},
+		{
+			name: "delivery_reports_support",
+			definition: `TEXT NOT NULL DEFAULT 'unknown'
+				CHECK (delivery_reports_support IN ('unknown', 'unsupported'))`,
+		},
+		{
+			name:       "message_policy_revision",
+			definition: "INTEGER NOT NULL DEFAULT 1 CHECK (message_policy_revision > 0)",
+		},
+	}
+
+	previous := expected
+	needsMigration := false
+	for _, column := range smsColumnDefinitions {
+		if smsExists {
+			if _, found := smsColumns[column.name]; !found {
+				previous = schemaWithoutColumn(previous, "sms", column.name)
+				needsMigration = true
+			}
+		}
+	}
+	for _, column := range lineColumnDefinitions {
+		if linesExist {
+			if _, found := lineColumns[column.name]; !found {
+				previous = schemaWithoutColumn(previous, "modemdeck_lines", column.name)
+				needsMigration = true
+			}
+		}
+	}
+	if !needsMigration {
+		return false, nil
+	}
+	supported := schemaContains(previous, actual)
+	if !supported && !linesExist {
+		legacyPrevious := legacyV1SchemaShape(expected)
+		for _, column := range smsColumnDefinitions {
+			if _, found := smsColumns[column.name]; !found {
+				legacyPrevious = schemaWithoutColumn(
+					legacyPrevious,
+					"sms",
+					column.name,
+				)
+			}
+		}
+		supported = schemaContains(legacyPrevious, actual)
+	}
+	if !supported {
+		return false, nil
+	}
+
+	transaction, err := database.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin SMS delivery migration: %w", err)
+	}
+	defer transaction.Rollback()
+	for _, column := range smsColumnDefinitions {
+		if _, found := smsColumns[column.name]; found {
+			continue
+		}
+		if _, err := transaction.ExecContext(
+			ctx,
+			"ALTER TABLE sms ADD COLUMN "+
+				quoteIdentifier(column.name)+" "+column.definition,
+		); err != nil {
+			return false, fmt.Errorf("migrate SMS delivery column %s: %w", column.name, err)
+		}
+	}
+	if _, found := smsColumns["delivery_status"]; !found {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`UPDATE sms SET delivery_status = 'submitted' WHERE type = 2`,
+		); err != nil {
+			return false, fmt.Errorf("initialize outgoing SMS delivery state: %w", err)
+		}
+	}
+	if linesExist {
+		for _, column := range lineColumnDefinitions {
+			if _, found := lineColumns[column.name]; found {
+				continue
+			}
+			if _, err := transaction.ExecContext(
+				ctx,
+				"ALTER TABLE modemdeck_lines ADD COLUMN "+
+					quoteIdentifier(column.name)+" "+column.definition,
+			); err != nil {
+				return false, fmt.Errorf(
+					"migrate line message policy column %s: %w",
+					column.name,
+					err,
+				)
+			}
+		}
+	}
+	if err := transaction.Commit(); err != nil {
+		return false, fmt.Errorf("commit SMS delivery migration: %w", err)
 	}
 	return true, nil
 }

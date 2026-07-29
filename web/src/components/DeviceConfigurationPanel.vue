@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   Database,
   LoaderCircle,
+  MessageSquareText,
   Network,
   Pencil,
   Phone,
@@ -51,6 +52,7 @@ import {
   reprobeVoiceCapabilities,
   restartModem,
   selectDeviceConfiguration,
+  setDeliveryReportsEnabled,
   setIncomingCallPolicy,
   setRadioEnabled,
   setVoLTEPolicy
@@ -220,6 +222,7 @@ const selectedOperatorFacts = computed(() => {
 })
 const apnPlaceholder = computed(() => automaticAPNLabel(hardware.value?.automatic_apn))
 const incomingCalls = computed(() => configuration.value?.incoming_calls)
+const messaging = computed(() => configuration.value?.messaging)
 const savingOperation = computed(() => selectedResource.value?.savingOperation || '')
 const hardwareBusy = computed(() => savingOperation.value !== '')
 const connectedDataConnection = computed(() =>
@@ -1009,6 +1012,17 @@ async function applyIncomingPolicy(): Promise<void> {
   }
 }
 
+async function applyDeliveryReports(event: Event): Promise<void> {
+  if (!selectedLineID.value || !messaging.value) return
+  const control = event.target as HTMLInputElement
+  const previous = messaging.value.delivery_reports_enabled
+  const saved = await setDeliveryReportsEnabled(
+    selectedLineID.value,
+    control.checked
+  )
+  if (!saved) control.checked = previous
+}
+
 async function loadSIM(force = false): Promise<void> {
   const lineID = selectedLineID.value
   if (!lineID || (simLoadStatus.value === 'ready' && !force)) return
@@ -1341,7 +1355,7 @@ onMounted(() => {
         @retry="loadDeviceConfiguration(selectedLineID, true)"
       />
 
-      <div v-else-if="hardware && incomingCalls" class="device-configuration__body">
+      <div v-else-if="hardware && incomingCalls && messaging" class="device-configuration__body">
         <p v-if="selectedResource?.error" class="inline-error" role="alert">
           <AlertCircle :size="16" />
           {{ selectedResource.error }}
@@ -1527,6 +1541,39 @@ onMounted(() => {
                 </li>
               </ul>
             </details>
+          </section>
+
+          <section class="configuration-section">
+            <header>
+              <MessageSquareText :size="18" /><h4>{{ t('device.smsSettings') }}</h4>
+            </header>
+            <label class="configuration-toggle">
+              <span>
+                <strong>{{ t('device.requestDeliveryReports') }}</strong>
+                <small
+                  v-if="messaging.delivery_reports_support === 'unsupported'"
+                  class="configuration-toggle__unsupported"
+                >
+                  {{ t('device.deliveryReportsUnsupported') }}
+                </small>
+                <small v-else>{{ t('device.deliveryReportsDescription') }}</small>
+              </span>
+              <span class="configuration-toggle__control">
+                <LoaderCircle
+                  v-if="savingOperation === 'set_delivery_reports_enabled'"
+                  class="spin"
+                  :size="16"
+                />
+                <input
+                  type="checkbox"
+                  role="switch"
+                  :aria-label="t('device.requestDeliveryReports')"
+                  :checked="messaging.delivery_reports_enabled"
+                  :disabled="Boolean(savingOperation)"
+                  @change="applyDeliveryReports"
+                />
+              </span>
+            </label>
           </section>
 
         </template>
@@ -2806,6 +2853,11 @@ onMounted(() => {
 .configuration-toggle small {
   color: var(--muted);
   font-size: 12px;
+}
+
+.configuration-toggle small.configuration-toggle__unsupported {
+  color: #c7352d;
+  font-weight: 700;
 }
 
 .configuration-toggle__control {

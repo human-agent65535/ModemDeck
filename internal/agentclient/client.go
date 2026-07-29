@@ -167,27 +167,42 @@ type Call struct {
 }
 
 type Message struct {
-	ID        string `json:"id"`
-	LineID    string `json:"line_id"`
-	Number    string `json:"number"`
-	Text      string `json:"text"`
-	Direction string `json:"direction"`
-	State     string `json:"state"`
-	StateCode uint32 `json:"state_code"`
-	Timestamp string `json:"timestamp"`
+	ID                    string `json:"id"`
+	LineID                string `json:"line_id"`
+	Number                string `json:"number"`
+	Text                  string `json:"text"`
+	Direction             string `json:"direction"`
+	State                 string `json:"state"`
+	StateCode             uint32 `json:"state_code"`
+	MessageReference      uint32 `json:"message_reference"`
+	MessageReferenceKnown bool   `json:"message_reference_known"`
+	Timestamp             string `json:"timestamp"`
+}
+
+type MessageDeliveryReport struct {
+	ID                    string `json:"id"`
+	LineID                string `json:"line_id"`
+	Number                string `json:"number"`
+	MessageReference      uint32 `json:"message_reference"`
+	MessageReferenceKnown bool   `json:"message_reference_known"`
+	DeliveryState         uint32 `json:"delivery_state"`
+	DeliveryStateKnown    bool   `json:"delivery_state_known"`
+	Timestamp             string `json:"timestamp"`
 }
 
 type Snapshot struct {
-	Revision   string    `json:"revision"`
-	ObservedAt time.Time `json:"observed_at"`
-	Lines      []Line    `json:"lines"`
-	Calls      []Call    `json:"calls"`
-	Messages   []Message `json:"messages"`
+	Revision        string                  `json:"revision"`
+	ObservedAt      time.Time               `json:"observed_at"`
+	Lines           []Line                  `json:"lines"`
+	Calls           []Call                  `json:"calls"`
+	Messages        []Message               `json:"messages"`
+	DeliveryReports []MessageDeliveryReport `json:"delivery_reports"`
 }
 
 type CommandReceipt struct {
-	RequestID  string `json:"request_id"`
-	ResourceID string `json:"resource_id"`
+	RequestID                 string `json:"request_id"`
+	ResourceID                string `json:"resource_id"`
+	DeliveryReportUnsupported bool   `json:"delivery_report_unsupported"`
 }
 
 type CallMediaActivation struct {
@@ -221,10 +236,11 @@ type DTMFRequest struct {
 }
 
 type SendMessageRequest struct {
-	RequestID string `json:"request_id"`
-	LineID    string `json:"line_id"`
-	Number    string `json:"number"`
-	Text      string `json:"text"`
+	RequestID               string `json:"request_id"`
+	LineID                  string `json:"line_id"`
+	Number                  string `json:"number"`
+	Text                    string `json:"text"`
+	DeliveryReportRequested bool   `json:"delivery_report_requested"`
 }
 
 type OperationError struct {
@@ -304,6 +320,9 @@ func (client *Client) Snapshot(ctx context.Context) (Snapshot, error) {
 	}
 	if snapshot.Messages == nil {
 		snapshot.Messages = []Message{}
+	}
+	if snapshot.DeliveryReports == nil {
+		snapshot.DeliveryReports = []MessageDeliveryReport{}
 	}
 	return snapshot, nil
 }

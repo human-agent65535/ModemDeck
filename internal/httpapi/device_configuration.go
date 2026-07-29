@@ -8,7 +8,10 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
-const setIncomingCallPolicyOperation agentclient.DeviceConfigurationOperation = "set_incoming_call_policy"
+const (
+	setIncomingCallPolicyOperation agentclient.DeviceConfigurationOperation = "set_incoming_call_policy"
+	setDeliveryReportsOperation    agentclient.DeviceConfigurationOperation = "set_delivery_reports_enabled"
+)
 
 type callPolicyEnforcement struct {
 	Mode                   string `json:"mode"`
@@ -44,9 +47,16 @@ type incomingCallActionResponse struct {
 	UpdatedAt       string                         `json:"updated_at"`
 }
 
+type lineMessagingConfiguration struct {
+	DeliveryReportsEnabled bool                               `json:"delivery_reports_enabled"`
+	DeliveryReportsSupport store.MessageDeliveryReportSupport `json:"delivery_reports_support"`
+	Revision               int64                              `json:"revision"`
+}
+
 type deviceConfigurationResponse struct {
 	Hardware      *agentclient.DeviceConfiguration `json:"hardware,omitempty"`
 	IncomingCalls *lineIncomingCallConfiguration   `json:"incoming_calls,omitempty"`
+	Messaging     *lineMessagingConfiguration      `json:"messaging,omitempty"`
 }
 
 type updateGlobalCallSettingsRequest struct {
@@ -55,15 +65,17 @@ type updateGlobalCallSettingsRequest struct {
 }
 
 type updateDeviceConfigurationRequest struct {
-	RequestID              string                                   `json:"request_id"`
-	Operation              agentclient.DeviceConfigurationOperation `json:"operation"`
-	ExpectedDeviceRevision string                                   `json:"expected_device_revision"`
-	ExpectedPolicyRevision int64                                    `json:"expected_policy_revision"`
-	RadioEnabled           *bool                                    `json:"radio_enabled,omitempty"`
-	APN                    string                                   `json:"apn,omitempty"`
-	IPFamily               string                                   `json:"ip_family,omitempty"`
-	VoLTEPolicy            string                                   `json:"volte_policy,omitempty"`
-	IncomingCallPolicy     store.LineCallPolicyValue                `json:"incoming_call_policy,omitempty"`
+	RequestID               string                                   `json:"request_id"`
+	Operation               agentclient.DeviceConfigurationOperation `json:"operation"`
+	ExpectedDeviceRevision  string                                   `json:"expected_device_revision"`
+	ExpectedPolicyRevision  int64                                    `json:"expected_policy_revision"`
+	ExpectedMessageRevision int64                                    `json:"expected_message_policy_revision"`
+	RadioEnabled            *bool                                    `json:"radio_enabled,omitempty"`
+	APN                     string                                   `json:"apn,omitempty"`
+	IPFamily                string                                   `json:"ip_family,omitempty"`
+	VoLTEPolicy             string                                   `json:"volte_policy,omitempty"`
+	IncomingCallPolicy      store.LineCallPolicyValue                `json:"incoming_call_policy,omitempty"`
+	DeliveryReportsEnabled  *bool                                    `json:"delivery_reports_enabled,omitempty"`
 }
 
 func (api *API) callSettings(response http.ResponseWriter, request *http.Request) {
@@ -169,10 +181,19 @@ func (api *API) readDeviceConfiguration(
 		api.writeCommunicationError(response, request, "read line call policy", err)
 		return
 	}
-	writeJSON(response, http.StatusOK, deviceConfigurationResponse{
+	result := deviceConfigurationResponse{
 		Hardware:      &hardware,
 		IncomingCalls: &incomingCalls,
-	})
+	}
+	if api.messagePolicies != nil {
+		messaging, err := api.lineMessagingConfiguration(request, lineID)
+		if err != nil {
+			api.writeCommunicationError(response, request, "read line message policy", err)
+			return
+		}
+		result.Messaging = &messaging
+	}
+	writeJSON(response, http.StatusOK, result)
 }
 
 func (api *API) updateDeviceConfiguration(
@@ -198,6 +219,7 @@ func (api *API) updateDeviceConfiguration(
 		}
 		if input.ExpectedDeviceRevision != "" || input.RadioEnabled != nil ||
 			input.APN != "" || input.IPFamily != "" || input.VoLTEPolicy != "" ||
+			input.ExpectedMessageRevision != 0 || input.DeliveryReportsEnabled != nil ||
 			strings.TrimSpace(input.RequestID) != "" {
 			writeError(
 				response,
@@ -227,6 +249,56 @@ func (api *API) updateDeviceConfiguration(
 		})
 		return
 	}
+	if input.Operation == setDeliveryReportsOperation {
+		if api.messagePolicies == nil {
+			writeError(
+				response,
+				http.StatusServiceUnavailable,
+				"message_policy_unavailable",
+				"Message delivery policy is unavailable",
+				"",
+			)
+			return
+		}
+		if input.DeliveryReportsEnabled == nil || input.ExpectedMessageRevision <= 0 {
+			writeError(
+				response,
+				http.StatusBadRequest,
+				"invalid_argument",
+				"delivery_reports_enabled and a positive expected_message_policy_revision are required",
+				"",
+			)
+			return
+		}
+		if input.ExpectedDeviceRevision != "" || input.ExpectedPolicyRevision != 0 ||
+			input.RadioEnabled != nil || input.APN != "" || input.IPFamily != "" ||
+			input.VoLTEPolicy != "" || input.IncomingCallPolicy != "" ||
+			strings.TrimSpace(input.RequestID) != "" {
+			writeError(
+				response,
+				http.StatusBadRequest,
+				"invalid_argument",
+				"set_delivery_reports_enabled accepts only message policy fields",
+				"",
+			)
+			return
+		}
+		policy, err := api.messagePolicies.UpdateMessageDeliveryPolicy(
+			request.Context(),
+			lineID,
+			*input.DeliveryReportsEnabled,
+			input.ExpectedMessageRevision,
+		)
+		if err != nil {
+			api.writeCommunicationError(response, request, "update line message policy", err)
+			return
+		}
+		messaging := messageDeliveryPolicyEnvelope(policy)
+		writeJSON(response, http.StatusOK, deviceConfigurationResponse{
+			Messaging: &messaging,
+		})
+		return
+	}
 
 	requestID, ok := commandRequestID(response, request, input.RequestID)
 	if !ok {
@@ -235,7 +307,9 @@ func (api *API) updateDeviceConfiguration(
 	if strings.TrimSpace(input.ExpectedDeviceRevision) == "" ||
 		!validHardwareConfigurationOperation(input.Operation) ||
 		input.ExpectedPolicyRevision != 0 ||
-		input.IncomingCallPolicy != "" {
+		input.ExpectedMessageRevision != 0 ||
+		input.IncomingCallPolicy != "" ||
+		input.DeliveryReportsEnabled != nil {
 		writeError(
 			response,
 			http.StatusBadRequest,
@@ -272,6 +346,27 @@ func (api *API) updateDeviceConfiguration(
 		requestID,
 	)
 	writeJSON(response, http.StatusOK, deviceConfigurationResponse{Hardware: &hardware})
+}
+
+func (api *API) lineMessagingConfiguration(
+	request *http.Request,
+	lineID string,
+) (lineMessagingConfiguration, error) {
+	policy, err := api.messagePolicies.MessageDeliveryPolicy(request.Context(), lineID)
+	if err != nil {
+		return lineMessagingConfiguration{}, err
+	}
+	return messageDeliveryPolicyEnvelope(policy), nil
+}
+
+func messageDeliveryPolicyEnvelope(
+	policy store.MessageDeliveryPolicy,
+) lineMessagingConfiguration {
+	return lineMessagingConfiguration{
+		DeliveryReportsEnabled: policy.DeliveryReportsEnabled,
+		DeliveryReportsSupport: policy.DeliveryReportsSupport,
+		Revision:               policy.Revision,
+	}
 }
 
 func (api *API) lineIncomingCallConfiguration(

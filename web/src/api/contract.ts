@@ -26,7 +26,9 @@ import type {
   LineLabelResult,
   LineSettings,
   LineIncomingCallConfiguration,
+  LineMessagingConfiguration,
   Message,
+  MessageDeliveryReportSupport,
   MessageReadInput,
   MobileNetwork,
   MobileNetworkScan,
@@ -105,6 +107,10 @@ const INCOMING_CALL_POLICIES = new Set<IncomingCallPolicy>([
 const EFFECTIVE_INCOMING_CALL_POLICIES = new Set<EffectiveIncomingCallPolicy>([
   'receive',
   'do_not_disturb'
+])
+const MESSAGE_DELIVERY_REPORT_SUPPORT = new Set<MessageDeliveryReportSupport>([
+  'unknown',
+  'unsupported'
 ])
 const PROXY_MODES = new Set<ProxyMode>(['http', 'socks5'])
 const PROXY_RUNTIME_STATES = new Set<ProxyRuntimeState>([
@@ -1321,6 +1327,19 @@ export function createDeviceConfigurationPayload(
       incoming_call_policy: input.incoming_call_policy
     }
   }
+  if (input.operation === 'set_delivery_reports_enabled') {
+    if (
+      !Number.isSafeInteger(input.expected_message_policy_revision) ||
+      input.expected_message_policy_revision < 1
+    ) {
+      throw new Error('expected_message_policy_revision 必须是正整数')
+    }
+    return {
+      operation: input.operation,
+      expected_message_policy_revision: input.expected_message_policy_revision,
+      delivery_reports_enabled: input.delivery_reports_enabled
+    }
+  }
 
   const requestID = input.request_id.trim()
   const expectedRevision = input.expected_device_revision.trim()
@@ -1497,6 +1516,27 @@ function parseLineIncomingCallConfiguration(value: unknown): LineIncomingCallCon
       'incoming_calls.enforcement'
     ),
     ...(lastAction ? { last_action: lastAction } : {})
+  }
+}
+
+function parseLineMessagingConfiguration(value: unknown): LineMessagingConfiguration {
+  const source = objectValue(value, 'messaging')
+  const support = requiredString(
+    source,
+    'messaging',
+    'delivery_reports_support'
+  ) as MessageDeliveryReportSupport
+  if (!MESSAGE_DELIVERY_REPORT_SUPPORT.has(support)) {
+    throw new Error(`messaging.delivery_reports_support 未知：${support}`)
+  }
+  return {
+    delivery_reports_enabled: requiredBoolean(
+      source,
+      'messaging',
+      'delivery_reports_enabled'
+    ),
+    delivery_reports_support: support,
+    revision: requiredRevision(source, 'messaging')
   }
 }
 
@@ -1794,12 +1834,17 @@ export function parseDeviceConfigurationResponse(value: unknown): DeviceConfigur
     source.incoming_calls === undefined
       ? undefined
       : parseLineIncomingCallConfiguration(source.incoming_calls)
-  if (!hardware && !incomingCalls) {
-    throw new Error('device_configuration 至少需要 hardware 或 incoming_calls')
+  const messaging =
+    source.messaging === undefined
+      ? undefined
+      : parseLineMessagingConfiguration(source.messaging)
+  if (!hardware && !incomingCalls && !messaging) {
+    throw new Error('device_configuration 至少需要 hardware、incoming_calls 或 messaging')
   }
   return {
     ...(hardware ? { hardware } : {}),
-    ...(incomingCalls ? { incoming_calls: incomingCalls } : {})
+    ...(incomingCalls ? { incoming_calls: incomingCalls } : {}),
+    ...(messaging ? { messaging } : {})
   }
 }
 

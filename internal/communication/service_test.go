@@ -142,6 +142,8 @@ type fakeRepository struct {
 	commands                    map[string]store.HardwareCommand
 	globalCallSettings          store.GlobalCallSettings
 	lineCallPolicies            map[string]store.LineCallPolicy
+	messageDeliveryPolicies     map[string]store.MessageDeliveryPolicy
+	messageDeliveryPolicyError  error
 	incomingCallActions         []store.IncomingCallAction
 	finishedIncomingCallActions []store.IncomingCallAction
 }
@@ -193,6 +195,7 @@ func (repository *fakeRepository) UpsertHardwareMessage(
 			Content:           message.Text,
 			Direction:         message.Direction,
 			State:             message.State,
+			DeliveryStatus:    message.DeliveryStatus,
 		}
 	}
 	return repository.message, true, repository.messageError
@@ -350,6 +353,63 @@ func (repository *fakeRepository) UpdateLineCallPolicy(
 	policy.Policy = value
 	policy.Revision++
 	repository.lineCallPolicies[lineID] = policy
+	return policy, nil
+}
+
+func (repository *fakeRepository) MessageDeliveryPolicy(
+	_ context.Context,
+	lineID string,
+) (store.MessageDeliveryPolicy, error) {
+	if repository.messageDeliveryPolicyError != nil {
+		return store.MessageDeliveryPolicy{}, repository.messageDeliveryPolicyError
+	}
+	if repository.messageDeliveryPolicies == nil {
+		repository.messageDeliveryPolicies = make(map[string]store.MessageDeliveryPolicy)
+	}
+	policy, found := repository.messageDeliveryPolicies[lineID]
+	if !found {
+		policy = store.MessageDeliveryPolicy{
+			LineID:                 lineID,
+			DeliveryReportsSupport: store.MessageDeliveryReportSupportUnknown,
+			Revision:               1,
+		}
+		repository.messageDeliveryPolicies[lineID] = policy
+	}
+	return policy, nil
+}
+
+func (repository *fakeRepository) UpdateMessageDeliveryPolicy(
+	_ context.Context,
+	lineID string,
+	enabled bool,
+	expectedRevision int64,
+) (store.MessageDeliveryPolicy, error) {
+	policy, _ := repository.MessageDeliveryPolicy(context.Background(), lineID)
+	if policy.Revision != expectedRevision {
+		return store.MessageDeliveryPolicy{}, store.ErrRevisionConflict
+	}
+	policy.DeliveryReportsEnabled = enabled
+	if enabled {
+		policy.DeliveryReportsSupport = store.MessageDeliveryReportSupportUnknown
+	}
+	policy.Revision++
+	repository.messageDeliveryPolicies[lineID] = policy
+	return policy, nil
+}
+
+func (repository *fakeRepository) MarkMessageDeliveryReportsUnsupported(
+	_ context.Context,
+	lineID string,
+	expectedRevision int64,
+) (store.MessageDeliveryPolicy, error) {
+	policy, _ := repository.MessageDeliveryPolicy(context.Background(), lineID)
+	if policy.Revision != expectedRevision {
+		return store.MessageDeliveryPolicy{}, store.ErrRevisionConflict
+	}
+	policy.DeliveryReportsEnabled = false
+	policy.DeliveryReportsSupport = store.MessageDeliveryReportSupportUnsupported
+	policy.Revision++
+	repository.messageDeliveryPolicies[lineID] = policy
 	return policy, nil
 }
 
@@ -680,6 +740,134 @@ func TestServiceRoutesStableLineThroughReplacementEndpoint(t *testing.T) {
 		repository.messageInput.Number != "+818012345678" ||
 		repository.messageInput.ReportedNumber != "080-1234-5678" {
 		t.Fatalf("stored replacement message = %+v, input = %+v", message, repository.messageInput)
+	}
+}
+
+func TestSendMessageDisablesRejectedDeliveryReportsAndStoresFallbackAsSubmitted(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.July, 29, 12, 0, 0, 0, time.UTC)
+	agent := connectedAgent(now)
+	agent.messageResult = agentclient.CommandReceipt{
+		RequestID:                 "request-message-report-rejected",
+		ResourceID:                "message-endpoint-report-rejected",
+		DeliveryReportUnsupported: true,
+	}
+	repository := &fakeRepository{
+		snapshotResult: store.HardwareSnapshotResult{
+			LineIDsByEndpoint: map[string]string{"line-1": "line-stable"},
+		},
+		messageDeliveryPolicies: map[string]store.MessageDeliveryPolicy{
+			"line-stable": {
+				LineID:                 "line-stable",
+				DeliveryReportsEnabled: true,
+				DeliveryReportsSupport: store.MessageDeliveryReportSupportUnknown,
+				Revision:               4,
+			},
+		},
+	}
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	service.now = func() time.Time { return now }
+	if _, err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+
+	message, err := service.SendMessage(context.Background(), SendMessageInput{
+		RequestID: "request-message-report-rejected",
+		LineID:    "line-stable",
+		Number:    "+818012345678",
+		Text:      "delivery report fallback",
+	})
+	if err != nil {
+		t.Fatalf("SendMessage() error = %v", err)
+	}
+	if len(agent.messageRequests) != 1 ||
+		!agent.messageRequests[0].DeliveryReportRequested {
+		t.Fatalf("agent message requests = %+v", agent.messageRequests)
+	}
+	policy := repository.messageDeliveryPolicies["line-stable"]
+	if policy.DeliveryReportsEnabled ||
+		policy.DeliveryReportsSupport !=
+			store.MessageDeliveryReportSupportUnsupported ||
+		policy.Revision != 5 {
+		t.Fatalf("fallback policy = %+v", policy)
+	}
+	if repository.messageInput.DeliveryReportRequested ||
+		repository.messageInput.DeliveryReportTrackable ||
+		repository.messageInput.DeliveryStatus != store.MessageDeliverySubmitted ||
+		message.DeliveryStatus != store.MessageDeliverySubmitted {
+		t.Fatalf(
+			"stored fallback message = %+v, hardware input = %+v",
+			message,
+			repository.messageInput,
+		)
+	}
+}
+
+func TestSendMessageFinalizesCommandWhenDeliveryPolicyCannotBeRead(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.July, 29, 12, 0, 0, 0, time.UTC)
+	agent := connectedAgent(now)
+	repository := &fakeRepository{
+		snapshotResult: store.HardwareSnapshotResult{
+			LineIDsByEndpoint: map[string]string{"line-1": "line-stable"},
+		},
+		messageDeliveryPolicyError: errors.New("database unavailable"),
+	}
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	service.now = func() time.Time { return now }
+	if _, err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+
+	_, err = service.SendMessage(context.Background(), SendMessageInput{
+		RequestID: "request-message-policy-error",
+		LineID:    "line-stable",
+		Number:    "+818012345678",
+		Text:      "policy error",
+	})
+	if !errors.Is(err, ErrInternal) {
+		t.Fatalf("SendMessage() error = %v, want internal", err)
+	}
+	if len(agent.messageRequests) != 0 {
+		t.Fatalf("agent message requests = %+v", agent.messageRequests)
+	}
+	command := repository.commands["request-message-policy-error"]
+	if command.Status != store.HardwareCommandFailed ||
+		command.ErrorCode != string(CodeInternal) {
+		t.Fatalf("hardware command = %+v", command)
+	}
+}
+
+func TestSinglePartSMSUsesGSMSeptetsAndUTF16Units(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		text string
+		want bool
+	}{
+		{name: "160 GSM basic", text: strings.Repeat("a", 160), want: true},
+		{name: "161 GSM basic", text: strings.Repeat("a", 161)},
+		{name: "80 GSM extension", text: strings.Repeat("^", 80), want: true},
+		{name: "81 GSM extension", text: strings.Repeat("^", 81)},
+		{name: "70 UCS2 units", text: strings.Repeat("界", 70), want: true},
+		{name: "71 UCS2 units", text: strings.Repeat("界", 71)},
+		{name: "35 surrogate pairs", text: strings.Repeat("🙂", 35), want: true},
+		{name: "36 surrogate pairs", text: strings.Repeat("🙂", 36)},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := singlePartSMS(test.text); got != test.want {
+				t.Fatalf("singlePartSMS() = %t, want %t", got, test.want)
+			}
+		})
 	}
 }
 

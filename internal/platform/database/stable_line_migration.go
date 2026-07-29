@@ -505,6 +505,11 @@ func createStableLineSchema(ctx context.Context, transaction *sql.Tx) error {
 					'', 'teal', 'blue', 'indigo', 'violet',
 					'green', 'amber', 'orange', 'red'
 				)),
+			delivery_reports_enabled NUMERIC NOT NULL DEFAULT 0,
+			delivery_reports_support TEXT NOT NULL DEFAULT 'unknown'
+				CHECK (delivery_reports_support IN ('unknown', 'unsupported')),
+			message_policy_revision INTEGER NOT NULL DEFAULT 1
+				CHECK (message_policy_revision > 0),
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 				CHECK (line_id GLOB 'line_*' AND length(line_id) > 5)

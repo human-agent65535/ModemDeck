@@ -36,28 +36,30 @@ type Interfaces = map[string]Properties
 type ManagedObjects = map[dbus.ObjectPath]Interfaces
 
 type ParsedObjects struct {
-	Lines        []domain.Line
-	Calls        []domain.Call
-	Messages     []domain.Message
-	LinePaths    map[string]dbus.ObjectPath
-	CallPaths    map[string]dbus.ObjectPath
-	CallBackends map[string]callControlBackend
-	ATCallLines  map[string]string
-	MessagePaths map[string]dbus.ObjectPath
-	ids          *instanceIDs
+	Lines           []domain.Line
+	Calls           []domain.Call
+	Messages        []domain.Message
+	DeliveryReports []domain.MessageDeliveryReport
+	LinePaths       map[string]dbus.ObjectPath
+	CallPaths       map[string]dbus.ObjectPath
+	CallBackends    map[string]callControlBackend
+	ATCallLines     map[string]string
+	MessagePaths    map[string]dbus.ObjectPath
+	ids             *instanceIDs
 }
 
 func ParseManagedObjects(objects ManagedObjects, ids *instanceIDs) ParsedObjects {
 	parsed := ParsedObjects{
-		Lines:        []domain.Line{},
-		Calls:        []domain.Call{},
-		Messages:     []domain.Message{},
-		LinePaths:    make(map[string]dbus.ObjectPath),
-		CallPaths:    make(map[string]dbus.ObjectPath),
-		CallBackends: make(map[string]callControlBackend),
-		ATCallLines:  make(map[string]string),
-		MessagePaths: make(map[string]dbus.ObjectPath),
-		ids:          ids,
+		Lines:           []domain.Line{},
+		Calls:           []domain.Call{},
+		Messages:        []domain.Message{},
+		DeliveryReports: []domain.MessageDeliveryReport{},
+		LinePaths:       make(map[string]dbus.ObjectPath),
+		CallPaths:       make(map[string]dbus.ObjectPath),
+		CallBackends:    make(map[string]callControlBackend),
+		ATCallLines:     make(map[string]string),
+		MessagePaths:    make(map[string]dbus.ObjectPath),
+		ids:             ids,
 	}
 	seenCalls := make(map[string]struct{})
 	seenMessages := make(map[string]struct{})
@@ -213,7 +215,24 @@ func ParseManagedObjects(objects ManagedObjects, ids *instanceIDs) ParsedObjects
 						continue
 					}
 					pduType, known := uint32Property(messageProperties, "PduType")
-					if _, business := smsBusinessDirection(classifySMSPDU(pduType)); !known || !business {
+					if !known {
+						continue
+					}
+					if classifySMSPDU(pduType) == smsKindStatusReport {
+						report := parseMessageDeliveryReport(
+							messagePath,
+							line.ID,
+							messageProperties,
+							ids,
+						)
+						if _, duplicate := seenMessages[report.ID]; !duplicate {
+							seenMessages[report.ID] = struct{}{}
+							parsed.MessagePaths[report.ID] = messagePath
+							parsed.DeliveryReports = append(parsed.DeliveryReports, report)
+						}
+						continue
+					}
+					if _, business := smsBusinessDirection(classifySMSPDU(pduType)); !business {
 						continue
 					}
 					message := parseMessage(messagePath, line.ID, messageProperties, ids)
@@ -253,6 +272,9 @@ func ParseManagedObjects(objects ManagedObjects, ids *instanceIDs) ParsedObjects
 	})
 	sort.Slice(parsed.Messages, func(i, j int) bool {
 		return parsed.Messages[i].ID < parsed.Messages[j].ID
+	})
+	sort.Slice(parsed.DeliveryReports, func(i, j int) bool {
+		return parsed.DeliveryReports[i].ID < parsed.DeliveryReports[j].ID
 	})
 	return parsed
 }
@@ -321,20 +343,48 @@ func parseMessage(path dbus.ObjectPath, lineID string, properties Properties, id
 	pduType, _ := uint32Property(properties, "PduType")
 	number, _ := stringProperty(properties, "Number")
 	text, _ := stringProperty(properties, "Text")
+	messageReference, messageReferenceKnown := uint32Property(properties, "MessageReference")
 	timestamp, _ := stringProperty(properties, "Timestamp")
 	messageID := ids.messageID(path)
 	if stableID, ok := stableIncomingMessageID(lineID, properties); ok {
 		messageID = stableID
 	}
 	return domain.Message{
-		ID:        messageID,
-		LineID:    lineID,
-		Number:    number,
-		Text:      text,
-		Direction: messageDirectionName(pduType),
-		State:     messageStateName(stateCode),
-		StateCode: stateCode,
-		Timestamp: timestamp,
+		ID:                    messageID,
+		LineID:                lineID,
+		Number:                number,
+		Text:                  text,
+		Direction:             messageDirectionName(pduType),
+		State:                 messageStateName(stateCode),
+		StateCode:             stateCode,
+		MessageReference:      messageReference,
+		MessageReferenceKnown: messageReferenceKnown,
+		Timestamp:             timestamp,
+	}
+}
+
+func parseMessageDeliveryReport(
+	path dbus.ObjectPath,
+	lineID string,
+	properties Properties,
+	ids *instanceIDs,
+) domain.MessageDeliveryReport {
+	number, _ := stringProperty(properties, "Number")
+	messageReference, messageReferenceKnown := uint32Property(properties, "MessageReference")
+	deliveryState, deliveryStateKnown := uint32Property(properties, "DeliveryState")
+	timestamp, _ := stringProperty(properties, "DischargeTimestamp")
+	if strings.TrimSpace(timestamp) == "" {
+		timestamp, _ = stringProperty(properties, "Timestamp")
+	}
+	return domain.MessageDeliveryReport{
+		ID:                    ids.messageID(path),
+		LineID:                lineID,
+		Number:                number,
+		MessageReference:      messageReference,
+		MessageReferenceKnown: messageReferenceKnown,
+		DeliveryState:         deliveryState,
+		DeliveryStateKnown:    deliveryStateKnown,
+		Timestamp:             timestamp,
 	}
 }
 
