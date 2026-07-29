@@ -266,6 +266,51 @@ func TestFirstBrowserClaimWins(t *testing.T) {
 	}
 }
 
+func TestBrowserCannotClaimTwoCalls(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.July, 29, 12, 0, 0, 0, time.UTC)
+	calls := &fakeCalls{calls: map[string]store.Call{
+		"call-1": {ID: "call-1", Phase: "active"},
+		"call-2": {
+			ID:        "call-2",
+			Direction: "incoming",
+			Phase:     "ringing",
+		},
+	}}
+	manager, err := New(
+		calls,
+		&fakeController{ended: make(chan string, 1)},
+		Options{
+			Duration: 10 * time.Second,
+			Now:      func() time.Time { return now },
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Claim(
+		context.Background(),
+		"call-1",
+		"browser-1",
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Claim(
+		context.Background(),
+		"call-2",
+		"browser-1",
+	); !errors.Is(err, ErrHolderBusy) {
+		t.Fatalf("second call Claim() error = %v, want ErrHolderBusy", err)
+	}
+	if _, err := manager.Claim(
+		context.Background(),
+		"call-2",
+		"browser-2",
+	); err != nil {
+		t.Fatalf("other browser could not claim second call: %v", err)
+	}
+}
+
 func TestConcurrentBrowserClaimsHaveOneWinner(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)

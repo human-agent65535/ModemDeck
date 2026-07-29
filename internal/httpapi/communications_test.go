@@ -777,6 +777,42 @@ func TestStartCallClaimFailureEndsOnlyCreatedCall(t *testing.T) {
 	}
 }
 
+func TestBrowserCannotStartASecondOwnedCall(t *testing.T) {
+	t.Parallel()
+
+	communications := &fakeCommunications{call: store.Call{
+		ID:        "call-app-3",
+		LineID:    "line-stable-3",
+		Direction: "outgoing",
+		Phase:     "dialing",
+	}}
+	leases := &fakeCallLeases{err: calllease.ErrHolderBusy}
+	api, err := New(&fakeRepository{}, Options{
+		Communications:        communications,
+		CallLeases:            leases,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/calls",
+		bytes.NewBufferString(
+			`{"line_id":"line-stable-3","number":"+818012345678","holder_id":"browser-1"}`,
+		),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	assertAPIError(t, response, http.StatusConflict, "browser_call_busy")
+	if communications.endCallID != "call-app-3" {
+		t.Fatalf("ended call = %q, want call-app-3", communications.endCallID)
+	}
+}
+
 func TestIncomingAnswerIsFirstClaimWins(t *testing.T) {
 	t.Parallel()
 

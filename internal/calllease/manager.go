@@ -24,6 +24,7 @@ var (
 	ErrCallNotFound    = errors.New("browser call lease call not found")
 	ErrCallNotActive   = errors.New("browser call lease call is not active")
 	ErrCallOwned       = errors.New("browser call lease is owned by another browser")
+	ErrHolderBusy      = errors.New("browser already owns another call lease")
 	ErrNotOwner        = errors.New("browser does not own the call lease")
 )
 
@@ -198,6 +199,15 @@ func (m *Manager) Claim(
 			HolderID:  holderID,
 			ExpiresAt: expiresAt,
 		}, nil
+	}
+	for otherCallID, otherEntry := range m.entries {
+		if otherCallID == callID ||
+			otherEntry.ending ||
+			otherEntry.holderID != holderID ||
+			!now.Before(otherEntry.expiresAt) {
+			continue
+		}
+		return Status{}, ErrHolderBusy
 	}
 	if !entry.unclaimedExpires.IsZero() &&
 		!now.Before(entry.unclaimedExpires) {

@@ -99,6 +99,14 @@ func (api *API) writeCallLeaseError(
 			"Line is already in use by another browser",
 			"",
 		)
+	case errors.Is(err, calllease.ErrHolderBusy):
+		writeError(
+			response,
+			http.StatusConflict,
+			"browser_call_busy",
+			"This browser is already handling another call",
+			"",
+		)
 	case errors.Is(err, calllease.ErrNotOwner):
 		writeError(
 			response,
