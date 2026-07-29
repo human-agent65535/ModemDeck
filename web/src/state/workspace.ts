@@ -7,6 +7,7 @@ import type {
   CommunicationCapabilityName,
   Contact,
   ContactInput,
+  ContactPhone,
   CreateDeviceInput,
   Device,
   IncomingMessageEvent,
@@ -23,11 +24,9 @@ import type {
 } from '../api/types'
 import { ApiError } from '../api/types'
 import { translate } from '../i18n'
+import { formatPhoneNumber } from '../utils/format'
 import { playOutgoingMessageSound } from './browserSounds'
-import {
-  normalizedPhoneIdentity,
-  phoneIdentitiesMatch
-} from '../utils/lineIdentity'
+import { normalizedPhoneIdentity } from '../utils/lineIdentity'
 
 function resource<T>(data: T): Resource<T> {
   return reactive({ status: 'idle', data, error: '' }) as Resource<T>
@@ -160,14 +159,17 @@ export function resolveLine(
   const byID = (id?: string) =>
     supported(id ? lines.find(line => lineKey(line) === id.trim()) : undefined)
 
-  const contextLine = byID(options.contextKey)
-  if (contextLine) return contextLine
+  const explicitlyPreferredLine = byID(options.preferredLineID)
+  if (explicitlyPreferredLine) return explicitlyPreferredLine
 
   const contact =
     options.preferredLineID || !options.number
       ? undefined
       : contactForNumber(options.number)
-  const preferredLine = byID(options.preferredLineID || contact?.preferred_line_id)
+  const contextLine = byID(options.contextKey)
+  if (contextLine) return contextLine
+
+  const preferredLine = byID(contact?.preferred_line_id)
   if (preferredLine) return preferredLine
 
   return byID(bootstrapResource.data?.line_settings.default_line_id)
@@ -214,8 +216,10 @@ export function displayModuleLines(lines: LineSummary[], devices: Device[]): Lin
       operator: device.sim_inserted ? sim?.operator || '' : '',
       home_operator_code: device.sim_inserted ? sim?.home_operator_code || '' : '',
       home_operator_name: device.sim_inserted ? sim?.home_operator_name || '' : '',
+      home_country_iso: device.sim_inserted ? sim?.home_country_iso || '' : '',
       serving_operator_code: device.sim_inserted ? sim?.serving_operator_code || '' : '',
       serving_operator_name: device.sim_inserted ? sim?.serving_operator_name || '' : '',
+      serving_country_iso: device.sim_inserted ? sim?.serving_country_iso || '' : '',
       registration_state_known:
         device.sim_inserted && sim?.registration_state_known === true,
       registration_state_code: device.sim_inserted ? sim?.registration_state_code || 0 : 0,
@@ -271,13 +275,32 @@ export function deviceName(id: string): string {
 }
 
 export function contactForNumber(number: string): Contact | undefined {
-  return contactsResource.data.find(contact =>
-    contact.phones.some(
-      phone =>
-        phoneIdentitiesMatch(phone.normalized_number, number) ||
-        phoneIdentitiesMatch(phone.number, number)
-    )
+  const identity = normalizedPhoneIdentity(number)
+  if (!identity.startsWith('+')) return undefined
+  const matches = contactsResource.data.filter(contact =>
+    contact.phones.some(phone => contactPhoneIdentity(phone) === identity)
   )
+  return matches.length === 1 ? matches[0] : undefined
+}
+
+export function contactPhoneForNumber(number: string): ContactPhone | undefined {
+  const identity = normalizedPhoneIdentity(number)
+  const contact = contactForNumber(number)
+  if (!contact) return undefined
+  return contact.phones.find(phone => contactPhoneIdentity(phone) === identity)
+}
+
+export function displayPhoneNumber(number: string, lineReference = ''): string {
+  const contactNumber = contactPhoneForNumber(number)?.number.trim()
+  if (contactNumber) return contactNumber
+  return formatPhoneNumber(number, lineForKey(lineReference)?.home_country_iso)
+}
+
+function contactPhoneIdentity(phone: ContactPhone): string {
+  const canonical = normalizedPhoneIdentity(phone.normalized_number)
+  if (canonical.startsWith('+')) return canonical
+  const explicitNumber = normalizedPhoneIdentity(phone.number)
+  return explicitNumber.startsWith('+') ? explicitNumber : ''
 }
 
 export function loadBootstrap(force = false): Promise<BootstrapResponse | null> {

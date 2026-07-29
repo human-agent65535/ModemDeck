@@ -22,6 +22,7 @@ import {
 import {
   bootstrapResource,
   contactForNumber,
+  displayPhoneNumber,
   lineForKey,
   lineKey,
   loadBootstrap,
@@ -64,7 +65,14 @@ function displayName(recording: RecordingEntry): string {
   return (
     recording.call.display_name ||
     contactForNumber(recording.call.remote_number)?.display_name ||
-    recording.call.remote_number
+    recordingDisplayNumber(recording)
+  )
+}
+
+function recordingDisplayNumber(recording: RecordingEntry): string {
+  return displayPhoneNumber(
+    recording.call.remote_number,
+    recording.call.line_id
   )
 }
 
@@ -311,7 +319,7 @@ onBeforeUnmount(() => {
           </button>
           <ContactHeaderIdentity
             :name="displayName(selected)"
-            :number="selected.call.remote_number"
+            :number="recordingDisplayNumber(selected)"
             :avatar="avatar(selected)"
             :line="lineTagLine(lineForRecording(selected), selected.call.line_id)"
             :line-fallback="recordingLineFallback(selected)"

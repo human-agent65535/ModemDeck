@@ -47,7 +47,7 @@ test('call detail keeps communication and contact actions in one compact header'
   )
   assert.match(
     calls,
-    /<ContactHeaderIdentity[\s\S]*?:number="selected\.remote_number"[\s\S]*?<div class="detail-header__actions call-detail__header-actions">[\s\S]*?<ContactNumberActions[\s\S]*?:contact="selectedContact"[\s\S]*?compact/
+    /<ContactHeaderIdentity[\s\S]*?:number="callDisplayNumber\(selected\)"[\s\S]*?<div class="detail-header__actions call-detail__header-actions">[\s\S]*?<ContactNumberActions[\s\S]*?:contact="selectedContact"[\s\S]*?compact/
   )
   assert.doesNotMatch(calls, /<div class="call-detail__actions">/)
   assert.doesNotMatch(calls, /class="call-detail__contact-actions"/)

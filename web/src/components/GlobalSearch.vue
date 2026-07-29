@@ -6,6 +6,7 @@ import { History, MessageSquareText, Phone, UsersRound } from '@lucide/vue'
 import {
   callsResource,
   contactsResource,
+  displayPhoneNumber,
   ensureSearchData,
   threadsResource
 } from '../state/workspace'
@@ -132,8 +133,8 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
           type="button"
           @click="go({ name: 'messages', params: { threadKey: thread.key } })"
         >
-          <span>{{ thread.contact_name || thread.peer }}</span>
-          <small>{{ thread.last_content || thread.peer }}</small>
+          <span>{{ thread.contact_name || displayPhoneNumber(thread.peer, thread.line_id) }}</span>
+          <small>{{ thread.last_content || displayPhoneNumber(thread.peer, thread.line_id) }}</small>
         </button>
       </template>
 
@@ -148,7 +149,11 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
           type="button"
           @click="go({ name: 'calls', query: { selected: call.id } })"
         >
-          <span><Phone :size="14" />{{ call.display_name || call.remote_number }}</span>
+          <span>
+            <Phone :size="14" />{{
+              call.display_name || displayPhoneNumber(call.remote_number, call.line_id)
+            }}
+          </span>
           <small>{{ formatRelativeDate(call.started_at) }}</small>
         </button>
       </template>

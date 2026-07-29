@@ -658,8 +658,10 @@ export function parseSIMStatusResponse(value: unknown): SIMStatus {
     profile_management: simProfileManagement(source, path),
     home_operator_code: requiredString(source, path, 'home_operator_code', true),
     home_operator_name: requiredString(source, path, 'home_operator_name', true),
+    home_country_iso: requiredString(source, path, 'home_country_iso', true),
     serving_operator_code: requiredString(source, path, 'serving_operator_code', true),
     serving_operator_name: requiredString(source, path, 'serving_operator_name', true),
+    serving_country_iso: requiredString(source, path, 'serving_country_iso', true),
     registration_state_known: requiredBoolean(
       source,
       path,

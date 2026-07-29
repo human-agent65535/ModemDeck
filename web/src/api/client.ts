@@ -391,8 +391,10 @@ function parseDiagnosticLine(value: unknown, index: number): LineSummary {
     operator: stringValue(source, 'operator'),
     home_operator_code: stringValue(source, 'home_operator_code'),
     home_operator_name: stringValue(source, 'home_operator_name'),
+    home_country_iso: stringValue(source, 'home_country_iso'),
     serving_operator_code: stringValue(source, 'serving_operator_code'),
     serving_operator_name: stringValue(source, 'serving_operator_name'),
+    serving_country_iso: stringValue(source, 'serving_country_iso'),
     registration_state_known: requiredBooleanValue(
       source,
       path,

@@ -9,8 +9,10 @@ export type MessageRouteLocation = {
 
 function normalizedAddress(value: string): string {
   const trimmed = value.trim()
-  const digits = trimmed.replace(/\D/g, '')
-  return digits || trimmed.toLocaleLowerCase()
+  const compact = trimmed.replace(/[\s().\-/]/g, '')
+  return /^\+[1-9]\d{7,14}$/.test(compact)
+    ? compact
+    : trimmed.toLocaleLowerCase()
 }
 
 export function messageThreadUsesLine(

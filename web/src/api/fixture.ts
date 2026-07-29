@@ -360,8 +360,10 @@ function fixtureLines(count: number): LineSummary[] {
       operator: 'Aurora Mobile',
       home_operator_code: '00101',
       home_operator_name: 'Aurora Mobile',
+      home_country_iso: 'ZZ',
       serving_operator_code: '00101',
       serving_operator_name: 'Aurora Mobile',
+      serving_country_iso: 'ZZ',
       registration_state_known: true,
       registration_state_code: 1,
       registration_state: 'home',
@@ -401,8 +403,10 @@ function fixtureLines(count: number): LineSummary[] {
       operator: 'Pine Wireless',
       home_operator_code: '00102',
       home_operator_name: 'Pine Wireless',
+      home_country_iso: 'ZZ',
       serving_operator_code: '00101',
       serving_operator_name: 'Aurora Mobile',
+      serving_country_iso: 'ZZ',
       registration_state_known: true,
       registration_state_code: 5,
       registration_state: 'roaming',
@@ -443,8 +447,10 @@ function fixtureLines(count: number): LineSummary[] {
       operator: `Fixture Network ${displayIndex}`,
       home_operator_code: `001${String(displayIndex).padStart(2, '0')}`,
       home_operator_name: `Fixture Network ${displayIndex}`,
+      home_country_iso: 'ZZ',
       serving_operator_code: `001${String(displayIndex).padStart(2, '0')}`,
       serving_operator_name: `Fixture Network ${displayIndex}`,
+      serving_country_iso: 'ZZ',
       registration_state_known: true,
       registration_state_code: 1,
       registration_state: 'home',
@@ -670,8 +676,10 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           operator: line.operator,
           home_operator_code: line.home_operator_code,
           home_operator_name: line.home_operator_name,
+          home_country_iso: line.home_country_iso,
           serving_operator_code: line.serving_operator_code,
           serving_operator_name: line.serving_operator_name,
+          serving_country_iso: line.serving_country_iso,
           registration_state_known: line.registration_state_known,
           registration_state_code: line.registration_state_code,
           registration_state: line.registration_state,
@@ -1126,6 +1134,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           id: `phone-fixture-${sequence}-${index + 1}`,
           label: phone.label,
           number: phone.number,
+          region: phone.region,
           primary: phone.primary
         }))
       }
@@ -1149,6 +1158,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           id: phone.id || `phone-fixture-${sequence}-${phoneIndex + 1}`,
           label: phone.label,
           number: phone.number,
+          region: phone.region,
           primary: phone.primary
         }))
       }
@@ -1210,7 +1220,13 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       const key = fixtureThreadKey(input.line_id, input.to)
       let thread = threads.find(item => item.key === key)
       if (!thread) {
-        const contact = contacts.find(item => item.phones.some(phone => phone.number === input.to))
+        const contact = contacts.find(item =>
+          item.phones.some(
+            phone =>
+              normalizedPhoneIdentity(phone.normalized_number || phone.number) ===
+              normalizedPhoneIdentity(input.to)
+          )
+        )
         thread = {
           key,
           line_id: input.line_id,
@@ -1298,7 +1314,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       const contact = contacts.find(item =>
         item.phones.some(
           phone =>
-            normalizedPhoneIdentity(phone.number) ===
+            normalizedPhoneIdentity(phone.normalized_number || phone.number) ===
             normalizedPhoneIdentity(dialTarget.normalized)
         )
       )
@@ -1771,8 +1787,10 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         },
         home_operator_code: line.home_operator_code,
         home_operator_name: line.home_operator_name,
+        home_country_iso: line.home_country_iso,
         serving_operator_code: line.serving_operator_code,
         serving_operator_name: line.serving_operator_name,
+        serving_country_iso: line.serving_country_iso,
         registration_state_known: line.registration_state_known,
         registration_state_code: line.registration_state_code,
         registration_state: line.registration_state,

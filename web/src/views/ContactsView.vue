@@ -32,7 +32,7 @@ import {
   loadContacts,
   saveContact
 } from '../state/workspace'
-import { primaryPhone } from '../utils/format'
+import { phoneDestination, primaryPhone } from '../utils/format'
 
 const route = useRoute()
 const router = useRouter()
@@ -74,6 +74,9 @@ const searchedPhone = computed(() => {
 })
 const contactLines = computed(
   () => bootstrapResource.data?.lines.filter(line => Boolean(lineKey(line))) || []
+)
+const defaultLineID = computed(
+  () => bootstrapResource.data?.line_settings.default_line_id || ''
 )
 
 watch(
@@ -159,6 +162,7 @@ async function toggleFavorite(contact: Contact): Promise<void> {
           id: phone.id,
           label: phone.label,
           number: phone.number,
+          region: phone.region,
           primary: phone.primary
         }))
       },
@@ -363,7 +367,7 @@ onMounted(() => {
                   type="button"
                   :disabled="Boolean(dialUnavailable)"
                   :title="dialUnavailable || t('calls.dial')"
-                  @click="call(selected, phone.number)"
+                  @click="call(selected, phoneDestination(phone))"
                 >
                   <Phone :size="18" />
                 </button>
@@ -372,7 +376,7 @@ onMounted(() => {
                   type="button"
                   :disabled="Boolean(messageUnavailable)"
                   :title="messageUnavailable || t('messages.sendMessage')"
-                  @click="message(selected, phone.number)"
+                  @click="message(selected, phoneDestination(phone))"
                 >
                   <MessageSquareText :size="18" />
                 </button>
@@ -400,6 +404,7 @@ onMounted(() => {
       :open="editorOpen"
       :contact="editing"
       :lines="contactLines"
+      :default-line-id="defaultLineID"
       :saving="saving"
       :error="editorError"
       @close="editorOpen = false"

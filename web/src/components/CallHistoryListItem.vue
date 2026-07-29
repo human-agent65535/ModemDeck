@@ -18,6 +18,7 @@ const props = withDefaults(
   defineProps<{
     call: CallRecord
     name: string
+    number: string
     avatar?: string
     line: LineTagLine
     lineFallback?: string
@@ -48,6 +49,9 @@ const directionLabel = computed(() => {
     ? t('dashboard.incoming')
     : t('dashboard.outgoing')
 })
+const showNumber = computed(
+  () => props.number.trim().toLocaleLowerCase() !== props.name.trim().toLocaleLowerCase()
+)
 </script>
 
 <template>
@@ -81,7 +85,9 @@ const directionLabel = computed(() => {
       </span>
       <span class="call-list-item__meta">
         <LineTag :line="line" :fallback="lineFallback" />
-        <small>{{ directionLabel }} · {{ call.remote_number }}</small>
+        <small>
+          {{ directionLabel }}<template v-if="showNumber"> · {{ number }}</template>
+        </small>
         <span
           v-if="hasRecording"
           class="call-list-item__recording"

@@ -44,6 +44,7 @@ import {
   contactForNumber,
   contactsResource,
   devicesResource,
+  displayPhoneNumber,
   displayModuleLines,
   lineCanPlaceVoiceCall,
   lineForKey,
@@ -63,7 +64,7 @@ import {
   isRegisteredNetwork,
   isVoiceServiceReady
 } from '../utils/operatorNetwork'
-import { primaryPhone } from '../utils/format'
+import { primaryPhone, primaryPhoneDestination } from '../utils/format'
 import { lineTagFallback, lineTagLine } from '../utils/lineIdentity'
 
 type DashboardActivity =
@@ -234,7 +235,7 @@ function callName(call: CallRecord): string {
   return (
     call.display_name ||
     contactForNumber(call.remote_number)?.display_name ||
-    call.remote_number
+    displayPhoneNumber(call.remote_number, call.line_id)
   )
 }
 
@@ -242,7 +243,7 @@ function threadName(thread: MessageThread): string {
   return (
     thread.contact_name ||
     contactForNumber(thread.peer)?.display_name ||
-    thread.peer
+    displayPhoneNumber(thread.peer, thread.line_id)
   )
 }
 
@@ -318,12 +319,12 @@ function openLineSettings(line: LineSummary): void {
 }
 
 function callContact(contact: Contact): void {
-  const number = primaryPhone(contact.phones)
+  const number = primaryPhoneDestination(contact.phones)
   if (number) callNumber(number, contact.display_name)
 }
 
 function messageContact(contact: Contact): void {
-  const number = primaryPhone(contact.phones)
+  const number = primaryPhoneDestination(contact.phones)
   if (number) startMessage(number, contact.display_name)
 }
 
@@ -479,6 +480,7 @@ onMounted(() => {
             v-if="activity.kind === 'message'"
             :thread="activity.thread"
             :name="threadName(activity.thread)"
+            :peer="displayPhoneNumber(activity.thread.peer, activity.thread.line_id)"
             :avatar="avatarForNumber(activity.thread.peer)"
             :line="lineTagLine(lineForThread(activity.thread), activity.thread.line_id)"
             :line-fallback="threadLineFallback(activity.thread)"
@@ -490,6 +492,7 @@ onMounted(() => {
             v-else
             :call="activity.call"
             :name="callName(activity.call)"
+            :number="displayPhoneNumber(activity.call.remote_number, activity.call.line_id)"
             :avatar="avatarForNumber(activity.call.remote_number)"
             :line="lineTagLine(lineForCall(activity.call), activity.call.line_id)"
             :line-fallback="callLineFallback(activity.call)"
@@ -803,6 +806,7 @@ onMounted(() => {
     <ContactEditor
       :open="contactEditorOpen"
       :lines="contactLines"
+      :default-line-id="defaultLineID"
       :saving="contactSaving"
       :error="contactEditorError"
       @close="contactEditorOpen = false"

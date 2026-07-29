@@ -75,6 +75,7 @@ test('new messages retain contact preference then global default resolution', as
 
   assert.match(source, /resolveLine\('message', \{/)
   assert.match(source, /contextKey: composeContextLineKey\.value/)
+  assert.match(source, /preferredLineID: selectedRecipientPreferredLineID\.value/)
   assert.match(source, /number: newRecipient\.value/)
   assert.match(source, /if \(!force && lineSelectionOverridden\) return/)
   assert.match(source, /if \(composingNew\.value\) lineSelectionOverridden = true/)

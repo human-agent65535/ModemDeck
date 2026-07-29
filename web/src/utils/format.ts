@@ -7,6 +7,11 @@ export function initials(name: string): string {
   return `${Array.from(parts[0] || '#')[0] || ''}${Array.from(parts.at(-1) || '#')[0] || ''}`.toUpperCase()
 }
 
+import {
+  parsePhoneNumberFromString,
+  type CountryCode
+} from 'libphonenumber-js/min'
+
 export function formatRelativeDate(value: string): string {
   const date = new Date(value)
   if (!Number.isFinite(date.getTime())) return value
@@ -55,4 +60,32 @@ export function formatDuration(seconds: number): string {
 
 export function primaryPhone(phones: Array<{ number: string; primary: boolean }>): string {
   return phones.find(phone => phone.primary)?.number || phones[0]?.number || ''
+}
+
+export function phoneDestination(phone: {
+  number: string
+  normalized_number?: string
+}): string {
+  return phone.normalized_number?.trim() || phone.number.trim()
+}
+
+export function primaryPhoneDestination(
+  phones: Array<{ number: string; normalized_number?: string; primary: boolean }>
+): string {
+  const phone = phones.find(item => item.primary) || phones[0]
+  return phone ? phoneDestination(phone) : ''
+}
+
+export function formatPhoneNumber(value: string, homeRegion = ''): string {
+  const original = value.trim()
+  if (!original) return ''
+  const normalizedRegion = homeRegion.trim().toUpperCase()
+  const region: CountryCode | undefined = /^[A-Z]{2}$/.test(normalizedRegion)
+    ? (normalizedRegion as CountryCode)
+    : undefined
+  const parsed = parsePhoneNumberFromString(original, region)
+  if (!parsed?.isPossible()) return original
+  return region && parsed.country === region
+    ? parsed.formatNational()
+    : parsed.formatInternational()
 }

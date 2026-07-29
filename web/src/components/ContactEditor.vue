@@ -4,12 +4,14 @@ import { useI18n } from 'vue-i18n'
 import { Plus, Star, Trash2, X } from '@lucide/vue'
 import type { Contact, ContactInput, LineSummary } from '../api/types'
 import ContactAvatarPicker from './ContactAvatarPicker.vue'
+import CountryRegionSelector from './CountryRegionSelector.vue'
 import LineSelector from './LineSelector.vue'
 
 type PhoneDraft = {
   id?: string
   label: string
   number: string
+  region?: string
   primary: boolean
 }
 
@@ -18,6 +20,7 @@ const props = defineProps<{
   open: boolean
   contact?: Contact
   lines?: LineSummary[]
+  defaultLineId?: string
   initialPhone?: string
   saving?: boolean
   error?: string
@@ -44,6 +47,27 @@ const draft = reactive<{
   phones: []
 })
 const avatarBusy = ref(false)
+const preferredPhoneRegions = computed(() => {
+  const regions = new Set<string>()
+  for (const line of props.lines || []) {
+    const region = line.home_country_iso.trim().toUpperCase()
+    if (/^[A-Z]{2}$/.test(region)) regions.add(region)
+  }
+  for (const phone of draft.phones) {
+    const region = phone.region?.trim().toUpperCase() || ''
+    if (/^[A-Z]{2}$/.test(region)) regions.add(region)
+  }
+  return Array.from(regions)
+})
+const defaultPhoneRegion = computed(() => {
+  const preferredDefault = props.lines?.find(line => line.id === props.defaultLineId)
+  const candidates = [preferredDefault, ...(props.lines || [])]
+  for (const line of candidates) {
+    const region = line?.home_country_iso.trim().toUpperCase() || ''
+    if (/^[A-Z]{2}$/.test(region)) return region
+  }
+  return ''
+})
 const valid = computed(
   () =>
     !avatarBusy.value &&
@@ -62,14 +86,21 @@ watch(
     draft.notes = contact?.notes || ''
     draft.favorite = contact?.favorite || false
     draft.preferredLineID = contact?.preferred_line_id || ''
+    const initialNumber = props.initialPhone?.trim() || ''
     draft.phones = contact?.phones.length
       ? contact.phones.map(phone => ({
           id: phone.id,
           label: phone.label,
           number: phone.number,
+          region: phone.region,
           primary: phone.primary
         }))
-      : [{ label: t('contacts.mobile'), number: props.initialPhone?.trim() || '', primary: true }]
+      : [{
+          label: t('contacts.mobile'),
+          number: initialNumber,
+          region: initialNumber.startsWith('+') ? '' : defaultPhoneRegion.value,
+          primary: true
+        }]
   },
   { immediate: true }
 )
@@ -78,6 +109,7 @@ function addPhone(): void {
   draft.phones.push({
     label: draft.phones.length === 0 ? t('contacts.mobile') : t('contacts.other'),
     number: '',
+    region: defaultPhoneRegion.value,
     primary: draft.phones.length === 0
   })
 }
@@ -107,6 +139,7 @@ function submit(): void {
       id: phone.id,
       label: phone.label.trim() || t('contacts.phone'),
       number: phone.number.trim(),
+      region: phone.region?.trim().toUpperCase() || undefined,
       primary: phone.primary
     }))
   })
@@ -165,13 +198,19 @@ function submit(): void {
                   class="phone-row__label"
                   :aria-label="t('contacts.phoneType')"
                 />
-                <input
-                  v-model="phone.number"
-                  type="tel"
-                  autocomplete="tel"
-                  :aria-label="t('contacts.phoneNumber')"
-                  required
-                />
+                <div class="phone-row__number">
+                  <CountryRegionSelector
+                    v-model="phone.region"
+                    :regions="preferredPhoneRegions"
+                  />
+                  <input
+                    v-model="phone.number"
+                    type="tel"
+                    autocomplete="tel"
+                    :aria-label="t('contacts.phoneNumber')"
+                    required
+                  />
+                </div>
                 <label
                   class="primary-radio"
                   :title="

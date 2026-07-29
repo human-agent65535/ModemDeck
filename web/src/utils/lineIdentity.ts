@@ -5,12 +5,10 @@ export type LineTagLine = Pick<LineSummary, 'id' | 'line_label' | 'line_color'>
 
 export function normalizedPhoneIdentity(value: string | undefined): string {
   const source = value?.trim() || ''
-  const digits = source.replace(/\D/g, '')
-  if (source.startsWith('00')) {
-    const internationalDigits = digits.slice(2)
-    if (/^[1-9]\d{7,14}$/.test(internationalDigits)) return internationalDigits
-  }
-  return digits
+  if (!source) return ''
+  const compact = source.replace(/[\s().\-/]/g, '')
+  if (/^\+[1-9]\d{7,14}$/.test(compact)) return compact
+  return source.toLocaleLowerCase()
 }
 
 export function phoneIdentitiesMatch(

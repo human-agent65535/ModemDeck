@@ -21,6 +21,7 @@ test('dialing and messages resolve context, contact, and global default lines', 
 
   assert.match(dialer, /resolveLine\('dial'/)
   assert.match(dialer, /contextKey: draftContextLineKey\.value/)
+  assert.match(dialer, /preferredLineID: selectedContactPreferredLineID\.value/)
   assert.match(dialer, /lineSelectionOverridden/)
   assert.match(dialer, /\(!selectedLineId\.value \? t\('dialer\.selectLine'\) : ''\)/)
   assert.match(dialer, /<LineSelector/)
@@ -30,6 +31,7 @@ test('dialing and messages resolve context, contact, and global default lines', 
 
   assert.match(messages, /resolveLine\('message'/)
   assert.match(messages, /contextKey: composeContextLineKey\.value/)
+  assert.match(messages, /preferredLineID: selectedRecipientPreferredLineID\.value/)
   assert.match(messages, /threadUsesLine\(thread, line\)/)
   assert.match(
     messages,

@@ -65,6 +65,8 @@ test('fixture applies the same local dial-target contract as the real gateway', 
 
 test('dialer shows validation inside the input without shifting the keypad', () => {
   assert.match(dialer, /import \{ normalizeDialTarget \} from/)
+  assert.match(dialer, /dial\(\s*dialTarget\.value\.original,/)
+  assert.doesNotMatch(dialer, /dial\(\s*dialTarget\.value\.normalized,/)
   assert.match(dialer, /const validationVisible = computed/)
   assert.match(dialer, /class="dialer-number-trailing"/)
   assert.match(dialer, /class="dialer-inline-validation"/)

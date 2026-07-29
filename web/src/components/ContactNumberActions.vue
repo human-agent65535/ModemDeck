@@ -6,6 +6,7 @@ import type { Contact, ContactInput } from '../api/types'
 import BaseAvatar from './BaseAvatar.vue'
 import ContactEditor from './ContactEditor.vue'
 import SearchField from './SearchField.vue'
+import { phoneIdentitiesMatch } from '../utils/lineIdentity'
 import {
   bootstrapResource,
   contactEditingAvailable,
@@ -54,6 +55,9 @@ const filteredContacts = computed(() => {
 })
 const contactLines = computed(
   () => bootstrapResource.data?.lines.filter(line => Boolean(lineKey(line))) || []
+)
+const defaultLineID = computed(
+  () => bootstrapResource.data?.line_settings.default_line_id || ''
 )
 
 const selectedContact = computed(() =>
@@ -116,8 +120,11 @@ async function createContact(input: ContactInput): Promise<void> {
 async function addToContact(): Promise<void> {
   const contact = selectedContact.value
   if (!contact || !props.number.trim() || saving.value) return
-  const digits = props.number.replace(/\D/g, '')
-  if (contact.phones.some(phone => phone.number.replace(/\D/g, '') === digits)) {
+  if (
+    contact.phones.some(phone =>
+      phoneIdentitiesMatch(phone.normalized_number || phone.number, props.number)
+    )
+  ) {
     error.value = t('contacts.duplicateNumber')
     return
   }
@@ -138,6 +145,7 @@ async function addToContact(): Promise<void> {
             id: phone.id,
             label: phone.label,
             number: phone.number,
+            region: phone.region,
             primary: phone.primary
           })),
           {
@@ -199,6 +207,7 @@ async function addToContact(): Promise<void> {
     :open="createOpen"
     :initial-phone="number"
     :lines="contactLines"
+    :default-line-id="defaultLineID"
     :saving="saving"
     :error="error"
     @close="closeCreate"

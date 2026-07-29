@@ -141,6 +141,7 @@ function normalizePhone(value: unknown, contactId: string, index: number): Conta
     label: stringValue(source, 'label') || '电话',
     number: requiredString(source, `contact.phones[${index}]`, 'original_number'),
     normalized_number: stringValue(source, 'canonical_e164') || undefined,
+    region: stringValue(source, 'region') || undefined,
     primary: typeof source.primary === 'boolean' ? source.primary : index === 0
   }
 }
@@ -247,8 +248,10 @@ function parseSIM(value: unknown): DeviceSIM {
     operator: stringValue(source, 'operator'),
     home_operator_code: stringValue(source, 'home_operator_code'),
     home_operator_name: stringValue(source, 'home_operator_name'),
+    home_country_iso: stringValue(source, 'home_country_iso'),
     serving_operator_code: stringValue(source, 'serving_operator_code'),
     serving_operator_name: stringValue(source, 'serving_operator_name'),
+    serving_country_iso: stringValue(source, 'serving_country_iso'),
     registration_state_known: source.registration_state_known === true,
     registration_state_code: numberValue(source, 'registration_state_code'),
     registration_state: stringValue(source, 'registration_state'),
@@ -313,8 +316,10 @@ export function parseLine(value: unknown): LineSummary {
     operator: stringValue(source, 'operator'),
     home_operator_code: stringValue(source, 'home_operator_code'),
     home_operator_name: stringValue(source, 'home_operator_name'),
+    home_country_iso: stringValue(source, 'home_country_iso'),
     serving_operator_code: stringValue(source, 'serving_operator_code'),
     serving_operator_name: stringValue(source, 'serving_operator_name'),
+    serving_country_iso: stringValue(source, 'serving_country_iso'),
     registration_state_known: source.registration_state_known === true,
     registration_state_code: numberValue(source, 'registration_state_code'),
     registration_state: stringValue(source, 'registration_state'),

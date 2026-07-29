@@ -6,7 +6,13 @@ import { ApiError } from '../api/types'
 import { translate } from '../i18n'
 import { showBrowserNotification } from './browserNotifications'
 import { syncCallSounds } from './browserSounds'
-import { capabilityReason, contactForNumber, lineForKey, lineLabel } from './workspace'
+import {
+  capabilityReason,
+  contactForNumber,
+  displayPhoneNumber,
+  lineForKey,
+  lineLabel
+} from './workspace'
 import { closeDialer, showCallSurface } from './ui'
 import { callMediaState, shutdownCallMedia, syncCallMedia } from './callMedia'
 import { syncCallRecording } from './recording'
@@ -171,7 +177,10 @@ function showIncomingCallNotification(session: CallSession): void {
   if (!activeRouter || !claimIncomingCallNotification(session, notifiedIncomingCallIDs)) return
 
   const contact = contactForNumber(session.remote_number)
-  const caller = session.display_name || contact?.display_name || session.remote_number
+  const caller =
+    session.display_name ||
+    contact?.display_name ||
+    displayPhoneNumber(session.remote_number, session.line_id)
   const line = lineForKey(session.line_id)
   showBrowserNotification({
     title: caller,

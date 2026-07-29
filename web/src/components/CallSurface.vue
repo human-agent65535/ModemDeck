@@ -33,7 +33,12 @@ import {
   setActiveCallRecording
 } from '../state/recording'
 import { playDTMFTone } from '../state/dtmfAudio'
-import { contactForNumber, lineForKey, lineSupports } from '../state/workspace'
+import {
+  contactForNumber,
+  displayPhoneNumber,
+  lineForKey,
+  lineSupports
+} from '../state/workspace'
 import { knownCallBearerLabel } from '../callBearer'
 import { formatDuration } from '../utils/format'
 import { phoneKeypad } from '../utils/phoneKeypad'
@@ -52,15 +57,20 @@ const line = computed(() => (session.value ? lineForKey(session.value.line_id) :
 const contact = computed(() =>
   session.value ? contactForNumber(session.value.remote_number) : undefined
 )
+const presentedNumber = computed(() =>
+  session.value
+    ? displayPhoneNumber(session.value.remote_number, session.value.line_id)
+    : ''
+)
 const contactName = computed(
   () =>
     session.value?.display_name ||
     contact.value?.display_name ||
-    session.value?.remote_number ||
+    presentedNumber.value ||
     t('calls.unknownNumber')
 )
 const contactNumber = computed(() => {
-  const number = session.value?.remote_number || ''
+  const number = presentedNumber.value
   return number && number !== contactName.value ? number : ''
 })
 const phaseLabel = computed(() => {

@@ -5,6 +5,7 @@ import type { IncomingMessageEvent } from '../api/types'
 import { translate } from '../i18n'
 import {
   contactForNumber,
+  displayPhoneNumber,
   lineForKey,
   lineLabel,
   refreshIncomingMessage,
@@ -114,7 +115,9 @@ function enqueue(operation: () => Promise<void>): void {
 function showIncomingMessageNotification(event: IncomingMessageEvent, router: Router): void {
   const contact = contactForNumber(event.peer)
   const line = lineForKey(event.line_id)
-  const sender = contact?.display_name || event.peer
+  const sender =
+    contact?.display_name ||
+    displayPhoneNumber(event.peer, event.line_id)
   const title = line ? `${sender} · ${lineLabel(line)}` : sender
   showBrowserNotification({
     title,

@@ -22,12 +22,14 @@ import StatePanel from '../components/StatePanel.vue'
 import SwipeActionRow from '../components/SwipeActionRow.vue'
 import { requestConfirmation } from '../state/confirmation'
 import { openDialer } from '../state/ui'
+import { phoneDestination } from '../utils/format'
 import {
   bootstrapResource,
   capabilityReason,
   contactForNumber,
   contactsResource,
   deleteMessageThread,
+  displayPhoneNumber,
   lineForKey,
   lineKey,
   lineSupports,
@@ -88,6 +90,7 @@ const composingNew = ref(props.embeddedCompose)
 const newRecipient = ref(props.initialRecipient)
 const newRecipientName = ref(props.initialRecipientName)
 const selectedLineKey = ref('')
+const selectedRecipientPreferredLineID = ref('')
 const composeContextLineKey = ref(props.contextLineKey)
 const lineFilterKey = ref('all')
 const draft = ref('')
@@ -234,7 +237,15 @@ function avatarForNumber(number: string): string {
 }
 
 function displayNameForThread(thread: MessageThread): string {
-  return contactForNumber(thread.peer)?.display_name || thread.contact_name || thread.peer
+  return (
+    contactForNumber(thread.peer)?.display_name ||
+    thread.contact_name ||
+    threadDisplayNumber(thread)
+  )
+}
+
+function threadDisplayNumber(thread: MessageThread): string {
+  return displayPhoneNumber(thread.peer, thread.line_id)
 }
 
 async function contactSaved(contact: Contact): Promise<void> {
@@ -249,6 +260,7 @@ function syncComposeLine(force = false): void {
   if (!force && lineSelectionOverridden) return
   const resolved = resolveLine('message', {
     contextKey: composeContextLineKey.value,
+    preferredLineID: selectedRecipientPreferredLineID.value,
     number: newRecipient.value
   })
   selectedLineKey.value = resolved ? lineKey(resolved) : ''
@@ -279,6 +291,7 @@ watch(
       composingNew.value = true
       newRecipient.value = compose
       newRecipientName.value = typeof route.query.name === 'string' ? route.query.name : ''
+      selectedRecipientPreferredLineID.value = ''
       composeContextLineKey.value =
         typeof route.query.line === 'string' ? route.query.line : ''
       lineSelectionOverridden = false
@@ -287,6 +300,7 @@ watch(
       return
     }
     composingNew.value = false
+    selectedRecipientPreferredLineID.value = ''
     composeContextLineKey.value = ''
   },
   { immediate: true }
@@ -408,6 +422,7 @@ function startMessage(): void {
   composingNew.value = true
   newRecipient.value = ''
   newRecipientName.value = ''
+  selectedRecipientPreferredLineID.value = ''
   composeContextLineKey.value = ''
   lineSelectionOverridden = false
   syncComposeLine(true)
@@ -419,10 +434,20 @@ function startMessage(): void {
   })
 }
 
-function chooseRecipient(suggestion: { contact: Contact; phone: { number: string } }): void {
-  newRecipient.value = suggestion.phone.number
+function chooseRecipient(suggestion: {
+  contact: Contact
+  phone: { number: string; normalized_number?: string }
+}): void {
+  newRecipient.value = phoneDestination(suggestion.phone)
   newRecipientName.value = suggestion.contact.display_name
+  selectedRecipientPreferredLineID.value = suggestion.contact.preferred_line_id || ''
   syncComposeLine()
+}
+
+function editRecipient(value: string): void {
+  newRecipient.value = value
+  newRecipientName.value = ''
+  selectedRecipientPreferredLineID.value = ''
 }
 
 function backToList(): void {
@@ -619,6 +644,7 @@ onMounted(() => {
           <MessageThreadListItem
             :thread="thread"
             :name="displayNameForThread(thread)"
+            :peer="threadDisplayNumber(thread)"
             :avatar="avatarForNumber(thread.peer)"
             :line="lineTagLine(lineForThread(thread), thread.line_id)"
             :line-fallback="threadLineFallback(thread)"
@@ -650,9 +676,10 @@ onMounted(() => {
           <template v-if="composingNew">
             <div class="conversation-recipient">
               <ContactSuggestInput
-                v-model="newRecipient"
+                :model-value="newRecipient"
                 :contacts="contactsResource.data"
                 autofocus
+                @update:model-value="editRecipient"
                 @select="chooseRecipient"
               />
               <LineSelector
@@ -676,7 +703,7 @@ onMounted(() => {
           <template v-else-if="selectedThread">
             <ContactHeaderIdentity
               :name="displayNameForThread(selectedThread)"
-              :number="selectedThread.peer"
+              :number="threadDisplayNumber(selectedThread)"
               :avatar="avatarForNumber(selectedThread.peer)"
               :line="lineTagLine(lineForThread(selectedThread), selectedThread.line_id)"
               :line-fallback="threadLineFallback(selectedThread)"

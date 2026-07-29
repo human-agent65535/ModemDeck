@@ -47,7 +47,7 @@ test('message conversations match only the stable line id', () => {
   assert.equal(messageThreadUsesLine(mainThread, secondaryLine), false)
 })
 
-test('recipient lookup is phone-format tolerant and remains line specific', () => {
+test('recipient lookup uses backend-canonical global identity and remains line specific', () => {
   const threads = [mainThread, secondaryThread]
 
   assert.equal(
@@ -55,9 +55,10 @@ test('recipient lookup is phone-format tolerant and remains line specific', () =
     mainThread.key
   )
   assert.equal(
-    findRecipientThread(threads, '819012345678', secondaryLine)?.key,
+    findRecipientThread(threads, '+1 202 555 0103', secondaryLine)?.key,
     secondaryThread.key
   )
+  assert.equal(findRecipientThread(threads, '819012345678', secondaryLine), undefined)
   assert.equal(findRecipientThread(threads, '+81 80 0000 0000', mainLine), undefined)
   assert.equal(findRecipientThread(threads, '+1 202 555 0103'), undefined)
 })

@@ -65,11 +65,11 @@ test('shared line tags use only stable line ids', () => {
   })
 })
 
-test('international plus and 00 prefixes share one phone identity', () => {
-  assert.equal(phoneIdentitiesMatch('+1 202 555 0101', '0081 80 1234 5678'), true)
+test('frontend identity matching consumes backend-canonical global numbers', () => {
   assert.equal(phoneIdentitiesMatch('+1 202 555 0101', '+81 (80) 1234-5678'), true)
-  assert.equal(phoneIdentitiesMatch('+8613800000001', '8618636812882'), true)
-  assert.equal(phoneIdentitiesMatch('008618636812882', '8618636812882'), true)
+  assert.equal(phoneIdentitiesMatch('+1 202 555 0101', '0081 80 1234 5678'), false)
+  assert.equal(phoneIdentitiesMatch('+8613800138000', '8613800138000'), false)
+  assert.equal(phoneIdentitiesMatch('008613800138000', '8613800138000'), false)
   assert.equal(phoneIdentitiesMatch('00123', '+123'), false)
   assert.equal(phoneIdentitiesMatch('', ''), false)
 })

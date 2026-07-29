@@ -155,7 +155,11 @@ export interface ModemDeckGateway {
   deleteContact?(id: string, revision?: number): Promise<void>
   sendMessage(input: SendMessageInput): Promise<Message>
   getActiveCalls(): Promise<CallSession[]>
-  startCall(lineKey: string, number: string, recordingEnabled?: boolean): Promise<CallSession>
+  startCall(
+    lineKey: string,
+    number: string,
+    recordingEnabled?: boolean
+  ): Promise<CallSession>
   callAction(id: string, action: CallAction): Promise<void>
   sendDTMF(id: string, digit: string): Promise<void>
   renewCallLease(id: string): Promise<CallLeaseStatus>

@@ -43,8 +43,10 @@ function esimResponse() {
       },
       home_operator_code: '00101',
       home_operator_name: 'Aurora Mobile',
+      home_country_iso: 'JP',
       serving_operator_code: '00101',
       serving_operator_name: 'Aurora Mobile',
+      serving_country_iso: 'JP',
       registration_state_known: true,
       registration_state_code: 1,
       registration_state: 'home',
@@ -70,6 +72,8 @@ test('SIM decoder preserves typed eSIM and slot facts', () => {
   assert.equal(parsed.sim_slots[1]?.sim_type, 'esim')
   assert.equal(parsed.sim_slots[1]?.eid, '****5678')
   assert.equal(parsed.profile_management.supported, false)
+  assert.equal(parsed.home_country_iso, 'JP')
+  assert.equal(parsed.serving_country_iso, 'JP')
 })
 
 test('SIM decoder rejects unknown enum values and unmasked EIDs', () => {

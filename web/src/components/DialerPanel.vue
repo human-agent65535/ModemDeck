@@ -28,6 +28,7 @@ import {
 } from '../state/workspace'
 import { playDTMFTone } from '../state/dtmfAudio'
 import { normalizeDialTarget } from '../utils/dialTarget'
+import { phoneDestination } from '../utils/format'
 import { phoneKeypad } from '../utils/phoneKeypad'
 import BaseAvatar from './BaseAvatar.vue'
 import ContactSuggestInput from './ContactSuggestInput.vue'
@@ -47,6 +48,7 @@ const props = withDefaults(
 const number = ref('')
 const contactLabel = ref('')
 const selectedLineId = ref('')
+const selectedContactPreferredLineID = ref('')
 const inputAutofocus = ref(false)
 const draftContextLineKey = ref('')
 const lineSelectionOverridden = ref(false)
@@ -139,6 +141,7 @@ function syncResolvedLine(force = false): void {
 
   const resolved = resolveLine('dial', {
     contextKey: draftContextLineKey.value,
+    preferredLineID: selectedContactPreferredLineID.value,
     number: number.value
   })
   const supportedResolved =
@@ -150,6 +153,7 @@ function beginDraft(target = '', label = '', focus = false, contextLineKey = '')
   resettingDraft = true
   number.value = target
   contactLabel.value = label
+  selectedContactPreferredLineID.value = ''
   draftContextLineKey.value = contextLineKey
   lineSelectionOverridden.value = false
   numberTouched.value = false
@@ -226,6 +230,7 @@ watch(number, (value, previous) => {
 function appendDigit(digit: string): void {
   number.value += digit
   contactLabel.value = ''
+  selectedContactPreferredLineID.value = ''
   void playDTMFTone(digit)
 }
 
@@ -280,14 +285,22 @@ function preventZeroContextMenu(digit: string, event: MouseEvent): void {
 function removeDigit(): void {
   number.value = Array.from(number.value).slice(0, -1).join('')
   contactLabel.value = ''
+  selectedContactPreferredLineID.value = ''
+}
+
+function editNumber(value: string): void {
+  number.value = value
+  contactLabel.value = ''
+  selectedContactPreferredLineID.value = ''
 }
 
 function chooseContact(suggestion: {
-  contact: { display_name: string }
-  phone: { number: string }
+  contact: { display_name: string; preferred_line_id?: string }
+  phone: { number: string; normalized_number?: string }
 }): void {
-  number.value = suggestion.phone.number
+  number.value = phoneDestination(suggestion.phone)
   contactLabel.value = suggestion.contact.display_name
+  selectedContactPreferredLineID.value = suggestion.contact.preferred_line_id || ''
   numberTouched.value = false
   validationAttempted.value = false
   syncResolvedLine()
@@ -319,7 +332,7 @@ async function placeCall(): Promise<void> {
   const recordingReady = dialerRecordingState.status === 'ready'
   const recordingEnabled = dialerRecordingState.enabled
   const placed = await dial(
-    dialTarget.value.normalized,
+    dialTarget.value.original,
     selectedLineId.value,
     recordingReady ? recordingEnabled : undefined
   )
@@ -452,11 +465,12 @@ onBeforeUnmount(() => {
                   }"
                 >
                   <ContactSuggestInput
-                    v-model="number"
+                    :model-value="number"
                     :contacts="contactsResource.data"
                     :autofocus="inputAutofocus"
                     :invalid="validationVisible"
                     :described-by="validationVisible ? validationMessageId : ''"
+                    @update:model-value="editNumber"
                     @select="chooseContact"
                     @submit="placeCall"
                     @focus="focusNumberInput"

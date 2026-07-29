@@ -33,6 +33,7 @@ import {
   capabilityReason,
   contactForNumber,
   deleteCall,
+  displayPhoneNumber,
   lineForKey,
   lineKey,
   loadBootstrap,
@@ -156,7 +157,15 @@ function setFilter(value: CallFilter): void {
 }
 
 function displayName(call: CallRecord): string {
-  return call.display_name || contactForNumber(call.remote_number)?.display_name || call.remote_number
+  return (
+    call.display_name ||
+    contactForNumber(call.remote_number)?.display_name ||
+    callDisplayNumber(call)
+  )
+}
+
+function callDisplayNumber(call: CallRecord): string {
+  return displayPhoneNumber(call.remote_number, call.line_id)
 }
 
 function avatarForCall(call: CallRecord): string {
@@ -468,6 +477,7 @@ onMounted(() => {
           <CallHistoryListItem
             :call="call"
             :name="displayName(call)"
+            :number="callDisplayNumber(call)"
             :avatar="avatarForCall(call)"
             :line="lineTagLine(lineForCall(call), call.line_id)"
             :line-fallback="callLineFallback(call)"
@@ -492,7 +502,7 @@ onMounted(() => {
           </button>
           <ContactHeaderIdentity
             :name="displayName(selected)"
-            :number="selected.remote_number"
+            :number="callDisplayNumber(selected)"
             :avatar="selectedContact?.avatar"
             :line="lineTagLine(lineForCall(selected), selected.line_id)"
             :line-fallback="callLineFallback(selected)"

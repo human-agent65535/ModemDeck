@@ -3,7 +3,7 @@ import { computed, nextTick, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Search } from '@lucide/vue'
 import type { Contact, ContactPhone } from '../api/types'
-import { primaryPhone } from '../utils/format'
+import { phoneDestination, primaryPhone } from '../utils/format'
 import BaseAvatar from './BaseAvatar.vue'
 
 type Suggestion = {
@@ -79,7 +79,7 @@ watch(suggestions, () => {
 })
 
 function choose(suggestion: Suggestion): void {
-  emit('update:modelValue', suggestion.phone.number)
+  emit('update:modelValue', phoneDestination(suggestion.phone))
   emit('select', suggestion)
   focused.value = false
 }

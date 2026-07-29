@@ -11,6 +11,7 @@ const props = withDefaults(
   defineProps<{
     thread: MessageThread
     name: string
+    peer: string
     avatar?: string
     line: LineTagLine
     lineFallback?: string
@@ -50,7 +51,7 @@ const { t } = useI18n()
       <span class="list-item__preview">
         <span class="message-thread-meta">
           <LineTag :line="line" :fallback="lineFallback" />
-          <small>{{ thread.last_content || thread.peer }}</small>
+          <small>{{ thread.last_content || peer }}</small>
         </span>
         <UnreadDot
           v-if="thread.unread_count"

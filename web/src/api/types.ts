@@ -52,8 +52,10 @@ export type LineSummary = {
   operator: string
   home_operator_code: string
   home_operator_name: string
+  home_country_iso: string
   serving_operator_code: string
   serving_operator_name: string
+  serving_country_iso: string
   registration_state_known: boolean
   registration_state_code: number
   registration_state: string
@@ -400,6 +402,7 @@ export type ContactPhone = {
   label: string
   number: string
   normalized_number?: string
+  region?: string
   primary: boolean
 }
 
@@ -424,6 +427,7 @@ export type ContactInput = {
     id?: string
     label: string
     number: string
+    region?: string
     primary: boolean
   }>
   notes?: string
@@ -529,8 +533,10 @@ export type DeviceSIM = {
   operator: string
   home_operator_code: string
   home_operator_name: string
+  home_country_iso: string
   serving_operator_code: string
   serving_operator_name: string
+  serving_country_iso: string
   registration_state_known: boolean
   registration_state_code: number
   registration_state: string
@@ -630,8 +636,10 @@ export type SIMStatus = {
   profile_management: SIMProfileManagementCapability
   home_operator_code: string
   home_operator_name: string
+  home_country_iso: string
   serving_operator_code: string
   serving_operator_name: string
+  serving_country_iso: string
   registration_state_known: boolean
   registration_state_code: number
   registration_state: string
