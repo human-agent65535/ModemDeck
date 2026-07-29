@@ -4,7 +4,7 @@ import type {
   CallAction,
   CallLeaseStatus,
   CallFilter,
-  CallRecording,
+  CallRecordingSegment,
   CallRecordingState,
   CallRecord,
   CallSession,
@@ -171,7 +171,7 @@ export interface ModemDeckGateway {
   getTLSSettings(): Promise<TLSSettings>
   updateTLSSettings(input: UpdateTLSSettingsInput): Promise<TLSSettings>
   setCallRecording(id: string, enabled: boolean): Promise<CallRecordingState>
-  listCallRecordings(id: string): Promise<CallRecording[]>
+  listCallRecordings(id: string): Promise<CallRecordingSegment[]>
   deleteRecording(callID: string, recordingID: string): Promise<void>
   listTelegramUnits(): Promise<TelegramUnit[]>
   createTelegramUnit(input: TelegramUnitInput): Promise<TelegramUnit>

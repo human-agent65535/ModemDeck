@@ -1,7 +1,7 @@
 import { reactive } from 'vue'
 import { gateway } from '../api/client'
 import type {
-  CallRecording,
+  CallRecordingSegment,
   CallRecordingState,
   CallSession,
   RecordingEntry,
@@ -46,6 +46,9 @@ export const callRecordingState = reactive<{
   startedAt: string
   busy: boolean
   error: string
+  segmentsStatus: ResourceStatus
+  segments: CallRecordingSegment[]
+  segmentsError: string
 }>({
   callID: '',
   status: 'idle',
@@ -53,13 +56,16 @@ export const callRecordingState = reactive<{
   active: false,
   startedAt: '',
   busy: false,
-  error: ''
+  error: '',
+  segmentsStatus: 'idle',
+  segments: [],
+  segmentsError: ''
 })
 
 export const recordingListState = reactive<{
   callID: string
   status: ResourceStatus
-  data: CallRecording[]
+  data: CallRecordingSegment[]
   error: string
 }>({
   callID: '',
@@ -86,6 +92,7 @@ let callSyncGeneration = 0
 let attemptedCallID = ''
 let preferredCallID = ''
 let preferredCallEnabled = false
+let activeSegmentsGeneration = 0
 let recordingListGeneration = 0
 let recordingCatalogGeneration = 0
 
@@ -216,6 +223,7 @@ export function rememberCallRecordingPreference(callID: string, enabled: boolean
 
 function clearActiveRecording(): void {
   callSyncGeneration += 1
+  activeSegmentsGeneration += 1
   attemptedCallID = ''
   callRecordingState.callID = ''
   callRecordingState.status = 'idle'
@@ -224,6 +232,44 @@ function clearActiveRecording(): void {
   callRecordingState.startedAt = ''
   callRecordingState.busy = false
   callRecordingState.error = ''
+  callRecordingState.segmentsStatus = 'idle'
+  callRecordingState.segments = []
+  callRecordingState.segmentsError = ''
+}
+
+async function loadActiveCallRecordingSegments(callID: string): Promise<void> {
+  const normalizedCallID = callID.trim()
+  if (!normalizedCallID || callRecordingState.callID !== normalizedCallID) return
+
+  const token = ++activeSegmentsGeneration
+  callRecordingState.segmentsStatus = 'loading'
+  callRecordingState.segmentsError = ''
+  try {
+    const segments = await gateway.listCallRecordings(normalizedCallID)
+    if (
+      token !== activeSegmentsGeneration ||
+      callRecordingState.callID !== normalizedCallID
+    ) {
+      return
+    }
+    callRecordingState.segments = segments
+      .slice()
+      .sort((left, right) => left.segment_index - right.segment_index)
+    callRecordingState.segmentsStatus = 'ready'
+  } catch (error) {
+    if (
+      token !== activeSegmentsGeneration ||
+      callRecordingState.callID !== normalizedCallID
+    ) {
+      return
+    }
+    callRecordingState.segmentsStatus =
+      error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
+    callRecordingState.segmentsError = failureMessage(
+      error,
+      translate('runtime.callRecordingsLoadFailed')
+    )
+  }
 }
 
 export function syncCallRecording(session: CallSession | null): void {
@@ -243,6 +289,10 @@ export function syncCallRecording(session: CallSession | null): void {
     callRecordingState.startedAt = ''
     callRecordingState.busy = false
     callRecordingState.error = ''
+    callRecordingState.segmentsStatus = 'idle'
+    callRecordingState.segments = []
+    callRecordingState.segmentsError = ''
+    void loadActiveCallRecordingSegments(session.id)
   }
   if (session.phase !== 'active') {
     if (preferredCallID === session.id) {
@@ -299,6 +349,7 @@ export function syncCallRecording(session: CallSession | null): void {
       const state = await gateway.setCallRecording(session.id, enabled)
       if (token !== callSyncGeneration || callRecordingState.callID !== session.id) return
       acceptCallRecording(session.id, state)
+      await loadActiveCallRecordingSegments(session.id)
     } catch (error) {
       if (token !== callSyncGeneration || callRecordingState.callID !== session.id) return
       callRecordingState.status = 'error'
@@ -321,6 +372,7 @@ export async function setActiveCallRecording(enabled: boolean): Promise<void> {
     const state = await gateway.setCallRecording(callID, enabled)
     if (token !== callSyncGeneration || callRecordingState.callID !== callID) return
     acceptCallRecording(callID, state)
+    await loadActiveCallRecordingSegments(callID)
   } catch (error) {
     if (token !== callSyncGeneration || callRecordingState.callID !== callID) return
     callRecordingState.status = 'error'
@@ -363,7 +415,7 @@ export async function loadCallRecordings(callID: string, force = false): Promise
     if (token !== recordingListGeneration) return
     recordingListState.data = recordings
       .slice()
-      .sort((left, right) => Date.parse(left.started_at) - Date.parse(right.started_at))
+      .sort((left, right) => Date.parse(left.recorded_at) - Date.parse(right.recorded_at))
     recordingListState.status = 'ready'
   } catch (error) {
     if (token !== recordingListGeneration) return
@@ -418,6 +470,9 @@ export async function refreshRecordingWorkspace(): Promise<void> {
   const requests: Promise<unknown>[] = [
     loadRecordingEntries(recordingCatalogState.query, true)
   ]
+  if (callRecordingState.callID) {
+    requests.push(loadActiveCallRecordingSegments(callRecordingState.callID))
+  }
   if (recordingListState.callID) {
     requests.push(loadCallRecordings(recordingListState.callID, true))
   }

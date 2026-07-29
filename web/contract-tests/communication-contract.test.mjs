@@ -422,29 +422,47 @@ test('recording metadata derives same-origin authenticated API downloads', () =>
   const segment = {
     id: 'recording-1',
     call_id: 'call-1',
+    segment_index: 1,
     status: 'ready',
     started_at: '2026-07-23T12:00:04Z',
     ended_at: '2026-07-23T12:01:04Z',
     duration_ms: 60_000,
-    size_bytes: 123456
+    size_bytes: 123456,
+    created_at: '2026-07-23T12:00:03Z'
   }
   assert.deepEqual(parseCallRecordingsResponse({ segments: [segment] }), [
     {
       id: 'recording-1',
       call_id: 'call-1',
+      segment_index: 1,
+      status: 'ready',
+      recorded_at: '2026-07-23T12:00:04Z',
       started_at: '2026-07-23T12:00:04Z',
       ended_at: '2026-07-23T12:01:04Z',
       duration_seconds: 60,
-      content_type: 'audio/ogg; codecs=opus',
       size_bytes: 123456,
+      playable: true,
+      content_type: 'audio/ogg; codecs=opus',
       download_url: '/api/v1/calls/call-1/recordings/recording-1/download'
     }
   ])
   assert.deepEqual(
     parseCallRecordingsResponse({
-      segments: [{ ...segment, status: 'recording' }]
+      segments: [{ ...segment, status: 'recording', ended_at: undefined }]
     }),
-    []
+    [
+      {
+        id: 'recording-1',
+        call_id: 'call-1',
+        segment_index: 1,
+        status: 'recording',
+        recorded_at: '2026-07-23T12:00:04Z',
+        started_at: '2026-07-23T12:00:04Z',
+        duration_seconds: 60,
+        size_bytes: 123456,
+        playable: false
+      }
+    ]
   )
 })
 

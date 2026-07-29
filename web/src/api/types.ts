@@ -212,6 +212,8 @@ export type RecordingEntry = {
   call: CallRecord
 }
 
+export type CallRecordingSegment = Omit<RecordingEntry, 'call' | 'favorite'>
+
 export type BootstrapResponse = {
   capabilities: Capabilities
   lines: LineSummary[]

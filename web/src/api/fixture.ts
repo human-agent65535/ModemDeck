@@ -3,7 +3,7 @@ import type {
   AboutInfo,
   BootstrapResponse,
   CallFilter,
-  CallRecording,
+  CallRecordingSegment,
   CallRecordingState,
   CallRecord,
   CallSession,
@@ -786,6 +786,43 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         active: false
       }
     : undefined
+  let activeCallRecordingSegments: CallRecordingSegment[] = []
+  let activeCallRecordingSequence = 0
+
+  function startFixtureRecordingSegment(): void {
+    if (!activeCall || activeCallRecordingSegments.some(segment => segment.status === 'recording')) {
+      return
+    }
+    activeCallRecordingSequence += 1
+    const startedAt = new Date().toISOString()
+    activeCallRecordingSegments.push({
+      id: `recording-${activeCall.id}-${activeCallRecordingSequence}`,
+      call_id: activeCall.id,
+      segment_index: activeCallRecordingSequence,
+      status: 'recording',
+      recorded_at: startedAt,
+      started_at: startedAt,
+      duration_seconds: 0,
+      size_bytes: 0,
+      playable: false
+    })
+  }
+
+  function finishFixtureRecordingSegment(): void {
+    const segment = activeCallRecordingSegments.find(item => item.status === 'recording')
+    if (!segment) return
+    const endedAt = new Date().toISOString()
+    segment.status = 'ready'
+    segment.ended_at = endedAt
+    segment.duration_seconds = Math.max(
+      1,
+      Math.floor((Date.parse(endedAt) - Date.parse(segment.started_at || endedAt)) / 1000)
+    )
+    segment.size_bytes = 16_044
+    segment.playable = true
+    segment.content_type = 'audio/wav'
+    segment.download_url = recordingFixtureURL()
+  }
   let callPolls = 0
   let recordingSettings: RecordingSettings = {
     default_enabled: false,
@@ -1295,6 +1332,11 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           activeCall.phase = 'active'
           activeCall.active_at = '2026-07-23T12:05:04Z'
           activeCall.bearer = 'volte'
+          if (activeCallRecording?.enabled) {
+            activeCallRecording.active = true
+            activeCallRecording.started_at = new Date().toISOString()
+            startFixtureRecordingSegment()
+          }
         }
       }
       return [clone(activeCall)]
@@ -1334,6 +1376,8 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         enabled: recordingEnabled ?? recordingSettings.default_enabled,
         active: false
       }
+      activeCallRecordingSegments = []
+      activeCallRecordingSequence = 0
       return clone(activeCall)
     },
 
@@ -1346,9 +1390,11 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         activeCall.bearer = 'volte'
         if (activeCallRecording?.enabled) {
           activeCallRecording.active = true
-          activeCallRecording.started_at = activeCall.active_at
+          activeCallRecording.started_at = new Date().toISOString()
+          startFixtureRecordingSegment()
         }
       } else {
+        finishFixtureRecordingSegment()
         activeCall.phase = 'ended'
         activeCall.ended_at = '2026-07-23T12:08:00Z'
         if (activeCallRecording) activeCallRecording.active = false
@@ -1476,16 +1522,22 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       if (!activeCall || activeCall.id !== id || !activeCallRecording) {
         throw new ApiError('通话不存在', 404)
       }
+      const wasActive = activeCallRecording.active
       activeCallRecording.enabled = enabled
       activeCallRecording.active = enabled && activeCall.phase === 'active'
       activeCallRecording.error = undefined
       activeCallRecording.started_at = activeCallRecording.active
-        ? activeCall.active_at || '2026-07-23T12:05:04Z'
+        ? wasActive
+          ? activeCallRecording.started_at
+          : new Date().toISOString()
         : undefined
+      if (wasActive && !activeCallRecording.active) finishFixtureRecordingSegment()
+      if (!wasActive && activeCallRecording.active) startFixtureRecordingSegment()
       return clone(activeCallRecording)
     },
 
-    async listCallRecordings(id: string): Promise<CallRecording[]> {
+    async listCallRecordings(id: string): Promise<CallRecordingSegment[]> {
+      if (activeCall?.id === id) return clone(activeCallRecordingSegments)
       if (!calls.some(call => call.id === id)) throw new ApiError('通话记录不存在', 404)
       if (
         (id !== 'call-1' && id !== 'call-3') ||
@@ -1495,9 +1547,14 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         {
           id: `recording-${id}`,
           call_id: id,
+          segment_index: 1,
+          status: 'ready',
+          recorded_at:
+            id === 'call-1' ? '2026-07-23T08:52:04Z' : '2026-07-22T07:30:03Z',
           started_at: id === 'call-1' ? '2026-07-23T08:52:04Z' : '2026-07-22T07:30:03Z',
           ended_at: id === 'call-1' ? '2026-07-23T08:52:05Z' : '2026-07-22T07:30:04Z',
           duration_seconds: 1,
+          playable: true,
           content_type: 'audio/wav',
           size_bytes: 16044,
           download_url: recordingFixtureURL()

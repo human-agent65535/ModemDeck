@@ -6,6 +6,7 @@ import type {
   CallLeaseStatus,
   CallPhase,
   CallRecording,
+  CallRecordingSegment,
   CallRecordingState,
   CallSession,
   CallPolicyEnforcement,
@@ -1902,29 +1903,45 @@ export function parseCallRecording(value: unknown): CallRecording {
   }
 }
 
-export function parseCallRecordingsResponse(value: unknown): CallRecording[] {
+export function parseCallRecordingsResponse(value: unknown): CallRecordingSegment[] {
   const source = objectValue(value, 'response')
   if (!Array.isArray(source.segments)) throw new Error('response.segments 必须是数组')
-  return source.segments.flatMap((value, index): CallRecording[] => {
+  return source.segments.map((value, index): CallRecordingSegment => {
     const path = `response.segments[${index}]`
     const segment = objectValue(value, path)
-    if (requiredString(segment, path, 'status') !== 'ready') return []
     const id = requiredString(segment, path, 'id')
     const callID = requiredString(segment, path, 'call_id')
+    const status = requiredString(segment, path, 'status') as RecordingStatus
+    if (!RECORDING_STATUSES.has(status)) {
+      throw new Error(`${path}.status 未知：${status}`)
+    }
+    const segmentIndex = requiredNonNegativeInteger(segment, path, 'segment_index')
+    if (segmentIndex < 1) throw new Error(`${path}.segment_index 必须是正整数`)
+    const startedAt = optionalTimestamp(segment, path, 'started_at')
     const endedAt = optionalTimestamp(segment, path, 'ended_at')
+    const createdAt = requiredTimestamp(segment, path, 'created_at')
     const durationMS = requiredNonNegativeInteger(segment, path, 'duration_ms')
-    return [
-      {
-        id,
-        call_id: callID,
-        started_at: requiredTimestamp(segment, path, 'started_at'),
-        ...(endedAt ? { ended_at: endedAt } : {}),
-        duration_seconds: Math.floor(durationMS / 1000),
-        content_type: 'audio/ogg; codecs=opus',
-        size_bytes: requiredNonNegativeInteger(segment, path, 'size_bytes'),
-        download_url: `/api/v1/calls/${encodeURIComponent(callID)}/recordings/${encodeURIComponent(id)}/download`
-      }
-    ]
+    const failureCode = optionalString(segment, 'failure_code')
+    const playable = status === 'ready'
+    return {
+      id,
+      call_id: callID,
+      segment_index: segmentIndex,
+      status,
+      recorded_at: startedAt || createdAt,
+      ...(startedAt ? { started_at: startedAt } : {}),
+      ...(endedAt ? { ended_at: endedAt } : {}),
+      duration_seconds: Math.floor(durationMS / 1000),
+      size_bytes: requiredNonNegativeInteger(segment, path, 'size_bytes'),
+      ...(failureCode ? { failure_code: failureCode } : {}),
+      playable,
+      ...(playable
+        ? {
+            content_type: 'audio/ogg; codecs=opus',
+            download_url: `/api/v1/calls/${encodeURIComponent(callID)}/recordings/${encodeURIComponent(id)}/download`
+          }
+        : {})
+    }
   })
 }
 

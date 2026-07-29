@@ -48,6 +48,19 @@ function downloadName(id: string, contentType: string): string {
   return `modemdeck-${id}.${extension}`
 }
 
+function statusLabel(status: string): string {
+  switch (status) {
+    case 'pending':
+      return t('recordings.pending')
+    case 'recording':
+      return t('recordings.recording')
+    case 'failed':
+      return t('recordings.failed')
+    default:
+      return t('recordings.playable')
+  }
+}
+
 async function removeRecording(recordingID: string): Promise<void> {
   const confirmed = await requestConfirmation({
     title: t('recordings.deleteConfirmTitle'),
@@ -111,16 +124,17 @@ watch(
       {{ t('recordings.emptyForCall') }}
     </p>
     <ol v-else>
-      <li v-for="(recording, index) in current.data" :key="recording.id">
+      <li v-for="recording in current.data" :key="recording.id">
         <div class="recording-list__meta">
-          <strong>{{ t('recordings.segment', { number: index + 1 }) }}</strong>
+          <strong>{{ t('recordings.segment', { number: recording.segment_index }) }}</strong>
           <span>
-            {{ formatDateTime(recording.started_at) }} ·
+            {{ formatDateTime(recording.recorded_at) }} ·
             {{ formatDuration(recording.duration_seconds) }} ·
             {{ formatSize(recording.size_bytes) }}
           </span>
         </div>
         <audio
+          v-if="recording.playable && recording.download_url"
           :src="recording.download_url"
           :volume="audioState.recordingPlaybackVolume / 100"
           controls
@@ -128,15 +142,21 @@ watch(
         >
           {{ t('recordings.audioUnsupported') }}
         </audio>
+        <p v-else class="recording-list__availability">
+          {{ statusLabel(recording.status) }}
+        </p>
         <a
+          v-if="recording.playable && recording.download_url"
           :href="recording.download_url"
-          :download="downloadName(recording.id, recording.content_type)"
+          :download="downloadName(recording.id, recording.content_type || '')"
           :title="t('recordings.download')"
           :aria-label="t('recordings.download')"
         >
           <Download :size="18" />
         </a>
+        <span v-else aria-hidden="true" />
         <button
+          v-if="recording.status !== 'pending' && recording.status !== 'recording'"
           class="recording-list__delete"
           type="button"
           :disabled="Boolean(deletingID)"
@@ -147,6 +167,7 @@ watch(
           <LoaderCircle v-if="deletingID === recording.id" class="spin" :size="17" />
           <Trash2 v-else :size="17" />
         </button>
+        <span v-else aria-hidden="true" />
       </li>
     </ol>
   </section>
@@ -245,6 +266,12 @@ watch(
   width: 100%;
   min-width: 0;
   height: 34px;
+}
+
+.recording-list__availability {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .recording-list a {

@@ -32,6 +32,7 @@ import {
   rememberCallRecordingPreference,
   setActiveCallRecording
 } from '../state/recording'
+import type { CallRecordingSegment } from '../api/types'
 import { playDTMFTone } from '../state/dtmfAudio'
 import {
   contactForNumber,
@@ -110,6 +111,11 @@ const occupied = computed(
   () => Boolean(session.value?.control_state === 'occupied' && !terminal.value)
 )
 const active = computed(() => session.value?.phase === 'active')
+const recordingSegments = computed(() =>
+  callRecordingState.callID === session.value?.id
+    ? callRecordingState.segments
+    : []
+)
 const canHangup = computed(() => {
   const phase = session.value?.phase
   return (
@@ -191,6 +197,29 @@ const capabilityNotice = computed(() => {
     .filter((reason, index) => reason && reasons.indexOf(reason) === index)
     .join(t('common.listSeparator'))
 })
+
+function recordingSegmentDuration(segment: CallRecordingSegment): string {
+  if (segment.status === 'recording' && segment.started_at) {
+    const startedAt = Date.parse(segment.started_at)
+    if (Number.isFinite(startedAt)) {
+      return formatDuration(Math.max(0, Math.floor((now.value - startedAt) / 1000)))
+    }
+  }
+  return formatDuration(segment.duration_seconds)
+}
+
+function recordingSegmentStatus(segment: CallRecordingSegment): string {
+  switch (segment.status) {
+    case 'pending':
+      return t('recordings.pending')
+    case 'recording':
+      return t('recordings.recording')
+    case 'failed':
+      return t('recordings.failed')
+    default:
+      return t('recordings.playable')
+  }
+}
 
 watch(
   () => [session.value?.id, session.value?.phase] as const,
@@ -290,6 +319,33 @@ onBeforeUnmount(() => {
             <i v-if="callRecordingState.active" aria-hidden="true" />
             {{ recordingLabel }}
           </p>
+        </div>
+
+        <div
+          v-if="active && callState.owned && recordingSegments.length"
+          class="call-surface__recording-segments"
+        >
+          <header>
+            <span><CassetteTape :size="14" /> {{ t('recordings.title') }}</span>
+            <strong>{{ recordingSegments.length }}</strong>
+          </header>
+          <ol :aria-label="t('recordings.title')">
+            <li
+              v-for="segment in recordingSegments"
+              :key="segment.id"
+              :class="{
+                'is-active': segment.status === 'recording',
+                'is-failed': segment.status === 'failed'
+              }"
+              :title="
+                `${t('recordings.segment', { number: segment.segment_index })} · ${recordingSegmentStatus(segment)}`
+              "
+            >
+              <i v-if="segment.status === 'recording'" aria-hidden="true" />
+              <span>{{ String(segment.segment_index).padStart(2, '0') }}</span>
+              <strong>{{ recordingSegmentDuration(segment) }}</strong>
+            </li>
+          </ol>
         </div>
 
         <div
@@ -639,6 +695,83 @@ onBeforeUnmount(() => {
   background: var(--danger);
   border-radius: 50%;
   box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
+.call-surface__recording-segments {
+  width: min(100%, 280px);
+  margin-top: 12px;
+}
+
+.call-surface__recording-segments header {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.call-surface__recording-segments header span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.call-surface__recording-segments header strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.call-surface__recording-segments ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.call-surface__recording-segments li {
+  display: inline-flex;
+  min-width: 78px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 9px;
+  color: var(--muted);
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.call-surface__recording-segments li > span {
+  font-weight: 700;
+}
+
+.call-surface__recording-segments li > strong {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.call-surface__recording-segments li.is-active {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 28%, var(--border));
+}
+
+.call-surface__recording-segments li.is-active i {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  background: var(--danger);
+  border-radius: 50%;
+}
+
+.call-surface__recording-segments li.is-failed,
+.call-surface__recording-segments li.is-failed > strong {
+  color: var(--danger);
 }
 
 .call-surface__controls {

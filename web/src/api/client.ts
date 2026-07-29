@@ -83,7 +83,7 @@ import type {
   ApiErrorBody,
   BootstrapResponse,
   CallFilter,
-  CallRecording,
+  CallRecordingSegment,
   CallRecordingState,
   CallRecord,
   CallSession,
@@ -1584,7 +1584,7 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
-  async listCallRecordings(id: string): Promise<CallRecording[]> {
+  async listCallRecordings(id: string): Promise<CallRecordingSegment[]> {
     const contract = callRecordingContract(id).list
     return parseCallRecordingsResponse(await get(contract.path))
   },
