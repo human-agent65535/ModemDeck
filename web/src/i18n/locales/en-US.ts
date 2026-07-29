@@ -6,6 +6,7 @@ export default {
     saving: 'Saving…',
     retry: 'Retry',
     delete: 'Delete',
+    markRead: 'Mark read',
     edit: 'Edit',
     add: 'Add',
     remove: 'Remove',
@@ -398,6 +399,7 @@ export default {
     filter: 'Call filter',
     markReadFailed: 'Unable to mark missed calls as read: {error}',
     unread: 'Unread',
+    unreadMissed: 'New missed call',
     lineFilter: 'Call line',
     allLines: 'All lines',
     allLinesDescription: 'Show calls from every modem',
@@ -414,6 +416,12 @@ export default {
     callAgain: 'Call again',
     callAgainName: 'Call {name} again',
     messageName: 'Message {name}',
+    delete: 'Delete call',
+    deleteConfirmTitle: 'Delete call history?',
+    deleteConfirmMessage: 'This call with “{name}” will be permanently deleted.',
+    deleteConfirmWithRecordings:
+      'This call with “{name}” and its {count} recording(s) will be permanently deleted.',
+    deleteFailed: 'Unable to delete call history',
     back: 'Back to calls',
     select: 'Select a call',
     detailPlaceholder: 'Call details will appear here'
@@ -452,6 +460,7 @@ export default {
     filter: 'Message read filter',
     unread: 'Unread',
     read: 'Read',
+    unreadCount: '{count} unread message(s)',
     lineFilter: 'Message line',
     allLines: 'All lines',
     allLinesDescription: 'Show conversations from every modem',
@@ -472,6 +481,11 @@ export default {
     unsupported: 'Messages unsupported',
     noAvailableLines: 'No available lines',
     send: 'Send',
+    delete: 'Delete conversation',
+    deleteConfirmTitle: 'Delete message conversation?',
+    deleteConfirmMessage:
+      'The local message history with “{name}” will be permanently deleted. New device messages will still be received.',
+    deleteFailed: 'Unable to delete the message conversation',
     selectConversation: 'Select a conversation',
     detailPlaceholder: 'Messages will appear here'
   },
@@ -636,6 +650,13 @@ export default {
     playback: 'Recording playback',
     audioUnsupported: 'Your browser does not support audio playback.',
     download: 'Download recording',
+    delete: 'Delete recording',
+    deleteConfirmTitle: 'Delete recording?',
+    deleteConfirmMessage:
+      'This recording related to “{name}” will be permanently deleted. The call record will remain.',
+    deleteSegmentConfirmMessage:
+      'This recording will be permanently deleted. The call record will remain.',
+    deleteFailed: 'Unable to delete the recording',
     noPlayableSegment: 'No playable segment',
     details: 'Recording details',
     device: 'Device',

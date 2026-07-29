@@ -4,6 +4,8 @@ import type { LineTagLine } from '../utils/lineIdentity'
 import { formatRelativeDate } from '../utils/format'
 import BaseAvatar from './BaseAvatar.vue'
 import LineTag from './LineTag.vue'
+import UnreadDot from './UnreadDot.vue'
+import { useI18n } from 'vue-i18n'
 
 const props = withDefaults(
   defineProps<{
@@ -26,6 +28,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   select: [threadKey: string]
 }>()
+const { t } = useI18n()
 </script>
 
 <template>
@@ -49,7 +52,10 @@ const emit = defineEmits<{
           <LineTag :line="line" :fallback="lineFallback" />
           <small>{{ thread.last_content || thread.peer }}</small>
         </span>
-        <b v-if="thread.unread_count">{{ thread.unread_count }}</b>
+        <UnreadDot
+          v-if="thread.unread_count"
+          :label="t('messages.unreadCount', { count: thread.unread_count })"
+        />
       </span>
     </span>
   </button>

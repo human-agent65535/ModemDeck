@@ -2,7 +2,15 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, LoaderCircle, MessageSquarePlus, Phone, Send, X } from '@lucide/vue'
+import {
+  ArrowLeft,
+  LoaderCircle,
+  MessageSquarePlus,
+  Phone,
+  Send,
+  Trash2,
+  X
+} from '@lucide/vue'
 import type { Contact, LineSummary, MessageThread } from '../api/types'
 import ContactHeaderIdentity from '../components/ContactHeaderIdentity.vue'
 import ContactNumberActions from '../components/ContactNumberActions.vue'
@@ -11,12 +19,15 @@ import LineSelector from '../components/LineSelector.vue'
 import MessageThreadListItem from '../components/MessageThreadListItem.vue'
 import SearchField from '../components/SearchField.vue'
 import StatePanel from '../components/StatePanel.vue'
+import SwipeActionRow from '../components/SwipeActionRow.vue'
+import { requestConfirmation } from '../state/confirmation'
 import { openDialer } from '../state/ui'
 import {
   bootstrapResource,
   capabilityReason,
   contactForNumber,
   contactsResource,
+  deleteMessageThread,
   lineForKey,
   lineKey,
   lineSupports,
@@ -82,6 +93,8 @@ const lineFilterKey = ref('all')
 const draft = ref('')
 const sending = ref(false)
 const sendError = ref('')
+const threadDeleteError = ref('')
+const deletingThreadKey = ref('')
 const messagesEnd = ref<HTMLElement | null>(null)
 
 const embedded = computed(
@@ -347,6 +360,32 @@ function chooseThread(key: string): void {
   })
 }
 
+async function removeThread(thread: MessageThread): Promise<void> {
+  const confirmed = await requestConfirmation({
+    title: t('messages.deleteConfirmTitle'),
+    message: t('messages.deleteConfirmMessage', {
+      name: displayNameForThread(thread)
+    }),
+    confirmLabel: t('common.delete'),
+    tone: 'danger'
+  })
+  if (!confirmed) return
+  deletingThreadKey.value = thread.key
+  threadDeleteError.value = ''
+  try {
+    await deleteMessageThread(thread)
+    if (selectedKey.value === thread.key) {
+      if (embedded.value) emit('close')
+      else await router.replace({ name: 'messages', query: messageFilterQuery() })
+    }
+  } catch (error) {
+    threadDeleteError.value =
+      error instanceof Error ? error.message : t('messages.deleteFailed')
+  } finally {
+    deletingThreadKey.value = ''
+  }
+}
+
 function startMessage(): void {
   if (messageWriteUnavailable.value) return
   composeReturnThreadKey = selectedThread.value?.key || ''
@@ -502,11 +541,14 @@ onMounted(() => {
         </div>
       </div>
       <p
-        v-if="threadsResource.status === 'ready' && threadsResource.error"
+        v-if="
+          threadsResource.status === 'ready' &&
+          (threadsResource.error || threadDeleteError)
+        "
         class="field-error pane-error"
         role="alert"
       >
-        {{ threadsResource.error }}
+        {{ threadDeleteError || threadsResource.error }}
       </p>
 
       <StatePanel
@@ -548,18 +590,27 @@ onMounted(() => {
         </button>
       </div>
       <div v-else class="item-list">
-        <MessageThreadListItem
+        <SwipeActionRow
           v-for="thread in filteredThreads"
           :key="thread.key"
-          :thread="thread"
-          :name="displayNameForThread(thread)"
-          :avatar="avatarForNumber(thread.peer)"
-          :line="lineTagLine(lineForThread(thread), thread.line_id)"
-          :line-fallback="threadLineFallback(thread)"
-          :selected="thread.key === selectedKey && !composingNew"
-          :arriving="recentIncomingThreadKeys[thread.key]"
-          @select="chooseThread"
-        />
+          :can-read="thread.unread_count > 0"
+          :read-label="t('common.markRead')"
+          :delete-label="t('common.delete')"
+          :disabled="Boolean(deletingThreadKey)"
+          @read="markThreadRead(thread)"
+          @delete="removeThread(thread)"
+        >
+          <MessageThreadListItem
+            :thread="thread"
+            :name="displayNameForThread(thread)"
+            :avatar="avatarForNumber(thread.peer)"
+            :line="lineTagLine(lineForThread(thread), thread.line_id)"
+            :line-fallback="threadLineFallback(thread)"
+            :selected="thread.key === selectedKey && !composingNew"
+            :arriving="recentIncomingThreadKeys[thread.key]"
+            @select="chooseThread"
+          />
+        </SwipeActionRow>
       </div>
     </aside>
 
@@ -635,6 +686,16 @@ onMounted(() => {
             @click="callCurrent"
           >
             <Phone :size="19" />
+          </button>
+          <button
+            v-if="selectedThread && !composingNew && !embedded"
+            class="icon-button icon-button--danger desktop-delete-action"
+            type="button"
+            :disabled="Boolean(deletingThreadKey)"
+            :title="t('messages.delete')"
+            @click="removeThread(selectedThread)"
+          >
+            <Trash2 :size="18" />
           </button>
         </header>
 
@@ -849,6 +910,12 @@ onMounted(() => {
 
 .pane-error {
   margin: 0 16px 8px;
+}
+
+@media (max-width: 1100px) {
+  .desktop-delete-action {
+    display: none;
+  }
 }
 
 </style>

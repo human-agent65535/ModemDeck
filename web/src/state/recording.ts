@@ -379,3 +379,40 @@ export async function loadRecordingEntries(
     return null
   }
 }
+
+export async function refreshRecordingWorkspace(): Promise<void> {
+  const requests: Promise<unknown>[] = [
+    loadRecordingEntries(recordingCatalogState.query, true)
+  ]
+  if (recordingListState.callID) {
+    requests.push(loadCallRecordings(recordingListState.callID, true))
+  }
+  await Promise.all(requests)
+}
+
+export async function deleteRecording(
+  callID: string,
+  recordingID: string
+): Promise<void> {
+  await gateway.deleteRecording(callID, recordingID)
+  recordingCatalogState.data = recordingCatalogState.data.filter(
+    recording => recording.id !== recordingID
+  )
+  if (recordingListState.callID === callID) {
+    recordingListState.data = recordingListState.data.filter(
+      recording => recording.id !== recordingID
+    )
+  }
+}
+
+export function forgetCallRecordings(callID: string): void {
+  recordingCatalogState.data = recordingCatalogState.data.filter(
+    recording => recording.call_id !== callID
+  )
+  if (recordingListState.callID === callID) {
+    recordingListState.callID = ''
+    recordingListState.status = 'idle'
+    recordingListState.data = []
+    recordingListState.error = ''
+  }
+}

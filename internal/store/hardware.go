@@ -14,6 +14,7 @@ import (
 
 var (
 	ErrCallNotFound          = errors.New("call not found")
+	ErrCallActive            = errors.New("call is still active")
 	ErrMessageNotFound       = errors.New("message not found")
 	ErrMessageThreadNotFound = errors.New("message thread not found")
 	ErrSnapshotInvalid       = errors.New("hardware snapshot is invalid")

@@ -99,8 +99,11 @@ export interface ModemDeckGateway {
   subscribeMessageEvents(handlers: MessageEventStreamHandlers): () => void
   subscribeRuntimeEvents(handlers: RuntimeEventStreamHandlers): () => void
   markThreadRead(input: MessageReadInput): Promise<void>
+  deleteThread(input: MessageReadInput): Promise<void>
   listCalls(filter?: CallFilter, query?: ListQuery): Promise<CallRecord[]>
   markMissedCallsRead(): Promise<void>
+  markMissedCallRead(id: string): Promise<void>
+  deleteCall(id: string): Promise<void>
   listDevices(): Promise<Device[]>
   createDevice(input: CreateDeviceInput): Promise<Device>
   renameDevice(imei: string, input: RenameDeviceInput): Promise<Device>
@@ -165,6 +168,7 @@ export interface ModemDeckGateway {
   updateTLSSettings(input: UpdateTLSSettingsInput): Promise<TLSSettings>
   setCallRecording(id: string, enabled: boolean): Promise<CallRecordingState>
   listCallRecordings(id: string): Promise<CallRecording[]>
+  deleteRecording(callID: string, recordingID: string): Promise<void>
   listTelegramUnits(): Promise<TelegramUnit[]>
   createTelegramUnit(input: TelegramUnitInput): Promise<TelegramUnit>
   updateTelegramUnit(id: string, input: TelegramUnitInput): Promise<TelegramUnit>

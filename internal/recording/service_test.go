@@ -182,6 +182,113 @@ func TestCallRecordingsDoesNotCreateStateForHistoricalCall(t *testing.T) {
 	}
 }
 
+func TestDeleteRecordingRemovesFileButKeepsCall(t *testing.T) {
+	fixture := newServiceFixture(t, nil)
+	applyServiceTestCall(t, fixture.repository, "call-delete-segment", "", "incoming", false)
+	path := createReadyRecordingFile(
+		t,
+		fixture,
+		"call-delete-segment",
+		"segment-delete",
+	)
+
+	if err := fixture.service.DeleteRecording(
+		context.Background(),
+		"call-delete-segment",
+		"segment-delete",
+	); err != nil {
+		t.Fatalf("DeleteRecording() error = %v", err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("recording file still exists: %v", err)
+	}
+	if _, err := fixture.repository.CallByID(
+		context.Background(),
+		"call-delete-segment",
+	); err != nil {
+		t.Fatalf("call was deleted with recording: %v", err)
+	}
+	if _, err := fixture.repository.RecordingSegment(
+		context.Background(),
+		"call-delete-segment",
+		"segment-delete",
+	); !errors.Is(err, store.ErrRecordingNotFound) {
+		t.Fatalf("RecordingSegment() error = %v, want ErrRecordingNotFound", err)
+	}
+}
+
+func TestDeleteCallRemovesRecordingFilesAndCascadesMetadata(t *testing.T) {
+	fixture := newServiceFixture(t, nil)
+	applyServiceTestCall(t, fixture.repository, "call-delete-history", "", "incoming", false)
+	path := createReadyRecordingFile(
+		t,
+		fixture,
+		"call-delete-history",
+		"segment-cascade",
+	)
+	if err := fixture.repository.ApplyHardwareSnapshot(
+		context.Background(),
+		store.HardwareSnapshot{
+			BootEpoch:  "boot-service-recording",
+			Revision:   "snapshot-call-delete-ended",
+			ObservedAt: time.Date(2026, time.July, 23, 16, 5, 0, 0, time.UTC),
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := fixture.service.DeleteCall(
+		context.Background(),
+		"call-delete-history",
+	); err != nil {
+		t.Fatalf("DeleteCall() error = %v", err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("recording file still exists: %v", err)
+	}
+	if _, err := fixture.repository.CallByID(
+		context.Background(),
+		"call-delete-history",
+	); !errors.Is(err, store.ErrCallNotFound) {
+		t.Fatalf("CallByID() error = %v, want ErrCallNotFound", err)
+	}
+	if _, err := fixture.repository.RecordingSegment(
+		context.Background(),
+		"call-delete-history",
+		"segment-cascade",
+	); !errors.Is(err, store.ErrRecordingNotFound) {
+		t.Fatalf("RecordingSegment() error = %v, want ErrRecordingNotFound", err)
+	}
+}
+
+func TestDeleteRejectsActiveCallAndRecordingSegment(t *testing.T) {
+	fixture := newServiceFixture(t, nil)
+	applyServiceTestCall(t, fixture.repository, "call-delete-active", "", "incoming", false)
+	if err := fixture.service.DeleteCall(
+		context.Background(),
+		"call-delete-active",
+	); !errors.Is(err, ErrConflict) {
+		t.Fatalf("DeleteCall() error = %v, want ErrConflict", err)
+	}
+	if _, err := fixture.repository.CreateRecordingSegment(
+		context.Background(),
+		store.RecordingSegment{
+			ID:           "segment-pending",
+			CallID:       "call-delete-active",
+			RelativePath: "call-delete-active/segment-pending.ogg",
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.service.DeleteRecording(
+		context.Background(),
+		"call-delete-active",
+		"segment-pending",
+	); !errors.Is(err, ErrConflict) {
+		t.Fatalf("DeleteRecording() error = %v, want ErrConflict", err)
+	}
+}
+
 func TestServiceMediaUnavailableRemainsPendingUntilCallEnds(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
 	applyServiceTestCall(t, fixture.repository, "call-no-media", "", "incoming", false)
@@ -541,6 +648,44 @@ func newServiceFixture(t *testing.T, writerError error) *serviceFixture {
 		writers:    writers,
 		reports:    reports,
 	}
+}
+
+func createReadyRecordingFile(
+	t *testing.T,
+	fixture *serviceFixture,
+	callID, segmentID string,
+) string {
+	t.Helper()
+	relative := callID + "/" + segmentID + ".ogg"
+	if _, err := fixture.repository.CreateRecordingSegment(
+		context.Background(),
+		store.RecordingSegment{
+			ID:           segmentID,
+			CallID:       callID,
+			RelativePath: relative,
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	endedAt := time.Date(2026, time.July, 23, 16, 4, 0, 0, time.UTC)
+	if err := fixture.repository.CompleteRecordingSegment(
+		context.Background(),
+		callID,
+		segmentID,
+		endedAt,
+		1000,
+		8,
+	); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(fixture.service.files.root, relative)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("OggSdata"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func (f *serviceFixture) reconcile(ctx context.Context) error {

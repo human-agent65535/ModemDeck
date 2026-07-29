@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/godbus/dbus/v5"
+	"github.com/human-agent65535/modemdeck/agent/internal/domain"
 )
 
 var smsCacheTestModemPath = dbus.ObjectPath(
@@ -23,6 +24,7 @@ type smsCacheCaller struct {
 	properties   map[dbus.ObjectPath]Properties
 	getAllCalls  map[dbus.ObjectPath]int
 	messageLists int
+	deletedPaths []dbus.ObjectPath
 }
 
 func newSMSCacheCaller() *smsCacheCaller {
@@ -68,6 +70,23 @@ func (c *smsCacheCaller) Call(
 	case messagingInterface + ".List":
 		c.messageLists++
 		return []any{append([]dbus.ObjectPath(nil), c.listedPaths...)}, nil
+	case messagingInterface + ".Delete":
+		if path != smsCacheTestModemPath || len(args) != 1 {
+			return nil, errors.New("unexpected Delete request")
+		}
+		messagePath, ok := args[0].(dbus.ObjectPath)
+		if !ok {
+			return nil, errors.New("unexpected Delete message path")
+		}
+		c.deletedPaths = append(c.deletedPaths, messagePath)
+		delete(c.properties, messagePath)
+		for index, listedPath := range c.listedPaths {
+			if listedPath == messagePath {
+				c.listedPaths = append(c.listedPaths[:index], c.listedPaths[index+1:]...)
+				break
+			}
+		}
+		return nil, nil
 	case propertiesInterface + ".GetAll":
 		if len(args) != 1 || args[0] != smsInterface {
 			return nil, errors.New("unexpected GetAll interface")
@@ -115,6 +134,62 @@ func (c *smsCacheCaller) listCount() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.messageLists
+}
+
+func (c *smsCacheCaller) deleted() []dbus.ObjectPath {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]dbus.ObjectPath(nil), c.deletedPaths...)
+}
+
+func TestDeleteMessageRemovesExactModemObject(t *testing.T) {
+	t.Parallel()
+	path := smsCacheTestPath(1)
+	caller := newSMSCacheCaller()
+	caller.setMessages(
+		[]dbus.ObjectPath{path},
+		map[dbus.ObjectPath]Properties{
+			path: smsCacheTestProperties(3, "persisted"),
+		},
+	)
+	provider, err := New(caller)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	snapshot, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if len(snapshot.Messages) != 1 {
+		t.Fatalf("messages = %+v, want one", snapshot.Messages)
+	}
+
+	if err := provider.DeleteMessage(
+		context.Background(),
+		domain.DeleteMessageRequest{MessageID: snapshot.Messages[0].ID},
+	); err != nil {
+		t.Fatalf("DeleteMessage() error = %v", err)
+	}
+	if deleted := caller.deleted(); len(deleted) != 1 || deleted[0] != path {
+		t.Fatalf("deleted paths = %+v, want [%s]", deleted, path)
+	}
+	after, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot() after deletion error = %v", err)
+	}
+	if len(after.Messages) != 0 {
+		t.Fatalf("messages after deletion = %+v, want none", after.Messages)
+	}
+
+	if err := provider.DeleteMessage(
+		context.Background(),
+		domain.DeleteMessageRequest{MessageID: snapshot.Messages[0].ID},
+	); err != nil {
+		t.Fatalf("idempotent DeleteMessage() error = %v", err)
+	}
+	if deleted := caller.deleted(); len(deleted) != 1 {
+		t.Fatalf("idempotent deletion calls = %+v, want one", deleted)
+	}
 }
 
 func TestMessageSnapshotCachesCompleteTerminalProperties(t *testing.T) {

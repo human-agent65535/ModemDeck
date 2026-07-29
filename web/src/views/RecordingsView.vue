@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, AudioLines, Download } from '@lucide/vue'
+import { ArrowLeft, AudioLines, Download, Trash2 } from '@lucide/vue'
 import type { RecordingEntry } from '../api/types'
 import BaseAvatar from '../components/BaseAvatar.vue'
 import ContactHeaderIdentity from '../components/ContactHeaderIdentity.vue'
@@ -11,8 +11,11 @@ import LineSelector from '../components/LineSelector.vue'
 import LineTag from '../components/LineTag.vue'
 import SearchField from '../components/SearchField.vue'
 import StatePanel from '../components/StatePanel.vue'
+import SwipeActionRow from '../components/SwipeActionRow.vue'
 import { audioState } from '../state/audio'
+import { requestConfirmation } from '../state/confirmation'
 import {
+  deleteRecording,
   loadRecordingEntries,
   recordingCatalogState
 } from '../state/recording'
@@ -32,6 +35,8 @@ const router = useRouter()
 const { t } = useI18n()
 const search = ref('')
 const lineFilterKey = ref('all')
+const deletingRecordingID = ref('')
+const deleteError = ref('')
 let searchTimer: number | undefined
 
 const selectedID = computed(() =>
@@ -123,6 +128,31 @@ function selectRecording(recording: RecordingEntry): void {
   void router.push({ name: 'recordings', query: { selected: recording.id } })
 }
 
+async function removeRecording(recording: RecordingEntry): Promise<void> {
+  const confirmed = await requestConfirmation({
+    title: t('recordings.deleteConfirmTitle'),
+    message: t('recordings.deleteConfirmMessage', {
+      name: displayName(recording)
+    }),
+    confirmLabel: t('common.delete'),
+    tone: 'danger'
+  })
+  if (!confirmed) return
+  deletingRecordingID.value = recording.id
+  deleteError.value = ''
+  try {
+    await deleteRecording(recording.call_id, recording.id)
+    if (selectedID.value === recording.id) {
+      await router.replace({ name: 'recordings' })
+    }
+  } catch (error) {
+    deleteError.value =
+      error instanceof Error ? error.message : t('recordings.deleteFailed')
+  } finally {
+    deletingRecordingID.value = ''
+  }
+}
+
 function backToList(): void {
   void router.push({ name: 'recordings' })
 }
@@ -187,6 +217,9 @@ onBeforeUnmount(() => {
           />
         </div>
       </div>
+      <p v-if="deleteError" class="field-error recording-delete-error" role="alert">
+        {{ deleteError }}
+      </p>
 
       <StatePanel
         v-if="recordingCatalogState.status === 'loading'"
@@ -217,44 +250,50 @@ onBeforeUnmount(() => {
         "
       />
       <div v-else class="item-list">
-        <button
+        <SwipeActionRow
           v-for="recording in filteredRecordings"
           :key="recording.id"
-          class="list-item recording-list-item"
-          :class="{ 'is-selected': recording.id === selectedID }"
-          type="button"
-          @click="selectRecording(recording)"
+          :delete-label="t('common.delete')"
+          :disabled="Boolean(deletingRecordingID)"
+          @delete="removeRecording(recording)"
         >
-          <span class="recording-list-item__avatar">
-            <BaseAvatar :name="displayName(recording)" :src="avatar(recording)" />
-            <span
-              class="recording-list-item__icon"
-              :class="{ 'is-unavailable': !recording.playable }"
-            >
-              <AudioLines :size="12" />
+          <button
+            class="list-item recording-list-item"
+            :class="{ 'is-selected': recording.id === selectedID }"
+            type="button"
+            @click="selectRecording(recording)"
+          >
+            <span class="recording-list-item__avatar">
+              <BaseAvatar :name="displayName(recording)" :src="avatar(recording)" />
+              <span
+                class="recording-list-item__icon"
+                :class="{ 'is-unavailable': !recording.playable }"
+              >
+                <AudioLines :size="12" />
+              </span>
             </span>
-          </span>
-          <span class="list-item__content">
-            <span class="list-item__title">
-              <strong>{{ displayName(recording) }}</strong>
-              <time>{{ formatRelativeDate(recording.recorded_at) }}</time>
+            <span class="list-item__content">
+              <span class="list-item__title">
+                <strong>{{ displayName(recording) }}</strong>
+                <time>{{ formatRelativeDate(recording.recorded_at) }}</time>
+              </span>
+              <span class="recording-list-item__meta">
+                <LineTag
+                  :line="lineTagLine(lineForRecording(recording), recording.call.line_id)"
+                  :fallback="recordingLineFallback(recording)"
+                />
+                <small>
+                  {{ directionLabel(recording) }} ·
+                  {{
+                    recording.playable
+                      ? formatDuration(recording.duration_seconds)
+                      : statusLabel(recording)
+                  }}
+                </small>
+              </span>
             </span>
-            <span class="recording-list-item__meta">
-              <LineTag
-                :line="lineTagLine(lineForRecording(recording), recording.call.line_id)"
-                :fallback="recordingLineFallback(recording)"
-              />
-              <small>
-                {{ directionLabel(recording) }} ·
-                {{
-                  recording.playable
-                    ? formatDuration(recording.duration_seconds)
-                    : statusLabel(recording)
-                }}
-              </small>
-            </span>
-          </span>
-        </button>
+          </button>
+        </SwipeActionRow>
       </div>
     </aside>
 
@@ -283,6 +322,15 @@ onBeforeUnmount(() => {
               :contact="selectedContact"
               compact
             />
+            <button
+              class="icon-button icon-button--danger desktop-delete-action"
+              type="button"
+              :disabled="Boolean(deletingRecordingID)"
+              :title="t('recordings.delete')"
+              @click="removeRecording(selected)"
+            >
+              <Trash2 :size="18" />
+            </button>
           </div>
         </header>
 
@@ -463,6 +511,16 @@ onBeforeUnmount(() => {
 
 .recording-call-link:hover {
   text-decoration: underline;
+}
+
+.recording-delete-error {
+  margin: 0 16px 8px;
+}
+
+@media (max-width: 1100px) {
+  .desktop-delete-action {
+    display: none;
+  }
 }
 
 @media (max-width: 560px) {

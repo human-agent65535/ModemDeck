@@ -12,6 +12,7 @@ import type { LineTagLine } from '../utils/lineIdentity'
 import { formatRelativeDate } from '../utils/format'
 import BaseAvatar from './BaseAvatar.vue'
 import LineTag from './LineTag.vue'
+import UnreadDot from './UnreadDot.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -75,13 +76,6 @@ const directionLabel = computed(() => {
       <span class="list-item__title">
         <span class="call-list-item__identity">
           <strong>{{ name }}</strong>
-          <span
-            v-if="call.missed && !call.read"
-            class="call-list-item__unread"
-            aria-hidden="true"
-          >
-            {{ t('calls.unread') }}
-          </span>
         </span>
         <time>{{ formatRelativeDate(call.started_at) }}</time>
       </span>
@@ -97,6 +91,10 @@ const directionLabel = computed(() => {
         >
           <CassetteTape :size="15" aria-hidden="true" />
         </span>
+        <UnreadDot
+          v-if="call.missed && !call.read"
+          :label="t('calls.unreadMissed')"
+        />
       </span>
     </span>
   </button>
@@ -149,17 +147,6 @@ const directionLabel = computed(() => {
 
 .call-list-item__identity strong {
   min-width: 0;
-}
-
-.call-list-item__unread {
-  flex: 0 0 auto;
-  padding: 2px 6px;
-  color: var(--danger);
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1.2;
-  background: var(--danger-soft);
-  border-radius: 999px;
 }
 
 .call-list-item__recording {

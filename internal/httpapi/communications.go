@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/human-agent65535/modemdeck/internal/communication"
+	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -31,6 +32,11 @@ type startCallRequest struct {
 type callActionRequest struct {
 	RequestID string `json:"request_id"`
 	Digits    string `json:"digits"`
+}
+
+type callRecordPath struct {
+	ID     string
+	Action string
 }
 
 func (api *API) messagesCollection(response http.ResponseWriter, request *http.Request) {
@@ -82,6 +88,7 @@ func (api *API) sendMessage(response http.ResponseWriter, request *http.Request)
 		"state",
 		message.State,
 	)
+	api.publishRuntimeResources(runtimeevents.ResourceMessages)
 	writeJSON(response, http.StatusCreated, messageResponse{
 		Message: messageResponseItemFromStore(message),
 	})
@@ -120,6 +127,55 @@ func (api *API) messageRead(response http.ResponseWriter, request *http.Request)
 		}
 		return
 	}
+	api.publishRuntimeResources(runtimeevents.ResourceMessages)
+	response.Header().Set("Cache-Control", "no-store")
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (api *API) messageThreadsCollection(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	switch request.Method {
+	case http.MethodGet:
+		api.messageThreads(response, request)
+	case http.MethodDelete:
+		api.deleteMessageThread(response, request)
+	default:
+		response.Header().Set("Allow", http.MethodGet+", "+http.MethodDelete)
+		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET and DELETE are supported", "")
+	}
+}
+
+func (api *API) deleteMessageThread(response http.ResponseWriter, request *http.Request) {
+	var input markMessageReadRequest
+	if !decodeJSONBody(response, request, &input) {
+		return
+	}
+	identity := store.MessageThreadIdentity{
+		LineID: strings.TrimSpace(input.LineID),
+		Peer:   strings.TrimSpace(input.Peer),
+	}
+	if identity.LineID == "" || identity.Peer == "" {
+		writeError(
+			response,
+			http.StatusBadRequest,
+			"invalid_argument",
+			"line_id and peer are required",
+			"line_id",
+		)
+		return
+	}
+	if err := api.repository.DeleteMessageThread(request.Context(), identity); err != nil {
+		switch {
+		case errors.Is(err, store.ErrMessageThreadNotFound):
+			writeError(response, http.StatusNotFound, "message_thread_not_found", "Message thread no longer exists", "")
+		default:
+			api.writeInternalError(response, request, "delete message thread", err)
+		}
+		return
+	}
+	api.publishRuntimeResources(runtimeevents.ResourceMessages)
 	response.Header().Set("Cache-Control", "no-store")
 	response.WriteHeader(http.StatusNoContent)
 }
@@ -146,8 +202,74 @@ func (api *API) missedCallsRead(response http.ResponseWriter, request *http.Requ
 		api.writeInternalError(response, request, "mark missed calls read", err)
 		return
 	}
+	api.publishRuntimeResources(runtimeevents.ResourceCalls)
 	response.Header().Set("Cache-Control", "no-store")
 	response.WriteHeader(http.StatusNoContent)
+}
+
+func (api *API) callRecordResource(
+	response http.ResponseWriter,
+	request *http.Request,
+	resource callRecordPath,
+) {
+	switch resource.Action {
+	case "":
+		if request.Method != http.MethodDelete {
+			response.Header().Set("Allow", http.MethodDelete)
+			writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only DELETE is supported", "")
+			return
+		}
+		if api.recordings == nil {
+			writeError(response, http.StatusServiceUnavailable, "recording_unavailable", "Call history deletion is unavailable", "")
+			return
+		}
+		if err := api.recordings.DeleteCall(request.Context(), resource.ID); err != nil {
+			api.writeRecordingError(response, request, "delete call history", err, nil)
+			return
+		}
+		api.publishRuntimeResources(
+			runtimeevents.ResourceCalls,
+			runtimeevents.ResourceRecordings,
+		)
+	case "read":
+		if request.Method != http.MethodPatch {
+			response.Header().Set("Allow", http.MethodPatch)
+			writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only PATCH is supported", "")
+			return
+		}
+		if err := api.repository.MarkMissedCallsReadByIDs(
+			request.Context(),
+			[]string{resource.ID},
+		); err != nil {
+			api.writeInternalError(response, request, "mark missed call read", err)
+			return
+		}
+		api.publishRuntimeResources(runtimeevents.ResourceCalls)
+	default:
+		writeError(response, http.StatusNotFound, "not_found", "API endpoint was not found", "")
+		return
+	}
+	response.Header().Set("Cache-Control", "no-store")
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func callRecordResource(path string) (callRecordPath, bool) {
+	const prefix = "/api/v1/calls/"
+	if !strings.HasPrefix(path, prefix) {
+		return callRecordPath{}, false
+	}
+	parts := strings.Split(strings.TrimPrefix(path, prefix), "/")
+	if !validRecordingPathID(parts[0]) {
+		return callRecordPath{}, false
+	}
+	switch {
+	case len(parts) == 1:
+		return callRecordPath{ID: parts[0]}, true
+	case len(parts) == 2 && parts[1] == "read":
+		return callRecordPath{ID: parts[0], Action: parts[1]}, true
+	default:
+		return callRecordPath{}, false
+	}
 }
 
 func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
@@ -199,6 +321,7 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 		"phase",
 		call.Phase,
 	)
+	api.publishRuntimeResources(runtimeevents.ResourceCalls)
 	writeJSON(response, http.StatusCreated, callSessionEnvelope{Call: callSession(call)})
 }
 
@@ -256,6 +379,7 @@ func (api *API) callAction(response http.ResponseWriter, request *http.Request, 
 		"request_id",
 		requestID,
 	)
+	api.publishRuntimeResources(runtimeevents.ResourceCalls)
 	writeJSON(response, http.StatusAccepted, map[string]string{
 		"request_id": requestID,
 		"call_id":    callID,

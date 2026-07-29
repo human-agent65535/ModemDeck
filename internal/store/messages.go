@@ -108,7 +108,7 @@ func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, er
 		imsi, iccid, peer, local_phone, sender, recipient,
 		content, type, status, state, failure_code, revision, timestamp, created_at
 		FROM sms`
-	conditions := make([]string, 0, 4)
+	conditions := []string{"deleted_at IS NULL"}
 	arguments := make([]any, 0, 5)
 	if lineID := strings.TrimSpace(query.LineID); lineID != "" {
 		conditions = append(conditions, "line_id = ?")
@@ -195,6 +195,53 @@ func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, er
 		}
 	}
 	return messages, nil
+}
+
+func (s *Store) DeleteMessageThread(
+	ctx context.Context,
+	identity MessageThreadIdentity,
+) error {
+	lineID := strings.TrimSpace(identity.LineID)
+	peer := strings.TrimSpace(identity.Peer)
+	if lineID == "" || peer == "" {
+		return fmt.Errorf("delete message thread: line ID and peer are required")
+	}
+	transaction, err := s.database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin message thread deletion: %w", err)
+	}
+	defer transaction.Rollback()
+
+	result, err := transaction.ExecContext(
+		ctx,
+		`DELETE FROM sms_contacts WHERE line_id = ? AND peer = ?`,
+		lineID,
+		peer,
+	)
+	if err != nil {
+		return fmt.Errorf("delete message thread index: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read deleted message thread count: %w", err)
+	}
+	if affected == 0 {
+		return ErrMessageThreadNotFound
+	}
+	if _, err := transaction.ExecContext(
+		ctx,
+		`UPDATE sms
+		 SET deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP)
+		 WHERE line_id = ? AND peer = ? AND deleted_at IS NULL`,
+		lineID,
+		peer,
+	); err != nil {
+		return fmt.Errorf("soft-delete message thread: %w", err)
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit message thread deletion: %w", err)
+	}
+	return nil
 }
 
 func uniqueNonEmptyStrings(values []string) []string {

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"slices"
 	"strconv"
@@ -39,6 +40,7 @@ const (
 	deviceConfigurationTimeout = 50 * time.Second
 	controlLeaseRenewInterval  = time.Second
 	controlLeaseRequestTimeout = 5 * time.Second
+	deviceMessageDeleteTimeout = 5 * time.Second
 )
 
 type Agent interface {
@@ -63,6 +65,10 @@ type AgentChangeSource interface {
 type AgentControlLease interface {
 	RenewControlLease(context.Context) (agentclient.ControlLeaseStatus, error)
 	ReleaseControlLease(context.Context) error
+}
+
+type AgentMessageDeleter interface {
+	DeleteMessage(context.Context, string) error
 }
 
 type Repository interface {
@@ -154,6 +160,10 @@ type Service struct {
 	agentEventsHealthy    bool
 	controlLeaseWanted    bool
 	controlLeaseActive    bool
+
+	messageCleanupMu      sync.Mutex
+	messageCleanupPending map[string]struct{}
+	messageCleanupRunning bool
 }
 
 func New(
@@ -171,11 +181,12 @@ func New(
 		return nil, operationError(CodeInvalidArgument, "create communication service", "message event publisher is required", nil)
 	}
 	return &Service{
-		agent:      agent,
-		repository: repository,
-		events:     events,
-		random:     rand.Reader,
-		now:        time.Now,
+		agent:                 agent,
+		repository:            repository,
+		events:                events,
+		random:                rand.Reader,
+		now:                   time.Now,
+		messageCleanupPending: make(map[string]struct{}),
 	}, nil
 }
 
@@ -241,6 +252,7 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 	if err != nil {
 		return s.recordRefreshFailure("persist host agent snapshot", err)
 	}
+	s.enqueueDeviceMessageCleanup(hardwareSnapshot.Messages)
 	lines = bindProjectedLines(lines, snapshotResult.LineIDsByEndpoint)
 	s.publishIncomingMessages(snapshotResult.CreatedIncomingMessages)
 	activeCalls, err := s.repository.ActiveCalls(refreshContext)
@@ -281,6 +293,67 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 		)
 	}
 	return cloneStatus(status), nil
+}
+
+func (s *Service) enqueueDeviceMessageCleanup(messages []store.HardwareMessage) {
+	deleter, available := s.agent.(AgentMessageDeleter)
+	if !available {
+		return
+	}
+	s.messageCleanupMu.Lock()
+	for _, message := range messages {
+		state := strings.ToLower(strings.TrimSpace(message.State))
+		if state != "received" && state != "sent" {
+			continue
+		}
+		if messageID := strings.TrimSpace(message.EndpointMessageID); messageID != "" {
+			s.messageCleanupPending[messageID] = struct{}{}
+		}
+	}
+	if s.messageCleanupRunning || len(s.messageCleanupPending) == 0 {
+		s.messageCleanupMu.Unlock()
+		return
+	}
+	s.messageCleanupRunning = true
+	s.messageCleanupMu.Unlock()
+	go s.drainDeviceMessageCleanup(deleter)
+}
+
+func (s *Service) drainDeviceMessageCleanup(deleter AgentMessageDeleter) {
+	for {
+		s.messageCleanupMu.Lock()
+		messageID := ""
+		for pendingID := range s.messageCleanupPending {
+			messageID = pendingID
+			break
+		}
+		if messageID == "" {
+			s.messageCleanupRunning = false
+			s.messageCleanupMu.Unlock()
+			return
+		}
+		s.messageCleanupMu.Unlock()
+
+		ctx, cancel := context.WithTimeout(context.Background(), deviceMessageDeleteTimeout)
+		err := deleter.DeleteMessage(ctx, messageID)
+		cancel()
+
+		s.messageCleanupMu.Lock()
+		delete(s.messageCleanupPending, messageID)
+		if err != nil {
+			clear(s.messageCleanupPending)
+			s.messageCleanupRunning = false
+			s.messageCleanupMu.Unlock()
+			slog.Warn(
+				"persisted SMS could not be removed from the modem",
+				"component", "communication",
+				"message_id", messageID,
+				"error", err,
+			)
+			return
+		}
+		s.messageCleanupMu.Unlock()
+	}
 }
 
 func (s *Service) publishRuntimeSnapshot(

@@ -66,6 +66,7 @@ export const contactEditingAvailable = gateway.interactions.contacts
 
 let threadsLoad: Promise<MessageThread[] | null> | undefined
 let threadsRefresh: Promise<MessageThread[] | null> | undefined
+let contactsRefresh: Promise<Contact[] | null> | undefined
 let bootstrapRefresh: Promise<BootstrapResponse | null> | undefined
 let devicesRefresh: Promise<Device[] | null> | undefined
 let callsRefreshRequest: Promise<CallRecord[] | null> | undefined
@@ -275,6 +276,14 @@ export function loadContacts(force = false): Promise<Contact[] | null> {
   return load(contactsResource, () => gateway.listContacts())
 }
 
+export function refreshContacts(): Promise<Contact[] | null> {
+  if (contactsRefresh) return contactsRefresh
+  contactsRefresh = refreshResource(contactsResource, () => gateway.listContacts()).finally(() => {
+    contactsRefresh = undefined
+  })
+  return contactsRefresh
+}
+
 export function loadThreads(force = false): Promise<MessageThread[] | null> {
   if (!force && threadsResource.status === 'ready') return Promise.resolve(threadsResource.data)
   if (threadsLoad) return threadsLoad
@@ -323,6 +332,18 @@ export function markMissedCallsRead(): Promise<void> {
       missedCallsReadRequest = undefined
     })
   return missedCallsReadRequest
+}
+
+export async function markMissedCallRead(call: CallRecord): Promise<void> {
+  if (!call.missed || call.read) return
+  await gateway.markMissedCallRead(call.id)
+  const current = callsResource.data.find(item => item.id === call.id)
+  if (current) current.read = true
+}
+
+export async function deleteCall(call: CallRecord): Promise<void> {
+  await gateway.deleteCall(call.id)
+  callsResource.data = callsResource.data.filter(item => item.id !== call.id)
 }
 
 export function loadDevices(force = false): Promise<Device[] | null> {
@@ -488,9 +509,20 @@ export async function refreshIncomingMessage(
 
 export async function refreshMessageWorkspace(activeThreadKey = ''): Promise<void> {
   const threads = await refreshThreads()
-  if (!activeThreadKey) return
-  const thread = threads?.find(item => item.key === activeThreadKey)
-  if (thread) await refreshMessages(thread)
+  if (activeThreadKey) {
+    const thread = threads?.find(item => item.key === activeThreadKey)
+    if (thread) await refreshMessages(thread)
+    return
+  }
+  const currentThreads = threads || threadsResource.data
+  await Promise.all(
+    Object.keys(messageResources)
+      .filter(key => messageResources[key]?.status === 'ready')
+      .map(async key => {
+        const thread = currentThreads.find(item => item.key === key)
+        if (thread) await refreshMessages(thread)
+      })
+  )
 }
 
 async function refreshResource<T>(
@@ -559,6 +591,13 @@ export async function markThreadRead(thread: MessageThread): Promise<boolean> {
   if (current) current.unread_count = 0
   delete threadReadErrors[key]
   return true
+}
+
+export async function deleteMessageThread(thread: MessageThread): Promise<void> {
+  await gateway.deleteThread(messageQueryForThread(thread))
+  threadsResource.data = threadsResource.data.filter(item => item.key !== thread.key)
+  delete messageResources[thread.key]
+  delete threadReadErrors[thread.key]
 }
 
 export async function updateDefaultLine(lineID: string): Promise<void> {

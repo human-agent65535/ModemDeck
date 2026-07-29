@@ -673,6 +673,69 @@ func (p *Provider) SendMessage(ctx context.Context, request domain.SendMessageRe
 	return domain.CommandReceipt{RequestID: request.RequestID, ResourceID: parsed.ids.messageID(messagePath)}, nil
 }
 
+func (p *Provider) DeleteMessage(ctx context.Context, request domain.DeleteMessageRequest) error {
+	const operation = "delete_message"
+	request.MessageID = strings.TrimSpace(request.MessageID)
+	if !validMessageID(request.MessageID) {
+		return domain.InvalidArgument(operation, "message id is invalid")
+	}
+
+	identity, err := p.resolveProviderIdentity(ctx, operation)
+	if err != nil {
+		return err
+	}
+	objects, err := p.managedObjects(ctx, operation)
+	if err != nil {
+		return err
+	}
+	objects, err = p.hydrateMessages(ctx, operation, objects)
+	if err != nil {
+		return err
+	}
+	parsed := ParseManagedObjects(objects, identity)
+	message, found := findMessage(parsed.Messages, request.MessageID)
+	if !found {
+		return nil
+	}
+	messagePath := parsed.MessagePaths[message.ID]
+	linePath := parsed.LinePaths[message.LineID]
+	if messagePath == "" || linePath == "" {
+		return domain.Internal(operation, "message path mapping is unavailable", nil)
+	}
+	if _, err := p.call(
+		ctx,
+		linePath,
+		messagingInterface+".Delete",
+		operation,
+		"ModemManager failed to delete the SMS",
+		messagePath,
+	); err != nil {
+		if operationError, ok := domain.AsOperationError(err); ok &&
+			operationError.Code == domain.ErrorNotFound {
+			return nil
+		}
+		return err
+	}
+	p.messageProperties.clear()
+	return nil
+}
+
+func validMessageID(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for _, character := range value {
+		if (character >= 'a' && character <= 'z') ||
+			(character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') ||
+			character == '-' || character == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func (p *Provider) controlCall(
 	ctx context.Context,
 	operation string,
@@ -1258,6 +1321,15 @@ func findCall(calls []domain.Call, id string) (domain.Call, bool) {
 		}
 	}
 	return domain.Call{}, false
+}
+
+func findMessage(messages []domain.Message, id string) (domain.Message, bool) {
+	for _, message := range messages {
+		if message.ID == id {
+			return message, true
+		}
+	}
+	return domain.Message{}, false
 }
 
 func lineHasCall(calls []domain.Call, lineID, exceptCallID string) bool {

@@ -6,7 +6,8 @@ import {
   ArrowLeft,
   LoaderCircle,
   MessageSquareText,
-  Phone
+  Phone,
+  Trash2
 } from '@lucide/vue'
 import type { CallFilter, CallRecord } from '../api/types'
 import CallHistoryListItem from '../components/CallHistoryListItem.vue'
@@ -17,9 +18,12 @@ import LineTag from '../components/LineTag.vue'
 import RecordingList from '../components/RecordingList.vue'
 import SearchField from '../components/SearchField.vue'
 import StatePanel from '../components/StatePanel.vue'
+import SwipeActionRow from '../components/SwipeActionRow.vue'
+import { requestConfirmation } from '../state/confirmation'
 import { callState } from '../state/call'
 import {
   loadRecordingEntries,
+  forgetCallRecordings,
   recordingCatalogState
 } from '../state/recording'
 import { openDialerAndCall } from '../state/ui'
@@ -28,11 +32,13 @@ import {
   callsResource,
   capabilityReason,
   contactForNumber,
+  deleteCall,
   lineForKey,
   lineKey,
   loadBootstrap,
   loadCalls,
   loadContacts,
+  markMissedCallRead,
   markMissedCallsRead
 } from '../state/workspace'
 import { formatDateTime, formatDuration } from '../utils/format'
@@ -60,6 +66,8 @@ const filter = ref<CallFilter>(
 )
 const lineFilterKey = ref('all')
 const missedReadError = ref('')
+const callMutationError = ref('')
+const deletingCallID = ref('')
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const defaultLineID = computed(
   () => bootstrapResource.data?.line_settings.default_line_id || ''
@@ -166,6 +174,10 @@ function hasPlayableRecording(call: CallRecord): boolean {
   return playableRecordingCallIDs.value.has(call.id)
 }
 
+function recordingCount(call: CallRecord): number {
+  return recordingCatalogState.data.filter(recording => recording.call_id === call.id).length
+}
+
 function lineForCall(call: CallRecord) {
   return lineForKey(call.line_id)
 }
@@ -190,6 +202,48 @@ function selectCall(call: CallRecord): void {
     name: 'calls',
     query: { selected: call.id, ...callFilterQuery() }
   })
+}
+
+async function acknowledgeMissedCall(call: CallRecord): Promise<void> {
+  callMutationError.value = ''
+  try {
+    await markMissedCallRead(call)
+  } catch (error) {
+    callMutationError.value = t('calls.markReadFailed', {
+      error: error instanceof Error ? error.message : String(error)
+    })
+  }
+}
+
+async function removeCall(call: CallRecord): Promise<void> {
+  const recordings = recordingCount(call)
+  const confirmed = await requestConfirmation({
+    title: t('calls.deleteConfirmTitle'),
+    message: recordings
+      ? t('calls.deleteConfirmWithRecordings', {
+          name: displayName(call),
+          count: recordings
+        })
+      : t('calls.deleteConfirmMessage', { name: displayName(call) }),
+    confirmLabel: t('common.delete'),
+    tone: 'danger'
+  })
+  if (!confirmed) return
+  deletingCallID.value = call.id
+  callMutationError.value = ''
+  try {
+    await deleteCall(call)
+    forgetCallRecordings(call.id)
+    if (selectedId.value === call.id) {
+      if (embedded.value) emit('close')
+      else await router.replace({ name: 'calls', query: callFilterQuery() })
+    }
+  } catch (error) {
+    callMutationError.value =
+      error instanceof Error ? error.message : t('calls.deleteFailed')
+  } finally {
+    deletingCallID.value = ''
+  }
 }
 
 function backToList(): void {
@@ -364,6 +418,13 @@ onMounted(() => {
           {{ t('common.retry') }}
         </button>
       </div>
+      <div
+        v-if="callMutationError"
+        class="call-sync-status call-sync-status--error"
+        role="alert"
+      >
+        {{ callMutationError }}
+      </div>
 
       <StatePanel
         v-if="callsResource.status === 'loading'"
@@ -394,18 +455,27 @@ onMounted(() => {
         "
       />
       <div v-else class="item-list">
-        <CallHistoryListItem
+        <SwipeActionRow
           v-for="call in filteredCalls"
           :key="call.id"
-          :call="call"
-          :name="displayName(call)"
-          :avatar="avatarForCall(call)"
-          :line="lineTagLine(lineForCall(call), call.line_id)"
-          :line-fallback="callLineFallback(call)"
-          :selected="call.id === selectedId"
-          :has-recording="hasPlayableRecording(call)"
-          @select="selectCall"
-        />
+          :can-read="call.missed && !call.read"
+          :read-label="t('common.markRead')"
+          :delete-label="t('common.delete')"
+          :disabled="Boolean(deletingCallID)"
+          @read="acknowledgeMissedCall(call)"
+          @delete="removeCall(call)"
+        >
+          <CallHistoryListItem
+            :call="call"
+            :name="displayName(call)"
+            :avatar="avatarForCall(call)"
+            :line="lineTagLine(lineForCall(call), call.line_id)"
+            :line-fallback="callLineFallback(call)"
+            :selected="call.id === selectedId"
+            :has-recording="hasPlayableRecording(call)"
+            @select="selectCall"
+          />
+        </SwipeActionRow>
       </div>
     </aside>
 
@@ -454,6 +524,16 @@ onMounted(() => {
             >
               <MessageSquareText :size="17" />
               <span>{{ t('shell.messages') }}</span>
+            </button>
+            <button
+              v-if="!embedded"
+              class="icon-button icon-button--danger desktop-delete-action"
+              type="button"
+              :disabled="Boolean(deletingCallID)"
+              :title="t('calls.delete')"
+              @click="removeCall(selected)"
+            >
+              <Trash2 :size="18" />
             </button>
           </div>
         </header>
@@ -562,6 +642,12 @@ onMounted(() => {
   flex: 0 0 auto;
   color: inherit;
   font-weight: 700;
+}
+
+@media (max-width: 1100px) {
+  .desktop-delete-action {
+    display: none;
+  }
 }
 
 @media (max-width: 720px) {

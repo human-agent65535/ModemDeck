@@ -151,6 +151,39 @@ func TestRecordingMetadataDoesNotLeakPathAndDownloadIsOgg(t *testing.T) {
 	}
 }
 
+func TestRecordingDeleteUsesExactCallAndSegment(t *testing.T) {
+	t.Parallel()
+
+	recordings := &fakeRecordingService{}
+	api, err := New(&fakeRepository{}, Options{
+		Recording:             recordings,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	api.ServeHTTP(
+		response,
+		httptest.NewRequest(
+			http.MethodDelete,
+			"/api/v1/calls/call-1/recordings/segment-1",
+			nil,
+		),
+	)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if recordings.deleteRecordingCallID != "call-1" ||
+		recordings.deleteRecordingSegmentID != "segment-1" {
+		t.Fatalf(
+			"deleted recording = call %q segment %q",
+			recordings.deleteRecordingCallID,
+			recordings.deleteRecordingSegmentID,
+		)
+	}
+}
+
 func TestRecordingCollectionIsBoundedSearchableAndDoesNotLeakPaths(t *testing.T) {
 	repository := &fakeRepository{
 		recordingEntries: []store.RecordingEntry{{
@@ -345,26 +378,31 @@ func TestStartCallRecordingOverrideIsOptional(t *testing.T) {
 }
 
 type fakeRecordingService struct {
-	settings          store.RecordingSettings
-	updatedSettings   store.RecordingSettings
-	updateError       error
-	updatedEnabled    bool
-	updatedRevision   int64
-	preparedRequestID string
-	preparedEnabled   bool
-	prepareCalls      int
-	prepareError      error
-	callRecordings    recording.CallRecordings
-	callRecordingsErr error
-	toggleState       store.CallRecordingState
-	toggleCallID      string
-	toggleEnabled     bool
-	toggleError       error
-	download          recording.Download
-	downloadCallID    string
-	downloadSegmentID string
-	downloadError     error
-	finalizedCallID   string
+	settings                 store.RecordingSettings
+	updatedSettings          store.RecordingSettings
+	updateError              error
+	updatedEnabled           bool
+	updatedRevision          int64
+	preparedRequestID        string
+	preparedEnabled          bool
+	prepareCalls             int
+	prepareError             error
+	callRecordings           recording.CallRecordings
+	callRecordingsErr        error
+	toggleState              store.CallRecordingState
+	toggleCallID             string
+	toggleEnabled            bool
+	toggleError              error
+	download                 recording.Download
+	downloadCallID           string
+	downloadSegmentID        string
+	downloadError            error
+	deleteCallID             string
+	deleteCallError          error
+	deleteRecordingCallID    string
+	deleteRecordingSegmentID string
+	deleteRecordingError     error
+	finalizedCallID          string
 }
 
 func (f *fakeRecordingService) Settings(context.Context) (store.RecordingSettings, error) {
@@ -415,6 +453,20 @@ func (f *fakeRecordingService) Download(
 	f.downloadCallID = callID
 	f.downloadSegmentID = segmentID
 	return f.download, f.downloadError
+}
+
+func (f *fakeRecordingService) DeleteRecording(
+	_ context.Context,
+	callID, segmentID string,
+) error {
+	f.deleteRecordingCallID = callID
+	f.deleteRecordingSegmentID = segmentID
+	return f.deleteRecordingError
+}
+
+func (f *fakeRecordingService) DeleteCall(_ context.Context, callID string) error {
+	f.deleteCallID = callID
+	return f.deleteCallError
 }
 
 func (f *fakeRecordingService) FinalizeCall(_ context.Context, callID string) error {

@@ -44,6 +44,17 @@ type fakeAgent struct {
 	applyDeviceConfigurationError    error
 }
 
+type messageDeletingAgent struct {
+	*fakeAgent
+	deleted chan string
+	err     error
+}
+
+func (agent *messageDeletingAgent) DeleteMessage(_ context.Context, messageID string) error {
+	agent.deleted <- messageID
+	return agent.err
+}
+
 func (agent *fakeAgent) Health(context.Context) (agentclient.Health, error) {
 	return agent.health, agent.healthError
 }
@@ -813,6 +824,116 @@ func TestRefreshDoesNotPublishWhenSnapshotCommitFails(t *testing.T) {
 	cancel()
 	if len(window.Events) != 0 {
 		t.Fatalf("published events = %+v, want none", window.Events)
+	}
+}
+
+func TestRefreshDeletesOnlyPersistedTerminalMessagesFromDevice(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.July, 29, 5, 30, 0, 0, time.UTC)
+	base := connectedAgent(now)
+	base.snapshot.Messages = []agentclient.Message{
+		{
+			ID:        "message_received",
+			LineID:    "line-1",
+			Number:    "+818012345678",
+			Text:      "received",
+			Direction: "incoming",
+			State:     "received",
+			StateCode: 3,
+			Timestamp: now.Format(time.RFC3339),
+		},
+		{
+			ID:        "message_sent",
+			LineID:    "line-1",
+			Number:    "+818012345679",
+			Text:      "sent",
+			Direction: "outgoing",
+			State:     "sent",
+			StateCode: 5,
+			Timestamp: now.Format(time.RFC3339),
+		},
+		{
+			ID:        "message_stored",
+			LineID:    "line-1",
+			Number:    "+818012345670",
+			Text:      "still pending",
+			Direction: "outgoing",
+			State:     "stored",
+			StateCode: 1,
+			Timestamp: now.Format(time.RFC3339),
+		},
+	}
+	agent := &messageDeletingAgent{
+		fakeAgent: base,
+		deleted:   make(chan string, 3),
+	}
+	repository := &fakeRepository{}
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if _, err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	deleted := make(map[string]bool, 2)
+	for len(deleted) < 2 {
+		select {
+		case messageID := <-agent.deleted:
+			deleted[messageID] = true
+		case <-time.After(time.Second):
+			t.Fatalf("deleted messages = %+v, want received and sent", deleted)
+		}
+	}
+	if !deleted["message_received"] || !deleted["message_sent"] {
+		t.Fatalf("deleted messages = %+v, want received and sent", deleted)
+	}
+	select {
+	case messageID := <-agent.deleted:
+		t.Fatalf("unexpected device message deletion = %q", messageID)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if len(repository.snapshot.Messages) != 3 {
+		t.Fatalf(
+			"persisted snapshot messages = %+v, want all three before cleanup",
+			repository.snapshot.Messages,
+		)
+	}
+}
+
+func TestRefreshDoesNotDeleteDeviceMessagesWhenPersistenceFails(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.July, 29, 5, 45, 0, 0, time.UTC)
+	base := connectedAgent(now)
+	base.snapshot.Messages = []agentclient.Message{{
+		ID:        "message_received",
+		LineID:    "line-1",
+		Number:    "+818012345678",
+		Text:      "must survive",
+		Direction: "incoming",
+		State:     "received",
+		StateCode: 3,
+		Timestamp: now.Format(time.RFC3339),
+	}}
+	agent := &messageDeletingAgent{
+		fakeAgent: base,
+		deleted:   make(chan string, 1),
+	}
+	repository := &fakeRepository{snapshotError: errors.New("disk unavailable")}
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if _, err := service.Refresh(context.Background()); err == nil {
+		t.Fatal("Refresh() error = nil, want persistence failure")
+	}
+	select {
+	case messageID := <-agent.deleted:
+		t.Fatalf("message %q was deleted before persistence succeeded", messageID)
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 

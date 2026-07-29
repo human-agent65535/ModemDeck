@@ -24,6 +24,7 @@ type fakeProvider struct {
 	hangupRequests  []domain.CallCommandRequest
 	dtmfRequests    []domain.DTMFRequest
 	messageRequests []domain.SendMessageRequest
+	deletedMessages []domain.DeleteMessageRequest
 }
 
 func (p *fakeProvider) Health(ctx context.Context) (domain.ProviderHealth, error) {
@@ -85,6 +86,12 @@ func (p *fakeProvider) SendMessage(ctx context.Context, request domain.SendMessa
 		return domain.CommandReceipt{}, p.operationError
 	}
 	return domain.CommandReceipt{RequestID: request.RequestID, ResourceID: "message_boot_x"}, nil
+}
+
+func (p *fakeProvider) DeleteMessage(ctx context.Context, request domain.DeleteMessageRequest) error {
+	p.contexts = append(p.contexts, ctx)
+	p.deletedMessages = append(p.deletedMessages, request)
+	return p.operationError
 }
 
 func (p *fakeProvider) callReceipt(request domain.CallCommandRequest) (domain.CommandReceipt, error) {
@@ -242,6 +249,20 @@ func TestCommandRoutesRequireAndEchoRequestID(t *testing.T) {
 	}`))
 	assertReceipt(t, message, http.StatusCreated, "request-message", "message_boot_x")
 
+	deletedMessage := performRequest(
+		handler,
+		http.MethodDelete,
+		"/v1/messages/message_boot_x",
+		nil,
+	)
+	if deletedMessage.Code != http.StatusNoContent {
+		t.Fatalf(
+			"delete message status = %d, body = %s",
+			deletedMessage.Code,
+			deletedMessage.Body.String(),
+		)
+	}
+
 	if len(provider.startRequests) != 1 || provider.startRequests[0].RequestID != "request-start" {
 		t.Fatalf("start requests = %#v", provider.startRequests)
 	}
@@ -259,6 +280,10 @@ func TestCommandRoutesRequireAndEchoRequestID(t *testing.T) {
 	}
 	if len(provider.messageRequests) != 1 || provider.messageRequests[0].Text != "hello" {
 		t.Fatalf("message requests = %#v", provider.messageRequests)
+	}
+	if len(provider.deletedMessages) != 1 ||
+		provider.deletedMessages[0].MessageID != "message_boot_x" {
+		t.Fatalf("deleted messages = %#v", provider.deletedMessages)
 	}
 }
 

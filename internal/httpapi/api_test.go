@@ -14,41 +14,44 @@ import (
 )
 
 type fakeRepository struct {
-	pingError           error
-	contactLimit        int
-	contact             store.Contact
-	contactError        error
-	createContactInput  store.ContactInput
-	createContactError  error
-	updateContactID     string
-	updateContactInput  store.ContactInput
-	updateContactError  error
-	deleteContactID     string
-	deleteContactRev    int64
-	deleteContactError  error
-	messageQuery        store.MessageQuery
-	messageReadIdentity store.MessageThreadIdentity
-	messageReadError    error
-	missedReadCalls     int
-	missedReadError     error
-	recordingQuery      store.RecordingQuery
-	recordingEntries    []store.RecordingEntry
-	recordingError      error
-	devices             []store.Device
-	deleteDeviceIMEI    string
-	deleteDeviceError   error
-	lines               []store.LineSummary
-	updateLineID        string
-	updateLineLabel     string
-	updateLineColor     *store.LineColor
-	updateLineResult    store.LineSummary
-	updateLineError     error
-	systemSettings      store.SystemSettings
-	systemSettingsError error
-	updateSystemInput   store.SystemLanguage
-	updateSystemRev     int64
-	updateSystemResult  store.SystemSettings
-	updateSystemError   error
+	pingError             error
+	contactLimit          int
+	contact               store.Contact
+	contactError          error
+	createContactInput    store.ContactInput
+	createContactError    error
+	updateContactID       string
+	updateContactInput    store.ContactInput
+	updateContactError    error
+	deleteContactID       string
+	deleteContactRev      int64
+	deleteContactError    error
+	messageQuery          store.MessageQuery
+	messageReadIdentity   store.MessageThreadIdentity
+	messageReadError      error
+	messageDeleteIdentity store.MessageThreadIdentity
+	messageDeleteError    error
+	missedReadCalls       int
+	missedReadIDs         []string
+	missedReadError       error
+	recordingQuery        store.RecordingQuery
+	recordingEntries      []store.RecordingEntry
+	recordingError        error
+	devices               []store.Device
+	deleteDeviceIMEI      string
+	deleteDeviceError     error
+	lines                 []store.LineSummary
+	updateLineID          string
+	updateLineLabel       string
+	updateLineColor       *store.LineColor
+	updateLineResult      store.LineSummary
+	updateLineError       error
+	systemSettings        store.SystemSettings
+	systemSettingsError   error
+	updateSystemInput     store.SystemLanguage
+	updateSystemRev       int64
+	updateSystemResult    store.SystemSettings
+	updateSystemError     error
 }
 
 func (repository *fakeRepository) Ping(context.Context) error {
@@ -98,12 +101,28 @@ func (repository *fakeRepository) MarkMessageThreadRead(
 	return repository.messageReadError
 }
 
+func (repository *fakeRepository) DeleteMessageThread(
+	_ context.Context,
+	identity store.MessageThreadIdentity,
+) error {
+	repository.messageDeleteIdentity = identity
+	return repository.messageDeleteError
+}
+
 func (repository *fakeRepository) Calls(context.Context, store.CallQuery) ([]store.Call, error) {
 	return []store.Call{}, nil
 }
 
 func (repository *fakeRepository) MarkMissedCallsRead(context.Context) error {
 	repository.missedReadCalls++
+	return repository.missedReadError
+}
+
+func (repository *fakeRepository) MarkMissedCallsReadByIDs(
+	_ context.Context,
+	callIDs []string,
+) error {
+	repository.missedReadIDs = append([]string(nil), callIDs...)
 	return repository.missedReadError
 }
 

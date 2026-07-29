@@ -1,15 +1,22 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Download, LoaderCircle, RefreshCw } from '@lucide/vue'
-import { loadCallRecordings, recordingListState } from '../state/recording'
+import { Download, LoaderCircle, RefreshCw, Trash2 } from '@lucide/vue'
+import {
+  deleteRecording,
+  loadCallRecordings,
+  recordingListState
+} from '../state/recording'
 import { audioState } from '../state/audio'
+import { requestConfirmation } from '../state/confirmation'
 import { formatDateTime, formatDuration } from '../utils/format'
 
 const { t } = useI18n()
 const props = defineProps<{
   callId: string
 }>()
+const deletingID = ref('')
+const deleteError = ref('')
 
 const current = computed(() =>
   recordingListState.callID === props.callId
@@ -41,6 +48,26 @@ function downloadName(id: string, contentType: string): string {
   return `modemdeck-${id}.${extension}`
 }
 
+async function removeRecording(recordingID: string): Promise<void> {
+  const confirmed = await requestConfirmation({
+    title: t('recordings.deleteConfirmTitle'),
+    message: t('recordings.deleteSegmentConfirmMessage'),
+    confirmLabel: t('common.delete'),
+    tone: 'danger'
+  })
+  if (!confirmed) return
+  deletingID.value = recordingID
+  deleteError.value = ''
+  try {
+    await deleteRecording(props.callId, recordingID)
+  } catch (error) {
+    deleteError.value =
+      error instanceof Error ? error.message : t('recordings.deleteFailed')
+  } finally {
+    deletingID.value = ''
+  }
+}
+
 watch(
   () => props.callId,
   callID => {
@@ -57,6 +84,9 @@ watch(
       <span v-if="current.status === 'ready'">{{ current.data.length }}</span>
     </header>
 
+    <p v-if="deleteError" class="recording-list__state recording-list__state--error">
+      {{ deleteError }}
+    </p>
     <div v-if="current.status === 'loading' || current.status === 'idle'" class="recording-list__state">
       <LoaderCircle class="spin" :size="17" />
       {{ t('recordings.loading') }}
@@ -106,6 +136,17 @@ watch(
         >
           <Download :size="18" />
         </a>
+        <button
+          class="recording-list__delete"
+          type="button"
+          :disabled="Boolean(deletingID)"
+          :title="t('recordings.delete')"
+          :aria-label="t('recordings.delete')"
+          @click="removeRecording(recording.id)"
+        >
+          <LoaderCircle v-if="deletingID === recording.id" class="spin" :size="17" />
+          <Trash2 v-else :size="17" />
+        </button>
       </li>
     </ol>
   </section>
@@ -173,7 +214,7 @@ watch(
   display: grid;
   min-width: 0;
   align-items: center;
-  grid-template-columns: minmax(130px, 0.8fr) minmax(180px, 1fr) 34px;
+  grid-template-columns: minmax(130px, 0.8fr) minmax(180px, 1fr) 34px 34px;
   gap: 12px;
   padding: 10px 12px;
   background: var(--surface-subtle);
@@ -220,13 +261,27 @@ watch(
   background: var(--surface-hover);
 }
 
+.recording-list__delete {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  color: var(--muted);
+  border-radius: 50%;
+}
+
+.recording-list__delete:hover:not(:disabled) {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
 @media (max-width: 720px) {
   .recording-list li {
-    grid-template-columns: minmax(0, 1fr) 34px;
+    grid-template-columns: minmax(0, 1fr) 34px 34px;
   }
 
   .recording-list audio {
-    grid-column: 1 / 3;
+    grid-column: 1 / 4;
     grid-row: 2;
   }
 }

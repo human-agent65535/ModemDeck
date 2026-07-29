@@ -344,6 +344,7 @@ function proxyApplyStatus(
 
 export const communicationPaths = {
   messages: '/api/v1/messages',
+  messageThreads: '/api/v1/messages/threads',
   messageRead: '/api/v1/messages/read',
   calls: '/api/v1/calls',
   missedCallsRead: '/api/v1/calls/missed/read',
@@ -363,6 +364,11 @@ export const communicationContracts = {
   markMessageRead: {
     method: 'PATCH',
     path: communicationPaths.messageRead,
+    successStatus: 204
+  },
+  deleteMessageThread: {
+    method: 'DELETE',
+    path: communicationPaths.messageThreads,
     successStatus: 204
   },
   startCall: {
@@ -538,6 +544,22 @@ export function callRecordingsPath(id: string): string {
   const callID = id.trim()
   if (!callID) throw new Error('call id 不能为空')
   return `${communicationPaths.calls}/${encodeURIComponent(callID)}/recordings`
+}
+
+export function callRecordPath(id: string): string {
+  const callID = id.trim()
+  if (!callID) throw new Error('call id 不能为空')
+  return `${communicationPaths.calls}/${encodeURIComponent(callID)}`
+}
+
+export function missedCallReadPath(id: string): string {
+  return `${callRecordPath(id)}/read`
+}
+
+export function callRecordingResourcePath(callID: string, recordingID: string): string {
+  const normalizedRecordingID = recordingID.trim()
+  if (!normalizedRecordingID) throw new Error('recording id 不能为空')
+  return `${callRecordingsPath(callID)}/${encodeURIComponent(normalizedRecordingID)}`
 }
 
 export function callRecordingContract(id: string): {

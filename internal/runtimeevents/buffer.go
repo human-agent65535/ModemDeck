@@ -14,10 +14,12 @@ const (
 type Resource string
 
 const (
-	ResourceLines    Resource = "lines"
-	ResourceNetwork  Resource = "network"
-	ResourceCalls    Resource = "calls"
-	ResourceMessages Resource = "messages"
+	ResourceLines      Resource = "lines"
+	ResourceNetwork    Resource = "network"
+	ResourceCalls      Resource = "calls"
+	ResourceMessages   Resource = "messages"
+	ResourceContacts   Resource = "contacts"
+	ResourceRecordings Resource = "recordings"
 )
 
 type Event struct {
@@ -173,7 +175,12 @@ func normalizedResources(resources []Resource) []Resource {
 	normalized := make([]Resource, 0, len(resources))
 	for _, resource := range resources {
 		switch resource {
-		case ResourceLines, ResourceNetwork, ResourceCalls, ResourceMessages:
+		case ResourceLines,
+			ResourceNetwork,
+			ResourceCalls,
+			ResourceMessages,
+			ResourceContacts,
+			ResourceRecordings:
 			if !slices.Contains(normalized, resource) {
 				normalized = append(normalized, resource)
 			}

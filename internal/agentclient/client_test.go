@@ -93,6 +93,28 @@ func TestNewRejectsRelativeSocketPath(t *testing.T) {
 	}
 }
 
+func TestDeleteMessageOverUnixSocket(t *testing.T) {
+	t.Parallel()
+	requests := make(chan *http.Request, 1)
+	client := newUnixTestClient(t, http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		requests <- request
+		if request.Method != http.MethodDelete ||
+			request.URL.EscapedPath() != "/v1/messages/message_boot_x" {
+			http.NotFound(response, request)
+			return
+		}
+		response.WriteHeader(http.StatusNoContent)
+	}))
+
+	if err := client.DeleteMessage(context.Background(), "message_boot_x"); err != nil {
+		t.Fatalf("DeleteMessage() error = %v", err)
+	}
+	request := <-requests
+	if request.ContentLength > 0 {
+		t.Fatalf("DeleteMessage() content length = %d, want empty", request.ContentLength)
+	}
+}
+
 func TestSnapshotDecodesAgentContract(t *testing.T) {
 	client := newUnixTestClient(t, http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet || request.URL.Path != "/v1/snapshot" {

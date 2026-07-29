@@ -205,6 +205,100 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 	}
 }
 
+func TestDeleteMessageThreadSuppressesDeviceReplayButAllowsNewMessages(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	ctx := context.Background()
+	observed := time.Date(2026, time.July, 29, 5, 0, 0, 0, time.UTC)
+	line := HardwareLine{
+		ID:                  "endpoint-delete-message",
+		EquipmentIdentifier: "990000000000029",
+		PhoneNumber:         "+819012345678",
+		ICCID:               "8901000000000000029",
+		IMSI:                "440500000000029",
+	}
+	message := HardwareMessage{
+		LineID:            line.ID,
+		EndpointMessageID: "message-delete-1",
+		IMSI:              line.IMSI,
+		ICCID:             line.ICCID,
+		LocalPhone:        line.PhoneNumber,
+		Number:            "+818012345678",
+		Text:              "delete me",
+		Direction:         "incoming",
+		State:             "received",
+		StateCode:         3,
+		Timestamp:         observed,
+		ObservedAt:        observed,
+	}
+	apply := func(revision string, at time.Time, messages []HardwareMessage) {
+		t.Helper()
+		if err := repository.ApplyHardwareSnapshot(ctx, HardwareSnapshot{
+			BootEpoch:  "boot-delete-message",
+			Revision:   revision,
+			ObservedAt: at,
+			Lines:      []HardwareLine{line},
+			Messages:   messages,
+		}); err != nil {
+			t.Fatalf("ApplyHardwareSnapshot(%s) error = %v", revision, err)
+		}
+	}
+
+	apply("snapshot-1", observed, []HardwareMessage{message})
+	stableLineID := stableLineIDForICCID(t, repository, line.ICCID)
+	if err := repository.DeleteMessageThread(ctx, MessageThreadIdentity{
+		LineID: stableLineID,
+		Peer:   message.Number,
+	}); err != nil {
+		t.Fatalf("DeleteMessageThread() error = %v", err)
+	}
+	messages, err := repository.Messages(ctx, MessageQuery{
+		LineID: stableLineID,
+		Peer:   message.Number,
+	})
+	if err != nil {
+		t.Fatalf("Messages() after delete error = %v", err)
+	}
+	threads, err := repository.MessageThreads(ctx, ThreadQuery{})
+	if err != nil {
+		t.Fatalf("MessageThreads() after delete error = %v", err)
+	}
+	if len(messages) != 0 || len(threads) != 0 {
+		t.Fatalf("deleted message remains visible: messages=%+v threads=%+v", messages, threads)
+	}
+
+	replayed := message
+	replayed.ObservedAt = observed.Add(time.Minute)
+	apply("snapshot-2", replayed.ObservedAt, []HardwareMessage{replayed})
+	threads, err = repository.MessageThreads(ctx, ThreadQuery{})
+	if err != nil {
+		t.Fatalf("MessageThreads() after replay error = %v", err)
+	}
+	if len(threads) != 0 {
+		t.Fatalf("device replay restored deleted thread: %+v", threads)
+	}
+
+	newMessage := replayed
+	newMessage.EndpointMessageID = "message-delete-2"
+	newMessage.Text = "new message"
+	newMessage.Timestamp = observed.Add(2 * time.Minute)
+	newMessage.ObservedAt = newMessage.Timestamp
+	apply("snapshot-3", newMessage.ObservedAt, []HardwareMessage{replayed, newMessage})
+	messages, err = repository.Messages(ctx, MessageQuery{
+		LineID: stableLineID,
+		Peer:   message.Number,
+	})
+	if err != nil {
+		t.Fatalf("Messages() after new message error = %v", err)
+	}
+	if len(messages) != 1 ||
+		messages[0].EndpointMessageID != newMessage.EndpointMessageID ||
+		messages[0].Content != newMessage.Text {
+		t.Fatalf("messages after new delivery = %+v, want only the new message", messages)
+	}
+}
+
 func TestHardwareSnapshotResultReturnsOnlyNewCommittedIncomingMessages(t *testing.T) {
 	t.Parallel()
 

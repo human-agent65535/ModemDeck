@@ -37,8 +37,10 @@ type Repository interface {
 	MessageThreads(context.Context, store.ThreadQuery) ([]store.MessageThread, error)
 	Messages(context.Context, store.MessageQuery) ([]store.Message, error)
 	MarkMessageThreadRead(context.Context, store.MessageThreadIdentity) error
+	DeleteMessageThread(context.Context, store.MessageThreadIdentity) error
 	Calls(context.Context, store.CallQuery) ([]store.Call, error)
 	MarkMissedCallsRead(context.Context) error
+	MarkMissedCallsReadByIDs(context.Context, []string) error
 	RecordingEntries(context.Context, store.RecordingQuery) ([]store.RecordingEntry, error)
 	Devices(context.Context) ([]store.Device, error)
 	CreateDevice(context.Context, store.DeviceInput) (store.Device, error)
@@ -179,6 +181,8 @@ type RecordingService interface {
 	CallRecordings(context.Context, string) (recording.CallRecordings, error)
 	SetEnabled(context.Context, string, bool) (store.CallRecordingState, error)
 	Download(context.Context, string, string) (recording.Download, error)
+	DeleteRecording(context.Context, string, string) error
+	DeleteCall(context.Context, string) error
 	FinalizeCall(context.Context, string) error
 }
 
@@ -348,7 +352,7 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	case "/api/v1/contacts":
 		api.contactsCollection(response, request)
 	case "/api/v1/messages/threads":
-		api.getOnly(response, request, api.messageThreads)
+		api.messageThreadsCollection(response, request)
 	case "/api/v1/messages":
 		api.messagesCollection(response, request)
 	case "/api/v1/messages/read":
@@ -412,6 +416,10 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		}
 		if resource, ok := parseRecordingResource(request.URL.Path); ok {
 			api.recordingResource(response, request, resource)
+			return
+		}
+		if resource, ok := callRecordResource(request.URL.Path); ok {
+			api.callRecordResource(response, request, resource)
 			return
 		}
 		if id, ok := telegramResourceID(request.URL.Path); ok {
@@ -680,6 +688,12 @@ func (api *API) createContact(response http.ResponseWriter, request *http.Reques
 		api.writeContactError(response, request, "create contact", err)
 		return
 	}
+	api.publishRuntimeResources(
+		runtimeevents.ResourceContacts,
+		runtimeevents.ResourceMessages,
+		runtimeevents.ResourceCalls,
+		runtimeevents.ResourceRecordings,
+	)
 	writeJSON(response, http.StatusCreated, contactResponse{Contact: contact})
 }
 
@@ -697,6 +711,12 @@ func (api *API) updateContact(response http.ResponseWriter, request *http.Reques
 		api.writeContactError(response, request, "update contact", err)
 		return
 	}
+	api.publishRuntimeResources(
+		runtimeevents.ResourceContacts,
+		runtimeevents.ResourceMessages,
+		runtimeevents.ResourceCalls,
+		runtimeevents.ResourceRecordings,
+	)
 	writeJSON(response, http.StatusOK, contactResponse{Contact: contact})
 }
 
@@ -709,6 +729,12 @@ func (api *API) deleteContact(response http.ResponseWriter, request *http.Reques
 		api.writeContactError(response, request, "delete contact", err)
 		return
 	}
+	api.publishRuntimeResources(
+		runtimeevents.ResourceContacts,
+		runtimeevents.ResourceMessages,
+		runtimeevents.ResourceCalls,
+		runtimeevents.ResourceRecordings,
+	)
 	response.Header().Set("Cache-Control", "no-store")
 	response.WriteHeader(http.StatusNoContent)
 }

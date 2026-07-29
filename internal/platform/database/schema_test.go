@@ -152,6 +152,57 @@ func TestOpenMigratesMissedCallReadState(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesSMSDeletionState(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "without-sms-deleted-at.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousSchema := strings.Replace(
+		currentSchemaSQL,
+		",\n\t\t\t\tdeleted_at DATETIME",
+		"",
+		1,
+	)
+	if previousSchema == currentSchemaSQL {
+		t.Fatal("previous schema fixture did not remove sms.deleted_at")
+	}
+	if _, err := database.Exec(previousSchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(
+		`INSERT INTO sms (
+			line_id, peer, content, type, timestamp, created_at
+		 ) VALUES (
+			'line-main', '+818012345678', 'preserved', 1,
+			'2026-07-29 05:00:00', '2026-07-29 05:00:00'
+		 )`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	var deletedAt sql.NullString
+	if err := database.QueryRow(
+		`SELECT deleted_at FROM sms WHERE content = 'preserved'`,
+	).Scan(&deletedAt); err != nil {
+		t.Fatal(err)
+	}
+	if deletedAt.Valid {
+		t.Fatalf("migrated deleted_at = %q, want NULL", deletedAt.String)
+	}
+}
+
 func TestOpenRejectsOutdatedSchemaWithoutAlteringIt(t *testing.T) {
 	t.Parallel()
 
@@ -931,6 +982,7 @@ func legacyV1SchemaFixture(t *testing.T) string {
 		"line_id TEXT NOT NULL DEFAULT '',\n\t\t\t\tendpoint_line_id TEXT NOT NULL DEFAULT '',\n\t\t\t\tendpoint_message_id",
 		"line_id TEXT NOT NULL DEFAULT '',\n\t\t\t\tendpoint_message_id",
 	)
+	replace(",\n\t\t\t\tdeleted_at DATETIME", "")
 	replace("\t\t\t\tline_id TEXT NOT NULL,\n\t\t\t\timsi TEXT NOT NULL,", "\t\t\t\timsi TEXT NOT NULL,")
 	replace("PRIMARY KEY (line_id, peer)", "PRIMARY KEY (imsi, peer)")
 	replace(

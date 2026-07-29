@@ -557,6 +557,21 @@ func (client *Client) SendMessage(ctx context.Context, request SendMessageReques
 	return receipt, nil
 }
 
+func (client *Client) DeleteMessage(ctx context.Context, messageID string) error {
+	messageID = strings.TrimSpace(messageID)
+	if messageID == "" {
+		return ErrInvalidRequest
+	}
+	return client.doJSON(
+		ctx,
+		http.MethodDelete,
+		"/v1/messages/"+url.PathEscape(messageID),
+		nil,
+		http.StatusNoContent,
+		nil,
+	)
+}
+
 func (client *Client) doJSON(
 	ctx context.Context,
 	method string,

@@ -248,6 +248,80 @@ func (s *Service) Download(
 	return Download{Segment: segment, File: file}, nil
 }
 
+func (s *Service) DeleteRecording(
+	ctx context.Context,
+	callID, segmentID string,
+) error {
+	if s == nil || !validOpaqueID(callID) || !validOpaqueID(segmentID) {
+		return ErrInvalidArgument
+	}
+	s.reconcileMu.Lock()
+	defer s.reconcileMu.Unlock()
+	ctx = normalizeContext(ctx)
+
+	segment, err := s.repository.RecordingSegment(ctx, callID, segmentID)
+	if err != nil {
+		return translateStoreError(err)
+	}
+	if segment.Status == store.RecordingSegmentPending ||
+		segment.Status == store.RecordingSegmentRecording {
+		return ErrConflict
+	}
+	if segment.RelativePath != "" {
+		if err := s.files.remove(segment.RelativePath); err != nil {
+			return err
+		}
+	}
+	return translateStoreError(
+		s.repository.DeleteRecordingSegment(ctx, callID, segmentID),
+	)
+}
+
+func (s *Service) DeleteCall(ctx context.Context, callID string) error {
+	if s == nil || !validOpaqueID(callID) {
+		return ErrInvalidArgument
+	}
+	s.reconcileMu.Lock()
+	defer s.reconcileMu.Unlock()
+	ctx = normalizeContext(ctx)
+
+	call, err := s.repository.CallByID(ctx, callID)
+	if err != nil {
+		return translateStoreError(err)
+	}
+	if (call.Phase != "ended" && call.Phase != "failed") && call.EndedAt == "" {
+		return ErrConflict
+	}
+	if err := s.stopWorker(ctx, callID); err != nil {
+		return err
+	}
+	segments, err := s.repository.RecordingSegments(ctx, callID)
+	if err != nil {
+		return translateStoreError(err)
+	}
+	for _, segment := range segments {
+		if segment.Status == store.RecordingSegmentPending ||
+			segment.Status == store.RecordingSegmentRecording {
+			return ErrConflict
+		}
+	}
+	for _, segment := range segments {
+		if segment.RelativePath == "" {
+			continue
+		}
+		if err := s.files.remove(segment.RelativePath); err != nil {
+			return err
+		}
+	}
+	if err := s.repository.DeleteCall(ctx, callID); err != nil {
+		return translateStoreError(err)
+	}
+	s.mu.Lock()
+	delete(s.knownCalls, callID)
+	s.mu.Unlock()
+	return nil
+}
+
 func (s *Service) Recover(ctx context.Context) error {
 	if s == nil {
 		return ErrClosed
@@ -628,6 +702,9 @@ func translateStoreError(err error) error {
 	case errors.Is(err, store.ErrCallNotFound),
 		errors.Is(err, store.ErrRecordingNotFound):
 		return ErrNotFound
+	case errors.Is(err, store.ErrCallActive),
+		errors.Is(err, store.ErrRecordingInProgress):
+		return ErrConflict
 	case errors.Is(err, store.ErrRecordingRevisionConflict),
 		errors.Is(err, store.ErrRecordingRequestConflict):
 		if errors.Is(err, store.ErrRecordingRevisionConflict) {

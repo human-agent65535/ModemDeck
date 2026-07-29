@@ -93,3 +93,11 @@ func writeRuntimeHeartbeat(
 		At: observedAt.UTC(),
 	})
 }
+
+func (api *API) publishRuntimeResources(resources ...runtimeevents.Resource) {
+	publisher, ok := api.runtimeEvents.(runtimeevents.Publisher)
+	if !ok {
+		return
+	}
+	publisher.Publish(runtimeevents.Event{Resources: resources})
+}

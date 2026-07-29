@@ -89,6 +89,21 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 			return err
 		}
 	}
+	migratedSMSDeletedAt, err := migrateCurrentSMSDeletedAtColumn(
+		ctx,
+		database,
+		expected,
+		actual,
+	)
+	if err != nil {
+		return err
+	}
+	if migratedSMSDeletedAt {
+		actual, err = readSchemaShape(ctx, database)
+		if err != nil {
+			return err
+		}
+	}
 	if schemaContains(expected, actual) {
 		return nil
 	}
@@ -169,6 +184,32 @@ func migrateCurrentCallReadAtColumn(
 	return true, nil
 }
 
+func migrateCurrentSMSDeletedAtColumn(
+	ctx context.Context,
+	database *sql.DB,
+	expected schemaShape,
+	actual schemaShape,
+) (bool, error) {
+	smsColumns, smsExists := actual.tables["sms"]
+	if !smsExists {
+		return false, nil
+	}
+	if _, deletedAtExists := smsColumns["deleted_at"]; deletedAtExists {
+		return false, nil
+	}
+	previous := schemaWithoutColumn(expected, "sms", "deleted_at")
+	if !schemaContains(previous, actual) {
+		return false, nil
+	}
+	if _, err := database.ExecContext(
+		ctx,
+		`ALTER TABLE sms ADD COLUMN deleted_at DATETIME`,
+	); err != nil {
+		return false, fmt.Errorf("migrate SMS deletion state: %w", err)
+	}
+	return true, nil
+}
+
 func schemaWithoutColumn(current schemaShape, table, column string) schemaShape {
 	result := schemaShape{
 		tables:  make(map[string]map[string]struct{}, len(current.tables)),
@@ -223,6 +264,8 @@ func migrateLegacySchemaAdditions(
 	callColumns, callHistoryExists := actual.tables["call_history"]
 	_, reportedRemoteNumberExists := callColumns["reported_remote_number"]
 	_, callReadAtExists := callColumns["read_at"]
+	smsColumns, smsExists := actual.tables["sms"]
+	_, smsDeletedAtExists := smsColumns["deleted_at"]
 	deviceColumns, devicesExist := actual.tables["devices"]
 	_, deviceNameExists := deviceColumns["name"]
 	_, deviceAliasExists := deviceColumns["alias"]
@@ -232,6 +275,7 @@ func migrateLegacySchemaAdditions(
 	needsAdminUsername := adminCredentialsExist && !adminUsernameExists
 	needsReportedRemoteNumber := callHistoryExists && !reportedRemoteNumberExists
 	needsCallReadAt := callHistoryExists && !callReadAtExists
+	needsSMSDeletedAt := smsExists && !smsDeletedAtExists
 	needsDeviceName := devicesExist && !deviceNameExists && deviceAliasExists
 	needsSystemSettings := !systemSettingsExist
 	if !needsAvatar &&
@@ -239,6 +283,7 @@ func migrateLegacySchemaAdditions(
 		!needsAdminUsername &&
 		!needsReportedRemoteNumber &&
 		!needsCallReadAt &&
+		!needsSMSDeletedAt &&
 		!needsDeviceName &&
 		!needsSystemSettings {
 		return nil
@@ -301,6 +346,14 @@ func migrateLegacySchemaAdditions(
 			`ALTER TABLE call_history ADD COLUMN read_at DATETIME`,
 		); err != nil {
 			return fmt.Errorf("migrate missed call read state: %w", err)
+		}
+	}
+	if needsSMSDeletedAt {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`ALTER TABLE sms ADD COLUMN deleted_at DATETIME`,
+		); err != nil {
+			return fmt.Errorf("migrate SMS deletion state: %w", err)
 		}
 	}
 	if needsDeviceName {
@@ -478,6 +531,9 @@ func schemaMatchesSupportedMigration(expected schemaShape, actual schemaShape) b
 				continue
 			}
 			if table == "call_history" && column == "read_at" {
+				continue
+			}
+			if table == "sms" && column == "deleted_at" {
 				continue
 			}
 			if table == "devices" && column == "name" {

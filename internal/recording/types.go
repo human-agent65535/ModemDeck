@@ -23,10 +23,12 @@ type Repository interface {
 	FailRecordingSegment(context.Context, string, string, string, time.Time) error
 	RecordingSegments(context.Context, string) ([]store.RecordingSegment, error)
 	RecordingSegment(context.Context, string, string) (store.RecordingSegment, error)
+	DeleteRecordingSegment(context.Context, string, string) error
 	InterruptedRecordingSegments(context.Context) ([]store.RecordingSegment, error)
 	FailInterruptedRecordingSegments(context.Context) error
 	FinalizePendingCallRecording(context.Context, string, string) error
 	CallByID(context.Context, string) (store.Call, error)
+	DeleteCall(context.Context, string) error
 }
 
 type Media interface {

@@ -251,6 +251,7 @@ const calls: CallRecord[] = [
     read: false
   }
 ]
+const deletedRecordingIDs = new Set<string>()
 
 const diagnosticLogs: DiagnosticLogEntry[] = [
   {
@@ -1193,6 +1194,14 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       if (thread) thread.unread_count = 0
     },
 
+    async deleteThread(query: MessageReadInput): Promise<void> {
+      const thread = fixtureThreadForQuery(query)
+      if (!thread) throw new ApiError('短信会话不存在', 404)
+      const index = threads.findIndex(item => item.key === thread.key)
+      if (index >= 0) threads.splice(index, 1)
+      delete messagesByThread[thread.key]
+    },
+
     async sendMessage(input: SendMessageInput): Promise<Message> {
       sequence += 1
       const line = lines.find(item => fixtureLineKey(item) === input.line_id)
@@ -1246,6 +1255,18 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       for (const call of calls) {
         if (call.missed) call.read = true
       }
+    },
+
+    async markMissedCallRead(id: string): Promise<void> {
+      const call = calls.find(item => item.id === id)
+      if (!call) throw new ApiError('通话记录不存在', 404)
+      if (call.missed) call.read = true
+    },
+
+    async deleteCall(id: string): Promise<void> {
+      const index = calls.findIndex(call => call.id === id)
+      if (index < 0) throw new ApiError('通话记录不存在', 404)
+      calls.splice(index, 1)
     },
 
     async getActiveCalls(): Promise<CallSession[]> {
@@ -1343,6 +1364,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       return clone(
         calls
           .filter(call => call.id === 'call-1' || call.id === 'call-3')
+          .filter(call => !deletedRecordingIDs.has(`recording-${call.id}`))
           .filter(
             call =>
               !q ||
@@ -1445,7 +1467,11 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     },
 
     async listCallRecordings(id: string): Promise<CallRecording[]> {
-      if (id !== 'call-1' && id !== 'call-3') return []
+      if (!calls.some(call => call.id === id)) throw new ApiError('通话记录不存在', 404)
+      if (
+        (id !== 'call-1' && id !== 'call-3') ||
+        deletedRecordingIDs.has(`recording-${id}`)
+      ) return []
       return [
         {
           id: `recording-${id}`,
@@ -1458,6 +1484,14 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           download_url: recordingFixtureURL()
         }
       ]
+    },
+
+    async deleteRecording(callID: string, recordingID: string): Promise<void> {
+      if (!calls.some(call => call.id === callID)) throw new ApiError('通话记录不存在', 404)
+      if (recordingID !== `recording-${callID}` || deletedRecordingIDs.has(recordingID)) {
+        throw new ApiError('录音不存在', 404)
+      }
+      deletedRecordingIDs.add(recordingID)
     },
 
     async listDevices(): Promise<Device[]> {

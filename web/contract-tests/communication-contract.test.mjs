@@ -8,8 +8,10 @@ import {
   callMediaContract,
   callMediaReleaseContract,
   callMediaPath,
+  callRecordPath,
   callRecordingContract,
   callRecordingPath,
+  callRecordingResourcePath,
   callRecordingsPath,
   communicationContracts,
   communicationPaths,
@@ -24,6 +26,7 @@ import {
   createMessageReadPayload,
   createRecordingSettingsPayload,
   createTelegramUnitPayload,
+  missedCallReadPath,
   parseActiveCallsResponse,
   parseCallLeaseStatus,
   parseCallMediaResponse,
@@ -55,6 +58,7 @@ const canonicalCall = {
 test('communication and Telegram endpoints match the root API', () => {
   assert.deepEqual(communicationPaths, {
     messages: '/api/v1/messages',
+    messageThreads: '/api/v1/messages/threads',
     messageRead: '/api/v1/messages/read',
     calls: '/api/v1/calls',
     missedCallsRead: '/api/v1/calls/missed/read',
@@ -76,6 +80,12 @@ test('communication and Telegram endpoints match the root API', () => {
     callRecordingsPath('call / 1'),
     '/api/v1/calls/call%20%2F%201/recordings'
   )
+  assert.equal(callRecordPath('call / 1'), '/api/v1/calls/call%20%2F%201')
+  assert.equal(missedCallReadPath('call / 1'), '/api/v1/calls/call%20%2F%201/read')
+  assert.equal(
+    callRecordingResourcePath('call / 1', 'segment / 1'),
+    '/api/v1/calls/call%20%2F%201/recordings/segment%20%2F%201'
+  )
   assert.deepEqual(communicationContracts.sendMessage, {
     method: 'POST',
     path: '/api/v1/messages',
@@ -84,6 +94,11 @@ test('communication and Telegram endpoints match the root API', () => {
   assert.deepEqual(communicationContracts.markMessageRead, {
     method: 'PATCH',
     path: '/api/v1/messages/read',
+    successStatus: 204
+  })
+  assert.deepEqual(communicationContracts.deleteMessageThread, {
+    method: 'DELETE',
+    path: '/api/v1/messages/threads',
     successStatus: 204
   })
   assert.deepEqual(communicationContracts.startCall, {

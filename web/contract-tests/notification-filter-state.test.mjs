@@ -2,11 +2,23 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-const [dashboard, messages, calls, callRow, workspace, chinese, english] = await Promise.all([
+const [
+  dashboard,
+  messages,
+  calls,
+  callRow,
+  messageRow,
+  unreadDot,
+  workspace,
+  chinese,
+  english
+] = await Promise.all([
   readFile(new URL('../src/views/DashboardView.vue', import.meta.url), 'utf8'),
   readFile(new URL('../src/views/MessagesView.vue', import.meta.url), 'utf8'),
   readFile(new URL('../src/views/CallsView.vue', import.meta.url), 'utf8'),
   readFile(new URL('../src/components/CallHistoryListItem.vue', import.meta.url), 'utf8'),
+  readFile(new URL('../src/components/MessageThreadListItem.vue', import.meta.url), 'utf8'),
+  readFile(new URL('../src/components/UnreadDot.vue', import.meta.url), 'utf8'),
   readFile(new URL('../src/state/workspace.ts', import.meta.url), 'utf8'),
   readFile(new URL('../src/i18n/locales/zh-CN.ts', import.meta.url), 'utf8'),
   readFile(new URL('../src/i18n/locales/en-US.ts', import.meta.url), 'utf8')
@@ -53,6 +65,11 @@ test('unread missed calls have a visible and accessible unread mark', () => {
   assert.match(callRow, /t\('calls\.viewUnreadDetails', \{ name \}\)/)
   assert.match(
     callRow,
-    /v-if="call\.missed && !call\.read"[\s\S]*?class="call-list-item__unread"[\s\S]*?t\('calls\.unread'\)/
+    /<UnreadDot[\s\S]*?v-if="call\.missed && !call\.read"[\s\S]*?t\('calls\.unreadMissed'\)/
   )
+  assert.match(
+    messageRow,
+    /<UnreadDot[\s\S]*?v-if="thread\.unread_count"[\s\S]*?t\('messages\.unreadCount'/
+  )
+  assert.match(unreadDot, /background: var\(--accent\)/)
 })

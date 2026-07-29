@@ -57,7 +57,8 @@ CREATE TABLE sms (
 				failure_code TEXT NOT NULL DEFAULT '',
 				revision INTEGER NOT NULL DEFAULT 1,
 				timestamp DATETIME,
-				created_at DATETIME
+				created_at DATETIME,
+				deleted_at DATETIME
 			);
 
 CREATE TABLE sms_contacts (

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/recording"
+	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -47,6 +48,7 @@ type recordingResourceKind uint8
 const (
 	recordingResourceToggle recordingResourceKind = iota + 1
 	recordingResourceList
+	recordingResourceDelete
 	recordingResourceDownload
 )
 
@@ -87,6 +89,7 @@ func (api *API) recordingSettings(response http.ResponseWriter, request *http.Re
 			api.writeRecordingError(response, request, "update recording settings", err, nil)
 			return
 		}
+		api.publishRuntimeResources(runtimeevents.ResourceRecordings)
 		api.logger.Info("recording defaults updated", "enabled", settings.DefaultEnabled)
 		writeJSON(response, http.StatusOK, recordingSettingsResponse{Settings: settings})
 	default:
@@ -132,6 +135,8 @@ func (api *API) recordingResource(
 		api.toggleRecording(response, request, resource.CallID)
 	case recordingResourceList:
 		api.callRecordings(response, request, resource.CallID)
+	case recordingResourceDelete:
+		api.deleteRecording(response, request, resource.CallID, resource.SegmentID)
 	case recordingResourceDownload:
 		api.downloadRecording(response, request, resource.CallID, resource.SegmentID)
 	default:
@@ -158,6 +163,7 @@ func (api *API) toggleRecording(response http.ResponseWriter, request *http.Requ
 		api.writeRecordingError(response, request, "toggle call recording", err, &state)
 		return
 	}
+	api.publishRuntimeResources(runtimeevents.ResourceRecordings)
 	api.logger.Info(
 		"call recording updated",
 		"call_id",
@@ -185,6 +191,29 @@ func (api *API) callRecordings(response http.ResponseWriter, request *http.Reque
 		State:    result.State,
 		Segments: result.Segments,
 	})
+}
+
+func (api *API) deleteRecording(
+	response http.ResponseWriter,
+	request *http.Request,
+	callID, segmentID string,
+) {
+	if request.Method != http.MethodDelete {
+		response.Header().Set("Allow", http.MethodDelete)
+		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only DELETE is supported", "")
+		return
+	}
+	if err := api.recordings.DeleteRecording(
+		request.Context(),
+		callID,
+		segmentID,
+	); err != nil {
+		api.writeRecordingError(response, request, "delete call recording", err, nil)
+		return
+	}
+	api.publishRuntimeResources(runtimeevents.ResourceRecordings)
+	response.Header().Set("Cache-Control", "no-store")
+	response.WriteHeader(http.StatusNoContent)
 }
 
 func (api *API) downloadRecording(
@@ -224,6 +253,15 @@ func parseRecordingResource(path string) (recordingResourcePath, bool) {
 		return recordingResourcePath{Kind: recordingResourceToggle, CallID: parts[0]}, true
 	case len(parts) == 2 && validRecordingPathID(parts[0]) && parts[1] == "recordings":
 		return recordingResourcePath{Kind: recordingResourceList, CallID: parts[0]}, true
+	case len(parts) == 3 &&
+		validRecordingPathID(parts[0]) &&
+		parts[1] == "recordings" &&
+		validRecordingPathID(parts[2]):
+		return recordingResourcePath{
+			Kind:      recordingResourceDelete,
+			CallID:    parts[0],
+			SegmentID: parts[2],
+		}, true
 	case len(parts) == 4 &&
 		validRecordingPathID(parts[0]) &&
 		parts[1] == "recordings" &&

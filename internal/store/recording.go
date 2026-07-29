@@ -37,6 +37,7 @@ var (
 	ErrRecordingRevisionConflict = errors.New("recording settings revision conflict")
 	ErrRecordingRequestConflict  = errors.New("recording request conflicts with an existing request")
 	ErrRecordingValidation       = errors.New("recording data is invalid")
+	ErrRecordingInProgress       = errors.New("recording is still in progress")
 )
 
 type RecordingSettings struct {
@@ -765,6 +766,49 @@ func (s *Store) RecordingSegment(
 		return RecordingSegment{}, ErrRecordingNotFound
 	}
 	return segment, err
+}
+
+func (s *Store) DeleteRecordingSegment(
+	ctx context.Context,
+	callID, segmentID string,
+) error {
+	if !validRecordingIdentifier(callID) || !validRecordingIdentifier(segmentID) {
+		return ErrRecordingValidation
+	}
+	result, err := s.database.ExecContext(
+		ctx,
+		`DELETE FROM modemdeck_call_recordings
+		 WHERE call_id = ? AND id = ? AND status NOT IN (?, ?)`,
+		callID,
+		segmentID,
+		RecordingSegmentPending,
+		RecordingSegmentRecording,
+	)
+	if err != nil {
+		return fmt.Errorf("delete recording segment: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read deleted recording segment count: %w", err)
+	}
+	if affected == 1 {
+		return nil
+	}
+	var status string
+	err = s.database.QueryRowContext(
+		ctx,
+		`SELECT status FROM modemdeck_call_recordings
+		 WHERE call_id = ? AND id = ?`,
+		callID,
+		segmentID,
+	).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrRecordingNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("inspect recording segment deletion conflict: %w", err)
+	}
+	return ErrRecordingInProgress
 }
 
 func (s *Store) InterruptedRecordingSegments(

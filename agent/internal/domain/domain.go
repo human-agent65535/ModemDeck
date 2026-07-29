@@ -229,6 +229,14 @@ type SendMessageRequest struct {
 	Text      string `json:"text"`
 }
 
+type DeleteMessageRequest struct {
+	MessageID string `json:"-"`
+}
+
+type MessageDeleter interface {
+	DeleteMessage(context.Context, DeleteMessageRequest) error
+}
+
 // CommandReceipt acknowledges a synchronous ModemManager command. Call and
 // message state must always be read from Snapshot instead of inferred here.
 type CommandReceipt struct {

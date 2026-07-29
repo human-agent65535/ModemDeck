@@ -9,7 +9,9 @@ import {
   callLeaseContract,
   callMediaContract,
   callMediaReleaseContract,
+  callRecordPath,
   callRecordingContract,
+  callRecordingResourcePath,
   communicationContracts,
   createCallActionPayload,
   createCallLeasePayload,
@@ -59,6 +61,7 @@ import {
   telegramUnitDeletePath,
   deviceConfigurationContract,
   lineLabelPath,
+  missedCallReadPath,
   networkSelectionContract,
   networkContracts,
   proxyDeletePath,
@@ -609,7 +612,9 @@ const RUNTIME_RESOURCES = new Set<RuntimeResource>([
   'lines',
   'network',
   'calls',
-  'messages'
+  'messages',
+  'contacts',
+  'recordings'
 ])
 
 function parseRuntimeEvent(value: unknown): RuntimeEvent {
@@ -958,6 +963,16 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
+  async deleteThread(query): Promise<void> {
+    const contract = communicationContracts.deleteMessageThread
+    await writeJSON(
+      contract.path,
+      contract.method,
+      createMessageReadPayload(query),
+      contract.successStatus
+    )
+  },
+
   async sendMessage(input: SendMessageInput): Promise<Message> {
     const contract = communicationContracts.sendMessage
     return parseMessageResponse(
@@ -979,6 +994,21 @@ const realGateway: ConfiguredModemDeckGateway = {
   async markMissedCallsRead(): Promise<void> {
     const contract = communicationContracts.markMissedCallsRead
     await writeJSON(contract.path, contract.method, {}, contract.successStatus)
+  },
+
+  async markMissedCallRead(id: string): Promise<void> {
+    await writeJSON(missedCallReadPath(id), 'PATCH', {}, 204)
+  },
+
+  async deleteCall(id: string): Promise<void> {
+    await request(
+      callRecordPath(id),
+      {
+        method: 'DELETE',
+        headers: { Accept: 'application/json' }
+      },
+      204
+    )
   },
 
   async listDevices(): Promise<Device[]> {
@@ -1533,6 +1563,17 @@ const realGateway: ConfiguredModemDeckGateway = {
   async listCallRecordings(id: string): Promise<CallRecording[]> {
     const contract = callRecordingContract(id).list
     return parseCallRecordingsResponse(await get(contract.path))
+  },
+
+  async deleteRecording(callID: string, recordingID: string): Promise<void> {
+    await request(
+      callRecordingResourcePath(callID, recordingID),
+      {
+        method: 'DELETE',
+        headers: { Accept: 'application/json' }
+      },
+      204
+    )
   },
 
   async listTelegramUnits(): Promise<TelegramUnit[]> {

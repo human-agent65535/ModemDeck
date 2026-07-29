@@ -17,6 +17,7 @@ import ContactEditor from '../components/ContactEditor.vue'
 import ContactNumberActions from '../components/ContactNumberActions.vue'
 import SearchField from '../components/SearchField.vue'
 import StatePanel from '../components/StatePanel.vue'
+import SwipeActionRow from '../components/SwipeActionRow.vue'
 import { requestConfirmation } from '../state/confirmation'
 import { openDialer } from '../state/ui'
 import {
@@ -42,6 +43,7 @@ const editing = ref<Contact | undefined>()
 const saving = ref(false)
 const editorError = ref('')
 const deleting = ref(false)
+const deleteError = ref('')
 const favoritePending = ref(false)
 const favoriteError = ref('')
 
@@ -126,11 +128,15 @@ async function remove(contact: Contact): Promise<void> {
   })
   if (!confirmed) return
   deleting.value = true
+  deleteError.value = ''
   try {
     await deleteContact(contact)
-    await router.replace({ name: 'contacts' })
+    if (selectedId.value === contact.id) {
+      await router.replace({ name: 'contacts' })
+    }
   } catch (error) {
-    editorError.value = error instanceof Error ? error.message : t('contacts.deleteFailed')
+    deleteError.value =
+      error instanceof Error ? error.message : t('contacts.deleteFailed')
   } finally {
     deleting.value = false
   }
@@ -222,6 +228,9 @@ onMounted(() => {
       <div class="pane-search">
         <SearchField v-model="search" :placeholder="t('contacts.searchNameOrNumber')" />
       </div>
+      <p v-if="deleteError" class="field-error contact-delete-error" role="alert">
+        {{ deleteError }}
+      </p>
 
       <StatePanel
         v-if="contactsResource.status === 'loading'"
@@ -254,27 +263,33 @@ onMounted(() => {
         />
       </div>
       <div v-else class="item-list" role="list">
-        <button
+        <SwipeActionRow
           v-for="contact in filteredContacts"
           :key="contact.id"
-          class="list-item"
-          :class="{ 'is-selected': contact.id === selectedId }"
-          type="button"
-          @click="selectContact(contact)"
+          :delete-label="t('common.delete')"
+          :disabled="deleting"
+          @delete="remove(contact)"
         >
-          <BaseAvatar :name="contact.display_name" :src="contact.avatar" />
-          <span class="list-item__content">
-            <strong>{{ contact.display_name }}</strong>
-            <small>{{ primaryPhone(contact.phones) || t('contacts.noNumber') }}</small>
-          </span>
-          <Star
-            v-if="contact.favorite"
-            class="contact-favorite-mark"
-            :size="15"
-            fill="currentColor"
-            :aria-label="t('contacts.favorited')"
-          />
-        </button>
+          <button
+            class="list-item"
+            :class="{ 'is-selected': contact.id === selectedId }"
+            type="button"
+            @click="selectContact(contact)"
+          >
+            <BaseAvatar :name="contact.display_name" :src="contact.avatar" />
+            <span class="list-item__content">
+              <strong>{{ contact.display_name }}</strong>
+              <small>{{ primaryPhone(contact.phones) || t('contacts.noNumber') }}</small>
+            </span>
+            <Star
+              v-if="contact.favorite"
+              class="contact-favorite-mark"
+              :size="15"
+              fill="currentColor"
+              :aria-label="t('contacts.favorited')"
+            />
+          </button>
+        </SwipeActionRow>
       </div>
     </aside>
 
@@ -319,7 +334,7 @@ onMounted(() => {
               <Pencil :size="18" />
             </button>
             <button
-              class="icon-button icon-button--danger"
+              class="icon-button icon-button--danger desktop-delete-action"
               type="button"
               :title="t('contacts.delete')"
               :disabled="deleting"
@@ -409,5 +424,15 @@ onMounted(() => {
 
 .contact-favorite-mark {
   flex: 0 0 auto;
+}
+
+.contact-delete-error {
+  margin: 0 16px 8px;
+}
+
+@media (max-width: 1100px) {
+  .desktop-delete-action {
+    display: none;
+  }
 }
 </style>

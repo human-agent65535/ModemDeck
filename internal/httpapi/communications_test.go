@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/human-agent65535/modemdeck/internal/communication"
+	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -134,6 +135,44 @@ func TestMessageReadUsesExactLineAndPeer(t *testing.T) {
 	}
 }
 
+func TestMessageThreadDeleteUsesExactIdentityAndPublishesRuntimeEvent(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeRepository{}
+	events := runtimeevents.NewBuffer(8)
+	api, err := New(repository, Options{
+		RuntimeEvents:         events,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(
+		http.MethodDelete,
+		"/api/v1/messages/threads",
+		bytes.NewBufferString(`{"line_id":"  line-main  ","peer":"  +818012345678  "}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body = %s", response.Code, response.Body.String())
+	}
+	if repository.messageDeleteIdentity.LineID != "line-main" ||
+		repository.messageDeleteIdentity.Peer != "+818012345678" {
+		t.Fatalf("message deletion identity = %+v", repository.messageDeleteIdentity)
+	}
+	window, _, cancel := events.Subscribe(0)
+	cancel()
+	if len(window.Events) != 1 ||
+		len(window.Events[0].Resources) != 1 ||
+		window.Events[0].Resources[0] != runtimeevents.ResourceMessages {
+		t.Fatalf("runtime events = %+v", window.Events)
+	}
+}
+
 func TestMissedCallsReadPersistsThroughRepository(t *testing.T) {
 	t.Parallel()
 
@@ -175,6 +214,49 @@ func TestMissedCallsReadRejectsOtherMethods(t *testing.T) {
 	}
 	if repository.missedReadCalls != 0 {
 		t.Fatalf("MarkMissedCallsRead() calls = %d, want 0", repository.missedReadCalls)
+	}
+}
+
+func TestSingleMissedCallReadAndCallDeletionUseExactCallID(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeRepository{}
+	recordings := &fakeRecordingService{}
+	api, err := New(repository, Options{
+		Recording:             recordings,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	readResponse := httptest.NewRecorder()
+	api.ServeHTTP(
+		readResponse,
+		httptest.NewRequest(http.MethodPatch, "/api/v1/calls/call-history/read", nil),
+	)
+	if readResponse.Code != http.StatusNoContent {
+		t.Fatalf("read status = %d; body = %s", readResponse.Code, readResponse.Body.String())
+	}
+	if len(repository.missedReadIDs) != 1 ||
+		repository.missedReadIDs[0] != "call-history" {
+		t.Fatalf("missed read IDs = %+v", repository.missedReadIDs)
+	}
+
+	deleteResponse := httptest.NewRecorder()
+	api.ServeHTTP(
+		deleteResponse,
+		httptest.NewRequest(http.MethodDelete, "/api/v1/calls/call-history", nil),
+	)
+	if deleteResponse.Code != http.StatusNoContent {
+		t.Fatalf(
+			"delete status = %d; body = %s",
+			deleteResponse.Code,
+			deleteResponse.Body.String(),
+		)
+	}
+	if recordings.deleteCallID != "call-history" {
+		t.Fatalf("deleted call ID = %q", recordings.deleteCallID)
 	}
 }
 

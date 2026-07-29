@@ -217,3 +217,42 @@ func (s *Store) MarkMissedCallsReadByIDs(ctx context.Context, callIDs []string) 
 	}
 	return nil
 }
+
+func (s *Store) DeleteCall(ctx context.Context, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ErrCallNotFound
+	}
+	result, err := s.database.ExecContext(
+		ctx,
+		`DELETE FROM call_history
+		 WHERE id = ?
+			AND (
+				phase IN ('ended', 'failed') OR
+				COALESCE(ended_at, '') <> ''
+			)`,
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("delete call: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read deleted call count: %w", err)
+	}
+	if affected == 1 {
+		return nil
+	}
+	var exists int
+	if err := s.database.QueryRowContext(
+		ctx,
+		`SELECT EXISTS(SELECT 1 FROM call_history WHERE id = ?)`,
+		id,
+	).Scan(&exists); err != nil {
+		return fmt.Errorf("inspect call deletion conflict: %w", err)
+	}
+	if exists == 0 {
+		return ErrCallNotFound
+	}
+	return ErrCallActive
+}

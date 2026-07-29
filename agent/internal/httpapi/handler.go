@@ -18,6 +18,7 @@ const maxRequestBodyBytes = 256 << 10
 
 type handler struct {
 	provider             domain.Provider
+	messageDeleter       domain.MessageDeleter
 	changes              domain.ChangeSource
 	controlLease         domain.ControlLease
 	callMedia            domain.CallMediaActivator
@@ -90,6 +91,7 @@ func NewWithOptions(
 	}
 	h.changes, _ = provider.(domain.ChangeSource)
 	h.callMedia, _ = provider.(domain.CallMediaActivator)
+	h.messageDeleter, _ = provider.(domain.MessageDeleter)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", h.health)
 	mux.HandleFunc("GET /v1/events", h.events)
@@ -114,6 +116,7 @@ func NewWithOptions(
 	mux.HandleFunc("POST /v1/calls/{id}/dtmf", h.sendDTMF)
 	mux.HandleFunc("POST /v1/calls/{id}/media/activate", h.activateCallMedia)
 	mux.HandleFunc("POST /v1/messages", h.sendMessage)
+	mux.HandleFunc("DELETE /v1/messages/{id}", h.deleteMessage)
 	mux.HandleFunc("PUT /v1/proxies", h.putProxies)
 	mux.HandleFunc("GET /v1/network", h.getNetwork)
 	mux.HandleFunc("/", h.notFound)
@@ -278,6 +281,28 @@ func (h *handler) sendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writeJSON(w, http.StatusCreated, receipt)
+}
+
+func (h *handler) deleteMessage(w http.ResponseWriter, r *http.Request) {
+	if h.messageDeleter == nil {
+		h.writeAPIError(
+			w,
+			http.StatusNotImplemented,
+			domain.ErrorNotSupported,
+			"delete_message",
+			"",
+			"message deletion is unavailable",
+		)
+		return
+	}
+	err := h.messageDeleter.DeleteMessage(r.Context(), domain.DeleteMessageRequest{
+		MessageID: r.PathValue("id"),
+	})
+	if err != nil {
+		h.writeError(w, err, "")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *handler) notFound(w http.ResponseWriter, _ *http.Request) {
