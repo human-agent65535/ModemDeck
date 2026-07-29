@@ -282,52 +282,74 @@ func (s *Store) UpdateContact(ctx context.Context, id string, input ContactInput
 }
 
 func (s *Store) DeleteContact(ctx context.Context, id string, revision int64) error {
-	contactID, err := validateContactID(id)
-	if err != nil {
-		return err
-	}
-	if revision <= 0 {
-		return contactValidation("revision", "must_be_positive")
-	}
+	return s.DeleteContacts(ctx, []ContactRevision{{ID: id, Revision: revision}})
+}
 
+func (s *Store) DeleteContacts(ctx context.Context, contacts []ContactRevision) error {
+	if len(contacts) == 0 || len(contacts) > 100 {
+		return contactValidation("contacts", "must_contain_between_1_and_100_items")
+	}
+	normalized := make([]ContactRevision, 0, len(contacts))
+	seen := make(map[string]struct{}, len(contacts))
+	for _, contact := range contacts {
+		contactID, err := validateContactID(contact.ID)
+		if err != nil {
+			return err
+		}
+		if contact.Revision <= 0 {
+			return contactValidation("revision", "must_be_positive")
+		}
+		if _, duplicate := seen[contactID]; duplicate {
+			continue
+		}
+		seen[contactID] = struct{}{}
+		contact.ID = contactID
+		normalized = append(normalized, contact)
+	}
 	transaction, err := s.database.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin delete contact: %w", err)
+		return fmt.Errorf("begin delete contacts: %w", err)
 	}
 	defer transaction.Rollback()
 
-	actualRevision, err := contactRevision(ctx, transaction, contactID)
-	if err != nil {
-		return err
-	}
-	if actualRevision != revision {
-		return &ContactRevisionConflictError{
-			ContactID:        contactID,
-			ExpectedRevision: revision,
-			ActualRevision:   actualRevision,
+	for _, contact := range normalized {
+		actualRevision, err := contactRevision(ctx, transaction, contact.ID)
+		if err != nil {
+			return err
+		}
+		if actualRevision != contact.Revision {
+			return &ContactRevisionConflictError{
+				ContactID:        contact.ID,
+				ExpectedRevision: contact.Revision,
+				ActualRevision:   actualRevision,
+			}
+		}
+		if _, err := transaction.ExecContext(
+			ctx,
+			"DELETE FROM contact_phones WHERE contact_id = ?",
+			contact.ID,
+		); err != nil {
+			return fmt.Errorf("delete contact phones: %w", err)
+		}
+		result, err := transaction.ExecContext(
+			ctx,
+			"DELETE FROM contacts WHERE id = ? AND revision = ?",
+			contact.ID,
+			contact.Revision,
+		)
+		if err != nil {
+			return fmt.Errorf("delete contact: %w", err)
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("read deleted contact count: %w", err)
+		}
+		if affected != 1 {
+			return contactWriteMiss(ctx, transaction, contact.ID, contact.Revision)
 		}
 	}
-	if _, err := transaction.ExecContext(ctx, "DELETE FROM contact_phones WHERE contact_id = ?", contactID); err != nil {
-		return fmt.Errorf("delete contact phones: %w", err)
-	}
-	result, err := transaction.ExecContext(
-		ctx,
-		"DELETE FROM contacts WHERE id = ? AND revision = ?",
-		contactID,
-		revision,
-	)
-	if err != nil {
-		return fmt.Errorf("delete contact: %w", err)
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("read deleted contact count: %w", err)
-	}
-	if affected != 1 {
-		return contactWriteMiss(ctx, transaction, contactID, revision)
-	}
 	if err := transaction.Commit(); err != nil {
-		return fmt.Errorf("commit delete contact: %w", err)
+		return fmt.Errorf("commit delete contacts: %w", err)
 	}
 	return nil
 }

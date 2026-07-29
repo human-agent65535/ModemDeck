@@ -352,11 +352,14 @@ function proxyApplyStatus(
 export const communicationPaths = {
   messages: '/api/v1/messages',
   messageThreads: '/api/v1/messages/threads',
+  messageThreadState: '/api/v1/messages/threads/state',
   messageRead: '/api/v1/messages/read',
   calls: '/api/v1/calls',
+  callsBatch: '/api/v1/calls/batch',
   missedCallsRead: '/api/v1/calls/missed/read',
   activeCalls: '/api/v1/calls/active',
   recordings: '/api/v1/recordings',
+  recordingsBatch: '/api/v1/recordings/batch',
   callSettings: '/api/v1/settings/calls',
   recordingSettings: '/api/v1/settings/recording',
   telegram: '/api/v1/settings/telegram'
@@ -378,6 +381,11 @@ export const communicationContracts = {
     path: communicationPaths.messageThreads,
     successStatus: 204
   },
+  updateMessageThreads: {
+    method: 'PATCH',
+    path: communicationPaths.messageThreadState,
+    successStatus: 204
+  },
   startCall: {
     method: 'POST',
     path: communicationPaths.calls,
@@ -386,6 +394,11 @@ export const communicationContracts = {
   markMissedCallsRead: {
     method: 'PATCH',
     path: communicationPaths.missedCallsRead,
+    successStatus: 204
+  },
+  updateCalls: {
+    method: 'PATCH',
+    path: communicationPaths.callsBatch,
     successStatus: 204
   },
   activeCalls: {
@@ -397,6 +410,11 @@ export const communicationContracts = {
     method: 'GET',
     path: communicationPaths.recordings,
     successStatus: 200
+  },
+  updateRecordings: {
+    method: 'PATCH',
+    path: communicationPaths.recordingsBatch,
+    successStatus: 204
   },
   getCallSettings: {
     method: 'GET',
@@ -1971,6 +1989,7 @@ export function parseRecordingEntriesResponse(value: unknown): RecordingEntry[] 
     const durationMS = requiredNonNegativeInteger(segment, segmentPath, 'duration_ms')
     const failureCode = optionalString(segment, 'failure_code')
     const playable = requiredBoolean(entry, path, 'playable')
+    const favorite = requiredBoolean(entry, path, 'favorite')
     if (playable && status !== 'ready') {
       throw new Error(`${path}.playable 只能用于 ready 录音`)
     }
@@ -1987,6 +2006,7 @@ export function parseRecordingEntriesResponse(value: unknown): RecordingEntry[] 
       size_bytes: requiredNonNegativeInteger(segment, segmentPath, 'size_bytes'),
       ...(failureCode ? { failure_code: failureCode } : {}),
       playable,
+      favorite,
       call
     }
     if (playable) {

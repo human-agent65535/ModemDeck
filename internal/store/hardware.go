@@ -260,44 +260,11 @@ func (s *Store) MarkMessageThreadRead(
 	ctx context.Context,
 	identity MessageThreadIdentity,
 ) error {
-	lineID := strings.TrimSpace(identity.LineID)
-	peer := strings.TrimSpace(identity.Peer)
-	if lineID == "" || peer == "" {
-		return fmt.Errorf("mark message thread read: line ID and peer are required")
-	}
-	result, err := s.database.ExecContext(
+	return s.UpdateMessageThreads(
 		ctx,
-		`UPDATE sms_contacts
-		 SET unread_count = 0, updated_at = CURRENT_TIMESTAMP
-		 WHERE line_id = ? AND peer = ?`,
-		lineID,
-		peer,
+		[]MessageThreadIdentity{identity},
+		MessageThreadMarkRead,
 	)
-	if err != nil {
-		return fmt.Errorf("mark message thread read: %w", err)
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("mark message thread read: read affected rows: %w", err)
-	}
-	if affected == 1 {
-		return nil
-	}
-	var exists int
-	if err := s.database.QueryRowContext(
-		ctx,
-		`SELECT EXISTS(
-			SELECT 1 FROM sms_contacts WHERE line_id = ? AND peer = ?
-		 )`,
-		lineID,
-		peer,
-	).Scan(&exists); err != nil {
-		return fmt.Errorf("mark message thread read: inspect thread: %w", err)
-	}
-	if exists == 0 {
-		return ErrMessageThreadNotFound
-	}
-	return nil
 }
 
 func (s *Store) MarkMessageThreadReadByLine(ctx context.Context, lineID, peer string) error {
@@ -1032,10 +999,12 @@ func mergeMessageThreadPeer(
 		ctx,
 		`INSERT INTO sms_contacts (
 			line_id, imsi, iccid, peer, last_sms_id, last_timestamp,
-			last_content, last_type, unread_count, created_at, updated_at
+			last_content, last_type, unread_count, marked_unread, is_favorite,
+			created_at, updated_at
 		 )
 		 SELECT line_id, imsi, iccid, ?, last_sms_id, last_timestamp,
-			last_content, last_type, unread_count, created_at, updated_at
+			last_content, last_type, unread_count, marked_unread, is_favorite,
+			created_at, updated_at
 		 FROM sms_contacts
 		 WHERE line_id = ? AND peer = ?
 		 ON CONFLICT(line_id, peer) DO UPDATE SET
@@ -1070,6 +1039,8 @@ func mergeMessageThreadPeer(
 				THEN excluded.last_type ELSE sms_contacts.last_type
 			END,
 			unread_count = sms_contacts.unread_count + excluded.unread_count,
+			marked_unread = MAX(sms_contacts.marked_unread, excluded.marked_unread),
+			is_favorite = MAX(sms_contacts.is_favorite, excluded.is_favorite),
 			created_at = CASE
 				WHEN sms_contacts.created_at IS NULL THEN excluded.created_at
 				WHEN excluded.created_at IS NULL THEN sms_contacts.created_at

@@ -180,6 +180,57 @@ func TestMessageThreadDeleteUsesExactIdentityAndPublishesRuntimeEvent(t *testing
 	}
 }
 
+func TestMessageThreadStateUpdatesMultipleExactIdentities(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeRepository{}
+	events := runtimeevents.NewBuffer(8)
+	api, err := New(repository, Options{
+		RuntimeEvents:         events,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/v1/messages/threads/state",
+		bytes.NewBufferString(
+			`{"action":"favorite","threads":[{"line_id":" line-main ","peer":" +818012345678 "},{"line_id":"line-travel","peer":"+84900000000"}]}`,
+		),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body = %s", response.Code, response.Body.String())
+	}
+	if repository.messageUpdateAction != store.MessageThreadFavorite {
+		t.Fatalf("action = %q, want favorite", repository.messageUpdateAction)
+	}
+	want := []store.MessageThreadIdentity{
+		{LineID: "line-main", Peer: "+818012345678"},
+		{LineID: "line-travel", Peer: "+84900000000"},
+	}
+	if len(repository.messageUpdateThreads) != len(want) {
+		t.Fatalf("threads = %+v, want %+v", repository.messageUpdateThreads, want)
+	}
+	for index := range want {
+		if repository.messageUpdateThreads[index] != want[index] {
+			t.Fatalf("thread %d = %+v, want %+v", index, repository.messageUpdateThreads[index], want[index])
+		}
+	}
+	window, _, cancel := events.Subscribe(0)
+	cancel()
+	if len(window.Events) != 1 ||
+		len(window.Events[0].Resources) != 1 ||
+		window.Events[0].Resources[0] != runtimeevents.ResourceMessages {
+		t.Fatalf("runtime events = %+v", window.Events)
+	}
+}
+
 func TestMissedCallsReadPersistsThroughRepository(t *testing.T) {
 	t.Parallel()
 
@@ -264,6 +315,104 @@ func TestSingleMissedCallReadAndCallDeletionUseExactCallID(t *testing.T) {
 	}
 	if recordings.deleteCallID != "call-history" {
 		t.Fatalf("deleted call ID = %q", recordings.deleteCallID)
+	}
+}
+
+func TestCallsBatchMarksUnreadAndDeduplicatesIDs(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeRepository{}
+	api, err := New(repository, Options{disableAuthentication: true})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/v1/calls/batch",
+		bytes.NewBufferString(
+			`{"action":"unread","ids":[" call-one ","call-one","call-two"]}`,
+		),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body = %s", response.Code, response.Body.String())
+	}
+	if len(repository.missedUnreadIDs) != 2 ||
+		repository.missedUnreadIDs[0] != "call-one" ||
+		repository.missedUnreadIDs[1] != "call-two" {
+		t.Fatalf("missed unread IDs = %+v", repository.missedUnreadIDs)
+	}
+}
+
+func TestCallsBatchFavoritesDeduplicateIDsAndPersistTheRequestedState(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeRepository{}
+	api, err := New(repository, Options{disableAuthentication: true})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/v1/calls/batch",
+		bytes.NewBufferString(
+			`{"action":"favorite","ids":[" call-one ","call-one","call-two"]}`,
+		),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body = %s", response.Code, response.Body.String())
+	}
+	if !repository.callFavorite ||
+		len(repository.callFavoriteIDs) != 2 ||
+		repository.callFavoriteIDs[0] != "call-one" ||
+		repository.callFavoriteIDs[1] != "call-two" {
+		t.Fatalf(
+			"call favorite update = favorite %v IDs %+v",
+			repository.callFavorite,
+			repository.callFavoriteIDs,
+		)
+	}
+}
+
+func TestCallsBatchDeleteCascadesThroughRecordingService(t *testing.T) {
+	t.Parallel()
+
+	recordings := &fakeRecordingService{}
+	api, err := New(&fakeRepository{}, Options{
+		Recording:             recordings,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/v1/calls/batch",
+		bytes.NewBufferString(
+			`{"action":"delete","ids":["call-one","call-two"]}`,
+		),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body = %s", response.Code, response.Body.String())
+	}
+	if len(recordings.deleteCallIDs) != 2 ||
+		recordings.deleteCallIDs[0] != "call-one" ||
+		recordings.deleteCallIDs[1] != "call-two" {
+		t.Fatalf("deleted call IDs = %+v", recordings.deleteCallIDs)
 	}
 }
 

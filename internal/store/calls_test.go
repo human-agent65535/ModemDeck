@@ -2,8 +2,71 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
+
+func TestCallFavoriteStatePersistsAndBatchFailureIsAtomic(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	ctx := context.Background()
+	if _, err := repository.database.ExecContext(
+		ctx,
+		`INSERT INTO call_history (
+			id, line_id, direction, remote_number, phase, created_at, ended_at
+		 ) VALUES
+			(
+				'call-favorite-a', 'line-main', 'incoming', '+818011111111',
+				'ended', '2026-07-29 05:00:00', '2026-07-29 05:00:10'
+			),
+			(
+				'call-favorite-b', 'line-main', 'outgoing', '+818022222222',
+				'ended', '2026-07-29 05:01:00', '2026-07-29 05:01:10'
+			)`,
+	); err != nil {
+		t.Fatalf("insert calls: %v", err)
+	}
+
+	if err := repository.SetCallFavoritesByIDs(
+		ctx,
+		[]string{" call-favorite-a ", "call-favorite-a", "call-favorite-b"},
+		true,
+	); err != nil {
+		t.Fatalf("SetCallFavoritesByIDs() error = %v", err)
+	}
+	calls, err := repository.Calls(ctx, CallQuery{})
+	if err != nil {
+		t.Fatalf("Calls() error = %v", err)
+	}
+	byID := make(map[string]Call, len(calls))
+	for _, call := range calls {
+		byID[call.ID] = call
+	}
+	if !byID["call-favorite-a"].Favorite || !byID["call-favorite-b"].Favorite {
+		t.Fatalf("favorite calls = %+v", byID)
+	}
+
+	err = repository.SetCallFavoritesByIDs(
+		ctx,
+		[]string{"call-favorite-a", "call-does-not-exist"},
+		false,
+	)
+	if !errors.Is(err, ErrCallNotFound) {
+		t.Fatalf("failed batch error = %v, want ErrCallNotFound", err)
+	}
+	calls, err = repository.Calls(ctx, CallQuery{})
+	if err != nil {
+		t.Fatalf("Calls() after failed batch error = %v", err)
+	}
+	byID = make(map[string]Call, len(calls))
+	for _, call := range calls {
+		byID[call.ID] = call
+	}
+	if !byID["call-favorite-a"].Favorite || !byID["call-favorite-b"].Favorite {
+		t.Fatalf("failed batch partially changed favorites: %+v", byID)
+	}
+}
 
 func TestMissedCallReadStatePersistsAndExcludesLiveCalls(t *testing.T) {
 	t.Parallel()
@@ -133,6 +196,27 @@ func TestMarkMissedCallsReadByIDsOnlyMarksRequestedMissedCalls(t *testing.T) {
 	}
 	if byID["call-outgoing"].Read {
 		t.Fatalf("requested outgoing call was marked read: %+v", byID["call-outgoing"])
+	}
+
+	if err := repository.MarkMissedCallsUnreadByIDs(ctx, []string{
+		"call-requested",
+		"call-outgoing",
+	}); err != nil {
+		t.Fatalf("MarkMissedCallsUnreadByIDs() error = %v", err)
+	}
+	calls, err = repository.Calls(ctx, CallQuery{})
+	if err != nil {
+		t.Fatalf("Calls() after unread error = %v", err)
+	}
+	byID = make(map[string]Call, len(calls))
+	for _, call := range calls {
+		byID[call.ID] = call
+	}
+	if byID["call-requested"].Read {
+		t.Fatalf("requested missed call remains read: %+v", byID["call-requested"])
+	}
+	if byID["call-outgoing"].Read {
+		t.Fatalf("requested outgoing call was changed: %+v", byID["call-outgoing"])
 	}
 }
 

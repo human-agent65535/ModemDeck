@@ -50,7 +50,7 @@ test('dashboard activity exposes the same read and delete actions as communicati
   assert.match(dashboard, /import SwipeActionRow from/)
   assert.match(
     dashboard,
-    /<SwipeActionRow[\s\S]*v-for="activity in activities"[\s\S]*:can-read="activityCanRead\(activity\)"[\s\S]*@read="markActivityRead\(activity\)"[\s\S]*@delete="removeActivity\(activity\)"/
+    /<SelectableListRow[\s\S]*v-for="activity in activities"[\s\S]*<SwipeActionRow[\s\S]*:can-read="activityHasReadState\(activity\)"[\s\S]*@read="toggleActivityRead\(activity\)"[\s\S]*@delete="removeActivity\(activity\)"/
   )
   assert.match(dashboard, /await deleteMessageThread\(activity\.thread\)/)
   assert.match(dashboard, /await deleteCall\(activity\.call\)/)

@@ -63,3 +63,39 @@ func TestOrdinaryBusinessResponsesOmitEndpointIdentity(t *testing.T) {
 		})
 	}
 }
+
+func TestFavoritesAppearOnCallsAndRecordingEntriesButNotSegments(t *testing.T) {
+	t.Parallel()
+
+	callPayload := callRecordResponses([]store.Call{{
+		ID:       "call-favorite",
+		Favorite: true,
+	}})
+	if len(callPayload) != 1 || !callPayload[0].Favorite {
+		t.Fatalf("call favorite response = %+v", callPayload)
+	}
+
+	encoded, err := json.Marshal(recordingEntryResponses([]store.RecordingEntry{{
+		Segment: store.RecordingSegment{
+			ID:     "segment-1",
+			CallID: "call-favorite",
+		},
+		Favorite: true,
+	}}))
+	if err != nil {
+		t.Fatalf("marshal recording response: %v", err)
+	}
+	var payload []struct {
+		Favorite bool           `json:"favorite"`
+		Segment  map[string]any `json:"segment"`
+	}
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatalf("unmarshal recording response: %v", err)
+	}
+	if len(payload) != 1 || !payload[0].Favorite {
+		t.Fatalf("recording favorite response = %s", encoded)
+	}
+	if _, exists := payload[0].Segment["favorite"]; exists {
+		t.Fatalf("recording segment exposed favorite state: %s", encoded)
+	}
+}

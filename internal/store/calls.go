@@ -34,7 +34,7 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 		%s, %s,
 			ch.endpoint_id, ch.endpoint_call_id, ch.phase, ch.revision,
 			ch.created_at, ch.updated_at, ch.active_at, ch.ended_at,
-			ch.read_at, ch.end_reason, ch.failure_code, ch.bearer, ch.state_reason,
+			ch.read_at, ch.is_favorite, ch.end_reason, ch.failure_code, ch.bearer, ch.state_reason,
 			ch.state_reason_code, ch.multiparty, ch.audio_port,
 			ch.audio_encoding, ch.audio_resolution, ch.audio_rate,
 			ch.media_available
@@ -95,7 +95,7 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 			requestID, lineID, endpointLineID, localPhone, lineIMSI, lineICCID sql.NullString
 			direction, remoteNumber, reportedRemoteNumber                      sql.NullString
 			contactID, contactName, endpointID, endpointCallID, phase          sql.NullString
-			revision                                                           sql.NullInt64
+			revision, favorite                                                 sql.NullInt64
 			createdAt, updatedAt, activeAt, endedAt, readAt, endReason         sql.NullString
 			failureCode, bearer                                                sql.NullString
 			stateReason, audioPort, audioEncoding, audioResolution             sql.NullString
@@ -105,7 +105,7 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 			&call.ID, &requestID, &lineID, &endpointLineID, &localPhone, &lineIMSI, &lineICCID,
 			&direction, &remoteNumber, &reportedRemoteNumber,
 			&contactID, &contactName, &endpointID, &endpointCallID, &phase,
-			&revision, &createdAt, &updatedAt, &activeAt, &endedAt, &readAt,
+			&revision, &createdAt, &updatedAt, &activeAt, &endedAt, &readAt, &favorite,
 			&endReason, &failureCode, &bearer, &stateReason, &stateReasonCode,
 			&multiparty, &audioPort, &audioEncoding, &audioResolution,
 			&audioRate, &mediaAvailable,
@@ -152,9 +152,68 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 			call.Direction == string(CallKindIncoming) && call.ActiveAt == nil &&
 			call.EndReason != "rejected" && call.FailureCode != "rejected"
 		call.Read = readAt.Valid && strings.TrimSpace(readAt.String) != ""
+		call.Favorite = boolValue(favorite)
 		calls = append(calls, call)
 	}
 	return calls, rowsError("read calls", rows.Err())
+}
+
+func (s *Store) SetCallFavoritesByIDs(
+	ctx context.Context,
+	callIDs []string,
+	favorite bool,
+) error {
+	normalized := make([]string, 0, len(callIDs))
+	seen := make(map[string]struct{}, len(callIDs))
+	for _, value := range callIDs {
+		callID := strings.TrimSpace(value)
+		if callID == "" {
+			continue
+		}
+		if _, exists := seen[callID]; exists {
+			continue
+		}
+		seen[callID] = struct{}{}
+		normalized = append(normalized, callID)
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	if len(normalized) > 100 {
+		return fmt.Errorf("update call favorite state: too many call IDs")
+	}
+	transaction, err := s.database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin call favorite update: %w", err)
+	}
+	defer transaction.Rollback()
+
+	arguments := make([]any, 0, len(normalized)+1)
+	arguments = append(arguments, favorite)
+	for _, callID := range normalized {
+		arguments = append(arguments, callID)
+	}
+	result, err := transaction.ExecContext(
+		ctx,
+		`UPDATE call_history
+		 SET is_favorite = ?
+		 WHERE id IN (`+placeholders(len(normalized))+`)`,
+		arguments...,
+	)
+	if err != nil {
+		return fmt.Errorf("update call favorite state by ID: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read call favorite update result: %w", err)
+	}
+	if affected != int64(len(normalized)) {
+		return ErrCallNotFound
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit call favorite update: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) MarkMissedCallsRead(ctx context.Context) error {
@@ -178,6 +237,18 @@ func (s *Store) MarkMissedCallsRead(ctx context.Context) error {
 }
 
 func (s *Store) MarkMissedCallsReadByIDs(ctx context.Context, callIDs []string) error {
+	return s.SetMissedCallsReadByIDs(ctx, callIDs, true)
+}
+
+func (s *Store) MarkMissedCallsUnreadByIDs(ctx context.Context, callIDs []string) error {
+	return s.SetMissedCallsReadByIDs(ctx, callIDs, false)
+}
+
+func (s *Store) SetMissedCallsReadByIDs(
+	ctx context.Context,
+	callIDs []string,
+	read bool,
+) error {
 	normalized := make([]string, 0, len(callIDs))
 	seen := make(map[string]struct{}, len(callIDs))
 	for _, value := range callIDs {
@@ -194,16 +265,22 @@ func (s *Store) MarkMissedCallsReadByIDs(ctx context.Context, callIDs []string) 
 	if len(normalized) == 0 {
 		return nil
 	}
+	if len(normalized) > 100 {
+		return fmt.Errorf("update missed call read state: too many call IDs")
+	}
 	arguments := make([]any, len(normalized))
 	for index, callID := range normalized {
 		arguments[index] = callID
 	}
+	readValue := "NULL"
+	if read {
+		readValue = "COALESCE(read_at, CURRENT_TIMESTAMP)"
+	}
 	if _, err := s.database.ExecContext(
 		ctx,
 		`UPDATE call_history
-		 SET read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
-		 WHERE read_at IS NULL
-			AND direction = 'incoming'
+		 SET read_at = `+readValue+`
+		 WHERE direction = 'incoming'
 			AND active_at IS NULL
 			AND COALESCE(end_reason, '') <> 'rejected'
 			AND COALESCE(failure_code, '') <> 'rejected'
@@ -214,7 +291,7 @@ func (s *Store) MarkMissedCallsReadByIDs(ctx context.Context, callIDs []string) 
 			AND id IN (`+placeholders(len(normalized))+`)`,
 		arguments...,
 	); err != nil {
-		return fmt.Errorf("mark missed calls read by ID: %w", err)
+		return fmt.Errorf("update missed call read state by ID: %w", err)
 	}
 	return nil
 }

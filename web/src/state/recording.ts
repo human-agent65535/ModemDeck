@@ -483,14 +483,58 @@ export async function deleteRecording(
   callID: string,
   recordingID: string
 ): Promise<void> {
-  await gateway.deleteRecording(callID, recordingID)
-  recordingCatalogState.data = recordingCatalogState.data.filter(
-    recording => recording.id !== recordingID
+  const recording = recordingCatalogState.data.find(item => item.id === recordingID)
+  await deleteRecordings(
+    recording
+      ? [recording]
+      : [{ call_id: callID, id: recordingID }]
   )
-  if (recordingListState.callID === callID) {
+}
+
+export async function deleteRecordings(
+  recordings: Array<{ call_id: string; id: string }>
+): Promise<void> {
+  const unique = Array.from(
+    new Map(
+      recordings.map(recording => [
+        `${recording.call_id}\u0000${recording.id}`,
+        recording
+      ])
+    ).values()
+  )
+  if (unique.length === 0) return
+  await gateway.updateRecordings('delete', unique)
+  const deleted = new Set(unique.map(recording => recording.id))
+  recordingCatalogState.data = recordingCatalogState.data.filter(
+    recording => !deleted.has(recording.id)
+  )
+  if (recordingListState.callID) {
     recordingListState.data = recordingListState.data.filter(
-      recording => recording.id !== recordingID
+      recording => !deleted.has(recording.id)
     )
+  }
+}
+
+export async function setRecordingsFavorite(
+  recordings: Array<{ call_id: string; id: string }>,
+  favorite: boolean
+): Promise<void> {
+  const unique = Array.from(
+    new Map(
+      recordings.map(recording => [
+        `${recording.call_id}\u0000${recording.id}`,
+        recording
+      ])
+    ).values()
+  )
+  if (unique.length === 0) return
+  await gateway.updateRecordings(
+    favorite ? 'favorite' : 'unfavorite',
+    unique
+  )
+  const selectedCallIDs = new Set(unique.map(recording => recording.call_id))
+  for (const recording of recordingCatalogState.data) {
+    if (selectedCallIDs.has(recording.call_id)) recording.favorite = favorite
   }
 }
 

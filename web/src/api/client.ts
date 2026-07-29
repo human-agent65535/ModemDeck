@@ -951,6 +951,21 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
+  async deleteContacts(contacts): Promise<void> {
+    await writeJSON(
+      `${API_ROOT}/contacts/batch`,
+      'PATCH',
+      {
+        action: 'delete',
+        contacts: contacts.map(contact => ({
+          id: contact.id.trim(),
+          revision: contact.revision
+        }))
+      },
+      204
+    )
+  },
+
   async listThreads(query: ListQuery = {}): Promise<MessageThread[]> {
     return parseThreads(await get(`${API_ROOT}/messages/threads${queryString({ q: query.q })}`))
   },
@@ -972,6 +987,19 @@ const realGateway: ConfiguredModemDeckGateway = {
       contract.path,
       contract.method,
       createMessageReadPayload(query),
+      contract.successStatus
+    )
+  },
+
+  async updateMessageThreads(action, threads): Promise<void> {
+    const contract = communicationContracts.updateMessageThreads
+    await writeJSON(
+      contract.path,
+      contract.method,
+      {
+        action,
+        threads: threads.map(createMessageReadPayload)
+      },
       contract.successStatus
     )
   },
@@ -1011,6 +1039,19 @@ const realGateway: ConfiguredModemDeckGateway = {
 
   async markMissedCallRead(id: string): Promise<void> {
     await writeJSON(missedCallReadPath(id), 'PATCH', {}, 204)
+  },
+
+  async updateCalls(action, ids): Promise<void> {
+    const contract = communicationContracts.updateCalls
+    await writeJSON(
+      contract.path,
+      contract.method,
+      {
+        action,
+        ids: ids.map(id => id.trim())
+      },
+      contract.successStatus
+    )
   },
 
   async deleteCall(id: string): Promise<void> {
@@ -1597,6 +1638,22 @@ const realGateway: ConfiguredModemDeckGateway = {
         headers: { Accept: 'application/json' }
       },
       204
+    )
+  },
+
+  async updateRecordings(action, recordings): Promise<void> {
+    const contract = communicationContracts.updateRecordings
+    await writeJSON(
+      contract.path,
+      contract.method,
+      {
+        action,
+        recordings: recordings.map(recording => ({
+          call_id: recording.call_id.trim(),
+          id: recording.id.trim()
+        }))
+      },
+      contract.successStatus
     )
   },
 

@@ -34,14 +34,23 @@ type Repository interface {
 	CreateContact(context.Context, store.ContactInput) (store.Contact, error)
 	UpdateContact(context.Context, string, store.ContactInput) (store.Contact, error)
 	DeleteContact(context.Context, string, int64) error
+	DeleteContacts(context.Context, []store.ContactRevision) error
 	MessageThreads(context.Context, store.ThreadQuery) ([]store.MessageThread, error)
 	Messages(context.Context, store.MessageQuery) ([]store.Message, error)
 	MarkMessageThreadRead(context.Context, store.MessageThreadIdentity) error
+	UpdateMessageThreads(
+		context.Context,
+		[]store.MessageThreadIdentity,
+		store.MessageThreadAction,
+	) error
 	DeleteMessageThread(context.Context, store.MessageThreadIdentity) error
 	Calls(context.Context, store.CallQuery) ([]store.Call, error)
 	MarkMissedCallsRead(context.Context) error
 	MarkMissedCallsReadByIDs(context.Context, []string) error
+	MarkMissedCallsUnreadByIDs(context.Context, []string) error
+	SetCallFavoritesByIDs(context.Context, []string, bool) error
 	RecordingEntries(context.Context, store.RecordingQuery) ([]store.RecordingEntry, error)
+	SetRecordingFavorites(context.Context, []store.RecordingIdentity, bool) error
 	Devices(context.Context) ([]store.Device, error)
 	CreateDevice(context.Context, store.DeviceInput) (store.Device, error)
 	RenameDevice(context.Context, string, string) (store.Device, error)
@@ -356,12 +365,16 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.accountPassword(response, request)
 	case "/api/v1/contacts":
 		api.contactsCollection(response, request)
+	case "/api/v1/contacts/batch":
+		api.contactsBatch(response, request)
 	case "/api/v1/messages/threads":
 		api.messageThreadsCollection(response, request)
 	case "/api/v1/messages":
 		api.messagesCollection(response, request)
 	case "/api/v1/messages/read":
 		api.messageRead(response, request)
+	case "/api/v1/messages/threads/state":
+		api.messageThreadState(response, request)
 	case "/api/v1/messages/events":
 		api.getOnly(response, request, api.messageEventStream)
 	case "/api/v1/runtime/events":
@@ -370,10 +383,14 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.callsCollection(response, request)
 	case "/api/v1/calls/missed/read":
 		api.missedCallsRead(response, request)
+	case "/api/v1/calls/batch":
+		api.callsBatch(response, request)
 	case "/api/v1/calls/active":
 		api.getOnly(response, request, api.activeCalls)
 	case "/api/v1/recordings":
 		api.getOnly(response, request, api.recordingEntries)
+	case "/api/v1/recordings/batch":
+		api.recordingsBatch(response, request)
 	case "/api/v1/network":
 		api.getOnly(response, request, api.networkStatus)
 	case "/api/v1/proxies":
@@ -625,6 +642,38 @@ func (api *API) contactsCollection(response http.ResponseWriter, request *http.R
 		response.Header().Set("Allow", http.MethodGet+", "+http.MethodPost)
 		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET and POST are supported", "")
 	}
+}
+
+func (api *API) contactsBatch(response http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPatch {
+		response.Header().Set("Allow", http.MethodPatch)
+		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only PATCH is supported", "")
+		return
+	}
+	var input contactsBatchRequest
+	if !decodeJSONBody(response, request, &input) {
+		return
+	}
+	if strings.TrimSpace(input.Action) != "delete" {
+		writeError(response, http.StatusBadRequest, "invalid_argument", "action is invalid", "action")
+		return
+	}
+	if len(input.Contacts) == 0 || len(input.Contacts) > 100 {
+		writeError(response, http.StatusBadRequest, "invalid_argument", "contacts must contain between 1 and 100 items", "contacts")
+		return
+	}
+	if err := api.repository.DeleteContacts(request.Context(), input.Contacts); err != nil {
+		api.writeContactError(response, request, "delete contacts", err)
+		return
+	}
+	api.publishRuntimeResources(
+		runtimeevents.ResourceContacts,
+		runtimeevents.ResourceMessages,
+		runtimeevents.ResourceCalls,
+		runtimeevents.ResourceRecordings,
+	)
+	response.Header().Set("Cache-Control", "no-store")
+	response.WriteHeader(http.StatusNoContent)
 }
 
 func (api *API) contactResource(response http.ResponseWriter, request *http.Request, id string) {

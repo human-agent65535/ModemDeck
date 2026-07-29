@@ -503,6 +503,78 @@ func TestRecordingEntriesAreBoundedSearchableAndStable(t *testing.T) {
 	}
 }
 
+func TestRecordingFavoriteBelongsToTheRecordingEntryNotItsSegments(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	repository := newHardwareTestStore(t)
+	applyRecordingTestCall(t, repository, "call-favorite-a", "", "incoming")
+	for _, segmentID := range []string{"segment-favorite-a1", "segment-favorite-a2"} {
+		if _, err := repository.CreateRecordingSegment(ctx, RecordingSegment{
+			ID:           segmentID,
+			CallID:       "call-favorite-a",
+			RelativePath: "call-favorite-a/" + segmentID + ".ogg",
+		}); err != nil {
+			t.Fatalf("create %s: %v", segmentID, err)
+		}
+	}
+	applyRecordingTestCall(t, repository, "call-favorite-b", "", "outgoing")
+	if _, err := repository.CreateRecordingSegment(ctx, RecordingSegment{
+		ID:           "segment-favorite-b1",
+		CallID:       "call-favorite-b",
+		RelativePath: "call-favorite-b/segment-favorite-b1.ogg",
+	}); err != nil {
+		t.Fatalf("create segment-favorite-b1: %v", err)
+	}
+
+	if err := repository.SetRecordingFavorites(
+		ctx,
+		[]RecordingIdentity{{
+			CallID: " call-favorite-a ",
+			ID:     " segment-favorite-a1 ",
+		}},
+		true,
+	); err != nil {
+		t.Fatalf("SetRecordingFavorites() error = %v", err)
+	}
+	entries, err := repository.RecordingEntries(ctx, RecordingQuery{Limit: MaxQueryLimit})
+	if err != nil {
+		t.Fatalf("RecordingEntries() error = %v", err)
+	}
+	bySegmentID := make(map[string]RecordingEntry, len(entries))
+	for _, entry := range entries {
+		bySegmentID[entry.Segment.ID] = entry
+	}
+	if !bySegmentID["segment-favorite-a1"].Favorite ||
+		!bySegmentID["segment-favorite-a2"].Favorite {
+		t.Fatalf("same recording entries do not share favorite state: %+v", bySegmentID)
+	}
+	if bySegmentID["segment-favorite-b1"].Favorite {
+		t.Fatalf("unselected recording became favorite: %+v", bySegmentID["segment-favorite-b1"])
+	}
+
+	err = repository.SetRecordingFavorites(
+		ctx,
+		[]RecordingIdentity{
+			{CallID: "call-favorite-a", ID: "segment-favorite-a1"},
+			{CallID: "call-favorite-a", ID: "segment-does-not-exist"},
+		},
+		false,
+	)
+	if !errors.Is(err, ErrRecordingNotFound) {
+		t.Fatalf("failed batch error = %v, want ErrRecordingNotFound", err)
+	}
+	entries, err = repository.RecordingEntries(ctx, RecordingQuery{Limit: MaxQueryLimit})
+	if err != nil {
+		t.Fatalf("RecordingEntries() after failed batch error = %v", err)
+	}
+	for _, entry := range entries {
+		if entry.Call.ID == "call-favorite-a" && !entry.Favorite {
+			t.Fatalf("failed batch partially changed favorite state: %+v", entry)
+		}
+	}
+}
+
 func TestRecordingPathValidationRejectsTraversal(t *testing.T) {
 	t.Parallel()
 

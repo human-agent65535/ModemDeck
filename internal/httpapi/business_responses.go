@@ -104,6 +104,8 @@ type messageThreadResponse struct {
 	LastContent   string `json:"last_content,omitempty"`
 	LastType      int64  `json:"last_type"`
 	UnreadCount   int64  `json:"unread_count"`
+	MarkedUnread  bool   `json:"marked_unread"`
+	Favorite      bool   `json:"favorite"`
 }
 
 func messageThreadResponses(threads []store.MessageThread) []messageThreadResponse {
@@ -120,6 +122,8 @@ func messageThreadResponses(threads []store.MessageThread) []messageThreadRespon
 			LastContent:   thread.LastContent,
 			LastType:      thread.LastType,
 			UnreadCount:   thread.UnreadCount,
+			MarkedUnread:  thread.MarkedUnread,
+			Favorite:      thread.Favorite,
 		})
 	}
 	return result
@@ -196,6 +200,7 @@ type callRecordResponse struct {
 	DurationSeconds int64   `json:"duration_seconds"`
 	Missed          bool    `json:"missed"`
 	Read            bool    `json:"read"`
+	Favorite        bool    `json:"favorite"`
 }
 
 func callRecordResponses(calls []store.Call) []callRecordResponse {
@@ -226,6 +231,7 @@ func callRecordResponses(calls []store.Call) []callRecordResponse {
 			DurationSeconds: call.DurationSeconds,
 			Missed:          call.Missed,
 			Read:            call.Read,
+			Favorite:        call.Favorite,
 		})
 	}
 	return result
@@ -250,6 +256,7 @@ type recordingEntryResponse struct {
 	Segment  store.RecordingSegment `json:"segment"`
 	Call     recordingCallResponse  `json:"call"`
 	Playable bool                   `json:"playable"`
+	Favorite bool                   `json:"favorite"`
 }
 
 func recordingEntryResponses(entries []store.RecordingEntry) []recordingEntryResponse {
@@ -272,6 +279,7 @@ func recordingEntryResponses(entries []store.RecordingEntry) []recordingEntryRes
 				FailureCode:     entry.Call.FailureCode,
 			},
 			Playable: entry.Playable,
+			Favorite: entry.Favorite,
 		})
 	}
 	return result

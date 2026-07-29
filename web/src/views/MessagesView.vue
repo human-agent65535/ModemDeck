@@ -1,25 +1,33 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowLeft,
   LoaderCircle,
+  Mail,
+  MailOpen,
   MessageSquarePlus,
   Phone,
   Send,
+  Star,
   Trash2,
   X
 } from '@lucide/vue'
+import BatchActionBar from '../components/BatchActionBar.vue'
 import type { Contact, LineSummary, MessageThread } from '../api/types'
 import ContactHeaderIdentity from '../components/ContactHeaderIdentity.vue'
 import ContactNumberActions from '../components/ContactNumberActions.vue'
+import FavoriteFilterButton from '../components/FavoriteFilterButton.vue'
 import ContactSuggestInput from '../components/ContactSuggestInput.vue'
 import LineSelector from '../components/LineSelector.vue'
+import ListSelectionToggle from '../components/ListSelectionToggle.vue'
 import MessageThreadListItem from '../components/MessageThreadListItem.vue'
 import SearchField from '../components/SearchField.vue'
+import SelectableListRow from '../components/SelectableListRow.vue'
 import StatePanel from '../components/StatePanel.vue'
 import SwipeActionRow from '../components/SwipeActionRow.vue'
+import { useListSelection } from '../composables/useListSelection'
 import { requestConfirmation } from '../state/confirmation'
 import { openDialer } from '../state/ui'
 import { phoneDestination } from '../utils/format'
@@ -33,6 +41,7 @@ import {
   contactForNumber,
   contactsResource,
   deleteMessageThread,
+  deleteMessageThreads,
   displayPhoneNumber,
   lineForKey,
   lineKey,
@@ -42,12 +51,16 @@ import {
   loadMessages,
   loadThreads,
   markThreadRead,
+  markThreadsRead,
+  markThreadsUnread,
   messagesFor,
   recentIncomingMessageIDs,
   recentIncomingThreadKeys,
   resolveLine,
+  setThreadsFavorite,
   sendMessage,
   threadReadErrors,
+  threadIsUnread,
   threadsResource
 } from '../state/workspace'
 import { formatRelativeDate } from '../utils/format'
@@ -90,6 +103,11 @@ const messageFilter = ref<MessageReadFilter>(
     ? 'all'
     : messageFilterFromRoute(route.query.filter)
 )
+const favoriteOnly = ref(
+  !props.embeddedThreadKey &&
+  !props.embeddedCompose &&
+  route.query.favorite === '1'
+)
 const composingNew = ref(props.embeddedCompose)
 const newRecipient = ref(props.initialRecipient)
 const newRecipientName = ref(props.initialRecipientName)
@@ -104,6 +122,12 @@ const threadDeleteError = ref('')
 const deletingThreadKey = ref('')
 const messagesEnd = ref<HTMLElement | null>(null)
 const retainedUnreadThreadKeys = ref(new Set<string>())
+const manuallyUnreadThreadKeys = ref(new Set<string>())
+const favoritePendingKey = ref('')
+const batchBusy = ref(false)
+const selection = useListSelection<MessageThread>(thread => thread.key)
+const selecting = selection.active
+const selectionCount = selection.count
 
 const embedded = computed(
   () => props.embeddedCompose || Boolean(props.embeddedThreadKey)
@@ -160,12 +184,13 @@ const filteredThreads = computed(() => {
       : lines.value.find(line => lineKey(line) === lineFilterKey.value)
   return threadsResource.data.filter(thread => {
     if (filteredLine && !threadUsesLine(thread, filteredLine)) return false
+    if (favoriteOnly.value && !thread.favorite) return false
     if (
       messageFilter.value === 'unread' &&
-      thread.unread_count <= 0 &&
+      !threadIsUnread(thread) &&
       !retainedUnreadThreadKeys.value.has(thread.key)
     ) return false
-    if (messageFilter.value === 'read' && thread.unread_count > 0) return false
+    if (messageFilter.value === 'read' && threadIsUnread(thread)) return false
     if (!query) return true
     return (
       (thread.contact_name || '').toLocaleLowerCase().includes(query) ||
@@ -174,6 +199,13 @@ const filteredThreads = computed(() => {
     )
   })
 })
+const batchThreads = computed(() => selection.selected(filteredThreads.value))
+const batchHasUnread = computed(() => batchThreads.value.some(threadIsUnread))
+const batchAllFavorite = computed(
+  () =>
+    batchThreads.value.length > 0 &&
+    batchThreads.value.every(thread => thread.favorite)
+)
 const activeRecipient = computed(() =>
   composingNew.value ? newRecipient.value.trim() : selectedThread.value?.peer || ''
 )
@@ -208,8 +240,13 @@ function messageFilterFromRoute(value: unknown): MessageReadFilter {
   return value === 'unread' || value === 'read' ? value : 'all'
 }
 
-function messageFilterQuery(value = messageFilter.value): { filter?: MessageReadFilter } {
-  return value === 'all' ? {} : { filter: value }
+function messageFilterQuery(
+  value = messageFilter.value
+): { filter?: MessageReadFilter; favorite?: '1' } {
+  return {
+    ...(value === 'all' ? {} : { filter: value }),
+    ...(favoriteOnly.value ? { favorite: '1' as const } : {})
+  }
 }
 
 function setMessageFilter(value: MessageReadFilter): void {
@@ -218,6 +255,15 @@ function setMessageFilter(value: MessageReadFilter): void {
   const query = { ...route.query }
   if (value === 'all') delete query.filter
   else query.filter = value
+  void router.replace({ name: 'messages', params: route.params, query })
+}
+
+function setFavoriteFilter(value: boolean): void {
+  favoriteOnly.value = value
+  if (embedded.value) return
+  const query = { ...route.query }
+  if (value) query.favorite = '1'
+  else delete query.favorite
   void router.replace({ name: 'messages', params: route.params, query })
 }
 
@@ -326,9 +372,21 @@ watch(
   }
 )
 
-watch(messageFilter, () => {
+watch(
+  () => route.query.favorite,
+  value => {
+    if (!embedded.value) favoriteOnly.value = value === '1'
+  }
+)
+
+watch([messageFilter, favoriteOnly], () => {
   retainedUnreadThreadKeys.value.clear()
+  selection.clear()
 })
+
+watch([search, lineFilterKey], () => selection.clear())
+
+watch(filteredThreads, threads => selection.reconcile(threads))
 
 watch(
   () =>
@@ -336,6 +394,7 @@ watch(
       selectedKey.value,
       selectedThread.value?.last_timestamp || '',
       selectedThread.value?.unread_count || 0,
+      selectedThread.value?.marked_unread || false,
       composingNew.value
     ] as const,
   () => {
@@ -368,8 +427,8 @@ async function openThread(thread: MessageThread, force = false): Promise<void> {
   if (!messages || composingNew.value || selectedKey.value !== thread.key) return
 
   const current = selectedThread.value
-  if (current?.unread_count) {
-    const readKey = `${current.key}\u0000${current.last_timestamp}\u0000${current.unread_count}`
+  if (current && threadIsUnread(current) && !manuallyUnreadThreadKeys.value.has(current.key)) {
+    const readKey = `${current.key}\u0000${current.last_timestamp}\u0000${current.unread_count}\u0000${current.marked_unread}`
     if (readKey !== attemptedReadKey) {
       attemptedReadKey = readKey
       await markThreadReadInView(current)
@@ -385,6 +444,17 @@ function markThreadReadInView(thread: MessageThread): Promise<boolean> {
   return markThreadRead(thread)
 }
 
+async function markThreadUnreadInView(thread: MessageThread): Promise<void> {
+  manuallyUnreadThreadKeys.value.add(thread.key)
+  await markThreadsUnread([thread])
+}
+
+function toggleThreadRead(thread: MessageThread): Promise<boolean | void> {
+  return threadIsUnread(thread)
+    ? markThreadReadInView(thread)
+    : markThreadUnreadInView(thread)
+}
+
 function retryThreadRead(): void {
   attemptedReadKey = ''
   const thread = selectedThread.value
@@ -392,6 +462,7 @@ function retryThreadRead(): void {
 }
 
 function chooseThread(key: string): void {
+  manuallyUnreadThreadKeys.value.delete(key)
   composingNew.value = false
   composeReturnThreadKey = ''
   draft.value = ''
@@ -427,6 +498,89 @@ async function removeThread(thread: MessageThread): Promise<void> {
   } finally {
     deletingThreadKey.value = ''
   }
+}
+
+async function toggleFavorite(thread: MessageThread): Promise<void> {
+  if (favoritePendingKey.value) return
+  favoritePendingKey.value = thread.key
+  threadDeleteError.value = ''
+  try {
+    await setThreadsFavorite([thread], !thread.favorite)
+  } catch (error) {
+    threadDeleteError.value =
+      error instanceof Error ? error.message : t('messages.favoriteFailed')
+  } finally {
+    favoritePendingKey.value = ''
+  }
+}
+
+async function batchSetRead(read: boolean): Promise<void> {
+  if (batchBusy.value || batchThreads.value.length === 0) return
+  batchBusy.value = true
+  threadDeleteError.value = ''
+  try {
+    if (read) await markThreadsRead(batchThreads.value)
+    else {
+      for (const thread of batchThreads.value) {
+        manuallyUnreadThreadKeys.value.add(thread.key)
+      }
+      await markThreadsUnread(batchThreads.value)
+    }
+  } catch (error) {
+    threadDeleteError.value =
+      error instanceof Error ? error.message : t('runtime.requestFailed')
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+async function batchSetFavorite(favorite: boolean): Promise<void> {
+  if (batchBusy.value || batchThreads.value.length === 0) return
+  batchBusy.value = true
+  threadDeleteError.value = ''
+  try {
+    await setThreadsFavorite(batchThreads.value, favorite)
+  } catch (error) {
+    threadDeleteError.value =
+      error instanceof Error ? error.message : t('messages.favoriteFailed')
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+async function batchDelete(): Promise<void> {
+  const threads = batchThreads.value
+  if (batchBusy.value || threads.length === 0) return
+  const confirmed = await requestConfirmation({
+    title: t('messages.deleteSelectedTitle'),
+    message: t('messages.deleteSelectedMessage', { count: threads.length }),
+    confirmLabel: t('common.delete'),
+    tone: 'danger'
+  })
+  if (!confirmed) return
+  batchBusy.value = true
+  threadDeleteError.value = ''
+  try {
+    const deletedKeys = new Set(threads.map(thread => thread.key))
+    await deleteMessageThreads(threads)
+    if (deletedKeys.has(selectedKey.value)) {
+      await router.replace({ name: 'messages', query: messageFilterQuery() })
+    }
+    selection.exit()
+  } catch (error) {
+    threadDeleteError.value =
+      error instanceof Error ? error.message : t('messages.deleteFailed')
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+function toggleSelectionMode(): void {
+  selection.toggleMode()
+}
+
+function onSelectionKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape' && selection.active.value) selection.exit()
 }
 
 function startMessage(): void {
@@ -541,7 +695,12 @@ function statusLabel(status: number): string {
 }
 
 onMounted(() => {
+  window.addEventListener('keydown', onSelectionKeydown)
   void Promise.all([loadBootstrap(), loadContacts(), loadThreads()])
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onSelectionKeydown)
 })
 </script>
 
@@ -550,7 +709,8 @@ onMounted(() => {
     class="workspace messages-workspace"
     :class="{
       'has-selection': selectedThread || composingNew,
-      'is-embedded': embedded
+      'is-embedded': embedded,
+      'is-batch-selecting': selecting
     }"
   >
     <aside v-if="!embedded" class="list-pane">
@@ -572,7 +732,14 @@ onMounted(() => {
       </header>
       <div class="pane-search">
         <div class="pane-search-row">
-          <SearchField v-model="search" :placeholder="t('messages.search')" />
+          <ListSelectionToggle
+            :active="selecting"
+            :label="t('common.selectMultiple')"
+            :done-label="t('common.done')"
+            :disabled="threadsResource.status !== 'ready' || threadsResource.data.length === 0"
+            @toggle="toggleSelectionMode"
+          />
+          <SearchField v-model="search" :placeholder="t('common.search')" />
           <LineSelector
             v-if="lines.length > 1"
             v-model="lineFilterKey"
@@ -586,16 +753,23 @@ onMounted(() => {
             :all-description="t('messages.allLinesDescription')"
           />
         </div>
-        <div class="segmented-control" :aria-label="t('messages.filter')">
-          <button
-            v-for="item in messageFilters"
-            :key="item.value"
-            type="button"
-            :class="{ 'is-active': messageFilter === item.value }"
-            @click="setMessageFilter(item.value)"
-          >
-            {{ item.label }}
-          </button>
+        <div class="message-filter-row">
+          <div class="segmented-control" :aria-label="t('messages.filter')">
+            <button
+              v-for="item in messageFilters"
+              :key="item.value"
+              type="button"
+              :class="{ 'is-active': messageFilter === item.value }"
+              @click="setMessageFilter(item.value)"
+            >
+              {{ item.label }}
+            </button>
+          </div>
+          <FavoriteFilterButton
+            :active="favoriteOnly"
+            :label="t('messages.favoriteOnly')"
+            @toggle="setFavoriteFilter(!favoriteOnly)"
+          />
         </div>
       </div>
       <p
@@ -632,7 +806,7 @@ onMounted(() => {
         <StatePanel
           state="empty"
           :title="
-            search || messageFilter !== 'all' || lineFilterKey !== 'all'
+            search || messageFilter !== 'all' || favoriteOnly || lineFilterKey !== 'all'
               ? t('messages.noMatches')
               : t('messages.empty')
           "
@@ -648,29 +822,106 @@ onMounted(() => {
         </button>
       </div>
       <div v-else class="item-list">
-        <SwipeActionRow
+        <SelectableListRow
           v-for="thread in filteredThreads"
           :key="thread.key"
-          :can-read="thread.unread_count > 0"
-          :read-label="t('common.markRead')"
-          :delete-label="t('common.delete')"
-          :disabled="Boolean(deletingThreadKey)"
-          @read="markThreadReadInView(thread)"
-          @delete="removeThread(thread)"
+          :active="selecting"
+          :selected="selection.has(thread)"
+          :label="t('common.selectItem', { name: displayNameForThread(thread) })"
+          @toggle="selection.toggle(thread)"
         >
-          <MessageThreadListItem
-            :thread="thread"
-            :name="displayNameForThread(thread)"
-            :peer="threadDisplayNumber(thread)"
-            :avatar="avatarForNumber(thread.peer)"
-            :line="lineTagLine(lineForThread(thread), thread.line_id)"
-            :line-fallback="threadLineFallback(thread)"
-            :selected="thread.key === selectedKey && !composingNew"
-            :arriving="recentIncomingThreadKeys[thread.key]"
-            @select="chooseThread"
-          />
-        </SwipeActionRow>
+          <SwipeActionRow
+            can-read
+            :read-mode="threadIsUnread(thread) ? 'read' : 'unread'"
+            :read-label="
+              threadIsUnread(thread)
+                ? t('common.markRead')
+                : t('common.markUnread')
+            "
+            :delete-label="t('common.delete')"
+            :disabled="
+              selecting ||
+              Boolean(deletingThreadKey) ||
+              favoritePendingKey === thread.key
+            "
+            @read="toggleThreadRead(thread)"
+            @delete="removeThread(thread)"
+          >
+            <MessageThreadListItem
+              :thread="thread"
+              :name="displayNameForThread(thread)"
+              :peer="threadDisplayNumber(thread)"
+              :avatar="avatarForNumber(thread.peer)"
+              :line="lineTagLine(lineForThread(thread), thread.line_id)"
+              :line-fallback="threadLineFallback(thread)"
+              :selected="thread.key === selectedKey && !composingNew"
+              :arriving="recentIncomingThreadKeys[thread.key]"
+              :favorite-interactive="false"
+              @select="chooseThread"
+            />
+          </SwipeActionRow>
+        </SelectableListRow>
       </div>
+      <BatchActionBar
+        v-if="selecting"
+        :selected="selectionCount"
+        :total="filteredThreads.length"
+        :selected-label="t('common.selectedCount', { count: selectionCount })"
+        :select-all-label="t('common.selectAll')"
+        :clear-all-label="t('common.clearAll')"
+        :done-label="t('common.done')"
+        :busy="batchBusy"
+        @select-all="selection.selectAll(filteredThreads)"
+        @done="selection.exit"
+      >
+        <button
+          v-if="batchThreads.length > 0"
+          type="button"
+          :disabled="batchBusy"
+          :title="batchHasUnread ? t('common.markRead') : t('common.markUnread')"
+          @click="batchSetRead(batchHasUnread)"
+        >
+          <MailOpen v-if="batchHasUnread" :size="17" />
+          <Mail v-else :size="17" />
+          <span>
+            {{ batchHasUnread ? t('common.markRead') : t('common.markUnread') }}
+          </span>
+        </button>
+        <button
+          v-if="batchThreads.length > 0"
+          type="button"
+          :disabled="batchBusy"
+          :title="
+            batchAllFavorite
+              ? t('messages.unfavorite')
+              : t('messages.favorite')
+          "
+          @click="batchSetFavorite(!batchAllFavorite)"
+        >
+          <Star
+            :size="17"
+            :fill="batchAllFavorite ? 'currentColor' : 'none'"
+          />
+          <span>
+            {{
+              batchAllFavorite
+                ? t('messages.unfavorite')
+                : t('messages.favorite')
+            }}
+          </span>
+        </button>
+        <button
+          v-if="batchThreads.length > 0"
+          class="is-danger"
+          type="button"
+          :disabled="batchBusy"
+          :title="t('common.delete')"
+          @click="batchDelete"
+        >
+          <Trash2 :size="17" />
+          <span>{{ t('common.delete') }}</span>
+        </button>
+      </BatchActionBar>
     </aside>
 
     <article class="detail-pane conversation-pane">
@@ -738,6 +989,25 @@ onMounted(() => {
               @saved="contactSaved"
             />
           </div>
+          <button
+            v-if="selectedThread && !composingNew"
+            class="icon-button conversation-favorite-button"
+            :class="{ 'is-active': selectedThread.favorite }"
+            type="button"
+            :disabled="Boolean(favoritePendingKey)"
+            :title="
+              selectedThread.favorite
+                ? t('messages.unfavorite')
+                : t('messages.favorite')
+            "
+            :aria-pressed="selectedThread.favorite"
+            @click="toggleFavorite(selectedThread)"
+          >
+            <Star
+              :size="18"
+              :fill="selectedThread.favorite ? 'currentColor' : 'none'"
+            />
+          </button>
           <button
             v-if="selectedThread && !composingNew && activeRecipientIsContactable"
             class="icon-button"
@@ -875,6 +1145,22 @@ onMounted(() => {
 .pane-search {
   display: grid;
   gap: 8px;
+}
+
+.message-filter-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.message-filter-row .segmented-control {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.conversation-favorite-button:hover:not(:disabled),
+.conversation-favorite-button.is-active {
+  color: #a86400;
+  background: transparent;
 }
 
 .existing-thread-button {

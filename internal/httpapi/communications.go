@@ -27,6 +27,11 @@ type markMessageReadRequest struct {
 	Peer   string `json:"peer"`
 }
 
+type messageThreadStateRequest struct {
+	Action  string                   `json:"action"`
+	Threads []markMessageReadRequest `json:"threads"`
+}
+
 type startCallRequest struct {
 	RequestID        string `json:"request_id"`
 	LineID           string `json:"line_id"`
@@ -39,6 +44,11 @@ type callActionRequest struct {
 	RequestID string `json:"request_id"`
 	Digits    string `json:"digits"`
 	HolderID  string `json:"holder_id"`
+}
+
+type callsBatchRequest struct {
+	Action string   `json:"action"`
+	IDs    []string `json:"ids"`
 }
 
 type callRecordPath struct {
@@ -139,6 +149,61 @@ func (api *API) messageRead(response http.ResponseWriter, request *http.Request)
 	response.WriteHeader(http.StatusNoContent)
 }
 
+func (api *API) messageThreadState(response http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPatch {
+		response.Header().Set("Allow", http.MethodPatch)
+		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only PATCH is supported", "")
+		return
+	}
+	var input messageThreadStateRequest
+	if !decodeJSONBody(response, request, &input) {
+		return
+	}
+	action := store.MessageThreadAction(strings.TrimSpace(input.Action))
+	switch action {
+	case store.MessageThreadMarkRead,
+		store.MessageThreadMarkUnread,
+		store.MessageThreadFavorite,
+		store.MessageThreadUnfavorite,
+		store.MessageThreadDelete:
+	default:
+		writeError(response, http.StatusBadRequest, "invalid_argument", "action is invalid", "action")
+		return
+	}
+	if len(input.Threads) == 0 || len(input.Threads) > 100 {
+		writeError(response, http.StatusBadRequest, "invalid_argument", "threads must contain between 1 and 100 items", "threads")
+		return
+	}
+	identities := make([]store.MessageThreadIdentity, 0, len(input.Threads))
+	for _, thread := range input.Threads {
+		identity := store.MessageThreadIdentity{
+			LineID: strings.TrimSpace(thread.LineID),
+			Peer:   strings.TrimSpace(thread.Peer),
+		}
+		if identity.LineID == "" || identity.Peer == "" {
+			writeError(response, http.StatusBadRequest, "invalid_argument", "line_id and peer are required", "threads")
+			return
+		}
+		identities = append(identities, identity)
+	}
+	if err := api.repository.UpdateMessageThreads(
+		request.Context(),
+		identities,
+		action,
+	); err != nil {
+		switch {
+		case errors.Is(err, store.ErrMessageThreadNotFound):
+			writeError(response, http.StatusNotFound, "message_thread_not_found", "A message thread no longer exists", "")
+		default:
+			api.writeInternalError(response, request, "update message threads", err)
+		}
+		return
+	}
+	api.publishRuntimeResources(runtimeevents.ResourceMessages)
+	response.Header().Set("Cache-Control", "no-store")
+	response.WriteHeader(http.StatusNoContent)
+}
+
 func (api *API) messageThreadsCollection(
 	response http.ResponseWriter,
 	request *http.Request,
@@ -214,6 +279,90 @@ func (api *API) missedCallsRead(response http.ResponseWriter, request *http.Requ
 	response.WriteHeader(http.StatusNoContent)
 }
 
+func (api *API) callsBatch(response http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPatch {
+		response.Header().Set("Allow", http.MethodPatch)
+		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only PATCH is supported", "")
+		return
+	}
+	var input callsBatchRequest
+	if !decodeJSONBody(response, request, &input) {
+		return
+	}
+	action := strings.TrimSpace(input.Action)
+	if action != "read" &&
+		action != "unread" &&
+		action != "favorite" &&
+		action != "unfavorite" &&
+		action != "delete" {
+		writeError(response, http.StatusBadRequest, "invalid_argument", "action is invalid", "action")
+		return
+	}
+	if len(input.IDs) == 0 || len(input.IDs) > 100 {
+		writeError(response, http.StatusBadRequest, "invalid_argument", "ids must contain between 1 and 100 items", "ids")
+		return
+	}
+	ids := make([]string, 0, len(input.IDs))
+	seen := make(map[string]struct{}, len(input.IDs))
+	for _, value := range input.IDs {
+		id := strings.TrimSpace(value)
+		if !validRecordingPathID(id) {
+			writeError(response, http.StatusBadRequest, "invalid_argument", "ids contains an invalid call ID", "ids")
+			return
+		}
+		if _, duplicate := seen[id]; duplicate {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	switch action {
+	case "read":
+		if err := api.repository.MarkMissedCallsReadByIDs(request.Context(), ids); err != nil {
+			api.writeInternalError(response, request, "mark missed calls read", err)
+			return
+		}
+		api.publishRuntimeResources(runtimeevents.ResourceCalls)
+	case "unread":
+		if err := api.repository.MarkMissedCallsUnreadByIDs(request.Context(), ids); err != nil {
+			api.writeInternalError(response, request, "mark missed calls unread", err)
+			return
+		}
+		api.publishRuntimeResources(runtimeevents.ResourceCalls)
+	case "favorite", "unfavorite":
+		if err := api.repository.SetCallFavoritesByIDs(
+			request.Context(),
+			ids,
+			action == "favorite",
+		); err != nil {
+			if errors.Is(err, store.ErrCallNotFound) {
+				writeError(response, http.StatusNotFound, "call_not_found", "A call no longer exists", "")
+				return
+			}
+			api.writeInternalError(response, request, "update call favorite state", err)
+			return
+		}
+		api.publishRuntimeResources(runtimeevents.ResourceCalls)
+	case "delete":
+		if api.recordings == nil {
+			writeError(response, http.StatusServiceUnavailable, "recording_unavailable", "Call history deletion is unavailable", "")
+			return
+		}
+		for _, id := range ids {
+			if err := api.recordings.DeleteCall(request.Context(), id); err != nil {
+				api.writeRecordingError(response, request, "delete call history", err, nil)
+				return
+			}
+		}
+		api.publishRuntimeResources(
+			runtimeevents.ResourceCalls,
+			runtimeevents.ResourceRecordings,
+		)
+	}
+	response.Header().Set("Cache-Control", "no-store")
+	response.WriteHeader(http.StatusNoContent)
+}
+
 func (api *API) callRecordResource(
 	response http.ResponseWriter,
 	request *http.Request,
@@ -252,6 +401,20 @@ func (api *API) callRecordResource(
 			return
 		}
 		api.publishRuntimeResources(runtimeevents.ResourceCalls)
+	case "unread":
+		if request.Method != http.MethodPatch {
+			response.Header().Set("Allow", http.MethodPatch)
+			writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only PATCH is supported", "")
+			return
+		}
+		if err := api.repository.MarkMissedCallsUnreadByIDs(
+			request.Context(),
+			[]string{resource.ID},
+		); err != nil {
+			api.writeInternalError(response, request, "mark missed call unread", err)
+			return
+		}
+		api.publishRuntimeResources(runtimeevents.ResourceCalls)
 	default:
 		writeError(response, http.StatusNotFound, "not_found", "API endpoint was not found", "")
 		return
@@ -272,7 +435,7 @@ func callRecordResource(path string) (callRecordPath, bool) {
 	switch {
 	case len(parts) == 1:
 		return callRecordPath{ID: parts[0]}, true
-	case len(parts) == 2 && parts[1] == "read":
+	case len(parts) == 2 && (parts[1] == "read" || parts[1] == "unread"):
 		return callRecordPath{ID: parts[0], Action: parts[1]}, true
 	default:
 		return callRecordPath{}, false

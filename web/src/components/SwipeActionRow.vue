@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { MailOpen, Trash2 } from '@lucide/vue'
+import { Mail, MailOpen, Trash2 } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { activateSwipeRow, clearSwipeRow } from '../state/swipeActions'
 
@@ -11,11 +11,13 @@ const props = withDefaults(
     readLabel?: string
     deleteLabel: string
     canRead?: boolean
+    readMode?: 'read' | 'unread'
     disabled?: boolean
   }>(),
   {
     readLabel: '',
     canRead: false,
+    readMode: 'read',
     disabled: false
   }
 )
@@ -164,7 +166,8 @@ onBeforeUnmount(() => {
       :disabled="disabled"
       @click="triggerRead"
     >
-      <MailOpen :size="20" aria-hidden="true" />
+      <Mail v-if="readMode === 'unread'" :size="20" aria-hidden="true" />
+      <MailOpen v-else :size="20" aria-hidden="true" />
       <span>{{ readLabel }}</span>
     </button>
     <button

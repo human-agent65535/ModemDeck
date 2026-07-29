@@ -2,22 +2,31 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, AudioLines, Download, Trash2 } from '@lucide/vue'
+import { ArrowLeft, AudioLines, Download, Star, Trash2 } from '@lucide/vue'
 import type { RecordingEntry } from '../api/types'
+import BatchActionBar from '../components/BatchActionBar.vue'
 import CommunicationAvatar from '../components/CommunicationAvatar.vue'
 import ContactHeaderIdentity from '../components/ContactHeaderIdentity.vue'
 import ContactNumberActions from '../components/ContactNumberActions.vue'
+import FavoriteFilterButton from '../components/FavoriteFilterButton.vue'
 import LineSelector from '../components/LineSelector.vue'
 import LineTag from '../components/LineTag.vue'
+import ListItemAvatarStatus from '../components/ListItemAvatarStatus.vue'
+import ListItemStatusRail from '../components/ListItemStatusRail.vue'
+import ListSelectionToggle from '../components/ListSelectionToggle.vue'
 import SearchField from '../components/SearchField.vue'
+import SelectableListRow from '../components/SelectableListRow.vue'
 import StatePanel from '../components/StatePanel.vue'
 import SwipeActionRow from '../components/SwipeActionRow.vue'
+import { useListSelection } from '../composables/useListSelection'
 import { audioState } from '../state/audio'
 import { requestConfirmation } from '../state/confirmation'
 import {
   deleteRecording,
+  deleteRecordings,
   loadRecordingEntries,
-  recordingCatalogState
+  recordingCatalogState,
+  setRecordingsFavorite
 } from '../state/recording'
 import {
   bootstrapResource,
@@ -36,8 +45,14 @@ const router = useRouter()
 const { t } = useI18n()
 const search = ref('')
 const lineFilterKey = ref('all')
+const favoriteOnly = ref(route.query.favorite === '1')
 const deletingRecordingID = ref('')
+const favoritePendingCallID = ref('')
 const deleteError = ref('')
+const batchBusy = ref(false)
+const selection = useListSelection<RecordingEntry>(recording => recording.id)
+const selecting = selection.active
+const selectionCount = selection.count
 let searchTimer: number | undefined
 
 const selectedID = computed(() =>
@@ -54,12 +69,19 @@ const selectedContact = computed(() =>
   selected.value ? contactForNumber(selected.value.call.remote_number) : undefined
 )
 const filteredRecordings = computed(() => {
-  if (lineFilterKey.value === 'all') return recordingCatalogState.data
   return recordingCatalogState.data.filter(recording => {
+    if (favoriteOnly.value && !recording.favorite) return false
+    if (lineFilterKey.value === 'all') return true
     const line = lineForRecording(recording)
     return line ? lineKey(line) === lineFilterKey.value : false
   })
 })
+const batchRecordings = computed(() => selection.selected(filteredRecordings.value))
+const batchAllFavorite = computed(
+  () =>
+    batchRecordings.value.length > 0 &&
+    batchRecordings.value.every(recording => recording.favorite)
+)
 
 function displayName(recording: RecordingEntry): string {
   return (
@@ -133,7 +155,45 @@ function formatSize(bytes: number): string {
 }
 
 function selectRecording(recording: RecordingEntry): void {
-  void router.push({ name: 'recordings', query: { selected: recording.id } })
+  void router.push({
+    name: 'recordings',
+    query: {
+      selected: recording.id,
+      ...(favoriteOnly.value ? { favorite: '1' } : {})
+    }
+  })
+}
+
+function setFavoriteFilter(value: boolean): void {
+  favoriteOnly.value = value
+  void router.replace({
+    name: 'recordings',
+    query: {
+      ...(selectedID.value ? { selected: selectedID.value } : {}),
+      ...(value ? { favorite: '1' } : {})
+    }
+  })
+}
+
+async function toggleRecordingFavorite(recording: RecordingEntry): Promise<void> {
+  if (favoritePendingCallID.value) return
+  favoritePendingCallID.value = recording.call_id
+  deleteError.value = ''
+  const favorite = !recording.favorite
+  try {
+    await setRecordingsFavorite([recording], favorite)
+    if (!favorite && favoriteOnly.value && selectedID.value === recording.id) {
+      await router.replace({
+        name: 'recordings',
+        query: { favorite: '1' }
+      })
+    }
+  } catch (error) {
+    deleteError.value =
+      error instanceof Error ? error.message : t('common.favoriteFailed')
+  } finally {
+    favoritePendingCallID.value = ''
+  }
 }
 
 async function removeRecording(recording: RecordingEntry): Promise<void> {
@@ -161,8 +221,66 @@ async function removeRecording(recording: RecordingEntry): Promise<void> {
   }
 }
 
+async function batchDelete(): Promise<void> {
+  const recordings = batchRecordings.value
+  if (batchBusy.value || recordings.length === 0) return
+  const confirmed = await requestConfirmation({
+    title: t('recordings.deleteSelectedTitle'),
+    message: t('recordings.deleteSelectedMessage', { count: recordings.length }),
+    confirmLabel: t('common.delete'),
+    tone: 'danger'
+  })
+  if (!confirmed) return
+  batchBusy.value = true
+  deleteError.value = ''
+  try {
+    const deleted = new Set(recordings.map(recording => recording.id))
+    await deleteRecordings(recordings)
+    if (deleted.has(selectedID.value)) {
+      await router.replace({ name: 'recordings' })
+    }
+    selection.exit()
+  } catch (error) {
+    deleteError.value =
+      error instanceof Error ? error.message : t('recordings.deleteFailed')
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+async function batchSetFavorite(favorite: boolean): Promise<void> {
+  const recordings = batchRecordings.value
+  if (batchBusy.value || recordings.length === 0) return
+  batchBusy.value = true
+  deleteError.value = ''
+  try {
+    await setRecordingsFavorite(recordings, favorite)
+    if (!favorite && favoriteOnly.value) {
+      if (recordings.some(recording => recording.id === selectedID.value)) {
+        await router.replace({
+          name: 'recordings',
+          query: { favorite: '1' }
+        })
+      }
+      selection.clear()
+    }
+  } catch (error) {
+    deleteError.value =
+      error instanceof Error ? error.message : t('common.favoriteFailed')
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+function onSelectionKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape' && selection.active.value) selection.exit()
+}
+
 function backToList(): void {
-  void router.push({ name: 'recordings' })
+  void router.push({
+    name: 'recordings',
+    query: favoriteOnly.value ? { favorite: '1' } : {}
+  })
 }
 
 function scheduleSearch(value: string): void {
@@ -173,7 +291,21 @@ function scheduleSearch(value: string): void {
   }, 250)
 }
 
-watch(search, scheduleSearch)
+watch(search, value => {
+  selection.clear()
+  scheduleSearch(value)
+})
+
+watch(
+  () => route.query.favorite,
+  value => {
+    favoriteOnly.value = value === '1'
+  }
+)
+
+watch(favoriteOnly, () => selection.clear())
+
+watch(filteredRecordings, recordings => selection.reconcile(recordings))
 
 watch(lines, availableLines => {
   if (
@@ -182,19 +314,28 @@ watch(lines, availableLines => {
   ) {
     lineFilterKey.value = 'all'
   }
+  selection.clear()
 })
 
 onMounted(() => {
+  window.addEventListener('keydown', onSelectionKeydown)
   void Promise.all([loadBootstrap(), loadRecordingEntries(), loadContacts()])
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onSelectionKeydown)
   if (searchTimer !== undefined) window.clearTimeout(searchTimer)
 })
 </script>
 
 <template>
-  <section class="workspace" :class="{ 'has-selection': selected }">
+  <section
+    class="workspace"
+    :class="{
+      'has-selection': selected,
+      'is-batch-selecting': selecting
+    }"
+  >
     <aside class="list-pane">
       <header class="pane-header">
         <div>
@@ -207,9 +348,19 @@ onBeforeUnmount(() => {
 
       <div class="pane-search">
         <div class="pane-search-row">
+          <ListSelectionToggle
+            :active="selecting"
+            :label="t('common.selectMultiple')"
+            :done-label="t('common.done')"
+            :disabled="
+              recordingCatalogState.status !== 'ready' ||
+              recordingCatalogState.data.length === 0
+            "
+            @toggle="selection.toggleMode"
+          />
           <SearchField
             v-model="search"
-            :placeholder="t('contacts.searchNameOrNumber')"
+            :placeholder="t('common.search')"
           />
           <LineSelector
             v-if="lines.length > 1"
@@ -222,6 +373,11 @@ onBeforeUnmount(() => {
             filter-mode
             :all-label="t('recordings.allLines')"
             :all-description="t('recordings.allLinesDescription')"
+          />
+          <FavoriteFilterButton
+            :active="favoriteOnly"
+            :label="t('common.favoriteOnly')"
+            @toggle="setFavoriteFilter(!favoriteOnly)"
           />
         </div>
       </div>
@@ -252,62 +408,131 @@ onBeforeUnmount(() => {
         v-else-if="filteredRecordings.length === 0"
         state="empty"
         :title="
-          search || lineFilterKey !== 'all'
+          search || favoriteOnly || lineFilterKey !== 'all'
             ? t('recordings.noMatches')
             : t('recordings.empty')
         "
       />
       <div v-else class="item-list">
-        <SwipeActionRow
+        <SelectableListRow
           v-for="recording in filteredRecordings"
           :key="recording.id"
-          :delete-label="t('common.delete')"
-          :disabled="Boolean(deletingRecordingID)"
-          @delete="removeRecording(recording)"
+          :active="selecting"
+          :selected="selection.has(recording)"
+          :label="t('common.selectItem', { name: displayName(recording) })"
+          @toggle="selection.toggle(recording)"
         >
-          <button
-            class="list-item recording-list-item"
-            :class="{ 'is-selected': recording.id === selectedID }"
-            type="button"
-            @click="selectRecording(recording)"
+          <SwipeActionRow
+            :delete-label="t('common.delete')"
+            :disabled="
+              selecting ||
+              Boolean(deletingRecordingID) ||
+              favoritePendingCallID === recording.call_id
+            "
+            @delete="removeRecording(recording)"
           >
-            <span class="recording-list-item__avatar">
-              <CommunicationAvatar
-                channel="call"
-                :name="displayName(recording)"
-                :address="recordingDisplayNumber(recording)"
-                :src="avatar(recording)"
-              />
-              <span
-                class="recording-list-item__icon"
-                :class="{ 'is-unavailable': !recording.playable }"
-              >
-                <AudioLines :size="12" />
-              </span>
-            </span>
-            <span class="list-item__content">
-              <span class="list-item__title">
-                <strong>{{ displayName(recording) }}</strong>
-                <time>{{ formatRelativeDate(recording.recorded_at) }}</time>
-              </span>
-              <span class="recording-list-item__meta">
-                <LineTag
-                  :line="lineTagLine(lineForRecording(recording), recording.call.line_id)"
-                  :fallback="recordingLineFallback(recording)"
+            <button
+              class="list-item recording-list-item"
+              :class="{ 'is-selected': recording.id === selectedID }"
+              type="button"
+              @click="selectRecording(recording)"
+            >
+              <ListItemAvatarStatus class="recording-list-item__avatar">
+                <CommunicationAvatar
+                  channel="call"
+                  :name="displayName(recording)"
+                  :address="recordingDisplayNumber(recording)"
+                  :src="avatar(recording)"
                 />
-                <small>
-                  {{ directionLabel(recording) }} ·
-                  {{
-                    recording.playable
-                      ? formatDuration(recording.duration_seconds)
-                      : statusLabel(recording)
-                  }}
-                </small>
+                <template #badge>
+                  <span
+                    class="recording-list-item__icon"
+                    :class="{ 'is-unavailable': !recording.playable }"
+                  >
+                    <AudioLines :size="12" />
+                  </span>
+                </template>
+              </ListItemAvatarStatus>
+              <span class="list-item__content">
+                <strong>{{ displayName(recording) }}</strong>
+                <span class="recording-list-item__meta">
+                  <LineTag
+                    :line="lineTagLine(lineForRecording(recording), recording.call.line_id)"
+                    :fallback="recordingLineFallback(recording)"
+                  />
+                  <small>
+                    {{ directionLabel(recording) }} ·
+                    {{
+                      recording.playable
+                        ? formatDuration(recording.duration_seconds)
+                        : statusLabel(recording)
+                    }}
+                  </small>
+                </span>
               </span>
-            </span>
-          </button>
-        </SwipeActionRow>
+              <ListItemStatusRail
+                :date="formatRelativeDate(recording.recorded_at)"
+                :date-time="recording.recorded_at"
+              >
+                <Star
+                  v-if="recording.favorite"
+                  class="recording-list-item__favorite"
+                  :size="15"
+                  fill="currentColor"
+                  :aria-label="t('common.favorite')"
+                />
+              </ListItemStatusRail>
+            </button>
+          </SwipeActionRow>
+        </SelectableListRow>
       </div>
+      <BatchActionBar
+        v-if="selecting"
+        :selected="selectionCount"
+        :total="filteredRecordings.length"
+        :selected-label="t('common.selectedCount', { count: selectionCount })"
+        :select-all-label="t('common.selectAll')"
+        :clear-all-label="t('common.clearAll')"
+        :done-label="t('common.done')"
+        :busy="batchBusy"
+        @select-all="selection.selectAll(filteredRecordings)"
+        @done="selection.exit"
+      >
+        <button
+          v-if="batchRecordings.length > 0"
+          type="button"
+          :disabled="batchBusy"
+          :title="
+            batchAllFavorite
+              ? t('common.unfavorite')
+              : t('common.favorite')
+          "
+          @click="batchSetFavorite(!batchAllFavorite)"
+        >
+          <Star
+            :size="17"
+            :fill="batchAllFavorite ? 'currentColor' : 'none'"
+          />
+          <span>
+            {{
+              batchAllFavorite
+                ? t('common.unfavorite')
+                : t('common.favorite')
+            }}
+          </span>
+        </button>
+        <button
+          v-if="batchRecordings.length > 0"
+          class="is-danger"
+          type="button"
+          :disabled="batchBusy"
+          :title="t('common.delete')"
+          @click="batchDelete"
+        >
+          <Trash2 :size="17" />
+          <span>{{ t('common.delete') }}</span>
+        </button>
+      </BatchActionBar>
     </aside>
 
     <article class="detail-pane">
@@ -330,6 +555,24 @@ onBeforeUnmount(() => {
             :line-fallback="recordingLineFallback(selected)"
           />
           <div class="recording-header__contact-actions">
+            <button
+              class="icon-button recording-favorite-button"
+              :class="{ 'is-active': selected.favorite }"
+              type="button"
+              :disabled="Boolean(favoritePendingCallID)"
+              :title="
+                selected.favorite
+                  ? t('common.unfavorite')
+                  : t('common.favorite')
+              "
+              :aria-pressed="selected.favorite"
+              @click="toggleRecordingFavorite(selected)"
+            >
+              <Star
+                :size="18"
+                :fill="selected.favorite ? 'currentColor' : 'none'"
+              />
+            </button>
             <ContactNumberActions
               :number="selected.call.remote_number"
               :contact="selectedContact"
@@ -439,16 +682,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
-.recording-list-item__avatar {
-  position: relative;
-  display: inline-flex;
-  flex: 0 0 auto;
-}
-
 .recording-list-item__icon {
-  position: absolute;
-  right: -4px;
-  bottom: -4px;
   display: inline-grid;
   width: 21px;
   height: 21px;
@@ -478,6 +712,17 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.recording-list-item__favorite {
+  flex: 0 0 auto;
+  color: #a86400;
+}
+
+.recording-favorite-button:hover:not(:disabled),
+.recording-favorite-button.is-active {
+  color: #a86400;
+  background: transparent;
 }
 
 .recording-detail {

@@ -183,7 +183,9 @@ export function parseThread(value: unknown): MessageThread {
     contact_name: stringValue(source, 'contact_name') || undefined,
     last_timestamp: stringValue(source, 'last_timestamp'),
     last_content: stringValue(source, 'last_content') || undefined,
-    unread_count: Math.max(0, numberValue(source, 'unread_count'))
+    unread_count: Math.max(0, numberValue(source, 'unread_count')),
+    marked_unread: requiredBoolean(source, 'thread', 'marked_unread'),
+    favorite: requiredBoolean(source, 'thread', 'favorite')
   }
 }
 
@@ -231,6 +233,7 @@ export function parseCallRecord(value: unknown): CallRecord {
     duration_seconds: Math.max(0, numberValue(source, 'duration_seconds')),
     missed: source.missed === true,
     read: source.read === true,
+    favorite: source.favorite === true,
     failure_reason: stringValue(source, 'failure_code') || undefined
   }
 }

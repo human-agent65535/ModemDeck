@@ -789,10 +789,17 @@ strong {
 
 .pane-search-row {
   position: relative;
+  display: flex;
   min-width: 0;
+  align-items: center;
+  gap: 8px;
 }
 
 .pane-search-row .search-field {
+  flex: 1;
+}
+
+.pane-search-row:has(> .line-selector.is-filter) .search-field {
   padding-right: 50px;
 }
 
@@ -928,6 +935,7 @@ textarea::placeholder {
 
 .item-list {
   min-height: 0;
+  flex: 1;
   overflow-y: auto;
 }
 
@@ -1356,7 +1364,6 @@ dd {
 }
 
 .call-list-item {
-  min-height: 76px;
   cursor: pointer;
 }
 
@@ -2845,6 +2852,14 @@ dd {
     display: flex;
   }
 
+  .workspace.is-batch-selecting .list-pane {
+    display: flex;
+  }
+
+  .workspace.is-batch-selecting .detail-pane {
+    display: none;
+  }
+
   .mobile-back {
     display: inline-grid;
   }
@@ -2858,6 +2873,7 @@ dd {
     display: grid;
     height: var(--mobile-nav-height);
     grid-template-columns: repeat(3, minmax(0, 1fr)) 58px repeat(3, minmax(0, 1fr));
+    grid-template-rows: 100%;
     padding-bottom: env(safe-area-inset-bottom);
     background: rgb(255 255 255 / 96%);
     border-top: 1px solid var(--border);
@@ -2865,20 +2881,18 @@ dd {
 
   .mobile-nav :is(a, button) {
     position: relative;
-    display: flex;
+    display: grid;
     min-width: 0;
-    padding: 0;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 3px;
+    grid-template-rows: minmax(0, 1fr) 14px;
+    padding: 4px 0 5px;
+    place-items: center;
     color: var(--muted);
     font-size: 9px;
     line-height: 1;
     background: transparent;
   }
 
-  .mobile-nav :is(a, button) > span:last-child {
+  .mobile-nav__label {
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2899,10 +2913,8 @@ dd {
   }
 
   .mobile-nav .mobile-nav__dial {
-    align-self: start;
-    gap: 2px;
+    align-self: stretch;
     color: var(--accent-strong);
-    transform: translateY(-11px);
   }
 
   .mobile-nav__dial-icon {
@@ -2916,6 +2928,7 @@ dd {
     border: 4px solid var(--surface);
     border-radius: 50%;
     box-shadow: 0 5px 14px rgb(16 24 40 / 20%);
+    transform: translateY(-11px);
   }
 
   .mobile-nav__dial-icon > svg {
@@ -2963,7 +2976,7 @@ dd {
   .mobile-nav__dial:active .mobile-nav__dial-icon,
   .mobile-nav__dial.is-current .mobile-nav__dial-icon {
     background: var(--accent-strong);
-    transform: scale(0.96);
+    transform: translateY(-11px) scale(0.96);
   }
 
   @keyframes mobile-call-ring {
@@ -3052,6 +3065,24 @@ dd {
     border: 0;
   }
 
+  .list-pane > .pane-header:has(> .pane-selection-toggle) {
+    display: flex;
+    min-height: 48px;
+    flex-basis: 48px;
+    padding: 0 12px;
+  }
+
+  .workspace.is-batch-selecting :is(
+    .mobile-list-fab,
+    .dashboard-activity-action
+  ) {
+    display: none;
+  }
+
+  .workspace.is-batch-selecting .item-list {
+    padding-bottom: 72px;
+  }
+
   .mobile-list-fab,
   .list-pane > .pane-header > .dashboard-pane-action {
     position: fixed;
@@ -3116,6 +3147,17 @@ dd {
 
   .dashboard-detail-scroll {
     padding-bottom: 18px;
+  }
+}
+
+@media (max-width: 700px) {
+  .mobile-nav :is(a, button) {
+    grid-template-rows: minmax(0, 1fr);
+    padding: 4px 0;
+  }
+
+  .mobile-nav__label {
+    display: none;
   }
 }
 

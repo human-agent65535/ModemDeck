@@ -371,16 +371,58 @@ export function markMissedCallsRead(): Promise<void> {
   return missedCallsReadRequest
 }
 
+export function callCanHaveReadState(call: CallRecord): boolean {
+  return call.missed
+}
+
 export async function markMissedCallRead(call: CallRecord): Promise<void> {
   if (!call.missed || call.read) return
-  await gateway.markMissedCallRead(call.id)
-  const current = callsResource.data.find(item => item.id === call.id)
-  if (current) current.read = true
+  await updateMissedCallsReadState([call], true)
+}
+
+export async function markMissedCallUnread(call: CallRecord): Promise<void> {
+  if (!call.missed || !call.read) return
+  await updateMissedCallsReadState([call], false)
+}
+
+export async function updateMissedCallsReadState(
+  calls: CallRecord[],
+  read: boolean
+): Promise<void> {
+  const ids = Array.from(
+    new Set(calls.filter(callCanHaveReadState).map(call => call.id))
+  )
+  if (ids.length === 0) return
+  await gateway.updateCalls(read ? 'read' : 'unread', ids)
+  const selected = new Set(ids)
+  for (const call of callsResource.data) {
+    if (selected.has(call.id) && call.missed) call.read = read
+  }
+}
+
+export async function setCallsFavorite(
+  calls: CallRecord[],
+  favorite: boolean
+): Promise<void> {
+  const ids = Array.from(new Set(calls.map(call => call.id)))
+  if (ids.length === 0) return
+  await gateway.updateCalls(favorite ? 'favorite' : 'unfavorite', ids)
+  const selected = new Set(ids)
+  for (const call of callsResource.data) {
+    if (selected.has(call.id)) call.favorite = favorite
+  }
 }
 
 export async function deleteCall(call: CallRecord): Promise<void> {
-  await gateway.deleteCall(call.id)
-  callsResource.data = callsResource.data.filter(item => item.id !== call.id)
+  await deleteCalls([call])
+}
+
+export async function deleteCalls(calls: CallRecord[]): Promise<void> {
+  const ids = Array.from(new Set(calls.map(call => call.id)))
+  if (ids.length === 0) return
+  await gateway.updateCalls('delete', ids)
+  const deleted = new Set(ids)
+  callsResource.data = callsResource.data.filter(item => !deleted.has(item.id))
 }
 
 export function loadDevices(force = false): Promise<Device[] | null> {
@@ -531,7 +573,7 @@ export async function refreshIncomingMessage(
 
   const messages = await refreshMessages(thread)
   if (!messages) return
-  if (thread.unread_count > 0) await markThreadRead(thread)
+  if (threadIsUnread(thread)) await markThreadRead(thread)
   if (!messagesWereReady || !animate) return
   const inserted = messages.filter(message => !previousMessageIDs.has(message.id))
   const eventMessage = inserted.find(message => message.id === event.message_id)
@@ -612,7 +654,7 @@ function messageReadError(error: unknown): string {
 }
 
 export async function markThreadRead(thread: MessageThread): Promise<boolean> {
-  if (thread.unread_count <= 0) return true
+  if (!threadIsUnread(thread)) return true
   const key = thread.key
   threadReadErrors[key] = ''
   try {
@@ -625,16 +667,78 @@ export async function markThreadRead(thread: MessageThread): Promise<boolean> {
   const current = threadsResource.data.find(
     item => item.key === key && item.peer === thread.peer
   )
-  if (current) current.unread_count = 0
+  if (current) {
+    current.unread_count = 0
+    current.marked_unread = false
+  }
   delete threadReadErrors[key]
   return true
 }
 
+export function threadIsUnread(thread: MessageThread): boolean {
+  return thread.unread_count > 0 || thread.marked_unread
+}
+
+export async function markThreadsRead(threads: MessageThread[]): Promise<void> {
+  await updateMessageThreadsState(threads.filter(threadIsUnread), 'read')
+}
+
+export async function markThreadsUnread(threads: MessageThread[]): Promise<void> {
+  await updateMessageThreadsState(
+    threads.filter(thread => !threadIsUnread(thread)),
+    'unread'
+  )
+}
+
+export async function setThreadsFavorite(
+  threads: MessageThread[],
+  favorite: boolean
+): Promise<void> {
+  await updateMessageThreadsState(
+    threads.filter(thread => thread.favorite !== favorite),
+    favorite ? 'favorite' : 'unfavorite'
+  )
+}
+
+async function updateMessageThreadsState(
+  threads: MessageThread[],
+  action: 'read' | 'unread' | 'favorite' | 'unfavorite'
+): Promise<void> {
+  const unique = Array.from(
+    new Map(threads.map(thread => [thread.key, thread])).values()
+  )
+  if (unique.length === 0) return
+  await gateway.updateMessageThreads(action, unique.map(messageQueryForThread))
+  const keys = new Set(unique.map(thread => thread.key))
+  for (const thread of threadsResource.data) {
+    if (!keys.has(thread.key)) continue
+    if (action === 'read') {
+      thread.unread_count = 0
+      thread.marked_unread = false
+    } else if (action === 'unread') {
+      thread.marked_unread = true
+    } else {
+      thread.favorite = action === 'favorite'
+    }
+  }
+}
+
 export async function deleteMessageThread(thread: MessageThread): Promise<void> {
-  await gateway.deleteThread(messageQueryForThread(thread))
-  threadsResource.data = threadsResource.data.filter(item => item.key !== thread.key)
-  delete messageResources[thread.key]
-  delete threadReadErrors[thread.key]
+  await deleteMessageThreads([thread])
+}
+
+export async function deleteMessageThreads(threads: MessageThread[]): Promise<void> {
+  const unique = Array.from(
+    new Map(threads.map(thread => [thread.key, thread])).values()
+  )
+  if (unique.length === 0) return
+  await gateway.updateMessageThreads('delete', unique.map(messageQueryForThread))
+  const deleted = new Set(unique.map(thread => thread.key))
+  threadsResource.data = threadsResource.data.filter(item => !deleted.has(item.key))
+  for (const key of deleted) {
+    delete messageResources[key]
+    delete threadReadErrors[key]
+  }
 }
 
 export async function updateDefaultLine(lineID: string): Promise<void> {
@@ -665,9 +769,23 @@ export async function saveContact(input: ContactInput, id?: string): Promise<Con
 }
 
 export async function deleteContact(contact: Contact): Promise<void> {
-  if (!gateway.deleteContact) throw new Error(translate('runtime.contactWriteUnsupported'))
-  await gateway.deleteContact(contact.id, contact.revision)
-  contactsResource.data = contactsResource.data.filter(item => item.id !== contact.id)
+  await deleteContacts([contact])
+}
+
+export async function deleteContacts(contacts: Contact[]): Promise<void> {
+  if (!gateway.deleteContacts) throw new Error(translate('runtime.contactWriteUnsupported'))
+  const unique = Array.from(
+    new Map(contacts.map(contact => [contact.id, contact])).values()
+  )
+  if (unique.length === 0) return
+  await gateway.deleteContacts(
+    unique.map(contact => ({
+      id: contact.id,
+      revision: contact.revision || 0
+    }))
+  )
+  const deleted = new Set(unique.map(contact => contact.id))
+  contactsResource.data = contactsResource.data.filter(item => !deleted.has(item.id))
 }
 
 function normalizedAddress(value: string): string {

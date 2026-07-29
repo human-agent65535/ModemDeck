@@ -21,6 +21,14 @@ type recordingToggleRequest struct {
 	HolderID string `json:"holder_id"`
 }
 
+type recordingsBatchRequest struct {
+	Action     string `json:"action"`
+	Recordings []struct {
+		CallID string `json:"call_id"`
+		ID     string `json:"id"`
+	} `json:"recordings"`
+}
+
 type recordingSettingsResponse struct {
 	Settings store.RecordingSettings `json:"settings"`
 }
@@ -120,6 +128,79 @@ func (api *API) recordingEntries(response http.ResponseWriter, request *http.Req
 		Recordings: recordingEntryResponses(entries),
 		Meta:       responseMeta{Limit: limit},
 	})
+}
+
+func (api *API) recordingsBatch(response http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPatch {
+		response.Header().Set("Allow", http.MethodPatch)
+		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only PATCH is supported", "")
+		return
+	}
+	var input recordingsBatchRequest
+	if !decodeJSONBody(response, request, &input) {
+		return
+	}
+	action := strings.TrimSpace(input.Action)
+	if action != "favorite" && action != "unfavorite" && action != "delete" {
+		writeError(response, http.StatusBadRequest, "invalid_argument", "action is invalid", "action")
+		return
+	}
+	if len(input.Recordings) == 0 || len(input.Recordings) > 100 {
+		writeError(response, http.StatusBadRequest, "invalid_argument", "recordings must contain between 1 and 100 items", "recordings")
+		return
+	}
+	seen := make(map[string]struct{}, len(input.Recordings))
+	recordings := make([]store.RecordingIdentity, 0, len(input.Recordings))
+	for _, item := range input.Recordings {
+		callID := strings.TrimSpace(item.CallID)
+		id := strings.TrimSpace(item.ID)
+		if !validRecordingPathID(callID) || !validRecordingPathID(id) {
+			writeError(response, http.StatusBadRequest, "invalid_argument", "recordings contains an invalid ID", "recordings")
+			return
+		}
+		key := callID + "\x00" + id
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		recordings = append(recordings, store.RecordingIdentity{CallID: callID, ID: id})
+	}
+	switch action {
+	case "favorite", "unfavorite":
+		if err := api.repository.SetRecordingFavorites(
+			request.Context(),
+			recordings,
+			action == "favorite",
+		); err != nil {
+			switch {
+			case errors.Is(err, store.ErrRecordingNotFound):
+				writeError(response, http.StatusNotFound, "recording_not_found", "A recording no longer exists", "")
+			case errors.Is(err, store.ErrRecordingValidation):
+				writeError(response, http.StatusBadRequest, "invalid_argument", "recordings is invalid", "recordings")
+			default:
+				api.writeInternalError(response, request, "update recording favorite state", err)
+			}
+			return
+		}
+	case "delete":
+		if api.recordings == nil {
+			writeError(response, http.StatusServiceUnavailable, "recording_unavailable", "Call recording is unavailable", "")
+			return
+		}
+		for _, recording := range recordings {
+			if err := api.recordings.DeleteRecording(
+				request.Context(),
+				recording.CallID,
+				recording.ID,
+			); err != nil {
+				api.writeRecordingError(response, request, "delete call recording", err, nil)
+				return
+			}
+		}
+	}
+	api.publishRuntimeResources(runtimeevents.ResourceRecordings)
+	response.Header().Set("Cache-Control", "no-store")
+	response.WriteHeader(http.StatusNoContent)
 }
 
 func (api *API) recordingResource(

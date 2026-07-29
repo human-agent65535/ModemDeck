@@ -26,17 +26,28 @@ type fakeRepository struct {
 	deleteContactID       string
 	deleteContactRev      int64
 	deleteContactError    error
+	deleteContacts        []store.ContactRevision
 	messageQuery          store.MessageQuery
 	messageReadIdentity   store.MessageThreadIdentity
 	messageReadError      error
+	messageUpdateAction   store.MessageThreadAction
+	messageUpdateThreads  []store.MessageThreadIdentity
+	messageUpdateError    error
 	messageDeleteIdentity store.MessageThreadIdentity
 	messageDeleteError    error
 	missedReadCalls       int
 	missedReadIDs         []string
+	missedUnreadIDs       []string
 	missedReadError       error
+	callFavoriteIDs       []string
+	callFavorite          bool
+	callFavoriteError     error
 	recordingQuery        store.RecordingQuery
 	recordingEntries      []store.RecordingEntry
 	recordingError        error
+	recordingFavorites    []store.RecordingIdentity
+	recordingFavorite     bool
+	recordingFavoriteErr  error
 	devices               []store.Device
 	deleteDeviceIMEI      string
 	deleteDeviceError     error
@@ -84,6 +95,14 @@ func (repository *fakeRepository) DeleteContact(_ context.Context, id string, re
 	return repository.deleteContactError
 }
 
+func (repository *fakeRepository) DeleteContacts(
+	_ context.Context,
+	contacts []store.ContactRevision,
+) error {
+	repository.deleteContacts = append([]store.ContactRevision(nil), contacts...)
+	return repository.deleteContactError
+}
+
 func (repository *fakeRepository) MessageThreads(context.Context, store.ThreadQuery) ([]store.MessageThread, error) {
 	return []store.MessageThread{}, nil
 }
@@ -99,6 +118,19 @@ func (repository *fakeRepository) MarkMessageThreadRead(
 ) error {
 	repository.messageReadIdentity = identity
 	return repository.messageReadError
+}
+
+func (repository *fakeRepository) UpdateMessageThreads(
+	_ context.Context,
+	threads []store.MessageThreadIdentity,
+	action store.MessageThreadAction,
+) error {
+	repository.messageUpdateThreads = append(
+		[]store.MessageThreadIdentity(nil),
+		threads...,
+	)
+	repository.messageUpdateAction = action
+	return repository.messageUpdateError
 }
 
 func (repository *fakeRepository) DeleteMessageThread(
@@ -126,12 +158,43 @@ func (repository *fakeRepository) MarkMissedCallsReadByIDs(
 	return repository.missedReadError
 }
 
+func (repository *fakeRepository) MarkMissedCallsUnreadByIDs(
+	_ context.Context,
+	callIDs []string,
+) error {
+	repository.missedUnreadIDs = append([]string(nil), callIDs...)
+	return repository.missedReadError
+}
+
+func (repository *fakeRepository) SetCallFavoritesByIDs(
+	_ context.Context,
+	callIDs []string,
+	favorite bool,
+) error {
+	repository.callFavoriteIDs = append([]string(nil), callIDs...)
+	repository.callFavorite = favorite
+	return repository.callFavoriteError
+}
+
 func (repository *fakeRepository) RecordingEntries(
 	_ context.Context,
 	query store.RecordingQuery,
 ) ([]store.RecordingEntry, error) {
 	repository.recordingQuery = query
 	return repository.recordingEntries, repository.recordingError
+}
+
+func (repository *fakeRepository) SetRecordingFavorites(
+	_ context.Context,
+	recordings []store.RecordingIdentity,
+	favorite bool,
+) error {
+	repository.recordingFavorites = append(
+		[]store.RecordingIdentity(nil),
+		recordings...,
+	)
+	repository.recordingFavorite = favorite
+	return repository.recordingFavoriteErr
 }
 
 func (repository *fakeRepository) Devices(context.Context) ([]store.Device, error) {

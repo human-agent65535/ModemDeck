@@ -274,7 +274,7 @@ test('communication notifications share one explicit browser preference', async 
   assert.doesNotMatch(shell, /onMounted\([^]*requestPermission/)
   assert.match(workspace, /refreshThreads\(\)/)
   assert.match(workspace, /activeThreadKey !== event\.thread_key/)
-  assert.match(workspace, /thread\.unread_count > 0\) await markThreadRead\(thread\)/)
+  assert.match(workspace, /threadIsUnread\(thread\)\) await markThreadRead\(thread\)/)
   assert.match(messages, /recentIncomingMessageIDs\[message\.id\]/)
   assert.match(messages, /`message-row--\$\{message\.direction\}`/)
   assert.match(styles, /\.message-row--incoming\s*\{[^}]*justify-content: flex-start/s)

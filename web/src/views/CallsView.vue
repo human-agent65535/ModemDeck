@@ -1,24 +1,32 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowLeft,
   LoaderCircle,
+  Mail,
+  MailOpen,
   MessageSquareText,
   Phone,
+  Star,
   Trash2
 } from '@lucide/vue'
+import BatchActionBar from '../components/BatchActionBar.vue'
 import type { CallFilter, CallRecord } from '../api/types'
 import CallHistoryListItem from '../components/CallHistoryListItem.vue'
 import ContactHeaderIdentity from '../components/ContactHeaderIdentity.vue'
 import ContactNumberActions from '../components/ContactNumberActions.vue'
+import FavoriteFilterButton from '../components/FavoriteFilterButton.vue'
 import LineSelector from '../components/LineSelector.vue'
 import LineTag from '../components/LineTag.vue'
+import ListSelectionToggle from '../components/ListSelectionToggle.vue'
 import RecordingList from '../components/RecordingList.vue'
 import SearchField from '../components/SearchField.vue'
+import SelectableListRow from '../components/SelectableListRow.vue'
 import StatePanel from '../components/StatePanel.vue'
 import SwipeActionRow from '../components/SwipeActionRow.vue'
+import { useListSelection } from '../composables/useListSelection'
 import { requestConfirmation } from '../state/confirmation'
 import { callState } from '../state/call'
 import {
@@ -33,6 +41,7 @@ import {
   capabilityReason,
   contactForNumber,
   deleteCall,
+  deleteCalls,
   displayPhoneNumber,
   lineForKey,
   lineKey,
@@ -40,7 +49,9 @@ import {
   loadCalls,
   loadContacts,
   markMissedCallRead,
-  markMissedCallsRead
+  markMissedCallUnread,
+  setCallsFavorite,
+  updateMissedCallsReadState
 } from '../state/workspace'
 import { formatDateTime, formatDuration } from '../utils/format'
 import { isContactPhoneCandidate } from '../utils/communicationAddress'
@@ -67,9 +78,18 @@ const filter = ref<CallFilter>(
   props.embeddedCallId ? 'all' : callFilterFromRoute(route.query.filter)
 )
 const lineFilterKey = ref('all')
+const favoriteOnly = ref(
+  !props.embeddedCallId && route.query.favorite === '1'
+)
 const missedReadError = ref('')
 const callMutationError = ref('')
 const deletingCallID = ref('')
+const favoritePendingCallID = ref('')
+const batchBusy = ref(false)
+const retainedUnreadCallIDs = ref(new Set<string>())
+const selection = useListSelection<CallRecord>(call => call.id)
+const selecting = selection.active
+const selectionCount = selection.count
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const defaultLineID = computed(
   () => bootstrapResource.data?.line_settings.default_line_id || ''
@@ -103,7 +123,12 @@ const filteredCalls = computed(() => {
         !query ||
         (call.display_name || '').toLocaleLowerCase().includes(query) ||
         (digits.length > 0 && call.remote_number.replace(/\D/g, '').includes(digits))
-      return matchesFilter && matchesLine && matchesSearch
+      return (
+        matchesFilter &&
+        matchesLine &&
+        matchesSearch &&
+        (!favoriteOnly.value || call.favorite)
+      )
     })
     .slice()
     .sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at))
@@ -134,10 +159,25 @@ const dialUnavailable = computed(() => capabilityReason('dial'))
 const messageUnavailable = computed(() => capabilityReason('message'))
 const unreadMissedCallIDs = computed(() =>
   callsResource.data
-    .filter(call => call.missed && !call.read)
+    .filter(
+      call =>
+        call.missed &&
+        !call.read &&
+        !retainedUnreadCallIDs.value.has(call.id)
+    )
     .map(call => call.id)
     .sort()
     .join('\u0000')
+)
+const batchCalls = computed(() => selection.selected(filteredCalls.value))
+const batchMissedCalls = computed(() => batchCalls.value.filter(call => call.missed))
+const batchHasUnread = computed(() =>
+  batchMissedCalls.value.some(call => !call.read)
+)
+const batchAllFavorite = computed(
+  () =>
+    batchCalls.value.length > 0 &&
+    batchCalls.value.every(call => call.favorite)
 )
 
 function callFilterFromRoute(value: unknown): CallFilter {
@@ -146,8 +186,14 @@ function callFilterFromRoute(value: unknown): CallFilter {
     : 'all'
 }
 
-function callFilterQuery(value = filter.value): { filter?: CallFilter } {
-  return value === 'all' ? {} : { filter: value }
+function callFilterQuery(
+  value = filter.value,
+  favorite = favoriteOnly.value
+): { filter?: CallFilter; favorite?: '1' } {
+  return {
+    ...(value === 'all' ? {} : { filter: value }),
+    ...(favorite ? { favorite: '1' as const } : {})
+  }
 }
 
 function setFilter(value: CallFilter): void {
@@ -158,6 +204,18 @@ function setFilter(value: CallFilter): void {
     query: {
       ...(selectedId.value ? { selected: selectedId.value } : {}),
       ...callFilterQuery(value)
+    }
+  })
+}
+
+function setFavoriteFilter(value: boolean): void {
+  favoriteOnly.value = value
+  if (embedded.value) return
+  void router.replace({
+    name: 'calls',
+    query: {
+      ...(selectedId.value ? { selected: selectedId.value } : {}),
+      ...callFilterQuery(filter.value, value)
     }
   })
 }
@@ -230,6 +288,43 @@ async function acknowledgeMissedCall(call: CallRecord): Promise<void> {
   }
 }
 
+async function markMissedCallUnreadInView(call: CallRecord): Promise<void> {
+  callMutationError.value = ''
+  retainedUnreadCallIDs.value.add(call.id)
+  try {
+    await markMissedCallUnread(call)
+  } catch (error) {
+    retainedUnreadCallIDs.value.delete(call.id)
+    callMutationError.value = t('calls.markUnreadFailed', {
+      error: error instanceof Error ? error.message : String(error)
+    })
+  }
+}
+
+function toggleMissedCallRead(call: CallRecord): Promise<void> {
+  return call.read
+    ? markMissedCallUnreadInView(call)
+    : acknowledgeMissedCall(call)
+}
+
+async function toggleCallFavorite(call: CallRecord): Promise<void> {
+  if (favoritePendingCallID.value) return
+  favoritePendingCallID.value = call.id
+  callMutationError.value = ''
+  const favorite = !call.favorite
+  try {
+    await setCallsFavorite([call], favorite)
+    if (!favorite && favoriteOnly.value && selectedId.value === call.id) {
+      await router.replace({ name: 'calls', query: callFilterQuery() })
+    }
+  } catch (error) {
+    callMutationError.value =
+      error instanceof Error ? error.message : t('common.favoriteFailed')
+  } finally {
+    favoritePendingCallID.value = ''
+  }
+}
+
 async function removeCall(call: CallRecord): Promise<void> {
   const recordings = recordingCount(call)
   const confirmed = await requestConfirmation({
@@ -259,6 +354,91 @@ async function removeCall(call: CallRecord): Promise<void> {
   } finally {
     deletingCallID.value = ''
   }
+}
+
+async function batchSetRead(read: boolean): Promise<void> {
+  const calls = batchMissedCalls.value
+  if (batchBusy.value || calls.length === 0) return
+  batchBusy.value = true
+  callMutationError.value = ''
+  if (!read) {
+    for (const call of calls) retainedUnreadCallIDs.value.add(call.id)
+  }
+  try {
+    await updateMissedCallsReadState(calls, read)
+  } catch (error) {
+    if (!read) {
+      for (const call of calls) retainedUnreadCallIDs.value.delete(call.id)
+    }
+    callMutationError.value = read
+      ? t('calls.markReadFailed', {
+          error: error instanceof Error ? error.message : String(error)
+        })
+      : t('calls.markUnreadFailed', {
+          error: error instanceof Error ? error.message : String(error)
+        })
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+async function batchSetFavorite(favorite: boolean): Promise<void> {
+  const calls = batchCalls.value
+  if (batchBusy.value || calls.length === 0) return
+  batchBusy.value = true
+  callMutationError.value = ''
+  try {
+    await setCallsFavorite(calls, favorite)
+    if (!favorite && favoriteOnly.value) {
+      if (calls.some(call => call.id === selectedId.value)) {
+        await router.replace({ name: 'calls', query: callFilterQuery() })
+      }
+      selection.clear()
+    }
+  } catch (error) {
+    callMutationError.value =
+      error instanceof Error ? error.message : t('common.favoriteFailed')
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+async function batchDelete(): Promise<void> {
+  const calls = batchCalls.value
+  if (batchBusy.value || calls.length === 0) return
+  const recordings = calls.reduce((total, call) => total + recordingCount(call), 0)
+  const confirmed = await requestConfirmation({
+    title: t('calls.deleteSelectedTitle'),
+    message: recordings
+      ? t('calls.deleteSelectedWithRecordings', {
+          count: calls.length,
+          recordings
+        })
+      : t('calls.deleteSelectedMessage', { count: calls.length }),
+    confirmLabel: t('common.delete'),
+    tone: 'danger'
+  })
+  if (!confirmed) return
+  batchBusy.value = true
+  callMutationError.value = ''
+  try {
+    const deleted = new Set(calls.map(call => call.id))
+    await deleteCalls(calls)
+    for (const call of calls) forgetCallRecordings(call.id)
+    if (deleted.has(selectedId.value)) {
+      await router.replace({ name: 'calls', query: callFilterQuery() })
+    }
+    selection.exit()
+  } catch (error) {
+    callMutationError.value =
+      error instanceof Error ? error.message : t('calls.deleteFailed')
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+function onSelectionKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape' && selection.active.value) selection.exit()
 }
 
 function backToList(): void {
@@ -316,17 +496,40 @@ watch(lines, availableLines => {
   }
 })
 
+watch([search, lineFilterKey, favoriteOnly], () => selection.clear())
+
+watch(filteredCalls, calls => selection.reconcile(calls))
+
 watch(
   () => route.query.filter,
   value => {
-    if (!embedded.value) filter.value = callFilterFromRoute(value)
+    if (!embedded.value) {
+      filter.value = callFilterFromRoute(value)
+      retainedUnreadCallIDs.value.clear()
+      selection.clear()
+    }
+  }
+)
+
+watch(
+  () => route.query.favorite,
+  value => {
+    if (!embedded.value) favoriteOnly.value = value === '1'
   }
 )
 
 async function acknowledgeMissedCalls(): Promise<void> {
   missedReadError.value = ''
   try {
-    await markMissedCallsRead()
+    await updateMissedCallsReadState(
+      callsResource.data.filter(
+        call =>
+          call.missed &&
+          !call.read &&
+          !retainedUnreadCallIDs.value.has(call.id)
+      ),
+      true
+    )
   } catch (error) {
     missedReadError.value = t('calls.markReadFailed', {
       error: error instanceof Error ? error.message : String(error)
@@ -356,6 +559,7 @@ watch(
 )
 
 onMounted(() => {
+  window.addEventListener('keydown', onSelectionKeydown)
   void Promise.all([
     loadBootstrap(),
     loadCalls(),
@@ -363,12 +567,20 @@ onMounted(() => {
     loadRecordingEntries()
   ])
 })
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onSelectionKeydown)
+})
 </script>
 
 <template>
   <section
     class="workspace calls-workspace"
-    :class="{ 'has-selection': selected, 'is-embedded': embedded }"
+    :class="{
+      'has-selection': selected,
+      'is-embedded': embedded,
+      'is-batch-selecting': selecting
+    }"
   >
     <aside v-if="!embedded" class="list-pane">
       <header class="pane-header">
@@ -379,9 +591,16 @@ onMounted(() => {
       </header>
       <div class="pane-search pane-search--calls">
         <div class="pane-search-row">
+          <ListSelectionToggle
+            :active="selecting"
+            :label="t('common.selectMultiple')"
+            :done-label="t('common.done')"
+            :disabled="callsResource.status !== 'ready' || callsResource.data.length === 0"
+            @toggle="selection.toggleMode"
+          />
           <SearchField
             v-model="search"
-            :placeholder="t('contacts.searchNameOrNumber')"
+            :placeholder="t('common.search')"
           />
           <LineSelector
             v-if="lines.length > 1"
@@ -396,16 +615,23 @@ onMounted(() => {
             :all-description="t('calls.allLinesDescription')"
           />
         </div>
-        <div class="segmented-control" :aria-label="t('calls.filter')">
-          <button
-            v-for="item in filters"
-            :key="item.value"
-            type="button"
-            :class="{ 'is-active': filter === item.value }"
-            @click="setFilter(item.value)"
-          >
-            {{ item.label }}
-          </button>
+        <div class="calls-filter-row">
+          <div class="segmented-control" :aria-label="t('calls.filter')">
+            <button
+              v-for="item in filters"
+              :key="item.value"
+              type="button"
+              :class="{ 'is-active': filter === item.value }"
+              @click="setFilter(item.value)"
+            >
+              {{ item.label }}
+            </button>
+          </div>
+          <FavoriteFilterButton
+            :active="favoriteOnly"
+            :label="t('common.favoriteOnly')"
+            @toggle="setFavoriteFilter(!favoriteOnly)"
+          />
         </div>
       </div>
       <div
@@ -464,35 +690,111 @@ onMounted(() => {
         v-else-if="filteredCalls.length === 0"
         state="empty"
         :title="
-          search || filter !== 'all' || lineFilterKey !== 'all'
+          search || filter !== 'all' || favoriteOnly || lineFilterKey !== 'all'
             ? t('calls.noMatches')
             : t('calls.empty')
         "
       />
       <div v-else class="item-list">
-        <SwipeActionRow
+        <SelectableListRow
           v-for="call in filteredCalls"
           :key="call.id"
-          :can-read="call.missed && !call.read"
-          :read-label="t('common.markRead')"
-          :delete-label="t('common.delete')"
-          :disabled="Boolean(deletingCallID)"
-          @read="acknowledgeMissedCall(call)"
-          @delete="removeCall(call)"
+          :active="selecting"
+          :selected="selection.has(call)"
+          :label="t('common.selectItem', { name: displayName(call) })"
+          @toggle="selection.toggle(call)"
         >
-          <CallHistoryListItem
-            :call="call"
-            :name="displayName(call)"
-            :number="callDisplayNumber(call)"
-            :avatar="avatarForCall(call)"
-            :line="lineTagLine(lineForCall(call), call.line_id)"
-            :line-fallback="callLineFallback(call)"
-            :selected="call.id === selectedId"
-            :has-recording="hasPlayableRecording(call)"
-            @select="selectCall"
-          />
-        </SwipeActionRow>
+          <SwipeActionRow
+            :can-read="call.missed"
+            :read-mode="call.read ? 'unread' : 'read'"
+            :read-label="
+              call.read
+                ? t('common.markUnread')
+                : t('common.markRead')
+            "
+            :delete-label="t('common.delete')"
+            :disabled="
+              selecting ||
+              Boolean(deletingCallID) ||
+              favoritePendingCallID === call.id
+            "
+            @read="toggleMissedCallRead(call)"
+            @delete="removeCall(call)"
+          >
+            <CallHistoryListItem
+              :call="call"
+              :name="displayName(call)"
+              :number="callDisplayNumber(call)"
+              :avatar="avatarForCall(call)"
+              :line="lineTagLine(lineForCall(call), call.line_id)"
+              :line-fallback="callLineFallback(call)"
+              :selected="call.id === selectedId"
+              :has-recording="hasPlayableRecording(call)"
+              @select="selectCall"
+            />
+          </SwipeActionRow>
+        </SelectableListRow>
       </div>
+      <BatchActionBar
+        v-if="selecting"
+        :selected="selectionCount"
+        :total="filteredCalls.length"
+        :selected-label="t('common.selectedCount', { count: selectionCount })"
+        :select-all-label="t('common.selectAll')"
+        :clear-all-label="t('common.clearAll')"
+        :done-label="t('common.done')"
+        :busy="batchBusy"
+        @select-all="selection.selectAll(filteredCalls)"
+        @done="selection.exit"
+      >
+        <button
+          v-if="batchMissedCalls.length > 0"
+          type="button"
+          :disabled="batchBusy"
+          :title="batchHasUnread ? t('common.markRead') : t('common.markUnread')"
+          @click="batchSetRead(batchHasUnread)"
+        >
+          <MailOpen v-if="batchHasUnread" :size="17" />
+          <Mail v-else :size="17" />
+          <span>
+            {{ batchHasUnread ? t('common.markRead') : t('common.markUnread') }}
+          </span>
+        </button>
+        <button
+          v-if="batchCalls.length > 0"
+          type="button"
+          :disabled="batchBusy"
+          :title="
+            batchAllFavorite
+              ? t('common.unfavorite')
+              : t('common.favorite')
+          "
+          @click="batchSetFavorite(!batchAllFavorite)"
+        >
+          <Star
+            :size="17"
+            :fill="batchAllFavorite ? 'currentColor' : 'none'"
+          />
+          <span>
+            {{
+              batchAllFavorite
+                ? t('common.unfavorite')
+                : t('common.favorite')
+            }}
+          </span>
+        </button>
+        <button
+          v-if="batchCalls.length > 0"
+          class="is-danger"
+          type="button"
+          :disabled="batchBusy"
+          :title="t('common.delete')"
+          @click="batchDelete"
+        >
+          <Trash2 :size="17" />
+          <span>{{ t('common.delete') }}</span>
+        </button>
+      </BatchActionBar>
     </aside>
 
     <article class="detail-pane">
@@ -514,6 +816,24 @@ onMounted(() => {
             :line-fallback="callLineFallback(selected)"
           />
           <div class="detail-header__actions call-detail__header-actions">
+            <button
+              class="icon-button call-favorite-button"
+              :class="{ 'is-active': selected.favorite }"
+              type="button"
+              :disabled="Boolean(favoritePendingCallID)"
+              :title="
+                selected.favorite
+                  ? t('common.unfavorite')
+                  : t('common.favorite')
+              "
+              :aria-pressed="selected.favorite"
+              @click="toggleCallFavorite(selected)"
+            >
+              <Star
+                :size="18"
+                :fill="selected.favorite ? 'currentColor' : 'none'"
+              />
+            </button>
             <ContactNumberActions
               :number="selected.remote_number"
               :contact="selectedContact"
@@ -624,6 +944,18 @@ onMounted(() => {
   gap: 8px;
 }
 
+.calls-filter-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.call-favorite-button:hover:not(:disabled),
+.call-favorite-button.is-active {
+  color: #a86400;
+  background: transparent;
+}
+
 .call-detail__command {
   display: inline-flex;
   min-width: 72px;
@@ -708,4 +1040,5 @@ onMounted(() => {
     display: none;
   }
 }
+
 </style>

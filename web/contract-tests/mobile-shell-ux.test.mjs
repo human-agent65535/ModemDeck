@@ -14,8 +14,30 @@ test('mobile shell uses page context and a dedicated central dial action', async
   assert.match(shell, /class="mobile-nav__dial"/)
   assert.match(shell, /:aria-pressed="uiState\.dialerOpen \|\| activeCallPresent"/)
   assert.match(shell, /@click="openDialer\(\)"/)
-  assert.match(shell, /<span>\{\{ t\('shell\.mobileCall'\) \}\}<\/span>/)
+  assert.match(
+    shell,
+    /<span class="mobile-nav__label">\{\{ t\('shell\.mobileCall'\) \}\}<\/span>/
+  )
   assert.match(shell, /:to="\{ name: 'settings' \}"/)
+})
+
+test('mobile navigation keeps one label baseline and hides labels when space is tight', async () => {
+  const shell = await source('../src/components/AppShell.vue')
+  const styles = await source('../src/style.css')
+  const english = await source('../src/i18n/locales/en-US.ts')
+
+  assert.match(shell, /class="mobile-nav__label"/)
+  assert.match(shell, /:aria-label="item\.label"/)
+  assert.match(
+    styles,
+    /\.mobile-nav :is\(a, button\) \{[\s\S]*?grid-template-rows: minmax\(0, 1fr\) 14px;/
+  )
+  assert.match(styles, /\.mobile-nav \{[\s\S]*?grid-template-rows: 100%;/)
+  assert.match(
+    styles,
+    /@media \(max-width: 700px\) \{[\s\S]*?\.mobile-nav__label \{\s*display: none;/
+  )
+  assert.match(english, /mobileCall: 'Dial'/)
 })
 
 test('ringing calls animate the central call action and remain restorable when minimized', async () => {

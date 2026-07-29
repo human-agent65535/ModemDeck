@@ -13,12 +13,16 @@ test('thread parsing preserves only the stable line and peer identity', () => {
     iccid: '8986012345678900001',
     peer: '+1 202 555 0103',
     last_timestamp: '2026-07-24T12:00:00Z',
-    unread_count: 1
+    unread_count: 1,
+    marked_unread: false,
+    favorite: true
   })
 
   assert.equal(thread.key, 'backend-thread-key')
   assert.equal(thread.line_id, 'line-main')
   assert.equal(thread.peer, '+1 202 555 0103')
+  assert.equal(thread.marked_unread, false)
+  assert.equal(thread.favorite, true)
   assert.equal('local_phone' in thread, false)
   assert.equal('imsi' in thread, false)
   assert.equal('iccid' in thread, false)
@@ -37,11 +41,13 @@ test('call parsing preserves stable historical line identities', () => {
     started_at: '2026-07-24T12:00:00Z',
     duration_seconds: 4,
     missed: false,
-    read: true
+    read: true,
+    favorite: true
   })
 
   assert.equal(call.line_id, 'line-history')
   assert.equal(call.read, true)
+  assert.equal(call.favorite, true)
   assert.equal('local_phone' in call, false)
   assert.equal('line_iccid' in call, false)
   assert.equal('line_imsi' in call, false)

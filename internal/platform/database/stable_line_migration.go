@@ -859,6 +859,8 @@ func migrateStableMessageThreads(ctx context.Context, transaction *sql.Tx) error
 			last_content TEXT NOT NULL DEFAULT '',
 			last_type INTEGER NOT NULL DEFAULT 0,
 			unread_count INTEGER NOT NULL DEFAULT 0,
+			marked_unread NUMERIC NOT NULL DEFAULT 0,
+			is_favorite NUMERIC NOT NULL DEFAULT 0,
 			created_at DATETIME,
 			updated_at DATETIME,
 			PRIMARY KEY (line_id, peer)
@@ -881,11 +883,18 @@ func migrateStableMessageThreads(ctx context.Context, transaction *sql.Tx) error
 					WHERE identity_key = 'iccid:' || legacy.iccid
 				), '') AS line_id,
 				legacy.peer,
-				legacy.unread_count
+				legacy.unread_count,
+				legacy.marked_unread,
+				legacy.is_favorite
 			FROM sms_contacts_v1 legacy
 		),
 		thread_unread AS (
-			SELECT line_id, peer, SUM(unread_count) AS unread_count
+			SELECT
+				line_id,
+				peer,
+				SUM(unread_count) AS unread_count,
+				MAX(marked_unread) AS marked_unread,
+				MAX(is_favorite) AS is_favorite
 			FROM mapped_unread
 			WHERE line_id <> ''
 			GROUP BY line_id, peer
@@ -908,7 +917,7 @@ func migrateStableMessageThreads(ctx context.Context, transaction *sql.Tx) error
 		)
 		INSERT INTO sms_contacts (
 			line_id, imsi, iccid, peer, last_sms_id, last_timestamp, last_content,
-			last_type, unread_count, created_at, updated_at
+			last_type, unread_count, marked_unread, is_favorite, created_at, updated_at
 		)
 		SELECT
 			message.line_id,
@@ -920,6 +929,8 @@ func migrateStableMessageThreads(ctx context.Context, transaction *sql.Tx) error
 			message.content,
 			message.type,
 			COALESCE(thread_unread.unread_count, 0),
+			COALESCE(thread_unread.marked_unread, 0),
+			COALESCE(thread_unread.is_favorite, 0),
 			message.thread_created_at,
 			message.thread_updated_at
 		FROM ranked_messages message

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -12,12 +12,18 @@ import {
   UserPlus
 } from '@lucide/vue'
 import type { Contact, ContactInput } from '../api/types'
+import BatchActionBar from '../components/BatchActionBar.vue'
 import BaseAvatar from '../components/BaseAvatar.vue'
 import ContactEditor from '../components/ContactEditor.vue'
 import ContactNumberActions from '../components/ContactNumberActions.vue'
+import ListItemAvatarStatus from '../components/ListItemAvatarStatus.vue'
+import ListItemStatusRail from '../components/ListItemStatusRail.vue'
+import ListSelectionToggle from '../components/ListSelectionToggle.vue'
 import SearchField from '../components/SearchField.vue'
+import SelectableListRow from '../components/SelectableListRow.vue'
 import StatePanel from '../components/StatePanel.vue'
 import SwipeActionRow from '../components/SwipeActionRow.vue'
+import { useListSelection } from '../composables/useListSelection'
 import { requestConfirmation } from '../state/confirmation'
 import { openDialer } from '../state/ui'
 import {
@@ -26,6 +32,7 @@ import {
   contactsResource,
   contactEditingAvailable,
   deleteContact,
+  deleteContacts,
   lineKey,
   lineLabel,
   loadBootstrap,
@@ -46,6 +53,10 @@ const deleting = ref(false)
 const deleteError = ref('')
 const favoritePending = ref(false)
 const favoriteError = ref('')
+const batchBusy = ref(false)
+const selection = useListSelection<Contact>(contact => contact.id)
+const selecting = selection.active
+const selectionCount = selection.count
 
 const filteredContacts = computed(() => {
   const query = search.value.trim().toLocaleLowerCase()
@@ -78,6 +89,7 @@ const contactLines = computed(
 const defaultLineID = computed(
   () => bootstrapResource.data?.line_settings.default_line_id || ''
 )
+const batchContacts = computed(() => selection.selected(filteredContacts.value))
 
 watch(
   () => contactsResource.status,
@@ -87,6 +99,9 @@ watch(
     }
   }
 )
+
+watch(search, () => selection.clear())
+watch(filteredContacts, contacts => selection.reconcile(contacts))
 
 function selectContact(contact: Contact): void {
   void router.push({ name: 'contacts', params: { contactId: contact.id } })
@@ -143,6 +158,37 @@ async function remove(contact: Contact): Promise<void> {
   } finally {
     deleting.value = false
   }
+}
+
+async function batchDelete(): Promise<void> {
+  const contacts = batchContacts.value
+  if (batchBusy.value || contacts.length === 0) return
+  const confirmed = await requestConfirmation({
+    title: t('contacts.deleteSelectedTitle'),
+    message: t('contacts.deleteSelectedMessage', { count: contacts.length }),
+    confirmLabel: t('common.delete'),
+    tone: 'danger'
+  })
+  if (!confirmed) return
+  batchBusy.value = true
+  deleteError.value = ''
+  try {
+    const deleted = new Set(contacts.map(contact => contact.id))
+    await deleteContacts(contacts)
+    if (deleted.has(selectedId.value)) {
+      await router.replace({ name: 'contacts' })
+    }
+    selection.exit()
+  } catch (error) {
+    deleteError.value =
+      error instanceof Error ? error.message : t('contacts.deleteFailed')
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+function onSelectionKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape' && selection.active.value) selection.exit()
 }
 
 async function toggleFavorite(contact: Contact): Promise<void> {
@@ -204,13 +250,24 @@ function preferredLineName(contact: Contact): string {
 }
 
 onMounted(() => {
+  window.addEventListener('keydown', onSelectionKeydown)
   void loadBootstrap()
   void loadContacts()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onSelectionKeydown)
 })
 </script>
 
 <template>
-  <section class="workspace" :class="{ 'has-selection': selected }">
+  <section
+    class="workspace"
+    :class="{
+      'has-selection': selected,
+      'is-batch-selecting': selecting
+    }"
+  >
     <aside class="list-pane">
       <header class="pane-header">
         <div>
@@ -230,7 +287,16 @@ onMounted(() => {
         </button>
       </header>
       <div class="pane-search">
-        <SearchField v-model="search" :placeholder="t('contacts.searchNameOrNumber')" />
+        <div class="pane-search-row">
+          <ListSelectionToggle
+            :active="selecting"
+            :label="t('common.selectMultiple')"
+            :done-label="t('common.done')"
+            :disabled="contactsResource.status !== 'ready' || contactsResource.data.length === 0"
+            @toggle="selection.toggleMode"
+          />
+          <SearchField v-model="search" :placeholder="t('common.search')" />
+        </div>
       </div>
       <p v-if="deleteError" class="field-error contact-delete-error" role="alert">
         {{ deleteError }}
@@ -267,34 +333,69 @@ onMounted(() => {
         />
       </div>
       <div v-else class="item-list" role="list">
-        <SwipeActionRow
+        <SelectableListRow
           v-for="contact in filteredContacts"
           :key="contact.id"
-          :delete-label="t('common.delete')"
-          :disabled="deleting"
-          @delete="remove(contact)"
+          :active="selecting"
+          :selected="selection.has(contact)"
+          :label="t('common.selectItem', { name: contact.display_name })"
+          @toggle="selection.toggle(contact)"
         >
-          <button
-            class="list-item"
-            :class="{ 'is-selected': contact.id === selectedId }"
-            type="button"
-            @click="selectContact(contact)"
+          <SwipeActionRow
+            :delete-label="t('common.delete')"
+            :disabled="selecting || deleting"
+            @delete="remove(contact)"
           >
-            <BaseAvatar :name="contact.display_name" :src="contact.avatar" />
-            <span class="list-item__content">
-              <strong>{{ contact.display_name }}</strong>
-              <small>{{ primaryPhone(contact.phones) || t('contacts.noNumber') }}</small>
-            </span>
-            <Star
-              v-if="contact.favorite"
-              class="contact-favorite-mark"
-              :size="15"
-              fill="currentColor"
-              :aria-label="t('contacts.favorited')"
-            />
-          </button>
-        </SwipeActionRow>
+            <button
+              class="list-item"
+              :class="{ 'is-selected': contact.id === selectedId }"
+              type="button"
+              @click="selectContact(contact)"
+            >
+              <ListItemAvatarStatus>
+                <BaseAvatar :name="contact.display_name" :src="contact.avatar" />
+              </ListItemAvatarStatus>
+              <span class="list-item__content">
+                <strong>{{ contact.display_name }}</strong>
+                <small>{{ primaryPhone(contact.phones) || t('contacts.noNumber') }}</small>
+              </span>
+              <ListItemStatusRail>
+                <Star
+                  v-if="contact.favorite"
+                  class="contact-favorite-mark"
+                  :size="15"
+                  fill="currentColor"
+                  :aria-label="t('contacts.favorited')"
+                />
+              </ListItemStatusRail>
+            </button>
+          </SwipeActionRow>
+        </SelectableListRow>
       </div>
+      <BatchActionBar
+        v-if="selecting"
+        :selected="selectionCount"
+        :total="filteredContacts.length"
+        :selected-label="t('common.selectedCount', { count: selectionCount })"
+        :select-all-label="t('common.selectAll')"
+        :clear-all-label="t('common.clearAll')"
+        :done-label="t('common.done')"
+        :busy="batchBusy"
+        @select-all="selection.selectAll(filteredContacts)"
+        @done="selection.exit"
+      >
+        <button
+          v-if="batchContacts.length > 0"
+          class="is-danger"
+          type="button"
+          :disabled="batchBusy"
+          :title="t('common.delete')"
+          @click="batchDelete"
+        >
+          <Trash2 :size="17" />
+          <span>{{ t('common.delete') }}</span>
+        </button>
+      </BatchActionBar>
     </aside>
 
     <article class="detail-pane">

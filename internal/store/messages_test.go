@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -124,6 +125,104 @@ func TestMessageThreadsAssociateContactsOnlyByUnambiguousCanonicalNumber(t *test
 			"ambiguous canonical thread matched a contact: %+v",
 			byPeer["+819033334444"],
 		)
+	}
+}
+
+func TestMessageThreadBatchStateIsIndependentAndAtomic(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	ctx := context.Background()
+	if _, err := repository.database.ExecContext(
+		ctx,
+		`INSERT INTO sms_contacts (
+			line_id, imsi, iccid, peer, last_sms_id, last_timestamp, last_content, last_type,
+			unread_count
+		 ) VALUES
+			('line-main', '', '', '+818011111111', 1, '2026-07-29 01:00:00', 'one', 1, 2),
+			('line-main', '', '', '+818022222222', 2, '2026-07-29 01:01:00', 'two', 1, 0)`,
+	); err != nil {
+		t.Fatalf("seed message threads: %v", err)
+	}
+	one := MessageThreadIdentity{LineID: "line-main", Peer: "+818011111111"}
+	two := MessageThreadIdentity{LineID: "line-main", Peer: "+818022222222"}
+
+	if err := repository.UpdateMessageThreads(
+		ctx,
+		[]MessageThreadIdentity{one, two},
+		MessageThreadFavorite,
+	); err != nil {
+		t.Fatalf("favorite threads: %v", err)
+	}
+	if err := repository.UpdateMessageThreads(
+		ctx,
+		[]MessageThreadIdentity{two},
+		MessageThreadMarkUnread,
+	); err != nil {
+		t.Fatalf("mark thread unread: %v", err)
+	}
+
+	threads, err := repository.MessageThreads(ctx, ThreadQuery{})
+	if err != nil {
+		t.Fatalf("MessageThreads() error = %v", err)
+	}
+	byPeer := make(map[string]MessageThread, len(threads))
+	for _, thread := range threads {
+		byPeer[thread.Peer] = thread
+	}
+	if !byPeer[one.Peer].Favorite || !byPeer[two.Peer].Favorite {
+		t.Fatalf("favorite state = %+v", byPeer)
+	}
+	if byPeer[one.Peer].MarkedUnread || !byPeer[two.Peer].MarkedUnread {
+		t.Fatalf("manual unread state = %+v", byPeer)
+	}
+
+	if err := repository.UpdateMessageThreads(
+		ctx,
+		[]MessageThreadIdentity{one, two},
+		MessageThreadMarkRead,
+	); err != nil {
+		t.Fatalf("mark threads read: %v", err)
+	}
+	threads, err = repository.MessageThreads(ctx, ThreadQuery{})
+	if err != nil {
+		t.Fatalf("MessageThreads() after read error = %v", err)
+	}
+	for _, thread := range threads {
+		if thread.UnreadCount != 0 || thread.MarkedUnread {
+			t.Fatalf("thread remains unread: %+v", thread)
+		}
+		if !thread.Favorite {
+			t.Fatalf("read action changed favorite state: %+v", thread)
+		}
+	}
+
+	if err := repository.UpdateMessageThreads(
+		ctx,
+		[]MessageThreadIdentity{one, two},
+		MessageThreadUnfavorite,
+	); err != nil {
+		t.Fatalf("unfavorite threads: %v", err)
+	}
+	err = repository.UpdateMessageThreads(
+		ctx,
+		[]MessageThreadIdentity{
+			one,
+			{LineID: "line-main", Peer: "+818099999999"},
+		},
+		MessageThreadFavorite,
+	)
+	if !errors.Is(err, ErrMessageThreadNotFound) {
+		t.Fatalf("atomic update error = %v, want ErrMessageThreadNotFound", err)
+	}
+	threads, err = repository.MessageThreads(ctx, ThreadQuery{})
+	if err != nil {
+		t.Fatalf("MessageThreads() after rollback error = %v", err)
+	}
+	for _, thread := range threads {
+		if thread.Favorite {
+			t.Fatalf("failed batch partially changed favorite state: %+v", thread)
+		}
 	}
 }
 

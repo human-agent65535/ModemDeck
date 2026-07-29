@@ -207,6 +207,7 @@ export type RecordingEntry = {
   size_bytes: number
   failure_code?: string
   playable: boolean
+  favorite: boolean
   content_type?: string
   download_url?: string
   call: CallRecord
@@ -455,6 +456,8 @@ export type MessageThread = {
   last_timestamp: string
   last_content?: string
   unread_count: number
+  marked_unread: boolean
+  favorite: boolean
 }
 
 export type Message = {
@@ -515,6 +518,32 @@ export type MessageReadInput = {
   peer: string
 }
 
+export type MessageThreadAction =
+  | 'read'
+  | 'unread'
+  | 'favorite'
+  | 'unfavorite'
+  | 'delete'
+
+export type CallBatchAction =
+  | 'read'
+  | 'unread'
+  | 'favorite'
+  | 'unfavorite'
+  | 'delete'
+
+export type RecordingBatchAction = 'favorite' | 'unfavorite' | 'delete'
+
+export type ContactRevision = {
+  id: string
+  revision: number
+}
+
+export type RecordingIdentity = {
+  call_id: string
+  id: string
+}
+
 export type SendMessageInput = {
   thread_key?: string
   request_id?: string
@@ -535,6 +564,7 @@ export type CallRecord = {
   duration_seconds: number
   missed: boolean
   read: boolean
+  favorite: boolean
   failure_reason?: string
 }
 

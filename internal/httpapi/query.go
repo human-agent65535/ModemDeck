@@ -39,6 +39,11 @@ type contactPhoneInputRequest struct {
 	Primary bool   `json:"primary"`
 }
 
+type contactsBatchRequest struct {
+	Action   string                  `json:"action"`
+	Contacts []store.ContactRevision `json:"contacts"`
+}
+
 func decodeContactInput(response http.ResponseWriter, request *http.Request) (store.ContactInput, bool) {
 	var body contactInputRequest
 	if !decodeJSONBodyWithLimit(response, request, &body, maxContactBodyBytes) {

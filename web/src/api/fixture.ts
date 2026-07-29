@@ -131,7 +131,9 @@ const threads: MessageThread[] = [
     contact_name: 'Alex Rowan',
     last_timestamp: '2026-07-23T09:42:00Z',
     last_content: '好的，明天下午联系。',
-    unread_count: 1
+    unread_count: 1,
+    marked_unread: false,
+    favorite: true
   },
   {
     key: fixtureThreadKey('line-fixture-travel', '+1 202 555 0104'),
@@ -140,7 +142,9 @@ const threads: MessageThread[] = [
     contact_name: 'Casey Morgan',
     last_timestamp: '2026-07-22T14:18:00Z',
     last_content: 'The demo workspace is ready.',
-    unread_count: 0
+    unread_count: 0,
+    marked_unread: false,
+    favorite: false
   },
   {
     key: fixtureThreadKey('line-fixture-main', '+1 202 555 0106'),
@@ -149,7 +153,9 @@ const threads: MessageThread[] = [
     contact_name: 'Riley Quinn',
     last_timestamp: '2026-07-20T06:05:00Z',
     last_content: '收到，谢谢。',
-    unread_count: 0
+    unread_count: 0,
+    marked_unread: false,
+    favorite: false
   }
 ]
 
@@ -224,7 +230,8 @@ const calls: CallRecord[] = [
     ended_at: '2026-07-23T08:57:12Z',
     duration_seconds: 312,
     missed: false,
-    read: false
+    read: false,
+    favorite: true
   },
   {
     id: 'call-2',
@@ -235,7 +242,8 @@ const calls: CallRecord[] = [
     ended_at: '2026-07-22T11:14:31Z',
     duration_seconds: 0,
     missed: true,
-    read: false
+    read: false,
+    favorite: false
   },
   {
     id: 'call-3',
@@ -248,10 +256,12 @@ const calls: CallRecord[] = [
     ended_at: '2026-07-22T07:33:46Z',
     duration_seconds: 226,
     missed: false,
-    read: false
+    read: false,
+    favorite: false
   }
 ]
 const deletedRecordingIDs = new Set<string>()
+const favoriteRecordingCallIDs = new Set<string>(['call-1'])
 
 const diagnosticLogs: DiagnosticLogEntry[] = [
   {
@@ -1209,6 +1219,14 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       contacts.splice(index, 1)
     },
 
+    async deleteContacts(items): Promise<void> {
+      for (const item of items) {
+        const index = contacts.findIndex(contact => contact.id === item.id)
+        if (index < 0) throw new ApiError('联系人不存在', 404)
+        contacts.splice(index, 1)
+      }
+    },
+
     async listThreads(query: ListQuery = {}): Promise<MessageThread[]> {
       const q = normalizedQuery(query)
       return clone(
@@ -1239,7 +1257,38 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
 
     async markThreadRead(query: MessageReadInput): Promise<void> {
       const thread = fixtureThreadForQuery(query)
-      if (thread) thread.unread_count = 0
+      if (thread) {
+        thread.unread_count = 0
+        thread.marked_unread = false
+      }
+    },
+
+    async updateMessageThreads(action, inputs): Promise<void> {
+      for (const input of inputs) {
+        const thread = fixtureThreadForQuery(input)
+        if (!thread) throw new ApiError('短信会话不存在', 404)
+        switch (action) {
+          case 'read':
+            thread.unread_count = 0
+            thread.marked_unread = false
+            break
+          case 'unread':
+            thread.marked_unread = true
+            break
+          case 'favorite':
+            thread.favorite = true
+            break
+          case 'unfavorite':
+            thread.favorite = false
+            break
+          case 'delete': {
+            const index = threads.findIndex(item => item.key === thread.key)
+            if (index >= 0) threads.splice(index, 1)
+            delete messagesByThread[thread.key]
+            break
+          }
+        }
+      }
     },
 
     async deleteThread(query: MessageReadInput): Promise<void> {
@@ -1270,7 +1319,9 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           peer: input.to,
           contact_name: contact?.display_name,
           last_timestamp: '2026-07-23T12:00:00Z',
-          unread_count: 0
+          unread_count: 0,
+          marked_unread: false,
+          favorite: false
         }
         threads.unshift(thread)
         messagesByThread[key] = []
@@ -1315,6 +1366,19 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       const call = calls.find(item => item.id === id)
       if (!call) throw new ApiError('通话记录不存在', 404)
       if (call.missed) call.read = true
+    },
+
+    async updateCalls(action, ids): Promise<void> {
+      for (const id of ids) {
+        const index = calls.findIndex(call => call.id === id)
+        if (index < 0) throw new ApiError('通话记录不存在', 404)
+        const call = calls[index]
+        if (!call) continue
+        if (action === 'delete') calls.splice(index, 1)
+        else if (action === 'favorite' || action === 'unfavorite') {
+          call.favorite = action === 'favorite'
+        } else if (call.missed) call.read = action === 'read'
+      }
     },
 
     async deleteCall(id: string): Promise<void> {
@@ -1455,6 +1519,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
               duration_seconds: 1,
               size_bytes: 16044,
               playable: true,
+              favorite: favoriteRecordingCallIDs.has(call.id),
               content_type: 'audio/wav',
               download_url: recordingFixtureURL(),
               call
@@ -1568,6 +1633,21 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         throw new ApiError('录音不存在', 404)
       }
       deletedRecordingIDs.add(recordingID)
+    },
+
+    async updateRecordings(action, recordings): Promise<void> {
+      for (const recording of recordings) {
+        if (!calls.some(call => call.id === recording.call_id)) {
+          throw new ApiError('通话记录不存在', 404)
+        }
+        if (action === 'delete') {
+          deletedRecordingIDs.add(recording.id)
+        } else if (action === 'favorite') {
+          favoriteRecordingCallIDs.add(recording.call_id)
+        } else {
+          favoriteRecordingCallIDs.delete(recording.call_id)
+        }
+      }
     },
 
     async listDevices(): Promise<Device[]> {

@@ -296,9 +296,11 @@ onBeforeUnmount(() => {
         :key="item.name"
         :class="{ 'is-current': route.name === item.name }"
         :to="{ name: item.name }"
+        :title="item.label"
+        :aria-label="item.label"
       >
         <component :is="item.icon" :size="21" />
-        <span>{{ item.label }}</span>
+        <span class="mobile-nav__label">{{ item.label }}</span>
       </RouterLink>
       <button
         class="mobile-nav__dial"
@@ -326,23 +328,27 @@ onBeforeUnmount(() => {
           />
           <PhoneCall :size="23" />
         </span>
-        <span>{{ t('shell.mobileCall') }}</span>
+        <span class="mobile-nav__label">{{ t('shell.mobileCall') }}</span>
       </button>
       <RouterLink
         v-for="item in mobileNavAfterDial"
         :key="item.name"
         :class="{ 'is-current': route.name === item.name }"
         :to="{ name: item.name }"
+        :title="item.label"
+        :aria-label="item.label"
       >
         <component :is="item.icon" :size="21" />
-        <span>{{ item.label }}</span>
+        <span class="mobile-nav__label">{{ item.label }}</span>
       </RouterLink>
       <RouterLink
         :class="{ 'is-current': route.name === 'settings' }"
         :to="{ name: 'settings' }"
+        :title="t('shell.settings')"
+        :aria-label="t('shell.settings')"
       >
         <Settings :size="21" />
-        <span>{{ t('shell.settings') }}</span>
+        <span class="mobile-nav__label">{{ t('shell.settings') }}</span>
       </RouterLink>
     </nav>
 

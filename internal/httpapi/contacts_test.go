@@ -86,6 +86,43 @@ func TestUpdateAndDeleteContactCarryRevision(t *testing.T) {
 	}
 }
 
+func TestDeleteContactsCarriesEveryRevision(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeRepository{}
+	api, err := New(repository, Options{disableAuthentication: true})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/v1/contacts/batch",
+		bytes.NewBufferString(
+			`{"action":"delete","contacts":[{"id":"contact-1","revision":3},{"id":"contact-2","revision":8}]}`,
+		),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body = %s", response.Code, response.Body.String())
+	}
+	want := []store.ContactRevision{
+		{ID: "contact-1", Revision: 3},
+		{ID: "contact-2", Revision: 8},
+	}
+	if len(repository.deleteContacts) != len(want) {
+		t.Fatalf("contacts = %+v, want %+v", repository.deleteContacts, want)
+	}
+	for index := range want {
+		if repository.deleteContacts[index] != want[index] {
+			t.Fatalf("contact %d = %+v, want %+v", index, repository.deleteContacts[index], want[index])
+		}
+	}
+}
+
 func TestContactWriteValidationAndErrors(t *testing.T) {
 	t.Parallel()
 

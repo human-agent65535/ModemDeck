@@ -60,11 +60,14 @@ test('communication and Telegram endpoints match the root API', () => {
   assert.deepEqual(communicationPaths, {
     messages: '/api/v1/messages',
     messageThreads: '/api/v1/messages/threads',
+    messageThreadState: '/api/v1/messages/threads/state',
     messageRead: '/api/v1/messages/read',
     calls: '/api/v1/calls',
+    callsBatch: '/api/v1/calls/batch',
     missedCallsRead: '/api/v1/calls/missed/read',
     activeCalls: '/api/v1/calls/active',
     recordings: '/api/v1/recordings',
+    recordingsBatch: '/api/v1/recordings/batch',
     callSettings: '/api/v1/settings/calls',
     recordingSettings: '/api/v1/settings/recording',
     telegram: '/api/v1/settings/telegram'
@@ -102,6 +105,11 @@ test('communication and Telegram endpoints match the root API', () => {
     path: '/api/v1/messages/threads',
     successStatus: 204
   })
+  assert.deepEqual(communicationContracts.updateMessageThreads, {
+    method: 'PATCH',
+    path: '/api/v1/messages/threads/state',
+    successStatus: 204
+  })
   assert.deepEqual(communicationContracts.startCall, {
     method: 'POST',
     path: '/api/v1/calls',
@@ -110,6 +118,11 @@ test('communication and Telegram endpoints match the root API', () => {
   assert.deepEqual(communicationContracts.markMissedCallsRead, {
     method: 'PATCH',
     path: '/api/v1/calls/missed/read',
+    successStatus: 204
+  })
+  assert.deepEqual(communicationContracts.updateCalls, {
+    method: 'PATCH',
+    path: '/api/v1/calls/batch',
     successStatus: 204
   })
   assert.deepEqual(communicationContracts.activeCalls, {
@@ -121,6 +134,11 @@ test('communication and Telegram endpoints match the root API', () => {
     method: 'GET',
     path: '/api/v1/recordings',
     successStatus: 200
+  })
+  assert.deepEqual(communicationContracts.updateRecordings, {
+    method: 'PATCH',
+    path: '/api/v1/recordings/batch',
+    successStatus: 204
   })
   assert.deepEqual(communicationContracts.getRecordingSettings, {
     method: 'GET',
@@ -430,7 +448,8 @@ test('recording metadata derives same-origin authenticated API downloads', () =>
     size_bytes: 123456,
     created_at: '2026-07-23T12:00:03Z'
   }
-  assert.deepEqual(parseCallRecordingsResponse({ segments: [segment] }), [
+  const parsedSegments = parseCallRecordingsResponse({ segments: [segment] })
+  assert.deepEqual(parsedSegments, [
     {
       id: 'recording-1',
       call_id: 'call-1',
@@ -446,6 +465,7 @@ test('recording metadata derives same-origin authenticated API downloads', () =>
       download_url: '/api/v1/calls/call-1/recordings/recording-1/download'
     }
   ])
+  assert.equal('favorite' in parsedSegments[0], false)
   assert.deepEqual(
     parseCallRecordingsResponse({
       segments: [{ ...segment, status: 'recording', ended_at: undefined }]
@@ -490,7 +510,7 @@ test('recording aggregation preserves call metadata and only exposes ready downl
     created_at: '2026-07-23T12:00:03Z'
   }
   const [recording] = parseRecordingEntriesResponse({
-    recordings: [{ segment, call, playable: true }]
+    recordings: [{ segment, call, playable: true, favorite: true }]
   })
   assert.deepEqual(recording, {
     id: 'segment-1',
@@ -503,6 +523,7 @@ test('recording aggregation preserves call metadata and only exposes ready downl
     duration_seconds: 60,
     size_bytes: 123456,
     playable: true,
+    favorite: true,
     content_type: 'audio/ogg; codecs=opus',
     download_url: '/api/v1/calls/call-1/recordings/segment-1/download',
     call: {
@@ -517,6 +538,7 @@ test('recording aggregation preserves call metadata and only exposes ready downl
       duration_seconds: 120,
       missed: false,
       read: false,
+      favorite: false,
       failure_reason: undefined
     }
   })
@@ -530,7 +552,8 @@ test('recording aggregation preserves call metadata and only exposes ready downl
         failure_code: 'interrupted'
       },
       call,
-      playable: false
+      playable: false,
+      favorite: false
     }]
   })
   assert.equal(failed.playable, false)
@@ -540,7 +563,12 @@ test('recording aggregation preserves call metadata and only exposes ready downl
   assert.throws(
     () =>
       parseRecordingEntriesResponse({
-        recordings: [{ segment: { ...segment, status: 'recording' }, call, playable: true }]
+        recordings: [{
+          segment: { ...segment, status: 'recording' },
+          call,
+          playable: true,
+          favorite: false
+        }]
       }),
     /playable/
   )

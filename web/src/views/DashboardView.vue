@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -10,13 +10,17 @@ import {
   House,
   Inbox,
   LoaderCircle,
+  Mail,
+  MailOpen,
   MessageSquareText,
   Phone,
   PhoneMissed,
   RadioTower,
   Star,
+  Trash2,
   UserPlus
 } from '@lucide/vue'
+import BatchActionBar from '../components/BatchActionBar.vue'
 import type {
   CallRecord,
   Contact,
@@ -29,9 +33,12 @@ import CallHistoryListItem from '../components/CallHistoryListItem.vue'
 import ContactEditor from '../components/ContactEditor.vue'
 import MessageThreadListItem from '../components/MessageThreadListItem.vue'
 import ModuleCard from '../components/ModuleCard.vue'
+import ListSelectionToggle from '../components/ListSelectionToggle.vue'
+import SelectableListRow from '../components/SelectableListRow.vue'
 import StatePanel from '../components/StatePanel.vue'
 import SwipeActionRow from '../components/SwipeActionRow.vue'
 import TrafficSummary from '../components/TrafficSummary.vue'
+import { useListSelection } from '../composables/useListSelection'
 import { requestConfirmation } from '../state/confirmation'
 import { selectDeviceConfiguration } from '../state/deviceConfiguration'
 import { loadNetwork, networkState } from '../state/network'
@@ -51,7 +58,9 @@ import {
   contactForNumber,
   contactsResource,
   deleteCall,
+  deleteCalls,
   deleteMessageThread,
+  deleteMessageThreads,
   devicesResource,
   displayPhoneNumber,
   displayModuleLines,
@@ -64,12 +73,19 @@ import {
   loadDevices,
   loadThreads,
   markMissedCallRead,
+  markMissedCallUnread,
   markThreadRead,
+  markThreadsRead,
+  markThreadsUnread,
   presentModuleLines,
   recentIncomingThreadKeys,
   saveContact,
+  setCallsFavorite,
+  setThreadsFavorite,
   threadReadErrors,
-  threadsResource
+  threadIsUnread,
+  threadsResource,
+  updateMissedCallsReadState
 } from '../state/workspace'
 import {
   isMessagingServiceReady,
@@ -129,8 +145,16 @@ const contactSaving = ref(false)
 const contactEditorError = ref('')
 const activityMutationError = ref('')
 const deletingActivityKey = ref('')
+const batchBusy = ref(false)
+const selection = useListSelection<DashboardActivity>(activity => activity.key)
+const selecting = selection.active
+const selectionCount = selection.count
 const unreadMessages = computed(() =>
-  threadsResource.data.reduce((total, thread) => total + thread.unread_count, 0)
+  threadsResource.data.reduce(
+    (total, thread) =>
+      total + Math.max(thread.unread_count, thread.marked_unread ? 1 : 0),
+    0
+  )
 )
 const missedCalls = computed(
   () => callsResource.data.filter(call => call.missed && !call.read).length
@@ -196,6 +220,40 @@ const activities = computed<DashboardActivity[]>(() => {
     .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
     .slice(0, 30)
 })
+const batchActivities = computed(() => selection.selected(activities.value))
+const batchMessageActivities = computed(() =>
+  batchActivities.value.filter(
+    (activity): activity is Extract<DashboardActivity, { kind: 'message' }> =>
+      activity.kind === 'message'
+  )
+)
+const batchCallActivities = computed(() =>
+  batchActivities.value.filter(
+    (activity): activity is Extract<DashboardActivity, { kind: 'call' }> =>
+      activity.kind === 'call'
+  )
+)
+const batchMissedCallActivities = computed(() =>
+  batchCallActivities.value.filter(activity => activity.call.missed)
+)
+const batchHasReadState = computed(
+  () =>
+    batchMessageActivities.value.length > 0 ||
+    batchMissedCallActivities.value.length > 0
+)
+const batchHasUnread = computed(
+  () =>
+    batchMessageActivities.value.some(activity =>
+      threadIsUnread(activity.thread)
+    ) ||
+    batchMissedCallActivities.value.some(activity => !activity.call.read)
+)
+const batchAllFavorite = computed(
+  () =>
+    batchActivities.value.length > 0 &&
+    batchMessageActivities.value.every(activity => activity.thread.favorite) &&
+    batchCallActivities.value.every(activity => activity.call.favorite)
+)
 
 const selectedActivity = computed(() =>
   activities.value.find(activity => activity.key === selectionKey.value)
@@ -291,9 +349,13 @@ function threadLineFallback(thread: MessageThread): string {
   )
 }
 
-function activityCanRead(activity: DashboardActivity): boolean {
+function activityHasReadState(activity: DashboardActivity): boolean {
+  return activity.kind === 'message' || activity.call.missed
+}
+
+function activityIsUnread(activity: DashboardActivity): boolean {
   return activity.kind === 'message'
-    ? activity.thread.unread_count > 0
+    ? threadIsUnread(activity.thread)
     : activity.call.missed && !activity.call.read
 }
 
@@ -325,6 +387,29 @@ async function markActivityRead(activity: DashboardActivity): Promise<void> {
       error: error instanceof Error ? error.message : String(error)
     })
   }
+}
+
+async function markActivityUnread(activity: DashboardActivity): Promise<void> {
+  activityMutationError.value = ''
+  try {
+    if (activity.kind === 'message') {
+      await markThreadsUnread([activity.thread])
+      if (selectionKey.value === activity.key) {
+        await router.replace({ name: 'dashboard' })
+      }
+    } else {
+      await markMissedCallUnread(activity.call)
+    }
+  } catch (error) {
+    activityMutationError.value =
+      error instanceof Error ? error.message : t('runtime.requestFailed')
+  }
+}
+
+function toggleActivityRead(activity: DashboardActivity): Promise<void> {
+  return activityIsUnread(activity)
+    ? markActivityRead(activity)
+    : markActivityUnread(activity)
 }
 
 async function removeActivity(activity: DashboardActivity): Promise<void> {
@@ -375,6 +460,108 @@ async function removeActivity(activity: DashboardActivity): Promise<void> {
   } finally {
     deletingActivityKey.value = ''
   }
+}
+
+async function batchSetRead(read: boolean): Promise<void> {
+  if (batchBusy.value || batchActivities.value.length === 0) return
+  const threads = batchMessageActivities.value.map(activity => activity.thread)
+  const calls = batchMissedCallActivities.value.map(activity => activity.call)
+  if (threads.length === 0 && calls.length === 0) return
+  batchBusy.value = true
+  activityMutationError.value = ''
+  try {
+    await Promise.all([
+      read ? markThreadsRead(threads) : markThreadsUnread(threads),
+      updateMissedCallsReadState(calls, read)
+    ])
+    if (
+      !read &&
+      batchMessageActivities.value.some(activity => activity.key === selectionKey.value)
+    ) {
+      await router.replace({ name: 'dashboard' })
+    }
+  } catch (error) {
+    activityMutationError.value =
+      error instanceof Error ? error.message : t('runtime.requestFailed')
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+async function batchSetFavorite(favorite: boolean): Promise<void> {
+  if (batchBusy.value || batchActivities.value.length === 0) return
+  batchBusy.value = true
+  activityMutationError.value = ''
+  try {
+    await Promise.all([
+      setThreadsFavorite(
+        batchMessageActivities.value.map(activity => activity.thread),
+        favorite
+      ),
+      setCallsFavorite(
+        batchCallActivities.value.map(activity => activity.call),
+        favorite
+      )
+    ])
+  } catch (error) {
+    activityMutationError.value =
+      error instanceof Error ? error.message : t('common.favoriteFailed')
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+async function batchDelete(): Promise<void> {
+  const selected = batchActivities.value
+  if (batchBusy.value || selected.length === 0) return
+  const calls = selected
+    .filter(
+      (activity): activity is Extract<DashboardActivity, { kind: 'call' }> =>
+        activity.kind === 'call'
+    )
+    .map(activity => activity.call)
+  const threads = selected
+    .filter(
+      (activity): activity is Extract<DashboardActivity, { kind: 'message' }> =>
+        activity.kind === 'message'
+    )
+    .map(activity => activity.thread)
+  const recordings = calls.reduce((total, call) => total + recordingCount(call), 0)
+  const confirmed = await requestConfirmation({
+    title: t('dashboard.deleteSelectedTitle'),
+    message: recordings
+      ? t('dashboard.deleteSelectedWithRecordings', {
+          count: selected.length,
+          recordings
+        })
+      : t('dashboard.deleteSelectedMessage', { count: selected.length }),
+    confirmLabel: t('common.delete'),
+    tone: 'danger'
+  })
+  if (!confirmed) return
+  batchBusy.value = true
+  activityMutationError.value = ''
+  try {
+    const deletedKeys = new Set(selected.map(activity => activity.key))
+    await Promise.all([
+      deleteMessageThreads(threads),
+      deleteCalls(calls)
+    ])
+    for (const call of calls) forgetCallRecordings(call.id)
+    if (deletedKeys.has(selectionKey.value)) {
+      await router.replace({ name: 'dashboard' })
+    }
+    selection.exit()
+  } catch (error) {
+    activityMutationError.value =
+      error instanceof Error ? error.message : t('runtime.requestFailed')
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+function onSelectionKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape' && selection.active.value) selection.exit()
 }
 
 function selectOverview(): void {
@@ -492,19 +679,39 @@ function loadDashboard(): void {
   ])
 }
 
+watch(activities, items => selection.reconcile(items))
+
 onMounted(() => {
+  window.addEventListener('keydown', onSelectionKeydown)
   loadDashboard()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onSelectionKeydown)
 })
 </script>
 
 <template>
-  <section class="workspace dashboard-workspace" :class="{ 'has-selection': hasSelection }">
+  <section
+    class="workspace dashboard-workspace"
+    :class="{
+      'has-selection': hasSelection,
+      'is-batch-selecting': selecting
+    }"
+  >
     <aside class="list-pane dashboard-activity-pane">
       <header class="pane-header">
         <div>
           <h1>{{ t('dashboard.activity') }}</h1>
           <span v-if="!activityLoading">{{ activities.length }}</span>
         </div>
+        <ListSelectionToggle
+          :active="selecting"
+          :label="t('common.selectMultiple')"
+          :done-label="t('common.done')"
+          :disabled="activities.length === 0"
+          @toggle="selection.toggleMode"
+        />
         <button
           class="icon-button dashboard-activity-action"
           type="button"
@@ -580,42 +787,122 @@ onMounted(() => {
             {{ t('common.retry') }}
           </button>
         </div>
-        <SwipeActionRow
+        <SelectableListRow
           v-for="activity in activities"
           :key="activity.key"
-          :can-read="activityCanRead(activity)"
-          :read-label="t('common.markRead')"
-          :delete-label="t('common.delete')"
-          :disabled="Boolean(deletingActivityKey)"
-          @read="markActivityRead(activity)"
-          @delete="removeActivity(activity)"
+          :active="selecting"
+          :selected="selection.has(activity)"
+          :label="
+            t('common.selectItem', {
+              name:
+                activity.kind === 'message'
+                  ? threadName(activity.thread)
+                  : callName(activity.call)
+            })
+          "
+          @toggle="selection.toggle(activity)"
         >
-          <MessageThreadListItem
-            v-if="activity.kind === 'message'"
-            :thread="activity.thread"
-            :name="threadName(activity.thread)"
-            :peer="displayPhoneNumber(activity.thread.peer, activity.thread.line_id)"
-            :avatar="avatarForNumber(activity.thread.peer)"
-            :line="lineTagLine(lineForThread(activity.thread), activity.thread.line_id)"
-            :line-fallback="threadLineFallback(activity.thread)"
-            :selected="selectionKey === activity.key"
-            :arriving="recentIncomingThreadKeys[activity.thread.key]"
-            @select="selectActivity(activity)"
-          />
-          <CallHistoryListItem
-            v-else
-            :call="activity.call"
-            :name="callName(activity.call)"
-            :number="displayPhoneNumber(activity.call.remote_number, activity.call.line_id)"
-            :avatar="avatarForNumber(activity.call.remote_number)"
-            :line="lineTagLine(lineForCall(activity.call), activity.call.line_id)"
-            :line-fallback="callLineFallback(activity.call)"
-            :selected="selectionKey === activity.key"
-            :has-recording="hasPlayableRecording(activity.call)"
-            @select="selectActivity(activity)"
-          />
-        </SwipeActionRow>
+          <SwipeActionRow
+            :can-read="activityHasReadState(activity)"
+            :read-mode="activityIsUnread(activity) ? 'read' : 'unread'"
+            :read-label="
+              activityIsUnread(activity)
+                ? t('common.markRead')
+                : t('common.markUnread')
+            "
+            :delete-label="t('common.delete')"
+            :disabled="selecting || Boolean(deletingActivityKey)"
+            @read="toggleActivityRead(activity)"
+            @delete="removeActivity(activity)"
+          >
+            <MessageThreadListItem
+              v-if="activity.kind === 'message'"
+              :thread="activity.thread"
+              :name="threadName(activity.thread)"
+              :peer="displayPhoneNumber(activity.thread.peer, activity.thread.line_id)"
+              :avatar="avatarForNumber(activity.thread.peer)"
+              :line="lineTagLine(lineForThread(activity.thread), activity.thread.line_id)"
+              :line-fallback="threadLineFallback(activity.thread)"
+              :selected="selectionKey === activity.key"
+              :arriving="recentIncomingThreadKeys[activity.thread.key]"
+              :favorite-interactive="false"
+              @select="selectActivity(activity)"
+            />
+            <CallHistoryListItem
+              v-else
+              :call="activity.call"
+              :name="callName(activity.call)"
+              :number="displayPhoneNumber(activity.call.remote_number, activity.call.line_id)"
+              :avatar="avatarForNumber(activity.call.remote_number)"
+              :line="lineTagLine(lineForCall(activity.call), activity.call.line_id)"
+              :line-fallback="callLineFallback(activity.call)"
+              :selected="selectionKey === activity.key"
+              :has-recording="hasPlayableRecording(activity.call)"
+              @select="selectActivity(activity)"
+            />
+          </SwipeActionRow>
+        </SelectableListRow>
       </div>
+      <BatchActionBar
+        v-if="selecting"
+        :selected="selectionCount"
+        :total="activities.length"
+        :selected-label="t('common.selectedCount', { count: selectionCount })"
+        :select-all-label="t('common.selectAll')"
+        :clear-all-label="t('common.clearAll')"
+        :done-label="t('common.done')"
+        :busy="batchBusy"
+        @select-all="selection.selectAll(activities)"
+        @done="selection.exit"
+      >
+        <button
+          v-if="batchHasReadState"
+          type="button"
+          :disabled="batchBusy"
+          :title="batchHasUnread ? t('common.markRead') : t('common.markUnread')"
+          @click="batchSetRead(batchHasUnread)"
+        >
+          <MailOpen v-if="batchHasUnread" :size="17" />
+          <Mail v-else :size="17" />
+          <span>
+            {{ batchHasUnread ? t('common.markRead') : t('common.markUnread') }}
+          </span>
+        </button>
+        <button
+          v-if="batchActivities.length > 0"
+          type="button"
+          :disabled="batchBusy"
+          :title="
+            batchAllFavorite
+              ? t('common.unfavorite')
+              : t('common.favorite')
+          "
+          @click="batchSetFavorite(!batchAllFavorite)"
+        >
+          <Star
+            :size="17"
+            :fill="batchAllFavorite ? 'currentColor' : 'none'"
+          />
+          <span>
+            {{
+              batchAllFavorite
+                ? t('common.unfavorite')
+                : t('common.favorite')
+            }}
+          </span>
+        </button>
+        <button
+          v-if="batchActivities.length > 0"
+          class="is-danger"
+          type="button"
+          :disabled="batchBusy"
+          :title="t('common.delete')"
+          @click="batchDelete"
+        >
+          <Trash2 :size="17" />
+          <span>{{ t('common.delete') }}</span>
+        </button>
+      </BatchActionBar>
     </aside>
 
     <MessagesView

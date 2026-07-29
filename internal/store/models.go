@@ -59,6 +59,11 @@ type ContactPhoneInput struct {
 	Primary bool   `json:"primary"`
 }
 
+type ContactRevision struct {
+	ID       string `json:"id"`
+	Revision int64  `json:"revision"`
+}
+
 type ThreadQuery struct {
 	Search string
 	Limit  int
@@ -78,6 +83,8 @@ type MessageThread struct {
 	LastContent   string `json:"last_content"`
 	LastType      int64  `json:"last_type"`
 	UnreadCount   int64  `json:"unread_count"`
+	MarkedUnread  bool   `json:"marked_unread"`
+	Favorite      bool   `json:"favorite"`
 }
 
 type MessageQuery struct {
@@ -92,6 +99,16 @@ type MessageThreadIdentity struct {
 	LineID string
 	Peer   string
 }
+
+type MessageThreadAction string
+
+const (
+	MessageThreadMarkRead   MessageThreadAction = "read"
+	MessageThreadMarkUnread MessageThreadAction = "unread"
+	MessageThreadFavorite   MessageThreadAction = "favorite"
+	MessageThreadUnfavorite MessageThreadAction = "unfavorite"
+	MessageThreadDelete     MessageThreadAction = "delete"
+)
 
 type Message struct {
 	ID                int64  `json:"id"`
@@ -168,6 +185,7 @@ type Call struct {
 	DurationSeconds      int64   `json:"duration_seconds"`
 	Missed               bool    `json:"missed"`
 	Read                 bool    `json:"read"`
+	Favorite             bool    `json:"favorite"`
 }
 
 type Device struct {

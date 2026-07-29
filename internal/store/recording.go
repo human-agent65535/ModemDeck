@@ -107,6 +107,12 @@ type RecordingEntry struct {
 	Segment  RecordingSegment `json:"segment"`
 	Call     RecordingCall    `json:"call"`
 	Playable bool             `json:"playable"`
+	Favorite bool             `json:"favorite"`
+}
+
+type RecordingIdentity struct {
+	CallID string
+	ID     string
 }
 
 func (s *Store) RecordingSettings(ctx context.Context) (RecordingSettings, error) {
@@ -682,13 +688,15 @@ func (s *Store) RecordingEntries(
 		recording.started_at, recording.ended_at, recording.duration_ms,
 		recording.size_bytes, recording.relative_path, recording.failure_code,
 		recording.created_at, recording.updated_at,
+		COALESCE(state.is_favorite, 0),
 		call.line_id, call.endpoint_line_id, call.local_phone, call.line_imsi, call.line_iccid,
 		call.direction, call.remote_number,
 		%s, %s,
 		call.created_at, call.active_at, call.ended_at,
 		call.end_reason, call.failure_code
 		FROM modemdeck_call_recordings recording
-		JOIN call_history call ON call.id = recording.call_id`,
+		JOIN call_history call ON call.id = recording.call_id
+		LEFT JOIN modemdeck_call_recording_state state ON state.call_id = call.id`,
 		fmt.Sprintf(contactIDForNumberSQL, "call.remote_number"),
 		fmt.Sprintf(contactNameForNumberSQL, "call.remote_number"),
 	)
@@ -751,6 +759,90 @@ func (s *Store) RecordingEntries(
 	return entries, rowsError("read recording entries", rows.Err())
 }
 
+func (s *Store) SetRecordingFavorites(
+	ctx context.Context,
+	recordings []RecordingIdentity,
+	favorite bool,
+) error {
+	normalized := make([]RecordingIdentity, 0, len(recordings))
+	seen := make(map[string]struct{}, len(recordings))
+	for _, recording := range recordings {
+		recording.CallID = strings.TrimSpace(recording.CallID)
+		recording.ID = strings.TrimSpace(recording.ID)
+		if !validRecordingIdentifier(recording.CallID) ||
+			!validRecordingIdentifier(recording.ID) {
+			return ErrRecordingValidation
+		}
+		key := recording.CallID + "\x00" + recording.ID
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		normalized = append(normalized, recording)
+	}
+	if len(normalized) == 0 || len(normalized) > 100 {
+		return ErrRecordingValidation
+	}
+
+	transaction, err := s.database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin recording favorite update: %w", err)
+	}
+	defer transaction.Rollback()
+
+	callIDs := make([]string, 0, len(normalized))
+	seenCalls := make(map[string]struct{}, len(normalized))
+	for _, recording := range normalized {
+		var exists int
+		if err := transaction.QueryRowContext(
+			ctx,
+			`SELECT EXISTS(
+				SELECT 1 FROM modemdeck_call_recordings
+				WHERE call_id = ? AND id = ?
+			 )`,
+			recording.CallID,
+			recording.ID,
+		).Scan(&exists); err != nil {
+			return fmt.Errorf("inspect recording favorite target: %w", err)
+		}
+		if exists == 0 {
+			return ErrRecordingNotFound
+		}
+		if _, exists := seenCalls[recording.CallID]; exists {
+			continue
+		}
+		seenCalls[recording.CallID] = struct{}{}
+		callIDs = append(callIDs, recording.CallID)
+	}
+
+	arguments := make([]any, 0, len(callIDs)+1)
+	arguments = append(arguments, favorite)
+	for _, callID := range callIDs {
+		arguments = append(arguments, callID)
+	}
+	result, err := transaction.ExecContext(
+		ctx,
+		`UPDATE modemdeck_call_recording_state
+		 SET is_favorite = ?, updated_at = CURRENT_TIMESTAMP
+		 WHERE call_id IN (`+placeholders(len(callIDs))+`)`,
+		arguments...,
+	)
+	if err != nil {
+		return fmt.Errorf("update recording favorite state: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read recording favorite update result: %w", err)
+	}
+	if affected != int64(len(callIDs)) {
+		return ErrRecordingNotFound
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit recording favorite update: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) RecordingSegment(
 	ctx context.Context,
 	callID, segmentID string,
@@ -772,7 +864,13 @@ func (s *Store) DeleteRecordingSegment(
 	if !validRecordingIdentifier(callID) || !validRecordingIdentifier(segmentID) {
 		return ErrRecordingValidation
 	}
-	result, err := s.database.ExecContext(
+	transaction, err := s.database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin recording segment deletion: %w", err)
+	}
+	defer transaction.Rollback()
+
+	result, err := transaction.ExecContext(
 		ctx,
 		`DELETE FROM modemdeck_call_recordings
 		 WHERE call_id = ? AND id = ? AND status NOT IN (?, ?)`,
@@ -789,10 +887,27 @@ func (s *Store) DeleteRecordingSegment(
 		return fmt.Errorf("read deleted recording segment count: %w", err)
 	}
 	if affected == 1 {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`UPDATE modemdeck_call_recording_state
+			 SET is_favorite = 0, updated_at = CURRENT_TIMESTAMP
+			 WHERE call_id = ?
+			 AND NOT EXISTS (
+				SELECT 1 FROM modemdeck_call_recordings
+				WHERE call_id = ?
+			 )`,
+			callID,
+			callID,
+		); err != nil {
+			return fmt.Errorf("clear empty recording favorite state: %w", err)
+		}
+		if err := transaction.Commit(); err != nil {
+			return fmt.Errorf("commit recording segment deletion: %w", err)
+		}
 		return nil
 	}
 	var status string
-	err = s.database.QueryRowContext(
+	err = transaction.QueryRowContext(
 		ctx,
 		`SELECT status FROM modemdeck_call_recordings
 		 WHERE call_id = ? AND id = ?`,
@@ -1100,6 +1215,7 @@ func scanRecordingEntry(scanner recordingSegmentScanner) (RecordingEntry, error)
 		segmentFailure, segmentCreated, segmentUpdate sql.NullString
 		segmentIndex, durationMS, sizeBytes           sql.NullInt64
 		segmentStatus                                 sql.NullString
+		favorite                                      sql.NullInt64
 		lineID, endpointLineID, localPhone            sql.NullString
 		lineIMSI, lineICCID                           sql.NullString
 		direction, remoteNumber                       sql.NullString
@@ -1119,6 +1235,7 @@ func scanRecordingEntry(scanner recordingSegmentScanner) (RecordingEntry, error)
 		&segmentFailure,
 		&segmentCreated,
 		&segmentUpdate,
+		&favorite,
 		&lineID,
 		&endpointLineID,
 		&localPhone,
@@ -1148,6 +1265,7 @@ func scanRecordingEntry(scanner recordingSegmentScanner) (RecordingEntry, error)
 	entry.Segment.UpdatedAt = stringValue(segmentUpdate)
 	entry.Playable = entry.Segment.Status == RecordingSegmentReady &&
 		entry.Segment.RelativePath != ""
+	entry.Favorite = boolValue(favorite)
 
 	entry.Call = RecordingCall{
 		ID:             entry.Segment.CallID,

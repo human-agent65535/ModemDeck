@@ -4,6 +4,7 @@ import type {
   CallAction,
   CallLeaseStatus,
   CallFilter,
+  CallBatchAction,
   CallRecordingSegment,
   CallRecordingState,
   CallRecord,
@@ -13,6 +14,7 @@ import type {
   ConnectionProfile,
   Contact,
   ContactInput,
+  ContactRevision,
   CreateProxyInput,
   CreateDeviceInput,
   DeleteConnectionProfileInput,
@@ -29,6 +31,7 @@ import type {
   Message,
   MessageEventStreamHandlers,
   MessageReadInput,
+  MessageThreadAction,
   MessageThread,
   MobileNetworkScan,
   NetworkSelectionPolicy,
@@ -37,6 +40,8 @@ import type {
   ProxyInstance,
   ProxyMutation,
   RecordingEntry,
+  RecordingBatchAction,
+  RecordingIdentity,
   RecordingSettings,
   RenameDeviceInput,
   RuntimeEventStreamHandlers,
@@ -99,10 +104,15 @@ export interface ModemDeckGateway {
   subscribeMessageEvents(handlers: MessageEventStreamHandlers): () => void
   subscribeRuntimeEvents(handlers: RuntimeEventStreamHandlers): () => void
   markThreadRead(input: MessageReadInput): Promise<void>
+  updateMessageThreads(
+    action: MessageThreadAction,
+    threads: MessageReadInput[]
+  ): Promise<void>
   deleteThread(input: MessageReadInput): Promise<void>
   listCalls(filter?: CallFilter, query?: ListQuery): Promise<CallRecord[]>
   markMissedCallsRead(): Promise<void>
   markMissedCallRead(id: string): Promise<void>
+  updateCalls(action: CallBatchAction, ids: string[]): Promise<void>
   deleteCall(id: string): Promise<void>
   listDevices(): Promise<Device[]>
   createDevice(input: CreateDeviceInput): Promise<Device>
@@ -153,6 +163,7 @@ export interface ModemDeckGateway {
   createContact?(input: ContactInput): Promise<Contact>
   updateContact?(id: string, input: ContactInput): Promise<Contact>
   deleteContact?(id: string, revision?: number): Promise<void>
+  deleteContacts?(contacts: ContactRevision[]): Promise<void>
   sendMessage(input: SendMessageInput): Promise<Message>
   getActiveCalls(): Promise<CallSession[]>
   startCall(
@@ -173,6 +184,10 @@ export interface ModemDeckGateway {
   setCallRecording(id: string, enabled: boolean): Promise<CallRecordingState>
   listCallRecordings(id: string): Promise<CallRecordingSegment[]>
   deleteRecording(callID: string, recordingID: string): Promise<void>
+  updateRecordings(
+    action: RecordingBatchAction,
+    recordings: RecordingIdentity[]
+  ): Promise<void>
   listTelegramUnits(): Promise<TelegramUnit[]>
   createTelegramUnit(input: TelegramUnitInput): Promise<TelegramUnit>
   updateTelegramUnit(id: string, input: TelegramUnitInput): Promise<TelegramUnit>

@@ -216,6 +216,77 @@ func TestRecordingDeleteUsesExactCallAndSegment(t *testing.T) {
 	}
 }
 
+func TestRecordingBatchDeleteUsesExactCallAndSegment(t *testing.T) {
+	t.Parallel()
+
+	recordings := &fakeRecordingService{}
+	api, err := New(&fakeRepository{}, Options{
+		Recording:             recordings,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/v1/recordings/batch",
+		bytes.NewBufferString(
+			`{"action":"delete","recordings":[{"call_id":" call-1 ","id":" segment-1 "}]}`,
+		),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if recordings.deleteRecordingCallID != "call-1" ||
+		recordings.deleteRecordingSegmentID != "segment-1" {
+		t.Fatalf(
+			"deleted recording = call %q segment %q",
+			recordings.deleteRecordingCallID,
+			recordings.deleteRecordingSegmentID,
+		)
+	}
+}
+
+func TestRecordingBatchFavoriteUsesEntryIdentityWithoutRecordingService(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeRepository{}
+	api, err := New(repository, Options{disableAuthentication: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/v1/recordings/batch",
+		bytes.NewBufferString(
+			`{"action":"favorite","recordings":[{"call_id":" call-1 ","id":" segment-1 "},{"call_id":"call-1","id":"segment-1"}]}`,
+		),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	want := []store.RecordingIdentity{{CallID: "call-1", ID: "segment-1"}}
+	if !repository.recordingFavorite ||
+		len(repository.recordingFavorites) != len(want) ||
+		repository.recordingFavorites[0] != want[0] {
+		t.Fatalf(
+			"recording favorite update = favorite %v recordings %+v",
+			repository.recordingFavorite,
+			repository.recordingFavorites,
+		)
+	}
+}
+
 func TestRecordingCollectionIsBoundedSearchableAndDoesNotLeakPaths(t *testing.T) {
 	repository := &fakeRepository{
 		recordingEntries: []store.RecordingEntry{{
@@ -433,6 +504,7 @@ type fakeRecordingService struct {
 	downloadSegmentID        string
 	downloadError            error
 	deleteCallID             string
+	deleteCallIDs            []string
 	deleteCallError          error
 	deleteRecordingCallID    string
 	deleteRecordingSegmentID string
@@ -501,6 +573,7 @@ func (f *fakeRecordingService) DeleteRecording(
 
 func (f *fakeRecordingService) DeleteCall(_ context.Context, callID string) error {
 	f.deleteCallID = callID
+	f.deleteCallIDs = append(f.deleteCallIDs, callID)
 	return f.deleteCallError
 }
 

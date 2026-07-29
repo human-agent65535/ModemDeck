@@ -45,17 +45,20 @@ test('message list exposes all, unread, and read route-backed filters', () => {
   assert.match(messages, /type MessageReadFilter = 'all' \| 'unread' \| 'read'/)
   assert.match(messages, /value: 'unread', label: t\('messages\.unread'\)/)
   assert.match(messages, /value: 'read', label: t\('messages\.read'\)/)
-  assert.match(messages, /thread\.unread_count <= 0/)
-  assert.match(messages, /thread\.unread_count > 0/)
+  assert.match(messages, /!threadIsUnread\(thread\)/)
+  assert.match(messages, /threadIsUnread\(thread\)/)
   assert.match(messages, /\(\) => route\.query\.filter/)
   assert.match(messages, /@click="setMessageFilter\(item\.value\)"/)
+  assert.match(messages, /favoriteOnly\.value && !thread\.favorite/)
+  assert.match(messages, /<FavoriteFilterButton/)
+  assert.match(messages, /@toggle="setFavoriteFilter\(!favoriteOnly\)"/)
 })
 
 test('read threads remain in the active unread view until its filter changes', () => {
   assert.match(messages, /const retainedUnreadThreadKeys = ref\(new Set<string>\(\)\)/)
   assert.match(
     messages,
-    /messageFilter\.value === 'unread'[\s\S]*?thread\.unread_count <= 0[\s\S]*?!retainedUnreadThreadKeys\.value\.has\(thread\.key\)/
+    /messageFilter\.value === 'unread'[\s\S]*?!threadIsUnread\(thread\)[\s\S]*?!retainedUnreadThreadKeys\.value\.has\(thread\.key\)/
   )
   assert.match(
     messages,
@@ -63,19 +66,19 @@ test('read threads remain in the active unread view until its filter changes', (
   )
   assert.match(
     messages,
-    /watch\(messageFilter,[\s\S]*?retainedUnreadThreadKeys\.value\.clear\(\)/
+    /watch\(\[messageFilter, favoriteOnly\],[\s\S]*?retainedUnreadThreadKeys\.value\.clear\(\)/
   )
   assert.match(messages, /await markThreadReadInView\(current\)/)
-  assert.match(messages, /@read="markThreadReadInView\(thread\)"/)
+  assert.match(messages, /@read="toggleThreadRead\(thread\)"/)
 })
 
 test('missed call filter acknowledges unread missed calls persistently', () => {
   assert.match(calls, /\(\) => route\.query\.filter/)
   assert.match(calls, /activeFilter === 'missed'/)
-  assert.match(calls, /await markMissedCallsRead\(\)/)
+  assert.match(calls, /await updateMissedCallsReadState\(/)
   assert.match(calls, /@click="setFilter\(item\.value\)"/)
-  assert.match(workspace, /gateway[\s\S]*?\.markMissedCallsRead\(\)/)
-  assert.match(workspace, /if \(call\.missed\) call\.read = true/)
+  assert.match(workspace, /gateway\.updateCalls\(read \? 'read' : 'unread', ids\)/)
+  assert.match(workspace, /if \(selected\.has\(call\.id\) && call\.missed\) call\.read = read/)
 })
 
 test('unread missed calls have a visible and accessible unread mark', () => {
@@ -83,11 +86,16 @@ test('unread missed calls have a visible and accessible unread mark', () => {
   assert.match(callRow, /t\('calls\.viewUnreadDetails', \{ name \}\)/)
   assert.match(
     callRow,
-    /<UnreadDot[\s\S]*?v-if="call\.missed && !call\.read"[\s\S]*?t\('calls\.unreadMissed'\)/
+    /<ListItemAvatarStatus[\s\S]*?:unread-label="[\s\S]*?call\.missed && !call\.read[\s\S]*?t\('calls\.unreadMissed'\)/
+  )
+  assert.match(
+    callRow,
+    /<ListItemStatusRail[\s\S]*?<Star[\s\S]*?class="call-list-item__recording"/
   )
   assert.match(
     messageRow,
-    /<UnreadDot[\s\S]*?v-if="thread\.unread_count"[\s\S]*?t\('messages\.unreadCount'/
+    /<ListItemAvatarStatus[\s\S]*?:unread-label="[\s\S]*?thread\.unread_count > 0[\s\S]*?t\('messages\.unreadCount'/
   )
   assert.match(unreadDot, /background: var\(--accent\)/)
+  assert.match(unreadDot, /0 0 0 1px rgb\(12 98 79 \/ 52%\)/)
 })

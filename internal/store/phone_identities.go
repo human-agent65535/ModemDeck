@@ -265,6 +265,8 @@ type canonicalMessageThread struct {
 	lastContent   string
 	lastType      int64
 	unreadCount   int64
+	markedUnread  bool
+	favorite      bool
 	createdAt     sql.NullString
 	updatedAt     sql.NullString
 }
@@ -278,7 +280,8 @@ func canonicalizeLineMessageThreads(
 	rows, err := transaction.QueryContext(
 		ctx,
 		`SELECT imsi, iccid, peer, last_sms_id, last_timestamp,
-			last_content, last_type, unread_count, created_at, updated_at
+			last_content, last_type, unread_count, marked_unread, is_favorite,
+			created_at, updated_at
 		 FROM sms_contacts
 		 WHERE line_id = ?`,
 		lineID,
@@ -299,6 +302,8 @@ func canonicalizeLineMessageThreads(
 			&thread.lastContent,
 			&thread.lastType,
 			&thread.unreadCount,
+			&thread.markedUnread,
+			&thread.favorite,
 			&thread.createdAt,
 			&thread.updatedAt,
 		); err != nil {
@@ -344,8 +349,9 @@ func canonicalizeLineMessageThreads(
 			ctx,
 			`INSERT INTO sms_contacts (
 				line_id, imsi, iccid, peer, last_sms_id, last_timestamp,
-				last_content, last_type, unread_count, created_at, updated_at
-			 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				last_content, last_type, unread_count, marked_unread, is_favorite,
+				created_at, updated_at
+			 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			lineID,
 			thread.imsi,
 			thread.iccid,
@@ -355,6 +361,8 @@ func canonicalizeLineMessageThreads(
 			thread.lastContent,
 			thread.lastType,
 			thread.unreadCount,
+			thread.markedUnread,
+			thread.favorite,
 			thread.createdAt,
 			thread.updatedAt,
 		); err != nil {
@@ -373,6 +381,8 @@ func mergeCanonicalMessageThreads(
 		latest, older = right, left
 	}
 	latest.unreadCount += older.unreadCount
+	latest.markedUnread = latest.markedUnread || older.markedUnread
+	latest.favorite = latest.favorite || older.favorite
 	latest.createdAt = earliestNullableTime(left.createdAt, right.createdAt)
 	latest.updatedAt = latestNullableTime(left.updatedAt, right.updatedAt)
 	return latest

@@ -73,6 +73,8 @@ CREATE TABLE sms_contacts (
 			last_content TEXT NOT NULL DEFAULT '',
 			last_type INTEGER NOT NULL DEFAULT 0,
 				unread_count INTEGER NOT NULL DEFAULT 0,
+				marked_unread NUMERIC NOT NULL DEFAULT 0,
+				is_favorite NUMERIC NOT NULL DEFAULT 0,
 				created_at DATETIME,
 				updated_at DATETIME,
 				PRIMARY KEY (line_id, peer)
@@ -98,6 +100,7 @@ CREATE TABLE call_history (
 			active_at DATETIME,
 			ended_at DATETIME,
 			read_at DATETIME,
+			is_favorite NUMERIC NOT NULL DEFAULT 0,
 			end_reason TEXT NOT NULL DEFAULT '',
 			failure_code TEXT NOT NULL DEFAULT '',
 			bearer TEXT NOT NULL DEFAULT '',
@@ -184,6 +187,7 @@ CREATE TABLE modemdeck_call_recording_state (
 				status TEXT NOT NULL DEFAULT 'off',
 				active_segment_id TEXT NOT NULL DEFAULT '',
 				last_error_code TEXT NOT NULL DEFAULT '',
+				is_favorite NUMERIC NOT NULL DEFAULT 0,
 				updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 				FOREIGN KEY (call_id) REFERENCES call_history(id) ON DELETE CASCADE ON UPDATE CASCADE
 			);

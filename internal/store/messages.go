@@ -48,7 +48,9 @@ func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]Messag
 			sc.last_timestamp,
 			sc.last_content,
 			sc.last_type,
-			sc.unread_count
+			sc.unread_count,
+			sc.marked_unread,
+			sc.is_favorite
 		FROM sms_contacts sc`
 	arguments := []any{}
 	if strings.TrimSpace(query.Search) != "" {
@@ -79,12 +81,13 @@ func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]Messag
 		var (
 			thread                                                             MessageThread
 			key, imsi, iccid, localPhone, lineID, peer, contactID, contactName sql.NullString
-			lastID, lastType, unread                                           sql.NullInt64
+			lastID, lastType, unread, markedUnread, favorite                   sql.NullInt64
 			lastTimestamp, lastContent                                         sql.NullString
 		)
 		if err := rows.Scan(
 			&key, &imsi, &iccid, &localPhone, &lineID, &peer, &contactID, &contactName,
 			&lastID, &lastTimestamp, &lastContent, &lastType, &unread,
+			&markedUnread, &favorite,
 		); err != nil {
 			return nil, fmt.Errorf("scan message thread: %w", err)
 		}
@@ -101,6 +104,8 @@ func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]Messag
 		thread.LastContent = stringValue(lastContent)
 		thread.LastType = intValue(lastType)
 		thread.UnreadCount = intValue(unread)
+		thread.MarkedUnread = boolValue(markedUnread)
+		thread.Favorite = boolValue(favorite)
 		threads = append(threads, thread)
 	}
 	return threads, rowsError("read message threads", rows.Err())
@@ -207,47 +212,118 @@ func (s *Store) DeleteMessageThread(
 	ctx context.Context,
 	identity MessageThreadIdentity,
 ) error {
-	lineID := strings.TrimSpace(identity.LineID)
-	peer := strings.TrimSpace(identity.Peer)
-	if lineID == "" || peer == "" {
-		return fmt.Errorf("delete message thread: line ID and peer are required")
+	return s.UpdateMessageThreads(ctx, []MessageThreadIdentity{identity}, MessageThreadDelete)
+}
+
+func (s *Store) UpdateMessageThreads(
+	ctx context.Context,
+	identities []MessageThreadIdentity,
+	action MessageThreadAction,
+) error {
+	normalized, err := normalizeMessageThreadIdentities(identities)
+	if err != nil {
+		return err
+	}
+	switch action {
+	case MessageThreadMarkRead,
+		MessageThreadMarkUnread,
+		MessageThreadFavorite,
+		MessageThreadUnfavorite,
+		MessageThreadDelete:
+	default:
+		return fmt.Errorf("update message threads: unsupported action %q", action)
 	}
 	transaction, err := s.database.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin message thread deletion: %w", err)
+		return fmt.Errorf("begin message thread update: %w", err)
 	}
 	defer transaction.Rollback()
 
-	result, err := transaction.ExecContext(
-		ctx,
-		`DELETE FROM sms_contacts WHERE line_id = ? AND peer = ?`,
-		lineID,
-		peer,
-	)
-	if err != nil {
-		return fmt.Errorf("delete message thread index: %w", err)
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("read deleted message thread count: %w", err)
-	}
-	if affected == 0 {
-		return ErrMessageThreadNotFound
-	}
-	if _, err := transaction.ExecContext(
-		ctx,
-		`UPDATE sms
-		 SET deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP)
-		 WHERE line_id = ? AND peer = ? AND deleted_at IS NULL`,
-		lineID,
-		peer,
-	); err != nil {
-		return fmt.Errorf("soft-delete message thread: %w", err)
+	for _, identity := range normalized {
+		var exists int
+		if err := transaction.QueryRowContext(
+			ctx,
+			`SELECT EXISTS(
+				SELECT 1 FROM sms_contacts WHERE line_id = ? AND peer = ?
+			 )`,
+			identity.LineID,
+			identity.Peer,
+		).Scan(&exists); err != nil {
+			return fmt.Errorf("inspect message thread update: %w", err)
+		}
+		if exists == 0 {
+			return ErrMessageThreadNotFound
+		}
+		var statement string
+		switch action {
+		case MessageThreadMarkRead:
+			statement = `UPDATE sms_contacts
+				SET unread_count = 0, marked_unread = 0, updated_at = CURRENT_TIMESTAMP
+				WHERE line_id = ? AND peer = ?`
+		case MessageThreadMarkUnread:
+			statement = `UPDATE sms_contacts
+				SET marked_unread = 1, updated_at = CURRENT_TIMESTAMP
+				WHERE line_id = ? AND peer = ?`
+		case MessageThreadFavorite:
+			statement = `UPDATE sms_contacts
+				SET is_favorite = 1, updated_at = CURRENT_TIMESTAMP
+				WHERE line_id = ? AND peer = ?`
+		case MessageThreadUnfavorite:
+			statement = `UPDATE sms_contacts
+				SET is_favorite = 0, updated_at = CURRENT_TIMESTAMP
+				WHERE line_id = ? AND peer = ?`
+		case MessageThreadDelete:
+			statement = `DELETE FROM sms_contacts WHERE line_id = ? AND peer = ?`
+		}
+		if _, err := transaction.ExecContext(
+			ctx,
+			statement,
+			identity.LineID,
+			identity.Peer,
+		); err != nil {
+			return fmt.Errorf("apply message thread action %q: %w", action, err)
+		}
+		if action == MessageThreadDelete {
+			if _, err := transaction.ExecContext(
+				ctx,
+				`UPDATE sms
+				 SET deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP)
+				 WHERE line_id = ? AND peer = ? AND deleted_at IS NULL`,
+				identity.LineID,
+				identity.Peer,
+			); err != nil {
+				return fmt.Errorf("soft-delete message thread: %w", err)
+			}
+		}
 	}
 	if err := transaction.Commit(); err != nil {
-		return fmt.Errorf("commit message thread deletion: %w", err)
+		return fmt.Errorf("commit message thread update: %w", err)
 	}
 	return nil
+}
+
+func normalizeMessageThreadIdentities(
+	identities []MessageThreadIdentity,
+) ([]MessageThreadIdentity, error) {
+	if len(identities) == 0 || len(identities) > 100 {
+		return nil, fmt.Errorf("update message threads: between 1 and 100 threads are required")
+	}
+	result := make([]MessageThreadIdentity, 0, len(identities))
+	seen := make(map[string]struct{}, len(identities))
+	for _, identity := range identities {
+		identity.LineID = strings.TrimSpace(identity.LineID)
+		identity.Peer = strings.TrimSpace(identity.Peer)
+		if identity.LineID == "" || identity.Peer == "" {
+			return nil, fmt.Errorf("update message threads: line ID and peer are required")
+		}
+		key := identity.LineID + "\x00" + identity.Peer
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, identity)
+	}
+	return result, nil
 }
 
 func uniqueNonEmptyStrings(values []string) []string {

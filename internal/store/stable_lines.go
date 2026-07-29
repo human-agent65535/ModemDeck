@@ -520,10 +520,10 @@ func mergeStableLineMessageThreads(
 		ctx,
 		`INSERT INTO sms_contacts (
 			line_id, imsi, iccid, peer, last_sms_id, last_timestamp, last_content,
-			last_type, unread_count, created_at, updated_at
+			last_type, unread_count, marked_unread, is_favorite, created_at, updated_at
 		 )
 		 SELECT ?, imsi, iccid, peer, last_sms_id, last_timestamp, last_content,
-			last_type, unread_count, created_at, updated_at
+			last_type, unread_count, marked_unread, is_favorite, created_at, updated_at
 		 FROM sms_contacts
 		 WHERE line_id = ?
 		 ON CONFLICT(line_id, peer) DO UPDATE SET
@@ -552,6 +552,8 @@ func mergeStableLineMessageThreads(
 				THEN excluded.last_type ELSE sms_contacts.last_type
 			END,
 			unread_count = sms_contacts.unread_count + excluded.unread_count,
+			marked_unread = MAX(sms_contacts.marked_unread, excluded.marked_unread),
+			is_favorite = MAX(sms_contacts.is_favorite, excluded.is_favorite),
 			created_at = MIN(sms_contacts.created_at, excluded.created_at),
 			updated_at = MAX(sms_contacts.updated_at, excluded.updated_at)`,
 		canonical,

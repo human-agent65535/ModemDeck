@@ -5,14 +5,16 @@ import {
   CassetteTape,
   PhoneIncoming,
   PhoneMissed,
-  PhoneOutgoing
+  PhoneOutgoing,
+  Star
 } from '@lucide/vue'
 import type { CallRecord } from '../api/types'
 import type { LineTagLine } from '../utils/lineIdentity'
 import { formatRelativeDate } from '../utils/format'
 import CommunicationAvatar from './CommunicationAvatar.vue'
 import LineTag from './LineTag.vue'
-import UnreadDot from './UnreadDot.vue'
+import ListItemAvatarStatus from './ListItemAvatarStatus.vue'
+import ListItemStatusRail from './ListItemStatusRail.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -70,62 +72,63 @@ const showNumber = computed(
     "
     @click="emit('select', props.call)"
   >
-    <span class="call-list-item__avatar">
+    <ListItemAvatarStatus
+      class="call-list-item__avatar"
+      :unread-label="
+        call.missed && !call.read
+          ? t('calls.unreadMissed')
+          : undefined
+      "
+    >
       <CommunicationAvatar
         channel="call"
         :name="name"
         :address="number"
         :src="avatar"
       />
-      <span class="call-direction-icon">
-        <component :is="directionIcon" :size="12" />
-      </span>
-    </span>
-    <span class="list-item__content">
-      <span class="list-item__title">
-        <span class="call-list-item__identity">
-          <strong>{{ name }}</strong>
+      <template #badge>
+        <span class="call-direction-icon">
+          <component :is="directionIcon" :size="12" />
         </span>
-        <time>{{ formatRelativeDate(call.started_at) }}</time>
+      </template>
+    </ListItemAvatarStatus>
+    <span class="list-item__content">
+      <span class="call-list-item__identity">
+        <strong>{{ name }}</strong>
       </span>
       <span class="call-list-item__meta">
         <LineTag :line="line" :fallback="lineFallback" />
         <small>
           {{ directionLabel }}<template v-if="showNumber"> · {{ number }}</template>
         </small>
-        <span
-          v-if="hasRecording"
-          class="call-list-item__recording"
-          role="img"
-          :aria-label="t('calls.hasRecording')"
-          :title="t('calls.hasRecording')"
-        >
-          <CassetteTape :size="15" aria-hidden="true" />
-        </span>
-        <UnreadDot
-          v-if="call.missed && !call.read"
-          :label="t('calls.unreadMissed')"
-        />
       </span>
     </span>
+    <ListItemStatusRail
+      :date="formatRelativeDate(call.started_at)"
+      :date-time="call.started_at"
+    >
+      <Star
+        v-if="call.favorite"
+        class="call-list-item__favorite"
+        :size="15"
+        fill="currentColor"
+        :aria-label="t('common.favorite')"
+      />
+      <span
+        v-if="hasRecording"
+        class="call-list-item__recording"
+        role="img"
+        :aria-label="t('calls.hasRecording')"
+        :title="t('calls.hasRecording')"
+      >
+        <CassetteTape :size="15" aria-hidden="true" />
+      </span>
+    </ListItemStatusRail>
   </button>
 </template>
 
 <style scoped>
-.call-list-item {
-  min-height: 76px;
-}
-
-.call-list-item__avatar {
-  position: relative;
-  display: inline-flex;
-  flex: 0 0 auto;
-}
-
 .call-list-item__avatar .call-direction-icon {
-  position: absolute;
-  right: -4px;
-  bottom: -4px;
   width: 21px;
   height: 21px;
   flex: 0 0 21px;
@@ -160,14 +163,18 @@ const showNumber = computed(
   min-width: 0;
 }
 
+.call-list-item__favorite {
+  flex: 0 0 auto;
+  color: #a86400;
+}
+
 .call-list-item__recording {
   display: inline-grid;
-  width: 22px;
-  height: 22px;
-  flex: 0 0 22px;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
   place-items: center;
   color: var(--accent-strong);
-  background: var(--accent-soft);
-  border-radius: 50%;
+  background: transparent;
 }
 </style>

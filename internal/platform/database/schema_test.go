@@ -203,6 +203,149 @@ func TestOpenMigratesSMSDeletionState(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesMessageThreadStateAndPreservesThreads(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "without-message-thread-state.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousSchema := strings.Replace(
+		currentSchemaSQL,
+		"\n\t\t\t\tmarked_unread NUMERIC NOT NULL DEFAULT 0,",
+		"",
+		1,
+	)
+	previousSchema = strings.Replace(
+		previousSchema,
+		"\n\t\t\t\tis_favorite NUMERIC NOT NULL DEFAULT 0,",
+		"",
+		1,
+	)
+	if previousSchema == currentSchemaSQL {
+		t.Fatal("previous schema fixture did not remove message thread state")
+	}
+	if _, err := database.Exec(previousSchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(
+		`INSERT INTO sms_contacts (
+			line_id, imsi, iccid, peer, last_sms_id, last_timestamp, last_content,
+			last_type, unread_count
+		 ) VALUES (
+			'line-main', '', '', '+818012345678', 7, '2026-07-29 05:00:00',
+			'preserved', 1, 3
+		 )`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	var (
+		content      string
+		unreadCount  int
+		markedUnread bool
+		favorite     bool
+	)
+	if err := database.QueryRow(
+		`SELECT last_content, unread_count, marked_unread, is_favorite
+		 FROM sms_contacts
+		 WHERE line_id = 'line-main' AND peer = '+818012345678'`,
+	).Scan(&content, &unreadCount, &markedUnread, &favorite); err != nil {
+		t.Fatal(err)
+	}
+	if content != "preserved" || unreadCount != 3 || markedUnread || favorite {
+		t.Fatalf(
+			"migrated thread = content %q unread %d marked %t favorite %t",
+			content,
+			unreadCount,
+			markedUnread,
+			favorite,
+		)
+	}
+}
+
+func TestOpenMigratesCallAndRecordingFavoriteState(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "without-call-recording-favorites.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousSchema := strings.Replace(
+		currentSchemaSQL,
+		"\n\t\t\tread_at DATETIME,\n\t\t\tis_favorite NUMERIC NOT NULL DEFAULT 0,",
+		"\n\t\t\tread_at DATETIME,",
+		1,
+	)
+	previousSchema = strings.Replace(
+		previousSchema,
+		"\n\t\t\t\tlast_error_code TEXT NOT NULL DEFAULT '',\n\t\t\t\tis_favorite NUMERIC NOT NULL DEFAULT 0,",
+		"\n\t\t\t\tlast_error_code TEXT NOT NULL DEFAULT '',",
+		1,
+	)
+	if previousSchema == currentSchemaSQL {
+		t.Fatal("previous schema fixture did not remove communication favorite state")
+	}
+	if _, err := database.Exec(previousSchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(
+		`INSERT INTO call_history (
+			id, direction, remote_number, phase, created_at, ended_at
+		 ) VALUES (
+			'call-favorite-migration', 'incoming', '+818012345678', 'ended',
+			'2026-07-29 05:00:00', '2026-07-29 05:01:00'
+		 );
+		 INSERT INTO modemdeck_call_recording_state (call_id)
+		 VALUES ('call-favorite-migration');
+		 INSERT INTO modemdeck_call_recordings (
+			id, call_id, segment_index, status, relative_path
+		 ) VALUES (
+			'recording-favorite-migration', 'call-favorite-migration', 1,
+			'ready', 'call-favorite-migration/recording-favorite-migration.ogg'
+		 )`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	var callFavorite, recordingFavorite bool
+	if err := database.QueryRow(
+		`SELECT call_history.is_favorite, state.is_favorite
+		 FROM call_history
+		 JOIN modemdeck_call_recording_state state ON state.call_id = call_history.id
+		 WHERE call_history.id = 'call-favorite-migration'`,
+	).Scan(&callFavorite, &recordingFavorite); err != nil {
+		t.Fatal(err)
+	}
+	if callFavorite || recordingFavorite {
+		t.Fatalf(
+			"migrated favorites = call %t recording %t, want false",
+			callFavorite,
+			recordingFavorite,
+		)
+	}
+}
+
 func TestOpenRejectsOutdatedSchemaWithoutAlteringIt(t *testing.T) {
 	t.Parallel()
 
