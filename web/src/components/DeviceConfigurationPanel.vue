@@ -1308,6 +1308,7 @@ onMounted(() => {
                 @keydown.escape.prevent="cancelModuleNameEdit"
               />
               <button
+                class="module-name-editor__save"
                 type="submit"
                 :title="t('common.save')"
                 :aria-label="t('common.save')"
@@ -1317,6 +1318,7 @@ onMounted(() => {
                 <Check v-else :size="16" />
               </button>
               <button
+                class="module-name-editor__cancel"
                 type="button"
                 :title="t('common.cancel')"
                 :aria-label="t('common.cancel')"
@@ -2542,6 +2544,26 @@ onMounted(() => {
   color: var(--accent-strong);
   background: var(--surface-selected);
   border-color: var(--border-strong);
+}
+
+.module-name-editor button.module-name-editor__save {
+  color: var(--accent-strong);
+}
+
+.module-name-editor button.module-name-editor__save:hover:not(:disabled) {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.module-name-editor button.module-name-editor__cancel {
+  color: var(--danger);
+}
+
+.module-name-editor button.module-name-editor__cancel:hover:not(:disabled) {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: var(--danger);
 }
 
 .module-name-editor {

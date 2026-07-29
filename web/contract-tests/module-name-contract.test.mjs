@@ -54,6 +54,16 @@ test('current modem heading provides compact inline name editing', () => {
   assert.match(panelSource, /class="module-name-edit-button"/)
   assert.match(panelSource, /<Pencil :size="15" \/>/)
   assert.match(panelSource, /class="module-name-editor"/)
+  assert.match(panelSource, /class="module-name-editor__save"/)
+  assert.match(panelSource, /class="module-name-editor__cancel"/)
+  assert.match(
+    panelSource,
+    /\.module-name-editor button\.module-name-editor__save\s*\{[^}]*color: var\(--accent-strong\)/s
+  )
+  assert.match(
+    panelSource,
+    /\.module-name-editor button\.module-name-editor__cancel\s*\{[^}]*color: var\(--danger\)/s
+  )
   assert.match(panelSource, /maxlength="100"/)
   assert.match(panelSource, /await renameDevice\(imei, \{ name \}\)/)
   assert.match(panelSource, /selectedLine\.value\?\.device_imei\.trim\(\)/)
