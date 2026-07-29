@@ -941,7 +941,7 @@ export default {
     receiveCalls: '接听来电',
     doNotDisturb: '免打扰',
     defaultLineSaveFailed: '默认线路保存失败',
-    lineLabelTooLong: '线路标签不能超过 16 个字符',
+    lineLabelTooLong: '线路标签不能超过 12 个字符',
     lineLabelSaveFailed: '线路标签保存失败',
     enableFlightModeTitle: '开启飞行模式？',
     enableFlightModeMessage: '驻网和移动数据将中断；通话期间不能开启飞行模式。',

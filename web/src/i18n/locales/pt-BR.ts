@@ -938,7 +938,7 @@ export default {
     "receiveCalls": "Receber chamadas",
     "doNotDisturb": "Não perturbe",
     "defaultLineSaveFailed": "Não foi possível salvar a linha padrão",
-    "lineLabelTooLong": "O rótulo da linha não pode exceder 16 caracteres",
+    "lineLabelTooLong": "O rótulo da linha não pode exceder 12 caracteres",
     "lineLabelSaveFailed": "Não foi possível salvar o rótulo da linha",
     "enableFlightModeTitle": "Ativar o modo avião?",
     "enableFlightModeMessage": "O registro da rede e os dados móveis serão interrompidos. O modo avião não pode ser ativado durante uma chamada.",

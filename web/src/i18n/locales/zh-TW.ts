@@ -941,7 +941,7 @@ export default {
     receiveCalls: '接聽來電',
     doNotDisturb: '免打擾',
     defaultLineSaveFailed: '預設線路儲存失敗',
-    lineLabelTooLong: '線路標籤不能超過 16 個字元',
+    lineLabelTooLong: '線路標籤不能超過 12 個字元',
     lineLabelSaveFailed: '線路標籤儲存失敗',
     enableFlightModeTitle: '開啟飛航模式？',
     enableFlightModeMessage: '駐網和行動數據將中斷；通話期間不能開啟飛航模式。',

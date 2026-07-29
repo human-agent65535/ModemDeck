@@ -22,7 +22,7 @@ var (
 
 const (
 	maxDeviceNameLength = 100
-	maxLineLabelLength  = 16
+	maxLineLabelLength  = 12
 	maxLineIDLength     = 64
 )
 

@@ -59,8 +59,8 @@ test('line label API uses stable line_id identity and a bounded payload', () => 
     }
   )
   assert.throws(
-    () => createLineLabelPayload({ line_label: '一二三四五六七八九十一二三四五六七' }),
-    /16/
+    () => createLineLabelPayload({ line_label: '一二三四五六七八九十一二三' }),
+    /12/
   )
   assert.throws(
     () => createLineLabelPayload({ line_label: '主卡', line_color: 'magenta' }),
@@ -123,7 +123,7 @@ test('fixture keeps module names separate from editable line labels', async () =
   assert.equal(cleared.line_label, '')
   assert.equal(cleared.line_color, 'orange')
   await assert.rejects(
-    () => gateway.updateLineLabel(main.id, { line_label: '一二三四五六七八九十一二三四五六七' }),
+    () => gateway.updateLineLabel(main.id, { line_label: '一二三四五六七八九十一二三' }),
     error => error?.status === 400 && error?.code === 'invalid_line_label'
   )
   await assert.rejects(
@@ -159,7 +159,7 @@ test('line names prefer the line label and otherwise use the module name', () =>
 })
 
 test('settings edit the stable line identity from preset colors', () => {
-  assert.match(devicePanelSource, /maxlength="16"/)
+  assert.match(devicePanelSource, /maxlength="12"/)
   assert.match(devicePanelSource, /const lineID = line \? lineKey\(line\) : ''/)
   assert.match(
     devicePanelSource,

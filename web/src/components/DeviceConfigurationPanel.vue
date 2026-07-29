@@ -917,7 +917,7 @@ async function saveLineLabel(): Promise<void> {
   const lineID = line ? lineKey(line) : ''
   if (!lineID || lineLabelPending.value || !lineIdentityDirty.value) return
   const value = lineLabelDraft.value.trim()
-  if (Array.from(value).length > 16) {
+  if (Array.from(value).length > 12) {
     lineLabelError.value = t('device.lineLabelTooLong')
     return
   }
@@ -1392,7 +1392,7 @@ onMounted(() => {
                 <span>{{ t('device.lineLabel') }}</span>
                 <input
                   v-model="lineLabelDraft"
-                  maxlength="16"
+                  maxlength="12"
                   autocomplete="off"
                   :placeholder="t('device.suggested', { label: selectedLineFallback })"
                   :disabled="lineLabelPending || !selectedLine || !lineKey(selectedLine)"

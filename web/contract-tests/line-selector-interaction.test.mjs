@@ -57,6 +57,22 @@ test('line selector supports complete keyboard navigation', () => {
   assert.match(component, /closeMenu\(true\)/)
 })
 
+test('default status stays beside a bounded line name', () => {
+  const nameRowStart = component.indexOf('class="line-selector__name-row"')
+  const nameRowEnd = component.indexOf('</span>', nameRowStart)
+  const nameRow = component.slice(nameRowStart, nameRowEnd)
+
+  assert.ok(nameRowStart >= 0)
+  assert.match(nameRow, /<strong>\{\{ displayName \}\}<\/strong>/)
+  assert.match(nameRow, /v-if="selectedIsDefault" class="line-selector__default"/)
+  assert.match(component, /grid-template-columns: 38px minmax\(0, 1fr\) auto/)
+  assert.match(component, /-webkit-line-clamp: 2/)
+  assert.doesNotMatch(
+    component,
+    /@media \(max-width: 420px\)[\s\S]*?\.line-selector__default\s*\{\s*display: none/
+  )
+})
+
 test('all line selector call sites use v-model instead of one-way values', () => {
   const users = vueSources(sourceRoot).filter(file =>
     /<LineSelector(?:\s|>)/.test(file.source)

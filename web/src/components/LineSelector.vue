@@ -328,12 +328,14 @@ onBeforeUnmount(() => {
         <CardSim v-else :size="compact || filterMode ? 17 : 20" />
       </span>
       <span class="line-selector__identity">
-        <strong>{{ displayName }}</strong>
+        <span class="line-selector__name-row">
+          <strong>{{ displayName }}</strong>
+          <span v-if="selectedIsDefault" class="line-selector__default">
+            <Star :size="12" fill="currentColor" aria-hidden="true" />
+            {{ t('lines.default') }}
+          </span>
+        </span>
         <small>{{ displayDetails }}</small>
-      </span>
-      <span v-if="selectedIsDefault" class="line-selector__default">
-        <Star :size="12" fill="currentColor" aria-hidden="true" />
-        {{ t('lines.default') }}
       </span>
       <ChevronDown
         class="line-selector__chevron"
@@ -409,7 +411,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   min-height: 64px;
   align-items: center;
-  grid-template-columns: 38px minmax(0, 1fr) auto auto;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
   gap: 10px;
   padding: 8px 12px;
   color: inherit;
@@ -456,14 +458,22 @@ onBeforeUnmount(() => {
   gap: 3px;
 }
 
-.line-selector__identity strong,
+.line-selector__name-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.line-selector__name-row strong,
 .line-selector__identity small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.line-selector__identity strong {
+.line-selector__name-row strong {
+  min-width: 0;
   color: var(--text);
   font-size: 15px;
   font-weight: 700;
@@ -477,6 +487,7 @@ onBeforeUnmount(() => {
 
 .line-selector__default {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 4px;
   padding: 4px 6px;
@@ -731,12 +742,17 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 420px) {
-  .line-selector__control {
-    grid-template-columns: 38px minmax(0, 1fr) auto;
+  .line-selector__name-row {
+    align-items: flex-start;
   }
 
-  .line-selector__default {
-    display: none;
+  .line-selector__name-row strong {
+    display: -webkit-box;
+    overflow: hidden;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
   }
 }
 </style>
