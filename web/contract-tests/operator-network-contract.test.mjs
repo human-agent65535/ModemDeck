@@ -399,8 +399,8 @@ test('fixture presents the travel line as roaming on every frontend surface', as
   for (const source of [line, device?.sim, sim, diagnosticLine]) {
     assert.equal(source?.home_operator_name, 'Pine Wireless')
     assert.equal(source?.home_operator_code, '00102')
-    assert.equal(source?.home_country_iso, 'VN')
-    assert.equal(source?.serving_country_iso, 'JP')
+    assert.equal(source?.home_country_iso, 'ZZ')
+    assert.equal(source?.serving_country_iso, 'ZZ')
     assert.equal(source?.serving_operator_name, 'Aurora Mobile')
     assert.equal(source?.serving_operator_code, '00101')
     assert.equal(source?.registration_state, 'roaming')

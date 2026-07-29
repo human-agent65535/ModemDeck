@@ -11,10 +11,10 @@ const mainLine = {
   iccid: '898601',
   imsi: '46001',
   phone_number: '+1 202 555 0101',
-  operator: 'China Unicom',
+  operator: 'Aurora Mobile',
   device_imei: 'imei-main',
   device_name: '',
-  line_label: '主卡'
+  line_label: 'Line A'
 }
 
 const secondaryLine = {
@@ -24,7 +24,7 @@ const secondaryLine = {
   imsi: '00102',
   phone_number: '+1 202 555 0102',
   device_imei: 'imei-secondary',
-  line_label: '副卡'
+  line_label: 'Line B'
 }
 
 const mainThread = {
@@ -51,15 +51,15 @@ test('recipient lookup uses backend-canonical global identity and remains line s
   const threads = [mainThread, secondaryThread]
 
   assert.equal(
-    findRecipientThread(threads, '+81 (90) 1234-5678', mainLine)?.key,
+    findRecipientThread(threads, '+1 (202) 555-0103', mainLine)?.key,
     mainThread.key
   )
   assert.equal(
     findRecipientThread(threads, '+1 202 555 0103', secondaryLine)?.key,
     secondaryThread.key
   )
-  assert.equal(findRecipientThread(threads, '819012345678', secondaryLine), undefined)
-  assert.equal(findRecipientThread(threads, '+81 80 0000 0000', mainLine), undefined)
+  assert.equal(findRecipientThread(threads, '12025550103', secondaryLine), undefined)
+  assert.equal(findRecipientThread(threads, '+1 202 555 0199', mainLine), undefined)
   assert.equal(findRecipientThread(threads, '+1 202 555 0103'), undefined)
 })
 

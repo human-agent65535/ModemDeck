@@ -17,18 +17,18 @@ test('vCard transfer preserves contact identity, phones, notes, and embedded ava
   const source = [
     'BEGIN:VCARD',
     'VERSION:3.0',
-    'FN:田中 愛子',
-    'TEL;TYPE=CELL:090-1234-5678',
-    'NOTE:Tokyo\\nPrimary contact',
+    'FN:Alex Rowan',
+    'TEL;TYPE=CELL:(202) 555-0103',
+    'NOTE:Demo contact\\nPrimary contact',
     'PHOTO;ENCODING=b;TYPE=PNG:iVBORw0KGgo=',
     'END:VCARD'
   ].join('\r\n')
 
-  const contacts = parseVCard(source, 'JP')
+  const contacts = parseVCard(source, 'US')
   assert.equal(contacts.length, 1)
-  assert.equal(contacts[0]?.display_name, '田中 愛子')
-  assert.equal(contacts[0]?.phones[0]?.number, '+819012345678')
-  assert.equal(contacts[0]?.notes, 'Tokyo\nPrimary contact')
+  assert.equal(contacts[0]?.display_name, 'Alex Rowan')
+  assert.equal(contacts[0]?.phones[0]?.number, '+12025550103')
+  assert.equal(contacts[0]?.notes, 'Demo contact\nPrimary contact')
   assert.equal(contacts[0]?.avatar, avatar)
 
   const exported = serializeContactsToVCard([{
@@ -41,13 +41,13 @@ test('vCard transfer preserves contact identity, phones, notes, and embedded ava
       id: 'phone-1',
       label: 'Mobile',
       number: '+1 202 555 0103',
-      normalized_number: '+819012345678',
-      region: 'JP',
+      normalized_number: '+12025550103',
+      region: 'US',
       primary: true
     }]
   }])
-  assert.match(exported, /FN:田中 愛子/)
-  assert.match(exported, /TEL;TYPE=CELL:\+819012345678/)
+  assert.match(exported, /FN:Alex Rowan/)
+  assert.match(exported, /TEL;TYPE=CELL:\+12025550103/)
   assert.match(exported, /PHOTO;ENCODING=b;TYPE=PNG:iVBORw0KGgo=/)
 })
 
@@ -55,8 +55,8 @@ test('vCard transfer falls back to the structured Apple contact name', () => {
   const contacts = parseVCard([
     'BEGIN:VCARD',
     'VERSION:3.0',
-    'N:Tanaka;Aiko;;;',
-    'TEL;TYPE=CELL:+819012345678',
+    'N:Rowan;Alex;;;',
+    'TEL;TYPE=CELL:+12025550103',
     'END:VCARD'
   ].join('\r\n'))
 
@@ -66,7 +66,7 @@ test('vCard transfer falls back to the structured Apple contact name', () => {
 test('imports update a single phone owner and preserve ModemDeck-only preferences', () => {
   const existing = {
     id: 'contact-1',
-    display_name: 'Aiko',
+    display_name: 'Alex',
     avatar: 'data:image/png;base64,AAAA',
     favorite: true,
     notes: 'Local note',
@@ -75,17 +75,17 @@ test('imports update a single phone owner and preserve ModemDeck-only preference
     phones: [{
       id: 'phone-1',
       label: 'Mobile',
-      number: '090-1234-5678',
-      normalized_number: '+819012345678',
-      region: 'JP',
+      number: '(202) 555-0103',
+      normalized_number: '+12025550103',
+      region: 'US',
       primary: true
     }]
   }
   const plan = planContactImport({
     display_name: 'Alex Rowan',
     phones: [
-      { label: 'Mobile', number: '+819012345678' },
-      { label: 'Work', number: '+81312345678' }
+      { label: 'Mobile', number: '+12025550103' },
+      { label: 'Work', number: '+12025550105' }
     ]
   }, [existing])
 
@@ -110,13 +110,13 @@ test('Google contact conversion uses read-only scope and canonical phone numbers
   const contact = transferContactFromGooglePerson({
     names: [{ displayName: 'Alex Rowan' }],
     phoneNumbers: [{
-      canonicalForm: '+819012345678',
-      value: '090-1234-5678',
+      canonicalForm: '+12025550103',
+      value: '(202) 555-0103',
       formattedType: 'Mobile'
     }]
-  }, 'JP')
+  }, 'US')
   assert.equal(contact?.display_name, 'Alex Rowan')
-  assert.equal(contact?.phones[0]?.number, '+819012345678')
+  assert.equal(contact?.phones[0]?.number, '+12025550103')
 })
 
 test('contact transfer exists only in settings, not on the contacts page', async () => {

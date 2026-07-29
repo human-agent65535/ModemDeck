@@ -8,11 +8,16 @@ ModemDeck 是一个管理蜂窝通话、短信、联系人、流量和多条线�
 ## 功能
 
 - 多线路仪表盘、可自定义线路标签、默认线路和联系人首选线路。
-- 联系人头像、收藏、通话与短信入口。
-- 按线路收发短信、已读状态、断线重连和实时更新。
-- 通话记录、拨号、DTMF、录音以及全局或单线路来电策略。
+- 联系人头像、收藏和批量操作；只读 Google Contacts 导入及 vCard
+  导入/导出。
+- 按线路收发短信、已读与收藏状态、批量处理、断线重连和实时更新。
+- 通话记录、拨号、DTMF、全局或单线路来电策略，以及可逐通话开启的录音和
+  实时录音片段。
+- 独立 Modem 的活动通话会话、线路预占、占线状态和浏览器控制权；多路通话
+  尚待多模组实机验证。
 - 分线路流量统计、连接状态和 HTTP/SOCKS5 代理。
 - SIM/eSIM、卡槽、归属与当前运营商及漫游状态。
+- 自动匹配浏览器语言，也可在九种界面语言之间手动切换。
 - 设备、联系人和代理操作的应用内确认。
 - 加密凭据、限定线路范围的 Telegram 机器人。
 
@@ -20,10 +25,21 @@ ModemDeck 是一个管理蜂窝通话、短信、联系人、流量和多条线�
 
 | 场景 | 桌面端 | 手机端 |
 | --- | --- | --- |
-| 多线路仪表盘 | ![桌面端多线路仪表盘](docs/images/readme-dashboard.png) | ![手机端多线路仪表盘](docs/images/readme-dashboard-mobile.png) |
-| 按线路区分的消息 | ![桌面端短信会话](docs/images/readme-messages.png) | ![手机端短信会话](docs/images/readme-messages-mobile.png) |
-| 通话和录音 | ![桌面端通话详情](docs/images/readme-calls.png) | ![手机端通话详情](docs/images/readme-calls-mobile.png) |
-| 网络详情 | ![桌面端网络设置](docs/images/readme-network-settings.png) | ![手机端网络设置](docs/images/readme-network-settings-mobile.png) |
+| 多线路总览：在线状态、默认线路与流量 | ![桌面端多线路总览](docs/images/readme-dashboard.png) | ![手机端多线路活动列表](docs/images/readme-dashboard-mobile.png) |
+| 按线路消息：未读、收藏与联系人动作 | ![桌面端按线路短信会话](docs/images/readme-messages.png) | ![手机端短信会话与线路标签](docs/images/readme-messages-mobile.png) |
+| 通话记录：详情与录音片段 | ![桌面端通话详情与录音片段](docs/images/readme-calls.png) | ![手机端通话详情与录音片段](docs/images/readme-calls-mobile.png) |
+| 模拟来电：录音开关已开启 | ![桌面端模拟来电与录音开关](docs/images/readme-simulated-call.png) | ![手机端模拟来电与录音开关](docs/images/readme-simulated-call-mobile.png) |
+| 多路通话：两条线路同时占用与切换 | ![桌面端多路通话线路切换](docs/images/readme-multi-call.png) | ![手机端多路通话线路切换](docs/images/readme-multi-call-mobile.png) |
+
+## 路线图
+
+| 里程碑 | 状态 | 范围 |
+| --- | --- | --- |
+| M1 自托管多线路控制台 | ✅ 已实现 | 设备、线路、短信、联系人、流量、代理、设置和部署流程。 |
+| M2 单路通话 | ✅ 已实现 | 拨号、接听、拒接、挂断、DTMF、浏览器音频和通话录音。 |
+| M3 多路通话 | 🧪 已实现，未测试 | 每个 Modem 的独立通话会话、线路预占、占线显示和线路切换；待多模组实机验证。 |
+| M4 多用户 | ⬜ 未实现 | 多账户、角色权限、用户级偏好和审计。 |
+| M5 iOS App + CallKit | ⬜ 未实现 | 原生 iOS 客户端、CallKit 来电界面、后台通知与接听流程。 |
 
 ## 架构
 
@@ -206,12 +222,19 @@ with that project.
 
 - Multi-line dashboard, customizable line labels, a default line, and
   per-contact preferred lines.
-- Contact avatars, favorites, and direct call and message actions.
-- Line-aware SMS, read state, reconnect reconciliation, and real-time updates.
-- Call history, dialing, DTMF, recordings, and global or per-line incoming-call
-  policies.
+- Contact avatars, favorites, and bulk actions, plus read-only Google Contacts
+  import and vCard import/export.
+- Line-aware SMS with read and favorite state, bulk actions, reconnect
+  reconciliation, and real-time updates.
+- Call history, dialing, DTMF, global or per-line incoming-call policies,
+  per-call recording, and live recording segments.
+- Independent active-call sessions per modem, line reservations, busy state,
+  and browser control ownership; concurrent calls still need multi-modem
+  hardware validation.
 - Per-line traffic, connection status, and HTTP/SOCKS5 proxies.
 - SIM/eSIM and slot details, home and serving operators, and roaming status.
+- Automatic browser-language matching and manual selection among nine interface
+  languages.
 - In-app confirmation for device, contact, and proxy actions.
 - Telegram bots with encrypted credentials and explicit line scopes.
 
@@ -219,10 +242,21 @@ with that project.
 
 | Scene | Desktop | Mobile |
 | --- | --- | --- |
-| Multi-line dashboard | ![Desktop multi-line dashboard](docs/images/readme-dashboard.png) | ![Mobile multi-line dashboard](docs/images/readme-dashboard-mobile.png) |
-| Line-aware messages | ![Desktop message conversation](docs/images/readme-messages.png) | ![Mobile message conversation](docs/images/readme-messages-mobile.png) |
-| Calls and recordings | ![Desktop call details](docs/images/readme-calls.png) | ![Mobile call details](docs/images/readme-calls-mobile.png) |
-| Network details | ![Desktop network settings](docs/images/readme-network-settings.png) | ![Mobile network settings](docs/images/readme-network-settings-mobile.png) |
+| Multi-line overview: status, default line, and traffic | ![Desktop multi-line overview](docs/images/readme-dashboard.png) | ![Mobile multi-line activity](docs/images/readme-dashboard-mobile.png) |
+| Line-aware messages: unread state, favorites, and contact actions | ![Desktop line-aware message conversation](docs/images/readme-messages.png) | ![Mobile message conversation with line label](docs/images/readme-messages-mobile.png) |
+| Call history: details and recording segments | ![Desktop call details and recording segments](docs/images/readme-calls.png) | ![Mobile call details and recording segments](docs/images/readme-calls-mobile.png) |
+| Simulated incoming call: recording enabled | ![Desktop simulated incoming call with recording enabled](docs/images/readme-simulated-call.png) | ![Mobile simulated incoming call with recording enabled](docs/images/readme-simulated-call-mobile.png) |
+| Concurrent calls: two busy lines and call switching | ![Desktop concurrent-call line switcher](docs/images/readme-multi-call.png) | ![Mobile concurrent-call line switcher](docs/images/readme-multi-call-mobile.png) |
+
+## Roadmap
+
+| Milestone | Status | Scope |
+| --- | --- | --- |
+| M1 Self-hosted multi-line console | ✅ Implemented | Devices, lines, messages, contacts, traffic, proxies, settings, and deployment. |
+| M2 Single-call flow | ✅ Implemented | Dial, answer, decline, hang up, DTMF, browser audio, and call recording. |
+| M3 Concurrent calls | 🧪 Implemented, not tested | Independent sessions per modem, line reservations, busy-state display, and line switching; pending multi-modem hardware validation. |
+| M4 Multi-user | ⬜ Not implemented | Multiple accounts, roles, per-user preferences, and auditing. |
+| M5 iOS app + CallKit | ⬜ Not implemented | Native iOS client, CallKit incoming-call UI, background notifications, and answer flow. |
 
 ## Architecture
 

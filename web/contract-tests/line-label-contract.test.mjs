@@ -100,8 +100,8 @@ test('fixture keeps module names separate from editable line labels', async () =
   assert.deepEqual(
     initial.lines.slice(0, 2).map(item => [item.line_label, item.line_color]),
     [
-      ['主卡', 'violet'],
-      ['副卡', 'teal']
+      ['Line A', 'violet'],
+      ['Line B', 'teal']
     ]
   )
 

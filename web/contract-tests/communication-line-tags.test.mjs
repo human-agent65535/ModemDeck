@@ -66,10 +66,10 @@ test('shared line tags use only stable line ids', () => {
 })
 
 test('frontend identity matching consumes backend-canonical global numbers', () => {
-  assert.equal(phoneIdentitiesMatch('+1 202 555 0101', '+81 (80) 1234-5678'), true)
-  assert.equal(phoneIdentitiesMatch('+1 202 555 0101', '0081 80 1234 5678'), false)
-  assert.equal(phoneIdentitiesMatch('+8613800138000', '8613800138000'), false)
-  assert.equal(phoneIdentitiesMatch('008613800138000', '8613800138000'), false)
+  assert.equal(phoneIdentitiesMatch('+1 202 555 0101', '+1 (202) 555-0101'), true)
+  assert.equal(phoneIdentitiesMatch('+1 202 555 0101', '00 1 202 555 0101'), false)
+  assert.equal(phoneIdentitiesMatch('+1 202 555 0101', '12025550101'), false)
+  assert.equal(phoneIdentitiesMatch('0012025550101', '12025550101'), false)
   assert.equal(phoneIdentitiesMatch('00123', '+123'), false)
   assert.equal(phoneIdentitiesMatch('', ''), false)
 })

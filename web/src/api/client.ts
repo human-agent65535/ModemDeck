@@ -174,6 +174,10 @@ const incomingCallFixture =
     : ''
 const initialIncomingCallFixture: boolean | 'occupied' =
   incomingCallFixture === 'occupied' ? 'occupied' : incomingCallFixture === '1'
+const initialConcurrentCallsFixture =
+  fixtureMode && typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('multiCallFixture') === '1'
+    : false
 const outgoingReservationFixture =
   fixtureMode && typeof window !== 'undefined'
     ? new URLSearchParams(window.location.search).get('outgoingReservationFixture')
@@ -187,6 +191,7 @@ const fixturePreviewOptions =
   fixtureMode && typeof window !== 'undefined'
     ? {
         initialIncomingCall: initialIncomingCallFixture,
+        initialConcurrentCalls: initialConcurrentCallsFixture,
         initialOutgoingReservation: initialOutgoingReservationFixture
       }
     : {}

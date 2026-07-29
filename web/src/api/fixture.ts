@@ -77,6 +77,14 @@ const MAIN_IMSI = '001010000000001'
 const TRAVEL_IMSI = '001020000000002'
 const MAIN_PHONE = '+1 202 555 0101'
 const TRAVEL_PHONE = '+1 202 555 0102'
+const ALEX_NAME = 'Alex Rowan'
+const ALEX_PHONE = '+1 202 555 0103'
+const CASEY_NAME = 'Casey Morgan'
+const CASEY_PHONE = '+1 202 555 0104'
+const CASEY_WORK_PHONE = '+1 202 555 0105'
+const RILEY_NAME = 'Riley Quinn'
+const RILEY_PHONE = '+1 202 555 0106'
+const UNKNOWN_CALLER_PHONE = '+1 202 555 0107'
 
 function fixtureThreadKey(
   lineID: string,
@@ -98,50 +106,50 @@ function fixtureThreadForQuery(
 const contacts: Contact[] = [
   {
     id: 'contact-alex',
-    display_name: 'Alex Rowan',
+    display_name: ALEX_NAME,
     favorite: true,
     preferred_line_id: 'line-fixture-main',
-    phones: [{ id: 'phone-alex', label: '手机', number: '+1 202 555 0103', primary: true }],
-    notes: '东京',
+    phones: [{ id: 'phone-alex', label: 'Mobile', number: ALEX_PHONE, primary: true }],
+    notes: 'Demo contact',
     revision: 3
   },
   {
     id: 'contact-casey',
-    display_name: 'Casey Morgan',
+    display_name: CASEY_NAME,
     favorite: false,
     preferred_line_id: 'line-fixture-travel',
     phones: [
-      { id: 'phone-casey-mobile', label: '手机', number: '+1 202 555 0104', primary: true },
-      { id: 'phone-casey-work', label: '工作', number: '+1 202 555 0105', primary: false }
+      { id: 'phone-casey-mobile', label: 'Mobile', number: CASEY_PHONE, primary: true },
+      { id: 'phone-casey-work', label: 'Work', number: CASEY_WORK_PHONE, primary: false }
     ],
     revision: 2
   },
   {
     id: 'contact-riley',
-    display_name: 'Riley Quinn',
+    display_name: RILEY_NAME,
     favorite: false,
-    phones: [{ id: 'phone-riley', label: '手机', number: '+1 202 555 0106', primary: true }],
+    phones: [{ id: 'phone-riley', label: 'Mobile', number: RILEY_PHONE, primary: true }],
     revision: 1
   }
 ]
 
 const threads: MessageThread[] = [
   {
-    key: fixtureThreadKey('line-fixture-main', '+1 202 555 0103'),
+    key: fixtureThreadKey('line-fixture-main', ALEX_PHONE),
     line_id: 'line-fixture-main',
-    peer: '+1 202 555 0103',
-    contact_name: 'Alex Rowan',
+    peer: ALEX_PHONE,
+    contact_name: ALEX_NAME,
     last_timestamp: '2026-07-23T09:42:00Z',
-    last_content: '好的，明天下午联系。',
+    last_content: 'Thanks — I’ll check it later.',
     unread_count: 1,
     marked_unread: false,
     favorite: true
   },
   {
-    key: fixtureThreadKey('line-fixture-travel', '+1 202 555 0104'),
+    key: fixtureThreadKey('line-fixture-travel', CASEY_PHONE),
     line_id: 'line-fixture-travel',
-    peer: '+1 202 555 0104',
-    contact_name: 'Casey Morgan',
+    peer: CASEY_PHONE,
+    contact_name: CASEY_NAME,
     last_timestamp: '2026-07-22T14:18:00Z',
     last_content: 'The demo workspace is ready.',
     unread_count: 0,
@@ -149,12 +157,12 @@ const threads: MessageThread[] = [
     favorite: false
   },
   {
-    key: fixtureThreadKey('line-fixture-main', '+1 202 555 0106'),
+    key: fixtureThreadKey('line-fixture-main', RILEY_PHONE),
     line_id: 'line-fixture-main',
-    peer: '+1 202 555 0106',
-    contact_name: 'Riley Quinn',
+    peer: RILEY_PHONE,
+    contact_name: RILEY_NAME,
     last_timestamp: '2026-07-20T06:05:00Z',
-    last_content: '收到，谢谢。',
+    last_content: 'Got it, thank you.',
     unread_count: 0,
     marked_unread: false,
     favorite: false
@@ -162,13 +170,13 @@ const threads: MessageThread[] = [
 ]
 
 const messagesByThread: Record<string, Message[]> = {
-  [fixtureThreadKey('line-fixture-main', '+1 202 555 0103')]: [
+  [fixtureThreadKey('line-fixture-main', ALEX_PHONE)]: [
     {
       id: '101',
       line_id: 'line-fixture-main',
-      peer: '+1 202 555 0103',
+      peer: ALEX_PHONE,
       direction: 'outgoing',
-      content: '设备已经恢复，可以再试一次。',
+      content: 'The test device is back online.',
       timestamp: '2026-07-23T09:38:00Z',
       type: 2,
       status: 2
@@ -176,19 +184,19 @@ const messagesByThread: Record<string, Message[]> = {
     {
       id: '102',
       line_id: 'line-fixture-main',
-      peer: '+1 202 555 0103',
+      peer: ALEX_PHONE,
       direction: 'incoming',
-      content: '好的，明天下午联系。',
+      content: 'Thanks — I’ll check it later.',
       timestamp: '2026-07-23T09:42:00Z',
       type: 1,
       status: 1
     }
   ],
-  [fixtureThreadKey('line-fixture-travel', '+1 202 555 0104')]: [
+  [fixtureThreadKey('line-fixture-travel', CASEY_PHONE)]: [
     {
       id: '103',
       line_id: 'line-fixture-travel',
-      peer: '+1 202 555 0104',
+      peer: CASEY_PHONE,
       direction: 'incoming',
       content: 'The demo workspace is ready.',
       timestamp: '2026-07-22T14:18:00Z',
@@ -196,13 +204,13 @@ const messagesByThread: Record<string, Message[]> = {
       status: 1
     }
   ],
-  [fixtureThreadKey('line-fixture-main', '+1 202 555 0106')]: [
+  [fixtureThreadKey('line-fixture-main', RILEY_PHONE)]: [
     {
       id: '104',
       line_id: 'line-fixture-main',
-      peer: '+1 202 555 0106',
+      peer: RILEY_PHONE,
       direction: 'outgoing',
-      content: '配置已发送。',
+      content: 'The sample report is available.',
       timestamp: '2026-07-20T05:59:00Z',
       type: 2,
       status: 2
@@ -210,9 +218,9 @@ const messagesByThread: Record<string, Message[]> = {
     {
       id: '105',
       line_id: 'line-fixture-main',
-      peer: '+1 202 555 0106',
+      peer: RILEY_PHONE,
       direction: 'incoming',
-      content: '收到，谢谢。',
+      content: 'Got it, thank you.',
       timestamp: '2026-07-20T06:05:00Z',
       type: 1,
       status: 1
@@ -225,8 +233,8 @@ const calls: CallRecord[] = [
     id: 'call-1',
     line_id: 'line-fixture-main',
     direction: 'incoming',
-    remote_number: '+1 202 555 0103',
-    display_name: 'Alex Rowan',
+    remote_number: ALEX_PHONE,
+    display_name: ALEX_NAME,
     contact_id: 'contact-alex',
     started_at: '2026-07-23T08:52:00Z',
     ended_at: '2026-07-23T08:57:12Z',
@@ -239,7 +247,7 @@ const calls: CallRecord[] = [
     id: 'call-2',
     line_id: 'line-fixture-main',
     direction: 'incoming',
-    remote_number: '+1 202 555 0107',
+    remote_number: UNKNOWN_CALLER_PHONE,
     started_at: '2026-07-22T11:14:00Z',
     ended_at: '2026-07-22T11:14:31Z',
     duration_seconds: 0,
@@ -251,8 +259,8 @@ const calls: CallRecord[] = [
     id: 'call-3',
     line_id: 'line-fixture-travel',
     direction: 'outgoing',
-    remote_number: '+1 202 555 0104',
-    display_name: 'Casey Morgan',
+    remote_number: CASEY_PHONE,
+    display_name: CASEY_NAME,
     contact_id: 'contact-casey',
     started_at: '2026-07-22T07:30:00Z',
     ended_at: '2026-07-22T07:33:46Z',
@@ -359,6 +367,7 @@ export type FixtureGatewayOptions = {
   lineCount?: number
   noDevices?: boolean
   initialIncomingCall?: boolean | 'occupied'
+  initialConcurrentCalls?: boolean
   initialOutgoingReservation?: 'owned' | 'occupied'
 }
 
@@ -384,7 +393,7 @@ function fixtureLines(count: number): LineSummary[] {
       emergency_only: false,
       device_imei: 'fixture-001',
       device_name: 'Main cellular modem',
-      line_label: '主卡',
+      line_label: 'Line A',
       line_color: 'violet',
       model: 'Fixture modem 1',
       firmware: 'Fixture 1.0',
@@ -427,7 +436,7 @@ function fixtureLines(count: number): LineSummary[] {
       emergency_only: false,
       device_imei: 'fixture-002',
       device_name: 'Travel cellular modem',
-      line_label: '副卡',
+      line_label: 'Line B',
       line_color: 'teal',
       model: 'Fixture modem 2',
       firmware: 'Fixture 1.0',
@@ -456,7 +465,7 @@ function fixtureLines(count: number): LineSummary[] {
       id: `line-fixture-${displayIndex}`,
       iccid: `89860000000000000${String(displayIndex).padStart(2, '0')}`,
       imsi: `0010100000000${String(displayIndex).padStart(2, '0')}`,
-      phone_number: `+1 202 555 ${String(displayIndex).padStart(4, '0')}`,
+      phone_number: `+1 202 555 ${String(100 + displayIndex).padStart(4, '0')}`,
       operator: `Fixture Network ${displayIndex}`,
       home_operator_code: `001${String(displayIndex).padStart(2, '0')}`,
       home_operator_name: `Fixture Network ${displayIndex}`,
@@ -659,7 +668,10 @@ function fixtureHardware(line: LineSummary, index: number): DeviceHardwareConfig
 export function createFixtureGateway(options: FixtureGatewayOptions = {}): ModemDeckGateway {
   const requestedLineCount = Math.max(0, Math.trunc(options.lineCount ?? 2))
   const lines = options.noDevices ? [] : fixtureLines(requestedLineCount)
-  if (options.initialIncomingCall === 'occupied' && lines[1]) {
+  if (
+    (options.initialIncomingCall === 'occupied' || options.initialConcurrentCalls) &&
+    lines[1]
+  ) {
     lines[1].capabilities = {
       ...lines[1].capabilities,
       voice: true,
@@ -786,27 +798,60 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       ]
     ])
   )
+  const initialCallTimestamp = new Date().toISOString()
   let activeCall: CallSession | undefined =
-    options.initialIncomingCall && lines[0]
+    options.initialConcurrentCalls && lines[0]
+      ? {
+          id: 'call-fixture-concurrent-main',
+          line_id: fixtureLineKey(lines[0]),
+          direction: 'outgoing',
+          remote_number: ALEX_PHONE,
+          display_name: ALEX_NAME,
+          phase: 'active',
+          control_state: 'occupied',
+          media_available: false,
+          created_at: initialCallTimestamp,
+          active_at: initialCallTimestamp,
+          bearer: 'volte'
+        }
+      : options.initialIncomingCall && lines[0]
       ? {
           id: 'call-fixture-incoming',
           line_id: fixtureLineKey(lines[0]),
           direction: 'incoming',
-          remote_number: '+1 202 555 0103',
-          display_name: 'Alex Rowan',
+          remote_number: ALEX_PHONE,
+          display_name: ALEX_NAME,
           phase: options.initialIncomingCall === 'occupied' ? 'active' : 'ringing',
           control_state:
             options.initialIncomingCall === 'occupied' ? 'occupied' : 'available',
           media_available: false,
-          created_at: new Date().toISOString(),
+          created_at: initialCallTimestamp,
           ...(options.initialIncomingCall === 'occupied'
             ? {
-                active_at: new Date().toISOString(),
+                active_at: initialCallTimestamp,
                 bearer: 'volte'
               }
             : {})
         }
       : undefined
+  const additionalActiveCalls: CallSession[] =
+    options.initialConcurrentCalls && lines[1]
+      ? [
+          {
+            id: 'call-fixture-concurrent-secondary',
+            line_id: fixtureLineKey(lines[1]),
+            direction: 'incoming',
+            remote_number: CASEY_PHONE,
+            display_name: CASEY_NAME,
+            phase: 'active',
+            control_state: 'occupied',
+            media_available: false,
+            created_at: initialCallTimestamp,
+            active_at: initialCallTimestamp,
+            bearer: 'volte'
+          }
+        ]
+      : []
   const outgoingReservations: OutgoingCallReservation[] =
     options.initialOutgoingReservation && lines[0]
       ? [
@@ -1419,7 +1464,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     async getActiveCallSnapshot(): Promise<ActiveCallSnapshot> {
       if (!activeCall || activeCall.phase === 'ended' || activeCall.phase === 'failed') {
         return {
-          calls: [],
+          calls: clone(additionalActiveCalls),
           reservations: clone(outgoingReservations)
         }
       }
@@ -1438,7 +1483,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         }
       }
       return {
-        calls: [clone(activeCall)],
+        calls: [clone(activeCall), ...clone(additionalActiveCalls)],
         reservations: clone(outgoingReservations)
       }
     },
@@ -1807,7 +1852,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
             status: 'current',
             operator_code: '00101',
             operator_long: 'Aurora Mobile',
-            operator_short: 'Aurora Mobile',
+            operator_short: 'Aurora',
             access_technologies: 1 << 14,
             access_technology_names: ['LTE']
           },

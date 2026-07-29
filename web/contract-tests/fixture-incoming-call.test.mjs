@@ -34,6 +34,22 @@ test('incoming-call preview can show a call claimed by another browser', async (
   assert.equal(bootstrap.lines[1]?.capabilities?.media, true)
 })
 
+test('multi-call preview exposes two occupied modem lines', async () => {
+  const gateway = createFixtureGateway({ initialConcurrentCalls: true })
+  const snapshot = await gateway.getActiveCallSnapshot()
+
+  assert.equal(snapshot.calls.length, 2)
+  assert.deepEqual(
+    snapshot.calls.map(call => call.line_id),
+    ['line-fixture-main', 'line-fixture-travel']
+  )
+  assert.deepEqual(
+    snapshot.calls.map(call => call.control_state),
+    ['occupied', 'occupied']
+  )
+  assert.deepEqual(snapshot.reservations, [])
+})
+
 test('fixture active snapshot can expose a reservation without inventing a call', async () => {
   const gateway = createFixtureGateway({ initialOutgoingReservation: 'occupied' })
   const snapshot = await gateway.getActiveCallSnapshot()
@@ -49,6 +65,8 @@ test('fixture client exposes incomingCallFixture modes only in fixture mode', as
 
   assert.match(source, /get\('incomingCallFixture'\)/)
   assert.match(source, /incomingCallFixture === 'occupied' \? 'occupied'/)
+  assert.match(source, /get\('multiCallFixture'\) === '1'/)
+  assert.match(source, /initialConcurrentCalls: initialConcurrentCallsFixture/)
   assert.match(source, /get\('outgoingReservationFixture'\)/)
   assert.match(source, /initialOutgoingReservation: initialOutgoingReservationFixture/)
   assert.match(source, /createFixtureGateway\(fixturePreviewOptions\)/)
