@@ -129,6 +129,27 @@ test('module cards separate call control from verified voice media', () => {
   assert.doesNotMatch(capabilities, /browserAudio|mediaBridge|USB/)
 })
 
+test('module card footers become accessible icon-only controls on mobile', () => {
+  const mobile = moduleCard.slice(moduleCard.indexOf('@media (max-width: 720px)'))
+
+  assert.match(
+    mobile,
+    /\.module-card__capabilities > span\s*\{[^}]*width: 30px[^}]*height: 30px[^}]*font-size: 0/s
+  )
+  assert.match(
+    mobile,
+    /\.module-card__default-action,[\s\S]*\.module-card__default-status\s*\{[^}]*width: 34px[^}]*font-size: 0/s
+  )
+  assert.match(
+    moduleCard,
+    /:title="t\('lines\.callControl'\)"[\s\S]*:aria-label="t\('lines\.callControl'\)"/
+  )
+  assert.match(
+    moduleCard,
+    /class="module-card__default-status"[\s\S]*:aria-label="t\('lines\.currentDefaultLine'\)"/
+  )
+})
+
 test('module cards use graded bars and reserve the airplane icon for flight mode', () => {
   const flightModeStart = moduleCard.indexOf('const flightMode = computed(')
   const flightModeEnd = moduleCard.indexOf(

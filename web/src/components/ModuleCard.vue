@@ -256,22 +256,40 @@ const lineBusy = computed(() => {
 
     <footer class="module-card__footer">
       <div class="module-card__capabilities" :aria-label="t('lines.moduleCapabilities')">
-        <span :class="{ 'is-enabled': lineHasCallControl(line) }">
+        <span
+          :class="{ 'is-enabled': lineHasCallControl(line) }"
+          :title="t('lines.callControl')"
+          :aria-label="t('lines.callControl')"
+          role="img"
+        >
           <Phone :size="14" />
           {{ t('lines.callControl') }}
         </span>
         <span
           v-if="line.capabilities?.media === true"
           class="is-enabled"
+          :title="t('lines.voiceCalling')"
+          :aria-label="t('lines.voiceCalling')"
+          role="img"
         >
           <AudioLines :size="14" />
           {{ t('lines.voiceCalling') }}
         </span>
-        <span :class="{ 'is-enabled': line.capabilities?.messaging }">
+        <span
+          :class="{ 'is-enabled': line.capabilities?.messaging }"
+          title="SMS"
+          aria-label="SMS"
+          role="img"
+        >
           <MessageSquareText :size="14" />
           SMS
         </span>
-        <span :class="{ 'is-enabled': line.capabilities?.sim }">
+        <span
+          :class="{ 'is-enabled': line.capabilities?.sim }"
+          title="SIM"
+          aria-label="SIM"
+          role="img"
+        >
           <CardSim :size="14" />
           SIM
         </span>
@@ -309,6 +327,7 @@ const lineBusy = computed(() => {
         v-else-if="defaultLine"
         class="module-card__default-status"
         :title="t('lines.currentDefaultLine')"
+        :aria-label="t('lines.currentDefaultLine')"
       >
         <CircleCheck :size="16" />
         {{ t('lines.defaultLine') }}
@@ -654,6 +673,35 @@ const lineBusy = computed(() => {
 
   .module-card__default-action {
     padding-inline: 6px;
+  }
+}
+
+@media (max-width: 720px) {
+  .module-card__capabilities {
+    gap: 4px;
+  }
+
+  .module-card__capabilities > span {
+    width: 30px;
+    height: 30px;
+    flex: 0 0 30px;
+    justify-content: center;
+    gap: 0;
+    font-size: 0;
+  }
+
+  .module-card__capabilities > span :deep(svg) {
+    width: 18px;
+    height: 18px;
+  }
+
+  .module-card__default-action,
+  .module-card__delete-action,
+  .module-card__default-status {
+    width: 34px;
+    padding: 0;
+    gap: 0;
+    font-size: 0;
   }
 }
 
