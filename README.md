@@ -48,10 +48,10 @@ Polkit、防火墙或其他服务。宿主系统和设备分配由用户负责�
 
 ## 硬件兼容性
 
-### Quectel EC2x USB
+### Quectel QCFG USB
 
-Linux 基线使用 Quectel EC2x USB、`qmi_wwan`、ModemManager 和
-`usbnet=0`。命令定义见 Quectel
+Linux 基线使用 Quectel USB、`qmi_wwan`、ModemManager 和 `usbnet=0`。
+命令定义见 Quectel
 [EC2x/EG2x/EG9x/EM05 QCFG AT 命令手册 V1.0](https://www.quectel.com/content/uploads/2024/02/Quectel_EC2xEG2xEG9xEM05_Series_QCFG_AT_Commands_Manual_V1.0.pdf)。
 
 已验证的 USB 身份和接口配置为：
@@ -98,14 +98,16 @@ AT+QCFG="usbcfg",0x2C7C,0x0125,1,1,1,1,1,0,1
 
 ### Quectel 语音与 VoLTE
 
-系统只为已验证的 QCFG IMS 家族加载 VoLTE 配置：Quectel 官方手册列出的
+可能适用的模组范围为 Quectel 官方 QCFG 手册列出的
 EC20/EC21/EC25、EG21/EG25、EG91/EG95、EM05，以及实机验证过的 QDC507。
-启用和关闭分别写入
+这个列表只表示文档覆盖或实测参考范围，不代表所有型号均已支持，也不定义
+运行时白名单。QCFG IMS 的启用和关闭分别写入
 `AT+QCFG="ims",1` 与 `AT+QCFG="ims",2`，重启后生效。配置成功不等于 IMS
 已注册，也不能证明实时通话的承载或音频路径。ModemManager 报告的运营商配置
 和 ProfileManager 中的 IMS profile 会作为独立只读信息显示。
+目前的实机验证范围仅为下文所列的 EG25 和 QDC507。
 
-呼叫控制和媒体能力单独探测。上述白名单设备以 AT 状态作为呼叫控制能力依据：
+呼叫控制和媒体能力单独探测。进入呼叫控制探测流程的设备以 AT 状态作为依据：
 可读的 `usbcfg` 末位 `0` 会明确禁用，末位 `1` 会确认控制；固件返回
 `ERROR` 时只标记为不可读，并由安全的 `AT+CLCC` 查询继续确认，不会把读取失败
 误判成禁用。ModemManager Voice 存在时作为优先控制接口，否则由 Agent 使用
@@ -249,10 +251,10 @@ device paths or switching control backends.
 
 ## Hardware compatibility
 
-### Quectel EC2x USB
+### Quectel QCFG USB
 
-The Linux baseline uses Quectel EC2x USB, `qmi_wwan`, ModemManager, and
-`usbnet=0`. Command definitions are in Quectel's
+The Linux baseline uses Quectel USB, `qmi_wwan`, ModemManager, and `usbnet=0`.
+Command definitions are in Quectel's
 [EC2x/EG2x/EG9x/EM05 QCFG AT Commands Manual V1.0](https://www.quectel.com/content/uploads/2024/02/Quectel_EC2xEG2xEG9xEM05_Series_QCFG_AT_Commands_Manual_V1.0.pdf).
 
 The validated USB identity and interface configuration is:
@@ -304,16 +306,19 @@ usable sound device.
 
 ### Quectel voice and VoLTE
 
-The system loads VoLTE configuration only for verified QCFG IMS families:
-EC20/EC21/EC25, EG21/EG25, EG91/EG95, and EM05 from Quectel's QCFG manual,
-plus the field-verified QDC507 family. Enable and disable write
+The potentially applicable module range is EC20/EC21/EC25, EG21/EG25,
+EG91/EG95, and EM05 from Quectel's QCFG manual, plus the field-verified QDC507
+family. This list describes documentation coverage or field-test reference
+scope only; it neither claims support for every model nor defines a runtime
+whitelist. QCFG IMS enable and disable write
 `AT+QCFG="ims",1` and `AT+QCFG="ims",2` respectively and take effect after
 restart. A successful configuration does not prove IMS registration, the
 live-call bearer, or an audio path. Carrier configuration and IMS profiles
 reported by ModemManager are displayed as separate read-only facts.
+Current hardware verification is limited to the EG25 and QDC507 results below.
 
-Call control and media are probed separately. For the whitelist above, AT
-state is authoritative for call-control capability. A readable final
+Call control and media are probed separately. For modules that enter the
+call-control probe, AT state is authoritative for capability. A readable final
 `usbcfg` value of `0` disables control and `1` confirms it. A firmware
 `ERROR` is reported as unreadable and followed by the safe `AT+CLCC` query
 instead of being misclassified as disabled. ModemManager Voice is the
