@@ -24,6 +24,7 @@ const incomingCall = {
   direction: 'incoming',
   remote_number: '+818012345678',
   phase: 'ringing',
+  control_state: 'available',
   media_available: false,
   created_at: '2026-07-26T10:00:00Z'
 }
@@ -226,7 +227,10 @@ test('live call and SMS paths own sound playback instead of view components', as
     readFile(new URL('../src/state/workspace.ts', import.meta.url), 'utf8')
   ])
 
-  assert.match(calls, /function acceptSession[\s\S]*syncCallSounds\(session\)/)
+  assert.match(
+    calls,
+    /function acceptSession[\s\S]*syncCallSounds\([\s\S]*owned[\s\S]*incomingAvailable[\s\S]*\? session : null/
+  )
   assert.match(calls, /shutdownCallRuntime[\s\S]*syncCallSounds\(null\)/)
   assert.match(
     messages,

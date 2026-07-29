@@ -63,6 +63,7 @@ test('incoming call notification is claimed once for one genuinely ringing call'
     direction: 'incoming',
     remote_number: '+818012345678',
     phase: 'ringing',
+    control_state: 'available',
     media_available: false,
     created_at: '2026-07-24T08:00:00Z'
   }
@@ -79,6 +80,13 @@ test('incoming call notification is claimed once for one genuinely ringing call'
   assert.equal(
     claimIncomingCallNotification(
       { ...incomingCall, id: 'call-active-1', phase: 'active' },
+      claimed
+    ),
+    false
+  )
+  assert.equal(
+    claimIncomingCallNotification(
+      { ...incomingCall, id: 'call-occupied-1', control_state: 'occupied' },
       claimed
     ),
     false
@@ -101,6 +109,7 @@ test('incoming call notification history stays bounded', () => {
           direction: 'incoming',
           remote_number: '+818012345678',
           phase: 'ringing',
+          control_state: 'available',
           media_available: false,
           created_at: '2026-07-24T08:00:00Z'
         },

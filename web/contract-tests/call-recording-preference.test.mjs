@@ -18,6 +18,7 @@ function callResponse(id, lineKey, number) {
       direction: 'outgoing',
       remote_number: number,
       phase: 'dialing',
+      control_state: 'owned',
       media_available: false,
       created_at: '2026-07-23T12:00:00Z'
     }
@@ -161,6 +162,7 @@ test('call reconciliation repeats when a terminal event arrives during an active
         direction: 'outgoing',
         remote_number: '+818000000015',
         phase: 'dialing',
+        control_state: 'owned',
         media_available: false,
         created_at: '2026-07-28T09:34:07Z'
       }

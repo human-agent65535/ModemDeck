@@ -1,6 +1,7 @@
 import { parseCallRecord, parseMessage } from './normalize.ts'
 import type {
   CallAction,
+  CallControlState,
   CallDirection,
   CallLeaseStatus,
   CallPhase,
@@ -81,6 +82,11 @@ const CALL_PHASES = new Set<CallPhase>([
   'failed'
 ])
 const CALL_DIRECTIONS = new Set<CallDirection>(['incoming', 'outgoing'])
+const CALL_CONTROL_STATES = new Set<CallControlState>([
+  'available',
+  'owned',
+  'occupied'
+])
 const CALL_ACTIONS = new Set<CallAction>(['answer', 'reject', 'hangup'])
 const RECORDING_STATUSES = new Set<RecordingStatus>([
   'pending',
@@ -1091,63 +1097,91 @@ export function createCallPayload(
   lineID: string,
   number: string,
   requestID?: string,
+  holderID?: string,
   recordingEnabled?: boolean
 ): {
   request_id?: string
   line_id: string
   number: string
+  holder_id: string
   recording_enabled?: boolean
 } {
   const normalizedLineID = lineID.trim()
   const normalizedNumber = number.trim()
   const normalizedRequestID = requestID?.trim()
+  const normalizedHolderID = holderID?.trim()
   if (!normalizedLineID || !normalizedNumber) throw new Error('line_id 和 number 不能为空')
+  if (!normalizedHolderID) throw new Error('holder_id 不能为空')
   return {
     ...(normalizedRequestID ? { request_id: normalizedRequestID } : {}),
     line_id: normalizedLineID,
     number: normalizedNumber,
+    holder_id: normalizedHolderID,
     ...(typeof recordingEnabled === 'boolean' ? { recording_enabled: recordingEnabled } : {})
   }
 }
 
 export function createCallActionPayload(
   action: CallAction,
-  requestID?: string
-): { request_id?: string } {
+  requestID: string | undefined,
+  holderID: string
+): { request_id?: string; holder_id: string } {
   if (!CALL_ACTIONS.has(action)) throw new Error(`未知通话操作：${action}`)
   const normalizedRequestID = requestID?.trim()
-  return normalizedRequestID ? { request_id: normalizedRequestID } : {}
+  const normalizedHolderID = holderID.trim()
+  if (!normalizedHolderID) throw new Error('holder_id 不能为空')
+  return {
+    ...(normalizedRequestID ? { request_id: normalizedRequestID } : {}),
+    holder_id: normalizedHolderID
+  }
 }
 
 export function createDTMFPayload(
   digits: string,
-  requestID?: string
-): { request_id?: string; digits: string } {
+  requestID: string | undefined,
+  holderID: string
+): { request_id?: string; digits: string; holder_id: string } {
   const normalizedDigits = digits.trim().toUpperCase()
   const normalizedRequestID = requestID?.trim()
+  const normalizedHolderID = holderID.trim()
   if (!/^[0-9*#A-D]+$/.test(normalizedDigits)) throw new Error('DTMF 按键无效')
+  if (!normalizedHolderID) throw new Error('holder_id 不能为空')
   return {
     ...(normalizedRequestID ? { request_id: normalizedRequestID } : {}),
-    digits: normalizedDigits
+    digits: normalizedDigits,
+    holder_id: normalizedHolderID
   }
 }
 
 export function createCallMediaPayload(
   ownerToken: string,
-  offerSDP: string
-): { owner_token: string; offer_sdp: string } {
+  offerSDP: string,
+  holderID: string
+): { owner_token: string; offer_sdp: string; holder_id: string } {
   const normalizedOwnerToken = ownerToken.trim()
+  const normalizedHolderID = holderID.trim()
   if (!normalizedOwnerToken) throw new Error('owner_token 不能为空')
   if (!offerSDP.trim()) throw new Error('offer_sdp 不能为空')
-  return { owner_token: normalizedOwnerToken, offer_sdp: offerSDP }
+  if (!normalizedHolderID) throw new Error('holder_id 不能为空')
+  return {
+    owner_token: normalizedOwnerToken,
+    offer_sdp: offerSDP,
+    holder_id: normalizedHolderID
+  }
 }
 
 export function createCallMediaReleasePayload(
-  ownerToken: string
-): { owner_token: string } {
+  ownerToken: string,
+  holderID: string
+): { owner_token: string; holder_id: string } {
   const normalizedOwnerToken = ownerToken.trim()
+  const normalizedHolderID = holderID.trim()
   if (!normalizedOwnerToken) throw new Error('owner_token 不能为空')
-  return { owner_token: normalizedOwnerToken }
+  if (!normalizedHolderID) throw new Error('holder_id 不能为空')
+  return {
+    owner_token: normalizedOwnerToken,
+    holder_id: normalizedHolderID
+  }
 }
 
 export function createCallLeasePayload(holderID: string): { holder_id: string } {
@@ -1186,8 +1220,13 @@ export function createTLSSettingsPayload(
   }
 }
 
-export function createCallRecordingPayload(enabled: boolean): { enabled: boolean } {
-  return { enabled }
+export function createCallRecordingPayload(
+  enabled: boolean,
+  holderID: string
+): { enabled: boolean; holder_id: string } {
+  const normalizedHolderID = holderID.trim()
+  if (!normalizedHolderID) throw new Error('holder_id 不能为空')
+  return { enabled, holder_id: normalizedHolderID }
 }
 
 export function createGlobalCallSettingsPayload(
@@ -1734,8 +1773,16 @@ export function parseCallSession(value: unknown): CallSession {
   const source = objectValue(value, 'call')
   const direction = requiredString(source, 'call', 'direction') as CallDirection
   const phase = requiredString(source, 'call', 'phase') as CallPhase
+  const controlState = requiredString(
+    source,
+    'call',
+    'control_state'
+  ) as CallControlState
   if (!CALL_DIRECTIONS.has(direction)) throw new Error(`call.direction 未知：${direction}`)
   if (!CALL_PHASES.has(phase)) throw new Error(`call.phase 未知：${phase}`)
+  if (!CALL_CONTROL_STATES.has(controlState)) {
+    throw new Error(`call.control_state 未知：${controlState}`)
+  }
 
   const displayName = optionalString(source, 'display_name')
   const activeAt = optionalTimestamp(source, 'call', 'active_at')
@@ -1749,6 +1796,7 @@ export function parseCallSession(value: unknown): CallSession {
     remote_number: requiredString(source, 'call', 'remote_number', true),
     ...(displayName ? { display_name: displayName } : {}),
     phase,
+    control_state: controlState,
     media_available: requiredBoolean(source, 'call', 'media_available'),
     created_at: requiredTimestamp(source, 'call', 'created_at'),
     ...(activeAt ? { active_at: activeAt } : {}),

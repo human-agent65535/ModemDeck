@@ -766,6 +766,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           remote_number: '+1 202 555 0103',
           display_name: 'Alex Rowan',
           phase: 'ringing',
+          control_state: 'available',
           media_available: false,
           created_at: new Date().toISOString()
         }
@@ -1308,6 +1309,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         remote_number: dialTarget.normalized,
         display_name: contact?.display_name,
         phase: 'dialing',
+        control_state: 'owned',
         media_available: false,
         created_at: '2026-07-23T12:05:00Z'
       }
@@ -1323,6 +1325,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       if (!activeCall || activeCall.id !== id) throw new ApiError('通话不存在', 404)
       if (action === 'answer') {
         activeCall.phase = 'active'
+        activeCall.control_state = 'owned'
         activeCall.active_at = '2026-07-23T12:05:04Z'
         activeCall.bearer = 'volte'
         if (activeCallRecording?.enabled) {

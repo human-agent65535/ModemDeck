@@ -7,13 +7,15 @@ import {
   LoaderCircle,
   MessageSquareText,
   Phone,
+  PhoneCall,
   RadioTower,
   Trash2
 } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Device, LineSummary, NetworkLineStatus } from '../api/types'
-import { lineHasCallControl, lineLabel } from '../state/workspace'
+import { callState } from '../state/call'
+import { lineHasCallControl, lineKey, lineLabel } from '../state/workspace'
 import { formatDateTime } from '../utils/format'
 import {
   isRegisteredNetwork,
@@ -139,6 +141,11 @@ const dataConnection = computed(() => {
   if (!props.runtime) return null
   return trafficLineState(props.runtime)
 })
+const lineBusy = computed(() => {
+  const session = callState.session
+  if (!session || session.line_id !== lineKey(props.line)) return false
+  return session.phase !== 'ended' && session.phase !== 'failed'
+})
 </script>
 
 <template>
@@ -162,6 +169,13 @@ const dataConnection = computed(() => {
             <i :class="{ 'is-online': online }" />
             {{ stateLabel }}
           </small>
+        </span>
+        <span
+          v-if="lineBusy"
+          class="module-card__call-status"
+        >
+          <PhoneCall :size="13" />
+          {{ t('calls.lineInUse') }}
         </span>
         <span
           v-if="dataConnection && dataConnection.kind !== 'idle'"
@@ -410,6 +424,19 @@ const dataConnection = computed(() => {
   font-size: 12px;
   font-weight: 650;
   padding: 3px 6px;
+  border-radius: 4px;
+}
+
+.module-card__call-status {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 6px;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 650;
+  background: var(--accent-soft);
   border-radius: 4px;
 }
 

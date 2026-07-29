@@ -49,6 +49,7 @@ const canonicalCall = {
   direction: 'outgoing',
   remote_number: '+818012345678',
   phase: 'active',
+  control_state: 'owned',
   media_available: true,
   created_at: '2026-07-23T12:00:00Z',
   active_at: '2026-07-23T12:00:03Z',
@@ -189,15 +190,23 @@ test('communication and Telegram endpoints match the root API', () => {
 })
 
 test('call media exchange and release require the same owner token', () => {
-  assert.deepEqual(createCallMediaPayload(' owner-1 ', ' offer-sdp '), {
+  assert.deepEqual(createCallMediaPayload(' owner-1 ', ' offer-sdp ', ' browser-1 '), {
     owner_token: 'owner-1',
-    offer_sdp: ' offer-sdp '
+    offer_sdp: ' offer-sdp ',
+    holder_id: 'browser-1'
   })
-  assert.deepEqual(createCallMediaReleasePayload(' owner-1 '), {
-    owner_token: 'owner-1'
+  assert.deepEqual(createCallMediaReleasePayload(' owner-1 ', ' browser-1 '), {
+    owner_token: 'owner-1',
+    holder_id: 'browser-1'
   })
-  assert.throws(() => createCallMediaPayload('', 'offer-sdp'), /owner_token/)
-  assert.throws(() => createCallMediaReleasePayload(''), /owner_token/)
+  assert.throws(
+    () => createCallMediaPayload('', 'offer-sdp', 'browser-1'),
+    /owner_token/
+  )
+  assert.throws(
+    () => createCallMediaReleasePayload('', 'browser-1'),
+    /owner_token/
+  )
 })
 
 test('message payload keeps only the finalized wire fields', () => {
@@ -236,40 +245,71 @@ test('message read payload uses the stable line and peer identity', () => {
 })
 
 test('call and DTMF payloads use line_id, number, request_id, and digits', () => {
-  assert.deepEqual(createCallPayload('line-main', '+818012345678', 'request-call-1'), {
-    request_id: 'request-call-1',
-    line_id: 'line-main',
-    number: '+818012345678'
-  })
   assert.deepEqual(
-    createCallPayload('line-main', '+818012345678', 'request-call-2', true),
+    createCallPayload(
+      'line-main',
+      '+818012345678',
+      'request-call-1',
+      'browser-1'
+    ),
+    {
+      request_id: 'request-call-1',
+      line_id: 'line-main',
+      number: '+818012345678',
+      holder_id: 'browser-1'
+    }
+  )
+  assert.deepEqual(
+    createCallPayload(
+      'line-main',
+      '+818012345678',
+      'request-call-2',
+      'browser-1',
+      true
+    ),
     {
       request_id: 'request-call-2',
       line_id: 'line-main',
       number: '+818012345678',
+      holder_id: 'browser-1',
       recording_enabled: true
     }
   )
   assert.equal(
-    createCallPayload('line-main', '+818012345678', 'request-call-3', false)
+    createCallPayload(
+      'line-main',
+      '+818012345678',
+      'request-call-3',
+      'browser-1',
+      false
+    )
       .recording_enabled,
     false
   )
-  assert.deepEqual(createCallActionPayload('hangup', 'request-hangup-1'), {
-    request_id: 'request-hangup-1'
-  })
+  assert.deepEqual(
+    createCallActionPayload('hangup', 'request-hangup-1', 'browser-1'),
+    {
+      request_id: 'request-hangup-1',
+      holder_id: 'browser-1'
+    }
+  )
   assert.deepEqual(createCallLeasePayload(' browser-1 '), {
     holder_id: 'browser-1'
   })
-  assert.deepEqual(createDTMFPayload('12#', 'request-dtmf-1'), {
+  assert.deepEqual(createDTMFPayload('12#', 'request-dtmf-1', 'browser-1'), {
     request_id: 'request-dtmf-1',
-    digits: '12#'
+    digits: '12#',
+    holder_id: 'browser-1'
   })
-  assert.deepEqual(createCallMediaPayload(' owner-1 ', 'v=0\r\n'), {
+  assert.deepEqual(createCallMediaPayload(' owner-1 ', 'v=0\r\n', 'browser-1'), {
     owner_token: 'owner-1',
-    offer_sdp: 'v=0\r\n'
+    offer_sdp: 'v=0\r\n',
+    holder_id: 'browser-1'
   })
-  assert.deepEqual(createCallRecordingPayload(false), { enabled: false })
+  assert.deepEqual(createCallRecordingPayload(false, 'browser-1'), {
+    enabled: false,
+    holder_id: 'browser-1'
+  })
   assert.deepEqual(
     createRecordingSettingsPayload({ default_enabled: true, revision: 3 }),
     { default_enabled: true, revision: 3 }
@@ -313,6 +353,13 @@ test('call response accepts unknown as an explicit phase without inventing a bea
   assert.throws(
     () => parseCallResponse({ call: { ...canonicalCall, phase: 'connected' } }),
     /call.phase/
+  )
+  assert.throws(
+    () =>
+      parseCallResponse({
+        call: { ...canonicalCall, control_state: 'shared' }
+      }),
+    /call.control_state/
   )
 })
 

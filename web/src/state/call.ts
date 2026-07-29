@@ -9,6 +9,7 @@ import { syncCallSounds } from './browserSounds'
 import { capabilityReason, contactForNumber, lineForKey, lineLabel } from './workspace'
 import { closeDialer, showCallSurface } from './ui'
 import { callMediaState, shutdownCallMedia, syncCallMedia } from './callMedia'
+import { syncCallRecording } from './recording'
 
 const TERMINAL_PHASES = new Set<CallSession['phase']>(['ended', 'failed'])
 const LEASED_PHASES = new Set<CallSession['phase']>([
@@ -20,8 +21,7 @@ const LEASED_PHASES = new Set<CallSession['phase']>([
 const LEASED_MEDIA_STATES = new Set([
   'requesting',
   'connecting',
-  'active',
-  'recovering'
+  'active'
 ])
 const NOTIFIED_CALL_HISTORY_LIMIT = 256
 
@@ -39,6 +39,7 @@ const notifiedIncomingCallIDs = new Set<string>()
 
 export const callState = reactive<{
   session: CallSession | null
+  owned: boolean
   dtmfDigits: string
   busy: boolean
   pendingAction: PendingCallAction
@@ -48,6 +49,7 @@ export const callState = reactive<{
   syncError: string
 }>({
   session: null,
+  owned: false,
   dtmfDigits: '',
   busy: false,
   pendingAction: '',
@@ -66,12 +68,25 @@ function requestError(error: unknown, fallback: string): { message: string; stat
 
 function acceptSession(session: CallSession): void {
   const newCall = callState.session?.id !== session.id
+  const owned = session.control_state === 'owned'
+  const incomingAvailable =
+    session.direction === 'incoming' &&
+    session.phase === 'ringing' &&
+    session.control_state === 'available'
+  const claimedIncomingRinging =
+    owned &&
+    session.direction === 'incoming' &&
+    session.phase === 'ringing'
   if (newCall) callState.dtmfDigits = ''
   callState.session = session
-  if (newCall) showCallSurface()
-  syncCallSounds(session)
-  syncCallMedia(session)
-  void renewActiveCallLease()
+  callState.owned = owned
+  if (newCall && (owned || incomingAvailable)) showCallSurface()
+  syncCallSounds(
+    (owned && !claimedIncomingRinging) || incomingAvailable ? session : null
+  )
+  syncCallMedia(owned ? session : null)
+  syncCallRecording(owned || incomingAvailable ? session : null)
+  if (owned) void renewActiveCallLease()
   showIncomingCallNotification(session)
 }
 
@@ -83,7 +98,13 @@ function sessionCanRenewBrowserLease(session: CallSession): boolean {
 
 export function renewActiveCallLease(): Promise<void> {
   const session = callState.session
-  if (!session || !sessionCanRenewBrowserLease(session)) return Promise.resolve()
+  if (
+    !session ||
+    !callState.owned ||
+    !sessionCanRenewBrowserLease(session)
+  ) {
+    return Promise.resolve()
+  }
   if (callLeaseRenewal && callLeaseRenewalCallID === session.id) {
     return callLeaseRenewal
   }
@@ -124,7 +145,12 @@ export function claimIncomingCallNotification(
   session: CallSession,
   claimed: Set<string>
 ): boolean {
-  if (session.direction !== 'incoming' || session.phase !== 'ringing' || !session.id) {
+  if (
+    session.direction !== 'incoming' ||
+    session.phase !== 'ringing' ||
+    session.control_state !== 'available' ||
+    !session.id
+  ) {
     return false
   }
   if (claimed.has(session.id)) return false
@@ -173,9 +199,11 @@ async function refreshActiveCallsOnce(): Promise<void> {
       acceptSession(active)
     } else if (callState.session && !TERMINAL_PHASES.has(callState.session.phase)) {
       callState.session = null
+      callState.owned = false
       callState.dtmfDigits = ''
       syncCallSounds(null)
       syncCallMedia(null)
+      syncCallRecording(null)
     }
     callState.syncStatus = 'ready'
     callState.syncError = ''
@@ -230,7 +258,9 @@ export function shutdownCallRuntime(): void {
   callLeaseRenewalCallID = ''
   syncCallSounds(null)
   shutdownCallMedia()
+  syncCallRecording(null)
   callState.session = null
+  callState.owned = false
   callState.dtmfDigits = ''
   callState.busy = false
   callState.pendingAction = ''
@@ -268,7 +298,8 @@ export async function dial(
   callState.error = ''
   callState.errorStatus = 0
   try {
-    acceptSession(await gateway.startCall(lineKey, number, recordingEnabled))
+    const session = await gateway.startCall(lineKey, number, recordingEnabled)
+    acceptSession(session)
     closeDialer()
     return true
   } catch (error) {
@@ -285,6 +316,11 @@ export async function dial(
 async function act(action: CallAction): Promise<void> {
   const id = callState.session?.id
   if (!id || callState.busy) return
+  if (action === 'hangup' && !callState.owned) {
+    callState.error = translate('runtime.callOwnedElsewhere')
+    callState.errorStatus = 409
+    return
+  }
   const previousSession = callState.session
 
   mutationEpoch += 1
@@ -295,12 +331,22 @@ async function act(action: CallAction): Promise<void> {
   syncCallSounds(null)
   try {
     await gateway.callAction(id, action)
+    if (action === 'answer' && previousSession) {
+      acceptSession({
+        ...previousSession,
+        control_state: 'owned'
+      })
+    }
     await requestActiveCallRefresh()
   } catch (error) {
     const failure = requestError(error, translate('runtime.callActionFailed'))
     callState.error = failure.message
     callState.errorStatus = failure.status
-    syncCallSounds(previousSession)
+    if (action === 'answer' || action === 'reject') {
+      await requestActiveCallRefresh()
+    } else {
+      syncCallSounds(previousSession)
+    }
   } finally {
     callState.busy = false
     callState.pendingAction = ''
@@ -321,7 +367,14 @@ export function hangupCall(): Promise<void> {
 
 export async function sendDTMF(digit: string): Promise<void> {
   const id = callState.session?.id
-  if (!id || callState.session?.phase !== 'active' || callState.busy) return
+  if (
+    !id ||
+    !callState.owned ||
+    callState.session?.phase !== 'active' ||
+    callState.busy
+  ) {
+    return
+  }
 
   callState.dtmfDigits += digit
   mutationEpoch += 1
@@ -344,9 +397,11 @@ export async function sendDTMF(digit: string): Promise<void> {
 export function dismissCall(): void {
   if (callState.session && !TERMINAL_PHASES.has(callState.session.phase)) return
   callState.session = null
+  callState.owned = false
   callState.dtmfDigits = ''
   syncCallSounds(null)
   syncCallMedia(null)
+  syncCallRecording(null)
   callState.error = ''
   callState.errorStatus = 0
 }

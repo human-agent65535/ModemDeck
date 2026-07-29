@@ -29,8 +29,8 @@ import {
 } from '../state/callMedia'
 import {
   callRecordingState,
-  setActiveCallRecording,
-  syncCallRecording
+  rememberCallRecordingPreference,
+  setActiveCallRecording
 } from '../state/recording'
 import { playDTMFTone } from '../state/dtmfAudio'
 import { contactForNumber, lineForKey, lineSupports } from '../state/workspace'
@@ -69,7 +69,9 @@ const phaseLabel = computed(() => {
     dialing: t('calls.dialing'),
     ringing:
       session.value?.direction === 'incoming'
-        ? t('calls.incoming')
+        ? session.value.control_state === 'owned'
+          ? t('calls.connectingCall')
+          : t('calls.incoming')
         : t('calls.waitingAnswer'),
     connecting: t('calls.connectingCall'),
     active: t('calls.inCall'),
@@ -86,10 +88,16 @@ const duration = computed(() => {
   return formatDuration(Math.max(0, Math.floor((end - Date.parse(start)) / 1000)))
 })
 const incoming = computed(
-  () => session.value?.direction === 'incoming' && session.value.phase === 'ringing'
+  () =>
+    session.value?.direction === 'incoming' &&
+    session.value.phase === 'ringing' &&
+    session.value.control_state === 'available'
 )
 const terminal = computed(
   () => session.value?.phase === 'ended' || session.value?.phase === 'failed'
+)
+const occupied = computed(
+  () => Boolean(session.value?.control_state === 'occupied' && !terminal.value)
 )
 const active = computed(() => session.value?.phase === 'active')
 const canHangup = computed(() => {
@@ -123,7 +131,7 @@ const dtmfUnavailable = computed(() =>
   lineSupports(line.value, 'dtmf') === false ? t('calls.dtmfUnsupported') : ''
 )
 const mediaLabel = computed(() => {
-  if (!active.value) return ''
+  if (!active.value || !callState.owned) return ''
   if (callMediaState.status === 'unavailable') return t('calls.serverAudioUnavailable')
   if (callMediaState.status === 'requesting') return t('calls.requestingMicrophone')
   if (callMediaState.status === 'connecting') return t('calls.connectingBrowserAudio')
@@ -140,13 +148,14 @@ const mediaControllable = computed(
 const showMediaControls = computed(
   () =>
     active.value &&
+    callState.owned &&
     !dtmfOpen.value &&
     (mediaControllable.value ||
       callMediaState.playbackBlocked ||
       callMediaState.status === 'error')
 )
 const recordingLabel = computed(() => {
-  if (!active.value) return ''
+  if (!active.value || !callState.owned) return ''
   if (callRecordingState.status === 'initializing') return t('calls.applyingRecording')
   if (callRecordingState.active) return t('calls.recordingActive')
   if (callRecordingState.enabled) return t('calls.recordingEnabled')
@@ -162,6 +171,7 @@ const statusError = computed(
     ''
 )
 const capabilityNotice = computed(() => {
+  if (occupied.value) return ''
   const reasons = incoming.value
     ? [answerUnavailable.value, rejectUnavailable.value]
     : canHangup.value
@@ -179,14 +189,6 @@ watch(
   }
 )
 
-watch(
-  session,
-  value => {
-    syncCallRecording(value)
-  },
-  { immediate: true }
-)
-
 function tone(digit: string): void {
   void playDTMFTone(digit)
   void nextTick(() => {
@@ -196,6 +198,13 @@ function tone(digit: string): void {
 }
 
 function toggleRecording(): void {
+  if (incoming.value && !callState.owned && session.value) {
+    rememberCallRecordingPreference(
+      session.value.id,
+      !callRecordingState.enabled
+    )
+    return
+  }
   void setActiveCallRecording(!callRecordingState.enabled)
 }
 
@@ -206,7 +215,6 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   if (timer !== undefined) window.clearInterval(timer)
-  syncCallRecording(null)
 })
 </script>
 
@@ -234,14 +242,25 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="call-surface__status">
-          <span role="status" aria-live="polite" aria-atomic="true">{{ phaseLabel }}</span>
+          <span role="status" aria-live="polite" aria-atomic="true">
+            {{ occupied ? t('calls.lineInUse') : phaseLabel }}
+          </span>
           <strong v-if="duration" aria-live="off">{{ duration }}</strong>
         </div>
 
         <div
-          v-if="statusError || capabilityNotice || mediaLabel || recordingLabel"
+          v-if="
+            occupied ||
+            statusError ||
+            capabilityNotice ||
+            mediaLabel ||
+            recordingLabel
+          "
           class="call-surface__notices"
         >
+          <p v-if="occupied" class="call-surface__media">
+            {{ t('calls.lineInUseDescription') }}
+          </p>
           <p v-if="statusError" class="call-surface__error" role="alert">
             {{ statusError }}
           </p>
@@ -347,7 +366,7 @@ onBeforeUnmount(() => {
 
       <div class="call-surface__primary-actions">
         <button
-          v-if="incoming || active"
+          v-if="(incoming || active) && !occupied"
           class="call-footer-action call-footer-action--recording"
           :class="{ 'is-active': callRecordingState.enabled }"
           type="button"
@@ -420,7 +439,7 @@ onBeforeUnmount(() => {
             <small>{{ t('calls.answer') }}</small>
           </span>
         </template>
-        <template v-else-if="canHangup">
+        <template v-else-if="canHangup && callState.owned">
           <span class="call-primary-action call-primary-action--center">
             <button
               class="call-button call-button--hangup"

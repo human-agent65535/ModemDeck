@@ -207,6 +207,11 @@ export function setDialerRecording(enabled: boolean): void {
 export function rememberCallRecordingPreference(callID: string, enabled: boolean): void {
   preferredCallID = callID
   preferredCallEnabled = enabled
+  if (callRecordingState.callID === callID && !callRecordingState.active) {
+    callRecordingState.status = 'ready'
+    callRecordingState.enabled = enabled
+    callRecordingState.error = ''
+  }
 }
 
 function clearActiveRecording(): void {
@@ -239,7 +244,36 @@ export function syncCallRecording(session: CallSession | null): void {
     callRecordingState.busy = false
     callRecordingState.error = ''
   }
-  if (session.phase !== 'active' || attemptedCallID === session.id) return
+  if (session.phase !== 'active') {
+    if (preferredCallID === session.id) {
+      callRecordingState.status = 'ready'
+      callRecordingState.enabled = preferredCallEnabled
+      return
+    }
+    if (callRecordingState.status !== 'idle') return
+
+    const token = ++callSyncGeneration
+    callRecordingState.status = 'initializing'
+    void loadRecordingSettings().then(settings => {
+      if (
+        token !== callSyncGeneration ||
+        callRecordingState.callID !== session.id
+      ) {
+        return
+      }
+      if (!settings) {
+        callRecordingState.status = 'error'
+        callRecordingState.error =
+          recordingSettingsState.error ||
+          translate('runtime.defaultRecordingReadFailed')
+        return
+      }
+      callRecordingState.status = 'ready'
+      callRecordingState.enabled = settings.default_enabled
+    })
+    return
+  }
+  if (attemptedCallID === session.id) return
 
   attemptedCallID = session.id
   const token = ++callSyncGeneration

@@ -38,7 +38,7 @@ test('ringing calls animate the central call action and remain restorable when m
   assert.match(dialer, /<Minus v-if="showingCall"/)
   assert.match(
     callSurface,
-    /v-if="incoming \|\| active"[\s\S]*call-footer-action--recording/
+    /v-if="\(incoming \|\| active\) && !occupied"[\s\S]*call-footer-action--recording/
   )
 })
 

@@ -90,6 +90,7 @@ export type CallPhase =
   | 'failed'
 export type CallFilter = 'all' | 'missed' | 'incoming' | 'outgoing'
 export type CallAction = 'answer' | 'reject' | 'hangup'
+export type CallControlState = 'available' | 'owned' | 'occupied'
 
 export type CallSession = {
   id: string
@@ -98,6 +99,7 @@ export type CallSession = {
   remote_number: string
   display_name?: string
   phase: CallPhase
+  control_state: CallControlState
   media_available: boolean
   created_at: string
   active_at?: string
