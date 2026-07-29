@@ -480,38 +480,76 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 		}
 		requestID = preparedRequestID
 	}
+	if _, err := api.callLeases.ReserveOutgoing(
+		request.Context(),
+		requestID,
+		input.LineID,
+		holderID,
+	); err != nil {
+		api.writeCallLeaseError(response, request, "reserve outgoing call line", err)
+		return
+	}
+	reservationActive := true
+	releaseReservation := func() {
+		if !reservationActive {
+			return
+		}
+		reservationActive = false
+		released, releaseErr := api.callLeases.ReleaseOutgoing(requestID, holderID)
+		if releaseErr != nil {
+			api.logger.Warn(
+				"outgoing call reservation could not be released",
+				"component", "calls",
+				"request_id", requestID,
+				"line_id", strings.TrimSpace(input.LineID),
+				"error", releaseErr,
+			)
+		}
+		if released {
+			api.publishRuntimeResources(runtimeevents.ResourceCalls)
+		}
+	}
+	defer releaseReservation()
+	api.publishRuntimeResources(runtimeevents.ResourceCalls)
+
 	call, err := api.communications.StartCall(request.Context(), communication.StartCallInput{
 		RequestID: requestID,
 		LineID:    input.LineID,
 		Number:    input.Number,
 	})
 	if err != nil {
+		releaseReservation()
 		api.writeCommunicationError(response, request, "start call", err)
 		return
 	}
-	if _, err := api.callLeases.Claim(request.Context(), call.ID, holderID); err != nil {
-		if !errors.Is(err, calllease.ErrCallOwned) {
-			rollbackContext, cancel := context.WithTimeout(
-				context.WithoutCancel(request.Context()),
-				callControlRollbackTimeout,
+	if _, err := api.callLeases.ActivateOutgoing(
+		request.Context(),
+		requestID,
+		call.ID,
+		holderID,
+	); err != nil {
+		rollbackContext, cancel := context.WithTimeout(
+			context.WithoutCancel(request.Context()),
+			callControlRollbackTimeout,
+		)
+		releaseErr := api.communications.EndCall(
+			rollbackContext,
+			call.ID,
+		)
+		cancel()
+		if releaseErr != nil {
+			api.logger.Error(
+				"outgoing call ownership failed and the created call could not be released",
+				"component", "calls",
+				"call_id", call.ID,
+				"error", errors.Join(err, releaseErr),
 			)
-			releaseErr := api.communications.EndCall(
-				rollbackContext,
-				call.ID,
-			)
-			cancel()
-			if releaseErr != nil {
-				api.logger.Error(
-					"call owner claim failed and call control could not be released",
-					"component", "calls",
-					"call_id", call.ID,
-					"error", errors.Join(err, releaseErr),
-				)
-			}
 		}
+		releaseReservation()
 		api.writeCallLeaseError(response, request, "claim outgoing call owner", err)
 		return
 	}
+	reservationActive = false
 	api.logger.Info(
 		"call started",
 		"line_id",
@@ -568,7 +606,36 @@ func (api *API) activeCalls(response http.ResponseWriter, request *http.Request)
 		}
 		sessions = append(sessions, callSession(call, controlState))
 	}
-	writeJSON(response, http.StatusOK, activeCallsResponse{Calls: sessions})
+	reservations, err := api.callLeases.OutgoingReservations(holderID)
+	if err != nil {
+		api.writeCallLeaseError(
+			response,
+			request,
+			"read outgoing call reservations",
+			err,
+		)
+		return
+	}
+	reservationResponses := make(
+		[]outgoingCallReservationResponse,
+		0,
+		len(reservations),
+	)
+	for _, reservation := range reservations {
+		reservationResponses = append(
+			reservationResponses,
+			outgoingCallReservationResponse{
+				RequestID:    reservation.ID,
+				LineID:       reservation.LineID,
+				ControlState: string(reservation.ControlState),
+				CreatedAt:    reservation.CreatedAt.UTC().Format(time.RFC3339Nano),
+			},
+		)
+	}
+	writeJSON(response, http.StatusOK, activeCallsResponse{
+		Calls:        sessions,
+		Reservations: reservationResponses,
+	})
 }
 
 func (api *API) callAction(response http.ResponseWriter, request *http.Request, callID, action string) {

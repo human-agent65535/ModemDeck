@@ -17,19 +17,22 @@ const (
 	defaultReleaseTimeout = 20 * time.Second
 	maxHolderIDLength     = 128
 	maxCallIDLength       = 256
+	maxLineIDLength       = 256
 )
 
 var (
-	ErrInvalidArgument = errors.New("invalid browser call lease")
-	ErrCallNotFound    = errors.New("browser call lease call not found")
-	ErrCallNotActive   = errors.New("browser call lease call is not active")
-	ErrCallOwned       = errors.New("browser call lease is owned by another browser")
-	ErrHolderBusy      = errors.New("browser already owns another call lease")
-	ErrNotOwner        = errors.New("browser does not own the call lease")
+	ErrInvalidArgument     = errors.New("invalid browser call lease")
+	ErrCallNotFound        = errors.New("browser call lease call not found")
+	ErrCallNotActive       = errors.New("browser call lease call is not active")
+	ErrCallOwned           = errors.New("browser call lease is owned by another browser")
+	ErrHolderBusy          = errors.New("browser already owns another call lease")
+	ErrNotOwner            = errors.New("browser does not own the call lease")
+	ErrReservationNotFound = errors.New("outgoing call reservation not found")
 )
 
 type CallStore interface {
 	CallByID(context.Context, string) (store.Call, error)
+	ActiveCalls(context.Context) ([]store.Call, error)
 }
 
 type CallController interface {
@@ -50,6 +53,14 @@ type Status struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
+type OutgoingReservation struct {
+	ID           string
+	LineID       string
+	HolderID     string
+	CreatedAt    time.Time
+	ControlState ControlState
+}
+
 type ControlState string
 
 const (
@@ -59,11 +70,19 @@ const (
 )
 
 type callEntry struct {
+	lineID           string
 	holderID         string
 	expiresAt        time.Time
 	unclaimedExpires time.Time
 	ending           bool
 	attempt          uint64
+}
+
+type outgoingReservation struct {
+	id        string
+	lineID    string
+	holderID  string
+	createdAt time.Time
 }
 
 type Manager struct {
@@ -75,8 +94,9 @@ type Manager struct {
 	now            func() time.Time
 	report         func(error)
 
-	mu      sync.Mutex
-	entries map[string]*callEntry
+	mu           sync.Mutex
+	entries      map[string]*callEntry
+	reservations map[string]*outgoingReservation
 }
 
 func New(
@@ -117,7 +137,180 @@ func New(
 		now:            now,
 		report:         options.Report,
 		entries:        make(map[string]*callEntry),
+		reservations:   make(map[string]*outgoingReservation),
 	}, nil
+}
+
+func (m *Manager) ReserveOutgoing(
+	ctx context.Context,
+	reservationID string,
+	lineID string,
+	holderID string,
+) (OutgoingReservation, error) {
+	reservationID, lineID, holderID, err := normalizeReservationIDs(
+		reservationID,
+		lineID,
+		holderID,
+	)
+	if err != nil {
+		return OutgoingReservation{}, err
+	}
+	activeCalls, err := m.calls.ActiveCalls(normalizeContext(ctx))
+	if err != nil {
+		return OutgoingReservation{}, fmt.Errorf("read active calls before reserving a line: %w", err)
+	}
+
+	now := m.now().UTC()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if existing := m.reservations[reservationID]; existing != nil {
+		if existing.lineID != lineID || existing.holderID != holderID {
+			return OutgoingReservation{}, ErrCallOwned
+		}
+		return outgoingReservationStatus(existing, holderID), nil
+	}
+	for _, call := range activeCalls {
+		if trackedPhase(call.Phase) && strings.TrimSpace(call.LineID) == lineID {
+			return OutgoingReservation{}, ErrCallOwned
+		}
+	}
+	for _, entry := range m.entries {
+		if entry.lineID == lineID {
+			return OutgoingReservation{}, ErrCallOwned
+		}
+		if entry.holderID == holderID &&
+			!entry.ending &&
+			now.Before(entry.expiresAt) {
+			return OutgoingReservation{}, ErrHolderBusy
+		}
+	}
+	for _, reservation := range m.reservations {
+		if reservation.lineID == lineID {
+			return OutgoingReservation{}, ErrCallOwned
+		}
+		if reservation.holderID == holderID {
+			return OutgoingReservation{}, ErrHolderBusy
+		}
+	}
+	reservation := &outgoingReservation{
+		id:        reservationID,
+		lineID:    lineID,
+		holderID:  holderID,
+		createdAt: now,
+	}
+	m.reservations[reservationID] = reservation
+	return outgoingReservationStatus(reservation, holderID), nil
+}
+
+func (m *Manager) ActivateOutgoing(
+	ctx context.Context,
+	reservationID string,
+	callID string,
+	holderID string,
+) (Status, error) {
+	reservationID, holderID, err := normalizeReservationAndHolder(
+		reservationID,
+		holderID,
+	)
+	if err != nil {
+		return Status{}, err
+	}
+	callID = strings.TrimSpace(callID)
+	if callID == "" || len(callID) > maxCallIDLength {
+		return Status{}, ErrInvalidArgument
+	}
+	call, err := m.leaseableCall(ctx, callID)
+	if err != nil {
+		return Status{}, err
+	}
+
+	now := m.now().UTC()
+	expiresAt := now.Add(m.duration)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	reservation := m.reservations[reservationID]
+	if reservation == nil {
+		return Status{}, ErrReservationNotFound
+	}
+	if reservation.holderID != holderID {
+		return Status{}, ErrNotOwner
+	}
+	if strings.TrimSpace(call.LineID) != reservation.lineID {
+		return Status{}, ErrInvalidArgument
+	}
+	entry := m.entries[callID]
+	if entry == nil {
+		entry = &callEntry{}
+		m.entries[callID] = entry
+	}
+	if entry.ending {
+		return Status{}, ErrCallNotActive
+	}
+	if entry.holderID != "" && entry.holderID != holderID {
+		return Status{}, ErrCallOwned
+	}
+	for otherCallID, otherEntry := range m.entries {
+		if otherCallID == callID || otherEntry.ending {
+			continue
+		}
+		if otherEntry.lineID == reservation.lineID {
+			return Status{}, ErrCallOwned
+		}
+		if otherEntry.holderID == holderID &&
+			now.Before(otherEntry.expiresAt) {
+			return Status{}, ErrHolderBusy
+		}
+	}
+	entry.lineID = reservation.lineID
+	entry.holderID = holderID
+	entry.expiresAt = expiresAt
+	entry.unclaimedExpires = time.Time{}
+	delete(m.reservations, reservationID)
+	return Status{
+		CallID:    callID,
+		HolderID:  holderID,
+		ExpiresAt: expiresAt,
+	}, nil
+}
+
+func (m *Manager) ReleaseOutgoing(
+	reservationID string,
+	holderID string,
+) (bool, error) {
+	reservationID, holderID, err := normalizeReservationAndHolder(
+		reservationID,
+		holderID,
+	)
+	if err != nil {
+		return false, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	reservation := m.reservations[reservationID]
+	if reservation == nil {
+		return false, nil
+	}
+	if reservation.holderID != holderID {
+		return false, ErrNotOwner
+	}
+	delete(m.reservations, reservationID)
+	return true, nil
+}
+
+func (m *Manager) OutgoingReservations(
+	holderID string,
+) ([]OutgoingReservation, error) {
+	holderID, err := NormalizeHolderID(holderID)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]OutgoingReservation, 0, len(m.reservations))
+	for _, reservation := range m.reservations {
+		result = append(result, outgoingReservationStatus(reservation, holderID))
+	}
+	return result, nil
 }
 
 func (m *Manager) Renew(
@@ -179,9 +372,12 @@ func (m *Manager) Claim(
 	entry := m.entries[callID]
 	if entry == nil {
 		entry = &callEntry{
+			lineID:           strings.TrimSpace(call.LineID),
 			unclaimedExpires: m.unclaimedDeadline(call, now),
 		}
 		m.entries[callID] = entry
+	} else if entry.lineID == "" {
+		entry.lineID = strings.TrimSpace(call.LineID)
 	}
 	if entry.ending {
 		return Status{}, ErrCallNotActive
@@ -339,10 +535,12 @@ func (m *Manager) ReconcileAuthoritativeCalls(
 		entry := m.entries[callID]
 		if entry == nil {
 			m.entries[callID] = &callEntry{
+				lineID:           strings.TrimSpace(call.LineID),
 				unclaimedExpires: m.unclaimedDeadline(call, now),
 			}
 			continue
 		}
+		entry.lineID = strings.TrimSpace(call.LineID)
 		if entry.holderID == "" &&
 			entry.unclaimedExpires.IsZero() {
 			entry.unclaimedExpires = m.unclaimedDeadline(call, now)
@@ -473,6 +671,57 @@ func normalizeIDs(callID, holderID string) (string, string, error) {
 		return "", "", err
 	}
 	return callID, holderID, nil
+}
+
+func normalizeReservationIDs(
+	reservationID string,
+	lineID string,
+	holderID string,
+) (string, string, string, error) {
+	reservationID, holderID, err := normalizeReservationAndHolder(
+		reservationID,
+		holderID,
+	)
+	if err != nil {
+		return "", "", "", err
+	}
+	lineID = strings.TrimSpace(lineID)
+	if lineID == "" || len(lineID) > maxLineIDLength {
+		return "", "", "", ErrInvalidArgument
+	}
+	return reservationID, lineID, holderID, nil
+}
+
+func normalizeReservationAndHolder(
+	reservationID string,
+	holderID string,
+) (string, string, error) {
+	reservationID = strings.TrimSpace(reservationID)
+	if reservationID == "" || len(reservationID) > maxCallIDLength {
+		return "", "", ErrInvalidArgument
+	}
+	holderID, err := NormalizeHolderID(holderID)
+	if err != nil {
+		return "", "", err
+	}
+	return reservationID, holderID, nil
+}
+
+func outgoingReservationStatus(
+	reservation *outgoingReservation,
+	holderID string,
+) OutgoingReservation {
+	controlState := ControlOccupied
+	if reservation.holderID == holderID {
+		controlState = ControlOwned
+	}
+	return OutgoingReservation{
+		ID:           reservation.id,
+		LineID:       reservation.lineID,
+		HolderID:     reservation.holderID,
+		CreatedAt:    reservation.createdAt,
+		ControlState: controlState,
+	}
 }
 
 func NormalizeHolderID(holderID string) (string, error) {

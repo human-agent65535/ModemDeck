@@ -28,9 +28,186 @@ func (calls *fakeCalls) CallByID(
 	return call, nil
 }
 
+func (calls *fakeCalls) ActiveCalls(
+	_ context.Context,
+) ([]store.Call, error) {
+	calls.mu.Lock()
+	defer calls.mu.Unlock()
+	result := make([]store.Call, 0, len(calls.calls))
+	for _, call := range calls.calls {
+		if trackedPhase(call.Phase) {
+			result = append(result, call)
+		}
+	}
+	return result, nil
+}
+
 type fakeController struct {
 	ended    chan string
 	endError error
+}
+
+func TestOutgoingReservationOwnsOneLinePerBrowser(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.July, 29, 12, 0, 0, 0, time.UTC)
+	manager, err := New(
+		&fakeCalls{calls: map[string]store.Call{}},
+		&fakeController{},
+		Options{Now: func() time.Time { return now }},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reservation, err := manager.ReserveOutgoing(
+		context.Background(),
+		"request-1",
+		"line-1",
+		"browser-1",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reservation.LineID != "line-1" ||
+		reservation.ControlState != ControlOwned ||
+		!reservation.CreatedAt.Equal(now) {
+		t.Fatalf("reservation = %+v", reservation)
+	}
+	if _, err := manager.ReserveOutgoing(
+		context.Background(),
+		"request-2",
+		"line-1",
+		"browser-2",
+	); !errors.Is(err, ErrCallOwned) {
+		t.Fatalf("same-line reservation error = %v, want ErrCallOwned", err)
+	}
+	if _, err := manager.ReserveOutgoing(
+		context.Background(),
+		"request-3",
+		"line-2",
+		"browser-1",
+	); !errors.Is(err, ErrHolderBusy) {
+		t.Fatalf("same-holder reservation error = %v, want ErrHolderBusy", err)
+	}
+	if _, err := manager.ReserveOutgoing(
+		context.Background(),
+		"request-4",
+		"line-2",
+		"browser-2",
+	); err != nil {
+		t.Fatalf("different-line reservation error = %v", err)
+	}
+
+	visible, err := manager.OutgoingReservations("browser-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := map[string]ControlState{}
+	for _, item := range visible {
+		states[item.LineID] = item.ControlState
+	}
+	if states["line-1"] != ControlOccupied || states["line-2"] != ControlOwned {
+		t.Fatalf("reservation states = %+v", states)
+	}
+}
+
+func TestOutgoingReservationActivatesAsCallLease(t *testing.T) {
+	t.Parallel()
+	calls := &fakeCalls{calls: map[string]store.Call{}}
+	manager, err := New(calls, &fakeController{}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ReserveOutgoing(
+		context.Background(),
+		"request-1",
+		"line-1",
+		"browser-1",
+	); err != nil {
+		t.Fatal(err)
+	}
+	calls.mu.Lock()
+	calls.calls["call-1"] = store.Call{
+		ID:     "call-1",
+		LineID: "line-1",
+		Phase:  "dialing",
+	}
+	calls.mu.Unlock()
+
+	status, err := manager.ActivateOutgoing(
+		context.Background(),
+		"request-1",
+		"call-1",
+		"browser-1",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.CallID != "call-1" || status.HolderID != "browser-1" {
+		t.Fatalf("lease status = %+v", status)
+	}
+	if reservations, err := manager.OutgoingReservations("browser-1"); err != nil ||
+		len(reservations) != 0 {
+		t.Fatalf("reservations = %+v, error = %v", reservations, err)
+	}
+	state, err := manager.ControlState(context.Background(), "call-1", "browser-1")
+	if err != nil || state != ControlOwned {
+		t.Fatalf("control state = %q, error = %v", state, err)
+	}
+}
+
+func TestOutgoingReservationRejectsAnActiveLine(t *testing.T) {
+	t.Parallel()
+	manager, err := New(
+		&fakeCalls{calls: map[string]store.Call{
+			"call-1": {
+				ID:     "call-1",
+				LineID: "line-1",
+				Phase:  "active",
+			},
+		}},
+		&fakeController{},
+		Options{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ReserveOutgoing(
+		context.Background(),
+		"request-1",
+		"line-1",
+		"browser-1",
+	); !errors.Is(err, ErrCallOwned) {
+		t.Fatalf("reservation error = %v, want ErrCallOwned", err)
+	}
+}
+
+func TestOutgoingReservationCanBeReleased(t *testing.T) {
+	t.Parallel()
+	manager, err := New(
+		&fakeCalls{calls: map[string]store.Call{}},
+		&fakeController{},
+		Options{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ReserveOutgoing(
+		context.Background(),
+		"request-1",
+		"line-1",
+		"browser-1",
+	); err != nil {
+		t.Fatal(err)
+	}
+	released, err := manager.ReleaseOutgoing("request-1", "browser-1")
+	if err != nil || !released {
+		t.Fatalf("release = %t, error = %v", released, err)
+	}
+	released, err = manager.ReleaseOutgoing("request-1", "browser-1")
+	if err != nil || released {
+		t.Fatalf("second release = %t, error = %v", released, err)
+	}
 }
 
 func (controller *fakeController) EndCall(_ context.Context, callID string) error {

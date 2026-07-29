@@ -83,7 +83,8 @@ func (api *API) writeCallLeaseError(
 			"Call no longer exists",
 			"",
 		)
-	case errors.Is(err, calllease.ErrCallNotActive):
+	case errors.Is(err, calllease.ErrCallNotActive),
+		errors.Is(err, calllease.ErrReservationNotFound):
 		writeError(
 			response,
 			http.StatusConflict,

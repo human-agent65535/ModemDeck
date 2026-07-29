@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/communication"
@@ -24,6 +25,7 @@ type fakeCommunications struct {
 	call         store.Call
 	startInput   communication.StartCallInput
 	startError   error
+	onStart      func()
 	actionInput  communication.CallActionInput
 	actionError  error
 	actionCalls  int
@@ -50,6 +52,9 @@ func (service *fakeCommunications) StartCall(
 	input communication.StartCallInput,
 ) (store.Call, error) {
 	service.startInput = input
+	if service.onStart != nil {
+		service.onStart()
+	}
 	return service.call, service.startError
 }
 
@@ -657,6 +662,54 @@ func TestActiveCallReportsOccupiedToAnotherBrowser(t *testing.T) {
 	}
 }
 
+func TestActiveCallsIncludeOutgoingLineReservations(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Date(2026, time.July, 29, 12, 0, 0, 0, time.UTC)
+	leases := &fakeCallLeases{reservations: []calllease.OutgoingReservation{{
+		ID:           "request-call-1",
+		LineID:       "line-stable",
+		HolderID:     "browser-1",
+		CreatedAt:    createdAt,
+		ControlState: calllease.ControlOccupied,
+	}}}
+	api, err := New(&fakeRepository{}, Options{
+		Communications:        &fakeCommunications{},
+		CallLeases:            leases,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	api.ServeHTTP(
+		response,
+		httptest.NewRequest(
+			http.MethodGet,
+			"/api/v1/calls/active?holder_id=browser-2",
+			nil,
+		),
+	)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	var body activeCallsResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Reservations) != 1 {
+		t.Fatalf("reservations = %+v", body.Reservations)
+	}
+	reservation := body.Reservations[0]
+	if reservation.RequestID != "request-call-1" ||
+		reservation.LineID != "line-stable" ||
+		reservation.ControlState != string(calllease.ControlOccupied) ||
+		reservation.CreatedAt != createdAt.Format(time.RFC3339Nano) {
+		t.Fatalf("reservation = %+v", reservation)
+	}
+}
+
 func TestSecondBrowserCannotAnswerClaimedIncomingCall(t *testing.T) {
 	t.Parallel()
 
@@ -694,6 +747,7 @@ func TestSecondBrowserCannotAnswerClaimedIncomingCall(t *testing.T) {
 func TestStartCallClaimsTheDialingBrowser(t *testing.T) {
 	t.Parallel()
 
+	leases := &fakeCallLeases{}
 	communications := &fakeCommunications{call: store.Call{
 		ID:           "call-app-1",
 		LineID:       "line-stable",
@@ -701,7 +755,11 @@ func TestStartCallClaimsTheDialingBrowser(t *testing.T) {
 		RemoteNumber: "+818012345678",
 		Phase:        "dialing",
 	}}
-	leases := &fakeCallLeases{}
+	communications.onStart = func() {
+		if leases.reserves != 1 || leases.activations != 0 {
+			t.Fatalf("lease state before modem start = %+v", leases)
+		}
+	}
 	api, err := New(&fakeRepository{}, Options{
 		Communications:        communications,
 		CallLeases:            leases,
@@ -714,7 +772,7 @@ func TestStartCallClaimsTheDialingBrowser(t *testing.T) {
 		http.MethodPost,
 		"/api/v1/calls",
 		bytes.NewBufferString(
-			`{"line_id":"line-stable","number":"+818012345678","holder_id":"browser-1"}`,
+			`{"request_id":"request-call-1","line_id":"line-stable","number":"+818012345678","holder_id":"browser-1"}`,
 		),
 	)
 	request.Header.Set("Content-Type", "application/json")
@@ -725,10 +783,14 @@ func TestStartCallClaimsTheDialingBrowser(t *testing.T) {
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
 	}
-	if leases.claims != 1 ||
+	if leases.reserves != 1 ||
+		leases.activations != 1 ||
+		leases.releases != 0 ||
+		leases.reservationID != "request-call-1" ||
+		leases.lineID != "line-stable" ||
 		leases.callID != "call-app-1" ||
 		leases.holderID != "browser-1" {
-		t.Fatalf("claimed lease = %+v", leases)
+		t.Fatalf("outgoing lease = %+v", leases)
 	}
 	var body callSessionEnvelope
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
@@ -748,7 +810,7 @@ func TestStartCallClaimFailureEndsOnlyCreatedCall(t *testing.T) {
 		Direction: "outgoing",
 		Phase:     "dialing",
 	}}
-	leases := &fakeCallLeases{err: calllease.ErrCallNotActive}
+	leases := &fakeCallLeases{activateErr: calllease.ErrCallNotActive}
 	api, err := New(&fakeRepository{}, Options{
 		Communications:        communications,
 		CallLeases:            leases,
@@ -761,7 +823,7 @@ func TestStartCallClaimFailureEndsOnlyCreatedCall(t *testing.T) {
 		http.MethodPost,
 		"/api/v1/calls",
 		bytes.NewBufferString(
-			`{"line_id":"line-stable-2","number":"+818012345678","holder_id":"browser-1"}`,
+			`{"request_id":"request-call-2","line_id":"line-stable-2","number":"+818012345678","holder_id":"browser-1"}`,
 		),
 	)
 	request.Header.Set("Content-Type", "application/json")
@@ -775,6 +837,9 @@ func TestStartCallClaimFailureEndsOnlyCreatedCall(t *testing.T) {
 	if communications.endCallID != "call-app-2" {
 		t.Fatalf("ended call = %q, want call-app-2", communications.endCallID)
 	}
+	if leases.releases != 1 {
+		t.Fatalf("reservation releases = %d, want 1", leases.releases)
+	}
 }
 
 func TestBrowserCannotStartASecondOwnedCall(t *testing.T) {
@@ -786,7 +851,7 @@ func TestBrowserCannotStartASecondOwnedCall(t *testing.T) {
 		Direction: "outgoing",
 		Phase:     "dialing",
 	}}
-	leases := &fakeCallLeases{err: calllease.ErrHolderBusy}
+	leases := &fakeCallLeases{reserveErr: calllease.ErrHolderBusy}
 	api, err := New(&fakeRepository{}, Options{
 		Communications:        communications,
 		CallLeases:            leases,
@@ -799,7 +864,7 @@ func TestBrowserCannotStartASecondOwnedCall(t *testing.T) {
 		http.MethodPost,
 		"/api/v1/calls",
 		bytes.NewBufferString(
-			`{"line_id":"line-stable-3","number":"+818012345678","holder_id":"browser-1"}`,
+			`{"request_id":"request-call-3","line_id":"line-stable-3","number":"+818012345678","holder_id":"browser-1"}`,
 		),
 	)
 	request.Header.Set("Content-Type", "application/json")
@@ -808,8 +873,12 @@ func TestBrowserCannotStartASecondOwnedCall(t *testing.T) {
 	api.ServeHTTP(response, request)
 
 	assertAPIError(t, response, http.StatusConflict, "browser_call_busy")
-	if communications.endCallID != "call-app-3" {
-		t.Fatalf("ended call = %q, want call-app-3", communications.endCallID)
+	if communications.startInput.LineID != "" || communications.endCallID != "" {
+		t.Fatalf(
+			"busy browser reached modem control: start %+v, end %q",
+			communications.startInput,
+			communications.endCallID,
+		)
 	}
 }
 

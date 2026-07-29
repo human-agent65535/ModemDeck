@@ -79,7 +79,15 @@ type callSessionEnvelope struct {
 }
 
 type activeCallsResponse struct {
-	Calls []callSessionResponse `json:"calls"`
+	Calls        []callSessionResponse             `json:"calls"`
+	Reservations []outgoingCallReservationResponse `json:"reservations"`
+}
+
+type outgoingCallReservationResponse struct {
+	RequestID    string `json:"request_id"`
+	LineID       string `json:"line_id"`
+	ControlState string `json:"control_state"`
+	CreatedAt    string `json:"created_at"`
 }
 
 type callsResponse struct {

@@ -181,6 +181,10 @@ type CallMediaService interface {
 }
 
 type CallLeaseService interface {
+	ReserveOutgoing(context.Context, string, string, string) (calllease.OutgoingReservation, error)
+	ActivateOutgoing(context.Context, string, string, string) (calllease.Status, error)
+	ReleaseOutgoing(string, string) (bool, error)
+	OutgoingReservations(string) ([]calllease.OutgoingReservation, error)
 	Claim(context.Context, string, string) (calllease.Status, error)
 	Renew(context.Context, string, string) (calllease.Status, error)
 	Require(context.Context, string, string) error

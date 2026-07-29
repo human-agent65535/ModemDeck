@@ -12,15 +12,71 @@ import (
 )
 
 type fakeCallLeases struct {
-	callID   string
-	holderID string
-	status   calllease.Status
-	control  calllease.ControlState
-	err      error
-	claims   int
-	reads    int
-	requires int
-	releases int
+	callID        string
+	holderID      string
+	reservationID string
+	lineID        string
+	status        calllease.Status
+	control       calllease.ControlState
+	reservations  []calllease.OutgoingReservation
+	err           error
+	reserveErr    error
+	activateErr   error
+	releaseErr    error
+	claims        int
+	reserves      int
+	activations   int
+	reads         int
+	requires      int
+	releases      int
+}
+
+func (leases *fakeCallLeases) ReserveOutgoing(
+	_ context.Context,
+	reservationID string,
+	lineID string,
+	holderID string,
+) (calllease.OutgoingReservation, error) {
+	leases.reservationID = reservationID
+	leases.lineID = lineID
+	leases.holderID = holderID
+	leases.reserves++
+	return calllease.OutgoingReservation{
+		ID:           reservationID,
+		LineID:       lineID,
+		HolderID:     holderID,
+		ControlState: calllease.ControlOwned,
+	}, leases.reserveErr
+}
+
+func (leases *fakeCallLeases) ActivateOutgoing(
+	_ context.Context,
+	reservationID string,
+	callID string,
+	holderID string,
+) (calllease.Status, error) {
+	leases.reservationID = reservationID
+	leases.callID = callID
+	leases.holderID = holderID
+	leases.activations++
+	return leases.status, leases.activateErr
+}
+
+func (leases *fakeCallLeases) ReleaseOutgoing(
+	reservationID string,
+	holderID string,
+) (bool, error) {
+	leases.reservationID = reservationID
+	leases.holderID = holderID
+	leases.releases++
+	return true, leases.releaseErr
+}
+
+func (leases *fakeCallLeases) OutgoingReservations(
+	holderID string,
+) ([]calllease.OutgoingReservation, error) {
+	leases.holderID = holderID
+	return append([]calllease.OutgoingReservation(nil), leases.reservations...), leases.err
 }
 
 func (leases *fakeCallLeases) Claim(
