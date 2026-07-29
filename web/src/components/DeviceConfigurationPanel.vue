@@ -89,7 +89,7 @@ import SensitiveValue from './SensitiveValue.vue'
 import SignalBars from './SignalBars.vue'
 import StatePanel from './StatePanel.vue'
 
-type DeviceTab = 'overview' | 'network' | 'sim' | 'voice' | 'ussd'
+type DeviceTab = 'overview' | 'network' | 'sim' | 'sms' | 'voice' | 'ussd'
 type AsyncStatus = 'idle' | 'loading' | 'ready' | 'error'
 
 const { t } = useI18n()
@@ -97,6 +97,7 @@ const tabs = computed<Array<{ id: DeviceTab; label: string; icon: typeof RadioTo
   { id: 'overview', label: t('device.overview'), icon: RadioTower },
   { id: 'network', label: t('device.network'), icon: Network },
   { id: 'sim', label: 'SIM', icon: CardSim },
+  { id: 'sms', label: t('device.smsSettings'), icon: MessageSquareText },
   { id: 'voice', label: t('device.calls'), icon: Phone },
   { id: 'ussd', label: 'USSD', icon: Send }
 ])
@@ -1542,40 +1543,6 @@ onMounted(() => {
               </ul>
             </details>
           </section>
-
-          <section class="configuration-section">
-            <header>
-              <MessageSquareText :size="18" /><h4>{{ t('device.smsSettings') }}</h4>
-            </header>
-            <label class="configuration-toggle">
-              <span>
-                <strong>{{ t('device.requestDeliveryReports') }}</strong>
-                <small
-                  v-if="messaging.delivery_reports_support === 'unsupported'"
-                  class="configuration-toggle__unsupported"
-                >
-                  {{ t('device.deliveryReportsUnsupported') }}
-                </small>
-                <small v-else>{{ t('device.deliveryReportsDescription') }}</small>
-              </span>
-              <span class="configuration-toggle__control">
-                <LoaderCircle
-                  v-if="savingOperation === 'set_delivery_reports_enabled'"
-                  class="spin"
-                  :size="16"
-                />
-                <input
-                  type="checkbox"
-                  role="switch"
-                  :aria-label="t('device.requestDeliveryReports')"
-                  :checked="messaging.delivery_reports_enabled"
-                  :disabled="Boolean(savingOperation)"
-                  @change="applyDeliveryReports"
-                />
-              </span>
-            </label>
-          </section>
-
         </template>
 
         <template v-else-if="activeTab === 'network'">
@@ -2080,6 +2047,41 @@ onMounted(() => {
                 {{ t('device.apply') }}
               </button>
             </form>
+          </section>
+        </template>
+
+        <template v-else-if="activeTab === 'sms'">
+          <section class="configuration-section">
+            <header>
+              <MessageSquareText :size="18" /><h4>{{ t('device.smsSettings') }}</h4>
+            </header>
+            <label class="configuration-toggle">
+              <span>
+                <strong>{{ t('device.requestDeliveryReports') }}</strong>
+                <small
+                  v-if="messaging.delivery_reports_support === 'unsupported'"
+                  class="configuration-toggle__unsupported"
+                >
+                  {{ t('device.deliveryReportsUnsupported') }}
+                </small>
+                <small v-else>{{ t('device.deliveryReportsDescription') }}</small>
+              </span>
+              <span class="configuration-toggle__control">
+                <LoaderCircle
+                  v-if="savingOperation === 'set_delivery_reports_enabled'"
+                  class="spin"
+                  :size="16"
+                />
+                <input
+                  type="checkbox"
+                  role="switch"
+                  :aria-label="t('device.requestDeliveryReports')"
+                  :checked="messaging.delivery_reports_enabled"
+                  :disabled="Boolean(savingOperation)"
+                  @change="applyDeliveryReports"
+                />
+              </span>
+            </label>
           </section>
         </template>
 

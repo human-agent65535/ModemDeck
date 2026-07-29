@@ -17,12 +17,7 @@ COPY web/ ./
 RUN npm run build
 
 
-FROM --platform=${TARGETPLATFORM} ${GO_IMAGE} AS app-builder
-
-ARG TARGETOS
-ARG TARGETARCH
-ARG BUILD_DATE=unknown
-ARG VCS_REF=unknown
+FROM --platform=${TARGETPLATFORM} ${GO_IMAGE} AS go-toolchain
 
 ENV GOTOOLCHAIN=local \
     CGO_ENABLED=1
@@ -32,6 +27,14 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update \
     && apt-get install -y --no-install-recommends libopus-dev=1.3.1-3
+
+
+FROM go-toolchain AS app-builder
+
+ARG TARGETOS
+ARG TARGETARCH
+ARG BUILD_DATE=unknown
+ARG VCS_REF=unknown
 
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \

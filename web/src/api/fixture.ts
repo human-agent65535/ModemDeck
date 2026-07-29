@@ -85,6 +85,7 @@ const CASEY_WORK_PHONE = '+1 202 555 0105'
 const RILEY_NAME = 'Riley Quinn'
 const RILEY_PHONE = '+1 202 555 0106'
 const UNKNOWN_CALLER_PHONE = '+1 202 555 0107'
+const FIXTURE_APPLICATION_VERSION = 'v9.8.7'
 
 function fixtureThreadKey(
   lineID: string,
@@ -1207,7 +1208,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     async getAbout(): Promise<AboutInfo> {
       return {
         name: 'ModemDeck',
-        version: 'v1.6.0',
+        version: FIXTURE_APPLICATION_VERSION,
         commit: 'fixture',
         build_date: '2026-07-28T00:00:00Z',
         repository_url: 'https://github.com/human-agent65535/ModemDeck',
@@ -1221,7 +1222,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     async checkForUpdates(): Promise<UpdateCheck> {
       return {
         status: 'unavailable',
-        current_version: 'v1.6.0',
+        current_version: FIXTURE_APPLICATION_VERSION,
         checked_at: new Date().toISOString(),
         error_code: 'github_no_release'
       }

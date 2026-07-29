@@ -637,6 +637,37 @@ test('SMS delivery reports are an opt-in revisioned device setting', async () =>
   assert.match(devicePanelSource, /t\('device\.requestDeliveryReports'\)/)
   assert.match(devicePanelSource, /messaging\.delivery_reports_support === 'unsupported'/)
   assert.match(devicePanelSource, /class="configuration-toggle__unsupported"/)
+  const simTab = devicePanelSource.indexOf("{ id: 'sim'")
+  const smsTab = devicePanelSource.indexOf("{ id: 'sms'")
+  const voiceTab = devicePanelSource.indexOf("{ id: 'voice'")
+  assert.ok(simTab >= 0 && simTab < smsTab && smsTab < voiceTab)
+  assert.match(
+    devicePanelSource.slice(smsTab, voiceTab),
+    /label: t\('device\.smsSettings'\), icon: MessageSquareText/
+  )
+
+  const overviewStart = devicePanelSource.indexOf(
+    "<template v-if=\"activeTab === 'overview'\">"
+  )
+  const overviewEnd = devicePanelSource.indexOf(
+    "<template v-else-if=\"activeTab === 'network'\">",
+    overviewStart
+  )
+  const smsStart = devicePanelSource.indexOf(
+    "<template v-else-if=\"activeTab === 'sms'\">"
+  )
+  const smsEnd = devicePanelSource.indexOf(
+    "<template v-else-if=\"activeTab === 'voice'\">",
+    smsStart
+  )
+  assert.doesNotMatch(
+    devicePanelSource.slice(overviewStart, overviewEnd),
+    /requestDeliveryReports/
+  )
+  assert.match(
+    devicePanelSource.slice(smsStart, smsEnd),
+    /requestDeliveryReports[\s\S]*@change="applyDeliveryReports"/
+  )
   assert.match(
     devicePanelSource,
     /\.configuration-toggle small\.configuration-toggle__unsupported\s*\{[^}]*color:\s*#c7352d/s

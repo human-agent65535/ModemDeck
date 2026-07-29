@@ -2,13 +2,14 @@ SHELL := /bin/sh
 
 GO_IMAGE ?= golang:1.26.3-bookworm@sha256:386d475a660466863d9f8c766fec64d7fdad3edac2c6a05020c09534d71edb4b
 ROOT_TOOLCHAIN_IMAGE ?= modemdeck-root-toolchain:go1.26.3-opus1.3.1-3
-ROOT_TOOLCHAIN_DOCKERFILE ?= Dockerfile.toolchain
+ROOT_TOOLCHAIN_TARGET ?= go-toolchain
 NODE_IMAGE ?= node:22.17.1-bookworm-slim@sha256:2fa754a9ba4d7adbd2a51d182eaabbe355c82b673624035a38c0d42b08724854
 GITLEAKS_IMAGE ?= ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 AGENT_NAME ?= modemdeck-agent
 IMAGE ?= modemdeck
 HARDWARE_IMAGE ?= modemdeck-hardware
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || printf '%s' dev)
+RELEASE_VERSION ?= $(shell tr -d '\r\n' 2>/dev/null < VERSION)
+VERSION ?= $(if $(RELEASE_VERSION),v$(RELEASE_VERSION),dev)
 BUILD_DATE ?= $(shell git show -s --format=%cI HEAD 2>/dev/null || printf '%s' unknown)
 VCS_REF ?= $(shell git rev-parse HEAD 2>/dev/null || printf '%s' unknown)
 DIST_DIR ?= dist
@@ -134,7 +135,7 @@ secret-scan:
 
 root-toolchain:
 	docker build \
-		--file "$(ROOT_TOOLCHAIN_DOCKERFILE)" \
+		--target "$(ROOT_TOOLCHAIN_TARGET)" \
 		--tag "$(ROOT_TOOLCHAIN_IMAGE)" \
 		.
 

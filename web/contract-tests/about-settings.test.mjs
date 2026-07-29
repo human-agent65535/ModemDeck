@@ -4,9 +4,11 @@ import test from 'node:test'
 
 import { gateway } from '../src/api/client.ts'
 
+const fixtureApplicationVersion = 'v9.8.7'
+
 const aboutResponse = {
   name: 'ModemDeck',
-  version: 'v1.6.0',
+  version: fixtureApplicationVersion,
   commit: 'abc123',
   build_date: '2026-07-28T08:00:00Z',
   repository_url: 'https://github.com/human-agent65535/ModemDeck',
@@ -18,7 +20,7 @@ const aboutResponse = {
 
 const updateResponse = {
   status: 'unavailable',
-  current_version: 'v1.6.0',
+  current_version: fixtureApplicationVersion,
   checked_at: '2026-07-28T08:01:00Z',
   error_code: 'github_no_release'
 }
@@ -70,11 +72,10 @@ test('update response rejects an unknown status', async () => {
 })
 
 test('about panel checks automatically without an update action and keeps legal links', async () => {
-  const [panel, settingsView, notices, version] = await Promise.all([
+  const [panel, settingsView, notices] = await Promise.all([
     readFile(new URL('../src/components/AboutSettingsPanel.vue', import.meta.url), 'utf8'),
     readFile(new URL('../src/views/SettingsView.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../../THIRD_PARTY_NOTICES.md', import.meta.url), 'utf8'),
-    readFile(new URL('../../VERSION', import.meta.url), 'utf8')
+    readFile(new URL('../../THIRD_PARTY_NOTICES.md', import.meta.url), 'utf8')
   ])
 
   assert.match(settingsView, /id: 'about'/)
@@ -90,5 +91,25 @@ test('about panel checks automatically without an update action and keeps legal 
   assert.match(panel, /about\.projectLicense/)
   assert.match(panel, /about\.thirdPartyNotices/)
   assert.match(notices, /Vue\.js, Vue Router, and Vue I18n/)
-  assert.equal(version.trim(), '1.6.0')
+})
+
+test('root VERSION is the only maintained release version', async () => {
+  const [version, packageSource, packageLockSource, makefile, hardwareBuilder] =
+    await Promise.all([
+      readFile(new URL('../../VERSION', import.meta.url), 'utf8'),
+      readFile(new URL('../package.json', import.meta.url), 'utf8'),
+      readFile(new URL('../package-lock.json', import.meta.url), 'utf8'),
+      readFile(new URL('../../Makefile', import.meta.url), 'utf8'),
+      readFile(new URL('../../hardware/build-image.sh', import.meta.url), 'utf8')
+    ])
+  const packageDocument = JSON.parse(packageSource)
+  const packageLockDocument = JSON.parse(packageLockSource)
+
+  assert.match(version.trim(), /^\d+\.\d+\.\d+$/)
+  assert.equal(packageDocument.version, undefined)
+  assert.equal(packageLockDocument.version, undefined)
+  assert.equal(packageLockDocument.packages[''].version, undefined)
+  assert.match(makefile, /RELEASE_VERSION \?=.*< VERSION/)
+  assert.match(makefile, /VERSION \?=.*RELEASE_VERSION/)
+  assert.match(hardwareBuilder, /< "\$\{repo_root\}\/VERSION"/)
 })
