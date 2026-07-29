@@ -166,11 +166,17 @@ const runtimeEnvironment = import.meta.env
 export const fixtureMode =
   Boolean(runtimeEnvironment?.DEV) && runtimeEnvironment?.VITE_MODEMDECK_FIXTURE === '1'
 
+const incomingCallFixture =
+  fixtureMode && typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('incomingCallFixture')
+    : ''
+const initialIncomingCallFixture: boolean | 'occupied' =
+  incomingCallFixture === 'occupied' ? 'occupied' : incomingCallFixture === '1'
+
 const fixturePreviewOptions =
   fixtureMode && typeof window !== 'undefined'
     ? {
-        initialIncomingCall:
-          new URLSearchParams(window.location.search).get('incomingCallFixture') === '1'
+        initialIncomingCall: initialIncomingCallFixture
       }
     : {}
 

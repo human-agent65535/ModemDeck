@@ -122,6 +122,22 @@ export function lineHasActiveCall(
   )
 }
 
+export function showActiveCallForLine(lineID: string): boolean {
+  const normalizedLineID = lineID.trim()
+  const selected = callState.sessions.find(
+    session =>
+      isLiveCallSession(session) &&
+      session.line_id.trim() === normalizedLineID
+  )
+  if (!selected) return false
+
+  const foreground = selectForegroundSession(callState.sessions, selected.id)
+  if (!foreground) return false
+  applyForegroundSession(foreground)
+  showCallSurface()
+  return foreground.id === selected.id
+}
+
 function requestError(error: unknown, fallback: string): { message: string; status: number } {
   return {
     message: error instanceof Error ? error.message : fallback,

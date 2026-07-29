@@ -41,6 +41,8 @@ const props = withDefaults(
     disabled?: boolean
     disabledValues?: string[]
     disabledValueLabel?: string
+    statusValues?: string[]
+    statusValueLabel?: string
     compact?: boolean
     filterMode?: boolean
   }>(),
@@ -58,6 +60,8 @@ const props = withDefaults(
     disabled: false,
     disabledValues: () => [],
     disabledValueLabel: '',
+    statusValues: () => [],
+    statusValueLabel: '',
     compact: false,
     filterMode: false
   }
@@ -85,6 +89,7 @@ const resolvedAllDescription = computed(
   () => props.allDescription || t('lines.showAllLines')
 )
 const disabledValueSet = computed(() => new Set(props.disabledValues))
+const statusValueSet = computed(() => new Set(props.statusValues))
 
 function lineValue(line: LineSummary): string {
   return lineKey(line)
@@ -126,6 +131,9 @@ function lineDetails(line: LineSummary, value: string): string {
   }
   if (disabledValueSet.value.has(value) && props.disabledValueLabel) {
     details.push(props.disabledValueLabel)
+  }
+  if (statusValueSet.value.has(value) && props.statusValueLabel) {
+    details.push(props.statusValueLabel)
   }
   return details.join(' · ') || t('lines.cellularLine')
 }

@@ -356,7 +356,7 @@ function recordingFixtureURL(): string {
 export type FixtureGatewayOptions = {
   lineCount?: number
   noDevices?: boolean
-  initialIncomingCall?: boolean
+  initialIncomingCall?: boolean | 'occupied'
 }
 
 function fixtureLines(count: number): LineSummary[] {
@@ -656,6 +656,14 @@ function fixtureHardware(line: LineSummary, index: number): DeviceHardwareConfig
 export function createFixtureGateway(options: FixtureGatewayOptions = {}): ModemDeckGateway {
   const requestedLineCount = Math.max(0, Math.trunc(options.lineCount ?? 2))
   const lines = options.noDevices ? [] : fixtureLines(requestedLineCount)
+  if (options.initialIncomingCall === 'occupied' && lines[1]) {
+    lines[1].capabilities = {
+      ...lines[1].capabilities,
+      voice: true,
+      media: true,
+      dial: true
+    }
+  }
   const fixtureDeviceList = options.noDevices
     ? []
     : lines.map((line, index): Device => ({
@@ -783,10 +791,17 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           direction: 'incoming',
           remote_number: '+1 202 555 0103',
           display_name: 'Alex Rowan',
-          phase: 'ringing',
-          control_state: 'available',
+          phase: options.initialIncomingCall === 'occupied' ? 'active' : 'ringing',
+          control_state:
+            options.initialIncomingCall === 'occupied' ? 'occupied' : 'available',
           media_available: false,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          ...(options.initialIncomingCall === 'occupied'
+            ? {
+                active_at: new Date().toISOString(),
+                bearer: 'volte'
+              }
+            : {})
         }
       : undefined
   let activeCallRecording: CallRecordingState | undefined = activeCall

@@ -135,16 +135,21 @@ test('SSE reconciliation keeps all calls and advances the foreground by ownershi
   }
 })
 
-test('dialer disables only occupied line options and retains a multi-call count', async () => {
+test('dialer keeps occupied lines viewable and retains a multi-call count', async () => {
   const [dialer, selector] = await Promise.all([
     readFile(new URL('../src/components/DialerPanel.vue', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/LineSelector.vue', import.meta.url), 'utf8')
   ])
 
   assert.match(dialer, /activeLineIDsForSessions\(callState\.sessions\)/)
-  assert.match(dialer, /:disabled-values="\[\.\.\.occupiedLineIDs\]"/)
+  assert.match(dialer, /v-model="lineSwitcherID"/)
+  assert.match(dialer, /:status-values="\[\.\.\.occupiedLineIDs\]"/)
+  assert.match(dialer, /:disabled="callState\.owned"/)
+  assert.match(dialer, /if \(callState\.owned\) return/)
+  assert.match(dialer, /showActiveCallForLine\(lineID\)/)
   assert.match(dialer, /callState\.owned \? t\('dialer\.activeCall'\)/)
   assert.match(dialer, /callState\.sessions\.length/)
   assert.match(selector, /:aria-disabled="option\.disabled"/)
   assert.match(selector, /if \(option\.disabled\) return/)
+  assert.match(selector, /statusValueSet\.value\.has\(value\)/)
 })

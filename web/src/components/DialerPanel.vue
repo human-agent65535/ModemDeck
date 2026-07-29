@@ -12,11 +12,13 @@ import {
 import {
   activeLineIDsForSessions,
   callState,
-  dial
+  dial,
+  showActiveCallForLine
 } from '../state/call'
 import {
   closeDialer,
   minimizeCallSurface,
+  openDialer,
   showCallSurface,
   uiState
 } from '../state/ui'
@@ -89,6 +91,27 @@ const activeCallPresent = computed(() => Boolean(callState.session))
 const showingCall = computed(
   () => activeCallPresent.value && !uiState.callMinimized
 )
+const showLineSwitcher = computed(
+  () =>
+    dialLines.value.length > 0 &&
+    (!showingCall.value || callState.session?.control_state === 'occupied')
+)
+const lineSwitcherID = computed({
+  get: () =>
+    (showingCall.value || callState.owned)
+      ? callState.session?.line_id || selectedLineId.value
+      : selectedLineId.value,
+  set: (lineID: string) => {
+    if (callState.owned) return
+    if (occupiedLineIDs.value.has(lineID)) {
+      if (!showActiveCallForLine(lineID)) syncResolvedLine(true)
+      return
+    }
+    selectedLineId.value = lineID
+    lineSelectionOverridden.value = true
+    if (showingCall.value) openDialer('', '', lineID)
+  }
+})
 const callSurfaceVisible = computed(() => showingCall.value)
 const defaultLineID = computed(
   () => bootstrapResource.data?.line_settings.default_line_id || ''
@@ -340,10 +363,6 @@ function blurNumberInput(): void {
   numberTouched.value = true
 }
 
-function changeLine(): void {
-  lineSelectionOverridden.value = true
-}
-
 async function placeCall(): Promise<void> {
   validationAttempted.value = true
   if (
@@ -485,24 +504,24 @@ onBeforeUnmount(() => {
             </span>
           </header>
 
+          <div v-if="showLineSwitcher" class="dialer-line-switcher">
+            <LineSelector
+              v-model="lineSwitcherID"
+              :lines="dialLines"
+              :default-line-id="defaultLineID"
+              :status-values="[...occupiedLineIDs]"
+              :status-value-label="t('calls.lineInUse')"
+              :disabled="callState.owned"
+              :label="t('dialer.line')"
+              capability="dial"
+              :unavailable-label="t('dialer.lineUnsupported')"
+            />
+          </div>
+
           <CallSurface v-if="showingCall" />
 
           <div v-else class="dialer-panel__body">
             <div class="dialer-panel__scroll">
-              <div v-if="dialLines.length > 0" class="dialer-line-switcher">
-                <LineSelector
-                  v-model="selectedLineId"
-                  :lines="dialLines"
-                  :default-line-id="defaultLineID"
-                  :disabled-values="[...occupiedLineIDs]"
-                  :disabled-value-label="t('calls.lineInUse')"
-                  :label="t('dialer.line')"
-                  capability="dial"
-                  :unavailable-label="t('dialer.lineUnsupported')"
-                  @change="changeLine"
-                />
-              </div>
-
               <div class="dialer-number-entry">
                 <div
                   class="dialer-number-control"
@@ -714,6 +733,8 @@ onBeforeUnmount(() => {
 }
 
 .dialer-line-switcher {
+  flex: 0 0 auto;
+  margin: 16px 20px 0;
   padding-bottom: 13px;
   border-bottom: 1px solid var(--border);
 }
@@ -732,7 +753,7 @@ onBeforeUnmount(() => {
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  padding: 16px 20px 14px;
+  padding: 0 20px 14px;
   overflow-y: auto;
 }
 
@@ -987,10 +1008,11 @@ onBeforeUnmount(() => {
 
 @media (max-height: 760px) {
   .dialer-panel__scroll {
-    padding-block: 10px 8px;
+    padding-block: 0 8px;
   }
 
   .dialer-line-switcher {
+    margin-top: 10px;
     padding-bottom: 8px;
   }
 
