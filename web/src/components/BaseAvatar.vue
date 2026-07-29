@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { CircleHelp, UserRound } from '@lucide/vue'
+import { CircleHelp, MessageSquareText, UserRound } from '@lucide/vue'
 import { initials } from '../utils/format'
 
 const props = withDefaults(
@@ -8,7 +8,7 @@ const props = withDefaults(
     name: string
     src?: string
     size?: 'small' | 'medium' | 'large'
-    fallback?: 'initials' | 'person' | 'unknown'
+    fallback?: 'initials' | 'person' | 'service' | 'unknown'
     paletteKey?: string
   }>(),
   {
@@ -27,6 +27,7 @@ const palette = computed(() => {
 })
 const fallbackIcon = computed(() => {
   if (props.fallback === 'person') return UserRound
+  if (props.fallback === 'service') return MessageSquareText
   if (props.fallback === 'unknown') return CircleHelp
   return undefined
 })

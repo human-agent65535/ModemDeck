@@ -33,7 +33,7 @@ test('communication avatars do not derive initials from telephone numbers', () =
   )
 })
 
-test('communication avatars distinguish senders and anonymous callers', () => {
+test('communication avatars distinguish people, services, and anonymous callers', () => {
   assert.equal(
     communicationAvatarFallback({
       channel: 'message',
@@ -48,7 +48,31 @@ test('communication avatars distinguish senders and anonymous callers', () => {
       name: '12345',
       address: '12345'
     }),
-    'initials'
+    'service'
+  )
+  assert.equal(
+    communicationAvatarFallback({
+      channel: 'message',
+      name: '191',
+      address: '191'
+    }),
+    'service'
+  )
+  assert.equal(
+    communicationAvatarFallback({
+      channel: 'message',
+      name: '12345678901234567890',
+      address: '12345678901234567890'
+    }),
+    'service'
+  )
+  assert.equal(
+    communicationAvatarFallback({
+      channel: 'message',
+      name: '202 555 0197',
+      address: '202 555 0197'
+    }),
+    'person'
   )
   assert.equal(
     communicationAvatarFallback({

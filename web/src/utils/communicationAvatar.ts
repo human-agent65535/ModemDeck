@@ -4,7 +4,11 @@ import {
 } from './communicationAddress'
 
 export type CommunicationChannel = 'call' | 'message'
-export type CommunicationAvatarFallback = 'initials' | 'person' | 'unknown'
+export type CommunicationAvatarFallback =
+  | 'initials'
+  | 'person'
+  | 'service'
+  | 'unknown'
 
 type CommunicationAvatarIdentity = {
   channel: CommunicationChannel
@@ -37,13 +41,14 @@ export function communicationAvatarFallback(
 
   const kind = communicationAddressKind(address)
   const phoneAddress =
-    isContactPhoneCandidate(address) ||
-    kind === 'subscriber' ||
-    kind === 'short_code'
+    isContactPhoneCandidate(address) || kind === 'subscriber'
 
-  if (identity.channel === 'call') return phoneAddress ? 'person' : 'unknown'
-  if (kind === 'alphanumeric' || kind === 'short_code') return 'initials'
-  return phoneAddress ? 'person' : 'unknown'
+  if (identity.channel === 'call') {
+    if (phoneAddress) return 'person'
+    return kind === 'short_code' ? 'service' : 'unknown'
+  }
+  if (kind === 'alphanumeric') return 'initials'
+  return phoneAddress ? 'person' : 'service'
 }
 
 export function communicationAvatarPaletteKey(
