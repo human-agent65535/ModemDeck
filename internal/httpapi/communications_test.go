@@ -801,6 +801,41 @@ func TestStartCallClaimsTheDialingBrowser(t *testing.T) {
 	}
 }
 
+func TestStartCallReplayDoesNotReleaseOriginalReservation(t *testing.T) {
+	t.Parallel()
+
+	leases := &fakeCallLeases{reserveReplay: true}
+	communications := &fakeCommunications{
+		startError: communication.ErrConflict,
+	}
+	api, err := New(&fakeRepository{}, Options{
+		Communications:        communications,
+		CallLeases:            leases,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/calls",
+		bytes.NewBufferString(
+			`{"request_id":"request-call-1","line_id":"line-stable","number":"+818012345678","holder_id":"browser-1"}`,
+		),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusConflict {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if leases.reserves != 1 || leases.releases != 0 {
+		t.Fatalf("outgoing lease = %+v", leases)
+	}
+}
+
 func TestStartCallClaimFailureEndsOnlyCreatedCall(t *testing.T) {
 	t.Parallel()
 

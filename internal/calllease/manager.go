@@ -57,6 +57,7 @@ type OutgoingReservation struct {
 	ID           string
 	LineID       string
 	HolderID     string
+	Created      bool
 	CreatedAt    time.Time
 	ControlState ControlState
 }
@@ -82,6 +83,7 @@ type outgoingReservation struct {
 	id        string
 	lineID    string
 	holderID  string
+	callID    string
 	createdAt time.Time
 }
 
@@ -167,7 +169,7 @@ func (m *Manager) ReserveOutgoing(
 		if existing.lineID != lineID || existing.holderID != holderID {
 			return OutgoingReservation{}, ErrCallOwned
 		}
-		return outgoingReservationStatus(existing, holderID), nil
+		return outgoingReservationStatus(existing, holderID, false), nil
 	}
 	for _, call := range activeCalls {
 		if trackedPhase(call.Phase) && strings.TrimSpace(call.LineID) == lineID {
@@ -185,6 +187,9 @@ func (m *Manager) ReserveOutgoing(
 		}
 	}
 	for _, reservation := range m.reservations {
+		if reservation.callID != "" {
+			continue
+		}
 		if reservation.lineID == lineID {
 			return OutgoingReservation{}, ErrCallOwned
 		}
@@ -199,7 +204,7 @@ func (m *Manager) ReserveOutgoing(
 		createdAt: now,
 	}
 	m.reservations[reservationID] = reservation
-	return outgoingReservationStatus(reservation, holderID), nil
+	return outgoingReservationStatus(reservation, holderID, true), nil
 }
 
 func (m *Manager) ActivateOutgoing(
@@ -238,6 +243,9 @@ func (m *Manager) ActivateOutgoing(
 	if strings.TrimSpace(call.LineID) != reservation.lineID {
 		return Status{}, ErrInvalidArgument
 	}
+	if reservation.callID != "" && reservation.callID != callID {
+		return Status{}, ErrInvalidArgument
+	}
 	entry := m.entries[callID]
 	if entry == nil {
 		entry = &callEntry{}
@@ -265,7 +273,7 @@ func (m *Manager) ActivateOutgoing(
 	entry.holderID = holderID
 	entry.expiresAt = expiresAt
 	entry.unclaimedExpires = time.Time{}
-	delete(m.reservations, reservationID)
+	reservation.callID = callID
 	return Status{
 		CallID:    callID,
 		HolderID:  holderID,
@@ -293,6 +301,9 @@ func (m *Manager) ReleaseOutgoing(
 	if reservation.holderID != holderID {
 		return false, ErrNotOwner
 	}
+	if reservation.callID != "" {
+		return false, nil
+	}
 	delete(m.reservations, reservationID)
 	return true, nil
 }
@@ -308,7 +319,10 @@ func (m *Manager) OutgoingReservations(
 	defer m.mu.Unlock()
 	result := make([]OutgoingReservation, 0, len(m.reservations))
 	for _, reservation := range m.reservations {
-		result = append(result, outgoingReservationStatus(reservation, holderID))
+		if reservation.callID != "" {
+			continue
+		}
+		result = append(result, outgoingReservationStatus(reservation, holderID, false))
 	}
 	return result, nil
 }
@@ -554,6 +568,14 @@ func (m *Manager) ReconcileAuthoritativeCalls(
 			})
 		}
 	}
+	for reservationID, reservation := range m.reservations {
+		if reservation.callID == "" {
+			continue
+		}
+		if _, found := active[reservation.callID]; !found {
+			delete(m.reservations, reservationID)
+		}
+	}
 	m.mu.Unlock()
 
 	var result error
@@ -710,6 +732,7 @@ func normalizeReservationAndHolder(
 func outgoingReservationStatus(
 	reservation *outgoingReservation,
 	holderID string,
+	created bool,
 ) OutgoingReservation {
 	controlState := ControlOccupied
 	if reservation.holderID == holderID {
@@ -719,6 +742,7 @@ func outgoingReservationStatus(
 		ID:           reservation.id,
 		LineID:       reservation.lineID,
 		HolderID:     reservation.holderID,
+		Created:      created,
 		CreatedAt:    reservation.createdAt,
 		ControlState: controlState,
 	}

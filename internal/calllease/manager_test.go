@@ -69,6 +69,7 @@ func TestOutgoingReservationOwnsOneLinePerBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 	if reservation.LineID != "line-1" ||
+		!reservation.Created ||
 		reservation.ControlState != ControlOwned ||
 		!reservation.CreatedAt.Equal(now) {
 		t.Fatalf("reservation = %+v", reservation)
@@ -153,6 +154,78 @@ func TestOutgoingReservationActivatesAsCallLease(t *testing.T) {
 	state, err := manager.ControlState(context.Background(), "call-1", "browser-1")
 	if err != nil || state != ControlOwned {
 		t.Fatalf("control state = %q, error = %v", state, err)
+	}
+}
+
+func TestOutgoingReservationReplaysWithoutCreatingOrReleasing(t *testing.T) {
+	t.Parallel()
+	calls := &fakeCalls{calls: map[string]store.Call{}}
+	manager, err := New(calls, &fakeController{}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := manager.ReserveOutgoing(
+		context.Background(),
+		"request-1",
+		"line-1",
+		"browser-1",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.Created {
+		t.Fatalf("first reservation = %+v, want created", first)
+	}
+	replayed, err := manager.ReserveOutgoing(
+		context.Background(),
+		"request-1",
+		"line-1",
+		"browser-1",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayed.Created {
+		t.Fatalf("replayed reservation = %+v, want existing", replayed)
+	}
+	calls.mu.Lock()
+	calls.calls["call-1"] = store.Call{
+		ID:     "call-1",
+		LineID: "line-1",
+		Phase:  "dialing",
+	}
+	calls.mu.Unlock()
+	if _, err := manager.ActivateOutgoing(
+		context.Background(),
+		"request-1",
+		"call-1",
+		"browser-1",
+	); err != nil {
+		t.Fatal(err)
+	}
+	replayed, err = manager.ReserveOutgoing(
+		context.Background(),
+		"request-1",
+		"line-1",
+		"browser-1",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayed.Created {
+		t.Fatalf("activated replay = %+v, want existing", replayed)
+	}
+	released, err := manager.ReleaseOutgoing("request-1", "browser-1")
+	if err != nil || released {
+		t.Fatalf("activated release = %t, error = %v", released, err)
+	}
+	if _, err := manager.ActivateOutgoing(
+		context.Background(),
+		"request-1",
+		"call-1",
+		"browser-1",
+	); err != nil {
+		t.Fatalf("replayed activation error = %v", err)
 	}
 }
 

@@ -480,16 +480,17 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 		}
 		requestID = preparedRequestID
 	}
-	if _, err := api.callLeases.ReserveOutgoing(
+	reservation, err := api.callLeases.ReserveOutgoing(
 		request.Context(),
 		requestID,
 		input.LineID,
 		holderID,
-	); err != nil {
+	)
+	if err != nil {
 		api.writeCallLeaseError(response, request, "reserve outgoing call line", err)
 		return
 	}
-	reservationActive := true
+	reservationActive := reservation.Created
 	releaseReservation := func() {
 		if !reservationActive {
 			return

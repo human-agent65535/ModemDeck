@@ -23,6 +23,7 @@ type fakeCallLeases struct {
 	reserveErr    error
 	activateErr   error
 	releaseErr    error
+	reserveReplay bool
 	claims        int
 	reserves      int
 	activations   int
@@ -45,6 +46,7 @@ func (leases *fakeCallLeases) ReserveOutgoing(
 		ID:           reservationID,
 		LineID:       lineID,
 		HolderID:     holderID,
+		Created:      !leases.reserveReplay,
 		ControlState: calllease.ControlOwned,
 	}, leases.reserveErr
 }
