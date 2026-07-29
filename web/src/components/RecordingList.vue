@@ -175,6 +175,7 @@ watch(
 
 <style scoped>
 .recording-list {
+  container-type: inline-size;
   border-top: 1px solid var(--border);
 }
 
@@ -235,7 +236,7 @@ watch(
   display: grid;
   min-width: 0;
   align-items: center;
-  grid-template-columns: minmax(130px, 0.8fr) minmax(180px, 1fr) 34px 34px;
+  grid-template-columns: minmax(240px, 0.9fr) minmax(220px, 1fr) 34px 34px;
   gap: 12px;
   padding: 10px 12px;
   background: var(--surface-subtle);
@@ -246,11 +247,12 @@ watch(
 .recording-list__meta {
   display: flex;
   min-width: 0;
-  flex-direction: column;
-  gap: 3px;
+  align-items: baseline;
+  gap: 8px;
 }
 
 .recording-list__meta strong {
+  flex: 0 0 auto;
   font-size: 11px;
 }
 
@@ -302,13 +304,33 @@ watch(
   background: var(--danger-soft);
 }
 
-@media (max-width: 720px) {
+@container (max-width: 720px) {
   .recording-list li {
     grid-template-columns: minmax(0, 1fr) 34px 34px;
   }
 
-  .recording-list audio {
+  .recording-list__meta {
     grid-column: 1 / 4;
+    grid-row: 1;
+  }
+
+  .recording-list audio {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .recording-list__availability {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .recording-list a {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .recording-list__delete {
+    grid-column: 3;
     grid-row: 2;
   }
 }
