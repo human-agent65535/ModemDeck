@@ -713,9 +713,9 @@ onBeforeUnmount(() => {
 
 .dialer-toolbar__title {
   display: grid;
-  width: 164px;
+  width: 104px;
   min-width: 0;
-  grid-template-columns: minmax(0, 112px) 52px;
+  grid-template-columns: minmax(0, 52px) 52px;
   align-items: center;
 }
 

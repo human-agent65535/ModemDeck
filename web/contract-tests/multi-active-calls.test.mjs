@@ -154,7 +154,7 @@ test('dialer keeps occupied lines viewable and retains a multi-call count', asyn
     dialer,
     /<span class="dialer-toolbar__title">[\s\S]*<h2>[\s\S]*<span class="dialer-status-slot">[\s\S]*dialer-active-calls--busy/
   )
-  assert.match(dialer, /\.dialer-toolbar__title \{[\s\S]*width: 164px;[\s\S]*grid-template-columns:/)
+  assert.match(dialer, /\.dialer-toolbar__title \{[\s\S]*width: 104px;[\s\S]*grid-template-columns:/)
   assert.match(dialer, /class="dialer-header-actions">[\s\S]*v-if="!permanent"[\s\S]*class="icon-button"/)
   assert.match(dialer, /\.dialer-active-calls--busy \{[\s\S]*color: var\(--danger\);/)
   assert.match(selector, /:aria-disabled="option\.disabled"/)
