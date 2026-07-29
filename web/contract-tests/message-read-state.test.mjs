@@ -36,7 +36,7 @@ test('Messages view waits for messages and guards each unread snapshot once', as
     'utf8'
   )
   const loadIndex = source.indexOf('const messages = await loadMessages(thread, force)')
-  const markIndex = source.indexOf('await markThreadRead(current)')
+  const markIndex = source.indexOf('await markThreadReadInView(current)')
 
   assert.ok(loadIndex >= 0)
   assert.ok(markIndex > loadIndex)

@@ -96,6 +96,7 @@ const sendError = ref('')
 const threadDeleteError = ref('')
 const deletingThreadKey = ref('')
 const messagesEnd = ref<HTMLElement | null>(null)
+const retainedUnreadThreadKeys = ref(new Set<string>())
 
 const embedded = computed(
   () => props.embeddedCompose || Boolean(props.embeddedThreadKey)
@@ -152,7 +153,11 @@ const filteredThreads = computed(() => {
       : lines.value.find(line => lineKey(line) === lineFilterKey.value)
   return threadsResource.data.filter(thread => {
     if (filteredLine && !threadUsesLine(thread, filteredLine)) return false
-    if (messageFilter.value === 'unread' && thread.unread_count <= 0) return false
+    if (
+      messageFilter.value === 'unread' &&
+      thread.unread_count <= 0 &&
+      !retainedUnreadThreadKeys.value.has(thread.key)
+    ) return false
     if (messageFilter.value === 'read' && thread.unread_count > 0) return false
     if (!query) return true
     return (
@@ -294,6 +299,10 @@ watch(
   }
 )
 
+watch(messageFilter, () => {
+  retainedUnreadThreadKeys.value.clear()
+})
+
 watch(
   () =>
     [
@@ -336,10 +345,17 @@ async function openThread(thread: MessageThread, force = false): Promise<void> {
     const readKey = `${current.key}\u0000${current.last_timestamp}\u0000${current.unread_count}`
     if (readKey !== attemptedReadKey) {
       attemptedReadKey = readKey
-      await markThreadRead(current)
+      await markThreadReadInView(current)
     }
   }
   scrollToEnd()
+}
+
+function markThreadReadInView(thread: MessageThread): Promise<boolean> {
+  if (messageFilter.value === 'unread') {
+    retainedUnreadThreadKeys.value.add(thread.key)
+  }
+  return markThreadRead(thread)
 }
 
 function retryThreadRead(): void {
@@ -597,7 +613,7 @@ onMounted(() => {
           :read-label="t('common.markRead')"
           :delete-label="t('common.delete')"
           :disabled="Boolean(deletingThreadKey)"
-          @read="markThreadRead(thread)"
+          @read="markThreadReadInView(thread)"
           @delete="removeThread(thread)"
         >
           <MessageThreadListItem

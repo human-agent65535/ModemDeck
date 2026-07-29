@@ -51,6 +51,24 @@ test('message list exposes all, unread, and read route-backed filters', () => {
   assert.match(messages, /@click="setMessageFilter\(item\.value\)"/)
 })
 
+test('read threads remain in the active unread view until its filter changes', () => {
+  assert.match(messages, /const retainedUnreadThreadKeys = ref\(new Set<string>\(\)\)/)
+  assert.match(
+    messages,
+    /messageFilter\.value === 'unread'[\s\S]*?thread\.unread_count <= 0[\s\S]*?!retainedUnreadThreadKeys\.value\.has\(thread\.key\)/
+  )
+  assert.match(
+    messages,
+    /function markThreadReadInView[\s\S]*?messageFilter\.value === 'unread'[\s\S]*?retainedUnreadThreadKeys\.value\.add\(thread\.key\)[\s\S]*?return markThreadRead\(thread\)/
+  )
+  assert.match(
+    messages,
+    /watch\(messageFilter,[\s\S]*?retainedUnreadThreadKeys\.value\.clear\(\)/
+  )
+  assert.match(messages, /await markThreadReadInView\(current\)/)
+  assert.match(messages, /@read="markThreadReadInView\(thread\)"/)
+})
+
 test('missed call filter acknowledges unread missed calls persistently', () => {
   assert.match(calls, /\(\) => route\.query\.filter/)
   assert.match(calls, /activeFilter === 'missed'/)
