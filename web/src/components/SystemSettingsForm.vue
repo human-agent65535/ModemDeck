@@ -31,9 +31,44 @@ const options = computed<Array<{
     description: t('language.zhCNDescription')
   },
   {
+    value: 'zh-TW',
+    label: t('language.zhTW'),
+    description: t('language.zhTWDescription')
+  },
+  {
     value: 'en-US',
     label: t('language.enUS'),
     description: t('language.enUSDescription')
+  },
+  {
+    value: 'ja-JP',
+    label: t('language.jaJP'),
+    description: t('language.jaJPDescription')
+  },
+  {
+    value: 'vi-VN',
+    label: t('language.viVN'),
+    description: t('language.viVNDescription')
+  },
+  {
+    value: 'es-ES',
+    label: t('language.esES'),
+    description: t('language.esESDescription')
+  },
+  {
+    value: 'de-DE',
+    label: t('language.deDE'),
+    description: t('language.deDEDescription')
+  },
+  {
+    value: 'fr-FR',
+    label: t('language.frFR'),
+    description: t('language.frFRDescription')
+  },
+  {
+    value: 'pt-BR',
+    label: t('language.ptBR'),
+    description: t('language.ptBRDescription')
   }
 ])
 const selectedOption = computed(

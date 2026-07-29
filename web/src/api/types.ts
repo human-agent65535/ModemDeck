@@ -385,7 +385,17 @@ export type UpdateLineSettingsInput = {
   expected_revision: number
 }
 
-export type SystemLanguage = 'auto' | 'zh-CN' | 'en-US'
+export type SystemLanguage =
+  | 'auto'
+  | 'zh-CN'
+  | 'zh-TW'
+  | 'en-US'
+  | 'ja-JP'
+  | 'vi-VN'
+  | 'es-ES'
+  | 'de-DE'
+  | 'fr-FR'
+  | 'pt-BR'
 
 export type SystemSettings = {
   language: SystemLanguage

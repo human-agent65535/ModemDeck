@@ -491,7 +491,14 @@ type SystemLanguage string
 const (
 	SystemLanguageAuto SystemLanguage = "auto"
 	SystemLanguageZhCN SystemLanguage = "zh-CN"
+	SystemLanguageZhTW SystemLanguage = "zh-TW"
 	SystemLanguageEnUS SystemLanguage = "en-US"
+	SystemLanguageJaJP SystemLanguage = "ja-JP"
+	SystemLanguageViVN SystemLanguage = "vi-VN"
+	SystemLanguageEsES SystemLanguage = "es-ES"
+	SystemLanguageDeDE SystemLanguage = "de-DE"
+	SystemLanguageFrFR SystemLanguage = "fr-FR"
+	SystemLanguagePtBR SystemLanguage = "pt-BR"
 )
 
 type SystemSettings struct {

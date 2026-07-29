@@ -348,7 +348,10 @@ func TestOpenMigratesSystemSettingsAndPreservesExistingData(t *testing.T) {
 		`CREATE TABLE modemdeck_system_settings (
 			singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
 			language TEXT NOT NULL DEFAULT 'auto'
-				CHECK (language IN ('auto', 'zh-CN', 'en-US')),
+				CHECK (language IN (
+					'auto', 'zh-CN', 'zh-TW', 'en-US', 'ja-JP',
+					'vi-VN', 'es-ES', 'de-DE', 'fr-FR', 'pt-BR'
+				)),
 			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
@@ -417,6 +420,73 @@ func TestOpenMigratesSystemSettingsAndPreservesExistingData(t *testing.T) {
 	}
 	if avatar != "" {
 		t.Fatalf("migrated contact avatar = %q, want empty", avatar)
+	}
+}
+
+func TestInitializeSchemaExpandsExistingSystemLanguageConstraint(t *testing.T) {
+	t.Parallel()
+
+	database, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "languages.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	legacySchema := strings.Replace(
+		currentSchemaSQL,
+		`CHECK (language IN (
+					'auto', 'zh-CN', 'zh-TW', 'en-US', 'ja-JP',
+					'vi-VN', 'es-ES', 'de-DE', 'fr-FR', 'pt-BR'
+				))`,
+		`CHECK (language IN ('auto', 'zh-CN', 'en-US', 'ja-JP', 'vi-VN'))`,
+		1,
+	)
+	if legacySchema == currentSchemaSQL {
+		t.Fatal("legacy schema fixture did not narrow supported languages")
+	}
+	if _, err := database.Exec(legacySchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(
+		`UPDATE modemdeck_system_settings
+		 SET language = 'en-US', revision = 7`,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	created, err := InitializeSchema(context.Background(), database)
+	if err != nil {
+		t.Fatalf("InitializeSchema() error = %v", err)
+	}
+	if created {
+		t.Fatal("InitializeSchema() created an existing database")
+	}
+	var (
+		language string
+		revision int64
+	)
+	if err := database.QueryRow(
+		`SELECT language, revision
+		 FROM modemdeck_system_settings
+		 WHERE singleton = 1`,
+	).Scan(&language, &revision); err != nil {
+		t.Fatal(err)
+	}
+	if language != "en-US" || revision != 7 {
+		t.Fatalf("migrated settings = %q revision %d", language, revision)
+	}
+	for _, supported := range []string{
+		"zh-TW",
+		"es-ES",
+		"de-DE",
+		"fr-FR",
+		"pt-BR",
+	} {
+		if _, err := database.Exec(
+			`UPDATE modemdeck_system_settings SET language = ?`,
+			supported,
+		); err != nil {
+			t.Fatalf("save migrated language %q: %v", supported, err)
+		}
 	}
 }
 

@@ -31,8 +31,22 @@ export default {
     autoDescription: 'Choose from the browser’s preferred languages',
     zhCN: '简体中文',
     zhCNDescription: 'Always use Simplified Chinese',
+    zhTW: '繁體中文',
+    zhTWDescription: 'Always use Traditional Chinese',
     enUS: 'English',
-    enUSDescription: 'Always use English'
+    enUSDescription: 'Always use English',
+    jaJP: '日本語',
+    jaJPDescription: 'Always use Japanese',
+    viVN: 'Tiếng Việt',
+    viVNDescription: 'Always use Vietnamese',
+    esES: 'Español',
+    esESDescription: 'Always use Spanish',
+    deDE: 'Deutsch',
+    deDEDescription: 'Always use German',
+    frFR: 'Français',
+    frFRDescription: 'Always use French',
+    ptBR: 'Português (Brasil)',
+    ptBRDescription: 'Always use Brazilian Portuguese'
   },
   shell: {
     home: 'Home',

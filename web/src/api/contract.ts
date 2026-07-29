@@ -1260,7 +1260,18 @@ export function createLineSettingsPayload(
 export function createSystemSettingsPayload(
   input: UpdateSystemSettingsInput
 ): UpdateSystemSettingsInput {
-  if (input.language !== 'auto' && input.language !== 'zh-CN' && input.language !== 'en-US') {
+  if (
+    input.language !== 'auto' &&
+    input.language !== 'zh-CN' &&
+    input.language !== 'zh-TW' &&
+    input.language !== 'en-US' &&
+    input.language !== 'ja-JP' &&
+    input.language !== 'vi-VN' &&
+    input.language !== 'es-ES' &&
+    input.language !== 'de-DE' &&
+    input.language !== 'fr-FR' &&
+    input.language !== 'pt-BR'
+  ) {
     throw new Error('system settings language is invalid')
   }
   if (!Number.isSafeInteger(input.expected_revision) || input.expected_revision < 1) {
@@ -1979,7 +1990,20 @@ export function parseLineSettingsResponse(value: unknown): LineSettings {
 }
 
 function systemLanguage(value: unknown, path: string): SystemLanguage {
-  if (value === 'auto' || value === 'zh-CN' || value === 'en-US') return value
+  if (
+    value === 'auto' ||
+    value === 'zh-CN' ||
+    value === 'zh-TW' ||
+    value === 'en-US' ||
+    value === 'ja-JP' ||
+    value === 'vi-VN' ||
+    value === 'es-ES' ||
+    value === 'de-DE' ||
+    value === 'fr-FR' ||
+    value === 'pt-BR'
+  ) {
+    return value
+  }
   throw new Error(`${path}.language is not supported`)
 }
 

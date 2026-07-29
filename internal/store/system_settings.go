@@ -114,5 +114,12 @@ func readSystemSettings(
 func validSystemLanguage(language SystemLanguage) bool {
 	return language == SystemLanguageAuto ||
 		language == SystemLanguageZhCN ||
-		language == SystemLanguageEnUS
+		language == SystemLanguageZhTW ||
+		language == SystemLanguageEnUS ||
+		language == SystemLanguageJaJP ||
+		language == SystemLanguageViVN ||
+		language == SystemLanguageEsES ||
+		language == SystemLanguageDeDE ||
+		language == SystemLanguageFrFR ||
+		language == SystemLanguagePtBR
 }

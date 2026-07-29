@@ -1,9 +1,16 @@
 import { createI18n } from 'vue-i18n'
 import type { SystemLanguage } from '../api/types'
+import deDE from './locales/de-DE'
 import enUS from './locales/en-US'
+import esES from './locales/es-ES'
+import frFR from './locales/fr-FR'
+import jaJP from './locales/ja-JP'
+import ptBR from './locales/pt-BR'
+import viVN from './locales/vi-VN'
 import zhCN from './locales/zh-CN'
+import zhTW from './locales/zh-TW'
 
-export type ResolvedLocale = 'zh-CN' | 'en-US'
+export type ResolvedLocale = Exclude<SystemLanguage, 'auto'>
 
 function browserLanguages(): readonly string[] {
   if (typeof navigator === 'undefined') return []
@@ -14,10 +21,27 @@ export function resolveSystemLanguage(
   language: SystemLanguage,
   preferredLanguages: readonly string[] = browserLanguages()
 ): ResolvedLocale {
-  if (language === 'zh-CN' || language === 'en-US') return language
-  return preferredLanguages.some(candidate => candidate.toLocaleLowerCase().startsWith('zh'))
-    ? 'zh-CN'
-    : 'en-US'
+  if (language !== 'auto') return language
+  for (const candidate of preferredLanguages) {
+    const normalized = candidate.toLocaleLowerCase()
+    if (
+      normalized.startsWith('zh-tw') ||
+      normalized.startsWith('zh-hant') ||
+      normalized.startsWith('zh-hk') ||
+      normalized.startsWith('zh-mo')
+    ) {
+      return 'zh-TW'
+    }
+    if (normalized.startsWith('zh')) return 'zh-CN'
+    if (normalized.startsWith('en')) return 'en-US'
+    if (normalized.startsWith('ja')) return 'ja-JP'
+    if (normalized.startsWith('vi')) return 'vi-VN'
+    if (normalized.startsWith('es')) return 'es-ES'
+    if (normalized.startsWith('de')) return 'de-DE'
+    if (normalized.startsWith('fr')) return 'fr-FR'
+    if (normalized.startsWith('pt')) return 'pt-BR'
+  }
+  return 'en-US'
 }
 
 let configuredLanguage: SystemLanguage = 'auto'
@@ -28,7 +52,14 @@ export const i18n = createI18n({
   fallbackLocale: 'en-US',
   messages: {
     'zh-CN': zhCN,
-    'en-US': enUS
+    'en-US': enUS,
+    'ja-JP': jaJP,
+    'vi-VN': viVN,
+    'zh-TW': zhTW,
+    'es-ES': esES,
+    'de-DE': deDE,
+    'fr-FR': frFR,
+    'pt-BR': ptBR
   }
 })
 

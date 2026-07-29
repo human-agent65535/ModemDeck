@@ -128,7 +128,10 @@ CREATE TABLE modemdeck_line_settings (
 CREATE TABLE modemdeck_system_settings (
 			singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
 			language TEXT NOT NULL DEFAULT 'auto'
-				CHECK (language IN ('auto', 'zh-CN', 'en-US')),
+				CHECK (language IN (
+					'auto', 'zh-CN', 'zh-TW', 'en-US', 'ja-JP',
+					'vi-VN', 'es-ES', 'de-DE', 'fr-FR', 'pt-BR'
+				)),
 			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);

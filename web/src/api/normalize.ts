@@ -389,7 +389,18 @@ export function parseBootstrap(value: unknown): BootstrapResponse {
   }
   const systemSettings = objectValue(source.system_settings, 'bootstrap.system_settings')
   const language = stringValue(systemSettings, 'language')
-  if (language !== 'auto' && language !== 'zh-CN' && language !== 'en-US') {
+  if (
+    language !== 'auto' &&
+    language !== 'zh-CN' &&
+    language !== 'zh-TW' &&
+    language !== 'en-US' &&
+    language !== 'ja-JP' &&
+    language !== 'vi-VN' &&
+    language !== 'es-ES' &&
+    language !== 'de-DE' &&
+    language !== 'fr-FR' &&
+    language !== 'pt-BR'
+  ) {
     throw new Error('bootstrap.system_settings.language is not supported')
   }
   const systemSettingsRevision = numberValue(systemSettings, 'revision')

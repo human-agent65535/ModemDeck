@@ -251,7 +251,18 @@ function parseSession(value: unknown): SessionResponse {
   }
 
   const language = source.language
-  if (language !== 'auto' && language !== 'zh-CN' && language !== 'en-US') {
+  if (
+    language !== 'auto' &&
+    language !== 'zh-CN' &&
+    language !== 'zh-TW' &&
+    language !== 'en-US' &&
+    language !== 'ja-JP' &&
+    language !== 'vi-VN' &&
+    language !== 'es-ES' &&
+    language !== 'de-DE' &&
+    language !== 'fr-FR' &&
+    language !== 'pt-BR'
+  ) {
     throw new ApiError('ModemDeck returned an unsupported system language', 0, 'invalid_response')
   }
   const session: SessionResponse = {

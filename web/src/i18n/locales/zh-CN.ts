@@ -31,8 +31,22 @@ export default {
     autoDescription: '根据当前浏览器的首选语言自动选择',
     zhCN: '简体中文',
     zhCNDescription: '始终使用简体中文',
+    zhTW: '繁體中文',
+    zhTWDescription: '始终使用繁体中文',
     enUS: 'English',
-    enUSDescription: 'Always use English'
+    enUSDescription: '始终使用英语',
+    jaJP: '日本語',
+    jaJPDescription: '始终使用日语',
+    viVN: 'Tiếng Việt',
+    viVNDescription: '始终使用越南语',
+    esES: 'Español',
+    esESDescription: '始终使用西班牙语',
+    deDE: 'Deutsch',
+    deDEDescription: '始终使用德语',
+    frFR: 'Français',
+    frFRDescription: '始终使用法语',
+    ptBR: 'Português (Brasil)',
+    ptBRDescription: '始终使用巴西葡萄牙语'
   },
   shell: {
     home: '首页',

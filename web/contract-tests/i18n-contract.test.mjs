@@ -7,8 +7,15 @@ import {
 } from '../src/api/contract.ts'
 import { createFixtureGateway } from '../src/api/fixture.ts'
 import { resolveSystemLanguage } from '../src/i18n/index.ts'
+import deDE from '../src/i18n/locales/de-DE.ts'
 import enUS from '../src/i18n/locales/en-US.ts'
+import esES from '../src/i18n/locales/es-ES.ts'
+import frFR from '../src/i18n/locales/fr-FR.ts'
+import jaJP from '../src/i18n/locales/ja-JP.ts'
+import ptBR from '../src/i18n/locales/pt-BR.ts'
+import viVN from '../src/i18n/locales/vi-VN.ts'
 import zhCN from '../src/i18n/locales/zh-CN.ts'
+import zhTW from '../src/i18n/locales/zh-TW.ts'
 
 const main = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8')
 const settingsView = await readFile(
@@ -39,8 +46,15 @@ async function vueFiles(root) {
   return files.flat()
 }
 
-test('Chinese and English catalogs contain the same message keys', () => {
+test('all locale catalogs contain the same message keys', () => {
   assert.deepEqual(leafKeys(zhCN).sort(), leafKeys(enUS).sort())
+  assert.deepEqual(leafKeys(zhTW).sort(), leafKeys(enUS).sort())
+  assert.deepEqual(leafKeys(jaJP).sort(), leafKeys(enUS).sort())
+  assert.deepEqual(leafKeys(viVN).sort(), leafKeys(enUS).sort())
+  assert.deepEqual(leafKeys(esES).sort(), leafKeys(enUS).sort())
+  assert.deepEqual(leafKeys(deDE).sort(), leafKeys(enUS).sort())
+  assert.deepEqual(leafKeys(frFR).sort(), leafKeys(enUS).sort())
+  assert.deepEqual(leafKeys(ptBR).sort(), leafKeys(enUS).sort())
 })
 
 test('English-capable Vue UI has no hard-coded Chinese interface copy', async () => {
@@ -56,14 +70,30 @@ test('English-capable Vue UI has no hard-coded Chinese interface copy', async ()
   }
 })
 
-test('automatic language follows Chinese browser preferences and otherwise uses English', () => {
+test('automatic language follows supported browser preferences and otherwise uses English', () => {
   assert.equal(resolveSystemLanguage('auto', ['zh-Hans-CN', 'en-US']), 'zh-CN')
-  assert.equal(resolveSystemLanguage('auto', ['ja-JP', 'en-US']), 'en-US')
+  assert.equal(resolveSystemLanguage('auto', ['zh-Hant-TW', 'en-US']), 'zh-TW')
+  assert.equal(resolveSystemLanguage('auto', ['zh-HK', 'en-US']), 'zh-TW')
+  assert.equal(resolveSystemLanguage('auto', ['ja-JP', 'en-US']), 'ja-JP')
+  assert.equal(resolveSystemLanguage('auto', ['vi-VN', 'en-US']), 'vi-VN')
+  assert.equal(resolveSystemLanguage('auto', ['es-MX', 'en-US']), 'es-ES')
+  assert.equal(resolveSystemLanguage('auto', ['de-AT', 'en-US']), 'de-DE')
+  assert.equal(resolveSystemLanguage('auto', ['fr-CA', 'en-US']), 'fr-FR')
+  assert.equal(resolveSystemLanguage('auto', ['pt-PT', 'en-US']), 'pt-BR')
+  assert.equal(resolveSystemLanguage('auto', ['en-US', 'ja-JP']), 'en-US')
+  assert.equal(resolveSystemLanguage('auto', ['it-IT']), 'en-US')
   assert.equal(resolveSystemLanguage('zh-CN', ['en-US']), 'zh-CN')
   assert.equal(resolveSystemLanguage('en-US', ['zh-CN']), 'en-US')
+  assert.equal(resolveSystemLanguage('ja-JP', ['zh-CN']), 'ja-JP')
+  assert.equal(resolveSystemLanguage('vi-VN', ['zh-CN']), 'vi-VN')
+  assert.equal(resolveSystemLanguage('zh-TW', ['en-US']), 'zh-TW')
+  assert.equal(resolveSystemLanguage('es-ES', ['en-US']), 'es-ES')
+  assert.equal(resolveSystemLanguage('de-DE', ['en-US']), 'de-DE')
+  assert.equal(resolveSystemLanguage('fr-FR', ['en-US']), 'fr-FR')
+  assert.equal(resolveSystemLanguage('pt-BR', ['en-US']), 'pt-BR')
 })
 
-test('system settings contract supports only auto, Simplified Chinese, and English', () => {
+test('system settings contract supports every available locale', () => {
   assert.deepEqual(
     createSystemSettingsPayload({
       language: 'auto',
@@ -72,6 +102,38 @@ test('system settings contract supports only auto, Simplified Chinese, and Engli
     {
       language: 'auto',
       expected_revision: 4
+    }
+  )
+  assert.deepEqual(
+    createSystemSettingsPayload({
+      language: 'ja-JP',
+      expected_revision: 6
+    }),
+    {
+      language: 'ja-JP',
+      expected_revision: 6
+    }
+  )
+  assert.deepEqual(
+    createSystemSettingsPayload({
+      language: 'pt-BR',
+      expected_revision: 8
+    }),
+    {
+      language: 'pt-BR',
+      expected_revision: 8
+    }
+  )
+  assert.deepEqual(
+    parseSystemSettingsResponse({
+      settings: {
+        language: 'vi-VN',
+        revision: 7
+      }
+    }),
+    {
+      language: 'vi-VN',
+      revision: 7
     }
   )
   assert.deepEqual(
@@ -89,7 +151,7 @@ test('system settings contract supports only auto, Simplified Chinese, and Engli
   assert.throws(
     () =>
       createSystemSettingsPayload({
-        language: 'ja-JP',
+        language: 'it-IT',
         expected_revision: 4
       }),
     /language is invalid/
@@ -126,7 +188,14 @@ test('settings makes system language a first-class section', () => {
   assert.match(settingsView, /<SystemSettingsForm \/>/)
   assert.match(systemForm, /value: 'auto'/)
   assert.match(systemForm, /value: 'zh-CN'/)
+  assert.match(systemForm, /value: 'zh-TW'/)
   assert.match(systemForm, /value: 'en-US'/)
+  assert.match(systemForm, /value: 'ja-JP'/)
+  assert.match(systemForm, /value: 'vi-VN'/)
+  assert.match(systemForm, /value: 'es-ES'/)
+  assert.match(systemForm, /value: 'de-DE'/)
+  assert.match(systemForm, /value: 'fr-FR'/)
+  assert.match(systemForm, /value: 'pt-BR'/)
   assert.match(systemForm, /setSystemLanguage\(language\)/)
   assert.match(systemForm, /expected_revision: settings\.value\.revision/)
 })

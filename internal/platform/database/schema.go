@@ -54,6 +54,9 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 	if err != nil {
 		return err
 	}
+	if err := migrateSystemSettingsLanguages(ctx, database, actual); err != nil {
+		return err
+	}
 	migratedContactPhoneIndex, err := migrateContactPhoneCanonicalIndex(
 		ctx,
 		database,
@@ -153,6 +156,75 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 		return nil
 	}
 	return migrateStableLineIdentity(ctx, database)
+}
+
+func migrateSystemSettingsLanguages(
+	ctx context.Context,
+	database *sql.DB,
+	actual schemaShape,
+) error {
+	if _, exists := actual.tables["modemdeck_system_settings"]; !exists {
+		return nil
+	}
+	var definition string
+	if err := database.QueryRowContext(
+		ctx,
+		`SELECT sql FROM sqlite_master
+		 WHERE type = 'table' AND name = 'modemdeck_system_settings'`,
+	).Scan(&definition); err != nil {
+		return fmt.Errorf("read system settings schema: %w", err)
+	}
+	supportedLanguages := []string{
+		"'zh-TW'",
+		"'ja-JP'",
+		"'vi-VN'",
+		"'es-ES'",
+		"'de-DE'",
+		"'fr-FR'",
+		"'pt-BR'",
+	}
+	current := true
+	for _, language := range supportedLanguages {
+		if !strings.Contains(definition, language) {
+			current = false
+			break
+		}
+	}
+	if current {
+		return nil
+	}
+	transaction, err := database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin system language migration: %w", err)
+	}
+	defer transaction.Rollback()
+	if _, err := transaction.ExecContext(
+		ctx,
+		`CREATE TABLE modemdeck_system_settings_new (
+			singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+			language TEXT NOT NULL DEFAULT 'auto'
+				CHECK (language IN (
+					'auto', 'zh-CN', 'zh-TW', 'en-US', 'ja-JP',
+					'vi-VN', 'es-ES', 'de-DE', 'fr-FR', 'pt-BR'
+				)),
+			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+		INSERT INTO modemdeck_system_settings_new (
+			singleton, language, revision, updated_at
+		)
+		SELECT singleton, language, revision, updated_at
+		FROM modemdeck_system_settings;
+		DROP TABLE modemdeck_system_settings;
+		ALTER TABLE modemdeck_system_settings_new
+		RENAME TO modemdeck_system_settings;`,
+	); err != nil {
+		return fmt.Errorf("migrate system settings languages: %w", err)
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit system language migration: %w", err)
+	}
+	return nil
 }
 
 func migrateContactPhoneCanonicalIndex(
@@ -593,7 +665,10 @@ func migrateLegacySchemaAdditions(
 			`CREATE TABLE modemdeck_system_settings (
 				singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
 				language TEXT NOT NULL DEFAULT 'auto'
-					CHECK (language IN ('auto', 'zh-CN', 'en-US')),
+					CHECK (language IN (
+						'auto', 'zh-CN', 'zh-TW', 'en-US', 'ja-JP',
+						'vi-VN', 'es-ES', 'de-DE', 'fr-FR', 'pt-BR'
+					)),
 				revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
 				updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 			);
