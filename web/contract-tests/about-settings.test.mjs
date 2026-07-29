@@ -6,7 +6,7 @@ import { gateway } from '../src/api/client.ts'
 
 const aboutResponse = {
   name: 'ModemDeck',
-  version: 'v1.0.0',
+  version: 'v1.6.0',
   commit: 'abc123',
   build_date: '2026-07-28T08:00:00Z',
   repository_url: 'https://github.com/human-agent65535/ModemDeck',
@@ -18,7 +18,7 @@ const aboutResponse = {
 
 const updateResponse = {
   status: 'unavailable',
-  current_version: 'v1.0.0',
+  current_version: 'v1.6.0',
   checked_at: '2026-07-28T08:01:00Z',
   error_code: 'github_no_release'
 }
@@ -85,8 +85,10 @@ test('about panel checks automatically without an update action and keeps legal 
   assert.match(panel, /about-status--checking/)
   assert.match(panel, /about\?\.notices_url \|\| noticesURL/)
   assert.doesNotMatch(panel, /about\.checkAgain|installUpdate|downloadUpdate/)
+  assert.doesNotMatch(panel, /about\.commit|about\.buildDate|compactCommit/)
+  assert.doesNotMatch(panel, /about\?\.commit|about\?\.build_date/)
   assert.match(panel, /about\.projectLicense/)
   assert.match(panel, /about\.thirdPartyNotices/)
   assert.match(notices, /Vue\.js, Vue Router, and Vue I18n/)
-  assert.equal(version.trim(), '1.0.0')
+  assert.equal(version.trim(), '1.6.0')
 })

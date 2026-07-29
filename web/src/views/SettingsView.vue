@@ -6,6 +6,7 @@ import {
   Activity,
   ArrowLeft,
   Circle,
+  ContactRound,
   House,
   Info,
   LoaderCircle,
@@ -19,6 +20,7 @@ import {
 } from '@lucide/vue'
 import AudioSettingsForm from '../components/AudioSettingsForm.vue'
 import AboutSettingsPanel from '../components/AboutSettingsPanel.vue'
+import ContactSyncSettings from '../components/ContactSyncSettings.vue'
 import StatePanel from '../components/StatePanel.vue'
 import DeviceConfigurationPanel from '../components/DeviceConfigurationPanel.vue'
 import DiagnosticsPanel from '../components/DiagnosticsPanel.vue'
@@ -39,6 +41,7 @@ import { isRegisteredNetwork } from '../utils/operatorNetwork'
 
 type SettingsSection =
   | 'system'
+  | 'contacts'
   | 'audio'
   | 'devices'
   | 'recording'
@@ -76,6 +79,12 @@ const sections = computed<Array<{
     label: t('settings.system'),
     description: t('settings.systemDescription'),
     icon: Languages
+  },
+  {
+    id: 'contacts',
+    label: t('settings.contactsSync'),
+    description: t('settings.contactsSyncDescription'),
+    icon: ContactRound
   },
   {
     id: 'audio',
@@ -243,6 +252,10 @@ onMounted(() => {
 
         <div v-if="selectedSection === 'system'" class="settings-content">
           <SystemSettingsForm />
+        </div>
+
+        <div v-else-if="selectedSection === 'contacts'" class="settings-content">
+          <ContactSyncSettings />
         </div>
 
         <div v-else-if="selectedSection === 'audio'" class="settings-content">

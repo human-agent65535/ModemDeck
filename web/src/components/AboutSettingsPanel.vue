@@ -64,10 +64,6 @@ function formatDate(value?: string): string {
   }).format(date)
 }
 
-function compactCommit(value?: string): string {
-  return !value || value === 'unknown' ? t('about.notAvailable') : value.slice(0, 12)
-}
-
 async function checkForUpdates(): Promise<void> {
   if (checking.value) return
   checking.value = true
@@ -123,14 +119,6 @@ onMounted(() => {
           <div>
             <dt>{{ t('about.version') }}</dt>
             <dd>{{ about?.version || t('about.notAvailable') }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('about.commit') }}</dt>
-            <dd><code>{{ compactCommit(about?.commit) }}</code></dd>
-          </div>
-          <div>
-            <dt>{{ t('about.buildDate') }}</dt>
-            <dd>{{ formatDate(about?.build_date) }}</dd>
           </div>
           <div>
             <dt>{{ t('about.sourceCode') }}</dt>

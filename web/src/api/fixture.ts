@@ -1116,7 +1116,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     async getAbout(): Promise<AboutInfo> {
       return {
         name: 'ModemDeck',
-        version: 'v1.0.0',
+        version: 'v1.6.0',
         commit: 'fixture',
         build_date: '2026-07-28T00:00:00Z',
         repository_url: 'https://github.com/human-agent65535/ModemDeck',
@@ -1130,7 +1130,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     async checkForUpdates(): Promise<UpdateCheck> {
       return {
         status: 'unavailable',
-        current_version: 'v1.0.0',
+        current_version: 'v1.6.0',
         checked_at: new Date().toISOString(),
         error_code: 'github_no_release'
       }
