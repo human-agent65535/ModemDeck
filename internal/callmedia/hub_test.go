@@ -46,6 +46,10 @@ func TestMediaHubStartsEndpointOnlyWhenConsumerStarts(t *testing.T) {
 	if got := endpoint.startCalls.Load(); got != 1 {
 		t.Fatalf("endpoint starts = %d, want 1", got)
 	}
+	silence := receive(t, endpoint.writes)
+	if !allBytes(silence, 0) {
+		t.Fatal("endpoint did not receive idle playback silence")
+	}
 
 	downlink := make([]byte, format.FrameBytes())
 	downlink[0] = 0x42
@@ -83,6 +87,28 @@ func TestMediaHubStartFailureIsTerminal(t *testing.T) {
 	}
 	if got := endpoint.closeCalls.Load(); got != 1 {
 		t.Fatalf("endpoint closes = %d, want 1", got)
+	}
+}
+
+func TestMediaHubKeepsPlayedFramesInOrderForBurstCapture(t *testing.T) {
+	format := testFormat(8000)
+	hub := &mediaHub{
+		format: format,
+		played: make(chan []byte, uplinkQueueCapacity),
+	}
+	first := make([]byte, format.FrameBytes())
+	first[0] = 0x11
+	second := make([]byte, format.FrameBytes())
+	second[0] = 0x22
+
+	hub.rememberPlayed(first)
+	hub.rememberPlayed(second)
+
+	if got := <-hub.played; got[0] != 0x11 {
+		t.Fatalf("first played frame starts with %#x", got[0])
+	}
+	if got := <-hub.played; got[0] != 0x22 {
+		t.Fatalf("second played frame starts with %#x", got[0])
 	}
 }
 
@@ -163,13 +189,15 @@ func TestMediaHubUplinkBackpressureFailsAllConsumers(t *testing.T) {
 		t.Fatal(err)
 	}
 	frame := make([]byte, format.FrameBytes())
-	for index := 0; index < uplinkQueueCapacity; index++ {
+	var overflow error
+	for index := 0; index < uplinkQueueCapacity*4; index++ {
 		if err := hub.WritePCM(context.Background(), frame); err != nil {
-			t.Fatalf("WritePCM(%d) error = %v", index, err)
+			overflow = err
+			break
 		}
 	}
-	if err := hub.WritePCM(context.Background(), frame); !errors.Is(err, ErrBackpressure) {
-		t.Fatalf("overflow WritePCM() error = %v, want ErrBackpressure", err)
+	if !errors.Is(overflow, ErrBackpressure) {
+		t.Fatalf("overflow WritePCM() error = %v, want ErrBackpressure", overflow)
 	}
 	if _, err := subscription.Next(context.Background()); !errors.Is(err, ErrBackpressure) {
 		t.Fatalf("subscription error = %v, want ErrBackpressure", err)

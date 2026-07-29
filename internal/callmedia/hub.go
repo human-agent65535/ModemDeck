@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 )
 
 const (
@@ -110,6 +111,7 @@ type mediaHub struct {
 
 	writeMu sync.Mutex
 	uplink  chan []byte
+	played  chan []byte
 
 	mu            sync.Mutex
 	nextID        uint64
@@ -144,6 +146,7 @@ func newMediaHub(parent context.Context, callID string, endpoint MediaEndpoint) 
 		ctx:           ctx,
 		cancel:        cancel,
 		uplink:        make(chan []byte, uplinkQueueCapacity),
+		played:        make(chan []byte, uplinkQueueCapacity),
 		subscriptions: make(map[uint64]*DuplexSubscription),
 		done:          make(chan struct{}),
 		startDone:     make(chan struct{}),
@@ -234,16 +237,11 @@ func (h *mediaHub) WritePCM(ctx context.Context, frame []byte) error {
 		}
 		return ErrEndpointUnavailable
 	}
-	if err := h.endpoint.WritePCM(ctx, owned); err != nil {
-		if h.ctx.Err() != nil || ctx.Err() != nil {
-			return ErrCanceled
-		}
-		h.initiate(fmt.Errorf("write PCM endpoint: %w", ErrEndpointIO))
-		return ErrEndpointIO
-	}
 	select {
 	case h.uplink <- owned:
 		return nil
+	case <-ctx.Done():
+		return ErrCanceled
 	default:
 		h.initiate(ErrBackpressure)
 		return ErrBackpressure
@@ -310,7 +308,63 @@ func (h *mediaHub) startAndCapture() {
 	h.started = true
 	close(h.startDone)
 	h.startMu.Unlock()
-	h.captureWorker()
+
+	var workers sync.WaitGroup
+	workers.Add(2)
+	go func() {
+		defer workers.Done()
+		h.playbackWorker()
+	}()
+	go func() {
+		defer workers.Done()
+		h.captureWorker()
+	}()
+	workers.Wait()
+}
+
+func (h *mediaHub) playbackWorker() {
+	frame := make([]byte, h.format.FrameBytes())
+	ticker := time.NewTicker(h.format.FrameDuration)
+	defer ticker.Stop()
+
+	for {
+		clear(frame)
+		select {
+		case pending := <-h.uplink:
+			copy(frame, pending)
+		default:
+		}
+		if err := h.endpoint.WritePCM(h.ctx, frame); err != nil {
+			if h.ctx.Err() != nil {
+				return
+			}
+			h.initiate(fmt.Errorf("write PCM endpoint: %w", ErrEndpointIO))
+			return
+		}
+		h.rememberPlayed(frame)
+		select {
+		case <-ticker.C:
+		case <-h.ctx.Done():
+			return
+		}
+	}
+}
+
+func (h *mediaHub) rememberPlayed(frame []byte) {
+	owned := append([]byte(nil), frame...)
+	select {
+	case h.played <- owned:
+		return
+	default:
+	}
+	select {
+	case <-h.played:
+	default:
+	}
+	select {
+	case h.played <- owned:
+	default:
+	}
 }
 
 func (h *mediaHub) captureWorker() {
@@ -327,7 +381,7 @@ func (h *mediaHub) captureWorker() {
 		sequence++
 		uplink := make([]byte, h.format.FrameBytes())
 		select {
-		case pending := <-h.uplink:
+		case pending := <-h.played:
 			copy(uplink, pending)
 		default:
 		}

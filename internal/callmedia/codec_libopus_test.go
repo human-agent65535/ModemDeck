@@ -105,7 +105,7 @@ func TestPionLoopbackCarriesProductionLibOpusPayloads(t *testing.T) {
 		t.Fatal(err)
 	}
 	browser.send(t, encoded, format.FrameDuration)
-	played := receive(t, endpoint.writes)
+	played := receiveNonSilentPCM(t, endpoint.writes)
 	if len(played) != format.FrameBytes() || allBytes(played, 0) {
 		t.Fatal("production browser-to-endpoint Opus decoded to invalid PCM")
 	}

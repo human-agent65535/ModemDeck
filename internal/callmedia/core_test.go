@@ -57,7 +57,7 @@ func TestPionLoopbackBridgesVariableOpusPacketsAndNativePCM(t *testing.T) {
 
 	browser.send(t, []byte{60, 0x5a}, 60*time.Millisecond)
 	for index := 0; index < 3; index++ {
-		frame := receive(t, opener.endpoint.writes)
+		frame := receiveNonSilentPCM(t, opener.endpoint.writes)
 		if len(frame) != format.FrameBytes() || !allBytes(frame, 0x5a) {
 			t.Fatalf("browser PCM frame %d is invalid", index)
 		}

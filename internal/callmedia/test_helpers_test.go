@@ -405,6 +405,22 @@ func receive[T any](t *testing.T, values <-chan T) T {
 	}
 }
 
+func receiveNonSilentPCM(t *testing.T, values <-chan []byte) []byte {
+	t.Helper()
+	timer := time.NewTimer(testTimeout)
+	defer timer.Stop()
+	for {
+		select {
+		case value := <-values:
+			if !allBytes(value, 0) {
+				return value
+			}
+		case <-timer.C:
+			t.Fatal("timed out waiting for non-silent PCM")
+		}
+	}
+}
+
 func testFormat(sampleRate int) PCMFormat {
 	return PCMFormat{
 		Encoding:      PCMEncodingS16LE,
