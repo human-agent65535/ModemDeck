@@ -346,6 +346,112 @@ func TestOpenMigratesCallAndRecordingFavoriteState(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesCommunicationStateFromPreviousRelease(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "previous-release.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousSchema := strings.Replace(
+		currentSchemaSQL,
+		"\n\t\t\t\tmarked_unread NUMERIC NOT NULL DEFAULT 0,",
+		"",
+		1,
+	)
+	previousSchema = strings.Replace(
+		previousSchema,
+		"\n\t\t\t\tis_favorite NUMERIC NOT NULL DEFAULT 0,",
+		"",
+		1,
+	)
+	previousSchema = strings.Replace(
+		previousSchema,
+		"\n\t\t\tread_at DATETIME,\n\t\t\tis_favorite NUMERIC NOT NULL DEFAULT 0,",
+		"\n\t\t\tread_at DATETIME,",
+		1,
+	)
+	previousSchema = strings.Replace(
+		previousSchema,
+		"\n\t\t\t\tlast_error_code TEXT NOT NULL DEFAULT '',\n\t\t\t\tis_favorite NUMERIC NOT NULL DEFAULT 0,",
+		"\n\t\t\t\tlast_error_code TEXT NOT NULL DEFAULT '',",
+		1,
+	)
+	if _, err := database.Exec(previousSchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(
+		`INSERT INTO sms_contacts (
+			line_id, imsi, iccid, peer, last_sms_id, last_timestamp, last_content,
+			last_type, unread_count
+		 ) VALUES (
+			'line-main', '', '', '+818012345678', 7, '2026-07-29 05:00:00',
+			'preserved', 1, 3
+		 );
+		 INSERT INTO call_history (
+			id, direction, remote_number, phase, created_at, ended_at
+		 ) VALUES (
+			'call-previous-release', 'incoming', '+818012345678', 'ended',
+			'2026-07-29 05:00:00', '2026-07-29 05:01:00'
+		 );
+		 INSERT INTO modemdeck_call_recording_state (call_id)
+		 VALUES ('call-previous-release')`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	var (
+		content           string
+		unreadCount       int
+		markedUnread      bool
+		messageFavorite   bool
+		callFavorite      bool
+		recordingFavorite bool
+	)
+	if err := database.QueryRow(
+		`SELECT thread.last_content, thread.unread_count,
+			thread.marked_unread, thread.is_favorite,
+			call.is_favorite, recording.is_favorite
+		 FROM sms_contacts thread
+		 JOIN call_history call ON call.id = 'call-previous-release'
+		 JOIN modemdeck_call_recording_state recording
+		   ON recording.call_id = call.id
+		 WHERE thread.line_id = 'line-main'
+		   AND thread.peer = '+818012345678'`,
+	).Scan(
+		&content,
+		&unreadCount,
+		&markedUnread,
+		&messageFavorite,
+		&callFavorite,
+		&recordingFavorite,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if content != "preserved" || unreadCount != 3 ||
+		markedUnread || messageFavorite || callFavorite || recordingFavorite {
+		t.Fatalf(
+			"migrated state = content %q unread %d marked %t favorites %t/%t/%t",
+			content,
+			unreadCount,
+			markedUnread,
+			messageFavorite,
+			callFavorite,
+			recordingFavorite,
+		)
+	}
+}
+
 func TestOpenRejectsOutdatedSchemaWithoutAlteringIt(t *testing.T) {
 	t.Parallel()
 

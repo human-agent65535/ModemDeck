@@ -131,7 +131,7 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 			return err
 		}
 	}
-	migratedMessageThreadState, err := migrateCurrentMessageThreadStateColumns(
+	migratedCommunicationState, err := migrateCurrentCommunicationStateColumns(
 		ctx,
 		database,
 		expected,
@@ -140,22 +140,7 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	if migratedMessageThreadState {
-		actual, err = readSchemaShape(ctx, database)
-		if err != nil {
-			return err
-		}
-	}
-	migratedCommunicationFavorites, err := migrateCurrentCommunicationFavoriteColumns(
-		ctx,
-		database,
-		expected,
-		actual,
-	)
-	if err != nil {
-		return err
-	}
-	if migratedCommunicationFavorites {
+	if migratedCommunicationState {
 		actual, err = readSchemaShape(ctx, database)
 		if err != nil {
 			return err
@@ -466,76 +451,34 @@ func migrateCurrentPhoneIdentityColumns(
 	return true, nil
 }
 
-func migrateCurrentMessageThreadStateColumns(
+func migrateCurrentCommunicationStateColumns(
 	ctx context.Context,
 	database *sql.DB,
 	expected schemaShape,
 	actual schemaShape,
 ) (bool, error) {
 	threadColumns, threadsExist := actual.tables["sms_contacts"]
-	if !threadsExist {
+	callColumns, callsExist := actual.tables["call_history"]
+	recordingStateColumns, recordingStateExists :=
+		actual.tables["modemdeck_call_recording_state"]
+	if !threadsExist || !callsExist || !recordingStateExists {
 		return false, nil
 	}
 	_, hasMarkedUnread := threadColumns["marked_unread"]
-	_, hasFavorite := threadColumns["is_favorite"]
-	if hasMarkedUnread && hasFavorite {
+	_, hasMessageFavorite := threadColumns["is_favorite"]
+	_, hasCallFavorite := callColumns["is_favorite"]
+	_, hasRecordingFavorite := recordingStateColumns["is_favorite"]
+	if hasMarkedUnread && hasMessageFavorite &&
+		hasCallFavorite && hasRecordingFavorite {
 		return false, nil
 	}
 	previous := expected
 	if !hasMarkedUnread {
 		previous = schemaWithoutColumn(previous, "sms_contacts", "marked_unread")
 	}
-	if !hasFavorite {
+	if !hasMessageFavorite {
 		previous = schemaWithoutColumn(previous, "sms_contacts", "is_favorite")
 	}
-	if !schemaContains(previous, actual) {
-		return false, nil
-	}
-	transaction, err := database.BeginTx(ctx, nil)
-	if err != nil {
-		return false, fmt.Errorf("begin message thread state migration: %w", err)
-	}
-	defer transaction.Rollback()
-	if !hasMarkedUnread {
-		if _, err := transaction.ExecContext(
-			ctx,
-			`ALTER TABLE sms_contacts
-			 ADD COLUMN marked_unread NUMERIC NOT NULL DEFAULT 0`,
-		); err != nil {
-			return false, fmt.Errorf("migrate manual message unread state: %w", err)
-		}
-	}
-	if !hasFavorite {
-		if _, err := transaction.ExecContext(
-			ctx,
-			`ALTER TABLE sms_contacts
-			 ADD COLUMN is_favorite NUMERIC NOT NULL DEFAULT 0`,
-		); err != nil {
-			return false, fmt.Errorf("migrate message thread favorite state: %w", err)
-		}
-	}
-	if err := transaction.Commit(); err != nil {
-		return false, fmt.Errorf("commit message thread state migration: %w", err)
-	}
-	return true, nil
-}
-
-func migrateCurrentCommunicationFavoriteColumns(
-	ctx context.Context,
-	database *sql.DB,
-	expected schemaShape,
-	actual schemaShape,
-) (bool, error) {
-	callColumns, callsExist := actual.tables["call_history"]
-	recordingStateColumns, recordingStateExists :=
-		actual.tables["modemdeck_call_recording_state"]
-	_, hasCallFavorite := callColumns["is_favorite"]
-	_, hasRecordingFavorite := recordingStateColumns["is_favorite"]
-	if !callsExist || !recordingStateExists ||
-		(hasCallFavorite && hasRecordingFavorite) {
-		return false, nil
-	}
-	previous := expected
 	if !hasCallFavorite {
 		previous = schemaWithoutColumn(previous, "call_history", "is_favorite")
 	}
@@ -551,9 +494,27 @@ func migrateCurrentCommunicationFavoriteColumns(
 	}
 	transaction, err := database.BeginTx(ctx, nil)
 	if err != nil {
-		return false, fmt.Errorf("begin communication favorite migration: %w", err)
+		return false, fmt.Errorf("begin communication state migration: %w", err)
 	}
 	defer transaction.Rollback()
+	if !hasMarkedUnread {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`ALTER TABLE sms_contacts
+			 ADD COLUMN marked_unread NUMERIC NOT NULL DEFAULT 0`,
+		); err != nil {
+			return false, fmt.Errorf("migrate manual message unread state: %w", err)
+		}
+	}
+	if !hasMessageFavorite {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`ALTER TABLE sms_contacts
+			 ADD COLUMN is_favorite NUMERIC NOT NULL DEFAULT 0`,
+		); err != nil {
+			return false, fmt.Errorf("migrate message thread favorite state: %w", err)
+		}
+	}
 	if !hasCallFavorite {
 		if _, err := transaction.ExecContext(
 			ctx,
@@ -573,7 +534,7 @@ func migrateCurrentCommunicationFavoriteColumns(
 		}
 	}
 	if err := transaction.Commit(); err != nil {
-		return false, fmt.Errorf("commit communication favorite migration: %w", err)
+		return false, fmt.Errorf("commit communication state migration: %w", err)
 	}
 	return true, nil
 }
