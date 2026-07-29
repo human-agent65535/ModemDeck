@@ -938,7 +938,7 @@ export default {
     "receiveCalls": "Anrufe entgegennehmen",
     "doNotDisturb": "Nicht stören",
     "defaultLineSaveFailed": "Die Standardzeile kann nicht gespeichert werden",
-    "lineLabelTooLong": "Die Zeilenbeschriftung darf 12 Zeichen nicht überschreiten",
+    "lineLabelTooLong": "Die Zeilenbeschriftung darf 16 Zeichen nicht überschreiten",
     "lineLabelSaveFailed": "Die Zeilenbeschriftung konnte nicht gespeichert werden",
     "enableFlightModeTitle": "Flugmodus aktivieren?",
     "enableFlightModeMessage": "Die Netzwerkregistrierung und die mobilen Daten werden gestoppt. Der Flugmodus kann während eines Anrufs nicht aktiviert werden.",

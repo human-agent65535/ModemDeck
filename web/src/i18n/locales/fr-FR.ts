@@ -938,7 +938,7 @@ export default {
     "receiveCalls": "Recevoir des appels",
     "doNotDisturb": "Ne pas déranger",
     "defaultLineSaveFailed": "Impossible d'enregistrer la ligne par défaut",
-    "lineLabelTooLong": "Le libellé de la ligne ne peut pas dépasser 12 caractères",
+    "lineLabelTooLong": "Le libellé de la ligne ne peut pas dépasser 16 caractères",
     "lineLabelSaveFailed": "Impossible d'enregistrer le libellé de la ligne",
     "enableFlightModeTitle": "Activer le mode avion ?",
     "enableFlightModeMessage": "L'enregistrement au réseau et les données mobiles s'arrêteront. Le mode avion ne peut pas être activé pendant un appel.",

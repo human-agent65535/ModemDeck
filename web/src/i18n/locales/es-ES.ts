@@ -938,7 +938,7 @@ export default {
     "receiveCalls": "Recibir llamadas",
     "doNotDisturb": "no molestar",
     "defaultLineSaveFailed": "No se puede guardar la línea predeterminada",
-    "lineLabelTooLong": "La etiqueta de línea no puede exceder los 12 caracteres",
+    "lineLabelTooLong": "La etiqueta de línea no puede exceder los 16 caracteres",
     "lineLabelSaveFailed": "No se puede guardar la etiqueta de línea",
     "enableFlightModeTitle": "¿Activar el modo avión?",
     "enableFlightModeMessage": "Se detendrá el registro de red y los datos móviles. El modo avión no se puede habilitar durante una llamada.",

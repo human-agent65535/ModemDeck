@@ -59,8 +59,8 @@ test('line label API uses stable line_id identity and a bounded payload', () => 
     }
   )
   assert.throws(
-    () => createLineLabelPayload({ line_label: '一二三四五六七八九十一二三' }),
-    /12/
+    () => createLineLabelPayload({ line_label: '一二三四五六七八九十一二三四五六七' }),
+    /16/
   )
   assert.throws(
     () => createLineLabelPayload({ line_label: '主卡', line_color: 'magenta' }),
@@ -123,7 +123,7 @@ test('fixture keeps module names separate from editable line labels', async () =
   assert.equal(cleared.line_label, '')
   assert.equal(cleared.line_color, 'orange')
   await assert.rejects(
-    () => gateway.updateLineLabel(main.id, { line_label: '一二三四五六七八九十一二三' }),
+    () => gateway.updateLineLabel(main.id, { line_label: '一二三四五六七八九十一二三四五六七' }),
     error => error?.status === 400 && error?.code === 'invalid_line_label'
   )
   await assert.rejects(
@@ -159,7 +159,16 @@ test('line names prefer the line label and otherwise use the module name', () =>
 })
 
 test('settings edit the stable line identity from preset colors', () => {
-  assert.match(devicePanelSource, /maxlength="12"/)
+  assert.match(devicePanelSource, /maxlength="16"/)
+  assert.match(
+    devicePanelSource,
+    /\.line-label-form__name > label\s*\{[^}]*width: min\(100%, 240px\)/s
+  )
+  assert.match(devicePanelSource, /class="line-label-form__name"/)
+  assert.match(
+    devicePanelSource,
+    /class="line-label-form__name"[\s\S]*?<LineTag[\s\S]*?class="line-label-form__controls"/
+  )
   assert.match(devicePanelSource, /const lineID = line \? lineKey\(line\) : ''/)
   assert.match(
     devicePanelSource,
@@ -177,7 +186,7 @@ test('settings edit the stable line identity from preset colors', () => {
   assert.match(devicePanelSource, /\.line-label-form__actions\s*\{[^}]*margin-left: auto/s)
   assert.match(
     devicePanelSource,
-    /\.line-label-form__actions > :deep\(\.line-tag\)\s*\{[^}]*height: 34px/s
+    /\.line-label-form__name > :deep\(\.line-tag\)\s*\{[^}]*height: 34px/s
   )
   assert.doesNotMatch(devicePanelSource, /repeat\(4, 30px\)/)
   assert.match(devicePanelSource, /t\('device\.suggested', \{ label: selectedLineFallback \}\)/)

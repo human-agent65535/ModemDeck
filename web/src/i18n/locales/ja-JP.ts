@@ -938,7 +938,7 @@ export default {
     "receiveCalls": "電話を受ける",
     "doNotDisturb": "邪魔しないでください",
     "defaultLineSaveFailed": "デフォルト行を保存できません",
-    "lineLabelTooLong": "行ラベルは 12 文字を超えることはできません",
+    "lineLabelTooLong": "行ラベルは 16 文字を超えることはできません",
     "lineLabelSaveFailed": "回線ラベルを保存できません",
     "enableFlightModeTitle": "機内モードをオンにしますか?",
     "enableFlightModeMessage": "ネットワーク登録とモバイルデータ通信が停止します。通話中に機内モードを有効にすることはできません。",

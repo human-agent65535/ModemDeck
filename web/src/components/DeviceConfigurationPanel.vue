@@ -917,7 +917,7 @@ async function saveLineLabel(): Promise<void> {
   const lineID = line ? lineKey(line) : ''
   if (!lineID || lineLabelPending.value || !lineIdentityDirty.value) return
   const value = lineLabelDraft.value.trim()
-  if (Array.from(value).length > 12) {
+  if (Array.from(value).length > 16) {
     lineLabelError.value = t('device.lineLabelTooLong')
     return
   }
@@ -1388,17 +1388,28 @@ onMounted(() => {
           <section class="configuration-section">
             <header><Tag :size="18" /><h4>{{ t('device.lineIdentity') }}</h4></header>
             <form class="line-label-form" @submit.prevent="saveLineLabel">
-              <label>
-                <span>{{ t('device.lineLabel') }}</span>
-                <input
-                  v-model="lineLabelDraft"
-                  maxlength="12"
-                  autocomplete="off"
-                  :placeholder="t('device.suggested', { label: selectedLineFallback })"
-                  :disabled="lineLabelPending || !selectedLine || !lineKey(selectedLine)"
-                  aria-describedby="line-label-status"
+              <div class="line-label-form__name">
+                <label>
+                  <span>{{ t('device.lineLabel') }}</span>
+                  <input
+                    v-model="lineLabelDraft"
+                    maxlength="16"
+                    autocomplete="off"
+                    :placeholder="t('device.suggested', { label: selectedLineFallback })"
+                    :disabled="lineLabelPending || !selectedLine || !lineKey(selectedLine)"
+                    aria-describedby="line-label-status"
+                  />
+                </label>
+                <LineTag
+                  v-if="selectedLine"
+                  :line="{
+                    ...selectedLine,
+                    line_label: lineLabelDraft.trim(),
+                    line_color: lineColorDraft
+                  }"
+                  :fallback="selectedLineFallback"
                 />
-              </label>
+              </div>
               <div class="line-label-form__controls">
                 <fieldset
                   class="line-color-picker"
@@ -1432,15 +1443,6 @@ onMounted(() => {
                   </div>
                 </fieldset>
                 <div class="line-label-form__actions">
-                  <LineTag
-                    v-if="selectedLine"
-                    :line="{
-                      ...selectedLine,
-                      line_label: lineLabelDraft.trim(),
-                      line_color: lineColorDraft
-                    }"
-                    :fallback="selectedLineFallback"
-                  />
                   <button
                     class="primary-action"
                     type="submit"
@@ -2593,19 +2595,28 @@ onMounted(() => {
   gap: 12px;
 }
 
-.line-label-form > label {
+.line-label-form__name {
+  display: flex;
+  min-width: 0;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.line-label-form__name > label {
   display: grid;
+  width: min(100%, 240px);
   gap: 5px;
 }
 
-.line-label-form > label > span,
+.line-label-form__name > label > span,
 .line-color-picker legend {
   color: var(--muted);
   font-size: 12px;
   font-weight: 650;
 }
 
-.line-label-form > label input {
+.line-label-form__name > label input {
   width: 100%;
   height: 36px;
   min-width: 0;
@@ -2699,8 +2710,9 @@ onMounted(() => {
   width: auto;
 }
 
-.line-label-form__actions > :deep(.line-tag) {
+.line-label-form__name > :deep(.line-tag) {
   height: 34px;
+  max-width: 160px;
   padding: 0 10px;
   font-size: 13px;
   line-height: 32px;

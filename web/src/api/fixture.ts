@@ -1567,8 +1567,8 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       const line = lines.find(item => fixtureLineKey(item) === normalizedLineID)
       if (!line) throw new ApiError('线路不存在', 404, 'line_not_found')
       const label = input.line_label.trim()
-      if (Array.from(label).length > 12) {
-        throw new ApiError('线路标签不能超过 12 个字符', 400, 'invalid_line_label')
+      if (Array.from(label).length > 16) {
+        throw new ApiError('线路标签不能超过 16 个字符', 400, 'invalid_line_label')
       }
       if (input.line_color !== undefined && !isLineColorPresetID(input.line_color)) {
         throw new ApiError('线路标签颜色无效', 400, 'invalid_line_color')

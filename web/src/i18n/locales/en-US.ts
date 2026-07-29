@@ -943,7 +943,7 @@ export default {
     receiveCalls: 'Receive calls',
     doNotDisturb: 'Do not disturb',
     defaultLineSaveFailed: 'Unable to save the default line',
-    lineLabelTooLong: 'Line label cannot exceed 12 characters',
+    lineLabelTooLong: 'Line label cannot exceed 16 characters',
     lineLabelSaveFailed: 'Unable to save the line label',
     enableFlightModeTitle: 'Turn on airplane mode?',
     enableFlightModeMessage:

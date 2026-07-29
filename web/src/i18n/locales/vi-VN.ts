@@ -938,7 +938,7 @@ export default {
     "receiveCalls": "Nhận cuộc gọi",
     "doNotDisturb": "Đừng làm phiền",
     "defaultLineSaveFailed": "Không thể lưu đường dây mặc định",
-    "lineLabelTooLong": "Nhãn đường dây không được vượt quá 12 ký tự",
+    "lineLabelTooLong": "Nhãn đường dây không được vượt quá 16 ký tự",
     "lineLabelSaveFailed": "Không thể lưu nhãn đường dây",
     "enableFlightModeTitle": "Bật chế độ trên máy bay?",
     "enableFlightModeMessage": "Đăng ký mạng và dữ liệu di động sẽ dừng lại. Không thể bật chế độ trên máy bay trong khi gọi.",

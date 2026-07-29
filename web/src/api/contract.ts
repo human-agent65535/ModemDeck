@@ -586,7 +586,7 @@ export function lineLabelPath(lineID: string): string {
 
 export function createLineLabelPayload(input: UpdateLineLabelInput): UpdateLineLabelInput {
   const lineLabel = input.line_label.trim()
-  if (Array.from(lineLabel).length > 12) throw new Error('线路标签不能超过 12 个字符')
+  if (Array.from(lineLabel).length > 16) throw new Error('线路标签不能超过 16 个字符')
   if (input.line_color !== undefined && !isLineColorPresetID(input.line_color)) {
     throw new Error('线路标签颜色不是受支持的预设')
   }
