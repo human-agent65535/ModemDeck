@@ -973,13 +973,17 @@ export type DiagnosticActiveCall = {
   audio_rate?: number
 }
 
+export type DiagnosticLineSummary = LineSummary & {
+  endpoint_id?: string
+}
+
 export type DiagnosticsSnapshot = {
   status: DiagnosticStatus
   observed_at: string
   database: DiagnosticAvailability
   host_agent: DiagnosticHostAgent
   call_runtime: DiagnosticAvailability
-  lines: LineSummary[]
+  lines: DiagnosticLineSummary[]
   active_calls: DiagnosticActiveCall[]
 }
 

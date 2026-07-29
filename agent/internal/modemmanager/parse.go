@@ -212,6 +212,10 @@ func ParseManagedObjects(objects ManagedObjects, ids *instanceIDs) ParsedObjects
 					if !found {
 						continue
 					}
+					pduType, known := uint32Property(messageProperties, "PduType")
+					if _, business := smsBusinessDirection(classifySMSPDU(pduType)); !known || !business {
+						continue
+					}
 					message := parseMessage(messagePath, line.ID, messageProperties, ids)
 					line.MessageIDs = append(line.MessageIDs, message.ID)
 					if _, duplicate := seenMessages[message.ID]; !duplicate {
@@ -482,14 +486,8 @@ func messageStateName(code uint32) string {
 }
 
 func messageDirectionName(pduType uint32) string {
-	switch pduType {
-	case 1, 3, 32:
-		return "incoming"
-	case 2, 33:
-		return "outgoing"
-	default:
-		return "unknown"
-	}
+	direction, _ := smsBusinessDirection(classifySMSPDU(pduType))
+	return direction
 }
 
 func stringProperty(properties Properties, name string) (string, bool) {

@@ -16,6 +16,10 @@ const devicePanelSource = readFileSync(
   new URL('../src/components/DeviceConfigurationPanel.vue', import.meta.url),
   'utf8'
 )
+const diagnosticsPanelSource = readFileSync(
+  new URL('../src/components/DiagnosticsPanel.vue', import.meta.url),
+  'utf8'
+)
 const deviceConfigurationStateSource = readFileSync(
   new URL('../src/state/deviceConfiguration.ts', import.meta.url),
   'utf8'
@@ -26,6 +30,14 @@ const incomingCallModeSource = readFileSync(
 )
 const moduleCardSource = readFileSync(
   new URL('../src/components/ModuleCard.vue', import.meta.url),
+  'utf8'
+)
+const sensitiveValueSource = readFileSync(
+  new URL('../src/components/SensitiveValue.vue', import.meta.url),
+  'utf8'
+)
+const privacySource = readFileSync(
+  new URL('../src/utils/privacy.ts', import.meta.url),
   'utf8'
 )
 
@@ -183,9 +195,9 @@ test('voice support is modeled once and exposed through an explicit manual reche
   assert.equal(parsed.hardware?.voice_verification?.media_routing, 'supported')
 })
 
-test('USB hard reset is an explicit confirmed recovery action', () => {
+test('USB hard reset is an explicit confirmed diagnostics recovery action', () => {
   const applyUSBResetBody = functionBody(
-    devicePanelSource,
+    diagnosticsPanelSource,
     'async function applyUSBReset'
   )
   const resetUSBDeviceBody = functionBody(
@@ -193,12 +205,38 @@ test('USB hard reset is an explicit confirmed recovery action', () => {
     'export async function resetUSBDevice'
   )
 
-  assert.match(devicePanelSource, /usbResetCapability\?\.supported/)
+  assert.match(diagnosticsPanelSource, /usbResetCapability\(line\)/)
   assert.match(applyUSBResetBody, /requestConfirmation/)
   assert.match(applyUSBResetBody, /tone:\s*['"]danger['"]/)
   assert.match(resetUSBDeviceBody, /operation:\s*['"]reset_usb['"]/)
   assert.match(resetUSBDeviceBody, /60_000/)
-  assert.doesNotMatch(devicePanelSource, /\/dev\/bus\/usb|\/sys\/devices/)
+  assert.doesNotMatch(devicePanelSource, /usbHardReset|resetUSBDevice|reset_usb/)
+  assert.doesNotMatch(diagnosticsPanelSource, /\/dev\/bus\/usb|\/sys\/devices/)
+})
+
+test('capability evidence lives in diagnostics, not the device configuration surface', () => {
+  assert.doesNotMatch(devicePanelSource, /class="capability-grid"|otherCapabilities/)
+  assert.match(diagnosticsPanelSource, /class="diagnostic-capability-grid"/)
+  assert.match(diagnosticsPanelSource, /capabilities\.voice/)
+  assert.match(diagnosticsPanelSource, /capabilities\.at_terminal/)
+  assert.match(diagnosticsPanelSource, /capabilityFlags\(item\.capability\)/)
+})
+
+test('device identifiers are masked consistently and automatically re-mask', () => {
+  assert.match(devicePanelSource, /SensitiveValue[\s\S]*label="IMEI"/)
+  assert.match(devicePanelSource, /SensitiveValue[\s\S]*label="ICCID"/)
+  assert.match(devicePanelSource, /SensitiveValue[\s\S]*label="IMSI"/)
+  assert.match(moduleCardSource, /SensitiveValue[\s\S]*:value="equipmentIdentifier"[\s\S]*label="IMEI"/)
+  assert.match(moduleCardSource, /SensitiveValue[\s\S]*:value="simIdentifier"[\s\S]*label="ICCID"/)
+  assert.match(moduleCardSource, /class="module-card__select-action"/)
+  assert.match(moduleCardSource, /class="module-card__sensitive"/)
+  assert.match(moduleCardSource, /<div[\s\S]*class="module-card__main"/)
+  assert.doesNotMatch(moduleCardSource, /<button\s+class="module-card__main"/)
+  assert.doesNotMatch(moduleCardSource, /:title="equipmentIdentifier"|:title="simIdentifier"/)
+  assert.match(privacySource, /return `••••\$\{Array\.from\(normalized\)\.slice\(-4\)\.join\(''\)\}`/)
+  assert.match(sensitiveValueSource, /remaskAfterMs:\s*30_000/)
+  assert.match(sensitiveValueSource, /diagnostics\.showIdentifier/)
+  assert.match(sensitiveValueSource, /diagnostics\.hideIdentifier/)
 })
 
 test('device details recover when a selected modem reappears after reset', () => {

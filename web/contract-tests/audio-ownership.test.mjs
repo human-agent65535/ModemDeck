@@ -7,9 +7,14 @@ const diagnosticsPanel = new URL('../src/components/DiagnosticsPanel.vue', impor
 
 test('module voice settings separate the user policy from an observed bearer', async () => {
   const source = await readFile(devicePanel, 'utf8')
+  const diagnosticsSource = await readFile(diagnosticsPanel, 'utf8')
 
-  assert.match(
+  assert.doesNotMatch(
     source,
+    /\{ id: 'voice', label: t\('diagnostics\.callControl'\), capability: capabilities\.voice \}/
+  )
+  assert.match(
+    diagnosticsSource,
     /\{ id: 'voice', label: t\('diagnostics\.callControl'\), capability: capabilities\.voice \}/
   )
   assert.doesNotMatch(source, /\{ id: 'voice', label: 'Voice'/)
@@ -74,20 +79,8 @@ test('browser audio is a global diagnostic with explicit microphone access state
   const source = await readFile(diagnosticsPanel, 'utf8')
 
   assert.match(source, /t\('diagnostics\.browserAudio'\)/)
-  assert.match(
-    source,
-    /\{ name: t\('diagnostics\.callControl'\), available: lineHasCallControl\(line\) \}/
-  )
-  assert.match(
-    source,
-    /\{ name: t\('diagnostics\.modemMediaRoute'\), available: line\.capabilities\?\.media === true \}/
-  )
-  assert.doesNotMatch(source, /\{ name: '语音通话'/)
-  assert.match(
-    source,
-    /\{ name: t\('diagnostics\.mediaBridge'\), available: capabilities\.media \}/
-  )
-  assert.doesNotMatch(source, /\{ name: '浏览器音频', available: capabilities\.media \}/)
+  assert.doesNotMatch(source, /function lineCapabilities/)
+  assert.doesNotMatch(source, /function agentCapabilities/)
   assert.doesNotMatch(source, /voice_interface/)
   assert.match(source, /refreshAudioDevices\(\)/)
   assert.match(source, /audioState\.microphoneAccessStatus === 'granted'/)

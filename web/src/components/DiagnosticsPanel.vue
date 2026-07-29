@@ -16,6 +16,7 @@ import {
   PhoneCall,
   Play,
   RadioTower,
+  RotateCw,
   Search,
   Server,
   Trash2,
@@ -32,14 +33,21 @@ import type {
   DiagnosticLogLevel,
   DiagnosticLogQuery,
   DiagnosticsSnapshot,
+  DeviceFeatureCapability,
+  DiagnosticLineSummary,
   LineSummary
 } from '../api/types'
 import { ApiError } from '../api/types'
 import { audioState, refreshAudioDevices } from '../state/audio'
-import { lineHasCallControl, lineLabel } from '../state/workspace'
+import { requestConfirmation } from '../state/confirmation'
+import {
+  deviceConfigurationResource,
+  loadDeviceConfiguration,
+  resetUSBDevice
+} from '../state/deviceConfiguration'
+import { lineLabel } from '../state/workspace'
 import {
   isRegisteredNetwork,
-  operatorFacts,
   registrationStateLabel
 } from '../utils/operatorNetwork'
 import StatePanel from './StatePanel.vue'
@@ -76,6 +84,7 @@ const autoFollow = ref(true)
 const downloading = ref(false)
 const logViewport = ref<HTMLElement | null>(null)
 const lastSeenID = ref(0)
+const selectedDiagnosticLineID = ref('')
 
 let closeLogStream: (() => void) | null = null
 let reconnectTimer: number | undefined
@@ -173,19 +182,56 @@ const knownComponents = computed(() =>
   )
 )
 
-function lineCapabilities(line: LineSummary) {
+const diagnosticLines = computed(() =>
+  (snapshot.value?.lines || []).filter(line => Boolean(line.id.trim()))
+)
+const diagnosticLineIDs = computed(() => diagnosticLines.value.map(line => line.id))
+const selectedDiagnosticLine = computed(() =>
+  diagnosticLines.value.find(line => line.id === selectedDiagnosticLineID.value)
+)
+const selectedDiagnosticResource = computed(() =>
+  selectedDiagnosticLineID.value
+    ? deviceConfigurationResource(selectedDiagnosticLineID.value)
+    : null
+)
+const selectedDiagnosticHardware = computed(
+  () => selectedDiagnosticResource.value?.data?.hardware
+)
+const diagnosticCapabilities = computed<
+  Array<{ id: string; label: string; capability: DeviceFeatureCapability }>
+>(() => {
+  const capabilities = selectedDiagnosticHardware.value?.capabilities
+  if (!capabilities) return []
   return [
-    { name: t('diagnostics.modemControl'), available: line.capabilities?.modem === true },
-    { name: t('diagnostics.callControl'), available: lineHasCallControl(line) },
-    { name: t('diagnostics.modemMediaRoute'), available: line.capabilities?.media === true },
-    { name: t('diagnostics.simCard'), available: line.capabilities?.sim === true },
-    { name: t('diagnostics.messages'), available: line.capabilities?.messaging === true }
+    { id: 'voice', label: t('diagnostics.callControl'), capability: capabilities.voice },
+    {
+      id: 'flight_mode',
+      label: t('device.flightMode'),
+      capability: capabilities.flight_mode
+    },
+    { id: 'vowifi', label: 'VoWiFi', capability: capabilities.vowifi },
+    { id: 'volte', label: 'VoLTE', capability: capabilities.volte },
+    { id: 'esim', label: 'eSIM', capability: capabilities.esim },
+    { id: 'ussd', label: 'USSD', capability: capabilities.ussd },
+    {
+      id: 'connection_profile',
+      label: t('device.connectionProfiles'),
+      capability: capabilities.connection_profile
+    },
+    { id: 'radio', label: t('device.radio'), capability: capabilities.radio },
+    {
+      id: 'data_connection',
+      label: t('device.mobileData'),
+      capability: capabilities.data_connection
+    },
+    { id: 'at_terminal', label: 'AT terminal', capability: capabilities.at_terminal },
+    {
+      id: 'usb_reset',
+      label: t('device.usbHardReset'),
+      capability: capabilities.usb_reset
+    }
   ]
-}
-
-function lineOperatorFacts(line: LineSummary) {
-  return operatorFacts(line, t('network.unrecognized'), key => t(key))
-}
+})
 
 function lineStateLabel(state?: string): string {
   switch (state?.toLowerCase()) {
@@ -263,22 +309,91 @@ function lineSignalLabel(line: LineSummary): string {
   return line.signal_quality === undefined ? t('diagnostics.notReported') : `${line.signal_quality}%`
 }
 
-function agentCapabilities() {
-  const capabilities = snapshot.value?.host_agent.capabilities
-  if (!capabilities) return []
+function lineRegistrationEvidence(line: DiagnosticLineSummary): string {
+  if (!line.registration_state_known) return t('lines.unknownState')
+  const state = line.registration_state || t('diagnostics.notReported')
+  return `${state} · #${line.registration_state_code}`
+}
+
+function lineRadioEvidence(line: DiagnosticLineSummary): string {
+  if (!line.radio_desired_enabled_known) return t('lines.unknownState')
+  return line.radio_desired_enabled ? t('device.enabled') : t('device.disabled')
+}
+
+function lineAccessMask(line: DiagnosticLineSummary): string {
+  if (line.access_technologies === undefined) return t('diagnostics.notReported')
+  return `0x${line.access_technologies.toString(16).toUpperCase()}`
+}
+
+function lineSignalEvidence(line: DiagnosticLineSummary): string {
+  const values = [lineSignalLabel(line)]
+  if (line.signal_snr !== undefined) values.push(`SNR ${line.signal_snr} dB`)
+  return values.join(' · ')
+}
+
+function capabilityStatus(capability: DeviceFeatureCapability): string {
+  if (capability.writable) return t('device.readWrite')
+  if (capability.readable) return t('device.readOnly')
+  if (capability.supported && capability.implemented) {
+    return t('device.temporarilyUnavailable')
+  }
+  if (capability.supported) return t('device.notImplemented')
+  return t('device.unsupported')
+}
+
+function capabilityFlags(capability: DeviceFeatureCapability): string {
   return [
-    { name: t('diagnostics.discovery'), available: capabilities.discovery },
-    { name: t('diagnostics.snapshot'), available: capabilities.snapshot },
-    { name: t('diagnostics.deviceConfiguration'), available: capabilities.device_configuration },
-    { name: t('diagnostics.simPin'), available: capabilities.sim_management },
-    { name: t('diagnostics.connectionProfiles'), available: capabilities.connection_profiles },
-    { name: t('diagnostics.networkStatus'), available: capabilities.network },
-    { name: t('diagnostics.proxy'), available: capabilities.proxy },
-    { name: 'USSD', available: capabilities.ussd },
-    { name: t('diagnostics.dial'), available: capabilities.dial },
-    { name: t('diagnostics.messages'), available: capabilities.send_message },
-    { name: t('diagnostics.mediaBridge'), available: capabilities.media }
-  ]
+    `supported=${capability.supported}`,
+    `implemented=${capability.implemented}`,
+    `readable=${capability.readable}`,
+    `writable=${capability.writable}`
+  ].join(' · ')
+}
+
+function recoveryResource(line: LineSummary) {
+  return deviceConfigurationResource(line.id)
+}
+
+function usbResetCapability(line: LineSummary): DeviceFeatureCapability | undefined {
+  return recoveryResource(line).data?.hardware?.capabilities.usb_reset
+}
+
+function recoveryPending(line: LineSummary): boolean {
+  const resource = recoveryResource(line)
+  return resource.status === 'loading' || resource.savingOperation === 'reset_usb'
+}
+
+function recoveryAvailable(line: LineSummary): boolean {
+  const capability = usbResetCapability(line)
+  return Boolean(capability?.supported && capability.implemented && capability.writable)
+}
+
+function recoveryDetail(line: LineSummary): string {
+  const resource = recoveryResource(line)
+  if (resource.error) return resource.error
+  if (resource.status === 'idle' || resource.status === 'loading') {
+    return t('common.loading')
+  }
+  const capability = usbResetCapability(line)
+  if (!capability?.supported) return capability?.reason || t('device.unsupported')
+  if (!capability.implemented) return capability.reason || t('device.notImplemented')
+  if (!capability.writable) {
+    return capability.reason || t('device.temporarilyUnavailable')
+  }
+  return t('device.usbResetDescription')
+}
+
+async function applyUSBReset(line: LineSummary): Promise<void> {
+  if (!recoveryAvailable(line) || recoveryPending(line)) return
+  const confirmed = await requestConfirmation({
+    title: t('device.usbResetTitle'),
+    message: t('device.usbResetMessage'),
+    confirmLabel: t('device.usbHardReset'),
+    tone: 'danger'
+  })
+  if (!confirmed) return
+  await resetUSBDevice(line.id)
+  await loadSnapshot()
 }
 
 function callLineLabel(call: DiagnosticActiveCall): string {
@@ -547,6 +662,19 @@ watch(autoFollow, enabled => {
   if (enabled) void scrollToLatest()
 })
 
+watch(
+  () => diagnosticLineIDs.value.join('\u0000'),
+  () => {
+    if (!diagnosticLineIDs.value.includes(selectedDiagnosticLineID.value)) {
+      selectedDiagnosticLineID.value = diagnosticLineIDs.value[0] || ''
+    }
+    for (const lineID of diagnosticLineIDs.value) {
+      void loadDeviceConfiguration(lineID)
+    }
+  },
+  { immediate: true }
+)
+
 onMounted(() => {
   void loadSnapshot()
   void loadLogs()
@@ -592,7 +720,6 @@ onBeforeUnmount(() => {
         <header class="section-heading">
           <div>
             <h3 id="diagnostics-title">{{ t('diagnostics.runtimeStatus') }}</h3>
-            <span>{{ formatTimestamp(snapshot.observed_at) }}</span>
           </div>
           <span class="overall-status" :class="`is-${snapshot.status}`">
             <Activity :size="15" />
@@ -604,6 +731,14 @@ onBeforeUnmount(() => {
           <AlertTriangle :size="15" />
           {{ snapshotError }}
         </p>
+
+        <div v-if="runtimeErrors.length" class="runtime-errors">
+          <p v-for="error in runtimeErrors" :key="error.scope">
+            <AlertTriangle :size="15" />
+            <strong>{{ error.scope }}</strong>
+            <span>{{ error.message }}</span>
+          </p>
+        </div>
 
         <div class="service-grid">
           <article class="service-status" :class="{ 'is-unavailable': !snapshot.database.available }">
@@ -706,106 +841,206 @@ onBeforeUnmount(() => {
             <dd>{{ snapshot.host_agent.revision || '—' }}</dd>
           </div>
         </dl>
-        <div class="agent-capabilities">
-          <span
-            v-for="capability in agentCapabilities()"
-            :key="capability.name"
-            class="capability-status"
-            :class="{ 'is-available': capability.available }"
-          >
-            <CheckCircle2 v-if="capability.available" :size="13" />
-            <XCircle v-else :size="13" />
-            {{ capability.name }}
-          </span>
-        </div>
-
-        <div v-if="runtimeErrors.length" class="runtime-errors">
-          <p v-for="error in runtimeErrors" :key="error.scope">
-            <AlertTriangle :size="15" />
-            <strong>{{ error.scope }}</strong>
-            <span>{{ error.message }}</span>
-          </p>
-        </div>
       </section>
 
       <section class="diagnostics-section">
         <header class="section-heading">
           <div>
-            <h3>{{ t('diagnostics.modemCapabilities') }}</h3>
+            <h3>{{ t('diagnostics.deviceEvidence') }}</h3>
             <span>{{ t('diagnostics.lineCount', { count: snapshot.lines.length }) }}</span>
           </div>
+          <select
+            v-if="diagnosticLines.length > 1"
+            v-model="selectedDiagnosticLineID"
+            class="diagnostic-line-select"
+            :aria-label="t('diagnostics.deviceEvidence')"
+          >
+            <option v-for="line in diagnosticLines" :key="line.id" :value="line.id">
+              {{ lineLabel(line) }}
+            </option>
+          </select>
         </header>
 
-        <div v-if="snapshot.lines.length" class="line-grid">
-          <article
-            v-for="line in snapshot.lines"
-            :key="line.id"
-            class="line-status"
-          >
-            <header>
-              <span class="line-status__icon"><RadioTower :size="18" /></span>
-              <span class="line-status__identity">
-                <strong>{{ lineLabel(line) }}</strong>
-                <small>{{ line.model || t('diagnostics.modelNotReported') }}</small>
-              </span>
-              <span
-                class="line-state"
-                :class="`is-${lineStateTone(line)}`"
-              >
-                {{ lineRegistrationLabel(line) }}
-              </span>
-            </header>
-            <dl class="line-facts">
-              <div v-for="fact in lineOperatorFacts(line)" :key="fact.id">
-                <dt>{{ fact.label }}</dt>
-                <dd>{{ fact.value }}</dd>
-              </div>
-              <div>
-                <dt>{{ t('diagnostics.networkStatus') }}</dt>
-                <dd>{{ lineRegistrationLabel(line) }}</dd>
-              </div>
-              <div>
-                <dt>{{ t('diagnostics.signalStrength') }}</dt>
-                <dd>{{ lineSignalLabel(line) }}</dd>
-              </div>
-              <div class="is-code">
-                <dt>SIM ICCID</dt>
-                <dd>{{ line.iccid || t('diagnostics.notReported') }}</dd>
-              </div>
-              <div class="is-code">
-                <dt>{{ t('diagnostics.modemIMEI') }}</dt>
-                <dd>{{ line.device_imei || t('diagnostics.notReported') }}</dd>
-              </div>
-              <div class="is-code">
-                <dt>{{ t('diagnostics.firmwareVersion') }}</dt>
-                <dd>{{ line.firmware || t('diagnostics.notReported') }}</dd>
-              </div>
-            </dl>
-            <div class="capability-row">
-              <span
-                v-for="capability in lineCapabilities(line)"
-                :key="capability.name"
-                class="capability-status"
-                :class="{ 'is-available': capability.available }"
-              >
-                <CheckCircle2 v-if="capability.available" :size="13" />
-                <XCircle v-else :size="13" />
-                {{ capability.name }}
-              </span>
+        <article v-if="selectedDiagnosticLine" class="line-evidence">
+          <header class="line-evidence__header">
+            <span class="line-evidence__icon"><RadioTower :size="18" /></span>
+            <span class="line-evidence__identity">
+              <strong>{{ lineLabel(selectedDiagnosticLine) }}</strong>
+              <small>{{ selectedDiagnosticLine.endpoint_id || selectedDiagnosticLine.id }}</small>
+            </span>
+            <span
+              class="line-state"
+              :class="`is-${lineStateTone(selectedDiagnosticLine)}`"
+            >
+              {{ lineRegistrationLabel(selectedDiagnosticLine) }}
+            </span>
+          </header>
+
+          <dl class="line-evidence__facts">
+            <div>
+              <dt>{{ t('diagnostics.lineID') }}</dt>
+              <dd><code>{{ selectedDiagnosticLine.id }}</code></dd>
             </div>
-          </article>
-        </div>
+            <div>
+              <dt>{{ t('diagnostics.endpointID') }}</dt>
+              <dd>
+                <code>
+                  {{
+                    selectedDiagnosticLine.endpoint_id ||
+                    t('diagnostics.notReported')
+                  }}
+                </code>
+              </dd>
+            </div>
+            <div>
+              <dt>{{ t('diagnostics.modemState') }}</dt>
+              <dd><code>{{ selectedDiagnosticLine.state || t('diagnostics.notReported') }}</code></dd>
+            </div>
+            <div>
+              <dt>{{ t('diagnostics.registrationEvidence') }}</dt>
+              <dd><code>{{ lineRegistrationEvidence(selectedDiagnosticLine) }}</code></dd>
+            </div>
+            <div>
+              <dt>{{ t('device.radio') }}</dt>
+              <dd>{{ lineRadioEvidence(selectedDiagnosticLine) }}</dd>
+            </div>
+            <div>
+              <dt>{{ t('device.accessTechnology') }}</dt>
+              <dd><code>{{ lineAccessMask(selectedDiagnosticLine) }}</code></dd>
+            </div>
+            <div>
+              <dt>{{ t('diagnostics.signalStrength') }}</dt>
+              <dd>{{ lineSignalEvidence(selectedDiagnosticLine) }}</dd>
+            </div>
+            <template v-if="selectedDiagnosticHardware">
+              <div>
+                <dt>{{ t('diagnostics.configurationRevision') }}</dt>
+                <dd><code>{{ selectedDiagnosticHardware.revision }}</code></dd>
+              </div>
+              <div>
+                <dt>{{ t('diagnostics.powerState') }}</dt>
+                <dd>
+                  <code>
+                    {{
+                      selectedDiagnosticHardware.radio.power_state ||
+                      t('diagnostics.notReported')
+                    }}
+                    · #{{ selectedDiagnosticHardware.radio.power_state_code }}
+                  </code>
+                </dd>
+              </div>
+              <div>
+                <dt>{{ t('diagnostics.networkRuntime') }}</dt>
+                <dd>
+                  {{
+                    selectedDiagnosticHardware.network_enabled
+                      ? t('device.enabled')
+                      : t('device.disabled')
+                  }}
+                </dd>
+              </div>
+              <div v-if="selectedDiagnosticHardware.voice_verification">
+                <dt>{{ t('diagnostics.usbCallControl') }}</dt>
+                <dd>
+                  <code>
+                    {{ selectedDiagnosticHardware.voice_verification.usb_configuration }}
+                  </code>
+                </dd>
+              </div>
+              <div v-if="selectedDiagnosticHardware.voice_verification">
+                <dt>{{ t('diagnostics.usbAudioRoute') }}</dt>
+                <dd>
+                  <code>
+                    {{ selectedDiagnosticHardware.voice_verification.media_routing }}
+                  </code>
+                </dd>
+              </div>
+            </template>
+          </dl>
+
+          <section class="capability-evidence">
+            <header>
+              <h4>{{ t('device.capabilities') }}</h4>
+              <small v-if="selectedDiagnosticResource?.status === 'loading'">
+                {{ t('common.loading') }}
+              </small>
+            </header>
+
+            <p
+              v-if="selectedDiagnosticResource?.error"
+              class="inline-error"
+              role="alert"
+            >
+              <AlertTriangle :size="15" />
+              {{ selectedDiagnosticResource.error }}
+            </p>
+            <div v-else-if="diagnosticCapabilities.length" class="diagnostic-capability-grid">
+              <article v-for="item in diagnosticCapabilities" :key="item.id">
+                <span class="diagnostic-capability__title">
+                  <CheckCircle2 v-if="item.capability.readable" :size="15" />
+                  <XCircle v-else :size="15" />
+                  {{ item.label }}
+                </span>
+                <strong>{{ capabilityStatus(item.capability) }}</strong>
+                <code>{{ item.capability.backend || 'backend=unknown' }}</code>
+                <small v-if="item.capability.reason">{{ item.capability.reason }}</small>
+                <code class="diagnostic-capability__flags">
+                  {{ capabilityFlags(item.capability) }}
+                </code>
+              </article>
+            </div>
+            <p v-else class="empty-row">{{ t('diagnostics.notReported') }}</p>
+          </section>
+        </article>
         <p v-else class="empty-row">{{ t('diagnostics.noLines') }}</p>
       </section>
 
       <section class="diagnostics-section">
         <header class="section-heading">
           <div>
+            <h3>{{ t('device.faultRecovery') }}</h3>
+            <span>{{ t('device.usbResetDescription') }}</span>
+          </div>
+        </header>
+
+        <div v-if="snapshot.lines.length" class="recovery-list">
+          <article
+            v-for="line in snapshot.lines"
+            :key="line.id"
+            class="recovery-action"
+          >
+            <span class="recovery-action__icon"><RotateCw :size="18" /></span>
+            <span class="recovery-action__identity">
+              <strong>{{ lineLabel(line) }}</strong>
+              <small>{{ recoveryDetail(line) }}</small>
+            </span>
+            <button
+              class="primary-action recovery-action__button"
+              type="button"
+              :disabled="recoveryPending(line) || !recoveryAvailable(line)"
+              @click="applyUSBReset(line)"
+            >
+              <LoaderCircle
+                v-if="recoveryPending(line)"
+                class="spin"
+                :size="16"
+              />
+              <RotateCw v-else :size="16" />
+              {{ t('device.usbHardReset') }}
+            </button>
+          </article>
+        </div>
+        <p v-else class="empty-row">{{ t('diagnostics.noLines') }}</p>
+      </section>
+
+      <section v-if="snapshot.active_calls.length" class="diagnostics-section">
+        <header class="section-heading">
+          <div>
             <h3>{{ t('diagnostics.currentCalls') }}</h3>
             <span>{{ t('diagnostics.callCount', { count: snapshot.active_calls.length }) }}</span>
           </div>
         </header>
-        <div v-if="snapshot.active_calls.length" class="active-call-list">
+        <div class="active-call-list">
           <article v-for="call in snapshot.active_calls" :key="call.id" class="active-call">
             <span class="active-call__icon"><PhoneCall :size="18" /></span>
             <span class="active-call__identity">
@@ -825,7 +1060,6 @@ onBeforeUnmount(() => {
             </span>
           </article>
         </div>
-        <p v-else class="empty-row">{{ t('diagnostics.noActiveCalls') }}</p>
       </section>
     </template>
 
@@ -1130,14 +1364,11 @@ onBeforeUnmount(() => {
 .runtime-errors {
   display: grid;
   gap: 7px;
-  padding-top: 12px;
-}
-
-.agent-capabilities {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding-top: 12px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--danger-soft);
+  border-left: 3px solid var(--danger);
+  border-radius: 5px;
 }
 
 .runtime-errors p,
@@ -1170,34 +1401,44 @@ onBeforeUnmount(() => {
   margin-top: 10px;
 }
 
-.line-grid {
+.recovery-list {
   display: grid;
-  grid-template-columns: repeat(
-    auto-fill,
-    minmax(min(100%, 320px), 420px)
-  );
-  gap: 12px;
-  justify-content: start;
-  padding-top: 14px;
+  border-bottom: 1px solid var(--border);
 }
 
-.line-status {
-  min-width: 0;
-  padding: 15px 16px;
-  background: var(--surface-subtle);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  border-radius: 6px;
+.diagnostic-line-select {
+  min-width: 150px;
+  max-width: 220px;
+  height: 34px;
+  padding: 0 30px 0 10px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 13px;
 }
 
-.line-status header {
-  display: flex;
+.line-evidence {
   min-width: 0;
+  padding: 13px 0 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.line-evidence__header {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
 }
 
-.line-status__icon {
+.recovery-action:last-child {
+  border-bottom: 0;
+}
+
+.line-evidence__icon,
+.recovery-action__icon {
   display: grid;
   width: 32px;
   height: 32px;
@@ -1208,7 +1449,8 @@ onBeforeUnmount(() => {
   border-radius: 50%;
 }
 
-.line-status__identity {
+.line-evidence__identity,
+.recovery-action__identity {
   display: flex;
   min-width: 0;
   flex: 1;
@@ -1216,21 +1458,29 @@ onBeforeUnmount(() => {
   gap: 2px;
 }
 
-.line-status__identity strong,
-.line-status__identity small {
+.line-evidence__identity strong,
+.line-evidence__identity small,
+.recovery-action__identity strong,
+.recovery-action__identity small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.line-status__identity strong {
-  font-size: 15px;
+.line-evidence__identity strong,
+.recovery-action__identity strong {
+  font-size: 13px;
 }
 
-.line-status__identity small,
+.line-evidence__identity small,
+.recovery-action__identity small,
 .line-state {
   color: var(--muted);
   font-size: 12px;
+}
+
+.recovery-action__identity small {
+  white-space: normal;
 }
 
 .line-state {
@@ -1261,32 +1511,32 @@ onBeforeUnmount(() => {
   border-color: #f0d2d6;
 }
 
-.line-facts {
+.line-evidence__facts {
   display: grid;
+  min-width: 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 14px 0 0;
+  margin: 13px 0 0 44px;
   border-top: 1px solid var(--border);
 }
 
-.line-facts > div {
+.line-evidence__facts > div {
   min-width: 0;
-  padding: 11px 10px 10px 0;
+  padding: 10px 12px 10px 0;
   border-bottom: 1px solid var(--border);
 }
 
-.line-facts > div:nth-child(even) {
-  padding-right: 0;
-  padding-left: 12px;
+.line-evidence__facts > div:nth-child(even) {
+  padding-left: 10px;
   border-left: 1px solid var(--border);
 }
 
-.line-facts dt {
+.line-evidence__facts dt {
   color: var(--muted);
   font-size: 12px;
   font-weight: 600;
 }
 
-.line-facts dd {
+.line-evidence__facts dd {
   margin: 4px 0 0;
   overflow-wrap: anywhere;
   color: var(--text);
@@ -1294,35 +1544,126 @@ onBeforeUnmount(() => {
   line-height: 1.35;
 }
 
-.line-facts > .is-code dd {
+.line-evidence__facts code,
+.capability-evidence code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
-.capability-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 12px;
-}
-
-.capability-status {
-  display: inline-flex;
-  min-height: 24px;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 7px;
-  color: var(--danger);
   font-size: 12px;
-  font-weight: 650;
-  background: var(--danger-soft);
-  border: 1px solid #f0d2d6;
-  border-radius: 5px;
+  overflow-wrap: anywhere;
 }
 
-.capability-status.is-available {
+.capability-evidence {
+  margin: 14px 0 0 44px;
+}
+
+.capability-evidence > header {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.capability-evidence h4 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.capability-evidence header small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.diagnostic-capability-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--border);
+}
+
+.diagnostic-capability-grid > article {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 4px;
+  padding: 10px 12px 11px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.diagnostic-capability-grid > article:nth-child(even) {
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+
+.diagnostic-capability__title {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.diagnostic-capability__title svg {
+  flex: 0 0 auto;
+}
+
+.diagnostic-capability-grid strong {
+  font-size: 13px;
+}
+
+.diagnostic-capability-grid small {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.diagnostic-capability-grid > article > code:not(.diagnostic-capability__flags) {
   color: var(--accent-strong);
-  background: var(--accent-soft);
-  border-color: #c8e5de;
+}
+
+.diagnostic-capability__flags {
+  color: var(--muted);
+  font-size: 10px !important;
+  line-height: 1.4;
+}
+
+.recovery-action {
+  display: grid;
+  min-width: 0;
+  min-height: 70px;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.recovery-action__icon {
+  color: #946200;
+  background: #fff5d8;
+}
+
+.recovery-action__button {
+  display: inline-flex;
+  min-width: 132px;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 13px;
+  color: #fff;
+  background: var(--danger);
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.recovery-action__button:hover:not(:disabled) {
+  filter: brightness(0.94);
+}
+
+.recovery-action__button:disabled {
+  color: var(--muted);
+  background: var(--surface-hover);
 }
 
 .active-call-list {
@@ -1616,13 +1957,34 @@ onBeforeUnmount(() => {
     grid-template-columns: 1fr;
   }
 
-  .line-facts {
+  .diagnostic-line-select {
+    width: 100%;
+    max-width: none;
+  }
+
+  .line-evidence__facts,
+  .diagnostic-capability-grid {
     grid-template-columns: 1fr;
   }
 
-  .line-facts > div:nth-child(even) {
+  .line-evidence__facts,
+  .capability-evidence {
+    margin-left: 0;
+  }
+
+  .line-evidence__facts > div:nth-child(even),
+  .diagnostic-capability-grid > article:nth-child(even) {
     padding-left: 0;
     border-left: 0;
+  }
+
+  .recovery-action {
+    grid-template-columns: 34px minmax(0, 1fr);
+  }
+
+  .recovery-action__button {
+    width: 100%;
+    grid-column: 2;
   }
 
   .active-call {

@@ -49,7 +49,6 @@ import {
   disconnectData,
   loadDeviceConfiguration,
   reprobeVoiceCapabilities,
-  resetUSBDevice,
   restartModem,
   selectDeviceConfiguration,
   setIncomingCallPolicy,
@@ -84,6 +83,7 @@ import { operatorFacts } from '../utils/operatorNetwork'
 import { LINE_TONE_PRESETS, lineTonePreset } from '../utils/lineTone'
 import LineTag from './LineTag.vue'
 import ModuleCard from './ModuleCard.vue'
+import SensitiveValue from './SensitiveValue.vue'
 import SignalBars from './SignalBars.vue'
 import StatePanel from './StatePanel.vue'
 
@@ -222,8 +222,6 @@ const apnPlaceholder = computed(() => automaticAPNLabel(hardware.value?.automati
 const incomingCalls = computed(() => configuration.value?.incoming_calls)
 const savingOperation = computed(() => selectedResource.value?.savingOperation || '')
 const hardwareBusy = computed(() => savingOperation.value !== '')
-const usbResetCapability = computed(() => hardware.value?.capabilities.usb_reset)
-const usbResetWritable = computed(() => Boolean(usbResetCapability.value?.writable))
 const connectedDataConnection = computed(() =>
   hardware.value?.data_connections.find(connection => connection.connected)
 )
@@ -462,25 +460,6 @@ const volteStatusDetail = computed(() => {
   if (!capability.writable) return capability.reason || t('device.readOnly')
   if (!volte.policy_known) return t('device.unreadableStatus')
   return ''
-})
-
-const otherCapabilities = computed(() => {
-  const capabilities = hardware.value?.capabilities
-  if (!capabilities) return []
-  return [
-    { id: 'voice', label: t('diagnostics.callControl'), capability: capabilities.voice },
-    { id: 'flight_mode', label: t('device.flightMode'), capability: capabilities.flight_mode },
-    { id: 'vowifi', label: 'VoWiFi', capability: capabilities.vowifi },
-    { id: 'volte', label: 'VoLTE', capability: capabilities.volte },
-    { id: 'esim', label: 'eSIM', capability: capabilities.esim },
-    { id: 'ussd', label: 'USSD', capability: capabilities.ussd },
-    {
-      id: 'connection_profile',
-      label: t('device.connectionProfiles'),
-      capability: capabilities.connection_profile
-    },
-    { id: 'usb_reset', label: t('device.usbHardReset'), capability: capabilities.usb_reset }
-  ]
 })
 
 function automaticAPNLabel(value?: string): string {
@@ -813,18 +792,6 @@ function capabilityStatus(capability: DeviceFeatureCapability, id = ''): string 
   return t('device.unsupported')
 }
 
-function capabilityDetail(capability: DeviceFeatureCapability, id = ''): string {
-  if (
-    id === 'volte' &&
-    hardware.value?.volte.policy_known === false &&
-    capability.supported &&
-    capability.implemented
-  ) {
-    return t('device.cannotReadNow')
-  }
-  return readOnlyReason(capability)
-}
-
 function policyLabel(policy: IncomingCallPolicy): string {
   if (policy === 'follow_global') return t('device.followGlobal')
   if (policy === 'receive') return t('device.receiveCalls')
@@ -1031,18 +998,6 @@ async function applyModemRestart(): Promise<void> {
   })
   if (!confirmed) return
   await restartModem(selectedLineID.value)
-}
-
-async function applyUSBReset(): Promise<void> {
-  if (!selectedLineID.value || !usbResetWritable.value) return
-  const confirmed = await requestConfirmation({
-    title: t('device.usbResetTitle'),
-    message: t('device.usbResetMessage'),
-    confirmLabel: t('device.usbHardReset'),
-    tone: 'danger'
-  })
-  if (!confirmed) return
-  await resetUSBDevice(selectedLineID.value)
 }
 
 async function applyIncomingPolicy(): Promise<void> {
@@ -1522,12 +1477,23 @@ onMounted(() => {
                 <dt>{{ t('device.accessTechnology') }}</dt>
                 <dd>{{ accessTechnologyLabel(hardware.details.access_technologies) }}</dd>
               </div>
-              <div><dt>IMEI</dt><dd>{{ hardware.identity.equipment_identifier || '—' }}</dd></div>
+              <div>
+                <dt>IMEI</dt>
+                <dd>
+                  <SensitiveValue
+                    :value="hardware.identity.equipment_identifier"
+                    label="IMEI"
+                  />
+                </dd>
+              </div>
               <div>
                 <dt>{{ t('lines.firmware') }}</dt>
                 <dd>{{ hardware.identity.firmware || '—' }}</dd>
               </div>
-              <div><dt>ICCID</dt><dd>{{ selectedLine?.iccid || '—' }}</dd></div>
+              <div>
+                <dt>ICCID</dt>
+                <dd><SensitiveValue :value="selectedLine?.iccid" label="ICCID" /></dd>
+              </div>
               <div>
                 <dt>{{ t('device.primaryPort') }}</dt>
                 <dd>{{ hardware.details.primary_port || selectedDevice?.port || '—' }}</dd>
@@ -1563,53 +1529,6 @@ onMounted(() => {
             </details>
           </section>
 
-          <section class="configuration-section">
-            <header><h4>{{ t('device.capabilities') }}</h4></header>
-            <div class="capability-grid">
-              <div v-for="item in otherCapabilities" :key="item.id">
-                <span>
-                  <CheckCircle2 v-if="item.capability.readable" :size="15" />
-                  <ShieldAlert v-else :size="15" />
-                  {{ item.label }}
-                </span>
-                <strong>{{ capabilityStatus(item.capability, item.id) }}</strong>
-                <small>{{ capabilityDetail(item.capability, item.id) }}</small>
-              </div>
-            </div>
-          </section>
-
-          <section
-            v-if="usbResetCapability?.supported && usbResetCapability.implemented"
-            class="configuration-section"
-          >
-            <header><Cable :size="18" /><h4>{{ t('device.faultRecovery') }}</h4></header>
-            <div class="usb-recovery">
-              <span>
-                <strong>{{ t('device.usbHardReset') }}</strong>
-                <small>
-                  {{
-                    usbResetCapability.writable
-                      ? t('device.usbResetDescription')
-                      : readOnlyReason(usbResetCapability)
-                  }}
-                </small>
-              </span>
-              <button
-                class="primary-action usb-reset-action"
-                type="button"
-                :disabled="hardwareBusy || !usbResetWritable"
-                @click="applyUSBReset"
-              >
-                <LoaderCircle
-                  v-if="savingOperation === 'reset_usb'"
-                  class="spin"
-                  :size="16"
-                />
-                <RotateCw v-else :size="16" />
-                {{ t('device.usbHardReset') }}
-              </button>
-            </div>
-          </section>
         </template>
 
         <template v-else-if="activeTab === 'network'">
@@ -1992,8 +1911,14 @@ onMounted(() => {
             <p v-else-if="simError" class="inline-error">{{ simError }}</p>
             <template v-else-if="simStatus">
               <dl class="configuration-facts">
-                <div><dt>ICCID</dt><dd>{{ simStatus.identifier || '—' }}</dd></div>
-                <div><dt>IMSI</dt><dd>{{ simStatus.imsi || '—' }}</dd></div>
+                <div>
+                  <dt>ICCID</dt>
+                  <dd><SensitiveValue :value="simStatus.identifier" label="ICCID" /></dd>
+                </div>
+                <div>
+                  <dt>IMSI</dt>
+                  <dd><SensitiveValue :value="simStatus.imsi" label="IMSI" /></dd>
+                </div>
                 <div v-if="simStatus.sim_type !== 'unknown'">
                   <dt>{{ t('device.simType') }}</dt>
                   <dd>{{ simTypeLabel(simStatus.sim_type) }}</dd>
@@ -2857,41 +2782,6 @@ onMounted(() => {
   font-size: 12px;
 }
 
-.capability-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  border-top: 1px solid var(--border);
-}
-
-.capability-grid > div {
-  display: grid;
-  min-width: 0;
-  min-height: 64px;
-  align-content: center;
-  gap: 3px;
-  padding: 10px 12px;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-}
-
-.capability-grid span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.capability-grid strong {
-  font-size: 13px;
-}
-
-.capability-grid small {
-  overflow-wrap: anywhere;
-  color: var(--muted);
-  font-size: 12px;
-}
-
 .configuration-toggle,
 .voice-status,
 .ussd-status {
@@ -2993,37 +2883,6 @@ onMounted(() => {
   padding-top: 12px;
   margin-top: 4px;
   border-top: 1px solid var(--border);
-}
-
-.usb-recovery {
-  display: flex;
-  width: 100%;
-  max-width: 720px;
-  min-height: 64px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px;
-  background: var(--surface-subtle);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-
-.usb-recovery > span {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.usb-recovery small {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.usb-reset-action {
-  flex: 0 0 auto;
-  background: #a13f35;
 }
 
 .restart-required > span {
@@ -3896,12 +3755,6 @@ pre {
   }
 
   .restart-required {
-    max-width: none;
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .usb-recovery {
     max-width: none;
     align-items: stretch;
     flex-direction: column;

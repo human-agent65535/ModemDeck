@@ -305,7 +305,18 @@ test('SIM and diagnostics HTTP decoders preserve serving and home operators', as
               capabilities: diagnosticAgentCapabilities
             },
             call_runtime: { available: true },
-            lines: [{ ...line, capabilities: diagnosticLineCapabilities }],
+            lines: [
+              {
+                ...line,
+                endpoint_id: 'line-endpoint-roaming',
+                hardware_revision: 'hw-2',
+                primary_port: 'cdc-wdm1',
+                ports: [{ name: 'cdc-wdm1', type: 'qmi', type_code: 6 }],
+                access_technologies: 1 << 14,
+                signal_snr: 7.5,
+                capabilities: diagnosticLineCapabilities
+              }
+            ],
             active_calls: []
           }
         : {
@@ -355,6 +366,14 @@ test('SIM and diagnostics HTTP decoders preserve serving and home operators', as
     assert.equal(diagnostics.lines[0]?.serving_operator_name, 'Aurora Mobile')
     assert.equal(diagnostics.lines[0]?.roaming, true)
     assert.equal(diagnostics.lines[0]?.emergency_only, false)
+    assert.equal(diagnostics.lines[0]?.endpoint_id, 'line-endpoint-roaming')
+    assert.equal(diagnostics.lines[0]?.hardware_revision, 'hw-2')
+    assert.equal(diagnostics.lines[0]?.primary_port, 'cdc-wdm1')
+    assert.deepEqual(diagnostics.lines[0]?.ports, [
+      { name: 'cdc-wdm1', type: 'qmi', type_code: 6 }
+    ])
+    assert.equal(diagnostics.lines[0]?.access_technologies, 1 << 14)
+    assert.equal(diagnostics.lines[0]?.signal_snr, 7.5)
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -389,7 +408,7 @@ test('fixture presents the travel line as roaming on every frontend surface', as
   }
 })
 
-test('device cards, settings, and diagnostics share the operator fact mapping', async () => {
+test('device cards and settings share the operator fact mapping while diagnostics keeps raw state', async () => {
   const [moduleCard, devicePanel, diagnosticsPanel] = await Promise.all([
     readFile(new URL('../src/components/ModuleCard.vue', import.meta.url), 'utf8'),
     readFile(
@@ -418,17 +437,13 @@ test('device cards, settings, and diagnostics share the operator fact mapping', 
   assert.doesNotMatch(devicePanel, /selectedLine\?\.operator/)
   assert.doesNotMatch(devicePanel, /simStatus\.operator_name/)
 
-  assert.match(diagnosticsPanel, /lineOperatorFacts\(line\)/)
-  assert.match(diagnosticsPanel, /lineRegistrationLabel\(line\)/)
-  assert.match(diagnosticsPanel, /lineStateTone\(line\)/)
+  assert.match(diagnosticsPanel, /function lineRegistrationLabel\(line/)
+  assert.match(diagnosticsPanel, /lineRegistrationLabel\(selectedDiagnosticLine\)/)
+  assert.match(diagnosticsPanel, /lineStateTone\(selectedDiagnosticLine\)/)
   assert.doesNotMatch(diagnosticsPanel, /lineStateTone\(line\.state\)/)
-  assert.match(
-    diagnosticsPanel,
-    /\.line-grid\s*\{[\s\S]*grid-template-columns:\s*repeat\([\s\S]*auto-fill,[\s\S]*minmax\(min\(100%, 320px\), 420px\)[\s\S]*justify-content:\s*start/
-  )
-  assert.doesNotMatch(
-    diagnosticsPanel,
-    /\.line-grid\s*\{[\s\S]*minmax\(min\(100%, 440px\), 1fr\)/
-  )
+  assert.match(diagnosticsPanel, /lineRegistrationEvidence\(selectedDiagnosticLine\)/)
+  assert.match(diagnosticsPanel, /registration_state_code/)
+  assert.doesNotMatch(diagnosticsPanel, /lineOperatorFacts|lineNetworkLabel/)
+  assert.doesNotMatch(diagnosticsPanel, /class="line-grid"|class="line-status"/)
   assert.doesNotMatch(diagnosticsPanel, /\{\{\s*line\.operator\s*\|\|/)
 })

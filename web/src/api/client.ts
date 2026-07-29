@@ -75,6 +75,7 @@ import {
   parseContacts,
   parseDeviceResponse,
   parseDevices,
+  parseLine,
   parseMessages,
   parseThreads
 } from './normalize'
@@ -100,6 +101,7 @@ import type {
   Device,
   DeviceConfiguration,
   DiagnosticActiveCall,
+  DiagnosticLineSummary,
   DiagnosticLogEntry,
   DiagnosticLogLevel,
   DiagnosticLogPage,
@@ -110,7 +112,6 @@ import type {
   GlobalCallSettings,
   IncomingMessageEvent,
   LineLabelResult,
-  LineSummary,
   LoginInput,
   Message,
   MessageEventStreamHandlers,
@@ -151,7 +152,7 @@ import type {
   USSDResponse,
   USSDStatus
 } from './types'
-import { ApiError, isLineColorPresetID } from './types'
+import { ApiError } from './types'
 import { createFixtureGateway } from './fixture'
 
 const API_ROOT = '/api/v1'
@@ -389,56 +390,12 @@ function parseDiagnosticCapabilities(value: unknown, path: string): Communicatio
   return result
 }
 
-function parseDiagnosticLine(value: unknown, index: number): LineSummary {
+function parseDiagnosticLine(value: unknown, index: number): DiagnosticLineSummary {
   const path = `diagnostics.lines[${index}]`
   const source = requiredRecord(value, path)
-  const id = requiredStringValue(source, path, 'id')
-  const iccid = stringValue(source, 'iccid')
-  const imsi = stringValue(source, 'imsi')
-  const deviceIMEI = stringValue(source, 'device_imei')
-  const rawSignal = source.signal_quality
-  const signalQuality =
-    typeof rawSignal === 'number' && Number.isFinite(rawSignal) ? rawSignal : undefined
-  const rawLineColor = stringValue(source, 'line_color')
   return {
-    id,
-    iccid,
-    imsi,
-    phone_number: stringValue(source, 'phone_number'),
-    operator: stringValue(source, 'operator'),
-    home_operator_code: stringValue(source, 'home_operator_code'),
-    home_operator_name: stringValue(source, 'home_operator_name'),
-    home_country_iso: stringValue(source, 'home_country_iso'),
-    serving_operator_code: stringValue(source, 'serving_operator_code'),
-    serving_operator_name: stringValue(source, 'serving_operator_name'),
-    serving_country_iso: stringValue(source, 'serving_country_iso'),
-    registration_state_known: requiredBooleanValue(
-      source,
-      path,
-      'registration_state_known'
-    ),
-    registration_state_code: numberValue(source, path, 'registration_state_code'),
-    registration_state: stringValue(source, 'registration_state'),
-    roaming: requiredBooleanValue(source, path, 'roaming'),
-    emergency_only: requiredBooleanValue(source, path, 'emergency_only'),
-    device_imei: deviceIMEI,
-    device_name: stringValue(source, 'device_name'),
-    line_label: stringValue(source, 'line_label'),
-    line_color: isLineColorPresetID(rawLineColor) ? rawLineColor : '',
-    model: stringValue(source, 'model') || undefined,
-    firmware: stringValue(source, 'firmware') || undefined,
-    state: stringValue(source, 'state') || undefined,
-    radio_desired_enabled: requiredBooleanValue(
-      source,
-      path,
-      'radio_desired_enabled'
-    ),
-    radio_desired_enabled_known: requiredBooleanValue(
-      source,
-      path,
-      'radio_desired_enabled_known'
-    ),
-    signal_quality: signalQuality,
+    ...parseLine(source),
+    endpoint_id: stringValue(source, 'endpoint_id') || undefined,
     capabilities: parseDiagnosticCapabilities(source.capabilities, `${path}.capabilities`)
   }
 }

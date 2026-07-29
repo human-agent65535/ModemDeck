@@ -22,6 +22,7 @@ import {
   operatorFacts,
   registrationStateLabel
 } from '../utils/operatorNetwork'
+import SensitiveValue from './SensitiveValue.vue'
 import SignalBars from './SignalBars.vue'
 import { trafficLineState } from './trafficLineState'
 
@@ -157,14 +158,18 @@ const lineBusy = computed(() => {
     class="module-card"
     :class="{ 'is-selected': selected }"
   >
-    <button
+    <div
       class="module-card__main"
-      type="button"
-      :aria-label="t('lines.configureModule', { label: lineLabel(line) })"
-      :aria-pressed="selected"
-      :disabled="!selectable"
-      @click="selectable && emit('select')"
+      :class="{ 'is-selectable': selectable }"
     >
+      <button
+        class="module-card__select-action"
+        type="button"
+        :aria-label="t('lines.configureModule', { label: lineLabel(line) })"
+        :aria-pressed="selected"
+        :disabled="!selectable"
+        @click="emit('select')"
+      />
       <header>
         <span class="module-card__icon"><RadioTower :size="19" /></span>
         <span class="module-card__identity">
@@ -222,11 +227,23 @@ const lineBusy = computed(() => {
         </div>
         <div class="is-code">
           <dt>IMEI</dt>
-          <dd :title="equipmentIdentifier">{{ equipmentIdentifier || '—' }}</dd>
+          <dd>
+            <SensitiveValue
+              class="module-card__sensitive"
+              :value="equipmentIdentifier"
+              label="IMEI"
+            />
+          </dd>
         </div>
         <div class="is-code">
           <dt>ICCID</dt>
-          <dd :title="simIdentifier">{{ simIdentifier || '—' }}</dd>
+          <dd>
+            <SensitiveValue
+              class="module-card__sensitive"
+              :value="simIdentifier"
+              label="ICCID"
+            />
+          </dd>
         </div>
         <div class="is-code">
           <dt>{{ t('lines.port') }}</dt>
@@ -241,7 +258,7 @@ const lineBusy = computed(() => {
         </div>
       </dl>
 
-    </button>
+    </div>
 
     <footer class="module-card__footer">
       <div class="module-card__capabilities" :aria-label="t('lines.moduleCapabilities')">
@@ -333,6 +350,7 @@ const lineBusy = computed(() => {
 }
 
 .module-card__main {
+  position: relative;
   display: grid;
   width: 100%;
   min-width: 0;
@@ -346,21 +364,38 @@ const lineBusy = computed(() => {
   cursor: pointer;
 }
 
-.module-card__main:hover {
+.module-card__main.is-selectable:hover {
   background: var(--surface-hover);
-}
-
-.module-card__main:disabled {
-  cursor: default;
-  opacity: 1;
-}
-
-.module-card__main:disabled:hover {
-  background: transparent;
 }
 
 .module-card.is-selected .module-card__main:hover {
   background: var(--surface-selected);
+}
+
+.module-card__select-action {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.module-card__select-action:disabled {
+  cursor: default;
+}
+
+.module-card__select-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+
+.module-card__sensitive {
+  position: relative;
+  z-index: 2;
 }
 
 .module-card header {

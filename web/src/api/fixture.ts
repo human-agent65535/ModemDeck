@@ -2063,7 +2063,14 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           }
         },
         call_runtime: { available: true },
-        lines: clone(lines),
+        lines: clone(
+          lines.map((line, index) => ({
+            ...line,
+            endpoint_id: `line_fixture_endpoint_${index + 1}`,
+            access_technologies: index === 0 ? 1 << 14 : 1 << 5,
+            signal_snr: index === 0 ? 8.5 : undefined
+          }))
+        ),
         active_calls:
           activeCall && activeCall.phase !== 'ended' && activeCall.phase !== 'failed'
             ? [
