@@ -471,29 +471,31 @@ onBeforeUnmount(() => {
           <header class="tool-header dialer-toolbar">
             <span class="dialer-toolbar__title">
               <h2>{{ showingCall ? t('shell.calls') : t('dialer.title') }}</h2>
+              <span class="dialer-status-slot">
+                <button
+                  v-if="!showingCall && activeCallPresent"
+                  class="dialer-active-calls dialer-active-calls--busy"
+                  type="button"
+                  :title="t('shell.returnToCall')"
+                  :aria-label="`${t('shell.returnToCall')} · ${activeCallLineCount}`"
+                  @click="showCallSurface"
+                >
+                  <Phone :size="15" />
+                  <span>{{ activeCallLineCount }}</span>
+                </button>
+                <span
+                  v-else-if="showingCall && activeCallLineCount > 0"
+                  class="dialer-active-calls dialer-active-calls--busy dialer-active-calls--static"
+                  :aria-label="`${activeCallLineCount} ${t('calls.lineInUse')}`"
+                >
+                  <Phone :size="15" />
+                  <span>{{ activeCallLineCount }}</span>
+                </span>
+              </span>
             </span>
             <span class="dialer-header-actions">
               <button
-                v-if="!showingCall && activeCallPresent"
-                class="dialer-active-calls dialer-active-calls--busy"
-                type="button"
-                :title="t('shell.returnToCall')"
-                :aria-label="`${t('shell.returnToCall')} · ${activeCallLineCount}`"
-                @click="showCallSurface"
-              >
-                <Phone :size="15" />
-                <span>{{ activeCallLineCount }}</span>
-              </button>
-              <span
-                v-else-if="showingCall && activeCallLineCount > 0"
-                class="dialer-active-calls dialer-active-calls--busy dialer-active-calls--static"
-                :aria-label="`${activeCallLineCount} ${t('calls.lineInUse')}`"
-              >
-                <Phone :size="15" />
-                <span>{{ activeCallLineCount }}</span>
-              </span>
-              <button
-                v-if="showingCall || !permanent"
+                v-if="!permanent"
                 class="icon-button"
                 type="button"
                 :title="showingCall ? t('calls.minimize') : t('common.close')"
@@ -702,11 +704,25 @@ onBeforeUnmount(() => {
   gap: 3px;
 }
 
-.dialer-toolbar__title {
-  display: inline-flex;
-  min-width: 0;
+.dialer-status-slot {
+  display: flex;
+  width: 52px;
   align-items: center;
-  gap: 8px;
+  justify-content: flex-start;
+}
+
+.dialer-toolbar__title {
+  display: grid;
+  width: 164px;
+  min-width: 0;
+  grid-template-columns: minmax(0, 112px) 52px;
+  align-items: center;
+}
+
+.dialer-toolbar__title h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dialer-active-calls {
