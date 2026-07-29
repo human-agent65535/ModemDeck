@@ -17,18 +17,18 @@ test('recording rows stay compact when wide and split by container width', async
   )
   assert.match(
     source,
-    /@container \(max-width: 720px\)[\s\S]*?\.recording-list__meta\s*\{[^}]*grid-column: 1 \/ 4;[^}]*grid-row: 1;/s
+    /@container \(max-width: 720px\)[\s\S]*?\.recording-list__meta\s*\{[^}]*grid-column: 1;[^}]*grid-row: 1;/s
   )
   assert.match(
     source,
-    /@container \(max-width: 720px\)[\s\S]*?\.recording-list audio\s*\{[^}]*grid-column: 1;[^}]*grid-row: 2;/s
+    /@container \(max-width: 720px\)[\s\S]*?\.recording-list audio\s*\{[^}]*grid-column: 1 \/ 4;[^}]*grid-row: 2;/s
   )
   assert.match(
     source,
-    /@container \(max-width: 720px\)[\s\S]*?\.recording-list a\s*\{[^}]*grid-column: 2;[^}]*grid-row: 2;/s
+    /@container \(max-width: 720px\)[\s\S]*?\.recording-list a\s*\{[^}]*grid-column: 2;[^}]*grid-row: 1;/s
   )
   assert.match(
     source,
-    /@container \(max-width: 720px\)[\s\S]*?\.recording-list__delete\s*\{[^}]*grid-column: 3;[^}]*grid-row: 2;/s
+    /@container \(max-width: 720px\)[\s\S]*?\.recording-list__delete\s*\{[^}]*grid-column: 3;[^}]*grid-row: 1;/s
   )
 })

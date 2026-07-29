@@ -310,28 +310,28 @@ watch(
   }
 
   .recording-list__meta {
-    grid-column: 1 / 4;
+    grid-column: 1;
     grid-row: 1;
   }
 
   .recording-list audio {
-    grid-column: 1;
+    grid-column: 1 / 4;
     grid-row: 2;
   }
 
   .recording-list__availability {
-    grid-column: 1;
+    grid-column: 1 / 4;
     grid-row: 2;
   }
 
   .recording-list a {
     grid-column: 2;
-    grid-row: 2;
+    grid-row: 1;
   }
 
   .recording-list__delete {
     grid-column: 3;
-    grid-row: 2;
+    grid-row: 1;
   }
 }
 </style>
