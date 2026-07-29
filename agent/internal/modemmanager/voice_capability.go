@@ -480,7 +480,7 @@ func projectQuectelUACCall(
 	if call == nil || call.StateCode != 4 || !result.media {
 		return
 	}
-	if strings.TrimSpace(call.AudioPort) != "" || call.AudioFormat != nil {
+	if call.MediaAvailable {
 		return
 	}
 	physicalDevice := normalizePhysicalDevice(line.PhysicalDevice)

@@ -323,7 +323,7 @@ func TestQuectelPCMActivationKeepsAuthoritativeModemManagerAudio(t *testing.T) {
 	}
 }
 
-func TestQuectelPCMActivationDoesNotReplaceIncompleteModemManagerAudio(t *testing.T) {
+func TestQuectelPCMActivationReplacesIncompleteModemManagerAudio(t *testing.T) {
 	t.Parallel()
 
 	objects := emptyLineObjects(true, false)
@@ -334,6 +334,9 @@ func TestQuectelPCMActivationDoesNotReplaceIncompleteModemManagerAudio(t *testin
 	callPath := testCallPath(74)
 	addCall(objects, callPath, 4)
 	objects[callPath][callInterface]["AudioPort"] = dbus.MakeVariant("reported-but-incomplete")
+	objects[callPath][callInterface]["AudioFormat"] = dbus.MakeVariant(
+		map[string]dbus.Variant{},
+	)
 
 	caller := newFakeCaller(objects)
 	caller.owner = true
@@ -348,10 +351,13 @@ func TestQuectelPCMActivationDoesNotReplaceIncompleteModemManagerAudio(t *testin
 		t.Fatalf("Snapshot() error = %v", err)
 	}
 	if len(snapshot.Calls) != 1 ||
-		snapshot.Calls[0].AudioPort != "reported-but-incomplete" ||
-		snapshot.Calls[0].AudioFormat != nil ||
-		snapshot.Calls[0].MediaAvailable {
-		t.Fatalf("incomplete media was replaced or advertised: %+v", snapshot.Calls)
+		snapshot.Calls[0].AudioPort != quectelUACPortPrefix+"/sys/devices/usb1/1-2" ||
+		snapshot.Calls[0].AudioFormat == nil ||
+		snapshot.Calls[0].AudioFormat.Encoding != "pcm" ||
+		snapshot.Calls[0].AudioFormat.Resolution != "s16le" ||
+		snapshot.Calls[0].AudioFormat.Rate != 8000 ||
+		!snapshot.Calls[0].MediaAvailable {
+		t.Fatalf("incomplete media was not replaced: %+v", snapshot.Calls)
 	}
 }
 
