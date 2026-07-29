@@ -174,7 +174,9 @@ func TestParseManagedObjectsMapsLineCallsAndMessages(t *testing.T) {
 		t.Fatalf("unexpected SIM mapping: %+v", line)
 	}
 	if line.HomeOperatorCode != "44051" || line.HomeOperatorName != "KDDI" ||
+		line.HomeCountryISO != "JP" ||
 		line.ServingOperatorCode != "44010" || line.ServingOperatorName != "NTT DOCOMO" ||
+		line.ServingCountryISO != "JP" ||
 		!line.RegistrationStateKnown || line.RegistrationStateCode != 5 ||
 		line.RegistrationState != "roaming" || !line.Roaming {
 		t.Fatalf("unexpected network registration mapping: %+v", line)
@@ -275,13 +277,16 @@ func TestParseManagedObjectsResolvesOnlyMissingOperatorNames(t *testing.T) {
 		name               string
 		operatorIdentifier string
 		operatorName       string
+		imsi               string
 		includeName        bool
 		want               string
+		wantCountry        string
 	}{
 		{
 			name:               "missing name uses embedded table",
 			operatorIdentifier: "46001",
 			want:               "China Unicom",
+			wantCountry:        "CN",
 		},
 		{
 			name:               "non-empty ModemManager name is preserved",
@@ -289,11 +294,17 @@ func TestParseManagedObjectsResolvesOnlyMissingOperatorNames(t *testing.T) {
 			operatorName:       "Carrier name from ModemManager",
 			includeName:        true,
 			want:               "Carrier name from ModemManager",
+			wantCountry:        "CN",
 		},
 		{
 			name:               "unknown PLMN stays empty for upper-layer fallback",
 			operatorIdentifier: "12345",
 			want:               "",
+		},
+		{
+			name:        "missing PLMN still resolves the SIM home country",
+			imsi:        "452041234567890",
+			wantCountry: "VN",
 		},
 	}
 
@@ -307,6 +318,9 @@ func TestParseManagedObjectsResolvesOnlyMissingOperatorNames(t *testing.T) {
 			simProperties := Properties{
 				"SimIdentifier":      dbus.MakeVariant("8986000000000000000"),
 				"OperatorIdentifier": dbus.MakeVariant(test.operatorIdentifier),
+			}
+			if test.imsi != "" {
+				simProperties["Imsi"] = dbus.MakeVariant(test.imsi)
 			}
 			if test.includeName {
 				simProperties["OperatorName"] = dbus.MakeVariant(test.operatorName)
@@ -331,15 +345,19 @@ func TestParseManagedObjectsResolvesOnlyMissingOperatorNames(t *testing.T) {
 			}
 			line := parsed.Lines[0]
 			if line.OperatorIdentifier != test.operatorIdentifier || line.OperatorName != test.want ||
-				line.HomeOperatorCode != test.operatorIdentifier || line.HomeOperatorName != test.want {
+				line.HomeOperatorCode != test.operatorIdentifier ||
+				line.HomeOperatorName != test.want ||
+				line.HomeCountryISO != test.wantCountry {
 				t.Fatalf(
-					"home operator = legacy(%q, %q) explicit(%q, %q), want (%q, %q)",
+					"home operator = legacy(%q, %q) explicit(%q, %q, %q), want (%q, %q, %q)",
 					line.OperatorIdentifier,
 					line.OperatorName,
 					line.HomeOperatorCode,
 					line.HomeOperatorName,
+					line.HomeCountryISO,
 					test.operatorIdentifier,
 					test.want,
+					test.wantCountry,
 				)
 			}
 		})
@@ -371,6 +389,7 @@ func TestParseManagedObjectsResolvesMissingServingOperatorName(t *testing.T) {
 	line := parsed.Lines[0]
 	if line.ServingOperatorCode != "46001" ||
 		line.ServingOperatorName != "China Unicom" ||
+		line.ServingCountryISO != "CN" ||
 		!line.RegistrationStateKnown ||
 		line.RegistrationState != "home" ||
 		line.Roaming {

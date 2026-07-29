@@ -11,13 +11,13 @@ func TestNormalizePhone(t *testing.T) {
 		wantErr bool
 	}{
 		{input: "+81 80-1234-5678", want: "+818012345678"},
-		{input: "0081 (80) 1234.5678", want: "+818012345678"},
+		{input: "0081 (80) 1234.5678", wantErr: true},
 		{input: "+1 (415) 555-0123", want: "+14155550123"},
 		{input: "08012345678", wantErr: true},
 		{input: "+0123456789", wantErr: true},
 		{input: "+123", wantErr: true},
 		{input: "+1234567890123456", wantErr: true},
-		{input: "+81/8012345678", wantErr: true},
+		{input: "+81/8012345678", want: "+818012345678"},
 		{input: "＋818012345678", wantErr: true},
 	}
 	for _, test := range tests {

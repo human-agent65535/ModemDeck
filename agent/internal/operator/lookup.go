@@ -19,26 +19,55 @@ const (
 var mccMNCData []byte
 
 type row struct {
-	MCC     string `json:"mcc"`
-	MNC     string `json:"mnc"`
-	Network string `json:"network"`
+	MCC         string `json:"mcc"`
+	MNC         string `json:"mnc"`
+	ISO         string `json:"iso"`
+	Country     string `json:"country"`
+	CountryCode string `json:"country_code"`
+	Network     string `json:"network"`
+}
+
+type Details struct {
+	Name               string
+	CountryISO         string
+	Country            string
+	CountryCallingCode string
 }
 
 type database struct {
 	rows   []row
-	byPLMN map[string]string
+	byPLMN map[string]Details
+	byMCC  map[string]Details
 }
 
 var operators = mustLoadDatabase(mccMNCData)
 
 // Name returns the source-provided network name for a five- or six-digit PLMN.
 func Name(plmn string) (string, bool) {
+	details, ok := Lookup(plmn)
+	return details.Name, ok && details.Name != ""
+}
+
+// Lookup returns the source-provided operator and home-country metadata for a
+// five- or six-digit PLMN.
+func Lookup(plmn string) (Details, bool) {
 	plmn, ok := normalizePLMN(plmn)
 	if !ok {
-		return "", false
+		return Details{}, false
 	}
-	name, ok := operators.byPLMN[plmn]
-	return name, ok
+	details, ok := operators.byPLMN[plmn]
+	return details, ok
+}
+
+// CountryForIMSI returns country metadata from the IMSI's MCC. It deliberately
+// does not infer an operator because the MNC length is not encoded separately.
+func CountryForIMSI(imsi string) (Details, bool) {
+	imsi = strings.TrimSpace(imsi)
+	if !isDecimalWithLength(imsi, 3, 32) {
+		return Details{}, false
+	}
+	details, ok := operators.byMCC[imsi[:3]]
+	return details, ok
 }
 
 func mustLoadDatabase(data []byte) database {
@@ -50,22 +79,45 @@ func mustLoadDatabase(data []byte) database {
 		panic("embedded MCC/MNC database is empty")
 	}
 
-	byPLMN := make(map[string]string, len(rows))
+	byPLMN := make(map[string]Details, len(rows))
+	byMCC := make(map[string]Details)
 	for _, row := range rows {
 		mcc := strings.TrimSpace(row.MCC)
 		mnc := strings.TrimSpace(row.MNC)
 		name := strings.TrimSpace(row.Network)
 		if !isDecimalWithLength(mcc, 3, 3) ||
-			!isDecimalWithLength(mnc, 2, 3) ||
-			name == "" {
+			!isDecimalWithLength(mnc, 2, 3) {
 			continue
 		}
 		plmn := mcc + mnc
-		if _, exists := byPLMN[plmn]; !exists {
-			byPLMN[plmn] = name
+		details := byPLMN[plmn]
+		if details.Name == "" {
+			details.Name = name
 		}
+		if details.CountryISO == "" {
+			details.CountryISO = strings.ToUpper(strings.TrimSpace(row.ISO))
+		}
+		if details.Country == "" {
+			details.Country = strings.TrimSpace(row.Country)
+		}
+		if details.CountryCallingCode == "" {
+			details.CountryCallingCode = strings.TrimSpace(row.CountryCode)
+		}
+		byPLMN[plmn] = details
+
+		country := byMCC[mcc]
+		if country.CountryISO == "" {
+			country.CountryISO = details.CountryISO
+		}
+		if country.Country == "" {
+			country.Country = details.Country
+		}
+		if country.CountryCallingCode == "" {
+			country.CountryCallingCode = details.CountryCallingCode
+		}
+		byMCC[mcc] = country
 	}
-	return database{rows: rows, byPLMN: byPLMN}
+	return database{rows: rows, byPLMN: byPLMN, byMCC: byMCC}
 }
 
 func normalizePLMN(raw string) (string, bool) {

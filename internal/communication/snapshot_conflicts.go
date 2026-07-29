@@ -130,7 +130,10 @@ func subscriptionAttachmentIdentities(line agentclient.Line) []string {
 		identities = append(identities, "imsi:"+imsi)
 	}
 	if len(line.OwnNumbers) > 0 {
-		if number := phone.NormalizeNetworkNumber(strings.TrimSpace(line.OwnNumbers[0])); number != "" {
+		if number := phone.CanonicalNetworkAddress(
+			strings.TrimSpace(line.OwnNumbers[0]),
+			line.HomeCountryISO,
+		); number != "" {
 			identities = append(identities, "phone:"+number)
 		}
 	}
@@ -161,8 +164,10 @@ func quarantineSubscription(line agentclient.Line) agentclient.Line {
 	line.IMSI = ""
 	line.HomeOperatorCode = ""
 	line.HomeOperatorName = ""
+	line.HomeCountryISO = ""
 	line.ServingOperatorCode = ""
 	line.ServingOperatorName = ""
+	line.ServingCountryISO = ""
 	line.RegistrationStateKnown = false
 	line.RegistrationStateCode = 0
 	line.RegistrationState = ""

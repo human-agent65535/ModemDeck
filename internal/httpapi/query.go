@@ -35,6 +35,7 @@ type contactPhoneInputRequest struct {
 	ID      string `json:"id"`
 	Label   string `json:"label"`
 	Number  string `json:"number"`
+	Region  string `json:"region"`
 	Primary bool   `json:"primary"`
 }
 
@@ -49,6 +50,7 @@ func decodeContactInput(response http.ResponseWriter, request *http.Request) (st
 			ID:      body.Phones[index].ID,
 			Label:   body.Phones[index].Label,
 			Number:  body.Phones[index].Number,
+			Region:  body.Phones[index].Region,
 			Primary: body.Phones[index].Primary,
 		}
 	}

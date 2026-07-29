@@ -460,6 +460,47 @@ func TestRecordingEntriesAreBoundedSearchableAndStable(t *testing.T) {
 	if len(entries) != 1 || entries[0].Segment.ID != "segment-a" {
 		t.Fatalf("searched entries = %+v", entries)
 	}
+
+	if _, err := repository.database.ExecContext(
+		ctx,
+		`INSERT INTO contacts (id, display_name) VALUES ('contact-a', 'Aiko');
+		 INSERT INTO contact_phones (
+			id, contact_id, label, original_number, canonical_e164, region, is_primary
+		 ) VALUES (
+			'phone-a', 'contact-a', 'mobile', '080-0000-0001', '+818000000001', 'JP', 1
+		 )`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	entries, err = repository.RecordingEntries(
+		ctx,
+		RecordingQuery{Search: "Aiko", Limit: MaxQueryLimit},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Segment.ID != "segment-a" {
+		t.Fatalf("canonical contact search = %+v", entries)
+	}
+
+	if _, err := repository.database.ExecContext(
+		ctx,
+		"UPDATE call_history SET remote_number = ? WHERE id = ?",
+		"080-0000-0001",
+		"call-a",
+	); err != nil {
+		t.Fatal(err)
+	}
+	entries, err = repository.RecordingEntries(
+		ctx,
+		RecordingQuery{Search: "Aiko", Limit: MaxQueryLimit},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("raw display number matched a contact: %+v", entries)
+	}
 }
 
 func TestRecordingPathValidationRejectsTraversal(t *testing.T) {

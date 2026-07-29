@@ -34,6 +34,7 @@ CREATE TABLE contact_phones (
 			label TEXT NOT NULL DEFAULT '',
 			original_number TEXT NOT NULL DEFAULT '',
 			canonical_e164 TEXT NOT NULL DEFAULT '',
+			region TEXT NOT NULL DEFAULT '',
 			is_primary NUMERIC NOT NULL DEFAULT 0,
 			FOREIGN KEY (contact_id) REFERENCES contacts(id) ON DELETE CASCADE ON UPDATE CASCADE
 		);
@@ -47,10 +48,11 @@ CREATE TABLE sms (
 				imsi TEXT NOT NULL DEFAULT '',
 				iccid TEXT NOT NULL DEFAULT '',
 				peer TEXT NOT NULL DEFAULT '',
-			local_phone TEXT NOT NULL DEFAULT '',
-			sender TEXT NOT NULL DEFAULT '',
-			recipient TEXT NOT NULL DEFAULT '',
-			content TEXT NOT NULL DEFAULT '',
+				reported_peer TEXT NOT NULL DEFAULT '',
+				local_phone TEXT NOT NULL DEFAULT '',
+				sender TEXT NOT NULL DEFAULT '',
+				recipient TEXT NOT NULL DEFAULT '',
+				content TEXT NOT NULL DEFAULT '',
 				type INTEGER NOT NULL DEFAULT 0,
 				status INTEGER NOT NULL DEFAULT 0,
 				state TEXT NOT NULL DEFAULT '',
@@ -203,6 +205,7 @@ CREATE TABLE modemdeck_call_recordings (
 CREATE TABLE modemdeck_lines (
 			line_id TEXT PRIMARY KEY,
 			phone_number TEXT NOT NULL DEFAULT '',
+			home_country_iso TEXT NOT NULL DEFAULT '',
 			line_label TEXT NOT NULL DEFAULT '',
 			line_color TEXT NOT NULL DEFAULT ''
 				CHECK (line_color IN (
@@ -268,6 +271,8 @@ CREATE TABLE sim_subscriptions (
 			modem_phone_number TEXT NOT NULL DEFAULT '',
 			vowifi_phone_number TEXT NOT NULL DEFAULT '',
 			operator TEXT NOT NULL DEFAULT '',
+			home_operator_code TEXT NOT NULL DEFAULT '',
+			home_country_iso TEXT NOT NULL DEFAULT '',
 			last_seen DATETIME,
 			created_at DATETIME,
 			updated_at DATETIME,
@@ -428,7 +433,7 @@ CREATE INDEX idx_contacts_preferred_line ON contacts(preferred_line_id);
 
 CREATE INDEX idx_contact_phones_contact_id ON contact_phones(contact_id);
 
-CREATE UNIQUE INDEX ux_contact_phones_canonical_e164 ON contact_phones(canonical_e164);
+CREATE INDEX idx_contact_phones_canonical_e164 ON contact_phones(canonical_e164);
 
 CREATE UNIQUE INDEX ux_contact_phones_primary_per_contact ON contact_phones(contact_id) WHERE is_primary = 1;
 

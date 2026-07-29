@@ -75,6 +75,58 @@ func TestMessagesChronologicalReturnsLatestWindowOldestFirst(t *testing.T) {
 	}
 }
 
+func TestMessageThreadsAssociateContactsOnlyByUnambiguousCanonicalNumber(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	ctx := context.Background()
+	if _, err := repository.database.ExecContext(
+		ctx,
+		`INSERT INTO contacts (id, display_name) VALUES
+			('contact-unique', 'Unique'),
+			('contact-shared-a', 'Shared A'),
+			('contact-shared-b', 'Shared B');
+		 INSERT INTO contact_phones (
+			id, contact_id, original_number, canonical_e164, region, is_primary
+		 ) VALUES
+			('phone-unique', 'contact-unique', '09011112222', '+819011112222', 'JP', 1),
+			('phone-shared-a', 'contact-shared-a', '09033334444', '+819033334444', 'JP', 1),
+			('phone-shared-b', 'contact-shared-b', '09033334444', '+819033334444', 'JP', 1);
+		 INSERT INTO sms_contacts (
+			line_id, imsi, iccid, peer, last_sms_id, last_timestamp, last_content, last_type
+		 ) VALUES
+			('line-main', '', '', '09011112222', 1, '2026-07-29 01:00:00', 'raw', 1),
+			('line-main', '', '', '+819011112222', 2, '2026-07-29 01:01:00', 'unique', 1),
+			('line-main', '', '', '+819033334444', 3, '2026-07-29 01:02:00', 'ambiguous', 1);`,
+	); err != nil {
+		t.Fatalf("seed contact identity threads: %v", err)
+	}
+
+	threads, err := repository.MessageThreads(ctx, ThreadQuery{})
+	if err != nil {
+		t.Fatalf("MessageThreads() error = %v", err)
+	}
+	byPeer := make(map[string]MessageThread, len(threads))
+	for _, thread := range threads {
+		byPeer[thread.Peer] = thread
+	}
+	if byPeer["09011112222"].ContactID != "" ||
+		byPeer["09011112222"].ContactName != "" {
+		t.Fatalf("raw local thread matched a contact: %+v", byPeer["09011112222"])
+	}
+	if byPeer["+819011112222"].ContactID != "contact-unique" ||
+		byPeer["+819011112222"].ContactName != "Unique" {
+		t.Fatalf("unique canonical thread = %+v, want contact-unique", byPeer["+819011112222"])
+	}
+	if byPeer["+819033334444"].ContactID != "" ||
+		byPeer["+819033334444"].ContactName != "" {
+		t.Fatalf(
+			"ambiguous canonical thread matched a contact: %+v",
+			byPeer["+819033334444"],
+		)
+	}
+}
+
 func assertMessageIDs(t *testing.T, messages []Message, expected []int64) {
 	t.Helper()
 	if len(messages) != len(expected) {

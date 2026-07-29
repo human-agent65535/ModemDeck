@@ -689,8 +689,8 @@ func (s *Store) RecordingEntries(
 		call.end_reason, call.failure_code
 		FROM modemdeck_call_recordings recording
 		JOIN call_history call ON call.id = recording.call_id`,
-		fmt.Sprintf(contactIDForNumberSQL, "call.remote_number", "call.remote_number"),
-		fmt.Sprintf(contactNameForNumberSQL, "call.remote_number", "call.remote_number"),
+		fmt.Sprintf(contactIDForNumberSQL, "call.remote_number"),
+		fmt.Sprintf(contactNameForNumberSQL, "call.remote_number"),
 	)
 	arguments := make([]any, 0, 6)
 	if strings.TrimSpace(query.Search) != "" {
@@ -701,16 +701,13 @@ func (s *Store) RecordingEntries(
 			LOWER(COALESCE(call.line_id, '')) LIKE ? ESCAPE '\' OR
 			LOWER(COALESCE(call.endpoint_line_id, '')) LIKE ? ESCAPE '\' OR
 			LOWER(COALESCE(recording.id, '')) LIKE ? ESCAPE '\' OR
-			EXISTS (
-				SELECT 1
-				FROM contact_phones
-				JOIN contacts ON contacts.id = contact_phones.contact_id
-				WHERE (
-					contact_phones.canonical_e164 = call.remote_number OR
-					contact_phones.original_number = call.remote_number
-				)
-				AND LOWER(COALESCE(contacts.display_name, '')) LIKE ? ESCAPE '\'
-			) OR
+				EXISTS (
+					SELECT 1
+					FROM contact_phones
+					JOIN contacts ON contacts.id = contact_phones.contact_id
+					WHERE contact_phones.canonical_e164 = call.remote_number
+					AND LOWER(COALESCE(contacts.display_name, '')) LIKE ? ESCAPE '\'
+				) OR
 			EXISTS (
 				SELECT 1
 				FROM devices

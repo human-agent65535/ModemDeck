@@ -863,7 +863,54 @@ func TestBuildStableLineMigrationSeparatesPhonesReusingSIM(t *testing.T) {
 	}
 }
 
-func TestOpenMigratesReportedAndCanonicalPhoneIdentities(t *testing.T) {
+func TestBuildStableLineMigrationDoesNotGlobalizeUnscopedNumbers(t *testing.T) {
+	t.Parallel()
+
+	for _, reported := range []string{"13800138000", "unknown"} {
+		reported := reported
+		t.Run(reported, func(t *testing.T) {
+			lines, identities, endpoints, err := buildStableLineMigration(
+				[]stableLineEvidence{
+					{
+						endpointID: "endpoint-one",
+						iccid:      "iccid-one",
+						imsi:       "imsi-one",
+						phone:      reported,
+						ordinal:    0,
+					},
+					{
+						endpointID: "endpoint-two",
+						iccid:      "iccid-two",
+						imsi:       "imsi-two",
+						phone:      reported,
+						ordinal:    1,
+					},
+				},
+			)
+			if err != nil {
+				t.Fatalf("buildStableLineMigration() error = %v", err)
+			}
+			if len(lines) != 2 {
+				t.Fatalf("stable lines = %+v, want two SIM identities", lines)
+			}
+			for _, line := range lines {
+				if line.phone != "" {
+					t.Fatalf("stable line phone = %q, want empty", line.phone)
+				}
+			}
+			if _, exists := identities["phone:"+reported]; exists {
+				t.Fatalf("unscoped phone became global identity: %+v", identities)
+			}
+			if endpoints["endpoint-one"].lineID == "" ||
+				endpoints["endpoint-two"].lineID == "" ||
+				endpoints["endpoint-one"].lineID == endpoints["endpoint-two"].lineID {
+				t.Fatalf("endpoint bindings = %+v, want distinct lines", endpoints)
+			}
+		})
+	}
+}
+
+func TestOpenPreservesReportedPhoneValuesWithoutGuessingTheirRegion(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "without-reported-call-number.db")
@@ -881,12 +928,24 @@ func TestOpenMigratesReportedAndCanonicalPhoneIdentities(t *testing.T) {
 	if legacySchema == v1Schema {
 		t.Fatal("legacy schema fixture did not remove reported call number")
 	}
+	withoutReportedSMS := strings.Replace(
+		legacySchema,
+		"\n\t\t\t\treported_peer TEXT NOT NULL DEFAULT '',",
+		"",
+		1,
+	)
+	if withoutReportedSMS == legacySchema {
+		t.Fatal("legacy schema fixture did not remove reported SMS peer")
+	}
+	legacySchema = withoutReportedSMS
 	if _, err := database.Exec(legacySchema); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := database.Exec(
 		`INSERT INTO call_history (id, direction, remote_number)
 		 VALUES ('call-prefix-fixture', 'incoming', '00818000000001');
+		 INSERT INTO sms (id, peer, content, timestamp)
+		 VALUES (9001, '00818000000001', 'fixture', '2026-07-29 01:00:00');
 		 INSERT INTO contacts (id, display_name)
 		 VALUES ('contact-prefix-fixture', 'Prefix Fixture');
 		 INSERT INTO contact_phones (
@@ -915,8 +974,18 @@ func TestOpenMigratesReportedAndCanonicalPhoneIdentities(t *testing.T) {
 	).Scan(&remote, &reported); err != nil {
 		t.Fatal(err)
 	}
-	if remote != "+818000000001" || reported != "00818000000001" {
+	if remote != "00818000000001" || reported != "00818000000001" {
 		t.Fatalf("migrated call numbers = (%q, %q)", remote, reported)
+	}
+
+	var peer, reportedPeer string
+	if err := database.QueryRow(
+		`SELECT peer, reported_peer FROM sms WHERE id = 9001`,
+	).Scan(&peer, &reportedPeer); err != nil {
+		t.Fatal(err)
+	}
+	if peer != "00818000000001" || reportedPeer != "00818000000001" {
+		t.Fatalf("migrated SMS numbers = (%q, %q)", peer, reportedPeer)
 	}
 
 	var original, canonical string
@@ -926,8 +995,94 @@ func TestOpenMigratesReportedAndCanonicalPhoneIdentities(t *testing.T) {
 	).Scan(&original, &canonical); err != nil {
 		t.Fatal(err)
 	}
-	if original != "0081 80 0000 0001" || canonical != "+818000000001" {
+	if original != "0081 80 0000 0001" || canonical != "00818000000001" {
 		t.Fatalf("migrated contact number = (%q, %q)", original, canonical)
+	}
+}
+
+func TestOpenAllowsDuplicateCanonicalContactsAfterLegacyIndexMigration(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "duplicate-contact-phone-identities.db")
+	database, err := Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(
+		`DROP INDEX idx_contact_phones_canonical_e164;
+		 CREATE UNIQUE INDEX ux_contact_phones_canonical_e164
+		 ON contact_phones(canonical_e164);
+		 INSERT INTO contacts (id, display_name) VALUES
+			('contact-legacy-idd', 'Legacy IDD'),
+			('contact-e164', 'Canonical E164');
+		 INSERT INTO contact_phones (
+			id, contact_id, original_number, canonical_e164, region, is_primary
+		 ) VALUES
+			(
+				'phone-legacy-idd', 'contact-legacy-idd',
+				'0081 90 1234 5678', '00819012345678', 'CN', 1
+			),
+			(
+				'phone-e164', 'contact-e164',
+				'+81 90 1234 5678', '+819012345678', 'JP', 1
+			);`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	if _, err := database.Exec(
+		`INSERT INTO contacts (id, display_name)
+		 VALUES ('contact-shared', 'Shared Number');
+		 INSERT INTO contact_phones (
+			id, contact_id, original_number, canonical_e164, region, is_primary
+		 ) VALUES (
+			'phone-shared', 'contact-shared',
+			'090 1234 5678', '+819012345678', 'JP', 1
+		 )`,
+	); err != nil {
+		t.Fatalf("insert duplicate canonical phone after migration: %v", err)
+	}
+
+	var canonicalCount int
+	if err := database.QueryRow(
+		`SELECT COUNT(*) FROM contact_phones
+		 WHERE canonical_e164 = '+819012345678'`,
+	).Scan(&canonicalCount); err != nil {
+		t.Fatal(err)
+	}
+	if canonicalCount != 2 {
+		t.Fatalf("canonical contact phones = %d, want duplicate rows", canonicalCount)
+	}
+
+	var currentIndex, legacyIndex int
+	if err := database.QueryRow(
+		`SELECT
+			EXISTS(
+				SELECT 1 FROM sqlite_master
+				WHERE type = 'index' AND name = 'idx_contact_phones_canonical_e164'
+			),
+			EXISTS(
+				SELECT 1 FROM sqlite_master
+				WHERE type = 'index' AND name = 'ux_contact_phones_canonical_e164'
+			)`,
+	).Scan(&currentIndex, &legacyIndex); err != nil {
+		t.Fatal(err)
+	}
+	if currentIndex != 1 || legacyIndex != 0 {
+		t.Fatalf(
+			"contact phone indexes = current %d, legacy %d",
+			currentIndex,
+			legacyIndex,
+		)
 	}
 }
 

@@ -30,7 +30,7 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 	limit := boundedLimit(query.Limit)
 	statement := fmt.Sprintf(`SELECT
 		ch.id, ch.request_id, ch.line_id, ch.endpoint_line_id, ch.local_phone, ch.line_imsi,
-		ch.line_iccid, ch.direction, ch.remote_number,
+		ch.line_iccid, ch.direction, ch.remote_number, ch.reported_remote_number,
 		%s, %s,
 			ch.endpoint_id, ch.endpoint_call_id, ch.phase, ch.revision,
 			ch.created_at, ch.updated_at, ch.active_at, ch.ended_at,
@@ -39,8 +39,8 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 			ch.audio_encoding, ch.audio_resolution, ch.audio_rate,
 			ch.media_available
 		FROM call_history ch`,
-		fmt.Sprintf(contactIDForNumberSQL, "ch.remote_number", "ch.remote_number"),
-		fmt.Sprintf(contactNameForNumberSQL, "ch.remote_number", "ch.remote_number"),
+		fmt.Sprintf(contactIDForNumberSQL, "ch.remote_number"),
+		fmt.Sprintf(contactNameForNumberSQL, "ch.remote_number"),
 	)
 	conditions := make([]string, 0, 2)
 	arguments := make([]any, 0, 4)
@@ -70,7 +70,7 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 			EXISTS (
 				SELECT 1 FROM contact_phones
 				JOIN contacts ON contacts.id = contact_phones.contact_id
-				WHERE (contact_phones.canonical_e164 = ch.remote_number OR contact_phones.original_number = ch.remote_number)
+				WHERE contact_phones.canonical_e164 = ch.remote_number
 				AND LOWER(COALESCE(contacts.display_name, '')) LIKE ? ESCAPE '\'
 			)
 		)`)
@@ -93,7 +93,7 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 		var (
 			call                                                               Call
 			requestID, lineID, endpointLineID, localPhone, lineIMSI, lineICCID sql.NullString
-			direction, remoteNumber                                            sql.NullString
+			direction, remoteNumber, reportedRemoteNumber                      sql.NullString
 			contactID, contactName, endpointID, endpointCallID, phase          sql.NullString
 			revision                                                           sql.NullInt64
 			createdAt, updatedAt, activeAt, endedAt, readAt, endReason         sql.NullString
@@ -103,7 +103,7 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 		)
 		if err := rows.Scan(
 			&call.ID, &requestID, &lineID, &endpointLineID, &localPhone, &lineIMSI, &lineICCID,
-			&direction, &remoteNumber,
+			&direction, &remoteNumber, &reportedRemoteNumber,
 			&contactID, &contactName, &endpointID, &endpointCallID, &phase,
 			&revision, &createdAt, &updatedAt, &activeAt, &endedAt, &readAt,
 			&endReason, &failureCode, &bearer, &stateReason, &stateReasonCode,
@@ -120,6 +120,7 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 		call.LineICCID = stringValue(lineICCID)
 		call.Direction = stringValue(direction)
 		call.RemoteNumber = stringValue(remoteNumber)
+		call.ReportedRemoteNumber = stringValue(reportedRemoteNumber)
 		call.ContactID = stringValue(contactID)
 		call.ContactName = stringValue(contactName)
 		call.EndpointID = stringValue(endpointID)

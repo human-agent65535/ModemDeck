@@ -57,3 +57,76 @@ func TestEmbeddedDatabaseSnapshotIsComplete(t *testing.T) {
 		t.Fatalf("embedded MCC/MNC lookup entries = %d, want at least 2000", got)
 	}
 }
+
+func TestLookupReturnsHomeCountryFacts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		plmn        string
+		countryISO  string
+		callingCode string
+	}{
+		{plmn: "46001", countryISO: "CN", callingCode: "86"},
+		{plmn: "44051", countryISO: "JP", callingCode: "81"},
+		{plmn: "45204", countryISO: "VN", callingCode: "84"},
+	}
+	for _, test := range tests {
+		details, ok := Lookup(test.plmn)
+		if !ok {
+			t.Fatalf("Lookup(%q) was not found", test.plmn)
+		}
+		if details.CountryISO != test.countryISO ||
+			details.CountryCallingCode != test.callingCode {
+			t.Fatalf("Lookup(%q) = %+v", test.plmn, details)
+		}
+	}
+}
+
+func TestCountryForIMSIUsesOnlyTheMCC(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		imsi       string
+		countryISO string
+		ok         bool
+	}{
+		{imsi: "460011234567890", countryISO: "CN", ok: true},
+		{imsi: "440501234567890", countryISO: "JP", ok: true},
+		{imsi: "452041234567890", countryISO: "VN", ok: true},
+		{imsi: "12", ok: false},
+		{imsi: "ABC011234567890", ok: false},
+	}
+	for _, test := range tests {
+		details, ok := CountryForIMSI(test.imsi)
+		if ok != test.ok || details.CountryISO != test.countryISO || details.Name != "" {
+			t.Fatalf(
+				"CountryForIMSI(%q) = (%+v, %v), want country %q, ok %v",
+				test.imsi,
+				details,
+				ok,
+				test.countryISO,
+				test.ok,
+			)
+		}
+	}
+}
+
+func TestDatabaseKeepsCountryMetadataWhenOperatorNameIsMissing(t *testing.T) {
+	t.Parallel()
+
+	database := mustLoadDatabase([]byte(`[
+		{
+			"mcc": "999",
+			"mnc": "01",
+			"iso": "xy",
+			"country": "Example",
+			"country_code": "999",
+			"network": ""
+		}
+	]`))
+	details, ok := database.byPLMN["99901"]
+	if !ok || details.Name != "" || details.CountryISO != "XY" ||
+		details.CountryCallingCode != "999" {
+		t.Fatalf("country-only lookup = (%+v, %v)", details, ok)
+	}
+}

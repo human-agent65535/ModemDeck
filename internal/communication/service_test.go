@@ -127,6 +127,8 @@ type fakeRepository struct {
 	snapshot                    store.HardwareSnapshot
 	snapshotResult              store.HardwareSnapshotResult
 	snapshotError               error
+	lines                       []store.LineSummary
+	linesError                  error
 	message                     store.Message
 	messageInput                store.HardwareMessage
 	messageError                error
@@ -169,6 +171,10 @@ func (repository *fakeRepository) ApplyHardwareSnapshotWithResult(
 		}
 	}
 	return repository.snapshotResult, repository.snapshotError
+}
+
+func (repository *fakeRepository) Lines(context.Context) ([]store.LineSummary, error) {
+	return append([]store.LineSummary(nil), repository.lines...), repository.linesError
 }
 
 func (repository *fakeRepository) UpsertHardwareMessage(
@@ -459,6 +465,16 @@ func TestServiceRequiresExplicitCapableLine(t *testing.T) {
 		t.Fatalf("agent start requests = %+v, want none", agent.startRequests)
 	}
 
+	if _, err := service.StartCall(context.Background(), StartCallInput{
+		LineID: "line-stable",
+		Number: "819012345678",
+	}); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("StartCall() with bare country code error = %v, want invalid argument", err)
+	}
+	if len(agent.startRequests) != 0 {
+		t.Fatalf("agent start requests = %+v, want none", agent.startRequests)
+	}
+
 	call, err := service.StartCall(context.Background(), StartCallInput{
 		RequestID: "request-call-1",
 		LineID:    "line-stable",
@@ -471,12 +487,12 @@ func TestServiceRequiresExplicitCapableLine(t *testing.T) {
 		t.Fatalf("agent start request count = %d, want 1", len(agent.startRequests))
 	}
 	request := agent.startRequests[0]
-	if request.LineID != "line-1" || request.Number != "09012345678" ||
+	if request.LineID != "line-1" || request.Number != "+819012345678" ||
 		request.RequestID != "request-call-1" {
 		t.Fatalf("agent start request = %+v", request)
 	}
 	if call.LineID != "line-stable" || call.EndpointLineID != "line-1" ||
-		call.RemoteNumber != "09012345678" ||
+		call.RemoteNumber != "+819012345678" ||
 		call.LocalPhone != "+819012345678" ||
 		call.LineIMSI != "440500000000001" ||
 		call.LineICCID != "8901000000000000001" ||
@@ -630,21 +646,204 @@ func TestServiceRoutesStableLineThroughReplacementEndpoint(t *testing.T) {
 	message, err := service.SendMessage(context.Background(), SendMessageInput{
 		RequestID: "request-message-replacement",
 		LineID:    "line-stable",
-		Number:    "+818012345678",
+		Number:    "080-1234-5678",
 		Text:      "replacement route",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage() error = %v", err)
 	}
 	if len(agent.messageRequests) != 1 ||
-		agent.messageRequests[0].LineID != "line-replacement" {
+		agent.messageRequests[0].LineID != "line-replacement" ||
+		agent.messageRequests[0].Number != "+818012345678" {
 		t.Fatalf("agent message requests = %+v", agent.messageRequests)
 	}
 	if message.LineID != "line-stable" ||
 		message.EndpointLineID != "line-replacement" ||
 		repository.messageInput.LineID != "line-stable" ||
-		repository.messageInput.EndpointLineID != "line-replacement" {
+		repository.messageInput.EndpointLineID != "line-replacement" ||
+		repository.messageInput.Number != "+818012345678" ||
+		repository.messageInput.ReportedNumber != "080-1234-5678" {
 		t.Fatalf("stored replacement message = %+v, input = %+v", message, repository.messageInput)
+	}
+}
+
+func TestStableHomeCountryOverridesLiveCountryForPhoneIdentity(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name            string
+		liveHomeCountry string
+	}{
+		{name: "live home country missing"},
+		{name: "live home country is serving country", liveHomeCountry: "VN"},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			now := time.Date(2026, time.July, 29, 12, 0, 0, 0, time.UTC)
+			agent := connectedAgent(now)
+			line := &agent.snapshot.Lines[0]
+			line.ID = "endpoint-cn"
+			line.SIMIdentifier = "fixture-iccid-cn"
+			line.IMSI = "fixture-imsi-cn"
+			line.HomeCountryISO = test.liveHomeCountry
+			line.ServingCountryISO = "VN"
+			line.OwnNumbers = []string{"13123456789"}
+			agent.snapshot.Calls = []agentclient.Call{{
+				ID:        "incoming-call-cn",
+				LineID:    line.ID,
+				Number:    "13123456789",
+				Direction: "incoming",
+				State:     "ringing",
+			}}
+			agent.snapshot.Messages = []agentclient.Message{{
+				ID:        "incoming-message-cn",
+				LineID:    line.ID,
+				Number:    "13123456789",
+				Text:      "identity fixture",
+				Direction: "incoming",
+				State:     "received",
+			}}
+			repository := &fakeRepository{
+				lines: []store.LineSummary{{
+					ID:             "stable-cn",
+					EndpointID:     line.ID,
+					ICCID:          line.SIMIdentifier,
+					IMSI:           line.IMSI,
+					HomeCountryISO: "CN",
+				}},
+				snapshotResult: store.HardwareSnapshotResult{
+					LineIDsByEndpoint: map[string]string{line.ID: "stable-cn"},
+				},
+			}
+			service, err := New(agent, repository, messageevents.NewBuffer(8))
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			service.now = func() time.Time { return now }
+
+			status, err := service.Refresh(context.Background())
+			if err != nil {
+				t.Fatalf("Refresh() error = %v", err)
+			}
+			if len(status.Lines) != 1 ||
+				status.Lines[0].HomeCountryISO != "CN" ||
+				status.Lines[0].ServingCountryISO != "VN" {
+				t.Fatalf("projected line = %+v, want stable CN home and live VN serving", status.Lines)
+			}
+			if len(repository.snapshot.Lines) != 1 ||
+				repository.snapshot.Lines[0].HomeCountryISO != "CN" ||
+				repository.snapshot.Lines[0].PhoneNumber != "+8613123456789" {
+				t.Fatalf("persisted line projection = %+v", repository.snapshot.Lines)
+			}
+			if len(repository.snapshot.Calls) != 1 ||
+				repository.snapshot.Calls[0].HomeCountryISO != "CN" ||
+				repository.snapshot.Calls[0].Number != "+8613123456789" {
+				t.Fatalf("incoming call projection = %+v", repository.snapshot.Calls)
+			}
+			if len(repository.snapshot.Messages) != 1 ||
+				repository.snapshot.Messages[0].HomeCountryISO != "CN" ||
+				repository.snapshot.Messages[0].Number != "+8613123456789" {
+				t.Fatalf("incoming message projection = %+v", repository.snapshot.Messages)
+			}
+
+			agent.startResult = agentclient.CommandReceipt{
+				RequestID:  "request-call-cn",
+				ResourceID: "outgoing-call-cn",
+			}
+			startedSnapshot := agent.snapshot
+			startedSnapshot.ObservedAt = now.Add(time.Second)
+			startedSnapshot.Calls = []agentclient.Call{{
+				ID:        "outgoing-call-cn",
+				LineID:    line.ID,
+				Number:    "13123456789",
+				Direction: "outgoing",
+				State:     "dialing",
+			}}
+			agent.snapshotAfterStart = &startedSnapshot
+			if _, err := service.StartCall(context.Background(), StartCallInput{
+				RequestID: "request-call-cn",
+				LineID:    "stable-cn",
+				Number:    "131 2345 6789",
+			}); err != nil {
+				t.Fatalf("StartCall() error = %v", err)
+			}
+			if len(agent.startRequests) != 1 ||
+				agent.startRequests[0].Number != "+8613123456789" {
+				t.Fatalf("start call requests = %+v", agent.startRequests)
+			}
+
+			agent.messageResult = agentclient.CommandReceipt{
+				RequestID:  "request-message-cn",
+				ResourceID: "outgoing-message-cn",
+			}
+			if _, err := service.SendMessage(context.Background(), SendMessageInput{
+				RequestID: "request-message-cn",
+				LineID:    "stable-cn",
+				Number:    "131 2345 6789",
+				Text:      "outgoing identity fixture",
+			}); err != nil {
+				t.Fatalf("SendMessage() error = %v", err)
+			}
+			if len(agent.messageRequests) != 1 ||
+				agent.messageRequests[0].Number != "+8613123456789" {
+				t.Fatalf("send message requests = %+v", agent.messageRequests)
+			}
+		})
+	}
+}
+
+func TestStableHomeCountryDoesNotFollowEndpointAcrossSIMSwap(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name            string
+		simIdentifier   string
+		imsi            string
+		liveHomeCountry string
+	}{
+		{
+			name:            "new SIM identity is complete",
+			simIdentifier:   "new-sim-iccid",
+			imsi:            "new-sim-imsi",
+			liveHomeCountry: "VN",
+		},
+		{
+			name:            "new SIM identity is still pending",
+			liveHomeCountry: "VN",
+		},
+		{
+			name: "new SIM identity and home country are still pending",
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			snapshot := bindSnapshotHomeCountries(agentclient.Snapshot{
+				Lines: []agentclient.Line{{
+					ID:             "shared-endpoint",
+					SIMIdentifier:  test.simIdentifier,
+					IMSI:           test.imsi,
+					HomeCountryISO: test.liveHomeCountry,
+				}},
+			}, []store.LineSummary{{
+				ID:             "old-stable-line",
+				EndpointID:     "shared-endpoint",
+				ICCID:          "old-sim-iccid",
+				IMSI:           "old-sim-imsi",
+				HomeCountryISO: "CN",
+			}})
+
+			if got := snapshot.Lines[0].HomeCountryISO; got != test.liveHomeCountry {
+				t.Fatalf(
+					"home country after SIM swap = %q, want live value %q",
+					got,
+					test.liveHomeCountry,
+				)
+			}
+		})
 	}
 }
 
@@ -1584,6 +1783,7 @@ func connectedAgent(observedAt time.Time) *fakeAgent {
 				EquipmentIdentifier: "990000000000001",
 				SIMIdentifier:       "8901000000000000001",
 				IMSI:                "440500000000001",
+				HomeCountryISO:      "JP",
 				OwnNumbers:          []string{"+819012345678"},
 				Capabilities: agentclient.LineCapabilities{
 					Dial:        true,

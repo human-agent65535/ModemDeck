@@ -19,7 +19,7 @@ func TestCreateContact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	body := `{"display_name":"Aiko","avatar":"data:image/png;base64,iVBORw0KGgo=","notes":"Tokyo","preferred_line_id":"line-main","favorite":true,"phones":[{"label":"mobile","number":"+81 90-1234-5678","primary":true}]}`
+	body := `{"display_name":"Aiko","avatar":"data:image/png;base64,iVBORw0KGgo=","notes":"Tokyo","preferred_line_id":"line-main","favorite":true,"phones":[{"label":"mobile","number":"090-1234-5678","region":"JP","primary":true}]}`
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/contacts", bytes.NewBufferString(body))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -37,6 +37,10 @@ func TestCreateContact(t *testing.T) {
 	if repository.createContactInput.PreferredLineID != "line-main" ||
 		!repository.createContactInput.Favorite {
 		t.Fatalf("create contact preferences = %+v", repository.createContactInput)
+	}
+	if repository.createContactInput.Phones[0].Number != "090-1234-5678" ||
+		repository.createContactInput.Phones[0].Region != "JP" {
+		t.Fatalf("create contact phone = %+v", repository.createContactInput.Phones[0])
 	}
 	var result contactResponse
 	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {

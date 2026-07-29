@@ -121,16 +121,12 @@ func parseReplyCommand(command Command, rest string) (Command, error) {
 	if err := validateLineID(lineID); err != nil {
 		return Command{}, &CommandError{Code: "invalid_line"}
 	}
-	number, err := NormalizePhone(numberValue)
-	if err != nil {
-		return Command{}, &CommandError{Code: "invalid_phone"}
-	}
 	if utf8.RuneCountInString(body) > MaxSMSBodyRunes {
 		return Command{}, &CommandError{Code: "sms_body_too_long"}
 	}
 	command.Kind = CommandReply
 	command.LineID = lineID
-	command.Number = number
+	command.Number = strings.TrimSpace(numberValue)
 	command.Body = body
 	return command, nil
 }

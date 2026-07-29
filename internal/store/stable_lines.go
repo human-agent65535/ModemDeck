@@ -29,12 +29,12 @@ type stableLineIdentityMatches struct {
 func resolveOrCreateStableLine(
 	ctx context.Context,
 	transaction *sql.Tx,
-	iccid, imsi, number string,
+	iccid, imsi, number, region string,
 	observedAt time.Time,
 ) (string, error) {
 	iccid = strings.TrimSpace(iccid)
 	imsi = strings.TrimSpace(imsi)
-	number = normalizeStableLinePhone(number)
+	number = normalizeStableLinePhone(number, region)
 
 	matches, err := resolveStableLineIdentityMatches(ctx, transaction, iccid, imsi, number)
 	if err != nil {
@@ -142,7 +142,7 @@ func stableLinePhones(
 		if err != nil {
 			return nil, fmt.Errorf("read stable line phone identity: %w", err)
 		}
-		result[lineID] = normalizeStableLinePhone(number)
+		result[lineID] = storedStableLinePhone(number)
 	}
 	return result, nil
 }
@@ -152,7 +152,7 @@ func chooseStableLineCanonical(
 	linePhones map[string]string,
 	number string,
 ) string {
-	number = normalizeStableLinePhone(number)
+	number = storedStableLinePhone(number)
 	if number != "" {
 		if matches.Phone != "" {
 			return matches.Phone
@@ -198,6 +198,7 @@ func resolveStableLineIdentityMatches(
 	queryer stableLineQueryer,
 	iccid, imsi, number string,
 ) (stableLineIdentityMatches, error) {
+	number = storedStableLinePhone(number)
 	var matches stableLineIdentityMatches
 	queries := []struct {
 		destination *string
@@ -217,7 +218,7 @@ func resolveStableLineIdentityMatches(
 		{
 			destination: &matches.Phone,
 			statement:   `SELECT line_id FROM modemdeck_lines WHERE phone_number = ?`,
-			value:       normalizeStableLinePhone(number),
+			value:       number,
 		},
 	}
 	for _, query := range queries {
@@ -269,8 +270,9 @@ func resolveStableLineIdentityMatches(
 func resolveStableLineIdentity(
 	ctx context.Context,
 	queryer stableLineQueryer,
-	iccid, imsi, number string,
+	iccid, imsi, number, region string,
 ) (string, error) {
+	number = normalizeStableLinePhone(number, region)
 	matches, err := resolveStableLineIdentityMatches(ctx, queryer, iccid, imsi, number)
 	if err != nil {
 		return "", err
@@ -666,6 +668,10 @@ func mergeStableLineMetadata(
 	if err != nil {
 		return err
 	}
+	homeCountryISO, err := value("home_country_iso")
+	if err != nil {
+		return err
+	}
 	lineLabel, err := value("line_label")
 	if err != nil {
 		return err
@@ -698,10 +704,11 @@ func mergeStableLineMetadata(
 	if _, err := transaction.ExecContext(
 		ctx,
 		`UPDATE modemdeck_lines
-		 SET phone_number = ?, line_label = ?, line_color = ?,
+		 SET phone_number = ?, home_country_iso = ?, line_label = ?, line_color = ?,
 			created_at = ?, updated_at = CURRENT_TIMESTAMP
 		 WHERE line_id = ?`,
 		phoneNumber,
+		homeCountryISO,
 		lineLabel,
 		lineColor,
 		createdAt,
@@ -775,7 +782,7 @@ func resolveLegacyEndpointLines(
 func resolveStoredHardwareLine(
 	ctx context.Context,
 	transaction *sql.Tx,
-	lineID, endpointLineID, iccid, imsi, number string,
+	lineID, endpointLineID, iccid, imsi, number, region string,
 ) (string, string, error) {
 	lineID = strings.TrimSpace(lineID)
 	endpointLineID = strings.TrimSpace(endpointLineID)
@@ -796,7 +803,7 @@ func resolveStoredHardwareLine(
 			endpointLineID = lineID
 		}
 	}
-	resolved, err := resolveStableLineIdentity(ctx, transaction, iccid, imsi, number)
+	resolved, err := resolveStableLineIdentity(ctx, transaction, iccid, imsi, number, region)
 	if err == nil {
 		return resolved, endpointLineID, nil
 	}
@@ -853,8 +860,12 @@ func (s *Store) ResolveLineEndpoint(ctx context.Context, lineID string) (string,
 	return endpointID, nil
 }
 
-func normalizeStableLinePhone(value string) string {
-	return phone.NormalizeNetworkNumber(strings.TrimSpace(value))
+func normalizeStableLinePhone(value, region string) string {
+	return phone.NetworkSubscriberE164(strings.TrimSpace(value), region)
+}
+
+func storedStableLinePhone(value string) string {
+	return phone.NetworkSubscriberE164(strings.TrimSpace(value), "")
 }
 
 func stableLinePhonesMatch(left, right string) bool {
@@ -863,22 +874,7 @@ func stableLinePhonesMatch(left, right string) bool {
 }
 
 func stableLinePhoneIdentity(value string) string {
-	value = normalizeStableLinePhone(value)
-	if value == "" {
-		return ""
-	}
-	if strings.HasPrefix(value, "+") {
-		return value
-	}
-	if len(value) < 8 || len(value) > 15 || value[0] == '0' {
-		return value
-	}
-	for index := range value {
-		if value[index] < '0' || value[index] > '9' {
-			return value
-		}
-	}
-	return "+" + value
+	return storedStableLinePhone(value)
 }
 
 func newStoreLineID() (string, error) {

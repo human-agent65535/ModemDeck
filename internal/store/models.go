@@ -37,6 +37,7 @@ type ContactPhone struct {
 	Label          string `json:"label"`
 	OriginalNumber string `json:"original_number"`
 	CanonicalE164  string `json:"canonical_e164"`
+	Region         string `json:"region"`
 	Primary        bool   `json:"primary"`
 }
 
@@ -54,6 +55,7 @@ type ContactPhoneInput struct {
 	ID      string `json:"id"`
 	Label   string `json:"label"`
 	Number  string `json:"number"`
+	Region  string `json:"region,omitempty"`
 	Primary bool   `json:"primary"`
 }
 
@@ -100,6 +102,7 @@ type Message struct {
 	IMSI              string `json:"imsi"`
 	ICCID             string `json:"iccid"`
 	Peer              string `json:"peer"`
+	ReportedPeer      string `json:"reported_peer"`
 	Direction         string `json:"direction"`
 	LocalPhone        string `json:"local_phone"`
 	Sender            string `json:"sender"`
@@ -130,40 +133,41 @@ type CallQuery struct {
 }
 
 type Call struct {
-	ID              string  `json:"id"`
-	RequestID       string  `json:"request_id"`
-	LineID          string  `json:"line_id"`
-	EndpointLineID  string  `json:"endpoint_line_id"`
-	LocalPhone      string  `json:"local_phone"`
-	LineIMSI        string  `json:"line_imsi"`
-	LineICCID       string  `json:"line_iccid"`
-	Direction       string  `json:"direction"`
-	RemoteNumber    string  `json:"remote_number"`
-	ContactID       string  `json:"contact_id"`
-	ContactName     string  `json:"contact_name"`
-	EndpointID      string  `json:"endpoint_id"`
-	EndpointCallID  string  `json:"endpoint_call_id"`
-	Phase           string  `json:"phase"`
-	Revision        int64   `json:"revision"`
-	CreatedAt       string  `json:"created_at"`
-	StartedAt       string  `json:"started_at"`
-	UpdatedAt       string  `json:"updated_at"`
-	ActiveAt        *string `json:"active_at"`
-	EndedAt         string  `json:"ended_at"`
-	EndReason       string  `json:"end_reason"`
-	FailureCode     string  `json:"failure_code"`
-	Bearer          string  `json:"bearer"`
-	StateReason     string  `json:"state_reason"`
-	StateReasonCode int64   `json:"state_reason_code"`
-	Multiparty      bool    `json:"multiparty"`
-	AudioPort       string  `json:"audio_port"`
-	AudioEncoding   string  `json:"audio_encoding"`
-	AudioResolution string  `json:"audio_resolution"`
-	AudioRate       uint32  `json:"audio_rate"`
-	MediaAvailable  bool    `json:"media_available"`
-	DurationSeconds int64   `json:"duration_seconds"`
-	Missed          bool    `json:"missed"`
-	Read            bool    `json:"read"`
+	ID                   string  `json:"id"`
+	RequestID            string  `json:"request_id"`
+	LineID               string  `json:"line_id"`
+	EndpointLineID       string  `json:"endpoint_line_id"`
+	LocalPhone           string  `json:"local_phone"`
+	LineIMSI             string  `json:"line_imsi"`
+	LineICCID            string  `json:"line_iccid"`
+	Direction            string  `json:"direction"`
+	RemoteNumber         string  `json:"remote_number"`
+	ReportedRemoteNumber string  `json:"reported_remote_number"`
+	ContactID            string  `json:"contact_id"`
+	ContactName          string  `json:"contact_name"`
+	EndpointID           string  `json:"endpoint_id"`
+	EndpointCallID       string  `json:"endpoint_call_id"`
+	Phase                string  `json:"phase"`
+	Revision             int64   `json:"revision"`
+	CreatedAt            string  `json:"created_at"`
+	StartedAt            string  `json:"started_at"`
+	UpdatedAt            string  `json:"updated_at"`
+	ActiveAt             *string `json:"active_at"`
+	EndedAt              string  `json:"ended_at"`
+	EndReason            string  `json:"end_reason"`
+	FailureCode          string  `json:"failure_code"`
+	Bearer               string  `json:"bearer"`
+	StateReason          string  `json:"state_reason"`
+	StateReasonCode      int64   `json:"state_reason_code"`
+	Multiparty           bool    `json:"multiparty"`
+	AudioPort            string  `json:"audio_port"`
+	AudioEncoding        string  `json:"audio_encoding"`
+	AudioResolution      string  `json:"audio_resolution"`
+	AudioRate            uint32  `json:"audio_rate"`
+	MediaAvailable       bool    `json:"media_available"`
+	DurationSeconds      int64   `json:"duration_seconds"`
+	Missed               bool    `json:"missed"`
+	Read                 bool    `json:"read"`
 }
 
 type Device struct {
@@ -203,8 +207,10 @@ type SIMCard struct {
 	Operator               string `json:"operator"`
 	HomeOperatorCode       string `json:"home_operator_code"`
 	HomeOperatorName       string `json:"home_operator_name"`
+	HomeCountryISO         string `json:"home_country_iso"`
 	ServingOperatorCode    string `json:"serving_operator_code"`
 	ServingOperatorName    string `json:"serving_operator_name"`
+	ServingCountryISO      string `json:"serving_country_iso"`
 	RegistrationStateKnown bool   `json:"registration_state_known"`
 	RegistrationStateCode  uint32 `json:"registration_state_code"`
 	RegistrationState      string `json:"registration_state"`
@@ -230,8 +236,10 @@ type LineSummary struct {
 	Operator                 string           `json:"operator"`
 	HomeOperatorCode         string           `json:"home_operator_code"`
 	HomeOperatorName         string           `json:"home_operator_name"`
+	HomeCountryISO           string           `json:"home_country_iso"`
 	ServingOperatorCode      string           `json:"serving_operator_code"`
 	ServingOperatorName      string           `json:"serving_operator_name"`
+	ServingCountryISO        string           `json:"serving_country_iso"`
 	RegistrationStateKnown   bool             `json:"registration_state_known"`
 	RegistrationStateCode    uint32           `json:"registration_state_code"`
 	RegistrationState        string           `json:"registration_state"`
@@ -382,9 +390,13 @@ type HardwareLine struct {
 	SignalRSRP          *int64
 	SignalSNR           *float64
 	PhoneNumber         string
+	ReportedPhoneNumber string
 	ICCID               string
 	IMSI                string
 	Operator            string
+	HomeOperatorCode    string
+	HomeOperatorName    string
+	HomeCountryISO      string
 	Capabilities        LineCapabilities
 }
 
@@ -396,8 +408,10 @@ type HardwareCall struct {
 	LocalPhone      string
 	LineIMSI        string
 	LineICCID       string
+	HomeCountryISO  string
 	EndpointCallID  string
 	Number          string
+	ReportedNumber  string
 	Direction       string
 	Phase           string
 	Bearer          string
@@ -421,7 +435,9 @@ type HardwareMessage struct {
 	IMSI              string
 	ICCID             string
 	LocalPhone        string
+	HomeCountryISO    string
 	Number            string
+	ReportedNumber    string
 	Text              string
 	Direction         string
 	State             string

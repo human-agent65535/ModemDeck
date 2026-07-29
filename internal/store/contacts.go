@@ -116,6 +116,7 @@ type normalizedContactPhone struct {
 	label          string
 	originalNumber string
 	canonicalE164  string
+	region         string
 	primary        bool
 }
 
@@ -413,7 +414,7 @@ func (s *Store) loadContactPhones(ctx context.Context, contacts []Contact) error
 		arguments = append(arguments, contacts[index].ID)
 		contactIndex[contacts[index].ID] = index
 	}
-	statement := `SELECT id, contact_id, label, original_number, canonical_e164, is_primary
+	statement := `SELECT id, contact_id, label, original_number, canonical_e164, region, is_primary
 		FROM contact_phones
 		WHERE contact_id IN (` + placeholders(len(arguments)) + `)
 		ORDER BY contact_id ASC, is_primary DESC, id ASC`
@@ -425,16 +426,25 @@ func (s *Store) loadContactPhones(ctx context.Context, contacts []Contact) error
 
 	for rows.Next() {
 		var (
-			phone                                 ContactPhone
-			contactID, label, original, canonical sql.NullString
-			primary                               sql.NullInt64
+			phone                                         ContactPhone
+			contactID, label, original, canonical, region sql.NullString
+			primary                                       sql.NullInt64
 		)
-		if err := rows.Scan(&phone.ID, &contactID, &label, &original, &canonical, &primary); err != nil {
+		if err := rows.Scan(
+			&phone.ID,
+			&contactID,
+			&label,
+			&original,
+			&canonical,
+			&region,
+			&primary,
+		); err != nil {
 			return fmt.Errorf("scan contact phone: %w", err)
 		}
 		phone.Label = stringValue(label)
 		phone.OriginalNumber = stringValue(original)
 		phone.CanonicalE164 = stringValue(canonical)
+		phone.Region = stringValue(region)
 		phone.Primary = boolValue(primary)
 		if index, exists := contactIndex[stringValue(contactID)]; exists {
 			contacts[index].Phones = append(contacts[index].Phones, phone)
@@ -517,7 +527,11 @@ func normalizeContactInput(input ContactInput, creating bool) (normalizedContact
 		if len([]rune(label)) > MaxContactPhoneLabelLength {
 			return normalizedContactInput{}, contactValidation(field+".label", "too_long")
 		}
-		original, canonical, err := normalizeContactNumber(phone.Number, field+".number")
+		original, canonical, region, err := normalizeContactNumber(
+			phone.Number,
+			phone.Region,
+			field+".number",
+		)
 		if err != nil {
 			return normalizedContactInput{}, err
 		}
@@ -533,6 +547,7 @@ func normalizeContactInput(input ContactInput, creating bool) (normalizedContact
 			label:          label,
 			originalNumber: original,
 			canonicalE164:  canonical,
+			region:         region,
 			primary:        phone.Primary,
 		})
 	}
@@ -593,16 +608,20 @@ func normalizeContactAvatar(value string) (string, error) {
 	return value, nil
 }
 
-func normalizeContactNumber(number, field string) (string, string, error) {
-	original, canonical, err := phone.Normalize(number)
+func normalizeContactNumber(number, region, field string) (string, string, string, error) {
+	address, err := phone.ParseSubscriber(number, region)
 	if err == nil {
-		return original, canonical, nil
+		parseRegion := strings.ToUpper(strings.TrimSpace(region))
+		if strings.HasPrefix(strings.TrimSpace(number), "+") {
+			parseRegion = ""
+		}
+		return address.Original, address.E164, parseRegion, nil
 	}
 	var numberError *phone.Error
 	if errors.As(err, &numberError) {
-		return "", "", contactValidation(field, string(numberError.Code))
+		return "", "", "", contactValidation(field, string(numberError.Code))
 	}
-	return "", "", contactValidation(field, "invalid")
+	return "", "", "", contactValidation(field, "invalid")
 }
 
 func resolveUpdatedPhoneIDs(
@@ -680,58 +699,18 @@ func findContactPhoneConflict(
 		return nil
 	}
 
-	canonicalArguments := make([]any, 0, len(phones)+1)
-	for _, phone := range phones {
-		canonicalArguments = append(canonicalArguments, phone.canonicalE164)
-	}
-	statement := `SELECT canonical_e164, contact_id
-		FROM contact_phones
-		WHERE canonical_e164 IN (` + placeholders(len(phones)) + `)`
-	if excludeContactID != "" {
-		statement += " AND contact_id <> ?"
-		canonicalArguments = append(canonicalArguments, excludeContactID)
-	}
-	rows, err := queryer.QueryContext(ctx, statement, canonicalArguments...)
-	if err != nil {
-		return fmt.Errorf("query canonical contact phone conflicts: %w", err)
-	}
-	canonicalOwners := make(map[string]string)
-	for rows.Next() {
-		var canonical, owner sql.NullString
-		if err := rows.Scan(&canonical, &owner); err != nil {
-			rows.Close()
-			return fmt.Errorf("scan canonical contact phone conflict: %w", err)
-		}
-		canonicalOwners[stringValue(canonical)] = stringValue(owner)
-	}
-	if err := rows.Close(); err != nil {
-		return fmt.Errorf("close canonical contact phone conflicts: %w", err)
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("read canonical contact phone conflicts: %w", err)
-	}
-	for _, phone := range phones {
-		if owner, conflict := canonicalOwners[phone.canonicalE164]; conflict {
-			return &ContactPhoneConflictError{
-				PhoneID:           phone.id,
-				CanonicalE164:     phone.canonicalE164,
-				ExistingContactID: owner,
-			}
-		}
-	}
-
 	idArguments := make([]any, 0, len(phones)+1)
 	for _, phone := range phones {
 		idArguments = append(idArguments, phone.id)
 	}
-	statement = `SELECT id, contact_id
+	statement := `SELECT id, contact_id
 		FROM contact_phones
 		WHERE id IN (` + placeholders(len(phones)) + `)`
 	if excludeContactID != "" {
 		statement += " AND contact_id <> ?"
 		idArguments = append(idArguments, excludeContactID)
 	}
-	rows, err = queryer.QueryContext(ctx, statement, idArguments...)
+	rows, err := queryer.QueryContext(ctx, statement, idArguments...)
 	if err != nil {
 		return fmt.Errorf("query contact phone id conflicts: %w", err)
 	}
@@ -772,13 +751,14 @@ func insertContactPhones(
 		if _, err := transaction.ExecContext(
 			ctx,
 			`INSERT INTO contact_phones
-				(id, contact_id, label, original_number, canonical_e164, is_primary)
-			 VALUES (?, ?, ?, ?, ?, ?)`,
+				(id, contact_id, label, original_number, canonical_e164, region, is_primary)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 			phone.id,
 			contactID,
 			phone.label,
 			phone.originalNumber,
 			phone.canonicalE164,
+			phone.region,
 			phone.primary,
 		); err != nil {
 			return fmt.Errorf("insert contact phone: %w", err)
@@ -830,7 +810,7 @@ func contactByID(ctx context.Context, queryer contactQueryer, contactID string) 
 
 	rows, err := queryer.QueryContext(
 		ctx,
-		`SELECT id, label, original_number, canonical_e164, is_primary
+		`SELECT id, label, original_number, canonical_e164, region, is_primary
 		 FROM contact_phones
 		 WHERE contact_id = ?
 		 ORDER BY is_primary DESC, id ASC`,
@@ -842,16 +822,24 @@ func contactByID(ctx context.Context, queryer contactQueryer, contactID string) 
 	defer rows.Close()
 	for rows.Next() {
 		var (
-			phone                      ContactPhone
-			label, original, canonical sql.NullString
-			primary                    sql.NullInt64
+			phone                              ContactPhone
+			label, original, canonical, region sql.NullString
+			primary                            sql.NullInt64
 		)
-		if err := rows.Scan(&phone.ID, &label, &original, &canonical, &primary); err != nil {
+		if err := rows.Scan(
+			&phone.ID,
+			&label,
+			&original,
+			&canonical,
+			&region,
+			&primary,
+		); err != nil {
 			return Contact{}, fmt.Errorf("scan contact phone: %w", err)
 		}
 		phone.Label = stringValue(label)
 		phone.OriginalNumber = stringValue(original)
 		phone.CanonicalE164 = stringValue(canonical)
+		phone.Region = stringValue(region)
 		phone.Primary = boolValue(primary)
 		contact.Phones = append(contact.Phones, phone)
 	}

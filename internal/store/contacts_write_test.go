@@ -52,10 +52,15 @@ func TestContactCRUD(t *testing.T) {
 		t.Fatalf("CreateContact() phones = %d, want 2", len(created.Phones))
 	}
 	primary := contactPhoneByCanonical(t, created, "+442079460958")
-	if primary.OriginalNumber != "+44 (20) 7946-0958" || !primary.Primary {
+	if primary.OriginalNumber != "+44 (20) 7946-0958" ||
+		primary.Region != "" ||
+		!primary.Primary {
 		t.Fatalf("primary phone = %#v", primary)
 	}
 	work := contactPhoneByCanonical(t, created, "+12125550198")
+	if work.Region != "" {
+		t.Fatalf("work phone = %#v", work)
+	}
 
 	read, err := repository.Contact(ctx, created.ID)
 	if err != nil {
@@ -77,7 +82,7 @@ func TestContactCRUD(t *testing.T) {
 			{
 				ID:      primary.ID,
 				Label:   "mobile",
-				Number:  "+44 7700 900-123",
+				Number:  "+44 7911 123-456",
 				Primary: true,
 			},
 		},
@@ -100,7 +105,7 @@ func TestContactCRUD(t *testing.T) {
 	if len(updated.Phones) != 1 {
 		t.Fatalf("UpdateContact() phones = %d, want whole-resource replacement with 1", len(updated.Phones))
 	}
-	if updated.Phones[0].ID != primary.ID || updated.Phones[0].CanonicalE164 != "+447700900123" {
+	if updated.Phones[0].ID != primary.ID || updated.Phones[0].CanonicalE164 != "+447911123456" {
 		t.Fatalf("UpdateContact() phone = %#v", updated.Phones[0])
 	}
 	for _, phone := range updated.Phones {
@@ -122,6 +127,61 @@ func TestContactCRUD(t *testing.T) {
 	assertContactErrorIs(t, "Contact(deleted)", err, ErrContactNotFound)
 }
 
+func TestContactNationalNumberKeepsItsCreationRegion(t *testing.T) {
+	t.Parallel()
+
+	repository, database := newContactTestStore(t)
+	if _, err := database.Exec(
+		`INSERT INTO modemdeck_lines (line_id, phone_number, home_country_iso)
+		 VALUES
+			('line_jp', '+818011111111', 'JP'),
+			('line_cn', '+8613811111111', 'CN')`,
+	); err != nil {
+		t.Fatalf("insert contact routing lines: %v", err)
+	}
+	created, err := repository.CreateContact(context.Background(), ContactInput{
+		DisplayName:     "Aiko",
+		PreferredLineID: "line_jp",
+		Phones: []ContactPhoneInput{{
+			Label:   "mobile",
+			Number:  "090-1234-5678",
+			Region:  "JP",
+			Primary: true,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("CreateContact() error = %v", err)
+	}
+	if len(created.Phones) != 1 ||
+		created.Phones[0].OriginalNumber != "090-1234-5678" ||
+		created.Phones[0].CanonicalE164 != "+819012345678" ||
+		created.Phones[0].Region != "JP" {
+		t.Fatalf("created phone = %+v", created.Phones)
+	}
+
+	updated, err := repository.UpdateContact(context.Background(), created.ID, ContactInput{
+		DisplayName:     created.DisplayName,
+		PreferredLineID: "line_cn",
+		Revision:        created.Revision,
+		Phones: []ContactPhoneInput{{
+			ID:      created.Phones[0].ID,
+			Label:   created.Phones[0].Label,
+			Number:  created.Phones[0].OriginalNumber,
+			Region:  created.Phones[0].Region,
+			Primary: true,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("UpdateContact() error = %v", err)
+	}
+	if updated.PreferredLineID != "line_cn" ||
+		updated.Phones[0].OriginalNumber != "090-1234-5678" ||
+		updated.Phones[0].CanonicalE164 != "+819012345678" ||
+		updated.Phones[0].Region != "JP" {
+		t.Fatalf("contact route changed phone identity: %+v", updated)
+	}
+}
+
 func TestContactTypedConflictsAndPhoneOwnership(t *testing.T) {
 	t.Parallel()
 
@@ -130,24 +190,30 @@ func TestContactTypedConflictsAndPhoneOwnership(t *testing.T) {
 	first := mustCreateContact(t, repository, ContactInput{
 		DisplayName: "First",
 		Phones: []ContactPhoneInput{
-			{Label: "mobile", Number: "0081 (90) 1234-5678", Primary: true},
+			{
+				Label:   "mobile",
+				Number:  "0081 (90) 1234-5678",
+				Region:  "CN",
+				Primary: true,
+			},
 		},
 	})
 	if first.Phones[0].OriginalNumber != "0081 (90) 1234-5678" ||
-		first.Phones[0].CanonicalE164 != "+819012345678" {
+		first.Phones[0].CanonicalE164 != "+819012345678" ||
+		first.Phones[0].Region != "CN" {
 		t.Fatalf("00-prefixed contact phone = %#v", first.Phones[0])
 	}
 
-	_, err := repository.CreateContact(ctx, ContactInput{
+	duplicate := mustCreateContact(t, repository, ContactInput{
 		DisplayName: "Duplicate",
 		Phones: []ContactPhoneInput{
 			{Label: "mobile", Number: "+81 90-1234-5678", Primary: true},
 		},
 	})
-	assertContactErrorIs(t, "CreateContact(duplicate canonical)", err, ErrContactPhoneConflict)
-	var phoneConflict *ContactPhoneConflictError
-	if !errors.As(err, &phoneConflict) || phoneConflict.CanonicalE164 != "+819012345678" {
-		t.Fatalf("CreateContact() conflict = %#v, want canonical detail", err)
+	if duplicate.ID == first.ID ||
+		duplicate.Phones[0].CanonicalE164 != first.Phones[0].CanonicalE164 ||
+		duplicate.Phones[0].Region != "" {
+		t.Fatalf("duplicate contact = %#v, first = %#v", duplicate, first)
 	}
 
 	second := mustCreateContact(t, repository, ContactInput{
@@ -156,7 +222,7 @@ func TestContactTypedConflictsAndPhoneOwnership(t *testing.T) {
 			{Label: "mobile", Number: "+82 10 1234 5678", Primary: true},
 		},
 	})
-	_, err = repository.UpdateContact(ctx, second.ID, ContactInput{
+	_, err := repository.UpdateContact(ctx, second.ID, ContactInput{
 		DisplayName: "Takeover",
 		Revision:    second.Revision,
 		Phones: []ContactPhoneInput{
@@ -169,7 +235,7 @@ func TestContactTypedConflictsAndPhoneOwnership(t *testing.T) {
 		},
 	})
 	assertContactErrorIs(t, "UpdateContact(phone id takeover)", err, ErrContactPhoneConflict)
-	phoneConflict = nil
+	var phoneConflict *ContactPhoneConflictError
 	if !errors.As(err, &phoneConflict) || phoneConflict.ExistingContactID != first.ID {
 		t.Fatalf("UpdateContact() takeover conflict = %#v, want owner %s", err, first.ID)
 	}
@@ -222,7 +288,7 @@ func TestContactNotFoundErrors(t *testing.T) {
 		DisplayName: "Missing",
 		Revision:    1,
 		Phones: []ContactPhoneInput{
-			{Label: "mobile", Number: "+81 90 0000 0000", Primary: true},
+			{Label: "mobile", Number: "+81 90 1234 5678", Primary: true},
 		},
 	}
 
@@ -287,7 +353,15 @@ func TestContactValidation(t *testing.T) {
 			input.Phones[0].Number = "+" + strings.Repeat("-", MaxContactPhoneNumberLength)
 		}},
 		{name: "plus required", mutate: func(input *ContactInput) { input.Phones[0].Number = "819012345678" }},
-		{name: "invalid character", mutate: func(input *ContactInput) { input.Phones[0].Number = "+81.90.1234.5678" }},
+		{name: "bare country code stays invalid with region", mutate: func(input *ContactInput) {
+			input.Phones[0].Number = "8613800138000"
+			input.Phones[0].Region = "CN"
+		}},
+		{name: "invalid region", mutate: func(input *ContactInput) {
+			input.Phones[0].Number = "09012345678"
+			input.Phones[0].Region = "XX"
+		}},
+		{name: "invalid character", mutate: func(input *ContactInput) { input.Phones[0].Number = "+81A9012345678" }},
 		{name: "too few digits", mutate: func(input *ContactInput) { input.Phones[0].Number = "+1234567" }},
 		{name: "too many digits", mutate: func(input *ContactInput) { input.Phones[0].Number = "+1234567890123456" }},
 		{name: "invalid country code", mutate: func(input *ContactInput) { input.Phones[0].Number = "+01234567" }},

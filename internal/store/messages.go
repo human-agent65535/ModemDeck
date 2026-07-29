@@ -11,7 +11,9 @@ const contactIDForNumberSQL = `COALESCE((
 	SELECT contacts.id
 	FROM contact_phones
 	JOIN contacts ON contacts.id = contact_phones.contact_id
-	WHERE contact_phones.canonical_e164 = %s OR contact_phones.original_number = %s
+	WHERE contact_phones.canonical_e164 = %s
+	GROUP BY contact_phones.canonical_e164
+	HAVING COUNT(DISTINCT contacts.id) = 1
 	ORDER BY contact_phones.is_primary DESC, contacts.id ASC
 	LIMIT 1
 ), '')`
@@ -20,7 +22,9 @@ const contactNameForNumberSQL = `COALESCE((
 	SELECT contacts.display_name
 	FROM contact_phones
 	JOIN contacts ON contacts.id = contact_phones.contact_id
-	WHERE contact_phones.canonical_e164 = %s OR contact_phones.original_number = %s
+	WHERE contact_phones.canonical_e164 = %s
+	GROUP BY contact_phones.canonical_e164
+	HAVING COUNT(DISTINCT contacts.id) = 1
 	ORDER BY contact_phones.is_primary DESC, contacts.id ASC
 	LIMIT 1
 ), '')`
@@ -38,8 +42,8 @@ func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]Messag
 			), '') AS local_phone,
 			sc.line_id,
 			sc.peer,
-			` + fmt.Sprintf(contactIDForNumberSQL, "sc.peer", "sc.peer") + `,
-			` + fmt.Sprintf(contactNameForNumberSQL, "sc.peer", "sc.peer") + `,
+			` + fmt.Sprintf(contactIDForNumberSQL, "sc.peer") + `,
+			` + fmt.Sprintf(contactNameForNumberSQL, "sc.peer") + `,
 			sc.last_sms_id,
 			sc.last_timestamp,
 			sc.last_content,
@@ -55,7 +59,7 @@ func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]Messag
 			EXISTS (
 				SELECT 1 FROM contact_phones
 				JOIN contacts ON contacts.id = contact_phones.contact_id
-				WHERE (contact_phones.canonical_e164 = sc.peer OR contact_phones.original_number = sc.peer)
+				WHERE contact_phones.canonical_e164 = sc.peer
 				AND LOWER(COALESCE(contacts.display_name, '')) LIKE ? ESCAPE '\'
 			)
 		)`
@@ -105,7 +109,7 @@ func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]Messag
 func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, error) {
 	limit := boundedLimit(query.Limit)
 	statement := `SELECT id, request_id, line_id, endpoint_line_id, endpoint_message_id,
-		imsi, iccid, peer, local_phone, sender, recipient,
+		imsi, iccid, peer, reported_peer, local_phone, sender, recipient,
 		content, type, status, state, failure_code, revision, timestamp, created_at
 		FROM sms`
 	conditions := []string{"deleted_at IS NULL"}
@@ -148,13 +152,14 @@ func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, er
 		var (
 			message                                                          Message
 			requestID, lineID, endpointLineID, endpointID, imsi, iccid, peer sql.NullString
-			local, sender, recipient, content, state, failureCode            sql.NullString
+			reportedPeer, local, sender, recipient, content, state           sql.NullString
+			failureCode                                                      sql.NullString
 			messageType, status, revision                                    sql.NullInt64
 			timestamp, createdAt                                             sql.NullString
 		)
 		if err := rows.Scan(
 			&message.ID, &requestID, &lineID, &endpointLineID, &endpointID,
-			&imsi, &iccid, &peer, &local, &sender, &recipient,
+			&imsi, &iccid, &peer, &reportedPeer, &local, &sender, &recipient,
 			&content, &messageType, &status, &state, &failureCode, &revision,
 			&timestamp, &createdAt,
 		); err != nil {
@@ -167,6 +172,7 @@ func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, er
 		message.IMSI = stringValue(imsi)
 		message.ICCID = stringValue(iccid)
 		message.Peer = stringValue(peer)
+		message.ReportedPeer = stringValue(reportedPeer)
 		message.LocalPhone = stringValue(local)
 		message.Sender = stringValue(sender)
 		message.Recipient = stringValue(recipient)

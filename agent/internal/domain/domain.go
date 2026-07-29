@@ -107,8 +107,10 @@ type Line struct {
 	IMSI                     string      `json:"imsi"`
 	HomeOperatorCode         string      `json:"home_operator_code"`
 	HomeOperatorName         string      `json:"home_operator_name"`
+	HomeCountryISO           string      `json:"home_country_iso"`
 	ServingOperatorCode      string      `json:"serving_operator_code"`
 	ServingOperatorName      string      `json:"serving_operator_name"`
+	ServingCountryISO        string      `json:"serving_country_iso"`
 	RegistrationStateKnown   bool        `json:"registration_state_known"`
 	RegistrationStateCode    uint32      `json:"registration_state_code"`
 	RegistrationState        string      `json:"registration_state"`

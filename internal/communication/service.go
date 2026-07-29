@@ -76,6 +76,7 @@ type Repository interface {
 		context.Context,
 		store.HardwareSnapshot,
 	) (store.HardwareSnapshotResult, error)
+	Lines(context.Context) ([]store.LineSummary, error)
 	UpsertHardwareMessage(context.Context, store.HardwareMessage) (store.Message, bool, error)
 	UpsertHardwareCall(context.Context, store.HardwareCall) (store.Call, error)
 	BeginHardwareCommand(context.Context, string, string, []byte) (store.HardwareCommand, bool, error)
@@ -243,6 +244,11 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 		return s.recordRefreshFailure("read host agent snapshot", errors.New("snapshot observed_at is missing"))
 	}
 	snapshot, _ = quarantineDuplicateSubscriptionAttachments(snapshot)
+	stableLines, err := s.repository.Lines(refreshContext)
+	if err != nil {
+		return s.recordRefreshFailure("read stable line identities", err)
+	}
+	snapshot = bindSnapshotHomeCountries(snapshot, stableLines)
 
 	hardwareSnapshot, lines := projectSnapshot(snapshot, health.Provider.BootEpoch)
 	snapshotResult, err := s.repository.ApplyHardwareSnapshotWithResult(
@@ -253,7 +259,11 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 		return s.recordRefreshFailure("persist host agent snapshot", err)
 	}
 	s.enqueueDeviceMessageCleanup(hardwareSnapshot.Messages)
-	lines = bindProjectedLines(lines, snapshotResult.LineIDsByEndpoint)
+	stableLines, err = s.repository.Lines(refreshContext)
+	if err != nil {
+		return s.recordRefreshFailure("read persisted line identities", err)
+	}
+	lines = bindProjectedLines(lines, snapshotResult.LineIDsByEndpoint, stableLines)
 	s.publishIncomingMessages(snapshotResult.CreatedIncomingMessages)
 	activeCalls, err := s.repository.ActiveCalls(refreshContext)
 	if err != nil {
@@ -1110,10 +1120,11 @@ func (s *Service) SendMessage(ctx context.Context, input SendMessageInput) (stor
 	if err != nil {
 		return store.Message{}, fmt.Errorf("%s: %w", operation, err)
 	}
-	_, number, err := phone.Normalize(input.Number)
+	address, err := phone.ParseDestination(input.Number, line.HomeCountryISO)
 	if err != nil {
-		return store.Message{}, operationError(CodeInvalidArgument, operation, "recipient must be an international phone number", err)
+		return store.Message{}, operationError(CodeInvalidArgument, operation, "recipient is not valid for the selected line", err)
 	}
+	number := address.Dial
 	text := strings.TrimSpace(input.Text)
 	if text == "" || utf8.RuneCountInString(text) > maxMessageRunes {
 		return store.Message{}, operationError(CodeInvalidArgument, operation, "message must contain 1 to 1600 characters", nil)
@@ -1174,7 +1185,9 @@ func (s *Service) SendMessage(ctx context.Context, input SendMessageInput) (stor
 		IMSI:              line.IMSI,
 		ICCID:             line.ICCID,
 		LocalPhone:        line.PhoneNumber,
+		HomeCountryISO:    line.HomeCountryISO,
 		Number:            number,
+		ReportedNumber:    input.Number,
 		Text:              text,
 		Direction:         "outgoing",
 		State:             "unknown",
@@ -1217,10 +1230,11 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 	if err != nil {
 		return store.Call{}, fmt.Errorf("%s: %w", operation, err)
 	}
-	_, number, err := phone.NormalizeDialTarget(input.Number)
+	address, err := phone.ParseDestination(input.Number, line.HomeCountryISO)
 	if err != nil {
 		return store.Call{}, operationError(CodeInvalidArgument, operation, "destination is not dialable", err)
 	}
+	number := address.Dial
 	requestID, err := s.requestID(input.RequestID)
 	if err != nil {
 		return store.Call{}, operationError(CodeInvalidArgument, operation, "request id is invalid", err)
@@ -1704,6 +1718,7 @@ func projectSnapshot(
 	lineIndex := make(map[string]store.LineSummary, len(snapshot.Lines))
 	for _, line := range snapshot.Lines {
 		projected := projectLine(line)
+		reportedPhoneNumber := firstString(line.OwnNumbers)
 		lines = append(lines, projected)
 		lineIndex[line.ID] = projected
 		accessTechnologies := knownAccessTechnologies(line)
@@ -1732,10 +1747,14 @@ func projectSnapshot(
 			SignalRSRQ:          freshRoundedSignal(signalMetricsFresh, line.SignalRSRQ),
 			SignalRSRP:          freshRoundedSignal(signalMetricsFresh, line.SignalRSRP),
 			SignalSNR:           freshSignal(signalMetricsFresh, line.SignalSNR),
-			PhoneNumber:         firstString(line.OwnNumbers),
+			PhoneNumber:         projected.PhoneNumber,
+			ReportedPhoneNumber: reportedPhoneNumber,
 			ICCID:               line.SIMIdentifier,
 			IMSI:                line.IMSI,
 			Operator:            projected.Operator,
+			HomeOperatorCode:    projected.HomeOperatorCode,
+			HomeOperatorName:    projected.HomeOperatorName,
+			HomeCountryISO:      projected.HomeCountryISO,
 			Capabilities:        projected.Capabilities,
 		})
 	}
@@ -1836,17 +1855,23 @@ func projectLine(line agentclient.Line) store.LineSummary {
 	signal := projectedSignalQuality(line)
 	homeOperatorCode := firstNonEmpty(line.HomeOperatorCode, line.OperatorIdentifier)
 	homeOperatorName := firstNonEmpty(line.HomeOperatorName, line.OperatorName)
+	phoneNumber := phone.NetworkSubscriberE164(
+		firstString(line.OwnNumbers),
+		line.HomeCountryISO,
+	)
 	return store.LineSummary{
 		ID:                       line.ID,
 		EndpointID:               line.ID,
 		ICCID:                    line.SIMIdentifier,
 		IMSI:                     line.IMSI,
-		PhoneNumber:              firstString(line.OwnNumbers),
+		PhoneNumber:              phoneNumber,
 		Operator:                 firstNonEmpty(homeOperatorName, homeOperatorCode),
 		HomeOperatorCode:         homeOperatorCode,
 		HomeOperatorName:         homeOperatorName,
+		HomeCountryISO:           line.HomeCountryISO,
 		ServingOperatorCode:      line.ServingOperatorCode,
 		ServingOperatorName:      line.ServingOperatorName,
+		ServingCountryISO:        line.ServingCountryISO,
 		RegistrationStateKnown:   line.RegistrationStateKnown,
 		RegistrationStateCode:    line.RegistrationStateCode,
 		RegistrationState:        line.RegistrationState,
@@ -1931,7 +1956,9 @@ func projectMessage(
 		IMSI:              line.IMSI,
 		ICCID:             line.ICCID,
 		LocalPhone:        line.PhoneNumber,
-		Number:            message.Number,
+		HomeCountryISO:    line.HomeCountryISO,
+		Number:            phone.CanonicalNetworkAddress(message.Number, line.HomeCountryISO),
+		ReportedNumber:    message.Number,
 		Text:              text,
 		Direction:         normalizeMessageDirection(message.Direction),
 		State:             message.State,
@@ -1957,8 +1984,10 @@ func projectCall(
 		LocalPhone:      line.PhoneNumber,
 		LineIMSI:        line.IMSI,
 		LineICCID:       line.ICCID,
+		HomeCountryISO:  line.HomeCountryISO,
 		EndpointCallID:  call.ID,
-		Number:          call.Number,
+		Number:          phone.CanonicalNetworkAddress(call.Number, line.HomeCountryISO),
+		ReportedNumber:  call.Number,
 		Direction:       normalizeCallDirection(call.Direction, call.State),
 		Phase:           callPhase(call.State),
 		Bearer:          call.Bearer,
@@ -2030,7 +2059,16 @@ func resolveLine(
 func bindProjectedLines(
 	lines []store.LineSummary,
 	lineIDsByEndpoint map[string]string,
+	stableLines []store.LineSummary,
 ) []store.LineSummary {
+	homeCountriesByLineID := make(map[string]string, len(stableLines))
+	for _, line := range stableLines {
+		lineID := strings.TrimSpace(line.ID)
+		homeCountryISO := phone.CanonicalRegion(line.HomeCountryISO)
+		if lineID != "" && homeCountryISO != "" {
+			homeCountriesByLineID[lineID] = homeCountryISO
+		}
+	}
 	bound := make([]store.LineSummary, 0, len(lines))
 	for _, line := range lines {
 		endpointID := strings.TrimSpace(line.EndpointID)
@@ -2043,9 +2081,73 @@ func bindProjectedLines(
 		}
 		line.ID = lineID
 		line.EndpointID = endpointID
+		if homeCountryISO := homeCountriesByLineID[lineID]; homeCountryISO != "" {
+			line.HomeCountryISO = homeCountryISO
+		}
 		bound = append(bound, line)
 	}
 	return bound
+}
+
+func bindSnapshotHomeCountries(
+	snapshot agentclient.Snapshot,
+	stableLines []store.LineSummary,
+) agentclient.Snapshot {
+	lookup := newStableHomeCountryLookup(stableLines)
+	snapshot.Lines = append([]agentclient.Line(nil), snapshot.Lines...)
+	for index := range snapshot.Lines {
+		line := &snapshot.Lines[index]
+		homeCountryISO := lookup.resolve(*line)
+		if homeCountryISO != "" {
+			line.HomeCountryISO = homeCountryISO
+		}
+	}
+	return snapshot
+}
+
+type stableHomeCountryLookup struct {
+	byICCID map[string]string
+	byIMSI  map[string]string
+}
+
+func newStableHomeCountryLookup(lines []store.LineSummary) stableHomeCountryLookup {
+	lookup := stableHomeCountryLookup{
+		byICCID: make(map[string]string, len(lines)),
+		byIMSI:  make(map[string]string, len(lines)),
+	}
+	for _, line := range lines {
+		homeCountryISO := phone.CanonicalRegion(line.HomeCountryISO)
+		if homeCountryISO == "" {
+			continue
+		}
+		indexStableHomeCountry(lookup.byICCID, line.ICCID, homeCountryISO)
+		indexStableHomeCountry(lookup.byIMSI, line.IMSI, homeCountryISO)
+	}
+	return lookup
+}
+
+func (lookup stableHomeCountryLookup) resolve(line agentclient.Line) string {
+	iccid := strings.TrimSpace(line.SIMIdentifier)
+	if homeCountryISO := lookup.byICCID[iccid]; homeCountryISO != "" {
+		return homeCountryISO
+	}
+	imsi := strings.TrimSpace(line.IMSI)
+	if homeCountryISO := lookup.byIMSI[imsi]; homeCountryISO != "" {
+		return homeCountryISO
+	}
+	return ""
+}
+
+func indexStableHomeCountry(index map[string]string, key, homeCountryISO string) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return
+	}
+	if existing, found := index[key]; found && existing != homeCountryISO {
+		index[key] = ""
+		return
+	}
+	index[key] = homeCountryISO
 }
 
 func callPhase(state string) string {

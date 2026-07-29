@@ -407,7 +407,7 @@ func TestServiceRecentCallsAndSMSCommands(t *testing.T) {
 	if !reflect.DeepEqual(smsRequests[0], SMSRequest{
 		RequestID: "telegram:123456789:31:sms",
 		LineID:    "line-a",
-		To:        "+818012345678",
+		To:        "+81-80-1234-5678",
 		Body:      "hello there",
 	}) {
 		t.Fatalf("explicit SMS request = %#v", smsRequests[0])
@@ -421,7 +421,7 @@ func TestServiceRecentCallsAndSMSCommands(t *testing.T) {
 	if !reflect.DeepEqual(smsRequests[1], SMSRequest{
 		RequestID: "telegram:123456789:32:sms",
 		LineID:    "line-a",
-		To:        "+818012345678",
+		To:        "+81 80-1234-5678",
 		Body:      "direct response",
 	}) {
 		t.Fatalf("direct SMS request = %#v", smsRequests[1])

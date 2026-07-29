@@ -206,11 +206,11 @@ func TestStableLineMergesEquivalentInternationalNumberRepresentations(t *testing
 	const (
 		historicalLineID = "line_historical_plus"
 		currentLineID    = "line_current_bare"
-		phoneWithPrefix  = "+8613800000001"
-		phoneWithoutPlus = "8618636812882"
-		iccid            = "8986012345678900001"
+		phoneWithPrefix  = "+8613800138000"
+		phoneWithoutPlus = "8613800138000"
+		iccid            = "89860000000000000001"
 		imsi             = "460010000000001"
-		peer             = "+818000000001"
+		peer             = "+818012345678"
 	)
 	if _, err := repository.database.ExecContext(
 		ctx,
@@ -296,13 +296,14 @@ func TestStableLineMergesEquivalentInternationalNumberRepresentations(t *testing
 			PhoneNumber:         phoneWithoutPlus,
 			ICCID:               iccid,
 			IMSI:                imsi,
+			HomeCountryISO:      "CN",
 		}},
 	})
 	if err != nil {
 		t.Fatalf("apply equivalent phone snapshot: %v", err)
 	}
-	if got := result.LineIDsByEndpoint["endpoint-current"]; got != currentLineID {
-		t.Fatalf("resolved stable line = %q, want %q", got, currentLineID)
+	if got := result.LineIDsByEndpoint["endpoint-current"]; got != historicalLineID {
+		t.Fatalf("resolved stable line = %q, want %q", got, historicalLineID)
 	}
 
 	var (
@@ -323,11 +324,11 @@ func TestStableLineMergesEquivalentInternationalNumberRepresentations(t *testing
 				WHERE line_id = ? AND id = 'call-historical-plus')`,
 		historicalLineID,
 		currentLineID,
-		currentLineID,
-		currentLineID,
-		currentLineID,
-		currentLineID,
-		currentLineID,
+		historicalLineID,
+		historicalLineID,
+		historicalLineID,
+		historicalLineID,
+		historicalLineID,
 	).Scan(
 		&lineCount,
 		&phone,
@@ -339,7 +340,7 @@ func TestStableLineMergesEquivalentInternationalNumberRepresentations(t *testing
 		t.Fatalf("read merged equivalent phone line: %v", err)
 	}
 	if lineCount != 1 ||
-		phone != phoneWithoutPlus ||
+		phone != phoneWithPrefix ||
 		label != "Bac" ||
 		color != "teal" ||
 		historicalMessages != 1 ||
@@ -354,21 +355,201 @@ func TestStableLineMergesEquivalentInternationalNumberRepresentations(t *testing
 			historicalCalls,
 		)
 	}
-	assertResolvedLineEndpoint(t, repository, currentLineID, "endpoint-current")
+	assertResolvedLineEndpoint(t, repository, historicalLineID, "endpoint-current")
 }
 
 func TestStableLinePhoneIdentityTreatsInternationalPrefixesAsOne(t *testing.T) {
 	t.Parallel()
 
-	const expected = "+8613800000001"
+	const expected = "+8613800138000"
 	for _, number := range []string{
-		"+8613800000001",
-		"8618636812882",
-		"008618636812882",
+		"+8613800138000",
+		"8613800138000",
+		"008613800138000",
 	} {
-		if got := stableLinePhoneIdentity(number); got != expected {
+		if got := normalizeStableLinePhone(number, "CN"); got != expected {
 			t.Fatalf("identity for %q = %q, want %q", number, got, expected)
 		}
+	}
+}
+
+func TestStableLineStoredPhoneRejectsAmbiguousLocalIdentity(t *testing.T) {
+	t.Parallel()
+
+	for _, number := range []string{"13800138000", "8613800138000"} {
+		if got := stableLinePhoneIdentity(number); got != "" {
+			t.Fatalf("stored identity for %q = %q, want empty", number, got)
+		}
+	}
+	for _, number := range []string{"+8613800138000", "008613800138000"} {
+		if got := stableLinePhoneIdentity(number); got != "+8613800138000" {
+			t.Fatalf("stored explicit identity for %q = %q", number, got)
+		}
+	}
+}
+
+func TestFirstAuthoritativeLineCountryCanonicalizesHistoricalPhonesOnce(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	ctx := context.Background()
+	observed := time.Date(2026, time.July, 29, 2, 0, 0, 0, time.UTC)
+	const (
+		lineID = "line_deferred_country"
+		iccid  = "8986000000000000029"
+		imsi   = "460010000000029"
+	)
+	if _, err := repository.database.ExecContext(
+		ctx,
+		`INSERT INTO modemdeck_lines (line_id, phone_number)
+		 VALUES ('line_deferred_country', '13800138000');
+		 INSERT INTO sim_cards (iccid, line_id, imsi)
+		 VALUES (
+			'8986000000000000029',
+			'line_deferred_country',
+			'460010000000029'
+		 );
+		 INSERT INTO sim_subscriptions (
+			imsi, line_id, current_iccid, phone_number
+		 ) VALUES (
+			'460010000000029',
+			'line_deferred_country',
+			'8986000000000000029',
+			'13800138000'
+		 );
+		 INSERT INTO call_history (
+			id, line_id, direction, remote_number, phase, created_at, ended_at
+		 ) VALUES
+			(
+				'call-deferred-plus', 'line_deferred_country',
+				'incoming', '+8613800138000', 'ended',
+				'2026-07-29 02:00:00', '2026-07-29 02:00:00'
+			),
+			(
+				'call-deferred-country', 'line_deferred_country',
+				'incoming', '8613800138000', 'ended',
+				'2026-07-29 02:00:01', '2026-07-29 02:00:01'
+			),
+			(
+				'call-deferred-idd', 'line_deferred_country',
+				'incoming', '008613800138000', 'ended',
+				'2026-07-29 02:00:02', '2026-07-29 02:00:02'
+			);
+		 INSERT INTO sms (
+			id, line_id, peer, content, type, timestamp
+		 ) VALUES
+			(
+				2901, 'line_deferred_country',
+				'+8613800138000', 'old', 1, '2026-07-29 02:00:00'
+			),
+			(
+				2902, 'line_deferred_country',
+				'8613800138000', 'middle', 1, '2026-07-29 02:00:01'
+			),
+			(
+				2903, 'line_deferred_country',
+				'008613800138000', 'new', 1, '2026-07-29 02:00:02'
+			);
+		 INSERT INTO sms_contacts (
+			line_id, imsi, iccid, peer, last_sms_id, last_timestamp,
+			last_content, unread_count
+		 ) VALUES
+			(
+				'line_deferred_country', '460010000000029',
+				'8986000000000000029', '+8613800138000',
+				2901, '2026-07-29 02:00:00', 'old', 1
+			),
+			(
+				'line_deferred_country', '460010000000029',
+				'8986000000000000029', '8613800138000',
+				2902, '2026-07-29 02:00:01', 'middle', 2
+			),
+			(
+				'line_deferred_country', '460010000000029',
+				'8986000000000000029', '008613800138000',
+				2903, '2026-07-29 02:00:02', 'new', 3
+			)`,
+	); err != nil {
+		t.Fatalf("seed deferred line phone identities: %v", err)
+	}
+
+	snapshot := HardwareSnapshot{
+		BootEpoch:  "boot-deferred-country",
+		Revision:   "snapshot-deferred-country-1",
+		ObservedAt: observed.Add(time.Minute),
+		Lines: []HardwareLine{{
+			ID:                  "endpoint-deferred-country",
+			EquipmentIdentifier: "990000000000029",
+			PhoneNumber:         "13800138000",
+			ICCID:               iccid,
+			IMSI:                imsi,
+			HomeCountryISO:      "CN",
+		}},
+	}
+	if err := repository.ApplyHardwareSnapshot(ctx, snapshot); err != nil {
+		t.Fatalf("ApplyHardwareSnapshot() error = %v", err)
+	}
+	snapshot.Revision = "snapshot-deferred-country-2"
+	snapshot.ObservedAt = snapshot.ObservedAt.Add(time.Second)
+	if err := repository.ApplyHardwareSnapshot(ctx, snapshot); err != nil {
+		t.Fatalf("replayed ApplyHardwareSnapshot() error = %v", err)
+	}
+
+	var region, localPhone string
+	if err := repository.database.QueryRowContext(
+		ctx,
+		`SELECT home_country_iso, phone_number
+		 FROM modemdeck_lines WHERE line_id = ?`,
+		lineID,
+	).Scan(&region, &localPhone); err != nil {
+		t.Fatal(err)
+	}
+	if region != "CN" || localPhone != "+8613800138000" {
+		t.Fatalf("line identity = (%q, %q), want (CN, +8613800138000)", region, localPhone)
+	}
+
+	var callCount, messageCount int
+	if err := repository.database.QueryRowContext(
+		ctx,
+		`SELECT
+			(SELECT COUNT(*) FROM call_history
+			 WHERE line_id = ? AND remote_number = '+8613800138000'),
+			(SELECT COUNT(*) FROM sms
+			 WHERE line_id = ? AND peer = '+8613800138000')`,
+		lineID,
+		lineID,
+	).Scan(&callCount, &messageCount); err != nil {
+		t.Fatal(err)
+	}
+	if callCount != 3 || messageCount != 3 {
+		t.Fatalf("canonical history counts = calls %d, messages %d", callCount, messageCount)
+	}
+
+	var peer, content string
+	var lastID, unread, threadCount int
+	if err := repository.database.QueryRowContext(
+		ctx,
+		`SELECT peer, last_sms_id, last_content, unread_count,
+			(SELECT COUNT(*) FROM sms_contacts WHERE line_id = ?)
+		 FROM sms_contacts WHERE line_id = ?`,
+		lineID,
+		lineID,
+	).Scan(&peer, &lastID, &content, &unread, &threadCount); err != nil {
+		t.Fatal(err)
+	}
+	if peer != "+8613800138000" ||
+		lastID != 2903 ||
+		content != "new" ||
+		unread != 6 ||
+		threadCount != 1 {
+		t.Fatalf(
+			"canonical thread = (%q, %d, %q, %d, count %d)",
+			peer,
+			lastID,
+			content,
+			unread,
+			threadCount,
+		)
 	}
 }
 

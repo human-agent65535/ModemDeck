@@ -125,9 +125,15 @@ func ParseManagedObjects(objects ManagedObjects, ids *instanceIDs) ParsedObjects
 				line.IMSI, _ = stringProperty(simProperties, "Imsi")
 				line.HomeOperatorCode, _ = stringProperty(simProperties, "OperatorIdentifier")
 				line.HomeOperatorName, _ = stringProperty(simProperties, "OperatorName")
-				if strings.TrimSpace(line.HomeOperatorName) == "" {
-					if name, found := operator.Name(line.HomeOperatorCode); found {
-						line.HomeOperatorName = name
+				if details, found := operator.Lookup(line.HomeOperatorCode); found {
+					line.HomeCountryISO = details.CountryISO
+					if strings.TrimSpace(line.HomeOperatorName) == "" {
+						line.HomeOperatorName = details.Name
+					}
+				}
+				if strings.TrimSpace(line.HomeCountryISO) == "" {
+					if details, found := operator.CountryForIMSI(line.IMSI); found {
+						line.HomeCountryISO = details.CountryISO
 					}
 				}
 				line.OperatorIdentifier = line.HomeOperatorCode
@@ -138,9 +144,10 @@ func ParseManagedObjects(objects ManagedObjects, ids *instanceIDs) ParsedObjects
 		if properties, found := interfaces[modem3GPPInterface]; found {
 			line.ServingOperatorCode, _ = stringProperty(properties, "OperatorCode")
 			line.ServingOperatorName, _ = stringProperty(properties, "OperatorName")
-			if strings.TrimSpace(line.ServingOperatorName) == "" {
-				if name, resolved := operator.Name(line.ServingOperatorCode); resolved {
-					line.ServingOperatorName = name
+			if details, resolved := operator.Lookup(line.ServingOperatorCode); resolved {
+				line.ServingCountryISO = details.CountryISO
+				if strings.TrimSpace(line.ServingOperatorName) == "" {
+					line.ServingOperatorName = details.Name
 				}
 			}
 			line.RegistrationStateCode, line.RegistrationStateKnown =

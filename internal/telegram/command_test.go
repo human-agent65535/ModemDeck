@@ -72,7 +72,7 @@ func TestParseCommand(t *testing.T) {
 			want: Command{
 				Kind:   CommandReply,
 				LineID: "line-a",
-				Number: "+818012345678",
+				Number: "+81-80-1234-5678",
 				Body:   "Hello from Telegram",
 			},
 		},

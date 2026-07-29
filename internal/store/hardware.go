@@ -145,6 +145,7 @@ func (s *Store) UpsertHardwareMessage(ctx context.Context, message HardwareMessa
 		message.ICCID,
 		message.IMSI,
 		message.LocalPhone,
+		message.HomeCountryISO,
 	)
 	if err != nil {
 		return Message{}, false, fmt.Errorf("resolve message line: %w", err)
@@ -179,6 +180,7 @@ func (s *Store) UpsertHardwareCall(ctx context.Context, call HardwareCall) (Call
 		call.LineICCID,
 		call.LineIMSI,
 		call.LocalPhone,
+		call.HomeCountryISO,
 	)
 	if err != nil {
 		return Call{}, fmt.Errorf("resolve call line: %w", err)
@@ -230,7 +232,7 @@ func (s *Store) ActiveCalls(ctx context.Context) ([]Call, error) {
 	rows, err := s.database.QueryContext(
 		ctx,
 		`SELECT id, request_id, line_id, endpoint_line_id, local_phone, line_imsi, line_iccid,
-			direction, remote_number,
+			direction, remote_number, reported_remote_number,
 			endpoint_id, endpoint_call_id, phase, revision, created_at, updated_at,
 			active_at, ended_at, end_reason, failure_code, bearer, state_reason,
 			state_reason_code, multiparty, audio_port, audio_encoding,
@@ -311,6 +313,10 @@ func upsertHardwareLine(
 	line HardwareLine,
 	observedAt time.Time,
 ) (string, error) {
+	reportedPhoneNumber := strings.TrimSpace(line.ReportedPhoneNumber)
+	if reportedPhoneNumber == "" {
+		reportedPhoneNumber = strings.TrimSpace(line.PhoneNumber)
+	}
 	endpointID := strings.TrimSpace(line.ID)
 	if endpointID == "" {
 		return "", nil
@@ -319,6 +325,30 @@ func upsertHardwareLine(
 	if imei == "" {
 		return "", nil
 	}
+	observedRegion := phone.CanonicalRegion(line.HomeCountryISO)
+	identityLineID, identityErr := resolveStableLineIdentity(
+		ctx,
+		transaction,
+		line.ICCID,
+		line.IMSI,
+		"",
+		"",
+	)
+	if identityErr != nil && !errors.Is(identityErr, ErrLineNotFound) {
+		return "", identityErr
+	}
+	homeRegion := observedRegion
+	if identityErr == nil {
+		storedRegion, err := stableLineHomeCountry(ctx, transaction, identityLineID)
+		if err != nil {
+			return "", err
+		}
+		if storedRegion != "" {
+			homeRegion = storedRegion
+		}
+	}
+	line.PhoneNumber = phone.NetworkSubscriberE164(reportedPhoneNumber, homeRegion)
+	line.HomeCountryISO = homeRegion
 	provisionalLineIDs, err := resolveLegacyEndpointLines(ctx, transaction, endpointID, imei)
 	if err != nil {
 		return "", err
@@ -329,6 +359,7 @@ func upsertHardwareLine(
 		line.ICCID,
 		line.IMSI,
 		line.PhoneNumber,
+		line.HomeCountryISO,
 		observedAt,
 	)
 	if err != nil && !errors.Is(err, ErrLineNotFound) {
@@ -360,6 +391,27 @@ func upsertHardwareLine(
 		}
 	}
 	if lineID != "" {
+		homeRegion, established, err := establishStableLineHomeCountry(
+			ctx,
+			transaction,
+			lineID,
+			observedRegion,
+			line.PhoneNumber,
+		)
+		if err != nil {
+			return "", err
+		}
+		line.HomeCountryISO = homeRegion
+		if established {
+			if err := canonicalizeLinePhoneIdentities(
+				ctx,
+				transaction,
+				lineID,
+				homeRegion,
+			); err != nil {
+				return "", err
+			}
+		}
 		if err := ensureLineCallPolicy(ctx, transaction, lineID); err != nil {
 			return "", err
 		}
@@ -471,8 +523,9 @@ func upsertHardwareLine(
 		ctx,
 		`INSERT INTO sim_subscriptions (
 			imsi, line_id, current_iccid, phone_number, modem_phone_number, operator,
+			home_operator_code, home_country_iso,
 			last_seen, created_at, updated_at
-		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(imsi) DO UPDATE SET
 			line_id = excluded.line_id,
 			current_iccid = excluded.current_iccid,
@@ -485,14 +538,24 @@ func upsertHardwareLine(
 				ELSE sim_subscriptions.modem_phone_number
 			END,
 			operator = excluded.operator,
+			home_operator_code = CASE
+				WHEN excluded.home_operator_code <> '' THEN excluded.home_operator_code
+				ELSE sim_subscriptions.home_operator_code
+			END,
+			home_country_iso = CASE
+				WHEN excluded.home_country_iso <> '' THEN excluded.home_country_iso
+				ELSE sim_subscriptions.home_country_iso
+			END,
 			last_seen = excluded.last_seen,
 			updated_at = excluded.updated_at`,
 		strings.TrimSpace(line.IMSI),
 		lineID,
 		currentICCID,
 		strings.TrimSpace(line.PhoneNumber),
-		strings.TrimSpace(line.PhoneNumber),
+		reportedPhoneNumber,
 		strings.TrimSpace(line.Operator),
+		strings.TrimSpace(line.HomeOperatorCode),
+		strings.ToUpper(strings.TrimSpace(line.HomeCountryISO)),
 		databaseTime(observedAt),
 		databaseTime(observedAt),
 		databaseTime(observedAt),
@@ -596,6 +659,24 @@ func rewriteSnapshotLineIdentities(
 	snapshot *HardwareSnapshot,
 	lineIDsByEndpoint map[string]string,
 ) error {
+	homeCountries := make(map[string]string, len(lineIDsByEndpoint))
+	lineHomeCountry := func(lineID, observed string) (string, error) {
+		if region, exists := homeCountries[lineID]; exists {
+			if region != "" {
+				return region, nil
+			}
+			return phone.CanonicalRegion(observed), nil
+		}
+		region, err := stableLineHomeCountry(ctx, transaction, lineID)
+		if err != nil {
+			return "", err
+		}
+		homeCountries[lineID] = region
+		if region != "" {
+			return region, nil
+		}
+		return phone.CanonicalRegion(observed), nil
+	}
 	for index := range snapshot.Messages {
 		message := &snapshot.Messages[index]
 		endpointLineID := strings.TrimSpace(message.EndpointLineID)
@@ -613,6 +694,7 @@ func rewriteSnapshotLineIdentities(
 				message.ICCID,
 				message.IMSI,
 				message.LocalPhone,
+				message.HomeCountryISO,
 			)
 			if err != nil {
 				return fmt.Errorf("resolve snapshot message line: %w", err)
@@ -620,6 +702,11 @@ func rewriteSnapshotLineIdentities(
 		}
 		message.LineID = lineID
 		message.EndpointLineID = endpointLineID
+		homeCountry, err := lineHomeCountry(lineID, message.HomeCountryISO)
+		if err != nil {
+			return fmt.Errorf("resolve snapshot message home country: %w", err)
+		}
+		message.HomeCountryISO = homeCountry
 	}
 	for index := range snapshot.Calls {
 		call := &snapshot.Calls[index]
@@ -638,6 +725,7 @@ func rewriteSnapshotLineIdentities(
 				call.LineICCID,
 				call.LineIMSI,
 				call.LocalPhone,
+				call.HomeCountryISO,
 			)
 			if err != nil {
 				return fmt.Errorf("resolve snapshot call line: %w", err)
@@ -645,6 +733,11 @@ func rewriteSnapshotLineIdentities(
 		}
 		call.LineID = lineID
 		call.EndpointLineID = endpointLineID
+		homeCountry, err := lineHomeCountry(lineID, call.HomeCountryISO)
+		if err != nil {
+			return fmt.Errorf("resolve snapshot call home country: %w", err)
+		}
+		call.HomeCountryISO = homeCountry
 	}
 	return nil
 }
@@ -658,7 +751,15 @@ func upsertHardwareMessage(
 	message.EndpointLineID = strings.TrimSpace(message.EndpointLineID)
 	message.EndpointMessageID = strings.TrimSpace(message.EndpointMessageID)
 	message.RequestID = strings.TrimSpace(message.RequestID)
-	message.Number = strings.TrimSpace(message.Number)
+	reportedNumber := strings.TrimSpace(message.ReportedNumber)
+	if reportedNumber == "" {
+		reportedNumber = strings.TrimSpace(message.Number)
+	}
+	message.Number = phone.CanonicalNetworkAddress(reportedNumber, message.HomeCountryISO)
+	message.LocalPhone = phone.CanonicalNetworkAddress(
+		message.LocalPhone,
+		message.HomeCountryISO,
+	)
 	message.Text = strings.TrimSpace(message.Text)
 	message.Direction = strings.ToLower(strings.TrimSpace(message.Direction))
 	message.State = strings.ToLower(strings.TrimSpace(message.State))
@@ -718,9 +819,9 @@ func upsertHardwareMessage(
 			ctx,
 			`INSERT INTO sms (
 				request_id, line_id, endpoint_line_id, endpoint_message_id, imsi, iccid, peer,
-				local_phone, sender, recipient, content, type, status, state,
+				reported_peer, local_phone, sender, recipient, content, type, status, state,
 				failure_code, revision, timestamp, created_at
-			 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)`,
+			 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)`,
 			message.RequestID,
 			message.LineID,
 			message.EndpointLineID,
@@ -728,6 +829,7 @@ func upsertHardwareMessage(
 			strings.TrimSpace(message.IMSI),
 			strings.TrimSpace(message.ICCID),
 			message.Number,
+			reportedNumber,
 			strings.TrimSpace(message.LocalPhone),
 			sender,
 			recipient,
@@ -769,17 +871,47 @@ func upsertHardwareMessage(
 			}
 		}
 	} else {
+		existing, err := messageByID(ctx, transaction, existingID)
+		if err != nil {
+			return Message{}, false, err
+		}
+		nextPeer := preferGlobalPhoneIdentity(existing.Peer, message.Number)
+		nextLocal := preferGlobalPhoneIdentity(
+			existing.LocalPhone,
+			strings.TrimSpace(message.LocalPhone),
+		)
+		nextReportedPeer := existing.ReportedPeer
+		if nextReportedPeer == "" {
+			nextReportedPeer = reportedNumber
+		}
+		nextSender, nextRecipient := existing.Sender, existing.Recipient
+		switch existing.Type {
+		case 1:
+			nextSender, nextRecipient = nextPeer, nextLocal
+		case 2:
+			nextSender, nextRecipient = nextLocal, nextPeer
+		}
 		if _, err := transaction.ExecContext(
 			ctx,
 			`UPDATE sms SET
 				request_id = CASE WHEN request_id = '' THEN ? ELSE request_id END,
 				endpoint_message_id = CASE WHEN endpoint_message_id = '' THEN ? ELSE endpoint_message_id END,
+				peer = ?,
+				reported_peer = ?,
+				local_phone = ?,
+				sender = ?,
+				recipient = ?,
 				status = CASE WHEN revision <= ? THEN ? ELSE status END,
 				state = CASE WHEN revision <= ? THEN ? ELSE state END,
 				revision = CASE WHEN revision < ? THEN ? ELSE revision END
 			 WHERE id = ?`,
 			message.RequestID,
 			message.EndpointMessageID,
+			nextPeer,
+			nextReportedPeer,
+			nextLocal,
+			nextSender,
+			nextRecipient,
 			message.Revision,
 			message.StateCode,
 			message.Revision,
@@ -789,6 +921,26 @@ func upsertHardwareMessage(
 			existingID,
 		); err != nil {
 			return Message{}, false, fmt.Errorf("update hardware message: %w", err)
+		}
+		if nextPeer != existing.Peer {
+			if err := upgradeLineMessagePeerIdentity(
+				ctx,
+				transaction,
+				existing.LineID,
+				existing.Peer,
+				nextPeer,
+			); err != nil {
+				return Message{}, false, err
+			}
+			if err := mergeMessageThreadPeer(
+				ctx,
+				transaction,
+				existing.LineID,
+				existing.Peer,
+				nextPeer,
+			); err != nil {
+				return Message{}, false, err
+			}
 		}
 	}
 	stored, err := messageByID(ctx, transaction, existingID)
@@ -862,19 +1014,153 @@ func updateMessageThread(
 	return nil
 }
 
+func mergeMessageThreadPeer(
+	ctx context.Context,
+	transaction *sql.Tx,
+	lineID,
+	previousPeer,
+	canonicalPeer string,
+) error {
+	lineID = strings.TrimSpace(lineID)
+	previousPeer = strings.TrimSpace(previousPeer)
+	canonicalPeer = strings.TrimSpace(canonicalPeer)
+	if lineID == "" || previousPeer == "" || canonicalPeer == "" ||
+		previousPeer == canonicalPeer {
+		return nil
+	}
+	if _, err := transaction.ExecContext(
+		ctx,
+		`INSERT INTO sms_contacts (
+			line_id, imsi, iccid, peer, last_sms_id, last_timestamp,
+			last_content, last_type, unread_count, created_at, updated_at
+		 )
+		 SELECT line_id, imsi, iccid, ?, last_sms_id, last_timestamp,
+			last_content, last_type, unread_count, created_at, updated_at
+		 FROM sms_contacts
+		 WHERE line_id = ? AND peer = ?
+		 ON CONFLICT(line_id, peer) DO UPDATE SET
+			imsi = CASE
+				WHEN COALESCE(excluded.last_timestamp, '') >=
+					COALESCE(sms_contacts.last_timestamp, '')
+				THEN excluded.imsi ELSE sms_contacts.imsi
+			END,
+			iccid = CASE
+				WHEN COALESCE(excluded.last_timestamp, '') >=
+					COALESCE(sms_contacts.last_timestamp, '')
+				THEN excluded.iccid ELSE sms_contacts.iccid
+			END,
+			last_sms_id = CASE
+				WHEN COALESCE(excluded.last_timestamp, '') >=
+					COALESCE(sms_contacts.last_timestamp, '')
+				THEN excluded.last_sms_id ELSE sms_contacts.last_sms_id
+			END,
+			last_timestamp = CASE
+				WHEN COALESCE(excluded.last_timestamp, '') >=
+					COALESCE(sms_contacts.last_timestamp, '')
+				THEN excluded.last_timestamp ELSE sms_contacts.last_timestamp
+			END,
+			last_content = CASE
+				WHEN COALESCE(excluded.last_timestamp, '') >=
+					COALESCE(sms_contacts.last_timestamp, '')
+				THEN excluded.last_content ELSE sms_contacts.last_content
+			END,
+			last_type = CASE
+				WHEN COALESCE(excluded.last_timestamp, '') >=
+					COALESCE(sms_contacts.last_timestamp, '')
+				THEN excluded.last_type ELSE sms_contacts.last_type
+			END,
+			unread_count = sms_contacts.unread_count + excluded.unread_count,
+			created_at = CASE
+				WHEN sms_contacts.created_at IS NULL THEN excluded.created_at
+				WHEN excluded.created_at IS NULL THEN sms_contacts.created_at
+				WHEN excluded.created_at < sms_contacts.created_at THEN excluded.created_at
+				ELSE sms_contacts.created_at
+			END,
+			updated_at = CASE
+				WHEN sms_contacts.updated_at IS NULL THEN excluded.updated_at
+				WHEN excluded.updated_at IS NULL THEN sms_contacts.updated_at
+				WHEN excluded.updated_at > sms_contacts.updated_at THEN excluded.updated_at
+				ELSE sms_contacts.updated_at
+			END`,
+		canonicalPeer,
+		lineID,
+		previousPeer,
+	); err != nil {
+		return fmt.Errorf("merge message thread phone identity: %w", err)
+	}
+	if _, err := transaction.ExecContext(
+		ctx,
+		`DELETE FROM sms_contacts
+		 WHERE line_id = ? AND peer = ?`,
+		lineID,
+		previousPeer,
+	); err != nil {
+		return fmt.Errorf("remove superseded message thread phone identity: %w", err)
+	}
+	return nil
+}
+
+func upgradeLineMessagePeerIdentity(
+	ctx context.Context,
+	transaction *sql.Tx,
+	lineID,
+	previousPeer,
+	canonicalPeer string,
+) error {
+	lineID = strings.TrimSpace(lineID)
+	previousPeer = strings.TrimSpace(previousPeer)
+	canonicalPeer = strings.TrimSpace(canonicalPeer)
+	if lineID == "" ||
+		previousPeer == "" ||
+		!strings.HasPrefix(canonicalPeer, "+") ||
+		strings.HasPrefix(previousPeer, "+") {
+		return nil
+	}
+	if _, err := transaction.ExecContext(
+		ctx,
+		`UPDATE sms
+		 SET peer = ?,
+			sender = CASE WHEN type = 1 THEN ? ELSE sender END,
+			recipient = CASE WHEN type = 2 THEN ? ELSE recipient END
+		 WHERE line_id = ? AND peer = ?`,
+		canonicalPeer,
+		canonicalPeer,
+		canonicalPeer,
+		lineID,
+		previousPeer,
+	); err != nil {
+		return fmt.Errorf("upgrade line message peer identity: %w", err)
+	}
+	return nil
+}
+
+func preferGlobalPhoneIdentity(existing, observed string) string {
+	existing = strings.TrimSpace(existing)
+	observed = strings.TrimSpace(observed)
+	switch {
+	case existing == "":
+		return observed
+	case strings.HasPrefix(observed, "+") && !strings.HasPrefix(existing, "+"):
+		return observed
+	default:
+		return existing
+	}
+}
+
 func messageByID(ctx context.Context, queryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, id int64) (Message, error) {
 	var (
-		message                                                                     Message
-		requestID, lineID, endpointLineID, endpointID, imsi, iccid, peer            sql.NullString
-		local, sender, recipient, content, state, failureCode, timestamp, createdAt sql.NullString
-		messageType, status, revision                                               sql.NullInt64
+		message                                                             Message
+		requestID, lineID, endpointLineID, endpointID, imsi, iccid, peer    sql.NullString
+		reportedPeer, local, sender, recipient, content, state, failureCode sql.NullString
+		timestamp, createdAt                                                sql.NullString
+		messageType, status, revision                                       sql.NullInt64
 	)
 	err := queryer.QueryRowContext(
 		ctx,
 		`SELECT id, request_id, line_id, endpoint_line_id, endpoint_message_id, imsi, iccid, peer,
-			local_phone, sender, recipient, content, type, status, state,
+			reported_peer, local_phone, sender, recipient, content, type, status, state,
 			failure_code, revision, timestamp, created_at
 		 FROM sms WHERE id = ?`,
 		id,
@@ -887,6 +1173,7 @@ func messageByID(ctx context.Context, queryer interface {
 		&imsi,
 		&iccid,
 		&peer,
+		&reportedPeer,
 		&local,
 		&sender,
 		&recipient,
@@ -912,6 +1199,7 @@ func messageByID(ctx context.Context, queryer interface {
 	message.IMSI = stringValue(imsi)
 	message.ICCID = stringValue(iccid)
 	message.Peer = stringValue(peer)
+	message.ReportedPeer = stringValue(reportedPeer)
 	message.LocalPhone = stringValue(local)
 	message.Sender = stringValue(sender)
 	message.Recipient = stringValue(recipient)
@@ -943,8 +1231,12 @@ func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareC
 	call.LineID = strings.TrimSpace(call.LineID)
 	call.EndpointLineID = strings.TrimSpace(call.EndpointLineID)
 	call.EndpointCallID = strings.TrimSpace(call.EndpointCallID)
-	reportedNumber := strings.TrimSpace(call.Number)
-	call.Number = phone.NormalizeNetworkNumber(reportedNumber)
+	reportedNumber := strings.TrimSpace(call.ReportedNumber)
+	if reportedNumber == "" {
+		reportedNumber = strings.TrimSpace(call.Number)
+	}
+	call.Number = phone.CanonicalNetworkAddress(reportedNumber, call.HomeCountryISO)
+	call.LocalPhone = phone.CanonicalNetworkAddress(call.LocalPhone, call.HomeCountryISO)
 	call.Direction = strings.ToLower(strings.TrimSpace(call.Direction))
 	call.Phase = strings.ToLower(strings.TrimSpace(call.Phase))
 	call.Bearer = strings.TrimSpace(call.Bearer)
@@ -1020,8 +1312,17 @@ func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareC
 				WHEN excluded.line_iccid <> '' THEN excluded.line_iccid
 				ELSE call_history.line_iccid
 			END,
+			remote_number = CASE
+				WHEN call_history.remote_number = '' AND excluded.remote_number <> ''
+					THEN excluded.remote_number
+				WHEN excluded.remote_number LIKE '+%'
+					AND call_history.remote_number NOT LIKE '+%'
+					THEN excluded.remote_number
+				ELSE call_history.remote_number
+			END,
 			reported_remote_number = CASE
 				WHEN call_history.reported_remote_number = ''
+					AND excluded.reported_remote_number <> ''
 					THEN excluded.reported_remote_number
 				ELSE call_history.reported_remote_number
 			END,
@@ -1346,7 +1647,7 @@ func callByID(ctx context.Context, queryer interface {
 	row := queryer.QueryRowContext(
 		ctx,
 		`SELECT id, request_id, line_id, endpoint_line_id, local_phone, line_imsi, line_iccid,
-			direction, remote_number,
+			direction, remote_number, reported_remote_number,
 			endpoint_id, endpoint_call_id, phase, revision, created_at, updated_at,
 			active_at, ended_at, end_reason, failure_code, bearer, state_reason,
 			state_reason_code, multiparty, audio_port, audio_encoding,
@@ -1367,12 +1668,12 @@ type callScanner interface {
 
 func scanCallRow(scanner callScanner) (Call, error) {
 	var (
-		call                                                                    Call
-		requestID, lineID, endpointLineID, localPhone, lineIMSI, lineICCID      sql.NullString
-		direction, remoteNumber, endpointID, endpointCallID                     sql.NullString
-		phase, createdAt, updatedAt, activeAt, endedAt, endReason               sql.NullString
-		failure, bearer, stateReason, audioPort, audioEncoding, audioResolution sql.NullString
-		revision, stateReasonCode, multiparty, audioRate, mediaAvailable        sql.NullInt64
+		call                                                                      Call
+		requestID, lineID, endpointLineID, localPhone, lineIMSI, lineICCID        sql.NullString
+		direction, remoteNumber, reportedRemoteNumber, endpointID, endpointCallID sql.NullString
+		phase, createdAt, updatedAt, activeAt, endedAt, endReason                 sql.NullString
+		failure, bearer, stateReason, audioPort, audioEncoding, audioResolution   sql.NullString
+		revision, stateReasonCode, multiparty, audioRate, mediaAvailable          sql.NullInt64
 	)
 	if err := scanner.Scan(
 		&call.ID,
@@ -1384,6 +1685,7 @@ func scanCallRow(scanner callScanner) (Call, error) {
 		&lineICCID,
 		&direction,
 		&remoteNumber,
+		&reportedRemoteNumber,
 		&endpointID,
 		&endpointCallID,
 		&phase,
@@ -1414,6 +1716,7 @@ func scanCallRow(scanner callScanner) (Call, error) {
 	call.LineICCID = stringValue(lineICCID)
 	call.Direction = stringValue(direction)
 	call.RemoteNumber = stringValue(remoteNumber)
+	call.ReportedRemoteNumber = stringValue(reportedRemoteNumber)
 	call.EndpointID = stringValue(endpointID)
 	call.EndpointCallID = stringValue(endpointCallID)
 	call.Phase = stringValue(phase)

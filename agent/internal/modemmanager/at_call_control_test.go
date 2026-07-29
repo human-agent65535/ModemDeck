@@ -546,21 +546,28 @@ func TestParseQuectelCLCC(t *testing.T) {
 	if len(records) != 2 ||
 		records[0].direction != "outgoing" ||
 		records[0].stateCode != 2 ||
+		records[0].number != "+818012345678" ||
+		records[0].numberType != 145 ||
 		records[1].direction != "incoming" ||
 		records[1].stateCode != 6 ||
+		records[1].number != "0120" ||
+		records[1].numberType != 129 ||
 		!records[1].multiparty {
 		t.Fatalf("records = %+v", records)
 	}
 }
 
-func TestATCallNumberMatchingAcceptsInternationalPrefixForms(t *testing.T) {
+func TestATCallNumberMatchingUsesTheCLCCTransportForm(t *testing.T) {
 	t.Parallel()
 
-	if !atNumbersEqual("+8613800000001", "008618636812882") ||
-		!atNumbersEqual("8618636812882", "+8613800000001") {
-		t.Fatal("international prefix variants did not share one call identity")
+	if !atNumbersEqual("+8613800138000", "+86 138 0013 8000") {
+		t.Fatal("equivalent CLCC transport values did not match")
 	}
-	if atNumbersEqual("+8613800000001", "+818012345678") {
+	if atNumbersEqual("+8613800138000", "008613800138000") ||
+		atNumbersEqual("8613800138000", "+8613800138000") {
+		t.Fatal("ambiguous prefix variants shared one AT call lifecycle")
+	}
+	if atNumbersEqual("+8613800138000", "+818012345678") {
 		t.Fatal("different numbers shared one call identity")
 	}
 }

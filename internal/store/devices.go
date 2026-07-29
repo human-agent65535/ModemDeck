@@ -245,7 +245,9 @@ func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 		d.created_at, d.updated_at,
 		s.iccid, s.line_id, s.imsi,
 		COALESCE(NULLIF(ss.phone_number, ''), NULLIF(ss.modem_phone_number, ''), NULLIF(ss.vowifi_phone_number, ''), ''),
-		COALESCE(NULLIF(s.operator, ''), ss.operator, ''), s.current_imei,
+		COALESCE(NULLIF(s.operator, ''), ss.operator, ''),
+		COALESCE(ss.home_operator_code, ''), COALESCE(ss.home_country_iso, ''),
+		s.current_imei,
 		s.reg_status, s.reg_status_text, s.lac, s.cell_id, s.apn, s.ims_status, s.last_seen
 		FROM devices d
 		LEFT JOIN sim_cards s ON s.iccid = d.iccid
@@ -259,24 +261,26 @@ func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 	devices := make([]Device, 0)
 	for rows.Next() {
 		var (
-			device                                                           Device
-			endpointID, name, model, firmware, port                          sql.NullString
-			publicIP, privateIP, publicIPv6, privateIPv6, iccid              sql.NullString
-			simInserted, signalQuality, signalDBM, signalRSRQ, signalRSRP    sql.NullInt64
-			present                                                          sql.NullInt64
-			lastSeen, createdAt, updatedAt                                   sql.NullString
-			simICCID, simLineID, simIMSI, phoneNumber, operator, currentIMEI sql.NullString
-			regStatus                                                        sql.NullInt64
-			regStatusText, lac, cellID, apn                                  sql.NullString
-			imsStatus                                                        sql.NullInt64
-			simLastSeen                                                      sql.NullString
+			device                                                        Device
+			endpointID, name, model, firmware, port                       sql.NullString
+			publicIP, privateIP, publicIPv6, privateIPv6, iccid           sql.NullString
+			simInserted, signalQuality, signalDBM, signalRSRQ, signalRSRP sql.NullInt64
+			present                                                       sql.NullInt64
+			lastSeen, createdAt, updatedAt                                sql.NullString
+			simICCID, simLineID, simIMSI, phoneNumber, operator           sql.NullString
+			homeOperatorCode, homeCountryISO, currentIMEI                 sql.NullString
+			regStatus                                                     sql.NullInt64
+			regStatusText, lac, cellID, apn                               sql.NullString
+			imsStatus                                                     sql.NullInt64
+			simLastSeen                                                   sql.NullString
 		)
 		if err := rows.Scan(
 			&device.IMEI, &endpointID, &name, &model, &firmware, &port,
 			&publicIP, &privateIP, &publicIPv6, &privateIPv6,
 			&iccid, &simInserted, &signalQuality, &signalDBM, &signalRSRQ, &signalRSRP,
 			&lastSeen, &present, &createdAt, &updatedAt,
-			&simICCID, &simLineID, &simIMSI, &phoneNumber, &operator, &currentIMEI,
+			&simICCID, &simLineID, &simIMSI, &phoneNumber, &operator,
+			&homeOperatorCode, &homeCountryISO, &currentIMEI,
 			&regStatus, &regStatusText, &lac, &cellID, &apn, &imsStatus, &simLastSeen,
 		); err != nil {
 			return nil, fmt.Errorf("scan device: %w", err)
@@ -310,7 +314,9 @@ func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 				IMSI:             stringValue(simIMSI),
 				PhoneNumber:      stringValue(phoneNumber),
 				Operator:         stringValue(operator),
+				HomeOperatorCode: stringValue(homeOperatorCode),
 				HomeOperatorName: stringValue(operator),
+				HomeCountryISO:   stringValue(homeCountryISO),
 				CurrentIMEI:      stringValue(currentIMEI),
 				RegStatus:        intValue(regStatus),
 				RegStatusText:    stringValue(regStatusText),
@@ -367,9 +373,11 @@ func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
 		lines.line_label,
 		lines.line_color,
 		COALESCE(sim.imsi, subscription.imsi, ''),
-		lines.phone_number,
-		COALESCE(NULLIF(sim.operator, ''), subscription.operator, ''),
-		COALESCE(devices.imei, ''),
+			lines.phone_number,
+			COALESCE(NULLIF(sim.operator, ''), subscription.operator, ''),
+			COALESCE(subscription.home_operator_code, ''),
+			lines.home_country_iso,
+			COALESCE(devices.imei, ''),
 			COALESCE(devices.name, '')
 	FROM modemdeck_lines lines
 	LEFT JOIN ranked_sim_cards sim
@@ -396,9 +404,10 @@ func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
 	lines := make([]LineSummary, 0)
 	for rows.Next() {
 		var (
-			line                                                                   LineSummary
-			lineID, endpointID, iccid, lineLabel, lineColor, imsi, phone, operator sql.NullString
-			deviceIMEI, deviceName                                                 sql.NullString
+			line                                            LineSummary
+			lineID, endpointID, iccid, lineLabel, lineColor sql.NullString
+			imsi, phone, operator, homeOperatorCode         sql.NullString
+			homeCountryISO, deviceIMEI, deviceName          sql.NullString
 		)
 		if err := rows.Scan(
 			&lineID,
@@ -409,6 +418,8 @@ func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
 			&imsi,
 			&phone,
 			&operator,
+			&homeOperatorCode,
+			&homeCountryISO,
 			&deviceIMEI,
 			&deviceName,
 		); err != nil {
@@ -422,7 +433,9 @@ func (s *Store) Lines(ctx context.Context) ([]LineSummary, error) {
 		line.IMSI = stringValue(imsi)
 		line.PhoneNumber = stringValue(phone)
 		line.Operator = stringValue(operator)
+		line.HomeOperatorCode = stringValue(homeOperatorCode)
 		line.HomeOperatorName = line.Operator
+		line.HomeCountryISO = stringValue(homeCountryISO)
 		line.DeviceIMEI = stringValue(deviceIMEI)
 		line.DeviceName = stringValue(deviceName)
 		lines = append(lines, line)

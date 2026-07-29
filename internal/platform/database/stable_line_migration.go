@@ -498,6 +498,7 @@ func createStableLineSchema(ctx context.Context, transaction *sql.Tx) error {
 		`CREATE TABLE modemdeck_lines (
 			line_id TEXT PRIMARY KEY,
 			phone_number TEXT NOT NULL DEFAULT '',
+			home_country_iso TEXT NOT NULL DEFAULT '',
 			line_label TEXT NOT NULL DEFAULT '',
 			line_color TEXT NOT NULL DEFAULT ''
 				CHECK (line_color IN (
@@ -538,8 +539,9 @@ func insertStableLines(
 		if _, err := transaction.ExecContext(
 			ctx,
 			`INSERT INTO modemdeck_lines (
-				line_id, phone_number, line_label, line_color, created_at, updated_at
-			 ) VALUES (?, ?, ?, ?, ?, ?)`,
+				line_id, phone_number, home_country_iso,
+				line_label, line_color, created_at, updated_at
+			 ) VALUES (?, ?, '', ?, ?, ?, ?)`,
 			line.id,
 			line.phone,
 			line.label,
@@ -967,8 +969,9 @@ func lookupMigratedLine(
 		if _, err := transaction.ExecContext(
 			ctx,
 			`INSERT INTO modemdeck_lines (
-				line_id, phone_number, line_label, line_color, created_at, updated_at
-			 ) VALUES (?, '', '', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+				line_id, phone_number, home_country_iso,
+				line_label, line_color, created_at, updated_at
+			 ) VALUES (?, '', '', '', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
 			lineID,
 		); err != nil {
 			return "", fmt.Errorf("create anonymous migrated stable line: %w", err)
@@ -1280,7 +1283,7 @@ func replaceStableLineIndexes(ctx context.Context, transaction *sql.Tx) error {
 }
 
 func normalizeStableLinePhone(value string) string {
-	return phone.NormalizeNetworkNumber(strings.TrimSpace(value))
+	return phone.NetworkSubscriberE164(strings.TrimSpace(value), "")
 }
 
 func validProvisionalStableLineID(value string) bool {

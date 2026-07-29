@@ -4,53 +4,19 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+
+	"github.com/human-agent65535/modemdeck/internal/phone"
 )
 
-// NormalizePhone returns strict E.164. It strips common presentation
-// separators and converts an international 00 prefix to +. It never guesses a
-// country code for national-format numbers.
+// NormalizePhone is intentionally limited to an explicit global number.
+// Commands containing national numbers are interpreted only after their line
+// has been selected by the communication service.
 func NormalizePhone(value string) (string, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "", fmt.Errorf("phone number is required")
+	_, canonical, err := phone.Normalize(value)
+	if err != nil {
+		return "", fmt.Errorf("phone number must be an explicit international number: %w", err)
 	}
-
-	var normalized strings.Builder
-	normalized.Grow(len(value))
-	for i, ch := range value {
-		switch {
-		case ch >= '0' && ch <= '9':
-			normalized.WriteRune(ch)
-		case ch == '+' && i == 0:
-			normalized.WriteRune(ch)
-		case ch == ' ' || ch == '-' || ch == '(' || ch == ')' || ch == '.':
-			continue
-		default:
-			return "", fmt.Errorf("phone number contains unsupported characters")
-		}
-	}
-
-	result := normalized.String()
-	if strings.HasPrefix(result, "00") {
-		result = "+" + result[2:]
-	}
-	if !strings.HasPrefix(result, "+") {
-		return "", fmt.Errorf("phone number must include an international country code")
-	}
-
-	digits := result[1:]
-	if len(digits) < 8 || len(digits) > 15 {
-		return "", fmt.Errorf("phone number must contain 8 to 15 digits")
-	}
-	if digits[0] == '0' {
-		return "", fmt.Errorf("country code must not start with zero")
-	}
-	for _, ch := range digits {
-		if ch < '0' || ch > '9' {
-			return "", fmt.Errorf("phone number contains unsupported characters")
-		}
-	}
-	return result, nil
+	return canonical, nil
 }
 
 // MaskPhone is intended only for user-facing diagnostics. Event/log fields do

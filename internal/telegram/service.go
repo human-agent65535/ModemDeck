@@ -450,11 +450,7 @@ func (s *Service) handleDirectReply(ctx context.Context, updateID int64, message
 		}
 		return s.reportOperationFailure(ctx, updateID, message.MessageID, "resolve_sms_reply", err)
 	}
-	number, err := NormalizePhone(binding.Number)
-	if err != nil {
-		return s.reportOperationFailure(ctx, updateID, message.MessageID, "resolve_sms_number", err)
-	}
-	return s.sendSMS(ctx, updateID, message.MessageID, binding.LineID, number, body)
+	return s.sendSMS(ctx, updateID, message.MessageID, binding.LineID, binding.Number, body)
 }
 
 func (s *Service) sendSMS(ctx context.Context, updateID, replyTo int64, lineID, number, body string) error {

@@ -37,6 +37,7 @@ type atCallRecord struct {
 	direction  string
 	stateCode  int32
 	number     string
+	numberType int
 	multiparty bool
 }
 
@@ -503,13 +504,6 @@ func atNumbersEqual(left, right string) bool {
 	if !leftOK || !rightOK {
 		return false
 	}
-	if strings.ContainsAny(normalizedLeft+normalizedRight, "*#") {
-		return normalizedLeft == normalizedRight
-	}
-	normalizedLeft = strings.TrimPrefix(normalizedLeft, "+")
-	normalizedRight = strings.TrimPrefix(normalizedRight, "+")
-	normalizedLeft = strings.TrimPrefix(normalizedLeft, "00")
-	normalizedRight = strings.TrimPrefix(normalizedRight, "00")
 	return normalizedLeft == normalizedRight
 }
 
@@ -586,6 +580,16 @@ func parseQuectelCLCC(response string) ([]atCallRecord, error) {
 		if len(fields) >= 6 {
 			number = strings.TrimSpace(fields[5])
 		}
+		numberType := 0
+		if len(fields) >= 7 {
+			numberType, err = strconv.Atoi(strings.TrimSpace(fields[6]))
+			if err != nil || numberType < 0 || numberType > 255 {
+				return nil, fmt.Errorf("CLCC response contains an invalid number type")
+			}
+			if numberType == 145 && number != "" && !strings.HasPrefix(number, "+") {
+				number = "+" + number
+			}
+		}
 		callDirection := "outgoing"
 		if direction == 1 {
 			callDirection = "incoming"
@@ -595,6 +599,7 @@ func parseQuectelCLCC(response string) ([]atCallRecord, error) {
 			direction:  callDirection,
 			stateCode:  clccStateCode(status),
 			number:     number,
+			numberType: numberType,
 			multiparty: multiparty == 1,
 		})
 	}

@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/human-agent65535/modemdeck/internal/phone"
 )
 
 //go:embed schema.sql
@@ -39,9 +37,6 @@ func InitializeSchema(ctx context.Context, database *sql.DB) (bool, error) {
 		if err := ValidateSchema(ctx, database); err != nil {
 			return false, err
 		}
-		if err := migratePhoneIdentities(ctx, database); err != nil {
-			return false, err
-		}
 		return false, nil
 	}
 	if err := createSchema(ctx, database); err != nil {
@@ -58,6 +53,20 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 	actual, err := readSchemaShape(ctx, database)
 	if err != nil {
 		return err
+	}
+	migratedContactPhoneIndex, err := migrateContactPhoneCanonicalIndex(
+		ctx,
+		database,
+		actual,
+	)
+	if err != nil {
+		return err
+	}
+	if migratedContactPhoneIndex {
+		actual, err = readSchemaShape(ctx, database)
+		if err != nil {
+			return err
+		}
 	}
 	migratedDeviceName, err := migrateCurrentDeviceNameColumn(
 		ctx,
@@ -104,6 +113,21 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 			return err
 		}
 	}
+	migratedPhoneIdentity, err := migrateCurrentPhoneIdentityColumns(
+		ctx,
+		database,
+		expected,
+		actual,
+	)
+	if err != nil {
+		return err
+	}
+	if migratedPhoneIdentity {
+		actual, err = readSchemaShape(ctx, database)
+		if err != nil {
+			return err
+		}
+	}
 	if schemaContains(expected, actual) {
 		return nil
 	}
@@ -129,6 +153,28 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 		return nil
 	}
 	return migrateStableLineIdentity(ctx, database)
+}
+
+func migrateContactPhoneCanonicalIndex(
+	ctx context.Context,
+	database *sql.DB,
+	actual schemaShape,
+) (bool, error) {
+	if _, exists := actual.tables["contact_phones"]; !exists {
+		return false, nil
+	}
+	if _, legacyExists := actual.indexes["ux_contact_phones_canonical_e164"]; !legacyExists {
+		return false, nil
+	}
+	if _, err := database.ExecContext(
+		ctx,
+		`DROP INDEX ux_contact_phones_canonical_e164;
+		 CREATE INDEX IF NOT EXISTS idx_contact_phones_canonical_e164
+		 ON contact_phones(canonical_e164)`,
+	); err != nil {
+		return false, fmt.Errorf("migrate contact phone identity index: %w", err)
+	}
+	return true, nil
 }
 
 func migrateCurrentDeviceNameColumn(
@@ -210,6 +256,114 @@ func migrateCurrentSMSDeletedAtColumn(
 	return true, nil
 }
 
+func migrateCurrentPhoneIdentityColumns(
+	ctx context.Context,
+	database *sql.DB,
+	expected schemaShape,
+	actual schemaShape,
+) (bool, error) {
+	contactColumns, contactsExist := actual.tables["contact_phones"]
+	smsColumns, smsExists := actual.tables["sms"]
+	lineColumns, linesExist := actual.tables["modemdeck_lines"]
+	subscriptionColumns, subscriptionsExist := actual.tables["sim_subscriptions"]
+	_, hasContactRegion := contactColumns["region"]
+	_, hasReportedPeer := smsColumns["reported_peer"]
+	_, hasLineHomeCountry := lineColumns["home_country_iso"]
+	_, hasHomeOperatorCode := subscriptionColumns["home_operator_code"]
+	_, hasSubscriptionHomeCountry := subscriptionColumns["home_country_iso"]
+	if (!contactsExist || hasContactRegion) &&
+		(!smsExists || hasReportedPeer) &&
+		(!linesExist || hasLineHomeCountry) &&
+		(!subscriptionsExist || hasHomeOperatorCode) &&
+		(!subscriptionsExist || hasSubscriptionHomeCountry) {
+		return false, nil
+	}
+	previous := expected
+	if contactsExist && !hasContactRegion {
+		previous = schemaWithoutColumn(previous, "contact_phones", "region")
+	}
+	if smsExists && !hasReportedPeer {
+		previous = schemaWithoutColumn(previous, "sms", "reported_peer")
+	}
+	if linesExist && !hasLineHomeCountry {
+		previous = schemaWithoutColumn(previous, "modemdeck_lines", "home_country_iso")
+	}
+	if subscriptionsExist && !hasHomeOperatorCode {
+		previous = schemaWithoutColumn(
+			previous,
+			"sim_subscriptions",
+			"home_operator_code",
+		)
+	}
+	if subscriptionsExist && !hasSubscriptionHomeCountry {
+		previous = schemaWithoutColumn(
+			previous,
+			"sim_subscriptions",
+			"home_country_iso",
+		)
+	}
+	if !schemaContains(previous, actual) {
+		return false, nil
+	}
+	transaction, err := database.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin phone identity metadata migration: %w", err)
+	}
+	defer transaction.Rollback()
+	if contactsExist && !hasContactRegion {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`ALTER TABLE contact_phones
+			 ADD COLUMN region TEXT NOT NULL DEFAULT ''`,
+		); err != nil {
+			return false, fmt.Errorf("migrate contact phone region: %w", err)
+		}
+	}
+	if smsExists && !hasReportedPeer {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`ALTER TABLE sms
+			 ADD COLUMN reported_peer TEXT NOT NULL DEFAULT '';
+			 UPDATE sms
+			 SET reported_peer = peer
+			 WHERE reported_peer = ''`,
+		); err != nil {
+			return false, fmt.Errorf("migrate reported SMS peer: %w", err)
+		}
+	}
+	if linesExist && !hasLineHomeCountry {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`ALTER TABLE modemdeck_lines
+			 ADD COLUMN home_country_iso TEXT NOT NULL DEFAULT ''`,
+		); err != nil {
+			return false, fmt.Errorf("migrate stable line home country: %w", err)
+		}
+	}
+	if subscriptionsExist && !hasHomeOperatorCode {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`ALTER TABLE sim_subscriptions
+			 ADD COLUMN home_operator_code TEXT NOT NULL DEFAULT ''`,
+		); err != nil {
+			return false, fmt.Errorf("migrate SIM home operator code: %w", err)
+		}
+	}
+	if subscriptionsExist && !hasSubscriptionHomeCountry {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`ALTER TABLE sim_subscriptions
+			 ADD COLUMN home_country_iso TEXT NOT NULL DEFAULT ''`,
+		); err != nil {
+			return false, fmt.Errorf("migrate SIM home country: %w", err)
+		}
+	}
+	if err := transaction.Commit(); err != nil {
+		return false, fmt.Errorf("commit phone identity metadata migration: %w", err)
+	}
+	return true, nil
+}
+
 func schemaWithoutColumn(current schemaShape, table, column string) schemaShape {
 	result := schemaShape{
 		tables:  make(map[string]map[string]struct{}, len(current.tables)),
@@ -266,6 +420,14 @@ func migrateLegacySchemaAdditions(
 	_, callReadAtExists := callColumns["read_at"]
 	smsColumns, smsExists := actual.tables["sms"]
 	_, smsDeletedAtExists := smsColumns["deleted_at"]
+	_, smsReportedPeerExists := smsColumns["reported_peer"]
+	contactPhoneColumns, contactPhonesExist := actual.tables["contact_phones"]
+	_, contactPhoneRegionExists := contactPhoneColumns["region"]
+	lineColumns, linesExist := actual.tables["modemdeck_lines"]
+	_, lineHomeCountryExists := lineColumns["home_country_iso"]
+	subscriptionColumns, subscriptionsExist := actual.tables["sim_subscriptions"]
+	_, homeOperatorCodeExists := subscriptionColumns["home_operator_code"]
+	_, homeCountryISOExists := subscriptionColumns["home_country_iso"]
 	deviceColumns, devicesExist := actual.tables["devices"]
 	_, deviceNameExists := deviceColumns["name"]
 	_, deviceAliasExists := deviceColumns["alias"]
@@ -276,6 +438,11 @@ func migrateLegacySchemaAdditions(
 	needsReportedRemoteNumber := callHistoryExists && !reportedRemoteNumberExists
 	needsCallReadAt := callHistoryExists && !callReadAtExists
 	needsSMSDeletedAt := smsExists && !smsDeletedAtExists
+	needsSMSReportedPeer := smsExists && !smsReportedPeerExists
+	needsContactPhoneRegion := contactPhonesExist && !contactPhoneRegionExists
+	needsLineHomeCountry := linesExist && !lineHomeCountryExists
+	needsHomeOperatorCode := subscriptionsExist && !homeOperatorCodeExists
+	needsHomeCountryISO := subscriptionsExist && !homeCountryISOExists
 	needsDeviceName := devicesExist && !deviceNameExists && deviceAliasExists
 	needsSystemSettings := !systemSettingsExist
 	if !needsAvatar &&
@@ -284,6 +451,11 @@ func migrateLegacySchemaAdditions(
 		!needsReportedRemoteNumber &&
 		!needsCallReadAt &&
 		!needsSMSDeletedAt &&
+		!needsSMSReportedPeer &&
+		!needsContactPhoneRegion &&
+		!needsLineHomeCountry &&
+		!needsHomeOperatorCode &&
+		!needsHomeCountryISO &&
 		!needsDeviceName &&
 		!needsSystemSettings {
 		return nil
@@ -335,7 +507,10 @@ func migrateLegacySchemaAdditions(
 		if _, err := transaction.ExecContext(
 			ctx,
 			`ALTER TABLE call_history
-			 ADD COLUMN reported_remote_number TEXT NOT NULL DEFAULT ''`,
+			 ADD COLUMN reported_remote_number TEXT NOT NULL DEFAULT '';
+			 UPDATE call_history
+			 SET reported_remote_number = remote_number
+			 WHERE reported_remote_number = ''`,
 		); err != nil {
 			return fmt.Errorf("migrate reported remote call number: %w", err)
 		}
@@ -354,6 +529,54 @@ func migrateLegacySchemaAdditions(
 			`ALTER TABLE sms ADD COLUMN deleted_at DATETIME`,
 		); err != nil {
 			return fmt.Errorf("migrate SMS deletion state: %w", err)
+		}
+	}
+	if needsSMSReportedPeer {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`ALTER TABLE sms
+			 ADD COLUMN reported_peer TEXT NOT NULL DEFAULT '';
+			 UPDATE sms
+			 SET reported_peer = peer
+			 WHERE reported_peer = ''`,
+		); err != nil {
+			return fmt.Errorf("migrate reported SMS peer: %w", err)
+		}
+	}
+	if needsContactPhoneRegion {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`ALTER TABLE contact_phones
+			 ADD COLUMN region TEXT NOT NULL DEFAULT ''`,
+		); err != nil {
+			return fmt.Errorf("migrate contact phone region: %w", err)
+		}
+	}
+	if needsLineHomeCountry {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`ALTER TABLE modemdeck_lines
+			 ADD COLUMN home_country_iso TEXT NOT NULL DEFAULT ''`,
+		); err != nil {
+			return fmt.Errorf("migrate stable line home country: %w", err)
+		}
+	}
+	if needsHomeOperatorCode {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`ALTER TABLE sim_subscriptions
+			 ADD COLUMN home_operator_code TEXT NOT NULL DEFAULT ''`,
+		); err != nil {
+			return fmt.Errorf("migrate SIM home operator code: %w", err)
+		}
+	}
+	if needsHomeCountryISO {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`ALTER TABLE sim_subscriptions
+			 ADD COLUMN home_country_iso TEXT NOT NULL DEFAULT ''`,
+		); err != nil {
+			return fmt.Errorf("migrate SIM home country: %w", err)
 		}
 	}
 	if needsDeviceName {
@@ -536,6 +759,19 @@ func schemaMatchesSupportedMigration(expected schemaShape, actual schemaShape) b
 			if table == "sms" && column == "deleted_at" {
 				continue
 			}
+			if table == "sms" && column == "reported_peer" {
+				continue
+			}
+			if table == "contact_phones" && column == "region" {
+				continue
+			}
+			if table == "modemdeck_lines" && column == "home_country_iso" {
+				continue
+			}
+			if table == "sim_subscriptions" &&
+				(column == "home_operator_code" || column == "home_country_iso") {
+				continue
+			}
 			if table == "devices" && column == "name" {
 				if _, legacyNameExists := actualColumns["alias"]; legacyNameExists {
 					continue
@@ -552,115 +788,6 @@ func schemaMatchesSupportedMigration(expected schemaShape, actual schemaShape) b
 		}
 	}
 	return true
-}
-
-func migratePhoneIdentities(ctx context.Context, database *sql.DB) error {
-	transaction, err := database.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin phone identity migration: %w", err)
-	}
-	defer transaction.Rollback()
-
-	rows, err := transaction.QueryContext(
-		ctx,
-		`SELECT id, remote_number, reported_remote_number
-		 FROM call_history`,
-	)
-	if err != nil {
-		return fmt.Errorf("read call phone identities: %w", err)
-	}
-	type callIdentity struct {
-		id        string
-		canonical string
-		reported  string
-	}
-	calls := make([]callIdentity, 0)
-	for rows.Next() {
-		var id, remote, reported string
-		if err := rows.Scan(&id, &remote, &reported); err != nil {
-			_ = rows.Close()
-			return fmt.Errorf("scan call phone identity: %w", err)
-		}
-		originalReported := reported
-		if strings.TrimSpace(reported) == "" {
-			reported = remote
-		}
-		canonical := phone.NormalizeNetworkNumber(remote)
-		reported = strings.TrimSpace(reported)
-		if canonical == remote && reported == originalReported {
-			continue
-		}
-		calls = append(calls, callIdentity{
-			id:        id,
-			canonical: canonical,
-			reported:  reported,
-		})
-	}
-	if err := rows.Close(); err != nil {
-		return fmt.Errorf("close call phone identities: %w", err)
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("read call phone identities: %w", err)
-	}
-	for _, call := range calls {
-		if _, err := transaction.ExecContext(
-			ctx,
-			`UPDATE call_history
-			 SET remote_number = ?, reported_remote_number = ?
-			 WHERE id = ?`,
-			call.canonical,
-			call.reported,
-			call.id,
-		); err != nil {
-			return fmt.Errorf("migrate call phone identity: %w", err)
-		}
-	}
-
-	phoneRows, err := transaction.QueryContext(
-		ctx,
-		`SELECT id, original_number, canonical_e164
-		 FROM contact_phones`,
-	)
-	if err != nil {
-		return fmt.Errorf("read contact phone identities: %w", err)
-	}
-	type contactIdentity struct {
-		id        string
-		canonical string
-	}
-	contacts := make([]contactIdentity, 0)
-	for phoneRows.Next() {
-		var id, original, canonical string
-		if err := phoneRows.Scan(&id, &original, &canonical); err != nil {
-			_ = phoneRows.Close()
-			return fmt.Errorf("scan contact phone identity: %w", err)
-		}
-		_, normalized, normalizeErr := phone.Normalize(original)
-		if normalizeErr == nil && normalized != canonical {
-			contacts = append(contacts, contactIdentity{id: id, canonical: normalized})
-		}
-	}
-	if err := phoneRows.Close(); err != nil {
-		return fmt.Errorf("close contact phone identities: %w", err)
-	}
-	if err := phoneRows.Err(); err != nil {
-		return fmt.Errorf("read contact phone identities: %w", err)
-	}
-	for _, contact := range contacts {
-		if _, err := transaction.ExecContext(
-			ctx,
-			`UPDATE contact_phones SET canonical_e164 = ? WHERE id = ?`,
-			contact.canonical,
-			contact.id,
-		); err != nil {
-			return fmt.Errorf("migrate contact phone identity: %w", err)
-		}
-	}
-
-	if err := transaction.Commit(); err != nil {
-		return fmt.Errorf("commit phone identity migration: %w", err)
-	}
-	return nil
 }
 
 func requiredRowsAreCurrent(

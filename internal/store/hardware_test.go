@@ -36,6 +36,8 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 		ICCID:               "8901000000000000001",
 		IMSI:                "440500000000001",
 		Operator:            "Fixture Telecom",
+		HomeOperatorCode:    "44050",
+		HomeCountryISO:      "JP",
 	}
 	call := HardwareCall{
 		AppID:          "call-fixture-1",
@@ -44,8 +46,9 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 		LocalPhone:     line.PhoneNumber,
 		LineIMSI:       line.IMSI,
 		LineICCID:      line.ICCID,
+		HomeCountryISO: line.HomeCountryISO,
 		EndpointCallID: "boot-1:/call/1",
-		Number:         "00818012345678",
+		Number:         "818012345678",
 		Direction:      "incoming",
 		Phase:          "ringing",
 		Bearer:         "volte",
@@ -58,7 +61,8 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 		IMSI:              line.IMSI,
 		ICCID:             line.ICCID,
 		LocalPhone:        line.PhoneNumber,
-		Number:            "+818012345678",
+		HomeCountryISO:    line.HomeCountryISO,
+		Number:            "818012345678",
 		Text:              "hello",
 		Direction:         "incoming",
 		State:             "received",
@@ -93,12 +97,19 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 	}
 	stableLineID := stableLineIDForICCID(t, repository, line.ICCID)
 
-	messages, err := repository.Messages(ctx, MessageQuery{LineID: stableLineID, Peer: message.Number})
+	messages, err := repository.Messages(ctx, MessageQuery{
+		LineID: stableLineID,
+		Peer:   "+818012345678",
+	})
 	if err != nil {
 		t.Fatalf("Messages() error = %v", err)
 	}
 	if len(messages) != 1 || messages[0].EndpointMessageID != message.EndpointMessageID {
 		t.Fatalf("messages = %+v, want one stable endpoint message", messages)
+	}
+	if messages[0].Peer != "+818012345678" ||
+		messages[0].ReportedPeer != message.Number {
+		t.Fatalf("message identity = %+v", messages[0])
 	}
 	threads, err := repository.MessageThreads(ctx, ThreadQuery{})
 	if err != nil {
@@ -142,13 +153,22 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 	if len(devices) != 1 || devices[0].SignalQuality == nil || *devices[0].SignalQuality != 74 {
 		t.Fatalf("devices = %+v, want persisted signal quality", devices)
 	}
+	if devices[0].SIM == nil ||
+		devices[0].SIM.HomeOperatorCode != line.HomeOperatorCode ||
+		devices[0].SIM.HomeCountryISO != line.HomeCountryISO {
+		t.Fatalf("device SIM home identity = %+v", devices[0].SIM)
+	}
 	if devices[0].SignalDBM == nil || *devices[0].SignalDBM != signalDBM ||
 		devices[0].SignalRSRQ == nil || *devices[0].SignalRSRQ != signalRSRQ ||
 		devices[0].SignalRSRP == nil || *devices[0].SignalRSRP != signalRSRP {
 		t.Fatalf("devices = %+v, want persisted extended signal", devices)
 	}
 
-	if err := repository.MarkMessageThreadReadByLine(ctx, stableLineID, message.Number); err != nil {
+	if err := repository.MarkMessageThreadReadByLine(
+		ctx,
+		stableLineID,
+		"+818012345678",
+	); err != nil {
 		t.Fatalf("MarkMessageThreadReadByLine() error = %v", err)
 	}
 	threads, err = repository.MessageThreads(ctx, ThreadQuery{})
@@ -159,13 +179,13 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 		ctx,
 		"UPDATE sms_contacts SET unread_count = 1 WHERE line_id = ? AND peer = ?",
 		stableLineID,
-		message.Number,
+		"+818012345678",
 	); err != nil {
 		t.Fatalf("restore unread fixture: %v", err)
 	}
 	if err := repository.MarkMessageThreadRead(ctx, MessageThreadIdentity{
 		LineID: stableLineID,
-		Peer:   message.Number,
+		Peer:   "+818012345678",
 	}); err != nil {
 		t.Fatalf("MarkMessageThreadRead() error = %v", err)
 	}
@@ -202,6 +222,367 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 		calls[0].LineIMSI != line.IMSI ||
 		calls[0].LineICCID != line.ICCID {
 		t.Fatalf("calls = %+v, want closed call", calls)
+	}
+}
+
+func TestHardwareCallFillsNumberWhenTheNetworkReportsItLate(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	ctx := context.Background()
+	observed := time.Date(2026, time.July, 29, 9, 0, 0, 0, time.UTC)
+	line := HardwareLine{
+		ID:                  "line-late-number",
+		EquipmentIdentifier: "990000000000901",
+		PhoneNumber:         "+8613800138000",
+		ICCID:               "8986000000000000901",
+		IMSI:                "460010000000901",
+		HomeCountryISO:      "CN",
+	}
+	call := HardwareCall{
+		AppID:          "call-late-number",
+		LineID:         line.ID,
+		LocalPhone:     line.PhoneNumber,
+		LineIMSI:       line.IMSI,
+		LineICCID:      line.ICCID,
+		HomeCountryISO: line.HomeCountryISO,
+		EndpointCallID: "late-number:/call/1",
+		Direction:      "incoming",
+		Phase:          "ringing",
+		Revision:       1,
+		ObservedAt:     observed,
+	}
+	if err := repository.ApplyHardwareSnapshot(ctx, HardwareSnapshot{
+		BootEpoch:  "late-number",
+		Revision:   "snapshot-late-number-1",
+		ObservedAt: observed,
+		Lines:      []HardwareLine{line},
+		Calls:      []HardwareCall{call},
+	}); err != nil {
+		t.Fatalf("initial ApplyHardwareSnapshot() error = %v", err)
+	}
+
+	call.Number = "8613800138000"
+	call.Revision = 2
+	call.ObservedAt = observed.Add(time.Second)
+	if err := repository.ApplyHardwareSnapshot(ctx, HardwareSnapshot{
+		BootEpoch:  "late-number",
+		Revision:   "snapshot-late-number-2",
+		ObservedAt: call.ObservedAt,
+		Lines:      []HardwareLine{line},
+		Calls:      []HardwareCall{call},
+	}); err != nil {
+		t.Fatalf("updated ApplyHardwareSnapshot() error = %v", err)
+	}
+
+	stored, err := repository.CallByID(ctx, call.AppID)
+	if err != nil {
+		t.Fatalf("Call() error = %v", err)
+	}
+	if stored.RemoteNumber != "+8613800138000" {
+		t.Fatalf("remote number = %q, want +8613800138000", stored.RemoteNumber)
+	}
+	var reported string
+	if err := repository.database.QueryRowContext(
+		ctx,
+		`SELECT reported_remote_number FROM call_history WHERE id = ?`,
+		call.AppID,
+	).Scan(&reported); err != nil {
+		t.Fatalf("reported number query error = %v", err)
+	}
+	if reported != call.Number {
+		t.Fatalf("reported number = %q, want %q", reported, call.Number)
+	}
+}
+
+func TestHardwareLineHomeCountryConvergesRawHistoryOnce(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	ctx := context.Background()
+	observed := time.Date(2026, time.July, 29, 10, 0, 0, 0, time.UTC)
+	line := HardwareLine{
+		ID:                  "line-region-late",
+		EquipmentIdentifier: "990000000000902",
+		ReportedPhoneNumber: "13800138000",
+		ICCID:               "8986000000000000902",
+		IMSI:                "460010000000902",
+	}
+	call := HardwareCall{
+		AppID:          "call-region-late",
+		LineID:         line.ID,
+		LocalPhone:     line.ReportedPhoneNumber,
+		LineIMSI:       line.IMSI,
+		LineICCID:      line.ICCID,
+		EndpointCallID: "region-late:/call/1",
+		Number:         "13800138000",
+		Direction:      "incoming",
+		Phase:          "ended",
+		ObservedAt:     observed,
+	}
+	messages := []HardwareMessage{
+		{
+			LineID:            line.ID,
+			EndpointMessageID: "region-late:/sms/1",
+			IMSI:              line.IMSI,
+			ICCID:             line.ICCID,
+			LocalPhone:        line.ReportedPhoneNumber,
+			Number:            "13800138000",
+			Text:              "national",
+			Direction:         "incoming",
+			State:             "received",
+			StateCode:         3,
+			Timestamp:         observed,
+			ObservedAt:        observed,
+		},
+		{
+			LineID:            line.ID,
+			EndpointMessageID: "region-late:/sms/2",
+			IMSI:              line.IMSI,
+			ICCID:             line.ICCID,
+			LocalPhone:        line.ReportedPhoneNumber,
+			Number:            "+8613800138000",
+			Text:              "international",
+			Direction:         "incoming",
+			State:             "received",
+			StateCode:         3,
+			Timestamp:         observed.Add(time.Second),
+			ObservedAt:        observed.Add(time.Second),
+		},
+		{
+			LineID:            line.ID,
+			EndpointMessageID: "region-late:/sms/3",
+			IMSI:              line.IMSI,
+			ICCID:             line.ICCID,
+			LocalPhone:        line.ReportedPhoneNumber,
+			Number:            "13800138000",
+			Text:              "another national",
+			Direction:         "incoming",
+			State:             "received",
+			StateCode:         3,
+			Timestamp:         observed.Add(2 * time.Second),
+			ObservedAt:        observed.Add(2 * time.Second),
+		},
+	}
+	if err := repository.ApplyHardwareSnapshot(ctx, HardwareSnapshot{
+		BootEpoch:  "region-late",
+		Revision:   "region-late-1",
+		ObservedAt: observed,
+		Lines:      []HardwareLine{line},
+		Calls:      []HardwareCall{call},
+		Messages:   messages,
+	}); err != nil {
+		t.Fatalf("initial ApplyHardwareSnapshot() error = %v", err)
+	}
+	stableLineID := stableLineIDForICCID(t, repository, line.ICCID)
+	var storedPhone, storedRegion, reportedPhone string
+	if err := repository.database.QueryRowContext(
+		ctx,
+		`SELECT phone_number, home_country_iso
+		 FROM modemdeck_lines WHERE line_id = ?`,
+		stableLineID,
+	).Scan(&storedPhone, &storedRegion); err != nil {
+		t.Fatal(err)
+	}
+	if storedPhone != "" || storedRegion != "" {
+		t.Fatalf(
+			"unresolved stable line identity = (%q, %q), want empty",
+			storedPhone,
+			storedRegion,
+		)
+	}
+	if err := repository.database.QueryRowContext(
+		ctx,
+		`SELECT modem_phone_number
+		 FROM sim_subscriptions WHERE imsi = ?`,
+		line.IMSI,
+	).Scan(&reportedPhone); err != nil {
+		t.Fatal(err)
+	}
+	if reportedPhone != line.ReportedPhoneNumber {
+		t.Fatalf("reported modem number = %q", reportedPhone)
+	}
+
+	upgradedMessage := messages[0]
+	upgradedMessage.Number = "+8613800138000"
+	upgradedMessage.Revision = 0
+	upgradedMessage.ObservedAt = observed.Add(30 * time.Second)
+	storedMessage, created, err := repository.UpsertHardwareMessage(ctx, upgradedMessage)
+	if err != nil {
+		t.Fatalf("UpsertHardwareMessage() identity upgrade error = %v", err)
+	}
+	if created ||
+		storedMessage.Peer != "+8613800138000" ||
+		storedMessage.ReportedPeer != messages[0].Number {
+		t.Fatalf("upgraded message = %+v, created = %v", storedMessage, created)
+	}
+	storedMessages, err := repository.Messages(ctx, MessageQuery{
+		LineID: stableLineID,
+		Peer:   "+8613800138000",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(storedMessages) != 3 {
+		t.Fatalf("event-upgraded messages = %+v, want three", storedMessages)
+	}
+	threads, err := repository.MessageThreads(ctx, ThreadQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(threads) != 1 ||
+		threads[0].Peer != "+8613800138000" ||
+		threads[0].UnreadCount != 3 {
+		t.Fatalf("event-upgraded threads = %+v", threads)
+	}
+
+	line.HomeCountryISO = "CN"
+	if err := repository.ApplyHardwareSnapshot(ctx, HardwareSnapshot{
+		BootEpoch:  "region-late",
+		Revision:   "region-late-2",
+		ObservedAt: observed.Add(time.Minute),
+		Lines:      []HardwareLine{line},
+	}); err != nil {
+		t.Fatalf("country ApplyHardwareSnapshot() error = %v", err)
+	}
+	if err := repository.database.QueryRowContext(
+		ctx,
+		`SELECT phone_number, home_country_iso
+		 FROM modemdeck_lines WHERE line_id = ?`,
+		stableLineID,
+	).Scan(&storedPhone, &storedRegion); err != nil {
+		t.Fatal(err)
+	}
+	if storedPhone != "+8613800138000" || storedRegion != "CN" {
+		t.Fatalf(
+			"resolved stable line identity = (%q, %q), want (+8613800138000, CN)",
+			storedPhone,
+			storedRegion,
+		)
+	}
+	storedCall, err := repository.CallByID(ctx, call.AppID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reportedRemote string
+	if err := repository.database.QueryRowContext(
+		ctx,
+		`SELECT reported_remote_number
+		 FROM call_history WHERE id = ?`,
+		call.AppID,
+	).Scan(&reportedRemote); err != nil {
+		t.Fatal(err)
+	}
+	if storedCall.RemoteNumber != "+8613800138000" ||
+		reportedRemote != call.Number ||
+		storedCall.LocalPhone != "+8613800138000" {
+		t.Fatalf("canonical call = %+v", storedCall)
+	}
+	storedMessages, err = repository.Messages(ctx, MessageQuery{
+		LineID: stableLineID,
+		Peer:   "+8613800138000",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(storedMessages) != 3 {
+		t.Fatalf("canonical messages = %+v, want three", storedMessages)
+	}
+	threads, err = repository.MessageThreads(ctx, ThreadQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(threads) != 1 ||
+		threads[0].Peer != "+8613800138000" ||
+		threads[0].UnreadCount != 3 {
+		t.Fatalf("canonical threads = %+v", threads)
+	}
+
+	line.HomeCountryISO = "VN"
+	roamingCall := HardwareCall{
+		AppID:          "call-region-fixed",
+		LineID:         line.ID,
+		LocalPhone:     line.ReportedPhoneNumber,
+		LineIMSI:       line.IMSI,
+		LineICCID:      line.ICCID,
+		HomeCountryISO: "VN",
+		EndpointCallID: "region-late:/call/2",
+		Number:         "13800138000",
+		Direction:      "incoming",
+		Phase:          "ended",
+		ObservedAt:     observed.Add(2 * time.Minute),
+	}
+	roamingMessage := HardwareMessage{
+		LineID:            line.ID,
+		EndpointMessageID: "region-late:/sms/4",
+		IMSI:              line.IMSI,
+		ICCID:             line.ICCID,
+		LocalPhone:        line.ReportedPhoneNumber,
+		HomeCountryISO:    "VN",
+		Number:            "13800138000",
+		Text:              "fixed home region",
+		Direction:         "incoming",
+		State:             "received",
+		StateCode:         3,
+		Timestamp:         observed.Add(2 * time.Minute),
+		ObservedAt:        observed.Add(2 * time.Minute),
+	}
+	if err := repository.ApplyHardwareSnapshot(ctx, HardwareSnapshot{
+		BootEpoch:  "region-late",
+		Revision:   "region-late-3",
+		ObservedAt: observed.Add(2 * time.Minute),
+		Lines:      []HardwareLine{line},
+		Calls:      []HardwareCall{roamingCall},
+		Messages:   []HardwareMessage{roamingMessage},
+	}); err != nil {
+		t.Fatalf("later ApplyHardwareSnapshot() error = %v", err)
+	}
+	if err := repository.database.QueryRowContext(
+		ctx,
+		`SELECT home_country_iso
+		 FROM modemdeck_lines WHERE line_id = ?`,
+		stableLineID,
+	).Scan(&storedRegion); err != nil {
+		t.Fatal(err)
+	}
+	if storedRegion != "CN" {
+		t.Fatalf("stable line home country changed to %q, want CN", storedRegion)
+	}
+	var stableLineCount int
+	if err := repository.database.QueryRowContext(
+		ctx,
+		"SELECT COUNT(*) FROM modemdeck_lines",
+	).Scan(&stableLineCount); err != nil {
+		t.Fatal(err)
+	}
+	if stableLineCount != 1 ||
+		stableLineIDForICCID(t, repository, line.ICCID) != stableLineID {
+		t.Fatalf("stable line split after region change: count = %d", stableLineCount)
+	}
+	storedCall, err = repository.CallByID(ctx, roamingCall.AppID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedCall.RemoteNumber != "+8613800138000" ||
+		storedCall.LocalPhone != "+8613800138000" {
+		t.Fatalf("fixed-region call = %+v", storedCall)
+	}
+	storedMessages, err = repository.Messages(ctx, MessageQuery{
+		LineID: stableLineID,
+		Peer:   "+8613800138000",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(storedMessages) != 4 {
+		t.Fatalf("fixed-region messages = %+v, want four", storedMessages)
+	}
+	lines, err := repository.Lines(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 1 || lines[0].HomeCountryISO != "CN" {
+		t.Fatalf("line summaries = %+v, want fixed CN region", lines)
 	}
 }
 

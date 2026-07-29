@@ -135,3 +135,69 @@ func TestMarkMissedCallsReadByIDsOnlyMarksRequestedMissedCalls(t *testing.T) {
 		t.Fatalf("requested outgoing call was marked read: %+v", byID["call-outgoing"])
 	}
 }
+
+func TestCallsAssociateContactsOnlyByUnambiguousCanonicalNumber(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	ctx := context.Background()
+	if _, err := repository.database.ExecContext(
+		ctx,
+		`INSERT INTO contacts (id, display_name) VALUES
+			('contact-jp', 'Japan'),
+			('contact-cn', 'China'),
+			('contact-shared-a', 'Shared A'),
+			('contact-shared-b', 'Shared B');
+		 INSERT INTO contact_phones (
+			id, contact_id, original_number, canonical_e164, region, is_primary
+		 ) VALUES
+			('phone-jp', 'contact-jp', '09012345678', '+819011111111', 'JP', 1),
+			('phone-cn', 'contact-cn', '09012345678', '+8613800138000', 'CN', 1),
+			('phone-shared-a', 'contact-shared-a', '08011112222', '+819022222222', 'JP', 1),
+			('phone-shared-b', 'contact-shared-b', '08033334444', '+819022222222', 'JP', 1);
+		 INSERT INTO call_history (
+			id, direction, remote_number, phase, created_at, ended_at
+		 ) VALUES
+			(
+				'call-raw-local', 'incoming', '09012345678', 'ended',
+				'2026-07-29 01:00:00', '2026-07-29 01:00:01'
+			),
+			(
+				'call-unique-canonical', 'incoming', '+819011111111', 'ended',
+				'2026-07-29 01:01:00', '2026-07-29 01:01:01'
+			),
+			(
+				'call-ambiguous-canonical', 'incoming', '+819022222222', 'ended',
+				'2026-07-29 01:02:00', '2026-07-29 01:02:01'
+			);`,
+	); err != nil {
+		t.Fatalf("seed contact identity calls: %v", err)
+	}
+
+	calls, err := repository.Calls(ctx, CallQuery{})
+	if err != nil {
+		t.Fatalf("Calls() error = %v", err)
+	}
+	byID := make(map[string]Call, len(calls))
+	for _, call := range calls {
+		byID[call.ID] = call
+	}
+	if byID["call-raw-local"].ContactID != "" ||
+		byID["call-raw-local"].ContactName != "" {
+		t.Fatalf("raw local call matched a contact: %+v", byID["call-raw-local"])
+	}
+	if byID["call-unique-canonical"].ContactID != "contact-jp" ||
+		byID["call-unique-canonical"].ContactName != "Japan" {
+		t.Fatalf(
+			"unique canonical call = %+v, want contact-jp",
+			byID["call-unique-canonical"],
+		)
+	}
+	if byID["call-ambiguous-canonical"].ContactID != "" ||
+		byID["call-ambiguous-canonical"].ContactName != "" {
+		t.Fatalf(
+			"ambiguous canonical call matched a contact: %+v",
+			byID["call-ambiguous-canonical"],
+		)
+	}
+}

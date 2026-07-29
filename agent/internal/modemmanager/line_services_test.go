@@ -39,7 +39,9 @@ func TestSIMStatusAndPINCommandUseReferencedSIM(t *testing.T) {
 		t.Fatalf("SIM status = %+v", status)
 	}
 	if status.HomeOperatorCode != "44050" || status.HomeOperatorName != "KDDI" ||
+		status.HomeCountryISO != "JP" ||
 		status.ServingOperatorCode != "44010" || status.ServingOperatorName != "NTT DOCOMO" ||
+		status.ServingCountryISO != "JP" ||
 		status.OperatorIdentifier != status.HomeOperatorCode ||
 		status.OperatorName != status.HomeOperatorName ||
 		!status.RegistrationStateKnown || status.RegistrationStateCode != 5 ||
