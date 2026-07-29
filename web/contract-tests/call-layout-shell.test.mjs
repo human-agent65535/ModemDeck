@@ -6,7 +6,7 @@ async function source(path) {
   return readFile(new URL(path, import.meta.url), 'utf8')
 }
 
-test('calls replace the desktop dialer and use a full-screen narrow layout', async () => {
+test('calls replace the desktop dialer and share the mobile dialer height', async () => {
   const shell = await source('../src/components/AppShell.vue')
   const dialer = await source('../src/components/DialerPanel.vue')
   const styles = await source('../src/style.css')
@@ -17,6 +17,6 @@ test('calls replace the desktop dialer and use a full-screen narrow layout', asy
   assert.match(styles, /--dialer-width: clamp\(360px, 28vw, 420px\);/)
   assert.match(
     dialer,
-    /@media \(max-width: 860px\)[\s\S]*\.drawer-backdrop--call \.dialer-panel--call \{[\s\S]*height: 100dvh;/
+    /@media \(max-width: 860px\)[\s\S]*\.drawer-backdrop \.dialer-panel \{[\s\S]*height: min\(720px, calc\(100dvh - var\(--mobile-nav-height\) - 8px\)\);/
   )
 })

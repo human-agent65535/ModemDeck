@@ -17,7 +17,12 @@ import {
   UsersRound
 } from '@lucide/vue'
 import { fixtureMode } from '../api/client'
-import { callState, initializeCallRuntime, shutdownCallRuntime } from '../state/call'
+import {
+  activeLineIDsForSessions,
+  callState,
+  initializeCallRuntime,
+  shutdownCallRuntime
+} from '../state/call'
 import {
   browserNotificationState,
   initializeBrowserNotifications,
@@ -53,7 +58,10 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const permanentDialer = ref(false)
-const activeCallPresent = computed(() => callState.sessions.length > 0)
+const activeCallLineCount = computed(
+  () => activeLineIDsForSessions(callState.sessions).size
+)
+const activeCallPresent = computed(() => activeCallLineCount.value > 0)
 const incomingCallRinging = computed(
   () =>
     !callState.owned &&
@@ -340,11 +348,11 @@ onBeforeUnmount(() => {
           />
           <PhoneCall :size="23" />
           <span
-            v-if="callState.sessions.length > 1"
+            v-if="activeCallLineCount > 0"
             class="mobile-nav__call-count"
             aria-hidden="true"
           >
-            {{ callState.sessions.length }}
+            {{ activeCallLineCount }}
           </span>
         </span>
         <span class="mobile-nav__label">{{ t('shell.mobileCall') }}</span>

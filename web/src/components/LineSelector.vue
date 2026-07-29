@@ -18,6 +18,7 @@ type SelectorOption = {
   value: string
   name: string
   details: string
+  status: string
   defaultLine: boolean
   disabled: boolean
   line?: LineSummary
@@ -132,9 +133,6 @@ function lineDetails(line: LineSummary, value: string): string {
   if (disabledValueSet.value.has(value) && props.disabledValueLabel) {
     details.push(props.disabledValueLabel)
   }
-  if (statusValueSet.value.has(value) && props.statusValueLabel) {
-    details.push(props.statusValueLabel)
-  }
   return details.join(' · ') || t('lines.cellularLine')
 }
 
@@ -145,6 +143,7 @@ const options = computed<SelectorOption[]>(() => {
           value: props.allValue,
           name: resolvedAllLabel.value,
           details: resolvedAllDescription.value,
+          status: '',
           defaultLine: false,
           disabled: false
         }
@@ -157,6 +156,7 @@ const options = computed<SelectorOption[]>(() => {
       value,
       name: lineLabel(line),
       details: lineDetails(line, value),
+      status: statusValueSet.value.has(value) ? props.statusValueLabel : '',
       line,
       disabled: disabledValueSet.value.has(value),
       defaultLine:
@@ -175,6 +175,7 @@ const displayName = computed(
 const displayDetails = computed(
   () => selectedOption.value?.details || t('lines.chooseLine')
 )
+const displayStatus = computed(() => selectedOption.value?.status || '')
 
 function selectedIndex(): number {
   const index = options.value.findIndex(option => option.value === props.modelValue)
@@ -355,7 +356,10 @@ onBeforeUnmount(() => {
             {{ t('lines.default') }}
           </span>
         </span>
-        <small>{{ displayDetails }}</small>
+        <small>
+          <span>{{ displayDetails }}</span>
+          <em v-if="displayStatus">{{ displayStatus }}</em>
+        </small>
       </span>
       <ChevronDown
         class="line-selector__chevron"
@@ -401,7 +405,10 @@ onBeforeUnmount(() => {
         </span>
         <span class="line-selector__option-copy">
           <strong>{{ option.name }}</strong>
-          <small>{{ option.details }}</small>
+          <small>
+            <span>{{ option.details }}</span>
+            <em v-if="option.status">{{ option.status }}</em>
+          </small>
         </span>
         <span v-if="option.defaultLine" class="line-selector__option-default">
           <Star :size="12" fill="currentColor" />
@@ -488,7 +495,7 @@ onBeforeUnmount(() => {
 }
 
 .line-selector__name-row strong,
-.line-selector__identity small {
+.line-selector__identity small > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -502,9 +509,25 @@ onBeforeUnmount(() => {
 }
 
 .line-selector__identity small {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
   color: var(--muted);
   font-size: 13px;
   font-weight: 500;
+}
+
+.line-selector__identity small > span {
+  min-width: 0;
+}
+
+.line-selector__identity small > em,
+.line-selector__option-copy small > em {
+  flex: 0 0 auto;
+  color: var(--danger);
+  font-style: normal;
+  font-weight: 700;
 }
 
 .line-selector__default {
@@ -739,7 +762,7 @@ onBeforeUnmount(() => {
 }
 
 .line-selector__option-copy strong,
-.line-selector__option-copy small {
+.line-selector__option-copy small > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -750,8 +773,16 @@ onBeforeUnmount(() => {
 }
 
 .line-selector__option-copy small {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.line-selector__option-copy small > span {
+  min-width: 0;
 }
 
 .line-selector__option-default {

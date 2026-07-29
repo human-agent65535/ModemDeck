@@ -84,6 +84,7 @@ const dialLines = computed(() =>
 const occupiedLineIDs = computed(() =>
   activeLineIDsForSessions(callState.sessions)
 )
+const activeCallLineCount = computed(() => occupiedLineIDs.value.size)
 const availableDialLines = computed(() =>
   dialLines.value.filter(line => !occupiedLineIDs.value.has(lineKey(line)))
 )
@@ -472,21 +473,22 @@ onBeforeUnmount(() => {
               <h2>{{ showingCall ? t('shell.calls') : t('dialer.title') }}</h2>
               <button
                 v-if="!showingCall && activeCallPresent"
-                class="dialer-active-calls"
+                class="dialer-active-calls dialer-active-calls--busy"
                 type="button"
                 :title="t('shell.returnToCall')"
-                :aria-label="`${t('shell.returnToCall')} · ${callState.sessions.length}`"
+                :aria-label="`${t('shell.returnToCall')} · ${activeCallLineCount}`"
                 @click="showCallSurface"
               >
                 <Phone :size="15" />
-                <span>{{ callState.sessions.length }}</span>
+                <span>{{ activeCallLineCount }}</span>
               </button>
               <span
-                v-else-if="showingCall && callState.sessions.length > 1"
-                class="dialer-active-calls dialer-active-calls--static"
-                :aria-label="`${callState.sessions.length} ${t('shell.calls')}`"
+                v-else-if="showingCall && activeCallLineCount > 0"
+                class="dialer-active-calls dialer-active-calls--busy dialer-active-calls--static"
+                :aria-label="`${activeCallLineCount} ${t('calls.lineInUse')}`"
               >
-                {{ callState.sessions.length }}
+                <Phone :size="15" />
+                <span>{{ activeCallLineCount }}</span>
               </span>
             </span>
             <span class="dialer-header-actions">
@@ -726,6 +728,11 @@ onBeforeUnmount(() => {
 
 .dialer-active-calls--static {
   cursor: default;
+}
+
+.dialer-active-calls--busy {
+  color: var(--danger);
+  background: var(--danger-soft);
 }
 
 .dialer-toolbar {
@@ -1069,16 +1076,20 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 860px) {
-  .drawer-backdrop--call {
-    padding: 0;
+  .drawer-backdrop {
+    align-items: flex-end;
+    justify-content: flex-end;
+    padding: 0 0 var(--mobile-nav-height);
   }
 
-  .drawer-backdrop--call .dialer-panel--call {
+  .drawer-backdrop .dialer-panel {
     width: 100%;
-    height: 100dvh;
-    max-height: none;
-    border: 0;
-    border-radius: 0;
+    height: min(720px, calc(100dvh - var(--mobile-nav-height) - 8px));
+    max-height: calc(100dvh - var(--mobile-nav-height) - 8px);
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 8px 8px 0 0;
   }
 }
 
