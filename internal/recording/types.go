@@ -41,6 +41,7 @@ type Options struct {
 	Now           func() time.Time
 	Random        io.Reader
 	Report        func(error)
+	OnChange      func()
 
 	writerFactory segmentWriterFactory
 }

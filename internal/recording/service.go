@@ -31,6 +31,7 @@ type Service struct {
 	now        func() time.Time
 	random     io.Reader
 	report     func(error)
+	onChange   func()
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -94,6 +95,7 @@ func New(repository Repository, media Media, options Options) (*Service, error) 
 		now:        now,
 		random:     randomSource,
 		report:     options.Report,
+		onChange:   options.OnChange,
 		ctx:        ctx,
 		cancel:     cancel,
 		workers:    make(map[string]*recordingWorker),
@@ -122,7 +124,11 @@ func (s *Service) UpdateSettings(
 		defaultEnabled,
 		revision,
 	)
-	return settings, translateStoreError(err)
+	if err != nil {
+		return settings, translateStoreError(err)
+	}
+	s.notifyChanged()
+	return settings, nil
 }
 
 func (s *Service) PrepareOutgoing(
@@ -199,6 +205,7 @@ func (s *Service) SetEnabled(
 	if err != nil {
 		return store.CallRecordingState{}, translateStoreError(err)
 	}
+	s.notifyChanged()
 	if !enabled {
 		stopErr := s.stopWorker(normalizeContext(ctx), callID)
 		authoritative, stateErr := s.repository.CallRecordingState(
@@ -272,9 +279,11 @@ func (s *Service) DeleteRecording(
 			return err
 		}
 	}
-	return translateStoreError(
-		s.repository.DeleteRecordingSegment(ctx, callID, segmentID),
-	)
+	if err := s.repository.DeleteRecordingSegment(ctx, callID, segmentID); err != nil {
+		return translateStoreError(err)
+	}
+	s.notifyChanged()
+	return nil
 }
 
 func (s *Service) DeleteCall(ctx context.Context, callID string) error {
@@ -319,6 +328,7 @@ func (s *Service) DeleteCall(ctx context.Context, callID string) error {
 	s.mu.Lock()
 	delete(s.knownCalls, callID)
 	s.mu.Unlock()
+	s.notifyChanged()
 	return nil
 }
 
@@ -340,6 +350,9 @@ func (s *Service) Recover(ctx context.Context) error {
 	}
 	if err := s.repository.FailInterruptedRecordingSegments(normalizeContext(ctx)); err != nil {
 		return translateStoreError(err)
+	}
+	if len(interrupted) > 0 {
+		s.notifyChanged()
 	}
 	return s.cleanupExpiredRequests(normalizeContext(ctx), true)
 }
@@ -403,6 +416,8 @@ func (s *Service) ReconcileAuthoritativeCalls(
 			"call_ended_before_recording",
 		); finalizeErr != nil {
 			result = errors.Join(result, translateStoreError(finalizeErr))
+		} else {
+			s.notifyChanged()
 		}
 		s.mu.Lock()
 		delete(s.knownCalls, callID)
@@ -443,7 +458,7 @@ func (s *Service) FinalizeCall(ctx context.Context, callID string) error {
 	s.reconcileMu.Lock()
 	defer s.reconcileMu.Unlock()
 	ctx = normalizeContext(ctx)
-	return errors.Join(
+	err := errors.Join(
 		s.stopWorker(ctx, callID),
 		translateStoreError(s.repository.FinalizePendingCallRecording(
 			ctx,
@@ -451,6 +466,10 @@ func (s *Service) FinalizeCall(ctx context.Context, callID string) error {
 			"call_ended_before_recording",
 		)),
 	)
+	if err == nil {
+		s.notifyChanged()
+	}
+	return err
 }
 
 func (s *Service) Close(ctx context.Context) error {
@@ -526,6 +545,9 @@ func (s *Service) startTarget(target store.RecordingTarget) error {
 			code,
 			s.now().UTC(),
 		)
+		if failErr == nil {
+			s.notifyChanged()
+		}
 		return errors.Join(cause, translateStoreError(failErr))
 	}
 	subscription, err := s.media.SubscribeDuplex(s.ctx, callmedia.ActiveCall{
@@ -591,6 +613,7 @@ func (s *Service) startTarget(target store.RecordingTarget) error {
 	s.workers[target.CallID] = worker
 	s.mu.Unlock()
 	go s.runWorker(workerContext, worker)
+	s.notifyChanged()
 	return nil
 }
 
@@ -629,6 +652,8 @@ func (s *Service) runWorker(ctx context.Context, worker *recordingWorker) {
 		if err != nil {
 			_ = s.files.remove(worker.relativePath)
 			runErr = err
+		} else {
+			s.notifyChanged()
 		}
 	} else {
 		_ = worker.writer.Abort()
@@ -641,6 +666,9 @@ func (s *Service) runWorker(ctx context.Context, worker *recordingWorker) {
 			recordingFailureCode(runErr),
 			s.now().UTC(),
 		)
+		if failErr == nil {
+			s.notifyChanged()
+		}
 		runErr = errors.Join(runErr, translateStoreError(failErr))
 	}
 	worker.result = runErr
@@ -683,6 +711,12 @@ func (s *Service) reportWorkerError(err error) {
 	}
 	if s.report != nil {
 		s.report(err)
+	}
+}
+
+func (s *Service) notifyChanged() {
+	if s.onChange != nil {
+		s.onChange()
 	}
 }
 

@@ -40,6 +40,7 @@ func TestServiceFollowsIncomingDefaultAndCreatesToggleSegments(t *testing.T) {
 		t.Fatal(err)
 	}
 	firstWriter := receiveWriter(t, fixture.writers.created)
+	receiveRecordingChange(t, fixture.changes)
 	if got := fixture.endpoint.startCalls.Load(); got != 1 {
 		t.Fatalf("endpoint starts = %d, want 1", got)
 	}
@@ -59,6 +60,8 @@ func TestServiceFollowsIncomingDefaultAndCreatesToggleSegments(t *testing.T) {
 	if state.Enabled || state.Status != store.RecordingStateOff {
 		t.Fatalf("disabled state = %+v", state)
 	}
+	receiveRecordingChange(t, fixture.changes)
+	receiveRecordingChange(t, fixture.changes)
 	segments, err := fixture.repository.RecordingSegments(context.Background(), "call-default")
 	if err != nil {
 		t.Fatal(err)
@@ -78,8 +81,19 @@ func TestServiceFollowsIncomingDefaultAndCreatesToggleSegments(t *testing.T) {
 		t.Fatalf("re-enabled state = %+v", state)
 	}
 	receiveWriter(t, fixture.writers.created)
+	receiveRecordingChange(t, fixture.changes)
+	receiveRecordingChange(t, fixture.changes)
 	if got := fixture.endpoint.startCalls.Load(); got != 1 {
 		t.Fatalf("endpoint starts after second segment = %d, want 1", got)
+	}
+	segments, err = fixture.repository.RecordingSegments(context.Background(), "call-default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(segments) != 2 ||
+		segments[0].Status != store.RecordingSegmentReady ||
+		segments[1].Status != store.RecordingSegmentRecording {
+		t.Fatalf("active toggle segments = %+v", segments)
 	}
 	if err := fixture.service.FinalizeCall(context.Background(), "call-default"); err != nil {
 		t.Fatal(err)
@@ -93,6 +107,51 @@ func TestServiceFollowsIncomingDefaultAndCreatesToggleSegments(t *testing.T) {
 		segments[1].SegmentIndex != 2 ||
 		segments[1].Status != store.RecordingSegmentReady {
 		t.Fatalf("toggle segments = %+v", segments)
+	}
+}
+
+func TestServiceNotifiesWhenRecordingBecomesReady(t *testing.T) {
+	fixture := newServiceFixture(t, nil)
+	settings, err := fixture.repository.RecordingSettings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.service.UpdateSettings(
+		context.Background(),
+		true,
+		settings.Revision,
+	); err != nil {
+		t.Fatal(err)
+	}
+	receiveRecordingChange(t, fixture.changes)
+
+	applyServiceTestCall(t, fixture.repository, "call-change", "", "incoming", true)
+	if err := fixture.reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	writer := receiveWriter(t, fixture.writers.created)
+	receiveRecordingChange(t, fixture.changes)
+
+	fixture.endpoint.capture <- make([]byte, fixture.endpoint.format.FrameBytes())
+	select {
+	case <-writer.writes:
+	case <-time.After(recordingTestTimeout):
+		t.Fatal("recording frame was not written")
+	}
+	if err := fixture.service.FinalizeCall(context.Background(), "call-change"); err != nil {
+		t.Fatal(err)
+	}
+
+	receiveRecordingChange(t, fixture.changes)
+	segments, err := fixture.repository.RecordingSegments(
+		context.Background(),
+		"call-change",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(segments) != 1 || segments[0].Status != store.RecordingSegmentReady {
+		t.Fatalf("recording segments = %+v", segments)
 	}
 }
 
@@ -617,6 +676,7 @@ type serviceFixture struct {
 	endpoint   *recordingEndpoint
 	writers    *memoryWriterFactory
 	reports    chan error
+	changes    chan struct{}
 }
 
 func newServiceFixture(t *testing.T, writerError error) *serviceFixture {
@@ -653,6 +713,7 @@ func newServiceFixture(t *testing.T, writerError error) *serviceFixture {
 		writeErr: writerError,
 	}
 	reports := make(chan error, 8)
+	changes := make(chan struct{}, 16)
 	randomBytes := make([]byte, 256)
 	for index := range randomBytes {
 		randomBytes[index] = byte(index)
@@ -663,6 +724,12 @@ func newServiceFixture(t *testing.T, writerError error) *serviceFixture {
 		Random:        bytes.NewReader(randomBytes),
 		Report: func(err error) {
 			reports <- err
+		},
+		OnChange: func() {
+			select {
+			case changes <- struct{}{}:
+			default:
+			}
 		},
 		writerFactory: writers,
 	})
@@ -688,6 +755,7 @@ func newServiceFixture(t *testing.T, writerError error) *serviceFixture {
 		endpoint:   endpoint,
 		writers:    writers,
 		reports:    reports,
+		changes:    changes,
 	}
 }
 
@@ -916,6 +984,15 @@ func receiveWriter(t *testing.T, writers <-chan *memoryWriter) *memoryWriter {
 	case <-time.After(recordingTestTimeout):
 		t.Fatal("timed out waiting for recording writer")
 		return nil
+	}
+}
+
+func receiveRecordingChange(t *testing.T, changes <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-changes:
+	case <-time.After(recordingTestTimeout):
+		t.Fatal("timed out waiting for recording change notification")
 	}
 }
 

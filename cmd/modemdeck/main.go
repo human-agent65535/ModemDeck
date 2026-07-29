@@ -170,6 +170,11 @@ func run(
 	}
 	recordings, err := recording.New(repository, mediaCore, recording.Options{
 		RootDirectory: recordingsPath,
+		OnChange: func() {
+			runtimeEvents.Publish(runtimeevents.Event{
+				Resources: []runtimeevents.Resource{runtimeevents.ResourceRecordings},
+			})
+		},
 		Report: func(err error) {
 			logger.Warn("call recording worker failed", "component", "recording", "error", err)
 		},
