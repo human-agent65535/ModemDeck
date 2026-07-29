@@ -78,7 +78,26 @@ cat > "${test_root}/bin/fake-agent" <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 printf '%s\n' "$@" > "${AGENT_ARGS_FILE}"
+if [[ "${AGENT_EXIT_CODE:-}" =~ ^[0-9]+$ ]]; then
+  sleep 0.3
+  exit "${AGENT_EXIT_CODE}"
+fi
 exec "${FAKE_STAY_ALIVE}" "${AGENT_PID_FILE}"
+EOF
+
+cat > "${test_root}/bin/fake-watchdog" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ " $* " == *" --cleanup-only "* ]]; then
+  : > "${WATCHDOG_CLEANUP_FILE}"
+  exit 0
+fi
+printf '%s\n' "$@" > "${WATCHDOG_ARGS_FILE}"
+if [[ "${WATCHDOG_EXIT_CODE:-}" =~ ^[0-9]+$ ]]; then
+  sleep 0.3
+  exit "${WATCHDOG_EXIT_CODE}"
+fi
+exec "${FAKE_STAY_ALIVE}" "${WATCHDOG_PID_FILE}"
 EOF
 
 cat > "${test_root}/bin/fake-health" <<'EOF'
@@ -107,6 +126,7 @@ common_env=(
   "MODEMDECK_MODEM_MANAGER_BIN=${test_root}/bin/fake-mm"
   "MODEMDECK_DEVICE_OWNER_BIN=${test_root}/bin/fake-owner"
   "MODEMDECK_AGENT_BIN=${test_root}/bin/fake-agent"
+  "MODEMDECK_CALL_WATCHDOG_BIN=${test_root}/bin/fake-watchdog"
   "MODEMDECK_HEALTHCHECK_BIN=${test_root}/bin/fake-health"
   "MODEMDECK_SETSID_BIN=${test_root}/bin/fake-setsid"
   "MODEMDECK_DBUS_CONFIG=${test_root}/dbus.conf"
@@ -148,10 +168,13 @@ case_environment() {
     "OWNER_ARGS_FILE=${case_dir}/owner.args" \
     "OWNER_READY_FILE=${case_dir}/owner.ready" \
     "AGENT_ARGS_FILE=${case_dir}/agent.args" \
+    "WATCHDOG_ARGS_FILE=${case_dir}/watchdog.args" \
+    "WATCHDOG_CLEANUP_FILE=${case_dir}/watchdog.cleanup" \
     "DBUS_PID_FILE=${case_dir}/dbus.pid" \
     "MM_PID_FILE=${case_dir}/mm.pid" \
     "OWNER_PID_FILE=${case_dir}/owner.pid" \
-    "AGENT_PID_FILE=${case_dir}/agent.pid"
+    "AGENT_PID_FILE=${case_dir}/agent.pid" \
+    "WATCHDOG_PID_FILE=${case_dir}/watchdog.pid"
 }
 
 run_clean_shutdown_case() {
@@ -174,6 +197,7 @@ run_clean_shutdown_case() {
   local supervisor_pid=$!
 
   wait_for_file "${case_dir}/agent.args"
+  wait_for_file "${case_dir}/watchdog.args"
   kill -TERM "${supervisor_pid}"
   wait "${supervisor_pid}"
 
@@ -198,11 +222,16 @@ run_clean_shutdown_case() {
   grep -Fqx -- "${case_dir}/run/network.json" "${case_dir}/agent.args"
   grep -Fqx -- '--radio-state-file' "${case_dir}/agent.args"
   grep -Fqx -- "${case_dir}/run/radio-state.json" "${case_dir}/agent.args"
+  grep -Fqx -- '--watchdog-heartbeat-file' "${case_dir}/agent.args"
+  grep -Fqx -- "${case_dir}/run/agent-heartbeat.json" "${case_dir}/agent.args"
+  grep -Fqx -- '--heartbeat-file' "${case_dir}/watchdog.args"
+  grep -Fqx -- "${case_dir}/run/agent-heartbeat.json" "${case_dir}/watchdog.args"
 
   assert_stopped "${case_dir}/dbus.pid"
   assert_stopped "${case_dir}/mm.pid"
   assert_stopped "${case_dir}/owner.pid"
   assert_stopped "${case_dir}/agent.pid"
+  assert_stopped "${case_dir}/watchdog.pid"
 }
 
 run_failure_case() {
@@ -226,6 +255,12 @@ run_failure_case() {
         "--mode" "advanced"
         "--assignments" "${test_root}/assignments.json"
       )
+      ;;
+    agent)
+      failure_env=("AGENT_EXIT_CODE=${expected_status}")
+      ;;
+    watchdog)
+      failure_env=("WATCHDOG_EXIT_CODE=${expected_status}")
       ;;
     *)
       printf 'supervisor-test: unknown failure component %s\n' "${component}" >&2
@@ -253,11 +288,20 @@ run_failure_case() {
   assert_stopped "${case_dir}/mm.pid"
   assert_stopped "${case_dir}/owner.pid"
   assert_stopped "${case_dir}/agent.pid"
+  assert_stopped "${case_dir}/watchdog.pid"
+  if [[ "${component}" == "agent" ]]; then
+    [[ -e "${case_dir}/watchdog.cleanup" ]] || {
+      printf '%s\n' "supervisor-test: agent exit skipped emergency cleanup" >&2
+      exit 1
+    }
+  fi
 }
 
 run_clean_shutdown_case simple
 run_clean_shutdown_case advanced
 run_failure_case mm 23
 run_failure_case owner 24
+run_failure_case agent 25
+run_failure_case watchdog 26
 
 printf '%s\n' "supervisor-test: ok"

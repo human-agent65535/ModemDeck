@@ -22,7 +22,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
     go build -mod=readonly -trimpath -buildvcs=false \
     -ldflags="-s -w -X main.version=${VERSION}" \
-    -o /out/modemdeck-agent ./cmd/modemdeck-agent
+    -o /out/modemdeck-agent ./cmd/modemdeck-agent \
+    && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
+    go build -mod=readonly -trimpath -buildvcs=false \
+    -ldflags="-s -w -X main.version=${VERSION}" \
+    -o /out/modemdeck-call-watchdog ./cmd/modemdeck-call-watchdog
 
 
 FROM --platform=${BUILDPLATFORM} ${GO_IMAGE} AS ownership-builder
@@ -144,6 +148,8 @@ COPY --from=modemmanager-builder /out/usr/share/ModemManager/ /usr/share/ModemMa
 COPY --from=modemmanager-builder /out/usr/share/modemdeck/ /usr/share/modemdeck/
 COPY --from=modemmanager-builder /out/etc/ModemManager/ /etc/ModemManager/
 COPY --from=agent-builder /out/modemdeck-agent /usr/local/bin/modemdeck-agent
+COPY --from=agent-builder /out/modemdeck-call-watchdog \
+    /usr/local/bin/modemdeck-call-watchdog
 COPY --from=ownership-builder /out/modemdeck-device-owner \
     /usr/local/bin/modemdeck-device-owner
 COPY --chmod=0755 hardware/bin/modemdeck-hardware-entrypoint \
@@ -167,6 +173,7 @@ RUN ldd /usr/sbin/ModemManager | tee /tmp/modemmanager-ldd \
              | grep -q '^ii'; \
        done \
     && test -x /usr/local/bin/modemdeck-agent \
+    && test -x /usr/local/bin/modemdeck-call-watchdog \
     && test -x /usr/local/bin/modemdeck-device-owner \
     && install -d -m 0700 /var/lib/ModemManager \
     && install -d -m 0770 /run/dbus \
@@ -188,6 +195,7 @@ ENV MODEMDECK_HARDWARE_MODE=simple \
     MODEMDECK_AGENT_SOCKET=/run/modemdeck/agent.sock \
     MODEMDECK_AGENT_SOCKET_MODE=0660 \
     MODEMDECK_AGENT_SOCKET_GID=10002 \
+    MODEMDECK_AGENT_HEARTBEAT_FILE=/run/modemdeck/agent-heartbeat.json \
     MODEMDECK_BEARER_STATE_FILE=/run/modemdeck/bearers.json \
     MODEMDECK_NETWORK_STATE_FILE=/run/modemdeck/network.json \
     MODEMDECK_DEVICE_OWNER_STATUS=/run/modemdeck/device-owner-status.json \
@@ -198,6 +206,9 @@ ENV MODEMDECK_HARDWARE_MODE=simple \
     MODEMDECK_MM_LOG_LEVEL=INFO \
     MODEMDECK_STARTUP_TIMEOUT_SECONDS=20 \
     MODEMDECK_SHUTDOWN_TIMEOUT_SECONDS=10 \
+    MODEMDECK_WATCHDOG_TIMEOUT_SECONDS=3 \
+    MODEMDECK_WATCHDOG_POLL_MILLISECONDS=250 \
+    MODEMDECK_WATCHDOG_CLEANUP_TIMEOUT_SECONDS=15 \
     TMPDIR=/run/modemdeck/tmp
 
 VOLUME ["/var/lib/ModemManager", "/run/modemdeck"]

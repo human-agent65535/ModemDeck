@@ -23,32 +23,33 @@ type dbusInvocation struct {
 }
 
 type fakeCaller struct {
-	mu                 sync.Mutex
-	owner              bool
-	ownerName          string
-	busID              string
-	objects            ManagedObjects
-	createdCallPath    dbus.ObjectPath
-	createdMessagePath dbus.ObjectPath
-	runtimeVersion     string
-	callIntrospection  string
-	atResponse         string
-	atResponses        map[string]string
-	atCommandErrors    map[string]error
-	connectionProfiles []map[string]dbus.Variant
-	ussdResponse       string
-	externalSIMs       map[dbus.ObjectPath]Properties
-	externalCalls      map[dbus.ObjectPath]Properties
-	externalMessages   map[dbus.ObjectPath]Properties
-	callLists          map[dbus.ObjectPath][]dbus.ObjectPath
-	messageLists       map[dbus.ObjectPath][]dbus.ObjectPath
-	signalAfterSetup   map[dbus.ObjectPath]Properties
-	errors             map[string]error
-	calls              []dbusInvocation
-	terminateOnHangup  bool
-	hangupObserved     bool
-	terminateAfterPoll int
-	hangupPolls        int
+	mu                  sync.Mutex
+	owner               bool
+	ownerName           string
+	busID               string
+	objects             ManagedObjects
+	createdCallPath     dbus.ObjectPath
+	createdMessagePath  dbus.ObjectPath
+	runtimeVersion      string
+	callIntrospection   string
+	atResponse          string
+	atResponses         map[string]string
+	atCommandErrors     map[string]error
+	connectionProfiles  []map[string]dbus.Variant
+	ussdResponse        string
+	externalSIMs        map[dbus.ObjectPath]Properties
+	externalCalls       map[dbus.ObjectPath]Properties
+	externalMessages    map[dbus.ObjectPath]Properties
+	callLists           map[dbus.ObjectPath][]dbus.ObjectPath
+	messageLists        map[dbus.ObjectPath][]dbus.ObjectPath
+	signalAfterSetup    map[dbus.ObjectPath]Properties
+	errors              map[string]error
+	calls               []dbusInvocation
+	terminateOnHangup   bool
+	terminateATOnHangup bool
+	hangupObserved      bool
+	terminateAfterPoll  int
+	hangupPolls         int
 }
 
 func (f *fakeCaller) Call(
@@ -147,6 +148,9 @@ func (f *fakeCaller) Call(
 		}
 		if err := f.atCommandErrors[command]; err != nil {
 			return nil, err
+		}
+		if command == quectelHangupCall && f.terminateATOnHangup {
+			f.atResponses[quectelCallListQuery] = ""
 		}
 		if response, found := f.atResponses[command]; found {
 			return []any{response}, nil

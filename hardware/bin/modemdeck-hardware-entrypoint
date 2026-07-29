@@ -129,12 +129,16 @@ readonly mm_state_dir="${MODEMDECK_MM_STATE_DIR:-/var/lib/ModemManager}"
 readonly agent_socket="${MODEMDECK_AGENT_SOCKET:-${runtime_dir}/agent.sock}"
 readonly agent_socket_mode="${MODEMDECK_AGENT_SOCKET_MODE:-0660}"
 readonly agent_socket_gid="${MODEMDECK_AGENT_SOCKET_GID:-10002}"
+readonly agent_heartbeat_file="${MODEMDECK_AGENT_HEARTBEAT_FILE:-${runtime_dir}/agent-heartbeat.json}"
 readonly bearer_state_file="${runtime_dir}/bearers.json"
 readonly network_state_file="${runtime_dir}/network.json"
 readonly radio_state_file="${runtime_dir}/radio-state.json"
 readonly owner_status="${MODEMDECK_DEVICE_OWNER_STATUS:-${runtime_dir}/device-owner-status.json}"
 readonly owner_max_age="${MODEMDECK_DEVICE_OWNER_MAX_AGE_SECONDS:-30}"
 readonly startup_timeout="${MODEMDECK_STARTUP_TIMEOUT_SECONDS:-20}"
+readonly watchdog_timeout="${MODEMDECK_WATCHDOG_TIMEOUT_SECONDS:-3}"
+readonly watchdog_poll_ms="${MODEMDECK_WATCHDOG_POLL_MILLISECONDS:-250}"
+readonly watchdog_cleanup_timeout="${MODEMDECK_WATCHDOG_CLEANUP_TIMEOUT_SECONDS:-15}"
 readonly mm_log_level="${MODEMDECK_MM_LOG_LEVEL:-INFO}"
 readonly shutdown_timeout
 
@@ -143,6 +147,7 @@ readonly dbus_send="${MODEMDECK_DBUS_SEND_BIN:-/usr/bin/dbus-send}"
 readonly modem_manager="${MODEMDECK_MODEM_MANAGER_BIN:-/usr/sbin/ModemManager}"
 readonly device_owner="${MODEMDECK_DEVICE_OWNER_BIN:-/usr/local/bin/modemdeck-device-owner}"
 readonly agent="${MODEMDECK_AGENT_BIN:-/usr/local/bin/modemdeck-agent}"
+readonly call_watchdog="${MODEMDECK_CALL_WATCHDOG_BIN:-/usr/local/bin/modemdeck-call-watchdog}"
 readonly healthcheck="${MODEMDECK_HEALTHCHECK_BIN:-/usr/local/bin/modemdeck-hardware-healthcheck}"
 readonly setsid_bin="${MODEMDECK_SETSID_BIN:-/usr/bin/setsid}"
 
@@ -151,12 +156,20 @@ readonly setsid_bin="${MODEMDECK_SETSID_BIN:-/usr/bin/setsid}"
 [[ "${mm_state_dir}" == /* ]] || fatal "MODEMDECK_MM_STATE_DIR must be absolute"
 [[ "${agent_socket}" == "${runtime_dir}/"* ]] \
   || fatal "MODEMDECK_AGENT_SOCKET must be below MODEMDECK_RUNTIME_DIR"
+[[ "${agent_heartbeat_file}" == "${runtime_dir}/"* ]] \
+  || fatal "MODEMDECK_AGENT_HEARTBEAT_FILE must be below MODEMDECK_RUNTIME_DIR"
 [[ "${owner_status}" == "${runtime_dir}/"* ]] \
   || fatal "MODEMDECK_DEVICE_OWNER_STATUS must be below MODEMDECK_RUNTIME_DIR"
 [[ "${startup_timeout}" =~ ^[1-9][0-9]*$ ]] \
   || fatal "MODEMDECK_STARTUP_TIMEOUT_SECONDS must be a positive integer"
 [[ "${shutdown_timeout}" =~ ^[1-9][0-9]*$ ]] \
   || fatal "MODEMDECK_SHUTDOWN_TIMEOUT_SECONDS must be a positive integer"
+[[ "${watchdog_timeout}" =~ ^[1-9][0-9]*$ ]] \
+  || fatal "MODEMDECK_WATCHDOG_TIMEOUT_SECONDS must be a positive integer"
+[[ "${watchdog_poll_ms}" =~ ^[1-9][0-9]*$ ]] \
+  || fatal "MODEMDECK_WATCHDOG_POLL_MILLISECONDS must be a positive integer"
+[[ "${watchdog_cleanup_timeout}" =~ ^[1-9][0-9]*$ ]] \
+  || fatal "MODEMDECK_WATCHDOG_CLEANUP_TIMEOUT_SECONDS must be a positive integer"
 [[ "${owner_max_age}" =~ ^[1-9][0-9]*$ ]] \
   || fatal "MODEMDECK_DEVICE_OWNER_MAX_AGE_SECONDS must be a positive integer"
 [[ "${agent_socket_gid}" =~ ^[0-9]+$ ]] \
@@ -173,6 +186,7 @@ required_executables=(
   "${dbus_send}"
   "${modem_manager}"
   "${agent}"
+  "${call_watchdog}"
   "${healthcheck}"
   "${setsid_bin}"
 )
@@ -204,7 +218,11 @@ prepare_writable_directory "${runtime_dir}/tmp" 0770
 
 chgrp "${agent_socket_gid}" "${runtime_dir}" \
   || fatal "cannot assign runtime directory group ${agent_socket_gid}"
-rm -f "${dbus_socket}" "${agent_socket}" "${owner_status}"
+rm -f \
+  "${dbus_socket}" \
+  "${agent_socket}" \
+  "${agent_heartbeat_file}" \
+  "${owner_status}"
 printf '%s\n' "${mode}" > "${runtime_dir}/hardware-mode"
 
 export DBUS_SYSTEM_BUS_ADDRESS="unix:path=${dbus_socket}"
@@ -334,11 +352,22 @@ start_core \
   --socket "${agent_socket}" \
   --socket-mode "${agent_socket_mode}" \
   --socket-gid "${agent_socket_gid}" \
+  --watchdog-heartbeat-file "${agent_heartbeat_file}" \
   --bearer-state-file "${bearer_state_file}" \
   --network-state-file "${network_state_file}" \
   --radio-state-file "${radio_state_file}"
 agent_pid="${core_pids[-1]}"
 wait_for_agent "${agent_pid}"
+
+start_core \
+  "call watchdog" \
+  "${call_watchdog}" \
+  --heartbeat-file "${agent_heartbeat_file}" \
+  --agent-pid "${agent_pid}" \
+  --timeout "${watchdog_timeout}s" \
+  --poll-interval "${watchdog_poll_ms}ms" \
+  --cleanup-timeout "${watchdog_cleanup_timeout}s"
+watchdog_pid="${core_pids[-1]}"
 
 log "hardware runtime ready in ${mode} mode"
 
@@ -350,6 +379,16 @@ set -e
 
 exited_name="${core_names[${exited_pid}]:-core process}"
 log "${exited_name} exited unexpectedly with status ${exit_status}"
+if [[ "${exited_pid}" == "${agent_pid}" ]]; then
+  kill -TERM "${watchdog_pid}" 2>/dev/null || true
+  wait "${watchdog_pid}" 2>/dev/null || true
+  log "running emergency call cleanup after agent exit"
+  if ! "${call_watchdog}" \
+    --cleanup-only \
+    --cleanup-timeout "${watchdog_cleanup_timeout}s"; then
+    log "emergency call cleanup failed; startup recovery will retry"
+  fi
+fi
 stop_core_processes
 
 if (( exit_status == 0 )); then

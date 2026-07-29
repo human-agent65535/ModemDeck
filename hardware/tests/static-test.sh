@@ -58,6 +58,15 @@ grep -Fq -- '--network-state-file' \
 grep -Fq -- '--radio-state-file' \
   "${hardware_dir}/bin/modemdeck-hardware-entrypoint" \
   || fail "Agent radio preference file is not explicit"
+grep -Fq 'modemdeck-call-watchdog' \
+  "${hardware_dir}/bin/modemdeck-hardware-entrypoint" \
+  || fail "independent call watchdog is not supervised"
+grep -Fq -- '--watchdog-heartbeat-file' \
+  "${hardware_dir}/bin/modemdeck-hardware-entrypoint" \
+  || fail "Agent watchdog heartbeat is not explicit"
+grep -Fq -- '--cleanup-only' \
+  "${hardware_dir}/bin/modemdeck-hardware-entrypoint" \
+  || fail "Agent exit does not invoke emergency call cleanup"
 
 grep -Fq -- '--unix-socket' \
   "${hardware_dir}/bin/modemdeck-hardware-healthcheck" \

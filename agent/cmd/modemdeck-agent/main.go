@@ -19,6 +19,7 @@ import (
 	"github.com/human-agent65535/modemdeck/agent/internal/media"
 	"github.com/human-agent65535/modemdeck/agent/internal/modemmanager"
 	"github.com/human-agent65535/modemdeck/agent/internal/networking"
+	"github.com/human-agent65535/modemdeck/agent/internal/safetywatchdog"
 	"github.com/human-agent65535/modemdeck/agent/internal/unixsocket"
 	"github.com/human-agent65535/modemdeck/agent/internal/volte"
 )
@@ -56,6 +57,11 @@ func run() error {
 		"radio-state-file",
 		envOrDefault("MODEMDECK_RADIO_STATE_FILE", "/run/modemdeck/radio-state.json"),
 		"persistent file recording user-disabled modem radios",
+	)
+	watchdogHeartbeatFile := flag.String(
+		"watchdog-heartbeat-file",
+		os.Getenv("MODEMDECK_AGENT_HEARTBEAT_FILE"),
+		"absolute heartbeat path for the independent call watchdog",
 	)
 	flag.Parse()
 
@@ -206,6 +212,30 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	var heartbeatFailures <-chan error
+	if *watchdogHeartbeatFile != "" {
+		if err := safetywatchdog.WriteHeartbeat(
+			*watchdogHeartbeatFile,
+			os.Getpid(),
+			time.Now(),
+		); err != nil {
+			return fmt.Errorf("initialize call watchdog heartbeat: %w", err)
+		}
+		defer os.Remove(*watchdogHeartbeatFile)
+		failures := make(chan error, 1)
+		heartbeatFailures = failures
+		go func() {
+			if err := safetywatchdog.RunEmitter(
+				ctx,
+				*watchdogHeartbeatFile,
+				os.Getpid(),
+				time.Second,
+				time.Now,
+			); err != nil {
+				failures <- err
+			}
+		}()
+	}
 	go runRadioReconciler(ctx, provider)
 	go controlLease.Run(ctx)
 	go provider.RunATCallObserver(ctx)
@@ -237,6 +267,8 @@ func run() error {
 			return nil
 		}
 		return fmt.Errorf("serve unix socket: %w", err)
+	case err := <-heartbeatFailures:
+		return fmt.Errorf("renew call watchdog heartbeat: %w", err)
 	case <-ctx.Done():
 		callShutdownContext, callShutdownCancel := context.WithTimeout(
 			context.Background(),
