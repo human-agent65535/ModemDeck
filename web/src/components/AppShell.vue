@@ -25,6 +25,10 @@ import {
   shutdownCallRuntime
 } from '../state/call'
 import {
+  initializeBrowserAudio,
+  shutdownAudioDevices
+} from '../state/audio'
+import {
   browserNotificationState,
   initializeBrowserNotifications,
   shutdownBrowserNotifications,
@@ -219,6 +223,7 @@ onMounted(() => {
   mountGeneration += 1
   const currentGeneration = mountGeneration
   if (accountRestricted.value) return
+  void initializeBrowserAudio()
   initializeBrowserNotifications()
   initializeBrowserSounds()
   initializeCallRuntime(router)
@@ -241,6 +246,7 @@ onBeforeUnmount(() => {
   shutdownBrowserSounds()
   shutdownDTMFAudio()
   shutdownBrowserNotifications()
+  shutdownAudioDevices()
 })
 </script>
 

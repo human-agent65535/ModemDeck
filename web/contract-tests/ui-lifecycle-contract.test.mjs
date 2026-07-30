@@ -14,8 +14,10 @@ function section(contents, start, end) {
   return contents.slice(startIndex, endIndex)
 }
 
-test('app startup requests microphone access once and releases the probe stream', async () => {
+test('authenticated app startup requests microphone access once and releases the probe stream', async () => {
   const app = await source('../src/App.vue')
+  const shell = await source('../src/components/AppShell.vue')
+  const login = await source('../src/views/LoginView.vue')
   const audio = await source('../src/state/audio.ts')
   const initialize = section(
     audio,
@@ -23,8 +25,16 @@ test('app startup requests microphone access once and releases the probe stream'
     'function onDeviceChange(): void {'
   )
 
-  assert.match(app, /onMounted\(\(\) => \{\s*void initializeBrowserAudio\(\)/)
-  assert.match(app, /onBeforeUnmount\(\(\) => \{\s*shutdownAudioDevices\(\)/)
+  assert.doesNotMatch(app, /initializeBrowserAudio|shutdownAudioDevices/)
+  assert.doesNotMatch(login, /initializeBrowserAudio|shutdownAudioDevices|getUserMedia/)
+  assert.match(
+    shell,
+    /onMounted\(\(\) => \{[\s\S]*?if \(accountRestricted\.value\) return\s*void initializeBrowserAudio\(\)/
+  )
+  assert.match(
+    shell,
+    /onBeforeUnmount\(\(\) => \{[\s\S]*?shutdownAudioDevices\(\)/
+  )
   assert.match(initialize, /if \(startupAccessAttempted\) return Promise\.resolve\(\)/)
   assert.match(initialize, /getUserMedia\(\{\s*audio: true,\s*video: false\s*\}\)/)
   assert.match(initialize, /temporaryStream\?\.getTracks\(\)/)
