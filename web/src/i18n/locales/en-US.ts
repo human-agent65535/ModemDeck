@@ -988,6 +988,14 @@ export default {
     statusDegraded: 'Degraded',
     statusUnavailable: 'Unavailable',
     statusLoading: 'Loading',
+    allLinesFailed: 'All lines failed',
+    allLinesFailedDetail:
+      'Calls and messages are unavailable. Check or recover each device separately.',
+    someLinesFailed: 'Some lines failed',
+    someLinesFailedDetail:
+      '{failed} of {total} lines failed; unaffected lines remain available.',
+    failedLineCount: '{failed}/{total} failed',
+    failureReason: 'Failure reason',
     httpsRequired: 'Requires a secure HTTPS context',
     webrtcUnsupported: 'This browser does not support WebRTC microphone access',
     microphonePermissionWaiting: 'Waiting for microphone permission',

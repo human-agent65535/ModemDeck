@@ -360,6 +360,7 @@ export function parseDeviceResponse(value: unknown): Device {
 export function parseLine(value: unknown): LineSummary {
   const source = objectValue(value, 'line')
   const rawAccessTechnologies = nullableNumber(source, 'access_technologies')
+  const rawFailureReasonCode = nullableNumber(source, 'failure_reason_code')
   const rawSignalSNR = nullableNumber(source, 'signal_snr', true)
   const rawLineColor = stringValue(source, 'line_color')
   const line: LineSummary = {
@@ -393,6 +394,11 @@ export function parseLine(value: unknown): LineSummary {
         ? rawAccessTechnologies
         : undefined,
     state: stringValue(source, 'state') || undefined,
+    failure_reason: stringValue(source, 'failure_reason') || undefined,
+    failure_reason_code:
+      rawFailureReasonCode != null && rawFailureReasonCode > 0
+        ? rawFailureReasonCode
+        : undefined,
     radio_desired_enabled: requiredBoolean(source, 'line', 'radio_desired_enabled'),
     radio_desired_enabled_known: requiredBoolean(
       source,

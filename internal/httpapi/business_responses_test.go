@@ -22,8 +22,10 @@ func TestOrdinaryBusinessResponsesOmitEndpointIdentity(t *testing.T) {
 	}
 	responses := map[string]any{
 		"bootstrap line": lineSummaryResponseFromStore(store.LineSummary{
-			ID:         "line-main",
-			EndpointID: "endpoint-line-1",
+			ID:                "line-main",
+			EndpointID:        "endpoint-line-1",
+			FailureReason:     "unknown-capabilities",
+			FailureReasonCode: 4,
 		}),
 		"message": messageResponseItemFromStore(store.Message{
 			ID:             1,
@@ -51,7 +53,12 @@ func TestOrdinaryBusinessResponsesOmitEndpointIdentity(t *testing.T) {
 				t.Fatalf("marshal response: %v", err)
 			}
 			body := string(encoded)
-			for _, field := range []string{`"endpoint_id"`, `"endpoint_line_id"`} {
+			for _, field := range []string{
+				`"endpoint_id"`,
+				`"endpoint_line_id"`,
+				`"failure_reason"`,
+				`"failure_reason_code"`,
+			} {
 				if strings.Contains(body, field) {
 					t.Fatalf("ordinary response leaked %s: %s", field, body)
 				}

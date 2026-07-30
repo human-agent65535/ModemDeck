@@ -36,10 +36,13 @@ func TestDiagnosticsReportsRuntimeAndLineCapabilities(t *testing.T) {
 				USSD:               true,
 			},
 			Lines: []store.LineSummary{{
-				ID:         "line-1",
-				EndpointID: "endpoint-1",
-				Model:      "QUECTEL Mobile Broadband Module",
-				Firmware:   "QDC507GLEFM21",
+				ID:                "line-1",
+				EndpointID:        "endpoint-1",
+				Model:             "QUECTEL Mobile Broadband Module",
+				Firmware:          "QDC507GLEFM21",
+				State:             "failed",
+				FailureReason:     "unknown-capabilities",
+				FailureReasonCode: 4,
 				Capabilities: store.LineCapabilities{
 					Modem: true, SIM: true, Voice: true, Messaging: true, Dial: true,
 				},
@@ -80,6 +83,11 @@ func TestDiagnosticsReportsRuntimeAndLineCapabilities(t *testing.T) {
 	}
 	if body.Lines[0].EndpointID != "endpoint-1" {
 		t.Fatalf("diagnostic endpoint identity = %q", body.Lines[0].EndpointID)
+	}
+	if body.Lines[0].State != "failed" ||
+		body.Lines[0].FailureReason != "unknown-capabilities" ||
+		body.Lines[0].FailureReasonCode != 4 {
+		t.Fatalf("diagnostic failure evidence = %+v", body.Lines[0])
 	}
 	if !body.HostAgent.Capabilities.SIMManagement ||
 		!body.HostAgent.Capabilities.ConnectionProfiles ||

@@ -320,6 +320,8 @@ type LineSummary struct {
 	Ports                    []HardwarePort   `json:"ports,omitempty"`
 	AccessTechnologies       *uint32          `json:"access_technologies,omitempty"`
 	State                    string           `json:"state"`
+	FailureReason            string           `json:"failure_reason,omitempty"`
+	FailureReasonCode        uint32           `json:"failure_reason_code,omitempty"`
 	RadioDesiredEnabled      bool             `json:"radio_desired_enabled"`
 	RadioDesiredEnabledKnown bool             `json:"radio_desired_enabled_known"`
 	Signal                   *uint32          `json:"signal_quality,omitempty"`

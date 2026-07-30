@@ -185,6 +185,16 @@ const knownComponents = computed(() =>
 const diagnosticLines = computed(() =>
   (snapshot.value?.lines || []).filter(line => Boolean(line.id.trim()))
 )
+const failedLines = computed(() =>
+  diagnosticLines.value.filter(
+    line => line.state?.trim().toLowerCase() === 'failed'
+  )
+)
+const allDiagnosticLinesFailed = computed(
+  () =>
+    diagnosticLines.value.length > 0 &&
+    failedLines.value.length === diagnosticLines.value.length
+)
 const diagnosticLineIDs = computed(() => diagnosticLines.value.map(line => line.id))
 const selectedDiagnosticLine = computed(() =>
   diagnosticLines.value.find(line => line.id === selectedDiagnosticLineID.value)
@@ -262,6 +272,15 @@ function lineStateLabel(state?: string): string {
     default:
       return state || t('lines.unknownState')
   }
+}
+
+function lineFailureEvidence(line: LineSummary): string {
+  const reason = line.failure_reason?.trim()
+  const code = line.failure_reason_code
+  if (reason && code !== undefined) return `${reason} · #${code}`
+  if (reason) return reason
+  if (code !== undefined) return `#${code}`
+  return t('diagnostics.notReported')
 }
 
 function lineRegistrationLabel(line: LineSummary): string {
@@ -740,6 +759,60 @@ onBeforeUnmount(() => {
           </p>
         </div>
 
+        <section
+          v-if="failedLines.length > 0"
+          class="line-health-alert"
+          :class="{ 'is-degraded': !allDiagnosticLinesFailed }"
+          role="alert"
+        >
+          <header class="line-health-alert__summary">
+            <span class="line-health-alert__icon">
+              <XCircle v-if="allDiagnosticLinesFailed" :size="19" />
+              <AlertTriangle v-else :size="19" />
+            </span>
+            <span>
+              <strong>
+                {{
+                  allDiagnosticLinesFailed
+                    ? t('diagnostics.allLinesFailed')
+                    : t('diagnostics.someLinesFailed')
+                }}
+              </strong>
+              <small>
+                {{
+                  allDiagnosticLinesFailed
+                    ? t('diagnostics.allLinesFailedDetail')
+                    : t('diagnostics.someLinesFailedDetail', {
+                        failed: failedLines.length,
+                        total: diagnosticLines.length
+                      })
+                }}
+              </small>
+            </span>
+            <strong class="line-health-alert__count">
+              {{
+                t('diagnostics.failedLineCount', {
+                  failed: failedLines.length,
+                  total: diagnosticLines.length
+                })
+              }}
+            </strong>
+          </header>
+
+          <div class="line-health-alert__lines">
+            <article v-for="line in failedLines" :key="line.id">
+              <span class="line-health-alert__identity">
+                <strong>{{ lineLabel(line) }}</strong>
+                <small>{{ line.endpoint_id || line.id }}</small>
+                <code>{{ lineFailureEvidence(line) }}</code>
+              </span>
+              <span class="line-state is-negative">
+                {{ lineStateLabel(line.state) }}
+              </span>
+            </article>
+          </div>
+        </section>
+
         <div class="service-grid">
           <article class="service-status" :class="{ 'is-unavailable': !snapshot.database.available }">
             <span class="service-status__icon"><Database :size="19" /></span>
@@ -895,6 +968,10 @@ onBeforeUnmount(() => {
             <div>
               <dt>{{ t('diagnostics.modemState') }}</dt>
               <dd><code>{{ selectedDiagnosticLine.state || t('diagnostics.notReported') }}</code></dd>
+            </div>
+            <div v-if="selectedDiagnosticLine.state?.toLowerCase() === 'failed'">
+              <dt>{{ t('diagnostics.failureReason') }}</dt>
+              <dd><code>{{ lineFailureEvidence(selectedDiagnosticLine) }}</code></dd>
             </div>
             <div>
               <dt>{{ t('diagnostics.registrationEvidence') }}</dt>
@@ -1395,6 +1472,104 @@ onBeforeUnmount(() => {
 .runtime-errors span {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.line-health-alert {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 12px;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-left: 3px solid var(--danger);
+  border-radius: 5px;
+}
+
+.line-health-alert.is-degraded {
+  color: #7a5700;
+  background: #fff5d8;
+  border-color: #d6a400;
+}
+
+.line-health-alert__summary {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.line-health-alert__icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  color: currentColor;
+  background: var(--surface);
+  border-radius: 50%;
+}
+
+.line-health-alert__summary > span:nth-child(2),
+.line-health-alert__identity {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.line-health-alert__summary strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.line-health-alert__summary small {
+  color: currentColor;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.line-health-alert__count {
+  white-space: nowrap;
+}
+
+.line-health-alert__lines {
+  display: grid;
+  gap: 8px;
+}
+
+.line-health-alert__lines article {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 9px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.line-health-alert__identity strong,
+.line-health-alert__identity small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.line-health-alert__identity strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.line-health-alert__identity small,
+.line-health-alert__identity code {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.line-health-alert__identity code {
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .inline-error {
@@ -1960,6 +2135,14 @@ onBeforeUnmount(() => {
   .diagnostic-line-select {
     width: 100%;
     max-width: none;
+  }
+
+  .line-health-alert__summary {
+    grid-template-columns: 34px minmax(0, 1fr);
+  }
+
+  .line-health-alert__count {
+    grid-column: 2;
   }
 
   .line-evidence__facts,

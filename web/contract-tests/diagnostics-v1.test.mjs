@@ -22,12 +22,22 @@ test('Diagnostics V1 is organized around evidence, recovery, and logs', () => {
 
 test('line evidence exposes diagnostic-only identities and raw state', () => {
   assert.match(source, /selectedDiagnosticLine\.endpoint_id/)
+  assert.match(source, /lineFailureEvidence\(selectedDiagnosticLine\)/)
   assert.match(source, /lineRegistrationEvidence\(selectedDiagnosticLine\)/)
   assert.match(source, /lineAccessMask\(selectedDiagnosticLine\)/)
   assert.match(source, /selectedDiagnosticHardware\.radio\.power_state_code/)
   assert.match(source, /selectedDiagnosticHardware\.voice_verification/)
   assert.doesNotMatch(source, /selectedDiagnosticLine\.device_imei/)
   assert.doesNotMatch(source, /selectedDiagnosticLine\.iccid/)
+})
+
+test('failed lines are summarized together without replacing per-line recovery', () => {
+  assert.match(source, /failedLines\.value\.length === diagnosticLines\.value\.length/)
+  assert.match(source, /failedLines\.length > 0/)
+  assert.match(source, /allDiagnosticLinesFailed/)
+  assert.match(source, /v-for="line in failedLines"/)
+  assert.match(source, /failure_reason_code/)
+  assert.match(source, /resetUSBDevice\(line\.id\)/)
 })
 
 test('device capability evidence is complete and preserves raw backend flags', () => {

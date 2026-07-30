@@ -1683,6 +1683,22 @@ func TestProjectLineSeparatesHomeAndServingOperators(t *testing.T) {
 	}
 }
 
+func TestProjectLinePreservesModemFailureReason(t *testing.T) {
+	t.Parallel()
+
+	projected := projectLine(agentclient.Line{
+		ID:                "line-failed",
+		State:             "failed",
+		FailureReason:     "unknown-capabilities",
+		FailureReasonCode: 4,
+	})
+	if projected.State != "failed" ||
+		projected.FailureReason != "unknown-capabilities" ||
+		projected.FailureReasonCode != 4 {
+		t.Fatalf("projected failed line = %+v", projected)
+	}
+}
+
 func TestDNDRejectsNewRingingIncomingCallOnceAndRecordsOutcome(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.July, 23, 16, 0, 0, 0, time.UTC)

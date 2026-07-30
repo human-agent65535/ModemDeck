@@ -72,6 +72,8 @@ export type LineSummary = {
   ports?: ModemPort[]
   access_technologies?: number
   state?: string
+  failure_reason?: string
+  failure_reason_code?: number
   radio_desired_enabled: boolean
   radio_desired_enabled_known: boolean
   signal_quality?: number

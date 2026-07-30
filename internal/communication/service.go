@@ -2114,6 +2114,8 @@ func projectLine(line agentclient.Line) store.LineSummary {
 		Ports:                    projectHardwarePorts(line.Ports),
 		AccessTechnologies:       knownAccessTechnologies(line),
 		State:                    line.State,
+		FailureReason:            line.FailureReason,
+		FailureReasonCode:        line.FailureReasonCode,
 		RadioDesiredEnabled:      line.RadioDesiredEnabled,
 		RadioDesiredEnabledKnown: line.RadioDesiredEnabledKnown,
 		Signal:                   signal,

@@ -97,6 +97,8 @@ func ParseManagedObjects(objects ManagedObjects, ids *instanceIDs) ParsedObjects
 		line.Ports, _ = modemPortsProperty(modemProperties, "Ports")
 		line.StateCode, _ = int32Property(modemProperties, "State")
 		line.State = modemStateName(line.StateCode)
+		line.FailureReasonCode, _ = uint32Property(modemProperties, "StateFailedReason")
+		line.FailureReason = modemFailureReasonName(line.FailureReasonCode)
 		line.PowerStateCode, _ = uint32Property(modemProperties, "PowerState")
 		line.AccessTechnologies, line.AccessTechnologiesKnown =
 			uint32Property(modemProperties, "AccessTechnologies")
@@ -416,6 +418,27 @@ func modemStateName(code int32) string {
 		return "connecting"
 	case 11:
 		return "connected"
+	default:
+		return "unknown"
+	}
+}
+
+func modemFailureReasonName(code uint32) string {
+	switch code {
+	case 0:
+		return ""
+	case 1:
+		return "unknown"
+	case 2:
+		return "sim-missing"
+	case 3:
+		return "sim-error"
+	case 4:
+		return "unknown-capabilities"
+	case 5:
+		return "esim-without-profiles"
+	case 6:
+		return "sim-missing-and-esim-without-profiles"
 	default:
 		return "unknown"
 	}

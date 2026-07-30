@@ -804,6 +804,31 @@ func TestParseManagedObjectsSortsAndUsesEmptyArrays(t *testing.T) {
 	}
 }
 
+func TestParseManagedObjectsPreservesModemFailureReason(t *testing.T) {
+	t.Parallel()
+
+	objects := ManagedObjects{
+		"/org/freedesktop/ModemManager1/Modem/0": {
+			modemInterface: {
+				"EquipmentIdentifier": dbus.MakeVariant("imei-failed"),
+				"State":               dbus.MakeVariant(int32(-1)),
+				"StateFailedReason":   dbus.MakeVariant(uint32(4)),
+			},
+		},
+	}
+
+	parsed := ParseManagedObjects(objects, newInstanceIDsForTest(":1.41"))
+	if len(parsed.Lines) != 1 {
+		t.Fatalf("lines = %d, want 1", len(parsed.Lines))
+	}
+	line := parsed.Lines[0]
+	if line.State != "failed" ||
+		line.FailureReason != "unknown-capabilities" ||
+		line.FailureReasonCode != 4 {
+		t.Fatalf("failed line = %+v", line)
+	}
+}
+
 func oneLineObjects(callPath dbus.ObjectPath, callState int32) ManagedObjects {
 	modemPath := dbus.ObjectPath("/org/freedesktop/ModemManager1/Modem/0")
 	return ManagedObjects{

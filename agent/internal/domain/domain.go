@@ -87,6 +87,8 @@ type Line struct {
 	Ports                    []ModemPort `json:"ports,omitempty"`
 	State                    string      `json:"state"`
 	StateCode                int32       `json:"state_code"`
+	FailureReason            string      `json:"failure_reason,omitempty"`
+	FailureReasonCode        uint32      `json:"failure_reason_code,omitempty"`
 	PowerStateCode           uint32      `json:"power_state_code"`
 	RadioDesiredEnabled      bool        `json:"radio_desired_enabled"`
 	RadioDesiredEnabledKnown bool        `json:"radio_desired_enabled_known"`
