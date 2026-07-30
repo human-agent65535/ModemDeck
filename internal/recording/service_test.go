@@ -292,6 +292,40 @@ func TestDeleteRecordingRemovesFileButKeepsCall(t *testing.T) {
 	}
 }
 
+func TestDeleteRecordingKeepsFileWhenMetadataDeletionFails(t *testing.T) {
+	fixture := newServiceFixture(t, nil)
+	applyServiceTestCall(t, fixture.repository, "call-delete-fails", "", "incoming", false)
+	path := createReadyRecordingFile(
+		t,
+		fixture,
+		"call-delete-fails",
+		"segment-delete-fails",
+	)
+	failure := errors.New("delete metadata")
+	fixture.service.repository = &failingDeleteRepository{
+		Repository:       fixture.repository,
+		deleteSegmentErr: failure,
+	}
+
+	if err := fixture.service.DeleteRecording(
+		context.Background(),
+		"call-delete-fails",
+		"segment-delete-fails",
+	); !errors.Is(err, failure) {
+		t.Fatalf("DeleteRecording() error = %v, want %v", err, failure)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("recording file was removed before metadata committed: %v", err)
+	}
+	if _, err := fixture.repository.RecordingSegment(
+		context.Background(),
+		"call-delete-fails",
+		"segment-delete-fails",
+	); err != nil {
+		t.Fatalf("recording metadata changed after failed deletion: %v", err)
+	}
+}
+
 func TestDeleteCallRemovesRecordingFilesAndCascadesMetadata(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
 	applyServiceTestCall(t, fixture.repository, "call-delete-history", "", "incoming", false)
@@ -333,6 +367,48 @@ func TestDeleteCallRemovesRecordingFilesAndCascadesMetadata(t *testing.T) {
 		"segment-cascade",
 	); !errors.Is(err, store.ErrRecordingNotFound) {
 		t.Fatalf("RecordingSegment() error = %v, want ErrRecordingNotFound", err)
+	}
+}
+
+func TestDeleteCallKeepsFilesWhenMetadataDeletionFails(t *testing.T) {
+	fixture := newServiceFixture(t, nil)
+	applyServiceTestCall(t, fixture.repository, "call-delete-history-fails", "", "incoming", false)
+	path := createReadyRecordingFile(
+		t,
+		fixture,
+		"call-delete-history-fails",
+		"segment-cascade-fails",
+	)
+	if err := fixture.repository.ApplyHardwareSnapshot(
+		context.Background(),
+		store.HardwareSnapshot{
+			BootEpoch:  "boot-service-recording",
+			Revision:   "snapshot-call-delete-fails-ended",
+			ObservedAt: time.Date(2026, time.July, 23, 16, 5, 0, 0, time.UTC),
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	failure := errors.New("delete call metadata")
+	fixture.service.repository = &failingDeleteRepository{
+		Repository:    fixture.repository,
+		deleteCallErr: failure,
+	}
+
+	if err := fixture.service.DeleteCall(
+		context.Background(),
+		"call-delete-history-fails",
+	); !errors.Is(err, failure) {
+		t.Fatalf("DeleteCall() error = %v, want %v", err, failure)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("recording file was removed before call metadata committed: %v", err)
+	}
+	if _, err := fixture.repository.CallByID(
+		context.Background(),
+		"call-delete-history-fails",
+	); err != nil {
+		t.Fatalf("call metadata changed after failed deletion: %v", err)
 	}
 }
 
@@ -642,6 +718,31 @@ func TestRecoverRemovesPublishedFileForInterruptedSegment(t *testing.T) {
 	}
 }
 
+func TestRecoverRemovesReadyFileWithoutMetadata(t *testing.T) {
+	fixture := newServiceFixture(t, nil)
+	applyServiceTestCall(t, fixture.repository, "call-orphaned-file", "", "incoming", false)
+	path := createReadyRecordingFile(
+		t,
+		fixture,
+		"call-orphaned-file",
+		"segment-orphaned-file",
+	)
+	if err := fixture.repository.DeleteRecordingSegment(
+		context.Background(),
+		"call-orphaned-file",
+		"segment-orphaned-file",
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := fixture.service.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("orphaned ready file still exists: %v", err)
+	}
+}
+
 type serviceFixture struct {
 	database   *sql.DB
 	repository *store.Store
@@ -652,6 +753,30 @@ type serviceFixture struct {
 	writers    *memoryWriterFactory
 	reports    chan error
 	changes    chan struct{}
+}
+
+type failingDeleteRepository struct {
+	Repository
+	deleteSegmentErr error
+	deleteCallErr    error
+}
+
+func (r *failingDeleteRepository) DeleteRecordingSegment(
+	ctx context.Context,
+	callID string,
+	segmentID string,
+) error {
+	if r.deleteSegmentErr != nil {
+		return r.deleteSegmentErr
+	}
+	return r.Repository.DeleteRecordingSegment(ctx, callID, segmentID)
+}
+
+func (r *failingDeleteRepository) DeleteCall(ctx context.Context, callID string) error {
+	if r.deleteCallErr != nil {
+		return r.deleteCallErr
+	}
+	return r.Repository.DeleteCall(ctx, callID)
 }
 
 func newServiceFixture(t *testing.T, writerError error) *serviceFixture {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -274,13 +275,18 @@ func (s *Service) DeleteRecording(
 		segment.Status == store.RecordingSegmentRecording {
 		return ErrConflict
 	}
-	if segment.RelativePath != "" {
-		if err := s.files.remove(segment.RelativePath); err != nil {
-			return err
-		}
-	}
 	if err := s.repository.DeleteRecordingSegment(ctx, callID, segmentID); err != nil {
 		return translateStoreError(err)
+	}
+	if segment.RelativePath != "" {
+		if err := s.files.remove(segment.RelativePath); err != nil {
+			s.reportWorkerError(fmt.Errorf(
+				"clean deleted recording %s segment %s: %w",
+				callID,
+				segmentID,
+				err,
+			))
+		}
 	}
 	s.notifyChanged()
 	return nil
@@ -314,16 +320,21 @@ func (s *Service) DeleteCall(ctx context.Context, callID string) error {
 			return ErrConflict
 		}
 	}
+	if err := s.repository.DeleteCall(ctx, callID); err != nil {
+		return translateStoreError(err)
+	}
 	for _, segment := range segments {
 		if segment.RelativePath == "" {
 			continue
 		}
 		if err := s.files.remove(segment.RelativePath); err != nil {
-			return err
+			s.reportWorkerError(fmt.Errorf(
+				"clean deleted call %s recording %s: %w",
+				callID,
+				segment.ID,
+				err,
+			))
 		}
-	}
-	if err := s.repository.DeleteCall(ctx, callID); err != nil {
-		return translateStoreError(err)
 	}
 	s.mu.Lock()
 	delete(s.knownCalls, callID)
@@ -336,8 +347,32 @@ func (s *Service) Recover(ctx context.Context) error {
 	if s == nil {
 		return ErrClosed
 	}
-	if err := s.files.cleanupPartialFiles(); err != nil {
+	readyFiles, err := s.files.recoverableReadyFiles()
+	if err != nil {
 		return err
+	}
+	for _, relativePath := range readyFiles {
+		callID, fileName, parseErr := parseRelativeRecording(relativePath)
+		if parseErr != nil {
+			return parseErr
+		}
+		segmentID := strings.TrimSuffix(fileName, ".ogg")
+		segment, segmentErr := s.repository.RecordingSegment(
+			normalizeContext(ctx),
+			callID,
+			segmentID,
+		)
+		switch {
+		case segmentErr == nil &&
+			segment.Status == store.RecordingSegmentReady &&
+			segment.RelativePath == relativePath:
+			continue
+		case segmentErr != nil && !errors.Is(segmentErr, store.ErrRecordingNotFound):
+			return translateStoreError(segmentErr)
+		}
+		if removeErr := s.files.remove(relativePath); removeErr != nil {
+			return removeErr
+		}
 	}
 	interrupted, err := s.repository.InterruptedRecordingSegments(normalizeContext(ctx))
 	if err != nil {

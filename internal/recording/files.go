@@ -209,23 +209,29 @@ func (s *fileStore) remove(relative string) error {
 }
 
 func (s *fileStore) cleanupPartialFiles() error {
+	_, err := s.recoverableReadyFiles()
+	return err
+}
+
+func (s *fileStore) recoverableReadyFiles() ([]string, error) {
 	if s == nil || s.rootDir == nil {
-		return ErrStorage
+		return nil, ErrStorage
 	}
 	root, err := duplicateFile(s.rootDir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer root.Close()
 	callEntries, err := root.ReadDir(-1)
 	if err != nil {
-		return fmt.Errorf("read recording root: %w", ErrStorage)
+		return nil, fmt.Errorf("read recording root: %w", ErrStorage)
 	}
 	entries := 0
+	ready := make([]string, 0)
 	for _, callEntry := range callEntries {
 		entries++
 		if entries > maxCrashCleanupEntries {
-			return fmt.Errorf("recording cleanup entry limit exceeded: %w", ErrStorage)
+			return nil, fmt.Errorf("recording cleanup entry limit exceeded: %w", ErrStorage)
 		}
 		var callStat unix.Stat_t
 		err := unix.Fstatat(
@@ -238,23 +244,23 @@ func (s *fileStore) cleanupPartialFiles() error {
 			callStat.Mode&unix.S_IFMT != unix.S_IFDIR ||
 			callStat.Mode&0o777 != 0o700 ||
 			!validOpaqueID(callEntry.Name()) {
-			return fmt.Errorf("inspect recording call directory: %w", ErrStorage)
+			return nil, fmt.Errorf("inspect recording call directory: %w", ErrStorage)
 		}
 		directory, err := s.openCallDirectory(callEntry.Name(), false)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		fileEntries, readErr := directory.ReadDir(-1)
 		if readErr != nil {
 			_ = directory.Close()
-			return fmt.Errorf("read recording call directory: %w", ErrStorage)
+			return nil, fmt.Errorf("read recording call directory: %w", ErrStorage)
 		}
 		removed := false
 		for _, fileEntry := range fileEntries {
 			entries++
 			if entries > maxCrashCleanupEntries {
 				_ = directory.Close()
-				return fmt.Errorf("recording cleanup entry limit exceeded: %w", ErrStorage)
+				return nil, fmt.Errorf("recording cleanup entry limit exceeded: %w", ErrStorage)
 			}
 			var fileStat unix.Stat_t
 			err := unix.Fstatat(
@@ -268,7 +274,7 @@ func (s *fileStore) cleanupPartialFiles() error {
 				fileStat.Mode&0o777 != 0o600 ||
 				fileStat.Nlink != 1 {
 				_ = directory.Close()
-				return fmt.Errorf(
+				return nil, fmt.Errorf(
 					"inspect recording storage entry %q (mode %o, error %v): %w",
 					fileEntry.Name(),
 					fileStat.Mode,
@@ -280,27 +286,31 @@ func (s *fileStore) cleanupPartialFiles() error {
 			if validPartialRecordingName(name) {
 				if err := unix.Unlinkat(int(directory.Fd()), name, 0); err != nil {
 					_ = directory.Close()
-					return fmt.Errorf("remove partial recording: %w", ErrStorage)
+					return nil, fmt.Errorf("remove partial recording: %w", ErrStorage)
 				}
 				removed = true
 				continue
 			}
 			if !validReadyRecordingName(name) {
 				_ = directory.Close()
-				return fmt.Errorf("unexpected recording storage entry: %w", ErrStorage)
+				return nil, fmt.Errorf("unexpected recording storage entry: %w", ErrStorage)
 			}
+			ready = append(
+				ready,
+				filepath.ToSlash(filepath.Join(callEntry.Name(), name)),
+			)
 		}
 		if removed {
 			if err := directory.Sync(); err != nil {
 				_ = directory.Close()
-				return fmt.Errorf("sync recording cleanup: %w", ErrStorage)
+				return nil, fmt.Errorf("sync recording cleanup: %w", ErrStorage)
 			}
 		}
 		if err := directory.Close(); err != nil {
-			return fmt.Errorf("close recording call directory: %w", ErrStorage)
+			return nil, fmt.Errorf("close recording call directory: %w", ErrStorage)
 		}
 	}
-	return nil
+	return ready, nil
 }
 
 func (s *fileStore) openCallDirectory(callID string, create bool) (*os.File, error) {
