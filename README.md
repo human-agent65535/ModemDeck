@@ -40,7 +40,11 @@ ModemDeck 是一个管理蜂窝通话、短信、联系人、流量和多条线�
 | M2 单路通话 | ✅ 已实现 | 拨号、接听、拒接、挂断、DTMF、浏览器音频和通话录音。 |
 | M3 多路通话 | 🧪 已实现，未测试 | 每个 Modem 的独立通话会话、线路预占、占线显示和线路切换；待多模组实机验证。 |
 | M4 多用户 | ✅ 已实现 | 初始管理员、普通成员、线路分配、用户通讯录、个人偏好和 Telegram 绑定。 |
-| M5 iOS App + CallKit | ⬜ 未实现 | 原生 iOS 客户端、CallKit 来电界面、后台通知与接听流程。 |
+| M5 iOS App + CallKit | ⬜ 未实现 | 原生 iOS 客户端、CallKit 来电界面、后台通知与接听流程，以及通过认证 HTTPS API 建立的流式通话媒体通道。 |
+
+浏览器音频维持当前本地或受控网络中的 WebRTC 边界；路线图不计划为经公网
+Cloudflare Tunnel 访问的 Web 客户端增加 TURN 媒体。iOS 流式媒体的具体传输
+协议、后台生命周期和密钥模型将在 M5 中单独设计。
 
 ## 架构
 
@@ -260,7 +264,12 @@ with that project.
 | M2 Single-call flow | ✅ Implemented | Dial, answer, decline, hang up, DTMF, browser audio, and call recording. |
 | M3 Concurrent calls | 🧪 Implemented, not tested | Independent sessions per modem, line reservations, busy-state display, and line switching; pending multi-modem hardware validation. |
 | M4 Multi-user | ✅ Implemented | Initial administrator, members, line assignments, user address books, personal preferences, and Telegram bindings. |
-| M5 iOS app + CallKit | ⬜ Not implemented | Native iOS client, CallKit incoming-call UI, background notifications, and answer flow. |
+| M5 iOS app + CallKit | ⬜ Not implemented | Native iOS client, CallKit incoming-call UI, background notifications and answer flow, plus a streaming call-media channel established through the authenticated HTTPS API. |
+
+Browser audio remains within the current WebRTC boundary for local or controlled
+networks. The roadmap does not add TURN media for Web clients reaching ModemDeck
+through a public Cloudflare Tunnel. The concrete iOS streaming transport,
+background lifecycle, and key model will be designed separately in M5.
 
 ## Architecture
 
