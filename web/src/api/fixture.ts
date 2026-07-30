@@ -2233,7 +2233,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           connected: true,
           provider: 'modemmanager',
           agent_version: 'fixture-agent',
-          runtime_version: 'go1.26.3',
+          runtime_version: 'go1.26.5',
           boot_epoch: 'fixture-boot',
           revision: 'fixture-revision-8',
           observed_at: '2026-07-23T12:00:00Z',

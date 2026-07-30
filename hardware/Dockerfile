@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 ARG DEBIAN_IMAGE=debian:trixie-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd
-ARG GO_IMAGE=golang:1.26.3-trixie@sha256:0f6b034c99663ea8957e7dae99124e37374cbe7fcb5b5646f19b185f8f976279
+ARG GO_IMAGE=golang:1.26.5-trixie@sha256:4ee9ffa999b4583ce281939cdff828763083610292f252279a0cee77473bd9a7
 
 FROM --platform=${BUILDPLATFORM} ${GO_IMAGE} AS agent-builder
 

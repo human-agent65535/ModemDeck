@@ -1,7 +1,7 @@
 SHELL := /bin/sh
 
-GO_IMAGE ?= golang:1.26.3-bookworm@sha256:386d475a660466863d9f8c766fec64d7fdad3edac2c6a05020c09534d71edb4b
-ROOT_TOOLCHAIN_IMAGE ?= modemdeck-root-toolchain:go1.26.3-opus1.3.1-3
+GO_IMAGE ?= golang:1.26.5-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651
+ROOT_TOOLCHAIN_IMAGE ?= modemdeck-root-toolchain:go1.26.5-opus1.3.1-3
 ROOT_TOOLCHAIN_TARGET ?= go-toolchain
 NODE_IMAGE ?= node:22.17.1-bookworm-slim@sha256:2fa754a9ba4d7adbd2a51d182eaabbe355c82b673624035a38c0d42b08724854
 GITLEAKS_IMAGE ?= ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
