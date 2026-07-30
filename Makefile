@@ -165,6 +165,7 @@ web-test: web-install
 
 web-typecheck: web-install
 	$(WEB_NODE_RO) npm run typecheck
+	$(WEB_NODE_RO) npm run typecheck:sidecar
 
 web-lint: web-install
 	$(WEB_NODE_RO) npm run lint
@@ -172,6 +173,7 @@ web-lint: web-install
 web-check: web-install
 	$(WEB_NODE_RO) npm test
 	$(WEB_NODE_RO) npm run typecheck
+	$(WEB_NODE_RO) npm run typecheck:sidecar
 	$(WEB_NODE_RO) npm run lint
 	$(WEB_NODE_RW) npm run build
 
