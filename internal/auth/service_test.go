@@ -200,6 +200,24 @@ func TestChangePasswordValidationAndFailures(t *testing.T) {
 	}
 }
 
+func TestValidateTemporaryPasswordCountsCharacters(t *testing.T) {
+	t.Parallel()
+
+	for _, password := range []string{"1234567", "密码密码密码密"} {
+		if err := ValidateTemporaryPassword(password); !errors.Is(err, ErrPasswordTooShort) {
+			t.Fatalf("ValidateTemporaryPassword(%q) error = %v, want too short", password, err)
+		}
+	}
+	for _, password := range []string{"12345678", "密码密码密码密码"} {
+		if err := ValidateTemporaryPassword(password); err != nil {
+			t.Fatalf("ValidateTemporaryPassword(%q) error = %v", password, err)
+		}
+	}
+	if err := ValidateTemporaryPassword("1234567\x00"); !errors.Is(err, ErrPasswordInvalid) {
+		t.Fatalf("ValidateTemporaryPassword(NUL) error = %v, want invalid", err)
+	}
+}
+
 func TestLoginCreatesIndependentTokensAndDigestOnlyRecord(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 7, 23, 9, 30, 0, 0, time.FixedZone("JST", 9*60*60))

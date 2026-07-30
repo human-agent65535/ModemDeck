@@ -97,7 +97,7 @@ func TestAdaptersRecentSMSRequestsChronologicalWindow(t *testing.T) {
 	}
 }
 
-func TestAdaptersResolveContactsOnlyForUserMode(t *testing.T) {
+func TestAdaptersHonorContactResolutionConfiguration(t *testing.T) {
 	t.Parallel()
 
 	for _, test := range []struct {
@@ -107,13 +107,13 @@ func TestAdaptersResolveContactsOnlyForUserMode(t *testing.T) {
 		wantLookups     int
 	}{
 		{
-			name:            "manual mode",
+			name:            "disabled",
 			resolveContacts: false,
 			wantName:        "",
 			wantLookups:     0,
 		},
 		{
-			name:            "user mode",
+			name:            "enabled",
 			resolveContacts: true,
 			wantName:        "Aiko Tanaka",
 			wantLookups:     1,
@@ -296,15 +296,17 @@ func TestManagerVerifiesBotAndDispatchesDurableNotification(t *testing.T) {
 	settings := &fakeSettings{
 		changes: make(chan struct{}, 1),
 		units: []telegramsettings.Unit{{
-			ID:      "unit-1",
-			Enabled: true,
+			ID:               "unit-1",
+			Enabled:          true,
+			EffectiveEnabled: true,
 		}},
 		config: telegram.Config{
-			Enabled:    true,
-			BotToken:   "100001:abcdefghijklmnopqrstuvwxyz",
-			ChatID:     10,
-			AdminID:    20,
-			LineScopes: []string{"line-1"},
+			Enabled:         true,
+			BotToken:        "100001:abcdefghijklmnopqrstuvwxyz",
+			ChatID:          10,
+			AdminID:         20,
+			LineScopes:      []string{"line-1"},
+			ResolveContacts: true,
 			Notifications: telegram.NotificationConfig{
 				IncomingSMS: true,
 			},
@@ -389,24 +391,26 @@ func TestManagerVerifiesBotAndDispatchesDurableNotification(t *testing.T) {
 	}
 	if len(messages) != 1 ||
 		!strings.Contains(messages[0].Text, "主线路 · +818000000001") ||
-		!strings.Contains(messages[0].Text, "+818012345678") ||
-		strings.Contains(messages[0].Text, "Aiko Tanaka") ||
+		!strings.Contains(messages[0].Text, "Aiko Tanaka") ||
+		strings.Contains(messages[0].Text, "+818012345678") ||
 		strings.Contains(messages[0].Text, "line-1") {
 		t.Fatalf("notification text = %q", messages[0].Text)
 	}
-	if repository.contactLookups != 0 {
-		t.Fatalf("manual-mode contact lookups = %d, want 0", repository.contactLookups)
+	if repository.contactLookups != 1 {
+		t.Fatalf("contact lookups = %d, want 1", repository.contactLookups)
 	}
 }
 
 func TestManagerRegistersBotCommandsOnStartupAndReload(t *testing.T) {
 	t.Parallel()
 
+	events := runtimeevents.NewBuffer(4)
 	settings := &fakeSettings{
 		changes: make(chan struct{}, 1),
 		units: []telegramsettings.Unit{{
-			ID:      "unit-1",
-			Enabled: true,
+			ID:               "unit-1",
+			Enabled:          true,
+			EffectiveEnabled: true,
 		}},
 		config: telegram.Config{
 			Enabled:  true,
@@ -433,6 +437,7 @@ func TestManagerRegistersBotCommandsOnStartupAndReload(t *testing.T) {
 				MaxConsecutiveFailures: 1,
 				MinimumEmptyInterval:   10 * time.Millisecond,
 			},
+			AccessEvents: events,
 		},
 	)
 	if err != nil {
@@ -444,6 +449,18 @@ func TestManagerRegistersBotCommandsOnStartupAndReload(t *testing.T) {
 	go func() {
 		runResult <- manager.Run(ctx)
 	}()
+	waitForBotConfiguration(t, bot.configured)
+	events.Publish(runtimeevents.Event{
+		Resources: []runtimeevents.Resource{runtimeevents.ResourceMessages},
+	})
+	select {
+	case <-bot.configured:
+		t.Fatal("unrelated runtime event reloaded Telegram bot")
+	case <-time.After(20 * time.Millisecond):
+	}
+	events.Publish(runtimeevents.Event{
+		Resources: []runtimeevents.Resource{runtimeevents.ResourceLines},
+	})
 	waitForBotConfiguration(t, bot.configured)
 	settings.changes <- struct{}{}
 	waitForBotConfiguration(t, bot.configured)
@@ -458,8 +475,8 @@ func TestManagerRegistersBotCommandsOnStartupAndReload(t *testing.T) {
 	}
 
 	commands, _ := bot.snapshots()
-	if len(commands) != 2 {
-		t.Fatalf("command registrations = %d, want 2", len(commands))
+	if len(commands) != 3 {
+		t.Fatalf("command registrations = %d, want 3", len(commands))
 	}
 	for _, registration := range commands {
 		if len(registration) != 5 ||

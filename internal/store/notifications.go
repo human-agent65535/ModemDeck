@@ -235,6 +235,17 @@ func enqueueTelegramNotification(
 							WHERE access.user_id = user.id
 								AND access.line_id = ?
 						)
+						AND (
+							NOT EXISTS (
+								SELECT 1 FROM modemdeck_telegram_line_scopes scopes
+								WHERE scopes.unit_id = units.id
+							)
+							OR EXISTS (
+								SELECT 1 FROM modemdeck_telegram_line_scopes scopes
+								WHERE scopes.unit_id = units.id
+									AND scopes.line_id = ?
+							)
+						)
 				)
 			)
 		)`
@@ -243,6 +254,7 @@ func enqueueTelegramNotification(
 		statement,
 		eventKey,
 		NotificationPending,
+		lineID,
 		lineID,
 		lineID,
 	); err != nil {

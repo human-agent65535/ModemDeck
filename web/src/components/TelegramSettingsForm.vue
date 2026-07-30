@@ -22,6 +22,7 @@ import {
 import type { LineSummary, TelegramUnit, UserAccount } from '../api/types'
 import { ApiError } from '../api/types'
 import { gateway } from '../api/client'
+import { sessionState } from '../state/session'
 import {
   bootstrapResource,
   deleteTelegramUnit,
@@ -51,7 +52,6 @@ const displayName = ref('')
 const enabled = ref(true)
 const chatID = ref('')
 const adminID = ref('')
-const scopeSource = ref<'manual' | 'user'>('user')
 const assignedUserID = ref('')
 const allLines = ref(true)
 const lineScopes = ref<string[]>([])
@@ -64,25 +64,41 @@ const deleteConfirm = ref(false)
 const saveError = ref('')
 const saved = ref(false)
 const users = ref<UserAccount[]>([])
+const isAdmin = computed(() => sessionState.role === 'admin')
+const currentSessionUser = computed<UserAccount>(() => ({
+  id: sessionState.userID,
+  username: sessionState.username,
+  role: sessionState.role === 'admin' ? 'admin' : 'member',
+  enabled: true,
+  must_change_password: sessionState.mustChangePassword,
+  revision: 0,
+  line_ids: [...sessionState.allowedLineIDs],
+  created_at: '',
+  updated_at: ''
+}))
+const availableUsers = computed(() =>
+  isAdmin.value ? users.value : [currentSessionUser.value]
+)
 
 const selectedUnit = computed(() =>
   telegramResource.data.find(unit => unit.id === selectedID.value)
 )
-const lines = computed(() => bootstrapResource.data?.lines || [])
+const lines = computed(
+  () => bootstrapResource.data?.line_catalog || bootstrapResource.data?.lines || []
+)
 const assignedUser = computed(() =>
-  users.value.find(user => user.id === assignedUserID.value)
+  availableUsers.value.find(user => user.id === assignedUserID.value)
 )
 const inheritedLineIDs = computed(() => {
   if (!assignedUser.value) return []
-  return assignedUser.value.role === 'admin'
-    ? lines.value.map(lineKey).filter(Boolean)
-    : assignedUser.value.line_ids
+  return assignedUser.value.line_ids
 })
 
 const scopeOptions = computed<TelegramScopeOption[]>(() => {
+  const inherited = new Set(inheritedLineIDs.value)
   const options: TelegramScopeOption[] = lines.value.flatMap(line => {
     const id = lineKey(line)
-    return id
+    return id && inherited.has(id)
       ? [{
           id,
           label: lineLabel(line),
@@ -108,8 +124,8 @@ function scopedLine(scopeID: string): LineSummary | undefined {
 }
 
 function unitScopeSummary(unit: TelegramUnit): string {
-  const summary = unit.line_scopes.length === 0
-    ? t('telegram.allLines')
+  const summary = unit.all_assigned_lines
+    ? t('telegram.allAssignedLines')
     : unit.line_scopes
     .map(scopeID => {
       const line = scopedLine(scopeID)
@@ -119,12 +135,10 @@ function unitScopeSummary(unit: TelegramUnit): string {
       return phoneNumber ? `${label} · ${phoneNumber}` : label
     })
     .join(t('common.listSeparator'))
-  return unit.scope_source === 'user'
-    ? t('telegram.userScopeSummary', {
-        user: unit.assigned_username || t('telegram.unknownUser'),
-        lines: summary
-      })
-    : summary
+  return t('telegram.userScopeSummary', {
+    user: unit.assigned_username || t('telegram.unknownUser'),
+    lines: summary
+  })
 }
 
 function scopeToneStyle(line?: LineSummary): Record<string, string> | undefined {
@@ -143,11 +157,10 @@ const validationError = computed(() => {
   if (!chatID.value.trim()) return t('telegram.enterChatID')
   if (!adminID.value.trim()) return t('telegram.enterAdminID')
   if (creating.value && !botToken.value.trim()) return t('telegram.tokenRequired')
-  if (scopeSource.value === 'user' && !assignedUserID.value) {
+  if (!assignedUserID.value) {
     return t('telegram.selectUser')
   }
   if (
-    scopeSource.value === 'manual' &&
     !allLines.value &&
     lineScopes.value.length === 0
   ) {
@@ -162,14 +175,16 @@ function applyUnit(unit?: TelegramUnit): void {
   enabled.value = unit?.enabled ?? true
   chatID.value = unit?.chat_id || ''
   adminID.value = unit?.admin_id || ''
-  scopeSource.value = unit?.scope_source || 'user'
   assignedUserID.value =
     unit?.assigned_user_id ||
-    users.value.find(user => user.role === 'member' && user.enabled)?.id ||
-    users.value.find(user => user.enabled)?.id ||
+    (isAdmin.value
+      ? users.value.find(
+          user => user.id === sessionState.userID && user.enabled
+        )?.id || users.value.find(user => user.enabled)?.id
+      : sessionState.userID) ||
     ''
-  allLines.value = unit ? unit.manual_all_lines : true
-  lineScopes.value = unit?.scope_source === 'manual' ? scopes : []
+  allLines.value = unit ? unit.all_assigned_lines : true
+  lineScopes.value = unit?.all_assigned_lines ? [] : scopes
   incomingSMS.value = unit?.incoming_sms ?? true
   missedCalls.value = unit?.missed_calls ?? true
   botToken.value = ''
@@ -203,7 +218,6 @@ watch(
     enabled,
     chatID,
     adminID,
-    scopeSource,
     assignedUserID,
     allLines,
     lineScopes,
@@ -235,7 +249,6 @@ function toggleLineScope(lineID: string, event: Event): void {
 }
 
 function normalizedLineScopes(): string[] {
-  if (scopeSource.value === 'user') return []
   const scopes = [...new Set(lineScopes.value.filter(Boolean))]
   if (allLines.value || scopes.length === 0) {
     selectAllLines()
@@ -244,6 +257,11 @@ function normalizedLineScopes(): string[] {
   allLines.value = false
   lineScopes.value = scopes
   return scopes
+}
+
+function changeAssignedUser(event: Event): void {
+  assignedUserID.value = (event.currentTarget as HTMLSelectElement).value
+  selectAllLines()
 }
 
 function selectUnit(id: string): void {
@@ -292,11 +310,7 @@ async function submit(): Promise<void> {
         enabled: enabled.value,
         chat_id: chatID.value,
         admin_id: adminID.value,
-        scope_source: scopeSource.value,
-        ...(scopeSource.value === 'user'
-          ? { assigned_user_id: assignedUserID.value }
-          : {}),
-        manual_all_lines: scopeSource.value === 'manual' && allLines.value,
+        assigned_user_id: assignedUserID.value,
         line_scopes: normalizedLineScopes(),
         incoming_sms: incomingSMS.value,
         missed_calls: missedCalls.value,
@@ -352,14 +366,14 @@ async function remove(): Promise<void> {
 }
 
 onMounted(() => {
-  void Promise.all([
-    loadTelegramUnits(),
-    loadBootstrap(),
-    gateway.listUsers().then(loaded => {
-      users.value = loaded
-      if (!assignedUserID.value) applyUnit(selectedUnit.value)
-    })
-  ])
+  const usersRequest = isAdmin.value
+    ? gateway.listUsers().then(loaded => {
+        users.value = loaded
+      })
+    : Promise.resolve()
+  void Promise.all([loadTelegramUnits(), loadBootstrap(), usersRequest]).then(() => {
+    applyUnit(selectedUnit.value)
+  })
 })
 </script>
 
@@ -422,13 +436,8 @@ onMounted(() => {
           </span>
           <small>Telegram Bot</small>
           <span class="telegram-unit-row__scope">
-            <UsersRound v-if="scopeSource === 'user'" :size="13" aria-hidden="true" />
-            <ListFilter v-else :size="13" aria-hidden="true" />
-            {{
-              scopeSource === 'user'
-                ? assignedUser?.username || t('telegram.selectUser')
-                : t('telegram.allLines')
-            }}
+            <UsersRound :size="13" aria-hidden="true" />
+            {{ assignedUser?.username || t('telegram.selectUser') }}
           </span>
         </span>
       </button>
@@ -461,9 +470,7 @@ onMounted(() => {
           </span>
           <small>{{ unit.bot_username ? `@${unit.bot_username}` : unit.chat_id }}</small>
           <span class="telegram-unit-row__scope" :title="unitScopeSummary(unit)">
-            <UsersRound v-if="unit.scope_source === 'user'" :size="13" aria-hidden="true" />
-            <ListFilter v-else-if="unit.line_scopes.length === 0" :size="13" aria-hidden="true" />
-            <CardSim v-else :size="13" aria-hidden="true" />
+            <UsersRound :size="13" aria-hidden="true" />
             {{ unitScopeSummary(unit) }}
           </span>
         </span>
@@ -549,64 +556,27 @@ onMounted(() => {
           </div>
         </section>
 
-        <section class="telegram-editor-section telegram-access-source">
+        <section v-if="isAdmin" class="telegram-editor-section telegram-access-source">
           <header class="telegram-editor-section__heading">
             <span class="telegram-editor-section__icon" aria-hidden="true">
               <UsersRound :size="17" />
             </span>
-            <h4>{{ t('telegram.accessSource') }}</h4>
+            <h4>{{ t('telegram.botOwner') }}</h4>
           </header>
-          <div class="telegram-access-options">
-            <label :class="{ 'is-selected': scopeSource === 'user' }">
-              <input
-                v-model="scopeSource"
-                type="radio"
-                value="user"
-                :disabled="saving || deleting"
-              />
-              <UsersRound :size="18" aria-hidden="true" />
-              <span>
-                <strong>{{ t('telegram.followUser') }}</strong>
-                <small>{{ t('telegram.followUserDescription') }}</small>
-              </span>
-              <Check
-                v-if="scopeSource === 'user'"
-                :size="17"
-                aria-hidden="true"
-              />
-            </label>
-            <label :class="{ 'is-selected': scopeSource === 'manual' }">
-              <input
-                v-model="scopeSource"
-                type="radio"
-                value="manual"
-                :disabled="saving || deleting"
-              />
-              <ListFilter :size="18" aria-hidden="true" />
-              <span>
-                <strong>{{ t('telegram.manualScope') }}</strong>
-                <small>{{ t('telegram.manualScopeDescription') }}</small>
-              </span>
-              <Check
-                v-if="scopeSource === 'manual'"
-                :size="17"
-                aria-hidden="true"
-              />
-            </label>
-          </div>
-          <label v-if="scopeSource === 'user'" class="field telegram-user-select">
+          <label class="field telegram-user-select">
             <span>{{ t('telegram.assignedUser') }}</span>
             <select
-              v-model="assignedUserID"
+              :value="assignedUserID"
               :disabled="saving || deleting"
+              @change="changeAssignedUser"
             >
               <option value="" disabled>{{ t('telegram.selectUser') }}</option>
-              <option v-for="user in users" :key="user.id" :value="user.id">
+              <option v-for="user in availableUsers" :key="user.id" :value="user.id">
                 {{ user.username }}
                 {{ user.enabled ? '' : `· ${t('users.disabled')}` }}
               </option>
             </select>
-            <small>{{ t('telegram.userAccessDynamic') }}</small>
+            <small>{{ t('telegram.botOwnerDescription') }}</small>
           </label>
         </section>
 
@@ -651,44 +621,10 @@ onMounted(() => {
               <CardSim :size="17" />
             </span>
             <h4>
-              {{
-                scopeSource === 'user'
-                  ? t('telegram.inheritedLines')
-                  : t('telegram.lineScope')
-              }}
+              {{ t('telegram.userLines') }}
             </h4>
           </header>
-          <div v-if="scopeSource === 'user'" class="telegram-scope-options">
-            <div
-              v-for="lineID in inheritedLineIDs"
-              :key="lineID"
-              class="telegram-scope-option is-selected is-readonly"
-            >
-              <span
-                class="telegram-scope-option__icon"
-                :style="scopeToneStyle(scopedLine(lineID))"
-                aria-hidden="true"
-              >
-                <CardSim :size="18" />
-              </span>
-              <span class="telegram-scope-option__copy">
-                <LineTag
-                  v-if="scopedLine(lineID)"
-                  :line="scopedLine(lineID)!"
-                  :fallback="lineLabel(scopedLine(lineID)!)"
-                />
-                <strong v-else>{{ t('telegram.unknownLine') }}</strong>
-                <small>
-                  {{ scopedLine(lineID)?.phone_number || t('lines.cellularLine') }}
-                </small>
-              </span>
-              <Check :size="17" aria-hidden="true" />
-            </div>
-            <p v-if="assignedUser && inheritedLineIDs.length === 0" class="telegram-scope-empty">
-              {{ t('telegram.userHasNoLines') }}
-            </p>
-          </div>
-          <div v-else class="telegram-scope-options">
+          <div class="telegram-scope-options">
             <label class="telegram-scope-option" :class="{ 'is-selected': allLines }">
               <input
                 :checked="allLines"
@@ -700,8 +636,8 @@ onMounted(() => {
                 <ListFilter :size="18" />
               </span>
               <span class="telegram-scope-option__copy">
-                <strong>{{ t('telegram.allLines') }}</strong>
-                <small>{{ t('lines.showAllLines') }}</small>
+                <strong>{{ t('telegram.allAssignedLines') }}</strong>
+                <small>{{ t('telegram.allAssignedLinesDescription') }}</small>
               </span>
               <Check
                 v-if="allLines"
@@ -742,6 +678,9 @@ onMounted(() => {
               />
             </label>
           </div>
+          <p v-if="assignedUser && inheritedLineIDs.length === 0" class="telegram-scope-empty">
+            {{ t('telegram.userHasNoLines') }}
+          </p>
         </fieldset>
 
         <footer class="settings-form-actions">

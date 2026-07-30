@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/telegramsettings"
 )
 
@@ -16,9 +17,7 @@ type telegramUnitRequest struct {
 	BotToken       *string  `json:"bot_token"`
 	ChatID         string   `json:"chat_id"`
 	AdminID        string   `json:"admin_id"`
-	ScopeSource    string   `json:"scope_source"`
 	AssignedUserID string   `json:"assigned_user_id"`
-	ManualAllLines bool     `json:"manual_all_lines"`
 	LineScopes     []string `json:"line_scopes"`
 	IncomingSMS    bool     `json:"incoming_sms"`
 	MissedCalls    bool     `json:"missed_calls"`
@@ -50,7 +49,9 @@ func (api *API) telegramCollection(response http.ResponseWriter, request *http.R
 			api.writeTelegramSettingsError(response, request, "list Telegram settings", err)
 			return
 		}
-		writeJSON(response, http.StatusOK, telegramUnitsResponse{Units: units})
+		writeJSON(response, http.StatusOK, telegramUnitsResponse{
+			Units: telegramUnitsVisibleToPrincipal(request, units),
+		})
 	case http.MethodPost:
 		var input telegramUnitRequest
 		if !decodeJSONBody(response, request, &input) {
@@ -60,15 +61,18 @@ func (api *API) telegramCollection(response http.ResponseWriter, request *http.R
 		if input.BotToken != nil {
 			token = *input.BotToken
 		}
+		assignedUserID := input.AssignedUserID
+		if principal, exists := auth.PrincipalFromContext(request.Context()); exists &&
+			!principal.IsAdmin() {
+			assignedUserID = principal.UserID
+		}
 		unit, err := api.telegram.Create(request.Context(), telegramsettings.CreateInput{
 			DisplayName:    input.DisplayName,
 			Enabled:        input.Enabled,
 			BotToken:       token,
 			ChatID:         input.ChatID,
 			AdminID:        input.AdminID,
-			ScopeSource:    input.ScopeSource,
-			AssignedUserID: input.AssignedUserID,
-			ManualAllLines: input.ManualAllLines,
+			AssignedUserID: assignedUserID,
 			LineScopes:     input.LineScopes,
 			IncomingSMS:    input.IncomingSMS,
 			MissedCalls:    input.MissedCalls,
@@ -97,9 +101,17 @@ func (api *API) telegramResource(response http.ResponseWriter, request *http.Req
 	}
 	switch request.Method {
 	case http.MethodPut:
+		if !api.requireTelegramUnitAccess(response, request, id) {
+			return
+		}
 		var input telegramUnitRequest
 		if !decodeJSONBody(response, request, &input) {
 			return
+		}
+		assignedUserID := input.AssignedUserID
+		if principal, exists := auth.PrincipalFromContext(request.Context()); exists &&
+			!principal.IsAdmin() {
+			assignedUserID = principal.UserID
 		}
 		unit, err := api.telegram.Update(request.Context(), id, telegramsettings.UpdateInput{
 			Revision:       input.Revision,
@@ -108,9 +120,7 @@ func (api *API) telegramResource(response http.ResponseWriter, request *http.Req
 			BotToken:       input.BotToken,
 			ChatID:         input.ChatID,
 			AdminID:        input.AdminID,
-			ScopeSource:    input.ScopeSource,
-			AssignedUserID: input.AssignedUserID,
-			ManualAllLines: input.ManualAllLines,
+			AssignedUserID: assignedUserID,
 			LineScopes:     input.LineScopes,
 			IncomingSMS:    input.IncomingSMS,
 			MissedCalls:    input.MissedCalls,
@@ -121,6 +131,9 @@ func (api *API) telegramResource(response http.ResponseWriter, request *http.Req
 		}
 		writeJSON(response, http.StatusOK, telegramUnitResponse{Unit: unit})
 	case http.MethodDelete:
+		if !api.requireTelegramUnitAccess(response, request, id) {
+			return
+		}
 		revision, err := strconv.ParseInt(strings.TrimSpace(request.URL.Query().Get("revision")), 10, 64)
 		if err != nil || revision <= 0 {
 			writeError(response, http.StatusBadRequest, "invalid_argument", "A positive revision is required", "revision")
@@ -136,6 +149,46 @@ func (api *API) telegramResource(response http.ResponseWriter, request *http.Req
 		response.Header().Set("Allow", http.MethodPut+", "+http.MethodDelete)
 		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only PUT and DELETE are supported", "")
 	}
+}
+
+func telegramUnitsVisibleToPrincipal(
+	request *http.Request,
+	units []telegramsettings.Unit,
+) []telegramsettings.Unit {
+	principal, exists := auth.PrincipalFromContext(request.Context())
+	if !exists || principal.IsAdmin() {
+		return units
+	}
+	visible := make([]telegramsettings.Unit, 0, len(units))
+	for _, unit := range units {
+		if unit.AssignedUserID == principal.UserID {
+			visible = append(visible, unit)
+		}
+	}
+	return visible
+}
+
+func (api *API) requireTelegramUnitAccess(
+	response http.ResponseWriter,
+	request *http.Request,
+	id string,
+) bool {
+	principal, exists := auth.PrincipalFromContext(request.Context())
+	if !exists || principal.IsAdmin() {
+		return true
+	}
+	units, err := api.telegram.List(request.Context())
+	if err != nil {
+		api.writeTelegramSettingsError(response, request, "authorize Telegram unit", err)
+		return false
+	}
+	for _, unit := range units {
+		if unit.ID == id && unit.AssignedUserID == principal.UserID {
+			return true
+		}
+	}
+	writeError(response, http.StatusNotFound, "not_found", "Telegram unit was not found", "")
+	return false
 }
 
 func telegramResourceID(path string) (string, bool) {

@@ -41,6 +41,7 @@ type Options struct {
 	Now               func() time.Time
 	NotificationEvery time.Duration
 	RuntimeEvents     runtimeevents.Publisher
+	AccessEvents      runtimeevents.Source
 }
 
 type Manager struct {
@@ -53,6 +54,7 @@ type Manager struct {
 	now               func() time.Time
 	notificationEvery time.Duration
 	runtimeEvents     runtimeevents.Publisher
+	accessEvents      runtimeevents.Source
 }
 
 type unitRuntime struct {
@@ -106,6 +108,7 @@ func New(
 		now:               now,
 		notificationEvery: notificationEvery,
 		runtimeEvents:     options.RuntimeEvents,
+		accessEvents:      options.AccessEvents,
 	}, nil
 }
 
@@ -117,6 +120,14 @@ func (m *Manager) Run(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	var accessUpdates <-chan runtimeevents.Event
+	accessCancel := func() {}
+	if m.accessEvents != nil {
+		_, updates, cancel := m.accessEvents.SubscribeCurrent()
+		accessUpdates = updates
+		accessCancel = cancel
+	}
+	defer func() { accessCancel() }()
 	if err := m.repository.MarkSendingTelegramNotificationsIndeterminate(ctx); err != nil {
 		return fmt.Errorf("recover Telegram notification outbox: %w", err)
 	}
@@ -139,12 +150,38 @@ func (m *Manager) Run(ctx context.Context) error {
 				continue
 			}
 			runtimes = next
+		case event, open := <-accessUpdates:
+			if !open {
+				accessCancel()
+				_, updates, cancel := m.accessEvents.SubscribeCurrent()
+				accessUpdates = updates
+				accessCancel = cancel
+				continue
+			}
+			if !runtimeEventIncludes(event, runtimeevents.ResourceLines) {
+				continue
+			}
+			next, err := m.reconcile(ctx, runtimes)
+			if err != nil {
+				m.logger.Error("reload Telegram line access", "error_class", classifyError(err))
+				continue
+			}
+			runtimes = next
 		case <-notifications.C:
 			if err := m.dispatchNotifications(ctx, runtimes); err != nil {
 				m.logger.Error("dispatch Telegram notifications", "error_class", classifyError(err))
 			}
 		}
 	}
+}
+
+func runtimeEventIncludes(event runtimeevents.Event, resource runtimeevents.Resource) bool {
+	for _, current := range event.Resources {
+		if current == resource {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Manager) reconcile(
@@ -161,8 +198,7 @@ func (m *Manager) reconcile(
 	})
 	next := make(map[string]unitRuntime)
 	for _, unit := range units {
-		if !unit.Enabled ||
-			unit.ScopeSource == "user" && !unit.EffectiveEnabled {
+		if !unit.EffectiveEnabled {
 			continue
 		}
 		runtime, err := m.startUnit(ctx, unit.ID)

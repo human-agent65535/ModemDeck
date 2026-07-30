@@ -11,10 +11,11 @@ import (
 )
 
 const (
-	SessionLifetime      = 24 * time.Hour
-	MinimumPasswordBytes = 12
-	MaximumPasswordBytes = 1024
-	MaximumUsernameRunes = 64
+	SessionLifetime               = 24 * time.Hour
+	MinimumPasswordBytes          = 12
+	MinimumTemporaryPasswordRunes = 8
+	MaximumPasswordBytes          = 1024
+	MaximumUsernameRunes          = 64
 )
 
 type AdminCredentials struct {
@@ -462,6 +463,21 @@ func validateNewPassword(password string) error {
 
 func ValidateNewPassword(password string) error {
 	return validateNewPassword(password)
+}
+
+func ValidateTemporaryPassword(password string) error {
+	const op = "validate temporary password"
+
+	if utf8.RuneCountInString(password) < MinimumTemporaryPasswordRunes {
+		return newError(op, CodePasswordTooShort, nil)
+	}
+	if len(password) > MaximumPasswordBytes {
+		return newError(op, CodePasswordTooLong, nil)
+	}
+	if strings.ContainsRune(password, '\x00') {
+		return newError(op, CodePasswordInvalid, nil)
+	}
+	return nil
 }
 
 func (s *Service) Authenticate(ctx context.Context, token SessionToken) (Authentication, error) {

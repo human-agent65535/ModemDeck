@@ -27,7 +27,7 @@ test('new Telegram Bot is represented by one selected local draft row', () => {
     /class="telegram-unit-row__state is-draft"[\s\S]*t\('telegram\.unsaved'\)/
   )
   assert.match(list, /telegram-unit-row__icon is-enabled[\s\S]*<Send/)
-  assert.match(list, /<ListFilter[\s\S]*t\('telegram\.allLines'\)/)
+  assert.match(list, /<UsersRound[\s\S]*assignedUser\?\.username/)
   assert.equal((list.match(/t\('telegram\.unnamed'\)/g) || []).length, 1)
   assert.match(list, /telegramResource\.data\.length === 0 && !creating/)
 })

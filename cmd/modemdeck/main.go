@@ -238,6 +238,7 @@ func run(
 		telegramruntime.Options{
 			Logger:        logger.With("component", "telegram"),
 			RuntimeEvents: runtimeEvents,
+			AccessEvents:  runtimeEvents,
 		},
 	)
 	if err != nil {

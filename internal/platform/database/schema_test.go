@@ -272,7 +272,7 @@ func TestOpenMigratesSingleUserDataToInitialAdministrator(t *testing.T) {
 	).Scan(&scopeSource, &assignedUserID, &manualAllLines); err != nil {
 		t.Fatal(err)
 	}
-	if scopeSource != "manual" || assignedUserID != "" || !manualAllLines {
+	if scopeSource != "user" || assignedUserID != "user_admin" || manualAllLines {
 		t.Fatalf(
 			"migrated Telegram scope = %q user %q all lines %t",
 			scopeSource,

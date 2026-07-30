@@ -978,12 +978,11 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       enabled: true,
       chat_id: '-1001234567890',
       admin_id: '100000001',
-      scope_source: 'user',
       assigned_user_id: 'user_fixture_member',
       assigned_username: 'casey',
-      manual_all_lines: false,
+      all_assigned_lines: true,
       effective_enabled: true,
-      line_scopes: lines[1] ? [lines[1].id] : [],
+      line_scopes: [],
       incoming_sms: true,
       missed_calls: true,
       token_configured: true,
@@ -996,8 +995,9 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       enabled: false,
       chat_id: '-1001234567891',
       admin_id: '100000002',
-      scope_source: 'manual',
-      manual_all_lines: false,
+      assigned_user_id: 'user_admin',
+      assigned_username: 'fixture',
+      all_assigned_lines: false,
       effective_enabled: false,
       line_scopes: ['line-fixture-travel'],
       incoming_sms: true,
@@ -1008,13 +1008,15 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     }
   ]
   function resolvedFixtureTelegramUnit(unit: TelegramUnit): TelegramUnit {
-    if (unit.scope_source !== 'user') return unit
     const assignedUser = users.find(user => user.id === unit.assigned_user_id)
+    const assignedLineIDs = new Set(assignedUser?.line_ids || [])
     return {
       ...unit,
       assigned_username: assignedUser?.username || '',
       effective_enabled: unit.enabled && assignedUser?.enabled === true,
-      line_scopes: [...(assignedUser?.line_ids || [])]
+      line_scopes: unit.all_assigned_lines
+        ? [...assignedLineIDs]
+        : unit.line_scopes.filter(lineID => assignedLineIDs.has(lineID))
     }
   }
   const proxyPasswords = new Set<string>()
@@ -2519,20 +2521,11 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         enabled: input.enabled,
         chat_id: input.chat_id,
         admin_id: input.admin_id,
-        scope_source: input.scope_source,
-        ...(input.assigned_user_id ? { assigned_user_id: input.assigned_user_id } : {}),
-        ...(input.scope_source === 'user'
-          ? {
-              assigned_username: assignedUser?.username || ''
-            }
-          : {}),
-        manual_all_lines: input.manual_all_lines,
-        effective_enabled:
-          input.enabled && (input.scope_source !== 'user' || assignedUser?.enabled === true),
-        line_scopes:
-          input.scope_source === 'user'
-            ? [...(assignedUser?.line_ids || [])]
-            : [...input.line_scopes],
+        assigned_user_id: input.assigned_user_id,
+        assigned_username: assignedUser?.username || '',
+        all_assigned_lines: input.line_scopes.length === 0,
+        effective_enabled: input.enabled && assignedUser?.enabled === true,
+        line_scopes: [...input.line_scopes],
         incoming_sms: input.incoming_sms,
         missed_calls: input.missed_calls,
         token_configured: true,
@@ -2549,7 +2542,6 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       if (input.revision !== current.revision) throw new ApiError('Telegram Bot 已被修改', 409)
       const assignedUser = users.find(user => user.id === input.assigned_user_id)
       const updatedBase = { ...current }
-      delete updatedBase.assigned_user_id
       delete updatedBase.assigned_username
       const updated: TelegramUnit = {
         ...updatedBase,
@@ -2557,20 +2549,11 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         enabled: input.enabled,
         chat_id: input.chat_id,
         admin_id: input.admin_id,
-        scope_source: input.scope_source,
-        ...(input.assigned_user_id ? { assigned_user_id: input.assigned_user_id } : {}),
-        ...(input.scope_source === 'user'
-          ? {
-              assigned_username: assignedUser?.username || ''
-            }
-          : {}),
-        manual_all_lines: input.manual_all_lines,
-        effective_enabled:
-          input.enabled && (input.scope_source !== 'user' || assignedUser?.enabled === true),
-        line_scopes:
-          input.scope_source === 'user'
-            ? [...(assignedUser?.line_ids || [])]
-            : [...input.line_scopes],
+        assigned_user_id: input.assigned_user_id,
+        assigned_username: assignedUser?.username || '',
+        all_assigned_lines: input.line_scopes.length === 0,
+        effective_enabled: input.enabled && assignedUser?.enabled === true,
+        line_scopes: [...input.line_scopes],
         incoming_sms: input.incoming_sms,
         missed_calls: input.missed_calls,
         token_configured: Boolean(input.bot_token) || current.token_configured,

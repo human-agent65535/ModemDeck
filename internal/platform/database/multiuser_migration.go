@@ -501,3 +501,48 @@ func migrateTelegramUserScopeColumns(
 	}
 	return true, nil
 }
+
+func migrateTelegramOwnership(
+	ctx context.Context,
+	database *sql.DB,
+	actual schemaShape,
+) error {
+	unitColumns, unitsExist := actual.tables["modemdeck_telegram_units"]
+	_, usersExist := actual.tables["modemdeck_users"]
+	if !unitsExist || !usersExist {
+		return nil
+	}
+	for _, column := range []string{"scope_source", "assigned_user_id", "manual_all_lines"} {
+		if _, exists := unitColumns[column]; !exists {
+			return nil
+		}
+	}
+	if _, err := database.ExecContext(ctx, `
+		UPDATE modemdeck_telegram_units
+		SET
+			scope_source = 'user',
+			assigned_user_id = CASE
+				WHEN EXISTS (
+					SELECT 1 FROM modemdeck_users
+					WHERE id = modemdeck_telegram_units.assigned_user_id
+				) THEN assigned_user_id
+				ELSE ?
+			END,
+			manual_all_lines = 0
+		WHERE EXISTS (
+			SELECT 1 FROM modemdeck_users WHERE id = ?
+		)
+			AND (
+				scope_source <> 'user'
+				OR assigned_user_id = ''
+				OR NOT EXISTS (
+					SELECT 1 FROM modemdeck_users
+					WHERE id = modemdeck_telegram_units.assigned_user_id
+				)
+				OR manual_all_lines <> 0
+			)
+	`, initialAdminUserID, initialAdminUserID); err != nil {
+		return fmt.Errorf("migrate Telegram bot ownership: %w", err)
+	}
+	return nil
+}

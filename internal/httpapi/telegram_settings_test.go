@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/telegramsettings"
 )
 
@@ -213,4 +214,106 @@ func TestTelegramSettingsErrorsAreTypedAndDoNotLeakCauses(t *testing.T) {
 	if bytes.Contains(response.Body.Bytes(), []byte("secret key bytes")) {
 		t.Fatalf("response leaked cause: %s", response.Body.String())
 	}
+}
+
+func TestTelegramSettingsMembersManageOnlyTheirOwnBots(t *testing.T) {
+	t.Parallel()
+
+	settings := &fakeTelegramSettings{units: []telegramsettings.Unit{
+		{
+			ID:             "own-bot",
+			DisplayName:    "Own",
+			AssignedUserID: "member-1",
+			Revision:       1,
+		},
+		{
+			ID:             "other-bot",
+			DisplayName:    "Other",
+			AssignedUserID: "member-2",
+			Revision:       1,
+		},
+	}}
+	api, err := New(&fakeRepository{}, Options{
+		TelegramSettings:      settings,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	member := auth.Principal{UserID: "member-1", Role: auth.RoleMember}
+	memberRequest := func(method, path, body string) *http.Request {
+		request := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+		request.Header.Set("Content-Type", "application/json")
+		return request.WithContext(auth.ContextWithPrincipal(request.Context(), member))
+	}
+
+	listResponse := httptest.NewRecorder()
+	api.ServeHTTP(listResponse, memberRequest(http.MethodGet, "/api/v1/settings/telegram", ""))
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("list status = %d; body = %s", listResponse.Code, listResponse.Body.String())
+	}
+	var list telegramUnitsResponse
+	if err := json.Unmarshal(listResponse.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(list.Units) != 1 || list.Units[0].ID != "own-bot" {
+		t.Fatalf("member-visible units = %+v", list.Units)
+	}
+
+	const payload = `{
+		"revision":1,
+		"display_name":"Member bot",
+		"enabled":false,
+		"assigned_user_id":"member-2",
+		"line_scopes":[],
+		"incoming_sms":true,
+		"missed_calls":true
+	}`
+	createResponse := httptest.NewRecorder()
+	api.ServeHTTP(
+		createResponse,
+		memberRequest(http.MethodPost, "/api/v1/settings/telegram", payload),
+	)
+	if createResponse.Code != http.StatusCreated ||
+		settings.createInput.AssignedUserID != member.UserID {
+		t.Fatalf(
+			"create status = %d input = %+v body = %s",
+			createResponse.Code,
+			settings.createInput,
+			createResponse.Body.String(),
+		)
+	}
+
+	updateResponse := httptest.NewRecorder()
+	api.ServeHTTP(
+		updateResponse,
+		memberRequest(http.MethodPut, "/api/v1/settings/telegram/own-bot", payload),
+	)
+	if updateResponse.Code != http.StatusOK ||
+		settings.updateInput.AssignedUserID != member.UserID {
+		t.Fatalf(
+			"update status = %d input = %+v body = %s",
+			updateResponse.Code,
+			settings.updateInput,
+			updateResponse.Body.String(),
+		)
+	}
+
+	deniedUpdate := httptest.NewRecorder()
+	api.ServeHTTP(
+		deniedUpdate,
+		memberRequest(http.MethodPut, "/api/v1/settings/telegram/other-bot", payload),
+	)
+	assertAPIError(t, deniedUpdate, http.StatusNotFound, "not_found")
+
+	deniedDelete := httptest.NewRecorder()
+	api.ServeHTTP(
+		deniedDelete,
+		memberRequest(
+			http.MethodDelete,
+			"/api/v1/settings/telegram/other-bot?revision=1",
+			"",
+		),
+	)
+	assertAPIError(t, deniedDelete, http.StatusNotFound, "not_found")
 }

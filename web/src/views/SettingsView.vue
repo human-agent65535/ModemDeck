@@ -97,6 +97,12 @@ const sections = computed<Array<{
       icon: Volume2
     },
     {
+      id: 'telegram' as const,
+      label: t('settings.telegram'),
+      description: t('settings.telegramDescription'),
+      icon: Send
+    },
+    {
       id: 'devices' as const,
       label: t('settings.devices'),
       description: t('settings.devicesDescription'),
@@ -113,12 +119,6 @@ const sections = computed<Array<{
   if (sessionState.role !== 'admin') return [...personal, about]
   return [
     ...personal,
-    {
-      id: 'telegram',
-      label: t('settings.telegram'),
-      description: t('settings.telegramDescription'),
-      icon: Send
-    },
     {
       id: 'tls',
       label: 'HTTPS',

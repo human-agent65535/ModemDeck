@@ -1110,10 +1110,9 @@ export type TelegramUnit = {
   enabled: boolean
   chat_id: string
   admin_id: string
-  scope_source: 'manual' | 'user'
-  assigned_user_id?: string
+  assigned_user_id: string
   assigned_username?: string
-  manual_all_lines: boolean
+  all_assigned_lines: boolean
   effective_enabled: boolean
   line_scopes: string[]
   incoming_sms: boolean
@@ -1128,9 +1127,7 @@ export type TelegramUnitInput = {
   enabled: boolean
   chat_id: string
   admin_id: string
-  scope_source: 'manual' | 'user'
-  assigned_user_id?: string
-  manual_all_lines: boolean
+  assigned_user_id: string
   line_scopes: string[]
   incoming_sms: boolean
   missed_calls: boolean

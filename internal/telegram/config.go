@@ -13,9 +13,8 @@ const (
 	maxLineIDLength   = 128
 )
 
-// Config is one independently scoped Telegram bot. An empty LineScopes slice
-// grants access to every line; otherwise only exact line IDs are visible and
-// actionable.
+// Config is one independently scoped Telegram bot. LineScopeMode controls
+// whether an empty LineScopes slice grants every line or no lines.
 type Config struct {
 	Enabled         bool
 	BotToken        string

@@ -102,6 +102,9 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 			return err
 		}
 	}
+	if err := migrateTelegramOwnership(ctx, database, actual); err != nil {
+		return err
+	}
 	if err := migrateSystemSettingsLanguages(ctx, database, actual); err != nil {
 		return err
 	}

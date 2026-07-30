@@ -31,6 +31,7 @@ type TelegramUnitRecord struct {
 	AssignedUsername    string
 	AssignedUserRole    string
 	AssignedUserEnabled bool
+	AllAssignedLines    bool
 	ManualAllLines      bool
 	LineScopes          []string
 	IncomingSMS         bool
@@ -252,7 +253,6 @@ func normalizeTelegramUnitScope(unit *TelegramUnitRecord) {
 	}
 	if unit.ScopeSource == "user" {
 		unit.ManualAllLines = false
-		unit.LineScopes = nil
 	}
 }
 
@@ -577,6 +577,8 @@ func resolveTelegramUnitScope(
 	if unit == nil || unit.ScopeSource != "user" {
 		return nil
 	}
+	configuredLineScopes := append([]string(nil), unit.LineScopes...)
+	unit.AllAssignedLines = len(configuredLineScopes) == 0
 	unit.LineScopes = nil
 	var enabled int64
 	err := queryer.QueryRowContext(
@@ -606,6 +608,9 @@ func resolveTelegramUnitScope(
 		var lineID string
 		if err := rows.Scan(&lineID); err != nil {
 			return fmt.Errorf("scan assigned Telegram user line: %w", err)
+		}
+		if !unit.AllAssignedLines && !containsString(configuredLineScopes, lineID) {
+			continue
 		}
 		unit.LineScopes = append(unit.LineScopes, lineID)
 	}

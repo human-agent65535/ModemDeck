@@ -51,6 +51,8 @@ func TestAdminOnlyRoutesExcludeLineOwnedConfiguration(t *testing.T) {
 		{"/api/v1/settings/lines", http.MethodPatch},
 		{"/api/v1/settings/system", http.MethodPatch},
 		{"/api/v1/settings/recording", http.MethodPut},
+		{"/api/v1/settings/telegram", http.MethodPost},
+		{"/api/v1/settings/telegram/bot-1", http.MethodPut},
 		{"/api/v1/lines/line-1/label", http.MethodPatch},
 		{"/api/v1/devices/line-1/configuration", http.MethodPatch},
 		{"/api/v1/devices/line-1/network-selection", http.MethodPut},

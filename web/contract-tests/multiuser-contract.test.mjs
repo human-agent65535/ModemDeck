@@ -56,56 +56,48 @@ test('user contracts retain role, personal profile, and assigned-line state', ()
   )
 })
 
-test('Telegram user mode inherits a user while manual mode carries only line access', () => {
-  const userMode = createTelegramUnitPayload({
+test('Telegram bots always belong to a user and select all or a line subset', () => {
+  const allAssignedLines = createTelegramUnitPayload({
     display_name: ' Member bot ',
     enabled: true,
     chat_id: ' -100123 ',
     admin_id: ' 42 ',
-    scope_source: 'user',
     assigned_user_id: ' user_member ',
-    manual_all_lines: true,
-    line_scopes: ['stale', 'stale'],
+    line_scopes: [],
     incoming_sms: true,
     missed_calls: true
   })
-  assert.deepEqual(userMode, {
+  assert.deepEqual(allAssignedLines, {
     display_name: 'Member bot',
     enabled: true,
     chat_id: '-100123',
     admin_id: '42',
-    scope_source: 'user',
     assigned_user_id: 'user_member',
-    manual_all_lines: false,
     line_scopes: [],
     incoming_sms: true,
     missed_calls: true
   })
 
-  const manualMode = createTelegramUnitPayload({
-    display_name: 'Manual bot',
+  const selectedLines = createTelegramUnitPayload({
+    display_name: 'Selected bot',
     enabled: true,
     chat_id: '-100124',
     admin_id: '43',
-    scope_source: 'manual',
-    assigned_user_id: 'stale-user',
-    manual_all_lines: false,
+    assigned_user_id: 'user_member',
     line_scopes: [' line_beta '],
     incoming_sms: true,
     missed_calls: false
   })
-  assert.deepEqual(manualMode, {
-    display_name: 'Manual bot',
+  assert.deepEqual(selectedLines, {
+    display_name: 'Selected bot',
     enabled: true,
     chat_id: '-100124',
     admin_id: '43',
-    scope_source: 'manual',
-    manual_all_lines: false,
+    assigned_user_id: 'user_member',
     line_scopes: ['line_beta'],
     incoming_sms: true,
     missed_calls: false
   })
-  assert.equal('assigned_user_id' in manualMode, false)
 })
 
 test('multi-user UI exposes only authorized settings and communication areas', async () => {
@@ -145,6 +137,10 @@ test('multi-user UI exposes only authorized settings and communication areas', a
   assert.match(users, /gateway\.createMember/)
   assert.match(users, /gateway\.updateMember/)
   assert.match(users, /gateway\.setMemberPassword/)
+  assert.match(users, /temporaryPasswordCharacters/)
+  assert.match(users, /temporaryPasswordCharacters\.value < 8/)
+  assert.match(users, /t\('users\.passwordHint', \{ count: 8 \}\)/)
+  assert.match(users, /t\('account\.passwordTooShort', \{ count: 12 \}\)/)
   assert.doesNotMatch(users, /recordingDefaultEnabled|languageOptions|preferences: \{/)
   assert.match(users, /<AccountSettingsPanel/)
   assert.match(users, /selectedUser\?\.id === sessionState\.userID/)
@@ -154,8 +150,10 @@ test('multi-user UI exposes only authorized settings and communication areas', a
   assert.match(users, /users\.adminUsernameLocked/)
   assert.match(shell, /const settingsUserDetailOpen = computed/)
   assert.match(shell, /query\.newUser === '1'/)
-  assert.match(telegram, /scopeSource = ref<'manual' \| 'user'>\('user'\)/)
-  assert.match(telegram, /scopeSource\.value === 'user'/)
+  assert.doesNotMatch(telegram, /scopeSource|manualScope/)
+  assert.match(telegram, /const isAdmin = computed/)
+  assert.match(telegram, /currentSessionUser/)
+  assert.match(telegram, /v-if="isAdmin" class="telegram-editor-section telegram-access-source"/)
   assert.match(telegram, /assigned_user_id: assignedUserID\.value/)
   assert.match(shell, /sessionState\.role === 'admin'/)
   assert.match(shell, /\{ name: 'traffic', label: t\('shell\.traffic'\)/)
@@ -169,9 +167,6 @@ test('multi-user UI exposes only authorized settings and communication areas', a
   assert.match(session, /state\.allowedLineIDs = \[\.\.\.\(session\.allowed_line_ids \|\| \[\]\)\]/)
   assert.match(session, /resetRecordingState\(\)/)
   assert.match(runtime, /case 'session':[\s\S]*?await refreshSession\(\)/)
-  assert.match(
-    english,
-    /contacts are not resolved and raw numbers are shown/
-  )
-  assert.match(chinese, /不解析联系人，只显示号码/)
+  assert.match(english, /The bot uses this user’s contacts/)
+  assert.match(chinese, /Bot 使用该用户的通讯录/)
 })

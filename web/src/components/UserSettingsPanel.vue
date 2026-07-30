@@ -70,11 +70,13 @@ const selectedUser = computed(() =>
   users.value.find(user => user.id === selectedID.value)
 )
 const editableUser = computed(() => selectedUser.value)
-const passwordBytes = computed(() => new TextEncoder().encode(temporaryPassword.value).length)
+const temporaryPasswordCharacters = computed(
+  () => Array.from(temporaryPassword.value).length
+)
 const validationError = computed(() => {
   if (!username.value.trim()) return t('users.enterUsername')
-  if (creating.value && passwordBytes.value < 12) {
-    return t('users.passwordTooShort', { count: 12 })
+  if (creating.value && temporaryPasswordCharacters.value < 8) {
+    return t('users.passwordTooShort', { count: 8 })
   }
   return ''
 })
@@ -221,7 +223,7 @@ async function setMemberPassword(): Promise<void> {
   const user = editableUser.value
   if (!user || settingPassword.value) return
   if (new TextEncoder().encode(newPassword.value).length < 12) {
-    saveError.value = t('users.passwordTooShort', { count: 12 })
+    saveError.value = t('account.passwordTooShort', { count: 12 })
     return
   }
   settingPassword.value = true
@@ -423,7 +425,7 @@ onMounted(() => {
               autocomplete="new-password"
               :disabled="saving"
             />
-            <small>{{ t('users.passwordHint', { count: 12 }) }}</small>
+            <small>{{ t('users.passwordHint', { count: 8 }) }}</small>
           </label>
         </div>
 

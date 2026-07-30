@@ -16,6 +16,7 @@ import (
 )
 
 const testBotToken = "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"
+const testOwnerUserID = "user_admin"
 
 func TestServiceKeepsBotTokenWriteOnlyAndEncrypted(t *testing.T) {
 	t.Parallel()
@@ -23,14 +24,14 @@ func TestServiceKeepsBotTokenWriteOnlyAndEncrypted(t *testing.T) {
 	service := newTestService(t)
 	ctx := context.Background()
 	created, err := service.Create(ctx, CreateInput{
-		DisplayName: "Primary",
-		Enabled:     true,
-		BotToken:    testBotToken,
-		ChatID:      "-100123",
-		AdminID:     "42",
-		LineScopes:  []string{"line-1"},
-		IncomingSMS: true,
-		MissedCalls: true,
+		DisplayName:    "Primary",
+		Enabled:        true,
+		BotToken:       testBotToken,
+		ChatID:         "-100123",
+		AdminID:        "42",
+		AssignedUserID: testOwnerUserID,
+		IncomingSMS:    true,
+		MissedCalls:    true,
 	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -57,14 +58,15 @@ func TestServiceKeepsBotTokenWriteOnlyAndEncrypted(t *testing.T) {
 	}
 
 	updated, err := service.Update(ctx, created.ID, UpdateInput{
-		Revision:    created.Revision,
-		DisplayName: "Primary bot",
-		Enabled:     true,
-		ChatID:      created.ChatID,
-		AdminID:     created.AdminID,
-		LineScopes:  created.LineScopes,
-		IncomingSMS: true,
-		MissedCalls: false,
+		Revision:       created.Revision,
+		DisplayName:    "Primary bot",
+		Enabled:        true,
+		ChatID:         created.ChatID,
+		AdminID:        created.AdminID,
+		AssignedUserID: testOwnerUserID,
+		LineScopes:     created.LineScopes,
+		IncomingSMS:    true,
+		MissedCalls:    false,
 	})
 	if err != nil {
 		t.Fatalf("Update() without token error = %v", err)
@@ -85,36 +87,39 @@ func TestServiceRejectsDuplicateBotAndUnsafeCredentialClear(t *testing.T) {
 	service := newTestService(t)
 	ctx := context.Background()
 	created, err := service.Create(ctx, CreateInput{
-		DisplayName: "Primary",
-		Enabled:     true,
-		BotToken:    testBotToken,
-		ChatID:      "-100123",
-		AdminID:     "42",
+		DisplayName:    "Primary",
+		Enabled:        true,
+		BotToken:       testBotToken,
+		ChatID:         "-100123",
+		AdminID:        "42",
+		AssignedUserID: testOwnerUserID,
 	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 	if _, err := service.Create(ctx, CreateInput{
-		DisplayName: "Duplicate",
-		Enabled:     false,
-		BotToken:    testBotToken,
-		ChatID:      "-100124",
-		AdminID:     "43",
+		DisplayName:    "Duplicate",
+		Enabled:        false,
+		BotToken:       testBotToken,
+		ChatID:         "-100124",
+		AdminID:        "43",
+		AssignedUserID: testOwnerUserID,
 	}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("duplicate Create() error = %v, want conflict", err)
 	}
 
 	empty := ""
 	_, err = service.Update(ctx, created.ID, UpdateInput{
-		Revision:    created.Revision,
-		DisplayName: created.DisplayName,
-		Enabled:     true,
-		BotToken:    &empty,
-		ChatID:      created.ChatID,
-		AdminID:     created.AdminID,
-		LineScopes:  created.LineScopes,
-		IncomingSMS: created.IncomingSMS,
-		MissedCalls: created.MissedCalls,
+		Revision:       created.Revision,
+		DisplayName:    created.DisplayName,
+		Enabled:        true,
+		BotToken:       &empty,
+		ChatID:         created.ChatID,
+		AdminID:        created.AdminID,
+		AssignedUserID: testOwnerUserID,
+		LineScopes:     created.LineScopes,
+		IncomingSMS:    created.IncomingSMS,
+		MissedCalls:    created.MissedCalls,
 	})
 	if !errors.Is(err, ErrInvalidArgument) {
 		t.Fatalf("enabled credential clear error = %v, want invalid argument", err)
@@ -127,29 +132,34 @@ func TestServiceRequiresExactIdentifiersAndRevision(t *testing.T) {
 	service := newTestService(t)
 	ctx := context.Background()
 	_, err := service.Create(ctx, CreateInput{
-		DisplayName: "Invalid",
-		Enabled:     true,
-		BotToken:    testBotToken,
-		ChatID:      "not-a-chat",
-		AdminID:     "42",
+		DisplayName:    "Invalid",
+		Enabled:        true,
+		BotToken:       testBotToken,
+		ChatID:         "not-a-chat",
+		AdminID:        "42",
+		AssignedUserID: testOwnerUserID,
 	})
 	if !errors.Is(err, ErrInvalidArgument) {
 		t.Fatalf("invalid chat Create() error = %v", err)
 	}
-	created, err := service.Create(ctx, CreateInput{DisplayName: "Disabled"})
+	created, err := service.Create(ctx, CreateInput{
+		DisplayName:    "Disabled",
+		AssignedUserID: testOwnerUserID,
+	})
 	if err != nil {
 		t.Fatalf("disabled Create() error = %v", err)
 	}
 	_, err = service.Update(ctx, created.ID, UpdateInput{
-		Revision:    created.Revision + 1,
-		DisplayName: created.DisplayName,
+		Revision:       created.Revision + 1,
+		DisplayName:    created.DisplayName,
+		AssignedUserID: testOwnerUserID,
 	})
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale Update() error = %v, want conflict", err)
 	}
 }
 
-func TestServiceSeparatesUserAndManualRuntimeAccess(t *testing.T) {
+func TestServiceAppliesUserOwnedLineScopes(t *testing.T) {
 	t.Parallel()
 
 	service, repository, sqlite := newTestServiceWithRepository(t)
@@ -178,18 +188,20 @@ func TestServiceSeparatesUserAndManualRuntimeAccess(t *testing.T) {
 		BotToken:       testBotToken,
 		ChatID:         "-100123",
 		AdminID:        "42",
-		ScopeSource:    "user",
 		AssignedUserID: member.ID,
 		IncomingSMS:    true,
 		MissedCalls:    true,
 	})
 	if err != nil {
-		t.Fatalf("Create(user mode) error = %v", err)
+		t.Fatalf("Create(all assigned lines) error = %v", err)
+	}
+	if !userUnit.AllAssignedLines {
+		t.Fatal("user unit does not follow all assigned lines")
 	}
 	assertChangeSignal(t, service)
 	userConfig, err := service.RuntimeConfig(ctx, userUnit.ID)
 	if err != nil {
-		t.Fatalf("RuntimeConfig(user mode) error = %v", err)
+		t.Fatalf("RuntimeConfig(all assigned lines) error = %v", err)
 	}
 	if !userConfig.Enabled ||
 		userConfig.LineScopeMode != "selected" ||
@@ -198,7 +210,7 @@ func TestServiceSeparatesUserAndManualRuntimeAccess(t *testing.T) {
 		!userConfig.ResolveContacts ||
 		userConfig.Principal == nil ||
 		userConfig.Principal.UserID != member.ID {
-		t.Fatalf("user-mode runtime config = %+v", userConfig)
+		t.Fatalf("all-assigned runtime config = %+v", userConfig)
 	}
 
 	member, err = repository.UpdateMember(ctx, member.ID, store.UpdateMemberInput{
@@ -210,47 +222,55 @@ func TestServiceSeparatesUserAndManualRuntimeAccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateMember() error = %v", err)
 	}
-	service.NotifyAccessChanged()
-	assertChangeSignal(t, service)
 	userConfig, err = service.RuntimeConfig(ctx, userUnit.ID)
 	if err != nil {
-		t.Fatalf("RuntimeConfig(user mode after assignment) error = %v", err)
+		t.Fatalf("RuntimeConfig(after assignment) error = %v", err)
 	}
 	if len(userConfig.LineScopes) != 2 ||
 		userConfig.LineScopes[0] != "line_alpha" ||
 		userConfig.LineScopes[1] != "line_beta" ||
 		userConfig.Principal == nil ||
 		len(userConfig.Principal.AllowedLineIDs) != 2 {
-		t.Fatalf("updated user-mode runtime config = %+v", userConfig)
+		t.Fatalf("updated all-assigned runtime config = %+v", userConfig)
 	}
 
-	manualUnit, err := service.Create(ctx, CreateInput{
-		DisplayName:    "Manual bot",
+	selectedUnit, err := service.Create(ctx, CreateInput{
+		DisplayName:    "Selected lines bot",
 		Enabled:        true,
 		BotToken:       "987654321:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi",
 		ChatID:         "-100124",
 		AdminID:        "43",
-		ScopeSource:    "manual",
-		ManualAllLines: false,
+		AssignedUserID: member.ID,
 		LineScopes:     []string{"line_beta"},
 		IncomingSMS:    true,
 		MissedCalls:    true,
 	})
 	if err != nil {
-		t.Fatalf("Create(manual mode) error = %v", err)
+		t.Fatalf("Create(selected lines) error = %v", err)
+	}
+	if selectedUnit.AllAssignedLines {
+		t.Fatal("selected-line unit follows all assigned lines")
 	}
 	assertChangeSignal(t, service)
-	manualConfig, err := service.RuntimeConfig(ctx, manualUnit.ID)
+	selectedConfig, err := service.RuntimeConfig(ctx, selectedUnit.ID)
 	if err != nil {
-		t.Fatalf("RuntimeConfig(manual mode) error = %v", err)
+		t.Fatalf("RuntimeConfig(selected lines) error = %v", err)
 	}
-	if !manualConfig.Enabled ||
-		manualConfig.LineScopeMode != "selected" ||
-		len(manualConfig.LineScopes) != 1 ||
-		manualConfig.LineScopes[0] != "line_beta" ||
-		manualConfig.ResolveContacts ||
-		manualConfig.Principal != nil {
-		t.Fatalf("manual-mode runtime config = %+v", manualConfig)
+	if !selectedConfig.Enabled ||
+		selectedConfig.LineScopeMode != "selected" ||
+		len(selectedConfig.LineScopes) != 1 ||
+		selectedConfig.LineScopes[0] != "line_beta" ||
+		!selectedConfig.ResolveContacts ||
+		selectedConfig.Principal == nil ||
+		selectedConfig.Principal.UserID != member.ID {
+		t.Fatalf("selected-line runtime config = %+v", selectedConfig)
+	}
+	if _, err := service.Create(ctx, CreateInput{
+		DisplayName:    "Unassigned line",
+		AssignedUserID: member.ID,
+		LineScopes:     []string{"line_gamma"},
+	}); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("Create(unassigned line) error = %v, want invalid argument", err)
 	}
 }
 
@@ -273,6 +293,14 @@ func newTestServiceWithRepository(t *testing.T) (*Service, *store.Store, *sql.DB
 	repository, err := store.New(sqlite)
 	if err != nil {
 		t.Fatalf("store.New() error = %v", err)
+	}
+	if _, err := sqlite.Exec(`
+		INSERT INTO modemdeck_users (
+			id, username, password_hash, role, enabled, must_change_password
+		) VALUES (?, 'admin', 'admin-hash', 'admin', 1, 0);
+		INSERT INTO modemdeck_user_preferences (user_id) VALUES (?)
+	`, testOwnerUserID, testOwnerUserID); err != nil {
+		t.Fatalf("seed test owner: %v", err)
 	}
 	box, err := secretbox.New([]byte(strings.Repeat("k", secretbox.KeySize)))
 	if err != nil {

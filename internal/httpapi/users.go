@@ -76,8 +76,8 @@ func (api *API) usersCollection(response http.ResponseWriter, request *http.Requ
 			writeError(response, http.StatusUnprocessableEntity, "username_invalid", "Enter a valid username", "username")
 			return
 		}
-		if err := auth.ValidateNewPassword(input.Password); err != nil {
-			writePasswordValidationError(response, err, "password")
+		if err := auth.ValidateTemporaryPassword(input.Password); err != nil {
+			writeTemporaryPasswordValidationError(response, err, "password")
 			return
 		}
 		passwordHash, err := auth.HashPassword(input.Password)
@@ -94,7 +94,6 @@ func (api *API) usersCollection(response http.ResponseWriter, request *http.Requ
 			api.writeUserError(response, request, "create member", err)
 			return
 		}
-		api.notifyTelegramAccessChanged()
 		writeJSON(response, http.StatusCreated, userResponse{User: user})
 	default:
 		response.Header().Set("Allow", http.MethodGet+", "+http.MethodPost)
@@ -167,7 +166,6 @@ func (api *API) userResource(
 		api.writeUserError(response, request, "update member", err)
 		return
 	}
-	api.notifyTelegramAccessChanged()
 	api.publishRuntimeResources(
 		runtimeevents.ResourceSession,
 		runtimeevents.ResourceLines,
@@ -221,12 +219,6 @@ func (api *API) requireAdmin(response http.ResponseWriter, request *http.Request
 	return false
 }
 
-func (api *API) notifyTelegramAccessChanged() {
-	if notifier, ok := api.telegram.(interface{ NotifyAccessChanged() }); ok {
-		notifier.NotifyAccessChanged()
-	}
-}
-
 func (api *API) writeUserError(
 	response http.ResponseWriter,
 	request *http.Request,
@@ -268,6 +260,21 @@ func writePasswordValidationError(
 	}
 }
 
+func writeTemporaryPasswordValidationError(
+	response http.ResponseWriter,
+	err error,
+	field string,
+) {
+	switch {
+	case errors.Is(err, auth.ErrPasswordTooShort):
+		writeError(response, http.StatusUnprocessableEntity, "password_too_short", "Temporary password must contain at least 8 characters", field)
+	case errors.Is(err, auth.ErrPasswordTooLong):
+		writeError(response, http.StatusUnprocessableEntity, "password_too_long", "Temporary password cannot exceed 1024 bytes", field)
+	default:
+		writeError(response, http.StatusUnprocessableEntity, "password_invalid", "Temporary password contains unsupported characters", field)
+	}
+}
+
 func userResourcePath(path string) (userID, action string, ok bool) {
 	const prefix = "/api/v1/users/"
 	if !strings.HasPrefix(path, prefix) {
@@ -293,6 +300,8 @@ func adminOnlyAPIPath(path, method string) bool {
 		path == "/api/v1/settings/lines" ||
 		path == "/api/v1/settings/system" ||
 		path == "/api/v1/settings/recording" ||
+		path == "/api/v1/settings/telegram" ||
+		strings.HasPrefix(path, "/api/v1/settings/telegram/") ||
 		strings.HasPrefix(path, "/api/v1/lines/") {
 		return false
 	}

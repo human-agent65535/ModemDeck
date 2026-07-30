@@ -188,6 +188,20 @@ func TestNotificationOutboxFollowsAssignedUserAccess(t *testing.T) {
 			AssignedUserID:     unassigned.ID,
 			IncomingSMS:        true,
 		},
+		{
+			ID:                 "selected-other-line",
+			DisplayName:        "Selected other line",
+			Enabled:            true,
+			BotID:              100006,
+			BotTokenNonce:      []byte("nonce"),
+			BotTokenCiphertext: []byte("ciphertext"),
+			ChatID:             11,
+			AdminID:            12,
+			ScopeSource:        "user",
+			AssignedUserID:     assigned.ID,
+			LineScopes:         []string{"line-not-assigned"},
+			IncomingSMS:        true,
+		},
 	} {
 		if _, err := repository.CreateTelegramUnit(ctx, unit); err != nil {
 			t.Fatalf("CreateTelegramUnit(%s) error = %v", unit.ID, err)

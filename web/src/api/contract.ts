@@ -1408,19 +1408,13 @@ export function createTelegramUnitPayload(input: TelegramUnitInput): TelegramUni
   if (!displayName || !chatID || !adminID) {
     throw new Error('display_name、chat_id 和 admin_id 不能为空')
   }
-  if (input.scope_source !== 'manual' && input.scope_source !== 'user') {
-    throw new Error('scope_source must be manual or user')
-  }
-  const lineScopes =
-    input.scope_source === 'manual'
-      ? input.line_scopes.map(value => value.trim())
-      : []
+  const lineScopes = input.line_scopes.map(value => value.trim())
   if (lineScopes.some(value => !value) || new Set(lineScopes).size !== lineScopes.length) {
     throw new Error('line_scopes 必须是无重复的非空字符串')
   }
-  const assignedUserID = input.assigned_user_id?.trim()
-  if (input.scope_source === 'user' && !assignedUserID) {
-    throw new Error('assigned_user_id is required in user mode')
+  const assignedUserID = input.assigned_user_id.trim()
+  if (!assignedUserID) {
+    throw new Error('assigned_user_id is required')
   }
   if (
     input.revision !== undefined &&
@@ -1433,13 +1427,8 @@ export function createTelegramUnitPayload(input: TelegramUnitInput): TelegramUni
     enabled: input.enabled,
     chat_id: chatID,
     admin_id: adminID,
-    scope_source: input.scope_source,
-    ...(input.scope_source === 'user' && assignedUserID
-      ? { assigned_user_id: assignedUserID }
-      : {}),
-    manual_all_lines: input.scope_source === 'manual' && input.manual_all_lines,
-    line_scopes:
-      input.scope_source === 'manual' && !input.manual_all_lines ? lineScopes : [],
+    assigned_user_id: assignedUserID,
+    line_scopes: lineScopes,
     incoming_sms: input.incoming_sms,
     missed_calls: input.missed_calls,
     ...(token ? { bot_token: token } : {}),
@@ -2187,22 +2176,17 @@ export function parseMessageResponse(value: unknown): Message {
 export function parseTelegramUnit(value: unknown): TelegramUnit {
   const unit = objectValue(value, 'telegram_unit')
   const botUsername = optionalString(unit, 'bot_username')
-  const assignedUserID = optionalString(unit, 'assigned_user_id')
+  const assignedUserID = requiredString(unit, 'telegram_unit', 'assigned_user_id')
   const assignedUsername = optionalString(unit, 'assigned_username')
-  const scopeSource = requiredString(unit, 'telegram_unit', 'scope_source')
-  if (scopeSource !== 'manual' && scopeSource !== 'user') {
-    throw new Error('telegram_unit.scope_source must be manual or user')
-  }
   return {
     id: requiredString(unit, 'telegram_unit', 'id'),
     display_name: requiredString(unit, 'telegram_unit', 'display_name'),
     enabled: requiredBoolean(unit, 'telegram_unit', 'enabled'),
     chat_id: requiredString(unit, 'telegram_unit', 'chat_id'),
     admin_id: requiredString(unit, 'telegram_unit', 'admin_id'),
-    scope_source: scopeSource,
-    ...(assignedUserID ? { assigned_user_id: assignedUserID } : {}),
+    assigned_user_id: assignedUserID,
     ...(assignedUsername ? { assigned_username: assignedUsername } : {}),
-    manual_all_lines: requiredBoolean(unit, 'telegram_unit', 'manual_all_lines'),
+    all_assigned_lines: requiredBoolean(unit, 'telegram_unit', 'all_assigned_lines'),
     effective_enabled: requiredBoolean(unit, 'telegram_unit', 'effective_enabled'),
     line_scopes: stringList(unit, 'telegram_unit', 'line_scopes'),
     incoming_sms: requiredBoolean(unit, 'telegram_unit', 'incoming_sms'),
