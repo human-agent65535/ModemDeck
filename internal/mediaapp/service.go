@@ -116,6 +116,7 @@ func (s *Service) Exchange(
 				ErrUnavailable,
 			)
 		}
+		rtcConfiguration.RelayOnly = true
 	}
 	result, err := s.core.Exchange(ctx, callmedia.Offer{
 		Call: callmedia.ActiveCall{

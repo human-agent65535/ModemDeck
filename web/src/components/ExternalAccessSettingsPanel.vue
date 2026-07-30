@@ -4,12 +4,13 @@ import { useI18n } from 'vue-i18n'
 import {
   Check,
   Clipboard,
+  Globe2,
   KeyRound,
   LoaderCircle,
   QrCode,
+  RadioTower,
   RefreshCw,
   ShieldCheck,
-  Smartphone,
   Trash2,
   X
 } from '@lucide/vue'
@@ -216,7 +217,7 @@ onBeforeUnmount(() => {
 
     <template v-else-if="pairing">
       <header class="ios-summary">
-        <span class="ios-summary__icon"><Smartphone :size="22" /></span>
+        <span class="ios-summary__icon"><Globe2 :size="22" /></span>
         <div>
           <h3 id="ios-settings-title">{{ t('iosPairing.title') }}</h3>
           <p>{{ t('iosPairing.description') }}</p>
@@ -236,18 +237,16 @@ onBeforeUnmount(() => {
           <span
             class="ios-status"
             :class="{
-              'is-active': pairing.cloudflare.connected,
-              'is-blocked': !pairing.cloudflare.enabled
+              'is-active': pairing.cloudflare.connector_connected,
+              'is-blocked': !pairing.cloudflare.connector_connected
             }"
           >
             {{
               !pairing.cloudflare.enabled
                 ? t('iosPairing.notInstalled')
-                : pairing.cloudflare.connected
+                : pairing.cloudflare.connector_connected
                   ? t('iosPairing.connected')
-                  : pairing.cloudflare.connector_connected
-                    ? t('iosPairing.routeUnavailable')
-                    : t('iosPairing.disconnected')
+                  : t('iosPairing.disconnected')
             }}
           </span>
         </header>
@@ -265,11 +264,35 @@ onBeforeUnmount(() => {
             </dd>
           </div>
         </dl>
-        <div v-if="!pairing.cloudflare.enabled" class="ios-notice">
-          {{ t('iosPairing.cloudflareRequired') }}
-        </div>
-        <div v-else-if="!pairing.cloudflare.connected" class="ios-notice">
-          {{ t('iosPairing.cloudflareUnavailable') }}
+      </section>
+
+      <section class="ios-card" aria-labelledby="external-turn-title">
+        <header>
+          <span><RadioTower :size="19" /></span>
+          <div>
+            <h4 id="external-turn-title">{{ t('iosPairing.turnTitle') }}</h4>
+          </div>
+          <span
+            class="ios-status"
+            :class="{
+              'is-active': pairing.turn.available,
+              'is-blocked': !pairing.turn.available
+            }"
+          >
+            {{
+              !pairing.turn.configured
+                ? t('iosPairing.turnNotConfigured')
+                : pairing.turn.available
+                  ? t('iosPairing.turnAvailable')
+                  : t('iosPairing.turnUnavailable')
+            }}
+          </span>
+        </header>
+        <div
+          v-if="!pairing.turn.available"
+          class="ios-notice ios-notice--danger"
+        >
+          {{ t('iosPairing.turnCallUnavailable') }}
         </div>
       </section>
 
@@ -286,7 +309,7 @@ onBeforeUnmount(() => {
               'is-active':
                 pairing.has_credential && pairing.cloudflare.connected,
               'is-blocked':
-                !pairing.allowed || !pairing.cloudflare.enabled
+                !pairing.allowed || !pairing.cloudflare.connected
             }"
           >
             {{
@@ -294,11 +317,13 @@ onBeforeUnmount(() => {
                 ? t('iosPairing.notAllowed')
                 : !pairing.cloudflare.enabled
                   ? t('iosPairing.notInstalled')
-                  : !pairing.cloudflare.connected
+                  : !pairing.cloudflare.connector_connected
                     ? t('iosPairing.disconnected')
-                    : pairing.has_credential
-                      ? t('iosPairing.paired')
-                      : t('iosPairing.notPaired')
+                    : !pairing.cloudflare.connected
+                      ? t('iosPairing.routeUnavailable')
+                      : pairing.has_credential
+                        ? t('iosPairing.paired')
+                        : t('iosPairing.notPaired')
             }}
           </span>
         </header>
@@ -529,6 +554,12 @@ onBeforeUnmount(() => {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 7px;
+}
+
+.ios-notice--danger {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 28%, var(--border));
 }
 
 .ios-pairing-facts {

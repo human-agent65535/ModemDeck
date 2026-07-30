@@ -130,6 +130,18 @@ export type CallLeaseStatus = {
   expires_at: string
 }
 
+export type CallMediaICEServer = {
+  urls: string[]
+  username?: string
+  credential?: string
+}
+
+export type CallMediaICEConfiguration = {
+  ice_servers: CallMediaICEServer[]
+  ice_transport_policy: 'all' | 'relay'
+  expires_at?: string
+}
+
 export type RecordingSettings = {
   default_enabled: boolean
   revision: number
@@ -159,9 +171,15 @@ export type CloudflareTunnelStatus = {
   web_urls: string[]
 }
 
+export type TURNAvailabilityStatus = {
+  configured: boolean
+  available: boolean
+}
+
 export type IOSPairingStatus = {
   allowed: boolean
   cloudflare: CloudflareTunnelStatus
+  turn: TURNAvailabilityStatus
   has_credential: boolean
   credential_created_at?: string
 }

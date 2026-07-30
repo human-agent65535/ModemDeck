@@ -242,8 +242,8 @@ export default {
     recordingDescription: 'Default recording behavior',
     telegram: 'Notifications',
     telegramDescription: 'Delivery through Telegram bots',
-    iosApp: 'iOS app',
-    iosAppDescription: 'Tunnel connection and device pairing',
+    iosApp: 'External access',
+    iosAppDescription: 'Web, iOS, and call relay',
     tls: 'Web certificate',
     tlsDescription: 'Certificate for the local Web interface',
     diagnostics: 'Diagnostics',
@@ -417,15 +417,21 @@ export default {
     createMember: 'Create member'
   },
   iosPairing: {
-    loading: 'Loading iOS pairing',
-    loadFailed: 'Unable to load iOS pairing',
-    title: 'iOS app',
-    description: 'Pair this account with an iPhone for future app access.',
+    loading: 'Loading external access',
+    loadFailed: 'Unable to load external access',
+    title: 'External access',
+    description: 'Cloudflare Tunnel, Web, and iOS access.',
     tunnelTitle: 'Cloudflare Tunnel',
     notInstalled: 'Not installed',
     connected: 'Connected',
     disconnected: 'Disconnected',
     routeUnavailable: 'Public route unavailable',
+    turnTitle: 'TURN call relay',
+    turnNotConfigured: 'Not configured',
+    turnAvailable: 'Available',
+    turnUnavailable: 'Unavailable',
+    turnCallUnavailable:
+      'TURN is unavailable. Cloudflare Web and iOS cannot make calls.',
     cloudflareRequired:
       'Enable Cloudflare Tunnel through the installer before pairing iOS.',
     cloudflareUnavailable:
@@ -1387,6 +1393,8 @@ export default {
     microphoneTestFailed: 'Microphone test failed',
     microphoneHTTPSRequired: 'Microphone access requires HTTPS',
     callAudioFailed: 'Unable to establish call audio',
+    externalCallTURNUnavailable:
+      'TURN is unavailable. Cloudflare Web calling is unavailable.',
     audioNegotiationTimeout: 'Browser audio negotiation timed out',
     callAudioDisconnected: 'Call audio disconnected',
     callAudioConnectionFailed: 'Call audio connection failed',

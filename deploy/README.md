@@ -17,13 +17,24 @@ by host software.
 
 The base stack has three services:
 
-- `modemdeck` runs Nginx with two isolated listeners. Compose-only HTTP `7575`
-  proxies `/api/*` and returns 404 for every other path. HTTPS `7577` serves the
-  Web UI and is the only listener published to the host. Plain HTTP sent to
-  `7577` is redirected to HTTPS on the same address.
+- `modemdeck` runs Nginx with three isolated listeners. Compose-only HTTP
+  `7575` proxies `/api/*` and returns 404 for every other path. Compose-only
+  HTTP `7576` serves the Web UI and same-origin API to Cloudflare Tunnel.
+  HTTPS `7577` serves the local Web UI and is the only listener published to
+  the host. Plain HTTP sent to `7577` is redirected to HTTPS on the same
+  address.
 - `api` runs the Go HTTP API on `8080` inside the Compose network. It has
   no published host port.
 - `hardware` owns the modem and host data plane.
+
+On an existing deployment, `install.sh` compares the previously deployed Git
+revision, resolved Compose service hashes, and fingerprints of external
+assignment/media-binding files. It builds and replaces only affected services,
+using independent image tags for API, Web, and Hardware. API, Web,
+cloudflared, or TURN-only changes retain the running Hardware/ModemManager
+container. Agent/Hardware inputs, Hardware mode, device assignments, and media
+bindings select Hardware for replacement. `--rebuild-all` is the explicit
+escape hatch that rebuilds every image and force-recreates the complete stack.
 
 The administrator-facing **Web certificate** setting manages only HTTPS
 listener `7577`. The API container atomically stores either the automatic
@@ -36,16 +47,15 @@ Cloudflare Tunnel and Realtime TURN are installer options, not editable
 application settings. Create a remotely-managed Tunnel and configure its
 public hostnames as needed. The available origins are the API-only
 `http://modemdeck:7575` listener and the Web
-`https://modemdeck:7577` listener. With the default self-signed Web
-certificate, enable **No TLS Verify** in that Published Application's origin
-TLS settings. The connector requires only a Tunnel token:
+`http://modemdeck:7576` listener. The connector requires only a Tunnel token:
 
 ```sh
 sudo ./install.sh \
   --cloudflare-token-file /root/modemdeck-cloudflare.token
 ```
 
-For iOS call media, also create a Realtime TURN key and add its credentials:
+For Cloudflare Web and iOS call media, also create a Realtime TURN key and add
+its credentials:
 
 ```sh
 sudo ./install.sh \
@@ -56,7 +66,7 @@ sudo ./install.sh \
 
 The installer enables `docker-compose.cloudflare.yml` and, when TURN is
 configured, `docker-compose.cloudflare-turn.yml`. Credentials are copied into
-restricted file secrets. Both Nginx listeners are reachable from the connector;
+restricted file secrets. Both Tunnel origins are reachable from the connector;
 the user decides which ingress rules Cloudflare publishes. The Go API
 automatically selects the unique pathless ingress whose service is
 `http://modemdeck:7575` and verifies that public route before issuing a pairing

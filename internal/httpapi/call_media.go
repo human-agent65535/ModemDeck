@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/mediaapp"
+	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
 	"github.com/human-agent65535/modemdeck/internal/rtcconfig"
 )
 
@@ -32,7 +33,7 @@ type callMediaICEConfigurationRequest struct {
 type callMediaICEConfigurationResponse struct {
 	ICEServers         []rtcconfig.ICEServer `json:"ice_servers"`
 	ICETransportPolicy string                `json:"ice_transport_policy"`
-	ExpiresAt          string                `json:"expires_at"`
+	ExpiresAt          string                `json:"expires_at,omitempty"`
 }
 
 func (api *API) callMediaExchange(
@@ -95,7 +96,7 @@ func (api *API) exchangeCallMedia(
 		callID,
 		input.OwnerToken,
 		input.OfferSDP,
-		isMobileRequest(request),
+		api.callMediaRequiresRelay(request),
 	)
 	if err != nil {
 		api.logger.Warn(
@@ -131,16 +132,6 @@ func (api *API) callMediaICEConfiguration(
 		)
 		return
 	}
-	if !isMobileRequest(request) {
-		writeError(
-			response,
-			http.StatusForbidden,
-			"mobile_api_forbidden",
-			"TURN configuration is available only to paired iOS clients",
-			"",
-		)
-		return
-	}
 	if !api.requireCallAccess(response, request, callID) {
 		return
 	}
@@ -152,6 +143,15 @@ func (api *API) callMediaICEConfiguration(
 			"Call ownership is unavailable",
 			"",
 		)
+		return
+	}
+	relayRequired := api.callMediaRequiresRelay(request)
+	if !relayRequired {
+		response.Header().Set("Cache-Control", "no-store")
+		writeJSON(response, http.StatusOK, callMediaICEConfigurationResponse{
+			ICEServers:         []rtcconfig.ICEServer{},
+			ICETransportPolicy: "all",
+		})
 		return
 	}
 	if api.rtcConfiguration == nil {
@@ -191,7 +191,7 @@ func (api *API) callMediaICEConfiguration(
 		)
 		return
 	}
-	configuration, err := api.rtcConfiguration.Generate(request.Context())
+	configuration, err := api.generateRTCConfiguration(request.Context())
 	if err != nil {
 		api.logger.Warn(
 			"generate TURN configuration",
@@ -208,14 +208,10 @@ func (api *API) callMediaICEConfiguration(
 		)
 		return
 	}
-	policy := "all"
-	if configuration.RelayOnly {
-		policy = "relay"
-	}
 	response.Header().Set("Cache-Control", "no-store")
 	writeJSON(response, http.StatusOK, callMediaICEConfigurationResponse{
 		ICEServers:         configuration.ICEServers,
-		ICETransportPolicy: policy,
+		ICETransportPolicy: "relay",
 		ExpiresAt:          configuration.ExpiresAt.UTC().Format(time.RFC3339),
 	})
 }
@@ -223,6 +219,24 @@ func (api *API) callMediaICEConfiguration(
 func isMobileRequest(request *http.Request) bool {
 	_, ok := mobileAuthenticationFromContext(request.Context())
 	return ok
+}
+
+func (api *API) callMediaRequiresRelay(request *http.Request) bool {
+	if isMobileRequest(request) {
+		return true
+	}
+	matcher, ok := api.mobilePairingAvailability.(mobilepairing.WebIngressMatcher)
+	requestHost := strings.TrimSpace(
+		request.Header.Get("X-Forwarded-Host"),
+	)
+	if requestHost == "" {
+		requestHost = request.Host
+	}
+	if ok && matcher.IsWebIngress(request.Context(), requestHost) {
+		return true
+	}
+	return strings.TrimSpace(request.Header.Get("CF-Ray")) != "" ||
+		strings.TrimSpace(request.Header.Get("CF-Connecting-IP")) != ""
 }
 
 func (api *API) releaseCallMedia(

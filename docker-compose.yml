@@ -162,6 +162,7 @@ services:
       - "${MODEMDECK_BIND_ADDRESS:-127.0.0.1}:${MODEMDECK_PORT:-7577}:7577"
     expose:
       - "7575"
+      - "7576"
     environment:
       MODEMDECK_WEB_TLS_DIRECTORY: /var/lib/modemdeck/tls
     volumes:

@@ -6,6 +6,7 @@ import {
   Activity,
   ArrowLeft,
   ContactRound,
+  Globe2,
   House,
   Info,
   LoaderCircle,
@@ -13,7 +14,6 @@ import {
   RadioTower,
   Send,
   ShieldCheck,
-  Smartphone,
   UserRound,
   Volume2
 } from '@lucide/vue'
@@ -24,11 +24,11 @@ import ContactSyncSettings from '../components/ContactSyncSettings.vue'
 import StatePanel from '../components/StatePanel.vue'
 import DeviceConfigurationPanel from '../components/DeviceConfigurationPanel.vue'
 import DiagnosticsPanel from '../components/DiagnosticsPanel.vue'
-import IOSAppSettingsPanel from '../components/IOSAppSettingsPanel.vue'
+import ExternalAccessSettingsPanel from '../components/ExternalAccessSettingsPanel.vue'
 import TelegramSettingsForm from '../components/TelegramSettingsForm.vue'
 import UserSettingsPanel from '../components/UserSettingsPanel.vue'
 import WebCertificateSettingsPanel from '../components/WebCertificateSettingsPanel.vue'
-import { fixtureMode } from '../api/client'
+import { fixtureMode, gateway } from '../api/client'
 import { logout as logoutSession, sessionState } from '../state/session'
 import {
   bootstrapResource,
@@ -45,16 +45,25 @@ type SettingsSection =
   | 'audio'
   | 'devices'
   | 'telegram'
-  | 'ios'
+  | 'external-access'
   | 'web-certificate'
   | 'diagnostics'
   | 'about'
+
+type SettingsSectionDefinition = {
+  id: SettingsSection
+  label: string
+  description: string
+  icon: typeof RadioTower
+}
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const logoutPending = ref(false)
 const logoutError = ref('')
+const externalAccessResolved = ref(false)
+const externalAccessEnabled = ref(false)
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const presentModules = computed(() =>
   presentModuleLines(lines.value, devicesResource.data)
@@ -68,13 +77,8 @@ const overviewSummary = computed(() =>
     total: presentModules.value.length
   })
 )
-const sections = computed<Array<{
-  id: SettingsSection
-  label: string
-  description: string
-  icon: typeof RadioTower
-}>>(() => {
-  const personal = [
+const sections = computed<SettingsSectionDefinition[]>(() => {
+  const personal: SettingsSectionDefinition[] = [
     {
       id: 'account' as const,
       label:
@@ -110,14 +114,16 @@ const sections = computed<Array<{
       label: t('settings.devices'),
       description: t('settings.devicesDescription'),
       icon: RadioTower
-    },
-    {
-      id: 'ios' as const,
-      label: t('settings.iosApp'),
-      description: t('settings.iosAppDescription'),
-      icon: Smartphone
     }
   ]
+  if (externalAccessEnabled.value) {
+    personal.push({
+      id: 'external-access' as const,
+      label: t('settings.iosApp'),
+      description: t('settings.iosAppDescription'),
+      icon: Globe2
+    })
+  }
   const about = {
     id: 'about' as const,
     label: t('settings.about'),
@@ -162,14 +168,38 @@ watch(
 )
 
 watch(
-  () => route.params.section,
-  value => {
+  [() => route.params.section, externalAccessResolved],
+  ([value, resolved]) => {
     const section = String(value || '')
+    if (section === 'ios' && resolved && externalAccessEnabled.value) {
+      void router.replace({
+        name: 'settings',
+        params: { section: 'external-access' }
+      })
+      return
+    }
+    if (section === 'ios' && !resolved) return
     if (!section || sections.value.some(item => item.id === section)) return
+    if (section === 'external-access' && !resolved) return
     void router.replace({ name: 'settings', params: { section: 'account' } })
   },
   { immediate: true }
 )
+
+async function loadExternalAccessVisibility(): Promise<void> {
+  if (sessionState.mustChangePassword) {
+    externalAccessResolved.value = true
+    return
+  }
+  try {
+    const result = await gateway.getIOSPairing()
+    externalAccessEnabled.value = result.pairing.cloudflare.enabled
+  } catch {
+    externalAccessEnabled.value = false
+  } finally {
+    externalAccessResolved.value = true
+  }
+}
 
 function openSection(section: SettingsSection): void {
   void router.push({ name: 'settings', params: { section } })
@@ -203,7 +233,11 @@ async function logout(): Promise<void> {
 
 onMounted(() => {
   if (sessionState.mustChangePassword) return
-  void Promise.all([loadBootstrap(), loadDevices()])
+  void Promise.all([
+    loadBootstrap(),
+    loadDevices(),
+    loadExternalAccessVisibility()
+  ])
 })
 </script>
 
@@ -305,8 +339,8 @@ onMounted(() => {
           <TelegramSettingsForm />
         </div>
 
-        <div v-else-if="selectedSection === 'ios'" class="settings-content">
-          <IOSAppSettingsPanel />
+        <div v-else-if="selectedSection === 'external-access'" class="settings-content">
+          <ExternalAccessSettingsPanel />
         </div>
 
         <div v-else-if="selectedSection === 'web-certificate'" class="settings-content">

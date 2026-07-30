@@ -102,7 +102,7 @@ func TestCloudflareGatewayDiscoversAndVerifiesAPIIngress(t *testing.T) {
 		[]cloudflaredTestIngress{
 			{
 				Hostname: "web.example.com",
-				Service:  "https://modemdeck:7577",
+				Service:  cloudflareWebOrigin,
 			},
 			{
 				Hostname: publicHostname,
@@ -259,6 +259,52 @@ func TestCloudflareGatewayRefreshesDiscoveredIngress(t *testing.T) {
 		len(second.WebURLs) != 1 ||
 		second.WebURLs[0] != "https://new-web.example.com" {
 		t.Fatalf("second status = %+v", second)
+	}
+}
+
+func TestCloudflareGatewayMatchesOnlyDiscoveredWebIngress(t *testing.T) {
+	t.Parallel()
+
+	management := newCloudflaredManagementServer(
+		t,
+		http.StatusOK,
+		[]cloudflaredTestIngress{
+			{
+				Hostname: "calls.example.com",
+				Service:  cloudflareAPIOrigin,
+			},
+			{
+				Hostname: "deck.example.com",
+				Service:  cloudflareWebOrigin,
+			},
+		},
+	)
+	gateway, err := NewCloudflareGateway(management.URL + "/ready")
+	if err != nil {
+		t.Fatalf("NewCloudflareGateway() error = %v", err)
+	}
+
+	for _, testCase := range []struct {
+		host string
+		want bool
+	}{
+		{host: "deck.example.com", want: true},
+		{host: "DECK.EXAMPLE.COM:443", want: true},
+		{host: "calls.example.com", want: false},
+		{host: "deck.example.com, spoofed.example.com", want: false},
+		{host: "deck.example.com/path", want: false},
+	} {
+		if got := gateway.IsWebIngress(
+			context.Background(),
+			testCase.host,
+		); got != testCase.want {
+			t.Errorf(
+				"IsWebIngress(%q) = %t, want %t",
+				testCase.host,
+				got,
+				testCase.want,
+			)
+		}
 	}
 }
 

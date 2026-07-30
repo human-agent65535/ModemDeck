@@ -292,6 +292,7 @@ type API struct {
 	tlsSettingsService        TLSSettingsService
 	mobilePairingAvailability mobilepairing.Availability
 	rtcConfiguration          rtcconfig.Provider
+	turnAvailability          turnAvailabilityCache
 	authenticator             Authenticator
 	secureCookies             bool
 	loginSlots                chan struct{}

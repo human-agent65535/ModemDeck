@@ -3,6 +3,7 @@ import type {
   AboutInfo,
   BootstrapResponse,
   CallAction,
+  CallMediaICEConfiguration,
   CallLeaseStatus,
   CallFilter,
   CallBatchAction,
@@ -194,6 +195,10 @@ export interface ModemDeckGateway {
   callAction(id: string, action: CallAction): Promise<void>
   sendDTMF(id: string, digit: string): Promise<void>
   renewCallLease(id: string): Promise<CallLeaseStatus>
+  getCallMediaICEConfiguration(
+    id: string,
+    signal?: AbortSignal
+  ): Promise<CallMediaICEConfiguration>
   exchangeCallMedia(
     id: string,
     ownerToken: string,

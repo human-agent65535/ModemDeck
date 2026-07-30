@@ -1,6 +1,7 @@
 import { reactive, watch } from 'vue'
 import { gateway } from '../api/client'
 import type { CallSession } from '../api/types'
+import { ApiError } from '../api/types'
 import { translate } from '../i18n'
 import {
   applySelectedAudioOutput,
@@ -169,6 +170,9 @@ function setIdle(status: 'idle' | 'unavailable', callID = ''): void {
 }
 
 function mediaError(error: unknown): string {
+  if (error instanceof ApiError && error.code === 'turn_unavailable') {
+    return translate('runtime.externalCallTURNUnavailable')
+  }
   if (error instanceof DOMException) {
     if (error.name === 'NotAllowedError') return translate('runtime.microphoneUnauthorized')
     if (error.name === 'NotFoundError' || error.name === 'OverconstrainedError') {
@@ -266,6 +270,10 @@ async function connect(
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error(translate('runtime.microphoneHTTPSRequired'))
     }
+    const rtcConfiguration = await gateway.getCallMediaICEConfiguration(
+      callID,
+      signal
+    )
     pendingMicrophone = await navigator.mediaDevices.getUserMedia({
       audio: selectedAudioInputConstraints(),
       video: false
@@ -283,7 +291,14 @@ async function connect(
     pendingPipeline = undefined
     markAudioInputActive()
 
-    const connection = new RTCPeerConnection()
+    const connection = new RTCPeerConnection({
+      iceServers: rtcConfiguration.ice_servers.map(server => ({
+        urls: server.urls,
+        ...(server.username ? { username: server.username } : {}),
+        ...(server.credential ? { credential: server.credential } : {})
+      })),
+      iceTransportPolicy: rtcConfiguration.ice_transport_policy
+    })
     let recovering = false
     peer = connection
     remoteStream = new MediaStream()

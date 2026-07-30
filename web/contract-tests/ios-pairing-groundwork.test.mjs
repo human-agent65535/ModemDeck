@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import {
+  callMediaICEContract,
+  createCallMediaICEPayload,
   iosPairingContract,
+  parseCallMediaICEConfiguration,
   parseIOSPairingResponse
 } from '../src/api/contract.ts'
 import { createFixtureGateway } from '../src/api/fixture.ts'
@@ -37,6 +40,10 @@ test('pairing uses the server-discovered Cloudflare endpoint', () => {
         api_urls: ['https://phone.example.com'],
         web_urls: ['https://deck.example.com']
       },
+      turn: {
+        configured: true,
+        available: true
+      },
       has_credential: true,
       credential_created_at: '2026-07-30T12:00:00Z'
     }
@@ -49,6 +56,10 @@ test('pairing uses the server-discovered Cloudflare endpoint', () => {
     'https://deck.example.com'
   ])
   assert.equal(status.pairing.cloudflare.connected, true)
+  assert.deepEqual(status.pairing.turn, {
+    configured: true,
+    available: true
+  })
   assert.equal(status.payload, undefined)
 
   const created = parseIOSPairingResponse({
@@ -89,35 +100,93 @@ test('fixture creates and revokes one non-expiring Cloudflare pairing', async ()
   assert.equal((await gateway.getIOSPairing()).pairing.has_credential, false)
 })
 
+test('Cloudflare Web call media accepts relay-only ICE configuration', () => {
+  assert.deepEqual(callMediaICEContract('call-1'), {
+    method: 'POST',
+    path: '/api/v1/calls/call-1/media/ice',
+    successStatus: 200
+  })
+  assert.deepEqual(createCallMediaICEPayload('browser-1'), {
+    holder_id: 'browser-1'
+  })
+  assert.deepEqual(
+    parseCallMediaICEConfiguration({
+      ice_servers: [
+        {
+          urls: ['turns:turn.example.test:443?transport=tcp'],
+          username: 'relay-user',
+          credential: 'relay-credential'
+        }
+      ],
+      ice_transport_policy: 'relay',
+      expires_at: '2026-08-01T00:00:00Z'
+    }),
+    {
+      ice_servers: [
+        {
+          urls: ['turns:turn.example.test:443?transport=tcp'],
+          username: 'relay-user',
+          credential: 'relay-credential'
+        }
+      ],
+      ice_transport_policy: 'relay',
+      expires_at: '2026-08-01T00:00:00Z'
+    }
+  )
+})
+
 test('settings UI exposes read-only Cloudflare status and self-service pairing', async () => {
-  const [settingsView, userPanel, iosPanel] = await Promise.all([
+  const [settingsView, userPanel, externalAccessPanel, callMedia] =
+    await Promise.all([
     readFile(new URL('../src/views/SettingsView.vue', import.meta.url), 'utf8'),
     readFile(
       new URL('../src/components/UserSettingsPanel.vue', import.meta.url),
       'utf8'
     ),
     readFile(
-      new URL('../src/components/IOSAppSettingsPanel.vue', import.meta.url),
+      new URL(
+        '../src/components/ExternalAccessSettingsPanel.vue',
+        import.meta.url
+      ),
+      'utf8'
+    ),
+    readFile(
+      new URL('../src/state/callMedia.ts', import.meta.url),
       'utf8'
     )
   ])
 
-  assert.match(settingsView, /id: 'ios' as const/)
-  assert.match(settingsView, /<IOSAppSettingsPanel/)
+  assert.match(settingsView, /id: 'external-access' as const/)
+  assert.match(settingsView, /<ExternalAccessSettingsPanel/)
+  assert.match(
+    settingsView,
+    /externalAccessEnabled\.value = result\.pairing\.cloudflare\.enabled/
+  )
+  assert.match(settingsView, /if \(externalAccessEnabled\.value\)/)
   assert.match(settingsView, /id: 'web-certificate'/)
   assert.match(settingsView, /<WebCertificateSettingsPanel/)
   assert.match(userPanel, /ios_pairing_enabled: iosPairingEnabled\.value/)
-  assert.match(iosPanel, /pairing\.value\.cloudflare\.enabled/)
-  assert.match(iosPanel, /pairing\.value\.cloudflare\.connected/)
-  assert.match(iosPanel, /pairing\.cloudflare\.api_urls/)
-  assert.match(iosPanel, /pairing\.cloudflare\.web_urls/)
-  assert.match(iosPanel, /window\.setInterval/)
-  assert.match(iosPanel, /onBeforeUnmount/)
-  assert.match(iosPanel, /gateway\.createIOSPairing\(\)/)
-  assert.match(iosPanel, /gateway\.revokeIOSPairing\(\)/)
-  assert.match(iosPanel, /QRCode\.toDataURL/)
+  assert.match(externalAccessPanel, /pairing\.value\.cloudflare\.enabled/)
+  assert.match(externalAccessPanel, /pairing\.value\.cloudflare\.connected/)
+  assert.match(externalAccessPanel, /pairing\.cloudflare\.api_urls/)
+  assert.match(externalAccessPanel, /pairing\.cloudflare\.web_urls/)
+  assert.match(
+    externalAccessPanel,
+    /'is-active': pairing\.cloudflare\.connector_connected/
+  )
+  assert.match(externalAccessPanel, /pairing\.turn\.configured/)
+  assert.match(externalAccessPanel, /pairing\.turn\.available/)
+  assert.match(externalAccessPanel, /turnCallUnavailable/)
+  assert.doesNotMatch(externalAccessPanel, /turnReady/)
+  assert.match(externalAccessPanel, /window\.setInterval/)
+  assert.match(externalAccessPanel, /onBeforeUnmount/)
+  assert.match(externalAccessPanel, /gateway\.createIOSPairing\(\)/)
+  assert.match(externalAccessPanel, /gateway\.revokeIOSPairing\(\)/)
+  assert.match(externalAccessPanel, /QRCode\.toDataURL/)
+  assert.match(callMedia, /gateway\.getCallMediaICEConfiguration/)
+  assert.match(callMedia, /iceTransportPolicy/)
   assert.doesNotMatch(
-    iosPanel,
+    externalAccessPanel,
     /getMobileSettings|updateMobileSettings|public_api_url|<input|localStorage|expires_at|local[_A-Z-]?network/i
   )
 })

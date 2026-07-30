@@ -23,6 +23,7 @@ type mobilePairingRepository interface {
 type iosPairingStatusResponse struct {
 	Allowed             bool                           `json:"allowed"`
 	Cloudflare          mobilepairing.CloudflareStatus `json:"cloudflare"`
+	TURN                turnAvailabilityStatus         `json:"turn"`
 	HasCredential       bool                           `json:"has_credential"`
 	CredentialCreatedAt string                         `json:"credential_created_at,omitempty"`
 }
@@ -144,6 +145,7 @@ func (api *API) mobilePairing(
 				Pairing: iosPairingStatusResponse{
 					Allowed:             status.Allowed,
 					Cloudflare:          cloudflare,
+					TURN:                api.turnStatus(request.Context()),
 					HasCredential:       status.HasCredential,
 					CredentialCreatedAt: status.CredentialCreatedAt,
 				},
@@ -178,9 +180,15 @@ func (api *API) iosPairingStatus(
 	ctx context.Context,
 	status store.IOSPairingStatus,
 ) iosPairingStatusResponse {
+	cloudflareResult := make(chan mobilepairing.CloudflareStatus, 1)
+	go func() {
+		cloudflareResult <- api.cloudflareStatus(ctx)
+	}()
+	turn := api.turnStatus(ctx)
 	return iosPairingStatusResponse{
 		Allowed:             status.Allowed,
-		Cloudflare:          api.cloudflareStatus(ctx),
+		Cloudflare:          <-cloudflareResult,
+		TURN:                turn,
 		HasCredential:       status.HasCredential,
 		CredentialCreatedAt: status.CredentialCreatedAt,
 	}

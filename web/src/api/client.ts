@@ -8,6 +8,7 @@ import {
   callActionContract,
   callLeaseContract,
   callMediaContract,
+  callMediaICEContract,
   callMediaReleaseContract,
   callRecordPath,
   callRecordingContract,
@@ -16,6 +17,7 @@ import {
   createCallActionPayload,
   createCallLeasePayload,
   createCallMediaPayload,
+  createCallMediaICEPayload,
   createCallMediaReleasePayload,
   createCallPayload,
   createCallRecordingPayload,
@@ -37,6 +39,7 @@ import {
   createTLSSettingsPayload,
   parseActiveCallSnapshotResponse,
   parseCallMediaResponse,
+  parseCallMediaICEConfiguration,
   parseCallLeaseStatus,
   parseCallRecordingState,
   parseCallRecordingsResponse,
@@ -1709,6 +1712,19 @@ const realGateway: ConfiguredModemDeckGateway = {
         contract.successStatus,
         undefined,
         CALL_LEASE_REQUEST_TIMEOUT_MS
+      )
+    )
+  },
+
+  async getCallMediaICEConfiguration(id: string, signal?: AbortSignal) {
+    const contract = callMediaICEContract(id)
+    return parseCallMediaICEConfiguration(
+      await writeJSON(
+        contract.path,
+        contract.method,
+        createCallMediaICEPayload(callLeaseHolderID),
+        contract.successStatus,
+        signal
       )
     )
   },

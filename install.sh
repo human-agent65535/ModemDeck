@@ -71,8 +71,8 @@ Options:
                           Enable cloudflared using a remotely-managed Tunnel
                           token read from FILE
   --cloudflare-turn-key-id ID
-                          Enable iOS call relay using a Cloudflare Realtime
-                          TURN key ID
+                          Enable Cloudflare Web and iOS call relay using a
+                          Cloudflare Realtime TURN key ID
   --cloudflare-turn-token-file FILE
                           TURN API token read from FILE
   --disable-cloudflare-turn
@@ -83,14 +83,15 @@ Options:
   --check                 Read-only validation; build or change nothing
   -h, --help              Show this help
 
-Nginx exposes two isolated listeners: HTTP port 7575 is API-only and HTTPS port
-7577 serves the Web UI. Both are reachable by the optional connector; users
-manage Cloudflare ingress rules themselves. Only HTTPS port 7577 is published
-to the host. The Go API listens only on port 8080 inside the private Compose
-network. iOS pairing is available only while the configured public API route is
-connected. The installer preserves application data, settings secrets, and the
-Tunnel token. On a first installation, open the local HTTPS Web UI and complete
-Quick Start to create the administrator username and password.
+Nginx exposes three isolated listeners: HTTP port 7575 is the Tunnel API origin,
+HTTP port 7576 is the Tunnel Web origin, and HTTPS port 7577 serves the local
+Web UI. Users manage Cloudflare ingress rules themselves. Only HTTPS port 7577
+is published to the host. The Go API listens only on port 8080 inside the
+private Compose network. iOS pairing is available only while the configured
+public API route is connected. The installer preserves application data,
+settings secrets, and the Tunnel token. On a first installation, open the local
+HTTPS Web UI and complete Quick Start to create the administrator username and
+password.
 EOF
 }
 
@@ -807,6 +808,7 @@ printf 'Images:        %s:%s, %s:%s, %s:%s\n' \
     "$hardware_image" "$version"
 printf 'Web UI:        https://%s:%s\n' "$bind_address" "$port"
 printf '%s\n' 'API origin:    http://modemdeck:7575 (Compose only, non-API paths return 404)'
+printf '%s\n' 'Web origin:    http://modemdeck:7576 (Compose only)'
 printf '%s\n' 'API upstream:  http://api:8080 (Compose only)'
 printf 'Data:          %s\n' "$data_dir"
 printf 'Media config:  %s\n' "$media_bindings_file"

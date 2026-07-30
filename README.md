@@ -52,10 +52,11 @@ Cloudflare API HTTPS 地址和每用户凭据，不包含 LAN 地址，也没有
 
 ModemDeck 默认由三个职责隔离的容器组成，并可选启用第四个 Tunnel 容器：
 
-- `modemdeck` 是非特权 Nginx 网关，使用两个完全分离的 listener：Compose
-  内网的 HTTP `7575` 只转发 `/api/*`，其他路径一律返回 404；HTTPS `7577`
-  提供 Web 管理页，并且只有这个端口会映射到宿主机。误用 HTTP 访问 `7577`
-  时会自动升级到同地址的 HTTPS。
+- `modemdeck` 是非特权 Nginx 网关，使用三个职责分离的 listener：Compose
+  内网的 HTTP `7575` 只转发 `/api/*`，其他路径一律返回 404；Compose 内网
+  的 HTTP `7576` 为 Cloudflare Tunnel 提供 Web 与同源 API；HTTPS `7577`
+  提供本地 Web 管理页，并且只有这个端口会映射到宿主机。误用 HTTP 访问
+  `7577` 时会自动升级到同地址的 HTTPS。
 - `api` 是非特权 Go HTTP 服务，在 Compose 内网的 `8080` 负责身份验证、
   通信流程和 SQLite 数据。它没有宿主机端口，也不接触
   `/dev`、D-Bus、硬件状态或主机网络，只通过只读挂载的 Unix 套接字调用
@@ -65,7 +66,7 @@ ModemDeck 默认由三个职责隔离的容器组成，并可选启用第四个 
   AT 接口已在构建时启用，不依赖调试模式。
 - 可选的 `cloudflared` 与 Nginx 位于同一 Compose 网络。用户可在 Cloudflare
   中自行把公网主机名指向 API-only origin `http://modemdeck:7575`、Web
-  origin `https://modemdeck:7577`，或同时配置两者；ModemDeck 不管理这些
+  origin `http://modemdeck:7576`，或同时配置两者；ModemDeck 不管理这些
   ingress 规则，也不提供额外的暴露开关。
 
 管理员可在“设置 → Web 证书”查看本地 `7577` 证书、下载自动签发 CA、上传
@@ -216,18 +217,16 @@ sudo ./install.sh \
 ```
 
 要公开 Web 或 API，先在 Cloudflare 创建 remotely-managed Tunnel，再按需将
-主机名指向 `https://modemdeck:7577` 或 `http://modemdeck:7575`。仅启用
-Tunnel connector。默认 Web 证书为自签证书，因此 Web Published Application
-使用 `https://modemdeck:7577` 时需在 origin TLS 设置中启用
-**No TLS Verify**；API 的 HTTP origin 不需要该设置。
+主机名指向 Web origin `http://modemdeck:7576` 或 API-only origin
+`http://modemdeck:7575`，然后启用 Tunnel connector。
 
 ```sh
 sudo ./install.sh \
   --cloudflare-token-file /root/modemdeck-cloudflare.token
 ```
 
-iOS 通话媒体还需要 Cloudflare Realtime TURN。创建 TURN key，将 TURN API
-token 保存到仅 root 可读的文件，再加上 TURN 参数：
+Cloudflare Web 与 iOS 通话媒体还需要 Cloudflare Realtime TURN。创建 TURN
+key，将 TURN API token 保存到仅 root 可读的文件，再加上 TURN 参数：
 
 ```sh
 sudo ./install.sh \
@@ -243,8 +242,12 @@ Cloudflare ingress 后会自动更新，不需要重新运行安装器。该主�
 `--bind-address` 和 `--port` 只控制 Web 管理页的 HTTPS 宿主入口，不会进入
 iOS 二维码。重复安装会保留 SQLite 数据、设置密钥和 Cloudflare 凭据；可用
 `--disable-cloudflare-turn` 只停用 TURN，或用 `--disable-cloudflare` 停用
-Tunnel 和 iOS 配对。完整参数见
-`./install.sh --help`。
+Tunnel 和 iOS 配对。升级时，安装器会比较上次部署的 Git revision、各服务
+Compose 配置和外部硬件配置文件，只构建并替换受影响的容器。仅有 API、Web、
+Tunnel 或 TURN 变化时，正在运行的 Hardware/ModemManager 容器保持不变；
+Agent、Hardware、运行模式、设备 assignment 或媒体绑定变化才会更新 Hardware。
+`sudo ./install.sh --rebuild-all` 会重建所有镜像并强制替换整个栈，包括
+Hardware/ModemManager。完整参数见 `./install.sh --help`。
 
 首次打开 Web 界面时会进入“快速开始”，由首位访问者创建管理员用户名和密码。
 完成后页面切换为普通登录，不再开放初始化接口。管理员可在“设置 > 系统”修改
@@ -322,10 +325,12 @@ in M5.
 ModemDeck uses three containers with separate responsibilities and an optional
 fourth Tunnel connector:
 
-- `modemdeck` is an unprivileged Nginx gateway with two isolated listeners.
+- `modemdeck` is an unprivileged Nginx gateway with three isolated listeners.
   Compose-only HTTP `7575` proxies `/api/*` and returns 404 for every other
-  path. HTTPS `7577` serves the Web UI and is the only host-published listener;
-  plain HTTP sent to `7577` is upgraded to HTTPS on the same address.
+  path. Compose-only HTTP `7576` serves the Web UI and same-origin API to
+  Cloudflare Tunnel. HTTPS `7577` serves the local Web UI and is the only
+  host-published listener; plain HTTP sent to `7577` is upgraded to HTTPS on
+  the same address.
 - `api` is an unprivileged Go HTTP service on Compose-only port `8080`. It owns
   authentication, communication workflows, and SQLite data, receives no
   `/dev`, D-Bus, hardware state, or host networking, and calls the Agent only
@@ -336,7 +341,7 @@ fourth Tunnel connector:
   is enabled at build time and does not depend on debug mode.
 - Optional `cloudflared` shares the Compose network with Nginx. Users manage
   Cloudflare ingress and may route public hostnames to the API-only
-  `http://modemdeck:7575` origin, the `https://modemdeck:7577` Web origin, or
+  `http://modemdeck:7575` origin, the `http://modemdeck:7576` Web origin, or
   both. ModemDeck does not manage those ingress rules or add exposure toggles.
 
 Administrators can use **Settings → Web certificate** to inspect the local
@@ -511,19 +516,17 @@ sudo ./install.sh \
 ```
 
 To publish the Web UI or API, create a remotely-managed Cloudflare Tunnel and
-route hostnames as needed to `https://modemdeck:7577` or
-`http://modemdeck:7575`. The default Web certificate is self-signed, so enable
-**No TLS Verify** in the Web Published Application's origin TLS settings when
-using `https://modemdeck:7577`; the HTTP API origin does not need it. Enable
-only the Tunnel connector with:
+route hostnames as needed to the Web origin `http://modemdeck:7576` or the
+API-only origin `http://modemdeck:7575`. Enable the Tunnel connector with:
 
 ```sh
 sudo ./install.sh \
   --cloudflare-token-file /root/modemdeck-cloudflare.token
 ```
 
-iOS call media additionally requires Cloudflare Realtime TURN. Create a TURN
-key, save its API token in a root-readable file, and add the TURN options:
+Cloudflare Web and iOS call media additionally require Cloudflare Realtime
+TURN. Create a TURN key, save its API token in a root-readable file, and add
+the TURN options:
 
 ```sh
 sudo ./install.sh \
@@ -541,8 +544,15 @@ addresses.
 `--bind-address` and `--port` control only the local HTTPS Web UI and never
 enter the iOS QR payload. Re-running preserves SQLite data, settings secrets,
 and Cloudflare credentials. Use `--disable-cloudflare-turn` to disable only
-TURN, or `--disable-cloudflare` to disable the connector and iOS pairing. See
-`./install.sh --help` for all options.
+TURN, or `--disable-cloudflare` to disable the connector and iOS pairing.
+During upgrades, the installer compares the previously deployed Git revision,
+each service's Compose configuration, and external hardware configuration
+files, then builds and replaces only affected containers. API, Web, Tunnel, or
+TURN-only changes retain the running Hardware/ModemManager container; Agent,
+Hardware, mode, device-assignment, or media-binding changes update Hardware.
+`sudo ./install.sh --rebuild-all` rebuilds every image and force-replaces the
+entire stack, including Hardware/ModemManager. See `./install.sh --help` for all
+options.
 
 The first Web visit opens Quick Start, where the first visitor creates the
 administrator username and password. After setup, the page becomes the normal

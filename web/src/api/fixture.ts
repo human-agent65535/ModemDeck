@@ -4,6 +4,7 @@ import type {
   AboutInfo,
   BootstrapResponse,
   CallFilter,
+  CallMediaICEConfiguration,
   CallRecordingSegment,
   CallRecordingState,
   CallRecord,
@@ -875,6 +876,10 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     api_urls: ['https://mobile.modemdeck.example'],
     web_urls: ['https://web.modemdeck.example']
   }
+  const turnStatus = {
+    configured: true,
+    available: true
+  }
   let iosPairingCreatedAt = ''
   const connectionProfiles = new Map<string, ConnectionProfile[]>(
     lines.map(line => [
@@ -1425,6 +1430,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         pairing: {
           allowed: true,
           cloudflare: clone(cloudflareStatus),
+          turn: clone(turnStatus),
           has_credential: Boolean(iosPairingCreatedAt),
           ...(iosPairingCreatedAt
             ? { credential_created_at: iosPairingCreatedAt }
@@ -1439,6 +1445,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         pairing: {
           allowed: true,
           cloudflare: clone(cloudflareStatus),
+          turn: clone(turnStatus),
           has_credential: true,
           credential_created_at: iosPairingCreatedAt
         },
@@ -1453,6 +1460,13 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
 
     async revokeIOSPairing(): Promise<void> {
       iosPairingCreatedAt = ''
+    },
+
+    async getCallMediaICEConfiguration(): Promise<CallMediaICEConfiguration> {
+      return {
+        ice_servers: [],
+        ice_transport_policy: 'all'
+      }
     },
 
     async listContacts(query: ListQuery = {}) {

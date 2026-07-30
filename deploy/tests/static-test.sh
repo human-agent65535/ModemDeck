@@ -166,8 +166,15 @@ grep -Fq '127.0.0.1' "${test_root}/web.yml" ||
     fail "Web gateway is not restricted to host loopback"
 grep -Fq 'target: 7577' "${test_root}/web.yml" ||
     fail "Web gateway does not publish HTTPS port 7577"
+grep -Fq -- '- "7575"' "${test_root}/web.yml" ||
+    fail "Web gateway does not expose Cloudflare API port 7575"
+grep -Fq -- '- "7576"' "${test_root}/web.yml" ||
+    fail "Web gateway does not expose Cloudflare Web port 7576"
 if grep -Fq 'published: "7575"' "${test_root}/web.yml"; then
     fail "API-only port 7575 is published to the host"
+fi
+if grep -Fq 'published: "7576"' "${test_root}/web.yml"; then
+    fail "Cloudflare Web port 7576 is published to the host"
 fi
 grep -Fq 'target: /var/lib/modemdeck/tls' "${test_root}/web.yml" ||
     fail "Web gateway cannot read the managed TLS certificate"
@@ -180,6 +187,8 @@ grep -Fq -- '- ALL' "${test_root}/web.yml" ||
 
 grep -Fq 'listen 7575 default_server;' "${repo_dir}/web/nginx.conf" ||
     fail "Nginx does not listen on API-only port 7575"
+grep -Fq 'listen 7576 default_server;' "${repo_dir}/web/nginx.conf" ||
+    fail "Nginx does not listen on Cloudflare Web port 7576"
 grep -Fq 'listen 7577 ssl default_server;' "${repo_dir}/web/nginx.conf" ||
     fail "Nginx does not listen on HTTPS Web port 7577"
 grep -Fq 'error_page 497 =308 https://$http_host$request_uri;' \

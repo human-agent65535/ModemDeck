@@ -4,6 +4,8 @@ import type {
   CallAction,
   CallControlState,
   CallDirection,
+  CallMediaICEConfiguration,
+  CallMediaICEServer,
   CallLeaseStatus,
   CallPhase,
   CallRecording,
@@ -599,6 +601,10 @@ export function callMediaPath(id: string): string {
   return `${communicationPaths.calls}/${encodeURIComponent(callID)}/media`
 }
 
+export function callMediaICEPath(id: string): string {
+  return `${callMediaPath(id)}/ice`
+}
+
 export function callLeasePath(id: string): string {
   const callID = id.trim()
   if (!callID) throw new Error('call id 不能为空')
@@ -1072,6 +1078,18 @@ export function callMediaContract(id: string): {
   }
 }
 
+export function callMediaICEContract(id: string): {
+  method: 'POST'
+  path: string
+  successStatus: 200
+} {
+  return {
+    method: 'POST',
+    path: callMediaICEPath(id),
+    successStatus: 200
+  }
+}
+
 export function callMediaReleaseContract(id: string): {
   method: 'DELETE'
   path: string
@@ -1235,6 +1253,12 @@ export function createCallMediaPayload(
     offer_sdp: offerSDP,
     holder_id: normalizedHolderID
   }
+}
+
+export function createCallMediaICEPayload(holderID: string): { holder_id: string } {
+  const normalizedHolderID = holderID.trim()
+  if (!normalizedHolderID) throw new Error('holder_id 不能为空')
+  return { holder_id: normalizedHolderID }
 }
 
 export function createCallMediaReleasePayload(
@@ -1937,6 +1961,46 @@ export function parseCallMediaResponse(value: unknown): string {
   return answerSDP
 }
 
+function parseCallMediaICEServer(
+  value: unknown,
+  index: number
+): CallMediaICEServer {
+  const path = `call_media_ice.ice_servers[${index}]`
+  const source = objectValue(value, path)
+  const urls = optionalStringArray(source, path, 'urls')
+  if (!urls.length) throw new Error(`${path}.urls must not be empty`)
+  const username = optionalString(source, 'username')
+  const credential = optionalString(source, 'credential')
+  return {
+    urls,
+    ...(username ? { username } : {}),
+    ...(credential ? { credential } : {})
+  }
+}
+
+export function parseCallMediaICEConfiguration(
+  value: unknown
+): CallMediaICEConfiguration {
+  const source = objectValue(value, 'call_media_ice')
+  if (!Array.isArray(source.ice_servers)) {
+    throw new Error('call_media_ice.ice_servers must be an array')
+  }
+  const policy = requiredString(
+    source,
+    'call_media_ice',
+    'ice_transport_policy'
+  )
+  if (policy !== 'all' && policy !== 'relay') {
+    throw new Error('call_media_ice.ice_transport_policy is invalid')
+  }
+  const expiresAt = optionalString(source, 'expires_at')
+  return {
+    ice_servers: source.ice_servers.map(parseCallMediaICEServer),
+    ice_transport_policy: policy,
+    ...(expiresAt ? { expires_at: expiresAt } : {})
+  }
+}
+
 export function parseRecordingSettingsResponse(value: unknown): RecordingSettings {
   const response = objectValue(value, 'recording_settings_response')
   const source = objectValue(response.settings, 'recording_settings')
@@ -2154,6 +2218,7 @@ export function parseSystemSettingsResponse(value: unknown): SystemSettings {
 function parseIOSPairingStatus(value: unknown): IOSPairingStatus {
   const source = objectValue(value, 'ios_pairing')
   const cloudflare = objectValue(source.cloudflare, 'cloudflare_tunnel')
+  const turn = objectValue(source.turn, 'turn')
   const credentialCreatedAt = optionalString(source, 'credential_created_at')
   return {
     allowed: requiredBoolean(source, 'ios_pairing', 'allowed'),
@@ -2181,6 +2246,10 @@ function parseIOSPairingStatus(value: unknown): IOSPairingStatus {
         'cloudflare_tunnel',
         'web_urls'
       )
+    },
+    turn: {
+      configured: requiredBoolean(turn, 'turn', 'configured'),
+      available: requiredBoolean(turn, 'turn', 'available')
     },
     has_credential: requiredBoolean(source, 'ios_pairing', 'has_credential'),
     ...(credentialCreatedAt

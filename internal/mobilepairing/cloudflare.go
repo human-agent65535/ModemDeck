@@ -25,7 +25,7 @@ const (
 	cloudflareConfigResponseBytes = 256 * 1024
 
 	cloudflareAPIOrigin = "http://modemdeck:7575"
-	cloudflareWebOrigin = "https://modemdeck:7577"
+	cloudflareWebOrigin = "http://modemdeck:7576"
 
 	CloudflareProbePath            = "/api/v1/mobile/tunnel/verify"
 	CloudflareProbeChallengeHeader = "X-ModemDeck-Tunnel-Challenge"
@@ -47,6 +47,10 @@ type CloudflareStatus struct {
 
 type Availability interface {
 	Status(context.Context) CloudflareStatus
+}
+
+type WebIngressMatcher interface {
+	IsWebIngress(context.Context, string) bool
 }
 
 type ProbeResponder interface {
@@ -195,6 +199,29 @@ func (gateway *CloudflareGateway) Status(
 	return status
 }
 
+func (gateway *CloudflareGateway) IsWebIngress(
+	ctx context.Context,
+	requestHost string,
+) bool {
+	if gateway == nil || !gateway.status.Enabled {
+		return false
+	}
+	publicURL, err := publicURLFromRequestHost(requestHost)
+	if err != nil {
+		return false
+	}
+	routes, discovered := gateway.discoverRoutes(ctx)
+	if !discovered {
+		return false
+	}
+	for _, candidate := range routes.WebURLs {
+		if candidate == publicURL {
+			return true
+		}
+	}
+	return false
+}
+
 type cloudflaredRuntimeConfiguration struct {
 	Config struct {
 		Ingress []struct {
@@ -311,6 +338,28 @@ func publicURLFromHostname(value string) (string, error) {
 		)
 	}
 	return normalizePublicURL("https://" + value)
+}
+
+func publicURLFromRequestHost(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.ContainsAny(value, ",/\\") {
+		return "", fmt.Errorf(
+			"%w: request host must be a single hostname",
+			ErrInvalidCloudflareConfiguration,
+		)
+	}
+	parsed, err := url.Parse("https://" + value)
+	if err != nil ||
+		parsed.User != nil ||
+		parsed.Hostname() == "" ||
+		parsed.RawQuery != "" ||
+		parsed.Fragment != "" {
+		return "", fmt.Errorf(
+			"%w: request host is invalid",
+			ErrInvalidCloudflareConfiguration,
+		)
+	}
+	return publicURLFromHostname(strings.ToLower(parsed.Hostname()))
 }
 
 func normalizePublicURL(value string) (string, error) {
