@@ -304,10 +304,15 @@ func (api *API) toggleRecording(response http.ResponseWriter, request *http.Requ
 		writeError(response, http.StatusServiceUnavailable, "call_lease_unavailable", "Browser call ownership is unavailable", "")
 		return
 	}
+	holder, err := api.callLeaseHolder(request.Context(), input.HolderID)
+	if err != nil {
+		api.writeCallLeaseError(response, request, "validate browser call owner", err)
+		return
+	}
 	if err := api.callLeases.Require(
 		request.Context(),
 		callID,
-		input.HolderID,
+		holder.LeaseID,
 	); err != nil {
 		api.writeCallLeaseError(response, request, "authorize call recording", err)
 		return

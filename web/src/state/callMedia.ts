@@ -59,6 +59,7 @@ type MediaOwnership = {
   ownerToken: string
   claimed: boolean
   release: () => void
+  cleanup: Promise<void>
 }
 
 let mediaOwnership: MediaOwnership | undefined
@@ -255,7 +256,8 @@ function beginRecoveryWindow(callID: string, token: number): void {
 async function connect(
   callID: string,
   token: number,
-  ownership: MediaOwnership
+  ownership: MediaOwnership,
+  signal: AbortSignal
 ): Promise<void> {
   let pendingMicrophone: MediaStream | undefined
   let pendingPipeline: MicrophonePipeline | undefined
@@ -336,7 +338,8 @@ async function connect(
     const answerSDP = await gateway.exchangeCallMedia(
       callID,
       ownership.ownerToken,
-      offerSDP
+      offerSDP,
+      signal
     )
     if (generation !== token || currentCallID !== callID) return
     await connection.setRemoteDescription({ type: 'answer', sdp: answerSDP })
@@ -366,20 +369,31 @@ async function ownAndConnect(
         const released = new Promise<void>(resolve => {
           releaseLock = resolve
         })
+        let completeCleanup: () => void = () => undefined
+        const cleanup = new Promise<void>(resolve => {
+          completeCleanup = resolve
+        })
         const ownership: MediaOwnership = {
           ownerToken: globalThis.crypto.randomUUID(),
           claimed: false,
-          release: releaseLock
+          release: releaseLock,
+          cleanup
         }
         mediaOwnership = ownership
         try {
-          await connect(callID, token, ownership)
+          await connect(callID, token, ownership, controller.signal)
           await released
         } finally {
-          if (ownership.claimed) {
-            await gateway.releaseCallMedia(callID, ownership.ownerToken).catch(() => undefined)
+          try {
+            if (ownership.claimed) {
+              await gateway
+                .releaseCallMedia(callID, ownership.ownerToken)
+                .catch(() => undefined)
+            }
+          } finally {
+            if (mediaOwnership === ownership) mediaOwnership = undefined
+            completeCleanup()
           }
-          if (mediaOwnership === ownership) mediaOwnership = undefined
         }
       }
     )
@@ -519,6 +533,12 @@ function queueCallInputReplacement(deviceID: string): void {
 export function shutdownCallMedia(): void {
   attemptedCallID = ''
   setIdle('idle')
+}
+
+export async function releaseCallMediaForSessionEnd(): Promise<void> {
+  const ownership = mediaOwnership
+  shutdownCallMedia()
+  if (ownership?.claimed) await ownership.cleanup
 }
 
 watch(

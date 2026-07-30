@@ -488,7 +488,7 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 	if !api.requireLineAccess(response, request, input.LineID) {
 		return
 	}
-	holderID, err := calllease.NormalizeHolderID(input.HolderID)
+	holder, err := api.callLeaseHolder(request.Context(), input.HolderID)
 	if err != nil {
 		api.writeCallLeaseError(response, request, "validate browser call owner", err)
 		return
@@ -535,7 +535,7 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 		request.Context(),
 		requestID,
 		input.LineID,
-		holderID,
+		holder.LeaseID,
 	)
 	if err != nil {
 		api.writeCallLeaseError(response, request, "reserve outgoing call line", err)
@@ -547,7 +547,10 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 			return
 		}
 		reservationActive = false
-		released, releaseErr := api.callLeases.ReleaseOutgoing(requestID, holderID)
+		released, releaseErr := api.callLeases.ReleaseOutgoing(
+			requestID,
+			holder.LeaseID,
+		)
 		if releaseErr != nil {
 			api.logger.Warn(
 				"outgoing call reservation could not be released",
@@ -578,7 +581,7 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 		request.Context(),
 		requestID,
 		call.ID,
-		holderID,
+		holder.LeaseID,
 	); err != nil {
 		rollbackContext, cancel := context.WithTimeout(
 			context.WithoutCancel(request.Context()),
@@ -628,7 +631,8 @@ func (api *API) activeCalls(response http.ResponseWriter, request *http.Request)
 		writeError(response, http.StatusServiceUnavailable, "call_lease_unavailable", "Browser call ownership is unavailable", "")
 		return
 	}
-	holderID, err := calllease.NormalizeHolderID(
+	holder, err := api.callLeaseHolder(
+		request.Context(),
 		request.URL.Query().Get("holder_id"),
 	)
 	if err != nil {
@@ -640,7 +644,7 @@ func (api *API) activeCalls(response http.ResponseWriter, request *http.Request)
 		api.writeCommunicationError(response, request, "list active calls", err)
 		return
 	}
-	projection, err := api.callLeases.ProjectActive(calls, holderID)
+	projection, err := api.callLeases.ProjectActive(calls, holder.LeaseID)
 	if err != nil {
 		api.writeCallLeaseError(
 			response,
@@ -706,6 +710,11 @@ func (api *API) callAction(response http.ResponseWriter, request *http.Request, 
 	if !decodeJSONBody(response, request, &input) {
 		return
 	}
+	holder, err := api.callLeaseHolder(request.Context(), input.HolderID)
+	if err != nil {
+		api.writeCallLeaseError(response, request, "validate browser call owner", err)
+		return
+	}
 	requestID, ok := commandRequestID(response, request, input.RequestID)
 	if !ok {
 		return
@@ -716,13 +725,13 @@ func (api *API) callAction(response http.ResponseWriter, request *http.Request, 
 		_, leaseErr = api.callLeases.Claim(
 			request.Context(),
 			callID,
-			input.HolderID,
+			holder.LeaseID,
 		)
 	} else {
 		leaseErr = api.callLeases.Require(
 			request.Context(),
 			callID,
-			input.HolderID,
+			holder.LeaseID,
 		)
 	}
 	if leaseErr != nil {
@@ -732,7 +741,7 @@ func (api *API) callAction(response http.ResponseWriter, request *http.Request, 
 	if claimed {
 		api.publishRuntimeResources(runtimeevents.ResourceCalls)
 	}
-	_, err := api.communications.CallAction(request.Context(), communication.CallActionInput{
+	_, err = api.communications.CallAction(request.Context(), communication.CallActionInput{
 		RequestID: requestID,
 		CallID:    callID,
 		Action:    action,
@@ -747,7 +756,7 @@ func (api *API) callAction(response http.ResponseWriter, request *http.Request, 
 			if releaseErr := api.callLeases.Release(
 				rollbackContext,
 				callID,
-				input.HolderID,
+				holder.LeaseID,
 			); releaseErr != nil {
 				api.logger.Warn(
 					"failed call action owner could not be released",

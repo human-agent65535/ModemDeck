@@ -6,6 +6,14 @@ const callMedia = await readFile(
   new URL('../src/state/callMedia.ts', import.meta.url),
   'utf8'
 )
+const session = await readFile(
+  new URL('../src/state/session.ts', import.meta.url),
+  'utf8'
+)
+const client = await readFile(
+  new URL('../src/api/client.ts', import.meta.url),
+  'utf8'
+)
 
 test('one tab exclusively owns browser call media', () => {
   assert.match(callMedia, /const MEDIA_LOCK_PREFIX = 'modemdeck-call-media:'/)
@@ -20,7 +28,7 @@ test('one tab exclusively owns browser call media', () => {
   )
   assert.match(
     callMedia,
-    /gateway\.releaseCallMedia\(callID, ownership\.ownerToken\)/
+    /gateway[\s\S]*?\.releaseCallMedia\(callID, ownership\.ownerToken\)/
   )
 })
 
@@ -43,4 +51,24 @@ test('browser media uses one fixed recovery window', () => {
     /connection\.connectionState === 'closed'[\s\S]*?failConnection\(/
   )
   assert.doesNotMatch(callMedia, /restartIce|iceRestart/)
+})
+
+test('session changes release media before credentials are revoked', () => {
+  assert.match(
+    callMedia,
+    /releaseCallMediaForSessionEnd[\s\S]*?shutdownCallMedia\(\)[\s\S]*?ownership\?\.claimed[\s\S]*?await ownership\.cleanup/
+  )
+  assert.match(
+    session,
+    /logout[\s\S]*?await releaseCallMediaForSessionEnd\(\)[\s\S]*?await gateway\.logout\(\)[\s\S]*?clearSession\(\)/
+  )
+  assert.match(
+    session,
+    /changePassword[\s\S]*?await releaseCallMediaForSessionEnd\(\)[\s\S]*?await gateway\.changePassword\(input\)[\s\S]*?clearSession\(\)/
+  )
+  assert.match(client, /let callLeaseHolderID = `browser-\$\{requestID\(\)\}`/)
+  assert.match(
+    client,
+    /rotateCallLeaseHolder[\s\S]*?callLeaseHolderID = `browser-\$\{requestID\(\)\}`/
+  )
 })

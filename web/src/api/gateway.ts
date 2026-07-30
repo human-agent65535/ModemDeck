@@ -194,7 +194,12 @@ export interface ModemDeckGateway {
   callAction(id: string, action: CallAction): Promise<void>
   sendDTMF(id: string, digit: string): Promise<void>
   renewCallLease(id: string): Promise<CallLeaseStatus>
-  exchangeCallMedia(id: string, ownerToken: string, offerSDP: string): Promise<string>
+  exchangeCallMedia(
+    id: string,
+    ownerToken: string,
+    offerSDP: string,
+    signal?: AbortSignal
+  ): Promise<string>
   releaseCallMedia(id: string, ownerToken: string): Promise<void>
   listRecordings(query?: ListQuery): Promise<Page<RecordingEntry>>
   getRecordingSettings(): Promise<RecordingSettings>

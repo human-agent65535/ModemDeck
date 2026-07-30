@@ -229,7 +229,11 @@ function requestID(): string {
   return `${encoded.slice(0, 8)}-${encoded.slice(8, 12)}-${encoded.slice(12, 16)}-${encoded.slice(16, 20)}-${encoded.slice(20)}`
 }
 
-const callLeaseHolderID = `browser-${requestID()}`
+let callLeaseHolderID = `browser-${requestID()}`
+
+export function rotateCallLeaseHolder(): void {
+  callLeaseHolderID = `browser-${requestID()}`
+}
 
 export function setClientCSRFToken(token?: string): void {
   currentCSRFToken = token?.trim() || ''
@@ -1709,26 +1713,34 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
-  async exchangeCallMedia(id: string, ownerToken: string, offerSDP: string): Promise<string> {
+  async exchangeCallMedia(
+    id: string,
+    ownerToken: string,
+    offerSDP: string,
+    signal?: AbortSignal
+  ): Promise<string> {
     const contract = callMediaContract(id)
     return parseCallMediaResponse(
       await writeJSON(
         contract.path,
         contract.method,
         createCallMediaPayload(ownerToken, offerSDP, callLeaseHolderID),
-        contract.successStatus
+        contract.successStatus,
+        signal
       )
     )
   },
 
   async releaseCallMedia(id: string, ownerToken: string): Promise<void> {
     const contract = callMediaReleaseContract(id)
-    await writeJSON(
-      contract.path,
-      contract.method,
-      createCallMediaReleasePayload(ownerToken, callLeaseHolderID),
-      contract.successStatus
-    )
+      await writeJSON(
+        contract.path,
+        contract.method,
+        createCallMediaReleasePayload(ownerToken, callLeaseHolderID),
+        contract.successStatus,
+        undefined,
+        CALL_LEASE_REQUEST_TIMEOUT_MS
+      )
   },
 
   async getRecordingSettings(): Promise<RecordingSettings> {

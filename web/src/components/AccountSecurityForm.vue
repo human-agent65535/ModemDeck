@@ -3,9 +3,8 @@ import { computed, ref } from 'vue'
 import { Eye, EyeOff, KeyRound, LoaderCircle, Save } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { gateway } from '../api/client'
 import { ApiError } from '../api/types'
-import { clearSession } from '../state/session'
+import { changePassword } from '../state/session'
 
 const minimumPasswordBytes = 12
 const maximumPasswordBytes = 1024
@@ -77,14 +76,13 @@ async function submit(): Promise<void> {
   saving.value = true
   error.value = ''
   try {
-    await gateway.changePassword({
+    await changePassword({
       current_password: currentPassword.value,
       new_password: newPassword.value
     })
     currentPassword.value = ''
     newPassword.value = ''
     confirmation.value = ''
-    clearSession()
     await router.replace({ name: 'login', query: { passwordChanged: '1' } })
   } catch (cause) {
     error.value = apiErrorMessage(cause)

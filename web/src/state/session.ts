@@ -1,13 +1,16 @@
 import { computed, reactive, readonly } from 'vue'
 import { ApiError } from '../api/types'
-import type { SessionResponse } from '../api/types'
+import type { ChangePasswordInput, SessionResponse } from '../api/types'
 import {
   fixtureMode,
   gateway,
+  rotateCallLeaseHolder,
   setAuthenticationRequiredHandler,
   setClientCSRFToken
 } from '../api/client'
 import { setSystemLanguage, translate } from '../i18n'
+import { requestActiveCallRefresh } from './call'
+import { releaseCallMediaForSessionEnd } from './callMedia'
 import { resetNetworkState } from './network'
 import { resetRecordingState } from './recording'
 import { resetUIState } from './ui'
@@ -68,6 +71,7 @@ export function clearSession(message = '', setupRequired = false): void {
   state.setupRequired = setupRequired
   state.error = message
   setClientCSRFToken()
+  rotateCallLeaseHolder()
 }
 
 setAuthenticationRequiredHandler(() => {
@@ -152,6 +156,24 @@ export async function setup(username: string, password: string): Promise<void> {
 
 export async function logout(): Promise<void> {
   if (fixtureMode) return
-  await gateway.logout()
+  await releaseCallMediaForSessionEnd()
+  try {
+    await gateway.logout()
+  } catch (error) {
+    void requestActiveCallRefresh()
+    throw error
+  }
+  clearSession()
+}
+
+export async function changePassword(input: ChangePasswordInput): Promise<void> {
+  if (fixtureMode) return
+  await releaseCallMediaForSessionEnd()
+  try {
+    await gateway.changePassword(input)
+  } catch (error) {
+    void requestActiveCallRefresh()
+    throw error
+  }
   clearSession()
 }

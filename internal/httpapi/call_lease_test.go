@@ -3,11 +3,15 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
@@ -221,5 +225,93 @@ func TestRenewCallLeaseRequiresConfiguredService(t *testing.T) {
 	api.ServeHTTP(response, request)
 	if response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestCallLeaseHolderIsBoundToAuthenticatedSession(t *testing.T) {
+	t.Parallel()
+
+	sessionToken := opaqueTestToken(31)
+	csrfToken := opaqueTestToken(32)
+	sessionDigest := sha256.Sum256([]byte(sessionToken))
+	csrfDigest := sha256.Sum256([]byte(csrfToken))
+	now := time.Now().UTC()
+	repository := &apiAuthRepository{
+		configured: true,
+		credentials: auth.AdminCredentials{
+			Username:     "admin",
+			PasswordHash: "test-password-hash",
+		},
+		found: true,
+		session: auth.SessionRecord{
+			SessionTokenDigest: auth.SessionTokenDigest(sessionDigest),
+			CSRFTokenDigest:    auth.CSRFTokenDigest(csrfDigest),
+			CreatedAt:          now.Add(-time.Minute),
+			ExpiresAt:          now.Add(time.Hour),
+		},
+	}
+	service, err := auth.NewService(repository)
+	if err != nil {
+		t.Fatalf("auth.NewService() error = %v", err)
+	}
+	leases := &fakeCallLeases{status: calllease.Status{
+		CallID:    "call-1",
+		ExpiresAt: now.Add(time.Minute),
+	}}
+	api, err := New(&fakeRepository{}, Options{
+		Authenticator: &apiTestAuthenticator{service: service},
+		CallLeases:    leases,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	renew := func(sessionToken, csrfToken string) (string, calllease.Status) {
+		request := authorizedAPIRequest(
+			http.MethodPut,
+			"/api/v1/calls/call-1/lease",
+			bytes.NewReader([]byte(`{"holder_id":"browser-1"}`)),
+			sessionToken,
+			csrfToken,
+		)
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		api.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+		}
+		var status calllease.Status
+		if err := json.Unmarshal(response.Body.Bytes(), &status); err != nil {
+			t.Fatalf("decode call lease status: %v", err)
+		}
+		return leases.holderID, status
+	}
+
+	firstHolder, firstStatus := renew(sessionToken, csrfToken)
+	replayedHolder, _ := renew(sessionToken, csrfToken)
+	if firstHolder != replayedHolder {
+		t.Fatalf("same session holder changed from %q to %q", firstHolder, replayedHolder)
+	}
+	if firstHolder == "browser-1" ||
+		!strings.HasPrefix(firstHolder, callLeaseHolderScopePrefix) {
+		t.Fatalf("internal holder = %q", firstHolder)
+	}
+	if firstStatus.HolderID != "browser-1" {
+		t.Fatalf("public holder = %q, want browser-1", firstStatus.HolderID)
+	}
+
+	secondSessionToken := opaqueTestToken(33)
+	secondCSRFToken := opaqueTestToken(34)
+	secondSessionDigest := sha256.Sum256([]byte(secondSessionToken))
+	secondCSRFDigest := sha256.Sum256([]byte(secondCSRFToken))
+	repository.session.SessionTokenDigest = auth.SessionTokenDigest(secondSessionDigest)
+	repository.session.CSRFTokenDigest = auth.CSRFTokenDigest(secondCSRFDigest)
+
+	secondHolder, secondStatus := renew(secondSessionToken, secondCSRFToken)
+	if secondHolder == firstHolder {
+		t.Fatalf("different sessions shared holder %q", secondHolder)
+	}
+	if secondStatus.HolderID != "browser-1" {
+		t.Fatalf("public holder = %q, want browser-1", secondStatus.HolderID)
 	}
 }

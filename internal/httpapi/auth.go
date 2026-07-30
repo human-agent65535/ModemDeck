@@ -353,15 +353,19 @@ func (api *API) authorizeAPI(response http.ResponseWriter, request *http.Request
 	if api.authenticator == nil {
 		return true
 	}
-	_, authentication, ok, _ := api.requestAuthentication(response, request, true)
+	sessionToken, authentication, ok, _ := api.requestAuthentication(
+		response,
+		request,
+		true,
+	)
 	if !ok {
 		return false
 	}
+	ctx := contextWithCallLeaseSession(request.Context(), sessionToken)
 	if principal, exists := authentication.Principal(); exists {
-		*request = *request.WithContext(
-			auth.ContextWithPrincipal(request.Context(), principal),
-		)
+		ctx = auth.ContextWithPrincipal(ctx, principal)
 	}
+	*request = *request.WithContext(ctx)
 	if request.Method == http.MethodGet || request.Method == http.MethodHead || request.Method == http.MethodOptions {
 		return true
 	}

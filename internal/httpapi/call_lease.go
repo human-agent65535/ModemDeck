@@ -45,10 +45,20 @@ func (api *API) renewCallLease(
 	if !decodeJSONBody(response, request, &input) {
 		return
 	}
+	holder, err := api.callLeaseHolder(request.Context(), input.HolderID)
+	if err != nil {
+		api.writeCallLeaseError(
+			response,
+			request,
+			"validate browser call owner",
+			err,
+		)
+		return
+	}
 	status, err := api.callLeases.Renew(
 		request.Context(),
 		callID,
-		input.HolderID,
+		holder.LeaseID,
 	)
 	if err != nil {
 		api.writeCallLeaseError(
@@ -59,6 +69,7 @@ func (api *API) renewCallLease(
 		)
 		return
 	}
+	status.HolderID = holder.ClientID
 	response.Header().Set("Cache-Control", "no-store")
 	writeJSON(response, http.StatusOK, status)
 }
