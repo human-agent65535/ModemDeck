@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -32,6 +33,22 @@ func TestInitialAdministratorReceivesExistingLinesAndCanRemoveThem(t *testing.T)
 		!containsString(admin.LineIDs, "line_beta") {
 		t.Fatalf("initial administrator lines = %v, want both existing lines", admin.LineIDs)
 	}
+	if _, err := repository.UpdateMember(ctx, admin.ID, UpdateMemberInput{
+		Username: "renamed-owner",
+		Enabled:  true,
+		LineIDs:  admin.LineIDs,
+		Revision: admin.Revision,
+	}); !errors.Is(err, ErrUserValidation) {
+		t.Fatalf("rename initial administrator error = %v, want ErrUserValidation", err)
+	}
+	if _, err := repository.UpdateMember(ctx, admin.ID, UpdateMemberInput{
+		Username: admin.Username,
+		Enabled:  false,
+		LineIDs:  admin.LineIDs,
+		Revision: admin.Revision,
+	}); !errors.Is(err, ErrUserValidation) {
+		t.Fatalf("disable initial administrator error = %v, want ErrUserValidation", err)
+	}
 
 	admin, err = repository.UpdateMember(ctx, admin.ID, UpdateMemberInput{
 		Username: admin.Username,
@@ -61,6 +78,100 @@ func TestInitialAdministratorReceivesExistingLinesAndCanRemoveThem(t *testing.T)
 		}},
 	}); err == nil {
 		t.Fatal("administrator created a contact with an unassigned preferred line")
+	}
+}
+
+func TestDisablingMemberRevokesActiveSessions(t *testing.T) {
+	t.Parallel()
+
+	repository, _ := newContactTestStore(t)
+	ctx := context.Background()
+	member, err := repository.CreateMember(ctx, CreateMemberInput{
+		Username:     "member",
+		PasswordHash: "member-hash",
+	})
+	if err != nil {
+		t.Fatalf("CreateMember() error = %v", err)
+	}
+	createdAt := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	session := auth.UserSessionRecord{
+		UserID:             member.ID,
+		SessionTokenDigest: auth.SessionTokenDigest{1},
+		CSRFTokenDigest:    auth.CSRFTokenDigest{2},
+		CreatedAt:          createdAt,
+		ExpiresAt:          createdAt.Add(auth.SessionLifetime),
+	}
+	if created, createErr := repository.CreateUserSessionIfPasswordHash(
+		ctx,
+		"member-hash",
+		session,
+	); createErr != nil || !created {
+		t.Fatalf("CreateUserSessionIfPasswordHash() = %v, %v", created, createErr)
+	}
+
+	member, err = repository.UpdateMember(ctx, member.ID, UpdateMemberInput{
+		Username: member.Username,
+		Enabled:  false,
+		LineIDs:  member.LineIDs,
+		Revision: member.Revision,
+	})
+	if err != nil {
+		t.Fatalf("disable member: %v", err)
+	}
+	if member.Enabled {
+		t.Fatal("disabled member was returned as enabled")
+	}
+	if _, _, found, lookupErr := repository.UserSessionByTokenDigest(
+		ctx,
+		session.SessionTokenDigest,
+	); lookupErr != nil || found {
+		t.Fatalf("disabled member session found = %v, error = %v", found, lookupErr)
+	}
+}
+
+func TestSettingMemberPasswordCompletesSetupAndRevokesSessions(t *testing.T) {
+	t.Parallel()
+
+	repository, _ := newContactTestStore(t)
+	ctx := context.Background()
+	member, err := repository.CreateMember(ctx, CreateMemberInput{
+		Username:     "member",
+		PasswordHash: "temporary-hash",
+	})
+	if err != nil {
+		t.Fatalf("CreateMember() error = %v", err)
+	}
+	createdAt := time.Date(2026, 7, 30, 13, 0, 0, 0, time.UTC)
+	session := auth.UserSessionRecord{
+		UserID:             member.ID,
+		SessionTokenDigest: auth.SessionTokenDigest{3},
+		CSRFTokenDigest:    auth.CSRFTokenDigest{4},
+		CreatedAt:          createdAt,
+		ExpiresAt:          createdAt.Add(auth.SessionLifetime),
+	}
+	if created, createErr := repository.CreateUserSessionIfPasswordHash(
+		ctx,
+		"temporary-hash",
+		session,
+	); createErr != nil || !created {
+		t.Fatalf("CreateUserSessionIfPasswordHash() = %v, %v", created, createErr)
+	}
+
+	if err := repository.SetMemberPassword(ctx, member.ID, "new-hash"); err != nil {
+		t.Fatalf("SetMemberPassword() error = %v", err)
+	}
+	credentials, found, err := repository.UserCredentialsByID(ctx, member.ID)
+	if err != nil || !found {
+		t.Fatalf("UserCredentialsByID() = %#v, %v, %v", credentials, found, err)
+	}
+	if credentials.PasswordHash != "new-hash" || credentials.MustChangePassword {
+		t.Fatalf("updated member credentials = %#v", credentials)
+	}
+	if _, _, found, lookupErr := repository.UserSessionByTokenDigest(
+		ctx,
+		session.SessionTokenDigest,
+	); lookupErr != nil || found {
+		t.Fatalf("old member session found = %v, error = %v", found, lookupErr)
 	}
 }
 

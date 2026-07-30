@@ -18,10 +18,8 @@ const member = {
   enabled: true,
   must_change_password: true,
   revision: 2,
-  profile_contact_id: 'contact-member',
   profile_name: 'Member Name',
   profile_avatar: 'data:image/png;base64,avatar',
-  default_line_id: 'line_beta',
   line_ids: ['line_alpha', 'line_beta'],
   created_at: '2026-07-29T00:00:00Z',
   updated_at: '2026-07-29T01:00:00Z'
@@ -138,12 +136,24 @@ test('multi-user UI exposes only authorized settings and communication areas', a
 
   assert.match(settings, /sessionState\.role !== 'admin'/)
   assert.match(settings, /sessionState\.mustChangePassword\) return personal\.slice\(0, 1\)/)
-  assert.match(settings, /id: 'system' as const/)
-  assert.match(settings, /id: 'recording' as const/)
+  assert.doesNotMatch(settings, /id: 'users'/)
+  assert.doesNotMatch(settings, /id: 'system'/)
+  assert.doesNotMatch(settings, /id: 'recording'/)
+  assert.match(settings, /sessionState\.role === 'admin'/)
+  assert.match(settings, /<UserSettingsPanel/)
   assert.match(users, /gateway\.listUsers\(\)/)
   assert.match(users, /gateway\.createMember/)
   assert.match(users, /gateway\.updateMember/)
-  assert.match(users, /gateway\.resetMemberPassword/)
+  assert.match(users, /gateway\.setMemberPassword/)
+  assert.doesNotMatch(users, /recordingDefaultEnabled|languageOptions|preferences: \{/)
+  assert.match(users, /<AccountSettingsPanel/)
+  assert.match(users, /selectedUser\?\.id === sessionState\.userID/)
+  assert.match(users, /const filteredUsers = computed/)
+  assert.match(users, /show-mobile-editor/)
+  assert.match(users, /class="user-account-access"/)
+  assert.match(users, /users\.adminUsernameLocked/)
+  assert.match(shell, /const settingsUserDetailOpen = computed/)
+  assert.match(shell, /query\.newUser === '1'/)
   assert.match(telegram, /scopeSource = ref<'manual' \| 'user'>\('user'\)/)
   assert.match(telegram, /scopeSource\.value === 'user'/)
   assert.match(telegram, /assigned_user_id: assignedUserID\.value/)

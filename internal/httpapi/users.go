@@ -16,7 +16,7 @@ type userRepository interface {
 	Users(context.Context) ([]store.User, error)
 	CreateMember(context.Context, store.CreateMemberInput) (store.User, error)
 	UpdateMember(context.Context, string, store.UpdateMemberInput) (store.User, error)
-	ResetMemberPassword(context.Context, string, string) error
+	SetMemberPassword(context.Context, string, string) error
 	SetProfileContact(context.Context, string) error
 }
 
@@ -33,7 +33,7 @@ type updateMemberRequest struct {
 	Revision int64    `json:"revision"`
 }
 
-type resetMemberPasswordRequest struct {
+type setMemberPasswordRequest struct {
 	Password string `json:"password"`
 }
 
@@ -121,7 +121,7 @@ func (api *API) userResource(
 			writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only PUT is supported", "")
 			return
 		}
-		var input resetMemberPasswordRequest
+		var input setMemberPasswordRequest
 		if !decodeJSONBody(response, request, &input) {
 			return
 		}
@@ -131,11 +131,11 @@ func (api *API) userResource(
 		}
 		passwordHash, err := auth.HashPassword(input.Password)
 		if err != nil {
-			api.writeInternalError(response, request, "hash reset member password", err)
+			api.writeInternalError(response, request, "hash member password", err)
 			return
 		}
-		if err := repository.ResetMemberPassword(request.Context(), userID, passwordHash); err != nil {
-			api.writeUserError(response, request, "reset member password", err)
+		if err := repository.SetMemberPassword(request.Context(), userID, passwordHash); err != nil {
+			api.writeUserError(response, request, "set member password", err)
 			return
 		}
 		api.publishRuntimeResources(runtimeevents.ResourceSession)

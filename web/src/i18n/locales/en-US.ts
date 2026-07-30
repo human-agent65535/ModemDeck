@@ -232,6 +232,8 @@ export default {
     contactsSyncDescription: 'Google Contacts and vCard transfer',
     account: 'Account & security',
     accountDescription: 'Profile, password, and sessions',
+    accountManagement: 'Accounts & security',
+    accountManagementDescription: 'Users, line access, and account security',
     audio: 'Audio',
     audioDescription: 'Devices, ringtones, and alerts',
     devices: 'Devices',
@@ -352,6 +354,7 @@ export default {
     contact: 'Contact',
     noProfileContact: 'No linked contact',
     profileContactHint: 'Choose a contact from your personal address book',
+    defaultLineDescription: 'Used when a communication does not specify a line',
     profileSaveFailed: 'Unable to update the profile contact',
     profileSaved: 'Profile contact updated',
     changePassword: 'Change password',
@@ -374,15 +377,22 @@ export default {
   users: {
     title: 'Users',
     count: '{count} account(s)',
+    searchUsers: 'Search users',
+    noMatchingUsers: 'No matching users',
+    backToUsers: 'Back to users',
     newMember: 'New member',
     unsaved: 'Not saved',
     noLines: 'No assigned lines',
     unknownLine: 'Unknown line',
     enabled: 'Enabled',
     disabled: 'Disabled',
+    accountAccess: 'Account access',
+    accountAccessDescription:
+      'Saving a disabled user blocks sign-in and revokes current sessions.',
     selectUser: 'Select a user',
     initialAdminDescription:
       'The initial administrator is permanent and cannot be converted or disabled.',
+    adminUsernameLocked: 'The initial administrator username cannot be changed.',
     memberRole: 'Member',
     enterUsername: 'Enter a username',
     passwordTooShort: 'The temporary password must contain at least {count} bytes',
@@ -396,13 +406,11 @@ export default {
     assignedLinesDescription:
       'The member can view and use communications only on these lines.',
     defaultLine: 'Default line',
-    resetPassword: 'Reset password',
-    resetPasswordDescription:
-      'Revokes existing sessions and requires a change at the next login.',
-    newTemporaryPassword: 'New temporary password',
-    resetFailed: 'Unable to reset the password',
+    setPassword: 'Set password',
+    newPassword: 'New password',
+    setPasswordFailed: 'Unable to set the password',
     saved: 'User saved',
-    passwordReset: 'Password reset',
+    passwordSet: 'Password set',
     createMember: 'Create member'
   },
   contacts: {

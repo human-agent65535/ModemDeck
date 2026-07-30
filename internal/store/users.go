@@ -25,10 +25,8 @@ type User struct {
 	Enabled            bool      `json:"enabled"`
 	MustChangePassword bool      `json:"must_change_password"`
 	Revision           int64     `json:"revision"`
-	ProfileContactID   string    `json:"profile_contact_id,omitempty"`
 	ProfileName        string    `json:"profile_name,omitempty"`
 	ProfileAvatar      string    `json:"profile_avatar,omitempty"`
-	DefaultLineID      string    `json:"default_line_id,omitempty"`
 	LineIDs            []string  `json:"line_ids"`
 	CreatedAt          string    `json:"created_at"`
 	UpdatedAt          string    `json:"updated_at"`
@@ -76,10 +74,8 @@ func (s *Store) Users(ctx context.Context) ([]User, error) {
 			user.enabled,
 			user.must_change_password,
 			user.revision,
-			COALESCE(profile.contact_id, ''),
 			COALESCE(contact.display_name, ''),
 			COALESCE(contact.avatar, ''),
-			COALESCE(preference.default_line_id, ''),
 			user.created_at,
 			user.updated_at
 		FROM modemdeck_users AS user
@@ -87,8 +83,6 @@ func (s *Store) Users(ctx context.Context) ([]User, error) {
 			ON profile.user_id = user.id
 		LEFT JOIN contacts AS contact
 			ON contact.id = profile.contact_id
-		LEFT JOIN modemdeck_user_preferences AS preference
-			ON preference.user_id = user.id
 		ORDER BY user.role = 'admin' DESC, LOWER(user.username), user.id
 	`)
 	if err != nil {
@@ -110,10 +104,8 @@ func (s *Store) Users(ctx context.Context) ([]User, error) {
 			&enabled,
 			&mustChange,
 			&user.Revision,
-			&user.ProfileContactID,
 			&user.ProfileName,
 			&user.ProfileAvatar,
-			&user.DefaultLineID,
 			&user.CreatedAt,
 			&user.UpdatedAt,
 		); err != nil {
@@ -303,7 +295,7 @@ func (s *Store) UpdateMember(
 	return s.User(ctx, userID)
 }
 
-func (s *Store) ResetMemberPassword(
+func (s *Store) SetMemberPassword(
 	ctx context.Context,
 	userID, passwordHash string,
 ) error {
@@ -312,21 +304,21 @@ func (s *Store) ResetMemberPassword(
 	}
 	transaction, err := s.database.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin member password reset: %w", err)
+		return fmt.Errorf("begin member password update: %w", err)
 	}
 	defer transaction.Rollback()
 	result, err := transaction.ExecContext(ctx, `
 		UPDATE modemdeck_users
-		SET password_hash = ?, must_change_password = 1,
+		SET password_hash = ?, must_change_password = 0,
 			revision = revision + 1, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ? AND role = 'member'
 	`, passwordHash, userID)
 	if err != nil {
-		return fmt.Errorf("reset member password: %w", err)
+		return fmt.Errorf("set member password: %w", err)
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("read reset member password count: %w", err)
+		return fmt.Errorf("read updated member password count: %w", err)
 	}
 	if affected != 1 {
 		return ErrUserNotFound
@@ -336,10 +328,10 @@ func (s *Store) ResetMemberPassword(
 		"DELETE FROM modemdeck_auth_sessions WHERE user_id = ?",
 		userID,
 	); err != nil {
-		return fmt.Errorf("revoke reset member sessions: %w", err)
+		return fmt.Errorf("revoke member sessions after password update: %w", err)
 	}
 	if err := transaction.Commit(); err != nil {
-		return fmt.Errorf("commit member password reset: %w", err)
+		return fmt.Errorf("commit member password update: %w", err)
 	}
 	return nil
 }

@@ -106,7 +106,7 @@ export interface ModemDeckGateway {
   listUsers(): Promise<UserAccount[]>
   createMember(input: CreateMemberInput): Promise<UserAccount>
   updateMember(id: string, input: UpdateMemberInput): Promise<UserAccount>
-  resetMemberPassword(id: string, password: string): Promise<void>
+  setMemberPassword(id: string, password: string): Promise<void>
   listContacts(query?: ListQuery): Promise<Contact[]>
   listThreads(query?: ListQuery): Promise<MessageThread[]>
   listMessages(query: MessageQuery): Promise<Message[]>

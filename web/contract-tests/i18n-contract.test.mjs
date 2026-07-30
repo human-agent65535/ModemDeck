@@ -26,6 +26,10 @@ const systemForm = await readFile(
   new URL('../src/components/SystemSettingsForm.vue', import.meta.url),
   'utf8'
 )
+const accountPanel = await readFile(
+  new URL('../src/components/AccountSettingsPanel.vue', import.meta.url),
+  'utf8'
+)
 
 function leafKeys(value, prefix = '') {
   return Object.entries(value).flatMap(([key, child]) => {
@@ -182,10 +186,10 @@ test('app loads the public session before mounting the i18n-enabled UI', () => {
   assert.match(main, /createApp\(App\)\.use\(i18n\)\.use\(router\)\.mount/)
 })
 
-test('settings makes system language a first-class section', () => {
-  assert.match(settingsView, /id: 'system'/)
-  assert.match(settingsView, /selectedSection === 'system'/)
-  assert.match(settingsView, /<SystemSettingsForm \/>/)
+test('account settings include the current user language preference', () => {
+  assert.doesNotMatch(settingsView, /id: 'system'/)
+  assert.match(settingsView, /selectedSection === 'account'/)
+  assert.match(accountPanel, /<SystemSettingsForm \/>/)
   assert.match(systemForm, /value: 'auto'/)
   assert.match(systemForm, /value: 'zh-CN'/)
   assert.match(systemForm, /value: 'zh-TW'/)

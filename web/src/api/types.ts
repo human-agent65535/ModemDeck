@@ -1165,10 +1165,8 @@ export type UserAccount = {
   enabled: boolean
   must_change_password: boolean
   revision: number
-  profile_contact_id?: string
   profile_name?: string
   profile_avatar?: string
-  default_line_id?: string
   line_ids: string[]
   created_at: string
   updated_at: string

@@ -5,18 +5,15 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   Activity,
   ArrowLeft,
-  Circle,
   ContactRound,
   House,
   Info,
   LoaderCircle,
   LogOut,
-  Languages,
   RadioTower,
   Send,
   ShieldCheck,
   UserRound,
-  UsersRound,
   Volume2
 } from '@lucide/vue'
 import AccountSettingsPanel from '../components/AccountSettingsPanel.vue'
@@ -26,8 +23,6 @@ import ContactSyncSettings from '../components/ContactSyncSettings.vue'
 import StatePanel from '../components/StatePanel.vue'
 import DeviceConfigurationPanel from '../components/DeviceConfigurationPanel.vue'
 import DiagnosticsPanel from '../components/DiagnosticsPanel.vue'
-import RecordingSettingsForm from '../components/RecordingSettingsForm.vue'
-import SystemSettingsForm from '../components/SystemSettingsForm.vue'
 import TelegramSettingsForm from '../components/TelegramSettingsForm.vue'
 import TLSSettingsForm from '../components/TLSSettingsForm.vue'
 import UserSettingsPanel from '../components/UserSettingsPanel.vue'
@@ -43,13 +38,10 @@ import {
 import { isRegisteredNetwork } from '../utils/operatorNetwork'
 
 type SettingsSection =
-  | 'system'
-  | 'users'
   | 'account'
   | 'contacts'
   | 'audio'
   | 'devices'
-  | 'recording'
   | 'telegram'
   | 'tls'
   | 'diagnostics'
@@ -82,21 +74,15 @@ const sections = computed<Array<{
   const personal = [
     {
       id: 'account' as const,
-      label: t('settings.account'),
-      description: t('settings.accountDescription'),
+      label:
+        sessionState.role === 'admin'
+          ? t('settings.accountManagement')
+          : t('settings.account'),
+      description:
+        sessionState.role === 'admin'
+          ? t('settings.accountManagementDescription')
+          : t('settings.accountDescription'),
       icon: UserRound
-    },
-    {
-      id: 'system' as const,
-      label: t('settings.system'),
-      description: t('settings.systemDescription'),
-      icon: Languages
-    },
-    {
-      id: 'recording' as const,
-      label: t('settings.recording'),
-      description: t('settings.recordingDescription'),
-      icon: Circle
     },
     {
       id: 'contacts' as const,
@@ -126,12 +112,6 @@ const sections = computed<Array<{
   if (sessionState.mustChangePassword) return personal.slice(0, 1)
   if (sessionState.role !== 'admin') return [...personal, about]
   return [
-    {
-      id: 'users',
-      label: t('settings.users'),
-      description: t('settings.usersDescription'),
-      icon: UsersRound
-    },
     ...personal,
     {
       id: 'telegram',
@@ -293,16 +273,11 @@ onMounted(() => {
           <h2>{{ currentTitle }}</h2>
         </header>
 
-        <div v-if="selectedSection === 'system'" class="settings-content">
-          <SystemSettingsForm />
-        </div>
-
-        <div v-else-if="selectedSection === 'users'" class="settings-content">
-          <UserSettingsPanel />
-        </div>
-
-        <div v-else-if="selectedSection === 'account'" class="settings-content">
-          <AccountSettingsPanel />
+        <div v-if="selectedSection === 'account'" class="settings-content">
+          <UserSettingsPanel
+            v-if="sessionState.role === 'admin' && !sessionState.mustChangePassword"
+          />
+          <AccountSettingsPanel v-else />
         </div>
 
         <div v-else-if="selectedSection === 'contacts'" class="settings-content">
@@ -315,10 +290,6 @@ onMounted(() => {
 
         <div v-else-if="selectedSection === 'devices'" class="settings-content">
           <DeviceConfigurationPanel />
-        </div>
-
-        <div v-else-if="selectedSection === 'recording'" class="settings-content">
-          <RecordingSettingsForm />
         </div>
 
         <div v-else-if="selectedSection === 'telegram'" class="settings-content">
@@ -342,3 +313,9 @@ onMounted(() => {
     </article>
   </section>
 </template>
+
+<style scoped>
+.settings-content {
+  container-type: inline-size;
+}
+</style>

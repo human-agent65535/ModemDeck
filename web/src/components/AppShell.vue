@@ -59,9 +59,7 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const accountRestricted = computed(() => sessionState.mustChangePassword)
-const settingsLanding = computed(() =>
-  sessionState.role === 'admin' && !accountRestricted.value ? 'system' : 'account'
-)
+const settingsLanding = computed(() => 'account')
 const permanentDialer = ref(false)
 const occupiedLineCount = computed(() => occupiedLineIDs().size)
 const activeCallPresent = computed(() =>
@@ -131,13 +129,13 @@ const mobileSettingsSection = computed(() => {
   if (route.name !== 'settings') return ''
   const section = String(route.params.section || '')
   const labels: Record<string, string> = {
-    system: t('settings.system'),
-    account: t('settings.account'),
-    users: t('settings.users'),
+    account:
+      sessionState.role === 'admin'
+        ? t('settings.accountManagement')
+        : t('settings.account'),
     contacts: t('settings.contactsSync'),
     audio: t('settings.audio'),
     devices: t('settings.devices'),
-    recording: t('settings.recording'),
     telegram: t('settings.telegram'),
     tls: 'HTTPS',
     diagnostics: t('settings.diagnostics')
@@ -147,8 +145,17 @@ const mobileSettingsSection = computed(() => {
 const mobileOverviewFromSettings = computed(
   () => route.name === 'dashboard' && route.query.from === 'settings'
 )
+const settingsUserDetailOpen = computed(
+  () =>
+    route.name === 'settings' &&
+    route.params.section === 'account' &&
+    (typeof route.query.user === 'string' || route.query.newUser === '1')
+)
 const mobileShellBackVisible = computed(
   () => Boolean(mobileSettingsSection.value) || mobileOverviewFromSettings.value
+)
+const mobileBackTitle = computed(() =>
+  settingsUserDetailOpen.value ? t('users.backToUsers') : t('settings.back')
 )
 const mobilePageTitle = computed(() => {
   if (route.name === 'dashboard') return t('dashboard.mobileOverview')
@@ -182,6 +189,13 @@ function syncDialerMode(): void {
 }
 
 function backToSettingsMenu(): void {
+  if (settingsUserDetailOpen.value) {
+    void router.push({
+      name: 'settings',
+      params: { section: 'account' }
+    })
+    return
+  }
   void router.push({ name: 'settings' })
 }
 
@@ -257,8 +271,8 @@ onBeforeUnmount(() => {
           v-if="mobileShellBackVisible"
           class="icon-button mobile-shell-back"
           type="button"
-          :title="t('settings.back')"
-          :aria-label="t('settings.back')"
+          :title="mobileBackTitle"
+          :aria-label="mobileBackTitle"
           @click="backToSettingsMenu"
         >
           <ArrowLeft :size="20" />

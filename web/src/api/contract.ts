@@ -2230,10 +2230,8 @@ export function parseUserAccount(value: unknown): UserAccount {
   if (role !== 'admin' && role !== 'member') {
     throw new Error('user.role must be admin or member')
   }
-  const profileContactID = optionalString(user, 'profile_contact_id')
   const profileName = optionalString(user, 'profile_name')
   const profileAvatar = optionalString(user, 'profile_avatar')
-  const defaultLineID = optionalString(user, 'default_line_id')
   return {
     id: requiredString(user, 'user', 'id'),
     username: requiredString(user, 'user', 'username'),
@@ -2241,10 +2239,8 @@ export function parseUserAccount(value: unknown): UserAccount {
     enabled: requiredBoolean(user, 'user', 'enabled'),
     must_change_password: requiredBoolean(user, 'user', 'must_change_password'),
     revision: requiredRevision(user, 'user'),
-    ...(profileContactID ? { profile_contact_id: profileContactID } : {}),
     ...(profileName ? { profile_name: profileName } : {}),
     ...(profileAvatar ? { profile_avatar: profileAvatar } : {}),
-    ...(defaultLineID ? { default_line_id: defaultLineID } : {}),
     line_ids: stringList(user, 'user', 'line_ids'),
     created_at: requiredString(user, 'user', 'created_at'),
     updated_at: requiredString(user, 'user', 'updated_at')

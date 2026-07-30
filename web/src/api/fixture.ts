@@ -83,6 +83,7 @@ const TRAVEL_PHONE = '+1 202 555 0102'
 const ALEX_NAME = 'Alex Rowan'
 const ALEX_PHONE = '+1 202 555 0103'
 const CASEY_NAME = 'Casey Morgan'
+const MEMBER_PROFILE_NAME = 'Casey Park'
 const CASEY_PHONE = '+1 202 555 0104'
 const CASEY_WORK_PHONE = '+1 202 555 0105'
 const RILEY_NAME = 'Riley Quinn'
@@ -685,9 +686,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       enabled: true,
       must_change_password: false,
       revision: 1,
-      profile_contact_id: 'contact-alex',
       profile_name: ALEX_NAME,
-      default_line_id: lines[0]?.id || '',
       line_ids: lines.map(line => line.id),
       created_at: '2026-07-23 12:00:00',
       updated_at: '2026-07-23 12:00:00'
@@ -699,9 +698,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       enabled: true,
       must_change_password: false,
       revision: 2,
-      profile_contact_id: 'contact-casey',
-      profile_name: CASEY_NAME,
-      default_line_id: lines[1]?.id || lines[0]?.id || '',
+      profile_name: MEMBER_PROFILE_NAME,
       line_ids: lines[1] ? [lines[1].id] : [],
       created_at: '2026-07-24 12:00:00',
       updated_at: '2026-07-24 12:00:00'
@@ -1314,7 +1311,6 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         enabled: true,
         must_change_password: true,
         revision: 1,
-        default_line_id: input.line_ids[0] || '',
         line_ids: [...input.line_ids],
         created_at: '2026-07-29 12:00:00',
         updated_at: '2026-07-29 12:00:00'
@@ -1324,19 +1320,22 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     },
 
     async updateMember(id: string, input: UpdateMemberInput): Promise<UserAccount> {
-      const index = users.findIndex(user => user.id === id && user.role === 'member')
+      const index = users.findIndex(user => user.id === id)
       const current = users[index]
       if (!current) throw new ApiError('User was not found', 404, 'user_not_found')
       if (current.revision !== input.revision) {
         throw new ApiError('User changed since it was loaded', 409, 'revision_conflict')
       }
+      if (
+        current.role === 'admin' &&
+        (input.username !== current.username || !input.enabled)
+      ) {
+        throw new ApiError('User data is invalid', 400, 'invalid_user')
+      }
       const updated: UserAccount = {
         ...current,
         username: input.username,
         enabled: input.enabled,
-        default_line_id: input.line_ids.includes(current.default_line_id || '')
-          ? current.default_line_id
-          : input.line_ids[0] || '',
         line_ids: [...input.line_ids],
         revision: current.revision + 1,
         updated_at: '2026-07-29 12:01:00'
@@ -1345,13 +1344,13 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       return clone(updated)
     },
 
-    async resetMemberPassword(id: string, password: string): Promise<void> {
+    async setMemberPassword(id: string, password: string): Promise<void> {
       const user = users.find(candidate => candidate.id === id && candidate.role === 'member')
       if (!user) throw new ApiError('User was not found', 404, 'user_not_found')
       if (new TextEncoder().encode(password).length < 12) {
         throw new ApiError('Password is too short', 422, 'password_too_short')
       }
-      user.must_change_password = true
+      user.must_change_password = false
       user.revision += 1
     },
 

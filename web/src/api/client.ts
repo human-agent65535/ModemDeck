@@ -939,7 +939,7 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
-  async resetMemberPassword(id: string, password: string): Promise<void> {
+  async setMemberPassword(id: string, password: string): Promise<void> {
     await writeJSON(
       `${API_ROOT}/users/${encodeURIComponent(id)}/password`,
       'PUT',

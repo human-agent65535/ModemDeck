@@ -7,8 +7,14 @@ import { sessionState, setSessionProfileContact } from '../state/session'
 import { contactsResource, loadContacts } from '../state/workspace'
 import BaseAvatar from './BaseAvatar.vue'
 import AccountSecurityForm from './AccountSecurityForm.vue'
+import DefaultLineSettingsForm from './DefaultLineSettingsForm.vue'
+import RecordingSettingsForm from './RecordingSettingsForm.vue'
+import SystemSettingsForm from './SystemSettingsForm.vue'
 
 const { t } = useI18n()
+const emit = defineEmits<{
+  profileSaved: []
+}>()
 const selectedContactID = ref(sessionState.profileContactID)
 const saving = ref(false)
 const error = ref('')
@@ -36,6 +42,7 @@ async function saveProfile(): Promise<void> {
     await gateway.setAccountContact(selectedContactID.value)
     setSessionProfileContact(selectedContactID.value)
     saved.value = true
+    emit('profileSaved')
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : t('account.profileSaveFailed')
   } finally {
@@ -130,6 +137,15 @@ onMounted(() => {
       </p>
     </section>
 
+    <div
+      v-if="!sessionState.mustChangePassword"
+      class="account-preferences"
+    >
+      <DefaultLineSettingsForm />
+      <SystemSettingsForm />
+      <RecordingSettingsForm />
+    </div>
+
     <AccountSecurityForm />
   </div>
 </template>
@@ -139,6 +155,16 @@ onMounted(() => {
   display: grid;
   max-width: 760px;
   gap: 28px;
+}
+
+.account-preferences {
+  display: grid;
+  gap: 22px;
+}
+
+.account-preferences :deep(.system-settings),
+.account-preferences :deep(.recording-settings) {
+  max-width: none;
 }
 
 .account-identity {

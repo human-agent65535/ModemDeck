@@ -6,10 +6,12 @@ import {
   LoaderCircle,
   Plus,
   Save,
+  Search,
   ShieldCheck,
   UserRound
 } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 import { gateway } from '../api/client'
 import type { LineSummary, UserAccount } from '../api/types'
 import { ApiError } from '../api/types'
@@ -22,10 +24,13 @@ import {
   loadBootstrap
 } from '../state/workspace'
 import BaseAvatar from './BaseAvatar.vue'
+import AccountSettingsPanel from './AccountSettingsPanel.vue'
 import LineTag from './LineTag.vue'
 import StatePanel from './StatePanel.vue'
 
 const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
 const users = ref<UserAccount[]>([])
 const status = ref<'loading' | 'ready' | 'error'>('loading')
 const loadError = ref('')
@@ -38,12 +43,28 @@ const lineIDs = ref<string[]>([])
 const saving = ref(false)
 const saved = ref(false)
 const saveError = ref('')
-const resetPassword = ref('')
-const resetting = ref(false)
-const passwordReset = ref(false)
+const newPassword = ref('')
+const settingPassword = ref(false)
+const passwordSet = ref(false)
+const searchQuery = ref('')
 
 const lines = computed(
   () => bootstrapResource.data?.line_catalog || bootstrapResource.data?.lines || []
+)
+const normalizedSearch = computed(() => searchQuery.value.trim().toLocaleLowerCase())
+const filteredUsers = computed(() => {
+  if (!normalizedSearch.value) return users.value
+  return users.value.filter(user => {
+    const lineSummary = userLineSummary(user).toLocaleLowerCase()
+    return (
+      user.username.toLocaleLowerCase().includes(normalizedSearch.value) ||
+      (user.profile_name || '').toLocaleLowerCase().includes(normalizedSearch.value) ||
+      lineSummary.includes(normalizedSearch.value)
+    )
+  })
+})
+const mobileDetailOpen = computed(
+  () => typeof route.query.user === 'string' || route.query.newUser === '1'
 )
 const selectedUser = computed(() =>
   users.value.find(user => user.id === selectedID.value)
@@ -57,7 +78,6 @@ const validationError = computed(() => {
   }
   return ''
 })
-
 function lineForID(id: string): LineSummary | undefined {
   return lines.value.find(line => lineKey(line) === id)
 }
@@ -77,24 +97,34 @@ function applyUser(user?: UserAccount): void {
   temporaryPassword.value = ''
   enabled.value = user?.enabled ?? true
   lineIDs.value = [...(user?.line_ids || [])]
-  resetPassword.value = ''
+  newPassword.value = ''
   saved.value = false
   saveError.value = ''
-  passwordReset.value = false
+  passwordSet.value = false
 }
 
 function selectUser(id: string): void {
-  if (saving.value || resetting.value) return
+  if (saving.value || settingPassword.value) return
   creating.value = false
   selectedID.value = id
   applyUser(users.value.find(user => user.id === id))
+  void router.push({
+    name: 'settings',
+    params: { section: 'account' },
+    query: { ...route.query, user: id, newUser: undefined }
+  })
 }
 
 function startCreate(): void {
-  if (saving.value || resetting.value) return
+  if (saving.value || settingPassword.value) return
   creating.value = true
   selectedID.value = '__new_member__'
   applyUser()
+  void router.push({
+    name: 'settings',
+    params: { section: 'account' },
+    query: { ...route.query, user: undefined, newUser: '1' }
+  })
 }
 
 function toggleLine(id: string, event: Event): void {
@@ -111,9 +141,18 @@ async function load(): Promise<void> {
     const [loaded] = await Promise.all([gateway.listUsers(), loadBootstrap()])
     users.value = loaded
     status.value = 'ready'
+    if (route.query.newUser === '1') {
+      creating.value = true
+      selectedID.value = '__new_member__'
+      applyUser()
+      return
+    }
+    const requestedID =
+      typeof route.query.user === 'string' ? route.query.user : ''
     const current =
+      loaded.find(user => user.id === requestedID) ||
       loaded.find(user => user.id === selectedID.value) ||
-      loaded.find(user => user.role === 'member') ||
+      loaded.find(user => user.id === sessionState.userID) ||
       loaded[0]
     if (current) {
       selectedID.value = current.id
@@ -126,7 +165,7 @@ async function load(): Promise<void> {
 }
 
 async function submit(): Promise<void> {
-  if (saving.value || resetting.value || validationError.value) return
+  if (saving.value || settingPassword.value || validationError.value) return
   saving.value = true
   saved.value = false
   saveError.value = ''
@@ -138,7 +177,7 @@ async function submit(): Promise<void> {
           line_ids: lineIDs.value
         })
       : editableUser.value
-          ? await gateway.updateMember(editableUser.value.id, {
+        ? await gateway.updateMember(editableUser.value.id, {
             username: username.value,
             enabled: enabled.value,
             line_ids: lineIDs.value,
@@ -156,6 +195,11 @@ async function submit(): Promise<void> {
     creating.value = false
     selectedID.value = user.id
     applyUser(user)
+    await router.replace({
+      name: 'settings',
+      params: { section: 'account' },
+      query: { ...route.query, user: user.id, newUser: undefined }
+    })
     if (user.id === sessionState.userID) {
       await refreshSession()
       resetNetworkState()
@@ -173,36 +217,66 @@ async function submit(): Promise<void> {
   }
 }
 
-async function resetMemberPassword(): Promise<void> {
+async function setMemberPassword(): Promise<void> {
   const user = editableUser.value
-  if (!user || resetting.value) return
-  if (new TextEncoder().encode(resetPassword.value).length < 12) {
+  if (!user || settingPassword.value) return
+  if (new TextEncoder().encode(newPassword.value).length < 12) {
     saveError.value = t('users.passwordTooShort', { count: 12 })
     return
   }
-  resetting.value = true
+  settingPassword.value = true
+  saved.value = false
   saveError.value = ''
-  passwordReset.value = false
+  passwordSet.value = false
   try {
-    await gateway.resetMemberPassword(user.id, resetPassword.value)
-    resetPassword.value = ''
-    passwordReset.value = true
+    await gateway.setMemberPassword(user.id, newPassword.value)
+    newPassword.value = ''
+    passwordSet.value = true
     const loaded = await gateway.listUsers()
     users.value = loaded
     const refreshed = loaded.find(current => current.id === user.id)
     if (refreshed) applyUser(refreshed)
-    passwordReset.value = true
+    passwordSet.value = true
   } catch (cause) {
-    saveError.value = cause instanceof Error ? cause.message : t('users.resetFailed')
+    saveError.value = cause instanceof Error ? cause.message : t('users.setPasswordFailed')
   } finally {
-    resetting.value = false
+    settingPassword.value = false
   }
 }
 
-watch([username, enabled, lineIDs, temporaryPassword], () => {
-  saved.value = false
-  saveError.value = ''
-}, { deep: true })
+function syncSelectionFromRoute(): void {
+  if (status.value !== 'ready' || saving.value || settingPassword.value) return
+  if (route.query.newUser === '1') {
+    if (!creating.value) {
+      creating.value = true
+      selectedID.value = '__new_member__'
+      applyUser()
+    }
+    return
+  }
+  if (typeof route.query.user !== 'string') return
+  const user = users.value.find(candidate => candidate.id === route.query.user)
+  if (!user || (!creating.value && selectedID.value === user.id)) return
+  creating.value = false
+  selectedID.value = user.id
+  applyUser(user)
+}
+
+watch(
+  [username, enabled, lineIDs, temporaryPassword, newPassword],
+  () => {
+    if (saving.value || settingPassword.value) return
+    saved.value = false
+    passwordSet.value = false
+    saveError.value = ''
+  },
+  { deep: true, flush: 'sync' }
+)
+
+watch(
+  [() => route.query.user, () => route.query.newUser],
+  syncSelectionFromRoute
+)
 
 onMounted(() => {
   void load()
@@ -223,7 +297,11 @@ onMounted(() => {
     retryable
     @retry="load"
   />
-  <div v-else class="user-settings">
+  <div
+    v-else
+    class="user-settings"
+    :class="{ 'show-mobile-editor': mobileDetailOpen }"
+  >
     <aside class="user-list">
       <header>
         <span>
@@ -240,6 +318,15 @@ onMounted(() => {
           <Plus :size="18" />
         </button>
       </header>
+      <label class="user-search">
+        <Search :size="16" aria-hidden="true" />
+        <span class="sr-only">{{ t('users.searchUsers') }}</span>
+        <input
+          v-model="searchQuery"
+          type="search"
+          :placeholder="t('users.searchUsers')"
+        />
+      </label>
       <button
         v-if="creating"
         class="user-row is-selected"
@@ -256,7 +343,7 @@ onMounted(() => {
         </span>
       </button>
       <button
-        v-for="user in users"
+        v-for="user in filteredUsers"
         :key="user.id"
         class="user-row"
         :class="{ 'is-selected': !creating && selectedID === user.id }"
@@ -283,6 +370,11 @@ onMounted(() => {
           :title="user.enabled ? t('users.enabled') : t('users.disabled')"
         />
       </button>
+      <StatePanel
+        v-if="!creating && filteredUsers.length === 0"
+        state="empty"
+        :title="t('users.noMatchingUsers')"
+      />
     </aside>
 
     <section class="user-editor">
@@ -303,17 +395,12 @@ onMounted(() => {
               {{
                 selectedUser?.role === 'admin'
                   ? t('users.initialAdminDescription')
-                  : t('users.memberRole')
+                  : selectedUser?.profile_name
+                    ? `${selectedUser.profile_name} · ${t('users.memberRole')}`
+                    : t('users.memberRole')
               }}
             </small>
           </div>
-          <label
-            v-if="!creating && selectedUser?.role === 'member'"
-            class="compact-switch"
-          >
-            <span>{{ enabled ? t('users.enabled') : t('users.disabled') }}</span>
-            <input v-model="enabled" type="checkbox" role="switch" :disabled="saving" />
-          </label>
         </header>
 
         <div class="user-fields">
@@ -324,6 +411,9 @@ onMounted(() => {
               autocomplete="off"
               :disabled="saving || selectedUser?.role === 'admin'"
             />
+            <small v-if="selectedUser?.role === 'admin'">
+              {{ t('users.adminUsernameLocked') }}
+            </small>
           </label>
           <label v-if="creating" class="field">
             <span>{{ t('users.temporaryPassword') }}</span>
@@ -336,6 +426,20 @@ onMounted(() => {
             <small>{{ t('users.passwordHint', { count: 12 }) }}</small>
           </label>
         </div>
+
+        <label
+          v-if="!creating && selectedUser?.role === 'member'"
+          class="user-account-access"
+        >
+          <span>
+            <strong>{{ t('users.accountAccess') }}</strong>
+            <small>{{ t('users.accountAccessDescription') }}</small>
+          </span>
+          <span class="user-account-access__status">
+            {{ enabled ? t('users.enabled') : t('users.disabled') }}
+          </span>
+          <input v-model="enabled" type="checkbox" role="switch" :disabled="saving" />
+        </label>
 
         <fieldset class="user-lines">
           <legend>{{ t('users.assignedLines') }}</legend>
@@ -367,34 +471,33 @@ onMounted(() => {
 
         <section
           v-if="!creating && selectedUser?.role === 'member'"
-          class="user-password-reset"
+          class="user-password-set"
         >
           <header>
             <KeyRound :size="17" />
             <div>
-              <h4>{{ t('users.resetPassword') }}</h4>
-              <p>{{ t('users.resetPasswordDescription') }}</p>
+              <h4>{{ t('users.setPassword') }}</h4>
             </div>
           </header>
           <div>
             <label class="field">
-              <span>{{ t('users.newTemporaryPassword') }}</span>
+              <span>{{ t('users.newPassword') }}</span>
               <input
-                v-model="resetPassword"
+                v-model="newPassword"
                 type="password"
                 autocomplete="new-password"
-                :disabled="resetting || saving"
+                :disabled="settingPassword || saving"
               />
             </label>
             <button
               class="secondary-button"
               type="button"
-              :disabled="resetting || saving || !resetPassword"
-              @click="resetMemberPassword"
+              :disabled="settingPassword || saving || !newPassword"
+              @click="setMemberPassword"
             >
-              <LoaderCircle v-if="resetting" class="spin" :size="16" />
+              <LoaderCircle v-if="settingPassword" class="spin" :size="16" />
               <KeyRound v-else :size="16" />
-              {{ t('users.resetPassword') }}
+              {{ t('users.setPassword') }}
             </button>
           </div>
         </section>
@@ -406,8 +509,8 @@ onMounted(() => {
             <span v-else-if="saved" class="save-status">
               <Check :size="15" /> {{ t('users.saved') }}
             </span>
-            <span v-else-if="passwordReset" class="save-status">
-              <Check :size="15" /> {{ t('users.passwordReset') }}
+            <span v-else-if="passwordSet" class="save-status">
+              <Check :size="15" /> {{ t('users.passwordSet') }}
             </span>
           </span>
           <button
@@ -421,6 +524,11 @@ onMounted(() => {
           </button>
         </footer>
       </form>
+
+      <AccountSettingsPanel
+        v-if="!creating && selectedUser?.id === sessionState.userID"
+        @profile-saved="load"
+      />
     </section>
   </div>
 </template>
@@ -429,7 +537,7 @@ onMounted(() => {
 .user-settings {
   display: grid;
   min-height: 560px;
-  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-columns: clamp(200px, 25%, 240px) minmax(0, 1fr);
   border-top: 1px solid var(--border);
 }
 
@@ -454,6 +562,33 @@ onMounted(() => {
   flex: 1;
   flex-direction: column;
   gap: 3px;
+}
+
+.user-search {
+  display: flex;
+  height: 44px;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.user-search input {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0;
+  color: var(--text);
+  font-size: 12px;
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.user-search:focus-within {
+  color: var(--accent-strong);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .user-list small,
@@ -537,6 +672,13 @@ onMounted(() => {
   flex: 1;
 }
 
+.user-editor__heading small {
+  display: block;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
 .user-editor h3,
 .user-editor h4 {
   margin: 0;
@@ -556,6 +698,69 @@ onMounted(() => {
   margin-top: 4px;
 }
 
+.user-account-access {
+  display: grid;
+  min-height: 64px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  border-top: 1px solid var(--border);
+}
+
+.user-account-access > span:first-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.user-account-access small {
+  white-space: normal;
+}
+
+.user-account-access__status {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.user-account-access input {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  appearance: none;
+  background: #d8dde2;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.user-account-access input::before {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  content: "";
+  background: #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgb(16 24 40 / 20%);
+  transition: transform 150ms ease;
+}
+
+.user-account-access input:checked {
+  background: var(--accent);
+}
+
+.user-account-access input:checked::before {
+  transform: translateX(18px);
+}
+
+.user-account-access input:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
 .user-lines {
   padding: 16px 0;
   border: 0;
@@ -569,7 +774,6 @@ onMounted(() => {
 }
 
 .user-lines > p,
-.user-password-reset p,
 .user-admin-summary p {
   margin: 3px 0 12px;
   color: var(--muted);
@@ -616,22 +820,22 @@ onMounted(() => {
   border-top: 1px solid var(--border);
 }
 
-.user-password-reset {
+.user-password-set {
   padding: 16px 0;
   border-top: 1px solid var(--border);
 }
 
-.user-password-reset > header {
+.user-password-set > header {
   display: flex;
   align-items: flex-start;
   gap: 8px;
 }
 
-.user-password-reset > header svg {
+.user-password-set > header svg {
   color: var(--accent-strong);
 }
 
-.user-password-reset > div {
+.user-password-set > div {
   display: grid;
   max-width: 560px;
   align-items: end;
@@ -639,12 +843,19 @@ onMounted(() => {
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.user-password-reset .secondary-button {
+.user-password-set .secondary-button {
   min-height: 40px;
 }
 
 .user-feedback {
   min-width: 0;
+}
+
+.user-editor :deep(.account-settings-panel) {
+  max-width: none;
+  margin-top: 26px;
+  padding-top: 26px;
+  border-top: 1px solid var(--border);
 }
 
 .user-admin-summary {
@@ -660,6 +871,37 @@ onMounted(() => {
   font-size: 12px;
 }
 
+@container (max-width: 720px) {
+  .user-editor {
+    padding-left: 18px;
+  }
+
+  .user-fields,
+  .user-line-options {
+    grid-template-columns: 1fr;
+  }
+
+  .user-password-set > div {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .user-account-access {
+    align-items: start;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .user-account-access input {
+    grid-row: 1 / span 2;
+    grid-column: 2;
+  }
+
+  .user-account-access__status {
+    grid-row: 2;
+    grid-column: 1;
+  }
+}
+
 @media (max-width: 760px) {
   .user-settings {
     min-height: 0;
@@ -667,10 +909,17 @@ onMounted(() => {
   }
 
   .user-list {
-    max-height: 220px;
-    overflow-y: auto;
+    max-height: none;
     border-right: 0;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 0;
+  }
+
+  .user-settings:not(.show-mobile-editor) .user-editor {
+    display: none;
+  }
+
+  .user-settings.show-mobile-editor .user-list {
+    display: none;
   }
 
   .user-editor {
@@ -682,9 +931,24 @@ onMounted(() => {
     grid-template-columns: 1fr;
   }
 
-  .user-password-reset > div {
+  .user-password-set > div {
     align-items: stretch;
     grid-template-columns: 1fr;
+  }
+
+  .user-account-access {
+    align-items: start;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .user-account-access input {
+    grid-row: 1 / span 2;
+    grid-column: 2;
+  }
+
+  .user-account-access__status {
+    grid-row: 2;
+    grid-column: 1;
   }
 }
 </style>
