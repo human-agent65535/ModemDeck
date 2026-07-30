@@ -25,6 +25,7 @@ cloudflare_turn_key_id_arg=
 cloudflare_turn_token_arg=
 disable_cloudflare=false
 disable_cloudflare_turn=false
+rebuild_all=false
 allow_dirty=false
 check_only=false
 cloudflare_enabled=false
@@ -41,6 +42,7 @@ services_changed=false
 baseline_created=false
 installation_complete=false
 legacy_cloudflared_id=
+deployment_was_running=false
 
 usage() {
     cat <<'EOF'
@@ -79,6 +81,8 @@ Options:
                           Disable TURN while keeping the Tunnel connector
   --disable-cloudflare    Disable the installed Tunnel connector and iOS pairing
   --version TAG           Docker image tag (default: current Git revision)
+  --rebuild-all           Rebuild every image and force-recreate every container;
+                          this interrupts ModemManager and attached modems
   --allow-dirty           Allow deployment from a modified Git checkout
   --check                 Read-only validation; build or change nothing
   -h, --help              Show this help
@@ -228,8 +232,12 @@ finish() {
             api_quiesced=false
         fi
         if [ "$compose_started" = true ] && [ "$compose_ready" = true ]; then
-            warn "Docker startup failed; removing the incomplete deployment"
-            compose down --remove-orphans >/dev/null 2>&1 || true
+            if [ "$deployment_was_running" = true ]; then
+                warn "Docker update failed; retaining the existing deployment and previous Compose environment"
+            else
+                warn "Docker startup failed; removing the incomplete deployment"
+                compose down --remove-orphans >/dev/null 2>&1 || true
+            fi
         fi
         rollback_succeeded=true
         if [ "$services_changed" = true ] && [ -n "$transaction_state" ]; then
@@ -329,6 +337,10 @@ while [ "$#" -gt 0 ]; do
             version_arg=$2
             shift 2
             ;;
+        --rebuild-all)
+            rebuild_all=true
+            shift
+            ;;
         --allow-dirty)
             allow_dirty=true
             shift
@@ -366,7 +378,7 @@ do
 done
 
 for command_name in \
-    awk base64 cat chmod chown cp date dd dirname docker find grep id install \
+    awk base64 cat chmod chown cksum cp date dd dirname docker find grep id install \
     mktemp mv readlink rm sed sleep stat tr uname
 do
     command -v "$command_name" >/dev/null 2>&1 ||
@@ -698,12 +710,14 @@ git_command() {
 
 vcs_ref=unknown
 derived_version=
+checkout_dirty=false
 if command -v git >/dev/null 2>&1 &&
     git_command rev-parse --is-inside-work-tree >/dev/null 2>&1
 then
     vcs_ref=$(git_command rev-parse HEAD)
     derived_version=$(git_command rev-parse --short=8 HEAD)
     if [ -n "$(git_command status --porcelain --untracked-files=normal)" ]; then
+        checkout_dirty=true
         if [ "$allow_dirty" != true ]; then
             fail "the Git checkout has uncommitted changes; commit them or pass --allow-dirty"
         fi
@@ -728,6 +742,128 @@ build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/modemdeck-install.XXXXXX")
 env_work="${work_dir}/compose.env"
 transaction_state="${work_dir}/host-services.before"
+changed_paths_file="${work_dir}/changed-paths"
+
+installed_version=$(env_or_default MODEMDECK_VERSION "")
+installed_vcs_ref=$(env_or_default MODEMDECK_VCS_REF "")
+installed_cloudflare_enabled=$(env_or_default MODEMDECK_CLOUDFLARE_ENABLED false)
+installed_cloudflare_turn_key_id=$(
+    env_or_default MODEMDECK_CLOUDFLARE_TURN_KEY_ID ""
+)
+installed_assignment_fingerprint=$(
+    env_or_default MODEMDECK_ASSIGNMENT_FINGERPRINT ""
+)
+installed_media_bindings_fingerprint=$(
+    env_or_default MODEMDECK_MEDIA_BINDINGS_FINGERPRINT ""
+)
+api_version=$(env_or_default MODEMDECK_API_VERSION "$installed_version")
+web_version=$(env_or_default MODEMDECK_WEB_VERSION "$installed_version")
+hardware_version=$(env_or_default MODEMDECK_HARDWARE_VERSION "$installed_version")
+
+file_fingerprint() {
+    cksum "$1" | awk '{ print $1 ":" $2 }'
+}
+
+assignment_fingerprint=
+if [ "$mode" = advanced ]; then
+    assignment_fingerprint=$(file_fingerprint "$assignment_path")
+fi
+media_bindings_fingerprint=$(file_fingerprint "$media_bindings_file")
+
+build_api=false
+build_web=false
+build_hardware=false
+selective_images=false
+
+if [ "$rebuild_all" = true ] || [ ! -f "$env_file" ]; then
+    build_api=true
+    build_web=true
+    build_hardware=true
+elif printf '%s\n' "$installed_vcs_ref" |
+    grep -Eq '^[0-9a-f]{40}$' &&
+    printf '%s\n' "$vcs_ref" |
+        grep -Eq '^[0-9a-f]{40}$' &&
+    git_command cat-file -e "${installed_vcs_ref}^{commit}" 2>/dev/null
+then
+    selective_images=true
+    git_command diff --no-renames --name-only "$installed_vcs_ref" -- \
+        >"$changed_paths_file"
+    if [ "$checkout_dirty" = true ]; then
+        git_command ls-files --others --exclude-standard \
+            >>"$changed_paths_file"
+    fi
+    while IFS= read -r changed_path; do
+        case "$changed_path" in
+            .dockerignore)
+                build_api=true
+                build_web=true
+                build_hardware=true
+                continue
+                ;;
+            Dockerfile|VERSION|LICENSE|NOTICE.md|THIRD_PARTY_NOTICES.md)
+                build_api=true
+                build_web=true
+                continue
+                ;;
+        esac
+        case "$changed_path" in
+            go.mod|go.sum|cmd/modemdeck|cmd/modemdeck/*|internal|internal/*|\
+            scripts/docker-entrypoint.sh)
+                build_api=true
+                ;;
+        esac
+        case "$changed_path" in
+            web|web/*|scripts/nginx-entrypoint.sh)
+                build_web=true
+                ;;
+        esac
+        case "$changed_path" in
+            agent|agent/*|hardware|hardware/*)
+                build_hardware=true
+                ;;
+        esac
+    done <"$changed_paths_file"
+else
+    warn "the previous deployed Git revision is unavailable; rebuilding every image"
+    build_api=true
+    build_web=true
+    build_hardware=true
+fi
+
+validate_component_version() {
+    printf '%s\n' "$1" |
+        grep -Eq '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$'
+}
+
+if [ "$build_api" = true ] || ! validate_component_version "$api_version"; then
+    api_version=$version
+    build_api=true
+fi
+if [ "$build_web" = true ] || ! validate_component_version "$web_version"; then
+    web_version=$version
+    build_web=true
+fi
+if [ "$build_hardware" = true ] ||
+    ! validate_component_version "$hardware_version"
+then
+    hardware_version=$version
+    build_hardware=true
+fi
+
+if ! docker image inspect "${image_name}:${api_version}" >/dev/null 2>&1; then
+    api_version=$version
+    build_api=true
+fi
+if ! docker image inspect "${web_image}:${web_version}" >/dev/null 2>&1; then
+    web_version=$version
+    build_web=true
+fi
+if ! docker image inspect \
+    "${hardware_image}:${hardware_version}" >/dev/null 2>&1
+then
+    hardware_version=$version
+    build_hardware=true
+fi
 
 if [ -f "$env_file" ]; then
     cp "$env_file" "$env_work"
@@ -772,6 +908,9 @@ upsert_env MODEMDECK_IMAGE "$image_name"
 upsert_env MODEMDECK_WEB_IMAGE "$web_image"
 upsert_env MODEMDECK_HARDWARE_IMAGE "$hardware_image"
 upsert_env MODEMDECK_VERSION "$version"
+upsert_env MODEMDECK_API_VERSION "$api_version"
+upsert_env MODEMDECK_WEB_VERSION "$web_version"
+upsert_env MODEMDECK_HARDWARE_VERSION "$hardware_version"
 upsert_env MODEMDECK_BUILD_DATE "$build_date"
 upsert_env MODEMDECK_VCS_REF "$vcs_ref"
 upsert_env MODEMDECK_BIND_ADDRESS "$bind_address"
@@ -783,6 +922,8 @@ upsert_env MODEMDECK_AGENT_GID "$agent_gid"
 upsert_env MODEMDECK_SETTINGS_KEY_FILE "$settings_key_file"
 upsert_env MODEMDECK_DATA_DIR "$data_dir"
 upsert_env MODEMDECK_MEDIA_BINDINGS_FILE "$media_bindings_file"
+upsert_env MODEMDECK_ASSIGNMENT_FINGERPRINT "$assignment_fingerprint"
+upsert_env MODEMDECK_MEDIA_BINDINGS_FINGERPRINT "$media_bindings_fingerprint"
 upsert_env MODEMDECK_SECURE_COOKIES true
 upsert_env MODEMDECK_CLOUDFLARE_ENABLED "$cloudflare_enabled"
 remove_env MODEMDECK_CLOUDFLARE_HOSTNAME
@@ -803,9 +944,16 @@ printf 'Source:        %s\n' "$repo_dir"
 printf 'Mode:          %s\n' "$mode"
 printf 'Architecture:  linux/%s\n' "$target_arch"
 printf 'Images:        %s:%s, %s:%s, %s:%s\n' \
-    "$image_name" "$version" \
-    "$web_image" "$version" \
-    "$hardware_image" "$version"
+    "$image_name" "$api_version" \
+    "$web_image" "$web_version" \
+    "$hardware_image" "$hardware_version"
+if [ "$rebuild_all" = true ]; then
+    printf '%s\n' 'Update plan:   rebuild and recreate every container'
+elif [ "$selective_images" = true ]; then
+    printf '%s\n' 'Update plan:   rebuild only changed component images'
+else
+    printf '%s\n' 'Update plan:   full image build (no prior component baseline)'
+fi
 printf 'Web UI:        https://%s:%s\n' "$bind_address" "$port"
 printf '%s\n' 'API origin:    http://modemdeck:7575 (Compose only, non-API paths return 404)'
 printf '%s\n' 'Web origin:    http://modemdeck:7576 (Compose only)'
@@ -826,6 +974,122 @@ if [ "$mode" = advanced ]; then
     printf 'Assignments:   %s\n' "$assignment_path"
 fi
 compose config --quiet
+
+existing_hardware_id=$(compose ps -q hardware 2>/dev/null || true)
+existing_api_id=$(compose ps -q api 2>/dev/null || true)
+existing_web_id=$(compose ps -q modemdeck 2>/dev/null || true)
+existing_cloudflared_id=$(docker ps -aq \
+    --filter 'label=com.docker.compose.project=modemdeck' \
+    --filter 'label=com.docker.compose.service=cloudflared' 2>/dev/null |
+    sed -n '1p')
+if [ -n "$existing_hardware_id" ] &&
+    [ -n "$existing_api_id" ] &&
+    [ -n "$existing_web_id" ]
+then
+    deployment_was_running=true
+fi
+
+service_needs_update() {
+    update_service=$1
+    update_container_id=$2
+    [ -n "$update_container_id" ] || return 0
+
+    update_container_running=$(docker inspect --format \
+        '{{.State.Running}}' "$update_container_id" 2>/dev/null || true)
+    [ "$update_container_running" = true ] || return 0
+
+    current_config_hash=$(docker inspect --format \
+        '{{index .Config.Labels "com.docker.compose.config-hash"}}' \
+        "$update_container_id" 2>/dev/null || true)
+    desired_hash_line=$(compose config --hash "$update_service" 2>/dev/null) ||
+        fail "Docker Compose cannot calculate the $update_service configuration hash"
+    desired_config_hash=$(printf '%s\n' "$desired_hash_line" |
+        awk -v service="$update_service" '
+            $1 == service && NF == 2 { print $2; found = 1; exit }
+            END { if (!found) exit 1 }
+        ') ||
+        fail "Docker Compose returned an invalid $update_service configuration hash"
+    [ -n "$current_config_hash" ] &&
+        [ "$current_config_hash" = "$desired_config_hash" ] &&
+        return 1
+    return 0
+}
+
+update_hardware=$build_hardware
+update_api=$build_api
+update_web=$build_web
+update_cloudflared=false
+remove_cloudflared=false
+
+if service_needs_update hardware "$existing_hardware_id"; then
+    update_hardware=true
+fi
+if service_needs_update api "$existing_api_id"; then
+    update_api=true
+fi
+if service_needs_update modemdeck "$existing_web_id"; then
+    update_web=true
+fi
+if [ "$cloudflare_enabled" = true ]; then
+    if service_needs_update cloudflared "$existing_cloudflared_id"; then
+        update_cloudflared=true
+    fi
+elif [ -n "$existing_cloudflared_id" ]; then
+    remove_cloudflared=true
+    update_web=true
+fi
+
+# File-secret contents and external bind-file contents are not represented in
+# Compose's service hash. Explicit replacement options therefore select the
+# consumers that must reload those files.
+if { [ -n "$installed_assignment_fingerprint" ] &&
+        [ "$installed_assignment_fingerprint" != "$assignment_fingerprint" ]; } ||
+    { [ -n "$installed_media_bindings_fingerprint" ] &&
+        [ "$installed_media_bindings_fingerprint" != "$media_bindings_fingerprint" ]; }
+then
+    update_hardware=true
+fi
+[ -z "$cloudflare_token_arg" ] || update_cloudflared=true
+if [ "$installed_cloudflare_enabled" != "$cloudflare_enabled" ]; then
+    update_api=true
+fi
+if [ "$installed_cloudflare_turn_key_id" != "$cloudflare_turn_key_id" ]; then
+    update_api=true
+fi
+if [ -n "$cloudflare_turn_key_id_arg" ] ||
+    [ -n "$cloudflare_turn_token_arg" ] ||
+    [ "$disable_cloudflare_turn" = true ] ||
+    [ "$disable_cloudflare" = true ]
+then
+    update_api=true
+fi
+
+if [ "$rebuild_all" = true ]; then
+    update_hardware=true
+    update_api=true
+    update_web=true
+    [ "$cloudflare_enabled" = true ] && update_cloudflared=true
+fi
+
+plan_action() {
+    if [ "$1" = true ]; then
+        printf '%s' update
+    else
+        printf '%s' retain
+    fi
+}
+
+printf 'Containers:    hardware=%s, api=%s, web=%s' \
+    "$(plan_action "$update_hardware")" \
+    "$(plan_action "$update_api")" \
+    "$(plan_action "$update_web")"
+if [ "$cloudflare_enabled" = true ]; then
+    printf ', cloudflared=%s\n' "$(plan_action "$update_cloudflared")"
+elif [ "$remove_cloudflared" = true ]; then
+    printf '%s\n' ', cloudflared=remove'
+else
+    printf '%s\n' ', cloudflared=disabled'
+fi
 
 if [ "$cloudflare_enabled" = true ]; then
     legacy_cloudflared_id=$(docker ps -aq \
@@ -974,8 +1238,17 @@ if [ "$cloudflare_turn_enabled" = true ]; then
         cloudflare-turn-token
 fi
 
-log "Building Web, application, and hardware images in Docker"
-compose build hardware api modemdeck
+set --
+[ "$build_hardware" != true ] || set -- "$@" hardware
+[ "$build_api" != true ] || set -- "$@" api
+[ "$build_web" != true ] || set -- "$@" modemdeck
+if [ "$#" -gt 0 ]; then
+    log "Building selected component images in Docker"
+    printf 'Build images:  %s\n' "$*"
+    compose build "$@"
+else
+    log "No component image rebuild is required"
+fi
 if [ "$mode" = advanced ]; then
     log "Validating advanced device assignments with the hardware image"
     compose run --rm --no-deps \
@@ -988,18 +1261,21 @@ fi
 if [ -L "$data_dir" ]; then
     fail "application data directory must not be a symlink: $data_dir"
 fi
-existing_api_id=$(compose ps -q api 2>/dev/null || true)
-if [ -n "$existing_api_id" ]; then
-    log "Quiescing the application before preparing persistent data"
-    compose stop api
-    api_quiesced=true
-fi
-log "Preparing persistent application data"
-env MODEMDECK_UID="$app_uid" MODEMDECK_GID="$app_gid" \
-    "${repo_dir}/scripts/prepare-modemdeck-data.sh" "$data_dir"
-if [ "$api_quiesced" = true ]; then
-    compose start api
-    api_quiesced=false
+if [ "$update_api" = true ]; then
+    if [ -n "$existing_api_id" ]; then
+        log "Quiescing the application before preparing persistent data"
+        compose stop api
+        api_quiesced=true
+    fi
+    log "Preparing persistent application data"
+    env MODEMDECK_UID="$app_uid" MODEMDECK_GID="$app_gid" \
+        "${repo_dir}/scripts/prepare-modemdeck-data.sh" "$data_dir"
+    if [ "$api_quiesced" = true ]; then
+        compose start api
+        api_quiesced=false
+    fi
+else
+    log "Application image and data configuration are unchanged"
 fi
 
 capture_service_state() {
@@ -1158,10 +1434,6 @@ if [ "$mode" = simple ]; then
     fi
 fi
 
-log "Starting the all-Docker deployment"
-compose_started=true
-compose up --detach --no-build --remove-orphans
-
 wait_for_healthy() {
     health_service=$1
     health_attempts=$2
@@ -1188,6 +1460,76 @@ wait_for_healthy() {
     compose logs --tail=150 "$health_service" >&2 || true
     fail "$health_service did not become healthy (status: $health_status)"
 }
+
+if [ "$rebuild_all" = true ]; then
+    log "Force-recreating the all-Docker deployment"
+    compose_started=true
+    compose up \
+        --detach \
+        --no-build \
+        --force-recreate \
+        --remove-orphans
+elif [ "$deployment_was_running" != true ]; then
+    log "Starting the all-Docker deployment"
+    compose_started=true
+    compose up --detach --no-build --remove-orphans
+else
+    log "Applying selected container updates"
+    selected_update=false
+    if [ "$update_hardware" = true ]; then
+        selected_update=true
+        compose_started=true
+        compose up \
+            --detach \
+            --no-build \
+            --no-deps \
+            --force-recreate \
+            --remove-orphans \
+            hardware
+        wait_for_healthy hardware 60
+    fi
+    if [ "$update_api" = true ]; then
+        selected_update=true
+        compose_started=true
+        compose up \
+            --detach \
+            --no-build \
+            --no-deps \
+            --force-recreate \
+            --remove-orphans \
+            api
+        wait_for_healthy api 60
+    fi
+    if [ "$update_web" = true ]; then
+        selected_update=true
+        compose_started=true
+        compose up \
+            --detach \
+            --no-build \
+            --no-deps \
+            --force-recreate \
+            --remove-orphans \
+            modemdeck
+        wait_for_healthy modemdeck 60
+    fi
+    if [ "$cloudflare_enabled" = true ] &&
+        [ "$update_cloudflared" = true ]
+    then
+        selected_update=true
+        compose_started=true
+        compose up \
+            --detach \
+            --no-build \
+            --no-deps \
+            --force-recreate \
+            --remove-orphans \
+            cloudflared
+        wait_for_healthy cloudflared 60
+    fi
+    if [ "$selected_update" != true ]; then
+        printf '%s\n' 'No running container needs replacement.'
+    fi
+fi
 
 wait_for_healthy hardware 60
 wait_for_healthy api 60

@@ -29,6 +29,9 @@ git -C "$repo_dir" check-ignore -q deploy/device-assignments.json ||
 
 MODEMDECK_SETTINGS_KEY_FILE=/dev/null \
 MODEMDECK_DATA_DIR="${test_root}/data" \
+MODEMDECK_API_VERSION=api-test \
+MODEMDECK_WEB_VERSION=web-test \
+MODEMDECK_HARDWARE_VERSION=hardware-test \
 docker compose \
     --project-directory "$repo_dir" \
     -f "${repo_dir}/docker-compose.yml" \
@@ -98,6 +101,34 @@ extract_service api "${test_root}/cloudflare-turn-compose.yml" \
     >"${test_root}/cloudflare-turn-app.yml"
 extract_service cloudflared "${test_root}/cloudflare-compose.yml" \
     >"${test_root}/cloudflared.yml"
+
+grep -Fq 'image: modemdeck-hardware:hardware-test' \
+    "${test_root}/hardware.yml" ||
+    fail "hardware does not retain an independent image version"
+grep -Fq 'image: modemdeck:api-test' "${test_root}/app.yml" ||
+    fail "API does not retain an independent image version"
+grep -Fq 'image: modemdeck-web:web-test' "${test_root}/web.yml" ||
+    fail "Web does not retain an independent image version"
+
+hardware_hash() {
+    MODEMDECK_SETTINGS_KEY_FILE=/dev/null \
+    MODEMDECK_DATA_DIR="${test_root}/data" \
+    MODEMDECK_API_VERSION=$1 \
+    MODEMDECK_WEB_VERSION=$2 \
+    MODEMDECK_HARDWARE_VERSION=$3 \
+    docker compose \
+        --project-directory "$repo_dir" \
+        -f "${repo_dir}/docker-compose.yml" \
+        config --hash hardware
+}
+
+hardware_hash_before=$(hardware_hash api-one web-one hardware-one)
+hardware_hash_after_app=$(hardware_hash api-two web-two hardware-one)
+[ "$hardware_hash_before" = "$hardware_hash_after_app" ] ||
+    fail "API/Web image versions alter the Hardware service hash"
+hardware_hash_after_hardware=$(hardware_hash api-two web-two hardware-two)
+[ "$hardware_hash_before" != "$hardware_hash_after_hardware" ] ||
+    fail "Hardware image version does not alter the Hardware service hash"
 
 grep -Fq 'network_mode: host' "${test_root}/hardware.yml" ||
     fail "hardware does not use host networking"

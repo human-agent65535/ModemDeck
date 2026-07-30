@@ -54,9 +54,17 @@ cp "${source_repo}/scripts/prepare-modemdeck-data.sh" \
     "${fixture}/scripts/prepare-modemdeck-data.sh"
 cp "${source_repo}/deploy/advanced-assignment.example.json" \
     "${fixture}/deploy/advanced-assignment.example.json"
+cp "${source_repo}/VERSION" "${fixture}/VERSION"
+cp "${source_repo}/.gitignore" "${fixture}/.gitignore"
 chmod 0755 \
     "${fixture}/install.sh" \
     "${fixture}/scripts/prepare-modemdeck-data.sh"
+git -C "$fixture" init --quiet
+git -C "$fixture" add .
+git -C "$fixture" \
+    -c user.name=ModemDeck \
+    -c user.email=modemdeck@example.invalid \
+    commit --quiet -m fixture
 
 cat >"${test_root}/proc/net/tcp" <<'EOF'
   sl  local_address rem_address   st
@@ -157,6 +165,21 @@ case "${1:-}" in
         for argument in "$@"; do
             container_id=$argument
         done
+        case "$*" in
+            *'{{.State.Running}}'*)
+                printf '%s\n' true
+                exit 0
+                ;;
+            *com.docker.compose.config-hash*)
+                case "$container_id" in
+                    hardware-id) printf '%s\n' hardware-hash ;;
+                    app-id) printf '%s\n' api-hash ;;
+                    web-id) printf '%s\n' modemdeck-hash ;;
+                    cloudflared-id) printf '%s\n' cloudflared-hash ;;
+                esac
+                exit 0
+                ;;
+        esac
         if [ "${MODEMDECK_TEST_DOCKER_HEALTH:-healthy}" = fail ] &&
             [ "$container_id" = hardware-id ]
         then
@@ -169,23 +192,46 @@ case "${1:-}" in
     compose)
         shift
         ;;
+    image)
+        image_name=
+        for argument in "$@"; do
+            image_name=$argument
+        done
+        if [ "${2:-}" = inspect ] &&
+            [ -n "${MODEMDECK_TEST_MISSING_IMAGE:-}" ] &&
+            [ "$image_name" = "$MODEMDECK_TEST_MISSING_IMAGE" ]
+        then
+            exit 1
+        fi
+        exit 0
+        ;;
     *)
         exit 0
         ;;
 esac
 
 action=
+hash_service=
+previous_argument=
 for argument in "$@"; do
+    if [ "$previous_argument" = --hash ]; then
+        hash_service=$argument
+    fi
     case "$argument" in
         version|config|ps|build|run|up|down|start|stop|logs)
             action=$argument
-            break
             ;;
     esac
+    previous_argument=$argument
 done
 case "$action" in
-    version|config|build|run|start|stop|logs)
+    version|build|run|start|stop|logs)
         exit 0
+        ;;
+    config)
+        if [ -n "$hash_service" ]; then
+            printf '%s %s-hash\n' "$hash_service" "$hash_service"
+        fi
         ;;
     ps)
         service=
@@ -586,9 +632,22 @@ if grep -Fq 'test-cloudflare-turn-token' \
 then
     fail "Cloudflare TURN token leaked into installer output"
 fi
-grep -Eq '^docker\|compose .* build hardware api modemdeck( |$)' \
+if grep -Eq '^docker\|compose .* build( |$)' \
+    "${test_root}/commands.log"
+then
+    fail "TURN configuration rebuilt unchanged component images"
+fi
+grep -Eq '^docker\|compose .* up .* --force-recreate .* api( |$)' \
     "${test_root}/commands.log" ||
-    fail "installer did not build the Web gateway"
+    fail "TURN configuration did not update the API container"
+grep -Eq '^docker\|compose .* up .* --force-recreate .* cloudflared( |$)' \
+    "${test_root}/commands.log" ||
+    fail "Tunnel configuration did not update cloudflared"
+if grep -Eq '^docker\|compose .* up .* hardware( |$)' \
+    "${test_root}/commands.log"
+then
+    fail "TURN configuration restarted the hardware container"
+fi
 grep -Fq 'cloudflared' "${test_root}/commands.log" ||
     fail "installer did not wait for cloudflared"
 grep -Fq 'docker-compose.cloudflare-turn.yml' "${test_root}/commands.log" ||
@@ -657,5 +716,137 @@ grep -qx 'user-certificate-before' "${test_root}/data/tls/user.crt" ||
     fail "simple installation replaced the user certificate"
 grep -qx 'database-before' "${test_root}/data/modemdeck.db" ||
     fail "simple installation replaced the database"
+
+# A release that changes only API/Web inputs must retain the running hardware
+# image and container. VERSION is consumed by both application images but not
+# by the independently versioned hardware image.
+hardware_version_before=$(sed -n \
+    's/^MODEMDECK_HARDWARE_VERSION=//p' "${fixture}/.env")
+printf '%s\n' 'selective-v2' >"${fixture}/VERSION"
+git -C "$fixture" add VERSION
+git -C "$fixture" \
+    -c user.name=ModemDeck \
+    -c user.email=modemdeck@example.invalid \
+    commit --quiet -m api-web-update
+: >"${test_root}/commands.log"
+common_env \
+    MODEMDECK_TEST_DOCKER_HEALTH=healthy \
+    "${fixture}/install.sh" \
+        --mode simple \
+        --version selective-v2 \
+        >"${test_root}/selective-update-output.log" 2>&1
+grep -Eq '^docker\|compose .* build api modemdeck( |$)' \
+    "${test_root}/commands.log" ||
+    fail "API/Web update did not build exactly the changed images"
+if grep -Eq '^docker\|compose .* build .*hardware' \
+    "${test_root}/commands.log"
+then
+    fail "API/Web update rebuilt the hardware image"
+fi
+if grep -Eq '^docker\|compose .* up .* hardware( |$)' \
+    "${test_root}/commands.log"
+then
+    fail "API/Web update restarted the hardware container"
+fi
+grep -Eq '^docker\|compose .* up .* --no-deps .*--force-recreate .* api( |$)' \
+    "${test_root}/commands.log" ||
+    fail "API/Web update did not target the API container independently"
+grep -Eq '^docker\|compose .* up .* --no-deps .*--force-recreate .* modemdeck( |$)' \
+    "${test_root}/commands.log" ||
+    fail "API/Web update did not target the Web container independently"
+grep -Fq 'Containers:    hardware=retain, api=update, web=update' \
+    "${test_root}/selective-update-output.log" ||
+    fail "API/Web update plan did not report retained hardware"
+[ "$(sed -n 's/^MODEMDECK_HARDWARE_VERSION=//p' "${fixture}/.env")" \
+    = "$hardware_version_before" ] ||
+    fail "API/Web update changed the retained hardware image tag"
+grep -qx 'MODEMDECK_API_VERSION=selective-v2' "${fixture}/.env" ||
+    fail "API component version was not advanced"
+grep -qx 'MODEMDECK_WEB_VERSION=selective-v2' "${fixture}/.env" ||
+    fail "Web component version was not advanced"
+
+# External hardware configuration is not part of the Git diff or Compose
+# service hash. Persist its baseline, then verify a same-path content change
+# force-recreates Hardware without rebuilding its image.
+cp "${fixture}/hardware/config/media-bindings.empty.json" \
+    "${test_root}/media-bindings.json"
+: >"${test_root}/commands.log"
+common_env \
+    MODEMDECK_TEST_DOCKER_HEALTH=healthy \
+    "${fixture}/install.sh" \
+        --mode simple \
+        --version selective-v2 \
+        --media-bindings-file "${test_root}/media-bindings.json" \
+        >"${test_root}/media-bindings-baseline-output.log" 2>&1
+printf '\n' >>"${test_root}/media-bindings.json"
+: >"${test_root}/commands.log"
+common_env \
+    MODEMDECK_TEST_DOCKER_HEALTH=healthy \
+    "${fixture}/install.sh" \
+        --mode simple \
+        --version selective-v2 \
+        --media-bindings-file "${test_root}/media-bindings.json" \
+        >"${test_root}/media-bindings-update-output.log" 2>&1
+if grep -Eq '^docker\|compose .* build( |$)' \
+    "${test_root}/commands.log"
+then
+    fail "external media-binding update rebuilt a component image"
+fi
+grep -Eq '^docker\|compose .* up .* --force-recreate .* hardware( |$)' \
+    "${test_root}/commands.log" ||
+    fail "external media-binding update did not replace Hardware"
+
+# If an independently retained image was pruned, rebuild that component from
+# current source under the requested version instead of silently reusing its
+# now-missing historical tag.
+: >"${test_root}/commands.log"
+common_env \
+    MODEMDECK_TEST_DOCKER_HEALTH=healthy \
+    MODEMDECK_TEST_MISSING_IMAGE="modemdeck-hardware:${hardware_version_before}" \
+    "${fixture}/install.sh" \
+        --mode simple \
+        --version recovered-v3 \
+        >"${test_root}/missing-image-output.log" 2>&1
+grep -Eq '^docker\|compose .* build hardware( |$)' \
+    "${test_root}/commands.log" ||
+    fail "missing retained Hardware image was not rebuilt"
+grep -Eq '^docker\|compose .* up .* --force-recreate .* hardware( |$)' \
+    "${test_root}/commands.log" ||
+    fail "rebuilt missing Hardware image did not replace its container"
+if grep -Eq '^docker\|compose .* build .*(api|modemdeck)' \
+    "${test_root}/commands.log"
+then
+    fail "missing Hardware image rebuilt an unchanged application image"
+fi
+grep -qx 'MODEMDECK_HARDWARE_VERSION=recovered-v3' "${fixture}/.env" ||
+    fail "rebuilt missing Hardware image retained its unavailable old tag"
+
+# The explicit escape hatch rebuilds every image and force-recreates the full
+# stack, including Hardware/ModemManager.
+: >"${test_root}/commands.log"
+common_env \
+    MODEMDECK_TEST_DOCKER_HEALTH=healthy \
+    "${fixture}/install.sh" \
+        --mode simple \
+        --version full-v2 \
+        --rebuild-all \
+        >"${test_root}/full-rebuild-output.log" 2>&1
+grep -Eq '^docker\|compose .* build hardware api modemdeck( |$)' \
+    "${test_root}/commands.log" ||
+    fail "--rebuild-all did not build every component image"
+grep -Eq '^docker\|compose .* up .* --force-recreate( |$)' \
+    "${test_root}/commands.log" ||
+    fail "--rebuild-all did not force-recreate the deployment"
+grep -Fq 'Update plan:   rebuild and recreate every container' \
+    "${test_root}/full-rebuild-output.log" ||
+    fail "--rebuild-all did not report its disruptive update plan"
+for component_key in \
+    MODEMDECK_API_VERSION \
+    MODEMDECK_WEB_VERSION \
+    MODEMDECK_HARDWARE_VERSION
+do
+    grep -qx "${component_key}=full-v2" "${fixture}/.env" ||
+        fail "--rebuild-all did not advance $component_key"
+done
 
 printf '%s\n' "install-behavior-test: ok"

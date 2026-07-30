@@ -7,10 +7,10 @@ services:
       dockerfile: hardware/Dockerfile
       target: runtime
       args:
-        VERSION: ${MODEMDECK_VERSION:-dev}
+        VERSION: ${MODEMDECK_HARDWARE_VERSION:-dev}
         BUILD_DATE: ${MODEMDECK_BUILD_DATE:-unknown}
         VCS_REF: ${MODEMDECK_VCS_REF:-unknown}
-    image: ${MODEMDECK_HARDWARE_IMAGE:-modemdeck-hardware}:${MODEMDECK_VERSION:-dev}
+    image: ${MODEMDECK_HARDWARE_IMAGE:-modemdeck-hardware}:${MODEMDECK_HARDWARE_VERSION:-dev}
     container_name: modemdeck-hardware
     restart: unless-stopped
     network_mode: host
@@ -78,12 +78,12 @@ services:
       dockerfile: Dockerfile
       target: runtime
       args:
-        VERSION: ${MODEMDECK_VERSION:-dev}
+        VERSION: ${MODEMDECK_API_VERSION:-dev}
         BUILD_DATE: ${MODEMDECK_BUILD_DATE:-unknown}
         VCS_REF: ${MODEMDECK_VCS_REF:-unknown}
         MODEMDECK_UID: ${MODEMDECK_UID:-10001}
         MODEMDECK_GID: ${MODEMDECK_GID:-10001}
-    image: ${MODEMDECK_IMAGE:-modemdeck}:${MODEMDECK_VERSION:-dev}
+    image: ${MODEMDECK_IMAGE:-modemdeck}:${MODEMDECK_API_VERSION:-dev}
     container_name: modemdeck-api
     restart: unless-stopped
     init: true
@@ -144,10 +144,10 @@ services:
       dockerfile: Dockerfile
       target: web-runtime
       args:
-        VERSION: ${MODEMDECK_VERSION:-dev}
+        VERSION: ${MODEMDECK_WEB_VERSION:-dev}
         BUILD_DATE: ${MODEMDECK_BUILD_DATE:-unknown}
         VCS_REF: ${MODEMDECK_VCS_REF:-unknown}
-    image: ${MODEMDECK_WEB_IMAGE:-modemdeck-web}:${MODEMDECK_VERSION:-dev}
+    image: ${MODEMDECK_WEB_IMAGE:-modemdeck-web}:${MODEMDECK_WEB_VERSION:-dev}
     container_name: modemdeck
     restart: unless-stopped
     init: true
