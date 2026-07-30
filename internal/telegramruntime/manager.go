@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 	"github.com/human-agent65535/modemdeck/internal/telegram"
@@ -55,9 +56,11 @@ type Manager struct {
 }
 
 type unitRuntime struct {
-	cancel  context.CancelFunc
-	done    chan struct{}
-	service *telegram.Service
+	cancel          context.CancelFunc
+	done            chan struct{}
+	service         *telegram.Service
+	context         context.Context
+	resolveContacts bool
 }
 
 func New(
@@ -158,7 +161,8 @@ func (m *Manager) reconcile(
 	})
 	next := make(map[string]unitRuntime)
 	for _, unit := range units {
-		if !unit.Enabled {
+		if !unit.Enabled ||
+			unit.ScopeSource == "user" && !unit.EffectiveEnabled {
 			continue
 		}
 		runtime, err := m.startUnit(ctx, unit.ID)
@@ -176,14 +180,20 @@ func (m *Manager) startUnit(parent context.Context, unitID string) (unitRuntime,
 	if err != nil {
 		return unitRuntime{}, err
 	}
+	runtimeParent := parent
+	if config.Principal != nil {
+		runtimeParent = auth.ContextWithPrincipal(parent, *config.Principal)
+	}
 	bot, err := m.botFactory(config.BotToken)
 	if err != nil {
 		return unitRuntime{}, err
 	}
 	dependencies := adapters{
-		communications: m.communications,
-		repository:     m.repository,
-		runtimeEvents:  m.runtimeEvents,
+		communications:              m.communications,
+		repository:                  m.repository,
+		runtimeEvents:               m.runtimeEvents,
+		resolveContacts:             config.ResolveContacts,
+		contactResolutionConfigured: true,
 	}
 	service, err := telegram.NewService(config, telegram.Dependencies{
 		Bot:       bot,
@@ -206,7 +216,7 @@ func (m *Manager) startUnit(parent context.Context, unitID string) (unitRuntime,
 	if err != nil {
 		return unitRuntime{}, err
 	}
-	verifyContext, verifyCancel := context.WithTimeout(parent, 10*time.Second)
+	verifyContext, verifyCancel := context.WithTimeout(runtimeParent, 10*time.Second)
 	user, err := service.InitializeBot(verifyContext)
 	verifyCancel()
 	if err != nil {
@@ -243,7 +253,7 @@ func (m *Manager) startUnit(parent context.Context, unitID string) (unitRuntime,
 		return unitRuntime{}, err
 	}
 
-	unitContext, cancel := context.WithCancel(parent)
+	unitContext, cancel := context.WithCancel(runtimeParent)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -253,7 +263,13 @@ func (m *Manager) startUnit(parent context.Context, unitID string) (unitRuntime,
 		}
 		m.recordFailure(unitID, err)
 	}()
-	return unitRuntime{cancel: cancel, done: done, service: service}, nil
+	return unitRuntime{
+		cancel:          cancel,
+		done:            done,
+		service:         service,
+		context:         unitContext,
+		resolveContacts: config.ResolveContacts,
+	}, nil
 }
 
 func (m *Manager) recordFailure(unitID string, err error) {
@@ -351,8 +367,18 @@ func (m *Manager) dispatchNotifications(
 			continue
 		}
 
-		deliveryContext, cancel := context.WithTimeout(ctx, notificationDeliveryTimeout)
-		deliveryErr := notify(deliveryContext, runtime.service, delivery)
+		deliveryParent := runtime.context
+		if deliveryParent == nil {
+			deliveryParent = ctx
+		}
+		deliveryContext, cancel := context.WithTimeout(deliveryParent, notificationDeliveryTimeout)
+		deliveryErr := notify(
+			deliveryContext,
+			runtime.service,
+			m.repository,
+			runtime.resolveContacts,
+			delivery,
+		)
 		cancel()
 		status := store.NotificationSent
 		errorClass := ""
@@ -387,23 +413,37 @@ func (m *Manager) dispatchNotifications(
 func notify(
 	ctx context.Context,
 	service *telegram.Service,
+	repository Repository,
+	resolveContacts bool,
 	delivery store.TelegramNotificationDelivery,
 ) error {
+	contactName := ""
+	if resolveContacts {
+		if resolver, ok := repository.(contactNameRepository); ok {
+			var err error
+			contactName, err = resolver.ContactNameForNumber(ctx, delivery.Peer)
+			if err != nil {
+				return err
+			}
+		}
+	}
 	switch delivery.EventType {
 	case store.NotificationIncomingSMS:
 		return service.NotifyIncomingSMS(ctx, telegram.IncomingSMS{
-			MessageID:  delivery.ResourceID,
-			LineID:     delivery.LineID,
-			From:       delivery.Peer,
-			Body:       delivery.Body,
-			ReceivedAt: delivery.OccurredAt,
+			MessageID:   delivery.ResourceID,
+			LineID:      delivery.LineID,
+			From:        delivery.Peer,
+			ContactName: contactName,
+			Body:        delivery.Body,
+			ReceivedAt:  delivery.OccurredAt,
 		})
 	case store.NotificationMissedCall:
 		return service.NotifyMissedCall(ctx, telegram.MissedCall{
-			CallID:   delivery.ResourceID,
-			LineID:   delivery.LineID,
-			From:     delivery.Peer,
-			CalledAt: delivery.OccurredAt,
+			CallID:      delivery.ResourceID,
+			LineID:      delivery.LineID,
+			From:        delivery.Peer,
+			ContactName: contactName,
+			CalledAt:    delivery.OccurredAt,
 		})
 	default:
 		return fmt.Errorf("unsupported Telegram notification event type")

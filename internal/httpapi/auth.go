@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
+	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -51,7 +52,7 @@ func (api *API) session(response http.ResponseWriter, request *http.Request) {
 }
 
 func (api *API) getSession(response http.ResponseWriter, request *http.Request) {
-	language := api.sessionLanguage(request.Context())
+	language := string(store.SystemLanguageAuto)
 	if api.authenticator == nil {
 		writeJSON(response, http.StatusOK, sessionResponse{
 			Authenticated: false,
@@ -102,13 +103,20 @@ func (api *API) getSession(response http.ResponseWriter, request *http.Request) 
 		})
 		return
 	}
-	writeJSON(response, http.StatusOK, sessionResponse{
+	session := sessionResponse{
 		Authenticated: true,
 		SetupRequired: false,
 		Username:      status.Username,
 		CSRFToken:     csrfCookie.Value,
 		Language:      language,
-	})
+	}
+	if principal, exists := authentication.Principal(); exists {
+		applyPrincipalToSessionResponse(&session, principal)
+		session.Language = api.sessionLanguage(
+			auth.ContextWithPrincipal(request.Context(), principal),
+		)
+	}
+	writeJSON(response, http.StatusOK, session)
 }
 
 func (api *API) setup(response http.ResponseWriter, request *http.Request) {
@@ -165,13 +173,17 @@ func (api *API) setup(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 	api.setAuthCookies(response, result)
-	writeJSON(response, http.StatusCreated, sessionResponse{
+	session := sessionResponse{
 		Authenticated: true,
 		SetupRequired: false,
 		Username:      input.Username,
 		CSRFToken:     string(result.CSRFToken),
-		Language:      api.sessionLanguage(request.Context()),
-	})
+		Language:      api.sessionLanguageForPrincipal(request.Context(), result.Principal),
+	}
+	if result.Principal != nil {
+		applyPrincipalToSessionResponse(&session, *result.Principal)
+	}
+	writeJSON(response, http.StatusCreated, session)
 }
 
 func (api *API) login(response http.ResponseWriter, request *http.Request) {
@@ -210,13 +222,29 @@ func (api *API) login(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 	api.setAuthCookies(response, result)
-	writeJSON(response, http.StatusOK, sessionResponse{
+	session := sessionResponse{
 		Authenticated: true,
 		SetupRequired: false,
 		Username:      credentials.Username,
 		CSRFToken:     string(result.CSRFToken),
-		Language:      api.sessionLanguage(request.Context()),
-	})
+		Language:      api.sessionLanguageForPrincipal(request.Context(), result.Principal),
+	}
+	if result.Principal != nil {
+		applyPrincipalToSessionResponse(&session, *result.Principal)
+	}
+	writeJSON(response, http.StatusOK, session)
+}
+
+func applyPrincipalToSessionResponse(response *sessionResponse, principal auth.Principal) {
+	if response == nil || principal.UserID == "" {
+		return
+	}
+	response.UserID = principal.UserID
+	response.Username = principal.Username
+	response.Role = string(principal.Role)
+	response.ProfileContactID = principal.ProfileContactID
+	response.MustChangePassword = principal.MustChangePassword
+	response.AllowedLineIDs = append([]string(nil), principal.AllowedLineIDs...)
 }
 
 func (api *API) sessionLanguage(ctx context.Context) string {
@@ -226,6 +254,17 @@ func (api *API) sessionLanguage(ctx context.Context) string {
 		return string(store.SystemLanguageAuto)
 	}
 	return string(settings.Language)
+}
+
+func (api *API) sessionLanguageForPrincipal(
+	ctx context.Context,
+	principal *auth.Principal,
+) string {
+	if principal == nil {
+		return string(store.SystemLanguageAuto)
+	}
+	ctx = auth.ContextWithPrincipal(ctx, *principal)
+	return api.sessionLanguage(ctx)
 }
 
 func (api *API) logout(response http.ResponseWriter, request *http.Request) {
@@ -269,6 +308,7 @@ func (api *API) accountPassword(response http.ResponseWriter, request *http.Requ
 	)
 	switch {
 	case err == nil:
+		api.publishRuntimeResources(runtimeevents.ResourceSession)
 		api.clearAuthCookies(response)
 		response.Header().Set("Cache-Control", "no-store")
 		response.WriteHeader(http.StatusNoContent)
@@ -295,6 +335,11 @@ func (api *API) authorizeAPI(response http.ResponseWriter, request *http.Request
 	_, authentication, ok, _ := api.requestAuthentication(response, request, true)
 	if !ok {
 		return false
+	}
+	if principal, exists := authentication.Principal(); exists {
+		*request = *request.WithContext(
+			auth.ContextWithPrincipal(request.Context(), principal),
+		)
 	}
 	if request.Method == http.MethodGet || request.Method == http.MethodHead || request.Method == http.MethodOptions {
 		return true

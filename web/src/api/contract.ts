@@ -11,6 +11,7 @@ import type {
   CallRecordingState,
   CallSession,
   CallPolicyEnforcement,
+  CreateMemberInput,
   CreateProxyInput,
   DataConnection,
   DeviceConfiguration,
@@ -67,10 +68,12 @@ import type {
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
   UpdateLineSettingsInput,
+  UpdateMemberInput,
   UpdateSystemSettingsInput,
   UpdateNetworkSelectionInput,
   UpdateProxyInput,
-  UpdateTLSSettingsInput
+  UpdateTLSSettingsInput,
+  UserAccount
 } from './types.ts'
 import { isLineColorPresetID } from './types.ts'
 
@@ -1401,13 +1404,23 @@ export function createTelegramUnitPayload(input: TelegramUnitInput): TelegramUni
   const displayName = input.display_name.trim()
   const chatID = input.chat_id.trim()
   const adminID = input.admin_id.trim()
-  const lineScopes = input.line_scopes.map(value => value.trim())
   const token = input.bot_token?.trim()
   if (!displayName || !chatID || !adminID) {
     throw new Error('display_name、chat_id 和 admin_id 不能为空')
   }
+  if (input.scope_source !== 'manual' && input.scope_source !== 'user') {
+    throw new Error('scope_source must be manual or user')
+  }
+  const lineScopes =
+    input.scope_source === 'manual'
+      ? input.line_scopes.map(value => value.trim())
+      : []
   if (lineScopes.some(value => !value) || new Set(lineScopes).size !== lineScopes.length) {
     throw new Error('line_scopes 必须是无重复的非空字符串')
+  }
+  const assignedUserID = input.assigned_user_id?.trim()
+  if (input.scope_source === 'user' && !assignedUserID) {
+    throw new Error('assigned_user_id is required in user mode')
   }
   if (
     input.revision !== undefined &&
@@ -1420,7 +1433,13 @@ export function createTelegramUnitPayload(input: TelegramUnitInput): TelegramUni
     enabled: input.enabled,
     chat_id: chatID,
     admin_id: adminID,
-    line_scopes: lineScopes,
+    scope_source: input.scope_source,
+    ...(input.scope_source === 'user' && assignedUserID
+      ? { assigned_user_id: assignedUserID }
+      : {}),
+    manual_all_lines: input.scope_source === 'manual' && input.manual_all_lines,
+    line_scopes:
+      input.scope_source === 'manual' && !input.manual_all_lines ? lineScopes : [],
     incoming_sms: input.incoming_sms,
     missed_calls: input.missed_calls,
     ...(token ? { bot_token: token } : {}),
@@ -2168,12 +2187,23 @@ export function parseMessageResponse(value: unknown): Message {
 export function parseTelegramUnit(value: unknown): TelegramUnit {
   const unit = objectValue(value, 'telegram_unit')
   const botUsername = optionalString(unit, 'bot_username')
+  const assignedUserID = optionalString(unit, 'assigned_user_id')
+  const assignedUsername = optionalString(unit, 'assigned_username')
+  const scopeSource = requiredString(unit, 'telegram_unit', 'scope_source')
+  if (scopeSource !== 'manual' && scopeSource !== 'user') {
+    throw new Error('telegram_unit.scope_source must be manual or user')
+  }
   return {
     id: requiredString(unit, 'telegram_unit', 'id'),
     display_name: requiredString(unit, 'telegram_unit', 'display_name'),
     enabled: requiredBoolean(unit, 'telegram_unit', 'enabled'),
     chat_id: requiredString(unit, 'telegram_unit', 'chat_id'),
     admin_id: requiredString(unit, 'telegram_unit', 'admin_id'),
+    scope_source: scopeSource,
+    ...(assignedUserID ? { assigned_user_id: assignedUserID } : {}),
+    ...(assignedUsername ? { assigned_username: assignedUsername } : {}),
+    manual_all_lines: requiredBoolean(unit, 'telegram_unit', 'manual_all_lines'),
+    effective_enabled: requiredBoolean(unit, 'telegram_unit', 'effective_enabled'),
     line_scopes: stringList(unit, 'telegram_unit', 'line_scopes'),
     incoming_sms: requiredBoolean(unit, 'telegram_unit', 'incoming_sms'),
     missed_calls: requiredBoolean(unit, 'telegram_unit', 'missed_calls'),
@@ -2192,4 +2222,72 @@ export function parseTelegramUnitsResponse(value: unknown): TelegramUnit[] {
 export function parseTelegramUnitResponse(value: unknown): TelegramUnit {
   const source = objectValue(value, 'response')
   return parseTelegramUnit(source.unit)
+}
+
+export function parseUserAccount(value: unknown): UserAccount {
+  const user = objectValue(value, 'user')
+  const role = requiredString(user, 'user', 'role')
+  if (role !== 'admin' && role !== 'member') {
+    throw new Error('user.role must be admin or member')
+  }
+  const profileContactID = optionalString(user, 'profile_contact_id')
+  const profileName = optionalString(user, 'profile_name')
+  const profileAvatar = optionalString(user, 'profile_avatar')
+  const defaultLineID = optionalString(user, 'default_line_id')
+  return {
+    id: requiredString(user, 'user', 'id'),
+    username: requiredString(user, 'user', 'username'),
+    role,
+    enabled: requiredBoolean(user, 'user', 'enabled'),
+    must_change_password: requiredBoolean(user, 'user', 'must_change_password'),
+    revision: requiredRevision(user, 'user'),
+    ...(profileContactID ? { profile_contact_id: profileContactID } : {}),
+    ...(profileName ? { profile_name: profileName } : {}),
+    ...(profileAvatar ? { profile_avatar: profileAvatar } : {}),
+    ...(defaultLineID ? { default_line_id: defaultLineID } : {}),
+    line_ids: stringList(user, 'user', 'line_ids'),
+    created_at: requiredString(user, 'user', 'created_at'),
+    updated_at: requiredString(user, 'user', 'updated_at')
+  }
+}
+
+export function parseUsersResponse(value: unknown): UserAccount[] {
+  const source = objectValue(value, 'response')
+  if (!Array.isArray(source.users)) throw new Error('response.users must be an array')
+  return source.users.map(parseUserAccount)
+}
+
+export function parseUserResponse(value: unknown): UserAccount {
+  const source = objectValue(value, 'response')
+  return parseUserAccount(source.user)
+}
+
+export function createMemberPayload(input: CreateMemberInput): CreateMemberInput {
+  const username = input.username.trim()
+  const lineIDs = input.line_ids.map(value => value.trim())
+  if (!username || !input.password) throw new Error('username and password are required')
+  if (lineIDs.some(value => !value) || new Set(lineIDs).size !== lineIDs.length) {
+    throw new Error('line_ids must contain unique non-empty strings')
+  }
+  return { username, password: input.password, line_ids: lineIDs }
+}
+
+export function createMemberUpdatePayload(input: UpdateMemberInput): UpdateMemberInput {
+  const username = input.username.trim()
+  const lineIDs = input.line_ids.map(value => value.trim())
+  if (!username || !Number.isSafeInteger(input.revision) || input.revision < 1) {
+    throw new Error('username and a positive revision are required')
+  }
+  if (
+    lineIDs.some(value => !value) ||
+    new Set(lineIDs).size !== lineIDs.length
+  ) {
+    throw new Error('line_ids are invalid')
+  }
+  return {
+    username,
+    enabled: input.enabled,
+    line_ids: lineIDs,
+    revision: input.revision
+  }
 }

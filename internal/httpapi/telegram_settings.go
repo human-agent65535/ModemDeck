@@ -10,15 +10,18 @@ import (
 )
 
 type telegramUnitRequest struct {
-	Revision    int64    `json:"revision"`
-	DisplayName string   `json:"display_name"`
-	Enabled     bool     `json:"enabled"`
-	BotToken    *string  `json:"bot_token"`
-	ChatID      string   `json:"chat_id"`
-	AdminID     string   `json:"admin_id"`
-	LineScopes  []string `json:"line_scopes"`
-	IncomingSMS bool     `json:"incoming_sms"`
-	MissedCalls bool     `json:"missed_calls"`
+	Revision       int64    `json:"revision"`
+	DisplayName    string   `json:"display_name"`
+	Enabled        bool     `json:"enabled"`
+	BotToken       *string  `json:"bot_token"`
+	ChatID         string   `json:"chat_id"`
+	AdminID        string   `json:"admin_id"`
+	ScopeSource    string   `json:"scope_source"`
+	AssignedUserID string   `json:"assigned_user_id"`
+	ManualAllLines bool     `json:"manual_all_lines"`
+	LineScopes     []string `json:"line_scopes"`
+	IncomingSMS    bool     `json:"incoming_sms"`
+	MissedCalls    bool     `json:"missed_calls"`
 }
 
 type telegramUnitsResponse struct {
@@ -58,14 +61,17 @@ func (api *API) telegramCollection(response http.ResponseWriter, request *http.R
 			token = *input.BotToken
 		}
 		unit, err := api.telegram.Create(request.Context(), telegramsettings.CreateInput{
-			DisplayName: input.DisplayName,
-			Enabled:     input.Enabled,
-			BotToken:    token,
-			ChatID:      input.ChatID,
-			AdminID:     input.AdminID,
-			LineScopes:  input.LineScopes,
-			IncomingSMS: input.IncomingSMS,
-			MissedCalls: input.MissedCalls,
+			DisplayName:    input.DisplayName,
+			Enabled:        input.Enabled,
+			BotToken:       token,
+			ChatID:         input.ChatID,
+			AdminID:        input.AdminID,
+			ScopeSource:    input.ScopeSource,
+			AssignedUserID: input.AssignedUserID,
+			ManualAllLines: input.ManualAllLines,
+			LineScopes:     input.LineScopes,
+			IncomingSMS:    input.IncomingSMS,
+			MissedCalls:    input.MissedCalls,
 		})
 		if err != nil {
 			api.writeTelegramSettingsError(response, request, "create Telegram unit", err)
@@ -96,15 +102,18 @@ func (api *API) telegramResource(response http.ResponseWriter, request *http.Req
 			return
 		}
 		unit, err := api.telegram.Update(request.Context(), id, telegramsettings.UpdateInput{
-			Revision:    input.Revision,
-			DisplayName: input.DisplayName,
-			Enabled:     input.Enabled,
-			BotToken:    input.BotToken,
-			ChatID:      input.ChatID,
-			AdminID:     input.AdminID,
-			LineScopes:  input.LineScopes,
-			IncomingSMS: input.IncomingSMS,
-			MissedCalls: input.MissedCalls,
+			Revision:       input.Revision,
+			DisplayName:    input.DisplayName,
+			Enabled:        input.Enabled,
+			BotToken:       input.BotToken,
+			ChatID:         input.ChatID,
+			AdminID:        input.AdminID,
+			ScopeSource:    input.ScopeSource,
+			AssignedUserID: input.AssignedUserID,
+			ManualAllLines: input.ManualAllLines,
+			LineScopes:     input.LineScopes,
+			IncomingSMS:    input.IncomingSMS,
+			MissedCalls:    input.MissedCalls,
 		})
 		if err != nil {
 			api.writeTelegramSettingsError(response, request, "update Telegram unit", err)

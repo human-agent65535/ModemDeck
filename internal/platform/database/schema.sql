@@ -9,15 +9,30 @@ CREATE TABLE modemdeck_admin_credentials (
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
 
+CREATE TABLE modemdeck_users (
+			id TEXT PRIMARY KEY,
+			username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+			password_hash TEXT NOT NULL,
+			role TEXT NOT NULL CHECK (role IN ('admin', 'member')),
+			enabled NUMERIC NOT NULL DEFAULT 1,
+			must_change_password NUMERIC NOT NULL DEFAULT 0,
+			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+
 CREATE TABLE modemdeck_auth_sessions (
 			session_token_digest BLOB PRIMARY KEY CHECK (length(session_token_digest) = 32),
 			csrf_token_digest BLOB NOT NULL CHECK (length(csrf_token_digest) = 32),
+			user_id TEXT NOT NULL DEFAULT 'user_admin',
 			created_at_unix INTEGER NOT NULL,
-			expires_at_unix INTEGER NOT NULL CHECK (expires_at_unix >= created_at_unix)
+			expires_at_unix INTEGER NOT NULL CHECK (expires_at_unix >= created_at_unix),
+			FOREIGN KEY (user_id) REFERENCES modemdeck_users(id) ON DELETE CASCADE ON UPDATE CASCADE
 		);
 
 CREATE TABLE contacts (
 			id TEXT PRIMARY KEY,
+			owner_user_id TEXT NOT NULL DEFAULT 'user_admin',
 			display_name TEXT NOT NULL,
 			avatar TEXT NOT NULL DEFAULT '',
 			notes TEXT NOT NULL DEFAULT '',
@@ -36,6 +51,14 @@ CREATE TABLE contact_phones (
 			canonical_e164 TEXT NOT NULL DEFAULT '',
 			region TEXT NOT NULL DEFAULT '',
 			is_primary NUMERIC NOT NULL DEFAULT 0,
+			FOREIGN KEY (contact_id) REFERENCES contacts(id) ON DELETE CASCADE ON UPDATE CASCADE
+		);
+
+CREATE TABLE modemdeck_user_profile_contacts (
+			user_id TEXT PRIMARY KEY,
+			contact_id TEXT NOT NULL,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES modemdeck_users(id) ON DELETE CASCADE ON UPDATE CASCADE,
 			FOREIGN KEY (contact_id) REFERENCES contacts(id) ON DELETE CASCADE ON UPDATE CASCADE
 		);
 
@@ -86,6 +109,18 @@ CREATE TABLE sms_contacts (
 				PRIMARY KEY (line_id, peer)
 			);
 
+CREATE TABLE modemdeck_user_message_thread_state (
+			user_id TEXT NOT NULL,
+			line_id TEXT NOT NULL,
+			peer TEXT NOT NULL,
+			last_read_sms_id INTEGER NOT NULL DEFAULT 0,
+			marked_unread NUMERIC NOT NULL DEFAULT 0,
+			is_favorite NUMERIC NOT NULL DEFAULT 0,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (user_id, line_id, peer),
+			FOREIGN KEY (user_id) REFERENCES modemdeck_users(id) ON DELETE CASCADE ON UPDATE CASCADE
+		);
+
 CREATE TABLE call_history (
 			id TEXT PRIMARY KEY,
 			request_id TEXT NOT NULL DEFAULT '',
@@ -119,6 +154,17 @@ CREATE TABLE call_history (
 			audio_rate INTEGER NOT NULL DEFAULT 0,
 			media_available NUMERIC NOT NULL DEFAULT 0
 			);
+
+CREATE TABLE modemdeck_user_call_state (
+			user_id TEXT NOT NULL,
+			call_id TEXT NOT NULL,
+			is_read NUMERIC NOT NULL DEFAULT 0,
+			is_favorite NUMERIC NOT NULL DEFAULT 0,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (user_id, call_id),
+			FOREIGN KEY (user_id) REFERENCES modemdeck_users(id) ON DELETE CASCADE ON UPDATE CASCADE,
+			FOREIGN KEY (call_id) REFERENCES call_history(id) ON DELETE CASCADE ON UPDATE CASCADE
+		);
 
 CREATE TABLE modemdeck_call_settings (
 			singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -197,6 +243,16 @@ CREATE TABLE modemdeck_call_recording_state (
 				updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 				FOREIGN KEY (call_id) REFERENCES call_history(id) ON DELETE CASCADE ON UPDATE CASCADE
 			);
+
+CREATE TABLE modemdeck_user_recording_state (
+			user_id TEXT NOT NULL,
+			call_id TEXT NOT NULL,
+			is_favorite NUMERIC NOT NULL DEFAULT 0,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (user_id, call_id),
+			FOREIGN KEY (user_id) REFERENCES modemdeck_users(id) ON DELETE CASCADE ON UPDATE CASCADE,
+			FOREIGN KEY (call_id) REFERENCES call_history(id) ON DELETE CASCADE ON UPDATE CASCADE
+		);
 
 CREATE TABLE modemdeck_call_recordings (
 				id TEXT PRIMARY KEY,
@@ -307,6 +363,10 @@ CREATE TABLE modemdeck_telegram_units (
 			token_hint TEXT NOT NULL DEFAULT '',
 			chat_id INTEGER NOT NULL DEFAULT 0,
 			admin_id INTEGER NOT NULL DEFAULT 0,
+			scope_source TEXT NOT NULL DEFAULT 'manual'
+				CHECK (scope_source IN ('manual', 'user')),
+			assigned_user_id TEXT NOT NULL DEFAULT '',
+			manual_all_lines NUMERIC NOT NULL DEFAULT 1,
 			incoming_sms NUMERIC NOT NULL DEFAULT 1,
 			missed_calls NUMERIC NOT NULL DEFAULT 1,
 			revision INTEGER NOT NULL DEFAULT 1,
@@ -443,7 +503,47 @@ CREATE TABLE modemdeck_notification_deliveries (
 			FOREIGN KEY (unit_id) REFERENCES modemdeck_telegram_units(id) ON DELETE CASCADE ON UPDATE CASCADE
 		);
 
+CREATE TABLE modemdeck_user_lines (
+			user_id TEXT NOT NULL,
+			line_id TEXT NOT NULL,
+			assigned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (user_id, line_id),
+			FOREIGN KEY (user_id) REFERENCES modemdeck_users(id) ON DELETE CASCADE ON UPDATE CASCADE,
+			FOREIGN KEY (line_id) REFERENCES modemdeck_lines(line_id) ON DELETE CASCADE ON UPDATE CASCADE
+		);
+
+CREATE TABLE modemdeck_user_preferences (
+			user_id TEXT PRIMARY KEY,
+			default_line_id TEXT NOT NULL DEFAULT '',
+			language TEXT NOT NULL DEFAULT 'auto' CHECK (
+				language IN (
+					'auto',
+					'zh-CN',
+					'zh-TW',
+					'en-US',
+					'ja-JP',
+					'vi-VN',
+					'es-ES',
+					'de-DE',
+					'fr-FR',
+					'pt-BR'
+				)
+			),
+			language_revision INTEGER NOT NULL DEFAULT 1 CHECK (language_revision > 0),
+			recording_default_enabled NUMERIC NOT NULL DEFAULT 0,
+			recording_revision INTEGER NOT NULL DEFAULT 1 CHECK (recording_revision > 0),
+			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES modemdeck_users(id) ON DELETE CASCADE ON UPDATE CASCADE
+		);
+
 CREATE INDEX idx_modemdeck_auth_sessions_expiry ON modemdeck_auth_sessions(expires_at_unix);
+
+CREATE UNIQUE INDEX ux_modemdeck_single_admin ON modemdeck_users(role) WHERE role = 'admin';
+
+CREATE INDEX idx_modemdeck_user_lines_line ON modemdeck_user_lines(line_id, user_id);
+
+CREATE INDEX idx_contacts_owner_display_name ON contacts(owner_user_id, display_name);
 
 CREATE INDEX idx_contacts_display_name ON contacts(display_name);
 

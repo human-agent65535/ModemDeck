@@ -47,6 +47,9 @@ func (api *API) lineServiceResource(
 		)
 		return
 	}
+	if !api.requireLineAccess(response, request, lineID) {
+		return
+	}
 	switch resource {
 	case "sim":
 		api.simStatus(response, request, lineID)

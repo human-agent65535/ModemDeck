@@ -17,25 +17,31 @@ var (
 )
 
 type TelegramUnitRecord struct {
-	ID                 string
-	DisplayName        string
-	Enabled            bool
-	BotID              int64
-	BotTokenNonce      []byte
-	BotTokenCiphertext []byte
-	TokenHint          string
-	ChatID             int64
-	AdminID            int64
-	LineScopes         []string
-	IncomingSMS        bool
-	MissedCalls        bool
-	Revision           int64
-	BotUsername        string
-	VerifiedAt         string
-	LastErrorClass     string
-	NextUpdateOffset   int64
-	CreatedAt          string
-	UpdatedAt          string
+	ID                  string
+	DisplayName         string
+	Enabled             bool
+	BotID               int64
+	BotTokenNonce       []byte
+	BotTokenCiphertext  []byte
+	TokenHint           string
+	ChatID              int64
+	AdminID             int64
+	ScopeSource         string
+	AssignedUserID      string
+	AssignedUsername    string
+	AssignedUserRole    string
+	AssignedUserEnabled bool
+	ManualAllLines      bool
+	LineScopes          []string
+	IncomingSMS         bool
+	MissedCalls         bool
+	Revision            int64
+	BotUsername         string
+	VerifiedAt          string
+	LastErrorClass      string
+	NextUpdateOffset    int64
+	CreatedAt           string
+	UpdatedAt           string
 }
 
 type TelegramReplyBinding struct {
@@ -68,6 +74,11 @@ func (s *Store) TelegramUnits(ctx context.Context) ([]TelegramUnitRecord, error)
 	if err := loadTelegramLineScopes(ctx, s.database, units); err != nil {
 		return nil, err
 	}
+	for index := range units {
+		if err := resolveTelegramUnitScope(ctx, s.database, &units[index]); err != nil {
+			return nil, err
+		}
+	}
 	return units, nil
 }
 
@@ -82,6 +93,7 @@ func (s *Store) CreateTelegramUnit(ctx context.Context, unit TelegramUnitRecord)
 	}
 	unit.BotTokenNonce = nonNilBytes(unit.BotTokenNonce)
 	unit.BotTokenCiphertext = nonNilBytes(unit.BotTokenCiphertext)
+	normalizeTelegramUnitScope(&unit)
 	unit.Revision = 1
 	transaction, err := s.database.BeginTx(ctx, nil)
 	if err != nil {
@@ -92,10 +104,11 @@ func (s *Store) CreateTelegramUnit(ctx context.Context, unit TelegramUnitRecord)
 		ctx,
 		`INSERT INTO modemdeck_telegram_units (
 			id, display_name, enabled, bot_id, bot_token_nonce,
-			bot_token_ciphertext, token_hint, chat_id, admin_id, incoming_sms,
+			bot_token_ciphertext, token_hint, chat_id, admin_id,
+			scope_source, assigned_user_id, manual_all_lines, incoming_sms,
 			missed_calls, revision, bot_username, verified_at, last_error_class,
 			next_update_offset, created_at, updated_at
-		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, NULLIF(?, ''), ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, NULLIF(?, ''), ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
 		unit.ID,
 		strings.TrimSpace(unit.DisplayName),
 		unit.Enabled,
@@ -105,6 +118,9 @@ func (s *Store) CreateTelegramUnit(ctx context.Context, unit TelegramUnitRecord)
 		strings.TrimSpace(unit.TokenHint),
 		unit.ChatID,
 		unit.AdminID,
+		unit.ScopeSource,
+		unit.AssignedUserID,
+		unit.ManualAllLines,
 		unit.IncomingSMS,
 		unit.MissedCalls,
 		strings.TrimSpace(unit.BotUsername),
@@ -138,6 +154,7 @@ func (s *Store) UpdateTelegramUnit(
 	}
 	unit.BotTokenNonce = nonNilBytes(unit.BotTokenNonce)
 	unit.BotTokenCiphertext = nonNilBytes(unit.BotTokenCiphertext)
+	normalizeTelegramUnitScope(&unit)
 	transaction, err := s.database.BeginTx(ctx, nil)
 	if err != nil {
 		return TelegramUnitRecord{}, fmt.Errorf("begin update telegram unit: %w", err)
@@ -154,6 +171,9 @@ func (s *Store) UpdateTelegramUnit(
 			token_hint = ?,
 			chat_id = ?,
 			admin_id = ?,
+			scope_source = ?,
+			assigned_user_id = ?,
+			manual_all_lines = ?,
 			incoming_sms = ?,
 			missed_calls = ?,
 			revision = revision + 1,
@@ -171,6 +191,9 @@ func (s *Store) UpdateTelegramUnit(
 		strings.TrimSpace(unit.TokenHint),
 		unit.ChatID,
 		unit.AdminID,
+		unit.ScopeSource,
+		unit.AssignedUserID,
+		unit.ManualAllLines,
 		unit.IncomingSMS,
 		unit.MissedCalls,
 		strings.TrimSpace(unit.BotUsername),
@@ -218,6 +241,19 @@ func (s *Store) UpdateTelegramUnit(
 		return TelegramUnitRecord{}, fmt.Errorf("commit update telegram unit: %w", err)
 	}
 	return updated, nil
+}
+
+func normalizeTelegramUnitScope(unit *TelegramUnitRecord) {
+	if unit.ScopeSource == "" {
+		unit.ScopeSource = "manual"
+		if len(unit.LineScopes) == 0 {
+			unit.ManualAllLines = true
+		}
+	}
+	if unit.ScopeSource == "user" {
+		unit.ManualAllLines = false
+		unit.LineScopes = nil
+	}
 }
 
 func (s *Store) DeleteTelegramUnit(ctx context.Context, id string, expectedRevision int64) error {
@@ -418,7 +454,8 @@ func (s *Store) PurgeTelegramReplyBindings(ctx context.Context, before time.Time
 
 const telegramUnitSelect = `SELECT
 	id, display_name, enabled, bot_id, bot_token_nonce, bot_token_ciphertext,
-	token_hint, chat_id, admin_id, incoming_sms, missed_calls, revision,
+	token_hint, chat_id, admin_id, scope_source, assigned_user_id,
+	manual_all_lines, incoming_sms, missed_calls, revision,
 	bot_username, verified_at, last_error_class, next_update_offset,
 	created_at, updated_at
 	FROM modemdeck_telegram_units `
@@ -429,12 +466,12 @@ type telegramUnitScanner interface {
 
 func scanTelegramUnit(scanner telegramUnitScanner) (TelegramUnitRecord, error) {
 	var (
-		unit                                        TelegramUnitRecord
-		enabled, incomingSMS, missedCalls           sql.NullInt64
-		botID, chatID, adminID, revision, offset    sql.NullInt64
-		displayName, tokenHint, botUsername         sql.NullString
-		verifiedAt, lastError, createdAt, updatedAt sql.NullString
-		nonce, ciphertext                           []byte
+		unit                                              TelegramUnitRecord
+		enabled, manualAllLines, incomingSMS, missedCalls sql.NullInt64
+		botID, chatID, adminID, revision, offset          sql.NullInt64
+		displayName, tokenHint, botUsername               sql.NullString
+		verifiedAt, lastError, createdAt, updatedAt       sql.NullString
+		nonce, ciphertext                                 []byte
 	)
 	if err := scanner.Scan(
 		&unit.ID,
@@ -446,6 +483,9 @@ func scanTelegramUnit(scanner telegramUnitScanner) (TelegramUnitRecord, error) {
 		&tokenHint,
 		&chatID,
 		&adminID,
+		&unit.ScopeSource,
+		&unit.AssignedUserID,
+		&manualAllLines,
 		&incomingSMS,
 		&missedCalls,
 		&revision,
@@ -466,6 +506,7 @@ func scanTelegramUnit(scanner telegramUnitScanner) (TelegramUnitRecord, error) {
 	unit.TokenHint = stringValue(tokenHint)
 	unit.ChatID = intValue(chatID)
 	unit.AdminID = intValue(adminID)
+	unit.ManualAllLines = boolValue(manualAllLines)
 	unit.IncomingSMS = boolValue(incomingSMS)
 	unit.MissedCalls = boolValue(missedCalls)
 	unit.Revision = intValue(revision)
@@ -522,7 +563,53 @@ func telegramUnitByID(
 	if err := rows.Err(); err != nil {
 		return TelegramUnitRecord{}, fmt.Errorf("read telegram line scopes: %w", err)
 	}
+	if err := resolveTelegramUnitScope(ctx, queryer, &unit); err != nil {
+		return TelegramUnitRecord{}, err
+	}
 	return unit, nil
+}
+
+func resolveTelegramUnitScope(
+	ctx context.Context,
+	queryer telegramUnitQueryer,
+	unit *TelegramUnitRecord,
+) error {
+	if unit == nil || unit.ScopeSource != "user" {
+		return nil
+	}
+	unit.LineScopes = nil
+	var enabled int64
+	err := queryer.QueryRowContext(
+		ctx,
+		`SELECT username, role, enabled
+		 FROM modemdeck_users
+		 WHERE id = ?`,
+		unit.AssignedUserID,
+	).Scan(&unit.AssignedUsername, &unit.AssignedUserRole, &enabled)
+	if errors.Is(err, sql.ErrNoRows) {
+		unit.AssignedUserEnabled = false
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("query assigned Telegram user: %w", err)
+	}
+	unit.AssignedUserEnabled = enabled != 0
+	statement := `SELECT line_id FROM modemdeck_user_lines
+		WHERE user_id = ? ORDER BY line_id`
+	arguments := []any{unit.AssignedUserID}
+	rows, err := queryer.QueryContext(ctx, statement, arguments...)
+	if err != nil {
+		return fmt.Errorf("query assigned Telegram user lines: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var lineID string
+		if err := rows.Scan(&lineID); err != nil {
+			return fmt.Errorf("scan assigned Telegram user line: %w", err)
+		}
+		unit.LineScopes = append(unit.LineScopes, lineID)
+	}
+	return rows.Err()
 }
 
 type telegramScopeQueryer interface {

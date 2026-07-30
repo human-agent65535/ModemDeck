@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/phone"
 )
 
@@ -84,6 +85,38 @@ func resolveOrCreateStableLine(
 			databaseTime(observedAt),
 		); err != nil {
 			return "", fmt.Errorf("create stable line: %w", err)
+		}
+		if _, err := transaction.ExecContext(
+			ctx,
+			`INSERT OR IGNORE INTO modemdeck_user_lines (user_id, line_id)
+			 SELECT id, ?
+			 FROM modemdeck_users
+			 WHERE id = ? AND role = 'admin' AND enabled = 1`,
+			lineID,
+			auth.InitialAdminUserID,
+		); err != nil {
+			return "", fmt.Errorf("assign new stable line to initial administrator: %w", err)
+		}
+		if _, err := transaction.ExecContext(
+			ctx,
+			`UPDATE modemdeck_user_preferences
+			 SET default_line_id = CASE
+					WHEN default_line_id = '' THEN ?
+					ELSE default_line_id
+				END,
+				revision = revision + CASE
+					WHEN default_line_id = '' THEN 1
+					ELSE 0
+				END,
+				updated_at = CASE
+					WHEN default_line_id = '' THEN CURRENT_TIMESTAMP
+					ELSE updated_at
+				END
+			 WHERE user_id = ?`,
+			lineID,
+			auth.InitialAdminUserID,
+		); err != nil {
+			return "", fmt.Errorf("initialize administrator default line: %w", err)
 		}
 	}
 	canonicalPhone := linePhones[lineID]
@@ -330,6 +363,9 @@ func mergeStableLines(
 			return err
 		}
 		if err := mergeStableLineNetworkUsage(ctx, transaction, canonical, alias); err != nil {
+			return err
+		}
+		if err := mergeStableLineUserReferences(ctx, transaction, canonical, alias); err != nil {
 			return err
 		}
 		if err := rebindStableLineReferences(ctx, transaction, canonical, alias); err != nil {
@@ -600,6 +636,85 @@ func mergeStableLineNetworkUsage(
 		alias,
 	); err != nil {
 		return fmt.Errorf("delete merged stable line network usage: %w", err)
+	}
+	return nil
+}
+
+func mergeStableLineUserReferences(
+	ctx context.Context,
+	transaction *sql.Tx,
+	canonical, alias string,
+) error {
+	if _, err := transaction.ExecContext(
+		ctx,
+		`INSERT OR IGNORE INTO modemdeck_user_lines (
+			user_id, line_id, assigned_at
+		 )
+		 SELECT user_id, ?, assigned_at
+		 FROM modemdeck_user_lines
+		 WHERE line_id = ?`,
+		canonical,
+		alias,
+	); err != nil {
+		return fmt.Errorf("merge stable line user assignments: %w", err)
+	}
+	if _, err := transaction.ExecContext(
+		ctx,
+		`DELETE FROM modemdeck_user_lines WHERE line_id = ?`,
+		alias,
+	); err != nil {
+		return fmt.Errorf("delete merged stable line user assignments: %w", err)
+	}
+	if _, err := transaction.ExecContext(
+		ctx,
+		`UPDATE modemdeck_user_preferences
+		 SET default_line_id = ?, revision = revision + 1,
+			updated_at = CURRENT_TIMESTAMP
+		 WHERE default_line_id = ?`,
+		canonical,
+		alias,
+	); err != nil {
+		return fmt.Errorf("rebind stable line user preferences: %w", err)
+	}
+	if _, err := transaction.ExecContext(
+		ctx,
+		`INSERT INTO modemdeck_user_message_thread_state (
+			user_id, line_id, peer, last_read_sms_id,
+			marked_unread, is_favorite, updated_at
+		 )
+		 SELECT
+			user_id, ?, peer, last_read_sms_id,
+			marked_unread, is_favorite, updated_at
+		 FROM modemdeck_user_message_thread_state
+		 WHERE line_id = ?
+		 ON CONFLICT(user_id, line_id, peer) DO UPDATE SET
+			last_read_sms_id = MAX(
+				modemdeck_user_message_thread_state.last_read_sms_id,
+				excluded.last_read_sms_id
+			),
+			marked_unread = MAX(
+				modemdeck_user_message_thread_state.marked_unread,
+				excluded.marked_unread
+			),
+			is_favorite = MAX(
+				modemdeck_user_message_thread_state.is_favorite,
+				excluded.is_favorite
+			),
+			updated_at = MAX(
+				modemdeck_user_message_thread_state.updated_at,
+				excluded.updated_at
+			)`,
+		canonical,
+		alias,
+	); err != nil {
+		return fmt.Errorf("merge stable line user message state: %w", err)
+	}
+	if _, err := transaction.ExecContext(
+		ctx,
+		`DELETE FROM modemdeck_user_message_thread_state WHERE line_id = ?`,
+		alias,
+	); err != nil {
+		return fmt.Errorf("delete merged stable line user message state: %w", err)
 	}
 	return nil
 }

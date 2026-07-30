@@ -6,9 +6,60 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/messageevents"
 )
+
+type streamAuthRepository struct {
+	*apiAuthRepository
+	principal auth.Principal
+	found     bool
+}
+
+func (*streamAuthRepository) UserCredentialsByUsername(
+	context.Context,
+	string,
+) (auth.UserCredentials, bool, error) {
+	return auth.UserCredentials{}, false, nil
+}
+
+func (*streamAuthRepository) UserCredentialsByID(
+	context.Context,
+	string,
+) (auth.UserCredentials, bool, error) {
+	return auth.UserCredentials{}, false, nil
+}
+
+func (*streamAuthRepository) CreateUserSessionIfPasswordHash(
+	context.Context,
+	string,
+	auth.UserSessionRecord,
+) (bool, error) {
+	return false, nil
+}
+
+func (repository *streamAuthRepository) UserSessionByTokenDigest(
+	_ context.Context,
+	_ auth.SessionTokenDigest,
+) (auth.UserSessionRecord, auth.Principal, bool, error) {
+	now := time.Now().UTC()
+	return auth.UserSessionRecord{
+		UserID:    repository.principal.UserID,
+		CreatedAt: now.Add(-time.Minute),
+		ExpiresAt: now.Add(time.Hour),
+	}, repository.principal, repository.found, nil
+}
+
+func (*streamAuthRepository) ReplaceUserPasswordHashIfCurrentAndRevokeSessions(
+	context.Context,
+	string,
+	string,
+	string,
+) (bool, error) {
+	return false, nil
+}
 
 func TestMessageEventStreamReplaysLastEventID(t *testing.T) {
 	t.Parallel()
@@ -174,5 +225,46 @@ func TestMessageEventStreamRejectsInvalidCursor(t *testing.T) {
 	)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestMessageEventStreamRechecksSessionAndLineAccess(t *testing.T) {
+	t.Parallel()
+
+	repository := &streamAuthRepository{
+		apiAuthRepository: &apiAuthRepository{},
+		principal: auth.Principal{
+			UserID:         "user-member",
+			Role:           auth.RoleMember,
+			AllowedLineIDs: []string{"line-alpha"},
+		},
+		found: true,
+	}
+	authenticator, err := auth.NewService(repository)
+	if err != nil {
+		t.Fatalf("auth.NewService() error = %v", err)
+	}
+	api, err := New(&fakeRepository{}, Options{Authenticator: authenticator})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/messages/events", nil)
+	request.AddCookie(&http.Cookie{
+		Name:  sessionCookieName,
+		Value: opaqueTestToken(21),
+	})
+
+	allowed, err := api.currentStreamCanAccessLine(request, "line-alpha")
+	if err != nil || !allowed {
+		t.Fatalf("assigned line access = %t, %v", allowed, err)
+	}
+	repository.principal.AllowedLineIDs = []string{"line-beta"}
+	allowed, err = api.currentStreamCanAccessLine(request, "line-alpha")
+	if err != nil || allowed {
+		t.Fatalf("revoked line access = %t, %v", allowed, err)
+	}
+	repository.found = false
+	if _, err := api.currentStreamCanAccessLine(request, "line-beta"); err == nil {
+		t.Fatal("revoked session retained message stream access")
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
+	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -229,8 +230,17 @@ func TestLoginAndLogoutCookies(t *testing.T) {
 		SessionToken: auth.SessionToken(sessionToken),
 		CSRFToken:    auth.CSRFToken(csrfToken),
 		ExpiresAt:    time.Now().UTC().Add(auth.SessionLifetime),
+		Principal: &auth.Principal{
+			UserID:         "user_member",
+			Username:       "owner",
+			Role:           auth.RoleMember,
+			AllowedLineIDs: []string{"line_alpha"},
+		},
 	}
-	api, err := New(&fakeRepository{}, Options{
+	repository := &fakeRepository{
+		principalLanguage: store.SystemLanguageJaJP,
+	}
+	api, err := New(repository, Options{
 		Authenticator: authenticator,
 		SecureCookies: true,
 	})
@@ -262,6 +272,15 @@ func TestLoginAndLogoutCookies(t *testing.T) {
 	api.ServeHTTP(loginResponse, login)
 	if loginResponse.Code != http.StatusOK {
 		t.Fatalf("login status = %d; body = %s", loginResponse.Code, loginResponse.Body.String())
+	}
+	var loginSession sessionResponse
+	if err := json.Unmarshal(loginResponse.Body.Bytes(), &loginSession); err != nil {
+		t.Fatalf("decode login session: %v", err)
+	}
+	if loginSession.UserID != "user_member" ||
+		loginSession.Role != string(auth.RoleMember) ||
+		loginSession.Language != string(store.SystemLanguageJaJP) {
+		t.Fatalf("login session = %+v", loginSession)
 	}
 	cookies := loginResponse.Result().Cookies()
 	if len(cookies) != 2 {
@@ -374,7 +393,11 @@ func TestChangePasswordRequiresCSRFAndClearsSession(t *testing.T) {
 	t.Parallel()
 
 	authenticator, sessionToken, csrfToken := newAPIAuthenticator(t)
-	api, err := New(&fakeRepository{}, Options{Authenticator: authenticator})
+	events := runtimeevents.NewBuffer(8)
+	api, err := New(&fakeRepository{}, Options{
+		Authenticator: authenticator,
+		RuntimeEvents: events,
+	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -426,6 +449,13 @@ func TestChangePasswordRequiresCSRFAndClearsSession(t *testing.T) {
 		if cookie.MaxAge >= 0 {
 			t.Fatalf("cleared cookie %s MaxAge = %d", cookie.Name, cookie.MaxAge)
 		}
+	}
+	window, _, cancel := events.Subscribe(0)
+	cancel()
+	if len(window.Events) != 1 ||
+		len(window.Events[0].Resources) != 1 ||
+		window.Events[0].Resources[0] != runtimeevents.ResourceSession {
+		t.Fatalf("password-change runtime events = %+v", window.Events)
 	}
 }
 

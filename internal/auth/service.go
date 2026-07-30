@@ -76,6 +76,7 @@ type LoginResult struct {
 	SessionToken SessionToken
 	CSRFToken    CSRFToken
 	ExpiresAt    time.Time
+	Principal    *Principal
 }
 
 // Authentication is proof of a current session. The CSRF digest stays private;
@@ -83,8 +84,16 @@ type LoginResult struct {
 type Authentication struct {
 	CreatedAt     time.Time
 	ExpiresAt     time.Time
+	principal     Principal
 	csrfDigest    CSRFTokenDigest
 	authenticated bool
+}
+
+func (a Authentication) Principal() (Principal, bool) {
+	if !a.authenticated || a.principal.UserID == "" {
+		return Principal{}, false
+	}
+	return a.principal.Copy(), true
 }
 
 func (a Authentication) VerifyCSRF(token CSRFToken) error {
@@ -179,6 +188,18 @@ func (s *Service) ChangePassword(ctx context.Context, currentPassword, newPasswo
 		return newError(op, CodePasswordUnchanged, nil)
 	}
 
+	if repository, ok := s.repository.(MultiUserRepository); ok {
+		if principal, authenticated := PrincipalFromContext(ctx); authenticated {
+			return s.changeUserPassword(
+				ctx,
+				repository,
+				principal.UserID,
+				currentPassword,
+				newPassword,
+			)
+		}
+	}
+
 	credentials, configured, err := s.repository.AdminCredentials(ctx)
 	if err != nil {
 		return repositoryError(op, err)
@@ -212,6 +233,46 @@ func (s *Service) ChangePassword(ctx context.Context, currentPassword, newPasswo
 	return nil
 }
 
+func (s *Service) changeUserPassword(
+	ctx context.Context,
+	repository MultiUserRepository,
+	userID, currentPassword, newPassword string,
+) error {
+	const op = "change password"
+
+	credentials, found, err := repository.UserCredentialsByID(ctx, userID)
+	if err != nil {
+		return repositoryError(op, err)
+	}
+	if !found || !credentials.Enabled {
+		return newError(op, CodeInvalidCredentials, nil)
+	}
+	matches, err := VerifyPassword(currentPassword, credentials.PasswordHash)
+	if err != nil {
+		return err
+	}
+	if !matches {
+		return newError(op, CodeInvalidCredentials, nil)
+	}
+	replacement, err := hashPassword(newPassword, s.random)
+	if err != nil {
+		return err
+	}
+	replaced, err := repository.ReplaceUserPasswordHashIfCurrentAndRevokeSessions(
+		ctx,
+		userID,
+		credentials.PasswordHash,
+		replacement,
+	)
+	if err != nil {
+		return repositoryError(op, err)
+	}
+	if !replaced {
+		return newError(op, CodeInvalidCredentials, nil)
+	}
+	return nil
+}
+
 func (s *Service) Login(ctx context.Context, username, password string) (LoginResult, error) {
 	const op = "login"
 
@@ -222,6 +283,10 @@ func (s *Service) Login(ctx context.Context, username, password string) (LoginRe
 		password == "" ||
 		len(password) > MaximumPasswordBytes {
 		return LoginResult{}, newError(op, CodeInvalidCredentials, nil)
+	}
+
+	if repository, ok := s.repository.(MultiUserRepository); ok {
+		return s.loginUser(ctx, repository, normalizedUsername, password)
 	}
 
 	credentials, configured, err := s.repository.AdminCredentials(ctx)
@@ -293,6 +358,81 @@ func (s *Service) Login(ctx context.Context, username, password string) (LoginRe
 	}, nil
 }
 
+func (s *Service) loginUser(
+	ctx context.Context,
+	repository MultiUserRepository,
+	username, password string,
+) (LoginResult, error) {
+	const op = "login"
+
+	credentials, found, err := repository.UserCredentialsByUsername(ctx, username)
+	if err != nil {
+		return LoginResult{}, repositoryError(op, err)
+	}
+	if !found || !credentials.Enabled {
+		return LoginResult{}, newError(op, CodeInvalidCredentials, nil)
+	}
+	matches, err := VerifyPassword(password, credentials.PasswordHash)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	if !matches {
+		return LoginResult{}, newError(op, CodeInvalidCredentials, nil)
+	}
+
+	sessionTokenValue, err := newOpaqueToken(s.random)
+	if err != nil {
+		return LoginResult{}, newError(op, CodeRandomSource, err)
+	}
+	csrfTokenValue, err := newOpaqueToken(s.random)
+	if err != nil {
+		return LoginResult{}, newError(op, CodeRandomSource, err)
+	}
+	sessionToken := SessionToken(sessionTokenValue)
+	sessionDigest, err := sessionTokenDigest(sessionToken)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	csrfToken := CSRFToken(csrfTokenValue)
+	csrfDigest, err := csrfTokenDigest(csrfToken)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	createdAt := s.now().UTC()
+	expiresAt := createdAt.Add(SessionLifetime)
+	record := UserSessionRecord{
+		UserID:             credentials.ID,
+		SessionTokenDigest: sessionDigest,
+		CSRFTokenDigest:    csrfDigest,
+		CreatedAt:          createdAt,
+		ExpiresAt:          expiresAt,
+	}
+	created, err := repository.CreateUserSessionIfPasswordHash(
+		ctx,
+		credentials.PasswordHash,
+		record,
+	)
+	if err != nil {
+		return LoginResult{}, repositoryError(op, err)
+	}
+	if !created {
+		return LoginResult{}, newError(op, CodeInvalidCredentials, nil)
+	}
+	_, principal, found, err := repository.UserSessionByTokenDigest(ctx, sessionDigest)
+	if err != nil {
+		return LoginResult{}, repositoryError(op, err)
+	}
+	if !found {
+		return LoginResult{}, newError(op, CodeInvalidSessionRecord, nil)
+	}
+	return LoginResult{
+		SessionToken: sessionToken,
+		CSRFToken:    csrfToken,
+		ExpiresAt:    expiresAt,
+		Principal:    &principal,
+	}, nil
+}
+
 func normalizeUsername(username string) (string, error) {
 	const op = "validate username"
 
@@ -320,12 +460,27 @@ func validateNewPassword(password string) error {
 	return nil
 }
 
+func ValidateNewPassword(password string) error {
+	return validateNewPassword(password)
+}
+
 func (s *Service) Authenticate(ctx context.Context, token SessionToken) (Authentication, error) {
 	const op = "authenticate"
 
 	digest, err := sessionTokenDigest(token)
 	if err != nil {
 		return Authentication{}, newError(op, CodeInvalidSessionToken, nil)
+	}
+
+	if repository, ok := s.repository.(MultiUserRepository); ok {
+		record, principal, found, err := repository.UserSessionByTokenDigest(ctx, digest)
+		if err != nil {
+			return Authentication{}, repositoryError(op, err)
+		}
+		if !found {
+			return Authentication{}, newError(op, CodeUnauthenticated, nil)
+		}
+		return s.authenticationFromUserSession(record, principal)
 	}
 
 	record, found, err := s.repository.SessionByTokenDigest(ctx, digest)
@@ -353,6 +508,37 @@ func (s *Service) Authenticate(ctx context.Context, token SessionToken) (Authent
 	return Authentication{
 		CreatedAt:     createdAt,
 		ExpiresAt:     expiresAt,
+		csrfDigest:    record.CSRFTokenDigest,
+		authenticated: true,
+	}, nil
+}
+
+func (s *Service) authenticationFromUserSession(
+	record UserSessionRecord,
+	principal Principal,
+) (Authentication, error) {
+	const op = "authenticate"
+
+	createdAt := record.CreatedAt.UTC()
+	expiresAt := record.ExpiresAt.UTC()
+	if record.UserID == "" ||
+		principal.UserID != record.UserID ||
+		createdAt.IsZero() ||
+		expiresAt.IsZero() ||
+		expiresAt.Before(createdAt) {
+		return Authentication{}, newError(op, CodeInvalidSessionRecord, nil)
+	}
+	absoluteExpiry := createdAt.Add(SessionLifetime)
+	if expiresAt.After(absoluteExpiry) {
+		expiresAt = absoluteExpiry
+	}
+	if !s.now().UTC().Before(expiresAt) {
+		return Authentication{}, newError(op, CodeSessionExpired, nil)
+	}
+	return Authentication{
+		CreatedAt:     createdAt,
+		ExpiresAt:     expiresAt,
+		principal:     principal.Copy(),
 		csrfDigest:    record.CSRFTokenDigest,
 		authenticated: true,
 	}, nil

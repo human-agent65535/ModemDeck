@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
+	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/networkruntime"
+	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
 type fakeNetworkService struct {
@@ -160,6 +162,127 @@ func TestNetworkStatusIncludesCurrentAndAggregatedUsage(t *testing.T) {
 		body.ApplyAttempts != 2 ||
 		!body.ApplyExhausted {
 		t.Fatalf("body = %+v", body)
+	}
+}
+
+func TestNetworkResourcesFollowAssignedLinesForEveryRole(t *testing.T) {
+	t.Parallel()
+
+	for _, role := range []auth.Role{auth.RoleAdmin, auth.RoleMember} {
+		role := role
+		t.Run(string(role), func(t *testing.T) {
+			t.Parallel()
+			network := &fakeNetworkService{
+				status: networkruntime.Status{
+					Lines: []agentclient.NetworkLine{
+						{LineID: "line-allowed", Connected: true},
+						{LineID: "line-hidden", Connected: true},
+					},
+					Proxies: []agentclient.NetworkProxy{
+						{ID: "proxy-allowed", LineID: "line-allowed"},
+						{ID: "proxy-hidden", LineID: "line-hidden"},
+					},
+					TodayUsage: []networkruntime.Usage{
+						{
+							ScopeKind: store.NetworkScopeLine,
+							ScopeID:   "line-allowed",
+							RXBytes:   10,
+							TXBytes:   20,
+						},
+						{
+							ScopeKind: store.NetworkScopeLine,
+							ScopeID:   "line-hidden",
+							RXBytes:   100,
+							TXBytes:   200,
+						},
+						{
+							ScopeKind: store.NetworkScopeProxy,
+							ScopeID:   "proxy-allowed",
+							RXBytes:   1,
+							TXBytes:   2,
+						},
+						{
+							ScopeKind: store.NetworkScopeProxy,
+							ScopeID:   "proxy-hidden",
+							RXBytes:   3,
+							TXBytes:   4,
+						},
+					},
+				},
+				proxies: []networkruntime.Proxy{
+					{ID: "proxy-allowed", LineID: "line-allowed"},
+					{ID: "proxy-hidden", LineID: "line-hidden"},
+				},
+				createResult: networkruntime.ProxyMutation{
+					Proxy: networkruntime.Proxy{ID: "proxy-new", LineID: "line-allowed"},
+				},
+			}
+			api := newNetworkTestAPI(t, network)
+			principal := auth.Principal{
+				UserID:         "user-test",
+				Role:           role,
+				AllowedLineIDs: []string{"line-allowed"},
+			}
+			requestWithPrincipal := func(method, path, body string) *http.Request {
+				request := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+				request.Header.Set("Content-Type", "application/json")
+				return request.WithContext(
+					auth.ContextWithPrincipal(request.Context(), principal),
+				)
+			}
+
+			statusResponse := httptest.NewRecorder()
+			api.ServeHTTP(
+				statusResponse,
+				requestWithPrincipal(http.MethodGet, "/api/v1/network", ""),
+			)
+			if statusResponse.Code != http.StatusOK {
+				t.Fatalf("network status = %d: %s", statusResponse.Code, statusResponse.Body)
+			}
+			var status networkruntime.Status
+			if err := json.Unmarshal(statusResponse.Body.Bytes(), &status); err != nil {
+				t.Fatal(err)
+			}
+			if len(status.Lines) != 1 || status.Lines[0].LineID != "line-allowed" ||
+				len(status.Proxies) != 1 || status.Proxies[0].ID != "proxy-allowed" ||
+				len(status.TodayUsage) != 2 ||
+				status.TodayTotal != (networkruntime.UsageTotal{RXBytes: 10, TXBytes: 20}) {
+				t.Fatalf("scoped network status = %+v", status)
+			}
+
+			proxyResponse := httptest.NewRecorder()
+			api.ServeHTTP(
+				proxyResponse,
+				requestWithPrincipal(http.MethodGet, "/api/v1/proxies", ""),
+			)
+			var proxies proxyCollectionResponse
+			if err := json.Unmarshal(proxyResponse.Body.Bytes(), &proxies); err != nil {
+				t.Fatal(err)
+			}
+			if len(proxies.Proxies) != 1 || proxies.Proxies[0].ID != "proxy-allowed" {
+				t.Fatalf("scoped proxies = %+v", proxies.Proxies)
+			}
+
+			denied := httptest.NewRecorder()
+			api.ServeHTTP(denied, requestWithPrincipal(
+				http.MethodPost,
+				"/api/v1/proxies",
+				`{"revision":0,"id":"proxy-new","name":"Denied","line_id":"line-hidden"}`,
+			))
+			if denied.Code != http.StatusNotFound {
+				t.Fatalf("unassigned proxy create = %d, want 404; %s", denied.Code, denied.Body)
+			}
+
+			allowed := httptest.NewRecorder()
+			api.ServeHTTP(allowed, requestWithPrincipal(
+				http.MethodPost,
+				"/api/v1/proxies",
+				`{"revision":0,"id":"proxy-new","name":"Allowed","line_id":"line-allowed"}`,
+			))
+			if allowed.Code != http.StatusCreated {
+				t.Fatalf("assigned proxy create = %d: %s", allowed.Code, allowed.Body)
+			}
+		})
 	}
 }
 

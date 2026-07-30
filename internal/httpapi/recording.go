@@ -165,6 +165,11 @@ func (api *API) recordingsBatch(response http.ResponseWriter, request *http.Requ
 		seen[key] = struct{}{}
 		recordings = append(recordings, store.RecordingIdentity{CallID: callID, ID: id})
 	}
+	for _, recording := range recordings {
+		if !api.requireCallAccess(response, request, recording.CallID) {
+			return
+		}
+	}
 	switch action {
 	case "favorite", "unfavorite":
 		if err := api.repository.SetRecordingFavorites(
@@ -183,6 +188,9 @@ func (api *API) recordingsBatch(response http.ResponseWriter, request *http.Requ
 			return
 		}
 	case "delete":
+		if !api.requireAdmin(response, request) {
+			return
+		}
 		if api.recordings == nil {
 			writeError(response, http.StatusServiceUnavailable, "recording_unavailable", "Call recording is unavailable", "")
 			return
@@ -212,12 +220,18 @@ func (api *API) recordingResource(
 		writeError(response, http.StatusServiceUnavailable, "recording_unavailable", "Call recording is unavailable", "")
 		return
 	}
+	if !api.requireCallAccess(response, request, resource.CallID) {
+		return
+	}
 	switch resource.Kind {
 	case recordingResourceToggle:
 		api.toggleRecording(response, request, resource.CallID)
 	case recordingResourceList:
 		api.callRecordings(response, request, resource.CallID)
 	case recordingResourceDelete:
+		if !api.requireAdmin(response, request) {
+			return
+		}
 		api.deleteRecording(response, request, resource.CallID, resource.SegmentID)
 	case recordingResourceDownload:
 		api.downloadRecording(response, request, resource.CallID, resource.SegmentID)

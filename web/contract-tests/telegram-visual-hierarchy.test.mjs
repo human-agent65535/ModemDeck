@@ -15,14 +15,18 @@ test('Telegram bot list exposes channel identity, status, and line scope', () =>
   assert.match(list, /telegram-unit-list__title[\s\S]*t\('telegram\.bots'\)/)
   assert.match(list, /<small>Telegram<\/small>/)
   assert.match(list, /telegram-unit-row__icon[\s\S]*<Send/)
-  assert.match(list, /unit\.enabled \? t\('lines\.enabled'\) : t\('lines\.disabled'\)/)
+  assert.match(
+    list,
+    /unit\.effective_enabled \? t\('lines\.enabled'\) : t\('lines\.disabled'\)/
+  )
   assert.match(list, /unitScopeSummary\(unit\)/)
-  assert.match(list, /<ListFilter v-if="unit\.line_scopes\.length === 0"/)
+  assert.match(list, /<UsersRound v-if="unit\.scope_source === 'user'"/)
+  assert.match(list, /<ListFilter v-else-if="unit\.line_scopes\.length === 0"/)
   assert.match(list, /<CardSim v-else/)
   assert.doesNotMatch(list, /telegram-unit-row__status/)
 })
 
-test('Telegram editor uses distinct identity, event, and line sections', () => {
+test('Telegram editor uses distinct identity, access, event, and line sections', () => {
   assert.match(
     form,
     /telegram-form-heading__copy[\s\S]*displayName\.trim\(\)[\s\S]*<small>Telegram Bot<\/small>/
@@ -30,6 +34,10 @@ test('Telegram editor uses distinct identity, event, and line sections', () => {
   assert.match(
     form,
     /telegram-bot-identity[\s\S]*<KeyRound[\s\S]*t\('telegram\.botSettings'\)/
+  )
+  assert.match(
+    form,
+    /telegram-access-options[\s\S]*t\('telegram\.followUser'\)[\s\S]*t\('telegram\.manualScope'\)/
   )
   assert.match(
     form,

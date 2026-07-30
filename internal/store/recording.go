@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/human-agent65535/modemdeck/internal/auth"
 )
 
 const (
@@ -116,13 +118,25 @@ type RecordingIdentity struct {
 }
 
 func (s *Store) RecordingSettings(ctx context.Context) (RecordingSettings, error) {
+	if principal, scoped := auth.PrincipalFromContext(ctx); scoped {
+		return readUserRecordingSettings(ctx, s.database, principal.UserID)
+	}
+	return readRecordingSettings(ctx, s.database)
+}
+
+func readRecordingSettings(
+	ctx context.Context,
+	queryer interface {
+		QueryRowContext(context.Context, string, ...any) *sql.Row
+	},
+) (RecordingSettings, error) {
 	var (
 		settings       RecordingSettings
 		defaultEnabled sql.NullInt64
 		revision       sql.NullInt64
 		updatedAt      sql.NullString
 	)
-	err := s.database.QueryRowContext(
+	err := queryer.QueryRowContext(
 		ctx,
 		`SELECT default_enabled, revision, updated_at
 		 FROM modemdeck_recording_settings WHERE singleton = 1`,
@@ -144,6 +158,14 @@ func (s *Store) UpdateRecordingSettings(
 	if revision <= 0 {
 		return RecordingSettings{}, ErrRecordingValidation
 	}
+	if principal, scoped := auth.PrincipalFromContext(ctx); scoped {
+		return s.updateUserRecordingSettings(
+			ctx,
+			principal.UserID,
+			defaultEnabled,
+			revision,
+		)
+	}
 	result, err := s.database.ExecContext(
 		ctx,
 		`UPDATE modemdeck_recording_settings
@@ -163,6 +185,65 @@ func (s *Store) UpdateRecordingSettings(
 		return RecordingSettings{}, ErrRecordingRevisionConflict
 	}
 	return s.RecordingSettings(ctx)
+}
+
+func (s *Store) updateUserRecordingSettings(
+	ctx context.Context,
+	userID string,
+	defaultEnabled bool,
+	revision int64,
+) (RecordingSettings, error) {
+	result, err := s.database.ExecContext(
+		ctx,
+		`UPDATE modemdeck_user_preferences
+		 SET recording_default_enabled = ?,
+			recording_revision = recording_revision + 1,
+			updated_at = CURRENT_TIMESTAMP
+		 WHERE user_id = ? AND recording_revision = ?`,
+		defaultEnabled,
+		userID,
+		revision,
+	)
+	if err != nil {
+		return RecordingSettings{}, fmt.Errorf("update user recording settings: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return RecordingSettings{}, fmt.Errorf("read user recording settings update result: %w", err)
+	}
+	if affected != 1 {
+		return RecordingSettings{}, ErrRecordingRevisionConflict
+	}
+	return readUserRecordingSettings(ctx, s.database, userID)
+}
+
+func readUserRecordingSettings(
+	ctx context.Context,
+	queryer interface {
+		QueryRowContext(context.Context, string, ...any) *sql.Row
+	},
+	userID string,
+) (RecordingSettings, error) {
+	var (
+		settings       RecordingSettings
+		defaultEnabled sql.NullInt64
+		revision       sql.NullInt64
+		updatedAt      sql.NullString
+	)
+	err := queryer.QueryRowContext(
+		ctx,
+		`SELECT recording_default_enabled, recording_revision, updated_at
+		 FROM modemdeck_user_preferences
+		 WHERE user_id = ?`,
+		userID,
+	).Scan(&defaultEnabled, &revision, &updatedAt)
+	if err != nil {
+		return RecordingSettings{}, fmt.Errorf("query user recording settings: %w", err)
+	}
+	settings.DefaultEnabled = boolValue(defaultEnabled)
+	settings.Revision = intValue(revision)
+	settings.UpdatedAt = stringValue(updatedAt)
+	return settings, nil
 }
 
 func (s *Store) PrepareCallRecordingRequest(ctx context.Context, requestID string, enabled bool) error {
@@ -683,12 +764,22 @@ func (s *Store) RecordingEntries(
 	query RecordingQuery,
 ) ([]RecordingEntry, error) {
 	limit := boundedLimit(query.Limit)
+	contactOwner := contactOwnerSQL(ctx, "contacts")
+	favoriteExpression := "COALESCE(state.is_favorite, 0)"
+	userStateJoin := ""
+	if principal, scoped := auth.PrincipalFromContext(ctx); scoped {
+		userID := strings.ReplaceAll(principal.UserID, "'", "''")
+		favoriteExpression = "COALESCE(user_state.is_favorite, 0)"
+		userStateJoin = ` LEFT JOIN modemdeck_user_recording_state AS user_state
+			ON user_state.user_id = '` + userID + `'
+			AND user_state.call_id = call.id`
+	}
 	statement := fmt.Sprintf(`SELECT
 		recording.id, recording.call_id, recording.segment_index, recording.status,
 		recording.started_at, recording.ended_at, recording.duration_ms,
 		recording.size_bytes, recording.relative_path, recording.failure_code,
 		recording.created_at, recording.updated_at,
-		COALESCE(state.is_favorite, 0),
+		%s,
 		call.line_id, call.endpoint_line_id, call.local_phone, call.line_imsi, call.line_iccid,
 		call.direction, call.remote_number,
 		%s, %s,
@@ -696,14 +787,21 @@ func (s *Store) RecordingEntries(
 		call.end_reason, call.failure_code
 		FROM modemdeck_call_recordings recording
 		JOIN call_history call ON call.id = recording.call_id
-		LEFT JOIN modemdeck_call_recording_state state ON state.call_id = call.id`,
-		fmt.Sprintf(contactIDForNumberSQL, "call.remote_number"),
-		fmt.Sprintf(contactNameForNumberSQL, "call.remote_number"),
+		LEFT JOIN modemdeck_call_recording_state state ON state.call_id = call.id%s`,
+		favoriteExpression,
+		fmt.Sprintf(contactIDForNumberSQL, "call.remote_number", contactOwner),
+		fmt.Sprintf(contactNameForNumberSQL, "call.remote_number", contactOwner),
+		userStateJoin,
 	)
-	arguments := make([]any, 0, 6)
+	arguments := make([]any, 0, 8)
+	conditions := make([]string, 0, 2)
+	if condition, values, scoped := principalLineScope(ctx, "call.line_id"); scoped {
+		conditions = append(conditions, condition)
+		arguments = append(arguments, values...)
+	}
 	if strings.TrimSpace(query.Search) != "" {
 		pattern := searchPattern(query.Search)
-		statement += ` WHERE (
+		searchCondition := `(
 			LOWER(COALESCE(call.remote_number, '')) LIKE ? ESCAPE '\' OR
 			LOWER(COALESCE(call.local_phone, '')) LIKE ? ESCAPE '\' OR
 			LOWER(COALESCE(call.line_id, '')) LIKE ? ESCAPE '\' OR
@@ -714,6 +812,7 @@ func (s *Store) RecordingEntries(
 					FROM contact_phones
 					JOIN contacts ON contacts.id = contact_phones.contact_id
 					WHERE contact_phones.canonical_e164 = call.remote_number
+					` + contactOwnerSQL(ctx, "contacts") + `
 					AND LOWER(COALESCE(contacts.display_name, '')) LIKE ? ESCAPE '\'
 				) OR
 			EXISTS (
@@ -723,6 +822,7 @@ func (s *Store) RecordingEntries(
 					AND LOWER(COALESCE(devices.name, '')) LIKE ? ESCAPE '\'
 			)
 		)`
+		conditions = append(conditions, searchCondition)
 		arguments = append(
 			arguments,
 			pattern,
@@ -733,6 +833,9 @@ func (s *Store) RecordingEntries(
 			pattern,
 			pattern,
 		)
+	}
+	if len(conditions) > 0 {
+		statement += " WHERE " + strings.Join(conditions, " AND ")
 	}
 	statement += ` ORDER BY
 		COALESCE(recording.started_at, recording.created_at) DESC,
@@ -793,19 +896,21 @@ func (s *Store) SetRecordingFavorites(
 	callIDs := make([]string, 0, len(normalized))
 	seenCalls := make(map[string]struct{}, len(normalized))
 	for _, recording := range normalized {
-		var exists int
+		var lineID string
 		if err := transaction.QueryRowContext(
 			ctx,
-			`SELECT EXISTS(
-				SELECT 1 FROM modemdeck_call_recordings
-				WHERE call_id = ? AND id = ?
-			 )`,
+			`SELECT call.line_id
+			 FROM modemdeck_call_recordings AS recording
+			 JOIN call_history AS call ON call.id = recording.call_id
+			 WHERE recording.call_id = ? AND recording.id = ?`,
 			recording.CallID,
 			recording.ID,
-		).Scan(&exists); err != nil {
+		).Scan(&lineID); errors.Is(err, sql.ErrNoRows) {
+			return ErrRecordingNotFound
+		} else if err != nil {
 			return fmt.Errorf("inspect recording favorite target: %w", err)
 		}
-		if exists == 0 {
+		if !principalCanAccessLine(ctx, lineID) {
 			return ErrRecordingNotFound
 		}
 		if _, exists := seenCalls[recording.CallID]; exists {
@@ -813,6 +918,25 @@ func (s *Store) SetRecordingFavorites(
 		}
 		seenCalls[recording.CallID] = struct{}{}
 		callIDs = append(callIDs, recording.CallID)
+	}
+
+	if principal, scoped := auth.PrincipalFromContext(ctx); scoped {
+		for _, callID := range callIDs {
+			if _, err := transaction.ExecContext(ctx, `
+				INSERT INTO modemdeck_user_recording_state (
+					user_id, call_id, is_favorite, updated_at
+				) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+				ON CONFLICT(user_id, call_id) DO UPDATE SET
+					is_favorite = excluded.is_favorite,
+					updated_at = CURRENT_TIMESTAMP
+			`, principal.UserID, callID, favorite); err != nil {
+				return fmt.Errorf("update user recording favorite: %w", err)
+			}
+		}
+		if err := transaction.Commit(); err != nil {
+			return fmt.Errorf("commit user recording favorite update: %w", err)
+		}
+		return nil
 	}
 
 	arguments := make([]any, 0, len(callIDs)+1)
@@ -900,6 +1024,19 @@ func (s *Store) DeleteRecordingSegment(
 			callID,
 		); err != nil {
 			return fmt.Errorf("clear empty recording favorite state: %w", err)
+		}
+		if _, err := transaction.ExecContext(
+			ctx,
+			`DELETE FROM modemdeck_user_recording_state
+			 WHERE call_id = ?
+			 AND NOT EXISTS (
+				SELECT 1 FROM modemdeck_call_recordings
+				WHERE call_id = ?
+			 )`,
+			callID,
+			callID,
+		); err != nil {
+			return fmt.Errorf("clear empty user recording state: %w", err)
 		}
 		if err := transaction.Commit(); err != nil {
 			return fmt.Errorf("commit recording segment deletion: %w", err)
@@ -1041,12 +1178,6 @@ func ensureCallRecordingState(ctx context.Context, transaction *sql.Tx, callID s
 	preference := RecordingPreferenceDefault
 	var requestEnabled sql.NullBool
 	enabled := false
-	if err := transaction.QueryRowContext(
-		ctx,
-		`SELECT default_enabled FROM modemdeck_recording_settings WHERE singleton = 1`,
-	).Scan(&enabled); err != nil {
-		return fmt.Errorf("query default recording setting: %w", err)
-	}
 	if preparedID := strings.TrimSpace(stringValue(requestID)); preparedID != "" {
 		var requested sql.NullInt64
 		err := transaction.QueryRowContext(

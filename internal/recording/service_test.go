@@ -21,20 +21,16 @@ import (
 
 const recordingTestTimeout = 5 * time.Second
 
-func TestServiceFollowsIncomingDefaultAndCreatesToggleSegments(t *testing.T) {
+func TestServiceCreatesToggleSegmentsForEnabledIncomingCall(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
-	settings, err := fixture.repository.RecordingSettings(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := fixture.repository.UpdateRecordingSettings(
+	applyServiceTestCall(t, fixture.repository, "call-default", "", "incoming", true)
+	if _, err := fixture.repository.SetCallRecordingEnabled(
 		context.Background(),
+		"call-default",
 		true,
-		settings.Revision,
 	); err != nil {
 		t.Fatal(err)
 	}
-	applyServiceTestCall(t, fixture.repository, "call-default", "", "incoming", true)
 
 	if err := fixture.reconcile(context.Background()); err != nil {
 		t.Fatal(err)
@@ -112,20 +108,14 @@ func TestServiceFollowsIncomingDefaultAndCreatesToggleSegments(t *testing.T) {
 
 func TestServiceNotifiesWhenRecordingBecomesReady(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
-	settings, err := fixture.repository.RecordingSettings(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := fixture.service.UpdateSettings(
+	applyServiceTestCall(t, fixture.repository, "call-change", "", "incoming", true)
+	if _, err := fixture.repository.SetCallRecordingEnabled(
 		context.Background(),
+		"call-change",
 		true,
-		settings.Revision,
 	); err != nil {
 		t.Fatal(err)
 	}
-	receiveRecordingChange(t, fixture.changes)
-
-	applyServiceTestCall(t, fixture.repository, "call-change", "", "incoming", true)
 	if err := fixture.reconcile(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -157,18 +147,14 @@ func TestServiceNotifiesWhenRecordingBecomesReady(t *testing.T) {
 
 func TestServiceKeepsActiveRecordingAcrossAuthoritativeReconcile(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
-	settings, err := fixture.repository.RecordingSettings(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := fixture.repository.UpdateRecordingSettings(
+	applyServiceTestCall(t, fixture.repository, "call-still-active", "", "incoming", true)
+	if _, err := fixture.repository.SetCallRecordingEnabled(
 		context.Background(),
+		"call-still-active",
 		true,
-		settings.Revision,
 	); err != nil {
 		t.Fatal(err)
 	}
-	applyServiceTestCall(t, fixture.repository, "call-still-active", "", "incoming", true)
 	if err := fixture.reconcile(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -196,19 +182,8 @@ func TestServiceKeepsActiveRecordingAcrossAuthoritativeReconcile(t *testing.T) {
 	}
 }
 
-func TestServiceOutgoingOverrideCanDisableEnabledDefault(t *testing.T) {
+func TestServiceOutgoingOverrideCanDisableRecording(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
-	settings, err := fixture.repository.RecordingSettings(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := fixture.repository.UpdateRecordingSettings(
-		context.Background(),
-		true,
-		settings.Revision,
-	); err != nil {
-		t.Fatal(err)
-	}
 	requestID, err := fixture.service.PrepareOutgoing(
 		context.Background(),
 		"request-no-recording",

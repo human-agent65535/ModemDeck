@@ -16,8 +16,9 @@ import type {
   Contact,
   ContactInput,
   ContactRevision,
-  CreateProxyInput,
+  CreateMemberInput,
   CreateDeviceInput,
+  CreateProxyInput,
   DeleteConnectionProfileInput,
   Device,
   DeviceConfiguration,
@@ -61,13 +62,15 @@ import type {
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
   UpdateLineSettingsInput,
+  UpdateMemberInput,
   UpdateSystemSettingsInput,
   UpdateNetworkSelectionInput,
   UpdateProxyInput,
   UpdateTLSSettingsInput,
   USSDCommandInput,
   USSDResponse,
-  USSDStatus
+  USSDStatus,
+  UserAccount
 } from './types'
 
 export type ListQuery = {
@@ -91,6 +94,7 @@ export interface SessionGateway {
   setup(input: SetupInput): Promise<SessionResponse>
   login(input: LoginInput): Promise<SessionResponse>
   changePassword(input: ChangePasswordInput): Promise<void>
+  setAccountContact(contactID: string): Promise<void>
   logout(): Promise<void>
 }
 
@@ -99,6 +103,10 @@ export interface ModemDeckGateway {
   getAbout(): Promise<AboutInfo>
   checkForUpdates(): Promise<UpdateCheck>
   getBootstrap(): Promise<BootstrapResponse>
+  listUsers(): Promise<UserAccount[]>
+  createMember(input: CreateMemberInput): Promise<UserAccount>
+  updateMember(id: string, input: UpdateMemberInput): Promise<UserAccount>
+  resetMemberPassword(id: string, password: string): Promise<void>
   listContacts(query?: ListQuery): Promise<Contact[]>
   listThreads(query?: ListQuery): Promise<MessageThread[]>
   listMessages(query: MessageQuery): Promise<Message[]>

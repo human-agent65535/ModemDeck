@@ -4,6 +4,7 @@ import type { RuntimeResource } from '../api/types'
 import { renewActiveCallLease, requestActiveCallRefresh } from './call'
 import { loadNetwork } from './network'
 import { refreshRecordingWorkspace } from './recording'
+import { refreshSession } from './session'
 import {
   refreshContacts,
   refreshCalls,
@@ -12,6 +13,7 @@ import {
 } from './workspace'
 
 const ALL_RESOURCES: RuntimeResource[] = [
+  'session',
   'lines',
   'network',
   'calls',
@@ -80,6 +82,9 @@ export const runtimeEventState = readonly(state)
 
 async function refreshResource(resource: RuntimeResource): Promise<void> {
   switch (resource) {
+    case 'session':
+      await refreshSession()
+      break
     case 'lines':
       await refreshDeviceWorkspace()
       break

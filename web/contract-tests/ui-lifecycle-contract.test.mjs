@@ -102,8 +102,14 @@ test('desktop shell has one permanent dialer and dashboard renders every modem r
   assert.ok(messagesIndex < callsIndex)
   assert.ok(callsIndex < recordingsIndex)
   assert.match(shell, /window\.matchMedia\('\(min-width: 1101px\)'\)/)
-  assert.ok(shell.indexOf('<IncomingCallModeControl />') < shell.indexOf('<AudioSettingsMenu />'))
-  assert.match(shell, /<DialerPanel :permanent="permanentDialer" \/>/)
+  assert.ok(
+    shell.indexOf('<IncomingCallModeControl v-if="sessionState.role === \'admin\'" />') <
+      shell.indexOf('<AudioSettingsMenu />')
+  )
+  assert.match(
+    shell,
+    /<DialerPanel v-if="!accountRestricted" :permanent="permanentDialer" \/>/
+  )
   assert.doesNotMatch(shell, /dialer-fab|Grid3X3/)
   assert.match(shell, /:aria-pressed="uiState\.dialerOpen \|\| activeCallPresent"/)
   assert.doesNotMatch(shell, /<CallSurface/)

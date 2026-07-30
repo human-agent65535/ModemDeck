@@ -111,12 +111,13 @@ type Line struct {
 }
 
 type SMS struct {
-	ID         string
-	LineID     string
-	Direction  string
-	Peer       string
-	Body       string
-	ReceivedAt time.Time
+	ID          string
+	LineID      string
+	Direction   string
+	Peer        string
+	ContactName string
+	Body        string
+	ReceivedAt  time.Time
 }
 
 type SMSQuery struct {
@@ -150,20 +151,22 @@ type CallQuery struct {
 }
 
 type IncomingSMS struct {
-	MessageID  string
-	LineID     string
-	LineLabel  string
-	From       string
-	Body       string
-	ReceivedAt time.Time
+	MessageID   string
+	LineID      string
+	LineLabel   string
+	From        string
+	ContactName string
+	Body        string
+	ReceivedAt  time.Time
 }
 
 type MissedCall struct {
-	CallID    string
-	LineID    string
-	LineLabel string
-	From      string
-	CalledAt  time.Time
+	CallID      string
+	LineID      string
+	LineLabel   string
+	From        string
+	ContactName string
+	CalledAt    time.Time
 }
 
 type ReplyBinding struct {

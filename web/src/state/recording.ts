@@ -87,6 +87,7 @@ export const recordingCatalogState = reactive<{
 })
 
 let settingsRequest: Promise<RecordingSettings | null> | undefined
+let settingsGeneration = 0
 let dialerResetGeneration = 0
 let callSyncGeneration = 0
 let attemptedCallID = ''
@@ -135,14 +136,17 @@ export async function loadRecordingSettings(force = false): Promise<RecordingSet
 
   recordingSettingsState.status = 'loading'
   recordingSettingsState.error = ''
-  settingsRequest = gateway
+  const token = settingsGeneration
+  const request = gateway
     .getRecordingSettings()
     .then(settings => {
+      if (token !== settingsGeneration) return null
       acceptRecordingSettings(settings)
       recordingSettingsState.status = 'ready'
       return settings
     })
     .catch(error => {
+      if (token !== settingsGeneration) return null
       recordingSettingsState.status =
         error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
       recordingSettingsState.error = failureMessage(
@@ -152,9 +156,10 @@ export async function loadRecordingSettings(force = false): Promise<RecordingSet
       return null
     })
     .finally(() => {
-      settingsRequest = undefined
+      if (token === settingsGeneration) settingsRequest = undefined
     })
-  return settingsRequest
+  settingsRequest = request
+  return request
 }
 
 export async function updateDefaultRecording(enabled: boolean): Promise<boolean> {
@@ -548,4 +553,48 @@ export function forgetCallRecordings(callID: string): void {
     recordingListState.data = []
     recordingListState.error = ''
   }
+}
+
+export function resetRecordingState(): void {
+  settingsGeneration += 1
+  dialerResetGeneration += 1
+  callSyncGeneration += 1
+  activeSegmentsGeneration += 1
+  recordingListGeneration += 1
+  recordingCatalogGeneration += 1
+  settingsRequest = undefined
+  attemptedCallID = ''
+  preferredCallID = ''
+  preferredCallEnabled = false
+
+  recordingSettingsState.status = 'idle'
+  recordingSettingsState.data = null
+  recordingSettingsState.saving = false
+  recordingSettingsState.error = ''
+
+  dialerRecordingState.status = 'idle'
+  dialerRecordingState.enabled = false
+  dialerRecordingState.overridden = false
+  dialerRecordingState.error = ''
+
+  callRecordingState.callID = ''
+  callRecordingState.status = 'idle'
+  callRecordingState.enabled = false
+  callRecordingState.active = false
+  callRecordingState.startedAt = ''
+  callRecordingState.busy = false
+  callRecordingState.error = ''
+  callRecordingState.segmentsStatus = 'idle'
+  callRecordingState.segments = []
+  callRecordingState.segmentsError = ''
+
+  recordingListState.callID = ''
+  recordingListState.status = 'idle'
+  recordingListState.data = []
+  recordingListState.error = ''
+
+  recordingCatalogState.query = ''
+  recordingCatalogState.status = 'idle'
+  recordingCatalogState.data = []
+  recordingCatalogState.error = ''
 }

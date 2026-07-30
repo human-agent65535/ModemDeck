@@ -213,13 +213,29 @@ func enqueueTelegramNotification(
 		FROM modemdeck_telegram_units units
 		WHERE units.enabled = 1 AND units.` + notificationColumn + ` = 1
 		AND (
-			NOT EXISTS (
-				SELECT 1 FROM modemdeck_telegram_line_scopes scopes
-				WHERE scopes.unit_id = units.id
+			(
+				units.scope_source = 'manual'
+				AND (
+					units.manual_all_lines = 1
+					OR EXISTS (
+						SELECT 1 FROM modemdeck_telegram_line_scopes scopes
+						WHERE scopes.unit_id = units.id AND scopes.line_id = ?
+					)
+				)
 			)
-			OR EXISTS (
-				SELECT 1 FROM modemdeck_telegram_line_scopes scopes
-				WHERE scopes.unit_id = units.id AND scopes.line_id = ?
+			OR (
+				units.scope_source = 'user'
+				AND EXISTS (
+					SELECT 1
+					FROM modemdeck_users user
+					WHERE user.id = units.assigned_user_id
+						AND user.enabled = 1
+						AND EXISTS (
+							SELECT 1 FROM modemdeck_user_lines access
+							WHERE access.user_id = user.id
+								AND access.line_id = ?
+						)
+				)
 			)
 		)`
 	if _, err := transaction.ExecContext(
@@ -227,6 +243,7 @@ func enqueueTelegramNotification(
 		statement,
 		eventKey,
 		NotificationPending,
+		lineID,
 		lineID,
 	); err != nil {
 		return fmt.Errorf("allocate Telegram notification deliveries: %w", err)

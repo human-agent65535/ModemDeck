@@ -97,6 +97,84 @@ func TestAdaptersRecentSMSRequestsChronologicalWindow(t *testing.T) {
 	}
 }
 
+func TestAdaptersResolveContactsOnlyForUserMode(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name            string
+		resolveContacts bool
+		wantName        string
+		wantLookups     int
+	}{
+		{
+			name:            "manual mode",
+			resolveContacts: false,
+			wantName:        "",
+			wantLookups:     0,
+		},
+		{
+			name:            "user mode",
+			resolveContacts: true,
+			wantName:        "Aiko Tanaka",
+			wantLookups:     1,
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			repository := &fakeRepository{
+				contactName: "Aiko Tanaka",
+				messages: []store.Message{{
+					LineID:    "line-1",
+					Direction: "incoming",
+					Peer:      "+818012345678",
+					Content:   "message",
+				}},
+				calls: []store.Call{{
+					ID:           "call-1",
+					LineID:       "line-1",
+					Direction:    "incoming",
+					RemoteNumber: "+818012345678",
+					ContactName:  "Aiko Tanaka",
+				}},
+			}
+			adapter := adapters{
+				repository:                  repository,
+				resolveContacts:             test.resolveContacts,
+				contactResolutionConfigured: true,
+			}
+			messages, err := adapter.RecentSMS(
+				context.Background(),
+				telegram.SMSQuery{LineIDs: []string{"line-1"}, Limit: 1},
+			)
+			if err != nil {
+				t.Fatalf("RecentSMS() error = %v", err)
+			}
+			calls, err := adapter.RecentCalls(
+				context.Background(),
+				telegram.CallQuery{LineIDs: []string{"line-1"}, Limit: 1},
+			)
+			if err != nil {
+				t.Fatalf("RecentCalls() error = %v", err)
+			}
+			if len(messages) != 1 || messages[0].ContactName != test.wantName ||
+				len(calls) != 1 || calls[0].ContactName != test.wantName {
+				t.Fatalf(
+					"resolved names = SMS %q call %q, want %q",
+					messages[0].ContactName,
+					calls[0].ContactName,
+					test.wantName,
+				)
+			}
+			repository.mu.Lock()
+			lookups := repository.contactLookups
+			repository.mu.Unlock()
+			if lookups != test.wantLookups {
+				t.Fatalf("contact lookups = %d, want %d", lookups, test.wantLookups)
+			}
+		})
+	}
+}
+
 func TestAdaptersPublishMessageInvalidationAfterMarkingThreadRead(t *testing.T) {
 	t.Parallel()
 
@@ -233,7 +311,8 @@ func TestManagerVerifiesBotAndDispatchesDurableNotification(t *testing.T) {
 		},
 	}
 	repository := &fakeRepository{
-		offset: 0,
+		offset:      0,
+		contactName: "Aiko Tanaka",
 		delivery: store.TelegramNotificationDelivery{
 			EventKey:   "sms:1",
 			UnitID:     "unit-1",
@@ -310,8 +389,13 @@ func TestManagerVerifiesBotAndDispatchesDurableNotification(t *testing.T) {
 	}
 	if len(messages) != 1 ||
 		!strings.Contains(messages[0].Text, "主线路 · +818000000001") ||
+		!strings.Contains(messages[0].Text, "+818012345678") ||
+		strings.Contains(messages[0].Text, "Aiko Tanaka") ||
 		strings.Contains(messages[0].Text, "line-1") {
 		t.Fatalf("notification text = %q", messages[0].Text)
+	}
+	if repository.contactLookups != 0 {
+		t.Fatalf("manual-mode contact lookups = %d, want 0", repository.contactLookups)
 	}
 }
 
@@ -512,8 +596,10 @@ type fakeRepository struct {
 	calls       []store.Call
 	recordings  []store.RecordingEntry
 	messages    []store.Message
+	contactName string
 
 	messageQueries     []store.MessageQuery
+	contactLookups     int
 	markedLine         string
 	markedPeer         string
 	markReadError      error
@@ -535,6 +621,13 @@ func (r *fakeRepository) Messages(_ context.Context, query store.MessageQuery) (
 	defer r.mu.Unlock()
 	r.messageQueries = append(r.messageQueries, query)
 	return append([]store.Message(nil), r.messages...), nil
+}
+
+func (r *fakeRepository) ContactNameForNumber(context.Context, string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.contactLookups++
+	return r.contactName, nil
 }
 
 func (r *fakeRepository) Calls(context.Context, store.CallQuery) ([]store.Call, error) {

@@ -36,15 +36,20 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : translate('runtime.requestFailed')
 }
 
+let workspaceGeneration = 0
+
 async function load<T>(target: Resource<T>, loader: () => Promise<T>): Promise<T | null> {
+  const generation = workspaceGeneration
   target.status = 'loading'
   target.error = ''
   try {
     const data = await loader()
+    if (generation !== workspaceGeneration) return null
     target.data = data
     target.status = 'ready'
     return data
   } catch (error) {
+    if (generation !== workspaceGeneration) return null
     target.status = error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
     target.error = errorText(error)
     return null
@@ -608,17 +613,57 @@ async function refreshResource<T>(
   target: Resource<T>,
   loader: () => Promise<T>
 ): Promise<T | null> {
+  const generation = workspaceGeneration
   try {
     const data = await loader()
+    if (generation !== workspaceGeneration) return null
     target.data = data
     target.status = 'ready'
     target.error = ''
     return data
   } catch (error) {
+    if (generation !== workspaceGeneration) return null
     target.error = errorText(error)
     if (target.status === 'idle') target.status = 'error'
     return null
   }
+}
+
+export function resetWorkspaceState(): void {
+  workspaceGeneration += 1
+  bootstrapResource.status = 'idle'
+  bootstrapResource.data = null
+  bootstrapResource.error = ''
+  for (const target of [
+    contactsResource,
+    threadsResource,
+    callsResource,
+    devicesResource,
+    telegramResource
+  ]) {
+    target.status = 'idle'
+    target.data = []
+    target.error = ''
+  }
+  for (const key of Object.keys(messageResources)) delete messageResources[key]
+  for (const key of Object.keys(threadReadErrors)) delete threadReadErrors[key]
+  for (const key of Object.keys(recentIncomingMessageIDs)) {
+    delete recentIncomingMessageIDs[key]
+  }
+  for (const key of Object.keys(recentIncomingThreadKeys)) {
+    delete recentIncomingThreadKeys[key]
+  }
+  for (const timer of arrivalTimers.values()) clearTimeout(timer)
+  arrivalTimers.clear()
+  messageLoads.clear()
+  messageRefreshes.clear()
+  threadsLoad = undefined
+  threadsRefresh = undefined
+  contactsRefresh = undefined
+  bootstrapRefresh = undefined
+  devicesRefresh = undefined
+  callsRefreshRequest = undefined
+  missedCallsReadRequest = undefined
 }
 
 function markArrival(

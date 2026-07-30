@@ -58,6 +58,10 @@ import IncomingCallModeControl from './IncomingCallModeControl.vue'
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+const accountRestricted = computed(() => sessionState.mustChangePassword)
+const settingsLanding = computed(() =>
+  sessionState.role === 'admin' && !accountRestricted.value ? 'system' : 'account'
+)
 const permanentDialer = ref(false)
 const occupiedLineCount = computed(() => occupiedLineIDs().size)
 const activeCallPresent = computed(() =>
@@ -105,14 +109,18 @@ function openMobileCall(): void {
 }
 let dialerMediaQuery: MediaQueryList | undefined
 let mountGeneration = 0
-const primaryNav = computed(() => [
-  { name: 'dashboard', label: t('shell.home'), icon: House },
-  { name: 'contacts', label: t('shell.contacts'), icon: UsersRound },
-  { name: 'messages', label: t('shell.messages'), icon: MessageSquareText },
-  { name: 'calls', label: t('shell.calls'), icon: Phone },
-  { name: 'recordings', label: t('shell.recordings'), icon: AudioLines },
-  { name: 'traffic', label: t('shell.traffic'), icon: ChartNoAxesCombined }
-])
+const primaryNav = computed(() =>
+  accountRestricted.value
+    ? []
+    : [
+        { name: 'dashboard', label: t('shell.home'), icon: House },
+        { name: 'contacts', label: t('shell.contacts'), icon: UsersRound },
+        { name: 'messages', label: t('shell.messages'), icon: MessageSquareText },
+        { name: 'calls', label: t('shell.calls'), icon: Phone },
+        { name: 'recordings', label: t('shell.recordings'), icon: AudioLines },
+        { name: 'traffic', label: t('shell.traffic'), icon: ChartNoAxesCombined }
+      ]
+)
 const mobileNavBeforeDial = computed(() =>
   primaryNav.value.filter(item => ['contacts', 'messages', 'calls'].includes(item.name))
 )
@@ -124,6 +132,9 @@ const mobileSettingsSection = computed(() => {
   const section = String(route.params.section || '')
   const labels: Record<string, string> = {
     system: t('settings.system'),
+    account: t('settings.account'),
+    users: t('settings.users'),
+    contacts: t('settings.contactsSync'),
     audio: t('settings.audio'),
     devices: t('settings.devices'),
     recording: t('settings.recording'),
@@ -177,6 +188,7 @@ function backToSettingsMenu(): void {
 onMounted(() => {
   mountGeneration += 1
   const currentGeneration = mountGeneration
+  if (accountRestricted.value) return
   initializeBrowserNotifications()
   initializeBrowserSounds()
   initializeCallRuntime(router)
@@ -230,7 +242,7 @@ onBeforeUnmount(() => {
         <RouterLink
           class="rail-link"
           :class="{ 'is-current': route.name === 'settings' }"
-          :to="{ name: 'settings', params: { section: 'system' } }"
+          :to="{ name: 'settings', params: { section: settingsLanding } }"
           :title="t('shell.settings')"
         >
           <Settings :size="22" />
@@ -252,7 +264,7 @@ onBeforeUnmount(() => {
           <ArrowLeft :size="20" />
         </button>
         <div class="mobile-brand">{{ mobilePageTitle }}</div>
-        <GlobalSearch />
+        <GlobalSearch v-if="!accountRestricted" />
         <div
           v-if="fixtureMode"
           class="fixture-badge"
@@ -261,8 +273,8 @@ onBeforeUnmount(() => {
           <TestTube2 :size="15" />
           {{ t('shell.fixtureData') }}
         </div>
-        <div class="shell-header__controls">
-          <IncomingCallModeControl />
+        <div v-if="!accountRestricted" class="shell-header__controls">
+          <IncomingCallModeControl v-if="sessionState.role === 'admin'" />
           <button
             class="icon-button"
             :class="{ 'is-active': browserNotificationState.active }"
@@ -324,6 +336,7 @@ onBeforeUnmount(() => {
         <span class="mobile-nav__label">{{ item.label }}</span>
       </RouterLink>
       <button
+        v-if="!accountRestricted"
         class="mobile-nav__dial"
         :class="{
           'is-current': uiState.dialerOpen || activeCallPresent,
@@ -371,7 +384,7 @@ onBeforeUnmount(() => {
       </RouterLink>
       <RouterLink
         :class="{ 'is-current': route.name === 'settings' }"
-        :to="{ name: 'settings' }"
+        :to="{ name: 'settings', params: { section: settingsLanding } }"
         :title="t('shell.settings')"
         :aria-label="t('shell.settings')"
       >
@@ -380,7 +393,7 @@ onBeforeUnmount(() => {
       </RouterLink>
     </nav>
 
-    <DialerPanel :permanent="permanentDialer" />
+    <DialerPanel v-if="!accountRestricted" :permanent="permanentDialer" />
   </div>
 </template>
 

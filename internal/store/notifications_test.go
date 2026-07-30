@@ -125,6 +125,140 @@ func TestNotificationOutboxAllocatesScopedDeliveryOnce(t *testing.T) {
 	}
 }
 
+func TestNotificationOutboxFollowsAssignedUserAccess(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	ctx := context.Background()
+	observed := time.Date(2026, time.July, 29, 12, 0, 0, 0, time.UTC)
+	line := HardwareLine{
+		ID:                  "endpoint-notification-user",
+		EquipmentIdentifier: "990000000000303",
+		ICCID:               "8901000000000000303",
+		IMSI:                "440500000000303",
+	}
+	if err := repository.ApplyHardwareSnapshot(ctx, HardwareSnapshot{
+		BootEpoch:  "notification-user",
+		Revision:   "notification-user-line",
+		ObservedAt: observed,
+		Lines:      []HardwareLine{line},
+	}); err != nil {
+		t.Fatalf("ApplyHardwareSnapshot() error = %v", err)
+	}
+	stableLineID := stableLineIDForICCID(t, repository, line.ICCID)
+	assigned, err := repository.CreateMember(ctx, CreateMemberInput{
+		Username:     "assigned",
+		PasswordHash: "assigned-hash",
+		LineIDs:      []string{stableLineID},
+	})
+	if err != nil {
+		t.Fatalf("CreateMember(assigned) error = %v", err)
+	}
+	unassigned, err := repository.CreateMember(ctx, CreateMemberInput{
+		Username:     "unassigned",
+		PasswordHash: "unassigned-hash",
+	})
+	if err != nil {
+		t.Fatalf("CreateMember(unassigned) error = %v", err)
+	}
+	for _, unit := range []TelegramUnitRecord{
+		{
+			ID:                 "assigned-user",
+			DisplayName:        "Assigned user",
+			Enabled:            true,
+			BotID:              100004,
+			BotTokenNonce:      []byte("nonce"),
+			BotTokenCiphertext: []byte("ciphertext"),
+			ChatID:             7,
+			AdminID:            8,
+			ScopeSource:        "user",
+			AssignedUserID:     assigned.ID,
+			IncomingSMS:        true,
+		},
+		{
+			ID:                 "unassigned-user",
+			DisplayName:        "Unassigned user",
+			Enabled:            true,
+			BotID:              100005,
+			BotTokenNonce:      []byte("nonce"),
+			BotTokenCiphertext: []byte("ciphertext"),
+			ChatID:             9,
+			AdminID:            10,
+			ScopeSource:        "user",
+			AssignedUserID:     unassigned.ID,
+			IncomingSMS:        true,
+		},
+	} {
+		if _, err := repository.CreateTelegramUnit(ctx, unit); err != nil {
+			t.Fatalf("CreateTelegramUnit(%s) error = %v", unit.ID, err)
+		}
+	}
+
+	if _, _, err := repository.UpsertHardwareMessage(ctx, HardwareMessage{
+		LineID:            line.ID,
+		EndpointMessageID: "message-user-1",
+		Number:            "+818012345678",
+		Text:              "assigned",
+		Direction:         "incoming",
+		State:             "received",
+		Timestamp:         observed,
+		ObservedAt:        observed,
+	}); err != nil {
+		t.Fatalf("UpsertHardwareMessage(assigned) error = %v", err)
+	}
+	deliveries, err := repository.PendingTelegramNotificationDeliveries(ctx, 10)
+	if err != nil {
+		t.Fatalf("PendingTelegramNotificationDeliveries() error = %v", err)
+	}
+	if len(deliveries) != 1 || deliveries[0].UnitID != "assigned-user" {
+		t.Fatalf("user-scoped deliveries = %+v, want assigned-user only", deliveries)
+	}
+	if claimed, err := repository.ClaimTelegramNotificationDelivery(
+		ctx,
+		deliveries[0].EventKey,
+		deliveries[0].UnitID,
+		"assigned-attempt",
+	); err != nil || !claimed {
+		t.Fatalf("claim assigned delivery = %v, error = %v", claimed, err)
+	}
+	if err := repository.FinishTelegramNotificationDelivery(
+		ctx,
+		deliveries[0].EventKey,
+		deliveries[0].UnitID,
+		"assigned-attempt",
+		NotificationSent,
+		"",
+	); err != nil {
+		t.Fatalf("finish assigned delivery: %v", err)
+	}
+
+	assigned, err = repository.UpdateMember(ctx, assigned.ID, UpdateMemberInput{
+		Username: assigned.Username,
+		Enabled:  false,
+		LineIDs:  assigned.LineIDs,
+		Revision: assigned.Revision,
+	})
+	if err != nil {
+		t.Fatalf("UpdateMember(disable assigned) error = %v", err)
+	}
+	if _, _, err := repository.UpsertHardwareMessage(ctx, HardwareMessage{
+		LineID:            line.ID,
+		EndpointMessageID: "message-user-2",
+		Number:            "+818012345678",
+		Text:              "disabled",
+		Direction:         "incoming",
+		State:             "received",
+		Timestamp:         observed.Add(time.Minute),
+		ObservedAt:        observed.Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("UpsertHardwareMessage(disabled) error = %v", err)
+	}
+	deliveries, err = repository.PendingTelegramNotificationDeliveries(ctx, 10)
+	if err != nil || len(deliveries) != 0 {
+		t.Fatalf("disabled user deliveries = %+v, error = %v", deliveries, err)
+	}
+}
+
 func TestNotificationOutboxMarksInterruptedDeliveryIndeterminate(t *testing.T) {
 	t.Parallel()
 

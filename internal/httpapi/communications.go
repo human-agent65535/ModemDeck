@@ -86,6 +86,9 @@ func (api *API) sendMessage(response http.ResponseWriter, request *http.Request)
 		writeError(response, http.StatusBadRequest, "invalid_argument", "line_id is required", "line_id")
 		return
 	}
+	if !api.requireLineAccess(response, request, lineID) {
+		return
+	}
 	message, err := api.communications.SendMessage(request.Context(), communication.SendMessageInput{
 		RequestID: requestID,
 		LineID:    lineID,
@@ -133,6 +136,9 @@ func (api *API) messageRead(response http.ResponseWriter, request *http.Request)
 			"line_id and peer are required",
 			"line_id",
 		)
+		return
+	}
+	if !api.requireLineAccess(response, request, identity.LineID) {
 		return
 	}
 	if err := api.repository.MarkMessageThreadRead(request.Context(), identity); err != nil {
@@ -184,7 +190,13 @@ func (api *API) messageThreadState(response http.ResponseWriter, request *http.R
 			writeError(response, http.StatusBadRequest, "invalid_argument", "line_id and peer are required", "threads")
 			return
 		}
+		if !api.requireLineAccess(response, request, identity.LineID) {
+			return
+		}
 		identities = append(identities, identity)
+	}
+	if action == store.MessageThreadDelete && !api.requireAdmin(response, request) {
+		return
 	}
 	if err := api.repository.UpdateMessageThreads(
 		request.Context(),
@@ -236,6 +248,10 @@ func (api *API) deleteMessageThread(response http.ResponseWriter, request *http.
 			"line_id and peer are required",
 			"line_id",
 		)
+		return
+	}
+	if !api.requireAdmin(response, request) ||
+		!api.requireLineAccess(response, request, identity.LineID) {
 		return
 	}
 	if err := api.repository.DeleteMessageThread(request.Context(), identity); err != nil {
@@ -316,6 +332,11 @@ func (api *API) callsBatch(response http.ResponseWriter, request *http.Request) 
 		seen[id] = struct{}{}
 		ids = append(ids, id)
 	}
+	for _, id := range ids {
+		if !api.requireCallAccess(response, request, id) {
+			return
+		}
+	}
 	switch action {
 	case "read":
 		if err := api.repository.MarkMissedCallsReadByIDs(request.Context(), ids); err != nil {
@@ -344,6 +365,9 @@ func (api *API) callsBatch(response http.ResponseWriter, request *http.Request) 
 		}
 		api.publishRuntimeResources(runtimeevents.ResourceCalls)
 	case "delete":
+		if !api.requireAdmin(response, request) {
+			return
+		}
 		if api.recordings == nil {
 			writeError(response, http.StatusServiceUnavailable, "recording_unavailable", "Call history deletion is unavailable", "")
 			return
@@ -368,8 +392,14 @@ func (api *API) callRecordResource(
 	request *http.Request,
 	resource callRecordPath,
 ) {
+	if !api.requireCallAccess(response, request, resource.ID) {
+		return
+	}
 	switch resource.Action {
 	case "":
+		if !api.requireAdmin(response, request) {
+			return
+		}
 		if request.Method != http.MethodDelete {
 			response.Header().Set("Allow", http.MethodDelete)
 			writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only DELETE is supported", "")
@@ -455,6 +485,9 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 	if !decodeJSONBody(response, request, &input) {
 		return
 	}
+	if !api.requireLineAccess(response, request, input.LineID) {
+		return
+	}
 	holderID, err := calllease.NormalizeHolderID(input.HolderID)
 	if err != nil {
 		api.writeCallLeaseError(response, request, "validate browser call owner", err)
@@ -479,6 +512,24 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 			return
 		}
 		requestID = preparedRequestID
+	} else if api.recordings != nil {
+		settings, err := api.recordings.Settings(request.Context())
+		if err != nil {
+			api.writeRecordingError(response, request, "load outgoing call recording default", err, nil)
+			return
+		}
+		if settings.DefaultEnabled {
+			preparedRequestID, err := api.recordings.PrepareOutgoing(
+				request.Context(),
+				requestID,
+				true,
+			)
+			if err != nil {
+				api.writeRecordingError(response, request, "prepare outgoing call recording", err, nil)
+				return
+			}
+			requestID = preparedRequestID
+		}
 	}
 	reservation, err := api.callLeases.ReserveOutgoing(
 		request.Context(),
@@ -601,6 +652,9 @@ func (api *API) activeCalls(response http.ResponseWriter, request *http.Request)
 	}
 	sessions := make([]callSessionResponse, 0, len(projection.Calls))
 	for _, projected := range projection.Calls {
+		if !canAccessLine(request.Context(), projected.Call.LineID) {
+			continue
+		}
 		sessions = append(
 			sessions,
 			callSession(projected.Call, projected.ControlState),
@@ -612,6 +666,9 @@ func (api *API) activeCalls(response http.ResponseWriter, request *http.Request)
 		len(projection.Reservations),
 	)
 	for _, reservation := range projection.Reservations {
+		if !canAccessLine(request.Context(), reservation.LineID) {
+			continue
+		}
 		reservationResponses = append(
 			reservationResponses,
 			outgoingCallReservationResponse{
@@ -640,6 +697,9 @@ func (api *API) callAction(response http.ResponseWriter, request *http.Request, 
 	}
 	if api.callLeases == nil {
 		writeError(response, http.StatusServiceUnavailable, "call_lease_unavailable", "Browser call ownership is unavailable", "")
+		return
+	}
+	if !api.requireCallAccess(response, request, callID) {
 		return
 	}
 	var input callActionRequest

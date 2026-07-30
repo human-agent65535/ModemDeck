@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/human-agent65535/modemdeck/internal/auth"
 )
 
 const (
@@ -15,12 +17,15 @@ const (
 // grants access to every line; otherwise only exact line IDs are visible and
 // actionable.
 type Config struct {
-	Enabled       bool
-	BotToken      string
-	ChatID        int64
-	AdminID       int64
-	LineScopes    []string
-	Notifications NotificationConfig
+	Enabled         bool
+	BotToken        string
+	ChatID          int64
+	AdminID         int64
+	LineScopes      []string
+	LineScopeMode   string
+	Principal       *auth.Principal
+	ResolveContacts bool
+	Notifications   NotificationConfig
 }
 
 type NotificationConfig struct {
@@ -93,7 +98,8 @@ func ValidateConfigs(configs []Config) error {
 }
 
 func (c Config) AllowsLine(lineID string) bool {
-	if len(c.LineScopes) == 0 {
+	if c.LineScopeMode == "all" ||
+		c.LineScopeMode == "" && len(c.LineScopes) == 0 {
 		return true
 	}
 	for _, allowed := range c.LineScopes {

@@ -256,6 +256,9 @@ func (s *Service) NotifyIncomingSMS(ctx context.Context, incoming IncomingSMS) e
 	}
 
 	displayPeer, _, replyable := notificationPeer(incoming.From)
+	if contactName := singleLine(incoming.ContactName); contactName != "" {
+		displayPeer = contactName
+	}
 	lineIdentity := s.notificationLineIdentity(ctx, incoming.LineID, incoming.LineLabel)
 	text := formatIncomingSMS(incoming, displayPeer, replyable, lineIdentity)
 	peer := strings.TrimSpace(incoming.From)
@@ -292,6 +295,9 @@ func (s *Service) NotifyMissedCall(ctx context.Context, missed MissedCall) error
 		return &OperationError{Operation: "notify_missed_call", Kind: "invalid_line", Err: err}
 	}
 	displayPeer, _, _ := notificationPeer(missed.From)
+	if contactName := singleLine(missed.ContactName); contactName != "" {
+		displayPeer = contactName
+	}
 	lineIdentity := s.notificationLineIdentity(ctx, missed.LineID, missed.LineLabel)
 	if _, err := s.bot.SendMessage(ctx, SendMessageRequest{
 		ChatID: s.config.ChatID,
@@ -815,7 +821,10 @@ func formatSMS(messages []SMS, lines []Line) string {
 			lineIdentity = "线路"
 		}
 		fmt.Fprintf(&builder, "%s · %s\n", direction, lineIdentity)
-		peer := singleLine(message.Peer)
+		peer := singleLine(message.ContactName)
+		if peer == "" {
+			peer = singleLine(message.Peer)
+		}
 		if peer == "" {
 			peer = "未知号码"
 		}

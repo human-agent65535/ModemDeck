@@ -19,7 +19,8 @@ ModemDeck 是一个管理蜂窝通话、短信、联系人、流量和多条线�
 - SIM/eSIM、卡槽、归属与当前运营商及漫游状态。
 - 自动匹配浏览器语言，也可在九种界面语言之间手动切换。
 - 设备、联系人和代理操作的应用内确认。
-- 加密凭据、限定线路范围的 Telegram 机器人。
+- 初始管理员与普通成员、线路分配、用户通讯录和个人偏好。
+- 加密凭据、可绑定用户或手动限定线路范围的 Telegram 机器人。
 
 ## 界面
 
@@ -38,7 +39,7 @@ ModemDeck 是一个管理蜂窝通话、短信、联系人、流量和多条线�
 | M1 自托管多线路控制台 | ✅ 已实现 | 设备、线路、短信、联系人、流量、代理、设置和部署流程。 |
 | M2 单路通话 | ✅ 已实现 | 拨号、接听、拒接、挂断、DTMF、浏览器音频和通话录音。 |
 | M3 多路通话 | 🧪 已实现，未测试 | 每个 Modem 的独立通话会话、线路预占、占线显示和线路切换；待多模组实机验证。 |
-| M4 多用户 | ⬜ 未实现 | 多账户、角色权限、用户级偏好和审计。 |
+| M4 多用户 | ✅ 已实现 | 初始管理员、普通成员、线路分配、用户通讯录、个人偏好和 Telegram 绑定。 |
 | M5 iOS App + CallKit | ⬜ 未实现 | 原生 iOS 客户端、CallKit 来电界面、后台通知与接听流程。 |
 
 ## 架构
@@ -236,7 +237,10 @@ with that project.
 - Automatic browser-language matching and manual selection among nine interface
   languages.
 - In-app confirmation for device, contact, and proxy actions.
-- Telegram bots with encrypted credentials and explicit line scopes.
+- Initial administrator and member accounts, line assignments, user address
+  books, and personal preferences.
+- Telegram bots with encrypted credentials, user bindings, or explicit line
+  scopes.
 
 ## Interface
 
@@ -255,7 +259,7 @@ with that project.
 | M1 Self-hosted multi-line console | ✅ Implemented | Devices, lines, messages, contacts, traffic, proxies, settings, and deployment. |
 | M2 Single-call flow | ✅ Implemented | Dial, answer, decline, hang up, DTMF, browser audio, and call recording. |
 | M3 Concurrent calls | 🧪 Implemented, not tested | Independent sessions per modem, line reservations, busy-state display, and line switching; pending multi-modem hardware validation. |
-| M4 Multi-user | ⬜ Not implemented | Multiple accounts, roles, per-user preferences, and auditing. |
+| M4 Multi-user | ✅ Implemented | Initial administrator, members, line assignments, user address books, personal preferences, and Telegram bindings. |
 | M5 iOS app + CallKit | ⬜ Not implemented | Native iOS client, CallKit incoming-call UI, background notifications, and answer flow. |
 
 ## Architecture

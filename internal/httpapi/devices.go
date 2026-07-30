@@ -106,6 +106,9 @@ func (api *API) lineLabelResource(
 		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only PATCH is supported", "")
 		return
 	}
+	if !api.requireLineAccess(response, request, lineID) {
+		return
+	}
 	var input updateLineLabelRequest
 	if !decodeJSONBody(response, request, &input) {
 		return

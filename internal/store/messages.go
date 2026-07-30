@@ -5,13 +5,15 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+
+	"github.com/human-agent65535/modemdeck/internal/auth"
 )
 
 const contactIDForNumberSQL = `COALESCE((
 	SELECT contacts.id
 	FROM contact_phones
 	JOIN contacts ON contacts.id = contact_phones.contact_id
-	WHERE contact_phones.canonical_e164 = %s
+	WHERE contact_phones.canonical_e164 = %s%s
 	GROUP BY contact_phones.canonical_e164
 	HAVING COUNT(DISTINCT contacts.id) = 1
 	ORDER BY contact_phones.is_primary DESC, contacts.id ASC
@@ -22,7 +24,7 @@ const contactNameForNumberSQL = `COALESCE((
 	SELECT contacts.display_name
 	FROM contact_phones
 	JOIN contacts ON contacts.id = contact_phones.contact_id
-	WHERE contact_phones.canonical_e164 = %s
+	WHERE contact_phones.canonical_e164 = %s%s
 	GROUP BY contact_phones.canonical_e164
 	HAVING COUNT(DISTINCT contacts.id) = 1
 	ORDER BY contact_phones.is_primary DESC, contacts.id ASC
@@ -31,6 +33,29 @@ const contactNameForNumberSQL = `COALESCE((
 
 func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]MessageThread, error) {
 	limit := boundedLimit(query.Limit)
+	contactOwner := contactOwnerSQL(ctx, "contacts")
+	stateJoin := ""
+	unreadExpression := "sc.unread_count"
+	markedUnreadExpression := "sc.marked_unread"
+	favoriteExpression := "sc.is_favorite"
+	if principal, scoped := auth.PrincipalFromContext(ctx); scoped {
+		userID := strings.ReplaceAll(principal.UserID, "'", "''")
+		stateJoin = ` LEFT JOIN modemdeck_user_message_thread_state AS user_state
+			ON user_state.user_id = '` + userID + `'
+			AND user_state.line_id = sc.line_id
+			AND user_state.peer = sc.peer`
+		unreadExpression = `(
+			SELECT COUNT(*)
+			FROM sms AS unread_message
+			WHERE unread_message.line_id = sc.line_id
+				AND unread_message.peer = sc.peer
+				AND unread_message.type = 1
+				AND unread_message.deleted_at IS NULL
+				AND unread_message.id > COALESCE(user_state.last_read_sms_id, 0)
+		)`
+		markedUnreadExpression = "COALESCE(user_state.marked_unread, 0)"
+		favoriteExpression = "COALESCE(user_state.is_favorite, 0)"
+	}
 	statement := `SELECT
 			sc.line_id || '|' || sc.peer,
 			sc.imsi,
@@ -42,30 +67,40 @@ func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]Messag
 			), '') AS local_phone,
 			sc.line_id,
 			sc.peer,
-			` + fmt.Sprintf(contactIDForNumberSQL, "sc.peer") + `,
-			` + fmt.Sprintf(contactNameForNumberSQL, "sc.peer") + `,
+			` + fmt.Sprintf(contactIDForNumberSQL, "sc.peer", contactOwner) + `,
+			` + fmt.Sprintf(contactNameForNumberSQL, "sc.peer", contactOwner) + `,
 			sc.last_sms_id,
 			sc.last_timestamp,
 			sc.last_content,
 			sc.last_type,
-			sc.unread_count,
-			sc.marked_unread,
-			sc.is_favorite
-		FROM sms_contacts sc`
+			` + unreadExpression + `,
+			` + markedUnreadExpression + `,
+			` + favoriteExpression + `
+		FROM sms_contacts sc` + stateJoin
 	arguments := []any{}
+	conditions := make([]string, 0, 2)
+	if condition, values, scoped := principalLineScope(ctx, "sc.line_id"); scoped {
+		conditions = append(conditions, condition)
+		arguments = append(arguments, values...)
+	}
 	if strings.TrimSpace(query.Search) != "" {
 		pattern := searchPattern(query.Search)
-		statement += ` WHERE (
+		searchCondition := `(
 			LOWER(COALESCE(sc.peer, '')) LIKE ? ESCAPE '\' OR
 			LOWER(COALESCE(sc.last_content, '')) LIKE ? ESCAPE '\' OR
 			EXISTS (
 				SELECT 1 FROM contact_phones
 				JOIN contacts ON contacts.id = contact_phones.contact_id
 				WHERE contact_phones.canonical_e164 = sc.peer
+				` + contactOwnerSQL(ctx, "contacts") + `
 				AND LOWER(COALESCE(contacts.display_name, '')) LIKE ? ESCAPE '\'
 			)
 		)`
+		conditions = append(conditions, searchCondition)
 		arguments = append(arguments, pattern, pattern, pattern)
+	}
+	if len(conditions) > 0 {
+		statement += " WHERE " + strings.Join(conditions, " AND ")
 	}
 	statement += ` ORDER BY sc.last_timestamp DESC, sc.last_sms_id DESC, sc.peer ASC LIMIT ?`
 	arguments = append(arguments, limit)
@@ -121,6 +156,10 @@ func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, er
 		FROM sms`
 	conditions := []string{"deleted_at IS NULL"}
 	arguments := make([]any, 0, 5)
+	if condition, values, scoped := principalLineScope(ctx, "line_id"); scoped {
+		conditions = append(conditions, condition)
+		arguments = append(arguments, values...)
+	}
 	if lineID := strings.TrimSpace(query.LineID); lineID != "" {
 		conditions = append(conditions, "line_id = ?")
 		arguments = append(arguments, lineID)
@@ -250,6 +289,9 @@ func (s *Store) UpdateMessageThreads(
 	defer transaction.Rollback()
 
 	for _, identity := range normalized {
+		if !principalCanAccessLine(ctx, identity.LineID) {
+			return ErrMessageThreadNotFound
+		}
 		var exists int
 		if err := transaction.QueryRowContext(
 			ctx,
@@ -263,6 +305,19 @@ func (s *Store) UpdateMessageThreads(
 		}
 		if exists == 0 {
 			return ErrMessageThreadNotFound
+		}
+		if principal, scoped := auth.PrincipalFromContext(ctx); scoped &&
+			action != MessageThreadDelete {
+			if err := updateUserMessageThreadState(
+				ctx,
+				transaction,
+				principal.UserID,
+				identity,
+				action,
+			); err != nil {
+				return err
+			}
+			continue
 		}
 		var statement string
 		switch action {
@@ -308,6 +363,69 @@ func (s *Store) UpdateMessageThreads(
 	}
 	if err := transaction.Commit(); err != nil {
 		return fmt.Errorf("commit message thread update: %w", err)
+	}
+	return nil
+}
+
+func updateUserMessageThreadState(
+	ctx context.Context,
+	transaction *sql.Tx,
+	userID string,
+	identity MessageThreadIdentity,
+	action MessageThreadAction,
+) error {
+	if _, err := transaction.ExecContext(ctx, `
+		INSERT INTO modemdeck_user_message_thread_state (
+			user_id, line_id, peer, last_read_sms_id, marked_unread,
+			is_favorite, updated_at
+		)
+		SELECT ?, line_id, peer, last_sms_id, 0, 0, CURRENT_TIMESTAMP
+		FROM sms_contacts
+		WHERE line_id = ? AND peer = ?
+		ON CONFLICT(user_id, line_id, peer) DO NOTHING
+	`, userID, identity.LineID, identity.Peer); err != nil {
+		return fmt.Errorf("initialize user message thread state: %w", err)
+	}
+	var statement string
+	switch action {
+	case MessageThreadMarkRead:
+		statement = `UPDATE modemdeck_user_message_thread_state
+			SET last_read_sms_id = (
+					SELECT last_sms_id FROM sms_contacts
+					WHERE line_id = ? AND peer = ?
+				),
+				marked_unread = 0,
+				updated_at = CURRENT_TIMESTAMP
+			WHERE user_id = ? AND line_id = ? AND peer = ?`
+	case MessageThreadMarkUnread:
+		statement = `UPDATE modemdeck_user_message_thread_state
+			SET marked_unread = 1, updated_at = CURRENT_TIMESTAMP
+			WHERE user_id = ? AND line_id = ? AND peer = ?`
+	case MessageThreadFavorite:
+		statement = `UPDATE modemdeck_user_message_thread_state
+			SET is_favorite = 1, updated_at = CURRENT_TIMESTAMP
+			WHERE user_id = ? AND line_id = ? AND peer = ?`
+	case MessageThreadUnfavorite:
+		statement = `UPDATE modemdeck_user_message_thread_state
+			SET is_favorite = 0, updated_at = CURRENT_TIMESTAMP
+			WHERE user_id = ? AND line_id = ? AND peer = ?`
+	default:
+		return fmt.Errorf("update user message thread state: unsupported action %q", action)
+	}
+	var arguments []any
+	if action == MessageThreadMarkRead {
+		arguments = []any{
+			identity.LineID,
+			identity.Peer,
+			userID,
+			identity.LineID,
+			identity.Peer,
+		}
+	} else {
+		arguments = []any{userID, identity.LineID, identity.Peer}
+	}
+	if _, err := transaction.ExecContext(ctx, statement, arguments...); err != nil {
+		return fmt.Errorf("update user message thread state: %w", err)
 	}
 	return nil
 }

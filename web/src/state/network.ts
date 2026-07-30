@@ -146,6 +146,17 @@ export function acceptNetworkSnapshot(
   networkState.error = ''
 }
 
+export function resetNetworkState(): void {
+  loadGeneration += 1
+  loadRequest = undefined
+  networkState.status = 'idle'
+  networkState.snapshot = null
+  networkState.proxies = []
+  networkState.error = ''
+  networkState.busyID = ''
+  networkState.notice = ''
+}
+
 async function handleMutationFailure(error: unknown, fallback: string): Promise<void> {
   const message = failureMessage(error, fallback)
   if (error instanceof ApiError && error.status === 409) {

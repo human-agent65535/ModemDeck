@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/phone"
 )
 
@@ -159,6 +160,9 @@ func (s *Store) CreateContact(ctx context.Context, input ContactInput) (Contact,
 		return Contact{}, err
 	}
 	if normalized.preferredLineID != "" {
+		if !principalCanAccessLine(ctx, normalized.preferredLineID) {
+			return Contact{}, contactValidation("preferred_line_id", "unknown")
+		}
 		if err := requireLine(ctx, transaction, normalized.preferredLineID); err != nil {
 			if errors.Is(err, ErrLineSettingsInvalidLine) {
 				return Contact{}, contactValidation("preferred_line_id", "unknown")
@@ -169,10 +173,11 @@ func (s *Store) CreateContact(ctx context.Context, input ContactInput) (Contact,
 	if _, err := transaction.ExecContext(
 		ctx,
 		`INSERT INTO contacts (
-			id, display_name, avatar, notes, preferred_line_id, is_favorite,
+			id, owner_user_id, display_name, avatar, notes, preferred_line_id, is_favorite,
 			revision, created_at, updated_at
-		 ) VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		 ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
 		contactID,
+		contactOwnerForCreate(ctx),
 		normalized.displayName,
 		normalized.avatar,
 		normalized.notes,
@@ -231,6 +236,9 @@ func (s *Store) UpdateContact(ctx context.Context, id string, input ContactInput
 		return Contact{}, err
 	}
 	if normalized.preferredLineID != "" {
+		if !principalCanAccessLine(ctx, normalized.preferredLineID) {
+			return Contact{}, contactValidation("preferred_line_id", "unknown")
+		}
 		if err := requireLine(ctx, transaction, normalized.preferredLineID); err != nil {
 			if errors.Is(err, ErrLineSettingsInvalidLine) {
 				return Contact{}, contactValidation("preferred_line_id", "unknown")
@@ -313,10 +321,11 @@ func (s *Store) DeleteContacts(ctx context.Context, contacts []ContactRevision) 
 	defer transaction.Rollback()
 
 	for _, contact := range normalized {
-		actualRevision, err := contactRevision(ctx, transaction, contact.ID)
+		current, err := contactByID(ctx, transaction, contact.ID)
 		if err != nil {
 			return err
 		}
+		actualRevision := current.Revision
 		if actualRevision != contact.Revision {
 			return &ContactRevisionConflictError{
 				ContactID:        contact.ID,
@@ -356,13 +365,18 @@ func (s *Store) DeleteContacts(ctx context.Context, contacts []ContactRevision) 
 
 func (s *Store) Contacts(ctx context.Context, query ContactQuery) ([]Contact, error) {
 	limit := boundedLimit(query.Limit)
-	statement := `SELECT id, display_name, avatar, notes, preferred_line_id, is_favorite,
+	statement := `SELECT id, owner_user_id, display_name, avatar, notes, preferred_line_id, is_favorite,
 			revision, created_at, updated_at
 		FROM contacts`
 	arguments := []any{}
+	conditions := make([]string, 0, 2)
+	if ownerUserID, scoped := contactOwnerScope(ctx); scoped {
+		conditions = append(conditions, "owner_user_id = ?")
+		arguments = append(arguments, ownerUserID)
+	}
 	if strings.TrimSpace(query.Search) != "" {
 		pattern := searchPattern(query.Search)
-		statement += ` WHERE
+		conditions = append(conditions, `(
 			LOWER(COALESCE(display_name, '')) LIKE ? ESCAPE '\' OR
 			LOWER(COALESCE(notes, '')) LIKE ? ESCAPE '\' OR
 			EXISTS (
@@ -373,8 +387,11 @@ func (s *Store) Contacts(ctx context.Context, query ContactQuery) ([]Contact, er
 					LOWER(COALESCE(contact_phones.original_number, '')) LIKE ? ESCAPE '\' OR
 					LOWER(COALESCE(contact_phones.canonical_e164, '')) LIKE ? ESCAPE '\'
 				)
-			)`
+			))`)
 		arguments = append(arguments, pattern, pattern, pattern, pattern, pattern)
+	}
+	if len(conditions) > 0 {
+		statement += " WHERE " + strings.Join(conditions, " AND ")
 	}
 	statement += ` ORDER BY LOWER(COALESCE(display_name, '')) ASC, id ASC LIMIT ?`
 	arguments = append(arguments, limit)
@@ -395,6 +412,7 @@ func (s *Store) Contacts(ctx context.Context, query ContactQuery) ([]Contact, er
 		)
 		if err := rows.Scan(
 			&contact.ID,
+			&contact.OwnerUserID,
 			&displayName,
 			&avatar,
 			&notes,
@@ -796,15 +814,18 @@ func contactByID(ctx context.Context, queryer contactQueryer, contactID string) 
 		favorite, revision                          sql.NullInt64
 		createdAt, updatedAt                        sql.NullString
 	)
-	err := queryer.QueryRowContext(
-		ctx,
-		`SELECT id, display_name, avatar, notes, preferred_line_id, is_favorite,
+	statement := `SELECT id, owner_user_id, display_name, avatar, notes, preferred_line_id, is_favorite,
 			revision, created_at, updated_at
 		 FROM contacts
-		 WHERE id = ?`,
-		contactID,
-	).Scan(
+		 WHERE id = ?`
+	arguments := []any{contactID}
+	if ownerUserID, scoped := contactOwnerScope(ctx); scoped {
+		statement += " AND owner_user_id = ?"
+		arguments = append(arguments, ownerUserID)
+	}
+	err := queryer.QueryRowContext(ctx, statement, arguments...).Scan(
 		&contact.ID,
+		&contact.OwnerUserID,
 		&displayName,
 		&avatar,
 		&notes,
@@ -869,6 +890,46 @@ func contactByID(ctx context.Context, queryer contactQueryer, contactID string) 
 		return Contact{}, fmt.Errorf("read contact phones: %w", err)
 	}
 	return contact, nil
+}
+
+func contactOwnerScope(ctx context.Context) (string, bool) {
+	principal, ok := auth.PrincipalFromContext(ctx)
+	if !ok {
+		return "", false
+	}
+	return principal.UserID, true
+}
+
+func contactOwnerForCreate(ctx context.Context) string {
+	if ownerUserID, scoped := contactOwnerScope(ctx); scoped {
+		return ownerUserID
+	}
+	return auth.InitialAdminUserID
+}
+
+func (s *Store) ContactNameForNumber(ctx context.Context, number string) (string, error) {
+	principal, scoped := auth.PrincipalFromContext(ctx)
+	number = strings.TrimSpace(number)
+	if !scoped || number == "" {
+		return "", nil
+	}
+	var name string
+	err := s.database.QueryRowContext(ctx, `
+		SELECT COALESCE(MAX(contact.display_name), '')
+		FROM contact_phones AS phone
+		JOIN contacts AS contact ON contact.id = phone.contact_id
+		WHERE phone.canonical_e164 = ?
+			AND contact.owner_user_id = ?
+		GROUP BY phone.canonical_e164
+		HAVING COUNT(DISTINCT contact.id) = 1
+	`, number, principal.UserID).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("resolve contact name: %w", err)
+	}
+	return strings.TrimSpace(name), nil
 }
 
 func contactRevision(ctx context.Context, queryer contactQueryer, contactID string) (int64, error) {

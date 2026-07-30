@@ -11,7 +11,10 @@ test('calls replace the desktop dialer and share the mobile dialer height', asyn
   const dialer = await source('../src/components/DialerPanel.vue')
   const styles = await source('../src/style.css')
 
-  assert.match(shell, /<DialerPanel :permanent="permanentDialer" \/>/)
+  assert.match(
+    shell,
+    /<DialerPanel v-if="!accountRestricted" :permanent="permanentDialer" \/>/
+  )
   assert.match(dialer, /<CallSurface v-if="showingCall" \/>/)
   assert.match(dialer, /<div v-else class="dialer-panel__body">/)
   assert.match(styles, /--dialer-width: clamp\(360px, 28vw, 420px\);/)

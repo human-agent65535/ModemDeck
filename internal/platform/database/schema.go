@@ -54,6 +54,54 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 	if err != nil {
 		return err
 	}
+	migratedMultiUser, err := migrateMultiUserSchema(ctx, database, actual)
+	if err != nil {
+		return err
+	}
+	if migratedMultiUser {
+		actual, err = readSchemaShape(ctx, database)
+		if err != nil {
+			return err
+		}
+	}
+	migratedUserPreferenceRevision, err := migrateUserPreferenceRevision(
+		ctx,
+		database,
+		actual,
+	)
+	if err != nil {
+		return err
+	}
+	if migratedUserPreferenceRevision {
+		actual, err = readSchemaShape(ctx, database)
+		if err != nil {
+			return err
+		}
+	}
+	migratedUserPreferenceValues, err := migrateUserPreferenceValues(
+		ctx,
+		database,
+		actual,
+	)
+	if err != nil {
+		return err
+	}
+	if migratedUserPreferenceValues {
+		actual, err = readSchemaShape(ctx, database)
+		if err != nil {
+			return err
+		}
+	}
+	migratedTelegramUsers, err := migrateTelegramUserScopeColumns(ctx, database, actual)
+	if err != nil {
+		return err
+	}
+	if migratedTelegramUsers {
+		actual, err = readSchemaShape(ctx, database)
+		if err != nil {
+			return err
+		}
+	}
 	if err := migrateSystemSettingsLanguages(ctx, database, actual); err != nil {
 		return err
 	}

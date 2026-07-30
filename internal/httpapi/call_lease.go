@@ -17,6 +17,9 @@ func (api *API) renewCallLease(
 	request *http.Request,
 	callID string,
 ) {
+	if !api.requireCallAccess(response, request, callID) {
+		return
+	}
 	if request.Method != http.MethodPut {
 		response.Header().Set("Allow", http.MethodPut)
 		writeError(

@@ -16,10 +16,12 @@ import {
   Save,
   Send,
   Trash2,
+  UsersRound,
   X
 } from '@lucide/vue'
-import type { LineSummary, TelegramUnit } from '../api/types'
+import type { LineSummary, TelegramUnit, UserAccount } from '../api/types'
 import { ApiError } from '../api/types'
+import { gateway } from '../api/client'
 import {
   bootstrapResource,
   deleteTelegramUnit,
@@ -49,6 +51,8 @@ const displayName = ref('')
 const enabled = ref(true)
 const chatID = ref('')
 const adminID = ref('')
+const scopeSource = ref<'manual' | 'user'>('user')
+const assignedUserID = ref('')
 const allLines = ref(true)
 const lineScopes = ref<string[]>([])
 const incomingSMS = ref(true)
@@ -59,11 +63,21 @@ const deleting = ref(false)
 const deleteConfirm = ref(false)
 const saveError = ref('')
 const saved = ref(false)
+const users = ref<UserAccount[]>([])
 
 const selectedUnit = computed(() =>
   telegramResource.data.find(unit => unit.id === selectedID.value)
 )
 const lines = computed(() => bootstrapResource.data?.lines || [])
+const assignedUser = computed(() =>
+  users.value.find(user => user.id === assignedUserID.value)
+)
+const inheritedLineIDs = computed(() => {
+  if (!assignedUser.value) return []
+  return assignedUser.value.role === 'admin'
+    ? lines.value.map(lineKey).filter(Boolean)
+    : assignedUser.value.line_ids
+})
 
 const scopeOptions = computed<TelegramScopeOption[]>(() => {
   const options: TelegramScopeOption[] = lines.value.flatMap(line => {
@@ -94,9 +108,9 @@ function scopedLine(scopeID: string): LineSummary | undefined {
 }
 
 function unitScopeSummary(unit: TelegramUnit): string {
-  if (unit.line_scopes.length === 0) return t('telegram.allLines')
-
-  return unit.line_scopes
+  const summary = unit.line_scopes.length === 0
+    ? t('telegram.allLines')
+    : unit.line_scopes
     .map(scopeID => {
       const line = scopedLine(scopeID)
       if (!line) return t('telegram.unknownLine')
@@ -105,6 +119,12 @@ function unitScopeSummary(unit: TelegramUnit): string {
       return phoneNumber ? `${label} · ${phoneNumber}` : label
     })
     .join(t('common.listSeparator'))
+  return unit.scope_source === 'user'
+    ? t('telegram.userScopeSummary', {
+        user: unit.assigned_username || t('telegram.unknownUser'),
+        lines: summary
+      })
+    : summary
 }
 
 function scopeToneStyle(line?: LineSummary): Record<string, string> | undefined {
@@ -123,7 +143,16 @@ const validationError = computed(() => {
   if (!chatID.value.trim()) return t('telegram.enterChatID')
   if (!adminID.value.trim()) return t('telegram.enterAdminID')
   if (creating.value && !botToken.value.trim()) return t('telegram.tokenRequired')
-  if (!allLines.value && lineScopes.value.length === 0) return t('telegram.selectLine')
+  if (scopeSource.value === 'user' && !assignedUserID.value) {
+    return t('telegram.selectUser')
+  }
+  if (
+    scopeSource.value === 'manual' &&
+    !allLines.value &&
+    lineScopes.value.length === 0
+  ) {
+    return t('telegram.selectLine')
+  }
   return ''
 })
 
@@ -133,8 +162,14 @@ function applyUnit(unit?: TelegramUnit): void {
   enabled.value = unit?.enabled ?? true
   chatID.value = unit?.chat_id || ''
   adminID.value = unit?.admin_id || ''
-  allLines.value = scopes.length === 0
-  lineScopes.value = scopes
+  scopeSource.value = unit?.scope_source || 'user'
+  assignedUserID.value =
+    unit?.assigned_user_id ||
+    users.value.find(user => user.role === 'member' && user.enabled)?.id ||
+    users.value.find(user => user.enabled)?.id ||
+    ''
+  allLines.value = unit ? unit.manual_all_lines : true
+  lineScopes.value = unit?.scope_source === 'manual' ? scopes : []
   incomingSMS.value = unit?.incoming_sms ?? true
   missedCalls.value = unit?.missed_calls ?? true
   botToken.value = ''
@@ -163,7 +198,19 @@ watch(
 )
 
 watch(
-  [displayName, enabled, chatID, adminID, allLines, lineScopes, incomingSMS, missedCalls, botToken],
+  [
+    displayName,
+    enabled,
+    chatID,
+    adminID,
+    scopeSource,
+    assignedUserID,
+    allLines,
+    lineScopes,
+    incomingSMS,
+    missedCalls,
+    botToken
+  ],
   () => {
     saved.value = false
     saveError.value = ''
@@ -188,6 +235,7 @@ function toggleLineScope(lineID: string, event: Event): void {
 }
 
 function normalizedLineScopes(): string[] {
+  if (scopeSource.value === 'user') return []
   const scopes = [...new Set(lineScopes.value.filter(Boolean))]
   if (allLines.value || scopes.length === 0) {
     selectAllLines()
@@ -244,6 +292,11 @@ async function submit(): Promise<void> {
         enabled: enabled.value,
         chat_id: chatID.value,
         admin_id: adminID.value,
+        scope_source: scopeSource.value,
+        ...(scopeSource.value === 'user'
+          ? { assigned_user_id: assignedUserID.value }
+          : {}),
+        manual_all_lines: scopeSource.value === 'manual' && allLines.value,
         line_scopes: normalizedLineScopes(),
         incoming_sms: incomingSMS.value,
         missed_calls: missedCalls.value,
@@ -299,7 +352,14 @@ async function remove(): Promise<void> {
 }
 
 onMounted(() => {
-  void Promise.all([loadTelegramUnits(), loadBootstrap()])
+  void Promise.all([
+    loadTelegramUnits(),
+    loadBootstrap(),
+    gateway.listUsers().then(loaded => {
+      users.value = loaded
+      if (!assignedUserID.value) applyUnit(selectedUnit.value)
+    })
+  ])
 })
 </script>
 
@@ -362,8 +422,13 @@ onMounted(() => {
           </span>
           <small>Telegram Bot</small>
           <span class="telegram-unit-row__scope">
-            <ListFilter :size="13" aria-hidden="true" />
-            {{ t('telegram.allLines') }}
+            <UsersRound v-if="scopeSource === 'user'" :size="13" aria-hidden="true" />
+            <ListFilter v-else :size="13" aria-hidden="true" />
+            {{
+              scopeSource === 'user'
+                ? assignedUser?.username || t('telegram.selectUser')
+                : t('telegram.allLines')
+            }}
           </span>
         </span>
       </button>
@@ -377,7 +442,7 @@ onMounted(() => {
       >
         <span
           class="telegram-unit-row__icon"
-          :class="{ 'is-enabled': unit.enabled }"
+          :class="{ 'is-enabled': unit.effective_enabled }"
           aria-hidden="true"
         >
           <Send :size="18" />
@@ -387,16 +452,17 @@ onMounted(() => {
             <strong>{{ unit.display_name }}</strong>
             <span
               class="telegram-unit-row__state"
-              :class="{ 'is-enabled': unit.enabled }"
+              :class="{ 'is-enabled': unit.effective_enabled }"
             >
-              <CircleCheck v-if="unit.enabled" :size="12" aria-hidden="true" />
+              <CircleCheck v-if="unit.effective_enabled" :size="12" aria-hidden="true" />
               <CircleOff v-else :size="12" aria-hidden="true" />
-              {{ unit.enabled ? t('lines.enabled') : t('lines.disabled') }}
+              {{ unit.effective_enabled ? t('lines.enabled') : t('lines.disabled') }}
             </span>
           </span>
           <small>{{ unit.bot_username ? `@${unit.bot_username}` : unit.chat_id }}</small>
           <span class="telegram-unit-row__scope" :title="unitScopeSummary(unit)">
-            <ListFilter v-if="unit.line_scopes.length === 0" :size="13" aria-hidden="true" />
+            <UsersRound v-if="unit.scope_source === 'user'" :size="13" aria-hidden="true" />
+            <ListFilter v-else-if="unit.line_scopes.length === 0" :size="13" aria-hidden="true" />
             <CardSim v-else :size="13" aria-hidden="true" />
             {{ unitScopeSummary(unit) }}
           </span>
@@ -459,7 +525,7 @@ onMounted(() => {
               />
             </label>
             <label class="field">
-              <span>{{ t('telegram.administratorID') }}</span>
+              <span>{{ t('telegram.allowedUserID') }}</span>
               <input
                 v-model="adminID"
                 type="text"
@@ -481,6 +547,67 @@ onMounted(() => {
               </small>
             </label>
           </div>
+        </section>
+
+        <section class="telegram-editor-section telegram-access-source">
+          <header class="telegram-editor-section__heading">
+            <span class="telegram-editor-section__icon" aria-hidden="true">
+              <UsersRound :size="17" />
+            </span>
+            <h4>{{ t('telegram.accessSource') }}</h4>
+          </header>
+          <div class="telegram-access-options">
+            <label :class="{ 'is-selected': scopeSource === 'user' }">
+              <input
+                v-model="scopeSource"
+                type="radio"
+                value="user"
+                :disabled="saving || deleting"
+              />
+              <UsersRound :size="18" aria-hidden="true" />
+              <span>
+                <strong>{{ t('telegram.followUser') }}</strong>
+                <small>{{ t('telegram.followUserDescription') }}</small>
+              </span>
+              <Check
+                v-if="scopeSource === 'user'"
+                :size="17"
+                aria-hidden="true"
+              />
+            </label>
+            <label :class="{ 'is-selected': scopeSource === 'manual' }">
+              <input
+                v-model="scopeSource"
+                type="radio"
+                value="manual"
+                :disabled="saving || deleting"
+              />
+              <ListFilter :size="18" aria-hidden="true" />
+              <span>
+                <strong>{{ t('telegram.manualScope') }}</strong>
+                <small>{{ t('telegram.manualScopeDescription') }}</small>
+              </span>
+              <Check
+                v-if="scopeSource === 'manual'"
+                :size="17"
+                aria-hidden="true"
+              />
+            </label>
+          </div>
+          <label v-if="scopeSource === 'user'" class="field telegram-user-select">
+            <span>{{ t('telegram.assignedUser') }}</span>
+            <select
+              v-model="assignedUserID"
+              :disabled="saving || deleting"
+            >
+              <option value="" disabled>{{ t('telegram.selectUser') }}</option>
+              <option v-for="user in users" :key="user.id" :value="user.id">
+                {{ user.username }}
+                {{ user.enabled ? '' : `· ${t('users.disabled')}` }}
+              </option>
+            </select>
+            <small>{{ t('telegram.userAccessDynamic') }}</small>
+          </label>
         </section>
 
         <fieldset class="telegram-options">
@@ -523,9 +650,45 @@ onMounted(() => {
             <span class="telegram-editor-section__icon" aria-hidden="true">
               <CardSim :size="17" />
             </span>
-            <h4>{{ t('telegram.lineScope') }}</h4>
+            <h4>
+              {{
+                scopeSource === 'user'
+                  ? t('telegram.inheritedLines')
+                  : t('telegram.lineScope')
+              }}
+            </h4>
           </header>
-          <div class="telegram-scope-options">
+          <div v-if="scopeSource === 'user'" class="telegram-scope-options">
+            <div
+              v-for="lineID in inheritedLineIDs"
+              :key="lineID"
+              class="telegram-scope-option is-selected is-readonly"
+            >
+              <span
+                class="telegram-scope-option__icon"
+                :style="scopeToneStyle(scopedLine(lineID))"
+                aria-hidden="true"
+              >
+                <CardSim :size="18" />
+              </span>
+              <span class="telegram-scope-option__copy">
+                <LineTag
+                  v-if="scopedLine(lineID)"
+                  :line="scopedLine(lineID)!"
+                  :fallback="lineLabel(scopedLine(lineID)!)"
+                />
+                <strong v-else>{{ t('telegram.unknownLine') }}</strong>
+                <small>
+                  {{ scopedLine(lineID)?.phone_number || t('lines.cellularLine') }}
+                </small>
+              </span>
+              <Check :size="17" aria-hidden="true" />
+            </div>
+            <p v-if="assignedUser && inheritedLineIDs.length === 0" class="telegram-scope-empty">
+              {{ t('telegram.userHasNoLines') }}
+            </p>
+          </div>
+          <div v-else class="telegram-scope-options">
             <label class="telegram-scope-option" :class="{ 'is-selected': allLines }">
               <input
                 :checked="allLines"
@@ -850,6 +1013,83 @@ onMounted(() => {
   min-width: 0;
 }
 
+.telegram-access-options {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.telegram-access-options > label {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 76px;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  color: var(--muted);
+  cursor: pointer;
+  grid-template-columns: 22px minmax(0, 1fr) 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.telegram-access-options > label:hover {
+  border-color: var(--border-strong);
+}
+
+.telegram-access-options > label.is-selected {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-color: #9fcfc4;
+}
+
+.telegram-access-options input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  opacity: 0;
+}
+
+.telegram-access-options label:has(input:focus-visible) {
+  outline: 3px solid rgb(17 120 100 / 14%);
+  outline-offset: 1px;
+}
+
+.telegram-access-options label > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.telegram-access-options strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.telegram-access-options small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.telegram-user-select {
+  display: grid;
+  max-width: 520px;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.telegram-user-select > small,
+.telegram-scope-empty {
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .telegram-options {
   display: block;
   max-height: none;
@@ -952,6 +1192,24 @@ onMounted(() => {
   border-color: var(--accent);
 }
 
+.telegram-scope-option.is-readonly {
+  cursor: default;
+}
+
+.telegram-scope-option.is-readonly:hover {
+  background: var(--surface-subtle);
+  border-color: var(--accent);
+}
+
+.telegram-scope-empty {
+  margin: 0;
+  padding: 12px;
+  background: var(--surface-subtle);
+  border: 1px dashed var(--border);
+  border-radius: 7px;
+  grid-column: 1 / -1;
+}
+
 .telegram-scope-option:has(input:focus-visible) {
   outline: 3px solid rgb(17 120 100 / 14%);
   outline-offset: 1px;
@@ -1025,6 +1283,7 @@ onMounted(() => {
   }
 
   .telegram-event-options,
+  .telegram-access-options,
   .telegram-scope-options {
     grid-template-columns: 1fr;
   }
@@ -1066,6 +1325,7 @@ onMounted(() => {
   }
 
   .telegram-event-options,
+  .telegram-access-options,
   .telegram-scope-options {
     grid-template-columns: minmax(0, 1fr);
   }

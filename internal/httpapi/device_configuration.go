@@ -149,6 +149,9 @@ func (api *API) deviceConfiguration(
 		)
 		return
 	}
+	if !api.requireLineAccess(response, request, lineID) {
+		return
+	}
 	switch request.Method {
 	case http.MethodGet:
 		api.readDeviceConfiguration(response, request, lineID)

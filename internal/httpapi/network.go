@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
+	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/networkruntime"
+	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
 const (
@@ -61,6 +63,14 @@ func (api *API) networkStatus(response http.ResponseWriter, request *http.Reques
 		api.writeNetworkError(response, request, "load network status", err)
 		return
 	}
+	if _, scoped := auth.PrincipalFromContext(request.Context()); scoped {
+		proxies, proxyErr := api.network.Proxies(request.Context())
+		if proxyErr != nil {
+			api.writeNetworkError(response, request, "load network proxy scope", proxyErr)
+			return
+		}
+		status = filterNetworkStatusForPrincipal(request, status, proxies)
+	}
 	writeJSON(response, http.StatusOK, status)
 }
 
@@ -75,6 +85,7 @@ func (api *API) proxyCollection(response http.ResponseWriter, request *http.Requ
 			api.writeNetworkError(response, request, "list proxy settings", err)
 			return
 		}
+		proxies = filterProxiesForPrincipal(request, proxies)
 		writeJSON(response, http.StatusOK, proxyCollectionResponse{Proxies: proxies})
 	case http.MethodPost:
 		var body proxyCreateRequest
@@ -89,6 +100,9 @@ func (api *API) proxyCollection(response http.ResponseWriter, request *http.Requ
 				"revision must be 0 when creating a proxy",
 				"revision",
 			)
+			return
+		}
+		if !api.requireLineAccess(response, request, body.LineID) {
 			return
 		}
 		result, err := api.network.Create(request.Context(), networkruntime.CreateInput{
@@ -144,6 +158,15 @@ func (api *API) proxyResource(
 			)
 			return
 		}
+		current, ok := api.authorizedProxy(response, request, id)
+		if !ok {
+			return
+		}
+		if body.LineID != nil &&
+			strings.TrimSpace(*body.LineID) != strings.TrimSpace(current.LineID) &&
+			!api.requireLineAccess(response, request, *body.LineID) {
+			return
+		}
 		result, err := api.network.Update(request.Context(), id, networkruntime.UpdateInput{
 			Revision:      *body.Revision,
 			Name:          body.Name,
@@ -164,6 +187,9 @@ func (api *API) proxyResource(
 	case http.MethodDelete:
 		revision, ok := requiredPositiveInt64(response, request, "revision")
 		if !ok {
+			return
+		}
+		if _, authorized := api.authorizedProxy(response, request, id); !authorized {
 			return
 		}
 		result, err := api.network.Delete(request.Context(), id, revision)
@@ -193,6 +219,9 @@ func (api *API) networkSelectionResource(
 	if !api.requireNetworkService(response) {
 		return
 	}
+	if !api.requireLineAccess(response, request, lineID) {
+		return
+	}
 	switch resource {
 	case "network-selection":
 		api.networkSelection(response, request, lineID)
@@ -201,6 +230,115 @@ func (api *API) networkSelectionResource(
 	default:
 		writeError(response, http.StatusNotFound, "not_found", "API endpoint was not found", "")
 	}
+}
+
+func (api *API) authorizedProxy(
+	response http.ResponseWriter,
+	request *http.Request,
+	id string,
+) (networkruntime.Proxy, bool) {
+	if _, scoped := auth.PrincipalFromContext(request.Context()); !scoped {
+		return networkruntime.Proxy{}, true
+	}
+	proxies, err := api.network.Proxies(request.Context())
+	if err != nil {
+		api.writeNetworkError(response, request, "load proxy settings", err)
+		return networkruntime.Proxy{}, false
+	}
+	for _, proxy := range proxies {
+		if proxy.ID != id {
+			continue
+		}
+		if !canAccessLine(request.Context(), proxy.LineID) {
+			break
+		}
+		return proxy, true
+	}
+	writeError(response, http.StatusNotFound, "not_found", "Proxy was not found", "")
+	return networkruntime.Proxy{}, false
+}
+
+func filterProxiesForPrincipal(
+	request *http.Request,
+	proxies []networkruntime.Proxy,
+) []networkruntime.Proxy {
+	if _, scoped := auth.PrincipalFromContext(request.Context()); !scoped {
+		return proxies
+	}
+	result := make([]networkruntime.Proxy, 0, len(proxies))
+	for _, proxy := range proxies {
+		if canAccessLine(request.Context(), proxy.LineID) {
+			result = append(result, proxy)
+		}
+	}
+	return result
+}
+
+func filterNetworkStatusForPrincipal(
+	request *http.Request,
+	status networkruntime.Status,
+	configuredProxies []networkruntime.Proxy,
+) networkruntime.Status {
+	allowedProxyIDs := make(map[string]struct{}, len(configuredProxies))
+	for _, proxy := range configuredProxies {
+		if canAccessLine(request.Context(), proxy.LineID) {
+			allowedProxyIDs[proxy.ID] = struct{}{}
+		}
+	}
+
+	lines := status.Lines[:0]
+	for _, line := range status.Lines {
+		if canAccessLine(request.Context(), line.LineID) {
+			lines = append(lines, line)
+		}
+	}
+	status.Lines = lines
+
+	proxies := status.Proxies[:0]
+	for _, proxy := range status.Proxies {
+		if _, allowed := allowedProxyIDs[proxy.ID]; allowed {
+			proxies = append(proxies, proxy)
+		}
+	}
+	status.Proxies = proxies
+	status.TodayUsage, status.TodayTotal = filterNetworkUsage(
+		request,
+		status.TodayUsage,
+		allowedProxyIDs,
+	)
+	status.MonthUsage, status.MonthTotal = filterNetworkUsage(
+		request,
+		status.MonthUsage,
+		allowedProxyIDs,
+	)
+	return status
+}
+
+func filterNetworkUsage(
+	request *http.Request,
+	usage []networkruntime.Usage,
+	allowedProxyIDs map[string]struct{},
+) ([]networkruntime.Usage, networkruntime.UsageTotal) {
+	result := make([]networkruntime.Usage, 0, len(usage))
+	var total networkruntime.UsageTotal
+	for _, item := range usage {
+		allowed := false
+		switch item.ScopeKind {
+		case store.NetworkScopeLine:
+			allowed = canAccessLine(request.Context(), item.ScopeID)
+		case store.NetworkScopeProxy:
+			_, allowed = allowedProxyIDs[item.ScopeID]
+		}
+		if !allowed {
+			continue
+		}
+		result = append(result, item)
+		if item.ScopeKind == store.NetworkScopeLine {
+			total.RXBytes += item.RXBytes
+			total.TXBytes += item.TXBytes
+		}
+	}
+	return result, total
 }
 
 func (api *API) networkSelection(

@@ -12,8 +12,9 @@ import type {
   ConnectionProfile,
   Contact,
   ContactInput,
-  CreateProxyInput,
+  CreateMemberInput,
   CreateDeviceInput,
+  CreateProxyInput,
   DeleteConnectionProfileInput,
   Device,
   DeviceConfiguration,
@@ -57,13 +58,15 @@ import type {
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
   UpdateLineSettingsInput,
+  UpdateMemberInput,
   UpdateSystemSettingsInput,
   UpdateNetworkSelectionInput,
   UpdateProxyInput,
   UpdateTLSSettingsInput,
   USSDCommandInput,
   USSDResponse,
-  USSDStatus
+  USSDStatus,
+  UserAccount
 } from './types'
 import { ApiError, isLineColorPresetID } from './types'
 import { normalizeDialTarget } from '../utils/dialTarget'
@@ -674,6 +677,36 @@ function fixtureHardware(line: LineSummary, index: number): DeviceHardwareConfig
 export function createFixtureGateway(options: FixtureGatewayOptions = {}): ModemDeckGateway {
   const requestedLineCount = Math.max(0, Math.trunc(options.lineCount ?? 2))
   const lines = options.noDevices ? [] : fixtureLines(requestedLineCount)
+  const users: UserAccount[] = [
+    {
+      id: 'user_admin',
+      username: 'fixture',
+      role: 'admin',
+      enabled: true,
+      must_change_password: false,
+      revision: 1,
+      profile_contact_id: 'contact-alex',
+      profile_name: ALEX_NAME,
+      default_line_id: lines[0]?.id || '',
+      line_ids: lines.map(line => line.id),
+      created_at: '2026-07-23 12:00:00',
+      updated_at: '2026-07-23 12:00:00'
+    },
+    {
+      id: 'user_fixture_member',
+      username: 'casey',
+      role: 'member',
+      enabled: true,
+      must_change_password: false,
+      revision: 2,
+      profile_contact_id: 'contact-casey',
+      profile_name: CASEY_NAME,
+      default_line_id: lines[1]?.id || lines[0]?.id || '',
+      line_ids: lines[1] ? [lines[1].id] : [],
+      created_at: '2026-07-24 12:00:00',
+      updated_at: '2026-07-24 12:00:00'
+    }
+  ]
   if (
     (options.initialIncomingCall === 'occupied' || options.initialConcurrentCalls) &&
     lines[1]
@@ -948,7 +981,12 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       enabled: true,
       chat_id: '-1001234567890',
       admin_id: '100000001',
-      line_scopes: ['line-fixture-main'],
+      scope_source: 'user',
+      assigned_user_id: 'user_fixture_member',
+      assigned_username: 'casey',
+      manual_all_lines: false,
+      effective_enabled: true,
+      line_scopes: lines[1] ? [lines[1].id] : [],
       incoming_sms: true,
       missed_calls: true,
       token_configured: true,
@@ -961,6 +999,9 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       enabled: false,
       chat_id: '-1001234567891',
       admin_id: '100000002',
+      scope_source: 'manual',
+      manual_all_lines: false,
+      effective_enabled: false,
       line_scopes: ['line-fixture-travel'],
       incoming_sms: true,
       missed_calls: false,
@@ -969,6 +1010,16 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       revision: 2
     }
   ]
+  function resolvedFixtureTelegramUnit(unit: TelegramUnit): TelegramUnit {
+    if (unit.scope_source !== 'user') return unit
+    const assignedUser = users.find(user => user.id === unit.assigned_user_id)
+    return {
+      ...unit,
+      assigned_username: assignedUser?.username || '',
+      effective_enabled: unit.enabled && assignedUser?.enabled === true,
+      line_scopes: [...(assignedUser?.line_ids || [])]
+    }
+  }
   const proxyPasswords = new Set<string>()
   const proxies: ProxyInstance[] = lines.slice(0, 2).map((line, index) => {
     const secured = index === 1
@@ -1245,6 +1296,63 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         line_settings: clone(lineSettings),
         system_settings: clone(systemSettings)
       }
+    },
+
+    async listUsers(): Promise<UserAccount[]> {
+      return clone(users)
+    },
+
+    async createMember(input: CreateMemberInput): Promise<UserAccount> {
+      if (users.some(user => user.username.toLowerCase() === input.username.toLowerCase())) {
+        throw new ApiError('Username is already in use', 409, 'username_conflict')
+      }
+      sequence += 1
+      const user: UserAccount = {
+        id: `user_fixture_${sequence}`,
+        username: input.username,
+        role: 'member',
+        enabled: true,
+        must_change_password: true,
+        revision: 1,
+        default_line_id: input.line_ids[0] || '',
+        line_ids: [...input.line_ids],
+        created_at: '2026-07-29 12:00:00',
+        updated_at: '2026-07-29 12:00:00'
+      }
+      users.push(user)
+      return clone(user)
+    },
+
+    async updateMember(id: string, input: UpdateMemberInput): Promise<UserAccount> {
+      const index = users.findIndex(user => user.id === id && user.role === 'member')
+      const current = users[index]
+      if (!current) throw new ApiError('User was not found', 404, 'user_not_found')
+      if (current.revision !== input.revision) {
+        throw new ApiError('User changed since it was loaded', 409, 'revision_conflict')
+      }
+      const updated: UserAccount = {
+        ...current,
+        username: input.username,
+        enabled: input.enabled,
+        default_line_id: input.line_ids.includes(current.default_line_id || '')
+          ? current.default_line_id
+          : input.line_ids[0] || '',
+        line_ids: [...input.line_ids],
+        revision: current.revision + 1,
+        updated_at: '2026-07-29 12:01:00'
+      }
+      users[index] = updated
+      return clone(updated)
+    },
+
+    async resetMemberPassword(id: string, password: string): Promise<void> {
+      const user = users.find(candidate => candidate.id === id && candidate.role === 'member')
+      if (!user) throw new ApiError('User was not found', 404, 'user_not_found')
+      if (new TextEncoder().encode(password).length < 12) {
+        throw new ApiError('Password is too short', 422, 'password_too_short')
+      }
+      user.must_change_password = true
+      user.revision += 1
     },
 
     async listContacts(query: ListQuery = {}): Promise<Contact[]> {
@@ -2399,19 +2507,33 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     },
 
     async listTelegramUnits(): Promise<TelegramUnit[]> {
-      return clone(telegramUnits)
+      return clone(telegramUnits.map(resolvedFixtureTelegramUnit))
     },
 
     async createTelegramUnit(input: TelegramUnitInput): Promise<TelegramUnit> {
       if (!input.bot_token) throw new ApiError('新建 Bot 需要 token', 400)
       sequence += 1
+      const assignedUser = users.find(user => user.id === input.assigned_user_id)
       const unit: TelegramUnit = {
         id: `telegram-fixture-${sequence}`,
         display_name: input.display_name,
         enabled: input.enabled,
         chat_id: input.chat_id,
         admin_id: input.admin_id,
-        line_scopes: [...input.line_scopes],
+        scope_source: input.scope_source,
+        ...(input.assigned_user_id ? { assigned_user_id: input.assigned_user_id } : {}),
+        ...(input.scope_source === 'user'
+          ? {
+              assigned_username: assignedUser?.username || ''
+            }
+          : {}),
+        manual_all_lines: input.manual_all_lines,
+        effective_enabled:
+          input.enabled && (input.scope_source !== 'user' || assignedUser?.enabled === true),
+        line_scopes:
+          input.scope_source === 'user'
+            ? [...(assignedUser?.line_ids || [])]
+            : [...input.line_scopes],
         incoming_sms: input.incoming_sms,
         missed_calls: input.missed_calls,
         token_configured: true,
@@ -2426,13 +2548,30 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       const current = telegramUnits[index]
       if (index < 0 || !current) throw new ApiError('Telegram Bot 不存在', 404)
       if (input.revision !== current.revision) throw new ApiError('Telegram Bot 已被修改', 409)
+      const assignedUser = users.find(user => user.id === input.assigned_user_id)
+      const updatedBase = { ...current }
+      delete updatedBase.assigned_user_id
+      delete updatedBase.assigned_username
       const updated: TelegramUnit = {
-        ...current,
+        ...updatedBase,
         display_name: input.display_name,
         enabled: input.enabled,
         chat_id: input.chat_id,
         admin_id: input.admin_id,
-        line_scopes: [...input.line_scopes],
+        scope_source: input.scope_source,
+        ...(input.assigned_user_id ? { assigned_user_id: input.assigned_user_id } : {}),
+        ...(input.scope_source === 'user'
+          ? {
+              assigned_username: assignedUser?.username || ''
+            }
+          : {}),
+        manual_all_lines: input.manual_all_lines,
+        effective_enabled:
+          input.enabled && (input.scope_source !== 'user' || assignedUser?.enabled === true),
+        line_scopes:
+          input.scope_source === 'user'
+            ? [...(assignedUser?.line_ids || [])]
+            : [...input.line_scopes],
         incoming_sms: input.incoming_sms,
         missed_calls: input.missed_calls,
         token_configured: Boolean(input.bot_token) || current.token_configured,

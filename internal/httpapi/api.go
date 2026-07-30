@@ -371,6 +371,22 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	if !api.authorizeAPI(response, request) {
 		return
 	}
+	if principal, exists := auth.PrincipalFromContext(request.Context()); exists &&
+		principal.MustChangePassword &&
+		request.URL.Path != "/api/v1/account/password" {
+		writeError(
+			response,
+			http.StatusForbidden,
+			"password_change_required",
+			"Change your temporary password before continuing",
+			"",
+		)
+		return
+	}
+	if adminOnlyAPIPath(request.URL.Path, request.Method) &&
+		!api.requireAdmin(response, request) {
+		return
+	}
 
 	switch request.URL.Path {
 	case "/api/v1/bootstrap":
@@ -381,6 +397,10 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.getOnly(response, request, api.updateCheck)
 	case "/api/v1/account/password":
 		api.accountPassword(response, request)
+	case "/api/v1/account/contact":
+		api.accountContact(response, request)
+	case "/api/v1/users":
+		api.usersCollection(response, request)
 	case "/api/v1/contacts":
 		api.contactsCollection(response, request)
 	case "/api/v1/contacts/batch":
@@ -438,6 +458,10 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	case "/api/v1/settings/tls/ca":
 		api.getOnly(response, request, api.tlsCertificateAuthority)
 	default:
+		if userID, action, ok := userResourcePath(request.URL.Path); ok {
+			api.userResource(response, request, userID, action)
+			return
+		}
 		if id, ok := contactResourceID(request.URL.Path); ok {
 			api.contactResource(response, request, id)
 			return
@@ -533,11 +557,33 @@ func (api *API) bootstrap(response http.ResponseWriter, request *http.Request) {
 	} else {
 		capabilities = disconnectedCapabilities()
 	}
+	lineCatalog := persistedLines
+	lines = filterLinesForPrincipal(request.Context(), lines)
+	persistedLines = filterLinesForPrincipal(request.Context(), persistedLines)
+	if _, scoped := auth.PrincipalFromContext(request.Context()); scoped &&
+		api.communications != nil &&
+		capabilities.AgentConnected {
+		mediaAvailable := capabilities.WebRTCAudio
+		capabilities = capabilitiesForLines(lines)
+		capabilities.WebRTCAudio = capabilities.WebRTCAudio && mediaAvailable
+	}
+	if principal, exists := auth.PrincipalFromContext(request.Context()); !exists ||
+		!principal.IsAdmin() {
+		lineCatalog = persistedLines
+	}
 	capabilities = gateCapabilities(capabilities)
 	lineSettings, err := api.repository.LineSettings(request.Context())
 	if err != nil {
 		api.writeInternalError(response, request, "load line settings", err)
 		return
+	}
+	if principal, exists := auth.PrincipalFromContext(request.Context()); exists {
+		if !principal.CanAccessLine(lineSettings.DefaultLineID) {
+			lineSettings.DefaultLineID = ""
+			if len(lines) > 0 {
+				lineSettings.DefaultLineID = lines[0].ID
+			}
+		}
 	}
 	systemSettings, err := api.repository.SystemSettings(request.Context())
 	if err != nil {
@@ -547,7 +593,7 @@ func (api *API) bootstrap(response http.ResponseWriter, request *http.Request) {
 	writeJSON(response, http.StatusOK, bootstrapResponse{
 		Capabilities:   capabilities,
 		Lines:          lineSummaryResponses(lines),
-		LineCatalog:    lineSummaryResponses(persistedLines),
+		LineCatalog:    lineSummaryResponses(lineCatalog),
 		LineSettings:   lineSettings,
 		SystemSettings: systemSettings,
 	})
@@ -685,6 +731,7 @@ func (api *API) contactsBatch(response http.ResponseWriter, request *http.Reques
 		return
 	}
 	api.publishRuntimeResources(
+		runtimeevents.ResourceSession,
 		runtimeevents.ResourceContacts,
 		runtimeevents.ResourceMessages,
 		runtimeevents.ResourceCalls,
@@ -761,6 +808,7 @@ func (api *API) createContact(response http.ResponseWriter, request *http.Reques
 		return
 	}
 	api.publishRuntimeResources(
+		runtimeevents.ResourceSession,
 		runtimeevents.ResourceContacts,
 		runtimeevents.ResourceMessages,
 		runtimeevents.ResourceCalls,
@@ -784,6 +832,7 @@ func (api *API) updateContact(response http.ResponseWriter, request *http.Reques
 		return
 	}
 	api.publishRuntimeResources(
+		runtimeevents.ResourceSession,
 		runtimeevents.ResourceContacts,
 		runtimeevents.ResourceMessages,
 		runtimeevents.ResourceCalls,
@@ -802,6 +851,7 @@ func (api *API) deleteContact(response http.ResponseWriter, request *http.Reques
 		return
 	}
 	api.publishRuntimeResources(
+		runtimeevents.ResourceSession,
 		runtimeevents.ResourceContacts,
 		runtimeevents.ResourceMessages,
 		runtimeevents.ResourceCalls,
@@ -875,6 +925,9 @@ func (api *API) messages(response http.ResponseWriter, request *http.Request) {
 		)
 		return
 	}
+	if !api.requireLineAccess(response, request, lineID) {
+		return
+	}
 	peer, ok := boundedFilter(response, request.URL.Query().Get("peer"), "peer", maxPhoneLength)
 	if !ok {
 		return
@@ -939,6 +992,7 @@ func (api *API) devices(response http.ResponseWriter, request *http.Request) {
 			devices = mergeLiveDeviceNetwork(devices, status.Lines)
 		}
 	}
+	devices = filterDevicesForPrincipal(request.Context(), devices)
 	writeJSON(response, http.StatusOK, devicesResponse{
 		Devices: devices,
 	})

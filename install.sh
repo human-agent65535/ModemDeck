@@ -459,7 +459,8 @@ media_bindings_size=$(stat -c %s "$media_bindings_file" 2>/dev/null ||
     fail "media bindings file exceeds 64 KiB: $media_bindings_file"
 
 git_command() {
-    git -c "safe.directory=${repo_dir}" -C "$repo_dir" "$@"
+    GIT_OPTIONAL_LOCKS=0 \
+        git -c "safe.directory=${repo_dir}" -C "$repo_dir" "$@"
 }
 
 vcs_ref=unknown

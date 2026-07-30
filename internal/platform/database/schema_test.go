@@ -31,6 +31,257 @@ func TestOpenCreatesAndReopensCurrentSchema(t *testing.T) {
 	t.Cleanup(func() { _ = database.Close() })
 }
 
+func TestOpenMigratesSingleUserDataToInitialAdministrator(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "single-user.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(singleUserSchemaFixture(t)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO modemdeck_admin_credentials (
+			singleton, username, password_hash
+		) VALUES (1, 'legacy-admin', 'legacy-hash');
+		INSERT INTO modemdeck_auth_sessions (
+			session_token_digest, csrf_token_digest,
+			created_at_unix, expires_at_unix
+		) VALUES (zeroblob(32), randomblob(32), 100, 200);
+		INSERT INTO modemdeck_lines (
+			line_id, phone_number, line_label
+		) VALUES ('line_legacy', '+818012345678', 'Legacy line');
+		UPDATE modemdeck_line_settings
+		SET default_line_id = 'line_legacy', revision = 4
+		WHERE singleton = 1;
+		UPDATE modemdeck_system_settings
+		SET language = 'en-US', revision = 3
+		WHERE singleton = 1;
+		UPDATE modemdeck_recording_settings
+		SET default_enabled = 1, revision = 2
+		WHERE singleton = 1;
+		INSERT INTO contacts (
+			id, display_name, preferred_line_id, is_favorite
+		) VALUES ('contact-legacy', 'Legacy Contact', 'line_legacy', 1);
+		INSERT INTO contact_phones (
+			id, contact_id, original_number, canonical_e164, is_primary
+		) VALUES (
+			'phone-legacy', 'contact-legacy',
+			'+81 80 1234 5678', '+818012345678', 1
+		);
+		INSERT INTO sms (
+			id, line_id, peer, content, type, timestamp, created_at
+		) VALUES
+			(1001, 'line_legacy', '+818012345678', 'first', 1,
+				'2026-07-28 05:00:00', '2026-07-28 05:00:00'),
+			(1002, 'line_legacy', '+818012345678', 'second', 1,
+				'2026-07-28 05:01:00', '2026-07-28 05:01:00');
+		INSERT INTO sms_contacts (
+			line_id, imsi, iccid, peer, last_sms_id, last_timestamp,
+			last_content, last_type, unread_count, marked_unread, is_favorite
+		) VALUES (
+			'line_legacy', '', '', '+818012345678', 1002,
+			'2026-07-28 05:01:00', 'second', 1, 1, 1, 1
+		);
+		INSERT INTO call_history (
+			id, line_id, direction, remote_number, phase,
+			created_at, ended_at, read_at, is_favorite
+		) VALUES (
+			'call-legacy', 'line_legacy', 'incoming', '+818012345678',
+			'ended', '2026-07-28 06:00:00', '2026-07-28 06:01:00',
+			'2026-07-28 06:02:00', 1
+		);
+		INSERT INTO modemdeck_call_recording_state (
+			call_id, is_favorite
+		) VALUES ('call-legacy', 1);
+		INSERT INTO modemdeck_telegram_units (
+			id, display_name
+		) VALUES ('telegram-legacy', 'Legacy bot');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	if err := ValidateSchema(context.Background(), database); err != nil {
+		t.Fatalf("ValidateSchema() after migration error = %v", err)
+	}
+
+	var (
+		username           string
+		passwordHash       string
+		role               string
+		enabled            bool
+		mustChangePassword bool
+	)
+	if err := database.QueryRow(
+		`SELECT username, password_hash, role, enabled, must_change_password
+		 FROM modemdeck_users WHERE id = ?`,
+		initialAdminUserID,
+	).Scan(
+		&username,
+		&passwordHash,
+		&role,
+		&enabled,
+		&mustChangePassword,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if username != "legacy-admin" || passwordHash != "legacy-hash" ||
+		role != "admin" || !enabled || mustChangePassword {
+		t.Fatalf(
+			"migrated administrator = %q hash %q role %q enabled %t change %t",
+			username,
+			passwordHash,
+			role,
+			enabled,
+			mustChangePassword,
+		)
+	}
+
+	var sessionCount int
+	if err := database.QueryRow(
+		`SELECT COUNT(*) FROM modemdeck_auth_sessions`,
+	).Scan(&sessionCount); err != nil {
+		t.Fatal(err)
+	}
+	if sessionCount != 0 {
+		t.Fatalf("migrated sessions = %d, want 0", sessionCount)
+	}
+
+	var (
+		contactOwner string
+		defaultLine  string
+		assignedLine string
+		language     string
+		recording    bool
+	)
+	if err := database.QueryRow(
+		`SELECT
+			(SELECT owner_user_id FROM contacts WHERE id = 'contact-legacy'),
+			(SELECT default_line_id FROM modemdeck_user_preferences
+			 WHERE user_id = ?),
+			(SELECT line_id FROM modemdeck_user_lines
+			 WHERE user_id = ? AND line_id = 'line_legacy'),
+			(SELECT language FROM modemdeck_user_preferences
+			 WHERE user_id = ?),
+			(SELECT recording_default_enabled
+			 FROM modemdeck_user_preferences WHERE user_id = ?)`,
+		initialAdminUserID,
+		initialAdminUserID,
+		initialAdminUserID,
+		initialAdminUserID,
+	).Scan(
+		&contactOwner,
+		&defaultLine,
+		&assignedLine,
+		&language,
+		&recording,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if contactOwner != initialAdminUserID ||
+		defaultLine != "line_legacy" ||
+		assignedLine != "line_legacy" ||
+		language != "en-US" ||
+		!recording {
+		t.Fatalf(
+			"migrated personal data = owner %q default %q assigned %q language %q recording %t",
+			contactOwner,
+			defaultLine,
+			assignedLine,
+			language,
+			recording,
+		)
+	}
+
+	var (
+		lastReadSMSID   int64
+		markedUnread    bool
+		messageFavorite bool
+		callRead        bool
+		callFavorite    bool
+		recordFavorite  bool
+	)
+	if err := database.QueryRow(
+		`SELECT
+			(SELECT last_read_sms_id
+			 FROM modemdeck_user_message_thread_state
+			 WHERE user_id = ? AND line_id = 'line_legacy'
+			   AND peer = '+818012345678'),
+			(SELECT marked_unread
+			 FROM modemdeck_user_message_thread_state
+			 WHERE user_id = ? AND line_id = 'line_legacy'
+			   AND peer = '+818012345678'),
+			(SELECT is_favorite
+			 FROM modemdeck_user_message_thread_state
+			 WHERE user_id = ? AND line_id = 'line_legacy'
+			   AND peer = '+818012345678'),
+			(SELECT is_read FROM modemdeck_user_call_state
+			 WHERE user_id = ? AND call_id = 'call-legacy'),
+			(SELECT is_favorite FROM modemdeck_user_call_state
+			 WHERE user_id = ? AND call_id = 'call-legacy'),
+			(SELECT is_favorite FROM modemdeck_user_recording_state
+			 WHERE user_id = ? AND call_id = 'call-legacy')`,
+		initialAdminUserID,
+		initialAdminUserID,
+		initialAdminUserID,
+		initialAdminUserID,
+		initialAdminUserID,
+		initialAdminUserID,
+	).Scan(
+		&lastReadSMSID,
+		&markedUnread,
+		&messageFavorite,
+		&callRead,
+		&callFavorite,
+		&recordFavorite,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if lastReadSMSID != 1001 || !markedUnread || !messageFavorite ||
+		!callRead || !callFavorite || !recordFavorite {
+		t.Fatalf(
+			"migrated communication state = read SMS %d marked %t favorites %t/%t/%t call read %t",
+			lastReadSMSID,
+			markedUnread,
+			messageFavorite,
+			callFavorite,
+			recordFavorite,
+			callRead,
+		)
+	}
+
+	var (
+		scopeSource    string
+		assignedUserID string
+		manualAllLines bool
+	)
+	if err := database.QueryRow(
+		`SELECT scope_source, assigned_user_id, manual_all_lines
+		 FROM modemdeck_telegram_units
+		 WHERE id = 'telegram-legacy'`,
+	).Scan(&scopeSource, &assignedUserID, &manualAllLines); err != nil {
+		t.Fatal(err)
+	}
+	if scopeSource != "manual" || assignedUserID != "" || !manualAllLines {
+		t.Fatalf(
+			"migrated Telegram scope = %q user %q all lines %t",
+			scopeSource,
+			assignedUserID,
+			manualAllLines,
+		)
+	}
+}
+
 func TestOpenMigratesDeviceAliasToNameAndPreservesValue(t *testing.T) {
 	t.Parallel()
 
@@ -1634,5 +1885,83 @@ CREATE INDEX idx_call_history_endpoint_line_ended_at ON call_history(endpoint_li
 		"singleton, default_line_id, revision, updated_at",
 		"singleton, default_device_imei, revision, updated_at",
 	)
+	return schema
+}
+
+func singleUserSchemaFixture(t *testing.T) string {
+	t.Helper()
+	schema := currentSchemaSQL
+	removeTable := func(name string) {
+		t.Helper()
+		start := "CREATE TABLE " + name + " ("
+		startIndex := strings.Index(schema, start)
+		if startIndex < 0 {
+			t.Fatalf("single-user schema fixture did not find table %q", name)
+		}
+		endOffset := strings.Index(schema[startIndex:], ");\n\n")
+		if endOffset < 0 {
+			t.Fatalf("single-user schema fixture did not find end of table %q", name)
+		}
+		endIndex := startIndex + endOffset + len(");\n\n")
+		schema = schema[:startIndex] + schema[endIndex:]
+	}
+	remove := func(fragment string) {
+		t.Helper()
+		updated := strings.Replace(schema, fragment, "", 1)
+		if updated == schema {
+			t.Fatalf(
+				"single-user schema fixture did not find fragment %q",
+				fragment,
+			)
+		}
+		schema = updated
+	}
+	replace := func(current, legacy string) {
+		t.Helper()
+		updated := strings.Replace(schema, current, legacy, 1)
+		if updated == schema {
+			t.Fatalf(
+				"single-user schema fixture did not find fragment %q",
+				current,
+			)
+		}
+		schema = updated
+	}
+
+	for _, table := range []string{
+		"modemdeck_users",
+		"modemdeck_user_profile_contacts",
+		"modemdeck_user_message_thread_state",
+		"modemdeck_user_call_state",
+		"modemdeck_user_recording_state",
+		"modemdeck_user_lines",
+		"modemdeck_user_preferences",
+	} {
+		removeTable(table)
+	}
+	remove("\n\t\t\tuser_id TEXT NOT NULL DEFAULT 'user_admin',")
+	replace(
+		"expires_at_unix INTEGER NOT NULL CHECK (expires_at_unix >= created_at_unix),\n"+
+			"\t\t\tFOREIGN KEY (user_id) REFERENCES modemdeck_users(id) "+
+			"ON DELETE CASCADE ON UPDATE CASCADE",
+		"expires_at_unix INTEGER NOT NULL CHECK (expires_at_unix >= created_at_unix)",
+	)
+	remove("\n\t\t\towner_user_id TEXT NOT NULL DEFAULT 'user_admin',")
+	remove(
+		"\n\t\t\tscope_source TEXT NOT NULL DEFAULT 'manual'\n" +
+			"\t\t\t\tCHECK (scope_source IN ('manual', 'user'))," +
+			"\n\t\t\tassigned_user_id TEXT NOT NULL DEFAULT ''," +
+			"\n\t\t\tmanual_all_lines NUMERIC NOT NULL DEFAULT 1,",
+	)
+	for _, index := range []string{
+		"CREATE UNIQUE INDEX ux_modemdeck_single_admin " +
+			"ON modemdeck_users(role) WHERE role = 'admin';\n\n",
+		"CREATE INDEX idx_modemdeck_user_lines_line " +
+			"ON modemdeck_user_lines(line_id, user_id);\n\n",
+		"CREATE INDEX idx_contacts_owner_display_name " +
+			"ON contacts(owner_user_id, display_name);\n\n",
+	} {
+		remove(index)
+	}
 	return schema
 }

@@ -14,6 +14,7 @@ const (
 type Resource string
 
 const (
+	ResourceSession    Resource = "session"
 	ResourceLines      Resource = "lines"
 	ResourceNetwork    Resource = "network"
 	ResourceCalls      Resource = "calls"
@@ -175,7 +176,8 @@ func normalizedResources(resources []Resource) []Resource {
 	normalized := make([]Resource, 0, len(resources))
 	for _, resource := range resources {
 		switch resource {
-		case ResourceLines,
+		case ResourceSession,
+			ResourceLines,
 			ResourceNetwork,
 			ResourceCalls,
 			ResourceMessages,

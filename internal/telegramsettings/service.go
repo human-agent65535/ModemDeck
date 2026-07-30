@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/store"
 	"github.com/human-agent65535/modemdeck/internal/telegram"
 )
@@ -33,45 +34,56 @@ type SecretBox interface {
 }
 
 type Unit struct {
-	ID              string   `json:"id"`
-	DisplayName     string   `json:"display_name"`
-	Enabled         bool     `json:"enabled"`
-	ChatID          string   `json:"chat_id"`
-	AdminID         string   `json:"admin_id"`
-	LineScopes      []string `json:"line_scopes"`
-	IncomingSMS     bool     `json:"incoming_sms"`
-	MissedCalls     bool     `json:"missed_calls"`
-	TokenConfigured bool     `json:"token_configured"`
-	TokenHint       string   `json:"token_hint"`
-	BotUsername     string   `json:"bot_username"`
-	VerifiedAt      string   `json:"verified_at"`
-	LastErrorClass  string   `json:"last_error_class"`
-	Revision        int64    `json:"revision"`
-	CreatedAt       string   `json:"created_at"`
-	UpdatedAt       string   `json:"updated_at"`
+	ID               string   `json:"id"`
+	DisplayName      string   `json:"display_name"`
+	Enabled          bool     `json:"enabled"`
+	ChatID           string   `json:"chat_id"`
+	AdminID          string   `json:"admin_id"`
+	ScopeSource      string   `json:"scope_source"`
+	AssignedUserID   string   `json:"assigned_user_id,omitempty"`
+	AssignedUsername string   `json:"assigned_username,omitempty"`
+	ManualAllLines   bool     `json:"manual_all_lines"`
+	EffectiveEnabled bool     `json:"effective_enabled"`
+	LineScopes       []string `json:"line_scopes"`
+	IncomingSMS      bool     `json:"incoming_sms"`
+	MissedCalls      bool     `json:"missed_calls"`
+	TokenConfigured  bool     `json:"token_configured"`
+	TokenHint        string   `json:"token_hint"`
+	BotUsername      string   `json:"bot_username"`
+	VerifiedAt       string   `json:"verified_at"`
+	LastErrorClass   string   `json:"last_error_class"`
+	Revision         int64    `json:"revision"`
+	CreatedAt        string   `json:"created_at"`
+	UpdatedAt        string   `json:"updated_at"`
 }
 
 type CreateInput struct {
-	DisplayName string
-	Enabled     bool
-	BotToken    string
-	ChatID      string
-	AdminID     string
-	LineScopes  []string
-	IncomingSMS bool
-	MissedCalls bool
+	DisplayName    string
+	Enabled        bool
+	BotToken       string
+	ChatID         string
+	AdminID        string
+	ScopeSource    string
+	AssignedUserID string
+	ManualAllLines bool
+	LineScopes     []string
+	IncomingSMS    bool
+	MissedCalls    bool
 }
 
 type UpdateInput struct {
-	Revision    int64
-	DisplayName string
-	Enabled     bool
-	BotToken    *string
-	ChatID      string
-	AdminID     string
-	LineScopes  []string
-	IncomingSMS bool
-	MissedCalls bool
+	Revision       int64
+	DisplayName    string
+	Enabled        bool
+	BotToken       *string
+	ChatID         string
+	AdminID        string
+	ScopeSource    string
+	AssignedUserID string
+	ManualAllLines bool
+	LineScopes     []string
+	IncomingSMS    bool
+	MissedCalls    bool
 }
 
 type Service struct {
@@ -103,6 +115,12 @@ func (s *Service) Changes() <-chan struct{} {
 	return s.changes
 }
 
+// NotifyAccessChanged reloads user-scoped units after an administrator changes
+// a user's enabled state or line assignments.
+func (s *Service) NotifyAccessChanged() {
+	s.notifyChange()
+}
+
 func (s *Service) List(ctx context.Context) ([]Unit, error) {
 	records, err := s.repository.TelegramUnits(ctx)
 	if err != nil {
@@ -120,15 +138,18 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (Unit, error) {
 	if err != nil {
 		return Unit{}, operationError(CodeInternal, "", "Telegram unit ID could not be generated", err)
 	}
-	record, err := s.buildRecord(id, store.TelegramUnitRecord{}, inputFields{
-		DisplayName: input.DisplayName,
-		Enabled:     input.Enabled,
-		BotToken:    &input.BotToken,
-		ChatID:      input.ChatID,
-		AdminID:     input.AdminID,
-		LineScopes:  input.LineScopes,
-		IncomingSMS: input.IncomingSMS,
-		MissedCalls: input.MissedCalls,
+	record, err := s.buildRecord(ctx, id, store.TelegramUnitRecord{}, inputFields{
+		DisplayName:    input.DisplayName,
+		Enabled:        input.Enabled,
+		BotToken:       &input.BotToken,
+		ChatID:         input.ChatID,
+		AdminID:        input.AdminID,
+		ScopeSource:    input.ScopeSource,
+		AssignedUserID: input.AssignedUserID,
+		ManualAllLines: input.ManualAllLines,
+		LineScopes:     input.LineScopes,
+		IncomingSMS:    input.IncomingSMS,
+		MissedCalls:    input.MissedCalls,
 	})
 	if err != nil {
 		return Unit{}, err
@@ -164,15 +185,18 @@ func (s *Service) Update(ctx context.Context, id string, input UpdateInput) (Uni
 			store.ErrTelegramUnitRevisionConflict,
 		)
 	}
-	record, err := s.buildRecord(id, current, inputFields{
-		DisplayName: input.DisplayName,
-		Enabled:     input.Enabled,
-		BotToken:    input.BotToken,
-		ChatID:      input.ChatID,
-		AdminID:     input.AdminID,
-		LineScopes:  input.LineScopes,
-		IncomingSMS: input.IncomingSMS,
-		MissedCalls: input.MissedCalls,
+	record, err := s.buildRecord(ctx, id, current, inputFields{
+		DisplayName:    input.DisplayName,
+		Enabled:        input.Enabled,
+		BotToken:       input.BotToken,
+		ChatID:         input.ChatID,
+		AdminID:        input.AdminID,
+		ScopeSource:    input.ScopeSource,
+		AssignedUserID: input.AssignedUserID,
+		ManualAllLines: input.ManualAllLines,
+		LineScopes:     input.LineScopes,
+		IncomingSMS:    input.IncomingSMS,
+		MissedCalls:    input.MissedCalls,
 	})
 	if err != nil {
 		return Unit{}, err
@@ -223,6 +247,25 @@ func (s *Service) RuntimeConfig(ctx context.Context, id string) (telegram.Config
 			MissedCalls: record.MissedCalls,
 		},
 	}
+	if record.ScopeSource == "user" {
+		config.Enabled = config.Enabled && record.AssignedUserEnabled
+		config.LineScopeMode = "selected"
+		config.ResolveContacts = true
+		principal := auth.Principal{
+			UserID:         record.AssignedUserID,
+			Username:       record.AssignedUsername,
+			Role:           auth.Role(record.AssignedUserRole),
+			AllowedLineIDs: append([]string(nil), record.LineScopes...),
+		}
+		config.Principal = &principal
+	} else {
+		config.ResolveContacts = false
+		if record.ManualAllLines {
+			config.LineScopeMode = "all"
+		} else {
+			config.LineScopeMode = "selected"
+		}
+	}
 	if err := config.Validate(); err != nil {
 		return telegram.Config{}, operationError(
 			CodeInvalidArgument,
@@ -235,17 +278,21 @@ func (s *Service) RuntimeConfig(ctx context.Context, id string) (telegram.Config
 }
 
 type inputFields struct {
-	DisplayName string
-	Enabled     bool
-	BotToken    *string
-	ChatID      string
-	AdminID     string
-	LineScopes  []string
-	IncomingSMS bool
-	MissedCalls bool
+	DisplayName    string
+	Enabled        bool
+	BotToken       *string
+	ChatID         string
+	AdminID        string
+	ScopeSource    string
+	AssignedUserID string
+	ManualAllLines bool
+	LineScopes     []string
+	IncomingSMS    bool
+	MissedCalls    bool
 }
 
 func (s *Service) buildRecord(
+	ctx context.Context,
 	id string,
 	current store.TelegramUnitRecord,
 	input inputFields,
@@ -267,6 +314,21 @@ func (s *Service) buildRecord(
 	if err != nil {
 		return store.TelegramUnitRecord{}, operationError(CodeInvalidArgument, "admin_id", err.Error(), err)
 	}
+	scopeSource := strings.TrimSpace(input.ScopeSource)
+	legacyScope := scopeSource == ""
+	if legacyScope {
+		scopeSource = "manual"
+		input.ManualAllLines = len(input.LineScopes) == 0
+	}
+	if scopeSource != "manual" && scopeSource != "user" {
+		return store.TelegramUnitRecord{}, operationError(
+			CodeInvalidArgument,
+			"scope_source",
+			"Access source must be manual or user",
+			nil,
+		)
+	}
+	assignedUserID := strings.TrimSpace(input.AssignedUserID)
 	lineScopes, err := normalizeLineScopes(input.LineScopes)
 	if err != nil {
 		return store.TelegramUnitRecord{}, operationError(CodeInvalidArgument, "line_scopes", err.Error(), err)
@@ -278,9 +340,44 @@ func (s *Service) buildRecord(
 	record.Enabled = input.Enabled
 	record.ChatID = chatID
 	record.AdminID = adminID
+	record.ScopeSource = scopeSource
+	record.AssignedUserID = ""
+	record.ManualAllLines = input.ManualAllLines
 	record.LineScopes = lineScopes
 	record.IncomingSMS = input.IncomingSMS
 	record.MissedCalls = input.MissedCalls
+	if scopeSource == "user" {
+		if assignedUserID == "" {
+			return store.TelegramUnitRecord{}, operationError(
+				CodeInvalidArgument,
+				"assigned_user_id",
+				"Select a user",
+				nil,
+			)
+		}
+		if users, ok := s.repository.(interface {
+			User(context.Context, string) (store.User, error)
+		}); ok {
+			if _, err := users.User(ctx, assignedUserID); err != nil {
+				return store.TelegramUnitRecord{}, operationError(
+					CodeInvalidArgument,
+					"assigned_user_id",
+					"Selected user does not exist",
+					err,
+				)
+			}
+		}
+		record.AssignedUserID = assignedUserID
+		record.ManualAllLines = false
+		record.LineScopes = nil
+	} else if !record.ManualAllLines && len(record.LineScopes) == 0 && input.Enabled && !legacyScope {
+		return store.TelegramUnitRecord{}, operationError(
+			CodeInvalidArgument,
+			"line_scopes",
+			"Select at least one line or all lines",
+			nil,
+		)
+	}
 
 	tokenChanged := input.BotToken != nil
 	if tokenChanged {
@@ -334,7 +431,14 @@ func (s *Service) buildRecord(
 		Enabled:    input.Enabled,
 		ChatID:     chatID,
 		AdminID:    adminID,
-		LineScopes: lineScopes,
+		LineScopes: record.LineScopes,
+	}
+	if record.ScopeSource == "user" {
+		config.LineScopeMode = "selected"
+	} else if record.ManualAllLines {
+		config.LineScopeMode = "all"
+	} else {
+		config.LineScopeMode = "selected"
 	}
 	if tokenConfigured {
 		token, err := s.openToken(record)
@@ -385,11 +489,17 @@ func publicUnit(record store.TelegramUnitRecord) Unit {
 		lineScopes = []string{}
 	}
 	return Unit{
-		ID:              record.ID,
-		DisplayName:     record.DisplayName,
-		Enabled:         record.Enabled,
-		ChatID:          formatIdentifier(record.ChatID),
-		AdminID:         formatIdentifier(record.AdminID),
+		ID:               record.ID,
+		DisplayName:      record.DisplayName,
+		Enabled:          record.Enabled,
+		ChatID:           formatIdentifier(record.ChatID),
+		AdminID:          formatIdentifier(record.AdminID),
+		ScopeSource:      record.ScopeSource,
+		AssignedUserID:   record.AssignedUserID,
+		AssignedUsername: record.AssignedUsername,
+		ManualAllLines:   record.ManualAllLines,
+		EffectiveEnabled: record.Enabled &&
+			(record.ScopeSource != "user" || record.AssignedUserEnabled),
 		LineScopes:      lineScopes,
 		IncomingSMS:     record.IncomingSMS,
 		MissedCalls:     record.MissedCalls,

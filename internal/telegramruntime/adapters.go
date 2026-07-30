@@ -36,9 +36,15 @@ type Repository interface {
 }
 
 type adapters struct {
-	communications CommunicationService
-	repository     Repository
-	runtimeEvents  runtimeevents.Publisher
+	communications              CommunicationService
+	repository                  Repository
+	runtimeEvents               runtimeevents.Publisher
+	resolveContacts             bool
+	contactResolutionConfigured bool
+}
+
+type contactNameRepository interface {
+	ContactNameForNumber(context.Context, string) (string, error)
 }
 
 func (a adapters) Lines(ctx context.Context) ([]telegram.Line, error) {
@@ -95,13 +101,23 @@ func (a adapters) RecentSMS(ctx context.Context, query telegram.SMSQuery) ([]tel
 	}
 	result := make([]telegram.SMS, 0, len(messages))
 	for _, message := range messages {
+		contactName := ""
+		if a.contactResolutionEnabled() {
+			if resolver, ok := a.repository.(contactNameRepository); ok {
+				contactName, err = resolver.ContactNameForNumber(ctx, message.Peer)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
 		result = append(result, telegram.SMS{
-			ID:         message.EndpointMessageID,
-			LineID:     message.LineID,
-			Direction:  message.Direction,
-			Peer:       message.Peer,
-			Body:       message.Content,
-			ReceivedAt: parseDatabaseTime(message.Timestamp),
+			ID:          message.EndpointMessageID,
+			LineID:      message.LineID,
+			Direction:   message.Direction,
+			Peer:        message.Peer,
+			ContactName: contactName,
+			Body:        message.Content,
+			ReceivedAt:  parseDatabaseTime(message.Timestamp),
 		})
 	}
 	return result, nil
@@ -145,12 +161,16 @@ func (a adapters) RecentCalls(ctx context.Context, query telegram.CallQuery) ([]
 			occurredAt = parseDatabaseTime(call.StartedAt)
 		}
 		_, hasRecording := recorded[call.ID]
+		contactName := ""
+		if a.contactResolutionEnabled() {
+			contactName = call.ContactName
+		}
 		result = append(result, telegram.Call{
 			ID:           call.ID,
 			LineID:       lineID,
 			Direction:    call.Direction,
 			Peer:         call.RemoteNumber,
-			ContactName:  call.ContactName,
+			ContactName:  contactName,
 			OccurredAt:   occurredAt,
 			Missed:       call.Missed,
 			Read:         call.Read,
@@ -161,6 +181,10 @@ func (a adapters) RecentCalls(ctx context.Context, query telegram.CallQuery) ([]
 		}
 	}
 	return result, nil
+}
+
+func (a adapters) contactResolutionEnabled() bool {
+	return !a.contactResolutionConfigured || a.resolveContacts
 }
 
 func (a adapters) SendSMS(ctx context.Context, request telegram.SMSRequest) error {

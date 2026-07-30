@@ -25,7 +25,10 @@ test('mobile shell uses page context and a dedicated central dial action', async
     shell,
     /<span class="mobile-nav__label">\{\{ t\('shell\.mobileCall'\) \}\}<\/span>/
   )
-  assert.match(shell, /:to="\{ name: 'settings' \}"/)
+  assert.match(
+    shell,
+    /:to="\{ name: 'settings', params: \{ section: settingsLanding \} \}"/
+  )
 })
 
 test('mobile navigation keeps one label baseline and hides labels when space is tight', async () => {

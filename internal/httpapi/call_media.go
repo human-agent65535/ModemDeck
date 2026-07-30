@@ -28,6 +28,9 @@ func (api *API) callMediaExchange(
 	request *http.Request,
 	callID string,
 ) {
+	if !api.requireCallAccess(response, request, callID) {
+		return
+	}
 	switch request.Method {
 	case http.MethodPost:
 		api.exchangeCallMedia(response, request, callID)

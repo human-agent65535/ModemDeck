@@ -3,6 +3,7 @@ package telegramsettings
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -148,7 +149,118 @@ func TestServiceRequiresExactIdentifiersAndRevision(t *testing.T) {
 	}
 }
 
+func TestServiceSeparatesUserAndManualRuntimeAccess(t *testing.T) {
+	t.Parallel()
+
+	service, repository, sqlite := newTestServiceWithRepository(t)
+	ctx := context.Background()
+	for _, lineID := range []string{"line_alpha", "line_beta"} {
+		if _, err := sqlite.Exec(
+			`INSERT INTO modemdeck_lines (line_id, line_label) VALUES (?, ?)`,
+			lineID,
+			lineID,
+		); err != nil {
+			t.Fatalf("insert line %s: %v", lineID, err)
+		}
+	}
+	member, err := repository.CreateMember(ctx, store.CreateMemberInput{
+		Username:     "telegram-member",
+		PasswordHash: "member-hash",
+		LineIDs:      []string{"line_alpha"},
+	})
+	if err != nil {
+		t.Fatalf("CreateMember() error = %v", err)
+	}
+
+	userUnit, err := service.Create(ctx, CreateInput{
+		DisplayName:    "Member bot",
+		Enabled:        true,
+		BotToken:       testBotToken,
+		ChatID:         "-100123",
+		AdminID:        "42",
+		ScopeSource:    "user",
+		AssignedUserID: member.ID,
+		IncomingSMS:    true,
+		MissedCalls:    true,
+	})
+	if err != nil {
+		t.Fatalf("Create(user mode) error = %v", err)
+	}
+	assertChangeSignal(t, service)
+	userConfig, err := service.RuntimeConfig(ctx, userUnit.ID)
+	if err != nil {
+		t.Fatalf("RuntimeConfig(user mode) error = %v", err)
+	}
+	if !userConfig.Enabled ||
+		userConfig.LineScopeMode != "selected" ||
+		len(userConfig.LineScopes) != 1 ||
+		userConfig.LineScopes[0] != "line_alpha" ||
+		!userConfig.ResolveContacts ||
+		userConfig.Principal == nil ||
+		userConfig.Principal.UserID != member.ID {
+		t.Fatalf("user-mode runtime config = %+v", userConfig)
+	}
+
+	member, err = repository.UpdateMember(ctx, member.ID, store.UpdateMemberInput{
+		Username: member.Username,
+		Enabled:  true,
+		LineIDs:  []string{"line_alpha", "line_beta"},
+		Revision: member.Revision,
+	})
+	if err != nil {
+		t.Fatalf("UpdateMember() error = %v", err)
+	}
+	service.NotifyAccessChanged()
+	assertChangeSignal(t, service)
+	userConfig, err = service.RuntimeConfig(ctx, userUnit.ID)
+	if err != nil {
+		t.Fatalf("RuntimeConfig(user mode after assignment) error = %v", err)
+	}
+	if len(userConfig.LineScopes) != 2 ||
+		userConfig.LineScopes[0] != "line_alpha" ||
+		userConfig.LineScopes[1] != "line_beta" ||
+		userConfig.Principal == nil ||
+		len(userConfig.Principal.AllowedLineIDs) != 2 {
+		t.Fatalf("updated user-mode runtime config = %+v", userConfig)
+	}
+
+	manualUnit, err := service.Create(ctx, CreateInput{
+		DisplayName:    "Manual bot",
+		Enabled:        true,
+		BotToken:       "987654321:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi",
+		ChatID:         "-100124",
+		AdminID:        "43",
+		ScopeSource:    "manual",
+		ManualAllLines: false,
+		LineScopes:     []string{"line_beta"},
+		IncomingSMS:    true,
+		MissedCalls:    true,
+	})
+	if err != nil {
+		t.Fatalf("Create(manual mode) error = %v", err)
+	}
+	assertChangeSignal(t, service)
+	manualConfig, err := service.RuntimeConfig(ctx, manualUnit.ID)
+	if err != nil {
+		t.Fatalf("RuntimeConfig(manual mode) error = %v", err)
+	}
+	if !manualConfig.Enabled ||
+		manualConfig.LineScopeMode != "selected" ||
+		len(manualConfig.LineScopes) != 1 ||
+		manualConfig.LineScopes[0] != "line_beta" ||
+		manualConfig.ResolveContacts ||
+		manualConfig.Principal != nil {
+		t.Fatalf("manual-mode runtime config = %+v", manualConfig)
+	}
+}
+
 func newTestService(t *testing.T) *Service {
+	t.Helper()
+	service, _, _ := newTestServiceWithRepository(t)
+	return service
+}
+
+func newTestServiceWithRepository(t *testing.T) (*Service, *store.Store, *sql.DB) {
 	t.Helper()
 	directory := t.TempDir()
 	sqlite, err := database.Open(context.Background(), database.Config{
@@ -170,7 +282,7 @@ func newTestService(t *testing.T) *Service {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	return service
+	return service, repository, sqlite
 }
 
 func assertChangeSignal(t *testing.T, service *Service) {

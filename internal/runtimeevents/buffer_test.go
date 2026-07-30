@@ -31,6 +31,7 @@ func TestBufferPublishesIdempotentlyAndReplaysAfterID(t *testing.T) {
 	second, created := buffer.Publish(Event{
 		EventKey: "network:1",
 		Resources: []Resource{
+			ResourceSession,
 			ResourceNetwork,
 			ResourceCalls,
 			ResourceMessages,
@@ -42,6 +43,7 @@ func TestBufferPublishesIdempotentlyAndReplaysAfterID(t *testing.T) {
 		!reflect.DeepEqual(
 			second.Resources,
 			[]Resource{
+				ResourceSession,
 				ResourceNetwork,
 				ResourceCalls,
 				ResourceMessages,

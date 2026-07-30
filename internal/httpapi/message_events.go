@@ -1,10 +1,13 @@
 package httpapi
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/messageevents"
 )
 
@@ -50,6 +53,13 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 		return
 	}
 	for _, event := range window.Events {
+		allowed, err := api.currentStreamCanAccessLine(request, event.LineID)
+		if err != nil {
+			return
+		}
+		if !allowed {
+			continue
+		}
 		if !writeSSE(response, flusher, "sms", event.ID, incomingMessageEvent(event)) {
 			return
 		}
@@ -67,16 +77,67 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 		case <-request.Context().Done():
 			return
 		case event, open := <-updates:
-			if !open || !writeSSE(response, flusher, "sms", event.ID, incomingMessageEvent(event)) {
+			if !open {
+				return
+			}
+			allowed, err := api.currentStreamCanAccessLine(request, event.LineID)
+			if err != nil {
+				return
+			}
+			if !allowed {
+				continue
+			}
+			if !writeSSE(response, flusher, "sms", event.ID, incomingMessageEvent(event)) {
 				return
 			}
 		case <-heartbeat.C:
+			if _, _, err := api.currentStreamPrincipal(request); err != nil {
+				return
+			}
 			if _, err := fmt.Fprint(response, ": keepalive\n\n"); err != nil {
 				return
 			}
 			flusher.Flush()
 		}
 	}
+}
+
+func (api *API) currentStreamCanAccessLine(
+	request *http.Request,
+	lineID string,
+) (bool, error) {
+	principal, scoped, err := api.currentStreamPrincipal(request)
+	if err != nil {
+		return false, err
+	}
+	return !scoped || principal.CanAccessLine(strings.TrimSpace(lineID)), nil
+}
+
+func (api *API) currentStreamPrincipal(
+	request *http.Request,
+) (auth.Principal, bool, error) {
+	if api.authenticator == nil {
+		principal, exists := auth.PrincipalFromContext(request.Context())
+		return principal, exists, nil
+	}
+	cookie, err := request.Cookie(sessionCookieName)
+	if err != nil {
+		return auth.Principal{}, false, err
+	}
+	authentication, err := api.authenticator.Authenticate(
+		request.Context(),
+		auth.SessionToken(cookie.Value),
+	)
+	if err != nil {
+		return auth.Principal{}, false, err
+	}
+	principal, exists := authentication.Principal()
+	if !exists {
+		if _, scoped := auth.PrincipalFromContext(request.Context()); scoped {
+			return auth.Principal{}, false, errors.New("current session has no user principal")
+		}
+	}
+	return principal, exists, nil
 }
 
 func incomingMessageEvent(event messageevents.IncomingSMS) incomingMessageEventResponse {

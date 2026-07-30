@@ -17,9 +17,10 @@ test('account password changes use the authenticated CSRF-protected API', async 
   )
 })
 
-test('system settings validate password replacement and end the current session', async () => {
-  const [component, system, settings, login] = await Promise.all([
+test('account settings validate password replacement and end the current session', async () => {
+  const [component, account, system, settings, login] = await Promise.all([
     source('../src/components/AccountSecurityForm.vue'),
+    source('../src/components/AccountSettingsPanel.vue'),
     source('../src/components/SystemSettingsForm.vue'),
     source('../src/views/SettingsView.vue'),
     source('../src/views/LoginView.vue')
@@ -30,8 +31,10 @@ test('system settings validate password replacement and end the current session'
   assert.match(component, /await gateway\.changePassword/)
   assert.match(component, /clearSession\(\)/)
   assert.match(component, /query: \{ passwordChanged: '1' \}/)
-  assert.match(system, /<AccountSecurityForm \/>/)
-  assert.doesNotMatch(settings, /id: 'account'/)
+  assert.match(account, /<AccountSecurityForm \/>/)
+  assert.doesNotMatch(system, /<AccountSecurityForm \/>/)
+  assert.match(settings, /id: 'account'/)
+  assert.match(settings, /selectedSection === 'account'/)
   assert.match(system, /<select/)
   assert.match(login, /t\('auth\.passwordChanged'\)/)
 })

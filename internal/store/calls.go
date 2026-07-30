@@ -3,8 +3,11 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/human-agent65535/modemdeck/internal/auth"
 )
 
 func ParseCallKind(value string) (CallKind, error) {
@@ -22,28 +25,66 @@ func ParseCallKind(value string) (CallKind, error) {
 	}
 }
 
+func (s *Store) CallLineID(ctx context.Context, callID string) (string, error) {
+	var lineID string
+	err := s.database.QueryRowContext(
+		ctx,
+		"SELECT line_id FROM call_history WHERE id = ?",
+		strings.TrimSpace(callID),
+	).Scan(&lineID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrCallNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("query call line: %w", err)
+	}
+	return lineID, nil
+}
+
 func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 	kind, err := ParseCallKind(string(query.Kind))
 	if err != nil {
 		return nil, err
 	}
 	limit := boundedLimit(query.Limit)
+	contactOwner := contactOwnerSQL(ctx, "contacts")
+	stateJoin := ""
+	readExpression := "ch.read_at"
+	favoriteExpression := "ch.is_favorite"
+	if principal, scoped := auth.PrincipalFromContext(ctx); scoped {
+		userID := strings.ReplaceAll(principal.UserID, "'", "''")
+		stateJoin = ` LEFT JOIN modemdeck_user_call_state AS user_state
+			ON user_state.user_id = '` + userID + `'
+			AND user_state.call_id = ch.id`
+		readExpression = `CASE
+			WHEN COALESCE(user_state.is_read, 0) = 1 THEN ch.updated_at
+			ELSE NULL
+		END`
+		favoriteExpression = "COALESCE(user_state.is_favorite, 0)"
+	}
 	statement := fmt.Sprintf(`SELECT
 		ch.id, ch.request_id, ch.line_id, ch.endpoint_line_id, ch.local_phone, ch.line_imsi,
 		ch.line_iccid, ch.direction, ch.remote_number, ch.reported_remote_number,
 		%s, %s,
 			ch.endpoint_id, ch.endpoint_call_id, ch.phase, ch.revision,
 			ch.created_at, ch.updated_at, ch.active_at, ch.ended_at,
-			ch.read_at, ch.is_favorite, ch.end_reason, ch.failure_code, ch.bearer, ch.state_reason,
+			%s, %s, ch.end_reason, ch.failure_code, ch.bearer, ch.state_reason,
 			ch.state_reason_code, ch.multiparty, ch.audio_port,
 			ch.audio_encoding, ch.audio_resolution, ch.audio_rate,
 			ch.media_available
-		FROM call_history ch`,
-		fmt.Sprintf(contactIDForNumberSQL, "ch.remote_number"),
-		fmt.Sprintf(contactNameForNumberSQL, "ch.remote_number"),
+		FROM call_history ch%s`,
+		fmt.Sprintf(contactIDForNumberSQL, "ch.remote_number", contactOwner),
+		fmt.Sprintf(contactNameForNumberSQL, "ch.remote_number", contactOwner),
+		readExpression,
+		favoriteExpression,
+		stateJoin,
 	)
-	conditions := make([]string, 0, 2)
+	conditions := make([]string, 0, 3)
 	arguments := make([]any, 0, 4)
+	if condition, values, scoped := principalLineScope(ctx, "ch.line_id"); scoped {
+		conditions = append(conditions, condition)
+		arguments = append(arguments, values...)
+	}
 	switch kind {
 	case CallKindIncoming:
 		conditions = append(conditions, "ch.direction = ?")
@@ -71,6 +112,7 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 				SELECT 1 FROM contact_phones
 				JOIN contacts ON contacts.id = contact_phones.contact_id
 				WHERE contact_phones.canonical_e164 = ch.remote_number
+				`+contactOwnerSQL(ctx, "contacts")+`
 				AND LOWER(COALESCE(contacts.display_name, '')) LIKE ? ESCAPE '\'
 			)
 		)`)
@@ -182,6 +224,9 @@ func (s *Store) SetCallFavoritesByIDs(
 	if len(normalized) > 100 {
 		return fmt.Errorf("update call favorite state: too many call IDs")
 	}
+	if principal, scoped := auth.PrincipalFromContext(ctx); scoped {
+		return s.setUserCallFavorites(ctx, principal, normalized, favorite)
+	}
 	transaction, err := s.database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin call favorite update: %w", err)
@@ -216,7 +261,76 @@ func (s *Store) SetCallFavoritesByIDs(
 	return nil
 }
 
+func (s *Store) setUserCallFavorites(
+	ctx context.Context,
+	principal auth.Principal,
+	callIDs []string,
+	favorite bool,
+) error {
+	transaction, err := s.database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin user call favorite update: %w", err)
+	}
+	defer transaction.Rollback()
+	for _, callID := range callIDs {
+		var lineID string
+		if err := transaction.QueryRowContext(
+			ctx,
+			"SELECT line_id FROM call_history WHERE id = ?",
+			callID,
+		).Scan(&lineID); errors.Is(err, sql.ErrNoRows) {
+			return ErrCallNotFound
+		} else if err != nil {
+			return fmt.Errorf("query favorite call line: %w", err)
+		}
+		if !principal.CanAccessLine(lineID) {
+			return ErrCallNotFound
+		}
+		if _, err := transaction.ExecContext(ctx, `
+			INSERT INTO modemdeck_user_call_state (
+				user_id, call_id, is_read, is_favorite, updated_at
+			) VALUES (?, ?, 0, ?, CURRENT_TIMESTAMP)
+			ON CONFLICT(user_id, call_id) DO UPDATE SET
+				is_favorite = excluded.is_favorite,
+				updated_at = CURRENT_TIMESTAMP
+		`, principal.UserID, callID, favorite); err != nil {
+			return fmt.Errorf("update user call favorite: %w", err)
+		}
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit user call favorite update: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) MarkMissedCallsRead(ctx context.Context) error {
+	if principal, scoped := auth.PrincipalFromContext(ctx); scoped {
+		condition, arguments, _ := principalLineScope(ctx, "call_history.line_id")
+		values := []any{principal.UserID}
+		values = append(values, arguments...)
+		if _, err := s.database.ExecContext(ctx, `
+			INSERT INTO modemdeck_user_call_state (
+				user_id, call_id, is_read, is_favorite, updated_at
+			)
+			SELECT ?, id, 1, 0, CURRENT_TIMESTAMP
+			FROM call_history
+			WHERE `+condition+`
+				AND direction = 'incoming'
+				AND active_at IS NULL
+				AND COALESCE(end_reason, '') <> 'rejected'
+				AND COALESCE(failure_code, '') <> 'rejected'
+				AND (
+					phase IN ('ended', 'failed') OR
+					COALESCE(ended_at, '') <> ''
+				)
+			ON CONFLICT(user_id, call_id) DO UPDATE SET
+				is_read = 1,
+				updated_at = CURRENT_TIMESTAMP
+		`, values...); err != nil {
+			return fmt.Errorf("mark user missed calls read: %w", err)
+		}
+		return nil
+	}
 	if _, err := s.database.ExecContext(
 		ctx,
 		`UPDATE call_history
@@ -267,6 +381,47 @@ func (s *Store) SetMissedCallsReadByIDs(
 	}
 	if len(normalized) > 100 {
 		return fmt.Errorf("update missed call read state: too many call IDs")
+	}
+	if principal, scoped := auth.PrincipalFromContext(ctx); scoped {
+		transaction, err := s.database.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("begin user missed call state update: %w", err)
+		}
+		defer transaction.Rollback()
+		for _, callID := range normalized {
+			var lineID string
+			err := transaction.QueryRowContext(
+				ctx,
+				`SELECT line_id FROM call_history
+				 WHERE id = ?
+					AND direction = 'incoming'
+					AND active_at IS NULL`,
+				callID,
+			).Scan(&lineID)
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrCallNotFound
+			}
+			if err != nil {
+				return fmt.Errorf("query missed call line: %w", err)
+			}
+			if !principal.CanAccessLine(lineID) {
+				return ErrCallNotFound
+			}
+			if _, err := transaction.ExecContext(ctx, `
+				INSERT INTO modemdeck_user_call_state (
+					user_id, call_id, is_read, is_favorite, updated_at
+				) VALUES (?, ?, ?, 0, CURRENT_TIMESTAMP)
+				ON CONFLICT(user_id, call_id) DO UPDATE SET
+					is_read = excluded.is_read,
+					updated_at = CURRENT_TIMESTAMP
+			`, principal.UserID, callID, read); err != nil {
+				return fmt.Errorf("update user missed call state: %w", err)
+			}
+		}
+		if err := transaction.Commit(); err != nil {
+			return fmt.Errorf("commit user missed call state: %w", err)
+		}
+		return nil
 	}
 	arguments := make([]any, len(normalized))
 	for index, callID := range normalized {

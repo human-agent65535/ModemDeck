@@ -19,6 +19,8 @@ import {
   createCallMediaReleasePayload,
   createCallPayload,
   createCallRecordingPayload,
+  createMemberPayload,
+  createMemberUpdatePayload,
   createDeviceConfigurationPayload,
   createDTMFPayload,
   createGlobalCallSettingsPayload,
@@ -57,6 +59,8 @@ import {
   parseTelegramUnitResponse,
   parseTelegramUnitsResponse,
   parseTLSSettingsResponse,
+  parseUserResponse,
+  parseUsersResponse,
   telegramUnitContract,
   telegramUnitDeletePath,
   deviceConfigurationContract,
@@ -96,8 +100,9 @@ import type {
   ContactInput,
   CommunicationCapabilities,
   CommunicationCapabilityName,
-  CreateProxyInput,
+  CreateMemberInput,
   CreateDeviceInput,
+  CreateProxyInput,
   DeleteConnectionProfileInput,
   Device,
   DeviceConfiguration,
@@ -145,13 +150,15 @@ import type {
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
   UpdateLineSettingsInput,
+  UpdateMemberInput,
   UpdateSystemSettingsInput,
   UpdateNetworkSelectionInput,
   UpdateProxyInput,
   UpdateTLSSettingsInput,
   USSDCommandInput,
   USSDResponse,
-  USSDStatus
+  USSDStatus,
+  UserAccount
 } from './types'
 import { ApiError } from './types'
 import { createFixtureGateway } from './fixture'
@@ -290,9 +297,26 @@ function parseSession(value: unknown): SessionResponse {
   const session: SessionResponse = {
     authenticated: source.authenticated,
     setup_required: source.setup_required,
+    user_id: stringProperty(source, 'user_id'),
     username: stringProperty(source, 'username'),
     csrf_token: stringProperty(source, 'csrf_token'),
     language: language as SystemLanguage
+  }
+  const role = stringProperty(source, 'role')
+  if (role && role !== 'admin' && role !== 'member') {
+    throw new ApiError('ModemDeck returned an unsupported user role', 0, 'invalid_response')
+  }
+  if (role) session.role = role as 'admin' | 'member'
+  const profileContactID = stringProperty(source, 'profile_contact_id')
+  if (profileContactID) session.profile_contact_id = profileContactID
+  if (typeof source.must_change_password === 'boolean') {
+    session.must_change_password = source.must_change_password
+  }
+  if (Array.isArray(source.allowed_line_ids)) {
+    if (!source.allowed_line_ids.every(value => typeof value === 'string' && value.trim())) {
+      throw new ApiError('ModemDeck returned invalid line access', 0, 'invalid_response')
+    }
+    session.allowed_line_ids = source.allowed_line_ids.map(value => String(value).trim())
   }
   if (session.authenticated && (!session.username || !session.csrf_token)) {
     throw new ApiError('ModemDeck 服务返回了不完整的会话状态', 0, 'invalid_response')
@@ -600,6 +624,7 @@ function parseIncomingMessageEvent(value: unknown): IncomingMessageEvent {
 }
 
 const RUNTIME_RESOURCES = new Set<RuntimeResource>([
+  'session',
   'lines',
   'network',
   'calls',
@@ -869,6 +894,15 @@ const realGateway: ConfiguredModemDeckGateway = {
     await writeJSON(`${API_ROOT}/account/password`, 'PUT', input, 204)
   },
 
+  async setAccountContact(contactID: string): Promise<void> {
+    await writeJSON(
+      `${API_ROOT}/account/contact`,
+      'PUT',
+      { contact_id: contactID.trim() },
+      204
+    )
+  },
+
   async logout(): Promise<void> {
     await request(
       `${API_ROOT}/session`,
@@ -882,6 +916,36 @@ const realGateway: ConfiguredModemDeckGateway = {
 
   async getBootstrap(): Promise<BootstrapResponse> {
     return parseBootstrap(await get(`${API_ROOT}/bootstrap`))
+  },
+
+  async listUsers(): Promise<UserAccount[]> {
+    return parseUsersResponse(await get(`${API_ROOT}/users`))
+  },
+
+  async createMember(input: CreateMemberInput): Promise<UserAccount> {
+    return parseUserResponse(
+      await writeJSON(`${API_ROOT}/users`, 'POST', createMemberPayload(input), 201)
+    )
+  },
+
+  async updateMember(id: string, input: UpdateMemberInput): Promise<UserAccount> {
+    return parseUserResponse(
+      await writeJSON(
+        `${API_ROOT}/users/${encodeURIComponent(id)}`,
+        'PUT',
+        createMemberUpdatePayload(input),
+        200
+      )
+    )
+  },
+
+  async resetMemberPassword(id: string, password: string): Promise<void> {
+    await writeJSON(
+      `${API_ROOT}/users/${encodeURIComponent(id)}/password`,
+      'PUT',
+      { password },
+      204
+    )
   },
 
   async getSystemSettings() {
@@ -1680,7 +1744,11 @@ function configureFixture(gateway: ModemDeckGateway): ConfiguredModemDeckGateway
   const session: SessionResponse = {
     authenticated: true,
     setup_required: false,
+    user_id: 'user_admin',
     username: 'fixture',
+    role: 'admin',
+    must_change_password: false,
+    allowed_line_ids: [],
     language: 'auto'
   }
   return {
@@ -1696,6 +1764,9 @@ function configureFixture(gateway: ModemDeckGateway): ConfiguredModemDeckGateway
       return session
     },
     async changePassword() {
+      return undefined
+    },
+    async setAccountContact() {
       return undefined
     },
     async logout() {

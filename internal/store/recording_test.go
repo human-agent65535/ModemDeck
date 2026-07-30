@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func TestRecordingSettingsAndIncomingCallDefault(t *testing.T) {
+func TestRecordingSettingsDoNotPreselectUnownedIncomingCall(t *testing.T) {
 	t.Parallel()
 
 	repository := newHardwareTestStore(t)
@@ -40,9 +40,9 @@ func TestRecordingSettingsAndIncomingCallDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	if state.Preference != RecordingPreferenceDefault ||
-		!state.Enabled ||
-		state.Generation != 1 ||
-		state.Status != RecordingStatePending {
+		state.Enabled ||
+		state.Generation != 0 ||
+		state.Status != RecordingStateOff {
 		t.Fatalf("incoming recording state = %+v", state)
 	}
 }

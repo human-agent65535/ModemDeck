@@ -45,3 +45,13 @@ export function minimizeCallSurface(): void {
   uiState.callMinimized = true
   uiState.dialerOpen = false
 }
+
+export function resetUIState(): void {
+  uiState.dialerOpen = false
+  uiState.callMinimized = false
+  uiState.dialTarget = ''
+  uiState.dialLabel = ''
+  uiState.dialLineKey = ''
+  uiState.dialImmediately = false
+  uiState.dialRequestRevision += 1
+}

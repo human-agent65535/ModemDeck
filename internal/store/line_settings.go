@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/human-agent65535/modemdeck/internal/auth"
 )
 
 var (
@@ -35,7 +37,30 @@ func (e *LineSettingsRevisionConflictError) Unwrap() error {
 }
 
 func (s *Store) LineSettings(ctx context.Context) (LineSettings, error) {
-	return readLineSettings(ctx, s.database)
+	settings, err := readLineSettings(ctx, s.database)
+	if err != nil {
+		return LineSettings{}, err
+	}
+	principal, scoped := auth.PrincipalFromContext(ctx)
+	if !scoped {
+		return settings, nil
+	}
+	settings, err = readUserLineSettings(ctx, s.database, principal.UserID)
+	if errors.Is(err, sql.ErrNoRows) {
+		settings = LineSettings{Revision: 1}
+	} else if err != nil {
+		return LineSettings{}, err
+	}
+	if !principal.CanAccessLine(settings.DefaultLineID) {
+		settings.DefaultLineID = ""
+		for _, lineID := range principal.AllowedLineIDs {
+			if strings.TrimSpace(lineID) != "" {
+				settings.DefaultLineID = lineID
+				break
+			}
+		}
+	}
+	return settings, nil
 }
 
 func (s *Store) UpdateLineSettings(
@@ -49,6 +74,20 @@ func (s *Store) UpdateLineSettings(
 	}
 	if expectedRevision <= 0 {
 		return LineSettings{}, fmt.Errorf("%w: expected_revision must be positive", ErrLineSettingsRevisionConflict)
+	}
+	if principal, scoped := auth.PrincipalFromContext(ctx); scoped {
+		if !principal.CanAccessLine(defaultLineID) {
+			return LineSettings{}, fmt.Errorf(
+				"%w: default line is not assigned",
+				ErrLineSettingsInvalidLine,
+			)
+		}
+		return s.updateUserLineSettings(
+			ctx,
+			principal.UserID,
+			defaultLineID,
+			expectedRevision,
+		)
 	}
 
 	transaction, err := s.database.BeginTx(ctx, nil)
@@ -109,6 +148,66 @@ type lineSettingsQueryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
+func (s *Store) updateUserLineSettings(
+	ctx context.Context,
+	userID, defaultLineID string,
+	expectedRevision int64,
+) (LineSettings, error) {
+	transaction, err := s.database.BeginTx(ctx, nil)
+	if err != nil {
+		return LineSettings{}, fmt.Errorf("begin user line settings update: %w", err)
+	}
+	defer transaction.Rollback()
+	if err := requireLine(ctx, transaction, defaultLineID); err != nil {
+		return LineSettings{}, err
+	}
+	current, err := readUserLineSettings(ctx, transaction, userID)
+	if err != nil {
+		return LineSettings{}, err
+	}
+	if current.Revision != expectedRevision {
+		return LineSettings{}, &LineSettingsRevisionConflictError{
+			ExpectedRevision: expectedRevision,
+			ActualRevision:   current.Revision,
+		}
+	}
+	result, err := transaction.ExecContext(
+		ctx,
+		`UPDATE modemdeck_user_preferences
+		 SET default_line_id = ?, revision = revision + 1,
+			updated_at = CURRENT_TIMESTAMP
+		 WHERE user_id = ? AND revision = ?`,
+		defaultLineID,
+		userID,
+		expectedRevision,
+	)
+	if err != nil {
+		return LineSettings{}, fmt.Errorf("update user line settings: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return LineSettings{}, fmt.Errorf("read updated user line settings count: %w", err)
+	}
+	if affected != 1 {
+		actual, readErr := readUserLineSettings(ctx, transaction, userID)
+		if readErr != nil {
+			return LineSettings{}, readErr
+		}
+		return LineSettings{}, &LineSettingsRevisionConflictError{
+			ExpectedRevision: expectedRevision,
+			ActualRevision:   actual.Revision,
+		}
+	}
+	updated, err := readUserLineSettings(ctx, transaction, userID)
+	if err != nil {
+		return LineSettings{}, err
+	}
+	if err := transaction.Commit(); err != nil {
+		return LineSettings{}, fmt.Errorf("commit user line settings: %w", err)
+	}
+	return updated, nil
+}
+
 func readLineSettings(ctx context.Context, queryer lineSettingsQueryer) (LineSettings, error) {
 	var (
 		settings  LineSettings
@@ -126,6 +225,29 @@ func readLineSettings(ctx context.Context, queryer lineSettingsQueryer) (LineSet
 	}
 	settings.DefaultLineID = stringValue(lineID)
 	settings.UpdatedAt = stringValue(updatedAt)
+	return settings, nil
+}
+
+func readUserLineSettings(
+	ctx context.Context,
+	queryer lineSettingsQueryer,
+	userID string,
+) (LineSettings, error) {
+	var settings LineSettings
+	err := queryer.QueryRowContext(
+		ctx,
+		`SELECT default_line_id, revision, updated_at
+		 FROM modemdeck_user_preferences
+		 WHERE user_id = ?`,
+		userID,
+	).Scan(
+		&settings.DefaultLineID,
+		&settings.Revision,
+		&settings.UpdatedAt,
+	)
+	if err != nil {
+		return LineSettings{}, err
+	}
 	return settings, nil
 }
 

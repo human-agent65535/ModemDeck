@@ -58,6 +58,7 @@ import {
   setVoLTEPolicy
 } from '../state/deviceConfiguration'
 import { loadNetwork, networkState } from '../state/network'
+import { sessionState } from '../state/session'
 import {
   activateNetworkSelection,
   enterManualNetworkSelection,
@@ -815,6 +816,7 @@ async function makeDefault(line: LineSummary): Promise<void> {
 }
 
 async function deleteHistoricalModule(line: LineSummary): Promise<void> {
+  if (sessionState.role !== 'admin') return
   const device = deviceFor(line)
   if (
     !line.module_only ||
@@ -852,6 +854,7 @@ async function deleteHistoricalModule(line: LineSummary): Promise<void> {
 }
 
 async function beginModuleNameEdit(): Promise<void> {
+  if (sessionState.role !== 'admin') return
   if (!selectedLine.value?.device_imei || moduleNamePending.value) return
   moduleNameDraft.value = selectedStoredModuleName.value
   moduleNameError.value = ''
@@ -869,6 +872,7 @@ function cancelModuleNameEdit(): void {
 }
 
 async function saveModuleName(): Promise<void> {
+  if (sessionState.role !== 'admin') return
   const imei = selectedLine.value?.device_imei.trim() || ''
   if (!imei || moduleNamePending.value || !moduleNameDirty.value) return
   const name = moduleNameDraft.value.trim()
@@ -1247,7 +1251,13 @@ onMounted(() => {
         :runtime="networkRuntime(line)"
         :selected="line.id === selectedLineID"
         :selectable="!line.module_only"
-        :deletable="Boolean(line.module_only && deviceFor(line)?.present === false)"
+        :deletable="
+          Boolean(
+            sessionState.role === 'admin' &&
+              line.module_only &&
+              deviceFor(line)?.present === false
+          )
+        "
         :delete-pending="moduleDeletePending === line.device_imei"
         :default-line="lineKey(line) === defaultLineID"
         :flight-mode="
@@ -1307,7 +1317,7 @@ onMounted(() => {
             <template v-else>
               <strong>{{ selectedModuleName }}</strong>
               <button
-                v-if="selectedLine?.device_imei"
+                v-if="sessionState.role === 'admin' && selectedLine?.device_imei"
                 class="module-name-edit-button"
                 type="button"
                 :title="t('device.editModuleName')"

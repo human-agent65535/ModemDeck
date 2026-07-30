@@ -16,8 +16,10 @@ import {
   Send,
   ShieldCheck,
   UserRound,
+  UsersRound,
   Volume2
 } from '@lucide/vue'
+import AccountSettingsPanel from '../components/AccountSettingsPanel.vue'
 import AudioSettingsForm from '../components/AudioSettingsForm.vue'
 import AboutSettingsPanel from '../components/AboutSettingsPanel.vue'
 import ContactSyncSettings from '../components/ContactSyncSettings.vue'
@@ -28,6 +30,7 @@ import RecordingSettingsForm from '../components/RecordingSettingsForm.vue'
 import SystemSettingsForm from '../components/SystemSettingsForm.vue'
 import TelegramSettingsForm from '../components/TelegramSettingsForm.vue'
 import TLSSettingsForm from '../components/TLSSettingsForm.vue'
+import UserSettingsPanel from '../components/UserSettingsPanel.vue'
 import { fixtureMode } from '../api/client'
 import { logout as logoutSession, sessionState } from '../state/session'
 import {
@@ -41,6 +44,8 @@ import { isRegisteredNetwork } from '../utils/operatorNetwork'
 
 type SettingsSection =
   | 'system'
+  | 'users'
+  | 'account'
   | 'contacts'
   | 'audio'
   | 'devices'
@@ -73,62 +78,82 @@ const sections = computed<Array<{
   label: string
   description: string
   icon: typeof RadioTower
-}>>(() => [
-  {
-    id: 'system',
-    label: t('settings.system'),
-    description: t('settings.systemDescription'),
-    icon: Languages
-  },
-  {
-    id: 'contacts',
-    label: t('settings.contactsSync'),
-    description: t('settings.contactsSyncDescription'),
-    icon: ContactRound
-  },
-  {
-    id: 'audio',
-    label: t('settings.audio'),
-    description: t('settings.audioDescription'),
-    icon: Volume2
-  },
-  {
-    id: 'devices',
-    label: t('settings.devices'),
-    description: t('settings.devicesDescription'),
-    icon: RadioTower
-  },
-  {
-    id: 'recording',
-    label: t('settings.recording'),
-    description: t('settings.recordingDescription'),
-    icon: Circle
-  },
-  {
-    id: 'telegram',
-    label: t('settings.telegram'),
-    description: t('settings.telegramDescription'),
-    icon: Send
-  },
-  {
-    id: 'tls',
-    label: 'HTTPS',
-    description: t('settings.tlsDescription'),
-    icon: ShieldCheck
-  },
-  {
-    id: 'diagnostics',
-    label: t('settings.diagnostics'),
-    description: t('settings.diagnosticsDescription'),
-    icon: Activity
-  },
-  {
-    id: 'about',
+}>>(() => {
+  const personal = [
+    {
+      id: 'account' as const,
+      label: t('settings.account'),
+      description: t('settings.accountDescription'),
+      icon: UserRound
+    },
+    {
+      id: 'system' as const,
+      label: t('settings.system'),
+      description: t('settings.systemDescription'),
+      icon: Languages
+    },
+    {
+      id: 'recording' as const,
+      label: t('settings.recording'),
+      description: t('settings.recordingDescription'),
+      icon: Circle
+    },
+    {
+      id: 'contacts' as const,
+      label: t('settings.contactsSync'),
+      description: t('settings.contactsSyncDescription'),
+      icon: ContactRound
+    },
+    {
+      id: 'audio' as const,
+      label: t('settings.audio'),
+      description: t('settings.audioDescription'),
+      icon: Volume2
+    },
+    {
+      id: 'devices' as const,
+      label: t('settings.devices'),
+      description: t('settings.devicesDescription'),
+      icon: RadioTower
+    }
+  ]
+  const about = {
+    id: 'about' as const,
     label: t('settings.about'),
     description: t('settings.aboutDescription'),
     icon: Info
   }
-])
+  if (sessionState.mustChangePassword) return personal.slice(0, 1)
+  if (sessionState.role !== 'admin') return [...personal, about]
+  return [
+    {
+      id: 'users',
+      label: t('settings.users'),
+      description: t('settings.usersDescription'),
+      icon: UsersRound
+    },
+    ...personal,
+    {
+      id: 'telegram',
+      label: t('settings.telegram'),
+      description: t('settings.telegramDescription'),
+      icon: Send
+    },
+    {
+      id: 'tls',
+      label: 'HTTPS',
+      description: t('settings.tlsDescription'),
+      icon: ShieldCheck
+    },
+    {
+      id: 'diagnostics',
+      label: t('settings.diagnostics'),
+      description: t('settings.diagnosticsDescription'),
+      icon: Activity
+    },
+    about
+  ]
+})
 const selectedSection = computed<SettingsSection | ''>(() => {
   const value = String(route.params.section || '')
   return sections.value.some(section => section.id === value) ? (value as SettingsSection) : ''
@@ -143,6 +168,16 @@ watch(
   selectedSection,
   section => {
     if (section === 'devices') void loadBootstrap()
+  },
+  { immediate: true }
+)
+
+watch(
+  () => route.params.section,
+  value => {
+    const section = String(value || '')
+    if (!section || sections.value.some(item => item.id === section)) return
+    void router.replace({ name: 'settings', params: { section: 'account' } })
   },
   { immediate: true }
 )
@@ -178,6 +213,7 @@ async function logout(): Promise<void> {
 }
 
 onMounted(() => {
+  if (sessionState.mustChangePassword) return
   void Promise.all([loadBootstrap(), loadDevices()])
 })
 </script>
@@ -188,6 +224,7 @@ onMounted(() => {
       <header class="pane-header"><h1>{{ t('settings.title') }}</h1></header>
       <div class="item-list settings-list">
         <button
+          v-if="!sessionState.mustChangePassword"
           class="list-item settings-overview-link"
           type="button"
           @click="openDashboard"
@@ -217,7 +254,13 @@ onMounted(() => {
         <span class="settings-account__icon"><UserRound :size="19" /></span>
         <span class="settings-account__identity">
           <strong>{{ sessionState.username || t('settings.administrator') }}</strong>
-          <small>{{ t('settings.administratorAccount') }}</small>
+          <small>
+            {{
+              sessionState.role === 'admin'
+                ? t('settings.administratorAccount')
+                : t('settings.memberAccount')
+            }}
+          </small>
           <small v-if="logoutError" class="settings-account__error" role="alert">
             {{ logoutError }}
           </small>
@@ -252,6 +295,14 @@ onMounted(() => {
 
         <div v-if="selectedSection === 'system'" class="settings-content">
           <SystemSettingsForm />
+        </div>
+
+        <div v-else-if="selectedSection === 'users'" class="settings-content">
+          <UserSettingsPanel />
+        </div>
+
+        <div v-else-if="selectedSection === 'account'" class="settings-content">
+          <AccountSettingsPanel />
         </div>
 
         <div v-else-if="selectedSection === 'contacts'" class="settings-content">

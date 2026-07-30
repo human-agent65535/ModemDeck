@@ -21,6 +21,7 @@ type ContactQuery struct {
 
 type Contact struct {
 	ID              string         `json:"id"`
+	OwnerUserID     string         `json:"owner_user_id,omitempty"`
 	DisplayName     string         `json:"display_name"`
 	Avatar          string         `json:"avatar"`
 	Notes           string         `json:"notes"`

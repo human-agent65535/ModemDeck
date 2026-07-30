@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
+	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/communication"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
@@ -58,6 +59,7 @@ type fakeRepository struct {
 	updateLineResult      store.LineSummary
 	updateLineError       error
 	systemSettings        store.SystemSettings
+	principalLanguage     store.SystemLanguage
 	systemSettingsError   error
 	updateSystemInput     store.SystemLanguage
 	updateSystemRev       int64
@@ -249,7 +251,14 @@ func (repository *fakeRepository) UpdateLineSettings(
 	return store.LineSettings{Revision: 2}, nil
 }
 
-func (repository *fakeRepository) SystemSettings(context.Context) (store.SystemSettings, error) {
+func (repository *fakeRepository) SystemSettings(ctx context.Context) (store.SystemSettings, error) {
+	if _, exists := auth.PrincipalFromContext(ctx); exists &&
+		repository.principalLanguage != "" {
+		return store.SystemSettings{
+			Language: repository.principalLanguage,
+			Revision: 1,
+		}, repository.systemSettingsError
+	}
 	if repository.systemSettings.Language == "" {
 		return store.SystemSettings{
 			Language: store.SystemLanguageAuto,

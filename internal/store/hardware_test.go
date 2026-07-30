@@ -1475,13 +1475,6 @@ func TestHardwareSnapshotCommitsIncomingAndOutgoingCallsWithPolicyAndRecordingSt
 	); err != nil {
 		t.Fatalf("UpdateLineCallPolicy() error = %v", err)
 	}
-	recordingSettings, err := repository.RecordingSettings(ctx)
-	if err != nil {
-		t.Fatalf("RecordingSettings() error = %v", err)
-	}
-	if _, err := repository.UpdateRecordingSettings(ctx, true, recordingSettings.Revision); err != nil {
-		t.Fatalf("UpdateRecordingSettings() error = %v", err)
-	}
 	const outgoingRequestID = "request-outgoing-recording-off"
 	if err := repository.PrepareCallRecordingRequest(ctx, outgoingRequestID, false); err != nil {
 		t.Fatalf("PrepareCallRecordingRequest() error = %v", err)
@@ -1536,9 +1529,9 @@ func TestHardwareSnapshotCommitsIncomingAndOutgoingCallsWithPolicyAndRecordingSt
 		t.Fatalf("incoming CallRecordingState() error = %v", err)
 	}
 	if incomingRecording.Preference != RecordingPreferenceDefault ||
-		!incomingRecording.Enabled ||
-		incomingRecording.Generation != 1 ||
-		incomingRecording.Status != RecordingStatePending {
+		incomingRecording.Enabled ||
+		incomingRecording.Generation != 0 ||
+		incomingRecording.Status != RecordingStateOff {
 		t.Fatalf("incoming recording state = %+v", incomingRecording)
 	}
 	outgoingRecording, err := repository.CallRecordingState(ctx, outgoing.AppID)

@@ -8,12 +8,21 @@ import {
   setClientCSRFToken
 } from '../api/client'
 import { setSystemLanguage, translate } from '../i18n'
+import { resetNetworkState } from './network'
+import { resetRecordingState } from './recording'
+import { resetUIState } from './ui'
+import { resetWorkspaceState } from './workspace'
 
 export type SessionStatus = 'unknown' | 'checking' | 'authenticated' | 'anonymous'
 
 const state = reactive({
   status: (fixtureMode ? 'authenticated' : 'unknown') as SessionStatus,
+  userID: fixtureMode ? 'user_admin' : '',
   username: fixtureMode ? 'fixture' : '',
+  role: (fixtureMode ? 'admin' : '') as '' | 'admin' | 'member',
+  profileContactID: '',
+  mustChangePassword: false,
+  allowedLineIDs: [] as string[],
   setupRequired: false,
   error: ''
 })
@@ -28,7 +37,12 @@ function applySession(session: SessionResponse): boolean {
   }
 
   state.status = 'authenticated'
+  state.userID = session.user_id || ''
   state.username = session.username || ''
+  state.role = session.role || 'admin'
+  state.profileContactID = session.profile_contact_id || ''
+  state.mustChangePassword = session.must_change_password === true
+  state.allowedLineIDs = [...(session.allowed_line_ids || [])]
   state.setupRequired = false
   state.error = ''
   setClientCSRFToken(session.csrf_token)
@@ -37,8 +51,17 @@ function applySession(session: SessionResponse): boolean {
 
 export function clearSession(message = '', setupRequired = false): void {
   if (fixtureMode) return
+  resetWorkspaceState()
+  resetNetworkState()
+  resetRecordingState()
+  resetUIState()
   state.status = 'anonymous'
+  state.userID = ''
   state.username = ''
+  state.role = ''
+  state.profileContactID = ''
+  state.mustChangePassword = false
+  state.allowedLineIDs = []
   state.setupRequired = setupRequired
   state.error = message
   setClientCSRFToken()
@@ -50,6 +73,16 @@ setAuthenticationRequiredHandler(() => {
 
 export const sessionState = readonly(state)
 export const isAuthenticated = computed(() => state.status === 'authenticated')
+export const isAdministrator = computed(() => state.role === 'admin')
+
+export async function refreshSession(): Promise<boolean> {
+  if (fixtureMode) return true
+  return applySession(await gateway.getSession())
+}
+
+export function setSessionProfileContact(contactID: string): void {
+  state.profileContactID = contactID.trim()
+}
 
 export async function ensureSession(): Promise<boolean> {
   if (fixtureMode || state.status === 'authenticated') return true

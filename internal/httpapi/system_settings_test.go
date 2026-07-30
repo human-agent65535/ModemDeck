@@ -75,7 +75,7 @@ func TestSystemSettingsGetAndPatch(t *testing.T) {
 	}
 }
 
-func TestSessionIncludesSystemLanguageBeforeAuthentication(t *testing.T) {
+func TestSessionFollowsBrowserLanguageBeforeAuthentication(t *testing.T) {
 	t.Parallel()
 
 	repository := &fakeRepository{
@@ -98,8 +98,8 @@ func TestSessionIncludesSystemLanguageBeforeAuthentication(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Language != string(store.SystemLanguageEnUS) {
-		t.Fatalf("language = %q, want en-US", body.Language)
+	if body.Language != string(store.SystemLanguageAuto) {
+		t.Fatalf("language = %q, want auto", body.Language)
 	}
 }
 

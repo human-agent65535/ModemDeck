@@ -5,7 +5,6 @@ import { useI18n } from 'vue-i18n'
 import type { SystemLanguage, SystemSettings } from '../api/types'
 import { gateway } from '../api/client'
 import { setSystemLanguage, systemLanguage } from '../i18n'
-import AccountSecurityForm from './AccountSecurityForm.vue'
 
 const { t } = useI18n()
 const settings = ref<SystemSettings>()
@@ -166,8 +165,6 @@ onMounted(() => {
         {{ t('settings.languageSaved') }}
       </p>
     </section>
-
-    <AccountSecurityForm />
   </div>
 </template>
 

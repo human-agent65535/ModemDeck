@@ -506,6 +506,7 @@ export type MessageEventStreamHandlers = {
 }
 
 export type RuntimeResource =
+  | 'session'
   | 'lines'
   | 'network'
   | 'calls'
@@ -1109,6 +1110,11 @@ export type TelegramUnit = {
   enabled: boolean
   chat_id: string
   admin_id: string
+  scope_source: 'manual' | 'user'
+  assigned_user_id?: string
+  assigned_username?: string
+  manual_all_lines: boolean
+  effective_enabled: boolean
   line_scopes: string[]
   incoming_sms: boolean
   missed_calls: boolean
@@ -1122,6 +1128,9 @@ export type TelegramUnitInput = {
   enabled: boolean
   chat_id: string
   admin_id: string
+  scope_source: 'manual' | 'user'
+  assigned_user_id?: string
+  manual_all_lines: boolean
   line_scopes: string[]
   incoming_sms: boolean
   missed_calls: boolean
@@ -1139,9 +1148,43 @@ export type ApiErrorBody = {
 export type SessionResponse = {
   authenticated: boolean
   setup_required: boolean
+  user_id?: string
   username?: string
+  role?: 'admin' | 'member'
+  profile_contact_id?: string
+  must_change_password?: boolean
+  allowed_line_ids?: string[]
   csrf_token?: string
   language: SystemLanguage
+}
+
+export type UserAccount = {
+  id: string
+  username: string
+  role: 'admin' | 'member'
+  enabled: boolean
+  must_change_password: boolean
+  revision: number
+  profile_contact_id?: string
+  profile_name?: string
+  profile_avatar?: string
+  default_line_id?: string
+  line_ids: string[]
+  created_at: string
+  updated_at: string
+}
+
+export type CreateMemberInput = {
+  username: string
+  password: string
+  line_ids: string[]
+}
+
+export type UpdateMemberInput = {
+  username: string
+  enabled: boolean
+  line_ids: string[]
+  revision: number
 }
 
 export type SetupInput = {
