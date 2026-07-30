@@ -24,6 +24,14 @@ func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.R
 		writeError(response, http.StatusInternalServerError, "stream_unavailable", "Streaming is unavailable", "")
 		return
 	}
+	if !api.authorizeEventStream(response, request, false) {
+		return
+	}
+	release, ok := api.acquireEventStream(response, request)
+	if !ok {
+		return
+	}
+	defer release()
 
 	var window runtimeevents.Window
 	var updates <-chan runtimeevents.Event
@@ -62,17 +70,26 @@ func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.R
 		return
 	}
 
-	heartbeat := time.NewTicker(runtimeHeartbeatInterval)
+	heartbeat := time.NewTicker(api.streamAuthInterval)
 	defer heartbeat.Stop()
 	for {
 		select {
 		case <-request.Context().Done():
 			return
 		case event, open := <-updates:
-			if !open || !writeSSE(response, flusher, "runtime", event.ID, event) {
+			if !open {
+				return
+			}
+			if _, _, err := api.currentStreamAccess(request, false); err != nil {
+				return
+			}
+			if !writeSSE(response, flusher, "runtime", event.ID, event) {
 				return
 			}
 		case observedAt := <-heartbeat.C:
+			if _, _, err := api.currentStreamAccess(request, false); err != nil {
+				return
+			}
 			if !writeEventHeartbeat(response, flusher, observedAt) {
 				return
 			}

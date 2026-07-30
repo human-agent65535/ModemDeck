@@ -178,6 +178,14 @@ func (api *API) diagnosticLogStream(response http.ResponseWriter, request *http.
 		writeError(response, http.StatusInternalServerError, "stream_unavailable", "Streaming is unavailable", "")
 		return
 	}
+	if !api.authorizeEventStream(response, request, true) {
+		return
+	}
+	release, ok := api.acquireEventStream(response, request)
+	if !ok {
+		return
+	}
+	defer release()
 	window, updates, cancel := api.diagnosticLogs.Subscribe(filter.after)
 	defer cancel()
 
@@ -209,19 +217,32 @@ func (api *API) diagnosticLogStream(response http.ResponseWriter, request *http.
 
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
+	authentication := time.NewTicker(api.streamAuthInterval)
+	defer authentication.Stop()
 	for {
 		select {
 		case <-request.Context().Done():
 			return
+		case <-authentication.C:
+			if _, _, err := api.currentStreamAccess(request, true); err != nil {
+				return
+			}
 		case entry, open := <-updates:
 			if !open {
 				return
 			}
-			if matchesDiagnosticLog(entry, filter) &&
-				!writeDiagnosticSSE(response, flusher, "log", entry.ID, entry) {
-				return
+			if matchesDiagnosticLog(entry, filter) {
+				if _, _, err := api.currentStreamAccess(request, true); err != nil {
+					return
+				}
+				if !writeDiagnosticSSE(response, flusher, "log", entry.ID, entry) {
+					return
+				}
 			}
 		case <-heartbeat.C:
+			if _, _, err := api.currentStreamAccess(request, true); err != nil {
+				return
+			}
 			if _, err := fmt.Fprint(response, ": keepalive\n\n"); err != nil {
 				return
 			}

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
 	"github.com/human-agent65535/modemdeck/internal/auth"
@@ -285,6 +286,8 @@ type API struct {
 	secureCookies        bool
 	loginSlots           chan struct{}
 	loginFailures        *loginFailureLimiter
+	eventStreams         *eventStreamLimiter
+	streamAuthInterval   time.Duration
 	logger               *slog.Logger
 	diagnosticLogs       diagnostics.LogSource
 	messageEvents        messageevents.Source
@@ -328,6 +331,8 @@ func New(repository Repository, options Options) (*API, error) {
 		secureCookies:        options.SecureCookies,
 		loginSlots:           make(chan struct{}, 2),
 		loginFailures:        newLoginFailureLimiter(defaultLoginFailurePolicy),
+		eventStreams:         newEventStreamLimiter(defaultEventStreamLimitPolicy),
+		streamAuthInterval:   runtimeHeartbeatInterval,
 		logger:               logger,
 		diagnosticLogs:       options.DiagnosticLogs,
 		messageEvents:        options.MessageEvents,

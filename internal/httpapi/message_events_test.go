@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,8 +15,10 @@ import (
 
 type streamAuthRepository struct {
 	*apiAuthRepository
+	mu        sync.RWMutex
 	principal auth.Principal
 	found     bool
+	expiresAt time.Time
 }
 
 func (*streamAuthRepository) UserCredentialsByUsername(
@@ -45,11 +48,26 @@ func (repository *streamAuthRepository) UserSessionByTokenDigest(
 	_ auth.SessionTokenDigest,
 ) (auth.UserSessionRecord, auth.Principal, bool, error) {
 	now := time.Now().UTC()
+	repository.mu.RLock()
+	defer repository.mu.RUnlock()
+
+	expiresAt := repository.expiresAt
+	if expiresAt.IsZero() {
+		expiresAt = now.Add(time.Hour)
+	}
 	return auth.UserSessionRecord{
 		UserID:    repository.principal.UserID,
 		CreatedAt: now.Add(-time.Minute),
-		ExpiresAt: now.Add(time.Hour),
-	}, repository.principal, repository.found, nil
+		ExpiresAt: expiresAt,
+	}, repository.principal.Copy(), repository.found, nil
+}
+
+func (repository *streamAuthRepository) DeleteSessionByTokenDigest(
+	context.Context,
+	auth.SessionTokenDigest,
+) error {
+	repository.setFound(false)
+	return nil
 }
 
 func (*streamAuthRepository) ReplaceUserPasswordHashIfCurrentAndRevokeSessions(
@@ -59,6 +77,24 @@ func (*streamAuthRepository) ReplaceUserPasswordHashIfCurrentAndRevokeSessions(
 	string,
 ) (bool, error) {
 	return false, nil
+}
+
+func (repository *streamAuthRepository) setFound(found bool) {
+	repository.mu.Lock()
+	repository.found = found
+	repository.mu.Unlock()
+}
+
+func (repository *streamAuthRepository) setExpiresAt(expiresAt time.Time) {
+	repository.mu.Lock()
+	repository.expiresAt = expiresAt
+	repository.mu.Unlock()
+}
+
+func (repository *streamAuthRepository) setPrincipal(principal auth.Principal) {
+	repository.mu.Lock()
+	repository.principal = principal.Copy()
+	repository.mu.Unlock()
 }
 
 func TestMessageEventStreamReplaysLastEventID(t *testing.T) {
@@ -258,12 +294,16 @@ func TestMessageEventStreamRechecksSessionAndLineAccess(t *testing.T) {
 	if err != nil || !allowed {
 		t.Fatalf("assigned line access = %t, %v", allowed, err)
 	}
-	repository.principal.AllowedLineIDs = []string{"line-beta"}
+	repository.setPrincipal(auth.Principal{
+		UserID:         "user-member",
+		Role:           auth.RoleMember,
+		AllowedLineIDs: []string{"line-beta"},
+	})
 	allowed, err = api.currentStreamCanAccessLine(request, "line-alpha")
 	if err != nil || allowed {
 		t.Fatalf("revoked line access = %t, %v", allowed, err)
 	}
-	repository.found = false
+	repository.setFound(false)
 	if _, err := api.currentStreamCanAccessLine(request, "line-beta"); err == nil {
 		t.Fatal("revoked session retained message stream access")
 	}

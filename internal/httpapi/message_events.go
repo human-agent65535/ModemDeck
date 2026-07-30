@@ -1,13 +1,10 @@
 package httpapi
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
-	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/messageevents"
 )
 
@@ -27,6 +24,14 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 		writeError(response, http.StatusInternalServerError, "stream_unavailable", "Streaming is unavailable", "")
 		return
 	}
+	if !api.authorizeEventStream(response, request, false) {
+		return
+	}
+	release, ok := api.acquireEventStream(response, request)
+	if !ok {
+		return
+	}
+	defer release()
 
 	var window messageevents.Window
 	var updates <-chan messageevents.IncomingSMS
@@ -74,10 +79,16 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 
 	heartbeat := time.NewTicker(messageHeartbeatInterval)
 	defer heartbeat.Stop()
+	authentication := time.NewTicker(api.streamAuthInterval)
+	defer authentication.Stop()
 	for {
 		select {
 		case <-request.Context().Done():
 			return
+		case <-authentication.C:
+			if _, _, err := api.currentStreamAccess(request, false); err != nil {
+				return
+			}
 		case event, open := <-updates:
 			if !open {
 				return
@@ -101,44 +112,6 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 			}
 		}
 	}
-}
-
-func (api *API) currentStreamCanAccessLine(
-	request *http.Request,
-	lineID string,
-) (bool, error) {
-	principal, scoped, err := api.currentStreamPrincipal(request)
-	if err != nil {
-		return false, err
-	}
-	return !scoped || principal.CanAccessLine(strings.TrimSpace(lineID)), nil
-}
-
-func (api *API) currentStreamPrincipal(
-	request *http.Request,
-) (auth.Principal, bool, error) {
-	if api.authenticator == nil {
-		principal, exists := auth.PrincipalFromContext(request.Context())
-		return principal, exists, nil
-	}
-	cookie, err := request.Cookie(sessionCookieName)
-	if err != nil {
-		return auth.Principal{}, false, err
-	}
-	authentication, err := api.authenticator.Authenticate(
-		request.Context(),
-		auth.SessionToken(cookie.Value),
-	)
-	if err != nil {
-		return auth.Principal{}, false, err
-	}
-	principal, exists := authentication.Principal()
-	if !exists {
-		if _, scoped := auth.PrincipalFromContext(request.Context()); scoped {
-			return auth.Principal{}, false, errors.New("current session has no user principal")
-		}
-	}
-	return principal, exists, nil
 }
 
 func incomingMessageEvent(event messageevents.IncomingSMS) incomingMessageEventResponse {
