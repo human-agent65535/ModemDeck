@@ -552,8 +552,9 @@ test('recording aggregation preserves call metadata and only exposes ready downl
     size_bytes: 123456,
     created_at: '2026-07-23T12:00:03Z'
   }
-  const [recording] = parseRecordingEntriesResponse({
-    recordings: [{ segment, call, playable: true, favorite: true }]
+  const { items: [recording] } = parseRecordingEntriesResponse({
+    recordings: [{ segment, call, playable: true, favorite: true }],
+    meta: { limit: 50, next_cursor: '', has_more: false }
   })
   assert.deepEqual(recording, {
     id: 'segment-1',
@@ -586,7 +587,7 @@ test('recording aggregation preserves call metadata and only exposes ready downl
     }
   })
 
-  const [failed] = parseRecordingEntriesResponse({
+  const { items: [failed] } = parseRecordingEntriesResponse({
     recordings: [{
       segment: {
         ...segment,
@@ -597,7 +598,8 @@ test('recording aggregation preserves call metadata and only exposes ready downl
       call,
       playable: false,
       favorite: false
-    }]
+    }],
+    meta: { limit: 50, next_cursor: '', has_more: false }
   })
   assert.equal(failed.playable, false)
   assert.equal(failed.failure_code, 'interrupted')

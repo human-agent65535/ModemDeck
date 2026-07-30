@@ -38,6 +38,7 @@ import type {
   MobileNetworkScan,
   NetworkSelectionPolicy,
   NetworkStatus,
+  Page,
   ProxyDeleteResult,
   ProxyInstance,
   ProxyMutation,
@@ -76,11 +77,15 @@ import type {
 
 export type ListQuery = {
   q?: string
+  cursor?: string
+  limit?: number
 }
 
 export type MessageQuery = {
   line_id: string
   peer: string
+  cursor?: string
+  limit?: number
 }
 
 export type GatewayInteractions = Readonly<{
@@ -108,9 +113,9 @@ export interface ModemDeckGateway {
   createMember(input: CreateMemberInput): Promise<UserAccount>
   updateMember(id: string, input: UpdateMemberInput): Promise<UserAccount>
   setMemberPassword(id: string, password: string): Promise<void>
-  listContacts(query?: ListQuery): Promise<Contact[]>
-  listThreads(query?: ListQuery): Promise<MessageThread[]>
-  listMessages(query: MessageQuery): Promise<Message[]>
+  listContacts(query?: ListQuery): Promise<Page<Contact>>
+  listThreads(query?: ListQuery): Promise<Page<MessageThread>>
+  listMessages(query: MessageQuery): Promise<Page<Message>>
   subscribeMessageEvents(handlers: MessageEventStreamHandlers): () => void
   subscribeRuntimeEvents(handlers: RuntimeEventStreamHandlers): () => void
   markThreadRead(input: MessageReadInput): Promise<void>
@@ -119,7 +124,7 @@ export interface ModemDeckGateway {
     threads: MessageReadInput[]
   ): Promise<void>
   deleteThread(input: MessageReadInput): Promise<void>
-  listCalls(filter?: CallFilter, query?: ListQuery): Promise<CallRecord[]>
+  listCalls(filter?: CallFilter, query?: ListQuery): Promise<Page<CallRecord>>
   markMissedCallsRead(): Promise<void>
   markMissedCallRead(id: string): Promise<void>
   updateCalls(action: CallBatchAction, ids: string[]): Promise<void>
@@ -191,7 +196,7 @@ export interface ModemDeckGateway {
   renewCallLease(id: string): Promise<CallLeaseStatus>
   exchangeCallMedia(id: string, ownerToken: string, offerSDP: string): Promise<string>
   releaseCallMedia(id: string, ownerToken: string): Promise<void>
-  listRecordings(query?: ListQuery): Promise<RecordingEntry[]>
+  listRecordings(query?: ListQuery): Promise<Page<RecordingEntry>>
   getRecordingSettings(): Promise<RecordingSettings>
   updateRecordingSettings(settings: RecordingSettings): Promise<RecordingSettings>
   setCallRecording(id: string, enabled: boolean): Promise<CallRecordingState>

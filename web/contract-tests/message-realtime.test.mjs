@@ -287,8 +287,14 @@ test('active-thread SMS invalidation refreshes messages without bypassing viewpo
   messages.status = 'ready'
   messages.data = [initialMessage]
   messages.error = ''
-  gateway.listThreads = async () => [incomingThread]
-  gateway.listMessages = async () => [initialMessage, incomingMessage]
+  gateway.listThreads = async () => ({
+    items: [incomingThread],
+    meta: { limit: 50, next_cursor: '', has_more: false }
+  })
+  gateway.listMessages = async () => ({
+    items: [initialMessage, incomingMessage],
+    meta: { limit: 50, next_cursor: '', has_more: false }
+  })
   gateway.markThreadRead = async input => {
     reads.push(input)
   }

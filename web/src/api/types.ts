@@ -1246,3 +1246,14 @@ export type Resource<T> = {
   data: T
   error: string
 }
+
+export type PageMeta = {
+  limit: number
+  next_cursor: string
+  has_more: boolean
+}
+
+export type Page<T> = {
+  items: T[]
+  meta: PageMeta
+}

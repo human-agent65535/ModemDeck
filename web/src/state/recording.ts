@@ -10,6 +10,13 @@ import type {
 } from '../api/types'
 import { ApiError } from '../api/types'
 import { translate } from '../i18n'
+import {
+  acceptFirstPage,
+  acceptNextPage,
+  mergeUnique,
+  paginationState,
+  resetPagination
+} from './pagination'
 
 type DialerRecordingStatus = 'idle' | 'loading' | 'ready' | 'error'
 type ActiveRecordingStatus = 'idle' | 'initializing' | 'ready' | 'error'
@@ -85,6 +92,7 @@ export const recordingCatalogState = reactive<{
   data: [],
   error: ''
 })
+export const recordingCatalogPagination = reactive(paginationState())
 
 let settingsRequest: Promise<RecordingSettings | null> | undefined
 let settingsGeneration = 0
@@ -447,18 +455,24 @@ export async function loadRecordingEntries(
   }
 
   const token = ++recordingCatalogGeneration
+  resetPagination(recordingCatalogPagination)
+  const pageGeneration = recordingCatalogPagination.generation
   recordingCatalogState.query = normalizedQuery
   recordingCatalogState.status = 'loading'
   recordingCatalogState.data = []
   recordingCatalogState.error = ''
   try {
-    const recordings = await gateway.listRecordings(
+    const page = await gateway.listRecordings(
       normalizedQuery ? { q: normalizedQuery } : undefined
     )
-    if (token !== recordingCatalogGeneration) return null
-    recordingCatalogState.data = recordings
+    if (
+      token !== recordingCatalogGeneration ||
+      pageGeneration !== recordingCatalogPagination.generation
+    ) return null
+    recordingCatalogState.data = page.items
     recordingCatalogState.status = 'ready'
-    return recordings
+    acceptFirstPage(recordingCatalogPagination, page.meta)
+    return page.items
   } catch (error) {
     if (token !== recordingCatalogGeneration) return null
     recordingCatalogState.status =
@@ -471,9 +485,103 @@ export async function loadRecordingEntries(
   }
 }
 
+export async function loadMoreRecordingEntries(): Promise<RecordingEntry[] | null> {
+  const cursor = recordingCatalogPagination.nextCursor
+  if (
+    recordingCatalogState.status !== 'ready' ||
+    !recordingCatalogPagination.hasMore ||
+    !cursor ||
+    recordingCatalogPagination.loadingMore
+  ) return recordingCatalogState.data
+
+  const token = recordingCatalogGeneration
+  const pageGeneration = recordingCatalogPagination.generation
+  const query = recordingCatalogState.query
+  recordingCatalogPagination.loadingMore = true
+  recordingCatalogPagination.error = ''
+  try {
+    const page = await gateway.listRecordings({
+      ...(query ? { q: query } : {}),
+      cursor
+    })
+    if (
+      token !== recordingCatalogGeneration ||
+      pageGeneration !== recordingCatalogPagination.generation ||
+      recordingCatalogPagination.nextCursor !== cursor
+    ) return null
+    recordingCatalogState.data = mergeUnique(
+      recordingCatalogState.data,
+      page.items,
+      recording => recording.id
+    )
+    acceptNextPage(recordingCatalogPagination, page.meta)
+    return recordingCatalogState.data
+  } catch (error) {
+    if (
+      token !== recordingCatalogGeneration ||
+      pageGeneration !== recordingCatalogPagination.generation
+    ) return null
+    if (
+      error instanceof ApiError &&
+      error.code === 'invalid_argument' &&
+      error.field === 'cursor'
+    ) {
+      return loadRecordingEntries(query, true)
+    }
+    recordingCatalogPagination.error = failureMessage(
+      error,
+      translate('runtime.callRecordingsLoadFailed')
+    )
+    return null
+  } finally {
+    if (
+      token === recordingCatalogGeneration &&
+      pageGeneration === recordingCatalogPagination.generation
+    ) {
+      recordingCatalogPagination.loadingMore = false
+    }
+  }
+}
+
+async function refreshRecordingEntries(): Promise<RecordingEntry[] | null> {
+  const token = recordingCatalogGeneration
+  const pageGeneration = recordingCatalogPagination.generation
+  const query = recordingCatalogState.query
+  try {
+    const page = await gateway.listRecordings(query ? { q: query } : undefined)
+    if (
+      token !== recordingCatalogGeneration ||
+      pageGeneration !== recordingCatalogPagination.generation
+    ) return null
+    if (recordingCatalogPagination.pages > 1) {
+      recordingCatalogState.data = mergeUnique(
+        page.items,
+        recordingCatalogState.data,
+        recording => recording.id
+      )
+    } else {
+      recordingCatalogState.data = page.items
+      acceptFirstPage(recordingCatalogPagination, page.meta)
+    }
+    recordingCatalogState.status = 'ready'
+    recordingCatalogState.error = ''
+    return recordingCatalogState.data
+  } catch (error) {
+    if (
+      token !== recordingCatalogGeneration ||
+      pageGeneration !== recordingCatalogPagination.generation
+    ) return null
+    recordingCatalogState.error = failureMessage(
+      error,
+      translate('runtime.callRecordingsLoadFailed')
+    )
+    return null
+  }
+}
+
 export async function refreshRecordingWorkspace(): Promise<void> {
   const requests: Promise<unknown>[] = [
-    loadRecordingEntries(recordingCatalogState.query, true)
+    refreshRecordingEntries()
   ]
   if (callRecordingState.callID) {
     requests.push(loadActiveCallRecordingSegments(callRecordingState.callID))
@@ -597,4 +705,5 @@ export function resetRecordingState(): void {
   recordingCatalogState.status = 'idle'
   recordingCatalogState.data = []
   recordingCatalogState.error = ''
+  resetPagination(recordingCatalogPagination)
 }

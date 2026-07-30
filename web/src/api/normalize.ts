@@ -11,6 +11,8 @@ import type {
   LineSummary,
   Message,
   MessageThread,
+  Page,
+  PageMeta,
   SystemLanguage
 } from './types'
 import { isLineColorPresetID } from './types'
@@ -72,6 +74,43 @@ function listValue(value: unknown, key: string): unknown[] {
   const source = objectValue(value, 'response')
   if (!Array.isArray(source[key])) throw new Error(`response.${key} 必须是数组`)
   return source[key] as unknown[]
+}
+
+export function parsePageMeta(value: unknown, path = 'response.meta'): PageMeta {
+  const source = objectValue(value, path)
+  const limit = Number(source.limit)
+  const nextCursor = source.next_cursor
+  const hasMore = source.has_more
+  if (!Number.isSafeInteger(limit) || limit <= 0) {
+    throw new Error(`${path}.limit 必须是正整数`)
+  }
+  if (typeof nextCursor !== 'string') {
+    throw new Error(`${path}.next_cursor 必须是字符串`)
+  }
+  if (typeof hasMore !== 'boolean') {
+    throw new Error(`${path}.has_more 必须是布尔值`)
+  }
+  if (hasMore !== Boolean(nextCursor.trim())) {
+    throw new Error(`${path}.has_more 与 next_cursor 不一致`)
+  }
+  return {
+    limit,
+    next_cursor: nextCursor.trim(),
+    has_more: hasMore
+  }
+}
+
+function parsePage<T>(
+  value: unknown,
+  key: string,
+  parser: (item: unknown) => T
+): Page<T> {
+  const source = objectValue(value, 'response')
+  if (!Array.isArray(source[key])) throw new Error(`response.${key} 必须是数组`)
+  return {
+    items: source[key].map(parser),
+    meta: parsePageMeta(source.meta)
+  }
 }
 
 const COMMUNICATION_CAPABILITIES: CommunicationCapabilityName[] = [
@@ -164,8 +203,8 @@ export function parseContact(value: unknown): Contact {
   }
 }
 
-export function parseContacts(value: unknown): Contact[] {
-  return listValue(value, 'contacts').map(parseContact)
+export function parseContacts(value: unknown): Page<Contact> {
+  return parsePage(value, 'contacts', parseContact)
 }
 
 export function parseContactResponse(value: unknown): Contact {
@@ -189,8 +228,8 @@ export function parseThread(value: unknown): MessageThread {
   }
 }
 
-export function parseThreads(value: unknown): MessageThread[] {
-  return listValue(value, 'threads').map(parseThread)
+export function parseThreads(value: unknown): Page<MessageThread> {
+  return parsePage(value, 'threads', parseThread)
 }
 
 export function parseMessage(value: unknown): Message {
@@ -221,8 +260,8 @@ export function parseMessage(value: unknown): Message {
   }
 }
 
-export function parseMessages(value: unknown): Message[] {
-  return listValue(value, 'messages').map(parseMessage)
+export function parseMessages(value: unknown): Page<Message> {
+  return parsePage(value, 'messages', parseMessage)
 }
 
 function directionValue(source: JsonRecord, path: string): CallDirection {
@@ -250,8 +289,8 @@ export function parseCallRecord(value: unknown): CallRecord {
   }
 }
 
-export function parseCalls(value: unknown): CallRecord[] {
-  return listValue(value, 'calls').map(parseCallRecord)
+export function parseCalls(value: unknown): Page<CallRecord> {
+  return parsePage(value, 'calls', parseCallRecord)
 }
 
 function parseSIM(value: unknown): DeviceSIM {

@@ -939,6 +939,28 @@ textarea::placeholder {
   overflow-y: auto;
 }
 
+.infinite-scroll-trigger {
+  display: flex;
+  min-height: 2px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.infinite-scroll-trigger:has(> :first-child) {
+  min-height: 44px;
+  padding-block: 10px;
+}
+
+.infinite-scroll-trigger button {
+  color: var(--accent-strong);
+  font-weight: 650;
+  background: transparent;
+}
+
 .list-item {
   position: relative;
   display: flex;

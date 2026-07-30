@@ -282,7 +282,6 @@ onMounted(() => {
           <Download :size="16" />
           <span>{{ t('tls.downloadRoot') }}</span>
         </a>
-        <p>{{ t('tls.trustHint') }}</p>
       </div>
 
       <section class="tls-install" aria-labelledby="tls-install-title">

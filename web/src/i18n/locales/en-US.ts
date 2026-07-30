@@ -446,10 +446,8 @@ export default {
       'An administrator must allow iOS pairing for your account.',
     connection: 'Always connects through',
     createdAt: 'Credential created',
-    noSwitching:
-      'The app will always use the Tunnel URL; it will not detect or switch to a local route.',
-    noExpiry:
-      'This credential has no scheduled expiration. Replace or revoke it if the QR code is exposed.',
+    noSwitching: 'The app connects through Tunnel only.',
+    noExpiry: 'The credential remains valid until replaced or revoked.',
     replaceQR: 'Replace QR code',
     generateQR: 'Generate QR code',
     revoke: 'Revoke pairing',
@@ -982,7 +980,6 @@ export default {
     notProvided: 'Not provided',
     fingerprint: 'SHA-256 fingerprint',
     downloadRoot: 'Download root certificate',
-    trustHint: 'Import it into the system trust store to use browser audio and notifications',
     installUser: 'Install user certificate',
     pemHint: 'Certificate and private key must be PEM text files, up to 1 MiB each.',
     certificatePEM: 'Certificate PEM',

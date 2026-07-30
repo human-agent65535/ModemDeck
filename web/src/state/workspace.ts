@@ -15,7 +15,9 @@ import type {
   Message,
   MessageReadInput,
   MessageThread,
+  Page,
   Resource,
+  ResourceStatus,
   RenameDeviceInput,
   SendMessageInput,
   TelegramUnit,
@@ -27,6 +29,14 @@ import { translate } from '../i18n'
 import { formatPhoneNumber } from '../utils/format'
 import { playOutgoingMessageSound } from './browserSounds'
 import { normalizedPhoneIdentity } from '../utils/lineIdentity'
+import {
+  acceptFirstPage,
+  acceptNextPage,
+  mergeUnique,
+  paginationState,
+  resetPagination,
+  type PaginationState
+} from './pagination'
 
 function resource<T>(data: T): Resource<T> {
   return reactive({ status: 'idle', data, error: '' }) as Resource<T>
@@ -63,6 +73,10 @@ export const callsResource = resource<CallRecord[]>([])
 export const devicesResource = resource<Device[]>([])
 export const telegramResource = resource<TelegramUnit[]>([])
 export const messageResources = reactive<Record<string, Resource<Message[]>>>({})
+export const contactsPagination = reactive(paginationState())
+export const threadsPagination = reactive(paginationState())
+export const callsPagination = reactive(paginationState())
+export const messagePaginationStates = reactive<Record<string, PaginationState>>({})
 export const threadReadErrors = reactive<Record<string, string>>({})
 export const recentIncomingMessageIDs = reactive<Record<string, boolean>>({})
 export const recentIncomingThreadKeys = reactive<Record<string, boolean>>({})
@@ -78,6 +92,141 @@ let missedCallsReadRequest: Promise<void> | undefined
 const messageLoads = new Map<string, Promise<Message[] | null>>()
 const messageRefreshes = new Map<string, Promise<Message[] | null>>()
 const arrivalTimers = new Map<string, ReturnType<typeof setTimeout>>()
+let callsQueryFilter: CallFilter = 'all'
+
+function pageErrorStatus(error: unknown): ResourceStatus {
+  return error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
+}
+
+async function loadFirstPage<T>(
+  target: Resource<T[]>,
+  pagination: PaginationState,
+  loader: () => Promise<Page<T>>
+): Promise<T[] | null> {
+  resetPagination(pagination)
+  const generation = workspaceGeneration
+  const pageGeneration = pagination.generation
+  target.status = 'loading'
+  target.error = ''
+  try {
+    const page = await loader()
+    if (
+      generation !== workspaceGeneration ||
+      pageGeneration !== pagination.generation
+    ) return null
+    target.data = page.items
+    target.status = 'ready'
+    acceptFirstPage(pagination, page.meta)
+    return target.data
+  } catch (error) {
+    if (
+      generation !== workspaceGeneration ||
+      pageGeneration !== pagination.generation
+    ) return null
+    target.status = pageErrorStatus(error)
+    target.error = errorText(error)
+    pagination.error = target.error
+    return null
+  }
+}
+
+async function refreshFirstPage<T>(
+  target: Resource<T[]>,
+  pagination: PaginationState,
+  loader: () => Promise<Page<T>>,
+  identity: (item: T) => string,
+  sort?: (left: T, right: T) => number
+): Promise<T[] | null> {
+  const generation = workspaceGeneration
+  const pageGeneration = pagination.generation
+  try {
+    const page = await loader()
+    if (
+      generation !== workspaceGeneration ||
+      pageGeneration !== pagination.generation
+    ) return null
+    if (pagination.pages > 1) {
+      const merged = mergeUnique(page.items, target.data, identity)
+      target.data = sort ? merged.sort(sort) : merged
+    } else {
+      target.data = page.items
+      acceptFirstPage(pagination, page.meta)
+    }
+    target.status = 'ready'
+    target.error = ''
+    return target.data
+  } catch (error) {
+    if (
+      generation !== workspaceGeneration ||
+      pageGeneration !== pagination.generation
+    ) return null
+    target.error = errorText(error)
+    if (target.status === 'idle') target.status = pageErrorStatus(error)
+    return null
+  }
+}
+
+async function loadNextPage<T>(
+  target: Resource<T[]>,
+  pagination: PaginationState,
+  loader: (cursor: string) => Promise<Page<T>>,
+  restart: () => Promise<Page<T>>,
+  identity: (item: T) => string,
+  prepend = false
+): Promise<T[] | null> {
+  const cursor = pagination.nextCursor
+  if (
+    target.status !== 'ready' ||
+    !pagination.hasMore ||
+    !cursor ||
+    pagination.loadingMore
+  ) return target.data
+
+  const generation = workspaceGeneration
+  const pageGeneration = pagination.generation
+  pagination.loadingMore = true
+  pagination.error = ''
+  try {
+    const page = await loader(cursor)
+    if (
+      generation !== workspaceGeneration ||
+      pageGeneration !== pagination.generation ||
+      pagination.nextCursor !== cursor
+    ) return null
+    target.data = prepend
+      ? mergeUnique(page.items, target.data, identity)
+      : mergeUnique(target.data, page.items, identity)
+    acceptNextPage(pagination, page.meta)
+    return target.data
+  } catch (error) {
+    if (
+      generation !== workspaceGeneration ||
+      pageGeneration !== pagination.generation
+    ) return null
+    if (
+      error instanceof ApiError &&
+      error.code === 'invalid_argument' &&
+      error.field === 'cursor'
+    ) {
+      return loadFirstPage(target, pagination, restart)
+    }
+    pagination.error = errorText(error)
+    return null
+  } finally {
+    if (
+      generation === workspaceGeneration &&
+      pageGeneration === pagination.generation
+    ) {
+      pagination.loadingMore = false
+    }
+  }
+}
+
+function messageOrder(left: Message, right: Message): number {
+  return Date.parse(left.timestamp) - Date.parse(right.timestamp) ||
+    Number(left.id) - Number(right.id) ||
+    left.id.localeCompare(right.id)
+}
 
 export function createMessageReadCoordinator(
   request: (input: MessageReadInput) => Promise<void>
@@ -335,12 +484,29 @@ export function loadBootstrap(force = false): Promise<BootstrapResponse | null> 
 
 export function loadContacts(force = false): Promise<Contact[] | null> {
   if (!force && contactsResource.status === 'ready') return Promise.resolve(contactsResource.data)
-  return load(contactsResource, () => gateway.listContacts())
+  return loadFirstPage(contactsResource, contactsPagination, () =>
+    gateway.listContacts()
+  )
+}
+
+export function loadMoreContacts(): Promise<Contact[] | null> {
+  return loadNextPage(
+    contactsResource,
+    contactsPagination,
+    cursor => gateway.listContacts({ cursor }),
+    () => gateway.listContacts(),
+    contact => contact.id
+  )
 }
 
 export function refreshContacts(): Promise<Contact[] | null> {
   if (contactsRefresh) return contactsRefresh
-  contactsRefresh = refreshResource(contactsResource, () => gateway.listContacts()).finally(() => {
+  contactsRefresh = refreshFirstPage(
+    contactsResource,
+    contactsPagination,
+    () => gateway.listContacts(),
+    contact => contact.id
+  ).finally(() => {
     contactsRefresh = undefined
   })
   return contactsRefresh
@@ -349,30 +515,67 @@ export function refreshContacts(): Promise<Contact[] | null> {
 export function loadThreads(force = false): Promise<MessageThread[] | null> {
   if (!force && threadsResource.status === 'ready') return Promise.resolve(threadsResource.data)
   if (threadsLoad) return threadsLoad
-  threadsLoad = load(threadsResource, () => gateway.listThreads()).finally(() => {
+  threadsLoad = loadFirstPage(
+    threadsResource,
+    threadsPagination,
+    () => gateway.listThreads()
+  ).finally(() => {
     threadsLoad = undefined
   })
   return threadsLoad
 }
 
+export function loadMoreThreads(): Promise<MessageThread[] | null> {
+  return loadNextPage(
+    threadsResource,
+    threadsPagination,
+    cursor => gateway.listThreads({ cursor }),
+    () => gateway.listThreads(),
+    thread => thread.key
+  )
+}
+
 export function refreshThreads(): Promise<MessageThread[] | null> {
   if (threadsRefresh) return threadsRefresh
-  threadsRefresh = refreshResource(threadsResource, () => gateway.listThreads()).finally(() => {
+  threadsRefresh = refreshFirstPage(
+    threadsResource,
+    threadsPagination,
+    () => gateway.listThreads(),
+    thread => thread.key
+  ).finally(() => {
     threadsRefresh = undefined
   })
   return threadsRefresh
 }
 
 export function loadCalls(force = false, filter: CallFilter = 'all'): Promise<CallRecord[] | null> {
-  if (!force && filter === 'all' && callsResource.status === 'ready') {
+  if (!force && filter === callsQueryFilter && callsResource.status === 'ready') {
     return Promise.resolve(callsResource.data)
   }
-  return load(callsResource, () => gateway.listCalls(filter))
+  callsQueryFilter = filter
+  return loadFirstPage(callsResource, callsPagination, () =>
+    gateway.listCalls(filter)
+  )
+}
+
+export function loadMoreCalls(): Promise<CallRecord[] | null> {
+  return loadNextPage(
+    callsResource,
+    callsPagination,
+    cursor => gateway.listCalls(callsQueryFilter, { cursor }),
+    () => gateway.listCalls(callsQueryFilter),
+    call => call.id
+  )
 }
 
 export function refreshCalls(): Promise<CallRecord[] | null> {
   if (callsRefreshRequest) return callsRefreshRequest
-  callsRefreshRequest = refreshResource(callsResource, () => gateway.listCalls('all')).finally(() => {
+  callsRefreshRequest = refreshFirstPage(
+    callsResource,
+    callsPagination,
+    () => gateway.listCalls(callsQueryFilter),
+    call => call.id
+  ).finally(() => {
     callsRefreshRequest = undefined
   })
   return callsRefreshRequest
@@ -535,6 +738,13 @@ export function messagesFor(threadKey: string): Resource<Message[]> {
   return messageResources[threadKey]
 }
 
+export function messagePaginationFor(threadKey: string): PaginationState {
+  if (!messagePaginationStates[threadKey]) {
+    messagePaginationStates[threadKey] = paginationState()
+  }
+  return messagePaginationStates[threadKey]
+}
+
 export function messageQueryForThread(thread: MessageThread): MessageReadInput {
   return {
     line_id: thread.line_id,
@@ -550,8 +760,10 @@ export async function loadMessages(
   if (!force && target.status === 'ready') return target.data
   const pending = messageLoads.get(thread.key)
   if (pending) return pending
-  const operation = load(target, () =>
-    gateway.listMessages(messageQueryForThread(thread))
+  const operation = loadFirstPage(
+    target,
+    messagePaginationFor(thread.key),
+    () => gateway.listMessages(messageQueryForThread(thread))
   ).finally(() => {
     if (messageLoads.get(thread.key) === operation) messageLoads.delete(thread.key)
   })
@@ -559,12 +771,31 @@ export async function loadMessages(
   return operation
 }
 
+export function loadMoreMessages(thread: MessageThread): Promise<Message[] | null> {
+  const target = messagesFor(thread.key)
+  return loadNextPage(
+    target,
+    messagePaginationFor(thread.key),
+    cursor => gateway.listMessages({
+      ...messageQueryForThread(thread),
+      cursor
+    }),
+    () => gateway.listMessages(messageQueryForThread(thread)),
+    message => message.id,
+    true
+  )
+}
+
 export function refreshMessages(thread: MessageThread): Promise<Message[] | null> {
   const pending = messageRefreshes.get(thread.key)
   if (pending) return pending
   const target = messagesFor(thread.key)
-  const operation = refreshResource(target, () =>
-    gateway.listMessages(messageQueryForThread(thread))
+  const operation = refreshFirstPage(
+    target,
+    messagePaginationFor(thread.key),
+    () => gateway.listMessages(messageQueryForThread(thread)),
+    message => message.id,
+    messageOrder
   ).finally(() => {
     if (messageRefreshes.get(thread.key) === operation) messageRefreshes.delete(thread.key)
   })
@@ -665,6 +896,13 @@ export function resetWorkspaceState(): void {
     target.error = ''
   }
   for (const key of Object.keys(messageResources)) delete messageResources[key]
+  for (const key of Object.keys(messagePaginationStates)) {
+    delete messagePaginationStates[key]
+  }
+  resetPagination(contactsPagination)
+  resetPagination(threadsPagination)
+  resetPagination(callsPagination)
+  callsQueryFilter = 'all'
   for (const key of Object.keys(threadReadErrors)) delete threadReadErrors[key]
   for (const key of Object.keys(recentIncomingMessageIDs)) {
     delete recentIncomingMessageIDs[key]

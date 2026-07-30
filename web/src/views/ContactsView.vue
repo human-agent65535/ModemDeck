@@ -16,6 +16,7 @@ import BatchActionBar from '../components/BatchActionBar.vue'
 import BaseAvatar from '../components/BaseAvatar.vue'
 import ContactEditor from '../components/ContactEditor.vue'
 import ContactNumberActions from '../components/ContactNumberActions.vue'
+import InfiniteScrollTrigger from '../components/InfiniteScrollTrigger.vue'
 import ListItemAvatarStatus from '../components/ListItemAvatarStatus.vue'
 import ListItemStatusRail from '../components/ListItemStatusRail.vue'
 import ListSelectionToggle from '../components/ListSelectionToggle.vue'
@@ -30,6 +31,7 @@ import {
   capabilityReason,
   bootstrapResource,
   contactsResource,
+  contactsPagination,
   contactEditingAvailable,
   deleteContact,
   deleteContacts,
@@ -37,6 +39,7 @@ import {
   lineLabel,
   loadBootstrap,
   loadContacts,
+  loadMoreContacts,
   saveContact
 } from '../state/workspace'
 import { phoneDestination, primaryPhone } from '../utils/format'
@@ -92,9 +95,18 @@ const defaultLineID = computed(
 const batchContacts = computed(() => selection.selected(filteredContacts.value))
 
 watch(
-  () => contactsResource.status,
-  status => {
-    if (status === 'ready' && selectedId.value && !selected.value) {
+  [
+    () => contactsResource.status,
+    selectedId,
+    selected,
+    () => contactsPagination.hasMore,
+    () => contactsPagination.loadingMore
+  ],
+  ([status, id, contact, hasMore, loadingMore]) => {
+    if (status !== 'ready' || !id || contact) return
+    if (hasMore) {
+      if (!loadingMore) void loadMoreContacts()
+    } else {
       void router.replace({ name: 'contacts' })
     }
   }
@@ -321,56 +333,73 @@ onBeforeUnmount(() => {
         retryable
         @retry="loadContacts(true)"
       />
-      <div v-else-if="filteredContacts.length === 0" class="contact-empty-state">
-        <StatePanel
-          state="empty"
-          :title="search ? t('contacts.noMatches') : t('contacts.empty')"
-        />
-        <ContactNumberActions
-          v-if="searchedPhone"
-          :number="searchedPhone"
-          @saved="openSavedContact"
-        />
-      </div>
       <div v-else class="item-list" role="list">
-        <SelectableListRow
-          v-for="contact in filteredContacts"
-          :key="contact.id"
-          :active="selecting"
-          :selected="selection.has(contact)"
-          :label="t('common.selectItem', { name: contact.display_name })"
-          @toggle="selection.toggle(contact)"
+        <div
+          v-if="
+            filteredContacts.length === 0 &&
+            !contactsPagination.hasMore &&
+            !contactsPagination.loadingMore
+          "
+          class="contact-empty-state"
         >
-          <SwipeActionRow
-            :delete-label="t('common.delete')"
-            :disabled="selecting || deleting"
-            @delete="remove(contact)"
+          <StatePanel
+            state="empty"
+            :title="search ? t('contacts.noMatches') : t('contacts.empty')"
+          />
+          <ContactNumberActions
+            v-if="searchedPhone"
+            :number="searchedPhone"
+            @saved="openSavedContact"
+          />
+        </div>
+        <template v-else>
+          <SelectableListRow
+            v-for="contact in filteredContacts"
+            :key="contact.id"
+            :active="selecting"
+            :selected="selection.has(contact)"
+            :label="t('common.selectItem', { name: contact.display_name })"
+            @toggle="selection.toggle(contact)"
           >
-            <button
-              class="list-item"
-              :class="{ 'is-selected': contact.id === selectedId }"
-              type="button"
-              @click="selectContact(contact)"
+            <SwipeActionRow
+              :delete-label="t('common.delete')"
+              :disabled="selecting || deleting"
+              @delete="remove(contact)"
             >
-              <ListItemAvatarStatus>
-                <BaseAvatar :name="contact.display_name" :src="contact.avatar" />
-              </ListItemAvatarStatus>
-              <span class="list-item__content">
-                <strong>{{ contact.display_name }}</strong>
-                <small>{{ primaryPhone(contact.phones) || t('contacts.noNumber') }}</small>
-              </span>
-              <ListItemStatusRail>
-                <Star
-                  v-if="contact.favorite"
-                  class="contact-favorite-mark"
-                  :size="15"
-                  fill="currentColor"
-                  :aria-label="t('contacts.favorited')"
-                />
-              </ListItemStatusRail>
-            </button>
-          </SwipeActionRow>
-        </SelectableListRow>
+              <button
+                class="list-item"
+                :class="{ 'is-selected': contact.id === selectedId }"
+                type="button"
+                @click="selectContact(contact)"
+              >
+                <ListItemAvatarStatus>
+                  <BaseAvatar :name="contact.display_name" :src="contact.avatar" />
+                </ListItemAvatarStatus>
+                <span class="list-item__content">
+                  <strong>{{ contact.display_name }}</strong>
+                  <small>{{ primaryPhone(contact.phones) || t('contacts.noNumber') }}</small>
+                </span>
+                <ListItemStatusRail>
+                  <Star
+                    v-if="contact.favorite"
+                    class="contact-favorite-mark"
+                    :size="15"
+                    fill="currentColor"
+                    :aria-label="t('contacts.favorited')"
+                  />
+                </ListItemStatusRail>
+              </button>
+            </SwipeActionRow>
+          </SelectableListRow>
+        </template>
+        <InfiniteScrollTrigger
+          :has-more="contactsPagination.hasMore"
+          :loading="contactsPagination.loadingMore"
+          :error="contactsPagination.error"
+          :loading-label="t('contacts.loading')"
+          :retry-label="t('common.retry')"
+          @load="loadMoreContacts"
+        />
       </div>
       <BatchActionBar
         v-if="selecting"

@@ -63,19 +63,21 @@ test('message queries and reads use only stable line id and peer', async () => {
   assert.doesNotMatch(client, /local_phone: query\.local_phone|iccid: query\.iccid/)
 
   const gateway = createFixtureGateway()
-  const thread = (await gateway.listThreads()).find(item => item.contact_name === 'Alex Rowan')
+  const thread = (await gateway.listThreads()).items.find(
+    item => item.contact_name === 'Alex Rowan'
+  )
   assert.ok(thread)
   const messages = await gateway.listMessages({
     line_id: thread.line_id,
     peer: thread.peer
   })
-  assert.ok(messages.length > 0)
+  assert.ok(messages.items.length > 0)
 
   await gateway.markThreadRead({
     line_id: thread.line_id,
     peer: thread.peer
   })
-  const updated = (await gateway.listThreads()).find(item => item.key === thread.key)
+  const updated = (await gateway.listThreads()).items.find(item => item.key === thread.key)
   assert.equal(updated?.unread_count, 0)
 })
 

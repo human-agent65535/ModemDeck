@@ -1,4 +1,4 @@
-import { parseCallRecord, parseMessage } from './normalize.ts'
+import { parseCallRecord, parseMessage, parsePageMeta } from './normalize.ts'
 import type {
   ActiveCallSnapshot,
   CallAction,
@@ -41,6 +41,7 @@ import type {
   NetworkSelectionPolicy,
   NetworkProxyStatus,
   NetworkStatus,
+  Page,
   NetworkUsage,
   NetworkUsageTotal,
   OutgoingCallReservation,
@@ -2040,10 +2041,10 @@ export function parseCallRecordingsResponse(value: unknown): CallRecordingSegmen
   })
 }
 
-export function parseRecordingEntriesResponse(value: unknown): RecordingEntry[] {
+export function parseRecordingEntriesResponse(value: unknown): Page<RecordingEntry> {
   const source = objectValue(value, 'response')
   if (!Array.isArray(source.recordings)) throw new Error('response.recordings 必须是数组')
-  return source.recordings.map((value, index) => {
+  const items = source.recordings.map((value, index) => {
     const path = `response.recordings[${index}]`
     const entry = objectValue(value, path)
     const segmentPath = `${path}.segment`
@@ -2092,6 +2093,10 @@ export function parseRecordingEntriesResponse(value: unknown): RecordingEntry[] 
     }
     return result
   })
+  return {
+    items,
+    meta: parsePageMeta(source.meta)
+  }
 }
 
 export function parseLineSettingsResponse(value: unknown): LineSettings {

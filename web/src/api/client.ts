@@ -93,7 +93,6 @@ import type {
   CallFilter,
   CallRecordingSegment,
   CallRecordingState,
-  CallRecord,
   CallSession,
   ChangePasswordInput,
   CommandReceipt,
@@ -124,14 +123,12 @@ import type {
   LoginInput,
   Message,
   MessageEventStreamHandlers,
-  MessageThread,
   MobileNetworkScan,
   NetworkSelectionPolicy,
   NetworkStatus,
   ProxyDeleteResult,
   ProxyInstance,
   ProxyMutation,
-  RecordingEntry,
   RecordingSettings,
   RenameDeviceInput,
   RuntimeEvent,
@@ -1032,8 +1029,16 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
-  async listContacts(query: ListQuery = {}): Promise<Contact[]> {
-    return parseContacts(await get(`${API_ROOT}/contacts${queryString({ q: query.q })}`))
+  async listContacts(query: ListQuery = {}) {
+    return parseContacts(
+      await get(
+        `${API_ROOT}/contacts${queryString({
+          q: query.q,
+          cursor: query.cursor,
+          limit: query.limit ? String(query.limit) : undefined
+        })}`
+      )
+    )
   },
 
   async createContact(input: ContactInput): Promise<Contact> {
@@ -1077,16 +1082,26 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
-  async listThreads(query: ListQuery = {}): Promise<MessageThread[]> {
-    return parseThreads(await get(`${API_ROOT}/messages/threads${queryString({ q: query.q })}`))
+  async listThreads(query: ListQuery = {}) {
+    return parseThreads(
+      await get(
+        `${API_ROOT}/messages/threads${queryString({
+          q: query.q,
+          cursor: query.cursor,
+          limit: query.limit ? String(query.limit) : undefined
+        })}`
+      )
+    )
   },
 
-  async listMessages(query): Promise<Message[]> {
+  async listMessages(query) {
     return parseMessages(
       await get(
         `${API_ROOT}/messages${queryString({
           line_id: query.line_id,
-          peer: query.peer
+          peer: query.peer,
+          cursor: query.cursor,
+          limit: query.limit ? String(query.limit) : undefined
         })}`
       )
     )
@@ -1137,9 +1152,16 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
-  async listCalls(filter: CallFilter = 'all', query: ListQuery = {}): Promise<CallRecord[]> {
+  async listCalls(filter: CallFilter = 'all', query: ListQuery = {}) {
     return parseCalls(
-      await get(`${API_ROOT}/calls${queryString({ kind: filter, q: query.q })}`)
+      await get(
+        `${API_ROOT}/calls${queryString({
+          kind: filter,
+          q: query.q,
+          cursor: query.cursor,
+          limit: query.limit ? String(query.limit) : undefined
+        })}`
+      )
     )
   },
 
@@ -1714,10 +1736,16 @@ const realGateway: ConfiguredModemDeckGateway = {
     return parseRecordingSettingsResponse(await get(contract.path))
   },
 
-  async listRecordings(query: ListQuery = {}): Promise<RecordingEntry[]> {
+  async listRecordings(query: ListQuery = {}) {
     const contract = communicationContracts.listRecordings
     return parseRecordingEntriesResponse(
-      await get(`${contract.path}${queryString({ q: query.q })}`)
+      await get(
+        `${contract.path}${queryString({
+          q: query.q,
+          cursor: query.cursor,
+          limit: query.limit ? String(query.limit) : undefined
+        })}`
+      )
     )
   },
 

@@ -18,6 +18,7 @@ import CallHistoryListItem from '../components/CallHistoryListItem.vue'
 import ContactHeaderIdentity from '../components/ContactHeaderIdentity.vue'
 import ContactNumberActions from '../components/ContactNumberActions.vue'
 import FavoriteFilterButton from '../components/FavoriteFilterButton.vue'
+import InfiniteScrollTrigger from '../components/InfiniteScrollTrigger.vue'
 import LineSelector from '../components/LineSelector.vue'
 import LineTag from '../components/LineTag.vue'
 import ListSelectionToggle from '../components/ListSelectionToggle.vue'
@@ -38,6 +39,7 @@ import { openDialerAndCall } from '../state/ui'
 import {
   bootstrapResource,
   callsResource,
+  callsPagination,
   capabilityReason,
   contactForNumber,
   deleteCall,
@@ -47,6 +49,7 @@ import {
   lineKey,
   loadBootstrap,
   loadCalls,
+  loadMoreCalls,
   loadContacts,
   markMissedCallRead,
   markMissedCallUnread,
@@ -518,6 +521,28 @@ watch(
   }
 )
 
+watch(
+  [
+    selectedId,
+    selected,
+    () => callsResource.status,
+    () => callsPagination.hasMore,
+    () => callsPagination.loadingMore
+  ],
+  ([id, call, status, hasMore, loadingMore]) => {
+    if (
+      !embedded.value &&
+      id &&
+      !call &&
+      status === 'ready' &&
+      hasMore &&
+      !loadingMore
+    ) {
+      void loadMoreCalls()
+    }
+  }
+)
+
 async function acknowledgeMissedCalls(): Promise<void> {
   missedReadError.value = ''
   try {
@@ -697,54 +722,68 @@ onBeforeUnmount(() => {
         retryable
         @retry="loadCalls(true)"
       />
-      <StatePanel
-        v-else-if="filteredCalls.length === 0"
-        state="empty"
-        :title="
-          search || filter !== 'all' || favoriteOnly || lineFilterKey !== 'all'
-            ? t('calls.noMatches')
-            : t('calls.empty')
-        "
-      />
       <div v-else class="item-list">
-        <SelectableListRow
-          v-for="call in filteredCalls"
-          :key="call.id"
-          :active="selecting"
-          :selected="selection.has(call)"
-          :label="t('common.selectItem', { name: displayName(call) })"
-          @toggle="selection.toggle(call)"
-        >
-          <SwipeActionRow
-            :can-read="call.missed"
-            :read-mode="call.read ? 'unread' : 'read'"
-            :read-label="
-              call.read
-                ? t('common.markUnread')
-                : t('common.markRead')
-            "
-            :delete-label="t('common.delete')"
-            :disabled="
-              selecting ||
-              Boolean(deletingCallID) ||
-              favoritePendingCallID === call.id
-            "
-            @read="toggleMissedCallRead(call)"
-            @delete="removeCall(call)"
+        <StatePanel
+          v-if="
+            filteredCalls.length === 0 &&
+            !callsPagination.hasMore &&
+            !callsPagination.loadingMore
+          "
+          state="empty"
+          :title="
+            search || filter !== 'all' || favoriteOnly || lineFilterKey !== 'all'
+              ? t('calls.noMatches')
+              : t('calls.empty')
+          "
+        />
+        <template v-else>
+          <SelectableListRow
+            v-for="call in filteredCalls"
+            :key="call.id"
+            :active="selecting"
+            :selected="selection.has(call)"
+            :label="t('common.selectItem', { name: displayName(call) })"
+            @toggle="selection.toggle(call)"
           >
-            <CallHistoryListItem
-              :call="call"
-              :name="displayName(call)"
-              :number="callDisplayNumber(call)"
-              :avatar="avatarForCall(call)"
-              :line="lineTagLine(lineForCall(call), call.line_id)"
-              :line-fallback="callLineFallback(call)"
-              :selected="call.id === selectedId"
-              :has-recording="hasPlayableRecording(call)"
-              @select="selectCall"
-            />
-          </SwipeActionRow>
-        </SelectableListRow>
+            <SwipeActionRow
+              :can-read="call.missed"
+              :read-mode="call.read ? 'unread' : 'read'"
+              :read-label="
+                call.read
+                  ? t('common.markUnread')
+                  : t('common.markRead')
+              "
+              :delete-label="t('common.delete')"
+              :disabled="
+                selecting ||
+                Boolean(deletingCallID) ||
+                favoritePendingCallID === call.id
+              "
+              @read="toggleMissedCallRead(call)"
+              @delete="removeCall(call)"
+            >
+              <CallHistoryListItem
+                :call="call"
+                :name="displayName(call)"
+                :number="callDisplayNumber(call)"
+                :avatar="avatarForCall(call)"
+                :line="lineTagLine(lineForCall(call), call.line_id)"
+                :line-fallback="callLineFallback(call)"
+                :selected="call.id === selectedId"
+                :has-recording="hasPlayableRecording(call)"
+                @select="selectCall"
+              />
+            </SwipeActionRow>
+          </SelectableListRow>
+        </template>
+        <InfiniteScrollTrigger
+          :has-more="callsPagination.hasMore"
+          :loading="callsPagination.loadingMore"
+          :error="callsPagination.error"
+          :loading-label="t('calls.loading')"
+          :retry-label="t('common.retry')"
+          @load="loadMoreCalls"
+        />
       </div>
       <BatchActionBar
         v-if="selecting"

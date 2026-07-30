@@ -9,6 +9,7 @@ import CommunicationAvatar from '../components/CommunicationAvatar.vue'
 import ContactHeaderIdentity from '../components/ContactHeaderIdentity.vue'
 import ContactNumberActions from '../components/ContactNumberActions.vue'
 import FavoriteFilterButton from '../components/FavoriteFilterButton.vue'
+import InfiniteScrollTrigger from '../components/InfiniteScrollTrigger.vue'
 import LineSelector from '../components/LineSelector.vue'
 import LineTag from '../components/LineTag.vue'
 import ListItemAvatarStatus from '../components/ListItemAvatarStatus.vue'
@@ -25,6 +26,8 @@ import {
   deleteRecording,
   deleteRecordings,
   loadRecordingEntries,
+  loadMoreRecordingEntries,
+  recordingCatalogPagination,
   recordingCatalogState,
   setRecordingsFavorite
 } from '../state/recording'
@@ -305,6 +308,27 @@ watch(
 
 watch(favoriteOnly, () => selection.clear())
 
+watch(
+  [
+    selectedID,
+    selected,
+    () => recordingCatalogState.status,
+    () => recordingCatalogPagination.hasMore,
+    () => recordingCatalogPagination.loadingMore
+  ],
+  ([id, recording, status, hasMore, loadingMore]) => {
+    if (
+      id &&
+      !recording &&
+      status === 'ready' &&
+      hasMore &&
+      !loadingMore
+    ) {
+      void loadMoreRecordingEntries()
+    }
+  }
+)
+
 watch(filteredRecordings, recordings => selection.reconcile(recordings))
 
 watch(lines, availableLines => {
@@ -404,87 +428,101 @@ onBeforeUnmount(() => {
         retryable
         @retry="loadRecordingEntries(search, true)"
       />
-      <StatePanel
-        v-else-if="filteredRecordings.length === 0"
-        state="empty"
-        :title="
-          search || favoriteOnly || lineFilterKey !== 'all'
-            ? t('recordings.noMatches')
-            : t('recordings.empty')
-        "
-      />
       <div v-else class="item-list">
-        <SelectableListRow
-          v-for="recording in filteredRecordings"
-          :key="recording.id"
-          :active="selecting"
-          :selected="selection.has(recording)"
-          :label="t('common.selectItem', { name: displayName(recording) })"
-          @toggle="selection.toggle(recording)"
-        >
-          <SwipeActionRow
-            :delete-label="t('common.delete')"
-            :disabled="
-              selecting ||
-              Boolean(deletingRecordingID) ||
-              favoritePendingCallID === recording.call_id
-            "
-            @delete="removeRecording(recording)"
+        <StatePanel
+          v-if="
+            filteredRecordings.length === 0 &&
+            !recordingCatalogPagination.hasMore &&
+            !recordingCatalogPagination.loadingMore
+          "
+          state="empty"
+          :title="
+            search || favoriteOnly || lineFilterKey !== 'all'
+              ? t('recordings.noMatches')
+              : t('recordings.empty')
+          "
+        />
+        <template v-else>
+          <SelectableListRow
+            v-for="recording in filteredRecordings"
+            :key="recording.id"
+            :active="selecting"
+            :selected="selection.has(recording)"
+            :label="t('common.selectItem', { name: displayName(recording) })"
+            @toggle="selection.toggle(recording)"
           >
-            <button
-              class="list-item recording-list-item"
-              :class="{ 'is-selected': recording.id === selectedID }"
-              type="button"
-              @click="selectRecording(recording)"
+            <SwipeActionRow
+              :delete-label="t('common.delete')"
+              :disabled="
+                selecting ||
+                Boolean(deletingRecordingID) ||
+                favoritePendingCallID === recording.call_id
+              "
+              @delete="removeRecording(recording)"
             >
-              <ListItemAvatarStatus class="recording-list-item__avatar">
-                <CommunicationAvatar
-                  channel="call"
-                  :name="displayName(recording)"
-                  :address="recordingDisplayNumber(recording)"
-                  :src="avatar(recording)"
-                />
-                <template #badge>
-                  <span
-                    class="recording-list-item__icon"
-                    :class="{ 'is-unavailable': !recording.playable }"
-                  >
-                    <AudioLines :size="12" />
-                  </span>
-                </template>
-              </ListItemAvatarStatus>
-              <span class="list-item__content">
-                <strong>{{ displayName(recording) }}</strong>
-                <span class="recording-list-item__meta">
-                  <LineTag
-                    :line="lineTagLine(lineForRecording(recording), recording.call.line_id)"
-                    :fallback="recordingLineFallback(recording)"
-                  />
-                  <small>
-                    {{ directionLabel(recording) }} ·
-                    {{
-                      recording.playable
-                        ? formatDuration(recording.duration_seconds)
-                        : statusLabel(recording)
-                    }}
-                  </small>
-                </span>
-              </span>
-              <ListItemStatusRail
-                :date="formatRelativeDate(recording.recorded_at)"
-                :date-time="recording.recorded_at"
+              <button
+                class="list-item recording-list-item"
+                :class="{ 'is-selected': recording.id === selectedID }"
+                type="button"
+                @click="selectRecording(recording)"
               >
-                <Star
-                  v-if="recording.favorite"
-                  class="recording-list-item__favorite"
-                  :size="15"
-                  fill="currentColor"
-                  :aria-label="t('common.favorite')"
-                />
-              </ListItemStatusRail>
-            </button>
-          </SwipeActionRow>
-        </SelectableListRow>
+                <ListItemAvatarStatus class="recording-list-item__avatar">
+                  <CommunicationAvatar
+                    channel="call"
+                    :name="displayName(recording)"
+                    :address="recordingDisplayNumber(recording)"
+                    :src="avatar(recording)"
+                  />
+                  <template #badge>
+                    <span
+                      class="recording-list-item__icon"
+                      :class="{ 'is-unavailable': !recording.playable }"
+                    >
+                      <AudioLines :size="12" />
+                    </span>
+                  </template>
+                </ListItemAvatarStatus>
+                <span class="list-item__content">
+                  <strong>{{ displayName(recording) }}</strong>
+                  <span class="recording-list-item__meta">
+                    <LineTag
+                      :line="lineTagLine(lineForRecording(recording), recording.call.line_id)"
+                      :fallback="recordingLineFallback(recording)"
+                    />
+                    <small>
+                      {{ directionLabel(recording) }} ·
+                      {{
+                        recording.playable
+                          ? formatDuration(recording.duration_seconds)
+                          : statusLabel(recording)
+                      }}
+                    </small>
+                  </span>
+                </span>
+                <ListItemStatusRail
+                  :date="formatRelativeDate(recording.recorded_at)"
+                  :date-time="recording.recorded_at"
+                >
+                  <Star
+                    v-if="recording.favorite"
+                    class="recording-list-item__favorite"
+                    :size="15"
+                    fill="currentColor"
+                    :aria-label="t('common.favorite')"
+                  />
+                </ListItemStatusRail>
+              </button>
+            </SwipeActionRow>
+          </SelectableListRow>
+        </template>
+        <InfiniteScrollTrigger
+          :has-more="recordingCatalogPagination.hasMore"
+          :loading="recordingCatalogPagination.loadingMore"
+          :error="recordingCatalogPagination.error"
+          :loading-label="t('recordings.loading')"
+          :retry-label="t('common.retry')"
+          @load="loadMoreRecordingEntries"
+        />
       </div>
       <BatchActionBar
         v-if="selecting"

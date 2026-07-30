@@ -39,10 +39,10 @@ import type {
   NetworkSelectionPolicy,
   NetworkStatus,
   OutgoingCallReservation,
+  Page,
   ProxyDeleteResult,
   ProxyInstance,
   ProxyMutation,
-  RecordingEntry,
   RecordingSettings,
   RenameDeviceInput,
   RuntimeEventStreamHandlers,
@@ -337,6 +337,57 @@ function includes(value: string | undefined, query: string): boolean {
 
 function normalizedQuery(query: ListQuery = {}): string {
   return (query.q || '').trim().toLocaleLowerCase()
+}
+
+function fixturePageLimit(query: { limit?: number }): number {
+  const requested = Number(query.limit)
+  return Number.isSafeInteger(requested) && requested > 0
+    ? Math.min(requested, 200)
+    : 50
+}
+
+function fixturePageOffset(query: { cursor?: string }): number {
+  if (!query.cursor) return 0
+  const match = /^fixture:(\d+)$/.exec(query.cursor)
+  if (!match) throw new ApiError('分页游标无效', 400, 'invalid_argument', 'cursor')
+  return Number(match[1])
+}
+
+function fixturePage<T>(
+  values: T[],
+  query: { cursor?: string; limit?: number }
+): Page<T> {
+  const offset = fixturePageOffset(query)
+  const limit = fixturePageLimit(query)
+  const items = values.slice(offset, offset + limit)
+  const nextOffset = offset + items.length
+  const hasMore = nextOffset < values.length
+  return clone({
+    items,
+    meta: {
+      limit,
+      next_cursor: hasMore ? `fixture:${nextOffset}` : '',
+      has_more: hasMore
+    }
+  })
+}
+
+function fixtureMessagePage(values: Message[], query: MessageQuery): Page<Message> {
+  const loaded = fixturePageOffset(query)
+  const limit = fixturePageLimit(query)
+  const end = Math.max(0, values.length - loaded)
+  const start = Math.max(0, end - limit)
+  const items = values.slice(start, end)
+  const nextLoaded = loaded + items.length
+  const hasMore = start > 0
+  return clone({
+    items,
+    meta: {
+      limit,
+      next_cursor: hasMore ? `fixture:${nextLoaded}` : '',
+      has_more: hasMore
+    }
+  })
 }
 
 let fixtureRecordingURL = ''
@@ -1402,15 +1453,19 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       iosPairingCreatedAt = ''
     },
 
-    async listContacts(query: ListQuery = {}): Promise<Contact[]> {
+    async listContacts(query: ListQuery = {}) {
       const q = normalizedQuery(query)
-      return clone(
+      return fixturePage(
         contacts.filter(
           contact =>
             !q ||
             includes(contact.display_name, q) ||
             contact.phones.some(phone => includes(phone.number, q))
-        )
+        ).sort((left, right) =>
+          left.display_name.localeCompare(right.display_name) ||
+          left.id.localeCompare(right.id)
+        ),
+        query
       )
     },
 
@@ -1474,9 +1529,9 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       }
     },
 
-    async listThreads(query: ListQuery = {}): Promise<MessageThread[]> {
+    async listThreads(query: ListQuery = {}) {
       const q = normalizedQuery(query)
-      return clone(
+      return fixturePage(
         threads
           .filter(
             thread =>
@@ -1485,13 +1540,18 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
               includes(thread.peer, q) ||
               includes(thread.last_content, q)
           )
-          .sort((a, b) => Date.parse(b.last_timestamp) - Date.parse(a.last_timestamp))
+          .sort(
+            (a, b) =>
+              Date.parse(b.last_timestamp) - Date.parse(a.last_timestamp) ||
+              b.key.localeCompare(a.key)
+          ),
+        query
       )
     },
 
-    async listMessages(query: MessageQuery): Promise<Message[]> {
+    async listMessages(query: MessageQuery) {
       const thread = fixtureThreadForQuery(query)
-      return clone((thread && messagesByThread[thread.key]) || [])
+      return fixtureMessagePage((thread && messagesByThread[thread.key]) || [], query)
     },
 
     subscribeMessageEvents(_handlers: MessageEventStreamHandlers): () => void {
@@ -1590,9 +1650,9 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       return clone(message)
     },
 
-    async listCalls(filter: CallFilter = 'all', query: ListQuery = {}): Promise<CallRecord[]> {
+    async listCalls(filter: CallFilter = 'all', query: ListQuery = {}) {
       const q = normalizedQuery(query)
-      return clone(
+      return fixturePage(
         calls.filter(call => {
           const filterMatch =
             filter === 'all' ||
@@ -1600,7 +1660,13 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
             (filter === 'incoming' && call.direction === 'incoming') ||
             (filter === 'outgoing' && call.direction === 'outgoing')
           return filterMatch && (!q || includes(call.display_name, q) || includes(call.remote_number, q))
-        })
+        }).sort(
+          (left, right) =>
+            Date.parse(right.ended_at || right.started_at) -
+              Date.parse(left.ended_at || left.started_at) ||
+            right.id.localeCompare(left.id)
+        ),
+        query
       )
     },
 
@@ -1744,9 +1810,9 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       return undefined
     },
 
-    async listRecordings(query: ListQuery = {}): Promise<RecordingEntry[]> {
+    async listRecordings(query: ListQuery = {}) {
       const q = normalizedQuery(query)
-      return clone(
+      return fixturePage(
         calls
           .filter(call => call.id === 'call-1' || call.id === 'call-3')
           .filter(call => !deletedRecordingIDs.has(`recording-${call.id}`))
@@ -1781,6 +1847,14 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
               call
             }
           })
+          .sort(
+            (left, right) =>
+              Date.parse(right.recorded_at) - Date.parse(left.recorded_at) ||
+              right.call_id.localeCompare(left.call_id) ||
+              right.segment_index - left.segment_index ||
+              right.id.localeCompare(left.id)
+          ),
+        query
       )
     },
 

@@ -158,32 +158,32 @@ test('all communication list panes expose selection and their eligible batch act
 
 test('message conversation read and favorite state are independent and persistent in the gateway', async () => {
   const gateway = createFixtureGateway()
-  const thread = (await gateway.listThreads()).find(item => !item.favorite)
+  const thread = (await gateway.listThreads()).items.find(item => !item.favorite)
   assert.ok(thread)
 
   const identity = { line_id: thread.line_id, peer: thread.peer }
   await gateway.updateMessageThreads('favorite', [identity])
   await gateway.updateMessageThreads('unread', [identity])
 
-  let updated = (await gateway.listThreads()).find(item => item.key === thread.key)
+  let updated = (await gateway.listThreads()).items.find(item => item.key === thread.key)
   assert.equal(updated?.favorite, true)
   assert.equal(updated?.marked_unread, true)
 
   await gateway.updateMessageThreads('read', [identity])
-  updated = (await gateway.listThreads()).find(item => item.key === thread.key)
+  updated = (await gateway.listThreads()).items.find(item => item.key === thread.key)
   assert.equal(updated?.unread_count, 0)
   assert.equal(updated?.marked_unread, false)
   assert.equal(updated?.favorite, true)
 
   await gateway.updateMessageThreads('unfavorite', [identity])
-  updated = (await gateway.listThreads()).find(item => item.key === thread.key)
+  updated = (await gateway.listThreads()).items.find(item => item.key === thread.key)
   assert.equal(updated?.favorite, false)
 })
 
 test('call and recording entry favorites persist independently in the gateway', async () => {
   const gateway = createFixtureGateway()
-  const call = (await gateway.listCalls()).find(item => !item.favorite)
-  const recording = (await gateway.listRecordings()).find(item => !item.favorite)
+  const call = (await gateway.listCalls()).items.find(item => !item.favorite)
+  const recording = (await gateway.listRecordings()).items.find(item => !item.favorite)
   assert.ok(call)
   assert.ok(recording)
 
@@ -193,8 +193,8 @@ test('call and recording entry favorites persist independently in the gateway', 
     id: recording.id
   }])
 
-  let updatedCall = (await gateway.listCalls()).find(item => item.id === call.id)
-  let updatedRecording = (await gateway.listRecordings()).find(
+  let updatedCall = (await gateway.listCalls()).items.find(item => item.id === call.id)
+  let updatedRecording = (await gateway.listRecordings()).items.find(
     item => item.id === recording.id
   )
   assert.equal(updatedCall?.favorite, true)
@@ -205,8 +205,8 @@ test('call and recording entry favorites persist independently in the gateway', 
     call_id: recording.call_id,
     id: recording.id
   }])
-  updatedCall = (await gateway.listCalls()).find(item => item.id === call.id)
-  updatedRecording = (await gateway.listRecordings()).find(
+  updatedCall = (await gateway.listCalls()).items.find(item => item.id === call.id)
+  updatedRecording = (await gateway.listRecordings()).items.find(
     item => item.id === recording.id
   )
   assert.equal(updatedCall?.favorite, false)

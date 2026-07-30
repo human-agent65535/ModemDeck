@@ -18,6 +18,7 @@ import BatchActionBar from '../components/BatchActionBar.vue'
 import type { Contact, LineSummary, MessageThread } from '../api/types'
 import ContactHeaderIdentity from '../components/ContactHeaderIdentity.vue'
 import ContactNumberActions from '../components/ContactNumberActions.vue'
+import InfiniteScrollTrigger from '../components/InfiniteScrollTrigger.vue'
 import FavoriteFilterButton from '../components/FavoriteFilterButton.vue'
 import ContactSuggestInput from '../components/ContactSuggestInput.vue'
 import LineSelector from '../components/LineSelector.vue'
@@ -49,11 +50,14 @@ import {
   loadBootstrap,
   loadContacts,
   loadMessages,
+  loadMoreMessages,
+  loadMoreThreads,
   loadThreads,
   markThreadRead,
   markThreadsRead,
   markThreadsUnread,
   messagesFor,
+  messagePaginationFor,
   recentIncomingMessageIDs,
   recentIncomingThreadKeys,
   resolveLine,
@@ -61,6 +65,7 @@ import {
   sendMessage,
   threadReadErrors,
   threadIsUnread,
+  threadsPagination,
   threadsResource
 } from '../state/workspace'
 import { formatRelativeDate } from '../utils/format'
@@ -146,6 +151,9 @@ const selectedThread = computed(() =>
 )
 const currentMessages = computed(() =>
   selectedKey.value ? messagesFor(selectedKey.value) : null
+)
+const currentMessagePagination = computed(() =>
+  selectedThread.value ? messagePaginationFor(selectedThread.value.key) : null
 )
 const selectedReadError = computed(() =>
   selectedThread.value ? threadReadErrors[selectedThread.value.key] || '' : ''
@@ -397,12 +405,18 @@ watch(
     [
       selectedKey.value,
       selectedThread.value?.key || '',
-      composingNew.value
+      composingNew.value,
+      threadsPagination.hasMore,
+      threadsPagination.loadingMore
     ] as const,
   () => {
     if (composingNew.value || !selectedKey.value) return
     const thread = selectedThread.value
-    if (thread) void openThread(thread)
+    if (thread) {
+      void openThread(thread)
+    } else if (threadsPagination.hasMore && !threadsPagination.loadingMore) {
+      void loadMoreThreads()
+    }
   },
   { immediate: true }
 )
@@ -485,6 +499,22 @@ async function acknowledgeSelectedThreadRead(retry = false): Promise<void> {
 function onMessagesScroll(): void {
   updateMessageViewportPosition()
   if (viewportAtBottom.value) void acknowledgeSelectedThreadRead()
+}
+
+async function loadOlderMessages(): Promise<void> {
+  const thread = selectedThread.value
+  const viewport = messagesViewport.value
+  if (!thread || !viewport) return
+  const previousHeight = viewport.scrollHeight
+  const previousTop = viewport.scrollTop
+  await loadMoreMessages(thread)
+  if (selectedThread.value?.key !== thread.key) return
+  await nextTick()
+  const currentViewport = messagesViewport.value
+  if (!currentViewport) return
+  currentViewport.scrollTop =
+    previousTop + currentViewport.scrollHeight - previousHeight
+  updateMessageViewportPosition()
 }
 
 function onMessageDocumentVisibilityChange(): void {
@@ -889,65 +919,82 @@ onBeforeUnmount(() => {
         retryable
         @retry="loadThreads(true)"
       />
-      <div v-else-if="filteredThreads.length === 0" class="message-list-empty">
-        <StatePanel
-          state="empty"
-          :title="
-            search || messageFilter !== 'all' || favoriteOnly || lineFilterKey !== 'all'
-              ? t('messages.noMatches')
-              : t('messages.empty')
-          "
-        />
-        <button
-          v-if="!search && !messageWriteUnavailable"
-          class="secondary-button"
-          type="button"
-          @click="startMessage"
-        >
-          <MessageSquarePlus :size="17" />
-          {{ t('dashboard.newMessage') }}
-        </button>
-      </div>
       <div v-else class="item-list">
-        <SelectableListRow
-          v-for="thread in filteredThreads"
-          :key="thread.key"
-          :active="selecting"
-          :selected="selection.has(thread)"
-          :label="t('common.selectItem', { name: displayNameForThread(thread) })"
-          @toggle="selection.toggle(thread)"
+        <div
+          v-if="
+            filteredThreads.length === 0 &&
+            !threadsPagination.hasMore &&
+            !threadsPagination.loadingMore
+          "
+          class="message-list-empty"
         >
-          <SwipeActionRow
-            can-read
-            :read-mode="threadIsUnread(thread) ? 'read' : 'unread'"
-            :read-label="
-              threadIsUnread(thread)
-                ? t('common.markRead')
-                : t('common.markUnread')
+          <StatePanel
+            state="empty"
+            :title="
+              search || messageFilter !== 'all' || favoriteOnly || lineFilterKey !== 'all'
+                ? t('messages.noMatches')
+                : t('messages.empty')
             "
-            :delete-label="t('common.delete')"
-            :disabled="
-              selecting ||
-              Boolean(deletingThreadKey) ||
-              favoritePendingKey === thread.key
-            "
-            @read="toggleThreadRead(thread)"
-            @delete="removeThread(thread)"
+          />
+          <button
+            v-if="!search && !messageWriteUnavailable"
+            class="secondary-button"
+            type="button"
+            @click="startMessage"
           >
-            <MessageThreadListItem
-              :thread="thread"
-              :name="displayNameForThread(thread)"
-              :peer="threadDisplayNumber(thread)"
-              :avatar="avatarForNumber(thread.peer)"
-              :line="lineTagLine(lineForThread(thread), thread.line_id)"
-              :line-fallback="threadLineFallback(thread)"
-              :selected="thread.key === selectedKey && !composingNew"
-              :arriving="recentIncomingThreadKeys[thread.key]"
-              :favorite-interactive="false"
-              @select="chooseThread"
-            />
-          </SwipeActionRow>
-        </SelectableListRow>
+            <MessageSquarePlus :size="17" />
+            {{ t('dashboard.newMessage') }}
+          </button>
+        </div>
+        <template v-else>
+          <SelectableListRow
+            v-for="thread in filteredThreads"
+            :key="thread.key"
+            :active="selecting"
+            :selected="selection.has(thread)"
+            :label="t('common.selectItem', { name: displayNameForThread(thread) })"
+            @toggle="selection.toggle(thread)"
+          >
+            <SwipeActionRow
+              can-read
+              :read-mode="threadIsUnread(thread) ? 'read' : 'unread'"
+              :read-label="
+                threadIsUnread(thread)
+                  ? t('common.markRead')
+                  : t('common.markUnread')
+              "
+              :delete-label="t('common.delete')"
+              :disabled="
+                selecting ||
+                Boolean(deletingThreadKey) ||
+                favoritePendingKey === thread.key
+              "
+              @read="toggleThreadRead(thread)"
+              @delete="removeThread(thread)"
+            >
+              <MessageThreadListItem
+                :thread="thread"
+                :name="displayNameForThread(thread)"
+                :peer="threadDisplayNumber(thread)"
+                :avatar="avatarForNumber(thread.peer)"
+                :line="lineTagLine(lineForThread(thread), thread.line_id)"
+                :line-fallback="threadLineFallback(thread)"
+                :selected="thread.key === selectedKey && !composingNew"
+                :arriving="recentIncomingThreadKeys[thread.key]"
+                :favorite-interactive="false"
+                @select="chooseThread"
+              />
+            </SwipeActionRow>
+          </SelectableListRow>
+        </template>
+        <InfiniteScrollTrigger
+          :has-more="threadsPagination.hasMore"
+          :loading="threadsPagination.loadingMore"
+          :error="threadsPagination.error"
+          :loading-label="t('messages.loading')"
+          :retry-label="t('common.retry')"
+          @load="loadMoreThreads"
+        />
       </div>
       <BatchActionBar
         v-if="selecting"
@@ -1128,6 +1175,19 @@ onBeforeUnmount(() => {
               {{ t('common.retry') }}
             </button>
           </p>
+          <InfiniteScrollTrigger
+            v-if="
+              !composingNew &&
+              currentMessages?.status === 'ready' &&
+              currentMessagePagination
+            "
+            :has-more="currentMessagePagination.hasMore"
+            :loading="currentMessagePagination.loadingMore"
+            :error="currentMessagePagination.error"
+            :loading-label="t('messages.loadingConversation')"
+            :retry-label="t('common.retry')"
+            @load="loadOlderMessages"
+          />
           <StatePanel
             v-if="!composingNew && currentMessages?.status === 'loading'"
             state="loading"
