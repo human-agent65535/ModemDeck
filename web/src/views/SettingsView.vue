@@ -253,7 +253,7 @@ onMounted(() => {
       <footer v-if="!fixtureMode" class="settings-account">
         <span class="settings-account__icon"><UserRound :size="19" /></span>
         <span class="settings-account__identity">
-          <strong>{{ sessionState.username || t('settings.administrator') }}</strong>
+          <strong>{{ sessionState.username || t('settings.account') }}</strong>
           <small>
             {{
               sessionState.role === 'admin'

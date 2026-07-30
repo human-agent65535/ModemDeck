@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import deDE from '../src/i18n/locales/de-DE.ts'
+import enUS from '../src/i18n/locales/en-US.ts'
+import esES from '../src/i18n/locales/es-ES.ts'
+import frFR from '../src/i18n/locales/fr-FR.ts'
+import jaJP from '../src/i18n/locales/ja-JP.ts'
+import ptBR from '../src/i18n/locales/pt-BR.ts'
+import viVN from '../src/i18n/locales/vi-VN.ts'
+import zhCN from '../src/i18n/locales/zh-CN.ts'
+import zhTW from '../src/i18n/locales/zh-TW.ts'
 
 const source = path => readFile(new URL(path, import.meta.url), 'utf8')
 
@@ -55,4 +64,18 @@ test('first web visit exposes Quick Start and creates the administrator', async 
   assert.match(login, /sessionState\.setupRequired/)
   assert.match(login, /t\('auth\.quickStart'\)/)
   assert.match(login, /v-model="confirmation"/)
+})
+
+test('normal sign-in and account identity copy is role-neutral', async () => {
+  const settings = await source('../src/views/SettingsView.vue')
+  const locales = [deDE, enUS, esES, frFR, jaJP, ptBR, viVN, zhCN, zhTW]
+  const administrativeCopy =
+    /administrator|administrador|administrateur|administration|administrativa|admin-|管理员|管理員|管理者|管理インターフェイス|quản trị/i
+
+  for (const locale of locales) {
+    assert.doesNotMatch(locale.auth.title, administrativeCopy)
+    assert.doesNotMatch(locale.settings.systemLanguageDescription, administrativeCopy)
+  }
+  assert.match(settings, /sessionState\.username \|\| t\('settings\.account'\)/)
+  assert.doesNotMatch(settings, /sessionState\.username \|\| t\('settings\.administrator'\)/)
 })

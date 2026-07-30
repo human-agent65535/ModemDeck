@@ -201,7 +201,7 @@ export default {
     "unknown": "Trạng thái không xác định"
   },
   "auth": {
-    "title": "Đăng nhập quản trị viên",
+    "title": "Đăng nhập",
     "quickStart": "Bắt đầu nhanh",
     "quickStartDescription": "Tạo tài khoản quản trị viên cho ModemDeck này",
     "username": "Tên người dùng",
@@ -247,12 +247,11 @@ export default {
     "about": "Giới thiệu & cập nhật",
     "aboutDescription": "Phiên bản, kiểm tra cập nhật và giấy phép",
     "systemLanguage": "Ngôn ngữ hệ thống",
-    "systemLanguageDescription": "Được sử dụng trên trang đăng nhập và trong toàn bộ giao diện quản trị",
+    "systemLanguageDescription": "Được sử dụng trên trang đăng nhập và trong toàn bộ ModemDeck",
     "languageSaved": "Đã cập nhật ngôn ngữ hệ thống",
     "languageSaveFailed": "Không thể lưu ngôn ngữ hệ thống",
     "loadingSystem": "Đang tải cài đặt hệ thống",
     "systemLoadFailed": "Không thể tải cài đặt hệ thống",
-    "administrator": "Quản trị viên",
     "administratorAccount": "Tài khoản quản trị viên",
     "memberAccount": "Tài khoản thành viên",
     "logout": "Đăng xuất",

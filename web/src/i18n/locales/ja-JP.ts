@@ -201,7 +201,7 @@ export default {
     "unknown": "不明なステータス"
   },
   "auth": {
-    "title": "管理者ログイン",
+    "title": "ログイン",
     "quickStart": "クイックスタート",
     "quickStartDescription": "この ModemDeck の管理者アカウントを作成します",
     "username": "ユーザー名",
@@ -247,12 +247,11 @@ export default {
     "about": "概要と最新情報",
     "aboutDescription": "バージョン、アップデートの確認、およびライセンス",
     "systemLanguage": "システム言語",
-    "systemLanguageDescription": "ログイン ページおよび管理インターフェイス全体で使用されます",
+    "systemLanguageDescription": "ログインページと ModemDeck 全体で使用されます",
     "languageSaved": "システム言語が更新されました",
     "languageSaveFailed": "システム言語を保存できません",
     "loadingSystem": "システム設定をロードしています",
     "systemLoadFailed": "システム設定をロードできません",
-    "administrator": "管理者",
     "administratorAccount": "管理者アカウント",
     "memberAccount": "メンバーアカウント",
     "logout": "ログアウト",

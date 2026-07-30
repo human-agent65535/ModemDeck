@@ -201,7 +201,7 @@ export default {
     unknown: 'Unknown status'
   },
   auth: {
-    title: 'Administrator login',
+    title: 'Sign in',
     quickStart: 'Quick Start',
     quickStartDescription: 'Create the administrator account for this ModemDeck',
     username: 'Username',
@@ -247,12 +247,11 @@ export default {
     about: 'About & updates',
     aboutDescription: 'Version, update checks, and licenses',
     systemLanguage: 'System language',
-    systemLanguageDescription: 'Used on the login page and throughout the admin interface',
+    systemLanguageDescription: 'Used on the login page and throughout ModemDeck',
     languageSaved: 'System language updated',
     languageSaveFailed: 'Unable to save the system language',
     loadingSystem: 'Loading system settings',
     systemLoadFailed: 'Unable to load system settings',
-    administrator: 'Administrator',
     administratorAccount: 'Administrator account',
     memberAccount: 'Member account',
     logout: 'Log out',

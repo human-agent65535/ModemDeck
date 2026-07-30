@@ -201,7 +201,7 @@ export default {
     "unknown": "Estado desconhecido"
   },
   "auth": {
-    "title": "Login de administrador",
+    "title": "Entrar",
     "quickStart": "Início rápido",
     "quickStartDescription": "Crie a conta de administrador para este ModemDeck",
     "username": "Nome de usuário",
@@ -247,12 +247,11 @@ export default {
     "about": "Sobre e atualizações",
     "aboutDescription": "Versão, verificações de atualização e licenças",
     "systemLanguage": "Idioma do sistema",
-    "systemLanguageDescription": "Usado na página de login e em toda a interface administrativa",
+    "systemLanguageDescription": "Usado na página de login e em todo o ModemDeck",
     "languageSaved": "Idioma do sistema atualizado",
     "languageSaveFailed": "Não foi possível salvar o idioma do sistema",
     "loadingSystem": "Carregando configurações do sistema",
     "systemLoadFailed": "Não foi possível carregar as configurações do sistema",
-    "administrator": "Administrador",
     "administratorAccount": "Conta de administrador",
     "memberAccount": "Conta de membro",
     "logout": "Sair",

@@ -201,7 +201,7 @@ export default {
     unknown: '状态未知'
   },
   auth: {
-    title: '管理员登录',
+    title: '登录',
     quickStart: '快速开始',
     quickStartDescription: '创建此 ModemDeck 的管理员账户',
     username: '用户名',
@@ -247,12 +247,11 @@ export default {
     about: '关于与更新',
     aboutDescription: '版本、更新检查与许可',
     systemLanguage: '系统语言',
-    systemLanguageDescription: '应用于登录页和所有管理界面',
+    systemLanguageDescription: '应用于登录页和整个 ModemDeck',
     languageSaved: '系统语言已更新',
     languageSaveFailed: '系统语言保存失败',
     loadingSystem: '正在载入系统设置',
     systemLoadFailed: '无法载入系统设置',
-    administrator: '管理员',
     administratorAccount: '管理员账户',
     memberAccount: '成员账户',
     logout: '退出登录',
