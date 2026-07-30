@@ -8,13 +8,13 @@ import {
   messageViewportIsAtBottom
 } from '../src/views/messages/messageReadVisibility.ts'
 
-test('message read coordinator sends one request for concurrent opens', async () => {
-  let release
+test('message read coordinator sends a trailing request for concurrent opens', async () => {
+  const releases = []
   const calls = []
   const coordinator = createMessageReadCoordinator(async input => {
     calls.push(input)
     await new Promise(resolve => {
-      release = resolve
+      releases.push(resolve)
     })
   })
   const input = {
@@ -30,7 +30,16 @@ test('message read coordinator sends one request for concurrent opens', async ()
 
   assert.equal(first, second)
   assert.deepEqual(calls, [input])
-  release()
+  releases.shift()()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(calls, [
+    input,
+    {
+      ...input,
+      line_id: 'line-main'
+    }
+  ])
+  releases.shift()()
   await Promise.all([first, second])
 })
 
@@ -121,4 +130,9 @@ test('Messages view renders and positions a conversation before acknowledging it
   assert.doesNotMatch(source, /openedThreadKey/)
   assert.match(source, /retryThreadRead/)
   assert.match(source, /selectedReadError/)
+  assert.match(
+    source,
+    /if \(!alreadyManual\) manuallyUnreadThreadKeys\.value\.delete\(thread\.key\)/
+  )
+  assert.match(source, /for \(const key of insertedManualKeys\)/)
 })

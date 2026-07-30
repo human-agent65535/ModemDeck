@@ -505,8 +505,14 @@ function markThreadReadInView(thread: MessageThread): Promise<boolean> {
 }
 
 async function markThreadUnreadInView(thread: MessageThread): Promise<void> {
+  const alreadyManual = manuallyUnreadThreadKeys.value.has(thread.key)
   manuallyUnreadThreadKeys.value.add(thread.key)
-  await markThreadsUnread([thread])
+  try {
+    await markThreadsUnread([thread])
+  } catch (error) {
+    if (!alreadyManual) manuallyUnreadThreadKeys.value.delete(thread.key)
+    throw error
+  }
 }
 
 function toggleThreadRead(thread: MessageThread): Promise<boolean | void> {
@@ -579,10 +585,21 @@ async function batchSetRead(read: boolean): Promise<void> {
   try {
     if (read) await markThreadsRead(batchThreads.value)
     else {
+      const insertedManualKeys: string[] = []
       for (const thread of batchThreads.value) {
+        if (!manuallyUnreadThreadKeys.value.has(thread.key)) {
+          insertedManualKeys.push(thread.key)
+        }
         manuallyUnreadThreadKeys.value.add(thread.key)
       }
-      await markThreadsUnread(batchThreads.value)
+      try {
+        await markThreadsUnread(batchThreads.value)
+      } catch (error) {
+        for (const key of insertedManualKeys) {
+          manuallyUnreadThreadKeys.value.delete(key)
+        }
+        throw error
+      }
     }
   } catch (error) {
     threadDeleteError.value =

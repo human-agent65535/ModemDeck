@@ -82,16 +82,36 @@ const arrivalTimers = new Map<string, ReturnType<typeof setTimeout>>()
 export function createMessageReadCoordinator(
   request: (input: MessageReadInput) => Promise<void>
 ): (input: MessageReadInput) => Promise<void> {
-  const requests = new Map<string, Promise<void>>()
+  type PendingRead = {
+    dirty: boolean
+    input: MessageReadInput
+    operation: Promise<void>
+  }
+  const requests = new Map<string, PendingRead>()
   return input => {
     const key = `${input.line_id.trim()}\u0000${input.peer.trim()}`
     const pending = requests.get(key)
-    if (pending) return pending
-    const operation = request(input).finally(() => {
-      if (requests.get(key) === operation) requests.delete(key)
+    if (pending) {
+      pending.input = input
+      pending.dirty = true
+      return pending.operation
+    }
+    const entry = {
+      dirty: false,
+      input,
+      operation: Promise.resolve()
+    } satisfies PendingRead
+    entry.operation = (async () => {
+      do {
+        const nextInput = entry.input
+        entry.dirty = false
+        await request(nextInput)
+      } while (entry.dirty)
+    })().finally(() => {
+      if (requests.get(key) === entry) requests.delete(key)
     })
-    requests.set(key, operation)
-    return operation
+    requests.set(key, entry)
+    return entry.operation
   }
 }
 
