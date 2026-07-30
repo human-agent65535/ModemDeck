@@ -35,17 +35,63 @@ func TestCloudflareGatewayReportsLiveConnector(t *testing.T) {
 	))
 	t.Cleanup(ready.Close)
 
-	gateway, err := NewCloudflareGateway(
-		"https://phone.example.com/",
-		ready.URL+"/ready",
-	)
+	var gateway *CloudflareGateway
+	public := httptest.NewTLSServer(http.HandlerFunc(
+		func(response http.ResponseWriter, request *http.Request) {
+			if request.URL.Path != CloudflareProbePath {
+				http.NotFound(response, request)
+				return
+			}
+			proof, ok := gateway.CloudflareProbeProof(request)
+			if !ok {
+				http.NotFound(response, request)
+				return
+			}
+			response.Header().Set(CloudflareProbeProofHeader, proof)
+			response.WriteHeader(http.StatusNoContent)
+		},
+	))
+	t.Cleanup(public.Close)
+
+	gateway, err := NewCloudflareGateway(public.URL+"/", ready.URL+"/ready")
 	if err != nil {
 		t.Fatalf("NewCloudflareGateway() error = %v", err)
 	}
+	gateway.client = public.Client()
 	status := gateway.Status(context.Background())
 	if !status.Enabled ||
+		!status.ConnectorConnected ||
 		!status.Connected ||
-		status.PublicURL != "https://phone.example.com" {
+		status.PublicURL != public.URL {
+		t.Fatalf("status = %+v", status)
+	}
+}
+
+func TestCloudflareGatewayDoesNotTreatConnectorHealthAsPublicReachability(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	ready := httptest.NewServer(http.HandlerFunc(
+		func(response http.ResponseWriter, _ *http.Request) {
+			response.WriteHeader(http.StatusOK)
+		},
+	))
+	t.Cleanup(ready.Close)
+	public := httptest.NewTLSServer(http.HandlerFunc(
+		func(response http.ResponseWriter, _ *http.Request) {
+			response.WriteHeader(http.StatusBadGateway)
+		},
+	))
+	t.Cleanup(public.Close)
+
+	gateway, err := NewCloudflareGateway(public.URL, ready.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway.client = public.Client()
+	status := gateway.Status(context.Background())
+	if !status.Enabled || !status.ConnectorConnected || status.Connected {
 		t.Fatalf("status = %+v", status)
 	}
 }
@@ -71,6 +117,7 @@ func TestCloudflareGatewayKeepsInstallationStateWhenConnectorIsDown(
 	}
 	status := gateway.Status(context.Background())
 	if !status.Enabled ||
+		status.ConnectorConnected ||
 		status.Connected ||
 		status.PublicURL != "https://phone.example.com" {
 		t.Fatalf("status = %+v", status)

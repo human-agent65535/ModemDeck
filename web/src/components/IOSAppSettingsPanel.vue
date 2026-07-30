@@ -221,7 +221,9 @@ onMounted(() => {
                 ? t('iosPairing.notInstalled')
                 : pairing.cloudflare.connected
                   ? t('iosPairing.connected')
-                  : t('iosPairing.disconnected')
+                  : pairing.cloudflare.connector_connected
+                    ? t('iosPairing.routeUnavailable')
+                    : t('iosPairing.disconnected')
             }}
           </span>
         </header>

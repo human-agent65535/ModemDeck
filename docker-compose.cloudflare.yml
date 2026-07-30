@@ -5,7 +5,7 @@ services:
       MODEMDECK_CLOUDFLARE_READY_URL: http://cloudflared:2000/ready
 
   cloudflared:
-    image: cloudflare/cloudflared:${MODEMDECK_CLOUDFLARED_VERSION:-2026.7.3}
+    image: cloudflare/cloudflared:${MODEMDECK_CLOUDFLARED_VERSION:-2026.7.3}@${MODEMDECK_CLOUDFLARED_DIGEST:-sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf}
     restart: unless-stopped
     user: "65532:65532"
     depends_on:

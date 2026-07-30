@@ -427,12 +427,13 @@ export default {
     notInstalled: 'Not installed',
     connected: 'Connected',
     disconnected: 'Disconnected',
+    routeUnavailable: 'Public route unavailable',
     publicURL: 'Public URL',
     origin: 'Private HTTP origin',
     cloudflareRequired:
       'Enable Cloudflare Tunnel through the installer before pairing iOS.',
     cloudflareUnavailable:
-      'Cloudflare Tunnel is enabled but not connected. Pairing is unavailable until it is healthy.',
+      'Cloudflare Tunnel is enabled, but the public API route has not verified this instance. Pairing is unavailable until it is reachable.',
     installManaged:
       'Tunnel token, hostname, and container lifecycle are managed by install.sh and Docker Compose.',
     yourDevice: 'Your iPhone',

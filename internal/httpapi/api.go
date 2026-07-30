@@ -361,6 +361,9 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	case "/api/v1/version":
 		api.getOnly(response, request, api.version)
 		return
+	case mobilepairing.CloudflareProbePath:
+		api.mobileTunnelProbe(response, request)
+		return
 	}
 	if request.URL.Path == "/api/v1/session" {
 		api.session(response, request)

@@ -416,6 +416,7 @@ cloudflare_enabled=${MODEMDECK_CLOUDFLARE_ENABLED:-$(env_or_default MODEMDECK_CL
 cloudflare_hostname=${MODEMDECK_CLOUDFLARE_HOSTNAME:-$(env_or_default MODEMDECK_CLOUDFLARE_HOSTNAME "")}
 cloudflare_token_path=${MODEMDECK_CLOUDFLARE_TOKEN_FILE:-$(env_or_default MODEMDECK_CLOUDFLARE_TOKEN_FILE ./secrets/cloudflare-tunnel-token)}
 cloudflared_version=${MODEMDECK_CLOUDFLARED_VERSION:-$(env_or_default MODEMDECK_CLOUDFLARED_VERSION 2026.7.3)}
+cloudflared_digest=${MODEMDECK_CLOUDFLARED_DIGEST:-$(env_or_default MODEMDECK_CLOUDFLARED_DIGEST sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf)}
 
 [ -z "$bind_address_arg" ] || bind_address=$bind_address_arg
 [ -z "$port_arg" ] || port=$port_arg
@@ -522,6 +523,9 @@ fi
 printf '%s\n' "$cloudflared_version" |
     grep -Eq '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$' ||
     fail "MODEMDECK_CLOUDFLARED_VERSION is not a valid Docker tag"
+printf '%s\n' "$cloudflared_digest" |
+    grep -Eq '^sha256:[0-9a-f]{64}$' ||
+    fail "MODEMDECK_CLOUDFLARED_DIGEST is not a valid image digest"
 
 state_dir=${MODEMDECK_INSTALL_STATE_DIR:-/var/lib/modemdeck-installer}
 case "$state_dir" in
@@ -668,6 +672,7 @@ upsert_env MODEMDECK_CLOUDFLARE_HOSTNAME "$cloudflare_hostname"
 upsert_env MODEMDECK_CLOUDFLARE_PUBLIC_URL "$cloudflare_public_url"
 upsert_env MODEMDECK_CLOUDFLARE_TOKEN_FILE "$cloudflare_token_file"
 upsert_env MODEMDECK_CLOUDFLARED_VERSION "$cloudflared_version"
+upsert_env MODEMDECK_CLOUDFLARED_DIGEST "$cloudflared_digest"
 if [ "$mode" = advanced ]; then
     upsert_env MODEMDECK_HOST_PROC_ROOT "$proc_root"
     upsert_env MODEMDECK_HOST_DBUS_SOCKET "$host_dbus_socket"

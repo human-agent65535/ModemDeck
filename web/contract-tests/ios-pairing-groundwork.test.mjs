@@ -31,6 +31,7 @@ test('pairing uses the installation-managed Cloudflare endpoint', () => {
       allowed: true,
       cloudflare: {
         enabled: true,
+        connector_connected: true,
         connected: true,
         public_url: 'https://phone.example.com'
       },
@@ -61,6 +62,7 @@ test('fixture creates and revokes one non-expiring Cloudflare pairing', async ()
   const initial = await gateway.getIOSPairing()
   assert.deepEqual(initial.pairing.cloudflare, {
     enabled: true,
+    connector_connected: true,
     connected: true,
     public_url: 'https://mobile.modemdeck.example'
   })

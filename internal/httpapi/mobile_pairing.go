@@ -32,6 +32,26 @@ type iosPairingResponse struct {
 	Payload *mobilepairing.Payload   `json:"payload,omitempty"`
 }
 
+func (api *API) mobileTunnelProbe(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	probe, ok := api.mobilePairingAvailability.(mobilepairing.ProbeResponder)
+	if request.Method != http.MethodGet || !ok {
+		http.NotFound(response, request)
+		return
+	}
+	proof, ok := probe.CloudflareProbeProof(request)
+	if !ok {
+		http.NotFound(response, request)
+		return
+	}
+	response.Header().Set("Cache-Control", "no-store")
+	response.Header().Set("Cloudflare-CDN-Cache-Control", "no-store")
+	response.Header().Set(mobilepairing.CloudflareProbeProofHeader, proof)
+	response.WriteHeader(http.StatusNoContent)
+}
+
 func (api *API) mobilePairing(
 	response http.ResponseWriter,
 	request *http.Request,

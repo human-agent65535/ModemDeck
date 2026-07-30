@@ -50,13 +50,76 @@ func (repository *fakeMobilePairingRepository) RevokeIOSPairingCredential(
 }
 
 type fakeMobilePairingAvailability struct {
-	status mobilepairing.CloudflareStatus
+	status         mobilepairing.CloudflareStatus
+	probeChallenge string
+	probeProof     string
 }
 
 func (availability fakeMobilePairingAvailability) Status(
 	context.Context,
 ) mobilepairing.CloudflareStatus {
 	return availability.status
+}
+
+func (availability fakeMobilePairingAvailability) CloudflareProbeProof(
+	request *http.Request,
+) (string, bool) {
+	if request.Header.Get(mobilepairing.CloudflareProbeChallengeHeader) !=
+		availability.probeChallenge ||
+		availability.probeProof == "" {
+		return "", false
+	}
+	return availability.probeProof, true
+}
+
+func TestCloudflarePublicProbeBypassesLoginButRequiresInstanceProof(t *testing.T) {
+	t.Parallel()
+
+	const (
+		challenge = "probe-challenge"
+		proof     = "probe-proof"
+	)
+	authenticator, _, _ := newAPIAuthenticator(t)
+	api, err := New(&fakeRepository{}, Options{
+		Authenticator: authenticator,
+		MobilePairing: fakeMobilePairingAvailability{
+			status:         mobilepairing.CloudflareStatus{Enabled: true},
+			probeChallenge: challenge,
+			probeProof:     proof,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(
+		http.MethodGet,
+		mobilepairing.CloudflareProbePath,
+		nil,
+	)
+	request.Header.Set(mobilepairing.CloudflareProbeChallengeHeader, challenge)
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent ||
+		response.Header().Get(mobilepairing.CloudflareProbeProofHeader) != proof {
+		t.Fatalf(
+			"probe status = %d, proof = %q, body = %s",
+			response.Code,
+			response.Header().Get(mobilepairing.CloudflareProbeProofHeader),
+			response.Body.String(),
+		)
+	}
+
+	request = httptest.NewRequest(
+		http.MethodGet,
+		mobilepairing.CloudflareProbePath,
+		nil,
+	)
+	request.Header.Set(mobilepairing.CloudflareProbeChallengeHeader, "wrong")
+	response = httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("invalid probe status = %d", response.Code)
+	}
 }
 
 func TestIOSPairingStatusReportsInstallationAndConnectorState(t *testing.T) {

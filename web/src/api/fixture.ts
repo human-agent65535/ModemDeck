@@ -818,6 +818,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
   }
   const cloudflareStatus = {
     enabled: true,
+    connector_connected: true,
     connected: true,
     public_url: 'https://mobile.modemdeck.example'
   }

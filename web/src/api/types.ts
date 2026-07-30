@@ -150,6 +150,7 @@ export type TLSSettings = {
 
 export type CloudflareTunnelStatus = {
   enabled: boolean
+  connector_connected: boolean
   connected: boolean
   public_url: string
 }

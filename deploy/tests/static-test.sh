@@ -200,6 +200,9 @@ grep -Fq '/run/secrets/cloudflare_tunnel_token' \
     fail "cloudflared does not read its token from a Compose secret"
 grep -Fq '127.0.0.1:2000' "${test_root}/cloudflared.yml" ||
     fail "cloudflared readiness does not use the metrics endpoint"
+grep -Fq 'cloudflare/cloudflared:2026.7.3@sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf' \
+    "${test_root}/cloudflared.yml" ||
+    fail "cloudflared image is not pinned by digest"
 if grep -Fq 'ports:' "${test_root}/cloudflared.yml"; then
     fail "cloudflared publishes a host port"
 fi

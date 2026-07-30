@@ -2142,6 +2142,11 @@ function parseIOSPairingStatus(value: unknown): IOSPairingStatus {
     allowed: requiredBoolean(source, 'ios_pairing', 'allowed'),
     cloudflare: {
       enabled: requiredBoolean(cloudflare, 'cloudflare_tunnel', 'enabled'),
+      connector_connected: requiredBoolean(
+        cloudflare,
+        'cloudflare_tunnel',
+        'connector_connected'
+      ),
       connected: requiredBoolean(cloudflare, 'cloudflare_tunnel', 'connected'),
       public_url: requiredString(
         cloudflare,
