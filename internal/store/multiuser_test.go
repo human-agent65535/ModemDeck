@@ -285,6 +285,176 @@ func TestMultiUserCommunicationAndPersonalStateIsolation(t *testing.T) {
 	}
 }
 
+func TestMessageReadWatermarkUsesIngestionOrder(t *testing.T) {
+	t.Parallel()
+
+	repository, database := newContactTestStore(t)
+	ctx := context.Background()
+	const (
+		lineID = "line_read_watermark"
+		peer   = "+819055501234"
+	)
+	insertTestLine(t, database, lineID, "+819055500000")
+	displayedMessageID := insertTestMessage(
+		t,
+		database,
+		lineID,
+		peer,
+		"displayed latest",
+		"2026-07-30 10:00:00",
+	)
+	insertTestThread(
+		t,
+		database,
+		lineID,
+		peer,
+		displayedMessageID,
+		"displayed latest",
+		"2026-07-30 10:00:00",
+	)
+	historicalBackfillID := insertTestMessage(
+		t,
+		database,
+		lineID,
+		peer,
+		"historical backfill before assignment",
+		"2026-07-30 08:00:00",
+	)
+	if _, err := database.Exec(`
+		UPDATE sms_contacts
+		SET unread_count = unread_count + 1,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE line_id = ? AND peer = ?
+	`, lineID, peer); err != nil {
+		t.Fatalf("record historical backfill: %v", err)
+	}
+
+	user, err := repository.CreateMember(ctx, CreateMemberInput{
+		Username:     "watermark-reader",
+		PasswordHash: "watermark-reader-hash",
+		LineIDs:      []string{lineID},
+	})
+	if err != nil {
+		t.Fatalf("CreateMember() error = %v", err)
+	}
+	userCtx := memberTestContext(user)
+	threads, err := repository.MessageThreads(userCtx, ThreadQuery{})
+	if err != nil {
+		t.Fatalf("MessageThreads() after assignment error = %v", err)
+	}
+	if len(threads) != 1 ||
+		threads[0].LastMessageID != displayedMessageID ||
+		threads[0].UnreadCount != 0 {
+		t.Fatalf(
+			"assigned historical thread = %+v, want displayed ID %d and no unread",
+			threads,
+			displayedMessageID,
+		)
+	}
+
+	backfilledMessageID := insertTestMessage(
+		t,
+		database,
+		lineID,
+		peer,
+		"arrived later with an older timestamp",
+		"2026-07-30 09:00:00",
+	)
+	if backfilledMessageID <= historicalBackfillID {
+		t.Fatalf(
+			"backfilled message ID = %d, want greater than historical ID %d",
+			backfilledMessageID,
+			historicalBackfillID,
+		)
+	}
+	if _, err := database.Exec(`
+		UPDATE sms_contacts
+		SET unread_count = unread_count + 1,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE line_id = ? AND peer = ?
+	`, lineID, peer); err != nil {
+		t.Fatalf("record backfilled unread message: %v", err)
+	}
+
+	threads, err = repository.MessageThreads(userCtx, ThreadQuery{})
+	if err != nil {
+		t.Fatalf("MessageThreads() before read error = %v", err)
+	}
+	if len(threads) != 1 ||
+		threads[0].LastMessageID != displayedMessageID ||
+		threads[0].UnreadCount != 1 {
+		t.Fatalf(
+			"thread before read = %+v, want displayed ID %d and one unread",
+			threads,
+			displayedMessageID,
+		)
+	}
+
+	identity := MessageThreadIdentity{LineID: lineID, Peer: peer}
+	if err := repository.UpdateMessageThreads(
+		userCtx,
+		[]MessageThreadIdentity{identity},
+		MessageThreadMarkRead,
+	); err != nil {
+		t.Fatalf("mark backfilled thread read: %v", err)
+	}
+	threads, err = repository.MessageThreads(userCtx, ThreadQuery{})
+	if err != nil {
+		t.Fatalf("MessageThreads() after read error = %v", err)
+	}
+	if len(threads) != 1 || threads[0].UnreadCount != 0 {
+		t.Fatalf("thread remains unread after read: %+v", threads)
+	}
+
+	var readThrough int64
+	if err := database.QueryRow(`
+		SELECT last_read_sms_id
+		FROM modemdeck_user_message_thread_state
+		WHERE user_id = ? AND line_id = ? AND peer = ?
+	`, user.ID, lineID, peer).Scan(&readThrough); err != nil {
+		t.Fatalf("read message watermark: %v", err)
+	}
+	if readThrough != backfilledMessageID {
+		t.Fatalf(
+			"read watermark = %d, want ingestion boundary %d",
+			readThrough,
+			backfilledMessageID,
+		)
+	}
+
+	const futureWatermark = int64(10_000)
+	if _, err := database.Exec(`
+		UPDATE modemdeck_user_message_thread_state
+		SET last_read_sms_id = ?, marked_unread = 1
+		WHERE user_id = ? AND line_id = ? AND peer = ?
+	`, futureWatermark, user.ID, lineID, peer); err != nil {
+		t.Fatalf("seed future read watermark: %v", err)
+	}
+	if err := repository.UpdateMessageThreads(
+		userCtx,
+		[]MessageThreadIdentity{identity},
+		MessageThreadMarkRead,
+	); err != nil {
+		t.Fatalf("repeat mark read: %v", err)
+	}
+	var markedUnread bool
+	if err := database.QueryRow(`
+		SELECT last_read_sms_id, marked_unread
+		FROM modemdeck_user_message_thread_state
+		WHERE user_id = ? AND line_id = ? AND peer = ?
+	`, user.ID, lineID, peer).Scan(&readThrough, &markedUnread); err != nil {
+		t.Fatalf("read repeated message watermark: %v", err)
+	}
+	if readThrough != futureWatermark || markedUnread {
+		t.Fatalf(
+			"repeated read state = watermark %d marked %t, want %d / false",
+			readThrough,
+			markedUnread,
+			futureWatermark,
+		)
+	}
+}
+
 func memberTestContext(user User) context.Context {
 	return auth.ContextWithPrincipal(context.Background(), auth.Principal{
 		UserID:         user.ID,

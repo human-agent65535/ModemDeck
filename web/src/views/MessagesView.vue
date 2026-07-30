@@ -70,6 +70,10 @@ import {
   messageReturnRoute,
   messageThreadUsesLine
 } from './messages/messageFlow'
+import {
+  canAcknowledgeMessageThread,
+  messageViewportIsAtBottom
+} from './messages/messageReadVisibility'
 
 type MessageReadFilter = 'all' | 'unread' | 'read'
 
@@ -120,7 +124,9 @@ const sending = ref(false)
 const sendError = ref('')
 const threadDeleteError = ref('')
 const deletingThreadKey = ref('')
+const messagesViewport = ref<HTMLElement | null>(null)
 const messagesEnd = ref<HTMLElement | null>(null)
+const viewportAtBottom = ref(false)
 const retainedUnreadThreadKeys = ref(new Set<string>())
 const manuallyUnreadThreadKeys = ref(new Set<string>())
 const favoritePendingKey = ref('')
@@ -232,8 +238,6 @@ const sendDisabledReason = computed(() => {
 })
 
 let lineSelectionOverridden = false
-let openedThreadKey = ''
-let attemptedReadKey = ''
 let composeReturnThreadKey = ''
 
 function messageFilterFromRoute(value: unknown): MessageReadFilter {
@@ -392,17 +396,11 @@ watch(
   () =>
     [
       selectedKey.value,
-      selectedThread.value?.last_timestamp || '',
-      selectedThread.value?.unread_count || 0,
-      selectedThread.value?.marked_unread || false,
+      selectedThread.value?.key || '',
       composingNew.value
     ] as const,
   () => {
-    if (composingNew.value || !selectedKey.value) {
-      openedThreadKey = ''
-      attemptedReadKey = ''
-      return
-    }
+    if (composingNew.value || !selectedKey.value) return
     const thread = selectedThread.value
     if (thread) void openThread(thread)
   },
@@ -410,31 +408,93 @@ watch(
 )
 
 watch(
-  () => currentMessages.value?.data.length,
-  () => scrollToEnd()
+  () => currentMessages.value?.data,
+  (messages, previousMessages) => {
+    if (!messages || messages === previousMessages) return
+    const followLatest =
+      viewportAtBottom.value && messageDocumentIsReadable()
+    void reconcileRenderedMessages(followLatest)
+  }
 )
 
 function scrollToEnd(): void {
-  void nextTick(() => messagesEnd.value?.scrollIntoView({ block: 'end' }))
+  void nextTick(() => {
+    scrollMessageViewportToEnd()
+    updateMessageViewportPosition()
+  })
+}
+
+function scrollMessageViewportToEnd(): void {
+  const viewport = messagesViewport.value
+  if (viewport) {
+    viewport.scrollTop = viewport.scrollHeight
+    return
+  }
+  messagesEnd.value?.scrollIntoView({ block: 'end' })
+}
+
+function updateMessageViewportPosition(): void {
+  const viewport = messagesViewport.value
+  viewportAtBottom.value = Boolean(
+    viewport && messageViewportIsAtBottom(viewport)
+  )
+}
+
+function messageDocumentIsReadable(): boolean {
+  return document.visibilityState === 'visible' && document.hasFocus()
+}
+
+async function reconcileRenderedMessages(followLatest: boolean): Promise<void> {
+  await nextTick()
+  if (followLatest && messageDocumentIsReadable()) {
+    scrollMessageViewportToEnd()
+  }
+  updateMessageViewportPosition()
+  await acknowledgeSelectedThreadRead()
 }
 
 async function openThread(thread: MessageThread, force = false): Promise<void> {
-  if (openedThreadKey !== thread.key) {
-    openedThreadKey = thread.key
-    attemptedReadKey = ''
-  }
   const messages = await loadMessages(thread, force)
   if (!messages || composingNew.value || selectedKey.value !== thread.key) return
 
+  await nextTick()
+  scrollMessageViewportToEnd()
+  updateMessageViewportPosition()
+  await acknowledgeSelectedThreadRead(true)
+}
+
+async function acknowledgeSelectedThreadRead(retry = false): Promise<void> {
   const current = selectedThread.value
-  if (current && threadIsUnread(current) && !manuallyUnreadThreadKeys.value.has(current.key)) {
-    const readKey = `${current.key}\u0000${current.last_timestamp}\u0000${current.unread_count}\u0000${current.marked_unread}`
-    if (readKey !== attemptedReadKey) {
-      attemptedReadKey = readKey
-      await markThreadReadInView(current)
-    }
+  if (
+    !current ||
+    (!retry && Boolean(threadReadErrors[current.key])) ||
+    !canAcknowledgeMessageThread({
+      selected: selectedKey.value === current.key,
+      messagesReady: currentMessages.value?.status === 'ready',
+      unread: threadIsUnread(current),
+      composing: composingNew.value,
+      manuallyUnread: manuallyUnreadThreadKeys.value.has(current.key),
+      documentVisible: document.visibilityState === 'visible',
+      windowFocused: document.hasFocus(),
+      atBottom: viewportAtBottom.value
+    })
+  ) return
+  await markThreadReadInView(current)
+}
+
+function onMessagesScroll(): void {
+  updateMessageViewportPosition()
+  if (viewportAtBottom.value) void acknowledgeSelectedThreadRead()
+}
+
+function onMessageDocumentVisibilityChange(): void {
+  if (document.visibilityState === 'visible') {
+    void reconcileRenderedMessages(false)
   }
-  scrollToEnd()
+}
+
+function onMessageWindowFocus(): void {
+  void reconcileRenderedMessages(false)
 }
 
 function markThreadReadInView(thread: MessageThread): Promise<boolean> {
@@ -456,9 +516,7 @@ function toggleThreadRead(thread: MessageThread): Promise<boolean | void> {
 }
 
 function retryThreadRead(): void {
-  attemptedReadKey = ''
-  const thread = selectedThread.value
-  if (thread) void openThread(thread)
+  void acknowledgeSelectedThreadRead(true)
 }
 
 function chooseThread(key: string): void {
@@ -697,11 +755,22 @@ function statusLabel(status: 'submitted' | 'delivered' | 'failed' | ''): string 
 
 onMounted(() => {
   window.addEventListener('keydown', onSelectionKeydown)
+  window.addEventListener('focus', onMessageWindowFocus)
+  document.addEventListener(
+    'visibilitychange',
+    onMessageDocumentVisibilityChange
+  )
   void Promise.all([loadBootstrap(), loadContacts(), loadThreads()])
+  void reconcileRenderedMessages(false)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onSelectionKeydown)
+  window.removeEventListener('focus', onMessageWindowFocus)
+  document.removeEventListener(
+    'visibilitychange',
+    onMessageDocumentVisibilityChange
+  )
 })
 </script>
 
@@ -1031,7 +1100,11 @@ onBeforeUnmount(() => {
           </button>
         </header>
 
-        <div class="messages-scroll">
+        <div
+          ref="messagesViewport"
+          class="messages-scroll"
+          @scroll="onMessagesScroll"
+        >
           <p v-if="selectedReadError" class="message-read-error" role="alert">
             <span>{{ selectedReadError }}</span>
             <button type="button" @click="retryThreadRead">

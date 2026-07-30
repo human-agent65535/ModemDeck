@@ -466,9 +466,20 @@ func replaceUserLines(
 				user_id, line_id, peer, last_read_sms_id,
 				marked_unread, is_favorite
 			)
-			SELECT ?, line_id, peer, last_sms_id, 0, 0
-			FROM sms_contacts
-			WHERE line_id = ?
+			SELECT
+				?,
+				thread.line_id,
+				thread.peer,
+				COALESCE((
+					SELECT MAX(message.id)
+					FROM sms AS message
+					WHERE message.line_id = thread.line_id
+						AND message.peer = thread.peer
+				), 0),
+				0,
+				0
+			FROM sms_contacts AS thread
+			WHERE thread.line_id = ?
 		`, userID, lineID); err != nil {
 			return fmt.Errorf("initialize assigned message state: %w", err)
 		}

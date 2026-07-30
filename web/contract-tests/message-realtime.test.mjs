@@ -231,7 +231,7 @@ test('message SSE observes heartbeats and resumes after its last event cursor', 
   }
 })
 
-test('active-thread SMS invalidation refreshes messages and persists the read state', async () => {
+test('active-thread SMS invalidation refreshes messages without bypassing viewport read acknowledgement', async () => {
   const key = event.thread_key
   const initialThread = {
     key,
@@ -296,9 +296,9 @@ test('active-thread SMS invalidation refreshes messages and persists the read st
   try {
     await refreshIncomingMessage(event, key, false)
 
-    assert.deepEqual(reads, [{ line_id: event.line_id, peer: event.peer }])
+    assert.deepEqual(reads, [])
     assert.deepEqual(messagesFor(key).data.map(message => message.id), ['41', event.message_id])
-    assert.equal(threadsResource.data[0].unread_count, 0)
+    assert.equal(threadsResource.data[0].unread_count, 1)
   } finally {
     gateway.listThreads = originalListThreads
     gateway.listMessages = originalListMessages
@@ -376,7 +376,21 @@ test('communication notifications share one explicit browser preference', async 
   assert.doesNotMatch(shell, /onMounted\([^]*requestPermission/)
   assert.match(workspace, /refreshThreads\(\)/)
   assert.match(workspace, /activeThreadKey !== event\.thread_key/)
-  assert.match(workspace, /threadIsUnread\(thread\)\) await markThreadRead\(thread\)/)
+  const refreshIncomingStart = workspace.indexOf(
+    'export async function refreshIncomingMessage('
+  )
+  const refreshWorkspaceStart = workspace.indexOf(
+    'export async function refreshMessageWorkspace(',
+    refreshIncomingStart
+  )
+  assert.doesNotMatch(
+    workspace.slice(refreshIncomingStart, refreshWorkspaceStart),
+    /markThreadRead\(/
+  )
+  assert.match(messages, /canAcknowledgeMessageThread\(/)
+  assert.match(messages, /document\.visibilityState === 'visible'/)
+  assert.match(messages, /document\.hasFocus\(\)/)
+  assert.match(messages, /viewportAtBottom\.value/)
   assert.match(messages, /recentIncomingMessageIDs\[message\.id\]/)
   assert.match(messages, /`message-row--\$\{message\.direction\}`/)
   assert.match(styles, /\.message-row--incoming\s*\{[^}]*justify-content: flex-start/s)

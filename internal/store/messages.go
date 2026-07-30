@@ -374,29 +374,69 @@ func updateUserMessageThreadState(
 	identity MessageThreadIdentity,
 	action MessageThreadAction,
 ) error {
+	// last_read_sms_id is an ingestion watermark, not the ID of the message
+	// displayed last. sms_contacts.last_sms_id follows message timestamps, which
+	// can be out of order when a modem imports historical messages.
+	if action == MessageThreadMarkRead {
+		if _, err := transaction.ExecContext(ctx, `
+			INSERT INTO modemdeck_user_message_thread_state (
+				user_id, line_id, peer, last_read_sms_id, marked_unread,
+				is_favorite, updated_at
+			)
+			SELECT
+				?,
+				thread.line_id,
+				thread.peer,
+				COALESCE((
+					SELECT MAX(message.id)
+					FROM sms AS message
+					WHERE message.line_id = thread.line_id
+						AND message.peer = thread.peer
+				), 0),
+				0,
+				0,
+				CURRENT_TIMESTAMP
+			FROM sms_contacts AS thread
+			WHERE thread.line_id = ? AND thread.peer = ?
+			ON CONFLICT(user_id, line_id, peer) DO UPDATE SET
+				last_read_sms_id = MAX(
+					modemdeck_user_message_thread_state.last_read_sms_id,
+					excluded.last_read_sms_id
+				),
+				marked_unread = 0,
+				updated_at = CURRENT_TIMESTAMP
+		`, userID, identity.LineID, identity.Peer); err != nil {
+			return fmt.Errorf("mark user message thread read: %w", err)
+		}
+		return nil
+	}
+
 	if _, err := transaction.ExecContext(ctx, `
 		INSERT INTO modemdeck_user_message_thread_state (
 			user_id, line_id, peer, last_read_sms_id, marked_unread,
 			is_favorite, updated_at
 		)
-		SELECT ?, line_id, peer, last_sms_id, 0, 0, CURRENT_TIMESTAMP
-		FROM sms_contacts
-		WHERE line_id = ? AND peer = ?
+		SELECT
+			?,
+			thread.line_id,
+			thread.peer,
+			COALESCE((
+				SELECT MAX(message.id)
+				FROM sms AS message
+				WHERE message.line_id = thread.line_id
+					AND message.peer = thread.peer
+			), 0),
+			0,
+			0,
+			CURRENT_TIMESTAMP
+		FROM sms_contacts AS thread
+		WHERE thread.line_id = ? AND thread.peer = ?
 		ON CONFLICT(user_id, line_id, peer) DO NOTHING
 	`, userID, identity.LineID, identity.Peer); err != nil {
 		return fmt.Errorf("initialize user message thread state: %w", err)
 	}
 	var statement string
 	switch action {
-	case MessageThreadMarkRead:
-		statement = `UPDATE modemdeck_user_message_thread_state
-			SET last_read_sms_id = (
-					SELECT last_sms_id FROM sms_contacts
-					WHERE line_id = ? AND peer = ?
-				),
-				marked_unread = 0,
-				updated_at = CURRENT_TIMESTAMP
-			WHERE user_id = ? AND line_id = ? AND peer = ?`
 	case MessageThreadMarkUnread:
 		statement = `UPDATE modemdeck_user_message_thread_state
 			SET marked_unread = 1, updated_at = CURRENT_TIMESTAMP
@@ -412,19 +452,13 @@ func updateUserMessageThreadState(
 	default:
 		return fmt.Errorf("update user message thread state: unsupported action %q", action)
 	}
-	var arguments []any
-	if action == MessageThreadMarkRead {
-		arguments = []any{
-			identity.LineID,
-			identity.Peer,
-			userID,
-			identity.LineID,
-			identity.Peer,
-		}
-	} else {
-		arguments = []any{userID, identity.LineID, identity.Peer}
-	}
-	if _, err := transaction.ExecContext(ctx, statement, arguments...); err != nil {
+	if _, err := transaction.ExecContext(
+		ctx,
+		statement,
+		userID,
+		identity.LineID,
+		identity.Peer,
+	); err != nil {
 		return fmt.Errorf("update user message thread state: %w", err)
 	}
 	return nil

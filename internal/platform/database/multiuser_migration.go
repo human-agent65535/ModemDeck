@@ -224,7 +224,12 @@ func migrateMultiUserSchema(
 				thread.line_id,
 				thread.peer,
 					CASE
-						WHEN thread.unread_count = 0 THEN thread.last_sms_id
+						WHEN thread.unread_count = 0 THEN COALESCE((
+							SELECT MAX(message.id)
+							FROM sms AS message
+							WHERE message.line_id = thread.line_id
+								AND message.peer = thread.peer
+						), 0)
 						ELSE COALESCE((
 							SELECT MAX(candidate.id)
 							FROM sms AS candidate

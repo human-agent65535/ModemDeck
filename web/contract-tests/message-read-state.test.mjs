@@ -3,6 +3,10 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 import { createMessageReadCoordinator } from '../src/state/workspace.ts'
+import {
+  canAcknowledgeMessageThread,
+  messageViewportIsAtBottom
+} from '../src/views/messages/messageReadVisibility.ts'
 
 test('message read coordinator sends one request for concurrent opens', async () => {
   let release
@@ -30,20 +34,91 @@ test('message read coordinator sends one request for concurrent opens', async ()
   await Promise.all([first, second])
 })
 
-test('Messages view waits for messages and guards each unread snapshot once', async () => {
+test('message read eligibility requires a rendered, visible, focused bottom viewport', () => {
+  const eligible = {
+    selected: true,
+    messagesReady: true,
+    unread: true,
+    composing: false,
+    manuallyUnread: false,
+    documentVisible: true,
+    windowFocused: true,
+    atBottom: true
+  }
+  assert.equal(canAcknowledgeMessageThread(eligible), true)
+  for (const [field, value] of [
+    ['selected', false],
+    ['messagesReady', false],
+    ['unread', false],
+    ['composing', true],
+    ['manuallyUnread', true],
+    ['documentVisible', false],
+    ['windowFocused', false],
+    ['atBottom', false]
+  ]) {
+    assert.equal(
+      canAcknowledgeMessageThread({ ...eligible, [field]: value }),
+      false,
+      `${field} should block read acknowledgement`
+    )
+  }
+})
+
+test('message viewport accepts a small bottom rounding tolerance', () => {
+  assert.equal(
+    messageViewportIsAtBottom({
+      scrollHeight: 1000,
+      scrollTop: 468,
+      clientHeight: 500
+    }),
+    true
+  )
+  assert.equal(
+    messageViewportIsAtBottom({
+      scrollHeight: 1000,
+      scrollTop: 467,
+      clientHeight: 500
+    }),
+    false
+  )
+})
+
+test('Messages view renders and positions a conversation before acknowledging it', async () => {
   const source = await readFile(
     new URL('../src/views/MessagesView.vue', import.meta.url),
     'utf8'
   )
-  const loadIndex = source.indexOf('const messages = await loadMessages(thread, force)')
-  const markIndex = source.indexOf('await markThreadReadInView(current)')
+  const openStart = source.indexOf('async function openThread(')
+  const openEnd = source.indexOf(
+    'async function acknowledgeSelectedThreadRead(',
+    openStart
+  )
+  const openThread = source.slice(openStart, openEnd)
+  const loadIndex = openThread.indexOf(
+    'const messages = await loadMessages(thread, force)'
+  )
+  const renderIndex = openThread.indexOf('await nextTick()', loadIndex)
+  const scrollIndex = openThread.indexOf(
+    'scrollMessageViewportToEnd()',
+    renderIndex
+  )
+  const markIndex = openThread.indexOf(
+    'await acknowledgeSelectedThreadRead(true)',
+    scrollIndex
+  )
 
   assert.ok(loadIndex >= 0)
+  assert.ok(renderIndex > loadIndex)
+  assert.ok(scrollIndex > renderIndex)
   assert.ok(markIndex > loadIndex)
-  assert.match(source, /selectedThread\.value\?\.unread_count \|\| 0/)
-  assert.match(source, /readKey !== attemptedReadKey/)
+  assert.ok(markIndex > scrollIndex)
   assert.match(source, /selectedKey\.value !== thread\.key/)
-  assert.doesNotMatch(source, /\(\) => threadsResource\.status/)
+  assert.match(source, /document\.visibilityState === 'visible'/)
+  assert.match(source, /document\.hasFocus\(\)/)
+  assert.match(source, /messageViewportIsAtBottom\(viewport\)/)
+  assert.match(source, /@scroll="onMessagesScroll"/)
+  assert.doesNotMatch(source, /attemptedReadKey/)
+  assert.doesNotMatch(source, /openedThreadKey/)
   assert.match(source, /retryThreadRead/)
   assert.match(source, /selectedReadError/)
 })
