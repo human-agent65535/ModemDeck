@@ -67,23 +67,33 @@ type RecordingTarget struct {
 }
 
 type RecordingSegment struct {
-	ID           string  `json:"id"`
-	CallID       string  `json:"call_id"`
-	SegmentIndex int64   `json:"segment_index"`
-	Status       string  `json:"status"`
-	StartedAt    *string `json:"started_at,omitempty"`
-	EndedAt      *string `json:"ended_at,omitempty"`
-	DurationMS   int64   `json:"duration_ms"`
-	SizeBytes    int64   `json:"size_bytes"`
-	RelativePath string  `json:"-"`
-	FailureCode  string  `json:"failure_code,omitempty"`
-	CreatedAt    string  `json:"created_at"`
-	UpdatedAt    string  `json:"updated_at"`
+	ID             string  `json:"id"`
+	CallID         string  `json:"call_id"`
+	SegmentIndex   int64   `json:"segment_index"`
+	Status         string  `json:"status"`
+	StartedAt      *string `json:"started_at,omitempty"`
+	EndedAt        *string `json:"ended_at,omitempty"`
+	DurationMS     int64   `json:"duration_ms"`
+	SizeBytes      int64   `json:"size_bytes"`
+	RelativePath   string  `json:"-"`
+	FailureCode    string  `json:"failure_code,omitempty"`
+	CreatedAt      string  `json:"created_at"`
+	UpdatedAt      string  `json:"updated_at"`
+	SortRecordedAt string  `json:"-"`
 }
 
 type RecordingQuery struct {
-	Search string
-	Limit  int
+	Search    string
+	Limit     int
+	After     *RecordingCursor
+	Lookahead bool
+}
+
+type RecordingCursor struct {
+	RecordedAt   string
+	CallID       string
+	SegmentIndex int64
+	ID           string
 }
 
 type RecordingCall struct {
@@ -763,7 +773,7 @@ func (s *Store) RecordingEntries(
 	ctx context.Context,
 	query RecordingQuery,
 ) ([]RecordingEntry, error) {
-	limit := boundedLimit(query.Limit)
+	limit := queryLimit(query.Limit, query.Lookahead)
 	contactOwner := contactOwnerSQL(ctx, "contacts")
 	favoriteExpression := "COALESCE(state.is_favorite, 0)"
 	userStateJoin := ""
@@ -779,6 +789,7 @@ func (s *Store) RecordingEntries(
 		recording.started_at, recording.ended_at, recording.duration_ms,
 		recording.size_bytes, recording.relative_path, recording.failure_code,
 		recording.created_at, recording.updated_at,
+		CAST(COALESCE(recording.started_at, recording.created_at) AS TEXT),
 		%s,
 		call.line_id, call.endpoint_line_id, call.local_phone, call.line_imsi, call.line_iccid,
 		call.direction, call.remote_number,
@@ -832,6 +843,39 @@ func (s *Store) RecordingEntries(
 			pattern,
 			pattern,
 			pattern,
+		)
+	}
+	if query.After != nil {
+		conditions = append(conditions, `(
+			COALESCE(recording.started_at, recording.created_at) < ? OR
+			(
+				COALESCE(recording.started_at, recording.created_at) = ? AND
+				recording.call_id < ?
+			) OR
+			(
+				COALESCE(recording.started_at, recording.created_at) = ? AND
+				recording.call_id = ? AND
+				recording.segment_index < ?
+			) OR
+			(
+				COALESCE(recording.started_at, recording.created_at) = ? AND
+				recording.call_id = ? AND
+				recording.segment_index = ? AND
+				recording.id < ?
+			)
+		)`)
+		arguments = append(
+			arguments,
+			query.After.RecordedAt,
+			query.After.RecordedAt,
+			query.After.CallID,
+			query.After.RecordedAt,
+			query.After.CallID,
+			query.After.SegmentIndex,
+			query.After.RecordedAt,
+			query.After.CallID,
+			query.After.SegmentIndex,
+			query.After.ID,
 		)
 	}
 	if len(conditions) > 0 {
@@ -1343,6 +1387,7 @@ func scanRecordingEntry(scanner recordingSegmentScanner) (RecordingEntry, error)
 	var (
 		entry                                         RecordingEntry
 		startedAt, endedAt, relativePath              sql.NullString
+		sortRecordedAt                                sql.NullString
 		segmentFailure, segmentCreated, segmentUpdate sql.NullString
 		segmentIndex, durationMS, sizeBytes           sql.NullInt64
 		segmentStatus                                 sql.NullString
@@ -1366,6 +1411,7 @@ func scanRecordingEntry(scanner recordingSegmentScanner) (RecordingEntry, error)
 		&segmentFailure,
 		&segmentCreated,
 		&segmentUpdate,
+		&sortRecordedAt,
 		&favorite,
 		&lineID,
 		&endpointLineID,
@@ -1394,6 +1440,7 @@ func scanRecordingEntry(scanner recordingSegmentScanner) (RecordingEntry, error)
 	entry.Segment.FailureCode = stringValue(segmentFailure)
 	entry.Segment.CreatedAt = stringValue(segmentCreated)
 	entry.Segment.UpdatedAt = stringValue(segmentUpdate)
+	entry.Segment.SortRecordedAt = stringValue(sortRecordedAt)
 	entry.Playable = entry.Segment.Status == RecordingSegmentReady &&
 		entry.Segment.RelativePath != ""
 	entry.Favorite = boolValue(favorite)

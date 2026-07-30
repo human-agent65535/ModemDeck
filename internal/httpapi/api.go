@@ -783,12 +783,49 @@ func (api *API) contacts(response http.ResponseWriter, request *http.Request) {
 	if !ok {
 		return
 	}
-	contacts, err := api.repository.Contacts(request.Context(), store.ContactQuery{Search: search, Limit: limit})
+	var after store.ContactCursor
+	hasCursor, ok := decodePageCursor(
+		response,
+		request,
+		"contacts",
+		search,
+		&after,
+	)
+	if !ok {
+		return
+	}
+	if hasCursor && strings.TrimSpace(after.ID) == "" {
+		writeInvalidPageCursor(response)
+		return
+	}
+	query := store.ContactQuery{
+		Search:    search,
+		Limit:     limit,
+		Lookahead: true,
+	}
+	if hasCursor {
+		query.After = &after
+	}
+	contacts, err := api.repository.Contacts(request.Context(), query)
 	if err != nil {
 		api.writeInternalError(response, request, "list contacts", err)
 		return
 	}
-	writeJSON(response, http.StatusOK, contactsResponse{Contacts: contacts, Meta: responseMeta{Limit: limit}})
+	contacts, hasMore := pageItems(contacts, limit)
+	meta := responseMeta{Limit: limit, HasMore: hasMore}
+	if hasMore {
+		last := contacts[len(contacts)-1]
+		meta.NextCursor, err = encodePageCursor(
+			"contacts",
+			search,
+			store.ContactCursor{DisplayName: last.DisplayName, ID: last.ID},
+		)
+		if err != nil {
+			api.writeInternalError(response, request, "encode contacts cursor", err)
+			return
+		}
+	}
+	writeJSON(response, http.StatusOK, contactsResponse{Contacts: contacts, Meta: meta})
 }
 
 func (api *API) contact(response http.ResponseWriter, request *http.Request, id string) {
@@ -897,14 +934,59 @@ func (api *API) messageThreads(response http.ResponseWriter, request *http.Reque
 	if !ok {
 		return
 	}
-	threads, err := api.repository.MessageThreads(request.Context(), store.ThreadQuery{Search: search, Limit: limit})
+	var after store.ThreadCursor
+	hasCursor, ok := decodePageCursor(
+		response,
+		request,
+		"message_threads",
+		search,
+		&after,
+	)
+	if !ok {
+		return
+	}
+	if hasCursor &&
+		(after.LastMessageID < 0 ||
+			strings.TrimSpace(after.LineID) == "" ||
+			strings.TrimSpace(after.Peer) == "") {
+		writeInvalidPageCursor(response)
+		return
+	}
+	query := store.ThreadQuery{
+		Search:    search,
+		Limit:     limit,
+		Lookahead: true,
+	}
+	if hasCursor {
+		query.After = &after
+	}
+	threads, err := api.repository.MessageThreads(request.Context(), query)
 	if err != nil {
 		api.writeInternalError(response, request, "list message threads", err)
 		return
 	}
+	threads, hasMore := pageItems(threads, limit)
+	meta := responseMeta{Limit: limit, HasMore: hasMore}
+	if hasMore {
+		last := threads[len(threads)-1]
+		meta.NextCursor, err = encodePageCursor(
+			"message_threads",
+			search,
+			store.ThreadCursor{
+				LastTimestamp: last.SortTimestamp,
+				LastMessageID: last.LastMessageID,
+				LineID:        last.LineID,
+				Peer:          last.Peer,
+			},
+		)
+		if err != nil {
+			api.writeInternalError(response, request, "encode message threads cursor", err)
+			return
+		}
+	}
 	writeJSON(response, http.StatusOK, threadsResponse{
 		Threads: messageThreadResponses(threads),
-		Meta:    responseMeta{Limit: limit},
+		Meta:    meta,
 	})
 }
 
@@ -943,19 +1025,57 @@ func (api *API) messages(response http.ResponseWriter, request *http.Request) {
 		writeError(response, http.StatusBadRequest, "invalid_argument", "peer is required", "peer")
 		return
 	}
-	messages, err := api.repository.Messages(request.Context(), store.MessageQuery{
+	queryIdentity := lineID + "\x00" + peer
+	var after store.MessageCursor
+	hasCursor, ok := decodePageCursor(
+		response,
+		request,
+		"messages",
+		queryIdentity,
+		&after,
+	)
+	if !ok {
+		return
+	}
+	if hasCursor && after.ID <= 0 {
+		writeInvalidPageCursor(response)
+		return
+	}
+	query := store.MessageQuery{
 		LineID:        lineID,
 		Peer:          peer,
 		Limit:         limit,
 		Chronological: true,
-	})
+		Lookahead:     true,
+	}
+	if hasCursor {
+		query.After = &after
+	}
+	messages, err := api.repository.Messages(request.Context(), query)
 	if err != nil {
 		api.writeInternalError(response, request, "list messages", err)
 		return
 	}
+	hasMore := len(messages) > limit
+	if hasMore {
+		messages = messages[len(messages)-limit:]
+	}
+	meta := responseMeta{Limit: limit, HasMore: hasMore}
+	if hasMore {
+		oldest := messages[0]
+		meta.NextCursor, err = encodePageCursor(
+			"messages",
+			queryIdentity,
+			store.MessageCursor{Timestamp: oldest.SortTimestamp, ID: oldest.ID},
+		)
+		if err != nil {
+			api.writeInternalError(response, request, "encode messages cursor", err)
+			return
+		}
+	}
 	writeJSON(response, http.StatusOK, messagesResponse{
 		Messages: messageResponseItems(messages),
-		Meta:     responseMeta{Limit: limit},
+		Meta:     meta,
 	})
 }
 
@@ -974,14 +1094,53 @@ func (api *API) calls(response http.ResponseWriter, request *http.Request) {
 		writeError(response, http.StatusBadRequest, "invalid_argument", "kind must be all, incoming, outgoing, or missed", "kind")
 		return
 	}
-	calls, err := api.repository.Calls(request.Context(), store.CallQuery{Kind: kind, Search: search, Limit: limit})
+	queryIdentity := string(kind) + "\x00" + search
+	var after store.CallCursor
+	hasCursor, ok := decodePageCursor(
+		response,
+		request,
+		"calls",
+		queryIdentity,
+		&after,
+	)
+	if !ok {
+		return
+	}
+	if hasCursor && strings.TrimSpace(after.ID) == "" {
+		writeInvalidPageCursor(response)
+		return
+	}
+	query := store.CallQuery{
+		Kind:      kind,
+		Search:    search,
+		Limit:     limit,
+		Lookahead: true,
+	}
+	if hasCursor {
+		query.After = &after
+	}
+	calls, err := api.repository.Calls(request.Context(), query)
 	if err != nil {
 		api.writeInternalError(response, request, "list calls", err)
 		return
 	}
+	calls, hasMore := pageItems(calls, limit)
+	meta := responseMeta{Limit: limit, HasMore: hasMore}
+	if hasMore {
+		last := calls[len(calls)-1]
+		meta.NextCursor, err = encodePageCursor(
+			"calls",
+			queryIdentity,
+			store.CallCursor{EndedAt: last.SortEndedAt, ID: last.ID},
+		)
+		if err != nil {
+			api.writeInternalError(response, request, "encode calls cursor", err)
+			return
+		}
+	}
 	writeJSON(response, http.StatusOK, callsResponse{
 		Calls: callRecordResponses(calls),
-		Meta:  responseMeta{Limit: limit},
+		Meta:  meta,
 	})
 }
 

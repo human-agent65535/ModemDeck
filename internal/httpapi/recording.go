@@ -116,17 +116,63 @@ func (api *API) recordingEntries(response http.ResponseWriter, request *http.Req
 	if !ok {
 		return
 	}
+	var after store.RecordingCursor
+	hasCursor, ok := decodePageCursor(
+		response,
+		request,
+		"recordings",
+		search,
+		&after,
+	)
+	if !ok {
+		return
+	}
+	if hasCursor &&
+		(strings.TrimSpace(after.RecordedAt) == "" ||
+			strings.TrimSpace(after.CallID) == "" ||
+			after.SegmentIndex <= 0 ||
+			strings.TrimSpace(after.ID) == "") {
+		writeInvalidPageCursor(response)
+		return
+	}
+	query := store.RecordingQuery{
+		Search:    search,
+		Limit:     limit,
+		Lookahead: true,
+	}
+	if hasCursor {
+		query.After = &after
+	}
 	entries, err := api.repository.RecordingEntries(
 		request.Context(),
-		store.RecordingQuery{Search: search, Limit: limit},
+		query,
 	)
 	if err != nil {
 		api.writeInternalError(response, request, "list recordings", err)
 		return
 	}
+	entries, hasMore := pageItems(entries, limit)
+	meta := responseMeta{Limit: limit, HasMore: hasMore}
+	if hasMore {
+		last := entries[len(entries)-1]
+		meta.NextCursor, err = encodePageCursor(
+			"recordings",
+			search,
+			store.RecordingCursor{
+				RecordedAt:   last.Segment.SortRecordedAt,
+				CallID:       last.Segment.CallID,
+				SegmentIndex: last.Segment.SegmentIndex,
+				ID:           last.Segment.ID,
+			},
+		)
+		if err != nil {
+			api.writeInternalError(response, request, "encode recordings cursor", err)
+			return
+		}
+	}
 	writeJSON(response, http.StatusOK, recordingEntriesResponse{
 		Recordings: recordingEntryResponses(entries),
-		Meta:       responseMeta{Limit: limit},
+		Meta:       meta,
 	})
 }
 

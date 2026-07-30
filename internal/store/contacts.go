@@ -364,7 +364,7 @@ func (s *Store) DeleteContacts(ctx context.Context, contacts []ContactRevision) 
 }
 
 func (s *Store) Contacts(ctx context.Context, query ContactQuery) ([]Contact, error) {
-	limit := boundedLimit(query.Limit)
+	limit := queryLimit(query.Limit, query.Lookahead)
 	statement := `SELECT id, owner_user_id, display_name, avatar, notes, preferred_line_id, is_favorite,
 			revision, created_at, updated_at
 		FROM contacts`
@@ -390,10 +390,25 @@ func (s *Store) Contacts(ctx context.Context, query ContactQuery) ([]Contact, er
 			))`)
 		arguments = append(arguments, pattern, pattern, pattern, pattern, pattern)
 	}
+	if query.After != nil {
+		conditions = append(conditions, `(
+			COALESCE(display_name, '') COLLATE NOCASE > ? OR
+			(
+				COALESCE(display_name, '') COLLATE NOCASE = ? AND
+				id > ?
+			)
+		)`)
+		arguments = append(
+			arguments,
+			query.After.DisplayName,
+			query.After.DisplayName,
+			query.After.ID,
+		)
+	}
 	if len(conditions) > 0 {
 		statement += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	statement += ` ORDER BY LOWER(COALESCE(display_name, '')) ASC, id ASC LIMIT ?`
+	statement += ` ORDER BY COALESCE(display_name, '') COLLATE NOCASE ASC, id ASC LIMIT ?`
 	arguments = append(arguments, limit)
 
 	rows, err := s.database.QueryContext(ctx, statement, arguments...)

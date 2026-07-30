@@ -46,7 +46,7 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 	if err != nil {
 		return nil, err
 	}
-	limit := boundedLimit(query.Limit)
+	limit := queryLimit(query.Limit, query.Lookahead)
 	contactOwner := contactOwnerSQL(ctx, "contacts")
 	stateJoin := ""
 	readExpression := "ch.read_at"
@@ -71,7 +71,7 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 			%s, %s, ch.end_reason, ch.failure_code, ch.bearer, ch.state_reason,
 			ch.state_reason_code, ch.multiparty, ch.audio_port,
 			ch.audio_encoding, ch.audio_resolution, ch.audio_rate,
-			ch.media_available
+			ch.media_available, COALESCE(CAST(ch.ended_at AS TEXT), '')
 		FROM call_history ch%s`,
 		fmt.Sprintf(contactIDForNumberSQL, "ch.remote_number", contactOwner),
 		fmt.Sprintf(contactNameForNumberSQL, "ch.remote_number", contactOwner),
@@ -118,10 +118,22 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 		)`)
 		arguments = append(arguments, pattern, pattern, pattern, pattern, pattern)
 	}
+	if query.After != nil {
+		conditions = append(conditions, `(
+			COALESCE(ch.ended_at, '') < ? OR
+			(COALESCE(ch.ended_at, '') = ? AND ch.id < ?)
+		)`)
+		arguments = append(
+			arguments,
+			query.After.EndedAt,
+			query.After.EndedAt,
+			query.After.ID,
+		)
+	}
 	if len(conditions) > 0 {
 		statement += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	statement += " ORDER BY ch.ended_at DESC, ch.id DESC LIMIT ?"
+	statement += " ORDER BY COALESCE(ch.ended_at, '') DESC, ch.id DESC LIMIT ?"
 	arguments = append(arguments, limit)
 
 	rows, err := s.database.QueryContext(ctx, statement, arguments...)
@@ -141,6 +153,7 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 			createdAt, updatedAt, activeAt, endedAt, readAt, endReason         sql.NullString
 			failureCode, bearer                                                sql.NullString
 			stateReason, audioPort, audioEncoding, audioResolution             sql.NullString
+			sortEndedAt                                                        sql.NullString
 			stateReasonCode, multiparty, audioRate, mediaAvailable             sql.NullInt64
 		)
 		if err := rows.Scan(
@@ -150,7 +163,7 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 			&revision, &createdAt, &updatedAt, &activeAt, &endedAt, &readAt, &favorite,
 			&endReason, &failureCode, &bearer, &stateReason, &stateReasonCode,
 			&multiparty, &audioPort, &audioEncoding, &audioResolution,
-			&audioRate, &mediaAvailable,
+			&audioRate, &mediaAvailable, &sortEndedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan call: %w", err)
 		}
@@ -195,6 +208,7 @@ func (s *Store) Calls(ctx context.Context, query CallQuery) ([]Call, error) {
 			call.EndReason != "rejected" && call.FailureCode != "rejected"
 		call.Read = readAt.Valid && strings.TrimSpace(readAt.String) != ""
 		call.Favorite = boolValue(favorite)
+		call.SortEndedAt = stringValue(sortEndedAt)
 		calls = append(calls, call)
 	}
 	return calls, rowsError("read calls", rows.Err())

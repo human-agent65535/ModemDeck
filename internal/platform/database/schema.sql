@@ -608,6 +608,27 @@ CREATE INDEX idx_modemdeck_call_recordings_call ON modemdeck_call_recordings(cal
 
 CREATE INDEX idx_modemdeck_call_recordings_status ON modemdeck_call_recordings(status, updated_at);
 
+CREATE INDEX idx_contacts_owner_cursor ON contacts(owner_user_id, COALESCE(display_name, '') COLLATE NOCASE, id);
+
+CREATE INDEX idx_contacts_cursor ON contacts(COALESCE(display_name, '') COLLATE NOCASE, id);
+
+CREATE INDEX idx_sms_line_peer_cursor ON sms(line_id, peer, COALESCE(timestamp, '') DESC, id DESC);
+
+CREATE INDEX idx_sms_contacts_cursor ON sms_contacts(COALESCE(last_timestamp, '') DESC, last_sms_id DESC, line_id, peer);
+
+CREATE INDEX idx_sms_contacts_line_cursor ON sms_contacts(line_id, COALESCE(last_timestamp, '') DESC, last_sms_id DESC, peer);
+
+CREATE INDEX idx_call_history_ended_at_id ON call_history(COALESCE(ended_at, '') DESC, id DESC);
+
+CREATE INDEX idx_call_history_line_ended_at_id ON call_history(line_id, COALESCE(ended_at, '') DESC, id DESC);
+
+CREATE INDEX idx_modemdeck_call_recordings_cursor ON modemdeck_call_recordings(
+	COALESCE(started_at, created_at) DESC,
+	call_id DESC,
+	segment_index DESC,
+	id DESC
+);
+
 CREATE UNIQUE INDEX ux_modemdeck_lines_phone_number ON modemdeck_lines(phone_number) WHERE phone_number <> '';
 
 CREATE UNIQUE INDEX ux_devices_endpoint_id ON devices(endpoint_id) WHERE endpoint_id <> '';

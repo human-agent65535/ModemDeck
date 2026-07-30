@@ -17,6 +17,8 @@ import (
 type fakeRepository struct {
 	pingError             error
 	contactLimit          int
+	contactQuery          store.ContactQuery
+	contacts              []store.Contact
 	contact               store.Contact
 	contactError          error
 	createContactInput    store.ContactInput
@@ -29,6 +31,9 @@ type fakeRepository struct {
 	deleteContactError    error
 	deleteContacts        []store.ContactRevision
 	messageQuery          store.MessageQuery
+	messages              []store.Message
+	threadQuery           store.ThreadQuery
+	threads               []store.MessageThread
 	messageReadIdentity   store.MessageThreadIdentity
 	messageReadError      error
 	messageUpdateAction   store.MessageThreadAction
@@ -43,6 +48,8 @@ type fakeRepository struct {
 	callFavoriteIDs       []string
 	callFavorite          bool
 	callFavoriteError     error
+	callQuery             store.CallQuery
+	calls                 []store.Call
 	recordingQuery        store.RecordingQuery
 	recordingEntries      []store.RecordingEntry
 	recordingError        error
@@ -73,7 +80,8 @@ func (repository *fakeRepository) Ping(context.Context) error {
 
 func (repository *fakeRepository) Contacts(_ context.Context, query store.ContactQuery) ([]store.Contact, error) {
 	repository.contactLimit = query.Limit
-	return []store.Contact{}, nil
+	repository.contactQuery = query
+	return repository.contacts, nil
 }
 
 func (repository *fakeRepository) Contact(context.Context, string) (store.Contact, error) {
@@ -105,13 +113,17 @@ func (repository *fakeRepository) DeleteContacts(
 	return repository.deleteContactError
 }
 
-func (repository *fakeRepository) MessageThreads(context.Context, store.ThreadQuery) ([]store.MessageThread, error) {
-	return []store.MessageThread{}, nil
+func (repository *fakeRepository) MessageThreads(
+	_ context.Context,
+	query store.ThreadQuery,
+) ([]store.MessageThread, error) {
+	repository.threadQuery = query
+	return repository.threads, nil
 }
 
 func (repository *fakeRepository) Messages(_ context.Context, query store.MessageQuery) ([]store.Message, error) {
 	repository.messageQuery = query
-	return []store.Message{}, nil
+	return repository.messages, nil
 }
 
 func (repository *fakeRepository) MarkMessageThreadRead(
@@ -143,8 +155,12 @@ func (repository *fakeRepository) DeleteMessageThread(
 	return repository.messageDeleteError
 }
 
-func (repository *fakeRepository) Calls(context.Context, store.CallQuery) ([]store.Call, error) {
-	return []store.Call{}, nil
+func (repository *fakeRepository) Calls(
+	_ context.Context,
+	query store.CallQuery,
+) ([]store.Call, error) {
+	repository.callQuery = query
+	return repository.calls, nil
 }
 
 func (repository *fakeRepository) MarkMissedCallsRead(context.Context) error {

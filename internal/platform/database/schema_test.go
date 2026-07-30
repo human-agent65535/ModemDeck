@@ -86,7 +86,56 @@ func TestOpenAddsStableLineMessageIndexes(t *testing.T) {
 	}
 }
 
-func TestStableLineMessageIndexesCoverHotQueries(t *testing.T) {
+func TestOpenAddsCursorPaginationIndexes(t *testing.T) {
+	t.Parallel()
+
+	indexes := []string{
+		"idx_contacts_owner_cursor",
+		"idx_contacts_cursor",
+		"idx_sms_line_peer_cursor",
+		"idx_sms_contacts_cursor",
+		"idx_sms_contacts_line_cursor",
+		"idx_call_history_ended_at_id",
+		"idx_call_history_line_ended_at_id",
+		"idx_modemdeck_call_recordings_cursor",
+	}
+	path := filepath.Join(t.TempDir(), "before-cursor-indexes.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(currentSchemaSQL); err != nil {
+		t.Fatal(err)
+	}
+	for _, index := range indexes {
+		if _, err := database.Exec(`DROP INDEX ` + index); err != nil {
+			t.Fatalf("drop %s: %v", index, err)
+		}
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	for _, index := range indexes {
+		var definition string
+		if err := database.QueryRow(
+			`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?`,
+			index,
+		).Scan(&definition); err != nil {
+			t.Fatalf("read migrated index %s: %v", index, err)
+		}
+		if strings.TrimSpace(definition) == "" {
+			t.Fatalf("migrated index %s has no definition", index)
+		}
+	}
+}
+
+func TestCommunicationIndexesCoverHotQueries(t *testing.T) {
 	t.Parallel()
 
 	database, err := Open(context.Background(), Config{
@@ -107,9 +156,9 @@ func TestStableLineMessageIndexesCoverHotQueries(t *testing.T) {
 			name: "message timeline",
 			statement: `SELECT id FROM sms
 				WHERE deleted_at IS NULL AND line_id = ? AND peer = ?
-				ORDER BY timestamp DESC, id DESC LIMIT ?`,
+				ORDER BY COALESCE(timestamp, '') DESC, id DESC LIMIT ?`,
 			arguments: []any{"line-a", "+819012345678", 50},
-			index:     "idx_sms_line_peer_timestamp",
+			index:     "idx_sms_line_peer_cursor",
 		},
 		{
 			name: "read watermark",
@@ -130,9 +179,34 @@ func TestStableLineMessageIndexesCoverHotQueries(t *testing.T) {
 			name: "thread list",
 			statement: `SELECT peer FROM sms_contacts
 				WHERE line_id = ?
-				ORDER BY last_timestamp DESC, last_sms_id DESC, peer ASC LIMIT ?`,
+				ORDER BY COALESCE(last_timestamp, '') DESC,
+					last_sms_id DESC, peer ASC LIMIT ?`,
 			arguments: []any{"line-a", 50},
-			index:     "idx_sms_contacts_line_timestamp",
+			index:     "idx_sms_contacts_line_cursor",
+		},
+		{
+			name: "contact list",
+			statement: `SELECT id FROM contacts
+				WHERE owner_user_id = ?
+				ORDER BY COALESCE(display_name, '') COLLATE NOCASE, id LIMIT ?`,
+			arguments: []any{"user_admin", 50},
+			index:     "idx_contacts_owner_cursor",
+		},
+		{
+			name: "call list",
+			statement: `SELECT id FROM call_history
+				WHERE line_id = ?
+				ORDER BY COALESCE(ended_at, '') DESC, id DESC LIMIT ?`,
+			arguments: []any{"line-a", 50},
+			index:     "idx_call_history_line_ended_at_id",
+		},
+		{
+			name: "recording list",
+			statement: `SELECT id FROM modemdeck_call_recordings
+				ORDER BY COALESCE(started_at, created_at) DESC,
+					call_id DESC, segment_index DESC, id DESC LIMIT ?`,
+			arguments: []any{50},
+			index:     "idx_modemdeck_call_recordings_cursor",
 		},
 	}
 	for _, testCase := range testCases {
@@ -2080,6 +2154,9 @@ CREATE INDEX idx_call_history_endpoint_line_ended_at ON call_history(endpoint_li
 	replace("CREATE INDEX idx_sms_line_peer_id ON sms(line_id, peer, id);\n\n", "")
 	replace("CREATE INDEX idx_sms_incoming_unread_line_peer_id ON sms(line_id, peer, type, id);\n\n", "")
 	replace("CREATE INDEX idx_sms_contacts_line_timestamp ON sms_contacts(line_id, last_timestamp DESC, last_sms_id DESC, peer);\n\n", "")
+	replace("CREATE INDEX idx_sms_contacts_cursor ON sms_contacts(COALESCE(last_timestamp, '') DESC, last_sms_id DESC, line_id, peer);\n\n", "")
+	replace("CREATE INDEX idx_sms_contacts_line_cursor ON sms_contacts(line_id, COALESCE(last_timestamp, '') DESC, last_sms_id DESC, peer);\n\n", "")
+	replace("CREATE INDEX idx_call_history_line_ended_at_id ON call_history(line_id, COALESCE(ended_at, '') DESC, id DESC);\n\n", "")
 	replace(
 		"singleton, default_line_id, revision, updated_at",
 		"singleton, default_device_imei, revision, updated_at",
@@ -2194,6 +2271,8 @@ func singleUserSchemaFixture(t *testing.T) string {
 			"ON modemdeck_user_lines(line_id, user_id);\n\n",
 		"CREATE INDEX idx_contacts_owner_display_name " +
 			"ON contacts(owner_user_id, display_name);\n\n",
+		"CREATE INDEX idx_contacts_owner_cursor " +
+			"ON contacts(owner_user_id, COALESCE(display_name, '') COLLATE NOCASE, id);\n\n",
 	} {
 		remove(index)
 	}

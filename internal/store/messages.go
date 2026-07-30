@@ -32,7 +32,7 @@ const contactNameForNumberSQL = `COALESCE((
 ), '')`
 
 func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]MessageThread, error) {
-	limit := boundedLimit(query.Limit)
+	limit := queryLimit(query.Limit, query.Lookahead)
 	contactOwner := contactOwnerSQL(ctx, "contacts")
 	stateJoin := ""
 	unreadExpression := "sc.unread_count"
@@ -75,7 +75,8 @@ func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]Messag
 			sc.last_type,
 			` + unreadExpression + `,
 			` + markedUnreadExpression + `,
-			` + favoriteExpression + `
+			` + favoriteExpression + `,
+			COALESCE(CAST(sc.last_timestamp AS TEXT), '')
 		FROM sms_contacts sc` + stateJoin
 	arguments := []any{}
 	conditions := make([]string, 0, 2)
@@ -99,10 +100,41 @@ func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]Messag
 		conditions = append(conditions, searchCondition)
 		arguments = append(arguments, pattern, pattern, pattern)
 	}
+	if query.After != nil {
+		conditions = append(conditions, `(
+			COALESCE(sc.last_timestamp, '') < ? OR
+			(COALESCE(sc.last_timestamp, '') = ? AND sc.last_sms_id < ?) OR
+			(COALESCE(sc.last_timestamp, '') = ? AND sc.last_sms_id = ? AND sc.line_id > ?) OR
+			(
+				COALESCE(sc.last_timestamp, '') = ? AND
+				sc.last_sms_id = ? AND
+				sc.line_id = ? AND
+				sc.peer > ?
+			)
+		)`)
+		arguments = append(
+			arguments,
+			query.After.LastTimestamp,
+			query.After.LastTimestamp,
+			query.After.LastMessageID,
+			query.After.LastTimestamp,
+			query.After.LastMessageID,
+			query.After.LineID,
+			query.After.LastTimestamp,
+			query.After.LastMessageID,
+			query.After.LineID,
+			query.After.Peer,
+		)
+	}
 	if len(conditions) > 0 {
 		statement += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	statement += ` ORDER BY sc.last_timestamp DESC, sc.last_sms_id DESC, sc.peer ASC LIMIT ?`
+	statement += ` ORDER BY
+		COALESCE(sc.last_timestamp, '') DESC,
+		sc.last_sms_id DESC,
+		sc.line_id ASC,
+		sc.peer ASC
+		LIMIT ?`
 	arguments = append(arguments, limit)
 
 	rows, err := s.database.QueryContext(ctx, statement, arguments...)
@@ -117,12 +149,12 @@ func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]Messag
 			thread                                                             MessageThread
 			key, imsi, iccid, localPhone, lineID, peer, contactID, contactName sql.NullString
 			lastID, lastType, unread, markedUnread, favorite                   sql.NullInt64
-			lastTimestamp, lastContent                                         sql.NullString
+			lastTimestamp, lastContent, sortTimestamp                          sql.NullString
 		)
 		if err := rows.Scan(
 			&key, &imsi, &iccid, &localPhone, &lineID, &peer, &contactID, &contactName,
 			&lastID, &lastTimestamp, &lastContent, &lastType, &unread,
-			&markedUnread, &favorite,
+			&markedUnread, &favorite, &sortTimestamp,
 		); err != nil {
 			return nil, fmt.Errorf("scan message thread: %w", err)
 		}
@@ -141,18 +173,20 @@ func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]Messag
 		thread.UnreadCount = intValue(unread)
 		thread.MarkedUnread = boolValue(markedUnread)
 		thread.Favorite = boolValue(favorite)
+		thread.SortTimestamp = stringValue(sortTimestamp)
 		threads = append(threads, thread)
 	}
 	return threads, rowsError("read message threads", rows.Err())
 }
 
 func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, error) {
-	limit := boundedLimit(query.Limit)
+	limit := queryLimit(query.Limit, query.Lookahead)
 	statement := `SELECT id, request_id, line_id, endpoint_line_id, endpoint_message_id,
 		imsi, iccid, peer, reported_peer, local_phone, sender, recipient,
 		content, type, status, state, delivery_status, message_reference,
 		delivery_report_requested, delivery_report_trackable, delivery_report_code,
-		failure_code, revision, timestamp, created_at
+		failure_code, revision, timestamp, created_at,
+		COALESCE(CAST(timestamp AS TEXT), '')
 		FROM sms`
 	conditions := []string{"deleted_at IS NULL"}
 	arguments := make([]any, 0, 5)
@@ -181,10 +215,22 @@ func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, er
 		conditions = append(conditions, "peer = ?")
 		arguments = append(arguments, peer)
 	}
+	if query.After != nil {
+		conditions = append(conditions, `(
+			COALESCE(timestamp, '') < ? OR
+			(COALESCE(timestamp, '') = ? AND id < ?)
+		)`)
+		arguments = append(
+			arguments,
+			query.After.Timestamp,
+			query.After.Timestamp,
+			query.After.ID,
+		)
+	}
 	if len(conditions) > 0 {
 		statement += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	statement += " ORDER BY timestamp DESC, id DESC LIMIT ?"
+	statement += " ORDER BY COALESCE(timestamp, '') DESC, id DESC LIMIT ?"
 	arguments = append(arguments, limit)
 
 	rows, err := s.database.QueryContext(ctx, statement, arguments...)
@@ -202,7 +248,7 @@ func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, er
 			deliveryStatus, failureCode                                      sql.NullString
 			messageType, status, messageReference, reportRequested           sql.NullInt64
 			reportTrackable, reportCode, revision                            sql.NullInt64
-			timestamp, createdAt                                             sql.NullString
+			timestamp, createdAt, sortTimestamp                              sql.NullString
 		)
 		if err := rows.Scan(
 			&message.ID, &requestID, &lineID, &endpointLineID, &endpointID,
@@ -210,7 +256,7 @@ func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, er
 			&content, &messageType, &status, &state, &deliveryStatus,
 			&messageReference, &reportRequested, &reportTrackable, &reportCode,
 			&failureCode, &revision,
-			&timestamp, &createdAt,
+			&timestamp, &createdAt, &sortTimestamp,
 		); err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
 		}
@@ -244,6 +290,7 @@ func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, er
 		message.Revision = intValue(revision)
 		message.Timestamp = stringValue(timestamp)
 		message.CreatedAt = stringValue(createdAt)
+		message.SortTimestamp = stringValue(sortTimestamp)
 		messages = append(messages, message)
 	}
 	if err := rowsError("read messages", rows.Err()); err != nil {

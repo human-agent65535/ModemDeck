@@ -222,6 +222,20 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 			return err
 		}
 	}
+	migratedPaginationIndexes, err := migratePaginationIndexes(
+		ctx,
+		database,
+		actual,
+	)
+	if err != nil {
+		return err
+	}
+	if migratedPaginationIndexes {
+		actual, err = readSchemaShape(ctx, database)
+		if err != nil {
+			return err
+		}
+	}
 	migratedMobilePairing, err := migrateMobilePairingSchema(
 		ctx,
 		database,
@@ -278,8 +292,155 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 			return err
 		}
 	}
+	migratedPaginationIndexes, err = migratePaginationIndexes(
+		ctx,
+		database,
+		actual,
+	)
+	if err != nil {
+		return err
+	}
+	if migratedPaginationIndexes {
+		actual, err = readSchemaShape(ctx, database)
+		if err != nil {
+			return err
+		}
+	}
 	_, err = migrateMobilePairingSchema(ctx, database, expected, actual)
 	return err
+}
+
+func migratePaginationIndexes(
+	ctx context.Context,
+	database *sql.DB,
+	actual schemaShape,
+) (bool, error) {
+	type paginationIndex struct {
+		name       string
+		table      string
+		columns    []string
+		definition string
+	}
+	indexes := []paginationIndex{
+		{
+			name:    "idx_contacts_owner_cursor",
+			table:   "contacts",
+			columns: []string{"owner_user_id", "display_name", "id"},
+			definition: `CREATE INDEX idx_contacts_owner_cursor ON contacts(
+				owner_user_id,
+				COALESCE(display_name, '') COLLATE NOCASE,
+				id
+			)`,
+		},
+		{
+			name:    "idx_contacts_cursor",
+			table:   "contacts",
+			columns: []string{"display_name", "id"},
+			definition: `CREATE INDEX idx_contacts_cursor ON contacts(
+				COALESCE(display_name, '') COLLATE NOCASE,
+				id
+			)`,
+		},
+		{
+			name:    "idx_sms_line_peer_cursor",
+			table:   "sms",
+			columns: []string{"line_id", "peer", "timestamp", "id"},
+			definition: `CREATE INDEX idx_sms_line_peer_cursor ON sms(
+				line_id,
+				peer,
+				COALESCE(timestamp, '') DESC,
+				id DESC
+			)`,
+		},
+		{
+			name:    "idx_sms_contacts_cursor",
+			table:   "sms_contacts",
+			columns: []string{"last_timestamp", "last_sms_id", "line_id", "peer"},
+			definition: `CREATE INDEX idx_sms_contacts_cursor ON sms_contacts(
+				COALESCE(last_timestamp, '') DESC,
+				last_sms_id DESC,
+				line_id,
+				peer
+			)`,
+		},
+		{
+			name:    "idx_sms_contacts_line_cursor",
+			table:   "sms_contacts",
+			columns: []string{"line_id", "last_timestamp", "last_sms_id", "peer"},
+			definition: `CREATE INDEX idx_sms_contacts_line_cursor ON sms_contacts(
+				line_id,
+				COALESCE(last_timestamp, '') DESC,
+				last_sms_id DESC,
+				peer
+			)`,
+		},
+		{
+			name:    "idx_call_history_ended_at_id",
+			table:   "call_history",
+			columns: []string{"ended_at", "id"},
+			definition: `CREATE INDEX idx_call_history_ended_at_id
+				ON call_history(COALESCE(ended_at, '') DESC, id DESC)`,
+		},
+		{
+			name:    "idx_call_history_line_ended_at_id",
+			table:   "call_history",
+			columns: []string{"line_id", "ended_at", "id"},
+			definition: `CREATE INDEX idx_call_history_line_ended_at_id
+				ON call_history(
+					line_id,
+					COALESCE(ended_at, '') DESC,
+					id DESC
+				)`,
+		},
+		{
+			name:  "idx_modemdeck_call_recordings_cursor",
+			table: "modemdeck_call_recordings",
+			columns: []string{
+				"started_at",
+				"created_at",
+				"call_id",
+				"segment_index",
+				"id",
+			},
+			definition: `CREATE INDEX idx_modemdeck_call_recordings_cursor
+				ON modemdeck_call_recordings(
+					COALESCE(started_at, created_at) DESC,
+					call_id DESC,
+					segment_index DESC,
+					id DESC
+				)`,
+		},
+	}
+
+	migrated := false
+	for _, index := range indexes {
+		if _, exists := actual.indexes[index.name]; exists {
+			continue
+		}
+		tableColumns, exists := actual.tables[index.table]
+		if !exists {
+			continue
+		}
+		complete := true
+		for _, column := range index.columns {
+			if _, exists := tableColumns[column]; !exists {
+				complete = false
+				break
+			}
+		}
+		if !complete {
+			continue
+		}
+		if _, err := database.ExecContext(ctx, index.definition); err != nil {
+			return false, fmt.Errorf(
+				"create pagination index %s: %w",
+				index.name,
+				err,
+			)
+		}
+		migrated = true
+	}
+	return migrated, nil
 }
 
 func migrateSMSLineIndexes(
@@ -1249,6 +1410,9 @@ func legacyV1SchemaShape(current schemaShape) schemaShape {
 		"idx_sms_line_peer_id",
 		"idx_sms_incoming_unread_line_peer_id",
 		"idx_sms_contacts_line_timestamp",
+		"idx_sms_contacts_cursor",
+		"idx_sms_contacts_line_cursor",
+		"idx_call_history_line_ended_at_id",
 	} {
 		delete(legacy.indexes, index)
 	}

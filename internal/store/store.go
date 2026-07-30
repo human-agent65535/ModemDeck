@@ -42,6 +42,14 @@ func boundedLimit(limit int) int {
 	return limit
 }
 
+func queryLimit(limit int, lookahead bool) int {
+	limit = boundedLimit(limit)
+	if lookahead {
+		return limit + 1
+	}
+	return limit
+}
+
 func escapeLike(value string) string {
 	value = strings.ReplaceAll(value, `\`, `\\`)
 	value = strings.ReplaceAll(value, `%`, `\%`)

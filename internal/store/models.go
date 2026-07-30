@@ -15,8 +15,15 @@ const (
 )
 
 type ContactQuery struct {
-	Search string
-	Limit  int
+	Search    string
+	Limit     int
+	After     *ContactCursor
+	Lookahead bool
+}
+
+type ContactCursor struct {
+	DisplayName string
+	ID          string
 }
 
 type Contact struct {
@@ -66,8 +73,17 @@ type ContactRevision struct {
 }
 
 type ThreadQuery struct {
-	Search string
-	Limit  int
+	Search    string
+	Limit     int
+	After     *ThreadCursor
+	Lookahead bool
+}
+
+type ThreadCursor struct {
+	LastTimestamp string
+	LastMessageID int64
+	LineID        string
+	Peer          string
 }
 
 type MessageThread struct {
@@ -86,6 +102,7 @@ type MessageThread struct {
 	UnreadCount   int64  `json:"unread_count"`
 	MarkedUnread  bool   `json:"marked_unread"`
 	Favorite      bool   `json:"favorite"`
+	SortTimestamp string `json:"-"`
 }
 
 type MessageQuery struct {
@@ -94,6 +111,13 @@ type MessageQuery struct {
 	LineIDs       []string
 	Limit         int
 	Chronological bool
+	After         *MessageCursor
+	Lookahead     bool
+}
+
+type MessageCursor struct {
+	Timestamp string
+	ID        int64
 }
 
 type MessageThreadIdentity struct {
@@ -143,6 +167,7 @@ type Message struct {
 	Revision                int64                 `json:"revision"`
 	Timestamp               string                `json:"timestamp"`
 	CreatedAt               string                `json:"created_at"`
+	SortTimestamp           string                `json:"-"`
 	MessageReference        *int64                `json:"-"`
 	DeliveryReportRequested bool                  `json:"-"`
 	DeliveryReportTrackable bool                  `json:"-"`
@@ -159,9 +184,16 @@ const (
 )
 
 type CallQuery struct {
-	Kind   CallKind
-	Search string
-	Limit  int
+	Kind      CallKind
+	Search    string
+	Limit     int
+	After     *CallCursor
+	Lookahead bool
+}
+
+type CallCursor struct {
+	EndedAt string
+	ID      string
 }
 
 type Call struct {
@@ -201,6 +233,7 @@ type Call struct {
 	Missed               bool    `json:"missed"`
 	Read                 bool    `json:"read"`
 	Favorite             bool    `json:"favorite"`
+	SortEndedAt          string  `json:"-"`
 }
 
 type Device struct {

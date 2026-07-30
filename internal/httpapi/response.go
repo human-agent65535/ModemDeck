@@ -38,7 +38,9 @@ type systemSettingsResponse struct {
 }
 
 type responseMeta struct {
-	Limit int `json:"limit"`
+	Limit      int    `json:"limit"`
+	NextCursor string `json:"next_cursor"`
+	HasMore    bool   `json:"has_more"`
 }
 
 type contactsResponse struct {
