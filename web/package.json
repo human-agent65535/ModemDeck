@@ -12,23 +12,28 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@lucide/vue": "1.25.0",
+    "@lucide/vue": "1.28.0",
     "libphonenumber-js": "1.13.9",
-    "vue": "^3.5.24",
-    "vue-i18n": "^11.4.7",
-    "vue-router": "^4.6.4"
+    "vue": "^3.5.40",
+    "vue-i18n": "^11.4.8",
+    "vue-router": "^5.2.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.22.0",
-    "@typescript-eslint/eslint-plugin": "^8.26.1",
-    "@typescript-eslint/parser": "^8.26.1",
-    "@vitejs/plugin-vue": "^5.2.4",
-    "eslint": "^9.22.0",
-    "eslint-plugin-vue": "^9.33.0",
-    "globals": "^16.0.0",
-    "tsx": "4.20.3",
-    "typescript": "^5.8.2",
-    "vite": "^5.4.21",
-    "vue-tsc": "^2.2.12"
+    "@eslint/js": "^10.0.1",
+    "@typescript-eslint/eslint-plugin": "^8.65.0",
+    "@typescript-eslint/parser": "^8.65.0",
+    "@vitejs/plugin-vue": "^6.0.8",
+    "eslint": "^10.8.0",
+    "eslint-plugin-vue": "^10.10.0",
+    "globals": "^17.8.0",
+    "tsx": "4.23.1",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.5",
+    "vue-eslint-parser": "^10.4.1",
+    "vue-tsc": "^3.3.8"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "fsevents@2.3.3": true
   }
 }

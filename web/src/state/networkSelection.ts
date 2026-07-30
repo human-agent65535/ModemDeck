@@ -229,7 +229,7 @@ async function saveNetworkSelection(
       const latest = await gateway.getNetworkSelection(normalizedLineID)
       if (!isCurrentPolicyRequest(normalizedLineID, requestSequence)) return false
       if (latest.line_id !== normalizedLineID) {
-        throw new Error(translate('runtime.invalidNetworkLine'))
+        throw new Error(translate('runtime.invalidNetworkLine'), { cause: error })
       }
       target.policy = latest
       target.mode = latest.mode
