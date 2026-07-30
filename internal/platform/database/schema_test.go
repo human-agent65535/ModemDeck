@@ -31,6 +31,143 @@ func TestOpenCreatesAndReopensCurrentSchema(t *testing.T) {
 	t.Cleanup(func() { _ = database.Close() })
 }
 
+func TestOpenAddsStableLineMessageIndexes(t *testing.T) {
+	t.Parallel()
+
+	const (
+		linePeerTimestamp = "idx_sms_line_peer_timestamp"
+		linePeerID        = "idx_sms_line_peer_id"
+		unreadLinePeerID  = "idx_sms_incoming_unread_line_peer_id"
+		threadLineTime    = "idx_sms_contacts_line_timestamp"
+	)
+	previousSchema := currentSchemaSQL
+	for _, statement := range []string{
+		"CREATE INDEX " + linePeerTimestamp + " ON sms(line_id, peer, timestamp DESC, id DESC);\n\n",
+		"CREATE INDEX " + linePeerID + " ON sms(line_id, peer, id);\n\n",
+		"CREATE INDEX " + unreadLinePeerID + " ON sms(line_id, peer, type, id);\n\n",
+		"CREATE INDEX " + threadLineTime + " ON sms_contacts(line_id, last_timestamp DESC, last_sms_id DESC, peer);\n\n",
+	} {
+		previousSchema = strings.Replace(previousSchema, statement, "", 1)
+	}
+
+	path := filepath.Join(t.TempDir(), "before-message-line-indexes.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(previousSchema); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	for _, index := range []string{
+		linePeerTimestamp,
+		linePeerID,
+		unreadLinePeerID,
+		threadLineTime,
+	} {
+		var definition string
+		if err := database.QueryRow(
+			`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?`,
+			index,
+		).Scan(&definition); err != nil {
+			t.Fatalf("read migrated index %s: %v", index, err)
+		}
+		if strings.TrimSpace(definition) == "" {
+			t.Fatalf("migrated index %s has no definition", index)
+		}
+	}
+}
+
+func TestStableLineMessageIndexesCoverHotQueries(t *testing.T) {
+	t.Parallel()
+
+	database, err := Open(context.Background(), Config{
+		TargetPath: filepath.Join(t.TempDir(), "message-query-plans.db"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	testCases := []struct {
+		name      string
+		statement string
+		arguments []any
+		index     string
+	}{
+		{
+			name: "message timeline",
+			statement: `SELECT id FROM sms
+				WHERE deleted_at IS NULL AND line_id = ? AND peer = ?
+				ORDER BY timestamp DESC, id DESC LIMIT ?`,
+			arguments: []any{"line-a", "+819012345678", 50},
+			index:     "idx_sms_line_peer_timestamp",
+		},
+		{
+			name: "read watermark",
+			statement: `SELECT MAX(id) FROM sms
+				WHERE line_id = ? AND peer = ?`,
+			arguments: []any{"line-a", "+819012345678"},
+			index:     "idx_sms_line_peer_id",
+		},
+		{
+			name: "unread count",
+			statement: `SELECT COUNT(*) FROM sms
+				WHERE line_id = ? AND peer = ? AND type = 1
+					AND deleted_at IS NULL AND id > ?`,
+			arguments: []any{"line-a", "+819012345678", 100},
+			index:     "idx_sms_incoming_unread_line_peer_id",
+		},
+		{
+			name: "thread list",
+			statement: `SELECT peer FROM sms_contacts
+				WHERE line_id = ?
+				ORDER BY last_timestamp DESC, last_sms_id DESC, peer ASC LIMIT ?`,
+			arguments: []any{"line-a", 50},
+			index:     "idx_sms_contacts_line_timestamp",
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			rows, err := database.Query(
+				"EXPLAIN QUERY PLAN "+testCase.statement,
+				testCase.arguments...,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var details []string
+			for rows.Next() {
+				var id, parent, unused int
+				var detail string
+				if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+					_ = rows.Close()
+					t.Fatal(err)
+				}
+				details = append(details, detail)
+			}
+			if err := rows.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(strings.Join(details, "\n"), testCase.index) {
+				t.Fatalf(
+					"query plan = %q, want index %s",
+					details,
+					testCase.index,
+				)
+			}
+		})
+	}
+}
+
 func TestOpenMigratesCurrentSchemaBeforeIOSPairing(t *testing.T) {
 	t.Parallel()
 
@@ -1939,6 +2076,10 @@ CREATE INDEX idx_call_history_endpoint_line_ended_at ON call_history(endpoint_li
 	replace("CREATE INDEX idx_sim_cards_line_id ON sim_cards(line_id);\n\n", "")
 	replace("CREATE UNIQUE INDEX ux_sim_cards_current_imei ON sim_cards(current_imei) WHERE COALESCE(current_imei, '') <> '';\n\n", "")
 	replace("CREATE INDEX idx_sim_subscriptions_line_id ON sim_subscriptions(line_id);\n\n", "")
+	replace("CREATE INDEX idx_sms_line_peer_timestamp ON sms(line_id, peer, timestamp DESC, id DESC);\n\n", "")
+	replace("CREATE INDEX idx_sms_line_peer_id ON sms(line_id, peer, id);\n\n", "")
+	replace("CREATE INDEX idx_sms_incoming_unread_line_peer_id ON sms(line_id, peer, type, id);\n\n", "")
+	replace("CREATE INDEX idx_sms_contacts_line_timestamp ON sms_contacts(line_id, last_timestamp DESC, last_sms_id DESC, peer);\n\n", "")
 	replace(
 		"singleton, default_line_id, revision, updated_at",
 		"singleton, default_device_imei, revision, updated_at",

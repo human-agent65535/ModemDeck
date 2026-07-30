@@ -212,6 +212,16 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 			return err
 		}
 	}
+	migratedSMSLineIndexes, err := migrateSMSLineIndexes(ctx, database, actual)
+	if err != nil {
+		return err
+	}
+	if migratedSMSLineIndexes {
+		actual, err = readSchemaShape(ctx, database)
+		if err != nil {
+			return err
+		}
+	}
 	migratedMobilePairing, err := migrateMobilePairingSchema(
 		ctx,
 		database,
@@ -258,8 +268,81 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 	if err != nil {
 		return err
 	}
+	migratedSMSLineIndexes, err = migrateSMSLineIndexes(ctx, database, actual)
+	if err != nil {
+		return err
+	}
+	if migratedSMSLineIndexes {
+		actual, err = readSchemaShape(ctx, database)
+		if err != nil {
+			return err
+		}
+	}
 	_, err = migrateMobilePairingSchema(ctx, database, expected, actual)
 	return err
+}
+
+func migrateSMSLineIndexes(
+	ctx context.Context,
+	database *sql.DB,
+	actual schemaShape,
+) (bool, error) {
+	requiredSMSColumns := []string{"id", "line_id", "peer", "timestamp", "type"}
+	smsColumns, smsExists := actual.tables["sms"]
+	if !smsExists {
+		return false, nil
+	}
+	for _, column := range requiredSMSColumns {
+		if _, exists := smsColumns[column]; !exists {
+			return false, nil
+		}
+	}
+	smsContactColumns, smsContactsExist := actual.tables["sms_contacts"]
+	if !smsContactsExist {
+		return false, nil
+	}
+	for _, column := range []string{"line_id", "last_timestamp", "last_sms_id", "peer"} {
+		if _, exists := smsContactColumns[column]; !exists {
+			return false, nil
+		}
+	}
+
+	indexes := []struct {
+		name       string
+		definition string
+	}{
+		{
+			name: "idx_sms_line_peer_timestamp",
+			definition: `CREATE INDEX idx_sms_line_peer_timestamp
+				ON sms(line_id, peer, timestamp DESC, id DESC)`,
+		},
+		{
+			name: "idx_sms_line_peer_id",
+			definition: `CREATE INDEX idx_sms_line_peer_id
+				ON sms(line_id, peer, id)`,
+		},
+		{
+			name: "idx_sms_incoming_unread_line_peer_id",
+			definition: `CREATE INDEX idx_sms_incoming_unread_line_peer_id
+				ON sms(line_id, peer, type, id)`,
+		},
+		{
+			name: "idx_sms_contacts_line_timestamp",
+			definition: `CREATE INDEX idx_sms_contacts_line_timestamp
+				ON sms_contacts(line_id, last_timestamp DESC, last_sms_id DESC, peer)`,
+		},
+	}
+	migrated := false
+	for _, index := range indexes {
+		if _, exists := actual.indexes[index.name]; exists {
+			continue
+		}
+		if _, err := database.ExecContext(ctx, index.definition); err != nil {
+			return false, fmt.Errorf("create SMS line index %s: %w", index.name, err)
+		}
+		migrated = true
+	}
+	return migrated, nil
 }
 
 func migrateSystemSettingsLanguages(
@@ -1162,6 +1245,10 @@ func legacyV1SchemaShape(current schemaShape) schemaShape {
 		"idx_sim_cards_line_id",
 		"ux_sim_cards_current_imei",
 		"idx_sim_subscriptions_line_id",
+		"idx_sms_line_peer_timestamp",
+		"idx_sms_line_peer_id",
+		"idx_sms_incoming_unread_line_peer_id",
+		"idx_sms_contacts_line_timestamp",
 	} {
 		delete(legacy.indexes, index)
 	}

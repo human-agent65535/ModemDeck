@@ -570,6 +570,12 @@ CREATE INDEX idx_sms_iccid_peer_timestamp ON sms(iccid, peer, timestamp DESC);
 
 CREATE INDEX idx_sms_imsi_peer_timestamp ON sms(imsi, peer, timestamp DESC);
 
+CREATE INDEX idx_sms_line_peer_timestamp ON sms(line_id, peer, timestamp DESC, id DESC);
+
+CREATE INDEX idx_sms_line_peer_id ON sms(line_id, peer, id);
+
+CREATE INDEX idx_sms_incoming_unread_line_peer_id ON sms(line_id, peer, type, id);
+
 CREATE UNIQUE INDEX ux_sms_request_id ON sms(request_id) WHERE request_id <> '';
 
 CREATE UNIQUE INDEX ux_sms_endpoint_line_message ON sms(endpoint_line_id, endpoint_message_id) WHERE endpoint_line_id <> '' AND endpoint_message_id <> '';
@@ -577,6 +583,8 @@ CREATE UNIQUE INDEX ux_sms_endpoint_line_message ON sms(endpoint_line_id, endpoi
 CREATE INDEX idx_sms_contacts_iccid_timestamp ON sms_contacts(iccid, last_timestamp DESC);
 
 CREATE INDEX idx_sms_contacts_timestamp ON sms_contacts(last_timestamp DESC);
+
+CREATE INDEX idx_sms_contacts_line_timestamp ON sms_contacts(line_id, last_timestamp DESC, last_sms_id DESC, peer);
 
 CREATE INDEX idx_call_history_ended_at ON call_history(ended_at DESC);
 
