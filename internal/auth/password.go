@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
@@ -34,6 +35,14 @@ const (
 )
 
 var rawBase64 = base64.RawStdEncoding.Strict()
+
+// dummyPasswordHash is a valid current-cost hash used to keep login password
+// work equivalent when an account is missing, disabled, or named incorrectly.
+// The key is deliberately arbitrary: a dummy comparison can never authenticate.
+var dummyPasswordHash = encodePasswordHash(
+	bytes.Repeat([]byte{0xa5}, PasswordHashSaltBytes),
+	bytes.Repeat([]byte{0x5a}, PasswordHashKeyBytes),
+)
 
 type passwordHashParameters struct {
 	time      uint32
@@ -69,6 +78,10 @@ func hashPassword(password string, random io.Reader) (string, error) {
 		PasswordHashKeyBytes,
 	)
 
+	return encodePasswordHash(salt, key), nil
+}
+
+func encodePasswordHash(salt, key []byte) string {
 	return fmt.Sprintf(
 		"$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
 		argon2Version,
@@ -77,7 +90,7 @@ func hashPassword(password string, random io.Reader) (string, error) {
 		PasswordHashThreads,
 		rawBase64.EncodeToString(salt),
 		rawBase64.EncodeToString(key),
-	), nil
+	)
 }
 
 // VerifyPassword checks a password against an Argon2id PHC string. It rejects

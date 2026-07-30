@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
@@ -199,6 +201,10 @@ func (api *API) login(response http.ResponseWriter, request *http.Request) {
 		writeError(response, http.StatusUnauthorized, "invalid_credentials", "Username or password is incorrect", "")
 		return
 	}
+	if retryAfter := api.loginFailures.retryAfter(credentials.Username); retryAfter > 0 {
+		writeLoginRateLimit(response, retryAfter)
+		return
+	}
 	select {
 	case api.loginSlots <- struct{}{}:
 		defer func() { <-api.loginSlots }()
@@ -214,6 +220,7 @@ func (api *API) login(response http.ResponseWriter, request *http.Request) {
 	)
 	if err != nil {
 		if errors.Is(err, auth.ErrInvalidCredentials) || errors.Is(err, auth.ErrPasswordRequired) {
+			api.loginFailures.recordFailure(credentials.Username)
 			writeError(response, http.StatusUnauthorized, "invalid_credentials", "Username or password is incorrect", "")
 			return
 		}
@@ -221,6 +228,7 @@ func (api *API) login(response http.ResponseWriter, request *http.Request) {
 		writeError(response, http.StatusServiceUnavailable, "authentication_unavailable", "Authentication is unavailable", "")
 		return
 	}
+	api.loginFailures.recordSuccess(credentials.Username)
 	api.setAuthCookies(response, result)
 	session := sessionResponse{
 		Authenticated: true,
@@ -233,6 +241,18 @@ func (api *API) login(response http.ResponseWriter, request *http.Request) {
 		applyPrincipalToSessionResponse(&session, *result.Principal)
 	}
 	writeJSON(response, http.StatusOK, session)
+}
+
+func writeLoginRateLimit(response http.ResponseWriter, retryAfter time.Duration) {
+	retryAfterSeconds := (retryAfter + time.Second - 1) / time.Second
+	response.Header().Set("Retry-After", strconv.FormatInt(int64(retryAfterSeconds), 10))
+	writeError(
+		response,
+		http.StatusTooManyRequests,
+		"login_rate_limited",
+		"Too many failed login attempts; try again later",
+		"",
+	)
 }
 
 func applyPrincipalToSessionResponse(response *sessionResponse, principal auth.Principal) {

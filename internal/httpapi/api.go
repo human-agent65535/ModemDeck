@@ -284,6 +284,7 @@ type API struct {
 	authenticator        Authenticator
 	secureCookies        bool
 	loginSlots           chan struct{}
+	loginFailures        *loginFailureLimiter
 	logger               *slog.Logger
 	diagnosticLogs       diagnostics.LogSource
 	messageEvents        messageevents.Source
@@ -326,6 +327,7 @@ func New(repository Repository, options Options) (*API, error) {
 		authenticator:        options.Authenticator,
 		secureCookies:        options.SecureCookies,
 		loginSlots:           make(chan struct{}, 2),
+		loginFailures:        newLoginFailureLimiter(defaultLoginFailurePolicy),
 		logger:               logger,
 		diagnosticLogs:       options.DiagnosticLogs,
 		messageEvents:        options.MessageEvents,

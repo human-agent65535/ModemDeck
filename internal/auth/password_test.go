@@ -56,6 +56,34 @@ func TestHashPasswordAndVerify(t *testing.T) {
 	}
 }
 
+func TestDummyPasswordHashUsesCurrentCosts(t *testing.T) {
+	t.Parallel()
+
+	parameters, err := parsePasswordHash(dummyPasswordHash)
+	if err != nil {
+		t.Fatalf("parsePasswordHash(dummy) error = %v", err)
+	}
+	if parameters.time != PasswordHashTime ||
+		parameters.memoryKiB != PasswordHashMemoryKiB ||
+		parameters.threads != PasswordHashThreads ||
+		len(parameters.salt) != PasswordHashSaltBytes ||
+		len(parameters.key) != PasswordHashKeyBytes {
+		t.Fatalf("dummy password parameters = %+v", parameters)
+	}
+}
+
+func TestVerifyLoginPasswordUsesDummyHashForUnusableCredentials(t *testing.T) {
+	t.Parallel()
+
+	matches, err := verifyLoginPassword("attacker supplied password", "malformed", false)
+	if err != nil {
+		t.Fatalf("verifyLoginPassword(unusable) error = %v", err)
+	}
+	if matches {
+		t.Fatal("verifyLoginPassword(unusable) = true, want false")
+	}
+}
+
 func TestHashPasswordRejectsEmptyPasswordAndRandomFailure(t *testing.T) {
 	if _, err := HashPassword(""); !errors.Is(err, ErrPasswordRequired) {
 		t.Fatalf("HashPassword(empty) error = %v, want ErrPasswordRequired", err)

@@ -308,6 +308,69 @@ func TestLoginAndLogoutCookies(t *testing.T) {
 	}
 }
 
+func TestLoginFailureRateLimitReturnsRetryAfterAndClearsOnSuccess(t *testing.T) {
+	authenticator, _, _ := newAPIAuthenticator(t)
+	authenticator.loginError = auth.ErrInvalidCredentials
+	authenticator.loginResult = auth.LoginResult{
+		SessionToken: auth.SessionToken(opaqueTestToken(21)),
+		CSRFToken:    auth.CSRFToken(opaqueTestToken(22)),
+		ExpiresAt:    time.Now().UTC().Add(auth.SessionLifetime),
+	}
+	api, err := New(&fakeRepository{}, Options{Authenticator: authenticator})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	api.loginFailures = newLoginFailureLimiter(loginFailurePolicy{
+		window:           time.Minute,
+		accountThreshold: 2,
+		globalThreshold:  100,
+		initialBackoff:   2 * time.Second,
+		maximumBackoff:   8 * time.Second,
+		maximumAccounts:  8,
+	})
+	api.loginFailures.now = func() time.Time { return now }
+
+	attempt := func(username string) *httptest.ResponseRecorder {
+		t.Helper()
+		request := httptest.NewRequest(
+			http.MethodPost,
+			"/api/v1/session",
+			bytes.NewBufferString(`{"username":"`+username+`","password":"secret"}`),
+		)
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		api.ServeHTTP(response, request)
+		return response
+	}
+
+	for range 2 {
+		assertAPIError(t, attempt("Owner"), http.StatusUnauthorized, "invalid_credentials")
+	}
+	blocked := attempt("owner")
+	assertAPIError(t, blocked, http.StatusTooManyRequests, "login_rate_limited")
+	if retryAfter := blocked.Header().Get("Retry-After"); retryAfter != "2" {
+		t.Fatalf("Retry-After = %q, want 2", retryAfter)
+	}
+	if authenticator.loginCalls != 2 {
+		t.Fatalf("login calls while blocked = %d, want 2", authenticator.loginCalls)
+	}
+
+	now = now.Add(2 * time.Second)
+	authenticator.loginError = nil
+	successful := attempt("OWNER")
+	if successful.Code != http.StatusOK {
+		t.Fatalf("successful login status = %d; body = %s", successful.Code, successful.Body.String())
+	}
+
+	authenticator.loginError = auth.ErrInvalidCredentials
+	for range 2 {
+		assertAPIError(t, attempt("owner"), http.StatusUnauthorized, "invalid_credentials")
+	}
+	assertAPIError(t, attempt("owner"), http.StatusTooManyRequests, "login_rate_limited")
+}
+
 func TestQuickStartCreatesAdministratorAndSession(t *testing.T) {
 	t.Parallel()
 

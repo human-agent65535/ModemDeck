@@ -294,21 +294,20 @@ func (s *Service) Login(ctx context.Context, username, password string) (LoginRe
 	if err != nil {
 		return LoginResult{}, repositoryError(op, err)
 	}
-	if !configured {
-		return LoginResult{}, newError(op, CodeInvalidCredentials, nil)
-	}
-	if subtle.ConstantTimeCompare(
+	usableCredentials := configured && subtle.ConstantTimeCompare(
 		[]byte(normalizedUsername),
 		[]byte(credentials.Username),
-	) != 1 {
-		return LoginResult{}, newError(op, CodeInvalidCredentials, nil)
-	}
+	) == 1
 
-	matches, err := VerifyPassword(password, credentials.PasswordHash)
+	matches, err := verifyLoginPassword(
+		password,
+		credentials.PasswordHash,
+		usableCredentials,
+	)
 	if err != nil {
 		return LoginResult{}, err
 	}
-	if !matches {
+	if !usableCredentials || !matches {
 		return LoginResult{}, newError(op, CodeInvalidCredentials, nil)
 	}
 
@@ -370,14 +369,16 @@ func (s *Service) loginUser(
 	if err != nil {
 		return LoginResult{}, repositoryError(op, err)
 	}
-	if !found || !credentials.Enabled {
-		return LoginResult{}, newError(op, CodeInvalidCredentials, nil)
-	}
-	matches, err := VerifyPassword(password, credentials.PasswordHash)
+	usableCredentials := found && credentials.Enabled
+	matches, err := verifyLoginPassword(
+		password,
+		credentials.PasswordHash,
+		usableCredentials,
+	)
 	if err != nil {
 		return LoginResult{}, err
 	}
-	if !matches {
+	if !usableCredentials || !matches {
 		return LoginResult{}, newError(op, CodeInvalidCredentials, nil)
 	}
 
@@ -432,6 +433,17 @@ func (s *Service) loginUser(
 		ExpiresAt:    expiresAt,
 		Principal:    &principal,
 	}, nil
+}
+
+func verifyLoginPassword(password, encodedHash string, usableCredentials bool) (bool, error) {
+	if !usableCredentials {
+		encodedHash = dummyPasswordHash
+	}
+	matches, err := VerifyPassword(password, encodedHash)
+	if err != nil {
+		return false, err
+	}
+	return usableCredentials && matches, nil
 }
 
 func normalizeUsername(username string) (string, error) {
