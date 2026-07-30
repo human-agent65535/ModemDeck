@@ -6,17 +6,22 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
+
+type eventHeartbeat struct {
+	At time.Time `json:"at"`
+}
 
 func eventCursor(
 	response http.ResponseWriter,
 	request *http.Request,
 ) (after uint64, replay bool, ok bool) {
-	value := strings.TrimSpace(request.URL.Query().Get("after"))
-	field := "after"
+	value := strings.TrimSpace(request.Header.Get("Last-Event-ID"))
+	field := "Last-Event-ID"
 	if value == "" {
-		value = strings.TrimSpace(request.Header.Get("Last-Event-ID"))
-		field = "Last-Event-ID"
+		value = strings.TrimSpace(request.URL.Query().Get("after"))
+		field = "after"
 	}
 	if value == "" {
 		return 0, false, true
@@ -54,4 +59,14 @@ func writeSSE(
 	}
 	flusher.Flush()
 	return true
+}
+
+func writeEventHeartbeat(
+	response http.ResponseWriter,
+	flusher http.Flusher,
+	observedAt time.Time,
+) bool {
+	return writeSSE(response, flusher, "heartbeat", 0, eventHeartbeat{
+		At: observedAt.UTC(),
+	})
 }

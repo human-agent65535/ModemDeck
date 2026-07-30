@@ -1259,8 +1259,6 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       return {
         name: 'ModemDeck',
         version: FIXTURE_APPLICATION_VERSION,
-        commit: 'fixture',
-        build_date: '2026-07-28T00:00:00Z',
         repository_url: 'https://github.com/human-agent65535/ModemDeck',
         license_name: 'PolyForm Noncommercial 1.0.0',
         license_url: 'https://github.com/human-agent65535/ModemDeck/blob/modemdeck/LICENSE',

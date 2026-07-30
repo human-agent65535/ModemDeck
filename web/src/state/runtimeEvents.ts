@@ -5,6 +5,7 @@ import { renewActiveCallLease, requestActiveCallRefresh } from './call'
 import { loadNetwork } from './network'
 import { refreshRecordingWorkspace } from './recording'
 import { refreshSession } from './session'
+import { requestApplicationVersionCheck } from './staleAssetRecovery'
 import {
   refreshContacts,
   refreshCalls,
@@ -132,6 +133,7 @@ export function initializeRuntimeEvents(): void {
       // Reconcile once at the snapshot-to-stream boundary so events emitted
       // before this subscription cannot leave the workspace stale.
       void refreshQueue?.enqueue(ALL_RESOURCES)
+      requestApplicationVersionCheck()
     },
     onEvent: event => {
       if (currentGeneration !== generation || event.id <= lastEventID) return

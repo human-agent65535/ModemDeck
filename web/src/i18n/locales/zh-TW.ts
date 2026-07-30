@@ -303,8 +303,6 @@ export default {
     loadFailed: '無法載入版本資訊',
     productDescription: '自託管蜂窩通訊控制台',
     version: '當前版本',
-    commit: '構建提交',
-    buildDate: '構建時間',
     sourceCode: '原始碼',
     notAvailable: '不可用',
     updateTitle: '版本更新',

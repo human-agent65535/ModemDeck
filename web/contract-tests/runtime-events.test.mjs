@@ -96,9 +96,11 @@ test('runtime SSE reports heartbeats and recreates stale or malformed streams', 
   class FakeEventSource {
     static instances = []
 
-    constructor() {
+    constructor(url, options) {
       this.closed = false
       this.listeners = new Map()
+      this.url = url
+      this.withCredentials = options?.withCredentials
       FakeEventSource.instances.push(this)
     }
 
@@ -140,6 +142,9 @@ test('runtime SSE reports heartbeats and recreates stale or malformed streams', 
       }
     })
 
+    assert.equal(FakeEventSource.instances[0].url, '/api/v1/runtime/events')
+    assert.equal(FakeEventSource.instances[0].withCredentials, true)
+    FakeEventSource.instances[0].emit('ready', '{"newest_id":7}')
     FakeEventSource.instances[0].emit(
       'heartbeat',
       '{"at":"2026-07-28T07:30:00Z"}'
@@ -153,11 +158,19 @@ test('runtime SSE reports heartbeats and recreates stale or malformed streams', 
     assert.equal(errors, 1)
     assert.equal(FakeEventSource.instances.length, 2)
     assert.equal(FakeEventSource.instances[0].closed, true)
+    assert.equal(
+      FakeEventSource.instances[1].url,
+      '/api/v1/runtime/events?after=7'
+    )
 
     FakeEventSource.instances[1].emit('runtime', '{')
     assert.equal(errors, 2)
     assert.equal(FakeEventSource.instances.length, 3)
     assert.equal(FakeEventSource.instances[1].closed, true)
+    assert.equal(
+      FakeEventSource.instances[2].url,
+      '/api/v1/runtime/events?after=7'
+    )
 
     close()
     assert.equal(FakeEventSource.instances[2].closed, true)

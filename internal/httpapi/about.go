@@ -19,20 +19,28 @@ const (
 type aboutResponse struct {
 	Name          string `json:"name"`
 	Version       string `json:"version"`
-	Commit        string `json:"commit"`
-	BuildDate     string `json:"build_date"`
 	RepositoryURL string `json:"repository_url"`
 	LicenseName   string `json:"license_name"`
 	LicenseURL    string `json:"license_url"`
 	NoticesURL    string `json:"notices_url"`
 }
 
+type versionResponse struct {
+	Version string `json:"version"`
+}
+
+func (api *API) version(response http.ResponseWriter, _ *http.Request) {
+	response.Header().Set("Cache-Control", "no-store")
+	response.Header().Set("Cloudflare-CDN-Cache-Control", "no-store")
+	writeJSON(response, http.StatusOK, versionResponse{
+		Version: api.applicationVersion,
+	})
+}
+
 func (api *API) about(response http.ResponseWriter, _ *http.Request) {
 	writeJSON(response, http.StatusOK, aboutResponse{
 		Name:          applicationName,
 		Version:       api.applicationVersion,
-		Commit:        api.buildCommit,
-		BuildDate:     api.buildDate,
 		RepositoryURL: repositoryURL,
 		LicenseName:   licenseName,
 		LicenseURL:    licenseURL,
@@ -53,9 +61,9 @@ func (api *API) updateCheck(response http.ResponseWriter, request *http.Request)
 	writeJSON(response, http.StatusOK, api.updateChecker.Check(request.Context()))
 }
 
-func normalizedBuildValue(value, fallback string) string {
+func normalizedApplicationVersion(value string) string {
 	if normalized := strings.TrimSpace(value); normalized != "" {
 		return normalized
 	}
-	return fallback
+	return "dev"
 }

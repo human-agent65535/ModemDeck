@@ -11,6 +11,8 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/messageevents"
 )
 
+const messageHeartbeatInterval = 15 * time.Second
+
 func (api *API) messageEventStream(response http.ResponseWriter, request *http.Request) {
 	if api.messageEvents == nil {
 		writeError(response, http.StatusServiceUnavailable, "message_events_unavailable", "Message events are unavailable", "")
@@ -70,7 +72,7 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 		return
 	}
 
-	heartbeat := time.NewTicker(15 * time.Second)
+	heartbeat := time.NewTicker(messageHeartbeatInterval)
 	defer heartbeat.Stop()
 	for {
 		select {
@@ -90,14 +92,13 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 			if !writeSSE(response, flusher, "sms", event.ID, incomingMessageEvent(event)) {
 				return
 			}
-		case <-heartbeat.C:
+		case observedAt := <-heartbeat.C:
 			if _, _, err := api.currentStreamPrincipal(request); err != nil {
 				return
 			}
-			if _, err := fmt.Fprint(response, ": keepalive\n\n"); err != nil {
+			if !writeEventHeartbeat(response, flusher, observedAt) {
 				return
 			}
-			flusher.Flush()
 		}
 	}
 }

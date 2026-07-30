@@ -151,8 +151,6 @@ export type TLSSettings = {
 export type AboutInfo = {
   name: string
   version: string
-  commit: string
-  build_date: string
   repository_url: string
   license_name: string
   license_url: string

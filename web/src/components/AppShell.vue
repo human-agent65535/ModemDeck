@@ -44,6 +44,10 @@ import {
   shutdownRuntimeEvents
 } from '../state/runtimeEvents'
 import { sessionState } from '../state/session'
+import {
+  initializeApplicationVersionChecks,
+  requestApplicationVersionCheck
+} from '../state/staleAssetRecovery'
 import { openDialer, showCallSurface, uiState } from '../state/ui'
 import {
   bootstrapResource,
@@ -107,6 +111,7 @@ function openMobileCall(): void {
 }
 let dialerMediaQuery: MediaQueryList | undefined
 let mountGeneration = 0
+let stopApplicationVersionChecks: (() => void) | undefined
 const primaryNav = computed(() =>
   accountRestricted.value
     ? []
@@ -174,6 +179,10 @@ watch(
   }
 )
 
+watch(activeCallPresent, active => {
+  if (!active) requestApplicationVersionCheck()
+})
+
 async function bootstrap(): Promise<void> {
   await loadBootstrap(true)
 }
@@ -181,6 +190,13 @@ async function bootstrap(): Promise<void> {
 async function initializeWorkspaceRuntime(currentGeneration: number): Promise<void> {
   await bootstrap()
   if (currentGeneration !== mountGeneration) return
+  if (!fixtureMode && !import.meta.env.DEV) {
+    stopApplicationVersionChecks = initializeApplicationVersionChecks(
+      window,
+      document,
+      () => !activeCallPresent.value
+    )
+  }
   initializeRuntimeEvents()
 }
 
@@ -217,6 +233,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   mountGeneration += 1
   dialerMediaQuery?.removeEventListener('change', syncDialerMode)
+  stopApplicationVersionChecks?.()
+  stopApplicationVersionChecks = undefined
   shutdownRuntimeEvents()
   shutdownMessageRuntime()
   shutdownCallRuntime()

@@ -8,10 +8,6 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 )
 
-type runtimeHeartbeat struct {
-	At time.Time `json:"at"`
-}
-
 const runtimeHeartbeatInterval = 5 * time.Second
 
 func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.Request) {
@@ -77,21 +73,11 @@ func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.R
 				return
 			}
 		case observedAt := <-heartbeat.C:
-			if !writeRuntimeHeartbeat(response, flusher, observedAt) {
+			if !writeEventHeartbeat(response, flusher, observedAt) {
 				return
 			}
 		}
 	}
-}
-
-func writeRuntimeHeartbeat(
-	response http.ResponseWriter,
-	flusher http.Flusher,
-	observedAt time.Time,
-) bool {
-	return writeSSE(response, flusher, "heartbeat", 0, runtimeHeartbeat{
-		At: observedAt.UTC(),
-	})
 }
 
 func (api *API) publishRuntimeResources(resources ...runtimeevents.Resource) {

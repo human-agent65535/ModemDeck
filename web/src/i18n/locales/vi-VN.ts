@@ -303,8 +303,6 @@ export default {
     "loadFailed": "Không thể tải thông tin phiên bản",
     "productDescription": "Bảng điều khiển liên lạc di động tự lưu trữ",
     "version": "Phiên bản hiện tại",
-    "commit": "Xây dựng cam kết",
-    "buildDate": "Ngày xây dựng",
     "sourceCode": "Mã nguồn",
     "notAvailable": "Không có sẵn",
     "updateTitle": "Cập nhật phần mềm",

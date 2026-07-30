@@ -303,8 +303,6 @@ export default {
     "loadFailed": "Não foi possível carregar as informações da versão",
     "productDescription": "Console de comunicações celulares auto-hospedado",
     "version": "Versão atual",
-    "commit": "Compromisso de compilação",
-    "buildDate": "Data de construção",
     "sourceCode": "Código fonte",
     "notAvailable": "Não disponível",
     "updateTitle": "Atualização de software",

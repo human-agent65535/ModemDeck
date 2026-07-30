@@ -18,12 +18,10 @@ func (checker fakeUpdateChecker) Check(context.Context) updatecheck.Result {
 	return checker.result
 }
 
-func TestAboutReportsBuildMetadata(t *testing.T) {
+func TestAboutReportsProductMetadata(t *testing.T) {
 	t.Parallel()
 	api, err := New(&fakeRepository{}, Options{
 		ApplicationVersion:    "v1.0.0",
-		BuildCommit:           "abc123",
-		BuildDate:             "2026-07-28T08:00:00Z",
 		disableAuthentication: true,
 	})
 	if err != nil {
@@ -42,11 +40,39 @@ func TestAboutReportsBuildMetadata(t *testing.T) {
 	if body.Name != "ModemDeck" || body.Version != "v1.0.0" {
 		t.Fatalf("identity = %q %q", body.Name, body.Version)
 	}
-	if body.Commit != "abc123" || body.BuildDate != "2026-07-28T08:00:00Z" {
-		t.Fatalf("build = %q %q", body.Commit, body.BuildDate)
-	}
 	if body.LicenseName != "PolyForm Noncommercial 1.0.0" || body.NoticesURL == "" {
 		t.Fatalf("legal metadata = %+v", body)
+	}
+}
+
+func TestVersionReportsPublicUncachedBuildIdentity(t *testing.T) {
+	t.Parallel()
+	authenticator, _, _ := newAPIAuthenticator(t)
+	api, err := New(&fakeRepository{}, Options{
+		Authenticator:      authenticator,
+		ApplicationVersion: "v1.8.6",
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/version", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if cache := response.Header().Get("Cache-Control"); cache != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", cache)
+	}
+	if cache := response.Header().Get("Cloudflare-CDN-Cache-Control"); cache != "no-store" {
+		t.Fatalf("Cloudflare-CDN-Cache-Control = %q, want no-store", cache)
+	}
+	var body versionResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode version response: %v", err)
+	}
+	if body.Version != "v1.8.6" {
+		t.Fatalf("version = %+v", body)
 	}
 }
 
@@ -87,7 +113,11 @@ func TestAboutAndUpdateCheckAreGetOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	for _, path := range []string{"/api/v1/about", "/api/v1/updates/check"} {
+	for _, path := range []string{
+		"/api/v1/version",
+		"/api/v1/about",
+		"/api/v1/updates/check",
+	} {
 		response := httptest.NewRecorder()
 		api.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, nil))
 		if response.Code != http.StatusMethodNotAllowed {

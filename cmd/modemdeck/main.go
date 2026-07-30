@@ -39,11 +39,7 @@ import (
 
 const hostAgentRequestTimeout = 15 * time.Second
 
-var (
-	version   = "dev"
-	commit    = "unknown"
-	buildDate = "unknown"
-)
+var version = "dev"
 
 func main() {
 	logBuffer := diagnostics.NewLogBuffer(diagnostics.DefaultLogCapacity)
@@ -284,9 +280,7 @@ func run(
 		RuntimeEvents:        runtimeEvents,
 		UpdateChecker:        updatecheck.New(updatecheck.Options{CurrentVersion: version}),
 		ApplicationVersion:   version,
-		BuildCommit:          commit,
-		BuildDate:            buildDate,
-		Web:                  webapp.Embedded(),
+		Web:                  webapp.Embedded(version),
 	})
 	if err != nil {
 		_ = recordings.Close(context.Background())

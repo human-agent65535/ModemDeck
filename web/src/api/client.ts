@@ -168,6 +168,7 @@ const READ_REQUEST_TIMEOUT_MS = 15_000
 const WRITE_REQUEST_TIMEOUT_MS = 60_000
 const NETWORK_SCAN_REQUEST_TIMEOUT_MS = 130_000
 const CALL_LEASE_REQUEST_TIMEOUT_MS = 4_000
+const MESSAGE_EVENT_INACTIVITY_TIMEOUT_MS = 40_000
 const RUNTIME_EVENT_INACTIVITY_TIMEOUT_MS = 12_000
 
 const runtimeEnvironment = import.meta.env
@@ -371,8 +372,6 @@ function parseAbout(value: unknown): AboutInfo {
   return {
     name: requiredStringValue(source, 'about', 'name'),
     version: requiredStringValue(source, 'about', 'version'),
-    commit: requiredStringValue(source, 'about', 'commit'),
-    build_date: requiredStringValue(source, 'about', 'build_date'),
     repository_url: requiredStringValue(source, 'about', 'repository_url'),
     license_name: requiredStringValue(source, 'about', 'license_name'),
     license_url: requiredStringValue(source, 'about', 'license_url'),
@@ -806,6 +805,11 @@ type EventSourceLifecycleHandlers = {
   onError: (error?: Error) => void
 }
 
+function replayEventSourcePath(path: string, after: number): string {
+  const separator = path.includes('?') ? '&' : '?'
+  return `${path}${separator}after=${encodeURIComponent(String(after))}`
+}
+
 function subscribeEventSource(
   path: string,
   handlers: EventSourceLifecycleHandlers,
@@ -813,12 +817,14 @@ function subscribeEventSource(
     source: EventSource,
     restart: (error: Error) => void,
     isActive: () => boolean,
-    markActivity: () => void
+    markActivity: () => void,
+    setCursor: (eventID: number) => void
   ) => void,
   inactivityTimeoutMilliseconds?: number
 ): () => void {
   let source: EventSource | undefined
   let inactivityTimer: number | undefined
+  let lastEventID: number | undefined
   let stopped = false
 
   const clearInactivityTimer = () => {
@@ -827,9 +833,13 @@ function subscribeEventSource(
     inactivityTimer = undefined
   }
 
-  const connect = () => {
+  const connect = (replay = false) => {
     if (stopped) return
-    const current = new EventSource(path, { withCredentials: true })
+    const eventPath =
+      replay && lastEventID !== undefined
+        ? replayEventSourcePath(path, lastEventID)
+        : path
+    const current = new EventSource(eventPath, { withCredentials: true })
     source = current
     const isActive = () => !stopped && source === current
     const restart = (error: Error) => {
@@ -837,14 +847,18 @@ function subscribeEventSource(
       clearInactivityTimer()
       current.close()
       handlers.onError(error)
-      connect()
+      connect(true)
     }
     const markActivity = () => {
       if (!isActive() || !inactivityTimeoutMilliseconds) return
       clearInactivityTimer()
       inactivityTimer = globalThis.setTimeout(() => {
-        restart(new Error('运行时事件流长时间没有响应'))
+        restart(new Error('事件流长时间没有响应'))
       }, inactivityTimeoutMilliseconds)
+    }
+    const setCursor = (eventID: number) => {
+      if (!isActive() || !Number.isSafeInteger(eventID) || eventID < 0) return
+      lastEventID = eventID
     }
     current.onopen = () => {
       if (!isActive()) return
@@ -854,7 +868,7 @@ function subscribeEventSource(
     current.onerror = () => {
       if (isActive()) handlers.onError()
     }
-    bind(current, restart, isActive, markActivity)
+    bind(current, restart, isActive, markActivity, setCursor)
     markActivity()
   }
 
@@ -1326,37 +1340,58 @@ const realGateway: ConfiguredModemDeckGateway = {
     return subscribeEventSource(
       `${API_ROOT}/messages/events`,
       handlers,
-      (source, restart, isActive) => {
+      (source, restart, isActive, markActivity, setCursor) => {
         source.addEventListener('sms', event => {
           if (!isActive()) return
+          markActivity()
           try {
-            handlers.onMessage(parseIncomingMessageEvent(JSON.parse(event.data) as unknown))
+            const message = parseIncomingMessageEvent(JSON.parse(event.data) as unknown)
+            setCursor(message.id)
+            handlers.onMessage(message)
           } catch (error) {
             restart(error instanceof Error ? error : new Error('短信事件格式无效'))
           }
         })
+        source.addEventListener('heartbeat', event => {
+          if (!isActive()) return
+          markActivity()
+          try {
+            const heartbeat = requiredRecord(
+              JSON.parse(event.data) as unknown,
+              'message_event_heartbeat'
+            )
+            requiredStringValue(heartbeat, 'message_event_heartbeat', 'at')
+          } catch (error) {
+            restart(error instanceof Error ? error : new Error('短信事件心跳无效'))
+          }
+        })
         source.addEventListener('ready', event => {
           if (!isActive()) return
+          markActivity()
           try {
             const ready = requiredRecord(JSON.parse(event.data) as unknown, 'message_event_ready')
-            handlers.onReady(numberValue(ready, 'message_event_ready', 'newest_id'))
+            const newestID = numberValue(ready, 'message_event_ready', 'newest_id')
+            setCursor(newestID)
+            handlers.onReady(newestID)
           } catch (error) {
             restart(error instanceof Error ? error : new Error('短信事件就绪状态无效'))
           }
         })
         source.addEventListener('reset', event => {
           if (!isActive()) return
+          markActivity()
           try {
             const reset = requiredRecord(JSON.parse(event.data) as unknown, 'message_event_reset')
-            handlers.onReset(
-              numberValue(reset, 'message_event_reset', 'oldest_id'),
-              numberValue(reset, 'message_event_reset', 'newest_id')
-            )
+            const oldestID = numberValue(reset, 'message_event_reset', 'oldest_id')
+            const newestID = numberValue(reset, 'message_event_reset', 'newest_id')
+            setCursor(newestID)
+            handlers.onReset(oldestID, newestID)
           } catch (error) {
             restart(error instanceof Error ? error : new Error('短信事件重置状态无效'))
           }
         })
-      }
+      },
+      MESSAGE_EVENT_INACTIVITY_TIMEOUT_MS
     )
   },
 
@@ -1364,12 +1399,14 @@ const realGateway: ConfiguredModemDeckGateway = {
     return subscribeEventSource(
       `${API_ROOT}/runtime/events`,
       handlers,
-      (source, restart, isActive, markActivity) => {
+      (source, restart, isActive, markActivity, setCursor) => {
         source.addEventListener('runtime', event => {
           if (!isActive()) return
           markActivity()
           try {
-            handlers.onEvent(parseRuntimeEvent(JSON.parse(event.data) as unknown))
+            const runtimeEvent = parseRuntimeEvent(JSON.parse(event.data) as unknown)
+            setCursor(runtimeEvent.id)
+            handlers.onEvent(runtimeEvent)
           } catch (error) {
             restart(error instanceof Error ? error : new Error('运行时事件格式无效'))
           }
@@ -1394,7 +1431,9 @@ const realGateway: ConfiguredModemDeckGateway = {
           markActivity()
           try {
             const ready = requiredRecord(JSON.parse(event.data) as unknown, 'runtime_event_ready')
-            handlers.onReady(numberValue(ready, 'runtime_event_ready', 'newest_id'))
+            const newestID = numberValue(ready, 'runtime_event_ready', 'newest_id')
+            setCursor(newestID)
+            handlers.onReady(newestID)
           } catch (error) {
             restart(error instanceof Error ? error : new Error('运行时事件就绪状态无效'))
           }
@@ -1404,10 +1443,10 @@ const realGateway: ConfiguredModemDeckGateway = {
           markActivity()
           try {
             const reset = requiredRecord(JSON.parse(event.data) as unknown, 'runtime_event_reset')
-            handlers.onReset(
-              numberValue(reset, 'runtime_event_reset', 'oldest_id'),
-              numberValue(reset, 'runtime_event_reset', 'newest_id')
-            )
+            const oldestID = numberValue(reset, 'runtime_event_reset', 'oldest_id')
+            const newestID = numberValue(reset, 'runtime_event_reset', 'newest_id')
+            setCursor(newestID)
+            handlers.onReset(oldestID, newestID)
           } catch (error) {
             restart(error instanceof Error ? error : new Error('运行时事件重置状态无效'))
           }

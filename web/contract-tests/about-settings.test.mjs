@@ -9,8 +9,6 @@ const fixtureApplicationVersion = 'v9.8.7'
 const aboutResponse = {
   name: 'ModemDeck',
   version: fixtureApplicationVersion,
-  commit: 'abc123',
-  build_date: '2026-07-28T08:00:00Z',
   repository_url: 'https://github.com/human-agent65535/ModemDeck',
   license_name: 'PolyForm Noncommercial 1.0.0',
   license_url: 'https://github.com/human-agent65535/ModemDeck/blob/modemdeck/LICENSE',
@@ -86,21 +84,30 @@ test('about panel checks automatically without an update action and keeps legal 
   assert.match(panel, /about-status--checking/)
   assert.match(panel, /about\?\.notices_url \|\| noticesURL/)
   assert.doesNotMatch(panel, /about\.checkAgain|installUpdate|downloadUpdate/)
-  assert.doesNotMatch(panel, /about\.commit|about\.buildDate|compactCommit/)
-  assert.doesNotMatch(panel, /about\?\.commit|about\?\.build_date/)
+  assert.doesNotMatch(panel, /compactCommit/)
+  assert.doesNotMatch(panel, /about\?\.(?:commit|build_date)/)
   assert.match(panel, /about\.projectLicense/)
   assert.match(panel, /about\.thirdPartyNotices/)
   assert.match(notices, /Vue\.js, Vue Router, and Vue I18n/)
 })
 
 test('root VERSION is the only maintained release version', async () => {
-  const [version, packageSource, packageLockSource, makefile, hardwareBuilder] =
-    await Promise.all([
+  const [
+    version,
+    packageSource,
+    packageLockSource,
+    makefile,
+    hardwareBuilder,
+    viteConfig,
+    dockerfile
+  ] = await Promise.all([
       readFile(new URL('../../VERSION', import.meta.url), 'utf8'),
       readFile(new URL('../package.json', import.meta.url), 'utf8'),
       readFile(new URL('../package-lock.json', import.meta.url), 'utf8'),
       readFile(new URL('../../Makefile', import.meta.url), 'utf8'),
-      readFile(new URL('../../hardware/build-image.sh', import.meta.url), 'utf8')
+      readFile(new URL('../../hardware/build-image.sh', import.meta.url), 'utf8'),
+      readFile(new URL('../vite.config.ts', import.meta.url), 'utf8'),
+      readFile(new URL('../../Dockerfile', import.meta.url), 'utf8')
     ])
   const packageDocument = JSON.parse(packageSource)
   const packageLockDocument = JSON.parse(packageLockSource)
@@ -112,4 +119,10 @@ test('root VERSION is the only maintained release version', async () => {
   assert.match(makefile, /RELEASE_VERSION \?=.*< VERSION/)
   assert.match(makefile, /VERSION \?=.*RELEASE_VERSION/)
   assert.match(hardwareBuilder, /< "\$\{repo_root\}\/VERSION"/)
+  assert.match(viteConfig, /readFileSync\([\s\S]*new URL\('\.\.\/VERSION'/)
+  assert.match(viteConfig, /cssCodeSplit: false/)
+  assert.match(dockerfile, /COPY VERSION \/workspace\/VERSION/)
+  assert.doesNotMatch(dockerfile, /VITE_MODEMDECK_BUILD_ID=\$\{VCS_REF\}/)
+  assert.doesNotMatch(dockerfile, /main\.(?:commit|buildDate)=/)
+  assert.match(dockerfile, /org\.opencontainers\.image\.revision="\$\{VCS_REF\}"/)
 })

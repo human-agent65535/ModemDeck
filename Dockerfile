@@ -13,6 +13,7 @@ COPY web/package.json web/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --include=dev --no-audit --no-fund
 
+COPY VERSION /workspace/VERSION
 COPY web/ ./
 RUN npm run build
 
@@ -33,8 +34,6 @@ FROM go-toolchain AS app-builder
 
 ARG TARGETOS
 ARG TARGETARCH
-ARG BUILD_DATE=unknown
-ARG VCS_REF=unknown
 
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -56,7 +55,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
     go build -mod=readonly -tags=netgo,osusergo -trimpath -buildvcs=false \
     -ldflags="-s -w -linkmode=external -extldflags=-static \
-      -X main.version=${app_version} -X main.commit=${VCS_REF} -X main.buildDate=${BUILD_DATE}" \
+      -X main.version=${app_version}" \
     -o /out/modemdeck ./cmd/modemdeck
 
 

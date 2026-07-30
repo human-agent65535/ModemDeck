@@ -303,8 +303,6 @@ export default {
     "loadFailed": "Versionsinformationen können nicht geladen werden",
     "productDescription": "Selbstgehostete Mobilfunkkommunikationskonsole",
     "version": "Aktuelle Version",
-    "commit": "Build-Commit",
-    "buildDate": "Baudatum",
     "sourceCode": "Quellcode",
     "notAvailable": "Nicht verfügbar",
     "updateTitle": "Software-Update",

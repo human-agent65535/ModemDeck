@@ -306,8 +306,6 @@ export default {
     loadFailed: 'Unable to load version information',
     productDescription: 'Self-hosted cellular communications console',
     version: 'Current version',
-    commit: 'Build commit',
-    buildDate: 'Build date',
     sourceCode: 'Source code',
     notAvailable: 'Not available',
     updateTitle: 'Software update',

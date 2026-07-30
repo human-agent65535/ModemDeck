@@ -128,6 +128,109 @@ test('message reconciliation polling only runs while SSE is disconnected', () =>
   assert.equal(shouldRunMessageFallback(true), false)
 })
 
+test('message SSE observes heartbeats and resumes after its last event cursor', () => {
+  const originalEventSource = globalThis.EventSource
+  const originalSetTimeout = globalThis.setTimeout
+  const originalClearTimeout = globalThis.clearTimeout
+  const timers = new Map()
+  let nextTimerID = 0
+
+  class FakeEventSource {
+    static instances = []
+
+    constructor(url, options) {
+      this.closed = false
+      this.listeners = new Map()
+      this.url = url
+      this.withCredentials = options?.withCredentials
+      FakeEventSource.instances.push(this)
+    }
+
+    addEventListener(type, handler) {
+      this.listeners.set(type, handler)
+    }
+
+    close() {
+      this.closed = true
+    }
+
+    emit(type, data) {
+      this.listeners.get(type)?.({ data })
+    }
+  }
+
+  try {
+    globalThis.EventSource = FakeEventSource
+    globalThis.setTimeout = callback => {
+      nextTimerID += 1
+      timers.set(nextTimerID, callback)
+      return nextTimerID
+    }
+    globalThis.clearTimeout = timerID => {
+      timers.delete(timerID)
+    }
+
+    let errors = 0
+    const messages = []
+    const close = gateway.subscribeMessageEvents({
+      onOpen() {},
+      onReady() {},
+      onMessage(message) {
+        messages.push(message)
+      },
+      onReset() {},
+      onError() {
+        errors += 1
+      }
+    })
+
+    assert.equal(FakeEventSource.instances[0].url, '/api/v1/messages/events')
+    assert.equal(FakeEventSource.instances[0].withCredentials, true)
+    FakeEventSource.instances[0].emit('ready', '{"newest_id":12}')
+    FakeEventSource.instances[0].emit(
+      'heartbeat',
+      '{"at":"2026-07-30T08:00:00Z"}'
+    )
+
+    const [firstTimerID, expireFirst] = timers.entries().next().value
+    timers.delete(firstTimerID)
+    expireFirst()
+
+    assert.equal(errors, 1)
+    assert.equal(FakeEventSource.instances[0].closed, true)
+    assert.equal(
+      FakeEventSource.instances[1].url,
+      '/api/v1/messages/events?after=12'
+    )
+
+    FakeEventSource.instances[1].emit(
+      'sms',
+      JSON.stringify({ ...event, id: 13, message_id: '43' })
+    )
+    assert.equal(messages.length, 1)
+
+    const [secondTimerID, expireSecond] = timers.entries().next().value
+    timers.delete(secondTimerID)
+    expireSecond()
+
+    assert.equal(
+      FakeEventSource.instances[2].url,
+      '/api/v1/messages/events?after=13'
+    )
+    close()
+    assert.equal(FakeEventSource.instances[2].closed, true)
+    assert.equal(timers.size, 0)
+  } finally {
+    globalThis.setTimeout = originalSetTimeout
+    globalThis.clearTimeout = originalClearTimeout
+    if (originalEventSource === undefined) {
+      delete globalThis.EventSource
+    } else {
+      globalThis.EventSource = originalEventSource
+    }
+  }
+})
+
 test('active-thread SMS invalidation refreshes messages and persists the read state', async () => {
   const key = event.thread_key
   const initialThread = {
@@ -214,33 +317,32 @@ test('active-thread SMS invalidation refreshes messages and persists the read st
 })
 
 test('communication notifications share one explicit browser preference', async () => {
-  const runtime = await readFile(
-    new URL('../src/state/messageRuntime.ts', import.meta.url),
-    'utf8'
-  )
-  const browserNotifications = await readFile(
-    new URL('../src/state/browserNotifications.ts', import.meta.url),
-    'utf8'
-  )
-  const calls = await readFile(
-    new URL('../src/state/call.ts', import.meta.url),
-    'utf8'
-  )
-  const shell = await readFile(
-    new URL('../src/components/AppShell.vue', import.meta.url),
-    'utf8'
-  )
-  const workspace = await readFile(
-    new URL('../src/state/workspace.ts', import.meta.url),
-    'utf8'
-  )
-  const messages = await readFile(
-    new URL('../src/views/MessagesView.vue', import.meta.url),
-    'utf8'
-  )
-  const styles = await readFile(new URL('../src/style.css', import.meta.url), 'utf8')
+  const [
+    runtime,
+    client,
+    browserNotifications,
+    calls,
+    shell,
+    workspace,
+    messages,
+    styles
+  ] = await Promise.all([
+    readFile(new URL('../src/state/messageRuntime.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/api/client.ts', import.meta.url), 'utf8'),
+    readFile(
+      new URL('../src/state/browserNotifications.ts', import.meta.url),
+      'utf8'
+    ),
+    readFile(new URL('../src/state/call.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/AppShell.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/state/workspace.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/views/MessagesView.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/style.css', import.meta.url), 'utf8')
+  ])
 
   assert.match(runtime, /gateway\.subscribeMessageEvents\(/)
+  assert.match(client, /MESSAGE_EVENT_INACTIVITY_TIMEOUT_MS = 40_000/)
+  assert.match(client, /source\.addEventListener\('heartbeat'/)
   assert.match(runtime, /fallbackRefreshMilliseconds = 30_000/)
   assert.match(runtime, /if \(!shouldRunMessageFallback\(state\.connected\)\) return/)
   assert.match(

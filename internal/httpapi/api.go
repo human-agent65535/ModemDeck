@@ -262,8 +262,6 @@ type Options struct {
 	RuntimeEvents         runtimeevents.Source
 	UpdateChecker         UpdateChecker
 	ApplicationVersion    string
-	BuildCommit           string
-	BuildDate             string
 	Web                   http.Handler
 	disableAuthentication bool
 }
@@ -292,8 +290,6 @@ type API struct {
 	runtimeEvents        runtimeevents.Source
 	updateChecker        UpdateChecker
 	applicationVersion   string
-	buildCommit          string
-	buildDate            string
 	web                  http.Handler
 }
 
@@ -335,9 +331,7 @@ func New(repository Repository, options Options) (*API, error) {
 		messageEvents:        options.MessageEvents,
 		runtimeEvents:        options.RuntimeEvents,
 		updateChecker:        options.UpdateChecker,
-		applicationVersion:   normalizedBuildValue(options.ApplicationVersion, "dev"),
-		buildCommit:          normalizedBuildValue(options.BuildCommit, "unknown"),
-		buildDate:            normalizedBuildValue(options.BuildDate, "unknown"),
+		applicationVersion:   normalizedApplicationVersion(options.ApplicationVersion),
 		web:                  options.Web,
 	}, nil
 }
@@ -358,6 +352,9 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		return
 	case "/api/v1/health", "/api/v1/health/ready":
 		api.getOnly(response, request, api.readiness)
+		return
+	case "/api/v1/version":
+		api.getOnly(response, request, api.version)
 		return
 	}
 	if request.URL.Path == "/api/v1/session" {

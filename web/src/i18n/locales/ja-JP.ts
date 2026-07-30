@@ -303,8 +303,6 @@ export default {
     "loadFailed": "バージョン情報を読み込めません",
     "productDescription": "セルフホスト型セルラー通信コンソール",
     "version": "現在のバージョン",
-    "commit": "ビルドコミット",
-    "buildDate": "ビルド日",
     "sourceCode": "ソースコード",
     "notAvailable": "利用できません",
     "updateTitle": "ソフトウェアアップデート",
