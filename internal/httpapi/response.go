@@ -15,6 +15,7 @@ type sessionResponse struct {
 	Role               string   `json:"role,omitempty"`
 	ProfileContactID   string   `json:"profile_contact_id,omitempty"`
 	MustChangePassword bool     `json:"must_change_password,omitempty"`
+	IOSPairingEnabled  bool     `json:"ios_pairing_enabled"`
 	AllowedLineIDs     []string `json:"allowed_line_ids,omitempty"`
 	CSRFToken          string   `json:"csrf_token,omitempty"`
 	Language           string   `json:"language"`

@@ -74,9 +74,10 @@ func (s *Store) CreateAdminIfAbsent(
 	if _, err := transaction.ExecContext(
 		ctx,
 		`INSERT INTO modemdeck_users (
-			id, username, password_hash, role, enabled, must_change_password
+			id, username, password_hash, role, enabled, must_change_password,
+			ios_pairing_enabled
 		 )
-		 VALUES (?, ?, ?, 'admin', 1, 0)`,
+		 VALUES (?, ?, ?, 'admin', 1, 0, 1)`,
 		auth.InitialAdminUserID,
 		credentials.Username,
 		credentials.PasswordHash,
@@ -442,6 +443,7 @@ func (s *Store) UserSessionByTokenDigest(
 		csrfDigest    []byte
 		role          string
 		mustChange    int64
+		iosPairing    int64
 		createdAt     int64
 		expiresAt     int64
 	)
@@ -456,6 +458,7 @@ func (s *Store) UserSessionByTokenDigest(
 			user.username,
 			user.role,
 			user.must_change_password,
+			user.ios_pairing_enabled,
 			COALESCE(profile.contact_id, '')
 		 FROM modemdeck_auth_sessions AS session
 		 JOIN modemdeck_users AS user
@@ -473,6 +476,7 @@ func (s *Store) UserSessionByTokenDigest(
 		&principal.Username,
 		&role,
 		&mustChange,
+		&iosPairing,
 		&principal.ProfileContactID,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -492,6 +496,7 @@ func (s *Store) UserSessionByTokenDigest(
 	principal.UserID = record.UserID
 	principal.Role = auth.Role(role)
 	principal.MustChangePassword = mustChange != 0
+	principal.IOSPairingEnabled = iosPairing != 0
 
 	rows, err := s.database.QueryContext(
 		ctx,

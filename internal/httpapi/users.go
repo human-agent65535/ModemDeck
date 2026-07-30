@@ -21,16 +21,18 @@ type userRepository interface {
 }
 
 type createMemberRequest struct {
-	Username string   `json:"username"`
-	Password string   `json:"password"`
-	LineIDs  []string `json:"line_ids"`
+	Username          string   `json:"username"`
+	Password          string   `json:"password"`
+	IOSPairingEnabled bool     `json:"ios_pairing_enabled"`
+	LineIDs           []string `json:"line_ids"`
 }
 
 type updateMemberRequest struct {
-	Username string   `json:"username"`
-	Enabled  bool     `json:"enabled"`
-	LineIDs  []string `json:"line_ids"`
-	Revision int64    `json:"revision"`
+	Username          string   `json:"username"`
+	Enabled           bool     `json:"enabled"`
+	IOSPairingEnabled bool     `json:"ios_pairing_enabled"`
+	LineIDs           []string `json:"line_ids"`
+	Revision          int64    `json:"revision"`
 }
 
 type setMemberPasswordRequest struct {
@@ -86,9 +88,10 @@ func (api *API) usersCollection(response http.ResponseWriter, request *http.Requ
 			return
 		}
 		user, err := repository.CreateMember(request.Context(), store.CreateMemberInput{
-			Username:     input.Username,
-			PasswordHash: passwordHash,
-			LineIDs:      input.LineIDs,
+			Username:          input.Username,
+			PasswordHash:      passwordHash,
+			IOSPairingEnabled: input.IOSPairingEnabled,
+			LineIDs:           input.LineIDs,
 		})
 		if err != nil {
 			api.writeUserError(response, request, "create member", err)
@@ -158,10 +161,11 @@ func (api *API) userResource(
 		return
 	}
 	user, err := repository.UpdateMember(request.Context(), userID, store.UpdateMemberInput{
-		Username: input.Username,
-		Enabled:  input.Enabled,
-		LineIDs:  input.LineIDs,
-		Revision: input.Revision,
+		Username:          input.Username,
+		Enabled:           input.Enabled,
+		IOSPairingEnabled: input.IOSPairingEnabled,
+		LineIDs:           input.LineIDs,
+		Revision:          input.Revision,
 	})
 	if err != nil {
 		api.writeUserError(response, request, "update member", err)

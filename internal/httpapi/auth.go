@@ -264,6 +264,7 @@ func applyPrincipalToSessionResponse(response *sessionResponse, principal auth.P
 	response.Role = string(principal.Role)
 	response.ProfileContactID = principal.ProfileContactID
 	response.MustChangePassword = principal.MustChangePassword
+	response.IOSPairingEnabled = principal.IOSPairingEnabled
 	response.AllowedLineIDs = append([]string(nil), principal.AllowedLineIDs...)
 }
 

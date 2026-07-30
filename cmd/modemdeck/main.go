@@ -24,6 +24,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/httpapi"
 	"github.com/human-agent65535/modemdeck/internal/mediaapp"
 	"github.com/human-agent65535/modemdeck/internal/messageevents"
+	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
 	"github.com/human-agent65535/modemdeck/internal/networkruntime"
 	"github.com/human-agent65535/modemdeck/internal/platform/database"
 	"github.com/human-agent65535/modemdeck/internal/recording"
@@ -34,7 +35,6 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/telegramsettings"
 	"github.com/human-agent65535/modemdeck/internal/tlsmanager"
 	"github.com/human-agent65535/modemdeck/internal/updatecheck"
-	"github.com/human-agent65535/modemdeck/internal/webapp"
 )
 
 const hostAgentRequestTimeout = 15 * time.Second
@@ -52,7 +52,7 @@ func main() {
 	listenAddress := flag.String(
 		"listen",
 		environmentOrDefault("MODEMDECK_LISTEN_ADDRESS", ":8080"),
-		"HTTPS listen address",
+		"HTTP listen address",
 	)
 	databasePath := flag.String("database", database.DefaultPath, "ModemDeck SQLite database path")
 	agentSocketPath := flag.String("agent-socket", environmentOrDefault("MODEMDECK_AGENT_SOCKET", "/run/modemdeck/agent.sock"), "ModemDeck host agent Unix socket")
@@ -61,14 +61,18 @@ func main() {
 	tlsDirectory := flag.String(
 		"tls-directory",
 		environmentOrDefault("MODEMDECK_TLS_DIRECTORY", "/var/lib/modemdeck/tls"),
-		"TLS certificate state directory",
+		"Web TLS certificate state directory",
 	)
 	tlsHosts := flag.String(
 		"tls-hosts",
 		environmentOrDefault("MODEMDECK_TLS_HOSTS", "localhost,127.0.0.1,::1"),
-		"comma-separated DNS names and IP addresses for automatic certificates",
+		"comma-separated DNS names and IP addresses for automatic Web certificates",
 	)
-	secureCookies := flag.Bool("secure-cookies", secureCookiesDefault, "require HTTPS for authentication cookies")
+	secureCookies := flag.Bool(
+		"secure-cookies",
+		secureCookiesDefault,
+		"mark authentication cookies for the Cloudflare HTTPS client",
+	)
 	flag.Parse()
 
 	settingsSecrets, err := secretbox.OpenFile(*settingsKeyFile)
@@ -108,7 +112,14 @@ func run(
 		Hosts:     tlsHosts,
 	})
 	if err != nil {
-		return fmt.Errorf("open TLS certificate manager: %w", err)
+		return fmt.Errorf("open Web TLS certificate manager: %w", err)
+	}
+	cloudflareGateway, err := mobilepairing.NewCloudflareGateway(
+		os.Getenv("MODEMDECK_CLOUDFLARE_PUBLIC_URL"),
+		os.Getenv("MODEMDECK_CLOUDFLARE_READY_URL"),
+	)
+	if err != nil {
+		return fmt.Errorf("configure Cloudflare Tunnel: %w", err)
 	}
 	db, err := database.Open(ctx, database.Config{
 		TargetPath: databasePath,
@@ -270,7 +281,7 @@ func run(
 		Recording:            recordings,
 		Network:              networkRuntime,
 		TelegramSettings:     telegramSettings,
-		TLSSettings:          tlsSettingsService{manager: tlsCertificates},
+		MobilePairing:        cloudflareGateway,
 		Authenticator:        authenticator,
 		SecureCookies:        secureCookies,
 		Logger:               logger.With("component", "http"),
@@ -279,7 +290,6 @@ func run(
 		RuntimeEvents:        runtimeEvents,
 		UpdateChecker:        updatecheck.New(updatecheck.Options{CurrentVersion: version}),
 		ApplicationVersion:   version,
-		Web:                  webapp.Embedded(version),
 	})
 	if err != nil {
 		_ = recordings.Close(context.Background())
@@ -290,6 +300,11 @@ func run(
 
 	signals, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	tlsMaintenanceDone := make(chan struct{})
+	go func() {
+		defer close(tlsMaintenanceDone)
+		maintainTLSCertificates(signals, tlsCertificates, logger)
+	}()
 	syncDone := make(chan struct{})
 	go func() {
 		defer close(syncDone)
@@ -312,23 +327,22 @@ func run(
 	}()
 	server := &http.Server{
 		Addr:              listenAddress,
-		Handler:           redirectPlainHTTPToHTTPS(api),
+		Handler:           api,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       90 * time.Second,
-		TLSConfig:         prepareServerTLSConfig(tlsCertificates.TLSConfig()),
 	}
 	serverErrors := make(chan error, 1)
 	go func() {
 		logger.Info(
-			"ModemDeck HTTPS server started",
+			"ModemDeck HTTP origin started",
 			"component",
 			"http",
 			"address",
 			listenAddress,
 		)
-		serverErrors <- serveTLSAndPlainHTTP(server)
+		serverErrors <- server.ListenAndServe()
 	}()
 
 	var runErr error
@@ -340,7 +354,7 @@ func run(
 	case serveErr := <-serverErrors:
 		serverStopped = true
 		if !errors.Is(serveErr, http.ErrServerClosed) {
-			runErr = fmt.Errorf("serve HTTPS: %w", serveErr)
+			runErr = fmt.Errorf("serve HTTP: %w", serveErr)
 		}
 	case telegramErr := <-telegramDone:
 		telegramStopped = true
@@ -364,11 +378,12 @@ func run(
 		}
 		serveErr := <-serverErrors
 		if !errors.Is(serveErr, http.ErrServerClosed) {
-			runErr = errors.Join(runErr, fmt.Errorf("serve HTTPS: %w", serveErr))
+			runErr = errors.Join(runErr, fmt.Errorf("serve HTTP: %w", serveErr))
 		}
 	}
 	<-syncDone
 	<-callLeaseDone
+	<-tlsMaintenanceDone
 	if !telegramStopped {
 		telegramErr := <-telegramDone
 		if telegramErr != nil && !errors.Is(telegramErr, context.Canceled) {
@@ -411,4 +426,29 @@ func parseCommaSeparatedList(value string) []string {
 		}
 	}
 	return values
+}
+
+func maintainTLSCertificates(
+	ctx context.Context,
+	manager *tlsmanager.Manager,
+	logger *slog.Logger,
+) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if _, err := manager.TLSConfig().GetCertificate(nil); err != nil {
+				logger.Warn(
+					"Web TLS certificate maintenance failed",
+					"component",
+					"tls",
+					"error",
+					err,
+				)
+			}
+		}
+	}
 }

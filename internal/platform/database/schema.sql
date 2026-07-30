@@ -16,6 +16,7 @@ CREATE TABLE modemdeck_users (
 			role TEXT NOT NULL CHECK (role IN ('admin', 'member')),
 			enabled NUMERIC NOT NULL DEFAULT 1,
 			must_change_password NUMERIC NOT NULL DEFAULT 0,
+			ios_pairing_enabled NUMERIC NOT NULL DEFAULT 0,
 			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -27,6 +28,14 @@ CREATE TABLE modemdeck_auth_sessions (
 			user_id TEXT NOT NULL DEFAULT 'user_admin',
 			created_at_unix INTEGER NOT NULL,
 			expires_at_unix INTEGER NOT NULL CHECK (expires_at_unix >= created_at_unix),
+			FOREIGN KEY (user_id) REFERENCES modemdeck_users(id) ON DELETE CASCADE ON UPDATE CASCADE
+		);
+
+CREATE TABLE modemdeck_ios_pairing_credentials (
+			user_id TEXT PRIMARY KEY,
+			token_digest BLOB NOT NULL CHECK (length(token_digest) = 32),
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (user_id) REFERENCES modemdeck_users(id) ON DELETE CASCADE ON UPDATE CASCADE
 		);
 

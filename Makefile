@@ -7,6 +7,7 @@ NODE_IMAGE ?= node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b
 GITLEAKS_IMAGE ?= ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 AGENT_NAME ?= modemdeck-agent
 IMAGE ?= modemdeck
+WEB_IMAGE ?= modemdeck-web
 HARDWARE_IMAGE ?= modemdeck-hardware
 RELEASE_VERSION ?= $(shell tr -d '\r\n' 2>/dev/null < VERSION)
 VERSION ?= $(if $(RELEASE_VERSION),v$(RELEASE_VERSION),dev)
@@ -22,6 +23,8 @@ MODEMDECK_GID ?= 10001
 MODEMDECK_AGENT_GID ?= 10002
 COMPOSE_SETTINGS_KEY_FILE ?= /dev/null
 COMPOSE_ASSIGNMENT_FILE ?= $(CURDIR)/deploy/advanced-assignment.example.json
+COMPOSE_CLOUDFLARE_TOKEN_FILE ?= /dev/null
+COMPOSE_CLOUDFLARE_PUBLIC_URL ?= https://modemdeck.example.com
 HOST_UID := $(shell id -u)
 HOST_GID := $(shell id -g)
 
@@ -68,7 +71,7 @@ WEB_NODE_RW = docker run --rm \
 	-w /workspace/web \
 	$(NODE_IMAGE)
 
-.PHONY: all build app-build agent-build image app-image hardware-image check \
+.PHONY: all build app-build agent-build image app-image web-image hardware-image check \
 	hardware-check deployment-check root-toolchain root-test \
 	agent-test root-vet agent-vet web-install web-test web-typecheck web-lint \
 	web-check web-build compose-config dockerfile-check compose-up compose-down \
@@ -97,7 +100,7 @@ agent-build:
 		-o /workspace/$(AGENT_OUT) $(AGENT_MAIN); \
 		chown $(HOST_UID):$(HOST_GID) /workspace/$(AGENT_OUT)'
 
-image: app-image hardware-image
+image: app-image web-image hardware-image
 
 app-image:
 	docker build \
@@ -109,6 +112,16 @@ app-image:
 		--build-arg MODEMDECK_UID="$(MODEMDECK_UID)" \
 		--build-arg MODEMDECK_GID="$(MODEMDECK_GID)" \
 		-t "$(IMAGE):$(VERSION)" \
+		.
+
+web-image:
+	docker build \
+		--platform "$(TARGETOS)/$(TARGETARCH)" \
+		--target web-runtime \
+		--build-arg VERSION="$(VERSION)" \
+		--build-arg BUILD_DATE="$(BUILD_DATE)" \
+		--build-arg VCS_REF="$(VCS_REF)" \
+		-t "$(WEB_IMAGE):$(VERSION)" \
 		.
 
 hardware-image:
@@ -197,6 +210,18 @@ compose-config:
 			-f docker-compose.advanced.yml \
 			config --quiet; \
 	fi
+	@if [ -f docker-compose.cloudflare.yml ]; then \
+		MODEMDECK_BUILD_DATE="$(BUILD_DATE)" \
+		MODEMDECK_VCS_REF="$(VCS_REF)" \
+		MODEMDECK_AGENT_GID="$(MODEMDECK_AGENT_GID)" \
+		MODEMDECK_SETTINGS_KEY_FILE="$(COMPOSE_SETTINGS_KEY_FILE)" \
+		MODEMDECK_CLOUDFLARE_TOKEN_FILE="$(COMPOSE_CLOUDFLARE_TOKEN_FILE)" \
+		MODEMDECK_CLOUDFLARE_PUBLIC_URL="$(COMPOSE_CLOUDFLARE_PUBLIC_URL)" \
+		docker compose \
+			-f docker-compose.yml \
+			-f docker-compose.cloudflare.yml \
+			config --quiet; \
+	fi
 
 dockerfile-check:
 	docker build --check .
@@ -213,7 +238,7 @@ compose-down:
 	docker compose down
 
 compose-logs:
-	docker compose logs --follow hardware modemdeck
+	docker compose logs --follow hardware api modemdeck
 
 install-check:
 	./install.sh --check --allow-dirty

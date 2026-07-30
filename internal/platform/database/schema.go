@@ -212,10 +212,25 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 			return err
 		}
 	}
+	migratedMobilePairing, err := migrateMobilePairingSchema(
+		ctx,
+		database,
+		expected,
+		actual,
+	)
+	if err != nil {
+		return err
+	}
+	if migratedMobilePairing {
+		actual, err = readSchemaShape(ctx, database)
+		if err != nil {
+			return err
+		}
+	}
 	if schemaContains(expected, actual) {
 		return nil
 	}
-	legacyExpected := legacyV1SchemaShape(expected)
+	legacyExpected := legacyV1SchemaShape(schemaBeforeMobilePairing(expected))
 	if err := migrateLegacySchemaAdditions(
 		ctx,
 		database,
@@ -236,7 +251,15 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 	} else if !current {
 		return nil
 	}
-	return migrateStableLineIdentity(ctx, database)
+	if err := migrateStableLineIdentity(ctx, database); err != nil {
+		return err
+	}
+	actual, err = readSchemaShape(ctx, database)
+	if err != nil {
+		return err
+	}
+	_, err = migrateMobilePairingSchema(ctx, database, expected, actual)
+	return err
 }
 
 func migrateSystemSettingsLanguages(
@@ -1255,10 +1278,12 @@ var legacyRequiredSchemaRows = []struct {
 
 var requiredSchemaRows = append(
 	legacyRequiredSchemaRows,
-	struct {
+	[]struct {
 		table string
 		key   string
-	}{table: "modemdeck_system_settings", key: "singleton"},
+	}{
+		{table: "modemdeck_system_settings", key: "singleton"},
+	}...,
 )
 
 func ValidateSchema(ctx context.Context, database *sql.DB) error {

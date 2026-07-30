@@ -31,6 +31,8 @@ import type {
   Message,
   MessageDeliveryReportSupport,
   MessageReadInput,
+  IOSPairingResult,
+  IOSPairingStatus,
   MobileNetwork,
   MobileNetworkScan,
   MobileNetworkStatus,
@@ -62,8 +64,6 @@ import type {
   SIMType,
   TelegramUnit,
   TelegramUnitInput,
-  TLSMode,
-  TLSSettings,
   UpdateDeviceConfigurationInput,
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
@@ -72,7 +72,6 @@ import type {
   UpdateSystemSettingsInput,
   UpdateNetworkSelectionInput,
   UpdateProxyInput,
-  UpdateTLSSettingsInput,
   UserAccount
 } from './types.ts'
 import { isLineColorPresetID } from './types.ts'
@@ -135,7 +134,6 @@ const PROXY_APPLY_STATUSES = new Set<ProxyApplyStatus>([
   'agent_rejected',
   'runtime_unavailable'
 ])
-const TLS_MODES = new Set<TLSMode>(['automatic', 'user'])
 const SIM_TYPES = new Set<SIMType>(['unknown', 'physical', 'esim'])
 const ESIM_STATUSES = new Set<ESIMStatus>(['unknown', 'no_profiles', 'with_profiles'])
 const NETWORK_SELECTION_MODES = new Set<NetworkSelectionMode>(['auto', 'manual'])
@@ -459,24 +457,23 @@ export const communicationContracts = {
   }
 } as const
 
-export const tlsSettingsPath = '/api/v1/settings/tls'
-export const tlsCAPath = `${tlsSettingsPath}/ca`
+export const iosPairingPath = '/api/v1/mobile/pairing'
 
-export const tlsSettingsContract = {
+export const iosPairingContract = {
   get: {
     method: 'GET',
-    path: tlsSettingsPath,
+    path: iosPairingPath,
     successStatus: 200
   },
-  update: {
-    method: 'PUT',
-    path: tlsSettingsPath,
-    successStatus: 200
+  create: {
+    method: 'POST',
+    path: iosPairingPath,
+    successStatus: 201
   },
-  downloadCA: {
-    method: 'GET',
-    path: tlsCAPath,
-    successStatus: 200
+  revoke: {
+    method: 'DELETE',
+    path: iosPairingPath,
+    successStatus: 204
   }
 } as const
 
@@ -1234,24 +1231,6 @@ export function createRecordingSettingsPayload(
   }
 }
 
-export function createTLSSettingsPayload(
-  input: UpdateTLSSettingsInput
-): UpdateTLSSettingsInput {
-  if (input.operation === 'use_automatic') {
-    return { operation: 'use_automatic' }
-  }
-  if (input.operation !== 'install_user') {
-    throw new Error('未知 HTTPS 证书操作')
-  }
-  if (!input.certificate_pem.trim()) throw new Error('certificate_pem 不能为空')
-  if (!input.private_key_pem.trim()) throw new Error('private_key_pem 不能为空')
-  return {
-    operation: 'install_user',
-    certificate_pem: input.certificate_pem,
-    private_key_pem: input.private_key_pem
-  }
-}
-
 export function createCallRecordingPayload(
   enabled: boolean,
   holderID: string
@@ -1911,33 +1890,6 @@ export function parseRecordingSettingsResponse(value: unknown): RecordingSetting
   }
 }
 
-export function parseTLSSettingsResponse(value: unknown): TLSSettings {
-  const response = objectValue(value, 'tls_settings_response')
-  const source = objectValue(response.tls, 'tls_settings_response.tls')
-  const mode = requiredString(source, 'tls_settings_response.tls', 'mode') as TLSMode
-  if (!TLS_MODES.has(mode)) throw new Error('tls_settings_response.tls.mode 无效')
-  return {
-    mode,
-    subject: requiredString(source, 'tls_settings_response.tls', 'subject', true),
-    issuer: requiredString(source, 'tls_settings_response.tls', 'issuer', true),
-    dns_names: stringList(source, 'tls_settings_response.tls', 'dns_names'),
-    ip_addresses: stringList(source, 'tls_settings_response.tls', 'ip_addresses'),
-    not_before: requiredTimestamp(source, 'tls_settings_response.tls', 'not_before'),
-    not_after: requiredTimestamp(source, 'tls_settings_response.tls', 'not_after'),
-    fingerprint_sha256: requiredString(
-      source,
-      'tls_settings_response.tls',
-      'fingerprint_sha256'
-    ),
-    expired: requiredBoolean(source, 'tls_settings_response.tls', 'expired'),
-    renews_automatically: requiredBoolean(
-      source,
-      'tls_settings_response.tls',
-      'renews_automatically'
-    )
-  }
-}
-
 export function parseCallRecordingState(value: unknown): CallRecordingState {
   const response = objectValue(value, 'call_recording_response')
   const source = objectValue(response.state, 'call_recording')
@@ -2112,6 +2064,53 @@ export function parseSystemSettingsResponse(value: unknown): SystemSettings {
   return parseSystemSettings(response.settings, 'system_settings')
 }
 
+function parseIOSPairingStatus(value: unknown): IOSPairingStatus {
+  const source = objectValue(value, 'ios_pairing')
+  const cloudflare = objectValue(source.cloudflare, 'cloudflare_tunnel')
+  const credentialCreatedAt = optionalString(source, 'credential_created_at')
+  return {
+    allowed: requiredBoolean(source, 'ios_pairing', 'allowed'),
+    cloudflare: {
+      enabled: requiredBoolean(cloudflare, 'cloudflare_tunnel', 'enabled'),
+      connected: requiredBoolean(cloudflare, 'cloudflare_tunnel', 'connected'),
+      public_url: requiredString(
+        cloudflare,
+        'cloudflare_tunnel',
+        'public_url',
+        true
+      )
+    },
+    has_credential: requiredBoolean(source, 'ios_pairing', 'has_credential'),
+    ...(credentialCreatedAt
+      ? { credential_created_at: credentialCreatedAt }
+      : {})
+  }
+}
+
+export function parseIOSPairingResponse(value: unknown): IOSPairingResult {
+  const response = objectValue(value, 'ios_pairing_response')
+  const pairing = parseIOSPairingStatus(response.pairing)
+  if (response.payload === undefined) return { pairing }
+
+  const payload = objectValue(response.payload, 'ios_pairing_payload')
+  if (payload.version !== 1) {
+    throw new Error('ios_pairing_payload.version must be 1')
+  }
+  const type = requiredString(payload, 'ios_pairing_payload', 'type')
+  if (type !== 'modemdeck.ios.pairing') {
+    throw new Error('ios_pairing_payload.type is invalid')
+  }
+  return {
+    pairing,
+    payload: {
+      version: 1,
+      type,
+      server_url: requiredString(payload, 'ios_pairing_payload', 'server_url'),
+      token: requiredString(payload, 'ios_pairing_payload', 'token')
+    }
+  }
+}
+
 export function parseCallResponse(value: unknown): CallSession {
   const source = objectValue(value, 'response')
   return parseCallSession(source.call)
@@ -2222,6 +2221,7 @@ export function parseUserAccount(value: unknown): UserAccount {
     role,
     enabled: requiredBoolean(user, 'user', 'enabled'),
     must_change_password: requiredBoolean(user, 'user', 'must_change_password'),
+    ios_pairing_enabled: requiredBoolean(user, 'user', 'ios_pairing_enabled'),
     revision: requiredRevision(user, 'user'),
     ...(profileName ? { profile_name: profileName } : {}),
     ...(profileAvatar ? { profile_avatar: profileAvatar } : {}),
@@ -2249,7 +2249,12 @@ export function createMemberPayload(input: CreateMemberInput): CreateMemberInput
   if (lineIDs.some(value => !value) || new Set(lineIDs).size !== lineIDs.length) {
     throw new Error('line_ids must contain unique non-empty strings')
   }
-  return { username, password: input.password, line_ids: lineIDs }
+  return {
+    username,
+    password: input.password,
+    ios_pairing_enabled: input.ios_pairing_enabled,
+    line_ids: lineIDs
+  }
 }
 
 export function createMemberUpdatePayload(input: UpdateMemberInput): UpdateMemberInput {
@@ -2267,6 +2272,7 @@ export function createMemberUpdatePayload(input: UpdateMemberInput): UpdateMembe
   return {
     username,
     enabled: input.enabled,
+    ios_pairing_enabled: input.ios_pairing_enabled,
     line_ids: lineIDs,
     revision: input.revision
   }

@@ -43,6 +43,21 @@ prepare_private_tree() {
 }
 
 prepare_private_tree "${data_dir}/recordings"
-prepare_private_tree "${data_dir}/tls"
+
+tls_tree="${data_dir}/tls"
+if [ -e "$tls_tree" ]; then
+    [ -d "$tls_tree" ] && [ ! -L "$tls_tree" ] || {
+        echo "TLS data path must be a real directory: $tls_tree" >&2
+        exit 1
+    }
+else
+    install -d -o "$uid" -g "$gid" -m 0750 "$tls_tree"
+fi
+find "$tls_tree" -xdev -type d -exec chmod 0750 {} +
+find "$tls_tree" -xdev -type f -exec chmod 0640 {} +
+if [ -f "${tls_tree}/automatic-ca.pem" ] &&
+    [ ! -L "${tls_tree}/automatic-ca.pem" ]; then
+    chmod 0600 "${tls_tree}/automatic-ca.pem"
+fi
 
 printf 'prepared %s for uid=%s gid=%s\n' "$data_dir" "$uid" "$gid"

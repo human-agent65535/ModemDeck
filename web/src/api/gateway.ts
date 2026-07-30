@@ -56,7 +56,7 @@ import type {
   SIMStatus,
   TelegramUnit,
   TelegramUnitInput,
-  TLSSettings,
+  IOSPairingResult,
   UpdateCheck,
   UpdateDeviceConfigurationInput,
   UpdateGlobalCallSettingsInput,
@@ -66,7 +66,6 @@ import type {
   UpdateSystemSettingsInput,
   UpdateNetworkSelectionInput,
   UpdateProxyInput,
-  UpdateTLSSettingsInput,
   USSDCommandInput,
   USSDResponse,
   USSDStatus,
@@ -164,6 +163,9 @@ export interface ModemDeckGateway {
   updateLineSettings(input: UpdateLineSettingsInput): Promise<LineSettings>
   getSystemSettings(): Promise<SystemSettings>
   updateSystemSettings(input: UpdateSystemSettingsInput): Promise<SystemSettings>
+  getIOSPairing(): Promise<IOSPairingResult>
+  createIOSPairing(): Promise<IOSPairingResult>
+  revokeIOSPairing(): Promise<void>
   getDeviceConfiguration(lineID: string): Promise<DeviceConfiguration>
   updateDeviceConfiguration(
     lineID: string,
@@ -188,8 +190,6 @@ export interface ModemDeckGateway {
   listRecordings(query?: ListQuery): Promise<RecordingEntry[]>
   getRecordingSettings(): Promise<RecordingSettings>
   updateRecordingSettings(settings: RecordingSettings): Promise<RecordingSettings>
-  getTLSSettings(): Promise<TLSSettings>
-  updateTLSSettings(input: UpdateTLSSettingsInput): Promise<TLSSettings>
   setCallRecording(id: string, enabled: boolean): Promise<CallRecordingState>
   listCallRecordings(id: string): Promise<CallRecordingSegment[]>
   deleteRecording(callID: string, recordingID: string): Promise<void>

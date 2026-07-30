@@ -42,6 +42,8 @@ cp "${source_repo}/install.sh" "${fixture}/install.sh"
 cp "${source_repo}/docker-compose.yml" "${fixture}/docker-compose.yml"
 cp "${source_repo}/docker-compose.advanced.yml" \
     "${fixture}/docker-compose.advanced.yml"
+cp "${source_repo}/docker-compose.cloudflare.yml" \
+    "${fixture}/docker-compose.cloudflare.yml"
 cp "${source_repo}/Dockerfile" "${fixture}/Dockerfile"
 cp "${source_repo}/hardware/Dockerfile" "${fixture}/hardware/Dockerfile"
 cp "${source_repo}/hardware/config/media-bindings.empty.json" \
@@ -190,7 +192,9 @@ case "$action" in
         if [ -e "${MODEMDECK_TEST_DOCKER_UP_MARKER}" ]; then
             case "$service" in
                 hardware) printf '%s\n' hardware-id ;;
-                modemdeck) printf '%s\n' app-id ;;
+                api) printf '%s\n' app-id ;;
+                modemdeck) printf '%s\n' web-id ;;
+                cloudflared) printf '%s\n' cloudflared-id ;;
             esac
         fi
         ;;
@@ -392,10 +396,10 @@ grep -Eq '^docker\|compose .* down( |$)' "${test_root}/commands.log" ||
     fail "recording call directory was not normalized to mode 0700"
 [ "$(file_mode "${test_root}/data/recordings/call_existing/segment.opus")" = 600 ] ||
     fail "recording file was not normalized to mode 0600"
-[ "$(file_mode "${test_root}/data/tls")" = 700 ] ||
-    fail "TLS directory was not normalized to mode 0700"
-[ "$(file_mode "${test_root}/data/tls/user.crt")" = 600 ] ||
-    fail "TLS file was not normalized to mode 0600"
+[ "$(file_mode "${test_root}/data/tls")" = 750 ] ||
+    fail "TLS directory was not normalized to mode 0750"
+[ "$(file_mode "${test_root}/data/tls/user.crt")" = 640 ] ||
+    fail "TLS file was not normalized to mode 0640"
 
 # Advanced mode must never mutate host services and must preserve local state.
 rm -f -- "${test_root}/docker-up"
@@ -478,6 +482,47 @@ grep -qx 'database-before' "${test_root}/data/modemdeck.db" ||
     fail "repeat installation replaced the database"
 grep -qx 'settings-key-before' "${test_root}/secrets/settings" ||
     fail "repeat installation replaced the settings key"
+
+# Cloudflare is an installer-owned optional service. Its token is persisted as
+# a file secret and the public hostname never becomes an editable Web setting.
+printf '%s\n' \
+    'eyJhbGciOiJIUzI1NiJ9X19tb2RlbWRlY2tfZGVwbG95bWVudF90ZXN0X3Rva2VuX19sb25nX2Vub3VnaF9mb3JfdmFsaWRhdGlvbg' \
+    >"${test_root}/cloudflare-token-input"
+: >"${test_root}/commands.log"
+common_env \
+    MODEMDECK_TEST_DOCKER_HEALTH=healthy \
+    MODEMDECK_HOST_DBUS_SOCKET=/var/run/docker.sock \
+    "${fixture}/install.sh" \
+        --mode advanced \
+        --assignment-file "${test_root}/assignments.json" \
+        --cloudflare-token-file "${test_root}/cloudflare-token-input" \
+        --cloudflare-hostname mobile.example.com \
+        --allow-dirty \
+        >"${test_root}/cloudflare-output.log" 2>&1
+grep -Fq 'MODEMDECK_CLOUDFLARE_ENABLED=true' "${fixture}/.env" ||
+    fail "Cloudflare enablement was not persisted"
+grep -Fq 'MODEMDECK_CLOUDFLARE_PUBLIC_URL=https://mobile.example.com' \
+    "${fixture}/.env" ||
+    fail "Cloudflare public URL was not persisted"
+grep -Fq 'MODEMDECK_WEB_IMAGE=modemdeck-web' "${fixture}/.env" ||
+    fail "Web gateway image was not persisted"
+grep -qx \
+    'eyJhbGciOiJIUzI1NiJ9X19tb2RlbWRlY2tfZGVwbG95bWVudF90ZXN0X3Rva2VuX19sb25nX2Vub3VnaF9mb3JfdmFsaWRhdGlvbg' \
+    "${fixture}/secrets/cloudflare-tunnel-token" ||
+    fail "Cloudflare token was not normalized into its file secret"
+[ "$(file_mode "${fixture}/secrets/cloudflare-tunnel-token")" = 440 ] ||
+    fail "Cloudflare token does not use mode 0440"
+if grep -Fq \
+    'eyJhbGciOiJIUzI1NiJ9X19tb2RlbWRlY2tfZGVwbG95bWVudF90ZXN0X3Rva2Vu' \
+    "${test_root}/cloudflare-output.log"
+then
+    fail "Cloudflare token leaked into installer output"
+fi
+grep -Eq '^docker\|compose .* build hardware api modemdeck( |$)' \
+    "${test_root}/commands.log" ||
+    fail "installer did not build the Web gateway"
+grep -Fq 'cloudflared' "${test_root}/commands.log" ||
+    fail "installer did not wait for cloudflared"
 
 # A successful simple install requires host ModemManager to be masked. A
 # stopped and disabled legacy Agent may retain its local unit file when systemd

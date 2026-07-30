@@ -30,6 +30,7 @@ import type {
   LineLabelResult,
   LineSettings,
   LineSummary,
+  IOSPairingResult,
   Message,
   MessageEventStreamHandlers,
   MessageReadInput,
@@ -52,7 +53,6 @@ import type {
   SystemSettings,
   TelegramUnit,
   TelegramUnitInput,
-  TLSSettings,
   UpdateCheck,
   UpdateDeviceConfigurationInput,
   UpdateGlobalCallSettingsInput,
@@ -62,7 +62,6 @@ import type {
   UpdateSystemSettingsInput,
   UpdateNetworkSelectionInput,
   UpdateProxyInput,
-  UpdateTLSSettingsInput,
   USSDCommandInput,
   USSDResponse,
   USSDStatus,
@@ -291,7 +290,7 @@ const diagnosticLogs: DiagnosticLogEntry[] = [
     component: 'application',
     caller: 'main.go:42',
     message: 'ModemDeck service started',
-    fields: { version: 'fixture', address: ':7577' }
+    fields: { version: 'fixture', address: ':8080' }
   },
   {
     id: 42,
@@ -685,6 +684,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       role: 'admin',
       enabled: true,
       must_change_password: false,
+      ios_pairing_enabled: true,
       revision: 1,
       profile_name: ALEX_NAME,
       line_ids: lines.map(line => line.id),
@@ -697,6 +697,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       role: 'member',
       enabled: true,
       must_change_password: false,
+      ios_pairing_enabled: false,
       revision: 2,
       profile_name: MEMBER_PROFILE_NAME,
       line_ids: lines[1] ? [lines[1].id] : [],
@@ -813,6 +814,12 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     language: 'auto',
     revision: 1
   }
+  const cloudflareStatus = {
+    enabled: true,
+    connected: true,
+    public_url: 'https://mobile.modemdeck.example'
+  }
+  let iosPairingCreatedAt = ''
   const connectionProfiles = new Map<string, ConnectionProfile[]>(
     lines.map(line => [
       fixtureLineKey(line),
@@ -957,19 +964,6 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
   let recordingSettings: RecordingSettings = {
     default_enabled: false,
     revision: 1
-  }
-  let tlsSettings: TLSSettings = {
-    mode: 'automatic',
-    subject: 'CN=modemdeck.local',
-    issuer: 'ModemDeck Local CA',
-    dns_names: ['modemdeck.local', 'gateway.modemdeck.local'],
-    ip_addresses: ['192.168.1.10'],
-    not_before: '2026-07-01T00:00:00Z',
-    not_after: '2026-09-29T23:59:59Z',
-    fingerprint_sha256:
-      '75:8A:8F:23:1C:9B:43:D7:5F:6E:41:65:14:29:CC:20:B1:E6:C9:8A:C7:31:58:5D:D0:19:BE:02:C3:7A:E4:91',
-    expired: false,
-    renews_automatically: true
   }
   const telegramUnits: TelegramUnit[] = [
     {
@@ -1310,6 +1304,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         role: 'member',
         enabled: true,
         must_change_password: true,
+        ios_pairing_enabled: input.ios_pairing_enabled,
         revision: 1,
         line_ids: [...input.line_ids],
         created_at: '2026-07-29 12:00:00',
@@ -1336,6 +1331,8 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         ...current,
         username: input.username,
         enabled: input.enabled,
+        ios_pairing_enabled:
+          current.role === 'admin' ? true : input.ios_pairing_enabled,
         line_ids: [...input.line_ids],
         revision: current.revision + 1,
         updated_at: '2026-07-29 12:01:00'
@@ -1352,6 +1349,41 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       }
       user.must_change_password = false
       user.revision += 1
+    },
+
+    async getIOSPairing(): Promise<IOSPairingResult> {
+      return {
+        pairing: {
+          allowed: true,
+          cloudflare: clone(cloudflareStatus),
+          has_credential: Boolean(iosPairingCreatedAt),
+          ...(iosPairingCreatedAt
+            ? { credential_created_at: iosPairingCreatedAt }
+            : {})
+        }
+      }
+    },
+
+    async createIOSPairing(): Promise<IOSPairingResult> {
+      iosPairingCreatedAt = new Date().toISOString()
+      return {
+        pairing: {
+          allowed: true,
+          cloudflare: clone(cloudflareStatus),
+          has_credential: true,
+          credential_created_at: iosPairingCreatedAt
+        },
+        payload: {
+          version: 1,
+          type: 'modemdeck.ios.pairing',
+          server_url: cloudflareStatus.public_url,
+          token: 'md_ios_Zml4dHVyZS1wYWlyaW5nLXRva2VuLTAwMDAwMDAwMDAwMDA'
+        }
+      }
+    },
+
+    async revokeIOSPairing(): Promise<void> {
+      iosPairingCreatedAt = ''
     },
 
     async listContacts(query: ListQuery = {}): Promise<Contact[]> {
@@ -1749,46 +1781,6 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         revision: recordingSettings.revision + 1
       }
       return clone(recordingSettings)
-    },
-
-    async getTLSSettings(): Promise<TLSSettings> {
-      return clone(tlsSettings)
-    },
-
-    async updateTLSSettings(input: UpdateTLSSettingsInput): Promise<TLSSettings> {
-      if (input.operation === 'use_automatic') {
-        tlsSettings = {
-          mode: 'automatic',
-          subject: 'CN=modemdeck.local',
-          issuer: 'ModemDeck Local CA',
-          dns_names: ['modemdeck.local', 'gateway.modemdeck.local'],
-          ip_addresses: ['192.168.1.10'],
-          not_before: '2026-07-01T00:00:00Z',
-          not_after: '2026-09-29T23:59:59Z',
-          fingerprint_sha256:
-            '75:8A:8F:23:1C:9B:43:D7:5F:6E:41:65:14:29:CC:20:B1:E6:C9:8A:C7:31:58:5D:D0:19:BE:02:C3:7A:E4:91',
-          expired: false,
-          renews_automatically: true
-        }
-        return clone(tlsSettings)
-      }
-      if (!input.certificate_pem.trim() || !input.private_key_pem.trim()) {
-        throw new ApiError('证书和私钥不能为空', 400)
-      }
-      tlsSettings = {
-        mode: 'user',
-        subject: 'CN=uploaded.modemdeck.local',
-        issuer: 'ModemDeck Fixture CA',
-        dns_names: ['uploaded.modemdeck.local'],
-        ip_addresses: ['192.168.1.10'],
-        not_before: '2026-07-24T00:00:00Z',
-        not_after: '2027-07-24T00:00:00Z',
-        fingerprint_sha256:
-          'A4:19:3C:C2:F8:67:70:B1:05:55:7D:88:9F:00:0C:D6:2A:09:2E:58:90:3C:D9:50:B2:D8:C6:31:AF:B0:6E:42',
-        expired: false,
-        renews_automatically: false
-      }
-      return clone(tlsSettings)
     },
 
     async setCallRecording(id: string, enabled: boolean): Promise<CallRecordingState> {

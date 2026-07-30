@@ -15,6 +15,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/communication"
 	"github.com/human-agent65535/modemdeck/internal/diagnostics"
 	"github.com/human-agent65535/modemdeck/internal/messageevents"
+	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
 	"github.com/human-agent65535/modemdeck/internal/networkruntime"
 	"github.com/human-agent65535/modemdeck/internal/recording"
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
@@ -255,7 +256,7 @@ type Options struct {
 	Recording             RecordingService
 	Network               NetworkService
 	TelegramSettings      TelegramSettingsService
-	TLSSettings           TLSSettingsService
+	MobilePairing         mobilepairing.Availability
 	Authenticator         Authenticator
 	SecureCookies         bool
 	Logger                *slog.Logger
@@ -264,38 +265,36 @@ type Options struct {
 	RuntimeEvents         runtimeevents.Source
 	UpdateChecker         UpdateChecker
 	ApplicationVersion    string
-	Web                   http.Handler
 	disableAuthentication bool
 }
 
 type API struct {
-	repository           Repository
-	healthProbe          HealthProbe
-	capabilities         CapabilitySource
-	communications       CommunicationService
-	deviceConfigurations DeviceConfigurationService
-	lineServices         LineService
-	callPolicies         CallPolicyService
-	messagePolicies      MessagePolicyService
-	callMedia            CallMediaService
-	callLeases           CallLeaseService
-	recordings           RecordingService
-	network              NetworkService
-	telegram             TelegramSettingsService
-	tlsSettingsService   TLSSettingsService
-	authenticator        Authenticator
-	secureCookies        bool
-	loginSlots           chan struct{}
-	loginFailures        *loginFailureLimiter
-	eventStreams         *eventStreamLimiter
-	streamAuthInterval   time.Duration
-	logger               *slog.Logger
-	diagnosticLogs       diagnostics.LogSource
-	messageEvents        messageevents.Source
-	runtimeEvents        runtimeevents.Source
-	updateChecker        UpdateChecker
-	applicationVersion   string
-	web                  http.Handler
+	repository                Repository
+	healthProbe               HealthProbe
+	capabilities              CapabilitySource
+	communications            CommunicationService
+	deviceConfigurations      DeviceConfigurationService
+	lineServices              LineService
+	callPolicies              CallPolicyService
+	messagePolicies           MessagePolicyService
+	callMedia                 CallMediaService
+	callLeases                CallLeaseService
+	recordings                RecordingService
+	network                   NetworkService
+	telegram                  TelegramSettingsService
+	mobilePairingAvailability mobilepairing.Availability
+	authenticator             Authenticator
+	secureCookies             bool
+	loginSlots                chan struct{}
+	loginFailures             *loginFailureLimiter
+	eventStreams              *eventStreamLimiter
+	streamAuthInterval        time.Duration
+	logger                    *slog.Logger
+	diagnosticLogs            diagnostics.LogSource
+	messageEvents             messageevents.Source
+	runtimeEvents             runtimeevents.Source
+	updateChecker             UpdateChecker
+	applicationVersion        string
 }
 
 func New(repository Repository, options Options) (*API, error) {
@@ -314,43 +313,38 @@ func New(repository Repository, options Options) (*API, error) {
 		healthProbe, _ = options.Communications.(HealthProbe)
 	}
 	return &API{
-		repository:           repository,
-		healthProbe:          healthProbe,
-		capabilities:         options.Capabilities,
-		communications:       options.Communications,
-		deviceConfigurations: options.DeviceConfigurations,
-		lineServices:         options.LineServices,
-		callPolicies:         options.CallPolicies,
-		messagePolicies:      options.MessagePolicies,
-		callMedia:            options.CallMedia,
-		callLeases:           options.CallLeases,
-		recordings:           options.Recording,
-		network:              options.Network,
-		telegram:             options.TelegramSettings,
-		tlsSettingsService:   options.TLSSettings,
-		authenticator:        options.Authenticator,
-		secureCookies:        options.SecureCookies,
-		loginSlots:           make(chan struct{}, 2),
-		loginFailures:        newLoginFailureLimiter(defaultLoginFailurePolicy),
-		eventStreams:         newEventStreamLimiter(defaultEventStreamLimitPolicy),
-		streamAuthInterval:   runtimeHeartbeatInterval,
-		logger:               logger,
-		diagnosticLogs:       options.DiagnosticLogs,
-		messageEvents:        options.MessageEvents,
-		runtimeEvents:        options.RuntimeEvents,
-		updateChecker:        options.UpdateChecker,
-		applicationVersion:   normalizedApplicationVersion(options.ApplicationVersion),
-		web:                  options.Web,
+		repository:                repository,
+		healthProbe:               healthProbe,
+		capabilities:              options.Capabilities,
+		communications:            options.Communications,
+		deviceConfigurations:      options.DeviceConfigurations,
+		lineServices:              options.LineServices,
+		callPolicies:              options.CallPolicies,
+		messagePolicies:           options.MessagePolicies,
+		callMedia:                 options.CallMedia,
+		callLeases:                options.CallLeases,
+		recordings:                options.Recording,
+		network:                   options.Network,
+		telegram:                  options.TelegramSettings,
+		mobilePairingAvailability: options.MobilePairing,
+		authenticator:             options.Authenticator,
+		secureCookies:             options.SecureCookies,
+		loginSlots:                make(chan struct{}, 2),
+		loginFailures:             newLoginFailureLimiter(defaultLoginFailurePolicy),
+		eventStreams:              newEventStreamLimiter(defaultEventStreamLimitPolicy),
+		streamAuthInterval:        runtimeHeartbeatInterval,
+		logger:                    logger,
+		diagnosticLogs:            options.DiagnosticLogs,
+		messageEvents:             options.MessageEvents,
+		runtimeEvents:             options.RuntimeEvents,
+		updateChecker:             options.UpdateChecker,
+		applicationVersion:        normalizedApplicationVersion(options.ApplicationVersion),
 	}, nil
 }
 
 func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	api.setSecurityHeaders(response)
 	if !strings.HasPrefix(request.URL.Path, "/api/") {
-		if api.web != nil {
-			api.web.ServeHTTP(response, request)
-			return
-		}
 		http.NotFound(response, request)
 		return
 	}
@@ -404,6 +398,8 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.accountPassword(response, request)
 	case "/api/v1/account/contact":
 		api.accountContact(response, request)
+	case "/api/v1/mobile/pairing":
+		api.mobilePairing(response, request)
 	case "/api/v1/users":
 		api.usersCollection(response, request)
 	case "/api/v1/contacts":
@@ -458,10 +454,6 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.systemSettings(response, request)
 	case "/api/v1/settings/recording":
 		api.recordingSettings(response, request)
-	case "/api/v1/settings/tls":
-		api.tlsSettings(response, request)
-	case "/api/v1/settings/tls/ca":
-		api.getOnly(response, request, api.tlsCertificateAuthority)
 	default:
 		if userID, action, ok := userResourcePath(request.URL.Path); ok {
 			api.userResource(response, request, userID, action)

@@ -45,17 +45,44 @@ docker compose \
     -f "${repo_dir}/docker-compose.advanced.yml" \
     config >"${test_root}/advanced-compose.yml"
 
-awk '
-    /^  hardware:/ { printing = 1 }
-    /^  modemdeck:/ { printing = 0 }
-    printing { print }
-' "${test_root}/compose.yml" >"${test_root}/hardware.yml"
+printf '%s\n' \
+    'eyJhbGciOiJIUzI1NiJ9X19tb2RlbWRlY2tfZGVwbG95bWVudF90ZXN0X3Rva2VuX19sb25nX2Vub3VnaF9mb3JfdmFsaWRhdGlvbg' \
+    >"${test_root}/cloudflare-token"
+MODEMDECK_SETTINGS_KEY_FILE=/dev/null \
+MODEMDECK_DATA_DIR="${test_root}/data" \
+MODEMDECK_CLOUDFLARE_TOKEN_FILE="${test_root}/cloudflare-token" \
+MODEMDECK_CLOUDFLARE_PUBLIC_URL=https://mobile.example.com \
+docker compose \
+    --project-directory "$repo_dir" \
+    -f "${repo_dir}/docker-compose.yml" \
+    -f "${repo_dir}/docker-compose.cloudflare.yml" \
+    config >"${test_root}/cloudflare-compose.yml"
 
-awk '
-    /^  modemdeck:/ { printing = 1 }
-    /^[^ ]/ && printing { printing = 0 }
-    printing { print }
-' "${test_root}/compose.yml" >"${test_root}/app.yml"
+extract_service() {
+    service_name=$1
+    source_file=$2
+    awk -v header="  ${service_name}:" '
+        $0 == header {
+            printing = 1
+        }
+        printing && $0 != header &&
+            ($0 ~ /^  [A-Za-z0-9_-]+:$/ || $0 ~ /^[^ ]/) {
+            exit
+        }
+        printing { print }
+    ' "$source_file"
+}
+
+extract_service hardware "${test_root}/compose.yml" \
+    >"${test_root}/hardware.yml"
+extract_service api "${test_root}/compose.yml" \
+    >"${test_root}/app.yml"
+extract_service modemdeck "${test_root}/compose.yml" \
+    >"${test_root}/web.yml"
+extract_service api "${test_root}/cloudflare-compose.yml" \
+    >"${test_root}/cloudflare-app.yml"
+extract_service cloudflared "${test_root}/cloudflare-compose.yml" \
+    >"${test_root}/cloudflared.yml"
 
 grep -Fq 'network_mode: host' "${test_root}/hardware.yml" ||
     fail "hardware does not use host networking"
@@ -93,6 +120,16 @@ grep -Fq 'condition: service_healthy' "${test_root}/app.yml" ||
     fail "application does not wait for healthy hardware"
 grep -Fq 'target: /run/modemdeck' "${test_root}/app.yml" ||
     fail "application Agent socket mount is missing"
+grep -Fq 'MODEMDECK_LISTEN_ADDRESS: 0.0.0.0:8080' \
+    "${test_root}/app.yml" ||
+    fail "application API does not listen on private port 8080"
+grep -Fq 'expose:' "${test_root}/app.yml" ||
+    fail "application API does not declare its private port"
+grep -Fq -- '- "8080"' "${test_root}/app.yml" ||
+    fail "application API private port is not 8080"
+if grep -Fq 'ports:' "${test_root}/app.yml"; then
+    fail "application API is published to the host"
+fi
 
 for forbidden in \
     'network_mode: host' \
@@ -108,23 +145,69 @@ do
     fi
 done
 
+grep -Fq 'target: web-runtime' "${test_root}/web.yml" ||
+    fail "Web gateway does not build the Nginx runtime"
+grep -Fq '127.0.0.1' "${test_root}/web.yml" ||
+    fail "Web gateway is not restricted to host loopback"
+grep -Fq 'target: 7577' "${test_root}/web.yml" ||
+    fail "Web gateway does not publish HTTPS port 7577"
+if grep -Fq 'published: "7575"' "${test_root}/web.yml"; then
+    fail "API-only port 7575 is published to the host"
+fi
+grep -Fq 'target: /var/lib/modemdeck/tls' "${test_root}/web.yml" ||
+    fail "Web gateway cannot read the managed TLS certificate"
+grep -Fq 'condition: service_healthy' "${test_root}/web.yml" ||
+    fail "Web gateway does not wait for the API"
+grep -Fq 'read_only: true' "${test_root}/web.yml" ||
+    fail "Web gateway root filesystem is not read-only"
+grep -Fq -- '- ALL' "${test_root}/web.yml" ||
+    fail "Web gateway does not drop every capability"
+
+grep -Fq 'listen 7575 default_server;' "${repo_dir}/web/nginx.conf" ||
+    fail "Nginx does not listen on API-only port 7575"
+grep -Fq 'listen 7577 ssl default_server;' "${repo_dir}/web/nginx.conf" ||
+    fail "Nginx does not listen on HTTPS Web port 7577"
+grep -Fq 'return 404;' "${repo_dir}/web/nginx.conf" ||
+    fail "Nginx does not reject non-API paths on port 7575"
+grep -Fq 'server api:8080 resolve;' "${repo_dir}/web/nginx.conf" ||
+    fail "Nginx does not target the private API port"
+grep -Fq 'proxy_pass http://modemdeck_api;' "${repo_dir}/web/nginx.conf" ||
+    fail "Nginx does not proxy API requests"
+grep -Fq 'proxy_buffering off;' "${repo_dir}/web/nginx.conf" ||
+    fail "Nginx would buffer API event streams"
+
+grep -Fq 'MODEMDECK_CLOUDFLARE_PUBLIC_URL: https://mobile.example.com' \
+    "${test_root}/cloudflare-app.yml" ||
+    fail "Cloudflare public URL does not reach the application"
+grep -Fq 'MODEMDECK_CLOUDFLARE_READY_URL: http://cloudflared:2000/ready' \
+    "${test_root}/cloudflare-app.yml" ||
+    fail "Cloudflare readiness URL does not reach the application"
+grep -Fq 'condition: service_healthy' "${test_root}/cloudflared.yml" ||
+    fail "cloudflared does not wait for the Web gateway"
+grep -Fq '      modemdeck:' "${test_root}/cloudflared.yml" ||
+    fail "cloudflared is not ordered after the Web gateway"
+grep -Fq '/run/secrets/cloudflare_tunnel_token' \
+    "${test_root}/cloudflared.yml" ||
+    fail "cloudflared does not read its token from a Compose secret"
+grep -Fq '127.0.0.1:2000' "${test_root}/cloudflared.yml" ||
+    fail "cloudflared readiness does not use the metrics endpoint"
+if grep -Fq 'ports:' "${test_root}/cloudflared.yml"; then
+    fail "cloudflared publishes a host port"
+fi
+if grep -Fq 'container_name:' "${test_root}/cloudflared.yml"; then
+    fail "cloudflared uses a fixed container name that blocks manual-connector migration"
+fi
+
 for advanced_view in '/run/host-proc' '/run/host-dbus' 'assignments.json'; do
     if grep -Fq "$advanced_view" "${test_root}/compose.yml"; then
         fail "simple Compose leaks an advanced-only host view: ${advanced_view}"
     fi
 done
 
-awk '
-    /^  hardware:/ { printing = 1 }
-    /^  modemdeck:/ { printing = 0 }
-    printing { print }
-' "${test_root}/advanced-compose.yml" >"${test_root}/advanced-hardware.yml"
-
-awk '
-    /^  modemdeck:/ { printing = 1 }
-    /^[^ ]/ && printing { printing = 0 }
-    printing { print }
-' "${test_root}/advanced-compose.yml" >"${test_root}/advanced-app.yml"
+extract_service hardware "${test_root}/advanced-compose.yml" \
+    >"${test_root}/advanced-hardware.yml"
+extract_service api "${test_root}/advanced-compose.yml" \
+    >"${test_root}/advanced-app.yml"
 
 grep -Fq 'MODEMDECK_HARDWARE_MODE: advanced' \
     "${test_root}/advanced-hardware.yml" ||

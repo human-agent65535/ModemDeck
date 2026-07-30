@@ -20,6 +20,7 @@ type Principal struct {
 	Role               Role
 	ProfileContactID   string
 	MustChangePassword bool
+	IOSPairingEnabled  bool
 	AllowedLineIDs     []string
 }
 

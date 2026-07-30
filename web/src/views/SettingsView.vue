@@ -12,7 +12,7 @@ import {
   LogOut,
   RadioTower,
   Send,
-  ShieldCheck,
+  Smartphone,
   UserRound,
   Volume2
 } from '@lucide/vue'
@@ -23,8 +23,8 @@ import ContactSyncSettings from '../components/ContactSyncSettings.vue'
 import StatePanel from '../components/StatePanel.vue'
 import DeviceConfigurationPanel from '../components/DeviceConfigurationPanel.vue'
 import DiagnosticsPanel from '../components/DiagnosticsPanel.vue'
+import IOSAppSettingsPanel from '../components/IOSAppSettingsPanel.vue'
 import TelegramSettingsForm from '../components/TelegramSettingsForm.vue'
-import TLSSettingsForm from '../components/TLSSettingsForm.vue'
 import UserSettingsPanel from '../components/UserSettingsPanel.vue'
 import { fixtureMode } from '../api/client'
 import { logout as logoutSession, sessionState } from '../state/session'
@@ -43,7 +43,7 @@ type SettingsSection =
   | 'audio'
   | 'devices'
   | 'telegram'
-  | 'tls'
+  | 'ios'
   | 'diagnostics'
   | 'about'
 
@@ -107,6 +107,12 @@ const sections = computed<Array<{
       label: t('settings.devices'),
       description: t('settings.devicesDescription'),
       icon: RadioTower
+    },
+    {
+      id: 'ios' as const,
+      label: t('settings.iosApp'),
+      description: t('settings.iosAppDescription'),
+      icon: Smartphone
     }
   ]
   const about = {
@@ -119,12 +125,6 @@ const sections = computed<Array<{
   if (sessionState.role !== 'admin') return [...personal, about]
   return [
     ...personal,
-    {
-      id: 'tls',
-      label: 'HTTPS',
-      description: t('settings.tlsDescription'),
-      icon: ShieldCheck
-    },
     {
       id: 'diagnostics',
       label: t('settings.diagnostics'),
@@ -296,8 +296,8 @@ onMounted(() => {
           <TelegramSettingsForm />
         </div>
 
-        <div v-else-if="selectedSection === 'tls'" class="settings-content">
-          <TLSSettingsForm />
+        <div v-else-if="selectedSection === 'ios'" class="settings-content">
+          <IOSAppSettingsPanel />
         </div>
 
         <div v-else-if="selectedSection === 'diagnostics'" class="settings-content">

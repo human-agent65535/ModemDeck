@@ -7,7 +7,7 @@ ModemDeck 通信工作区的 Vue 3 和 TypeScript 客户端。
     npm ci
     npm run dev
 
-Vite 服务器默认将 `/api` 代理到 `http://127.0.0.1:7575`。可通过
+Vite 服务器默认将 `/api` 代理到本地开发 API `http://127.0.0.1:8080`。可通过
 `VITE_API_PROXY_TARGET` 覆盖目标地址。
 
 确定性的开发数据必须显式启用，生产构建永远不会使用这些数据：
@@ -36,7 +36,8 @@ Vue 3 and TypeScript client for the ModemDeck communication workspace.
     npm ci
     npm run dev
 
-The Vite server proxies /api to http://127.0.0.1:7575 by default. Override the
+The Vite server proxies /api to the local development API at
+http://127.0.0.1:8080 by default. Override the
 target with VITE_API_PROXY_TARGET.
 
 Deterministic development data is opt-in and never used by production builds:

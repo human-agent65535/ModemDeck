@@ -34,7 +34,6 @@ import {
   createProxyUpdatePayload,
   createRecordingSettingsPayload,
   createTelegramUnitPayload,
-  createTLSSettingsPayload,
   parseActiveCallSnapshotResponse,
   parseCallMediaResponse,
   parseCallLeaseStatus,
@@ -44,6 +43,7 @@ import {
   parseDeviceConfigurationResponse,
   parseGlobalCallSettings,
   parseLineSettingsResponse,
+  parseIOSPairingResponse,
   parseSystemSettingsResponse,
   parseLineLabelResponse,
   parseMessageResponse,
@@ -58,19 +58,18 @@ import {
   parseSIMStatusResponse,
   parseTelegramUnitResponse,
   parseTelegramUnitsResponse,
-  parseTLSSettingsResponse,
   parseUserResponse,
   parseUsersResponse,
   telegramUnitContract,
   telegramUnitDeletePath,
   deviceConfigurationContract,
   lineLabelPath,
+  iosPairingContract,
   missedCallReadPath,
   networkSelectionContract,
   networkContracts,
   proxyDeletePath,
-  proxyResourceContract,
-  tlsSettingsContract
+  proxyResourceContract
 } from './contract'
 import {
   parseBootstrap,
@@ -118,6 +117,7 @@ import type {
   GlobalCallSettings,
   IncomingMessageEvent,
   LineLabelResult,
+  IOSPairingResult,
   LoginInput,
   Message,
   MessageEventStreamHandlers,
@@ -143,7 +143,6 @@ import type {
   SIMStatus,
   TelegramUnit,
   TelegramUnitInput,
-  TLSSettings,
   UpdateCheck,
   UpdateStatus,
   UpdateDeviceConfigurationInput,
@@ -154,7 +153,6 @@ import type {
   UpdateSystemSettingsInput,
   UpdateNetworkSelectionInput,
   UpdateProxyInput,
-  UpdateTLSSettingsInput,
   USSDCommandInput,
   USSDResponse,
   USSDStatus,
@@ -295,12 +293,20 @@ function parseSession(value: unknown): SessionResponse {
   ) {
     throw new ApiError('ModemDeck returned an unsupported system language', 0, 'invalid_response')
   }
+  if (typeof source.ios_pairing_enabled !== 'boolean') {
+    throw new ApiError(
+      'ModemDeck returned invalid iOS pairing access',
+      0,
+      'invalid_response'
+    )
+  }
   const session: SessionResponse = {
     authenticated: source.authenticated,
     setup_required: source.setup_required,
     user_id: stringProperty(source, 'user_id'),
     username: stringProperty(source, 'username'),
     csrf_token: stringProperty(source, 'csrf_token'),
+    ios_pairing_enabled: source.ios_pairing_enabled,
     language: language as SystemLanguage
   }
   const role = stringProperty(source, 'role')
@@ -823,7 +829,7 @@ function subscribeEventSource(
   inactivityTimeoutMilliseconds?: number
 ): () => void {
   let source: EventSource | undefined
-  let inactivityTimer: number | undefined
+  let inactivityTimer: ReturnType<typeof globalThis.setTimeout> | undefined
   let lastEventID: number | undefined
   let stopped = false
 
@@ -974,6 +980,34 @@ const realGateway: ConfiguredModemDeckGateway = {
         createSystemSettingsPayload(input),
         200
       )
+    )
+  },
+
+  async getIOSPairing(): Promise<IOSPairingResult> {
+    return parseIOSPairingResponse(await get(iosPairingContract.get.path))
+  },
+
+  async createIOSPairing(): Promise<IOSPairingResult> {
+    const contract = iosPairingContract.create
+    return parseIOSPairingResponse(
+      await writeJSON(
+        contract.path,
+        contract.method,
+        {},
+        contract.successStatus
+      )
+    )
+  },
+
+  async revokeIOSPairing(): Promise<void> {
+    const contract = iosPairingContract.revoke
+    await request(
+      contract.path,
+      {
+        method: contract.method,
+        headers: { Accept: 'application/json' }
+      },
+      contract.successStatus
     )
   },
 
@@ -1678,22 +1712,6 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
-  async getTLSSettings(): Promise<TLSSettings> {
-    return parseTLSSettingsResponse(await get(tlsSettingsContract.get.path))
-  },
-
-  async updateTLSSettings(input: UpdateTLSSettingsInput): Promise<TLSSettings> {
-    const contract = tlsSettingsContract.update
-    return parseTLSSettingsResponse(
-      await writeJSON(
-        contract.path,
-        contract.method,
-        createTLSSettingsPayload(input),
-        contract.successStatus
-      )
-    )
-  },
-
   async setCallRecording(id: string, enabled: boolean): Promise<CallRecordingState> {
     const contract = callRecordingContract(id).update
     return parseCallRecordingState(
@@ -1787,6 +1805,7 @@ function configureFixture(gateway: ModemDeckGateway): ConfiguredModemDeckGateway
     username: 'fixture',
     role: 'admin',
     must_change_password: false,
+    ios_pairing_enabled: true,
     allowed_line_ids: [],
     language: 'auto'
   }

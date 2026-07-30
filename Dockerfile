@@ -3,6 +3,7 @@
 ARG NODE_IMAGE=node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
 ARG GO_IMAGE=golang:1.26.5-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651
 ARG RUNTIME_IMAGE=alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+ARG NGINX_IMAGE=nginx:1.30.4-alpine-slim@sha256:ddde39c6e51f02fde7410c2e9c234cf2d0a4c7bdbbe176aeb37d8ad7ab4eb58c
 
 FROM ${NODE_IMAGE} AS web-builder
 
@@ -43,9 +44,6 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 COPY cmd/modemdeck/ ./cmd/modemdeck/
 COPY internal/ ./internal/
 COPY VERSION ./
-RUN rm -rf ./internal/webapp/dist \
-    && mkdir -p ./internal/webapp/dist
-COPY --from=web-builder /workspace/web/dist/ ./internal/webapp/dist/
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
@@ -62,6 +60,35 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM scratch AS modemdeck-artifact
 
 COPY --from=app-builder /out/modemdeck /modemdeck
+
+
+FROM ${NGINX_IMAGE} AS web-runtime
+
+ARG VERSION=dev
+ARG BUILD_DATE=unknown
+ARG VCS_REF=unknown
+
+COPY --chown=101:101 web/nginx.conf /etc/nginx/nginx.conf
+COPY --chown=101:101 --chmod=0755 scripts/nginx-entrypoint.sh /usr/local/bin/modemdeck-web-entrypoint
+COPY --from=web-builder --chown=101:101 /workspace/web/dist/ /usr/share/nginx/html/
+COPY LICENSE NOTICE.md THIRD_PARTY_NOTICES.md /usr/share/licenses/modemdeck/
+
+LABEL org.opencontainers.image.title="ModemDeck Web" \
+      org.opencontainers.image.description="ModemDeck Web frontend and API reverse proxy" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.revision="${VCS_REF}"
+
+USER 101:101
+
+EXPOSE 7575 7577
+STOPSIGNAL SIGQUIT
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD wget -q -T 3 -O /dev/null http://127.0.0.1:7575/api/v1/health/live || exit 1
+
+ENTRYPOINT ["/usr/local/bin/modemdeck-web-entrypoint"]
+CMD ["-g", "daemon off;"]
 
 
 FROM ${RUNTIME_IMAGE} AS runtime
@@ -92,22 +119,20 @@ LABEL org.opencontainers.image.title="ModemDeck" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}"
 
-ENV MODEMDECK_LISTEN_ADDRESS=0.0.0.0:7575 \
+ENV MODEMDECK_LISTEN_ADDRESS=0.0.0.0:8080 \
     MODEMDECK_DATABASE_PATH=/var/lib/modemdeck/modemdeck.db \
     MODEMDECK_RECORDINGS_PATH=/data/recordings \
     MODEMDECK_AGENT_SOCKET=/run/modemdeck/agent.sock \
-    MODEMDECK_TLS_DIRECTORY=/var/lib/modemdeck/tls \
-    MODEMDECK_TLS_HOSTS=localhost,127.0.0.1,::1 \
     MODEMDECK_SECURE_COOKIES=true \
-    MODEMDECK_HEALTHCHECK_URL=https://127.0.0.1:7575/api/v1/health
+    MODEMDECK_HEALTHCHECK_URL=http://127.0.0.1:8080/api/v1/health
 
 USER ${MODEMDECK_UID}:${MODEMDECK_GID}
 WORKDIR /var/lib/modemdeck
 
-EXPOSE 7575
+EXPOSE 8080
 STOPSIGNAL SIGTERM
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD wget -q --no-check-certificate -T 3 -O /dev/null "${MODEMDECK_HEALTHCHECK_URL}" || exit 1
+    CMD wget -q -T 3 -O /dev/null "${MODEMDECK_HEALTHCHECK_URL}" || exit 1
 
 ENTRYPOINT ["/usr/local/bin/modemdeck-entrypoint"]

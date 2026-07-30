@@ -133,19 +133,29 @@ export type RecordingSettings = {
   revision: number
 }
 
-export type TLSMode = 'automatic' | 'user'
+export type CloudflareTunnelStatus = {
+  enabled: boolean
+  connected: boolean
+  public_url: string
+}
 
-export type TLSSettings = {
-  mode: TLSMode
-  subject: string
-  issuer: string
-  dns_names: string[]
-  ip_addresses: string[]
-  not_before: string
-  not_after: string
-  fingerprint_sha256: string
-  expired: boolean
-  renews_automatically: boolean
+export type IOSPairingStatus = {
+  allowed: boolean
+  cloudflare: CloudflareTunnelStatus
+  has_credential: boolean
+  credential_created_at?: string
+}
+
+export type IOSPairingPayload = {
+  version: 1
+  type: 'modemdeck.ios.pairing'
+  server_url: string
+  token: string
+}
+
+export type IOSPairingResult = {
+  pairing: IOSPairingStatus
+  payload?: IOSPairingPayload
 }
 
 export type AboutInfo = {
@@ -173,16 +183,6 @@ export type UpdateCheck = {
   checked_at: string
   error_code?: string
 }
-
-export type UpdateTLSSettingsInput =
-  | {
-      operation: 'install_user'
-      certificate_pem: string
-      private_key_pem: string
-    }
-  | {
-      operation: 'use_automatic'
-    }
 
 export type CallRecordingState = {
   call_id: string
@@ -1148,6 +1148,7 @@ export type SessionResponse = {
   role?: 'admin' | 'member'
   profile_contact_id?: string
   must_change_password?: boolean
+  ios_pairing_enabled: boolean
   allowed_line_ids?: string[]
   csrf_token?: string
   language: SystemLanguage
@@ -1159,6 +1160,7 @@ export type UserAccount = {
   role: 'admin' | 'member'
   enabled: boolean
   must_change_password: boolean
+  ios_pairing_enabled: boolean
   revision: number
   profile_name?: string
   profile_avatar?: string
@@ -1170,12 +1172,14 @@ export type UserAccount = {
 export type CreateMemberInput = {
   username: string
   password: string
+  ios_pairing_enabled: boolean
   line_ids: string[]
 }
 
 export type UpdateMemberInput = {
   username: string
   enabled: boolean
+  ios_pairing_enabled: boolean
   line_ids: string[]
   revision: number
 }

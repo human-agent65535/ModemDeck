@@ -16,7 +16,7 @@ const (
 )
 
 func ensureStorageDirectory(directory string) error {
-	if err := os.MkdirAll(directory, 0o700); err != nil {
+	if err := os.MkdirAll(directory, 0o750); err != nil {
 		return fmt.Errorf("create TLS storage directory: %w", err)
 	}
 	info, err := os.Lstat(directory)
@@ -29,8 +29,29 @@ func ensureStorageDirectory(directory string) error {
 	if info.Mode()&os.ModeSymlink != 0 {
 		return errors.New("TLS storage directory must not be a symbolic link")
 	}
-	if err := os.Chmod(directory, 0o700); err != nil {
+	if err := os.Chmod(directory, 0o750); err != nil {
 		return fmt.Errorf("secure TLS storage directory: %w", err)
+	}
+	for filename, permission := range map[string]os.FileMode{
+		sourceFilename:          0o640,
+		automaticCAFilename:     0o600,
+		automaticServerFilename: 0o640,
+		userBundleFilename:      0o640,
+	} {
+		path := filepath.Join(directory, filename)
+		info, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("inspect %s: %w", filename, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%s is not a regular file", filename)
+		}
+		if err := os.Chmod(path, permission); err != nil {
+			return fmt.Errorf("secure %s: %w", filename, err)
+		}
 	}
 	return nil
 }
@@ -84,6 +105,10 @@ func readOptionalRegularFile(path string) ([]byte, bool, error) {
 
 func writeAtomic(path string, content []byte) error {
 	directory := filepath.Dir(path)
+	permission := os.FileMode(0o640)
+	if filepath.Base(path) == automaticCAFilename {
+		permission = 0o600
+	}
 	file, err := os.CreateTemp(directory, "."+filepath.Base(path)+".tmp-")
 	if err != nil {
 		return fmt.Errorf("create temporary %s: %w", filepath.Base(path), err)
@@ -96,7 +121,7 @@ func writeAtomic(path string, content []byte) error {
 			_ = os.Remove(temporaryPath)
 		}
 	}()
-	if err := file.Chmod(0o600); err != nil {
+	if err := file.Chmod(permission); err != nil {
 		return fmt.Errorf("secure temporary %s: %w", filepath.Base(path), err)
 	}
 	if _, err := file.Write(content); err != nil {
@@ -111,7 +136,7 @@ func writeAtomic(path string, content []byte) error {
 	if err := os.Rename(temporaryPath, path); err != nil {
 		return fmt.Errorf("replace %s: %w", filepath.Base(path), err)
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
+	if err := os.Chmod(path, permission); err != nil {
 		return fmt.Errorf("secure %s: %w", filepath.Base(path), err)
 	}
 	directoryHandle, err := os.Open(directory)

@@ -1,0 +1,51 @@
+services:
+  api:
+    environment:
+      MODEMDECK_CLOUDFLARE_PUBLIC_URL: ${MODEMDECK_CLOUDFLARE_PUBLIC_URL:?MODEMDECK_CLOUDFLARE_PUBLIC_URL is required}
+      MODEMDECK_CLOUDFLARE_READY_URL: http://cloudflared:2000/ready
+
+  cloudflared:
+    image: cloudflare/cloudflared:${MODEMDECK_CLOUDFLARED_VERSION:-2026.7.3}
+    restart: unless-stopped
+    user: "65532:65532"
+    depends_on:
+      modemdeck:
+        condition: service_healthy
+        restart: true
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --loglevel
+      - info
+      - --metrics
+      - 0.0.0.0:2000
+      - run
+      - --token-file
+      - /run/secrets/cloudflare_tunnel_token
+    secrets:
+      - cloudflare_tunnel_token
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    healthcheck:
+      test:
+        - CMD
+        - cloudflared
+        - tunnel
+        - --metrics
+        - 127.0.0.1:2000
+        - ready
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 4
+    stop_grace_period: 30s
+
+secrets:
+  cloudflare_tunnel_token:
+    file: ${MODEMDECK_CLOUDFLARE_TOKEN_FILE:?MODEMDECK_CLOUDFLARE_TOKEN_FILE must point to a tunnel token file}

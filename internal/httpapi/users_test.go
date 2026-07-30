@@ -80,6 +80,7 @@ func TestMemberAccessUpdateReloadsTelegramRuntimeAfterCommit(t *testing.T) {
 		bytes.NewBufferString(`{
 			"username":"alice",
 			"enabled":true,
+			"ios_pairing_enabled":true,
 			"line_ids":["line-1"],
 			"revision":1
 		}`),
@@ -95,10 +96,11 @@ func TestMemberAccessUpdateReloadsTelegramRuntimeAfterCommit(t *testing.T) {
 		t.Fatalf("updated user ID = %q", repository.updateID)
 	}
 	wantInput := store.UpdateMemberInput{
-		Username: "alice",
-		Enabled:  true,
-		LineIDs:  []string{"line-1"},
-		Revision: 1,
+		Username:          "alice",
+		Enabled:           true,
+		IOSPairingEnabled: true,
+		LineIDs:           []string{"line-1"},
+		Revision:          1,
 	}
 	if !reflect.DeepEqual(repository.updateInput, wantInput) {
 		t.Fatalf("update input = %+v, want %+v", repository.updateInput, wantInput)

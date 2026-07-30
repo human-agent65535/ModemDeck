@@ -452,18 +452,18 @@ func TestStoredKeyAndMetadataPermissions(t *testing.T) {
 	if _, err := manager.InstallUser(certificatePEM, keyPEM); err != nil {
 		t.Fatalf("InstallUser() error = %v", err)
 	}
-	for _, name := range []string{
-		sourceFilename,
-		automaticCAFilename,
-		automaticServerFilename,
-		userBundleFilename,
+	for name, expected := range map[string]os.FileMode{
+		sourceFilename:          0o640,
+		automaticCAFilename:     0o600,
+		automaticServerFilename: 0o640,
+		userBundleFilename:      0o640,
 	} {
 		info, err := os.Stat(filepath.Join(config.Directory, name))
 		if err != nil {
 			t.Fatalf("Stat(%s) error = %v", name, err)
 		}
-		if permission := info.Mode().Perm(); permission != 0o600 {
-			t.Fatalf("%s permission = %o, want 600", name, permission)
+		if permission := info.Mode().Perm(); permission != expected {
+			t.Fatalf("%s permission = %o, want %o", name, permission, expected)
 		}
 	}
 }

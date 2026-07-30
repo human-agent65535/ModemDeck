@@ -39,6 +39,7 @@ const creating = ref(false)
 const username = ref('')
 const temporaryPassword = ref('')
 const enabled = ref(true)
+const iosPairingEnabled = ref(false)
 const lineIDs = ref<string[]>([])
 const saving = ref(false)
 const saved = ref(false)
@@ -98,6 +99,7 @@ function applyUser(user?: UserAccount): void {
   username.value = user?.username || ''
   temporaryPassword.value = ''
   enabled.value = user?.enabled ?? true
+  iosPairingEnabled.value = user?.ios_pairing_enabled ?? false
   lineIDs.value = [...(user?.line_ids || [])]
   newPassword.value = ''
   saved.value = false
@@ -176,12 +178,14 @@ async function submit(): Promise<void> {
       ? await gateway.createMember({
           username: username.value,
           password: temporaryPassword.value,
+          ios_pairing_enabled: iosPairingEnabled.value,
           line_ids: lineIDs.value
         })
       : editableUser.value
         ? await gateway.updateMember(editableUser.value.id, {
             username: username.value,
             enabled: enabled.value,
+            ios_pairing_enabled: iosPairingEnabled.value,
             line_ids: lineIDs.value,
             revision: editableUser.value.revision
           })
@@ -265,7 +269,7 @@ function syncSelectionFromRoute(): void {
 }
 
 watch(
-  [username, enabled, lineIDs, temporaryPassword, newPassword],
+  [username, enabled, iosPairingEnabled, lineIDs, temporaryPassword, newPassword],
   () => {
     if (saving.value || settingPassword.value) return
     saved.value = false
@@ -441,6 +445,25 @@ onMounted(() => {
             {{ enabled ? t('users.enabled') : t('users.disabled') }}
           </span>
           <input v-model="enabled" type="checkbox" role="switch" :disabled="saving" />
+        </label>
+
+        <label
+          v-if="creating || selectedUser?.role === 'member'"
+          class="user-account-access"
+        >
+          <span>
+            <strong>{{ t('users.iosPairingAccess') }}</strong>
+            <small>{{ t('users.iosPairingAccessDescription') }}</small>
+          </span>
+          <span class="user-account-access__status">
+            {{ iosPairingEnabled ? t('users.enabled') : t('users.disabled') }}
+          </span>
+          <input
+            v-model="iosPairingEnabled"
+            type="checkbox"
+            role="switch"
+            :disabled="saving"
+          />
         </label>
 
         <fieldset class="user-lines">

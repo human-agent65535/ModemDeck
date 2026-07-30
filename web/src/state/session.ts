@@ -22,6 +22,7 @@ const state = reactive({
   role: (fixtureMode ? 'admin' : '') as '' | 'admin' | 'member',
   profileContactID: '',
   mustChangePassword: false,
+  iosPairingEnabled: fixtureMode,
   allowedLineIDs: [] as string[],
   setupRequired: false,
   error: ''
@@ -42,6 +43,7 @@ function applySession(session: SessionResponse): boolean {
   state.role = session.role || 'admin'
   state.profileContactID = session.profile_contact_id || ''
   state.mustChangePassword = session.must_change_password === true
+  state.iosPairingEnabled = session.ios_pairing_enabled
   state.allowedLineIDs = [...(session.allowed_line_ids || [])]
   state.setupRequired = false
   state.error = ''
@@ -61,6 +63,7 @@ export function clearSession(message = '', setupRequired = false): void {
   state.role = ''
   state.profileContactID = ''
   state.mustChangePassword = false
+  state.iosPairingEnabled = false
   state.allowedLineIDs = []
   state.setupRequired = setupRequired
   state.error = message

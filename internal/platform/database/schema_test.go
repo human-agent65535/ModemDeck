@@ -31,6 +31,59 @@ func TestOpenCreatesAndReopensCurrentSchema(t *testing.T) {
 	t.Cleanup(func() { _ = database.Close() })
 }
 
+func TestOpenMigratesCurrentSchemaBeforeIOSPairing(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "before-ios-pairing.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(schemaBeforeMobilePairingFixture(t)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO modemdeck_users (
+			id, username, password_hash, role, enabled
+		) VALUES
+			('user_admin', 'owner', 'owner-hash', 'admin', 1),
+			('user_member', 'member', 'member-hash', 'member', 1);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	if err := ValidateSchema(context.Background(), database); err != nil {
+		t.Fatalf("ValidateSchema() after migration error = %v", err)
+	}
+
+	var adminPairing, memberPairing bool
+	if err := database.QueryRow(`
+		SELECT
+			(SELECT ios_pairing_enabled FROM modemdeck_users
+			 WHERE id = 'user_admin'),
+			(SELECT ios_pairing_enabled FROM modemdeck_users
+			 WHERE id = 'user_member')
+	`).Scan(&adminPairing, &memberPairing); err != nil {
+		t.Fatal(err)
+	}
+	if !adminPairing || memberPairing {
+		t.Fatalf(
+			"migrated pairing permissions = admin %t, member %t",
+			adminPairing,
+			memberPairing,
+		)
+	}
+
+}
+
 func TestOpenMigratesSingleUserDataToInitialAdministrator(t *testing.T) {
 	t.Parallel()
 
@@ -1814,6 +1867,11 @@ func legacyV1SchemaFixture(t *testing.T) string {
 		schema = schema[:startIndex] + schema[endIndex:]
 	}
 
+	replace("\n\t\t\tios_pairing_enabled NUMERIC NOT NULL DEFAULT 0,", "")
+	removeBlock(
+		"CREATE TABLE modemdeck_ios_pairing_credentials (",
+		"CREATE TABLE contacts",
+	)
 	replace("preferred_line_id TEXT NOT NULL DEFAULT ''", "preferred_device_imei TEXT NOT NULL DEFAULT ''")
 	replace(
 		"line_id TEXT NOT NULL DEFAULT '',\n\t\t\t\tendpoint_line_id TEXT NOT NULL DEFAULT '',\n\t\t\t\tendpoint_message_id",
@@ -1888,6 +1946,40 @@ CREATE INDEX idx_call_history_endpoint_line_ended_at ON call_history(endpoint_li
 	return schema
 }
 
+func schemaBeforeMobilePairingFixture(t *testing.T) string {
+	t.Helper()
+	schema := currentSchemaSQL
+	remove := func(fragment string) {
+		t.Helper()
+		updated := strings.Replace(schema, fragment, "", 1)
+		if updated == schema {
+			t.Fatalf(
+				"pre-iOS schema fixture did not find fragment %q",
+				fragment,
+			)
+		}
+		schema = updated
+	}
+	removeTable := func(name string) {
+		t.Helper()
+		start := "CREATE TABLE " + name + " ("
+		startIndex := strings.Index(schema, start)
+		if startIndex < 0 {
+			t.Fatalf("pre-iOS schema fixture did not find table %q", name)
+		}
+		endOffset := strings.Index(schema[startIndex:], ");\n\n")
+		if endOffset < 0 {
+			t.Fatalf("pre-iOS schema fixture did not find end of table %q", name)
+		}
+		endIndex := startIndex + endOffset + len(");\n\n")
+		schema = schema[:startIndex] + schema[endIndex:]
+	}
+
+	remove("\n\t\t\tios_pairing_enabled NUMERIC NOT NULL DEFAULT 0,")
+	removeTable("modemdeck_ios_pairing_credentials")
+	return schema
+}
+
 func singleUserSchemaFixture(t *testing.T) string {
 	t.Helper()
 	schema := currentSchemaSQL
@@ -1930,6 +2022,7 @@ func singleUserSchemaFixture(t *testing.T) string {
 
 	for _, table := range []string{
 		"modemdeck_users",
+		"modemdeck_ios_pairing_credentials",
 		"modemdeck_user_profile_contacts",
 		"modemdeck_user_message_thread_state",
 		"modemdeck_user_call_state",

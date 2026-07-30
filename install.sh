@@ -8,6 +8,7 @@ repo_dir=$script_dir
 env_file="${repo_dir}/.env"
 compose_file="${repo_dir}/docker-compose.yml"
 advanced_compose_file="${repo_dir}/docker-compose.advanced.yml"
+cloudflare_compose_file="${repo_dir}/docker-compose.cloudflare.yml"
 assignment_example="${repo_dir}/deploy/advanced-assignment.example.json"
 
 mode_arg=
@@ -17,8 +18,12 @@ port_arg=
 tls_hosts_arg=
 media_bindings_arg=
 version_arg=
+cloudflare_token_arg=
+cloudflare_hostname_arg=
+disable_cloudflare=false
 allow_dirty=false
 check_only=false
+cloudflare_enabled=false
 
 work_dir=
 env_work=
@@ -29,12 +34,14 @@ compose_started=false
 services_changed=false
 baseline_created=false
 installation_complete=false
+legacy_cloudflared_id=
 
 usage() {
     cat <<'EOF'
 Usage: sudo ./install.sh [options]
 
-Build and run ModemDeck as two Docker containers. No Go, Node.js,
+Build and run ModemDeck as three Docker containers, plus an optional Cloudflare
+Tunnel connector. No Go, Node.js,
 ModemManager, D-Bus, NetworkManager, or Polkit build packages are installed on
 the host.
 
@@ -49,20 +56,29 @@ Modes:
 Options:
   --mode MODE             simple or advanced
   --assignment-file FILE  Required in advanced mode; never copied into Git
-  --bind-address ADDRESS  Host address exposed by Docker (default: 127.0.0.1)
-  --port PORT             HTTPS port (default: 7575)
+  --bind-address ADDRESS  Host address for the HTTPS Web UI (default: 127.0.0.1)
+  --port PORT             HTTPS Web UI port (default: 7577)
   --tls-hosts LIST        Comma-separated certificate DNS names and IPs
   --media-bindings-file FILE
                           Optional explicit modem audio bindings JSON
+  --cloudflare-token-file FILE
+                          Enable cloudflared using a remotely-managed Tunnel
+                          token read from FILE
+  --cloudflare-hostname HOST
+                          Public HTTPS hostname used by iOS clients
+  --disable-cloudflare    Disable the installed Tunnel connector and iOS pairing
   --version TAG           Docker image tag (default: current Git revision)
   --allow-dirty           Allow deployment from a modified Git checkout
   --check                 Read-only validation; build or change nothing
   -h, --help              Show this help
 
-The installer preserves application data, secrets, automatic TLS state, and
-user-installed certificates. It never replaces an expired user certificate.
-On a first installation, open the Web UI and complete Quick Start to create the
-administrator username and password.
+Nginx exposes two isolated listeners: HTTP port 7575 is API-only and reachable
+only by the installed Cloudflare connector; HTTPS port 7577 serves the Web UI.
+The Go API listens only on port 8080 inside the private Compose network. iOS
+pairing is available only while an installed Cloudflare Tunnel is connected.
+The installer preserves application data, settings secrets, and the Tunnel
+token. On a first installation, open the local HTTPS Web UI and complete Quick
+Start to create the administrator username and password.
 EOF
 }
 
@@ -81,18 +97,37 @@ fail() {
 
 compose() {
     if [ "$mode" = advanced ]; then
-        docker compose \
-            --project-directory "$repo_dir" \
-            --env-file "$env_work" \
-            -f "$compose_file" \
-            -f "$advanced_compose_file" \
-            "$@"
+        if [ "$cloudflare_enabled" = true ]; then
+            docker compose \
+                --project-directory "$repo_dir" \
+                --env-file "$env_work" \
+                -f "$compose_file" \
+                -f "$advanced_compose_file" \
+                -f "$cloudflare_compose_file" \
+                "$@"
+        else
+            docker compose \
+                --project-directory "$repo_dir" \
+                --env-file "$env_work" \
+                -f "$compose_file" \
+                -f "$advanced_compose_file" \
+                "$@"
+        fi
     else
-        docker compose \
-            --project-directory "$repo_dir" \
-            --env-file "$env_work" \
-            -f "$compose_file" \
-            "$@"
+        if [ "$cloudflare_enabled" = true ]; then
+            docker compose \
+                --project-directory "$repo_dir" \
+                --env-file "$env_work" \
+                -f "$compose_file" \
+                -f "$cloudflare_compose_file" \
+                "$@"
+        else
+            docker compose \
+                --project-directory "$repo_dir" \
+                --env-file "$env_work" \
+                -f "$compose_file" \
+                "$@"
+        fi
     fi
 }
 
@@ -221,6 +256,20 @@ while [ "$#" -gt 0 ]; do
             media_bindings_arg=$2
             shift 2
             ;;
+        --cloudflare-token-file)
+            [ "$#" -ge 2 ] || fail "--cloudflare-token-file requires a value"
+            cloudflare_token_arg=$2
+            shift 2
+            ;;
+        --cloudflare-hostname)
+            [ "$#" -ge 2 ] || fail "--cloudflare-hostname requires a value"
+            cloudflare_hostname_arg=$2
+            shift 2
+            ;;
+        --disable-cloudflare)
+            disable_cloudflare=true
+            shift
+            ;;
         --version)
             [ "$#" -ge 2 ] || fail "--version requires a value"
             version_arg=$2
@@ -251,6 +300,7 @@ fi
 
 for required_file in \
     "$compose_file" \
+    "$cloudflare_compose_file" \
     "${repo_dir}/Dockerfile" \
     "${repo_dir}/hardware/Dockerfile" \
     "${repo_dir}/hardware/config/media-bindings.empty.json" \
@@ -345,16 +395,21 @@ else
 fi
 
 bind_address=${MODEMDECK_BIND_ADDRESS:-$(env_or_default MODEMDECK_BIND_ADDRESS 127.0.0.1)}
-port=${MODEMDECK_PORT:-$(env_or_default MODEMDECK_PORT 7575)}
+port=${MODEMDECK_PORT:-$(env_or_default MODEMDECK_PORT 7577)}
 tls_hosts=${MODEMDECK_TLS_HOSTS:-$(env_or_default MODEMDECK_TLS_HOSTS localhost,127.0.0.1,::1)}
 app_uid=${MODEMDECK_UID:-$(env_or_default MODEMDECK_UID 10001)}
 app_gid=${MODEMDECK_GID:-$(env_or_default MODEMDECK_GID 10001)}
 agent_gid=${MODEMDECK_AGENT_GID:-$(env_or_default MODEMDECK_AGENT_GID 10002)}
 image_name=${MODEMDECK_IMAGE:-$(env_or_default MODEMDECK_IMAGE modemdeck)}
+web_image=${MODEMDECK_WEB_IMAGE:-$(env_or_default MODEMDECK_WEB_IMAGE modemdeck-web)}
 hardware_image=${MODEMDECK_HARDWARE_IMAGE:-$(env_or_default MODEMDECK_HARDWARE_IMAGE modemdeck-hardware)}
 settings_key_path=${MODEMDECK_SETTINGS_KEY_FILE:-$(env_or_default MODEMDECK_SETTINGS_KEY_FILE ./secrets/settings-key)}
 data_path=${MODEMDECK_DATA_DIR:-$(env_or_default MODEMDECK_DATA_DIR ./data)}
 media_bindings_path=${MODEMDECK_MEDIA_BINDINGS_FILE:-$(env_or_default MODEMDECK_MEDIA_BINDINGS_FILE ./hardware/config/media-bindings.empty.json)}
+cloudflare_enabled=${MODEMDECK_CLOUDFLARE_ENABLED:-$(env_or_default MODEMDECK_CLOUDFLARE_ENABLED false)}
+cloudflare_hostname=${MODEMDECK_CLOUDFLARE_HOSTNAME:-$(env_or_default MODEMDECK_CLOUDFLARE_HOSTNAME "")}
+cloudflare_token_path=${MODEMDECK_CLOUDFLARE_TOKEN_FILE:-$(env_or_default MODEMDECK_CLOUDFLARE_TOKEN_FILE ./secrets/cloudflare-tunnel-token)}
+cloudflared_version=${MODEMDECK_CLOUDFLARED_VERSION:-$(env_or_default MODEMDECK_CLOUDFLARED_VERSION 2026.7.3)}
 
 [ -z "$bind_address_arg" ] || bind_address=$bind_address_arg
 [ -z "$port_arg" ] || port=$port_arg
@@ -373,11 +428,6 @@ case "$port" in
 esac
 [ "$port" -ge 1 ] && [ "$port" -le 65535 ] ||
     fail "--port must be between 1 and 65535"
-case "$tls_hosts" in
-    ""|*[[:space:]]*)
-        fail "--tls-hosts must be a non-empty comma-separated list without spaces"
-        ;;
-esac
 for numeric_value in "$app_uid" "$app_gid" "$agent_gid"; do
     case "$numeric_value" in
         ""|*[!0-9]*)
@@ -390,18 +440,83 @@ done
 [ "$app_gid" != "$agent_gid" ] ||
     fail "MODEMDECK_GID and MODEMDECK_AGENT_GID must remain separate"
 
-case ",$tls_hosts," in
-    *",$bind_address,"*) ;;
-    *)
-        if [ "$bind_address" != 0.0.0.0 ]; then
-            tls_hosts="${tls_hosts},${bind_address}"
-        fi
-        ;;
-esac
-
 settings_key_file=$(absolute_path "$settings_key_path")
 data_dir=$(absolute_path "$data_path")
 media_bindings_file=$(absolute_path "$media_bindings_path")
+cloudflare_token_file=$(absolute_path "$cloudflare_token_path")
+
+case "$cloudflare_enabled" in
+    true|false) ;;
+    *) fail "MODEMDECK_CLOUDFLARE_ENABLED must be true or false" ;;
+esac
+if [ "$disable_cloudflare" = true ]; then
+    [ -z "$cloudflare_token_arg" ] && [ -z "$cloudflare_hostname_arg" ] ||
+        fail "--disable-cloudflare cannot be combined with Cloudflare enable options"
+    cloudflare_enabled=false
+elif [ -n "$cloudflare_token_arg" ] || [ -n "$cloudflare_hostname_arg" ]; then
+    cloudflare_enabled=true
+fi
+[ -z "$cloudflare_hostname_arg" ] ||
+    cloudflare_hostname=$cloudflare_hostname_arg
+
+validate_cloudflare_hostname() {
+    printf '%s\n' "$1" | awk -F. '
+        length($0) < 1 || length($0) > 253 || NF < 2 { exit 1 }
+        {
+            for (part = 1; part <= NF; part++) {
+                label = $part
+                if (length(label) < 1 || length(label) > 63 ||
+                    label !~ /^[A-Za-z0-9-]+$/ ||
+                    label ~ /^-/ || label ~ /-$/) {
+                    exit 1
+                }
+            }
+        }
+    '
+}
+
+validate_cloudflare_token_file() {
+    token_file=$1
+    [ -r "$token_file" ] ||
+        fail "Cloudflare Tunnel token file is not readable: $token_file"
+    [ -f "$token_file" ] && [ ! -L "$token_file" ] ||
+        fail "Cloudflare Tunnel token must be a regular non-symlink file: $token_file"
+    token_size=$(stat -c %s "$token_file" 2>/dev/null ||
+        stat -f %z "$token_file")
+    [ "$token_size" -le 4097 ] ||
+        fail "Cloudflare Tunnel token file exceeds 4097 bytes"
+    awk '
+        {
+            sub(/\r$/, "")
+            if ($0 == "") next
+            if (seen || length($0) < 80 || length($0) > 4096 ||
+                $0 !~ /^[A-Za-z0-9_-]+$/) {
+                exit 1
+            }
+            seen = 1
+        }
+        END { if (!seen) exit 1 }
+    ' "$token_file" ||
+        fail "Cloudflare Tunnel token file does not contain one valid token"
+}
+
+cloudflare_public_url=
+cloudflare_token_source=$cloudflare_token_file
+if [ "$cloudflare_enabled" = true ]; then
+    [ -n "$cloudflare_hostname" ] ||
+        fail "enabling Cloudflare requires --cloudflare-hostname HOST"
+    validate_cloudflare_hostname "$cloudflare_hostname" ||
+        fail "--cloudflare-hostname must be a valid DNS hostname"
+    if [ -n "$cloudflare_token_arg" ]; then
+        cloudflare_token_source=$(absolute_path "$cloudflare_token_arg")
+    fi
+    validate_cloudflare_token_file "$cloudflare_token_source"
+    cloudflare_public_url="https://${cloudflare_hostname}"
+fi
+printf '%s\n' "$cloudflared_version" |
+    grep -Eq '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$' ||
+    fail "MODEMDECK_CLOUDFLARED_VERSION is not a valid Docker tag"
+
 state_dir=${MODEMDECK_INSTALL_STATE_DIR:-/var/lib/modemdeck-installer}
 case "$state_dir" in
     /*) ;;
@@ -527,20 +642,26 @@ upsert_env() {
 upsert_env MODEMDECK_HARDWARE_MODE "$mode"
 upsert_env MODEMDECK_ASSIGNMENT_FILE "$assignment_path"
 upsert_env MODEMDECK_IMAGE "$image_name"
+upsert_env MODEMDECK_WEB_IMAGE "$web_image"
 upsert_env MODEMDECK_HARDWARE_IMAGE "$hardware_image"
 upsert_env MODEMDECK_VERSION "$version"
 upsert_env MODEMDECK_BUILD_DATE "$build_date"
 upsert_env MODEMDECK_VCS_REF "$vcs_ref"
 upsert_env MODEMDECK_BIND_ADDRESS "$bind_address"
 upsert_env MODEMDECK_PORT "$port"
+upsert_env MODEMDECK_TLS_HOSTS "$tls_hosts"
 upsert_env MODEMDECK_UID "$app_uid"
 upsert_env MODEMDECK_GID "$app_gid"
 upsert_env MODEMDECK_AGENT_GID "$agent_gid"
 upsert_env MODEMDECK_SETTINGS_KEY_FILE "$settings_key_file"
 upsert_env MODEMDECK_DATA_DIR "$data_dir"
 upsert_env MODEMDECK_MEDIA_BINDINGS_FILE "$media_bindings_file"
-upsert_env MODEMDECK_TLS_HOSTS "$tls_hosts"
 upsert_env MODEMDECK_SECURE_COOKIES true
+upsert_env MODEMDECK_CLOUDFLARE_ENABLED "$cloudflare_enabled"
+upsert_env MODEMDECK_CLOUDFLARE_HOSTNAME "$cloudflare_hostname"
+upsert_env MODEMDECK_CLOUDFLARE_PUBLIC_URL "$cloudflare_public_url"
+upsert_env MODEMDECK_CLOUDFLARE_TOKEN_FILE "$cloudflare_token_file"
+upsert_env MODEMDECK_CLOUDFLARED_VERSION "$cloudflared_version"
 if [ "$mode" = advanced ]; then
     upsert_env MODEMDECK_HOST_PROC_ROOT "$proc_root"
     upsert_env MODEMDECK_HOST_DBUS_SOCKET "$host_dbus_socket"
@@ -551,15 +672,45 @@ log "Validating deployment"
 printf 'Source:        %s\n' "$repo_dir"
 printf 'Mode:          %s\n' "$mode"
 printf 'Architecture:  linux/%s\n' "$target_arch"
-printf 'Images:        %s:%s, %s:%s\n' \
-    "$image_name" "$version" "$hardware_image" "$version"
-printf 'Listen:        https://%s:%s\n' "$bind_address" "$port"
+printf 'Images:        %s:%s, %s:%s, %s:%s\n' \
+    "$image_name" "$version" \
+    "$web_image" "$version" \
+    "$hardware_image" "$version"
+printf 'Web UI:        https://%s:%s\n' "$bind_address" "$port"
+printf '%s\n' 'API origin:    http://modemdeck:7575 (Compose only, non-API paths return 404)'
+printf '%s\n' 'API upstream:  http://api:8080 (Compose only)'
 printf 'Data:          %s\n' "$data_dir"
 printf 'Media config:  %s\n' "$media_bindings_file"
+if [ "$cloudflare_enabled" = true ]; then
+    printf 'Cloudflare:    enabled (%s)\n' "$cloudflare_public_url"
+else
+    printf '%s\n' 'Cloudflare:    disabled (iOS pairing unavailable)'
+fi
 if [ "$mode" = advanced ]; then
     printf 'Assignments:   %s\n' "$assignment_path"
 fi
 compose config --quiet
+
+if [ "$cloudflare_enabled" = true ]; then
+    legacy_cloudflared_id=$(docker ps -aq \
+        --filter 'name=^/modemdeck-cloudflared$' 2>/dev/null |
+        sed -n '1p')
+    if [ -n "$legacy_cloudflared_id" ]; then
+        existing_project=$(docker inspect --format \
+            '{{index .Config.Labels "com.docker.compose.project"}}' \
+            "$legacy_cloudflared_id" 2>/dev/null || true)
+        existing_service=$(docker inspect --format \
+            '{{index .Config.Labels "com.docker.compose.service"}}' \
+            "$legacy_cloudflared_id" 2>/dev/null || true)
+        if [ "$existing_project" = modemdeck ] &&
+            [ "$existing_service" = cloudflared ]; then
+            legacy_cloudflared_id=
+        else
+            printf '%s\n' \
+                'Tunnel migration: the existing manual connector will remain running until its Compose replacement is healthy.'
+        fi
+    fi
+fi
 
 unit_load_state() {
     systemctl show "$1" --property=LoadState --value 2>/dev/null ||
@@ -596,7 +747,7 @@ if [ "$mode" = simple ]; then
     done
 fi
 
-managed_app_id=$(compose ps -q modemdeck 2>/dev/null || true)
+managed_gateway_id=$(compose ps -q modemdeck 2>/dev/null || true)
 port_hex=$(printf '%04X' "$port")
 port_is_listening=false
 for socket_table in "${proc_root}/net/tcp" "${proc_root}/net/tcp6"; do
@@ -612,7 +763,8 @@ for socket_table in "${proc_root}/net/tcp" "${proc_root}/net/tcp6"; do
         break
     fi
 done
-if [ "$port_is_listening" = true ] && [ -z "$managed_app_id" ]; then
+if [ "$port_is_listening" = true ] &&
+    [ -z "$managed_gateway_id" ]; then
     fail "TCP port $port is already in use by another host process"
 fi
 
@@ -652,6 +804,26 @@ prepare_secret() {
 
 prepare_secret "$settings_key_file" 32 "settings encryption key"
 
+prepare_cloudflare_token() {
+    token_source=$1
+    token_destination=$2
+    token_directory=$(dirname -- "$token_destination")
+    normalized_token="${work_dir}/cloudflare-tunnel-token"
+
+    tr -d '\r\n' <"$token_source" >"$normalized_token"
+    printf '\n' >>"$normalized_token"
+    install -d -o root -g root -m 0700 "$token_directory"
+    install -o 65532 -g 65532 -m 0440 \
+        "$normalized_token" \
+        "$token_destination"
+}
+
+if [ "$cloudflare_enabled" = true ]; then
+    prepare_cloudflare_token \
+        "$cloudflare_token_source" \
+        "$cloudflare_token_file"
+fi
+
 if [ -L "$data_dir" ]; then
     fail "application data directory must not be a symlink: $data_dir"
 fi
@@ -659,8 +831,8 @@ log "Preparing persistent application data"
 env MODEMDECK_UID="$app_uid" MODEMDECK_GID="$app_gid" \
     "${repo_dir}/scripts/prepare-modemdeck-data.sh" "$data_dir"
 
-log "Building application and hardware images in Docker"
-compose build hardware modemdeck
+log "Building Web, application, and hardware images in Docker"
+compose build hardware api modemdeck
 if [ "$mode" = advanced ]; then
     log "Validating advanced device assignments with the hardware image"
     compose run --rm --no-deps \
@@ -858,7 +1030,19 @@ wait_for_healthy() {
 }
 
 wait_for_healthy hardware 60
+wait_for_healthy api 60
 wait_for_healthy modemdeck 60
+if [ "$cloudflare_enabled" = true ]; then
+    wait_for_healthy cloudflared 60
+fi
+
+if [ -n "$legacy_cloudflared_id" ] &&
+    [ "$(docker inspect --format '{{.State.Running}}' \
+        "$legacy_cloudflared_id" 2>/dev/null || true)" = true ]; then
+    log "Stopping the superseded manual Cloudflare Tunnel connector"
+    docker stop --time 20 "$legacy_cloudflared_id" >/dev/null ||
+        warn "the superseded manual connector is still running: $legacy_cloudflared_id"
+fi
 
 repo_uid=$(stat -c %u "$repo_dir")
 repo_gid=$(stat -c %g "$repo_dir")
@@ -875,8 +1059,11 @@ installation_complete=true
 services_changed=false
 
 log "Installation complete"
-printf 'Open:           https://%s:%s\n' "$bind_address" "$port"
+printf 'Web UI:         https://%s:%s\n' "$bind_address" "$port"
+if [ "$cloudflare_enabled" = true ]; then
+    printf 'iOS API:        %s\n' "$cloudflare_public_url"
+fi
 printf 'Hardware mode:  %s\n' "$mode"
 printf '%s\n' 'First install: complete Web Quick Start to create the administrator account.'
 printf '%s\n' \
-    'Application data, Agent ownership state, ModemManager state, secrets, and TLS files are persistent.'
+    'Application data, Agent ownership state, ModemManager state, and secrets are persistent.'

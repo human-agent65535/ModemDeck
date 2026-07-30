@@ -17,6 +17,7 @@ const member = {
   role: 'member',
   enabled: true,
   must_change_password: true,
+  ios_pairing_enabled: true,
   revision: 2,
   profile_name: 'Member Name',
   profile_avatar: 'data:image/png;base64,avatar',
@@ -32,11 +33,13 @@ test('user contracts retain role, personal profile, and assigned-line state', ()
     createMemberPayload({
       username: '  new-member  ',
       password: 'temporary password',
+      ios_pairing_enabled: true,
       line_ids: [' line_alpha ', 'line_beta']
     }),
     {
       username: 'new-member',
       password: 'temporary password',
+      ios_pairing_enabled: true,
       line_ids: ['line_alpha', 'line_beta']
     }
   )
@@ -44,12 +47,14 @@ test('user contracts retain role, personal profile, and assigned-line state', ()
     createMemberUpdatePayload({
       username: '  renamed  ',
       enabled: false,
+      ios_pairing_enabled: false,
       line_ids: ['line_alpha', ' line_beta '],
       revision: 3
     }),
     {
       username: 'renamed',
       enabled: false,
+      ios_pairing_enabled: false,
       line_ids: ['line_alpha', 'line_beta'],
       revision: 3
     }

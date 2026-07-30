@@ -242,6 +242,8 @@ export default {
     recordingDescription: 'Default recording behavior',
     telegram: 'Notifications',
     telegramDescription: 'Delivery through Telegram bots',
+    iosApp: 'iOS app',
+    iosAppDescription: 'Tunnel connection and device pairing',
     tls: 'TLS',
     tlsDescription: 'Certificates and secure connections',
     diagnostics: 'Diagnostics',
@@ -387,6 +389,9 @@ export default {
     accountAccess: 'Account access',
     accountAccessDescription:
       'Saving a disabled user blocks sign-in and revokes current sessions.',
+    iosPairingAccess: 'Allow iOS pairing',
+    iosPairingAccessDescription:
+      'The user can pair their own iPhone. Disabling this revokes its credential.',
     selectUser: 'Select a user',
     initialAdminDescription:
       'The initial administrator is permanent and cannot be converted or disabled.',
@@ -410,6 +415,62 @@ export default {
     saved: 'User saved',
     passwordSet: 'Password set',
     createMember: 'Create member'
+  },
+  iosPairing: {
+    loading: 'Loading iOS pairing',
+    loadFailed: 'Unable to load iOS pairing',
+    title: 'iOS app',
+    description: 'Pair this account with an iPhone for future app access.',
+    tunnelTitle: 'Cloudflare Tunnel',
+    tunnelDescription:
+      'Installation-managed connector status. The endpoint cannot be changed in Web settings.',
+    notInstalled: 'Not installed',
+    connected: 'Connected',
+    disconnected: 'Disconnected',
+    publicURL: 'Public URL',
+    origin: 'Private HTTP origin',
+    cloudflareRequired:
+      'Enable Cloudflare Tunnel through the installer before pairing iOS.',
+    cloudflareUnavailable:
+      'Cloudflare Tunnel is enabled but not connected. Pairing is unavailable until it is healthy.',
+    installManaged:
+      'Tunnel token, hostname, and container lifecycle are managed by install.sh and Docker Compose.',
+    yourDevice: 'Your iPhone',
+    yourDeviceDescription:
+      'Only you can generate, replace, or revoke this account’s pairing.',
+    notAllowed: 'Not allowed',
+    paired: 'Paired',
+    notPaired: 'Not paired',
+    permissionRequired:
+      'An administrator must allow iOS pairing for your account.',
+    connection: 'Always connects through',
+    createdAt: 'Credential created',
+    noSwitching:
+      'The app will always use the Tunnel URL; it will not detect or switch to a local route.',
+    noExpiry:
+      'This credential has no scheduled expiration. Replace or revoke it if the QR code is exposed.',
+    replaceQR: 'Replace QR code',
+    generateQR: 'Generate QR code',
+    revoke: 'Revoke pairing',
+    replaceTitle: 'Replace the pairing QR code?',
+    replaceMessage:
+      'The existing iPhone credential will stop working immediately.',
+    replaceConfirm: 'Replace QR code',
+    revokeTitle: 'Revoke iOS pairing?',
+    revokeMessage:
+      'The paired iPhone will lose access until you generate and scan a new QR code.',
+    revokeConfirm: 'Revoke',
+    revokeFailed: 'Unable to revoke iOS pairing',
+    invalidPayload: 'The server returned invalid pairing data',
+    createFailed: 'Unable to generate the pairing QR code',
+    copyFailed: 'Unable to copy the pairing data',
+    scanTitle: 'Scan with the ModemDeck iOS app',
+    scanDescription: 'Open pairing in the iOS app and scan this QR code.',
+    qrAlt: 'ModemDeck iOS pairing QR code',
+    showOnce:
+      'This QR code contains a secret and is shown only now. Do not share it.',
+    copied: 'Copied',
+    copyPairingData: 'Copy pairing data'
   },
   contacts: {
     new: 'New contact',
