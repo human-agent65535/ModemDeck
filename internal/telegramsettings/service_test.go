@@ -18,6 +18,14 @@ import (
 const testBotToken = "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"
 const testOwnerUserID = "user_admin"
 
+func TestServiceNotifiesCommittedAccessChanges(t *testing.T) {
+	t.Parallel()
+
+	service := newTestService(t)
+	service.NotifyAccessChanged()
+	assertChangeSignal(t, service)
+}
+
 func TestServiceKeepsBotTokenWriteOnlyAndEncrypted(t *testing.T) {
 	t.Parallel()
 

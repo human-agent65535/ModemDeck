@@ -3,11 +3,13 @@ package telegramruntime
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -24,6 +26,8 @@ const (
 	defaultNotificationEvery    = time.Second
 	notificationDeliveryLimit   = 20
 	notificationDeliveryTimeout = 15 * time.Second
+	defaultAPIRetryAfter        = 30 * time.Second
+	retryReconcileBackoff       = 5 * time.Second
 )
 
 type Settings interface {
@@ -41,7 +45,6 @@ type Options struct {
 	Now               func() time.Time
 	NotificationEvery time.Duration
 	RuntimeEvents     runtimeevents.Publisher
-	AccessEvents      runtimeevents.Source
 }
 
 type Manager struct {
@@ -54,7 +57,7 @@ type Manager struct {
 	now               func() time.Time
 	notificationEvery time.Duration
 	runtimeEvents     runtimeevents.Publisher
-	accessEvents      runtimeevents.Source
+	commandMenus      map[string][sha256.Size]byte
 }
 
 type unitRuntime struct {
@@ -63,6 +66,7 @@ type unitRuntime struct {
 	service         *telegram.Service
 	context         context.Context
 	resolveContacts bool
+	config          telegram.Config
 }
 
 func New(
@@ -108,34 +112,36 @@ func New(
 		now:               now,
 		notificationEvery: notificationEvery,
 		runtimeEvents:     options.RuntimeEvents,
-		accessEvents:      options.AccessEvents,
+		commandMenus:      make(map[string][sha256.Size]byte),
 	}, nil
 }
 
 // Run reconciles enabled units once at startup and after committed settings
-// changes. A failed poller is not restarted until one of those explicit
-// boundaries, preventing an unbounded recovery loop around invalid settings or
-// credentials.
+// or user-access changes. Telegram API rate limits are retried at their
+// per-unit deadlines; other failures wait for an explicit settings boundary.
 func (m *Manager) Run(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	var accessUpdates <-chan runtimeevents.Event
-	accessCancel := func() {}
-	if m.accessEvents != nil {
-		_, updates, cancel := m.accessEvents.SubscribeCurrent()
-		accessUpdates = updates
-		accessCancel = cancel
-	}
-	defer func() { accessCancel() }()
 	if err := m.repository.MarkSendingTelegramNotificationsIndeterminate(ctx); err != nil {
 		return fmt.Errorf("recover Telegram notification outbox: %w", err)
 	}
-	runtimes, err := m.reconcile(ctx, nil)
+	retryDeadlines := make(map[string]time.Time)
+	runtimes, err := m.reconcile(ctx, nil, retryDeadlines, false)
 	if err != nil {
 		return err
 	}
-	defer stopRuntimes(runtimes)
+	defer func() {
+		stopRuntimes(runtimes)
+	}()
+
+	retryTimer := time.NewTimer(time.Hour)
+	if !retryTimer.Stop() {
+		<-retryTimer.C
+	}
+	defer retryTimer.Stop()
+	retryEvents := resetRetryTimer(retryTimer, retryDeadlines)
+
 	notifications := time.NewTicker(m.notificationEvery)
 	defer notifications.Stop()
 
@@ -144,29 +150,22 @@ func (m *Manager) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-m.settings.Changes():
-			next, err := m.reconcile(ctx, runtimes)
+			next, err := m.reconcile(ctx, runtimes, retryDeadlines, false)
 			if err != nil {
 				m.logger.Error("reload Telegram runtime", "error_class", classifyError(err))
-				continue
+			} else {
+				runtimes = next
 			}
-			runtimes = next
-		case event, open := <-accessUpdates:
-			if !open {
-				accessCancel()
-				_, updates, cancel := m.accessEvents.SubscribeCurrent()
-				accessUpdates = updates
-				accessCancel = cancel
-				continue
-			}
-			if !runtimeEventIncludes(event, runtimeevents.ResourceLines) {
-				continue
-			}
-			next, err := m.reconcile(ctx, runtimes)
+			retryEvents = resetRetryTimer(retryTimer, retryDeadlines)
+		case <-retryEvents:
+			next, err := m.reconcile(ctx, runtimes, retryDeadlines, true)
 			if err != nil {
-				m.logger.Error("reload Telegram line access", "error_class", classifyError(err))
-				continue
+				m.logger.Error("retry Telegram runtime", "error_class", classifyError(err))
+				postponeDueRetries(retryDeadlines, retryReconcileBackoff)
+			} else {
+				runtimes = next
 			}
-			runtimes = next
+			retryEvents = resetRetryTimer(retryTimer, retryDeadlines)
 		case <-notifications.C:
 			if err := m.dispatchNotifications(ctx, runtimes); err != nil {
 				m.logger.Error("dispatch Telegram notifications", "error_class", classifyError(err))
@@ -175,47 +174,116 @@ func (m *Manager) Run(ctx context.Context) error {
 	}
 }
 
-func runtimeEventIncludes(event runtimeevents.Event, resource runtimeevents.Resource) bool {
-	for _, current := range event.Resources {
-		if current == resource {
-			return true
-		}
-	}
-	return false
+type desiredUnitRuntime struct {
+	id     string
+	config telegram.Config
 }
 
 func (m *Manager) reconcile(
 	ctx context.Context,
 	current map[string]unitRuntime,
+	retryDeadlines map[string]time.Time,
+	retryOnly bool,
 ) (map[string]unitRuntime, error) {
-	stopRuntimes(current)
 	units, err := m.settings.List(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list Telegram runtime settings: %w", err)
+		return current, fmt.Errorf("list Telegram runtime settings: %w", err)
 	}
 	sort.Slice(units, func(i, j int) bool {
 		return units[i].ID < units[j].ID
 	})
-	next := make(map[string]unitRuntime)
+
+	knownUnitIDs := make(map[string]struct{}, len(units))
+	desiredUnitIDs := make(map[string]struct{}, len(units))
+	desired := make([]desiredUnitRuntime, 0, len(units))
 	for _, unit := range units {
+		knownUnitIDs[unit.ID] = struct{}{}
 		if !unit.EffectiveEnabled {
 			continue
 		}
-		runtime, err := m.startUnit(ctx, unit.ID)
+		config, err := m.settings.RuntimeConfig(ctx, unit.ID)
 		if err != nil {
-			m.recordFailure(unit.ID, err)
+			return current, fmt.Errorf("load Telegram runtime config: %w", err)
+		}
+		desiredUnitIDs[unit.ID] = struct{}{}
+		desired = append(desired, desiredUnitRuntime{
+			id:     unit.ID,
+			config: cloneTelegramConfig(config),
+		})
+	}
+
+	for unitID := range retryDeadlines {
+		if _, exists := desiredUnitIDs[unitID]; !exists {
+			delete(retryDeadlines, unitID)
+		}
+	}
+	for unitID := range m.commandMenus {
+		if _, exists := knownUnitIDs[unitID]; !exists {
+			delete(m.commandMenus, unitID)
+		}
+	}
+
+	next := make(map[string]unitRuntime, len(desired))
+	handledCurrent := make(map[string]struct{}, len(current))
+	now := time.Now()
+	for _, unit := range desired {
+		existing, exists := current[unit.id]
+		if retryOnly {
+			deadline, scheduled := retryDeadlines[unit.id]
+			if !scheduled || deadline.After(now) {
+				if exists {
+					handledCurrent[unit.id] = struct{}{}
+					if unitRuntimeActive(existing) {
+						next[unit.id] = existing
+					} else {
+						stopUnitRuntime(existing)
+					}
+				}
+				continue
+			}
+		}
+		if exists {
+			handledCurrent[unit.id] = struct{}{}
+			if unitRuntimeActive(existing) &&
+				telegramConfigsEqual(existing.config, unit.config) {
+				next[unit.id] = existing
+				delete(retryDeadlines, unit.id)
+				continue
+			}
+			stopUnitRuntime(existing)
+		}
+
+		if !retryOnly {
+			delete(retryDeadlines, unit.id)
+		}
+
+		runtime, err := m.startUnit(ctx, unit.id, unit.config)
+		if err != nil {
+			m.recordFailure(unit.id, err)
+			if delay, retry := telegramAPIRetryDelay(err); retry {
+				retryDeadlines[unit.id] = time.Now().Add(delay)
+			} else {
+				delete(retryDeadlines, unit.id)
+			}
 			continue
 		}
-		next[unit.ID] = runtime
+		delete(retryDeadlines, unit.id)
+		next[unit.id] = runtime
+	}
+	for unitID, runtime := range current {
+		if _, handled := handledCurrent[unitID]; handled {
+			continue
+		}
+		stopUnitRuntime(runtime)
 	}
 	return next, nil
 }
 
-func (m *Manager) startUnit(parent context.Context, unitID string) (unitRuntime, error) {
-	config, err := m.settings.RuntimeConfig(parent, unitID)
-	if err != nil {
-		return unitRuntime{}, err
-	}
+func (m *Manager) startUnit(
+	parent context.Context,
+	unitID string,
+	config telegram.Config,
+) (unitRuntime, error) {
 	runtimeParent := parent
 	if config.Principal != nil {
 		runtimeParent = auth.ContextWithPrincipal(parent, *config.Principal)
@@ -253,7 +321,17 @@ func (m *Manager) startUnit(parent context.Context, unitID string) (unitRuntime,
 		return unitRuntime{}, err
 	}
 	verifyContext, verifyCancel := context.WithTimeout(runtimeParent, 10*time.Second)
-	user, err := service.InitializeBot(verifyContext)
+	tokenFingerprint := sha256.Sum256([]byte(config.BotToken))
+	registeredFingerprint, commandsRegistered := m.commandMenus[unitID]
+	var user telegram.BotUser
+	if commandsRegistered && registeredFingerprint == tokenFingerprint {
+		user, err = service.VerifyBot(verifyContext)
+	} else {
+		user, err = service.InitializeBot(verifyContext)
+		if err == nil {
+			m.commandMenus[unitID] = tokenFingerprint
+		}
+	}
 	verifyCancel()
 	if err != nil {
 		return unitRuntime{}, err
@@ -305,6 +383,7 @@ func (m *Manager) startUnit(parent context.Context, unitID string) (unitRuntime,
 		service:         service,
 		context:         unitContext,
 		resolveContacts: config.ResolveContacts,
+		config:          cloneTelegramConfig(config),
 	}, nil
 }
 
@@ -321,7 +400,123 @@ func (m *Manager) recordFailure(unitID string, err error) {
 	); statusErr != nil {
 		m.logger.Error("record Telegram runtime status", "error_class", classifyError(statusErr))
 	}
-	m.logger.Warn("Telegram unit stopped", "error_class", errorClass)
+	logFields := []any{"error_class", errorClass}
+	var operationError *telegram.OperationError
+	if errors.As(err, &operationError) {
+		logFields = append(logFields, "operation", operationError.Operation)
+	}
+	var apiError *telegram.APIError
+	if errors.As(err, &apiError) {
+		logFields = append(logFields, "api_code", apiError.Code)
+		if apiError.RetryAfter > 0 {
+			logFields = append(
+				logFields,
+				"retry_after_seconds",
+				int64(apiError.RetryAfter/time.Second),
+			)
+		}
+	}
+	m.logger.Warn("Telegram unit stopped", logFields...)
+}
+
+func telegramAPIRetryDelay(err error) (time.Duration, bool) {
+	var apiError *telegram.APIError
+	if !errors.As(err, &apiError) || apiError.Code != 429 {
+		return 0, false
+	}
+	if apiError.RetryAfter > 0 {
+		return apiError.RetryAfter, true
+	}
+	return defaultAPIRetryAfter, true
+}
+
+func resetRetryTimer(
+	timer *time.Timer,
+	deadlines map[string]time.Time,
+) <-chan time.Time {
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	deadline, exists := earliestRetryDeadline(deadlines)
+	if !exists {
+		return nil
+	}
+	delay := time.Until(deadline)
+	if delay < 0 {
+		delay = 0
+	}
+	timer.Reset(delay)
+	return timer.C
+}
+
+func earliestRetryDeadline(deadlines map[string]time.Time) (time.Time, bool) {
+	var earliest time.Time
+	for _, deadline := range deadlines {
+		if earliest.IsZero() || deadline.Before(earliest) {
+			earliest = deadline
+		}
+	}
+	return earliest, !earliest.IsZero()
+}
+
+func postponeDueRetries(deadlines map[string]time.Time, delay time.Duration) {
+	now := time.Now()
+	next := now.Add(delay)
+	for unitID, deadline := range deadlines {
+		if !deadline.After(now) {
+			deadlines[unitID] = next
+		}
+	}
+}
+
+func telegramConfigsEqual(left, right telegram.Config) bool {
+	return left.Enabled == right.Enabled &&
+		left.BotToken == right.BotToken &&
+		left.ChatID == right.ChatID &&
+		left.AdminID == right.AdminID &&
+		left.LineScopeMode == right.LineScopeMode &&
+		left.ResolveContacts == right.ResolveContacts &&
+		left.Notifications == right.Notifications &&
+		slices.Equal(left.LineScopes, right.LineScopes) &&
+		telegramPrincipalsEqual(left.Principal, right.Principal)
+}
+
+func telegramPrincipalsEqual(left, right *auth.Principal) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return left.UserID == right.UserID &&
+		left.Username == right.Username &&
+		left.Role == right.Role &&
+		left.ProfileContactID == right.ProfileContactID &&
+		left.MustChangePassword == right.MustChangePassword &&
+		slices.Equal(left.AllowedLineIDs, right.AllowedLineIDs)
+}
+
+func cloneTelegramConfig(config telegram.Config) telegram.Config {
+	config.LineScopes = slices.Clone(config.LineScopes)
+	if config.Principal != nil {
+		principal := config.Principal.Copy()
+		config.Principal = &principal
+	}
+	return config
+}
+
+func unitRuntimeActive(runtime unitRuntime) bool {
+	select {
+	case <-runtime.done:
+		return false
+	default:
+		return true
+	}
+}
+
+func stopUnitRuntime(runtime unitRuntime) {
+	runtime.cancel()
+	<-runtime.done
 }
 
 func stopRuntimes(runtimes map[string]unitRuntime) {

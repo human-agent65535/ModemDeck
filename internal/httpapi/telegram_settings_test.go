@@ -14,15 +14,16 @@ import (
 )
 
 type fakeTelegramSettings struct {
-	units       []telegramsettings.Unit
-	createInput telegramsettings.CreateInput
-	createError error
-	updateID    string
-	updateInput telegramsettings.UpdateInput
-	updateError error
-	deleteID    string
-	deleteRev   int64
-	deleteError error
+	units               []telegramsettings.Unit
+	createInput         telegramsettings.CreateInput
+	createError         error
+	updateID            string
+	updateInput         telegramsettings.UpdateInput
+	updateError         error
+	deleteID            string
+	deleteRev           int64
+	deleteError         error
+	accessNotifications int
 }
 
 func (settings *fakeTelegramSettings) List(context.Context) ([]telegramsettings.Unit, error) {
@@ -57,6 +58,10 @@ func (settings *fakeTelegramSettings) Delete(_ context.Context, id string, revis
 	settings.deleteID = id
 	settings.deleteRev = revision
 	return settings.deleteError
+}
+
+func (settings *fakeTelegramSettings) NotifyAccessChanged() {
+	settings.accessNotifications++
 }
 
 func TestTelegramSettingsCollectionAndWriteOnlyToken(t *testing.T) {

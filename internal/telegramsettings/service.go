@@ -111,6 +111,12 @@ func (s *Service) Changes() <-chan struct{} {
 	return s.changes
 }
 
+// NotifyAccessChanged reloads user-owned units after a committed user enabled
+// state or line-assignment change.
+func (s *Service) NotifyAccessChanged() {
+	s.notifyChange()
+}
+
 func (s *Service) List(ctx context.Context) ([]Unit, error) {
 	records, err := s.repository.TelegramUnits(ctx)
 	if err != nil {

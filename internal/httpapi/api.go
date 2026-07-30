@@ -183,6 +183,7 @@ type TelegramSettingsService interface {
 	Create(context.Context, telegramsettings.CreateInput) (telegramsettings.Unit, error)
 	Update(context.Context, string, telegramsettings.UpdateInput) (telegramsettings.Unit, error)
 	Delete(context.Context, string, int64) error
+	NotifyAccessChanged()
 }
 
 type CallMediaService interface {

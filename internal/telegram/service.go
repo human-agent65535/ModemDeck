@@ -107,14 +107,27 @@ func (s *Service) InitializeBot(ctx context.Context) (BotUser, error) {
 	if err != nil || !s.config.Enabled {
 		return user, err
 	}
+	if err := s.ConfigureBotCommands(ctx); err != nil {
+		return BotUser{}, err
+	}
+	return user, nil
+}
+
+// ConfigureBotCommands writes the canonical command menu. Callers should only
+// invoke it when a bot identity is first started or the menu definition
+// changes; Telegram applies method-specific write limits.
+func (s *Service) ConfigureBotCommands(ctx context.Context) error {
+	if !s.config.Enabled {
+		return nil
+	}
 	if err := s.bot.SetMyCommands(ctx, botCommands()); err != nil {
-		return BotUser{}, &OperationError{
+		return &OperationError{
 			Operation: "configure_bot_commands",
 			Kind:      errorClass(err),
 			Err:       err,
 		}
 	}
-	return user, nil
+	return nil
 }
 
 // Run is the standard service entrypoint: it initializes the bot before

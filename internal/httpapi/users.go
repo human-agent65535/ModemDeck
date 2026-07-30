@@ -94,6 +94,7 @@ func (api *API) usersCollection(response http.ResponseWriter, request *http.Requ
 			api.writeUserError(response, request, "create member", err)
 			return
 		}
+		api.notifyTelegramAccessChanged()
 		writeJSON(response, http.StatusCreated, userResponse{User: user})
 	default:
 		response.Header().Set("Allow", http.MethodGet+", "+http.MethodPost)
@@ -166,6 +167,7 @@ func (api *API) userResource(
 		api.writeUserError(response, request, "update member", err)
 		return
 	}
+	api.notifyTelegramAccessChanged()
 	api.publishRuntimeResources(
 		runtimeevents.ResourceSession,
 		runtimeevents.ResourceLines,
@@ -217,6 +219,12 @@ func (api *API) requireAdmin(response http.ResponseWriter, request *http.Request
 	}
 	writeError(response, http.StatusForbidden, "admin_required", "Administrator access is required", "")
 	return false
+}
+
+func (api *API) notifyTelegramAccessChanged() {
+	if api.telegram != nil {
+		api.telegram.NotifyAccessChanged()
+	}
 }
 
 func (api *API) writeUserError(
