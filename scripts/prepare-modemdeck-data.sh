@@ -28,7 +28,16 @@ for value in "$uid" "$gid"; do
 done
 
 install -d -o "$uid" -g "$gid" -m 0770 "$data_dir"
-find "$data_dir" -xdev -exec chown "$uid:$gid" {} +
+unexpected_link=$(find "$data_dir" -xdev -type l -print -quit)
+if [ -n "$unexpected_link" ]; then
+    echo "application data must not contain symbolic links: $unexpected_link" >&2
+    exit 1
+fi
+
+# Do not dereference a link even if an entry is replaced between the validation
+# above and chown. The installer quiesces the application container while this
+# script runs; -h also protects against an out-of-process race.
+find "$data_dir" -xdev -exec chown -h "$uid:$gid" {} +
 find "$data_dir" -xdev -type d -exec chmod u+rwx,g+rwx,o-rwx {} +
 
 prepare_private_tree() {

@@ -80,6 +80,7 @@ EOF
 
 cat >"${test_root}/bin/chown" <<'EOF'
 #!/bin/sh
+printf 'chown|%s\n' "$*" >>"${MODEMDECK_TEST_COMMAND_LOG}"
 exit 0
 EOF
 
@@ -174,14 +175,14 @@ esac
 action=
 for argument in "$@"; do
     case "$argument" in
-        version|config|ps|build|run|up|down|logs)
+        version|config|ps|build|run|up|down|start|stop|logs)
             action=$argument
             break
             ;;
     esac
 done
 case "$action" in
-    version|config|build|run|logs)
+    version|config|build|run|start|stop|logs)
         exit 0
         ;;
     ps)
@@ -357,6 +358,23 @@ chmod 0660 \
     "${test_root}/data/recordings/call_existing/segment.opus" \
     "${test_root}/data/tls/user.crt"
 
+# Persistent application state must never contain links that can escape the
+# data directory during a privileged ownership normalization.
+printf '%s\n' outside-before >"${test_root}/outside"
+ln -s "${test_root}/outside" "${test_root}/data/escape"
+if common_env \
+    "${fixture}/scripts/prepare-modemdeck-data.sh" "${test_root}/data" \
+    >"${test_root}/prepare-link-output.log" 2>&1
+then
+    fail "data preparation accepted a nested symbolic link"
+fi
+grep -qx 'outside-before' "${test_root}/outside" ||
+    fail "data preparation changed a symbolic-link target outside the data directory"
+grep -Fq 'application data must not contain symbolic links' \
+    "${test_root}/prepare-link-output.log" ||
+    fail "data preparation did not explain the symbolic-link rejection"
+rm -f -- "${test_root}/data/escape"
+
 # A failed simple startup must return host service state to its exact baseline.
 : >"${test_root}/commands.log"
 write_unit_state ModemManager.service enabled 1
@@ -400,6 +418,9 @@ grep -Eq '^docker\|compose .* down( |$)' "${test_root}/commands.log" ||
     fail "TLS directory was not normalized to mode 0750"
 [ "$(file_mode "${test_root}/data/tls/user.crt")" = 640 ] ||
     fail "TLS file was not normalized to mode 0640"
+grep -Eq "^chown\\|-h [^ ]+ ${test_root}/data( |$)" \
+    "${test_root}/commands.log" ||
+    fail "data ownership normalization can dereference symbolic links"
 
 # Advanced mode must never mutate host services and must preserve local state.
 rm -f -- "${test_root}/docker-up"

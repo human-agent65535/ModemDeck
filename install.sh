@@ -31,6 +31,7 @@ transaction_state=
 rollback_state_file=
 compose_ready=false
 compose_started=false
+api_quiesced=false
 services_changed=false
 baseline_created=false
 installation_complete=false
@@ -188,6 +189,11 @@ finish() {
     trap - 0 HUP INT TERM
 
     if [ "$finish_status" -ne 0 ] && [ "$installation_complete" != true ]; then
+        if [ "$api_quiesced" = true ] && [ "$compose_ready" = true ]; then
+            warn "data preparation failed; restarting the previous application"
+            compose start api >/dev/null 2>&1 || true
+            api_quiesced=false
+        fi
         if [ "$compose_started" = true ] && [ "$compose_ready" = true ]; then
             warn "Docker startup failed; removing the incomplete deployment"
             compose down --remove-orphans >/dev/null 2>&1 || true
@@ -824,13 +830,6 @@ if [ "$cloudflare_enabled" = true ]; then
         "$cloudflare_token_file"
 fi
 
-if [ -L "$data_dir" ]; then
-    fail "application data directory must not be a symlink: $data_dir"
-fi
-log "Preparing persistent application data"
-env MODEMDECK_UID="$app_uid" MODEMDECK_GID="$app_gid" \
-    "${repo_dir}/scripts/prepare-modemdeck-data.sh" "$data_dir"
-
 log "Building Web, application, and hardware images in Docker"
 compose build hardware api modemdeck
 if [ "$mode" = advanced ]; then
@@ -840,6 +839,23 @@ if [ "$mode" = advanced ]; then
         hardware \
         validate \
         --config /etc/modemdeck/device-assignments.json
+fi
+
+if [ -L "$data_dir" ]; then
+    fail "application data directory must not be a symlink: $data_dir"
+fi
+existing_api_id=$(compose ps -q api 2>/dev/null || true)
+if [ -n "$existing_api_id" ]; then
+    log "Quiescing the application before preparing persistent data"
+    compose stop api
+    api_quiesced=true
+fi
+log "Preparing persistent application data"
+env MODEMDECK_UID="$app_uid" MODEMDECK_GID="$app_gid" \
+    "${repo_dir}/scripts/prepare-modemdeck-data.sh" "$data_dir"
+if [ "$api_quiesced" = true ]; then
+    compose start api
+    api_quiesced=false
 fi
 
 capture_service_state() {
