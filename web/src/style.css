@@ -2122,6 +2122,17 @@ dd {
   color: var(--danger);
 }
 
+.tls-scope-notice {
+  margin: 0 0 14px;
+  padding: 9px 11px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  background: var(--surface-subtle);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+}
+
 .tls-summary {
   display: flex;
   min-height: 68px;

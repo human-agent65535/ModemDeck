@@ -57,6 +57,7 @@ import type {
   TelegramUnit,
   TelegramUnitInput,
   IOSPairingResult,
+  TLSSettings,
   UpdateCheck,
   UpdateDeviceConfigurationInput,
   UpdateGlobalCallSettingsInput,
@@ -66,6 +67,7 @@ import type {
   UpdateSystemSettingsInput,
   UpdateNetworkSelectionInput,
   UpdateProxyInput,
+  UpdateTLSSettingsInput,
   USSDCommandInput,
   USSDResponse,
   USSDStatus,
@@ -166,6 +168,8 @@ export interface ModemDeckGateway {
   getIOSPairing(): Promise<IOSPairingResult>
   createIOSPairing(): Promise<IOSPairingResult>
   revokeIOSPairing(): Promise<void>
+  getTLSSettings(): Promise<TLSSettings>
+  updateTLSSettings(input: UpdateTLSSettingsInput): Promise<TLSSettings>
   getDeviceConfiguration(lineID: string): Promise<DeviceConfiguration>
   updateDeviceConfiguration(
     lineID: string,

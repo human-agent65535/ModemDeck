@@ -244,8 +244,8 @@ export default {
     telegramDescription: '通过 Telegram Bot 推送',
     iosApp: 'iOS App',
     iosAppDescription: 'Tunnel 连接与设备配对',
-    tls: 'TLS',
-    tlsDescription: '证书与安全连接',
+    tls: 'Web 证书',
+    tlsDescription: '本地 Web 访问证书',
     diagnostics: '诊断',
     diagnosticsDescription: '运行状态与实时日志',
     about: '关于与更新',
@@ -921,6 +921,7 @@ export default {
     saved: '已保存'
   },
   tls: {
+    scopeNotice: '此证书仅用于本地 Web 入口 7577；Cloudflare 与 iOS 的证书由各自链路独立管理。',
     automaticCertificate: '自动证书',
     userCertificate: '用户证书',
     automaticRenewal: '自动续期',

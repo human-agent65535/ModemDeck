@@ -53,6 +53,7 @@ import type {
   SystemSettings,
   TelegramUnit,
   TelegramUnitInput,
+  TLSSettings,
   UpdateCheck,
   UpdateDeviceConfigurationInput,
   UpdateGlobalCallSettingsInput,
@@ -62,6 +63,7 @@ import type {
   UpdateSystemSettingsInput,
   UpdateNetworkSelectionInput,
   UpdateProxyInput,
+  UpdateTLSSettingsInput,
   USSDCommandInput,
   USSDResponse,
   USSDStatus,
@@ -965,6 +967,19 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     default_enabled: false,
     revision: 1
   }
+  let tlsSettings: TLSSettings = {
+    mode: 'automatic',
+    subject: 'CN=modemdeck.local',
+    issuer: 'ModemDeck Local CA',
+    dns_names: ['modemdeck.local', 'gateway.modemdeck.local'],
+    ip_addresses: ['192.168.1.10'],
+    not_before: '2026-07-01T00:00:00Z',
+    not_after: '2026-09-29T23:59:59Z',
+    fingerprint_sha256:
+      '75:8A:8F:23:1C:9B:43:D7:5F:6E:41:65:14:29:CC:20:B1:E6:C9:8A:C7:31:58:5D:D0:19:BE:02:C3:7A:E4:91',
+    expired: false,
+    renews_automatically: true
+  }
   const telegramUnits: TelegramUnit[] = [
     {
       id: 'telegram-main',
@@ -1781,6 +1796,46 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         revision: recordingSettings.revision + 1
       }
       return clone(recordingSettings)
+    },
+
+    async getTLSSettings(): Promise<TLSSettings> {
+      return clone(tlsSettings)
+    },
+
+    async updateTLSSettings(input: UpdateTLSSettingsInput): Promise<TLSSettings> {
+      if (input.operation === 'use_automatic') {
+        tlsSettings = {
+          mode: 'automatic',
+          subject: 'CN=modemdeck.local',
+          issuer: 'ModemDeck Local CA',
+          dns_names: ['modemdeck.local', 'gateway.modemdeck.local'],
+          ip_addresses: ['192.168.1.10'],
+          not_before: '2026-07-01T00:00:00Z',
+          not_after: '2026-09-29T23:59:59Z',
+          fingerprint_sha256:
+            '75:8A:8F:23:1C:9B:43:D7:5F:6E:41:65:14:29:CC:20:B1:E6:C9:8A:C7:31:58:5D:D0:19:BE:02:C3:7A:E4:91',
+          expired: false,
+          renews_automatically: true
+        }
+        return clone(tlsSettings)
+      }
+      if (!input.certificate_pem.trim() || !input.private_key_pem.trim()) {
+        throw new ApiError('证书和私钥不能为空', 400)
+      }
+      tlsSettings = {
+        mode: 'user',
+        subject: 'CN=uploaded.modemdeck.local',
+        issuer: 'ModemDeck Fixture CA',
+        dns_names: ['uploaded.modemdeck.local'],
+        ip_addresses: ['192.168.1.10'],
+        not_before: '2026-07-24T00:00:00Z',
+        not_after: '2027-07-24T00:00:00Z',
+        fingerprint_sha256:
+          'A4:19:3C:C2:F8:67:70:B1:05:55:7D:88:9F:00:0C:D6:2A:09:2E:58:90:3C:D9:50:B2:D8:C6:31:AF:B0:6E:42',
+        expired: false,
+        renews_automatically: false
+      }
+      return clone(tlsSettings)
     },
 
     async setCallRecording(id: string, enabled: boolean): Promise<CallRecordingState> {

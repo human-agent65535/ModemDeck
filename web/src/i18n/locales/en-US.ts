@@ -244,8 +244,8 @@ export default {
     telegramDescription: 'Delivery through Telegram bots',
     iosApp: 'iOS app',
     iosAppDescription: 'Tunnel connection and device pairing',
-    tls: 'TLS',
-    tlsDescription: 'Certificates and secure connections',
+    tls: 'Web certificate',
+    tlsDescription: 'Certificate for the local Web interface',
     diagnostics: 'Diagnostics',
     diagnosticsDescription: 'Runtime status and live logs',
     about: 'About & updates',
@@ -944,6 +944,8 @@ export default {
     saved: 'Saved'
   },
   tls: {
+    scopeNotice:
+      'This certificate is used only by the local Web interface on port 7577. Cloudflare and iOS certificates are managed separately.',
     automaticCertificate: 'Automatic certificate',
     userCertificate: 'User certificate',
     automaticRenewal: 'Renews automatically',

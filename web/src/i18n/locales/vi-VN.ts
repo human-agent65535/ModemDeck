@@ -244,8 +244,8 @@ export default {
     "telegramDescription": "Giao hàng qua bot Telegram",
     "iosApp": "Ứng dụng iOS",
     "iosAppDescription": "Kết nối Tunnel và ghép đôi thiết bị",
-    "tls": "TLS",
-    "tlsDescription": "Chứng chỉ và kết nối an toàn",
+    "tls": "Chứng chỉ Web",
+    "tlsDescription": "Chứng chỉ cho giao diện Web cục bộ",
     "diagnostics": "Chẩn đoán",
     "diagnosticsDescription": "Trạng thái thời gian chạy và nhật ký trực tiếp",
     "about": "Giới thiệu & cập nhật",
@@ -914,6 +914,7 @@ export default {
     "saved": "Đã lưu"
   },
   "tls": {
+    "scopeNotice": "Chứng chỉ này chỉ dùng cho giao diện Web cục bộ trên cổng 7577. Chứng chỉ Cloudflare và iOS được quản lý riêng.",
     "automaticCertificate": "Chứng chỉ tự động",
     "userCertificate": "Chứng chỉ người dùng",
     "automaticRenewal": "Tự động gia hạn",

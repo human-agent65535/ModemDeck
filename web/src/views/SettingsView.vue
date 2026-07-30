@@ -12,6 +12,7 @@ import {
   LogOut,
   RadioTower,
   Send,
+  ShieldCheck,
   Smartphone,
   UserRound,
   Volume2
@@ -26,6 +27,7 @@ import DiagnosticsPanel from '../components/DiagnosticsPanel.vue'
 import IOSAppSettingsPanel from '../components/IOSAppSettingsPanel.vue'
 import TelegramSettingsForm from '../components/TelegramSettingsForm.vue'
 import UserSettingsPanel from '../components/UserSettingsPanel.vue'
+import WebCertificateSettingsPanel from '../components/WebCertificateSettingsPanel.vue'
 import { fixtureMode } from '../api/client'
 import { logout as logoutSession, sessionState } from '../state/session'
 import {
@@ -44,6 +46,7 @@ type SettingsSection =
   | 'devices'
   | 'telegram'
   | 'ios'
+  | 'web-certificate'
   | 'diagnostics'
   | 'about'
 
@@ -125,6 +128,12 @@ const sections = computed<Array<{
   if (sessionState.role !== 'admin') return [...personal, about]
   return [
     ...personal,
+    {
+      id: 'web-certificate',
+      label: t('settings.tls'),
+      description: t('settings.tlsDescription'),
+      icon: ShieldCheck
+    },
     {
       id: 'diagnostics',
       label: t('settings.diagnostics'),
@@ -298,6 +307,10 @@ onMounted(() => {
 
         <div v-else-if="selectedSection === 'ios'" class="settings-content">
           <IOSAppSettingsPanel />
+        </div>
+
+        <div v-else-if="selectedSection === 'web-certificate'" class="settings-content">
+          <WebCertificateSettingsPanel />
         </div>
 
         <div v-else-if="selectedSection === 'diagnostics'" class="settings-content">

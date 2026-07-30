@@ -24,6 +24,13 @@ The base stack has three services:
   no published host port.
 - `hardware` owns the modem and host data plane.
 
+The administrator-facing **Web certificate** setting manages only HTTPS
+listener `7577`. The API container atomically stores either the automatic
+certificate or an uploaded PEM certificate chain and private key in the
+persistent TLS directory. The Nginx container mounts that directory read-only,
+detects source changes, and reloads the selected certificate without a
+container restart. Cloudflare edge certificates are outside this setting.
+
 Cloudflare Tunnel is an installer option, not an editable application setting.
 Create a remotely-managed Tunnel, configure its public-hostname service as
 `http://modemdeck:7575`, and store its token in a regular root-readable file. Then

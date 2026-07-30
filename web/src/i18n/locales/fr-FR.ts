@@ -244,8 +244,8 @@ export default {
     "telegramDescription": "Livraison via des robots Telegram",
     "iosApp": "Application iOS",
     "iosAppDescription": "Connexion Tunnel et jumelage d’appareil",
-    "tls": "TLS",
-    "tlsDescription": "Certificats et connexions sécurisées",
+    "tls": "Certificat Web",
+    "tlsDescription": "Certificat de l’interface Web locale",
     "diagnostics": "Diagnostic",
     "diagnosticsDescription": "État d'exécution et journaux en direct",
     "about": "À propos et mises à jour",
@@ -914,6 +914,7 @@ export default {
     "saved": "Enregistré"
   },
   "tls": {
+    "scopeNotice": "Ce certificat est utilisé uniquement par l’interface Web locale sur le port 7577. Les certificats Cloudflare et iOS sont gérés séparément.",
     "automaticCertificate": "Certificat automatique",
     "userCertificate": "Certificat utilisateur",
     "automaticRenewal": "Se renouvelle automatiquement",

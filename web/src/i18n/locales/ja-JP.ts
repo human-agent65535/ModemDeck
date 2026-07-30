@@ -244,8 +244,8 @@ export default {
     "telegramDescription": "Telegram ボットによる配信",
     "iosApp": "iOS アプリ",
     "iosAppDescription": "Tunnel 接続とデバイスのペアリング",
-    "tls": "TLS",
-    "tlsDescription": "証明書と安全な接続",
+    "tls": "Web 証明書",
+    "tlsDescription": "ローカル Web インターフェイスの証明書",
     "diagnostics": "診断",
     "diagnosticsDescription": "実行時のステータスとライブログ",
     "about": "概要と最新情報",
@@ -914,6 +914,7 @@ export default {
     "saved": "保存されました"
   },
   "tls": {
+    "scopeNotice": "この証明書はポート 7577 のローカル Web インターフェイスだけで使用されます。Cloudflare と iOS の証明書は別に管理されます。",
     "automaticCertificate": "自動証明書",
     "userCertificate": "ユーザー証明書",
     "automaticRenewal": "自動的に更新されます",

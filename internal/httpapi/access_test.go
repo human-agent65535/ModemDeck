@@ -72,6 +72,9 @@ func TestAdminOnlyRoutesExcludeLineOwnedConfiguration(t *testing.T) {
 		{"/api/v1/devices", http.MethodPost},
 		{"/api/v1/devices/867530900000001", http.MethodPatch},
 		{"/api/v1/diagnostics", http.MethodGet},
+		{"/api/v1/settings/tls", http.MethodGet},
+		{"/api/v1/settings/tls", http.MethodPut},
+		{"/api/v1/settings/tls/ca", http.MethodGet},
 	} {
 		if !adminOnlyAPIPath(route.path, route.method) {
 			t.Fatalf("%s %s must remain admin-only", route.method, route.path)

@@ -92,7 +92,8 @@ test('settings UI exposes read-only Cloudflare status and self-service pairing',
 
   assert.match(settingsView, /id: 'ios' as const/)
   assert.match(settingsView, /<IOSAppSettingsPanel/)
-  assert.doesNotMatch(settingsView, /TLSSettingsForm|selectedSection === 'tls'/)
+  assert.match(settingsView, /id: 'web-certificate'/)
+  assert.match(settingsView, /<WebCertificateSettingsPanel/)
   assert.match(userPanel, /ios_pairing_enabled: iosPairingEnabled\.value/)
   assert.match(iosPanel, /pairing\.value\.cloudflare\.enabled/)
   assert.match(iosPanel, /pairing\.value\.cloudflare\.connected/)

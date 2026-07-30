@@ -175,6 +175,15 @@ grep -Fq 'proxy_pass http://modemdeck_api;' "${repo_dir}/web/nginx.conf" ||
     fail "Nginx does not proxy API requests"
 grep -Fq 'proxy_buffering off;' "${repo_dir}/web/nginx.conf" ||
     fail "Nginx would buffer API event streams"
+grep -Fq 'MODEMDECK_WEB_TLS_DIRECTORY' "${repo_dir}/scripts/nginx-entrypoint.sh" ||
+    fail "Nginx entrypoint does not read the managed Web certificate directory"
+grep -Fq '"${tls_directory}/automatic-server.pem"' \
+    "${repo_dir}/scripts/nginx-entrypoint.sh" ||
+    fail "Nginx entrypoint cannot select the automatic Web certificate"
+grep -Fq '"${tls_directory}/user.pem"' "${repo_dir}/scripts/nginx-entrypoint.sh" ||
+    fail "Nginx entrypoint cannot select an uploaded Web certificate"
+grep -Fq 'nginx -s reload' "${repo_dir}/scripts/nginx-entrypoint.sh" ||
+    fail "Nginx entrypoint does not hot-reload certificate changes"
 
 grep -Fq 'MODEMDECK_CLOUDFLARE_PUBLIC_URL: https://mobile.example.com' \
     "${test_root}/cloudflare-app.yml" ||

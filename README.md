@@ -65,6 +65,11 @@ ModemDeck 默认由三个职责隔离的容器组成，并可选启用第四个 
   `http://modemdeck:7575`。iOS 始终使用 Cloudflare 提供的公网 HTTPS；
   Tunnel 不发布 Web 管理页，也不需要在容器间配置 origin HTTPS。
 
+管理员可在“设置 → Web 证书”查看本地 `7577` 证书、下载自动签发 CA、上传
+PEM 证书链与匹配私钥，或切回自动证书。API 会原子更新持久化证书，Nginx
+通过只读挂载检测变更并热加载。这里不会修改 Cloudflare 边缘证书或 iOS
+连接地址。
+
 默认的 **simple** 模式会停用宿主 ModemManager 和旧 `modemdeck-agent`，
 阻止宿主 ModemManager 自动启动，再由容器自动发现模组。**advanced** 模式只
 管理 assignment 文件中明确分配的设备；它绝不修改宿主 ModemManager、udev、
@@ -312,6 +317,13 @@ fourth Tunnel connector:
 - Optional `cloudflared` connects only to the API-only Nginx HTTP origin at
   `http://modemdeck:7575`. iOS always uses Cloudflare HTTPS; the Tunnel does not
   publish the Web UI, and origin HTTPS is neither required nor configured.
+
+Administrators can use **Settings → Web certificate** to inspect the local
+`7577` certificate, download the automatic CA, upload a PEM certificate chain
+and matching private key, or return to the automatic certificate. The API
+updates persistent certificate state atomically, and Nginx detects the
+read-only mounted change and reloads it. This does not change the Cloudflare
+edge certificate or the iOS endpoint.
 
 The default **simple** mode stops host ModemManager and the legacy
 `modemdeck-agent`, prevents host ModemManager from starting automatically, and

@@ -34,6 +34,7 @@ import {
   createProxyUpdatePayload,
   createRecordingSettingsPayload,
   createTelegramUnitPayload,
+  createTLSSettingsPayload,
   parseActiveCallSnapshotResponse,
   parseCallMediaResponse,
   parseCallLeaseStatus,
@@ -58,6 +59,7 @@ import {
   parseSIMStatusResponse,
   parseTelegramUnitResponse,
   parseTelegramUnitsResponse,
+  parseTLSSettingsResponse,
   parseUserResponse,
   parseUsersResponse,
   telegramUnitContract,
@@ -69,7 +71,8 @@ import {
   networkSelectionContract,
   networkContracts,
   proxyDeletePath,
-  proxyResourceContract
+  proxyResourceContract,
+  tlsSettingsContract
 } from './contract'
 import {
   parseBootstrap,
@@ -143,6 +146,7 @@ import type {
   SIMStatus,
   TelegramUnit,
   TelegramUnitInput,
+  TLSSettings,
   UpdateCheck,
   UpdateStatus,
   UpdateDeviceConfigurationInput,
@@ -153,6 +157,7 @@ import type {
   UpdateSystemSettingsInput,
   UpdateNetworkSelectionInput,
   UpdateProxyInput,
+  UpdateTLSSettingsInput,
   USSDCommandInput,
   USSDResponse,
   USSDStatus,
@@ -1008,6 +1013,22 @@ const realGateway: ConfiguredModemDeckGateway = {
         headers: { Accept: 'application/json' }
       },
       contract.successStatus
+    )
+  },
+
+  async getTLSSettings(): Promise<TLSSettings> {
+    return parseTLSSettingsResponse(await get(tlsSettingsContract.get.path))
+  },
+
+  async updateTLSSettings(input: UpdateTLSSettingsInput): Promise<TLSSettings> {
+    const contract = tlsSettingsContract.update
+    return parseTLSSettingsResponse(
+      await writeJSON(
+        contract.path,
+        contract.method,
+        createTLSSettingsPayload(input),
+        contract.successStatus
+      )
     )
   },
 

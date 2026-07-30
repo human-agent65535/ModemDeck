@@ -281,6 +281,7 @@ func run(
 		Recording:            recordings,
 		Network:              networkRuntime,
 		TelegramSettings:     telegramSettings,
+		TLSSettings:          tlsSettingsService{manager: tlsCertificates},
 		MobilePairing:        cloudflareGateway,
 		Authenticator:        authenticator,
 		SecureCookies:        secureCookies,

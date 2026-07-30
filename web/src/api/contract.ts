@@ -64,6 +64,8 @@ import type {
   SIMType,
   TelegramUnit,
   TelegramUnitInput,
+  TLSMode,
+  TLSSettings,
   UpdateDeviceConfigurationInput,
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
@@ -72,6 +74,7 @@ import type {
   UpdateSystemSettingsInput,
   UpdateNetworkSelectionInput,
   UpdateProxyInput,
+  UpdateTLSSettingsInput,
   UserAccount
 } from './types.ts'
 import { isLineColorPresetID } from './types.ts'
@@ -134,6 +137,7 @@ const PROXY_APPLY_STATUSES = new Set<ProxyApplyStatus>([
   'agent_rejected',
   'runtime_unavailable'
 ])
+const TLS_MODES = new Set<TLSMode>(['automatic', 'user'])
 const SIM_TYPES = new Set<SIMType>(['unknown', 'physical', 'esim'])
 const ESIM_STATUSES = new Set<ESIMStatus>(['unknown', 'no_profiles', 'with_profiles'])
 const NETWORK_SELECTION_MODES = new Set<NetworkSelectionMode>(['auto', 'manual'])
@@ -474,6 +478,27 @@ export const iosPairingContract = {
     method: 'DELETE',
     path: iosPairingPath,
     successStatus: 204
+  }
+} as const
+
+export const tlsSettingsPath = '/api/v1/settings/tls'
+export const tlsCAPath = `${tlsSettingsPath}/ca`
+
+export const tlsSettingsContract = {
+  get: {
+    method: 'GET',
+    path: tlsSettingsPath,
+    successStatus: 200
+  },
+  update: {
+    method: 'PUT',
+    path: tlsSettingsPath,
+    successStatus: 200
+  },
+  downloadCA: {
+    method: 'GET',
+    path: tlsCAPath,
+    successStatus: 200
   }
 } as const
 
@@ -1231,6 +1256,24 @@ export function createRecordingSettingsPayload(
   }
 }
 
+export function createTLSSettingsPayload(
+  input: UpdateTLSSettingsInput
+): UpdateTLSSettingsInput {
+  if (input.operation === 'use_automatic') {
+    return { operation: 'use_automatic' }
+  }
+  if (input.operation !== 'install_user') {
+    throw new Error('未知 Web 证书操作')
+  }
+  if (!input.certificate_pem.trim()) throw new Error('certificate_pem 不能为空')
+  if (!input.private_key_pem.trim()) throw new Error('private_key_pem 不能为空')
+  return {
+    operation: 'install_user',
+    certificate_pem: input.certificate_pem,
+    private_key_pem: input.private_key_pem
+  }
+}
+
 export function createCallRecordingPayload(
   enabled: boolean,
   holderID: string
@@ -1887,6 +1930,33 @@ export function parseRecordingSettingsResponse(value: unknown): RecordingSetting
   return {
     default_enabled: requiredBoolean(source, 'recording_settings', 'default_enabled'),
     revision: requiredRevision(source, 'recording_settings')
+  }
+}
+
+export function parseTLSSettingsResponse(value: unknown): TLSSettings {
+  const response = objectValue(value, 'tls_settings_response')
+  const source = objectValue(response.tls, 'tls_settings_response.tls')
+  const mode = requiredString(source, 'tls_settings_response.tls', 'mode') as TLSMode
+  if (!TLS_MODES.has(mode)) throw new Error('tls_settings_response.tls.mode 无效')
+  return {
+    mode,
+    subject: requiredString(source, 'tls_settings_response.tls', 'subject', true),
+    issuer: requiredString(source, 'tls_settings_response.tls', 'issuer', true),
+    dns_names: stringList(source, 'tls_settings_response.tls', 'dns_names'),
+    ip_addresses: stringList(source, 'tls_settings_response.tls', 'ip_addresses'),
+    not_before: requiredTimestamp(source, 'tls_settings_response.tls', 'not_before'),
+    not_after: requiredTimestamp(source, 'tls_settings_response.tls', 'not_after'),
+    fingerprint_sha256: requiredString(
+      source,
+      'tls_settings_response.tls',
+      'fingerprint_sha256'
+    ),
+    expired: requiredBoolean(source, 'tls_settings_response.tls', 'expired'),
+    renews_automatically: requiredBoolean(
+      source,
+      'tls_settings_response.tls',
+      'renews_automatically'
+    )
   }
 }
 
