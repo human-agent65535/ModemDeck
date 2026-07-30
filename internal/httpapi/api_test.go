@@ -11,6 +11,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
 	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/communication"
+	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -72,6 +73,25 @@ type fakeRepository struct {
 	updateSystemRev       int64
 	updateSystemResult    store.SystemSettings
 	updateSystemError     error
+	mobilePrincipal       auth.Principal
+	mobileFound           bool
+	mobileError           error
+	callLineID            string
+	callLineError         error
+}
+
+func (repository *fakeRepository) IOSPairingPrincipalByTokenDigest(
+	context.Context,
+	mobilepairing.TokenDigest,
+) (auth.Principal, bool, error) {
+	return repository.mobilePrincipal, repository.mobileFound, repository.mobileError
+}
+
+func (repository *fakeRepository) CallLineID(
+	context.Context,
+	string,
+) (string, error) {
+	return repository.callLineID, repository.callLineError
 }
 
 func (repository *fakeRepository) Ping(context.Context) error {

@@ -19,7 +19,8 @@ The base stack has three services:
 
 - `modemdeck` runs Nginx with two isolated listeners. Compose-only HTTP `7575`
   proxies `/api/*` and returns 404 for every other path. HTTPS `7577` serves the
-  Web UI and is the only listener published to the host.
+  Web UI and is the only listener published to the host. Plain HTTP sent to
+  `7577` is redirected to HTTPS on the same address.
 - `api` runs the Go HTTP API on `8080` inside the Compose network. It has
   no published host port.
 - `hardware` owns the modem and host data plane.
@@ -31,29 +32,47 @@ persistent TLS directory. The Nginx container mounts that directory read-only,
 detects source changes, and reloads the selected certificate without a
 container restart. Cloudflare edge certificates are outside this setting.
 
-Cloudflare Tunnel is an installer option, not an editable application setting.
-Create a remotely-managed Tunnel, configure its public-hostname service as
-`http://modemdeck:7575`, and store its token in a regular root-readable file. Then
-run:
+Cloudflare Tunnel and Realtime TURN are installer options, not editable
+application settings. Create a remotely-managed Tunnel and configure its
+public hostnames as needed. The available origins are the API-only
+`http://modemdeck:7575` listener and the Web
+`https://modemdeck:7577` listener. With the default self-signed Web
+certificate, enable **No TLS Verify** in that Published Application's origin
+TLS settings. The connector requires only a Tunnel token:
+
+```sh
+sudo ./install.sh \
+  --cloudflare-token-file /root/modemdeck-cloudflare.token
+```
+
+For iOS call media, also create a Realtime TURN key and add its credentials:
 
 ```sh
 sudo ./install.sh \
   --cloudflare-token-file /root/modemdeck-cloudflare.token \
-  --cloudflare-hostname deck.example.com
+  --cloudflare-turn-key-id REPLACE_WITH_TURN_KEY_ID \
+  --cloudflare-turn-token-file /root/modemdeck-cloudflare-turn.token
 ```
 
-The installer copies the token into `secrets/cloudflare-tunnel-token` with
-restricted permissions and enables `docker-compose.cloudflare.yml`. The
-connector uses HTTP to reach the API-only Nginx listener over the private
-Compose network; Cloudflare provides the public HTTPS API used by iOS. It does
-not publish the Web UI. The Go API checks connector readiness before issuing an
-iOS pairing credential. With the override disabled or the connector
-disconnected, users may revoke an existing credential but cannot create one.
+The installer enables `docker-compose.cloudflare.yml` and, when TURN is
+configured, `docker-compose.cloudflare-turn.yml`. Credentials are copied into
+restricted file secrets. Both Nginx listeners are reachable from the connector;
+the user decides which ingress rules Cloudflare publishes. The Go API
+automatically selects the unique pathless ingress whose service is
+`http://modemdeck:7575` and verifies that public route before issuing a pairing
+credential. Tunnel configuration changes are picked up without reinstalling.
+The iOS settings page periodically refreshes both API and Web ingress hostnames.
+With the override disabled, an ambiguous API ingress, or a disconnected
+connector, users may revoke an existing credential but cannot create one.
+Paired clients receive short-lived relay-only ICE configurations, while the
+long-lived TURN API token remains available only to the API container.
+`--disable-cloudflare-turn` removes TURN from the running stack while retaining
+the Tunnel connector and persisted credentials.
 
 There is no LAN discovery or LAN endpoint in an iOS QR payload. Every iOS
-client uses the single installation-managed Cloudflare HTTPS origin. An
-administrator permits pairing per account; the permitted user creates and
-revokes their own credential.
+client uses the single Cloudflare API HTTPS origin discovered from the active
+Tunnel ingress. An administrator permits pairing per account; the permitted
+user creates and revokes their own credential.
 
 Copy `advanced-assignment.example.json` outside the repository, replace every
 placeholder with a stable USB serial or physical port path, and run:

@@ -24,7 +24,8 @@ MODEMDECK_AGENT_GID ?= 10002
 COMPOSE_SETTINGS_KEY_FILE ?= /dev/null
 COMPOSE_ASSIGNMENT_FILE ?= $(CURDIR)/deploy/advanced-assignment.example.json
 COMPOSE_CLOUDFLARE_TOKEN_FILE ?= /dev/null
-COMPOSE_CLOUDFLARE_PUBLIC_URL ?= https://modemdeck.example.com
+COMPOSE_CLOUDFLARE_TURN_KEY_ID ?= 0123456789abcdef0123456789abcdef
+COMPOSE_CLOUDFLARE_TURN_TOKEN_FILE ?= /dev/null
 HOST_UID := $(shell id -u)
 HOST_GID := $(shell id -g)
 
@@ -216,10 +217,23 @@ compose-config:
 		MODEMDECK_AGENT_GID="$(MODEMDECK_AGENT_GID)" \
 		MODEMDECK_SETTINGS_KEY_FILE="$(COMPOSE_SETTINGS_KEY_FILE)" \
 		MODEMDECK_CLOUDFLARE_TOKEN_FILE="$(COMPOSE_CLOUDFLARE_TOKEN_FILE)" \
-		MODEMDECK_CLOUDFLARE_PUBLIC_URL="$(COMPOSE_CLOUDFLARE_PUBLIC_URL)" \
 		docker compose \
 			-f docker-compose.yml \
 			-f docker-compose.cloudflare.yml \
+			config --quiet; \
+	fi
+	@if [ -f docker-compose.cloudflare-turn.yml ]; then \
+		MODEMDECK_BUILD_DATE="$(BUILD_DATE)" \
+		MODEMDECK_VCS_REF="$(VCS_REF)" \
+		MODEMDECK_AGENT_GID="$(MODEMDECK_AGENT_GID)" \
+		MODEMDECK_SETTINGS_KEY_FILE="$(COMPOSE_SETTINGS_KEY_FILE)" \
+		MODEMDECK_CLOUDFLARE_TOKEN_FILE="$(COMPOSE_CLOUDFLARE_TOKEN_FILE)" \
+		MODEMDECK_CLOUDFLARE_TURN_KEY_ID="$(COMPOSE_CLOUDFLARE_TURN_KEY_ID)" \
+		MODEMDECK_CLOUDFLARE_TURN_TOKEN_FILE="$(COMPOSE_CLOUDFLARE_TURN_TOKEN_FILE)" \
+		docker compose \
+			-f docker-compose.yml \
+			-f docker-compose.cloudflare.yml \
+			-f docker-compose.cloudflare-turn.yml \
 			config --quiet; \
 	fi
 

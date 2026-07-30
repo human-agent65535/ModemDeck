@@ -169,6 +169,18 @@ function optionalString(source: JsonRecord, key: string): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
+function optionalStringArray(source: JsonRecord, path: string, key: string): string[] {
+  const value = source[key]
+  if (value === undefined) return []
+  if (!Array.isArray(value)) throw new Error(`${path}.${key} 必须是数组`)
+  return value.map((item, index) => {
+    if (typeof item !== 'string' || !item.trim()) {
+      throw new Error(`${path}.${key}[${index}] 必须是非空字符串`)
+    }
+    return item.trim()
+  })
+}
+
 function requiredTimestamp(source: JsonRecord, path: string, key: string): string {
   const value = requiredString(source, path, key)
   if (!Number.isFinite(Date.parse(value))) throw new Error(`${path}.${key} 不是有效时间`)
@@ -2158,6 +2170,16 @@ function parseIOSPairingStatus(value: unknown): IOSPairingStatus {
         'cloudflare_tunnel',
         'public_url',
         true
+      ),
+      api_urls: optionalStringArray(
+        cloudflare,
+        'cloudflare_tunnel',
+        'api_urls'
+      ),
+      web_urls: optionalStringArray(
+        cloudflare,
+        'cloudflare_tunnel',
+        'web_urls'
       )
     },
     has_credential: requiredBoolean(source, 'ios_pairing', 'has_credential'),

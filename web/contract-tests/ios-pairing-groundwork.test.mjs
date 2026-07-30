@@ -7,7 +7,7 @@ import {
 } from '../src/api/contract.ts'
 import { createFixtureGateway } from '../src/api/fixture.ts'
 
-test('pairing uses the installation-managed Cloudflare endpoint', () => {
+test('pairing uses the server-discovered Cloudflare endpoint', () => {
   assert.deepEqual(iosPairingContract, {
     get: {
       method: 'GET',
@@ -33,13 +33,21 @@ test('pairing uses the installation-managed Cloudflare endpoint', () => {
         enabled: true,
         connector_connected: true,
         connected: true,
-        public_url: 'https://phone.example.com'
+        public_url: 'https://phone.example.com',
+        api_urls: ['https://phone.example.com'],
+        web_urls: ['https://deck.example.com']
       },
       has_credential: true,
       credential_created_at: '2026-07-30T12:00:00Z'
     }
   })
   assert.equal(status.pairing.cloudflare.public_url, 'https://phone.example.com')
+  assert.deepEqual(status.pairing.cloudflare.api_urls, [
+    'https://phone.example.com'
+  ])
+  assert.deepEqual(status.pairing.cloudflare.web_urls, [
+    'https://deck.example.com'
+  ])
   assert.equal(status.pairing.cloudflare.connected, true)
   assert.equal(status.payload, undefined)
 
@@ -64,7 +72,9 @@ test('fixture creates and revokes one non-expiring Cloudflare pairing', async ()
     enabled: true,
     connector_connected: true,
     connected: true,
-    public_url: 'https://mobile.modemdeck.example'
+    public_url: 'https://mobile.modemdeck.example',
+    api_urls: ['https://mobile.modemdeck.example'],
+    web_urls: ['https://web.modemdeck.example']
   })
 
   const created = await gateway.createIOSPairing()
@@ -99,8 +109,10 @@ test('settings UI exposes read-only Cloudflare status and self-service pairing',
   assert.match(userPanel, /ios_pairing_enabled: iosPairingEnabled\.value/)
   assert.match(iosPanel, /pairing\.value\.cloudflare\.enabled/)
   assert.match(iosPanel, /pairing\.value\.cloudflare\.connected/)
-  assert.match(iosPanel, /http:\/\/modemdeck:7575/)
-  assert.match(iosPanel, /http:\/\/api:8080/)
+  assert.match(iosPanel, /pairing\.cloudflare\.api_urls/)
+  assert.match(iosPanel, /pairing\.cloudflare\.web_urls/)
+  assert.match(iosPanel, /window\.setInterval/)
+  assert.match(iosPanel, /onBeforeUnmount/)
   assert.match(iosPanel, /gateway\.createIOSPairing\(\)/)
   assert.match(iosPanel, /gateway\.revokeIOSPairing\(\)/)
   assert.match(iosPanel, /QRCode\.toDataURL/)

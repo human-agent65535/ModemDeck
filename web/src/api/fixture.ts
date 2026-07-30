@@ -871,7 +871,9 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     enabled: true,
     connector_connected: true,
     connected: true,
-    public_url: 'https://mobile.modemdeck.example'
+    public_url: 'https://mobile.modemdeck.example',
+    api_urls: ['https://mobile.modemdeck.example'],
+    web_urls: ['https://web.modemdeck.example']
   }
   let iosPairingCreatedAt = ''
   const connectionProfiles = new Map<string, ConnectionProfile[]>(

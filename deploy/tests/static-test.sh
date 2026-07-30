@@ -48,15 +48,28 @@ docker compose \
 printf '%s\n' \
     'eyJhbGciOiJIUzI1NiJ9X19tb2RlbWRlY2tfZGVwbG95bWVudF90ZXN0X3Rva2VuX19sb25nX2Vub3VnaF9mb3JfdmFsaWRhdGlvbg' \
     >"${test_root}/cloudflare-token"
+printf '%s\n' 'test-cloudflare-turn-token' \
+    >"${test_root}/cloudflare-turn-token"
 MODEMDECK_SETTINGS_KEY_FILE=/dev/null \
 MODEMDECK_DATA_DIR="${test_root}/data" \
 MODEMDECK_CLOUDFLARE_TOKEN_FILE="${test_root}/cloudflare-token" \
-MODEMDECK_CLOUDFLARE_PUBLIC_URL=https://mobile.example.com \
 docker compose \
     --project-directory "$repo_dir" \
     -f "${repo_dir}/docker-compose.yml" \
     -f "${repo_dir}/docker-compose.cloudflare.yml" \
     config >"${test_root}/cloudflare-compose.yml"
+
+MODEMDECK_SETTINGS_KEY_FILE=/dev/null \
+MODEMDECK_DATA_DIR="${test_root}/data" \
+MODEMDECK_CLOUDFLARE_TOKEN_FILE="${test_root}/cloudflare-token" \
+MODEMDECK_CLOUDFLARE_TURN_KEY_ID=0123456789abcdef0123456789abcdef \
+MODEMDECK_CLOUDFLARE_TURN_TOKEN_FILE="${test_root}/cloudflare-turn-token" \
+docker compose \
+    --project-directory "$repo_dir" \
+    -f "${repo_dir}/docker-compose.yml" \
+    -f "${repo_dir}/docker-compose.cloudflare.yml" \
+    -f "${repo_dir}/docker-compose.cloudflare-turn.yml" \
+    config >"${test_root}/cloudflare-turn-compose.yml"
 
 extract_service() {
     service_name=$1
@@ -81,6 +94,8 @@ extract_service modemdeck "${test_root}/compose.yml" \
     >"${test_root}/web.yml"
 extract_service api "${test_root}/cloudflare-compose.yml" \
     >"${test_root}/cloudflare-app.yml"
+extract_service api "${test_root}/cloudflare-turn-compose.yml" \
+    >"${test_root}/cloudflare-turn-app.yml"
 extract_service cloudflared "${test_root}/cloudflare-compose.yml" \
     >"${test_root}/cloudflared.yml"
 
@@ -167,6 +182,9 @@ grep -Fq 'listen 7575 default_server;' "${repo_dir}/web/nginx.conf" ||
     fail "Nginx does not listen on API-only port 7575"
 grep -Fq 'listen 7577 ssl default_server;' "${repo_dir}/web/nginx.conf" ||
     fail "Nginx does not listen on HTTPS Web port 7577"
+grep -Fq 'error_page 497 =308 https://$http_host$request_uri;' \
+    "${repo_dir}/web/nginx.conf" ||
+    fail "HTTPS Web listener does not upgrade plain HTTP requests"
 grep -Fq 'return 404;' "${repo_dir}/web/nginx.conf" ||
     fail "Nginx does not reject non-API paths on port 7575"
 grep -Fq 'server api:8080 resolve;' "${repo_dir}/web/nginx.conf" ||
@@ -185,12 +203,28 @@ grep -Fq '"${tls_directory}/user.pem"' "${repo_dir}/scripts/nginx-entrypoint.sh"
 grep -Fq 'nginx -s reload' "${repo_dir}/scripts/nginx-entrypoint.sh" ||
     fail "Nginx entrypoint does not hot-reload certificate changes"
 
-grep -Fq 'MODEMDECK_CLOUDFLARE_PUBLIC_URL: https://mobile.example.com' \
-    "${test_root}/cloudflare-app.yml" ||
-    fail "Cloudflare public URL does not reach the application"
+if grep -Fq 'MODEMDECK_CLOUDFLARE_PUBLIC_URL' \
+    "${test_root}/cloudflare-app.yml"
+then
+    fail "application still depends on a static Cloudflare public URL"
+fi
 grep -Fq 'MODEMDECK_CLOUDFLARE_READY_URL: http://cloudflared:2000/ready' \
     "${test_root}/cloudflare-app.yml" ||
     fail "Cloudflare readiness URL does not reach the application"
+if grep -Fq 'MODEMDECK_CLOUDFLARE_TURN_' \
+    "${test_root}/cloudflare-app.yml"
+then
+    fail "Tunnel-only Compose unexpectedly enables Cloudflare TURN"
+fi
+grep -Fq 'MODEMDECK_CLOUDFLARE_TURN_KEY_ID: 0123456789abcdef0123456789abcdef' \
+    "${test_root}/cloudflare-turn-app.yml" ||
+    fail "Cloudflare TURN key ID does not reach the application"
+grep -Fq 'MODEMDECK_CLOUDFLARE_TURN_TOKEN_FILE: /run/secrets/cloudflare_turn_token' \
+    "${test_root}/cloudflare-turn-app.yml" ||
+    fail "application does not read the TURN token from a Compose secret"
+grep -Fq 'source: cloudflare_turn_token' \
+    "${test_root}/cloudflare-turn-app.yml" ||
+    fail "application TURN token secret is not mounted"
 grep -Fq 'condition: service_healthy' "${test_root}/cloudflared.yml" ||
     fail "cloudflared does not wait for the Web gateway"
 grep -Fq '      modemdeck:' "${test_root}/cloudflared.yml" ||

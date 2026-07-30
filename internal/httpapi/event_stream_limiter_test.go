@@ -14,6 +14,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/diagnostics"
 	"github.com/human-agent65535/modemdeck/internal/messageevents"
+	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 )
 
@@ -118,6 +119,48 @@ func TestEventStreamLimiterEnforcesSessionAndGlobalLimits(t *testing.T) {
 			"limiter retained released streams: total=%d sessions=%d",
 			limiter.total,
 			len(limiter.sessions),
+		)
+	}
+}
+
+func TestEventStreamSessionKeySeparatesMobileCredentials(t *testing.T) {
+	t.Parallel()
+
+	firstToken, firstDigest, err := mobilepairing.NewToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondToken, secondDigest, err := mobilepairing.NewToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstToken == secondToken {
+		t.Fatal("generated duplicate mobile tokens")
+	}
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/runtime/events",
+		nil,
+	)
+	firstContext := context.WithValue(
+		request.Context(),
+		mobileAuthenticationContextKey{},
+		mobileAuthentication{Digest: firstDigest},
+	)
+	secondContext := context.WithValue(
+		request.Context(),
+		mobileAuthenticationContextKey{},
+		mobileAuthentication{Digest: secondDigest},
+	)
+	firstKey := eventStreamSessionKey(request.WithContext(firstContext))
+	secondKey := eventStreamSessionKey(request.WithContext(secondContext))
+	if firstKey != [sha256.Size]byte(firstDigest) ||
+		secondKey != [sha256.Size]byte(secondDigest) ||
+		firstKey == secondKey {
+		t.Fatalf(
+			"mobile event stream keys = %x, %x",
+			firstKey,
+			secondKey,
 		)
 	}
 }

@@ -1,0 +1,11 @@
+services:
+  api:
+    environment:
+      MODEMDECK_CLOUDFLARE_TURN_KEY_ID: ${MODEMDECK_CLOUDFLARE_TURN_KEY_ID:?MODEMDECK_CLOUDFLARE_TURN_KEY_ID is required}
+      MODEMDECK_CLOUDFLARE_TURN_TOKEN_FILE: /run/secrets/cloudflare_turn_token
+    secrets:
+      - cloudflare_turn_token
+
+secrets:
+  cloudflare_turn_token:
+    file: ${MODEMDECK_CLOUDFLARE_TURN_TOKEN_FILE:?MODEMDECK_CLOUDFLARE_TURN_TOKEN_FILE must point to a TURN token file}

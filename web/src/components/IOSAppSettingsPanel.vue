@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Check,
@@ -20,6 +20,8 @@ import { ApiError } from '../api/types'
 import { requestConfirmation } from '../state/confirmation'
 import { sessionState } from '../state/session'
 
+const STATUS_REFRESH_INTERVAL_MS = 15_000
+
 const { t, locale } = useI18n()
 const isAdmin = computed(() => sessionState.role === 'admin')
 const loading = ref(true)
@@ -32,6 +34,8 @@ const pairingPayloadJSON = ref('')
 const qrDialog = ref<HTMLElement | null>(null)
 const qrCloseButton = ref<HTMLButtonElement | null>(null)
 const copied = ref(false)
+let statusRefreshTimer: number | undefined
+let statusLoadPending = false
 
 const pairingReady = computed(
   () =>
@@ -65,16 +69,28 @@ function formatTimestamp(value?: string): string {
   }).format(date)
 }
 
-async function load(): Promise<void> {
-  loading.value = true
-  loadError.value = ''
+async function refreshStatus(background: boolean): Promise<void> {
+  if (statusLoadPending) return
+  statusLoadPending = true
+  if (!background) {
+    loading.value = true
+    loadError.value = ''
+  }
   try {
     pairing.value = (await gateway.getIOSPairing()).pairing
+    loadError.value = ''
   } catch (cause) {
-    loadError.value = errorMessage(cause, t('iosPairing.loadFailed'))
+    if (!background || !pairing.value) {
+      loadError.value = errorMessage(cause, t('iosPairing.loadFailed'))
+    }
   } finally {
-    loading.value = false
+    statusLoadPending = false
+    if (!background) loading.value = false
   }
+}
+
+function load(): Promise<void> {
+  return refreshStatus(false)
 }
 
 async function createPairing(): Promise<void> {
@@ -167,6 +183,15 @@ function onQRKeydown(event: KeyboardEvent): void {
 
 onMounted(() => {
   void load()
+  statusRefreshTimer = window.setInterval(() => {
+    void refreshStatus(true)
+  }, STATUS_REFRESH_INTERVAL_MS)
+})
+
+onBeforeUnmount(() => {
+  if (statusRefreshTimer !== undefined) {
+    window.clearInterval(statusRefreshTimer)
+  }
 })
 </script>
 
@@ -207,7 +232,6 @@ onMounted(() => {
           <span><ShieldCheck :size="19" /></span>
           <div>
             <h4 id="ios-tunnel-title">{{ t('iosPairing.tunnelTitle') }}</h4>
-            <p>{{ t('iosPairing.tunnelDescription') }}</p>
           </div>
           <span
             class="ios-status"
@@ -228,14 +252,16 @@ onMounted(() => {
           </span>
         </header>
         <dl v-if="pairing.cloudflare.enabled" class="ios-pairing-facts">
-          <div>
-            <dt>{{ t('iosPairing.publicURL') }}</dt>
-            <dd><code>{{ pairing.cloudflare.public_url }}</code></dd>
+          <div v-if="pairing.cloudflare.api_urls.length">
+            <dt>API</dt>
+            <dd v-for="url in pairing.cloudflare.api_urls" :key="url">
+              <code>{{ url }}</code>
+            </dd>
           </div>
-          <div>
-            <dt>{{ t('iosPairing.origin') }}</dt>
-            <dd>
-              <code>http://modemdeck:7575 → http://api:8080</code>
+          <div v-if="pairing.cloudflare.web_urls.length">
+            <dt>Web</dt>
+            <dd v-for="url in pairing.cloudflare.web_urls" :key="url">
+              <code>{{ url }}</code>
             </dd>
           </div>
         </dl>
@@ -245,7 +271,6 @@ onMounted(() => {
         <div v-else-if="!pairing.cloudflare.connected" class="ios-notice">
           {{ t('iosPairing.cloudflareUnavailable') }}
         </div>
-        <p class="ios-pairing-note">{{ t('iosPairing.installManaged') }}</p>
       </section>
 
       <section class="ios-card" aria-labelledby="ios-pairing-title">

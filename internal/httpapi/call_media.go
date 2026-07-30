@@ -4,8 +4,10 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/mediaapp"
+	"github.com/human-agent65535/modemdeck/internal/rtcconfig"
 )
 
 type callMediaRequest struct {
@@ -21,6 +23,16 @@ type callMediaReleaseRequest struct {
 
 type callMediaResponse struct {
 	AnswerSDP string `json:"answer_sdp"`
+}
+
+type callMediaICEConfigurationRequest struct {
+	HolderID string `json:"holder_id"`
+}
+
+type callMediaICEConfigurationResponse struct {
+	ICEServers         []rtcconfig.ICEServer `json:"ice_servers"`
+	ICETransportPolicy string                `json:"ice_transport_policy"`
+	ExpiresAt          string                `json:"expires_at"`
 }
 
 func (api *API) callMediaExchange(
@@ -83,6 +95,7 @@ func (api *API) exchangeCallMedia(
 		callID,
 		input.OwnerToken,
 		input.OfferSDP,
+		isMobileRequest(request),
 	)
 	if err != nil {
 		api.logger.Warn(
@@ -100,6 +113,116 @@ func (api *API) exchangeCallMedia(
 		"call_id", callID,
 	)
 	writeJSON(response, http.StatusOK, callMediaResponse{AnswerSDP: answer})
+}
+
+func (api *API) callMediaICEConfiguration(
+	response http.ResponseWriter,
+	request *http.Request,
+	callID string,
+) {
+	if request.Method != http.MethodPost {
+		response.Header().Set("Allow", http.MethodPost)
+		writeError(
+			response,
+			http.StatusMethodNotAllowed,
+			"method_not_allowed",
+			"Only POST is supported",
+			"",
+		)
+		return
+	}
+	if !isMobileRequest(request) {
+		writeError(
+			response,
+			http.StatusForbidden,
+			"mobile_api_forbidden",
+			"TURN configuration is available only to paired iOS clients",
+			"",
+		)
+		return
+	}
+	if !api.requireCallAccess(response, request, callID) {
+		return
+	}
+	if api.callLeases == nil {
+		writeError(
+			response,
+			http.StatusServiceUnavailable,
+			"call_lease_unavailable",
+			"Call ownership is unavailable",
+			"",
+		)
+		return
+	}
+	if api.rtcConfiguration == nil {
+		writeError(
+			response,
+			http.StatusServiceUnavailable,
+			"turn_unavailable",
+			"TURN is unavailable",
+			"",
+		)
+		return
+	}
+	var input callMediaICEConfigurationRequest
+	if !decodeJSONBody(response, request, &input) {
+		return
+	}
+	holder, err := api.callLeaseHolder(request.Context(), input.HolderID)
+	if err != nil {
+		api.writeCallLeaseError(
+			response,
+			request,
+			"validate call owner",
+			err,
+		)
+		return
+	}
+	if err := api.callLeases.Require(
+		request.Context(),
+		callID,
+		holder.LeaseID,
+	); err != nil {
+		api.writeCallLeaseError(
+			response,
+			request,
+			"authorize TURN configuration",
+			err,
+		)
+		return
+	}
+	configuration, err := api.rtcConfiguration.Generate(request.Context())
+	if err != nil {
+		api.logger.Warn(
+			"generate TURN configuration",
+			"component", "media",
+			"call_id", callID,
+			"error", err,
+		)
+		writeError(
+			response,
+			http.StatusServiceUnavailable,
+			"turn_unavailable",
+			"TURN is unavailable",
+			"",
+		)
+		return
+	}
+	policy := "all"
+	if configuration.RelayOnly {
+		policy = "relay"
+	}
+	response.Header().Set("Cache-Control", "no-store")
+	writeJSON(response, http.StatusOK, callMediaICEConfigurationResponse{
+		ICEServers:         configuration.ICEServers,
+		ICETransportPolicy: policy,
+		ExpiresAt:          configuration.ExpiresAt.UTC().Format(time.RFC3339),
+	})
+}
+
+func isMobileRequest(request *http.Request) bool {
+	_, ok := mobileAuthenticationFromContext(request.Context())
+	return ok
 }
 
 func (api *API) releaseCallMedia(
@@ -166,6 +289,21 @@ func (api *API) writeCallMediaError(
 func callMediaResourceID(path string) (string, bool) {
 	const prefix = "/api/v1/calls/"
 	const suffix = "/media"
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		return "", false
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
+	id = strings.TrimSuffix(id, "/")
+	id = strings.TrimSpace(id)
+	if id == "" || strings.Contains(id, "/") || len(id) > maxIdentifierLength {
+		return "", false
+	}
+	return id, true
+}
+
+func callMediaICEConfigurationResourceID(path string) (string, bool) {
+	const prefix = "/api/v1/calls/"
+	const suffix = "/media/ice"
 	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
 		return "", false
 	}

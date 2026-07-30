@@ -1,7 +1,6 @@
 services:
   api:
     environment:
-      MODEMDECK_CLOUDFLARE_PUBLIC_URL: ${MODEMDECK_CLOUDFLARE_PUBLIC_URL:?MODEMDECK_CLOUDFLARE_PUBLIC_URL is required}
       MODEMDECK_CLOUDFLARE_READY_URL: http://cloudflared:2000/ready
 
   cloudflared:

@@ -8,6 +8,7 @@ import (
 
 	"github.com/human-agent65535/modemdeck/internal/callmedia"
 	"github.com/human-agent65535/modemdeck/internal/communication"
+	"github.com/human-agent65535/modemdeck/internal/rtcconfig"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -40,18 +41,41 @@ type Service struct {
 	refresher Refresher
 	calls     CallStore
 	core      Core
+	rtc       rtcconfig.Provider
 }
 
-func New(refresher Refresher, calls CallStore, core Core) (*Service, error) {
+type Options struct {
+	RTCProvider rtcconfig.Provider
+}
+
+func New(
+	refresher Refresher,
+	calls CallStore,
+	core Core,
+	options ...Options,
+) (*Service, error) {
 	if refresher == nil || calls == nil || core == nil {
 		return nil, errors.New("media service requires refresher, call store, and media core")
 	}
-	return &Service{refresher: refresher, calls: calls, core: core}, nil
+	var configuration Options
+	if len(options) > 1 {
+		return nil, errors.New("media service accepts at most one options value")
+	}
+	if len(options) == 1 {
+		configuration = options[0]
+	}
+	return &Service{
+		refresher: refresher,
+		calls:     calls,
+		core:      core,
+		rtc:       configuration.RTCProvider,
+	}, nil
 }
 
 func (s *Service) Exchange(
 	ctx context.Context,
 	callID, ownerToken, offerSDP string,
+	relayOnly bool,
 ) (string, error) {
 	callID = strings.TrimSpace(callID)
 	ownerToken = strings.TrimSpace(ownerToken)
@@ -77,13 +101,30 @@ func (s *Service) Exchange(
 	if !call.MediaAvailable {
 		return "", ErrUnavailable
 	}
+	var rtcConfiguration rtcconfig.Configuration
+	if relayOnly {
+		if s.rtc == nil {
+			return "", fmt.Errorf(
+				"%w: relay configuration is not configured",
+				ErrUnavailable,
+			)
+		}
+		rtcConfiguration, err = s.rtc.Generate(ctx)
+		if err != nil {
+			return "", fmt.Errorf(
+				"%w: relay configuration could not be generated",
+				ErrUnavailable,
+			)
+		}
+	}
 	result, err := s.core.Exchange(ctx, callmedia.Offer{
 		Call: callmedia.ActiveCall{
 			ID:    call.ID,
 			State: callmedia.CallStateActive,
 		},
-		OwnerToken: ownerToken,
-		SDP:        offerSDP,
+		OwnerToken:       ownerToken,
+		SDP:              offerSDP,
+		RTCConfiguration: rtcConfiguration,
 	})
 	if err != nil {
 		return "", classifyCoreError(err)

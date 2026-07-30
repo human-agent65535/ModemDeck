@@ -153,6 +153,8 @@ export type CloudflareTunnelStatus = {
   connector_connected: boolean
   connected: boolean
   public_url: string
+  api_urls: string[]
+  web_urls: string[]
 }
 
 export type IOSPairingStatus = {

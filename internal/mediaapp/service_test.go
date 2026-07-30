@@ -7,6 +7,7 @@ import (
 
 	"github.com/human-agent65535/modemdeck/internal/callmedia"
 	"github.com/human-agent65535/modemdeck/internal/communication"
+	"github.com/human-agent65535/modemdeck/internal/rtcconfig"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -27,6 +28,7 @@ func TestExchangeRequiresAuthoritativeActiveMediaCall(t *testing.T) {
 		"call-1",
 		"owner-1",
 		"offer",
+		false,
 	); !errors.Is(err, ErrNotActive) {
 		t.Fatalf("Exchange() error = %v, want ErrNotActive", err)
 	}
@@ -47,7 +49,13 @@ func TestExchangeReturnsCoreAnswerForActiveMediaCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	answer, err := service.Exchange(context.Background(), "call-1", "owner-1", "offer")
+	answer, err := service.Exchange(
+		context.Background(),
+		"call-1",
+		"owner-1",
+		"offer",
+		false,
+	)
 	if err != nil {
 		t.Fatalf("Exchange() error = %v", err)
 	}
@@ -74,6 +82,51 @@ func TestReleaseOwnerForwardsOpaqueOwnerToken(t *testing.T) {
 			"released call = %q, owner = %q",
 			core.releasedCallID,
 			core.releasedOwnerToken,
+		)
+	}
+}
+
+func TestExchangeGeneratesRelayConfigurationForMobilePeer(t *testing.T) {
+	t.Parallel()
+
+	core := &fakeCore{answer: "answer"}
+	provider := &fakeRTCProvider{configuration: rtcconfig.Configuration{
+		ICEServers: []rtcconfig.ICEServer{{
+			URLs:       []string{"turns:turn.example.test:443"},
+			Username:   "relay-user",
+			Credential: "relay-secret",
+		}},
+		RelayOnly: true,
+	}}
+	service, err := New(
+		fakeRefresher{},
+		fakeCallStore{call: store.Call{
+			ID:             "call-1",
+			Phase:          "active",
+			MediaAvailable: true,
+		}},
+		core,
+		Options{RTCProvider: provider},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Exchange(
+		context.Background(),
+		"call-1",
+		"owner-1",
+		"offer",
+		true,
+	); err != nil {
+		t.Fatalf("Exchange() error = %v", err)
+	}
+	if provider.generated != 1 ||
+		!core.offer.RTCConfiguration.RelayOnly ||
+		len(core.offer.RTCConfiguration.ICEServers) != 1 {
+		t.Fatalf(
+			"generated = %d, offer = %+v",
+			provider.generated,
+			core.offer,
 		)
 	}
 }
@@ -110,6 +163,19 @@ func (f fakeRefresher) Refresh(context.Context) (communication.Status, error) {
 type fakeCallStore struct {
 	call store.Call
 	err  error
+}
+
+type fakeRTCProvider struct {
+	configuration rtcconfig.Configuration
+	err           error
+	generated     int
+}
+
+func (provider *fakeRTCProvider) Generate(
+	context.Context,
+) (rtcconfig.Configuration, error) {
+	provider.generated++
+	return provider.configuration, provider.err
 }
 
 func (f fakeCallStore) CallByID(context.Context, string) (store.Call, error) {

@@ -350,6 +350,9 @@ func (api *API) accountPassword(response http.ResponseWriter, request *http.Requ
 }
 
 func (api *API) authorizeAPI(response http.ResponseWriter, request *http.Request) bool {
+	if len(request.Header.Values("Authorization")) > 0 {
+		return api.authorizeMobileAPI(response, request)
+	}
 	if api.authenticator == nil {
 		return true
 	}

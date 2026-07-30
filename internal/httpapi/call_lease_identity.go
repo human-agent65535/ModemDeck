@@ -8,6 +8,7 @@ import (
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/calllease"
+	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
 )
 
 const callLeaseHolderScopePrefix = "session-"
@@ -33,6 +34,17 @@ func contextWithCallLeaseSession(
 	return context.WithValue(ctx, callLeaseSessionScopeContextKey{}, scope)
 }
 
+func contextWithCallLeaseMobileCredential(
+	ctx context.Context,
+	digest mobilepairing.TokenDigest,
+) context.Context {
+	return context.WithValue(
+		ctx,
+		callLeaseSessionScopeContextKey{},
+		callLeaseSessionScope(digest),
+	)
+}
+
 func (api *API) callLeaseHolder(
 	ctx context.Context,
 	clientID string,
@@ -41,12 +53,11 @@ func (api *API) callLeaseHolder(
 	if err != nil {
 		return callLeaseHolder{}, err
 	}
-	if api.authenticator == nil {
-		return callLeaseHolder{ClientID: clientID, LeaseID: clientID}, nil
-	}
-
 	scope, ok := ctx.Value(callLeaseSessionScopeContextKey{}).(callLeaseSessionScope)
 	if !ok {
+		if api.authenticator == nil {
+			return callLeaseHolder{ClientID: clientID, LeaseID: clientID}, nil
+		}
 		return callLeaseHolder{}, errCallLeaseSessionUnavailable
 	}
 	digest := sha256.New()

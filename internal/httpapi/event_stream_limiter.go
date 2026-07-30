@@ -85,6 +85,11 @@ func (api *API) acquireEventStream(
 }
 
 func eventStreamSessionKey(request *http.Request) [sha256.Size]byte {
+	if authentication, ok := mobileAuthenticationFromContext(
+		request.Context(),
+	); ok {
+		return [sha256.Size]byte(authentication.Digest)
+	}
 	cookie, err := request.Cookie(sessionCookieName)
 	if err == nil && cookie.Value != "" {
 		return sha256.Sum256([]byte(cookie.Value))

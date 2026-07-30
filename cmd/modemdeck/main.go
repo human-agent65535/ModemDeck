@@ -115,11 +115,14 @@ func run(
 		return fmt.Errorf("open Web TLS certificate manager: %w", err)
 	}
 	cloudflareGateway, err := mobilepairing.NewCloudflareGateway(
-		os.Getenv("MODEMDECK_CLOUDFLARE_PUBLIC_URL"),
 		os.Getenv("MODEMDECK_CLOUDFLARE_READY_URL"),
 	)
 	if err != nil {
 		return fmt.Errorf("configure Cloudflare Tunnel: %w", err)
+	}
+	turnProvider, err := cloudflareTURNProvider()
+	if err != nil {
+		return fmt.Errorf("configure call relay: %w", err)
 	}
 	db, err := database.Open(ctx, database.Config{
 		TargetPath: databasePath,
@@ -169,7 +172,12 @@ func run(
 		_ = db.Close()
 		return fmt.Errorf("create WebRTC media core: %w", err)
 	}
-	callMedia, err := mediaapp.New(communications, repository, mediaCore)
+	callMedia, err := mediaapp.New(
+		communications,
+		repository,
+		mediaCore,
+		mediaapp.Options{RTCProvider: turnProvider},
+	)
 	if err != nil {
 		_ = mediaCore.Close(context.Background())
 		_ = db.Close()
@@ -283,6 +291,7 @@ func run(
 		TelegramSettings:     telegramSettings,
 		TLSSettings:          tlsSettingsService{manager: tlsCertificates},
 		MobilePairing:        cloudflareGateway,
+		RTCConfiguration:     turnProvider,
 		Authenticator:        authenticator,
 		SecureCookies:        secureCookies,
 		Logger:               logger.With("component", "http"),

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
 )
 
@@ -15,6 +16,92 @@ type IOSPairingStatus struct {
 	Allowed             bool   `json:"allowed"`
 	HasCredential       bool   `json:"has_credential"`
 	CredentialCreatedAt string `json:"credential_created_at,omitempty"`
+}
+
+func (s *Store) IOSPairingPrincipalByTokenDigest(
+	ctx context.Context,
+	digest mobilepairing.TokenDigest,
+) (auth.Principal, bool, error) {
+	var (
+		principal  auth.Principal
+		role       string
+		mustChange int64
+		pairing    int64
+	)
+	err := s.database.QueryRowContext(
+		ctx,
+		`SELECT
+			user.id,
+			user.username,
+			user.role,
+			user.must_change_password,
+			user.ios_pairing_enabled,
+			COALESCE(profile.contact_id, '')
+		 FROM modemdeck_ios_pairing_credentials AS credential
+		 JOIN modemdeck_users AS user
+			ON user.id = credential.user_id
+				AND user.enabled = 1
+				AND user.ios_pairing_enabled = 1
+		 LEFT JOIN modemdeck_user_profile_contacts AS profile
+			ON profile.user_id = user.id
+		 WHERE credential.token_digest = ?`,
+		digest[:],
+	).Scan(
+		&principal.UserID,
+		&principal.Username,
+		&role,
+		&mustChange,
+		&pairing,
+		&principal.ProfileContactID,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return auth.Principal{}, false, nil
+	}
+	if err != nil {
+		return auth.Principal{}, false, fmt.Errorf(
+			"query iOS pairing principal: %w",
+			err,
+		)
+	}
+	principal.Role = auth.Role(role)
+	principal.MustChangePassword = mustChange != 0
+	principal.IOSPairingEnabled = pairing != 0
+
+	rows, err := s.database.QueryContext(
+		ctx,
+		`SELECT line_id
+		 FROM modemdeck_user_lines
+		 WHERE user_id = ?
+		 ORDER BY line_id`,
+		principal.UserID,
+	)
+	if err != nil {
+		return auth.Principal{}, false, fmt.Errorf(
+			"query iOS pairing line access: %w",
+			err,
+		)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var lineID string
+		if err := rows.Scan(&lineID); err != nil {
+			return auth.Principal{}, false, fmt.Errorf(
+				"scan iOS pairing line access: %w",
+				err,
+			)
+		}
+		principal.AllowedLineIDs = append(
+			principal.AllowedLineIDs,
+			lineID,
+		)
+	}
+	if err := rows.Err(); err != nil {
+		return auth.Principal{}, false, fmt.Errorf(
+			"iterate iOS pairing line access: %w",
+			err,
+		)
+	}
+	return principal, true, nil
 }
 
 func (s *Store) IOSPairingStatus(

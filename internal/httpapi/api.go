@@ -18,6 +18,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
 	"github.com/human-agent65535/modemdeck/internal/networkruntime"
 	"github.com/human-agent65535/modemdeck/internal/recording"
+	"github.com/human-agent65535/modemdeck/internal/rtcconfig"
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 	"github.com/human-agent65535/modemdeck/internal/telegramsettings"
@@ -72,6 +73,10 @@ type Repository interface {
 		store.SystemLanguage,
 		int64,
 	) (store.SystemSettings, error)
+	IOSPairingPrincipalByTokenDigest(
+		context.Context,
+		mobilepairing.TokenDigest,
+	) (auth.Principal, bool, error)
 }
 
 type Capabilities struct {
@@ -188,7 +193,7 @@ type TelegramSettingsService interface {
 }
 
 type CallMediaService interface {
-	Exchange(context.Context, string, string, string) (string, error)
+	Exchange(context.Context, string, string, string, bool) (string, error)
 	ReleaseOwner(context.Context, string, string) error
 	CloseCall(context.Context, string) error
 }
@@ -258,6 +263,7 @@ type Options struct {
 	TelegramSettings      TelegramSettingsService
 	TLSSettings           TLSSettingsService
 	MobilePairing         mobilepairing.Availability
+	RTCConfiguration      rtcconfig.Provider
 	Authenticator         Authenticator
 	SecureCookies         bool
 	Logger                *slog.Logger
@@ -285,6 +291,7 @@ type API struct {
 	telegram                  TelegramSettingsService
 	tlsSettingsService        TLSSettingsService
 	mobilePairingAvailability mobilepairing.Availability
+	rtcConfiguration          rtcconfig.Provider
 	authenticator             Authenticator
 	secureCookies             bool
 	loginSlots                chan struct{}
@@ -330,6 +337,7 @@ func New(repository Repository, options Options) (*API, error) {
 		telegram:                  options.TelegramSettings,
 		tlsSettingsService:        options.TLSSettings,
 		mobilePairingAvailability: options.MobilePairing,
+		rtcConfiguration:          options.RTCConfiguration,
 		authenticator:             options.Authenticator,
 		secureCookies:             options.SecureCookies,
 		loginSlots:                make(chan struct{}, 2),
@@ -481,6 +489,12 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 			api.callAction(response, request, id, action)
 			return
 		}
+		if id, ok := callMediaICEConfigurationResourceID(
+			request.URL.Path,
+		); ok {
+			api.callMediaICEConfiguration(response, request, id)
+			return
+		}
 		if id, ok := callMediaResourceID(request.URL.Path); ok {
 			api.callMediaExchange(response, request, id)
 			return
@@ -563,6 +577,9 @@ func (api *API) bootstrap(response http.ResponseWriter, request *http.Request) {
 		}
 	} else {
 		capabilities = disconnectedCapabilities()
+	}
+	if isMobileRequest(request) && api.rtcConfiguration == nil {
+		capabilities.WebRTCAudio = false
 	}
 	lineCatalog := persistedLines
 	lines = filterLinesForPrincipal(request.Context(), lines)

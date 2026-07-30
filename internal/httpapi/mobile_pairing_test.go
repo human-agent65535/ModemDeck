@@ -137,6 +137,8 @@ func TestIOSPairingStatusReportsInstallationAndConnectorState(t *testing.T) {
 			Enabled:   true,
 			Connected: false,
 			PublicURL: "https://phone.example.com",
+			APIURLs:   []string{"https://phone.example.com"},
+			WebURLs:   []string{"https://deck.example.com"},
 		}},
 	})
 	if err != nil {
@@ -158,7 +160,9 @@ func TestIOSPairingStatusReportsInstallationAndConnectorState(t *testing.T) {
 	if !body.Pairing.Allowed ||
 		!body.Pairing.Cloudflare.Enabled ||
 		body.Pairing.Cloudflare.Connected ||
-		body.Pairing.Cloudflare.PublicURL != "https://phone.example.com" {
+		body.Pairing.Cloudflare.PublicURL != "https://phone.example.com" ||
+		len(body.Pairing.Cloudflare.APIURLs) != 1 ||
+		len(body.Pairing.Cloudflare.WebURLs) != 1 {
 		t.Fatalf("pairing = %+v", body.Pairing)
 	}
 }

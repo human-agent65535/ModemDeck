@@ -44,6 +44,8 @@ cp "${source_repo}/docker-compose.advanced.yml" \
     "${fixture}/docker-compose.advanced.yml"
 cp "${source_repo}/docker-compose.cloudflare.yml" \
     "${fixture}/docker-compose.cloudflare.yml"
+cp "${source_repo}/docker-compose.cloudflare-turn.yml" \
+    "${fixture}/docker-compose.cloudflare-turn.yml"
 cp "${source_repo}/Dockerfile" "${fixture}/Dockerfile"
 cp "${source_repo}/hardware/Dockerfile" "${fixture}/hardware/Dockerfile"
 cp "${source_repo}/hardware/config/media-bindings.empty.json" \
@@ -504,11 +506,17 @@ grep -qx 'database-before' "${test_root}/data/modemdeck.db" ||
 grep -qx 'settings-key-before' "${test_root}/secrets/settings" ||
     fail "repeat installation replaced the settings key"
 
-# Cloudflare is an installer-owned optional service. Its token is persisted as
-# a file secret and the public hostname never becomes an editable Web setting.
+# Cloudflare is an installer-owned optional service. The connector works
+# without TURN, while the API hostname is discovered from active ingress.
 printf '%s\n' \
     'eyJhbGciOiJIUzI1NiJ9X19tb2RlbWRlY2tfZGVwbG95bWVudF90ZXN0X3Rva2VuX19sb25nX2Vub3VnaF9mb3JfdmFsaWRhdGlvbg' \
     >"${test_root}/cloudflare-token-input"
+printf '%s\n' 'test-cloudflare-turn-token' \
+    >"${test_root}/cloudflare-turn-token-input"
+printf '%s\n' \
+    'MODEMDECK_CLOUDFLARE_HOSTNAME=stale.example.com' \
+    'MODEMDECK_CLOUDFLARE_PUBLIC_URL=https://stale.example.com' \
+    >>"${fixture}/.env"
 : >"${test_root}/commands.log"
 common_env \
     MODEMDECK_TEST_DOCKER_HEALTH=healthy \
@@ -517,14 +525,43 @@ common_env \
         --mode advanced \
         --assignment-file "${test_root}/assignments.json" \
         --cloudflare-token-file "${test_root}/cloudflare-token-input" \
-        --cloudflare-hostname mobile.example.com \
+        --allow-dirty \
+        >"${test_root}/cloudflare-only-output.log" 2>&1
+if [ -e "${fixture}/secrets/cloudflare-turn-token" ]; then
+    fail "Tunnel-only installation created a TURN token secret"
+fi
+if grep -Fq 'docker-compose.cloudflare-turn.yml' \
+    "${test_root}/commands.log"
+then
+    fail "Tunnel-only installation enabled the TURN Compose override"
+fi
+grep -Fq 'TURN:          disabled' \
+    "${test_root}/cloudflare-only-output.log" ||
+    fail "Tunnel-only installation did not report TURN as disabled"
+
+: >"${test_root}/commands.log"
+common_env \
+    MODEMDECK_TEST_DOCKER_HEALTH=healthy \
+    MODEMDECK_HOST_DBUS_SOCKET=/var/run/docker.sock \
+    "${fixture}/install.sh" \
+        --mode advanced \
+        --assignment-file "${test_root}/assignments.json" \
+        --cloudflare-turn-key-id 0123456789abcdef0123456789abcdef \
+        --cloudflare-turn-token-file \
+            "${test_root}/cloudflare-turn-token-input" \
         --allow-dirty \
         >"${test_root}/cloudflare-output.log" 2>&1
 grep -Fq 'MODEMDECK_CLOUDFLARE_ENABLED=true' "${fixture}/.env" ||
     fail "Cloudflare enablement was not persisted"
-grep -Fq 'MODEMDECK_CLOUDFLARE_PUBLIC_URL=https://mobile.example.com' \
+if grep -Eq '^MODEMDECK_CLOUDFLARE_(HOSTNAME|PUBLIC_URL)=' \
+    "${fixture}/.env"
+then
+    fail "obsolete static Cloudflare hostname settings were retained"
+fi
+grep -Fq \
+    'MODEMDECK_CLOUDFLARE_TURN_KEY_ID=0123456789abcdef0123456789abcdef' \
     "${fixture}/.env" ||
-    fail "Cloudflare public URL was not persisted"
+    fail "Cloudflare TURN key ID was not persisted"
 grep -Fq 'MODEMDECK_WEB_IMAGE=modemdeck-web' "${fixture}/.env" ||
     fail "Web gateway image was not persisted"
 grep -qx \
@@ -533,17 +570,58 @@ grep -qx \
     fail "Cloudflare token was not normalized into its file secret"
 [ "$(file_mode "${fixture}/secrets/cloudflare-tunnel-token")" = 440 ] ||
     fail "Cloudflare token does not use mode 0440"
+grep -qx 'test-cloudflare-turn-token' \
+    "${fixture}/secrets/cloudflare-turn-token" ||
+    fail "Cloudflare TURN token was not normalized into its file secret"
+[ "$(file_mode "${fixture}/secrets/cloudflare-turn-token")" = 440 ] ||
+    fail "Cloudflare TURN token does not use mode 0440"
 if grep -Fq \
     'eyJhbGciOiJIUzI1NiJ9X19tb2RlbWRlY2tfZGVwbG95bWVudF90ZXN0X3Rva2Vu' \
     "${test_root}/cloudflare-output.log"
 then
     fail "Cloudflare token leaked into installer output"
 fi
+if grep -Fq 'test-cloudflare-turn-token' \
+    "${test_root}/cloudflare-output.log"
+then
+    fail "Cloudflare TURN token leaked into installer output"
+fi
 grep -Eq '^docker\|compose .* build hardware api modemdeck( |$)' \
     "${test_root}/commands.log" ||
     fail "installer did not build the Web gateway"
 grep -Fq 'cloudflared' "${test_root}/commands.log" ||
     fail "installer did not wait for cloudflared"
+grep -Fq 'docker-compose.cloudflare-turn.yml' "${test_root}/commands.log" ||
+    fail "TURN installation did not enable the TURN Compose override"
+
+# TURN can be disabled without removing the Tunnel connector or its secrets.
+: >"${test_root}/commands.log"
+common_env \
+    MODEMDECK_TEST_DOCKER_HEALTH=healthy \
+    MODEMDECK_HOST_DBUS_SOCKET=/var/run/docker.sock \
+    "${fixture}/install.sh" \
+        --mode advanced \
+        --assignment-file "${test_root}/assignments.json" \
+        --disable-cloudflare-turn \
+        --allow-dirty \
+        >"${test_root}/cloudflare-turn-disabled-output.log" 2>&1
+grep -Fq 'MODEMDECK_CLOUDFLARE_ENABLED=true' "${fixture}/.env" ||
+    fail "disabling TURN also disabled the Tunnel connector"
+grep -qx 'MODEMDECK_CLOUDFLARE_TURN_KEY_ID=' "${fixture}/.env" ||
+    fail "disabling TURN did not clear TURN enablement"
+if grep -Fq 'docker-compose.cloudflare-turn.yml' \
+    "${test_root}/commands.log"
+then
+    fail "disabled TURN remained in the Compose stack"
+fi
+grep -Fq 'docker-compose.cloudflare.yml' "${test_root}/commands.log" ||
+    fail "disabling TURN removed the Tunnel Compose override"
+grep -qx 'test-cloudflare-turn-token' \
+    "${fixture}/secrets/cloudflare-turn-token" ||
+    fail "disabling TURN destroyed the persisted TURN token"
+grep -Fq 'TURN:          disabled' \
+    "${test_root}/cloudflare-turn-disabled-output.log" ||
+    fail "disabled TURN was not reported"
 
 # A successful simple install requires host ModemManager to be masked. A
 # stopped and disabled legacy Agent may retain its local unit file when systemd

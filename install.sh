@@ -9,6 +9,7 @@ env_file="${repo_dir}/.env"
 compose_file="${repo_dir}/docker-compose.yml"
 advanced_compose_file="${repo_dir}/docker-compose.advanced.yml"
 cloudflare_compose_file="${repo_dir}/docker-compose.cloudflare.yml"
+cloudflare_turn_compose_file="${repo_dir}/docker-compose.cloudflare-turn.yml"
 assignment_example="${repo_dir}/deploy/advanced-assignment.example.json"
 
 mode_arg=
@@ -20,10 +21,14 @@ media_bindings_arg=
 version_arg=
 cloudflare_token_arg=
 cloudflare_hostname_arg=
+cloudflare_turn_key_id_arg=
+cloudflare_turn_token_arg=
 disable_cloudflare=false
+disable_cloudflare_turn=false
 allow_dirty=false
 check_only=false
 cloudflare_enabled=false
+cloudflare_turn_enabled=false
 
 work_dir=
 env_work=
@@ -65,21 +70,27 @@ Options:
   --cloudflare-token-file FILE
                           Enable cloudflared using a remotely-managed Tunnel
                           token read from FILE
-  --cloudflare-hostname HOST
-                          Public HTTPS hostname used by iOS clients
+  --cloudflare-turn-key-id ID
+                          Enable iOS call relay using a Cloudflare Realtime
+                          TURN key ID
+  --cloudflare-turn-token-file FILE
+                          TURN API token read from FILE
+  --disable-cloudflare-turn
+                          Disable TURN while keeping the Tunnel connector
   --disable-cloudflare    Disable the installed Tunnel connector and iOS pairing
   --version TAG           Docker image tag (default: current Git revision)
   --allow-dirty           Allow deployment from a modified Git checkout
   --check                 Read-only validation; build or change nothing
   -h, --help              Show this help
 
-Nginx exposes two isolated listeners: HTTP port 7575 is API-only and reachable
-only by the installed Cloudflare connector; HTTPS port 7577 serves the Web UI.
-The Go API listens only on port 8080 inside the private Compose network. iOS
-pairing is available only while an installed Cloudflare Tunnel is connected.
-The installer preserves application data, settings secrets, and the Tunnel
-token. On a first installation, open the local HTTPS Web UI and complete Quick
-Start to create the administrator username and password.
+Nginx exposes two isolated listeners: HTTP port 7575 is API-only and HTTPS port
+7577 serves the Web UI. Both are reachable by the optional connector; users
+manage Cloudflare ingress rules themselves. Only HTTPS port 7577 is published
+to the host. The Go API listens only on port 8080 inside the private Compose
+network. iOS pairing is available only while the configured public API route is
+connected. The installer preserves application data, settings secrets, and the
+Tunnel token. On a first installation, open the local HTTPS Web UI and complete
+Quick Start to create the administrator username and password.
 EOF
 }
 
@@ -99,13 +110,24 @@ fail() {
 compose() {
     if [ "$mode" = advanced ]; then
         if [ "$cloudflare_enabled" = true ]; then
-            docker compose \
-                --project-directory "$repo_dir" \
-                --env-file "$env_work" \
-                -f "$compose_file" \
-                -f "$advanced_compose_file" \
-                -f "$cloudflare_compose_file" \
-                "$@"
+            if [ "$cloudflare_turn_enabled" = true ]; then
+                docker compose \
+                    --project-directory "$repo_dir" \
+                    --env-file "$env_work" \
+                    -f "$compose_file" \
+                    -f "$advanced_compose_file" \
+                    -f "$cloudflare_compose_file" \
+                    -f "$cloudflare_turn_compose_file" \
+                    "$@"
+            else
+                docker compose \
+                    --project-directory "$repo_dir" \
+                    --env-file "$env_work" \
+                    -f "$compose_file" \
+                    -f "$advanced_compose_file" \
+                    -f "$cloudflare_compose_file" \
+                    "$@"
+            fi
         else
             docker compose \
                 --project-directory "$repo_dir" \
@@ -116,12 +138,22 @@ compose() {
         fi
     else
         if [ "$cloudflare_enabled" = true ]; then
-            docker compose \
-                --project-directory "$repo_dir" \
-                --env-file "$env_work" \
-                -f "$compose_file" \
-                -f "$cloudflare_compose_file" \
-                "$@"
+            if [ "$cloudflare_turn_enabled" = true ]; then
+                docker compose \
+                    --project-directory "$repo_dir" \
+                    --env-file "$env_work" \
+                    -f "$compose_file" \
+                    -f "$cloudflare_compose_file" \
+                    -f "$cloudflare_turn_compose_file" \
+                    "$@"
+            else
+                docker compose \
+                    --project-directory "$repo_dir" \
+                    --env-file "$env_work" \
+                    -f "$compose_file" \
+                    -f "$cloudflare_compose_file" \
+                    "$@"
+            fi
         else
             docker compose \
                 --project-directory "$repo_dir" \
@@ -272,8 +304,23 @@ while [ "$#" -gt 0 ]; do
             cloudflare_hostname_arg=$2
             shift 2
             ;;
+        --cloudflare-turn-key-id)
+            [ "$#" -ge 2 ] || fail "--cloudflare-turn-key-id requires a value"
+            cloudflare_turn_key_id_arg=$2
+            shift 2
+            ;;
+        --cloudflare-turn-token-file)
+            [ "$#" -ge 2 ] ||
+                fail "--cloudflare-turn-token-file requires a value"
+            cloudflare_turn_token_arg=$2
+            shift 2
+            ;;
         --disable-cloudflare)
             disable_cloudflare=true
+            shift
+            ;;
+        --disable-cloudflare-turn)
+            disable_cloudflare_turn=true
             shift
             ;;
         --version)
@@ -307,6 +354,7 @@ fi
 for required_file in \
     "$compose_file" \
     "$cloudflare_compose_file" \
+    "$cloudflare_turn_compose_file" \
     "${repo_dir}/Dockerfile" \
     "${repo_dir}/hardware/Dockerfile" \
     "${repo_dir}/hardware/config/media-bindings.empty.json" \
@@ -413,8 +461,9 @@ settings_key_path=${MODEMDECK_SETTINGS_KEY_FILE:-$(env_or_default MODEMDECK_SETT
 data_path=${MODEMDECK_DATA_DIR:-$(env_or_default MODEMDECK_DATA_DIR ./data)}
 media_bindings_path=${MODEMDECK_MEDIA_BINDINGS_FILE:-$(env_or_default MODEMDECK_MEDIA_BINDINGS_FILE ./hardware/config/media-bindings.empty.json)}
 cloudflare_enabled=${MODEMDECK_CLOUDFLARE_ENABLED:-$(env_or_default MODEMDECK_CLOUDFLARE_ENABLED false)}
-cloudflare_hostname=${MODEMDECK_CLOUDFLARE_HOSTNAME:-$(env_or_default MODEMDECK_CLOUDFLARE_HOSTNAME "")}
 cloudflare_token_path=${MODEMDECK_CLOUDFLARE_TOKEN_FILE:-$(env_or_default MODEMDECK_CLOUDFLARE_TOKEN_FILE ./secrets/cloudflare-tunnel-token)}
+cloudflare_turn_key_id=${MODEMDECK_CLOUDFLARE_TURN_KEY_ID:-$(env_or_default MODEMDECK_CLOUDFLARE_TURN_KEY_ID "")}
+cloudflare_turn_token_path=${MODEMDECK_CLOUDFLARE_TURN_TOKEN_FILE:-$(env_or_default MODEMDECK_CLOUDFLARE_TURN_TOKEN_FILE ./secrets/cloudflare-turn-token)}
 cloudflared_version=${MODEMDECK_CLOUDFLARED_VERSION:-$(env_or_default MODEMDECK_CLOUDFLARED_VERSION 2026.7.3)}
 cloudflared_digest=${MODEMDECK_CLOUDFLARED_DIGEST:-$(env_or_default MODEMDECK_CLOUDFLARED_DIGEST sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf)}
 
@@ -451,20 +500,42 @@ settings_key_file=$(absolute_path "$settings_key_path")
 data_dir=$(absolute_path "$data_path")
 media_bindings_file=$(absolute_path "$media_bindings_path")
 cloudflare_token_file=$(absolute_path "$cloudflare_token_path")
+cloudflare_turn_token_file=$(absolute_path "$cloudflare_turn_token_path")
 
 case "$cloudflare_enabled" in
     true|false) ;;
     *) fail "MODEMDECK_CLOUDFLARE_ENABLED must be true or false" ;;
 esac
 if [ "$disable_cloudflare" = true ]; then
-    [ -z "$cloudflare_token_arg" ] && [ -z "$cloudflare_hostname_arg" ] ||
+    [ -z "$cloudflare_token_arg" ] &&
+        [ -z "$cloudflare_hostname_arg" ] &&
+        [ -z "$cloudflare_turn_key_id_arg" ] &&
+        [ -z "$cloudflare_turn_token_arg" ] ||
         fail "--disable-cloudflare cannot be combined with Cloudflare enable options"
     cloudflare_enabled=false
-elif [ -n "$cloudflare_token_arg" ] || [ -n "$cloudflare_hostname_arg" ]; then
+elif [ -n "$cloudflare_token_arg" ] ||
+    [ -n "$cloudflare_turn_key_id_arg" ] ||
+    [ -n "$cloudflare_turn_token_arg" ]
+then
     cloudflare_enabled=true
 fi
-[ -z "$cloudflare_hostname_arg" ] ||
-    cloudflare_hostname=$cloudflare_hostname_arg
+if [ "$disable_cloudflare_turn" = true ]; then
+    [ -z "$cloudflare_turn_key_id_arg" ] &&
+        [ -z "$cloudflare_turn_token_arg" ] ||
+        fail "--disable-cloudflare-turn cannot be combined with TURN enable options"
+    cloudflare_turn_key_id=
+else
+    [ -z "$cloudflare_turn_key_id_arg" ] ||
+        cloudflare_turn_key_id=$cloudflare_turn_key_id_arg
+    if [ -n "$cloudflare_turn_key_id" ] ||
+        [ -n "$cloudflare_turn_token_arg" ]
+    then
+        cloudflare_turn_enabled=true
+    fi
+fi
+if [ "$cloudflare_enabled" != true ]; then
+    cloudflare_turn_enabled=false
+fi
 
 validate_cloudflare_hostname() {
     printf '%s\n' "$1" | awk -F. '
@@ -507,18 +578,54 @@ validate_cloudflare_token_file() {
         fail "Cloudflare Tunnel token file does not contain one valid token"
 }
 
-cloudflare_public_url=
+validate_cloudflare_turn_token_file() {
+    token_file=$1
+    [ -r "$token_file" ] ||
+        fail "Cloudflare TURN token file is not readable: $token_file"
+    [ -f "$token_file" ] && [ ! -L "$token_file" ] ||
+        fail "Cloudflare TURN token must be a regular non-symlink file: $token_file"
+    token_size=$(stat -c %s "$token_file" 2>/dev/null ||
+        stat -f %z "$token_file")
+    [ "$token_size" -le 4097 ] ||
+        fail "Cloudflare TURN token file exceeds 4097 bytes"
+    awk '
+        {
+            sub(/\r$/, "")
+            if ($0 == "") next
+            if (seen || length($0) > 4096 ||
+                $0 ~ /[[:space:][:cntrl:]]/) {
+                exit 1
+            }
+            seen = 1
+        }
+        END { if (!seen) exit 1 }
+    ' "$token_file" ||
+        fail "Cloudflare TURN token file does not contain one valid token"
+}
+
 cloudflare_token_source=$cloudflare_token_file
-if [ "$cloudflare_enabled" = true ]; then
-    [ -n "$cloudflare_hostname" ] ||
-        fail "enabling Cloudflare requires --cloudflare-hostname HOST"
-    validate_cloudflare_hostname "$cloudflare_hostname" ||
+cloudflare_turn_token_source=$cloudflare_turn_token_file
+if [ -n "$cloudflare_hostname_arg" ]; then
+    validate_cloudflare_hostname "$cloudflare_hostname_arg" ||
         fail "--cloudflare-hostname must be a valid DNS hostname"
+    warn "--cloudflare-hostname is no longer required; the API hostname is discovered from the active Tunnel ingress"
+fi
+if [ "$cloudflare_enabled" = true ]; then
     if [ -n "$cloudflare_token_arg" ]; then
         cloudflare_token_source=$(absolute_path "$cloudflare_token_arg")
     fi
     validate_cloudflare_token_file "$cloudflare_token_source"
-    cloudflare_public_url="https://${cloudflare_hostname}"
+fi
+if [ "$cloudflare_turn_enabled" = true ]; then
+    printf '%s\n' "$cloudflare_turn_key_id" |
+        grep -Eq '^[0-9A-Fa-f]{32}$' ||
+        fail "enabling Cloudflare TURN requires a 32-character key ID"
+    if [ -n "$cloudflare_turn_token_arg" ]; then
+        cloudflare_turn_token_source=$(
+            absolute_path "$cloudflare_turn_token_arg"
+        )
+    fi
+    validate_cloudflare_turn_token_file "$cloudflare_turn_token_source"
 fi
 printf '%s\n' "$cloudflared_version" |
     grep -Eq '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$' ||
@@ -649,6 +756,15 @@ upsert_env() {
     mv "$next_env" "$env_work"
 }
 
+remove_env() {
+    remove_key=$1
+    next_env="${work_dir}/compose.env.next"
+    awk -v key="$remove_key" '
+        index($0, key "=") != 1 { print }
+    ' "$env_work" >"$next_env"
+    mv "$next_env" "$env_work"
+}
+
 upsert_env MODEMDECK_HARDWARE_MODE "$mode"
 upsert_env MODEMDECK_ASSIGNMENT_FILE "$assignment_path"
 upsert_env MODEMDECK_IMAGE "$image_name"
@@ -668,9 +784,11 @@ upsert_env MODEMDECK_DATA_DIR "$data_dir"
 upsert_env MODEMDECK_MEDIA_BINDINGS_FILE "$media_bindings_file"
 upsert_env MODEMDECK_SECURE_COOKIES true
 upsert_env MODEMDECK_CLOUDFLARE_ENABLED "$cloudflare_enabled"
-upsert_env MODEMDECK_CLOUDFLARE_HOSTNAME "$cloudflare_hostname"
-upsert_env MODEMDECK_CLOUDFLARE_PUBLIC_URL "$cloudflare_public_url"
+remove_env MODEMDECK_CLOUDFLARE_HOSTNAME
+remove_env MODEMDECK_CLOUDFLARE_PUBLIC_URL
 upsert_env MODEMDECK_CLOUDFLARE_TOKEN_FILE "$cloudflare_token_file"
+upsert_env MODEMDECK_CLOUDFLARE_TURN_KEY_ID "$cloudflare_turn_key_id"
+upsert_env MODEMDECK_CLOUDFLARE_TURN_TOKEN_FILE "$cloudflare_turn_token_file"
 upsert_env MODEMDECK_CLOUDFLARED_VERSION "$cloudflared_version"
 upsert_env MODEMDECK_CLOUDFLARED_DIGEST "$cloudflared_digest"
 if [ "$mode" = advanced ]; then
@@ -693,7 +811,12 @@ printf '%s\n' 'API upstream:  http://api:8080 (Compose only)'
 printf 'Data:          %s\n' "$data_dir"
 printf 'Media config:  %s\n' "$media_bindings_file"
 if [ "$cloudflare_enabled" = true ]; then
-    printf 'Cloudflare:    enabled (%s)\n' "$cloudflare_public_url"
+    printf '%s\n' 'Cloudflare:    enabled (ingress managed in Cloudflare)'
+    if [ "$cloudflare_turn_enabled" = true ]; then
+        printf '%s\n' 'TURN:          enabled (Cloudflare Realtime)'
+    else
+        printf '%s\n' 'TURN:          disabled'
+    fi
 else
     printf '%s\n' 'Cloudflare:    disabled (iOS pairing unavailable)'
 fi
@@ -818,13 +941,16 @@ prepare_secret "$settings_key_file" 32 "settings encryption key"
 prepare_cloudflare_token() {
     token_source=$1
     token_destination=$2
+    token_owner=$3
+    token_group=$4
+    token_name=$5
     token_directory=$(dirname -- "$token_destination")
-    normalized_token="${work_dir}/cloudflare-tunnel-token"
+    normalized_token="${work_dir}/${token_name}"
 
     tr -d '\r\n' <"$token_source" >"$normalized_token"
     printf '\n' >>"$normalized_token"
     install -d -o root -g root -m 0700 "$token_directory"
-    install -o 65532 -g 65532 -m 0440 \
+    install -o "$token_owner" -g "$token_group" -m 0440 \
         "$normalized_token" \
         "$token_destination"
 }
@@ -832,7 +958,18 @@ prepare_cloudflare_token() {
 if [ "$cloudflare_enabled" = true ]; then
     prepare_cloudflare_token \
         "$cloudflare_token_source" \
-        "$cloudflare_token_file"
+        "$cloudflare_token_file" \
+        65532 \
+        65532 \
+        cloudflare-tunnel-token
+fi
+if [ "$cloudflare_turn_enabled" = true ]; then
+    prepare_cloudflare_token \
+        "$cloudflare_turn_token_source" \
+        "$cloudflare_turn_token_file" \
+        root \
+        "$app_gid" \
+        cloudflare-turn-token
 fi
 
 log "Building Web, application, and hardware images in Docker"
@@ -1082,7 +1219,7 @@ services_changed=false
 log "Installation complete"
 printf 'Web UI:         https://%s:%s\n' "$bind_address" "$port"
 if [ "$cloudflare_enabled" = true ]; then
-    printf 'iOS API:        %s\n' "$cloudflare_public_url"
+    printf '%s\n' 'iOS API:        auto-discovered from Tunnel ingress'
 fi
 printf 'Hardware mode:  %s\n' "$mode"
 printf '%s\n' 'First install: complete Web Quick Start to create the administrator account.'

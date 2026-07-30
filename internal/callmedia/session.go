@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/human-agent65535/modemdeck/internal/rtcconfig"
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
 )
@@ -79,14 +80,35 @@ func (e *peerEvents) fail(err error) {
 	}
 }
 
-func (c *Core) preparePeer() (
+func (c *Core) preparePeer(configuration rtcconfig.Configuration) (
 	*webrtc.PeerConnection,
 	*webrtc.TrackLocalStaticSample,
 	*webrtc.RTPSender,
 	*peerEvents,
 	error,
 ) {
-	peer, err := c.api.NewPeerConnection(clonePeerConfiguration(c.configuration))
+	peerConfiguration := clonePeerConfiguration(c.configuration)
+	if len(configuration.ICEServers) > 0 {
+		peerConfiguration.ICEServers = make(
+			[]webrtc.ICEServer,
+			0,
+			len(configuration.ICEServers),
+		)
+		for _, server := range configuration.ICEServers {
+			peerConfiguration.ICEServers = append(
+				peerConfiguration.ICEServers,
+				webrtc.ICEServer{
+					URLs:       append([]string(nil), server.URLs...),
+					Username:   server.Username,
+					Credential: server.Credential,
+				},
+			)
+		}
+	}
+	if configuration.RelayOnly {
+		peerConfiguration.ICETransportPolicy = webrtc.ICETransportPolicyRelay
+	}
+	peer, err := c.api.NewPeerConnection(peerConfiguration)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("exchange WebRTC offer: create peer: %w", ErrNegotiation)
 	}

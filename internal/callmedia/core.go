@@ -159,7 +159,9 @@ func (c *Core) Exchange(ctx context.Context, offer Offer) (ExchangeResult, error
 		cancel()
 	}()
 
-	peer, localTrack, sender, events, err := c.preparePeer()
+	peer, localTrack, sender, events, err := c.preparePeer(
+		offer.RTCConfiguration,
+	)
 	if err != nil {
 		return ExchangeResult{}, err
 	}

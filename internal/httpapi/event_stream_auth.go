@@ -18,6 +18,40 @@ func (api *API) authorizeEventStream(
 	request *http.Request,
 	requireAdmin bool,
 ) bool {
+	if _, mobile := mobileAuthenticationFromContext(request.Context()); mobile {
+		principal, err := api.currentMobilePrincipal(request.Context())
+		if err != nil {
+			writeError(
+				response,
+				http.StatusUnauthorized,
+				"authentication_required",
+				"Authentication is required",
+				"",
+			)
+			return false
+		}
+		if principal.MustChangePassword {
+			writeError(
+				response,
+				http.StatusForbidden,
+				"password_change_required",
+				"Change your temporary password before continuing",
+				"",
+			)
+			return false
+		}
+		if requireAdmin && !principal.IsAdmin() {
+			writeError(
+				response,
+				http.StatusForbidden,
+				"admin_required",
+				"Administrator access is required",
+				"",
+			)
+			return false
+		}
+		return true
+	}
 	if api.authenticator == nil {
 		return true
 	}
@@ -80,6 +114,10 @@ func (api *API) currentStreamCanAccessLine(
 func (api *API) currentStreamPrincipal(
 	request *http.Request,
 ) (auth.Principal, bool, error) {
+	if _, mobile := mobileAuthenticationFromContext(request.Context()); mobile {
+		principal, err := api.currentMobilePrincipal(request.Context())
+		return principal, err == nil, err
+	}
 	if api.authenticator == nil {
 		principal, exists := auth.PrincipalFromContext(request.Context())
 		return principal, exists, nil

@@ -40,12 +40,13 @@ ModemDeck 是一个管理蜂窝通话、短信、联系人、流量和多条线�
 | M2 单路通话 | ✅ 已实现 | 拨号、接听、拒接、挂断、DTMF、浏览器音频和通话录音。 |
 | M3 多路通话 | 🧪 已实现，未测试 | 每个 Modem 的独立通话会话、线路预占、占线显示和线路切换；待多模组实机验证。 |
 | M4 多用户 | ✅ 已实现 | 初始管理员、普通成员、线路分配、用户通讯录、个人偏好和 Telegram 绑定。 |
-| M5 iOS App + CallKit | 🧱 Web 基础已实现 | 管理员按用户允许 iOS 配对；用户自助生成或撤销仅绑定自己账户的二维码凭据。iOS 固定使用 Cloudflare HTTPS 地址，不实现 LAN 探测或线路切换。原生客户端、CallKit、后台通知和流式通话媒体仍待实现。 |
+| M5 iOS App + CallKit | 🧱 iOS 消费 API groundwork | 已实现按用户配对、受限 Mobile Bearer API、通话会话复用与 Cloudflare TURN 中继配置。iOS 固定使用 Cloudflare HTTPS，不实现 LAN 探测或线路切换；原生客户端、CallKit 和后台通知仍待实现。 |
 
-只有安装并连接 Cloudflare Tunnel 后才能创建 iOS 配对。二维码包含安装时固定的
-Cloudflare HTTPS 地址和每用户凭据，不包含 LAN 地址，也没有过期时间；用户或
-管理员撤销后才失效。浏览器音频维持当前 WebRTC 边界；iOS 流式媒体协议和后台
-生命周期将在 M5 后续阶段单独实现。
+只有安装并连接 Cloudflare Tunnel 后才能创建 iOS 配对。二维码包含自动发现的
+Cloudflare API HTTPS 地址和每用户凭据，不包含 LAN 地址，也没有过期时间；
+用户或管理员撤销后才失效。iOS 通话复用现有 Call API 和 WebRTC 媒体边界，
+并通过 Cloudflare TURN 强制中继；原生客户端和后台生命周期将在 M5 后续阶段
+实现。
 
 ## 架构
 
@@ -53,7 +54,8 @@ ModemDeck 默认由三个职责隔离的容器组成，并可选启用第四个 
 
 - `modemdeck` 是非特权 Nginx 网关，使用两个完全分离的 listener：Compose
   内网的 HTTP `7575` 只转发 `/api/*`，其他路径一律返回 404；HTTPS `7577`
-  提供 Web 管理页，并且只有这个端口会映射到宿主机。
+  提供 Web 管理页，并且只有这个端口会映射到宿主机。误用 HTTP 访问 `7577`
+  时会自动升级到同地址的 HTTPS。
 - `api` 是非特权 Go HTTP 服务，在 Compose 内网的 `8080` 负责身份验证、
   通信流程和 SQLite 数据。它没有宿主机端口，也不接触
   `/dev`、D-Bus、硬件状态或主机网络，只通过只读挂载的 Unix 套接字调用
@@ -61,9 +63,10 @@ ModemDeck 默认由三个职责隔离的容器组成，并可选启用第四个 
 - `hardware` 运行私有 D-Bus、定制生产版 ModemManager 1.24.0 和 Agent，
   独占 ModemDeck 的设备控制、蜂窝数据面和网络配置。ModemManager 的生产版
   AT 接口已在构建时启用，不依赖调试模式。
-- 可选的 `cloudflared` 只连接 Nginx 的 API-only HTTP origin
-  `http://modemdeck:7575`。iOS 始终使用 Cloudflare 提供的公网 HTTPS；
-  Tunnel 不发布 Web 管理页，也不需要在容器间配置 origin HTTPS。
+- 可选的 `cloudflared` 与 Nginx 位于同一 Compose 网络。用户可在 Cloudflare
+  中自行把公网主机名指向 API-only origin `http://modemdeck:7575`、Web
+  origin `https://modemdeck:7577`，或同时配置两者；ModemDeck 不管理这些
+  ingress 规则，也不提供额外的暴露开关。
 
 管理员可在“设置 → Web 证书”查看本地 `7577` 证书、下载自动签发 CA、上传
 PEM 证书链与匹配私钥，或切回自动证书。API 会原子更新持久化证书，Nginx
@@ -212,21 +215,35 @@ sudo ./install.sh \
   --assignment-file /etc/modemdeck/device-assignments.json
 ```
 
-要启用 iOS 公网 API 和配对，先在 Cloudflare 创建 remotely-managed Tunnel，
-把公开主机名的服务地址设为 `http://modemdeck:7575`，再将 Tunnel token 保存到
-仅 root 可读的文件：
+要公开 Web 或 API，先在 Cloudflare 创建 remotely-managed Tunnel，再按需将
+主机名指向 `https://modemdeck:7577` 或 `http://modemdeck:7575`。仅启用
+Tunnel connector。默认 Web 证书为自签证书，因此 Web Published Application
+使用 `https://modemdeck:7577` 时需在 origin TLS 设置中启用
+**No TLS Verify**；API 的 HTTP origin 不需要该设置。
+
+```sh
+sudo ./install.sh \
+  --cloudflare-token-file /root/modemdeck-cloudflare.token
+```
+
+iOS 通话媒体还需要 Cloudflare Realtime TURN。创建 TURN key，将 TURN API
+token 保存到仅 root 可读的文件，再加上 TURN 参数：
 
 ```sh
 sudo ./install.sh \
   --cloudflare-token-file /root/modemdeck-cloudflare.token \
-  --cloudflare-hostname deck.example.com
+  --cloudflare-turn-key-id REPLACE_WITH_TURN_KEY_ID \
+  --cloudflare-turn-token-file /root/modemdeck-cloudflare-turn.token
 ```
 
-`cloudflared`、Nginx 与 Go API 之间均使用私有 Docker 网络上的 HTTP；iOS API
-地址始终是 `https://deck.example.com`，但该主机名的非 API 路径返回 404。
-`--bind-address` 和 `--port` 只控制 Web 管理页的 HTTPS 宿主入口，不会进入 iOS
-二维码。重复安装会保留 SQLite 数据、设置密钥和 Tunnel token；可用
-`--disable-cloudflare` 停用 Tunnel 和 iOS 配对。完整参数见
+Cloudflare ingress 由用户自行管理，应用内没有暴露开关。iOS API 地址始终是
+活动 Tunnel 配置中唯一指向 `http://modemdeck:7575` 的 HTTPS 主机名；修改
+Cloudflare ingress 后会自动更新，不需要重新运行安装器。该主机名的非 API
+路径返回 404。后台会自动刷新并分别显示 API 与 Web 的活动公网地址。
+`--bind-address` 和 `--port` 只控制 Web 管理页的 HTTPS 宿主入口，不会进入
+iOS 二维码。重复安装会保留 SQLite 数据、设置密钥和 Cloudflare 凭据；可用
+`--disable-cloudflare-turn` 只停用 TURN，或用 `--disable-cloudflare` 停用
+Tunnel 和 iOS 配对。完整参数见
 `./install.sh --help`。
 
 首次打开 Web 界面时会进入“快速开始”，由首位访问者创建管理员用户名和密码。
@@ -290,13 +307,15 @@ with that project.
 | M2 Single-call flow | ✅ Implemented | Dial, answer, decline, hang up, DTMF, browser audio, and call recording. |
 | M3 Concurrent calls | 🧪 Implemented, not tested | Independent sessions per modem, line reservations, busy-state display, and line switching; pending multi-modem hardware validation. |
 | M4 Multi-user | ✅ Implemented | Initial administrator, members, line assignments, user address books, personal preferences, and Telegram bindings. |
-| M5 iOS app + CallKit | 🧱 Web groundwork implemented | Administrators grant pairing per user; each user creates or revokes a credential bound only to that account. iOS always uses the Cloudflare HTTPS endpoint, with no LAN discovery or route switching. The native client, CallKit, background delivery, and streaming call media remain pending. |
+| M5 iOS app + CallKit | 🧱 iOS-consumable API groundwork | Per-user pairing, a constrained Mobile Bearer API, shared call sessions, and Cloudflare TURN relay configuration are implemented. iOS always uses Cloudflare HTTPS, with no LAN discovery or route switching; the native client, CallKit, and background delivery remain pending. |
 
 An iOS pairing can be created only while the installed Cloudflare Tunnel is
-connected. The QR payload contains the installation-managed Cloudflare HTTPS
-origin and a per-user credential; it contains no LAN address and has no expiry.
-It remains valid until the user or an administrator revokes it. The iOS
-streaming transport and background lifecycle remain later M5 work.
+connected. The QR payload contains the automatically discovered Cloudflare API
+HTTPS origin and a per-user credential; it contains no LAN address and has no
+expiry. It remains valid until the user or an administrator revokes it. iOS
+calls reuse the Call API and WebRTC media boundary with Cloudflare TURN
+relay-only configuration. Native-client and background lifecycle work remains
+in M5.
 
 ## Architecture
 
@@ -305,7 +324,8 @@ fourth Tunnel connector:
 
 - `modemdeck` is an unprivileged Nginx gateway with two isolated listeners.
   Compose-only HTTP `7575` proxies `/api/*` and returns 404 for every other
-  path. HTTPS `7577` serves the Web UI and is the only host-published listener.
+  path. HTTPS `7577` serves the Web UI and is the only host-published listener;
+  plain HTTP sent to `7577` is upgraded to HTTPS on the same address.
 - `api` is an unprivileged Go HTTP service on Compose-only port `8080`. It owns
   authentication, communication workflows, and SQLite data, receives no
   `/dev`, D-Bus, hardware state, or host networking, and calls the Agent only
@@ -314,9 +334,10 @@ fourth Tunnel connector:
   1.24.0, and the Agent. It exclusively owns ModemDeck device control, the
   cellular data plane, and network configuration. The production AT interface
   is enabled at build time and does not depend on debug mode.
-- Optional `cloudflared` connects only to the API-only Nginx HTTP origin at
-  `http://modemdeck:7575`. iOS always uses Cloudflare HTTPS; the Tunnel does not
-  publish the Web UI, and origin HTTPS is neither required nor configured.
+- Optional `cloudflared` shares the Compose network with Nginx. Users manage
+  Cloudflare ingress and may route public hostnames to the API-only
+  `http://modemdeck:7575` origin, the `https://modemdeck:7577` Web origin, or
+  both. ModemDeck does not manage those ingress rules or add exposure toggles.
 
 Administrators can use **Settings → Web certificate** to inspect the local
 `7577` certificate, download the automatic CA, upload a PEM certificate chain
@@ -489,22 +510,39 @@ sudo ./install.sh \
   --assignment-file /etc/modemdeck/device-assignments.json
 ```
 
-For the public iOS API and pairing, create a remotely-managed Cloudflare Tunnel,
-configure its public-hostname service as `http://modemdeck:7575`, and save the
-Tunnel token in a root-readable file:
+To publish the Web UI or API, create a remotely-managed Cloudflare Tunnel and
+route hostnames as needed to `https://modemdeck:7577` or
+`http://modemdeck:7575`. The default Web certificate is self-signed, so enable
+**No TLS Verify** in the Web Published Application's origin TLS settings when
+using `https://modemdeck:7577`; the HTTP API origin does not need it. Enable
+only the Tunnel connector with:
+
+```sh
+sudo ./install.sh \
+  --cloudflare-token-file /root/modemdeck-cloudflare.token
+```
+
+iOS call media additionally requires Cloudflare Realtime TURN. Create a TURN
+key, save its API token in a root-readable file, and add the TURN options:
 
 ```sh
 sudo ./install.sh \
   --cloudflare-token-file /root/modemdeck-cloudflare.token \
-  --cloudflare-hostname deck.example.com
+  --cloudflare-turn-key-id REPLACE_WITH_TURN_KEY_ID \
+  --cloudflare-turn-token-file /root/modemdeck-cloudflare-turn.token
 ```
 
-`cloudflared`, Nginx, and the Go API use HTTP only on the private Docker
-network. The iOS API remains `https://deck.example.com`, while non-API paths on
-that hostname return 404. `--bind-address` and `--port` control only the local
-HTTPS Web UI and never enter the iOS QR payload. Re-running preserves SQLite
-data, settings secrets, and the Tunnel token. Use `--disable-cloudflare` to disable
-the connector and iOS pairing. See `./install.sh --help` for all options.
+Users manage Cloudflare ingress; the application has no exposure toggle. The
+iOS API automatically follows the one active Tunnel ingress hostname whose
+service is `http://modemdeck:7575`; changing that ingress does not require
+re-running the installer. Non-API paths on that hostname return 404.
+The settings page automatically refreshes the discovered API and Web public
+addresses.
+`--bind-address` and `--port` control only the local HTTPS Web UI and never
+enter the iOS QR payload. Re-running preserves SQLite data, settings secrets,
+and Cloudflare credentials. Use `--disable-cloudflare-turn` to disable only
+TURN, or `--disable-cloudflare` to disable the connector and iOS pairing. See
+`./install.sh --help` for all options.
 
 The first Web visit opens Quick Start, where the first visitor creates the
 administrator username and password. After setup, the page becomes the normal

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/human-agent65535/modemdeck/internal/rtcconfig"
 )
 
 const (
@@ -104,9 +106,10 @@ type MediaEndpointOpener interface {
 }
 
 type Offer struct {
-	Call       ActiveCall
-	OwnerToken string
-	SDP        string
+	Call             ActiveCall
+	OwnerToken       string
+	SDP              string
+	RTCConfiguration rtcconfig.Configuration
 }
 
 type ExchangeResult struct {
