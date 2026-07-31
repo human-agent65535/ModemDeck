@@ -395,6 +395,9 @@ func (api *API) requestAuthentication(
 	if err == nil {
 		return token, authentication, true, false
 	}
+	if request.Context().Err() != nil || errors.Is(err, context.Canceled) {
+		return "", auth.Authentication{}, false, true
+	}
 	if errors.Is(err, auth.ErrUnauthenticated) ||
 		errors.Is(err, auth.ErrSessionExpired) ||
 		errors.Is(err, auth.ErrInvalidSessionToken) ||

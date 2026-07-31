@@ -80,19 +80,20 @@ func (repository *apiAuthRepository) DeleteSessionByTokenDigest(_ context.Contex
 }
 
 type apiTestAuthenticator struct {
-	service         *auth.Service
-	loginResult     auth.LoginResult
-	loginError      error
-	loginCalls      int
-	loginUsername   string
-	loginPassword   string
-	logoutError     error
-	setupError      error
-	setupCalls      int
-	changeError     error
-	changeCalls     int
-	currentPassword string
-	newPassword     string
+	service           *auth.Service
+	loginResult       auth.LoginResult
+	loginError        error
+	loginCalls        int
+	loginUsername     string
+	loginPassword     string
+	logoutError       error
+	setupError        error
+	setupCalls        int
+	changeError       error
+	changeCalls       int
+	currentPassword   string
+	newPassword       string
+	authenticateError error
 }
 
 func (authenticator *apiTestAuthenticator) Status(ctx context.Context) (auth.AdminStatus, error) {
@@ -131,6 +132,9 @@ func (authenticator *apiTestAuthenticator) ChangePassword(
 }
 
 func (authenticator *apiTestAuthenticator) Authenticate(ctx context.Context, token auth.SessionToken) (auth.Authentication, error) {
+	if authenticator.authenticateError != nil {
+		return auth.Authentication{}, authenticator.authenticateError
+	}
 	return authenticator.service.Authenticate(ctx, token)
 }
 
@@ -194,6 +198,37 @@ func TestSessionAndProtectedAPI(t *testing.T) {
 	api.ServeHTTP(bootstrap, authorizedAPIRequest(http.MethodGet, "/api/v1/bootstrap", nil, sessionToken, ""))
 	if bootstrap.Code != http.StatusOK {
 		t.Fatalf("bootstrap status = %d; body = %s", bootstrap.Code, bootstrap.Body.String())
+	}
+}
+
+func TestCanceledAuthenticationRequestEndsSilently(t *testing.T) {
+	t.Parallel()
+
+	authenticator, sessionToken, csrfToken := newAPIAuthenticator(t)
+	authenticator.authenticateError = &auth.Error{
+		Code: auth.CodeRepository,
+		Op:   "authenticate",
+		Err:  context.Canceled,
+	}
+	api, err := New(&fakeRepository{}, Options{Authenticator: authenticator})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := authorizedAPIRequest(
+		http.MethodGet,
+		"/api/v1/bootstrap",
+		nil,
+		sessionToken,
+		csrfToken,
+	)
+	response := httptest.NewRecorder()
+
+	_, _, authenticated, handled := api.requestAuthentication(response, request, true)
+	if authenticated || !handled {
+		t.Fatalf("authentication result = authenticated %t, handled %t", authenticated, handled)
+	}
+	if response.Body.Len() != 0 {
+		t.Fatalf("canceled authentication wrote a response: %s", response.Body.String())
 	}
 }
 

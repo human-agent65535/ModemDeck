@@ -32,6 +32,8 @@ const state = reactive({
 })
 
 let inspection: Promise<boolean> | undefined
+let sessionTerminationInProgress = false
+let sessionInvalidatedDuringTermination = false
 
 function applySession(session: SessionResponse): boolean {
   setSystemLanguage(session.language)
@@ -85,6 +87,10 @@ export function clearSession(message = '', setupRequired = false): void {
 }
 
 setAuthenticationRequiredHandler(() => {
+  if (sessionTerminationInProgress) {
+    sessionInvalidatedDuringTermination = true
+    return
+  }
   clearSession(translate('auth.sessionExpired'))
 })
 
@@ -166,28 +172,36 @@ export async function setup(username: string, password: string): Promise<void> {
   }
 }
 
-export async function logout(): Promise<void> {
-  if (fixtureMode) return
-  await releaseCallMediaForSessionEnd()
+async function terminateSession(operation: () => Promise<void>): Promise<void> {
+  sessionTerminationInProgress = true
+  sessionInvalidatedDuringTermination = false
   rotateAuthenticationRequestScope()
   try {
-    await gateway.logout()
+    await releaseCallMediaForSessionEnd()
+    await operation()
+    clearSession()
   } catch (error) {
+    if (
+      sessionInvalidatedDuringTermination ||
+      (error instanceof ApiError && error.status === 401)
+    ) {
+      clearSession()
+      return
+    }
     void requestActiveCallRefresh()
     throw error
+  } finally {
+    sessionTerminationInProgress = false
+    sessionInvalidatedDuringTermination = false
   }
-  clearSession()
+}
+
+export async function logout(): Promise<void> {
+  if (fixtureMode) return
+  await terminateSession(() => gateway.logout())
 }
 
 export async function changePassword(input: ChangePasswordInput): Promise<void> {
   if (fixtureMode) return
-  await releaseCallMediaForSessionEnd()
-  rotateAuthenticationRequestScope()
-  try {
-    await gateway.changePassword(input)
-  } catch (error) {
-    void requestActiveCallRefresh()
-    throw error
-  }
-  clearSession()
+  await terminateSession(() => gateway.changePassword(input))
 }

@@ -49,8 +49,14 @@ test('account settings validate password replacement and end the current session
   assert.match(component, /passwordCharacterCount\(newPassword\.value\)/)
   assert.match(component, /newPassword\.value !== confirmation\.value/)
   assert.match(component, /await changePassword/)
-  assert.match(session, /await gateway\.changePassword\(input\)/)
-  assert.match(session, /await gateway\.changePassword\(input\)[\s\S]*?clearSession\(\)/)
+  assert.match(
+    session,
+    /terminateSession\(\(\) => gateway\.changePassword\(input\)\)/
+  )
+  assert.match(
+    session,
+    /async function terminateSession[\s\S]*?await operation\(\)[\s\S]*?clearSession\(\)/
+  )
   assert.match(component, /query: \{ passwordChanged: '1' \}/)
   assert.match(account, /<AccountSecurityForm \/>/)
   assert.doesNotMatch(system, /<AccountSecurityForm \/>/)

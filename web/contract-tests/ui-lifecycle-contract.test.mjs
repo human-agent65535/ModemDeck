@@ -167,7 +167,8 @@ test('desktop shell has one permanent dialer and dashboard renders every modem r
   assert.match(dashboard, /v-for="line in moduleLines"/)
   assert.doesNotMatch(dashboard, /moduleLines(?:\.value)?\.slice/)
   assert.match(dialer, /<LineSelector/)
-  assert.match(dialer, /:lines="dialLines"/)
+  assert.match(dialer, /:lines="lines"/)
+  assert.match(dialer, /:disabled-values="unavailableDialLineIDs"/)
   assert.match(
     dialer,
     /const dialLines = computed\(\(\) =>[\s\S]*lines\.value\.filter\(lineCanPlaceVoiceCall\)/

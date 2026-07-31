@@ -35,6 +35,7 @@ import {
 import type { CallRecordingSegment } from '../api/types'
 import { playDTMFTone } from '../state/dtmfAudio'
 import {
+  bootstrapResource,
   contactForNumber,
   displayPhoneNumber,
   lineForKey,
@@ -144,9 +145,16 @@ const bearerLabel = computed(() => {
   if (bearer === 'unknown') return t('calls.bearerUnknown')
   return t('calls.otherBearer')
 })
-const answerUnavailable = computed(() =>
-  lineSupports(line.value, 'answer') === false ? t('calls.answerUnsupported') : ''
-)
+const answerUnavailable = computed(() => {
+  if (lineSupports(line.value, 'answer') === false) return t('calls.answerUnsupported')
+  if (
+    bootstrapResource.data?.capabilities.webrtc_audio !== true ||
+    lineSupports(line.value, 'media') !== true
+  ) {
+    return t('calls.answerAudioUnavailable')
+  }
+  return ''
+})
 const rejectUnavailable = computed(() =>
   lineSupports(line.value, 'reject') === false ? t('calls.rejectUnsupported') : ''
 )
@@ -923,6 +931,13 @@ onBeforeUnmount(() => {
   width: 64px;
   height: 64px;
   flex-basis: 64px;
+}
+
+.call-button--answer:disabled {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid rgb(17 120 100 / 24%);
+  opacity: 1;
 }
 
 .call-primary-action small {

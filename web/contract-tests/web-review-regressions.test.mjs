@@ -25,7 +25,8 @@ test('dialing and messages resolve context, contact, and global default lines', 
   assert.match(dialer, /lineSelectionOverridden/)
   assert.match(dialer, /\(!selectedLineId\.value \? t\('dialer\.selectLine'\) : ''\)/)
   assert.match(dialer, /<LineSelector/)
-  assert.match(dialer, /:lines="dialLines"/)
+  assert.match(dialer, /:lines="lines"/)
+  assert.match(dialer, /:disabled-values="unavailableDialLineIDs"/)
   assert.match(dialer, /lines\.value\.filter\(lineCanPlaceVoiceCall\)/)
   assert.doesNotMatch(dialer, /lines\.length === 1/)
 

@@ -60,11 +60,15 @@ test('session changes release media before credentials are revoked', () => {
   )
   assert.match(
     session,
-    /logout[\s\S]*?await releaseCallMediaForSessionEnd\(\)[\s\S]*?await gateway\.logout\(\)[\s\S]*?clearSession\(\)/
+    /async function terminateSession[\s\S]*?await releaseCallMediaForSessionEnd\(\)[\s\S]*?await operation\(\)[\s\S]*?clearSession\(\)/
   )
   assert.match(
     session,
-    /changePassword[\s\S]*?await releaseCallMediaForSessionEnd\(\)[\s\S]*?await gateway\.changePassword\(input\)[\s\S]*?clearSession\(\)/
+    /logout[\s\S]*?terminateSession\(\(\) => gateway\.logout\(\)\)/
+  )
+  assert.match(
+    session,
+    /changePassword[\s\S]*?terminateSession\(\(\) => gateway\.changePassword\(input\)\)/
   )
   assert.match(client, /let callLeaseHolderID = `browser-\$\{requestID\(\)\}`/)
   assert.match(

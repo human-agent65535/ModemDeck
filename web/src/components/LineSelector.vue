@@ -177,7 +177,11 @@ const displayName = computed(
   () => selectedOption.value?.name || resolvedPlaceholder.value
 )
 const displayDetails = computed(
-  () => selectedOption.value?.details || t('lines.chooseLine')
+  () =>
+    selectedOption.value?.details ||
+    (options.value.some(option => !option.disabled)
+      ? t('lines.chooseLine')
+      : resolvedUnavailableLabel.value)
 )
 const displayStatus = computed(() => selectedOption.value?.status || '')
 
@@ -532,11 +536,19 @@ onBeforeUnmount(() => {
 }
 
 .line-selector__option.is-disabled {
+  color: var(--muted);
+  background: var(--surface-subtle);
   cursor: not-allowed;
+  opacity: 0.68;
 }
 
 .line-selector__option.is-disabled .line-selector__option-copy {
-  opacity: 0.62;
+  opacity: 1;
+}
+
+.line-selector__option.is-disabled.is-active,
+.line-selector__option.is-disabled:hover {
+  background: var(--surface-subtle);
 }
 
 .line-selector__option:focus-visible {

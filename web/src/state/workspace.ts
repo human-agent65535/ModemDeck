@@ -281,7 +281,11 @@ export function capabilityReason(capability: 'dial' | 'message'): string {
     (!bootstrap.capabilities.webrtc_audio ||
       !bootstrap.lines.some(lineCanPlaceVoiceCall))
   ) {
-    return translate('runtime.voiceCallingUnavailable')
+    return translate(
+      bootstrap.lines.some(lineHasCallControl)
+        ? 'runtime.callControlOnly'
+        : 'runtime.voiceCallingUnavailable'
+    )
   }
   if (!gateway.interactions[capability]) return translate('runtime.controlUnavailable')
   return ''

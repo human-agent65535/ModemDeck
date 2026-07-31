@@ -81,8 +81,15 @@ let dialerReturnFocus: HTMLElement | null = null
 const zeroLongPressDelay = 500
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
+const voiceCallingAvailable = computed(
+  () =>
+    bootstrapResource.data?.capabilities.dial === true &&
+    bootstrapResource.data?.capabilities.webrtc_audio === true
+)
 const dialLines = computed(() =>
-  lines.value.filter(lineCanPlaceVoiceCall)
+  voiceCallingAvailable.value
+    ? lines.value.filter(lineCanPlaceVoiceCall)
+    : []
 )
 const occupiedLineIDs = computed(() =>
   collectOccupiedLineIDs()
@@ -91,14 +98,21 @@ const occupiedLineCount = computed(() => occupiedLineIDs.value.size)
 const availableDialLines = computed(() =>
   dialLines.value.filter(line => !occupiedLineIDs.value.has(lineKey(line)))
 )
+const unavailableDialLineIDs = computed(() =>
+  lines.value
+    .filter(
+      line =>
+        !voiceCallingAvailable.value || !lineCanPlaceVoiceCall(line)
+    )
+    .map(lineKey)
+)
 const activeCallPresent = computed(() => Boolean(callState.session))
 const showingCall = computed(
   () => activeCallPresent.value && !uiState.callMinimized
 )
 const showLineSwitcher = computed(
   () =>
-    dialLines.value.length > 0 &&
-    (!showingCall.value || callState.session?.control_state === 'occupied')
+    !showingCall.value || callState.session?.control_state === 'occupied'
 )
 const lineSwitcherID = computed({
   get: () =>
@@ -556,14 +570,16 @@ onBeforeUnmount(() => {
           <div v-if="showLineSwitcher" class="dialer-line-switcher">
             <LineSelector
               v-model="lineSwitcherID"
-              :lines="dialLines"
+              :lines="lines"
+              :placeholder="dialLines.length > 0 ? t('dialer.selectLine') : t('dialer.noLines')"
               :default-line-id="defaultLineID"
+              :disabled-values="unavailableDialLineIDs"
+              :disabled-value-label="t('dialer.voiceUnavailable')"
               :status-values="[...occupiedLineIDs]"
               :status-value-label="t('calls.lineInUse')"
               :disabled="callState.owned"
               :label="t('dialer.line')"
-              capability="dial"
-              :unavailable-label="t('dialer.lineUnsupported')"
+              :unavailable-label="t('dialer.voiceUnavailable')"
             />
           </div>
 
