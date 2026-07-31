@@ -169,6 +169,25 @@ test('multi-user UI exposes only authorized settings and communication areas', a
   assert.match(users, /mobile-mode="drilldown"/)
   assert.match(users, /:detail-open="mobileDetailOpen"/)
   assert.match(users, /class="user-account-access"/)
+  assert.match(
+    users,
+    /v-if="!creating && selectedUser"[\s\S]*?users\.accountAccess/
+  )
+  assert.match(
+    users,
+    /v-model="enabled"[\s\S]*?:disabled="saving \|\| selectedUser\?\.role === 'admin'"/
+  )
+  assert.match(
+    users,
+    /v-model="iosPairingEnabled"[\s\S]*?:disabled="saving \|\| selectedUser\?\.role === 'admin'"/
+  )
+  assert.match(users, /class="user-pairing-state"/)
+  assert.doesNotMatch(users, /class="user-pairing-status"/)
+  assert.doesNotMatch(users, /class="user-account-access__status"/)
+  assert.match(
+    users,
+    /\.user-account-access input:checked:disabled\s*\{\s*background: #9fcfc4/
+  )
   assert.match(users, /users\.adminUsernameLocked/)
   assert.match(shell, /const settingsUserDetailOpen = computed/)
   assert.match(shell, /query\.newUser === '1'/)

@@ -561,78 +561,88 @@ onMounted(() => {
               </label>
             </div>
 
-            <label
-              v-if="!creating && selectedUser?.role === 'member'"
-              class="user-account-access"
-            >
-              <span>
-                <strong>{{ t('users.accountAccess') }}</strong>
-                <small>{{ t('users.accountAccessDescription') }}</small>
-              </span>
-              <span class="user-account-access__status">
-                {{ enabled ? t('users.enabled') : t('users.disabled') }}
-              </span>
-              <input v-model="enabled" type="checkbox" role="switch" :disabled="saving" />
-            </label>
-
-            <label
-              v-if="creating || selectedUser?.role === 'member'"
-              class="user-account-access"
-            >
-              <span>
-                <strong>{{ t('users.iosPairingAccess') }}</strong>
-                <small>{{ t('users.iosPairingAccessDescription') }}</small>
-              </span>
-              <span class="user-account-access__status">
-                {{ iosPairingEnabled ? t('users.enabled') : t('users.disabled') }}
-              </span>
-              <input
-                v-model="iosPairingEnabled"
-                type="checkbox"
-                role="switch"
-                :disabled="saving"
-              />
-            </label>
-
             <section
               v-if="!creating && selectedUser"
-              class="user-pairing-status"
+              class="user-account-access"
+              aria-labelledby="user-account-access-title"
             >
               <span>
-                <strong>{{ t('users.iosPairingAccess') }}</strong>
-                <small>
-                  {{
-                    selectedUser.ios_pairing_has_credential
-                      ? t('iosPairing.paired')
-                      : t('iosPairing.notPaired')
-                  }}
-                  <template
-                    v-if="selectedUser.ios_pairing_credential_created_at"
-                  >
-                    · {{ t('iosPairing.createdAt') }}
-                    {{
-                      formatDateTime(
-                        selectedUser.ios_pairing_credential_created_at
-                      )
-                    }}
-                  </template>
-                </small>
+                <strong id="user-account-access-title">
+                  {{ t('users.accountAccess') }}
+                </strong>
+                <small>{{ t('users.accountAccessDescription') }}</small>
               </span>
-              <button
-                v-if="selectedUser.ios_pairing_has_credential"
-                class="secondary-button danger-button"
-                type="button"
-                :disabled="saving || pairingRevoking"
-                @click="revokeSelectedPairing"
-              >
-                <LoaderCircle
-                  v-if="pairingRevoking"
-                  class="spin"
-                  :size="16"
+              <label class="user-account-access__control">
+                <input
+                  v-model="enabled"
+                  type="checkbox"
+                  role="switch"
+                  :aria-label="t('users.accountAccess')"
+                  :disabled="saving || selectedUser?.role === 'admin'"
                 />
-                <Trash2 v-else :size="16" />
-                {{ t('iosPairing.revoke') }}
-              </button>
+              </label>
+            </section>
+
+            <section
+              v-if="creating || selectedUser"
+              class="user-account-access"
+              aria-labelledby="user-ios-pairing-access-title"
+            >
+              <span>
+                <span class="user-account-access__title">
+                  <strong id="user-ios-pairing-access-title">
+                    {{ t('users.iosPairingAccess') }}
+                  </strong>
+                  <span
+                    v-if="!creating && selectedUser"
+                    class="user-pairing-state"
+                    :class="{
+                      'is-paired': selectedUser.ios_pairing_has_credential
+                    }"
+                  >
+                    {{
+                      selectedUser.ios_pairing_has_credential
+                        ? t('iosPairing.paired')
+                        : t('iosPairing.notPaired')
+                    }}
+                    <template
+                      v-if="selectedUser.ios_pairing_credential_created_at"
+                    >
+                      · {{ t('iosPairing.createdAt') }}
+                      {{
+                        formatDateTime(
+                          selectedUser.ios_pairing_credential_created_at
+                        )
+                      }}
+                    </template>
+                  </span>
+                  <button
+                    v-if="selectedUser?.ios_pairing_has_credential"
+                    class="danger-button user-pairing-revoke"
+                    type="button"
+                    :disabled="saving || pairingRevoking"
+                    @click="revokeSelectedPairing"
+                  >
+                    <LoaderCircle
+                      v-if="pairingRevoking"
+                      class="spin"
+                      :size="14"
+                    />
+                    <Trash2 v-else :size="14" />
+                    {{ t('iosPairing.revoke') }}
+                  </button>
+                </span>
+                <small>{{ t('users.iosPairingAccessDescription') }}</small>
+              </span>
+              <label class="user-account-access__control">
+                <input
+                  v-model="iosPairingEnabled"
+                  type="checkbox"
+                  role="switch"
+                  :aria-label="t('users.iosPairingAccess')"
+                  :disabled="saving || selectedUser?.role === 'admin'"
+                />
+              </label>
             </section>
 
             <fieldset class="user-lines">
@@ -946,7 +956,7 @@ onMounted(() => {
   align-items: center;
   gap: 10px;
   padding: 10px 0;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   border-top: 1px solid var(--border);
 }
 
@@ -961,18 +971,34 @@ onMounted(() => {
   white-space: normal;
 }
 
-.user-account-access__status {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 650;
+.user-account-access__title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px 7px;
+}
+
+.user-account-access__control {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.user-account-access__control:has(input:disabled) {
+  cursor: not-allowed;
 }
 
 .user-account-access input {
   position: relative;
   width: 42px;
   height: 24px;
+  margin: 0;
   appearance: none;
   background: #d8dde2;
+  border: 0;
   border-radius: 12px;
   cursor: pointer;
 }
@@ -998,30 +1024,46 @@ onMounted(() => {
   transform: translateX(18px);
 }
 
+.user-account-access input:focus-visible {
+  outline: 3px solid rgb(17 120 100 / 18%);
+  outline-offset: 2px;
+}
+
 .user-account-access input:disabled {
+  background: var(--border-strong);
   cursor: not-allowed;
-  opacity: 0.65;
 }
 
-.user-pairing-status {
-  display: flex;
-  min-height: 64px;
+.user-account-access input:checked:disabled {
+  background: #9fcfc4;
+}
+
+.user-account-access input:disabled::before {
+  background: var(--surface-subtle);
+  box-shadow: none;
+}
+
+.user-pairing-state {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 10px 0;
-  border-top: 1px solid var(--border);
+  padding: 2px 7px;
+  color: var(--muted-strong);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.4;
+  background: var(--surface-hover);
+  border-radius: 999px;
 }
 
-.user-pairing-status > span {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
+.user-pairing-state.is-paired {
+  color: var(--success);
+  background: var(--success-soft);
 }
 
-.user-pairing-status small {
-  white-space: normal;
+.user-pairing-revoke {
+  min-height: 26px;
+  padding: 0 7px;
+  font-size: 10px;
 }
 
 .user-lines {
@@ -1209,14 +1251,8 @@ onMounted(() => {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .user-account-access input {
-    grid-row: 1 / span 2;
-    grid-column: 2;
-  }
-
-  .user-account-access__status {
-    grid-row: 2;
-    grid-column: 1;
+  .user-account-access__control {
+    padding-top: 1px;
   }
 }
 
@@ -1239,14 +1275,8 @@ onMounted(() => {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .user-account-access input {
-    grid-row: 1 / span 2;
-    grid-column: 2;
-  }
-
-  .user-account-access__status {
-    grid-row: 2;
-    grid-column: 1;
+  .user-account-access__control {
+    padding-top: 1px;
   }
 }
 </style>
