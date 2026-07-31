@@ -116,7 +116,10 @@ test('desktop shell has one permanent dialer and dashboard renders every modem r
     shell.indexOf('<IncomingCallModeControl v-if="sessionState.role === \'admin\'" />') <
       shell.indexOf('<AudioSettingsMenu />')
   )
-  assert.match(shell, /<DialerPanel :permanent="permanentDialer" \/>/)
+  assert.match(
+    shell,
+    /<DialerPanel[\s\S]*:permanent="permanentDialer"[\s\S]*:non-modal="nonModalDialer"/
+  )
   assert.doesNotMatch(shell, /dialer-fab|Grid3X3/)
   assert.match(shell, /:aria-pressed="uiState\.dialerOpen \|\| activeCallPresent"/)
   assert.doesNotMatch(shell, /<CallSurface/)
@@ -127,7 +130,7 @@ test('desktop shell has one permanent dialer and dashboard renders every modem r
   assert.match(dialer, /<CallSurface v-if="showingCall" \/>/)
   assert.match(
     dialer,
-    /@mousedown\.self="!permanent && !showingCall && closeDialer\(\)"/
+    /@mousedown\.self="[\s\S]*!permanent && !nonModal && !showingCall && closeDialer\(\)/
   )
   assert.match(
     dialer,
@@ -155,8 +158,12 @@ test('active calls own the dialer surface and keep modal call controls reachable
   const surface = await source('../src/components/CallSurface.vue')
 
   assert.match(dialer, /ref="panelRef"/)
-  assert.match(dialer, /:tabindex="!permanent && callSurfaceVisible \? -1 : undefined"/)
+  assert.match(
+    dialer,
+    /:tabindex="!permanent && !nonModal && callSurfaceVisible \? -1 : undefined"/
+  )
   assert.match(dialer, /function trapCallFocus\(event: KeyboardEvent\)/)
+  assert.match(dialer, /props\.nonModal \|\|/)
   assert.match(dialer, /function restoreDialogFocus\(\): void/)
   assert.match(dialer, /dialerReturnFocus\?\.isConnected/)
   assert.match(dialer, /panelRef\.value\?\.focus\(\)/)

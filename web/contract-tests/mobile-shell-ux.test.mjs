@@ -154,6 +154,16 @@ test('mobile list creation actions share one bottom-right floating treatment', a
     /@media \(max-width: 860px\)[\s\S]*\.mobile-list-fab,[\s\S]*position: fixed;[\s\S]*right: 16px;[\s\S]*bottom: calc\(var\(--mobile-nav-height\) \+ 16px\);/
   )
   assert.match(styles, /\.mobile-list-fab > span \{\s*display: none;/)
+  assert.match(
+    styles,
+    /\.workspace\.has-selection :is\([\s\S]*\.mobile-list-fab,[\s\S]*\) \{[\s\S]*opacity: 0;[\s\S]*transform: scale\(0\.88\);/
+  )
+  assert.match(messages, /<Transition name="conversation-content" mode="out-in">/)
+  assert.match(messages, /class="conversation-detail-content"/)
+  assert.match(
+    messages,
+    /\.conversation-content-leave-to \{[\s\S]*opacity: 0;[\s\S]*translateX\(-8px\);/
+  )
 })
 
 test('mobile settings starts with a live communication overview entry', async () => {
@@ -176,8 +186,23 @@ test('mobile settings starts with a live communication overview entry', async ()
   assert.doesNotMatch(settings, /<ChevronRight/)
   assert.match(shell, /const mobileOverviewFromSettings = computed/)
   assert.match(shell, /const mobileTrafficFromSettings = computed/)
+  assert.match(shell, /const mobileCommunicationDetailOpen = computed/)
+  assert.match(shell, /case 'contacts':[\s\S]*route\.params\.contactId/)
+  assert.match(shell, /case 'messages':[\s\S]*route\.params\.threadKey/)
+  assert.match(
+    shell,
+    /case 'calls':[\s\S]*case 'recordings':[\s\S]*route\.query\.selected/
+  )
   assert.match(shell, /v-if="mobileShellBackVisible"/)
-  assert.match(shell, /@click="backToSettingsMenu"/)
+  assert.match(shell, /@click="handleMobileBack"/)
+  assert.match(
+    shell,
+    /case 'messages':[\s\S]*delete query\.compose;?[\s\S]*name: 'messages', query/
+  )
+  assert.doesNotMatch(
+    styles,
+    /@media \(max-width: 860px\)[\s\S]*?\.mobile-back \{\s*display: inline-grid;/
+  )
   assert.match(
     styles,
     /@media \(max-width: 860px\)[\s\S]*\.settings-overview-link \{\s*display: flex;/

@@ -594,7 +594,7 @@ onBeforeUnmount(() => {
             :line="lineTagLine(lineForRecording(selected), selected.call.line_id)"
             :line-fallback="recordingLineFallback(selected)"
           />
-          <div class="recording-header__contact-actions">
+          <div class="detail-header__actions recording-header__contact-actions">
             <ContactNumberActions
               :number="selected.call.remote_number"
               :contact="selectedContact"

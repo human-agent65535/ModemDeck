@@ -51,9 +51,11 @@ const { t } = useI18n()
 const props = withDefaults(
   defineProps<{
     permanent?: boolean
+    nonModal?: boolean
   }>(),
   {
-    permanent: false
+    permanent: false,
+    nonModal: false
   }
 )
 
@@ -239,35 +241,58 @@ watch(
   () => uiState.dialerOpen,
   (open, previous) => {
     if (open) {
-      if (!props.permanent && !previous && document.activeElement instanceof HTMLElement) {
+      if (
+        !props.permanent &&
+        !props.nonModal &&
+        !previous &&
+        document.activeElement instanceof HTMLElement
+      ) {
         dialerReturnFocus = document.activeElement
       }
       focusNumber()
       void loadContacts()
       return
     }
-    if (previous && !activeCallPresent.value && !props.permanent) restoreDialogFocus()
+    if (
+      previous &&
+      !activeCallPresent.value &&
+      !props.permanent &&
+      !props.nonModal
+    ) {
+      restoreDialogFocus()
+    }
   }
 )
 
-watch([callSurfaceVisible, () => props.permanent], async ([showing, permanent], [previous, wasPermanent]) => {
-  if (showing && !permanent && (!previous || wasPermanent)) {
-    callReturnFocus =
-      dialerReturnFocus?.isConnected
-        ? dialerReturnFocus
-        : document.activeElement instanceof HTMLElement
-          ? document.activeElement
-          : null
-    await nextTick()
-    panelRef.value?.focus()
-    return
+watch(
+  [callSurfaceVisible, () => props.permanent, () => props.nonModal],
+  async (
+    [showing, permanent, nonModal],
+    [previous, wasPermanent, wasNonModal]
+  ) => {
+    if (
+      showing &&
+      !permanent &&
+      !nonModal &&
+      (!previous || wasPermanent || wasNonModal)
+    ) {
+      callReturnFocus =
+        dialerReturnFocus?.isConnected
+          ? dialerReturnFocus
+          : document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null
+      await nextTick()
+      panelRef.value?.focus()
+      return
+    }
+    if (!showing && previous && !nonModal) restoreDialogFocus()
+    if (permanent || nonModal) {
+      callReturnFocus = null
+      dialerReturnFocus = null
+    }
   }
-  if (!showing && previous) restoreDialogFocus()
-  if (permanent) {
-    callReturnFocus = null
-    dialerReturnFocus = null
-  }
-})
+)
 
 watch(
   [dialLines, occupiedLineIDs, defaultLineID, () => contactsResource.data, number],
@@ -411,7 +436,15 @@ function restoreDialogFocus(): void {
 }
 
 function trapCallFocus(event: KeyboardEvent): void {
-  if (props.permanent || !callSurfaceVisible.value || event.key !== 'Tab' || !panelRef.value) return
+  if (
+    props.permanent ||
+    props.nonModal ||
+    !callSurfaceVisible.value ||
+    event.key !== 'Tab' ||
+    !panelRef.value
+  ) {
+    return
+  }
 
   const focusable = Array.from(
     panelRef.value.querySelectorAll<HTMLElement>(
@@ -455,9 +488,14 @@ onBeforeUnmount(() => {
         v-if="permanent || uiState.dialerOpen || callSurfaceVisible"
         :class="[
           permanent ? 'dialer-host dialer-host--permanent' : 'drawer-backdrop',
-          { 'drawer-backdrop--call': !permanent && callSurfaceVisible }
+          {
+            'drawer-backdrop--call': !permanent && callSurfaceVisible,
+            'drawer-backdrop--nonmodal': !permanent && nonModal
+          }
         ]"
-        @mousedown.self="!permanent && !showingCall && closeDialer()"
+        @mousedown.self="
+          !permanent && !nonModal && !showingCall && closeDialer()
+        "
       >
         <aside
           ref="panelRef"
@@ -466,10 +504,10 @@ onBeforeUnmount(() => {
             'dialer-panel--permanent': permanent,
             'dialer-panel--call': showingCall
           }"
-          :role="permanent ? undefined : 'dialog'"
-          :aria-modal="permanent ? undefined : true"
+          :role="permanent ? undefined : nonModal ? 'complementary' : 'dialog'"
+          :aria-modal="!permanent && !nonModal ? true : undefined"
           :aria-label="showingCall ? t('shell.calls') : t('dialer.title')"
-          :tabindex="!permanent && callSurfaceVisible ? -1 : undefined"
+          :tabindex="!permanent && !nonModal && callSurfaceVisible ? -1 : undefined"
           @keydown="trapCallFocus"
           @keydown.esc="
             !permanent && (showingCall ? minimizeCallSurface() : closeDialer())
@@ -1114,6 +1152,26 @@ onBeforeUnmount(() => {
     border-bottom: 0;
     border-left: 0;
     border-radius: 8px 8px 0 0;
+  }
+}
+
+@media (min-width: 861px) and (max-width: 1479px) {
+  .drawer-backdrop--nonmodal {
+    z-index: 65;
+    align-items: flex-end;
+    justify-content: flex-end;
+    pointer-events: none;
+    background: transparent;
+  }
+
+  .drawer-backdrop--nonmodal .dialer-panel {
+    pointer-events: auto;
+  }
+
+  .drawer-backdrop--nonmodal .dialer-panel--call {
+    width: min(420px, calc(100vw - 40px));
+    height: min(720px, calc(100dvh - 40px));
+    max-height: none;
   }
 }
 

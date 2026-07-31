@@ -1059,11 +1059,18 @@ onBeforeUnmount(() => {
     </aside>
 
     <article class="detail-pane conversation-pane">
-      <template v-if="selectedThread || composingNew">
+      <Transition name="conversation-content" mode="out-in">
+        <div
+          v-if="selectedThread || composingNew"
+          class="conversation-detail-content"
+        >
         <header class="conversation-header">
           <button
             class="icon-button"
-            :class="{ 'mobile-back': !composingNew }"
+            :class="{
+              'mobile-back': !composingNew,
+              'mobile-compose-cancel': composingNew
+            }"
             type="button"
             :title="
               composingNew
@@ -1113,55 +1120,58 @@ onBeforeUnmount(() => {
             />
           </template>
           <div
-            v-if="selectedThread && !composingNew && activeRecipientIsContactable"
-            class="conversation-header__contact-actions"
+            v-if="selectedThread && !composingNew"
+            class="detail-header__actions conversation-header__actions"
           >
-            <ContactNumberActions
-              :number="selectedThread.peer"
-              :contact="activeContact"
-              compact
-              @saved="contactSaved"
-            />
+            <div
+              v-if="activeRecipientIsContactable"
+              class="conversation-header__contact-actions"
+            >
+              <ContactNumberActions
+                :number="selectedThread.peer"
+                :contact="activeContact"
+                compact
+                @saved="contactSaved"
+              />
+            </div>
+            <button
+              v-if="activeRecipientIsContactable"
+              class="icon-button"
+              type="button"
+              :disabled="Boolean(dialUnavailable) || !activeRecipient"
+              :title="dialUnavailable || t('calls.dial')"
+              @click="callCurrent"
+            >
+              <Phone :size="19" />
+            </button>
+            <button
+              class="icon-button icon-button--danger desktop-delete-action"
+              type="button"
+              :disabled="Boolean(deletingThreadKey)"
+              :title="t('messages.delete')"
+              @click="removeThread(selectedThread)"
+            >
+              <Trash2 :size="18" />
+            </button>
+            <button
+              class="icon-button conversation-favorite-button"
+              :class="{ 'is-active': selectedThread.favorite }"
+              type="button"
+              :disabled="Boolean(favoritePendingKey)"
+              :title="
+                selectedThread.favorite
+                  ? t('messages.unfavorite')
+                  : t('messages.favorite')
+              "
+              :aria-pressed="selectedThread.favorite"
+              @click="toggleFavorite(selectedThread)"
+            >
+              <Star
+                :size="18"
+                :fill="selectedThread.favorite ? 'currentColor' : 'none'"
+              />
+            </button>
           </div>
-          <button
-            v-if="selectedThread && !composingNew && activeRecipientIsContactable"
-            class="icon-button"
-            type="button"
-            :disabled="Boolean(dialUnavailable) || !activeRecipient"
-            :title="dialUnavailable || t('calls.dial')"
-            @click="callCurrent"
-          >
-            <Phone :size="19" />
-          </button>
-          <button
-            v-if="selectedThread && !composingNew"
-            class="icon-button icon-button--danger desktop-delete-action"
-            type="button"
-            :disabled="Boolean(deletingThreadKey)"
-            :title="t('messages.delete')"
-            @click="removeThread(selectedThread)"
-          >
-            <Trash2 :size="18" />
-          </button>
-          <button
-            v-if="selectedThread && !composingNew"
-            class="icon-button conversation-favorite-button"
-            :class="{ 'is-active': selectedThread.favorite }"
-            type="button"
-            :disabled="Boolean(favoritePendingKey)"
-            :title="
-              selectedThread.favorite
-                ? t('messages.unfavorite')
-                : t('messages.favorite')
-            "
-            :aria-pressed="selectedThread.favorite"
-            @click="toggleFavorite(selectedThread)"
-          >
-            <Star
-              :size="18"
-              :fill="selectedThread.favorite ? 'currentColor' : 'none'"
-            />
-          </button>
         </header>
 
         <div
@@ -1281,14 +1291,15 @@ onBeforeUnmount(() => {
         <footer v-else class="message-composer message-composer--readonly">
           <p class="unavailable-note">{{ t('messages.senderDoesNotAcceptReplies') }}</p>
         </footer>
-      </template>
+        </div>
 
-      <StatePanel
-        v-else
-        state="empty"
-        :title="t('messages.selectConversation')"
-        :detail="t('messages.detailPlaceholder')"
-      />
+        <StatePanel
+          v-else
+          state="empty"
+          :title="t('messages.selectConversation')"
+          :detail="t('messages.detailPlaceholder')"
+        />
+      </Transition>
     </article>
   </section>
 </template>
@@ -1296,6 +1307,14 @@ onBeforeUnmount(() => {
 <style scoped>
 .messages-workspace.is-embedded {
   grid-template-columns: minmax(0, 1fr);
+}
+
+.conversation-detail-content {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
 }
 
 .pane-search {
@@ -1361,6 +1380,29 @@ onBeforeUnmount(() => {
 @media (prefers-reduced-motion: reduce) {
   .message-row.is-arriving {
     animation: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .mobile-compose-cancel {
+    display: none;
+  }
+
+  .conversation-content-enter-active,
+  .conversation-content-leave-active {
+    transition:
+      opacity var(--motion-base) var(--ease-standard),
+      transform var(--motion-base) var(--ease-standard);
+  }
+
+  .conversation-content-enter-from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+
+  .conversation-content-leave-to {
+    opacity: 0;
+    transform: translateX(-8px);
   }
 }
 

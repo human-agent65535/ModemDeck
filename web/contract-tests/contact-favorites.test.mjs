@@ -31,6 +31,7 @@ const contactsView = new URL('../src/views/ContactsView.vue', import.meta.url)
 const dashboardView = new URL('../src/views/DashboardView.vue', import.meta.url)
 const messagesView = new URL('../src/views/MessagesView.vue', import.meta.url)
 const recordingsView = new URL('../src/views/RecordingsView.vue', import.meta.url)
+const globalStyles = new URL('../src/style.css', import.meta.url)
 
 test('contact parsing requires a real favorite value', () => {
   const contact = parseContact({
@@ -118,6 +119,28 @@ test('contact actions use compact copy with complete accessible labels', async (
   assert.match(source, /t\('contacts\.addExistingShort'\)/)
 })
 
+test('communication detail action groups share one stable gap', async () => {
+  const [actions, messages, styles] = await Promise.all([
+    readFile(numberActions, 'utf8'),
+    readFile(messagesView, 'utf8'),
+    readFile(globalStyles, 'utf8')
+  ])
+
+  assert.match(
+    actions,
+    /\.contact-number-actions\.is-compact \{[\s\S]*gap: var\(--detail-action-gap\);/
+  )
+  assert.match(
+    messages,
+    /class="detail-header__actions conversation-header__actions"/
+  )
+  assert.match(styles, /--detail-action-gap: 6px;/)
+  assert.match(
+    styles,
+    /\.detail-header__actions \{[\s\S]*gap: var\(--detail-action-gap\);/
+  )
+})
+
 test('recordings reuse the compact contact identity and actions in the header', async () => {
   const source = await readFile(recordingsView, 'utf8')
 
@@ -128,7 +151,10 @@ test('recordings reuse the compact contact identity and actions in the header', 
   )
   assert.match(source, /class="recording-list-item__avatar"/)
   assert.match(source, /:number="selected\.call\.remote_number"/)
-  assert.match(source, /class="recording-header__contact-actions"/)
+  assert.match(
+    source,
+    /class="detail-header__actions recording-header__contact-actions"/
+  )
   assert.match(source, /<ContactNumberActions[\s\S]*:contact="selectedContact"[\s\S]*compact/)
 })
 

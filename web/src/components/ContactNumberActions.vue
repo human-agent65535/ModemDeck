@@ -326,6 +326,7 @@ async function addToContact(): Promise<void> {
 
 .contact-number-actions.is-compact {
   flex-wrap: nowrap;
+  gap: var(--detail-action-gap);
 }
 
 .contact-number-actions.is-compact .secondary-button {

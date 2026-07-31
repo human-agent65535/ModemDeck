@@ -976,10 +976,6 @@ onBeforeUnmount(() => {
   container-type: inline-size;
 }
 
-.call-detail__header-actions {
-  gap: 8px;
-}
-
 .calls-filter-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1042,10 +1038,6 @@ onBeforeUnmount(() => {
 @container (max-width: 760px) {
   .desktop-delete-action {
     display: none;
-  }
-
-  .call-detail__header-actions {
-    gap: 6px;
   }
 
   .call-detail__command {

@@ -27,6 +27,7 @@
   --motion-slow: 220ms;
   --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-emphasized: cubic-bezier(0.2, 0.9, 0.25, 1);
+  --detail-action-gap: 6px;
   --rail-width: 92px;
   --header-height: 72px;
   --dialer-width: clamp(360px, 28vw, 420px);
@@ -1352,6 +1353,13 @@ textarea::placeholder {
 .row-actions {
   display: flex;
   align-items: center;
+}
+
+.detail-header__actions {
+  gap: var(--detail-action-gap);
+}
+
+.row-actions {
   gap: 4px;
 }
 
@@ -2985,7 +2993,6 @@ dd {
     grid-area: 1 / 1;
     transition:
       opacity var(--motion-base) var(--ease-standard),
-      transform var(--motion-slow) var(--ease-emphasized),
       visibility 0s linear var(--motion-base);
   }
 
@@ -2993,7 +3000,6 @@ dd {
     visibility: hidden;
     opacity: 0;
     pointer-events: none;
-    transform: translateX(16px);
   }
 
   .list-pane {
@@ -3004,15 +3010,13 @@ dd {
     visibility: hidden;
     opacity: 0;
     pointer-events: none;
-    transform: translateX(-12px);
-    transition-delay: 0s, 0s, var(--motion-base);
+    transition-delay: 0s, var(--motion-base);
   }
 
   .workspace.has-selection .detail-pane {
     visibility: visible;
     opacity: 1;
     pointer-events: auto;
-    transform: translateX(0);
     transition-delay: 0s;
   }
 
@@ -3020,7 +3024,6 @@ dd {
     visibility: visible;
     opacity: 1;
     pointer-events: auto;
-    transform: translateX(0);
     transition-delay: 0s;
   }
 
@@ -3028,12 +3031,7 @@ dd {
     visibility: hidden;
     opacity: 0;
     pointer-events: none;
-    transform: translateX(16px);
-    transition-delay: 0s, 0s, var(--motion-base);
-  }
-
-  .mobile-back {
-    display: inline-grid;
+    transition-delay: 0s, var(--motion-base);
   }
 
   .mobile-nav {
@@ -3276,6 +3274,20 @@ dd {
     border: 0;
     border-radius: 50%;
     box-shadow: 0 6px 18px rgb(16 24 40 / 22%);
+    transform-origin: center;
+    transition:
+      opacity var(--motion-base) var(--ease-standard),
+      transform var(--motion-base) var(--ease-standard),
+      background-color var(--motion-base) var(--ease-standard);
+  }
+
+  .workspace.has-selection :is(
+    .mobile-list-fab,
+    .list-pane > .pane-header > .dashboard-pane-action
+  ) {
+    opacity: 0;
+    pointer-events: none;
+    transform: scale(0.88);
   }
 
   .mobile-list-fab > span {
@@ -3441,9 +3453,12 @@ dd {
   }
 
   .contact-detail,
-  .call-detail,
-  .settings-content {
+  .call-detail {
     padding: 18px 14px;
+  }
+
+  .settings-content {
+    padding: 18px 16px;
   }
 
   .messages-scroll {

@@ -139,11 +139,11 @@ test('all communication list panes expose selection and their eligible batch act
   )
   assert.match(
     messages,
-    /<header class="conversation-header">[\s\S]*?class="icon-button icon-button--danger desktop-delete-action"[\s\S]*?class="icon-button conversation-favorite-button"[\s\S]*?<\/header>/
+    /<header class="conversation-header">[\s\S]*?class="detail-header__actions conversation-header__actions"[\s\S]*?class="icon-button icon-button--danger desktop-delete-action"[\s\S]*?class="icon-button conversation-favorite-button"[\s\S]*?<\/header>/
   )
   assert.match(
     recordings,
-    /<header class="detail-header">[\s\S]*?class="icon-button icon-button--danger desktop-delete-action"[\s\S]*?class="icon-button recording-favorite-button"[\s\S]*?<\/header>/
+    /<header class="detail-header">[\s\S]*?class="detail-header__actions recording-header__contact-actions"[\s\S]*?class="icon-button icon-button--danger desktop-delete-action"[\s\S]*?class="icon-button recording-favorite-button"[\s\S]*?<\/header>/
   )
   assert.match(
     contacts,

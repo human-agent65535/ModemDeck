@@ -70,6 +70,7 @@ const router = useRouter()
 const { t } = useI18n()
 const settingsLanding = computed(() => 'account')
 const permanentDialer = ref(false)
+const nonModalDialer = ref(false)
 const mobileMoreOpen = ref(false)
 const mobileMorePanel = ref<HTMLElement>()
 const mobileMoreTrigger = ref<HTMLButtonElement>()
@@ -118,6 +119,7 @@ function openMobileCall(): void {
   else openDialer()
 }
 let dialerMediaQuery: MediaQueryList | undefined
+let nonModalDialerMediaQuery: MediaQueryList | undefined
 let mountGeneration = 0
 let stopApplicationVersionChecks: (() => void) | undefined
 const primaryNav = computed(() => [
@@ -187,15 +189,51 @@ const settingsUserDetailOpen = computed(
     route.params.section === 'account' &&
     (typeof route.query.user === 'string' || route.query.newUser === '1')
 )
+const mobileCommunicationDetailOpen = computed(() => {
+  switch (route.name) {
+    case 'dashboard':
+      return typeof route.query.item === 'string'
+    case 'contacts':
+      return typeof route.params.contactId === 'string'
+    case 'messages':
+      return (
+        typeof route.params.threadKey === 'string' ||
+        Object.prototype.hasOwnProperty.call(route.query, 'compose')
+      )
+    case 'calls':
+    case 'recordings':
+      return typeof route.query.selected === 'string'
+    default:
+      return false
+  }
+})
 const mobileShellBackVisible = computed(
   () =>
     Boolean(mobileSettingsSection.value) ||
     mobileOverviewFromSettings.value ||
-    mobileTrafficFromSettings.value
+    mobileTrafficFromSettings.value ||
+    mobileCommunicationDetailOpen.value
 )
-const mobileBackTitle = computed(() =>
-  settingsUserDetailOpen.value ? t('users.backToUsers') : t('settings.back')
-)
+const mobileBackTitle = computed(() => {
+  if (settingsUserDetailOpen.value) return t('users.backToUsers')
+  if (mobileOverviewFromSettings.value || mobileTrafficFromSettings.value) {
+    return t('settings.back')
+  }
+  switch (route.name) {
+    case 'dashboard':
+      return t('dashboard.backHome')
+    case 'contacts':
+      return t('contacts.back')
+    case 'messages':
+      return t('messages.back')
+    case 'calls':
+      return t('calls.back')
+    case 'recordings':
+      return t('recordings.back')
+    default:
+      return t('settings.back')
+  }
+})
 const mobilePageTitle = computed(() => {
   if (route.name === 'dashboard') return t('dashboard.mobileOverview')
   if (route.name === 'settings') return mobileSettingsSection.value || t('shell.settings')
@@ -265,9 +303,10 @@ async function initializeWorkspaceRuntime(currentGeneration: number): Promise<vo
 
 function syncDialerMode(): void {
   permanentDialer.value = dialerMediaQuery?.matches ?? false
+  nonModalDialer.value = nonModalDialerMediaQuery?.matches ?? false
 }
 
-function backToSettingsMenu(): void {
+function handleMobileBack(): void {
   if (settingsUserDetailOpen.value) {
     void router.push({
       name: 'settings',
@@ -275,7 +314,35 @@ function backToSettingsMenu(): void {
     })
     return
   }
-  void router.push({ name: 'settings' })
+  if (mobileOverviewFromSettings.value || mobileTrafficFromSettings.value) {
+    void router.push({ name: 'settings' })
+    return
+  }
+
+  const query = { ...route.query }
+  switch (route.name) {
+    case 'dashboard':
+      delete query.item
+      void router.push({ name: 'dashboard', query })
+      return
+    case 'contacts':
+      void router.push({ name: 'contacts' })
+      return
+    case 'messages':
+      delete query.compose
+      void router.push({ name: 'messages', query })
+      return
+    case 'calls':
+      delete query.selected
+      void router.push({ name: 'calls', query })
+      return
+    case 'recordings':
+      delete query.selected
+      void router.push({ name: 'recordings', query })
+      return
+    default:
+      void router.push({ name: 'settings' })
+  }
 }
 
 onMounted(() => {
@@ -289,13 +356,16 @@ onMounted(() => {
   void initializeWorkspaceRuntime(currentGeneration)
   void loadContacts()
   dialerMediaQuery = window.matchMedia('(min-width: 1480px)')
+  nonModalDialerMediaQuery = window.matchMedia('(min-width: 861px)')
   dialerMediaQuery.addEventListener('change', syncDialerMode)
+  nonModalDialerMediaQuery.addEventListener('change', syncDialerMode)
   syncDialerMode()
 })
 
 onBeforeUnmount(() => {
   mountGeneration += 1
   dialerMediaQuery?.removeEventListener('change', syncDialerMode)
+  nonModalDialerMediaQuery?.removeEventListener('change', syncDialerMode)
   stopApplicationVersionChecks?.()
   stopApplicationVersionChecks = undefined
   shutdownRuntimeEvents()
@@ -355,7 +425,7 @@ onBeforeUnmount(() => {
           type="button"
           :title="mobileBackTitle"
           :aria-label="mobileBackTitle"
-          @click="backToSettingsMenu"
+          @click="handleMobileBack"
         >
           <ArrowLeft :size="20" />
         </button>
@@ -549,7 +619,9 @@ onBeforeUnmount(() => {
       </button>
     </nav>
 
-    <DialerPanel :permanent="permanentDialer" />
+    <DialerPanel :permanent="permanentDialer"
+      :non-modal="nonModalDialer"
+    />
   </div>
 </template>
 
