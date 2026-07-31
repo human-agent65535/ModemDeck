@@ -27,16 +27,16 @@ const workspaceMasterDetail = await readFile(
   'utf8'
 )
 
-test('dashboard orders communication status, lines, traffic, and favorites', () => {
+test('dashboard orders actions and usage before module maintenance', () => {
   const summaryIndex = dashboard.indexOf('class="dashboard-summary-grid"')
   const linesIndex = dashboard.indexOf('id="dashboard-lines-title"')
   const trafficIndex = dashboard.indexOf('id="dashboard-traffic-title"')
   const favoritesIndex = dashboard.indexOf('id="dashboard-contacts-title"')
 
   assert.ok(summaryIndex >= 0)
-  assert.ok(linesIndex > summaryIndex)
-  assert.ok(trafficIndex > linesIndex)
-  assert.ok(favoritesIndex > trafficIndex)
+  assert.ok(favoritesIndex > summaryIndex)
+  assert.ok(trafficIndex > favoritesIndex)
+  assert.ok(linesIndex > trafficIndex)
 })
 
 test('dashboard keeps creation actions with activity and omits the duplicate overview header', () => {

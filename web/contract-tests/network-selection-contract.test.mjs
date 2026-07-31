@@ -201,6 +201,26 @@ test('mobile network UI follows phone-style automatic and manual selection', () 
   assert.doesNotMatch(section, /requestConfirmation/)
 })
 
+test('network selection is a radio setting before mobile data', () => {
+  const networkTab = panelSource.indexOf("activeTab === 'network'")
+  const flightMode = panelSource.indexOf("t('device.flightMode')", networkTab)
+  const networkSelection = panelSource.indexOf(
+    "t('device.networkSelection')",
+    networkTab
+  )
+  const mobileData = panelSource.indexOf("t('device.mobileData')", networkTab)
+  assert.ok(networkTab >= 0)
+  assert.ok(flightMode > networkTab)
+  assert.ok(networkSelection > flightMode)
+  assert.ok(mobileData > networkSelection)
+
+  const headingStart = panelSource.lastIndexOf('<header', networkSelection)
+  const headingEnd = panelSource.indexOf('</header>', networkSelection)
+  const heading = panelSource.slice(headingStart, headingEnd)
+  assert.match(heading, /class="network-selection-heading"/)
+  assert.match(heading, /<RadioTower/)
+})
+
 test('manual entry scans locally while writes require a selected operator', () => {
   const enterStart = stateSource.indexOf('export function enterManualNetworkSelection')
   const saveStart = stateSource.indexOf('async function saveNetworkSelection', enterStart)

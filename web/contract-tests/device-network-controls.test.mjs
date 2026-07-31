@@ -39,7 +39,8 @@ test('mobile data is unavailable while airplane mode or radio state prevents it'
   const networkStart = source.indexOf("<template v-else-if=\"activeTab === 'network'\">")
   const networkEnd = source.indexOf("<template v-else-if=\"activeTab === 'sim'\">", networkStart)
   const networkSection = source.slice(networkStart, networkEnd)
-  const ipModeStart = networkSection.indexOf('<fieldset')
+  const ipModeLegend = networkSection.indexOf("t('device.ipMode')")
+  const ipModeStart = networkSection.lastIndexOf('<fieldset', ipModeLegend)
   const ipModeEnd = networkSection.indexOf('</fieldset>', ipModeStart)
   const ipModeSection = networkSection.slice(ipModeStart, ipModeEnd)
 
@@ -79,6 +80,13 @@ test('airplane mode and zero signal have distinct icons', () => {
   assert.match(signalBarsSource, /v-if="flightMode"/)
   assert.match(signalBarsSource, /if \(props\.flightMode\) return 'is-flight-mode'/)
   assert.doesNotMatch(signalBarsSource, /\.signal-bars\.is-zero::after/)
+})
+
+test('hardware information has a semantic section icon', () => {
+  assert.match(
+    source,
+    /<Cpu :size="18" \/>\s*<h4>\{\{ t\('device\.hardwareInformation'\) \}\}<\/h4>/
+  )
 })
 
 test('empty APN remains automatic and only displays a server-resolved value', () => {

@@ -7,6 +7,7 @@ import {
   CardSim,
   Check,
   CheckCircle2,
+  Cpu,
   Database,
   LoaderCircle,
   MessageSquareText,
@@ -1585,6 +1586,7 @@ onMounted(() => {
 
           <section class="configuration-section configuration-summary">
             <header>
+              <Cpu :size="18" />
               <h4>{{ t('device.hardwareInformation') }}</h4>
             </header>
             <dl>
@@ -1706,102 +1708,23 @@ onMounted(() => {
           </section>
 
           <section class="configuration-section">
-            <header><Network :size="18" /><h4>{{ t('device.mobileNetwork') }}</h4></header>
-            <label class="configuration-toggle data-toggle">
-              <span>
-                <strong>{{ t('device.mobileData') }}</strong>
-                <small v-if="dataConnectionDetail">
-                  {{ dataConnectionDetail }}
-                </small>
-              </span>
-              <span class="configuration-toggle__control">
-                <SettingsSaveStatus
-                  v-if="activeDeviceMutation === 'data'"
-                  :status="deviceMutation.status.value"
-                  :error="deviceMutation.error.value"
-                  compact
-                />
-                <input
-                  type="checkbox"
-                  role="switch"
-                  :checked="hardware.network_enabled"
-                  :disabled="hardwareBusy || !dataConnectionWritable"
-                  @change="changeDataConnection"
-                />
-              </span>
-            </label>
-            <div class="data-primary-settings">
-              <label class="data-apn-field">
-                <span>APN</span>
-                <input
-                  v-model.trim="apn"
-                  :placeholder="apnPlaceholder"
-                  :disabled="
-                    hardwareBusy ||
-                    hardware.network_enabled ||
-                    !dataConnectionWritable
-                  "
-                />
-              </label>
-              <fieldset
-                class="ip-mode-field"
-                :disabled="
-                  hardwareBusy ||
-                  hardware.network_enabled ||
-                  !dataConnectionWritable
+            <header class="network-selection-heading">
+              <RadioTower :size="18" />
+              <h4>{{ t('device.networkSelection') }}</h4>
+              <small
+                v-if="
+                  selectedNetworkSelection?.policy?.mode === 'manual' &&
+                  selectedNetworkSelection.policy.operator_code
                 "
               >
-                <legend>{{ t('device.ipMode') }}</legend>
-                <div class="ip-mode-options">
-                  <label>
-                    <input v-model="ipFamily" type="radio" value="ipv4" />
-                    <span>IPv4</span>
-                  </label>
-                  <label>
-                    <input v-model="ipFamily" type="radio" value="ipv6" />
-                    <span>IPv6</span>
-                  </label>
-                  <label>
-                    <input v-model="ipFamily" type="radio" value="ipv4v6" />
-                    <span>IPv4 + IPv6</span>
-                  </label>
-                </div>
-              </fieldset>
-            </div>
-            <div
-              class="data-connection-status"
-              :class="{ 'is-connected': Boolean(connectedDataConnection) }"
-              role="status"
-            >
-              <span class="data-connection-status__dot" aria-hidden="true" />
-              <span>
-                <strong>{{ dataConnectionStatusLabel }}</strong>
-              </span>
-            </div>
-            <dl v-if="dataConnectionFacts.length" class="data-connection-facts">
-              <div v-for="fact in dataConnectionFacts" :key="fact.label">
-                <dt>{{ fact.label }}</dt>
-                <dd>{{ fact.value }}</dd>
-              </div>
-            </dl>
-
+                {{
+                  t('device.currentTarget', {
+                    operator: selectedNetworkSelection.policy.operator_code
+                  })
+                }}
+              </small>
+            </header>
             <div class="network-selection">
-              <header>
-                <strong>{{ t('device.networkSelection') }}</strong>
-                <small
-                  v-if="
-                    selectedNetworkSelection?.policy?.mode === 'manual' &&
-                    selectedNetworkSelection.policy.operator_code
-                  "
-                >
-                  {{
-                    t('device.currentTarget', {
-                      operator: selectedNetworkSelection.policy.operator_code
-                    })
-                  }}
-                </small>
-              </header>
-
               <StatePanel
                 v-if="selectedNetworkSelection?.policyStatus === 'loading'"
                 state="loading"
@@ -1965,6 +1888,87 @@ onMounted(() => {
                 </div>
               </template>
             </div>
+          </section>
+
+          <section class="configuration-section">
+            <header><Network :size="18" /><h4>{{ t('device.mobileNetwork') }}</h4></header>
+            <label class="configuration-toggle data-toggle">
+              <span>
+                <strong>{{ t('device.mobileData') }}</strong>
+                <small v-if="dataConnectionDetail">
+                  {{ dataConnectionDetail }}
+                </small>
+              </span>
+              <span class="configuration-toggle__control">
+                <SettingsSaveStatus
+                  v-if="activeDeviceMutation === 'data'"
+                  :status="deviceMutation.status.value"
+                  :error="deviceMutation.error.value"
+                  compact
+                />
+                <input
+                  type="checkbox"
+                  role="switch"
+                  :checked="hardware.network_enabled"
+                  :disabled="hardwareBusy || !dataConnectionWritable"
+                  @change="changeDataConnection"
+                />
+              </span>
+            </label>
+            <div class="data-primary-settings">
+              <label class="data-apn-field">
+                <span>APN</span>
+                <input
+                  v-model.trim="apn"
+                  :placeholder="apnPlaceholder"
+                  :disabled="
+                    hardwareBusy ||
+                    hardware.network_enabled ||
+                    !dataConnectionWritable
+                  "
+                />
+              </label>
+              <fieldset
+                class="ip-mode-field"
+                :disabled="
+                  hardwareBusy ||
+                  hardware.network_enabled ||
+                  !dataConnectionWritable
+                "
+              >
+                <legend>{{ t('device.ipMode') }}</legend>
+                <div class="ip-mode-options">
+                  <label>
+                    <input v-model="ipFamily" type="radio" value="ipv4" />
+                    <span>IPv4</span>
+                  </label>
+                  <label>
+                    <input v-model="ipFamily" type="radio" value="ipv6" />
+                    <span>IPv6</span>
+                  </label>
+                  <label>
+                    <input v-model="ipFamily" type="radio" value="ipv4v6" />
+                    <span>IPv4 + IPv6</span>
+                  </label>
+                </div>
+              </fieldset>
+            </div>
+            <div
+              class="data-connection-status"
+              :class="{ 'is-connected': Boolean(connectedDataConnection) }"
+              role="status"
+            >
+              <span class="data-connection-status__dot" aria-hidden="true" />
+              <span>
+                <strong>{{ dataConnectionStatusLabel }}</strong>
+              </span>
+            </div>
+            <dl v-if="dataConnectionFacts.length" class="data-connection-facts">
+              <div v-for="fact in dataConnectionFacts" :key="fact.label">
+                <dt>{{ fact.label }}</dt>
+                <dd>{{ fact.value }}</dd>
+              </div>
+            </dl>
           </section>
 
           <section class="configuration-section">
@@ -3374,12 +3378,8 @@ onMounted(() => {
 .network-selection {
   width: 100%;
   max-width: 860px;
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
 }
 
-.network-selection > header,
 .manual-network-selection > header {
   display: flex;
   min-height: 34px;
@@ -3388,7 +3388,8 @@ onMounted(() => {
   gap: 12px;
 }
 
-.network-selection > header small {
+.network-selection-heading small {
+  margin-left: auto;
   color: var(--muted);
   font-size: 12px;
 }

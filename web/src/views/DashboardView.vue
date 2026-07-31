@@ -1004,112 +1004,6 @@ onBeforeUnmount(() => {
             </RouterLink>
           </section>
 
-          <section class="dashboard-detail-section" aria-labelledby="dashboard-lines-title">
-            <header>
-              <div>
-                <h3 id="dashboard-lines-title">{{ t('dashboard.moduleStatus') }}</h3>
-                <span class="dashboard-section-metrics">
-                  <span><b>{{ presentModules.length }}</b> {{ t('device.modules') }}</span>
-                  <span><b>{{ onlineModules }}</b> {{ t('dashboard.online') }}</span>
-                  <span><b>{{ callReadyLines }}</b> {{ t('dashboard.callReady') }}</span>
-                  <span><b>{{ messageReadyLines }}</b> {{ t('dashboard.messageReady') }}</span>
-                </span>
-              </div>
-              <RouterLink :to="{ name: 'settings', params: { section: 'devices' } }">
-                {{ t('dashboard.manageDevices') }}
-                <ChevronRight :size="15" />
-              </RouterLink>
-            </header>
-            <div
-              v-if="bootstrapResource.status === 'loading' || bootstrapResource.status === 'idle'"
-              class="dashboard-section-state"
-            >
-              <LoaderCircle class="spin" :size="17" />
-              {{ t('dashboard.loadingLines') }}
-            </div>
-            <div
-              v-else-if="bootstrapResource.status === 'error' || bootstrapResource.status === 'forbidden'"
-              class="dashboard-section-state dashboard-section-state--error"
-              role="alert"
-            >
-              <AlertCircle :size="17" />
-              <span>{{ bootstrapResource.error || t('dashboard.loadLinesFailed') }}</span>
-              <button
-                v-if="bootstrapResource.status === 'error'"
-                type="button"
-                @click="loadBootstrap(true)"
-              >
-                {{ t('common.retry') }}
-              </button>
-            </div>
-            <div v-else-if="moduleLines.length === 0" class="dashboard-section-state">
-              <Inbox :size="17" />
-              {{ t('dashboard.noLines') }}
-            </div>
-            <div v-else class="dashboard-module-grid">
-              <ModuleCard
-                v-for="line in moduleLines"
-                :key="lineKey(line)"
-                :line="line"
-                :device="deviceFor(line)"
-                :runtime="networkRuntime(line)"
-                :selectable="!line.module_only"
-                :default-line="lineKey(line) === defaultLineID"
-                @select="openLineSettings(line)"
-              />
-            </div>
-          </section>
-
-          <section class="dashboard-detail-section" aria-labelledby="dashboard-traffic-title">
-            <header>
-              <div>
-                <h3 id="dashboard-traffic-title">{{ t('shell.traffic') }}</h3>
-              </div>
-              <RouterLink :to="{ name: 'traffic' }">
-                {{ t('dashboard.viewTraffic') }}
-                <ChevronRight :size="15" />
-              </RouterLink>
-            </header>
-            <div
-              v-if="networkState.status === 'loading' || networkState.status === 'idle'"
-              class="dashboard-section-state"
-            >
-              <LoaderCircle class="spin" :size="17" />
-              {{ t('dashboard.loadingTraffic') }}
-            </div>
-            <div
-              v-else-if="networkState.status === 'error' || networkState.status === 'forbidden'"
-              class="dashboard-section-state dashboard-section-state--error"
-              role="alert"
-            >
-              <AlertCircle :size="17" />
-              <span>{{ networkState.error || t('dashboard.loadTrafficFailed') }}</span>
-              <button
-                v-if="networkState.status === 'error'"
-                type="button"
-                @click="loadNetwork(true)"
-              >
-                {{ t('common.retry') }}
-              </button>
-            </div>
-            <div
-              v-else-if="!trafficSnapshot?.available"
-              class="dashboard-section-state"
-            >
-              <ChartNoAxesCombined :size="17" />
-              {{ t('dashboard.trafficUnavailable') }}
-            </div>
-            <TrafficSummary
-              v-else
-              :today-bytes="todayTraffic"
-              :month-bytes="monthTraffic"
-              :connected-lines="connectedNetworkLines"
-              :total-lines="trafficSnapshot.lines.length"
-              :running-proxies="runningProxies"
-              :total-proxies="trafficSnapshot.proxies.length"
-            />
-          </section>
-
           <section class="dashboard-detail-section" aria-labelledby="dashboard-contacts-title">
             <header>
               <div>
@@ -1193,6 +1087,112 @@ onBeforeUnmount(() => {
                   </button>
                 </span>
               </div>
+            </div>
+          </section>
+
+          <section class="dashboard-detail-section" aria-labelledby="dashboard-traffic-title">
+            <header>
+              <div>
+                <h3 id="dashboard-traffic-title">{{ t('shell.traffic') }}</h3>
+              </div>
+              <RouterLink :to="{ name: 'traffic' }">
+                {{ t('dashboard.viewTraffic') }}
+                <ChevronRight :size="15" />
+              </RouterLink>
+            </header>
+            <div
+              v-if="networkState.status === 'loading' || networkState.status === 'idle'"
+              class="dashboard-section-state"
+            >
+              <LoaderCircle class="spin" :size="17" />
+              {{ t('dashboard.loadingTraffic') }}
+            </div>
+            <div
+              v-else-if="networkState.status === 'error' || networkState.status === 'forbidden'"
+              class="dashboard-section-state dashboard-section-state--error"
+              role="alert"
+            >
+              <AlertCircle :size="17" />
+              <span>{{ networkState.error || t('dashboard.loadTrafficFailed') }}</span>
+              <button
+                v-if="networkState.status === 'error'"
+                type="button"
+                @click="loadNetwork(true)"
+              >
+                {{ t('common.retry') }}
+              </button>
+            </div>
+            <div
+              v-else-if="!trafficSnapshot?.available"
+              class="dashboard-section-state"
+            >
+              <ChartNoAxesCombined :size="17" />
+              {{ t('dashboard.trafficUnavailable') }}
+            </div>
+            <TrafficSummary
+              v-else
+              :today-bytes="todayTraffic"
+              :month-bytes="monthTraffic"
+              :connected-lines="connectedNetworkLines"
+              :total-lines="trafficSnapshot.lines.length"
+              :running-proxies="runningProxies"
+              :total-proxies="trafficSnapshot.proxies.length"
+            />
+          </section>
+
+          <section class="dashboard-detail-section" aria-labelledby="dashboard-lines-title">
+            <header>
+              <div>
+                <h3 id="dashboard-lines-title">{{ t('dashboard.moduleStatus') }}</h3>
+                <span class="dashboard-section-metrics">
+                  <span><b>{{ presentModules.length }}</b> {{ t('device.modules') }}</span>
+                  <span><b>{{ onlineModules }}</b> {{ t('dashboard.online') }}</span>
+                  <span><b>{{ callReadyLines }}</b> {{ t('dashboard.callReady') }}</span>
+                  <span><b>{{ messageReadyLines }}</b> {{ t('dashboard.messageReady') }}</span>
+                </span>
+              </div>
+              <RouterLink :to="{ name: 'settings', params: { section: 'devices' } }">
+                {{ t('dashboard.manageDevices') }}
+                <ChevronRight :size="15" />
+              </RouterLink>
+            </header>
+            <div
+              v-if="bootstrapResource.status === 'loading' || bootstrapResource.status === 'idle'"
+              class="dashboard-section-state"
+            >
+              <LoaderCircle class="spin" :size="17" />
+              {{ t('dashboard.loadingLines') }}
+            </div>
+            <div
+              v-else-if="bootstrapResource.status === 'error' || bootstrapResource.status === 'forbidden'"
+              class="dashboard-section-state dashboard-section-state--error"
+              role="alert"
+            >
+              <AlertCircle :size="17" />
+              <span>{{ bootstrapResource.error || t('dashboard.loadLinesFailed') }}</span>
+              <button
+                v-if="bootstrapResource.status === 'error'"
+                type="button"
+                @click="loadBootstrap(true)"
+              >
+                {{ t('common.retry') }}
+              </button>
+            </div>
+            <div v-else-if="moduleLines.length === 0" class="dashboard-section-state">
+              <Inbox :size="17" />
+              {{ t('dashboard.noLines') }}
+            </div>
+            <div v-else class="dashboard-module-grid">
+              <ModuleCard
+                v-for="line in moduleLines"
+                :key="lineKey(line)"
+                :line="line"
+                :device="deviceFor(line)"
+                :runtime="networkRuntime(line)"
+                :selectable="!line.module_only"
+                :default-line="lineKey(line) === defaultLineID"
+                @select="openLineSettings(line)"
+              />
             </div>
           </section>
         </div>
