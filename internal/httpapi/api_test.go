@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
 	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/communication"
+	"github.com/human-agent65535/modemdeck/internal/diagnostics"
 	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
@@ -771,5 +773,73 @@ func TestStructuredErrors(t *testing.T) {
 				t.Fatalf("error code = %q, want %q", body.Code, test.wantCode)
 			}
 		})
+	}
+}
+
+func TestWriteInternalErrorIgnoresCanceledRequests(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		context context.Context
+		err     error
+	}{
+		{
+			name:    "wrapped cancellation",
+			context: context.Background(),
+			err:     errors.Join(errors.New("scan message thread"), context.Canceled),
+		},
+		{
+			name: "canceled request context",
+			context: func() context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx
+			}(),
+			err: errors.New("repository operation stopped"),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			logs := diagnostics.NewLogBuffer(8)
+			api := &API{logger: slog.New(logs.Handler(nil))}
+			request := httptest.NewRequest(http.MethodGet, "/api/v1/messages/threads", nil).
+				WithContext(test.context)
+			response := httptest.NewRecorder()
+			response.Code = 0
+
+			api.writeInternalError(response, request, "list message threads", test.err)
+
+			if response.Code != 0 || response.Body.Len() != 0 {
+				t.Fatalf("canceled request response = %d %q, want no response", response.Code, response.Body.String())
+			}
+			if entries := logs.Snapshot(0).Entries; len(entries) != 0 {
+				t.Fatalf("canceled request logs = %+v, want none", entries)
+			}
+		})
+	}
+}
+
+func TestWriteInternalErrorPreservesRealFailures(t *testing.T) {
+	t.Parallel()
+
+	logs := diagnostics.NewLogBuffer(8)
+	api := &API{logger: slog.New(logs.Handler(nil))}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/messages/threads", nil)
+	response := httptest.NewRecorder()
+
+	api.writeInternalError(
+		response,
+		request,
+		"list message threads",
+		context.DeadlineExceeded,
+	)
+
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusInternalServerError)
+	}
+	entries := logs.Snapshot(0).Entries
+	if len(entries) != 1 || entries[0].Message != "list message threads" {
+		t.Fatalf("failure logs = %+v, want one internal error", entries)
 	}
 }

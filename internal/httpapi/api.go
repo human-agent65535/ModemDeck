@@ -1242,6 +1242,14 @@ func mergeLiveDeviceNetwork(
 }
 
 func (api *API) writeInternalError(response http.ResponseWriter, request *http.Request, operation string, err error) {
+	if requestWasCanceled(request, err) {
+		return
+	}
 	api.logger.Error(operation, "method", request.Method, "path", request.URL.Path, "error", err)
 	writeError(response, http.StatusInternalServerError, "internal_error", "Request could not be completed", "")
+}
+
+func requestWasCanceled(request *http.Request, err error) bool {
+	return errors.Is(err, context.Canceled) ||
+		errors.Is(request.Context().Err(), context.Canceled)
 }
