@@ -451,8 +451,10 @@ export default {
     "scanDescription": "iOS アプリでペアリングを開き、この QR コードを読み取ります。",
     "qrAlt": "ModemDeck iOS ペアリング QR コード",
     "showOnce": "この QR コードには秘密情報が含まれ、今回だけ表示されます。共有しないでください。",
+    "pairingCode": "ペアリングコード",
+    "sameDeviceHint": "この端末で開いている場合は、コードをコピーして ModemDeck アプリに貼り付けてください。",
     "copied": "コピーしました",
-    "copyPairingData": "ペアリングデータをコピー"
+    "copyPairingData": "ペアリングコードをコピー"
   },
   "contacts": {
     "new": "新しい連絡先",

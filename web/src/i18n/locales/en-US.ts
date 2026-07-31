@@ -468,8 +468,11 @@ export default {
     qrAlt: 'ModemDeck iOS pairing QR code',
     showOnce:
       'This QR code contains a secret and is shown only now. Do not share it.',
+    pairingCode: 'Pairing code',
+    sameDeviceHint:
+      'On this phone, copy the code and paste it into the ModemDeck app.',
     copied: 'Copied',
-    copyPairingData: 'Copy pairing data'
+    copyPairingData: 'Copy pairing code'
   },
   contacts: {
     new: 'New contact',

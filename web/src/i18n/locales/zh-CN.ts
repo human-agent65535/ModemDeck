@@ -451,8 +451,11 @@ export default {
     scanDescription: '在 iOS App 中打开配对，然后扫描此二维码。',
     qrAlt: 'ModemDeck iOS 配对二维码',
     showOnce: '二维码包含私密凭据，仅在本次显示，请勿分享。',
+    pairingCode: '配对码',
+    sameDeviceHint:
+      '如果 App 和网页在同一部手机上，请复制配对码并粘贴到 ModemDeck App。',
     copied: '已复制',
-    copyPairingData: '复制配对数据'
+    copyPairingData: '复制配对码'
   },
   contacts: {
     new: '新建联系人',

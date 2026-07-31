@@ -451,8 +451,10 @@ export default {
     "scanDescription": "Die Kopplung in der iOS-App öffnen und diesen QR-Code scannen.",
     "qrAlt": "QR-Code für die ModemDeck-iOS-Kopplung",
     "showOnce": "Dieser QR-Code enthält ein Geheimnis und wird nur jetzt angezeigt. Nicht weitergeben.",
+    "pairingCode": "Kopplungscode",
+    "sameDeviceHint": "Auf diesem Smartphone den Code kopieren und in die ModemDeck-App einfügen.",
     "copied": "Kopiert",
-    "copyPairingData": "Kopplungsdaten kopieren"
+    "copyPairingData": "Kopplungscode kopieren"
   },
   "contacts": {
     "new": "Neuer Kontakt",

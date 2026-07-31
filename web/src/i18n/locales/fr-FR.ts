@@ -451,8 +451,10 @@ export default {
     "scanDescription": "Ouvrez le jumelage dans l’application iOS et scannez ce QR code.",
     "qrAlt": "QR code de jumelage ModemDeck iOS",
     "showOnce": "Ce QR code contient un secret et n’est affiché que maintenant. Ne le partagez pas.",
+    "pairingCode": "Code de jumelage",
+    "sameDeviceHint": "Sur ce même téléphone, copiez le code et collez-le dans l’application ModemDeck.",
     "copied": "Copié",
-    "copyPairingData": "Copier les données de jumelage"
+    "copyPairingData": "Copier le code de jumelage"
   },
   "contacts": {
     "new": "Nouveau contact",

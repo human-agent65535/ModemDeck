@@ -32,9 +32,10 @@ const externalAccess = ref<ExternalAccessStatus | null>(null)
 const pairingPending = ref(false)
 const pairingError = ref('')
 const qrDataURL = ref('')
-const pairingPayloadJSON = ref('')
+const pairingCode = ref('')
 const qrDialog = ref<HTMLElement | null>(null)
 const qrCloseButton = ref<HTMLButtonElement | null>(null)
+const pairingCodeInput = ref<HTMLTextAreaElement | null>(null)
 const copied = ref(false)
 let statusRefreshTimer: number | undefined
 let statusLoadPending = false
@@ -145,8 +146,8 @@ async function createPairing(): Promise<void> {
     const result = await gateway.createIOSPairing()
     if (!result.payload) throw new Error(t('iosPairing.invalidPayload'))
     pairing.value = result.pairing
-    pairingPayloadJSON.value = JSON.stringify(result.payload)
-    qrDataURL.value = await QRCode.toDataURL(pairingPayloadJSON.value, {
+    pairingCode.value = JSON.stringify(result.payload)
+    qrDataURL.value = await QRCode.toDataURL(pairingCode.value, {
       width: 320,
       margin: 2,
       errorCorrectionLevel: 'M',
@@ -193,19 +194,39 @@ async function revokePairing(): Promise<void> {
   }
 }
 
-async function copyPairingPayload(): Promise<void> {
-  if (!pairingPayloadJSON.value) return
+function selectPairingCode(): void {
+  pairingCodeInput.value?.select()
+}
+
+function copySelectedPairingCode(): boolean {
+  selectPairingCode()
+  return document.execCommand('copy')
+}
+
+async function copyPairingCode(): Promise<void> {
+  if (!pairingCode.value) return
+  pairingError.value = ''
   try {
-    await navigator.clipboard.writeText(pairingPayloadJSON.value)
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(pairingCode.value)
+      } catch {
+        if (!copySelectedPairingCode()) throw new Error('copy failed')
+      }
+    } else {
+      if (!copySelectedPairingCode()) throw new Error('copy failed')
+    }
     copied.value = true
   } catch {
+    selectPairingCode()
     pairingError.value = t('iosPairing.copyFailed')
   }
 }
 
 function closeQR(): void {
   qrDataURL.value = ''
-  pairingPayloadJSON.value = ''
+  pairingCode.value = ''
+  pairingError.value = ''
   copied.value = false
 }
 
@@ -429,15 +450,26 @@ onBeforeUnmount(() => {
               <X :size="19" />
             </button>
           </header>
-          <div class="ios-qr-image">
-            <img :src="qrDataURL" :alt="t('iosPairing.qrAlt')" />
-          </div>
-          <p class="ios-qr-warning">{{ t('iosPairing.showOnce') }}</p>
-          <footer>
+          <section class="ios-pairing-code">
+            <div>
+              <strong>{{ t('iosPairing.pairingCode') }}</strong>
+              <p>{{ t('iosPairing.sameDeviceHint') }}</p>
+            </div>
+            <textarea
+              ref="pairingCodeInput"
+              :value="pairingCode"
+              rows="3"
+              readonly
+              spellcheck="false"
+              autocomplete="off"
+              autocapitalize="off"
+              :aria-label="t('iosPairing.pairingCode')"
+              @focus="selectPairingCode"
+            />
             <button
               class="secondary-button"
               type="button"
-              @click="copyPairingPayload"
+              @click="copyPairingCode"
             >
               <Check v-if="copied" :size="16" />
               <Clipboard v-else :size="16" />
@@ -447,6 +479,15 @@ onBeforeUnmount(() => {
                   : t('iosPairing.copyPairingData')
               }}
             </button>
+            <p v-if="pairingError" class="field-error" role="alert">
+              {{ pairingError }}
+            </p>
+          </section>
+          <div class="ios-qr-image">
+            <img :src="qrDataURL" :alt="t('iosPairing.qrAlt')" />
+          </div>
+          <p class="ios-qr-warning">{{ t('iosPairing.showOnce') }}</p>
+          <footer>
             <button class="primary-button" type="button" @click="closeQR">
               {{ t('common.done') }}
             </button>
@@ -576,6 +617,8 @@ onBeforeUnmount(() => {
 
 .ios-qr-dialog {
   width: min(430px, 100%);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
   padding: 20px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -595,11 +638,46 @@ onBeforeUnmount(() => {
 }
 
 .ios-qr-dialog header p,
+.ios-pairing-code p,
 .ios-qr-warning {
   margin-top: 5px;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.ios-pairing-code {
+  display: grid;
+  gap: 9px;
+  margin-top: 16px;
+}
+
+.ios-pairing-code > div {
+  display: grid;
+  gap: 3px;
+}
+
+.ios-pairing-code > div p {
+  margin: 0;
+}
+
+.ios-pairing-code textarea {
+  width: 100%;
+  min-height: 70px;
+  padding: 9px 10px;
+  resize: none;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.ios-pairing-code .secondary-button {
+  justify-self: start;
 }
 
 .ios-qr-image {
@@ -641,7 +719,12 @@ onBeforeUnmount(() => {
 
   .ios-qr-dialog {
     width: 100%;
+    max-height: calc(100dvh - var(--mobile-nav-height));
     border-radius: 12px 12px 0 0;
+  }
+
+  .ios-qr-image img {
+    width: min(260px, 70vw);
   }
 }
 </style>

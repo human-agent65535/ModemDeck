@@ -451,8 +451,10 @@ export default {
     "scanDescription": "Mở chức năng ghép đôi trong ứng dụng iOS và quét mã QR này.",
     "qrAlt": "Mã QR ghép đôi ModemDeck iOS",
     "showOnce": "Mã QR này chứa bí mật và chỉ hiển thị lần này. Không chia sẻ mã.",
+    "pairingCode": "Mã ghép đôi",
+    "sameDeviceHint": "Nếu đang mở trên cùng điện thoại, hãy sao chép mã và dán vào ứng dụng ModemDeck.",
     "copied": "Đã sao chép",
-    "copyPairingData": "Sao chép dữ liệu ghép đôi"
+    "copyPairingData": "Sao chép mã ghép đôi"
   },
   "contacts": {
     "new": "Liên hệ mới",

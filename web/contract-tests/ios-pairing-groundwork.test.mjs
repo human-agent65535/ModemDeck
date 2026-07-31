@@ -194,7 +194,21 @@ test('settings expose capability-scoped infrastructure and self-service pairing'
   assert.match(externalAccessPanel, /onBeforeUnmount/)
   assert.match(externalAccessPanel, /gateway\.createIOSPairing\(\)/)
   assert.match(externalAccessPanel, /gateway\.revokeIOSPairing\(\)/)
-  assert.match(externalAccessPanel, /QRCode\.toDataURL/)
+  assert.match(
+    externalAccessPanel,
+    /pairingCode\.value = JSON\.stringify\(result\.payload\)/
+  )
+  assert.match(externalAccessPanel, /QRCode\.toDataURL\(pairingCode\.value/)
+  assert.match(
+    externalAccessPanel,
+    /navigator\.clipboard\.writeText\(pairingCode\.value\)/
+  )
+  assert.match(externalAccessPanel, /document\.execCommand\('copy'\)/)
+  assert.match(
+    externalAccessPanel,
+    /ref="pairingCodeInput"[\s\S]*?readonly/
+  )
+  assert.match(externalAccessPanel, /iosPairing\.sameDeviceHint/)
   assert.match(callMedia, /gateway\.getCallMediaICEConfiguration/)
   assert.match(callMedia, /iceTransportPolicy/)
   assert.doesNotMatch(

@@ -451,8 +451,10 @@ export default {
     "scanDescription": "Abre el emparejamiento en la aplicación iOS y escanea este código QR.",
     "qrAlt": "Código QR de emparejamiento de ModemDeck iOS",
     "showOnce": "Este QR contiene un secreto y solo se muestra ahora. No lo compartas.",
+    "pairingCode": "Código de emparejamiento",
+    "sameDeviceHint": "Si estás en el mismo teléfono, copia el código y pégalo en la aplicación ModemDeck.",
     "copied": "Copiado",
-    "copyPairingData": "Copiar datos de emparejamiento"
+    "copyPairingData": "Copiar código de emparejamiento"
   },
   "contacts": {
     "new": "Nuevo contacto",
