@@ -43,6 +43,7 @@ type CreateMemberInput struct {
 
 type UpdateMemberInput struct {
 	Username          string
+	PasswordHash      string
 	Enabled           bool
 	IOSPairingEnabled bool
 	LineIDs           []string
@@ -244,7 +245,8 @@ func (s *Store) UpdateMember(
 	if auth.Role(role) == auth.RoleAdmin {
 		if userID != auth.InitialAdminUserID ||
 			username != currentUsername ||
-			!input.Enabled {
+			!input.Enabled ||
+			input.PasswordHash != "" {
 			return User{}, ErrUserValidation
 		}
 		result, err = transaction.ExecContext(ctx, `
@@ -252,7 +254,7 @@ func (s *Store) UpdateMember(
 			SET revision = revision + 1, updated_at = CURRENT_TIMESTAMP
 			WHERE id = ? AND role = 'admin' AND revision = ?
 		`, userID, input.Revision)
-	} else {
+	} else if input.PasswordHash == "" {
 		result, err = transaction.ExecContext(ctx, `
 			UPDATE modemdeck_users
 			SET username = ?, enabled = ?, ios_pairing_enabled = ?,
@@ -261,6 +263,21 @@ func (s *Store) UpdateMember(
 			WHERE id = ? AND role = 'member' AND revision = ?
 		`,
 			username,
+			input.Enabled,
+			input.IOSPairingEnabled,
+			userID,
+			input.Revision,
+		)
+	} else {
+		result, err = transaction.ExecContext(ctx, `
+			UPDATE modemdeck_users
+			SET username = ?, password_hash = ?, enabled = ?,
+				ios_pairing_enabled = ?, revision = revision + 1,
+				updated_at = CURRENT_TIMESTAMP
+			WHERE id = ? AND role = 'member' AND revision = ?
+		`,
+			username,
+			input.PasswordHash,
 			input.Enabled,
 			input.IOSPairingEnabled,
 			userID,
@@ -291,13 +308,14 @@ func (s *Store) UpdateMember(
 	`, defaultLineID, userID); err != nil {
 		return User{}, fmt.Errorf("update member preferences: %w", err)
 	}
-	if auth.Role(role) == auth.RoleMember && !input.Enabled {
+	if auth.Role(role) == auth.RoleMember &&
+		(!input.Enabled || input.PasswordHash != "") {
 		if _, err := transaction.ExecContext(
 			ctx,
 			"DELETE FROM modemdeck_auth_sessions WHERE user_id = ?",
 			userID,
 		); err != nil {
-			return User{}, fmt.Errorf("revoke disabled member sessions: %w", err)
+			return User{}, fmt.Errorf("revoke member sessions after update: %w", err)
 		}
 	}
 	if auth.Role(role) == auth.RoleMember &&

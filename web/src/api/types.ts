@@ -1224,6 +1224,7 @@ export type CreateMemberInput = {
 
 export type UpdateMemberInput = {
   username: string
+  password?: string
   enabled: boolean
   ios_pairing_enabled: boolean
   line_ids: string[]

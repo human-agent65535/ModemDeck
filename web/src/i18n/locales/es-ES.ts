@@ -399,6 +399,7 @@ export default {
     "defaultLine": "Línea predeterminada",
     "setPassword": "Establecer contraseña",
     "newPassword": "Nueva contraseña",
+    "optionalPasswordHint": "Déjalo en blanco para conservar la contraseña actual; usa al menos {count} caracteres para cambiarla.",
     "setPasswordFailed": "No se pudo establecer la contraseña",
     "saved": "Usuario guardado",
     "passwordSet": "Contraseña establecida",

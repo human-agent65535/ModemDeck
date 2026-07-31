@@ -399,6 +399,7 @@ export default {
     "defaultLine": "デフォルト回線",
     "setPassword": "パスワードを設定",
     "newPassword": "新しいパスワード",
+    "optionalPasswordHint": "変更しない場合は空欄のままにします。変更する場合は {count} 文字以上必要です。",
     "setPasswordFailed": "パスワードを設定できません",
     "saved": "ユーザーを保存しました",
     "passwordSet": "パスワードを設定しました",

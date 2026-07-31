@@ -49,8 +49,6 @@ const saving = ref(false)
 const saved = ref(false)
 const saveError = ref('')
 const newPassword = ref('')
-const settingPassword = ref(false)
-const passwordSet = ref(false)
 const searchQuery = ref('')
 
 const lines = computed(
@@ -83,6 +81,13 @@ const validationError = computed(() => {
   ) {
     return t('users.passwordTooShort', { count: minimumPasswordCharacters })
   }
+  if (
+    !creating.value &&
+    newPassword.value &&
+    passwordCharacterCount(newPassword.value) < minimumPasswordCharacters
+  ) {
+    return t('users.passwordTooShort', { count: minimumPasswordCharacters })
+  }
   return ''
 })
 function lineForID(id: string): LineSummary | undefined {
@@ -108,11 +113,10 @@ function applyUser(user?: UserAccount): void {
   newPassword.value = ''
   saved.value = false
   saveError.value = ''
-  passwordSet.value = false
 }
 
 function selectUser(id: string): void {
-  if (saving.value || settingPassword.value) return
+  if (saving.value) return
   creating.value = false
   selectedID.value = id
   applyUser(users.value.find(user => user.id === id))
@@ -124,7 +128,7 @@ function selectUser(id: string): void {
 }
 
 function startCreate(): void {
-  if (saving.value || settingPassword.value) return
+  if (saving.value) return
   creating.value = true
   selectedID.value = '__new_member__'
   applyUser()
@@ -173,7 +177,7 @@ async function load(): Promise<void> {
 }
 
 async function submit(): Promise<void> {
-  if (saving.value || settingPassword.value || validationError.value) return
+  if (saving.value || validationError.value) return
   saving.value = true
   saved.value = false
   saveError.value = ''
@@ -188,6 +192,7 @@ async function submit(): Promise<void> {
       : editableUser.value
         ? await gateway.updateMember(editableUser.value.id, {
             username: username.value,
+            ...(newPassword.value ? { password: newPassword.value } : {}),
             enabled: enabled.value,
             ios_pairing_enabled: iosPairingEnabled.value,
             line_ids: lineIDs.value,
@@ -219,6 +224,10 @@ async function submit(): Promise<void> {
   } catch (cause) {
     if (cause instanceof ApiError && cause.code === 'username_conflict') {
       saveError.value = t('users.usernameConflict')
+    } else if (cause instanceof ApiError && cause.code === 'password_too_short') {
+      saveError.value = t('users.passwordTooShort', {
+        count: minimumPasswordCharacters
+      })
     } else {
       saveError.value = cause instanceof Error ? cause.message : t('users.saveFailed')
     }
@@ -227,37 +236,8 @@ async function submit(): Promise<void> {
   }
 }
 
-async function setMemberPassword(): Promise<void> {
-  const user = editableUser.value
-  if (!user || settingPassword.value) return
-  if (passwordCharacterCount(newPassword.value) < minimumPasswordCharacters) {
-    saveError.value = t('account.passwordTooShort', {
-      count: minimumPasswordCharacters
-    })
-    return
-  }
-  settingPassword.value = true
-  saved.value = false
-  saveError.value = ''
-  passwordSet.value = false
-  try {
-    await gateway.setMemberPassword(user.id, newPassword.value)
-    newPassword.value = ''
-    passwordSet.value = true
-    const loaded = await gateway.listUsers()
-    users.value = loaded
-    const refreshed = loaded.find(current => current.id === user.id)
-    if (refreshed) applyUser(refreshed)
-    passwordSet.value = true
-  } catch (cause) {
-    saveError.value = cause instanceof Error ? cause.message : t('users.setPasswordFailed')
-  } finally {
-    settingPassword.value = false
-  }
-}
-
 function syncSelectionFromRoute(): void {
-  if (status.value !== 'ready' || saving.value || settingPassword.value) return
+  if (status.value !== 'ready' || saving.value) return
   if (route.query.newUser === '1') {
     if (!creating.value) {
       creating.value = true
@@ -277,9 +257,8 @@ function syncSelectionFromRoute(): void {
 watch(
   [username, enabled, iosPairingEnabled, lineIDs, password, newPassword],
   () => {
-    if (saving.value || settingPassword.value) return
+    if (saving.value) return
     saved.value = false
-    passwordSet.value = false
     saveError.value = ''
   },
   { deep: true, flush: 'sync' }
@@ -523,19 +502,16 @@ onMounted(() => {
                 v-model="newPassword"
                 type="password"
                 autocomplete="new-password"
-                :disabled="settingPassword || saving"
+                :disabled="saving"
               />
+              <small>
+                {{
+                  t('users.optionalPasswordHint', {
+                    count: minimumPasswordCharacters
+                  })
+                }}
+              </small>
             </label>
-            <button
-              class="secondary-button"
-              type="button"
-              :disabled="settingPassword || saving || !newPassword"
-              @click="setMemberPassword"
-            >
-              <LoaderCircle v-if="settingPassword" class="spin" :size="16" />
-              <KeyRound v-else :size="16" />
-              {{ t('users.setPassword') }}
-            </button>
           </div>
         </section>
 
@@ -545,9 +521,6 @@ onMounted(() => {
             <span v-else-if="saveError" class="field-error">{{ saveError }}</span>
             <span v-else-if="saved" class="save-status">
               <Check :size="15" /> {{ t('users.saved') }}
-            </span>
-            <span v-else-if="passwordSet" class="save-status">
-              <Check :size="15" /> {{ t('users.passwordSet') }}
             </span>
           </span>
           <button
@@ -875,13 +848,7 @@ onMounted(() => {
 .user-password-set > div {
   display: grid;
   max-width: 560px;
-  align-items: end;
-  gap: 10px;
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.user-password-set .secondary-button {
-  min-height: 40px;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .user-feedback {

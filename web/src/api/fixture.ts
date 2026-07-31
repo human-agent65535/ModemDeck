@@ -1401,9 +1401,15 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       }
       if (
         current.role === 'admin' &&
-        (input.username !== current.username || !input.enabled)
+        (input.username !== current.username || !input.enabled || Boolean(input.password))
       ) {
         throw new ApiError('User data is invalid', 400, 'invalid_user')
+      }
+      if (
+        input.password &&
+        passwordCharacterCount(input.password) < minimumPasswordCharacters
+      ) {
+        throw new ApiError('Password is too short', 422, 'password_too_short')
       }
       const updated: UserAccount = {
         ...current,

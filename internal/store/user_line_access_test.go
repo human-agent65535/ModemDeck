@@ -182,6 +182,67 @@ func TestCreatedAndResetMemberPasswordsAreImmediatelyUsable(t *testing.T) {
 	}
 }
 
+func TestMemberUpdateChangesPasswordAndRevokesSessionsAtomically(t *testing.T) {
+	t.Parallel()
+
+	repository, _ := newContactTestStore(t)
+	ctx := context.Background()
+	member, err := repository.CreateMember(ctx, CreateMemberInput{
+		Username:     "member",
+		PasswordHash: "initial-hash",
+	})
+	if err != nil {
+		t.Fatalf("CreateMember() error = %v", err)
+	}
+	initialRevision := member.Revision
+	createdAt := time.Date(2026, 7, 31, 10, 0, 0, 0, time.UTC)
+	session := auth.UserSessionRecord{
+		UserID:             member.ID,
+		SessionTokenDigest: auth.SessionTokenDigest{5},
+		CSRFTokenDigest:    auth.CSRFTokenDigest{6},
+		CreatedAt:          createdAt,
+		ExpiresAt:          createdAt.Add(auth.SessionLifetime),
+	}
+	if created, createErr := repository.CreateUserSessionIfPasswordHash(
+		ctx,
+		"initial-hash",
+		session,
+	); createErr != nil || !created {
+		t.Fatalf("CreateUserSessionIfPasswordHash() = %v, %v", created, createErr)
+	}
+
+	member, err = repository.UpdateMember(ctx, member.ID, UpdateMemberInput{
+		Username:     member.Username,
+		PasswordHash: "updated-hash",
+		Enabled:      true,
+		LineIDs:      member.LineIDs,
+		Revision:     member.Revision,
+	})
+	if err != nil {
+		t.Fatalf("UpdateMember() error = %v", err)
+	}
+	if member.Revision != initialRevision+1 {
+		t.Fatalf(
+			"updated member revision = %d, want %d",
+			member.Revision,
+			initialRevision+1,
+		)
+	}
+	credentials, found, err := repository.UserCredentialsByID(ctx, member.ID)
+	if err != nil || !found {
+		t.Fatalf("UserCredentialsByID() = %#v, %v, %v", credentials, found, err)
+	}
+	if credentials.PasswordHash != "updated-hash" {
+		t.Fatalf("updated member credentials = %#v", credentials)
+	}
+	if _, _, found, lookupErr := repository.UserSessionByTokenDigest(
+		ctx,
+		session.SessionTokenDigest,
+	); lookupErr != nil || found {
+		t.Fatalf("old member session found = %v, error = %v", found, lookupErr)
+	}
+}
+
 func TestMemberLineAssignmentPreservesPersonalDefaultUntilRemoved(t *testing.T) {
 	t.Parallel()
 

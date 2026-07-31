@@ -408,6 +408,8 @@ export default {
     defaultLine: 'Default line',
     setPassword: 'Set password',
     newPassword: 'New password',
+    optionalPasswordHint:
+      'Leave blank to keep the current password; use at least {count} characters to change it.',
     setPasswordFailed: 'Unable to set the password',
     saved: 'User saved',
     passwordSet: 'Password set',

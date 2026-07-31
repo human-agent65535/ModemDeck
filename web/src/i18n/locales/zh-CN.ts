@@ -399,6 +399,7 @@ export default {
     defaultLine: '默认线路',
     setPassword: '设置密码',
     newPassword: '新密码',
+    optionalPasswordHint: '留空则保持当前密码；修改时至少需要 {count} 个字符。',
     setPasswordFailed: '密码设置失败',
     saved: '用户已保存',
     passwordSet: '密码已设置',

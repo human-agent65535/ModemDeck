@@ -399,6 +399,7 @@ export default {
     defaultLine: '預設線路',
     setPassword: '設定密碼',
     newPassword: '新密碼',
+    optionalPasswordHint: '留空則保留目前密碼；修改時至少需要 {count} 個字元。',
     setPasswordFailed: '密碼設定失敗',
     saved: '使用者已儲存',
     passwordSet: '密碼已設定',

@@ -2441,6 +2441,7 @@ export function createMemberUpdatePayload(input: UpdateMemberInput): UpdateMembe
   }
   return {
     username,
+    ...(input.password ? { password: input.password } : {}),
     enabled: input.enabled,
     ios_pairing_enabled: input.ios_pairing_enabled,
     line_ids: lineIDs,

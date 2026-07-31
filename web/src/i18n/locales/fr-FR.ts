@@ -399,6 +399,7 @@ export default {
     "defaultLine": "Ligne par défaut",
     "setPassword": "Définir le mot de passe",
     "newPassword": "Nouveau mot de passe",
+    "optionalPasswordHint": "Laissez ce champ vide pour conserver le mot de passe actuel ; utilisez au moins {count} caractères pour le modifier.",
     "setPasswordFailed": "Impossible de définir le mot de passe",
     "saved": "Utilisateur enregistré",
     "passwordSet": "Mot de passe défini",

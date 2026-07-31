@@ -399,6 +399,7 @@ export default {
     "defaultLine": "Linha padrão",
     "setPassword": "Definir senha",
     "newPassword": "Nova senha",
+    "optionalPasswordHint": "Deixe em branco para manter a senha atual; use pelo menos {count} caracteres para alterá-la.",
     "setPasswordFailed": "Não foi possível definir a senha",
     "saved": "Usuário salvo",
     "passwordSet": "Senha definida",

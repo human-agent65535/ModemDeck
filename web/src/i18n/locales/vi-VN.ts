@@ -399,6 +399,7 @@ export default {
     "defaultLine": "Đường dây mặc định",
     "setPassword": "Đặt mật khẩu",
     "newPassword": "Mật khẩu mới",
+    "optionalPasswordHint": "Để trống để giữ mật khẩu hiện tại; dùng ít nhất {count} ký tự để thay đổi.",
     "setPasswordFailed": "Không thể đặt mật khẩu",
     "saved": "Đã lưu người dùng",
     "passwordSet": "Đã đặt mật khẩu",

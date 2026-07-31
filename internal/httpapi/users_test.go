@@ -22,6 +22,7 @@ type fakeUserRepository struct {
 	updateInput store.UpdateMemberInput
 	updateUser  store.User
 	updateError error
+	updateCalls int
 }
 
 func (repository *fakeUserRepository) Users(context.Context) ([]store.User, error) {
@@ -41,6 +42,7 @@ func (repository *fakeUserRepository) UpdateMember(
 	userID string,
 	input store.UpdateMemberInput,
 ) (store.User, error) {
+	repository.updateCalls++
 	repository.updateID = userID
 	repository.updateInput = input
 	return repository.updateUser, repository.updateError
@@ -177,6 +179,88 @@ func TestMemberAccessUpdateReloadsTelegramRuntimeAfterCommit(t *testing.T) {
 	}
 	if settings.accessNotifications != 1 {
 		t.Fatalf("Telegram access notifications = %d, want 1", settings.accessNotifications)
+	}
+}
+
+func TestUpdateMemberHashesOptionalPassword(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeUserRepository{
+		fakeRepository: &fakeRepository{},
+		updateUser: store.User{
+			ID:       "member-1",
+			Username: "alice",
+			Role:     auth.RoleMember,
+			Enabled:  true,
+			Revision: 2,
+			LineIDs:  []string{"line-1"},
+		},
+	}
+	api, err := New(repository, Options{disableAuthentication: true})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	request := httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/users/member-1",
+		bytes.NewBufferString(`{
+			"username":"alice",
+			"password":"密码密码密码密码",
+			"enabled":true,
+			"ios_pairing_enabled":true,
+			"line_ids":["line-1"],
+			"revision":1
+		}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if repository.updateCalls != 1 {
+		t.Fatalf("UpdateMember() calls = %d, want 1", repository.updateCalls)
+	}
+	matches, err := auth.VerifyPassword(
+		"密码密码密码密码",
+		repository.updateInput.PasswordHash,
+	)
+	if err != nil || !matches {
+		t.Fatalf("updated password matches = %t, error = %v", matches, err)
+	}
+}
+
+func TestUpdateMemberRejectsShortOptionalPasswordBeforeWrite(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeUserRepository{fakeRepository: &fakeRepository{}}
+	api, err := New(repository, Options{disableAuthentication: true})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	request := httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/users/member-1",
+		bytes.NewBufferString(`{
+			"username":"alice",
+			"password":"密码密码密码密",
+			"enabled":true,
+			"line_ids":[],
+			"revision":1
+		}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if repository.updateCalls != 0 {
+		t.Fatalf("UpdateMember() calls = %d, want 0", repository.updateCalls)
 	}
 }
 

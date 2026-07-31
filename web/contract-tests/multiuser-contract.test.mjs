@@ -45,6 +45,7 @@ test('user contracts retain role, personal profile, and assigned-line state', ()
   assert.deepEqual(
     createMemberUpdatePayload({
       username: '  renamed  ',
+      password: 'new password',
       enabled: false,
       ios_pairing_enabled: false,
       line_ids: ['line_alpha', ' line_beta '],
@@ -52,6 +53,7 @@ test('user contracts retain role, personal profile, and assigned-line state', ()
     }),
     {
       username: 'renamed',
+      password: 'new password',
       enabled: false,
       ios_pairing_enabled: false,
       line_ids: ['line_alpha', 'line_beta'],
@@ -140,7 +142,9 @@ test('multi-user UI exposes only authorized settings and communication areas', a
   assert.match(users, /gateway\.listUsers\(\)/)
   assert.match(users, /gateway\.createMember/)
   assert.match(users, /gateway\.updateMember/)
-  assert.match(users, /gateway\.setMemberPassword/)
+  assert.doesNotMatch(users, /gateway\.setMemberPassword/)
+  assert.match(users, /password: newPassword\.value/)
+  assert.doesNotMatch(users, /@click="setMemberPassword"/)
   assert.match(users, /minimumPasswordCharacters/)
   assert.match(users, /passwordCharacterCount\(password\.value\)/)
   assert.match(users, /passwordCharacterCount\(newPassword\.value\)/)

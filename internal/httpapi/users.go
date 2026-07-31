@@ -29,6 +29,7 @@ type createMemberRequest struct {
 
 type updateMemberRequest struct {
 	Username          string   `json:"username"`
+	Password          string   `json:"password,omitempty"`
 	Enabled           bool     `json:"enabled"`
 	IOSPairingEnabled bool     `json:"ios_pairing_enabled"`
 	LineIDs           []string `json:"line_ids"`
@@ -160,8 +161,22 @@ func (api *API) userResource(
 		writeError(response, http.StatusUnprocessableEntity, "username_invalid", "Enter a valid username", "username")
 		return
 	}
+	passwordHash := ""
+	if input.Password != "" {
+		if err := auth.ValidateNewPassword(input.Password); err != nil {
+			writePasswordValidationError(response, err, "password")
+			return
+		}
+		var err error
+		passwordHash, err = auth.HashPassword(input.Password)
+		if err != nil {
+			api.writeInternalError(response, request, "hash member password", err)
+			return
+		}
+	}
 	user, err := repository.UpdateMember(request.Context(), userID, store.UpdateMemberInput{
 		Username:          input.Username,
+		PasswordHash:      passwordHash,
 		Enabled:           input.Enabled,
 		IOSPairingEnabled: input.IOSPairingEnabled,
 		LineIDs:           input.LineIDs,

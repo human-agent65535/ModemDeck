@@ -399,6 +399,7 @@ export default {
     "defaultLine": "Standardleitung",
     "setPassword": "Passwort festlegen",
     "newPassword": "Neues Passwort",
+    "optionalPasswordHint": "Leer lassen, um das aktuelle Passwort beizubehalten; zum Ändern sind mindestens {count} Zeichen erforderlich.",
     "setPasswordFailed": "Passwort konnte nicht festgelegt werden",
     "saved": "Benutzer gespeichert",
     "passwordSet": "Passwort festgelegt",
