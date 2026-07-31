@@ -20,6 +20,18 @@ test('Diagnostics V1 is organized around evidence, recovery, and logs', () => {
   assert.doesNotMatch(source, /function lineCapabilities|function agentCapabilities/)
 })
 
+test('call session diagnostics remain visible while the runtime is idle', () => {
+  assert.doesNotMatch(
+    source,
+    /<section v-if="snapshot\.active_calls\.length" class="diagnostics-section">/
+  )
+  assert.match(
+    source,
+    /<div v-if="snapshot\.active_calls\.length" class="active-call-list">/
+  )
+  assert.match(source, /v-else class="empty-row"[^>]*>\{\{ t\('diagnostics\.noActiveCalls'\) \}\}/)
+})
+
 test('line evidence exposes diagnostic-only identities and raw state', () => {
   assert.match(source, /selectedDiagnosticLine\.endpoint_id/)
   assert.match(source, /lineFailureEvidence\(selectedDiagnosticLine\)/)

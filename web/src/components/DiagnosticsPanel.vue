@@ -1111,14 +1111,14 @@ onBeforeUnmount(() => {
         <p v-else class="empty-row">{{ t('diagnostics.noLines') }}</p>
       </section>
 
-      <section v-if="snapshot.active_calls.length" class="diagnostics-section">
+      <section class="diagnostics-section">
         <header class="section-heading">
           <div>
             <h3>{{ t('diagnostics.currentCalls') }}</h3>
             <span>{{ t('diagnostics.callCount', { count: snapshot.active_calls.length }) }}</span>
           </div>
         </header>
-        <div class="active-call-list">
+        <div v-if="snapshot.active_calls.length" class="active-call-list">
           <article v-for="call in snapshot.active_calls" :key="call.id" class="active-call">
             <span class="active-call__icon"><PhoneCall :size="18" /></span>
             <span class="active-call__identity">
@@ -1138,6 +1138,7 @@ onBeforeUnmount(() => {
             </span>
           </article>
         </div>
+        <p v-else class="empty-row">{{ t('diagnostics.noActiveCalls') }}</p>
       </section>
     </template>
 
