@@ -21,6 +21,7 @@ import { useSettingsMutation } from '../composables/useSettingsMutation'
 import { requestConfirmation } from '../state/confirmation'
 import { sessionState } from '../state/session'
 import OverlayDialog from './OverlayDialog.vue'
+import StatePanel from './StatePanel.vue'
 import SettingsModuleCard from './settings/SettingsModuleCard.vue'
 
 const STATUS_REFRESH_INTERVAL_MS = 15_000
@@ -332,22 +333,16 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="ios-settings" :aria-label="t('iosPairing.title')">
-    <div v-if="loading" class="ios-settings__state" role="status">
-      <LoaderCircle class="spin" :size="18" />
-      <span>{{ t('iosPairing.loading') }}</span>
-    </div>
+    <StatePanel v-if="loading" state="loading" :title="t('iosPairing.loading')" />
 
-    <div
+    <StatePanel
       v-else-if="loadError"
-      class="ios-settings__state ios-settings__state--error"
-      role="alert"
-    >
-      <span>{{ loadError }}</span>
-      <button class="secondary-button" type="button" @click="load">
-        <RefreshCw :size="15" />
-        {{ t('common.retry') }}
-      </button>
-    </div>
+      state="error"
+      :title="t('iosPairing.loadFailed')"
+      :detail="loadError"
+      retryable
+      @retry="load"
+    />
 
     <template v-else-if="pairing">
       <SettingsModuleCard
@@ -632,21 +627,6 @@ onBeforeUnmount(() => {
   display: grid;
   width: 100%;
   gap: 18px;
-}
-
-.ios-settings__state {
-  display: flex;
-  min-height: 180px;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.ios-settings__state--error {
-  flex-direction: column;
-  color: var(--danger);
 }
 
 .ios-pairing-note {

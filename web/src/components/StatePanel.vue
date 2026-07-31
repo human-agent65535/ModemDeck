@@ -22,7 +22,9 @@ const emit = defineEmits<{ retry: [] }>()
 
 <template>
   <div class="state-panel" :role="state === 'error' || state === 'forbidden' ? 'alert' : 'status'">
-    <LoaderCircle v-if="state === 'loading'" class="spin" :size="26" aria-hidden="true" />
+    <span v-if="state === 'loading'" class="state-panel__loading-mark" aria-hidden="true">
+      <LoaderCircle class="spin" :size="24" />
+    </span>
     <AlertCircle v-else-if="state === 'error'" :size="26" aria-hidden="true" />
     <ShieldAlert v-else-if="state === 'forbidden'" :size="26" aria-hidden="true" />
     <Inbox v-else :size="26" aria-hidden="true" />

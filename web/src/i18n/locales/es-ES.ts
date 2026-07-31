@@ -910,6 +910,7 @@ export default {
     "configured": "Configurado",
     "notConfigured": "No configurado",
     "bots": "Bots de notificación",
+    "count": "{count} bot(s)",
     "notifications": "Notificaciones",
     "incomingSMS": "Mensajes entrantes",
     "missedCalls": "llamadas perdidas",

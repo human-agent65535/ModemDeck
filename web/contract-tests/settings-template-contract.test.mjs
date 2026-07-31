@@ -47,6 +47,23 @@ test('settings pages use the shared layout templates and the device workbench ex
   assert.match(audio, /SettingsControlRow/)
 })
 
+test('page-level async settings reuse the shared animated state panel', async () => {
+  const [statePanel, style, externalAccess, certificate] = await Promise.all([
+    source('../src/components/StatePanel.vue'),
+    source('../src/style.css'),
+    source('../src/components/ExternalAccessSettingsPanel.vue'),
+    source('../src/components/WebCertificateSettingsPanel.vue')
+  ])
+
+  assert.match(statePanel, /state-panel__loading-mark/)
+  assert.match(style, /@keyframes state-panel-loading-halo/)
+  assert.match(style, /@media \(prefers-reduced-motion: reduce\)/)
+  for (const panel of [externalAccess, certificate]) {
+    assert.match(panel, /import StatePanel from '\.\/StatePanel\.vue'/)
+    assert.match(panel, /<StatePanel v-if="loading" state="loading"/)
+  }
+})
+
 test('master-detail settings are flush and mobile page titles cover every section', async () => {
   const view = await source('../src/views/SettingsView.vue')
   const shell = await source('../src/components/AppShell.vue')

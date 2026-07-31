@@ -918,6 +918,7 @@ export default {
     configured: '已配置',
     notConfigured: '未配置',
     bots: '通知 Bot',
+    count: '{count} 個 Bot',
     notifications: '通知',
     incomingSMS: '收到簡訊',
     missedCalls: '未接來電',

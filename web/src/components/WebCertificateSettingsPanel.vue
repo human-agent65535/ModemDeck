@@ -17,6 +17,7 @@ import type { TLSSettings } from '../api/types'
 import { ApiError } from '../api/types'
 import { requestConfirmation } from '../state/confirmation'
 import { showError, showSuccess } from '../state/feedback'
+import StatePanel from './StatePanel.vue'
 
 const MAX_PEM_BYTES = 1024 * 1024
 const PEM_ACCEPT =
@@ -206,18 +207,16 @@ onMounted(() => {
 
 <template>
   <section class="tls-settings" aria-labelledby="tls-settings-title">
-    <div v-if="loading" class="tls-settings__state" role="status">
-      <LoaderCircle class="spin" :size="18" />
-      <span>{{ t('tls.loading') }}</span>
-    </div>
+    <StatePanel v-if="loading" state="loading" :title="t('tls.loading')" />
 
-    <div v-else-if="loadError" class="tls-settings__state tls-settings__state--error" role="alert">
-      <span>{{ loadError }}</span>
-      <button class="secondary-button" type="button" @click="loadTLSSettings">
-        <RefreshCw :size="15" />
-        <span>{{ t('common.retry') }}</span>
-      </button>
-    </div>
+    <StatePanel
+      v-else-if="loadError"
+      state="error"
+      :title="t('tls.loadFailed')"
+      :detail="loadError"
+      retryable
+      @retry="loadTLSSettings"
+    />
 
     <template v-else-if="settings">
       <p class="tls-scope-notice">{{ t('tls.scopeNotice') }}</p>

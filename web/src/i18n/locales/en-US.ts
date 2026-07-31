@@ -938,6 +938,7 @@ export default {
     configured: 'Configured',
     notConfigured: 'Not configured',
     bots: 'Notification bots',
+    count: '{count} bot(s)',
     notifications: 'Notifications',
     incomingSMS: 'Incoming messages',
     missedCalls: 'Missed calls',

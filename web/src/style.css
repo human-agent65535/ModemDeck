@@ -1294,6 +1294,27 @@ textarea::placeholder {
   text-align: center;
 }
 
+.state-panel__loading-mark {
+  position: relative;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 2px;
+  place-items: center;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-radius: 50%;
+}
+
+.state-panel__loading-mark::after {
+  position: absolute;
+  inset: -4px;
+  border: 1px solid rgb(17 120 100 / 28%);
+  border-radius: inherit;
+  content: '';
+  animation: state-panel-loading-halo 1.45s var(--ease-standard) infinite;
+}
+
 .state-panel strong {
   color: var(--muted);
   font-size: 14px;
@@ -1313,6 +1334,19 @@ textarea::placeholder {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes state-panel-loading-halo {
+  0% {
+    opacity: 0.72;
+    transform: scale(0.82);
+  }
+
+  72%,
+  100% {
+    opacity: 0;
+    transform: scale(1.14);
   }
 }
 

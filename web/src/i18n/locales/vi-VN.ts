@@ -910,6 +910,7 @@ export default {
     "configured": "Đã định cấu hình",
     "notConfigured": "Chưa được định cấu hình",
     "bots": "Bot thông báo",
+    "count": "{count} bot",
     "notifications": "Thông báo",
     "incomingSMS": "Tin nhắn đến",
     "missedCalls": "Cuộc gọi nhỡ",

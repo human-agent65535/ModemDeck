@@ -17,7 +17,10 @@ test('Telegram bot list exposes channel identity, status, and line scope', () =>
   const list = form.slice(listStart, listEnd)
 
   assert.match(form, /:sidebar-title="t\('telegram\.bots'\)"/)
-  assert.match(form, /sidebar-description="Telegram"/)
+  assert.match(
+    form,
+    /:sidebar-description="t\('telegram\.count', \{ count: telegramResource\.data\.length \}\)"/
+  )
   assert.match(list, /telegram-unit-row__icon[\s\S]*<Send/)
   assert.match(
     list,

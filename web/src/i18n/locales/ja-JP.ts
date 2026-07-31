@@ -910,6 +910,7 @@ export default {
     "configured": "設定済み",
     "notConfigured": "未設定",
     "bots": "通知ボット",
+    "count": "{count} ボット",
     "notifications": "通知",
     "incomingSMS": "受信メッセージ",
     "missedCalls": "不在着信あり",

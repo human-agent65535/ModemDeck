@@ -566,7 +566,7 @@ onMounted(() => {
     v-else
     :label="t('telegram.bots')"
     :sidebar-title="t('telegram.bots')"
-    sidebar-description="Telegram"
+    :sidebar-description="t('telegram.count', { count: telegramResource.data.length })"
     :detail-open="mobileDetailOpen"
   >
     <template #sidebar-action>
