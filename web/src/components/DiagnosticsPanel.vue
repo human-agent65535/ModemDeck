@@ -714,7 +714,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="diagnostics-panel" aria-labelledby="diagnostics-title">
+  <section class="diagnostics-panel" :aria-label="t('settings.diagnostics')">
     <StatePanel
       v-if="snapshotState === 'idle' || snapshotState === 'loading'"
       state="loading"
@@ -739,7 +739,7 @@ onBeforeUnmount(() => {
       <section class="diagnostics-section">
         <header class="section-heading">
           <div>
-            <h3 id="diagnostics-title">{{ t('diagnostics.runtimeStatus') }}</h3>
+            <h3>{{ t('diagnostics.runtimeStatus') }}</h3>
           </div>
           <span class="overall-status" :class="`is-${snapshot.status}`">
             <Activity :size="15" />
@@ -918,7 +918,7 @@ onBeforeUnmount(() => {
       </section>
 
       <section class="diagnostics-section">
-        <header class="section-heading">
+        <header class="section-heading line-evidence-heading">
           <div>
             <h3>{{ t('diagnostics.deviceEvidence') }}</h3>
             <span>{{ t('diagnostics.lineCount', { count: snapshot.lines.length }) }}</span>
@@ -2136,6 +2136,11 @@ onBeforeUnmount(() => {
   .diagnostic-line-select {
     width: 100%;
     max-width: none;
+  }
+
+  .line-evidence-heading {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .line-health-alert__summary {

@@ -3,7 +3,6 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   AlertTriangle,
-  CheckCircle2,
   Download,
   FileText,
   KeyRound,
@@ -17,6 +16,7 @@ import { tlsCAPath } from '../api/contract'
 import type { TLSSettings } from '../api/types'
 import { ApiError } from '../api/types'
 import { requestConfirmation } from '../state/confirmation'
+import { showError, showSuccess } from '../state/feedback'
 
 const MAX_PEM_BYTES = 1024 * 1024
 const PEM_ACCEPT =
@@ -28,7 +28,6 @@ const loading = ref(true)
 const loadError = ref('')
 const saving = ref(false)
 const operationError = ref('')
-const connectionNotice = ref('')
 
 const certificateFile = ref<File | null>(null)
 const privateKeyFile = ref<File | null>(null)
@@ -169,10 +168,10 @@ async function installUserCertificate(): Promise<void> {
       private_key_pem: privateKeyPEM
     })
     clearSelectedFiles()
-    connectionNotice.value =
-      t('tls.savedNotice')
+    showSuccess(t('tls.savedNotice'))
   } catch (error) {
     operationError.value = errorMessage(error, t('tls.installFailed'))
+    showError(operationError.value)
   } finally {
     saving.value = false
   }
@@ -191,10 +190,10 @@ async function useAutomaticCertificate(): Promise<void> {
   operationError.value = ''
   try {
     settings.value = await gateway.updateTLSSettings({ operation: 'use_automatic' })
-    connectionNotice.value =
-      t('tls.savedNotice')
+    showSuccess(t('tls.savedNotice'))
   } catch (error) {
     operationError.value = errorMessage(error, t('tls.switchFailed'))
+    showError(operationError.value)
   } finally {
     saving.value = false
   }
@@ -387,10 +386,6 @@ onMounted(() => {
             <div class="tls-install__feedback">
               <p v-if="operationError" class="field-error" role="alert">
                 {{ operationError }}
-              </p>
-              <p v-else-if="connectionNotice" class="tls-connection-notice" role="status">
-                <CheckCircle2 :size="16" />
-                <span>{{ connectionNotice }}</span>
               </p>
             </div>
             <button class="primary-button" type="submit" :disabled="saving">

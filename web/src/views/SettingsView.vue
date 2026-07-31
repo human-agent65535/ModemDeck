@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   Activity,
   ArrowLeft,
+  ChartNoAxesCombined,
   ContactRound,
   Globe2,
   House,
@@ -227,6 +228,13 @@ function openDashboard(): void {
   })
 }
 
+function openTraffic(): void {
+  void router.push({
+    name: 'traffic',
+    query: { from: 'settings' }
+  })
+}
+
 async function logout(): Promise<void> {
   if (logoutPending.value) return
   logoutPending.value = true
@@ -265,6 +273,17 @@ onMounted(() => {
           <span class="list-item__content">
             <strong>{{ t('dashboard.mobileOverview') }}</strong>
             <small>{{ overviewSummary }}</small>
+          </span>
+        </button>
+        <button
+          class="list-item settings-overview-link settings-traffic-link"
+          type="button"
+          @click="openTraffic"
+        >
+          <span class="settings-icon"><ChartNoAxesCombined :size="19" /></span>
+          <span class="list-item__content">
+            <strong>{{ t('shell.traffic') }}</strong>
+            <small>{{ t('traffic.overview') }}</small>
           </span>
         </button>
         <button
@@ -344,7 +363,10 @@ onMounted(() => {
           <AudioSettingsForm />
         </div>
 
-        <div v-else-if="selectedSection === 'devices'" class="settings-content">
+        <div
+          v-else-if="selectedSection === 'devices'"
+          class="settings-content settings-content--master-detail"
+        >
           <DeviceConfigurationPanel />
         </div>
 

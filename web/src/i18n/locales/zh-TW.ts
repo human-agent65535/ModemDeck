@@ -760,7 +760,6 @@ export default {
     syncPending: '代理配置等待同步',
     deleteProxyTitle: '刪除 {protocol} 代理？',
     deleteProxyMessage: '代理將立即停止並從配置中移除。',
-    updatedAt: '更新於 {time}',
     loading: '正在載入流量',
     forbidden: '無權檢視流量',
     loadFailed: '無法載入流量',

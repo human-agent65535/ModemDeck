@@ -1486,6 +1486,16 @@ onBeforeUnmount(() => {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .dashboard-workspace > :deep(.workspace) {
+    grid-area: 1 / 1;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .dashboard-activity-pane > .pane-header {
+    display: none;
+  }
+
   .dashboard-detail-scroll {
     padding: 16px 16px 24px;
   }

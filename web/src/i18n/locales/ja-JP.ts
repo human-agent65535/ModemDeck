@@ -755,7 +755,6 @@ export default {
     "syncPending": "プロキシ構成は同期を待機しています",
     "deleteProxyTitle": "{protocol} プロキシを削除しますか?",
     "deleteProxyMessage": "プロキシはただちに停止し、構成から削除されます。",
-    "updatedAt": "{time} に更新されました",
     "loading": "トラフィックの読み込み中",
     "forbidden": "通信量データにアクセスできません",
     "loadFailed": "トラフィックを読み込めません",

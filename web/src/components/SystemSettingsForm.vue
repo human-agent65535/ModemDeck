@@ -1,19 +1,24 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Check, ChevronDown, Globe2, LoaderCircle } from '@lucide/vue'
+import { ChevronDown, Globe2, LoaderCircle } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import type { SystemLanguage, SystemSettings } from '../api/types'
 import { gateway } from '../api/client'
+import { useSettingsMutation } from '../composables/useSettingsMutation'
 import { setSystemLanguage, systemLanguage } from '../i18n'
 import SettingsPreferenceRow from './settings/SettingsPreferenceRow.vue'
+import SettingsSaveStatus from './settings/SettingsSaveStatus.vue'
 
 const { t } = useI18n()
 const settings = ref<SystemSettings>()
 const selected = ref<SystemLanguage>(systemLanguage())
 const loading = ref(true)
-const saving = ref(false)
-const error = ref('')
-const saved = ref(false)
+const loadError = ref('')
+const saveMutation = useSettingsMutation({
+  errorMessage: cause =>
+    cause instanceof Error ? cause.message : t('settings.languageSaveFailed')
+})
+const saving = saveMutation.saving
 
 const options = computed<Array<{
   value: SystemLanguage
@@ -77,14 +82,15 @@ const selectedOption = computed(
 
 async function load(): Promise<void> {
   loading.value = true
-  error.value = ''
+  loadError.value = ''
   try {
     const loaded = await gateway.getSystemSettings()
     settings.value = loaded
     selected.value = loaded.language
     setSystemLanguage(loaded.language)
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : t('settings.systemLoadFailed')
+    loadError.value =
+      cause instanceof Error ? cause.message : t('settings.systemLoadFailed')
   } finally {
     loading.value = false
   }
@@ -96,24 +102,21 @@ async function selectLanguage(language: SystemLanguage): Promise<void> {
   const previous = selected.value
   selected.value = language
   setSystemLanguage(language)
-  saving.value = true
-  saved.value = false
-  error.value = ''
-  try {
-    const updated = await gateway.updateSystemSettings({
-      language,
-      expected_revision: settings.value.revision
-    })
+  const payload = {
+    language,
+    expected_revision: settings.value.revision
+  }
+  const result = await saveMutation.run(() =>
+    gateway.updateSystemSettings(payload)
+  )
+  if (result.ok) {
+    const updated = result.value
     settings.value = updated
     selected.value = updated.language
     setSystemLanguage(updated.language)
-    saved.value = true
-  } catch (cause) {
+  } else {
     selected.value = previous
     setSystemLanguage(previous)
-    error.value = cause instanceof Error ? cause.message : t('settings.languageSaveFailed')
-  } finally {
-    saving.value = false
   }
 }
 
@@ -138,34 +141,35 @@ onMounted(() => {
       <Globe2 :size="20" />
     </template>
     <template #control>
-        <div v-if="loading" class="system-settings__state" role="status">
-          <LoaderCircle class="spin" :size="18" />
-          {{ t('settings.loadingSystem') }}
-        </div>
-        <label v-else class="system-language-select">
-          <span class="sr-only">{{ t('settings.systemLanguage') }}</span>
-          <select
-            :value="selected"
-            :disabled="saving || !settings"
-            @change="onLanguageChange"
-          >
-            <option v-for="option in options" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </option>
-          </select>
-          <LoaderCircle v-if="saving" class="spin" :size="18" aria-hidden="true" />
-          <ChevronDown v-else :size="18" aria-hidden="true" />
-        </label>
+      <div v-if="loading" class="system-settings__state" role="status">
+        <LoaderCircle class="spin" :size="18" />
+        {{ t('settings.loadingSystem') }}
+      </div>
+      <label v-else class="system-language-select">
+        <span class="sr-only">{{ t('settings.systemLanguage') }}</span>
+        <select
+          :value="selected"
+          :disabled="saving || !settings"
+          @change="onLanguageChange"
+        >
+          <option v-for="option in options" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select>
+        <ChevronDown :size="18" aria-hidden="true" />
+      </label>
+      <SettingsSaveStatus
+        :status="saveMutation.status.value"
+        :error="saveMutation.error.value"
+        compact
+      />
     </template>
-    <template v-if="error || saved" #feedback>
-      <p v-if="error" class="system-settings__feedback is-error" role="alert">
-        {{ error }}
+    <template v-if="loadError || saveMutation.error.value" #feedback>
+      <p class="system-settings__feedback is-error" role="alert">
+        {{ loadError || saveMutation.error.value }}
         <button v-if="!settings" type="button" @click="load">
           {{ t('common.retry') }}
         </button>
-      </p>
-      <p v-else class="system-settings__feedback" role="status">
-        <Check :size="15" /> {{ t('settings.languageSaved') }}
       </p>
     </template>
   </SettingsPreferenceRow>

@@ -24,7 +24,6 @@ import {
   type ProxyDraft
 } from '../state/network'
 import { bootstrapResource, lineLabel, loadBootstrap } from '../state/workspace'
-import { resolvedLocale } from '../i18n'
 
 const { t } = useI18n()
 const selectedLineID = ref('all')
@@ -200,16 +199,6 @@ async function deleteProxy(proxy: ProxyInstance): Promise<void> {
   await removeProxy(proxy)
 }
 
-function observedAt(): string {
-  if (!snapshot.value?.observed_at) return ''
-  const date = new Date(snapshot.value.observed_at)
-  if (!Number.isFinite(date.getTime())) return ''
-  return new Intl.DateTimeFormat(resolvedLocale(), {
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(date)
-}
-
 watch(lines, current => {
   if (
     selectedLineID.value !== 'all' &&
@@ -227,12 +216,7 @@ onMounted(() => {
 <template>
   <section class="traffic-page">
     <header class="traffic-page__header">
-      <div>
-        <h1>{{ t('shell.traffic') }}</h1>
-        <span v-if="observedAt()">
-          {{ t('traffic.updatedAt', { time: observedAt() }) }}
-        </span>
-      </div>
+      <h1>{{ t('shell.traffic') }}</h1>
     </header>
 
     <StatePanel
@@ -407,19 +391,8 @@ onMounted(() => {
   border-bottom: 1px solid var(--border);
 }
 
-.traffic-page__header > div {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
 .traffic-page__header h1 {
   font-size: 21px;
-}
-
-.traffic-page__header span {
-  color: var(--faint);
-  font-size: 11px;
 }
 
 .traffic-page > :deep(.state-panel) {
@@ -595,9 +568,7 @@ onMounted(() => {
 
 @media (max-width: 600px) {
   .traffic-page__header {
-    min-height: 56px;
-    flex-basis: 56px;
-    padding: 0 16px;
+    display: none;
   }
 
   .traffic-page__content {

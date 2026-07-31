@@ -1,18 +1,24 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Check, Circle, LoaderCircle } from '@lucide/vue'
+import { Circle, LoaderCircle } from '@lucide/vue'
+import { useSettingsMutation } from '../composables/useSettingsMutation'
 import {
   loadRecordingSettings,
   recordingSettingsState,
   updateDefaultRecording
 } from '../state/recording'
 import SettingsPreferenceRow from './settings/SettingsPreferenceRow.vue'
+import SettingsSaveStatus from './settings/SettingsSaveStatus.vue'
 
 const { t } = useI18n()
 const pendingEnabled = ref(false)
-const saved = ref(false)
-let savedTimer: ReturnType<typeof globalThis.setTimeout> | undefined
+const saveMutation = useSettingsMutation({
+  errorMessage: cause =>
+    cause instanceof Error
+      ? cause.message
+      : recordingSettingsState.error || t('runtime.recordingSettingsSaveFailed')
+})
 const displayedEnabled = computed(() =>
   recordingSettingsState.saving
     ? pendingEnabled.value
@@ -21,24 +27,24 @@ const displayedEnabled = computed(() =>
 
 async function changeDefault(event: Event): Promise<void> {
   pendingEnabled.value = (event.target as HTMLInputElement).checked
-  saved.value = false
-  const updated = await updateDefaultRecording(pendingEnabled.value)
-  if (!updated) return
-  saved.value = true
-  if (savedTimer) globalThis.clearTimeout(savedTimer)
-  savedTimer = globalThis.setTimeout(() => {
-    saved.value = false
-    savedTimer = undefined
-  }, 2200)
+  const result = await saveMutation.run(async () => {
+    const updated = await updateDefaultRecording(pendingEnabled.value)
+    if (!updated) {
+      throw new Error(
+        recordingSettingsState.error || t('runtime.recordingSettingsSaveFailed')
+      )
+    }
+    return updated
+  })
+  if (!result.ok) {
+    pendingEnabled.value = Boolean(recordingSettingsState.data?.default_enabled)
+  }
 }
 
 onMounted(() => {
   void loadRecordingSettings()
 })
 
-onBeforeUnmount(() => {
-  if (savedTimer) globalThis.clearTimeout(savedTimer)
-})
 </script>
 
 <template>
@@ -87,20 +93,10 @@ onBeforeUnmount(() => {
         <span class="recording-settings__value">
           {{ displayedEnabled ? t('recordingSettings.enabled') : t('recordingSettings.disabled') }}
         </span>
-        <span
-          v-if="saved"
-          class="recording-settings__saved"
-          role="status"
-          :title="t('common.saved')"
-        >
-          <Check :size="15" aria-hidden="true" />
-          <span class="sr-only">{{ t('common.saved') }}</span>
-        </span>
-        <LoaderCircle
-          v-if="recordingSettingsState.saving"
-          class="spin"
-          :size="17"
-          aria-hidden="true"
+        <SettingsSaveStatus
+          :status="saveMutation.status.value"
+          :error="saveMutation.error.value"
+          compact
         />
         <input
           type="checkbox"
@@ -112,12 +108,9 @@ onBeforeUnmount(() => {
         />
       </label>
     </template>
-    <template
-      v-if="recordingSettingsState.error && recordingSettingsState.status === 'ready'"
-      #feedback
-    >
+    <template v-if="saveMutation.error.value" #feedback>
       <p class="recording-settings__error" role="alert">
-        {{ recordingSettingsState.error }}
+        {{ saveMutation.error.value }}
       </p>
     </template>
   </SettingsPreferenceRow>
@@ -154,16 +147,6 @@ onBeforeUnmount(() => {
   color: var(--muted);
   font-size: 11px;
   font-weight: 650;
-}
-
-.recording-settings__saved {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  color: #fff;
-  background: var(--success);
-  border-radius: 50%;
 }
 
 .recording-settings__control input {

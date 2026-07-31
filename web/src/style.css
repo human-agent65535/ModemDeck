@@ -2499,20 +2499,6 @@ dd {
   margin: 0;
 }
 
-.tls-connection-notice {
-  display: flex;
-  align-items: flex-start;
-  gap: 7px;
-  color: var(--accent-strong);
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-.tls-connection-notice svg {
-  flex: 0 0 auto;
-  margin-top: 1px;
-}
-
 .tls-install__actions .primary-button {
   flex: 0 0 auto;
 }
@@ -2978,6 +2964,16 @@ dd {
     bottom: var(--mobile-nav-height);
   }
 
+  .route-view-enter-active,
+  .route-view-leave-active {
+    transition: opacity var(--motion-base) var(--ease-standard);
+  }
+
+  .route-view-enter-from,
+  .route-view-leave-to {
+    transform: none;
+  }
+
   .workspace {
     position: relative;
     display: grid;
@@ -3048,7 +3044,7 @@ dd {
     left: 0;
     display: grid;
     height: var(--mobile-nav-height);
-    grid-template-columns: repeat(2, minmax(0, 1fr)) 62px repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr)) 62px repeat(3, minmax(0, 1fr));
     grid-template-rows: 100%;
     padding-bottom: env(safe-area-inset-bottom);
     background: rgb(255 255 255 / 96%);
@@ -3066,6 +3062,10 @@ dd {
     font-size: 10px;
     line-height: 1;
     background: transparent;
+  }
+
+  .mobile-nav .mobile-nav__more {
+    display: none;
   }
 
   .mobile-nav__label {
@@ -3337,6 +3337,20 @@ dd {
   }
 }
 
+@media (max-width: 379px) {
+  .mobile-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) 62px repeat(2, minmax(0, 1fr));
+  }
+
+  .mobile-nav .mobile-nav__overflow {
+    display: none;
+  }
+
+  .mobile-nav .mobile-nav__more {
+    display: grid;
+  }
+}
+
 @media (max-width: 560px) {
   .login-page {
     min-height: 420px;
@@ -3532,7 +3546,7 @@ dd {
   }
 
   .telegram-unit-editor {
-    padding: 12px 0 0;
+    padding: 12px 16px 0;
   }
 
   .settings-form-actions {
@@ -3549,10 +3563,8 @@ dd {
   }
 
   .status-label {
-    max-width: 105px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    max-width: none;
+    white-space: normal;
   }
 }
 

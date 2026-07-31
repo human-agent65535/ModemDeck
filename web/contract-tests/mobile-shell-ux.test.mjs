@@ -26,11 +26,14 @@ test('mobile shell uses page context and a dedicated central dial action', async
     /<span class="mobile-nav__label">\{\{ t\('shell\.mobileCall'\) \}\}<\/span>/
   )
   assert.match(shell, /const mobileSecondaryNav = computed/)
-  assert.match(shell, /name: 'settings',[\s\S]*params: \{ section: settingsLanding\.value \}/)
+  assert.match(
+    shell,
+    /const mobileSettingsNavItem = computed\(\(\) => \(\{[\s\S]*name: 'settings',[\s\S]*to: \{ name: 'settings' \}/
+  )
   assert.match(shell, /ref="mobileMoreTrigger"[\s\S]*:aria-expanded="mobileMoreOpen"/)
 })
 
-test('mobile navigation keeps five labeled actions and moves secondary routes into More', async () => {
+test('mobile navigation exposes routes that fit and falls back to More on narrow phones', async () => {
   const shell = await source('../src/components/AppShell.vue')
   const styles = await source('../src/style.css')
   const english = await source('../src/i18n/locales/en-US.ts')
@@ -39,9 +42,10 @@ test('mobile navigation keeps five labeled actions and moves secondary routes in
   assert.match(shell, /:aria-label="item\.label"/)
   assert.match(
     shell,
-    /primaryNav\.value\.filter\(item => \['dashboard', 'messages'\]\.includes\(item\.name\)\)/
+    /\['dashboard', 'contacts', 'messages'\]\.includes\(item\.name\)/
   )
-  assert.match(shell, /primaryNav\.value\.filter\(item => item\.name === 'calls'\)/)
+  assert.match(shell, /\['calls', 'recordings'\]\.includes\(item\.name\)/)
+  assert.match(shell, /const mobileSettingsNavItem = computed/)
   assert.match(shell, /v-for="item in mobileSecondaryNav"/)
   assert.match(
     styles,
@@ -49,8 +53,14 @@ test('mobile navigation keeps five labeled actions and moves secondary routes in
   )
   assert.match(
     styles,
-    /\.mobile-nav \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) 62px repeat\(2, minmax\(0, 1fr\)\);[\s\S]*?grid-template-rows: 100%;/
+    /\.mobile-nav \{[\s\S]*?grid-template-columns: repeat\(3, minmax\(0, 1fr\)\) 62px repeat\(3, minmax\(0, 1fr\)\);[\s\S]*?grid-template-rows: 100%;/
   )
+  assert.match(
+    styles,
+    /@media \(max-width: 379px\) \{[\s\S]*?\.mobile-nav \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) 62px repeat\(2, minmax\(0, 1fr\)\);/
+  )
+  assert.match(styles, /\.mobile-nav \.mobile-nav__overflow \{\s*display: none;/)
+  assert.match(styles, /\.mobile-nav \.mobile-nav__more \{\s*display: grid;/)
   assert.match(
     styles,
     /@media \(max-width: 700px\) \{[\s\S]*?\.mobile-nav__label \{\s*display: block;/
@@ -158,11 +168,14 @@ test('mobile settings starts with a live communication overview entry', async ()
   assert.match(settings, /\{\{ t\('dashboard\.mobileOverview'\) \}\}/)
   assert.match(settings, /\{\{ overviewSummary \}\}/)
   assert.match(settings, /query: \{ item: 'overview', from: 'settings' \}/)
+  assert.match(settings, /class="list-item settings-overview-link settings-traffic-link"/)
+  assert.match(settings, /name: 'traffic',[\s\S]*query: \{ from: 'settings' \}/)
   assert.match(dashboard, /if \(route\.query\.from === 'settings'\)/)
   assert.match(dashboard, /route\.query\.from === 'settings' \? t\('settings\.back'\)/)
   assert.match(dashboard, /router\.push\(\{ name: 'settings' \}\)/)
   assert.doesNotMatch(settings, /<ChevronRight/)
   assert.match(shell, /const mobileOverviewFromSettings = computed/)
+  assert.match(shell, /const mobileTrafficFromSettings = computed/)
   assert.match(shell, /v-if="mobileShellBackVisible"/)
   assert.match(shell, /@click="backToSettingsMenu"/)
   assert.match(

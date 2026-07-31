@@ -38,6 +38,8 @@ import {
   type RingtoneID,
   type SoundPreview
 } from '../state/browserSounds'
+import SettingsControlRow from './settings/SettingsControlRow.vue'
+import SettingsSection from './settings/SettingsSection.vue'
 
 const { t } = useI18n()
 const selectedRingtone = computed(
@@ -114,31 +116,29 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="audio-preferences">
-    <section class="audio-preferences__section" aria-labelledby="audio-devices-title">
-      <header class="audio-preferences__header">
-        <span class="audio-preferences__icon"><AudioLines :size="20" /></span>
-        <div>
-          <h3 id="audio-devices-title">{{ t('audio.devices') }}</h3>
-          <p>{{ t('audio.devicesDescription') }}</p>
-        </div>
-      </header>
+    <SettingsSection
+      :title="t('audio.devices')"
+      title-id="audio-devices-title"
+      :description="t('audio.devicesDescription')"
+      icon-tone="blue"
+    >
+      <template #icon><AudioLines :size="20" /></template>
       <AudioDeviceControls />
-    </section>
+    </SettingsSection>
 
-    <section class="audio-preferences__section" aria-labelledby="audio-levels-title">
-      <header class="audio-preferences__header">
-        <span class="audio-preferences__icon is-level"><Volume2 :size="20" /></span>
-        <div>
-          <h3 id="audio-levels-title">{{ t('audio.levels') }}</h3>
-          <p>{{ t('audio.levelsDescription') }}</p>
-        </div>
-      </header>
+    <SettingsSection
+      :title="t('audio.levels')"
+      title-id="audio-levels-title"
+      :description="t('audio.levelsDescription')"
+      icon-tone="warning"
+    >
+      <template #icon><Volume2 :size="20" /></template>
 
-      <label class="audio-preference-row">
-        <span class="audio-preference-row__identity">
-          <Mic :size="18" />
-          <strong>{{ t('audio.microphoneGain') }}</strong>
-        </span>
+      <SettingsControlRow
+        as="label"
+        :title="t('audio.microphoneGain')"
+      >
+        <template #icon><Mic :size="18" /></template>
         <span class="audio-level-control">
           <input
             type="range"
@@ -151,13 +151,10 @@ onBeforeUnmount(() => {
           />
           <output>{{ audioState.microphoneGain }}%</output>
         </span>
-      </label>
+      </SettingsControlRow>
 
-      <label class="audio-preference-row">
-        <span class="audio-preference-row__identity">
-          <PhoneCall :size="18" />
-          <strong>{{ t('audio.callVolume') }}</strong>
-        </span>
+      <SettingsControlRow as="label" :title="t('audio.callVolume')">
+        <template #icon><PhoneCall :size="18" /></template>
         <span class="audio-level-control">
           <input
             type="range"
@@ -170,13 +167,10 @@ onBeforeUnmount(() => {
           />
           <output>{{ audioState.callVolume }}%</output>
         </span>
-      </label>
+      </SettingsControlRow>
 
-      <label class="audio-preference-row">
-        <span class="audio-preference-row__identity">
-          <BellRing :size="18" />
-          <strong>{{ t('audio.ringAlertsVolume') }}</strong>
-        </span>
+      <SettingsControlRow as="label" :title="t('audio.ringAlertsVolume')">
+        <template #icon><BellRing :size="18" /></template>
         <span class="audio-level-control">
           <input
             type="range"
@@ -189,13 +183,13 @@ onBeforeUnmount(() => {
           />
           <output>{{ audioState.ringAlertsVolume }}%</output>
         </span>
-      </label>
+      </SettingsControlRow>
 
-      <label class="audio-preference-row">
-        <span class="audio-preference-row__identity">
-          <AudioLines :size="18" />
-          <strong>{{ t('audio.recordingPlaybackVolume') }}</strong>
-        </span>
+      <SettingsControlRow
+        as="label"
+        :title="t('audio.recordingPlaybackVolume')"
+      >
+        <template #icon><AudioLines :size="18" /></template>
         <span class="audio-level-control">
           <input
             type="range"
@@ -208,26 +202,21 @@ onBeforeUnmount(() => {
           />
           <output>{{ audioState.recordingPlaybackVolume }}%</output>
         </span>
-      </label>
-    </section>
+      </SettingsControlRow>
+    </SettingsSection>
 
-    <section class="audio-preferences__section" aria-labelledby="call-sounds-title">
-      <header class="audio-preferences__header">
-        <span class="audio-preferences__icon is-call"><BellRing :size="20" /></span>
-        <div>
-          <h3 id="call-sounds-title">{{ t('audio.callSounds') }}</h3>
-          <p>{{ t('audio.callSoundsDescription') }}</p>
-        </div>
-      </header>
+    <SettingsSection
+      :title="t('audio.callSounds')"
+      title-id="call-sounds-title"
+      :description="t('audio.callSoundsDescription')"
+    >
+      <template #icon><BellRing :size="20" /></template>
 
-      <div class="audio-preference-row">
-        <span class="audio-preference-row__identity">
-          <BellRing :size="18" />
-          <span>
-            <strong>{{ t('audio.incomingRingtone') }}</strong>
-            <small>{{ selectedRingtone }}</small>
-          </span>
-        </span>
+      <SettingsControlRow
+        :title="t('audio.incomingRingtone')"
+        :description="selectedRingtone"
+      >
+        <template #icon><BellRing :size="18" /></template>
         <span class="audio-preference-row__controls">
           <select
             :value="browserSoundState.ringtone"
@@ -274,16 +263,13 @@ onBeforeUnmount(() => {
             />
           </label>
         </span>
-      </div>
+      </SettingsControlRow>
 
-      <div class="audio-preference-row">
-        <span class="audio-preference-row__identity">
-          <PhoneOutgoing :size="18" />
-          <span>
-            <strong>{{ t('audio.waitingTone') }}</strong>
-            <small>{{ t('audio.outgoingCall') }}</small>
-          </span>
-        </span>
+      <SettingsControlRow
+        :title="t('audio.waitingTone')"
+        :description="t('audio.outgoingCall')"
+      >
+        <template #icon><PhoneOutgoing :size="18" /></template>
         <span class="audio-preference-row__controls">
           <button
             class="icon-button"
@@ -317,28 +303,22 @@ onBeforeUnmount(() => {
             />
           </label>
         </span>
-      </div>
-    </section>
+      </SettingsControlRow>
+    </SettingsSection>
 
-    <section class="audio-preferences__section" aria-labelledby="message-sounds-title">
-      <header class="audio-preferences__header">
-        <span class="audio-preferences__icon is-message">
-          <MessageSquareText :size="20" />
-        </span>
-        <div>
-          <h3 id="message-sounds-title">{{ t('audio.messageSounds') }}</h3>
-          <p>{{ t('audio.messageSoundsDescription') }}</p>
-        </div>
-      </header>
+    <SettingsSection
+      :title="t('audio.messageSounds')"
+      title-id="message-sounds-title"
+      :description="t('audio.messageSoundsDescription')"
+      icon-tone="warning"
+    >
+      <template #icon><MessageSquareText :size="20" /></template>
 
-      <div class="audio-preference-row">
-        <span class="audio-preference-row__identity">
-          <MessageSquareText :size="18" />
-          <span>
-            <strong>{{ t('audio.incomingMessage') }}</strong>
-            <small>{{ selectedIncomingMessage }}</small>
-          </span>
-        </span>
+      <SettingsControlRow
+        :title="t('audio.incomingMessage')"
+        :description="selectedIncomingMessage"
+      >
+        <template #icon><MessageSquareText :size="18" /></template>
         <span class="audio-preference-row__controls">
           <select
             :value="browserSoundState.incomingMessage"
@@ -385,16 +365,13 @@ onBeforeUnmount(() => {
             />
           </label>
         </span>
-      </div>
+      </SettingsControlRow>
 
-      <div class="audio-preference-row">
-        <span class="audio-preference-row__identity">
-          <Send :size="18" />
-          <span>
-            <strong>{{ t('audio.outgoingMessage') }}</strong>
-            <small>{{ selectedOutgoingMessage }}</small>
-          </span>
-        </span>
+      <SettingsControlRow
+        :title="t('audio.outgoingMessage')"
+        :description="selectedOutgoingMessage"
+      >
+        <template #icon><Send :size="18" /></template>
         <span class="audio-preference-row__controls">
           <select
             :value="browserSoundState.outgoingMessage"
@@ -441,12 +418,12 @@ onBeforeUnmount(() => {
             />
           </label>
         </span>
-      </div>
+      </SettingsControlRow>
 
       <p v-if="browserSoundState.error" class="audio-preferences__error" role="alert">
         {{ browserSoundState.error }}
       </p>
-    </section>
+    </SettingsSection>
   </div>
 </template>
 
@@ -456,100 +433,6 @@ onBeforeUnmount(() => {
   max-width: 760px;
   flex-direction: column;
   gap: 34px;
-}
-
-.audio-preferences__section {
-  min-width: 0;
-}
-
-.audio-preferences__header {
-  display: flex;
-  min-height: 58px;
-  align-items: center;
-  gap: 11px;
-  margin-bottom: 16px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-.audio-preferences__icon {
-  display: inline-grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  place-items: center;
-  color: var(--blue);
-  background: var(--blue-soft);
-  border-radius: 50%;
-}
-
-.audio-preferences__icon.is-call {
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-}
-
-.audio-preferences__icon.is-message {
-  color: #8a5700;
-  background: #fff4d6;
-}
-
-.audio-preferences__icon.is-level {
-  color: #725200;
-  background: #fff3c6;
-}
-
-.audio-preferences h3 {
-  margin: 0;
-  color: var(--text);
-  font-size: 14px;
-  text-transform: none;
-}
-
-.audio-preferences__header p {
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.audio-preference-row {
-  display: flex;
-  min-height: 68px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  border-bottom: 1px solid var(--border);
-}
-
-.audio-preference-row__identity {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 11px;
-}
-
-.audio-preference-row__identity > svg {
-  flex: 0 0 auto;
-  color: var(--muted);
-}
-
-.audio-preference-row__identity > span {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.audio-preference-row strong {
-  color: var(--text);
-  font-size: 13px;
-}
-
-.audio-preference-row small {
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .audio-preference-row__controls {
@@ -581,7 +464,7 @@ onBeforeUnmount(() => {
   text-align: right;
 }
 
-.audio-preference-row select {
+.audio-preference-row__controls select {
   width: min(230px, 30vw);
   min-height: 40px;
   padding: 7px 32px 7px 10px;
@@ -603,13 +486,6 @@ onBeforeUnmount(() => {
     gap: 28px;
   }
 
-  .audio-preference-row {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 10px;
-    padding: 13px 0;
-  }
-
   .audio-preference-row__controls {
     width: 100%;
     justify-content: flex-end;
@@ -619,7 +495,7 @@ onBeforeUnmount(() => {
     width: 100%;
   }
 
-  .audio-preference-row select {
+  .audio-preference-row__controls select {
     width: 100%;
     min-width: 0;
     flex: 1;

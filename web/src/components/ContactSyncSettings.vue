@@ -31,6 +31,8 @@ import {
   loadContacts,
   saveContact
 } from '../state/workspace'
+import { showSuccess } from '../state/feedback'
+import SettingsModuleCard from './settings/SettingsModuleCard.vue'
 
 const GOOGLE_CLIENT_STORAGE_KEY = 'modemdeck.contacts.googleClientId'
 const MAX_VCARD_BYTES = 5 * 1024 * 1024
@@ -67,7 +69,7 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback
 }
 
-function saveGoogleClientID(): boolean {
+function saveGoogleClientID(notify = false): boolean {
   googleError.value = ''
   googleNotice.value = ''
   if (!clientIDValid.value) {
@@ -75,7 +77,7 @@ function saveGoogleClientID(): boolean {
     return false
   }
   window.localStorage.setItem(GOOGLE_CLIENT_STORAGE_KEY, clientID.value.trim())
-  googleNotice.value = t('contactSync.googleClientIDSaved')
+  if (notify) showSuccess(t('contactSync.googleClientIDSaved'))
   return true
 }
 
@@ -236,27 +238,23 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="contact-sync-settings" aria-labelledby="contact-sync-title">
-    <header class="contact-sync-intro">
-      <h3 id="contact-sync-title">{{ t('contactSync.title') }}</h3>
-      <p>{{ t('contactSync.description') }}</p>
-    </header>
-
-    <article class="contact-sync-card">
-      <header class="contact-sync-card__header">
-        <span class="contact-sync-card__icon contact-sync-card__icon--google">
-          <Cloud :size="21" />
-        </span>
-        <div>
-          <h3>{{ t('contactSync.googleTitle') }}</h3>
-          <p>{{ t('contactSync.googleDescription') }}</p>
-        </div>
+  <section class="contact-sync-settings" :aria-label="t('contactSync.title')">
+    <SettingsModuleCard
+      :title="t('contactSync.googleTitle')"
+      title-id="contact-sync-google-title"
+      :description="t('contactSync.googleDescription')"
+      icon-tone="blue"
+    >
+      <template #icon>
+        <Cloud :size="21" />
+      </template>
+      <template #status>
         <span class="contact-sync-status" :class="{ 'is-connected': connected }">
           {{ connected ? t('contactSync.connected') : t('contactSync.notConnected') }}
         </span>
-      </header>
+      </template>
 
-      <div class="contact-sync-card__body">
+      <div class="contact-sync-module">
         <label class="field contact-sync-client">
           <span>{{ t('contactSync.googleClientID') }}</span>
           <div class="contact-sync-client__control">
@@ -274,7 +272,7 @@ onMounted(() => {
               class="secondary-button"
               type="button"
               :disabled="googleBusy || connected || !clientIDValid"
-              @click="saveGoogleClientID"
+              @click="saveGoogleClientID(true)"
             >
               <Save :size="15" />
               <span>{{ t('common.save') }}</span>
@@ -336,20 +334,19 @@ onMounted(() => {
           </button>
         </div>
       </div>
-    </article>
+    </SettingsModuleCard>
 
-    <article class="contact-sync-card">
-      <header class="contact-sync-card__header">
-        <span class="contact-sync-card__icon contact-sync-card__icon--apple">
-          <Download :size="21" />
-        </span>
-        <div>
-          <h3>{{ t('contactSync.appleTitle') }}</h3>
-          <p>{{ t('contactSync.appleDescription') }}</p>
-        </div>
-      </header>
+    <SettingsModuleCard
+      :title="t('contactSync.appleTitle')"
+      title-id="contact-sync-apple-title"
+      :description="t('contactSync.appleDescription')"
+      icon-tone="neutral"
+    >
+      <template #icon>
+        <Download :size="21" />
+      </template>
 
-      <div class="contact-sync-card__body">
+      <div class="contact-sync-module">
         <div class="contact-sync-direction">
           <strong>{{ t('contactSync.vcardFormat') }}</strong>
           <span>{{ t('contactSync.vcardCompatibility') }}</span>
@@ -391,7 +388,7 @@ onMounted(() => {
           />
         </div>
       </div>
-    </article>
+    </SettingsModuleCard>
   </section>
 </template>
 
@@ -402,66 +399,12 @@ onMounted(() => {
   gap: 18px;
 }
 
-.contact-sync-intro {
-  display: grid;
-  gap: 5px;
-}
-
-.contact-sync-intro h3,
-.contact-sync-card__header h3 {
-  margin: 0;
-  color: var(--text);
-  font-size: 16px;
-  text-transform: none;
-}
-
-.contact-sync-intro p,
-.contact-sync-card__header p,
 .contact-sync-help,
 .contact-sync-direction small {
   margin: 0;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.55;
-}
-
-.contact-sync-card {
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface);
-}
-
-.contact-sync-card__header {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 18px;
-  border-bottom: 1px solid var(--border);
-}
-
-.contact-sync-card__header > div {
-  display: grid;
-  gap: 3px;
-}
-
-.contact-sync-card__icon {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  place-items: center;
-  border-radius: 10px;
-}
-
-.contact-sync-card__icon--google {
-  color: #2458b8;
-  background: #edf3ff;
-}
-
-.contact-sync-card__icon--apple {
-  color: var(--text);
-  background: var(--surface-hover);
 }
 
 .contact-sync-status {
@@ -478,10 +421,9 @@ onMounted(() => {
   background: var(--accent-soft);
 }
 
-.contact-sync-card__body {
+.contact-sync-module {
   display: grid;
   gap: 15px;
-  padding: 18px;
 }
 
 .contact-sync-client {
@@ -567,18 +509,8 @@ onMounted(() => {
 }
 
 @media (max-width: 620px) {
-  .contact-sync-card__header {
-    grid-template-columns: auto minmax(0, 1fr);
-    padding: 14px;
-  }
-
   .contact-sync-status {
-    grid-column: 2;
-    justify-self: start;
-  }
-
-  .contact-sync-card__body {
-    padding: 14px;
+    margin-left: 51px;
   }
 
   .contact-sync-client__control,

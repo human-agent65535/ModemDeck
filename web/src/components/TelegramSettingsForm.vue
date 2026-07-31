@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Bell,
@@ -22,6 +22,7 @@ import {
 import type { LineSummary, TelegramUnit, UserAccount } from '../api/types'
 import { ApiError } from '../api/types'
 import { gateway } from '../api/client'
+import { useSettingsMutation } from '../composables/useSettingsMutation'
 import { showError, showSuccess } from '../state/feedback'
 import { sessionState } from '../state/session'
 import {
@@ -38,6 +39,7 @@ import { lineTone } from '../utils/lineTone'
 import LineTag from './LineTag.vue'
 import StatePanel from './StatePanel.vue'
 import SettingsMasterDetail from './settings/SettingsMasterDetail.vue'
+import SettingsSaveStatus from './settings/SettingsSaveStatus.vue'
 
 type TelegramScopeOption = {
   id: string
@@ -64,13 +66,18 @@ const saving = ref(false)
 const deleting = ref(false)
 const deleteConfirm = ref(false)
 const saveError = ref('')
-const saved = ref(false)
-const scopeSaving = ref(false)
-const scopeSaved = ref(false)
-const scopeSaveError = ref('')
 const users = ref<UserAccount[]>([])
-let scopeSavedTimer: ReturnType<typeof globalThis.setTimeout> | undefined
 let suppressSelectedUnitApply = false
+const scopeMutation = useSettingsMutation({
+  errorMessage: error =>
+    error instanceof ApiError && error.status === 403
+      ? t('telegram.updateForbidden')
+      : error instanceof Error
+        ? error.message
+        : t('telegram.saveFailed')
+})
+const scopeSaving = scopeMutation.saving
+const scopeSaveError = scopeMutation.error
 const isAdmin = computed(() => sessionState.role === 'admin')
 const currentSessionUser = computed<UserAccount>(() => ({
   id: sessionState.userID,
@@ -219,13 +226,7 @@ function applyUnit(unit?: TelegramUnit): void {
   missedCalls.value = unit?.missed_calls ?? true
   botToken.value = ''
   saveError.value = ''
-  saved.value = false
-  scopeSaved.value = false
-  scopeSaveError.value = ''
-  if (scopeSavedTimer) {
-    globalThis.clearTimeout(scopeSavedTimer)
-    scopeSavedTimer = undefined
-  }
+  scopeMutation.reset()
   deleteConfirm.value = false
 }
 
@@ -262,7 +263,6 @@ watch(
     botToken
   ],
   () => {
-    saved.value = false
     saveError.value = ''
     deleteConfirm.value = false
   },
@@ -288,11 +288,8 @@ async function persistLineScopes(
     return
   }
 
-  scopeSaving.value = true
-  scopeSaved.value = false
-  scopeSaveError.value = ''
   suppressSelectedUnitApply = true
-  try {
+  const result = await scopeMutation.run(async () => {
     const unit = await saveTelegramUnit(
       {
         display_name: current.display_name,
@@ -310,27 +307,13 @@ async function persistLineScopes(
     allLines.value = unit.all_assigned_lines
     lineScopes.value = unit.all_assigned_lines ? [] : [...unit.line_scopes]
     await nextTick()
-    scopeSaved.value = true
-    if (scopeSavedTimer) globalThis.clearTimeout(scopeSavedTimer)
-    scopeSavedTimer = globalThis.setTimeout(() => {
-      scopeSaved.value = false
-      scopeSavedTimer = undefined
-    }, 2200)
-    showSuccess(t('telegram.saved'))
-  } catch (error) {
+    return unit
+  })
+  if (!result.ok) {
     allLines.value = previousAllLines
     lineScopes.value = previousScopes
-    scopeSaveError.value =
-      error instanceof ApiError && error.status === 403
-        ? t('telegram.updateForbidden')
-        : error instanceof Error
-          ? error.message
-          : t('telegram.saveFailed')
-    showError(scopeSaveError.value)
-  } finally {
-    suppressSelectedUnitApply = false
-    scopeSaving.value = false
   }
+  suppressSelectedUnitApply = false
 }
 
 function selectAllLines(): void {
@@ -412,7 +395,6 @@ async function submit(): Promise<void> {
   if (saving.value || deleting.value || scopeSaving.value || validationError.value) return
   saving.value = true
   saveError.value = ''
-  saved.value = false
   try {
     const current = selectedUnit.value
     const unit = await saveTelegramUnit(
@@ -435,7 +417,6 @@ async function submit(): Promise<void> {
     selectedID.value = unit.id
     applyUnit(unit)
     await nextTick()
-    saved.value = true
     showSuccess(t('telegram.saved'))
   } catch (error) {
     saveError.value =
@@ -444,6 +425,7 @@ async function submit(): Promise<void> {
         : error instanceof Error
           ? error.message
           : t('telegram.saveFailed')
+    showError(saveError.value)
   } finally {
     saving.value = false
   }
@@ -488,9 +470,6 @@ onMounted(() => {
   })
 })
 
-onBeforeUnmount(() => {
-  if (scopeSavedTimer) globalThis.clearTimeout(scopeSavedTimer)
-})
 </script>
 
 <template>
@@ -745,16 +724,10 @@ onBeforeUnmount(() => {
             <h4>
               {{ t('telegram.userLines') }}
             </h4>
-            <span
-              v-if="scopeSaving || scopeSaved"
-              class="telegram-scope-save-state"
-              role="status"
-              aria-live="polite"
-            >
-              <LoaderCircle v-if="scopeSaving" class="spin" :size="14" />
-              <Check v-else :size="14" />
-              {{ scopeSaving ? t('common.saving') : t('common.saved') }}
-            </span>
+            <SettingsSaveStatus
+              :status="scopeMutation.status.value"
+              :error="scopeMutation.error.value"
+            />
           </header>
           <div class="telegram-scope-options">
             <label class="telegram-scope-option" :class="{ 'is-selected': allLines }">
@@ -845,14 +818,10 @@ onBeforeUnmount(() => {
           <div class="settings-form-feedback">
             <p v-if="validationError" class="field-error" role="alert">{{ validationError }}</p>
             <p v-else-if="saveError" class="field-error" role="alert">{{ saveError }}</p>
-            <span v-else-if="saved" class="save-status" role="status">
-              <Check :size="15" />{{ t('telegram.saved') }}
-            </span>
           </div>
 
           <button
             class="primary-button"
-            :class="{ 'is-saved': saved }"
             type="submit"
             :disabled="
               saving ||
@@ -863,9 +832,8 @@ onBeforeUnmount(() => {
             "
           >
             <LoaderCircle v-if="saving" class="spin" :size="17" />
-            <Check v-else-if="saved" :size="17" />
             <Save v-else :size="17" />
-            <span>{{ saved ? t('common.saved') : t('common.save') }}</span>
+            <span>{{ t('common.save') }}</span>
           </button>
         </footer>
       </form>
@@ -1406,7 +1374,7 @@ onBeforeUnmount(() => {
   }
 
   .telegram-unit-editor {
-    padding: 12px 0 0;
+    padding: 12px 16px 0;
   }
 
   .telegram-form-heading {
@@ -1437,7 +1405,7 @@ onBeforeUnmount(() => {
   }
 
   .telegram-unit-editor {
-    padding: 12px 0 0;
+    padding: 12px 16px 0;
   }
 
   .telegram-bot-identity .settings-form-grid,

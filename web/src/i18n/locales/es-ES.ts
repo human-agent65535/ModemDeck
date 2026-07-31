@@ -755,7 +755,6 @@ export default {
     "syncPending": "La configuración del proxy está esperando para sincronizarse",
     "deleteProxyTitle": "¿Eliminar el proxy {protocol}?",
     "deleteProxyMessage": "El proxy se detendrá inmediatamente y se eliminará de la configuración.",
-    "updatedAt": "Actualizado en {time}",
     "loading": "Cargando trafico",
     "forbidden": "No tienes acceso a los datos de tráfico.",
     "loadFailed": "No se puede cargar el tráfico",

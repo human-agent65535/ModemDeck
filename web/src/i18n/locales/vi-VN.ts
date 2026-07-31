@@ -755,7 +755,6 @@ export default {
     "syncPending": "Cấu hình proxy đang chờ đồng bộ hóa",
     "deleteProxyTitle": "Xóa proxy {protocol}?",
     "deleteProxyMessage": "Proxy sẽ dừng ngay lập tức và bị xóa khỏi cấu hình.",
-    "updatedAt": "Đã cập nhật lúc {time}",
     "loading": "Đang tải lưu lượng truy cập",
     "forbidden": "Bạn không có quyền truy cập vào dữ liệu lưu lượng dữ liệu",
     "loadFailed": "Không thể tải lưu lượng truy cập",

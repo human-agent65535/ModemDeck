@@ -777,7 +777,6 @@ export default {
     syncPending: 'Proxy configuration is waiting to sync',
     deleteProxyTitle: 'Delete {protocol} proxy?',
     deleteProxyMessage: 'The proxy will stop immediately and be removed from configuration.',
-    updatedAt: 'Updated at {time}',
     loading: 'Loading traffic',
     forbidden: 'You do not have access to traffic data',
     loadFailed: 'Unable to load traffic',

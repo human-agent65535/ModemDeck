@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   AlertCircle,
+  ArrowLeft,
   AudioLines,
   Cable,
   CardSim,
@@ -28,6 +29,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { gateway } from '../api/client'
 import { ApiError } from '../api/types'
+import { useSettingsMutation } from '../composables/useSettingsMutation'
 import type {
   ConnectionProfile,
   DeviceFeatureCapability,
@@ -43,6 +45,7 @@ import type {
 } from '../api/types'
 import { callState } from '../state/call'
 import { requestConfirmation } from '../state/confirmation'
+import { showError, showSuccess } from '../state/feedback'
 import {
   connectData,
   deviceConfigurationResource,
@@ -57,7 +60,7 @@ import {
   setRadioEnabled,
   setVoLTEPolicy
 } from '../state/deviceConfiguration'
-import { loadNetwork, networkState } from '../state/network'
+import { loadNetwork } from '../state/network'
 import { sessionState } from '../state/session'
 import {
   activateNetworkSelection,
@@ -85,10 +88,11 @@ import {
 import { operatorFacts } from '../utils/operatorNetwork'
 import { LINE_TONE_PRESETS, lineTonePreset } from '../utils/lineTone'
 import LineTag from './LineTag.vue'
-import ModuleCard from './ModuleCard.vue'
 import SensitiveValue from './SensitiveValue.vue'
 import SignalBars from './SignalBars.vue'
 import StatePanel from './StatePanel.vue'
+import SettingsMasterDetail from './settings/SettingsMasterDetail.vue'
+import SettingsSaveStatus from './settings/SettingsSaveStatus.vue'
 
 type DeviceTab = 'overview' | 'network' | 'sim' | 'sms' | 'voice' | 'ussd'
 type AsyncStatus = 'idle' | 'loading' | 'ready' | 'error'
@@ -104,6 +108,7 @@ const tabs = computed<Array<{ id: DeviceTab; label: string; icon: typeof RadioTo
 ])
 
 const activeTab = ref<DeviceTab>('overview')
+const deviceDetailOpen = ref(false)
 const apn = ref('')
 const ipFamily = ref<IPFamily>('ipv4v6')
 const incomingPolicyDraft = ref<IncomingCallPolicy>('follow_global')
@@ -152,7 +157,6 @@ const ussdPending = ref(false)
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const moduleLines = computed(() => displayModuleLines(lines.value, devicesResource.data))
-const networkSnapshot = computed(() => networkState.snapshot)
 const defaultLineID = computed(
   () => bootstrapResource.data?.line_settings.default_line_id || ''
 )
@@ -200,6 +204,13 @@ const currentSIMIdentity = computed(() => {
 const selectedResource = computed(() =>
   selectedLineID.value ? deviceConfigurationResource(selectedLineID.value) : null
 )
+const activeDeviceMutation = ref('')
+const deviceMutation = useSettingsMutation({
+  errorMessage: cause =>
+    cause instanceof Error
+      ? cause.message
+      : selectedResource.value?.error || t('runtime.requestFailed')
+})
 const selectedNetworkSelection = computed(() =>
   selectedLineID.value ? networkSelectionResource(selectedLineID.value) : null
 )
@@ -227,6 +238,21 @@ const incomingCalls = computed(() => configuration.value?.incoming_calls)
 const messaging = computed(() => configuration.value?.messaging)
 const savingOperation = computed(() => selectedResource.value?.savingOperation || '')
 const hardwareBusy = computed(() => savingOperation.value !== '')
+
+async function runDeviceMutation(
+  key: string,
+  operation: () => Promise<boolean>
+): Promise<boolean> {
+  activeDeviceMutation.value = key
+  const result = await deviceMutation.run(async () => {
+    const saved = await operation()
+    if (!saved) {
+      throw new Error(selectedResource.value?.error || t('runtime.requestFailed'))
+    }
+    return true
+  })
+  return result.ok
+}
 const connectedDataConnection = computed(() =>
   hardware.value?.data_connections.find(connection => connection.connected)
 )
@@ -391,8 +417,28 @@ const selectedVoiceModeLabel = computed(() => {
   return selectedLineVoLTEEnabled.value ? t('device.voltePreferred') : 'GSM'
 })
 
-function networkRuntime(line: LineSummary) {
-  return networkSnapshot.value?.lines.find(runtime => runtime.line_id === lineKey(line))
+function moduleDisplayName(line: LineSummary): string {
+  const device = deviceFor(line)
+  return (
+    device?.name.trim() ||
+    line.device_name.trim() ||
+    device?.model.trim() ||
+    line.model?.trim() ||
+    line.phone_number.trim() ||
+    lineKey(line)
+  )
+}
+
+function moduleIsPresent(line: LineSummary): boolean {
+  return deviceFor(line)?.present !== false && !line.module_only
+}
+
+function moduleIsDeletable(line: LineSummary): boolean {
+  return Boolean(
+    sessionState.role === 'admin' &&
+      line.module_only &&
+      deviceFor(line)?.present === false
+  )
 }
 const flightModeWritable = computed(
   () =>
@@ -584,7 +630,7 @@ watch(
     const next =
       currentLines.find(line => line.id === currentDefaultLineID) ||
       currentLines.find(line => line.id)
-    if (next?.id) selectLine(next)
+    if (next?.id) selectLine(next, false)
   },
   { immediate: true }
 )
@@ -675,8 +721,9 @@ watch(
 
 watch(activeTab, tab => void loadActiveLineService(tab))
 
-function selectLine(line: LineSummary): void {
+function selectLine(line: LineSummary, openDetail = true): void {
   if (!line.id || line.module_only) return
+  if (openDetail) deviceDetailOpen.value = true
   if (line.id === selectedLineID.value) {
     const resource = deviceConfigurationResource(line.id)
     if (resource.status !== 'ready') void loadDeviceConfiguration(line.id, true)
@@ -686,6 +733,10 @@ function selectLine(line: LineSummary): void {
   activateNetworkSelection(line.id)
   selectDeviceConfiguration(line.id)
   void loadActiveLineService()
+}
+
+function backToModules(): void {
+  deviceDetailOpen.value = false
 }
 
 function resetLineServices(): void {
@@ -885,9 +936,11 @@ async function saveModuleName(): Promise<void> {
   try {
     await renameDevice(imei, { name })
     moduleNameEditing.value = false
+    showSuccess(t('common.saved'))
   } catch (error) {
     moduleNameError.value =
       error instanceof Error ? error.message : t('device.moduleNameSaveFailed')
+    showError(moduleNameError.value)
   } finally {
     moduleNamePending.value = false
   }
@@ -909,9 +962,11 @@ async function saveLineLabel(): Promise<void> {
       line_label: value,
       line_color: lineColorDraft.value
     })
+    showSuccess(t('common.saved'))
   } catch (error) {
     lineLabelError.value =
       error instanceof Error ? error.message : t('device.lineLabelSaveFailed')
+    showError(lineLabelError.value)
   } finally {
     lineLabelPending.value = false
   }
@@ -936,13 +991,17 @@ async function changeRadio(event: Event): Promise<void> {
     control.checked = Boolean(hardware.value?.flight_mode)
     return
   }
-  const saved = await setRadioEnabled(selectedLineID.value, !flightModeEnabled)
+  const saved = await runDeviceMutation('radio', () =>
+    setRadioEnabled(selectedLineID.value, !flightModeEnabled)
+  )
   if (!saved) control.checked = Boolean(hardware.value?.flight_mode)
 }
 
 async function applyDataConnection(): Promise<boolean> {
   if (!selectedLineID.value || !dataConnectionWritable.value) return false
-  return connectData(selectedLineID.value, apn.value, ipFamily.value)
+  return runDeviceMutation('data', () =>
+    connectData(selectedLineID.value, apn.value, ipFamily.value)
+  )
 }
 
 async function stopDataConnection(): Promise<boolean> {
@@ -953,7 +1012,9 @@ async function stopDataConnection(): Promise<boolean> {
     confirmLabel: t('device.turnOff')
   })
   if (!confirmed) return false
-  return disconnectData(selectedLineID.value)
+  return runDeviceMutation('data', () =>
+    disconnectData(selectedLineID.value)
+  )
 }
 
 async function changeDataConnection(event: Event): Promise<void> {
@@ -984,7 +1045,9 @@ async function applyVoLTE(event: Event): Promise<void> {
     voltePolicyDraft.value = previousPolicy
     return
   }
-  const saved = await setVoLTEPolicy(selectedLineID.value, nextPolicy)
+  const saved = await runDeviceMutation('volte', () =>
+    setVoLTEPolicy(selectedLineID.value, nextPolicy)
+  )
   if (!saved) {
     control.checked = previousPolicy === 'enabled'
     voltePolicyDraft.value = previousPolicy
@@ -1010,7 +1073,9 @@ async function applyModemRestart(): Promise<void> {
 
 async function applyIncomingPolicy(): Promise<void> {
   if (selectedLineID.value) {
-    const saved = await setIncomingCallPolicy(selectedLineID.value, incomingPolicyDraft.value)
+    const saved = await runDeviceMutation('incoming-policy', () =>
+      setIncomingCallPolicy(selectedLineID.value, incomingPolicyDraft.value)
+    )
     if (!saved) {
       incomingPolicyDraft.value = incomingCalls.value?.policy || 'follow_global'
     }
@@ -1021,9 +1086,11 @@ async function applyDeliveryReports(event: Event): Promise<void> {
   if (!selectedLineID.value || !messaging.value) return
   const control = event.target as HTMLInputElement
   const previous = messaging.value.delivery_reports_enabled
-  const saved = await setDeliveryReportsEnabled(
-    selectedLineID.value,
-    control.checked
+  const saved = await runDeviceMutation('delivery-reports', () =>
+    setDeliveryReportsEnabled(
+      selectedLineID.value,
+      control.checked
+    )
   )
   if (!saved) control.checked = previous
 }
@@ -1138,9 +1205,11 @@ async function saveProfile(): Promise<void> {
     })
     editProfile()
     await loadProfiles(true)
+    showSuccess(t('common.saved'))
   } catch (error) {
     profileError.value =
       error instanceof Error ? error.message : t('device.profileSaveFailed')
+    showError(profileError.value)
   } finally {
     profilePending.value = false
   }
@@ -1216,65 +1285,108 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="device-configuration" aria-labelledby="device-configuration-title">
-    <header class="module-toolbar">
-      <div>
-        <h3 id="device-configuration-title">{{ t('device.modules') }}</h3>
-        <span>{{ t('device.moduleCount', { count: moduleLines.length }) }}</span>
+  <SettingsMasterDetail
+    class="device-configuration"
+    :label="t('device.modules')"
+    mobile-mode="drilldown"
+    :detail-open="deviceDetailOpen"
+  >
+    <template #sidebar>
+      <div class="device-module-list">
+        <header class="module-toolbar">
+          <div>
+            <h3 id="device-configuration-title">{{ t('device.modules') }}</h3>
+            <span>{{ t('device.moduleCount', { count: moduleLines.length }) }}</span>
+          </div>
+        </header>
+
+        <StatePanel
+          v-if="bootstrapResource.status === 'loading' || bootstrapResource.status === 'idle'"
+          state="loading"
+          :title="t('device.loadingModules')"
+        />
+        <StatePanel
+          v-else-if="bootstrapResource.status === 'error'"
+          state="error"
+          :title="t('device.modulesLoadFailed')"
+          :detail="bootstrapResource.error"
+          retryable
+          @retry="loadBootstrap(true)"
+        />
+        <StatePanel
+          v-else-if="moduleLines.length === 0"
+          state="empty"
+          :title="t('device.noModules')"
+        />
+        <div v-else class="device-module-rows">
+          <div
+            v-for="line in moduleLines"
+            :key="lineKey(line)"
+            class="device-module-row"
+            :class="{ 'is-selected': line.id === selectedLineID }"
+          >
+            <button
+              class="device-module-row__select"
+              type="button"
+              :disabled="line.module_only"
+              :aria-pressed="line.id === selectedLineID"
+              @click="selectLine(line)"
+            >
+              <span class="device-module-row__icon">
+                <RadioTower :size="18" />
+              </span>
+              <span class="device-module-row__identity">
+                <strong>{{ lineLabel(line) }}</strong>
+                <small>{{ moduleDisplayName(line) }}</small>
+              </span>
+              <span
+                class="device-module-row__presence"
+                :class="{ 'is-present': moduleIsPresent(line) }"
+                aria-hidden="true"
+              />
+              <CheckCircle2
+                v-if="lineKey(line) === defaultLineID"
+                class="device-module-row__default"
+                :size="16"
+                :aria-label="t('lines.currentDefaultLine')"
+              />
+            </button>
+            <button
+              v-if="moduleIsDeletable(line)"
+              class="device-module-row__delete"
+              type="button"
+              :disabled="moduleDeletePending === line.device_imei"
+              :title="t('device.deleteModuleTitle')"
+              :aria-label="t('device.deleteModuleTitle')"
+              @click="deleteHistoricalModule(line)"
+            >
+              <LoaderCircle
+                v-if="moduleDeletePending === line.device_imei"
+                class="spin"
+                :size="15"
+              />
+              <Trash2 v-else :size="15" />
+            </button>
+          </div>
+        </div>
+        <p v-if="moduleError" class="field-error device-module-list__error" role="alert">
+          {{ moduleError }}
+        </p>
       </div>
-    </header>
+    </template>
 
-    <StatePanel
-      v-if="bootstrapResource.status === 'loading' || bootstrapResource.status === 'idle'"
-      state="loading"
-      :title="t('device.loadingModules')"
-    />
-    <StatePanel
-      v-else-if="bootstrapResource.status === 'error'"
-      state="error"
-      :title="t('device.modulesLoadFailed')"
-      :detail="bootstrapResource.error"
-      retryable
-      @retry="loadBootstrap(true)"
-    />
-    <StatePanel
-      v-else-if="moduleLines.length === 0"
-      state="empty"
-      :title="t('device.noModules')"
-    />
-    <div v-else class="module-grid">
-      <ModuleCard
-        v-for="line in moduleLines"
-        :key="lineKey(line)"
-        :line="line"
-        :device="deviceFor(line)"
-        :runtime="networkRuntime(line)"
-        :selected="line.id === selectedLineID"
-        :selectable="!line.module_only"
-        :deletable="
-          Boolean(
-            sessionState.role === 'admin' &&
-              line.module_only &&
-              deviceFor(line)?.present === false
-          )
-        "
-        :delete-pending="moduleDeletePending === line.device_imei"
-        :default-line="lineKey(line) === defaultLineID"
-        :flight-mode="
-          line.id === selectedLineID && hardware?.flight_mode_known
-            ? hardware.flight_mode
-            : undefined
-        "
-        actions
-        @select="selectLine(line)"
-        @make-default="makeDefault(line)"
-        @delete="deleteHistoricalModule(line)"
-      />
-    </div>
-    <p v-if="moduleError" class="field-error" role="alert">{{ moduleError }}</p>
-
-    <template v-if="selectedLineID">
+    <div class="device-detail">
+      <template v-if="selectedLineID">
       <header class="selected-module-context">
+        <button
+          class="icon-button device-detail-back"
+          type="button"
+          :title="t('settings.back')"
+          :aria-label="t('settings.back')"
+          @click="backToModules"
+        >
+          <ArrowLeft :size="19" />
+        </button>
         <div class="selected-module-context__identity">
           <span>{{ t('device.currentModule') }}</span>
           <div class="selected-module-context__name">
@@ -1332,6 +1444,15 @@ onMounted(() => {
               :line="selectedLine"
               :fallback="selectedLineFallback"
             />
+            <button
+              v-if="selectedLine && lineKey(selectedLine) !== defaultLineID"
+              class="secondary-action selected-module-context__default"
+              type="button"
+              @click="makeDefault(selectedLine)"
+            >
+              <CheckCircle2 :size="15" />
+              {{ t('lines.setDefault') }}
+            </button>
           </div>
           <p v-if="moduleNameError" class="module-name-error" role="alert">
             {{ moduleNameError }}
@@ -1567,10 +1688,11 @@ onMounted(() => {
                 </small>
               </span>
               <span class="configuration-toggle__control">
-                <LoaderCircle
-                  v-if="savingOperation === 'set_radio_enabled'"
-                  class="spin"
-                  :size="16"
+                <SettingsSaveStatus
+                  v-if="activeDeviceMutation === 'radio'"
+                  :status="deviceMutation.status.value"
+                  :error="deviceMutation.error.value"
+                  compact
                 />
                 <input
                   type="checkbox"
@@ -1593,10 +1715,11 @@ onMounted(() => {
                 </small>
               </span>
               <span class="configuration-toggle__control">
-                <LoaderCircle
-                  v-if="savingOperation === 'connect_data' || savingOperation === 'disconnect_data'"
-                  class="spin"
-                  :size="16"
+                <SettingsSaveStatus
+                  v-if="activeDeviceMutation === 'data'"
+                  :status="deviceMutation.status.value"
+                  :error="deviceMutation.error.value"
+                  compact
                 />
                 <input
                   type="checkbox"
@@ -2077,10 +2200,11 @@ onMounted(() => {
                 <small v-else>{{ t('device.deliveryReportsDescription') }}</small>
               </span>
               <span class="configuration-toggle__control">
-                <LoaderCircle
-                  v-if="savingOperation === 'set_delivery_reports_enabled'"
-                  class="spin"
-                  :size="16"
+                <SettingsSaveStatus
+                  v-if="activeDeviceMutation === 'delivery-reports'"
+                  :status="deviceMutation.status.value"
+                  :error="deviceMutation.error.value"
+                  compact
                 />
                 <input
                   type="checkbox"
@@ -2217,6 +2341,11 @@ onMounted(() => {
             <div v-if="!incomingCallControlUnavailable" class="incoming-policy__status">
               <span>{{ t('device.current') }}</span>
               <strong>{{ policyLabel(incomingCalls.effective_policy) }}</strong>
+              <SettingsSaveStatus
+                v-if="activeDeviceMutation === 'incoming-policy'"
+                :status="deviceMutation.status.value"
+                :error="deviceMutation.error.value"
+              />
               <small v-if="incomingPolicyDraft === 'follow_global'">
                 {{
                   t('device.globalPolicy', {
@@ -2252,10 +2381,11 @@ onMounted(() => {
                 <small v-else>{{ volteStatusLabel }}</small>
               </span>
               <span class="configuration-toggle__control">
-                <LoaderCircle
-                  v-if="savingOperation === 'set_volte_policy'"
-                  class="spin"
-                  :size="16"
+                <SettingsSaveStatus
+                  v-if="activeDeviceMutation === 'volte'"
+                  :status="deviceMutation.status.value"
+                  :error="deviceMutation.error.value"
+                  compact
                 />
                 <input
                   type="checkbox"
@@ -2339,14 +2469,31 @@ onMounted(() => {
           </section>
         </template>
       </div>
-    </template>
-  </section>
+      </template>
+      <StatePanel
+        v-else
+        state="empty"
+        :title="t('device.noModules')"
+      />
+    </div>
+  </SettingsMasterDetail>
 </template>
 
 <style scoped>
 .device-configuration {
+  --settings-master-sidebar: 260px;
+
   width: 100%;
   min-width: 0;
+}
+
+.device-module-list {
+  min-height: 100%;
+}
+
+.device-detail {
+  min-width: 0;
+  padding: 0 24px 24px;
 }
 
 .module-toolbar,
@@ -2357,8 +2504,9 @@ onMounted(() => {
 }
 
 .module-toolbar {
-  min-height: 46px;
+  min-height: 62px;
   justify-content: space-between;
+  padding: 0 14px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -2379,17 +2527,107 @@ onMounted(() => {
   font-size: 12px;
 }
 
-.module-grid {
+.device-module-rows {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 420px));
-  justify-content: start;
-  gap: 12px;
-  padding: 14px 1px 16px;
 }
 
-.module-grid > :deep(.module-card) {
+.device-module-row {
+  position: relative;
+  min-width: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.device-module-row.is-selected {
+  background: var(--surface-selected);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.device-module-row__select {
+  display: grid;
   width: 100%;
-  max-width: 420px;
+  min-height: 72px;
+  min-width: 0;
+  grid-template-columns: 34px minmax(0, 1fr) 8px auto;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+  color: var(--text);
+  text-align: left;
+}
+
+.device-module-row__select:disabled {
+  cursor: default;
+}
+
+.device-module-row__select:not(:disabled):hover {
+  background: var(--surface-hover);
+}
+
+.device-module-row__icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-radius: 50%;
+}
+
+.device-module-row__identity {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.device-module-row__identity strong,
+.device-module-row__identity small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-module-row__identity strong {
+  font-size: 13px;
+}
+
+.device-module-row__identity small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.device-module-row__presence {
+  width: 7px;
+  height: 7px;
+  background: var(--faint);
+  border-radius: 50%;
+}
+
+.device-module-row__presence.is-present {
+  background: var(--success);
+}
+
+.device-module-row__default {
+  color: var(--accent-strong);
+}
+
+.device-module-row__delete {
+  position: absolute;
+  top: 50%;
+  right: 9px;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  color: var(--danger);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  transform: translateY(-50%);
+}
+
+.device-module-list__error {
+  margin: 12px;
 }
 
 .data-apn-field,
@@ -2485,8 +2723,11 @@ onMounted(() => {
 .selected-module-context {
   min-width: 0;
   padding: 13px 2px;
-  border-top: 1px solid var(--border-strong);
   border-bottom: 1px solid var(--border);
+}
+
+.device-detail-back {
+  display: none;
 }
 
 .selected-module-context__identity {
@@ -2514,6 +2755,12 @@ onMounted(() => {
   overflow: hidden;
   font-size: 16px;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selected-module-context__default {
+  width: auto;
+  margin-left: auto;
   white-space: nowrap;
 }
 
@@ -3794,12 +4041,23 @@ pre {
 }
 
 @media (max-width: 720px) {
-  .module-grid {
-    grid-template-columns: minmax(0, 1fr);
+  .device-detail {
+    padding: 0 16px 76px;
   }
 
-  .module-grid > :deep(.module-card) {
-    max-width: none;
+  .selected-module-context {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .device-detail-back {
+    display: grid;
+    flex: 0 0 auto;
+  }
+
+  .selected-module-context__default {
+    width: auto;
   }
 
   .line-label-form,

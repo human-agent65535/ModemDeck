@@ -13,27 +13,36 @@ test('settings pages use the three shared layout templates', async () => {
     recording,
     about,
     externalAccess,
+    contactSync,
     users,
-    telegram
+    telegram,
+    devices,
+    audio
   ] = await Promise.all([
     source('../src/components/DefaultLineSettingsForm.vue'),
     source('../src/components/SystemSettingsForm.vue'),
     source('../src/components/RecordingSettingsForm.vue'),
     source('../src/components/AboutSettingsPanel.vue'),
     source('../src/components/ExternalAccessSettingsPanel.vue'),
+    source('../src/components/ContactSyncSettings.vue'),
     source('../src/components/UserSettingsPanel.vue'),
-    source('../src/components/TelegramSettingsForm.vue')
+    source('../src/components/TelegramSettingsForm.vue'),
+    source('../src/components/DeviceConfigurationPanel.vue'),
+    source('../src/components/AudioSettingsForm.vue')
   ])
 
   for (const preference of [defaultLine, language, recording]) {
     assert.match(preference, /SettingsPreferenceRow/)
   }
-  for (const modulePage of [about, externalAccess]) {
+  for (const modulePage of [about, externalAccess, contactSync]) {
     assert.match(modulePage, /SettingsModuleCard/)
   }
-  for (const resourceEditor of [users, telegram]) {
+  for (const resourceEditor of [users, telegram, devices]) {
     assert.match(resourceEditor, /SettingsMasterDetail/)
   }
+  assert.match(devices, /mobile-mode="drilldown"/)
+  assert.match(audio, /SettingsSection/)
+  assert.match(audio, /SettingsControlRow/)
 })
 
 test('master-detail settings are flush and mobile page titles cover every section', async () => {
@@ -52,10 +61,18 @@ test('master-detail settings are flush and mobile page titles cover every sectio
 
 test('save behavior distinguishes immediate preferences from dirty resource forms', async () => {
   const account = await source('../src/components/AccountSettingsPanel.vue')
+  const defaultLine = await source('../src/components/DefaultLineSettingsForm.vue')
+  const language = await source('../src/components/SystemSettingsForm.vue')
+  const recording = await source('../src/components/RecordingSettingsForm.vue')
+  const device = await source('../src/components/DeviceConfigurationPanel.vue')
   const users = await source('../src/components/UserSettingsPanel.vue')
   const telegram = await source('../src/components/TelegramSettingsForm.vue')
 
   assert.match(account, /@change="changeProfile"/)
+  for (const immediate of [account, defaultLine, language, recording, device]) {
+    assert.match(immediate, /useSettingsMutation/)
+    assert.match(immediate, /SettingsSaveStatus/)
+  }
   assert.match(users, /async function toggleLine/)
   assert.match(users, /const formChanged = computed/)
   assert.match(users, /v-if="creating \|\| selectedUser\?\.role === 'member'"/)

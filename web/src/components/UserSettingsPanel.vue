@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import {
   Check,
   KeyRound,
@@ -15,6 +15,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { gateway } from '../api/client'
 import type { LineSummary, UserAccount } from '../api/types'
 import { ApiError } from '../api/types'
+import { useSettingsMutation } from '../composables/useSettingsMutation'
 import { showError, showSuccess } from '../state/feedback'
 import { resetNetworkState } from '../state/network'
 import { refreshSession, sessionState } from '../state/session'
@@ -33,6 +34,7 @@ import AccountSettingsPanel from './AccountSettingsPanel.vue'
 import LineTag from './LineTag.vue'
 import StatePanel from './StatePanel.vue'
 import SettingsMasterDetail from './settings/SettingsMasterDetail.vue'
+import SettingsSaveStatus from './settings/SettingsSaveStatus.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -48,14 +50,15 @@ const enabled = ref(true)
 const iosPairingEnabled = ref(false)
 const lineIDs = ref<string[]>([])
 const saving = ref(false)
-const saved = ref(false)
 const saveError = ref('')
-const lineSaving = ref(false)
-const lineSaved = ref(false)
-const lineSaveError = ref('')
 const newPassword = ref('')
 const searchQuery = ref('')
-let lineSavedTimer: ReturnType<typeof globalThis.setTimeout> | undefined
+const lineMutation = useSettingsMutation({
+  errorMessage: cause =>
+    cause instanceof Error ? cause.message : t('users.saveFailed')
+})
+const lineSaving = lineMutation.saving
+const lineSaveError = lineMutation.error
 
 const lines = computed(
   () => bootstrapResource.data?.line_catalog || bootstrapResource.data?.lines || []
@@ -134,14 +137,8 @@ function applyUser(user?: UserAccount): void {
   iosPairingEnabled.value = user?.ios_pairing_enabled ?? false
   lineIDs.value = [...(user?.line_ids || [])]
   newPassword.value = ''
-  saved.value = false
   saveError.value = ''
-  lineSaved.value = false
-  lineSaveError.value = ''
-  if (lineSavedTimer) {
-    globalThis.clearTimeout(lineSavedTimer)
-    lineSavedTimer = undefined
-  }
+  lineMutation.reset()
 }
 
 function selectUser(id: string): void {
@@ -180,15 +177,13 @@ async function toggleLine(id: string, event: Event): Promise<void> {
     ? [...new Set([...previous, id])]
     : previous.filter(value => value !== id)
   lineIDs.value = next
-  lineSaved.value = false
-  lineSaveError.value = ''
+  lineMutation.reset()
   if (creating.value) return
 
   const user = editableUser.value
   if (!user) return
 
-  lineSaving.value = true
-  try {
+  const result = await lineMutation.run(async () => {
     const updated = await gateway.updateMember(user.id, {
       username: user.username,
       enabled: user.enabled,
@@ -205,21 +200,11 @@ async function toggleLine(id: string, event: Event): Promise<void> {
       resetNetworkState()
       await loadBootstrap(true)
     }
-    lineSaved.value = true
-    if (lineSavedTimer) globalThis.clearTimeout(lineSavedTimer)
-    lineSavedTimer = globalThis.setTimeout(() => {
-      lineSaved.value = false
-      lineSavedTimer = undefined
-    }, 2200)
-    showSuccess(t('users.saved'))
-  } catch (cause) {
+    return updated
+  })
+  if (!result.ok) {
     lineIDs.value = previous
     input.checked = previous.includes(id)
-    lineSaveError.value =
-      cause instanceof Error ? cause.message : t('users.saveFailed')
-    showError(lineSaveError.value)
-  } finally {
-    lineSaving.value = false
   }
 }
 
@@ -265,7 +250,6 @@ async function refreshUserList(): Promise<void> {
 async function submit(): Promise<void> {
   if (saving.value || lineSaving.value || validationError.value) return
   saving.value = true
-  saved.value = false
   saveError.value = ''
   try {
     const user = creating.value
@@ -306,7 +290,6 @@ async function submit(): Promise<void> {
       resetNetworkState()
       await loadBootstrap(true)
     }
-    saved.value = true
     showSuccess(t('users.saved'))
   } catch (cause) {
     if (cause instanceof ApiError && cause.code === 'username_conflict') {
@@ -318,6 +301,7 @@ async function submit(): Promise<void> {
     } else {
       saveError.value = cause instanceof Error ? cause.message : t('users.saveFailed')
     }
+    showError(saveError.value)
   } finally {
     saving.value = false
   }
@@ -345,7 +329,6 @@ watch(
   [username, enabled, iosPairingEnabled, lineIDs, password, newPassword],
   () => {
     if (saving.value) return
-    saved.value = false
     saveError.value = ''
   },
   { deep: true, flush: 'sync' }
@@ -360,9 +343,6 @@ onMounted(() => {
   void load()
 })
 
-onBeforeUnmount(() => {
-  if (lineSavedTimer) globalThis.clearTimeout(lineSavedTimer)
-})
 </script>
 
 <template>
@@ -565,16 +545,10 @@ onBeforeUnmount(() => {
               <legend class="sr-only">{{ t('users.assignedLines') }}</legend>
               <div class="user-lines__heading">
                 <strong>{{ t('users.assignedLines') }}</strong>
-                <span
-                  v-if="lineSaving || lineSaved"
-                  class="user-lines__state"
-                  role="status"
-                  aria-live="polite"
-                >
-                  <LoaderCircle v-if="lineSaving" class="spin" :size="14" />
-                  <Check v-else :size="14" />
-                  {{ lineSaving ? t('common.saving') : t('common.saved') }}
-                </span>
+                <SettingsSaveStatus
+                  :status="lineMutation.status.value"
+                  :error="lineMutation.error.value"
+                />
               </div>
               <p>
                 {{
@@ -646,13 +620,9 @@ onBeforeUnmount(() => {
               <span class="user-feedback">
                 <span v-if="validationError" class="field-error">{{ validationError }}</span>
                 <span v-else-if="saveError" class="field-error">{{ saveError }}</span>
-                <span v-else-if="saved" class="save-status" role="status">
-                  <Check :size="15" /> {{ t('users.saved') }}
-                </span>
               </span>
               <button
                 class="primary-button"
-                :class="{ 'is-saved': saved }"
                 type="submit"
                 :disabled="
                   saving ||
@@ -662,15 +632,8 @@ onBeforeUnmount(() => {
                 "
               >
                 <LoaderCircle v-if="saving" class="spin" :size="17" />
-                <Check v-else-if="saved" :size="17" />
                 <Save v-else :size="17" />
-                {{
-                  saved
-                    ? t('common.saved')
-                    : creating
-                      ? t('users.createMember')
-                      : t('common.save')
-                }}
+                {{ creating ? t('users.createMember') : t('common.save') }}
               </button>
             </footer>
           </div>
@@ -1147,7 +1110,7 @@ onBeforeUnmount(() => {
   }
 
   .user-editor {
-    padding: 12px 0 0;
+    padding: 12px 16px 0;
   }
 
   .user-password-set > div {

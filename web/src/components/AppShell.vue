@@ -128,22 +128,30 @@ const primaryNav = computed(() => [
   { name: 'recordings', label: t('shell.recordings'), icon: AudioLines },
   { name: 'traffic', label: t('shell.traffic'), icon: ChartNoAxesCombined }
 ])
+const mobileSettingsNavItem = computed(() => ({
+  name: 'settings',
+  label: t('shell.settings'),
+  icon: Settings,
+  to: { name: 'settings' }
+}))
 const mobileNavBeforeDial = computed(() =>
-  primaryNav.value.filter(item => ['dashboard', 'messages'].includes(item.name))
+  primaryNav.value
+    .filter(item => ['dashboard', 'contacts', 'messages'].includes(item.name))
+    .map(item => ({ ...item, to: { name: item.name } }))
 )
 const mobileNavAfterDial = computed(() =>
-  primaryNav.value.filter(item => item.name === 'calls')
+  [
+    ...primaryNav.value
+      .filter(item => ['calls', 'recordings'].includes(item.name))
+      .map(item => ({ ...item, to: { name: item.name } })),
+    mobileSettingsNavItem.value
+  ]
 )
 const mobileSecondaryNav = computed(() => [
   ...primaryNav.value
-    .filter(item => ['contacts', 'recordings', 'traffic'].includes(item.name))
+    .filter(item => ['contacts', 'recordings'].includes(item.name))
     .map(item => ({ ...item, to: { name: item.name } })),
-  {
-    name: 'settings',
-    label: t('shell.settings'),
-    icon: Settings,
-    to: { name: 'settings', params: { section: settingsLanding.value } }
-  }
+  mobileSettingsNavItem.value
 ])
 const mobileMoreCurrent = computed(() =>
   ['contacts', 'recordings', 'traffic', 'settings'].includes(String(route.name))
@@ -170,6 +178,9 @@ const mobileSettingsSection = computed(() => {
 const mobileOverviewFromSettings = computed(
   () => route.name === 'dashboard' && route.query.from === 'settings'
 )
+const mobileTrafficFromSettings = computed(
+  () => route.name === 'traffic' && route.query.from === 'settings'
+)
 const settingsUserDetailOpen = computed(
   () =>
     route.name === 'settings' &&
@@ -177,7 +188,10 @@ const settingsUserDetailOpen = computed(
     (typeof route.query.user === 'string' || route.query.newUser === '1')
 )
 const mobileShellBackVisible = computed(
-  () => Boolean(mobileSettingsSection.value) || mobileOverviewFromSettings.value
+  () =>
+    Boolean(mobileSettingsSection.value) ||
+    mobileOverviewFromSettings.value ||
+    mobileTrafficFromSettings.value
 )
 const mobileBackTitle = computed(() =>
   settingsUserDetailOpen.value ? t('users.backToUsers') : t('settings.back')
@@ -187,6 +201,13 @@ const mobilePageTitle = computed(() => {
   if (route.name === 'settings') return mobileSettingsSection.value || t('shell.settings')
   return primaryNav.value.find(item => item.name === route.name)?.label || ''
 })
+
+function mobileNavItemCurrent(name: string): boolean {
+  return (
+    route.name === name ||
+    (name === 'settings' && route.name === 'traffic')
+  )
+}
 
 async function toggleMobileMore(): Promise<void> {
   if (mobileMoreOpen.value) {
@@ -436,7 +457,7 @@ onBeforeUnmount(() => {
             <RouterLink
               v-for="item in mobileSecondaryNav"
               :key="item.name"
-              :class="{ 'is-current': route.name === item.name }"
+              :class="{ 'is-current': mobileNavItemCurrent(item.name) }"
               :to="item.to"
               @click="closeMobileMore()"
             >
@@ -452,8 +473,11 @@ onBeforeUnmount(() => {
       <RouterLink
         v-for="item in mobileNavBeforeDial"
         :key="item.name"
-        :class="{ 'is-current': route.name === item.name }"
-        :to="{ name: item.name }"
+        :class="{
+          'is-current': mobileNavItemCurrent(item.name),
+          'mobile-nav__overflow': item.name === 'contacts'
+        }"
+        :to="item.to"
         :title="item.label"
         :aria-label="item.label"
       >
@@ -498,8 +522,11 @@ onBeforeUnmount(() => {
       <RouterLink
         v-for="item in mobileNavAfterDial"
         :key="item.name"
-        :class="{ 'is-current': route.name === item.name }"
-        :to="{ name: item.name }"
+        :class="{
+          'is-current': mobileNavItemCurrent(item.name),
+          'mobile-nav__overflow': item.name !== 'calls'
+        }"
+        :to="item.to"
         :title="item.label"
         :aria-label="item.label"
       >
@@ -508,6 +535,7 @@ onBeforeUnmount(() => {
       </RouterLink>
       <button
         ref="mobileMoreTrigger"
+        class="mobile-nav__more"
         :class="{ 'is-current': mobileMoreCurrent }"
         type="button"
         :title="t('common.more')"
@@ -554,10 +582,6 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 860px) {
-  .mobile-nav {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) 62px repeat(2, minmax(0, 1fr));
-  }
-
   .mobile-more-backdrop {
     position: fixed;
     z-index: 45;

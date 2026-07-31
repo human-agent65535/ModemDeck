@@ -16,40 +16,31 @@ function cssBlock(source, selector) {
   return source.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] || ''
 }
 
-test('dashboard and device settings use the same stable module-card tracks', () => {
+test('dashboard keeps stable module-card tracks', () => {
   const dashboardGrid = cssBlock(
     dashboard,
     '.dashboard-module-grid,\n.dashboard-detail-list'
   )
-  const settingsGrid = cssBlock(devicePanel, '.module-grid')
 
-  for (const block of [dashboardGrid, settingsGrid]) {
-    assert.match(
-      block,
-      /grid-template-columns: repeat\(auto-fill, minmax\(320px, 420px\)\)/
-    )
-    assert.match(block, /justify-content: start/)
-    assert.match(block, /gap: 12px/)
-  }
+  assert.match(
+    dashboardGrid,
+    /grid-template-columns: repeat\(auto-fill, minmax\(320px, 420px\)\)/
+  )
+  assert.match(dashboardGrid, /justify-content: start/)
+  assert.match(dashboardGrid, /gap: 12px/)
+})
 
-  const settingsCard = cssBlock(
-    devicePanel,
-    '.module-grid > :deep(.module-card)'
-  )
-  const settingsNarrow = devicePanel.slice(
-    devicePanel.indexOf('@media (max-width: 720px)')
-  )
-  assert.match(settingsCard, /width: 100%/)
-  assert.match(settingsCard, /max-width: 420px/)
-  assert.doesNotMatch(settingsGrid, /grid-auto-flow|grid-auto-columns|overflow-x/)
-  assert.doesNotMatch(devicePanel, /scroll-snap|module-grid::-webkit-scrollbar/)
+test('device settings use compact master-detail navigation instead of dashboard cards', () => {
+  const row = cssBlock(devicePanel, '.device-module-row__select')
+
+  assert.match(devicePanel, /<SettingsMasterDetail/)
+  assert.match(devicePanel, /mobile-mode="drilldown"/)
+  assert.match(devicePanel, /class="device-module-rows"/)
+  assert.doesNotMatch(devicePanel, /<ModuleCard/)
+  assert.match(row, /min-height: 72px/)
   assert.match(
-    settingsNarrow,
-    /\.module-grid\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\)/s
-  )
-  assert.match(
-    settingsNarrow,
-    /\.module-grid > :deep\(\.module-card\)\s*\{[^}]*max-width: none/s
+    row,
+    /grid-template-columns: 34px minmax\(0, 1fr\) 8px auto/
   )
 })
 
@@ -91,24 +82,15 @@ test('module cards stretch their body while keeping every footer fixed to the bo
   assert.match(footer, /flex: 0 0 48px/)
 })
 
-test('device settings add selection actions without changing card content', () => {
+test('dashboard module cards retain their canonical data projection', () => {
   const dashboardUse =
     dashboard.match(/<ModuleCard[\s\S]*?\/>/)?.[0] || ''
-  const settingsUse =
-    devicePanel.match(/<ModuleCard[\s\S]*?\/>/)?.[0] || ''
 
-  for (const usage of [dashboardUse, settingsUse]) {
-    assert.match(usage, /:line="line"/)
-    assert.match(usage, /:device="deviceFor\(line\)"/)
-    assert.match(usage, /:default-line="lineKey\(line\) === defaultLineID"/)
-    assert.doesNotMatch(usage, /compact/)
-  }
-
+  assert.match(dashboardUse, /:line="line"/)
+  assert.match(dashboardUse, /:device="deviceFor\(line\)"/)
+  assert.match(dashboardUse, /:default-line="lineKey\(line\) === defaultLineID"/)
+  assert.doesNotMatch(dashboardUse, /compact/)
   assert.doesNotMatch(dashboardUse, /:selected=|\sactions(?:\s|>)/)
-  assert.match(settingsUse, /:selected="line\.id === selectedLineID"/)
-  assert.match(settingsUse, /\sactions/)
-  assert.match(settingsUse, /@select="selectLine\(line\)"/)
-  assert.match(settingsUse, /@make-default="makeDefault\(line\)"/)
 })
 
 test('module cards separate call control from verified voice media', () => {

@@ -96,6 +96,13 @@ test('dashboard reuses message and call detail surfaces in the middle pane', () 
   assert.match(calls, /<aside v-if="!embedded" class="list-pane">/)
 })
 
+test('dashboard embedded communication details overlap the mobile activity pane', () => {
+  assert.match(
+    dashboard,
+    /@media \(max-width: 860px\)[\s\S]*\.dashboard-workspace > :deep\(\.workspace\) \{[\s\S]*grid-area: 1 \/ 1;[\s\S]*min-height: 0;/
+  )
+})
+
 test('dashboard activity reuses the same message and call list items as their modules', () => {
   assert.match(dashboard, /import MessageThreadListItem from/)
   assert.match(dashboard, /import CallHistoryListItem from/)

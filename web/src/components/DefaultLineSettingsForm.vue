@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Check, ChevronDown, LoaderCircle, RadioTower } from '@lucide/vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { ChevronDown, LoaderCircle, RadioTower } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
+import { useSettingsMutation } from '../composables/useSettingsMutation'
 import {
   bootstrapResource,
   lineKey,
@@ -10,13 +11,15 @@ import {
   updateDefaultLine
 } from '../state/workspace'
 import SettingsPreferenceRow from './settings/SettingsPreferenceRow.vue'
+import SettingsSaveStatus from './settings/SettingsSaveStatus.vue'
 
 const { t } = useI18n()
 const selected = ref('')
-const saving = ref(false)
-const error = ref('')
-const saved = ref(false)
-let savedTimer: ReturnType<typeof globalThis.setTimeout> | undefined
+const saveMutation = useSettingsMutation({
+  errorMessage: cause =>
+    cause instanceof Error ? cause.message : t('device.defaultLineSaveFailed')
+})
+const saving = saveMutation.saving
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const loading = computed(
@@ -38,33 +41,14 @@ async function changeDefault(event: Event): Promise<void> {
   if (!lineID || lineID === selected.value || saving.value) return
   const previous = selected.value
   selected.value = lineID
-  saving.value = true
-  error.value = ''
-  saved.value = false
-  try {
-    await updateDefaultLine(lineID)
-    saved.value = true
-    if (savedTimer) globalThis.clearTimeout(savedTimer)
-    savedTimer = globalThis.setTimeout(() => {
-      saved.value = false
-      savedTimer = undefined
-    }, 2200)
-  } catch (cause) {
-    selected.value = previous
-    error.value =
-      cause instanceof Error ? cause.message : t('device.defaultLineSaveFailed')
-  } finally {
-    saving.value = false
-  }
+  const result = await saveMutation.run(() => updateDefaultLine(lineID))
+  if (!result.ok) selected.value = previous
 }
 
 onMounted(() => {
   void loadBootstrap()
 })
 
-onBeforeUnmount(() => {
-  if (savedTimer) globalThis.clearTimeout(savedTimer)
-})
 </script>
 
 <template>
@@ -97,16 +81,17 @@ onBeforeUnmount(() => {
             {{ lineLabel(line) }}
           </option>
         </select>
-        <LoaderCircle v-if="saving" class="spin" :size="18" aria-hidden="true" />
-        <ChevronDown v-else :size="18" aria-hidden="true" />
+        <ChevronDown :size="18" aria-hidden="true" />
       </label>
+      <SettingsSaveStatus
+        :status="saveMutation.status.value"
+        :error="saveMutation.error.value"
+        compact
+      />
     </template>
-    <template v-if="error || saved" #feedback>
-      <p v-if="error" class="default-line-settings__feedback is-error" role="alert">
-        {{ error }}
-      </p>
-      <p v-else class="default-line-settings__feedback" role="status">
-        <Check :size="15" /> {{ t('common.saved') }}
+    <template v-if="saveMutation.error.value" #feedback>
+      <p class="default-line-settings__feedback is-error" role="alert">
+        {{ saveMutation.error.value }}
       </p>
     </template>
   </SettingsPreferenceRow>

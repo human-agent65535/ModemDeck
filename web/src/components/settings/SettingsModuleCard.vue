@@ -4,7 +4,7 @@ withDefaults(
     title: string
     titleId: string
     description?: string
-    iconTone?: 'accent' | 'brand' | 'danger' | 'warning' | 'neutral'
+    iconTone?: 'accent' | 'blue' | 'brand' | 'danger' | 'warning' | 'neutral'
     surface?: 'default' | 'subtle'
     hasBody?: boolean
   }>(),
@@ -77,6 +77,11 @@ withDefaults(
 .settings-module-card__icon--danger {
   color: var(--danger);
   background: var(--danger-soft);
+}
+
+.settings-module-card__icon--blue {
+  color: var(--blue);
+  background: var(--blue-soft);
 }
 
 .settings-module-card__icon--brand {

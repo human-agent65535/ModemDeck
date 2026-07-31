@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Check, ContactRound, LoaderCircle, ShieldCheck } from '@lucide/vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
+import { ContactRound, ShieldCheck } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import { gateway } from '../api/client'
-import { showSuccess } from '../state/feedback'
+import { useSettingsMutation } from '../composables/useSettingsMutation'
 import { sessionState, setSessionProfileContact } from '../state/session'
 import { contactsResource, loadContacts } from '../state/workspace'
 import BaseAvatar from './BaseAvatar.vue'
@@ -11,6 +11,7 @@ import AccountSecurityForm from './AccountSecurityForm.vue'
 import DefaultLineSettingsForm from './DefaultLineSettingsForm.vue'
 import RecordingSettingsForm from './RecordingSettingsForm.vue'
 import SystemSettingsForm from './SystemSettingsForm.vue'
+import SettingsSaveStatus from './settings/SettingsSaveStatus.vue'
 
 const { t } = useI18n()
 const props = withDefaults(
@@ -25,10 +26,11 @@ const emit = defineEmits<{
   profileSaved: []
 }>()
 const selectedContactID = ref(sessionState.profileContactID)
-const saving = ref(false)
-const error = ref('')
-const saved = ref(false)
-let savedTimer: ReturnType<typeof globalThis.setTimeout> | undefined
+const profileMutation = useSettingsMutation({
+  errorMessage: cause =>
+    cause instanceof Error ? cause.message : t('account.profileSaveFailed')
+})
+const saving = profileMutation.saving
 
 const profileContact = computed(() =>
   contactsResource.data.find(contact => contact.id === selectedContactID.value)
@@ -45,25 +47,14 @@ const profileChanged = computed(
 
 async function saveProfile(): Promise<void> {
   if (!profileChanged.value || saving.value) return
-  saving.value = true
-  error.value = ''
-  saved.value = false
-  try {
-    await gateway.setAccountContact(selectedContactID.value)
+  const result = await profileMutation.run(() =>
+    gateway.setAccountContact(selectedContactID.value)
+  )
+  if (result.ok) {
     setSessionProfileContact(selectedContactID.value)
-    saved.value = true
-    if (savedTimer) globalThis.clearTimeout(savedTimer)
-    savedTimer = globalThis.setTimeout(() => {
-      saved.value = false
-      savedTimer = undefined
-    }, 2200)
-    showSuccess(t('account.profileSaved'))
     emit('profileSaved')
-  } catch (cause) {
+  } else {
     selectedContactID.value = sessionState.profileContactID
-    error.value = cause instanceof Error ? cause.message : t('account.profileSaveFailed')
-  } finally {
-    saving.value = false
   }
 }
 
@@ -75,9 +66,6 @@ onMounted(() => {
   void loadContacts()
 })
 
-onBeforeUnmount(() => {
-  if (savedTimer) globalThis.clearTimeout(savedTimer)
-})
 </script>
 
 <template>
@@ -142,19 +130,17 @@ onBeforeUnmount(() => {
           <small v-if="profileNumber">{{ profileNumber }}</small>
           <small v-else>{{ t('account.profileContactHint') }}</small>
         </label>
-        <span
-          v-if="saving || saved"
-          class="account-profile__state"
-          role="status"
-          aria-live="polite"
-        >
-          <LoaderCircle v-if="saving" class="spin" :size="17" />
-          <Check v-else :size="17" />
-          {{ saving ? t('common.saving') : t('common.saved') }}
-        </span>
+        <SettingsSaveStatus
+          :status="profileMutation.status.value"
+          :error="profileMutation.error.value"
+        />
       </div>
-      <p v-if="error" class="account-profile__feedback is-error" role="alert">
-        {{ error }}
+      <p
+        v-if="profileMutation.error.value"
+        class="account-profile__feedback is-error"
+        role="alert"
+      >
+        {{ profileMutation.error.value }}
       </p>
     </section>
 
