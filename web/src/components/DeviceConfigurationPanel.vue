@@ -2705,10 +2705,9 @@ onMounted(() => {
 }
 
 .device-configuration__body {
-  width: min(100%, 1280px);
+  width: 100%;
   min-width: 0;
   padding-inline: var(--device-workspace-gutter);
-  margin-inline: auto;
 }
 
 .configuration-section {

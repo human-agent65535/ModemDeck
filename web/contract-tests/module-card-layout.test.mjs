@@ -42,6 +42,13 @@ test('device settings retain card selection in their dedicated drilldown workben
   )
 })
 
+test('device detail content stays aligned with its full-width tab rail', () => {
+  const body = cssBlock(devicePanel, '.device-configuration__body')
+
+  assert.match(body, /width: 100%/)
+  assert.doesNotMatch(body, /1280px|margin-inline: auto/)
+})
+
 test('module cards expose one fixed information skeleton in both views', () => {
   const labels = [
     "t('lines.signal')",
