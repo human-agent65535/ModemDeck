@@ -82,3 +82,24 @@ test('USB recovery loads device capabilities and requires confirmation', () => {
   assert.match(source, /tone:\s*'danger'/)
   assert.match(source, /resetDiagnosticUSBDevice\(line\.id\)/)
 })
+
+test('runtime log connection colors describe reachable stream states', () => {
+  assert.match(
+    source,
+    /\.overall-status\.is-ok,\s*\.connection-state\.is-live\s*\{\s*color: var\(--success\)/
+  )
+  assert.match(
+    source,
+    /\.connection-state\.is-reconnecting,\s*\.connection-state\.is-connecting\s*\{\s*color: #946200/
+  )
+  assert.match(
+    source,
+    /\.connection-state\.is-paused,\s*\.connection-state\.is-fixture\s*\{\s*color: var\(--muted\)/
+  )
+  assert.match(
+    source,
+    /\.connection-state > span\s*\{[^}]*color: inherit;[^}]*background: currentColor;/s
+  )
+  assert.doesNotMatch(source, /connectionState\.value = 'error'/)
+  assert.doesNotMatch(source, /case 'error'/)
+})

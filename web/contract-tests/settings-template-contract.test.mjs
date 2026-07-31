@@ -39,6 +39,11 @@ test('settings pages use the shared layout templates and the device workbench ex
   for (const modulePage of [about, externalAccess, contactSync]) {
     assert.match(modulePage, /SettingsModuleCard/)
   }
+  assert.match(
+    contactSync,
+    /\.contact-sync-direction \{[\s\S]*grid-template-columns: minmax\(112px, max-content\) minmax\(0, 1fr\);[\s\S]*text-align: left;/
+  )
+  assert.doesNotMatch(contactSync, /\.contact-sync-direction \{[^}]*0\.35fr/)
   for (const resourceEditor of [users, telegram]) {
     assert.match(resourceEditor, /SettingsMasterDetail/)
   }
@@ -125,24 +130,38 @@ test('the current user hierarchy keeps personal language near identity and line 
   )
 })
 
-test('page-level async settings reuse the message-list skeleton through the shared state panel', async () => {
-  const [statePanel, listSkeleton, messages, externalAccess, certificate] = await Promise.all([
+test('page-level async settings share one mutually exclusive skeleton boundary', async () => {
+  const [statePanel, loadBoundary, listSkeleton, messages, ...settingsPanels] = await Promise.all([
     source('../src/components/StatePanel.vue'),
+    source('../src/components/settings/SettingsLoadBoundary.vue'),
     source('../src/components/ListSkeleton.vue'),
     source('../src/views/MessagesView.vue'),
+    source('../src/components/AccountSettingsPanel.vue'),
+    source('../src/components/UserSettingsPanel.vue'),
+    source('../src/components/ContactSyncSettings.vue'),
+    source('../src/components/AudioSettingsForm.vue'),
+    source('../src/components/TelegramSettingsForm.vue'),
+    source('../src/components/DeviceConfigurationPanel.vue'),
     source('../src/components/ExternalAccessSettingsPanel.vue'),
-    source('../src/components/WebCertificateSettingsPanel.vue')
+    source('../src/components/WebCertificateSettingsPanel.vue'),
+    source('../src/components/DiagnosticsPanel.vue'),
+    source('../src/components/AboutSettingsPanel.vue')
   ])
 
   assert.match(statePanel, /import ListSkeleton from '\.\/ListSkeleton\.vue'/)
   assert.match(statePanel, /<ListSkeleton[\s\S]*variant="content"/)
   assert.doesNotMatch(statePanel, /LoaderCircle|state-panel__loading-mark/)
+  assert.match(loadBoundary, /import StatePanel from '\.\.\/StatePanel\.vue'/)
+  assert.match(
+    loadBoundary,
+    /<StatePanel[\s\S]*v-if="loading"[\s\S]*v-else-if="forbidden"[\s\S]*v-else-if="error"[\s\S]*<slot v-else \/>/
+  )
   assert.match(listSkeleton, /variant\?: 'list' \| 'content'/)
   assert.match(listSkeleton, /list-skeleton-shimmer/)
   assert.match(messages, /<ListSkeleton[\s\S]*threadsResource\.status === 'loading'/)
-  for (const panel of [externalAccess, certificate]) {
-    assert.match(panel, /import StatePanel from '\.\/StatePanel\.vue'/)
-    assert.match(panel, /<StatePanel v-if="loading" state="loading"/)
+  for (const panel of settingsPanels) {
+    assert.match(panel, /import SettingsLoadBoundary from/)
+    assert.match(panel, /<SettingsLoadBoundary/)
   }
 })
 

@@ -83,6 +83,10 @@ export const recentIncomingThreadKeys = reactive<Record<string, boolean>>({})
 export const contactEditingAvailable = gateway.interactions.contacts
 
 let threadsLoad: Promise<MessageThread[] | null> | undefined
+let bootstrapLoad: Promise<BootstrapResponse | null> | undefined
+let contactsLoad: Promise<Contact[] | null> | undefined
+let devicesLoad: Promise<Device[] | null> | undefined
+let telegramLoad: Promise<TelegramUnit[] | null> | undefined
 let threadsRefresh: Promise<MessageThread[] | null> | undefined
 let contactsRefresh: Promise<Contact[] | null> | undefined
 let bootstrapRefresh: Promise<BootstrapResponse | null> | undefined
@@ -483,14 +487,22 @@ function contactPhoneIdentity(phone: ContactPhone): string {
 
 export function loadBootstrap(force = false): Promise<BootstrapResponse | null> {
   if (!force && bootstrapResource.status === 'ready') return Promise.resolve(bootstrapResource.data)
-  return load(bootstrapResource, () => gateway.getBootstrap())
+  if (bootstrapLoad) return bootstrapLoad
+  bootstrapLoad = load(bootstrapResource, () => gateway.getBootstrap()).finally(() => {
+    bootstrapLoad = undefined
+  })
+  return bootstrapLoad
 }
 
 export function loadContacts(force = false): Promise<Contact[] | null> {
   if (!force && contactsResource.status === 'ready') return Promise.resolve(contactsResource.data)
-  return loadFirstPage(contactsResource, contactsPagination, () =>
+  if (contactsLoad) return contactsLoad
+  contactsLoad = loadFirstPage(contactsResource, contactsPagination, () =>
     gateway.listContacts()
-  )
+  ).finally(() => {
+    contactsLoad = undefined
+  })
+  return contactsLoad
 }
 
 export function loadMoreContacts(): Promise<Contact[] | null> {
@@ -659,7 +671,11 @@ export async function deleteCalls(calls: CallRecord[]): Promise<void> {
 
 export function loadDevices(force = false): Promise<Device[] | null> {
   if (!force && devicesResource.status === 'ready') return Promise.resolve(devicesResource.data)
-  return load(devicesResource, () => gateway.listDevices())
+  if (devicesLoad) return devicesLoad
+  devicesLoad = load(devicesResource, () => gateway.listDevices()).finally(() => {
+    devicesLoad = undefined
+  })
+  return devicesLoad
 }
 
 export async function refreshDeviceWorkspace(): Promise<void> {
@@ -734,7 +750,11 @@ export function loadTelegramUnits(force = false): Promise<TelegramUnit[] | null>
   if (!force && telegramResource.status === 'ready') {
     return Promise.resolve(telegramResource.data)
   }
-  return load(telegramResource, () => gateway.listTelegramUnits())
+  if (telegramLoad) return telegramLoad
+  telegramLoad = load(telegramResource, () => gateway.listTelegramUnits()).finally(() => {
+    telegramLoad = undefined
+  })
+  return telegramLoad
 }
 
 export function messagesFor(threadKey: string): Resource<Message[]> {
@@ -919,6 +939,10 @@ export function resetWorkspaceState(): void {
   messageLoads.clear()
   messageRefreshes.clear()
   threadsLoad = undefined
+  bootstrapLoad = undefined
+  contactsLoad = undefined
+  devicesLoad = undefined
+  telegramLoad = undefined
   threadsRefresh = undefined
   contactsRefresh = undefined
   bootstrapRefresh = undefined

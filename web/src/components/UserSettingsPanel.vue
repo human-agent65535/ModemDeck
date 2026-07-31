@@ -24,7 +24,8 @@ import {
   bootstrapResource,
   lineKey,
   lineLabel,
-  loadBootstrap
+  loadBootstrap,
+  loadContacts
 } from '../state/workspace'
 import {
   minimumPasswordCharacters,
@@ -37,6 +38,7 @@ import AccountSettingsPanel from './AccountSettingsPanel.vue'
 import StatePanel from './StatePanel.vue'
 import SystemSettingsForm from './SystemSettingsForm.vue'
 import SettingsLineScopeList from './settings/SettingsLineScopeList.vue'
+import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SettingsMasterDetail from './settings/SettingsMasterDetail.vue'
 import SettingsSaveStatus from './settings/SettingsSaveStatus.vue'
 
@@ -220,7 +222,11 @@ async function load(): Promise<void> {
   status.value = 'loading'
   loadError.value = ''
   try {
-    const [loaded] = await Promise.all([gateway.listUsers(), loadBootstrap()])
+    const [loaded] = await Promise.all([
+      gateway.listUsers(),
+      loadBootstrap(),
+      loadContacts()
+    ])
     users.value = loaded
     status.value = 'ready'
     if (route.query.newUser === '1') {
@@ -405,21 +411,16 @@ onMounted(() => {
 </script>
 
 <template>
-  <StatePanel
-    v-if="status === 'loading'"
-    state="loading"
-    :title="t('users.loading')"
-  />
-  <StatePanel
-    v-else-if="status === 'error'"
-    state="error"
-    :title="t('users.loadFailed')"
+  <SettingsLoadBoundary
+    :loading="status === 'loading'"
+    :error="status === 'error'"
+    :loading-title="t('users.loading')"
+    :error-title="t('users.loadFailed')"
     :detail="loadError"
     retryable
     @retry="load"
-  />
+  >
   <SettingsMasterDetail
-    v-else
     :label="t('users.title')"
     :sidebar-title="t('users.title')"
     :sidebar-description="t('users.count', { count: users.length })"
@@ -772,6 +773,7 @@ onMounted(() => {
       />
     </section>
   </SettingsMasterDetail>
+  </SettingsLoadBoundary>
 </template>
 
 <style scoped>

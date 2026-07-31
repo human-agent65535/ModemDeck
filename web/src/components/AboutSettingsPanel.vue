@@ -9,11 +9,12 @@ import {
   ExternalLink,
   FileText,
   Info,
-  LoaderCircle,
   Scale
 } from '@lucide/vue'
 import { gateway } from '../api/client'
 import type { AboutInfo, UpdateCheck, UpdateStatus } from '../api/types'
+import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
+import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SettingsModuleCard from './settings/SettingsModuleCard.vue'
 
 const { locale, t } = useI18n()
@@ -25,6 +26,7 @@ const about = ref<AboutInfo | null>(null)
 const update = ref<UpdateCheck | null>(null)
 const checking = ref(false)
 const loadError = ref('')
+const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
 
 const statusIcon = computed(() => {
   switch (update.value?.status) {
@@ -97,12 +99,15 @@ function statusClass(status?: UpdateStatus): string {
 }
 
 onMounted(() => {
-  void load()
-  void checkForUpdates()
+  void waitForInitialLoad([() => load(), () => checkForUpdates()])
 })
 </script>
 
 <template>
+  <SettingsLoadBoundary
+    :loading="initialLoading"
+    :loading-title="t('about.loading')"
+  >
   <section class="about-settings" aria-labelledby="about-product-title">
     <SettingsModuleCard
       class="about-card about-product"
@@ -147,8 +152,7 @@ onMounted(() => {
       :description="t('about.updateDescription')"
     >
       <div class="about-status" :class="statusClass(update?.status)">
-        <LoaderCircle v-if="checking" class="spin" :size="21" />
-        <component :is="statusIcon" v-else :size="21" />
+        <component :is="statusIcon" :size="21" />
         <div>
           <strong>{{ statusTitle }}</strong>
           <p>{{ statusDescription }}</p>
@@ -203,6 +207,7 @@ onMounted(() => {
       </div>
     </SettingsModuleCard>
   </section>
+  </SettingsLoadBoundary>
 </template>
 
 <style scoped>

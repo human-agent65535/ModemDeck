@@ -78,9 +78,13 @@ test('about panel checks automatically without an update action and keeps legal 
 
   assert.match(settingsView, /id: 'about'/)
   assert.match(panel, /gateway\.checkForUpdates\(\)/)
-  assert.doesNotMatch(panel, /await checkForUpdates\(\)/)
-  assert.match(panel, /void load\(\)[\s\S]*void checkForUpdates\(\)/)
-  assert.doesNotMatch(panel, /v-if="loading"/)
+  assert.match(panel, /useInitialLoadBarrier/)
+  assert.match(
+    panel,
+    /waitForInitialLoad\(\[\(\) => load\(\), \(\) => checkForUpdates\(\)\]\)/
+  )
+  assert.match(panel, /<SettingsLoadBoundary[\s\S]*:loading="initialLoading"/)
+  assert.doesNotMatch(panel, /<LoaderCircle/)
   assert.match(panel, /about-status--checking/)
   assert.match(panel, /about\?\.notices_url \|\| noticesURL/)
   assert.doesNotMatch(panel, /about\.checkAgain|installUpdate|downloadUpdate/)

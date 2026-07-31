@@ -1,11 +1,20 @@
 <script setup lang="ts">
+import { computed, onMounted } from 'vue'
 import { ShieldCheck } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
+import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { sessionState } from '../state/session'
+import {
+  bootstrapResource,
+  contactsResource,
+  loadBootstrap,
+  loadContacts
+} from '../state/workspace'
 import AccountProfileSetting from './AccountProfileSetting.vue'
 import AccountSecurityForm from './AccountSecurityForm.vue'
 import DefaultLineSettingsForm from './DefaultLineSettingsForm.vue'
 import SystemSettingsForm from './SystemSettingsForm.vue'
+import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 
 const { t } = useI18n()
 const props = withDefaults(
@@ -23,43 +32,60 @@ const props = withDefaults(
 const emit = defineEmits<{
   profileSaved: []
 }>()
+const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
+const accountResourcesReady = computed(
+  () =>
+    bootstrapResource.status === 'ready' &&
+    (!props.showProfile || contactsResource.status === 'ready')
+)
+
+onMounted(() => {
+  const loaders: Array<() => Promise<unknown>> = [() => loadBootstrap()]
+  if (props.showProfile) loaders.push(() => loadContacts())
+  void waitForInitialLoad(loaders)
+})
 </script>
 
 <template>
-  <div class="account-settings-panel">
-    <section
-      v-if="props.showIdentity"
-      class="account-identity"
-      aria-labelledby="account-identity-title"
-    >
-      <span class="account-identity__icon"><ShieldCheck :size="20" /></span>
-      <div>
-        <h3 id="account-identity-title">{{ sessionState.username }}</h3>
-        <p>
-          {{
-            sessionState.role === 'admin'
-              ? t('account.administratorRole')
-              : t('account.memberRole')
-          }}
-        </p>
+  <SettingsLoadBoundary
+    :loading="initialLoading && !accountResourcesReady"
+    :loading-title="t('common.loading')"
+  >
+    <div class="account-settings-panel">
+      <section
+        v-if="props.showIdentity"
+        class="account-identity"
+        aria-labelledby="account-identity-title"
+      >
+        <span class="account-identity__icon"><ShieldCheck :size="20" /></span>
+        <div>
+          <h3 id="account-identity-title">{{ sessionState.username }}</h3>
+          <p>
+            {{
+              sessionState.role === 'admin'
+                ? t('account.administratorRole')
+                : t('account.memberRole')
+            }}
+          </p>
+        </div>
+        <span class="account-role">
+          {{ sessionState.role === 'admin' ? t('account.administrator') : t('account.member') }}
+        </span>
+      </section>
+
+      <AccountProfileSetting
+        v-if="props.showProfile"
+        @saved="emit('profileSaved')"
+      />
+
+      <div class="account-preferences">
+        <DefaultLineSettingsForm />
+        <SystemSettingsForm v-if="props.showLanguage" />
       </div>
-      <span class="account-role">
-        {{ sessionState.role === 'admin' ? t('account.administrator') : t('account.member') }}
-      </span>
-    </section>
 
-    <AccountProfileSetting
-      v-if="props.showProfile"
-      @saved="emit('profileSaved')"
-    />
-
-    <div class="account-preferences">
-      <DefaultLineSettingsForm />
-      <SystemSettingsForm v-if="props.showLanguage" />
+      <AccountSecurityForm />
     </div>
-
-    <AccountSecurityForm />
-  </div>
+  </SettingsLoadBoundary>
 </template>
 
 <style scoped>

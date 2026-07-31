@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
 import {
   AudioLines,
   BellRing,
@@ -13,15 +13,21 @@ import {
   Volume2
 } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
+import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import AudioDeviceControls from './AudioDeviceControls.vue'
 import RecordingSettingsForm from './RecordingSettingsForm.vue'
 import {
   audioState,
+  refreshAudioDevices,
   setCallVolume,
   setMicrophoneGain,
   setRecordingPlaybackVolume,
   setRingAlertsVolume
 } from '../state/audio'
+import {
+  loadRecordingSettings,
+  recordingSettingsState
+} from '../state/recording'
 import {
   browserSoundState,
   notificationCatalog,
@@ -40,6 +46,7 @@ import {
   type SoundPreview
 } from '../state/browserSounds'
 import SettingsControlRow from './settings/SettingsControlRow.vue'
+import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SettingsSection from './settings/SettingsSection.vue'
 
 const { t } = useI18n()
@@ -68,6 +75,14 @@ const selectedIncomingMessagePreview = computed<SoundPreview>(
 )
 const selectedOutgoingMessagePreview = computed<SoundPreview>(
   () => `outgoing-message:${browserSoundState.outgoingMessage}`
+)
+const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
+const initialResourcesReady = computed(
+  () =>
+    audioState.devicesStatus !== 'idle' &&
+    audioState.devicesStatus !== 'loading' &&
+    recordingSettingsState.status !== 'idle' &&
+    recordingSettingsState.status !== 'loading'
 )
 
 function changeRingtone(event: Event): void {
@@ -110,12 +125,23 @@ function inputNumber(event: Event): number {
   return Number((event.currentTarget as HTMLInputElement).value)
 }
 
+onMounted(() => {
+  void waitForInitialLoad([
+    () => refreshAudioDevices(),
+    () => loadRecordingSettings()
+  ])
+})
+
 onBeforeUnmount(() => {
   stopSoundPreview()
 })
 </script>
 
 <template>
+  <SettingsLoadBoundary
+    :loading="initialLoading && !initialResourcesReady"
+    :loading-title="t('common.loading')"
+  >
   <div class="audio-preferences">
     <SettingsSection
       :title="t('audio.devices')"
@@ -124,7 +150,7 @@ onBeforeUnmount(() => {
       icon-tone="blue"
     >
       <template #icon><AudioLines :size="20" /></template>
-      <AudioDeviceControls />
+      <AudioDeviceControls :refresh-on-mount="false" />
     </SettingsSection>
 
     <SettingsSection
@@ -432,6 +458,7 @@ onBeforeUnmount(() => {
       </p>
     </SettingsSection>
   </div>
+  </SettingsLoadBoundary>
 </template>
 
 <style scoped>

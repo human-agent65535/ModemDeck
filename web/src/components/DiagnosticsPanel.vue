@@ -47,7 +47,7 @@ import {
   isRegisteredNetwork,
   registrationStateLabel
 } from '../utils/operatorNetwork'
-import StatePanel from './StatePanel.vue'
+import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 
 type SnapshotState = 'idle' | 'loading' | 'ready' | 'forbidden' | 'error'
 type LogConnectionState =
@@ -56,7 +56,6 @@ type LogConnectionState =
   | 'reconnecting'
   | 'paused'
   | 'fixture'
-  | 'error'
 
 const { t, locale } = useI18n()
 const MAX_LOCAL_LOGS = 1000
@@ -153,20 +152,14 @@ const browserAudioDetail = computed(() => {
 })
 
 const connectionLabel = computed(() => {
-  switch (connectionState.value) {
-    case 'live':
-      return t('diagnostics.live')
-    case 'connecting':
-      return t('diagnostics.connecting')
-    case 'reconnecting':
-      return t('diagnostics.reconnecting')
-    case 'paused':
-      return t('diagnostics.paused')
-    case 'fixture':
-      return t('diagnostics.fixture')
-    default:
-      return t('diagnostics.disconnected')
+  const labels: Record<LogConnectionState, string> = {
+    live: t('diagnostics.live'),
+    connecting: t('diagnostics.connecting'),
+    reconnecting: t('diagnostics.reconnecting'),
+    paused: t('diagnostics.paused'),
+    fixture: t('diagnostics.fixture')
   }
+  return labels[connectionState.value]
 })
 
 const runtimeErrors = computed(() => {
@@ -619,7 +612,6 @@ async function loadLogs(): Promise<void> {
   } catch (error) {
     if (generation !== streamGeneration || disposed) return
     logError.value = error instanceof Error ? error.message : t('diagnostics.logsFailed')
-    connectionState.value = 'error'
     scheduleReconnect(generation)
   } finally {
     if (generation === streamGeneration) logsLoading.value = false
@@ -697,9 +689,22 @@ watch(
   { immediate: true }
 )
 
+async function loadInitialDiagnostics(): Promise<void> {
+  await Promise.allSettled([
+    loadSnapshot(),
+    loadLogs(),
+    refreshAudioDevices()
+  ])
+  await nextTick()
+  await Promise.allSettled(
+    diagnosticLineIDs.value.map(lineID =>
+      loadDiagnosticDeviceConfiguration(lineID)
+    )
+  )
+}
+
 onMounted(() => {
-  void waitForInitialLoad([() => loadSnapshot(), () => loadLogs()])
-  void refreshAudioDevices()
+  void waitForInitialLoad([() => loadInitialDiagnostics()])
   snapshotTimer = window.setInterval(() => {
     void loadSnapshot()
   }, SNAPSHOT_INTERVAL_MS)
@@ -716,26 +721,20 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="diagnostics-panel" :aria-label="t('settings.diagnostics')">
-    <StatePanel
-      v-if="initialLoading || snapshotState === 'idle' || snapshotState === 'loading'"
-      state="loading"
-      :title="t('diagnostics.loadingStatus')"
-    />
-    <StatePanel
-      v-else-if="snapshotState === 'forbidden'"
-      state="forbidden"
-      :title="t('diagnostics.viewForbidden')"
-      :detail="snapshotError"
-    />
-    <StatePanel
-      v-else-if="snapshotState === 'error'"
-      state="error"
-      :title="t('diagnostics.snapshotFailed')"
+    <SettingsLoadBoundary
+      :loading="
+        initialLoading ||
+        (!snapshot && (snapshotState === 'idle' || snapshotState === 'loading'))
+      "
+      :forbidden="snapshotState === 'forbidden'"
+      :error="snapshotState === 'error'"
+      :loading-title="t('diagnostics.loadingStatus')"
+      :forbidden-title="t('diagnostics.viewForbidden')"
+      :error-title="t('diagnostics.snapshotFailed')"
       :detail="snapshotError"
       retryable
       @retry="loadSnapshot"
-    />
-
+    >
     <template v-if="snapshot">
       <section class="diagnostics-section">
         <header class="section-heading">
@@ -1271,6 +1270,7 @@ onBeforeUnmount(() => {
         </article>
       </div>
     </section>
+    </SettingsLoadBoundary>
   </section>
 </template>
 
@@ -1326,20 +1326,25 @@ onBeforeUnmount(() => {
   font-weight: 650;
 }
 
+.overall-status.is-ok,
+.connection-state.is-live {
+  color: var(--success);
+}
+
 .overall-status.is-degraded,
 .connection-state.is-reconnecting,
 .connection-state.is-connecting {
   color: #946200;
 }
 
-.overall-status.is-unavailable,
-.connection-state.is-error {
+.overall-status.is-unavailable {
   color: var(--danger);
 }
 
 .connection-state > span {
   width: 7px;
   height: 7px;
+  color: inherit;
   background: currentColor;
   border-radius: 50%;
 }

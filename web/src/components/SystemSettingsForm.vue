@@ -6,13 +6,17 @@ import type { SystemLanguage, SystemSettings } from '../api/types'
 import { gateway } from '../api/client'
 import { useSettingsMutation } from '../composables/useSettingsMutation'
 import { setSystemLanguage, systemLanguage } from '../i18n'
+import { bootstrapResource, loadBootstrap } from '../state/workspace'
 import SettingsPreferenceRow from './settings/SettingsPreferenceRow.vue'
 import SettingsSaveStatus from './settings/SettingsSaveStatus.vue'
 
 const { t } = useI18n()
-const settings = ref<SystemSettings>()
-const selected = ref<SystemLanguage>(systemLanguage())
-const loading = ref(true)
+const initialSettings = bootstrapResource.data?.system_settings
+const settings = ref<SystemSettings | undefined>(
+  initialSettings ? { ...initialSettings } : undefined
+)
+const selected = ref<SystemLanguage>(initialSettings?.language || systemLanguage())
+const loading = ref(!initialSettings)
 const loadError = ref('')
 const saveMutation = useSettingsMutation({
   errorMessage: cause =>
@@ -84,8 +88,12 @@ async function load(): Promise<void> {
   loading.value = true
   loadError.value = ''
   try {
-    const loaded = await gateway.getSystemSettings()
-    settings.value = loaded
+    const bootstrap = await loadBootstrap()
+    const loaded = bootstrap?.system_settings || bootstrapResource.data?.system_settings
+    if (!loaded) {
+      throw new Error(bootstrapResource.error || t('settings.systemLoadFailed'))
+    }
+    settings.value = { ...loaded }
     selected.value = loaded.language
     setSystemLanguage(loaded.language)
   } catch (cause) {
@@ -112,6 +120,9 @@ async function selectLanguage(language: SystemLanguage): Promise<void> {
   if (result.ok) {
     const updated = result.value
     settings.value = updated
+    if (bootstrapResource.data) {
+      bootstrapResource.data.system_settings = updated
+    }
     selected.value = updated.language
     setSystemLanguage(updated.language)
   } else {
@@ -125,7 +136,7 @@ function onLanguageChange(event: Event): void {
 }
 
 onMounted(() => {
-  void load()
+  if (!settings.value) void load()
 })
 </script>
 

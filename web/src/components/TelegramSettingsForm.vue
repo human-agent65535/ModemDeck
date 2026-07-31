@@ -37,6 +37,7 @@ import {
 } from '../state/workspace'
 import StatePanel from './StatePanel.vue'
 import SettingsLineScopeList from './settings/SettingsLineScopeList.vue'
+import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SettingsMasterDetail from './settings/SettingsMasterDetail.vue'
 import SettingsSaveStatus from './settings/SettingsSaveStatus.vue'
 
@@ -541,31 +542,22 @@ onMounted(() => {
 </script>
 
 <template>
-  <StatePanel
-    v-if="
+  <SettingsLoadBoundary
+    :loading="
       initialLoading ||
       telegramResource.status === 'loading' ||
       telegramResource.status === 'idle'
     "
-    state="loading"
-    :title="t('telegram.loading')"
-  />
-  <StatePanel
-    v-else-if="telegramResource.status === 'forbidden'"
-    state="forbidden"
-    :title="t('telegram.viewForbidden')"
-    :detail="telegramResource.error"
-  />
-  <StatePanel
-    v-else-if="telegramResource.status === 'error'"
-    state="error"
-    :title="t('telegram.loadFailed')"
+    :forbidden="telegramResource.status === 'forbidden'"
+    :error="telegramResource.status === 'error'"
+    :loading-title="t('telegram.loading')"
+    :forbidden-title="t('telegram.viewForbidden')"
+    :error-title="t('telegram.loadFailed')"
     :detail="telegramResource.error"
     retryable
     @retry="loadTelegramUnits(true)"
-  />
+  >
   <SettingsMasterDetail
-    v-else
     :label="t('telegram.bots')"
     :sidebar-title="t('telegram.bots')"
     :sidebar-description="t('telegram.count', { count: telegramResource.data.length })"
@@ -864,6 +856,7 @@ onMounted(() => {
       </form>
     </section>
   </SettingsMasterDetail>
+  </SettingsLoadBoundary>
 </template>
 
 <style scoped>

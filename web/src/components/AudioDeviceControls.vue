@@ -13,9 +13,16 @@ import {
   stopMicrophoneTest
 } from '../state/audio'
 
-defineProps<{
-  compact?: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    compact?: boolean
+    refreshOnMount?: boolean
+  }>(),
+  {
+    compact: false,
+    refreshOnMount: true
+  }
+)
 
 const { t } = useI18n()
 const missingInput = computed(() => inputDeviceMissing())
@@ -53,7 +60,7 @@ function toggleMicrophoneTest(): void {
 }
 
 onMounted(() => {
-  void refreshAudioDevices()
+  if (props.refreshOnMount) void refreshAudioDevices()
 })
 
 onBeforeUnmount(() => {

@@ -31,7 +31,9 @@ import {
   loadContacts,
   saveContact
 } from '../state/workspace'
+import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { showSuccess } from '../state/feedback'
+import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SettingsModuleCard from './settings/SettingsModuleCard.vue'
 
 const GOOGLE_CLIENT_STORAGE_KEY = 'modemdeck.contacts.googleClientId'
@@ -48,6 +50,12 @@ const vcardBusy = ref(false)
 const vcardError = ref('')
 const vcardNotice = ref('')
 const vcardInput = ref<HTMLInputElement | null>(null)
+const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
+const initialResourcesReady = computed(
+  () =>
+    bootstrapResource.status === 'ready' &&
+    contactsResource.status === 'ready'
+)
 
 const connected = computed(() => Boolean(googleToken.value))
 const clientIDValid = computed(() => validGoogleClientID(clientID.value))
@@ -233,11 +241,15 @@ async function exportVCard(): Promise<void> {
 
 onMounted(() => {
   clientID.value = window.localStorage.getItem(GOOGLE_CLIENT_STORAGE_KEY) || ''
-  void Promise.allSettled([loadBootstrap(), loadContacts()])
+  void waitForInitialLoad([() => loadBootstrap(), () => loadContacts()])
 })
 </script>
 
 <template>
+  <SettingsLoadBoundary
+    :loading="initialLoading && !initialResourcesReady"
+    :loading-title="t('contacts.loading')"
+  >
   <section class="contact-sync-settings" :aria-label="t('contactSync.title')">
     <SettingsModuleCard
       :title="t('contactSync.googleTitle')"
@@ -390,6 +402,7 @@ onMounted(() => {
       </div>
     </SettingsModuleCard>
   </section>
+  </SettingsLoadBoundary>
 </template>
 
 <style scoped>
@@ -465,9 +478,10 @@ onMounted(() => {
 .contact-sync-direction {
   display: grid;
   max-width: 680px;
-  grid-template-columns: minmax(130px, 0.35fr) minmax(0, 0.65fr);
-  gap: 4px 12px;
+  grid-template-columns: minmax(112px, max-content) minmax(0, 1fr);
+  gap: 4px 16px;
   padding: 12px 14px;
+  text-align: left;
   background: var(--surface-hover);
   border-radius: 9px;
 }

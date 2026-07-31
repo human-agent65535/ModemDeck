@@ -95,6 +95,7 @@ import SensitiveValue from './SensitiveValue.vue'
 import SignalBars from './SignalBars.vue'
 import StatePanel from './StatePanel.vue'
 import DeviceWorkspace from './settings/DeviceWorkspace.vue'
+import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SettingsSaveStatus from './settings/SettingsSaveStatus.vue'
 
 type DeviceTab = 'overview' | 'network' | 'sim' | 'sms' | 'voice' | 'ussd'
@@ -1264,23 +1265,29 @@ async function submitUSSD(action: 'initiate' | 'respond' | 'cancel'): Promise<vo
   }
 }
 
-onMounted(() => {
-  void waitForInitialLoad([
-    () => loadBootstrap(),
-    () => loadDevices(),
-    () => loadNetwork(true, true)
+async function loadInitialDeviceWorkspace(): Promise<void> {
+  await Promise.allSettled([
+    loadBootstrap(),
+    loadDevices(),
+    loadNetwork(true, true)
   ])
+  await nextTick()
+  if (selectedLineID.value) {
+    await loadDeviceConfiguration(selectedLineID.value)
+  }
+}
+
+onMounted(() => {
+  void waitForInitialLoad([() => loadInitialDeviceWorkspace()])
 })
 </script>
 
 <template>
-  <StatePanel
-    v-if="initialLoading"
-    state="loading"
-    :title="t('device.loadingModules')"
-  />
+  <SettingsLoadBoundary
+    :loading="initialLoading"
+    :loading-title="t('device.loadingModules')"
+  >
   <DeviceWorkspace
-    v-else
     class="device-configuration"
     :label="t('device.modules')"
     :detail-open="deviceDetailOpen"
@@ -2456,6 +2463,7 @@ onMounted(() => {
       />
     </div>
   </DeviceWorkspace>
+  </SettingsLoadBoundary>
 </template>
 
 <style scoped>

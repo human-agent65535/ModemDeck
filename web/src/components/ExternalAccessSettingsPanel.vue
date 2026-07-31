@@ -21,7 +21,7 @@ import { useSettingsMutation } from '../composables/useSettingsMutation'
 import { requestConfirmation } from '../state/confirmation'
 import { sessionState } from '../state/session'
 import OverlayDialog from './OverlayDialog.vue'
-import StatePanel from './StatePanel.vue'
+import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SettingsModuleCard from './settings/SettingsModuleCard.vue'
 
 const STATUS_REFRESH_INTERVAL_MS = 15_000
@@ -333,18 +333,16 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="ios-settings" :aria-label="t('iosPairing.title')">
-    <StatePanel v-if="loading" state="loading" :title="t('iosPairing.loading')" />
-
-    <StatePanel
-      v-else-if="loadError"
-      state="error"
-      :title="t('iosPairing.loadFailed')"
+    <SettingsLoadBoundary
+      :loading="loading"
+      :error="Boolean(loadError)"
+      :loading-title="t('iosPairing.loading')"
+      :error-title="t('iosPairing.loadFailed')"
       :detail="loadError"
       retryable
       @retry="load"
-    />
-
-    <template v-else-if="pairing">
+    >
+    <template v-if="pairing">
       <SettingsModuleCard
         v-if="isAdmin && externalAccess"
         class="ios-card"
@@ -550,6 +548,7 @@ onBeforeUnmount(() => {
         </p>
       </SettingsModuleCard>
     </template>
+    </SettingsLoadBoundary>
 
     <OverlayDialog
       :open="Boolean(qrDataURL)"

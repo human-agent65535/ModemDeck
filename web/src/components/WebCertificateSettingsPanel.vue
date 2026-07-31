@@ -17,7 +17,7 @@ import type { TLSSettings } from '../api/types'
 import { ApiError } from '../api/types'
 import { requestConfirmation } from '../state/confirmation'
 import { showError, showSuccess } from '../state/feedback'
-import StatePanel from './StatePanel.vue'
+import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 
 const MAX_PEM_BYTES = 1024 * 1024
 const PEM_ACCEPT =
@@ -207,18 +207,16 @@ onMounted(() => {
 
 <template>
   <section class="tls-settings" aria-labelledby="tls-settings-title">
-    <StatePanel v-if="loading" state="loading" :title="t('tls.loading')" />
-
-    <StatePanel
-      v-else-if="loadError"
-      state="error"
-      :title="t('tls.loadFailed')"
+    <SettingsLoadBoundary
+      :loading="loading"
+      :error="Boolean(loadError)"
+      :loading-title="t('tls.loading')"
+      :error-title="t('tls.loadFailed')"
       :detail="loadError"
       retryable
       @retry="loadTLSSettings"
-    />
-
-    <template v-else-if="settings">
+    >
+    <template v-if="settings">
       <p class="tls-scope-notice">{{ t('tls.scopeNotice') }}</p>
 
       <header class="tls-summary">
@@ -396,5 +394,6 @@ onMounted(() => {
         </form>
       </section>
     </template>
+    </SettingsLoadBoundary>
   </section>
 </template>

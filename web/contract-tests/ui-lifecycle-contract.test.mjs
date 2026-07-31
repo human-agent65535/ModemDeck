@@ -24,6 +24,10 @@ test('initial page skeletons wait for every required request to settle', async (
     source('../src/views/CallsView.vue'),
     source('../src/views/RecordingsView.vue'),
     source('../src/views/TrafficView.vue'),
+    source('../src/components/AccountSettingsPanel.vue'),
+    source('../src/components/ContactSyncSettings.vue'),
+    source('../src/components/AudioSettingsForm.vue'),
+    source('../src/components/AboutSettingsPanel.vue'),
     source('../src/components/TelegramSettingsForm.vue'),
     source('../src/components/DeviceConfigurationPanel.vue'),
     source('../src/components/DiagnosticsPanel.vue')
@@ -36,6 +40,89 @@ test('initial page skeletons wait for every required request to settle', async (
     assert.match(consumer, /useInitialLoadBarrier/)
     assert.match(consumer, /waitForInitialLoad/)
   }
+})
+
+test('settings initial barriers cover every resource before revealing content', async () => {
+  const [account, users, system, contacts, audio, audioDevices, about] = await Promise.all([
+    source('../src/components/AccountSettingsPanel.vue'),
+    source('../src/components/UserSettingsPanel.vue'),
+    source('../src/components/SystemSettingsForm.vue'),
+    source('../src/components/ContactSyncSettings.vue'),
+    source('../src/components/AudioSettingsForm.vue'),
+    source('../src/components/AudioDeviceControls.vue'),
+    source('../src/components/AboutSettingsPanel.vue')
+  ])
+
+  assert.match(
+    account,
+    /waitForInitialLoad\(loaders\)[\s\S]*initialLoading && !accountResourcesReady/
+  )
+  assert.match(users, /gateway\.listUsers\(\)[\s\S]*loadBootstrap\(\)[\s\S]*loadContacts\(\)/)
+  assert.match(system, /bootstrapResource\.data\?\.system_settings/)
+  assert.match(system, /const bootstrap = await loadBootstrap\(\)/)
+  assert.doesNotMatch(system, /gateway\.getSystemSettings\(\)/)
+  assert.match(
+    contacts,
+    /waitForInitialLoad\(\[\(\) => loadBootstrap\(\), \(\) => loadContacts\(\)\]\)/
+  )
+  assert.match(
+    audio,
+    /waitForInitialLoad\(\[[\s\S]*refreshAudioDevices\(\)[\s\S]*loadRecordingSettings\(\)/
+  )
+  assert.match(audio, /<AudioDeviceControls :refresh-on-mount="false" \/>/)
+  assert.match(audioDevices, /if \(props\.refreshOnMount\) void refreshAudioDevices\(\)/)
+  assert.match(
+    about,
+    /waitForInitialLoad\(\[\(\) => load\(\), \(\) => checkForUpdates\(\)\]\)/
+  )
+  for (const panel of [account, contacts, audio, about]) {
+    assert.match(panel, /<SettingsLoadBoundary/)
+    assert.match(panel, /:loading=/)
+  }
+})
+
+test('shared settings resources coalesce concurrent initial requests', async () => {
+  const workspace = await source('../src/state/workspace.ts')
+
+  for (const resource of ['bootstrap', 'contacts', 'devices', 'telegram']) {
+    assert.match(workspace, new RegExp(`let ${resource}Load:`))
+    assert.match(
+      workspace,
+      new RegExp(`if \\(${resource}Load\\) return ${resource}Load`)
+    )
+    assert.match(workspace, new RegExp(`${resource}Load = undefined`))
+  }
+})
+
+test('device and diagnostics keep one exclusive skeleton until detail data settles', async () => {
+  const [devices, diagnostics] = await Promise.all([
+    source('../src/components/DeviceConfigurationPanel.vue'),
+    source('../src/components/DiagnosticsPanel.vue')
+  ])
+
+  assert.match(
+    devices,
+    /async function loadInitialDeviceWorkspace\(\)[\s\S]*await Promise\.allSettled\([\s\S]*loadBootstrap\(\)[\s\S]*loadDevices\(\)[\s\S]*loadNetwork\(true, true\)[\s\S]*await nextTick\(\)[\s\S]*await loadDeviceConfiguration\(selectedLineID\.value\)/
+  )
+  assert.match(
+    devices,
+    /waitForInitialLoad\(\[\(\) => loadInitialDeviceWorkspace\(\)\]\)/
+  )
+  assert.match(
+    diagnostics,
+    /async function loadInitialDiagnostics\(\)[\s\S]*loadSnapshot\(\)[\s\S]*loadLogs\(\)[\s\S]*refreshAudioDevices\(\)[\s\S]*diagnosticLineIDs\.value\.map\(lineID =>[\s\S]*loadDiagnosticDeviceConfiguration\(lineID\)/
+  )
+  assert.match(
+    diagnostics,
+    /<SettingsLoadBoundary[\s\S]*:loading="[\s\S]*initialLoading \|\|[\s\S]*\(!snapshot && \(snapshotState === 'idle' \|\| snapshotState === 'loading'\)\)/
+  )
+  assert.match(devices, /<SettingsLoadBoundary[\s\S]*:loading="initialLoading"/)
+  assert.match(diagnostics, /<template v-if="snapshot">/)
+  assert.doesNotMatch(diagnostics, /<template v-else-if="snapshot">/)
+  assert.match(
+    diagnostics,
+    /<section class="diagnostics-section log-section">[\s\S]*<\/SettingsLoadBoundary>/
+  )
 })
 
 test('authenticated app startup requests microphone access once and releases the probe stream', async () => {
