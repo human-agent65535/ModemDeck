@@ -14,6 +14,7 @@ import (
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
 	platformdb "github.com/human-agent65535/modemdeck/internal/platform/database"
+	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/secretbox"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
@@ -72,12 +73,15 @@ type networkAgentCall struct {
 
 type networkTestRepository struct {
 	*store.Store
-	lines []store.LineSummary
+	linesMu sync.RWMutex
+	lines   []store.LineSummary
 }
 
 func (repository *networkTestRepository) Lines(
 	context.Context,
 ) ([]store.LineSummary, error) {
+	repository.linesMu.RLock()
+	defer repository.linesMu.RUnlock()
 	return append([]store.LineSummary(nil), repository.lines...), nil
 }
 
@@ -85,12 +89,20 @@ func (repository *networkTestRepository) ResolveLineEndpoint(
 	_ context.Context,
 	lineID string,
 ) (string, error) {
+	repository.linesMu.RLock()
+	defer repository.linesMu.RUnlock()
 	for _, line := range repository.lines {
 		if line.ID == lineID && strings.TrimSpace(line.EndpointID) != "" {
 			return line.EndpointID, nil
 		}
 	}
 	return "", fmt.Errorf("line %q is not attached", lineID)
+}
+
+func (repository *networkTestRepository) setLines(lines ...store.LineSummary) {
+	repository.linesMu.Lock()
+	defer repository.linesMu.Unlock()
+	repository.lines = append([]store.LineSummary(nil), lines...)
 }
 
 func (agent *fakeAgent) Network(context.Context) (agentclient.NetworkSnapshot, error) {
@@ -563,6 +575,94 @@ func TestRunUsesGetForNormalPeriodicRefresh(t *testing.T) {
 	}
 	if agent.networkCalls < 1 {
 		t.Fatalf("GET calls = %d, want at least one periodic refresh", agent.networkCalls)
+	}
+}
+
+func TestRunReconcilesPendingLineIdentityWhenBindingIsPublished(t *testing.T) {
+	t.Parallel()
+
+	events := runtimeevents.NewBuffer(8)
+	service, repository, agent := newNetworkTestService(t, nil)
+	service.interval = time.Hour
+	service.runtimeEventSource = events
+	repository.setLines()
+	agent.fullSnapshot = agentclient.Snapshot{Lines: []agentclient.Line{{
+		ID:                   "endpoint-pending",
+		SIMPresent:           true,
+		SavedPolicySupported: true,
+	}}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- service.Run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		agent.mu.Lock()
+		putCalls := len(agent.received)
+		fullSnapshotCalls := agent.fullSnapshotCalls
+		agent.mu.Unlock()
+		status, err := service.Status(context.Background())
+		if err != nil {
+			t.Fatalf("Status() error = %v", err)
+		}
+		if putCalls == 1 && fullSnapshotCalls == 1 &&
+			status.ApplyPending && status.ApplyAttempts == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf(
+				"identity wait did not settle: calls=%d snapshots=%d status=%+v",
+				putCalls,
+				fullSnapshotCalls,
+				status,
+			)
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	repository.setLines(store.LineSummary{
+		ID:         "line-stable",
+		EndpointID: "endpoint-pending",
+	})
+	events.Publish(runtimeevents.Event{
+		Resources: []runtimeevents.Resource{runtimeevents.ResourceLines},
+	})
+
+	deadline = time.Now().Add(time.Second)
+	for {
+		status, err := service.Status(context.Background())
+		if err != nil {
+			t.Fatalf("Status() error = %v", err)
+		}
+		agent.mu.Lock()
+		putCalls := len(agent.received)
+		agent.mu.Unlock()
+		if putCalls == 2 && !status.ApplyPending &&
+			status.ApplyStatus == ApplyStatusApplied {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("line event did not resume reconciliation: calls=%d status=%+v", putCalls, status)
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	policy, err := repository.NetworkSelectionPolicy(
+		context.Background(),
+		"line-stable",
+	)
+	if err != nil {
+		t.Fatalf("NetworkSelectionPolicy() error = %v", err)
+	}
+	if policy.Configured {
+		t.Fatalf("implicit policy = %+v, want unconfigured automatic policy", policy)
 	}
 }
 

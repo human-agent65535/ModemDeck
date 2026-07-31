@@ -217,26 +217,28 @@ type Status struct {
 }
 
 type Options struct {
-	Interval         time.Duration
-	MaxApplyAttempts int
-	Location         *time.Location
-	Now              func() time.Time
-	Random           io.Reader
-	Report           func(error)
-	RuntimeEvents    runtimeevents.Publisher
+	Interval           time.Duration
+	MaxApplyAttempts   int
+	Location           *time.Location
+	Now                func() time.Time
+	Random             io.Reader
+	Report             func(error)
+	RuntimeEvents      runtimeevents.Publisher
+	RuntimeEventSource runtimeevents.Source
 }
 
 type Service struct {
-	repository       Repository
-	secrets          SecretBox
-	agent            Agent
-	interval         time.Duration
-	maxApplyAttempts int
-	location         *time.Location
-	now              func() time.Time
-	random           io.Reader
-	report           func(error)
-	runtimeEvents    runtimeevents.Publisher
+	repository         Repository
+	secrets            SecretBox
+	agent              Agent
+	interval           time.Duration
+	maxApplyAttempts   int
+	location           *time.Location
+	now                func() time.Time
+	random             io.Reader
+	report             func(error)
+	runtimeEvents      runtimeevents.Publisher
+	runtimeEventSource runtimeevents.Source
 
 	mutationsMu sync.Mutex
 	randomMu    sync.Mutex
@@ -294,16 +296,17 @@ func New(
 		options.Report = func(error) {}
 	}
 	return &Service{
-		repository:       repository,
-		secrets:          secrets,
-		agent:            agent,
-		interval:         options.Interval,
-		maxApplyAttempts: options.MaxApplyAttempts,
-		location:         options.Location,
-		now:              options.Now,
-		random:           options.Random,
-		report:           options.Report,
-		runtimeEvents:    options.RuntimeEvents,
+		repository:         repository,
+		secrets:            secrets,
+		agent:              agent,
+		interval:           options.Interval,
+		maxApplyAttempts:   options.MaxApplyAttempts,
+		location:           options.Location,
+		now:                options.Now,
+		random:             options.Random,
+		report:             options.Report,
+		runtimeEvents:      options.RuntimeEvents,
+		runtimeEventSource: options.RuntimeEventSource,
 		state: Status{
 			State:             "unavailable",
 			UnavailableReason: "Network runtime has not synchronized",
@@ -321,6 +324,13 @@ func (s *Service) Run(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	var runtimeUpdates <-chan runtimeevents.Event
+	cancelRuntimeUpdates := func() {}
+	if s.runtimeEventSource != nil {
+		_, runtimeUpdates, cancelRuntimeUpdates = s.runtimeEventSource.SubscribeCurrent()
+	}
+	defer cancelRuntimeUpdates()
+
 	s.Reconcile(ctx)
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
@@ -328,6 +338,15 @@ func (s *Service) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return nil
+		case event, ok := <-runtimeUpdates:
+			if !ok {
+				runtimeUpdates = nil
+				continue
+			}
+			if runtimeEventContains(event, runtimeevents.ResourceLines) &&
+				s.shouldApply() {
+				s.Reconcile(ctx)
+			}
 		case <-ticker.C:
 			if s.shouldApply() {
 				s.Reconcile(ctx)
@@ -1033,35 +1052,9 @@ func (s *Service) bindNetworkSnapshot(
 	ctx context.Context,
 	snapshot agentclient.NetworkSnapshot,
 ) (agentclient.NetworkSnapshot, map[string]string, error) {
-	lines, err := s.repository.Lines(ctx)
+	lineIDByEndpoint, err := s.stableLineIDsByEndpoint(ctx)
 	if err != nil {
-		return agentclient.NetworkSnapshot{}, nil, fmt.Errorf(
-			"load stable line identities: %w",
-			err,
-		)
-	}
-	lineIDByEndpoint := make(map[string]string, len(lines))
-	attachedEndpointIDByLine := make(map[string]string, len(lines))
-	for _, line := range lines {
-		lineID := strings.TrimSpace(line.ID)
-		endpointID := strings.TrimSpace(line.EndpointID)
-		if lineID == "" || endpointID == "" {
-			continue
-		}
-		if existing := lineIDByEndpoint[endpointID]; existing != "" && existing != lineID {
-			return agentclient.NetworkSnapshot{}, nil, fmt.Errorf(
-				"endpoint %q is bound to multiple lines",
-				endpointID,
-			)
-		}
-		if existing := attachedEndpointIDByLine[lineID]; existing != "" && existing != endpointID {
-			return agentclient.NetworkSnapshot{}, nil, fmt.Errorf(
-				"line %q is attached to multiple endpoints",
-				lineID,
-			)
-		}
-		lineIDByEndpoint[endpointID] = lineID
-		attachedEndpointIDByLine[lineID] = endpointID
+		return agentclient.NetworkSnapshot{}, nil, err
 	}
 
 	publicLines := make([]agentclient.NetworkLine, 0, len(snapshot.Lines))
@@ -1093,6 +1086,42 @@ func (s *Service) bindNetworkSnapshot(
 	snapshot.Lines = publicLines
 	snapshot.Proxies = publicProxies
 	return snapshot, snapshotEndpointIDByLine, nil
+}
+
+func (s *Service) stableLineIDsByEndpoint(
+	ctx context.Context,
+) (map[string]string, error) {
+	lines, err := s.repository.Lines(ctx)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"load stable line identities: %w",
+			err,
+		)
+	}
+	lineIDByEndpoint := make(map[string]string, len(lines))
+	attachedEndpointIDByLine := make(map[string]string, len(lines))
+	for _, line := range lines {
+		lineID := strings.TrimSpace(line.ID)
+		endpointID := strings.TrimSpace(line.EndpointID)
+		if lineID == "" || endpointID == "" {
+			continue
+		}
+		if existing := lineIDByEndpoint[endpointID]; existing != "" && existing != lineID {
+			return nil, fmt.Errorf(
+				"endpoint %q is bound to multiple lines",
+				endpointID,
+			)
+		}
+		if existing := attachedEndpointIDByLine[lineID]; existing != "" && existing != endpointID {
+			return nil, fmt.Errorf(
+				"line %q is attached to multiple endpoints",
+				lineID,
+			)
+		}
+		lineIDByEndpoint[endpointID] = lineID
+		attachedEndpointIDByLine[lineID] = endpointID
+	}
+	return lineIDByEndpoint, nil
 }
 
 func (s *Service) setUnavailable(reason string) {
@@ -1161,6 +1190,8 @@ func (s *Service) markApplyPending() {
 	defer s.stateMu.Unlock()
 	s.state.ApplyPending = true
 	s.state.ApplyStatus = ApplyStatusPending
+	s.state.ApplyAttempts = 0
+	s.state.ApplyExhausted = false
 }
 
 func (s *Service) markApplySuccess() {
@@ -1168,6 +1199,7 @@ func (s *Service) markApplySuccess() {
 	defer s.stateMu.Unlock()
 	s.state.ApplyPending = false
 	s.state.ApplyStatus = ApplyStatusApplied
+	s.state.ApplyAttempts = 0
 	s.state.ApplyExhausted = false
 }
 
@@ -1175,6 +1207,15 @@ func (s *Service) shouldApply() bool {
 	s.stateMu.RLock()
 	defer s.stateMu.RUnlock()
 	return s.state.ApplyPending && !s.state.ApplyExhausted
+}
+
+func runtimeEventContains(event runtimeevents.Event, resource runtimeevents.Resource) bool {
+	for _, current := range event.Resources {
+		if current == resource {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) newProxyID() (string, error) {

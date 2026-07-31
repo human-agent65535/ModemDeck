@@ -276,11 +276,11 @@ func (s *Service) reconcileNetworkSelections(
 	snapshot agentclient.NetworkSnapshot,
 	fullSnapshot agentclient.Snapshot,
 ) (bool, error) {
-	active, policies, err := s.networkSelectionPolicies(ctx, fullSnapshot)
+	active, policies, identityPending, err := s.networkSelectionPolicies(ctx, fullSnapshot)
 	if err != nil {
 		return true, err
 	}
-	pending := false
+	pending := identityPending
 	failures := make([]error, 0)
 	for _, policy := range policies {
 		endpointID, attached := active[policy.LineID]
@@ -354,9 +354,12 @@ func (s *Service) networkSelectionsPending(
 	snapshot agentclient.NetworkSnapshot,
 	fullSnapshot agentclient.Snapshot,
 ) (bool, error) {
-	active, policies, err := s.networkSelectionPolicies(ctx, fullSnapshot)
+	active, policies, identityPending, err := s.networkSelectionPolicies(ctx, fullSnapshot)
 	if err != nil {
 		return false, err
+	}
+	if identityPending {
+		return true, nil
 	}
 	for _, policy := range policies {
 		if _, attached := active[policy.LineID]; !attached {
@@ -376,20 +379,34 @@ func (s *Service) networkSelectionsPending(
 func (s *Service) networkSelectionPolicies(
 	ctx context.Context,
 	snapshot agentclient.Snapshot,
-) (map[string]string, []store.NetworkSelectionPolicyRecord, error) {
+) (
+	map[string]string,
+	[]store.NetworkSelectionPolicyRecord,
+	bool,
+	error,
+) {
+	lineIDByEndpoint, err := s.stableLineIDsByEndpoint(ctx)
+	if err != nil {
+		return nil, nil, false, err
+	}
 	active := make(map[string]string, len(snapshot.Lines))
+	identityPending := false
 	for _, line := range snapshot.Lines {
 		endpointID := strings.TrimSpace(line.ID)
 		if endpointID == "" || !line.SIMPresent || !line.SavedPolicySupported {
 			continue
 		}
-		lineID, err := s.lineIDForEndpoint(ctx, endpointID)
-		if err != nil {
-			return nil, nil, err
+		lineID := lineIDByEndpoint[endpointID]
+		if lineID == "" {
+			// Communications may observe a SIM endpoint before its stable
+			// subscriber identity has been committed. Wait for that binding
+			// instead of failing this reconciliation or inventing a line ID.
+			identityPending = true
+			continue
 		}
 		active[lineID] = endpointID
 		if _, err := s.repository.EnsureNetworkSelectionPolicy(ctx, lineID); err != nil {
-			return nil, nil, fmt.Errorf(
+			return nil, nil, false, fmt.Errorf(
 				"initialize network selection policy for %q: %w",
 				lineID,
 				err,
@@ -398,9 +415,9 @@ func (s *Service) networkSelectionPolicies(
 	}
 	policies, err := s.repository.NetworkSelectionPolicies(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
-	return active, policies, nil
+	return active, policies, identityPending, nil
 }
 
 func (s *Service) liveRegistrationLine(
@@ -439,29 +456,6 @@ func (s *Service) liveRegistrationLine(
 		CodeNotFound,
 		"line_id",
 		"Line is not attached",
-		nil,
-	)
-}
-
-func (s *Service) lineIDForEndpoint(
-	ctx context.Context,
-	endpointID string,
-) (string, error) {
-	lines, err := s.repository.Lines(ctx)
-	if err != nil {
-		return "", fmt.Errorf("load stable line identities: %w", err)
-	}
-	endpointID = strings.TrimSpace(endpointID)
-	for _, line := range lines {
-		if strings.TrimSpace(line.EndpointID) == endpointID &&
-			strings.TrimSpace(line.ID) != "" {
-			return strings.TrimSpace(line.ID), nil
-		}
-	}
-	return "", operationError(
-		CodeNotFound,
-		"line_id",
-		"Endpoint is not bound to a stable line",
 		nil,
 	)
 }

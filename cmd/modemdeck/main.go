@@ -266,7 +266,8 @@ func run(
 		settingsSecrets,
 		agent,
 		networkruntime.Options{
-			RuntimeEvents: runtimeEvents,
+			RuntimeEvents:      runtimeEvents,
+			RuntimeEventSource: runtimeEvents,
 			Report: func(err error) {
 				logger.Warn("network runtime synchronization failed", "component", "network", "error", err)
 			},

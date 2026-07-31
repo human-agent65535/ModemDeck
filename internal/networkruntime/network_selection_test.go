@@ -143,6 +143,113 @@ func TestReconcileInitializesImplicitAutomaticPolicyForStableSIMLines(t *testing
 		selection.LastError != "" {
 		t.Fatalf("implicit automatic selection = %+v", selection)
 	}
+	status, err := service.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status() error = %v", err)
+	}
+	if status.ApplyPending || status.ApplyAttempts != 0 || status.ApplyExhausted {
+		t.Fatalf("no-SIM endpoints must not wait for identity: %+v", status)
+	}
+}
+
+func TestReconcileWaitsForUnboundSIMWithoutBlockingStableLines(t *testing.T) {
+	t.Parallel()
+
+	service, repository, agent := newNetworkTestService(t, nil)
+	repository.setLines(store.LineSummary{
+		ID:         "line-stable",
+		EndpointID: "endpoint-stable",
+	})
+	policy, err := repository.EnsureNetworkSelectionPolicy(
+		context.Background(),
+		"line-stable",
+	)
+	if err != nil {
+		t.Fatalf("EnsureNetworkSelectionPolicy() error = %v", err)
+	}
+	if _, err := repository.UpdateNetworkSelectionPolicy(
+		context.Background(),
+		"line-stable",
+		"manual",
+		"44010",
+		policy.Revision,
+	); err != nil {
+		t.Fatalf("UpdateNetworkSelectionPolicy() error = %v", err)
+	}
+	agent.fullSnapshot = agentclient.Snapshot{Lines: []agentclient.Line{
+		{
+			ID:                   "endpoint-pending",
+			SIMPresent:           true,
+			SavedPolicySupported: true,
+		},
+		{
+			ID:                   "endpoint-stable",
+			SIMPresent:           true,
+			SavedPolicySupported: true,
+		},
+	}}
+
+	result := service.Reconcile(context.Background())
+	if result.Applied || result.Status != ApplyStatusPending {
+		t.Fatalf("Reconcile() = %+v, want identity pending", result)
+	}
+	agent.mu.Lock()
+	selectionCalls := append([]networkAgentCall(nil), agent.selectionCalls...)
+	agent.mu.Unlock()
+	if len(selectionCalls) != 1 ||
+		selectionCalls[0].LineID != "endpoint-stable" {
+		t.Fatalf("selection calls = %+v, want stable line only", selectionCalls)
+	}
+	applied, err := repository.NetworkSelectionPolicy(
+		context.Background(),
+		"line-stable",
+	)
+	if err != nil {
+		t.Fatalf("NetworkSelectionPolicy(stable) error = %v", err)
+	}
+	if applied.AppliedRevision != applied.Revision ||
+		applied.AppliedBootEpoch != "boot-1" {
+		t.Fatalf("stable policy = %+v, want applied while peer waits", applied)
+	}
+	if _, err := repository.NetworkSelectionPolicy(
+		context.Background(),
+		"line-pending",
+	); !errors.Is(err, store.ErrNetworkSelectionPolicyNotFound) {
+		t.Fatalf("pending policy error = %v, want not found before binding", err)
+	}
+	status, err := service.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status() error = %v", err)
+	}
+	if !status.ApplyPending || status.ApplyStatus != ApplyStatusPending ||
+		status.ApplyAttempts != 0 || status.ApplyExhausted {
+		t.Fatalf("identity wait status = %+v", status)
+	}
+
+	repository.setLines(
+		store.LineSummary{
+			ID:         "line-stable",
+			EndpointID: "endpoint-stable",
+		},
+		store.LineSummary{
+			ID:         "line-pending",
+			EndpointID: "endpoint-pending",
+		},
+	)
+	result = service.Reconcile(context.Background())
+	if !result.Applied || result.Status != ApplyStatusApplied {
+		t.Fatalf("Reconcile() after binding = %+v", result)
+	}
+	pendingPolicy, err := repository.NetworkSelectionPolicy(
+		context.Background(),
+		"line-pending",
+	)
+	if err != nil {
+		t.Fatalf("NetworkSelectionPolicy(pending) error = %v", err)
+	}
+	if pendingPolicy.Configured {
+		t.Fatalf("newly bound policy = %+v, want implicit automatic", pendingPolicy)
+	}
 }
 
 func TestUpdateNetworkSelectionPersistsDesiredStateBeforeAgentCall(t *testing.T) {
