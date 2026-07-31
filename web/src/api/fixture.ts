@@ -95,7 +95,11 @@ const CASEY_WORK_PHONE = '+1 202 555 0105'
 const RILEY_NAME = 'Riley Quinn'
 const RILEY_PHONE = '+1 202 555 0106'
 const UNKNOWN_CALLER_PHONE = '+1 202 555 0107'
-const FIXTURE_APPLICATION_VERSION = 'v9.8.7'
+const FIXTURE_APPLICATION_VERSION =
+  typeof import.meta.env?.VITE_MODEMDECK_BUILD_ID === 'string' &&
+  import.meta.env.VITE_MODEMDECK_BUILD_ID.trim()
+    ? import.meta.env.VITE_MODEMDECK_BUILD_ID.trim()
+    : 'v9.8.7'
 
 function fixtureThreadKey(
   lineID: string,

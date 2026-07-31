@@ -99,7 +99,8 @@ test('root VERSION is the only maintained release version', async () => {
     makefile,
     hardwareBuilder,
     viteConfig,
-    dockerfile
+    dockerfile,
+    fixture
   ] = await Promise.all([
       readFile(new URL('../../VERSION', import.meta.url), 'utf8'),
       readFile(new URL('../package.json', import.meta.url), 'utf8'),
@@ -107,7 +108,8 @@ test('root VERSION is the only maintained release version', async () => {
       readFile(new URL('../../Makefile', import.meta.url), 'utf8'),
       readFile(new URL('../../hardware/build-image.sh', import.meta.url), 'utf8'),
       readFile(new URL('../vite.config.ts', import.meta.url), 'utf8'),
-      readFile(new URL('../../Dockerfile', import.meta.url), 'utf8')
+      readFile(new URL('../../Dockerfile', import.meta.url), 'utf8'),
+      readFile(new URL('../src/api/fixture.ts', import.meta.url), 'utf8')
     ])
   const packageDocument = JSON.parse(packageSource)
   const packageLockDocument = JSON.parse(packageLockSource)
@@ -118,6 +120,10 @@ test('root VERSION is the only maintained release version', async () => {
   assert.equal(packageLockDocument.packages[''].version, undefined)
   assert.match(makefile, /RELEASE_VERSION \?=.*< VERSION/)
   assert.match(makefile, /VERSION \?=.*RELEASE_VERSION/)
+  assert.match(
+    fixture,
+    /import\.meta\.env\.VITE_MODEMDECK_BUILD_ID\.trim\(\)/
+  )
   assert.match(hardwareBuilder, /< "\$\{repo_root\}\/VERSION"/)
   assert.match(viteConfig, /readFileSync\([\s\S]*new URL\('\.\.\/VERSION'/)
   assert.match(viteConfig, /cssCodeSplit: false/)
