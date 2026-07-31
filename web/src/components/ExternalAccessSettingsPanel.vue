@@ -358,6 +358,20 @@ onBeforeUnmount(() => {
         </template>
         <template #status>
           <div class="ios-tunnel-status">
+            <button
+              v-if="externalAccess.cloudflare.enabled"
+              class="icon-button ios-refresh-button"
+              type="button"
+              :disabled="refreshMutation.saving.value"
+              :aria-label="t('iosPairing.refresh')"
+              :title="t('iosPairing.refresh')"
+              @click="refreshExternalAccess"
+            >
+              <RefreshCw
+                :class="{ spin: refreshMutation.saving.value }"
+                :size="16"
+              />
+            </button>
             <span
               class="ios-status"
               :class="{
@@ -375,20 +389,6 @@ onBeforeUnmount(() => {
                       : t('iosPairing.disconnected')
               }}
             </span>
-            <button
-              v-if="externalAccess.cloudflare.enabled"
-              class="icon-button ios-refresh-button"
-              type="button"
-              :disabled="refreshMutation.saving.value"
-              :aria-label="t('iosPairing.refresh')"
-              :title="t('iosPairing.refresh')"
-              @click="refreshExternalAccess"
-            >
-              <RefreshCw
-                :class="{ spin: refreshMutation.saving.value }"
-                :size="16"
-              />
-            </button>
           </div>
         </template>
         <dl v-if="externalAccess.cloudflare.enabled" class="ios-pairing-facts">

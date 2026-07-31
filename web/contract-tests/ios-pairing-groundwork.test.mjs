@@ -207,6 +207,10 @@ test('settings expose capability-scoped infrastructure and self-service pairing'
     externalAccessPanel,
     /'is-active': externalAccess\.cloudflare\.connected/
   )
+  assert.match(
+    externalAccessPanel,
+    /<div class="ios-tunnel-status">[\s\S]*?ios-refresh-button[\s\S]*?<span[\s\S]*?class="ios-status"/
+  )
   assert.match(externalAccessPanel, /externalAccess\.turn\.configured/)
   assert.match(externalAccessPanel, /externalAccess\.turn\.available/)
   assert.match(externalAccessPanel, /pairing\.value\.availability === 'ready'/)
