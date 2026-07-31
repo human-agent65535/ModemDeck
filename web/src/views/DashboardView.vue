@@ -38,6 +38,8 @@ import SelectableListRow from '../components/SelectableListRow.vue'
 import StatePanel from '../components/StatePanel.vue'
 import SwipeActionRow from '../components/SwipeActionRow.vue'
 import TrafficSummary from '../components/TrafficSummary.vue'
+import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
+import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
 import { useListSelection } from '../composables/useListSelection'
 import { requestConfirmation } from '../state/confirmation'
 import { showSuccess } from '../state/feedback'
@@ -694,47 +696,48 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section
-    class="workspace dashboard-workspace"
-    :class="{
-      'has-selection': hasSelection,
-      'is-batch-selecting': selecting
-    }"
+  <WorkspaceMasterDetail
+    class="dashboard-workspace"
+    :has-selection="hasSelection"
+    :batch-selecting="selecting"
+    list-class="dashboard-activity-pane"
   >
-    <aside class="list-pane dashboard-activity-pane">
-      <header class="pane-header">
-        <div>
-          <h1>{{ t('dashboard.activity') }}</h1>
-          <span v-if="!activityLoading">{{ activities.length }}</span>
-        </div>
-        <ListSelectionToggle
-          :active="selecting"
-          :label="t('common.selectMultiple')"
-          :done-label="t('common.done')"
-          :disabled="activities.length === 0"
-          @toggle="selection.toggleMode"
-        />
-        <button
-          class="icon-button dashboard-activity-action"
-          type="button"
-          :disabled="Boolean(messageUnavailable)"
-          :title="messageUnavailable || t('dashboard.newMessage')"
-          :aria-label="t('dashboard.newMessage')"
-          @click="composeMessage"
-        >
-          <MessageSquareText :size="19" />
-        </button>
-        <button
-          v-if="contactEditingAvailable"
-          class="icon-button dashboard-activity-action"
-          type="button"
-          :title="t('contacts.new')"
-          :aria-label="t('contacts.new')"
-          @click="createContact"
-        >
-          <UserPlus :size="19" />
-        </button>
-      </header>
+    <template #list>
+      <WorkspaceListHeader
+        :title="t('dashboard.activity')"
+        :count="activityLoading ? undefined : activities.length"
+        hide-on-compact
+      >
+        <template #actions>
+          <ListSelectionToggle
+            :active="selecting"
+            :label="t('common.selectMultiple')"
+            :done-label="t('common.done')"
+            :disabled="activities.length === 0"
+            @toggle="selection.toggleMode"
+          />
+          <button
+            class="icon-button dashboard-activity-action"
+            type="button"
+            :disabled="Boolean(messageUnavailable)"
+            :title="messageUnavailable || t('dashboard.newMessage')"
+            :aria-label="t('dashboard.newMessage')"
+            @click="composeMessage"
+          >
+            <MessageSquareText :size="19" />
+          </button>
+          <button
+            v-if="contactEditingAvailable"
+            class="icon-button dashboard-activity-action"
+            type="button"
+            :title="t('contacts.new')"
+            :aria-label="t('contacts.new')"
+            @click="createContact"
+          >
+            <UserPlus :size="19" />
+          </button>
+        </template>
+      </WorkspaceListHeader>
 
       <button
         class="list-item dashboard-overview-row"
@@ -905,32 +908,33 @@ onBeforeUnmount(() => {
           <span>{{ t('common.delete') }}</span>
         </button>
       </BatchActionBar>
-    </aside>
+    </template>
 
-    <MessagesView
-      v-if="composingMessage"
-      embedded-compose
-      :initial-recipient="messageComposeRecipient"
-      :initial-recipient-name="messageComposeRecipientName"
-      :context-line-key="messageComposeLineKey"
-      @close="closeMessageComposer"
-      @sent="finishMessageComposer"
-    />
+    <template #detail>
+      <MessagesView
+        v-if="composingMessage"
+        embedded-compose
+        :initial-recipient="messageComposeRecipient"
+        :initial-recipient-name="messageComposeRecipientName"
+        :context-line-key="messageComposeLineKey"
+        @close="closeMessageComposer"
+        @sent="finishMessageComposer"
+      />
 
-    <MessagesView
-      v-else-if="selectedThread"
-      :embedded-thread-key="selectedThread.key"
-      @close="backToList"
-    />
+      <MessagesView
+        v-else-if="selectedThread"
+        :embedded-thread-key="selectedThread.key"
+        @close="backToList"
+      />
 
-    <CallsView
-      v-else-if="selectedCall"
-      :embedded-call-id="selectedCall.id"
-      @close="backToList"
-      @message="messageFromCall"
-    />
+      <CallsView
+        v-else-if="selectedCall"
+        :embedded-call-id="selectedCall.id"
+        @close="backToList"
+        @message="messageFromCall"
+      />
 
-    <article v-else class="detail-pane dashboard-detail-pane">
+      <article v-else class="detail-pane dashboard-detail-pane">
       <template v-if="overviewSelected">
         <div class="dashboard-detail-scroll">
           <button
@@ -1205,18 +1209,19 @@ onBeforeUnmount(() => {
         :title="t('dashboard.activityMissing')"
         :detail="t('dashboard.activityMissingDetail')"
       />
-    </article>
+      </article>
+    </template>
+  </WorkspaceMasterDetail>
 
-    <ContactEditor
-      :open="contactEditorOpen"
-      :lines="contactLines"
-      :default-line-id="defaultLineID"
-      :saving="contactSaving"
-      :error="contactEditorError"
-      @close="contactEditorOpen = false"
-      @save="saveNewContact"
-    />
-  </section>
+  <ContactEditor
+    :open="contactEditorOpen"
+    :lines="contactLines"
+    :default-line-id="defaultLineID"
+    :saving="contactSaving"
+    :error="contactEditorError"
+    @close="contactEditorOpen = false"
+    @save="saveNewContact"
+  />
 </template>
 
 <style scoped>
@@ -1249,20 +1254,6 @@ onBeforeUnmount(() => {
   min-height: 48px;
   padding: 9px 14px;
   font-size: 12px;
-}
-
-.dashboard-activity-pane > .pane-header {
-  gap: 6px;
-}
-
-.dashboard-activity-pane > .pane-header > div {
-  margin-right: auto;
-}
-
-.dashboard-activity-action {
-  width: 38px;
-  height: 38px;
-  flex: 0 0 38px;
 }
 
 .dashboard-detail-scroll {
@@ -1492,20 +1483,12 @@ onBeforeUnmount(() => {
     min-height: 0;
   }
 
-  .dashboard-activity-pane > .pane-header {
-    display: none;
-  }
-
   .dashboard-detail-scroll {
     padding: 16px 16px 24px;
   }
 }
 
 @media (max-width: 640px) {
-  .dashboard-activity-pane > .pane-header {
-    justify-content: flex-end;
-  }
-
   .dashboard-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;

@@ -330,7 +330,7 @@ async function addToContact(): Promise<void> {
 }
 
 .contact-number-actions.is-compact .secondary-button {
-  min-height: 34px;
+  min-height: var(--detail-action-size);
   padding: 0 10px;
   white-space: nowrap;
 }
@@ -433,8 +433,8 @@ async function addToContact(): Promise<void> {
 
 @media (max-width: 760px) {
   .contact-number-actions.is-compact .secondary-button {
-    width: 36px;
-    min-width: 36px;
+    width: var(--detail-action-size);
+    min-width: var(--detail-action-size);
     padding: 0;
   }
 

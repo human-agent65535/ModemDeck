@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, AudioLines, Download, Star, Trash2 } from '@lucide/vue'
+import { AudioLines, Download, Star, Trash2 } from '@lucide/vue'
 import type { RecordingEntry } from '../api/types'
 import BatchActionBar from '../components/BatchActionBar.vue'
 import CommunicationAvatar from '../components/CommunicationAvatar.vue'
@@ -20,6 +20,11 @@ import SearchField from '../components/SearchField.vue'
 import SelectableListRow from '../components/SelectableListRow.vue'
 import StatePanel from '../components/StatePanel.vue'
 import SwipeActionRow from '../components/SwipeActionRow.vue'
+import FavoriteActionButton from '../components/workspace/FavoriteActionButton.vue'
+import WorkspaceDetailHeader from '../components/workspace/WorkspaceDetailHeader.vue'
+import WorkspaceDetailPane from '../components/workspace/WorkspaceDetailPane.vue'
+import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
+import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
 import { useListSelection } from '../composables/useListSelection'
 import { audioState } from '../state/audio'
 import { requestConfirmation } from '../state/confirmation'
@@ -280,13 +285,6 @@ function onSelectionKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape' && selection.active.value) selection.exit()
 }
 
-function backToList(): void {
-  void router.push({
-    name: 'recordings',
-    query: favoriteOnly.value ? { favorite: '1' } : {}
-  })
-}
-
 function scheduleSearch(value: string): void {
   if (searchTimer !== undefined) window.clearTimeout(searchTimer)
   searchTimer = window.setTimeout(() => {
@@ -354,22 +352,19 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section
-    class="workspace"
-    :class="{
-      'has-selection': selected,
-      'is-batch-selecting': selecting
-    }"
+  <WorkspaceMasterDetail
+    :has-selection="Boolean(selected)"
+    :batch-selecting="selecting"
   >
-    <aside class="list-pane">
-      <header class="pane-header">
-        <div>
-          <h1>{{ t('shell.recordings') }}</h1>
-          <span v-if="recordingCatalogState.status === 'ready'">
-            {{ recordingCatalogState.data.length }}
-          </span>
-        </div>
-      </header>
+    <template #list>
+      <WorkspaceListHeader
+        :title="t('shell.recordings')"
+        :count="
+          recordingCatalogState.status === 'ready'
+            ? recordingCatalogState.data.length
+            : undefined
+        "
+      />
 
       <div class="pane-search">
         <div class="pane-search-row">
@@ -573,28 +568,22 @@ onBeforeUnmount(() => {
           <span>{{ t('common.delete') }}</span>
         </button>
       </BatchActionBar>
-    </aside>
+    </template>
 
-    <article class="detail-pane">
-      <template v-if="selected">
-        <header class="detail-header">
-          <button
-            class="icon-button mobile-back"
-            type="button"
-            :title="t('recordings.back')"
-            :aria-label="t('recordings.backList')"
-            @click="backToList"
-          >
-            <ArrowLeft :size="20" />
-          </button>
-          <ContactHeaderIdentity
-            :name="displayName(selected)"
-            :number="recordingDisplayNumber(selected)"
-            :avatar="avatar(selected)"
-            :line="lineTagLine(lineForRecording(selected), selected.call.line_id)"
-            :line-fallback="recordingLineFallback(selected)"
-          />
-          <div class="detail-header__actions recording-header__contact-actions">
+    <template #detail>
+      <WorkspaceDetailPane :content-key="selected?.id">
+        <template v-if="selected">
+          <WorkspaceDetailHeader>
+          <template #identity>
+            <ContactHeaderIdentity
+              :name="displayName(selected)"
+              :number="recordingDisplayNumber(selected)"
+              :avatar="avatar(selected)"
+              :line="lineTagLine(lineForRecording(selected), selected.call.line_id)"
+              :line-fallback="recordingLineFallback(selected)"
+            />
+          </template>
+          <template #actions>
             <ContactNumberActions
               :number="selected.call.remote_number"
               :contact="selectedContact"
@@ -609,26 +598,15 @@ onBeforeUnmount(() => {
             >
               <Trash2 :size="18" />
             </button>
-            <button
-              class="icon-button recording-favorite-button"
-              :class="{ 'is-active': selected.favorite }"
-              type="button"
+            <FavoriteActionButton
+              :active="selected.favorite"
               :disabled="Boolean(favoritePendingCallID)"
-              :title="
-                selected.favorite
-                  ? t('common.unfavorite')
-                  : t('common.favorite')
-              "
-              :aria-pressed="selected.favorite"
-              @click="toggleRecordingFavorite(selected)"
-            >
-              <Star
-                :size="18"
-                :fill="selected.favorite ? 'currentColor' : 'none'"
-              />
-            </button>
-          </div>
-        </header>
+              :activate-label="t('common.favorite')"
+              :deactivate-label="t('common.unfavorite')"
+              @toggle="toggleRecordingFavorite(selected)"
+            />
+          </template>
+        </WorkspaceDetailHeader>
 
         <div class="recording-detail">
           <section class="recording-player" :aria-label="t('recordings.playback')">
@@ -700,21 +678,23 @@ onBeforeUnmount(() => {
               </div>
             </dl>
           </section>
-        </div>
-      </template>
-
-      <StatePanel
-        v-else-if="selectedID && recordingCatalogState.status === 'ready'"
-        state="empty"
-        :title="t('recordings.notInResults')"
-      />
-      <StatePanel
-        v-else
-        state="empty"
-        :title="t('recordings.select')"
-      />
-    </article>
-  </section>
+          </div>
+        </template>
+        <template #empty>
+          <StatePanel
+            v-if="selectedID && recordingCatalogState.status === 'ready'"
+            state="empty"
+            :title="t('recordings.notInResults')"
+          />
+          <StatePanel
+            v-else
+            state="empty"
+            :title="t('recordings.select')"
+          />
+        </template>
+      </WorkspaceDetailPane>
+    </template>
+  </WorkspaceMasterDetail>
 </template>
 
 <style scoped>
@@ -759,21 +739,10 @@ onBeforeUnmount(() => {
   color: #a86400;
 }
 
-.recording-favorite-button:hover:not(:disabled),
-.recording-favorite-button.is-active {
-  color: #a86400;
-  background: transparent;
-}
-
 .recording-detail {
   min-height: 0;
   padding: 26px;
   overflow-y: auto;
-}
-
-.recording-header__contact-actions {
-  display: flex;
-  align-items: center;
 }
 
 .recording-player {

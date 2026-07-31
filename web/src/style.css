@@ -28,6 +28,7 @@
   --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-emphasized: cubic-bezier(0.2, 0.9, 0.25, 1);
   --detail-action-gap: 6px;
+  --detail-action-size: 38px;
   --rail-width: 92px;
   --header-height: 72px;
   --dialer-width: clamp(360px, 28vw, 420px);
@@ -1150,9 +1151,9 @@ textarea::placeholder {
 
 .icon-button {
   display: inline-grid;
-  width: 38px;
-  height: 38px;
-  flex: 0 0 38px;
+  width: var(--detail-action-size);
+  height: var(--detail-action-size);
+  flex: 0 0 var(--detail-action-size);
   place-items: center;
   color: var(--muted);
   background: transparent;
@@ -1310,8 +1311,6 @@ textarea::placeholder {
   }
 }
 
-.detail-header,
-.conversation-header,
 .settings-detail-header {
   display: flex;
   min-height: 82px;
@@ -1322,17 +1321,6 @@ textarea::placeholder {
   border-bottom: 1px solid var(--border);
 }
 
-.detail-header__identity,
-.conversation-title {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.detail-header__identity h2,
-.conversation-title h2,
 .settings-detail-header h2 {
   overflow: hidden;
   font-size: 18px;
@@ -1340,26 +1328,9 @@ textarea::placeholder {
   white-space: nowrap;
 }
 
-.detail-header__identity span,
-.conversation-title span {
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.detail-header__actions,
 .row-actions {
   display: flex;
   align-items: center;
-}
-
-.detail-header__actions {
-  gap: var(--detail-action-gap);
-}
-
-.row-actions {
   gap: 4px;
 }
 
@@ -1511,12 +1482,6 @@ dd {
 
 .conversation-pane {
   min-height: 0;
-}
-
-.conversation-header {
-  min-height: 68px;
-  padding-top: 10px;
-  padding-bottom: 10px;
 }
 
 .conversation-recipient {
@@ -3433,21 +3398,11 @@ dd {
     font-size: 20px;
   }
 
-  .detail-header,
-  .conversation-header,
   .settings-detail-header {
     min-height: 62px;
     padding: 9px 12px;
   }
 
-  .detail-header .avatar--large {
-    width: 44px;
-    height: 44px;
-    font-size: 13px;
-  }
-
-  .detail-header__identity h2,
-  .conversation-title h2,
   .settings-detail-header h2 {
     font-size: 16px;
   }

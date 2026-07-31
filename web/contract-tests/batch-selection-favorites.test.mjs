@@ -133,22 +133,14 @@ test('all communication list panes expose selection and their eligible batch act
   assert.match(statusRail, /class="list-item-status-rail__icons"/)
   assert.match(statusRail, /<slot \/>[\s\S]*?<slot name="favorite" \/>/)
   assert.match(statusRail, /\.has-date[\s\S]*?justify-content: space-between/)
-  assert.match(
-    calls,
-    /<header class="detail-header">[\s\S]*?class="icon-button icon-button--danger desktop-delete-action"[\s\S]*?class="icon-button call-favorite-button"[\s\S]*?<\/header>/
-  )
-  assert.match(
-    messages,
-    /<header class="conversation-header">[\s\S]*?class="detail-header__actions conversation-header__actions"[\s\S]*?class="icon-button icon-button--danger desktop-delete-action"[\s\S]*?class="icon-button conversation-favorite-button"[\s\S]*?<\/header>/
-  )
-  assert.match(
-    recordings,
-    /<header class="detail-header">[\s\S]*?class="detail-header__actions recording-header__contact-actions"[\s\S]*?class="icon-button icon-button--danger desktop-delete-action"[\s\S]*?class="icon-button recording-favorite-button"[\s\S]*?<\/header>/
-  )
-  assert.match(
-    contacts,
-    /<header class="detail-header">[\s\S]*?class="icon-button icon-button--danger desktop-delete-action"[\s\S]*?class="icon-button contact-favorite-button"[\s\S]*?<\/header>/
-  )
+  for (const view of [calls, messages, recordings, contacts]) {
+    assert.match(view, /import WorkspaceDetailHeader from/)
+    assert.match(view, /import FavoriteActionButton from/)
+    assert.match(
+      view,
+      /<WorkspaceDetailHeader[\s\S]*?<template[^>]*#actions>[\s\S]*?class="icon-button icon-button--danger desktop-delete-action"[\s\S]*?<FavoriteActionButton[\s\S]*?<\/WorkspaceDetailHeader>/
+    )
+  }
 
   assert.match(dashboard, /const batchMessageActivities = computed/)
   assert.match(dashboard, /const batchMissedCallActivities = computed/)

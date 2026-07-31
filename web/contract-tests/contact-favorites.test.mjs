@@ -32,6 +32,10 @@ const dashboardView = new URL('../src/views/DashboardView.vue', import.meta.url)
 const messagesView = new URL('../src/views/MessagesView.vue', import.meta.url)
 const recordingsView = new URL('../src/views/RecordingsView.vue', import.meta.url)
 const globalStyles = new URL('../src/style.css', import.meta.url)
+const workspaceDetailHeader = new URL(
+  '../src/components/workspace/WorkspaceDetailHeader.vue',
+  import.meta.url
+)
 
 test('contact parsing requires a real favorite value', () => {
   const contact = parseContact({
@@ -100,7 +104,10 @@ test('message conversations reuse contact create and add actions', async () => {
 
   assert.match(source, /import ContactNumberActions/)
   assert.match(source, /<ContactHeaderIdentity/)
-  assert.match(source, /class="conversation-header__contact-actions"[\s\S]*<ContactNumberActions/)
+  assert.match(
+    source,
+    /<WorkspaceDetailHeader density="compact">[\s\S]*?<template[^>]*#actions>[\s\S]*?<ContactNumberActions/
+  )
   assert.match(source, /<ContactNumberActions[\s\S]*:number="selectedThread\.peer"/)
   assert.match(source, /:contact="activeContact"/)
   assert.match(source, /compact/)
@@ -119,11 +126,12 @@ test('contact actions use compact copy with complete accessible labels', async (
   assert.match(source, /t\('contacts\.addExistingShort'\)/)
 })
 
-test('communication detail action groups share one stable gap', async () => {
-  const [actions, messages, styles] = await Promise.all([
+test('communication detail action groups share one stable size and gap', async () => {
+  const [actions, messages, styles, detailHeader] = await Promise.all([
     readFile(numberActions, 'utf8'),
     readFile(messagesView, 'utf8'),
-    readFile(globalStyles, 'utf8')
+    readFile(globalStyles, 'utf8'),
+    readFile(workspaceDetailHeader, 'utf8')
   ])
 
   assert.match(
@@ -132,13 +140,15 @@ test('communication detail action groups share one stable gap', async () => {
   )
   assert.match(
     messages,
-    /class="detail-header__actions conversation-header__actions"/
+    /<WorkspaceDetailHeader density="compact">[\s\S]*?<template[^>]*#actions>/
   )
   assert.match(styles, /--detail-action-gap: 6px;/)
+  assert.match(styles, /--detail-action-size: 38px;/)
   assert.match(
-    styles,
-    /\.detail-header__actions \{[\s\S]*gap: var\(--detail-action-gap\);/
+    detailHeader,
+    /\.workspace-detail-header__actions \{[\s\S]*gap: var\(--detail-action-gap\);/
   )
+  assert.match(detailHeader, /--detail-action-size: 36px;/)
 })
 
 test('recordings reuse the compact contact identity and actions in the header', async () => {
@@ -153,7 +163,7 @@ test('recordings reuse the compact contact identity and actions in the header', 
   assert.match(source, /:number="selected\.call\.remote_number"/)
   assert.match(
     source,
-    /class="detail-header__actions recording-header__contact-actions"/
+    /<WorkspaceDetailHeader>[\s\S]*?<template #actions>/
   )
   assert.match(source, /<ContactNumberActions[\s\S]*:contact="selectedContact"[\s\S]*compact/)
 })
@@ -368,6 +378,6 @@ test('contacts expose avatar upload in full and quick create flows', async () =>
   assert.match(viewSource, /async function toggleFavorite\(contact: Contact\)/)
   assert.match(viewSource, /favorite: !contact\.favorite/)
   assert.match(viewSource, /region: phone\.region/)
-  assert.match(viewSource, /:aria-pressed="selected\.favorite"/)
+  assert.match(viewSource, /<FavoriteActionButton[\s\S]*:active="selected\.favorite"/)
   assert.match(viewSource, /v-if="contact\.favorite"/)
 })

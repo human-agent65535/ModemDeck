@@ -7,6 +7,10 @@ const callHistoryListItem = new URL(
   '../src/components/CallHistoryListItem.vue',
   import.meta.url
 )
+const workspaceDetailHeader = new URL(
+  '../src/components/workspace/WorkspaceDetailHeader.vue',
+  import.meta.url
+)
 
 async function source() {
   return readFile(callsView, 'utf8')
@@ -42,22 +46,30 @@ test('call history marks only calls with playable recordings', async () => {
 })
 
 test('call detail keeps communication and contact actions in one compact header', async () => {
-  const calls = await source()
+  const [calls, detailHeader] = await Promise.all([
+    source(),
+    readFile(workspaceDetailHeader, 'utf8')
+  ])
 
   assert.match(
     calls,
-    /class="detail-header__actions call-detail__header-actions"[\s\S]*?class="call-detail__command call-detail__command--primary"[\s\S]*?@click="callBack\(selected\)"[\s\S]*?class="call-detail__command"[\s\S]*?@click="sendMessage\(selected\)"/
+    /<WorkspaceDetailHeader class="call-detail__header">[\s\S]*?<template #actions>[\s\S]*?class="call-detail__command call-detail__command--primary"[\s\S]*?@click="callBack\(selected\)"[\s\S]*?class="call-detail__command"[\s\S]*?@click="sendMessage\(selected\)"/
   )
   assert.match(
     calls,
-    /<ContactHeaderIdentity[\s\S]*?:number="callDisplayNumber\(selected\)"[\s\S]*?\/>[\s\S]*?<div class="detail-header__actions call-detail__header-actions">[\s\S]*?<ContactNumberActions[\s\S]*?:contact="selectedContact"[\s\S]*?compact/
+    /<template #identity>[\s\S]*?<ContactHeaderIdentity[\s\S]*?:number="callDisplayNumber\(selected\)"[\s\S]*?\/>[\s\S]*?<template #actions>[\s\S]*?<ContactNumberActions[\s\S]*?:contact="selectedContact"[\s\S]*?compact/
   )
-  assert.doesNotMatch(calls, /<template #actions>/)
+  assert.match(calls, /<FavoriteActionButton/)
   assert.doesNotMatch(calls, /<div class="call-detail__actions">/)
   assert.doesNotMatch(calls, /class="call-detail__contact-actions"/)
   assert.match(
     calls,
-    /\.calls-workspace \.detail-header\s*\{[^}]*container-type: inline-size;[^}]*\}[\s\S]*?@container \(max-width: 760px\)[\s\S]*?\.call-detail__command span\s*\{[^}]*display: none;/s
+    /@container \(max-width: 760px\)[\s\S]*?\.call-detail__command span\s*\{[^}]*display: none;/s
+  )
+  assert.match(detailHeader, /container-type: inline-size;/)
+  assert.match(
+    detailHeader,
+    /\.workspace-detail-header__actions \{[\s\S]*gap: var\(--detail-action-gap\);/
   )
 })
 

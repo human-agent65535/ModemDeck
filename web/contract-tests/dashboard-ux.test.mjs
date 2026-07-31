@@ -22,6 +22,10 @@ const callHistoryListItem = await readFile(
   new URL('../src/components/CallHistoryListItem.vue', import.meta.url),
   'utf8'
 )
+const workspaceMasterDetail = await readFile(
+  new URL('../src/components/workspace/WorkspaceMasterDetail.vue', import.meta.url),
+  'utf8'
+)
 
 test('dashboard orders communication status, lines, traffic, and favorites', () => {
   const summaryIndex = dashboard.indexOf('class="dashboard-summary-grid"')
@@ -36,8 +40,11 @@ test('dashboard orders communication status, lines, traffic, and favorites', () 
 })
 
 test('dashboard keeps creation actions with activity and omits the duplicate overview header', () => {
-  const activityHeaderStart = dashboard.indexOf('<header class="pane-header">')
-  const activityHeaderEnd = dashboard.indexOf('</header>', activityHeaderStart)
+  const activityHeaderStart = dashboard.indexOf('<WorkspaceListHeader')
+  const activityHeaderEnd = dashboard.indexOf(
+    '</WorkspaceListHeader>',
+    activityHeaderStart
+  )
   const activityHeader = dashboard.slice(activityHeaderStart, activityHeaderEnd)
 
   assert.equal((dashboard.match(/@click="composeMessage"/g) || []).length, 1)
@@ -90,10 +97,17 @@ test('dashboard reuses message and call detail surfaces in the middle pane', () 
     messages,
     /props\.embeddedThreadKey \|\| String\(route\.params\.threadKey \|\| ''\)/
   )
-  assert.match(messages, /<aside v-if="!embedded" class="list-pane">/)
+  assert.match(
+    messages,
+    /<WorkspaceMasterDetail[\s\S]*:embedded="embedded"/
+  )
   assert.match(calls, /embeddedCallId\?: string/)
   assert.match(calls, /props\.embeddedCallId \|\|/)
-  assert.match(calls, /<aside v-if="!embedded" class="list-pane">/)
+  assert.match(calls, /<WorkspaceMasterDetail[\s\S]*:embedded="embedded"/)
+  assert.match(
+    workspaceMasterDetail,
+    /<aside v-if="!embedded" class="list-pane" :class="listClass">/
+  )
 })
 
 test('dashboard embedded communication details overlap the mobile activity pane', () => {

@@ -3,7 +3,6 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  ArrowLeft,
   MessageSquareText,
   Pencil,
   Phone,
@@ -25,6 +24,11 @@ import SearchField from '../components/SearchField.vue'
 import SelectableListRow from '../components/SelectableListRow.vue'
 import StatePanel from '../components/StatePanel.vue'
 import SwipeActionRow from '../components/SwipeActionRow.vue'
+import FavoriteActionButton from '../components/workspace/FavoriteActionButton.vue'
+import WorkspaceDetailHeader from '../components/workspace/WorkspaceDetailHeader.vue'
+import WorkspaceDetailPane from '../components/workspace/WorkspaceDetailPane.vue'
+import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
+import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
 import { useListSelection } from '../composables/useListSelection'
 import { requestConfirmation } from '../state/confirmation'
 import { showSuccess } from '../state/feedback'
@@ -119,10 +123,6 @@ watch(filteredContacts, contacts => selection.reconcile(contacts))
 
 function selectContact(contact: Contact): void {
   void router.push({ name: 'contacts', params: { contactId: contact.id } })
-}
-
-function backToList(): void {
-  void router.push({ name: 'contacts' })
 }
 
 function openNew(): void {
@@ -276,31 +276,33 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section
-    class="workspace"
-    :class="{
-      'has-selection': selected,
-      'is-batch-selecting': selecting
-    }"
+  <WorkspaceMasterDetail
+    :has-selection="Boolean(selected)"
+    :batch-selecting="selecting"
   >
-    <aside class="list-pane">
-      <header class="pane-header">
-        <div>
-          <h1>{{ t('shell.contacts') }}</h1>
-          <span v-if="contactsResource.status === 'ready'">{{ contactsResource.data.length }}</span>
-        </div>
-        <button
-          v-if="contactEditingAvailable"
-          class="pane-create-button mobile-list-fab"
-          type="button"
-          :title="t('contacts.new')"
-          :aria-label="t('contacts.new')"
-          @click="openNew"
-        >
-          <UserPlus :size="19" />
-          <span>{{ t('contacts.new') }}</span>
-        </button>
-      </header>
+    <template #list>
+      <WorkspaceListHeader
+        :title="t('shell.contacts')"
+        :count="
+          contactsResource.status === 'ready'
+            ? contactsResource.data.length
+            : undefined
+        "
+      >
+        <template #actions>
+          <button
+            v-if="contactEditingAvailable"
+            class="pane-create-button mobile-list-fab"
+            type="button"
+            :title="t('contacts.new')"
+            :aria-label="t('contacts.new')"
+            @click="openNew"
+          >
+            <UserPlus :size="19" />
+            <span>{{ t('contacts.new') }}</span>
+          </button>
+        </template>
+      </WorkspaceListHeader>
       <div class="pane-search">
         <div class="pane-search-row">
           <ListSelectionToggle
@@ -429,25 +431,24 @@ onBeforeUnmount(() => {
           <span>{{ t('common.delete') }}</span>
         </button>
       </BatchActionBar>
-    </aside>
+    </template>
 
-    <article class="detail-pane">
-      <template v-if="selected">
-        <header class="detail-header">
-          <button
-            class="icon-button mobile-back"
-            type="button"
-            :title="t('contacts.back')"
-            @click="backToList"
-          >
-            <ArrowLeft :size="20" />
-          </button>
-          <BaseAvatar :name="selected.display_name" :src="selected.avatar" size="large" />
-          <div class="detail-header__identity">
-            <h2>{{ selected.display_name }}</h2>
-            <span v-if="selected.notes">{{ selected.notes }}</span>
-          </div>
-          <div v-if="contactEditingAvailable" class="detail-header__actions">
+    <template #detail>
+      <WorkspaceDetailPane :content-key="selected?.id">
+        <template v-if="selected">
+          <WorkspaceDetailHeader>
+          <template #identity>
+            <BaseAvatar
+              :name="selected.display_name"
+              :src="selected.avatar"
+              size="large"
+            />
+            <div class="workspace-detail-identity">
+              <h2>{{ selected.display_name }}</h2>
+              <span v-if="selected.notes">{{ selected.notes }}</span>
+            </div>
+          </template>
+          <template v-if="contactEditingAvailable" #actions>
             <button
               class="icon-button"
               type="button"
@@ -465,23 +466,15 @@ onBeforeUnmount(() => {
             >
               <Trash2 :size="18" />
             </button>
-            <button
-              class="icon-button contact-favorite-button"
-              :class="{ 'is-active': selected.favorite }"
-              type="button"
-              :title="
-                selected.favorite
-                  ? t('contacts.unfavorite')
-                  : t('contacts.favorite')
-              "
-              :aria-pressed="selected.favorite"
+            <FavoriteActionButton
+              :active="selected.favorite"
               :disabled="favoritePending"
-              @click="toggleFavorite(selected)"
-            >
-              <Star :size="18" :fill="selected.favorite ? 'currentColor' : 'none'" />
-            </button>
-          </div>
-        </header>
+              :activate-label="t('contacts.favorite')"
+              :deactivate-label="t('contacts.unfavorite')"
+              @toggle="toggleFavorite(selected)"
+            />
+          </template>
+        </WorkspaceDetailHeader>
 
         <div class="contact-detail">
           <p v-if="favoriteError" class="field-error" role="alert">{{ favoriteError }}</p>
@@ -523,28 +516,29 @@ onBeforeUnmount(() => {
           <p v-if="dialUnavailable || messageUnavailable" class="unavailable-note">
             {{ dialUnavailable || messageUnavailable }}
           </p>
-        </div>
-      </template>
+          </div>
+        </template>
+        <template #empty>
+          <StatePanel
+            state="empty"
+            :title="t('contacts.select')"
+            :detail="t('contacts.detailPlaceholder')"
+          />
+        </template>
+      </WorkspaceDetailPane>
+    </template>
+  </WorkspaceMasterDetail>
 
-      <StatePanel
-        v-else
-        state="empty"
-        :title="t('contacts.select')"
-        :detail="t('contacts.detailPlaceholder')"
-      />
-    </article>
-
-    <ContactEditor
-      :open="editorOpen"
-      :contact="editing"
-      :lines="contactLines"
-      :default-line-id="defaultLineID"
-      :saving="saving"
-      :error="editorError"
-      @close="editorOpen = false"
-      @save="save"
-    />
-  </section>
+  <ContactEditor
+    :open="editorOpen"
+    :contact="editing"
+    :lines="contactLines"
+    :default-line-id="defaultLineID"
+    :saving="saving"
+    :error="editorError"
+    @close="editorOpen = false"
+    @save="save"
+  />
 </template>
 
 <style scoped>
@@ -556,8 +550,7 @@ onBeforeUnmount(() => {
   padding: 0 20px 24px;
 }
 
-.contact-favorite-mark,
-.contact-favorite-button.is-active {
+.contact-favorite-mark {
   color: #a86400;
 }
 

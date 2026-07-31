@@ -181,9 +181,10 @@ test('recordings are a communication workspace with native playback and call lin
   const view = await source('../src/views/RecordingsView.vue')
 
   assert.match(router, /path: 'recordings',\s*name: 'recordings'/)
-  assert.match(view, /class="workspace"/)
-  assert.match(view, /class="list-pane"/)
-  assert.match(view, /class="detail-pane"/)
+  assert.match(view, /import WorkspaceMasterDetail from/)
+  assert.match(view, /import WorkspaceDetailPane from/)
+  assert.match(view, /<WorkspaceMasterDetail/)
+  assert.match(view, /<WorkspaceDetailPane :content-key="selected\?\.id">/)
   assert.match(
     view,
     /<audio[\s\S]*:src="selected\.download_url"[\s\S]*:volume="audioState\.recordingPlaybackVolume \/ 100"[\s\S]*controls/

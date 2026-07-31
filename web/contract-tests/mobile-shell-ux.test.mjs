@@ -145,6 +145,9 @@ test('mobile list creation actions share one bottom-right floating treatment', a
   const contacts = await source('../src/views/ContactsView.vue')
   const messages = await source('../src/views/MessagesView.vue')
   const styles = await source('../src/style.css')
+  const detailPane = await source(
+    '../src/components/workspace/WorkspaceDetailPane.vue'
+  )
 
   assert.match(contacts, /class="pane-create-button mobile-list-fab"/)
   assert.match(contacts, /<span>\{\{ t\('contacts\.new'\) \}\}<\/span>/)
@@ -158,11 +161,15 @@ test('mobile list creation actions share one bottom-right floating treatment', a
     styles,
     /\.workspace\.has-selection :is\([\s\S]*\.mobile-list-fab,[\s\S]*\) \{[\s\S]*opacity: 0;[\s\S]*transform: scale\(0\.88\);/
   )
-  assert.match(messages, /<Transition name="conversation-content" mode="out-in">/)
-  assert.match(messages, /class="conversation-detail-content"/)
+  assert.match(messages, /<WorkspaceDetailPane[\s\S]*:content-key=/)
   assert.match(
-    messages,
-    /\.conversation-content-leave-to \{[\s\S]*opacity: 0;[\s\S]*translateX\(-8px\);/
+    detailPane,
+    /<Transition name="workspace-detail-content" mode="out-in">/
+  )
+  assert.match(detailPane, /class="workspace-detail-pane__content"/)
+  assert.match(
+    detailPane,
+    /\.workspace-detail-content-leave-to \{[\s\S]*opacity: 0;[\s\S]*translateX\(-8px\);/
   )
 })
 

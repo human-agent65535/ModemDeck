@@ -3,7 +3,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  ArrowLeft,
   LoaderCircle,
   Mail,
   MailOpen,
@@ -29,6 +28,11 @@ import SearchField from '../components/SearchField.vue'
 import SelectableListRow from '../components/SelectableListRow.vue'
 import StatePanel from '../components/StatePanel.vue'
 import SwipeActionRow from '../components/SwipeActionRow.vue'
+import FavoriteActionButton from '../components/workspace/FavoriteActionButton.vue'
+import WorkspaceDetailHeader from '../components/workspace/WorkspaceDetailHeader.vue'
+import WorkspaceDetailPane from '../components/workspace/WorkspaceDetailPane.vue'
+import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
+import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
 import { useListSelection } from '../composables/useListSelection'
 import { requestConfirmation } from '../state/confirmation'
 import { openDialer } from '../state/ui'
@@ -823,31 +827,34 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section
-    class="workspace messages-workspace"
-    :class="{
-      'has-selection': selectedThread || composingNew,
-      'is-embedded': embedded,
-      'is-batch-selecting': selecting
-    }"
+  <WorkspaceMasterDetail
+    class="messages-workspace"
+    :has-selection="Boolean(selectedThread || composingNew)"
+    :embedded="embedded"
+    :batch-selecting="selecting"
   >
-    <aside v-if="!embedded" class="list-pane">
-      <header class="pane-header">
-        <div>
-          <h1>{{ t('shell.messages') }}</h1>
-          <span v-if="threadsResource.status === 'ready'">{{ threadsResource.data.length }}</span>
-        </div>
-        <button
-          class="pane-create-button mobile-list-fab"
-          type="button"
-          :disabled="Boolean(messageWriteUnavailable)"
-          :title="messageWriteUnavailable || t('dashboard.newMessage')"
-          @click="startMessage"
-        >
-          <MessageSquarePlus :size="19" />
-          <span>{{ t('dashboard.newMessage') }}</span>
-        </button>
-      </header>
+    <template #list>
+      <WorkspaceListHeader
+        :title="t('shell.messages')"
+        :count="
+          threadsResource.status === 'ready'
+            ? threadsResource.data.length
+            : undefined
+        "
+      >
+        <template #actions>
+          <button
+            class="pane-create-button mobile-list-fab"
+            type="button"
+            :disabled="Boolean(messageWriteUnavailable)"
+            :title="messageWriteUnavailable || t('dashboard.newMessage')"
+            @click="startMessage"
+          >
+            <MessageSquarePlus :size="19" />
+            <span>{{ t('dashboard.newMessage') }}</span>
+          </button>
+        </template>
+      </WorkspaceListHeader>
       <div class="pane-search">
         <div class="pane-search-row">
           <ListSelectionToggle
@@ -1056,61 +1063,55 @@ onBeforeUnmount(() => {
           <span>{{ t('common.delete') }}</span>
         </button>
       </BatchActionBar>
-    </aside>
+    </template>
 
-    <article class="detail-pane conversation-pane">
-      <Transition name="conversation-content" mode="out-in">
-        <div
-          v-if="selectedThread || composingNew"
-          class="conversation-detail-content"
-        >
-        <header class="conversation-header">
-          <button
-            class="icon-button"
-            :class="{
-              'mobile-back': !composingNew,
-              'mobile-compose-cancel': composingNew
-            }"
-            type="button"
-            :title="
-              composingNew
-                ? t('messages.cancelNew')
-                : t('messages.back')
-            "
-            @click="backToList"
-          >
-            <X v-if="composingNew" :size="20" />
-            <ArrowLeft v-else :size="20" />
-          </button>
-          <template v-if="composingNew">
-            <div class="conversation-recipient">
-              <ContactSuggestInput
-                :model-value="newRecipient"
-                :contacts="contactsResource.data"
-                autofocus
-                @update:model-value="editRecipient"
-                @select="chooseRecipient"
-              />
-              <LineSelector
-                v-if="lines.length > 0"
-                v-model="selectedLineKey"
-                class="compose-line-select"
-                :lines="lines"
-                :default-line-id="defaultLineID"
-                :label="t('messages.sendingLine')"
-                capability="message"
-                compact
-                :unavailable-label="t('messages.unsupported')"
-                @change="changeSendingLine"
-              />
-              <p v-else class="unavailable-note">
-                {{ t('messages.noAvailableLines') }}
-              </p>
-              <small v-if="newRecipientName">{{ newRecipientName }}</small>
-            </div>
+    <template #detail>
+      <WorkspaceDetailPane
+        class="conversation-pane"
+        :content-key="composingNew ? 'compose' : selectedThread?.key"
+      >
+        <WorkspaceDetailHeader density="compact">
+          <template v-if="composingNew" #leading>
+            <button
+              class="icon-button mobile-compose-cancel"
+              type="button"
+              :title="t('messages.cancelNew')"
+              :aria-label="t('messages.cancelNew')"
+              @click="backToList"
+            >
+              <X :size="20" />
+            </button>
           </template>
-          <template v-else-if="selectedThread">
+          <template #identity>
+            <template v-if="composingNew">
+              <div class="conversation-recipient">
+                <ContactSuggestInput
+                  :model-value="newRecipient"
+                  :contacts="contactsResource.data"
+                  autofocus
+                  @update:model-value="editRecipient"
+                  @select="chooseRecipient"
+                />
+                <LineSelector
+                  v-if="lines.length > 0"
+                  v-model="selectedLineKey"
+                  class="compose-line-select"
+                  :lines="lines"
+                  :default-line-id="defaultLineID"
+                  :label="t('messages.sendingLine')"
+                  capability="message"
+                  compact
+                  :unavailable-label="t('messages.unsupported')"
+                  @change="changeSendingLine"
+                />
+                <p v-else class="unavailable-note">
+                  {{ t('messages.noAvailableLines') }}
+                </p>
+                <small v-if="newRecipientName">{{ newRecipientName }}</small>
+              </div>
+            </template>
             <ContactHeaderIdentity
+              v-else-if="selectedThread"
               channel="message"
               :name="displayNameForThread(selectedThread)"
               :number="threadDisplayNumber(selectedThread)"
@@ -1119,21 +1120,14 @@ onBeforeUnmount(() => {
               :line-fallback="threadLineFallback(selectedThread)"
             />
           </template>
-          <div
-            v-if="selectedThread && !composingNew"
-            class="detail-header__actions conversation-header__actions"
-          >
-            <div
+          <template v-if="selectedThread && !composingNew" #actions>
+            <ContactNumberActions
               v-if="activeRecipientIsContactable"
-              class="conversation-header__contact-actions"
-            >
-              <ContactNumberActions
-                :number="selectedThread.peer"
-                :contact="activeContact"
-                compact
-                @saved="contactSaved"
-              />
-            </div>
+              :number="selectedThread.peer"
+              :contact="activeContact"
+              compact
+              @saved="contactSaved"
+            />
             <button
               v-if="activeRecipientIsContactable"
               class="icon-button"
@@ -1153,26 +1147,15 @@ onBeforeUnmount(() => {
             >
               <Trash2 :size="18" />
             </button>
-            <button
-              class="icon-button conversation-favorite-button"
-              :class="{ 'is-active': selectedThread.favorite }"
-              type="button"
+            <FavoriteActionButton
+              :active="selectedThread.favorite"
               :disabled="Boolean(favoritePendingKey)"
-              :title="
-                selectedThread.favorite
-                  ? t('messages.unfavorite')
-                  : t('messages.favorite')
-              "
-              :aria-pressed="selectedThread.favorite"
-              @click="toggleFavorite(selectedThread)"
-            >
-              <Star
-                :size="18"
-                :fill="selectedThread.favorite ? 'currentColor' : 'none'"
-              />
-            </button>
-          </div>
-        </header>
+              :activate-label="t('messages.favorite')"
+              :deactivate-label="t('messages.unfavorite')"
+              @toggle="toggleFavorite(selectedThread)"
+            />
+          </template>
+        </WorkspaceDetailHeader>
 
         <div
           ref="messagesViewport"
@@ -1291,30 +1274,22 @@ onBeforeUnmount(() => {
         <footer v-else class="message-composer message-composer--readonly">
           <p class="unavailable-note">{{ t('messages.senderDoesNotAcceptReplies') }}</p>
         </footer>
-        </div>
 
-        <StatePanel
-          v-else
-          state="empty"
-          :title="t('messages.selectConversation')"
-          :detail="t('messages.detailPlaceholder')"
-        />
-      </Transition>
-    </article>
-  </section>
+        <template #empty>
+          <StatePanel
+            state="empty"
+            :title="t('messages.selectConversation')"
+            :detail="t('messages.detailPlaceholder')"
+          />
+        </template>
+      </WorkspaceDetailPane>
+    </template>
+  </WorkspaceMasterDetail>
 </template>
 
 <style scoped>
 .messages-workspace.is-embedded {
   grid-template-columns: minmax(0, 1fr);
-}
-
-.conversation-detail-content {
-  display: flex;
-  min-width: 0;
-  min-height: 0;
-  flex: 1;
-  flex-direction: column;
 }
 
 .pane-search {
@@ -1330,12 +1305,6 @@ onBeforeUnmount(() => {
 
 .message-filter-row .segmented-control {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.conversation-favorite-button:hover:not(:disabled),
-.conversation-favorite-button.is-active {
-  color: #a86400;
-  background: transparent;
 }
 
 .existing-thread-button {
@@ -1387,28 +1356,6 @@ onBeforeUnmount(() => {
   .mobile-compose-cancel {
     display: none;
   }
-
-  .conversation-content-enter-active,
-  .conversation-content-leave-active {
-    transition:
-      opacity var(--motion-base) var(--ease-standard),
-      transform var(--motion-base) var(--ease-standard);
-  }
-
-  .conversation-content-enter-from {
-    opacity: 0;
-    transform: translateX(8px);
-  }
-
-  .conversation-content-leave-to {
-    opacity: 0;
-    transform: translateX(-8px);
-  }
-}
-
-.conversation-header__contact-actions {
-  display: flex;
-  align-items: center;
 }
 
 .conversation-recipient {

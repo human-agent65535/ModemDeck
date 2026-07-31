@@ -3,7 +3,6 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  ArrowLeft,
   LoaderCircle,
   Mail,
   MailOpen,
@@ -28,6 +27,11 @@ import SearchField from '../components/SearchField.vue'
 import SelectableListRow from '../components/SelectableListRow.vue'
 import StatePanel from '../components/StatePanel.vue'
 import SwipeActionRow from '../components/SwipeActionRow.vue'
+import FavoriteActionButton from '../components/workspace/FavoriteActionButton.vue'
+import WorkspaceDetailHeader from '../components/workspace/WorkspaceDetailHeader.vue'
+import WorkspaceDetailPane from '../components/workspace/WorkspaceDetailPane.vue'
+import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
+import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
 import { useListSelection } from '../composables/useListSelection'
 import { requestConfirmation } from '../state/confirmation'
 import { callState } from '../state/call'
@@ -441,14 +445,6 @@ function onSelectionKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape' && selection.active.value) selection.exit()
 }
 
-function backToList(): void {
-  if (embedded.value) {
-    emit('close')
-    return
-  }
-  void router.push({ name: 'calls', query: callFilterQuery() })
-}
-
 function callBack(call: CallRecord): void {
   if (dialUnavailable.value || !isContactPhoneCandidate(call.remote_number)) return
   openDialerAndCall(call.remote_number, displayName(call), actionLineKey(call))
@@ -607,21 +603,21 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section
-    class="workspace calls-workspace"
-    :class="{
-      'has-selection': selected,
-      'is-embedded': embedded,
-      'is-batch-selecting': selecting
-    }"
+  <WorkspaceMasterDetail
+    class="calls-workspace"
+    :has-selection="Boolean(selected)"
+    :embedded="embedded"
+    :batch-selecting="selecting"
   >
-    <aside v-if="!embedded" class="list-pane">
-      <header class="pane-header">
-        <div>
-          <h1>{{ t('shell.calls') }}</h1>
-          <span v-if="callsResource.status === 'ready'">{{ callsResource.data.length }}</span>
-        </div>
-      </header>
+    <template #list>
+      <WorkspaceListHeader
+        :title="t('shell.calls')"
+        :count="
+          callsResource.status === 'ready'
+            ? callsResource.data.length
+            : undefined
+        "
+      />
       <div class="pane-search pane-search--calls">
         <div class="pane-search-row">
           <ListSelectionToggle
@@ -831,27 +827,22 @@ onBeforeUnmount(() => {
           <span>{{ t('common.delete') }}</span>
         </button>
       </BatchActionBar>
-    </aside>
+    </template>
 
-    <article class="detail-pane">
-      <template v-if="selected">
-        <header class="detail-header">
-          <button
-            class="icon-button mobile-back"
-            type="button"
-            :title="t('calls.back')"
-            @click="backToList"
-          >
-            <ArrowLeft :size="20" />
-          </button>
-          <ContactHeaderIdentity
-            :name="displayName(selected)"
-            :number="callDisplayNumber(selected)"
-            :avatar="selectedContact?.avatar"
-            :line="lineTagLine(lineForCall(selected), selected.line_id)"
-            :line-fallback="callLineFallback(selected)"
-          />
-          <div class="detail-header__actions call-detail__header-actions">
+    <template #detail>
+      <WorkspaceDetailPane :content-key="selected?.id">
+        <template v-if="selected">
+          <WorkspaceDetailHeader class="call-detail__header">
+          <template #identity>
+            <ContactHeaderIdentity
+              :name="displayName(selected)"
+              :number="callDisplayNumber(selected)"
+              :avatar="selectedContact?.avatar"
+              :line="lineTagLine(lineForCall(selected), selected.line_id)"
+              :line-fallback="callLineFallback(selected)"
+            />
+          </template>
+          <template #actions>
             <ContactNumberActions
               :number="selected.remote_number"
               :contact="selectedContact"
@@ -890,26 +881,15 @@ onBeforeUnmount(() => {
             >
               <Trash2 :size="18" />
             </button>
-            <button
-              class="icon-button call-favorite-button"
-              :class="{ 'is-active': selected.favorite }"
-              type="button"
+            <FavoriteActionButton
+              :active="selected.favorite"
               :disabled="Boolean(favoritePendingCallID)"
-              :title="
-                selected.favorite
-                  ? t('common.unfavorite')
-                  : t('common.favorite')
-              "
-              :aria-pressed="selected.favorite"
-              @click="toggleCallFavorite(selected)"
-            >
-              <Star
-                :size="18"
-                :fill="selected.favorite ? 'currentColor' : 'none'"
-              />
-            </button>
-          </div>
-        </header>
+              :activate-label="t('common.favorite')"
+              :deactivate-label="t('common.unfavorite')"
+              @toggle="toggleCallFavorite(selected)"
+            />
+          </template>
+        </WorkspaceDetailHeader>
 
         <div class="call-detail">
           <section class="detail-section detail-facts">
@@ -954,26 +934,23 @@ onBeforeUnmount(() => {
           <p v-if="dialUnavailable || messageUnavailable" class="unavailable-note">
             {{ dialUnavailable || messageUnavailable }}
           </p>
-        </div>
-      </template>
-
-      <StatePanel
-        v-else
-        state="empty"
-        :title="t('calls.select')"
-        :detail="t('calls.detailPlaceholder')"
-      />
-    </article>
-  </section>
+          </div>
+        </template>
+        <template #empty>
+          <StatePanel
+            state="empty"
+            :title="t('calls.select')"
+            :detail="t('calls.detailPlaceholder')"
+          />
+        </template>
+      </WorkspaceDetailPane>
+    </template>
+  </WorkspaceMasterDetail>
 </template>
 
 <style scoped>
 .calls-workspace.is-embedded {
   grid-template-columns: minmax(0, 1fr);
-}
-
-.calls-workspace .detail-header {
-  container-type: inline-size;
 }
 
 .calls-filter-row {
@@ -982,16 +959,10 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
-.call-favorite-button:hover:not(:disabled),
-.call-favorite-button.is-active {
-  color: #a86400;
-  background: transparent;
-}
-
 .call-detail__command {
   display: inline-flex;
   min-width: 72px;
-  min-height: 36px;
+  min-height: var(--detail-action-size);
   align-items: center;
   justify-content: center;
   gap: 6px;
@@ -1041,10 +1012,10 @@ onBeforeUnmount(() => {
   }
 
   .call-detail__command {
-    width: 36px;
-    min-width: 36px;
-    height: 36px;
-    min-height: 36px;
+    width: var(--detail-action-size);
+    min-width: var(--detail-action-size);
+    height: var(--detail-action-size);
+    min-height: var(--detail-action-size);
     padding: 0;
     border-radius: 50%;
   }
@@ -1053,17 +1024,17 @@ onBeforeUnmount(() => {
     display: none;
   }
 
-  .call-detail__header-actions
+  .call-detail__header
     :deep(.contact-number-actions.is-compact .secondary-button) {
-    width: 36px;
-    min-width: 36px;
-    height: 36px;
-    min-height: 36px;
+    width: var(--detail-action-size);
+    min-width: var(--detail-action-size);
+    height: var(--detail-action-size);
+    min-height: var(--detail-action-size);
     padding: 0;
     border-radius: 50%;
   }
 
-  .call-detail__header-actions
+  .call-detail__header
     :deep(.contact-number-actions.is-compact .contact-number-action__label) {
     display: none;
   }
