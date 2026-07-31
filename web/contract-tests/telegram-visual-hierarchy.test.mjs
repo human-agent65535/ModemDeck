@@ -75,7 +75,7 @@ test('Telegram component owns responsive, overflow-safe layout styles', () => {
   assert.match(style, /text-overflow: ellipsis/)
   assert.match(
     masterDetail,
-    /@media \(max-width: 720px\)[\s\S]*grid-template-columns: minmax\(0, 1fr\)/
+    /@media \(max-width: 860px\)[\s\S]*grid-template-columns: minmax\(0, 1fr\)/
   )
   assert.match(
     style,

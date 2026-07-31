@@ -27,8 +27,6 @@ withDefaults(
 
 <style scoped>
 .workspace-detail-header {
-  --detail-action-size: 38px;
-
   display: flex;
   min-width: 0;
   min-height: 82px;
@@ -80,8 +78,6 @@ withDefaults(
 
 @media (max-width: 560px) {
   .workspace-detail-header {
-    --detail-action-size: 36px;
-
     min-height: 62px;
     padding: 9px 12px;
   }

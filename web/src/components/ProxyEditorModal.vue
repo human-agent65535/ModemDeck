@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { X } from '@lucide/vue'
 import type { LineSummary, ProxyInstance, ProxyMode } from '../api/types'
@@ -7,6 +7,7 @@ import type { ProxyDraft } from '../state/network'
 import { isIPAddress } from '../utils/ipAddress'
 import { proxyCredentialError } from '../utils/proxyCredentials'
 import LineSelector from './LineSelector.vue'
+import OverlayDialog from './OverlayDialog.vue'
 
 const { t } = useI18n()
 const props = withDefaults(
@@ -40,8 +41,6 @@ const form = reactive<ProxyDraft>({
   password: ''
 })
 const localError = reactive({ message: '' })
-const dialog = ref<HTMLElement>()
-let previousFocus: HTMLElement | null = null
 
 const title = computed(() => (props.proxy ? t('proxy.edit') : t('proxy.add')))
 const visibleError = computed(() => localError.message || props.error)
@@ -71,41 +70,6 @@ function resetForm(): void {
 
 function close(): void {
   if (!props.busy) emit('close')
-}
-
-function focusableElements(): HTMLElement[] {
-  if (!dialog.value) return []
-  return Array.from(
-    dialog.value.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
-    )
-  )
-}
-
-function onKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    close()
-    return
-  }
-  if (event.key !== 'Tab') return
-
-  const elements = focusableElements()
-  if (!elements.length) {
-    event.preventDefault()
-    dialog.value?.focus()
-    return
-  }
-  const first = elements[0]
-  const last = elements[elements.length - 1]
-  if (!first || !last) return
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault()
-    last.focus()
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault()
-    first.focus()
-  }
 }
 
 function submit(): void {
@@ -155,22 +119,8 @@ function submit(): void {
 
 watch(
   () => props.open,
-  async (open, wasOpen) => {
-    if (open) {
-      previousFocus =
-        typeof document === 'undefined' ? null : document.activeElement as HTMLElement | null
-      resetForm()
-      await nextTick()
-      dialog.value
-        ?.querySelector<HTMLButtonElement>(
-          'button[aria-haspopup="listbox"]:not([disabled])'
-        )
-        ?.focus()
-    } else if (wasOpen) {
-      await nextTick()
-      previousFocus?.focus()
-      previousFocus = null
-    }
+  open => {
+    if (open) resetForm()
   },
   { immediate: true }
 )
@@ -184,165 +134,139 @@ watch(
 </script>
 
 <template>
-  <Teleport to="body">
-    <Transition name="modal">
-      <div
-        v-if="open"
-        class="proxy-modal-backdrop"
-        role="presentation"
-        @mousedown.self="close"
-      >
-        <section
-          ref="dialog"
-          class="proxy-modal"
-          role="dialog"
-          aria-modal="true"
-          :aria-label="title"
-          :aria-describedby="visibleError ? 'proxy-editor-error' : undefined"
-          tabindex="-1"
-          @keydown="onKeydown"
+  <OverlayDialog
+    :open="open"
+    size="medium"
+    :label="title"
+    :describedby="visibleError ? 'proxy-editor-error' : undefined"
+    initial-focus='button[aria-haspopup="listbox"]:not([disabled])'
+    @close="close"
+  >
+    <div class="proxy-modal">
+      <header>
+        <h2>{{ title }}</h2>
+        <button
+          class="icon-button"
+          type="button"
+          :title="t('common.close')"
+          :aria-label="t('common.close')"
+          :disabled="busy"
+          @click="close"
         >
-          <header>
-            <h2>{{ title }}</h2>
-            <button
-              class="icon-button"
-              type="button"
-              :title="t('common.close')"
-              :aria-label="t('common.close')"
-              :disabled="busy"
-              @click="close"
-            >
-              <X :size="19" />
-            </button>
-          </header>
+          <X :size="19" />
+        </button>
+      </header>
 
-        <form @submit.prevent="submit">
-          <LineSelector
-            v-model="form.line_id"
-            class="proxy-field"
-            :lines="lines"
-            :label="t('proxy.line')"
+      <form @submit.prevent="submit">
+      <LineSelector
+        v-model="form.line_id"
+        class="proxy-field"
+        :lines="lines"
+        :label="t('proxy.line')"
+        :disabled="busy"
+      />
+
+      <fieldset class="proxy-field">
+        <legend>{{ t('common.protocol') }}</legend>
+        <div class="proxy-segmented">
+          <button
+            type="button"
+            :class="{ 'is-selected': form.mode === 'socks5' }"
+            :aria-pressed="form.mode === 'socks5'"
+            :disabled="busy"
+            @click="form.mode = 'socks5'"
+          >
+            SOCKS5
+          </button>
+          <button
+            type="button"
+            :class="{ 'is-selected': form.mode === 'http' }"
+            :aria-pressed="form.mode === 'http'"
+            :disabled="busy"
+            @click="form.mode = 'http'"
+          >
+            HTTP CONNECT
+          </button>
+        </div>
+      </fieldset>
+
+      <div class="proxy-fields-row">
+        <label class="proxy-field">
+          <span>{{ t('proxy.listenAddress') }}</span>
+          <input
+            v-model="form.listen_address"
+            type="text"
+            inputmode="url"
+            placeholder="127.0.0.1"
+            spellcheck="false"
             :disabled="busy"
           />
-
-          <fieldset class="proxy-field">
-            <legend>{{ t('common.protocol') }}</legend>
-            <div class="proxy-segmented">
-              <button
-                type="button"
-                :class="{ 'is-selected': form.mode === 'socks5' }"
-                :aria-pressed="form.mode === 'socks5'"
-                :disabled="busy"
-                @click="form.mode = 'socks5'"
-              >
-                SOCKS5
-              </button>
-              <button
-                type="button"
-                :class="{ 'is-selected': form.mode === 'http' }"
-                :aria-pressed="form.mode === 'http'"
-                :disabled="busy"
-                @click="form.mode = 'http'"
-              >
-                HTTP CONNECT
-              </button>
-            </div>
-          </fieldset>
-
-          <div class="proxy-fields-row">
-            <label class="proxy-field">
-              <span>{{ t('proxy.listenAddress') }}</span>
-              <input
-                v-model="form.listen_address"
-                type="text"
-                inputmode="url"
-                placeholder="127.0.0.1"
-                spellcheck="false"
-                :disabled="busy"
-              />
-            </label>
-            <label class="proxy-field is-port">
-              <span>{{ t('common.port') }}</span>
-              <input
-                v-model.number="form.listen_port"
-                type="number"
-                min="1024"
-                max="65535"
-                inputmode="numeric"
-                :disabled="busy"
-              />
-            </label>
-          </div>
-
-          <div class="proxy-fields-row is-even">
-            <label class="proxy-field">
-              <span>{{ t('common.username') }}</span>
-              <input
-                v-model="form.username"
-                type="text"
-                autocomplete="off"
-                :disabled="busy"
-              />
-            </label>
-            <label class="proxy-field">
-              <span>{{ t('common.password') }}</span>
-              <input
-                v-model="form.password"
-                type="password"
-                autocomplete="new-password"
-                :placeholder="proxy?.has_password ? t('proxy.keepPassword') : ''"
-                :disabled="busy"
-              />
-            </label>
-          </div>
-
-          <p
-            v-if="visibleError"
-            id="proxy-editor-error"
-            class="proxy-modal__error"
-            role="alert"
-          >
-            {{ visibleError }}
-          </p>
-
-          <footer>
-            <button class="secondary-button" type="button" :disabled="busy" @click="close">
-              {{ t('common.cancel') }}
-            </button>
-            <button
-              class="primary-button"
-              type="submit"
-              :disabled="busy || lines.length === 0"
-            >
-              {{ busy ? t('common.saving') : t('common.save') }}
-            </button>
-          </footer>
-          </form>
-        </section>
+        </label>
+        <label class="proxy-field is-port">
+          <span>{{ t('common.port') }}</span>
+          <input
+            v-model.number="form.listen_port"
+            type="number"
+            min="1024"
+            max="65535"
+            inputmode="numeric"
+            :disabled="busy"
+          />
+        </label>
       </div>
-    </Transition>
-  </Teleport>
+
+      <div class="proxy-fields-row is-even">
+        <label class="proxy-field">
+          <span>{{ t('common.username') }}</span>
+          <input
+            v-model="form.username"
+            type="text"
+            autocomplete="off"
+            :disabled="busy"
+          />
+        </label>
+        <label class="proxy-field">
+          <span>{{ t('common.password') }}</span>
+          <input
+            v-model="form.password"
+            type="password"
+            autocomplete="new-password"
+            :placeholder="proxy?.has_password ? t('proxy.keepPassword') : ''"
+            :disabled="busy"
+          />
+        </label>
+      </div>
+
+      <p
+        v-if="visibleError"
+        id="proxy-editor-error"
+        class="proxy-modal__error"
+        role="alert"
+      >
+        {{ visibleError }}
+      </p>
+
+      <footer>
+        <button class="secondary-button" type="button" :disabled="busy" @click="close">
+          {{ t('common.cancel') }}
+        </button>
+        <button
+          class="primary-button"
+          type="submit"
+          :disabled="busy || lines.length === 0"
+        >
+          {{ busy ? t('common.saving') : t('common.save') }}
+        </button>
+      </footer>
+      </form>
+    </div>
+  </OverlayDialog>
 </template>
 
 <style scoped>
-.proxy-modal-backdrop {
-  position: fixed;
-  z-index: 120;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 20px;
-  background: rgb(16 24 40 / 42%);
-}
-
 .proxy-modal {
-  width: min(560px, 100%);
-  max-height: calc(100dvh - 40px);
+  max-height: inherit;
   overflow: auto;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: var(--shadow);
 }
 
 .proxy-modal > header {
@@ -446,15 +370,8 @@ watch(
 }
 
 @media (max-width: 520px) {
-  .proxy-modal-backdrop {
-    align-items: end;
-    padding: 0 0 var(--mobile-nav-height);
-  }
-
   .proxy-modal {
-    width: 100%;
     max-height: calc(100dvh - var(--mobile-nav-height) - 8px);
-    border-radius: 8px 8px 0 0;
   }
 
   .proxy-fields-row,

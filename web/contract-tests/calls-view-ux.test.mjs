@@ -45,15 +45,19 @@ test('call history marks only calls with playable recordings', async () => {
   assert.match(calls, /loadRecordingEntries\(\)/)
 })
 
-test('call detail keeps communication and contact actions in one compact header', async () => {
-  const [calls, detailHeader] = await Promise.all([
+test('call detail keeps communication and contact actions in one shared compact header', async () => {
+  const [calls, detailHeader, detailActions] = await Promise.all([
     source(),
-    readFile(workspaceDetailHeader, 'utf8')
+    readFile(workspaceDetailHeader, 'utf8'),
+    readFile(
+      new URL('../src/components/workspace/WorkspaceDetailActions.vue', import.meta.url),
+      'utf8'
+    )
   ])
 
   assert.match(
     calls,
-    /<WorkspaceDetailHeader class="call-detail__header">[\s\S]*?<template #actions>[\s\S]*?class="call-detail__command call-detail__command--primary"[\s\S]*?@click="callBack\(selected\)"[\s\S]*?class="call-detail__command"[\s\S]*?@click="sendMessage\(selected\)"/
+    /<WorkspaceDetailHeader>[\s\S]*?<template #actions>[\s\S]*?class="workspace-detail-command workspace-detail-command--primary"[\s\S]*?@click="callBack\(selected\)"[\s\S]*?class="workspace-detail-command"[\s\S]*?@click="sendMessage\(selected\)"/
   )
   assert.match(
     calls,
@@ -62,9 +66,10 @@ test('call detail keeps communication and contact actions in one compact header'
   assert.match(calls, /<FavoriteActionButton/)
   assert.doesNotMatch(calls, /<div class="call-detail__actions">/)
   assert.doesNotMatch(calls, /class="call-detail__contact-actions"/)
+  assert.doesNotMatch(calls, /\.call-detail__command/)
   assert.match(
-    calls,
-    /@container \(max-width: 760px\)[\s\S]*?\.call-detail__command span\s*\{[^}]*display: none;/s
+    detailActions,
+    /@container \(max-width: 760px\)[\s\S]*?\.workspace-detail-command span\s*\{[^}]*display: none;/s
   )
   assert.match(detailHeader, /container-type: inline-size;/)
   assert.match(

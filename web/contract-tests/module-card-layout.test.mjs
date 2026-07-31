@@ -30,17 +30,15 @@ test('dashboard keeps stable module-card tracks', () => {
   assert.match(dashboardGrid, /gap: 12px/)
 })
 
-test('device settings use compact master-detail navigation instead of dashboard cards', () => {
-  const row = cssBlock(devicePanel, '.device-module-row__select')
-
-  assert.match(devicePanel, /<SettingsMasterDetail/)
-  assert.match(devicePanel, /mobile-mode="drilldown"/)
-  assert.match(devicePanel, /class="device-module-rows"/)
-  assert.doesNotMatch(devicePanel, /<ModuleCard/)
-  assert.match(row, /min-height: 72px/)
+test('device settings retain card selection in their dedicated drilldown workbench', () => {
+  assert.match(devicePanel, /<DeviceWorkspace/)
+  assert.match(devicePanel, /#selector/)
+  assert.doesNotMatch(devicePanel, /SettingsMasterDetail/)
+  assert.match(devicePanel, /class="module-grid"/)
+  assert.match(devicePanel, /<ModuleCard/)
   assert.match(
-    row,
-    /grid-template-columns: 34px minmax\(0, 1fr\) 8px auto/
+    cssBlock(devicePanel, '.module-grid'),
+    /grid-template-columns: repeat\(auto-fill, minmax\(320px, 420px\)\)/
   )
 })
 

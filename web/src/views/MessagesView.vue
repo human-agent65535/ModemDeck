@@ -28,7 +28,9 @@ import SearchField from '../components/SearchField.vue'
 import SelectableListRow from '../components/SelectableListRow.vue'
 import StatePanel from '../components/StatePanel.vue'
 import SwipeActionRow from '../components/SwipeActionRow.vue'
+import CommunicationListToolbar from '../components/workspace/CommunicationListToolbar.vue'
 import FavoriteActionButton from '../components/workspace/FavoriteActionButton.vue'
+import WorkspaceDetailActions from '../components/workspace/WorkspaceDetailActions.vue'
 import WorkspaceDetailHeader from '../components/workspace/WorkspaceDetailHeader.vue'
 import WorkspaceDetailPane from '../components/workspace/WorkspaceDetailPane.vue'
 import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
@@ -836,6 +838,7 @@ onBeforeUnmount(() => {
     <template #list>
       <WorkspaceListHeader
         :title="t('shell.messages')"
+        compact-mode="floating-action"
         :count="
           threadsResource.status === 'ready'
             ? threadsResource.data.length
@@ -855,8 +858,11 @@ onBeforeUnmount(() => {
           </button>
         </template>
       </WorkspaceListHeader>
-      <div class="pane-search">
-        <div class="pane-search-row">
+      <CommunicationListToolbar
+        :filter-columns="3"
+        :has-line-filter="lines.length > 1"
+      >
+        <template #primary>
           <ListSelectionToggle
             :active="selecting"
             :label="t('common.selectMultiple')"
@@ -877,8 +883,8 @@ onBeforeUnmount(() => {
             :all-label="t('messages.allLines')"
             :all-description="t('messages.allLinesDescription')"
           />
-        </div>
-        <div class="message-filter-row">
+        </template>
+        <template #filters>
           <div class="segmented-control" :aria-label="t('messages.filter')">
             <button
               v-for="item in messageFilters"
@@ -895,8 +901,8 @@ onBeforeUnmount(() => {
             :label="t('messages.favoriteOnly')"
             @toggle="setFavoriteFilter(!favoriteOnly)"
           />
-        </div>
-      </div>
+        </template>
+      </CommunicationListToolbar>
       <p
         v-if="
           threadsResource.status === 'ready' &&
@@ -1121,39 +1127,45 @@ onBeforeUnmount(() => {
             />
           </template>
           <template v-if="selectedThread && !composingNew" #actions>
-            <ContactNumberActions
-              v-if="activeRecipientIsContactable"
-              :number="selectedThread.peer"
-              :contact="activeContact"
-              compact
-              @saved="contactSaved"
-            />
-            <button
-              v-if="activeRecipientIsContactable"
-              class="icon-button"
-              type="button"
-              :disabled="Boolean(dialUnavailable) || !activeRecipient"
-              :title="dialUnavailable || t('calls.dial')"
-              @click="callCurrent"
-            >
-              <Phone :size="19" />
-            </button>
-            <button
-              class="icon-button icon-button--danger desktop-delete-action"
-              type="button"
-              :disabled="Boolean(deletingThreadKey)"
-              :title="t('messages.delete')"
-              @click="removeThread(selectedThread)"
-            >
-              <Trash2 :size="18" />
-            </button>
-            <FavoriteActionButton
-              :active="selectedThread.favorite"
-              :disabled="Boolean(favoritePendingKey)"
-              :activate-label="t('messages.favorite')"
-              :deactivate-label="t('messages.unfavorite')"
-              @toggle="toggleFavorite(selectedThread)"
-            />
+            <WorkspaceDetailActions>
+              <template #primary>
+                <button
+                  v-if="activeRecipientIsContactable"
+                  class="icon-button"
+                  type="button"
+                  :disabled="Boolean(dialUnavailable) || !activeRecipient"
+                  :title="dialUnavailable || t('calls.dial')"
+                  @click="callCurrent"
+                >
+                  <Phone :size="19" />
+                </button>
+              </template>
+              <template #secondary>
+                <ContactNumberActions
+                  v-if="activeRecipientIsContactable"
+                  :number="selectedThread.peer"
+                  :contact="activeContact"
+                  compact
+                  @saved="contactSaved"
+                />
+                <button
+                  class="icon-button icon-button--danger desktop-delete-action"
+                  type="button"
+                  :disabled="Boolean(deletingThreadKey)"
+                  :title="t('messages.delete')"
+                  @click="removeThread(selectedThread)"
+                >
+                  <Trash2 :size="18" />
+                </button>
+                <FavoriteActionButton
+                  :active="selectedThread.favorite"
+                  :disabled="Boolean(favoritePendingKey)"
+                  :activate-label="t('messages.favorite')"
+                  :deactivate-label="t('messages.unfavorite')"
+                  @toggle="toggleFavorite(selectedThread)"
+                />
+              </template>
+            </WorkspaceDetailActions>
           </template>
         </WorkspaceDetailHeader>
 
@@ -1290,21 +1302,6 @@ onBeforeUnmount(() => {
 <style scoped>
 .messages-workspace.is-embedded {
   grid-template-columns: minmax(0, 1fr);
-}
-
-.pane-search {
-  display: grid;
-  gap: 8px;
-}
-
-.message-filter-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-}
-
-.message-filter-row .segmented-control {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .existing-thread-button {

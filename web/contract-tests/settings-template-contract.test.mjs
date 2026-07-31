@@ -6,7 +6,7 @@ async function source(path) {
   return readFile(new URL(path, import.meta.url), 'utf8')
 }
 
-test('settings pages use the three shared layout templates', async () => {
+test('settings pages use the shared layout templates and the device workbench exception', async () => {
   const [
     defaultLine,
     language,
@@ -37,10 +37,12 @@ test('settings pages use the three shared layout templates', async () => {
   for (const modulePage of [about, externalAccess, contactSync]) {
     assert.match(modulePage, /SettingsModuleCard/)
   }
-  for (const resourceEditor of [users, telegram, devices]) {
+  for (const resourceEditor of [users, telegram]) {
     assert.match(resourceEditor, /SettingsMasterDetail/)
   }
-  assert.match(devices, /mobile-mode="drilldown"/)
+  assert.match(devices, /DeviceWorkspace/)
+  assert.match(devices, /#selector/)
+  assert.doesNotMatch(devices, /SettingsMasterDetail/)
   assert.match(audio, /SettingsSection/)
   assert.match(audio, /SettingsControlRow/)
 })
@@ -59,8 +61,37 @@ test('master-detail settings are flush and mobile page titles cover every sectio
   assert.match(shell, /about: t\('settings\.about'\)/)
 })
 
+test('settings drilldown aligns with the shell compact breakpoint', async () => {
+  const [masterDetail, deviceWorkspace, users, telegram, devices, style] =
+    await Promise.all([
+      source('../src/components/settings/SettingsMasterDetail.vue'),
+      source('../src/components/settings/DeviceWorkspace.vue'),
+      source('../src/components/UserSettingsPanel.vue'),
+      source('../src/components/TelegramSettingsForm.vue'),
+      source('../src/components/DeviceConfigurationPanel.vue'),
+      source('../src/style.css')
+    ])
+
+  for (const component of [
+    masterDetail,
+    deviceWorkspace,
+    users,
+    telegram,
+    devices
+  ]) {
+    assert.match(component, /@media \(max-width: 860px\)/)
+  }
+  assert.match(masterDetail, /mobile-drilldown__list/)
+  assert.match(masterDetail, /mobile-drilldown__detail/)
+  assert.match(deviceWorkspace, /mobile-drilldown__list/)
+  assert.match(deviceWorkspace, /mobile-drilldown__detail/)
+  assert.match(style, /\.mobile-drilldown\.is-detail-open/)
+  assert.match(style, /@keyframes mobile-drilldown-forward/)
+})
+
 test('save behavior distinguishes immediate preferences from dirty resource forms', async () => {
   const account = await source('../src/components/AccountSettingsPanel.vue')
+  const profile = await source('../src/components/AccountProfileSetting.vue')
   const defaultLine = await source('../src/components/DefaultLineSettingsForm.vue')
   const language = await source('../src/components/SystemSettingsForm.vue')
   const recording = await source('../src/components/RecordingSettingsForm.vue')
@@ -68,8 +99,9 @@ test('save behavior distinguishes immediate preferences from dirty resource form
   const users = await source('../src/components/UserSettingsPanel.vue')
   const telegram = await source('../src/components/TelegramSettingsForm.vue')
 
-  assert.match(account, /@change="changeProfile"/)
-  for (const immediate of [account, defaultLine, language, recording, device]) {
+  assert.match(account, /<AccountProfileSetting/)
+  assert.match(profile, /@change="changeProfile"/)
+  for (const immediate of [profile, defaultLine, language, recording, device]) {
     assert.match(immediate, /useSettingsMutation/)
     assert.match(immediate, /SettingsSaveStatus/)
   }

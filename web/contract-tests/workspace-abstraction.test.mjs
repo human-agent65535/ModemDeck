@@ -18,13 +18,17 @@ test('communication pages use one master-detail and header system', async () => 
   for (const view of [contacts, messages, calls, recordings]) {
     assert.match(view, /import WorkspaceMasterDetail from/)
     assert.match(view, /import WorkspaceListHeader from/)
+    assert.match(view, /import CommunicationListToolbar from/)
     assert.match(view, /import WorkspaceDetailPane from/)
     assert.match(view, /import WorkspaceDetailHeader from/)
+    assert.match(view, /import WorkspaceDetailActions from/)
     assert.match(view, /import FavoriteActionButton from/)
     assert.match(view, /<WorkspaceMasterDetail/)
     assert.match(view, /<WorkspaceListHeader/)
+    assert.match(view, /<CommunicationListToolbar/)
     assert.match(view, /<WorkspaceDetailPane[\s\S]*:content-key=/)
     assert.match(view, /<WorkspaceDetailHeader/)
+    assert.match(view, /<WorkspaceDetailActions/)
     assert.match(view, /<FavoriteActionButton/)
     assert.doesNotMatch(view, /<header class="detail-header"/)
     assert.doesNotMatch(view, /<header class="conversation-header"/)
@@ -33,7 +37,10 @@ test('communication pages use one master-detail and header system', async () => 
   assert.match(dashboard, /import WorkspaceMasterDetail from/)
   assert.match(dashboard, /import WorkspaceListHeader from/)
   assert.match(dashboard, /<WorkspaceMasterDetail/)
-  assert.match(dashboard, /<WorkspaceListHeader[\s\S]*hide-on-compact/)
+  assert.match(
+    dashboard,
+    /<WorkspaceListHeader[\s\S]*compact-mode="hidden"/
+  )
   assert.doesNotMatch(
     dashboard,
     /\.dashboard-activity-action \{[\s\S]*width: 38px;/
@@ -44,12 +51,23 @@ test('communication pages use one master-detail and header system', async () => 
   )
 })
 
-test('workspace primitives own action sizing and transition timing', async () => {
-  const [master, listHeader, detailHeader, detailPane, favorite, styles] =
+test('workspace primitives own action sizing, priority, and transition timing', async () => {
+  const [
+    master,
+    listHeader,
+    listToolbar,
+    detailHeader,
+    detailActions,
+    detailPane,
+    favorite,
+    styles
+  ] =
     await Promise.all([
       source('../src/components/workspace/WorkspaceMasterDetail.vue'),
       source('../src/components/workspace/WorkspaceListHeader.vue'),
+      source('../src/components/workspace/CommunicationListToolbar.vue'),
       source('../src/components/workspace/WorkspaceDetailHeader.vue'),
+      source('../src/components/workspace/WorkspaceDetailActions.vue'),
       source('../src/components/workspace/WorkspaceDetailPane.vue'),
       source('../src/components/workspace/FavoriteActionButton.vue'),
       source('../src/style.css')
@@ -61,6 +79,7 @@ test('workspace primitives own action sizing and transition timing', async () =>
   assert.match(master, /<aside v-if="!embedded" class="list-pane"/)
   assert.match(listHeader, /class="pane-header workspace-list-header"/)
   assert.match(listHeader, /<slot name="actions" \/>/)
+  assert.match(listHeader, /compactMode\?: 'default' \| 'hidden' \| 'floating-action'/)
   assert.match(
     listHeader,
     /\.workspace-list-header \{[\s\S]*gap: var\(--detail-action-gap\);/
@@ -76,24 +95,34 @@ test('workspace primitives own action sizing and transition timing', async () =>
   assert.match(detailHeader, /density\?: 'default' \| 'compact'/)
   assert.match(detailHeader, /class="workspace-detail-header__actions"/)
   assert.match(detailHeader, /gap: var\(--detail-action-gap\);/)
-  assert.match(detailHeader, /--detail-action-size: 36px;/)
+  assert.doesNotMatch(detailHeader, /--detail-action-size:/)
   assert.match(detailHeader, /container-type: inline-size;/)
-  assert.match(styles, /--detail-action-gap: 6px;/)
-  assert.match(styles, /--detail-action-size: 38px;/)
+  assert.match(listToolbar, /class="pane-search communication-list-toolbar"/)
+  assert.match(listToolbar, /hasLineFilter\?: boolean/)
+  assert.match(detailActions, /class="workspace-detail-actions__primary"/)
+  assert.match(detailActions, /class="workspace-detail-actions__secondary"/)
+  assert.match(detailActions, /workspace-detail-actions__more/)
+  assert.match(detailActions, /\.workspace-detail-command \{/)
+  assert.match(detailActions, /@container \(max-width: 760px\)/)
+  assert.match(styles, /--detail-action-gap: var\(--space-2\);/)
+  assert.match(styles, /--detail-action-size: var\(--touch-target\);/)
   assert.match(
     styles,
     /\.icon-button \{[\s\S]*width: var\(--detail-action-size\);[\s\S]*height: var\(--detail-action-size\);/
   )
 
-  assert.match(
-    detailPane,
-    /<Transition name="workspace-detail-content" mode="out-in">/
-  )
+  assert.doesNotMatch(detailPane, /<Transition/)
   assert.match(detailPane, /:key="`detail:\$\{String\(contentKey\)\}`"/)
   assert.match(
     detailPane,
-    /@media \(prefers-reduced-motion: reduce\)[\s\S]*transition: none;/
+    /@media \(min-width: 861px\)[\s\S]*workspace-detail-content-in/
   )
+  assert.match(
+    styles,
+    /\.list-pane,[\s\S]*\.detail-pane \{[\s\S]*transform var\(--motion-slow\)/
+  )
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/)
   assert.match(favorite, /:aria-pressed="active"/)
   assert.match(favorite, /<Star :size="18" :fill="active \? 'currentColor' : 'none'"/)
+  assert.match(favorite, /workspace-favorite-action__label/)
 })

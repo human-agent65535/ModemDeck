@@ -142,13 +142,14 @@ test('communication detail action groups share one stable size and gap', async (
     messages,
     /<WorkspaceDetailHeader density="compact">[\s\S]*?<template[^>]*#actions>/
   )
-  assert.match(styles, /--detail-action-gap: 6px;/)
-  assert.match(styles, /--detail-action-size: 38px;/)
+  assert.match(styles, /--detail-action-gap: var\(--space-2\);/)
+  assert.match(styles, /--detail-action-size: var\(--touch-target\);/)
   assert.match(
     detailHeader,
     /\.workspace-detail-header__actions \{[\s\S]*gap: var\(--detail-action-gap\);/
   )
-  assert.match(detailHeader, /--detail-action-size: 36px;/)
+  assert.doesNotMatch(detailHeader, /--detail-action-size:/)
+  assert.match(messages, /<WorkspaceDetailActions>/)
 })
 
 test('recordings reuse the compact contact identity and actions in the header', async () => {

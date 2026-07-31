@@ -69,7 +69,7 @@ test('all communication list panes expose selection and their eligible batch act
   for (const view of [messages, calls, contacts, recordings]) {
     assert.match(
       view,
-      /class="pane-search-row"[\s\S]*?<ListSelectionToggle[\s\S]*?<SearchField/
+      /<CommunicationListToolbar[\s\S]*?<template #primary>[\s\S]*?<ListSelectionToggle[\s\S]*?<SearchField/
     )
     assert.match(view, /<SearchField[\s\S]*?:placeholder="t\('common\.search'\)"/)
     assert.doesNotMatch(view, /:placeholder="t\('contacts\.searchNameOrNumber'\)"/)
@@ -135,11 +135,12 @@ test('all communication list panes expose selection and their eligible batch act
   assert.match(statusRail, /\.has-date[\s\S]*?justify-content: space-between/)
   for (const view of [calls, messages, recordings, contacts]) {
     assert.match(view, /import WorkspaceDetailHeader from/)
+    assert.match(view, /import WorkspaceDetailActions from/)
     assert.match(view, /import FavoriteActionButton from/)
-    assert.match(
-      view,
-      /<WorkspaceDetailHeader[\s\S]*?<template[^>]*#actions>[\s\S]*?class="icon-button icon-button--danger desktop-delete-action"[\s\S]*?<FavoriteActionButton[\s\S]*?<\/WorkspaceDetailHeader>/
-    )
+    assert.match(view, /<WorkspaceDetailHeader[\s\S]*?<template[^>]*#actions>/)
+    assert.match(view, /<WorkspaceDetailActions>/)
+    assert.match(view, /class="icon-button icon-button--danger desktop-delete-action"/)
+    assert.match(view, /<FavoriteActionButton/)
   }
 
   assert.match(dashboard, /const batchMessageActivities = computed/)

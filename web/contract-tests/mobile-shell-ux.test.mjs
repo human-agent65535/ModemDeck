@@ -30,7 +30,8 @@ test('mobile shell uses page context and a dedicated central dial action', async
     shell,
     /const mobileSettingsNavItem = computed\(\(\) => \(\{[\s\S]*name: 'settings',[\s\S]*to: \{ name: 'settings' \}/
   )
-  assert.match(shell, /ref="mobileMoreTrigger"[\s\S]*:aria-expanded="mobileMoreOpen"/)
+  assert.match(shell, /<OverlayDialog[\s\S]*:open="mobileMoreOpen"/)
+  assert.match(shell, /:aria-expanded="mobileMoreOpen"/)
 })
 
 test('mobile navigation exposes routes that fit and falls back to More on narrow phones', async () => {
@@ -109,15 +110,19 @@ test('a minimized connected call animates the existing phone audio waves', async
 
 test('mobile shell removes duplicate global search and compacts page toolbars', async () => {
   const styles = await source('../src/style.css')
+  const listHeader = await source(
+    '../src/components/workspace/WorkspaceListHeader.vue'
+  )
 
   assert.match(
     styles,
     /@media \(max-width: 860px\)[\s\S]*\.global-search \{\s*display: none;/
   )
   assert.match(
-    styles,
-    /@media \(max-width: 860px\)[\s\S]*\.list-pane > \.pane-header:not\(:has\(> button\)\) \{\s*display: none;/
+    listHeader,
+    /@media \(max-width: 860px\)[\s\S]*\.workspace-list-header\.workspace-list-header--compact-hidden \{\s*display: none;/
   )
+  assert.doesNotMatch(styles, /\.pane-header:not\(:has/)
   assert.match(
     styles,
     /@media \(max-width: 860px\)[\s\S]*\.search-field input \{\s*font-size: 15px;/
@@ -162,14 +167,11 @@ test('mobile list creation actions share one bottom-right floating treatment', a
     /\.workspace\.has-selection :is\([\s\S]*\.mobile-list-fab,[\s\S]*\) \{[\s\S]*opacity: 0;[\s\S]*transform: scale\(0\.88\);/
   )
   assert.match(messages, /<WorkspaceDetailPane[\s\S]*:content-key=/)
-  assert.match(
-    detailPane,
-    /<Transition name="workspace-detail-content" mode="out-in">/
-  )
+  assert.doesNotMatch(detailPane, /<Transition/)
   assert.match(detailPane, /class="workspace-detail-pane__content"/)
   assert.match(
-    detailPane,
-    /\.workspace-detail-content-leave-to \{[\s\S]*opacity: 0;[\s\S]*translateX\(-8px\);/
+    styles,
+    /\.workspace\.has-selection \.list-pane \{[\s\S]*opacity: 0;[\s\S]*translateX\(-8px\);/
   )
 })
 

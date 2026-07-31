@@ -30,6 +30,9 @@ defineEmits<{
     @click="$emit('toggle')"
   >
     <Star :size="18" :fill="active ? 'currentColor' : 'none'" />
+    <span class="workspace-favorite-action__label">
+      {{ active ? deactivateLabel : activateLabel }}
+    </span>
   </button>
 </template>
 
@@ -38,5 +41,9 @@ defineEmits<{
 .workspace-favorite-action.is-active {
   color: #a86400;
   background: transparent;
+}
+
+.workspace-favorite-action__label {
+  display: none;
 }
 </style>

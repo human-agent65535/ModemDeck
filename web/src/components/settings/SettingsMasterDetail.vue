@@ -17,14 +17,23 @@ withDefaults(
     class="settings-master-detail"
     :class="[
       `settings-master-detail--${mobileMode}`,
-      { 'is-detail-open': detailOpen }
+      {
+        'mobile-drilldown': mobileMode === 'drilldown',
+        'is-detail-open': detailOpen
+      }
     ]"
     :aria-label="label"
   >
-    <div class="settings-master-detail__sidebar">
+    <div
+      class="settings-master-detail__sidebar"
+      :class="{ 'mobile-drilldown__list': mobileMode === 'drilldown' }"
+    >
       <slot name="sidebar" />
     </div>
-    <div class="settings-master-detail__detail">
+    <div
+      class="settings-master-detail__detail"
+      :class="{ 'mobile-drilldown__detail': mobileMode === 'drilldown' }"
+    >
       <slot />
     </div>
   </section>
@@ -56,7 +65,7 @@ withDefaults(
   min-height: 100%;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 860px) {
   .settings-master-detail {
     min-height: 0;
     grid-template-columns: minmax(0, 1fr);
@@ -71,11 +80,5 @@ withDefaults(
     border-bottom: 1px solid var(--border);
   }
 
-  .settings-master-detail--drilldown:not(.is-detail-open)
-    .settings-master-detail__detail,
-  .settings-master-detail--drilldown.is-detail-open
-    .settings-master-detail__sidebar {
-    display: none;
-  }
 }
 </style>

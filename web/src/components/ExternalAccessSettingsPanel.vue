@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Check,
@@ -20,6 +20,7 @@ import { ApiError } from '../api/types'
 import { useSettingsMutation } from '../composables/useSettingsMutation'
 import { requestConfirmation } from '../state/confirmation'
 import { sessionState } from '../state/session'
+import OverlayDialog from './OverlayDialog.vue'
 import SettingsModuleCard from './settings/SettingsModuleCard.vue'
 
 const STATUS_REFRESH_INTERVAL_MS = 15_000
@@ -35,8 +36,6 @@ const pairingPending = ref(false)
 const pairingError = ref('')
 const qrDataURL = ref('')
 const pairingCode = ref('')
-const qrDialog = ref<HTMLElement | null>(null)
-const qrCloseButton = ref<HTMLButtonElement | null>(null)
 const pairingCodeInput = ref<HTMLTextAreaElement | null>(null)
 const copied = ref(false)
 const selectedServerURL = ref('')
@@ -243,8 +242,6 @@ async function createPairing(): Promise<void> {
       }
     })
     copied.value = false
-    await nextTick()
-    qrCloseButton.value?.focus()
   } catch (cause) {
     closeQR()
     pairingError.value = errorMessage(cause, t('iosPairing.createFailed'))
@@ -316,13 +313,6 @@ function closeQR(): void {
   pairingCode.value = ''
   pairingError.value = ''
   copied.value = false
-}
-
-function onQRKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    closeQR()
-  }
 }
 
 onMounted(() => {
@@ -566,22 +556,14 @@ onBeforeUnmount(() => {
       </SettingsModuleCard>
     </template>
 
-    <Teleport to="body">
-      <div
-        v-if="qrDataURL"
-        class="ios-qr-backdrop"
-        role="presentation"
-        @mousedown.self="closeQR"
-      >
-        <section
-          ref="qrDialog"
-          class="ios-qr-dialog"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="ios-qr-title"
-          tabindex="-1"
-          @keydown="onQRKeydown"
-        >
+    <OverlayDialog
+      :open="Boolean(qrDataURL)"
+      size="small"
+      labelledby="ios-qr-title"
+      initial-focus="[data-overlay-initial]"
+      @close="closeQR"
+    >
+      <div class="ios-qr-dialog">
           <header>
             <div>
               <h2 id="ios-qr-title">{{ t('iosPairing.scanTitle') }}</h2>
@@ -589,9 +571,9 @@ onBeforeUnmount(() => {
               <p>{{ t('iosPairing.scanWaiting') }}</p>
             </div>
             <button
-              ref="qrCloseButton"
               class="icon-button"
               type="button"
+              data-overlay-initial
               :aria-label="t('common.close')"
               @click="closeQR"
             >
@@ -640,9 +622,8 @@ onBeforeUnmount(() => {
               {{ t('common.done') }}
             </button>
           </footer>
-        </section>
       </div>
-    </Teleport>
+    </OverlayDialog>
   </section>
 </template>
 
@@ -785,25 +766,10 @@ onBeforeUnmount(() => {
   margin: 12px 0 0;
 }
 
-.ios-qr-backdrop {
-  position: fixed;
-  z-index: 175;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 20px;
-  background: rgb(16 24 40 / 52%);
-}
-
 .ios-qr-dialog {
-  width: min(430px, 100%);
-  max-height: calc(100dvh - 40px);
+  max-height: inherit;
   overflow-y: auto;
   padding: 20px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: var(--shadow);
 }
 
 .ios-qr-dialog > header {
@@ -894,17 +860,6 @@ onBeforeUnmount(() => {
 
   .ios-pairing-actions button {
     width: 100%;
-  }
-
-  .ios-qr-backdrop {
-    align-items: end;
-    padding: 0 0 var(--mobile-nav-height);
-  }
-
-  .ios-qr-dialog {
-    width: 100%;
-    max-height: calc(100dvh - var(--mobile-nav-height));
-    border-radius: 12px 12px 0 0;
   }
 
   .ios-qr-image img {

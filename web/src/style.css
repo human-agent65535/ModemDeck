@@ -22,13 +22,27 @@
   --danger-soft: #fcebee;
   --shadow: 0 12px 30px rgb(16 24 40 / 12%);
   --shadow-lg: 0 18px 48px rgb(16 24 40 / 18%);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --radius-control: 8px;
+  --radius-surface: 10px;
+  --radius-dialog: 12px;
+  --touch-target: 44px;
+  --layer-popover: 80;
+  --layer-drawer: 100;
+  --layer-dialog: 120;
+  --layer-critical: 180;
+  --layer-feedback: 220;
   --motion-fast: 90ms;
   --motion-base: 160ms;
   --motion-slow: 220ms;
   --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-emphasized: cubic-bezier(0.2, 0.9, 0.25, 1);
-  --detail-action-gap: 6px;
-  --detail-action-size: 38px;
+  --detail-action-gap: var(--space-2);
+  --detail-action-size: var(--touch-target);
   --rail-width: 92px;
   --header-height: 72px;
   --dialer-width: clamp(360px, 28vw, 420px);
@@ -357,7 +371,7 @@ strong {
   font-weight: 700;
 }
 
-.mobile-shell-back {
+.shell-header .mobile-shell-back {
   display: none;
 }
 
@@ -394,7 +408,7 @@ strong {
 
 .audio-settings-menu {
   position: absolute;
-  z-index: 80;
+  z-index: var(--layer-popover);
   top: calc(100% + 10px);
   right: 0;
   width: min(330px, calc(100vw - 28px));
@@ -849,17 +863,6 @@ strong {
 
 .pane-search-row .search-field {
   flex: 1;
-}
-
-.pane-search-row:has(> .line-selector.is-filter) .search-field {
-  padding-right: 50px;
-}
-
-.pane-search-row > .line-selector.is-filter {
-  position: absolute;
-  z-index: 4;
-  top: 3px;
-  right: 3px;
 }
 
 .pane-search--calls {
@@ -1672,7 +1675,7 @@ dd {
 
 .suggest-menu {
   position: absolute;
-  z-index: 80;
+  z-index: var(--layer-popover);
   top: calc(100% + 6px);
   right: 0;
   left: 0;
@@ -1726,10 +1729,9 @@ dd {
   font-size: 11px;
 }
 
-.drawer-backdrop,
-.modal-backdrop {
+.drawer-backdrop {
   position: fixed;
-  z-index: 100;
+  z-index: var(--layer-drawer);
   inset: 0;
   display: flex;
   align-items: flex-end;
@@ -1894,12 +1896,6 @@ dd {
 
 .call-button--hangup:hover:not(:disabled) {
   background: #a92e3b;
-}
-
-.modal-backdrop {
-  z-index: 110;
-  align-items: center;
-  justify-content: center;
 }
 
 .editor-dialog {
@@ -2818,34 +2814,6 @@ dd {
   opacity: 0;
 }
 
-.modal-enter-active,
-.modal-leave-active {
-  transition: opacity var(--motion-base) var(--ease-standard);
-}
-
-.modal-enter-active :is(.confirmation-dialog, .proxy-modal, .editor-dialog),
-.modal-leave-active :is(.confirmation-dialog, .proxy-modal, .editor-dialog) {
-  transition:
-    opacity var(--motion-base) var(--ease-standard),
-    transform var(--motion-slow) var(--ease-emphasized);
-}
-
-.modal-enter-from,
-.modal-leave-to,
-.modal-enter-from :is(.confirmation-dialog, .proxy-modal, .editor-dialog),
-.modal-leave-to :is(.confirmation-dialog, .proxy-modal, .editor-dialog) {
-  opacity: 0;
-}
-
-.modal-enter-from :is(.confirmation-dialog, .proxy-modal, .editor-dialog),
-.modal-leave-to :is(.confirmation-dialog, .proxy-modal, .editor-dialog) {
-  transform: translateY(8px) scale(0.98);
-}
-
-.modal-leave-active {
-  pointer-events: none;
-}
-
 @media (min-width: 1480px) {
   .route-stage {
     margin-right: var(--dialer-width);
@@ -2908,11 +2876,11 @@ dd {
     white-space: nowrap;
   }
 
-  .mobile-shell-back {
+  .shell-header .mobile-shell-back {
     display: inline-grid;
-    width: 34px;
-    height: 34px;
-    flex: 0 0 34px;
+    width: var(--touch-target);
+    height: var(--touch-target);
+    flex: 0 0 var(--touch-target);
   }
 
   .global-search {
@@ -2958,6 +2926,7 @@ dd {
     grid-area: 1 / 1;
     transition:
       opacity var(--motion-base) var(--ease-standard),
+      transform var(--motion-slow) var(--ease-emphasized),
       visibility 0s linear var(--motion-base);
   }
 
@@ -2965,6 +2934,7 @@ dd {
     visibility: hidden;
     opacity: 0;
     pointer-events: none;
+    transform: translateX(12px);
   }
 
   .list-pane {
@@ -2975,13 +2945,15 @@ dd {
     visibility: hidden;
     opacity: 0;
     pointer-events: none;
-    transition-delay: 0s, var(--motion-base);
+    transform: translateX(-8px);
+    transition-delay: 0s, 0s, var(--motion-base);
   }
 
   .workspace.has-selection .detail-pane {
     visibility: visible;
     opacity: 1;
     pointer-events: auto;
+    transform: translateX(0);
     transition-delay: 0s;
   }
 
@@ -2989,6 +2961,7 @@ dd {
     visibility: visible;
     opacity: 1;
     pointer-events: auto;
+    transform: translateX(0);
     transition-delay: 0s;
   }
 
@@ -2996,7 +2969,23 @@ dd {
     visibility: hidden;
     opacity: 0;
     pointer-events: none;
-    transition-delay: 0s, var(--motion-base);
+    transform: translateX(12px);
+    transition-delay: 0s, 0s, var(--motion-base);
+  }
+
+  .mobile-drilldown:not(.is-detail-open) > .mobile-drilldown__detail,
+  .mobile-drilldown.is-detail-open > .mobile-drilldown__list {
+    display: none;
+  }
+
+  .mobile-drilldown.is-detail-open > .mobile-drilldown__detail {
+    animation: mobile-drilldown-forward var(--motion-slow) var(--ease-emphasized)
+      both;
+  }
+
+  .mobile-drilldown:not(.is-detail-open) > .mobile-drilldown__list {
+    animation: mobile-drilldown-back var(--motion-slow) var(--ease-emphasized)
+      both;
   }
 
   .mobile-nav {
@@ -3170,20 +3159,6 @@ dd {
     }
   }
 
-  .list-pane > .pane-header > :first-child:not(button) {
-    display: none;
-  }
-
-  .list-pane > .pane-header {
-    min-height: 48px;
-    flex-basis: 48px;
-    justify-content: flex-end;
-  }
-
-  .list-pane > .pane-header:not(:has(> button)) {
-    display: none;
-  }
-
   .settings-overview-link {
     display: flex;
   }
@@ -3194,21 +3169,6 @@ dd {
 
   .dashboard-overview-back.is-shell-managed {
     display: none;
-  }
-
-  .list-pane > .pane-header:has(> .mobile-list-fab),
-  .list-pane > .pane-header:has(> .dashboard-pane-action) {
-    min-height: 0;
-    flex-basis: 0;
-    padding: 0;
-    border: 0;
-  }
-
-  .list-pane > .pane-header:has(> .pane-selection-toggle) {
-    display: flex;
-    min-height: 48px;
-    flex-basis: 48px;
-    padding: 0 12px;
   }
 
   .workspace.is-batch-selecting :is(
@@ -3303,6 +3263,20 @@ dd {
   }
 }
 
+@keyframes mobile-drilldown-forward {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+
+@keyframes mobile-drilldown-back {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+}
+
 @media (max-width: 700px) {
   .mobile-nav :is(a, button) {
     grid-template-rows: minmax(0, 1fr) 14px;
@@ -3354,8 +3328,8 @@ dd {
   }
 
   .shell-header .incoming-call-mode__trigger {
-    width: 34px;
-    min-height: 34px;
+    width: var(--touch-target);
+    min-height: var(--touch-target);
     justify-content: center;
     padding: 0;
   }

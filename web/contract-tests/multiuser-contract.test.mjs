@@ -164,7 +164,15 @@ test('multi-user UI exposes only authorized settings and communication areas', a
   assert.match(users, /passwordCharacterCount\(newPassword\.value\)/)
   assert.doesNotMatch(users, /temporaryPassword/)
   assert.doesNotMatch(users, /recordingDefaultEnabled|languageOptions|preferences: \{/)
+  assert.match(users, /<AccountProfileSetting/)
+  assert.match(
+    users,
+    /<AccountProfileSetting[\s\S]*?<div class="user-fields">/
+  )
   assert.match(users, /<AccountSettingsPanel/)
+  assert.match(users, /:show-profile="false"/)
+  assert.match(users, /selectedUser\.profile_name \|\| selectedUser\.username/)
+  assert.match(users, /selectedUser\?\.profile_name \|\| username/)
   assert.match(users, /selectedUser\?\.id === sessionState\.userID/)
   assert.match(users, /const filteredUsers = computed/)
   assert.match(users, /<SettingsMasterDetail/)

@@ -33,6 +33,7 @@ import {
 } from '../utils/password'
 import { formatDateTime } from '../utils/format'
 import BaseAvatar from './BaseAvatar.vue'
+import AccountProfileSetting from './AccountProfileSetting.vue'
 import AccountSettingsPanel from './AccountSettingsPanel.vue'
 import LineTag from './LineTag.vue'
 import StatePanel from './StatePanel.vue'
@@ -507,18 +508,34 @@ onMounted(() => {
       <form v-else class="settings-form user-form" @submit.prevent="submit">
         <section class="user-management-card">
           <header class="user-editor__heading">
-            <span class="user-editor__icon">
-              <ShieldCheck v-if="selectedUser?.role === 'admin'" :size="19" />
-              <UserRound v-else :size="19" />
+            <BaseAvatar
+              v-if="!creating && selectedUser"
+              class="user-editor__avatar"
+              :name="selectedUser.profile_name || selectedUser.username"
+              :src="selectedUser.profile_avatar"
+              size="small"
+              :fallback="selectedUser.profile_name ? 'initials' : 'person'"
+              :palette-key="selectedUser.id"
+            />
+            <span v-else class="user-editor__icon">
+              <UserRound :size="19" />
             </span>
             <div>
-              <h3>{{ creating ? t('users.newMember') : username }}</h3>
+              <h3>
+                {{
+                  creating
+                    ? t('users.newMember')
+                    : selectedUser?.profile_name || username
+                }}
+              </h3>
               <small>
                 {{
                   selectedUser?.role === 'admin'
-                    ? t('users.initialAdminDescription')
+                    ? selectedUser.profile_name
+                      ? `@${username} · ${t('users.initialAdminDescription')}`
+                      : t('users.initialAdminDescription')
                     : selectedUser?.profile_name
-                      ? `${selectedUser.profile_name} · ${t('users.memberRole')}`
+                      ? `@${username} · ${t('users.memberRole')}`
                       : t('users.memberRole')
                 }}
               </small>
@@ -533,6 +550,11 @@ onMounted(() => {
           </header>
 
           <div class="user-management-card__body">
+            <AccountProfileSetting
+              v-if="!creating && selectedUser?.id === sessionState.userID"
+              @saved="refreshUserList"
+            />
+
             <div class="user-fields">
               <label class="field">
                 <span>{{ t('common.username') }}</span>
@@ -752,6 +774,7 @@ onMounted(() => {
       <AccountSettingsPanel
         v-if="!creating && selectedUser?.id === sessionState.userID"
         :show-identity="false"
+        :show-profile="false"
         @profile-saved="refreshUserList"
       />
     </section>
@@ -872,7 +895,7 @@ onMounted(() => {
 
 .user-editor {
   min-width: 0;
-  padding-left: 24px;
+  padding-inline: 24px;
   background: var(--surface);
 }
 
@@ -903,6 +926,10 @@ onMounted(() => {
   color: var(--accent-strong);
   background: var(--accent-soft);
   border-radius: 50%;
+}
+
+.user-editor__avatar {
+  flex: 0 0 auto;
 }
 
 .user-editor__heading > div {
@@ -1242,7 +1269,7 @@ onMounted(() => {
 
 @container (max-width: 720px) {
   .user-editor {
-    padding-left: 18px;
+    padding-inline: 18px;
   }
 
   .user-password-set > div {
@@ -1260,7 +1287,7 @@ onMounted(() => {
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 860px) {
   .user-list {
     max-height: none;
   }

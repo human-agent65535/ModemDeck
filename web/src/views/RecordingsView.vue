@@ -20,7 +20,9 @@ import SearchField from '../components/SearchField.vue'
 import SelectableListRow from '../components/SelectableListRow.vue'
 import StatePanel from '../components/StatePanel.vue'
 import SwipeActionRow from '../components/SwipeActionRow.vue'
+import CommunicationListToolbar from '../components/workspace/CommunicationListToolbar.vue'
 import FavoriteActionButton from '../components/workspace/FavoriteActionButton.vue'
+import WorkspaceDetailActions from '../components/workspace/WorkspaceDetailActions.vue'
 import WorkspaceDetailHeader from '../components/workspace/WorkspaceDetailHeader.vue'
 import WorkspaceDetailPane from '../components/workspace/WorkspaceDetailPane.vue'
 import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
@@ -359,6 +361,7 @@ onBeforeUnmount(() => {
     <template #list>
       <WorkspaceListHeader
         :title="t('shell.recordings')"
+        compact-mode="hidden"
         :count="
           recordingCatalogState.status === 'ready'
             ? recordingCatalogState.data.length
@@ -366,8 +369,8 @@ onBeforeUnmount(() => {
         "
       />
 
-      <div class="pane-search">
-        <div class="pane-search-row">
+      <CommunicationListToolbar :has-line-filter="lines.length > 1">
+        <template #primary>
           <ListSelectionToggle
             :active="selecting"
             :label="t('common.selectMultiple')"
@@ -399,8 +402,8 @@ onBeforeUnmount(() => {
             :label="t('common.favoriteOnly')"
             @toggle="setFavoriteFilter(!favoriteOnly)"
           />
-        </div>
-      </div>
+        </template>
+      </CommunicationListToolbar>
       <p v-if="deleteError" class="field-error recording-delete-error" role="alert">
         {{ deleteError }}
       </p>
@@ -584,27 +587,33 @@ onBeforeUnmount(() => {
             />
           </template>
           <template #actions>
-            <ContactNumberActions
-              :number="selected.call.remote_number"
-              :contact="selectedContact"
-              compact
-            />
-            <button
-              class="icon-button icon-button--danger desktop-delete-action"
-              type="button"
-              :disabled="Boolean(deletingRecordingID)"
-              :title="t('recordings.delete')"
-              @click="removeRecording(selected)"
-            >
-              <Trash2 :size="18" />
-            </button>
-            <FavoriteActionButton
-              :active="selected.favorite"
-              :disabled="Boolean(favoritePendingCallID)"
-              :activate-label="t('common.favorite')"
-              :deactivate-label="t('common.unfavorite')"
-              @toggle="toggleRecordingFavorite(selected)"
-            />
+            <WorkspaceDetailActions>
+              <template #primary>
+                <FavoriteActionButton
+                  :active="selected.favorite"
+                  :disabled="Boolean(favoritePendingCallID)"
+                  :activate-label="t('common.favorite')"
+                  :deactivate-label="t('common.unfavorite')"
+                  @toggle="toggleRecordingFavorite(selected)"
+                />
+              </template>
+              <template #secondary>
+                <ContactNumberActions
+                  :number="selected.call.remote_number"
+                  :contact="selectedContact"
+                  compact
+                />
+                <button
+                  class="icon-button icon-button--danger desktop-delete-action"
+                  type="button"
+                  :disabled="Boolean(deletingRecordingID)"
+                  :title="t('recordings.delete')"
+                  @click="removeRecording(selected)"
+                >
+                  <Trash2 :size="18" />
+                </button>
+              </template>
+            </WorkspaceDetailActions>
           </template>
         </WorkspaceDetailHeader>
 

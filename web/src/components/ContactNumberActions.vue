@@ -6,6 +6,7 @@ import { ContactRound, Link2, UserPlus, X } from '@lucide/vue'
 import type { Contact, ContactInput } from '../api/types'
 import BaseAvatar from './BaseAvatar.vue'
 import ContactEditor from './ContactEditor.vue'
+import OverlayDialog from './OverlayDialog.vue'
 import SearchField from './SearchField.vue'
 import { isContactPhoneCandidate } from '../utils/communicationAddress'
 import { phoneIdentitiesMatch } from '../utils/lineIdentity'
@@ -232,89 +233,88 @@ async function addToContact(): Promise<void> {
     @save="createContact"
   />
 
-  <Teleport v-if="numberIsContactable" to="body">
-    <Transition name="fade">
-      <div v-if="addOpen" class="modal-backdrop" @mousedown.self="closeAdd">
-        <section
-          class="editor-dialog quick-contact-dialog"
-          role="dialog"
-          aria-modal="true"
-          :aria-label="t('contacts.addExisting')"
-          @keydown.esc="closeAdd"
+  <OverlayDialog
+    v-if="numberIsContactable"
+    :open="addOpen"
+    size="medium"
+    surface-class="quick-contact-dialog"
+    :label="t('contacts.addExisting')"
+    initial-focus='input[aria-label]'
+    @close="closeAdd"
+  >
+    <div class="quick-contact-dialog">
+      <header class="tool-header">
+        <h2>{{ t('contacts.addExisting') }}</h2>
+        <button
+          class="icon-button"
+          type="button"
+          :title="t('common.close')"
+          :aria-label="t('common.close')"
+          :disabled="saving"
+          @click="closeAdd"
         >
-          <header class="tool-header">
-            <h2>{{ t('contacts.addExisting') }}</h2>
-            <button
-              class="icon-button"
-              type="button"
-              :title="t('common.close')"
-              :disabled="saving"
-              @click="closeAdd"
-            >
-              <X :size="19" />
-            </button>
-          </header>
+          <X :size="19" />
+        </button>
+      </header>
 
-          <form class="quick-contact-form" @submit.prevent="addToContact">
-            <div class="quick-contact-target">
-              <span>{{ t('contacts.phoneNumber') }}</span>
-              <strong>{{ number }}</strong>
-            </div>
-            <label class="field">
-              <span>{{ t('contacts.phoneType') }}</span>
-              <input v-model="phoneLabel" :aria-label="t('contacts.phoneType')" />
-            </label>
-            <SearchField v-model="search" :placeholder="t('contacts.search')" />
-            <p
-              v-if="contactsResource.status === 'loading' || contactsResource.status === 'idle'"
-              class="quick-contact-state"
-            >
-              {{ t('contacts.loading') }}
-            </p>
-            <p
-              v-else-if="contactsResource.status === 'error' || contactsResource.status === 'forbidden'"
-              class="field-error"
-              role="alert"
-            >
-              {{ contactsResource.error || t('contacts.loadFailed') }}
-            </p>
-            <div v-else-if="filteredContacts.length" class="quick-contact-list" role="listbox">
-              <button
-                v-for="candidate in filteredContacts"
-                :key="candidate.id"
-                class="quick-contact-option"
-                :class="{ 'is-selected': candidate.id === selectedContactID }"
-                type="button"
-                role="option"
-                :aria-selected="candidate.id === selectedContactID"
-                @click="selectedContactID = candidate.id"
-              >
-                <BaseAvatar :name="candidate.display_name" :src="candidate.avatar" />
-                <span>
-                  <strong>{{ candidate.display_name }}</strong>
-                  <small>{{ candidate.phones[0]?.number || t('contacts.noNumber') }}</small>
-                </span>
-              </button>
-            </div>
-            <p v-else class="quick-contact-state">{{ t('contacts.noMatches') }}</p>
-            <p v-if="error" class="field-error" role="alert">{{ error }}</p>
-            <footer class="dialog-actions">
-              <button class="secondary-button" type="button" :disabled="saving" @click="closeAdd">
-                {{ t('common.cancel') }}
-              </button>
-              <button
-                class="primary-button"
-                type="submit"
-                :disabled="!selectedContact || saving"
-              >
-                {{ saving ? t('common.saving') : t('contacts.addNumber') }}
-              </button>
-            </footer>
-          </form>
-        </section>
+      <form class="quick-contact-form" @submit.prevent="addToContact">
+      <div class="quick-contact-target">
+        <span>{{ t('contacts.phoneNumber') }}</span>
+        <strong>{{ number }}</strong>
       </div>
-    </Transition>
-  </Teleport>
+      <label class="field">
+        <span>{{ t('contacts.phoneType') }}</span>
+        <input v-model="phoneLabel" :aria-label="t('contacts.phoneType')" />
+      </label>
+      <SearchField v-model="search" :placeholder="t('contacts.search')" />
+      <p
+        v-if="contactsResource.status === 'loading' || contactsResource.status === 'idle'"
+        class="quick-contact-state"
+      >
+        {{ t('contacts.loading') }}
+      </p>
+      <p
+        v-else-if="contactsResource.status === 'error' || contactsResource.status === 'forbidden'"
+        class="field-error"
+        role="alert"
+      >
+        {{ contactsResource.error || t('contacts.loadFailed') }}
+      </p>
+      <div v-else-if="filteredContacts.length" class="quick-contact-list" role="listbox">
+        <button
+          v-for="candidate in filteredContacts"
+          :key="candidate.id"
+          class="quick-contact-option"
+          :class="{ 'is-selected': candidate.id === selectedContactID }"
+          type="button"
+          role="option"
+          :aria-selected="candidate.id === selectedContactID"
+          @click="selectedContactID = candidate.id"
+        >
+          <BaseAvatar :name="candidate.display_name" :src="candidate.avatar" />
+          <span>
+            <strong>{{ candidate.display_name }}</strong>
+            <small>{{ candidate.phones[0]?.number || t('contacts.noNumber') }}</small>
+          </span>
+        </button>
+      </div>
+      <p v-else class="quick-contact-state">{{ t('contacts.noMatches') }}</p>
+      <p v-if="error" class="field-error" role="alert">{{ error }}</p>
+      <footer class="dialog-actions">
+        <button class="secondary-button" type="button" :disabled="saving" @click="closeAdd">
+          {{ t('common.cancel') }}
+        </button>
+        <button
+          class="primary-button"
+          type="submit"
+          :disabled="!selectedContact || saving"
+        >
+          {{ saving ? t('common.saving') : t('contacts.addNumber') }}
+        </button>
+      </footer>
+      </form>
+    </div>
+  </OverlayDialog>
 </template>
 
 <style scoped>
@@ -336,7 +336,9 @@ async function addToContact(): Promise<void> {
 }
 
 .quick-contact-dialog {
-  width: min(520px, calc(100vw - 32px));
+  display: flex;
+  max-height: inherit;
+  flex-direction: column;
 }
 
 .quick-contact-form {

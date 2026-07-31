@@ -47,7 +47,7 @@ function iconFor(tone: FeedbackTone): typeof CircleCheck {
 <style scoped>
 .feedback-host {
   position: fixed;
-  z-index: 220;
+  z-index: var(--layer-feedback);
   top: calc(var(--header-height) + 14px);
   right: 18px;
   display: flex;

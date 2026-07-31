@@ -1359,7 +1359,7 @@ onMounted(() => {
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 860px) {
   .telegram-unit-list {
     max-height: 232px;
     overflow-y: auto;

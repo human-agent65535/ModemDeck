@@ -11,7 +11,9 @@ test('line filters use the shared compact selector on desktop and mobile', async
   const calls = await source('../src/views/CallsView.vue')
   const messages = await source('../src/views/MessagesView.vue')
   const recordings = await source('../src/views/RecordingsView.vue')
-  const styles = await source('../src/style.css')
+  const toolbar = await source(
+    '../src/components/workspace/CommunicationListToolbar.vue'
+  )
 
   assert.match(selector, /filterMode\?: boolean/)
   assert.match(selector, /'is-filter': filterMode/)
@@ -22,12 +24,14 @@ test('line filters use the shared compact selector on desktop and mobile', async
   assert.doesNotMatch(selector, /RadioTower/)
   assert.match(selector, /\.line-selector\.is-filter \{/)
   assert.match(
-    styles,
-    /\.pane-search-row > \.line-selector\.is-filter \{[\s\S]*position: absolute;/
+    toolbar,
+    /\.communication-list-toolbar__primary :deep\(\.line-selector\.is-filter\) \{[\s\S]*position: absolute;/
   )
+  assert.match(toolbar, /hasLineFilter\?: boolean/)
 
   for (const view of [calls, messages, recordings]) {
-    assert.match(view, /class="pane-search-row"/)
+    assert.match(view, /<CommunicationListToolbar/)
+    assert.match(view, /:has-line-filter="lines\.length > 1"/)
     assert.match(view, /include-all[\s\S]*filter-mode/)
   }
 })

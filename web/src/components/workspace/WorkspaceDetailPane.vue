@@ -15,22 +15,20 @@ const hasContent = computed(
 
 <template>
   <article class="detail-pane workspace-detail-pane">
-    <Transition name="workspace-detail-content" mode="out-in">
-      <div
-        v-if="hasContent"
-        :key="`detail:${String(contentKey)}`"
-        class="workspace-detail-pane__content"
-      >
-        <slot />
-      </div>
-      <div
-        v-else
-        key="empty"
-        class="workspace-detail-pane__empty"
-      >
-        <slot name="empty" />
-      </div>
-    </Transition>
+    <div
+      v-if="hasContent"
+      :key="`detail:${String(contentKey)}`"
+      class="workspace-detail-pane__content"
+    >
+      <slot />
+    </div>
+    <div
+      v-else
+      key="empty"
+      class="workspace-detail-pane__empty"
+    >
+      <slot name="empty" />
+    </div>
   </article>
 </template>
 
@@ -44,32 +42,18 @@ const hasContent = computed(
   flex-direction: column;
 }
 
-.workspace-detail-content-enter-active,
-.workspace-detail-content-leave-active {
-  transition:
-    opacity var(--motion-base) var(--ease-standard),
-    transform var(--motion-base) var(--ease-standard);
-}
-
-.workspace-detail-content-enter-from {
-  opacity: 0;
-  transform: translateX(8px);
-}
-
-.workspace-detail-content-leave-to {
-  opacity: 0;
-  transform: translateX(-8px);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .workspace-detail-content-enter-active,
-  .workspace-detail-content-leave-active {
-    transition: none;
+@media (min-width: 861px) {
+  .workspace-detail-pane__content,
+  .workspace-detail-pane__empty {
+    animation: workspace-detail-content-in var(--motion-base) var(--ease-standard)
+      both;
   }
+}
 
-  .workspace-detail-content-enter-from,
-  .workspace-detail-content-leave-to {
-    transform: none;
+@keyframes workspace-detail-content-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
   }
 }
 </style>

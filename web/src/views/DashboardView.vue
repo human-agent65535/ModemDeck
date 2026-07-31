@@ -706,7 +706,7 @@ onBeforeUnmount(() => {
       <WorkspaceListHeader
         :title="t('dashboard.activity')"
         :count="activityLoading ? undefined : activities.length"
-        hide-on-compact
+        compact-mode="hidden"
       >
         <template #actions>
           <ListSelectionToggle

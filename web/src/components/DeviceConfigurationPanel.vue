@@ -61,7 +61,7 @@ import {
   setRadioEnabled,
   setVoLTEPolicy
 } from '../state/deviceConfiguration'
-import { loadNetwork } from '../state/network'
+import { loadNetwork, networkState } from '../state/network'
 import { sessionState } from '../state/session'
 import {
   activateNetworkSelection,
@@ -89,10 +89,11 @@ import {
 import { operatorFacts } from '../utils/operatorNetwork'
 import { LINE_TONE_PRESETS, lineTonePreset } from '../utils/lineTone'
 import LineTag from './LineTag.vue'
+import ModuleCard from './ModuleCard.vue'
 import SensitiveValue from './SensitiveValue.vue'
 import SignalBars from './SignalBars.vue'
 import StatePanel from './StatePanel.vue'
-import SettingsMasterDetail from './settings/SettingsMasterDetail.vue'
+import DeviceWorkspace from './settings/DeviceWorkspace.vue'
 import SettingsSaveStatus from './settings/SettingsSaveStatus.vue'
 
 type DeviceTab = 'overview' | 'network' | 'sim' | 'sms' | 'voice' | 'ussd'
@@ -158,6 +159,7 @@ const ussdPending = ref(false)
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const moduleLines = computed(() => displayModuleLines(lines.value, devicesResource.data))
+const networkSnapshot = computed(() => networkState.snapshot)
 const defaultLineID = computed(
   () => bootstrapResource.data?.line_settings.default_line_id || ''
 )
@@ -418,28 +420,8 @@ const selectedVoiceModeLabel = computed(() => {
   return selectedLineVoLTEEnabled.value ? t('device.voltePreferred') : 'GSM'
 })
 
-function moduleDisplayName(line: LineSummary): string {
-  const device = deviceFor(line)
-  return (
-    device?.name.trim() ||
-    line.device_name.trim() ||
-    device?.model.trim() ||
-    line.model?.trim() ||
-    line.phone_number.trim() ||
-    lineKey(line)
-  )
-}
-
-function moduleIsPresent(line: LineSummary): boolean {
-  return deviceFor(line)?.present !== false && !line.module_only
-}
-
-function moduleIsDeletable(line: LineSummary): boolean {
-  return Boolean(
-    sessionState.role === 'admin' &&
-      line.module_only &&
-      deviceFor(line)?.present === false
-  )
+function networkRuntime(line: LineSummary) {
+  return networkSnapshot.value?.lines.find(runtime => runtime.line_id === lineKey(line))
 }
 const flightModeWritable = computed(
   () =>
@@ -1286,13 +1268,12 @@ onMounted(() => {
 </script>
 
 <template>
-  <SettingsMasterDetail
+  <DeviceWorkspace
     class="device-configuration"
     :label="t('device.modules')"
-    mobile-mode="drilldown"
     :detail-open="deviceDetailOpen"
   >
-    <template #sidebar>
+    <template #selector>
       <div class="device-module-list">
         <header class="module-toolbar">
           <div>
@@ -1319,56 +1300,34 @@ onMounted(() => {
           state="empty"
           :title="t('device.noModules')"
         />
-        <div v-else class="device-module-rows">
-          <div
+        <div v-else class="module-grid">
+          <ModuleCard
             v-for="line in moduleLines"
             :key="lineKey(line)"
-            class="device-module-row"
-            :class="{ 'is-selected': line.id === selectedLineID }"
-          >
-            <button
-              class="device-module-row__select"
-              type="button"
-              :disabled="line.module_only"
-              :aria-pressed="line.id === selectedLineID"
-              @click="selectLine(line)"
-            >
-              <span class="device-module-row__icon">
-                <RadioTower :size="18" />
-              </span>
-              <span class="device-module-row__identity">
-                <strong>{{ lineLabel(line) }}</strong>
-                <small>{{ moduleDisplayName(line) }}</small>
-              </span>
-              <span
-                class="device-module-row__presence"
-                :class="{ 'is-present': moduleIsPresent(line) }"
-                aria-hidden="true"
-              />
-              <CheckCircle2
-                v-if="lineKey(line) === defaultLineID"
-                class="device-module-row__default"
-                :size="16"
-                :aria-label="t('lines.currentDefaultLine')"
-              />
-            </button>
-            <button
-              v-if="moduleIsDeletable(line)"
-              class="device-module-row__delete"
-              type="button"
-              :disabled="moduleDeletePending === line.device_imei"
-              :title="t('device.deleteModuleTitle')"
-              :aria-label="t('device.deleteModuleTitle')"
-              @click="deleteHistoricalModule(line)"
-            >
-              <LoaderCircle
-                v-if="moduleDeletePending === line.device_imei"
-                class="spin"
-                :size="15"
-              />
-              <Trash2 v-else :size="15" />
-            </button>
-          </div>
+            :line="line"
+            :device="deviceFor(line)"
+            :runtime="networkRuntime(line)"
+            :selected="line.id === selectedLineID"
+            :selectable="!line.module_only"
+            :deletable="
+              Boolean(
+                sessionState.role === 'admin' &&
+                  line.module_only &&
+                  deviceFor(line)?.present === false
+              )
+            "
+            :delete-pending="moduleDeletePending === line.device_imei"
+            :default-line="lineKey(line) === defaultLineID"
+            :flight-mode="
+              line.id === selectedLineID && hardware?.flight_mode_known
+                ? hardware.flight_mode
+                : undefined
+            "
+            actions
+            @select="selectLine(line)"
+            @make-default="makeDefault(line)"
+            @delete="deleteHistoricalModule(line)"
+          />
         </div>
         <p v-if="moduleError" class="field-error device-module-list__error" role="alert">
           {{ moduleError }}
@@ -2480,24 +2439,25 @@ onMounted(() => {
         :title="t('device.noModules')"
       />
     </div>
-  </SettingsMasterDetail>
+  </DeviceWorkspace>
 </template>
 
 <style scoped>
 .device-configuration {
-  --settings-master-sidebar: 260px;
+  --device-workspace-gutter: clamp(20px, 2.8vw, 42px);
 
   width: 100%;
   min-width: 0;
 }
 
 .device-module-list {
-  min-height: 100%;
+  min-width: 0;
+  padding-inline: var(--device-workspace-gutter);
 }
 
 .device-detail {
   min-width: 0;
-  padding: 0 24px 24px;
+  padding-bottom: 24px;
 }
 
 .module-toolbar,
@@ -2508,9 +2468,8 @@ onMounted(() => {
 }
 
 .module-toolbar {
-  min-height: 62px;
+  min-height: 46px;
   justify-content: space-between;
-  padding: 0 14px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -2531,107 +2490,21 @@ onMounted(() => {
   font-size: 12px;
 }
 
-.device-module-rows {
+.module-grid {
   display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 420px));
+  justify-content: start;
+  gap: 12px;
+  padding: 14px 1px 16px;
 }
 
-.device-module-row {
-  position: relative;
-  min-width: 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.device-module-row.is-selected {
-  background: var(--surface-selected);
-  box-shadow: inset 3px 0 0 var(--accent);
-}
-
-.device-module-row__select {
-  display: grid;
+.module-grid > :deep(.module-card) {
   width: 100%;
-  min-height: 72px;
-  min-width: 0;
-  grid-template-columns: 34px minmax(0, 1fr) 8px auto;
-  align-items: center;
-  gap: 9px;
-  padding: 10px 12px;
-  color: var(--text);
-  text-align: left;
-}
-
-.device-module-row__select:disabled {
-  cursor: default;
-}
-
-.device-module-row__select:not(:disabled):hover {
-  background: var(--surface-hover);
-}
-
-.device-module-row__icon {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-  border-radius: 50%;
-}
-
-.device-module-row__identity {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.device-module-row__identity strong,
-.device-module-row__identity small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.device-module-row__identity strong {
-  font-size: 13px;
-}
-
-.device-module-row__identity small {
-  color: var(--muted);
-  font-size: 10px;
-}
-
-.device-module-row__presence {
-  width: 7px;
-  height: 7px;
-  background: var(--faint);
-  border-radius: 50%;
-}
-
-.device-module-row__presence.is-present {
-  background: var(--success);
-}
-
-.device-module-row__default {
-  color: var(--accent-strong);
-}
-
-.device-module-row__delete {
-  position: absolute;
-  top: 50%;
-  right: 9px;
-  display: grid;
-  width: 30px;
-  height: 30px;
-  place-items: center;
-  color: var(--danger);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  transform: translateY(-50%);
+  max-width: 420px;
 }
 
 .device-module-list__error {
-  margin: 12px;
+  margin: 0 0 14px;
 }
 
 .data-apn-field,
@@ -2702,14 +2575,16 @@ onMounted(() => {
 .device-tabs {
   display: flex;
   min-width: 0;
+  padding-inline: var(--device-workspace-gutter);
   overflow-x: auto;
   border-bottom: 1px solid var(--border);
 }
 
 .device-tabs button {
   display: inline-flex;
-  min-width: 92px;
+  min-width: 104px;
   min-height: 44px;
+  flex: 0 1 132px;
   align-items: center;
   justify-content: center;
   gap: 6px;
@@ -2726,7 +2601,7 @@ onMounted(() => {
 
 .selected-module-context {
   min-width: 0;
-  padding: 13px 2px;
+  padding: 14px var(--device-workspace-gutter);
   border-bottom: 1px solid var(--border);
 }
 
@@ -2830,7 +2705,10 @@ onMounted(() => {
 }
 
 .device-configuration__body {
+  width: min(100%, 1280px);
   min-width: 0;
+  padding-inline: var(--device-workspace-gutter);
+  margin-inline: auto;
 }
 
 .configuration-section {
@@ -4041,9 +3919,25 @@ pre {
 
 }
 
-@media (max-width: 720px) {
+@media (max-width: 860px) {
+  .device-configuration {
+    --device-workspace-gutter: 16px;
+  }
+
+  .device-module-list {
+    padding-inline: var(--device-workspace-gutter);
+  }
+
+  .module-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .module-grid > :deep(.module-card) {
+    max-width: none;
+  }
+
   .device-detail {
-    padding: 0 16px 76px;
+    padding-bottom: 76px;
   }
 
   .selected-module-context {

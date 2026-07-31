@@ -262,7 +262,7 @@ function secondaryIdentity(): string {
   color: var(--accent);
 }
 
-@container (max-width: 340px) {
+@container (max-width: 280px) {
   .traffic-line-card > header {
     align-items: stretch;
     flex-direction: column;

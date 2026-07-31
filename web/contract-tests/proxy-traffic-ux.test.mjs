@@ -103,7 +103,7 @@ test('traffic line cards use a balanced responsive information grid', () => {
   )
   assert.match(
     trafficLineCard,
-    /@container \(max-width:\s*340px\)[\s\S]*\.traffic-line-card dl\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)/
+    /@container \(max-width:\s*280px\)[\s\S]*\.traffic-line-card dl\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)/
   )
   assert.match(
     trafficView,
@@ -137,8 +137,8 @@ test('proxy editor exposes product fields but no interface input', () => {
   assert.doesNotMatch(proxyEditor, /v-model="form\.interface"/)
   assert.match(proxyEditor, /proxy\?\.has_password \? t\('proxy\.keepPassword'\) : ''/)
   assert.match(proxyEditor, /localError\.message \|\| props\.error/)
-  assert.match(proxyEditor, /event\.key === 'Escape'/)
-  assert.match(proxyEditor, /event\.key !== 'Tab'/)
+  assert.match(proxyEditor, /<OverlayDialog/)
+  assert.match(proxyEditor, /initial-focus=/)
   assert.match(proxyEditor, /button\[aria-haspopup="listbox"\]:not\(\[disabled\]\)/)
   assert.match(proxyEditor, /isIPAddress\(form\.listen_address\)/)
   assert.match(proxyEditor, /proxyCredentialError\(/)

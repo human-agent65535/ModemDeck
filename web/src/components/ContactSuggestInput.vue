@@ -5,6 +5,7 @@ import { Search } from '@lucide/vue'
 import type { Contact, ContactPhone } from '../api/types'
 import { phoneDestination, primaryPhone } from '../utils/format'
 import BaseAvatar from './BaseAvatar.vue'
+import PopoverTransition from './PopoverTransition.vue'
 
 type Suggestion = {
   contact: Contact
@@ -147,32 +148,34 @@ function onBlur(event: FocusEvent): void {
         @keydown="onKeydown"
       />
     </div>
-    <div v-if="showSuggestions" :id="listboxId" class="suggest-menu" role="listbox">
-      <button
-        v-for="(suggestion, index) in suggestions"
-        :id="`${listboxId}-option-${index}`"
-        :key="`${suggestion.contact.id}:${suggestion.phone.id}`"
-        class="suggest-menu__item"
-        :class="{ 'is-active': index === activeIndex }"
-        type="button"
-        role="option"
-        :aria-selected="index === activeIndex"
-        @mousedown.prevent="choose(suggestion)"
-      >
-        <BaseAvatar
-          :name="suggestion.contact.display_name"
-          :src="suggestion.contact.avatar"
-          size="small"
-        />
-        <span>
-          <strong>{{ suggestion.contact.display_name }}</strong>
-          <small>{{ suggestion.phone.label }} · {{ suggestion.phone.number }}</small>
-        </span>
-        <small v-if="suggestion.phone.number === primaryPhone(suggestion.contact.phones)">
-          {{ t('contacts.primary') }}
-        </small>
-      </button>
-    </div>
+    <PopoverTransition>
+      <div v-if="showSuggestions" :id="listboxId" class="suggest-menu" role="listbox">
+        <button
+          v-for="(suggestion, index) in suggestions"
+          :id="`${listboxId}-option-${index}`"
+          :key="`${suggestion.contact.id}:${suggestion.phone.id}`"
+          class="suggest-menu__item"
+          :class="{ 'is-active': index === activeIndex }"
+          type="button"
+          role="option"
+          :aria-selected="index === activeIndex"
+          @mousedown.prevent="choose(suggestion)"
+        >
+          <BaseAvatar
+            :name="suggestion.contact.display_name"
+            :src="suggestion.contact.avatar"
+            size="small"
+          />
+          <span>
+            <strong>{{ suggestion.contact.display_name }}</strong>
+            <small>{{ suggestion.phone.label }} · {{ suggestion.phone.number }}</small>
+          </span>
+          <small v-if="suggestion.phone.number === primaryPhone(suggestion.contact.phones)">
+            {{ t('contacts.primary') }}
+          </small>
+        </button>
+      </div>
+    </PopoverTransition>
   </div>
 </template>
 

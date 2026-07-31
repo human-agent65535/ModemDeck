@@ -15,6 +15,7 @@ import {
   phoneRegionOptions,
   type PhoneRegionOption
 } from '../utils/phoneRegions'
+import PopoverTransition from './PopoverTransition.vue'
 
 const { locale, t } = useI18n()
 const props = defineProps<{
@@ -167,52 +168,54 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
       <span>{{ triggerText }}</span>
       <ChevronDown :size="14" />
     </button>
-    <div
-      v-if="open"
-      class="country-region-selector__menu"
-    >
-      <label class="country-region-selector__search">
-        <Search :size="16" />
-        <input
-          ref="searchInput"
-          v-model="query"
-          type="search"
-          autocomplete="off"
-          :placeholder="t('contacts.searchCountries')"
-          @keydown="onSearchKeydown"
-        />
-      </label>
+    <PopoverTransition>
       <div
-        :id="listboxID"
-        class="country-region-selector__options"
-        role="listbox"
-        :aria-label="t('contacts.numberCountry')"
+        v-if="open"
+        class="country-region-selector__menu"
       >
-        <button
-          v-for="(option, index) in options"
-          :key="option?.region || 'international'"
-          class="country-region-selector__option"
-          type="button"
-          role="option"
-          :aria-selected="selectedRegion === optionRegion(option)"
-          :data-country-index="index"
-          @click="select(optionRegion(option))"
-          @keydown="onOptionKeydown($event, index)"
+        <label class="country-region-selector__search">
+          <Search :size="16" />
+          <input
+            ref="searchInput"
+            v-model="query"
+            type="search"
+            autocomplete="off"
+            :placeholder="t('contacts.searchCountries')"
+            @keydown="onSearchKeydown"
+          />
+        </label>
+        <div
+          :id="listboxID"
+          class="country-region-selector__options"
+          role="listbox"
+          :aria-label="t('contacts.numberCountry')"
         >
-          <span v-if="option" class="country-region-selector__identity">
-            <strong>{{ option.name }}</strong>
-            <small>{{ option.region }} · +{{ option.callingCode }}</small>
-          </span>
-          <span v-else class="country-region-selector__identity">
-            <strong>{{ t('contacts.internationalNumber') }}</strong>
-          </span>
-          <Check v-if="selectedRegion === optionRegion(option)" :size="16" />
-        </button>
-        <p v-if="options.length === 0" class="country-region-selector__empty">
-          {{ t('contacts.noCountries') }}
-        </p>
+          <button
+            v-for="(option, index) in options"
+            :key="option?.region || 'international'"
+            class="country-region-selector__option"
+            type="button"
+            role="option"
+            :aria-selected="selectedRegion === optionRegion(option)"
+            :data-country-index="index"
+            @click="select(optionRegion(option))"
+            @keydown="onOptionKeydown($event, index)"
+          >
+            <span v-if="option" class="country-region-selector__identity">
+              <strong>{{ option.name }}</strong>
+              <small>{{ option.region }} · +{{ option.callingCode }}</small>
+            </span>
+            <span v-else class="country-region-selector__identity">
+              <strong>{{ t('contacts.internationalNumber') }}</strong>
+            </span>
+            <Check v-if="selectedRegion === optionRegion(option)" :size="16" />
+          </button>
+          <p v-if="options.length === 0" class="country-region-selector__empty">
+            {{ t('contacts.noCountries') }}
+          </p>
+        </div>
       </div>
-    </div>
+    </PopoverTransition>
   </div>
 </template>
 
@@ -247,7 +250,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
 
 .country-region-selector__menu {
   position: absolute;
-  z-index: 20;
+  z-index: var(--layer-popover);
   top: calc(100% + 6px);
   left: 0;
   width: max-content;

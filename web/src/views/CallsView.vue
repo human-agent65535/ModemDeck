@@ -27,7 +27,9 @@ import SearchField from '../components/SearchField.vue'
 import SelectableListRow from '../components/SelectableListRow.vue'
 import StatePanel from '../components/StatePanel.vue'
 import SwipeActionRow from '../components/SwipeActionRow.vue'
+import CommunicationListToolbar from '../components/workspace/CommunicationListToolbar.vue'
 import FavoriteActionButton from '../components/workspace/FavoriteActionButton.vue'
+import WorkspaceDetailActions from '../components/workspace/WorkspaceDetailActions.vue'
 import WorkspaceDetailHeader from '../components/workspace/WorkspaceDetailHeader.vue'
 import WorkspaceDetailPane from '../components/workspace/WorkspaceDetailPane.vue'
 import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
@@ -612,14 +614,18 @@ onBeforeUnmount(() => {
     <template #list>
       <WorkspaceListHeader
         :title="t('shell.calls')"
+        compact-mode="hidden"
         :count="
           callsResource.status === 'ready'
             ? callsResource.data.length
             : undefined
         "
       />
-      <div class="pane-search pane-search--calls">
-        <div class="pane-search-row">
+      <CommunicationListToolbar
+        class="pane-search--calls"
+        :has-line-filter="lines.length > 1"
+      >
+        <template #primary>
           <ListSelectionToggle
             :active="selecting"
             :label="t('common.selectMultiple')"
@@ -643,8 +649,8 @@ onBeforeUnmount(() => {
             :all-label="t('calls.allLines')"
             :all-description="t('calls.allLinesDescription')"
           />
-        </div>
-        <div class="calls-filter-row">
+        </template>
+        <template #filters>
           <div class="segmented-control" :aria-label="t('calls.filter')">
             <button
               v-for="item in filters"
@@ -661,8 +667,8 @@ onBeforeUnmount(() => {
             :label="t('common.favoriteOnly')"
             @toggle="setFavoriteFilter(!favoriteOnly)"
           />
-        </div>
-      </div>
+        </template>
+      </CommunicationListToolbar>
       <div
         v-if="callState.syncStatus === 'loading'"
         class="call-sync-status"
@@ -832,7 +838,7 @@ onBeforeUnmount(() => {
     <template #detail>
       <WorkspaceDetailPane :content-key="selected?.id">
         <template v-if="selected">
-          <WorkspaceDetailHeader class="call-detail__header">
+          <WorkspaceDetailHeader>
           <template #identity>
             <ContactHeaderIdentity
               :name="displayName(selected)"
@@ -843,51 +849,57 @@ onBeforeUnmount(() => {
             />
           </template>
           <template #actions>
-            <ContactNumberActions
-              :number="selected.remote_number"
-              :contact="selectedContact"
-              compact
-            />
-            <button
-              v-if="selectedIsContactable"
-              class="call-detail__command call-detail__command--primary"
-              type="button"
-              :disabled="Boolean(dialUnavailable)"
-              :title="dialUnavailable || callActionLabel(selected)"
-              :aria-label="callActionAriaLabel(selected)"
-              @click="callBack(selected)"
-            >
-              <Phone :size="17" />
-              <span>{{ callActionLabel(selected) }}</span>
-            </button>
-            <button
-              v-if="selectedIsContactable"
-              class="call-detail__command"
-              type="button"
-              :disabled="Boolean(messageUnavailable)"
-              :title="messageUnavailable || t('messages.sendMessage')"
-              :aria-label="t('calls.messageName', { name: displayName(selected) })"
-              @click="sendMessage(selected)"
-            >
-              <MessageSquareText :size="17" />
-              <span>{{ t('shell.messages') }}</span>
-            </button>
-            <button
-              class="icon-button icon-button--danger desktop-delete-action"
-              type="button"
-              :disabled="Boolean(deletingCallID)"
-              :title="t('calls.delete')"
-              @click="removeCall(selected)"
-            >
-              <Trash2 :size="18" />
-            </button>
-            <FavoriteActionButton
-              :active="selected.favorite"
-              :disabled="Boolean(favoritePendingCallID)"
-              :activate-label="t('common.favorite')"
-              :deactivate-label="t('common.unfavorite')"
-              @toggle="toggleCallFavorite(selected)"
-            />
+            <WorkspaceDetailActions>
+              <template #primary>
+                <button
+                  v-if="selectedIsContactable"
+                  class="workspace-detail-command workspace-detail-command--primary"
+                  type="button"
+                  :disabled="Boolean(dialUnavailable)"
+                  :title="dialUnavailable || callActionLabel(selected)"
+                  :aria-label="callActionAriaLabel(selected)"
+                  @click="callBack(selected)"
+                >
+                  <Phone :size="17" />
+                  <span>{{ callActionLabel(selected) }}</span>
+                </button>
+                <button
+                  v-if="selectedIsContactable"
+                  class="workspace-detail-command"
+                  type="button"
+                  :disabled="Boolean(messageUnavailable)"
+                  :title="messageUnavailable || t('messages.sendMessage')"
+                  :aria-label="t('calls.messageName', { name: displayName(selected) })"
+                  @click="sendMessage(selected)"
+                >
+                  <MessageSquareText :size="17" />
+                  <span>{{ t('shell.messages') }}</span>
+                </button>
+              </template>
+              <template #secondary>
+                <ContactNumberActions
+                  :number="selected.remote_number"
+                  :contact="selectedContact"
+                  compact
+                />
+                <button
+                  class="icon-button icon-button--danger desktop-delete-action"
+                  type="button"
+                  :disabled="Boolean(deletingCallID)"
+                  :title="t('calls.delete')"
+                  @click="removeCall(selected)"
+                >
+                  <Trash2 :size="18" />
+                </button>
+                <FavoriteActionButton
+                  :active="selected.favorite"
+                  :disabled="Boolean(favoritePendingCallID)"
+                  :activate-label="t('common.favorite')"
+                  :deactivate-label="t('common.unfavorite')"
+                  @toggle="toggleCallFavorite(selected)"
+                />
+              </template>
+            </WorkspaceDetailActions>
           </template>
         </WorkspaceDetailHeader>
 
@@ -953,43 +965,6 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.calls-filter-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-}
-
-.call-detail__command {
-  display: inline-flex;
-  min-width: 72px;
-  min-height: var(--detail-action-size);
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 0 11px;
-  color: var(--accent-strong);
-  font-size: 12px;
-  font-weight: 650;
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-}
-
-.call-detail__command:hover:not(:disabled) {
-  background: var(--surface-hover);
-}
-
-.call-detail__command--primary {
-  color: #ffffff;
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-.call-detail__command--primary:hover:not(:disabled) {
-  background: var(--accent-strong);
-  border-color: var(--accent-strong);
-}
-
 .call-sync-status span {
   flex: 1 1 auto;
 }
@@ -1002,40 +977,6 @@ onBeforeUnmount(() => {
 
 @media (max-width: 1100px) {
   .desktop-delete-action {
-    display: none;
-  }
-}
-
-@container (max-width: 760px) {
-  .desktop-delete-action {
-    display: none;
-  }
-
-  .call-detail__command {
-    width: var(--detail-action-size);
-    min-width: var(--detail-action-size);
-    height: var(--detail-action-size);
-    min-height: var(--detail-action-size);
-    padding: 0;
-    border-radius: 50%;
-  }
-
-  .call-detail__command span {
-    display: none;
-  }
-
-  .call-detail__header
-    :deep(.contact-number-actions.is-compact .secondary-button) {
-    width: var(--detail-action-size);
-    min-width: var(--detail-action-size);
-    height: var(--detail-action-size);
-    min-height: var(--detail-action-size);
-    padding: 0;
-    border-radius: 50%;
-  }
-
-  .call-detail__header
-    :deep(.contact-number-actions.is-compact .contact-number-action__label) {
     display: none;
   }
 }

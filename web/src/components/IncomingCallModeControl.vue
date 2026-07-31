@@ -14,6 +14,7 @@ import {
   loadGlobalIncomingCallSettings,
   updateGlobalIncomingCallSettings
 } from '../state/deviceConfiguration'
+import PopoverTransition from './PopoverTransition.vue'
 
 const { t } = useI18n()
 const root = ref<HTMLElement | null>(null)
@@ -158,78 +159,80 @@ onBeforeUnmount(() => {
       <ChevronDown :size="15" />
     </button>
 
-    <section
-      v-if="open"
-      :id="menuId"
-      ref="menu"
-      class="incoming-call-mode__menu"
-      role="menu"
-      tabindex="-1"
-      :aria-label="t('incomingCallMode.globalPolicy')"
-      @keydown="onMenuKeydown"
-    >
-      <header>
-        <strong>{{ t('incomingCallMode.globalPolicy') }}</strong>
-        <small>{{ t('incomingCallMode.globalPolicyDescription') }}</small>
-      </header>
-
-      <button
-        ref="receiveOption"
-        type="button"
-        role="menuitemradio"
-        :aria-checked="receiveCalls === true"
-        :disabled="globalIncomingCallState.saving || !globalIncomingCallState.data"
-        @click="choose(true)"
+    <PopoverTransition>
+      <section
+        v-if="open"
+        :id="menuId"
+        ref="menu"
+        class="incoming-call-mode__menu"
+        role="menu"
+        tabindex="-1"
+        :aria-label="t('incomingCallMode.globalPolicy')"
+        @keydown="onMenuKeydown"
       >
-        <span class="incoming-call-mode__option-icon"><PhoneIncoming :size="17" /></span>
-        <span>
-          <strong>{{ t('incomingCallMode.receive') }}</strong>
-          <small>{{ t('incomingCallMode.receiveDescription') }}</small>
-        </span>
-        <LoaderCircle
-          v-if="globalIncomingCallState.saving && receiveCalls === false"
-          class="spin"
-          :size="16"
-        />
-        <Check v-else-if="receiveCalls === true" :size="17" />
-      </button>
+        <header>
+          <strong>{{ t('incomingCallMode.globalPolicy') }}</strong>
+          <small>{{ t('incomingCallMode.globalPolicyDescription') }}</small>
+        </header>
 
-      <button
-        ref="doNotDisturbOption"
-        type="button"
-        role="menuitemradio"
-        :aria-checked="receiveCalls === false"
-        :disabled="globalIncomingCallState.saving || !globalIncomingCallState.data"
-        @click="choose(false)"
-      >
-        <span
-          class="incoming-call-mode__option-icon incoming-call-mode__option-icon--quiet"
+        <button
+          ref="receiveOption"
+          type="button"
+          role="menuitemradio"
+          :aria-checked="receiveCalls === true"
+          :disabled="globalIncomingCallState.saving || !globalIncomingCallState.data"
+          @click="choose(true)"
         >
-          <Moon :size="17" />
-        </span>
-        <span>
-          <strong>{{ t('incomingCallMode.doNotDisturb') }}</strong>
-          <small>{{ t('incomingCallMode.doNotDisturbDescription') }}</small>
-        </span>
-        <LoaderCircle
-          v-if="globalIncomingCallState.saving && receiveCalls === true"
-          class="spin"
-          :size="16"
-        />
-        <Check v-else-if="receiveCalls === false" :size="17" />
-      </button>
-
-      <p class="incoming-call-mode__notice">
-        {{ t('incomingCallMode.deviceCapabilityNotice') }}
-      </p>
-      <p v-if="globalIncomingCallState.error" class="incoming-call-mode__error" role="alert">
-        <AlertCircle :size="15" />
-        <span>{{ globalIncomingCallState.error }}</span>
-        <button type="button" @click="loadGlobalIncomingCallSettings(true)">
-          {{ t('incomingCallMode.reload') }}
+          <span class="incoming-call-mode__option-icon"><PhoneIncoming :size="17" /></span>
+          <span>
+            <strong>{{ t('incomingCallMode.receive') }}</strong>
+            <small>{{ t('incomingCallMode.receiveDescription') }}</small>
+          </span>
+          <LoaderCircle
+            v-if="globalIncomingCallState.saving && receiveCalls === false"
+            class="spin"
+            :size="16"
+          />
+          <Check v-else-if="receiveCalls === true" :size="17" />
         </button>
-      </p>
-    </section>
+
+        <button
+          ref="doNotDisturbOption"
+          type="button"
+          role="menuitemradio"
+          :aria-checked="receiveCalls === false"
+          :disabled="globalIncomingCallState.saving || !globalIncomingCallState.data"
+          @click="choose(false)"
+        >
+          <span
+            class="incoming-call-mode__option-icon incoming-call-mode__option-icon--quiet"
+          >
+            <Moon :size="17" />
+          </span>
+          <span>
+            <strong>{{ t('incomingCallMode.doNotDisturb') }}</strong>
+            <small>{{ t('incomingCallMode.doNotDisturbDescription') }}</small>
+          </span>
+          <LoaderCircle
+            v-if="globalIncomingCallState.saving && receiveCalls === true"
+            class="spin"
+            :size="16"
+          />
+          <Check v-else-if="receiveCalls === false" :size="17" />
+        </button>
+
+        <p class="incoming-call-mode__notice">
+          {{ t('incomingCallMode.deviceCapabilityNotice') }}
+        </p>
+        <p v-if="globalIncomingCallState.error" class="incoming-call-mode__error" role="alert">
+          <AlertCircle :size="15" />
+          <span>{{ globalIncomingCallState.error }}</span>
+          <button type="button" @click="loadGlobalIncomingCallSettings(true)">
+            {{ t('incomingCallMode.reload') }}
+          </button>
+        </p>
+      </section>
+    </PopoverTransition>
   </div>
 </template>
 
@@ -259,7 +262,7 @@ onBeforeUnmount(() => {
 
 .incoming-call-mode__menu {
   position: absolute;
-  z-index: 80;
+  z-index: var(--layer-popover);
   top: calc(100% + 8px);
   right: 0;
   width: min(340px, calc(100vw - 24px));

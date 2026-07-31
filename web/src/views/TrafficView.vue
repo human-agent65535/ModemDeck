@@ -495,7 +495,7 @@ onMounted(() => {
 }
 
 .traffic-section > header span {
-  color: var(--faint);
+  color: var(--muted);
   font-size: 12px;
 }
 
@@ -562,7 +562,7 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--faint);
+  color: var(--muted);
   font-size: 12px;
 }
 
@@ -573,11 +573,31 @@ onMounted(() => {
 
   .traffic-page__content {
     gap: 18px;
-    padding: 16px 14px 28px;
+    padding: 16px var(--space-4) 28px;
   }
 
   .traffic-line-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .traffic-line-filter > button {
+    min-height: var(--touch-target);
+  }
+
+  .proxy-add-card {
+    min-height: 56px;
+    grid-template-columns: 36px minmax(0, 1fr);
+    align-items: center;
+    order: 2;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    text-align: left;
+  }
+
+  .proxy-add-card > span {
+    width: 36px;
+    height: 36px;
+    justify-self: start;
   }
 }
 </style>

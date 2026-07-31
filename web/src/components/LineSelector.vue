@@ -13,6 +13,7 @@ import { CardSim, ChevronDown, ListFilter, Star } from '@lucide/vue'
 import type { CommunicationCapabilityName, LineSummary } from '../api/types'
 import { lineKey, lineLabel, lineSupports } from '../state/workspace'
 import { lineTone } from '../utils/lineTone'
+import PopoverTransition from './PopoverTransition.vue'
 
 type SelectorOption = {
   value: string
@@ -368,54 +369,56 @@ onBeforeUnmount(() => {
         aria-hidden="true"
       />
     </button>
-    <div
-      v-if="open"
-      :id="listboxID"
-      class="line-selector__options"
-      :class="{ 'is-up': placement === 'up' }"
-      role="listbox"
-      :aria-labelledby="labelID"
-    >
-      <button
-        v-for="(option, index) in options"
-        :key="option.value"
-        class="line-selector__option"
-        :class="{
-          'is-active': activeIndex === index,
-          'is-selected': modelValue === option.value,
-          'is-disabled': option.disabled
-        }"
-        type="button"
-        role="option"
-        :aria-selected="modelValue === option.value"
-        :aria-disabled="option.disabled"
-        :data-option-index="index"
-        tabindex="-1"
-        @pointermove="activeIndex = index"
-        @click="selectOption(option)"
-        @keydown="onOptionKeydown($event, index)"
+    <PopoverTransition>
+      <div
+        v-if="open"
+        :id="listboxID"
+        class="line-selector__options"
+        :class="{ 'is-up': placement === 'up' }"
+        role="listbox"
+        :aria-labelledby="labelID"
       >
-        <span
-          class="line-selector__option-icon"
-          :style="toneStyle(option.line)"
-          aria-hidden="true"
+        <button
+          v-for="(option, index) in options"
+          :key="option.value"
+          class="line-selector__option"
+          :class="{
+            'is-active': activeIndex === index,
+            'is-selected': modelValue === option.value,
+            'is-disabled': option.disabled
+          }"
+          type="button"
+          role="option"
+          :aria-selected="modelValue === option.value"
+          :aria-disabled="option.disabled"
+          :data-option-index="index"
+          tabindex="-1"
+          @pointermove="activeIndex = index"
+          @click="selectOption(option)"
+          @keydown="onOptionKeydown($event, index)"
         >
-          <CardSim v-if="option.line" :size="17" />
-          <ListFilter v-else :size="17" />
-        </span>
-        <span class="line-selector__option-copy">
-          <strong>{{ option.name }}</strong>
-          <small>
-            <span>{{ option.details }}</span>
-            <em v-if="option.status">{{ option.status }}</em>
-          </small>
-        </span>
-        <span v-if="option.defaultLine" class="line-selector__option-default">
-          <Star :size="12" fill="currentColor" />
-          {{ t('lines.default') }}
-        </span>
-      </button>
-    </div>
+          <span
+            class="line-selector__option-icon"
+            :style="toneStyle(option.line)"
+            aria-hidden="true"
+          >
+            <CardSim v-if="option.line" :size="17" />
+            <ListFilter v-else :size="17" />
+          </span>
+          <span class="line-selector__option-copy">
+            <strong>{{ option.name }}</strong>
+            <small>
+              <span>{{ option.details }}</span>
+              <em v-if="option.status">{{ option.status }}</em>
+            </small>
+          </span>
+          <span v-if="option.defaultLine" class="line-selector__option-default">
+            <Star :size="12" fill="currentColor" />
+            {{ t('lines.default') }}
+          </span>
+        </button>
+      </div>
+    </PopoverTransition>
   </div>
 </template>
 
@@ -554,7 +557,7 @@ onBeforeUnmount(() => {
 
 .line-selector__options {
   position: absolute;
-  z-index: 60;
+  z-index: var(--layer-popover);
   top: calc(100% + 6px);
   right: 0;
   left: 0;

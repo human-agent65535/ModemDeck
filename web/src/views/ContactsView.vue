@@ -24,7 +24,9 @@ import SearchField from '../components/SearchField.vue'
 import SelectableListRow from '../components/SelectableListRow.vue'
 import StatePanel from '../components/StatePanel.vue'
 import SwipeActionRow from '../components/SwipeActionRow.vue'
+import CommunicationListToolbar from '../components/workspace/CommunicationListToolbar.vue'
 import FavoriteActionButton from '../components/workspace/FavoriteActionButton.vue'
+import WorkspaceDetailActions from '../components/workspace/WorkspaceDetailActions.vue'
 import WorkspaceDetailHeader from '../components/workspace/WorkspaceDetailHeader.vue'
 import WorkspaceDetailPane from '../components/workspace/WorkspaceDetailPane.vue'
 import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
@@ -283,6 +285,7 @@ onBeforeUnmount(() => {
     <template #list>
       <WorkspaceListHeader
         :title="t('shell.contacts')"
+        compact-mode="floating-action"
         :count="
           contactsResource.status === 'ready'
             ? contactsResource.data.length
@@ -303,8 +306,8 @@ onBeforeUnmount(() => {
           </button>
         </template>
       </WorkspaceListHeader>
-      <div class="pane-search">
-        <div class="pane-search-row">
+      <CommunicationListToolbar>
+        <template #primary>
           <ListSelectionToggle
             :active="selecting"
             :label="t('common.selectMultiple')"
@@ -313,8 +316,8 @@ onBeforeUnmount(() => {
             @toggle="selection.toggleMode"
           />
           <SearchField v-model="search" :placeholder="t('common.search')" />
-        </div>
-      </div>
+        </template>
+      </CommunicationListToolbar>
       <p v-if="deleteError" class="field-error contact-delete-error" role="alert">
         {{ deleteError }}
       </p>
@@ -449,30 +452,34 @@ onBeforeUnmount(() => {
             </div>
           </template>
           <template v-if="contactEditingAvailable" #actions>
-            <button
-              class="icon-button"
-              type="button"
-              :title="t('contacts.edit')"
-              @click="openEdit(selected)"
-            >
-              <Pencil :size="18" />
-            </button>
-            <button
-              class="icon-button icon-button--danger desktop-delete-action"
-              type="button"
-              :title="t('contacts.delete')"
-              :disabled="deleting"
-              @click="remove(selected)"
-            >
-              <Trash2 :size="18" />
-            </button>
-            <FavoriteActionButton
-              :active="selected.favorite"
-              :disabled="favoritePending"
-              :activate-label="t('contacts.favorite')"
-              :deactivate-label="t('contacts.unfavorite')"
-              @toggle="toggleFavorite(selected)"
-            />
+            <WorkspaceDetailActions>
+              <template #primary>
+                <button
+                  class="icon-button"
+                  type="button"
+                  :title="t('contacts.edit')"
+                  @click="openEdit(selected)"
+                >
+                  <Pencil :size="18" />
+                </button>
+                <button
+                  class="icon-button icon-button--danger desktop-delete-action"
+                  type="button"
+                  :title="t('contacts.delete')"
+                  :disabled="deleting"
+                  @click="remove(selected)"
+                >
+                  <Trash2 :size="18" />
+                </button>
+                <FavoriteActionButton
+                  :active="selected.favorite"
+                  :disabled="favoritePending"
+                  :activate-label="t('contacts.favorite')"
+                  :deactivate-label="t('contacts.unfavorite')"
+                  @toggle="toggleFavorite(selected)"
+                />
+              </template>
+            </WorkspaceDetailActions>
           </template>
         </WorkspaceDetailHeader>
 

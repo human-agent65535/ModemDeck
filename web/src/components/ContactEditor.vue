@@ -6,6 +6,7 @@ import type { Contact, ContactInput, LineSummary } from '../api/types'
 import ContactAvatarPicker from './ContactAvatarPicker.vue'
 import CountryRegionSelector from './CountryRegionSelector.vue'
 import LineSelector from './LineSelector.vue'
+import OverlayDialog from './OverlayDialog.vue'
 
 type PhoneDraft = {
   id?: string
@@ -147,131 +148,128 @@ function submit(): void {
 </script>
 
 <template>
-  <Teleport to="body">
-    <Transition name="modal">
-      <div v-if="open" class="modal-backdrop" @mousedown.self="emit('close')">
-        <section
-          class="editor-dialog"
-          role="dialog"
-          aria-modal="true"
-          :aria-label="contact ? t('contacts.edit') : t('contacts.new')"
-          @keydown.esc="emit('close')"
-        >
-          <header class="tool-header">
-            <h2>{{ contact ? t('contacts.edit') : t('contacts.new') }}</h2>
-            <button
-              class="icon-button"
-              type="button"
-              :title="t('common.close')"
-              @click="emit('close')"
-            >
-              <X :size="19" />
-            </button>
-          </header>
+  <OverlayDialog
+    :open="open"
+    size="large"
+    surface-class="editor-dialog"
+    :label="contact ? t('contacts.edit') : t('contacts.new')"
+    initial-focus='input[autocomplete="name"]'
+    @close="emit('close')"
+  >
+    <header class="tool-header">
+      <h2>{{ contact ? t('contacts.edit') : t('contacts.new') }}</h2>
+      <button
+        class="icon-button"
+        type="button"
+        :title="t('common.close')"
+        :aria-label="t('common.close')"
+        @click="emit('close')"
+      >
+        <X :size="19" />
+      </button>
+    </header>
 
-          <form class="editor-form" @submit.prevent="submit">
-            <ContactAvatarPicker
-              v-model="draft.avatar"
-              :name="draft.name"
-              :disabled="saving"
-              @processing="avatarBusy = $event"
+    <form class="editor-form" @submit.prevent="submit">
+      <ContactAvatarPicker
+        v-model="draft.avatar"
+        :name="draft.name"
+        :disabled="saving"
+        @processing="avatarBusy = $event"
+      />
+
+      <label class="field">
+        <span>{{ t('contacts.name') }}</span>
+        <input v-model="draft.name" autocomplete="name" required />
+      </label>
+
+      <label class="contact-favorite-toggle">
+        <span>
+          <Star :size="18" :fill="draft.favorite ? 'currentColor' : 'none'" />
+          <strong>{{ t('contacts.favorite') }}</strong>
+        </span>
+        <input v-model="draft.favorite" type="checkbox" role="switch" />
+      </label>
+
+      <fieldset class="phone-fields">
+        <legend>{{ t('contacts.phoneNumbers') }}</legend>
+        <div v-for="(phone, index) in draft.phones" :key="phone.id || index" class="phone-row">
+          <input
+            v-model="phone.label"
+            class="phone-row__label"
+            :aria-label="t('contacts.phoneType')"
+          />
+          <div class="phone-row__number">
+            <CountryRegionSelector
+              v-model="phone.region"
+              :regions="preferredPhoneRegions"
             />
-
-            <label class="field">
-              <span>{{ t('contacts.name') }}</span>
-              <input v-model="draft.name" autocomplete="name" required />
-            </label>
-
-            <label class="contact-favorite-toggle">
-              <span>
-                <Star :size="18" :fill="draft.favorite ? 'currentColor' : 'none'" />
-                <strong>{{ t('contacts.favorite') }}</strong>
-              </span>
-              <input v-model="draft.favorite" type="checkbox" role="switch" />
-            </label>
-
-            <fieldset class="phone-fields">
-              <legend>{{ t('contacts.phoneNumbers') }}</legend>
-              <div v-for="(phone, index) in draft.phones" :key="phone.id || index" class="phone-row">
-                <input
-                  v-model="phone.label"
-                  class="phone-row__label"
-                  :aria-label="t('contacts.phoneType')"
-                />
-                <div class="phone-row__number">
-                  <CountryRegionSelector
-                    v-model="phone.region"
-                    :regions="preferredPhoneRegions"
-                  />
-                  <input
-                    v-model="phone.number"
-                    type="tel"
-                    autocomplete="tel"
-                    :aria-label="t('contacts.phoneNumber')"
-                    required
-                  />
-                </div>
-                <label
-                  class="primary-radio"
-                  :title="
-                    phone.primary
-                      ? t('contacts.primaryNumber')
-                      : t('contacts.makePrimary')
-                  "
-                >
-                  <input
-                    type="radio"
-                    name="primary-phone"
-                    :checked="phone.primary"
-                    @change="setPrimary(index)"
-                  />
-                  <span>{{ t('contacts.primary') }}</span>
-                </label>
-                <button
-                  class="icon-button icon-button--quiet"
-                  type="button"
-                  :title="t('contacts.removeNumber')"
-                  :disabled="draft.phones.length === 1"
-                  @click="removePhone(index)"
-                >
-                  <Trash2 :size="17" />
-                </button>
-              </div>
-              <button class="text-button" type="button" @click="addPhone">
-                <Plus :size="16" />{{ t('contacts.addNumber') }}
-              </button>
-            </fieldset>
-
-            <LineSelector
-              v-if="lines?.length"
-              v-model="draft.preferredLineID"
-              :lines="lines"
-              :label="t('contacts.preferredLine')"
-              include-all
-              all-value=""
-              :all-label="t('contacts.followDefaultLine')"
-              :all-description="t('contacts.followDefaultLineDescription')"
+            <input
+              v-model="phone.number"
+              type="tel"
+              autocomplete="tel"
+              :aria-label="t('contacts.phoneNumber')"
+              required
             />
+          </div>
+          <label
+            class="primary-radio"
+            :title="
+              phone.primary
+                ? t('contacts.primaryNumber')
+                : t('contacts.makePrimary')
+            "
+          >
+            <input
+              type="radio"
+              name="primary-phone"
+              :checked="phone.primary"
+              @change="setPrimary(index)"
+            />
+            <span>{{ t('contacts.primary') }}</span>
+          </label>
+          <button
+            class="icon-button icon-button--quiet"
+            type="button"
+            :title="t('contacts.removeNumber')"
+            :aria-label="t('contacts.removeNumber')"
+            :disabled="draft.phones.length === 1"
+            @click="removePhone(index)"
+          >
+            <Trash2 :size="17" />
+          </button>
+        </div>
+        <button class="text-button" type="button" @click="addPhone">
+          <Plus :size="16" />{{ t('contacts.addNumber') }}
+        </button>
+      </fieldset>
 
-            <label class="field">
-              <span>{{ t('contacts.notes') }}</span>
-              <textarea v-model="draft.notes" rows="3" />
-            </label>
+      <LineSelector
+        v-if="lines?.length"
+        v-model="draft.preferredLineID"
+        :lines="lines"
+        :label="t('contacts.preferredLine')"
+        include-all
+        all-value=""
+        :all-label="t('contacts.followDefaultLine')"
+        :all-description="t('contacts.followDefaultLineDescription')"
+      />
 
-            <p v-if="error" class="field-error" role="alert">{{ error }}</p>
-            <footer class="dialog-actions">
-              <button class="secondary-button" type="button" @click="emit('close')">
-                {{ t('common.cancel') }}
-              </button>
-              <button class="primary-button" type="submit" :disabled="!valid || saving">
-                {{ saving ? t('common.saving') : t('common.save') }}
-              </button>
-            </footer>
-          </form>
-        </section>
-      </div>
-    </Transition>
-  </Teleport>
+      <label class="field">
+        <span>{{ t('contacts.notes') }}</span>
+        <textarea v-model="draft.notes" rows="3" />
+      </label>
+
+      <p v-if="error" class="field-error" role="alert">{{ error }}</p>
+      <footer class="dialog-actions">
+        <button class="secondary-button" type="button" @click="emit('close')">
+          {{ t('common.cancel') }}
+        </button>
+        <button class="primary-button" type="submit" :disabled="!valid || saving">
+          {{ saving ? t('common.saving') : t('common.save') }}
+        </button>
+      </footer>
+    </form>
+  </OverlayDialog>
 </template>
 
 <style scoped>

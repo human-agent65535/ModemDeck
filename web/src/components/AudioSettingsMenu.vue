@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { AudioLines, LoaderCircle, X } from '@lucide/vue'
 import { audioState, stopMicrophoneTest } from '../state/audio'
 import AudioDeviceControls from './AudioDeviceControls.vue'
+import PopoverTransition from './PopoverTransition.vue'
 
 const { t } = useI18n()
 const root = ref<HTMLElement | null>(null)
@@ -37,6 +38,10 @@ function onDocumentPointerDown(event: PointerEvent): void {
   if (root.value && !root.value.contains(event.target as Node)) close()
 }
 
+function onDocumentFocusIn(event: FocusEvent): void {
+  if (open.value && root.value && !root.value.contains(event.target as Node)) close()
+}
+
 function onDialogKeydown(event: KeyboardEvent): void {
   if (event.key !== 'Escape') return
   event.preventDefault()
@@ -46,10 +51,12 @@ function onDialogKeydown(event: KeyboardEvent): void {
 
 onMounted(() => {
   document.addEventListener('pointerdown', onDocumentPointerDown)
+  document.addEventListener('focusin', onDocumentFocusIn)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', onDocumentPointerDown)
+  document.removeEventListener('focusin', onDocumentFocusIn)
 })
 </script>
 
@@ -69,7 +76,7 @@ onBeforeUnmount(() => {
       <AudioLines :size="19" />
     </button>
 
-    <Transition name="fade">
+    <PopoverTransition>
       <section
         v-if="open"
         :id="dialogId"
@@ -102,6 +109,6 @@ onBeforeUnmount(() => {
           <AudioDeviceControls compact />
         </div>
       </section>
-    </Transition>
+    </PopoverTransition>
   </div>
 </template>

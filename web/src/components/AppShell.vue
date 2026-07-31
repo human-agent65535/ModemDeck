@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import {
@@ -64,6 +64,7 @@ import AudioSettingsMenu from './AudioSettingsMenu.vue'
 import DialerPanel from './DialerPanel.vue'
 import GlobalSearch from './GlobalSearch.vue'
 import IncomingCallModeControl from './IncomingCallModeControl.vue'
+import OverlayDialog from './OverlayDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -72,8 +73,6 @@ const settingsLanding = computed(() => 'account')
 const permanentDialer = ref(false)
 const nonModalDialer = ref(false)
 const mobileMoreOpen = ref(false)
-const mobileMorePanel = ref<HTMLElement>()
-const mobileMoreTrigger = ref<HTMLButtonElement>()
 const occupiedLineCount = computed(() => occupiedLineIDs().size)
 const activeCallPresent = computed(() =>
   callState.sessions.some(isLiveCallSession)
@@ -247,19 +246,16 @@ function mobileNavItemCurrent(name: string): boolean {
   )
 }
 
-async function toggleMobileMore(): Promise<void> {
+function toggleMobileMore(): void {
   if (mobileMoreOpen.value) {
     closeMobileMore()
     return
   }
   mobileMoreOpen.value = true
-  await nextTick()
-  mobileMorePanel.value?.querySelector<HTMLElement>('a')?.focus()
 }
 
-function closeMobileMore(restoreFocus = false): void {
+function closeMobileMore(): void {
   mobileMoreOpen.value = false
-  if (restoreFocus) void nextTick(() => mobileMoreTrigger.value?.focus())
 }
 
 watch(
@@ -495,22 +491,14 @@ onBeforeUnmount(() => {
       </div>
     </main>
 
-    <Transition name="mobile-more">
-      <div
-        v-if="mobileMoreOpen"
-        class="mobile-more-backdrop"
-        @mousedown.self="closeMobileMore()"
-      >
-        <section
-          id="mobile-more-menu"
-          ref="mobileMorePanel"
-          class="mobile-more-sheet"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="mobile-more-title"
-          tabindex="-1"
-          @keydown.esc.stop="closeMobileMore(true)"
-        >
+    <OverlayDialog
+      :open="mobileMoreOpen"
+      size="large"
+      labelledby="mobile-more-title"
+      initial-focus=".mobile-more-links a"
+      @close="closeMobileMore"
+    >
+      <div id="mobile-more-menu" class="mobile-more-sheet">
           <header class="mobile-more-sheet__header">
             <h2 id="mobile-more-title">{{ t('common.more') }}</h2>
             <button
@@ -518,7 +506,7 @@ onBeforeUnmount(() => {
               type="button"
               :title="t('common.close')"
               :aria-label="t('common.close')"
-              @click="closeMobileMore(true)"
+              @click="closeMobileMore"
             >
               <X :size="20" />
             </button>
@@ -529,15 +517,14 @@ onBeforeUnmount(() => {
               :key="item.name"
               :class="{ 'is-current': mobileNavItemCurrent(item.name) }"
               :to="item.to"
-              @click="closeMobileMore()"
+              @click="closeMobileMore"
             >
               <component :is="item.icon" :size="21" />
               <span>{{ item.label }}</span>
             </RouterLink>
           </nav>
-        </section>
       </div>
-    </Transition>
+    </OverlayDialog>
 
     <nav class="mobile-nav" :aria-label="t('shell.mobileNavigation')">
       <RouterLink
@@ -604,7 +591,6 @@ onBeforeUnmount(() => {
         <span class="mobile-nav__label">{{ item.label }}</span>
       </RouterLink>
       <button
-        ref="mobileMoreTrigger"
         class="mobile-nav__more"
         :class="{ 'is-current': mobileMoreCurrent }"
         type="button"
@@ -630,10 +616,6 @@ onBeforeUnmount(() => {
   position: relative;
 }
 
-.mobile-more-backdrop {
-  display: none;
-}
-
 .mobile-nav__call-count {
   position: absolute;
   top: -7px;
@@ -654,25 +636,10 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 860px) {
-  .mobile-more-backdrop {
-    position: fixed;
-    z-index: 45;
-    inset: 0 0 var(--mobile-nav-height);
-    display: flex;
-    align-items: flex-end;
-    background: rgb(20 32 43 / 28%);
-    backdrop-filter: blur(2px);
-  }
-
   .mobile-more-sheet {
     width: 100%;
     max-height: min(480px, calc(100dvh - var(--mobile-nav-height) - 20px));
     overflow-y: auto;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-bottom: 0;
-    border-radius: 18px 18px 0 0;
-    box-shadow: 0 -14px 40px rgb(20 32 43 / 18%);
   }
 
   .mobile-more-sheet__header {
@@ -719,26 +686,6 @@ onBeforeUnmount(() => {
 
   .mobile-more-links a:active {
     transform: scale(0.985);
-  }
-
-  .mobile-more-enter-active,
-  .mobile-more-leave-active {
-    transition: opacity var(--motion-base) var(--ease-standard);
-  }
-
-  .mobile-more-enter-active .mobile-more-sheet,
-  .mobile-more-leave-active .mobile-more-sheet {
-    transition: transform var(--motion-slow) var(--ease-emphasized);
-  }
-
-  .mobile-more-enter-from,
-  .mobile-more-leave-to {
-    opacity: 0;
-  }
-
-  .mobile-more-enter-from .mobile-more-sheet,
-  .mobile-more-leave-to .mobile-more-sheet {
-    transform: translateY(18px);
   }
 }
 </style>
