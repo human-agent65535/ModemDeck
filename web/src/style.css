@@ -43,6 +43,8 @@
   --ease-emphasized: cubic-bezier(0.2, 0.9, 0.25, 1);
   --detail-action-gap: var(--space-2);
   --detail-action-size: var(--touch-target);
+  --page-content-reading-max: 960px;
+  --page-content-dashboard-max: 1440px;
   --rail-width: 92px;
   --header-height: 72px;
   --dialer-width: clamp(360px, 28vw, 420px);
@@ -2186,10 +2188,6 @@ dd {
   max-width: 720px;
 }
 
-.tls-settings {
-  max-width: 760px;
-}
-
 .tls-settings__state {
   display: flex;
   min-height: 180px;
@@ -2472,91 +2470,10 @@ dd {
   flex: 0 0 auto;
 }
 
-.telegram-unit-list {
-  min-width: 0;
-}
-
-.telegram-unit-list > header {
-  display: flex;
-  min-height: 54px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 10px 6px 4px;
-  border-bottom: 1px solid var(--border);
-}
-
-.telegram-unit-list > header h3,
-.telegram-form-heading h3 {
-  margin: 0;
-  color: var(--text);
-  font-size: 13px;
-  text-transform: none;
-}
-
 .telegram-unit-empty {
   padding: 20px 10px;
   color: var(--muted);
   font-size: 11px;
-}
-
-.telegram-unit-row {
-  display: grid;
-  width: 100%;
-  min-height: 58px;
-  align-items: center;
-  grid-template-columns: 8px minmax(0, 1fr);
-  gap: 9px;
-  padding: 9px 10px;
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-}
-
-.telegram-unit-row:hover,
-.telegram-unit-row.is-selected {
-  background: var(--surface-hover);
-}
-
-.telegram-unit-row.is-selected {
-  box-shadow: inset 3px 0 0 var(--accent);
-}
-
-.telegram-unit-row__status {
-  width: 7px;
-  height: 7px;
-  background: var(--faint);
-  border-radius: 50%;
-}
-
-.telegram-unit-row__status.is-enabled {
-  background: var(--success);
-}
-
-.telegram-unit-row > span:last-child {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.telegram-unit-row strong,
-.telegram-unit-row small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.telegram-unit-row strong {
-  font-size: 12px;
-}
-
-.telegram-unit-row small {
-  color: var(--muted);
-  font-size: 10px;
-}
-
-.telegram-unit-editor {
-  min-width: 0;
-  padding: 0 0 0 24px;
 }
 
 .telegram-form-heading {
@@ -3482,15 +3399,6 @@ dd {
 
   .tls-install__actions .primary-button {
     width: 100%;
-  }
-
-  .telegram-unit-list {
-    max-height: 190px;
-    overflow-y: auto;
-  }
-
-  .telegram-unit-editor {
-    padding: 12px 16px 0;
   }
 
   .settings-form-actions {

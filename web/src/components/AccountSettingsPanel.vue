@@ -65,7 +65,7 @@ const emit = defineEmits<{
 <style scoped>
 .account-settings-panel {
   display: grid;
-  max-width: 760px;
+  width: 100%;
   gap: 28px;
 }
 

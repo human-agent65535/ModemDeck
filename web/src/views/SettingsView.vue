@@ -29,6 +29,7 @@ import ExternalAccessSettingsPanel from '../components/ExternalAccessSettingsPan
 import TelegramSettingsForm from '../components/TelegramSettingsForm.vue'
 import UserSettingsPanel from '../components/UserSettingsPanel.vue'
 import WebCertificateSettingsPanel from '../components/WebCertificateSettingsPanel.vue'
+import PageContentFrame from '../components/PageContentFrame.vue'
 import { fixtureMode } from '../api/client'
 import { logout as logoutSession, sessionState } from '../state/session'
 import {
@@ -203,6 +204,17 @@ function backToSettings(): void {
     })
     return
   }
+  if (
+    selectedSection.value === 'telegram' &&
+    (typeof route.query.bot === 'string' || route.query.newBot === '1')
+  ) {
+    void router.push({
+      name: 'settings',
+      params: { section: 'telegram' },
+      query: { ...route.query, bot: undefined, newBot: undefined }
+    })
+    return
+  }
   void router.push({ name: 'settings', params: { section: '' } })
 }
 
@@ -333,15 +345,21 @@ onMounted(() => {
           <UserSettingsPanel
             v-if="sessionState.role === 'admin'"
           />
-          <AccountSettingsPanel v-else />
+          <PageContentFrame v-else mode="reading">
+            <AccountSettingsPanel />
+          </PageContentFrame>
         </div>
 
         <div v-else-if="selectedSection === 'contacts'" class="settings-content">
-          <ContactSyncSettings />
+          <PageContentFrame mode="reading">
+            <ContactSyncSettings />
+          </PageContentFrame>
         </div>
 
         <div v-else-if="selectedSection === 'audio'" class="settings-content">
-          <AudioSettingsForm />
+          <PageContentFrame mode="reading">
+            <AudioSettingsForm />
+          </PageContentFrame>
         </div>
 
         <div
@@ -359,19 +377,27 @@ onMounted(() => {
         </div>
 
         <div v-else-if="selectedSection === 'external-access'" class="settings-content">
-          <ExternalAccessSettingsPanel />
+          <PageContentFrame mode="reading">
+            <ExternalAccessSettingsPanel />
+          </PageContentFrame>
         </div>
 
         <div v-else-if="selectedSection === 'web-certificate'" class="settings-content">
-          <WebCertificateSettingsPanel />
+          <PageContentFrame mode="reading">
+            <WebCertificateSettingsPanel />
+          </PageContentFrame>
         </div>
 
         <div v-else-if="selectedSection === 'diagnostics'" class="settings-content">
-          <DiagnosticsPanel />
+          <PageContentFrame mode="fluid">
+            <DiagnosticsPanel />
+          </PageContentFrame>
         </div>
 
         <div v-else class="settings-content">
-          <AboutSettingsPanel />
+          <PageContentFrame mode="reading">
+            <AboutSettingsPanel />
+          </PageContentFrame>
         </div>
       </template>
 
@@ -382,6 +408,7 @@ onMounted(() => {
 
 <style scoped>
 .settings-content {
+  flex: 1 1 auto;
   container-type: inline-size;
 }
 

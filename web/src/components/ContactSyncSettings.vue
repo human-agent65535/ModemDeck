@@ -395,7 +395,7 @@ onMounted(() => {
 <style scoped>
 .contact-sync-settings {
   display: grid;
-  width: min(100%, 880px);
+  width: 100%;
   gap: 18px;
 }
 

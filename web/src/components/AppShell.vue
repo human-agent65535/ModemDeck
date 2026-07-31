@@ -188,6 +188,12 @@ const settingsUserDetailOpen = computed(
     route.params.section === 'account' &&
     (typeof route.query.user === 'string' || route.query.newUser === '1')
 )
+const settingsTelegramDetailOpen = computed(
+  () =>
+    route.name === 'settings' &&
+    route.params.section === 'telegram' &&
+    (typeof route.query.bot === 'string' || route.query.newBot === '1')
+)
 const mobileCommunicationDetailOpen = computed(() => {
   switch (route.name) {
     case 'dashboard':
@@ -307,6 +313,13 @@ function handleMobileBack(): void {
     void router.push({
       name: 'settings',
       params: { section: 'account' }
+    })
+    return
+  }
+  if (settingsTelegramDetailOpen.value) {
+    void router.push({
+      name: 'settings',
+      params: { section: 'telegram' }
     })
     return
   }

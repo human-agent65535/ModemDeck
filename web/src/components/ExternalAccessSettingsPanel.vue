@@ -630,7 +630,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .ios-settings {
   display: grid;
-  max-width: 760px;
+  width: 100%;
   gap: 18px;
 }
 

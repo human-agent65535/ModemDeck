@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 import {
   Bell,
   CardSim,
@@ -49,6 +50,8 @@ type TelegramScopeOption = {
 }
 
 const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
 const selectedID = ref('')
 const creating = ref(false)
 const draftReturnID = ref('')
@@ -78,6 +81,9 @@ const scopeMutation = useSettingsMutation({
 })
 const scopeSaving = scopeMutation.saving
 const scopeSaveError = scopeMutation.error
+const mobileDetailOpen = computed(
+  () => typeof route.query.bot === 'string' || route.query.newBot === '1'
+)
 const isAdmin = computed(() => sessionState.role === 'admin')
 const currentSessionUser = computed<UserAccount>(() => ({
   id: sessionState.userID,
@@ -363,6 +369,11 @@ function changeAssignedUser(event: Event): void {
 function selectUnit(id: string): void {
   if (saving.value || deleting.value || scopeSaving.value) return
   discardDraft(id)
+  void router.push({
+    name: 'settings',
+    params: { section: 'telegram' },
+    query: { ...route.query, bot: id, newBot: undefined }
+  })
 }
 
 function startCreate(): void {
@@ -373,9 +384,14 @@ function startCreate(): void {
   creating.value = true
   selectedID.value = '__telegram-bot-draft__'
   applyUnit()
+  void router.push({
+    name: 'settings',
+    params: { section: 'telegram' },
+    query: { ...route.query, bot: undefined, newBot: '1' }
+  })
 }
 
-function discardDraft(nextID?: string): void {
+function discardDraft(nextID?: string): string {
   const returnID =
     nextID ||
     (telegramResource.data.some(unit => unit.id === draftReturnID.value)
@@ -386,11 +402,17 @@ function discardDraft(nextID?: string): void {
   draftReturnID.value = ''
   selectedID.value = returnID
   applyUnit(telegramResource.data.find(unit => unit.id === returnID))
+  return returnID
 }
 
 function cancelCreate(): void {
   if (!creating.value || saving.value || deleting.value || scopeSaving.value) return
-  discardDraft()
+  const returnID = discardDraft()
+  void router.replace({
+    name: 'settings',
+    params: { section: 'telegram' },
+    query: { ...route.query, bot: returnID || undefined, newBot: undefined }
+  })
 }
 
 async function submit(): Promise<void> {
@@ -419,6 +441,11 @@ async function submit(): Promise<void> {
     selectedID.value = unit.id
     applyUnit(unit)
     await nextTick()
+    await router.replace({
+      name: 'settings',
+      params: { section: 'telegram' },
+      query: { ...route.query, bot: unit.id, newBot: undefined }
+    })
     showSuccess(t('telegram.saved'))
   } catch (error) {
     saveError.value =
@@ -448,6 +475,11 @@ async function remove(): Promise<void> {
     selectedID.value = telegramResource.data[0]?.id || ''
     creating.value = false
     if (!selectedID.value) applyUnit()
+    await router.replace({
+      name: 'settings',
+      params: { section: 'telegram' },
+      query: { ...route.query, bot: undefined, newBot: undefined }
+    })
   } catch (error) {
     saveError.value =
       error instanceof ApiError && error.status === 403
@@ -461,6 +493,41 @@ async function remove(): Promise<void> {
   }
 }
 
+function syncSelectionFromRoute(): void {
+  if (
+    telegramResource.status !== 'ready' ||
+    saving.value ||
+    deleting.value ||
+    scopeSaving.value
+  ) {
+    return
+  }
+  if (route.query.newBot === '1') {
+    if (!creating.value) {
+      draftReturnID.value = selectedUnit.value?.id || telegramResource.data[0]?.id || ''
+      creating.value = true
+      selectedID.value = '__telegram-bot-draft__'
+      applyUnit()
+    }
+    return
+  }
+  if (typeof route.query.bot === 'string') {
+    const unit = telegramResource.data.find(candidate => candidate.id === route.query.bot)
+    if (!unit || (!creating.value && selectedID.value === unit.id)) return
+    creating.value = false
+    draftReturnID.value = ''
+    selectedID.value = unit.id
+    applyUnit(unit)
+    return
+  }
+  if (creating.value) discardDraft()
+}
+
+watch(
+  [() => route.query.bot, () => route.query.newBot],
+  syncSelectionFromRoute
+)
+
 onMounted(() => {
   const usersRequest = isAdmin.value
     ? gateway.listUsers().then(loaded => {
@@ -468,6 +535,7 @@ onMounted(() => {
       })
     : Promise.resolve()
   void Promise.all([loadTelegramUnits(), loadBootstrap(), usersRequest]).then(() => {
+    syncSelectionFromRoute()
     applyUnit(selectedUnit.value)
   })
 })
@@ -494,35 +562,31 @@ onMounted(() => {
     retryable
     @retry="loadTelegramUnits(true)"
   />
-  <div v-else class="telegram-settings-container">
-    <SettingsMasterDetail
-      class="telegram-settings"
-      :label="t('telegram.bots')"
-      mobile-mode="stack"
-    >
-      <template #sidebar>
-        <aside class="telegram-unit-list" :aria-label="t('telegram.bots')">
-      <header class="telegram-unit-list__heading">
-        <span class="telegram-unit-list__title">
-          <strong>{{ t('telegram.bots') }}</strong>
-          <small>Telegram</small>
-        </span>
-        <button
-          class="icon-button"
-          type="button"
-          :title="t('telegram.newBot')"
-          :aria-label="t('telegram.newTelegramBot')"
-          @click="startCreate"
-        >
-          <Plus :size="18" />
-        </button>
-      </header>
+  <SettingsMasterDetail
+    v-else
+    :label="t('telegram.bots')"
+    :sidebar-title="t('telegram.bots')"
+    sidebar-description="Telegram"
+    :detail-open="mobileDetailOpen"
+  >
+    <template #sidebar-action>
+      <button
+        class="icon-button"
+        type="button"
+        :title="t('telegram.newBot')"
+        :aria-label="t('telegram.newTelegramBot')"
+        @click="startCreate"
+      >
+        <Plus :size="18" />
+      </button>
+    </template>
+    <template #sidebar>
       <div v-if="telegramResource.data.length === 0 && !creating" class="telegram-unit-empty">
         {{ t('telegram.empty') }}
       </div>
       <button
         v-if="creating"
-        class="telegram-unit-row is-selected"
+        class="settings-resource-row telegram-unit-row is-selected"
         type="button"
         aria-current="true"
       >
@@ -546,7 +610,7 @@ onMounted(() => {
       <button
         v-for="unit in telegramResource.data"
         :key="unit.id"
-        class="telegram-unit-row"
+        class="settings-resource-row telegram-unit-row"
         :class="{ 'is-selected': !creating && unit.id === selectedID }"
         type="button"
         @click="selectUnit(unit.id)"
@@ -577,10 +641,9 @@ onMounted(() => {
           </span>
         </span>
       </button>
-        </aside>
-      </template>
+    </template>
 
-      <section class="telegram-unit-editor">
+    <section class="telegram-unit-editor">
       <StatePanel
         v-if="!creating && !selectedUnit"
         state="empty"
@@ -839,36 +902,11 @@ onMounted(() => {
           </button>
         </footer>
       </form>
-      </section>
-    </SettingsMasterDetail>
-  </div>
+    </section>
+  </SettingsMasterDetail>
 </template>
 
 <style scoped>
-.telegram-settings-container {
-  min-width: 0;
-  container-type: inline-size;
-}
-
-.telegram-settings {
-  --settings-master-sidebar: 280px;
-
-  min-height: 520px;
-}
-
-.telegram-unit-list {
-  min-width: 0;
-  height: 100%;
-  background: var(--surface-subtle);
-}
-
-.telegram-unit-list__heading {
-  min-height: 64px;
-  padding: 8px 12px;
-  background: var(--surface);
-}
-
-.telegram-unit-list__title,
 .telegram-form-heading__copy {
   display: flex;
   min-width: 0;
@@ -876,7 +914,6 @@ onMounted(() => {
   gap: 2px;
 }
 
-.telegram-unit-list__title strong,
 .telegram-form-heading__copy h3 {
   margin: 0;
   color: var(--text);
@@ -884,7 +921,6 @@ onMounted(() => {
   font-weight: 750;
 }
 
-.telegram-unit-list__title small,
 .telegram-form-heading__copy small {
   color: var(--muted);
   font-size: 11px;
@@ -892,15 +928,12 @@ onMounted(() => {
 }
 
 .telegram-unit-row {
+  display: grid;
   min-height: 86px;
+  align-items: center;
   grid-template-columns: 38px minmax(0, 1fr);
   gap: 10px;
   padding: 10px 12px;
-  background: var(--surface);
-}
-
-.telegram-unit-row.is-selected {
-  background: var(--accent-soft);
 }
 
 .telegram-unit-row__icon {
@@ -989,7 +1022,6 @@ onMounted(() => {
 
 .telegram-unit-editor {
   min-width: 0;
-  padding-left: 24px;
 }
 
 .telegram-unit-editor .settings-form {
@@ -1348,10 +1380,6 @@ onMounted(() => {
 }
 
 @media (max-width: 860px) {
-  .telegram-settings {
-    --settings-master-sidebar: 250px;
-  }
-
   .telegram-event-options,
   .telegram-access-options,
   .telegram-scope-options {
@@ -1360,23 +1388,8 @@ onMounted(() => {
 }
 
 @media (max-width: 860px) {
-  .telegram-unit-list {
-    max-height: 232px;
-    overflow-y: auto;
-  }
-
-  .telegram-unit-list__heading {
-    position: sticky;
-    z-index: 2;
-    top: 0;
-  }
-
   .telegram-unit-row {
     min-height: 78px;
-  }
-
-  .telegram-unit-editor {
-    padding: 12px 16px 0;
   }
 
   .telegram-form-heading {
@@ -1395,21 +1408,6 @@ onMounted(() => {
 }
 
 @container (max-width: 700px) {
-  .telegram-unit-list {
-    max-height: 232px;
-    overflow-y: auto;
-  }
-
-  .telegram-unit-list__heading {
-    position: sticky;
-    z-index: 2;
-    top: 0;
-  }
-
-  .telegram-unit-editor {
-    padding: 12px 16px 0;
-  }
-
   .telegram-bot-identity .settings-form-grid,
   .telegram-event-options,
   .telegram-scope-options {

@@ -54,7 +54,7 @@ test('master-detail settings are flush and mobile page titles cover every sectio
   assert.match(view, /settings-content--master-detail/)
   assert.match(
     view,
-    /\.settings-content\.settings-content--master-detail \{\s*padding: 0;/
+    /\.settings-content\.settings-content--master-detail \{[\s\S]*padding: 0;/
   )
   assert.match(shell, /'external-access': t\('settings\.iosApp'\)/)
   assert.match(shell, /'web-certificate': t\('settings\.tls'\)/)
@@ -62,14 +62,16 @@ test('master-detail settings are flush and mobile page titles cover every sectio
 })
 
 test('settings drilldown aligns with the shell compact breakpoint', async () => {
-  const [masterDetail, deviceWorkspace, users, telegram, devices, style] =
+  const [masterDetail, deviceWorkspace, users, telegram, devices, style, shell, view] =
     await Promise.all([
       source('../src/components/settings/SettingsMasterDetail.vue'),
       source('../src/components/settings/DeviceWorkspace.vue'),
       source('../src/components/UserSettingsPanel.vue'),
       source('../src/components/TelegramSettingsForm.vue'),
       source('../src/components/DeviceConfigurationPanel.vue'),
-      source('../src/style.css')
+      source('../src/style.css'),
+      source('../src/components/AppShell.vue'),
+      source('../src/views/SettingsView.vue')
     ])
 
   for (const component of [
@@ -87,6 +89,39 @@ test('settings drilldown aligns with the shell compact breakpoint', async () => 
   assert.match(deviceWorkspace, /mobile-drilldown__detail/)
   assert.match(style, /\.mobile-drilldown\.is-detail-open/)
   assert.match(style, /@keyframes mobile-drilldown-forward/)
+  assert.doesNotMatch(masterDetail, /mobileMode|--stack/)
+  assert.match(users, /class="settings-resource-row user-row/)
+  assert.match(telegram, /class="settings-resource-row telegram-unit-row/)
+  assert.match(telegram, /route\.query\.bot/)
+  assert.match(telegram, /route\.query\.newBot/)
+  assert.match(shell, /const settingsTelegramDetailOpen = computed/)
+  assert.match(view, /selectedSection\.value === 'telegram'/)
+})
+
+test('page width modes are shared instead of owned by business panels', async () => {
+  const [frame, view, traffic, style, account, audio, contacts, externalAccess] =
+    await Promise.all([
+      source('../src/components/PageContentFrame.vue'),
+      source('../src/views/SettingsView.vue'),
+      source('../src/views/TrafficView.vue'),
+      source('../src/style.css'),
+      source('../src/components/AccountSettingsPanel.vue'),
+      source('../src/components/AudioSettingsForm.vue'),
+      source('../src/components/ContactSyncSettings.vue'),
+      source('../src/components/ExternalAccessSettingsPanel.vue')
+    ])
+
+  assert.match(frame, /'reading' \| 'dashboard' \| 'fluid'/)
+  assert.match(frame, /max-width: var\(--page-content-reading-max\)/)
+  assert.match(frame, /max-width: var\(--page-content-dashboard-max\)/)
+  assert.match(style, /--page-content-reading-max: 960px/)
+  assert.match(style, /--page-content-dashboard-max: 1440px/)
+  assert.match(view, /<PageContentFrame mode="reading">[\s\S]*<AboutSettingsPanel/)
+  assert.match(view, /<PageContentFrame mode="fluid">[\s\S]*<DiagnosticsPanel/)
+  assert.match(traffic, /<PageContentFrame mode="dashboard" class="traffic-page__content">/)
+  for (const panel of [account, audio, contacts, externalAccess]) {
+    assert.doesNotMatch(panel, /max-width:\s*(760|880)px/)
+  }
 })
 
 test('save behavior distinguishes immediate preferences from dirty resource forms', async () => {

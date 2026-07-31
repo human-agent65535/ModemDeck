@@ -417,28 +417,23 @@ onMounted(() => {
   />
   <SettingsMasterDetail
     v-else
-    class="user-settings"
     :label="t('users.title')"
-    mobile-mode="drilldown"
+    :sidebar-title="t('users.title')"
+    :sidebar-description="t('users.count', { count: users.length })"
     :detail-open="mobileDetailOpen"
   >
-    <template #sidebar>
-      <aside class="user-list">
-      <header>
-        <span>
-          <strong>{{ t('users.title') }}</strong>
-          <small>{{ t('users.count', { count: users.length }) }}</small>
-        </span>
-        <button
-          class="icon-button"
-          type="button"
-          :title="t('users.newMember')"
-          :aria-label="t('users.newMember')"
-          @click="startCreate"
-        >
-          <Plus :size="18" />
-        </button>
-      </header>
+    <template #sidebar-action>
+      <button
+        class="icon-button"
+        type="button"
+        :title="t('users.newMember')"
+        :aria-label="t('users.newMember')"
+        @click="startCreate"
+      >
+        <Plus :size="18" />
+      </button>
+    </template>
+    <template #sidebar-toolbar>
       <label class="user-search">
         <Search :size="16" aria-hidden="true" />
         <span class="sr-only">{{ t('users.searchUsers') }}</span>
@@ -448,9 +443,11 @@ onMounted(() => {
           :placeholder="t('users.searchUsers')"
         />
       </label>
+    </template>
+    <template #sidebar>
       <button
         v-if="creating"
-        class="user-row is-selected"
+        class="settings-resource-row user-row is-selected"
         type="button"
       >
         <BaseAvatar
@@ -466,7 +463,7 @@ onMounted(() => {
       <button
         v-for="user in filteredUsers"
         :key="user.id"
-        class="user-row"
+        class="settings-resource-row user-row"
         :class="{ 'is-selected': !creating && selectedID === user.id }"
         type="button"
         @click="selectUser(user.id)"
@@ -496,7 +493,6 @@ onMounted(() => {
         state="empty"
         :title="t('users.noMatchingUsers')"
       />
-      </aside>
     </template>
 
     <section class="user-editor">
@@ -782,31 +778,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.user-settings {
-  --settings-master-sidebar: clamp(200px, 25%, 240px);
-
-  width: 100%;
-  max-width: 1120px;
-  min-height: 560px;
-  margin: 0;
-}
-
-.user-list {
-  min-width: 0;
-  height: 100%;
-  background: var(--surface);
-}
-
-.user-list > header {
-  display: flex;
-  min-height: 56px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 7px 10px;
-  border-bottom: 1px solid var(--border);
-}
-
-.user-list > header > span,
 .user-row > span:nth-child(2) {
   display: flex;
   min-width: 0;
@@ -842,7 +813,7 @@ onMounted(() => {
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
-.user-list small,
+.user-row small,
 .user-editor small {
   overflow: hidden;
   color: var(--muted);
@@ -853,23 +824,10 @@ onMounted(() => {
 
 .user-row {
   display: grid;
-  width: 100%;
-  min-height: 64px;
   align-items: center;
   gap: 9px;
   padding: 9px 10px;
-  text-align: left;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  border-bottom: 1px solid var(--border);
-}
-
-.user-row:hover,
-.user-row.is-selected {
-  background: var(--surface-hover);
-}
-
-.user-row.is-selected {
-  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .user-row__name {
@@ -895,8 +853,6 @@ onMounted(() => {
 
 .user-editor {
   min-width: 0;
-  padding-inline: 24px;
-  background: var(--surface);
 }
 
 .user-form {
@@ -1288,14 +1244,6 @@ onMounted(() => {
 }
 
 @media (max-width: 860px) {
-  .user-list {
-    max-height: none;
-  }
-
-  .user-editor {
-    padding: 12px 16px 0;
-  }
-
   .user-password-set > div {
     align-items: stretch;
     grid-template-columns: 1fr;

@@ -12,12 +12,12 @@ const masterDetail = readFileSync(
 )
 
 test('Telegram bot list exposes channel identity, status, and line scope', () => {
-  const listStart = form.indexOf('<aside class="telegram-unit-list"')
-  const listEnd = form.indexOf('</aside>', listStart)
+  const listStart = form.indexOf('<template #sidebar>')
+  const listEnd = form.indexOf('</template>', listStart)
   const list = form.slice(listStart, listEnd)
 
-  assert.match(list, /telegram-unit-list__title[\s\S]*t\('telegram\.bots'\)/)
-  assert.match(list, /<small>Telegram<\/small>/)
+  assert.match(form, /:sidebar-title="t\('telegram\.bots'\)"/)
+  assert.match(form, /sidebar-description="Telegram"/)
   assert.match(list, /telegram-unit-row__icon[\s\S]*<Send/)
   assert.match(
     list,
@@ -53,24 +53,21 @@ test('Telegram editor uses distinct identity, owner, event, and line sections', 
   )
 })
 
-test('Telegram component owns responsive, overflow-safe layout styles', () => {
+test('Telegram uses the shared resource rail and owns only resource-specific layout', () => {
   const styleStart = form.indexOf('<style scoped>')
   const styleEnd = form.indexOf('</style>', styleStart)
   const style = form.slice(styleStart, styleEnd)
 
-  assert.match(
-    style,
-    /\.telegram-settings-container\s*\{[\s\S]*container-type: inline-size/
-  )
-  assert.match(form, /<SettingsMasterDetail[\s\S]*class="telegram-settings"/)
-  assert.match(
-    style,
-    /\.telegram-settings\s*\{[\s\S]*--settings-master-sidebar: 280px/
-  )
+  assert.match(form, /<SettingsMasterDetail[\s\S]*:detail-open="mobileDetailOpen"/)
+  assert.match(form, /class="settings-resource-row telegram-unit-row/)
+  assert.doesNotMatch(style, /--settings-master-sidebar|max-width:\s*1120px/)
   assert.match(
     masterDetail,
     /grid-template-columns: var\(--settings-master-sidebar\) minmax\(0, 1fr\)/
   )
+  assert.match(masterDetail, /--settings-master-sidebar: clamp\(240px, 25%, 280px\)/)
+  assert.match(masterDetail, /settings-master-detail__sidebar-header/)
+  assert.match(masterDetail, /settings-resource-row\.is-selected/)
   assert.match(style, /\.telegram-unit-row__copy\s*\{[\s\S]*min-width: 0/)
   assert.match(style, /text-overflow: ellipsis/)
   assert.match(

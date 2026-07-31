@@ -16,11 +16,14 @@ function functionBody(name, nextName) {
 }
 
 test('new Telegram Bot is represented by one selected local draft row', () => {
-  const listStart = form.indexOf('<aside class="telegram-unit-list"')
-  const listEnd = form.indexOf('</aside>', listStart)
+  const listStart = form.indexOf('<template #sidebar>')
+  const listEnd = form.indexOf('</template>', listStart)
   const list = form.slice(listStart, listEnd)
 
-  assert.match(list, /v-if="creating"[\s\S]*class="telegram-unit-row is-selected"/)
+  assert.match(
+    list,
+    /v-if="creating"[\s\S]*class="settings-resource-row telegram-unit-row is-selected"/
+  )
   assert.match(list, /displayName\.trim\(\) \|\| t\('telegram\.unnamed'\)/)
   assert.match(
     list,

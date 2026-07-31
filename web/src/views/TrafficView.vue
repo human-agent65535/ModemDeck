@@ -8,6 +8,7 @@ import type {
   ProxyInstance
 } from '../api/types'
 import LineTag from '../components/LineTag.vue'
+import PageContentFrame from '../components/PageContentFrame.vue'
 import ProxyCard from '../components/ProxyCard.vue'
 import ProxyEditorModal from '../components/ProxyEditorModal.vue'
 import StatePanel from '../components/StatePanel.vue'
@@ -240,7 +241,7 @@ onMounted(() => {
     />
 
     <div v-else class="traffic-page__scroll">
-      <div class="traffic-page__content">
+      <PageContentFrame mode="dashboard" class="traffic-page__content">
         <div
           v-if="snapshot && !snapshot.available"
           class="traffic-banner is-warning"
@@ -354,7 +355,7 @@ onMounted(() => {
             {{ t('traffic.noProxies') }}
           </div>
         </section>
-      </div>
+      </PageContentFrame>
     </div>
 
     <ProxyEditorModal
@@ -407,10 +408,8 @@ onMounted(() => {
 
 .traffic-page__content {
   display: grid;
-  width: min(1440px, 100%);
   gap: 22px;
   padding: 22px 24px 34px;
-  margin: 0 auto;
 }
 
 .traffic-banner {

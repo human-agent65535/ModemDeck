@@ -2,11 +2,13 @@
 withDefaults(
   defineProps<{
     label: string
-    mobileMode?: 'stack' | 'drilldown'
+    sidebarTitle?: string
+    sidebarDescription?: string
     detailOpen?: boolean
   }>(),
   {
-    mobileMode: 'stack',
+    sidebarTitle: '',
+    sidebarDescription: '',
     detailOpen: false
   }
 )
@@ -14,26 +16,32 @@ withDefaults(
 
 <template>
   <section
-    class="settings-master-detail"
-    :class="[
-      `settings-master-detail--${mobileMode}`,
-      {
-        'mobile-drilldown': mobileMode === 'drilldown',
-        'is-detail-open': detailOpen
-      }
-    ]"
+    class="settings-master-detail mobile-drilldown"
+    :class="{ 'is-detail-open': detailOpen }"
     :aria-label="label"
   >
-    <div
-      class="settings-master-detail__sidebar"
-      :class="{ 'mobile-drilldown__list': mobileMode === 'drilldown' }"
+    <aside
+      class="settings-master-detail__sidebar mobile-drilldown__list"
+      :aria-label="sidebarTitle || label"
     >
-      <slot name="sidebar" />
-    </div>
-    <div
-      class="settings-master-detail__detail"
-      :class="{ 'mobile-drilldown__detail': mobileMode === 'drilldown' }"
-    >
+      <header class="settings-master-detail__sidebar-header">
+        <span class="settings-master-detail__sidebar-copy">
+          <strong>{{ sidebarTitle || label }}</strong>
+          <small v-if="sidebarDescription">{{ sidebarDescription }}</small>
+        </span>
+        <slot name="sidebar-action" />
+      </header>
+      <div
+        v-if="$slots['sidebar-toolbar']"
+        class="settings-master-detail__sidebar-toolbar"
+      >
+        <slot name="sidebar-toolbar" />
+      </div>
+      <div class="settings-master-detail__list">
+        <slot name="sidebar" />
+      </div>
+    </aside>
+    <div class="settings-master-detail__detail mobile-drilldown__detail">
       <slot />
     </div>
   </section>
@@ -41,14 +49,16 @@ withDefaults(
 
 <style scoped>
 .settings-master-detail {
-  --settings-master-sidebar: 240px;
+  --settings-master-sidebar: clamp(240px, 25%, 280px);
 
   display: grid;
+  width: 100%;
   min-width: 0;
-  min-height: 520px;
+  min-height: 100%;
   grid-template-columns: var(--settings-master-sidebar) minmax(0, 1fr);
   background: var(--surface);
   border-top: 1px solid var(--border);
+  container-type: inline-size;
 }
 
 .settings-master-detail__sidebar,
@@ -57,12 +67,82 @@ withDefaults(
 }
 
 .settings-master-detail__sidebar {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  background: var(--surface-subtle);
   border-right: 1px solid var(--border);
 }
 
-.settings-master-detail__sidebar :deep(> *),
-.settings-master-detail__detail :deep(> *) {
-  min-height: 100%;
+.settings-master-detail__sidebar-header {
+  display: flex;
+  min-height: 64px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-master-detail__sidebar-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-master-detail__sidebar-copy strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-master-detail__sidebar-copy small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-master-detail__sidebar-toolbar {
+  flex: 0 0 auto;
+}
+
+.settings-master-detail__list {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  background: var(--surface-subtle);
+}
+
+.settings-master-detail__list :deep(.settings-resource-row) {
+  width: 100%;
+  min-height: 64px;
+  text-align: left;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-master-detail__list :deep(.settings-resource-row:hover) {
+  background: var(--surface-hover);
+}
+
+.settings-master-detail__list :deep(.settings-resource-row.is-selected) {
+  background: var(--surface-selected);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.settings-master-detail__detail {
+  padding-inline: 24px;
+  background: var(--surface);
 }
 
 @media (max-width: 860px) {
@@ -76,9 +156,8 @@ withDefaults(
     border-right: 0;
   }
 
-  .settings-master-detail--stack .settings-master-detail__sidebar {
-    border-bottom: 1px solid var(--border);
+  .settings-master-detail__detail {
+    padding: 12px 16px 0;
   }
-
 }
 </style>

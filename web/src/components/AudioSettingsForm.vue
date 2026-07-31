@@ -430,7 +430,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .audio-preferences {
   display: flex;
-  max-width: 760px;
+  width: 100%;
   flex-direction: column;
   gap: 34px;
 }
