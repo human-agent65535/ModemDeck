@@ -83,7 +83,8 @@ test('new messages retain contact preference then global default resolution', as
   assert.doesNotMatch(source, /function chooseRecipient[\s\S]*?syncComposeLine\(true\)/)
   assert.match(source, /findRecipientThread\(/)
   assert.match(source, /messageReturnRoute\(composeReturnThreadKey\)/)
-  assert.match(source, /:class="\{ 'mobile-back': !composingNew \}"/)
+  assert.match(source, /'mobile-back': !composingNew/)
+  assert.match(source, /'mobile-compose-cancel': composingNew/)
   assert.match(
     source,
     /composingNew[\s\S]*?\? t\('messages\.cancelNew'\)[\s\S]*?: t\('messages\.back'\)/
