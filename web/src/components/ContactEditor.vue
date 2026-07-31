@@ -148,7 +148,7 @@ function submit(): void {
 
 <template>
   <Teleport to="body">
-    <Transition name="fade">
+    <Transition name="modal">
       <div v-if="open" class="modal-backdrop" @mousedown.self="emit('close')">
         <section
           class="editor-dialog"

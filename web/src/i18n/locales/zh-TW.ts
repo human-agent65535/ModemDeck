@@ -4,6 +4,8 @@ export default {
     close: '關閉',
     save: '儲存',
     saving: '正在儲存…',
+    saved: '已儲存',
+    more: '更多',
     retry: '重試',
     delete: '刪除',
     favorite: '收藏',

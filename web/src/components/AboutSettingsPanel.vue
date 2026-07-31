@@ -14,6 +14,7 @@ import {
 } from '@lucide/vue'
 import { gateway } from '../api/client'
 import type { AboutInfo, UpdateCheck, UpdateStatus } from '../api/types'
+import SettingsModuleCard from './settings/SettingsModuleCard.vue'
 
 const { locale, t } = useI18n()
 const repositoryURL = 'https://github.com/human-agent65535/ModemDeck'
@@ -103,81 +104,78 @@ onMounted(() => {
 
 <template>
   <section class="about-settings" aria-labelledby="about-product-title">
-    <section class="about-card about-product">
-        <header class="about-product__header">
-          <span class="about-product__mark" aria-hidden="true">M</span>
-          <div>
-            <h3 id="about-product-title">{{ about?.name || 'ModemDeck' }}</h3>
-            <p>{{ t('about.productDescription') }}</p>
-          </div>
-          <span class="about-version">{{ about?.version || '—' }}</span>
-        </header>
+    <SettingsModuleCard
+      class="about-card about-product"
+      :title="about?.name || 'ModemDeck'"
+      title-id="about-product-title"
+      :description="t('about.productDescription')"
+      icon-tone="brand"
+    >
+      <template #icon>M</template>
+      <template #status>
+        <span class="about-version">{{ about?.version || '—' }}</span>
+      </template>
 
-        <p v-if="loadError" class="about-product__error" role="alert">{{ loadError }}</p>
+      <p v-if="loadError" class="about-product__error" role="alert">{{ loadError }}</p>
 
-        <dl class="about-facts">
-          <div>
-            <dt>{{ t('about.version') }}</dt>
-            <dd>{{ about?.version || t('about.notAvailable') }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('about.sourceCode') }}</dt>
-            <dd>
-              <a
-                :href="about?.repository_url || repositoryURL"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <Code2 :size="14" />
-                GitHub
-                <ExternalLink :size="12" />
-              </a>
-            </dd>
-          </div>
-        </dl>
-    </section>
-
-    <section class="about-card about-update">
-        <header class="about-card__header">
-          <div>
-            <h3>{{ t('about.updateTitle') }}</h3>
-            <p>{{ t('about.updateDescription') }}</p>
-          </div>
-        </header>
-
-        <div class="about-status" :class="statusClass(update?.status)">
-          <LoaderCircle v-if="checking" class="spin" :size="21" />
-          <component :is="statusIcon" v-else :size="21" />
-          <div>
-            <strong>{{ statusTitle }}</strong>
-            <p>{{ statusDescription }}</p>
-            <small v-if="update?.checked_at">
-              {{ t('about.checkedAt', { date: formatDate(update.checked_at) }) }}
-            </small>
-          </div>
-          <a
-            v-if="update?.release_url"
-            class="about-status__link"
-            :href="update.release_url"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {{ t('about.viewRelease') }}
-            <ExternalLink :size="13" />
-          </a>
+      <dl class="about-facts">
+        <div>
+          <dt>{{ t('about.version') }}</dt>
+          <dd>{{ about?.version || t('about.notAvailable') }}</dd>
         </div>
+        <div>
+          <dt>{{ t('about.sourceCode') }}</dt>
+          <dd>
+            <a
+              :href="about?.repository_url || repositoryURL"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Code2 :size="14" />
+              GitHub
+              <ExternalLink :size="12" />
+            </a>
+          </dd>
+        </div>
+      </dl>
+    </SettingsModuleCard>
 
-    </section>
+    <SettingsModuleCard
+      class="about-card about-update"
+      :title="t('about.updateTitle')"
+      title-id="about-update-title"
+      :description="t('about.updateDescription')"
+    >
+      <div class="about-status" :class="statusClass(update?.status)">
+        <LoaderCircle v-if="checking" class="spin" :size="21" />
+        <component :is="statusIcon" v-else :size="21" />
+        <div>
+          <strong>{{ statusTitle }}</strong>
+          <p>{{ statusDescription }}</p>
+          <small v-if="update?.checked_at">
+            {{ t('about.checkedAt', { date: formatDate(update.checked_at) }) }}
+          </small>
+        </div>
+        <a
+          v-if="update?.release_url"
+          class="about-status__link"
+          :href="update.release_url"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {{ t('about.viewRelease') }}
+          <ExternalLink :size="13" />
+        </a>
+      </div>
+    </SettingsModuleCard>
 
-    <section class="about-card about-legal">
-        <header class="about-card__header">
-          <div>
-            <h3>{{ t('about.legalTitle') }}</h3>
-            <p>{{ t('about.legalDescription') }}</p>
-          </div>
-        </header>
-
-        <div class="about-legal__links">
+    <SettingsModuleCard
+      class="about-card about-legal"
+      :title="t('about.legalTitle')"
+      title-id="about-legal-title"
+      :description="t('about.legalDescription')"
+    >
+      <div class="about-legal__links">
           <a
             :href="about?.license_url || licenseURL"
             target="_blank"
@@ -202,8 +200,8 @@ onMounted(() => {
             </span>
             <ExternalLink :size="14" />
           </a>
-        </div>
-    </section>
+      </div>
+    </SettingsModuleCard>
   </section>
 </template>
 
@@ -211,55 +209,6 @@ onMounted(() => {
 .about-settings {
   display: grid;
   gap: 14px;
-}
-
-.about-card {
-  padding: 18px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
-
-.about-card__header,
-.about-product__header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.about-card__header > div,
-.about-product__header > div {
-  min-width: 0;
-  flex: 1;
-}
-
-.about-card h3 {
-  margin: 0;
-  color: var(--text);
-  font-size: 14px;
-  text-transform: none;
-}
-
-.about-card__header p,
-.about-product__header p {
-  margin: 3px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.about-product__mark {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  flex: 0 0 42px;
-  place-items: center;
-  color: #fff;
-  font-size: 21px;
-  font-weight: 750;
-  background: linear-gradient(145deg, var(--accent), var(--accent-strong));
-  border-radius: 11px;
-  box-shadow: 0 6px 18px rgb(11 120 102 / 18%);
 }
 
 .about-version {
@@ -273,7 +222,7 @@ onMounted(() => {
 }
 
 .about-product__error {
-  margin: 12px 0 0;
+  margin: 0 0 12px;
   color: var(--danger);
   font-size: 11px;
 }
@@ -282,7 +231,7 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0;
-  margin: 16px 0 0;
+  margin: 0;
   border-top: 1px solid var(--border);
 }
 
@@ -313,7 +262,7 @@ onMounted(() => {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  margin-top: 14px;
+  margin: 0;
   padding: 13px;
   color: var(--muted);
   background: var(--surface-subtle);
@@ -387,7 +336,7 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
-  margin-top: 14px;
+  margin: 0;
 }
 
 .about-legal__links > a {
@@ -441,11 +390,6 @@ onMounted(() => {
 }
 
 @media (max-width: 720px) {
-  .about-card__header {
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-
   .about-facts,
   .about-legal__links {
     grid-template-columns: 1fr;

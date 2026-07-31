@@ -206,6 +206,17 @@ function openSection(section: SettingsSection): void {
 }
 
 function backToSettings(): void {
+  if (
+    selectedSection.value === 'account' &&
+    (typeof route.query.user === 'string' || route.query.newUser === '1')
+  ) {
+    void router.push({
+      name: 'settings',
+      params: { section: 'account' },
+      query: { ...route.query, user: undefined, newUser: undefined }
+    })
+    return
+  }
   void router.push({ name: 'settings', params: { section: '' } })
 }
 
@@ -314,7 +325,11 @@ onMounted(() => {
           <h2>{{ currentTitle }}</h2>
         </header>
 
-        <div v-if="selectedSection === 'account'" class="settings-content">
+        <div
+          v-if="selectedSection === 'account'"
+          class="settings-content"
+          :class="{ 'settings-content--master-detail': sessionState.role === 'admin' }"
+        >
           <UserSettingsPanel
             v-if="sessionState.role === 'admin'"
           />
@@ -333,7 +348,10 @@ onMounted(() => {
           <DeviceConfigurationPanel />
         </div>
 
-        <div v-else-if="selectedSection === 'telegram'" class="settings-content">
+        <div
+          v-else-if="selectedSection === 'telegram'"
+          class="settings-content settings-content--master-detail"
+        >
           <TelegramSettingsForm />
         </div>
 
@@ -362,5 +380,9 @@ onMounted(() => {
 <style scoped>
 .settings-content {
   container-type: inline-size;
+}
+
+.settings-content.settings-content--master-detail {
+  padding: 0;
 }
 </style>

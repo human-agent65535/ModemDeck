@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Circle, LoaderCircle } from '@lucide/vue'
+import { Check, Circle, LoaderCircle } from '@lucide/vue'
 import {
   loadRecordingSettings,
   recordingSettingsState,
   updateDefaultRecording
 } from '../state/recording'
+import SettingsPreferenceRow from './settings/SettingsPreferenceRow.vue'
 
 const { t } = useI18n()
 const pendingEnabled = ref(false)
+const saved = ref(false)
+let savedTimer: ReturnType<typeof globalThis.setTimeout> | undefined
 const displayedEnabled = computed(() =>
   recordingSettingsState.saving
     ? pendingEnabled.value
@@ -18,62 +21,81 @@ const displayedEnabled = computed(() =>
 
 async function changeDefault(event: Event): Promise<void> {
   pendingEnabled.value = (event.target as HTMLInputElement).checked
-  await updateDefaultRecording(pendingEnabled.value)
+  saved.value = false
+  const updated = await updateDefaultRecording(pendingEnabled.value)
+  if (!updated) return
+  saved.value = true
+  if (savedTimer) globalThis.clearTimeout(savedTimer)
+  savedTimer = globalThis.setTimeout(() => {
+    saved.value = false
+    savedTimer = undefined
+  }, 2200)
 }
 
 onMounted(() => {
   void loadRecordingSettings()
 })
+
+onBeforeUnmount(() => {
+  if (savedTimer) globalThis.clearTimeout(savedTimer)
+})
 </script>
 
 <template>
-  <section class="recording-settings" aria-labelledby="recording-settings-title">
-    <header>
-      <span class="recording-settings__icon"><Circle :size="19" fill="currentColor" /></span>
-      <div>
-        <h3 id="recording-settings-title">{{ t('recordingSettings.title') }}</h3>
-        <p>{{ t('recordingSettings.description') }}</p>
-      </div>
-    </header>
-
-    <div
-      v-if="
-        recordingSettingsState.status === 'loading' ||
-        recordingSettingsState.status === 'idle'
-      "
-      class="recording-settings__state"
-      role="status"
-    >
-      <LoaderCircle class="spin" :size="18" />
-      {{ t('recordingSettings.loading') }}
-    </div>
-
-    <div
-      v-else-if="
-        recordingSettingsState.status === 'error' ||
-        recordingSettingsState.status === 'forbidden'
-      "
-      class="recording-settings__state recording-settings__state--error"
-      role="alert"
-    >
-      <span>{{ recordingSettingsState.error }}</span>
-      <button
-        v-if="recordingSettingsState.status === 'error'"
-        type="button"
-        @click="loadRecordingSettings(true)"
+  <SettingsPreferenceRow
+    class="recording-settings"
+    :title="t('recordingSettings.title')"
+    title-id="recording-settings-title"
+    :description="t('recordingSettings.description')"
+    icon-tone="danger"
+  >
+    <template #icon>
+      <Circle :size="19" fill="currentColor" />
+    </template>
+    <template #control>
+      <div
+        v-if="
+          recordingSettingsState.status === 'loading' ||
+          recordingSettingsState.status === 'idle'
+        "
+        class="recording-settings__state"
+        role="status"
       >
-        {{ t('common.retry') }}
-      </button>
-    </div>
+        <LoaderCircle class="spin" :size="18" />
+        {{ t('recordingSettings.loading') }}
+      </div>
 
-    <label v-else class="recording-settings__toggle">
-      <span>
-        <strong>{{ t('recordingSettings.defaultRecording') }}</strong>
-        <small>
+      <div
+        v-else-if="
+          recordingSettingsState.status === 'error' ||
+          recordingSettingsState.status === 'forbidden'
+        "
+        class="recording-settings__state recording-settings__state--error"
+        role="alert"
+      >
+        <span>{{ recordingSettingsState.error }}</span>
+        <button
+          v-if="recordingSettingsState.status === 'error'"
+          type="button"
+          @click="loadRecordingSettings(true)"
+        >
+          {{ t('common.retry') }}
+        </button>
+      </div>
+
+      <label v-else class="recording-settings__control">
+        <span class="recording-settings__value">
           {{ displayedEnabled ? t('recordingSettings.enabled') : t('recordingSettings.disabled') }}
-        </small>
-      </span>
-      <span class="recording-settings__control">
+        </span>
+        <span
+          v-if="saved"
+          class="recording-settings__saved"
+          role="status"
+          :title="t('common.saved')"
+        >
+          <Check :size="15" aria-hidden="true" />
+          <span class="sr-only">{{ t('common.saved') }}</span>
+        </span>
         <LoaderCircle
           v-if="recordingSettingsState.saving"
           class="spin"
@@ -88,60 +110,22 @@ onMounted(() => {
           :aria-label="t('recordingSettings.defaultForNewCalls')"
           @change="changeDefault"
         />
-      </span>
-    </label>
-
-    <p
+      </label>
+    </template>
+    <template
       v-if="recordingSettingsState.error && recordingSettingsState.status === 'ready'"
-      class="recording-settings__error"
-      role="alert"
+      #feedback
     >
-      {{ recordingSettingsState.error }}
-    </p>
-  </section>
+      <p class="recording-settings__error" role="alert">
+        {{ recordingSettingsState.error }}
+      </p>
+    </template>
+  </SettingsPreferenceRow>
 </template>
 
 <style scoped>
-.recording-settings {
-  max-width: 680px;
-}
-
-.recording-settings > header {
-  display: flex;
-  min-height: 58px;
-  align-items: center;
-  gap: 11px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-.recording-settings__icon {
-  display: inline-grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  place-items: center;
-  color: var(--danger);
-  background: var(--danger-soft);
-  border-radius: 50%;
-}
-
-.recording-settings h3 {
-  color: var(--text);
-  font-size: 14px;
-  text-transform: none;
-}
-
-.recording-settings header p,
-.recording-settings__toggle small {
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: 11px;
-}
-
 .recording-settings__state {
   display: flex;
-  min-height: 72px;
   align-items: center;
   gap: 8px;
   color: var(--muted);
@@ -159,28 +143,27 @@ onMounted(() => {
   background: transparent;
 }
 
-.recording-settings__toggle {
-  display: flex;
-  min-height: 74px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  border-bottom: 1px solid var(--border);
-}
-
-.recording-settings__toggle > span:first-child {
-  display: flex;
-  flex-direction: column;
-}
-
-.recording-settings__toggle strong {
-  font-size: 13px;
-}
-
 .recording-settings__control {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 9px;
+}
+
+.recording-settings__value {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.recording-settings__saved {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  color: #fff;
+  background: var(--success);
+  border-radius: 50%;
 }
 
 .recording-settings__control input {
@@ -220,7 +203,13 @@ onMounted(() => {
 }
 
 .recording-settings__error {
-  margin-top: 10px;
+  margin: 0;
   font-size: 11px;
+}
+
+@media (max-width: 480px) {
+  .recording-settings__value {
+    display: none;
+  }
 }
 </style>

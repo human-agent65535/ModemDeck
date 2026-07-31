@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { showSuccess } from '../state/feedback'
 import { ContactRound, Link2, UserPlus, X } from '@lucide/vue'
 import type { Contact, ContactInput } from '../api/types'
 import BaseAvatar from './BaseAvatar.vue'
@@ -119,6 +120,7 @@ async function createContact(input: ContactInput): Promise<void> {
   try {
     const saved = await saveContact(input)
     createOpen.value = false
+    showSuccess(t('common.saved'))
     emit('saved', saved)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : t('contacts.saveFailed')
@@ -168,6 +170,7 @@ async function addToContact(): Promise<void> {
       contact.id
     )
     addOpen.value = false
+    showSuccess(t('common.saved'))
     emit('saved', saved)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : t('contacts.saveFailed')

@@ -64,55 +64,57 @@ watch(
 
 <template>
   <Teleport to="body">
-    <div
-      v-if="confirmationState.request"
-      class="confirmation-backdrop"
-      role="presentation"
-      @mousedown.self="answerConfirmation(false)"
-    >
-      <section
-        ref="dialog"
-        class="confirmation-dialog"
-        role="dialog"
-        aria-modal="true"
-        :aria-labelledby="titleID"
-        :aria-describedby="confirmationState.request.message ? messageID : undefined"
-        tabindex="-1"
-        @keydown="onKeydown"
+    <Transition name="modal">
+      <div
+        v-if="confirmationState.request"
+        class="confirmation-backdrop"
+        role="presentation"
+        @mousedown.self="answerConfirmation(false)"
       >
-        <div
-          class="confirmation-dialog__icon"
-          :class="{ 'is-danger': confirmationState.request.tone === 'danger' }"
-          aria-hidden="true"
+        <section
+          ref="dialog"
+          class="confirmation-dialog"
+          role="dialog"
+          aria-modal="true"
+          :aria-labelledby="titleID"
+          :aria-describedby="confirmationState.request.message ? messageID : undefined"
+          tabindex="-1"
+          @keydown="onKeydown"
         >
-          <AlertTriangle :size="21" />
-        </div>
-        <div class="confirmation-dialog__body">
-          <h2 :id="titleID">{{ confirmationState.request.title }}</h2>
-          <p v-if="confirmationState.request.message" :id="messageID">
-            {{ confirmationState.request.message }}
-          </p>
-        </div>
-        <footer>
-          <button
-            ref="cancelButton"
-            class="confirmation-action is-secondary"
-            type="button"
-            @click="answerConfirmation(false)"
-          >
-            {{ confirmationState.request.cancelLabel }}
-          </button>
-          <button
-            class="confirmation-action"
+          <div
+            class="confirmation-dialog__icon"
             :class="{ 'is-danger': confirmationState.request.tone === 'danger' }"
-            type="button"
-            @click="answerConfirmation(true)"
+            aria-hidden="true"
           >
-            {{ confirmationState.request.confirmLabel }}
-          </button>
-        </footer>
-      </section>
-    </div>
+            <AlertTriangle :size="21" />
+          </div>
+          <div class="confirmation-dialog__body">
+            <h2 :id="titleID">{{ confirmationState.request.title }}</h2>
+            <p v-if="confirmationState.request.message" :id="messageID">
+              {{ confirmationState.request.message }}
+            </p>
+          </div>
+          <footer>
+            <button
+              ref="cancelButton"
+              class="confirmation-action is-secondary"
+              type="button"
+              @click="answerConfirmation(false)"
+            >
+              {{ confirmationState.request.cancelLabel }}
+            </button>
+            <button
+              class="confirmation-action"
+              :class="{ 'is-danger': confirmationState.request.tone === 'danger' }"
+              type="button"
+              @click="answerConfirmation(true)"
+            >
+              {{ confirmationState.request.confirmLabel }}
+            </button>
+          </footer>
+        </section>
+      </div>
+    </Transition>
   </Teleport>
 </template>
 

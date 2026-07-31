@@ -16,7 +16,7 @@ function functionBody(name, nextName) {
 }
 
 test('Telegram all-lines selection clears every concrete line scope', () => {
-  const body = functionBody('selectAllLines', 'toggleLineScope')
+  const body = functionBody('setAllLines', 'persistLineScopes')
 
   assert.match(body, /allLines\.value = true/)
   assert.match(body, /lineScopes\.value = \[\]/)
@@ -41,7 +41,7 @@ test('Telegram save payload has one canonical line-scope representation', () => 
   const body = functionBody('normalizedLineScopes', 'selectUnit')
 
   assert.match(body, /if \(allLines\.value \|\| scopes\.length === 0\)/)
-  assert.match(body, /selectAllLines\(\)[\s\S]*return \[\]/)
+  assert.match(body, /setAllLines\(\)[\s\S]*return \[\]/)
   assert.match(body, /allLines\.value = false[\s\S]*return scopes/)
   assert.match(form, /line_scopes: normalizedLineScopes\(\)/)
   assert.doesNotMatch(form, /line_scopes: allLines\.value \? \[\]/)

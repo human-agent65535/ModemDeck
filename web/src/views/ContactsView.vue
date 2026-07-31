@@ -19,6 +19,7 @@ import ContactNumberActions from '../components/ContactNumberActions.vue'
 import InfiniteScrollTrigger from '../components/InfiniteScrollTrigger.vue'
 import ListItemAvatarStatus from '../components/ListItemAvatarStatus.vue'
 import ListItemStatusRail from '../components/ListItemStatusRail.vue'
+import ListSkeleton from '../components/ListSkeleton.vue'
 import ListSelectionToggle from '../components/ListSelectionToggle.vue'
 import SearchField from '../components/SearchField.vue'
 import SelectableListRow from '../components/SelectableListRow.vue'
@@ -26,6 +27,7 @@ import StatePanel from '../components/StatePanel.vue'
 import SwipeActionRow from '../components/SwipeActionRow.vue'
 import { useListSelection } from '../composables/useListSelection'
 import { requestConfirmation } from '../state/confirmation'
+import { showSuccess } from '../state/feedback'
 import { openDialer } from '../state/ui'
 import {
   capabilityReason,
@@ -142,6 +144,7 @@ async function save(input: ContactInput): Promise<void> {
     const contact = await saveContact(input, editing.value?.id)
     editorOpen.value = false
     await router.push({ name: 'contacts', params: { contactId: contact.id } })
+    showSuccess(t('common.saved'))
   } catch (error) {
     editorError.value = error instanceof Error ? error.message : t('contacts.saveFailed')
   } finally {
@@ -314,10 +317,9 @@ onBeforeUnmount(() => {
         {{ deleteError }}
       </p>
 
-      <StatePanel
+      <ListSkeleton
         v-if="contactsResource.status === 'loading'"
-        state="loading"
-        :title="t('contacts.loading')"
+        :label="t('contacts.loading')"
       />
       <StatePanel
         v-else-if="contactsResource.status === 'forbidden'"

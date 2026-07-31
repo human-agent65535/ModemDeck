@@ -21,6 +21,7 @@ import FavoriteFilterButton from '../components/FavoriteFilterButton.vue'
 import InfiniteScrollTrigger from '../components/InfiniteScrollTrigger.vue'
 import LineSelector from '../components/LineSelector.vue'
 import LineTag from '../components/LineTag.vue'
+import ListSkeleton from '../components/ListSkeleton.vue'
 import ListSelectionToggle from '../components/ListSelectionToggle.vue'
 import RecordingList from '../components/RecordingList.vue'
 import SearchField from '../components/SearchField.vue'
@@ -703,10 +704,9 @@ onBeforeUnmount(() => {
         {{ callMutationError }}
       </div>
 
-      <StatePanel
+      <ListSkeleton
         v-if="callsResource.status === 'loading'"
-        state="loading"
-        :title="t('calls.loading')"
+        :label="t('calls.loading')"
       />
       <StatePanel
         v-else-if="callsResource.status === 'forbidden'"

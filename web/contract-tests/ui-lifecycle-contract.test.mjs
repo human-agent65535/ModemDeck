@@ -111,7 +111,7 @@ test('desktop shell has one permanent dialer and dashboard renders every modem r
   assert.ok(contactsIndex < messagesIndex)
   assert.ok(messagesIndex < callsIndex)
   assert.ok(callsIndex < recordingsIndex)
-  assert.match(shell, /window\.matchMedia\('\(min-width: 1101px\)'\)/)
+  assert.match(shell, /window\.matchMedia\('\(min-width: 1480px\)'\)/)
   assert.ok(
     shell.indexOf('<IncomingCallModeControl v-if="sessionState.role === \'admin\'" />') <
       shell.indexOf('<AudioSettingsMenu />')

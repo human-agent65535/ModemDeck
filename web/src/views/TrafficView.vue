@@ -14,6 +14,7 @@ import StatePanel from '../components/StatePanel.vue'
 import TrafficLineCard from '../components/TrafficLineCard.vue'
 import TrafficSummary from '../components/TrafficSummary.vue'
 import { requestConfirmation } from '../state/confirmation'
+import { showSuccess } from '../state/feedback'
 import {
   loadNetwork,
   networkState,
@@ -177,7 +178,10 @@ async function submitProxy(draft: ProxyDraft): Promise<void> {
     lineFallback(line, draft.line_id),
     editorProxy.value
   )
-  if (saved) closeEditor()
+  if (saved) {
+    closeEditor()
+    showSuccess(t('common.saved'))
+  }
 }
 
 async function toggleProxy(proxy: ProxyInstance, enabled: boolean): Promise<void> {

@@ -4,6 +4,8 @@ export default {
     "close": "Đóng",
     "save": "Lưu",
     "saving": "Đang lưu…",
+    "saved": "Đã lưu",
+    "more": "Thêm",
     "retry": "Thử lại",
     "delete": "Xóa",
     "favorite": "Yêu thích",

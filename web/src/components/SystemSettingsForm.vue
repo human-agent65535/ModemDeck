@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ChevronDown, Globe2, LoaderCircle } from '@lucide/vue'
+import { Check, ChevronDown, Globe2, LoaderCircle } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import type { SystemLanguage, SystemSettings } from '../api/types'
 import { gateway } from '../api/client'
 import { setSystemLanguage, systemLanguage } from '../i18n'
+import SettingsPreferenceRow from './settings/SettingsPreferenceRow.vue'
 
 const { t } = useI18n()
 const settings = ref<SystemSettings>()
@@ -126,15 +127,17 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="system-settings">
-    <section aria-labelledby="system-language-title">
-      <div class="system-settings__row">
-        <span class="system-settings__icon"><Globe2 :size="20" /></span>
-        <div class="system-settings__copy">
-          <h3 id="system-language-title">{{ t('settings.systemLanguage') }}</h3>
-          <p>{{ selectedOption?.description }}</p>
-        </div>
-
+  <SettingsPreferenceRow
+    class="system-settings"
+    :title="t('settings.systemLanguage')"
+    title-id="system-language-title"
+    :description="selectedOption?.description"
+    control-size="wide"
+  >
+    <template #icon>
+      <Globe2 :size="20" />
+    </template>
+    <template #control>
         <div v-if="loading" class="system-settings__state" role="status">
           <LoaderCircle class="spin" :size="18" />
           {{ t('settings.loadingSystem') }}
@@ -153,69 +156,25 @@ onMounted(() => {
           <LoaderCircle v-if="saving" class="spin" :size="18" aria-hidden="true" />
           <ChevronDown v-else :size="18" aria-hidden="true" />
         </label>
-      </div>
-
+    </template>
+    <template v-if="error || saved" #feedback>
       <p v-if="error" class="system-settings__feedback is-error" role="alert">
         {{ error }}
         <button v-if="!settings" type="button" @click="load">
           {{ t('common.retry') }}
         </button>
       </p>
-      <p v-else-if="saved" class="system-settings__feedback" role="status">
-        {{ t('settings.languageSaved') }}
+      <p v-else class="system-settings__feedback" role="status">
+        <Check :size="15" /> {{ t('settings.languageSaved') }}
       </p>
-    </section>
-  </div>
+    </template>
+  </SettingsPreferenceRow>
 </template>
 
 <style scoped>
-.system-settings {
-  max-width: 680px;
-}
-
-.system-settings > section {
-  padding-bottom: 22px;
-  border-bottom: 1px solid var(--border);
-}
-
-.system-settings__row {
-  display: flex;
-  min-height: 64px;
-  align-items: center;
-  gap: 11px;
-}
-
-.system-settings__icon {
-  display: inline-grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  place-items: center;
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-  border-radius: 50%;
-}
-
-.system-settings__copy {
-  min-width: 0;
-  flex: 1;
-}
-
-.system-settings h3 {
-  margin: 0;
-  color: var(--text);
-  font-size: 14px;
-  text-transform: none;
-}
-
-.system-settings__copy p {
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: 11px;
-}
-
 .system-settings__state {
   display: flex;
+  width: 100%;
   align-items: center;
   gap: 8px;
   color: var(--muted);
@@ -225,7 +184,7 @@ onMounted(() => {
 .system-language-select {
   position: relative;
   display: flex;
-  width: min(240px, 45%);
+  width: 100%;
   height: 42px;
   flex: 0 0 auto;
   align-items: center;
@@ -265,7 +224,10 @@ onMounted(() => {
 }
 
 .system-settings__feedback {
-  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
   color: var(--accent-strong);
   font-size: 12px;
 }
@@ -281,19 +243,4 @@ onMounted(() => {
   background: transparent;
 }
 
-.system-settings :deep(.account-security) {
-  margin-top: 22px;
-}
-
-@media (max-width: 640px) {
-  .system-settings__row {
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-
-  .system-language-select {
-    width: 100%;
-    margin-left: 47px;
-  }
-}
 </style>

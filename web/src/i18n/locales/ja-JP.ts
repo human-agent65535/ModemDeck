@@ -4,6 +4,8 @@ export default {
     "close": "閉じる",
     "save": "保存",
     "saving": "保存中…",
+    "saved": "保存しました",
+    "more": "その他",
     "retry": "再試行",
     "delete": "削除",
     "favorite": "お気に入り",

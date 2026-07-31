@@ -6,6 +6,10 @@ const form = readFileSync(
   new URL('../src/components/TelegramSettingsForm.vue', import.meta.url),
   'utf8'
 )
+const masterDetail = readFileSync(
+  new URL('../src/components/settings/SettingsMasterDetail.vue', import.meta.url),
+  'utf8'
+)
 
 test('Telegram bot list exposes channel identity, status, and line scope', () => {
   const listStart = form.indexOf('<aside class="telegram-unit-list"')
@@ -58,11 +62,19 @@ test('Telegram component owns responsive, overflow-safe layout styles', () => {
     style,
     /\.telegram-settings-container\s*\{[\s\S]*container-type: inline-size/
   )
-  assert.match(style, /\.telegram-settings\s*\{[\s\S]*grid-template-columns: 280px minmax\(0, 1fr\)/)
+  assert.match(form, /<SettingsMasterDetail[\s\S]*class="telegram-settings"/)
+  assert.match(
+    style,
+    /\.telegram-settings\s*\{[\s\S]*--settings-master-sidebar: 280px/
+  )
+  assert.match(
+    masterDetail,
+    /grid-template-columns: var\(--settings-master-sidebar\) minmax\(0, 1fr\)/
+  )
   assert.match(style, /\.telegram-unit-row__copy\s*\{[\s\S]*min-width: 0/)
   assert.match(style, /text-overflow: ellipsis/)
   assert.match(
-    style,
+    masterDetail,
     /@media \(max-width: 720px\)[\s\S]*grid-template-columns: minmax\(0, 1fr\)/
   )
   assert.match(

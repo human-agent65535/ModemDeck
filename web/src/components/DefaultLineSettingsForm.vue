@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import { ChevronDown, LoaderCircle, RadioTower } from '@lucide/vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { Check, ChevronDown, LoaderCircle, RadioTower } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import {
   bootstrapResource,
@@ -9,11 +9,14 @@ import {
   loadBootstrap,
   updateDefaultLine
 } from '../state/workspace'
+import SettingsPreferenceRow from './settings/SettingsPreferenceRow.vue'
 
 const { t } = useI18n()
 const selected = ref('')
 const saving = ref(false)
 const error = ref('')
+const saved = ref(false)
+let savedTimer: ReturnType<typeof globalThis.setTimeout> | undefined
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const loading = computed(
@@ -37,8 +40,15 @@ async function changeDefault(event: Event): Promise<void> {
   selected.value = lineID
   saving.value = true
   error.value = ''
+  saved.value = false
   try {
     await updateDefaultLine(lineID)
+    saved.value = true
+    if (savedTimer) globalThis.clearTimeout(savedTimer)
+    savedTimer = globalThis.setTimeout(() => {
+      saved.value = false
+      savedTimer = undefined
+    }, 2200)
   } catch (cause) {
     selected.value = previous
     error.value =
@@ -51,17 +61,24 @@ async function changeDefault(event: Event): Promise<void> {
 onMounted(() => {
   void loadBootstrap()
 })
+
+onBeforeUnmount(() => {
+  if (savedTimer) globalThis.clearTimeout(savedTimer)
+})
 </script>
 
 <template>
-  <section class="default-line-settings" aria-labelledby="default-line-settings-title">
-    <div class="default-line-settings__row">
-      <span class="default-line-settings__icon"><RadioTower :size="20" /></span>
-      <div class="default-line-settings__copy">
-        <h3 id="default-line-settings-title">{{ t('users.defaultLine') }}</h3>
-        <p>{{ t('account.defaultLineDescription') }}</p>
-      </div>
-
+  <SettingsPreferenceRow
+    class="default-line-settings"
+    :title="t('users.defaultLine')"
+    title-id="default-line-settings-title"
+    :description="t('account.defaultLineDescription')"
+    control-size="wide"
+  >
+    <template #icon>
+      <RadioTower :size="20" />
+    </template>
+    <template #control>
       <div v-if="loading" class="default-line-settings__state" role="status">
         <LoaderCircle class="spin" :size="18" />
         {{ t('common.loading') }}
@@ -83,59 +100,22 @@ onMounted(() => {
         <LoaderCircle v-if="saving" class="spin" :size="18" aria-hidden="true" />
         <ChevronDown v-else :size="18" aria-hidden="true" />
       </label>
-    </div>
-
-    <p v-if="error" class="default-line-settings__feedback" role="alert">
-      {{ error }}
-    </p>
-  </section>
+    </template>
+    <template v-if="error || saved" #feedback>
+      <p v-if="error" class="default-line-settings__feedback is-error" role="alert">
+        {{ error }}
+      </p>
+      <p v-else class="default-line-settings__feedback" role="status">
+        <Check :size="15" /> {{ t('common.saved') }}
+      </p>
+    </template>
+  </SettingsPreferenceRow>
 </template>
 
 <style scoped>
-.default-line-settings {
-  max-width: 680px;
-  padding-bottom: 22px;
-  border-bottom: 1px solid var(--border);
-}
-
-.default-line-settings__row {
-  display: flex;
-  min-height: 64px;
-  align-items: center;
-  gap: 11px;
-}
-
-.default-line-settings__icon {
-  display: inline-grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  place-items: center;
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-  border-radius: 50%;
-}
-
-.default-line-settings__copy {
-  min-width: 0;
-  flex: 1;
-}
-
-.default-line-settings h3 {
-  margin: 0;
-  color: var(--text);
-  font-size: 14px;
-  text-transform: none;
-}
-
-.default-line-settings__copy p {
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: 11px;
-}
-
 .default-line-settings__state {
   display: flex;
+  width: 100%;
   align-items: center;
   gap: 8px;
   color: var(--muted);
@@ -145,7 +125,7 @@ onMounted(() => {
 .default-line-select {
   position: relative;
   display: flex;
-  width: min(240px, 45%);
+  width: 100%;
   height: 42px;
   flex: 0 0 auto;
   align-items: center;
@@ -180,21 +160,15 @@ onMounted(() => {
 }
 
 .default-line-settings__feedback {
-  margin-top: 12px;
-  color: var(--danger);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  color: var(--success);
   font-size: 12px;
 }
 
-@media (max-width: 640px) {
-  .default-line-settings__row {
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-
-  .default-line-select,
-  .default-line-settings__state {
-    width: 100%;
-    margin-left: 47px;
-  }
+.default-line-settings__feedback.is-error {
+  color: var(--danger);
 }
 </style>

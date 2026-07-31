@@ -4,7 +4,6 @@ import { useI18n } from 'vue-i18n'
 import {
   Check,
   Clipboard,
-  Globe2,
   KeyRound,
   LoaderCircle,
   QrCode,
@@ -20,6 +19,7 @@ import type { IOSPairingStatus } from '../api/types'
 import { ApiError } from '../api/types'
 import { requestConfirmation } from '../state/confirmation'
 import { sessionState } from '../state/session'
+import SettingsModuleCard from './settings/SettingsModuleCard.vue'
 
 const STATUS_REFRESH_INTERVAL_MS = 15_000
 
@@ -197,7 +197,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="ios-settings" aria-labelledby="ios-settings-title">
+  <section class="ios-settings" :aria-label="t('iosPairing.title')">
     <div v-if="loading" class="ios-settings__state" role="status">
       <LoaderCircle class="spin" :size="18" />
       <span>{{ t('iosPairing.loading') }}</span>
@@ -216,24 +216,18 @@ onBeforeUnmount(() => {
     </div>
 
     <template v-else-if="pairing">
-      <header class="ios-summary">
-        <span class="ios-summary__icon"><Globe2 :size="22" /></span>
-        <div>
-          <h3 id="ios-settings-title">{{ t('iosPairing.title') }}</h3>
-          <p>{{ t('iosPairing.description') }}</p>
-        </div>
-      </header>
-
-      <section
+      <SettingsModuleCard
         v-if="isAdmin"
         class="ios-card"
-        aria-labelledby="ios-tunnel-title"
+        :title="t('iosPairing.tunnelTitle')"
+        title-id="ios-tunnel-title"
+        surface="subtle"
+        :has-body="pairing.cloudflare.enabled"
       >
-        <header>
-          <span><ShieldCheck :size="19" /></span>
-          <div>
-            <h4 id="ios-tunnel-title">{{ t('iosPairing.tunnelTitle') }}</h4>
-          </div>
+        <template #icon>
+          <ShieldCheck :size="19" />
+        </template>
+        <template #status>
           <span
             class="ios-status"
             :class="{
@@ -246,10 +240,10 @@ onBeforeUnmount(() => {
                 ? t('iosPairing.notInstalled')
                 : pairing.cloudflare.connector_connected
                   ? t('iosPairing.connected')
-                  : t('iosPairing.disconnected')
+                : t('iosPairing.disconnected')
             }}
           </span>
-        </header>
+        </template>
         <dl v-if="pairing.cloudflare.enabled" class="ios-pairing-facts">
           <div v-if="pairing.cloudflare.api_urls.length">
             <dt>API</dt>
@@ -264,14 +258,19 @@ onBeforeUnmount(() => {
             </dd>
           </div>
         </dl>
-      </section>
+      </SettingsModuleCard>
 
-      <section class="ios-card" aria-labelledby="external-turn-title">
-        <header>
-          <span><RadioTower :size="19" /></span>
-          <div>
-            <h4 id="external-turn-title">{{ t('iosPairing.turnTitle') }}</h4>
-          </div>
+      <SettingsModuleCard
+        class="ios-card"
+        :title="t('iosPairing.turnTitle')"
+        title-id="external-turn-title"
+        surface="subtle"
+        :has-body="!pairing.turn.available"
+      >
+        <template #icon>
+          <RadioTower :size="19" />
+        </template>
+        <template #status>
           <span
             class="ios-status"
             :class="{
@@ -284,25 +283,29 @@ onBeforeUnmount(() => {
                 ? t('iosPairing.turnNotConfigured')
                 : pairing.turn.available
                   ? t('iosPairing.turnAvailable')
-                  : t('iosPairing.turnUnavailable')
+                : t('iosPairing.turnUnavailable')
             }}
           </span>
-        </header>
+        </template>
         <div
           v-if="!pairing.turn.available"
           class="ios-notice ios-notice--danger"
         >
           {{ t('iosPairing.turnCallUnavailable') }}
         </div>
-      </section>
+      </SettingsModuleCard>
 
-      <section class="ios-card" aria-labelledby="ios-pairing-title">
-        <header>
-          <span><KeyRound :size="19" /></span>
-          <div>
-            <h4 id="ios-pairing-title">{{ t('iosPairing.yourDevice') }}</h4>
-            <p>{{ t('iosPairing.yourDeviceDescription') }}</p>
-          </div>
+      <SettingsModuleCard
+        class="ios-card"
+        :title="t('iosPairing.yourDevice')"
+        title-id="ios-pairing-title"
+        :description="t('iosPairing.yourDeviceDescription')"
+        surface="subtle"
+      >
+        <template #icon>
+          <KeyRound :size="19" />
+        </template>
+        <template #status>
           <span
             class="ios-status"
             :class="{
@@ -326,7 +329,7 @@ onBeforeUnmount(() => {
                         : t('iosPairing.notPaired')
             }}
           </span>
-        </header>
+        </template>
 
         <div v-if="!pairing.allowed" class="ios-notice">
           {{ t('iosPairing.permissionRequired') }}
@@ -381,7 +384,7 @@ onBeforeUnmount(() => {
         <p v-if="pairingError" class="field-error" role="alert">
           {{ pairingError }}
         </p>
-      </section>
+      </SettingsModuleCard>
     </template>
 
     <Teleport to="body">
@@ -445,7 +448,9 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .ios-settings {
+  display: grid;
   max-width: 760px;
+  gap: 18px;
 }
 
 .ios-settings__state {
@@ -463,57 +468,11 @@ onBeforeUnmount(() => {
   color: var(--danger);
 }
 
-.ios-summary {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding-bottom: 18px;
-  border-bottom: 1px solid var(--border);
-}
-
-.ios-summary__icon,
-.ios-card > header > span:first-child {
-  display: grid;
-  width: 40px;
-  height: 40px;
-  flex: 0 0 40px;
-  place-items: center;
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-  border-radius: 9px;
-}
-
-.ios-summary h3,
-.ios-card h4 {
-  font-size: 15px;
-}
-
-.ios-summary p,
-.ios-card header p,
 .ios-pairing-note {
   margin-top: 4px;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.5;
-}
-
-.ios-card {
-  margin-top: 18px;
-  padding: 18px;
-  background: var(--surface-subtle);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
-
-.ios-card > header {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-}
-
-.ios-card > header > div {
-  min-width: 0;
-  flex: 1;
 }
 
 .ios-pairing-actions,
@@ -546,7 +505,7 @@ onBeforeUnmount(() => {
 }
 
 .ios-notice {
-  margin-top: 16px;
+  margin: 0;
   padding: 12px;
   color: var(--muted);
   font-size: 12px;
@@ -565,7 +524,7 @@ onBeforeUnmount(() => {
 .ios-pairing-facts {
   display: grid;
   gap: 10px;
-  margin: 16px 0 0;
+  margin: 0;
 }
 
 .ios-pairing-facts div {
@@ -590,7 +549,7 @@ onBeforeUnmount(() => {
   padding-top: 4px;
 }
 
-.ios-card > .field-error {
+.ios-card .field-error {
   margin: 12px 0 0;
 }
 
@@ -651,11 +610,6 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 520px) {
-  .ios-card > header {
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-
   .ios-status {
     margin-left: 51px;
   }

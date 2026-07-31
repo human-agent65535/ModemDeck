@@ -40,6 +40,7 @@ import SwipeActionRow from '../components/SwipeActionRow.vue'
 import TrafficSummary from '../components/TrafficSummary.vue'
 import { useListSelection } from '../composables/useListSelection'
 import { requestConfirmation } from '../state/confirmation'
+import { showSuccess } from '../state/feedback'
 import { selectDeviceConfiguration } from '../state/deviceConfiguration'
 import { loadNetwork, networkState } from '../state/network'
 import {
@@ -654,6 +655,7 @@ async function saveNewContact(input: ContactInput): Promise<void> {
   try {
     await saveContact(input)
     contactEditorOpen.value = false
+    showSuccess(t('common.saved'))
   } catch (error) {
     contactEditorError.value =
       error instanceof Error ? error.message : t('contacts.saveFailed')

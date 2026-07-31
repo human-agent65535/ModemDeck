@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   Check,
   KeyRound,
@@ -15,6 +15,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { gateway } from '../api/client'
 import type { LineSummary, UserAccount } from '../api/types'
 import { ApiError } from '../api/types'
+import { showError, showSuccess } from '../state/feedback'
 import { resetNetworkState } from '../state/network'
 import { refreshSession, sessionState } from '../state/session'
 import {
@@ -31,6 +32,7 @@ import BaseAvatar from './BaseAvatar.vue'
 import AccountSettingsPanel from './AccountSettingsPanel.vue'
 import LineTag from './LineTag.vue'
 import StatePanel from './StatePanel.vue'
+import SettingsMasterDetail from './settings/SettingsMasterDetail.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -48,8 +50,12 @@ const lineIDs = ref<string[]>([])
 const saving = ref(false)
 const saved = ref(false)
 const saveError = ref('')
+const lineSaving = ref(false)
+const lineSaved = ref(false)
+const lineSaveError = ref('')
 const newPassword = ref('')
 const searchQuery = ref('')
+let lineSavedTimer: ReturnType<typeof globalThis.setTimeout> | undefined
 
 const lines = computed(
   () => bootstrapResource.data?.line_catalog || bootstrapResource.data?.lines || []
@@ -90,6 +96,23 @@ const validationError = computed(() => {
   }
   return ''
 })
+
+const formChanged = computed(() => {
+  if (creating.value) return true
+  const user = editableUser.value
+  if (!user) return false
+  const currentLines = [...lineIDs.value].sort()
+  const savedLines = [...user.line_ids].sort()
+  return (
+    username.value.trim() !== user.username ||
+    enabled.value !== user.enabled ||
+    iosPairingEnabled.value !== user.ios_pairing_enabled ||
+    currentLines.length !== savedLines.length ||
+    currentLines.some((id, index) => id !== savedLines[index]) ||
+    Boolean(newPassword.value)
+  )
+})
+
 function lineForID(id: string): LineSummary | undefined {
   return lines.value.find(line => lineKey(line) === id)
 }
@@ -113,10 +136,16 @@ function applyUser(user?: UserAccount): void {
   newPassword.value = ''
   saved.value = false
   saveError.value = ''
+  lineSaved.value = false
+  lineSaveError.value = ''
+  if (lineSavedTimer) {
+    globalThis.clearTimeout(lineSavedTimer)
+    lineSavedTimer = undefined
+  }
 }
 
 function selectUser(id: string): void {
-  if (saving.value) return
+  if (saving.value || lineSaving.value) return
   creating.value = false
   selectedID.value = id
   applyUser(users.value.find(user => user.id === id))
@@ -128,7 +157,7 @@ function selectUser(id: string): void {
 }
 
 function startCreate(): void {
-  if (saving.value) return
+  if (saving.value || lineSaving.value) return
   creating.value = true
   selectedID.value = '__new_member__'
   applyUser()
@@ -139,11 +168,59 @@ function startCreate(): void {
   })
 }
 
-function toggleLine(id: string, event: Event): void {
-  const checked = (event.currentTarget as HTMLInputElement).checked
-  lineIDs.value = checked
-    ? [...new Set([...lineIDs.value, id])]
-    : lineIDs.value.filter(value => value !== id)
+async function toggleLine(id: string, event: Event): Promise<void> {
+  const input = event.currentTarget as HTMLInputElement
+  if (saving.value || lineSaving.value) {
+    input.checked = lineIDs.value.includes(id)
+    return
+  }
+
+  const previous = [...lineIDs.value]
+  const next = input.checked
+    ? [...new Set([...previous, id])]
+    : previous.filter(value => value !== id)
+  lineIDs.value = next
+  lineSaved.value = false
+  lineSaveError.value = ''
+  if (creating.value) return
+
+  const user = editableUser.value
+  if (!user) return
+
+  lineSaving.value = true
+  try {
+    const updated = await gateway.updateMember(user.id, {
+      username: user.username,
+      enabled: user.enabled,
+      ios_pairing_enabled: user.ios_pairing_enabled,
+      line_ids: next,
+      revision: user.revision
+    })
+    users.value = users.value.map(current =>
+      current.id === updated.id ? updated : current
+    )
+    lineIDs.value = [...updated.line_ids]
+    if (updated.id === sessionState.userID) {
+      await refreshSession()
+      resetNetworkState()
+      await loadBootstrap(true)
+    }
+    lineSaved.value = true
+    if (lineSavedTimer) globalThis.clearTimeout(lineSavedTimer)
+    lineSavedTimer = globalThis.setTimeout(() => {
+      lineSaved.value = false
+      lineSavedTimer = undefined
+    }, 2200)
+    showSuccess(t('users.saved'))
+  } catch (cause) {
+    lineIDs.value = previous
+    input.checked = previous.includes(id)
+    lineSaveError.value =
+      cause instanceof Error ? cause.message : t('users.saveFailed')
+    showError(lineSaveError.value)
+  } finally {
+    lineSaving.value = false
+  }
 }
 
 async function load(): Promise<void> {
@@ -176,8 +253,17 @@ async function load(): Promise<void> {
   }
 }
 
+async function refreshUserList(): Promise<void> {
+  try {
+    users.value = await gateway.listUsers()
+  } catch {
+    // The profile save already succeeded; keep the current editor stable if
+    // the non-critical list refresh fails.
+  }
+}
+
 async function submit(): Promise<void> {
-  if (saving.value || validationError.value) return
+  if (saving.value || lineSaving.value || validationError.value) return
   saving.value = true
   saved.value = false
   saveError.value = ''
@@ -221,6 +307,7 @@ async function submit(): Promise<void> {
       await loadBootstrap(true)
     }
     saved.value = true
+    showSuccess(t('users.saved'))
   } catch (cause) {
     if (cause instanceof ApiError && cause.code === 'username_conflict') {
       saveError.value = t('users.usernameConflict')
@@ -237,7 +324,7 @@ async function submit(): Promise<void> {
 }
 
 function syncSelectionFromRoute(): void {
-  if (status.value !== 'ready' || saving.value) return
+  if (status.value !== 'ready' || saving.value || lineSaving.value) return
   if (route.query.newUser === '1') {
     if (!creating.value) {
       creating.value = true
@@ -272,6 +359,10 @@ watch(
 onMounted(() => {
   void load()
 })
+
+onBeforeUnmount(() => {
+  if (lineSavedTimer) globalThis.clearTimeout(lineSavedTimer)
+})
 </script>
 
 <template>
@@ -288,12 +379,15 @@ onMounted(() => {
     retryable
     @retry="load"
   />
-  <div
+  <SettingsMasterDetail
     v-else
     class="user-settings"
-    :class="{ 'show-mobile-editor': mobileDetailOpen }"
+    :label="t('users.title')"
+    mobile-mode="drilldown"
+    :detail-open="mobileDetailOpen"
   >
-    <aside class="user-list">
+    <template #sidebar>
+      <aside class="user-list">
       <header>
         <span>
           <strong>{{ t('users.title') }}</strong>
@@ -366,7 +460,8 @@ onMounted(() => {
         state="empty"
         :title="t('users.noMatchingUsers')"
       />
-    </aside>
+      </aside>
+    </template>
 
     <section class="user-editor">
       <StatePanel
@@ -375,185 +470,236 @@ onMounted(() => {
         :title="t('users.selectUser')"
       />
       <form v-else class="settings-form user-form" @submit.prevent="submit">
-        <header class="user-editor__heading">
-          <span>
-            <ShieldCheck v-if="selectedUser?.role === 'admin'" :size="19" />
-            <UserRound v-else :size="19" />
-          </span>
-          <div>
-            <h3>{{ creating ? t('users.newMember') : username }}</h3>
-            <small>
-              {{
-                selectedUser?.role === 'admin'
-                  ? t('users.initialAdminDescription')
-                  : selectedUser?.profile_name
-                    ? `${selectedUser.profile_name} · ${t('users.memberRole')}`
-                    : t('users.memberRole')
-              }}
-            </small>
-          </div>
-        </header>
-
-        <div class="user-fields">
-          <label class="field">
-            <span>{{ t('common.username') }}</span>
-            <input
-              v-model="username"
-              autocomplete="off"
-              :disabled="saving || selectedUser?.role === 'admin'"
-            />
-            <small v-if="selectedUser?.role === 'admin'">
-              {{ t('users.adminUsernameLocked') }}
-            </small>
-          </label>
-          <label v-if="creating" class="field">
-            <span>{{ t('auth.password') }}</span>
-            <input
-              v-model="password"
-              type="password"
-              autocomplete="new-password"
-              :disabled="saving"
-            />
-            <small>
-              {{
-                t('users.passwordHint', {
-                  count: minimumPasswordCharacters
-                })
-              }}
-            </small>
-          </label>
-        </div>
-
-        <label
-          v-if="!creating && selectedUser?.role === 'member'"
-          class="user-account-access"
-        >
-          <span>
-            <strong>{{ t('users.accountAccess') }}</strong>
-            <small>{{ t('users.accountAccessDescription') }}</small>
-          </span>
-          <span class="user-account-access__status">
-            {{ enabled ? t('users.enabled') : t('users.disabled') }}
-          </span>
-          <input v-model="enabled" type="checkbox" role="switch" :disabled="saving" />
-        </label>
-
-        <label
-          v-if="creating || selectedUser?.role === 'member'"
-          class="user-account-access"
-        >
-          <span>
-            <strong>{{ t('users.iosPairingAccess') }}</strong>
-            <small>{{ t('users.iosPairingAccessDescription') }}</small>
-          </span>
-          <span class="user-account-access__status">
-            {{ iosPairingEnabled ? t('users.enabled') : t('users.disabled') }}
-          </span>
-          <input
-            v-model="iosPairingEnabled"
-            type="checkbox"
-            role="switch"
-            :disabled="saving"
-          />
-        </label>
-
-        <fieldset class="user-lines">
-          <legend>{{ t('users.assignedLines') }}</legend>
-          <p>
-            {{
-              selectedUser?.role === 'admin'
-                ? t('users.initialAdminDescription')
-                : t('users.assignedLinesDescription')
-            }}
-          </p>
-          <div class="user-line-options">
-            <label
-              v-for="line in lines"
-              :key="lineKey(line)"
-              :class="{ 'is-selected': lineIDs.includes(lineKey(line)) }"
-            >
-              <input
-                :checked="lineIDs.includes(lineKey(line))"
-                type="checkbox"
-                :disabled="saving"
-                @change="toggleLine(lineKey(line), $event)"
-              />
-              <LineTag :line="line" :fallback="lineLabel(line)" />
-              <small>{{ line.phone_number || t('lines.cellularLine') }}</small>
-              <Check v-if="lineIDs.includes(lineKey(line))" :size="16" />
-            </label>
-          </div>
-        </fieldset>
-
-        <section
-          v-if="!creating && selectedUser?.role === 'member'"
-          class="user-password-set"
-        >
-          <header>
-            <KeyRound :size="17" />
+        <section class="user-management-card">
+          <header class="user-editor__heading">
+            <span class="user-editor__icon">
+              <ShieldCheck v-if="selectedUser?.role === 'admin'" :size="19" />
+              <UserRound v-else :size="19" />
+            </span>
             <div>
-              <h4>{{ t('users.setPassword') }}</h4>
-            </div>
-          </header>
-          <div>
-            <label class="field">
-              <span>{{ t('users.newPassword') }}</span>
-              <input
-                v-model="newPassword"
-                type="password"
-                autocomplete="new-password"
-                :disabled="saving"
-              />
+              <h3>{{ creating ? t('users.newMember') : username }}</h3>
               <small>
                 {{
-                  t('users.optionalPasswordHint', {
-                    count: minimumPasswordCharacters
-                  })
+                  selectedUser?.role === 'admin'
+                    ? t('users.initialAdminDescription')
+                    : selectedUser?.profile_name
+                      ? `${selectedUser.profile_name} · ${t('users.memberRole')}`
+                      : t('users.memberRole')
                 }}
               </small>
+            </div>
+            <span v-if="!creating" class="user-editor__role">
+              {{
+                selectedUser?.role === 'admin'
+                  ? t('account.administrator')
+                  : t('account.member')
+              }}
+            </span>
+          </header>
+
+          <div class="user-management-card__body">
+            <div class="user-fields">
+              <label class="field">
+                <span>{{ t('common.username') }}</span>
+                <input
+                  v-model="username"
+                  autocomplete="off"
+                  :disabled="saving || selectedUser?.role === 'admin'"
+                />
+                <small v-if="selectedUser?.role === 'admin'">
+                  {{ t('users.adminUsernameLocked') }}
+                </small>
+              </label>
+              <label v-if="creating" class="field">
+                <span>{{ t('auth.password') }}</span>
+                <input
+                  v-model="password"
+                  type="password"
+                  autocomplete="new-password"
+                  :disabled="saving"
+                />
+                <small>
+                  {{
+                    t('users.passwordHint', {
+                      count: minimumPasswordCharacters
+                    })
+                  }}
+                </small>
+              </label>
+            </div>
+
+            <label
+              v-if="!creating && selectedUser?.role === 'member'"
+              class="user-account-access"
+            >
+              <span>
+                <strong>{{ t('users.accountAccess') }}</strong>
+                <small>{{ t('users.accountAccessDescription') }}</small>
+              </span>
+              <span class="user-account-access__status">
+                {{ enabled ? t('users.enabled') : t('users.disabled') }}
+              </span>
+              <input v-model="enabled" type="checkbox" role="switch" :disabled="saving" />
             </label>
+
+            <label
+              v-if="creating || selectedUser?.role === 'member'"
+              class="user-account-access"
+            >
+              <span>
+                <strong>{{ t('users.iosPairingAccess') }}</strong>
+                <small>{{ t('users.iosPairingAccessDescription') }}</small>
+              </span>
+              <span class="user-account-access__status">
+                {{ iosPairingEnabled ? t('users.enabled') : t('users.disabled') }}
+              </span>
+              <input
+                v-model="iosPairingEnabled"
+                type="checkbox"
+                role="switch"
+                :disabled="saving"
+              />
+            </label>
+
+            <fieldset class="user-lines">
+              <legend class="sr-only">{{ t('users.assignedLines') }}</legend>
+              <div class="user-lines__heading">
+                <strong>{{ t('users.assignedLines') }}</strong>
+                <span
+                  v-if="lineSaving || lineSaved"
+                  class="user-lines__state"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <LoaderCircle v-if="lineSaving" class="spin" :size="14" />
+                  <Check v-else :size="14" />
+                  {{ lineSaving ? t('common.saving') : t('common.saved') }}
+                </span>
+              </div>
+              <p>
+                {{
+                  selectedUser?.role === 'admin'
+                    ? t('account.administratorRole')
+                    : t('users.assignedLinesDescription')
+                }}
+              </p>
+              <div class="user-line-options">
+                <label
+                  v-for="line in lines"
+                  :key="lineKey(line)"
+                  :class="{ 'is-selected': lineIDs.includes(lineKey(line)) }"
+                >
+                  <input
+                    :checked="lineIDs.includes(lineKey(line))"
+                    type="checkbox"
+                    :disabled="saving || lineSaving"
+                    @change="toggleLine(lineKey(line), $event)"
+                  />
+                  <span class="user-line-option__identity">
+                    <LineTag :line="line" :fallback="lineLabel(line)" />
+                    <small>{{ line.phone_number || t('lines.cellularLine') }}</small>
+                  </span>
+                  <span class="user-line-option__check" aria-hidden="true">
+                    <Check v-if="lineIDs.includes(lineKey(line))" :size="15" />
+                  </span>
+                </label>
+              </div>
+              <p v-if="lineSaveError" class="field-error" role="alert">
+                {{ lineSaveError }}
+              </p>
+            </fieldset>
+
+            <section
+              v-if="!creating && selectedUser?.role === 'member'"
+              class="user-password-set"
+            >
+              <header>
+                <KeyRound :size="17" />
+                <div>
+                  <h4>{{ t('users.setPassword') }}</h4>
+                </div>
+              </header>
+              <div>
+                <label class="field">
+                  <span>{{ t('users.newPassword') }}</span>
+                  <input
+                    v-model="newPassword"
+                    type="password"
+                    autocomplete="new-password"
+                    :disabled="saving"
+                  />
+                  <small>
+                    {{
+                      t('users.optionalPasswordHint', {
+                        count: minimumPasswordCharacters
+                      })
+                    }}
+                  </small>
+                </label>
+              </div>
+            </section>
+
+            <footer
+              v-if="creating || selectedUser?.role === 'member'"
+              class="settings-form-actions"
+            >
+              <span class="user-feedback">
+                <span v-if="validationError" class="field-error">{{ validationError }}</span>
+                <span v-else-if="saveError" class="field-error">{{ saveError }}</span>
+                <span v-else-if="saved" class="save-status" role="status">
+                  <Check :size="15" /> {{ t('users.saved') }}
+                </span>
+              </span>
+              <button
+                class="primary-button"
+                :class="{ 'is-saved': saved }"
+                type="submit"
+                :disabled="
+                  saving ||
+                  lineSaving ||
+                  Boolean(validationError) ||
+                  (!creating && !formChanged)
+                "
+              >
+                <LoaderCircle v-if="saving" class="spin" :size="17" />
+                <Check v-else-if="saved" :size="17" />
+                <Save v-else :size="17" />
+                {{
+                  saved
+                    ? t('common.saved')
+                    : creating
+                      ? t('users.createMember')
+                      : t('common.save')
+                }}
+              </button>
+            </footer>
           </div>
         </section>
-
-        <footer class="settings-form-actions">
-          <span class="user-feedback">
-            <span v-if="validationError" class="field-error">{{ validationError }}</span>
-            <span v-else-if="saveError" class="field-error">{{ saveError }}</span>
-            <span v-else-if="saved" class="save-status">
-              <Check :size="15" /> {{ t('users.saved') }}
-            </span>
-          </span>
-          <button
-            class="primary-button"
-            type="submit"
-            :disabled="saving || Boolean(validationError)"
-          >
-            <LoaderCircle v-if="saving" class="spin" :size="17" />
-            <Save v-else :size="17" />
-            {{ creating ? t('users.createMember') : t('common.save') }}
-          </button>
-        </footer>
       </form>
 
       <AccountSettingsPanel
         v-if="!creating && selectedUser?.id === sessionState.userID"
-        @profile-saved="load"
+        :show-identity="false"
+        @profile-saved="refreshUserList"
       />
     </section>
-  </div>
+  </SettingsMasterDetail>
 </template>
 
 <style scoped>
 .user-settings {
-  display: grid;
+  --settings-master-sidebar: clamp(200px, 25%, 240px);
+
+  width: 100%;
+  max-width: 1120px;
   min-height: 560px;
-  grid-template-columns: clamp(200px, 25%, 240px) minmax(0, 1fr);
-  border-top: 1px solid var(--border);
+  margin: 0;
 }
 
 .user-list {
   min-width: 0;
-  border-right: 1px solid var(--border);
+  height: 100%;
+  background: var(--surface);
 }
 
 .user-list > header {
@@ -655,17 +801,27 @@ onMounted(() => {
 .user-editor {
   min-width: 0;
   padding-left: 24px;
+  background: var(--surface);
+}
+
+.user-form {
+  width: 100%;
+  max-width: 760px;
+}
+
+.user-management-card {
+  background: transparent;
 }
 
 .user-editor__heading {
   display: flex;
-  min-height: 58px;
+  min-height: 64px;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   border-bottom: 1px solid var(--border);
 }
 
-.user-editor__heading > span,
+.user-editor__icon,
 .user-admin-summary > span {
   display: grid;
   width: 36px;
@@ -680,6 +836,16 @@ onMounted(() => {
 .user-editor__heading > div {
   min-width: 0;
   flex: 1;
+}
+
+.user-editor__role {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  color: var(--accent-strong);
+  font-size: 10px;
+  font-weight: 750;
+  background: var(--accent-soft);
+  border-radius: 999px;
 }
 
 .user-editor__heading small {
@@ -697,11 +863,19 @@ onMounted(() => {
   text-transform: none;
 }
 
+.user-editor__heading h3 {
+  font-size: 16px;
+}
+
+.user-management-card__body {
+  padding-bottom: 4px;
+}
+
 .user-fields {
   display: grid;
   gap: 16px;
   padding: 18px 0;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 520px);
 }
 
 .user-fields .field small {
@@ -777,9 +951,23 @@ onMounted(() => {
   border-top: 1px solid var(--border);
 }
 
-.user-lines legend {
+.user-lines__heading {
+  display: flex;
+  width: min(640px, 100%);
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   color: var(--text);
   font-size: 12px;
+  font-weight: 700;
+}
+
+.user-lines__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--accent-strong);
+  font-size: 10px;
   font-weight: 700;
 }
 
@@ -790,27 +978,51 @@ onMounted(() => {
   font-size: 11px;
 }
 
+.user-lines > .field-error {
+  margin-top: 10px;
+  color: var(--danger);
+}
+
 .user-line-options {
   display: grid;
+  max-width: 640px;
   gap: 8px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .user-line-options label {
   display: grid;
-  min-height: 54px;
+  min-height: 58px;
   align-items: center;
-  gap: 7px;
-  padding: 8px 10px;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 10px 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
   border: 1px solid var(--border);
   border-radius: 8px;
   cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 100ms ease;
 }
 
 .user-line-options label.is-selected {
   background: var(--surface-selected);
   border-color: #aed8cf;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.user-line-options label:hover {
+  border-color: var(--border-strong);
+}
+
+.user-line-options label.is-selected:hover {
+  border-color: #8fc9bd;
+}
+
+.user-line-options label:active {
+  transform: scale(0.995);
 }
 
 .user-line-options input {
@@ -818,9 +1030,37 @@ onMounted(() => {
   opacity: 0;
 }
 
-.user-line-options small {
-  grid-row: 2;
-  grid-column: 2 / -1;
+.user-line-option__identity {
+  display: grid;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  grid-template-columns: minmax(92px, auto) minmax(0, 1fr);
+}
+
+.user-line-option__identity small {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-line-option__check {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  color: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+}
+
+.user-line-options label.is-selected .user-line-option__check {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .user-default-line {
@@ -856,9 +1096,9 @@ onMounted(() => {
 }
 
 .user-editor :deep(.account-settings-panel) {
-  max-width: none;
-  margin-top: 26px;
-  padding-top: 26px;
+  max-width: 760px;
+  margin-top: 28px;
+  padding-top: 28px;
   border-top: 1px solid var(--border);
 }
 
@@ -878,11 +1118,6 @@ onMounted(() => {
 @container (max-width: 720px) {
   .user-editor {
     padding-left: 18px;
-  }
-
-  .user-fields,
-  .user-line-options {
-    grid-template-columns: 1fr;
   }
 
   .user-password-set > div {
@@ -906,33 +1141,13 @@ onMounted(() => {
   }
 }
 
-@media (max-width: 760px) {
-  .user-settings {
-    min-height: 0;
-    grid-template-columns: 1fr;
-  }
-
+@media (max-width: 720px) {
   .user-list {
     max-height: none;
-    border-right: 0;
-    border-bottom: 0;
-  }
-
-  .user-settings:not(.show-mobile-editor) .user-editor {
-    display: none;
-  }
-
-  .user-settings.show-mobile-editor .user-list {
-    display: none;
   }
 
   .user-editor {
     padding: 12px 0 0;
-  }
-
-  .user-fields,
-  .user-line-options {
-    grid-template-columns: 1fr;
   }
 
   .user-password-set > div {

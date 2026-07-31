@@ -22,6 +22,7 @@ import InfiniteScrollTrigger from '../components/InfiniteScrollTrigger.vue'
 import FavoriteFilterButton from '../components/FavoriteFilterButton.vue'
 import ContactSuggestInput from '../components/ContactSuggestInput.vue'
 import LineSelector from '../components/LineSelector.vue'
+import ListSkeleton from '../components/ListSkeleton.vue'
 import ListSelectionToggle from '../components/ListSelectionToggle.vue'
 import MessageThreadListItem from '../components/MessageThreadListItem.vue'
 import SearchField from '../components/SearchField.vue'
@@ -900,10 +901,9 @@ onBeforeUnmount(() => {
         {{ threadDeleteError || threadsResource.error }}
       </p>
 
-      <StatePanel
+      <ListSkeleton
         v-if="threadsResource.status === 'loading'"
-        state="loading"
-        :title="t('messages.loading')"
+        :label="t('messages.loading')"
       />
       <StatePanel
         v-else-if="threadsResource.status === 'forbidden'"

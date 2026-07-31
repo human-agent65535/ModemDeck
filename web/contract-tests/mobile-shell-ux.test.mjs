@@ -25,13 +25,12 @@ test('mobile shell uses page context and a dedicated central dial action', async
     shell,
     /<span class="mobile-nav__label">\{\{ t\('shell\.mobileCall'\) \}\}<\/span>/
   )
-  assert.match(
-    shell,
-    /:to="\{ name: 'settings', params: \{ section: settingsLanding \} \}"/
-  )
+  assert.match(shell, /const mobileSecondaryNav = computed/)
+  assert.match(shell, /name: 'settings',[\s\S]*params: \{ section: settingsLanding\.value \}/)
+  assert.match(shell, /ref="mobileMoreTrigger"[\s\S]*:aria-expanded="mobileMoreOpen"/)
 })
 
-test('mobile navigation keeps one label baseline and hides labels when space is tight', async () => {
+test('mobile navigation keeps five labeled actions and moves secondary routes into More', async () => {
   const shell = await source('../src/components/AppShell.vue')
   const styles = await source('../src/style.css')
   const english = await source('../src/i18n/locales/en-US.ts')
@@ -39,15 +38,25 @@ test('mobile navigation keeps one label baseline and hides labels when space is 
   assert.match(shell, /class="mobile-nav__label"/)
   assert.match(shell, /:aria-label="item\.label"/)
   assert.match(
+    shell,
+    /primaryNav\.value\.filter\(item => \['dashboard', 'messages'\]\.includes\(item\.name\)\)/
+  )
+  assert.match(shell, /primaryNav\.value\.filter\(item => item\.name === 'calls'\)/)
+  assert.match(shell, /v-for="item in mobileSecondaryNav"/)
+  assert.match(
     styles,
     /\.mobile-nav :is\(a, button\) \{[\s\S]*?grid-template-rows: minmax\(0, 1fr\) 14px;/
   )
-  assert.match(styles, /\.mobile-nav \{[\s\S]*?grid-template-rows: 100%;/)
   assert.match(
     styles,
-    /@media \(max-width: 700px\) \{[\s\S]*?\.mobile-nav__label \{\s*display: none;/
+    /\.mobile-nav \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) 62px repeat\(2, minmax\(0, 1fr\)\);[\s\S]*?grid-template-rows: 100%;/
+  )
+  assert.match(
+    styles,
+    /@media \(max-width: 700px\) \{[\s\S]*?\.mobile-nav__label \{\s*display: block;/
   )
   assert.match(english, /mobileCall: 'Dial'/)
+  assert.match(english, /more: 'More'/)
 })
 
 test('ringing calls animate the central call action and remain restorable when minimized', async () => {

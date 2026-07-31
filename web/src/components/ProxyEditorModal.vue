@@ -185,35 +185,36 @@ watch(
 
 <template>
   <Teleport to="body">
-    <div
-      v-if="open"
-      class="proxy-modal-backdrop"
-      role="presentation"
-      @mousedown.self="close"
-    >
-      <section
-        ref="dialog"
-        class="proxy-modal"
-        role="dialog"
-        aria-modal="true"
-        :aria-label="title"
-        :aria-describedby="visibleError ? 'proxy-editor-error' : undefined"
-        tabindex="-1"
-        @keydown="onKeydown"
+    <Transition name="modal">
+      <div
+        v-if="open"
+        class="proxy-modal-backdrop"
+        role="presentation"
+        @mousedown.self="close"
       >
-        <header>
-          <h2>{{ title }}</h2>
-          <button
-            class="icon-button"
-            type="button"
-            :title="t('common.close')"
-            :aria-label="t('common.close')"
-            :disabled="busy"
-            @click="close"
-          >
-            <X :size="19" />
-          </button>
-        </header>
+        <section
+          ref="dialog"
+          class="proxy-modal"
+          role="dialog"
+          aria-modal="true"
+          :aria-label="title"
+          :aria-describedby="visibleError ? 'proxy-editor-error' : undefined"
+          tabindex="-1"
+          @keydown="onKeydown"
+        >
+          <header>
+            <h2>{{ title }}</h2>
+            <button
+              class="icon-button"
+              type="button"
+              :title="t('common.close')"
+              :aria-label="t('common.close')"
+              :disabled="busy"
+              @click="close"
+            >
+              <X :size="19" />
+            </button>
+          </header>
 
         <form @submit.prevent="submit">
           <LineSelector
@@ -316,9 +317,10 @@ watch(
               {{ busy ? t('common.saving') : t('common.save') }}
             </button>
           </footer>
-        </form>
-      </section>
-    </div>
+          </form>
+        </section>
+      </div>
+    </Transition>
   </Teleport>
 </template>
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import {
@@ -9,12 +9,14 @@ import {
   BellRing,
   ChartNoAxesCombined,
   House,
+  Menu,
   MessageSquareText,
   Phone,
   PhoneCall,
   Settings,
   TestTube2,
-  UsersRound
+  UsersRound,
+  X
 } from '@lucide/vue'
 import { fixtureMode } from '../api/client'
 import {
@@ -68,6 +70,9 @@ const router = useRouter()
 const { t } = useI18n()
 const settingsLanding = computed(() => 'account')
 const permanentDialer = ref(false)
+const mobileMoreOpen = ref(false)
+const mobileMorePanel = ref<HTMLElement>()
+const mobileMoreTrigger = ref<HTMLButtonElement>()
 const occupiedLineCount = computed(() => occupiedLineIDs().size)
 const activeCallPresent = computed(() =>
   callState.sessions.some(isLiveCallSession)
@@ -124,10 +129,24 @@ const primaryNav = computed(() => [
   { name: 'traffic', label: t('shell.traffic'), icon: ChartNoAxesCombined }
 ])
 const mobileNavBeforeDial = computed(() =>
-  primaryNav.value.filter(item => ['contacts', 'messages', 'calls'].includes(item.name))
+  primaryNav.value.filter(item => ['dashboard', 'messages'].includes(item.name))
 )
 const mobileNavAfterDial = computed(() =>
-  primaryNav.value.filter(item => ['recordings', 'traffic'].includes(item.name))
+  primaryNav.value.filter(item => item.name === 'calls')
+)
+const mobileSecondaryNav = computed(() => [
+  ...primaryNav.value
+    .filter(item => ['contacts', 'recordings', 'traffic'].includes(item.name))
+    .map(item => ({ ...item, to: { name: item.name } })),
+  {
+    name: 'settings',
+    label: t('shell.settings'),
+    icon: Settings,
+    to: { name: 'settings', params: { section: settingsLanding.value } }
+  }
+])
+const mobileMoreCurrent = computed(() =>
+  ['contacts', 'recordings', 'traffic', 'settings'].includes(String(route.name))
 )
 const mobileSettingsSection = computed(() => {
   if (route.name !== 'settings') return ''
@@ -141,8 +160,10 @@ const mobileSettingsSection = computed(() => {
     audio: t('settings.audio'),
     devices: t('settings.devices'),
     telegram: t('settings.telegram'),
-    tls: 'HTTPS',
-    diagnostics: t('settings.diagnostics')
+    'external-access': t('settings.iosApp'),
+    'web-certificate': t('settings.tls'),
+    diagnostics: t('settings.diagnostics'),
+    about: t('settings.about')
   }
   return labels[section] || ''
 })
@@ -167,6 +188,21 @@ const mobilePageTitle = computed(() => {
   return primaryNav.value.find(item => item.name === route.name)?.label || ''
 })
 
+async function toggleMobileMore(): Promise<void> {
+  if (mobileMoreOpen.value) {
+    closeMobileMore()
+    return
+  }
+  mobileMoreOpen.value = true
+  await nextTick()
+  mobileMorePanel.value?.querySelector<HTMLElement>('a')?.focus()
+}
+
+function closeMobileMore(restoreFocus = false): void {
+  mobileMoreOpen.value = false
+  if (restoreFocus) void nextTick(() => mobileMoreTrigger.value?.focus())
+}
+
 watch(
   () => sessionState.status,
   status => {
@@ -181,6 +217,13 @@ watch(
 watch(activeCallPresent, active => {
   if (!active) requestApplicationVersionCheck()
 })
+
+watch(
+  () => route.fullPath,
+  () => {
+    mobileMoreOpen.value = false
+  }
+)
 
 async function bootstrap(): Promise<void> {
   await loadBootstrap(true)
@@ -224,7 +267,7 @@ onMounted(() => {
   initializeMessageRuntime(router)
   void initializeWorkspaceRuntime(currentGeneration)
   void loadContacts()
-  dialerMediaQuery = window.matchMedia('(min-width: 1101px)')
+  dialerMediaQuery = window.matchMedia('(min-width: 1480px)')
   dialerMediaQuery.addEventListener('change', syncDialerMode)
   syncDialerMode()
 })
@@ -351,9 +394,59 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="route-stage">
-        <RouterView />
+        <RouterView v-slot="{ Component }">
+          <Transition name="route-view">
+            <div :key="String(route.name || route.path)" class="route-view">
+              <component :is="Component" />
+            </div>
+          </Transition>
+        </RouterView>
       </div>
     </main>
+
+    <Transition name="mobile-more">
+      <div
+        v-if="mobileMoreOpen"
+        class="mobile-more-backdrop"
+        @mousedown.self="closeMobileMore()"
+      >
+        <section
+          id="mobile-more-menu"
+          ref="mobileMorePanel"
+          class="mobile-more-sheet"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="mobile-more-title"
+          tabindex="-1"
+          @keydown.esc.stop="closeMobileMore(true)"
+        >
+          <header class="mobile-more-sheet__header">
+            <h2 id="mobile-more-title">{{ t('common.more') }}</h2>
+            <button
+              class="icon-button"
+              type="button"
+              :title="t('common.close')"
+              :aria-label="t('common.close')"
+              @click="closeMobileMore(true)"
+            >
+              <X :size="20" />
+            </button>
+          </header>
+          <nav class="mobile-more-links" :aria-label="t('common.more')">
+            <RouterLink
+              v-for="item in mobileSecondaryNav"
+              :key="item.name"
+              :class="{ 'is-current': route.name === item.name }"
+              :to="item.to"
+              @click="closeMobileMore()"
+            >
+              <component :is="item.icon" :size="21" />
+              <span>{{ item.label }}</span>
+            </RouterLink>
+          </nav>
+        </section>
+      </div>
+    </Transition>
 
     <nav class="mobile-nav" :aria-label="t('shell.mobileNavigation')">
       <RouterLink
@@ -413,15 +506,19 @@ onBeforeUnmount(() => {
         <component :is="item.icon" :size="21" />
         <span class="mobile-nav__label">{{ item.label }}</span>
       </RouterLink>
-      <RouterLink
-        :class="{ 'is-current': route.name === 'settings' }"
-        :to="{ name: 'settings', params: { section: settingsLanding } }"
-        :title="t('shell.settings')"
-        :aria-label="t('shell.settings')"
+      <button
+        ref="mobileMoreTrigger"
+        :class="{ 'is-current': mobileMoreCurrent }"
+        type="button"
+        :title="t('common.more')"
+        :aria-label="t('common.more')"
+        aria-controls="mobile-more-menu"
+        :aria-expanded="mobileMoreOpen"
+        @click="toggleMobileMore"
       >
-        <Settings :size="21" />
-        <span class="mobile-nav__label">{{ t('shell.settings') }}</span>
-      </RouterLink>
+        <Menu :size="21" />
+        <span class="mobile-nav__label">{{ t('common.more') }}</span>
+      </button>
     </nav>
 
     <DialerPanel :permanent="permanentDialer" />
@@ -431,6 +528,10 @@ onBeforeUnmount(() => {
 <style scoped>
 .mobile-nav__dial-icon {
   position: relative;
+}
+
+.mobile-more-backdrop {
+  display: none;
 }
 
 .mobile-nav__call-count {
@@ -454,7 +555,94 @@ onBeforeUnmount(() => {
 
 @media (max-width: 860px) {
   .mobile-nav {
-    grid-template-columns: repeat(3, minmax(0, 1fr)) 58px repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr)) 62px repeat(2, minmax(0, 1fr));
+  }
+
+  .mobile-more-backdrop {
+    position: fixed;
+    z-index: 45;
+    inset: 0 0 var(--mobile-nav-height);
+    display: flex;
+    align-items: flex-end;
+    background: rgb(20 32 43 / 28%);
+    backdrop-filter: blur(2px);
+  }
+
+  .mobile-more-sheet {
+    width: 100%;
+    max-height: min(480px, calc(100dvh - var(--mobile-nav-height) - 20px));
+    overflow-y: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-bottom: 0;
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -14px 40px rgb(20 32 43 / 18%);
+  }
+
+  .mobile-more-sheet__header {
+    display: flex;
+    min-height: 58px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px 8px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .mobile-more-sheet__header h2 {
+    margin: 0;
+    font-size: 17px;
+  }
+
+  .mobile-more-links {
+    display: grid;
+    padding: 6px 10px 14px;
+  }
+
+  .mobile-more-links a {
+    display: flex;
+    min-height: 52px;
+    align-items: center;
+    gap: 13px;
+    padding: 0 12px;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 650;
+    border-radius: 10px;
+    transition:
+      color var(--motion-fast) var(--ease-standard),
+      background var(--motion-fast) var(--ease-standard),
+      transform var(--motion-fast) var(--ease-standard);
+  }
+
+  .mobile-more-links a:hover,
+  .mobile-more-links a:focus-visible,
+  .mobile-more-links a.is-current {
+    color: var(--accent-strong);
+    background: var(--accent-soft);
+  }
+
+  .mobile-more-links a:active {
+    transform: scale(0.985);
+  }
+
+  .mobile-more-enter-active,
+  .mobile-more-leave-active {
+    transition: opacity var(--motion-base) var(--ease-standard);
+  }
+
+  .mobile-more-enter-active .mobile-more-sheet,
+  .mobile-more-leave-active .mobile-more-sheet {
+    transition: transform var(--motion-slow) var(--ease-emphasized);
+  }
+
+  .mobile-more-enter-from,
+  .mobile-more-leave-to {
+    opacity: 0;
+  }
+
+  .mobile-more-enter-from .mobile-more-sheet,
+  .mobile-more-leave-to .mobile-more-sheet {
+    transform: translateY(18px);
   }
 }
 </style>

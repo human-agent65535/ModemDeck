@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { Check, ContactRound, LoaderCircle, Save, ShieldCheck } from '@lucide/vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { Check, ContactRound, LoaderCircle, ShieldCheck } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import { gateway } from '../api/client'
+import { showSuccess } from '../state/feedback'
 import { sessionState, setSessionProfileContact } from '../state/session'
 import { contactsResource, loadContacts } from '../state/workspace'
 import BaseAvatar from './BaseAvatar.vue'
@@ -12,6 +13,14 @@ import RecordingSettingsForm from './RecordingSettingsForm.vue'
 import SystemSettingsForm from './SystemSettingsForm.vue'
 
 const { t } = useI18n()
+const props = withDefaults(
+  defineProps<{
+    showIdentity?: boolean
+  }>(),
+  {
+    showIdentity: true
+  }
+)
 const emit = defineEmits<{
   profileSaved: []
 }>()
@@ -19,6 +28,7 @@ const selectedContactID = ref(sessionState.profileContactID)
 const saving = ref(false)
 const error = ref('')
 const saved = ref(false)
+let savedTimer: ReturnType<typeof globalThis.setTimeout> | undefined
 
 const profileContact = computed(() =>
   contactsResource.data.find(contact => contact.id === selectedContactID.value)
@@ -42,22 +52,41 @@ async function saveProfile(): Promise<void> {
     await gateway.setAccountContact(selectedContactID.value)
     setSessionProfileContact(selectedContactID.value)
     saved.value = true
+    if (savedTimer) globalThis.clearTimeout(savedTimer)
+    savedTimer = globalThis.setTimeout(() => {
+      saved.value = false
+      savedTimer = undefined
+    }, 2200)
+    showSuccess(t('account.profileSaved'))
     emit('profileSaved')
   } catch (cause) {
+    selectedContactID.value = sessionState.profileContactID
     error.value = cause instanceof Error ? cause.message : t('account.profileSaveFailed')
   } finally {
     saving.value = false
   }
 }
 
+function changeProfile(): void {
+  void nextTick(saveProfile)
+}
+
 onMounted(() => {
   void loadContacts()
+})
+
+onBeforeUnmount(() => {
+  if (savedTimer) globalThis.clearTimeout(savedTimer)
 })
 </script>
 
 <template>
   <div class="account-settings-panel">
-    <section class="account-identity" aria-labelledby="account-identity-title">
+    <section
+      v-if="props.showIdentity"
+      class="account-identity"
+      aria-labelledby="account-identity-title"
+    >
       <span class="account-identity__icon"><ShieldCheck :size="20" /></span>
       <div>
         <h3 id="account-identity-title">{{ sessionState.username }}</h3>
@@ -99,7 +128,7 @@ onMounted(() => {
           <select
             v-model="selectedContactID"
             :disabled="saving || contactsResource.status === 'loading'"
-            @change="saved = false; error = ''"
+            @change="changeProfile"
           >
             <option value="">{{ t('account.noProfileContact') }}</option>
             <option
@@ -113,22 +142,19 @@ onMounted(() => {
           <small v-if="profileNumber">{{ profileNumber }}</small>
           <small v-else>{{ t('account.profileContactHint') }}</small>
         </label>
-        <button
-          class="primary-button"
-          type="button"
-          :disabled="saving || !profileChanged"
-          @click="saveProfile"
+        <span
+          v-if="saving || saved"
+          class="account-profile__state"
+          role="status"
+          aria-live="polite"
         >
           <LoaderCircle v-if="saving" class="spin" :size="17" />
-          <Save v-else :size="17" />
-          {{ t('common.save') }}
-        </button>
+          <Check v-else :size="17" />
+          {{ saving ? t('common.saving') : t('common.saved') }}
+        </span>
       </div>
       <p v-if="error" class="account-profile__feedback is-error" role="alert">
         {{ error }}
-      </p>
-      <p v-else-if="saved" class="account-profile__feedback" role="status">
-        <Check :size="15" /> {{ t('account.profileSaved') }}
       </p>
     </section>
 
@@ -230,8 +256,16 @@ onMounted(() => {
   min-width: 0;
 }
 
-.account-profile__editor .primary-button {
+.account-profile__state {
+  display: inline-flex;
+  min-width: 70px;
   min-height: 40px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .account-profile__feedback {
@@ -252,9 +286,9 @@ onMounted(() => {
     grid-template-columns: auto minmax(0, 1fr);
   }
 
-  .account-profile__editor .primary-button {
-    width: 100%;
-    grid-column: 1 / -1;
+  .account-profile__state {
+    min-width: 0;
+    grid-column: 2;
   }
 }
 </style>

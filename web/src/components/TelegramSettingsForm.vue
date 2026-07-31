@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Bell,
@@ -22,6 +22,7 @@ import {
 import type { LineSummary, TelegramUnit, UserAccount } from '../api/types'
 import { ApiError } from '../api/types'
 import { gateway } from '../api/client'
+import { showError, showSuccess } from '../state/feedback'
 import { sessionState } from '../state/session'
 import {
   bootstrapResource,
@@ -36,6 +37,7 @@ import {
 import { lineTone } from '../utils/lineTone'
 import LineTag from './LineTag.vue'
 import StatePanel from './StatePanel.vue'
+import SettingsMasterDetail from './settings/SettingsMasterDetail.vue'
 
 type TelegramScopeOption = {
   id: string
@@ -63,7 +65,12 @@ const deleting = ref(false)
 const deleteConfirm = ref(false)
 const saveError = ref('')
 const saved = ref(false)
+const scopeSaving = ref(false)
+const scopeSaved = ref(false)
+const scopeSaveError = ref('')
 const users = ref<UserAccount[]>([])
+let scopeSavedTimer: ReturnType<typeof globalThis.setTimeout> | undefined
+let suppressSelectedUnitApply = false
 const isAdmin = computed(() => sessionState.role === 'admin')
 const currentSessionUser = computed<UserAccount>(() => ({
   id: sessionState.userID,
@@ -169,6 +176,29 @@ const validationError = computed(() => {
   return ''
 })
 
+const formChanged = computed(() => {
+  if (creating.value) return true
+  const current = selectedUnit.value
+  if (!current) return false
+  const selectedScopes = allLines.value ? [] : [...new Set(lineScopes.value)].sort()
+  const savedScopes = current.all_assigned_lines
+    ? []
+    : [...new Set(current.line_scopes)].sort()
+  return (
+    displayName.value.trim() !== current.display_name ||
+    enabled.value !== current.enabled ||
+    chatID.value.trim() !== current.chat_id ||
+    adminID.value.trim() !== current.admin_id ||
+    assignedUserID.value !== current.assigned_user_id ||
+    allLines.value !== current.all_assigned_lines ||
+    selectedScopes.length !== savedScopes.length ||
+    selectedScopes.some((id, index) => id !== savedScopes[index]) ||
+    incomingSMS.value !== current.incoming_sms ||
+    missedCalls.value !== current.missed_calls ||
+    Boolean(botToken.value.trim())
+  )
+})
+
 function applyUnit(unit?: TelegramUnit): void {
   const scopes = [...new Set(unit?.line_scopes || [])]
   displayName.value = unit?.display_name || ''
@@ -190,13 +220,19 @@ function applyUnit(unit?: TelegramUnit): void {
   botToken.value = ''
   saveError.value = ''
   saved.value = false
+  scopeSaved.value = false
+  scopeSaveError.value = ''
+  if (scopeSavedTimer) {
+    globalThis.clearTimeout(scopeSavedTimer)
+    scopeSavedTimer = undefined
+  }
   deleteConfirm.value = false
 }
 
 watch(
   selectedUnit,
   unit => {
-    if (!creating.value) applyUnit(unit)
+    if (!creating.value && !suppressSelectedUnitApply) applyUnit(unit)
   },
   { immediate: true }
 )
@@ -233,12 +269,82 @@ watch(
   { deep: true }
 )
 
-function selectAllLines(): void {
+function setAllLines(): void {
   allLines.value = true
   lineScopes.value = []
 }
 
+async function persistLineScopes(
+  scopes: string[],
+  previousAllLines: boolean,
+  previousScopes: string[]
+): Promise<void> {
+  const current = selectedUnit.value
+  if (
+    creating.value ||
+    !current ||
+    assignedUserID.value !== current.assigned_user_id
+  ) {
+    return
+  }
+
+  scopeSaving.value = true
+  scopeSaved.value = false
+  scopeSaveError.value = ''
+  suppressSelectedUnitApply = true
+  try {
+    const unit = await saveTelegramUnit(
+      {
+        display_name: current.display_name,
+        enabled: current.enabled,
+        chat_id: current.chat_id,
+        admin_id: current.admin_id,
+        assigned_user_id: current.assigned_user_id,
+        line_scopes: scopes,
+        incoming_sms: current.incoming_sms,
+        missed_calls: current.missed_calls,
+        revision: current.revision
+      },
+      current.id
+    )
+    allLines.value = unit.all_assigned_lines
+    lineScopes.value = unit.all_assigned_lines ? [] : [...unit.line_scopes]
+    await nextTick()
+    scopeSaved.value = true
+    if (scopeSavedTimer) globalThis.clearTimeout(scopeSavedTimer)
+    scopeSavedTimer = globalThis.setTimeout(() => {
+      scopeSaved.value = false
+      scopeSavedTimer = undefined
+    }, 2200)
+    showSuccess(t('telegram.saved'))
+  } catch (error) {
+    allLines.value = previousAllLines
+    lineScopes.value = previousScopes
+    scopeSaveError.value =
+      error instanceof ApiError && error.status === 403
+        ? t('telegram.updateForbidden')
+        : error instanceof Error
+          ? error.message
+          : t('telegram.saveFailed')
+    showError(scopeSaveError.value)
+  } finally {
+    suppressSelectedUnitApply = false
+    scopeSaving.value = false
+  }
+}
+
+function selectAllLines(): void {
+  if (scopeSaving.value || (allLines.value && lineScopes.value.length === 0)) return
+  const previousAllLines = allLines.value
+  const previousScopes = [...lineScopes.value]
+  setAllLines()
+  void persistLineScopes([], previousAllLines, previousScopes)
+}
+
 function toggleLineScope(lineID: string, event: Event): void {
+  if (scopeSaving.value) return
+  const previousAllLines = allLines.value
+  const previousScopes = [...lineScopes.value]
   const checked = (event.currentTarget as HTMLInputElement).checked
   const scopes = checked
     ? [...new Set([...lineScopes.value, lineID])]
@@ -246,12 +352,17 @@ function toggleLineScope(lineID: string, event: Event): void {
 
   lineScopes.value = scopes
   allLines.value = scopes.length === 0
+  void persistLineScopes(
+    allLines.value ? [] : scopes,
+    previousAllLines,
+    previousScopes
+  )
 }
 
 function normalizedLineScopes(): string[] {
   const scopes = [...new Set(lineScopes.value.filter(Boolean))]
   if (allLines.value || scopes.length === 0) {
-    selectAllLines()
+    setAllLines()
     return []
   }
   allLines.value = false
@@ -261,16 +372,16 @@ function normalizedLineScopes(): string[] {
 
 function changeAssignedUser(event: Event): void {
   assignedUserID.value = (event.currentTarget as HTMLSelectElement).value
-  selectAllLines()
+  setAllLines()
 }
 
 function selectUnit(id: string): void {
-  if (saving.value || deleting.value) return
+  if (saving.value || deleting.value || scopeSaving.value) return
   discardDraft(id)
 }
 
 function startCreate(): void {
-  if (saving.value || deleting.value) return
+  if (saving.value || deleting.value || scopeSaving.value) return
   if (!creating.value) {
     draftReturnID.value = selectedUnit.value?.id || telegramResource.data[0]?.id || ''
   }
@@ -293,12 +404,12 @@ function discardDraft(nextID?: string): void {
 }
 
 function cancelCreate(): void {
-  if (!creating.value || saving.value || deleting.value) return
+  if (!creating.value || saving.value || deleting.value || scopeSaving.value) return
   discardDraft()
 }
 
 async function submit(): Promise<void> {
-  if (saving.value || deleting.value || validationError.value) return
+  if (saving.value || deleting.value || scopeSaving.value || validationError.value) return
   saving.value = true
   saveError.value = ''
   saved.value = false
@@ -325,6 +436,7 @@ async function submit(): Promise<void> {
     applyUnit(unit)
     await nextTick()
     saved.value = true
+    showSuccess(t('telegram.saved'))
   } catch (error) {
     saveError.value =
       error instanceof ApiError && error.status === 403
@@ -339,7 +451,7 @@ async function submit(): Promise<void> {
 
 async function remove(): Promise<void> {
   const unit = selectedUnit.value
-  if (!unit || deleting.value || saving.value) return
+  if (!unit || deleting.value || saving.value || scopeSaving.value) return
   if (!deleteConfirm.value) {
     deleteConfirm.value = true
     return
@@ -375,6 +487,10 @@ onMounted(() => {
     applyUnit(selectedUnit.value)
   })
 })
+
+onBeforeUnmount(() => {
+  if (scopeSavedTimer) globalThis.clearTimeout(scopeSavedTimer)
+})
 </script>
 
 <template>
@@ -398,8 +514,13 @@ onMounted(() => {
     @retry="loadTelegramUnits(true)"
   />
   <div v-else class="telegram-settings-container">
-    <div class="telegram-settings">
-      <aside class="telegram-unit-list" :aria-label="t('telegram.bots')">
+    <SettingsMasterDetail
+      class="telegram-settings"
+      :label="t('telegram.bots')"
+      mobile-mode="stack"
+    >
+      <template #sidebar>
+        <aside class="telegram-unit-list" :aria-label="t('telegram.bots')">
       <header class="telegram-unit-list__heading">
         <span class="telegram-unit-list__title">
           <strong>{{ t('telegram.bots') }}</strong>
@@ -475,7 +596,8 @@ onMounted(() => {
           </span>
         </span>
       </button>
-      </aside>
+        </aside>
+      </template>
 
       <section class="telegram-unit-editor">
       <StatePanel
@@ -623,13 +745,23 @@ onMounted(() => {
             <h4>
               {{ t('telegram.userLines') }}
             </h4>
+            <span
+              v-if="scopeSaving || scopeSaved"
+              class="telegram-scope-save-state"
+              role="status"
+              aria-live="polite"
+            >
+              <LoaderCircle v-if="scopeSaving" class="spin" :size="14" />
+              <Check v-else :size="14" />
+              {{ scopeSaving ? t('common.saving') : t('common.saved') }}
+            </span>
           </header>
           <div class="telegram-scope-options">
             <label class="telegram-scope-option" :class="{ 'is-selected': allLines }">
               <input
                 :checked="allLines"
                 type="checkbox"
-                :disabled="saving || deleting"
+                :disabled="saving || deleting || scopeSaving"
                 @click.prevent="selectAllLines"
               />
               <span class="telegram-scope-option__icon is-all" aria-hidden="true">
@@ -655,7 +787,7 @@ onMounted(() => {
               <input
                 :checked="lineScopes.includes(line.id)"
                 type="checkbox"
-                :disabled="saving || deleting"
+                :disabled="saving || deleting || scopeSaving"
                 @change="toggleLineScope(line.id, $event)"
               />
               <span
@@ -681,6 +813,9 @@ onMounted(() => {
           <p v-if="assignedUser && inheritedLineIDs.length === 0" class="telegram-scope-empty">
             {{ t('telegram.userHasNoLines') }}
           </p>
+          <p v-if="scopeSaveError" class="field-error" role="alert">
+            {{ scopeSaveError }}
+          </p>
         </fieldset>
 
         <footer class="settings-form-actions">
@@ -688,7 +823,7 @@ onMounted(() => {
             v-if="creating"
             class="secondary-button"
             type="button"
-            :disabled="saving || deleting"
+            :disabled="saving || deleting || scopeSaving"
             @click="cancelCreate"
           >
             <X :size="16" />
@@ -698,7 +833,7 @@ onMounted(() => {
             v-else-if="selectedUnit"
             class="danger-button"
             type="button"
-            :disabled="saving || deleting"
+            :disabled="saving || deleting || scopeSaving"
             @click="remove"
           >
             <LoaderCircle v-if="deleting" class="spin" :size="16" />
@@ -710,24 +845,32 @@ onMounted(() => {
           <div class="settings-form-feedback">
             <p v-if="validationError" class="field-error" role="alert">{{ validationError }}</p>
             <p v-else-if="saveError" class="field-error" role="alert">{{ saveError }}</p>
-            <span v-else-if="saved" class="save-status">
+            <span v-else-if="saved" class="save-status" role="status">
               <Check :size="15" />{{ t('telegram.saved') }}
             </span>
           </div>
 
           <button
             class="primary-button"
+            :class="{ 'is-saved': saved }"
             type="submit"
-            :disabled="saving || deleting || Boolean(validationError)"
+            :disabled="
+              saving ||
+              deleting ||
+              scopeSaving ||
+              Boolean(validationError) ||
+              (!creating && !formChanged)
+            "
           >
             <LoaderCircle v-if="saving" class="spin" :size="17" />
+            <Check v-else-if="saved" :size="17" />
             <Save v-else :size="17" />
-            <span>{{ t('common.save') }}</span>
+            <span>{{ saved ? t('common.saved') : t('common.save') }}</span>
           </button>
         </footer>
       </form>
       </section>
-    </div>
+    </SettingsMasterDetail>
   </div>
 </template>
 
@@ -738,12 +881,14 @@ onMounted(() => {
 }
 
 .telegram-settings {
+  --settings-master-sidebar: 280px;
+
   min-height: 520px;
-  grid-template-columns: 280px minmax(0, 1fr);
 }
 
 .telegram-unit-list {
   min-width: 0;
+  height: 100%;
   background: var(--surface-subtle);
 }
 
@@ -932,10 +1077,22 @@ onMounted(() => {
 }
 
 .telegram-editor-section__heading h4 {
+  min-width: 0;
+  flex: 1;
   margin: 0;
   color: var(--text);
   font-size: 13px;
   font-weight: 750;
+}
+
+.telegram-scope-save-state {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  color: var(--accent-strong);
+  font-size: 10px;
+  font-weight: 700;
 }
 
 .telegram-bot-identity .settings-form-grid {
@@ -1027,6 +1184,10 @@ onMounted(() => {
 .telegram-scope-empty {
   color: var(--muted);
   font-size: 10px;
+}
+
+.telegram-line-scopes > .field-error {
+  margin: 10px 0 0;
 }
 
 .telegram-options {
@@ -1218,7 +1379,7 @@ onMounted(() => {
 
 @media (max-width: 860px) {
   .telegram-settings {
-    grid-template-columns: 250px minmax(0, 1fr);
+    --settings-master-sidebar: 250px;
   }
 
   .telegram-event-options,
@@ -1229,16 +1390,9 @@ onMounted(() => {
 }
 
 @media (max-width: 720px) {
-  .telegram-settings {
-    min-height: 0;
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .telegram-unit-list {
     max-height: 232px;
     overflow-y: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
   }
 
   .telegram-unit-list__heading {
@@ -1271,16 +1425,9 @@ onMounted(() => {
 }
 
 @container (max-width: 700px) {
-  .telegram-settings {
-    min-height: 0;
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .telegram-unit-list {
     max-height: 232px;
     overflow-y: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
   }
 
   .telegram-unit-list__heading {

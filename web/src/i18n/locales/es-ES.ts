@@ -4,6 +4,8 @@ export default {
     "close": "Cerrar",
     "save": "Guardar",
     "saving": "Guardando…",
+    "saved": "Guardado",
+    "more": "Más",
     "retry": "Reintentar",
     "delete": "Eliminar",
     "favorite": "Favorito",

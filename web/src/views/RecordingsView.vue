@@ -14,6 +14,7 @@ import LineSelector from '../components/LineSelector.vue'
 import LineTag from '../components/LineTag.vue'
 import ListItemAvatarStatus from '../components/ListItemAvatarStatus.vue'
 import ListItemStatusRail from '../components/ListItemStatusRail.vue'
+import ListSkeleton from '../components/ListSkeleton.vue'
 import ListSelectionToggle from '../components/ListSelectionToggle.vue'
 import SearchField from '../components/SearchField.vue'
 import SelectableListRow from '../components/SelectableListRow.vue'
@@ -409,10 +410,9 @@ onBeforeUnmount(() => {
         {{ deleteError }}
       </p>
 
-      <StatePanel
+      <ListSkeleton
         v-if="recordingCatalogState.status === 'loading'"
-        state="loading"
-        :title="t('recordings.loading')"
+        :label="t('recordings.loading')"
       />
       <StatePanel
         v-else-if="recordingCatalogState.status === 'forbidden'"
