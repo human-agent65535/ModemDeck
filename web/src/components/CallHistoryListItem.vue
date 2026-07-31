@@ -107,13 +107,6 @@ const showNumber = computed(
       :date="formatRelativeDate(call.started_at)"
       :date-time="call.started_at"
     >
-      <Star
-        v-if="call.favorite"
-        class="call-list-item__favorite"
-        :size="15"
-        fill="currentColor"
-        :aria-label="t('common.favorite')"
-      />
       <span
         v-if="hasRecording"
         class="call-list-item__recording"
@@ -123,6 +116,15 @@ const showNumber = computed(
       >
         <CassetteTape :size="15" aria-hidden="true" />
       </span>
+      <template #favorite>
+        <Star
+          v-if="call.favorite"
+          class="call-list-item__favorite"
+          :size="15"
+          fill="currentColor"
+          :aria-label="t('common.favorite')"
+        />
+      </template>
     </ListItemStatusRail>
   </button>
 </template>

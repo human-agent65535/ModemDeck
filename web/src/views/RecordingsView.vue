@@ -503,13 +503,15 @@ onBeforeUnmount(() => {
                   :date="formatRelativeDate(recording.recorded_at)"
                   :date-time="recording.recorded_at"
                 >
-                  <Star
-                    v-if="recording.favorite"
-                    class="recording-list-item__favorite"
-                    :size="15"
-                    fill="currentColor"
-                    :aria-label="t('common.favorite')"
-                  />
+                  <template #favorite>
+                    <Star
+                      v-if="recording.favorite"
+                      class="recording-list-item__favorite"
+                      :size="15"
+                      fill="currentColor"
+                      :aria-label="t('common.favorite')"
+                    />
+                  </template>
                 </ListItemStatusRail>
               </button>
             </SwipeActionRow>
@@ -593,6 +595,20 @@ onBeforeUnmount(() => {
             :line-fallback="recordingLineFallback(selected)"
           />
           <div class="recording-header__contact-actions">
+            <ContactNumberActions
+              :number="selected.call.remote_number"
+              :contact="selectedContact"
+              compact
+            />
+            <button
+              class="icon-button icon-button--danger desktop-delete-action"
+              type="button"
+              :disabled="Boolean(deletingRecordingID)"
+              :title="t('recordings.delete')"
+              @click="removeRecording(selected)"
+            >
+              <Trash2 :size="18" />
+            </button>
             <button
               class="icon-button recording-favorite-button"
               :class="{ 'is-active': selected.favorite }"
@@ -610,20 +626,6 @@ onBeforeUnmount(() => {
                 :size="18"
                 :fill="selected.favorite ? 'currentColor' : 'none'"
               />
-            </button>
-            <ContactNumberActions
-              :number="selected.call.remote_number"
-              :contact="selectedContact"
-              compact
-            />
-            <button
-              class="icon-button icon-button--danger desktop-delete-action"
-              type="button"
-              :disabled="Boolean(deletingRecordingID)"
-              :title="t('recordings.delete')"
-              @click="removeRecording(selected)"
-            >
-              <Trash2 :size="18" />
             </button>
           </div>
         </header>

@@ -382,13 +382,15 @@ onBeforeUnmount(() => {
                   <small>{{ primaryPhone(contact.phones) || t('contacts.noNumber') }}</small>
                 </span>
                 <ListItemStatusRail>
-                  <Star
-                    v-if="contact.favorite"
-                    class="contact-favorite-mark"
-                    :size="15"
-                    fill="currentColor"
-                    :aria-label="t('contacts.favorited')"
-                  />
+                  <template #favorite>
+                    <Star
+                      v-if="contact.favorite"
+                      class="contact-favorite-mark"
+                      :size="15"
+                      fill="currentColor"
+                      :aria-label="t('contacts.favorited')"
+                    />
+                  </template>
                 </ListItemStatusRail>
               </button>
             </SwipeActionRow>
@@ -447,21 +449,6 @@ onBeforeUnmount(() => {
           </div>
           <div v-if="contactEditingAvailable" class="detail-header__actions">
             <button
-              class="icon-button contact-favorite-button"
-              :class="{ 'is-active': selected.favorite }"
-              type="button"
-              :title="
-                selected.favorite
-                  ? t('contacts.unfavorite')
-                  : t('contacts.favorite')
-              "
-              :aria-pressed="selected.favorite"
-              :disabled="favoritePending"
-              @click="toggleFavorite(selected)"
-            >
-              <Star :size="18" :fill="selected.favorite ? 'currentColor' : 'none'" />
-            </button>
-            <button
               class="icon-button"
               type="button"
               :title="t('contacts.edit')"
@@ -477,6 +464,21 @@ onBeforeUnmount(() => {
               @click="remove(selected)"
             >
               <Trash2 :size="18" />
+            </button>
+            <button
+              class="icon-button contact-favorite-button"
+              :class="{ 'is-active': selected.favorite }"
+              type="button"
+              :title="
+                selected.favorite
+                  ? t('contacts.unfavorite')
+                  : t('contacts.favorite')
+              "
+              :aria-pressed="selected.favorite"
+              :disabled="favoritePending"
+              @click="toggleFavorite(selected)"
+            >
+              <Star :size="18" :fill="selected.favorite ? 'currentColor' : 'none'" />
             </button>
           </div>
         </header>

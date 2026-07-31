@@ -13,6 +13,7 @@ defineProps<{
     <time v-if="date" :datetime="dateTime">{{ date }}</time>
     <span class="list-item-status-rail__icons">
       <slot />
+      <slot name="favorite" />
     </span>
   </span>
 </template>

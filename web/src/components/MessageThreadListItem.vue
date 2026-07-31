@@ -79,37 +79,39 @@ const { t } = useI18n()
       :date="formatRelativeDate(thread.last_timestamp)"
       :date-time="thread.last_timestamp"
     >
-      <button
-        v-if="showFavorite && favoriteInteractive"
-        class="message-thread-favorite"
-        type="button"
-        :class="{ 'is-active': thread.favorite }"
-        :title="
-          thread.favorite
-            ? t('messages.unfavorite')
-            : t('messages.favorite')
-        "
-        :aria-label="
-          thread.favorite
-            ? t('messages.unfavorite')
-            : t('messages.favorite')
-        "
-        :aria-pressed="thread.favorite"
-        @click.stop="emit('favorite', thread)"
-      >
+      <template #favorite>
+        <button
+          v-if="showFavorite && favoriteInteractive"
+          class="message-thread-favorite"
+          type="button"
+          :class="{ 'is-active': thread.favorite }"
+          :title="
+            thread.favorite
+              ? t('messages.unfavorite')
+              : t('messages.favorite')
+          "
+          :aria-label="
+            thread.favorite
+              ? t('messages.unfavorite')
+              : t('messages.favorite')
+          "
+          :aria-pressed="thread.favorite"
+          @click.stop="emit('favorite', thread)"
+        >
+          <Star
+            :size="15"
+            :fill="thread.favorite ? 'currentColor' : 'none'"
+            aria-hidden="true"
+          />
+        </button>
         <Star
+          v-else-if="showFavorite && thread.favorite"
+          class="message-thread-favorite-mark"
           :size="15"
-          :fill="thread.favorite ? 'currentColor' : 'none'"
-          aria-hidden="true"
+          fill="currentColor"
+          :aria-label="t('messages.favorite')"
         />
-      </button>
-      <Star
-        v-else-if="showFavorite && thread.favorite"
-        class="message-thread-favorite-mark"
-        :size="15"
-        fill="currentColor"
-        :aria-label="t('messages.favorite')"
-      />
+      </template>
     </ListItemStatusRail>
   </div>
 </template>

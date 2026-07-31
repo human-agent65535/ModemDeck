@@ -72,13 +72,40 @@ test('read threads remain in the active unread view until its filter changes', (
   assert.match(messages, /@read="toggleThreadRead\(thread\)"/)
 })
 
-test('missed call filter acknowledges unread missed calls persistently', () => {
+test('missed call filter preserves unread state until one call detail is opened', () => {
   assert.match(calls, /\(\) => route\.query\.filter/)
-  assert.match(calls, /activeFilter === 'missed'/)
-  assert.match(calls, /await updateMissedCallsReadState\(/)
   assert.match(calls, /@click="setFilter\(item\.value\)"/)
+  assert.doesNotMatch(calls, /activeFilter === 'missed'/)
+  assert.doesNotMatch(calls, /function acknowledgeMissedCalls/)
+  assert.match(
+    calls,
+    /watch\(\s*\[\s*selectedId,\s*selected\s*\],[\s\S]*?acknowledgeSelectedMissedCall\(\)/
+  )
+  assert.match(
+    calls,
+    /function acknowledgeSelectedMissedCall[\s\S]*?document\.visibilityState !== 'visible'[\s\S]*?!document\.hasFocus\(\)[\s\S]*?acknowledgeMissedCall\(call\)/
+  )
+  assert.match(
+    calls,
+    /async function acknowledgeMissedCall[\s\S]*?await markMissedCallRead\(call\)/
+  )
   assert.match(workspace, /gateway\.updateCalls\(read \? 'read' : 'unread', ids\)/)
   assert.match(workspace, /if \(selected\.has\(call\.id\) && call\.missed\) call\.read = read/)
+})
+
+test('opening the unread SMS filter does not acknowledge a conversation', () => {
+  assert.match(
+    messages,
+    /async function acknowledgeSelectedThreadRead[\s\S]*?canAcknowledgeMessageThread\(\{[\s\S]*?messagesReady:[\s\S]*?documentVisible:[\s\S]*?windowFocused:[\s\S]*?atBottom:/
+  )
+  assert.match(
+    messages,
+    /async function openThread[\s\S]*?await acknowledgeSelectedThreadRead\(true\)/
+  )
+  assert.match(
+    messages,
+    /watch\(\[messageFilter, favoriteOnly\], \(\) => \{\s*retainedUnreadThreadKeys\.value\.clear\(\)\s*selection\.clear\(\)\s*\}\)/
+  )
 })
 
 test('unread missed calls have a visible and accessible unread mark', () => {
@@ -90,7 +117,7 @@ test('unread missed calls have a visible and accessible unread mark', () => {
   )
   assert.match(
     callRow,
-    /<ListItemStatusRail[\s\S]*?<Star[\s\S]*?class="call-list-item__recording"/
+    /<ListItemStatusRail[\s\S]*?class="call-list-item__recording"[\s\S]*?<template #favorite>[\s\S]*?<Star/
   )
   assert.match(
     messageRow,

@@ -85,12 +85,11 @@ const lineFilterKey = ref('all')
 const favoriteOnly = ref(
   !props.embeddedCallId && route.query.favorite === '1'
 )
-const missedReadError = ref('')
 const callMutationError = ref('')
 const deletingCallID = ref('')
 const favoritePendingCallID = ref('')
 const batchBusy = ref(false)
-const retainedUnreadCallIDs = ref(new Set<string>())
+const manuallyUnreadCallIDs = ref(new Set<string>())
 const selection = useListSelection<CallRecord>(call => call.id)
 const selecting = selection.active
 const selectionCount = selection.count
@@ -161,18 +160,6 @@ const playableRecordingCallIDs = computed(
 )
 const dialUnavailable = computed(() => capabilityReason('dial'))
 const messageUnavailable = computed(() => capabilityReason('message'))
-const unreadMissedCallIDs = computed(() =>
-  callsResource.data
-    .filter(
-      call =>
-        call.missed &&
-        !call.read &&
-        !retainedUnreadCallIDs.value.has(call.id)
-    )
-    .map(call => call.id)
-    .sort()
-    .join('\u0000')
-)
 const batchCalls = computed(() => selection.selected(filteredCalls.value))
 const batchMissedCalls = computed(() => batchCalls.value.filter(call => call.missed))
 const batchHasUnread = computed(() =>
@@ -275,10 +262,13 @@ function actionLineKey(call: CallRecord): string {
 }
 
 function selectCall(call: CallRecord): void {
-  void router.push({
-    name: 'calls',
-    query: { selected: call.id, ...callFilterQuery() }
-  })
+  manuallyUnreadCallIDs.value.delete(call.id)
+  void router
+    .push({
+      name: 'calls',
+      query: { selected: call.id, ...callFilterQuery() }
+    })
+    .then(() => acknowledgeSelectedMissedCall())
 }
 
 async function acknowledgeMissedCall(call: CallRecord): Promise<void> {
@@ -294,11 +284,12 @@ async function acknowledgeMissedCall(call: CallRecord): Promise<void> {
 
 async function markMissedCallUnreadInView(call: CallRecord): Promise<void> {
   callMutationError.value = ''
-  retainedUnreadCallIDs.value.add(call.id)
+  const alreadyManual = manuallyUnreadCallIDs.value.has(call.id)
+  manuallyUnreadCallIDs.value.add(call.id)
   try {
     await markMissedCallUnread(call)
   } catch (error) {
-    retainedUnreadCallIDs.value.delete(call.id)
+    if (!alreadyManual) manuallyUnreadCallIDs.value.delete(call.id)
     callMutationError.value = t('calls.markUnreadFailed', {
       error: error instanceof Error ? error.message : String(error)
     })
@@ -365,15 +356,20 @@ async function batchSetRead(read: boolean): Promise<void> {
   if (batchBusy.value || calls.length === 0) return
   batchBusy.value = true
   callMutationError.value = ''
+  const insertedManualIDs: string[] = []
   if (!read) {
-    for (const call of calls) retainedUnreadCallIDs.value.add(call.id)
+    for (const call of calls) {
+      if (!manuallyUnreadCallIDs.value.has(call.id)) insertedManualIDs.push(call.id)
+      manuallyUnreadCallIDs.value.add(call.id)
+    }
   }
   try {
     await updateMissedCallsReadState(calls, read)
-  } catch (error) {
-    if (!read) {
-      for (const call of calls) retainedUnreadCallIDs.value.delete(call.id)
+    if (read) {
+      for (const call of calls) manuallyUnreadCallIDs.value.delete(call.id)
     }
+  } catch (error) {
+    for (const id of insertedManualIDs) manuallyUnreadCallIDs.value.delete(id)
     callMutationError.value = read
       ? t('calls.markReadFailed', {
           error: error instanceof Error ? error.message : String(error)
@@ -509,7 +505,6 @@ watch(
   value => {
     if (!embedded.value) {
       filter.value = callFilterFromRoute(value)
-      retainedUnreadCallIDs.value.clear()
       selection.clear()
     }
   }
@@ -544,35 +539,32 @@ watch(
   }
 )
 
-async function acknowledgeMissedCalls(): Promise<void> {
-  missedReadError.value = ''
-  try {
-    await updateMissedCallsReadState(
-      callsResource.data.filter(
-        call =>
-          call.missed &&
-          !call.read &&
-          !retainedUnreadCallIDs.value.has(call.id)
-      ),
-      true
-    )
-  } catch (error) {
-    missedReadError.value = t('calls.markReadFailed', {
-      error: error instanceof Error ? error.message : String(error)
-    })
-  }
+function acknowledgeSelectedMissedCall(): void {
+  const call = selected.value
+  if (
+    !call ||
+    !call.missed ||
+    call.read ||
+    manuallyUnreadCallIDs.value.has(call.id) ||
+    document.visibilityState !== 'visible' ||
+    !document.hasFocus()
+  ) return
+  void acknowledgeMissedCall(call)
 }
 
-function retryMissedCallsRead(): void {
-  void acknowledgeMissedCalls()
+function onCallDocumentVisibilityChange(): void {
+  if (document.visibilityState === 'visible') acknowledgeSelectedMissedCall()
+}
+
+function onCallWindowFocus(): void {
+  acknowledgeSelectedMissedCall()
 }
 
 watch(
-  [filter, () => callsResource.status, unreadMissedCallIDs],
-  ([activeFilter, status, unreadIDs]) => {
-    if (!embedded.value && activeFilter === 'missed' && status === 'ready' && unreadIDs) {
-      void acknowledgeMissedCalls()
-    }
+  [selectedId, selected],
+  ([id], [previousID]) => {
+    if (id && id !== previousID) manuallyUnreadCallIDs.value.delete(id)
+    acknowledgeSelectedMissedCall()
   },
   { immediate: true }
 )
@@ -597,6 +589,8 @@ watch(
 
 onMounted(() => {
   window.addEventListener('keydown', onSelectionKeydown)
+  window.addEventListener('focus', onCallWindowFocus)
+  document.addEventListener('visibilitychange', onCallDocumentVisibilityChange)
   void Promise.all([
     loadBootstrap(),
     loadCalls(),
@@ -607,6 +601,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onSelectionKeydown)
+  window.removeEventListener('focus', onCallWindowFocus)
+  document.removeEventListener('visibilitychange', onCallDocumentVisibilityChange)
 })
 </script>
 
@@ -685,16 +681,6 @@ onBeforeUnmount(() => {
         role="alert"
       >
         {{ callState.syncError }}
-      </div>
-      <div
-        v-if="missedReadError"
-        class="call-sync-status call-sync-status--error"
-        role="alert"
-      >
-        <span>{{ missedReadError }}</span>
-        <button type="button" @click="retryMissedCallsRead">
-          {{ t('common.retry') }}
-        </button>
       </div>
       <div
         v-if="callMutationError"
@@ -866,24 +852,6 @@ onBeforeUnmount(() => {
             :line-fallback="callLineFallback(selected)"
           />
           <div class="detail-header__actions call-detail__header-actions">
-            <button
-              class="icon-button call-favorite-button"
-              :class="{ 'is-active': selected.favorite }"
-              type="button"
-              :disabled="Boolean(favoritePendingCallID)"
-              :title="
-                selected.favorite
-                  ? t('common.unfavorite')
-                  : t('common.favorite')
-              "
-              :aria-pressed="selected.favorite"
-              @click="toggleCallFavorite(selected)"
-            >
-              <Star
-                :size="18"
-                :fill="selected.favorite ? 'currentColor' : 'none'"
-              />
-            </button>
             <ContactNumberActions
               :number="selected.remote_number"
               :contact="selectedContact"
@@ -921,6 +889,24 @@ onBeforeUnmount(() => {
               @click="removeCall(selected)"
             >
               <Trash2 :size="18" />
+            </button>
+            <button
+              class="icon-button call-favorite-button"
+              :class="{ 'is-active': selected.favorite }"
+              type="button"
+              :disabled="Boolean(favoritePendingCallID)"
+              :title="
+                selected.favorite
+                  ? t('common.unfavorite')
+                  : t('common.favorite')
+              "
+              :aria-pressed="selected.favorite"
+              @click="toggleCallFavorite(selected)"
+            >
+              <Star
+                :size="18"
+                :fill="selected.favorite ? 'currentColor' : 'none'"
+              />
             </button>
           </div>
         </header>

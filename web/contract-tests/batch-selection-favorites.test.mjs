@@ -105,7 +105,7 @@ test('all communication list panes expose selection and their eligible batch act
   assert.match(recordings, /<FavoriteFilterButton/)
   assert.match(
     recordings,
-    /<ListItemStatusRail[\s\S]*?<Star/
+    /<ListItemStatusRail[\s\S]*?<template #favorite>[\s\S]*?<Star/
   )
   assert.match(recordings, /await deleteRecordings\(recordings\)/)
   assert.match(contacts, /import ListItemStatusRail from/)
@@ -118,19 +118,37 @@ test('all communication list panes expose selection and their eligible batch act
   assert.match(messageRow, /import ListItemAvatarStatus from/)
   assert.match(
     callRow,
-    /<ListItemStatusRail[\s\S]*?<Star[\s\S]*?class="call-list-item__recording"/
+    /<ListItemStatusRail[\s\S]*?class="call-list-item__recording"[\s\S]*?<template #favorite>[\s\S]*?<Star/
   )
   assert.match(
     messageRow,
-    /<ListItemStatusRail[\s\S]*?class="message-thread-favorite"/
+    /<ListItemStatusRail[\s\S]*?<template #favorite>[\s\S]*?class="message-thread-favorite"/
   )
+  assert.match(contacts, /<ListItemStatusRail>[\s\S]*?<template #favorite>/)
   assert.match(avatarStatus, /class="list-item-avatar-status__unread"/)
   assert.match(avatarStatus, /<UnreadDot :label="unreadLabel" compact/)
   assert.match(avatarStatus, /top: -2px;[\s\S]*?left: -2px;/)
   assert.match(statusRail, /class="list-item-status-rail"/)
   assert.match(statusRail, /<time v-if="date"/)
   assert.match(statusRail, /class="list-item-status-rail__icons"/)
+  assert.match(statusRail, /<slot \/>[\s\S]*?<slot name="favorite" \/>/)
   assert.match(statusRail, /\.has-date[\s\S]*?justify-content: space-between/)
+  assert.match(
+    calls,
+    /<header class="detail-header">[\s\S]*?class="icon-button icon-button--danger desktop-delete-action"[\s\S]*?class="icon-button call-favorite-button"[\s\S]*?<\/header>/
+  )
+  assert.match(
+    messages,
+    /<header class="conversation-header">[\s\S]*?class="icon-button icon-button--danger desktop-delete-action"[\s\S]*?class="icon-button conversation-favorite-button"[\s\S]*?<\/header>/
+  )
+  assert.match(
+    recordings,
+    /<header class="detail-header">[\s\S]*?class="icon-button icon-button--danger desktop-delete-action"[\s\S]*?class="icon-button recording-favorite-button"[\s\S]*?<\/header>/
+  )
+  assert.match(
+    contacts,
+    /<header class="detail-header">[\s\S]*?class="icon-button icon-button--danger desktop-delete-action"[\s\S]*?class="icon-button contact-favorite-button"[\s\S]*?<\/header>/
+  )
 
   assert.match(dashboard, /const batchMessageActivities = computed/)
   assert.match(dashboard, /const batchMissedCallActivities = computed/)

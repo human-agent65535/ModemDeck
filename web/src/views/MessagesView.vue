@@ -1124,25 +1124,6 @@ onBeforeUnmount(() => {
             />
           </div>
           <button
-            v-if="selectedThread && !composingNew"
-            class="icon-button conversation-favorite-button"
-            :class="{ 'is-active': selectedThread.favorite }"
-            type="button"
-            :disabled="Boolean(favoritePendingKey)"
-            :title="
-              selectedThread.favorite
-                ? t('messages.unfavorite')
-                : t('messages.favorite')
-            "
-            :aria-pressed="selectedThread.favorite"
-            @click="toggleFavorite(selectedThread)"
-          >
-            <Star
-              :size="18"
-              :fill="selectedThread.favorite ? 'currentColor' : 'none'"
-            />
-          </button>
-          <button
             v-if="selectedThread && !composingNew && activeRecipientIsContactable"
             class="icon-button"
             type="button"
@@ -1161,6 +1142,25 @@ onBeforeUnmount(() => {
             @click="removeThread(selectedThread)"
           >
             <Trash2 :size="18" />
+          </button>
+          <button
+            v-if="selectedThread && !composingNew"
+            class="icon-button conversation-favorite-button"
+            :class="{ 'is-active': selectedThread.favorite }"
+            type="button"
+            :disabled="Boolean(favoritePendingKey)"
+            :title="
+              selectedThread.favorite
+                ? t('messages.unfavorite')
+                : t('messages.favorite')
+            "
+            :aria-pressed="selectedThread.favorite"
+            @click="toggleFavorite(selectedThread)"
+          >
+            <Star
+              :size="18"
+              :fill="selectedThread.favorite ? 'currentColor' : 'none'"
+            />
           </button>
         </header>
 
