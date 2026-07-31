@@ -5,11 +5,13 @@ withDefaults(
     sidebarTitle?: string
     sidebarDescription?: string
     detailOpen?: boolean
+    detailKey?: string | number | null
   }>(),
   {
     sidebarTitle: '',
     sidebarDescription: '',
-    detailOpen: false
+    detailOpen: false,
+    detailKey: null
   }
 )
 </script>
@@ -42,7 +44,12 @@ withDefaults(
       </div>
     </aside>
     <div class="settings-master-detail__detail mobile-drilldown__detail">
-      <slot />
+      <div
+        :key="detailKey == null ? 'settings-detail' : String(detailKey)"
+        class="settings-master-detail__detail-content"
+      >
+        <slot />
+      </div>
     </div>
   </section>
 </template>
@@ -53,8 +60,10 @@ withDefaults(
 
   display: grid;
   width: 100%;
+  height: 100%;
   min-width: 0;
-  min-height: 100%;
+  min-height: 0;
+  overflow: hidden;
   grid-template-columns: var(--settings-master-sidebar) minmax(0, 1fr);
   background: var(--surface);
   border-top: 1px solid var(--border);
@@ -69,6 +78,7 @@ withDefaults(
 .settings-master-detail__sidebar {
   display: flex;
   min-height: 0;
+  overflow: hidden;
   flex-direction: column;
   background: var(--surface-subtle);
   border-right: 1px solid var(--border);
@@ -141,8 +151,33 @@ withDefaults(
 }
 
 .settings-master-detail__detail {
-  padding-inline: 24px;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
   background: var(--surface);
+}
+
+.settings-master-detail__detail-content {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  padding-inline: 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (min-width: 861px) {
+  .settings-master-detail__detail-content {
+    animation: settings-master-detail-content-in var(--motion-base)
+      var(--ease-standard) both;
+  }
+}
+
+@keyframes settings-master-detail-content-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }
 
 @media (max-width: 860px) {
@@ -156,7 +191,7 @@ withDefaults(
     border-right: 0;
   }
 
-  .settings-master-detail__detail {
+  .settings-master-detail__detail-content {
     padding: 12px 16px 0;
   }
 }

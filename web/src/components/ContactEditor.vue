@@ -187,7 +187,12 @@ function submit(): void {
           <Star :size="18" :fill="draft.favorite ? 'currentColor' : 'none'" />
           <strong>{{ t('contacts.favorite') }}</strong>
         </span>
-        <input v-model="draft.favorite" type="checkbox" role="switch" />
+        <input
+          v-model="draft.favorite"
+          class="ui-switch"
+          type="checkbox"
+          role="switch"
+        />
       </label>
 
       <fieldset class="phone-fields">
@@ -288,41 +293,4 @@ function submit(): void {
   gap: 9px;
 }
 
-.contact-favorite-toggle input {
-  position: relative;
-  width: 42px;
-  height: 24px;
-  flex: 0 0 auto;
-  appearance: none;
-  background: #d8dde2;
-  border-radius: 12px;
-  cursor: pointer;
-}
-
-.contact-favorite-toggle input::before {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 18px;
-  height: 18px;
-  content: "";
-  background: #fff;
-  border-radius: 50%;
-  box-shadow: 0 1px 3px rgb(16 24 40 / 20%);
-  transition: transform 150ms ease;
-}
-
-.contact-favorite-toggle input:checked {
-  color: var(--accent-strong);
-  background: var(--accent);
-}
-
-.contact-favorite-toggle input:checked::before {
-  transform: translateX(18px);
-}
-
-.contact-favorite-toggle input:focus-visible {
-  outline: 3px solid rgb(17 120 100 / 18%);
-  outline-offset: 2px;
-}
 </style>

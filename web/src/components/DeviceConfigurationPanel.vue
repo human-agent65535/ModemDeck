@@ -30,6 +30,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { gateway } from '../api/client'
 import { ApiError } from '../api/types'
+import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { useSettingsMutation } from '../composables/useSettingsMutation'
 import type {
   ConnectionProfile,
@@ -111,6 +112,7 @@ const tabs = computed<Array<{ id: DeviceTab; label: string; icon: typeof RadioTo
 
 const activeTab = ref<DeviceTab>('overview')
 const deviceDetailOpen = ref(false)
+const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
 const apn = ref('')
 const ipFamily = ref<IPFamily>('ipv4v6')
 const incomingPolicyDraft = ref<IncomingCallPolicy>('follow_global')
@@ -1263,12 +1265,22 @@ async function submitUSSD(action: 'initiate' | 'respond' | 'cancel'): Promise<vo
 }
 
 onMounted(() => {
-  void Promise.all([loadBootstrap(), loadDevices(), loadNetwork(true, true)])
+  void waitForInitialLoad([
+    () => loadBootstrap(),
+    () => loadDevices(),
+    () => loadNetwork(true, true)
+  ])
 })
 </script>
 
 <template>
+  <StatePanel
+    v-if="initialLoading"
+    state="loading"
+    :title="t('device.loadingModules')"
+  />
   <DeviceWorkspace
+    v-else
     class="device-configuration"
     :label="t('device.modules')"
     :detail-open="deviceDetailOpen"
@@ -1656,6 +1668,7 @@ onMounted(() => {
                   compact
                 />
                 <input
+                  class="ui-switch"
                   type="checkbox"
                   role="switch"
                   :checked="hardware.flight_mode"
@@ -1866,6 +1879,7 @@ onMounted(() => {
                   compact
                 />
                 <input
+                  class="ui-switch"
                   type="checkbox"
                   role="switch"
                   :checked="hardware.network_enabled"
@@ -2170,6 +2184,7 @@ onMounted(() => {
                   compact
                 />
                 <input
+                  class="ui-switch"
                   type="checkbox"
                   role="switch"
                   :aria-label="t('device.requestDeliveryReports')"
@@ -2351,6 +2366,7 @@ onMounted(() => {
                   compact
                 />
                 <input
+                  class="ui-switch"
                   type="checkbox"
                   role="switch"
                   :aria-label="t('device.enableVolte')"
@@ -3004,52 +3020,6 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 7px;
-}
-
-.configuration-toggle input {
-  position: relative;
-  width: 42px;
-  height: 24px;
-  flex: 0 0 42px;
-  margin: 0;
-  -webkit-appearance: none;
-  appearance: none;
-  background: #d8dde2;
-  border: 0;
-  border-radius: 12px;
-  cursor: pointer;
-  transition: background 150ms ease;
-}
-
-.configuration-toggle input::before {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 18px;
-  height: 18px;
-  content: "";
-  background: #fff;
-  border-radius: 50%;
-  box-shadow: 0 1px 3px rgb(16 24 40 / 20%);
-  transition: transform 150ms ease;
-}
-
-.configuration-toggle input:checked {
-  background: var(--accent);
-}
-
-.configuration-toggle input:checked::before {
-  transform: translateX(18px);
-}
-
-.configuration-toggle input:focus-visible {
-  outline: 3px solid rgb(17 120 100 / 18%);
-  outline-offset: 2px;
-}
-
-.configuration-toggle input:disabled {
-  cursor: not-allowed;
-  opacity: 0.58;
 }
 
 .restart-required {

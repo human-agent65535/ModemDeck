@@ -99,6 +99,7 @@ onMounted(() => {
           compact
         />
         <input
+          class="ui-switch ui-switch--danger"
           type="checkbox"
           role="switch"
           :checked="displayedEnabled"
@@ -147,42 +148,6 @@ onMounted(() => {
   color: var(--muted);
   font-size: 11px;
   font-weight: 650;
-}
-
-.recording-settings__control input {
-  position: relative;
-  width: 42px;
-  height: 24px;
-  appearance: none;
-  background: #d8dde2;
-  border-radius: 12px;
-  cursor: pointer;
-}
-
-.recording-settings__control input::before {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 18px;
-  height: 18px;
-  content: "";
-  background: #ffffff;
-  border-radius: 50%;
-  box-shadow: 0 1px 3px rgb(16 24 40 / 20%);
-  transition: transform 150ms ease;
-}
-
-.recording-settings__control input:checked {
-  background: var(--danger);
-}
-
-.recording-settings__control input:checked::before {
-  transform: translateX(18px);
-}
-
-.recording-settings__control input:disabled {
-  cursor: not-allowed;
-  opacity: 0.65;
 }
 
 .recording-settings__error {

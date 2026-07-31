@@ -30,6 +30,7 @@ import TelegramSettingsForm from '../components/TelegramSettingsForm.vue'
 import UserSettingsPanel from '../components/UserSettingsPanel.vue'
 import WebCertificateSettingsPanel from '../components/WebCertificateSettingsPanel.vue'
 import PageContentFrame from '../components/PageContentFrame.vue'
+import SettingsContentTransition from '../components/settings/SettingsContentTransition.vue'
 import { fixtureMode } from '../api/client'
 import { logout as logoutSession, sessionState } from '../state/session'
 import {
@@ -337,68 +338,70 @@ onMounted(() => {
           <h2>{{ currentTitle }}</h2>
         </header>
 
-        <div
-          v-if="selectedSection === 'account'"
-          class="settings-content"
-          :class="{ 'settings-content--master-detail': sessionState.role === 'admin' }"
-        >
-          <UserSettingsPanel
-            v-if="sessionState.role === 'admin'"
-          />
-          <PageContentFrame v-else mode="reading">
-            <AccountSettingsPanel />
-          </PageContentFrame>
-        </div>
+        <SettingsContentTransition :content-key="selectedSection">
+          <div
+            v-if="selectedSection === 'account'"
+            class="settings-content"
+            :class="{ 'settings-content--master-detail': sessionState.role === 'admin' }"
+          >
+            <UserSettingsPanel
+              v-if="sessionState.role === 'admin'"
+            />
+            <PageContentFrame v-else mode="reading">
+              <AccountSettingsPanel />
+            </PageContentFrame>
+          </div>
 
-        <div v-else-if="selectedSection === 'contacts'" class="settings-content">
-          <PageContentFrame mode="reading">
-            <ContactSyncSettings />
-          </PageContentFrame>
-        </div>
+          <div v-else-if="selectedSection === 'contacts'" class="settings-content">
+            <PageContentFrame mode="reading">
+              <ContactSyncSettings />
+            </PageContentFrame>
+          </div>
 
-        <div v-else-if="selectedSection === 'audio'" class="settings-content">
-          <PageContentFrame mode="reading">
-            <AudioSettingsForm />
-          </PageContentFrame>
-        </div>
+          <div v-else-if="selectedSection === 'audio'" class="settings-content">
+            <PageContentFrame mode="reading">
+              <AudioSettingsForm />
+            </PageContentFrame>
+          </div>
 
-        <div
-          v-else-if="selectedSection === 'devices'"
-          class="settings-content settings-content--master-detail"
-        >
-          <DeviceConfigurationPanel />
-        </div>
+          <div
+            v-else-if="selectedSection === 'devices'"
+            class="settings-content settings-content--master-detail"
+          >
+            <DeviceConfigurationPanel />
+          </div>
 
-        <div
-          v-else-if="selectedSection === 'telegram'"
-          class="settings-content settings-content--master-detail"
-        >
-          <TelegramSettingsForm />
-        </div>
+          <div
+            v-else-if="selectedSection === 'telegram'"
+            class="settings-content settings-content--master-detail"
+          >
+            <TelegramSettingsForm />
+          </div>
 
-        <div v-else-if="selectedSection === 'external-access'" class="settings-content">
-          <PageContentFrame mode="reading">
-            <ExternalAccessSettingsPanel />
-          </PageContentFrame>
-        </div>
+          <div v-else-if="selectedSection === 'external-access'" class="settings-content">
+            <PageContentFrame mode="reading">
+              <ExternalAccessSettingsPanel />
+            </PageContentFrame>
+          </div>
 
-        <div v-else-if="selectedSection === 'web-certificate'" class="settings-content">
-          <PageContentFrame mode="reading">
-            <WebCertificateSettingsPanel />
-          </PageContentFrame>
-        </div>
+          <div v-else-if="selectedSection === 'web-certificate'" class="settings-content">
+            <PageContentFrame mode="reading">
+              <WebCertificateSettingsPanel />
+            </PageContentFrame>
+          </div>
 
-        <div v-else-if="selectedSection === 'diagnostics'" class="settings-content">
-          <PageContentFrame mode="fluid">
-            <DiagnosticsPanel />
-          </PageContentFrame>
-        </div>
+          <div v-else-if="selectedSection === 'diagnostics'" class="settings-content">
+            <PageContentFrame mode="fluid">
+              <DiagnosticsPanel />
+            </PageContentFrame>
+          </div>
 
-        <div v-else class="settings-content">
-          <PageContentFrame mode="reading">
-            <AboutSettingsPanel />
-          </PageContentFrame>
-        </div>
+          <div v-else class="settings-content">
+            <PageContentFrame mode="reading">
+              <AboutSettingsPanel />
+            </PageContentFrame>
+          </div>
+        </SettingsContentTransition>
       </template>
 
       <StatePanel v-else state="empty" :title="t('settings.selectSetting')" />
@@ -413,6 +416,9 @@ onMounted(() => {
 }
 
 .settings-content.settings-content--master-detail {
+  display: flex;
+  min-height: 0;
   padding: 0;
+  overflow: hidden;
 }
 </style>

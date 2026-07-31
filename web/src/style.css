@@ -1294,27 +1294,6 @@ textarea::placeholder {
   text-align: center;
 }
 
-.state-panel__loading-mark {
-  position: relative;
-  display: grid;
-  width: 44px;
-  height: 44px;
-  margin-bottom: 2px;
-  place-items: center;
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-  border-radius: 50%;
-}
-
-.state-panel__loading-mark::after {
-  position: absolute;
-  inset: -4px;
-  border: 1px solid rgb(17 120 100 / 28%);
-  border-radius: inherit;
-  content: '';
-  animation: state-panel-loading-halo 1.45s var(--ease-standard) infinite;
-}
-
 .state-panel strong {
   color: var(--muted);
   font-size: 14px;
@@ -1334,19 +1313,6 @@ textarea::placeholder {
 @keyframes spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-@keyframes state-panel-loading-halo {
-  0% {
-    opacity: 0.72;
-    transform: scale(0.82);
-  }
-
-  72%,
-  100% {
-    opacity: 0;
-    transform: scale(1.14);
   }
 }
 
@@ -2527,22 +2493,33 @@ dd {
   font-size: 11px;
 }
 
-.compact-switch input {
+.ui-switch {
+  --ui-switch-width: 42px;
+  --ui-switch-height: 24px;
+  --ui-switch-thumb: 18px;
+  --ui-switch-offset: 3px;
+  --ui-switch-travel: 18px;
+
   position: relative;
-  width: 38px;
-  height: 22px;
+  width: var(--ui-switch-width);
+  height: var(--ui-switch-height);
+  flex: 0 0 var(--ui-switch-width);
+  margin: 0;
+  -webkit-appearance: none;
   appearance: none;
   background: #d8dde2;
-  border-radius: 11px;
+  border: 0;
+  border-radius: calc(var(--ui-switch-height) / 2);
   cursor: pointer;
+  transition: background-color 150ms ease;
 }
 
-.compact-switch input::before {
+.ui-switch::before {
   position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 16px;
-  height: 16px;
+  top: var(--ui-switch-offset);
+  left: var(--ui-switch-offset);
+  width: var(--ui-switch-thumb);
+  height: var(--ui-switch-thumb);
   content: "";
   background: #ffffff;
   border-radius: 50%;
@@ -2550,12 +2527,42 @@ dd {
   transition: transform 150ms ease;
 }
 
-.compact-switch input:checked {
+.ui-switch:checked {
   background: var(--accent);
 }
 
-.compact-switch input:checked::before {
-  transform: translateX(16px);
+.ui-switch:checked::before {
+  transform: translateX(var(--ui-switch-travel));
+}
+
+.ui-switch:focus-visible {
+  outline: 3px solid rgb(17 120 100 / 18%);
+  outline-offset: 2px;
+}
+
+.ui-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.ui-switch:checked:disabled {
+  background: #9fcfc4;
+}
+
+.ui-switch--compact {
+  --ui-switch-width: 38px;
+  --ui-switch-height: 22px;
+  --ui-switch-thumb: 16px;
+  --ui-switch-travel: 16px;
+}
+
+.ui-switch--danger:checked {
+  background: var(--danger);
+}
+
+.ui-switch--danger:checked:disabled {
+  background: var(--danger);
+  opacity: 0.5;
 }
 
 .telegram-options {

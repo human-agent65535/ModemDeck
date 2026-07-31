@@ -14,6 +14,7 @@ import {
 } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import AudioDeviceControls from './AudioDeviceControls.vue'
+import RecordingSettingsForm from './RecordingSettingsForm.vue'
 import {
   audioState,
   setCallVolume,
@@ -205,6 +206,8 @@ onBeforeUnmount(() => {
       </SettingsControlRow>
     </SettingsSection>
 
+    <RecordingSettingsForm />
+
     <SettingsSection
       :title="t('audio.callSounds')"
       title-id="call-sounds-title"
@@ -256,6 +259,7 @@ onBeforeUnmount(() => {
           <label class="compact-switch">
             <span class="sr-only">{{ t('audio.incomingRingtone') }}</span>
             <input
+              class="ui-switch ui-switch--compact"
               type="checkbox"
               role="switch"
               :checked="browserSoundState.ringtoneEnabled"
@@ -296,6 +300,7 @@ onBeforeUnmount(() => {
           <label class="compact-switch">
             <span class="sr-only">{{ t('audio.waitingTone') }}</span>
             <input
+              class="ui-switch ui-switch--compact"
               type="checkbox"
               role="switch"
               :checked="browserSoundState.waiting"
@@ -358,6 +363,7 @@ onBeforeUnmount(() => {
           <label class="compact-switch">
             <span class="sr-only">{{ t('audio.incomingMessage') }}</span>
             <input
+              class="ui-switch ui-switch--compact"
               type="checkbox"
               role="switch"
               :checked="browserSoundState.incomingMessageEnabled"
@@ -411,6 +417,7 @@ onBeforeUnmount(() => {
           <label class="compact-switch">
             <span class="sr-only">{{ t('audio.outgoingMessage') }}</span>
             <input
+              class="ui-switch ui-switch--compact"
               type="checkbox"
               role="switch"
               :checked="browserSoundState.outgoingMessageEnabled"
@@ -433,6 +440,10 @@ onBeforeUnmount(() => {
   width: 100%;
   flex-direction: column;
   gap: 34px;
+}
+
+.audio-preferences :deep(.recording-settings) {
+  max-width: none;
 }
 
 .audio-preference-row__controls {

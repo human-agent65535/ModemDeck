@@ -8,6 +8,7 @@ async function source(path) {
 
 test('line filters use the shared compact selector on desktop and mobile', async () => {
   const selector = await source('../src/components/LineSelector.vue')
+  const identity = await source('../src/components/LineIdentity.vue')
   const calls = await source('../src/views/CallsView.vue')
   const messages = await source('../src/views/MessagesView.vue')
   const recordings = await source('../src/views/RecordingsView.vue')
@@ -17,8 +18,10 @@ test('line filters use the shared compact selector on desktop and mobile', async
 
   assert.match(selector, /filterMode\?: boolean/)
   assert.match(selector, /'is-filter': filterMode/)
-  assert.match(selector, /<ListFilter v-if="isAllSelected"/)
-  assert.match(selector, /<CardSim v-else/)
+  assert.match(selector, /:all="isAllSelected"/)
+  assert.match(selector, /:line="selectedLine"/)
+  assert.match(identity, /<ListFilter v-if="all"/)
+  assert.match(identity, /<CardSim v-else/)
   assert.match(selector, /<CardSim v-if="option\.line"/)
   assert.match(selector, /:style="toneStyle\(option\.line\)"/)
   assert.doesNotMatch(selector, /RadioTower/)

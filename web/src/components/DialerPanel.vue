@@ -1094,7 +1094,7 @@ onBeforeUnmount(() => {
     padding-block: 4px;
   }
 
-  .dialer-line-switcher :deep(.line-selector__icon) {
+  .dialer-line-switcher :deep(.line-identity__icon) {
     width: 32px;
     height: 32px;
   }

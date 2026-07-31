@@ -27,6 +27,7 @@ import WorkspaceDetailHeader from '../components/workspace/WorkspaceDetailHeader
 import WorkspaceDetailPane from '../components/workspace/WorkspaceDetailPane.vue'
 import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
 import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
+import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { useListSelection } from '../composables/useListSelection'
 import { audioState } from '../state/audio'
 import { requestConfirmation } from '../state/confirmation'
@@ -64,6 +65,7 @@ const batchBusy = ref(false)
 const selection = useListSelection<RecordingEntry>(recording => recording.id)
 const selecting = selection.active
 const selectionCount = selection.count
+const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
 let searchTimer: number | undefined
 
 const selectedID = computed(() =>
@@ -344,7 +346,11 @@ watch(lines, availableLines => {
 
 onMounted(() => {
   window.addEventListener('keydown', onSelectionKeydown)
-  void Promise.all([loadBootstrap(), loadRecordingEntries(), loadContacts()])
+  void waitForInitialLoad([
+    () => loadBootstrap(),
+    () => loadRecordingEntries(),
+    () => loadContacts()
+  ])
 })
 
 onBeforeUnmount(() => {
@@ -363,7 +369,7 @@ onBeforeUnmount(() => {
         :title="t('shell.recordings')"
         compact-mode="hidden"
         :count="
-          recordingCatalogState.status === 'ready'
+          !initialLoading && recordingCatalogState.status === 'ready'
             ? recordingCatalogState.data.length
             : undefined
         "
@@ -409,7 +415,7 @@ onBeforeUnmount(() => {
       </p>
 
       <ListSkeleton
-        v-if="recordingCatalogState.status === 'loading'"
+        v-if="initialLoading || recordingCatalogState.status === 'loading'"
         :label="t('recordings.loading')"
       />
       <StatePanel
@@ -574,7 +580,7 @@ onBeforeUnmount(() => {
     </template>
 
     <template #detail>
-      <WorkspaceDetailPane :content-key="selected?.id">
+      <WorkspaceDetailPane :content-key="initialLoading ? null : selected?.id">
         <template v-if="selected">
           <WorkspaceDetailHeader>
           <template #identity>
@@ -691,7 +697,12 @@ onBeforeUnmount(() => {
         </template>
         <template #empty>
           <StatePanel
-            v-if="selectedID && recordingCatalogState.status === 'ready'"
+            v-if="initialLoading"
+            state="loading"
+            :title="t('recordings.loading')"
+          />
+          <StatePanel
+            v-else-if="selectedID && recordingCatalogState.status === 'ready'"
             state="empty"
             :title="t('recordings.notInResults')"
           />

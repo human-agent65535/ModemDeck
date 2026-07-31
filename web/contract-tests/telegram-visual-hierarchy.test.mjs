@@ -10,6 +10,10 @@ const masterDetail = readFileSync(
   new URL('../src/components/settings/SettingsMasterDetail.vue', import.meta.url),
   'utf8'
 )
+const lineScopeList = readFileSync(
+  new URL('../src/components/settings/SettingsLineScopeList.vue', import.meta.url),
+  'utf8'
+)
 
 test('Telegram bot list exposes channel identity, status, and line scope', () => {
   const listStart = form.indexOf('<template #sidebar>')
@@ -52,7 +56,7 @@ test('Telegram editor uses distinct identity, owner, event, and line sections', 
   )
   assert.match(
     form,
-    /telegram-scope-options[\s\S]*telegram-scope-option__icon[\s\S]*<LineTag/
+    /<SettingsLineScopeList[\s\S]*:options="lineScopeOptions"/
   )
 })
 
@@ -77,12 +81,9 @@ test('Telegram uses the shared resource rail and owns only resource-specific lay
     masterDetail,
     /@media \(max-width: 860px\)[\s\S]*grid-template-columns: minmax\(0, 1fr\)/
   )
+  assert.match(style, /\.telegram-event-options[\s\S]*grid-template-columns: minmax\(0, 1fr\)/)
   assert.match(
-    style,
-    /\.telegram-event-options,[\s\S]*\.telegram-scope-options[\s\S]*grid-template-columns: minmax\(0, 1fr\)/
-  )
-  assert.match(
-    style,
+    lineScopeList,
     /@container \(max-width: 700px\)[\s\S]*grid-template-columns: minmax\(0, 1fr\)/
   )
 })

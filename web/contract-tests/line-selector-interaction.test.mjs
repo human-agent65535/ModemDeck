@@ -4,6 +4,10 @@ import test from 'node:test'
 
 const componentPath = new URL('../src/components/LineSelector.vue', import.meta.url)
 const component = readFileSync(componentPath, 'utf8')
+const identity = readFileSync(
+  new URL('../src/components/LineIdentity.vue', import.meta.url),
+  'utf8'
+)
 const sourceRoot = new URL('../src/', import.meta.url)
 
 function vueSources(directory) {
@@ -58,18 +62,19 @@ test('line selector supports complete keyboard navigation', () => {
 })
 
 test('default status stays beside a bounded line name', () => {
-  const nameRowStart = component.indexOf('class="line-selector__name-row"')
-  const nameRowEnd = component.indexOf('</span>', nameRowStart)
-  const nameRow = component.slice(nameRowStart, nameRowEnd)
+  const nameRowStart = identity.indexOf('class="line-identity__name-row"')
+  const nameRowEnd = identity.indexOf('</span>', nameRowStart)
+  const nameRow = identity.slice(nameRowStart, nameRowEnd)
 
   assert.ok(nameRowStart >= 0)
-  assert.match(nameRow, /<strong>\{\{ displayName \}\}<\/strong>/)
-  assert.match(nameRow, /v-if="selectedIsDefault" class="line-selector__default"/)
-  assert.match(component, /grid-template-columns: 38px minmax\(0, 1fr\) auto/)
-  assert.match(component, /-webkit-line-clamp: 2/)
+  assert.match(nameRow, /<strong>\{\{ name \}\}<\/strong>/)
+  assert.match(nameRow, /v-if="isDefault" class="line-identity__default"/)
+  assert.match(component, /:is-default="selectedIsDefault"/)
+  assert.match(identity, /grid-template-columns: 38px minmax\(0, 1fr\)/)
+  assert.match(identity, /-webkit-line-clamp: 2/)
   assert.doesNotMatch(
-    component,
-    /@media \(max-width: 420px\)[\s\S]*?\.line-selector__default\s*\{\s*display: none/
+    identity,
+    /@media \(max-width: 420px\)[\s\S]*?\.line-identity__default\s*\{\s*display: none/
   )
 })
 
@@ -93,6 +98,7 @@ test('VoLTE is a styled binary switch and never a native select', () => {
     new URL('../src/components/DeviceConfigurationPanel.vue', import.meta.url),
     'utf8'
   )
+  const style = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8')
   const start = panel.indexOf('<h4>VoLTE</h4>')
   const end = panel.indexOf('</section>', start)
   const section = panel.slice(start, end)
@@ -101,7 +107,8 @@ test('VoLTE is a styled binary switch and never a native select', () => {
   assert.match(section, /type="checkbox"/)
   assert.match(section, /role="switch"/)
   assert.match(section, /:aria-label="t\('device\.enableVolte'\)"/)
+  assert.match(section, /class="ui-switch"/)
   assert.doesNotMatch(section, /<select/)
-  assert.match(panel, /-webkit-appearance: none/)
-  assert.match(panel, /\.configuration-toggle input:focus-visible/)
+  assert.match(style, /\.ui-switch\s*\{[\s\S]*?-webkit-appearance: none/)
+  assert.match(style, /\.ui-switch:focus-visible/)
 })

@@ -14,6 +14,30 @@ function section(contents, start, end) {
   return contents.slice(startIndex, endIndex)
 }
 
+test('initial page skeletons wait for every required request to settle', async () => {
+  const [barrier, client, ...consumers] = await Promise.all([
+    source('../src/composables/useInitialLoadBarrier.ts'),
+    source('../src/api/client.ts'),
+    source('../src/views/DashboardView.vue'),
+    source('../src/views/ContactsView.vue'),
+    source('../src/views/MessagesView.vue'),
+    source('../src/views/CallsView.vue'),
+    source('../src/views/RecordingsView.vue'),
+    source('../src/views/TrafficView.vue'),
+    source('../src/components/TelegramSettingsForm.vue'),
+    source('../src/components/DeviceConfigurationPanel.vue'),
+    source('../src/components/DiagnosticsPanel.vue')
+  ])
+
+  assert.match(barrier, /const loading = ref\(true\)/)
+  assert.match(barrier, /await Promise\.allSettled/)
+  assert.match(client, /const READ_REQUEST_TIMEOUT_MS = 15_000/)
+  for (const consumer of consumers) {
+    assert.match(consumer, /useInitialLoadBarrier/)
+    assert.match(consumer, /waitForInitialLoad/)
+  }
+})
+
 test('authenticated app startup requests microphone access once and releases the probe stream', async () => {
   const app = await source('../src/App.vue')
   const shell = await source('../src/components/AppShell.vue')
@@ -184,7 +208,10 @@ test('recordings are a communication workspace with native playback and call lin
   assert.match(view, /import WorkspaceMasterDetail from/)
   assert.match(view, /import WorkspaceDetailPane from/)
   assert.match(view, /<WorkspaceMasterDetail/)
-  assert.match(view, /<WorkspaceDetailPane :content-key="selected\?\.id">/)
+  assert.match(
+    view,
+    /<WorkspaceDetailPane :content-key="initialLoading \? null : selected\?\.id">/
+  )
   assert.match(
     view,
     /<audio[\s\S]*:src="selected\.download_url"[\s\S]*:volume="audioState\.recordingPlaybackVolume \/ 100"[\s\S]*controls/

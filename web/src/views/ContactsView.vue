@@ -31,6 +31,7 @@ import WorkspaceDetailHeader from '../components/workspace/WorkspaceDetailHeader
 import WorkspaceDetailPane from '../components/workspace/WorkspaceDetailPane.vue'
 import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
 import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
+import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { useListSelection } from '../composables/useListSelection'
 import { requestConfirmation } from '../state/confirmation'
 import { showSuccess } from '../state/feedback'
@@ -68,6 +69,7 @@ const batchBusy = ref(false)
 const selection = useListSelection<Contact>(contact => contact.id)
 const selecting = selection.active
 const selectionCount = selection.count
+const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
 
 const filteredContacts = computed(() => {
   const query = search.value.trim().toLocaleLowerCase()
@@ -268,8 +270,7 @@ function preferredLineName(contact: Contact): string {
 
 onMounted(() => {
   window.addEventListener('keydown', onSelectionKeydown)
-  void loadBootstrap()
-  void loadContacts()
+  void waitForInitialLoad([() => loadBootstrap(), () => loadContacts()])
 })
 
 onBeforeUnmount(() => {
@@ -287,7 +288,7 @@ onBeforeUnmount(() => {
         :title="t('shell.contacts')"
         compact-mode="floating-action"
         :count="
-          contactsResource.status === 'ready'
+          !initialLoading && contactsResource.status === 'ready'
             ? contactsResource.data.length
             : undefined
         "
@@ -323,7 +324,7 @@ onBeforeUnmount(() => {
       </p>
 
       <ListSkeleton
-        v-if="contactsResource.status === 'loading'"
+        v-if="initialLoading || contactsResource.status === 'loading'"
         :label="t('contacts.loading')"
       />
       <StatePanel
@@ -437,7 +438,7 @@ onBeforeUnmount(() => {
     </template>
 
     <template #detail>
-      <WorkspaceDetailPane :content-key="selected?.id">
+      <WorkspaceDetailPane :content-key="initialLoading ? null : selected?.id">
         <template v-if="selected">
           <WorkspaceDetailHeader>
           <template #identity>
@@ -527,9 +528,9 @@ onBeforeUnmount(() => {
         </template>
         <template #empty>
           <StatePanel
-            state="empty"
-            :title="t('contacts.select')"
-            :detail="t('contacts.detailPlaceholder')"
+            :state="initialLoading ? 'loading' : 'empty'"
+            :title="initialLoading ? t('contacts.loading') : t('contacts.select')"
+            :detail="initialLoading ? '' : t('contacts.detailPlaceholder')"
           />
         </template>
       </WorkspaceDetailPane>

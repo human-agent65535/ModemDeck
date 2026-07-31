@@ -34,6 +34,7 @@ import WorkspaceDetailHeader from '../components/workspace/WorkspaceDetailHeader
 import WorkspaceDetailPane from '../components/workspace/WorkspaceDetailPane.vue'
 import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
 import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
+import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { useListSelection } from '../composables/useListSelection'
 import { requestConfirmation } from '../state/confirmation'
 import { callState } from '../state/call'
@@ -99,6 +100,7 @@ const manuallyUnreadCallIDs = ref(new Set<string>())
 const selection = useListSelection<CallRecord>(call => call.id)
 const selecting = selection.active
 const selectionCount = selection.count
+const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const defaultLineID = computed(
   () => bootstrapResource.data?.line_settings.default_line_id || ''
@@ -589,11 +591,11 @@ onMounted(() => {
   window.addEventListener('keydown', onSelectionKeydown)
   window.addEventListener('focus', onCallWindowFocus)
   document.addEventListener('visibilitychange', onCallDocumentVisibilityChange)
-  void Promise.all([
-    loadBootstrap(),
-    loadCalls(),
-    loadContacts(),
-    loadRecordingEntries()
+  void waitForInitialLoad([
+    () => loadBootstrap(),
+    () => loadCalls(),
+    () => loadContacts(),
+    () => loadRecordingEntries()
   ])
 })
 
@@ -616,7 +618,7 @@ onBeforeUnmount(() => {
         :title="t('shell.calls')"
         compact-mode="hidden"
         :count="
-          callsResource.status === 'ready'
+          !initialLoading && callsResource.status === 'ready'
             ? callsResource.data.length
             : undefined
         "
@@ -693,7 +695,7 @@ onBeforeUnmount(() => {
       </div>
 
       <ListSkeleton
-        v-if="callsResource.status === 'loading'"
+        v-if="initialLoading || callsResource.status === 'loading'"
         :label="t('calls.loading')"
       />
       <StatePanel
@@ -836,7 +838,7 @@ onBeforeUnmount(() => {
     </template>
 
     <template #detail>
-      <WorkspaceDetailPane :content-key="selected?.id">
+      <WorkspaceDetailPane :content-key="initialLoading ? null : selected?.id">
         <template v-if="selected">
           <WorkspaceDetailHeader>
           <template #identity>
@@ -950,9 +952,9 @@ onBeforeUnmount(() => {
         </template>
         <template #empty>
           <StatePanel
-            state="empty"
-            :title="t('calls.select')"
-            :detail="t('calls.detailPlaceholder')"
+            :state="initialLoading ? 'loading' : 'empty'"
+            :title="initialLoading ? t('calls.loading') : t('calls.select')"
+            :detail="initialLoading ? '' : t('calls.detailPlaceholder')"
           />
         </template>
       </WorkspaceDetailPane>

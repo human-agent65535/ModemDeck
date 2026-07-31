@@ -40,6 +40,7 @@ import SwipeActionRow from '../components/SwipeActionRow.vue'
 import TrafficSummary from '../components/TrafficSummary.vue'
 import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
 import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
+import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { useListSelection } from '../composables/useListSelection'
 import { requestConfirmation } from '../state/confirmation'
 import { showSuccess } from '../state/feedback'
@@ -152,6 +153,7 @@ const batchBusy = ref(false)
 const selection = useListSelection<DashboardActivity>(activity => activity.key)
 const selecting = selection.active
 const selectionCount = selection.count
+const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
 const unreadMessages = computed(() =>
   threadsResource.data.reduce(
     (total, thread) =>
@@ -269,9 +271,12 @@ const selectedThread = computed(() =>
 )
 const activityLoading = computed(
   () =>
-    (callsResource.status === 'idle' || callsResource.status === 'loading') &&
-    (threadsResource.status === 'idle' || threadsResource.status === 'loading') &&
-    activities.value.length === 0
+    initialLoading.value ||
+    ((callsResource.status === 'idle' ||
+      callsResource.status === 'loading' ||
+      threadsResource.status === 'idle' ||
+      threadsResource.status === 'loading') &&
+      activities.value.length === 0)
 )
 const activityErrors = computed(() =>
   [
@@ -672,14 +677,14 @@ function retryActivities(): void {
 }
 
 function loadDashboard(): void {
-  void Promise.all([
-    loadBootstrap(),
-    loadCalls(),
-    loadThreads(),
-    loadContacts(),
-    loadDevices(),
-    loadRecordingEntries(),
-    loadNetwork()
+  void waitForInitialLoad([
+    () => loadBootstrap(),
+    () => loadCalls(),
+    () => loadThreads(),
+    () => loadContacts(),
+    () => loadDevices(),
+    () => loadRecordingEntries(),
+    () => loadNetwork()
   ])
 }
 
@@ -911,32 +916,37 @@ onBeforeUnmount(() => {
     </template>
 
     <template #detail>
-      <MessagesView
-        v-if="composingMessage"
-        embedded-compose
-        :initial-recipient="messageComposeRecipient"
-        :initial-recipient-name="messageComposeRecipientName"
-        :context-line-key="messageComposeLineKey"
-        @close="closeMessageComposer"
-        @sent="finishMessageComposer"
-      />
+      <article v-if="initialLoading" class="detail-pane dashboard-detail-pane">
+        <StatePanel state="loading" :title="t('dashboard.loadingActivityDetail')" />
+      </article>
 
-      <MessagesView
-        v-else-if="selectedThread"
-        :embedded-thread-key="selectedThread.key"
-        @close="backToList"
-      />
+      <template v-else>
+        <MessagesView
+          v-if="composingMessage"
+          embedded-compose
+          :initial-recipient="messageComposeRecipient"
+          :initial-recipient-name="messageComposeRecipientName"
+          :context-line-key="messageComposeLineKey"
+          @close="closeMessageComposer"
+          @sent="finishMessageComposer"
+        />
 
-      <CallsView
-        v-else-if="selectedCall"
-        :embedded-call-id="selectedCall.id"
-        @close="backToList"
-        @message="messageFromCall"
-      />
+        <MessagesView
+          v-else-if="selectedThread"
+          :embedded-thread-key="selectedThread.key"
+          @close="backToList"
+        />
 
-      <article v-else class="detail-pane dashboard-detail-pane">
-      <template v-if="overviewSelected">
-        <div class="dashboard-detail-scroll">
+        <CallsView
+          v-else-if="selectedCall"
+          :embedded-call-id="selectedCall.id"
+          @close="backToList"
+          @message="messageFromCall"
+        />
+
+        <article v-else class="detail-pane dashboard-detail-pane">
+          <template v-if="overviewSelected">
+            <div class="dashboard-detail-scroll">
           <button
             class="icon-button mobile-back dashboard-overview-back"
             :class="{ 'is-shell-managed': route.query.from === 'settings' }"
@@ -1195,21 +1205,22 @@ onBeforeUnmount(() => {
               />
             </div>
           </section>
-        </div>
-      </template>
+            </div>
+          </template>
 
-      <StatePanel
-        v-else-if="activityLoading"
-        state="loading"
-        :title="t('dashboard.loadingActivityDetail')"
-      />
-      <StatePanel
-        v-else
-        state="empty"
-        :title="t('dashboard.activityMissing')"
-        :detail="t('dashboard.activityMissingDetail')"
-      />
-      </article>
+          <StatePanel
+            v-else-if="activityLoading"
+            state="loading"
+            :title="t('dashboard.loadingActivityDetail')"
+          />
+          <StatePanel
+            v-else
+            state="empty"
+            :title="t('dashboard.activityMissing')"
+            :detail="t('dashboard.activityMissingDetail')"
+          />
+        </article>
+      </template>
     </template>
   </WorkspaceMasterDetail>
 

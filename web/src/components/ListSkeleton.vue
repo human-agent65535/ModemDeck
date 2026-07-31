@@ -3,15 +3,22 @@ withDefaults(
   defineProps<{
     label: string
     rows?: number
+    variant?: 'list' | 'content'
   }>(),
   {
-    rows: 6
+    rows: 6,
+    variant: 'list'
   }
 )
 </script>
 
 <template>
-  <div class="list-skeleton" role="status" aria-live="polite">
+  <div
+    class="list-skeleton"
+    :class="`list-skeleton--${variant}`"
+    role="status"
+    aria-live="polite"
+  >
     <span class="sr-only">{{ label }}</span>
     <div v-for="row in rows" :key="row" class="list-skeleton__row" aria-hidden="true">
       <span class="list-skeleton__avatar" />
@@ -52,6 +59,48 @@ withDefaults(
   width: 40px;
   height: 40px;
   border-radius: 50%;
+}
+
+.list-skeleton--content {
+  width: 100%;
+  max-width: 860px;
+  margin-inline: auto;
+  padding-block: 10px;
+}
+
+.list-skeleton--content .list-skeleton__row {
+  min-height: 76px;
+  padding-inline: 16px;
+  grid-template-columns: 44px minmax(0, 1fr);
+}
+
+.list-skeleton--content .list-skeleton__avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-surface);
+}
+
+.list-skeleton--content .list-skeleton__copy > span:first-child {
+  width: min(42%, 220px);
+  height: 12px;
+}
+
+.list-skeleton--content .list-skeleton__copy > span:last-child {
+  width: min(76%, 460px);
+}
+
+.list-skeleton--content
+  .list-skeleton__row:nth-child(even)
+  .list-skeleton__copy
+  > span:first-child {
+  width: min(34%, 180px);
+}
+
+.list-skeleton--content
+  .list-skeleton__row:nth-child(even)
+  .list-skeleton__copy
+  > span:last-child {
+  width: min(62%, 380px);
 }
 
 .list-skeleton__copy {

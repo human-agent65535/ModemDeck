@@ -6,6 +6,14 @@ const form = readFileSync(
   new URL('../src/components/TelegramSettingsForm.vue', import.meta.url),
   'utf8'
 )
+const scopeList = readFileSync(
+  new URL('../src/components/settings/SettingsLineScopeList.vue', import.meta.url),
+  'utf8'
+)
+const lineIdentity = readFileSync(
+  new URL('../src/components/LineIdentity.vue', import.meta.url),
+  'utf8'
+)
 
 function functionBody(name, nextName) {
   const start = form.indexOf(`function ${name}`)
@@ -20,7 +28,8 @@ test('Telegram all-lines selection clears every concrete line scope', () => {
 
   assert.match(body, /allLines\.value = true/)
   assert.match(body, /lineScopes\.value = \[\]/)
-  assert.match(form, /@click\.prevent="selectAllLines"/)
+  assert.match(form, /@select-all="selectAllLines"/)
+  assert.match(scopeList, /@click\.prevent="emit\('selectAll'\)"/)
 })
 
 test('Telegram concrete line selection is exclusive with all-lines', () => {
@@ -32,8 +41,10 @@ test('Telegram concrete line selection is exclusive with all-lines', () => {
 
   assert.match(body, /lineScopes\.value = scopes/)
   assert.match(body, /allLines\.value = scopes\.length === 0/)
-  assert.match(scopeFieldset, /:checked="lineScopes\.includes\(line\.id\)"/)
-  assert.match(scopeFieldset, /@change="toggleLineScope\(line\.id, \$event\)"/)
+  assert.match(scopeFieldset, /:selected-ids="lineScopes"/)
+  assert.match(scopeFieldset, /@toggle-line="toggleLineScope"/)
+  assert.match(scopeList, /:checked="selectedIds\.includes\(option\.id\)"/)
+  assert.match(scopeList, /@change="onLineChange\(option\.id, \$event\)"/)
   assert.doesNotMatch(scopeFieldset, /:disabled="allLines"/)
 })
 
@@ -65,9 +76,11 @@ test('Telegram line scopes show the line label and reliable phone number without
     form.indexOf('<fieldset class="telegram-options telegram-line-scopes">'),
     form.indexOf('</fieldset>', form.indexOf('<fieldset class="telegram-options telegram-line-scopes">'))
   )
-  assert.match(scopeFieldset, /<ListFilter/)
-  assert.match(scopeFieldset, /<CardSim/)
-  assert.match(scopeFieldset, /<LineTag v-if="line\.line"/)
-  assert.match(scopeFieldset, /line\.phoneNumber \|\| t\('lines\.cellularLine'\)/)
-  assert.match(form, /const tone = lineTone\(line\)/)
+  assert.match(scopeFieldset, /<SettingsLineScopeList/)
+  assert.match(scopeFieldset, /:options="lineScopeOptions"/)
+  assert.match(scopeList, /<LineIdentity/)
+  assert.match(lineIdentity, /<ListFilter v-if="all"/)
+  assert.match(lineIdentity, /<CardSim v-else/)
+  assert.match(options, /details: option\.phoneNumber \|\| t\('lines\.cellularLine'\)/)
+  assert.match(lineIdentity, /const tone = lineTone\(props\.line\)/)
 })

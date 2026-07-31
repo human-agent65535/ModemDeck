@@ -31,9 +31,11 @@ test('settings pages use the shared layout templates and the device workbench ex
     source('../src/components/AudioSettingsForm.vue')
   ])
 
-  for (const preference of [defaultLine, language, recording]) {
+  for (const preference of [defaultLine, language]) {
     assert.match(preference, /SettingsPreferenceRow/)
   }
+  assert.match(recording, /SettingsPreferenceRow/)
+  assert.doesNotMatch(recording, /SettingsSection|SettingsControlRow/)
   for (const modulePage of [about, externalAccess, contactSync]) {
     assert.match(modulePage, /SettingsModuleCard/)
   }
@@ -45,19 +47,99 @@ test('settings pages use the shared layout templates and the device workbench ex
   assert.doesNotMatch(devices, /SettingsMasterDetail/)
   assert.match(audio, /SettingsSection/)
   assert.match(audio, /SettingsControlRow/)
+  assert.match(audio, /<RecordingSettingsForm \/>/)
 })
 
-test('page-level async settings reuse the shared animated state panel', async () => {
-  const [statePanel, style, externalAccess, certificate] = await Promise.all([
-    source('../src/components/StatePanel.vue'),
+test('account preferences share one control edge and call recording belongs to audio', async () => {
+  const [account, audio] = await Promise.all([
+    source('../src/components/AccountSettingsPanel.vue'),
+    source('../src/components/AudioSettingsForm.vue')
+  ])
+
+  assert.match(
+    account,
+    /\.account-preferences :deep\(\.settings-preference-row\) \{[\s\S]*max-width: none;/
+  )
+  assert.doesNotMatch(account, /RecordingSettingsForm/)
+  assert.match(audio, /import RecordingSettingsForm from/)
+  assert.match(audio, /<RecordingSettingsForm \/>/)
+})
+
+test('binary preferences share one switch primitive with semantic variants', async () => {
+  const [style, users, telegram, devices, audio, recording, contacts] = await Promise.all([
     source('../src/style.css'),
+    source('../src/components/UserSettingsPanel.vue'),
+    source('../src/components/TelegramSettingsForm.vue'),
+    source('../src/components/DeviceConfigurationPanel.vue'),
+    source('../src/components/AudioSettingsForm.vue'),
+    source('../src/components/RecordingSettingsForm.vue'),
+    source('../src/components/ContactEditor.vue')
+  ])
+
+  assert.match(style, /\.ui-switch\s*\{/)
+  assert.match(style, /\.ui-switch--compact\s*\{/)
+  assert.match(style, /\.ui-switch--danger:checked\s*\{/)
+  for (const component of [users, telegram, devices, audio, recording, contacts]) {
+    assert.match(component, /class="ui-switch/)
+  }
+  assert.match(telegram, /class="ui-switch ui-switch--compact"/)
+  assert.match(recording, /class="ui-switch ui-switch--danger"/)
+  assert.doesNotMatch(users, /\.user-account-access input\s*\{/)
+  assert.doesNotMatch(devices, /\.configuration-toggle input\s*\{/)
+  assert.doesNotMatch(recording, /\.recording-settings__control input\s*\{/)
+})
+
+test('the current user hierarchy keeps personal language near identity and line scope readable', async () => {
+  const [account, users, telegram, lineSelector, lineIdentity, lineScopeList] = await Promise.all([
+    source('../src/components/AccountSettingsPanel.vue'),
+    source('../src/components/UserSettingsPanel.vue'),
+    source('../src/components/TelegramSettingsForm.vue'),
+    source('../src/components/LineSelector.vue'),
+    source('../src/components/LineIdentity.vue'),
+    source('../src/components/settings/SettingsLineScopeList.vue')
+  ])
+
+  assert.match(account, /showLanguage\?: boolean/)
+  assert.match(account, /<SystemSettingsForm v-if="props\.showLanguage" \/>/)
+  assert.match(users, /import SystemSettingsForm from/)
+  assert.match(users, /class="user-system-language"/)
+  assert.match(users, /:show-language="false"/)
+  assert.ok(
+    users.indexOf('class="user-system-language"') <
+      users.indexOf('class="user-account-access"'),
+    'language preference should precede account access'
+  )
+  const systemLanguageStyle = users.match(/\.user-system-language \{[^}]*\}/)?.[0]
+  assert.ok(systemLanguageStyle)
+  assert.match(systemLanguageStyle, /max-width: none;/)
+  assert.match(users, /<SettingsLineScopeList/)
+  assert.match(telegram, /<SettingsLineScopeList/)
+  assert.match(lineSelector, /import LineIdentity from/)
+  assert.match(lineSelector, /<LineIdentity/)
+  assert.match(lineScopeList, /import LineIdentity from/)
+  assert.match(lineScopeList, /<LineIdentity/)
+  assert.match(lineIdentity, /line-identity__icon/)
+  assert.match(
+    lineScopeList,
+    /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/
+  )
+})
+
+test('page-level async settings reuse the message-list skeleton through the shared state panel', async () => {
+  const [statePanel, listSkeleton, messages, externalAccess, certificate] = await Promise.all([
+    source('../src/components/StatePanel.vue'),
+    source('../src/components/ListSkeleton.vue'),
+    source('../src/views/MessagesView.vue'),
     source('../src/components/ExternalAccessSettingsPanel.vue'),
     source('../src/components/WebCertificateSettingsPanel.vue')
   ])
 
-  assert.match(statePanel, /state-panel__loading-mark/)
-  assert.match(style, /@keyframes state-panel-loading-halo/)
-  assert.match(style, /@media \(prefers-reduced-motion: reduce\)/)
+  assert.match(statePanel, /import ListSkeleton from '\.\/ListSkeleton\.vue'/)
+  assert.match(statePanel, /<ListSkeleton[\s\S]*variant="content"/)
+  assert.doesNotMatch(statePanel, /LoaderCircle|state-panel__loading-mark/)
+  assert.match(listSkeleton, /variant\?: 'list' \| 'content'/)
+  assert.match(listSkeleton, /list-skeleton-shimmer/)
+  assert.match(messages, /<ListSkeleton[\s\S]*threadsResource\.status === 'loading'/)
   for (const panel of [externalAccess, certificate]) {
     assert.match(panel, /import StatePanel from '\.\/StatePanel\.vue'/)
     assert.match(panel, /<StatePanel v-if="loading" state="loading"/)
@@ -65,13 +147,28 @@ test('page-level async settings reuse the shared animated state panel', async ()
 })
 
 test('master-detail settings are flush and mobile page titles cover every section', async () => {
-  const view = await source('../src/views/SettingsView.vue')
-  const shell = await source('../src/components/AppShell.vue')
+  const [view, masterDetail, shell] = await Promise.all([
+    source('../src/views/SettingsView.vue'),
+    source('../src/components/settings/SettingsMasterDetail.vue'),
+    source('../src/components/AppShell.vue')
+  ])
 
   assert.match(view, /settings-content--master-detail/)
   assert.match(
     view,
-    /\.settings-content\.settings-content--master-detail \{[\s\S]*padding: 0;/
+    /\.settings-content\.settings-content--master-detail \{[\s\S]*min-height: 0;[\s\S]*padding: 0;[\s\S]*overflow: hidden;/
+  )
+  assert.match(
+    masterDetail,
+    /\.settings-master-detail \{[\s\S]*height: 100%;[\s\S]*min-height: 0;[\s\S]*overflow: hidden;/
+  )
+  assert.match(
+    masterDetail,
+    /\.settings-master-detail__list \{[\s\S]*overflow-y: auto;/
+  )
+  assert.match(
+    masterDetail,
+    /\.settings-master-detail__detail-content \{[\s\S]*overflow-y: auto;[\s\S]*overscroll-behavior: contain;/
   )
   assert.match(shell, /'external-access': t\('settings\.iosApp'\)/)
   assert.match(shell, /'web-certificate': t\('settings\.tls'\)/)
@@ -113,6 +210,31 @@ test('settings drilldown aligns with the shell compact breakpoint', async () => 
   assert.match(telegram, /route\.query\.newBot/)
   assert.match(shell, /const settingsTelegramDetailOpen = computed/)
   assert.match(view, /selectedSection\.value === 'telegram'/)
+})
+
+test('settings section and resource changes use the shared stable transition', async () => {
+  const [transition, view, masterDetail, users, telegram] = await Promise.all([
+    source('../src/components/settings/SettingsContentTransition.vue'),
+    source('../src/views/SettingsView.vue'),
+    source('../src/components/settings/SettingsMasterDetail.vue'),
+    source('../src/components/UserSettingsPanel.vue'),
+    source('../src/components/TelegramSettingsForm.vue')
+  ])
+
+  assert.match(view, /<SettingsContentTransition :content-key="selectedSection">/)
+  assert.match(transition, /@media \(min-width: 861px\)/)
+  assert.match(transition, /animation: settings-content-in var\(--motion-base\)/)
+  assert.match(masterDetail, /detailKey\?: string \| number \| null/)
+  assert.match(masterDetail, /settings-master-detail__detail-content/)
+  assert.match(
+    masterDetail,
+    /animation: settings-master-detail-content-in var\(--motion-base\)/
+  )
+  assert.match(users, /:detail-key="creating \? '__new_member__' : selectedID"/)
+  assert.match(
+    telegram,
+    /:detail-key="creating \? '__telegram_bot_draft__' : selectedID"/
+  )
 })
 
 test('page width modes are shared instead of owned by business panels', async () => {

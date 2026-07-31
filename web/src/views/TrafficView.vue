@@ -14,6 +14,7 @@ import ProxyEditorModal from '../components/ProxyEditorModal.vue'
 import StatePanel from '../components/StatePanel.vue'
 import TrafficLineCard from '../components/TrafficLineCard.vue'
 import TrafficSummary from '../components/TrafficSummary.vue'
+import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { requestConfirmation } from '../state/confirmation'
 import { showSuccess } from '../state/feedback'
 import {
@@ -30,6 +31,7 @@ const { t } = useI18n()
 const selectedLineID = ref('all')
 const editorOpen = ref(false)
 const editorProxy = ref<ProxyInstance>()
+const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const snapshot = computed(() => networkState.snapshot)
@@ -210,7 +212,10 @@ watch(lines, current => {
 })
 
 onMounted(() => {
-  void Promise.all([loadBootstrap(true), loadNetwork(true)])
+  void waitForInitialLoad([
+    () => loadBootstrap(true),
+    () => loadNetwork(true)
+  ])
 })
 </script>
 
@@ -221,7 +226,7 @@ onMounted(() => {
     </header>
 
     <StatePanel
-      v-if="networkState.status === 'loading' && !snapshot"
+      v-if="initialLoading || (networkState.status === 'loading' && !snapshot)"
       state="loading"
       :title="t('traffic.loading')"
     />

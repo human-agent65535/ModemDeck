@@ -38,6 +38,7 @@ import type {
   LineSummary
 } from '../api/types'
 import { ApiError } from '../api/types'
+import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { audioState, refreshAudioDevices } from '../state/audio'
 import { requestConfirmation } from '../state/confirmation'
 import { useDiagnosticDevices } from '../state/diagnosticDevices'
@@ -65,6 +66,7 @@ const SNAPSHOT_INTERVAL_MS = 10_000
 const snapshot = ref<DiagnosticsSnapshot | null>(null)
 const snapshotState = ref<SnapshotState>('idle')
 const snapshotError = ref('')
+const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
 const logs = ref<DiagnosticLogEntry[]>([])
 const logsLoading = ref(false)
 const logsTruncated = ref(false)
@@ -696,8 +698,7 @@ watch(
 )
 
 onMounted(() => {
-  void loadSnapshot()
-  void loadLogs()
+  void waitForInitialLoad([() => loadSnapshot(), () => loadLogs()])
   void refreshAudioDevices()
   snapshotTimer = window.setInterval(() => {
     void loadSnapshot()
@@ -716,7 +717,7 @@ onBeforeUnmount(() => {
 <template>
   <section class="diagnostics-panel" :aria-label="t('settings.diagnostics')">
     <StatePanel
-      v-if="snapshotState === 'idle' || snapshotState === 'loading'"
+      v-if="initialLoading || snapshotState === 'idle' || snapshotState === 'loading'"
       state="loading"
       :title="t('diagnostics.loadingStatus')"
     />

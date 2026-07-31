@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import {
-  Check,
   KeyRound,
   LoaderCircle,
   Plus,
@@ -35,8 +34,9 @@ import { formatDateTime } from '../utils/format'
 import BaseAvatar from './BaseAvatar.vue'
 import AccountProfileSetting from './AccountProfileSetting.vue'
 import AccountSettingsPanel from './AccountSettingsPanel.vue'
-import LineTag from './LineTag.vue'
 import StatePanel from './StatePanel.vue'
+import SystemSettingsForm from './SystemSettingsForm.vue'
+import SettingsLineScopeList from './settings/SettingsLineScopeList.vue'
 import SettingsMasterDetail from './settings/SettingsMasterDetail.vue'
 import SettingsSaveStatus from './settings/SettingsSaveStatus.vue'
 
@@ -67,6 +67,14 @@ const lineSaveError = lineMutation.error
 
 const lines = computed(
   () => bootstrapResource.data?.line_catalog || bootstrapResource.data?.lines || []
+)
+const lineScopeOptions = computed(() =>
+  lines.value.map(line => ({
+    id: lineKey(line),
+    label: lineLabel(line),
+    details: line.phone_number || t('lines.cellularLine'),
+    line
+  }))
 )
 const normalizedSearch = computed(() => searchQuery.value.trim().toLocaleLowerCase())
 const filteredUsers = computed(() => {
@@ -170,15 +178,11 @@ function startCreate(): void {
   })
 }
 
-async function toggleLine(id: string, event: Event): Promise<void> {
-  const input = event.currentTarget as HTMLInputElement
-  if (saving.value || lineSaving.value) {
-    input.checked = lineIDs.value.includes(id)
-    return
-  }
+async function toggleLine(id: string, checked: boolean): Promise<void> {
+  if (saving.value || lineSaving.value) return
 
   const previous = [...lineIDs.value]
-  const next = input.checked
+  const next = checked
     ? [...new Set([...previous, id])]
     : previous.filter(value => value !== id)
   lineIDs.value = next
@@ -209,7 +213,6 @@ async function toggleLine(id: string, event: Event): Promise<void> {
   })
   if (!result.ok) {
     lineIDs.value = previous
-    input.checked = previous.includes(id)
   }
 }
 
@@ -421,6 +424,7 @@ onMounted(() => {
     :sidebar-title="t('users.title')"
     :sidebar-description="t('users.count', { count: users.length })"
     :detail-open="mobileDetailOpen"
+    :detail-key="creating ? '__new_member__' : selectedID"
   >
     <template #sidebar-action>
       <button
@@ -581,6 +585,11 @@ onMounted(() => {
               </label>
             </div>
 
+            <SystemSettingsForm
+              v-if="!creating && selectedUser?.id === sessionState.userID"
+              class="user-system-language"
+            />
+
             <section
               v-if="!creating && selectedUser"
               class="user-account-access"
@@ -594,6 +603,7 @@ onMounted(() => {
               </span>
               <label class="user-account-access__control">
                 <input
+                  class="ui-switch"
                   v-model="enabled"
                   type="checkbox"
                   role="switch"
@@ -658,6 +668,7 @@ onMounted(() => {
               </span>
               <label class="user-account-access__control">
                 <input
+                  class="ui-switch"
                   v-model="iosPairingEnabled"
                   type="checkbox"
                   role="switch"
@@ -683,27 +694,12 @@ onMounted(() => {
                     : t('users.assignedLinesDescription')
                 }}
               </p>
-              <div class="user-line-options">
-                <label
-                  v-for="line in lines"
-                  :key="lineKey(line)"
-                  :class="{ 'is-selected': lineIDs.includes(lineKey(line)) }"
-                >
-                  <input
-                    :checked="lineIDs.includes(lineKey(line))"
-                    type="checkbox"
-                    :disabled="saving || lineSaving"
-                    @change="toggleLine(lineKey(line), $event)"
-                  />
-                  <span class="user-line-option__identity">
-                    <LineTag :line="line" :fallback="lineLabel(line)" />
-                    <small>{{ line.phone_number || t('lines.cellularLine') }}</small>
-                  </span>
-                  <span class="user-line-option__check" aria-hidden="true">
-                    <Check v-if="lineIDs.includes(lineKey(line))" :size="15" />
-                  </span>
-                </label>
-              </div>
+              <SettingsLineScopeList
+                :options="lineScopeOptions"
+                :selected-ids="lineIDs"
+                :disabled="saving || lineSaving"
+                @toggle-line="toggleLine"
+              />
               <p v-if="lineSaveError" class="field-error" role="alert">
                 {{ lineSaveError }}
               </p>
@@ -771,6 +767,7 @@ onMounted(() => {
         v-if="!creating && selectedUser?.id === sessionState.userID"
         :show-identity="false"
         :show-profile="false"
+        :show-language="false"
         @profile-saved="refreshUserList"
       />
     </section>
@@ -937,6 +934,12 @@ onMounted(() => {
   margin-top: 4px;
 }
 
+.user-system-language {
+  max-width: none;
+  padding-bottom: 12px;
+  border-bottom: 0;
+}
+
 .user-account-access {
   display: grid;
   min-height: 64px;
@@ -978,58 +981,6 @@ onMounted(() => {
   cursor: not-allowed;
 }
 
-.user-account-access input {
-  position: relative;
-  width: 42px;
-  height: 24px;
-  margin: 0;
-  appearance: none;
-  background: #d8dde2;
-  border: 0;
-  border-radius: 12px;
-  cursor: pointer;
-}
-
-.user-account-access input::before {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 18px;
-  height: 18px;
-  content: "";
-  background: #ffffff;
-  border-radius: 50%;
-  box-shadow: 0 1px 3px rgb(16 24 40 / 20%);
-  transition: transform 150ms ease;
-}
-
-.user-account-access input:checked {
-  background: var(--accent);
-}
-
-.user-account-access input:checked::before {
-  transform: translateX(18px);
-}
-
-.user-account-access input:focus-visible {
-  outline: 3px solid rgb(17 120 100 / 18%);
-  outline-offset: 2px;
-}
-
-.user-account-access input:disabled {
-  background: var(--border-strong);
-  cursor: not-allowed;
-}
-
-.user-account-access input:checked:disabled {
-  background: #9fcfc4;
-}
-
-.user-account-access input:disabled::before {
-  background: var(--surface-subtle);
-  box-shadow: none;
-}
-
 .user-pairing-state {
   display: inline-flex;
   align-items: center;
@@ -1061,7 +1012,7 @@ onMounted(() => {
 
 .user-lines__heading {
   display: flex;
-  width: min(640px, 100%);
+  width: 100%;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -1089,86 +1040,6 @@ onMounted(() => {
 .user-lines > .field-error {
   margin-top: 10px;
   color: var(--danger);
-}
-
-.user-line-options {
-  display: grid;
-  max-width: 640px;
-  gap: 8px;
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.user-line-options label {
-  display: grid;
-  min-height: 58px;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  grid-template-columns: minmax(0, 1fr) auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  cursor: pointer;
-  transition:
-    background-color 150ms ease,
-    border-color 150ms ease,
-    box-shadow 150ms ease,
-    transform 100ms ease;
-}
-
-.user-line-options label.is-selected {
-  background: var(--surface-selected);
-  border-color: #aed8cf;
-  box-shadow: inset 3px 0 0 var(--accent);
-}
-
-.user-line-options label:hover {
-  border-color: var(--border-strong);
-}
-
-.user-line-options label.is-selected:hover {
-  border-color: #8fc9bd;
-}
-
-.user-line-options label:active {
-  transform: scale(0.995);
-}
-
-.user-line-options input {
-  position: absolute;
-  opacity: 0;
-}
-
-.user-line-option__identity {
-  display: grid;
-  min-width: 0;
-  align-items: center;
-  gap: 12px;
-  grid-template-columns: minmax(92px, auto) minmax(0, 1fr);
-}
-
-.user-line-option__identity small {
-  display: block;
-  width: 100%;
-  overflow: hidden;
-  text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.user-line-option__check {
-  display: grid;
-  width: 22px;
-  height: 22px;
-  place-items: center;
-  color: transparent;
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-}
-
-.user-line-options label.is-selected .user-line-option__check {
-  color: #fff;
-  background: var(--accent);
-  border-color: var(--accent);
 }
 
 .user-default-line {

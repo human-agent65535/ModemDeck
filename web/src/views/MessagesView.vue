@@ -35,6 +35,7 @@ import WorkspaceDetailHeader from '../components/workspace/WorkspaceDetailHeader
 import WorkspaceDetailPane from '../components/workspace/WorkspaceDetailPane.vue'
 import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
 import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
+import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { useListSelection } from '../composables/useListSelection'
 import { requestConfirmation } from '../state/confirmation'
 import { openDialer } from '../state/ui'
@@ -146,6 +147,7 @@ const batchBusy = ref(false)
 const selection = useListSelection<MessageThread>(thread => thread.key)
 const selecting = selection.active
 const selectionCount = selection.count
+const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
 
 const embedded = computed(
   () => props.embeddedCompose || Boolean(props.embeddedThreadKey)
@@ -814,7 +816,11 @@ onMounted(() => {
     'visibilitychange',
     onMessageDocumentVisibilityChange
   )
-  void Promise.all([loadBootstrap(), loadContacts(), loadThreads()])
+  void waitForInitialLoad([
+    () => loadBootstrap(),
+    () => loadContacts(),
+    () => loadThreads()
+  ])
   void reconcileRenderedMessages(false)
 })
 
@@ -840,7 +846,7 @@ onBeforeUnmount(() => {
         :title="t('shell.messages')"
         compact-mode="floating-action"
         :count="
-          threadsResource.status === 'ready'
+          !initialLoading && threadsResource.status === 'ready'
             ? threadsResource.data.length
             : undefined
         "
@@ -915,7 +921,7 @@ onBeforeUnmount(() => {
       </p>
 
       <ListSkeleton
-        v-if="threadsResource.status === 'loading'"
+        v-if="initialLoading || threadsResource.status === 'loading'"
         :label="t('messages.loading')"
       />
       <StatePanel
@@ -1074,7 +1080,7 @@ onBeforeUnmount(() => {
     <template #detail>
       <WorkspaceDetailPane
         class="conversation-pane"
-        :content-key="composingNew ? 'compose' : selectedThread?.key"
+        :content-key="initialLoading ? null : composingNew ? 'compose' : selectedThread?.key"
       >
         <WorkspaceDetailHeader density="compact">
           <template v-if="composingNew" #leading>
@@ -1289,9 +1295,9 @@ onBeforeUnmount(() => {
 
         <template #empty>
           <StatePanel
-            state="empty"
-            :title="t('messages.selectConversation')"
-            :detail="t('messages.detailPlaceholder')"
+            :state="initialLoading ? 'loading' : 'empty'"
+            :title="initialLoading ? t('messages.loading') : t('messages.selectConversation')"
+            :detail="initialLoading ? '' : t('messages.detailPlaceholder')"
           />
         </template>
       </WorkspaceDetailPane>

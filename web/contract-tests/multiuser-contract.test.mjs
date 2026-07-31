@@ -121,7 +121,8 @@ test('multi-user UI exposes only authorized settings and communication areas', a
     session,
     runtime,
     english,
-    chinese
+    chinese,
+    style
   ] =
     await Promise.all([
       source('../src/views/SettingsView.vue'),
@@ -133,7 +134,8 @@ test('multi-user UI exposes only authorized settings and communication areas', a
       source('../src/state/session.ts'),
       source('../src/state/runtimeEvents.ts'),
       source('../src/i18n/locales/en-US.ts'),
-      source('../src/i18n/locales/zh-CN.ts')
+      source('../src/i18n/locales/zh-CN.ts'),
+      source('../src/style.css')
     ])
 
   assert.doesNotMatch(settings, /mustChangePassword/)
@@ -192,11 +194,12 @@ test('multi-user UI exposes only authorized settings and communication areas', a
     /v-model="iosPairingEnabled"[\s\S]*?:disabled="saving \|\| selectedUser\?\.role === 'admin'"/
   )
   assert.match(users, /class="user-pairing-state"/)
+  assert.match(users, /class="ui-switch"/)
   assert.doesNotMatch(users, /class="user-pairing-status"/)
   assert.doesNotMatch(users, /class="user-account-access__status"/)
   assert.match(
-    users,
-    /\.user-account-access input:checked:disabled\s*\{\s*background: #9fcfc4/
+    style,
+    /\.ui-switch:checked:disabled\s*\{\s*background: #9fcfc4/
   )
   assert.match(users, /users\.adminUsernameLocked/)
   assert.match(shell, /const settingsUserDetailOpen = computed/)

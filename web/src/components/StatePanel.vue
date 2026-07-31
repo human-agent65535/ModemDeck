@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { AlertCircle, Inbox, LoaderCircle, ShieldAlert } from '@lucide/vue'
+import { AlertCircle, Inbox, ShieldAlert } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
+import ListSkeleton from './ListSkeleton.vue'
 
 const { t } = useI18n()
 
@@ -10,10 +11,12 @@ withDefaults(
     title: string
     detail?: string
     retryable?: boolean
+    loadingRows?: number
   }>(),
   {
     detail: '',
-    retryable: false
+    retryable: false,
+    loadingRows: 5
   }
 )
 
@@ -21,11 +24,14 @@ const emit = defineEmits<{ retry: [] }>()
 </script>
 
 <template>
-  <div class="state-panel" :role="state === 'error' || state === 'forbidden' ? 'alert' : 'status'">
-    <span v-if="state === 'loading'" class="state-panel__loading-mark" aria-hidden="true">
-      <LoaderCircle class="spin" :size="24" />
-    </span>
-    <AlertCircle v-else-if="state === 'error'" :size="26" aria-hidden="true" />
+  <ListSkeleton
+    v-if="state === 'loading'"
+    :label="title"
+    :rows="loadingRows"
+    variant="content"
+  />
+  <div v-else class="state-panel" :role="state === 'error' || state === 'forbidden' ? 'alert' : 'status'">
+    <AlertCircle v-if="state === 'error'" :size="26" aria-hidden="true" />
     <ShieldAlert v-else-if="state === 'forbidden'" :size="26" aria-hidden="true" />
     <Inbox v-else :size="26" aria-hidden="true" />
     <strong>{{ title }}</strong>

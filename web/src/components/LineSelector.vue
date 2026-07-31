@@ -13,6 +13,7 @@ import { CardSim, ChevronDown, ListFilter, Star } from '@lucide/vue'
 import type { CommunicationCapabilityName, LineSummary } from '../api/types'
 import { lineKey, lineLabel, lineSupports } from '../state/workspace'
 import { lineTone } from '../utils/lineTone'
+import LineIdentity from './LineIdentity.vue'
 import PopoverTransition from './PopoverTransition.vue'
 
 type SelectorOption = {
@@ -117,7 +118,9 @@ function toneStyle(line?: LineSummary): Record<string, string> | undefined {
     '--line-tone-border': tone.border
   }
 }
-const selectedToneStyle = computed(() => toneStyle(selectedLine.value))
+const identityVariant = computed<'control' | 'compact' | 'filter'>(() =>
+  props.filterMode ? 'filter' : props.compact ? 'compact' : 'control'
+)
 
 function lineDetails(line: LineSummary, value: string): string {
   const name = lineLabel(line)
@@ -327,10 +330,8 @@ onBeforeUnmount(() => {
       'is-compact': compact,
       'is-filter': filterMode,
       'is-filtered': filterMode && Boolean(selectedLine),
-      'has-line-tone': Boolean(selectedLine),
       'is-all': isAllSelected
     }"
-    :style="selectedToneStyle"
   >
     <span :id="labelID" class="line-selector__label">{{ resolvedLabel }}</span>
     <button
@@ -345,23 +346,17 @@ onBeforeUnmount(() => {
       @click="toggleMenu"
       @keydown="onTriggerKeydown"
     >
-      <span class="line-selector__icon" aria-hidden="true">
-        <ListFilter v-if="isAllSelected" :size="17" />
-        <CardSim v-else :size="compact || filterMode ? 17 : 20" />
-      </span>
-      <span class="line-selector__identity">
-        <span class="line-selector__name-row">
-          <strong>{{ displayName }}</strong>
-          <span v-if="selectedIsDefault" class="line-selector__default">
-            <Star :size="12" fill="currentColor" aria-hidden="true" />
-            {{ t('lines.default') }}
-          </span>
-        </span>
-        <small>
-          <span>{{ displayDetails }}</span>
-          <em v-if="displayStatus">{{ displayStatus }}</em>
-        </small>
-      </span>
+      <LineIdentity
+        class="line-selector__selected"
+        :name="displayName"
+        :details="displayDetails"
+        :line="selectedLine"
+        :status="displayStatus"
+        :is-default="selectedIsDefault"
+        :default-label="t('lines.default')"
+        :all="isAllSelected"
+        :variant="identityVariant"
+      />
       <ChevronDown
         class="line-selector__chevron"
         :class="{ 'is-open': open }"
@@ -443,7 +438,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   min-height: 64px;
   align-items: center;
-  grid-template-columns: 38px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   padding: 8px 12px;
   color: inherit;
@@ -471,79 +466,11 @@ onBeforeUnmount(() => {
   box-shadow: 0 0 0 3px rgb(17 120 100 / 12%);
 }
 
-.line-selector__icon {
-  display: inline-flex;
-  width: 38px;
-  height: 38px;
-  align-items: center;
-  justify-content: center;
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-  border: 1px solid transparent;
-  border-radius: 50%;
-}
-
-.line-selector__identity {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.line-selector__name-row {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 7px;
-}
-
-.line-selector__name-row strong,
-.line-selector__identity small > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.line-selector__name-row strong {
-  min-width: 0;
-  color: var(--text);
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.line-selector__identity small {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.line-selector__identity small > span {
-  min-width: 0;
-}
-
-.line-selector__identity small > em,
 .line-selector__option-copy small > em {
   flex: 0 0 auto;
   color: var(--danger);
   font-style: normal;
   font-weight: 700;
-}
-
-.line-selector__default {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 6px;
-  color: var(--accent-strong);
-  font-size: 12px;
-  font-weight: 700;
-  background: var(--accent-soft);
-  border-radius: 5px;
 }
 
 .line-selector__chevron {
@@ -637,27 +564,16 @@ onBeforeUnmount(() => {
 
 .line-selector.is-compact .line-selector__control {
   min-height: 40px;
-  grid-template-columns: 26px minmax(0, auto) 14px;
+  grid-template-columns: minmax(0, 1fr) 14px;
   gap: 6px;
   padding: 5px 8px;
   border-radius: 6px;
-}
-
-.line-selector.is-compact .line-selector__icon {
-  width: 26px;
-  height: 26px;
-  border-radius: 5px;
 }
 
 .line-selector.is-compact.is-all .line-selector__control {
   color: var(--muted);
   background: var(--surface-subtle);
   border-color: var(--border);
-}
-
-.line-selector.is-compact.is-all .line-selector__icon {
-  color: var(--muted);
-  background: transparent;
 }
 
 .line-selector.is-filter {
@@ -667,8 +583,6 @@ onBeforeUnmount(() => {
 }
 
 .line-selector.is-filter .line-selector__label,
-.line-selector.is-filter .line-selector__identity,
-.line-selector.is-filter .line-selector__default,
 .line-selector.is-filter .line-selector__chevron {
   position: absolute;
   width: 1px;
@@ -692,20 +606,11 @@ onBeforeUnmount(() => {
   border-radius: 6px;
 }
 
-.line-selector.is-filter .line-selector__icon {
-  width: 26px;
-  height: 26px;
-  color: var(--muted);
-  background: transparent;
-  border-radius: 5px;
-}
-
 .line-selector.is-filter.is-filtered .line-selector__control {
   background: var(--surface);
   border-color: var(--line-tone-border);
 }
 
-.line-selector.has-line-tone .line-selector__icon,
 .line-selector__option-icon[style] {
   color: var(--line-tone-color);
   background: var(--line-tone-background);
@@ -716,15 +621,6 @@ onBeforeUnmount(() => {
   right: 0;
   left: auto;
   width: min(300px, calc(100vw - 28px));
-}
-
-.line-selector.is-compact .line-selector__identity strong {
-  font-size: 12px;
-}
-
-.line-selector.is-compact .line-selector__identity small,
-.line-selector.is-compact .line-selector__default {
-  display: none;
 }
 
 .line-selector.is-compact .line-selector__chevron {
@@ -805,18 +701,4 @@ onBeforeUnmount(() => {
   cursor: not-allowed;
 }
 
-@media (max-width: 420px) {
-  .line-selector__name-row {
-    align-items: flex-start;
-  }
-
-  .line-selector__name-row strong {
-    display: -webkit-box;
-    overflow: hidden;
-    white-space: normal;
-    overflow-wrap: anywhere;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-  }
-}
 </style>

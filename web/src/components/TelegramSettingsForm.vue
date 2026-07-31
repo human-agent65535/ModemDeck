@@ -5,11 +5,9 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   Bell,
   CardSim,
-  Check,
   CircleCheck,
   CircleOff,
   KeyRound,
-  ListFilter,
   LoaderCircle,
   MessageSquareText,
   PhoneMissed,
@@ -24,6 +22,7 @@ import type { LineSummary, TelegramUnit, UserAccount } from '../api/types'
 import { ApiError } from '../api/types'
 import { gateway } from '../api/client'
 import { useSettingsMutation } from '../composables/useSettingsMutation'
+import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { showError, showSuccess } from '../state/feedback'
 import { sessionState } from '../state/session'
 import {
@@ -36,9 +35,8 @@ import {
   saveTelegramUnit,
   telegramResource
 } from '../state/workspace'
-import { lineTone } from '../utils/lineTone'
-import LineTag from './LineTag.vue'
 import StatePanel from './StatePanel.vue'
+import SettingsLineScopeList from './settings/SettingsLineScopeList.vue'
 import SettingsMasterDetail from './settings/SettingsMasterDetail.vue'
 import SettingsSaveStatus from './settings/SettingsSaveStatus.vue'
 
@@ -70,6 +68,7 @@ const deleting = ref(false)
 const deleteConfirm = ref(false)
 const saveError = ref('')
 const users = ref<UserAccount[]>([])
+const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
 let suppressSelectedUnitApply = false
 const scopeMutation = useSettingsMutation({
   errorMessage: error =>
@@ -140,6 +139,14 @@ const scopeOptions = computed<TelegramScopeOption[]>(() => {
   }
   return options
 })
+const lineScopeOptions = computed(() =>
+  scopeOptions.value.map(option => ({
+    id: option.id,
+    label: option.label,
+    details: option.phoneNumber || t('lines.cellularLine'),
+    line: option.line
+  }))
+)
 
 function scopedLine(scopeID: string): LineSummary | undefined {
   return lines.value.find(line => lineKey(line) === scopeID)
@@ -161,16 +168,6 @@ function unitScopeSummary(unit: TelegramUnit): string {
     user: unit.assigned_username || t('telegram.unknownUser'),
     lines: summary
   })
-}
-
-function scopeToneStyle(line?: LineSummary): Record<string, string> | undefined {
-  if (!line) return undefined
-  const tone = lineTone(line)
-  return {
-    color: tone.foreground,
-    backgroundColor: tone.background,
-    borderColor: tone.border
-  }
 }
 
 const tokenConfigured = computed(() => selectedUnit.value?.token_configured === true)
@@ -332,11 +329,10 @@ function selectAllLines(): void {
   void persistLineScopes([], previousAllLines, previousScopes)
 }
 
-function toggleLineScope(lineID: string, event: Event): void {
+function toggleLineScope(lineID: string, checked: boolean): void {
   if (scopeSaving.value) return
   const previousAllLines = allLines.value
   const previousScopes = [...lineScopes.value]
-  const checked = (event.currentTarget as HTMLInputElement).checked
   const scopes = checked
     ? [...new Set([...lineScopes.value, lineID])]
     : lineScopes.value.filter(scope => scope !== lineID)
@@ -529,12 +525,14 @@ watch(
 )
 
 onMounted(() => {
-  const usersRequest = isAdmin.value
-    ? gateway.listUsers().then(loaded => {
-        users.value = loaded
-      })
-    : Promise.resolve()
-  void Promise.all([loadTelegramUnits(), loadBootstrap(), usersRequest]).then(() => {
+  void waitForInitialLoad([
+    () => loadTelegramUnits(),
+    () => loadBootstrap(),
+    async () => {
+      if (!isAdmin.value) return
+      users.value = await gateway.listUsers()
+    }
+  ]).then(() => {
     syncSelectionFromRoute()
     applyUnit(selectedUnit.value)
   })
@@ -544,7 +542,11 @@ onMounted(() => {
 
 <template>
   <StatePanel
-    v-if="telegramResource.status === 'loading' || telegramResource.status === 'idle'"
+    v-if="
+      initialLoading ||
+      telegramResource.status === 'loading' ||
+      telegramResource.status === 'idle'
+    "
     state="loading"
     :title="t('telegram.loading')"
   />
@@ -568,6 +570,7 @@ onMounted(() => {
     :sidebar-title="t('telegram.bots')"
     :sidebar-description="t('telegram.count', { count: telegramResource.data.length })"
     :detail-open="mobileDetailOpen"
+    :detail-key="creating ? '__telegram_bot_draft__' : selectedID"
   >
     <template #sidebar-action>
       <button
@@ -663,6 +666,7 @@ onMounted(() => {
           <label class="compact-switch">
             <span>{{ t('telegram.enabled') }}</span>
             <input
+              class="ui-switch ui-switch--compact"
               v-model="enabled"
               type="checkbox"
               role="switch"
@@ -794,60 +798,16 @@ onMounted(() => {
               :error="scopeMutation.error.value"
             />
           </header>
-          <div class="telegram-scope-options">
-            <label class="telegram-scope-option" :class="{ 'is-selected': allLines }">
-              <input
-                :checked="allLines"
-                type="checkbox"
-                :disabled="saving || deleting || scopeSaving"
-                @click.prevent="selectAllLines"
-              />
-              <span class="telegram-scope-option__icon is-all" aria-hidden="true">
-                <ListFilter :size="18" />
-              </span>
-              <span class="telegram-scope-option__copy">
-                <strong>{{ t('telegram.allAssignedLines') }}</strong>
-                <small>{{ t('telegram.allAssignedLinesDescription') }}</small>
-              </span>
-              <Check
-                v-if="allLines"
-                class="telegram-scope-option__check"
-                :size="17"
-                aria-hidden="true"
-              />
-            </label>
-            <label
-              v-for="line in scopeOptions"
-              :key="line.id"
-              class="telegram-scope-option"
-              :class="{ 'is-selected': lineScopes.includes(line.id) }"
-            >
-              <input
-                :checked="lineScopes.includes(line.id)"
-                type="checkbox"
-                :disabled="saving || deleting || scopeSaving"
-                @change="toggleLineScope(line.id, $event)"
-              />
-              <span
-                class="telegram-scope-option__icon"
-                :style="scopeToneStyle(line.line)"
-                aria-hidden="true"
-              >
-                <CardSim :size="18" />
-              </span>
-              <span class="telegram-scope-option__copy">
-                <LineTag v-if="line.line" :line="line.line" :fallback="line.label" />
-                <strong v-else>{{ line.label }}</strong>
-                <small>{{ line.phoneNumber || t('lines.cellularLine') }}</small>
-              </span>
-              <Check
-                v-if="lineScopes.includes(line.id)"
-                class="telegram-scope-option__check"
-                :size="17"
-                aria-hidden="true"
-              />
-            </label>
-          </div>
+          <SettingsLineScopeList
+            :options="lineScopeOptions"
+            :selected-ids="lineScopes"
+            :all-selected="allLines"
+            :all-label="t('telegram.allAssignedLines')"
+            :all-description="t('telegram.allAssignedLinesDescription')"
+            :disabled="saving || deleting || scopeSaving"
+            @select-all="selectAllLines"
+            @toggle-line="toggleLineScope"
+          />
           <p v-if="assignedUser && inheritedLineIDs.length === 0" class="telegram-scope-empty">
             {{ t('telegram.userHasNoLines') }}
           </p>
@@ -1202,8 +1162,7 @@ onMounted(() => {
   margin-bottom: 12px;
 }
 
-.telegram-event-options,
-.telegram-scope-options {
+.telegram-event-options {
   display: grid;
   min-width: 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1264,45 +1223,6 @@ onMounted(() => {
   accent-color: var(--accent);
 }
 
-.telegram-line-scopes {
-  max-height: none;
-  overflow: visible;
-}
-
-.telegram-scope-option {
-  position: relative;
-  display: grid;
-  min-width: 0;
-  min-height: 64px;
-  align-items: center;
-  grid-template-columns: 38px minmax(0, 1fr) 20px;
-  gap: 10px;
-  padding: 9px 10px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  cursor: pointer;
-}
-
-.telegram-scope-option:hover {
-  border-color: var(--border-strong);
-  background: var(--surface-subtle);
-}
-
-.telegram-scope-option.is-selected {
-  background: var(--surface-subtle);
-  border-color: var(--accent);
-}
-
-.telegram-scope-option.is-readonly {
-  cursor: default;
-}
-
-.telegram-scope-option.is-readonly:hover {
-  background: var(--surface-subtle);
-  border-color: var(--accent);
-}
-
 .telegram-scope-empty {
   margin: 0;
   padding: 12px;
@@ -1312,77 +1232,13 @@ onMounted(() => {
   grid-column: 1 / -1;
 }
 
-.telegram-scope-option:has(input:focus-visible) {
-  outline: 3px solid rgb(17 120 100 / 14%);
-  outline-offset: 1px;
-}
-
-.telegram-scope-option > input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.telegram-scope-option__icon {
-  display: inline-flex;
-  width: 36px;
-  height: 36px;
-  align-items: center;
-  justify-content: center;
-  color: var(--muted);
-  background: var(--surface-subtle);
-  border: 1px solid var(--border);
-  border-radius: 50%;
-}
-
-.telegram-scope-option__icon.is-all {
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-  border-color: #c8e5de;
-}
-
-.telegram-scope-option__copy {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-}
-
-.telegram-scope-option__copy > strong,
-.telegram-scope-option__copy > small {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.telegram-scope-option__copy > strong {
-  color: var(--text);
-  font-size: 12px;
-}
-
-.telegram-scope-option__copy > small {
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.telegram-scope-option__check {
-  color: var(--accent-strong);
-}
-
 .settings-form-actions {
   margin-top: 0;
 }
 
 @media (max-width: 860px) {
   .telegram-event-options,
-  .telegram-access-options,
-  .telegram-scope-options {
+  .telegram-access-options {
     grid-template-columns: 1fr;
   }
 }
@@ -1401,16 +1257,14 @@ onMounted(() => {
   }
 
   .telegram-event-options,
-  .telegram-access-options,
-  .telegram-scope-options {
+  .telegram-access-options {
     grid-template-columns: minmax(0, 1fr);
   }
 }
 
 @container (max-width: 700px) {
   .telegram-bot-identity .settings-form-grid,
-  .telegram-event-options,
-  .telegram-scope-options {
+  .telegram-event-options {
     grid-template-columns: minmax(0, 1fr);
   }
 }

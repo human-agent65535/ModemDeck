@@ -214,9 +214,10 @@ test('dial refuses a reserved line before invoking the gateway', async () => {
 })
 
 test('dialer keeps reservations as line status without making them call surfaces', async () => {
-  const [dialer, selector] = await Promise.all([
+  const [dialer, selector, lineIdentity] = await Promise.all([
     readFile(new URL('../src/components/DialerPanel.vue', import.meta.url), 'utf8'),
-    readFile(new URL('../src/components/LineSelector.vue', import.meta.url), 'utf8')
+    readFile(new URL('../src/components/LineSelector.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/LineIdentity.vue', import.meta.url), 'utf8')
   ])
 
   assert.match(dialer, /collectOccupiedLineIDs\(\)/)
@@ -249,6 +250,7 @@ test('dialer keeps reservations as line status without making them call surfaces
   assert.match(selector, /:aria-disabled="option\.disabled"/)
   assert.match(selector, /if \(option\.disabled\) return/)
   assert.match(selector, /statusValueSet\.value\.has\(value\)/)
-  assert.match(selector, /<em v-if="displayStatus">\{\{ displayStatus \}\}<\/em>/)
-  assert.match(selector, /\.line-selector__identity small > em,[\s\S]*color: var\(--danger\);/)
+  assert.match(selector, /:status="displayStatus"/)
+  assert.match(lineIdentity, /<em v-if="status">\{\{ status \}\}<\/em>/)
+  assert.match(lineIdentity, /\.line-identity__copy small > em \{[\s\S]*color: var\(--danger\);/)
 })

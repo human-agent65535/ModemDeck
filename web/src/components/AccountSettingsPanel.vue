@@ -5,7 +5,6 @@ import { sessionState } from '../state/session'
 import AccountProfileSetting from './AccountProfileSetting.vue'
 import AccountSecurityForm from './AccountSecurityForm.vue'
 import DefaultLineSettingsForm from './DefaultLineSettingsForm.vue'
-import RecordingSettingsForm from './RecordingSettingsForm.vue'
 import SystemSettingsForm from './SystemSettingsForm.vue'
 
 const { t } = useI18n()
@@ -13,10 +12,12 @@ const props = withDefaults(
   defineProps<{
     showIdentity?: boolean
     showProfile?: boolean
+    showLanguage?: boolean
   }>(),
   {
     showIdentity: true,
-    showProfile: true
+    showProfile: true,
+    showLanguage: true
   }
 )
 const emit = defineEmits<{
@@ -54,8 +55,7 @@ const emit = defineEmits<{
 
     <div class="account-preferences">
       <DefaultLineSettingsForm />
-      <SystemSettingsForm />
-      <RecordingSettingsForm />
+      <SystemSettingsForm v-if="props.showLanguage" />
     </div>
 
     <AccountSecurityForm />
@@ -74,8 +74,7 @@ const emit = defineEmits<{
   gap: 22px;
 }
 
-.account-preferences :deep(.system-settings),
-.account-preferences :deep(.recording-settings) {
+.account-preferences :deep(.settings-preference-row) {
   max-width: none;
 }
 
