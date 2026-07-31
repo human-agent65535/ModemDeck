@@ -29,7 +29,7 @@ test('authenticated app startup requests microphone access once and releases the
   assert.doesNotMatch(login, /initializeBrowserAudio|shutdownAudioDevices|getUserMedia/)
   assert.match(
     shell,
-    /onMounted\(\(\) => \{[\s\S]*?if \(accountRestricted\.value\) return\s*void initializeBrowserAudio\(\)/
+    /onMounted\(\(\) => \{[\s\S]*?void initializeBrowserAudio\(\)/
   )
   assert.match(
     shell,
@@ -116,10 +116,7 @@ test('desktop shell has one permanent dialer and dashboard renders every modem r
     shell.indexOf('<IncomingCallModeControl v-if="sessionState.role === \'admin\'" />') <
       shell.indexOf('<AudioSettingsMenu />')
   )
-  assert.match(
-    shell,
-    /<DialerPanel v-if="!accountRestricted" :permanent="permanentDialer" \/>/
-  )
+  assert.match(shell, /<DialerPanel :permanent="permanentDialer" \/>/)
   assert.doesNotMatch(shell, /dialer-fab|Grid3X3/)
   assert.match(shell, /:aria-pressed="uiState\.dialerOpen \|\| activeCallPresent"/)
   assert.doesNotMatch(shell, /<CallSurface/)

@@ -492,7 +492,6 @@ func telegramPrincipalsEqual(left, right *auth.Principal) bool {
 		left.Username == right.Username &&
 		left.Role == right.Role &&
 		left.ProfileContactID == right.ProfileContactID &&
-		left.MustChangePassword == right.MustChangePassword &&
 		slices.Equal(left.AllowedLineIDs, right.AllowedLineIDs)
 }
 

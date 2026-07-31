@@ -74,10 +74,9 @@ func (s *Store) CreateAdminIfAbsent(
 	if _, err := transaction.ExecContext(
 		ctx,
 		`INSERT INTO modemdeck_users (
-			id, username, password_hash, role, enabled, must_change_password,
-			ios_pairing_enabled
+			id, username, password_hash, role, enabled, ios_pairing_enabled
 		 )
-		 VALUES (?, ?, ?, 'admin', 1, 0, 1)`,
+		 VALUES (?, ?, ?, 'admin', 1, 1)`,
 		auth.InitialAdminUserID,
 		credentials.Username,
 		credentials.PasswordHash,
@@ -310,7 +309,7 @@ func (s *Store) UserCredentialsByUsername(
 ) (auth.UserCredentials, bool, error) {
 	return s.userCredentials(
 		ctx,
-		`SELECT id, username, password_hash, role, enabled, must_change_password
+		`SELECT id, username, password_hash, role, enabled
 		 FROM modemdeck_users
 		 WHERE username = ? COLLATE NOCASE`,
 		username,
@@ -323,7 +322,7 @@ func (s *Store) UserCredentialsByID(
 ) (auth.UserCredentials, bool, error) {
 	return s.userCredentials(
 		ctx,
-		`SELECT id, username, password_hash, role, enabled, must_change_password
+		`SELECT id, username, password_hash, role, enabled
 		 FROM modemdeck_users
 		 WHERE id = ?`,
 		userID,
@@ -339,7 +338,6 @@ func (s *Store) userCredentials(
 		credentials auth.UserCredentials
 		role        string
 		enabled     int64
-		mustChange  int64
 	)
 	err := s.database.QueryRowContext(ctx, statement, argument).Scan(
 		&credentials.ID,
@@ -347,7 +345,6 @@ func (s *Store) userCredentials(
 		&credentials.PasswordHash,
 		&role,
 		&enabled,
-		&mustChange,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return auth.UserCredentials{}, false, nil
@@ -357,7 +354,6 @@ func (s *Store) userCredentials(
 	}
 	credentials.Role = auth.Role(role)
 	credentials.Enabled = enabled != 0
-	credentials.MustChangePassword = mustChange != 0
 	return credentials, true, nil
 }
 
@@ -442,7 +438,6 @@ func (s *Store) UserSessionByTokenDigest(
 		sessionDigest []byte
 		csrfDigest    []byte
 		role          string
-		mustChange    int64
 		iosPairing    int64
 		createdAt     int64
 		expiresAt     int64
@@ -457,7 +452,6 @@ func (s *Store) UserSessionByTokenDigest(
 			session.expires_at_unix,
 			user.username,
 			user.role,
-			user.must_change_password,
 			user.ios_pairing_enabled,
 			COALESCE(profile.contact_id, '')
 		 FROM modemdeck_auth_sessions AS session
@@ -475,7 +469,6 @@ func (s *Store) UserSessionByTokenDigest(
 		&expiresAt,
 		&principal.Username,
 		&role,
-		&mustChange,
 		&iosPairing,
 		&principal.ProfileContactID,
 	)
@@ -495,7 +488,6 @@ func (s *Store) UserSessionByTokenDigest(
 	record.ExpiresAt = time.Unix(expiresAt, 0).UTC()
 	principal.UserID = record.UserID
 	principal.Role = auth.Role(role)
-	principal.MustChangePassword = mustChange != 0
 	principal.IOSPairingEnabled = iosPairing != 0
 
 	rows, err := s.database.QueryContext(
@@ -539,7 +531,6 @@ func (s *Store) ReplaceUserPasswordHashIfCurrentAndRevokeSessions(
 		ctx,
 		`UPDATE modemdeck_users
 		 SET password_hash = ?,
-			must_change_password = 0,
 			revision = revision + 1,
 			updated_at = CURRENT_TIMESTAMP
 		 WHERE id = ? AND enabled = 1 AND password_hash = ?`,

@@ -4,6 +4,10 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { LoaderCircle, LogIn, UserRoundPlus } from '@lucide/vue'
 import { login, sessionState, setup as setupAdministrator } from '../state/session'
+import {
+  minimumPasswordCharacters,
+  passwordCharacterCount
+} from '../utils/password'
 
 const route = useRoute()
 const router = useRouter()
@@ -42,8 +46,13 @@ async function submit(): Promise<void> {
       : t('auth.enterCredentials')
     return
   }
-  if (isSetup.value && new TextEncoder().encode(password.value).length < 12) {
-    submitError.value = t('auth.setupPasswordTooShort', { count: 12 })
+  if (
+    isSetup.value &&
+    passwordCharacterCount(password.value) < minimumPasswordCharacters
+  ) {
+    submitError.value = t('auth.setupPasswordTooShort', {
+      count: minimumPasswordCharacters
+    })
     return
   }
   if (isSetup.value && password.value !== confirmation.value) {

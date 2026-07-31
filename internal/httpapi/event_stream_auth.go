@@ -9,8 +9,7 @@ import (
 )
 
 var (
-	errCurrentStreamPasswordChangeRequired = errors.New("current session requires a password change")
-	errCurrentStreamAdminRequired          = errors.New("current session is not an administrator")
+	errCurrentStreamAdminRequired = errors.New("current session is not an administrator")
 )
 
 func (api *API) authorizeEventStream(
@@ -26,16 +25,6 @@ func (api *API) authorizeEventStream(
 				http.StatusUnauthorized,
 				"authentication_required",
 				"Authentication is required",
-				"",
-			)
-			return false
-		}
-		if principal.MustChangePassword {
-			writeError(
-				response,
-				http.StatusForbidden,
-				"password_change_required",
-				"Change your temporary password before continuing",
 				"",
 			)
 			return false
@@ -60,16 +49,6 @@ func (api *API) authorizeEventStream(
 		return false
 	}
 	principal, scoped := authentication.Principal()
-	if scoped && principal.MustChangePassword {
-		writeError(
-			response,
-			http.StatusForbidden,
-			"password_change_required",
-			"Change your temporary password before continuing",
-			"",
-		)
-		return false
-	}
 	if requireAdmin && scoped && !principal.IsAdmin() {
 		writeError(
 			response,
@@ -90,9 +69,6 @@ func (api *API) currentStreamAccess(
 	principal, scoped, err := api.currentStreamPrincipal(request)
 	if err != nil {
 		return auth.Principal{}, false, err
-	}
-	if scoped && principal.MustChangePassword {
-		return auth.Principal{}, false, errCurrentStreamPasswordChangeRequired
 	}
 	if requireAdmin && scoped && !principal.IsAdmin() {
 		return auth.Principal{}, false, errCurrentStreamAdminRequired

@@ -5,9 +5,12 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { ApiError } from '../api/types'
 import { changePassword } from '../state/session'
-
-const minimumPasswordBytes = 12
-const maximumPasswordBytes = 1024
+import {
+  maximumPasswordBytes,
+  minimumPasswordCharacters,
+  passwordByteCount,
+  passwordCharacterCount
+} from '../utils/password'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -25,19 +28,14 @@ const canSubmit = computed(
     !saving.value
 )
 
-function passwordBytes(value: string): number {
-  return new TextEncoder().encode(value).length
-}
-
 function validationError(): string {
   if (!currentPassword.value || !newPassword.value || !confirmation.value) {
     return t('account.completePasswordFields')
   }
-  const byteLength = passwordBytes(newPassword.value)
-  if (byteLength < minimumPasswordBytes) {
-    return t('account.passwordTooShort', { count: minimumPasswordBytes })
+  if (passwordCharacterCount(newPassword.value) < minimumPasswordCharacters) {
+    return t('account.passwordTooShort', { count: minimumPasswordCharacters })
   }
-  if (byteLength > maximumPasswordBytes) {
+  if (passwordByteCount(newPassword.value) > maximumPasswordBytes) {
     return t('account.passwordTooLong', { count: maximumPasswordBytes })
   }
   if (newPassword.value.includes('\0')) {
@@ -58,7 +56,9 @@ function apiErrorMessage(cause: unknown): string {
   }
   const messages: Record<string, string> = {
     invalid_current_password: t('account.currentPasswordIncorrect'),
-    password_too_short: t('account.passwordTooShort', { count: minimumPasswordBytes }),
+    password_too_short: t('account.passwordTooShort', {
+      count: minimumPasswordCharacters
+    }),
     password_too_long: t('account.passwordTooLong', { count: maximumPasswordBytes }),
     password_invalid: t('account.passwordInvalid'),
     password_unchanged: t('account.passwordUnchanged')

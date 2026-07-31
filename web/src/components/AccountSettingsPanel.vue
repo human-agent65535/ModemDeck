@@ -51,7 +51,7 @@ async function saveProfile(): Promise<void> {
 }
 
 onMounted(() => {
-  if (!sessionState.mustChangePassword) void loadContacts()
+  void loadContacts()
 })
 </script>
 
@@ -74,12 +74,7 @@ onMounted(() => {
       </span>
     </section>
 
-    <div v-if="sessionState.mustChangePassword" class="account-required" role="alert">
-      {{ t('account.passwordChangeRequired') }}
-    </div>
-
     <section
-      v-else
       class="account-profile"
       aria-labelledby="account-profile-title"
     >
@@ -137,10 +132,7 @@ onMounted(() => {
       </p>
     </section>
 
-    <div
-      v-if="!sessionState.mustChangePassword"
-      class="account-preferences"
-    >
+    <div class="account-preferences">
       <DefaultLineSettingsForm />
       <SystemSettingsForm />
       <RecordingSettingsForm />
@@ -215,15 +207,6 @@ onMounted(() => {
   font-weight: 700;
   background: var(--accent-soft);
   border-radius: 999px;
-}
-
-.account-required {
-  padding: 12px 14px;
-  color: #7a4b00;
-  font-size: 12px;
-  background: #fff6dd;
-  border: 1px solid #e9cf93;
-  border-radius: 8px;
 }
 
 .account-profile > header {

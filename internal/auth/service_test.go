@@ -200,21 +200,21 @@ func TestChangePasswordValidationAndFailures(t *testing.T) {
 	}
 }
 
-func TestValidateTemporaryPasswordCountsCharacters(t *testing.T) {
+func TestValidateNewPasswordCountsCharacters(t *testing.T) {
 	t.Parallel()
 
 	for _, password := range []string{"1234567", "密码密码密码密"} {
-		if err := ValidateTemporaryPassword(password); !errors.Is(err, ErrPasswordTooShort) {
-			t.Fatalf("ValidateTemporaryPassword(%q) error = %v, want too short", password, err)
+		if err := ValidateNewPassword(password); !errors.Is(err, ErrPasswordTooShort) {
+			t.Fatalf("ValidateNewPassword(%q) error = %v, want too short", password, err)
 		}
 	}
 	for _, password := range []string{"12345678", "密码密码密码密码"} {
-		if err := ValidateTemporaryPassword(password); err != nil {
-			t.Fatalf("ValidateTemporaryPassword(%q) error = %v", password, err)
+		if err := ValidateNewPassword(password); err != nil {
+			t.Fatalf("ValidateNewPassword(%q) error = %v", password, err)
 		}
 	}
-	if err := ValidateTemporaryPassword("1234567\x00"); !errors.Is(err, ErrPasswordInvalid) {
-		t.Fatalf("ValidateTemporaryPassword(NUL) error = %v, want invalid", err)
+	if err := ValidateNewPassword("1234567\x00"); !errors.Is(err, ErrPasswordInvalid) {
+		t.Fatalf("ValidateNewPassword(NUL) error = %v, want invalid", err)
 	}
 }
 

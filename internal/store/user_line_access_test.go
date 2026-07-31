@@ -129,17 +129,24 @@ func TestDisablingMemberRevokesActiveSessions(t *testing.T) {
 	}
 }
 
-func TestSettingMemberPasswordCompletesSetupAndRevokesSessions(t *testing.T) {
+func TestCreatedAndResetMemberPasswordsAreImmediatelyUsable(t *testing.T) {
 	t.Parallel()
 
 	repository, _ := newContactTestStore(t)
 	ctx := context.Background()
 	member, err := repository.CreateMember(ctx, CreateMemberInput{
 		Username:     "member",
-		PasswordHash: "temporary-hash",
+		PasswordHash: "initial-hash",
 	})
 	if err != nil {
 		t.Fatalf("CreateMember() error = %v", err)
+	}
+	credentials, found, err := repository.UserCredentialsByID(ctx, member.ID)
+	if err != nil || !found {
+		t.Fatalf("UserCredentialsByID() after create = %#v, %v, %v", credentials, found, err)
+	}
+	if credentials.PasswordHash != "initial-hash" {
+		t.Fatalf("created member credentials = %#v", credentials)
 	}
 	createdAt := time.Date(2026, 7, 30, 13, 0, 0, 0, time.UTC)
 	session := auth.UserSessionRecord{
@@ -151,7 +158,7 @@ func TestSettingMemberPasswordCompletesSetupAndRevokesSessions(t *testing.T) {
 	}
 	if created, createErr := repository.CreateUserSessionIfPasswordHash(
 		ctx,
-		"temporary-hash",
+		"initial-hash",
 		session,
 	); createErr != nil || !created {
 		t.Fatalf("CreateUserSessionIfPasswordHash() = %v, %v", created, createErr)
@@ -160,11 +167,11 @@ func TestSettingMemberPasswordCompletesSetupAndRevokesSessions(t *testing.T) {
 	if err := repository.SetMemberPassword(ctx, member.ID, "new-hash"); err != nil {
 		t.Fatalf("SetMemberPassword() error = %v", err)
 	}
-	credentials, found, err := repository.UserCredentialsByID(ctx, member.ID)
+	credentials, found, err = repository.UserCredentialsByID(ctx, member.ID)
 	if err != nil || !found {
 		t.Fatalf("UserCredentialsByID() = %#v, %v, %v", credentials, found, err)
 	}
-	if credentials.PasswordHash != "new-hash" || credentials.MustChangePassword {
+	if credentials.PasswordHash != "new-hash" {
 		t.Fatalf("updated member credentials = %#v", credentials)
 	}
 	if _, _, found, lookupErr := repository.UserSessionByTokenDigest(

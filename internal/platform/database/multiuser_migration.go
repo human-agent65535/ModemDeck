@@ -284,6 +284,29 @@ func migrateMultiUserSchema(
 	return true, nil
 }
 
+func clearDeprecatedPasswordChangeRequirements(
+	ctx context.Context,
+	database *sql.DB,
+	actual schemaShape,
+) error {
+	columns, exists := actual.tables["modemdeck_users"]
+	if !exists {
+		return nil
+	}
+	if _, exists := columns["must_change_password"]; !exists {
+		return nil
+	}
+	if _, err := database.ExecContext(
+		ctx,
+		`UPDATE modemdeck_users
+		 SET must_change_password = 0
+		 WHERE must_change_password <> 0`,
+	); err != nil {
+		return fmt.Errorf("clear deprecated password change requirements: %w", err)
+	}
+	return nil
+}
+
 func migrateUserPreferenceRevision(
 	ctx context.Context,
 	database *sql.DB,

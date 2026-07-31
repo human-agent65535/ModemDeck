@@ -546,6 +546,51 @@ func TestOpenMigratesSingleUserDataToInitialAdministrator(t *testing.T) {
 	}
 }
 
+func TestOpenClearsDeprecatedPasswordChangeRequirement(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "password-policy.db")
+	database, err := Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO modemdeck_users (
+			id, username, password_hash, role, enabled, must_change_password
+		) VALUES (
+			'user_member_password_policy',
+			'member-password-policy',
+			'password-hash',
+			'member',
+			1,
+			1
+		)
+	`); err != nil {
+		t.Fatalf("insert legacy password requirement: %v", err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatalf("close database: %v", err)
+	}
+
+	database, err = Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	var mustChangePassword bool
+	if err := database.QueryRow(`
+		SELECT must_change_password
+		FROM modemdeck_users
+		WHERE id = 'user_member_password_policy'
+	`).Scan(&mustChangePassword); err != nil {
+		t.Fatalf("read migrated password requirement: %v", err)
+	}
+	if mustChangePassword {
+		t.Fatal("deprecated password change requirement was not cleared")
+	}
+}
+
 func TestOpenMigratesDeviceAliasToNameAndPreservesValue(t *testing.T) {
 	t.Parallel()
 

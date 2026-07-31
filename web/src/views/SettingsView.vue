@@ -130,7 +130,6 @@ const sections = computed<SettingsSectionDefinition[]>(() => {
     description: t('settings.aboutDescription'),
     icon: Info
   }
-  if (sessionState.mustChangePassword) return personal.slice(0, 1)
   if (sessionState.role !== 'admin') return [...personal, about]
   return [
     ...personal,
@@ -187,10 +186,6 @@ watch(
 )
 
 async function loadExternalAccessVisibility(): Promise<void> {
-  if (sessionState.mustChangePassword) {
-    externalAccessResolved.value = true
-    return
-  }
   try {
     const result = await gateway.getIOSPairing()
     externalAccessEnabled.value = result.pairing.cloudflare.enabled
@@ -232,7 +227,6 @@ async function logout(): Promise<void> {
 }
 
 onMounted(() => {
-  if (sessionState.mustChangePassword) return
   void Promise.all([
     loadBootstrap(),
     loadDevices(),
@@ -247,7 +241,6 @@ onMounted(() => {
       <header class="pane-header"><h1>{{ t('settings.title') }}</h1></header>
       <div class="item-list settings-list">
         <button
-          v-if="!sessionState.mustChangePassword"
           class="list-item settings-overview-link"
           type="button"
           @click="openDashboard"
@@ -318,7 +311,7 @@ onMounted(() => {
 
         <div v-if="selectedSection === 'account'" class="settings-content">
           <UserSettingsPanel
-            v-if="sessionState.role === 'admin' && !sessionState.mustChangePassword"
+            v-if="sessionState.role === 'admin'"
           />
           <AccountSettingsPanel v-else />
         </div>

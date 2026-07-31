@@ -385,18 +385,6 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	if !api.authorizeAPI(response, request) {
 		return
 	}
-	if principal, exists := auth.PrincipalFromContext(request.Context()); exists &&
-		principal.MustChangePassword &&
-		request.URL.Path != "/api/v1/account/password" {
-		writeError(
-			response,
-			http.StatusForbidden,
-			"password_change_required",
-			"Change your temporary password before continuing",
-			"",
-		)
-		return
-	}
 	if adminOnlyAPIPath(request.URL.Path, request.Method) &&
 		!api.requireAdmin(response, request) {
 		return

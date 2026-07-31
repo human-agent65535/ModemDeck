@@ -23,10 +23,9 @@ func (s *Store) IOSPairingPrincipalByTokenDigest(
 	digest mobilepairing.TokenDigest,
 ) (auth.Principal, bool, error) {
 	var (
-		principal  auth.Principal
-		role       string
-		mustChange int64
-		pairing    int64
+		principal auth.Principal
+		role      string
+		pairing   int64
 	)
 	err := s.database.QueryRowContext(
 		ctx,
@@ -34,7 +33,6 @@ func (s *Store) IOSPairingPrincipalByTokenDigest(
 			user.id,
 			user.username,
 			user.role,
-			user.must_change_password,
 			user.ios_pairing_enabled,
 			COALESCE(profile.contact_id, '')
 		 FROM modemdeck_ios_pairing_credentials AS credential
@@ -50,7 +48,6 @@ func (s *Store) IOSPairingPrincipalByTokenDigest(
 		&principal.UserID,
 		&principal.Username,
 		&role,
-		&mustChange,
 		&pairing,
 		&principal.ProfileContactID,
 	)
@@ -64,7 +61,6 @@ func (s *Store) IOSPairingPrincipalByTokenDigest(
 		)
 	}
 	principal.Role = auth.Role(role)
-	principal.MustChangePassword = mustChange != 0
 	principal.IOSPairingEnabled = pairing != 0
 
 	rows, err := s.database.QueryContext(

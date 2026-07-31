@@ -15,6 +15,8 @@ import (
 
 type fakeUserRepository struct {
 	*fakeRepository
+	createInput store.CreateMemberInput
+	createUser  store.User
 	users       []store.User
 	updateID    string
 	updateInput store.UpdateMemberInput
@@ -27,10 +29,11 @@ func (repository *fakeUserRepository) Users(context.Context) ([]store.User, erro
 }
 
 func (repository *fakeUserRepository) CreateMember(
-	context.Context,
-	store.CreateMemberInput,
+	_ context.Context,
+	input store.CreateMemberInput,
 ) (store.User, error) {
-	return store.User{}, nil
+	repository.createInput = input
+	return repository.createUser, nil
 }
 
 func (repository *fakeUserRepository) UpdateMember(
@@ -49,6 +52,73 @@ func (*fakeUserRepository) SetMemberPassword(context.Context, string, string) er
 
 func (*fakeUserRepository) SetProfileContact(context.Context, string) error {
 	return nil
+}
+
+func TestCreateMemberAcceptsEightCharacterFinalPassword(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeUserRepository{
+		fakeRepository: &fakeRepository{},
+		createUser: store.User{
+			ID:       "member-1",
+			Username: "alice",
+			Role:     auth.RoleMember,
+			Enabled:  true,
+			Revision: 1,
+			LineIDs:  []string{},
+		},
+	}
+	api, err := New(repository, Options{disableAuthentication: true})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/users",
+		bytes.NewBufferString(`{
+			"username":"alice",
+			"password":"密码密码密码密码",
+			"line_ids":[]
+		}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	matches, err := auth.VerifyPassword(
+		"密码密码密码密码",
+		repository.createInput.PasswordHash,
+	)
+	if err != nil || !matches {
+		t.Fatalf("created password matches = %t, error = %v", matches, err)
+	}
+	if !bytes.Contains(response.Body.Bytes(), []byte(`"must_change_password":false`)) {
+		t.Fatalf("response did not disable deprecated password-change state: %s", response.Body.String())
+	}
+
+	shortRequest := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/users",
+		bytes.NewBufferString(`{
+			"username":"bob",
+			"password":"密码密码密码密",
+			"line_ids":[]
+		}`),
+	)
+	shortRequest.Header.Set("Content-Type", "application/json")
+	shortResponse := httptest.NewRecorder()
+	api.ServeHTTP(shortResponse, shortRequest)
+	if shortResponse.Code != http.StatusUnprocessableEntity {
+		t.Fatalf(
+			"short password status = %d; body = %s",
+			shortResponse.Code,
+			shortResponse.Body.String(),
+		)
+	}
 }
 
 func TestMemberAccessUpdateReloadsTelegramRuntimeAfterCommit(t *testing.T) {

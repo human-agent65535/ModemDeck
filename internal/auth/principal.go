@@ -15,13 +15,12 @@ const (
 )
 
 type Principal struct {
-	UserID             string
-	Username           string
-	Role               Role
-	ProfileContactID   string
-	MustChangePassword bool
-	IOSPairingEnabled  bool
-	AllowedLineIDs     []string
+	UserID            string
+	Username          string
+	Role              Role
+	ProfileContactID  string
+	IOSPairingEnabled bool
+	AllowedLineIDs    []string
 }
 
 func (p Principal) IsAdmin() bool {
@@ -58,12 +57,11 @@ func PrincipalFromContext(ctx context.Context) (Principal, bool) {
 }
 
 type UserCredentials struct {
-	ID                 string
-	Username           string
-	PasswordHash       string
-	Role               Role
-	Enabled            bool
-	MustChangePassword bool
+	ID           string
+	Username     string
+	PasswordHash string
+	Role         Role
+	Enabled      bool
 }
 
 type UserSessionRecord struct {

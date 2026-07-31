@@ -23,6 +23,10 @@ import {
   lineLabel,
   loadBootstrap
 } from '../state/workspace'
+import {
+  minimumPasswordCharacters,
+  passwordCharacterCount
+} from '../utils/password'
 import BaseAvatar from './BaseAvatar.vue'
 import AccountSettingsPanel from './AccountSettingsPanel.vue'
 import LineTag from './LineTag.vue'
@@ -37,7 +41,7 @@ const loadError = ref('')
 const selectedID = ref('')
 const creating = ref(false)
 const username = ref('')
-const temporaryPassword = ref('')
+const password = ref('')
 const enabled = ref(true)
 const iosPairingEnabled = ref(false)
 const lineIDs = ref<string[]>([])
@@ -71,13 +75,13 @@ const selectedUser = computed(() =>
   users.value.find(user => user.id === selectedID.value)
 )
 const editableUser = computed(() => selectedUser.value)
-const temporaryPasswordCharacters = computed(
-  () => Array.from(temporaryPassword.value).length
-)
 const validationError = computed(() => {
   if (!username.value.trim()) return t('users.enterUsername')
-  if (creating.value && temporaryPasswordCharacters.value < 8) {
-    return t('users.passwordTooShort', { count: 8 })
+  if (
+    creating.value &&
+    passwordCharacterCount(password.value) < minimumPasswordCharacters
+  ) {
+    return t('users.passwordTooShort', { count: minimumPasswordCharacters })
   }
   return ''
 })
@@ -97,7 +101,7 @@ function userLineSummary(user: UserAccount): string {
 
 function applyUser(user?: UserAccount): void {
   username.value = user?.username || ''
-  temporaryPassword.value = ''
+  password.value = ''
   enabled.value = user?.enabled ?? true
   iosPairingEnabled.value = user?.ios_pairing_enabled ?? false
   lineIDs.value = [...(user?.line_ids || [])]
@@ -177,7 +181,7 @@ async function submit(): Promise<void> {
     const user = creating.value
       ? await gateway.createMember({
           username: username.value,
-          password: temporaryPassword.value,
+          password: password.value,
           ios_pairing_enabled: iosPairingEnabled.value,
           line_ids: lineIDs.value
         })
@@ -226,8 +230,10 @@ async function submit(): Promise<void> {
 async function setMemberPassword(): Promise<void> {
   const user = editableUser.value
   if (!user || settingPassword.value) return
-  if (new TextEncoder().encode(newPassword.value).length < 12) {
-    saveError.value = t('account.passwordTooShort', { count: 12 })
+  if (passwordCharacterCount(newPassword.value) < minimumPasswordCharacters) {
+    saveError.value = t('account.passwordTooShort', {
+      count: minimumPasswordCharacters
+    })
     return
   }
   settingPassword.value = true
@@ -269,7 +275,7 @@ function syncSelectionFromRoute(): void {
 }
 
 watch(
-  [username, enabled, iosPairingEnabled, lineIDs, temporaryPassword, newPassword],
+  [username, enabled, iosPairingEnabled, lineIDs, password, newPassword],
   () => {
     if (saving.value || settingPassword.value) return
     saved.value = false
@@ -422,14 +428,20 @@ onMounted(() => {
             </small>
           </label>
           <label v-if="creating" class="field">
-            <span>{{ t('users.temporaryPassword') }}</span>
+            <span>{{ t('auth.password') }}</span>
             <input
-              v-model="temporaryPassword"
+              v-model="password"
               type="password"
               autocomplete="new-password"
               :disabled="saving"
             />
-            <small>{{ t('users.passwordHint', { count: 8 }) }}</small>
+            <small>
+              {{
+                t('users.passwordHint', {
+                  count: minimumPasswordCharacters
+                })
+              }}
+            </small>
           </label>
         </div>
 

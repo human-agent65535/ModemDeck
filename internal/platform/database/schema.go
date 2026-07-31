@@ -64,6 +64,9 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 			return err
 		}
 	}
+	if err := clearDeprecatedPasswordChangeRequirements(ctx, database, actual); err != nil {
+		return err
+	}
 	migratedUserPreferenceRevision, err := migrateUserPreferenceRevision(
 		ctx,
 		database,

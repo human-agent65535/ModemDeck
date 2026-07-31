@@ -16,7 +16,6 @@ const member = {
   username: 'member',
   role: 'member',
   enabled: true,
-  must_change_password: true,
   ios_pairing_enabled: true,
   revision: 2,
   profile_name: 'Member Name',
@@ -32,13 +31,13 @@ test('user contracts retain role, personal profile, and assigned-line state', ()
   assert.deepEqual(
     createMemberPayload({
       username: '  new-member  ',
-      password: 'temporary password',
+      password: 'initial password',
       ios_pairing_enabled: true,
       line_ids: [' line_alpha ', 'line_beta']
     }),
     {
       username: 'new-member',
-      password: 'temporary password',
+      password: 'initial password',
       ios_pairing_enabled: true,
       line_ids: ['line_alpha', 'line_beta']
     }
@@ -132,7 +131,7 @@ test('multi-user UI exposes only authorized settings and communication areas', a
     ])
 
   assert.match(settings, /sessionState\.role !== 'admin'/)
-  assert.match(settings, /sessionState\.mustChangePassword\) return personal\.slice\(0, 1\)/)
+  assert.doesNotMatch(settings, /mustChangePassword/)
   assert.doesNotMatch(settings, /id: 'users'/)
   assert.doesNotMatch(settings, /id: 'system'/)
   assert.doesNotMatch(settings, /id: 'recording'/)
@@ -142,10 +141,10 @@ test('multi-user UI exposes only authorized settings and communication areas', a
   assert.match(users, /gateway\.createMember/)
   assert.match(users, /gateway\.updateMember/)
   assert.match(users, /gateway\.setMemberPassword/)
-  assert.match(users, /temporaryPasswordCharacters/)
-  assert.match(users, /temporaryPasswordCharacters\.value < 8/)
-  assert.match(users, /t\('users\.passwordHint', \{ count: 8 \}\)/)
-  assert.match(users, /t\('account\.passwordTooShort', \{ count: 12 \}\)/)
+  assert.match(users, /minimumPasswordCharacters/)
+  assert.match(users, /passwordCharacterCount\(password\.value\)/)
+  assert.match(users, /passwordCharacterCount\(newPassword\.value\)/)
+  assert.doesNotMatch(users, /temporaryPassword/)
   assert.doesNotMatch(users, /recordingDefaultEnabled|languageOptions|preferences: \{/)
   assert.match(users, /<AccountSettingsPanel/)
   assert.match(users, /selectedUser\?\.id === sessionState\.userID/)
@@ -162,16 +161,20 @@ test('multi-user UI exposes only authorized settings and communication areas', a
   assert.match(telegram, /assigned_user_id: assignedUserID\.value/)
   assert.match(shell, /sessionState\.role === 'admin'/)
   assert.match(shell, /\{ name: 'traffic', label: t\('shell\.traffic'\)/)
-  assert.match(shell, /<DialerPanel v-if="!accountRestricted"/)
+  assert.match(shell, /<DialerPanel :permanent="permanentDialer"/)
+  assert.doesNotMatch(shell, /accountRestricted|mustChangePassword/)
+  assert.doesNotMatch(router, /mustChangePassword/)
   assert.doesNotMatch(router, /to\.name === 'traffic'/)
   assert.match(settings, /id: 'devices' as const/)
   assert.match(users, /bootstrapResource\.data\?\.line_catalog/)
   assert.doesNotMatch(users, /if \(user\.role === 'admin'\) return t\('users\.allLines'\)/)
-  assert.match(client, /source\.must_change_password/)
+  assert.doesNotMatch(client, /must_change_password/)
   assert.match(client, /source\.allowed_line_ids/)
   assert.match(session, /state\.allowedLineIDs = \[\.\.\.\(session\.allowed_line_ids \|\| \[\]\)\]/)
   assert.match(session, /resetRecordingState\(\)/)
   assert.match(runtime, /case 'session':[\s\S]*?await refreshSession\(\)/)
   assert.match(english, /The bot uses this user’s contacts/)
   assert.match(chinese, /Bot 使用该用户的通讯录/)
+  assert.doesNotMatch(english, /temporary password|first login/i)
+  assert.doesNotMatch(chinese, /临时密码|首次登录/)
 })

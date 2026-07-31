@@ -325,9 +325,6 @@ function parseSession(value: unknown): SessionResponse {
   if (role) session.role = role as 'admin' | 'member'
   const profileContactID = stringProperty(source, 'profile_contact_id')
   if (profileContactID) session.profile_contact_id = profileContactID
-  if (typeof source.must_change_password === 'boolean') {
-    session.must_change_password = source.must_change_password
-  }
   if (Array.isArray(source.allowed_line_ids)) {
     if (!source.allowed_line_ids.every(value => typeof value === 'string' && value.trim())) {
       throw new ApiError('ModemDeck returned invalid line access', 0, 'invalid_response')
@@ -1881,7 +1878,6 @@ function configureFixture(gateway: ModemDeckGateway): ConfiguredModemDeckGateway
     user_id: 'user_admin',
     username: 'fixture',
     role: 'admin',
-    must_change_password: false,
     ios_pairing_enabled: true,
     allowed_line_ids: [],
     language: 'auto'

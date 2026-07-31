@@ -10,6 +10,12 @@ import ptBR from '../src/i18n/locales/pt-BR.ts'
 import viVN from '../src/i18n/locales/vi-VN.ts'
 import zhCN from '../src/i18n/locales/zh-CN.ts'
 import zhTW from '../src/i18n/locales/zh-TW.ts'
+import {
+  maximumPasswordBytes,
+  minimumPasswordCharacters,
+  passwordByteCount,
+  passwordCharacterCount
+} from '../src/utils/password.ts'
 
 const source = path => readFile(new URL(path, import.meta.url), 'utf8')
 
@@ -36,7 +42,11 @@ test('account settings validate password replacement and end the current session
     source('../src/views/LoginView.vue')
   ])
 
-  assert.match(component, /const minimumPasswordBytes = 12/)
+  assert.equal(minimumPasswordCharacters, 8)
+  assert.equal(maximumPasswordBytes, 1024)
+  assert.equal(passwordCharacterCount('密码密码密码密码'), 8)
+  assert.equal(passwordByteCount('密码密码密码密码'), 24)
+  assert.match(component, /passwordCharacterCount\(newPassword\.value\)/)
   assert.match(component, /newPassword\.value !== confirmation\.value/)
   assert.match(component, /await changePassword/)
   assert.match(session, /await gateway\.changePassword\(input\)/)

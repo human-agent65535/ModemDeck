@@ -78,8 +78,8 @@ func (api *API) usersCollection(response http.ResponseWriter, request *http.Requ
 			writeError(response, http.StatusUnprocessableEntity, "username_invalid", "Enter a valid username", "username")
 			return
 		}
-		if err := auth.ValidateTemporaryPassword(input.Password); err != nil {
-			writeTemporaryPasswordValidationError(response, err, "password")
+		if err := auth.ValidateNewPassword(input.Password); err != nil {
+			writePasswordValidationError(response, err, "password")
 			return
 		}
 		passwordHash, err := auth.HashPassword(input.Password)
@@ -264,26 +264,11 @@ func writePasswordValidationError(
 ) {
 	switch {
 	case errors.Is(err, auth.ErrPasswordTooShort):
-		writeError(response, http.StatusUnprocessableEntity, "password_too_short", "Password must contain at least 12 bytes", field)
+		writeError(response, http.StatusUnprocessableEntity, "password_too_short", "Password must contain at least 8 characters", field)
 	case errors.Is(err, auth.ErrPasswordTooLong):
 		writeError(response, http.StatusUnprocessableEntity, "password_too_long", "Password cannot exceed 1024 bytes", field)
 	default:
 		writeError(response, http.StatusUnprocessableEntity, "password_invalid", "Password contains unsupported characters", field)
-	}
-}
-
-func writeTemporaryPasswordValidationError(
-	response http.ResponseWriter,
-	err error,
-	field string,
-) {
-	switch {
-	case errors.Is(err, auth.ErrPasswordTooShort):
-		writeError(response, http.StatusUnprocessableEntity, "password_too_short", "Temporary password must contain at least 8 characters", field)
-	case errors.Is(err, auth.ErrPasswordTooLong):
-		writeError(response, http.StatusUnprocessableEntity, "password_too_long", "Temporary password cannot exceed 1024 bytes", field)
-	default:
-		writeError(response, http.StatusUnprocessableEntity, "password_invalid", "Temporary password contains unsupported characters", field)
 	}
 }
 

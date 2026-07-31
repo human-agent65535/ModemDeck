@@ -156,7 +156,7 @@ func (api *API) setup(response http.ResponseWriter, request *http.Request) {
 		case errors.Is(err, auth.ErrUsernameInvalid):
 			writeError(response, http.StatusUnprocessableEntity, "username_invalid", "Enter a valid username", "username")
 		case errors.Is(err, auth.ErrPasswordTooShort):
-			writeError(response, http.StatusUnprocessableEntity, "password_too_short", "Password must contain at least 12 bytes", "password")
+			writeError(response, http.StatusUnprocessableEntity, "password_too_short", "Password must contain at least 8 characters", "password")
 		case errors.Is(err, auth.ErrPasswordTooLong):
 			writeError(response, http.StatusUnprocessableEntity, "password_too_long", "Password cannot exceed 1024 bytes", "password")
 		case errors.Is(err, auth.ErrPasswordInvalid):
@@ -263,7 +263,6 @@ func applyPrincipalToSessionResponse(response *sessionResponse, principal auth.P
 	response.Username = principal.Username
 	response.Role = string(principal.Role)
 	response.ProfileContactID = principal.ProfileContactID
-	response.MustChangePassword = principal.MustChangePassword
 	response.IOSPairingEnabled = principal.IOSPairingEnabled
 	response.AllowedLineIDs = append([]string(nil), principal.AllowedLineIDs...)
 }
@@ -336,7 +335,7 @@ func (api *API) accountPassword(response http.ResponseWriter, request *http.Requ
 	case errors.Is(err, auth.ErrInvalidCredentials):
 		writeError(response, http.StatusBadRequest, "invalid_current_password", "Current password is incorrect", "current_password")
 	case errors.Is(err, auth.ErrPasswordTooShort):
-		writeError(response, http.StatusUnprocessableEntity, "password_too_short", "New password must contain at least 12 bytes", "new_password")
+		writeError(response, http.StatusUnprocessableEntity, "password_too_short", "New password must contain at least 8 characters", "new_password")
 	case errors.Is(err, auth.ErrPasswordTooLong):
 		writeError(response, http.StatusUnprocessableEntity, "password_too_long", "New password cannot exceed 1024 bytes", "new_password")
 	case errors.Is(err, auth.ErrPasswordInvalid):

@@ -2391,7 +2391,6 @@ export function parseUserAccount(value: unknown): UserAccount {
     username: requiredString(user, 'user', 'username'),
     role,
     enabled: requiredBoolean(user, 'user', 'enabled'),
-    must_change_password: requiredBoolean(user, 'user', 'must_change_password'),
     ios_pairing_enabled: requiredBoolean(user, 'user', 'ios_pairing_enabled'),
     revision: requiredRevision(user, 'user'),
     ...(profileName ? { profile_name: profileName } : {}),

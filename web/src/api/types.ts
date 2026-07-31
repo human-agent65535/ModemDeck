@@ -1195,7 +1195,6 @@ export type SessionResponse = {
   username?: string
   role?: 'admin' | 'member'
   profile_contact_id?: string
-  must_change_password?: boolean
   ios_pairing_enabled: boolean
   allowed_line_ids?: string[]
   csrf_token?: string
@@ -1207,7 +1206,6 @@ export type UserAccount = {
   username: string
   role: 'admin' | 'member'
   enabled: boolean
-  must_change_password: boolean
   ios_pairing_enabled: boolean
   revision: number
   profile_name?: string

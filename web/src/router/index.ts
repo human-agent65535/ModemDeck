@@ -1,6 +1,6 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
-import { ensureSession, sessionState } from '../state/session'
+import { ensureSession } from '../state/session'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -64,23 +64,13 @@ router.beforeEach(async to => {
   const authenticated = await ensureSession()
 
   if (to.name === 'login') {
-    return authenticated
-      ? sessionState.mustChangePassword
-        ? { name: 'settings', params: { section: 'account' } }
-        : { name: 'dashboard' }
-      : true
+    return authenticated ? { name: 'dashboard' } : true
   }
   if (!authenticated) {
     return {
       name: 'login',
       query: { redirect: to.fullPath }
     }
-  }
-  if (
-    sessionState.mustChangePassword &&
-    !(to.name === 'settings' && to.params.section === 'account')
-  ) {
-    return { name: 'settings', params: { section: 'account' } }
   }
   return true
 })

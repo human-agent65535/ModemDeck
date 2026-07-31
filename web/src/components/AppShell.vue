@@ -66,7 +66,6 @@ import IncomingCallModeControl from './IncomingCallModeControl.vue'
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
-const accountRestricted = computed(() => sessionState.mustChangePassword)
 const settingsLanding = computed(() => 'account')
 const permanentDialer = ref(false)
 const occupiedLineCount = computed(() => occupiedLineIDs().size)
@@ -116,18 +115,14 @@ function openMobileCall(): void {
 let dialerMediaQuery: MediaQueryList | undefined
 let mountGeneration = 0
 let stopApplicationVersionChecks: (() => void) | undefined
-const primaryNav = computed(() =>
-  accountRestricted.value
-    ? []
-    : [
-        { name: 'dashboard', label: t('shell.home'), icon: House },
-        { name: 'contacts', label: t('shell.contacts'), icon: UsersRound },
-        { name: 'messages', label: t('shell.messages'), icon: MessageSquareText },
-        { name: 'calls', label: t('shell.calls'), icon: Phone },
-        { name: 'recordings', label: t('shell.recordings'), icon: AudioLines },
-        { name: 'traffic', label: t('shell.traffic'), icon: ChartNoAxesCombined }
-      ]
-)
+const primaryNav = computed(() => [
+  { name: 'dashboard', label: t('shell.home'), icon: House },
+  { name: 'contacts', label: t('shell.contacts'), icon: UsersRound },
+  { name: 'messages', label: t('shell.messages'), icon: MessageSquareText },
+  { name: 'calls', label: t('shell.calls'), icon: Phone },
+  { name: 'recordings', label: t('shell.recordings'), icon: AudioLines },
+  { name: 'traffic', label: t('shell.traffic'), icon: ChartNoAxesCombined }
+])
 const mobileNavBeforeDial = computed(() =>
   primaryNav.value.filter(item => ['contacts', 'messages', 'calls'].includes(item.name))
 )
@@ -222,7 +217,6 @@ function backToSettingsMenu(): void {
 onMounted(() => {
   mountGeneration += 1
   const currentGeneration = mountGeneration
-  if (accountRestricted.value) return
   void initializeBrowserAudio()
   initializeBrowserNotifications()
   initializeBrowserSounds()
@@ -302,7 +296,7 @@ onBeforeUnmount(() => {
           <ArrowLeft :size="20" />
         </button>
         <div class="mobile-brand">{{ mobilePageTitle }}</div>
-        <GlobalSearch v-if="!accountRestricted" />
+        <GlobalSearch />
         <div
           v-if="fixtureMode"
           class="fixture-badge"
@@ -311,7 +305,7 @@ onBeforeUnmount(() => {
           <TestTube2 :size="15" />
           {{ t('shell.fixtureData') }}
         </div>
-        <div v-if="!accountRestricted" class="shell-header__controls">
+        <div class="shell-header__controls">
           <IncomingCallModeControl v-if="sessionState.role === 'admin'" />
           <button
             class="icon-button"
@@ -374,7 +368,6 @@ onBeforeUnmount(() => {
         <span class="mobile-nav__label">{{ item.label }}</span>
       </RouterLink>
       <button
-        v-if="!accountRestricted"
         class="mobile-nav__dial"
         :class="{
           'is-current': uiState.dialerOpen || activeCallPresent,
@@ -431,7 +424,7 @@ onBeforeUnmount(() => {
       </RouterLink>
     </nav>
 
-    <DialerPanel v-if="!accountRestricted" :permanent="permanentDialer" />
+    <DialerPanel :permanent="permanentDialer" />
   </div>
 </template>
 

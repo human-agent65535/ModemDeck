@@ -19,18 +19,19 @@ var (
 )
 
 type User struct {
-	ID                 string    `json:"id"`
-	Username           string    `json:"username"`
-	Role               auth.Role `json:"role"`
-	Enabled            bool      `json:"enabled"`
-	MustChangePassword bool      `json:"must_change_password"`
-	IOSPairingEnabled  bool      `json:"ios_pairing_enabled"`
-	Revision           int64     `json:"revision"`
-	ProfileName        string    `json:"profile_name,omitempty"`
-	ProfileAvatar      string    `json:"profile_avatar,omitempty"`
-	LineIDs            []string  `json:"line_ids"`
-	CreatedAt          string    `json:"created_at"`
-	UpdatedAt          string    `json:"updated_at"`
+	ID       string    `json:"id"`
+	Username string    `json:"username"`
+	Role     auth.Role `json:"role"`
+	Enabled  bool      `json:"enabled"`
+	// Kept false for compatibility with clients from before the policy was removed.
+	MustChangePassword bool     `json:"must_change_password"`
+	IOSPairingEnabled  bool     `json:"ios_pairing_enabled"`
+	Revision           int64    `json:"revision"`
+	ProfileName        string   `json:"profile_name,omitempty"`
+	ProfileAvatar      string   `json:"profile_avatar,omitempty"`
+	LineIDs            []string `json:"line_ids"`
+	CreatedAt          string   `json:"created_at"`
+	UpdatedAt          string   `json:"updated_at"`
 }
 
 type CreateMemberInput struct {
@@ -75,7 +76,6 @@ func (s *Store) Users(ctx context.Context) ([]User, error) {
 			user.username,
 			user.role,
 			user.enabled,
-			user.must_change_password,
 			user.ios_pairing_enabled,
 			user.revision,
 			COALESCE(contact.display_name, ''),
@@ -99,7 +99,6 @@ func (s *Store) Users(ctx context.Context) ([]User, error) {
 			user       User
 			role       string
 			enabled    int64
-			mustChange int64
 			iosPairing int64
 		)
 		if err := rows.Scan(
@@ -107,7 +106,6 @@ func (s *Store) Users(ctx context.Context) ([]User, error) {
 			&user.Username,
 			&role,
 			&enabled,
-			&mustChange,
 			&iosPairing,
 			&user.Revision,
 			&user.ProfileName,
@@ -119,7 +117,6 @@ func (s *Store) Users(ctx context.Context) ([]User, error) {
 		}
 		user.Role = auth.Role(role)
 		user.Enabled = enabled != 0
-		user.MustChangePassword = mustChange != 0
 		user.IOSPairingEnabled = iosPairing != 0
 		user.LineIDs = []string{}
 		users = append(users, user)
@@ -156,9 +153,8 @@ func (s *Store) CreateMember(ctx context.Context, input CreateMemberInput) (User
 	}
 	if _, err := transaction.ExecContext(ctx, `
 		INSERT INTO modemdeck_users (
-			id, username, password_hash, role, enabled, must_change_password,
-			ios_pairing_enabled
-		) VALUES (?, ?, ?, 'member', 1, 1, ?)
+			id, username, password_hash, role, enabled, ios_pairing_enabled
+		) VALUES (?, ?, ?, 'member', 1, ?)
 	`, userID, username, input.PasswordHash, input.IOSPairingEnabled); err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
 			return User{}, ErrUsernameConflict
@@ -334,8 +330,8 @@ func (s *Store) SetMemberPassword(
 	defer transaction.Rollback()
 	result, err := transaction.ExecContext(ctx, `
 		UPDATE modemdeck_users
-		SET password_hash = ?, must_change_password = 0,
-			revision = revision + 1, updated_at = CURRENT_TIMESTAMP
+		SET password_hash = ?, revision = revision + 1,
+			updated_at = CURRENT_TIMESTAMP
 		WHERE id = ? AND role = 'member'
 	`, passwordHash, userID)
 	if err != nil {

@@ -74,6 +74,10 @@ import { ApiError, isLineColorPresetID } from './types'
 import { normalizeDialTarget } from '../utils/dialTarget'
 import { isIPAddress, isLoopbackAddress } from '../utils/ipAddress'
 import { normalizedPhoneIdentity } from '../utils/lineIdentity'
+import {
+  minimumPasswordCharacters,
+  passwordCharacterCount
+} from '../utils/password'
 import { proxyCredentialError } from '../utils/proxyCredentials'
 
 const MAIN_ICCID = '8986012345678900001'
@@ -737,7 +741,6 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       username: 'fixture',
       role: 'admin',
       enabled: true,
-      must_change_password: false,
       ios_pairing_enabled: true,
       revision: 1,
       profile_name: ALEX_NAME,
@@ -750,7 +753,6 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       username: 'casey',
       role: 'member',
       enabled: true,
-      must_change_password: false,
       ios_pairing_enabled: false,
       revision: 2,
       profile_name: MEMBER_PROFILE_NAME,
@@ -1371,13 +1373,15 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       if (users.some(user => user.username.toLowerCase() === input.username.toLowerCase())) {
         throw new ApiError('Username is already in use', 409, 'username_conflict')
       }
+      if (passwordCharacterCount(input.password) < minimumPasswordCharacters) {
+        throw new ApiError('Password is too short', 422, 'password_too_short')
+      }
       sequence += 1
       const user: UserAccount = {
         id: `user_fixture_${sequence}`,
         username: input.username,
         role: 'member',
         enabled: true,
-        must_change_password: true,
         ios_pairing_enabled: input.ios_pairing_enabled,
         revision: 1,
         line_ids: [...input.line_ids],
@@ -1418,10 +1422,9 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     async setMemberPassword(id: string, password: string): Promise<void> {
       const user = users.find(candidate => candidate.id === id && candidate.role === 'member')
       if (!user) throw new ApiError('User was not found', 404, 'user_not_found')
-      if (new TextEncoder().encode(password).length < 12) {
+      if (passwordCharacterCount(password) < minimumPasswordCharacters) {
         throw new ApiError('Password is too short', 422, 'password_too_short')
       }
-      user.must_change_password = false
       user.revision += 1
     },
 
