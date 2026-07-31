@@ -1066,6 +1066,21 @@ export function deviceConfigurationContract(lineID: string): {
   }
 }
 
+export function diagnosticDeviceConfigurationContract(lineID: string): {
+  get: { method: 'GET'; path: string; successStatus: 200 }
+  resetUSB: { method: 'PATCH'; path: string; successStatus: 200 }
+} {
+  const normalizedLineID = lineID.trim()
+  if (!normalizedLineID) throw new Error('line id 不能为空')
+  const path =
+    `/api/v1/diagnostics/devices/${encodeURIComponent(normalizedLineID)}` +
+    '/configuration'
+  return {
+    get: { method: 'GET', path, successStatus: 200 },
+    resetUSB: { method: 'PATCH', path, successStatus: 200 }
+  }
+}
+
 export function callMediaContract(id: string): {
   method: 'POST'
   path: string

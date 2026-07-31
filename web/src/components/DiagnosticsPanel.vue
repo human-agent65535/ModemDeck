@@ -40,11 +40,7 @@ import type {
 import { ApiError } from '../api/types'
 import { audioState, refreshAudioDevices } from '../state/audio'
 import { requestConfirmation } from '../state/confirmation'
-import {
-  deviceConfigurationResource,
-  loadDeviceConfiguration,
-  resetUSBDevice
-} from '../state/deviceConfiguration'
+import { useDiagnosticDevices } from '../state/diagnosticDevices'
 import { lineLabel } from '../state/workspace'
 import {
   isRegisteredNetwork,
@@ -85,6 +81,11 @@ const downloading = ref(false)
 const logViewport = ref<HTMLElement | null>(null)
 const lastSeenID = ref(0)
 const selectedDiagnosticLineID = ref('')
+const {
+  diagnosticDeviceResource,
+  loadDiagnosticDeviceConfiguration,
+  resetDiagnosticUSBDevice
+} = useDiagnosticDevices()
 
 let closeLogStream: (() => void) | null = null
 let reconnectTimer: number | undefined
@@ -201,11 +202,11 @@ const selectedDiagnosticLine = computed(() =>
 )
 const selectedDiagnosticResource = computed(() =>
   selectedDiagnosticLineID.value
-    ? deviceConfigurationResource(selectedDiagnosticLineID.value)
+    ? diagnosticDeviceResource(selectedDiagnosticLineID.value)
     : null
 )
 const selectedDiagnosticHardware = computed(
-  () => selectedDiagnosticResource.value?.data?.hardware
+  () => selectedDiagnosticResource.value?.hardware
 )
 const diagnosticCapabilities = computed<
   Array<{ id: string; label: string; capability: DeviceFeatureCapability }>
@@ -370,16 +371,16 @@ function capabilityFlags(capability: DeviceFeatureCapability): string {
 }
 
 function recoveryResource(line: LineSummary) {
-  return deviceConfigurationResource(line.id)
+  return diagnosticDeviceResource(line.id)
 }
 
 function usbResetCapability(line: LineSummary): DeviceFeatureCapability | undefined {
-  return recoveryResource(line).data?.hardware?.capabilities.usb_reset
+  return recoveryResource(line).hardware?.capabilities.usb_reset
 }
 
 function recoveryPending(line: LineSummary): boolean {
   const resource = recoveryResource(line)
-  return resource.status === 'loading' || resource.savingOperation === 'reset_usb'
+  return resource.status === 'loading' || resource.resetting
 }
 
 function recoveryAvailable(line: LineSummary): boolean {
@@ -411,7 +412,7 @@ async function applyUSBReset(line: LineSummary): Promise<void> {
     tone: 'danger'
   })
   if (!confirmed) return
-  await resetUSBDevice(line.id)
+  await resetDiagnosticUSBDevice(line.id)
   await loadSnapshot()
 }
 
@@ -688,7 +689,7 @@ watch(
       selectedDiagnosticLineID.value = diagnosticLineIDs.value[0] || ''
     }
     for (const lineID of diagnosticLineIDs.value) {
-      void loadDeviceConfiguration(lineID)
+      void loadDiagnosticDeviceConfiguration(lineID)
     }
   },
   { immediate: true }

@@ -307,6 +307,10 @@ func userResourcePath(path string) (userID, action string, ok bool) {
 }
 
 func adminOnlyAPIPath(path, method string) bool {
+	if path == "/api/v1/about" ||
+		path == "/api/v1/updates/check" {
+		return true
+	}
 	if path == "/api/v1/network" ||
 		strings.HasPrefix(path, "/api/v1/proxies") ||
 		path == "/api/v1/settings/lines" ||

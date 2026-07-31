@@ -37,7 +37,7 @@ test('failed lines are summarized together without replacing per-line recovery',
   assert.match(source, /allDiagnosticLinesFailed/)
   assert.match(source, /v-for="line in failedLines"/)
   assert.match(source, /failure_reason_code/)
-  assert.match(source, /resetUSBDevice\(line\.id\)/)
+  assert.match(source, /resetDiagnosticUSBDevice\(line\.id\)/)
 })
 
 test('device capability evidence is complete and preserves raw backend flags', () => {
@@ -64,9 +64,9 @@ test('device capability evidence is complete and preserves raw backend flags', (
 })
 
 test('USB recovery loads device capabilities and requires confirmation', () => {
-  assert.match(source, /loadDeviceConfiguration\(lineID\)/)
+  assert.match(source, /loadDiagnosticDeviceConfiguration\(lineID\)/)
   assert.match(source, /capabilities\.usb_reset/)
   assert.match(source, /requestConfirmation\(\{/)
   assert.match(source, /tone:\s*'danger'/)
-  assert.match(source, /resetUSBDevice\(line\.id\)/)
+  assert.match(source, /resetDiagnosticUSBDevice\(line\.id\)/)
 })

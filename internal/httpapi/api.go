@@ -512,6 +512,10 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 			api.lineLabelResource(response, request, lineID)
 			return
 		}
+		if id, ok := diagnosticDeviceConfigurationResourceID(request.URL.Path); ok {
+			api.diagnosticDeviceConfiguration(response, request, id)
+			return
+		}
 		if id, ok := deviceConfigurationResourceID(request.URL.Path); ok {
 			api.deviceConfiguration(response, request, id)
 			return

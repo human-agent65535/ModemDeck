@@ -135,7 +135,7 @@ test('Cloudflare Web call media accepts relay-only ICE configuration', () => {
   )
 })
 
-test('settings UI exposes read-only Cloudflare status and self-service pairing', async () => {
+test('administrator settings expose Cloudflare status and pairing', async () => {
   const [settingsView, userPanel, externalAccessPanel, callMedia] =
     await Promise.all([
     readFile(new URL('../src/views/SettingsView.vue', import.meta.url), 'utf8'),
@@ -156,7 +156,8 @@ test('settings UI exposes read-only Cloudflare status and self-service pairing',
     )
   ])
 
-  assert.match(settingsView, /id: 'external-access' as const/)
+  assert.match(settingsView, /id: 'external-access'/)
+  assert.match(settingsView, /if \(sessionState\.role !== 'admin'\) return personal/)
   assert.match(settingsView, /<ExternalAccessSettingsPanel/)
   assert.match(
     settingsView,

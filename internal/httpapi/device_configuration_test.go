@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
+	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/communication"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
@@ -484,6 +485,119 @@ func TestAppHardwareConfigurationAcceptsControlledUSBReset(t *testing.T) {
 		configurations.applyRequest.RequestID != "usb-reset-1" ||
 		configurations.applyRequest.ExpectedRevision != "sha256:current" {
 		t.Fatalf("USB reset request = %+v", configurations.applyRequest)
+	}
+}
+
+func TestAdministratorDiagnosticsOperateOutsideAssignedLines(t *testing.T) {
+	t.Parallel()
+
+	configurations := &fakeDeviceConfigurations{configuration: agentclient.DeviceConfiguration{
+		LineID:     "line-other",
+		Revision:   "sha256:updated",
+		ObservedAt: time.Date(2026, time.July, 31, 0, 0, 0, 0, time.UTC),
+	}}
+	api, err := New(&fakeRepository{}, Options{
+		DeviceConfigurations:  configurations,
+		CallPolicies:          &fakeCallPolicies{},
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	adminContext := auth.ContextWithPrincipal(context.Background(), auth.Principal{
+		UserID:         auth.InitialAdminUserID,
+		Role:           auth.RoleAdmin,
+		AllowedLineIDs: []string{"line-owned"},
+	})
+
+	regularRequest := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/devices/line-other/configuration",
+		nil,
+	).WithContext(adminContext)
+	regularResponse := httptest.NewRecorder()
+	api.ServeHTTP(regularResponse, regularRequest)
+	if regularResponse.Code != http.StatusNotFound {
+		t.Fatalf(
+			"regular configuration status = %d, want %d",
+			regularResponse.Code,
+			http.StatusNotFound,
+		)
+	}
+
+	diagnosticRequest := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/diagnostics/devices/line-other/configuration",
+		nil,
+	).WithContext(adminContext)
+	diagnosticResponse := httptest.NewRecorder()
+	api.ServeHTTP(diagnosticResponse, diagnosticRequest)
+	if diagnosticResponse.Code != http.StatusOK {
+		t.Fatalf(
+			"diagnostic configuration status = %d; body = %s",
+			diagnosticResponse.Code,
+			diagnosticResponse.Body.String(),
+		)
+	}
+	if configurations.lineID != "line-other" {
+		t.Fatalf("diagnostic configuration line = %q", configurations.lineID)
+	}
+
+	resetRequest := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/v1/diagnostics/devices/line-other/configuration",
+		bytes.NewBufferString(`{
+			"request_id":"diagnostic-usb-reset-1",
+			"operation":"reset_usb",
+			"expected_device_revision":"sha256:current"
+		}`),
+	).WithContext(adminContext)
+	resetRequest.Header.Set("Content-Type", "application/json")
+	resetResponse := httptest.NewRecorder()
+	api.ServeHTTP(resetResponse, resetRequest)
+	if resetResponse.Code != http.StatusOK {
+		t.Fatalf(
+			"diagnostic reset status = %d; body = %s",
+			resetResponse.Code,
+			resetResponse.Body.String(),
+		)
+	}
+	if configurations.lineID != "line-other" ||
+		configurations.applyRequest.Operation != agentclient.DeviceConfigurationResetUSB ||
+		configurations.applyRequest.RequestID != "diagnostic-usb-reset-1" ||
+		configurations.applyRequest.ExpectedRevision != "sha256:current" {
+		t.Fatalf(
+			"diagnostic USB reset request = %+v, line = %q",
+			configurations.applyRequest,
+			configurations.lineID,
+		)
+	}
+}
+
+func TestMemberCannotUseSystemDiagnosticDeviceConfiguration(t *testing.T) {
+	t.Parallel()
+
+	api, err := New(&fakeRepository{}, Options{
+		DeviceConfigurations:  &fakeDeviceConfigurations{},
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	memberContext := auth.ContextWithPrincipal(context.Background(), auth.Principal{
+		UserID:         "member-1",
+		Role:           auth.RoleMember,
+		AllowedLineIDs: []string{"line-1"},
+	})
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/diagnostics/devices/line-1/configuration",
+		nil,
+	).WithContext(memberContext)
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("member diagnostic status = %d, want %d", response.Code, http.StatusForbidden)
 	}
 }
 

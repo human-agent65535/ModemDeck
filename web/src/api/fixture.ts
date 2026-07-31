@@ -2504,6 +2504,36 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       return configurationForLine(lineID)
     },
 
+    async getDiagnosticDeviceConfiguration(
+      lineID: string
+    ): Promise<DeviceConfiguration> {
+      return { hardware: configurationForLine(lineID).hardware }
+    },
+
+    async resetDiagnosticUSB(
+      lineID: string,
+      expectedDeviceRevision: string
+    ): Promise<DeviceConfiguration> {
+      const current = configurationForLine(lineID)
+      const hardware = hardwareByLine.get(lineID)
+      if (!hardware || expectedDeviceRevision !== current.hardware?.revision) {
+        throw new ApiError('设备配置已被其他会话修改', 409, 'conflict')
+      }
+      if (!hardware.capabilities.usb_reset.writable) {
+        throw new ApiError(
+          hardware.capabilities.usb_reset.reason || 'USB 硬复位不可用',
+          501,
+          'not_supported'
+        )
+      }
+      hardware.volte = {
+        ...hardware.volte,
+        restart_required: false
+      }
+      advanceHardwareRevision(lineID, hardware)
+      return { hardware: clone(hardware) }
+    },
+
     async updateDeviceConfiguration(
       lineID: string,
       input: UpdateDeviceConfigurationInput

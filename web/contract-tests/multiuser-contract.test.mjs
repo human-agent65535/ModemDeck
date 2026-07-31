@@ -138,6 +138,12 @@ test('multi-user UI exposes only authorized settings and communication areas', a
   assert.doesNotMatch(settings, /id: 'system'/)
   assert.doesNotMatch(settings, /id: 'recording'/)
   assert.match(settings, /sessionState\.role === 'admin'/)
+  assert.match(settings, /if \(sessionState\.role !== 'admin'\) return personal/)
+  assert.match(settings, /return \[\.\.\.personal, \.\.\.administration\]/)
+  assert.match(
+    settings,
+    /if \(sessionState\.role !== 'admin'\) \{[\s\S]*externalAccessEnabled\.value = false/
+  )
   assert.match(settings, /<UserSettingsPanel/)
   assert.match(users, /gateway\.listUsers\(\)/)
   assert.match(users, /gateway\.createMember/)

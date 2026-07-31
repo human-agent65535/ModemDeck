@@ -169,6 +169,108 @@ func (api *API) deviceConfiguration(
 	}
 }
 
+func (api *API) diagnosticDeviceConfiguration(
+	response http.ResponseWriter,
+	request *http.Request,
+	lineID string,
+) {
+	if api.deviceConfigurations == nil {
+		writeError(
+			response,
+			http.StatusServiceUnavailable,
+			"device_configuration_unavailable",
+			"Device diagnostics are unavailable",
+			"",
+		)
+		return
+	}
+	switch request.Method {
+	case http.MethodGet:
+		hardware, err := api.deviceConfigurations.DeviceConfiguration(
+			request.Context(),
+			lineID,
+		)
+		if err != nil {
+			api.writeCommunicationError(
+				response,
+				request,
+				"read diagnostic device configuration",
+				err,
+			)
+			return
+		}
+		writeJSON(response, http.StatusOK, deviceConfigurationResponse{
+			Hardware: &hardware,
+		})
+	case http.MethodPatch:
+		api.resetDiagnosticUSB(response, request, lineID)
+	default:
+		response.Header().Set("Allow", http.MethodGet+", "+http.MethodPatch)
+		writeError(
+			response,
+			http.StatusMethodNotAllowed,
+			"method_not_allowed",
+			"Only GET and PATCH are supported",
+			"",
+		)
+	}
+}
+
+func (api *API) resetDiagnosticUSB(
+	response http.ResponseWriter,
+	request *http.Request,
+	lineID string,
+) {
+	var input updateDeviceConfigurationRequest
+	if !decodeJSONBody(response, request, &input) {
+		return
+	}
+	requestID, ok := commandRequestID(response, request, input.RequestID)
+	if !ok {
+		return
+	}
+	if input.Operation != agentclient.DeviceConfigurationResetUSB ||
+		strings.TrimSpace(input.ExpectedDeviceRevision) == "" ||
+		input.ExpectedPolicyRevision != 0 ||
+		input.ExpectedMessageRevision != 0 ||
+		input.RadioEnabled != nil ||
+		input.APN != "" ||
+		input.IPFamily != "" ||
+		input.VoLTEPolicy != "" ||
+		input.IncomingCallPolicy != "" ||
+		input.DeliveryReportsEnabled != nil {
+		writeError(
+			response,
+			http.StatusBadRequest,
+			"invalid_argument",
+			"diagnostic recovery accepts only a USB reset and expected device revision",
+			"",
+		)
+		return
+	}
+	hardware, err := api.deviceConfigurations.ApplyDeviceConfiguration(
+		request.Context(),
+		lineID,
+		agentclient.ApplyDeviceConfigurationRequest{
+			RequestID:        requestID,
+			ExpectedRevision: input.ExpectedDeviceRevision,
+			Operation:        agentclient.DeviceConfigurationResetUSB,
+		},
+	)
+	if err != nil {
+		api.writeCommunicationError(response, request, "reset diagnostic USB device", err)
+		return
+	}
+	api.logger.Info(
+		"diagnostic USB reset accepted",
+		"line_id",
+		lineID,
+		"request_id",
+		requestID,
+	)
+	writeJSON(response, http.StatusOK, deviceConfigurationResponse{Hardware: &hardware})
+}
+
 func (api *API) readDeviceConfiguration(
 	response http.ResponseWriter,
 	request *http.Request,
@@ -475,6 +577,23 @@ func validHardwareConfigurationOperation(
 func deviceConfigurationResourceID(path string) (string, bool) {
 	const (
 		prefix = "/api/v1/devices/"
+		suffix = "/configuration"
+	)
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		return "", false
+	}
+	lineID := strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
+	if strings.TrimSpace(lineID) == "" ||
+		strings.Contains(lineID, "/") ||
+		len(lineID) > maxIdentifierLength {
+		return "", false
+	}
+	return lineID, true
+}
+
+func diagnosticDeviceConfigurationResourceID(path string) (string, bool) {
+	const (
+		prefix = "/api/v1/diagnostics/devices/"
 		suffix = "/configuration"
 	)
 	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {

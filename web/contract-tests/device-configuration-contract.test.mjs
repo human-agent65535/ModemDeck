@@ -5,6 +5,7 @@ import {
   communicationContracts,
   createDeviceConfigurationPayload,
   createGlobalCallSettingsPayload,
+  diagnosticDeviceConfigurationContract,
   deviceConfigurationContract,
   deviceConfigurationPath,
   parseDeviceConfigurationResponse,
@@ -22,6 +23,10 @@ const diagnosticsPanelSource = readFileSync(
 )
 const deviceConfigurationStateSource = readFileSync(
   new URL('../src/state/deviceConfiguration.ts', import.meta.url),
+  'utf8'
+)
+const diagnosticDeviceStateSource = readFileSync(
+  new URL('../src/state/diagnosticDevices.ts', import.meta.url),
   'utf8'
 )
 const incomingCallModeSource = readFileSync(
@@ -81,6 +86,18 @@ test('call policy and device configuration contracts match the root API', () => 
     update: {
       method: 'PATCH',
       path: '/api/v1/devices/line-main/configuration',
+      successStatus: 200
+    }
+  })
+  assert.deepEqual(diagnosticDeviceConfigurationContract('line / other'), {
+    get: {
+      method: 'GET',
+      path: '/api/v1/diagnostics/devices/line%20%2F%20other/configuration',
+      successStatus: 200
+    },
+    resetUSB: {
+      method: 'PATCH',
+      path: '/api/v1/diagnostics/devices/line%20%2F%20other/configuration',
       successStatus: 200
     }
   })
@@ -207,23 +224,30 @@ test('voice support is modeled once and exposed through an explicit manual reche
   assert.equal(parsed.hardware?.voice_verification?.media_routing, 'supported')
 })
 
-test('USB hard reset is an explicit confirmed diagnostics recovery action', () => {
+test('USB hard reset uses the administrator-wide diagnostics scope', async () => {
   const applyUSBResetBody = functionBody(
     diagnosticsPanelSource,
     'async function applyUSBReset'
   )
-  const resetUSBDeviceBody = functionBody(
-    deviceConfigurationStateSource,
-    'export async function resetUSBDevice'
-  )
+  const resetUSBDeviceBody = functionBody(diagnosticDeviceStateSource, 'async function resetUSB')
 
   assert.match(diagnosticsPanelSource, /usbResetCapability\(line\)/)
   assert.match(applyUSBResetBody, /requestConfirmation/)
   assert.match(applyUSBResetBody, /tone:\s*['"]danger['"]/)
-  assert.match(resetUSBDeviceBody, /operation:\s*['"]reset_usb['"]/)
+  assert.match(resetUSBDeviceBody, /gateway\.resetDiagnosticUSB/)
   assert.match(resetUSBDeviceBody, /60_000/)
+  assert.match(diagnosticsPanelSource, /resetDiagnosticUSBDevice\(line\.id\)/)
+  assert.doesNotMatch(diagnosticsPanelSource, /state\/deviceConfiguration/)
   assert.doesNotMatch(devicePanelSource, /usbHardReset|resetUSBDevice|reset_usb/)
   assert.doesNotMatch(diagnosticsPanelSource, /\/dev\/bus\/usb|\/sys\/devices/)
+
+  const gateway = createFixtureGateway()
+  const current = await gateway.getDiagnosticDeviceConfiguration('line-fixture-main')
+  const updated = await gateway.resetDiagnosticUSB(
+    'line-fixture-main',
+    current.hardware.revision
+  )
+  assert.notEqual(updated.hardware.revision, current.hardware.revision)
 })
 
 test('capability evidence lives in diagnostics, not the device configuration surface', () => {

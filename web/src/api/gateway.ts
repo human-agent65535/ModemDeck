@@ -160,6 +160,11 @@ export interface ModemDeckGateway {
   getUSSDStatus(lineID: string): Promise<USSDStatus>
   commandUSSD(lineID: string, input: USSDCommandInput): Promise<USSDResponse>
   getDiagnostics(): Promise<DiagnosticsSnapshot>
+  getDiagnosticDeviceConfiguration(lineID: string): Promise<DeviceConfiguration>
+  resetDiagnosticUSB(
+    lineID: string,
+    expectedDeviceRevision: string
+  ): Promise<DeviceConfiguration>
   listDiagnosticLogs(query?: DiagnosticLogQuery): Promise<DiagnosticLogPage>
   subscribeDiagnosticLogs(
     query: DiagnosticLogQuery,

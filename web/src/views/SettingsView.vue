@@ -116,23 +116,17 @@ const sections = computed<SettingsSectionDefinition[]>(() => {
       icon: RadioTower
     }
   ]
+  if (sessionState.role !== 'admin') return personal
+  const administration: SettingsSectionDefinition[] = []
   if (externalAccessEnabled.value) {
-    personal.push({
-      id: 'external-access' as const,
+    administration.push({
+      id: 'external-access',
       label: t('settings.iosApp'),
       description: t('settings.iosAppDescription'),
       icon: Globe2
     })
   }
-  const about = {
-    id: 'about' as const,
-    label: t('settings.about'),
-    description: t('settings.aboutDescription'),
-    icon: Info
-  }
-  if (sessionState.role !== 'admin') return [...personal, about]
-  return [
-    ...personal,
+  administration.push(
     {
       id: 'web-certificate',
       label: t('settings.tls'),
@@ -145,8 +139,14 @@ const sections = computed<SettingsSectionDefinition[]>(() => {
       description: t('settings.diagnosticsDescription'),
       icon: Activity
     },
-    about
-  ]
+    {
+      id: 'about',
+      label: t('settings.about'),
+      description: t('settings.aboutDescription'),
+      icon: Info
+    }
+  )
+  return [...personal, ...administration]
 })
 const selectedSection = computed<SettingsSection | ''>(() => {
   const value = String(route.params.section || '')
@@ -186,6 +186,11 @@ watch(
 )
 
 async function loadExternalAccessVisibility(): Promise<void> {
+  if (sessionState.role !== 'admin') {
+    externalAccessEnabled.value = false
+    externalAccessResolved.value = true
+    return
+  }
   try {
     const result = await gateway.getIOSPairing()
     externalAccessEnabled.value = result.pairing.cloudflare.enabled

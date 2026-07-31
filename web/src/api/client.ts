@@ -67,6 +67,7 @@ import {
   parseUsersResponse,
   telegramUnitContract,
   telegramUnitDeletePath,
+  diagnosticDeviceConfigurationContract,
   deviceConfigurationContract,
   lineLabelPath,
   iosPairingContract,
@@ -1409,6 +1410,32 @@ const realGateway: ConfiguredModemDeckGateway = {
 
   async getDiagnostics(): Promise<DiagnosticsSnapshot> {
     return parseDiagnostics(await get(`${API_ROOT}/diagnostics`))
+  },
+
+  async getDiagnosticDeviceConfiguration(
+    lineID: string
+  ): Promise<DeviceConfiguration> {
+    const contract = diagnosticDeviceConfigurationContract(lineID).get
+    return parseDeviceConfigurationResponse(await get(contract.path))
+  },
+
+  async resetDiagnosticUSB(
+    lineID: string,
+    expectedDeviceRevision: string
+  ): Promise<DeviceConfiguration> {
+    const contract = diagnosticDeviceConfigurationContract(lineID).resetUSB
+    return parseDeviceConfigurationResponse(
+      await writeJSON(
+        contract.path,
+        contract.method,
+        createDeviceConfigurationPayload({
+          request_id: requestID(),
+          operation: 'reset_usb',
+          expected_device_revision: expectedDeviceRevision
+        }),
+        contract.successStatus
+      )
+    )
   },
 
   async listDiagnosticLogs(query: DiagnosticLogQuery = {}): Promise<DiagnosticLogPage> {
