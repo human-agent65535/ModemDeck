@@ -28,6 +28,8 @@ type User struct {
 	IOSPairingEnabled             bool     `json:"ios_pairing_enabled"`
 	IOSPairingHasCredential       bool     `json:"ios_pairing_has_credential"`
 	IOSPairingCredentialCreatedAt string   `json:"ios_pairing_credential_created_at,omitempty"`
+	IOSPairingPaired              bool     `json:"ios_pairing_paired"`
+	IOSPairingPairedAt            string   `json:"ios_pairing_paired_at,omitempty"`
 	Revision                      int64    `json:"revision"`
 	ProfileName                   string   `json:"profile_name,omitempty"`
 	ProfileAvatar                 string   `json:"profile_avatar,omitempty"`
@@ -81,6 +83,7 @@ func (s *Store) Users(ctx context.Context) ([]User, error) {
 			user.enabled,
 			user.ios_pairing_enabled,
 			credential.created_at,
+			credential.activated_at,
 			user.revision,
 			COALESCE(contact.display_name, ''),
 			COALESCE(contact.avatar, ''),
@@ -107,6 +110,7 @@ func (s *Store) Users(ctx context.Context) ([]User, error) {
 			enabled             int64
 			iosPairing          int64
 			credentialCreatedAt sql.NullString
+			pairedAt            sql.NullString
 		)
 		if err := rows.Scan(
 			&user.ID,
@@ -115,6 +119,7 @@ func (s *Store) Users(ctx context.Context) ([]User, error) {
 			&enabled,
 			&iosPairing,
 			&credentialCreatedAt,
+			&pairedAt,
 			&user.Revision,
 			&user.ProfileName,
 			&user.ProfileAvatar,
@@ -130,6 +135,8 @@ func (s *Store) Users(ctx context.Context) ([]User, error) {
 		user.IOSPairingCredentialCreatedAt = iosPairingTimestamp(
 			stringValue(credentialCreatedAt),
 		)
+		user.IOSPairingPaired = pairedAt.Valid
+		user.IOSPairingPairedAt = iosPairingTimestamp(stringValue(pairedAt))
 		user.LineIDs = []string{}
 		users = append(users, user)
 	}

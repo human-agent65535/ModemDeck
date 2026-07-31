@@ -61,8 +61,9 @@ func TestIOSPairingPermissionAndRevocationLifecycle(t *testing.T) {
 	}
 	if !status.Allowed ||
 		!status.HasCredential ||
-		status.CredentialCreatedAt == "" {
-		t.Fatalf("paired status = %+v", status)
+		status.CredentialCreatedAt == "" ||
+		status.Paired {
+		t.Fatalf("pending pairing status = %+v", status)
 	}
 	if _, err := time.Parse(time.RFC3339, status.CredentialCreatedAt); err != nil {
 		t.Fatalf(
@@ -76,21 +77,48 @@ func TestIOSPairingPermissionAndRevocationLifecycle(t *testing.T) {
 		t.Fatalf("User() after pairing error = %v", err)
 	}
 	if !member.IOSPairingHasCredential ||
+		member.IOSPairingPaired ||
 		member.IOSPairingCredentialCreatedAt != status.CredentialCreatedAt {
 		t.Fatalf("user pairing status = %+v, want credential at %q", member, status.CredentialCreatedAt)
 	}
 
+	confirmed, err := repository.ConfirmIOSPairingCredential(ctx, digest)
+	if err != nil || !confirmed {
+		t.Fatalf("ConfirmIOSPairingCredential() = %t, %v", confirmed, err)
+	}
+	confirmed, err = repository.ConfirmIOSPairingCredential(ctx, digest)
+	if err != nil || confirmed {
+		t.Fatalf("second confirmation = %t, %v", confirmed, err)
+	}
 	status, err = repository.IOSPairingStatus(ctx, member.ID)
-	if err != nil || !status.HasCredential {
-		t.Fatalf("persisted credential = %+v, %v", status, err)
+	if err != nil ||
+		!status.HasCredential ||
+		!status.Paired ||
+		status.PairedAt == "" {
+		t.Fatalf("confirmed credential = %+v, %v", status, err)
+	}
+	if _, err := time.Parse(time.RFC3339, status.PairedAt); err != nil {
+		t.Fatalf("paired timestamp = %q, want RFC3339: %v", status.PairedAt, err)
+	}
+	member, err = repository.User(ctx, member.ID)
+	if err != nil {
+		t.Fatalf("User() after confirmation error = %v", err)
+	}
+	if !member.IOSPairingPaired ||
+		member.IOSPairingPairedAt != status.PairedAt {
+		t.Fatalf("confirmed user pairing status = %+v", member)
 	}
 
-	if _, err := repository.RotateIOSPairingCredential(
+	status, err = repository.RotateIOSPairingCredential(
 		ctx,
 		member.ID,
 		mobilepairing.TokenDigest{4, 5, 6},
-	); err != nil {
+	)
+	if err != nil {
 		t.Fatalf("rotate credential again: %v", err)
+	}
+	if status.Paired || status.PairedAt != "" {
+		t.Fatalf("replacement credential status = %+v, want pending", status)
 	}
 	member, err = repository.UpdateMember(ctx, member.ID, UpdateMemberInput{
 		Username:          member.Username,

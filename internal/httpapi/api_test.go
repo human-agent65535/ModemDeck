@@ -76,6 +76,8 @@ type fakeRepository struct {
 	mobilePrincipal       auth.Principal
 	mobileFound           bool
 	mobileError           error
+	mobileConfirmedDigest mobilepairing.TokenDigest
+	mobileConfirmError    error
 	callLineID            string
 	callLineError         error
 }
@@ -85,6 +87,14 @@ func (repository *fakeRepository) IOSPairingPrincipalByTokenDigest(
 	mobilepairing.TokenDigest,
 ) (auth.Principal, bool, error) {
 	return repository.mobilePrincipal, repository.mobileFound, repository.mobileError
+}
+
+func (repository *fakeRepository) ConfirmIOSPairingCredential(
+	_ context.Context,
+	digest mobilepairing.TokenDigest,
+) (bool, error) {
+	repository.mobileConfirmedDigest = digest
+	return repository.mobileConfirmError == nil, repository.mobileConfirmError
 }
 
 func (repository *fakeRepository) CallLineID(

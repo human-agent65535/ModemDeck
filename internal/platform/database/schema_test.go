@@ -295,6 +295,72 @@ func TestOpenMigratesCurrentSchemaBeforeIOSPairing(t *testing.T) {
 
 }
 
+func TestOpenAddsIOSPairingConfirmationAndPreservesExistingPairing(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	previousSchema := strings.Replace(
+		currentSchemaSQL,
+		"\n\t\t\tactivated_at DATETIME,",
+		"",
+		1,
+	)
+	if previousSchema == currentSchemaSQL {
+		t.Fatal("previous schema fixture did not remove activated_at")
+	}
+	path := filepath.Join(t.TempDir(), "before-ios-pairing-confirmation.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(previousSchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO modemdeck_users (
+			id, username, password_hash, role, enabled, ios_pairing_enabled
+		) VALUES (
+			'user_admin', 'owner', 'owner-hash', 'admin', 1, 1
+		);
+		INSERT INTO modemdeck_ios_pairing_credentials (
+			user_id, token_digest, created_at, updated_at
+		) VALUES (
+			'user_admin', randomblob(32),
+			'2026-07-30 12:00:00', '2026-07-30 12:00:00'
+		);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	if err := ValidateSchema(context.Background(), database); err != nil {
+		t.Fatalf("ValidateSchema() after migration error = %v", err)
+	}
+	var createdAt, activatedAt string
+	if err := database.QueryRow(`
+		SELECT created_at, activated_at
+		FROM modemdeck_ios_pairing_credentials
+		WHERE user_id = 'user_admin'
+	`).Scan(&createdAt, &activatedAt); err != nil {
+		t.Fatal(err)
+	}
+	if activatedAt != createdAt {
+		t.Fatalf(
+			"activated_at = %q, want existing created_at %q",
+			activatedAt,
+			createdAt,
+		)
+	}
+}
+
 func TestOpenMigratesSingleUserDataToInitialAdministrator(t *testing.T) {
 	t.Parallel()
 

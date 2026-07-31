@@ -9,6 +9,7 @@ import (
 const (
 	iosPairingCredentialsTable = "modemdeck_ios_pairing_credentials"
 	iosPairingEnabledColumn    = "ios_pairing_enabled"
+	iosPairingActivatedColumn  = "activated_at"
 )
 
 func schemaBeforeMobilePairing(current schemaShape) schemaShape {
@@ -29,9 +30,47 @@ func migrateMobilePairingSchema(
 ) (bool, error) {
 	userColumns, usersExist := actual.tables["modemdeck_users"]
 	_, pairingColumnExists := userColumns[iosPairingEnabledColumn]
-	_, credentialsExist := actual.tables[iosPairingCredentialsTable]
-	if pairingColumnExists && credentialsExist {
+	credentialColumns, credentialsExist := actual.tables[iosPairingCredentialsTable]
+	_, activatedColumnExists := credentialColumns[iosPairingActivatedColumn]
+	if pairingColumnExists && credentialsExist && activatedColumnExists {
 		return false, nil
+	}
+	if pairingColumnExists && credentialsExist && !activatedColumnExists {
+		beforeConfirmation := schemaWithoutColumn(
+			expected,
+			iosPairingCredentialsTable,
+			iosPairingActivatedColumn,
+		)
+		if !schemaContains(beforeConfirmation, actual) {
+			return false, nil
+		}
+		transaction, err := database.BeginTx(ctx, nil)
+		if err != nil {
+			return false, fmt.Errorf(
+				"begin iOS pairing confirmation migration: %w",
+				err,
+			)
+		}
+		defer transaction.Rollback()
+		if _, err := transaction.ExecContext(ctx, `
+			ALTER TABLE modemdeck_ios_pairing_credentials
+				ADD COLUMN activated_at DATETIME;
+			UPDATE modemdeck_ios_pairing_credentials
+			SET activated_at = created_at
+			WHERE activated_at IS NULL;
+		`); err != nil {
+			return false, fmt.Errorf(
+				"migrate iOS pairing confirmation: %w",
+				err,
+			)
+		}
+		if err := transaction.Commit(); err != nil {
+			return false, fmt.Errorf(
+				"commit iOS pairing confirmation migration: %w",
+				err,
+			)
+		}
+		return true, nil
 	}
 	if !usersExist ||
 		pairingColumnExists ||
@@ -56,6 +95,7 @@ func migrateMobilePairingSchema(
 		CREATE TABLE modemdeck_ios_pairing_credentials (
 			user_id TEXT PRIMARY KEY,
 			token_digest BLOB NOT NULL CHECK (length(token_digest) = 32),
+			activated_at DATETIME,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (user_id) REFERENCES modemdeck_users(id)

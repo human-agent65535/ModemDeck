@@ -15,12 +15,15 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
 const (
 	cloudflareStatusTimeout       = 6 * time.Second
 	cloudflareRequestTimeout      = 3 * time.Second
+	cloudflareHealthyRefresh      = 60 * time.Second
+	cloudflareUnavailableRefresh  = 15 * time.Second
 	cloudflareProbeBytes          = 32
 	cloudflareConfigResponseBytes = 256 * 1024
 
@@ -42,6 +45,7 @@ type CloudflareStatus struct {
 	Connected          bool     `json:"connected"`
 	PublicURL          string   `json:"public_url"`
 	APIURLs            []string `json:"api_urls,omitempty"`
+	VerifiedAPIURLs    []string `json:"verified_api_urls,omitempty"`
 	WebURLs            []string `json:"web_urls,omitempty"`
 }
 
@@ -57,14 +61,25 @@ type ProbeResponder interface {
 	CloudflareProbeProof(*http.Request) (string, bool)
 }
 
+type Refresher interface {
+	Refresh(context.Context) CloudflareStatus
+}
+
 type CloudflareGateway struct {
-	status    CloudflareStatus
-	readyURL  string
-	configURL string
-	apiOrigin string
-	webOrigin string
-	probeKey  []byte
-	client    *http.Client
+	statusMu sync.RWMutex
+	status   CloudflareStatus
+
+	refreshMu   sync.Mutex
+	refreshDone chan struct{}
+
+	readyURL           string
+	configURL          string
+	apiOrigin          string
+	webOrigin          string
+	probeKey           []byte
+	client             *http.Client
+	healthyRefresh     time.Duration
+	unavailableRefresh time.Duration
 }
 
 func NewCloudflareGateway(readyURL string) (*CloudflareGateway, error) {
@@ -121,16 +136,97 @@ func NewCloudflareGateway(readyURL string) (*CloudflareGateway, error) {
 				return http.ErrUseLastResponse
 			},
 		},
+		healthyRefresh:     cloudflareHealthyRefresh,
+		unavailableRefresh: cloudflareUnavailableRefresh,
 	}, nil
 }
 
 func (gateway *CloudflareGateway) Status(
 	ctx context.Context,
 ) CloudflareStatus {
-	if gateway == nil || !gateway.status.Enabled {
+	_ = ctx
+	return gateway.statusSnapshot()
+}
+
+func (gateway *CloudflareGateway) Refresh(
+	ctx context.Context,
+) CloudflareStatus {
+	if gateway == nil {
 		return CloudflareStatus{}
 	}
-	status := gateway.status
+	current := gateway.statusSnapshot()
+	if !current.Enabled {
+		return CloudflareStatus{}
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	gateway.refreshMu.Lock()
+	if gateway.refreshDone != nil {
+		done := gateway.refreshDone
+		gateway.refreshMu.Unlock()
+		select {
+		case <-done:
+		case <-ctx.Done():
+		}
+		return gateway.statusSnapshot()
+	}
+	done := make(chan struct{})
+	gateway.refreshDone = done
+	gateway.refreshMu.Unlock()
+
+	status := gateway.scan(ctx, current)
+	if ctx.Err() == nil {
+		gateway.statusMu.Lock()
+		gateway.status = cloneCloudflareStatus(status)
+		gateway.statusMu.Unlock()
+	}
+
+	gateway.refreshMu.Lock()
+	gateway.refreshDone = nil
+	close(done)
+	gateway.refreshMu.Unlock()
+	return gateway.statusSnapshot()
+}
+
+func (gateway *CloudflareGateway) Run(ctx context.Context) {
+	if gateway == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if !gateway.statusSnapshot().Enabled {
+		return
+	}
+	for {
+		status := gateway.Refresh(ctx)
+		delay := gateway.unavailableRefresh
+		if status.Connected {
+			delay = gateway.healthyRefresh
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+func (gateway *CloudflareGateway) scan(
+	ctx context.Context,
+	previous CloudflareStatus,
+) CloudflareStatus {
+	status := cloneCloudflareStatus(previous)
+	status.ConnectorConnected = false
+	status.Connected = false
+	status.PublicURL = ""
+	status.VerifiedAPIURLs = []string{}
 	ctx, cancel := context.WithTimeout(ctx, cloudflareStatusTimeout)
 	defer cancel()
 	routes, discovered := gateway.discoverRoutes(ctx)
@@ -158,68 +254,128 @@ func (gateway *CloudflareGateway) Status(
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 	_ = response.Body.Close()
 	status.ConnectorConnected = response.StatusCode == http.StatusOK
-	if !status.ConnectorConnected || status.PublicURL == "" {
+	if !status.ConnectorConnected || len(status.APIURLs) == 0 {
 		return status
 	}
 
+	status.VerifiedAPIURLs = gateway.verifyAPIIngresses(ctx, status.APIURLs)
+	status.Connected = len(status.VerifiedAPIURLs) > 0
+	if status.Connected {
+		status.PublicURL = status.VerifiedAPIURLs[0]
+	}
+	return status
+}
+
+func (gateway *CloudflareGateway) verifyAPIIngresses(
+	ctx context.Context,
+	publicURLs []string,
+) []string {
+	results := make(chan string, len(publicURLs))
+	var wait sync.WaitGroup
+	for _, candidate := range publicURLs {
+		publicURL := candidate
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			if gateway.verifyAPIIngress(ctx, publicURL) {
+				results <- publicURL
+			}
+		}()
+	}
+	wait.Wait()
+	close(results)
+	verified := make([]string, 0, len(publicURLs))
+	for publicURL := range results {
+		verified = append(verified, publicURL)
+	}
+	sort.Strings(verified)
+	return verified
+}
+
+func (gateway *CloudflareGateway) verifyAPIIngress(
+	ctx context.Context,
+	publicURL string,
+) bool {
 	challenge := make([]byte, cloudflareProbeBytes)
 	if _, err := io.ReadFull(rand.Reader, challenge); err != nil {
-		return status
+		return false
 	}
-	request, err = http.NewRequestWithContext(
+	request, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodGet,
-		status.PublicURL+CloudflareProbePath,
+		publicURL+CloudflareProbePath,
 		nil,
 	)
 	if err != nil {
-		return status
+		return false
 	}
 	request.Header.Set(
 		CloudflareProbeChallengeHeader,
 		base64.RawURLEncoding.EncodeToString(challenge),
 	)
-	response, err = gateway.client.Do(request)
+	response, err := gateway.client.Do(request)
 	if err != nil {
-		return status
+		return false
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 	_ = response.Body.Close()
 	if response.StatusCode != http.StatusNoContent {
-		return status
+		return false
 	}
 	expectedProof := cloudflareProbeProof(gateway.probeKey, challenge)
 	actualProof, err := base64.RawURLEncoding.DecodeString(
 		strings.TrimSpace(response.Header.Get(CloudflareProbeProofHeader)),
 	)
 	if err != nil || len(actualProof) != len(expectedProof) {
-		return status
+		return false
 	}
-	status.Connected = subtle.ConstantTimeCompare(actualProof, expectedProof) == 1
-	return status
+	return subtle.ConstantTimeCompare(actualProof, expectedProof) == 1
 }
 
 func (gateway *CloudflareGateway) IsWebIngress(
 	ctx context.Context,
 	requestHost string,
 ) bool {
-	if gateway == nil || !gateway.status.Enabled {
+	_ = ctx
+	status := gateway.statusSnapshot()
+	if !status.Enabled {
 		return false
 	}
 	publicURL, err := publicURLFromRequestHost(requestHost)
 	if err != nil {
 		return false
 	}
-	routes, discovered := gateway.discoverRoutes(ctx)
-	if !discovered {
-		return false
-	}
-	for _, candidate := range routes.WebURLs {
+	for _, candidate := range status.WebURLs {
 		if candidate == publicURL {
 			return true
 		}
 	}
 	return false
+}
+
+func (gateway *CloudflareGateway) statusSnapshot() CloudflareStatus {
+	if gateway == nil {
+		return CloudflareStatus{}
+	}
+	gateway.statusMu.RLock()
+	defer gateway.statusMu.RUnlock()
+	return cloneCloudflareStatus(gateway.status)
+}
+
+func cloneCloudflareStatus(status CloudflareStatus) CloudflareStatus {
+	status.APIURLs = append([]string(nil), status.APIURLs...)
+	status.VerifiedAPIURLs = append([]string(nil), status.VerifiedAPIURLs...)
+	status.WebURLs = append([]string(nil), status.WebURLs...)
+	if status.APIURLs == nil {
+		status.APIURLs = []string{}
+	}
+	if status.VerifiedAPIURLs == nil {
+		status.VerifiedAPIURLs = []string{}
+	}
+	if status.WebURLs == nil {
+		status.WebURLs = []string{}
+	}
+	return status
 }
 
 type cloudflaredRuntimeConfiguration struct {
@@ -309,7 +465,7 @@ func sortedStringSet(values map[string]struct{}) []string {
 func (gateway *CloudflareGateway) CloudflareProbeProof(
 	request *http.Request,
 ) (string, bool) {
-	if gateway == nil || !gateway.status.Enabled || request == nil {
+	if gateway == nil || !gateway.statusSnapshot().Enabled || request == nil {
 		return "", false
 	}
 	challenge, err := base64.RawURLEncoding.DecodeString(

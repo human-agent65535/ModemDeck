@@ -17,11 +17,13 @@ import QRCode from 'qrcode'
 import { gateway } from '../api/client'
 import type { ExternalAccessStatus, IOSPairingStatus } from '../api/types'
 import { ApiError } from '../api/types'
+import { useSettingsMutation } from '../composables/useSettingsMutation'
 import { requestConfirmation } from '../state/confirmation'
 import { sessionState } from '../state/session'
 import SettingsModuleCard from './settings/SettingsModuleCard.vue'
 
 const STATUS_REFRESH_INTERVAL_MS = 15_000
+const PAIRING_CONFIRMATION_INTERVAL_MS = 2_000
 
 const { t, locale } = useI18n()
 const isAdmin = computed(() => sessionState.role === 'admin')
@@ -37,12 +39,24 @@ const qrDialog = ref<HTMLElement | null>(null)
 const qrCloseButton = ref<HTMLButtonElement | null>(null)
 const pairingCodeInput = ref<HTMLTextAreaElement | null>(null)
 const copied = ref(false)
+const selectedServerURL = ref('')
 let statusRefreshTimer: number | undefined
 let statusLoadPending = false
+let pairingConfirmationTimer: number | undefined
+let pairingConfirmationLoadPending = false
 
 const pairingReady = computed(
-  () => pairing.value?.allowed && pairing.value.availability === 'ready'
+  () =>
+    pairing.value?.allowed &&
+    pairing.value.availability === 'ready' &&
+    pairing.value.server_urls.length > 0
 )
+const refreshMutation = useSettingsMutation({
+  errorMessage: cause =>
+    errorMessage(cause, t('iosPairing.refreshFailed')),
+  successMessage: () => t('iosPairing.refreshed'),
+  toast: 'both'
+})
 const pairingStatusLabel = computed(() => {
   switch (pairing.value?.availability) {
     case 'permission_required':
@@ -54,9 +68,9 @@ const pairingStatusLabel = computed(() => {
     case 'route_unavailable':
       return t('iosPairing.routeUnavailable')
     case 'ready':
-      return pairing.value.has_credential
-        ? t('iosPairing.paired')
-        : t('iosPairing.notPaired')
+      if (pairing.value.paired) return t('iosPairing.paired')
+      if (pairing.value.has_credential) return t('iosPairing.waiting')
+      return t('iosPairing.notPaired')
     default:
       return ''
   }
@@ -86,6 +100,12 @@ function errorMessage(cause: unknown, fallback: string): string {
     if (cause.code === 'ios_pairing_not_allowed') {
       return t('iosPairing.permissionRequired')
     }
+    if (
+      cause.code === 'server_url_required' ||
+      cause.code === 'invalid_server_url'
+    ) {
+      return t('iosPairing.selectServer')
+    }
   }
   return cause instanceof Error && cause.message ? cause.message : fallback
 }
@@ -100,6 +120,58 @@ function formatTimestamp(value?: string): string {
   }).format(date)
 }
 
+function applyPairingStatus(status: IOSPairingStatus): void {
+  const wasPaired = pairing.value?.paired ?? false
+  pairing.value = status
+  if (!status.server_urls.includes(selectedServerURL.value)) {
+    selectedServerURL.value = status.server_urls[0] || ''
+  }
+  if (!wasPaired && status.paired && qrDataURL.value) {
+    closeQR()
+  }
+  syncPairingConfirmationPolling()
+}
+
+function clearPairingConfirmationPolling(): void {
+  if (pairingConfirmationTimer === undefined) return
+  window.clearInterval(pairingConfirmationTimer)
+  pairingConfirmationTimer = undefined
+}
+
+function syncPairingConfirmationPolling(): void {
+  const waiting = Boolean(
+    pairing.value?.has_credential && !pairing.value.paired
+  )
+  if (!waiting) {
+    clearPairingConfirmationPolling()
+    return
+  }
+  if (pairingConfirmationTimer !== undefined) return
+  pairingConfirmationTimer = window.setInterval(() => {
+    void refreshPairingConfirmation()
+  }, PAIRING_CONFIRMATION_INTERVAL_MS)
+}
+
+async function refreshPairingConfirmation(): Promise<void> {
+  if (
+    pairingConfirmationLoadPending ||
+    statusLoadPending ||
+    !pairing.value?.has_credential ||
+    pairing.value.paired
+  ) {
+    return
+  }
+  pairingConfirmationLoadPending = true
+  try {
+    const result = await gateway.getIOSPairing()
+    applyPairingStatus(result.pairing)
+  } catch {
+    // The regular status refresh reports persistent connectivity failures.
+  } finally {
+    pairingConfirmationLoadPending = false
+  }
+}
+
 async function refreshStatus(background: boolean): Promise<void> {
   if (statusLoadPending) return
   statusLoadPending = true
@@ -112,7 +184,7 @@ async function refreshStatus(background: boolean): Promise<void> {
       gateway.getIOSPairing(),
       isAdmin.value ? gateway.getExternalAccessStatus() : Promise.resolve(null)
     ])
-    pairing.value = pairingResult.pairing
+    applyPairingStatus(pairingResult.pairing)
     externalAccess.value = status
     loadError.value = ''
   } catch (cause) {
@@ -123,6 +195,18 @@ async function refreshStatus(background: boolean): Promise<void> {
     statusLoadPending = false
     if (!background) loading.value = false
   }
+}
+
+async function refreshExternalAccess(): Promise<void> {
+  if (!isAdmin.value || refreshMutation.saving.value) return
+  const result = await refreshMutation.run(async () => {
+    const status = await gateway.refreshExternalAccess()
+    const pairingResult = await gateway.getIOSPairing()
+    return { status, pairing: pairingResult.pairing }
+  })
+  if (!result.ok) return
+  externalAccess.value = result.value.status
+  applyPairingStatus(result.value.pairing)
 }
 
 function load(): Promise<void> {
@@ -143,9 +227,11 @@ async function createPairing(): Promise<void> {
   pairingPending.value = true
   pairingError.value = ''
   try {
-    const result = await gateway.createIOSPairing()
+    const result = await gateway.createIOSPairing(
+      selectedServerURL.value || undefined
+    )
     if (!result.payload) throw new Error(t('iosPairing.invalidPayload'))
-    pairing.value = result.pairing
+    applyPairingStatus(result.pairing)
     pairingCode.value = JSON.stringify(result.payload)
     qrDataURL.value = await QRCode.toDataURL(pairingCode.value, {
       width: 320,
@@ -181,11 +267,13 @@ async function revokePairing(): Promise<void> {
   pairingError.value = ''
   try {
     await gateway.revokeIOSPairing()
-    pairing.value = {
+    applyPairingStatus({
       ...pairing.value,
       has_credential: false,
-      credential_created_at: undefined
-    }
+      credential_created_at: undefined,
+      paired: false,
+      paired_at: undefined
+    })
     closeQR()
   } catch (cause) {
     pairingError.value = errorMessage(cause, t('iosPairing.revokeFailed'))
@@ -248,6 +336,7 @@ onBeforeUnmount(() => {
   if (statusRefreshTimer !== undefined) {
     window.clearInterval(statusRefreshTimer)
   }
+  clearPairingConfirmationPolling()
 })
 </script>
 
@@ -283,27 +372,67 @@ onBeforeUnmount(() => {
           <ShieldCheck :size="19" />
         </template>
         <template #status>
-          <span
-            class="ios-status"
-            :class="{
-              'is-active': externalAccess.cloudflare.connector_connected,
-              'is-blocked': !externalAccess.cloudflare.connector_connected
-            }"
-          >
-            {{
-              !externalAccess.cloudflare.enabled
-                ? t('iosPairing.notInstalled')
-                : externalAccess.cloudflare.connector_connected
-                  ? t('iosPairing.connected')
-                : t('iosPairing.disconnected')
-            }}
-          </span>
+          <div class="ios-tunnel-status">
+            <span
+              class="ios-status"
+              :class="{
+                'is-active': externalAccess.cloudflare.connected,
+                'is-blocked': !externalAccess.cloudflare.connected
+              }"
+            >
+              {{
+                !externalAccess.cloudflare.enabled
+                  ? t('iosPairing.notInstalled')
+                  : externalAccess.cloudflare.connected
+                    ? t('iosPairing.connected')
+                    : externalAccess.cloudflare.connector_connected
+                      ? t('iosPairing.routeUnavailable')
+                      : t('iosPairing.disconnected')
+              }}
+            </span>
+            <button
+              v-if="externalAccess.cloudflare.enabled"
+              class="icon-button ios-refresh-button"
+              type="button"
+              :disabled="refreshMutation.saving.value"
+              :aria-label="t('iosPairing.refresh')"
+              :title="t('iosPairing.refresh')"
+              @click="refreshExternalAccess"
+            >
+              <RefreshCw
+                :class="{ spin: refreshMutation.saving.value }"
+                :size="16"
+              />
+            </button>
+          </div>
         </template>
         <dl v-if="externalAccess.cloudflare.enabled" class="ios-pairing-facts">
           <div v-if="externalAccess.cloudflare.api_urls.length">
             <dt>API</dt>
-            <dd v-for="url in externalAccess.cloudflare.api_urls" :key="url">
+            <dd
+              v-for="url in externalAccess.cloudflare.api_urls"
+              :key="url"
+              class="ios-route"
+            >
+              <Check
+                v-if="externalAccess.cloudflare.verified_api_urls.includes(url)"
+                :size="14"
+                aria-hidden="true"
+              />
+              <X
+                v-else
+                class="ios-route__unverified"
+                :size="14"
+                aria-hidden="true"
+              />
               <code>{{ url }}</code>
+              <span class="sr-only">
+                {{
+                  externalAccess.cloudflare.verified_api_urls.includes(url)
+                    ? t('iosPairing.routeVerified')
+                    : t('iosPairing.routeUnverified')
+                }}
+              </span>
             </dd>
           </div>
           <div v-if="externalAccess.cloudflare.web_urls.length">
@@ -365,7 +494,7 @@ onBeforeUnmount(() => {
           <span
             class="ios-status"
             :class="{
-              'is-active': pairing.has_credential && pairing.availability === 'ready',
+              'is-active': pairing.paired && pairing.availability === 'ready',
               'is-blocked': pairing.availability !== 'ready'
             }"
           >
@@ -383,6 +512,24 @@ onBeforeUnmount(() => {
               <dd>{{ formatTimestamp(pairing.credential_created_at) }}</dd>
             </div>
           </dl>
+          <label
+            v-if="pairing.server_urls.length > 1"
+            class="field ios-server-select"
+          >
+            <span>{{ t('iosPairing.pairingRoute') }}</span>
+            <select
+              v-model="selectedServerURL"
+              :disabled="pairingPending"
+            >
+              <option
+                v-for="url in pairing.server_urls"
+                :key="url"
+                :value="url"
+              >
+                {{ url }}
+              </option>
+            </select>
+          </label>
           <p class="ios-pairing-note">{{ t('iosPairing.noSwitching') }}</p>
           <p class="ios-pairing-note">{{ t('iosPairing.noExpiry') }}</p>
           <div class="ios-pairing-actions">
@@ -439,6 +586,7 @@ onBeforeUnmount(() => {
             <div>
               <h2 id="ios-qr-title">{{ t('iosPairing.scanTitle') }}</h2>
               <p>{{ t('iosPairing.scanDescription') }}</p>
+              <p>{{ t('iosPairing.scanWaiting') }}</p>
             </div>
             <button
               ref="qrCloseButton"
@@ -556,6 +704,18 @@ onBeforeUnmount(() => {
   background: var(--danger-soft);
 }
 
+.ios-tunnel-status {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.ios-refresh-button {
+  width: 30px;
+  height: 30px;
+}
+
 .ios-notice {
   margin: 0;
   padding: 12px;
@@ -594,6 +754,26 @@ onBeforeUnmount(() => {
   margin: 4px 0 0;
   font-size: 12px;
   overflow-wrap: anywhere;
+}
+
+.ios-route {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ios-route > svg:first-child {
+  flex: 0 0 auto;
+  color: var(--accent-strong);
+}
+
+.ios-route > svg.ios-route__unverified {
+  color: var(--danger);
+}
+
+.ios-server-select {
+  max-width: 520px;
+  margin-top: 14px;
 }
 
 .ios-pairing-actions {
@@ -701,6 +881,10 @@ onBeforeUnmount(() => {
 @media (max-width: 520px) {
   .ios-status {
     margin-left: 51px;
+  }
+
+  .ios-tunnel-status .ios-status {
+    margin-left: 0;
   }
 
   .ios-pairing-actions {

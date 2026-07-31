@@ -86,6 +86,7 @@ const currentSessionUser = computed<UserAccount>(() => ({
   enabled: true,
   ios_pairing_enabled: sessionState.iosPairingEnabled,
   ios_pairing_has_credential: false,
+  ios_pairing_paired: false,
   revision: 0,
   line_ids: [...sessionState.allowedLineIDs],
   created_at: '',

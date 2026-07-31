@@ -34,6 +34,7 @@ CREATE TABLE modemdeck_auth_sessions (
 CREATE TABLE modemdeck_ios_pairing_credentials (
 			user_id TEXT PRIMARY KEY,
 			token_digest BLOB NOT NULL CHECK (length(token_digest) = 32),
+			activated_at DATETIME,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (user_id) REFERENCES modemdeck_users(id) ON DELETE CASCADE ON UPDATE CASCADE

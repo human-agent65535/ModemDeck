@@ -17,6 +17,8 @@ type IOSPairingStatus struct {
 	Allowed             bool   `json:"allowed"`
 	HasCredential       bool   `json:"has_credential"`
 	CredentialCreatedAt string `json:"credential_created_at,omitempty"`
+	Paired              bool   `json:"paired"`
+	PairedAt            string `json:"paired_at,omitempty"`
 }
 
 func (s *Store) IOSPairingPrincipalByTokenDigest(
@@ -101,6 +103,39 @@ func (s *Store) IOSPairingPrincipalByTokenDigest(
 	return principal, true, nil
 }
 
+func (s *Store) ConfirmIOSPairingCredential(
+	ctx context.Context,
+	digest mobilepairing.TokenDigest,
+) (bool, error) {
+	result, err := s.database.ExecContext(
+		ctx,
+		`UPDATE modemdeck_ios_pairing_credentials
+		 SET activated_at = CURRENT_TIMESTAMP,
+			updated_at = CURRENT_TIMESTAMP
+		 WHERE token_digest = ?
+			AND activated_at IS NULL
+			AND EXISTS (
+				SELECT 1
+				FROM modemdeck_users AS user
+				WHERE user.id = modemdeck_ios_pairing_credentials.user_id
+					AND user.enabled = 1
+					AND user.ios_pairing_enabled = 1
+			)`,
+		digest[:],
+	)
+	if err != nil {
+		return false, fmt.Errorf("confirm iOS pairing credential: %w", err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf(
+			"read iOS pairing confirmation result: %w",
+			err,
+		)
+	}
+	return updated > 0, nil
+}
+
 func (s *Store) IOSPairingStatus(
 	ctx context.Context,
 	userID string,
@@ -110,13 +145,15 @@ func (s *Store) IOSPairingStatus(
 		enabled   int64
 		pairing   int64
 		createdAt sql.NullString
+		pairedAt  sql.NullString
 	)
 	err := s.database.QueryRowContext(
 		ctx,
 		`SELECT
 			user.enabled,
 			user.ios_pairing_enabled,
-			credential.created_at
+			credential.created_at,
+			credential.activated_at
 		 FROM modemdeck_users AS user
 		 LEFT JOIN modemdeck_ios_pairing_credentials AS credential
 			ON credential.user_id = user.id
@@ -126,6 +163,7 @@ func (s *Store) IOSPairingStatus(
 		&enabled,
 		&pairing,
 		&createdAt,
+		&pairedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return IOSPairingStatus{}, ErrUserNotFound
@@ -136,6 +174,8 @@ func (s *Store) IOSPairingStatus(
 	status.Allowed = enabled != 0 && pairing != 0
 	status.HasCredential = createdAt.Valid
 	status.CredentialCreatedAt = iosPairingTimestamp(stringValue(createdAt))
+	status.Paired = pairedAt.Valid
+	status.PairedAt = iosPairingTimestamp(stringValue(pairedAt))
 	return status, nil
 }
 
@@ -175,6 +215,7 @@ func (s *Store) RotateIOSPairingCredential(
 		 ) VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		 ON CONFLICT(user_id) DO UPDATE SET
 			token_digest = excluded.token_digest,
+			activated_at = NULL,
 			created_at = CURRENT_TIMESTAMP,
 			updated_at = CURRENT_TIMESTAMP
 		 RETURNING created_at`,

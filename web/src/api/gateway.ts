@@ -179,8 +179,9 @@ export interface ModemDeckGateway {
   getSystemSettings(): Promise<SystemSettings>
   updateSystemSettings(input: UpdateSystemSettingsInput): Promise<SystemSettings>
   getExternalAccessStatus(): Promise<ExternalAccessStatus>
+  refreshExternalAccess(): Promise<ExternalAccessStatus>
   getIOSPairing(): Promise<IOSPairingResult>
-  createIOSPairing(): Promise<IOSPairingResult>
+  createIOSPairing(serverURL?: string): Promise<IOSPairingResult>
   revokeIOSPairing(): Promise<void>
   getTLSSettings(): Promise<TLSSettings>
   updateTLSSettings(input: UpdateTLSSettingsInput): Promise<TLSSettings>

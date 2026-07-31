@@ -44,9 +44,10 @@ ModemDeck 是一个管理蜂窝通话、短信、联系人、流量和多条线�
 
 只有安装并连接 Cloudflare Tunnel 后才能创建 iOS 配对。二维码包含自动发现的
 Cloudflare API HTTPS 地址和每用户凭据，不包含 LAN 地址，也没有过期时间；
-用户或管理员撤销后才失效。iOS 通话复用现有 Call API 和 WebRTC 媒体边界，
-并通过 Cloudflare TURN 强制中继；原生客户端和后台生命周期将在 M5 后续阶段
-实现。
+首次通过该凭据认证的 iOS API 请求会确认配对，关闭二维码不影响等待确认。
+凭据由用户或管理员撤销后才失效。iOS 通话复用现有 Call API 和 WebRTC
+媒体边界，并通过 Cloudflare TURN 强制中继；原生客户端和后台生命周期将在
+M5 后续阶段实现。
 
 ## 架构
 
@@ -235,10 +236,10 @@ sudo ./install.sh \
   --cloudflare-turn-token-file /root/modemdeck-cloudflare-turn.token
 ```
 
-Cloudflare ingress 由用户自行管理，应用内没有暴露开关。iOS API 地址始终是
-活动 Tunnel 配置中唯一指向 `http://modemdeck:7575` 的 HTTPS 主机名；修改
-Cloudflare ingress 后会自动更新，不需要重新运行安装器。该主机名的非 API
-路径返回 404。后台会自动刷新并分别显示 API 与 Web 的活动公网地址。
+Cloudflare ingress 由用户自行管理，应用内没有暴露开关。ModemDeck 会发现并
+验证所有指向 `http://modemdeck:7575` 的 HTTPS 主机名；每个 iOS 配对码使用
+用户选择的一个已验证入口。修改 ingress 不需要重新运行安装器。后台会在启动
+和运行中扫描，管理员也可手动重新扫描。API 主机名的非 API 路径返回 404。
 `--bind-address` 和 `--port` 只控制 Web 管理页的 HTTPS 宿主入口，不会进入
 iOS 二维码。重复安装会保留 SQLite 数据、设置密钥和 Cloudflare 凭据；可用
 `--disable-cloudflare-turn` 只停用 TURN，或用 `--disable-cloudflare` 停用
@@ -315,10 +316,11 @@ with that project.
 An iOS pairing can be created only while the installed Cloudflare Tunnel is
 connected. The QR payload contains the automatically discovered Cloudflare API
 HTTPS origin and a per-user credential; it contains no LAN address and has no
-expiry. It remains valid until the user or an administrator revokes it. iOS
-calls reuse the Call API and WebRTC media boundary with Cloudflare TURN
-relay-only configuration. Native-client and background lifecycle work remains
-in M5.
+expiry. The first authenticated iOS API request confirms the pairing; closing
+the QR does not cancel the pending credential. It remains valid until the user
+or an administrator revokes it. iOS calls reuse the Call API and WebRTC media
+boundary with Cloudflare TURN relay-only configuration. Native-client and
+background lifecycle work remains in M5.
 
 ## Architecture
 
@@ -535,12 +537,12 @@ sudo ./install.sh \
   --cloudflare-turn-token-file /root/modemdeck-cloudflare-turn.token
 ```
 
-Users manage Cloudflare ingress; the application has no exposure toggle. The
-iOS API automatically follows the one active Tunnel ingress hostname whose
-service is `http://modemdeck:7575`; changing that ingress does not require
-re-running the installer. Non-API paths on that hostname return 404.
-The settings page automatically refreshes the discovered API and Web public
-addresses.
+Users manage Cloudflare ingress; the application has no exposure toggle.
+ModemDeck discovers and verifies every HTTPS hostname routed to
+`http://modemdeck:7575`. Each iOS pairing code uses one verified address chosen
+by the user. Ingress changes do not require reinstalling. The backend scans at
+startup and while running, and administrators can rescan manually. Non-API
+paths on API hostnames return 404.
 `--bind-address` and `--port` control only the local HTTPS Web UI and never
 enter the iOS QR payload. Re-running preserves SQLite data, settings secrets,
 and Cloudflare credentials. Use `--disable-cloudflare-turn` to disable only

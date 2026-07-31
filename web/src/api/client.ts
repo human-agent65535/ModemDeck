@@ -1009,17 +1009,29 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
+  async refreshExternalAccess() {
+    const contract = externalAccessContract.refresh
+    return parseExternalAccessStatusResponse(
+      await writeJSON(
+        contract.path,
+        contract.method,
+        {},
+        contract.successStatus
+      )
+    )
+  },
+
   async getIOSPairing(): Promise<IOSPairingResult> {
     return parseIOSPairingResponse(await get(iosPairingContract.get.path))
   },
 
-  async createIOSPairing(): Promise<IOSPairingResult> {
+  async createIOSPairing(serverURL?: string): Promise<IOSPairingResult> {
     const contract = iosPairingContract.create
     return parseIOSPairingResponse(
       await writeJSON(
         contract.path,
         contract.method,
-        {},
+        serverURL ? { server_url: serverURL } : {},
         contract.successStatus
       )
     )

@@ -79,6 +79,20 @@ func (api *API) authorizeMobileAPI(
 		)
 		return false
 	}
+	if _, err := api.repository.ConfirmIOSPairingCredential(
+		request.Context(),
+		digest,
+	); err != nil {
+		api.logger.Error("confirm iOS pairing credential", "error", err)
+		writeError(
+			response,
+			http.StatusServiceUnavailable,
+			"authentication_unavailable",
+			"Authentication is unavailable",
+			"",
+		)
+		return false
+	}
 	ctx := context.WithValue(
 		request.Context(),
 		mobileAuthenticationContextKey{},

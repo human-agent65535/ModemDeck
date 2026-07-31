@@ -77,6 +77,10 @@ type Repository interface {
 		context.Context,
 		mobilepairing.TokenDigest,
 	) (auth.Principal, bool, error)
+	ConfirmIOSPairingCredential(
+		context.Context,
+		mobilepairing.TokenDigest,
+	) (bool, error)
 }
 
 type Capabilities struct {
@@ -403,6 +407,8 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.accountContact(response, request)
 	case "/api/v1/external-access/status":
 		api.getOnly(response, request, api.externalAccessStatus)
+	case "/api/v1/external-access/refresh":
+		api.postOnly(response, request, api.refreshExternalAccess)
 	case "/api/v1/mobile/pairing":
 		api.mobilePairing(response, request)
 	case "/api/v1/users":
@@ -538,6 +544,15 @@ func (api *API) getOnly(response http.ResponseWriter, request *http.Request, han
 	if request.Method != http.MethodGet {
 		response.Header().Set("Allow", http.MethodGet)
 		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET is supported", "")
+		return
+	}
+	handler(response, request)
+}
+
+func (api *API) postOnly(response http.ResponseWriter, request *http.Request, handler http.HandlerFunc) {
+	if request.Method != http.MethodPost {
+		response.Header().Set("Allow", http.MethodPost)
+		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only POST is supported", "")
 		return
 	}
 	handler(response, request)

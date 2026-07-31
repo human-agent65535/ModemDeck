@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,7 +14,7 @@ import (
 func TestMobileBearerAllowsCallAPIWithoutCSRF(t *testing.T) {
 	t.Parallel()
 
-	token, _, err := mobilepairing.NewToken()
+	token, digest, err := mobilepairing.NewToken()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,6 +48,13 @@ func TestMobileBearerAllowsCallAPIWithoutCSRF(t *testing.T) {
 		http.StatusServiceUnavailable,
 		"communications_unavailable",
 	)
+	if repository.mobileConfirmedDigest != digest {
+		t.Fatalf(
+			"confirmed digest = %x, want %x",
+			repository.mobileConfirmedDigest,
+			digest,
+		)
+	}
 }
 
 func TestMobileBearerCannotAccessWebSettingsAPI(t *testing.T) {
@@ -56,14 +64,15 @@ func TestMobileBearerCannotAccessWebSettingsAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api, err := New(&fakeRepository{
+	repository := &fakeRepository{
 		mobileFound: true,
 		mobilePrincipal: auth.Principal{
 			UserID:            "member-1",
 			Role:              auth.RoleMember,
 			IOSPairingEnabled: true,
 		},
-	}, Options{disableAuthentication: true})
+	}
+	api, err := New(repository, Options{disableAuthentication: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,6 +91,43 @@ func TestMobileBearerCannotAccessWebSettingsAPI(t *testing.T) {
 		response,
 		http.StatusForbidden,
 		"mobile_api_forbidden",
+	)
+	if repository.mobileConfirmedDigest != (mobilepairing.TokenDigest{}) {
+		t.Fatal("forbidden API request confirmed the pairing")
+	}
+}
+
+func TestMobileBearerConfirmationFailureRejectsTheRequest(t *testing.T) {
+	t.Parallel()
+
+	token, _, err := mobilepairing.NewToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := &fakeRepository{
+		mobileFound: true,
+		mobilePrincipal: auth.Principal{
+			UserID:            "member-1",
+			Role:              auth.RoleMember,
+			IOSPairingEnabled: true,
+		},
+		mobileConfirmError: errors.New("database unavailable"),
+	}
+	api, err := New(repository, Options{disableAuthentication: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/bootstrap", nil)
+	request.Header.Set("Authorization", "Bearer "+string(token))
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	assertAPIError(
+		t,
+		response,
+		http.StatusServiceUnavailable,
+		"authentication_unavailable",
 	)
 }
 

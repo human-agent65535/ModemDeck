@@ -423,6 +423,11 @@ export default {
     title: 'External access',
     description: 'Cloudflare Tunnel, Web, and iOS access.',
     tunnelTitle: 'Cloudflare Tunnel',
+    refresh: 'Rescan routes',
+    refreshed: 'External access status refreshed',
+    refreshFailed: 'Unable to refresh external access',
+    routeVerified: 'Verified',
+    routeUnverified: 'Not verified',
     notInstalled: 'Not installed',
     connected: 'Connected',
     disconnected: 'Disconnected',
@@ -442,12 +447,16 @@ export default {
       'Only you can generate, replace, or revoke this account’s pairing.',
     notAllowed: 'Not allowed',
     paired: 'Paired',
+    waiting: 'Waiting for iPhone',
     notPaired: 'Not paired',
     permissionRequired:
       'An administrator must allow iOS pairing for your account.',
+    selectServer: 'Choose an available API address',
+    pairingRoute: 'Pairing address',
     connection: 'Always connects through',
     createdAt: 'Credential created',
-    noSwitching: 'The app connects through Tunnel only.',
+    noSwitching:
+      'Each pairing code contains one API address. Pair again to change it.',
     noExpiry: 'The credential remains valid until replaced or revoked.',
     replaceQR: 'Replace QR code',
     generateQR: 'Generate QR code',
@@ -465,6 +474,8 @@ export default {
     copyFailed: 'Unable to copy the pairing data',
     scanTitle: 'Scan with the ModemDeck iOS app',
     scanDescription: 'Open pairing in the iOS app and scan this QR code.',
+    scanWaiting:
+      'This window closes automatically after the iPhone confirms the pairing.',
     qrAlt: 'ModemDeck iOS pairing QR code',
     showOnce:
       'This QR code contains a secret and is shown only now. Do not share it.',

@@ -168,6 +168,7 @@ export type CloudflareTunnelStatus = {
   connected: boolean
   public_url: string
   api_urls: string[]
+  verified_api_urls: string[]
   web_urls: string[]
 }
 
@@ -188,6 +189,9 @@ export type IOSPairingStatus = {
   availability: IOSPairingAvailability
   has_credential: boolean
   credential_created_at?: string
+  paired: boolean
+  paired_at?: string
+  server_urls: string[]
 }
 
 export type ExternalAccessStatus = {
@@ -1220,6 +1224,8 @@ export type UserAccount = {
   ios_pairing_enabled: boolean
   ios_pairing_has_credential: boolean
   ios_pairing_credential_created_at?: string
+  ios_pairing_paired: boolean
+  ios_pairing_paired_at?: string
   revision: number
   profile_name?: string
   profile_avatar?: string

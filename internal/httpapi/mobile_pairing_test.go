@@ -53,6 +53,8 @@ func (repository *fakeMobilePairingRepository) RevokeIOSPairingCredential(
 
 type fakeMobilePairingAvailability struct {
 	status         mobilepairing.CloudflareStatus
+	refreshStatus  *mobilepairing.CloudflareStatus
+	refreshCount   *int
 	probeChallenge string
 	probeProof     string
 	webIngressHost string
@@ -61,6 +63,18 @@ type fakeMobilePairingAvailability struct {
 func (availability fakeMobilePairingAvailability) Status(
 	context.Context,
 ) mobilepairing.CloudflareStatus {
+	return availability.status
+}
+
+func (availability fakeMobilePairingAvailability) Refresh(
+	context.Context,
+) mobilepairing.CloudflareStatus {
+	if availability.refreshCount != nil {
+		(*availability.refreshCount)++
+	}
+	if availability.refreshStatus != nil {
+		return *availability.refreshStatus
+	}
 	return availability.status
 }
 
@@ -223,7 +237,9 @@ func TestExternalAccessStatusReportsUnavailableTURN(t *testing.T) {
 	}
 }
 
-func TestIOSPairingStatusReturnsOnlySelfServiceReadiness(t *testing.T) {
+func TestIOSPairingStatusReturnsReadinessAndVerifiedPairingAddresses(
+	t *testing.T,
+) {
 	t.Parallel()
 
 	repository := &fakeMobilePairingRepository{
@@ -232,6 +248,8 @@ func TestIOSPairingStatusReturnsOnlySelfServiceReadiness(t *testing.T) {
 			Allowed:             true,
 			HasCredential:       true,
 			CredentialCreatedAt: "2026-07-30T12:00:00Z",
+			Paired:              true,
+			PairedAt:            "2026-07-30T12:01:00Z",
 		},
 	}
 	api, err := New(repository, Options{
@@ -242,8 +260,12 @@ func TestIOSPairingStatusReturnsOnlySelfServiceReadiness(t *testing.T) {
 				ConnectorConnected: true,
 				Connected:          true,
 				PublicURL:          "https://phone.example.com",
-				APIURLs:            []string{"https://phone.example.com"},
-				WebURLs:            []string{"https://deck.example.com"},
+				APIURLs: []string{
+					"https://phone.example.com",
+					"https://unverified.example.com",
+				},
+				VerifiedAPIURLs: []string{"https://phone.example.com"},
+				WebURLs:         []string{"https://deck.example.com"},
 			},
 		},
 	})
@@ -258,20 +280,26 @@ func TestIOSPairingStatusReturnsOnlySelfServiceReadiness(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
 	}
+	rawResponse := response.Body.String()
 	var body iosPairingResponse
-	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(strings.NewReader(rawResponse)).Decode(&body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 	if !body.Pairing.Allowed ||
 		body.Pairing.Availability != iosPairingReady ||
 		!body.Pairing.HasCredential ||
-		body.Pairing.CredentialCreatedAt != "2026-07-30T12:00:00Z" {
+		body.Pairing.CredentialCreatedAt != "2026-07-30T12:00:00Z" ||
+		!body.Pairing.Paired ||
+		body.Pairing.PairedAt != "2026-07-30T12:01:00Z" ||
+		len(body.Pairing.ServerURLs) != 1 ||
+		body.Pairing.ServerURLs[0] != "https://phone.example.com" {
 		t.Fatalf("pairing = %+v", body.Pairing)
 	}
-	if strings.Contains(response.Body.String(), "phone.example.com") ||
-		strings.Contains(response.Body.String(), `"cloudflare"`) ||
-		strings.Contains(response.Body.String(), `"turn"`) {
-		t.Fatalf("self-service response leaked infrastructure: %s", response.Body.String())
+	if strings.Contains(rawResponse, "deck.example.com") ||
+		strings.Contains(rawResponse, "unverified.example.com") ||
+		strings.Contains(rawResponse, `"cloudflare"`) ||
+		strings.Contains(rawResponse, `"turn"`) {
+		t.Fatalf("self-service response leaked infrastructure: %s", rawResponse)
 	}
 }
 
@@ -308,8 +336,9 @@ func TestIOSPairingCreatesOnlyCurrentUsersCredentialThroughCloudflare(
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/api/v1/mobile/pairing",
-		nil,
+		strings.NewReader(`{}`),
 	)
+	request.Header.Set("Content-Type", "application/json")
 	request = request.WithContext(
 		auth.ContextWithPrincipal(request.Context(), principal),
 	)
@@ -331,6 +360,9 @@ func TestIOSPairingCreatesOnlyCurrentUsersCredentialThroughCloudflare(
 		!strings.HasPrefix(string(body.Payload.Token), mobilepairing.TokenPrefix) {
 		t.Fatalf("payload = %+v", body.Payload)
 	}
+	if body.Pairing.Paired {
+		t.Fatalf("new pairing = %+v, want pending confirmation", body.Pairing)
+	}
 	digest, err := mobilepairing.Digest(body.Payload.Token)
 	if err != nil {
 		t.Fatalf("Digest() error = %v", err)
@@ -340,6 +372,167 @@ func TestIOSPairingCreatesOnlyCurrentUsersCredentialThroughCloudflare(
 	}
 	if strings.Contains(response.Body.String(), "expires") {
 		t.Fatalf("response unexpectedly contains expiry: %s", response.Body.String())
+	}
+}
+
+func TestIOSPairingSelectsOneVerifiedAddressFromMultipleIngresses(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	const selectedURL = "https://phone-b.example.com"
+	repository := &fakeMobilePairingRepository{
+		fakeRepository: &fakeRepository{},
+		pairing: store.IOSPairingStatus{
+			Allowed: true,
+		},
+	}
+	api, err := New(repository, Options{
+		disableAuthentication: true,
+		MobilePairing: fakeMobilePairingAvailability{
+			status: mobilepairing.CloudflareStatus{
+				Enabled:            true,
+				ConnectorConnected: true,
+				Connected:          true,
+				PublicURL:          "https://phone-a.example.com",
+				VerifiedAPIURLs: []string{
+					"https://phone-a.example.com",
+					selectedURL,
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/mobile/pairing",
+		strings.NewReader(`{"server_url":"`+selectedURL+`"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	var body iosPairingResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Payload == nil || body.Payload.ServerURL != selectedURL {
+		t.Fatalf("payload = %+v", body.Payload)
+	}
+}
+
+func TestIOSPairingRequiresAValidSelectionForMultipleIngresses(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name     string
+		body     string
+		wantCode string
+	}{
+		{
+			name:     "selection required",
+			body:     `{}`,
+			wantCode: "server_url_required",
+		},
+		{
+			name:     "selection must be verified",
+			body:     `{"server_url":"https://unverified.example.com"}`,
+			wantCode: "invalid_server_url",
+		},
+	} {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			repository := &fakeMobilePairingRepository{
+				fakeRepository: &fakeRepository{},
+				pairing: store.IOSPairingStatus{
+					Allowed: true,
+				},
+			}
+			api, err := New(repository, Options{
+				disableAuthentication: true,
+				MobilePairing: fakeMobilePairingAvailability{
+					status: mobilepairing.CloudflareStatus{
+						Enabled:   true,
+						Connected: true,
+						VerifiedAPIURLs: []string{
+							"https://phone-a.example.com",
+							"https://phone-b.example.com",
+						},
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			request := httptest.NewRequest(
+				http.MethodPost,
+				"/api/v1/mobile/pairing",
+				strings.NewReader(testCase.body),
+			)
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			api.ServeHTTP(response, request)
+			assertAPIError(
+				t,
+				response,
+				http.StatusUnprocessableEntity,
+				testCase.wantCode,
+			)
+			if repository.rotatedUserID != "" {
+				t.Fatalf("credential rotated for %q", repository.rotatedUserID)
+			}
+		})
+	}
+}
+
+func TestExternalAccessRefreshRunsACloudflareScan(t *testing.T) {
+	t.Parallel()
+
+	refreshCount := 0
+	refreshed := mobilepairing.CloudflareStatus{
+		Enabled:            true,
+		ConnectorConnected: true,
+		Connected:          true,
+		PublicURL:          "https://phone.example.com",
+		VerifiedAPIURLs:    []string{"https://phone.example.com"},
+	}
+	api, err := New(&fakeRepository{}, Options{
+		disableAuthentication: true,
+		MobilePairing: fakeMobilePairingAvailability{
+			status:        mobilepairing.CloudflareStatus{Enabled: true},
+			refreshStatus: &refreshed,
+			refreshCount:  &refreshCount,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	response := httptest.NewRecorder()
+	api.ServeHTTP(
+		response,
+		httptest.NewRequest(
+			http.MethodPost,
+			"/api/v1/external-access/refresh",
+			nil,
+		),
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	var body externalAccessStatusResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if refreshCount != 1 || !body.Cloudflare.Connected {
+		t.Fatalf("refresh count = %d; status = %+v", refreshCount, body.Cloudflare)
 	}
 }
 

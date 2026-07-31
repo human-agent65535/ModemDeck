@@ -68,21 +68,23 @@ The installer enables `docker-compose.cloudflare.yml` and, when TURN is
 configured, `docker-compose.cloudflare-turn.yml`. Credentials are copied into
 restricted file secrets. Both Tunnel origins are reachable from the connector;
 the user decides which ingress rules Cloudflare publishes. The Go API
-automatically selects the unique pathless ingress whose service is
-`http://modemdeck:7575` and verifies that public route before issuing a pairing
-credential. Tunnel configuration changes are picked up without reinstalling.
-The iOS settings page periodically refreshes both API and Web ingress hostnames.
-With the override disabled, an ambiguous API ingress, or a disconnected
-connector, users may revoke an existing credential but cannot create one.
+discovers every pathless ingress whose service is `http://modemdeck:7575` and
+verifies each public route. Pairing uses one verified address selected by the
+user. Tunnel changes are scanned at startup and while running without
+reinstalling; administrators can also rescan manually. With the connector
+disabled or no verified API route, users may revoke an existing credential but
+cannot create one.
 Paired clients receive short-lived relay-only ICE configurations, while the
 long-lived TURN API token remains available only to the API container.
 `--disable-cloudflare-turn` removes TURN from the running stack while retaining
 the Tunnel connector and persisted credentials.
 
 There is no LAN discovery or LAN endpoint in an iOS QR payload. Every iOS
-client uses the single Cloudflare API HTTPS origin discovered from the active
-Tunnel ingress. An administrator permits pairing per account; the permitted
-user creates and revokes their own credential.
+pairing code contains one selected Cloudflare API HTTPS origin, while multiple
+API ingresses may coexist. An administrator permits pairing per account; the
+permitted user creates and revokes their own credential. Creating a code leaves
+the credential pending until its first authenticated iOS API request; closing
+the QR does not cancel that wait.
 
 Copy `advanced-assignment.example.json` outside the repository, replace every
 placeholder with a stable USB serial or physical port path, and run:

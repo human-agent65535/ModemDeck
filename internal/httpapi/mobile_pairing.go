@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
+	"strings"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
@@ -35,11 +37,18 @@ type iosPairingStatusResponse struct {
 	Availability        iosPairingAvailability `json:"availability"`
 	HasCredential       bool                   `json:"has_credential"`
 	CredentialCreatedAt string                 `json:"credential_created_at,omitempty"`
+	Paired              bool                   `json:"paired"`
+	PairedAt            string                 `json:"paired_at,omitempty"`
+	ServerURLs          []string               `json:"server_urls,omitempty"`
 }
 
 type iosPairingResponse struct {
 	Pairing iosPairingStatusResponse `json:"pairing"`
 	Payload *mobilepairing.Payload   `json:"payload,omitempty"`
+}
+
+type createIOSPairingRequest struct {
+	ServerURL string `json:"server_url"`
 }
 
 type externalAccessStatusResponse struct {
@@ -74,6 +83,33 @@ func (api *API) externalAccessStatus(
 	cloudflareResult := make(chan mobilepairing.CloudflareStatus, 1)
 	go func() {
 		cloudflareResult <- api.cloudflareStatus(request.Context())
+	}()
+	turn := api.turnStatus(request.Context())
+	response.Header().Set("Cache-Control", "no-store")
+	writeJSON(response, http.StatusOK, externalAccessStatusResponse{
+		Cloudflare: <-cloudflareResult,
+		TURN:       turn,
+	})
+}
+
+func (api *API) refreshExternalAccess(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	refresher, ok := api.mobilePairingAvailability.(mobilepairing.Refresher)
+	if !ok {
+		writeError(
+			response,
+			http.StatusServiceUnavailable,
+			"external_access_refresh_unavailable",
+			"External access refresh is unavailable",
+			"",
+		)
+		return
+	}
+	cloudflareResult := make(chan mobilepairing.CloudflareStatus, 1)
+	go func() {
+		cloudflareResult <- refresher.Refresh(request.Context())
 	}()
 	turn := api.turnStatus(request.Context())
 	response.Header().Set("Cache-Control", "no-store")
@@ -153,6 +189,35 @@ func (api *API) mobilePairing(
 			)
 			return
 		}
+		var input createIOSPairingRequest
+		if !decodeJSONBody(response, request, &input) {
+			return
+		}
+		serverURL, err := selectIOSPairingServerURL(
+			input.ServerURL,
+			verifiedCloudflareAPIURLs(cloudflare),
+		)
+		if err != nil {
+			switch {
+			case errors.Is(err, errIOSPairingServerURLRequired):
+				writeError(
+					response,
+					http.StatusUnprocessableEntity,
+					"server_url_required",
+					"Choose an API address for this iOS pairing",
+					"server_url",
+				)
+			default:
+				writeError(
+					response,
+					http.StatusUnprocessableEntity,
+					"invalid_server_url",
+					"The selected API address is unavailable",
+					"server_url",
+				)
+			}
+			return
+		}
 		token, digest, err := mobilepairing.NewToken()
 		if err != nil {
 			api.writeInternalError(response, request, "generate iOS pairing token", err)
@@ -167,7 +232,7 @@ func (api *API) mobilePairing(
 			api.writeMobilePairingError(response, request, "create iOS pairing", err)
 			return
 		}
-		payload := mobilepairing.NewPayload(cloudflare.PublicURL, token)
+		payload := mobilepairing.NewPayload(serverURL, token)
 		writeJSON(
 			response,
 			http.StatusCreated,
@@ -233,7 +298,47 @@ func iosPairingStatusForCloudflare(
 		Availability:        availability,
 		HasCredential:       status.HasCredential,
 		CredentialCreatedAt: status.CredentialCreatedAt,
+		Paired:              status.Paired,
+		PairedAt:            status.PairedAt,
+		ServerURLs:          verifiedCloudflareAPIURLs(cloudflare),
 	}
+}
+
+var (
+	errIOSPairingServerURLRequired = errors.New(
+		"iOS pairing server URL is required",
+	)
+	errIOSPairingServerURLInvalid = errors.New(
+		"iOS pairing server URL is invalid",
+	)
+)
+
+func verifiedCloudflareAPIURLs(
+	status mobilepairing.CloudflareStatus,
+) []string {
+	urls := append([]string(nil), status.VerifiedAPIURLs...)
+	if len(urls) == 0 && status.Connected && status.PublicURL != "" {
+		urls = append(urls, status.PublicURL)
+	}
+	slices.Sort(urls)
+	return slices.Compact(urls)
+}
+
+func selectIOSPairingServerURL(
+	requested string,
+	verified []string,
+) (string, error) {
+	requested = strings.TrimSpace(requested)
+	if requested == "" {
+		if len(verified) == 1 {
+			return verified[0], nil
+		}
+		return "", errIOSPairingServerURLRequired
+	}
+	if !slices.Contains(verified, requested) {
+		return "", errIOSPairingServerURLInvalid
+	}
+	return requested, nil
 }
 
 func (api *API) cloudflareStatus(

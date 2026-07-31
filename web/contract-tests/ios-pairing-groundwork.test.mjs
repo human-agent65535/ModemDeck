@@ -12,7 +12,7 @@ import {
 } from '../src/api/contract.ts'
 import { createFixtureGateway } from '../src/api/fixture.ts'
 
-test('pairing keeps infrastructure status behind the administrator endpoint', () => {
+test('pairing exposes only verified selectable API addresses', () => {
   assert.deepEqual(iosPairingContract, {
     get: {
       method: 'GET',
@@ -36,11 +36,22 @@ test('pairing keeps infrastructure status behind the administrator endpoint', ()
       allowed: true,
       availability: 'ready',
       has_credential: true,
+      paired: true,
+      paired_at: '2026-07-30T12:01:00Z',
+      server_urls: [
+        'https://phone-a.example.com',
+        'https://phone-b.example.com'
+      ],
       credential_created_at: '2026-07-30T12:00:00Z'
     }
   })
   assert.equal(status.pairing.availability, 'ready')
   assert.equal(status.pairing.has_credential, true)
+  assert.equal(status.pairing.paired, true)
+  assert.deepEqual(status.pairing.server_urls, [
+    'https://phone-a.example.com',
+    'https://phone-b.example.com'
+  ])
   assert.equal('cloudflare' in status.pairing, false)
   assert.equal('turn' in status.pairing, false)
   assert.equal(status.payload, undefined)
@@ -49,6 +60,11 @@ test('pairing keeps infrastructure status behind the administrator endpoint', ()
     getStatus: {
       method: 'GET',
       path: '/api/v1/external-access/status',
+      successStatus: 200
+    },
+    refresh: {
+      method: 'POST',
+      path: '/api/v1/external-access/refresh',
       successStatus: 200
     }
   })
@@ -59,6 +75,7 @@ test('pairing keeps infrastructure status behind the administrator endpoint', ()
       connected: true,
       public_url: 'https://phone.example.com',
       api_urls: ['https://phone.example.com'],
+      verified_api_urls: ['https://phone.example.com'],
       web_urls: ['https://deck.example.com']
     },
     turn: {
@@ -96,16 +113,19 @@ test('fixture creates and revokes one non-expiring Cloudflare pairing', async ()
     connected: true,
     public_url: 'https://mobile.modemdeck.example',
     api_urls: ['https://mobile.modemdeck.example'],
+    verified_api_urls: ['https://mobile.modemdeck.example'],
     web_urls: ['https://web.modemdeck.example']
   })
 
   const created = await gateway.createIOSPairing()
   assert.equal(created.pairing.has_credential, true)
+  assert.equal(created.pairing.paired, false)
   assert.equal(created.payload?.server_url, 'https://mobile.modemdeck.example')
   assert.ok(created.payload?.token)
 
   await gateway.revokeIOSPairing()
   assert.equal((await gateway.getIOSPairing()).pairing.has_credential, false)
+  assert.equal((await gateway.getIOSPairing()).pairing.paired, false)
 })
 
 test('Cloudflare Web call media accepts relay-only ICE configuration', () => {
@@ -176,14 +196,16 @@ test('settings expose capability-scoped infrastructure and self-service pairing'
   assert.match(settingsView, /<WebCertificateSettingsPanel/)
   assert.match(userPanel, /ios_pairing_enabled: iosPairingEnabled\.value/)
   assert.match(userPanel, /selectedUser\.ios_pairing_has_credential/)
+  assert.match(userPanel, /selectedUser\.ios_pairing_paired/)
   assert.match(userPanel, /gateway\.revokeUserIOSPairing\(user\.id\)/)
   assert.match(externalAccessPanel, /gateway\.getExternalAccessStatus\(\)/)
+  assert.match(externalAccessPanel, /gateway\.refreshExternalAccess\(\)/)
   assert.match(externalAccessPanel, /isAdmin && externalAccess/)
   assert.match(externalAccessPanel, /externalAccess\.cloudflare\.api_urls/)
   assert.match(externalAccessPanel, /externalAccess\.cloudflare\.web_urls/)
   assert.match(
     externalAccessPanel,
-    /'is-active': externalAccess\.cloudflare\.connector_connected/
+    /'is-active': externalAccess\.cloudflare\.connected/
   )
   assert.match(externalAccessPanel, /externalAccess\.turn\.configured/)
   assert.match(externalAccessPanel, /externalAccess\.turn\.available/)
@@ -191,8 +213,23 @@ test('settings expose capability-scoped infrastructure and self-service pairing'
   assert.match(externalAccessPanel, /turnCallUnavailable/)
   assert.doesNotMatch(externalAccessPanel, /turnReady/)
   assert.match(externalAccessPanel, /window\.setInterval/)
+  assert.match(
+    externalAccessPanel,
+    /PAIRING_CONFIRMATION_INTERVAL_MS = 2_000/
+  )
+  assert.match(externalAccessPanel, /refreshPairingConfirmation/)
+  assert.match(
+    externalAccessPanel,
+    /!wasPaired && status\.paired && qrDataURL\.value/
+  )
+  assert.match(
+    externalAccessPanel,
+    /pairing\.value\?\.has_credential && !pairing\.value\.paired/
+  )
   assert.match(externalAccessPanel, /onBeforeUnmount/)
-  assert.match(externalAccessPanel, /gateway\.createIOSPairing\(\)/)
+  assert.match(externalAccessPanel, /gateway\.createIOSPairing\(/)
+  assert.match(externalAccessPanel, /pairing\.server_urls\.length > 1/)
+  assert.match(externalAccessPanel, /v-model="selectedServerURL"/)
   assert.match(externalAccessPanel, /gateway\.revokeIOSPairing\(\)/)
   assert.match(
     externalAccessPanel,

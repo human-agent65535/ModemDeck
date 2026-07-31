@@ -19,6 +19,8 @@ const member = {
   ios_pairing_enabled: true,
   ios_pairing_has_credential: true,
   ios_pairing_credential_created_at: '2026-07-29T00:30:00Z',
+  ios_pairing_paired: true,
+  ios_pairing_paired_at: '2026-07-29T00:31:00Z',
   revision: 2,
   profile_name: 'Member Name',
   profile_avatar: 'data:image/png;base64,avatar',

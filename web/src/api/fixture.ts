@@ -747,6 +747,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       enabled: true,
       ios_pairing_enabled: true,
       ios_pairing_has_credential: false,
+      ios_pairing_paired: false,
       revision: 1,
       profile_name: ALEX_NAME,
       line_ids: lines.map(line => line.id),
@@ -760,6 +761,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       enabled: true,
       ios_pairing_enabled: false,
       ios_pairing_has_credential: false,
+      ios_pairing_paired: false,
       revision: 2,
       profile_name: MEMBER_PROFILE_NAME,
       line_ids: lines[1] ? [lines[1].id] : [],
@@ -882,6 +884,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     connected: true,
     public_url: 'https://mobile.modemdeck.example',
     api_urls: ['https://mobile.modemdeck.example'],
+    verified_api_urls: ['https://mobile.modemdeck.example'],
     web_urls: ['https://web.modemdeck.example']
   }
   const turnStatus = {
@@ -889,6 +892,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     available: true
   }
   let iosPairingCreatedAt = ''
+  let iosPairingPairedAt = ''
   const connectionProfiles = new Map<string, ConnectionProfile[]>(
     lines.map(line => [
       fixtureLineKey(line),
@@ -1390,6 +1394,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         enabled: true,
         ios_pairing_enabled: input.ios_pairing_enabled,
         ios_pairing_has_credential: false,
+        ios_pairing_paired: false,
         revision: 1,
         line_ids: [...input.line_ids],
         created_at: '2026-07-29 12:00:00',
@@ -1429,7 +1434,9 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         Boolean(input.password)
           ? {
               ios_pairing_has_credential: false,
-              ios_pairing_credential_created_at: undefined
+              ios_pairing_credential_created_at: undefined,
+              ios_pairing_paired: false,
+              ios_pairing_paired_at: undefined
             }
           : {}),
         line_ids: [...input.line_ids],
@@ -1449,6 +1456,8 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       user.revision += 1
       user.ios_pairing_has_credential = false
       user.ios_pairing_credential_created_at = undefined
+      user.ios_pairing_paired = false
+      user.ios_pairing_paired_at = undefined
     },
 
     async revokeUserIOSPairing(id: string): Promise<void> {
@@ -1456,10 +1465,22 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       if (!user) throw new ApiError('User was not found', 404, 'user_not_found')
       user.ios_pairing_has_credential = false
       user.ios_pairing_credential_created_at = undefined
-      if (id === 'user_admin') iosPairingCreatedAt = ''
+      user.ios_pairing_paired = false
+      user.ios_pairing_paired_at = undefined
+      if (id === 'user_admin') {
+        iosPairingCreatedAt = ''
+        iosPairingPairedAt = ''
+      }
     },
 
     async getExternalAccessStatus() {
+      return {
+        cloudflare: clone(cloudflareStatus),
+        turn: clone(turnStatus)
+      }
+    },
+
+    async refreshExternalAccess() {
       return {
         cloudflare: clone(cloudflareStatus),
         turn: clone(turnStatus)
@@ -1472,31 +1493,57 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           allowed: true,
           availability: 'ready',
           has_credential: Boolean(iosPairingCreatedAt),
+          paired: Boolean(iosPairingPairedAt),
+          server_urls: [...cloudflareStatus.verified_api_urls],
           ...(iosPairingCreatedAt
             ? { credential_created_at: iosPairingCreatedAt }
-            : {})
+            : {}),
+          ...(iosPairingPairedAt ? { paired_at: iosPairingPairedAt } : {})
         }
       }
     },
 
-    async createIOSPairing(): Promise<IOSPairingResult> {
+    async createIOSPairing(serverURL?: string): Promise<IOSPairingResult> {
+      if (!serverURL && cloudflareStatus.verified_api_urls.length !== 1) {
+        throw new ApiError(
+          'Choose an API address for this iOS pairing',
+          422,
+          'server_url_required'
+        )
+      }
+      const selectedServerURL = serverURL || cloudflareStatus.verified_api_urls[0]
+      if (
+        !selectedServerURL ||
+        !cloudflareStatus.verified_api_urls.includes(selectedServerURL)
+      ) {
+        throw new ApiError(
+          'The selected API address is unavailable',
+          422,
+          'invalid_server_url'
+        )
+      }
       iosPairingCreatedAt = new Date().toISOString()
+      iosPairingPairedAt = ''
       const user = users.find(candidate => candidate.id === 'user_admin')
       if (user) {
         user.ios_pairing_has_credential = true
         user.ios_pairing_credential_created_at = iosPairingCreatedAt
+        user.ios_pairing_paired = false
+        user.ios_pairing_paired_at = undefined
       }
       return {
         pairing: {
           allowed: true,
           availability: 'ready',
           has_credential: true,
-          credential_created_at: iosPairingCreatedAt
+          credential_created_at: iosPairingCreatedAt,
+          paired: false,
+          server_urls: [...cloudflareStatus.verified_api_urls]
         },
         payload: {
           version: 1,
           type: 'modemdeck.ios.pairing',
-          server_url: cloudflareStatus.public_url,
+          server_url: selectedServerURL,
           token: 'md_ios_Zml4dHVyZS1wYWlyaW5nLXRva2VuLTAwMDAwMDAwMDAwMDA'
         }
       }
@@ -1504,10 +1551,13 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
 
     async revokeIOSPairing(): Promise<void> {
       iosPairingCreatedAt = ''
+      iosPairingPairedAt = ''
       const user = users.find(candidate => candidate.id === 'user_admin')
       if (user) {
         user.ios_pairing_has_credential = false
         user.ios_pairing_credential_created_at = undefined
+        user.ios_pairing_paired = false
+        user.ios_pairing_paired_at = undefined
       }
     },
 

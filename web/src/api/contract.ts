@@ -480,6 +480,7 @@ export const communicationContracts = {
 
 export const iosPairingPath = '/api/v1/mobile/pairing'
 export const externalAccessStatusPath = '/api/v1/external-access/status'
+export const externalAccessRefreshPath = '/api/v1/external-access/refresh'
 
 export const iosPairingContract = {
   get: {
@@ -503,6 +504,11 @@ export const externalAccessContract = {
   getStatus: {
     method: 'GET',
     path: externalAccessStatusPath,
+    successStatus: 200
+  },
+  refresh: {
+    method: 'POST',
+    path: externalAccessRefreshPath,
     successStatus: 200
   }
 } as const
@@ -2253,6 +2259,11 @@ function parseCloudflareTunnelStatus(value: unknown) {
     connected: requiredBoolean(cloudflare, 'cloudflare_tunnel', 'connected'),
     public_url: requiredString(cloudflare, 'cloudflare_tunnel', 'public_url', true),
     api_urls: optionalStringArray(cloudflare, 'cloudflare_tunnel', 'api_urls'),
+    verified_api_urls: optionalStringArray(
+      cloudflare,
+      'cloudflare_tunnel',
+      'verified_api_urls'
+    ),
     web_urls: optionalStringArray(cloudflare, 'cloudflare_tunnel', 'web_urls')
   }
 }
@@ -2285,13 +2296,17 @@ function parseIOSPairingStatus(value: unknown): IOSPairingStatus {
     'ios_pairing',
     'credential_created_at'
   )
+  const pairedAt = optionalTimestamp(source, 'ios_pairing', 'paired_at')
   return {
     allowed: requiredBoolean(source, 'ios_pairing', 'allowed'),
     availability: parseIOSPairingAvailability(source.availability),
     has_credential: requiredBoolean(source, 'ios_pairing', 'has_credential'),
+    paired: requiredBoolean(source, 'ios_pairing', 'paired'),
+    server_urls: optionalStringArray(source, 'ios_pairing', 'server_urls'),
     ...(credentialCreatedAt
       ? { credential_created_at: credentialCreatedAt }
-      : {})
+      : {}),
+    ...(pairedAt ? { paired_at: pairedAt } : {})
   }
 }
 
@@ -2438,6 +2453,11 @@ export function parseUserAccount(value: unknown): UserAccount {
     'user',
     'ios_pairing_credential_created_at'
   )
+  const pairingPairedAt = optionalTimestamp(
+    user,
+    'user',
+    'ios_pairing_paired_at'
+  )
   return {
     id: requiredString(user, 'user', 'id'),
     username: requiredString(user, 'user', 'username'),
@@ -2449,8 +2469,16 @@ export function parseUserAccount(value: unknown): UserAccount {
       'user',
       'ios_pairing_has_credential'
     ),
+    ios_pairing_paired: requiredBoolean(
+      user,
+      'user',
+      'ios_pairing_paired'
+    ),
     ...(pairingCredentialCreatedAt
       ? { ios_pairing_credential_created_at: pairingCredentialCreatedAt }
+      : {}),
+    ...(pairingPairedAt
+      ? { ios_pairing_paired_at: pairingPairedAt }
       : {}),
     revision: requiredRevision(user, 'user'),
     ...(profileName ? { profile_name: profileName } : {}),

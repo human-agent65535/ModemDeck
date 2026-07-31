@@ -355,6 +355,11 @@ func run(
 		)
 		serverErrors <- server.ListenAndServe()
 	}()
+	cloudflareDone := make(chan struct{})
+	go func() {
+		defer close(cloudflareDone)
+		cloudflareGateway.Run(signals)
+	}()
 
 	var runErr error
 	serverStopped := false
@@ -395,6 +400,7 @@ func run(
 	<-syncDone
 	<-callLeaseDone
 	<-tlsMaintenanceDone
+	<-cloudflareDone
 	if !telegramStopped {
 		telegramErr := <-telegramDone
 		if telegramErr != nil && !errors.Is(telegramErr, context.Canceled) {

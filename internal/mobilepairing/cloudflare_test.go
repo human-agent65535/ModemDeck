@@ -8,12 +8,21 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 type cloudflaredTestIngress struct {
 	Hostname string  `json:"hostname"`
 	Path     *string `json:"path"`
 	Service  string  `json:"service"`
+}
+
+type cloudflareRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (roundTrip cloudflareRoundTripFunc) RoundTrip(
+	request *http.Request,
+) (*http.Response, error) {
+	return roundTrip(request)
 }
 
 func newCloudflaredManagementServer(
@@ -117,13 +126,15 @@ func TestCloudflareGatewayDiscoversAndVerifiesAPIIngress(t *testing.T) {
 		t.Fatalf("NewCloudflareGateway() error = %v", err)
 	}
 	useTLSTestTransport(t, gateway, public)
-	status := gateway.Status(context.Background())
+	status := gateway.Refresh(context.Background())
 	if !status.Enabled ||
 		!status.ConnectorConnected ||
 		!status.Connected ||
 		status.PublicURL != public.URL ||
 		len(status.APIURLs) != 1 ||
 		status.APIURLs[0] != public.URL ||
+		len(status.VerifiedAPIURLs) != 1 ||
+		status.VerifiedAPIURLs[0] != public.URL ||
 		len(status.WebURLs) != 1 ||
 		status.WebURLs[0] != "https://web.example.com" {
 		t.Fatalf("status = %+v", status)
@@ -154,7 +165,7 @@ func TestCloudflareGatewayDoesNotTreatConnectorHealthAsPublicReachability(
 		t.Fatal(err)
 	}
 	useTLSTestTransport(t, gateway, public)
-	status := gateway.Status(context.Background())
+	status := gateway.Refresh(context.Background())
 	if !status.Enabled ||
 		!status.ConnectorConnected ||
 		status.Connected ||
@@ -180,7 +191,7 @@ func TestCloudflareGatewayDiscoversRouteWhileConnectorIsDown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCloudflareGateway() error = %v", err)
 	}
-	status := gateway.Status(context.Background())
+	status := gateway.Refresh(context.Background())
 	if !status.Enabled ||
 		status.ConnectorConnected ||
 		status.Connected ||
@@ -232,7 +243,7 @@ func TestCloudflareGatewayRefreshesDiscoveredIngress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCloudflareGateway() error = %v", err)
 	}
-	first := gateway.Status(context.Background())
+	first := gateway.Refresh(context.Background())
 	if first.PublicURL != "https://old-api.example.com" ||
 		len(first.WebURLs) != 1 ||
 		first.WebURLs[0] != "https://old-web.example.com" {
@@ -252,7 +263,7 @@ func TestCloudflareGatewayRefreshesDiscoveredIngress(t *testing.T) {
 	}
 	lock.Unlock()
 
-	second := gateway.Status(context.Background())
+	second := gateway.Refresh(context.Background())
 	if second.PublicURL != "https://new-api.example.com" ||
 		len(second.APIURLs) != 1 ||
 		second.APIURLs[0] != "https://new-api.example.com" ||
@@ -260,6 +271,91 @@ func TestCloudflareGatewayRefreshesDiscoveredIngress(t *testing.T) {
 		second.WebURLs[0] != "https://new-web.example.com" {
 		t.Fatalf("second status = %+v", second)
 	}
+}
+
+func TestCloudflareGatewayRunScansAtStartupAndRecoversAutomatically(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	var (
+		lock     sync.RWMutex
+		hostname = "first.example.com"
+	)
+	management := httptest.NewServer(http.HandlerFunc(
+		func(response http.ResponseWriter, request *http.Request) {
+			switch request.URL.Path {
+			case "/ready":
+				response.WriteHeader(http.StatusServiceUnavailable)
+			case "/config":
+				lock.RLock()
+				current := hostname
+				lock.RUnlock()
+				_ = json.NewEncoder(response).Encode(map[string]any{
+					"config": map[string]any{
+						"ingress": []cloudflaredTestIngress{{
+							Hostname: current,
+							Service:  cloudflareAPIOrigin,
+						}},
+					},
+				})
+			default:
+				http.NotFound(response, request)
+			}
+		},
+	))
+	t.Cleanup(management.Close)
+
+	gateway, err := NewCloudflareGateway(management.URL + "/ready")
+	if err != nil {
+		t.Fatalf("NewCloudflareGateway() error = %v", err)
+	}
+	gateway.healthyRefresh = 5 * time.Millisecond
+	gateway.unavailableRefresh = 5 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		gateway.Run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+
+	waitForCloudflarePublicURL(
+		t,
+		gateway,
+		"https://first.example.com",
+	)
+	lock.Lock()
+	hostname = "second.example.com"
+	lock.Unlock()
+	waitForCloudflarePublicURL(
+		t,
+		gateway,
+		"https://second.example.com",
+	)
+}
+
+func waitForCloudflarePublicURL(
+	t *testing.T,
+	gateway *CloudflareGateway,
+	want string,
+) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if gateway.Status(context.Background()).PublicURL == want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf(
+		"status public URL = %q, want %q",
+		gateway.Status(context.Background()).PublicURL,
+		want,
+	)
 }
 
 func TestCloudflareGatewayMatchesOnlyDiscoveredWebIngress(t *testing.T) {
@@ -283,6 +379,7 @@ func TestCloudflareGatewayMatchesOnlyDiscoveredWebIngress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCloudflareGateway() error = %v", err)
 	}
+	gateway.Refresh(context.Background())
 
 	for _, testCase := range []struct {
 		host string
@@ -308,35 +405,75 @@ func TestCloudflareGatewayMatchesOnlyDiscoveredWebIngress(t *testing.T) {
 	}
 }
 
-func TestCloudflareGatewayRejectsAmbiguousAPIIngress(t *testing.T) {
+func TestCloudflareGatewayVerifiesMultipleAPIIngresses(t *testing.T) {
 	t.Parallel()
 
+	var gateway *CloudflareGateway
+	public := httptest.NewTLSServer(http.HandlerFunc(
+		func(response http.ResponseWriter, request *http.Request) {
+			if request.URL.Path != CloudflareProbePath {
+				http.NotFound(response, request)
+				return
+			}
+			proof, ok := gateway.CloudflareProbeProof(request)
+			if !ok {
+				http.NotFound(response, request)
+				return
+			}
+			response.Header().Set(CloudflareProbeProofHeader, proof)
+			response.WriteHeader(http.StatusNoContent)
+		},
+	))
+	t.Cleanup(public.Close)
+	publicHostname := strings.TrimPrefix(public.URL, "https://")
+	publicPort := strings.TrimPrefix(
+		publicHostname,
+		"127.0.0.1:",
+	)
 	management := newCloudflaredManagementServer(
 		t,
 		http.StatusOK,
 		[]cloudflaredTestIngress{
 			{
-				Hostname: "phone-a.example.com",
+				Hostname: publicHostname,
 				Service:  cloudflareAPIOrigin,
 			},
 			{
-				Hostname: "phone-b.example.com",
+				Hostname: "localhost:" + publicPort,
 				Service:  cloudflareAPIOrigin + "/",
 			},
 		},
 	)
-	gateway, err := NewCloudflareGateway(management.URL + "/ready")
+	var err error
+	gateway, err = NewCloudflareGateway(management.URL + "/ready")
 	if err != nil {
 		t.Fatalf("NewCloudflareGateway() error = %v", err)
 	}
-	status := gateway.Status(context.Background())
+	publicTransport := public.Client().Transport
+	gateway.client.Transport = cloudflareRoundTripFunc(
+		func(request *http.Request) (*http.Response, error) {
+			if request.URL.Host != "localhost:"+publicPort {
+				return publicTransport.RoundTrip(request)
+			}
+			rewritten := request.Clone(request.Context())
+			rewrittenURL := *request.URL
+			rewrittenURL.Host = publicHostname
+			rewritten.URL = &rewrittenURL
+			rewritten.Host = request.URL.Host
+			return publicTransport.RoundTrip(rewritten)
+		},
+	)
+	status := gateway.Refresh(context.Background())
 	if !status.Enabled ||
 		!status.ConnectorConnected ||
-		status.Connected ||
-		status.PublicURL != "" ||
+		!status.Connected ||
+		status.PublicURL != public.URL ||
 		len(status.APIURLs) != 2 ||
-		status.APIURLs[0] != "https://phone-a.example.com" ||
-		status.APIURLs[1] != "https://phone-b.example.com" {
+		status.APIURLs[0] != public.URL ||
+		status.APIURLs[1] != "https://localhost:"+publicPort ||
+		len(status.VerifiedAPIURLs) != 2 ||
+		status.VerifiedAPIURLs[0] != public.URL ||
+		status.VerifiedAPIURLs[1] != "https://localhost:"+publicPort {
 		t.Fatalf("status = %+v", status)
 	}
 }
@@ -368,7 +505,7 @@ func TestCloudflareGatewayIgnoresPathScopedAndWildcardIngress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCloudflareGateway() error = %v", err)
 	}
-	status := gateway.Status(context.Background())
+	status := gateway.Refresh(context.Background())
 	if !status.Enabled ||
 		!status.ConnectorConnected ||
 		status.Connected ||

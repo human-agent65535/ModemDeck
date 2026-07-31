@@ -337,7 +337,9 @@ async function revokeSelectedPairing(): Promise<void> {
         ? {
             ...current,
             ios_pairing_has_credential: false,
-            ios_pairing_credential_created_at: undefined
+            ios_pairing_credential_created_at: undefined,
+            ios_pairing_paired: false,
+            ios_pairing_paired_at: undefined
           }
         : current
     )
@@ -597,12 +599,14 @@ onMounted(() => {
                     v-if="!creating && selectedUser"
                     class="user-pairing-state"
                     :class="{
-                      'is-paired': selectedUser.ios_pairing_has_credential
+                      'is-paired': selectedUser.ios_pairing_paired
                     }"
                   >
                     {{
-                      selectedUser.ios_pairing_has_credential
+                      selectedUser.ios_pairing_paired
                         ? t('iosPairing.paired')
+                        : selectedUser.ios_pairing_has_credential
+                          ? t('iosPairing.waiting')
                         : t('iosPairing.notPaired')
                     }}
                     <template
