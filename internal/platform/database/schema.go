@@ -64,8 +64,19 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 			return err
 		}
 	}
-	if err := clearDeprecatedPasswordChangeRequirements(ctx, database, actual); err != nil {
+	droppedPasswordChangeColumn, err := dropDeprecatedPasswordChangeColumn(
+		ctx,
+		database,
+		actual,
+	)
+	if err != nil {
 		return err
+	}
+	if droppedPasswordChangeColumn {
+		actual, err = readSchemaShape(ctx, database)
+		if err != nil {
+			return err
+		}
 	}
 	migratedUserPreferenceRevision, err := migrateUserPreferenceRevision(
 		ctx,

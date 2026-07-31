@@ -15,7 +15,6 @@ CREATE TABLE modemdeck_users (
 			password_hash TEXT NOT NULL,
 			role TEXT NOT NULL CHECK (role IN ('admin', 'member')),
 			enabled NUMERIC NOT NULL DEFAULT 1,
-			must_change_password NUMERIC NOT NULL DEFAULT 0,
 			ios_pairing_enabled NUMERIC NOT NULL DEFAULT 0,
 			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -69,7 +69,10 @@ test('first web visit exposes Quick Start and creates the administrator', async 
   ])
 
   assert.match(gateway, /setup\(input: SetupInput\): Promise<SessionResponse>/)
-  assert.match(client, /writeJSON\(`\$\{API_ROOT\}\/setup`, 'POST', input, 201\)/)
+  assert.match(
+    client,
+    /writePublicJSON\(`\$\{API_ROOT\}\/setup`, 'POST', input, 201\)/
+  )
   assert.match(client, /typeof source\.setup_required !== 'boolean'/)
   assert.match(session, /clearSession\('', session\.setup_required\)/)
   assert.match(session, /await gateway\.setup\(\{ username, password \}\)/)

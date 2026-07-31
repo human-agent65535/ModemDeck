@@ -446,14 +446,13 @@ func TestOpenMigratesSingleUserDataToInitialAdministrator(t *testing.T) {
 	}
 
 	var (
-		username           string
-		passwordHash       string
-		role               string
-		enabled            bool
-		mustChangePassword bool
+		username     string
+		passwordHash string
+		role         string
+		enabled      bool
 	)
 	if err := database.QueryRow(
-		`SELECT username, password_hash, role, enabled, must_change_password
+		`SELECT username, password_hash, role, enabled
 		 FROM modemdeck_users WHERE id = ?`,
 		initialAdminUserID,
 	).Scan(
@@ -461,19 +460,17 @@ func TestOpenMigratesSingleUserDataToInitialAdministrator(t *testing.T) {
 		&passwordHash,
 		&role,
 		&enabled,
-		&mustChangePassword,
 	); err != nil {
 		t.Fatal(err)
 	}
 	if username != "legacy-admin" || passwordHash != "legacy-hash" ||
-		role != "admin" || !enabled || mustChangePassword {
+		role != "admin" || !enabled {
 		t.Fatalf(
-			"migrated administrator = %q hash %q role %q enabled %t change %t",
+			"migrated administrator = %q hash %q role %q enabled %t",
 			username,
 			passwordHash,
 			role,
 			enabled,
-			mustChangePassword,
 		)
 	}
 
@@ -612,7 +609,7 @@ func TestOpenMigratesSingleUserDataToInitialAdministrator(t *testing.T) {
 	}
 }
 
-func TestOpenClearsDeprecatedPasswordChangeRequirement(t *testing.T) {
+func TestOpenDropsDeprecatedPasswordChangeColumn(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "password-policy.db")
@@ -621,6 +618,8 @@ func TestOpenClearsDeprecatedPasswordChangeRequirement(t *testing.T) {
 		t.Fatalf("Open() error = %v", err)
 	}
 	if _, err := database.Exec(`
+		ALTER TABLE modemdeck_users
+			ADD COLUMN must_change_password NUMERIC NOT NULL DEFAULT 0;
 		INSERT INTO modemdeck_users (
 			id, username, password_hash, role, enabled, must_change_password
 		) VALUES (
@@ -644,16 +643,32 @@ func TestOpenClearsDeprecatedPasswordChangeRequirement(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 
-	var mustChangePassword bool
+	var (
+		username     string
+		passwordHash string
+		enabled      bool
+	)
 	if err := database.QueryRow(`
-		SELECT must_change_password
+		SELECT username, password_hash, enabled
 		FROM modemdeck_users
-		WHERE id = 'user_member_password_policy'
-	`).Scan(&mustChangePassword); err != nil {
+		WHERE id = 'user_member_password_policy'`,
+	).Scan(&username, &passwordHash, &enabled); err != nil {
 		t.Fatalf("read migrated password requirement: %v", err)
 	}
-	if mustChangePassword {
-		t.Fatal("deprecated password change requirement was not cleared")
+	if username != "member-password-policy" || passwordHash != "password-hash" || !enabled {
+		t.Fatalf(
+			"migrated member = %q hash %q enabled %t",
+			username,
+			passwordHash,
+			enabled,
+		)
+	}
+	columns, err := tableColumns(context.Background(), database, "modemdeck_users")
+	if err != nil {
+		t.Fatalf("read migrated user columns: %v", err)
+	}
+	if _, exists := columns["must_change_password"]; exists {
+		t.Fatal("deprecated password change column still exists")
 	}
 }
 

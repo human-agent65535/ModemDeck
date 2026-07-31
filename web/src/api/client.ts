@@ -225,6 +225,8 @@ const FIXTURE_INTERACTIONS: GatewayInteractions = {
 }
 
 let currentCSRFToken = ''
+let authenticationRequestGeneration = 0
+let authenticationRequestController = new AbortController()
 let authenticationRequiredHandler: () => void = () => undefined
 
 function requestID(): string {
@@ -243,6 +245,12 @@ export function rotateCallLeaseHolder(): void {
 
 export function setClientCSRFToken(token?: string): void {
   currentCSRFToken = token?.trim() || ''
+}
+
+export function rotateAuthenticationRequestScope(): void {
+  authenticationRequestGeneration += 1
+  authenticationRequestController.abort()
+  authenticationRequestController = new AbortController()
 }
 
 export function setAuthenticationRequiredHandler(handler: () => void): void {
@@ -721,7 +729,8 @@ async function request(
   path: string,
   init: RequestInit,
   expectedStatus: number,
-  timeoutMilliseconds?: number
+  timeoutMilliseconds?: number,
+  authenticationRequired = true
 ): Promise<unknown> {
   const method = (init.method || 'GET').toUpperCase()
   const headers = new Headers(init.headers)
@@ -734,15 +743,23 @@ async function request(
         ? READ_REQUEST_TIMEOUT_MS
         : WRITE_REQUEST_TIMEOUT_MS)
   )
-  const signal = init.signal
-    ? AbortSignal.any([init.signal, timeoutSignal])
-    : timeoutSignal
+  const requestAuthenticationGeneration = authenticationRequestGeneration
+  const authenticationSignal = authenticationRequired
+    ? authenticationRequestController.signal
+    : undefined
+  const requestSignals = [timeoutSignal]
+  if (init.signal) requestSignals.push(init.signal)
+  if (authenticationSignal) requestSignals.push(authenticationSignal)
+  const signal =
+    requestSignals.length === 1
+      ? requestSignals[0]
+      : AbortSignal.any(requestSignals)
 
   let response: Response
   try {
     response = await fetch(path, { ...init, headers, signal, credentials: 'same-origin' })
   } catch (error) {
-    if (init.signal?.aborted) throw error
+    if (init.signal?.aborted || authenticationSignal?.aborted) throw error
     if (timeoutSignal.aborted) {
       throw new ApiError('ModemDeck 请求超时', 0, 'request_timeout')
     }
@@ -753,7 +770,7 @@ async function request(
   try {
     body = await responseBody(response)
   } catch (error) {
-    if (init.signal?.aborted) throw error
+    if (init.signal?.aborted || authenticationSignal?.aborted) throw error
     if (timeoutSignal.aborted) {
       throw new ApiError('ModemDeck 请求超时', 0, 'request_timeout')
     }
@@ -763,7 +780,13 @@ async function request(
 
   if (!response.ok) {
     const details = errorDetails(body)
-    if (response.status === 401) authenticationRequiredHandler()
+    if (
+      response.status === 401 &&
+      authenticationRequired &&
+      requestAuthenticationGeneration === authenticationRequestGeneration
+    ) {
+      authenticationRequiredHandler()
+    }
     const message =
       details?.message ||
       details?.detail ||
@@ -791,6 +814,19 @@ function get(path: string): Promise<unknown> {
   )
 }
 
+function getPublic(path: string): Promise<unknown> {
+  return request(
+    path,
+    {
+      method: 'GET',
+      headers: { Accept: 'application/json' }
+    },
+    200,
+    undefined,
+    false
+  )
+}
+
 function writeJSON(
   path: string,
   method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
@@ -812,6 +848,28 @@ function writeJSON(
     },
     expectedStatus,
     timeoutMilliseconds
+  )
+}
+
+function writePublicJSON(
+  path: string,
+  method: 'POST',
+  input: unknown,
+  expectedStatus: number
+) {
+  return request(
+    path,
+    {
+      method,
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(input)
+    },
+    expectedStatus,
+    undefined,
+    false
   )
 }
 
@@ -908,15 +966,17 @@ const realGateway: ConfiguredModemDeckGateway = {
   },
 
   async getSession(): Promise<SessionResponse> {
-    return parseSession(await get(`${API_ROOT}/session`))
+    return parseSession(await getPublic(`${API_ROOT}/session`))
   },
 
   async setup(input: SetupInput): Promise<SessionResponse> {
-    return parseSession(await writeJSON(`${API_ROOT}/setup`, 'POST', input, 201))
+    return parseSession(await writePublicJSON(`${API_ROOT}/setup`, 'POST', input, 201))
   },
 
   async login(input: LoginInput): Promise<SessionResponse> {
-    return parseSession(await writeJSON(`${API_ROOT}/session`, 'POST', input, 200))
+    return parseSession(
+      await writePublicJSON(`${API_ROOT}/session`, 'POST', input, 200)
+    )
   },
 
   async changePassword(input: ChangePasswordInput): Promise<void> {

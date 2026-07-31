@@ -273,6 +273,9 @@ func TestLoginAndLogoutCookies(t *testing.T) {
 	if loginResponse.Code != http.StatusOK {
 		t.Fatalf("login status = %d; body = %s", loginResponse.Code, loginResponse.Body.String())
 	}
+	if bytes.Contains(loginResponse.Body.Bytes(), []byte("must_change_password")) {
+		t.Fatalf("login retained deprecated password-change state: %s", loginResponse.Body.String())
+	}
 	var loginSession sessionResponse
 	if err := json.Unmarshal(loginResponse.Body.Bytes(), &loginSession); err != nil {
 		t.Fatalf("decode login session: %v", err)

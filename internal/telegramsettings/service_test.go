@@ -304,8 +304,8 @@ func newTestServiceWithRepository(t *testing.T) (*Service, *store.Store, *sql.DB
 	}
 	if _, err := sqlite.Exec(`
 		INSERT INTO modemdeck_users (
-			id, username, password_hash, role, enabled, must_change_password
-		) VALUES (?, 'admin', 'admin-hash', 'admin', 1, 0);
+			id, username, password_hash, role, enabled
+		) VALUES (?, 'admin', 'admin-hash', 'admin', 1);
 		INSERT INTO modemdeck_user_preferences (user_id) VALUES (?)
 	`, testOwnerUserID, testOwnerUserID); err != nil {
 		t.Fatalf("seed test owner: %v", err)

@@ -46,15 +46,14 @@ func migrateMultiUserSchema(
 			password_hash TEXT NOT NULL,
 			role TEXT NOT NULL CHECK (role IN ('admin', 'member')),
 			enabled NUMERIC NOT NULL DEFAULT 1,
-			must_change_password NUMERIC NOT NULL DEFAULT 0,
 			revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
 		INSERT INTO modemdeck_users (
-			id, username, password_hash, role, enabled, must_change_password
+			id, username, password_hash, role, enabled
 		)
-		SELECT ?, username, password_hash, 'admin', 1, 0
+		SELECT ?, username, password_hash, 'admin', 1
 		FROM modemdeck_admin_credentials
 		WHERE singleton = 1;
 		CREATE UNIQUE INDEX ux_modemdeck_single_admin
@@ -284,27 +283,33 @@ func migrateMultiUserSchema(
 	return true, nil
 }
 
-func clearDeprecatedPasswordChangeRequirements(
+func dropDeprecatedPasswordChangeColumn(
 	ctx context.Context,
 	database *sql.DB,
 	actual schemaShape,
-) error {
+) (bool, error) {
 	columns, exists := actual.tables["modemdeck_users"]
 	if !exists {
-		return nil
+		return false, nil
 	}
 	if _, exists := columns["must_change_password"]; !exists {
-		return nil
+		return false, nil
 	}
-	if _, err := database.ExecContext(
+	transaction, err := database.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin deprecated password column migration: %w", err)
+	}
+	defer transaction.Rollback()
+	if _, err := transaction.ExecContext(
 		ctx,
-		`UPDATE modemdeck_users
-		 SET must_change_password = 0
-		 WHERE must_change_password <> 0`,
+		"ALTER TABLE modemdeck_users DROP COLUMN must_change_password",
 	); err != nil {
-		return fmt.Errorf("clear deprecated password change requirements: %w", err)
+		return false, fmt.Errorf("drop deprecated password change column: %w", err)
 	}
-	return nil
+	if err := transaction.Commit(); err != nil {
+		return false, fmt.Errorf("commit deprecated password column migration: %w", err)
+	}
+	return true, nil
 }
 
 func migrateUserPreferenceRevision(

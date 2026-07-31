@@ -108,8 +108,8 @@ func TestCreateMemberAcceptsEightCharacterFinalPassword(t *testing.T) {
 	if err != nil || !matches {
 		t.Fatalf("created password matches = %t, error = %v", matches, err)
 	}
-	if !bytes.Contains(response.Body.Bytes(), []byte(`"must_change_password":false`)) {
-		t.Fatalf("response did not disable deprecated password-change state: %s", response.Body.String())
+	if bytes.Contains(response.Body.Bytes(), []byte("must_change_password")) {
+		t.Fatalf("response retained deprecated password-change state: %s", response.Body.String())
 	}
 
 	shortRequest := httptest.NewRequest(

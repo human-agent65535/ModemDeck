@@ -19,23 +19,21 @@ var (
 )
 
 type User struct {
-	ID       string    `json:"id"`
-	Username string    `json:"username"`
-	Role     auth.Role `json:"role"`
-	Enabled  bool      `json:"enabled"`
-	// Kept false for compatibility with clients from before the policy was removed.
-	MustChangePassword            bool     `json:"must_change_password"`
-	IOSPairingEnabled             bool     `json:"ios_pairing_enabled"`
-	IOSPairingHasCredential       bool     `json:"ios_pairing_has_credential"`
-	IOSPairingCredentialCreatedAt string   `json:"ios_pairing_credential_created_at,omitempty"`
-	IOSPairingPaired              bool     `json:"ios_pairing_paired"`
-	IOSPairingPairedAt            string   `json:"ios_pairing_paired_at,omitempty"`
-	Revision                      int64    `json:"revision"`
-	ProfileName                   string   `json:"profile_name,omitempty"`
-	ProfileAvatar                 string   `json:"profile_avatar,omitempty"`
-	LineIDs                       []string `json:"line_ids"`
-	CreatedAt                     string   `json:"created_at"`
-	UpdatedAt                     string   `json:"updated_at"`
+	ID                            string    `json:"id"`
+	Username                      string    `json:"username"`
+	Role                          auth.Role `json:"role"`
+	Enabled                       bool      `json:"enabled"`
+	IOSPairingEnabled             bool      `json:"ios_pairing_enabled"`
+	IOSPairingHasCredential       bool      `json:"ios_pairing_has_credential"`
+	IOSPairingCredentialCreatedAt string    `json:"ios_pairing_credential_created_at,omitempty"`
+	IOSPairingPaired              bool      `json:"ios_pairing_paired"`
+	IOSPairingPairedAt            string    `json:"ios_pairing_paired_at,omitempty"`
+	Revision                      int64     `json:"revision"`
+	ProfileName                   string    `json:"profile_name,omitempty"`
+	ProfileAvatar                 string    `json:"profile_avatar,omitempty"`
+	LineIDs                       []string  `json:"line_ids"`
+	CreatedAt                     string    `json:"created_at"`
+	UpdatedAt                     string    `json:"updated_at"`
 }
 
 type CreateMemberInput struct {

@@ -5,6 +5,7 @@ import {
   fixtureMode,
   gateway,
   rotateCallLeaseHolder,
+  rotateAuthenticationRequestScope,
   setAuthenticationRequiredHandler,
   setClientCSRFToken
 } from '../api/client'
@@ -39,6 +40,12 @@ function applySession(session: SessionResponse): boolean {
     return false
   }
 
+  if (
+    state.status !== 'authenticated' ||
+    state.userID !== (session.user_id || '')
+  ) {
+    rotateAuthenticationRequestScope()
+  }
   state.status = 'authenticated'
   state.userID = session.user_id || ''
   state.username = session.username || ''
@@ -54,10 +61,12 @@ function applySession(session: SessionResponse): boolean {
 
 export function clearSession(message = '', setupRequired = false): void {
   if (fixtureMode) return
-  resetWorkspaceState()
-  resetNetworkState()
-  resetRecordingState()
-  resetUIState()
+  if (state.status === 'anonymous') {
+    state.setupRequired = setupRequired
+    state.error = message
+    return
+  }
+  rotateAuthenticationRequestScope()
   state.status = 'anonymous'
   state.userID = ''
   state.username = ''
@@ -69,6 +78,10 @@ export function clearSession(message = '', setupRequired = false): void {
   state.error = message
   setClientCSRFToken()
   rotateCallLeaseHolder()
+  resetWorkspaceState()
+  resetNetworkState()
+  resetRecordingState()
+  resetUIState()
 }
 
 setAuthenticationRequiredHandler(() => {
@@ -112,6 +125,7 @@ export async function ensureSession(): Promise<boolean> {
 export async function login(username: string, password: string): Promise<void> {
   if (fixtureMode) return
 
+  rotateAuthenticationRequestScope()
   state.status = 'checking'
   state.error = ''
   try {
@@ -133,6 +147,7 @@ export async function login(username: string, password: string): Promise<void> {
 export async function setup(username: string, password: string): Promise<void> {
   if (fixtureMode) return
 
+  rotateAuthenticationRequestScope()
   state.status = 'checking'
   state.error = ''
   try {
@@ -154,6 +169,7 @@ export async function setup(username: string, password: string): Promise<void> {
 export async function logout(): Promise<void> {
   if (fixtureMode) return
   await releaseCallMediaForSessionEnd()
+  rotateAuthenticationRequestScope()
   try {
     await gateway.logout()
   } catch (error) {
@@ -166,6 +182,7 @@ export async function logout(): Promise<void> {
 export async function changePassword(input: ChangePasswordInput): Promise<void> {
   if (fixtureMode) return
   await releaseCallMediaForSessionEnd()
+  rotateAuthenticationRequestScope()
   try {
     await gateway.changePassword(input)
   } catch (error) {
