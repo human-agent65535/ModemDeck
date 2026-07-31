@@ -85,6 +85,7 @@ const currentSessionUser = computed<UserAccount>(() => ({
   role: sessionState.role === 'admin' ? 'admin' : 'member',
   enabled: true,
   ios_pairing_enabled: sessionState.iosPairingEnabled,
+  ios_pairing_has_credential: false,
   revision: 0,
   line_ids: [...sessionState.allowedLineIDs],
   created_at: '',

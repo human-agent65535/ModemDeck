@@ -27,6 +27,7 @@ import type {
   DiagnosticLogQuery,
   DiagnosticLogStreamHandlers,
   DiagnosticsSnapshot,
+  ExternalAccessStatus,
   GlobalCallSettings,
   LineLabelResult,
   LineSettings,
@@ -114,6 +115,7 @@ export interface ModemDeckGateway {
   createMember(input: CreateMemberInput): Promise<UserAccount>
   updateMember(id: string, input: UpdateMemberInput): Promise<UserAccount>
   setMemberPassword(id: string, password: string): Promise<void>
+  revokeUserIOSPairing(id: string): Promise<void>
   listContacts(query?: ListQuery): Promise<Page<Contact>>
   listThreads(query?: ListQuery): Promise<Page<MessageThread>>
   listMessages(query: MessageQuery): Promise<Page<Message>>
@@ -176,6 +178,7 @@ export interface ModemDeckGateway {
   updateLineSettings(input: UpdateLineSettingsInput): Promise<LineSettings>
   getSystemSettings(): Promise<SystemSettings>
   updateSystemSettings(input: UpdateSystemSettingsInput): Promise<SystemSettings>
+  getExternalAccessStatus(): Promise<ExternalAccessStatus>
   getIOSPairing(): Promise<IOSPairingResult>
   createIOSPairing(): Promise<IOSPairingResult>
   revokeIOSPairing(): Promise<void>

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 )
 
@@ -110,6 +111,66 @@ func TestRuntimeEventStreamReplaysExplicitAfterCursor(t *testing.T) {
 		!strings.Contains(body, "event: runtime") ||
 		!strings.Contains(body, `"resources":["lines"]`) {
 		t.Fatalf("status = %d; stream = %q", response.Code, body)
+	}
+}
+
+func TestMobileRuntimeEventStreamOnlyExposesSupportedResources(t *testing.T) {
+	t.Parallel()
+
+	events := runtimeevents.NewBuffer(8)
+	events.Publish(runtimeevents.Event{
+		Resources: []runtimeevents.Resource{
+			runtimeevents.ResourceSession,
+			runtimeevents.ResourceMessages,
+			runtimeevents.ResourceCalls,
+			runtimeevents.ResourceRecordings,
+		},
+	})
+	events.Publish(runtimeevents.Event{
+		Resources: []runtimeevents.Resource{
+			runtimeevents.ResourceContacts,
+		},
+	})
+	repository := &fakeRepository{
+		mobileFound: true,
+		mobilePrincipal: auth.Principal{
+			UserID:            "member-1",
+			Role:              auth.RoleMember,
+			IOSPairingEnabled: true,
+			AllowedLineIDs:    []string{"line-1"},
+		},
+	}
+	api, err := New(repository, Options{
+		RuntimeEvents:         events,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/runtime/events?after=0",
+		nil,
+	)
+	request = request.WithContext(context.WithValue(
+		request.Context(),
+		mobileAuthenticationContextKey{},
+		mobileAuthentication{},
+	))
+	ctx, cancel := context.WithCancel(request.Context())
+	cancel()
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request.WithContext(ctx))
+
+	body := response.Body.String()
+	if response.Code != http.StatusOK ||
+		!strings.Contains(body, `"resources":["calls"]`) ||
+		strings.Contains(body, `"session"`) ||
+		strings.Contains(body, `"messages"`) ||
+		strings.Contains(body, `"contacts"`) ||
+		strings.Contains(body, `"recordings"`) {
+		t.Fatalf("status = %d; mobile stream = %q", response.Code, body)
 	}
 }
 

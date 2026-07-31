@@ -555,6 +555,13 @@ func (s *Store) ReplaceUserPasswordHashIfCurrentAndRevokeSessions(
 	); err != nil {
 		return false, fmt.Errorf("revoke user sessions: %w", err)
 	}
+	if _, err := transaction.ExecContext(
+		ctx,
+		"DELETE FROM modemdeck_ios_pairing_credentials WHERE user_id = ?",
+		userID,
+	); err != nil {
+		return false, fmt.Errorf("revoke iOS pairing credential: %w", err)
+	}
 	if userID == auth.InitialAdminUserID {
 		if _, err := transaction.ExecContext(
 			ctx,

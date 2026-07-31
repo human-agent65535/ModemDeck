@@ -23,6 +23,8 @@ type fakeUserRepository struct {
 	updateUser  store.User
 	updateError error
 	updateCalls int
+	revokeID    string
+	revokeError error
 }
 
 func (repository *fakeUserRepository) Users(context.Context) ([]store.User, error) {
@@ -50,6 +52,14 @@ func (repository *fakeUserRepository) UpdateMember(
 
 func (*fakeUserRepository) SetMemberPassword(context.Context, string, string) error {
 	return nil
+}
+
+func (repository *fakeUserRepository) RevokeIOSPairingCredential(
+	_ context.Context,
+	userID string,
+) error {
+	repository.revokeID = userID
+	return repository.revokeError
 }
 
 func (*fakeUserRepository) SetProfileContact(context.Context, string) error {
@@ -299,5 +309,33 @@ func TestFailedMemberAccessUpdateDoesNotReloadTelegramRuntime(t *testing.T) {
 	}
 	if settings.accessNotifications != 0 {
 		t.Fatalf("Telegram access notifications = %d, want 0", settings.accessNotifications)
+	}
+}
+
+func TestAdministratorCanRevokeMemberIOSPairingWithoutChangingPermission(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeUserRepository{fakeRepository: &fakeRepository{}}
+	api, err := New(repository, Options{disableAuthentication: true})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(
+		http.MethodDelete,
+		"/api/v1/users/member-1/ios-pairing",
+		nil,
+	)
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if repository.revokeID != "member-1" {
+		t.Fatalf("revoked user ID = %q, want member-1", repository.revokeID)
+	}
+	if repository.updateCalls != 0 {
+		t.Fatalf("UpdateMember() calls = %d, want 0", repository.updateCalls)
 	}
 }

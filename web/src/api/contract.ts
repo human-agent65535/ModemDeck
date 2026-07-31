@@ -21,6 +21,7 @@ import type {
   DeviceFeatureCapability,
   DeviceHardwareConfiguration,
   EffectiveIncomingCallPolicy,
+  ExternalAccessStatus,
   GlobalCallSettings,
   IncomingCallActionResult,
   IncomingCallPolicy,
@@ -33,6 +34,7 @@ import type {
   Message,
   MessageDeliveryReportSupport,
   MessageReadInput,
+  IOSPairingAvailability,
   IOSPairingResult,
   IOSPairingStatus,
   MobileNetwork,
@@ -477,6 +479,7 @@ export const communicationContracts = {
 } as const
 
 export const iosPairingPath = '/api/v1/mobile/pairing'
+export const externalAccessStatusPath = '/api/v1/external-access/status'
 
 export const iosPairingContract = {
   get: {
@@ -493,6 +496,14 @@ export const iosPairingContract = {
     method: 'DELETE',
     path: iosPairingPath,
     successStatus: 204
+  }
+} as const
+
+export const externalAccessContract = {
+  getStatus: {
+    method: 'GET',
+    path: externalAccessStatusPath,
+    successStatus: 200
   }
 } as const
 
@@ -2230,46 +2241,67 @@ export function parseSystemSettingsResponse(value: unknown): SystemSettings {
   return parseSystemSettings(response.settings, 'system_settings')
 }
 
+function parseCloudflareTunnelStatus(value: unknown) {
+  const cloudflare = objectValue(value, 'cloudflare_tunnel')
+  return {
+    enabled: requiredBoolean(cloudflare, 'cloudflare_tunnel', 'enabled'),
+    connector_connected: requiredBoolean(
+      cloudflare,
+      'cloudflare_tunnel',
+      'connector_connected'
+    ),
+    connected: requiredBoolean(cloudflare, 'cloudflare_tunnel', 'connected'),
+    public_url: requiredString(cloudflare, 'cloudflare_tunnel', 'public_url', true),
+    api_urls: optionalStringArray(cloudflare, 'cloudflare_tunnel', 'api_urls'),
+    web_urls: optionalStringArray(cloudflare, 'cloudflare_tunnel', 'web_urls')
+  }
+}
+
+function parseTURNAvailabilityStatus(value: unknown) {
+  const turn = objectValue(value, 'turn')
+  return {
+    configured: requiredBoolean(turn, 'turn', 'configured'),
+    available: requiredBoolean(turn, 'turn', 'available')
+  }
+}
+
+function parseIOSPairingAvailability(value: unknown): IOSPairingAvailability {
+  if (
+    value === 'permission_required' ||
+    value === 'cloudflare_required' ||
+    value === 'connector_unavailable' ||
+    value === 'route_unavailable' ||
+    value === 'ready'
+  ) {
+    return value
+  }
+  throw new Error('ios_pairing.availability is invalid')
+}
+
 function parseIOSPairingStatus(value: unknown): IOSPairingStatus {
   const source = objectValue(value, 'ios_pairing')
-  const cloudflare = objectValue(source.cloudflare, 'cloudflare_tunnel')
-  const turn = objectValue(source.turn, 'turn')
-  const credentialCreatedAt = optionalString(source, 'credential_created_at')
+  const credentialCreatedAt = optionalTimestamp(
+    source,
+    'ios_pairing',
+    'credential_created_at'
+  )
   return {
     allowed: requiredBoolean(source, 'ios_pairing', 'allowed'),
-    cloudflare: {
-      enabled: requiredBoolean(cloudflare, 'cloudflare_tunnel', 'enabled'),
-      connector_connected: requiredBoolean(
-        cloudflare,
-        'cloudflare_tunnel',
-        'connector_connected'
-      ),
-      connected: requiredBoolean(cloudflare, 'cloudflare_tunnel', 'connected'),
-      public_url: requiredString(
-        cloudflare,
-        'cloudflare_tunnel',
-        'public_url',
-        true
-      ),
-      api_urls: optionalStringArray(
-        cloudflare,
-        'cloudflare_tunnel',
-        'api_urls'
-      ),
-      web_urls: optionalStringArray(
-        cloudflare,
-        'cloudflare_tunnel',
-        'web_urls'
-      )
-    },
-    turn: {
-      configured: requiredBoolean(turn, 'turn', 'configured'),
-      available: requiredBoolean(turn, 'turn', 'available')
-    },
+    availability: parseIOSPairingAvailability(source.availability),
     has_credential: requiredBoolean(source, 'ios_pairing', 'has_credential'),
     ...(credentialCreatedAt
       ? { credential_created_at: credentialCreatedAt }
       : {})
+  }
+}
+
+export function parseExternalAccessStatusResponse(
+  value: unknown
+): ExternalAccessStatus {
+  const response = objectValue(value, 'external_access_status')
+  return {
+    cloudflare: parseCloudflareTunnelStatus(response.cloudflare),
+    turn: parseTURNAvailabilityStatus(response.turn)
   }
 }
 
@@ -2401,12 +2433,25 @@ export function parseUserAccount(value: unknown): UserAccount {
   }
   const profileName = optionalString(user, 'profile_name')
   const profileAvatar = optionalString(user, 'profile_avatar')
+  const pairingCredentialCreatedAt = optionalTimestamp(
+    user,
+    'user',
+    'ios_pairing_credential_created_at'
+  )
   return {
     id: requiredString(user, 'user', 'id'),
     username: requiredString(user, 'user', 'username'),
     role,
     enabled: requiredBoolean(user, 'user', 'enabled'),
     ios_pairing_enabled: requiredBoolean(user, 'user', 'ios_pairing_enabled'),
+    ios_pairing_has_credential: requiredBoolean(
+      user,
+      'user',
+      'ios_pairing_has_credential'
+    ),
+    ...(pairingCredentialCreatedAt
+      ? { ios_pairing_credential_created_at: pairingCredentialCreatedAt }
+      : {}),
     revision: requiredRevision(user, 'user'),
     ...(profileName ? { profile_name: profileName } : {}),
     ...(profileAvatar ? { profile_avatar: profileAvatar } : {}),

@@ -29,7 +29,7 @@ import ExternalAccessSettingsPanel from '../components/ExternalAccessSettingsPan
 import TelegramSettingsForm from '../components/TelegramSettingsForm.vue'
 import UserSettingsPanel from '../components/UserSettingsPanel.vue'
 import WebCertificateSettingsPanel from '../components/WebCertificateSettingsPanel.vue'
-import { fixtureMode, gateway } from '../api/client'
+import { fixtureMode } from '../api/client'
 import { logout as logoutSession, sessionState } from '../state/session'
 import {
   bootstrapResource,
@@ -63,8 +63,11 @@ const router = useRouter()
 const { t } = useI18n()
 const logoutPending = ref(false)
 const logoutError = ref('')
-const externalAccessResolved = ref(false)
-const externalAccessEnabled = ref(false)
+const canManageExternalAccess = computed(() => sessionState.role === 'admin')
+const canPairIOS = computed(() => sessionState.iosPairingEnabled)
+const canViewExternalAccess = computed(
+  () => canManageExternalAccess.value || canPairIOS.value
+)
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const presentModules = computed(() =>
   presentModuleLines(lines.value, devicesResource.data)
@@ -117,16 +120,16 @@ const sections = computed<SettingsSectionDefinition[]>(() => {
       icon: RadioTower
     }
   ]
-  if (sessionState.role !== 'admin') return personal
-  const administration: SettingsSectionDefinition[] = []
-  if (externalAccessEnabled.value) {
-    administration.push({
+  if (canViewExternalAccess.value) {
+    personal.push({
       id: 'external-access',
       label: t('settings.iosApp'),
       description: t('settings.iosAppDescription'),
       icon: Globe2
     })
   }
+  if (!canManageExternalAccess.value) return personal
+  const administration: SettingsSectionDefinition[] = []
   administration.push(
     {
       id: 'web-certificate',
@@ -168,39 +171,21 @@ watch(
 )
 
 watch(
-  [() => route.params.section, externalAccessResolved],
-  ([value, resolved]) => {
+  [() => route.params.section, canViewExternalAccess],
+  ([value, canView]) => {
     const section = String(value || '')
-    if (section === 'ios' && resolved && externalAccessEnabled.value) {
+    if (section === 'ios' && canView) {
       void router.replace({
         name: 'settings',
         params: { section: 'external-access' }
       })
       return
     }
-    if (section === 'ios' && !resolved) return
     if (!section || sections.value.some(item => item.id === section)) return
-    if (section === 'external-access' && !resolved) return
     void router.replace({ name: 'settings', params: { section: 'account' } })
   },
   { immediate: true }
 )
-
-async function loadExternalAccessVisibility(): Promise<void> {
-  if (sessionState.role !== 'admin') {
-    externalAccessEnabled.value = false
-    externalAccessResolved.value = true
-    return
-  }
-  try {
-    const result = await gateway.getIOSPairing()
-    externalAccessEnabled.value = result.pairing.cloudflare.enabled
-  } catch {
-    externalAccessEnabled.value = false
-  } finally {
-    externalAccessResolved.value = true
-  }
-}
 
 function openSection(section: SettingsSection): void {
   void router.push({ name: 'settings', params: { section } })
@@ -251,11 +236,7 @@ async function logout(): Promise<void> {
 }
 
 onMounted(() => {
-  void Promise.all([
-    loadBootstrap(),
-    loadDevices(),
-    loadExternalAccessVisibility()
-  ])
+  void Promise.all([loadBootstrap(), loadDevices()])
 })
 </script>
 

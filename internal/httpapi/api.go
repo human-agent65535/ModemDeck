@@ -401,6 +401,8 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.accountPassword(response, request)
 	case "/api/v1/account/contact":
 		api.accountContact(response, request)
+	case "/api/v1/external-access/status":
+		api.getOnly(response, request, api.externalAccessStatus)
 	case "/api/v1/mobile/pairing":
 		api.mobilePairing(response, request)
 	case "/api/v1/users":
@@ -585,6 +587,7 @@ func (api *API) bootstrap(response http.ResponseWriter, request *http.Request) {
 		capabilities.WebRTCAudio = capabilities.WebRTCAudio && mediaAvailable
 	}
 	if principal, exists := auth.PrincipalFromContext(request.Context()); !exists ||
+		isMobileRequest(request) ||
 		!principal.IsAdmin() {
 		lineCatalog = persistedLines
 	}

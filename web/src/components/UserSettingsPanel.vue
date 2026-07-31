@@ -8,6 +8,7 @@ import {
   Save,
   Search,
   ShieldCheck,
+  Trash2,
   UserRound
 } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
@@ -16,6 +17,7 @@ import { gateway } from '../api/client'
 import type { LineSummary, UserAccount } from '../api/types'
 import { ApiError } from '../api/types'
 import { useSettingsMutation } from '../composables/useSettingsMutation'
+import { requestConfirmation } from '../state/confirmation'
 import { showError, showSuccess } from '../state/feedback'
 import { resetNetworkState } from '../state/network'
 import { refreshSession, sessionState } from '../state/session'
@@ -29,6 +31,7 @@ import {
   minimumPasswordCharacters,
   passwordCharacterCount
 } from '../utils/password'
+import { formatDateTime } from '../utils/format'
 import BaseAvatar from './BaseAvatar.vue'
 import AccountSettingsPanel from './AccountSettingsPanel.vue'
 import LineTag from './LineTag.vue'
@@ -50,6 +53,7 @@ const enabled = ref(true)
 const iosPairingEnabled = ref(false)
 const lineIDs = ref<string[]>([])
 const saving = ref(false)
+const pairingRevoking = ref(false)
 const saveError = ref('')
 const newPassword = ref('')
 const searchQuery = ref('')
@@ -142,7 +146,7 @@ function applyUser(user?: UserAccount): void {
 }
 
 function selectUser(id: string): void {
-  if (saving.value || lineSaving.value) return
+  if (saving.value || lineSaving.value || pairingRevoking.value) return
   creating.value = false
   selectedID.value = id
   applyUser(users.value.find(user => user.id === id))
@@ -154,7 +158,7 @@ function selectUser(id: string): void {
 }
 
 function startCreate(): void {
-  if (saving.value || lineSaving.value) return
+  if (saving.value || lineSaving.value || pairingRevoking.value) return
   creating.value = true
   selectedID.value = '__new_member__'
   applyUser()
@@ -248,7 +252,14 @@ async function refreshUserList(): Promise<void> {
 }
 
 async function submit(): Promise<void> {
-  if (saving.value || lineSaving.value || validationError.value) return
+  if (
+    saving.value ||
+    lineSaving.value ||
+    pairingRevoking.value ||
+    validationError.value
+  ) {
+    return
+  }
   saving.value = true
   saveError.value = ''
   try {
@@ -307,8 +318,50 @@ async function submit(): Promise<void> {
   }
 }
 
+async function revokeSelectedPairing(): Promise<void> {
+  const user = selectedUser.value
+  if (!user?.ios_pairing_has_credential || pairingRevoking.value) return
+  const confirmed = await requestConfirmation({
+    title: t('iosPairing.revokeTitle'),
+    message: t('iosPairing.revokeMessage'),
+    confirmLabel: t('iosPairing.revokeConfirm'),
+    tone: 'danger'
+  })
+  if (!confirmed) return
+
+  pairingRevoking.value = true
+  try {
+    await gateway.revokeUserIOSPairing(user.id)
+    users.value = users.value.map(current =>
+      current.id === user.id
+        ? {
+            ...current,
+            ios_pairing_has_credential: false,
+            ios_pairing_credential_created_at: undefined
+          }
+        : current
+    )
+    showSuccess(
+      `${t('users.iosPairingAccess')}: ${t('iosPairing.notPaired')}`
+    )
+  } catch (cause) {
+    showError(
+      cause instanceof Error ? cause.message : t('iosPairing.revokeFailed')
+    )
+  } finally {
+    pairingRevoking.value = false
+  }
+}
+
 function syncSelectionFromRoute(): void {
-  if (status.value !== 'ready' || saving.value || lineSaving.value) return
+  if (
+    status.value !== 'ready' ||
+    saving.value ||
+    lineSaving.value ||
+    pairingRevoking.value
+  ) {
+    return
+  }
   if (route.query.newUser === '1') {
     if (!creating.value) {
       creating.value = true
@@ -541,6 +594,47 @@ onMounted(() => {
               />
             </label>
 
+            <section
+              v-if="!creating && selectedUser"
+              class="user-pairing-status"
+            >
+              <span>
+                <strong>{{ t('users.iosPairingAccess') }}</strong>
+                <small>
+                  {{
+                    selectedUser.ios_pairing_has_credential
+                      ? t('iosPairing.paired')
+                      : t('iosPairing.notPaired')
+                  }}
+                  <template
+                    v-if="selectedUser.ios_pairing_credential_created_at"
+                  >
+                    · {{ t('iosPairing.createdAt') }}
+                    {{
+                      formatDateTime(
+                        selectedUser.ios_pairing_credential_created_at
+                      )
+                    }}
+                  </template>
+                </small>
+              </span>
+              <button
+                v-if="selectedUser.ios_pairing_has_credential"
+                class="secondary-button danger-button"
+                type="button"
+                :disabled="saving || pairingRevoking"
+                @click="revokeSelectedPairing"
+              >
+                <LoaderCircle
+                  v-if="pairingRevoking"
+                  class="spin"
+                  :size="16"
+                />
+                <Trash2 v-else :size="16" />
+                {{ t('iosPairing.revoke') }}
+              </button>
+            </section>
+
             <fieldset class="user-lines">
               <legend class="sr-only">{{ t('users.assignedLines') }}</legend>
               <div class="user-lines__heading">
@@ -627,6 +721,7 @@ onMounted(() => {
                 :disabled="
                   saving ||
                   lineSaving ||
+                  pairingRevoking ||
                   Boolean(validationError) ||
                   (!creating && !formChanged)
                 "
@@ -906,6 +1001,27 @@ onMounted(() => {
 .user-account-access input:disabled {
   cursor: not-allowed;
   opacity: 0.65;
+}
+
+.user-pairing-status {
+  display: flex;
+  min-height: 64px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.user-pairing-status > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.user-pairing-status small {
+  white-space: normal;
 }
 
 .user-lines {

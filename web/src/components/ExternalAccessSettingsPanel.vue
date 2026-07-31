@@ -15,7 +15,7 @@ import {
 } from '@lucide/vue'
 import QRCode from 'qrcode'
 import { gateway } from '../api/client'
-import type { IOSPairingStatus } from '../api/types'
+import type { ExternalAccessStatus, IOSPairingStatus } from '../api/types'
 import { ApiError } from '../api/types'
 import { requestConfirmation } from '../state/confirmation'
 import { sessionState } from '../state/session'
@@ -28,6 +28,7 @@ const isAdmin = computed(() => sessionState.role === 'admin')
 const loading = ref(true)
 const loadError = ref('')
 const pairing = ref<IOSPairingStatus | null>(null)
+const externalAccess = ref<ExternalAccessStatus | null>(null)
 const pairingPending = ref(false)
 const pairingError = ref('')
 const qrDataURL = ref('')
@@ -39,11 +40,39 @@ let statusRefreshTimer: number | undefined
 let statusLoadPending = false
 
 const pairingReady = computed(
-  () =>
-    pairing.value?.allowed &&
-    pairing.value.cloudflare.enabled &&
-    pairing.value.cloudflare.connected
+  () => pairing.value?.allowed && pairing.value.availability === 'ready'
 )
+const pairingStatusLabel = computed(() => {
+  switch (pairing.value?.availability) {
+    case 'permission_required':
+      return t('iosPairing.notAllowed')
+    case 'cloudflare_required':
+      return t('iosPairing.notInstalled')
+    case 'connector_unavailable':
+      return t('iosPairing.disconnected')
+    case 'route_unavailable':
+      return t('iosPairing.routeUnavailable')
+    case 'ready':
+      return pairing.value.has_credential
+        ? t('iosPairing.paired')
+        : t('iosPairing.notPaired')
+    default:
+      return ''
+  }
+})
+const pairingNotice = computed(() => {
+  switch (pairing.value?.availability) {
+    case 'permission_required':
+      return t('iosPairing.permissionRequired')
+    case 'cloudflare_required':
+      return t('iosPairing.cloudflareRequired')
+    case 'connector_unavailable':
+    case 'route_unavailable':
+      return t('iosPairing.cloudflareUnavailable')
+    default:
+      return ''
+  }
+})
 
 function errorMessage(cause: unknown, fallback: string): string {
   if (cause instanceof ApiError) {
@@ -78,7 +107,12 @@ async function refreshStatus(background: boolean): Promise<void> {
     loadError.value = ''
   }
   try {
-    pairing.value = (await gateway.getIOSPairing()).pairing
+    const [pairingResult, status] = await Promise.all([
+      gateway.getIOSPairing(),
+      isAdmin.value ? gateway.getExternalAccessStatus() : Promise.resolve(null)
+    ])
+    pairing.value = pairingResult.pairing
+    externalAccess.value = status
     loadError.value = ''
   } catch (cause) {
     if (!background || !pairing.value) {
@@ -217,12 +251,12 @@ onBeforeUnmount(() => {
 
     <template v-else-if="pairing">
       <SettingsModuleCard
-        v-if="isAdmin"
+        v-if="isAdmin && externalAccess"
         class="ios-card"
         :title="t('iosPairing.tunnelTitle')"
         title-id="ios-tunnel-title"
         surface="subtle"
-        :has-body="pairing.cloudflare.enabled"
+        :has-body="externalAccess.cloudflare.enabled"
       >
         <template #icon>
           <ShieldCheck :size="19" />
@@ -231,29 +265,29 @@ onBeforeUnmount(() => {
           <span
             class="ios-status"
             :class="{
-              'is-active': pairing.cloudflare.connector_connected,
-              'is-blocked': !pairing.cloudflare.connector_connected
+              'is-active': externalAccess.cloudflare.connector_connected,
+              'is-blocked': !externalAccess.cloudflare.connector_connected
             }"
           >
             {{
-              !pairing.cloudflare.enabled
+              !externalAccess.cloudflare.enabled
                 ? t('iosPairing.notInstalled')
-                : pairing.cloudflare.connector_connected
+                : externalAccess.cloudflare.connector_connected
                   ? t('iosPairing.connected')
                 : t('iosPairing.disconnected')
             }}
           </span>
         </template>
-        <dl v-if="pairing.cloudflare.enabled" class="ios-pairing-facts">
-          <div v-if="pairing.cloudflare.api_urls.length">
+        <dl v-if="externalAccess.cloudflare.enabled" class="ios-pairing-facts">
+          <div v-if="externalAccess.cloudflare.api_urls.length">
             <dt>API</dt>
-            <dd v-for="url in pairing.cloudflare.api_urls" :key="url">
+            <dd v-for="url in externalAccess.cloudflare.api_urls" :key="url">
               <code>{{ url }}</code>
             </dd>
           </div>
-          <div v-if="pairing.cloudflare.web_urls.length">
+          <div v-if="externalAccess.cloudflare.web_urls.length">
             <dt>Web</dt>
-            <dd v-for="url in pairing.cloudflare.web_urls" :key="url">
+            <dd v-for="url in externalAccess.cloudflare.web_urls" :key="url">
               <code>{{ url }}</code>
             </dd>
           </div>
@@ -261,11 +295,12 @@ onBeforeUnmount(() => {
       </SettingsModuleCard>
 
       <SettingsModuleCard
+        v-if="isAdmin && externalAccess"
         class="ios-card"
         :title="t('iosPairing.turnTitle')"
         title-id="external-turn-title"
         surface="subtle"
-        :has-body="!pairing.turn.available"
+        :has-body="!externalAccess.turn.available"
       >
         <template #icon>
           <RadioTower :size="19" />
@@ -274,21 +309,21 @@ onBeforeUnmount(() => {
           <span
             class="ios-status"
             :class="{
-              'is-active': pairing.turn.available,
-              'is-blocked': !pairing.turn.available
+              'is-active': externalAccess.turn.available,
+              'is-blocked': !externalAccess.turn.available
             }"
           >
             {{
-              !pairing.turn.configured
+              !externalAccess.turn.configured
                 ? t('iosPairing.turnNotConfigured')
-                : pairing.turn.available
+                : externalAccess.turn.available
                   ? t('iosPairing.turnAvailable')
-                : t('iosPairing.turnUnavailable')
+                  : t('iosPairing.turnUnavailable')
             }}
           </span>
         </template>
         <div
-          v-if="!pairing.turn.available"
+          v-if="!externalAccess.turn.available"
           class="ios-notice ios-notice--danger"
         >
           {{ t('iosPairing.turnCallUnavailable') }}
@@ -309,43 +344,19 @@ onBeforeUnmount(() => {
           <span
             class="ios-status"
             :class="{
-              'is-active':
-                pairing.has_credential && pairing.cloudflare.connected,
-              'is-blocked':
-                !pairing.allowed || !pairing.cloudflare.connected
+              'is-active': pairing.has_credential && pairing.availability === 'ready',
+              'is-blocked': pairing.availability !== 'ready'
             }"
           >
-            {{
-              !pairing.allowed
-                ? t('iosPairing.notAllowed')
-                : !pairing.cloudflare.enabled
-                  ? t('iosPairing.notInstalled')
-                  : !pairing.cloudflare.connector_connected
-                    ? t('iosPairing.disconnected')
-                    : !pairing.cloudflare.connected
-                      ? t('iosPairing.routeUnavailable')
-                      : pairing.has_credential
-                        ? t('iosPairing.paired')
-                        : t('iosPairing.notPaired')
-            }}
+            {{ pairingStatusLabel }}
           </span>
         </template>
 
-        <div v-if="!pairing.allowed" class="ios-notice">
-          {{ t('iosPairing.permissionRequired') }}
-        </div>
-        <div v-else-if="!pairing.cloudflare.enabled" class="ios-notice">
-          {{ t('iosPairing.cloudflareRequired') }}
-        </div>
-        <div v-else-if="!pairing.cloudflare.connected" class="ios-notice">
-          {{ t('iosPairing.cloudflareUnavailable') }}
+        <div v-if="pairingNotice" class="ios-notice">
+          {{ pairingNotice }}
         </div>
         <template v-if="pairing.allowed">
           <dl class="ios-pairing-facts">
-            <div v-if="pairing.cloudflare.public_url">
-              <dt>{{ t('iosPairing.connection') }}</dt>
-              <dd><code>{{ pairing.cloudflare.public_url }}</code></dd>
-            </div>
             <div v-if="pairing.credential_created_at">
               <dt>{{ t('iosPairing.createdAt') }}</dt>
               <dd>{{ formatTimestamp(pairing.credential_created_at) }}</dd>

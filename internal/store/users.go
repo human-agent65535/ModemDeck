@@ -24,14 +24,16 @@ type User struct {
 	Role     auth.Role `json:"role"`
 	Enabled  bool      `json:"enabled"`
 	// Kept false for compatibility with clients from before the policy was removed.
-	MustChangePassword bool     `json:"must_change_password"`
-	IOSPairingEnabled  bool     `json:"ios_pairing_enabled"`
-	Revision           int64    `json:"revision"`
-	ProfileName        string   `json:"profile_name,omitempty"`
-	ProfileAvatar      string   `json:"profile_avatar,omitempty"`
-	LineIDs            []string `json:"line_ids"`
-	CreatedAt          string   `json:"created_at"`
-	UpdatedAt          string   `json:"updated_at"`
+	MustChangePassword            bool     `json:"must_change_password"`
+	IOSPairingEnabled             bool     `json:"ios_pairing_enabled"`
+	IOSPairingHasCredential       bool     `json:"ios_pairing_has_credential"`
+	IOSPairingCredentialCreatedAt string   `json:"ios_pairing_credential_created_at,omitempty"`
+	Revision                      int64    `json:"revision"`
+	ProfileName                   string   `json:"profile_name,omitempty"`
+	ProfileAvatar                 string   `json:"profile_avatar,omitempty"`
+	LineIDs                       []string `json:"line_ids"`
+	CreatedAt                     string   `json:"created_at"`
+	UpdatedAt                     string   `json:"updated_at"`
 }
 
 type CreateMemberInput struct {
@@ -78,12 +80,15 @@ func (s *Store) Users(ctx context.Context) ([]User, error) {
 			user.role,
 			user.enabled,
 			user.ios_pairing_enabled,
+			credential.created_at,
 			user.revision,
 			COALESCE(contact.display_name, ''),
 			COALESCE(contact.avatar, ''),
 			user.created_at,
 			user.updated_at
 		FROM modemdeck_users AS user
+		LEFT JOIN modemdeck_ios_pairing_credentials AS credential
+			ON credential.user_id = user.id
 		LEFT JOIN modemdeck_user_profile_contacts AS profile
 			ON profile.user_id = user.id
 		LEFT JOIN contacts AS contact
@@ -97,10 +102,11 @@ func (s *Store) Users(ctx context.Context) ([]User, error) {
 	users := make([]User, 0)
 	for rows.Next() {
 		var (
-			user       User
-			role       string
-			enabled    int64
-			iosPairing int64
+			user                User
+			role                string
+			enabled             int64
+			iosPairing          int64
+			credentialCreatedAt sql.NullString
 		)
 		if err := rows.Scan(
 			&user.ID,
@@ -108,6 +114,7 @@ func (s *Store) Users(ctx context.Context) ([]User, error) {
 			&role,
 			&enabled,
 			&iosPairing,
+			&credentialCreatedAt,
 			&user.Revision,
 			&user.ProfileName,
 			&user.ProfileAvatar,
@@ -119,6 +126,10 @@ func (s *Store) Users(ctx context.Context) ([]User, error) {
 		user.Role = auth.Role(role)
 		user.Enabled = enabled != 0
 		user.IOSPairingEnabled = iosPairing != 0
+		user.IOSPairingHasCredential = credentialCreatedAt.Valid
+		user.IOSPairingCredentialCreatedAt = iosPairingTimestamp(
+			stringValue(credentialCreatedAt),
+		)
 		user.LineIDs = []string{}
 		users = append(users, user)
 	}
@@ -319,7 +330,7 @@ func (s *Store) UpdateMember(
 		}
 	}
 	if auth.Role(role) == auth.RoleMember &&
-		(!input.Enabled || !input.IOSPairingEnabled) {
+		(!input.Enabled || !input.IOSPairingEnabled || input.PasswordHash != "") {
 		if _, err := transaction.ExecContext(
 			ctx,
 			"DELETE FROM modemdeck_ios_pairing_credentials WHERE user_id = ?",
@@ -368,6 +379,13 @@ func (s *Store) SetMemberPassword(
 		userID,
 	); err != nil {
 		return fmt.Errorf("revoke member sessions after password update: %w", err)
+	}
+	if _, err := transaction.ExecContext(
+		ctx,
+		"DELETE FROM modemdeck_ios_pairing_credentials WHERE user_id = ?",
+		userID,
+	); err != nil {
+		return fmt.Errorf("revoke iOS pairing after password update: %w", err)
 	}
 	if err := transaction.Commit(); err != nil {
 		return fmt.Errorf("commit member password update: %w", err)

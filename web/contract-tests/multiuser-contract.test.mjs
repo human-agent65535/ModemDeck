@@ -17,6 +17,8 @@ const member = {
   role: 'member',
   enabled: true,
   ios_pairing_enabled: true,
+  ios_pairing_has_credential: true,
+  ios_pairing_credential_created_at: '2026-07-29T00:30:00Z',
   revision: 2,
   profile_name: 'Member Name',
   profile_avatar: 'data:image/png;base64,avatar',
@@ -132,18 +134,22 @@ test('multi-user UI exposes only authorized settings and communication areas', a
       source('../src/i18n/locales/zh-CN.ts')
     ])
 
-  assert.match(settings, /sessionState\.role !== 'admin'/)
   assert.doesNotMatch(settings, /mustChangePassword/)
   assert.doesNotMatch(settings, /id: 'users'/)
   assert.doesNotMatch(settings, /id: 'system'/)
   assert.doesNotMatch(settings, /id: 'recording'/)
   assert.match(settings, /sessionState\.role === 'admin'/)
-  assert.match(settings, /if \(sessionState\.role !== 'admin'\) return personal/)
+  assert.match(settings, /if \(!canManageExternalAccess\.value\) return personal/)
   assert.match(settings, /return \[\.\.\.personal, \.\.\.administration\]/)
   assert.match(
     settings,
-    /if \(sessionState\.role !== 'admin'\) \{[\s\S]*externalAccessEnabled\.value = false/
+    /canPairIOS = computed\(\(\) => sessionState\.iosPairingEnabled\)/
   )
+  assert.match(
+    settings,
+    /canManageExternalAccess\.value \|\| canPairIOS\.value/
+  )
+  assert.doesNotMatch(settings, /externalAccessEnabled|loadExternalAccessVisibility/)
   assert.match(settings, /<UserSettingsPanel/)
   assert.match(users, /gateway\.listUsers\(\)/)
   assert.match(users, /gateway\.createMember/)

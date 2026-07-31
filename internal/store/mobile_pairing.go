@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
@@ -134,7 +135,7 @@ func (s *Store) IOSPairingStatus(
 	}
 	status.Allowed = enabled != 0 && pairing != 0
 	status.HasCredential = createdAt.Valid
-	status.CredentialCreatedAt = stringValue(createdAt)
+	status.CredentialCreatedAt = iosPairingTimestamp(stringValue(createdAt))
 	return status, nil
 }
 
@@ -166,7 +167,8 @@ func (s *Store) RotateIOSPairingCredential(
 	if enabled == 0 || pairing == 0 {
 		return IOSPairingStatus{}, ErrIOSPairingNotAllowed
 	}
-	if _, err := transaction.ExecContext(
+	var createdAt string
+	if err := transaction.QueryRowContext(
 		ctx,
 		`INSERT INTO modemdeck_ios_pairing_credentials (
 			user_id, token_digest, created_at, updated_at
@@ -174,16 +176,21 @@ func (s *Store) RotateIOSPairingCredential(
 		 ON CONFLICT(user_id) DO UPDATE SET
 			token_digest = excluded.token_digest,
 			created_at = CURRENT_TIMESTAMP,
-			updated_at = CURRENT_TIMESTAMP`,
+			updated_at = CURRENT_TIMESTAMP
+		 RETURNING created_at`,
 		userID,
 		digest[:],
-	); err != nil {
+	).Scan(&createdAt); err != nil {
 		return IOSPairingStatus{}, fmt.Errorf("store iOS pairing credential: %w", err)
 	}
 	if err := transaction.Commit(); err != nil {
 		return IOSPairingStatus{}, fmt.Errorf("commit iOS pairing credential update: %w", err)
 	}
-	return s.IOSPairingStatus(ctx, userID)
+	return IOSPairingStatus{
+		Allowed:             true,
+		HasCredential:       true,
+		CredentialCreatedAt: iosPairingTimestamp(createdAt),
+	}, nil
 }
 
 func (s *Store) RevokeIOSPairingCredential(
@@ -198,4 +205,12 @@ func (s *Store) RevokeIOSPairingCredential(
 		return fmt.Errorf("revoke iOS pairing credential: %w", err)
 	}
 	return nil
+}
+
+func iosPairingTimestamp(value string) string {
+	parsed, ok := parseDatabaseTime(value)
+	if !ok {
+		return ""
+	}
+	return parsed.UTC().Format(time.RFC3339)
 }

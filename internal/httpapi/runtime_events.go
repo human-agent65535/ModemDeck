@@ -60,7 +60,17 @@ func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.R
 		return
 	}
 	for _, event := range window.Events {
-		if !writeSSE(response, flusher, "runtime", event.ID, event) {
+		visibleEvent, visible := runtimeEventForRequest(request, event)
+		if !visible {
+			continue
+		}
+		if !writeSSE(
+			response,
+			flusher,
+			"runtime",
+			visibleEvent.ID,
+			visibleEvent,
+		) {
 			return
 		}
 	}
@@ -83,7 +93,17 @@ func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.R
 			if _, _, err := api.currentStreamAccess(request, false); err != nil {
 				return
 			}
-			if !writeSSE(response, flusher, "runtime", event.ID, event) {
+			visibleEvent, visible := runtimeEventForRequest(request, event)
+			if !visible {
+				continue
+			}
+			if !writeSSE(
+				response,
+				flusher,
+				"runtime",
+				visibleEvent.ID,
+				visibleEvent,
+			) {
 				return
 			}
 		case observedAt := <-heartbeat.C:
@@ -95,6 +115,26 @@ func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.R
 			}
 		}
 	}
+}
+
+func runtimeEventForRequest(
+	request *http.Request,
+	event runtimeevents.Event,
+) (runtimeevents.Event, bool) {
+	if !isMobileRequest(request) {
+		return event, true
+	}
+	resources := make([]runtimeevents.Resource, 0, len(event.Resources))
+	for _, resource := range event.Resources {
+		switch resource {
+		case runtimeevents.ResourceLines,
+			runtimeevents.ResourceNetwork,
+			runtimeevents.ResourceCalls:
+			resources = append(resources, resource)
+		}
+	}
+	event.Resources = resources
+	return event, len(resources) > 0
 }
 
 func (api *API) publishRuntimeResources(resources ...runtimeevents.Resource) {

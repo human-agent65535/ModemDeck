@@ -17,6 +17,7 @@ type userRepository interface {
 	CreateMember(context.Context, store.CreateMemberInput) (store.User, error)
 	UpdateMember(context.Context, string, store.UpdateMemberInput) (store.User, error)
 	SetMemberPassword(context.Context, string, string) error
+	RevokeIOSPairingCredential(context.Context, string) error
 	SetProfileContact(context.Context, string) error
 }
 
@@ -143,6 +144,28 @@ func (api *API) userResource(
 			return
 		}
 		api.publishRuntimeResources(runtimeevents.ResourceSession)
+		response.Header().Set("Cache-Control", "no-store")
+		response.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if action == "ios-pairing" {
+		if request.Method != http.MethodDelete {
+			response.Header().Set("Allow", http.MethodDelete)
+			writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only DELETE is supported", "")
+			return
+		}
+		if err := repository.RevokeIOSPairingCredential(
+			request.Context(),
+			userID,
+		); err != nil {
+			api.writeMobilePairingError(
+				response,
+				request,
+				"revoke user iOS pairing",
+				err,
+			)
+			return
+		}
 		response.Header().Set("Cache-Control", "no-store")
 		response.WriteHeader(http.StatusNoContent)
 		return
@@ -298,7 +321,7 @@ func userResourcePath(path string) (userID, action string, ok bool) {
 		return "", "", false
 	}
 	if len(parts) == 2 {
-		if parts[1] != "password" {
+		if parts[1] != "password" && parts[1] != "ios-pairing" {
 			return "", "", false
 		}
 		action = parts[1]
@@ -308,6 +331,7 @@ func userResourcePath(path string) (userID, action string, ok bool) {
 
 func adminOnlyAPIPath(path, method string) bool {
 	if path == "/api/v1/about" ||
+		path == "/api/v1/external-access/status" ||
 		path == "/api/v1/updates/check" {
 		return true
 	}

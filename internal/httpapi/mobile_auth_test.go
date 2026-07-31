@@ -85,6 +85,45 @@ func TestMobileBearerCannotAccessWebSettingsAPI(t *testing.T) {
 	)
 }
 
+func TestMobileBearerCanRevokeItsOwnPairingCredential(t *testing.T) {
+	t.Parallel()
+
+	token, _, err := mobilepairing.NewToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := &fakeMobilePairingRepository{
+		fakeRepository: &fakeRepository{
+			mobileFound: true,
+			mobilePrincipal: auth.Principal{
+				UserID:            "member-1",
+				Role:              auth.RoleMember,
+				IOSPairingEnabled: true,
+			},
+		},
+	}
+	api, err := New(repository, Options{disableAuthentication: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(
+		http.MethodDelete,
+		"/api/v1/mobile/pairing",
+		nil,
+	)
+	request.Header.Set("Authorization", "Bearer "+string(token))
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if repository.revokedUserID != "member-1" {
+		t.Fatalf("revoked user = %q", repository.revokedUserID)
+	}
+}
+
 func TestRevokedMobileBearerIsRejected(t *testing.T) {
 	t.Parallel()
 

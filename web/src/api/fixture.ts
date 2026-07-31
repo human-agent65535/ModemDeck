@@ -742,6 +742,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       role: 'admin',
       enabled: true,
       ios_pairing_enabled: true,
+      ios_pairing_has_credential: false,
       revision: 1,
       profile_name: ALEX_NAME,
       line_ids: lines.map(line => line.id),
@@ -754,6 +755,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       role: 'member',
       enabled: true,
       ios_pairing_enabled: false,
+      ios_pairing_has_credential: false,
       revision: 2,
       profile_name: MEMBER_PROFILE_NAME,
       line_ids: lines[1] ? [lines[1].id] : [],
@@ -1383,6 +1385,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         role: 'member',
         enabled: true,
         ios_pairing_enabled: input.ios_pairing_enabled,
+        ios_pairing_has_credential: false,
         revision: 1,
         line_ids: [...input.line_ids],
         created_at: '2026-07-29 12:00:00',
@@ -1417,6 +1420,14 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         enabled: input.enabled,
         ios_pairing_enabled:
           current.role === 'admin' ? true : input.ios_pairing_enabled,
+        ...(!input.enabled ||
+        !input.ios_pairing_enabled ||
+        Boolean(input.password)
+          ? {
+              ios_pairing_has_credential: false,
+              ios_pairing_credential_created_at: undefined
+            }
+          : {}),
         line_ids: [...input.line_ids],
         revision: current.revision + 1,
         updated_at: '2026-07-29 12:01:00'
@@ -1432,14 +1443,30 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         throw new ApiError('Password is too short', 422, 'password_too_short')
       }
       user.revision += 1
+      user.ios_pairing_has_credential = false
+      user.ios_pairing_credential_created_at = undefined
+    },
+
+    async revokeUserIOSPairing(id: string): Promise<void> {
+      const user = users.find(candidate => candidate.id === id)
+      if (!user) throw new ApiError('User was not found', 404, 'user_not_found')
+      user.ios_pairing_has_credential = false
+      user.ios_pairing_credential_created_at = undefined
+      if (id === 'user_admin') iosPairingCreatedAt = ''
+    },
+
+    async getExternalAccessStatus() {
+      return {
+        cloudflare: clone(cloudflareStatus),
+        turn: clone(turnStatus)
+      }
     },
 
     async getIOSPairing(): Promise<IOSPairingResult> {
       return {
         pairing: {
           allowed: true,
-          cloudflare: clone(cloudflareStatus),
-          turn: clone(turnStatus),
+          availability: 'ready',
           has_credential: Boolean(iosPairingCreatedAt),
           ...(iosPairingCreatedAt
             ? { credential_created_at: iosPairingCreatedAt }
@@ -1450,11 +1477,15 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
 
     async createIOSPairing(): Promise<IOSPairingResult> {
       iosPairingCreatedAt = new Date().toISOString()
+      const user = users.find(candidate => candidate.id === 'user_admin')
+      if (user) {
+        user.ios_pairing_has_credential = true
+        user.ios_pairing_credential_created_at = iosPairingCreatedAt
+      }
       return {
         pairing: {
           allowed: true,
-          cloudflare: clone(cloudflareStatus),
-          turn: clone(turnStatus),
+          availability: 'ready',
           has_credential: true,
           credential_created_at: iosPairingCreatedAt
         },
@@ -1469,6 +1500,11 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
 
     async revokeIOSPairing(): Promise<void> {
       iosPairingCreatedAt = ''
+      const user = users.find(candidate => candidate.id === 'user_admin')
+      if (user) {
+        user.ios_pairing_has_credential = false
+        user.ios_pairing_credential_created_at = undefined
+      }
     },
 
     async getCallMediaICEConfiguration(): Promise<CallMediaICEConfiguration> {

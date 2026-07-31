@@ -133,7 +133,7 @@ func TestCloudflarePublicProbeBypassesLoginButRequiresInstanceProof(t *testing.T
 	}
 }
 
-func TestIOSPairingStatusReportsInstallationAndConnectorState(t *testing.T) {
+func TestExternalAccessStatusReportsInstallationAndConnectorState(t *testing.T) {
 	t.Parallel()
 
 	repository := &fakeMobilePairingRepository{
@@ -166,29 +166,28 @@ func TestIOSPairingStatusReportsInstallationAndConnectorState(t *testing.T) {
 	response := httptest.NewRecorder()
 	api.ServeHTTP(
 		response,
-		httptest.NewRequest(http.MethodGet, "/api/v1/mobile/pairing", nil),
+		httptest.NewRequest(http.MethodGet, "/api/v1/external-access/status", nil),
 	)
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
 	}
-	var body iosPairingResponse
+	var body externalAccessStatusResponse
 	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if !body.Pairing.Allowed ||
-		!body.Pairing.Cloudflare.Enabled ||
-		body.Pairing.Cloudflare.Connected ||
-		body.Pairing.Cloudflare.PublicURL != "https://phone.example.com" ||
-		len(body.Pairing.Cloudflare.APIURLs) != 1 ||
-		len(body.Pairing.Cloudflare.WebURLs) != 1 ||
-		!body.Pairing.TURN.Configured ||
-		!body.Pairing.TURN.Available {
-		t.Fatalf("pairing = %+v", body.Pairing)
+	if !body.Cloudflare.Enabled ||
+		body.Cloudflare.Connected ||
+		body.Cloudflare.PublicURL != "https://phone.example.com" ||
+		len(body.Cloudflare.APIURLs) != 1 ||
+		len(body.Cloudflare.WebURLs) != 1 ||
+		!body.TURN.Configured ||
+		!body.TURN.Available {
+		t.Fatalf("external access = %+v", body)
 	}
 }
 
-func TestIOSPairingStatusReportsUnavailableTURN(t *testing.T) {
+func TestExternalAccessStatusReportsUnavailableTURN(t *testing.T) {
 	t.Parallel()
 
 	repository := &fakeMobilePairingRepository{
@@ -210,6 +209,50 @@ func TestIOSPairingStatusReportsUnavailableTURN(t *testing.T) {
 	response := httptest.NewRecorder()
 	api.ServeHTTP(
 		response,
+		httptest.NewRequest(http.MethodGet, "/api/v1/external-access/status", nil),
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	var body externalAccessStatusResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !body.TURN.Configured || body.TURN.Available {
+		t.Fatalf("TURN status = %+v", body.TURN)
+	}
+}
+
+func TestIOSPairingStatusReturnsOnlySelfServiceReadiness(t *testing.T) {
+	t.Parallel()
+
+	repository := &fakeMobilePairingRepository{
+		fakeRepository: &fakeRepository{},
+		pairing: store.IOSPairingStatus{
+			Allowed:             true,
+			HasCredential:       true,
+			CredentialCreatedAt: "2026-07-30T12:00:00Z",
+		},
+	}
+	api, err := New(repository, Options{
+		disableAuthentication: true,
+		MobilePairing: fakeMobilePairingAvailability{
+			status: mobilepairing.CloudflareStatus{
+				Enabled:            true,
+				ConnectorConnected: true,
+				Connected:          true,
+				PublicURL:          "https://phone.example.com",
+				APIURLs:            []string{"https://phone.example.com"},
+				WebURLs:            []string{"https://deck.example.com"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	response := httptest.NewRecorder()
+	api.ServeHTTP(
+		response,
 		httptest.NewRequest(http.MethodGet, "/api/v1/mobile/pairing", nil),
 	)
 	if response.Code != http.StatusOK {
@@ -219,8 +262,16 @@ func TestIOSPairingStatusReportsUnavailableTURN(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if !body.Pairing.TURN.Configured || body.Pairing.TURN.Available {
-		t.Fatalf("TURN status = %+v", body.Pairing.TURN)
+	if !body.Pairing.Allowed ||
+		body.Pairing.Availability != iosPairingReady ||
+		!body.Pairing.HasCredential ||
+		body.Pairing.CredentialCreatedAt != "2026-07-30T12:00:00Z" {
+		t.Fatalf("pairing = %+v", body.Pairing)
+	}
+	if strings.Contains(response.Body.String(), "phone.example.com") ||
+		strings.Contains(response.Body.String(), `"cloudflare"`) ||
+		strings.Contains(response.Body.String(), `"turn"`) {
+		t.Fatalf("self-service response leaked infrastructure: %s", response.Body.String())
 	}
 }
 

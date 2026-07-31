@@ -4,13 +4,15 @@ import test from 'node:test'
 import {
   callMediaICEContract,
   createCallMediaICEPayload,
+  externalAccessContract,
   iosPairingContract,
   parseCallMediaICEConfiguration,
+  parseExternalAccessStatusResponse,
   parseIOSPairingResponse
 } from '../src/api/contract.ts'
 import { createFixtureGateway } from '../src/api/fixture.ts'
 
-test('pairing uses the server-discovered Cloudflare endpoint', () => {
+test('pairing keeps infrastructure status behind the administrator endpoint', () => {
   assert.deepEqual(iosPairingContract, {
     get: {
       method: 'GET',
@@ -32,35 +34,43 @@ test('pairing uses the server-discovered Cloudflare endpoint', () => {
   const status = parseIOSPairingResponse({
     pairing: {
       allowed: true,
-      cloudflare: {
-        enabled: true,
-        connector_connected: true,
-        connected: true,
-        public_url: 'https://phone.example.com',
-        api_urls: ['https://phone.example.com'],
-        web_urls: ['https://deck.example.com']
-      },
-      turn: {
-        configured: true,
-        available: true
-      },
+      availability: 'ready',
       has_credential: true,
       credential_created_at: '2026-07-30T12:00:00Z'
     }
   })
-  assert.equal(status.pairing.cloudflare.public_url, 'https://phone.example.com')
-  assert.deepEqual(status.pairing.cloudflare.api_urls, [
-    'https://phone.example.com'
-  ])
-  assert.deepEqual(status.pairing.cloudflare.web_urls, [
-    'https://deck.example.com'
-  ])
-  assert.equal(status.pairing.cloudflare.connected, true)
-  assert.deepEqual(status.pairing.turn, {
+  assert.equal(status.pairing.availability, 'ready')
+  assert.equal(status.pairing.has_credential, true)
+  assert.equal('cloudflare' in status.pairing, false)
+  assert.equal('turn' in status.pairing, false)
+  assert.equal(status.payload, undefined)
+
+  assert.deepEqual(externalAccessContract, {
+    getStatus: {
+      method: 'GET',
+      path: '/api/v1/external-access/status',
+      successStatus: 200
+    }
+  })
+  const external = parseExternalAccessStatusResponse({
+    cloudflare: {
+      enabled: true,
+      connector_connected: true,
+      connected: true,
+      public_url: 'https://phone.example.com',
+      api_urls: ['https://phone.example.com'],
+      web_urls: ['https://deck.example.com']
+    },
+    turn: {
+      configured: true,
+      available: true
+    }
+  })
+  assert.equal(external.cloudflare.public_url, 'https://phone.example.com')
+  assert.deepEqual(external.turn, {
     configured: true,
     available: true
   })
-  assert.equal(status.payload, undefined)
 
   const created = parseIOSPairingResponse({
     pairing: status.pairing,
@@ -79,7 +89,8 @@ test('pairing uses the server-discovered Cloudflare endpoint', () => {
 test('fixture creates and revokes one non-expiring Cloudflare pairing', async () => {
   const gateway = createFixtureGateway()
   const initial = await gateway.getIOSPairing()
-  assert.deepEqual(initial.pairing.cloudflare, {
+  assert.equal(initial.pairing.availability, 'ready')
+  assert.deepEqual((await gateway.getExternalAccessStatus()).cloudflare, {
     enabled: true,
     connector_connected: true,
     connected: true,
@@ -90,10 +101,7 @@ test('fixture creates and revokes one non-expiring Cloudflare pairing', async ()
 
   const created = await gateway.createIOSPairing()
   assert.equal(created.pairing.has_credential, true)
-  assert.equal(
-    created.payload?.server_url,
-    created.pairing.cloudflare.public_url
-  )
+  assert.equal(created.payload?.server_url, 'https://mobile.modemdeck.example')
   assert.ok(created.payload?.token)
 
   await gateway.revokeIOSPairing()
@@ -135,7 +143,7 @@ test('Cloudflare Web call media accepts relay-only ICE configuration', () => {
   )
 })
 
-test('administrator settings expose Cloudflare status and pairing', async () => {
+test('settings expose capability-scoped infrastructure and self-service pairing', async () => {
   const [settingsView, userPanel, externalAccessPanel, callMedia] =
     await Promise.all([
     readFile(new URL('../src/views/SettingsView.vue', import.meta.url), 'utf8'),
@@ -157,26 +165,29 @@ test('administrator settings expose Cloudflare status and pairing', async () => 
   ])
 
   assert.match(settingsView, /id: 'external-access'/)
-  assert.match(settingsView, /if \(sessionState\.role !== 'admin'\) return personal/)
-  assert.match(settingsView, /<ExternalAccessSettingsPanel/)
   assert.match(
     settingsView,
-    /externalAccessEnabled\.value = result\.pairing\.cloudflare\.enabled/
+    /canViewExternalAccess[\s\S]*canManageExternalAccess\.value \|\| canPairIOS\.value/
   )
-  assert.match(settingsView, /if \(externalAccessEnabled\.value\)/)
+  assert.match(settingsView, /sessionState\.iosPairingEnabled/)
+  assert.doesNotMatch(settingsView, /externalAccessEnabled|loadExternalAccessVisibility/)
+  assert.match(settingsView, /<ExternalAccessSettingsPanel/)
   assert.match(settingsView, /id: 'web-certificate'/)
   assert.match(settingsView, /<WebCertificateSettingsPanel/)
   assert.match(userPanel, /ios_pairing_enabled: iosPairingEnabled\.value/)
-  assert.match(externalAccessPanel, /pairing\.value\.cloudflare\.enabled/)
-  assert.match(externalAccessPanel, /pairing\.value\.cloudflare\.connected/)
-  assert.match(externalAccessPanel, /pairing\.cloudflare\.api_urls/)
-  assert.match(externalAccessPanel, /pairing\.cloudflare\.web_urls/)
+  assert.match(userPanel, /selectedUser\.ios_pairing_has_credential/)
+  assert.match(userPanel, /gateway\.revokeUserIOSPairing\(user\.id\)/)
+  assert.match(externalAccessPanel, /gateway\.getExternalAccessStatus\(\)/)
+  assert.match(externalAccessPanel, /isAdmin && externalAccess/)
+  assert.match(externalAccessPanel, /externalAccess\.cloudflare\.api_urls/)
+  assert.match(externalAccessPanel, /externalAccess\.cloudflare\.web_urls/)
   assert.match(
     externalAccessPanel,
-    /'is-active': pairing\.cloudflare\.connector_connected/
+    /'is-active': externalAccess\.cloudflare\.connector_connected/
   )
-  assert.match(externalAccessPanel, /pairing\.turn\.configured/)
-  assert.match(externalAccessPanel, /pairing\.turn\.available/)
+  assert.match(externalAccessPanel, /externalAccess\.turn\.configured/)
+  assert.match(externalAccessPanel, /externalAccess\.turn\.available/)
+  assert.match(externalAccessPanel, /pairing\.value\.availability === 'ready'/)
   assert.match(externalAccessPanel, /turnCallUnavailable/)
   assert.doesNotMatch(externalAccessPanel, /turnReady/)
   assert.match(externalAccessPanel, /window\.setInterval/)

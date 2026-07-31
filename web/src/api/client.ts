@@ -37,6 +37,7 @@ import {
   createRecordingSettingsPayload,
   createTelegramUnitPayload,
   createTLSSettingsPayload,
+  externalAccessContract,
   parseActiveCallSnapshotResponse,
   parseCallMediaResponse,
   parseCallMediaICEConfiguration,
@@ -45,6 +46,7 @@ import {
   parseCallRecordingsResponse,
   parseCallResponse,
   parseDeviceConfigurationResponse,
+  parseExternalAccessStatusResponse,
   parseGlobalCallSettings,
   parseLineSettingsResponse,
   parseIOSPairingResponse,
@@ -975,6 +977,17 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
+  async revokeUserIOSPairing(id: string): Promise<void> {
+    await request(
+      `${API_ROOT}/users/${encodeURIComponent(id)}/ios-pairing`,
+      {
+        method: 'DELETE',
+        headers: { Accept: 'application/json' }
+      },
+      204
+    )
+  },
+
   async getSystemSettings() {
     return parseSystemSettingsResponse(await get(`${API_ROOT}/settings/system`))
   },
@@ -987,6 +1000,12 @@ const realGateway: ConfiguredModemDeckGateway = {
         createSystemSettingsPayload(input),
         200
       )
+    )
+  },
+
+  async getExternalAccessStatus() {
+    return parseExternalAccessStatusResponse(
+      await get(externalAccessContract.getStatus.path)
     )
   },
 

@@ -130,6 +130,8 @@ func mobileAPIRequestAllowed(request *http.Request) bool {
 		return request.Method == http.MethodGet
 	case "/api/v1/runtime/events":
 		return request.Method == http.MethodGet
+	case "/api/v1/mobile/pairing":
+		return request.Method == http.MethodDelete
 	case "/api/v1/calls":
 		return request.Method == http.MethodGet ||
 			request.Method == http.MethodPost

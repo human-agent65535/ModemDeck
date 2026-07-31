@@ -176,12 +176,23 @@ export type TURNAvailabilityStatus = {
   available: boolean
 }
 
+export type IOSPairingAvailability =
+  | 'permission_required'
+  | 'cloudflare_required'
+  | 'connector_unavailable'
+  | 'route_unavailable'
+  | 'ready'
+
 export type IOSPairingStatus = {
   allowed: boolean
-  cloudflare: CloudflareTunnelStatus
-  turn: TURNAvailabilityStatus
+  availability: IOSPairingAvailability
   has_credential: boolean
   credential_created_at?: string
+}
+
+export type ExternalAccessStatus = {
+  cloudflare: CloudflareTunnelStatus
+  turn: TURNAvailabilityStatus
 }
 
 export type IOSPairingPayload = {
@@ -1207,6 +1218,8 @@ export type UserAccount = {
   role: 'admin' | 'member'
   enabled: boolean
   ios_pairing_enabled: boolean
+  ios_pairing_has_credential: boolean
+  ios_pairing_credential_created_at?: string
   revision: number
   profile_name?: string
   profile_avatar?: string

@@ -20,17 +20,31 @@ type mobilePairingRepository interface {
 	RevokeIOSPairingCredential(context.Context, string) error
 }
 
+type iosPairingAvailability string
+
+const (
+	iosPairingPermissionRequired iosPairingAvailability = "permission_required"
+	iosPairingCloudflareRequired iosPairingAvailability = "cloudflare_required"
+	iosPairingConnectorDown      iosPairingAvailability = "connector_unavailable"
+	iosPairingRouteUnavailable   iosPairingAvailability = "route_unavailable"
+	iosPairingReady              iosPairingAvailability = "ready"
+)
+
 type iosPairingStatusResponse struct {
-	Allowed             bool                           `json:"allowed"`
-	Cloudflare          mobilepairing.CloudflareStatus `json:"cloudflare"`
-	TURN                turnAvailabilityStatus         `json:"turn"`
-	HasCredential       bool                           `json:"has_credential"`
-	CredentialCreatedAt string                         `json:"credential_created_at,omitempty"`
+	Allowed             bool                   `json:"allowed"`
+	Availability        iosPairingAvailability `json:"availability"`
+	HasCredential       bool                   `json:"has_credential"`
+	CredentialCreatedAt string                 `json:"credential_created_at,omitempty"`
 }
 
 type iosPairingResponse struct {
 	Pairing iosPairingStatusResponse `json:"pairing"`
 	Payload *mobilepairing.Payload   `json:"payload,omitempty"`
+}
+
+type externalAccessStatusResponse struct {
+	Cloudflare mobilepairing.CloudflareStatus `json:"cloudflare"`
+	TURN       turnAvailabilityStatus         `json:"turn"`
 }
 
 func (api *API) mobileTunnelProbe(
@@ -51,6 +65,22 @@ func (api *API) mobileTunnelProbe(
 	response.Header().Set("Cloudflare-CDN-Cache-Control", "no-store")
 	response.Header().Set(mobilepairing.CloudflareProbeProofHeader, proof)
 	response.WriteHeader(http.StatusNoContent)
+}
+
+func (api *API) externalAccessStatus(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	cloudflareResult := make(chan mobilepairing.CloudflareStatus, 1)
+	go func() {
+		cloudflareResult <- api.cloudflareStatus(request.Context())
+	}()
+	turn := api.turnStatus(request.Context())
+	response.Header().Set("Cache-Control", "no-store")
+	writeJSON(response, http.StatusOK, externalAccessStatusResponse{
+		Cloudflare: <-cloudflareResult,
+		TURN:       turn,
+	})
 }
 
 func (api *API) mobilePairing(
@@ -142,13 +172,7 @@ func (api *API) mobilePairing(
 			response,
 			http.StatusCreated,
 			iosPairingResponse{
-				Pairing: iosPairingStatusResponse{
-					Allowed:             status.Allowed,
-					Cloudflare:          cloudflare,
-					TURN:                api.turnStatus(request.Context()),
-					HasCredential:       status.HasCredential,
-					CredentialCreatedAt: status.CredentialCreatedAt,
-				},
+				Pairing: iosPairingStatusForCloudflare(status, cloudflare),
 				Payload: &payload,
 			},
 		)
@@ -180,15 +204,33 @@ func (api *API) iosPairingStatus(
 	ctx context.Context,
 	status store.IOSPairingStatus,
 ) iosPairingStatusResponse {
-	cloudflareResult := make(chan mobilepairing.CloudflareStatus, 1)
-	go func() {
-		cloudflareResult <- api.cloudflareStatus(ctx)
-	}()
-	turn := api.turnStatus(ctx)
+	if !status.Allowed {
+		return iosPairingStatusForCloudflare(
+			status,
+			mobilepairing.CloudflareStatus{},
+		)
+	}
+	return iosPairingStatusForCloudflare(status, api.cloudflareStatus(ctx))
+}
+
+func iosPairingStatusForCloudflare(
+	status store.IOSPairingStatus,
+	cloudflare mobilepairing.CloudflareStatus,
+) iosPairingStatusResponse {
+	availability := iosPairingReady
+	switch {
+	case !status.Allowed:
+		availability = iosPairingPermissionRequired
+	case !cloudflare.Enabled:
+		availability = iosPairingCloudflareRequired
+	case !cloudflare.ConnectorConnected && !cloudflare.Connected:
+		availability = iosPairingConnectorDown
+	case !cloudflare.Connected:
+		availability = iosPairingRouteUnavailable
+	}
 	return iosPairingStatusResponse{
 		Allowed:             status.Allowed,
-		Cloudflare:          <-cloudflareResult,
-		TURN:                turn,
+		Availability:        availability,
 		HasCredential:       status.HasCredential,
 		CredentialCreatedAt: status.CredentialCreatedAt,
 	}
