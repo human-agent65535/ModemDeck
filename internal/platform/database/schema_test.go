@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestOpenCreatesAndReopensCurrentSchema(t *testing.T) {
@@ -605,6 +606,121 @@ func TestOpenMigratesSingleUserDataToInitialAdministrator(t *testing.T) {
 			scopeSource,
 			assignedUserID,
 			manualAllLines,
+		)
+	}
+}
+
+func TestMigratePersistentAuthSessionsKeepsNewestValidEight(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "auth-session-migration.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	if _, err := database.Exec(`
+		PRAGMA foreign_keys = ON;
+		CREATE TABLE modemdeck_users (
+			id TEXT PRIMARY KEY
+		);
+		INSERT INTO modemdeck_users (id) VALUES ('user-1');
+		CREATE TABLE modemdeck_auth_sessions (
+			session_token_digest BLOB PRIMARY KEY CHECK (length(session_token_digest) = 32),
+			csrf_token_digest BLOB NOT NULL CHECK (length(csrf_token_digest) = 32),
+			user_id TEXT NOT NULL,
+			created_at_unix INTEGER NOT NULL,
+			expires_at_unix INTEGER NOT NULL CHECK (expires_at_unix >= created_at_unix),
+			FOREIGN KEY (user_id) REFERENCES modemdeck_users(id) ON DELETE CASCADE ON UPDATE CASCADE
+		);
+		CREATE INDEX idx_modemdeck_auth_sessions_expiry
+			ON modemdeck_auth_sessions(expires_at_unix);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Unix()
+	for index := 1; index <= 10; index++ {
+		digest := make([]byte, 32)
+		digest[0] = byte(index)
+		csrf := make([]byte, 32)
+		csrf[0] = byte(index + 20)
+		if _, err := database.Exec(
+			`INSERT INTO modemdeck_auth_sessions (
+				session_token_digest, csrf_token_digest, user_id,
+				created_at_unix, expires_at_unix
+			 ) VALUES (?, ?, 'user-1', ?, ?)`,
+			digest,
+			csrf,
+			now+int64(index),
+			now+3600,
+		); err != nil {
+			t.Fatalf("insert session %d: %v", index, err)
+		}
+	}
+	expiredDigest := make([]byte, 32)
+	expiredDigest[0] = 99
+	if _, err := database.Exec(
+		`INSERT INTO modemdeck_auth_sessions (
+			session_token_digest, csrf_token_digest, user_id,
+			created_at_unix, expires_at_unix
+		 ) VALUES (?, randomblob(32), 'user-1', ?, ?)`,
+		expiredDigest,
+		now-7200,
+		now-3600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	actual, err := readSchemaShape(context.Background(), database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrated, err := migratePersistentAuthSessions(
+		context.Background(),
+		database,
+		actual,
+	)
+	if err != nil || !migrated {
+		t.Fatalf("migratePersistentAuthSessions() = %v, %v", migrated, err)
+	}
+
+	actual, err = readSchemaShape(context.Background(), database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	columns := actual.tables["modemdeck_auth_sessions"]
+	if _, exists := columns["expires_at_unix"]; exists {
+		t.Fatal("migrated session table still has expires_at_unix")
+	}
+	for _, column := range []string{"user_agent", "access_host"} {
+		if _, exists := columns[column]; !exists {
+			t.Fatalf("migrated session table is missing %s", column)
+		}
+	}
+	var count, oldCount, populatedMetadata int
+	if err := database.QueryRow(
+		"SELECT COUNT(*) FROM modemdeck_auth_sessions",
+	).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.QueryRow(
+		`SELECT COUNT(*) FROM modemdeck_auth_sessions
+		 WHERE created_at_unix <= ?`,
+		now+2,
+	).Scan(&oldCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.QueryRow(
+		`SELECT COUNT(*) FROM modemdeck_auth_sessions
+		 WHERE user_agent <> '' OR access_host <> ''`,
+	).Scan(&populatedMetadata); err != nil {
+		t.Fatal(err)
+	}
+	if count != 8 || oldCount != 0 || populatedMetadata != 0 {
+		t.Fatalf(
+			"migrated sessions = count %d, old %d, metadata %d",
+			count,
+			oldCount,
+			populatedMetadata,
 		)
 	}
 }
@@ -2376,12 +2492,22 @@ func singleUserSchemaFixture(t *testing.T) string {
 	} {
 		removeTable(table)
 	}
-	remove("\n\t\t\tuser_id TEXT NOT NULL DEFAULT 'user_admin',")
 	replace(
-		"expires_at_unix INTEGER NOT NULL CHECK (expires_at_unix >= created_at_unix),\n"+
+		"user_id TEXT NOT NULL DEFAULT 'user_admin',\n"+
+			"\t\t\tcreated_at_unix INTEGER NOT NULL,\n"+
+			"\t\t\tuser_agent TEXT NOT NULL DEFAULT '',\n"+
+			"\t\t\taccess_host TEXT NOT NULL DEFAULT '',\n"+
 			"\t\t\tFOREIGN KEY (user_id) REFERENCES modemdeck_users(id) "+
 			"ON DELETE CASCADE ON UPDATE CASCADE",
-		"expires_at_unix INTEGER NOT NULL CHECK (expires_at_unix >= created_at_unix)",
+		"created_at_unix INTEGER NOT NULL,\n"+
+			"\t\t\texpires_at_unix INTEGER NOT NULL "+
+			"CHECK (expires_at_unix >= created_at_unix)",
+	)
+	replace(
+		"CREATE INDEX idx_modemdeck_auth_sessions_user_created\n"+
+			"\tON modemdeck_auth_sessions(user_id, created_at_unix DESC);",
+		"CREATE INDEX idx_modemdeck_auth_sessions_expiry "+
+			"ON modemdeck_auth_sessions(expires_at_unix);",
 	)
 	remove("\n\t\t\towner_user_id TEXT NOT NULL DEFAULT 'user_admin',")
 	remove(

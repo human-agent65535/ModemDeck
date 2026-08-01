@@ -78,6 +78,14 @@ never exposed as holder IDs or written to logs:
 holderID = SHA-256("modemdeck-call-holder" || authenticated-session-scope)
 ```
 
+Web sessions have no server-side time expiry. Each user retains the newest
+eight sessions; a ninth successful login removes the oldest one. The Security
+screen lists the browser, operating system, login host, and creation time for
+each session and can revoke one session or every session except the current
+one. An iOS pairing credential also has no time-based expiry, appears in the
+same device list, and does not consume a Web session slot. It remains valid
+until it is rotated or revoked by the account security lifecycle.
+
 The client does not submit a separate browser or tab holder ID. A network
 reconnect, page reload, or browser restart that retains the same authenticated
 session therefore derives the same holder. A successful explicit Web logout

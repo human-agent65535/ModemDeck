@@ -429,6 +429,10 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.accountContact(response, request)
 	case "/api/v1/account/preferences":
 		api.accountPreferences(response, request)
+	case "/api/v1/account/sessions":
+		api.accountSessions(response, request)
+	case "/api/v1/account/sessions/others":
+		api.revokeOtherAccountSessions(response, request)
 	case "/api/v1/external-access/status":
 		api.getOnly(response, request, api.externalAccessStatus)
 	case "/api/v1/external-access/refresh":
@@ -496,6 +500,10 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	case "/api/v1/settings/tls/ca":
 		api.getOnly(response, request, api.tlsCertificateAuthority)
 	default:
+		if id, ok := accountSessionResourceID(request.URL.Path); ok {
+			api.accountSessionResource(response, request, id)
+			return
+		}
 		if userID, action, ok := userResourcePath(request.URL.Path); ok {
 			api.userResource(response, request, userID, action)
 			return

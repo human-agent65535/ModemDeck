@@ -97,6 +97,7 @@ import {
 } from './normalize'
 import type {
   ActiveCallSnapshot,
+  AccountSession,
   AboutInfo,
   ApiErrorBody,
   BootstrapResponse,
@@ -369,6 +370,45 @@ function parseSession(value: unknown): SessionResponse {
     throw new ApiError('ModemDeck 服务返回了不完整的会话状态', 0, 'invalid_response')
   }
   return session
+}
+
+function parseAccountSessions(value: unknown): AccountSession[] {
+  const source = recordValue(value)
+  if (!source || !Array.isArray(source.sessions)) {
+    throw new ApiError(
+      'ModemDeck returned an invalid signed-in device list',
+      0,
+      'invalid_response'
+    )
+  }
+  return source.sessions.map((value, index) => {
+    const session = recordValue(value)
+    const path = `sessions[${index}]`
+    if (!session) {
+      throw new ApiError(`${path} is invalid`, 0, 'invalid_response')
+    }
+    const id = stringProperty(session, 'id')
+    const kind = stringProperty(session, 'kind')
+    const createdAt = stringProperty(session, 'created_at')
+    if (
+      !id ||
+      (kind !== 'web' && kind !== 'ios') ||
+      !createdAt ||
+      !Number.isFinite(Date.parse(createdAt)) ||
+      typeof session.current !== 'boolean'
+    ) {
+      throw new ApiError(`${path} is invalid`, 0, 'invalid_response')
+    }
+    return {
+      id,
+      kind,
+      created_at: createdAt,
+      user_agent: stringProperty(session, 'user_agent'),
+      access_host: stringProperty(session, 'access_host'),
+      current: session.current,
+      paired: typeof session.paired === 'boolean' ? session.paired : undefined
+    }
+  })
 }
 
 function requiredRecord(value: unknown, path: string): Record<string, unknown> {
@@ -1211,6 +1251,32 @@ const realGateway: ConfiguredModemDeckGateway = {
       `${API_ROOT}/account/contact`,
       'PUT',
       { contact_id: contactID.trim() },
+      204
+    )
+  },
+
+  async listAccountSessions(): Promise<AccountSession[]> {
+    return parseAccountSessions(await get(`${API_ROOT}/account/sessions`))
+  },
+
+  async logoutAccountSession(id: string): Promise<void> {
+    await request(
+      `${API_ROOT}/account/sessions/${encodeURIComponent(id)}`,
+      {
+        method: 'DELETE',
+        headers: { Accept: 'application/json' }
+      },
+      204
+    )
+  },
+
+  async logoutOtherAccountSessions(): Promise<void> {
+    await request(
+      `${API_ROOT}/account/sessions/others`,
+      {
+        method: 'DELETE',
+        headers: { Accept: 'application/json' }
+      },
       204
     )
   },
@@ -2199,6 +2265,33 @@ function configureFixture(gateway: ModemDeckGateway): ConfiguredModemDeckGateway
     allowed_line_ids: [],
     language: 'auto'
   }
+  let accountSessions: AccountSession[] = [
+    {
+      id: 'fixture-current',
+      kind: 'web',
+      created_at: '2026-08-01T10:00:00Z',
+      user_agent:
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/138.0.0.0 Safari/537.36',
+      access_host: '192.168.50.111:7577',
+      current: true
+    },
+    {
+      id: 'fixture-cloudflare',
+      kind: 'web',
+      created_at: '2026-07-31T02:30:00Z',
+      user_agent:
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 Version/18.5 Mobile/15E148 Safari/604.1',
+      access_host: 'call.b1ank.page',
+      current: false
+    },
+    {
+      id: 'ios-pairing',
+      kind: 'ios',
+      created_at: '2026-07-20T06:15:00Z',
+      current: false,
+      paired: true
+    }
+  ]
   return {
     ...gateway,
     interactions: FIXTURE_INTERACTIONS,
@@ -2216,6 +2309,15 @@ function configureFixture(gateway: ModemDeckGateway): ConfiguredModemDeckGateway
     },
     async setAccountContact() {
       return undefined
+    },
+    async listAccountSessions() {
+      return accountSessions.map(item => ({ ...item }))
+    },
+    async logoutAccountSession(id: string) {
+      accountSessions = accountSessions.filter(item => item.id !== id || item.current)
+    },
+    async logoutOtherAccountSessions() {
+      accountSessions = accountSessions.filter(item => item.current)
     },
     async logout() {
       return undefined

@@ -103,7 +103,6 @@ func TestDisablingMemberRevokesActiveSessions(t *testing.T) {
 		SessionTokenDigest: auth.SessionTokenDigest{1},
 		CSRFTokenDigest:    auth.CSRFTokenDigest{2},
 		CreatedAt:          createdAt,
-		ExpiresAt:          createdAt.Add(auth.SessionLifetime),
 	}
 	if created, createErr := repository.CreateUserSessionIfPasswordHash(
 		ctx,
@@ -158,7 +157,6 @@ func TestCreatedAndResetMemberPasswordsAreImmediatelyUsable(t *testing.T) {
 		SessionTokenDigest: auth.SessionTokenDigest{3},
 		CSRFTokenDigest:    auth.CSRFTokenDigest{4},
 		CreatedAt:          createdAt,
-		ExpiresAt:          createdAt.Add(auth.SessionLifetime),
 	}
 	if created, createErr := repository.CreateUserSessionIfPasswordHash(
 		ctx,
@@ -205,7 +203,6 @@ func TestMemberUpdateChangesPasswordAndRevokesSessionsAtomically(t *testing.T) {
 		SessionTokenDigest: auth.SessionTokenDigest{5},
 		CSRFTokenDigest:    auth.CSRFTokenDigest{6},
 		CreatedAt:          createdAt,
-		ExpiresAt:          createdAt.Add(auth.SessionLifetime),
 	}
 	if created, createErr := repository.CreateUserSessionIfPasswordHash(
 		ctx,

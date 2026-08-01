@@ -64,6 +64,16 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 			return err
 		}
 	}
+	migratedAuthSessions, err := migratePersistentAuthSessions(ctx, database, actual)
+	if err != nil {
+		return err
+	}
+	if migratedAuthSessions {
+		actual, err = readSchemaShape(ctx, database)
+		if err != nil {
+			return err
+		}
+	}
 	droppedPasswordChangeColumn, err := dropDeprecatedPasswordChangeColumn(
 		ctx,
 		database,

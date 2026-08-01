@@ -26,7 +26,8 @@ CREATE TABLE modemdeck_auth_sessions (
 			csrf_token_digest BLOB NOT NULL CHECK (length(csrf_token_digest) = 32),
 			user_id TEXT NOT NULL DEFAULT 'user_admin',
 			created_at_unix INTEGER NOT NULL,
-			expires_at_unix INTEGER NOT NULL CHECK (expires_at_unix >= created_at_unix),
+			user_agent TEXT NOT NULL DEFAULT '',
+			access_host TEXT NOT NULL DEFAULT '',
 			FOREIGN KEY (user_id) REFERENCES modemdeck_users(id) ON DELETE CASCADE ON UPDATE CASCADE
 		);
 
@@ -546,7 +547,8 @@ CREATE TABLE modemdeck_user_preferences (
 			FOREIGN KEY (user_id) REFERENCES modemdeck_users(id) ON DELETE CASCADE ON UPDATE CASCADE
 		);
 
-CREATE INDEX idx_modemdeck_auth_sessions_expiry ON modemdeck_auth_sessions(expires_at_unix);
+CREATE INDEX idx_modemdeck_auth_sessions_user_created
+	ON modemdeck_auth_sessions(user_id, created_at_unix DESC);
 
 CREATE UNIQUE INDEX ux_modemdeck_single_admin ON modemdeck_users(role) WHERE role = 'admin';
 

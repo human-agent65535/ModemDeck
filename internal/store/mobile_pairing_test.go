@@ -202,6 +202,65 @@ func TestIOSPairingPrincipalLookupFollowsCredentialAndPermission(t *testing.T) {
 	}
 }
 
+func TestIOSPairingCredentialHasNoTimeExpiry(t *testing.T) {
+	t.Parallel()
+
+	repository, database := newContactTestStore(t)
+	ctx := context.Background()
+	if created, err := repository.CreateAdminIfAbsent(ctx, auth.AdminCredentials{
+		Username:     "owner",
+		PasswordHash: "owner-hash",
+	}); err != nil || !created {
+		t.Fatalf("CreateAdminIfAbsent() = %t, %v", created, err)
+	}
+	member, err := repository.CreateMember(ctx, CreateMemberInput{
+		Username:          "member",
+		PasswordHash:      "member-hash",
+		IOSPairingEnabled: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateMember() error = %v", err)
+	}
+	digest := mobilepairing.TokenDigest{1, 2, 3}
+	if _, err := repository.RotateIOSPairingCredential(
+		ctx,
+		member.ID,
+		digest,
+	); err != nil {
+		t.Fatalf("RotateIOSPairingCredential() error = %v", err)
+	}
+	if confirmed, err := repository.ConfirmIOSPairingCredential(
+		ctx,
+		digest,
+	); err != nil || !confirmed {
+		t.Fatalf("ConfirmIOSPairingCredential() = %t, %v", confirmed, err)
+	}
+	if _, err := database.ExecContext(
+		ctx,
+		`UPDATE modemdeck_ios_pairing_credentials
+		 SET created_at = '2000-01-01 00:00:00',
+			activated_at = '2000-01-01 00:00:00',
+			updated_at = '2000-01-01 00:00:00'
+		 WHERE user_id = ?`,
+		member.ID,
+	); err != nil {
+		t.Fatalf("age pairing credential: %v", err)
+	}
+
+	principal, found, err := repository.IOSPairingPrincipalByTokenDigest(
+		ctx,
+		digest,
+	)
+	if err != nil || !found || principal.UserID != member.ID {
+		t.Fatalf(
+			"aged IOSPairingPrincipalByTokenDigest() = %+v, %t, %v",
+			principal,
+			found,
+			err,
+		)
+	}
+}
+
 func TestPasswordChangesRevokeIOSPairingCredentials(t *testing.T) {
 	t.Run("administrator reset", func(t *testing.T) {
 		repository, _ := newContactTestStore(t)

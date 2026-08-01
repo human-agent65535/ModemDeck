@@ -18,7 +18,6 @@ type streamAuthRepository struct {
 	mu        sync.RWMutex
 	principal auth.Principal
 	found     bool
-	expiresAt time.Time
 }
 
 func (*streamAuthRepository) UserCredentialsByUsername(
@@ -45,20 +44,17 @@ func (*streamAuthRepository) CreateUserSessionIfPasswordHash(
 
 func (repository *streamAuthRepository) UserSessionByTokenDigest(
 	_ context.Context,
-	_ auth.SessionTokenDigest,
+	digest auth.SessionTokenDigest,
 ) (auth.UserSessionRecord, auth.Principal, bool, error) {
 	now := time.Now().UTC()
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
 
-	expiresAt := repository.expiresAt
-	if expiresAt.IsZero() {
-		expiresAt = now.Add(time.Hour)
-	}
 	return auth.UserSessionRecord{
-		UserID:    repository.principal.UserID,
-		CreatedAt: now.Add(-time.Minute),
-		ExpiresAt: expiresAt,
+		UserID:             repository.principal.UserID,
+		SessionTokenDigest: digest,
+		CSRFTokenDigest:    repository.session.CSRFTokenDigest,
+		CreatedAt:          now.Add(-time.Minute),
 	}, repository.principal.Copy(), repository.found, nil
 }
 
@@ -82,12 +78,6 @@ func (*streamAuthRepository) ReplaceUserPasswordHashIfCurrentAndRevokeSessions(
 func (repository *streamAuthRepository) setFound(found bool) {
 	repository.mu.Lock()
 	repository.found = found
-	repository.mu.Unlock()
-}
-
-func (repository *streamAuthRepository) setExpiresAt(expiresAt time.Time) {
-	repository.mu.Lock()
-	repository.expiresAt = expiresAt
 	repository.mu.Unlock()
 }
 

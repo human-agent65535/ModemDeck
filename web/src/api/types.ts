@@ -1311,6 +1311,16 @@ export type SessionResponse = {
   language: SystemLanguage
 }
 
+export type AccountSession = {
+  id: string
+  kind: 'web' | 'ios'
+  created_at: string
+  user_agent?: string
+  access_host?: string
+  current: boolean
+  paired?: boolean
+}
+
 export type UserAccount = {
   id: string
   username: string

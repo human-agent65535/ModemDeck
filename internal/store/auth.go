@@ -12,7 +12,7 @@ import (
 
 var ErrInvalidAuthSession = errors.New("invalid authentication session record")
 
-const maxAdminSessions = 32
+const maxSessionsPerUser = 8
 
 func (s *Store) AdminCredentials(
 	ctx context.Context,
@@ -196,19 +196,13 @@ func (s *Store) CreateSessionIfPasswordHash(
 		return false, fmt.Errorf("begin authentication session creation: %w", err)
 	}
 	defer transaction.Rollback()
-	if _, err := transaction.ExecContext(
-		ctx,
-		"DELETE FROM modemdeck_auth_sessions WHERE expires_at_unix <= ?",
-		session.CreatedAt.UTC().Unix(),
-	); err != nil {
-		return false, fmt.Errorf("delete expired authentication sessions: %w", err)
-	}
 	result, err := transaction.ExecContext(
 		ctx,
 		`INSERT INTO modemdeck_auth_sessions (
-			session_token_digest, csrf_token_digest, created_at_unix, expires_at_unix
+			session_token_digest, csrf_token_digest, created_at_unix,
+			user_agent, access_host
 		 )
-		 SELECT ?, ?, ?, ?
+		 SELECT ?, ?, ?, ?, ?
 		 WHERE EXISTS (
 			SELECT 1 FROM modemdeck_admin_credentials
 			WHERE singleton = 1 AND password_hash = ?
@@ -216,7 +210,8 @@ func (s *Store) CreateSessionIfPasswordHash(
 		session.SessionTokenDigest[:],
 		session.CSRFTokenDigest[:],
 		session.CreatedAt.UTC().Unix(),
-		session.ExpiresAt.UTC().Unix(),
+		session.UserAgent,
+		session.AccessHost,
 		expectedPasswordHash,
 	)
 	if err != nil {
@@ -237,7 +232,7 @@ func (s *Store) CreateSessionIfPasswordHash(
 				ORDER BY created_at_unix DESC, rowid DESC
 				LIMIT -1 OFFSET ?
 			 )`,
-			maxAdminSessions,
+			maxSessionsPerUser,
 		); err != nil {
 			return false, fmt.Errorf("limit active authentication sessions: %w", err)
 		}
@@ -256,15 +251,17 @@ func (s *Store) SessionByTokenDigest(
 		sessionDigest []byte
 		csrfDigest    []byte
 		createdAt     int64
-		expiresAt     int64
+		userAgent     string
+		accessHost    string
 	)
 	err := s.database.QueryRowContext(
 		ctx,
-		`SELECT session_token_digest, csrf_token_digest, created_at_unix, expires_at_unix
+		`SELECT session_token_digest, csrf_token_digest, created_at_unix,
+			user_agent, access_host
 		 FROM modemdeck_auth_sessions
 		 WHERE session_token_digest = ?`,
 		digest[:],
-	).Scan(&sessionDigest, &csrfDigest, &createdAt, &expiresAt)
+	).Scan(&sessionDigest, &csrfDigest, &createdAt, &userAgent, &accessHost)
 	if errors.Is(err, sql.ErrNoRows) {
 		return auth.SessionRecord{}, false, nil
 	}
@@ -278,7 +275,8 @@ func (s *Store) SessionByTokenDigest(
 	copy(result.SessionTokenDigest[:], sessionDigest)
 	copy(result.CSRFTokenDigest[:], csrfDigest)
 	result.CreatedAt = time.Unix(createdAt, 0).UTC()
-	result.ExpiresAt = time.Unix(expiresAt, 0).UTC()
+	result.UserAgent = userAgent
+	result.AccessHost = accessHost
 	if err := validateAuthSession(result); err != nil {
 		return auth.SessionRecord{}, false, err
 	}
@@ -297,7 +295,7 @@ func (s *Store) DeleteSessionByTokenDigest(ctx context.Context, digest auth.Sess
 }
 
 func validateAuthSession(session auth.SessionRecord) error {
-	if session.CreatedAt.IsZero() || session.ExpiresAt.IsZero() || session.ExpiresAt.Before(session.CreatedAt) {
+	if session.CreatedAt.IsZero() {
 		return ErrInvalidAuthSession
 	}
 	return nil
@@ -365,9 +363,7 @@ func (s *Store) CreateUserSessionIfPasswordHash(
 	if expectedPasswordHash == "" || session.UserID == "" {
 		return false, fmt.Errorf("create user session: credentials are incomplete")
 	}
-	if session.CreatedAt.IsZero() ||
-		session.ExpiresAt.IsZero() ||
-		session.ExpiresAt.Before(session.CreatedAt) {
+	if session.CreatedAt.IsZero() {
 		return false, ErrInvalidAuthSession
 	}
 	transaction, err := s.database.BeginTx(ctx, nil)
@@ -375,26 +371,20 @@ func (s *Store) CreateUserSessionIfPasswordHash(
 		return false, fmt.Errorf("begin user session creation: %w", err)
 	}
 	defer transaction.Rollback()
-	if _, err := transaction.ExecContext(
-		ctx,
-		"DELETE FROM modemdeck_auth_sessions WHERE expires_at_unix <= ?",
-		session.CreatedAt.UTC().Unix(),
-	); err != nil {
-		return false, fmt.Errorf("delete expired authentication sessions: %w", err)
-	}
 	result, err := transaction.ExecContext(
 		ctx,
 		`INSERT INTO modemdeck_auth_sessions (
 			session_token_digest, csrf_token_digest, user_id,
-			created_at_unix, expires_at_unix
+			created_at_unix, user_agent, access_host
 		 )
-		 SELECT ?, ?, id, ?, ?
+		 SELECT ?, ?, id, ?, ?, ?
 		 FROM modemdeck_users
 		 WHERE id = ? AND enabled = 1 AND password_hash = ?`,
 		session.SessionTokenDigest[:],
 		session.CSRFTokenDigest[:],
 		session.CreatedAt.UTC().Unix(),
-		session.ExpiresAt.UTC().Unix(),
+		session.UserAgent,
+		session.AccessHost,
 		session.UserID,
 		expectedPasswordHash,
 	)
@@ -417,7 +407,7 @@ func (s *Store) CreateUserSessionIfPasswordHash(
 				LIMIT -1 OFFSET ?
 			 )`,
 			session.UserID,
-			maxAdminSessions,
+			maxSessionsPerUser,
 		); err != nil {
 			return false, fmt.Errorf("limit active user sessions: %w", err)
 		}
@@ -440,7 +430,8 @@ func (s *Store) UserSessionByTokenDigest(
 		role          string
 		iosPairing    int64
 		createdAt     int64
-		expiresAt     int64
+		userAgent     string
+		accessHost    string
 	)
 	err := s.database.QueryRowContext(
 		ctx,
@@ -449,7 +440,8 @@ func (s *Store) UserSessionByTokenDigest(
 			session.csrf_token_digest,
 			session.user_id,
 			session.created_at_unix,
-			session.expires_at_unix,
+			session.user_agent,
+			session.access_host,
 			user.username,
 			user.role,
 			user.ios_pairing_enabled,
@@ -466,7 +458,8 @@ func (s *Store) UserSessionByTokenDigest(
 		&csrfDigest,
 		&record.UserID,
 		&createdAt,
-		&expiresAt,
+		&userAgent,
+		&accessHost,
 		&principal.Username,
 		&role,
 		&iosPairing,
@@ -485,7 +478,8 @@ func (s *Store) UserSessionByTokenDigest(
 	copy(record.SessionTokenDigest[:], sessionDigest)
 	copy(record.CSRFTokenDigest[:], csrfDigest)
 	record.CreatedAt = time.Unix(createdAt, 0).UTC()
-	record.ExpiresAt = time.Unix(expiresAt, 0).UTC()
+	record.UserAgent = userAgent
+	record.AccessHost = accessHost
 	principal.UserID = record.UserID
 	principal.Role = auth.Role(role)
 	principal.IOSPairingEnabled = iosPairing != 0
@@ -513,6 +507,137 @@ func (s *Store) UserSessionByTokenDigest(
 		return auth.UserSessionRecord{}, auth.Principal{}, false, fmt.Errorf("iterate user line access: %w", err)
 	}
 	return record, principal, true, nil
+}
+
+func (s *Store) UserSessions(
+	ctx context.Context,
+	userID string,
+) ([]auth.UserSessionRecord, error) {
+	rows, err := s.database.QueryContext(
+		ctx,
+		`SELECT session_token_digest, csrf_token_digest, user_id,
+			created_at_unix, user_agent, access_host
+		 FROM modemdeck_auth_sessions
+		 WHERE user_id = ?
+		 ORDER BY created_at_unix DESC, rowid DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query user sessions: %w", err)
+	}
+	defer rows.Close()
+
+	sessions := make([]auth.UserSessionRecord, 0, maxSessionsPerUser)
+	for rows.Next() {
+		var (
+			record        auth.UserSessionRecord
+			sessionDigest []byte
+			csrfDigest    []byte
+			createdAt     int64
+		)
+		if err := rows.Scan(
+			&sessionDigest,
+			&csrfDigest,
+			&record.UserID,
+			&createdAt,
+			&record.UserAgent,
+			&record.AccessHost,
+		); err != nil {
+			return nil, fmt.Errorf("scan user session: %w", err)
+		}
+		if len(sessionDigest) != len(auth.SessionTokenDigest{}) ||
+			len(csrfDigest) != len(auth.CSRFTokenDigest{}) {
+			return nil, ErrInvalidAuthSession
+		}
+		copy(record.SessionTokenDigest[:], sessionDigest)
+		copy(record.CSRFTokenDigest[:], csrfDigest)
+		record.CreatedAt = time.Unix(createdAt, 0).UTC()
+		sessions = append(sessions, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate user sessions: %w", err)
+	}
+	return sessions, nil
+}
+
+func (s *Store) DeleteUserSession(
+	ctx context.Context,
+	userID string,
+	digest auth.SessionTokenDigest,
+) (bool, error) {
+	result, err := s.database.ExecContext(
+		ctx,
+		`DELETE FROM modemdeck_auth_sessions
+		 WHERE user_id = ? AND session_token_digest = ?`,
+		userID,
+		digest[:],
+	)
+	if err != nil {
+		return false, fmt.Errorf("delete user session: %w", err)
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("read deleted user session count: %w", err)
+	}
+	return deleted == 1, nil
+}
+
+func (s *Store) DeleteOtherUserSessions(
+	ctx context.Context,
+	userID string,
+	currentDigest auth.SessionTokenDigest,
+) ([]auth.SessionTokenDigest, error) {
+	transaction, err := s.database.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin other session deletion: %w", err)
+	}
+	defer transaction.Rollback()
+
+	rows, err := transaction.QueryContext(
+		ctx,
+		`SELECT session_token_digest
+		 FROM modemdeck_auth_sessions
+		 WHERE user_id = ? AND session_token_digest <> ?`,
+		userID,
+		currentDigest[:],
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query other user sessions: %w", err)
+	}
+	digests := make([]auth.SessionTokenDigest, 0, maxSessionsPerUser-1)
+	for rows.Next() {
+		var value []byte
+		if err := rows.Scan(&value); err != nil {
+			_ = rows.Close()
+			return nil, fmt.Errorf("scan other user session: %w", err)
+		}
+		if len(value) != len(auth.SessionTokenDigest{}) {
+			_ = rows.Close()
+			return nil, ErrInvalidAuthSession
+		}
+		var digest auth.SessionTokenDigest
+		copy(digest[:], value)
+		digests = append(digests, digest)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close other user sessions: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate other user sessions: %w", err)
+	}
+	if _, err := transaction.ExecContext(
+		ctx,
+		`DELETE FROM modemdeck_auth_sessions
+		 WHERE user_id = ? AND session_token_digest <> ?`,
+		userID,
+		currentDigest[:],
+	); err != nil {
+		return nil, fmt.Errorf("delete other user sessions: %w", err)
+	}
+	if err := transaction.Commit(); err != nil {
+		return nil, fmt.Errorf("commit other session deletion: %w", err)
+	}
+	return digests, nil
 }
 
 func (s *Store) ReplaceUserPasswordHashIfCurrentAndRevokeSessions(

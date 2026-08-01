@@ -72,6 +72,10 @@ func callLeaseHolderForSessionToken(token auth.SessionToken) string {
 	return callLeaseHolderForScope(scope)
 }
 
+func callLeaseHolderForSessionDigest(digest auth.SessionTokenDigest) string {
+	return callLeaseHolderForScope(callLeaseSessionScope(digest))
+}
+
 func callLeaseHolderForMobileCredential(
 	digest mobilepairing.TokenDigest,
 ) string {

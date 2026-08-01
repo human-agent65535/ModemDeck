@@ -1,5 +1,6 @@
 import type {
   ActiveCallSnapshot,
+  AccountSession,
   AboutInfo,
   BootstrapResponse,
   CallAction,
@@ -108,6 +109,9 @@ export interface SessionGateway {
   login(input: LoginInput): Promise<SessionResponse>
   changePassword(input: ChangePasswordInput): Promise<void>
   setAccountContact(contactID: string): Promise<void>
+  listAccountSessions(): Promise<AccountSession[]>
+  logoutAccountSession(id: string): Promise<void>
+  logoutOtherAccountSessions(): Promise<void>
   logout(): Promise<void>
 }
 

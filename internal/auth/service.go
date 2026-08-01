@@ -3,18 +3,24 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
+	"errors"
 	"io"
 	"strings"
 	"time"
 	"unicode/utf8"
 )
 
+var errSessionManagementUnavailable = errors.New("session management repository is unavailable")
+
 const (
-	SessionLifetime      = 24 * time.Hour
-	MinimumPasswordRunes = 8
-	MaximumPasswordBytes = 1024
-	MaximumUsernameRunes = 64
+	MinimumPasswordRunes   = 8
+	MaximumPasswordBytes   = 1024
+	MaximumUsernameRunes   = 64
+	maximumUserAgentBytes  = 512
+	maximumAccessHostBytes = 255
 )
 
 type AdminCredentials struct {
@@ -27,6 +33,44 @@ type AdminStatus struct {
 	Username   string
 }
 
+type SessionClient struct {
+	UserAgent  string
+	AccessHost string
+}
+
+type sessionClientContextKey struct{}
+
+func ContextWithSessionClient(ctx context.Context, client SessionClient) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	client.UserAgent = normalizedSessionClientValue(client.UserAgent, maximumUserAgentBytes)
+	client.AccessHost = normalizedSessionClientValue(client.AccessHost, maximumAccessHostBytes)
+	return context.WithValue(ctx, sessionClientContextKey{}, client)
+}
+
+func normalizedSessionClientValue(value string, maximumBytes int) string {
+	value = strings.TrimSpace(strings.Map(func(character rune) rune {
+		if character < 0x20 || character == 0x7f {
+			return -1
+		}
+		return character
+	}, value))
+	if len(value) <= maximumBytes {
+		return value
+	}
+	value = value[:maximumBytes]
+	for !utf8.ValidString(value) {
+		value = value[:len(value)-1]
+	}
+	return value
+}
+
+func sessionClientFromContext(ctx context.Context) SessionClient {
+	client, _ := ctx.Value(sessionClientContextKey{}).(SessionClient)
+	return client
+}
+
 // SessionRecord is the complete session representation exposed to the
 // persistence layer. It deliberately contains digests rather than either
 // plaintext token.
@@ -34,7 +78,8 @@ type SessionRecord struct {
 	SessionTokenDigest SessionTokenDigest
 	CSRFTokenDigest    CSRFTokenDigest
 	CreatedAt          time.Time
-	ExpiresAt          time.Time
+	UserAgent          string
+	AccessHost         string
 }
 
 // Repository owns persistence and transaction boundaries for the single admin.
@@ -75,15 +120,21 @@ type Repository interface {
 type LoginResult struct {
 	SessionToken SessionToken
 	CSRFToken    CSRFToken
-	ExpiresAt    time.Time
 	Principal    *Principal
+}
+
+type WebSession struct {
+	ID         string
+	CreatedAt  time.Time
+	UserAgent  string
+	AccessHost string
+	Current    bool
 }
 
 // Authentication is proof of a current session. The CSRF digest stays private;
 // callers validate a supplied token through VerifyCSRF.
 type Authentication struct {
 	CreatedAt     time.Time
-	ExpiresAt     time.Time
 	principal     Principal
 	csrfDigest    CSRFTokenDigest
 	authenticated bool
@@ -331,12 +382,13 @@ func (s *Service) Login(ctx context.Context, username, password string) (LoginRe
 	}
 
 	createdAt := s.now().UTC()
-	expiresAt := createdAt.Add(SessionLifetime)
+	client := sessionClientFromContext(ctx)
 	record := SessionRecord{
 		SessionTokenDigest: sessionDigest,
 		CSRFTokenDigest:    csrfDigest,
 		CreatedAt:          createdAt,
-		ExpiresAt:          expiresAt,
+		UserAgent:          client.UserAgent,
+		AccessHost:         client.AccessHost,
 	}
 	created, err := s.repository.CreateSessionIfPasswordHash(
 		ctx,
@@ -353,7 +405,6 @@ func (s *Service) Login(ctx context.Context, username, password string) (LoginRe
 	return LoginResult{
 		SessionToken: sessionToken,
 		CSRFToken:    csrfToken,
-		ExpiresAt:    expiresAt,
 	}, nil
 }
 
@@ -400,13 +451,14 @@ func (s *Service) loginUser(
 		return LoginResult{}, err
 	}
 	createdAt := s.now().UTC()
-	expiresAt := createdAt.Add(SessionLifetime)
+	client := sessionClientFromContext(ctx)
 	record := UserSessionRecord{
 		UserID:             credentials.ID,
 		SessionTokenDigest: sessionDigest,
 		CSRFTokenDigest:    csrfDigest,
 		CreatedAt:          createdAt,
-		ExpiresAt:          expiresAt,
+		UserAgent:          client.UserAgent,
+		AccessHost:         client.AccessHost,
 	}
 	created, err := repository.CreateUserSessionIfPasswordHash(
 		ctx,
@@ -429,7 +481,6 @@ func (s *Service) loginUser(
 	return LoginResult{
 		SessionToken: sessionToken,
 		CSRFToken:    csrfToken,
-		ExpiresAt:    expiresAt,
 		Principal:    &principal,
 	}, nil
 }
@@ -504,22 +555,12 @@ func (s *Service) Authenticate(ctx context.Context, token SessionToken) (Authent
 	}
 
 	createdAt := record.CreatedAt.UTC()
-	expiresAt := record.ExpiresAt.UTC()
-	if createdAt.IsZero() || expiresAt.IsZero() || expiresAt.Before(createdAt) {
+	if createdAt.IsZero() {
 		return Authentication{}, newError(op, CodeInvalidSessionRecord, nil)
-	}
-
-	absoluteExpiry := createdAt.Add(SessionLifetime)
-	if expiresAt.After(absoluteExpiry) {
-		expiresAt = absoluteExpiry
-	}
-	if !s.now().UTC().Before(expiresAt) {
-		return Authentication{}, newError(op, CodeSessionExpired, nil)
 	}
 
 	return Authentication{
 		CreatedAt:     createdAt,
-		ExpiresAt:     expiresAt,
 		csrfDigest:    record.CSRFTokenDigest,
 		authenticated: true,
 	}, nil
@@ -532,24 +573,13 @@ func (s *Service) authenticationFromUserSession(
 	const op = "authenticate"
 
 	createdAt := record.CreatedAt.UTC()
-	expiresAt := record.ExpiresAt.UTC()
 	if record.UserID == "" ||
 		principal.UserID != record.UserID ||
-		createdAt.IsZero() ||
-		expiresAt.IsZero() ||
-		expiresAt.Before(createdAt) {
+		createdAt.IsZero() {
 		return Authentication{}, newError(op, CodeInvalidSessionRecord, nil)
-	}
-	absoluteExpiry := createdAt.Add(SessionLifetime)
-	if expiresAt.After(absoluteExpiry) {
-		expiresAt = absoluteExpiry
-	}
-	if !s.now().UTC().Before(expiresAt) {
-		return Authentication{}, newError(op, CodeSessionExpired, nil)
 	}
 	return Authentication{
 		CreatedAt:     createdAt,
-		ExpiresAt:     expiresAt,
 		principal:     principal.Copy(),
 		csrfDigest:    record.CSRFTokenDigest,
 		authenticated: true,
@@ -567,4 +597,136 @@ func (s *Service) Logout(ctx context.Context, token SessionToken) error {
 		return repositoryError(op, err)
 	}
 	return nil
+}
+
+func (s *Service) WebSessions(
+	ctx context.Context,
+	currentToken SessionToken,
+) ([]WebSession, error) {
+	const op = "list web sessions"
+
+	repository, digest, current, err := s.currentUserSession(ctx, currentToken)
+	if err != nil {
+		return nil, err
+	}
+	records, err := repository.UserSessions(ctx, current.UserID)
+	if err != nil {
+		return nil, repositoryError(op, err)
+	}
+	result := make([]WebSession, 0, len(records))
+	for _, record := range records {
+		result = append(result, WebSession{
+			ID:         webSessionID(record.SessionTokenDigest),
+			CreatedAt:  record.CreatedAt.UTC(),
+			UserAgent:  record.UserAgent,
+			AccessHost: record.AccessHost,
+			Current:    record.SessionTokenDigest == digest,
+		})
+	}
+	return result, nil
+}
+
+func (s *Service) RevokeWebSession(
+	ctx context.Context,
+	currentToken SessionToken,
+	sessionID string,
+) (SessionTokenDigest, error) {
+	const op = "revoke web session"
+
+	repository, currentDigest, current, err := s.currentUserSession(ctx, currentToken)
+	if err != nil {
+		return SessionTokenDigest{}, err
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return SessionTokenDigest{}, newError(op, CodeSessionNotFound, nil)
+	}
+	records, err := repository.UserSessions(ctx, current.UserID)
+	if err != nil {
+		return SessionTokenDigest{}, repositoryError(op, err)
+	}
+	for _, record := range records {
+		if webSessionID(record.SessionTokenDigest) != sessionID {
+			continue
+		}
+		if record.SessionTokenDigest == currentDigest {
+			return SessionTokenDigest{}, newError(op, CodeCurrentSession, nil)
+		}
+		deleted, err := repository.DeleteUserSession(
+			ctx,
+			current.UserID,
+			record.SessionTokenDigest,
+		)
+		if err != nil {
+			return SessionTokenDigest{}, repositoryError(op, err)
+		}
+		if !deleted {
+			return SessionTokenDigest{}, newError(op, CodeSessionNotFound, nil)
+		}
+		return record.SessionTokenDigest, nil
+	}
+	return SessionTokenDigest{}, newError(op, CodeSessionNotFound, nil)
+}
+
+func (s *Service) RevokeOtherWebSessions(
+	ctx context.Context,
+	currentToken SessionToken,
+) ([]SessionTokenDigest, error) {
+	const op = "revoke other web sessions"
+
+	repository, currentDigest, current, err := s.currentUserSession(ctx, currentToken)
+	if err != nil {
+		return nil, err
+	}
+	digests, err := repository.DeleteOtherUserSessions(
+		ctx,
+		current.UserID,
+		currentDigest,
+	)
+	if err != nil {
+		return nil, repositoryError(op, err)
+	}
+	return digests, nil
+}
+
+func (s *Service) currentUserSession(
+	ctx context.Context,
+	token SessionToken,
+) (SessionManagementRepository, SessionTokenDigest, UserSessionRecord, error) {
+	const op = "read current web session"
+
+	repository, ok := s.repository.(SessionManagementRepository)
+	if !ok {
+		return nil, SessionTokenDigest{}, UserSessionRecord{}, repositoryError(
+			op,
+			errSessionManagementUnavailable,
+		)
+	}
+	digest, err := sessionTokenDigest(token)
+	if err != nil {
+		return nil, SessionTokenDigest{}, UserSessionRecord{}, newError(
+			op,
+			CodeInvalidSessionToken,
+			nil,
+		)
+	}
+	record, _, found, err := repository.UserSessionByTokenDigest(ctx, digest)
+	if err != nil {
+		return nil, SessionTokenDigest{}, UserSessionRecord{}, repositoryError(op, err)
+	}
+	if !found {
+		return nil, SessionTokenDigest{}, UserSessionRecord{}, newError(
+			op,
+			CodeUnauthenticated,
+			nil,
+		)
+	}
+	return repository, digest, record, nil
+}
+
+func webSessionID(digest SessionTokenDigest) string {
+	hash := sha256.New()
+	_, _ = hash.Write([]byte("modemdeck-web-session-id\x00"))
+	_, _ = hash.Write(digest[:])
+	return base64.RawURLEncoding.EncodeToString(hash.Sum(nil)[:16])
 }

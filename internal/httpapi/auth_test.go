@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
+	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
@@ -94,6 +95,13 @@ type apiTestAuthenticator struct {
 	currentPassword   string
 	newPassword       string
 	authenticateError error
+	webSessions       []auth.WebSession
+	webSessionsError  error
+	revokedSessionID  string
+	revokedDigest     auth.SessionTokenDigest
+	revokeSessionErr  error
+	revokedOthers     []auth.SessionTokenDigest
+	revokeOthersErr   error
 }
 
 func (authenticator *apiTestAuthenticator) Status(ctx context.Context) (auth.AdminStatus, error) {
@@ -143,6 +151,29 @@ func (authenticator *apiTestAuthenticator) Logout(ctx context.Context, token aut
 		return authenticator.logoutError
 	}
 	return authenticator.service.Logout(ctx, token)
+}
+
+func (authenticator *apiTestAuthenticator) WebSessions(
+	context.Context,
+	auth.SessionToken,
+) ([]auth.WebSession, error) {
+	return append([]auth.WebSession(nil), authenticator.webSessions...), authenticator.webSessionsError
+}
+
+func (authenticator *apiTestAuthenticator) RevokeWebSession(
+	_ context.Context,
+	_ auth.SessionToken,
+	sessionID string,
+) (auth.SessionTokenDigest, error) {
+	authenticator.revokedSessionID = sessionID
+	return authenticator.revokedDigest, authenticator.revokeSessionErr
+}
+
+func (authenticator *apiTestAuthenticator) RevokeOtherWebSessions(
+	context.Context,
+	auth.SessionToken,
+) ([]auth.SessionTokenDigest, error) {
+	return append([]auth.SessionTokenDigest(nil), authenticator.revokedOthers...), authenticator.revokeOthersErr
 }
 
 func TestNewRequiresAuthenticator(t *testing.T) {
@@ -198,6 +229,132 @@ func TestSessionAndProtectedAPI(t *testing.T) {
 	api.ServeHTTP(bootstrap, authorizedAPIRequest(http.MethodGet, "/api/v1/bootstrap", nil, sessionToken, ""))
 	if bootstrap.Code != http.StatusOK {
 		t.Fatalf("bootstrap status = %d; body = %s", bootstrap.Code, bootstrap.Body.String())
+	}
+}
+
+func TestAccountSessionsListAndRevocation(t *testing.T) {
+	t.Parallel()
+
+	authenticator, sessionToken, csrfToken := newAPIUserAuthenticator(t)
+	now := time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC)
+	authenticator.webSessions = []auth.WebSession{
+		{
+			ID:         "current-session",
+			CreatedAt:  now,
+			UserAgent:  "Current Browser",
+			AccessHost: "192.168.50.111:7577",
+			Current:    true,
+		},
+		{
+			ID:         "other-session",
+			CreatedAt:  now.Add(-time.Hour),
+			UserAgent:  "Other Browser",
+			AccessHost: "call.example.test",
+		},
+	}
+	authenticator.revokedDigest = auth.SessionTokenDigest{9}
+	authenticator.revokedOthers = []auth.SessionTokenDigest{{8}}
+	repository := &fakeRepository{
+		iosPairingStatus: store.IOSPairingStatus{
+			Allowed:             true,
+			HasCredential:       true,
+			CredentialCreatedAt: now.Add(-24 * time.Hour).Format(time.RFC3339),
+			Paired:              true,
+			PairedAt:            now.Add(-23 * time.Hour).Format(time.RFC3339),
+		},
+		iosRevokedDigest: mobilepairing.TokenDigest{7},
+	}
+	api, err := New(repository, Options{Authenticator: authenticator})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	list := httptest.NewRecorder()
+	api.ServeHTTP(
+		list,
+		authorizedAPIRequest(
+			http.MethodGet,
+			"/api/v1/account/sessions",
+			nil,
+			sessionToken,
+			csrfToken,
+		),
+	)
+	if list.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", list.Code, list.Body.String())
+	}
+	var listed accountSessionsResponse
+	if err := json.Unmarshal(list.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Sessions) != 3 ||
+		!listed.Sessions[0].Current ||
+		listed.Sessions[1].ID != "other-session" ||
+		listed.Sessions[2].ID != iosPairingDeviceID ||
+		!listed.Sessions[2].Paired {
+		t.Fatalf("listed sessions = %+v", listed.Sessions)
+	}
+
+	revoke := httptest.NewRecorder()
+	api.ServeHTTP(
+		revoke,
+		authorizedAPIRequest(
+			http.MethodDelete,
+			"/api/v1/account/sessions/other-session",
+			nil,
+			sessionToken,
+			csrfToken,
+		),
+	)
+	if revoke.Code != http.StatusNoContent ||
+		authenticator.revokedSessionID != "other-session" {
+		t.Fatalf(
+			"revoke = status %d, session %q, body %s",
+			revoke.Code,
+			authenticator.revokedSessionID,
+			revoke.Body.String(),
+		)
+	}
+
+	revokeIOS := httptest.NewRecorder()
+	api.ServeHTTP(
+		revokeIOS,
+		authorizedAPIRequest(
+			http.MethodDelete,
+			"/api/v1/account/sessions/ios-pairing",
+			nil,
+			sessionToken,
+			csrfToken,
+		),
+	)
+	if revokeIOS.Code != http.StatusNoContent ||
+		repository.iosRevokedUserID != "user-1" {
+		t.Fatalf(
+			"revoke iOS = status %d, user %q, body %s",
+			revokeIOS.Code,
+			repository.iosRevokedUserID,
+			revokeIOS.Body.String(),
+		)
+	}
+
+	repository.iosPairingStatus.HasCredential = true
+	revokeOthers := httptest.NewRecorder()
+	api.ServeHTTP(
+		revokeOthers,
+		authorizedAPIRequest(
+			http.MethodDelete,
+			"/api/v1/account/sessions/others",
+			nil,
+			sessionToken,
+			csrfToken,
+		),
+	)
+	if revokeOthers.Code != http.StatusNoContent {
+		t.Fatalf(
+			"revoke others status = %d, body = %s",
+			revokeOthers.Code,
+			revokeOthers.Body.String(),
+		)
 	}
 }
 
@@ -264,7 +421,6 @@ func TestLoginAndLogoutCookies(t *testing.T) {
 	authenticator.loginResult = auth.LoginResult{
 		SessionToken: auth.SessionToken(sessionToken),
 		CSRFToken:    auth.CSRFToken(csrfToken),
-		ExpiresAt:    time.Now().UTC().Add(auth.SessionLifetime),
 		Principal: &auth.Principal{
 			UserID:         "user_member",
 			Username:       "owner",
@@ -369,7 +525,6 @@ func TestLoginFailureRateLimitReturnsRetryAfterAndClearsOnSuccess(t *testing.T) 
 	authenticator.loginResult = auth.LoginResult{
 		SessionToken: auth.SessionToken(opaqueTestToken(21)),
 		CSRFToken:    auth.CSRFToken(opaqueTestToken(22)),
-		ExpiresAt:    time.Now().UTC().Add(auth.SessionLifetime),
 	}
 	api, err := New(&fakeRepository{}, Options{Authenticator: authenticator})
 	if err != nil {
@@ -439,7 +594,6 @@ func TestQuickStartCreatesAdministratorAndSession(t *testing.T) {
 		loginResult: auth.LoginResult{
 			SessionToken: auth.SessionToken(opaqueTestToken(11)),
 			CSRFToken:    auth.CSRFToken(opaqueTestToken(12)),
-			ExpiresAt:    time.Now().UTC().Add(auth.SessionLifetime),
 		},
 	}
 	api, err := New(&fakeRepository{}, Options{Authenticator: authenticator})
@@ -689,8 +843,43 @@ func newAPIAuthenticator(t *testing.T) (*apiTestAuthenticator, string, string) {
 			SessionTokenDigest: auth.SessionTokenDigest(sessionHash),
 			CSRFTokenDigest:    auth.CSRFTokenDigest(csrfHash),
 			CreatedAt:          now.Add(-time.Minute),
-			ExpiresAt:          now.Add(time.Hour),
 		},
+	}
+	service, err := auth.NewService(repository)
+	if err != nil {
+		t.Fatalf("auth.NewService() error = %v", err)
+	}
+	return &apiTestAuthenticator{service: service}, sessionToken, csrfToken
+}
+
+func newAPIUserAuthenticator(t *testing.T) (*apiTestAuthenticator, string, string) {
+	t.Helper()
+
+	sessionToken := opaqueTestToken(11)
+	csrfToken := opaqueTestToken(12)
+	sessionHash := sha256.Sum256([]byte(sessionToken))
+	csrfHash := sha256.Sum256([]byte(csrfToken))
+	repository := &streamAuthRepository{
+		apiAuthRepository: &apiAuthRepository{
+			configured: true,
+			credentials: auth.AdminCredentials{
+				Username:     "admin",
+				PasswordHash: "test-password-hash",
+			},
+			found: true,
+			session: auth.SessionRecord{
+				SessionTokenDigest: auth.SessionTokenDigest(sessionHash),
+				CSRFTokenDigest:    auth.CSRFTokenDigest(csrfHash),
+				CreatedAt:          time.Now().UTC().Add(-time.Minute),
+			},
+		},
+		principal: auth.Principal{
+			UserID:            "user-1",
+			Username:          "member",
+			Role:              auth.RoleMember,
+			IOSPairingEnabled: true,
+		},
+		found: true,
 	}
 	service, err := auth.NewService(repository)
 	if err != nil {

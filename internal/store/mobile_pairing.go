@@ -238,14 +238,40 @@ func (s *Store) RevokeIOSPairingCredential(
 	ctx context.Context,
 	userID string,
 ) error {
-	if _, err := s.database.ExecContext(
+	_, _, err := s.RevokeIOSPairingCredentialWithDigest(ctx, userID)
+	return err
+}
+
+func (s *Store) RevokeIOSPairingCredentialWithDigest(
+	ctx context.Context,
+	userID string,
+) (mobilepairing.TokenDigest, bool, error) {
+	var value []byte
+	err := s.database.QueryRowContext(
 		ctx,
-		"DELETE FROM modemdeck_ios_pairing_credentials WHERE user_id = ?",
+		`DELETE FROM modemdeck_ios_pairing_credentials
+		 WHERE user_id = ?
+		 RETURNING token_digest`,
 		userID,
-	); err != nil {
-		return fmt.Errorf("revoke iOS pairing credential: %w", err)
+	).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return mobilepairing.TokenDigest{}, false, nil
 	}
-	return nil
+	if err != nil {
+		return mobilepairing.TokenDigest{}, false, fmt.Errorf(
+			"revoke iOS pairing credential: %w",
+			err,
+		)
+	}
+	if len(value) != len(mobilepairing.TokenDigest{}) {
+		return mobilepairing.TokenDigest{}, false, fmt.Errorf(
+			"revoke iOS pairing credential: invalid digest length %d",
+			len(value),
+		)
+	}
+	var digest mobilepairing.TokenDigest
+	copy(digest[:], value)
+	return digest, true, nil
 }
 
 func iosPairingTimestamp(value string) string {

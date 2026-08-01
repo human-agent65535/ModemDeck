@@ -61,12 +61,43 @@ test('account settings validate password replacement and end the current session
   assert.match(component, /query: \{ passwordChanged: '1' \}/)
   assert.doesNotMatch(account, /<AccountSecurityForm \/>/)
   assert.match(security, /<AccountSecurityForm \/>/)
+  assert.ok(
+    security.indexOf('<AccountSecurityForm />') <
+      security.indexOf('<AccountSessionsPanel')
+  )
   assert.doesNotMatch(system, /<AccountSecurityForm \/>/)
   assert.match(settings, /id: 'security'/)
   assert.match(settings, /selectedSection === 'security'/)
   assert.match(system, /<SelectControl/)
   assert.doesNotMatch(system, /<select/)
   assert.match(login, /t\('auth\.passwordChanged'\)/)
+})
+
+test('signed-in devices support one-device and all-other-device logout', async () => {
+  const [client, gateway, panel, security] = await Promise.all([
+    source('../src/api/client.ts'),
+    source('../src/api/gateway.ts'),
+    source('../src/components/AccountSessionsPanel.vue'),
+    source('../src/components/SecuritySettingsPanel.vue')
+  ])
+
+  assert.match(gateway, /listAccountSessions\(\): Promise<AccountSession\[\]>/)
+  assert.match(gateway, /logoutAccountSession\(id: string\): Promise<void>/)
+  assert.match(gateway, /logoutOtherAccountSessions\(\): Promise<void>/)
+  assert.match(client, /get\(`\$\{API_ROOT\}\/account\/sessions`\)/)
+  assert.match(
+    client,
+    /`\$\{API_ROOT\}\/account\/sessions\/\$\{encodeURIComponent\(id\)\}`[\s\S]*?method: 'DELETE'/
+  )
+  assert.match(
+    client,
+    /`\$\{API_ROOT\}\/account\/sessions\/others`[\s\S]*?method: 'DELETE'/
+  )
+  assert.match(panel, /v-if="session\.current"/)
+  assert.match(panel, /@click="emit\('revoke', session\.id\)"/)
+  assert.match(panel, /@click="emit\('revokeOthers'\)"/)
+  assert.match(security, /sessions\.value = sessions\.value\.filter\(session => session\.id !== id\)/)
+  assert.match(security, /sessions\.value = sessions\.value\.filter\(session => session\.current\)/)
 })
 
 test('first web visit exposes Quick Start and creates the administrator', async () => {
@@ -102,4 +133,6 @@ test('normal sign-in and account identity copy is role-neutral', async () => {
   }
   assert.match(settings, /sessionState\.username \|\| t\('settings\.account'\)/)
   assert.doesNotMatch(settings, /sessionState\.username \|\| t\('settings\.administrator'\)/)
+  assert.equal(enUS.settings.account, 'Security')
+  assert.equal(zhCN.settings.account, '安全')
 })

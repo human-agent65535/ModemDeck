@@ -20,8 +20,9 @@ const (
 	CodeInvalidCredentials       ErrorCode = "invalid_credentials"
 	CodeInvalidSessionToken      ErrorCode = "invalid_session_token"
 	CodeUnauthenticated          ErrorCode = "unauthenticated"
-	CodeSessionExpired           ErrorCode = "session_expired"
 	CodeInvalidSessionRecord     ErrorCode = "invalid_session_record"
+	CodeSessionNotFound          ErrorCode = "session_not_found"
+	CodeCurrentSession           ErrorCode = "current_session"
 	CodeInvalidCSRFToken         ErrorCode = "invalid_csrf_token"
 	CodeRandomSource             ErrorCode = "random_source"
 	CodeRepository               ErrorCode = "repository"
@@ -76,8 +77,9 @@ var (
 	ErrInvalidCredentials       = &Error{Code: CodeInvalidCredentials}
 	ErrInvalidSessionToken      = &Error{Code: CodeInvalidSessionToken}
 	ErrUnauthenticated          = &Error{Code: CodeUnauthenticated}
-	ErrSessionExpired           = &Error{Code: CodeSessionExpired}
 	ErrInvalidSessionRecord     = &Error{Code: CodeInvalidSessionRecord}
+	ErrSessionNotFound          = &Error{Code: CodeSessionNotFound}
+	ErrCurrentSession           = &Error{Code: CodeCurrentSession}
 	ErrInvalidCSRFToken         = &Error{Code: CodeInvalidCSRFToken}
 	ErrRandomSource             = &Error{Code: CodeRandomSource}
 	ErrRepository               = &Error{Code: CodeRepository}

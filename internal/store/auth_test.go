@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -42,7 +43,8 @@ func TestAuthStorePasswordAndSessionLifecycle(t *testing.T) {
 		SessionTokenDigest: auth.SessionTokenDigest{1, 2, 3},
 		CSRFTokenDigest:    auth.CSRFTokenDigest{4, 5, 6},
 		CreatedAt:          createdAt,
-		ExpiresAt:          createdAt.Add(auth.SessionLifetime),
+		UserAgent:          "Test Browser",
+		AccessHost:         "call.example.test",
 	}
 	created, err = repository.CreateSessionIfPasswordHash(ctx, "wrong-hash", session)
 	if err != nil || created {
@@ -56,7 +58,10 @@ func TestAuthStorePasswordAndSessionLifecycle(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("SessionByTokenDigest() = %+v, %v, %v", stored, found, err)
 	}
-	if stored.CSRFTokenDigest != session.CSRFTokenDigest || !stored.CreatedAt.Equal(session.CreatedAt) || !stored.ExpiresAt.Equal(session.ExpiresAt) {
+	if stored.CSRFTokenDigest != session.CSRFTokenDigest ||
+		!stored.CreatedAt.Equal(session.CreatedAt) ||
+		stored.UserAgent != session.UserAgent ||
+		stored.AccessHost != session.AccessHost {
 		t.Fatalf("stored session = %+v, want %+v", stored, session)
 	}
 
@@ -95,7 +100,7 @@ func TestAuthStoreRejectsInvalidSession(t *testing.T) {
 	}
 }
 
-func TestAuthStoreBoundsAndExpiresSessions(t *testing.T) {
+func TestAuthStoreRotatesSessions(t *testing.T) {
 	t.Parallel()
 
 	repository, database := newContactTestStore(t)
@@ -108,7 +113,7 @@ func TestAuthStoreBoundsAndExpiresSessions(t *testing.T) {
 	}
 	base := time.Date(2026, 7, 23, 2, 0, 0, 0, time.UTC)
 	var first auth.SessionTokenDigest
-	for index := 0; index < maxAdminSessions+3; index++ {
+	for index := 0; index < maxSessionsPerUser+3; index++ {
 		digest := auth.SessionTokenDigest{byte(index + 1)}
 		if index == 0 {
 			first = digest
@@ -117,7 +122,6 @@ func TestAuthStoreBoundsAndExpiresSessions(t *testing.T) {
 			SessionTokenDigest: digest,
 			CSRFTokenDigest:    auth.CSRFTokenDigest{byte(index + 101)},
 			CreatedAt:          base.Add(time.Duration(index) * time.Second),
-			ExpiresAt:          base.Add(auth.SessionLifetime),
 		}
 		created, err := repository.CreateSessionIfPasswordHash(ctx, "hash", record)
 		if err != nil || !created {
@@ -128,26 +132,153 @@ func TestAuthStoreBoundsAndExpiresSessions(t *testing.T) {
 	if err := database.QueryRowContext(ctx, "SELECT COUNT(*) FROM modemdeck_auth_sessions").Scan(&count); err != nil {
 		t.Fatalf("count sessions: %v", err)
 	}
-	if count != maxAdminSessions {
-		t.Fatalf("session count = %d, want %d", count, maxAdminSessions)
+	if count != maxSessionsPerUser {
+		t.Fatalf("session count = %d, want %d", count, maxSessionsPerUser)
 	}
 	if _, found, err := repository.SessionByTokenDigest(ctx, first); err != nil || found {
 		t.Fatalf("oldest session found = %v, err = %v", found, err)
 	}
+}
 
-	latest := auth.SessionRecord{
-		SessionTokenDigest: auth.SessionTokenDigest{250},
-		CSRFTokenDigest:    auth.CSRFTokenDigest{251},
-		CreatedAt:          base.Add(auth.SessionLifetime + time.Second),
-		ExpiresAt:          base.Add(2 * auth.SessionLifetime),
+func TestAuthStoreRotatesUserSessionsPerUser(t *testing.T) {
+	t.Parallel()
+
+	repository, database := newContactTestStore(t)
+	ctx := context.Background()
+	if created, err := repository.CreateAdminIfAbsent(ctx, auth.AdminCredentials{
+		Username:     "admin",
+		PasswordHash: "admin-hash",
+	}); err != nil || !created {
+		t.Fatalf("configure administrator = %v, %v", created, err)
 	}
-	if created, err := repository.CreateSessionIfPasswordHash(ctx, "hash", latest); err != nil || !created {
-		t.Fatalf("create post-expiry session = %v, %v", created, err)
+
+	type userLogin struct {
+		id           string
+		passwordHash string
+		digestPrefix byte
 	}
-	if err := database.QueryRowContext(ctx, "SELECT COUNT(*) FROM modemdeck_auth_sessions").Scan(&count); err != nil {
-		t.Fatalf("count sessions after expiry: %v", err)
+	users := make([]userLogin, 0, 2)
+	for index, username := range []string{"member-a", "member-b"} {
+		passwordHash := username + "-hash"
+		member, err := repository.CreateMember(ctx, CreateMemberInput{
+			Username:     username,
+			PasswordHash: passwordHash,
+		})
+		if err != nil {
+			t.Fatalf("CreateMember(%q) error = %v", username, err)
+		}
+		users = append(users, userLogin{
+			id:           member.ID,
+			passwordHash: passwordHash,
+			digestPrefix: byte(index + 1),
+		})
 	}
-	if count != 1 {
-		t.Fatalf("session count after expiry = %d, want 1", count)
+
+	base := time.Date(2026, 7, 23, 2, 0, 0, 0, time.UTC)
+	for _, user := range users {
+		var oldest auth.SessionTokenDigest
+		for index := 0; index < maxSessionsPerUser+2; index++ {
+			digest := auth.SessionTokenDigest{user.digestPrefix, byte(index + 1)}
+			if index == 0 {
+				oldest = digest
+			}
+			record := auth.UserSessionRecord{
+				UserID:             user.id,
+				SessionTokenDigest: digest,
+				CSRFTokenDigest:    auth.CSRFTokenDigest{user.digestPrefix, byte(index + 101)},
+				CreatedAt:          base.Add(time.Duration(index) * time.Second),
+			}
+			created, err := repository.CreateUserSessionIfPasswordHash(
+				ctx,
+				user.passwordHash,
+				record,
+			)
+			if err != nil || !created {
+				t.Fatalf("create %s session %d = %v, %v", user.id, index, created, err)
+			}
+		}
+
+		var count int
+		if err := database.QueryRowContext(
+			ctx,
+			"SELECT COUNT(*) FROM modemdeck_auth_sessions WHERE user_id = ?",
+			user.id,
+		).Scan(&count); err != nil {
+			t.Fatalf("count %s sessions: %v", user.id, err)
+		}
+		if count != maxSessionsPerUser {
+			t.Fatalf("%s session count = %d, want %d", user.id, count, maxSessionsPerUser)
+		}
+		if _, _, found, err := repository.UserSessionByTokenDigest(
+			ctx,
+			oldest,
+		); err != nil || found {
+			t.Fatalf("%s oldest session found = %v, err = %v", user.id, found, err)
+		}
+	}
+}
+
+func TestAuthStoreRevokesSelectedAndOtherUserSessions(t *testing.T) {
+	t.Parallel()
+
+	repository, _ := newContactTestStore(t)
+	ctx := context.Background()
+	if created, err := repository.CreateAdminIfAbsent(ctx, auth.AdminCredentials{
+		Username:     "admin",
+		PasswordHash: "admin-hash",
+	}); err != nil || !created {
+		t.Fatalf("configure administrator = %v, %v", created, err)
+	}
+	member, err := repository.CreateMember(ctx, CreateMemberInput{
+		Username:     "member",
+		PasswordHash: "member-hash",
+	})
+	if err != nil {
+		t.Fatalf("CreateMember() error = %v", err)
+	}
+	createdAt := time.Date(2026, 8, 2, 4, 0, 0, 0, time.UTC)
+	digests := []auth.SessionTokenDigest{{1}, {2}, {3}}
+	for index, digest := range digests {
+		created, err := repository.CreateUserSessionIfPasswordHash(
+			ctx,
+			"member-hash",
+			auth.UserSessionRecord{
+				UserID:             member.ID,
+				SessionTokenDigest: digest,
+				CSRFTokenDigest:    auth.CSRFTokenDigest{byte(index + 11)},
+				CreatedAt:          createdAt.Add(time.Duration(index) * time.Minute),
+				UserAgent:          fmt.Sprintf("Browser %d", index+1),
+				AccessHost:         fmt.Sprintf("host-%d.example", index+1),
+			},
+		)
+		if err != nil || !created {
+			t.Fatalf("create session %d = %v, %v", index, created, err)
+		}
+	}
+
+	sessions, err := repository.UserSessions(ctx, member.ID)
+	if err != nil {
+		t.Fatalf("UserSessions() error = %v", err)
+	}
+	if len(sessions) != 3 ||
+		sessions[0].SessionTokenDigest != digests[2] ||
+		sessions[0].UserAgent != "Browser 3" ||
+		sessions[0].AccessHost != "host-3.example" {
+		t.Fatalf("UserSessions() = %+v", sessions)
+	}
+	deleted, err := repository.DeleteUserSession(ctx, member.ID, digests[1])
+	if err != nil || !deleted {
+		t.Fatalf("DeleteUserSession() = %v, %v", deleted, err)
+	}
+	revoked, err := repository.DeleteOtherUserSessions(ctx, member.ID, digests[2])
+	if err != nil {
+		t.Fatalf("DeleteOtherUserSessions() error = %v", err)
+	}
+	if len(revoked) != 1 || revoked[0] != digests[0] {
+		t.Fatalf("revoked digests = %x, want %x", revoked, digests[0])
+	}
+	sessions, err = repository.UserSessions(ctx, member.ID)
+	if err != nil || len(sessions) != 1 || sessions[0].SessionTokenDigest != digests[2] {
+		t.Fatalf("remaining sessions = %+v, %v", sessions, err)
 	}
 }

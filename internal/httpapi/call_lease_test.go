@@ -265,7 +265,6 @@ func TestCallLeaseHolderIsBoundToAuthenticatedSession(t *testing.T) {
 			SessionTokenDigest: auth.SessionTokenDigest(sessionDigest),
 			CSRFTokenDigest:    auth.CSRFTokenDigest(csrfDigest),
 			CreatedAt:          now.Add(-time.Minute),
-			ExpiresAt:          now.Add(time.Hour),
 		},
 	}
 	service, err := auth.NewService(repository)

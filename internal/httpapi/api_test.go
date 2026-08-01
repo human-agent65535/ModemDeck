@@ -80,8 +80,35 @@ type fakeRepository struct {
 	mobileError           error
 	mobileConfirmedDigest mobilepairing.TokenDigest
 	mobileConfirmError    error
+	iosPairingStatus      store.IOSPairingStatus
+	iosPairingStatusError error
+	iosRevokedUserID      string
+	iosRevokedDigest      mobilepairing.TokenDigest
+	iosRevokeError        error
 	callLineID            string
 	callLineError         error
+}
+
+func (repository *fakeRepository) IOSPairingStatus(
+	context.Context,
+	string,
+) (store.IOSPairingStatus, error) {
+	return repository.iosPairingStatus, repository.iosPairingStatusError
+}
+
+func (repository *fakeRepository) RevokeIOSPairingCredentialWithDigest(
+	_ context.Context,
+	userID string,
+) (mobilepairing.TokenDigest, bool, error) {
+	if repository.iosRevokeError != nil {
+		return mobilepairing.TokenDigest{}, false, repository.iosRevokeError
+	}
+	if !repository.iosPairingStatus.HasCredential {
+		return mobilepairing.TokenDigest{}, false, nil
+	}
+	repository.iosRevokedUserID = userID
+	repository.iosPairingStatus.HasCredential = false
+	return repository.iosRevokedDigest, true, nil
 }
 
 func (repository *fakeRepository) IOSPairingPrincipalByTokenDigest(

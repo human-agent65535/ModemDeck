@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -234,6 +235,10 @@ func TestLoginCreatesIndependentTokensAndDigestOnlyRecord(t *testing.T) {
 		bytes.Repeat([]byte{0x62}, TokenBytes)...,
 	))
 
+	ctx = ContextWithSessionClient(ctx, SessionClient{
+		UserAgent:  " Test Browser\n ",
+		AccessHost: " call.example.test ",
+	})
 	result, err := service.Login(ctx, "admin", "password")
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
@@ -249,10 +254,6 @@ func TestLoginCreatesIndependentTokensAndDigestOnlyRecord(t *testing.T) {
 	}
 
 	wantCreatedAt := now.UTC()
-	wantExpiresAt := wantCreatedAt.Add(SessionLifetime)
-	if !result.ExpiresAt.Equal(wantExpiresAt) {
-		t.Fatalf("ExpiresAt = %s, want %s", result.ExpiresAt, wantExpiresAt)
-	}
 	if repository.createCalls != 1 {
 		t.Fatalf("create calls = %d, want 1", repository.createCalls)
 	}
@@ -272,8 +273,11 @@ func TestLoginCreatesIndependentTokensAndDigestOnlyRecord(t *testing.T) {
 	if record.CSRFTokenDigest != wantCSRFDigest {
 		t.Fatalf("stored CSRF digest = %x, want %x", record.CSRFTokenDigest, wantCSRFDigest)
 	}
-	if !record.CreatedAt.Equal(wantCreatedAt) || !record.ExpiresAt.Equal(wantExpiresAt) {
-		t.Fatalf("stored times = %s..%s, want %s..%s", record.CreatedAt, record.ExpiresAt, wantCreatedAt, wantExpiresAt)
+	if !record.CreatedAt.Equal(wantCreatedAt) {
+		t.Fatalf("stored creation = %s, want %s", record.CreatedAt, wantCreatedAt)
+	}
+	if record.UserAgent != "Test Browser" || record.AccessHost != "call.example.test" {
+		t.Fatalf("stored client = %#v", record)
 	}
 }
 
@@ -281,7 +285,7 @@ func TestSessionRecordCannotCarryPlaintextTokens(t *testing.T) {
 	recordType := reflect.TypeFor[SessionRecord]()
 	for index := range recordType.NumField() {
 		field := recordType.Field(index)
-		if field.Type.Kind() == reflect.String {
+		if strings.Contains(field.Name, "Token") && field.Type.Kind() == reflect.String {
 			t.Fatalf("SessionRecord field %s has string type and could persist a plaintext token", field.Name)
 		}
 	}
@@ -438,7 +442,6 @@ func TestAuthenticateAndVerifyCSRF(t *testing.T) {
 		SessionTokenDigest: sessionDigest,
 		CSRFTokenDigest:    csrfDigest,
 		CreatedAt:          createdAt,
-		ExpiresAt:          createdAt.Add(SessionLifetime),
 	}
 	service := mustService(t, repository)
 	service.now = func() time.Time { return createdAt.Add(2 * time.Hour) }
@@ -452,9 +455,6 @@ func TestAuthenticateAndVerifyCSRF(t *testing.T) {
 	}
 	if !authentication.CreatedAt.Equal(createdAt) {
 		t.Fatalf("CreatedAt = %s, want %s", authentication.CreatedAt, createdAt)
-	}
-	if !authentication.ExpiresAt.Equal(createdAt.Add(SessionLifetime)) {
-		t.Fatalf("ExpiresAt = %s, want %s", authentication.ExpiresAt, createdAt.Add(SessionLifetime))
 	}
 	if err := authentication.VerifyCSRF(csrfToken); err != nil {
 		t.Fatalf("VerifyCSRF(correct) error = %v", err)
@@ -472,97 +472,34 @@ func TestAuthenticateAndVerifyCSRF(t *testing.T) {
 	}
 }
 
-func TestAuthenticateEnforcesAbsoluteExpiry(t *testing.T) {
+func TestAuthenticateHasNoTimeExpiry(t *testing.T) {
 	ctx := context.Background()
 	createdAt := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
 	sessionToken, sessionDigest := mustSessionToken(t, 0xe1)
 	_, csrfDigest := mustCSRFToken(t, 0xe2)
+	repository := newMemoryRepository()
+	repository.sessions[sessionDigest] = SessionRecord{
+		SessionTokenDigest: sessionDigest,
+		CSRFTokenDigest:    csrfDigest,
+		CreatedAt:          createdAt,
+	}
+	service := mustService(t, repository)
+	service.now = func() time.Time { return createdAt.Add(20 * 365 * 24 * time.Hour) }
 
-	tests := []struct {
-		name        string
-		record      SessionRecord
-		now         time.Time
-		want        error
-		wantExpires time.Time
-	}{
-		{
-			name: "valid",
-			record: SessionRecord{
-				CreatedAt: createdAt,
-				ExpiresAt: createdAt.Add(12 * time.Hour),
-			},
-			now:         createdAt.Add(time.Hour),
-			wantExpires: createdAt.Add(12 * time.Hour),
-		},
-		{
-			name: "repository expiry capped at 24 hours",
-			record: SessionRecord{
-				CreatedAt: createdAt,
-				ExpiresAt: createdAt.Add(72 * time.Hour),
-			},
-			now:         createdAt.Add(23 * time.Hour),
-			wantExpires: createdAt.Add(SessionLifetime),
-		},
-		{
-			name: "expired at exact boundary",
-			record: SessionRecord{
-				CreatedAt: createdAt,
-				ExpiresAt: createdAt.Add(SessionLifetime),
-			},
-			now:  createdAt.Add(SessionLifetime),
-			want: ErrSessionExpired,
-		},
-		{
-			name: "extended record still expires at 24 hours",
-			record: SessionRecord{
-				CreatedAt: createdAt,
-				ExpiresAt: createdAt.Add(72 * time.Hour),
-			},
-			now:  createdAt.Add(25 * time.Hour),
-			want: ErrSessionExpired,
-		},
-		{
-			name: "zero creation",
-			record: SessionRecord{
-				ExpiresAt: createdAt.Add(time.Hour),
-			},
-			now:  createdAt,
-			want: ErrInvalidSessionRecord,
-		},
-		{
-			name: "expiry before creation",
-			record: SessionRecord{
-				CreatedAt: createdAt,
-				ExpiresAt: createdAt.Add(-time.Second),
-			},
-			now:  createdAt,
-			want: ErrInvalidSessionRecord,
-		},
+	authentication, err := service.Authenticate(ctx, sessionToken)
+	if err != nil {
+		t.Fatalf("Authenticate() old session error = %v", err)
+	}
+	if !authentication.CreatedAt.Equal(createdAt) {
+		t.Fatalf("CreatedAt = %s, want %s", authentication.CreatedAt, createdAt)
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			repository := newMemoryRepository()
-			test.record.SessionTokenDigest = sessionDigest
-			test.record.CSRFTokenDigest = csrfDigest
-			repository.sessions[sessionDigest] = test.record
-			service := mustService(t, repository)
-			service.now = func() time.Time { return test.now }
-
-			authentication, err := service.Authenticate(ctx, sessionToken)
-			if test.want != nil {
-				if !errors.Is(err, test.want) {
-					t.Fatalf("Authenticate() error = %v, want %v", err, test.want)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("Authenticate() error = %v", err)
-			}
-			if !authentication.ExpiresAt.Equal(test.wantExpires) {
-				t.Fatalf("ExpiresAt = %s, want %s", authentication.ExpiresAt, test.wantExpires)
-			}
-		})
+	repository.sessions[sessionDigest] = SessionRecord{
+		SessionTokenDigest: sessionDigest,
+		CSRFTokenDigest:    csrfDigest,
+	}
+	if _, err := service.Authenticate(ctx, sessionToken); !errors.Is(err, ErrInvalidSessionRecord) {
+		t.Fatalf("Authenticate() zero creation error = %v, want %v", err, ErrInvalidSessionRecord)
 	}
 }
 

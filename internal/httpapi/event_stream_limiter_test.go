@@ -257,7 +257,7 @@ func TestEventStreamsCloseWhenCurrentAccessIsRevoked(t *testing.T) {
 				repository *streamAuthRepository,
 				_ auth.SessionToken,
 			) {
-				repository.setExpiresAt(time.Now().UTC().Add(-time.Second))
+				repository.setFound(false)
 			},
 		},
 		{

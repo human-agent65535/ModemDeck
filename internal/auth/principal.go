@@ -69,7 +69,8 @@ type UserSessionRecord struct {
 	SessionTokenDigest SessionTokenDigest
 	CSRFTokenDigest    CSRFTokenDigest
 	CreatedAt          time.Time
-	ExpiresAt          time.Time
+	UserAgent          string
+	AccessHost         string
 }
 
 type MultiUserRepository interface {
@@ -94,4 +95,19 @@ type MultiUserRepository interface {
 		ctx context.Context,
 		userID, expectedPasswordHash, replacementPasswordHash string,
 	) (replaced bool, err error)
+}
+
+type SessionManagementRepository interface {
+	MultiUserRepository
+	UserSessions(ctx context.Context, userID string) ([]UserSessionRecord, error)
+	DeleteUserSession(
+		ctx context.Context,
+		userID string,
+		digest SessionTokenDigest,
+	) (deleted bool, err error)
+	DeleteOtherUserSessions(
+		ctx context.Context,
+		userID string,
+		currentDigest SessionTokenDigest,
+	) ([]SessionTokenDigest, error)
 }

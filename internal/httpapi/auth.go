@@ -19,6 +19,10 @@ const (
 	csrfHeaderName    = "X-ModemDeck-CSRF"
 	maxUsernameRunes  = 64
 	maxPasswordBytes  = 1024
+	// Browsers cap persistent cookies even when the server-side session has no
+	// TTL. Reissuing these cookies during session inspection keeps active
+	// devices signed in without turning this transport limit into auth policy.
+	persistentCookieLifetime = 400 * 24 * time.Hour
 )
 
 type loginRequest struct {
@@ -127,6 +131,11 @@ func (api *API) getSession(response http.ResponseWriter, request *http.Request) 
 			auth.ContextWithPrincipal(request.Context(), principal),
 		)
 	}
+	api.setAuthCookieValues(
+		response,
+		sessionToken,
+		auth.CSRFToken(csrfCookie.Value),
+	)
 	writeJSON(response, http.StatusOK, session)
 }
 
@@ -177,7 +186,11 @@ func (api *API) setup(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	result, err := api.authenticator.Login(request.Context(), input.Username, input.Password)
+	result, err := api.authenticator.Login(
+		auth.ContextWithSessionClient(request.Context(), requestSessionClient(request)),
+		input.Username,
+		input.Password,
+	)
 	if err != nil {
 		api.logger.Error("start administrator session after setup", "error", err)
 		writeError(response, http.StatusServiceUnavailable, "authentication_unavailable", "Authentication is unavailable", "")
@@ -223,7 +236,7 @@ func (api *API) login(response http.ResponseWriter, request *http.Request) {
 	}
 
 	result, err := api.authenticator.Login(
-		request.Context(),
+		auth.ContextWithSessionClient(request.Context(), requestSessionClient(request)),
 		credentials.Username,
 		credentials.Password,
 	)
@@ -424,7 +437,6 @@ func (api *API) requestAuthentication(
 		return "", auth.Authentication{}, false, true
 	}
 	if errors.Is(err, auth.ErrUnauthenticated) ||
-		errors.Is(err, auth.ErrSessionExpired) ||
 		errors.Is(err, auth.ErrInvalidSessionToken) ||
 		errors.Is(err, auth.ErrInvalidSessionRecord) {
 		if revokeErr := api.revokeCallSessionToken(
@@ -446,12 +458,21 @@ func (api *API) requestAuthentication(
 }
 
 func (api *API) setAuthCookies(response http.ResponseWriter, result auth.LoginResult) {
-	maxAge := int(auth.SessionLifetime.Seconds())
+	api.setAuthCookieValues(response, result.SessionToken, result.CSRFToken)
+}
+
+func (api *API) setAuthCookieValues(
+	response http.ResponseWriter,
+	sessionToken auth.SessionToken,
+	csrfToken auth.CSRFToken,
+) {
+	maxAge := int(persistentCookieLifetime.Seconds())
+	expiresAt := time.Now().UTC().Add(persistentCookieLifetime)
 	http.SetCookie(response, &http.Cookie{
 		Name:     sessionCookieName,
-		Value:    string(result.SessionToken),
+		Value:    string(sessionToken),
 		Path:     "/",
-		Expires:  result.ExpiresAt,
+		Expires:  expiresAt,
 		MaxAge:   maxAge,
 		HttpOnly: true,
 		Secure:   api.secureCookies,
@@ -459,14 +480,21 @@ func (api *API) setAuthCookies(response http.ResponseWriter, result auth.LoginRe
 	})
 	http.SetCookie(response, &http.Cookie{
 		Name:     csrfCookieName,
-		Value:    string(result.CSRFToken),
+		Value:    string(csrfToken),
 		Path:     "/",
-		Expires:  result.ExpiresAt,
+		Expires:  expiresAt,
 		MaxAge:   maxAge,
 		HttpOnly: false,
 		Secure:   api.secureCookies,
 		SameSite: http.SameSiteStrictMode,
 	})
+}
+
+func requestSessionClient(request *http.Request) auth.SessionClient {
+	return auth.SessionClient{
+		UserAgent:  request.UserAgent(),
+		AccessHost: request.Host,
+	}
 }
 
 func (api *API) clearAuthCookies(response http.ResponseWriter) {
