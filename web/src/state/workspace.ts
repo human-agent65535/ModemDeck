@@ -834,19 +834,6 @@ export function noteIncomingMessageArrival(event: IncomingMessageEvent): void {
 
 export async function refreshMessageWorkspace(activeThreadKey = ''): Promise<void> {
   const normalizedActiveKey = activeThreadKey.trim()
-  // Hidden conversations are cache entries, not live state. Expire them so a
-  // single invalidation never fans out across every thread opened this session.
-  for (const key of Object.keys(messageResources)) {
-    if (key === normalizedActiveKey) continue
-    const target = messageResources[key]
-    if (target) {
-      target.status = 'idle'
-      target.data = []
-      target.error = ''
-    }
-    const pagination = messagePaginationStates[key]
-    if (pagination) resetPagination(pagination)
-  }
   const threads = await refreshThreads()
   if (!normalizedActiveKey) return
 

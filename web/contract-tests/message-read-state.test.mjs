@@ -104,7 +104,7 @@ test('Messages view renders and positions a conversation before acknowledging it
   )
   const openThread = source.slice(openStart, openEnd)
   const loadIndex = openThread.indexOf(
-    'const messages = await loadMessages(thread, force)'
+    'const messages = await loadMessages(thread, true)'
   )
   const renderIndex = openThread.indexOf('await nextTick()', loadIndex)
   const scrollIndex = openThread.indexOf(

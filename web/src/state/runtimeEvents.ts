@@ -3,7 +3,7 @@ import type { Router } from 'vue-router'
 import { fixtureMode, gateway } from '../api/client'
 import type { RuntimeResource } from '../api/types'
 import { visibleMessageThreadKey } from '../router/messageRoute'
-import { renewActiveCallLease, requestActiveCallRefresh } from './call'
+import { requestActiveCallRefresh } from './call'
 import { refreshUnconfirmedDeviceConfigurations } from './deviceConfiguration'
 import { loadNetwork } from './network'
 import { refreshRecordingWorkspace } from './recording'
@@ -122,7 +122,7 @@ export function initializeRuntimeEvents(router: Router): void {
 
   generation += 1
   const currentGeneration = generation
-  let lastEventID: number | undefined
+  let initialized = false
   refreshQueue = createRuntimeRefreshQueue(resource =>
     refreshResource(resource, router)
   )
@@ -130,35 +130,30 @@ export function initializeRuntimeEvents(router: Router): void {
     onOpen: () => {
       if (currentGeneration !== generation) return
       state.connected = true
-      void renewActiveCallLease()
+      void refreshQueue?.enqueue(['calls'])
     },
     onHeartbeat: observedAt => {
       if (currentGeneration !== generation) return
       state.connected = true
       state.lastHeartbeatAt = observedAt
-      void renewActiveCallLease()
     },
-    onReady: newestID => {
+    onReady: () => {
       if (currentGeneration !== generation) return
-      const initialBoundary = lastEventID === undefined
-      lastEventID = Math.max(lastEventID ?? 0, newestID)
       // Reconcile once at the snapshot-to-stream boundary so events emitted
       // before this subscription cannot leave the workspace stale.
-      if (initialBoundary) void refreshQueue?.enqueue(ALL_RESOURCES)
+      if (!initialized) {
+        initialized = true
+        void refreshQueue?.enqueue(ALL_RESOURCES)
+      }
       requestApplicationVersionCheck()
     },
     onEvent: event => {
-      if (
-        currentGeneration !== generation ||
-        (lastEventID !== undefined && event.id <= lastEventID)
-      ) return
-      lastEventID = event.id
+      if (currentGeneration !== generation) return
       state.lastObservedAt = event.observed_at
       void refreshQueue?.enqueue(event.resources)
     },
-    onReset: (_oldestID, newestID) => {
+    onReset: () => {
       if (currentGeneration !== generation) return
-      lastEventID = newestID
       void refreshQueue?.enqueue(ALL_RESOURCES)
     },
     onError: () => {

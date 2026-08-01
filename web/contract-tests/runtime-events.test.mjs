@@ -226,8 +226,9 @@ test('runtime SSE is global to the authenticated application shell', async () =>
   )
   assert.match(
     runtime,
-    /onReady:[\s\S]*?const initialBoundary = lastEventID === undefined[\s\S]*?if \(initialBoundary\) void refreshQueue\?\.enqueue\(ALL_RESOURCES\)/
+    /onReady:[\s\S]*?if \(!initialized\)[\s\S]*?refreshQueue\?\.enqueue\(ALL_RESOURCES\)/
   )
+  assert.doesNotMatch(runtime, /let lastEventID/)
   assert.doesNotMatch(
     runtime,
     /onError:[\s\S]*?if \(wasConnected\)[\s\S]*?refreshQueue\?\.enqueue\(ALL_RESOURCES\)/

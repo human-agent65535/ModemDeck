@@ -234,7 +234,7 @@ test('message SSE observes heartbeats and reconnects without replay state', () =
   }
 })
 
-test('message invalidation reloads only the visible thread and expires hidden caches', async () => {
+test('message invalidation reloads only the visible thread without mutating hidden caches', async () => {
   const originalListThreads = gateway.listThreads
   const originalListMessages = gateway.listMessages
   const threads = Array.from({ length: 20 }, (_, index) => ({
@@ -270,19 +270,19 @@ test('message invalidation reloads only the visible thread and expires hidden ca
     assert.equal(messagesFor(visible.key).status, 'ready')
     for (const thread of threads) {
       if (thread.key !== visible.key) {
-        assert.equal(messagesFor(thread.key).status, 'idle')
+        assert.equal(messagesFor(thread.key).status, 'ready')
       }
     }
 
     const reopened = threads[12]
     messageRequests.length = 0
-    await loadMessages(reopened)
+    await loadMessages(reopened, true)
     assert.deepEqual(messageRequests, [reopened.peer])
 
     messageRequests.length = 0
     await refreshMessageWorkspace('')
     assert.deepEqual(messageRequests, [])
-    assert.equal(messagesFor(visible.key).status, 'idle')
+    assert.equal(messagesFor(visible.key).status, 'ready')
   } finally {
     gateway.listThreads = originalListThreads
     gateway.listMessages = originalListMessages
@@ -371,6 +371,10 @@ test('communication notifications share one explicit browser preference', async 
     /refreshThreads\(|refreshMessages\(|markThreadRead\(/
   )
   assert.match(messages, /canAcknowledgeMessageThread\(/)
+  assert.match(
+    messages,
+    /async function openThread\([\s\S]*?loadMessages\(thread, true\)/
+  )
   assert.match(messages, /document\.visibilityState === 'visible'/)
   assert.match(messages, /document\.hasFocus\(\)/)
   assert.match(messages, /viewportAtBottom\.value/)

@@ -429,9 +429,7 @@ watch(
     [
       selectedKey.value,
       selectedThread.value?.key || '',
-      composingNew.value,
-      threadsPagination.hasMore,
-      threadsPagination.loadingMore
+      composingNew.value
     ] as const,
   () => {
     if (composingNew.value || !selectedKey.value) return
@@ -441,6 +439,21 @@ watch(
     } else if (threadsPagination.hasMore && !threadsPagination.loadingMore) {
       void loadMoreThreads()
     }
+  },
+  { immediate: true }
+)
+
+watch(
+  () => [threadsPagination.hasMore, threadsPagination.loadingMore] as const,
+  () => {
+    if (
+      composingNew.value ||
+      !selectedKey.value ||
+      selectedThread.value ||
+      !threadsPagination.hasMore ||
+      threadsPagination.loadingMore
+    ) return
+    void loadMoreThreads()
   },
   { immediate: true }
 )
@@ -491,8 +504,11 @@ async function reconcileRenderedMessages(followLatest: boolean): Promise<void> {
   await acknowledgeSelectedThreadRead()
 }
 
-async function openThread(thread: MessageThread, force = false): Promise<void> {
-  const messages = await loadMessages(thread, force)
+async function openThread(thread: MessageThread): Promise<void> {
+  // A cached conversation is only a rendering optimization. Reopening a
+  // thread always reads the database so hidden caches never need invalidation
+  // state of their own.
+  const messages = await loadMessages(thread, true)
   if (!messages || composingNew.value || selectedKey.value !== thread.key) return
 
   await nextTick()
@@ -1237,7 +1253,7 @@ onBeforeUnmount(() => {
               :title="t('messages.conversationLoadFailed')"
               :detail="currentMessages.error"
               retryable
-              @retry="selectedThread && openThread(selectedThread, true)"
+              @retry="selectedThread && openThread(selectedThread)"
             />
             <StatePanel
               v-else-if="!composingNew && currentMessages?.status === 'ready' && currentMessages.data.length === 0"
