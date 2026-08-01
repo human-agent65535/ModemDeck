@@ -165,6 +165,51 @@ func TestRunCoalescesAgentEventBurstsIntoOneRefresh(t *testing.T) {
 	}
 }
 
+func TestRunKeepsPeriodicRefreshWhileAgentEventsAreHealthy(t *testing.T) {
+	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
+	baseAgent := connectedAgent(now)
+	baseAgent.health.Provider.Capabilities.Events = true
+	agent := &eventTestAgent{
+		fakeAgent: baseAgent,
+		changes:   make(chan struct{}, 1),
+		started:   make(chan struct{}),
+	}
+	repository := &eventCountingRepository{
+		fakeRepository: &fakeRepository{},
+		signal:         make(chan struct{}, 8),
+	}
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		service.Run(ctx, 400*time.Millisecond, func(err error) {
+			t.Errorf("Run() report = %v", err)
+		})
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+
+	waitForAppliedSnapshots(t, repository, 1)
+	select {
+	case <-agent.started:
+	case <-time.After(time.Second):
+		t.Fatal("event watcher did not start")
+	}
+	waitForAppliedSnapshots(t, repository, 2)
+	waitForAgentEventsHealthy(t, service)
+
+	// No further change event arrives. The periodic refresh remains the simple
+	// convergence path for missed events and agents that do not emit every change.
+	waitForAppliedSnapshots(t, repository, 3)
+}
+
 func TestRunReleasesControlLeaseWhenAgentEventStreamDisconnects(t *testing.T) {
 	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
 	baseAgent := connectedAgent(now)
