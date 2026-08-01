@@ -194,7 +194,7 @@ test('incoming call override uses a compact three-state segmented control', () =
   assert.match(incomingSection, /:data-selection="incomingPolicyDraft"/)
   assert.match(
     incomingSection,
-    /:disabled="Boolean\(savingOperation\) \|\| incomingCallControlUnavailable"/
+    /:disabled="hardwareBusy \|\| incomingCallControlUnavailable"/
   )
   assert.match(
     source,

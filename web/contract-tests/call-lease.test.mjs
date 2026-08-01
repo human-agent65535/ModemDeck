@@ -100,5 +100,5 @@ test('line cards expose authoritative call and reservation occupancy', async () 
     moduleCard,
     /lineIsOccupied\(lineKey\(props\.line\)\)/
   )
-  assert.match(moduleCard, /v-if="lineBusy"[\s\S]*?calls\.lineInUse/)
+  assert.match(moduleCard, /v-if="!recovering && lineBusy"[\s\S]*?calls\.lineInUse/)
 })
