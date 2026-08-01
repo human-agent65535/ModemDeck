@@ -62,6 +62,19 @@ func TestRefreshPublishesRuntimeEventsOnlyForChangedResources(t *testing.T) {
 		t.Fatal("runtime event was not published for changed line state")
 	}
 
+	agent.snapshot.Lines[0].State = ""
+	agent.snapshot.Revision = "snapshot-6"
+	agent.snapshot.ObservedAt = observedAt.Add(9 * time.Second)
+	if _, err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("reverted line Refresh() error = %v", err)
+	}
+	select {
+	case event := <-updates:
+		assertRuntimeResource(t, event, runtimeevents.ResourceLines)
+	case <-time.After(time.Second):
+		t.Fatal("runtime event was not published when line state returned to an earlier value")
+	}
+
 	agent.snapshot.Calls = []agentclient.Call{{
 		ID:        "call-1",
 		LineID:    "line-1",
@@ -69,8 +82,8 @@ func TestRefreshPublishesRuntimeEventsOnlyForChangedResources(t *testing.T) {
 		Direction: "outgoing",
 		State:     "ringing-out",
 	}}
-	agent.snapshot.Revision = "snapshot-6"
-	agent.snapshot.ObservedAt = observedAt.Add(9 * time.Second)
+	agent.snapshot.Revision = "snapshot-7"
+	agent.snapshot.ObservedAt = observedAt.Add(12 * time.Second)
 	if _, err := service.Refresh(context.Background()); err != nil {
 		t.Fatalf("call Refresh() error = %v", err)
 	}

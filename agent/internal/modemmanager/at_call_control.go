@@ -125,7 +125,7 @@ func (p *Provider) startATCall(
 		}
 		return domain.CommandReceipt{}, observationErr
 	}
-	p.publishChange("at-call-command")
+	p.publishChange()
 
 	return domain.CommandReceipt{
 		RequestID:  request.RequestID,
@@ -387,7 +387,7 @@ func (p *Provider) observeATCalls(ctx context.Context) {
 		}
 	}
 	if changed {
-		p.publishChange("at-call-state")
+		p.publishChange()
 	}
 }
 

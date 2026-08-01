@@ -1750,6 +1750,15 @@ func allocateSnapshotSequence(
 		return 0, false, fmt.Errorf("read hardware snapshot sequence: %w", err)
 	}
 	if err == nil && bootEpoch == snapshot.BootEpoch && revision == snapshot.Revision {
+		if _, err := transaction.ExecContext(
+			ctx,
+			`UPDATE modemdeck_hardware_sync
+			 SET observed_at = ?, updated_at = CURRENT_TIMESTAMP
+			 WHERE singleton = 1`,
+			databaseTime(snapshot.ObservedAt),
+		); err != nil {
+			return 0, false, fmt.Errorf("advance duplicate hardware snapshot observation: %w", err)
+		}
 		return sequence, true, nil
 	}
 	if sequence == int64(^uint64(0)>>1) {

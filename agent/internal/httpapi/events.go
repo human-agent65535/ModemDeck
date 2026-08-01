@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -66,15 +65,11 @@ func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
-		case event, open := <-events:
+		case _, open := <-events:
 			if !open {
 				return
 			}
-			payload, marshalErr := json.Marshal(event)
-			if marshalErr != nil {
-				return
-			}
-			if _, err := fmt.Fprintf(w, "event: change\ndata: %s\n\n", payload); err != nil {
+			if _, err := fmt.Fprint(w, "event: change\ndata: {}\n\n"); err != nil {
 				return
 			}
 			flusher.Flush()

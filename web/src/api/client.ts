@@ -128,6 +128,7 @@ import type {
   IOSPairingResult,
   LoginInput,
   Message,
+  MessageEventDelivery,
   MessageEventStreamHandlers,
   MobileNetworkScan,
   NetworkSelectionPolicy,
@@ -1535,9 +1536,19 @@ const realGateway: ConfiguredModemDeckGateway = {
   },
 
   subscribeMessageEvents(handlers: MessageEventStreamHandlers): () => void {
+    let delivery: MessageEventDelivery = 'replay'
     return subscribeEventSource(
       `${API_ROOT}/messages/events`,
-      handlers,
+      {
+        onOpen: () => {
+          delivery = 'replay'
+          handlers.onOpen()
+        },
+        onError: error => {
+          delivery = 'replay'
+          handlers.onError(error)
+        }
+      },
       (source, restart, isActive, markActivity, setCursor) => {
         source.addEventListener('sms', event => {
           if (!isActive()) return
@@ -1545,7 +1556,7 @@ const realGateway: ConfiguredModemDeckGateway = {
           try {
             const message = parseIncomingMessageEvent(JSON.parse(event.data) as unknown)
             setCursor(message.id)
-            handlers.onMessage(message)
+            handlers.onMessage(message, delivery)
           } catch (error) {
             restart(error instanceof Error ? error : new Error('短信事件格式无效'))
           }
@@ -1570,6 +1581,7 @@ const realGateway: ConfiguredModemDeckGateway = {
             const ready = requiredRecord(JSON.parse(event.data) as unknown, 'message_event_ready')
             const newestID = numberValue(ready, 'message_event_ready', 'newest_id')
             setCursor(newestID)
+            delivery = 'live'
             handlers.onReady(newestID)
           } catch (error) {
             restart(error instanceof Error ? error : new Error('短信事件就绪状态无效'))
@@ -1583,6 +1595,7 @@ const realGateway: ConfiguredModemDeckGateway = {
             const oldestID = numberValue(reset, 'message_event_reset', 'oldest_id')
             const newestID = numberValue(reset, 'message_event_reset', 'newest_id')
             setCursor(newestID)
+            delivery = 'replay'
             handlers.onReset(oldestID, newestID)
           } catch (error) {
             restart(error instanceof Error ? error : new Error('短信事件重置状态无效'))

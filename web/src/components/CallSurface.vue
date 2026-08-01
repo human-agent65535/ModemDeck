@@ -19,12 +19,12 @@ import {
   dismissCall,
   hangupCall,
   rejectCall,
+  retryActiveCallMedia,
   sendDTMF
 } from '../state/call'
 import {
   callMediaState,
   resumeCallAudio,
-  retryCallMedia,
   toggleCallMute
 } from '../state/callMedia'
 import {
@@ -411,7 +411,7 @@ onBeforeUnmount(() => {
             type="button"
             :title="t('calls.retryBrowserAudio')"
             :aria-label="t('calls.retryBrowserAudio')"
-            @click="retryCallMedia(session)"
+            @click="retryActiveCallMedia(session)"
           >
             <span class="call-control__icon"><RefreshCw :size="23" /></span>
             <span>{{ t('calls.retryAudio') }}</span>

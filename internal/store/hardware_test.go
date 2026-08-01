@@ -821,6 +821,66 @@ func TestHardwareSnapshotDoesNotDuplicateMessageAcrossProviderRestart(t *testing
 	}
 }
 
+func TestDuplicateHardwareSnapshotAdvancesPresenceObservation(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	ctx := context.Background()
+	firstObservedAt := time.Date(2026, time.July, 31, 10, 0, 0, 0, time.UTC)
+	snapshot := HardwareSnapshot{
+		BootEpoch:  "boot-presence",
+		Revision:   "snapshot-presence",
+		ObservedAt: firstObservedAt,
+		Lines: []HardwareLine{{
+			ID:                  "line-presence",
+			EquipmentIdentifier: "990000000000777",
+		}},
+	}
+	if err := repository.ApplyHardwareSnapshot(ctx, snapshot); err != nil {
+		t.Fatalf("initial ApplyHardwareSnapshot() error = %v", err)
+	}
+
+	var firstSequence int64
+	if err := repository.database.QueryRowContext(
+		ctx,
+		"SELECT sequence FROM modemdeck_hardware_sync WHERE singleton = 1",
+	).Scan(&firstSequence); err != nil {
+		t.Fatalf("read initial hardware sequence: %v", err)
+	}
+
+	secondObservedAt := firstObservedAt.Add(20 * time.Millisecond)
+	snapshot.ObservedAt = secondObservedAt
+	if err := repository.ApplyHardwareSnapshot(ctx, snapshot); err != nil {
+		t.Fatalf("duplicate ApplyHardwareSnapshot() error = %v", err)
+	}
+
+	var (
+		secondSequence int64
+		observedAt     string
+	)
+	if err := repository.database.QueryRowContext(
+		ctx,
+		`SELECT sequence, observed_at
+		 FROM modemdeck_hardware_sync WHERE singleton = 1`,
+	).Scan(&secondSequence, &observedAt); err != nil {
+		t.Fatalf("read duplicate hardware watermark: %v", err)
+	}
+	if secondSequence != firstSequence {
+		t.Fatalf("duplicate sequence = %d, want unchanged %d", secondSequence, firstSequence)
+	}
+	if want := databaseTime(secondObservedAt); observedAt != want {
+		t.Fatalf("duplicate observed_at = %q, want %q", observedAt, want)
+	}
+
+	devices, err := repository.Devices(ctx)
+	if err != nil {
+		t.Fatalf("Devices() error = %v", err)
+	}
+	if len(devices) != 1 || !devices[0].Present || devices[0].LastSeen != observedAt {
+		t.Fatalf("devices after duplicate snapshot = %+v, want one present device", devices)
+	}
+}
+
 func TestMessageThreadStaysStableAcrossSIMReplacementAndMarksAllRead(t *testing.T) {
 	t.Parallel()
 

@@ -23,7 +23,6 @@ const state = reactive({
 let closeStream: (() => void) | undefined
 let fallbackTimer: number | undefined
 let activeRouter: Router | undefined
-let initializedStream = false
 let eventQueue = Promise.resolve()
 let generation = 0
 
@@ -36,23 +35,22 @@ export function initializeMessageRuntime(router: Router): void {
   const currentGeneration = generation
   closeStream = gateway.subscribeMessageEvents({
     onOpen: () => {
-      if (currentGeneration === generation) state.connected = true
+      if (currentGeneration !== generation) return
+      state.connected = true
     },
-    onReady: () => {
-      if (currentGeneration === generation) initializedStream = true
-    },
-    onMessage: event => {
-      const allowNotification = initializedStream
+    onReady: () => undefined,
+    onMessage: (event, delivery) => {
       enqueue(async () => {
         if (currentGeneration !== generation) return
         await refreshIncomingMessage(event, activeThreadKey(router))
-        if (allowNotification) {
+        if (delivery === 'live') {
           playIncomingMessageSound(event.message_id)
           showIncomingMessageNotification(event, router)
         }
       })
     },
     onReset: () => {
+      if (currentGeneration !== generation) return
       enqueue(async () => {
         if (currentGeneration !== generation) return
         await refreshMessageWorkspace(activeThreadKey(router))
@@ -87,7 +85,6 @@ export function shutdownMessageRuntime(): void {
   if (fallbackTimer !== undefined) window.clearInterval(fallbackTimer)
   fallbackTimer = undefined
   activeRouter = undefined
-  initializedStream = false
   state.connected = false
 }
 

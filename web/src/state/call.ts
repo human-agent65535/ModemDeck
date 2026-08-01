@@ -20,7 +20,12 @@ import {
   lineLabel
 } from './workspace'
 import { closeDialer, showCallSurface } from './ui'
-import { callMediaState, shutdownCallMedia, syncCallMedia } from './callMedia'
+import {
+  callMediaState,
+  retryCallMedia,
+  shutdownCallMedia,
+  syncCallMedia
+} from './callMedia'
 import { syncCallRecording } from './recording'
 
 const TERMINAL_PHASES = new Set<CallSession['phase']>(['ended', 'failed'])
@@ -33,6 +38,7 @@ const LEASED_PHASES = new Set<CallSession['phase']>([
 const LEASED_MEDIA_STATES = new Set([
   'requesting',
   'connecting',
+  'recovering',
   'active'
 ])
 const NOTIFIED_CALL_HISTORY_LIMIT = 256
@@ -262,6 +268,16 @@ function sessionCanRenewBrowserLease(session: CallSession): boolean {
   return LEASED_MEDIA_STATES.has(callMediaState.status)
 }
 
+function handleCallLeaseRenewalFailure(callID: string, error: unknown): void {
+  if (
+    ownedSession()?.id === callID &&
+    error instanceof ApiError &&
+    (error.status === 404 || error.status === 409)
+  ) {
+    void requestActiveCallRefresh()
+  }
+}
+
 export function renewActiveCallLease(): Promise<void> {
   const session = ownedSession()
   if (!session || !sessionCanRenewBrowserLease(session)) {
@@ -277,13 +293,7 @@ export function renewActiveCallLease(): Promise<void> {
     .renewCallLease(callID)
     .then(() => undefined)
     .catch(error => {
-      if (
-        ownedSession()?.id === callID &&
-        error instanceof ApiError &&
-        (error.status === 404 || error.status === 409)
-      ) {
-        void requestActiveCallRefresh()
-      }
+      handleCallLeaseRenewalFailure(callID, error)
     })
     .finally(() => {
       if (callLeaseRenewalGeneration === generation) {
@@ -294,6 +304,19 @@ export function renewActiveCallLease(): Promise<void> {
   callLeaseRenewalCallID = callID
   callLeaseRenewal = operation
   return operation
+}
+
+export async function retryActiveCallMedia(session: CallSession | null): Promise<void> {
+  if (!session || session.phase !== 'active' || !session.media_available) return
+  if (ownedSession()?.id !== session.id) return
+  try {
+    await gateway.renewCallLease(session.id)
+  } catch (error) {
+    handleCallLeaseRenewalFailure(session.id, error)
+    return
+  }
+  if (ownedSession()?.id !== session.id) return
+  retryCallMedia(session)
 }
 
 watch(

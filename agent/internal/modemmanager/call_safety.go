@@ -146,9 +146,9 @@ func (p *Provider) terminateCall(
 	}
 
 	if _, isATCall := parsed.ATCallLines[call.ID]; isATCall {
-		p.publishChange("at-call-command")
+		p.publishChange()
 	} else {
-		p.publishChange("call-command")
+		p.publishChange()
 	}
 	return nil
 }
@@ -217,7 +217,7 @@ func (p *Provider) forceTerminateCall(
 		p.deleteVoiceProbe(voiceProbeKey(parsed.ids, line, modemPath))
 	}
 	p.clearLineCallRuntime(call.LineID)
-	p.publishChange("call-forced-modem-reset")
+	p.publishChange()
 	slog.Error(
 		"modem reset forced after call hangup failure",
 		"component", "call_safety",

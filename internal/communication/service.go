@@ -152,6 +152,11 @@ type CallActionInput struct {
 	Digits    string
 }
 
+type runtimeProjection struct {
+	linesDigest string
+	callsDigest string
+}
+
 type Service struct {
 	agent      Agent
 	repository Repository
@@ -160,10 +165,11 @@ type Service struct {
 	random     io.Reader
 	now        func() time.Time
 
-	mu           sync.RWMutex
-	status       Status
-	lastSnapshot agentclient.Snapshot
-	refreshMu    sync.Mutex
+	mu                sync.RWMutex
+	status            Status
+	lastSnapshot      agentclient.Snapshot
+	refreshMu         sync.Mutex
+	runtimeProjection runtimeProjection
 
 	lifecycleMu       sync.RWMutex
 	lifecycleObserver CallLifecycleObserver
@@ -397,29 +403,36 @@ func (s *Service) publishRuntimeSnapshot(
 	if s.runtime == nil {
 		return
 	}
-	if key, ok := runtimePayloadKey("communications:lines:", canonicalRuntimeLines(lines)); ok {
-		s.runtime.Publish(runtimeevents.Event{
-			EventKey:   key,
-			Resources:  []runtimeevents.Resource{runtimeevents.ResourceLines},
-			ObservedAt: snapshot.ObservedAt,
-		})
+	previous := s.runtimeProjection
+	current := previous
+	if digest, ok := runtimeProjectionDigest(canonicalRuntimeLines(lines)); ok {
+		current.linesDigest = digest
+		if digest != previous.linesDigest {
+			s.runtime.Publish(runtimeevents.Event{
+				Resources:  []runtimeevents.Resource{runtimeevents.ResourceLines},
+				ObservedAt: snapshot.ObservedAt,
+			})
+		}
 	}
-	if key, ok := runtimePayloadKey("communications:calls:", canonicalRuntimeCalls(snapshot.Calls)); ok {
-		s.runtime.Publish(runtimeevents.Event{
-			EventKey:   key,
-			Resources:  []runtimeevents.Resource{runtimeevents.ResourceCalls},
-			ObservedAt: snapshot.ObservedAt,
-		})
+	if digest, ok := runtimeProjectionDigest(canonicalRuntimeCalls(snapshot.Calls)); ok {
+		current.callsDigest = digest
+		if digest != previous.callsDigest {
+			s.runtime.Publish(runtimeevents.Event{
+				Resources:  []runtimeevents.Resource{runtimeevents.ResourceCalls},
+				ObservedAt: snapshot.ObservedAt,
+			})
+		}
 	}
+	s.runtimeProjection = current
 }
 
-func runtimePayloadKey(prefix string, payload any) (string, bool) {
+func runtimeProjectionDigest(payload any) (string, bool) {
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return "", false
 	}
 	digest := sha256.Sum256(encoded)
-	return prefix + hex.EncodeToString(digest[:]), true
+	return hex.EncodeToString(digest[:]), true
 }
 
 func canonicalRuntimeLines(lines []store.LineSummary) []store.LineSummary {

@@ -493,7 +493,7 @@ func (p *Provider) AnswerCall(ctx context.Context, request domain.CallCommandReq
 			)
 			if err == nil {
 				p.refreshATLine(ctx, operation, &line, parsed.LinePaths[lineID])
-				p.publishChange("at-call-command")
+				p.publishChange()
 			}
 			return err
 		}

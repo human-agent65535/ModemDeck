@@ -558,10 +558,12 @@ export type IncomingMessageEvent = {
   timestamp: string
 }
 
+export type MessageEventDelivery = 'replay' | 'live'
+
 export type MessageEventStreamHandlers = {
   onOpen: () => void
   onReady: (newestID: number) => void
-  onMessage: (event: IncomingMessageEvent) => void
+  onMessage: (event: IncomingMessageEvent, delivery: MessageEventDelivery) => void
   onReset: (oldestID: number, newestID: number) => void
   onError: (error?: Error) => void
 }

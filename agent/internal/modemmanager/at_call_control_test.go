@@ -469,7 +469,7 @@ func TestATCallObserverPublishesOnlyStateChanges(t *testing.T) {
 	assertChangeEvent(t, events)
 }
 
-func assertChangeEvent(t *testing.T, events <-chan domain.ChangeEvent) {
+func assertChangeEvent(t *testing.T, events <-chan struct{}) {
 	t.Helper()
 	select {
 	case <-events:
@@ -478,7 +478,7 @@ func assertChangeEvent(t *testing.T, events <-chan domain.ChangeEvent) {
 	}
 }
 
-func assertNoChangeEvent(t *testing.T, events <-chan domain.ChangeEvent) {
+func assertNoChangeEvent(t *testing.T, events <-chan struct{}) {
 	t.Helper()
 	select {
 	case event := <-events:

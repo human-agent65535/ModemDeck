@@ -8,17 +8,15 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/human-agent65535/modemdeck/agent/internal/domain"
 )
 
 type fakeChangeProvider struct {
 	*fakeProvider
-	events     chan domain.ChangeEvent
+	events     chan struct{}
 	subscribed chan struct{}
 }
 
-func (p *fakeChangeProvider) SubscribeChanges(context.Context) (<-chan domain.ChangeEvent, error) {
+func (p *fakeChangeProvider) SubscribeChanges(context.Context) (<-chan struct{}, error) {
 	select {
 	case <-p.subscribed:
 	default:
@@ -30,7 +28,7 @@ func (p *fakeChangeProvider) SubscribeChanges(context.Context) (<-chan domain.Ch
 func TestEventsStreamsReadyAndProviderChanges(t *testing.T) {
 	provider := &fakeChangeProvider{
 		fakeProvider: &fakeProvider{},
-		events:       make(chan domain.ChangeEvent, 1),
+		events:       make(chan struct{}, 1),
 		subscribed:   make(chan struct{}),
 	}
 	server := httptest.NewUnstartedServer(New(provider, "test"))
@@ -55,11 +53,7 @@ func TestEventsStreamsReadyAndProviderChanges(t *testing.T) {
 		t.Fatal("event handler did not subscribe")
 	}
 	time.Sleep(75 * time.Millisecond)
-	provider.events <- domain.ChangeEvent{
-		Sequence:   1,
-		Source:     "org.freedesktop.DBus.Properties.PropertiesChanged",
-		ObservedAt: time.Date(2026, 7, 28, 12, 0, 0, 0, time.UTC),
-	}
+	provider.events <- struct{}{}
 
 	if contentType := response.Header.Get("Content-Type"); contentType != "text/event-stream" {
 		t.Fatalf("Content-Type = %q", contentType)
@@ -68,8 +62,7 @@ func TestEventsStreamsReadyAndProviderChanges(t *testing.T) {
 	ready := readSSEFrame(t, reader)
 	change := readSSEFrame(t, reader)
 	if !strings.Contains(ready, "event: ready\ndata: {}") ||
-		!strings.Contains(change, "event: change") ||
-		!strings.Contains(change, `"sequence":1`) {
+		!strings.Contains(change, "event: change\ndata: {}") {
 		t.Fatalf("unexpected event stream: ready=%q change=%q", ready, change)
 	}
 }

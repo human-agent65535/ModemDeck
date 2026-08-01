@@ -187,14 +187,8 @@ type Snapshot struct {
 	DeliveryReports []MessageDeliveryReport `json:"delivery_reports"`
 }
 
-type ChangeEvent struct {
-	Sequence   uint64    `json:"sequence"`
-	Source     string    `json:"source"`
-	ObservedAt time.Time `json:"observed_at"`
-}
-
 type ChangeSource interface {
-	SubscribeChanges(context.Context) (<-chan ChangeEvent, error)
+	SubscribeChanges(context.Context) (<-chan struct{}, error)
 }
 
 type ControlLeaseStatus struct {

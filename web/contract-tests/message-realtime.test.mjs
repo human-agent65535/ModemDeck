@@ -172,11 +172,13 @@ test('message SSE observes heartbeats and resumes after its last event cursor', 
 
     let errors = 0
     const messages = []
+    const deliveries = []
     const close = gateway.subscribeMessageEvents({
       onOpen() {},
       onReady() {},
-      onMessage(message) {
+      onMessage(message, delivery) {
         messages.push(message)
+        deliveries.push(delivery)
       },
       onReset() {},
       onError() {
@@ -208,6 +210,13 @@ test('message SSE observes heartbeats and resumes after its last event cursor', 
       JSON.stringify({ ...event, id: 13, message_id: '43' })
     )
     assert.equal(messages.length, 1)
+    assert.deepEqual(deliveries, ['replay'])
+    FakeEventSource.instances[1].emit('ready', '{"newest_id":13}')
+    FakeEventSource.instances[1].emit(
+      'sms',
+      JSON.stringify({ ...event, id: 14, message_id: '44' })
+    )
+    assert.deepEqual(deliveries, ['replay', 'live'])
 
     const [secondTimerID, expireSecond] = timers.entries().next().value
     timers.delete(secondTimerID)
@@ -215,7 +224,7 @@ test('message SSE observes heartbeats and resumes after its last event cursor', 
 
     assert.equal(
       FakeEventSource.instances[2].url,
-      '/api/v1/messages/events?after=13'
+      '/api/v1/messages/events?after=14'
     )
     close()
     assert.equal(FakeEventSource.instances[2].closed, true)

@@ -33,10 +33,10 @@ test('browser call ownership follows the existing runtime SSE connection', async
     /session\.phase !== 'active' \|\| !session\.media_available[\s\S]*?LEASED_MEDIA_STATES\.has\(callMediaState\.status\)/
   )
   assert.match(callState, /gateway[\s\S]*?\.renewCallLease\(callID\)/)
-  assert.doesNotMatch(
+  assert.match(
     callState,
     /LEASED_MEDIA_STATES[\s\S]{0,100}'recovering'/,
-    'media recovery must not extend the 15 second browser ownership lease'
+    'the single disconnected recovery window must retain browser ownership'
   )
   assert.match(
     callState,
@@ -56,6 +56,10 @@ test('browser call ownership follows the existing runtime SSE connection', async
   assert.match(
     callMedia,
     /connection\.connectionState === 'disconnected'\) \{[\s\S]*?callMediaState\.status = 'recovering'/
+  )
+  assert.match(
+    callState,
+    /retryActiveCallMedia[\s\S]*?await gateway\.renewCallLease\(session\.id\)[\s\S]*?retryCallMedia\(session\)/
   )
   assert.match(client, /CALL_LEASE_REQUEST_TIMEOUT_MS\s*=\s*4_000/)
   assert.match(

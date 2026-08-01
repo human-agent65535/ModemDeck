@@ -32,7 +32,7 @@ test('one tab exclusively owns browser call media', () => {
   )
 })
 
-test('browser media uses one fixed recovery window', () => {
+test('browser media only gives transient disconnection one fixed recovery window', () => {
   assert.match(callMedia, /const MEDIA_RECOVERY_TIMEOUT_MS = 15_000/)
   assert.match(
     callMedia,
@@ -40,7 +40,11 @@ test('browser media uses one fixed recovery window', () => {
   )
   assert.match(
     callMedia,
-    /connection\.connectionState === 'failed'[\s\S]*?beginRecoveryWindow\(callID, token\)/
+    /connection\.connectionState === 'failed'\) \{\s*failConnection\(/
+  )
+  assert.doesNotMatch(
+    callMedia,
+    /connection\.connectionState === 'failed'\) \{\s*beginRecoveryWindow\(/
   )
   assert.match(
     callMedia,

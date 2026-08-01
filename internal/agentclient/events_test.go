@@ -22,7 +22,7 @@ func TestWatchChangesNotifiesForReadyAndChangeEvents(t *testing.T) {
 		response.Header().Set("Content-Type", "text/event-stream")
 		_, _ = fmt.Fprint(response, "event: ready\ndata: {}\n\n")
 		flusher.Flush()
-		_, _ = fmt.Fprint(response, ": keep-alive\n\nevent: change\ndata: {\"sequence\":1}\n\n")
+		_, _ = fmt.Fprint(response, ": keep-alive\n\nevent: change\ndata: {}\n\n")
 		flusher.Flush()
 		<-request.Context().Done()
 	}))

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/human-agent65535/modemdeck/agent/internal/domain"
@@ -14,23 +13,22 @@ const changeSubscriberBuffer = 1
 
 type changeHub struct {
 	mu          sync.Mutex
-	sequence    uint64
 	nextID      uint64
-	subscribers map[uint64]chan domain.ChangeEvent
+	subscribers map[uint64]chan struct{}
 }
 
 func newChangeHub() *changeHub {
-	return &changeHub{subscribers: make(map[uint64]chan domain.ChangeEvent)}
+	return &changeHub{subscribers: make(map[uint64]chan struct{})}
 }
 
-func (h *changeHub) subscribe(ctx context.Context) (<-chan domain.ChangeEvent, error) {
+func (h *changeHub) subscribe(ctx context.Context) (<-chan struct{}, error) {
 	if h == nil {
 		return nil, domain.Unavailable("subscribe_changes", "change source is unavailable", nil)
 	}
 	if ctx == nil {
 		return nil, domain.InvalidArgument("subscribe_changes", "request context is required")
 	}
-	events := make(chan domain.ChangeEvent, changeSubscriberBuffer)
+	events := make(chan struct{}, changeSubscriberBuffer)
 	h.mu.Lock()
 	h.nextID++
 	id := h.nextID
@@ -49,38 +47,32 @@ func (h *changeHub) subscribe(ctx context.Context) (<-chan domain.ChangeEvent, e
 	return events, nil
 }
 
-func (h *changeHub) publish(source string, observedAt time.Time) {
+func (h *changeHub) publish() {
 	if h == nil {
 		return
 	}
 	h.mu.Lock()
-	h.sequence++
-	event := domain.ChangeEvent{
-		Sequence:   h.sequence,
-		Source:     source,
-		ObservedAt: observedAt.UTC(),
-	}
 	for _, subscriber := range h.subscribers {
 		select {
-		case subscriber <- event:
+		case subscriber <- struct{}{}:
 		default:
 		}
 	}
 	h.mu.Unlock()
 }
 
-func (p *Provider) SubscribeChanges(ctx context.Context) (<-chan domain.ChangeEvent, error) {
+func (p *Provider) SubscribeChanges(ctx context.Context) (<-chan struct{}, error) {
 	if p == nil {
 		return nil, domain.Unavailable("subscribe_changes", "provider is unavailable", nil)
 	}
 	return p.changes.subscribe(ctx)
 }
 
-func (p *Provider) publishChange(source string) {
+func (p *Provider) publishChange() {
 	if p == nil {
 		return
 	}
-	p.changes.publish(source, p.now())
+	p.changes.publish()
 }
 
 func (p *Provider) startSystemBusChangeWatcher(conn *dbus.Conn) (func(), error) {
@@ -131,7 +123,7 @@ func (p *Provider) startSystemBusChangeWatcher(conn *dbus.Conn) (func(), error) 
 				if signal == nil {
 					continue
 				}
-				p.publishChange(signal.Name)
+				p.publishChange()
 			}
 		}
 	}()

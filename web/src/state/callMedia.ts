@@ -329,10 +329,7 @@ async function connect(
         callMediaState.status = 'recovering'
         callMediaState.error = ''
       } else if (connection.connectionState === 'failed') {
-        recovering = true
-        beginRecoveryWindow(callID, token)
-        callMediaState.status = 'recovering'
-        callMediaState.error = ''
+        failConnection(callID, token, new Error(translate('runtime.callAudioConnectionFailed')))
       } else if (connection.connectionState === 'closed') {
         failConnection(callID, token, new Error(translate('runtime.callAudioConnectionFailed')))
       }
