@@ -197,7 +197,7 @@ function removeAvatar(): void {
   inset: 3px;
   display: grid;
   place-items: center;
-  color: #ffffff;
+  color: var(--on-accent);
   background: rgb(15 23 42 / 46%);
   border-radius: 50%;
   opacity: 0;
@@ -227,7 +227,7 @@ function removeAvatar(): void {
   inset: 3px;
   display: grid;
   place-items: center;
-  color: #ffffff;
+  color: var(--on-accent);
   font-size: 12px;
   font-weight: 700;
   background: rgb(15 23 42 / 64%);
@@ -275,7 +275,7 @@ function removeAvatar(): void {
   margin-top: 2px;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 560px) {
   .contact-avatar-picker {
     align-items: flex-start;
   }

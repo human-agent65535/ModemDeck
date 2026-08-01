@@ -1326,8 +1326,8 @@ onBeforeUnmount(() => {
 }
 
 .dashboard-summary-card.is-traffic .dashboard-summary-icon {
-  color: #7a4b00;
-  background: #fff2d6;
+  color: var(--warning-strong);
+  background: var(--warning-soft);
 }
 
 .dashboard-summary-value {
@@ -1477,7 +1477,7 @@ onBeforeUnmount(() => {
   }
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1100px) {
   .dashboard-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1497,9 +1497,7 @@ onBeforeUnmount(() => {
   .dashboard-detail-scroll {
     padding: 16px 16px 24px;
   }
-}
 
-@media (max-width: 640px) {
   .dashboard-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
@@ -1540,7 +1538,7 @@ onBeforeUnmount(() => {
   }
 }
 
-@media (max-width: 390px) {
+@media (max-width: 420px) {
   .dashboard-detail-scroll {
     padding-inline: 12px;
   }

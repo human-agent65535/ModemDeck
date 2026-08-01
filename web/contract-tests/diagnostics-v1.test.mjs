@@ -90,7 +90,7 @@ test('runtime log connection colors describe reachable stream states', () => {
   )
   assert.match(
     source,
-    /\.connection-state\.is-reconnecting,\s*\.connection-state\.is-connecting\s*\{\s*color: #946200/
+    /\.connection-state\.is-reconnecting,\s*\.connection-state\.is-connecting\s*\{\s*color: var\(--warning\)/
   )
   assert.match(
     source,

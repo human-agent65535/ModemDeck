@@ -85,7 +85,7 @@ withDefaults(
 }
 
 .settings-module-card__icon--brand {
-  color: #fff;
+  color: var(--on-accent);
   font-size: 20px;
   font-weight: 750;
   background: linear-gradient(145deg, var(--accent), var(--accent-strong));
@@ -93,8 +93,8 @@ withDefaults(
 }
 
 .settings-module-card__icon--warning {
-  color: #8a5b00;
-  background: #fff8e8;
+  color: var(--warning);
+  background: var(--warning-soft);
 }
 
 .settings-module-card__icon--neutral {
@@ -125,7 +125,7 @@ withDefaults(
   margin-top: 16px;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 860px) {
   .settings-module-card__header {
     align-items: flex-start;
     flex-wrap: wrap;

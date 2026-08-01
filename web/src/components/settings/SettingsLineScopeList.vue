@@ -163,7 +163,7 @@ function onLineChange(id: string, event: Event): void {
 }
 
 .settings-line-scope-option.is-selected .settings-line-scope-option__check {
-  color: #fff;
+  color: var(--on-accent);
   background: var(--accent);
   border-color: var(--accent);
 }

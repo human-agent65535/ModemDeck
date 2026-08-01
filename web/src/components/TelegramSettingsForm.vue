@@ -904,7 +904,7 @@ onMounted(() => {
 .telegram-unit-row__icon.is-enabled {
   color: var(--accent-strong);
   background: var(--accent-soft);
-  border-color: #b9ddd5;
+  border-color: var(--accent-border);
 }
 
 .telegram-unit-row__copy {
@@ -997,7 +997,7 @@ onMounted(() => {
   justify-content: center;
   color: var(--accent-strong);
   background: var(--accent-soft);
-  border: 1px solid #c8e5de;
+  border: 1px solid var(--success-border);
   border-radius: 7px;
 }
 
@@ -1093,7 +1093,7 @@ onMounted(() => {
 .telegram-access-options > label.is-selected {
   color: var(--accent-strong);
   background: var(--accent-soft);
-  border-color: #9fcfc4;
+  border-color: var(--accent-border-strong);
 }
 
 .telegram-access-options input {
@@ -1178,7 +1178,7 @@ onMounted(() => {
 
 .telegram-event-options label:hover,
 .telegram-event-options label.is-selected {
-  border-color: #9fcfc4;
+  border-color: var(--accent-border-strong);
 }
 
 .telegram-event-options label.is-selected {
@@ -1227,13 +1227,6 @@ onMounted(() => {
 
 .settings-form-actions {
   margin-top: 0;
-}
-
-@media (max-width: 860px) {
-  .telegram-event-options,
-  .telegram-access-options {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 860px) {

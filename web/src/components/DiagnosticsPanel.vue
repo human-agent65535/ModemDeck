@@ -1334,7 +1334,7 @@ onBeforeUnmount(() => {
 .overall-status.is-degraded,
 .connection-state.is-reconnecting,
 .connection-state.is-connecting {
-  color: #946200;
+  color: var(--warning);
 }
 
 .overall-status.is-unavailable {
@@ -1386,7 +1386,7 @@ onBeforeUnmount(() => {
 
 .service-status.is-pending,
 .service-status.is-warning {
-  color: #946200;
+  color: var(--warning);
 }
 
 .service-status__icon {
@@ -1494,9 +1494,9 @@ onBeforeUnmount(() => {
 }
 
 .line-health-alert.is-degraded {
-  color: #7a5700;
-  background: #fff5d8;
-  border-color: #d6a400;
+  color: var(--warning-strong);
+  background: var(--warning-soft);
+  border-color: var(--warning-border);
 }
 
 .line-health-alert__summary {
@@ -1679,19 +1679,19 @@ onBeforeUnmount(() => {
 .line-state.is-positive {
   color: var(--accent-strong);
   background: var(--accent-soft);
-  border-color: #c8e5de;
+  border-color: var(--success-border);
 }
 
 .line-state.is-warning {
-  color: #7a5700;
-  background: #fff5d8;
-  border-color: #ead9a7;
+  color: var(--warning-strong);
+  background: var(--warning-soft);
+  border-color: var(--warning-border);
 }
 
 .line-state.is-negative {
   color: var(--danger);
   background: var(--danger-soft);
-  border-color: #f0d2d6;
+  border-color: var(--danger-border);
 }
 
 .line-evidence__facts {
@@ -1821,8 +1821,8 @@ onBeforeUnmount(() => {
 }
 
 .recovery-action__icon {
-  color: #946200;
-  background: #fff5d8;
+  color: var(--warning);
+  background: var(--warning-soft);
 }
 
 .recovery-action__button {
@@ -1833,7 +1833,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   gap: 7px;
   padding: 0 13px;
-  color: #fff;
+  color: var(--on-accent);
   background: var(--danger);
   border-radius: 5px;
   font-size: 12px;
@@ -2004,7 +2004,7 @@ onBeforeUnmount(() => {
 
 .log-notice {
   padding-bottom: 8px;
-  color: #946200;
+  color: var(--warning);
   font-size: 12px;
 }
 
@@ -2092,7 +2092,7 @@ onBeforeUnmount(() => {
   white-space: pre-wrap;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   .service-grid {
     grid-template-columns: 1fr;
   }
@@ -2116,7 +2116,7 @@ onBeforeUnmount(() => {
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 860px) {
   .section-heading,
   .log-heading {
     align-items: flex-start;

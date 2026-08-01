@@ -67,8 +67,8 @@ const messageID = `confirmation-message-${useId()}`
   width: 38px;
   height: 38px;
   place-items: center;
-  color: #8a5a25;
-  background: #fff3da;
+  color: var(--warning);
+  background: var(--warning-soft);
   border-radius: 50%;
 }
 
@@ -106,7 +106,7 @@ const messageID = `confirmation-message-${useId()}`
   min-width: 76px;
   min-height: 38px;
   padding: 0 14px;
-  color: #fff;
+  color: var(--on-accent);
   font-size: 13px;
   font-weight: 650;
   background: var(--accent);
@@ -123,7 +123,7 @@ const messageID = `confirmation-message-${useId()}`
   background: var(--danger);
 }
 
-@media (max-width: 520px) {
+@media (max-width: 560px) {
   .confirmation-dialog {
     padding: 20px;
   }

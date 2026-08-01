@@ -823,7 +823,7 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
-@media (max-width: 520px) {
+@media (max-width: 560px) {
   .ios-status {
     margin-left: 51px;
   }

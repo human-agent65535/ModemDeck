@@ -1043,12 +1043,12 @@ onBeforeUnmount(() => {
 }
 
 .dialer-recording-action:hover:not(:disabled) .dialer-recording-action__icon {
-  background: #e7ebee;
+  background: var(--control-muted);
   transform: translateY(-1px);
 }
 
 .dialer-recording-action.is-active .dialer-recording-action__icon {
-  color: #ffffff;
+  color: var(--on-accent);
   background: var(--danger);
   border-color: var(--danger);
 }

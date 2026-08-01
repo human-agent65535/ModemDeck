@@ -694,7 +694,7 @@ test('SMS delivery reports are an opt-in revisioned device setting', async () =>
   )
   assert.match(
     devicePanelSource,
-    /\.configuration-toggle small\.configuration-toggle__unsupported\s*\{[^}]*color:\s*#c7352d/s
+    /\.configuration-toggle small\.configuration-toggle__unsupported\s*\{[^}]*color:\s*var\(--danger\)/s
   )
   assert.match(
     deviceConfigurationStateSource,

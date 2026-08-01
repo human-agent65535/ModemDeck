@@ -52,7 +52,7 @@ withDefaults(
 .list-skeleton__copy > span {
   position: relative;
   overflow: hidden;
-  background: #e9edf1;
+  background: var(--skeleton);
 }
 
 .list-skeleton__avatar {

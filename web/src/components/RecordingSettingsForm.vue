@@ -155,7 +155,7 @@ onMounted(() => {
   font-size: 11px;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 560px) {
   .recording-settings__value {
     display: none;
   }

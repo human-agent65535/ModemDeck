@@ -422,20 +422,20 @@ onMounted(() => {
   color: var(--accent-strong);
   font-size: 12px;
   background: var(--accent-soft);
-  border: 1px solid #b8ddd5;
+  border: 1px solid var(--accent-border);
   border-radius: 6px;
 }
 
 .traffic-banner.is-warning {
-  color: #7a4b00;
-  background: #fff6dd;
-  border-color: #e9cf93;
+  color: var(--warning-strong);
+  background: var(--warning-soft);
+  border-color: var(--warning-border);
 }
 
 .traffic-banner.is-error {
   color: var(--danger);
   background: var(--danger-soft);
-  border-color: #efc3ca;
+  border-color: var(--danger-border-strong);
 }
 
 .traffic-line-filter {
@@ -468,7 +468,7 @@ onMounted(() => {
 .traffic-line-filter > button.is-selected {
   color: var(--accent-strong);
   background: var(--surface-selected);
-  border-color: #aed8cf;
+  border-color: var(--success-border-strong);
 }
 
 .traffic-line-filter :deep(.line-tag) {
@@ -570,7 +570,7 @@ onMounted(() => {
   font-size: 12px;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 560px) {
   .traffic-page__header {
     display: none;
   }

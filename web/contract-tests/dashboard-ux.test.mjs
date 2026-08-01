@@ -203,8 +203,6 @@ test('dashboard entity grids retain stable desktop columns and card widths', () 
 test('dashboard summary cards may fill their grid while entity cards fill only narrow screens', () => {
   const summaryGridBlock =
     dashboard.match(/\.dashboard-summary-grid\s*\{([^}]*)\}/)?.[1] || ''
-  const narrowMedia =
-    dashboard.match(/@media \(max-width: 640px\) \{([\s\S]*?)\n\}/)?.[1] || ''
 
   assert.match(
     summaryGridBlock,
@@ -212,12 +210,12 @@ test('dashboard summary cards may fill their grid while entity cards fill only n
   )
   assert.doesNotMatch(summaryGridBlock, /max-width: 420px/)
   assert.match(
-    narrowMedia,
-    /\.dashboard-module-grid,\s*\.dashboard-detail-list\s*\{[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/
+    dashboard,
+    /@media \(max-width: 860px\) \{[\s\S]*?\.dashboard-module-grid,\s*\.dashboard-detail-list\s*\{[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/
   )
   assert.match(
-    narrowMedia,
-    /\.dashboard-module-grid > :deep\(\.module-card\),\s*\.dashboard-detail-list > \.dashboard-contact-row\s*\{[\s\S]*?max-width: none/
+    dashboard,
+    /@media \(max-width: 860px\) \{[\s\S]*?\.dashboard-module-grid > :deep\(\.module-card\),\s*\.dashboard-detail-list > \.dashboard-contact-row\s*\{[\s\S]*?max-width: none/
   )
 })
 

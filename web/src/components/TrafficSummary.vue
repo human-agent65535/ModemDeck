@@ -87,8 +87,8 @@ function formatBytes(bytes: number): string {
   height: 38px;
   flex: 0 0 38px;
   place-items: center;
-  color: #7a4b00;
-  background: #fff2d6;
+  color: var(--warning-strong);
+  background: var(--warning-soft);
   border-radius: 7px;
 }
 
@@ -103,8 +103,8 @@ function formatBytes(bytes: number): string {
 }
 
 .traffic-summary__icon.is-rose {
-  color: #8a3448;
-  background: #fae9ed;
+  color: var(--danger-strong);
+  background: var(--danger-soft);
 }
 
 .traffic-summary small,
@@ -127,7 +127,7 @@ function formatBytes(bytes: number): string {
   white-space: nowrap;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 860px) {
   .traffic-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -141,7 +141,7 @@ function formatBytes(bytes: number): string {
   }
 }
 
-@media (max-width: 430px) {
+@media (max-width: 420px) {
   .traffic-summary > div {
     min-height: 72px;
     gap: 9px;

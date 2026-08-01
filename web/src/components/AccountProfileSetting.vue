@@ -123,7 +123,7 @@ onMounted(() => {
   color: var(--muted-strong);
 }
 
-@media (max-width: 620px) {
+@media (max-width: 860px) {
   .account-profile-setting {
     grid-template-columns: auto minmax(0, 1fr);
   }

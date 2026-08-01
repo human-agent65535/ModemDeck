@@ -117,7 +117,7 @@ test('module cards separate call control from verified voice media', () => {
 })
 
 test('module card footers become accessible icon-only controls on mobile', () => {
-  const mobile = moduleCard.slice(moduleCard.indexOf('@media (max-width: 720px)'))
+  const mobile = moduleCard.slice(moduleCard.indexOf('@media (max-width: 860px)'))
 
   assert.match(
     mobile,

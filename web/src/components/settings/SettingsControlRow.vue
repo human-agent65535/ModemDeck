@@ -77,7 +77,7 @@ withDefaults(
   gap: 8px;
 }
 
-@media (max-width: 680px) {
+@media (max-width: 860px) {
   .settings-control-row {
     align-items: flex-start;
     flex-direction: column;

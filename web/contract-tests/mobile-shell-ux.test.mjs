@@ -58,13 +58,13 @@ test('mobile navigation exposes routes that fit and falls back to More on narrow
   )
   assert.match(
     styles,
-    /@media \(max-width: 379px\) \{[\s\S]*?\.mobile-nav \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) 62px repeat\(2, minmax\(0, 1fr\)\);/
+    /@media \(max-width: 420px\) \{[\s\S]*?\.mobile-nav \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) 62px repeat\(2, minmax\(0, 1fr\)\);/
   )
   assert.match(styles, /\.mobile-nav \.mobile-nav__overflow \{\s*display: none;/)
   assert.match(styles, /\.mobile-nav \.mobile-nav__more \{\s*display: grid;/)
   assert.match(
     styles,
-    /@media \(max-width: 700px\) \{[\s\S]*?\.mobile-nav__label \{\s*display: block;/
+    /@media \(max-width: 860px\) \{[\s\S]*?\.mobile-nav__label \{\s*display: block;/
   )
   assert.match(english, /mobileCall: 'Dial'/)
   assert.match(english, /more: 'More'/)

@@ -285,7 +285,7 @@ onBeforeUnmount(() => {
   line-height: 1.45;
 }
 
-@media (max-width: 680px) {
+@media (max-width: 860px) {
   .audio-device-controls__fields {
     grid-template-columns: minmax(0, 1fr);
   }

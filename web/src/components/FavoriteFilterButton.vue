@@ -41,9 +41,9 @@ const emit = defineEmits<{
 
 .favorite-filter-button:hover:not(:disabled),
 .favorite-filter-button.is-active {
-  color: #a86400;
+  color: var(--favorite);
   background: transparent;
-  border-color: #d6ae55;
+  border-color: var(--favorite-border);
 }
 
 .favorite-filter-button span {

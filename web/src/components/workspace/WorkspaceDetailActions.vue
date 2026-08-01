@@ -155,7 +155,7 @@ onBeforeUnmount(() => {
 }
 
 .workspace-detail-command--primary {
-  color: #ffffff;
+  color: var(--on-accent);
   background: var(--accent);
   border-color: var(--accent);
 }

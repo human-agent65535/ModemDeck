@@ -433,7 +433,7 @@ async function addToContact(): Promise<void> {
   text-align: center;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 860px) {
   .contact-number-actions.is-compact .secondary-button {
     width: var(--detail-action-size);
     min-width: var(--detail-action-size);

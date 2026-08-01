@@ -835,12 +835,12 @@ onBeforeUnmount(() => {
 }
 
 .call-control:hover:not(:disabled) .call-control__icon {
-  background: #e7ebee;
+  background: var(--control-muted);
   transform: translateY(-1px);
 }
 
 .call-control.is-active .call-control__icon {
-  color: #ffffff;
+  color: var(--on-accent);
   background: var(--accent);
   border-color: var(--accent);
 }
@@ -986,18 +986,18 @@ onBeforeUnmount(() => {
 }
 
 .call-footer-action:hover:not(:disabled) .call-footer-action__icon {
-  background: #e7ebee;
+  background: var(--control-muted);
   transform: translateY(-1px);
 }
 
 .call-footer-action--recording.is-active .call-footer-action__icon {
-  color: #ffffff;
+  color: var(--on-accent);
   background: var(--danger);
   border-color: var(--danger);
 }
 
 .call-footer-action--keypad.is-active .call-footer-action__icon {
-  color: #ffffff;
+  color: var(--on-accent);
   background: var(--accent);
   border-color: var(--accent);
 }

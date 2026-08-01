@@ -39,7 +39,7 @@ defineEmits<{
 <style scoped>
 .workspace-favorite-action:hover:not(:disabled),
 .workspace-favorite-action.is-active {
-  color: #a86400;
+  color: var(--favorite);
   background: transparent;
 }
 

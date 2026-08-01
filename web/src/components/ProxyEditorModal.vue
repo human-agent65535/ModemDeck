@@ -369,7 +369,7 @@ watch(
   padding-top: 4px;
 }
 
-@media (max-width: 520px) {
+@media (max-width: 560px) {
   .proxy-modal {
     max-height: calc(100dvh - var(--mobile-nav-height) - 8px);
   }

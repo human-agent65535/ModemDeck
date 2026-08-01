@@ -460,12 +460,12 @@ const lineBusy = computed(() => {
   width: 7px;
   height: 7px;
   flex: 0 0 7px;
-  background: #a9b1bd;
+  background: var(--faint);
   border-radius: 50%;
 }
 
 .module-card__identity i.is-online {
-  background: #18a46f;
+  background: var(--success);
 }
 
 .module-card__data-status {
@@ -676,7 +676,7 @@ const lineBusy = computed(() => {
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 860px) {
   .module-card__capabilities {
     gap: 4px;
   }

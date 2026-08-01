@@ -74,8 +74,8 @@ withDefaults(
 }
 
 .settings-preference-row__icon--warning {
-  color: #8a5b00;
-  background: #fff8e8;
+  color: var(--warning);
+  background: var(--warning-soft);
 }
 
 .settings-preference-row__icon--neutral {
@@ -118,7 +118,7 @@ withDefaults(
   font-size: 11px;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 860px) {
   .settings-preference-row__main {
     align-items: flex-start;
     flex-wrap: wrap;

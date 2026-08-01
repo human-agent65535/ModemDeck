@@ -316,9 +316,9 @@ onMounted(() => {
 }
 
 .about-status--update_available {
-  color: #8a5b00;
-  background: #fff8e8;
-  border-left-color: #d99a18;
+  color: var(--warning);
+  background: var(--warning-soft);
+  border-left-color: var(--warning-border);
 }
 
 .about-status--unavailable {
@@ -394,7 +394,7 @@ onMounted(() => {
   border-radius: 7px;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 860px) {
   .about-facts,
   .about-legal__links {
     grid-template-columns: 1fr;

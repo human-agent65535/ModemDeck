@@ -559,7 +559,7 @@ onBeforeUnmount(() => {
 }
 
 .contact-favorite-mark {
-  color: #a86400;
+  color: var(--favorite);
 }
 
 .contact-favorite-mark {

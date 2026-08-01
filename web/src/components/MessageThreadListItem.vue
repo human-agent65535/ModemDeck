@@ -160,7 +160,7 @@ const { t } = useI18n()
 .message-thread-favorite:hover,
 .message-thread-favorite.is-active,
 .message-thread-favorite-mark {
-  color: #a86400;
+  color: var(--favorite);
   background: transparent;
 }
 

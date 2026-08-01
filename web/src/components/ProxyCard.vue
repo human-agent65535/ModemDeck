@@ -222,7 +222,7 @@ function applyStateLabel(): string {
   left: 3px;
   width: 16px;
   height: 16px;
-  background: #ffffff;
+  background: var(--surface);
   border-radius: 50%;
   box-shadow: 0 1px 3px rgb(16 24 40 / 24%);
   transition: transform 140ms ease;
@@ -259,10 +259,10 @@ function applyStateLabel(): string {
 .proxy-card__apply-state {
   margin-left: auto;
   padding: 2px 5px;
-  color: #7a4b00;
+  color: var(--warning-strong);
   font-size: 11px;
   font-weight: 650;
-  background: #fff0c2;
+  background: var(--warning-soft);
   border-radius: 4px;
 }
 

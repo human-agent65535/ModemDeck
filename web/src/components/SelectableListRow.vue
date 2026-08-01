@@ -64,7 +64,7 @@ function interceptKey(event: KeyboardEvent): void {
   width: 22px;
   height: 22px;
   place-items: center;
-  color: #fff;
+  color: var(--on-accent);
   background: var(--surface);
   border: 2px solid var(--faint);
   border-radius: 5px;

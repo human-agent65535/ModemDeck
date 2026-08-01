@@ -421,4 +421,24 @@ onMounted(() => {
   padding: 0;
   overflow: hidden;
 }
+
+/*
+ * A compact desktop cannot carry the app rail, settings directory, resource
+ * rail, and editor at once. Keep the desktop shell, but make the settings
+ * directory and selected section separate steps until the workspace widens.
+ */
+@media (min-width: 861px) and (max-width: 1100px) {
+  .settings-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-workspace.has-selection > .settings-list-pane,
+  .settings-workspace:not(.has-selection) > .settings-detail-pane {
+    display: none;
+  }
+
+  .settings-detail-header .mobile-back {
+    display: inline-grid;
+  }
+}
 </style>

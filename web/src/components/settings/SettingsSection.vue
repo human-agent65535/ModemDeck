@@ -73,8 +73,8 @@ withDefaults(
 }
 
 .settings-section__icon--warning {
-  color: #725200;
-  background: #fff3c6;
+  color: var(--warning-strong);
+  background: var(--warning-soft);
 }
 
 .settings-section__icon--neutral {

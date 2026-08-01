@@ -229,6 +229,10 @@ test('settings drilldown aligns with the shell compact breakpoint', async () => 
   assert.match(telegram, /route\.query\.newBot/)
   assert.match(shell, /const settingsTelegramDetailOpen = computed/)
   assert.match(view, /selectedSection\.value === 'telegram'/)
+  assert.match(
+    view,
+    /@media \(min-width: 861px\) and \(max-width: 1100px\)[\s\S]*\.settings-workspace\.has-selection > \.settings-list-pane,[\s\S]*display: none;/
+  )
 })
 
 test('settings section and resource changes use the shared stable transition', async () => {

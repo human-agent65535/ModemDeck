@@ -639,7 +639,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   padding: 0 4px;
-  color: #fff;
+  color: var(--on-accent);
   font-size: 10px;
   font-weight: 800;
   line-height: 1;

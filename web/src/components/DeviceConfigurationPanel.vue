@@ -2580,7 +2580,7 @@ onMounted(() => {
 }
 
 .primary-action {
-  color: #fff;
+  color: var(--on-accent);
   background: var(--accent);
 }
 
@@ -3020,7 +3020,7 @@ onMounted(() => {
 }
 
 .configuration-toggle small.configuration-toggle__unsupported {
-  color: #c7352d;
+  color: var(--danger);
   font-weight: 700;
 }
 
@@ -3040,9 +3040,9 @@ onMounted(() => {
   gap: 12px;
   margin-top: 8px;
   padding: 8px 10px;
-  color: #7a420c;
-  background: #fff7e8;
-  border: 1px solid #e9bd72;
+  color: var(--warning-strong);
+  background: var(--warning-soft);
+  border: 1px solid var(--warning-border);
   border-radius: 6px;
 }
 
@@ -3063,13 +3063,13 @@ onMounted(() => {
 }
 
 .restart-required small {
-  color: #8a5a25;
+  color: var(--warning);
   font-size: 12px;
 }
 
 .restart-action {
   flex: 0 0 auto;
-  background: #a85b10;
+  background: var(--warning);
 }
 
 .data-toggle {
@@ -3837,7 +3837,7 @@ onMounted(() => {
 }
 
 .voice-status.is-warning {
-  color: #8a4b10;
+  color: var(--warning);
 }
 
 .voice-status.is-pending {
@@ -3855,7 +3855,7 @@ onMounted(() => {
 }
 
 .inline-warning {
-  color: #8a4b10;
+  color: var(--warning);
 }
 
 .ussd-form {
@@ -3888,7 +3888,7 @@ pre {
   border-radius: 5px;
 }
 
-@media (max-width: 980px) {
+@media (max-width: 1100px) {
   .profile-form,
   .sim-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));

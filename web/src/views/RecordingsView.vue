@@ -756,7 +756,7 @@ onBeforeUnmount(() => {
 
 .recording-list-item__favorite {
   flex: 0 0 auto;
-  color: #a86400;
+  color: var(--favorite);
 }
 
 .recording-detail {

@@ -199,7 +199,7 @@ test('multi-user UI exposes only authorized settings and communication areas', a
   assert.doesNotMatch(users, /class="user-account-access__status"/)
   assert.match(
     style,
-    /\.ui-switch:checked:disabled\s*\{\s*background: #9fcfc4/
+    /\.ui-switch:checked:disabled\s*\{\s*background: var\(--accent-border-strong\)/
   )
   assert.match(users, /users\.adminUsernameLocked/)
   assert.match(shell, /const settingsUserDetailOpen = computed/)

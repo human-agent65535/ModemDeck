@@ -115,7 +115,7 @@ test('traffic line cards use a balanced responsive information grid', () => {
   )
   assert.match(
     trafficView,
-    /@media \(max-width:\s*600px\)[\s\S]*\.traffic-line-grid\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)/
+    /@media \(max-width:\s*560px\)[\s\S]*\.traffic-line-grid\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)/
   )
 })
 
