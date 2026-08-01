@@ -440,6 +440,7 @@ export type FixtureGatewayOptions = {
   initialIncomingCall?: boolean | 'occupied'
   initialConcurrentCalls?: boolean
   initialOutgoingReservation?: 'owned' | 'occupied'
+  externalAccessDiagnostic?: 'origin-sni'
 }
 
 function fixtureLines(count: number): LineSummary[] {
@@ -758,6 +759,12 @@ function fixtureHardware(line: LineSummary, index: number): DeviceHardwareConfig
 export function createFixtureGateway(options: FixtureGatewayOptions = {}): ModemDeckGateway {
   const requestedLineCount = Math.max(0, Math.trunc(options.lineCount ?? 2))
   const lines = options.noDevices ? [] : fixtureLines(requestedLineCount)
+  const externalAccessDiagnostic =
+    options.externalAccessDiagnostic ||
+    (typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('externalAccessFixture')
+      : '')
+  const previewOriginSNI = externalAccessDiagnostic === 'origin-sni'
   const users: UserAccount[] = [
     {
       id: 'user_admin',
@@ -900,23 +907,62 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
   const cloudflareStatus = {
     enabled: true,
     connector_connected: true,
-    connected: true,
+    connected: !previewOriginSNI,
     public_url: 'https://mobile.modemdeck.example',
     api_urls: ['https://mobile.modemdeck.example'],
-    verified_api_urls: ['https://mobile.modemdeck.example'],
-    web_urls: ['https://web.modemdeck.example']
+    verified_api_urls: previewOriginSNI
+      ? []
+      : ['https://mobile.modemdeck.example'],
+    web_urls: ['https://web.modemdeck.example'],
+    origin_routes: [
+      {
+        kind: 'api' as const,
+        public_url: 'https://mobile.modemdeck.example',
+        service_url: previewOriginSNI
+          ? 'https://modemdeck:7575'
+          : 'http://modemdeck:7575',
+        https: previewOriginSNI,
+        http2: previewOriginSNI,
+        tls_name_configured: false,
+        tls_verification: true
+      },
+      {
+        kind: 'web' as const,
+        public_url: 'https://web.modemdeck.example',
+        service_url: previewOriginSNI
+          ? 'https://modemdeck:7576'
+          : 'http://modemdeck:7576',
+        https: previewOriginSNI,
+        http2: previewOriginSNI,
+        tls_name_configured: false,
+        tls_verification: true
+      }
+    ]
   }
-  let cloudflareOriginTLS = {
-    enabled: false,
-    covers_routes: false,
-    subject: '',
-    issuer: '',
-    dns_names: [] as string[],
-    not_before: '',
-    not_after: '',
-    fingerprint_sha256: '',
-    expired: false
-  }
+  let cloudflareOriginTLS = previewOriginSNI
+    ? {
+        enabled: true,
+        covers_routes: true,
+        subject: '*.modemdeck.example',
+        issuer: 'Cloudflare Origin CA',
+        dns_names: ['*.modemdeck.example'],
+        not_before: '2026-08-01T00:00:00Z',
+        not_after: '2041-08-01T00:00:00Z',
+        fingerprint_sha256:
+          '4F:52:49:47:49:4E:2D:53:4E:49:2D:46:49:58:54:55:52:45',
+        expired: false
+      }
+    : {
+        enabled: false,
+        covers_routes: false,
+        subject: '',
+        issuer: '',
+        dns_names: [] as string[],
+        not_before: '',
+        not_after: '',
+        fingerprint_sha256: '',
+        expired: false
+      }
   const turnStatus = {
     configured: true,
     available: true

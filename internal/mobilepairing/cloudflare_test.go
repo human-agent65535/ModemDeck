@@ -12,9 +12,10 @@ import (
 )
 
 type cloudflaredTestIngress struct {
-	Hostname string  `json:"hostname"`
-	Path     *string `json:"path"`
-	Service  string  `json:"service"`
+	Hostname      string                          `json:"hostname"`
+	Path          *string                         `json:"path"`
+	Service       string                          `json:"service"`
+	OriginRequest cloudflaredRuntimeOriginRequest `json:"originRequest,omitempty"`
 }
 
 type cloudflareRoundTripFunc func(*http.Request) (*http.Response, error)
@@ -79,7 +80,8 @@ func TestCloudflareGatewayDisabledWithoutInstallationConfiguration(
 		status.Connected ||
 		status.PublicURL != "" ||
 		len(status.APIURLs) != 0 ||
-		len(status.WebURLs) != 0 {
+		len(status.WebURLs) != 0 ||
+		len(status.OriginRoutes) != 0 {
 		t.Fatalf("status = %+v", status)
 	}
 }
@@ -151,10 +153,18 @@ func TestCloudflareGatewayDiscoversHTTPSOrigins(t *testing.T) {
 			{
 				Hostname: "callsapi.example.com",
 				Service:  cloudflareAPIOriginTLS,
+				OriginRequest: cloudflaredRuntimeOriginRequest{
+					MatchSNIToHost: true,
+					HTTP2Origin:    true,
+				},
 			},
 			{
 				Hostname: "call.example.com",
 				Service:  cloudflareWebOriginTLS,
+				OriginRequest: cloudflaredRuntimeOriginRequest{
+					OriginServerName: "call.example.com",
+					NoTLSVerify:      true,
+				},
 			},
 		},
 	)
@@ -164,8 +174,29 @@ func TestCloudflareGatewayDiscoversHTTPSOrigins(t *testing.T) {
 	}
 	status := gateway.Refresh(context.Background())
 	if len(status.APIURLs) != 1 ||
-		len(status.WebURLs) != 1 {
+		len(status.WebURLs) != 1 ||
+		len(status.OriginRoutes) != 2 {
 		t.Fatalf("status = %+v", status)
+	}
+	api := status.OriginRoutes[0]
+	if api.Kind != "api" ||
+		api.PublicURL != "https://callsapi.example.com" ||
+		api.ServiceURL != cloudflareAPIOriginTLS ||
+		!api.HTTPS ||
+		!api.HTTP2 ||
+		!api.TLSNameConfigured ||
+		!api.TLSVerification {
+		t.Fatalf("API origin route = %+v", api)
+	}
+	web := status.OriginRoutes[1]
+	if web.Kind != "web" ||
+		web.PublicURL != "https://call.example.com" ||
+		web.ServiceURL != cloudflareWebOriginTLS ||
+		!web.HTTPS ||
+		web.HTTP2 ||
+		!web.TLSNameConfigured ||
+		web.TLSVerification {
+		t.Fatalf("Web origin route = %+v", web)
 	}
 }
 

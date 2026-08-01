@@ -180,6 +180,17 @@ export type CloudflareTunnelStatus = {
   api_urls: string[]
   verified_api_urls: string[]
   web_urls: string[]
+  origin_routes: CloudflareOriginRouteStatus[]
+}
+
+export type CloudflareOriginRouteStatus = {
+  kind: 'api' | 'web'
+  public_url: string
+  service_url: string
+  https: boolean
+  http2: boolean
+  tls_name_configured: boolean
+  tls_verification: boolean
 }
 
 export type CloudflareOriginTLSStatus = {

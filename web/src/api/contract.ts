@@ -23,6 +23,7 @@ import type {
   DeviceFeatureCapability,
   DeviceHardwareConfiguration,
   EffectiveIncomingCallPolicy,
+  CloudflareOriginRouteStatus,
   CloudflareOriginTLSStatus,
   ExternalAccessStatus,
   GlobalCallSettings,
@@ -2326,8 +2327,37 @@ export function parseSystemSettingsResponse(value: unknown): SystemSettings {
   return parseSystemSettings(response.settings, 'system_settings')
 }
 
+function parseCloudflareOriginRouteStatus(
+  value: unknown,
+  index: number
+): CloudflareOriginRouteStatus {
+  const path = `cloudflare_tunnel.origin_routes[${index}]`
+  const source = objectValue(value, path)
+  const kind = requiredString(source, path, 'kind')
+  if (kind !== 'api' && kind !== 'web') {
+    throw new Error(`${path}.kind must be api or web`)
+  }
+  return {
+    kind,
+    public_url: requiredString(source, path, 'public_url'),
+    service_url: requiredString(source, path, 'service_url'),
+    https: requiredBoolean(source, path, 'https'),
+    http2: requiredBoolean(source, path, 'http2'),
+    tls_name_configured: requiredBoolean(source, path, 'tls_name_configured'),
+    tls_verification: requiredBoolean(source, path, 'tls_verification')
+  }
+}
+
 function parseCloudflareTunnelStatus(value: unknown) {
   const cloudflare = objectValue(value, 'cloudflare_tunnel')
+  const rawOriginRoutes = cloudflare.origin_routes
+  if (
+    rawOriginRoutes !== undefined &&
+    rawOriginRoutes !== null &&
+    !Array.isArray(rawOriginRoutes)
+  ) {
+    throw new Error('cloudflare_tunnel.origin_routes must be an array')
+  }
   return {
     enabled: requiredBoolean(cloudflare, 'cloudflare_tunnel', 'enabled'),
     connector_connected: requiredBoolean(
@@ -2343,7 +2373,10 @@ function parseCloudflareTunnelStatus(value: unknown) {
       'cloudflare_tunnel',
       'verified_api_urls'
     ),
-    web_urls: optionalStringArray(cloudflare, 'cloudflare_tunnel', 'web_urls')
+    web_urls: optionalStringArray(cloudflare, 'cloudflare_tunnel', 'web_urls'),
+    origin_routes: (Array.isArray(rawOriginRoutes) ? rawOriginRoutes : []).map(
+      parseCloudflareOriginRouteStatus
+    )
   }
 }
 

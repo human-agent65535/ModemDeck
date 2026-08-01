@@ -120,6 +120,80 @@ const pairingNotice = computed(() => {
   }
 })
 
+type TunnelDiagnostic = {
+  code: string
+  message: string
+  tone: 'danger' | 'warning'
+}
+
+const tunnelDiagnostics = computed<TunnelDiagnostic[]>(() => {
+  const status = externalAccess.value
+  if (!status?.cloudflare.enabled) return []
+  if (!status.cloudflare.connector_connected) return []
+
+  const routes = status.cloudflare.origin_routes
+  const originTLSEnabled = status.origin_tls.enabled
+  const blockingDiagnostic = (() => {
+    if (originTLSEnabled && routes.some(route => !route.https)) {
+      return t('iosPairing.originHTTPSRequired')
+    }
+    if (!originTLSEnabled && routes.some(route => route.https)) {
+      return t('iosPairing.originTLSRequired')
+    }
+    if (
+      originTLSEnabled &&
+      routes.some(
+        route =>
+          route.https &&
+          route.tls_verification &&
+          !route.tls_name_configured
+      )
+    ) {
+      return t('iosPairing.originSNIRequired')
+    }
+    return ''
+  })()
+  if (blockingDiagnostic) {
+    return [
+      {
+        code: 'origin-configuration',
+        message: blockingDiagnostic,
+        tone: 'danger'
+      }
+    ]
+  }
+
+  const diagnostics: TunnelDiagnostic[] = []
+  if (routes.some(route => route.https && !route.tls_verification)) {
+    diagnostics.push({
+      code: 'origin-verification',
+      message: t('iosPairing.originTLSVerificationDisabled'),
+      tone: 'warning'
+    })
+  }
+  if (
+    originTLSEnabled &&
+    routes.some(route => route.https && !route.http2)
+  ) {
+    diagnostics.push({
+      code: 'origin-http2',
+      message: t('iosPairing.originHTTP2Recommended'),
+      tone: 'warning'
+    })
+  }
+  if (
+    status.cloudflare.connector_connected &&
+    !status.cloudflare.connected
+  ) {
+    diagnostics.unshift({
+      code: 'public-verification',
+      message: t('iosPairing.tunnelPublicVerificationFailed'),
+      tone: 'danger'
+    })
+  }
+  return diagnostics
+})
+
 function errorMessage(cause: unknown, fallback: string): string {
   if (cause instanceof ApiError) {
     if (cause.code === 'cloudflare_required') {
@@ -434,6 +508,20 @@ onBeforeUnmount(() => {
             </span>
           </div>
         </template>
+        <div
+          v-if="tunnelDiagnostics.length"
+          class="ios-diagnostics"
+          aria-live="polite"
+        >
+          <p
+            v-for="diagnostic in tunnelDiagnostics"
+            :key="diagnostic.code"
+            class="ios-notice"
+            :class="`ios-notice--${diagnostic.tone}`"
+          >
+            {{ diagnostic.message }}
+          </p>
+        </div>
         <dl v-if="externalAccess.cloudflare.enabled" class="ios-pairing-facts">
           <div v-if="externalAccess.cloudflare.api_urls.length">
             <dt>API</dt>
@@ -716,10 +804,21 @@ onBeforeUnmount(() => {
   border-radius: 7px;
 }
 
+.ios-diagnostics {
+  display: grid;
+  gap: 8px;
+}
+
 .ios-notice--danger {
   color: var(--danger);
   background: var(--danger-soft);
   border-color: color-mix(in srgb, var(--danger) 28%, var(--border));
+}
+
+.ios-notice--warning {
+  color: var(--warning-strong);
+  background: var(--warning-soft);
+  border-color: color-mix(in srgb, var(--warning) 28%, var(--border));
 }
 
 .ios-pairing-facts {

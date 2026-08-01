@@ -425,6 +425,18 @@ export default {
     connected: '已連線',
     disconnected: '未連線',
     routeUnavailable: '公網入口無法連線',
+    originTLSRequired:
+      'Tunnel 路由正在使用 HTTPS，但 Origin TLS 尚未啟用。請安裝 Origin Certificate，或將兩個 Service URL 恢復為 HTTP。',
+    originHTTPSRequired:
+      'Origin TLS 已啟用，但至少一條 Tunnel 路由仍使用 HTTP。請將 API 和 Web 的 Service URL 改為 HTTPS。',
+    originSNIRequired:
+      'Tunnel 已使用 HTTPS，但至少一條路由仍以 modemdeck 驗證憑證。請開啟 Match SNI to Host，或填寫與憑證相符的 Origin Server Name。',
+    originHTTP2Recommended:
+      'Origin HTTPS 已設定，但至少一條路由尚未開啟 HTTP2 connection。',
+    originTLSVerificationDisabled:
+      '至少一條 HTTPS 路由開啟了 No TLS Verify，來源站憑證將不會被驗證。建議關閉。',
+    tunnelPublicVerificationFailed:
+      'Tunnel Connector 正常，但公網 API 尚未通過執行個體驗證。路由設定可能仍在同步，或存在憑證、SNI 等錯誤。',
     turnTitle: 'TURN 通話中繼',
     turnNotConfigured: '未設定',
     turnAvailable: '可用',

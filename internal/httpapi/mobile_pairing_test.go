@@ -164,6 +164,15 @@ func TestExternalAccessStatusReportsInstallationAndConnectorState(t *testing.T) 
 			PublicURL: "https://phone.example.com",
 			APIURLs:   []string{"https://phone.example.com"},
 			WebURLs:   []string{"https://deck.example.com"},
+			OriginRoutes: []mobilepairing.CloudflareOriginRouteStatus{{
+				Kind:              "api",
+				PublicURL:         "https://phone.example.com",
+				ServiceURL:        "https://modemdeck:7575",
+				HTTPS:             true,
+				HTTP2:             false,
+				TLSNameConfigured: true,
+				TLSVerification:   true,
+			}},
 		}},
 		RTCConfiguration: &fakeRTCConfigurationProvider{
 			configuration: rtcconfig.Configuration{
@@ -195,6 +204,8 @@ func TestExternalAccessStatusReportsInstallationAndConnectorState(t *testing.T) 
 		body.Cloudflare.PublicURL != "https://phone.example.com" ||
 		len(body.Cloudflare.APIURLs) != 1 ||
 		len(body.Cloudflare.WebURLs) != 1 ||
+		len(body.Cloudflare.OriginRoutes) != 1 ||
+		body.Cloudflare.OriginRoutes[0].HTTP2 ||
 		!body.TURN.Configured ||
 		!body.TURN.Available {
 		t.Fatalf("external access = %+v", body)

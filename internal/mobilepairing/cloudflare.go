@@ -42,13 +42,24 @@ var ErrInvalidCloudflareConfiguration = errors.New(
 )
 
 type CloudflareStatus struct {
-	Enabled            bool     `json:"enabled"`
-	ConnectorConnected bool     `json:"connector_connected"`
-	Connected          bool     `json:"connected"`
-	PublicURL          string   `json:"public_url"`
-	APIURLs            []string `json:"api_urls,omitempty"`
-	VerifiedAPIURLs    []string `json:"verified_api_urls,omitempty"`
-	WebURLs            []string `json:"web_urls,omitempty"`
+	Enabled            bool                          `json:"enabled"`
+	ConnectorConnected bool                          `json:"connector_connected"`
+	Connected          bool                          `json:"connected"`
+	PublicURL          string                        `json:"public_url"`
+	APIURLs            []string                      `json:"api_urls,omitempty"`
+	VerifiedAPIURLs    []string                      `json:"verified_api_urls,omitempty"`
+	WebURLs            []string                      `json:"web_urls,omitempty"`
+	OriginRoutes       []CloudflareOriginRouteStatus `json:"origin_routes,omitempty"`
+}
+
+type CloudflareOriginRouteStatus struct {
+	Kind              string `json:"kind"`
+	PublicURL         string `json:"public_url"`
+	ServiceURL        string `json:"service_url"`
+	HTTPS             bool   `json:"https"`
+	HTTP2             bool   `json:"http2"`
+	TLSNameConfigured bool   `json:"tls_name_configured"`
+	TLSVerification   bool   `json:"tls_verification"`
 }
 
 type Availability interface {
@@ -253,6 +264,7 @@ func (gateway *CloudflareGateway) scan(
 	if discovered {
 		status.APIURLs = routes.APIURLs
 		status.WebURLs = routes.WebURLs
+		status.OriginRoutes = routes.OriginRoutes
 	}
 	if len(status.APIURLs) == 1 {
 		status.PublicURL = status.APIURLs[0]
@@ -386,6 +398,10 @@ func cloneCloudflareStatus(status CloudflareStatus) CloudflareStatus {
 	status.APIURLs = append([]string(nil), status.APIURLs...)
 	status.VerifiedAPIURLs = append([]string(nil), status.VerifiedAPIURLs...)
 	status.WebURLs = append([]string(nil), status.WebURLs...)
+	status.OriginRoutes = append(
+		[]CloudflareOriginRouteStatus(nil),
+		status.OriginRoutes...,
+	)
 	if status.APIURLs == nil {
 		status.APIURLs = []string{}
 	}
@@ -395,22 +411,34 @@ func cloneCloudflareStatus(status CloudflareStatus) CloudflareStatus {
 	if status.WebURLs == nil {
 		status.WebURLs = []string{}
 	}
+	if status.OriginRoutes == nil {
+		status.OriginRoutes = []CloudflareOriginRouteStatus{}
+	}
 	return status
+}
+
+type cloudflaredRuntimeOriginRequest struct {
+	OriginServerName string `json:"originServerName"`
+	MatchSNIToHost   bool   `json:"matchSNItoHost"`
+	NoTLSVerify      bool   `json:"noTLSVerify"`
+	HTTP2Origin      bool   `json:"http2Origin"`
 }
 
 type cloudflaredRuntimeConfiguration struct {
 	Config struct {
 		Ingress []struct {
-			Hostname string  `json:"hostname"`
-			Path     *string `json:"path"`
-			Service  string  `json:"service"`
+			Hostname      string                          `json:"hostname"`
+			Path          *string                         `json:"path"`
+			Service       string                          `json:"service"`
+			OriginRequest cloudflaredRuntimeOriginRequest `json:"originRequest"`
 		} `json:"ingress"`
 	} `json:"config"`
 }
 
 type discoveredCloudflareRoutes struct {
-	APIURLs []string
-	WebURLs []string
+	APIURLs      []string
+	WebURLs      []string
+	OriginRoutes []CloudflareOriginRouteStatus
 }
 
 func (gateway *CloudflareGateway) discoverRoutes(
@@ -448,6 +476,7 @@ func (gateway *CloudflareGateway) discoverRoutes(
 	}
 	apiCandidates := make(map[string]struct{})
 	webCandidates := make(map[string]struct{})
+	originRoutes := make(map[string]CloudflareOriginRouteStatus)
 	for _, ingress := range runtimeConfig.Config.Ingress {
 		if ingress.Path != nil && strings.TrimSpace(*ingress.Path) != "" {
 			continue
@@ -465,16 +494,45 @@ func (gateway *CloudflareGateway) discoverRoutes(
 		if err != nil {
 			continue
 		}
+		kind := "web"
 		if isAPI {
+			kind = "api"
 			apiCandidates[publicURL] = struct{}{}
 		} else {
 			webCandidates[publicURL] = struct{}{}
 		}
+		originRoutes[kind+"\x00"+publicURL] = CloudflareOriginRouteStatus{
+			Kind:       kind,
+			PublicURL:  publicURL,
+			ServiceURL: origin,
+			HTTPS: origin == gateway.apiOriginTLS ||
+				origin == gateway.webOriginTLS,
+			HTTP2: ingress.OriginRequest.HTTP2Origin,
+			TLSNameConfigured: ingress.OriginRequest.MatchSNIToHost ||
+				strings.TrimSpace(ingress.OriginRequest.OriginServerName) != "",
+			TLSVerification: !ingress.OriginRequest.NoTLSVerify,
+		}
 	}
 	return discoveredCloudflareRoutes{
-		APIURLs: sortedStringSet(apiCandidates),
-		WebURLs: sortedStringSet(webCandidates),
+		APIURLs:      sortedStringSet(apiCandidates),
+		WebURLs:      sortedStringSet(webCandidates),
+		OriginRoutes: sortedCloudflareOriginRoutes(originRoutes),
 	}, true
+}
+
+func sortedCloudflareOriginRoutes(
+	values map[string]CloudflareOriginRouteStatus,
+) []CloudflareOriginRouteStatus {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	result := make([]CloudflareOriginRouteStatus, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, values[key])
+	}
+	return result
 }
 
 func sortedStringSet(values map[string]struct{}) []string {

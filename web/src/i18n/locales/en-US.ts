@@ -436,6 +436,18 @@ export default {
     connected: 'Connected',
     disconnected: 'Disconnected',
     routeUnavailable: 'Public route unavailable',
+    originTLSRequired:
+      'Tunnel routes use HTTPS, but origin TLS is not active. Install an Origin Certificate or restore both Service URLs to HTTP.',
+    originHTTPSRequired:
+      'Origin TLS is active, but at least one Tunnel route still uses HTTP. Change the API and Web Service URLs to HTTPS.',
+    originSNIRequired:
+      'The Tunnel uses HTTPS, but at least one route still validates the certificate as modemdeck. Turn on Match SNI to Host or enter a matching Origin Server Name.',
+    originHTTP2Recommended:
+      'Origin HTTPS is configured, but at least one route has not enabled HTTP2 connection.',
+    originTLSVerificationDisabled:
+      'At least one HTTPS route has No TLS Verify turned on, so its origin certificate is not verified. Turn it off.',
+    tunnelPublicVerificationFailed:
+      'The Tunnel Connector is healthy, but the public API has not verified this instance. The route may still be syncing, or its certificate or SNI configuration may be incorrect.',
     turnTitle: 'TURN call relay',
     turnNotConfigured: 'Not configured',
     turnAvailable: 'Available',

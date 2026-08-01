@@ -86,7 +86,18 @@ test('pairing exposes only verified selectable API addresses', () => {
       public_url: 'https://phone.example.com',
       api_urls: ['https://phone.example.com'],
       verified_api_urls: ['https://phone.example.com'],
-      web_urls: ['https://deck.example.com']
+      web_urls: ['https://deck.example.com'],
+      origin_routes: [
+        {
+          kind: 'api',
+          public_url: 'https://phone.example.com',
+          service_url: 'https://modemdeck:7575',
+          https: true,
+          http2: true,
+          tls_name_configured: true,
+          tls_verification: true
+        }
+      ]
     },
     turn: {
       configured: true,
@@ -105,6 +116,17 @@ test('pairing exposes only verified selectable API addresses', () => {
     }
   })
   assert.equal(external.cloudflare.public_url, 'https://phone.example.com')
+  assert.deepEqual(external.cloudflare.origin_routes, [
+    {
+      kind: 'api',
+      public_url: 'https://phone.example.com',
+      service_url: 'https://modemdeck:7575',
+      https: true,
+      http2: true,
+      tls_name_configured: true,
+      tls_verification: true
+    }
+  ])
   assert.deepEqual(external.turn, {
     configured: true,
     available: true
@@ -135,7 +157,27 @@ test('fixture creates and revokes one non-expiring Cloudflare pairing', async ()
     public_url: 'https://mobile.modemdeck.example',
     api_urls: ['https://mobile.modemdeck.example'],
     verified_api_urls: ['https://mobile.modemdeck.example'],
-    web_urls: ['https://web.modemdeck.example']
+    web_urls: ['https://web.modemdeck.example'],
+    origin_routes: [
+      {
+        kind: 'api',
+        public_url: 'https://mobile.modemdeck.example',
+        service_url: 'http://modemdeck:7575',
+        https: false,
+        http2: false,
+        tls_name_configured: false,
+        tls_verification: true
+      },
+      {
+        kind: 'web',
+        public_url: 'https://web.modemdeck.example',
+        service_url: 'http://modemdeck:7576',
+        https: false,
+        http2: false,
+        tls_name_configured: false,
+        tls_verification: true
+      }
+    ]
   })
 
   const created = await gateway.createIOSPairing()
@@ -147,6 +189,22 @@ test('fixture creates and revokes one non-expiring Cloudflare pairing', async ()
   await gateway.revokeIOSPairing()
   assert.equal((await gateway.getIOSPairing()).pairing.has_credential, false)
   assert.equal((await gateway.getIOSPairing()).pairing.paired, false)
+})
+
+test('fixture can preview a missing Origin SNI diagnosis', async () => {
+  const gateway = createFixtureGateway({ externalAccessDiagnostic: 'origin-sni' })
+  const status = await gateway.getExternalAccessStatus()
+
+  assert.equal(status.cloudflare.connector_connected, true)
+  assert.equal(status.cloudflare.connected, false)
+  assert.equal(status.origin_tls.enabled, true)
+  assert.equal(status.cloudflare.origin_routes.length, 2)
+  assert.equal(
+    status.cloudflare.origin_routes.every(route =>
+      route.https && route.http2 && !route.tls_name_configured
+    ),
+    true
+  )
 })
 
 test('Cloudflare Web call media accepts relay-only ICE configuration', () => {
@@ -242,6 +300,12 @@ test('settings separate administrator infrastructure from self-service pairing',
   assert.match(externalAccessPanel, /showConnectivity && externalAccess/)
   assert.match(externalAccessPanel, /externalAccess\.cloudflare\.api_urls/)
   assert.match(externalAccessPanel, /externalAccess\.cloudflare\.web_urls/)
+  assert.match(externalAccessPanel, /cloudflare\.origin_routes/)
+  assert.match(externalAccessPanel, /originHTTPSRequired/)
+  assert.match(externalAccessPanel, /originSNIRequired/)
+  assert.match(externalAccessPanel, /originHTTP2Recommended/)
+  assert.match(externalAccessPanel, /originTLSVerificationDisabled/)
+  assert.match(externalAccessPanel, /tunnelPublicVerificationFailed/)
   assert.doesNotMatch(externalAccessPanel, /verified_api_urls|ios-route/)
   assert.match(
     externalAccessPanel,
