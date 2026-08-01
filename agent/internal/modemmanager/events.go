@@ -3,6 +3,7 @@ package modemmanager
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/godbus/dbus/v5"
@@ -123,7 +124,9 @@ func (p *Provider) startSystemBusChangeWatcher(conn *dbus.Conn) (func(), error) 
 				if signal == nil {
 					continue
 				}
-				p.publishChange()
+				if systemBusSignalAffectsSnapshot(signal) {
+					p.publishChange()
+				}
 			}
 		}
 	}()
@@ -139,4 +142,116 @@ func (p *Provider) startSystemBusChangeWatcher(conn *dbus.Conn) (func(), error) 
 		})
 	}
 	return stop, nil
+}
+
+// systemBusSignalAffectsSnapshot keeps the Agent change stream aligned with
+// the communication snapshot contract. ModemManager emits radio telemetry on
+// the same D-Bus namespace as calls, messages, and modem lifecycle changes.
+// Forwarding every telemetry sample would make the API rehydrate the complete
+// call and message snapshot for each signal reading. Telemetry is still picked
+// up by the API's periodic reconciliation; lifecycle and communication changes
+// remain event driven.
+func systemBusSignalAffectsSnapshot(signal *dbus.Signal) bool {
+	if signal == nil {
+		return false
+	}
+	switch signal.Name {
+	case busInterface + ".NameOwnerChanged":
+		return true
+	case objectManagerInterface + ".InterfacesAdded":
+		return addedInterfacesAffectSnapshot(signal.Body)
+	case objectManagerInterface + ".InterfacesRemoved":
+		return removedInterfacesAffectSnapshot(signal.Body)
+	case propertiesInterface + ".PropertiesChanged":
+		return changedPropertiesAffectSnapshot(signal.Body)
+	}
+
+	separator := strings.LastIndexByte(signal.Name, '.')
+	if separator <= 0 {
+		return false
+	}
+	return eventDrivenSnapshotInterface(signal.Name[:separator])
+}
+
+func addedInterfacesAffectSnapshot(body []any) bool {
+	if len(body) < 2 {
+		return true
+	}
+	interfaces, ok := body[1].(map[string]map[string]dbus.Variant)
+	if !ok {
+		return true
+	}
+	for interfaceName := range interfaces {
+		if eventDrivenSnapshotInterface(interfaceName) {
+			return true
+		}
+	}
+	return false
+}
+
+func removedInterfacesAffectSnapshot(body []any) bool {
+	if len(body) < 2 {
+		return true
+	}
+	interfaces, ok := body[1].([]string)
+	if !ok {
+		return true
+	}
+	for _, interfaceName := range interfaces {
+		if eventDrivenSnapshotInterface(interfaceName) {
+			return true
+		}
+	}
+	return false
+}
+
+func changedPropertiesAffectSnapshot(body []any) bool {
+	if len(body) < 3 {
+		return true
+	}
+	interfaceName, ok := body[0].(string)
+	if !ok {
+		return true
+	}
+	if interfaceName == signalInterface {
+		return false
+	}
+	if !eventDrivenSnapshotInterface(interfaceName) {
+		return false
+	}
+	if interfaceName != modemInterface {
+		return true
+	}
+
+	changed, changedOK := body[1].(map[string]dbus.Variant)
+	invalidated, invalidatedOK := body[2].([]string)
+	if !changedOK || !invalidatedOK {
+		return true
+	}
+	for propertyName := range changed {
+		if propertyName != "SignalQuality" {
+			return true
+		}
+	}
+	for _, propertyName := range invalidated {
+		if propertyName != "SignalQuality" {
+			return true
+		}
+	}
+	return false
+}
+
+func eventDrivenSnapshotInterface(interfaceName string) bool {
+	switch interfaceName {
+	case modemInterface,
+		modem3GPPInterface,
+		simInterface,
+		voiceInterface,
+		callInterface,
+		messagingInterface,
+		smsInterface:
+		return true
+	default:
+		return false
+	}
 }
