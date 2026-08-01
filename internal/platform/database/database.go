@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +17,14 @@ type Config struct {
 	TargetPath string
 }
 
-const DefaultPath = "data/modemdeck.db"
+const (
+	DefaultPath = "data/modemdeck.db"
+
+	// SQLite still permits only one writer at a time. A small pool lets WAL
+	// serve concurrent readers without multiplying write-lock contention.
+	defaultMaxOpenConnections = 4
+	sqliteBusyTimeoutMillis   = 5000
+)
 
 func Open(ctx context.Context, config Config) (*sql.DB, error) {
 	if ctx == nil {
@@ -28,12 +36,12 @@ func Open(ctx context.Context, config Config) (*sql.DB, error) {
 		return nil, fmt.Errorf("create database directory: %w", err)
 	}
 
-	database, err := sql.Open("sqlite", config.TargetPath)
+	database, err := sql.Open("sqlite", sqliteDataSourceName(config.TargetPath))
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite database: %w", err)
 	}
-	database.SetMaxOpenConns(1)
-	database.SetMaxIdleConns(1)
+	database.SetMaxOpenConns(defaultMaxOpenConnections)
+	database.SetMaxIdleConns(defaultMaxOpenConnections)
 	database.SetConnMaxLifetime(0)
 
 	closeOnError := func(openErr error) (*sql.DB, error) {
@@ -44,9 +52,6 @@ func Open(ctx context.Context, config Config) (*sql.DB, error) {
 	}
 	if err := database.PingContext(ctx); err != nil {
 		return closeOnError(fmt.Errorf("ping sqlite database: %w", err))
-	}
-	if err := configureSQLite(ctx, database); err != nil {
-		return closeOnError(err)
 	}
 	if _, err := InitializeSchema(ctx, database); err != nil {
 		return closeOnError(err)
@@ -62,19 +67,18 @@ func normalizeConfig(config Config) Config {
 	return config
 }
 
-func configureSQLite(ctx context.Context, database *sql.DB) error {
-	statements := []string{
-		"PRAGMA busy_timeout = 5000",
-		"PRAGMA foreign_keys = ON",
-		"PRAGMA journal_mode = WAL",
-		"PRAGMA synchronous = NORMAL",
+func sqliteDataSourceName(targetPath string) string {
+	parameters := url.Values{}
+	parameters.Set("_busy_timeout", fmt.Sprint(sqliteBusyTimeoutMillis))
+	parameters.Set("_foreign_keys", "on")
+	parameters.Set("_journal_mode", "WAL")
+	parameters.Set("_synchronous", "NORMAL")
+
+	separator := "?"
+	if strings.ContainsRune(targetPath, '?') {
+		separator = "&"
 	}
-	for _, statement := range statements {
-		if _, err := database.ExecContext(ctx, statement); err != nil {
-			return fmt.Errorf("configure sqlite with %q: %w", statement, err)
-		}
-	}
-	return nil
+	return targetPath + separator + parameters.Encode()
 }
 
 func CloseWithTimeout(database *sql.DB, timeout time.Duration) error {
