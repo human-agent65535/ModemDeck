@@ -32,7 +32,7 @@ func TestCallMediaExchangeReturnsAnswer(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/api/v1/calls/call-1/media",
-		bytes.NewBufferString(`{"owner_token":"owner-1","offer_sdp":"offer-sdp","holder_id":"browser-1"}`),
+		bytes.NewBufferString(`{"owner_token":"owner-1","offer_sdp":"offer-sdp"}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -68,7 +68,7 @@ func TestCallMediaErrorsHaveStableMapping(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/api/v1/calls/call-1/media",
-		bytes.NewBufferString(`{"owner_token":"owner-1","offer_sdp":"offer-sdp","holder_id":"browser-1"}`),
+		bytes.NewBufferString(`{"owner_token":"owner-1","offer_sdp":"offer-sdp"}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -91,7 +91,7 @@ func TestCallMediaRejectsNonOwnerBeforeExchange(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/api/v1/calls/call-1/media",
-		bytes.NewBufferString(`{"owner_token":"owner-2","offer_sdp":"offer-sdp","holder_id":"browser-2"}`),
+		bytes.NewBufferString(`{"owner_token":"owner-2","offer_sdp":"offer-sdp"}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -119,7 +119,7 @@ func TestCallMediaDeleteReleasesMatchingOwner(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodDelete,
 		"/api/v1/calls/call-1/media",
-		bytes.NewBufferString(`{"owner_token":"owner-1","holder_id":"browser-1"}`),
+		bytes.NewBufferString(`{"owner_token":"owner-1"}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -147,7 +147,7 @@ func TestCallMediaDeleteReportsInvalidOwnerAsMediaRequest(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodDelete,
 		"/api/v1/calls/call-1/media",
-		bytes.NewBufferString(`{"owner_token":"","holder_id":"browser-1"}`),
+		bytes.NewBufferString(`{"owner_token":""}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -184,7 +184,7 @@ func TestMobileCallMediaUsesRelayOnlyServerPeer(t *testing.T) {
 		http.MethodPost,
 		"/api/v1/calls/call-1/media",
 		bytes.NewBufferString(
-			`{"owner_token":"owner-1","offer_sdp":"offer-sdp","holder_id":"ios-1"}`,
+			`{"owner_token":"owner-1","offer_sdp":"offer-sdp"}`,
 		),
 	)
 	request.Header.Set("Authorization", "Bearer "+string(token))
@@ -222,7 +222,7 @@ func TestCloudflareWebCallMediaUsesRelayOnlyServerPeer(t *testing.T) {
 		http.MethodPost,
 		"/api/v1/calls/call-1/media",
 		bytes.NewBufferString(
-			`{"owner_token":"owner-1","offer_sdp":"offer-sdp","holder_id":"browser-1"}`,
+			`{"owner_token":"owner-1","offer_sdp":"offer-sdp"}`,
 		),
 	)
 	request.Header.Set("Content-Type", "application/json")
@@ -281,7 +281,7 @@ func TestMobileCallMediaICEConfigurationRequiresLease(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/api/v1/calls/call-1/media/ice",
-		bytes.NewBufferString(`{"holder_id":"ios-1"}`),
+		bytes.NewBufferString(`{}`),
 	)
 	request.Header.Set("Authorization", "Bearer "+string(token))
 	request.Header.Set("Content-Type", "application/json")
@@ -339,7 +339,7 @@ func TestCloudflareWebCallMediaICEConfigurationUsesTURN(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/api/v1/calls/call-1/media/ice",
-		bytes.NewBufferString(`{"holder_id":"browser-1"}`),
+		bytes.NewBufferString(`{}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-Forwarded-Host", "deck.example.com")
@@ -386,7 +386,7 @@ func TestLocalWebCallMediaICEConfigurationDoesNotRequireTURN(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/api/v1/calls/call-1/media/ice",
-		bytes.NewBufferString(`{"holder_id":"browser-1"}`),
+		bytes.NewBufferString(`{}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-Forwarded-Host", "192.168.50.111:7577")

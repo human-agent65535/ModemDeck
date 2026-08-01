@@ -593,6 +593,59 @@ func TestBusyQuectelVoiceModelWaitsForManualReprobe(t *testing.T) {
 	assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 1)
 }
 
+func TestFirstSnapshotProjectsATCallObservedByVoiceProbe(t *testing.T) {
+	t.Parallel()
+	objects := emptyLineObjects(false, true)
+	properties := objects[testModemPath][modemInterface]
+	properties["Revision"] = dbus.MakeVariant("EG25GGCR07A02M1G")
+
+	caller := newFakeCaller(objects)
+	caller.owner = true
+	caller.atResponses[quectelUSBVoiceQuery] =
+		`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`
+	caller.atResponses[quectelCallListQuery] =
+		`+CLCC: 1,0,0,0,0,"+818012345678",145`
+	provider := newTestProvider(caller)
+
+	snapshot, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if len(snapshot.Calls) != 1 {
+		t.Fatalf("first snapshot calls = %+v, want observed AT call", snapshot.Calls)
+	}
+	if snapshot.Calls[0].LineID != snapshot.Lines[0].ID ||
+		snapshot.Calls[0].StateCode != 4 {
+		t.Fatalf("first snapshot AT call = %+v", snapshot.Calls[0])
+	}
+}
+
+func TestDisabledVoiceControlRetainsEnumeratedModemManagerCall(t *testing.T) {
+	t.Parallel()
+	objects := emptyLineObjects(true, false)
+	properties := objects[testModemPath][modemInterface]
+	properties["Revision"] = dbus.MakeVariant("EG25GGCR07A02M1G")
+	callPath := testCallPath(91)
+	addCall(objects, callPath, 4)
+
+	caller := newFakeCaller(objects)
+	caller.owner = true
+	caller.atResponses[quectelUSBVoiceQuery] =
+		`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,0`
+	provider := newTestProvider(caller)
+
+	snapshot, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if len(snapshot.Calls) != 1 || len(snapshot.Lines[0].CallIDs) != 1 {
+		t.Fatalf("disabled control discarded call truth: %+v", snapshot)
+	}
+	if snapshot.Lines[0].Capabilities.HangupCall {
+		t.Fatalf("disabled control remained actionable: %+v", snapshot.Lines[0])
+	}
+}
+
 func TestQuectelVoiceModelRebuildsWhenFirmwareChanges(t *testing.T) {
 	t.Parallel()
 
@@ -746,7 +799,7 @@ func TestIncomingCallCommandsRejectUnverifiedQuectelVoice(t *testing.T) {
 		RequestID: "request-qdc-answer",
 		CallID:    callID,
 	})
-	assertOperationError(t, err, domain.ErrorNotFound, "answer_call")
+	assertOperationError(t, err, domain.ErrorNotSupported, "answer_call")
 	for _, invocation := range caller.invocations() {
 		if invocation.Method == callInterface+".Accept" {
 			t.Fatal("unverified QDC call reached ModemManager Accept")

@@ -13,7 +13,10 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
-const callControlRollbackTimeout = 5 * time.Second
+const (
+	callControlRollbackTimeout      = 5 * time.Second
+	reservedInternalRequestIDPrefix = "internal_"
+)
 
 type sendMessageRequest struct {
 	RequestID string `json:"request_id"`
@@ -36,14 +39,12 @@ type startCallRequest struct {
 	RequestID        string `json:"request_id"`
 	LineID           string `json:"line_id"`
 	Number           string `json:"number"`
-	HolderID         string `json:"holder_id"`
 	RecordingEnabled *bool  `json:"recording_enabled,omitempty"`
 }
 
 type callActionRequest struct {
 	RequestID        string `json:"request_id"`
 	Digits           string `json:"digits"`
-	HolderID         string `json:"holder_id"`
 	RecordingEnabled *bool  `json:"recording_enabled,omitempty"`
 }
 
@@ -489,11 +490,12 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 	if !api.requireLineAccess(response, request, input.LineID) {
 		return
 	}
-	holder, err := api.callLeaseHolder(request.Context(), input.HolderID)
+	owner, err := api.callLeaseOwner(request.Context())
 	if err != nil {
 		api.writeCallLeaseError(response, request, "validate browser call owner", err)
 		return
 	}
+	holderID := owner.HolderID
 	requestID, ok := commandRequestID(response, request, input.RequestID)
 	if !ok {
 		return
@@ -532,17 +534,60 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 			requestID = preparedRequestID
 		}
 	}
-	reservation, err := api.callLeases.ReserveOutgoing(
+	startInput := communication.StartCallInput{
+		RequestID:    requestID,
+		RequestScope: holderID,
+		LineID:       input.LineID,
+		Number:       input.Number,
+	}
+	replayedCall, replayed, err := api.communications.ReplayStartCall(
+		request.Context(),
+		startInput,
+	)
+	if err != nil {
+		api.writeCommunicationError(response, request, "replay start call", err)
+		return
+	}
+	if replayed {
+		controlState := calllease.ControlOccupied
+		if state, stateErr := api.callLeases.ControlState(
+			request.Context(),
+			replayedCall.ID,
+			holderID,
+		); stateErr == nil {
+			controlState = state
+		}
+		response.Header().Set("Cache-Control", "no-store")
+		writeJSON(response, http.StatusCreated, callSessionEnvelope{
+			Call: callSession(replayedCall, controlState),
+		})
+		return
+	}
+	reservation, err := api.callLeases.ReserveOutgoingFor(
 		request.Context(),
 		requestID,
 		input.LineID,
-		holder.LeaseID,
+		owner,
 	)
 	if err != nil {
 		api.writeCallLeaseError(response, request, "reserve outgoing call line", err)
 		return
 	}
-	reservationActive := reservation.Created
+	if !reservation.Created {
+		// The request that created the single reservation is its only dispatcher.
+		// A concurrent retry must not race it to the durable command journal: if
+		// the retry won that race, the creator could otherwise release the record
+		// while the retry was still creating the hardware call.
+		writeError(
+			response,
+			http.StatusConflict,
+			"call_request_in_progress",
+			"The same call request is already in progress",
+			"request_id",
+		)
+		return
+	}
+	reservationActive := true
 	releaseReservation := func() {
 		if !reservationActive {
 			return
@@ -550,7 +595,7 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 		reservationActive = false
 		released, releaseErr := api.callLeases.ReleaseOutgoing(
 			requestID,
-			holder.LeaseID,
+			holderID,
 		)
 		if releaseErr != nil {
 			api.logger.Warn(
@@ -568,12 +613,25 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 	defer releaseReservation()
 	api.publishRuntimeResources(runtimeevents.ResourceCalls)
 
-	call, err := api.communications.StartCall(request.Context(), communication.StartCallInput{
-		RequestID: requestID,
-		LineID:    input.LineID,
-		Number:    input.Number,
-	})
+	call, err := api.communications.StartCall(request.Context(), startInput)
 	if err != nil {
+		if errors.Is(err, communication.ErrStartCallOutcomeIndeterminate) {
+			if resolutionErr := api.callLeases.AwaitOutgoingResolution(
+				requestID,
+				holderID,
+			); resolutionErr == nil {
+				reservationActive = false
+				api.publishRuntimeResources(runtimeevents.ResourceCalls)
+			} else {
+				api.logger.Warn(
+					"indeterminate outgoing call ownership could not be retained",
+					"component", "calls",
+					"request_id", requestID,
+					"line_id", strings.TrimSpace(input.LineID),
+					"error", resolutionErr,
+				)
+			}
+		}
 		releaseReservation()
 		api.writeCommunicationError(response, request, "start call", err)
 		return
@@ -582,7 +640,7 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 		request.Context(),
 		requestID,
 		call.ID,
-		holder.LeaseID,
+		holderID,
 	); err != nil {
 		rollbackContext, cancel := context.WithTimeout(
 			context.WithoutCancel(request.Context()),
@@ -632,20 +690,18 @@ func (api *API) activeCalls(response http.ResponseWriter, request *http.Request)
 		writeError(response, http.StatusServiceUnavailable, "call_lease_unavailable", "Browser call ownership is unavailable", "")
 		return
 	}
-	holder, err := api.callLeaseHolder(
-		request.Context(),
-		request.URL.Query().Get("holder_id"),
-	)
+	owner, err := api.callLeaseOwner(request.Context())
 	if err != nil {
 		api.writeCallLeaseError(response, request, "validate browser call owner", err)
 		return
 	}
+	holderID := owner.HolderID
 	calls, err := api.communications.ActiveCalls(request.Context())
 	if err != nil {
 		api.writeCommunicationError(response, request, "list active calls", err)
 		return
 	}
-	projection, err := api.callLeases.ProjectActive(calls, holder.LeaseID)
+	projection, err := api.callLeases.ProjectActive(calls, holderID)
 	if err != nil {
 		api.writeCallLeaseError(
 			response,
@@ -684,6 +740,7 @@ func (api *API) activeCalls(response http.ResponseWriter, request *http.Request)
 			},
 		)
 	}
+	response.Header().Set("Cache-Control", "no-store")
 	writeJSON(response, http.StatusOK, activeCallsResponse{
 		Calls:        sessions,
 		Reservations: reservationResponses,
@@ -711,28 +768,52 @@ func (api *API) callAction(response http.ResponseWriter, request *http.Request, 
 	if !decodeJSONBody(response, request, &input) {
 		return
 	}
-	holder, err := api.callLeaseHolder(request.Context(), input.HolderID)
+	owner, err := api.callLeaseOwner(request.Context())
 	if err != nil {
 		api.writeCallLeaseError(response, request, "validate browser call owner", err)
 		return
 	}
+	holderID := owner.HolderID
 	requestID, ok := commandRequestID(response, request, input.RequestID)
 	if !ok {
+		return
+	}
+	actionInput := communication.CallActionInput{
+		RequestID:    requestID,
+		RequestScope: holderID,
+		CallID:       callID,
+		Action:       action,
+		Digits:       input.Digits,
+	}
+	_, replayed, err := api.communications.ReplayCallAction(
+		request.Context(),
+		actionInput,
+	)
+	if err != nil {
+		api.writeCommunicationError(response, request, "replay call control", err)
+		return
+	}
+	if replayed {
+		response.Header().Set("Cache-Control", "no-store")
+		writeJSON(response, http.StatusAccepted, map[string]string{
+			"request_id": requestID,
+			"call_id":    callID,
+		})
 		return
 	}
 	claimed := action == "answer" || action == "reject"
 	var leaseErr error
 	if claimed {
-		_, leaseErr = api.callLeases.Claim(
+		_, leaseErr = api.callLeases.ClaimFor(
 			request.Context(),
 			callID,
-			holder.LeaseID,
+			owner,
 		)
 	} else {
 		leaseErr = api.callLeases.Require(
 			request.Context(),
 			callID,
-			holder.LeaseID,
+			holderID,
 		)
 	}
 	if leaseErr != nil {
@@ -742,30 +823,6 @@ func (api *API) callAction(response http.ResponseWriter, request *http.Request, 
 	if claimed {
 		api.publishRuntimeResources(runtimeevents.ResourceCalls)
 	}
-	releaseClaim := func() {
-		if !claimed {
-			return
-		}
-		rollbackContext, cancel := context.WithTimeout(
-			context.WithoutCancel(request.Context()),
-			callControlRollbackTimeout,
-		)
-		defer cancel()
-		if releaseErr := api.callLeases.Release(
-			rollbackContext,
-			callID,
-			holder.LeaseID,
-		); releaseErr != nil {
-			api.logger.Warn(
-				"failed call action owner could not be released",
-				"component", "calls",
-				"call_id", callID,
-				"action", action,
-				"error", releaseErr,
-			)
-		}
-		api.publishRuntimeResources(runtimeevents.ResourceCalls)
-	}
 	if action == "answer" && api.recordings != nil {
 		recordingEnabled := false
 		if input.RecordingEnabled != nil {
@@ -773,7 +830,6 @@ func (api *API) callAction(response http.ResponseWriter, request *http.Request, 
 		} else {
 			settings, settingsErr := api.recordings.Settings(request.Context())
 			if settingsErr != nil {
-				releaseClaim()
 				api.writeRecordingError(response, request, "load incoming call recording default", settingsErr, nil)
 				return
 			}
@@ -785,24 +841,16 @@ func (api *API) callAction(response http.ResponseWriter, request *http.Request, 
 			recordingEnabled,
 		)
 		if recordingErr != nil {
-			releaseClaim()
 			api.writeRecordingError(response, request, "prepare incoming call recording", recordingErr, &state)
 			return
 		}
 		api.publishRuntimeResources(runtimeevents.ResourceRecordings)
 	} else if action == "answer" && input.RecordingEnabled != nil {
-		releaseClaim()
 		writeError(response, http.StatusServiceUnavailable, "recording_unavailable", "Call recording is unavailable", "")
 		return
 	}
-	_, err = api.communications.CallAction(request.Context(), communication.CallActionInput{
-		RequestID: requestID,
-		CallID:    callID,
-		Action:    action,
-		Digits:    input.Digits,
-	})
+	_, err = api.communications.CallAction(request.Context(), actionInput)
 	if err != nil {
-		releaseClaim()
 		api.writeCommunicationError(response, request, "control call", err)
 		return
 	}
@@ -815,7 +863,6 @@ func (api *API) callAction(response http.ResponseWriter, request *http.Request, 
 		"request_id",
 		requestID,
 	)
-	api.publishRuntimeResources(runtimeevents.ResourceCalls)
 	writeJSON(response, http.StatusAccepted, map[string]string{
 		"request_id": requestID,
 		"call_id":    callID,
@@ -846,10 +893,21 @@ func commandRequestID(response http.ResponseWriter, request *http.Request, bodyV
 		writeError(response, http.StatusBadRequest, "invalid_argument", "request_id and Idempotency-Key must match", "request_id")
 		return "", false
 	}
+	value := bodyValue
 	if headerValue != "" {
-		return headerValue, true
+		value = headerValue
 	}
-	return bodyValue, true
+	if strings.HasPrefix(value, reservedInternalRequestIDPrefix) {
+		writeError(
+			response,
+			http.StatusUnprocessableEntity,
+			"invalid_argument",
+			"request_id uses a reserved namespace",
+			"request_id",
+		)
+		return "", false
+	}
+	return value, true
 }
 
 func callSession(

@@ -136,7 +136,6 @@ export type ActiveCallSnapshot = {
 
 export type CallLeaseStatus = {
   call_id: string
-  holder_id: string
   expires_at: string
 }
 

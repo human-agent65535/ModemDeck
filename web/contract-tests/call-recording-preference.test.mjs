@@ -527,7 +527,6 @@ test('answer sends the final pre-connect recording choice with the claim', async
   }
   gateway.renewCallLease = async callID => ({
     call_id: callID,
-    holder_id: 'fixture-browser',
     expires_at: '2026-07-23T12:01:00Z'
   })
 

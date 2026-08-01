@@ -175,12 +175,40 @@ func run(
 		_ = db.Close()
 		return fmt.Errorf("configure communication runtime events: %w", err)
 	}
+	callLeases, err := calllease.New(
+		repository,
+		communications,
+		calllease.Options{
+			Report: func(err error) {
+				logger.Warn(
+					"call ownership cleanup failed",
+					"component",
+					"calls",
+					"error",
+					err,
+				)
+			},
+		},
+	)
+	if err != nil {
+		_ = db.Close()
+		return fmt.Errorf("create call ownership manager: %w", err)
+	}
 	mediaOpener, err := agentmedia.New(agentSocketPath, repository, agentmedia.Options{})
 	if err != nil {
 		_ = db.Close()
 		return fmt.Errorf("create host media opener: %w", err)
 	}
-	mediaCore, err := callmedia.New(callmedia.Options{EndpointOpener: mediaOpener})
+	mediaCore, err := callmedia.New(callmedia.Options{
+		EndpointOpener: mediaOpener,
+		OnOwnerStateChange: func(callID string, connected bool) {
+			if connected {
+				callLeases.MediaConnected(callID)
+				return
+			}
+			callLeases.MediaDisconnected(callID)
+		},
+	})
 	if err != nil {
 		_ = db.Close()
 		return fmt.Errorf("create WebRTC media core: %w", err)
@@ -217,27 +245,6 @@ func run(
 		_ = mediaCore.Close(context.Background())
 		_ = db.Close()
 		return fmt.Errorf("recover call recordings: %w", err)
-	}
-	callLeases, err := calllease.New(
-		repository,
-		communications,
-		calllease.Options{
-			Report: func(err error) {
-				logger.Warn(
-					"browser call lease failed",
-					"component",
-					"calls",
-					"error",
-					err,
-				)
-			},
-		},
-	)
-	if err != nil {
-		_ = recordings.Close(context.Background())
-		_ = mediaCore.Close(context.Background())
-		_ = db.Close()
-		return fmt.Errorf("create browser call lease manager: %w", err)
 	}
 	callLifecycle, err := calllifecycle.New(callMedia, recordings, callLeases)
 	if err != nil {

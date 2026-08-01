@@ -92,6 +92,16 @@ func (api *API) getSession(response http.ResponseWriter, request *http.Request) 
 	}
 	csrfCookie, err := request.Cookie(csrfCookieName)
 	if err != nil || authentication.VerifyCSRF(auth.CSRFToken(csrfCookie.Value)) != nil {
+		if revokeErr := api.revokeCallSessionToken(
+			request.Context(),
+			sessionToken,
+		); revokeErr != nil {
+			api.logger.Error(
+				"end calls for session with invalid CSRF cookie",
+				"error",
+				revokeErr,
+			)
+		}
 		if err := api.authenticator.Logout(request.Context(), sessionToken); err != nil {
 			api.logger.Error("revoke session with invalid CSRF cookie", "error", err)
 			writeError(response, http.StatusServiceUnavailable, "authentication_unavailable", "Authentication is unavailable", "")
@@ -290,7 +300,14 @@ func (api *API) sessionLanguageForPrincipal(
 func (api *API) logout(response http.ResponseWriter, request *http.Request) {
 	cookie, err := request.Cookie(sessionCookieName)
 	if err == nil {
-		if err := api.authenticator.Logout(request.Context(), auth.SessionToken(cookie.Value)); err != nil {
+		token := auth.SessionToken(cookie.Value)
+		if revokeErr := api.revokeCallSessionToken(
+			request.Context(),
+			token,
+		); revokeErr != nil {
+			api.logger.Error("end calls for logged-out session", "error", revokeErr)
+		}
+		if err := api.authenticator.Logout(request.Context(), token); err != nil {
 			api.logger.Error("logout failed", "error", err)
 			writeError(response, http.StatusServiceUnavailable, "authentication_unavailable", "Authentication is unavailable", "")
 			return
@@ -328,6 +345,15 @@ func (api *API) accountPassword(response http.ResponseWriter, request *http.Requ
 	)
 	switch {
 	case err == nil:
+		var revokeErr error
+		if principal, ok := auth.PrincipalFromContext(request.Context()); ok {
+			revokeErr = api.revokeCallSubject(request.Context(), principal.UserID)
+		} else if holderID, holderErr := api.callLeaseHolder(request.Context()); holderErr == nil {
+			revokeErr = api.revokeCallHolder(request.Context(), holderID)
+		}
+		if revokeErr != nil {
+			api.logger.Error("end calls after password change", "error", revokeErr)
+		}
 		api.publishRuntimeResources(runtimeevents.ResourceSession)
 		api.clearAuthCookies(response)
 		response.Header().Set("Cache-Control", "no-store")
@@ -402,6 +428,12 @@ func (api *API) requestAuthentication(
 		errors.Is(err, auth.ErrSessionExpired) ||
 		errors.Is(err, auth.ErrInvalidSessionToken) ||
 		errors.Is(err, auth.ErrInvalidSessionRecord) {
+		if revokeErr := api.revokeCallSessionToken(
+			request.Context(),
+			token,
+		); revokeErr != nil {
+			api.logger.Error("end calls for invalid session", "error", revokeErr)
+		}
 		_ = api.authenticator.Logout(request.Context(), token)
 		api.clearAuthCookies(response)
 		if writeFailure {

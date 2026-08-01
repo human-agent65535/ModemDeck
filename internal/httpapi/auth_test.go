@@ -275,9 +275,15 @@ func TestLoginAndLogoutCookies(t *testing.T) {
 	repository := &fakeRepository{
 		principalLanguage: store.SystemLanguageJaJP,
 	}
+	leases := &fakeCallLeases{revokedCallIDs: []string{"call-logout"}}
+	communications := &fakeCommunications{}
+	media := &fakeCallMedia{}
 	api, err := New(repository, Options{
-		Authenticator: authenticator,
-		SecureCookies: true,
+		Authenticator:  authenticator,
+		SecureCookies:  true,
+		CallLeases:     leases,
+		Communications: communications,
+		CallMedia:      media,
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -343,6 +349,17 @@ func TestLoginAndLogoutCookies(t *testing.T) {
 		if cookie.MaxAge >= 0 {
 			t.Fatalf("cleared cookie %s MaxAge = %d", cookie.Name, cookie.MaxAge)
 		}
+	}
+	if leases.revokedHolderID != callLeaseHolderForSessionToken(
+		auth.SessionToken(sessionToken),
+	) {
+		t.Fatalf("revoked holder = %q", leases.revokedHolderID)
+	}
+	if media.closed != "call-logout" {
+		t.Fatalf("closed media call = %q, want call-logout", media.closed)
+	}
+	if communications.endCallID != "call-logout" {
+		t.Fatalf("ended call = %q, want call-logout", communications.endCallID)
 	}
 }
 

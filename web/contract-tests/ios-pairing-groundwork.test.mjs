@@ -213,9 +213,7 @@ test('Cloudflare Web call media accepts relay-only ICE configuration', () => {
     path: '/api/v1/calls/call-1/media/ice',
     successStatus: 200
   })
-  assert.deepEqual(createCallMediaICEPayload('browser-1'), {
-    holder_id: 'browser-1'
-  })
+  assert.deepEqual(createCallMediaICEPayload(), {})
   assert.deepEqual(
     parseCallMediaICEConfiguration({
       ice_servers: [

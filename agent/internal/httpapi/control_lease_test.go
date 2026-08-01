@@ -27,21 +27,23 @@ func (stub *controlLeaseStub) Renew(
 	}, nil
 }
 
-func (stub *controlLeaseStub) Require(controllerID string) error {
+func (stub *controlLeaseStub) Protect(controllerID string) (func(), error) {
 	if controllerID == "" || controllerID != stub.controllerID {
-		return domain.FailedPrecondition(
+		return nil, domain.FailedPrecondition(
 			"require_control_lease",
 			"application control lease is missing or expired",
 			nil,
 		)
 	}
-	return nil
+	return func() {}, nil
 }
 
 func (stub *controlLeaseStub) Release(_ context.Context, controllerID string) error {
-	if err := stub.Require(controllerID); err != nil {
+	release, err := stub.Protect(controllerID)
+	if err != nil {
 		return err
 	}
+	release()
 	stub.released = true
 	return nil
 }

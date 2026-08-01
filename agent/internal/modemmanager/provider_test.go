@@ -34,6 +34,7 @@ type fakeCaller struct {
 	callIntrospection   string
 	atResponse          string
 	atResponses         map[string]string
+	atResponsesAfter    map[string]string
 	atCommandErrors     map[string]error
 	connectionProfiles  []map[string]dbus.Variant
 	ussdResponse        string
@@ -159,6 +160,9 @@ func (f *fakeCaller) Call(
 		}
 		if command == quectelHangupCall && f.terminateATOnHangup {
 			f.atResponses[quectelCallListQuery] = ""
+		}
+		if response, found := f.atResponsesAfter[command]; found {
+			f.atResponses[quectelCallListQuery] = response
 		}
 		if response, found := f.atResponses[command]; found {
 			return []any{response}, nil
@@ -345,7 +349,7 @@ func TestSnapshotReturnsDisabledLineWithoutServiceHydration(t *testing.T) {
 	)
 }
 
-func TestSnapshotKeepsCoreLineDuringServiceStateRace(t *testing.T) {
+func TestSnapshotRejectsIncompleteCallListDuringServiceStateRace(t *testing.T) {
 	t.Parallel()
 	objects := emptyLineObjects(true, true)
 	delete(objects[testModemPath][voiceInterface], "Calls")
@@ -361,21 +365,13 @@ func TestSnapshotKeepsCoreLineDuringServiceStateRace(t *testing.T) {
 	)
 	provider := newTestProvider(caller)
 
-	snapshot, err := provider.Snapshot(context.Background())
-	if err != nil {
-		t.Fatalf("Snapshot() error = %v", err)
-	}
-	if len(snapshot.Lines) != 1 ||
-		len(snapshot.Calls) != 0 ||
-		len(snapshot.Messages) != 0 {
-		t.Fatalf("service-race snapshot = %+v", snapshot)
-	}
+	_, err := provider.Snapshot(context.Background())
+	assertOperationError(t, err, domain.ErrorFailedPrecondition, "snapshot")
 	assertMethods(
 		t,
 		caller.invocations(),
 		objectManagerInterface+".GetManagedObjects",
 		voiceInterface+".ListCalls",
-		messagingInterface+".List",
 	)
 }
 
@@ -1691,6 +1687,7 @@ func newFakeCaller(objects ManagedObjects) *fakeCaller {
 		messageLists:     make(map[dbus.ObjectPath][]dbus.ObjectPath),
 		signalAfterSetup: make(map[dbus.ObjectPath]Properties),
 		atResponses:      make(map[string]string),
+		atResponsesAfter: make(map[string]string),
 		atCommandErrors:  make(map[string]error),
 		errors:           make(map[string]error),
 		errorSequences:   make(map[string][]error),

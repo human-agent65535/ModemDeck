@@ -216,21 +216,19 @@ test('communication and Telegram endpoints match the root API', () => {
 })
 
 test('call media exchange and release require the same owner token', () => {
-  assert.deepEqual(createCallMediaPayload(' owner-1 ', ' offer-sdp ', ' browser-1 '), {
+  assert.deepEqual(createCallMediaPayload(' owner-1 ', ' offer-sdp '), {
     owner_token: 'owner-1',
-    offer_sdp: ' offer-sdp ',
-    holder_id: 'browser-1'
+    offer_sdp: ' offer-sdp '
   })
-  assert.deepEqual(createCallMediaReleasePayload(' owner-1 ', ' browser-1 '), {
-    owner_token: 'owner-1',
-    holder_id: 'browser-1'
+  assert.deepEqual(createCallMediaReleasePayload(' owner-1 '), {
+    owner_token: 'owner-1'
   })
   assert.throws(
-    () => createCallMediaPayload('', 'offer-sdp', 'browser-1'),
+    () => createCallMediaPayload('', 'offer-sdp'),
     /owner_token/
   )
   assert.throws(
-    () => createCallMediaReleasePayload('', 'browser-1'),
+    () => createCallMediaReleasePayload(''),
     /owner_token/
   )
 })
@@ -272,17 +270,11 @@ test('message read payload uses the stable line and peer identity', () => {
 
 test('call and DTMF payloads use line_id, number, request_id, and digits', () => {
   assert.deepEqual(
-    createCallPayload(
-      'line-main',
-      '+818012345678',
-      'request-call-1',
-      'browser-1'
-    ),
+    createCallPayload('line-main', '+818012345678', 'request-call-1'),
     {
       request_id: 'request-call-1',
       line_id: 'line-main',
-      number: '+818012345678',
-      holder_id: 'browser-1'
+      number: '+818012345678'
     }
   )
   assert.deepEqual(
@@ -290,14 +282,12 @@ test('call and DTMF payloads use line_id, number, request_id, and digits', () =>
       'line-main',
       '+818012345678',
       'request-call-2',
-      'browser-1',
       true
     ),
     {
       request_id: 'request-call-2',
       line_id: 'line-main',
       number: '+818012345678',
-      holder_id: 'browser-1',
       recording_enabled: true
     }
   )
@@ -306,48 +296,40 @@ test('call and DTMF payloads use line_id, number, request_id, and digits', () =>
       'line-main',
       '+818012345678',
       'request-call-3',
-      'browser-1',
       false
     )
       .recording_enabled,
     false
   )
   assert.deepEqual(
-    createCallActionPayload('hangup', 'request-hangup-1', 'browser-1'),
+    createCallActionPayload('hangup', 'request-hangup-1'),
     {
-      request_id: 'request-hangup-1',
-      holder_id: 'browser-1'
+      request_id: 'request-hangup-1'
     }
   )
   assert.deepEqual(
-    createCallActionPayload('answer', 'request-answer-1', 'browser-1', false),
+    createCallActionPayload('answer', 'request-answer-1', false),
     {
       request_id: 'request-answer-1',
-      holder_id: 'browser-1',
       recording_enabled: false
     }
   )
   assert.equal(
     'recording_enabled' in
-      createCallActionPayload('hangup', 'request-hangup-2', 'browser-1', true),
+      createCallActionPayload('hangup', 'request-hangup-2', true),
     false
   )
-  assert.deepEqual(createCallLeasePayload(' browser-1 '), {
-    holder_id: 'browser-1'
-  })
-  assert.deepEqual(createDTMFPayload('12#', 'request-dtmf-1', 'browser-1'), {
+  assert.deepEqual(createCallLeasePayload(), {})
+  assert.deepEqual(createDTMFPayload('12#', 'request-dtmf-1'), {
     request_id: 'request-dtmf-1',
-    digits: '12#',
-    holder_id: 'browser-1'
+    digits: '12#'
   })
-  assert.deepEqual(createCallMediaPayload(' owner-1 ', 'v=0\r\n', 'browser-1'), {
+  assert.deepEqual(createCallMediaPayload(' owner-1 ', 'v=0\r\n'), {
     owner_token: 'owner-1',
-    offer_sdp: 'v=0\r\n',
-    holder_id: 'browser-1'
+    offer_sdp: 'v=0\r\n'
   })
-  assert.deepEqual(createCallRecordingPayload(false, 'browser-1'), {
-    enabled: false,
-    holder_id: 'browser-1'
+  assert.deepEqual(createCallRecordingPayload(false), {
+    enabled: false
   })
   assert.deepEqual(
     createRecordingSettingsPayload({ default_enabled: true, revision: 3 }),
@@ -355,16 +337,14 @@ test('call and DTMF payloads use line_id, number, request_id, and digits', () =>
   )
 })
 
-test('call lease status requires an active holder and a valid expiry', () => {
+test('call lease status requires a call and a valid expiry', () => {
   assert.deepEqual(
     parseCallLeaseStatus({
       call_id: 'call-1',
-      holder_id: 'browser-1',
       expires_at: '2026-07-28T12:00:15Z'
     }),
     {
       call_id: 'call-1',
-      holder_id: 'browser-1',
       expires_at: '2026-07-28T12:00:15Z'
     }
   )
@@ -372,7 +352,6 @@ test('call lease status requires an active holder and a valid expiry', () => {
     () =>
       parseCallLeaseStatus({
         call_id: 'call-1',
-        holder_id: 'browser-1',
         expires_at: 'not-a-time'
       }),
     /expires_at/

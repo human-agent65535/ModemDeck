@@ -278,6 +278,12 @@ func (p *Provider) Health(ctx context.Context) (domain.ProviderHealth, error) {
 
 func (p *Provider) Snapshot(ctx context.Context) (domain.Snapshot, error) {
 	const operation = "snapshot"
+	// A complete call snapshot and every call/media command share one provider
+	// order. This remains necessary after an HTTP client times out: the handler
+	// may still be finishing its provider command when the App asks for the
+	// reconciliation snapshot.
+	p.callMu.Lock()
+	defer p.callMu.Unlock()
 	identity, err := p.resolveProviderIdentity(ctx, operation)
 	if err != nil {
 		return domain.Snapshot{}, err
@@ -306,6 +312,9 @@ func (p *Provider) Snapshot(ctx context.Context) (domain.Snapshot, error) {
 	}
 	parsed := ParseManagedObjects(objects, identity)
 	p.initializeVoiceModel(ctx, operation, &parsed)
+	if err := p.refreshAuthoritativeATCalls(ctx, operation, &parsed); err != nil {
+		return domain.Snapshot{}, err
+	}
 	p.projectServingRadios(ctx, operation, &parsed)
 	p.projectDesiredRadioState(parsed.Lines)
 	observedAt := p.now().UTC()
@@ -478,6 +487,9 @@ func (p *Provider) AnswerCall(ctx context.Context, request domain.CallCommandReq
 		if !found {
 			return domain.NotFound(operation, "call line was not found")
 		}
+		if !line.Capabilities.AnswerCall {
+			return domain.NotSupported(operation, "answering calls is not verified for the line")
+		}
 		linePath := parsed.LinePaths[line.ID]
 		if result, found := p.ensureQuectelMediaRouting(
 			ctx,
@@ -523,6 +535,13 @@ func (p *Provider) RejectCall(ctx context.Context, request domain.CallCommandReq
 		if call.StateCode != 3 && call.StateCode != 6 {
 			return domain.Conflict(operation, "call is not an incoming ringing or waiting call")
 		}
+		line, found := findLine(parsed.Lines, call.LineID)
+		if !found {
+			return domain.NotFound(operation, "call line was not found")
+		}
+		if !line.Capabilities.RejectCall {
+			return domain.NotSupported(operation, "rejecting calls is not verified for the line")
+		}
 		return p.terminateCall(terminationContext, operation, call, parsed)
 	})
 }
@@ -565,12 +584,22 @@ func (p *Provider) SendDTMF(ctx context.Context, request domain.DTMFRequest) (do
 		return domain.CommandReceipt{}, err
 	}
 	p.projectVoiceCapabilities(ctx, operation, &parsed)
+	if err := p.refreshAuthoritativeATCalls(ctx, operation, &parsed); err != nil {
+		return domain.CommandReceipt{}, err
+	}
 	call, found := findCall(parsed.Calls, request.CallID)
 	if !found {
 		return domain.CommandReceipt{}, domain.NotFound(operation, "active call was not found")
 	}
 	if call.StateCode != 4 {
 		return domain.CommandReceipt{}, domain.Conflict(operation, "DTMF requires an active call")
+	}
+	line, found := findLine(parsed.Lines, call.LineID)
+	if !found {
+		return domain.CommandReceipt{}, domain.NotFound(operation, "call line was not found")
+	}
+	if !line.Capabilities.SendDTMF {
+		return domain.CommandReceipt{}, domain.NotSupported(operation, "DTMF is not verified for the line")
 	}
 	if lineID, isATCall := parsed.ATCallLines[call.ID]; isATCall {
 		for _, digit := range request.Digits {
@@ -858,6 +887,9 @@ func (p *Provider) controlCall(
 		return domain.CommandReceipt{}, err
 	}
 	p.projectVoiceCapabilities(ctx, operation, &parsed)
+	if err := p.refreshAuthoritativeATCalls(ctx, operation, &parsed); err != nil {
+		return domain.CommandReceipt{}, err
+	}
 	call, found := findCall(parsed.Calls, request.CallID)
 	if !found {
 		return domain.CommandReceipt{}, domain.NotFound(operation, "active call was not found")

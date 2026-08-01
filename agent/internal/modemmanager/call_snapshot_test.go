@@ -46,6 +46,33 @@ func TestSnapshotHydratesCallMissingFromManagedObjects(t *testing.T) {
 	)
 }
 
+func TestSnapshotFailsWhenVoiceModemStateIsUnknown(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name  string
+		state *dbus.Variant
+	}{
+		{name: "missing"},
+		{name: "wrong type", state: variantPointer(dbus.MakeVariant(uint32(8)))},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			objects := emptyLineObjects(true, false)
+			if test.state == nil {
+				delete(objects[testModemPath][modemInterface], "State")
+			} else {
+				objects[testModemPath][modemInterface]["State"] = *test.state
+			}
+			provider := newTestProvider(newFakeCaller(objects))
+			_, err := provider.Snapshot(context.Background())
+			assertOperationError(t, err, domain.ErrorUnavailable, "snapshot")
+		})
+	}
+}
+
+func variantPointer(value dbus.Variant) *dbus.Variant {
+	return &value
+}
+
 func TestSnapshotRefreshesHydratedCallProperties(t *testing.T) {
 	t.Parallel()
 	objects := emptyLineObjects(true, false)

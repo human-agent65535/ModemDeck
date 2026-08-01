@@ -4,7 +4,67 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
+
+func TestOwnerStateTracksConnectedTransportAndRelease(t *testing.T) {
+	format := testFormat(8000)
+	opener := &fakeEndpointOpener{endpoint: newFakeEndpoint(format)}
+	states := make(chan bool, 4)
+	core, err := New(Options{
+		EndpointOpener: opener,
+		CodecFactory:   &fakeCodecFactory{},
+		Jitter: JitterConfig{
+			StartupDelay: time.Millisecond,
+		},
+		OnOwnerStateChange: func(callID string, connected bool) {
+			if callID != "call-owner-state" {
+				t.Errorf("owner callback call = %q", callID)
+			}
+			states <- connected
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+		defer cancel()
+		if err := core.Close(ctx); err != nil {
+			t.Errorf("close core: %v", err)
+		}
+	})
+	authorizeCall(t, core, "call-owner-state")
+
+	browser := newTestBrowser(t)
+	offer := testOffer("call-owner-state", browser.offer(t))
+	result, err := core.Exchange(context.Background(), offer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case state := <-states:
+		t.Fatalf("owner state before WebRTC connected = %t", state)
+	default:
+	}
+	browser.applyAnswer(t, result.AnswerSDP)
+	if connected := receive(t, states); !connected {
+		t.Fatal("first owner callback was disconnected")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	if err := core.ReleaseOwner(
+		ctx,
+		"call-owner-state",
+		offer.OwnerToken,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if connected := receive(t, states); connected {
+		t.Fatal("release did not publish the disconnected owner state")
+	}
+}
 
 func TestMediaOwnerTokenIsExclusiveAndTransferableAfterRelease(t *testing.T) {
 	format := testFormat(8000)

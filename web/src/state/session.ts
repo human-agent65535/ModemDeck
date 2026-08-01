@@ -4,7 +4,6 @@ import type { ChangePasswordInput, SessionResponse } from '../api/types'
 import {
   fixtureMode,
   gateway,
-  rotateCallLeaseHolder,
   rotateAuthenticationRequestScope,
   setAuthenticationRequiredHandler,
   setClientCSRFToken
@@ -119,7 +118,6 @@ export function clearSession(message = '', setupRequired = false): void {
   state.setupRequired = setupRequired
   state.error = message
   setClientCSRFToken()
-  rotateCallLeaseHolder()
   resetWorkspaceState()
   resetNetworkState()
   resetRecordingState()

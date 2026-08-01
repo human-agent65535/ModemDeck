@@ -122,7 +122,9 @@ type Authenticator interface {
 type CommunicationService interface {
 	Status(context.Context) (communication.Status, error)
 	SendMessage(context.Context, communication.SendMessageInput) (store.Message, error)
+	ReplayStartCall(context.Context, communication.StartCallInput) (store.Call, bool, error)
 	StartCall(context.Context, communication.StartCallInput) (store.Call, error)
+	ReplayCallAction(context.Context, communication.CallActionInput) (store.Call, bool, error)
 	CallAction(context.Context, communication.CallActionInput) (store.Call, error)
 	ActiveCalls(context.Context) ([]store.Call, error)
 	EndCall(context.Context, string) error
@@ -203,16 +205,18 @@ type CallMediaService interface {
 }
 
 type CallLeaseService interface {
-	ReserveOutgoing(context.Context, string, string, string) (calllease.OutgoingReservation, error)
+	ReserveOutgoingFor(context.Context, string, string, calllease.Owner) (calllease.OutgoingReservation, error)
 	ActivateOutgoing(context.Context, string, string, string) (calllease.Status, error)
 	ReleaseOutgoing(string, string) (bool, error)
+	AwaitOutgoingResolution(string, string) error
 	OutgoingReservations(string) ([]calllease.OutgoingReservation, error)
 	ProjectActive([]store.Call, string) (calllease.ActiveProjection, error)
-	Claim(context.Context, string, string) (calllease.Status, error)
+	ClaimFor(context.Context, string, calllease.Owner) (calllease.Status, error)
 	Renew(context.Context, string, string) (calllease.Status, error)
 	Require(context.Context, string, string) error
 	ControlState(context.Context, string, string) (calllease.ControlState, error)
-	Release(context.Context, string, string) error
+	RevokeHolder(string) ([]string, error)
+	RevokeSubject(string) ([]string, error)
 }
 
 type RecordingService interface {

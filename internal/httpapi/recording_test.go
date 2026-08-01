@@ -63,7 +63,7 @@ func TestRecordingSettingsAndToggleReturnAuthoritativeState(t *testing.T) {
 	toggle := httptest.NewRequest(
 		http.MethodPut,
 		"/api/v1/calls/call-1/recording",
-		bytes.NewBufferString(`{"enabled":true,"holder_id":"browser-1"}`),
+		bytes.NewBufferString(`{"enabled":true}`),
 	)
 	toggle.Header.Set("Content-Type", "application/json")
 	toggleResponse := httptest.NewRecorder()
@@ -98,7 +98,7 @@ func TestRecordingToggleRejectsNonOwner(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPut,
 		"/api/v1/calls/call-1/recording",
-		bytes.NewBufferString(`{"enabled":true,"holder_id":"browser-2"}`),
+		bytes.NewBufferString(`{"enabled":true}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -371,7 +371,7 @@ func TestRecordingErrorsAreTypedAndToggleIncludesState(t *testing.T) {
 	toggle := httptest.NewRequest(
 		http.MethodPut,
 		"/api/v1/calls/call-1/recording",
-		bytes.NewBufferString(`{"enabled":true,"holder_id":"browser-1"}`),
+		bytes.NewBufferString(`{"enabled":true}`),
 	)
 	toggle.Header.Set("Content-Type", "application/json")
 	toggleResponse := httptest.NewRecorder()
@@ -431,7 +431,7 @@ func TestStartCallRecordingOverrideIsOptional(t *testing.T) {
 			http.MethodPost,
 			"/api/v1/calls",
 			bytes.NewBufferString(
-				`{"request_id":"request-default","line_id":"line-1","number":"+818000000077","holder_id":"browser-1"}`,
+				`{"request_id":"request-default","line_id":"line-1","number":"+818000000077"}`,
 			),
 		)
 		request.Header.Set("Content-Type", "application/json")
@@ -466,7 +466,7 @@ func TestStartCallRecordingOverrideIsOptional(t *testing.T) {
 			http.MethodPost,
 			"/api/v1/calls",
 			bytes.NewBufferString(
-				`{"line_id":"line-1","number":"+818000000077","holder_id":"browser-1","recording_enabled":false}`,
+				`{"line_id":"line-1","number":"+818000000077","recording_enabled":false}`,
 			),
 		)
 		request.Header.Set("Content-Type", "application/json")
@@ -509,7 +509,7 @@ func TestIncomingAnswerPersistsRecordingChoiceBeforeModemAnswer(t *testing.T) {
 		http.MethodPost,
 		"/api/v1/calls/call-incoming/answer",
 		bytes.NewBufferString(
-			`{"request_id":"request-answer","holder_id":"browser-1","recording_enabled":false}`,
+			`{"request_id":"request-answer","recording_enabled":false}`,
 		),
 	)
 	request.Header.Set("Content-Type", "application/json")

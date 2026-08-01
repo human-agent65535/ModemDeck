@@ -8,9 +8,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/calllease"
 )
 
-type renewCallLeaseRequest struct {
-	HolderID string `json:"holder_id"`
-}
+type renewCallLeaseRequest struct{}
 
 func (api *API) renewCallLease(
 	response http.ResponseWriter,
@@ -45,7 +43,7 @@ func (api *API) renewCallLease(
 	if !decodeJSONBody(response, request, &input) {
 		return
 	}
-	holder, err := api.callLeaseHolder(request.Context(), input.HolderID)
+	holderID, err := api.callLeaseHolder(request.Context())
 	if err != nil {
 		api.writeCallLeaseError(
 			response,
@@ -58,7 +56,7 @@ func (api *API) renewCallLease(
 	status, err := api.callLeases.Renew(
 		request.Context(),
 		callID,
-		holder.LeaseID,
+		holderID,
 	)
 	if err != nil {
 		api.writeCallLeaseError(
@@ -69,7 +67,6 @@ func (api *API) renewCallLease(
 		)
 		return
 	}
-	status.HolderID = holder.ClientID
 	response.Header().Set("Cache-Control", "no-store")
 	writeJSON(response, http.StatusOK, status)
 }
@@ -86,8 +83,8 @@ func (api *API) writeCallLeaseError(
 			response,
 			http.StatusBadRequest,
 			"invalid_argument",
-			"call id and holder_id are required",
-			"holder_id",
+			"call id is required",
+			"call_id",
 		)
 	case errors.Is(err, calllease.ErrCallNotFound):
 		writeError(
@@ -111,7 +108,7 @@ func (api *API) writeCallLeaseError(
 			response,
 			http.StatusConflict,
 			"line_in_use",
-			"Line is already in use by another browser",
+			"Line is already in use by another signed-in session",
 			"",
 		)
 	case errors.Is(err, calllease.ErrHolderBusy):
@@ -119,7 +116,7 @@ func (api *API) writeCallLeaseError(
 			response,
 			http.StatusConflict,
 			"browser_call_busy",
-			"This browser is already handling another call",
+			"This signed-in session is already handling another call",
 			"",
 		)
 	case errors.Is(err, calllease.ErrNotOwner):
@@ -127,7 +124,7 @@ func (api *API) writeCallLeaseError(
 			response,
 			http.StatusConflict,
 			"call_not_owned",
-			"This browser does not own the call",
+			"This signed-in session does not own the call",
 			"",
 		)
 	default:

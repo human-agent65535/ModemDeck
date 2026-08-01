@@ -68,7 +68,6 @@ func (p *Provider) projectVoiceCapabilities(
 	if parsed == nil {
 		return
 	}
-	blockedLines := make(map[string]struct{})
 	for index := range parsed.Lines {
 		line := &parsed.Lines[index]
 		if !requiresQuectelPCMProbe(*line) {
@@ -78,14 +77,12 @@ func (p *Provider) projectVoiceCapabilities(
 		if !found || !path.IsValid() {
 			disableLineCallControl(line)
 			delete(parsed.CallBackends, line.ID)
-			blockedLines[line.ID] = struct{}{}
 			continue
 		}
 		result, modeled := p.voiceProbeResult(voiceProbeKey(parsed.ids, *line, path))
 		if !modeled {
 			disableLineCallControl(line)
 			delete(parsed.CallBackends, line.ID)
-			blockedLines[line.ID] = struct{}{}
 			continue
 		}
 		projectVoiceProbeResult(line, result)
@@ -98,7 +95,6 @@ func (p *Provider) projectVoiceCapabilities(
 			} else {
 				disableLineCallControl(line)
 				delete(parsed.CallBackends, line.ID)
-				blockedLines[line.ID] = struct{}{}
 				continue
 			}
 			if !result.media {
@@ -114,7 +110,6 @@ func (p *Provider) projectVoiceCapabilities(
 		}
 		disableLineCallControl(line)
 		delete(parsed.CallBackends, line.ID)
-		blockedLines[line.ID] = struct{}{}
 		slog.Debug(
 			"line call control withheld",
 			"component", "modemmanager",
@@ -124,17 +119,6 @@ func (p *Provider) projectVoiceCapabilities(
 		)
 	}
 
-	if len(blockedLines) > 0 {
-		calls := parsed.Calls[:0]
-		for _, call := range parsed.Calls {
-			if _, blocked := blockedLines[call.LineID]; blocked {
-				delete(parsed.CallPaths, call.ID)
-				continue
-			}
-			calls = append(calls, call)
-		}
-		parsed.Calls = calls
-	}
 	p.projectATCalls(ctx, operation, parsed)
 	p.projectQuectelMediaState(parsed)
 }
@@ -166,7 +150,6 @@ func disableLineCallControl(line *domain.Line) {
 	line.Capabilities.RejectCall = false
 	line.Capabilities.HangupCall = false
 	line.Capabilities.SendDTMF = false
-	line.CallIDs = []string{}
 }
 
 func requiresQuectelPCMProbe(line domain.Line) bool {
@@ -243,6 +226,11 @@ func (p *Provider) probeQuectelVoice(
 	if callListErr == nil && callListParseErr == nil {
 		result.callControl = true
 		result.atCallControl = true
+		// The capability probe is also the first authoritative CLCC read after
+		// Agent startup. Preserve those calls in the AT lifecycle cache so the
+		// same snapshot can project and safely recover them.
+		state := ParsedObjects{ATCallLines: make(map[string]string)}
+		p.projectKnownATCalls(&state, &line, callRecords, true)
 	} else if !result.callControl {
 		result.reason = "AT call control could not be verified"
 	}

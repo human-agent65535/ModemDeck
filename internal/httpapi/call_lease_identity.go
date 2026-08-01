@@ -13,6 +13,8 @@ import (
 
 const callLeaseHolderScopePrefix = "session-"
 
+const developmentCallLeaseHolderID = "session-development"
+
 var errCallLeaseSessionUnavailable = errors.New(
 	"authenticated call lease session is unavailable",
 )
@@ -20,11 +22,6 @@ var errCallLeaseSessionUnavailable = errors.New(
 type callLeaseSessionScope [sha256.Size]byte
 
 type callLeaseSessionScopeContextKey struct{}
-
-type callLeaseHolder struct {
-	ClientID string
-	LeaseID  string
-}
 
 func contextWithCallLeaseSession(
 	ctx context.Context,
@@ -47,25 +44,44 @@ func contextWithCallLeaseMobileCredential(
 
 func (api *API) callLeaseHolder(
 	ctx context.Context,
-	clientID string,
-) (callLeaseHolder, error) {
-	clientID, err := calllease.NormalizeHolderID(clientID)
-	if err != nil {
-		return callLeaseHolder{}, err
-	}
+) (string, error) {
 	scope, ok := ctx.Value(callLeaseSessionScopeContextKey{}).(callLeaseSessionScope)
 	if !ok {
 		if api.authenticator == nil {
-			return callLeaseHolder{ClientID: clientID, LeaseID: clientID}, nil
+			return developmentCallLeaseHolderID, nil
 		}
-		return callLeaseHolder{}, errCallLeaseSessionUnavailable
+		return "", errCallLeaseSessionUnavailable
 	}
+	return callLeaseHolderForScope(scope), nil
+}
+
+func (api *API) callLeaseOwner(ctx context.Context) (calllease.Owner, error) {
+	holderID, err := api.callLeaseHolder(ctx)
+	if err != nil {
+		return calllease.Owner{}, err
+	}
+	subjectID := holderID
+	if principal, ok := auth.PrincipalFromContext(ctx); ok {
+		subjectID = principal.UserID
+	}
+	return calllease.Owner{HolderID: holderID, SubjectID: subjectID}, nil
+}
+
+func callLeaseHolderForSessionToken(token auth.SessionToken) string {
+	scope := callLeaseSessionScope(sha256.Sum256([]byte(token)))
+	return callLeaseHolderForScope(scope)
+}
+
+func callLeaseHolderForMobileCredential(
+	digest mobilepairing.TokenDigest,
+) string {
+	return callLeaseHolderForScope(callLeaseSessionScope(digest))
+}
+
+func callLeaseHolderForScope(scope callLeaseSessionScope) string {
 	digest := sha256.New()
-	_, _ = digest.Write([]byte("modemdeck-call-lease-holder\x00"))
+	_, _ = digest.Write([]byte("modemdeck-call-holder\x00"))
 	_, _ = digest.Write(scope[:])
-	_, _ = digest.Write([]byte{0})
-	_, _ = digest.Write([]byte(clientID))
-	leaseID := callLeaseHolderScopePrefix +
+	return callLeaseHolderScopePrefix +
 		base64.RawURLEncoding.EncodeToString(digest.Sum(nil))
-	return callLeaseHolder{ClientID: clientID, LeaseID: leaseID}, nil
 }

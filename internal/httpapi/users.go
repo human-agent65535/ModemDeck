@@ -143,6 +143,15 @@ func (api *API) userResource(
 			api.writeUserError(response, request, "set member password", err)
 			return
 		}
+		if err := api.revokeCallSubject(request.Context(), userID); err != nil {
+			api.logger.Error(
+				"end user calls after administrator password reset",
+				"user_id",
+				userID,
+				"error",
+				err,
+			)
+		}
 		api.publishRuntimeResources(runtimeevents.ResourceSession)
 		response.Header().Set("Cache-Control", "no-store")
 		response.WriteHeader(http.StatusNoContent)
@@ -208,6 +217,17 @@ func (api *API) userResource(
 	if err != nil {
 		api.writeUserError(response, request, "update member", err)
 		return
+	}
+	if !input.Enabled || passwordHash != "" {
+		if err := api.revokeCallSubject(request.Context(), userID); err != nil {
+			api.logger.Error(
+				"end calls after user credential revocation",
+				"user_id",
+				userID,
+				"error",
+				err,
+			)
+		}
 	}
 	api.notifyTelegramAccessChanged()
 	api.publishRuntimeResources(

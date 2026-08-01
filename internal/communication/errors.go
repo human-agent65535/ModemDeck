@@ -60,6 +60,10 @@ var (
 	ErrUnavailable        = &Error{Code: CodeUnavailable}
 	ErrVerification       = &Error{Code: CodeVerification}
 	ErrInternal           = &Error{Code: CodeInternal}
+	// ErrStartCallOutcomeIndeterminate marks a dial attempt that could not be
+	// followed by a complete authoritative snapshot. The HTTP ownership layer
+	// must retain its single outgoing record until a later snapshot resolves it.
+	ErrStartCallOutcomeIndeterminate = errors.New("start call outcome is indeterminate")
 )
 
 func operationError(code ErrorCode, operation, message string, cause error) error {

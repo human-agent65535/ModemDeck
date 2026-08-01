@@ -65,10 +65,25 @@ type fakeController struct {
 	endError error
 }
 
+// Most manager tests model calls observed after the application's initial
+// complete snapshot. Tests for restart recovery use New directly so they can
+// exercise the fail-closed startup baseline.
+func newInitializedManager(
+	calls CallStore,
+	controller CallController,
+	options Options,
+) (*Manager, error) {
+	manager, err := New(calls, controller, options)
+	if err == nil {
+		manager.initialized = true
+	}
+	return manager, err
+}
+
 func TestOutgoingReservationOwnsOneLinePerBrowser(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.July, 29, 12, 0, 0, 0, time.UTC)
-	manager, err := New(
+	manager, err := newInitializedManager(
 		&fakeCalls{calls: map[string]store.Call{}},
 		&fakeController{},
 		Options{Now: func() time.Time { return now }},
@@ -133,7 +148,7 @@ func TestOutgoingReservationOwnsOneLinePerBrowser(t *testing.T) {
 func TestOutgoingReservationActivatesAsCallLease(t *testing.T) {
 	t.Parallel()
 	calls := &fakeCalls{calls: map[string]store.Call{}}
-	manager, err := New(calls, &fakeController{}, Options{})
+	manager, err := newInitializedManager(calls, &fakeController{}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +193,7 @@ func TestOutgoingReservationActivatesAsCallLease(t *testing.T) {
 func TestOutgoingReservationReplaysWithoutCreatingOrReleasing(t *testing.T) {
 	t.Parallel()
 	calls := &fakeCalls{calls: map[string]store.Call{}}
-	manager, err := New(calls, &fakeController{}, Options{})
+	manager, err := newInitializedManager(calls, &fakeController{}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +264,7 @@ func TestOutgoingReservationReplaysWithoutCreatingOrReleasing(t *testing.T) {
 
 func TestOutgoingReservationRejectsAnActiveLine(t *testing.T) {
 	t.Parallel()
-	manager, err := New(
+	manager, err := newInitializedManager(
 		&fakeCalls{calls: map[string]store.Call{
 			"call-1": {
 				ID:     "call-1",
@@ -275,7 +290,7 @@ func TestOutgoingReservationRejectsAnActiveLine(t *testing.T) {
 
 func TestOutgoingReservationCanBeReleased(t *testing.T) {
 	t.Parallel()
-	manager, err := New(
+	manager, err := newInitializedManager(
 		&fakeCalls{calls: map[string]store.Call{}},
 		&fakeController{},
 		Options{},
@@ -298,6 +313,79 @@ func TestOutgoingReservationCanBeReleased(t *testing.T) {
 	released, err = manager.ReleaseOutgoing("request-1", "browser-1")
 	if err != nil || released {
 		t.Fatalf("second release = %t, error = %v", released, err)
+	}
+}
+
+func TestIndeterminateOutgoingBindsOnNextCompleteSnapshot(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.August, 1, 13, 0, 0, 0, time.UTC)
+	calls := &fakeCalls{calls: map[string]store.Call{}}
+	manager, err := newInitializedManager(calls, &fakeController{}, Options{
+		Duration: 10 * time.Second,
+		Now:      func() time.Time { return now },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ReserveOutgoing(
+		context.Background(),
+		"request-1",
+		"line-1",
+		"session-1",
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.AwaitOutgoingResolution("request-1", "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	call := store.Call{
+		ID:        "call-1",
+		LineID:    "line-1",
+		Direction: "outgoing",
+		Phase:     "dialing",
+	}
+	calls.calls[call.ID] = call
+	if err := manager.ReconcileAuthoritativeCalls(
+		context.Background(),
+		[]store.Call{call},
+	); err != nil {
+		t.Fatal(err)
+	}
+	state, err := manager.ControlState(context.Background(), call.ID, "session-1")
+	if err != nil || state != ControlOwned {
+		t.Fatalf("resolved state = %q, %v; want owned", state, err)
+	}
+	if len(manager.records) != 1 || manager.records[0].callID != call.ID {
+		t.Fatalf("resolved records = %+v", manager.records)
+	}
+}
+
+func TestIndeterminateOutgoingClearsAfterCompleteAbsentSnapshot(t *testing.T) {
+	t.Parallel()
+	manager, err := newInitializedManager(
+		&fakeCalls{calls: map[string]store.Call{}},
+		&fakeController{},
+		Options{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ReserveOutgoing(
+		context.Background(),
+		"request-1",
+		"line-1",
+		"session-1",
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.AwaitOutgoingResolution("request-1", "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ReconcileAuthoritativeCalls(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(manager.records) != 0 {
+		t.Fatalf("absent snapshot retained records: %+v", manager.records)
 	}
 }
 
@@ -333,7 +421,7 @@ func TestPendingOutgoingReservationBlocksClaim(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			calls := &fakeCalls{calls: map[string]store.Call{}}
-			manager, err := New(calls, &fakeController{}, Options{})
+			manager, err := newInitializedManager(calls, &fakeController{}, Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -365,7 +453,7 @@ func TestPendingOutgoingReservationBlocksClaim(t *testing.T) {
 	}
 }
 
-func TestBoundOutgoingReservationBlocksClaimWithoutLeaseEntry(t *testing.T) {
+func TestBoundOutgoingRecordBlocksClaim(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name        string
@@ -401,7 +489,7 @@ func TestBoundOutgoingReservationBlocksClaimWithoutLeaseEntry(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			calls := &fakeCalls{calls: map[string]store.Call{}}
-			manager, err := New(calls, &fakeController{}, Options{})
+			manager, err := newInitializedManager(calls, &fakeController{}, Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -432,9 +520,6 @@ func TestBoundOutgoingReservationBlocksClaimWithoutLeaseEntry(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			manager.mu.Lock()
-			delete(manager.entries, outgoing.ID)
-			manager.mu.Unlock()
 			if _, err := manager.Claim(
 				context.Background(),
 				test.call.ID,
@@ -483,7 +568,7 @@ func TestReserveAndClaimSerializeLineAndHolderOwnership(t *testing.T) {
 				Direction: "incoming",
 				Phase:     "ringing",
 			}}
-			manager, err := New(calls, &fakeController{}, Options{})
+			manager, err := newInitializedManager(calls, &fakeController{}, Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -537,7 +622,7 @@ func TestReserveAndClaimSerializeLineAndHolderOwnership(t *testing.T) {
 func TestActiveProjectionReplacesMatchingPendingReservation(t *testing.T) {
 	t.Parallel()
 	calls := &fakeCalls{calls: map[string]store.Call{}}
-	manager, err := New(calls, &fakeController{}, Options{})
+	manager, err := newInitializedManager(calls, &fakeController{}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -596,7 +681,7 @@ func TestActiveProjectionReplacesMatchingPendingReservation(t *testing.T) {
 
 func TestActiveProjectionRequiresRequestAndLineMatch(t *testing.T) {
 	t.Parallel()
-	manager, err := New(
+	manager, err := newInitializedManager(
 		&fakeCalls{calls: map[string]store.Call{}},
 		&fakeController{},
 		Options{},
@@ -636,7 +721,7 @@ func TestActiveProjectionIsStableAcrossActivationRace(t *testing.T) {
 	t.Parallel()
 	for range 32 {
 		calls := &fakeCalls{calls: map[string]store.Call{}}
-		manager, err := New(calls, &fakeController{}, Options{})
+		manager, err := newInitializedManager(calls, &fakeController{}, Options{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -708,12 +793,12 @@ func (controller *fakeController) EndCall(_ context.Context, callID string) erro
 func TestLeaseExpiryEndsCall(t *testing.T) {
 	t.Parallel()
 	calls := &fakeCalls{calls: map[string]store.Call{
-		"call-1": {ID: "call-1", Phase: "active"},
+		"call-1": {ID: "call-1", Direction: "incoming", Phase: "ringing"},
 	}}
 	controller := &fakeController{
 		ended: make(chan string, 1),
 	}
-	manager, err := New(calls, controller, Options{
+	manager, err := newInitializedManager(calls, controller, Options{
 		Duration:       30 * time.Millisecond,
 		CheckInterval:  5 * time.Millisecond,
 		ReleaseTimeout: time.Second,
@@ -738,15 +823,159 @@ func TestLeaseExpiryEndsCall(t *testing.T) {
 	}
 }
 
+func TestExplicitCredentialAndSubjectRevocationOverrideMediaLiveness(t *testing.T) {
+	t.Parallel()
+	calls := &fakeCalls{calls: map[string]store.Call{
+		"call-web": {
+			ID:        "call-web",
+			LineID:    "line-1",
+			Direction: "incoming",
+			Phase:     "ringing",
+		},
+		"call-mobile": {
+			ID:        "call-mobile",
+			LineID:    "line-2",
+			Direction: "incoming",
+			Phase:     "ringing",
+		},
+	}}
+	manager, err := newInitializedManager(calls, &fakeController{}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ClaimFor(context.Background(), "call-web", Owner{
+		HolderID:  "session-web",
+		SubjectID: "user-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ClaimFor(context.Background(), "call-mobile", Owner{
+		HolderID:  "session-mobile",
+		SubjectID: "user-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	manager.MediaConnected("call-web")
+	manager.MediaConnected("call-mobile")
+
+	revoked, err := manager.RevokeHolder("session-web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(revoked) != 1 || revoked[0] != "call-web" {
+		t.Fatalf("holder revocation calls = %v, want [call-web]", revoked)
+	}
+	manager.MediaConnected("call-web")
+	if err := manager.Require(
+		context.Background(),
+		"call-web",
+		"session-web",
+	); !errors.Is(err, ErrCallNotActive) {
+		t.Fatalf("revoked holder Require() error = %v, want ErrCallNotActive", err)
+	}
+	if again, err := manager.RevokeHolder("session-web"); err != nil || len(again) != 0 {
+		t.Fatalf("repeated holder revocation = %v, %v; want no calls", again, err)
+	}
+	if err := manager.Require(
+		context.Background(),
+		"call-mobile",
+		"session-mobile",
+	); err != nil {
+		t.Fatalf("other credential before subject revocation = %v", err)
+	}
+
+	revoked, err = manager.RevokeSubject("user-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(revoked) != 1 || revoked[0] != "call-mobile" {
+		t.Fatalf("subject revocation calls = %v, want [call-mobile]", revoked)
+	}
+	if err := manager.Require(
+		context.Background(),
+		"call-mobile",
+		"session-mobile",
+	); !errors.Is(err, ErrCallNotActive) {
+		t.Fatalf("revoked subject Require() error = %v, want ErrCallNotActive", err)
+	}
+}
+
+func TestRevokedPendingDialBindsOnceAndEnds(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.August, 2, 12, 0, 0, 0, time.UTC)
+	calls := &fakeCalls{calls: map[string]store.Call{}}
+	controller := &fakeController{ended: make(chan string, 1)}
+	manager, err := newInitializedManager(calls, controller, Options{
+		Duration: 10 * time.Second,
+		Now:      func() time.Time { return now },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ReserveOutgoingFor(
+		context.Background(),
+		"request-1",
+		"line-1",
+		Owner{HolderID: "session-web", SubjectID: "user-1"},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if revoked, err := manager.RevokeHolder("session-web"); err != nil || len(revoked) != 0 {
+		t.Fatalf("pending revocation = %v, %v; want no bound calls", revoked, err)
+	}
+	now = now.Add(5 * time.Second)
+	if revoked, err := manager.RevokeHolder("session-web"); err != nil || len(revoked) != 0 {
+		t.Fatalf("repeated pending revocation = %v, %v; want no bound calls", revoked, err)
+	}
+	call := store.Call{
+		ID:        "call-1",
+		RequestID: "request-1",
+		LineID:    "line-1",
+		Direction: "outgoing",
+		Phase:     "dialing",
+	}
+	calls.mu.Lock()
+	calls.calls[call.ID] = call
+	calls.mu.Unlock()
+	if err := manager.ReconcileAuthoritativeCalls(
+		context.Background(),
+		[]store.Call{call},
+	); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case callID := <-controller.ended:
+		t.Fatalf("revoked pending dial ended before its timeout: %q", callID)
+	default:
+	}
+	now = now.Add(5 * time.Second)
+	expired := manager.expiredCalls()
+	if len(expired) != 1 || expired[0].callID != call.ID {
+		t.Fatalf("expired calls = %+v, want %q", expired, call.ID)
+	}
+	manager.endExpiredCall(context.Background(), expired[0].callID, expired[0].record)
+	select {
+	case callID := <-controller.ended:
+		if callID != call.ID {
+			t.Fatalf("ended call = %q, want %q", callID, call.ID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("revoked pending dial was not ended after its timeout")
+	}
+	if again := manager.expiredCalls(); len(again) != 0 {
+		t.Fatalf("revoked pending dial expired twice: %+v", again)
+	}
+}
+
 func TestLeaseExpiryEndsOnlyItsCall(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.July, 29, 12, 0, 0, 0, time.UTC)
 	calls := &fakeCalls{calls: map[string]store.Call{
-		"call-1": {ID: "call-1", Phase: "active"},
-		"call-2": {ID: "call-2", Phase: "active"},
+		"call-1": {ID: "call-1", LineID: "line-1", Direction: "incoming", Phase: "ringing"},
+		"call-2": {ID: "call-2", LineID: "line-2", Direction: "incoming", Phase: "ringing"},
 	}}
 	controller := &fakeController{ended: make(chan string, 2)}
-	manager, err := New(calls, controller, Options{
+	manager, err := newInitializedManager(calls, controller, Options{
 		Duration: 10 * time.Second,
 		Now:      func() time.Time { return now },
 	})
@@ -769,7 +998,7 @@ func TestLeaseExpiryEndsOnlyItsCall(t *testing.T) {
 	if len(expired) != 1 || expired[0].callID != "call-1" {
 		t.Fatalf("expired calls = %+v, want call-1 only", expired)
 	}
-	manager.endExpiredCall(context.Background(), expired[0].callID, expired[0].attempt)
+	manager.endExpiredCall(context.Background(), expired[0].callID, expired[0].record)
 	if callID := <-controller.ended; callID != "call-1" {
 		t.Fatalf("ended call = %q, want call-1", callID)
 	}
@@ -792,7 +1021,7 @@ func TestReconciledCallGetsUnclaimedGracePeriod(t *testing.T) {
 	controller := &fakeController{
 		ended: make(chan string, 1),
 	}
-	manager, err := New(calls, controller, Options{
+	manager, err := newInitializedManager(calls, controller, Options{
 		Duration:       30 * time.Millisecond,
 		CheckInterval:  5 * time.Millisecond,
 		ReleaseTimeout: time.Second,
@@ -820,15 +1049,66 @@ func TestReconciledCallGetsUnclaimedGracePeriod(t *testing.T) {
 	}
 }
 
+func TestUnclaimedOngoingCallKeepsItsLineClosed(t *testing.T) {
+	t.Parallel()
+
+	ongoing := store.Call{
+		ID:        "call-active",
+		LineID:    "line-1",
+		Direction: "incoming",
+		Phase:     "active",
+	}
+	waiting := store.Call{
+		ID:        "call-waiting",
+		LineID:    "line-1",
+		Direction: "incoming",
+		Phase:     "ringing",
+	}
+	calls := &fakeCalls{calls: map[string]store.Call{
+		ongoing.ID: ongoing,
+		waiting.ID: waiting,
+	}}
+	manager, err := newInitializedManager(calls, &fakeController{}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ReconcileAuthoritativeCalls(
+		context.Background(),
+		[]store.Call{ongoing, waiting},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	projection, err := manager.ProjectActive(
+		[]store.Call{ongoing, waiting},
+		"session-1",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, projected := range projection.Calls {
+		if projected.ControlState != ControlOccupied {
+			t.Fatalf("call %s state = %q, want occupied", projected.Call.ID, projected.ControlState)
+		}
+	}
+	if _, err := manager.Claim(
+		context.Background(),
+		waiting.ID,
+		"session-1",
+	); !errors.Is(err, ErrCallOwned) {
+		t.Fatalf("waiting call claim = %v, want ErrCallOwned", err)
+	}
+}
+
 func TestRenewalExtendsCallLease(t *testing.T) {
 	t.Parallel()
 	calls := &fakeCalls{calls: map[string]store.Call{
-		"call-1": {ID: "call-1", Phase: "active"},
+		"call-1": {ID: "call-1", Direction: "incoming", Phase: "ringing"},
 	}}
 	controller := &fakeController{
 		ended: make(chan string, 1),
 	}
-	manager, err := New(calls, controller, Options{
+	manager, err := newInitializedManager(calls, controller, Options{
 		Duration:       80 * time.Millisecond,
 		CheckInterval:  5 * time.Millisecond,
 		ReleaseTimeout: time.Second,
@@ -862,6 +1142,115 @@ func TestRenewalExtendsCallLease(t *testing.T) {
 	}
 }
 
+func TestConnectedMediaProtectsOwnershipUntilTransportEnds(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.August, 1, 12, 0, 0, 0, time.UTC)
+	calls := &fakeCalls{calls: map[string]store.Call{
+		"call-1": {
+			ID:        "call-1",
+			Direction: "incoming",
+			Phase:     "ringing",
+		},
+	}}
+	manager, err := newInitializedManager(calls, &fakeController{}, Options{
+		Duration: 10 * time.Second,
+		Now:      func() time.Time { return now },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Claim(
+		context.Background(),
+		"call-1",
+		"session-1",
+	); err != nil {
+		t.Fatal(err)
+	}
+	calls.mu.Lock()
+	call := calls.calls["call-1"]
+	call.Phase = "active"
+	calls.calls["call-1"] = call
+	calls.mu.Unlock()
+
+	manager.MediaConnected("call-1")
+	now = now.Add(time.Hour)
+	if expired := manager.expiredCalls(); len(expired) != 0 {
+		t.Fatalf("connected media ownership expired = %+v", expired)
+	}
+
+	manager.MediaDisconnected("call-1")
+	now = now.Add(9 * time.Second)
+	if expired := manager.expiredCalls(); len(expired) != 0 {
+		t.Fatalf("media recovery grace expired early = %+v", expired)
+	}
+	now = now.Add(2 * time.Second)
+	if expired := manager.expiredCalls(); len(expired) != 1 ||
+		expired[0].callID != "call-1" {
+		t.Fatalf("expired calls = %+v, want call-1", expired)
+	}
+}
+
+func TestExpiredDeadlineNeverTransfersOwnership(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.August, 1, 12, 0, 0, 0, time.UTC)
+	calls := &fakeCalls{calls: map[string]store.Call{
+		"call-1": {
+			ID:        "call-1",
+			Direction: "incoming",
+			Phase:     "ringing",
+		},
+	}}
+	manager, err := newInitializedManager(calls, &fakeController{}, Options{
+		Duration: 10 * time.Second,
+		Now:      func() time.Time { return now },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Claim(
+		context.Background(),
+		"call-1",
+		"session-1",
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	now = now.Add(11 * time.Second)
+	if _, err := manager.Claim(
+		context.Background(),
+		"call-1",
+		"session-2",
+	); !errors.Is(err, ErrCallOwned) {
+		t.Fatalf("claim after deadline = %v, want ErrCallOwned", err)
+	}
+	if _, err := manager.Renew(
+		context.Background(),
+		"call-1",
+		"session-1",
+	); err != nil {
+		t.Fatalf("same session could not recover before cleanup began: %v", err)
+	}
+
+	now = now.Add(11 * time.Second)
+	if expired := manager.expiredCalls(); len(expired) != 1 {
+		t.Fatalf("expiration = %+v, want one call", expired)
+	}
+	if _, err := manager.Renew(
+		context.Background(),
+		"call-1",
+		"session-1",
+	); !errors.Is(err, ErrCallNotActive) {
+		t.Fatalf("renew after ending began = %v, want ErrCallNotActive", err)
+	}
+	if _, err := manager.Claim(
+		context.Background(),
+		"call-1",
+		"session-2",
+	); !errors.Is(err, ErrCallNotActive) {
+		t.Fatalf("claim after ending began = %v, want ErrCallNotActive", err)
+	}
+}
+
 func TestTerminalCallCannotRenew(t *testing.T) {
 	t.Parallel()
 	for _, phase := range []string{"unknown", "ending", "ended", "failed"} {
@@ -871,7 +1260,7 @@ func TestTerminalCallCannotRenew(t *testing.T) {
 			calls := &fakeCalls{calls: map[string]store.Call{
 				"call-1": {ID: "call-1", Phase: phase},
 			}}
-			manager, err := New(
+			manager, err := newInitializedManager(
 				calls,
 				&fakeController{ended: make(chan string, 1)},
 				Options{},
@@ -894,9 +1283,9 @@ func TestFirstBrowserClaimWins(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
 	calls := &fakeCalls{calls: map[string]store.Call{
-		"call-1": {ID: "call-1", Phase: "active"},
+		"call-1": {ID: "call-1", Direction: "incoming", Phase: "ringing"},
 	}}
-	manager, err := New(
+	manager, err := newInitializedManager(
 		calls,
 		&fakeController{ended: make(chan string, 1)},
 		Options{
@@ -935,14 +1324,15 @@ func TestBrowserCannotClaimTwoCalls(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.July, 29, 12, 0, 0, 0, time.UTC)
 	calls := &fakeCalls{calls: map[string]store.Call{
-		"call-1": {ID: "call-1", Phase: "active"},
+		"call-1": {ID: "call-1", LineID: "line-1", Direction: "incoming", Phase: "ringing"},
 		"call-2": {
 			ID:        "call-2",
+			LineID:    "line-2",
 			Direction: "incoming",
 			Phase:     "ringing",
 		},
 	}}
-	manager, err := New(
+	manager, err := newInitializedManager(
 		calls,
 		&fakeController{ended: make(chan string, 1)},
 		Options{
@@ -986,7 +1376,7 @@ func TestConcurrentBrowserClaimsHaveOneWinner(t *testing.T) {
 			Phase:     "ringing",
 		},
 	}}
-	manager, err := New(
+	manager, err := newInitializedManager(
 		calls,
 		&fakeController{ended: make(chan string, 1)},
 		Options{
@@ -1037,7 +1427,7 @@ func TestControlStateIsRelativeToBrowser(t *testing.T) {
 			Phase:     "ringing",
 		},
 	}}
-	manager, err := New(
+	manager, err := newInitializedManager(
 		calls,
 		&fakeController{ended: make(chan string, 1)},
 		Options{
@@ -1078,7 +1468,7 @@ func TestControlStateIsRelativeToBrowser(t *testing.T) {
 	}
 }
 
-func TestFailedIncomingAnswerCanReleaseClaim(t *testing.T) {
+func TestFailedIncomingAnswerDoesNotTransferClaim(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
 	calls := &fakeCalls{calls: map[string]store.Call{
@@ -1088,7 +1478,7 @@ func TestFailedIncomingAnswerCanReleaseClaim(t *testing.T) {
 			Phase:     "ringing",
 		},
 	}}
-	manager, err := New(
+	manager, err := newInitializedManager(
 		calls,
 		&fakeController{ended: make(chan string, 1)},
 		Options{
@@ -1102,11 +1492,12 @@ func TestFailedIncomingAnswerCanReleaseClaim(t *testing.T) {
 	if _, err := manager.Claim(context.Background(), "call-1", "browser-1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := manager.Release(context.Background(), "call-1", "browser-1"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := manager.Claim(context.Background(), "call-1", "browser-2"); err != nil {
-		t.Fatalf("second browser could not claim released call: %v", err)
+	if _, err := manager.Claim(
+		context.Background(),
+		"call-1",
+		"browser-2",
+	); !errors.Is(err, ErrCallOwned) {
+		t.Fatalf("second browser claim error = %v, want ErrCallOwned", err)
 	}
 }
 
@@ -1120,7 +1511,7 @@ func TestUnansweredIncomingCallDoesNotExpire(t *testing.T) {
 			Phase:     "ringing",
 		},
 	}}
-	manager, err := New(
+	manager, err := newInitializedManager(
 		calls,
 		&fakeController{ended: make(chan string, 1)},
 		Options{
@@ -1129,6 +1520,12 @@ func TestUnansweredIncomingCallDoesNotExpire(t *testing.T) {
 		},
 	)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ReconcileAuthoritativeCalls(
+		context.Background(),
+		nil,
+	); err != nil {
 		t.Fatal(err)
 	}
 	if err := manager.ReconcileAuthoritativeCalls(
@@ -1143,13 +1540,92 @@ func TestUnansweredIncomingCallDoesNotExpire(t *testing.T) {
 	}
 }
 
+func TestCallCannotBeClaimedBeforeInitialAuthoritativeSnapshot(t *testing.T) {
+	t.Parallel()
+	call := store.Call{
+		ID:        "call-1",
+		LineID:    "line-1",
+		Direction: "incoming",
+		Phase:     "ringing",
+	}
+	calls := &fakeCalls{calls: map[string]store.Call{call.ID: call}}
+	manager, err := New(calls, &fakeController{}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	state, err := manager.ControlState(
+		context.Background(),
+		call.ID,
+		"session-1",
+	)
+	if err != nil || state != ControlOccupied {
+		t.Fatalf("pre-snapshot state = %q, %v; want occupied", state, err)
+	}
+	if _, err := manager.Claim(
+		context.Background(),
+		call.ID,
+		"session-1",
+	); !errors.Is(err, ErrCallOwned) {
+		t.Fatalf("pre-snapshot claim = %v, want ErrCallOwned", err)
+	}
+	if len(manager.records) != 0 {
+		t.Fatalf("pre-snapshot claim created records: %+v", manager.records)
+	}
+}
+
+func TestStartupCallIsOccupiedAndEndsInsteadOfTransferring(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.August, 1, 12, 0, 0, 0, time.UTC)
+	call := store.Call{
+		ID:        "call-1",
+		LineID:    "line-1",
+		Direction: "incoming",
+		Phase:     "ringing",
+	}
+	calls := &fakeCalls{calls: map[string]store.Call{call.ID: call}}
+	manager, err := New(calls, &fakeController{}, Options{
+		Duration: 10 * time.Second,
+		Now:      func() time.Time { return now },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ReconcileAuthoritativeCalls(
+		context.Background(),
+		[]store.Call{call},
+	); err != nil {
+		t.Fatal(err)
+	}
+	state, err := manager.ControlState(
+		context.Background(),
+		call.ID,
+		"session-1",
+	)
+	if err != nil || state != ControlOccupied {
+		t.Fatalf("startup call state = %q, %v; want occupied", state, err)
+	}
+	if _, err := manager.Claim(
+		context.Background(),
+		call.ID,
+		"session-1",
+	); !errors.Is(err, ErrCallOwned) {
+		t.Fatalf("startup call claim = %v, want ErrCallOwned", err)
+	}
+	now = now.Add(11 * time.Second)
+	if expired := manager.expiredCalls(); len(expired) != 1 ||
+		expired[0].callID != call.ID {
+		t.Fatalf("startup expiration = %+v", expired)
+	}
+}
+
 func TestStaleSnapshotDoesNotDropNewBrowserClaim(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
 	calls := &fakeCalls{calls: map[string]store.Call{
-		"call-1": {ID: "call-1", Phase: "active"},
+		"call-1": {ID: "call-1", Direction: "incoming", Phase: "ringing"},
 	}}
-	manager, err := New(
+	manager, err := newInitializedManager(
 		calls,
 		&fakeController{ended: make(chan string, 1)},
 		Options{
@@ -1181,14 +1657,14 @@ func TestFailedReleaseIsNotRetriedWithoutNewAuthoritativeState(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
 	calls := &fakeCalls{calls: map[string]store.Call{
-		"call-1": {ID: "call-1", Phase: "active"},
+		"call-1": {ID: "call-1", Direction: "incoming", Phase: "ringing"},
 	}}
 	controller := &fakeController{
 		ended:    make(chan string, 1),
 		endError: errors.New("temporary control failure"),
 	}
 	reports := make(chan error, 1)
-	manager, err := New(calls, controller, Options{
+	manager, err := newInitializedManager(calls, controller, Options{
 		Duration: 10 * time.Second,
 		Now:      func() time.Time { return now },
 		Report:   func(err error) { reports <- err },
@@ -1204,7 +1680,7 @@ func TestFailedReleaseIsNotRetriedWithoutNewAuthoritativeState(t *testing.T) {
 	if len(first) != 1 {
 		t.Fatalf("first expiration = %+v", first)
 	}
-	manager.endExpiredCall(context.Background(), first[0].callID, first[0].attempt)
+	manager.endExpiredCall(context.Background(), first[0].callID, first[0].record)
 	if callID := <-controller.ended; callID != "call-1" {
 		t.Fatalf("ended call = %q, want call-1", callID)
 	}
@@ -1220,12 +1696,12 @@ func TestSuccessfulReleaseWaitsForAuthoritativeCallEnd(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
 	calls := &fakeCalls{calls: map[string]store.Call{
-		"call-1": {ID: "call-1", Phase: "active"},
+		"call-1": {ID: "call-1", Direction: "incoming", Phase: "ringing"},
 	}}
 	controller := &fakeController{
 		ended: make(chan string, 1),
 	}
-	manager, err := New(calls, controller, Options{
+	manager, err := newInitializedManager(calls, controller, Options{
 		Duration: 10 * time.Second,
 		Now:      func() time.Time { return now },
 	})
@@ -1240,7 +1716,7 @@ func TestSuccessfulReleaseWaitsForAuthoritativeCallEnd(t *testing.T) {
 	if len(first) != 1 {
 		t.Fatalf("first expiration = %+v", first)
 	}
-	manager.endExpiredCall(context.Background(), first[0].callID, first[0].attempt)
+	manager.endExpiredCall(context.Background(), first[0].callID, first[0].record)
 	if callID := <-controller.ended; callID != "call-1" {
 		t.Fatalf("ended call = %q, want call-1", callID)
 	}

@@ -183,10 +183,12 @@ func (h *handler) startCall(w http.ResponseWriter, r *http.Request) {
 		h.writeAPIError(w, http.StatusBadRequest, domain.ErrorInvalidArgument, "start_call", "", "request_id is required and must be valid")
 		return
 	}
-	if !h.requireControlLease(w, r, request.RequestID) {
+	releaseControl, ok := h.protectControlLease(w, r, request.RequestID)
+	if !ok {
 		return
 	}
 	receipt, err := h.provider.StartCall(r.Context(), request)
+	releaseControl()
 	if err != nil {
 		h.writeError(w, err, strings.TrimSpace(request.RequestID))
 		return
@@ -228,11 +230,16 @@ func (h *handler) callCommand(
 		h.writeAPIError(w, http.StatusBadRequest, domain.ErrorInvalidArgument, operation, strings.TrimSpace(request.RequestID), "call id is required")
 		return
 	}
-	if operation == "answer_call" &&
-		!h.requireControlLease(w, r, request.RequestID) {
-		return
+	releaseControl := func() {}
+	if operation == "answer_call" {
+		var ok bool
+		releaseControl, ok = h.protectControlLease(w, r, request.RequestID)
+		if !ok {
+			return
+		}
 	}
 	receipt, err := run(r.Context(), request)
+	releaseControl()
 	if err != nil {
 		h.writeError(w, err, strings.TrimSpace(request.RequestID))
 		return
@@ -257,10 +264,12 @@ func (h *handler) sendDTMF(w http.ResponseWriter, r *http.Request) {
 		h.writeAPIError(w, http.StatusBadRequest, domain.ErrorInvalidArgument, "send_dtmf", strings.TrimSpace(request.RequestID), "call id is required")
 		return
 	}
-	if !h.requireControlLease(w, r, request.RequestID) {
+	releaseControl, ok := h.protectControlLease(w, r, request.RequestID)
+	if !ok {
 		return
 	}
 	receipt, err := h.provider.SendDTMF(r.Context(), request)
+	releaseControl()
 	if err != nil {
 		h.writeError(w, err, strings.TrimSpace(request.RequestID))
 		return

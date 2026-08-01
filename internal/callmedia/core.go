@@ -16,22 +16,24 @@ const (
 )
 
 type Options struct {
-	EndpointOpener    MediaEndpointOpener
-	CodecFactory      OpusCodecFactory
-	PeerConfiguration webrtc.Configuration
-	GatheringTimeout  time.Duration
-	RecoveryTimeout   time.Duration
-	Jitter            JitterConfig
+	EndpointOpener     MediaEndpointOpener
+	CodecFactory       OpusCodecFactory
+	PeerConfiguration  webrtc.Configuration
+	GatheringTimeout   time.Duration
+	RecoveryTimeout    time.Duration
+	Jitter             JitterConfig
+	OnOwnerStateChange func(callID string, connected bool)
 }
 
 type Core struct {
-	opener        MediaEndpointOpener
-	codecs        OpusCodecFactory
-	api           *webrtc.API
-	configuration webrtc.Configuration
-	gatherTimeout time.Duration
-	recoveryTime  time.Duration
-	jitter        JitterConfig
+	opener             MediaEndpointOpener
+	codecs             OpusCodecFactory
+	api                *webrtc.API
+	configuration      webrtc.Configuration
+	gatherTimeout      time.Duration
+	recoveryTime       time.Duration
+	jitter             JitterConfig
+	onOwnerStateChange func(callID string, connected bool)
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -53,12 +55,13 @@ type callLifetime struct {
 }
 
 type mediaOwner struct {
-	token   string
-	ctx     context.Context
-	cancel  context.CancelFunc
-	session *Session
-	done    chan struct{}
-	once    sync.Once
+	token     string
+	ctx       context.Context
+	cancel    context.CancelFunc
+	session   *Session
+	connected bool
+	done      chan struct{}
+	once      sync.Once
 }
 
 func (o *mediaOwner) finish() {
@@ -106,19 +109,20 @@ func New(options Options) (*Core, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Core{
-		opener:        options.EndpointOpener,
-		codecs:        codecs,
-		api:           api,
-		configuration: clonePeerConfiguration(options.PeerConfiguration),
-		gatherTimeout: timeout,
-		recoveryTime:  recoveryTime,
-		jitter:        jitter,
-		ctx:           ctx,
-		cancel:        cancel,
-		owners:        make(map[string]*mediaOwner),
-		hubs:          make(map[string]*hubEntry),
-		lifetimes:     make(map[string]*callLifetime),
-		authority:     make(map[string]struct{}),
+		opener:             options.EndpointOpener,
+		codecs:             codecs,
+		api:                api,
+		configuration:      clonePeerConfiguration(options.PeerConfiguration),
+		gatherTimeout:      timeout,
+		recoveryTime:       recoveryTime,
+		jitter:             jitter,
+		onOwnerStateChange: options.OnOwnerStateChange,
+		ctx:                ctx,
+		cancel:             cancel,
+		owners:             make(map[string]*mediaOwner),
+		hubs:               make(map[string]*hubEntry),
+		lifetimes:          make(map[string]*callLifetime),
+		authority:          make(map[string]struct{}),
 	}, nil
 }
 
@@ -273,7 +277,7 @@ func (c *Core) Exchange(ctx context.Context, offer Offer) (ExchangeResult, error
 	keepCodec = true
 	keepSubscription = true
 	session.start()
-	go c.releaseWhenDone(call.ID, session)
+	go c.releaseWhenDone(call.ID, owner, session)
 	return ExchangeResult{
 		AnswerSDP: browserAnswer.SDP,
 		Session:   session,
@@ -313,13 +317,20 @@ func (c *Core) CloseCall(ctx context.Context, callID string) error {
 		owner.cancel()
 		if owner.session != nil {
 			closeErr = owner.session.shutdown(ctx)
+			if closeErr == nil {
+				select {
+				case <-owner.done:
+				case <-ctx.Done():
+					closeErr = ErrCanceled
+				}
+			}
 		}
 	}
 	if hub != nil {
 		closeErr = errors.Join(closeErr, hub.shutdown(ctx))
 	}
 	c.mu.Lock()
-	if c.owners[callID] == owner {
+	if c.owners[callID] == owner && owner != nil && owner.session == nil {
 		delete(c.owners, callID)
 		owner.finish()
 	}
@@ -456,13 +467,11 @@ func (c *Core) Close(ctx context.Context) error {
 	}
 
 	c.mu.Lock()
-	sessions := make([]*Session, 0, len(c.owners))
+	owners := make([]*mediaOwner, 0, len(c.owners))
 	for _, owner := range c.owners {
 		if owner != nil {
 			owner.cancel()
-			if owner.session != nil {
-				sessions = append(sessions, owner.session)
-			}
+			owners = append(owners, owner)
 		}
 	}
 	hubs := make([]*mediaHub, 0, len(c.hubs))
@@ -472,12 +481,17 @@ func (c *Core) Close(ctx context.Context) error {
 		}
 	}
 	c.mu.Unlock()
-	for _, session := range sessions {
-		session.stop(nil)
+	for _, owner := range owners {
+		if owner.session != nil {
+			owner.session.stop(nil)
+		}
 	}
-	for _, session := range sessions {
+	for _, owner := range owners {
+		if owner.session == nil {
+			continue
+		}
 		select {
-		case <-session.Done():
+		case <-owner.done:
 		case <-ctx.Done():
 			return ErrCanceled
 		}
@@ -728,16 +742,41 @@ func (c *Core) activeLifetimeLocked(callID string) (*callLifetime, error) {
 	return lifetime, nil
 }
 
-func (c *Core) releaseWhenDone(callID string, session *Session) {
+func (c *Core) releaseWhenDone(
+	callID string,
+	owner *mediaOwner,
+	session *Session,
+) {
+	select {
+	case <-session.events.connected:
+		c.mu.Lock()
+		if c.owners[callID] == owner && owner.session == session {
+			owner.connected = true
+			// Serialize callbacks with owner removal so an old owner's disconnect
+			// can never arrive after a replacement owner's connection.
+			c.notifyOwnerState(callID, true)
+		}
+		c.mu.Unlock()
+	case <-session.Done():
+	}
+
 	<-session.Done()
 	c.mu.Lock()
-	owner := c.owners[callID]
-	if owner != nil && owner.session == session {
+	if c.owners[callID] == owner && owner.session == session {
+		if owner.connected {
+			c.notifyOwnerState(callID, false)
+		}
 		delete(c.owners, callID)
 		owner.cancel()
 		owner.finish()
 	}
 	c.mu.Unlock()
+}
+
+func (c *Core) notifyOwnerState(callID string, connected bool) {
+	if c.onOwnerStateChange != nil {
+		c.onOwnerStateChange(callID, connected)
+	}
 }
 
 func normalizeCallID(value string) (string, error) {

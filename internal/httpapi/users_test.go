@@ -25,6 +25,7 @@ type fakeUserRepository struct {
 	updateCalls int
 	revokeID    string
 	revokeError error
+	passwordID  string
 }
 
 func (repository *fakeUserRepository) Users(context.Context) ([]store.User, error) {
@@ -50,7 +51,12 @@ func (repository *fakeUserRepository) UpdateMember(
 	return repository.updateUser, repository.updateError
 }
 
-func (*fakeUserRepository) SetMemberPassword(context.Context, string, string) error {
+func (repository *fakeUserRepository) SetMemberPassword(
+	_ context.Context,
+	userID string,
+	_ string,
+) error {
+	repository.passwordID = userID
 	return nil
 }
 
@@ -130,6 +136,47 @@ func TestCreateMemberAcceptsEightCharacterFinalPassword(t *testing.T) {
 			shortResponse.Code,
 			shortResponse.Body.String(),
 		)
+	}
+}
+
+func TestAdministratorPasswordResetImmediatelyRevokesUserCalls(t *testing.T) {
+	t.Parallel()
+	repository := &fakeUserRepository{fakeRepository: &fakeRepository{}}
+	leases := &fakeCallLeases{revokedCallIDs: []string{"call-member"}}
+	communications := &fakeCommunications{}
+	media := &fakeCallMedia{}
+	api, err := New(repository, Options{
+		disableAuthentication: true,
+		CallLeases:            leases,
+		Communications:        communications,
+		CallMedia:             media,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/users/member-1/password",
+		bytes.NewBufferString(`{"password":"a replacement password"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if repository.passwordID != "member-1" {
+		t.Fatalf("password user = %q, want member-1", repository.passwordID)
+	}
+	if leases.revokedSubjectID != "member-1" {
+		t.Fatalf("revoked subject = %q, want member-1", leases.revokedSubjectID)
+	}
+	if media.closed != "call-member" {
+		t.Fatalf("closed media call = %q, want call-member", media.closed)
+	}
+	if communications.endCallID != "call-member" {
+		t.Fatalf("ended call = %q, want call-member", communications.endCallID)
 	}
 }
 

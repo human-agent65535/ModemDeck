@@ -1,4 +1,4 @@
-import { reactive, watch } from 'vue'
+import { reactive } from 'vue'
 import type { Router } from 'vue-router'
 import { gateway } from '../api/client'
 import type {
@@ -21,7 +21,6 @@ import {
 } from './workspace'
 import { closeDialer, showCallSurface } from './ui'
 import {
-  callMediaState,
   retryCallMedia,
   shutdownCallMedia,
   syncCallMedia
@@ -35,12 +34,7 @@ const LEASED_PHASES = new Set<CallSession['phase']>([
   'connecting',
   'active'
 ])
-const LEASED_MEDIA_STATES = new Set([
-  'requesting',
-  'connecting',
-  'recovering',
-  'active'
-])
+const CALL_LEASE_HEARTBEAT_MS = 5_000
 const NOTIFIED_CALL_HISTORY_LIMIT = 256
 
 type PendingCallAction = '' | 'dial' | CallAction | 'dtmf'
@@ -53,6 +47,7 @@ let activeRouter: Router | undefined
 let callLeaseRenewal: Promise<void> | undefined
 let callLeaseRenewalCallID = ''
 let callLeaseRenewalGeneration = 0
+let callLeaseHeartbeatTimer: number | undefined
 const notifiedIncomingCallIDs = new Set<string>()
 
 export const callState = reactive<{
@@ -263,9 +258,7 @@ function acceptSession(session: CallSession): void {
 }
 
 function sessionCanRenewBrowserLease(session: CallSession): boolean {
-  if (!LEASED_PHASES.has(session.phase)) return false
-  if (session.phase !== 'active' || !session.media_available) return true
-  return LEASED_MEDIA_STATES.has(callMediaState.status)
+  return LEASED_PHASES.has(session.phase)
 }
 
 function handleCallLeaseRenewalFailure(callID: string, error: unknown): void {
@@ -318,13 +311,6 @@ export async function retryActiveCallMedia(session: CallSession | null): Promise
   if (ownedSession()?.id !== session.id) return
   retryCallMedia(session)
 }
-
-watch(
-  () => callMediaState.status,
-  status => {
-    if (LEASED_MEDIA_STATES.has(status)) void renewActiveCallLease()
-  }
-)
 
 export function claimIncomingCallNotification(
   session: CallSession,
@@ -419,7 +405,29 @@ export function initializeCallRuntime(router?: Router): void {
   activeRouter = router
   callState.syncStatus = 'idle'
   callState.syncError = ''
+  if (typeof window !== 'undefined') {
+    callLeaseHeartbeatTimer = window.setInterval(() => {
+      void renewActiveCallLease()
+    }, CALL_LEASE_HEARTBEAT_MS)
+    window.addEventListener('online', resumeCallRuntime)
+    window.addEventListener('pageshow', resumeCallRuntime)
+  }
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', resumeVisibleCallRuntime)
+  }
   void refreshActiveCalls()
+}
+
+function resumeCallRuntime(): void {
+  if (!runtimeStarted) return
+  void renewActiveCallLease()
+  void requestActiveCallRefresh()
+}
+
+function resumeVisibleCallRuntime(): void {
+  if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+    resumeCallRuntime()
+  }
 }
 
 export function requestActiveCallRefresh(): Promise<void> {
@@ -434,6 +442,17 @@ export function shutdownCallRuntime(): void {
   callLeaseRenewalGeneration += 1
   callLeaseRenewal = undefined
   callLeaseRenewalCallID = ''
+  if (callLeaseHeartbeatTimer !== undefined && typeof window !== 'undefined') {
+    window.clearInterval(callLeaseHeartbeatTimer)
+  }
+  callLeaseHeartbeatTimer = undefined
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('online', resumeCallRuntime)
+    window.removeEventListener('pageshow', resumeCallRuntime)
+  }
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', resumeVisibleCallRuntime)
+  }
   syncCallSounds(null)
   shutdownCallMedia()
   syncCallRecording(null)
@@ -492,6 +511,7 @@ export async function dial(
     const failure = requestError(error, translate('runtime.dialFailed'))
     callState.error = failure.message
     callState.errorStatus = failure.status
+    await requestActiveCallRefresh()
     return false
   } finally {
     callState.busy = false
@@ -532,11 +552,7 @@ async function act(action: CallAction): Promise<void> {
     const failure = requestError(error, translate('runtime.callActionFailed'))
     callState.error = failure.message
     callState.errorStatus = failure.status
-    if (action === 'answer' || action === 'reject') {
-      await requestActiveCallRefresh()
-    } else {
-      syncCallSounds(previousSession)
-    }
+    await requestActiveCallRefresh()
   } finally {
     callState.busy = false
     callState.pendingAction = ''

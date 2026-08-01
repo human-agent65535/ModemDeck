@@ -12,6 +12,7 @@ import (
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
 	"github.com/human-agent65535/modemdeck/internal/messageevents"
+	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -50,9 +51,38 @@ type messageDeletingAgent struct {
 	err     error
 }
 
+type snapshotBarrierAgent struct {
+	*fakeAgent
+	snapshotStarted chan struct{}
+	releaseSnapshot chan struct{}
+	startCalled     chan struct{}
+	snapshotCalls   int
+}
+
 func (agent *messageDeletingAgent) DeleteMessage(_ context.Context, messageID string) error {
 	agent.deleted <- messageID
 	return agent.err
+}
+
+func (agent *snapshotBarrierAgent) Snapshot(ctx context.Context) (agentclient.Snapshot, error) {
+	agent.snapshotCalls++
+	if agent.snapshotCalls == 1 {
+		close(agent.snapshotStarted)
+		select {
+		case <-agent.releaseSnapshot:
+		case <-ctx.Done():
+			return agentclient.Snapshot{}, ctx.Err()
+		}
+	}
+	return agent.fakeAgent.Snapshot(ctx)
+}
+
+func (agent *snapshotBarrierAgent) StartCall(
+	ctx context.Context,
+	request agentclient.StartCallRequest,
+) (agentclient.CommandReceipt, error) {
+	close(agent.startCalled)
+	return agent.fakeAgent.StartCall(ctx, request)
 }
 
 func (agent *fakeAgent) Health(context.Context) (agentclient.Health, error) {
@@ -149,8 +179,9 @@ type fakeRepository struct {
 }
 
 type fakeCallLifecycleObserver struct {
-	snapshots [][]store.Call
-	err       error
+	snapshots   [][]store.Call
+	err         error
+	onReconcile func()
 }
 
 func (observer *fakeCallLifecycleObserver) ReconcileAuthoritativeCalls(
@@ -158,21 +189,38 @@ func (observer *fakeCallLifecycleObserver) ReconcileAuthoritativeCalls(
 	calls []store.Call,
 ) error {
 	observer.snapshots = append(observer.snapshots, append([]store.Call(nil), calls...))
+	if observer.onReconcile != nil {
+		observer.onReconcile()
+	}
 	return observer.err
 }
 
 func (repository *fakeRepository) ApplyHardwareSnapshotWithResult(
-	_ context.Context,
+	ctx context.Context,
 	snapshot store.HardwareSnapshot,
 ) (store.HardwareSnapshotResult, error) {
 	repository.snapshot = snapshot
+	if repository.snapshotError != nil {
+		return repository.snapshotResult, repository.snapshotError
+	}
 	if repository.snapshotResult.LineIDsByEndpoint == nil {
 		repository.snapshotResult.LineIDsByEndpoint = make(map[string]string, len(snapshot.Lines))
 		for _, line := range snapshot.Lines {
 			repository.snapshotResult.LineIDsByEndpoint[line.ID] = line.ID
 		}
 	}
-	return repository.snapshotResult, repository.snapshotError
+	for _, call := range snapshot.Calls {
+		if strings.TrimSpace(call.RequestID) == "" {
+			continue
+		}
+		if lineID := repository.snapshotResult.LineIDsByEndpoint[call.EndpointLineID]; lineID != "" {
+			call.LineID = lineID
+		}
+		if _, err := repository.UpsertHardwareCall(ctx, call); err != nil {
+			return repository.snapshotResult, err
+		}
+	}
+	return repository.snapshotResult, nil
 }
 
 func (repository *fakeRepository) Lines(context.Context) ([]store.LineSummary, error) {
@@ -256,6 +304,18 @@ func (repository *fakeRepository) BeginHardwareCommand(
 	}
 	repository.commands[requestID] = command
 	return command, true, nil
+}
+
+func (repository *fakeRepository) HardwareCommand(
+	_ context.Context,
+	requestID string,
+) (store.HardwareCommand, error) {
+	command, ok := repository.commands[requestID]
+	if !ok {
+		return store.HardwareCommand{}, store.ErrHardwareCommandConflict
+	}
+	command.PayloadDigest = append([]byte(nil), command.PayloadDigest...)
+	return command, nil
 }
 
 func (repository *fakeRepository) FinishHardwareCommand(
@@ -509,6 +569,7 @@ func TestServiceRequiresExplicitCapableLine(t *testing.T) {
 		snapshotResult: store.HardwareSnapshotResult{
 			LineIDsByEndpoint: map[string]string{"line-1": "line-stable"},
 		},
+		lines: []store.LineSummary{{ID: "line-stable", HomeCountryISO: "JP"}},
 	}
 	service, err := New(agent, repository, messageevents.NewBuffer(8))
 	if err != nil {
@@ -536,9 +597,10 @@ func TestServiceRequiresExplicitCapableLine(t *testing.T) {
 	}
 
 	call, err := service.StartCall(context.Background(), StartCallInput{
-		RequestID: "request-call-1",
-		LineID:    "line-stable",
-		Number:    "090-1234-5678",
+		RequestID:    "request-call-1",
+		RequestScope: "session-1",
+		LineID:       "line-stable",
+		Number:       "090-1234-5678",
 	})
 	if err != nil {
 		t.Fatalf("StartCall() error = %v", err)
@@ -561,16 +623,123 @@ func TestServiceRequiresExplicitCapableLine(t *testing.T) {
 		call.Bearer != "volte" {
 		t.Fatalf("call = %+v", call)
 	}
+	preflight, foundReplay, err := service.ReplayStartCall(context.Background(), StartCallInput{
+		RequestID:    "request-call-1",
+		RequestScope: "session-1",
+		LineID:       "line-stable",
+		Number:       "09012345678",
+	})
+	if err != nil || !foundReplay || preflight.ID != call.ID {
+		t.Fatalf("ReplayStartCall() = %+v, %t, %v", preflight, foundReplay, err)
+	}
+	if _, _, err := service.ReplayStartCall(context.Background(), StartCallInput{
+		RequestID:    "request-call-1",
+		RequestScope: "session-2",
+		LineID:       "line-stable",
+		Number:       "09012345678",
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("cross-session ReplayStartCall() error = %v, want ErrConflict", err)
+	}
 	replayed, err := service.StartCall(context.Background(), StartCallInput{
-		RequestID: "request-call-1",
-		LineID:    "line-stable",
-		Number:    "09012345678",
+		RequestID:    "request-call-1",
+		RequestScope: "session-1",
+		LineID:       "line-stable",
+		Number:       "09012345678",
 	})
 	if err != nil {
 		t.Fatalf("replayed StartCall() error = %v", err)
 	}
 	if replayed.ID != call.ID || len(agent.startRequests) != 1 {
 		t.Fatalf("replayed call = %+v, agent requests = %d", replayed, len(agent.startRequests))
+	}
+	if _, err := service.StartCall(context.Background(), StartCallInput{
+		RequestID:    "request-call-1",
+		RequestScope: "session-2",
+		LineID:       "line-stable",
+		Number:       "09012345678",
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("cross-session replay error = %v, want ErrConflict", err)
+	}
+}
+
+func TestStartCallWaitsForEarlierSnapshotCommit(t *testing.T) {
+	now := time.Date(2026, time.August, 1, 12, 0, 0, 0, time.UTC)
+	baseAgent := connectedAgent(now)
+	baseAgent.startResult = agentclient.CommandReceipt{
+		RequestID:  "request-ordered-call",
+		ResourceID: "call-endpoint-ordered",
+	}
+	startedSnapshot := baseAgent.snapshot
+	startedSnapshot.ObservedAt = now.Add(time.Second)
+	startedSnapshot.Calls = []agentclient.Call{{
+		ID:        "call-endpoint-ordered",
+		LineID:    "line-1",
+		Number:    "+818012345678",
+		Direction: "outgoing",
+		State:     "dialing",
+		StateCode: 1,
+	}}
+	baseAgent.snapshotAfterStart = &startedSnapshot
+	agent := &snapshotBarrierAgent{
+		fakeAgent:       baseAgent,
+		snapshotStarted: make(chan struct{}),
+		releaseSnapshot: make(chan struct{}),
+		startCalled:     make(chan struct{}),
+	}
+	repository := &fakeRepository{}
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	service.now = func() time.Time { return now }
+	service.status = Status{
+		Connected:  true,
+		ObservedAt: now,
+		Lines:      []store.LineSummary{projectLine(baseAgent.snapshot.Lines[0])},
+	}
+
+	refreshResult := make(chan error, 1)
+	go func() {
+		_, err := service.Refresh(context.Background())
+		refreshResult <- err
+	}()
+	<-agent.snapshotStarted
+
+	startResult := make(chan error, 1)
+	go func() {
+		_, err := service.StartCall(context.Background(), StartCallInput{
+			RequestID: "request-ordered-call",
+			LineID:    "line-1",
+			Number:    "+818012345678",
+		})
+		startResult <- err
+	}()
+
+	select {
+	case <-agent.startCalled:
+		t.Fatal("StartCall reached the Agent before the earlier snapshot committed")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(agent.releaseSnapshot)
+
+	select {
+	case err := <-refreshResult:
+		if err != nil {
+			t.Fatalf("Refresh() error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Refresh() did not finish")
+	}
+	select {
+	case err := <-startResult:
+		if err != nil {
+			t.Fatalf("StartCall() error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("StartCall() did not finish")
+	}
+	if repository.callInput.EndpointCallID != "call-endpoint-ordered" {
+		t.Fatalf("persisted call = %+v", repository.callInput)
 	}
 }
 
@@ -667,6 +836,39 @@ func TestStartCallFailureKeepsApplicationControlLease(t *testing.T) {
 	service.controlMu.RUnlock()
 	if !wanted || !active {
 		t.Fatalf("control lease state after failed start = wanted:%t active:%t", wanted, active)
+	}
+}
+
+func TestStartCallMarksReservationIndeterminateWhenReconciliationIsUnavailable(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.August, 1, 13, 30, 0, 0, time.UTC)
+	agent := connectedAgent(now)
+	agent.startError = errors.New("socket closed without response")
+	agent.snapshotError = errors.New("snapshot transport unavailable")
+	repository := &fakeRepository{}
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.now = func() time.Time { return now }
+	service.status = Status{
+		Connected:  true,
+		ObservedAt: now,
+		Lines:      []store.LineSummary{projectLine(agent.snapshot.Lines[0])},
+	}
+
+	_, err = service.StartCall(context.Background(), StartCallInput{
+		RequestID: "request-indeterminate-start",
+		LineID:    "line-1",
+		Number:    "+818012345678",
+	})
+	if !errors.Is(err, ErrStartCallOutcomeIndeterminate) {
+		t.Fatalf("StartCall() error = %v, want indeterminate outcome marker", err)
+	}
+	command := repository.commands["request-indeterminate-start"]
+	if command.Status != store.HardwareCommandIndeterminate {
+		t.Fatalf("command status = %q, want indeterminate", command.Status)
 	}
 }
 
@@ -1105,12 +1307,81 @@ func TestCallActionUsesReceiptWithoutInventingState(t *testing.T) {
 	}
 }
 
+func TestCallActionReconcilesAgentNotFoundAsTerminalSuccess(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.August, 1, 12, 30, 0, 0, time.UTC)
+	agent := connectedAgent(now)
+	agent.actionError = &agentclient.OperationError{
+		Status:    http.StatusNotFound,
+		Code:      "not_found",
+		Operation: "hangup_call",
+		Message:   "call no longer exists",
+	}
+	repository := &fakeRepository{
+		target: store.CallControlTarget{
+			AppID:          "call-app-1",
+			LineID:         "line-1",
+			EndpointCallID: "call-endpoint-1",
+			Phase:          "active",
+		},
+		call: store.Call{
+			ID:             "call-app-1",
+			LineID:         "line-1",
+			EndpointCallID: "call-endpoint-1",
+			Phase:          "ended",
+		},
+		activeCalls: []store.Call{},
+	}
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.now = func() time.Time { return now }
+
+	input := CallActionInput{
+		RequestID:    "request-terminal-hangup",
+		RequestScope: "session-1",
+		CallID:       "call-app-1",
+		Action:       "hangup",
+	}
+	call, err := service.CallAction(context.Background(), input)
+	if err != nil {
+		t.Fatalf("CallAction() error = %v", err)
+	}
+	if call.Phase != "ended" {
+		t.Fatalf("reconciled call = %+v", call)
+	}
+	command := repository.commands[input.RequestID]
+	if command.Status != store.HardwareCommandCompleted ||
+		command.ResourceID != "call-app-1" {
+		t.Fatalf("command = %+v", command)
+	}
+	preflight, foundReplay, err := service.ReplayCallAction(context.Background(), input)
+	if err != nil || !foundReplay || preflight.Phase != "ended" {
+		t.Fatalf("ReplayCallAction() = %+v, %t, %v", preflight, foundReplay, err)
+	}
+	crossSessionInput := input
+	crossSessionInput.RequestScope = "session-2"
+	if _, _, err := service.ReplayCallAction(context.Background(), crossSessionInput); !errors.Is(err, ErrConflict) {
+		t.Fatalf("cross-session ReplayCallAction() error = %v, want ErrConflict", err)
+	}
+
+	replayed, err := service.CallAction(context.Background(), input)
+	if err != nil {
+		t.Fatalf("replayed CallAction() error = %v", err)
+	}
+	if replayed.Phase != "ended" || len(agent.actionRequests) != 1 {
+		t.Fatalf("replayed call = %+v, agent actions = %d", replayed, len(agent.actionRequests))
+	}
+}
+
 func TestEndCallTargetsOnlyRequestedCall(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, time.July, 29, 12, 0, 0, 0, time.UTC)
 	baseAgent := connectedAgent(now)
-	requestID := stableInstanceID("end-call", "browser-lease", "call-app-2")
+	requestID := stableInternalRequestID("end-call", "browser-lease", "call-app-2")
 	baseAgent.actionResult = agentclient.CommandReceipt{
 		RequestID:  requestID,
 		ResourceID: "call-endpoint-2",
@@ -1457,6 +1728,49 @@ func TestRefreshReconcilesRemoteCallRemovalImmediately(t *testing.T) {
 	}
 	if len(observer.snapshots[1]) != 0 {
 		t.Fatalf("removal snapshot = %+v, want empty", observer.snapshots[1])
+	}
+}
+
+func TestRefreshPublishesCallInvalidationAfterLifecycleReconciliation(t *testing.T) {
+	now := time.Date(2026, time.August, 1, 16, 0, 0, 0, time.UTC)
+	agent := connectedAgent(now)
+	repository := &fakeRepository{activeCalls: []store.Call{{
+		ID:     "call-1",
+		LineID: "line-1",
+		Phase:  "active",
+	}}}
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := runtimeevents.NewBuffer(8)
+	if err := service.SetRuntimeEventPublisher(runtime); err != nil {
+		t.Fatal(err)
+	}
+	_, updates, cancel := runtime.SubscribeCurrent()
+	defer cancel()
+	publishedBeforeReconcile := false
+	observer := &fakeCallLifecycleObserver{onReconcile: func() {
+		select {
+		case <-updates:
+			publishedBeforeReconcile = true
+		default:
+		}
+	}}
+	if err := service.SetCallLifecycleObserver(observer); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	if publishedBeforeReconcile {
+		t.Fatal("runtime invalidation was published before lifecycle reconciliation")
+	}
+	select {
+	case <-updates:
+	case <-time.After(time.Second):
+		t.Fatal("runtime invalidation was not published after reconciliation")
 	}
 }
 

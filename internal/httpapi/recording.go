@@ -17,8 +17,7 @@ type recordingSettingsRequest struct {
 }
 
 type recordingToggleRequest struct {
-	Enabled  *bool  `json:"enabled"`
-	HolderID string `json:"holder_id"`
+	Enabled *bool `json:"enabled"`
 }
 
 type recordingsBatchRequest struct {
@@ -304,7 +303,7 @@ func (api *API) toggleRecording(response http.ResponseWriter, request *http.Requ
 		writeError(response, http.StatusServiceUnavailable, "call_lease_unavailable", "Browser call ownership is unavailable", "")
 		return
 	}
-	holder, err := api.callLeaseHolder(request.Context(), input.HolderID)
+	holderID, err := api.callLeaseHolder(request.Context())
 	if err != nil {
 		api.writeCallLeaseError(response, request, "validate browser call owner", err)
 		return
@@ -312,7 +311,7 @@ func (api *API) toggleRecording(response http.ResponseWriter, request *http.Requ
 	if err := api.callLeases.Require(
 		request.Context(),
 		callID,
-		holder.LeaseID,
+		holderID,
 	); err != nil {
 		api.writeCallLeaseError(response, request, "authorize call recording", err)
 		return

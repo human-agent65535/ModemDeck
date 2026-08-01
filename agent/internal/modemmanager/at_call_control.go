@@ -229,6 +229,69 @@ func (p *Provider) projectATCalls(
 	})
 }
 
+// refreshAuthoritativeATCalls makes a public Snapshot truthful for lines that
+// have no ModemManager Voice call list. Observer state may wake reconciliation,
+// but it is never accepted as the authoritative contents of a snapshot.
+func (p *Provider) refreshAuthoritativeATCalls(
+	ctx context.Context,
+	operation string,
+	parsed *ParsedObjects,
+) error {
+	for lineIndex := range parsed.Lines {
+		line := &parsed.Lines[lineIndex]
+		if line.Capabilities.VoiceInterface || !requiresQuectelPCMProbe(*line) {
+			continue
+		}
+		path, found := parsed.LinePaths[line.ID]
+		if !found || !path.IsValid() {
+			return domain.Unavailable(
+				operation,
+				"AT call state cannot be enumerated for the line",
+				nil,
+			)
+		}
+		response, err := p.commandATPath(ctx, path, operation, quectelCallListQuery)
+		if err != nil {
+			return err
+		}
+		records, err := parseQuectelCLCC(response)
+		if err != nil {
+			return domain.Internal(
+				operation,
+				"AT call list response was malformed",
+				err,
+			)
+		}
+		removeProjectedATCalls(parsed, line)
+		p.projectKnownATCalls(parsed, line, records, true)
+	}
+	sort.Slice(parsed.Calls, func(i, j int) bool {
+		return parsed.Calls[i].ID < parsed.Calls[j].ID
+	})
+	return nil
+}
+
+func removeProjectedATCalls(parsed *ParsedObjects, line *domain.Line) {
+	removed := make(map[string]struct{})
+	calls := parsed.Calls[:0]
+	for _, call := range parsed.Calls {
+		if parsed.ATCallLines[call.ID] == line.ID {
+			removed[call.ID] = struct{}{}
+			delete(parsed.ATCallLines, call.ID)
+			continue
+		}
+		calls = append(calls, call)
+	}
+	parsed.Calls = calls
+	callIDs := line.CallIDs[:0]
+	for _, callID := range line.CallIDs {
+		if _, found := removed[callID]; !found {
+			callIDs = append(callIDs, callID)
+		}
+	}
+	line.CallIDs = callIDs
+}
+
 func (p *Provider) projectKnownATCalls(
 	parsed *ParsedObjects,
 	line *domain.Line,

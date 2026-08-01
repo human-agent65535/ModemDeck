@@ -74,9 +74,5 @@ test('session changes release media before credentials are revoked', () => {
     session,
     /changePassword[\s\S]*?terminateSession\(\(\) => gateway\.changePassword\(input\)\)/
   )
-  assert.match(client, /let callLeaseHolderID = `browser-\$\{requestID\(\)\}`/)
-  assert.match(
-    client,
-    /rotateCallLeaseHolder[\s\S]*?callLeaseHolderID = `browser-\$\{requestID\(\)\}`/
-  )
+  assert.doesNotMatch(client, /callLeaseHolderID|rotateCallLeaseHolder|holder_id/)
 })

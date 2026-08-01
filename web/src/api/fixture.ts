@@ -2132,7 +2132,6 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       if (!activeCall || activeCall.id !== id) throw new ApiError('通话不存在', 404)
       return {
         call_id: id,
-        holder_id: 'fixture-browser',
         expires_at: new Date(Date.now() + 15_000).toISOString()
       }
     },

@@ -211,7 +211,7 @@ type ControlLeaseStatus struct {
 
 type ControlLease interface {
 	Renew(string) (ControlLeaseStatus, error)
-	Require(string) error
+	Protect(string) (release func(), err error)
 	Release(context.Context, string) error
 	Shutdown(context.Context) error
 }

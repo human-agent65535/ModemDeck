@@ -70,6 +70,57 @@ func TestQuectelATCallControlWithoutModemManagerVoice(t *testing.T) {
 	}
 }
 
+func TestAuthoritativeATSnapshotFailsWhenFreshCallListCannotBeRead(t *testing.T) {
+	t.Parallel()
+	objects := emptyLineObjects(false, true)
+	properties := objects[testModemPath][modemInterface]
+	properties["Revision"] = dbus.MakeVariant("QDC507GLEFM21")
+	caller := newFakeCaller(objects)
+	caller.atResponses[quectelUSBVoiceQuery] =
+		`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`
+	caller.atCommandErrors[quectelPCMEnable] = errors.New("unsupported")
+	caller.atResponses[quectelCallListQuery] =
+		`+CLCC: 1,0,0,0,0,"+818012345678",145`
+	provider := newTestProvider(caller)
+
+	first, err := provider.Snapshot(context.Background())
+	if err != nil || len(first.Calls) != 1 {
+		t.Fatalf("first Snapshot() = %+v, %v", first, err)
+	}
+	caller.atCommandErrors[quectelCallListQuery] = errors.New("AT port unavailable")
+	if _, err := provider.Snapshot(context.Background()); err == nil {
+		t.Fatal("Snapshot() accepted cached AT calls after fresh enumeration failed")
+	}
+}
+
+func TestATControlDoesNotActOnCallReplacedBeforeFreshEnumeration(t *testing.T) {
+	t.Parallel()
+	objects := emptyLineObjects(false, true)
+	properties := objects[testModemPath][modemInterface]
+	properties["Revision"] = dbus.MakeVariant("QDC507GLEFM21")
+	caller := newFakeCaller(objects)
+	caller.atResponses[quectelUSBVoiceQuery] =
+		`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`
+	caller.atCommandErrors[quectelPCMEnable] = errors.New("unsupported")
+	caller.atResponses[quectelCallListQuery] =
+		`+CLCC: 1,0,0,0,0,"+818011111111",145`
+	provider := newTestProvider(caller)
+
+	first, err := provider.Snapshot(context.Background())
+	if err != nil || len(first.Calls) != 1 {
+		t.Fatalf("first Snapshot() = %+v, %v", first, err)
+	}
+	staleCallID := first.Calls[0].ID
+	caller.atResponses[quectelCallListQuery] =
+		`+CLCC: 1,1,4,0,0,"+818022222222",145`
+	_, err = provider.HangupCall(context.Background(), domain.CallCommandRequest{
+		RequestID: "hangup-stale-at-call",
+		CallID:    staleCallID,
+	})
+	assertOperationError(t, err, domain.ErrorNotFound, "hangup_call")
+	assertATInvocationCount(t, caller.invocations(), quectelHangupCall, 0)
+}
+
 func TestQuectelATDialTransportErrorUsesObservedCall(t *testing.T) {
 	t.Parallel()
 
@@ -203,7 +254,7 @@ func TestQuectelATIncomingCallCommands(t *testing.T) {
 		assertATInvocation(t, caller.invocations(), command)
 	}
 
-	caller.atResponses[quectelCallListQuery] = ""
+	caller.terminateATOnHangup = true
 	if _, err := provider.HangupCall(
 		context.Background(),
 		domain.CallCommandRequest{RequestID: "request-at-hangup", CallID: callID},
@@ -247,7 +298,7 @@ func TestQuectelATRejectWaitingCallPreservesActiveCall(t *testing.T) {
 		t.Fatalf("waiting call was not projected: %+v", snapshot.Calls)
 	}
 
-	caller.atResponses[quectelCallListQuery] =
+	caller.atResponsesAfter[quectelRejectWaitingCall] =
 		`+CLCC: 1,0,0,0,0,"+818011111111",145`
 	before := len(caller.invocations())
 	if _, err := provider.RejectCall(

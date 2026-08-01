@@ -42,6 +42,10 @@ type Manager struct {
 	now        func() time.Time
 	report     func(error)
 
+	// gate lets validated provider commands finish before lease expiry, release,
+	// startup recovery, or shutdown inspects and terminates calls. The lease is
+	// validated while holding the shared side, closing the check/execute race.
+	gate         sync.RWMutex
 	mu           sync.Mutex
 	controllerID string
 	expiresAt    time.Time
@@ -89,7 +93,6 @@ func (m *Manager) Renew(controllerID string) (domain.ControlLeaseStatus, error) 
 	}
 	now := m.now().UTC()
 	expiresAt := now.Add(m.duration)
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
@@ -105,41 +108,53 @@ func (m *Manager) Renew(controllerID string) (domain.ControlLeaseStatus, error) 
 			"expired call cleanup is still in progress",
 		)
 	}
-	if m.controllerID != "" &&
-		m.controllerID != controllerID &&
-		now.Before(m.expiresAt) {
+	if m.controllerID == "" {
+		m.controllerID = controllerID
+		m.expiresAt = expiresAt
+		return domain.ControlLeaseStatus{
+			ControllerID: controllerID,
+			ExpiresAt:    expiresAt,
+		}, nil
+	}
+	if m.controllerID == controllerID && now.Before(m.expiresAt) {
+		m.expiresAt = expiresAt
+		return domain.ControlLeaseStatus{
+			ControllerID: controllerID,
+			ExpiresAt:    expiresAt,
+		}, nil
+	}
+	if now.Before(m.expiresAt) {
 		return domain.ControlLeaseStatus{}, domain.Conflict(
 			"renew_control_lease",
 			"another application instance owns the active control lease",
 		)
 	}
-	m.controllerID = controllerID
-	m.expiresAt = expiresAt
-	m.expiring = false
-	return domain.ControlLeaseStatus{
-		ControllerID: controllerID,
-		ExpiresAt:    expiresAt,
-	}, nil
+	return domain.ControlLeaseStatus{}, domain.Conflict(
+		"renew_control_lease",
+		"expired call cleanup is pending",
+	)
 }
 
-func (m *Manager) Require(controllerID string) error {
+func (m *Manager) Protect(controllerID string) (func(), error) {
 	controllerID, err := normalizeControllerID(controllerID)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	m.gate.RLock()
 	now := m.now().UTC()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed ||
 		m.controllerID != controllerID ||
 		!now.Before(m.expiresAt) {
-		return domain.FailedPrecondition(
+		m.gate.RUnlock()
+		return nil, domain.FailedPrecondition(
 			"require_control_lease",
 			"application control lease is missing or expired",
 			nil,
 		)
 	}
-	return nil
+	return m.gate.RUnlock, nil
 }
 
 func (m *Manager) Release(ctx context.Context, controllerID string) error {
@@ -147,6 +162,8 @@ func (m *Manager) Release(ctx context.Context, controllerID string) error {
 	if err != nil {
 		return err
 	}
+	m.gate.Lock()
+	defer m.gate.Unlock()
 	m.mu.Lock()
 	if m.closed || m.expiring {
 		m.mu.Unlock()
@@ -169,11 +186,13 @@ func (m *Manager) Release(ctx context.Context, controllerID string) error {
 	m.mu.Unlock()
 
 	err = m.hangupAll(ctx, "released")
-	m.finishExpiration()
+	m.finishExpiration(err == nil)
 	return err
 }
 
 func (m *Manager) Shutdown(ctx context.Context) error {
+	m.gate.Lock()
+	defer m.gate.Unlock()
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
@@ -186,11 +205,12 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	m.mu.Unlock()
 
 	err := m.hangupAll(ctx, "agent_shutdown")
-	m.finishExpiration()
 	return err
 }
 
 func (m *Manager) Recover(ctx context.Context) error {
+	m.gate.Lock()
+	defer m.gate.Unlock()
 	return m.hangupAll(ctx, "agent_startup")
 }
 
@@ -202,22 +222,36 @@ func (m *Manager) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if !m.beginExpiration() {
-				continue
-			}
-			if err := m.hangupAll(ctx, "lease_expired"); err != nil && m.report != nil {
+			_, err := m.expire(ctx)
+			if err != nil && m.report != nil {
 				m.report(err)
 			}
-			m.finishExpiration()
 		}
 	}
+}
+
+func (m *Manager) expire(ctx context.Context) (bool, error) {
+	m.gate.Lock()
+	defer m.gate.Unlock()
+	if !m.beginExpiration() {
+		return false, nil
+	}
+	err := m.hangupAll(ctx, "lease_expired")
+	m.finishExpiration(err == nil)
+	return true, err
 }
 
 func (m *Manager) beginExpiration() bool {
 	now := m.now().UTC()
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.controllerID == "" || m.expiring || now.Before(m.expiresAt) {
+	if m.closed {
+		return false
+	}
+	if m.expiring {
+		return true
+	}
+	if m.controllerID == "" || now.Before(m.expiresAt) {
 		return false
 	}
 	m.controllerID = ""
@@ -226,7 +260,10 @@ func (m *Manager) beginExpiration() bool {
 	return true
 }
 
-func (m *Manager) finishExpiration() {
+func (m *Manager) finishExpiration(success bool) {
+	if !success {
+		return
+	}
 	m.mu.Lock()
 	if !m.closed {
 		m.expiring = false
@@ -261,6 +298,13 @@ func (m *Manager) hangupAll(ctx context.Context, reason string) error {
 		)
 		commandCancel()
 		if err != nil {
+			if operationError, ok := domain.AsOperationError(err); ok &&
+				operationError.Code == domain.ErrorNotFound {
+				// The safety snapshot can race a remote hangup. Absence is the
+				// desired postcondition for this target and must not suppress
+				// cleanup of another still-live call on the same line.
+				continue
+			}
 			if call.LineID != "" {
 				failedLines[call.LineID] = struct{}{}
 			}

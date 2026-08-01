@@ -246,12 +246,6 @@ function requestID(): string {
   return `${encoded.slice(0, 8)}-${encoded.slice(8, 12)}-${encoded.slice(12, 16)}-${encoded.slice(16, 20)}-${encoded.slice(20)}`
 }
 
-let callLeaseHolderID = `browser-${requestID()}`
-
-export function rotateCallLeaseHolder(): void {
-  callLeaseHolderID = `browser-${requestID()}`
-}
-
 export function setClientCSRFToken(token?: string): void {
   currentCSRFToken = token?.trim() || ''
 }
@@ -1783,10 +1777,7 @@ const realGateway: ConfiguredModemDeckGateway = {
 
   async getActiveCallSnapshot(): Promise<ActiveCallSnapshot> {
     return parseActiveCallSnapshotResponse(
-      await get(
-        communicationContracts.activeCalls.path +
-          queryString({ holder_id: callLeaseHolderID })
-      )
+      await get(communicationContracts.activeCalls.path)
     )
   },
 
@@ -1804,7 +1795,6 @@ const realGateway: ConfiguredModemDeckGateway = {
           lineKey,
           number,
           requestID(),
-          callLeaseHolderID,
           recordingEnabled
         ),
         contract.successStatus
@@ -1820,7 +1810,6 @@ const realGateway: ConfiguredModemDeckGateway = {
       createCallActionPayload(
         action,
         requestID(),
-        callLeaseHolderID,
         recordingEnabled
       ),
       contract.successStatus
@@ -1832,7 +1821,7 @@ const realGateway: ConfiguredModemDeckGateway = {
     await writeJSON(
       contract.path,
       contract.method,
-      createDTMFPayload(digit, requestID(), callLeaseHolderID),
+      createDTMFPayload(digit, requestID()),
       contract.successStatus
     )
   },
@@ -1843,7 +1832,7 @@ const realGateway: ConfiguredModemDeckGateway = {
       await writeJSON(
         contract.path,
         contract.method,
-        createCallLeasePayload(callLeaseHolderID),
+        createCallLeasePayload(),
         contract.successStatus,
         undefined,
         CALL_LEASE_REQUEST_TIMEOUT_MS
@@ -1857,7 +1846,7 @@ const realGateway: ConfiguredModemDeckGateway = {
       await writeJSON(
         contract.path,
         contract.method,
-        createCallMediaICEPayload(callLeaseHolderID),
+        createCallMediaICEPayload(),
         contract.successStatus,
         signal
       )
@@ -1875,7 +1864,7 @@ const realGateway: ConfiguredModemDeckGateway = {
       await writeJSON(
         contract.path,
         contract.method,
-        createCallMediaPayload(ownerToken, offerSDP, callLeaseHolderID),
+        createCallMediaPayload(ownerToken, offerSDP),
         contract.successStatus,
         signal
       )
@@ -1887,7 +1876,7 @@ const realGateway: ConfiguredModemDeckGateway = {
       await writeJSON(
         contract.path,
         contract.method,
-        createCallMediaReleasePayload(ownerToken, callLeaseHolderID),
+        createCallMediaReleasePayload(ownerToken),
         contract.successStatus,
         undefined,
         CALL_LEASE_REQUEST_TIMEOUT_MS
@@ -1930,7 +1919,7 @@ const realGateway: ConfiguredModemDeckGateway = {
       await writeJSON(
         contract.path,
         contract.method,
-        createCallRecordingPayload(enabled, callLeaseHolderID),
+        createCallRecordingPayload(enabled),
         contract.successStatus
       )
     )

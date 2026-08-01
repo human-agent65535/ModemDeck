@@ -216,8 +216,9 @@ test('runtime SSE is global to the authenticated application shell', async () =>
   assert.match(shell, /shutdownRuntimeEvents\(\)/)
   assert.match(runtime, /refreshDeviceWorkspace\(\)/)
   assert.match(runtime, /loadNetwork\(true, true\)/)
-  assert.match(runtime, /onOpen:[\s\S]*?renewActiveCallLease\(\)/)
-  assert.match(runtime, /onHeartbeat:[\s\S]*?renewActiveCallLease\(\)/)
+  assert.match(runtime, /onOpen:[\s\S]*?refreshQueue\?\.enqueue\(\['calls'\]\)/)
+  assert.match(runtime, /onHeartbeat:[\s\S]*?state\.lastHeartbeatAt = observedAt/)
+  assert.doesNotMatch(runtime, /renewActiveCallLease/)
   assert.match(runtime, /case 'calls':[\s\S]*?await requestActiveCallRefresh\(\)/)
   assert.match(runtime, /refreshCalls\(\)/)
   assert.match(

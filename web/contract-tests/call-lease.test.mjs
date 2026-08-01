@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-test('browser call ownership follows the existing runtime SSE connection', async () => {
+test('call ownership uses independent control and server media liveness', async () => {
   const callState = await readFile(
     new URL('../src/state/call.ts', import.meta.url),
     'utf8'
@@ -28,31 +28,27 @@ test('browser call ownership follows the existing runtime SSE connection', async
     callState,
     /LEASED_PHASES[\s\S]*?'dialing'[\s\S]*?'ringing'[\s\S]*?'connecting'[\s\S]*?'active'/
   )
-  assert.match(
-    callState,
-    /session\.phase !== 'active' \|\| !session\.media_available[\s\S]*?LEASED_MEDIA_STATES\.has\(callMediaState\.status\)/
-  )
+  assert.match(callState, /CALL_LEASE_HEARTBEAT_MS\s*=\s*5_000/)
   assert.match(callState, /gateway[\s\S]*?\.renewCallLease\(callID\)/)
   assert.match(
     callState,
-    /LEASED_MEDIA_STATES[\s\S]{0,100}'recovering'/,
-    'the single disconnected recovery window must retain browser ownership'
+    /callLeaseHeartbeatTimer\s*=\s*window\.setInterval\([\s\S]*?renewActiveCallLease\(\)[\s\S]*?CALL_LEASE_HEARTBEAT_MS/
   )
   assert.match(
     callState,
-    /callMediaState\.status[\s\S]*?LEASED_MEDIA_STATES\.has\(status\)[\s\S]*?renewActiveCallLease\(\)/
+    /window\.addEventListener\('online', resumeCallRuntime\)[\s\S]*?window\.addEventListener\('pageshow', resumeCallRuntime\)[\s\S]*?document\.addEventListener\('visibilitychange', resumeVisibleCallRuntime\)/
+  )
+  assert.match(
+    callState,
+    /function resumeCallRuntime\(\)[\s\S]*?renewActiveCallLease\(\)[\s\S]*?requestActiveCallRefresh\(\)/
   )
   assert.doesNotMatch(
     callState,
-    /status === 'error'[\s\S]*?act\('hangup'\)/,
-    'media failure must stop lease renewal instead of creating a second hangup owner'
+    /LEASED_MEDIA_STATES|callMediaState\.status/
   )
-  assert.doesNotMatch(
-    callState,
-    /(?:setInterval|setTimeout)\([^)]*renewActiveCallLease/
-  )
-  assert.match(runtimeEvents, /onOpen:[\s\S]*?renewActiveCallLease\(\)/)
-  assert.match(runtimeEvents, /onHeartbeat:[\s\S]*?renewActiveCallLease\(\)/)
+  assert.doesNotMatch(runtimeEvents, /renewActiveCallLease/)
+  assert.match(runtimeEvents, /onOpen:[\s\S]*?enqueue\(\['calls'\]\)/)
+  assert.match(runtimeEvents, /onHeartbeat:[\s\S]*?lastHeartbeatAt/)
   assert.match(
     callMedia,
     /connection\.connectionState === 'disconnected'\) \{[\s\S]*?callMediaState\.status = 'recovering'/
@@ -64,13 +60,22 @@ test('browser call ownership follows the existing runtime SSE connection', async
   assert.match(client, /CALL_LEASE_REQUEST_TIMEOUT_MS\s*=\s*4_000/)
   assert.match(
     client,
-    /createCallLeasePayload\(callLeaseHolderID\)[\s\S]*?CALL_LEASE_REQUEST_TIMEOUT_MS/
+    /createCallLeasePayload\(\)[\s\S]*?CALL_LEASE_REQUEST_TIMEOUT_MS/
   )
   assert.match(
     client,
-    /activeCalls\.path[\s\S]*?queryString\(\{ holder_id: callLeaseHolderID \}\)/
+    /get\(communicationContracts\.activeCalls\.path\)/
   )
+  assert.doesNotMatch(client, /callLeaseHolderID|holder_id/)
   assert.match(callState, /const owned = session\.control_state === 'owned'/)
+	assert.match(
+		callState,
+		/catch \(error\) \{[\s\S]*?runtime\.dialFailed[\s\S]*?requestActiveCallRefresh\(\)/
+	)
+	assert.match(
+		callState,
+		/async function act[\s\S]*?catch \(error\) \{[\s\S]*?runtime\.callActionFailed[\s\S]*?requestActiveCallRefresh\(\)/
+	)
   assert.match(
     callState,
     /session\.control_state === 'available'[\s\S]*?syncCallMedia\(owned \? session : null\)/

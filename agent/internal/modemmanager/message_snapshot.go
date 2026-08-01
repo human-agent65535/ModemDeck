@@ -150,8 +150,12 @@ func (p *Provider) hydrateMessagesLocked(
 }
 
 func modemServiceHydrationReady(interfaces Interfaces) bool {
-	state, known := int32Property(interfaces[modemInterface], "State")
+	state, known := modemServiceHydrationState(interfaces)
 	return known && state >= modemStateEnabled
+}
+
+func modemServiceHydrationState(interfaces Interfaces) (int32, bool) {
+	return int32Property(interfaces[modemInterface], "State")
 }
 
 func serviceHydrationUnavailable(err error) bool {

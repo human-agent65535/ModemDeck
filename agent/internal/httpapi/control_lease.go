@@ -50,19 +50,20 @@ func (h *handler) releaseControlLease(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *handler) requireControlLease(
+func (h *handler) protectControlLease(
 	w http.ResponseWriter,
 	r *http.Request,
 	requestID string,
-) bool {
+) (func(), bool) {
 	if h.controlLease == nil {
-		return true
+		return func() {}, true
 	}
-	if err := h.controlLease.Require(controllerID(r)); err != nil {
+	release, err := h.controlLease.Protect(controllerID(r))
+	if err != nil {
 		h.writeError(w, err, requestID)
-		return false
+		return nil, false
 	}
-	return true
+	return release, true
 }
 
 func controllerID(r *http.Request) string {

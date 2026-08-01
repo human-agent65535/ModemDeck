@@ -37,6 +37,7 @@ const (
 	agentEventCoalesceDelay    = 250 * time.Millisecond
 	maxMessageRunes            = 1600
 	maxRequestIDLen            = 128
+	internalRequestIDPrefix    = "internal_"
 	maxIncomingCallActions     = 8
 	incomingCallActionTimeout  = 5 * time.Second
 	deviceConfigurationTimeout = 50 * time.Second
@@ -82,6 +83,7 @@ type Repository interface {
 	UpsertHardwareMessage(context.Context, store.HardwareMessage) (store.Message, bool, error)
 	UpsertHardwareCall(context.Context, store.HardwareCall) (store.Call, error)
 	BeginHardwareCommand(context.Context, string, string, []byte) (store.HardwareCommand, bool, error)
+	HardwareCommand(context.Context, string) (store.HardwareCommand, error)
 	FinishHardwareCommand(context.Context, string, string, string, string) error
 	MessageByRequestID(context.Context, string) (store.Message, error)
 	CallByRequestID(context.Context, string) (store.Call, error)
@@ -141,16 +143,93 @@ type SendMessageInput struct {
 }
 
 type StartCallInput struct {
-	RequestID string
-	LineID    string
-	Number    string
+	RequestID    string
+	RequestScope string
+	LineID       string
+	Number       string
 }
 
 type CallActionInput struct {
-	RequestID string
-	CallID    string
-	Action    string
-	Digits    string
+	RequestID    string
+	RequestScope string
+	CallID       string
+	Action       string
+	Digits       string
+}
+
+// ReplayStartCall resolves only an already-recorded command. It never creates
+// a journal entry, reserves a line, or contacts the Agent.
+func (s *Service) ReplayStartCall(
+	ctx context.Context,
+	input StartCallInput,
+) (store.Call, bool, error) {
+	requestID, err := s.requestID(input.RequestID)
+	if err != nil {
+		return store.Call{}, false, operationError(CodeInvalidArgument, "start call", "request id is invalid", err)
+	}
+	lines, err := s.repository.Lines(normalizeContext(ctx))
+	if err != nil {
+		return store.Call{}, false, operationError(CodeInternal, "start call", "persisted lines are unavailable", err)
+	}
+	var line store.LineSummary
+	for _, candidate := range lines {
+		if strings.TrimSpace(candidate.ID) == strings.TrimSpace(input.LineID) {
+			line = candidate
+			break
+		}
+	}
+	if strings.TrimSpace(line.ID) == "" {
+		return store.Call{}, false, nil
+	}
+	address, err := phone.ParseDestination(input.Number, line.HomeCountryISO)
+	if err != nil {
+		return store.Call{}, false, nil
+	}
+	return s.replayCallCommand(
+		ctx,
+		requestID,
+		"start_call",
+		commandDigest("start_call", input.RequestScope, line.ID, address.Dial),
+		"start call",
+	)
+}
+
+// ReplayCallAction resolves a completed action before the ephemeral ownership
+// check. The authenticated request scope remains part of the durable digest,
+// so another session cannot replay the result.
+func (s *Service) ReplayCallAction(
+	ctx context.Context,
+	input CallActionInput,
+) (store.Call, bool, error) {
+	const operation = "control call"
+	target, err := s.repository.CallControlTarget(normalizeContext(ctx), input.CallID)
+	if errors.Is(err, store.ErrCallNotFound) {
+		return store.Call{}, false, nil
+	}
+	if err != nil {
+		return store.Call{}, false, operationError(CodeInternal, operation, "cannot load call", err)
+	}
+	requestID, err := s.requestID(input.RequestID)
+	if err != nil {
+		return store.Call{}, false, operationError(CodeInvalidArgument, operation, "request id is invalid", err)
+	}
+	action, digits, err := normalizeCallAction(input.Action, input.Digits)
+	if err != nil {
+		return store.Call{}, false, err
+	}
+	return s.replayCallCommand(
+		ctx,
+		requestID,
+		"call_"+action,
+		commandDigest(
+			"call_"+action,
+			input.RequestScope,
+			target.AppID,
+			target.EndpointCallID,
+			digits,
+		),
+		operation,
+	)
 }
 
 type runtimeProjection struct {
@@ -170,10 +249,14 @@ type Service struct {
 	diagnosticLogMu         sync.Mutex
 	loggedDeliveryReportIDs map[string]struct{}
 
-	mu                sync.RWMutex
-	status            Status
-	lastSnapshot      agentclient.Snapshot
-	refreshMu         sync.Mutex
+	mu           sync.RWMutex
+	status       Status
+	lastSnapshot agentclient.Snapshot
+	// coordinatorMu orders every complete hardware snapshot commit with every
+	// command that can create or change a call. A command holds it from the
+	// Agent request through the resulting database projection, so a snapshot
+	// captured before the command cannot commit after it.
+	coordinatorMu     sync.Mutex
 	runtimeProjection runtimeProjection
 
 	lifecycleMu       sync.RWMutex
@@ -236,8 +319,8 @@ func (s *Service) SetRuntimeEventPublisher(events runtimeevents.Publisher) error
 			nil,
 		)
 	}
-	s.refreshMu.Lock()
-	defer s.refreshMu.Unlock()
+	s.coordinatorMu.Lock()
+	defer s.coordinatorMu.Unlock()
 	if s.runtime != nil {
 		return operationError(
 			CodeConflict,
@@ -251,13 +334,14 @@ func (s *Service) SetRuntimeEventPublisher(events runtimeevents.Publisher) error
 }
 
 func (s *Service) Refresh(ctx context.Context) (Status, error) {
-	s.refreshMu.Lock()
-	defer s.refreshMu.Unlock()
+	s.coordinatorMu.Lock()
+	defer s.coordinatorMu.Unlock()
+	return s.refreshLocked(ctx)
+}
 
-	s.mu.RLock()
-	previousStatus := cloneStatus(s.status)
-	previousSnapshot := cloneAgentSnapshot(s.lastSnapshot)
-	s.mu.RUnlock()
+// refreshLocked obtains and commits one complete Agent snapshot. Callers must
+// hold coordinatorMu so its database writes cannot cross a call command.
+func (s *Service) refreshLocked(ctx context.Context) (Status, error) {
 	refreshContext, cancel := context.WithTimeout(normalizeContext(ctx), snapshotTimeout)
 	defer cancel()
 	health, err := s.agent.Health(refreshContext)
@@ -283,16 +367,51 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 	if snapshot.ObservedAt.IsZero() {
 		return s.recordRefreshFailure("read host agent snapshot", errors.New("snapshot observed_at is missing"))
 	}
+	return s.commitSnapshotLocked(refreshContext, health, snapshot, nil)
+}
+
+type callSnapshotAnnotation struct {
+	requestID      string
+	fallbackNumber string
+}
+
+// commitSnapshotLocked applies one complete Agent snapshot as a single
+// authoritative hardware projection. Callers hold coordinatorMu. A call
+// request ID can be attached to the call created by the command whose
+// post-command snapshot is being committed.
+func (s *Service) commitSnapshotLocked(
+	ctx context.Context,
+	health agentclient.Health,
+	snapshot agentclient.Snapshot,
+	callAnnotations map[string]callSnapshotAnnotation,
+) (Status, error) {
+	ctx = normalizeContext(ctx)
+	s.mu.RLock()
+	previousStatus := cloneStatus(s.status)
+	previousSnapshot := cloneAgentSnapshot(s.lastSnapshot)
+	s.mu.RUnlock()
 	snapshot, _ = quarantineDuplicateSubscriptionAttachments(snapshot)
-	stableLines, err := s.repository.Lines(refreshContext)
+	stableLines, err := s.repository.Lines(ctx)
 	if err != nil {
 		return s.recordRefreshFailure("read stable line identities", err)
 	}
 	snapshot = bindSnapshotHomeCountries(snapshot, stableLines)
 
 	hardwareSnapshot, lines := projectSnapshot(snapshot, health.Provider.BootEpoch)
+	for index := range hardwareSnapshot.Calls {
+		call := &hardwareSnapshot.Calls[index]
+		annotation, found := callAnnotations[call.EndpointCallID]
+		if !found {
+			continue
+		}
+		call.RequestID = strings.TrimSpace(annotation.requestID)
+		if strings.TrimSpace(call.Number) == "" {
+			call.Number = strings.TrimSpace(annotation.fallbackNumber)
+			call.ReportedNumber = call.Number
+		}
+	}
 	snapshotResult, err := s.repository.ApplyHardwareSnapshotWithResult(
-		refreshContext,
+		ctx,
 		hardwareSnapshot,
 	)
 	if err != nil {
@@ -303,12 +422,12 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 		hardwareSnapshot.Messages,
 		snapshotResult.HandledDeliveryReportIDs,
 	)
-	stableLines, err = s.repository.Lines(refreshContext)
+	stableLines, err = s.repository.Lines(ctx)
 	if err != nil {
 		return s.recordRefreshFailure("read persisted line identities", err)
 	}
 	lines = bindProjectedLines(lines, snapshotResult.LineIDsByEndpoint, stableLines)
-	activeCalls, err := s.repository.ActiveCalls(refreshContext)
+	activeCalls, err := s.repository.ActiveCalls(ctx)
 	if err != nil {
 		return s.recordRefreshFailure("read authoritative active calls", err)
 	}
@@ -336,13 +455,7 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 		snapshotResult.HandledDeliveryReportIDs,
 	)
 	s.updateAgentControlCapabilities(status.Capabilities)
-	s.publishRuntimeSnapshot(
-		status.BootEpoch,
-		snapshot.ObservedAt,
-		lines,
-		activeCalls,
-	)
-	if err := s.reconcileAuthoritativeCalls(refreshContext, activeCalls); err != nil {
+	if err := s.reconcileAuthoritativeCalls(ctx, activeCalls); err != nil {
 		return cloneStatus(status), operationError(
 			CodeInternal,
 			"reconcile call lifecycle",
@@ -350,6 +463,16 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 			err,
 		)
 	}
+	// Runtime events invalidate the fully committed application projection,
+	// including media, recording, and ownership reconciliation. Publishing
+	// earlier can wake a client while ownership still reflects the preceding
+	// call snapshot.
+	s.publishRuntimeSnapshot(
+		status.BootEpoch,
+		snapshot.ObservedAt,
+		lines,
+		activeCalls,
+	)
 	if err := s.processIncomingCallActions(ctx, snapshot); err != nil {
 		return cloneStatus(status), operationError(
 			CodeInternal,
@@ -1289,7 +1412,7 @@ func (s *Service) terminateEndpointCall(
 	if endpointCallID == "" {
 		return cause
 	}
-	requestID := stableInstanceID("end-call", reason, endpointCallID)
+	requestID := stableInternalRequestID("end-call", reason, endpointCallID)
 	commandContext, cancel := context.WithTimeout(
 		context.WithoutCancel(normalizeContext(ctx)),
 		commandTimeout,
@@ -1329,6 +1452,7 @@ func (s *Service) recordIndeterminateAcceptedCall(
 		"indeterminate-call",
 		cause,
 	)
+	cause = s.reconcileIndeterminateStart(ctx, cause)
 	finishContext, cancel := durableContext(ctx)
 	finishErr := s.finishIndeterminateCommand(finishContext, command, cause)
 	cancel()
@@ -1336,6 +1460,26 @@ func (s *Service) recordIndeterminateAcceptedCall(
 		return errors.Join(cause, finishErr)
 	}
 	return cause
+}
+
+// reconcileIndeterminateStart runs while the caller holds coordinatorMu. A
+// complete snapshot either binds the still-live call to the existing outgoing
+// ownership record or proves that the record may be released. If no complete
+// snapshot can be committed, the marker tells the HTTP layer to retain the
+// record for the next reconciliation instead of opening the line to a second
+// dial attempt.
+func (s *Service) reconcileIndeterminateStart(ctx context.Context, cause error) error {
+	reconcileContext, cancel := durableContext(ctx)
+	_, err := s.refreshLocked(reconcileContext)
+	cancel()
+	if err == nil {
+		return cause
+	}
+	return errors.Join(
+		ErrStartCallOutcomeIndeterminate,
+		cause,
+		fmt.Errorf("reconcile indeterminate start call: %w", err),
+	)
 }
 
 func (s *Service) EndCall(ctx context.Context, callID string) error {
@@ -1359,7 +1503,7 @@ func (s *Service) EndCall(ctx context.Context, callID string) error {
 		return nil
 	}
 	_, err = s.CallAction(ctx, CallActionInput{
-		RequestID: stableInstanceID("end-call", "browser-lease", callID),
+		RequestID: stableInternalRequestID("end-call", "browser-lease", callID),
 		CallID:    callID,
 		Action:    "hangup",
 	})
@@ -1541,7 +1685,7 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 		ctx,
 		requestID,
 		"start_call",
-		commandDigest("start_call", line.ID, number),
+		commandDigest("start_call", input.RequestScope, line.ID, number),
 	)
 	if err != nil {
 		return store.Call{}, err
@@ -1558,6 +1702,8 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 		}
 		return call, nil
 	}
+	s.coordinatorMu.Lock()
+	defer s.coordinatorMu.Unlock()
 	if err := s.ensureAgentControlLease(ctx); err != nil {
 		return store.Call{}, s.failLocalCommand(
 			ctx,
@@ -1575,6 +1721,9 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 		Number:    number,
 	})
 	if err != nil {
+		if agentErrorCode(err) == "" {
+			err = s.reconcileIndeterminateStart(ctx, err)
+		}
 		if finishErr := s.finishFailedCommand(ctx, command, err); finishErr != nil {
 			return store.Call{}, finishErr
 		}
@@ -1607,6 +1756,21 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 			err,
 		)
 	}
+	if snapshot.ObservedAt.IsZero() {
+		snapshotErr := errors.New("authoritative host-agent snapshot has no observation time")
+		snapshotErr = s.recordIndeterminateAcceptedCall(
+			ctx,
+			command,
+			receipt.ResourceID,
+			snapshotErr,
+		)
+		return store.Call{}, operationError(
+			CodeUnavailable,
+			operation,
+			"host agent accepted the call but returned an incomplete snapshot",
+			snapshotErr,
+		)
+	}
 	var observed agentclient.Call
 	found := false
 	for _, candidate := range snapshot.Calls {
@@ -1636,23 +1800,27 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 			stateErr,
 		)
 	}
-	if snapshot.ObservedAt.IsZero() {
-		snapshot.ObservedAt = s.now().UTC()
-	}
-	projected := projectCall(
-		observed,
-		line,
-		requestID,
-		snapshot.ObservedAt,
-		0,
+	_, err = s.commitSnapshotLocked(
+		outcomeContext,
+		agentclient.Health{
+			APIVersion:   agentclient.APIVersion,
+			AgentVersion: status.AgentVersion,
+			Provider: agentclient.ProviderHealth{
+				Name:           status.ProviderName,
+				Available:      true,
+				BootEpoch:      status.BootEpoch,
+				RuntimeVersion: status.RuntimeVersion,
+				Capabilities:   status.Capabilities,
+			},
+		},
+		snapshot,
+		map[string]callSnapshotAnnotation{
+			receipt.ResourceID: {
+				requestID:      requestID,
+				fallbackNumber: number,
+			},
+		},
 	)
-	projected.AppID = appID
-	projected.LineID = line.ID
-	projected.EndpointLineID = line.EndpointID
-	if strings.TrimSpace(projected.Number) == "" {
-		projected.Number = number
-	}
-	stored, err := s.repository.UpsertHardwareCall(outcomeContext, projected)
 	if err != nil {
 		err = s.terminateEndpointCall(
 			ctx,
@@ -1663,7 +1831,22 @@ func (s *Service) StartCall(ctx context.Context, input StartCallInput) (store.Ca
 		return store.Call{}, operationError(
 			CodeInternal,
 			operation,
-			"call was accepted by the modem but could not be recorded",
+			"call was accepted by the modem but its authoritative state could not be committed",
+			err,
+		)
+	}
+	stored, err := s.repository.CallByID(outcomeContext, appID)
+	if err != nil {
+		err = s.terminateEndpointCall(
+			ctx,
+			receipt.ResourceID,
+			"load-call",
+			err,
+		)
+		return store.Call{}, operationError(
+			CodeInternal,
+			operation,
+			"committed call state could not be loaded",
 			err,
 		)
 	}
@@ -1698,22 +1881,21 @@ func (s *Service) CallAction(ctx context.Context, input CallActionInput) (store.
 	if err != nil {
 		return store.Call{}, operationError(CodeInvalidArgument, operation, "request id is invalid", err)
 	}
-	action := strings.ToLower(strings.TrimSpace(input.Action))
-	digits := strings.ToUpper(strings.TrimSpace(input.Digits))
-	switch action {
-	case "answer", "reject", "hangup":
-	case "dtmf":
-		if !validDTMF(digits) {
-			return store.Call{}, operationError(CodeInvalidArgument, operation, "DTMF digits are invalid", nil)
-		}
-	default:
-		return store.Call{}, operationError(CodeInvalidArgument, operation, "call action is invalid", nil)
+	action, digits, err := normalizeCallAction(input.Action, input.Digits)
+	if err != nil {
+		return store.Call{}, err
 	}
 	command, replay, err := s.beginCommand(
 		ctx,
 		requestID,
 		"call_"+action,
-		commandDigest("call_"+action, target.AppID, target.EndpointCallID, digits),
+		commandDigest(
+			"call_"+action,
+			input.RequestScope,
+			target.AppID,
+			target.EndpointCallID,
+			digits,
+		),
 	)
 	if err != nil {
 		return store.Call{}, err
@@ -1730,8 +1912,26 @@ func (s *Service) CallAction(ctx context.Context, input CallActionInput) (store.
 		}
 		return call, nil
 	}
+
+	s.coordinatorMu.Lock()
+	defer s.coordinatorMu.Unlock()
+
+	// The call may have reached a terminal state while this command waited for
+	// an earlier snapshot or call command. Re-read it inside the coordinator
+	// rather than acting on the pre-journal view used to build the request
+	// digest.
+	target, err = s.repository.CallControlTarget(ctx, input.CallID)
+	if errors.Is(err, store.ErrCallNotFound) {
+		return store.Call{}, s.failLocalCommand(ctx, command, operation, "call was not found", err)
+	}
+	if err != nil {
+		return store.Call{}, s.failLocalCommand(ctx, command, operation, "cannot load call", err)
+	}
 	if target.Phase == "ended" || target.Phase == "failed" {
-		return store.Call{}, s.failLocalCommand(ctx, command, operation, "call has already ended", nil)
+		if action == "dtmf" {
+			return store.Call{}, s.failLocalCommand(ctx, command, operation, "call has already ended", nil)
+		}
+		return s.completeCallCommand(ctx, command, target.AppID, operation)
 	}
 	if action == "answer" || action == "dtmf" {
 		if err := s.ensureAgentControlLease(ctx); err != nil {
@@ -1763,6 +1963,37 @@ func (s *Service) CallAction(ctx context.Context, input CallActionInput) (store.
 		})
 	}
 	if err != nil {
+		if action != "dtmf" && agentErrorCode(err) == "not_found" {
+			outcomeContext, outcomeCancel := durableContext(ctx)
+			defer outcomeCancel()
+			if _, refreshErr := s.refreshLocked(outcomeContext); refreshErr != nil {
+				cause := errors.Join(err, refreshErr)
+				if finishErr := s.finishIndeterminateCommand(ctx, command, cause); finishErr != nil {
+					return store.Call{}, finishErr
+				}
+				return store.Call{}, operationError(
+					CodeUnavailable,
+					operation,
+					"host agent no longer has the call and its state could not be reconciled",
+					cause,
+				)
+			}
+			call, loadErr := s.repository.CallByID(outcomeContext, target.AppID)
+			if loadErr != nil {
+				if finishErr := s.finishIndeterminateCommand(ctx, command, loadErr); finishErr != nil {
+					return store.Call{}, finishErr
+				}
+				return store.Call{}, operationError(
+					CodeInternal,
+					operation,
+					"reconciled call state could not be loaded",
+					loadErr,
+				)
+			}
+			if call.Phase == "ended" || call.Phase == "failed" {
+				return s.completeCallCommand(ctx, command, target.AppID, operation)
+			}
+		}
 		if finishErr := s.finishFailedCommand(ctx, command, err); finishErr != nil {
 			return store.Call{}, finishErr
 		}
@@ -1780,18 +2011,64 @@ func (s *Service) CallAction(ctx context.Context, input CallActionInput) (store.
 	}
 	outcomeContext, outcomeCancel := durableContext(ctx)
 	defer outcomeCancel()
+	if action != "dtmf" {
+		if _, err := s.refreshLocked(outcomeContext); err != nil {
+			finishErr := s.repository.FinishHardwareCommand(
+				outcomeContext,
+				requestID,
+				store.HardwareCommandIndeterminate,
+				target.AppID,
+				"snapshot",
+			)
+			if finishErr != nil {
+				err = errors.Join(err, finishErr)
+			}
+			return store.Call{}, operationError(
+				CodeUnavailable,
+				operation,
+				"host agent accepted the call action but its state could not be observed",
+				err,
+			)
+		}
+	}
+	return s.completeCallCommand(
+		outcomeContext,
+		command,
+		target.AppID,
+		operation,
+	)
+}
+
+func (s *Service) completeCallCommand(
+	ctx context.Context,
+	command store.HardwareCommand,
+	callID string,
+	operation string,
+) (store.Call, error) {
+	outcomeContext, cancel := durableContext(ctx)
+	defer cancel()
 	if err := s.repository.FinishHardwareCommand(
 		outcomeContext,
-		requestID,
+		command.RequestID,
 		store.HardwareCommandCompleted,
-		target.AppID,
+		callID,
 		"",
 	); err != nil {
-		return store.Call{}, operationError(CodeInternal, operation, "call command result could not be finalized", err)
+		return store.Call{}, operationError(
+			CodeInternal,
+			operation,
+			"call command result could not be finalized",
+			err,
+		)
 	}
-	call, err := s.repository.CallByID(outcomeContext, target.AppID)
+	call, err := s.repository.CallByID(outcomeContext, callID)
 	if err != nil {
-		return store.Call{}, operationError(CodeInternal, operation, "call state could not be loaded", err)
+		return store.Call{}, operationError(
+			CodeInternal,
+			operation,
+			"call state could not be loaded",
+			err,
+		)
 	}
 	return call, nil
 }
@@ -1906,6 +2183,85 @@ func (s *Service) beginCommand(
 	}
 }
 
+func (s *Service) replayCallCommand(
+	ctx context.Context,
+	requestID string,
+	journalOperation string,
+	digest []byte,
+	operation string,
+) (store.Call, bool, error) {
+	command, err := s.repository.HardwareCommand(normalizeContext(ctx), requestID)
+	if errors.Is(err, store.ErrHardwareCommandConflict) {
+		return store.Call{}, false, nil
+	}
+	if err != nil {
+		return store.Call{}, false, operationError(
+			CodeInternal,
+			operation,
+			"command request could not be read",
+			err,
+		)
+	}
+	if command.Operation != journalOperation || !slices.Equal(command.PayloadDigest, digest) {
+		return store.Call{}, false, operationError(
+			CodeConflict,
+			operation,
+			"request id was already used for a different command",
+			store.ErrHardwareCommandConflict,
+		)
+	}
+	switch command.Status {
+	case store.HardwareCommandCompleted:
+		call, err := s.repository.CallByID(normalizeContext(ctx), command.ResourceID)
+		if err != nil {
+			return store.Call{}, false, operationError(
+				CodeInternal,
+				operation,
+				"completed call command has no stored result",
+				err,
+			)
+		}
+		return call, true, nil
+	case store.HardwareCommandPending:
+		return store.Call{}, false, operationError(
+			CodeConflict,
+			operation,
+			"the same command is already in progress",
+			nil,
+		)
+	case store.HardwareCommandIndeterminate:
+		return store.Call{}, false, operationError(
+			CodeConflict,
+			operation,
+			"the previous command outcome is unknown; inspect live state before using a new request id",
+			nil,
+		)
+	default:
+		return store.Call{}, false, operationError(
+			CodeConflict,
+			operation,
+			"the same request id already completed with a failure",
+			nil,
+		)
+	}
+}
+
+func normalizeCallAction(action string, digits string) (string, string, error) {
+	const operation = "control call"
+	action = strings.ToLower(strings.TrimSpace(action))
+	digits = strings.ToUpper(strings.TrimSpace(digits))
+	switch action {
+	case "answer", "reject", "hangup":
+	case "dtmf":
+		if !validDTMF(digits) {
+			return "", "", operationError(CodeInvalidArgument, operation, "DTMF digits are invalid", nil)
+		}
+	default:
+		return "", "", operationError(CodeInvalidArgument, operation, "call action is invalid", nil)
+	}
+	return action, digits, nil
+}
+
 func (s *Service) finishFailedCommand(
 	ctx context.Context,
 	command store.HardwareCommand,
@@ -1913,10 +2269,9 @@ func (s *Service) finishFailedCommand(
 ) error {
 	status := store.HardwareCommandIndeterminate
 	errorCode := "transport"
-	var agentError *agentclient.OperationError
-	if errors.As(cause, &agentError) {
+	if code := agentErrorCode(cause); code != "" {
 		status = store.HardwareCommandFailed
-		errorCode = agentError.Code
+		errorCode = code
 	}
 	outcomeContext, cancel := durableContext(ctx)
 	defer cancel()
@@ -1935,6 +2290,14 @@ func (s *Service) finishFailedCommand(
 		)
 	}
 	return nil
+}
+
+func agentErrorCode(err error) string {
+	var operationError *agentclient.OperationError
+	if !errors.As(err, &operationError) {
+		return ""
+	}
+	return strings.TrimSpace(operationError.Code)
 }
 
 func (s *Service) finishIndeterminateCommand(
@@ -2425,6 +2788,10 @@ func applicationMediaAvailable(call agentclient.Call) bool {
 func stableInstanceID(prefix string, lineID string, endpointID string) string {
 	digest := sha256.Sum256([]byte(lineID + "\x00" + endpointID))
 	return prefix + "_" + hex.EncodeToString(digest[:16])
+}
+
+func stableInternalRequestID(prefix string, lineID string, endpointID string) string {
+	return stableInstanceID(internalRequestIDPrefix+prefix, lineID, endpointID)
 }
 
 func resolveLine(

@@ -14,21 +14,17 @@ import (
 type callMediaRequest struct {
 	OwnerToken string `json:"owner_token"`
 	OfferSDP   string `json:"offer_sdp"`
-	HolderID   string `json:"holder_id"`
 }
 
 type callMediaReleaseRequest struct {
 	OwnerToken string `json:"owner_token"`
-	HolderID   string `json:"holder_id"`
 }
 
 type callMediaResponse struct {
 	AnswerSDP string `json:"answer_sdp"`
 }
 
-type callMediaICEConfigurationRequest struct {
-	HolderID string `json:"holder_id"`
-}
+type callMediaICEConfigurationRequest struct{}
 
 type callMediaICEConfigurationResponse struct {
 	ICEServers         []rtcconfig.ICEServer `json:"ice_servers"`
@@ -78,7 +74,7 @@ func (api *API) exchangeCallMedia(
 	if !decodeJSONBody(response, request, &input) {
 		return
 	}
-	holder, err := api.callLeaseHolder(request.Context(), input.HolderID)
+	holderID, err := api.callLeaseHolder(request.Context())
 	if err != nil {
 		api.writeCallLeaseError(response, request, "validate browser call owner", err)
 		return
@@ -86,7 +82,7 @@ func (api *API) exchangeCallMedia(
 	if err := api.callLeases.Require(
 		request.Context(),
 		callID,
-		holder.LeaseID,
+		holderID,
 	); err != nil {
 		api.writeCallLeaseError(response, request, "authorize browser call media", err)
 		return
@@ -145,6 +141,33 @@ func (api *API) callMediaICEConfiguration(
 		)
 		return
 	}
+	var input callMediaICEConfigurationRequest
+	if !decodeJSONBody(response, request, &input) {
+		return
+	}
+	holderID, err := api.callLeaseHolder(request.Context())
+	if err != nil {
+		api.writeCallLeaseError(
+			response,
+			request,
+			"validate call owner",
+			err,
+		)
+		return
+	}
+	if err := api.callLeases.Require(
+		request.Context(),
+		callID,
+		holderID,
+	); err != nil {
+		api.writeCallLeaseError(
+			response,
+			request,
+			"authorize TURN configuration",
+			err,
+		)
+		return
+	}
 	relayRequired := api.callMediaRequiresRelay(request)
 	if !relayRequired {
 		response.Header().Set("Cache-Control", "no-store")
@@ -161,33 +184,6 @@ func (api *API) callMediaICEConfiguration(
 			"turn_unavailable",
 			"TURN is unavailable",
 			"",
-		)
-		return
-	}
-	var input callMediaICEConfigurationRequest
-	if !decodeJSONBody(response, request, &input) {
-		return
-	}
-	holder, err := api.callLeaseHolder(request.Context(), input.HolderID)
-	if err != nil {
-		api.writeCallLeaseError(
-			response,
-			request,
-			"validate call owner",
-			err,
-		)
-		return
-	}
-	if err := api.callLeases.Require(
-		request.Context(),
-		callID,
-		holder.LeaseID,
-	); err != nil {
-		api.writeCallLeaseError(
-			response,
-			request,
-			"authorize TURN configuration",
-			err,
 		)
 		return
 	}
@@ -256,7 +252,7 @@ func (api *API) releaseCallMedia(
 	if !decodeJSONBody(response, request, &input) {
 		return
 	}
-	holder, err := api.callLeaseHolder(request.Context(), input.HolderID)
+	holderID, err := api.callLeaseHolder(request.Context())
 	if err != nil {
 		api.writeCallLeaseError(response, request, "validate browser call owner", err)
 		return
@@ -264,7 +260,7 @@ func (api *API) releaseCallMedia(
 	if err := api.callLeases.Require(
 		request.Context(),
 		callID,
-		holder.LeaseID,
+		holderID,
 	); err != nil {
 		api.writeCallLeaseError(response, request, "authorize browser call media release", err)
 		return

@@ -19,6 +19,7 @@ import (
 type fakeCallLeases struct {
 	callID           string
 	holderID         string
+	subjectID        string
 	reservationID    string
 	lineID           string
 	status           calllease.Status
@@ -30,6 +31,7 @@ type fakeCallLeases struct {
 	reserveErr       error
 	activateErr      error
 	releaseErr       error
+	awaitErr         error
 	reserveReplay    bool
 	claims           int
 	reserves         int
@@ -39,17 +41,23 @@ type fakeCallLeases struct {
 	reservationReads int
 	requires         int
 	releases         int
+	awaits           int
+	revokedCallIDs   []string
+	revokedHolderID  string
+	revokedSubjectID string
 }
 
-func (leases *fakeCallLeases) ReserveOutgoing(
+func (leases *fakeCallLeases) ReserveOutgoingFor(
 	_ context.Context,
 	reservationID string,
 	lineID string,
-	holderID string,
+	owner calllease.Owner,
 ) (calllease.OutgoingReservation, error) {
+	holderID := owner.HolderID
 	leases.reservationID = reservationID
 	leases.lineID = lineID
 	leases.holderID = holderID
+	leases.subjectID = owner.SubjectID
 	leases.reserves++
 	return calllease.OutgoingReservation{
 		ID:           reservationID,
@@ -81,6 +89,16 @@ func (leases *fakeCallLeases) ReleaseOutgoing(
 	leases.holderID = holderID
 	leases.releases++
 	return true, leases.releaseErr
+}
+
+func (leases *fakeCallLeases) AwaitOutgoingResolution(
+	reservationID string,
+	holderID string,
+) error {
+	leases.reservationID = reservationID
+	leases.holderID = holderID
+	leases.awaits++
+	return leases.awaitErr
 }
 
 func (leases *fakeCallLeases) OutgoingReservations(
@@ -120,15 +138,26 @@ func (leases *fakeCallLeases) ProjectActive(
 	}, nil
 }
 
-func (leases *fakeCallLeases) Claim(
+func (leases *fakeCallLeases) ClaimFor(
 	_ context.Context,
 	callID string,
-	holderID string,
+	owner calllease.Owner,
 ) (calllease.Status, error) {
 	leases.callID = callID
-	leases.holderID = holderID
+	leases.holderID = owner.HolderID
+	leases.subjectID = owner.SubjectID
 	leases.claims++
 	return leases.status, leases.err
+}
+
+func (leases *fakeCallLeases) RevokeHolder(holderID string) ([]string, error) {
+	leases.revokedHolderID = holderID
+	return append([]string(nil), leases.revokedCallIDs...), leases.err
+}
+
+func (leases *fakeCallLeases) RevokeSubject(subjectID string) ([]string, error) {
+	leases.revokedSubjectID = subjectID
+	return append([]string(nil), leases.revokedCallIDs...), leases.err
 }
 
 func (leases *fakeCallLeases) Renew(
@@ -163,17 +192,6 @@ func (leases *fakeCallLeases) Require(
 	return leases.err
 }
 
-func (leases *fakeCallLeases) Release(
-	_ context.Context,
-	callID string,
-	holderID string,
-) error {
-	leases.callID = callID
-	leases.holderID = holderID
-	leases.releases++
-	return leases.err
-}
-
 func TestRenewCallLease(t *testing.T) {
 	t.Parallel()
 	expiresAt := time.Date(2026, time.July, 28, 12, 0, 15, 0, time.UTC)
@@ -192,7 +210,7 @@ func TestRenewCallLease(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPut,
 		"/api/v1/calls/call-1/lease",
-		bytes.NewBufferString(`{"holder_id":"browser-1"}`),
+		bytes.NewBufferString(`{}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -201,7 +219,7 @@ func TestRenewCallLease(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
-	if leases.callID != "call-1" || leases.holderID != "browser-1" {
+	if leases.callID != "call-1" || leases.holderID != developmentCallLeaseHolderID {
 		t.Fatalf("renewed lease = call %q holder %q", leases.callID, leases.holderID)
 	}
 }
@@ -218,7 +236,7 @@ func TestRenewCallLeaseRequiresConfiguredService(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPut,
 		"/api/v1/calls/call-1/lease",
-		bytes.NewBufferString(`{"holder_id":"browser-1"}`),
+		bytes.NewBufferString(`{}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -270,7 +288,7 @@ func TestCallLeaseHolderIsBoundToAuthenticatedSession(t *testing.T) {
 		request := authorizedAPIRequest(
 			http.MethodPut,
 			"/api/v1/calls/call-1/lease",
-			bytes.NewReader([]byte(`{"holder_id":"browser-1"}`)),
+			bytes.NewReader([]byte(`{}`)),
 			sessionToken,
 			csrfToken,
 		)
@@ -292,12 +310,11 @@ func TestCallLeaseHolderIsBoundToAuthenticatedSession(t *testing.T) {
 	if firstHolder != replayedHolder {
 		t.Fatalf("same session holder changed from %q to %q", firstHolder, replayedHolder)
 	}
-	if firstHolder == "browser-1" ||
-		!strings.HasPrefix(firstHolder, callLeaseHolderScopePrefix) {
+	if !strings.HasPrefix(firstHolder, callLeaseHolderScopePrefix) {
 		t.Fatalf("internal holder = %q", firstHolder)
 	}
-	if firstStatus.HolderID != "browser-1" {
-		t.Fatalf("public holder = %q, want browser-1", firstStatus.HolderID)
+	if firstStatus.HolderID != "" {
+		t.Fatalf("public response exposed holder = %q", firstStatus.HolderID)
 	}
 
 	secondSessionToken := opaqueTestToken(33)
@@ -311,7 +328,7 @@ func TestCallLeaseHolderIsBoundToAuthenticatedSession(t *testing.T) {
 	if secondHolder == firstHolder {
 		t.Fatalf("different sessions shared holder %q", secondHolder)
 	}
-	if secondStatus.HolderID != "browser-1" {
-		t.Fatalf("public holder = %q, want browser-1", secondStatus.HolderID)
+	if secondStatus.HolderID != "" {
+		t.Fatalf("public response exposed holder = %q", secondStatus.HolderID)
 	}
 }

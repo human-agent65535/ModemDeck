@@ -32,7 +32,15 @@ func (p *Provider) hydrateCalls(
 
 	for _, modemPath := range modemPaths {
 		voiceProperties := objects[modemPath][voiceInterface]
-		if !modemServiceHydrationReady(objects[modemPath]) {
+		state, stateKnown := modemServiceHydrationState(objects[modemPath])
+		if !stateKnown {
+			return nil, domain.Unavailable(
+				operation,
+				"ModemManager modem state is unavailable for call enumeration",
+				nil,
+			)
+		}
+		if state < modemStateEnabled {
 			if voiceProperties == nil {
 				voiceProperties = Properties{}
 				objects[modemPath][voiceInterface] = voiceProperties
@@ -50,11 +58,10 @@ func (p *Provider) hydrateCalls(
 				"ModemManager failed to list calls",
 			)
 			if err != nil {
-				if serviceHydrationUnavailable(err) {
-					listedPaths = []dbus.ObjectPath{}
-				} else {
-					return nil, err
-				}
+				// A ready modem with an unreadable call list is not an empty
+				// authoritative snapshot. Propagate the failure so the App keeps
+				// its last committed call projection.
+				return nil, err
 			} else {
 				if err := dbus.Store(body, &listedPaths); err != nil {
 					return nil, domain.Internal(
