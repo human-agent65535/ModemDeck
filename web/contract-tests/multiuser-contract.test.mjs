@@ -113,6 +113,7 @@ test('Telegram bots always belong to a user and select all or a line subset', ()
 test('multi-user UI exposes only authorized settings and communication areas', async () => {
   const [
     settings,
+    settingsNavigation,
     users,
     telegram,
     shell,
@@ -126,6 +127,7 @@ test('multi-user UI exposes only authorized settings and communication areas', a
   ] =
     await Promise.all([
       source('../src/views/SettingsView.vue'),
+      source('../src/components/settings/settingsNavigation.ts'),
       source('../src/components/UserSettingsPanel.vue'),
       source('../src/components/TelegramSettingsForm.vue'),
       source('../src/components/AppShell.vue'),
@@ -140,12 +142,15 @@ test('multi-user UI exposes only authorized settings and communication areas', a
 
   assert.doesNotMatch(settings, /mustChangePassword/)
   assert.match(settings, /id: 'users'/)
-  assert.match(settings, /if \(sessionState\.role === 'admin'\)/)
+  assert.match(settings, /visibleSettingsSectionIDs/)
+  assert.match(settingsNavigation, /const ADMIN_ONLY_SECTIONS/)
+  assert.match(settingsNavigation, /'users'/)
+  assert.match(settingsNavigation, /'connectivity'/)
+  assert.match(settingsNavigation, /'diagnostics'/)
+  assert.match(settingsNavigation, /'about'/)
   assert.doesNotMatch(settings, /id: 'system'/)
   assert.doesNotMatch(settings, /id: 'recording'/)
   assert.match(settings, /sessionState\.role === 'admin'/)
-  assert.match(settings, /if \(canManageExternalAccess\.value\)/)
-  assert.match(settings, /return result/)
   assert.match(
     settings,
     /canPairIOS = computed\(\(\) => sessionState\.iosPairingEnabled\)/

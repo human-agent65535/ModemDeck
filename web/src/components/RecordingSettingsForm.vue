@@ -89,9 +89,6 @@ onMounted(() => {
       </div>
 
       <label v-else class="recording-settings__control">
-        <span class="recording-settings__value">
-          {{ displayedEnabled ? t('recordingSettings.enabled') : t('recordingSettings.disabled') }}
-        </span>
         <input
           class="ui-switch ui-switch--danger"
           type="checkbox"
@@ -138,20 +135,8 @@ onMounted(() => {
   gap: 9px;
 }
 
-.recording-settings__value {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 650;
-}
-
 .recording-settings__error {
   margin: 0;
   font-size: 11px;
-}
-
-@media (max-width: 560px) {
-  .recording-settings__value {
-    display: none;
-  }
 }
 </style>

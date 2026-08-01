@@ -38,6 +38,8 @@ withDefaults(
 
 <style scoped>
 .settings-section {
+  width: 100%;
+  max-width: var(--settings-preference-content-max);
   min-width: 0;
 }
 

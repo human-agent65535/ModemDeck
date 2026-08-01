@@ -24,6 +24,14 @@ import StatePanel from '../components/StatePanel.vue'
 import PageContentFrame from '../components/PageContentFrame.vue'
 import SettingsAsyncBoundary from '../components/settings/SettingsAsyncBoundary.vue'
 import SettingsContentTransition from '../components/settings/SettingsContentTransition.vue'
+import {
+  settingsSectionGroup,
+  visibleSettingsSectionIDs
+} from '../components/settings/settingsNavigation'
+import type {
+  SettingsSection,
+  SettingsSectionGroup
+} from '../components/settings/settingsNavigation'
 import type { SettingsSkeletonShape } from '../components/settings/settingsSkeleton'
 import { fixtureMode } from '../api/client'
 import { logout as logoutSession, sessionState } from '../state/session'
@@ -35,19 +43,6 @@ import {
   presentModuleLines
 } from '../state/workspace'
 import { isRegisteredNetwork } from '../utils/operatorNetwork'
-
-type SettingsSection =
-  | 'preferences'
-  | 'security'
-  | 'users'
-  | 'contacts'
-  | 'audio'
-  | 'pairing'
-  | 'devices'
-  | 'telegram'
-  | 'connectivity'
-  | 'diagnostics'
-  | 'about'
 
 type SettingsSectionDefinition = {
   id: SettingsSection
@@ -92,7 +87,8 @@ const router = useRouter()
 const { t } = useI18n()
 const logoutPending = ref(false)
 const logoutError = ref('')
-const canManageExternalAccess = computed(() => sessionState.role === 'admin')
+const isAdmin = computed(() => sessionState.role === 'admin')
+const canManageExternalAccess = isAdmin
 const canPairIOS = computed(() => sessionState.iosPairingEnabled)
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const presentModules = computed(() =>
@@ -107,87 +103,90 @@ const overviewSummary = computed(() =>
     total: presentModules.value.length
   })
 )
-const sections = computed<SettingsSectionDefinition[]>(() => {
-  const result: SettingsSectionDefinition[] = [
-    {
-      id: 'preferences',
-      label: t('settings.system'),
-      description: t('settings.systemDescription'),
-      icon: SlidersHorizontal
-    },
-    {
-      id: 'security',
-      label: t('settings.account'),
-      description: t('settings.accountDescription'),
-      icon: ShieldCheck
-    },
-    {
-      id: 'audio',
-      label: t('settings.audio'),
-      description: t('settings.audioDescription'),
-      icon: Volume2
-    }
-  ]
-  if (canPairIOS.value) {
-    result.push({
-      id: 'pairing',
-      label: t('settings.iosApp'),
-      description: t('settings.iosAppDescription'),
-      icon: KeyRound
-    })
-  }
-  result.push({
+const sectionCatalog = computed<SettingsSectionDefinition[]>(() => [
+  {
+    id: 'preferences',
+    label: t('settings.system'),
+    description: t('settings.systemDescription'),
+    icon: SlidersHorizontal
+  },
+  {
+    id: 'security',
+    label: t('settings.account'),
+    description: t('settings.accountDescription'),
+    icon: ShieldCheck
+  },
+  {
+    id: 'audio',
+    label: t('settings.audio'),
+    description: t('settings.audioDescription'),
+    icon: Volume2
+  },
+  {
+    id: 'pairing',
+    label: t('settings.iosApp'),
+    description: t('settings.iosAppDescription'),
+    icon: KeyRound
+  },
+  {
     id: 'contacts',
     label: t('settings.contactsSync'),
     description: t('settings.contactsSyncDescription'),
     icon: ContactRound
+  },
+  {
+    id: 'users',
+    label: t('settings.users'),
+    description: t('settings.usersDescription'),
+    icon: UserRound
+  },
+  {
+    id: 'devices',
+    label: t('settings.devices'),
+    description: t('settings.devicesDescription'),
+    icon: RadioTower
+  },
+  {
+    id: 'telegram',
+    label: t('settings.telegram'),
+    description: t('settings.telegramDescription'),
+    icon: Send
+  },
+  {
+    id: 'connectivity',
+    label: t('settings.tls'),
+    description: t('settings.tlsDescription'),
+    icon: Globe2
+  },
+  {
+    id: 'diagnostics',
+    label: t('settings.diagnostics'),
+    description: t('settings.diagnosticsDescription'),
+    icon: Activity
+  },
+  {
+    id: 'about',
+    label: t('settings.about'),
+    description: t('settings.aboutDescription'),
+    icon: Info
+  }
+])
+const sections = computed<SettingsSectionDefinition[]>(() => {
+  const catalog = new Map(sectionCatalog.value.map(section => [section.id, section]))
+  return visibleSettingsSectionIDs({
+    isAdmin: isAdmin.value,
+    canPairIOS: canPairIOS.value
   })
-  if (sessionState.role === 'admin') {
-    result.push({
-      id: 'users',
-      label: t('settings.users'),
-      description: t('settings.usersDescription'),
-      icon: UserRound
-    })
-  }
-  result.push(
-    {
-      id: 'devices',
-      label: t('settings.devices'),
-      description: t('settings.devicesDescription'),
-      icon: RadioTower
-    },
-    {
-      id: 'telegram',
-      label: t('settings.telegram'),
-      description: t('settings.telegramDescription'),
-      icon: Send
-    }
-  )
-  if (canManageExternalAccess.value) {
-    result.push(
-      {
-        id: 'connectivity',
-        label: t('settings.tls'),
-        description: t('settings.tlsDescription'),
-        icon: Globe2
-      },
-      {
-        id: 'diagnostics',
-        label: t('settings.diagnostics'),
-        description: t('settings.diagnosticsDescription'),
-        icon: Activity
-      },
-      {
-        id: 'about',
-        label: t('settings.about'),
-        description: t('settings.aboutDescription'),
-        icon: Info
-      }
-    )
-  }
-  return result
+    .map(sectionID => catalog.get(sectionID))
+    .filter((section): section is SettingsSectionDefinition => section !== undefined)
 })
+const sectionGroups = computed(() =>
+  (['personal', 'management'] as const).map((group: SettingsSectionGroup) => ({
+    id: group,
+    label: t(`settings.${group}`),
+    sections: sections.value.filter(section => settingsSectionGroup(section.id) === group)
+  }))
+)
 const selectedSection = computed<SettingsSection | ''>(() => {
   const value = String(route.params.section || '')
   return sections.value.some(section => section.id === value) ? (value as SettingsSection) : ''
@@ -377,22 +376,32 @@ onMounted(() => {
             <small>{{ t('traffic.overview') }}</small>
           </span>
         </button>
-        <button
-          v-for="section in sections"
-          :key="section.id"
-          class="list-item"
-          :class="{ 'is-selected': selectedSection === section.id }"
-          type="button"
-          @focus="preloadSection(section.id)"
-          @pointerenter="preloadSection(section.id)"
-          @click="openSection(section.id)"
+        <section
+          v-for="group in sectionGroups"
+          :key="group.id"
+          class="settings-nav-group"
+          :aria-labelledby="`settings-group-${group.id}`"
         >
-          <span class="settings-icon"><component :is="section.icon" :size="19" /></span>
-          <span class="list-item__content">
-            <strong>{{ section.label }}</strong>
-            <small>{{ section.description }}</small>
-          </span>
-        </button>
+          <h2 :id="`settings-group-${group.id}`" class="settings-nav-group__title">
+            {{ group.label }}
+          </h2>
+          <button
+            v-for="section in group.sections"
+            :key="section.id"
+            class="list-item"
+            :class="{ 'is-selected': selectedSection === section.id }"
+            type="button"
+            @focus="preloadSection(section.id)"
+            @pointerenter="preloadSection(section.id)"
+            @click="openSection(section.id)"
+          >
+            <span class="settings-icon"><component :is="section.icon" :size="19" /></span>
+            <span class="list-item__content">
+              <strong>{{ section.label }}</strong>
+              <small>{{ section.description }}</small>
+            </span>
+          </button>
+        </section>
       </div>
       <footer v-if="!fixtureMode" class="settings-account">
         <span class="settings-account__icon"><UserRound :size="19" /></span>
@@ -520,6 +529,28 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.settings-nav-group {
+  display: grid;
+  padding-block: 10px 4px;
+}
+
+.settings-nav-group + .settings-nav-group {
+  margin-top: 6px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-nav-group__title {
+  margin: 0;
+  padding: 0 12px 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
 .settings-content {
   flex: 1 1 auto;
   container-type: inline-size;

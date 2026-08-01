@@ -226,6 +226,8 @@ export default {
   },
   "settings": {
     "title": "設定",
+    "personal": "個人",
+    "management": "管理",
     "system": "環境設定",
     "systemDescription": "プロフィール、言語、デフォルト回線",
     "users": "ユーザー",

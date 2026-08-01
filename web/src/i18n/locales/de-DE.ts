@@ -226,6 +226,8 @@ export default {
   },
   "settings": {
     "title": "Einstellungen",
+    "personal": "Persönlich",
+    "management": "Verwaltung",
     "system": "Präferenzen",
     "systemDescription": "Profil, Sprache und Standardleitung",
     "users": "Benutzer",

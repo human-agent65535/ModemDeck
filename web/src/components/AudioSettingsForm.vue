@@ -461,10 +461,6 @@ onBeforeUnmount(() => {
   gap: 34px;
 }
 
-.audio-preferences :deep(.recording-settings) {
-  max-width: none;
-}
-
 .audio-preference-row__controls {
   display: flex;
   flex: 0 0 auto;

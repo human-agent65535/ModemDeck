@@ -226,6 +226,8 @@ export default {
   },
   "settings": {
     "title": "Cài đặt",
+    "personal": "Cá nhân",
+    "management": "Quản lý",
     "system": "Tùy chọn",
     "systemDescription": "Hồ sơ, ngôn ngữ và đường dây mặc định",
     "users": "Người dùng",

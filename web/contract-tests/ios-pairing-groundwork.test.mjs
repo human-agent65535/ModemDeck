@@ -164,9 +164,13 @@ test('Cloudflare Web call media accepts relay-only ICE configuration', () => {
 })
 
 test('settings separate administrator infrastructure from self-service pairing', async () => {
-  const [settingsView, userPanel, pairingPanel, connectivityPanel, externalAccessPanel, callMedia] =
+  const [settingsView, settingsNavigation, userPanel, pairingPanel, connectivityPanel, externalAccessPanel, callMedia] =
     await Promise.all([
     readFile(new URL('../src/views/SettingsView.vue', import.meta.url), 'utf8'),
+    readFile(
+      new URL('../src/components/settings/settingsNavigation.ts', import.meta.url),
+      'utf8'
+    ),
     readFile(
       new URL('../src/components/UserSettingsPanel.vue', import.meta.url),
       'utf8'
@@ -194,8 +198,13 @@ test('settings separate administrator infrastructure from self-service pairing',
 
   assert.match(settingsView, /id: 'pairing'/)
   assert.match(settingsView, /id: 'connectivity'/)
-  assert.match(settingsView, /if \(canPairIOS\.value\)/)
-  assert.match(settingsView, /if \(canManageExternalAccess\.value\)/)
+  assert.match(settingsView, /visibleSettingsSectionIDs\(/)
+  assert.match(
+    settingsNavigation,
+    /if \(section === 'pairing'\) return visibility\.canPairIOS/
+  )
+  assert.match(settingsNavigation, /'connectivity'/)
+  assert.match(settingsNavigation, /if \(ADMIN_ONLY_SECTIONS\.has\(section\)\)/)
   assert.match(settingsView, /sessionState\.iosPairingEnabled/)
   assert.doesNotMatch(settingsView, /externalAccessEnabled|loadExternalAccessVisibility/)
   assert.match(settingsView, /<PairingSettingsPanel/)

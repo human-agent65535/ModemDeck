@@ -226,6 +226,8 @@ export default {
   },
   settings: {
     title: '设置',
+    personal: '个人',
+    management: '管理',
     system: '偏好',
     systemDescription: '个人资料、语言与默认线路',
     users: '用户',

@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import {
+  settingsSectionGroup,
+  visibleSettingsSectionIDs
+} from '../src/components/settings/settingsNavigation.ts'
 
 async function source(path) {
   return readFile(new URL(path, import.meta.url), 'utf8')
@@ -15,6 +19,52 @@ test('settings navigation prioritizes audio and pairing before contact transfer'
   assert.ok(audioIndex >= 0)
   assert.ok(pairingIndex > audioIndex)
   assert.ok(contactsIndex > pairingIndex)
+})
+
+test('settings navigation groups personal and managed surfaces behind one visibility catalog', async () => {
+  const view = await source('../src/views/SettingsView.vue')
+  assert.deepEqual(
+    visibleSettingsSectionIDs({ isAdmin: false, canPairIOS: false }),
+    ['preferences', 'security', 'audio', 'contacts', 'devices', 'telegram']
+  )
+  assert.deepEqual(
+    visibleSettingsSectionIDs({ isAdmin: false, canPairIOS: true }),
+    ['preferences', 'security', 'audio', 'pairing', 'contacts', 'devices', 'telegram']
+  )
+  assert.deepEqual(
+    visibleSettingsSectionIDs({ isAdmin: true, canPairIOS: true }),
+    [
+      'preferences',
+      'security',
+      'audio',
+      'pairing',
+      'contacts',
+      'users',
+      'devices',
+      'telegram',
+      'connectivity',
+      'diagnostics',
+      'about'
+    ]
+  )
+  for (const section of ['preferences', 'security', 'audio', 'pairing', 'contacts']) {
+    assert.equal(settingsSectionGroup(section), 'personal')
+  }
+  for (const section of [
+    'users',
+    'devices',
+    'telegram',
+    'connectivity',
+    'diagnostics',
+    'about'
+  ]) {
+    assert.equal(settingsSectionGroup(section), 'management')
+  }
+
+  assert.match(view, /v-for="group in sectionGroups"/)
+  assert.match(view, /class="settings-nav-group"/)
+  assert.match(view, /visibleSettingsSectionIDs\(/)
+  assert.match(view, /settingsSectionGroup\(section\.id\)/)
 })
 
 test('settings pages use the shared layout templates and the device workbench exception', async () => {
@@ -87,6 +137,19 @@ test('account preferences share one control width and call recording belongs to 
   assert.doesNotMatch(account, /RecordingSettingsForm/)
   assert.match(audio, /import RecordingSettingsForm from/)
   assert.match(audio, /<RecordingSettingsForm \/>/)
+})
+
+test('preference rows and multi-control sections share the same content width', async () => {
+  const [preferenceRow, section, audio] = await Promise.all([
+    source('../src/components/settings/SettingsPreferenceRow.vue'),
+    source('../src/components/settings/SettingsSection.vue'),
+    source('../src/components/AudioSettingsForm.vue')
+  ])
+
+  for (const component of [preferenceRow, section]) {
+    assert.match(component, /max-width: var\(--settings-preference-content-max\)/)
+  }
+  assert.doesNotMatch(audio, /recording-settings[\s\S]*max-width:\s*none/)
 })
 
 test('binary preferences share one switch primitive with semantic variants', async () => {
@@ -426,6 +489,7 @@ test('save behavior distinguishes immediate preferences from dirty resource form
     assert.match(immediate, /useSettingsMutation/)
     assert.doesNotMatch(immediate, /SettingsSaveStatus/)
   }
+  assert.doesNotMatch(recording, /recording-settings__value/)
   assert.match(users, /function toggleLine/)
   assert.match(users, /const formChanged = computed/)
   assert.match(users, /v-if="creating \|\| selectedUser\?\.role === 'member'"/)
