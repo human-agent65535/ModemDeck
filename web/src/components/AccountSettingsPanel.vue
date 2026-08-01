@@ -11,7 +11,6 @@ import {
   loadContacts
 } from '../state/workspace'
 import AccountProfileSetting from './AccountProfileSetting.vue'
-import AccountSecurityForm from './AccountSecurityForm.vue'
 import DefaultLineSettingsForm from './DefaultLineSettingsForm.vue'
 import SystemSettingsForm from './SystemSettingsForm.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
@@ -84,7 +83,6 @@ onMounted(() => {
         <DefaultLineSettingsForm />
       </div>
 
-      <AccountSecurityForm />
     </div>
   </SettingsLoadBoundary>
 </template>
@@ -93,16 +91,13 @@ onMounted(() => {
 .account-settings-panel {
   display: grid;
   width: 100%;
-  gap: 28px;
+  max-width: var(--settings-preference-content-max);
+  gap: 0;
 }
 
 .account-preferences {
   display: grid;
-  gap: 22px;
-}
-
-.account-preferences :deep(.settings-preference-row) {
-  max-width: none;
+  gap: 0;
 }
 
 .account-identity {

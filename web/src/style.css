@@ -58,9 +58,14 @@
   --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-emphasized: cubic-bezier(0.2, 0.9, 0.25, 1);
   --detail-action-gap: var(--space-2);
-  --detail-action-size: var(--touch-target);
+  --detail-action-size: 40px;
   --page-content-reading-max: 960px;
   --page-content-dashboard-max: 1440px;
+  --settings-preference-content-max: 680px;
+  --settings-resource-editor-max: 760px;
+  --settings-resource-editor-wide-max: 920px;
+  --settings-field-max: 520px;
+  --settings-control-column: min(280px, 45%);
   --settings-page-end-gutter: 32px;
   --rail-width: 92px;
   --header-height: 72px;
@@ -847,8 +852,8 @@ strong {
 
 .pane-header {
   display: flex;
-  min-height: 68px;
-  flex: 0 0 68px;
+  min-height: 60px;
+  flex: 0 0 60px;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
@@ -1343,17 +1348,17 @@ textarea::placeholder {
 
 .settings-detail-header {
   display: flex;
-  min-height: 82px;
+  min-height: 60px;
   flex: 0 0 auto;
   align-items: center;
-  gap: 14px;
-  padding: 14px 24px;
+  gap: 12px;
+  padding: 8px 20px;
   border-bottom: 1px solid var(--border);
 }
 
 .settings-detail-header h2 {
   overflow: hidden;
-  font-size: 18px;
+  font-size: 17px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2090,12 +2095,6 @@ dd {
   white-space: normal;
 }
 
-.settings-detail-header {
-  min-height: 68px;
-  padding-top: 10px;
-  padding-bottom: 10px;
-}
-
 .settings-content {
   width: 100%;
   max-width: none;
@@ -2829,6 +2828,10 @@ dd {
 }
 
 @media (max-width: 860px) {
+  :root {
+    --detail-action-size: var(--touch-target);
+  }
+
   .pane-search {
     padding-top: 8px;
   }

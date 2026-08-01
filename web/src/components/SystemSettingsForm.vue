@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ChevronDown, Globe2, LoaderCircle } from '@lucide/vue'
+import { Globe2, LoaderCircle } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import type { SystemLanguage, SystemSettings } from '../api/types'
 import { gateway } from '../api/client'
 import { useSettingsMutation } from '../composables/useSettingsMutation'
 import { setSystemLanguage, systemLanguage } from '../i18n'
 import { bootstrapResource, loadBootstrap } from '../state/workspace'
+import SelectControl from './SelectControl.vue'
 import SettingsPreferenceRow from './settings/SettingsPreferenceRow.vue'
 
 const { t } = useI18n()
@@ -130,10 +131,6 @@ async function selectLanguage(language: SystemLanguage): Promise<void> {
   }
 }
 
-function onLanguageChange(event: Event): void {
-  void selectLanguage((event.target as HTMLSelectElement).value as SystemLanguage)
-}
-
 onMounted(() => {
   if (!settings.value) void load()
 })
@@ -155,19 +152,14 @@ onMounted(() => {
         <LoaderCircle class="spin" :size="18" />
         {{ t('settings.loadingSystem') }}
       </div>
-      <label v-else class="system-language-select">
-        <span class="sr-only">{{ t('settings.systemLanguage') }}</span>
-        <select
-          :value="selected"
-          :disabled="saving || !settings"
-          @change="onLanguageChange"
-        >
-          <option v-for="option in options" :key="option.value" :value="option.value">
-            {{ option.label }}
-          </option>
-        </select>
-        <ChevronDown :size="18" aria-hidden="true" />
-      </label>
+      <SelectControl
+        v-else
+        :model-value="selected"
+        :options="options"
+        :label="t('settings.systemLanguage')"
+        :disabled="saving || !settings"
+        @change="selectLanguage($event as SystemLanguage)"
+      />
     </template>
     <template v-if="loadError || saveMutation.error.value" #feedback>
       <p class="system-settings__feedback is-error" role="alert">
@@ -188,48 +180,6 @@ onMounted(() => {
   gap: 8px;
   color: var(--muted);
   font-size: 12px;
-}
-
-.system-language-select {
-  position: relative;
-  display: flex;
-  width: 100%;
-  height: 42px;
-  flex: 0 0 auto;
-  align-items: center;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--surface);
-}
-
-.system-language-select select {
-  width: 100%;
-  height: 100%;
-  padding: 0 42px 0 13px;
-  color: var(--text);
-  font-size: 13px;
-  background: transparent;
-  border: 0;
-  outline: 0;
-  appearance: none;
-  cursor: pointer;
-}
-
-.system-language-select svg {
-  position: absolute;
-  right: 13px;
-  color: var(--muted);
-  pointer-events: none;
-}
-
-.system-language-select:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-
-.system-language-select:has(select:disabled) {
-  color: var(--muted);
-  background: var(--surface-subtle);
 }
 
 .system-settings__feedback {

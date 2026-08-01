@@ -7,7 +7,8 @@ import {
   Save,
   ShieldCheck,
   Trash2,
-  UserRound
+  UserRound,
+  X
 } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -31,7 +32,7 @@ import {
 } from '../utils/password'
 import { formatDateTime } from '../utils/format'
 import BaseAvatar from './BaseAvatar.vue'
-import AccountSettingsPanel from './AccountSettingsPanel.vue'
+import OverlayDialog from './OverlayDialog.vue'
 import StatePanel from './StatePanel.vue'
 import SettingsLineScopeList from './settings/SettingsLineScopeList.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
@@ -54,8 +55,11 @@ const lineIDs = ref<string[]>([])
 const saving = ref(false)
 const pairingRevoking = ref(false)
 const saveError = ref('')
-const newPassword = ref('')
 const searchQuery = ref('')
+const passwordDialogOpen = ref(false)
+const resetPassword = ref('')
+const passwordResetting = ref(false)
+const passwordResetError = ref('')
 
 const lines = computed(
   () => bootstrapResource.data?.line_catalog || bootstrapResource.data?.lines || []
@@ -95,11 +99,10 @@ const validationError = computed(() => {
   ) {
     return t('users.passwordTooShort', { count: minimumPasswordCharacters })
   }
-  if (
-    !creating.value &&
-    newPassword.value &&
-    passwordCharacterCount(newPassword.value) < minimumPasswordCharacters
-  ) {
+  return ''
+})
+const passwordResetValidation = computed(() => {
+  if (passwordCharacterCount(resetPassword.value) < minimumPasswordCharacters) {
     return t('users.passwordTooShort', { count: minimumPasswordCharacters })
   }
   return ''
@@ -116,8 +119,7 @@ const formChanged = computed(() => {
     enabled.value !== user.enabled ||
     iosPairingEnabled.value !== user.ios_pairing_enabled ||
     currentLines.length !== savedLines.length ||
-    currentLines.some((id, index) => id !== savedLines[index]) ||
-    Boolean(newPassword.value)
+    currentLines.some((id, index) => id !== savedLines[index])
   )
 })
 
@@ -141,7 +143,6 @@ function applyUser(user?: UserAccount): void {
   enabled.value = user?.enabled ?? true
   iosPairingEnabled.value = user?.ios_pairing_enabled ?? false
   lineIDs.value = [...(user?.line_ids || [])]
-  newPassword.value = ''
   saveError.value = ''
 }
 
@@ -152,7 +153,7 @@ function selectUser(id: string): void {
   applyUser(users.value.find(user => user.id === id))
   void router.push({
     name: 'settings',
-    params: { section: 'account' },
+    params: { section: 'users' },
     query: { ...route.query, user: id, newUser: undefined }
   })
 }
@@ -164,7 +165,7 @@ function startCreate(): void {
   applyUser()
   void router.push({
     name: 'settings',
-    params: { section: 'account' },
+    params: { section: 'users' },
     query: { ...route.query, user: undefined, newUser: '1' }
   })
 }
@@ -210,15 +211,6 @@ async function load(): Promise<void> {
   }
 }
 
-async function refreshUserList(): Promise<void> {
-  try {
-    users.value = await gateway.listUsers()
-  } catch {
-    // The profile save already succeeded; keep the current editor stable if
-    // the non-critical list refresh fails.
-  }
-}
-
 async function submit(): Promise<void> {
   if (
     saving.value ||
@@ -240,7 +232,6 @@ async function submit(): Promise<void> {
       : editableUser.value
         ? await gateway.updateMember(editableUser.value.id, {
             username: username.value,
-            ...(newPassword.value ? { password: newPassword.value } : {}),
             enabled: enabled.value,
             ios_pairing_enabled: iosPairingEnabled.value,
             line_ids: lineIDs.value,
@@ -260,7 +251,7 @@ async function submit(): Promise<void> {
     applyUser(user)
     await router.replace({
       name: 'settings',
-      params: { section: 'account' },
+      params: { section: 'users' },
       query: { ...route.query, user: user.id, newUser: undefined }
     })
     if (user.id === sessionState.userID) {
@@ -282,6 +273,46 @@ async function submit(): Promise<void> {
     showError(saveError.value)
   } finally {
     saving.value = false
+  }
+}
+
+function openPasswordDialog(): void {
+  if (!selectedUser.value || selectedUser.value.role !== 'member') return
+  resetPassword.value = ''
+  passwordResetError.value = ''
+  passwordDialogOpen.value = true
+}
+
+function closePasswordDialog(): void {
+  if (passwordResetting.value) return
+  passwordDialogOpen.value = false
+  resetPassword.value = ''
+  passwordResetError.value = ''
+}
+
+async function setSelectedUserPassword(): Promise<void> {
+  const user = selectedUser.value
+  if (
+    !user ||
+    user.role !== 'member' ||
+    passwordResetting.value ||
+    passwordResetValidation.value
+  ) {
+    return
+  }
+  passwordResetting.value = true
+  passwordResetError.value = ''
+  try {
+    await gateway.setMemberPassword(user.id, resetPassword.value)
+    showSuccess(t('users.passwordSet'))
+    passwordDialogOpen.value = false
+    resetPassword.value = ''
+  } catch (cause) {
+    passwordResetError.value =
+      cause instanceof Error ? cause.message : t('users.setPasswordFailed')
+    showError(passwordResetError.value)
+  } finally {
+    passwordResetting.value = false
   }
 }
 
@@ -347,7 +378,7 @@ function syncSelectionFromRoute(): void {
 }
 
 watch(
-  [username, enabled, iosPairingEnabled, lineIDs, password, newPassword],
+  [username, enabled, iosPairingEnabled, lineIDs, password],
   () => {
     if (saving.value) return
     saveError.value = ''
@@ -504,11 +535,8 @@ onMounted(() => {
                 <input
                   v-model="username"
                   autocomplete="off"
-                  :disabled="saving || selectedUser?.role === 'admin'"
+                  :disabled="saving"
                 />
-                <small v-if="selectedUser?.role === 'admin'">
-                  {{ t('users.adminUsernameLocked') }}
-                </small>
               </label>
               <label v-if="creating" class="field">
                 <span>{{ t('auth.password') }}</span>
@@ -629,94 +657,123 @@ onMounted(() => {
                 }}
               </p>
               <SettingsLineScopeList
+                v-if="creating || selectedUser?.role === 'member'"
                 :options="lineScopeOptions"
                 :selected-ids="lineIDs"
-                :disabled="saving || selectedUser?.role === 'admin'"
+                :disabled="saving"
                 @toggle-line="toggleLine"
               />
             </fieldset>
 
-            <section
-              v-if="!creating && selectedUser?.role === 'member'"
-              class="user-password-set"
-            >
-              <header>
-                <KeyRound :size="17" />
-                <div>
-                  <h4>{{ t('users.setPassword') }}</h4>
-                </div>
-              </header>
-              <div>
-                <label class="field">
-                  <span>{{ t('users.newPassword') }}</span>
-                  <input
-                    v-model="newPassword"
-                    type="password"
-                    autocomplete="new-password"
-                    :disabled="saving"
-                  />
-                  <small>
-                    {{
-                      t('users.optionalPasswordHint', {
-                        count: minimumPasswordCharacters
-                      })
-                    }}
-                  </small>
-                </label>
-              </div>
-            </section>
-
             <footer
-              v-if="creating || selectedUser?.role === 'member'"
+              v-if="creating || selectedUser"
               class="settings-form-actions"
             >
               <span class="user-feedback">
                 <span v-if="validationError" class="field-error">{{ validationError }}</span>
                 <span v-else-if="saveError" class="field-error">{{ saveError }}</span>
               </span>
-              <button
-                class="primary-button"
-                type="submit"
-                :disabled="
-                  saving ||
-                  pairingRevoking ||
-                  Boolean(validationError) ||
-                  (!creating && !formChanged)
-                "
-              >
-                <LoaderCircle v-if="saving" class="spin" :size="17" />
-                <Save v-else :size="17" />
-                {{ creating ? t('users.createMember') : t('users.saveUser') }}
-              </button>
+              <span class="user-form-actions__buttons">
+                <button
+                  v-if="!creating && selectedUser?.role === 'member'"
+                  class="secondary-button"
+                  type="button"
+                  :disabled="saving || pairingRevoking"
+                  @click="openPasswordDialog"
+                >
+                  <KeyRound :size="17" />
+                  {{ t('users.setPassword') }}
+                </button>
+                <button
+                  class="primary-button"
+                  type="submit"
+                  :disabled="
+                    saving ||
+                    pairingRevoking ||
+                    Boolean(validationError) ||
+                    (!creating && !formChanged)
+                  "
+                >
+                  <LoaderCircle v-if="saving" class="spin" :size="17" />
+                  <Save v-else :size="17" />
+                  {{ creating ? t('users.createMember') : t('users.saveUser') }}
+                </button>
+              </span>
             </footer>
           </div>
         </section>
       </form>
 
-      <section
-        v-if="!creating && selectedUser?.id === sessionState.userID"
-        class="user-personal-settings"
-        aria-labelledby="user-personal-settings-title"
-      >
-        <header class="user-personal-settings__heading">
-          <span class="user-personal-settings__icon" aria-hidden="true">
-            <UserRound :size="19" />
-          </span>
-          <div>
-            <h3 id="user-personal-settings-title">
-              {{ t('users.personalSettings') }}
-            </h3>
-            <p>{{ t('users.personalSettingsDescription') }}</p>
-          </div>
-        </header>
-        <AccountSettingsPanel
-          :show-identity="false"
-          @profile-saved="refreshUserList"
-        />
-      </section>
     </section>
   </SettingsMasterDetail>
   </SettingsLoadBoundary>
+
+  <OverlayDialog
+    :open="passwordDialogOpen"
+    size="small"
+    :label="t('users.setPassword')"
+    initial-focus='input[autocomplete="new-password"]'
+    @close="closePasswordDialog"
+  >
+    <div class="user-password-dialog">
+      <header>
+        <span>
+          <KeyRound :size="19" />
+          <h2>{{ t('users.setPassword') }}</h2>
+        </span>
+        <button
+          class="icon-button"
+          type="button"
+          :title="t('common.close')"
+          :aria-label="t('common.close')"
+          :disabled="passwordResetting"
+          @click="closePasswordDialog"
+        >
+          <X :size="19" />
+        </button>
+      </header>
+      <form @submit.prevent="setSelectedUserPassword">
+        <label class="field">
+          <span>{{ t('users.newPassword') }}</span>
+          <input
+            v-model="resetPassword"
+            type="password"
+            autocomplete="new-password"
+            :disabled="passwordResetting"
+          />
+          <small>
+            {{ t('users.passwordHint', { count: minimumPasswordCharacters }) }}
+          </small>
+        </label>
+        <p
+          v-if="passwordResetError || (resetPassword && passwordResetValidation)"
+          class="field-error"
+          role="alert"
+        >
+          {{ passwordResetError || passwordResetValidation }}
+        </p>
+        <footer>
+          <button
+            class="secondary-button"
+            type="button"
+            :disabled="passwordResetting"
+            @click="closePasswordDialog"
+          >
+            {{ t('common.cancel') }}
+          </button>
+          <button
+            class="primary-button"
+            type="submit"
+            :disabled="passwordResetting || Boolean(passwordResetValidation)"
+          >
+            <LoaderCircle v-if="passwordResetting" class="spin" :size="17" />
+            <KeyRound v-else :size="17" />
+            {{ t('users.setPassword') }}
+          </button>
+        </footer>
+      </form>
+    </div>
+  </OverlayDialog>
 </template>
 
 <style scoped>
@@ -761,7 +818,7 @@ onMounted(() => {
 
 .user-form {
   width: 100%;
-  max-width: 760px;
+  max-width: var(--settings-resource-editor-max);
 }
 
 .user-management-card {
@@ -834,7 +891,7 @@ onMounted(() => {
   display: grid;
   gap: 16px;
   padding: 18px 0;
-  grid-template-columns: minmax(0, 520px);
+  grid-template-columns: minmax(0, var(--settings-field-max));
 }
 
 .user-fields .field small {
@@ -950,66 +1007,44 @@ onMounted(() => {
   border-top: 1px solid var(--border);
 }
 
-.user-password-set {
-  padding: 16px 0;
-  border-top: 1px solid var(--border);
-}
-
-.user-password-set > header {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.user-password-set > header svg {
-  color: var(--accent-strong);
-}
-
-.user-password-set > div {
-  display: grid;
-  max-width: 560px;
-  grid-template-columns: minmax(0, 1fr);
-}
-
 .user-feedback {
   min-width: 0;
 }
 
-.user-personal-settings {
-  max-width: 760px;
-  margin-top: 28px;
-  padding-top: 28px;
-  border-top: 1px solid var(--border);
+.user-form-actions__buttons,
+.user-password-dialog > header,
+.user-password-dialog > header > span,
+.user-password-dialog footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-.user-personal-settings__heading {
-  display: flex;
-  min-height: 64px;
-  align-items: center;
-  gap: 12px;
-  padding-bottom: 14px;
+.user-password-dialog > header {
+  min-height: 58px;
+  justify-content: space-between;
+  padding: 0 18px;
   border-bottom: 1px solid var(--border);
 }
 
-.user-personal-settings__icon {
-  display: grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  place-items: center;
+.user-password-dialog h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.user-password-dialog > header svg {
   color: var(--accent-strong);
-  background: var(--accent-soft);
-  border-radius: 50%;
 }
 
-.user-personal-settings__heading p {
-  margin: 3px 0 0;
-  color: var(--muted);
-  font-size: 11px;
+.user-password-dialog form {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
 }
 
-.user-personal-settings :deep(.account-settings-panel) {
-  margin-top: 22px;
+.user-password-dialog footer {
+  justify-content: flex-end;
+  padding-top: 4px;
 }
 
 .user-admin-summary {
@@ -1028,11 +1063,6 @@ onMounted(() => {
 @container (max-width: 720px) {
   .user-editor {
     padding-inline: 18px;
-  }
-
-  .user-password-set > div {
-    align-items: stretch;
-    grid-template-columns: 1fr;
   }
 
   .user-account-access {

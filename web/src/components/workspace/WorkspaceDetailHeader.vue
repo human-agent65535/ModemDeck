@@ -15,11 +15,11 @@
 .workspace-detail-header {
   display: flex;
   min-width: 0;
-  min-height: 68px;
+  min-height: 60px;
   flex: 0 0 auto;
   align-items: center;
-  gap: 14px;
-  padding: 10px 24px;
+  gap: 12px;
+  padding: 8px 20px;
   border-bottom: 1px solid var(--border);
   container-type: inline-size;
 }
@@ -43,7 +43,7 @@
 
 .workspace-detail-header :deep(.workspace-detail-identity h2) {
   overflow: hidden;
-  font-size: 18px;
+  font-size: 17px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

@@ -139,40 +139,36 @@ test('multi-user UI exposes only authorized settings and communication areas', a
     ])
 
   assert.doesNotMatch(settings, /mustChangePassword/)
-  assert.doesNotMatch(settings, /id: 'users'/)
+  assert.match(settings, /id: 'users'/)
+  assert.match(settings, /if \(sessionState\.role === 'admin'\)/)
   assert.doesNotMatch(settings, /id: 'system'/)
   assert.doesNotMatch(settings, /id: 'recording'/)
   assert.match(settings, /sessionState\.role === 'admin'/)
-  assert.match(settings, /if \(!canManageExternalAccess\.value\) return personal/)
-  assert.match(settings, /return \[\.\.\.personal, \.\.\.administration\]/)
+  assert.match(settings, /if \(canManageExternalAccess\.value\)/)
+  assert.match(settings, /return result/)
   assert.match(
     settings,
     /canPairIOS = computed\(\(\) => sessionState\.iosPairingEnabled\)/
   )
-  assert.match(
-    settings,
-    /canManageExternalAccess\.value \|\| canPairIOS\.value/
-  )
+  assert.match(settings, /destination = canManageExternalAccess\.value/)
   assert.doesNotMatch(settings, /externalAccessEnabled|loadExternalAccessVisibility/)
   assert.match(settings, /<UserSettingsPanel/)
   assert.match(users, /gateway\.listUsers\(\)/)
   assert.match(users, /gateway\.createMember/)
   assert.match(users, /gateway\.updateMember/)
-  assert.doesNotMatch(users, /gateway\.setMemberPassword/)
-  assert.match(users, /password: newPassword\.value/)
-  assert.doesNotMatch(users, /@click="setMemberPassword"/)
+  assert.match(users, /gateway\.setMemberPassword/)
+  assert.doesNotMatch(users, /password: newPassword\.value/)
+  assert.match(users, /@click="openPasswordDialog"/)
   assert.match(users, /minimumPasswordCharacters/)
   assert.match(users, /passwordCharacterCount\(password\.value\)/)
-  assert.match(users, /passwordCharacterCount\(newPassword\.value\)/)
+  assert.match(users, /passwordCharacterCount\(resetPassword\.value\)/)
   assert.doesNotMatch(users, /temporaryPassword/)
   assert.doesNotMatch(users, /recordingDefaultEnabled|languageOptions|preferences: \{/)
   assert.doesNotMatch(users, /import AccountProfileSetting from/)
-  assert.match(users, /<AccountSettingsPanel/)
-  assert.match(users, /class="user-personal-settings"/)
-  assert.doesNotMatch(users, /:show-profile="false"|:show-language="false"/)
+  assert.doesNotMatch(users, /<AccountSettingsPanel/)
+  assert.doesNotMatch(users, /class="user-personal-settings"/)
   assert.match(users, /selectedUser\.profile_name \|\| selectedUser\.username/)
   assert.match(users, /selectedUser\?\.profile_name \|\| username/)
-  assert.match(users, /selectedUser\?\.id === sessionState\.userID/)
   assert.match(users, /const filteredUsers = computed/)
   assert.match(users, /<SettingsMasterDetail/)
   assert.match(users, /class="settings-resource-row user-row/)
@@ -197,7 +193,7 @@ test('multi-user UI exposes only authorized settings and communication areas', a
   )
   assert.match(
     users,
-    /:selected-ids="lineIDs"[\s\S]*?:disabled="saving \|\| selectedUser\?\.role === 'admin'"/
+    /v-if="creating \|\| selectedUser\?\.role === 'member'"[\s\S]*?:selected-ids="lineIDs"[\s\S]*?:disabled="saving"/
   )
   assert.match(users, /class="user-pairing-state"/)
   assert.match(users, /class="ui-switch"/)
@@ -207,7 +203,7 @@ test('multi-user UI exposes only authorized settings and communication areas', a
     style,
     /\.ui-switch:checked:disabled\s*\{\s*background: var\(--accent-border-strong\)/
   )
-  assert.match(users, /users\.adminUsernameLocked/)
+  assert.doesNotMatch(users, /users\.adminUsernameLocked/)
   assert.match(shell, /const settingsUserDetailOpen = computed/)
   assert.match(shell, /query\.newUser === '1'/)
   assert.doesNotMatch(telegram, /scopeSource|manualScope/)
@@ -221,7 +217,7 @@ test('multi-user UI exposes only authorized settings and communication areas', a
   assert.doesNotMatch(shell, /accountRestricted|mustChangePassword/)
   assert.doesNotMatch(router, /mustChangePassword/)
   assert.doesNotMatch(router, /to\.name === 'traffic'/)
-  assert.match(settings, /id: 'devices' as const/)
+  assert.match(settings, /id: 'devices'/)
   assert.match(users, /bootstrapResource\.data\?\.line_catalog/)
   assert.doesNotMatch(users, /if \(user\.role === 'admin'\) return t\('users\.allLines'\)/)
   assert.doesNotMatch(client, /must_change_password/)

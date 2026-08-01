@@ -187,8 +187,8 @@ test('app loads the public session before mounting the i18n-enabled UI', () => {
 })
 
 test('account settings include the current user language preference', () => {
-  assert.doesNotMatch(settingsView, /id: 'system'/)
-  assert.match(settingsView, /selectedSection === 'account'/)
+  assert.match(settingsView, /id: 'preferences'/)
+  assert.match(settingsView, /selectedSection === 'preferences'/)
   assert.match(accountPanel, /<SystemSettingsForm(?:\s+v-if="[^"]+")?\s*\/>/)
   assert.match(systemForm, /value: 'auto'/)
   assert.match(systemForm, /value: 'zh-CN'/)

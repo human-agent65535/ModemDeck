@@ -100,6 +100,11 @@ export async function setSystemLanguage(
   configuredLanguage = language
   const resolved = resolveSystemLanguage(language)
   const generation = ++languageChangeGeneration
+  if (loadedLocales.has(resolved)) {
+    i18n.global.locale.value = resolved
+    if (typeof document !== 'undefined') document.documentElement.lang = resolved
+    return resolved
+  }
   await loadLocale(resolved)
   if (generation !== languageChangeGeneration) {
     return i18n.global.locale.value

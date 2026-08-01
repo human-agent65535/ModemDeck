@@ -33,6 +33,7 @@ import {
   telegramResource
 } from '../state/workspace'
 import StatePanel from './StatePanel.vue'
+import SelectControl from './SelectControl.vue'
 import SettingsLineScopeList from './settings/SettingsLineScopeList.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SettingsMasterDetail from './settings/SettingsMasterDetail.vue'
@@ -87,6 +88,13 @@ const currentSessionUser = computed<UserAccount>(() => ({
 }))
 const availableUsers = computed(() =>
   isAdmin.value ? users.value : [currentSessionUser.value]
+)
+const assignedUserOptions = computed(() =>
+  availableUsers.value.map(user => ({
+    value: user.id,
+    label: user.username,
+    description: user.enabled ? '' : t('users.disabled')
+  }))
 )
 
 const selectedUnit = computed(() =>
@@ -305,8 +313,8 @@ function normalizedLineScopes(): string[] {
   return scopes
 }
 
-function changeAssignedUser(event: Event): void {
-  assignedUserID.value = (event.currentTarget as HTMLSelectElement).value
+function changeAssignedUser(userID: string): void {
+  assignedUserID.value = userID
   setAllLines()
 }
 
@@ -677,17 +685,14 @@ onMounted(() => {
           </header>
           <label class="field telegram-user-select">
             <span>{{ t('telegram.assignedUser') }}</span>
-            <select
-              :value="assignedUserID"
+            <SelectControl
+              :model-value="assignedUserID"
+              :options="assignedUserOptions"
+              :label="t('telegram.assignedUser')"
+              :placeholder="t('telegram.selectUser')"
               :disabled="saving || deleting"
               @change="changeAssignedUser"
-            >
-              <option value="" disabled>{{ t('telegram.selectUser') }}</option>
-              <option v-for="user in availableUsers" :key="user.id" :value="user.id">
-                {{ user.username }}
-                {{ user.enabled ? '' : `· ${t('users.disabled')}` }}
-              </option>
-            </select>
+            />
             <small>{{ t('telegram.botOwnerDescription') }}</small>
           </label>
         </section>

@@ -172,7 +172,7 @@ async function submit(): Promise<void> {
 
 <style scoped>
 .account-security {
-  max-width: 680px;
+  max-width: var(--settings-preference-content-max);
 }
 
 .account-security > header {
@@ -210,7 +210,7 @@ async function submit(): Promise<void> {
 
 .account-security__form {
   display: grid;
-  max-width: 520px;
+  max-width: var(--settings-field-max);
   gap: 14px;
   padding-top: 18px;
 }

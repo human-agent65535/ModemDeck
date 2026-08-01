@@ -33,13 +33,17 @@ func TestInitialAdministratorReceivesExistingLinesAndCanRemoveThem(t *testing.T)
 		!containsString(admin.LineIDs, "line_beta") {
 		t.Fatalf("initial administrator lines = %v, want both existing lines", admin.LineIDs)
 	}
-	if _, err := repository.UpdateMember(ctx, admin.ID, UpdateMemberInput{
+	admin, err = repository.UpdateMember(ctx, admin.ID, UpdateMemberInput{
 		Username: "renamed-owner",
 		Enabled:  true,
 		LineIDs:  admin.LineIDs,
 		Revision: admin.Revision,
-	}); !errors.Is(err, ErrUserValidation) {
-		t.Fatalf("rename initial administrator error = %v, want ErrUserValidation", err)
+	})
+	if err != nil {
+		t.Fatalf("rename initial administrator: %v", err)
+	}
+	if admin.Username != "renamed-owner" {
+		t.Fatalf("renamed administrator username = %q", admin.Username)
 	}
 	if _, err := repository.UpdateMember(ctx, admin.ID, UpdateMemberInput{
 		Username: admin.Username,

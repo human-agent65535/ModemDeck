@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { gateway } from '../api/client'
 import { useSettingsMutation } from '../composables/useSettingsMutation'
 import { sessionState, setSessionProfileContact } from '../state/session'
 import { contactsResource, loadContacts } from '../state/workspace'
 import BaseAvatar from './BaseAvatar.vue'
+import SelectControl from './SelectControl.vue'
+import SettingsPreferenceRow from './settings/SettingsPreferenceRow.vue'
 
 const { t } = useI18n()
 const emit = defineEmits<{
@@ -31,6 +33,20 @@ const profileNumber = computed(
 const profileChanged = computed(
   () => selectedContactID.value !== sessionState.profileContactID
 )
+const profileOptions = computed(() => [
+  {
+    value: '',
+    label: t('account.noProfileContact')
+  },
+  ...contactsResource.data.map(contact => ({
+    value: contact.id,
+    label: contact.display_name,
+    description:
+      contact.phones.find(phone => phone.primary)?.number ||
+      contact.phones[0]?.number ||
+      ''
+  }))
+])
 
 async function saveProfile(): Promise<void> {
   if (!profileChanged.value || saving.value) return
@@ -45,8 +61,9 @@ async function saveProfile(): Promise<void> {
   }
 }
 
-function changeProfile(): void {
-  void nextTick(saveProfile)
+function changeProfile(contactID: string): void {
+  selectedContactID.value = contactID
+  void saveProfile()
 }
 
 onMounted(() => {
@@ -55,76 +72,53 @@ onMounted(() => {
 </script>
 
 <template>
-  <section
+  <SettingsPreferenceRow
     class="account-profile-setting"
-    :aria-label="t('account.profileContact')"
+    :title="t('account.profileContact')"
+    title-id="account-profile-contact-title"
+    :description="t('account.profileContactDescription')"
+    control-size="wide"
+    icon-tone="bare"
   >
-    <BaseAvatar
-      :name="profileContact?.display_name || sessionState.username"
-      :src="profileContact?.avatar"
-      size="large"
-      :fallback="profileContact ? 'initials' : 'person'"
-      :palette-key="profileContact?.id || sessionState.userID"
-    />
-    <label class="field account-profile-setting__field">
-      <span>{{ t('account.profileContact') }}</span>
-      <select
-        v-model="selectedContactID"
+    <template #icon>
+      <BaseAvatar
+        :name="profileContact?.display_name || sessionState.username"
+        :src="profileContact?.avatar"
+        size="small"
+        :fallback="profileContact ? 'initials' : 'person'"
+        :palette-key="profileContact?.id || sessionState.userID"
+      />
+    </template>
+    <template #control>
+      <SelectControl
+        :model-value="selectedContactID"
+        :options="profileOptions"
+        :label="t('account.profileContact')"
         :disabled="saving || contactsResource.status === 'loading'"
         @change="changeProfile"
+      />
+    </template>
+    <template v-if="profileNumber || profileMutation.error.value" #feedback>
+      <small
+        v-if="profileMutation.error.value"
+        class="account-profile-setting__error"
+        role="alert"
       >
-        <option value="">{{ t('account.noProfileContact') }}</option>
-        <option
-          v-for="contact in contactsResource.data"
-          :key="contact.id"
-          :value="contact.id"
-        >
-          {{ contact.display_name }}
-        </option>
-      </select>
-      <small>{{ t('account.profileContactDescription') }}</small>
-      <small v-if="profileNumber" class="account-profile-setting__number">
+        {{ profileMutation.error.value }}
+      </small>
+      <small v-else class="account-profile-setting__number">
         {{ profileNumber }}
       </small>
-    </label>
-  </section>
+    </template>
+  </SettingsPreferenceRow>
 </template>
 
 <style scoped>
-.account-profile-setting {
-  display: grid;
-  min-width: 0;
-  align-items: center;
-  gap: 14px;
-  padding: 18px 0;
-  grid-template-columns: auto minmax(0, 1fr);
-  border-bottom: 1px solid var(--border);
-}
-
-.account-profile-setting__field {
-  min-width: 0;
-}
-
-.account-profile-setting__field small {
-  margin-top: 3px;
-  overflow: visible;
-  color: var(--muted);
-  font-size: 11px;
-  text-overflow: clip;
-  white-space: normal;
-}
-
 .account-profile-setting__number {
   color: var(--muted-strong);
 }
 
-@media (max-width: 860px) {
-  .account-profile-setting {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .account-profile-setting > :deep(.settings-save-status) {
-    grid-column: 2;
-  }
+.account-profile-setting__error {
+  color: var(--danger);
 }
 </style>

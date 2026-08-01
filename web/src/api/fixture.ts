@@ -1413,7 +1413,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       }
       if (
         current.role === 'admin' &&
-        (input.username !== current.username || !input.enabled || Boolean(input.password))
+        (!input.enabled || Boolean(input.password))
       ) {
         throw new ApiError('User data is invalid', 400, 'invalid_user')
       }

@@ -55,7 +55,7 @@ const showNumber = computed(
 
 .contact-header-identity h2 {
   overflow: hidden;
-  font-size: 18px;
+  font-size: 17px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

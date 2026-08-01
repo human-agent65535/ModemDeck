@@ -21,18 +21,36 @@ import { useSettingsMutation } from '../composables/useSettingsMutation'
 import { requestConfirmation } from '../state/confirmation'
 import { sessionState } from '../state/session'
 import OverlayDialog from './OverlayDialog.vue'
+import SelectControl from './SelectControl.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SettingsModuleCard from './settings/SettingsModuleCard.vue'
 
 const STATUS_REFRESH_INTERVAL_MS = 15_000
 const PAIRING_CONFIRMATION_INTERVAL_MS = 2_000
 
+const props = withDefaults(
+  defineProps<{
+    mode?: 'all' | 'connectivity' | 'pairing'
+  }>(),
+  {
+    mode: 'all'
+  }
+)
 const { t, locale } = useI18n()
 const isAdmin = computed(() => sessionState.role === 'admin')
+const showConnectivity = computed(
+  () => props.mode !== 'pairing' && isAdmin.value
+)
+const showPairing = computed(() => props.mode !== 'connectivity')
 const loading = ref(true)
 const loadError = ref('')
 const pairing = ref<IOSPairingStatus | null>(null)
 const externalAccess = ref<ExternalAccessStatus | null>(null)
+const contentReady = computed(
+  () =>
+    (!showConnectivity.value || Boolean(externalAccess.value)) &&
+    (!showPairing.value || Boolean(pairing.value))
+)
 const pairingPending = ref(false)
 const pairingError = ref('')
 const qrDataURL = ref('')
@@ -50,6 +68,12 @@ const pairingReady = computed(
     pairing.value?.allowed &&
     pairing.value.availability === 'ready' &&
     pairing.value.server_urls.length > 0
+)
+const pairingRouteOptions = computed(() =>
+  (pairing.value?.server_urls || []).map(url => ({
+    value: url,
+    label: url
+  }))
 )
 const refreshMutation = useSettingsMutation({
   errorMessage: cause =>
@@ -154,6 +178,7 @@ function syncPairingConfirmationPolling(): void {
 
 async function refreshPairingConfirmation(): Promise<void> {
   if (
+    !showPairing.value ||
     pairingConfirmationLoadPending ||
     statusLoadPending ||
     !pairing.value?.has_credential ||
@@ -181,14 +206,16 @@ async function refreshStatus(background: boolean): Promise<void> {
   }
   try {
     const [pairingResult, status] = await Promise.all([
-      gateway.getIOSPairing(),
-      isAdmin.value ? gateway.getExternalAccessStatus() : Promise.resolve(null)
+      showPairing.value ? gateway.getIOSPairing() : Promise.resolve(null),
+      showConnectivity.value
+        ? gateway.getExternalAccessStatus()
+        : Promise.resolve(null)
     ])
-    applyPairingStatus(pairingResult.pairing)
+    if (pairingResult) applyPairingStatus(pairingResult.pairing)
     externalAccess.value = status
     loadError.value = ''
   } catch (cause) {
-    if (!background || !pairing.value) {
+    if (!background || !contentReady.value) {
       loadError.value = errorMessage(cause, t('iosPairing.loadFailed'))
     }
   } finally {
@@ -201,12 +228,14 @@ async function refreshExternalAccess(): Promise<void> {
   if (!isAdmin.value || refreshMutation.saving.value) return
   const result = await refreshMutation.run(async () => {
     const status = await gateway.refreshExternalAccess()
-    const pairingResult = await gateway.getIOSPairing()
-    return { status, pairing: pairingResult.pairing }
+    const pairingResult = showPairing.value
+      ? await gateway.getIOSPairing()
+      : null
+    return { status, pairing: pairingResult?.pairing }
   })
   if (!result.ok) return
   externalAccess.value = result.value.status
-  applyPairingStatus(result.value.pairing)
+  if (result.value.pairing) applyPairingStatus(result.value.pairing)
 }
 
 function load(): Promise<void> {
@@ -343,9 +372,9 @@ onBeforeUnmount(() => {
       retryable
       @retry="load"
     >
-    <template v-if="pairing">
+    <template v-if="contentReady">
       <SettingsModuleCard
-        v-if="isAdmin && externalAccess"
+        v-if="showConnectivity && externalAccess"
         class="ios-card"
         :title="t('iosPairing.tunnelTitle')"
         title-id="ios-tunnel-title"
@@ -429,7 +458,7 @@ onBeforeUnmount(() => {
       </SettingsModuleCard>
 
       <SettingsModuleCard
-        v-if="isAdmin && externalAccess"
+        v-if="showConnectivity && externalAccess"
         class="ios-card"
         :title="t('iosPairing.turnTitle')"
         title-id="external-turn-title"
@@ -465,6 +494,7 @@ onBeforeUnmount(() => {
       </SettingsModuleCard>
 
       <SettingsModuleCard
+        v-if="showPairing && pairing"
         class="ios-card"
         :title="t('iosPairing.yourDevice')"
         title-id="ios-pairing-title"
@@ -496,24 +526,19 @@ onBeforeUnmount(() => {
               <dd>{{ formatTimestamp(pairing.credential_created_at) }}</dd>
             </div>
           </dl>
-          <label
+          <div
             v-if="pairing.server_urls.length > 1"
             class="field ios-server-select"
           >
             <span>{{ t('iosPairing.pairingRoute') }}</span>
-            <select
-              v-model="selectedServerURL"
+            <SelectControl
+              :model-value="selectedServerURL"
+              :options="pairingRouteOptions"
+              :label="t('iosPairing.pairingRoute')"
               :disabled="pairingPending"
-            >
-              <option
-                v-for="url in pairing.server_urls"
-                :key="url"
-                :value="url"
-              >
-                {{ url }}
-              </option>
-            </select>
-          </label>
+              @change="selectedServerURL = $event"
+            />
+          </div>
           <p class="ios-pairing-note">{{ t('iosPairing.noSwitching') }}</p>
           <p class="ios-pairing-note">{{ t('iosPairing.noExpiry') }}</p>
           <div class="ios-pairing-actions">
@@ -552,6 +577,7 @@ onBeforeUnmount(() => {
     </SettingsLoadBoundary>
 
     <OverlayDialog
+      v-if="showPairing"
       :open="Boolean(qrDataURL)"
       size="small"
       labelledby="ios-qr-title"

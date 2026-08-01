@@ -405,6 +405,8 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.accountPassword(response, request)
 	case "/api/v1/account/contact":
 		api.accountContact(response, request)
+	case "/api/v1/account/preferences":
+		api.accountPreferences(response, request)
 	case "/api/v1/external-access/status":
 		api.getOnly(response, request, api.externalAccessStatus)
 	case "/api/v1/external-access/refresh":

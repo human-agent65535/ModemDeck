@@ -6,6 +6,17 @@ async function source(path) {
   return readFile(new URL(path, import.meta.url), 'utf8')
 }
 
+test('settings navigation prioritizes audio and pairing before contact transfer', async () => {
+  const view = await source('../src/views/SettingsView.vue')
+  const audioIndex = view.indexOf("id: 'audio'")
+  const pairingIndex = view.indexOf("id: 'pairing'")
+  const contactsIndex = view.indexOf("id: 'contacts'")
+
+  assert.ok(audioIndex >= 0)
+  assert.ok(pairingIndex > audioIndex)
+  assert.ok(contactsIndex > pairingIndex)
+})
+
 test('settings pages use the shared layout templates and the device workbench exception', async () => {
   const [
     defaultLine,
@@ -17,7 +28,8 @@ test('settings pages use the shared layout templates and the device workbench ex
     users,
     telegram,
     devices,
-    audio
+    audio,
+    profile
   ] = await Promise.all([
     source('../src/components/DefaultLineSettingsForm.vue'),
     source('../src/components/SystemSettingsForm.vue'),
@@ -28,10 +40,11 @@ test('settings pages use the shared layout templates and the device workbench ex
     source('../src/components/UserSettingsPanel.vue'),
     source('../src/components/TelegramSettingsForm.vue'),
     source('../src/components/DeviceConfigurationPanel.vue'),
-    source('../src/components/AudioSettingsForm.vue')
+    source('../src/components/AudioSettingsForm.vue'),
+    source('../src/components/AccountProfileSetting.vue')
   ])
 
-  for (const preference of [defaultLine, language]) {
+  for (const preference of [defaultLine, language, profile]) {
     assert.match(preference, /SettingsPreferenceRow/)
   }
   assert.match(recording, /SettingsPreferenceRow/)
@@ -55,16 +68,22 @@ test('settings pages use the shared layout templates and the device workbench ex
   assert.match(audio, /<RecordingSettingsForm \/>/)
 })
 
-test('account preferences share one control edge and call recording belongs to audio', async () => {
-  const [account, audio] = await Promise.all([
+test('account preferences share one control width and call recording belongs to audio', async () => {
+  const [style, row, account, profile, audio] = await Promise.all([
+    source('../src/style.css'),
+    source('../src/components/settings/SettingsPreferenceRow.vue'),
     source('../src/components/AccountSettingsPanel.vue'),
+    source('../src/components/AccountProfileSetting.vue'),
     source('../src/components/AudioSettingsForm.vue')
   ])
 
-  assert.match(
-    account,
-    /\.account-preferences :deep\(\.settings-preference-row\) \{[\s\S]*max-width: none;/
-  )
+  assert.match(style, /--settings-preference-content-max: 680px;/)
+  assert.match(style, /--settings-control-column: min\(280px, 45%\);/)
+  assert.match(row, /max-width: var\(--settings-preference-content-max\);/)
+  assert.match(row, /width: var\(--settings-control-column\);/)
+  assert.match(account, /max-width: var\(--settings-preference-content-max\);/)
+  assert.doesNotMatch(account, /max-width: none;/)
+  assert.match(profile, /control-size="wide"/)
   assert.doesNotMatch(account, /RecordingSettingsForm/)
   assert.match(audio, /import RecordingSettingsForm from/)
   assert.match(audio, /<RecordingSettingsForm \/>/)
@@ -94,9 +113,10 @@ test('binary preferences share one switch primitive with semantic variants', asy
   assert.doesNotMatch(recording, /\.recording-settings__control input\s*\{/)
 })
 
-test('the current user hierarchy separates personal preferences from managed resource fields', async () => {
-  const [account, users, telegram, lineSelector, lineIdentity, lineScopeList] = await Promise.all([
+test('personal preferences and managed resource fields use separate settings panels', async () => {
+  const [account, preferences, users, telegram, lineSelector, lineIdentity, lineScopeList] = await Promise.all([
     source('../src/components/AccountSettingsPanel.vue'),
+    source('../src/components/AccountPreferencesPanel.vue'),
     source('../src/components/UserSettingsPanel.vue'),
     source('../src/components/TelegramSettingsForm.vue'),
     source('../src/components/LineSelector.vue'),
@@ -108,9 +128,9 @@ test('the current user hierarchy separates personal preferences from managed res
   assert.match(account, /<SystemSettingsForm v-if="props\.showLanguage" \/>/)
   assert.doesNotMatch(users, /import SystemSettingsForm from/)
   assert.doesNotMatch(users, /import AccountProfileSetting from/)
-  assert.match(users, /class="user-personal-settings"/)
-  assert.match(users, /<AccountSettingsPanel[\s\S]*:show-identity="false"/)
-  assert.doesNotMatch(users, /:show-language="false"|:show-profile="false"/)
+  assert.doesNotMatch(users, /class="user-personal-settings"/)
+  assert.doesNotMatch(users, /<AccountSettingsPanel/)
+  assert.match(preferences, /<AccountSettingsPanel :show-identity="false" \/>/)
   assert.ok(
     account.indexOf('<SystemSettingsForm') <
       account.indexOf('<DefaultLineSettingsForm'),
@@ -222,6 +242,10 @@ test('master-detail settings are flush and mobile page titles cover every sectio
     masterDetail,
     /\.settings-master-detail \{[\s\S]*height: 100%;[\s\S]*min-height: 0;[\s\S]*overflow: hidden;/
   )
+  assert.doesNotMatch(
+    masterDetail,
+    /\.settings-master-detail \{[^}]*border-top:/
+  )
   assert.match(
     masterDetail,
     /\.settings-master-detail__list \{[\s\S]*overflow-y: auto;/
@@ -238,8 +262,8 @@ test('master-detail settings are flush and mobile page titles cover every sectio
     masterDetail,
     /padding: 12px 16px[\s\S]*max\(var\(--settings-page-end-gutter\), env\(safe-area-inset-bottom\)\);/
   )
-  assert.match(shell, /'external-access': t\('settings\.iosApp'\)/)
-  assert.match(shell, /'web-certificate': t\('settings\.tls'\)/)
+  assert.match(shell, /pairing: t\('settings\.iosApp'\)/)
+  assert.match(shell, /connectivity: t\('settings\.tls'\)/)
   assert.match(shell, /about: t\('settings\.about'\)/)
 })
 
@@ -304,11 +328,19 @@ test('settings drilldown aligns with the shell compact breakpoint', async () => 
 
   assert.match(
     deviceWorkspace,
-    /\.device-workspace \{[\s\S]*height: 100%;[\s\S]*min-height: 0;[\s\S]*overflow-y: auto;[\s\S]*grid-template-rows: auto auto;/
+    /\.device-workspace \{[\s\S]*display: block;[\s\S]*height: 100%;[\s\S]*min-height: 0;[\s\S]*overflow-y: auto;/
+  )
+  assert.doesNotMatch(
+    deviceWorkspace,
+    /\.device-workspace \{[^}]*grid-template-rows: auto auto;/
+  )
+  assert.doesNotMatch(
+    deviceWorkspace,
+    /\.device-workspace \{[^}]*border-top:/
   )
   assert.match(
     deviceWorkspace,
-    /@media \(max-width: 860px\)[\s\S]*\.device-workspace__selector,[\s\S]*\.device-workspace__detail \{[\s\S]*overflow-y: auto;/
+    /@media \(max-width: 860px\)[\s\S]*\.device-workspace \{[\s\S]*display: grid;[\s\S]*grid-template-rows: minmax\(0, 1fr\);[\s\S]*\.device-workspace__selector,[\s\S]*\.device-workspace__detail \{[\s\S]*overflow-y: auto;/
   )
   assert.match(masterDetail, /mobile-drilldown__list/)
   assert.match(masterDetail, /mobile-drilldown__detail/)

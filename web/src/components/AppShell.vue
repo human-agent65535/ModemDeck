@@ -69,7 +69,7 @@ import OverlayDialog from './OverlayDialog.vue'
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
-const settingsLanding = computed(() => 'account')
+const settingsLanding = computed(() => 'preferences')
 const permanentDialer = ref(false)
 const nonModalDialer = ref(false)
 const mobileMoreOpen = ref(false)
@@ -161,16 +161,15 @@ const mobileSettingsSection = computed(() => {
   if (route.name !== 'settings') return ''
   const section = String(route.params.section || '')
   const labels: Record<string, string> = {
-    account:
-      sessionState.role === 'admin'
-        ? t('settings.accountManagement')
-        : t('settings.account'),
+    preferences: t('settings.system'),
+    security: t('settings.account'),
+    users: t('settings.users'),
     contacts: t('settings.contactsSync'),
     audio: t('settings.audio'),
+    pairing: t('settings.iosApp'),
     devices: t('settings.devices'),
     telegram: t('settings.telegram'),
-    'external-access': t('settings.iosApp'),
-    'web-certificate': t('settings.tls'),
+    connectivity: t('settings.tls'),
     diagnostics: t('settings.diagnostics'),
     about: t('settings.about')
   }
@@ -185,7 +184,7 @@ const mobileTrafficFromSettings = computed(
 const settingsUserDetailOpen = computed(
   () =>
     route.name === 'settings' &&
-    route.params.section === 'account' &&
+    route.params.section === 'users' &&
     (typeof route.query.user === 'string' || route.query.newUser === '1')
 )
 const settingsTelegramDetailOpen = computed(
@@ -312,7 +311,7 @@ function handleMobileBack(): void {
   if (settingsUserDetailOpen.value) {
     void router.push({
       name: 'settings',
-      params: { section: 'account' }
+      params: { section: 'users' }
     })
     return
   }

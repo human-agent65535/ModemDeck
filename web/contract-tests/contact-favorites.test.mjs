@@ -143,7 +143,7 @@ test('communication detail action groups share one stable size and gap', async (
     /<WorkspaceDetailHeader>[\s\S]*?<template[^>]*#actions>/
   )
   assert.match(styles, /--detail-action-gap: var\(--space-2\);/)
-  assert.match(styles, /--detail-action-size: var\(--touch-target\);/)
+  assert.match(styles, /--detail-action-size: 40px;/)
   assert.match(
     detailHeader,
     /\.workspace-detail-header__actions \{[\s\S]*gap: var\(--detail-action-gap\);/

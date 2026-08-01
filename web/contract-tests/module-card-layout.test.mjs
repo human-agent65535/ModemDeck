@@ -38,7 +38,13 @@ test('device settings retain card selection in their dedicated drilldown workben
   assert.match(devicePanel, /<ModuleCard/)
   assert.match(
     cssBlock(devicePanel, '.module-grid'),
-    /grid-template-columns: repeat\(auto-fill, minmax\(320px, 420px\)\)/
+    /grid-template-columns: repeat\(auto-fit, minmax\(min\(320px, 100%\), 1fr\)\)/
+  )
+  assert.match(cssBlock(devicePanel, '.module-grid'), /width: min\(100%, 852px\)/)
+  assert.match(cssBlock(devicePanel, '.module-grid'), /align-items: stretch/)
+  assert.match(
+    cssBlock(devicePanel, '.module-grid > :deep(.module-card)'),
+    /height: auto/
   )
 })
 

@@ -96,7 +96,7 @@ test('workspace primitives own action sizing, priority, and transition timing', 
   assert.doesNotMatch(detailHeader, /density\?:/)
   assert.match(
     detailHeader,
-    /\.workspace-detail-header \{[\s\S]*min-height: 68px;[\s\S]*padding: 10px 24px;/
+    /\.workspace-detail-header \{[\s\S]*min-height: 60px;[\s\S]*padding: 8px 20px;/
   )
   assert.match(detailHeader, /class="workspace-detail-header__actions"/)
   assert.match(detailHeader, /gap: var\(--detail-action-gap\);/)
@@ -110,7 +110,11 @@ test('workspace primitives own action sizing, priority, and transition timing', 
   assert.match(detailActions, /\.workspace-detail-command \{/)
   assert.match(detailActions, /@container \(max-width: 760px\)/)
   assert.match(styles, /--detail-action-gap: var\(--space-2\);/)
-  assert.match(styles, /--detail-action-size: var\(--touch-target\);/)
+  assert.match(styles, /--detail-action-size: 40px;/)
+  assert.match(
+    styles,
+    /@media \(max-width: 860px\)[\s\S]*:root \{[\s\S]*--detail-action-size: var\(--touch-target\);/
+  )
   assert.match(
     styles,
     /\.icon-button \{[\s\S]*width: var\(--detail-action-size\);[\s\S]*height: var\(--detail-action-size\);/

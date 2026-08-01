@@ -92,6 +92,7 @@ import { LINE_TONE_PRESETS, lineTonePreset } from '../utils/lineTone'
 import LineTag from './LineTag.vue'
 import ModuleCard from './ModuleCard.vue'
 import SensitiveValue from './SensitiveValue.vue'
+import SelectControl from './SelectControl.vue'
 import SignalBars from './SignalBars.vue'
 import StatePanel from './StatePanel.vue'
 import DeviceWorkspace from './settings/DeviceWorkspace.vue'
@@ -151,6 +152,17 @@ const profileIPFamily = ref('ipv4v6')
 const profileUser = ref('')
 const profilePassword = ref('')
 const profilePending = ref(false)
+const profileIPFamilyOptions = [
+  { value: 'ipv4', label: 'IPv4' },
+  { value: 'ipv6', label: 'IPv6' },
+  { value: 'ipv4v6', label: 'IPv4 + IPv6' }
+]
+const simOperationOptions = computed(() => [
+  { value: 'send_pin', label: t('device.unlockPIN') },
+  { value: 'send_puk', label: t('device.unlockPUK') },
+  { value: 'enable_pin', label: t('device.pinProtection') },
+  { value: 'change_pin', label: t('device.changePIN') }
+])
 
 const ussdStatus = ref<USSDStatus | null>(null)
 const ussdLoadStatus = ref<AsyncStatus>('idle')
@@ -158,6 +170,14 @@ const ussdError = ref('')
 const ussdCommand = ref('')
 const ussdResult = ref('')
 const ussdPending = ref(false)
+
+function selectProfileIPFamily(value: string): void {
+  profileIPFamily.value = value
+}
+
+function selectSIMOperation(value: string): void {
+  simOperation.value = value as SIMOperation
+}
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const moduleLines = computed(() => displayModuleLines(lines.value, devicesResource.data))
@@ -1988,14 +2008,15 @@ onMounted(() => {
                 <form class="profile-form" @submit.prevent="saveProfile">
                   <label><span>{{ t('device.name') }}</span><input v-model.trim="profileName" /></label>
                   <label><span>APN</span><input v-model.trim="profileAPN" /></label>
-                  <label>
+                  <div class="field">
                     <span>IP</span>
-                    <select v-model="profileIPFamily">
-                      <option value="ipv4">IPv4</option>
-                      <option value="ipv6">IPv6</option>
-                      <option value="ipv4v6">IPv4 + IPv6</option>
-                    </select>
-                  </label>
+                    <SelectControl
+                      :model-value="profileIPFamily"
+                      :options="profileIPFamilyOptions"
+                      label="IP"
+                      @change="selectProfileIPFamily"
+                    />
+                  </div>
                   <label>
                     <span>{{ t('common.username') }}</span>
                     <input v-model.trim="profileUser" autocomplete="username" />
@@ -2122,15 +2143,15 @@ onMounted(() => {
           <section class="configuration-section">
             <header><ShieldAlert :size="18" /><h4>PIN</h4></header>
             <form class="sim-form" @submit.prevent="applySIMCommand">
-              <label>
+              <div class="field">
                 <span>{{ t('device.operation') }}</span>
-                <select v-model="simOperation">
-                  <option value="send_pin">{{ t('device.unlockPIN') }}</option>
-                  <option value="send_puk">{{ t('device.unlockPUK') }}</option>
-                  <option value="enable_pin">{{ t('device.pinProtection') }}</option>
-                  <option value="change_pin">{{ t('device.changePIN') }}</option>
-                </select>
-              </label>
+                <SelectControl
+                  :model-value="simOperation"
+                  :options="simOperationOptions"
+                  :label="t('device.operation')"
+                  @change="selectSIMOperation"
+                />
+              </div>
               <label v-if="simOperation !== 'send_puk'">
                 <span>{{ simOperation === 'change_pin' ? t('device.currentPIN') : 'PIN' }}</span>
                 <input v-model="simPIN" type="password" inputmode="numeric" maxlength="8" autocomplete="off" />
@@ -2487,7 +2508,9 @@ onMounted(() => {
 
 .module-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 420px));
+  width: min(100%, 852px);
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  align-items: stretch;
   justify-content: start;
   gap: 12px;
   padding: 14px 1px 16px;
@@ -2495,6 +2518,7 @@ onMounted(() => {
 
 .module-grid > :deep(.module-card) {
   width: 100%;
+  height: auto;
   max-width: 420px;
 }
 
@@ -3881,6 +3905,7 @@ pre {
   }
 
   .module-grid {
+    width: 100%;
     grid-template-columns: minmax(0, 1fr);
   }
 

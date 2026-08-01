@@ -189,9 +189,16 @@ test('gateway sends TLS requests with the contract path, method, payload, and CS
   assert.deepEqual(requests[2].body, { operation: 'use_automatic' })
 })
 
-test('admin settings present the local endpoint as Web certificate', async () => {
-  const [settingsView, certificatePanel, english, chinese] = await Promise.all([
+test('admin settings group HTTPS and remote entry points under Access', async () => {
+  const [settingsView, connectivityPanel, certificatePanel, english, chinese] = await Promise.all([
     readFile(new URL('../src/views/SettingsView.vue', import.meta.url), 'utf8'),
+    readFile(
+      new URL(
+        '../src/components/ConnectivitySettingsPanel.vue',
+        import.meta.url
+      ),
+      'utf8'
+    ),
     readFile(
       new URL(
         '../src/components/WebCertificateSettingsPanel.vue',
@@ -203,13 +210,15 @@ test('admin settings present the local endpoint as Web certificate', async () =>
     readFile(new URL('../src/i18n/locales/zh-CN.ts', import.meta.url), 'utf8')
   ])
 
-  assert.match(settingsView, /id: 'web-certificate'/)
+  assert.match(settingsView, /id: 'connectivity'/)
   assert.match(settingsView, /label: t\('settings\.tls'\)/)
-  assert.match(settingsView, /<WebCertificateSettingsPanel/)
+  assert.match(settingsView, /<ConnectivitySettingsPanel/)
+  assert.match(connectivityPanel, /<WebCertificateSettingsPanel/)
+  assert.match(connectivityPanel, /<ExternalAccessSettingsPanel mode="connectivity"/)
   assert.match(certificatePanel, /t\('tls\.scopeNotice'\)/)
   assert.match(certificatePanel, /gateway\.getTLSSettings\(\)/)
   assert.match(certificatePanel, /gateway\.updateTLSSettings\(/)
   assert.match(certificatePanel, /tlsCAPath/)
-  assert.match(english, /tls: 'Web certificate'/)
-  assert.match(chinese, /tls: 'Web 证书'/)
+  assert.match(english, /tls: 'Access'/)
+  assert.match(chinese, /tls: '接入'/)
 })

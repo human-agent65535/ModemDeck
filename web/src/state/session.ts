@@ -36,11 +36,12 @@ let sessionTerminationInProgress = false
 let sessionInvalidatedDuringTermination = false
 
 async function applySession(session: SessionResponse): Promise<boolean> {
-  await setSystemLanguage(session.language)
   if (!session.authenticated) {
     clearSession('', session.setup_required)
     return false
   }
+
+  await setSystemLanguage(session.language)
 
   if (
     state.status !== 'authenticated' ||
@@ -63,6 +64,7 @@ async function applySession(session: SessionResponse): Promise<boolean> {
 
 export function clearSession(message = '', setupRequired = false): void {
   if (fixtureMode) return
+  void setSystemLanguage('en-US')
   if (state.status === 'anonymous') {
     state.setupRequired = setupRequired
     state.error = message
@@ -108,7 +110,11 @@ export function setSessionProfileContact(contactID: string): void {
 }
 
 export async function ensureSession(): Promise<boolean> {
-  if (fixtureMode || state.status === 'authenticated') return true
+  if (fixtureMode) {
+    await setSystemLanguage('auto')
+    return true
+  }
+  if (state.status === 'authenticated') return true
   if (state.status === 'anonymous') return false
   if (inspection) return inspection
 

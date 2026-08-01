@@ -48,6 +48,7 @@ import {
   registrationStateLabel
 } from '../utils/operatorNetwork'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
+import SelectControl from './SelectControl.vue'
 
 type SnapshotState = 'idle' | 'loading' | 'ready' | 'forbidden' | 'error'
 type LogConnectionState =
@@ -181,6 +182,26 @@ const knownComponents = computed(() =>
 const diagnosticLines = computed(() =>
   (snapshot.value?.lines || []).filter(line => Boolean(line.id.trim()))
 )
+const diagnosticLineOptions = computed(() =>
+  diagnosticLines.value.map(line => ({
+    value: line.id,
+    label: lineLabel(line)
+  }))
+)
+const logLevelOptions = computed(() => [
+  { value: '', label: t('diagnostics.allLevels') },
+  { value: 'debug', label: 'Debug' },
+  { value: 'info', label: 'Info' },
+  { value: 'warn', label: 'Warn' },
+  { value: 'error', label: 'Error' }
+])
+const logComponentOptions = computed(() => [
+  { value: '', label: t('diagnostics.component') },
+  ...knownComponents.value.map(component => ({
+    value: component,
+    label: component
+  }))
+])
 const failedLines = computed(() =>
   diagnosticLines.value.filter(
     line => line.state?.trim().toLowerCase() === 'failed'
@@ -200,6 +221,18 @@ const selectedDiagnosticResource = computed(() =>
     ? diagnosticDeviceResource(selectedDiagnosticLineID.value)
     : null
 )
+
+function selectDiagnosticLine(lineID: string): void {
+  selectedDiagnosticLineID.value = lineID
+}
+
+function selectLogLevel(level: string): void {
+  logLevel.value = level as DiagnosticLogLevel | ''
+}
+
+function selectLogComponent(component: string): void {
+  logComponent.value = component
+}
 const selectedDiagnosticHardware = computed(
   () => selectedDiagnosticResource.value?.hardware
 )
@@ -924,16 +957,15 @@ onBeforeUnmount(() => {
             <h3>{{ t('diagnostics.deviceEvidence') }}</h3>
             <span>{{ t('diagnostics.lineCount', { count: snapshot.lines.length }) }}</span>
           </div>
-          <select
+          <SelectControl
             v-if="diagnosticLines.length > 1"
-            v-model="selectedDiagnosticLineID"
             class="diagnostic-line-select"
-            :aria-label="t('diagnostics.deviceEvidence')"
-          >
-            <option v-for="line in diagnosticLines" :key="line.id" :value="line.id">
-              {{ lineLabel(line) }}
-            </option>
-          </select>
+            :model-value="selectedDiagnosticLineID"
+            :options="diagnosticLineOptions"
+            :label="t('diagnostics.deviceEvidence')"
+            compact
+            @change="selectDiagnosticLine"
+          />
         </header>
 
         <article v-if="selectedDiagnosticLine" class="line-evidence">
@@ -1194,31 +1226,23 @@ onBeforeUnmount(() => {
       </header>
 
       <div class="log-filters">
-        <label>
-          <span class="sr-only">{{ t('diagnostics.logLevel') }}</span>
-          <select v-model="logLevel" :aria-label="t('diagnostics.logLevel')">
-            <option value="">{{ t('diagnostics.allLevels') }}</option>
-            <option value="debug">Debug</option>
-            <option value="info">Info</option>
-            <option value="warn">Warn</option>
-            <option value="error">Error</option>
-          </select>
-        </label>
-        <label class="filter-input">
+        <SelectControl
+          :model-value="logLevel"
+          :options="logLevelOptions"
+          :label="t('diagnostics.logLevel')"
+          compact
+          @change="selectLogLevel"
+        />
+        <div class="filter-input">
           <Server :size="15" />
-          <span class="sr-only">{{ t('diagnostics.component') }}</span>
-          <input
-            v-model="logComponent"
-            type="search"
-            list="diagnostic-components"
-            maxlength="64"
-            :placeholder="t('diagnostics.component')"
-            :aria-label="t('diagnostics.component')"
+          <SelectControl
+            :model-value="logComponent"
+            :options="logComponentOptions"
+            :label="t('diagnostics.component')"
+            compact
+            @change="selectLogComponent"
           />
-          <datalist id="diagnostic-components">
-            <option v-for="component in knownComponents" :key="component" :value="component" />
-          </datalist>
-        </label>
+        </div>
         <label class="filter-input filter-input--search">
           <Search :size="15" />
           <span class="sr-only">{{ t('diagnostics.searchLogs') }}</span>
@@ -1591,16 +1615,9 @@ onBeforeUnmount(() => {
 }
 
 .diagnostic-line-select {
+  width: min(220px, 32vw);
   min-width: 150px;
   max-width: 220px;
-  height: 34px;
-  padding: 0 30px 0 10px;
-  color: var(--text);
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 5px;
-  font: inherit;
-  font-size: 13px;
 }
 
 .line-evidence {
@@ -1967,31 +1984,27 @@ onBeforeUnmount(() => {
   padding: 11px 0;
 }
 
-.log-filters label {
+.log-filters label,
+.log-filters > :deep(.select-control),
+.filter-input :deep(.select-control) {
   min-width: 0;
 }
 
-.log-filters select,
 .filter-input {
   width: 100%;
   min-width: 0;
   height: 34px;
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 5px;
-}
-
-.log-filters select {
-  padding: 0 9px;
-  font-size: 12px;
 }
 
 .filter-input {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 0 9px;
   color: var(--muted);
+}
+
+.filter-input > svg {
+  flex: 0 0 auto;
 }
 
 .filter-input input {

@@ -80,7 +80,6 @@ const emit = defineEmits<{
   overflow: hidden;
   grid-template-columns: var(--settings-master-sidebar) minmax(0, 1fr);
   background: var(--surface);
-  border-top: 1px solid var(--border);
   container-type: inline-size;
 }
 
@@ -212,7 +211,6 @@ const emit = defineEmits<{
   .settings-master-detail {
     min-height: 0;
     grid-template-columns: minmax(0, 1fr);
-    border-top: 0;
   }
 
   .settings-master-detail__sidebar {

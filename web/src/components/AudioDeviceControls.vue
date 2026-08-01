@@ -12,6 +12,7 @@ import {
   startMicrophoneTest,
   stopMicrophoneTest
 } from '../state/audio'
+import SelectControl from './SelectControl.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -32,6 +33,32 @@ const microphoneTestRunning = computed(
     audioState.microphoneTestStatus === 'requesting' ||
     audioState.microphoneTestStatus === 'active'
 )
+const inputOptions = computed(() => [
+  { value: '', label: t('common.systemDefault') },
+  ...(missingInput.value && audioState.selectedInputID
+    ? [{
+        value: audioState.selectedInputID,
+        label: t('audio.selectedMicrophoneUnavailable')
+      }]
+    : []),
+  ...audioState.inputs.map((device, index) => ({
+    value: device.deviceId,
+    label: deviceLabel(device, 'microphone', index)
+  }))
+])
+const outputOptions = computed(() => [
+  { value: '', label: t('common.systemDefault') },
+  ...(missingOutput.value && audioState.selectedOutputID
+    ? [{
+        value: audioState.selectedOutputID,
+        label: t('audio.selectedSpeakerUnavailable')
+      }]
+    : []),
+  ...audioState.outputs.map((device, index) => ({
+    value: device.deviceId,
+    label: deviceLabel(device, 'speaker', index)
+  }))
+])
 
 function deviceLabel(
   device: MediaDeviceInfo,
@@ -42,12 +69,12 @@ function deviceLabel(
   return device.label || t('audio.deviceNumber', { kind: kindLabel, number: index + 1 })
 }
 
-function selectInput(event: Event): void {
-  setSelectedAudioInput((event.target as HTMLSelectElement).value)
+function selectInput(deviceID: string): void {
+  setSelectedAudioInput(deviceID)
 }
 
-function selectOutput(event: Event): void {
-  setSelectedAudioOutput((event.target as HTMLSelectElement).value)
+function selectOutput(deviceID: string): void {
+  setSelectedAudioOutput(deviceID)
 }
 
 function useDefaultOutput(): void {
@@ -71,25 +98,15 @@ onBeforeUnmount(() => {
 <template>
   <div class="audio-device-controls" :class="{ 'is-compact': compact }">
     <div class="audio-device-controls__fields">
-      <label class="field">
+      <div class="field">
         <span><Mic :size="14" />{{ t('audio.microphone') }}</span>
-        <select
-          :value="audioState.selectedInputID"
+        <SelectControl
+          :model-value="audioState.selectedInputID"
+          :options="inputOptions"
+          :label="t('audio.microphone')"
           :disabled="audioState.inputRoutingStatus === 'switching'"
           @change="selectInput"
-        >
-          <option value="">{{ t('common.systemDefault') }}</option>
-          <option v-if="missingInput" :value="audioState.selectedInputID">
-            {{ t('audio.selectedMicrophoneUnavailable') }}
-          </option>
-          <option
-            v-for="(device, index) in audioState.inputs"
-            :key="device.deviceId"
-            :value="device.deviceId"
-          >
-            {{ deviceLabel(device, 'microphone', index) }}
-          </option>
-        </select>
+        />
         <small v-if="missingInput" class="field-error">
           {{ t('audio.microphoneUnavailable') }}
         </small>
@@ -99,27 +116,17 @@ onBeforeUnmount(() => {
         <small v-else-if="audioState.inputRoutingError" class="field-error">
           {{ audioState.inputRoutingError }}
         </small>
-      </label>
+      </div>
 
-      <label class="field">
+      <div class="field">
         <span><Volume2 :size="14" />{{ t('audio.speaker') }}</span>
-        <select
-          :value="audioState.selectedOutputID"
+        <SelectControl
+          :model-value="audioState.selectedOutputID"
+          :options="outputOptions"
+          :label="t('audio.speaker')"
           :disabled="!audioState.outputSelectionSupported"
           @change="selectOutput"
-        >
-          <option value="">{{ t('common.systemDefault') }}</option>
-          <option v-if="missingOutput" :value="audioState.selectedOutputID">
-            {{ t('audio.selectedSpeakerUnavailable') }}
-          </option>
-          <option
-            v-for="(device, index) in audioState.outputs"
-            :key="device.deviceId"
-            :value="device.deviceId"
-          >
-            {{ deviceLabel(device, 'speaker', index) }}
-          </option>
-        </select>
+        />
         <template v-if="!audioState.outputSelectionSupported">
           <small class="field-error">{{ t('audio.defaultOutputOnly') }}</small>
           <button
@@ -134,7 +141,7 @@ onBeforeUnmount(() => {
         <small v-else-if="audioState.outputRoutingError" class="field-error">
           {{ audioState.outputRoutingError }}
         </small>
-      </label>
+      </div>
     </div>
 
     <section class="microphone-test" aria-labelledby="microphone-test-title">

@@ -163,12 +163,20 @@ test('Cloudflare Web call media accepts relay-only ICE configuration', () => {
   )
 })
 
-test('settings expose capability-scoped infrastructure and self-service pairing', async () => {
-  const [settingsView, userPanel, externalAccessPanel, callMedia] =
+test('settings separate administrator infrastructure from self-service pairing', async () => {
+  const [settingsView, userPanel, pairingPanel, connectivityPanel, externalAccessPanel, callMedia] =
     await Promise.all([
     readFile(new URL('../src/views/SettingsView.vue', import.meta.url), 'utf8'),
     readFile(
       new URL('../src/components/UserSettingsPanel.vue', import.meta.url),
+      'utf8'
+    ),
+    readFile(
+      new URL('../src/components/PairingSettingsPanel.vue', import.meta.url),
+      'utf8'
+    ),
+    readFile(
+      new URL('../src/components/ConnectivitySettingsPanel.vue', import.meta.url),
       'utf8'
     ),
     readFile(
@@ -184,23 +192,24 @@ test('settings expose capability-scoped infrastructure and self-service pairing'
     )
   ])
 
-  assert.match(settingsView, /id: 'external-access'/)
-  assert.match(
-    settingsView,
-    /canViewExternalAccess[\s\S]*canManageExternalAccess\.value \|\| canPairIOS\.value/
-  )
+  assert.match(settingsView, /id: 'pairing'/)
+  assert.match(settingsView, /id: 'connectivity'/)
+  assert.match(settingsView, /if \(canPairIOS\.value\)/)
+  assert.match(settingsView, /if \(canManageExternalAccess\.value\)/)
   assert.match(settingsView, /sessionState\.iosPairingEnabled/)
   assert.doesNotMatch(settingsView, /externalAccessEnabled|loadExternalAccessVisibility/)
-  assert.match(settingsView, /<ExternalAccessSettingsPanel/)
-  assert.match(settingsView, /id: 'web-certificate'/)
-  assert.match(settingsView, /<WebCertificateSettingsPanel/)
+  assert.match(settingsView, /<PairingSettingsPanel/)
+  assert.match(settingsView, /<ConnectivitySettingsPanel/)
+  assert.match(pairingPanel, /<ExternalAccessSettingsPanel mode="pairing"/)
+  assert.match(connectivityPanel, /<WebCertificateSettingsPanel/)
+  assert.match(connectivityPanel, /<ExternalAccessSettingsPanel mode="connectivity"/)
   assert.match(userPanel, /ios_pairing_enabled: iosPairingEnabled\.value/)
   assert.match(userPanel, /selectedUser\.ios_pairing_has_credential/)
   assert.match(userPanel, /selectedUser\.ios_pairing_paired/)
   assert.match(userPanel, /gateway\.revokeUserIOSPairing\(user\.id\)/)
   assert.match(externalAccessPanel, /gateway\.getExternalAccessStatus\(\)/)
   assert.match(externalAccessPanel, /gateway\.refreshExternalAccess\(\)/)
-  assert.match(externalAccessPanel, /isAdmin && externalAccess/)
+  assert.match(externalAccessPanel, /showConnectivity && externalAccess/)
   assert.match(externalAccessPanel, /externalAccess\.cloudflare\.api_urls/)
   assert.match(externalAccessPanel, /externalAccess\.cloudflare\.web_urls/)
   assert.match(
@@ -233,7 +242,10 @@ test('settings expose capability-scoped infrastructure and self-service pairing'
   assert.match(externalAccessPanel, /onBeforeUnmount/)
   assert.match(externalAccessPanel, /gateway\.createIOSPairing\(/)
   assert.match(externalAccessPanel, /pairing\.server_urls\.length > 1/)
-  assert.match(externalAccessPanel, /v-model="selectedServerURL"/)
+  assert.match(
+    externalAccessPanel,
+    /<SelectControl[\s\S]*:model-value="selectedServerURL"/
+  )
   assert.match(externalAccessPanel, /gateway\.revokeIOSPairing\(\)/)
   assert.match(
     externalAccessPanel,

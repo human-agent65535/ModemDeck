@@ -43,15 +43,16 @@ test('settings panels and their CSS load through one shared async boundary', asy
     /import (?:AccountSettingsPanel|UserSettingsPanel|DeviceConfigurationPanel) from/
   )
   for (const panel of [
-    'AccountSettingsPanel',
+    'AccountPreferencesPanel',
+    'SecuritySettingsPanel',
     'UserSettingsPanel',
     'AudioSettingsForm',
     'ContactSyncSettings',
     'DeviceConfigurationPanel',
     'DiagnosticsPanel',
-    'ExternalAccessSettingsPanel',
+    'PairingSettingsPanel',
+    'ConnectivitySettingsPanel',
     'TelegramSettingsForm',
-    'WebCertificateSettingsPanel'
   ]) {
     assert.match(settings, new RegExp(`import\\('../components/${panel}\\.vue'\\)`))
   }
@@ -75,7 +76,7 @@ test('locale catalogs and fixture data stay out of the production shell', async 
   assert.doesNotMatch(i18n, /import zhCN from|import jaJP from|import viVN from/)
   assert.match(i18n, /'zh-CN': \(\) => import\('\.\/locales\/zh-CN'\)/)
   assert.match(i18n, /const localeLoads = new Map/)
-  assert.match(main, /await setSystemLanguage\('auto'\)/)
+  assert.match(main, /await ensureSession\(\)/)
   assert.match(session, /await setSystemLanguage\(session\.language\)/)
   assert.doesNotMatch(client, /import \{ createFixtureGateway \} from '\.\/fixture'/)
   assert.match(client, /await import\('\.\/fixture'\)/)

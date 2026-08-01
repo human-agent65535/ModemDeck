@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { ChevronDown, LoaderCircle, RadioTower } from '@lucide/vue'
+import { LoaderCircle, RadioTower } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import { useSettingsMutation } from '../composables/useSettingsMutation'
 import {
@@ -10,6 +10,7 @@ import {
   loadBootstrap,
   updateDefaultLine
 } from '../state/workspace'
+import SelectControl from './SelectControl.vue'
 import SettingsPreferenceRow from './settings/SettingsPreferenceRow.vue'
 
 const { t } = useI18n()
@@ -21,6 +22,13 @@ const saveMutation = useSettingsMutation({
 const saving = saveMutation.saving
 
 const lines = computed(() => bootstrapResource.data?.lines || [])
+const options = computed(() =>
+  lines.value.map(line => ({
+    value: lineKey(line),
+    label: lineLabel(line),
+    description: line.phone_number || ''
+  }))
+)
 const loading = computed(
   () =>
     bootstrapResource.status === 'idle' ||
@@ -35,8 +43,7 @@ watch(
   { immediate: true }
 )
 
-async function changeDefault(event: Event): Promise<void> {
-  const lineID = (event.target as HTMLSelectElement).value
+async function changeDefault(lineID: string): Promise<void> {
   if (!lineID || lineID === selected.value || saving.value) return
   const previous = selected.value
   selected.value = lineID
@@ -69,19 +76,14 @@ onMounted(() => {
       <span v-else-if="lines.length === 0" class="default-line-settings__state">
         {{ t('users.noLines') }}
       </span>
-      <label v-else class="default-line-select">
-        <span class="sr-only">{{ t('users.defaultLine') }}</span>
-        <select :value="selected" :disabled="saving" @change="changeDefault">
-          <option
-            v-for="line in lines"
-            :key="lineKey(line)"
-            :value="lineKey(line)"
-          >
-            {{ lineLabel(line) }}
-          </option>
-        </select>
-        <ChevronDown :size="18" aria-hidden="true" />
-      </label>
+      <SelectControl
+        v-else
+        :model-value="selected"
+        :options="options"
+        :label="t('users.defaultLine')"
+        :disabled="saving"
+        @change="changeDefault"
+      />
     </template>
     <template v-if="saveMutation.error.value" #feedback>
       <p class="default-line-settings__feedback is-error" role="alert">
@@ -99,43 +101,6 @@ onMounted(() => {
   gap: 8px;
   color: var(--muted);
   font-size: 12px;
-}
-
-.default-line-select {
-  position: relative;
-  display: flex;
-  width: 100%;
-  height: 42px;
-  flex: 0 0 auto;
-  align-items: center;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--surface);
-}
-
-.default-line-select select {
-  width: 100%;
-  height: 100%;
-  padding: 0 42px 0 13px;
-  color: var(--text);
-  font-size: 13px;
-  background: transparent;
-  border: 0;
-  outline: 0;
-  appearance: none;
-  cursor: pointer;
-}
-
-.default-line-select svg {
-  position: absolute;
-  right: 13px;
-  color: var(--muted);
-  pointer-events: none;
-}
-
-.default-line-select:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .default-line-settings__feedback {

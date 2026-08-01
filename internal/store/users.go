@@ -260,16 +260,16 @@ func (s *Store) UpdateMember(
 	var result sql.Result
 	if auth.Role(role) == auth.RoleAdmin {
 		if userID != auth.InitialAdminUserID ||
-			username != currentUsername ||
 			!input.Enabled ||
 			input.PasswordHash != "" {
 			return User{}, ErrUserValidation
 		}
 		result, err = transaction.ExecContext(ctx, `
 			UPDATE modemdeck_users
-			SET revision = revision + 1, updated_at = CURRENT_TIMESTAMP
+			SET username = ?, revision = revision + 1,
+				updated_at = CURRENT_TIMESTAMP
 			WHERE id = ? AND role = 'admin' AND revision = ?
-		`, userID, input.Revision)
+		`, username, userID, input.Revision)
 	} else if input.PasswordHash == "" {
 		result, err = transaction.ExecContext(ctx, `
 			UPDATE modemdeck_users

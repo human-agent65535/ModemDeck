@@ -10,11 +10,13 @@ import {
   Globe2,
   House,
   Info,
+  KeyRound,
   LoaderCircle,
   LogOut,
   RadioTower,
   Send,
   ShieldCheck,
+  SlidersHorizontal,
   UserRound,
   Volume2
 } from '@lucide/vue'
@@ -35,13 +37,15 @@ import {
 import { isRegisteredNetwork } from '../utils/operatorNetwork'
 
 type SettingsSection =
-  | 'account'
+  | 'preferences'
+  | 'security'
+  | 'users'
   | 'contacts'
   | 'audio'
+  | 'pairing'
   | 'devices'
   | 'telegram'
-  | 'external-access'
-  | 'web-certificate'
+  | 'connectivity'
   | 'diagnostics'
   | 'about'
 
@@ -52,7 +56,10 @@ type SettingsSectionDefinition = {
   icon: typeof RadioTower
 }
 
-const loadAccountSettingsPanel = () => import('../components/AccountSettingsPanel.vue')
+const loadAccountPreferencesPanel = () =>
+  import('../components/AccountPreferencesPanel.vue')
+const loadSecuritySettingsPanel = () =>
+  import('../components/SecuritySettingsPanel.vue')
 const loadUserSettingsPanel = () => import('../components/UserSettingsPanel.vue')
 const loadAudioSettingsForm = () => import('../components/AudioSettingsForm.vue')
 const loadAboutSettingsPanel = () => import('../components/AboutSettingsPanel.vue')
@@ -60,26 +67,25 @@ const loadContactSyncSettings = () => import('../components/ContactSyncSettings.
 const loadDeviceConfigurationPanel = () =>
   import('../components/DeviceConfigurationPanel.vue')
 const loadDiagnosticsPanel = () => import('../components/DiagnosticsPanel.vue')
-const loadExternalAccessSettingsPanel = () =>
-  import('../components/ExternalAccessSettingsPanel.vue')
+const loadPairingSettingsPanel = () =>
+  import('../components/PairingSettingsPanel.vue')
+const loadConnectivitySettingsPanel = () =>
+  import('../components/ConnectivitySettingsPanel.vue')
 const loadTelegramSettingsForm = () => import('../components/TelegramSettingsForm.vue')
-const loadWebCertificateSettingsPanel = () =>
-  import('../components/WebCertificateSettingsPanel.vue')
 
-const AccountSettingsPanel = defineAsyncComponent(loadAccountSettingsPanel)
+const AccountPreferencesPanel = defineAsyncComponent(loadAccountPreferencesPanel)
+const SecuritySettingsPanel = defineAsyncComponent(loadSecuritySettingsPanel)
 const UserSettingsPanel = defineAsyncComponent(loadUserSettingsPanel)
 const AudioSettingsForm = defineAsyncComponent(loadAudioSettingsForm)
 const AboutSettingsPanel = defineAsyncComponent(loadAboutSettingsPanel)
 const ContactSyncSettings = defineAsyncComponent(loadContactSyncSettings)
 const DeviceConfigurationPanel = defineAsyncComponent(loadDeviceConfigurationPanel)
 const DiagnosticsPanel = defineAsyncComponent(loadDiagnosticsPanel)
-const ExternalAccessSettingsPanel = defineAsyncComponent(
-  loadExternalAccessSettingsPanel
+const PairingSettingsPanel = defineAsyncComponent(loadPairingSettingsPanel)
+const ConnectivitySettingsPanel = defineAsyncComponent(
+  loadConnectivitySettingsPanel
 )
 const TelegramSettingsForm = defineAsyncComponent(loadTelegramSettingsForm)
-const WebCertificateSettingsPanel = defineAsyncComponent(
-  loadWebCertificateSettingsPanel
-)
 
 const route = useRoute()
 const router = useRouter()
@@ -88,9 +94,6 @@ const logoutPending = ref(false)
 const logoutError = ref('')
 const canManageExternalAccess = computed(() => sessionState.role === 'admin')
 const canPairIOS = computed(() => sessionState.iosPairingEnabled)
-const canViewExternalAccess = computed(
-  () => canManageExternalAccess.value || canPairIOS.value
-)
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const presentModules = computed(() =>
   presentModuleLines(lines.value, devicesResource.data)
@@ -105,75 +108,85 @@ const overviewSummary = computed(() =>
   })
 )
 const sections = computed<SettingsSectionDefinition[]>(() => {
-  const personal: SettingsSectionDefinition[] = [
+  const result: SettingsSectionDefinition[] = [
     {
-      id: 'account' as const,
-      label:
-        sessionState.role === 'admin'
-          ? t('settings.accountManagement')
-          : t('settings.account'),
-      description:
-        sessionState.role === 'admin'
-          ? t('settings.accountManagementDescription')
-          : t('settings.accountDescription'),
-      icon: UserRound
+      id: 'preferences',
+      label: t('settings.system'),
+      description: t('settings.systemDescription'),
+      icon: SlidersHorizontal
     },
     {
-      id: 'contacts' as const,
-      label: t('settings.contactsSync'),
-      description: t('settings.contactsSyncDescription'),
-      icon: ContactRound
-    },
-    {
-      id: 'audio' as const,
-      label: t('settings.audio'),
-      description: t('settings.audioDescription'),
-      icon: Volume2
-    },
-    {
-      id: 'telegram' as const,
-      label: t('settings.telegram'),
-      description: t('settings.telegramDescription'),
-      icon: Send
-    },
-    {
-      id: 'devices' as const,
-      label: t('settings.devices'),
-      description: t('settings.devicesDescription'),
-      icon: RadioTower
-    }
-  ]
-  if (canViewExternalAccess.value) {
-    personal.push({
-      id: 'external-access',
-      label: t('settings.iosApp'),
-      description: t('settings.iosAppDescription'),
-      icon: Globe2
-    })
-  }
-  if (!canManageExternalAccess.value) return personal
-  const administration: SettingsSectionDefinition[] = []
-  administration.push(
-    {
-      id: 'web-certificate',
-      label: t('settings.tls'),
-      description: t('settings.tlsDescription'),
+      id: 'security',
+      label: t('settings.account'),
+      description: t('settings.accountDescription'),
       icon: ShieldCheck
     },
     {
-      id: 'diagnostics',
-      label: t('settings.diagnostics'),
-      description: t('settings.diagnosticsDescription'),
-      icon: Activity
+      id: 'audio',
+      label: t('settings.audio'),
+      description: t('settings.audioDescription'),
+      icon: Volume2
+    }
+  ]
+  if (canPairIOS.value) {
+    result.push({
+      id: 'pairing',
+      label: t('settings.iosApp'),
+      description: t('settings.iosAppDescription'),
+      icon: KeyRound
+    })
+  }
+  result.push({
+    id: 'contacts',
+    label: t('settings.contactsSync'),
+    description: t('settings.contactsSyncDescription'),
+    icon: ContactRound
+  })
+  if (sessionState.role === 'admin') {
+    result.push({
+      id: 'users',
+      label: t('settings.users'),
+      description: t('settings.usersDescription'),
+      icon: UserRound
+    })
+  }
+  result.push(
+    {
+      id: 'devices',
+      label: t('settings.devices'),
+      description: t('settings.devicesDescription'),
+      icon: RadioTower
     },
     {
-      id: 'about',
-      label: t('settings.about'),
-      description: t('settings.aboutDescription'),
-      icon: Info
+      id: 'telegram',
+      label: t('settings.telegram'),
+      description: t('settings.telegramDescription'),
+      icon: Send
     }
   )
-  return [...personal, ...administration]
+  if (canManageExternalAccess.value) {
+    result.push(
+      {
+        id: 'connectivity',
+        label: t('settings.tls'),
+        description: t('settings.tlsDescription'),
+        icon: Globe2
+      },
+      {
+        id: 'diagnostics',
+        label: t('settings.diagnostics'),
+        description: t('settings.diagnosticsDescription'),
+        icon: Activity
+      },
+      {
+        id: 'about',
+        label: t('settings.about'),
+        description: t('settings.aboutDescription'),
+        icon: Info
+      }
+    )
+  }
+  return result
 })
 const selectedSection = computed<SettingsSection | ''>(() => {
   const value = String(route.params.section || '')
@@ -186,20 +199,20 @@ const currentTitle = computed(
 )
 const settingsLoadingShape = computed<SettingsSkeletonShape>(() => {
   switch (selectedSection.value) {
-    case 'account':
-      return sessionState.role === 'admin' ? 'master-detail' : 'preferences'
-    case 'contacts':
-    case 'external-access':
-    case 'about':
-      return 'modules'
+    case 'preferences':
+    case 'security':
     case 'audio':
       return 'preferences'
-    case 'devices':
-      return 'workbench'
+    case 'users':
     case 'telegram':
       return 'master-detail'
-    case 'web-certificate':
-      return 'detail-form'
+    case 'contacts':
+    case 'pairing':
+    case 'connectivity':
+    case 'about':
+      return 'modules'
+    case 'devices':
+      return 'workbench'
     case 'diagnostics':
       return 'diagnostics'
     default:
@@ -216,18 +229,29 @@ watch(
 )
 
 watch(
-  [() => route.params.section, canViewExternalAccess],
-  ([value, canView]) => {
+  [() => route.params.section, () => sessionState.role, canPairIOS],
+  ([value]) => {
     const section = String(value || '')
-    if (section === 'ios' && canView) {
-      void router.replace({
-        name: 'settings',
-        params: { section: 'external-access' }
-      })
-      return
+    let destination: SettingsSection | '' = ''
+    if (section === 'account') {
+      destination = sessionState.role === 'admin' ? 'users' : 'preferences'
+    } else if (section === 'external-access') {
+      destination = canManageExternalAccess.value
+        ? 'connectivity'
+        : canPairIOS.value
+          ? 'pairing'
+          : ''
+    } else if (section === 'web-certificate') {
+      destination = canManageExternalAccess.value ? 'connectivity' : ''
+    } else if (section === 'ios') {
+      destination = canPairIOS.value ? 'pairing' : ''
     }
-    if (!section || sections.value.some(item => item.id === section)) return
-    void router.replace({ name: 'settings', params: { section: 'account' } })
+    if (!destination) return
+    void router.replace({
+      name: 'settings',
+      params: { section: destination },
+      query: route.query
+    })
   },
   { immediate: true }
 )
@@ -239,10 +263,12 @@ function openSection(section: SettingsSection): void {
 function preloadSection(section: SettingsSection): void {
   const loader = (() => {
     switch (section) {
-      case 'account':
-        return sessionState.role === 'admin'
-          ? loadUserSettingsPanel
-          : loadAccountSettingsPanel
+      case 'preferences':
+        return loadAccountPreferencesPanel
+      case 'security':
+        return loadSecuritySettingsPanel
+      case 'users':
+        return loadUserSettingsPanel
       case 'contacts':
         return loadContactSyncSettings
       case 'audio':
@@ -251,10 +277,10 @@ function preloadSection(section: SettingsSection): void {
         return loadDeviceConfigurationPanel
       case 'telegram':
         return loadTelegramSettingsForm
-      case 'external-access':
-        return loadExternalAccessSettingsPanel
-      case 'web-certificate':
-        return loadWebCertificateSettingsPanel
+      case 'pairing':
+        return loadPairingSettingsPanel
+      case 'connectivity':
+        return loadConnectivitySettingsPanel
       case 'diagnostics':
         return loadDiagnosticsPanel
       case 'about':
@@ -266,12 +292,12 @@ function preloadSection(section: SettingsSection): void {
 
 function backToSettings(): void {
   if (
-    selectedSection.value === 'account' &&
+    selectedSection.value === 'users' &&
     (typeof route.query.user === 'string' || route.query.newUser === '1')
   ) {
     void router.push({
       name: 'settings',
-      params: { section: 'account' },
+      params: { section: 'users' },
       query: { ...route.query, user: undefined, newUser: undefined }
     })
     return
@@ -416,17 +442,23 @@ onMounted(() => {
             :loading-title="t('common.loading')"
             :loading-shape="settingsLoadingShape"
           >
-            <div
-              v-if="selectedSection === 'account'"
-              class="settings-content"
-              :class="{ 'settings-content--master-detail': sessionState.role === 'admin' }"
-            >
-              <UserSettingsPanel
-                v-if="sessionState.role === 'admin'"
-              />
-              <PageContentFrame v-else mode="reading">
-                <AccountSettingsPanel />
+            <div v-if="selectedSection === 'preferences'" class="settings-content">
+              <PageContentFrame mode="reading">
+                <AccountPreferencesPanel />
               </PageContentFrame>
+            </div>
+
+            <div v-else-if="selectedSection === 'security'" class="settings-content">
+              <PageContentFrame mode="reading">
+                <SecuritySettingsPanel />
+              </PageContentFrame>
+            </div>
+
+            <div
+              v-else-if="selectedSection === 'users'"
+              class="settings-content settings-content--master-detail"
+            >
+              <UserSettingsPanel />
             </div>
 
             <div v-else-if="selectedSection === 'contacts'" class="settings-content">
@@ -455,15 +487,15 @@ onMounted(() => {
               <TelegramSettingsForm />
             </div>
 
-            <div v-else-if="selectedSection === 'external-access'" class="settings-content">
+            <div v-else-if="selectedSection === 'pairing'" class="settings-content">
               <PageContentFrame mode="reading">
-                <ExternalAccessSettingsPanel />
+                <PairingSettingsPanel />
               </PageContentFrame>
             </div>
 
-            <div v-else-if="selectedSection === 'web-certificate'" class="settings-content">
+            <div v-else-if="selectedSection === 'connectivity'" class="settings-content">
               <PageContentFrame mode="reading">
-                <WebCertificateSettingsPanel />
+                <ConnectivitySettingsPanel />
               </PageContentFrame>
             </div>
 
@@ -473,7 +505,7 @@ onMounted(() => {
               </PageContentFrame>
             </div>
 
-            <div v-else class="settings-content">
+            <div v-else-if="selectedSection === 'about'" class="settings-content">
               <PageContentFrame mode="reading">
                 <AboutSettingsPanel />
               </PageContentFrame>

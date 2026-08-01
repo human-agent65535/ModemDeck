@@ -55,7 +55,7 @@ test('Telegram editor uses distinct identity, owner, event, and line sections', 
   )
   assert.match(
     form,
-    /telegram-access-source[\s\S]*t\('telegram\.botOwner'\)[\s\S]*availableUsers/
+    /telegram-access-source[\s\S]*t\('telegram\.botOwner'\)[\s\S]*assignedUserOptions/
   )
   assert.doesNotMatch(form, /t\('telegram\.manualScope'\)|scopeSource/)
   assert.match(

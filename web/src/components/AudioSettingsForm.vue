@@ -16,6 +16,7 @@ import { useI18n } from 'vue-i18n'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import AudioDeviceControls from './AudioDeviceControls.vue'
 import RecordingSettingsForm from './RecordingSettingsForm.vue'
+import SelectControl from './SelectControl.vue'
 import {
   audioState,
   refreshAudioDevices,
@@ -76,6 +77,18 @@ const selectedIncomingMessagePreview = computed<SoundPreview>(
 const selectedOutgoingMessagePreview = computed<SoundPreview>(
   () => `outgoing-message:${browserSoundState.outgoingMessage}`
 )
+const ringtoneOptions = computed(() =>
+  ringtoneCatalog.map(ringtone => ({
+    value: ringtone.id,
+    label: ringtone.name
+  }))
+)
+const notificationOptions = computed(() =>
+  notificationCatalog.map(notification => ({
+    value: notification.id,
+    label: notification.name
+  }))
+)
 const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
 const initialResourcesReady = computed(
   () =>
@@ -85,24 +98,20 @@ const initialResourcesReady = computed(
     recordingSettingsState.status !== 'loading'
 )
 
-function changeRingtone(event: Event): void {
-  setRingtone((event.currentTarget as HTMLSelectElement).value as RingtoneID)
+function changeRingtone(ringtone: string): void {
+  setRingtone(ringtone as RingtoneID)
 }
 
 function togglePreview(preview: SoundPreview | ''): void {
   if (preview) previewSound(preview)
 }
 
-function changeIncomingMessage(event: Event): void {
-  setIncomingMessageSound(
-    (event.currentTarget as HTMLSelectElement).value as MessageSoundID
-  )
+function changeIncomingMessage(sound: string): void {
+  setIncomingMessageSound(sound as MessageSoundID)
 }
 
-function changeOutgoingMessage(event: Event): void {
-  setOutgoingMessageSound(
-    (event.currentTarget as HTMLSelectElement).value as MessageSoundID
-  )
+function changeOutgoingMessage(sound: string): void {
+  setOutgoingMessageSound(sound as MessageSoundID)
 }
 
 function changeWaiting(event: Event): void {
@@ -248,19 +257,13 @@ onBeforeUnmount(() => {
       >
         <template #icon><BellRing :size="18" /></template>
         <span class="audio-preference-row__controls">
-          <select
-            :value="browserSoundState.ringtone"
-            :aria-label="t('audio.incomingRingtone')"
+          <SelectControl
+            :model-value="browserSoundState.ringtone"
+            :options="ringtoneOptions"
+            :label="t('audio.incomingRingtone')"
+            compact
             @change="changeRingtone"
-          >
-            <option
-              v-for="ringtone in ringtoneCatalog"
-              :key="ringtone.id"
-              :value="ringtone.id"
-            >
-              {{ ringtone.name }}
-            </option>
-          </select>
+          />
           <button
             class="icon-button"
             type="button"
@@ -352,19 +355,13 @@ onBeforeUnmount(() => {
       >
         <template #icon><MessageSquareText :size="18" /></template>
         <span class="audio-preference-row__controls">
-          <select
-            :value="browserSoundState.incomingMessage"
-            :aria-label="t('audio.incomingMessage')"
+          <SelectControl
+            :model-value="browserSoundState.incomingMessage"
+            :options="notificationOptions"
+            :label="t('audio.incomingMessage')"
+            compact
             @change="changeIncomingMessage"
-          >
-            <option
-              v-for="notification in notificationCatalog"
-              :key="notification.id"
-              :value="notification.id"
-            >
-              {{ notification.name }}
-            </option>
-          </select>
+          />
           <button
             class="icon-button"
             type="button"
@@ -406,19 +403,13 @@ onBeforeUnmount(() => {
       >
         <template #icon><Send :size="18" /></template>
         <span class="audio-preference-row__controls">
-          <select
-            :value="browserSoundState.outgoingMessage"
-            :aria-label="t('audio.outgoingMessage')"
+          <SelectControl
+            :model-value="browserSoundState.outgoingMessage"
+            :options="notificationOptions"
+            :label="t('audio.outgoingMessage')"
+            compact
             @change="changeOutgoingMessage"
-          >
-            <option
-              v-for="notification in notificationCatalog"
-              :key="notification.id"
-              :value="notification.id"
-            >
-              {{ notification.name }}
-            </option>
-          </select>
+          />
           <button
             class="icon-button"
             type="button"
@@ -503,15 +494,8 @@ onBeforeUnmount(() => {
   text-align: right;
 }
 
-.audio-preference-row__controls select {
+.audio-preference-row__controls :deep(.select-control) {
   width: min(230px, 30vw);
-  min-height: 40px;
-  padding: 7px 32px 7px 10px;
-  color: var(--text);
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  font-size: 13px;
 }
 
 .audio-preferences__error {
@@ -534,7 +518,7 @@ onBeforeUnmount(() => {
     width: 100%;
   }
 
-  .audio-preference-row__controls select {
+  .audio-preference-row__controls :deep(.select-control) {
     width: 100%;
     min-width: 0;
     flex: 1;

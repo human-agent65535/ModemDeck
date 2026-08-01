@@ -4,7 +4,7 @@ withDefaults(
     title: string
     titleId: string
     description?: string
-    iconTone?: 'accent' | 'danger' | 'warning' | 'neutral'
+    iconTone?: 'accent' | 'danger' | 'warning' | 'neutral' | 'bare'
     controlSize?: 'auto' | 'wide'
   }>(),
   {
@@ -45,7 +45,8 @@ withDefaults(
 
 <style scoped>
 .settings-preference-row {
-  max-width: 680px;
+  width: 100%;
+  max-width: var(--settings-preference-content-max);
   padding-bottom: 22px;
   border-bottom: 1px solid var(--border);
 }
@@ -83,6 +84,11 @@ withDefaults(
   background: var(--surface-subtle);
 }
 
+.settings-preference-row__icon--bare {
+  color: inherit;
+  background: transparent;
+}
+
 .settings-preference-row__copy {
   min-width: 0;
   flex: 1;
@@ -110,7 +116,7 @@ withDefaults(
 }
 
 .settings-preference-row__control--wide {
-  width: min(240px, 45%);
+  width: var(--settings-control-column);
 }
 
 .settings-preference-row__feedback {
