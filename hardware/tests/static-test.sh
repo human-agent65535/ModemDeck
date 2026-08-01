@@ -80,9 +80,10 @@ grep -Fq '.provider.available == true' \
 grep -Fq '.provider.boot_epoch' \
   "${hardware_dir}/bin/modemdeck-hardware-healthcheck" \
   || fail "healthcheck does not require a provider boot epoch"
-grep -Fq 'http://localhost/v1/snapshot' \
-  "${hardware_dir}/bin/modemdeck-hardware-healthcheck" \
-  || fail "healthcheck does not verify the complete Agent snapshot path"
+if grep -Fq 'http://localhost/v1/snapshot' \
+  "${hardware_dir}/bin/modemdeck-hardware-healthcheck"; then
+  fail "healthcheck performs an expensive authoritative snapshot"
+fi
 
 grep -Fq 'VOLUME ["/var/lib/ModemManager", "/run/modemdeck"]' \
   "${hardware_dir}/Dockerfile" \
