@@ -128,6 +128,27 @@ func TestDiagnosticsKeepsDegradedSnapshotWhenRefreshFails(t *testing.T) {
 	}
 }
 
+func TestDiagnosticsSerializesUnavailableCollectionsAsArrays(t *testing.T) {
+	t.Parallel()
+	api, err := New(&fakeRepository{}, Options{
+		Communications:        &fakeCommunications{},
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/diagnostics", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, `"lines":[]`) ||
+		!strings.Contains(body, `"active_calls":[]`) {
+		t.Fatalf("diagnostic collections must remain arrays: %s", body)
+	}
+}
+
 func TestDiagnosticLogHistoryFiltersAndRedacts(t *testing.T) {
 	t.Parallel()
 	buffer := diagnostics.NewLogBuffer(8)

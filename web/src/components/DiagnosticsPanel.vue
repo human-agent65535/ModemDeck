@@ -42,7 +42,11 @@ import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { audioState, refreshAudioDevices } from '../state/audio'
 import { requestConfirmation } from '../state/confirmation'
 import { useDiagnosticDevices } from '../state/diagnosticDevices'
-import { lineLabel } from '../state/workspace'
+import {
+  bootstrapResource,
+  lineLabel,
+  loadBootstrap
+} from '../state/workspace'
 import {
   isRegisteredNetwork,
   registrationStateLabel
@@ -218,8 +222,24 @@ const allDiagnosticLinesFailed = computed(
     failedLines.value.length === diagnosticLines.value.length
 )
 const diagnosticLineIDs = computed(() => diagnosticLines.value.map(line => line.id))
+const availableRecoveryLines = computed<LineSummary[]>(() => {
+  const unique = new Map<string, LineSummary>()
+  const candidates = [
+    ...diagnosticLines.value,
+    ...(bootstrapResource.data?.lines || []),
+    ...(bootstrapResource.data?.line_catalog || [])
+  ]
+  for (const line of candidates) {
+    const lineID = line.id.trim()
+    if (lineID && !unique.has(lineID)) unique.set(lineID, line)
+  }
+  return Array.from(unique.values())
+})
+const recoveryLineIDs = computed(() =>
+  availableRecoveryLines.value.map(line => line.id)
+)
 const recoveryLines = computed<LineSummary[]>(() => {
-  const current = [...diagnosticLines.value]
+  const current = [...availableRecoveryLines.value]
   const currentIDs = new Set(current.map(line => line.id))
   for (const line of Object.values(retainedRecoveryLines.value)) {
     if (!currentIDs.has(line.id)) current.push(line)
@@ -440,7 +460,7 @@ function recoveryPending(line: LineSummary): boolean {
 }
 
 function recoveryAvailable(line: LineSummary): boolean {
-  if (!diagnosticLineIDs.value.includes(line.id)) return false
+  if (!recoveryLineIDs.value.includes(line.id)) return false
   const capability = usbResetCapability(line)
   return Boolean(capability?.supported && capability.implemented && capability.writable)
 }
@@ -478,7 +498,7 @@ async function applyUSBReset(line: LineSummary): Promise<void> {
     await resetDiagnosticUSBDevice(line.id)
     await loadSnapshot()
   } finally {
-    if (diagnosticLineIDs.value.includes(line.id)) {
+    if (recoveryLineIDs.value.includes(line.id)) {
       const retained = { ...retainedRecoveryLines.value }
       delete retained[line.id]
       retainedRecoveryLines.value = retained
@@ -649,7 +669,7 @@ async function loadSnapshot(): Promise<void> {
     snapshot.value = current
     snapshotState.value = 'ready'
     snapshotError.value = ''
-    void refreshUnconfirmedDiagnosticDevices(current.lines.map(line => line.id))
+    void refreshUnconfirmedDiagnosticDevices(recoveryLineIDs.value)
   } catch (error) {
     snapshotError.value = error instanceof Error ? error.message : t('diagnostics.snapshotFailed')
     if (snapshot.value) {
@@ -751,11 +771,12 @@ watch(autoFollow, enabled => {
 })
 
 watch(
-  () => diagnosticLineIDs.value.join('\u0000'),
+  () =>
+    `${recoveryLineIDs.value.join('\u0000')}\u0001${diagnosticLineIDs.value.join('\u0000')}`,
   () => {
     const retained = { ...retainedRecoveryLines.value }
     let retainedChanged = false
-    for (const lineID of diagnosticLineIDs.value) {
+    for (const lineID of recoveryLineIDs.value) {
       if (!retained[lineID] || recoveryResource(retained[lineID]).resetting) continue
       delete retained[lineID]
       retainedChanged = true
@@ -764,7 +785,7 @@ watch(
     if (!diagnosticLineIDs.value.includes(selectedDiagnosticLineID.value)) {
       selectedDiagnosticLineID.value = diagnosticLineIDs.value[0] || ''
     }
-    for (const lineID of diagnosticLineIDs.value) {
+    for (const lineID of recoveryLineIDs.value) {
       void loadDiagnosticDeviceConfiguration(lineID)
     }
   },
@@ -775,11 +796,12 @@ async function loadInitialDiagnostics(): Promise<void> {
   await Promise.allSettled([
     loadSnapshot(),
     loadLogs(),
+    loadBootstrap(),
     refreshAudioDevices()
   ])
   await nextTick()
   await Promise.allSettled(
-    diagnosticLineIDs.value.map(lineID =>
+    recoveryLineIDs.value.map(lineID =>
       loadDiagnosticDeviceConfiguration(lineID)
     )
   )
@@ -804,33 +826,58 @@ onBeforeUnmount(() => {
 <template>
   <section class="diagnostics-panel" :aria-label="t('settings.diagnostics')">
     <SettingsLoadBoundary
-      :loading="
-        initialLoading ||
-        (!snapshot && (snapshotState === 'idle' || snapshotState === 'loading'))
-      "
-      :forbidden="snapshotState === 'forbidden'"
-      :error="snapshotState === 'error'"
+      :loading="initialLoading"
       :loading-title="t('diagnostics.loadingStatus')"
       loading-shape="diagnostics"
-      :forbidden-title="t('diagnostics.viewForbidden')"
-      :error-title="t('diagnostics.snapshotFailed')"
-      :detail="snapshotError"
-      retryable
-      @retry="loadSnapshot"
     >
-    <template v-if="snapshot">
       <section class="diagnostics-section">
         <header class="section-heading">
           <div>
             <h3>{{ t('diagnostics.runtimeStatus') }}</h3>
           </div>
-          <span class="overall-status" :class="`is-${snapshot.status}`">
+          <span
+            v-if="snapshot"
+            class="overall-status"
+            :class="`is-${snapshot.status}`"
+          >
             <Activity :size="15" />
             {{ statusLabel }}
           </span>
         </header>
 
-        <p v-if="snapshotError" class="inline-error" role="alert">
+        <div v-if="!snapshot" class="runtime-errors" role="alert">
+          <p>
+            <AlertTriangle :size="15" />
+            <strong>
+              {{
+                snapshotState === 'forbidden'
+                  ? t('diagnostics.viewForbidden')
+                  : t('diagnostics.snapshotFailed')
+              }}
+            </strong>
+            <span v-if="snapshotError">{{ snapshotError }}</span>
+          </p>
+          <button
+            v-if="snapshotState !== 'forbidden'"
+            class="text-button"
+            type="button"
+            :disabled="snapshotState === 'loading'"
+            @click="loadSnapshot"
+          >
+            <LoaderCircle
+              v-if="snapshotState === 'loading'"
+              class="spin"
+              :size="15"
+            />
+            {{
+              snapshotState === 'loading'
+                ? t('common.loading')
+                : t('common.retry')
+            }}
+          </button>
+        </div>
+
+        <p v-if="snapshot && snapshotError" class="inline-error" role="alert">
           <AlertTriangle :size="15" />
           {{ snapshotError }}
         </p>
@@ -898,7 +945,11 @@ onBeforeUnmount(() => {
         </section>
 
         <div class="service-grid">
-          <article class="service-status" :class="{ 'is-unavailable': !snapshot.database.available }">
+          <article
+            v-if="snapshot"
+            class="service-status"
+            :class="{ 'is-unavailable': !snapshot.database.available }"
+          >
             <span class="service-status__icon"><Database :size="19" /></span>
             <span>
               <strong>{{ t('diagnostics.database') }}</strong>
@@ -913,7 +964,11 @@ onBeforeUnmount(() => {
             <CheckCircle2 v-if="snapshot.database.available" :size="18" />
             <XCircle v-else :size="18" />
           </article>
-          <article class="service-status" :class="{ 'is-unavailable': !snapshot.host_agent.connected }">
+          <article
+            v-if="snapshot"
+            class="service-status"
+            :class="{ 'is-unavailable': !snapshot.host_agent.connected }"
+          >
             <span class="service-status__icon"><Server :size="19" /></span>
             <span>
               <strong>Host agent</strong>
@@ -928,7 +983,11 @@ onBeforeUnmount(() => {
             <CheckCircle2 v-if="snapshot.host_agent.connected" :size="18" />
             <XCircle v-else :size="18" />
           </article>
-          <article class="service-status" :class="{ 'is-unavailable': !snapshot.call_runtime.available }">
+          <article
+            v-if="snapshot"
+            class="service-status"
+            :class="{ 'is-unavailable': !snapshot.call_runtime.available }"
+          >
             <span class="service-status__icon"><PhoneCall :size="19" /></span>
             <span>
               <strong>{{ t('diagnostics.callRuntime') }}</strong>
@@ -980,7 +1039,7 @@ onBeforeUnmount(() => {
           </article>
         </div>
 
-        <dl class="agent-facts">
+        <dl v-if="snapshot" class="agent-facts">
           <div>
             <dt>{{ t('diagnostics.hardwareService') }}</dt>
             <dd>{{ snapshot.host_agent.provider || '—' }}</dd>
@@ -1000,7 +1059,7 @@ onBeforeUnmount(() => {
         </dl>
       </section>
 
-      <section class="diagnostics-section">
+      <section v-if="snapshot" class="diagnostics-section">
         <header class="section-heading line-evidence-heading">
           <div>
             <h3>{{ t('diagnostics.deviceEvidence') }}</h3>
@@ -1202,10 +1261,39 @@ onBeforeUnmount(() => {
             </button>
           </article>
         </div>
+        <div
+          v-else-if="
+            !snapshot &&
+            (bootstrapResource.status === 'error' ||
+              bootstrapResource.status === 'forbidden')
+          "
+          class="runtime-errors"
+          role="alert"
+        >
+          <p>
+            <AlertTriangle :size="15" />
+            <strong>{{ t('runtime.requestFailed') }}</strong>
+            <span v-if="bootstrapResource.error">{{ bootstrapResource.error }}</span>
+          </p>
+          <button
+            v-if="bootstrapResource.status === 'error'"
+            class="text-button"
+            type="button"
+            @click="loadBootstrap(true)"
+          >
+            {{ t('common.retry') }}
+          </button>
+        </div>
+        <p
+          v-else-if="bootstrapResource.status === 'loading'"
+          class="empty-row"
+        >
+          {{ t('common.loading') }}
+        </p>
         <p v-else class="empty-row">{{ t('diagnostics.noLines') }}</p>
       </section>
 
-      <section class="diagnostics-section">
+      <section v-if="snapshot" class="diagnostics-section">
         <header class="section-heading">
           <div>
             <h3>{{ t('diagnostics.currentCalls') }}</h3>
@@ -1234,7 +1322,6 @@ onBeforeUnmount(() => {
         </div>
         <p v-else class="empty-row">{{ t('diagnostics.noActiveCalls') }}</p>
       </section>
-    </template>
 
     <section class="diagnostics-section log-section">
       <header class="section-heading log-heading">
@@ -1471,6 +1558,11 @@ onBeforeUnmount(() => {
   border-top: 1px solid var(--border);
 }
 
+.service-status:only-child {
+  grid-column: 1 / -1;
+  border-right: 0;
+}
+
 .service-status.is-unavailable {
   color: var(--danger);
 }
@@ -1571,6 +1663,11 @@ onBeforeUnmount(() => {
 .runtime-errors span {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.runtime-errors > .text-button {
+  width: fit-content;
+  justify-self: start;
 }
 
 .line-health-alert {

@@ -149,7 +149,7 @@ test('shared settings resources coalesce concurrent initial requests', async () 
   }
 })
 
-test('device and diagnostics keep one exclusive skeleton until detail data settles', async () => {
+test('device and diagnostics keep one initial skeleton while later failures stay local', async () => {
   const [devices, diagnostics] = await Promise.all([
     source('../src/components/DeviceConfigurationPanel.vue'),
     source('../src/components/DiagnosticsPanel.vue')
@@ -165,15 +165,17 @@ test('device and diagnostics keep one exclusive skeleton until detail data settl
   )
   assert.match(
     diagnostics,
-    /async function loadInitialDiagnostics\(\)[\s\S]*loadSnapshot\(\)[\s\S]*loadLogs\(\)[\s\S]*refreshAudioDevices\(\)[\s\S]*diagnosticLineIDs\.value\.map\(lineID =>[\s\S]*loadDiagnosticDeviceConfiguration\(lineID\)/
+    /async function loadInitialDiagnostics\(\)[\s\S]*loadSnapshot\(\)[\s\S]*loadLogs\(\)[\s\S]*loadBootstrap\(\)[\s\S]*refreshAudioDevices\(\)[\s\S]*recoveryLineIDs\.value\.map\(lineID =>[\s\S]*loadDiagnosticDeviceConfiguration\(lineID\)/
   )
   assert.match(
     diagnostics,
-    /<SettingsLoadBoundary[\s\S]*:loading="[\s\S]*initialLoading \|\|[\s\S]*\(!snapshot && \(snapshotState === 'idle' \|\| snapshotState === 'loading'\)\)/
+    /<SettingsLoadBoundary[\s\S]*:loading="initialLoading"/
   )
   assert.match(devices, /<SettingsLoadBoundary[\s\S]*:loading="initialLoading"/)
-  assert.match(diagnostics, /<template v-if="snapshot">/)
-  assert.doesNotMatch(diagnostics, /<template v-else-if="snapshot">/)
+  assert.doesNotMatch(diagnostics, /:error="snapshotState === 'error'"/)
+  assert.doesNotMatch(diagnostics, /:forbidden="snapshotState === 'forbidden'"/)
+  assert.match(diagnostics, /v-if="!snapshot" class="runtime-errors"/)
+  assert.match(diagnostics, /bootstrapResource\.data\?\.line_catalog/)
   assert.match(
     diagnostics,
     /<section class="diagnostics-section log-section">[\s\S]*<\/SettingsLoadBoundary>/

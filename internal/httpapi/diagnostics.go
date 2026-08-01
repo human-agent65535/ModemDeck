@@ -101,7 +101,7 @@ func (api *API) diagnostics(response http.ResponseWriter, request *http.Request)
 
 	status, statusErr := api.communications.Status(request.Context())
 	result.HostAgent = diagnosticAgentFromStatus(status, statusErr)
-	result.Lines = status.Lines
+	result.Lines = append(result.Lines, status.Lines...)
 	if statusErr != nil || !status.Connected {
 		if result.Status == "ok" {
 			result.Status = "degraded"

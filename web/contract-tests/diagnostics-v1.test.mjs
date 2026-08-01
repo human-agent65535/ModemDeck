@@ -6,6 +6,10 @@ const source = await readFile(
   new URL('../src/components/DiagnosticsPanel.vue', import.meta.url),
   'utf8'
 )
+const client = await readFile(
+  new URL('../src/api/client.ts', import.meta.url),
+  'utf8'
+)
 
 test('Diagnostics V1 is organized around evidence, recovery, and logs', () => {
   const runtime = source.indexOf("t('diagnostics.runtimeStatus')")
@@ -81,6 +85,30 @@ test('USB recovery loads device capabilities and requires confirmation', () => {
   assert.match(source, /requestConfirmation\(\{/)
   assert.match(source, /tone:\s*'danger'/)
   assert.match(source, /resetDiagnosticUSBDevice\(line\.id\)/)
+})
+
+test('snapshot failure stays local while recovery and logs remain available', () => {
+  assert.match(source, /<SettingsLoadBoundary[\s\S]*:loading="initialLoading"/)
+  assert.doesNotMatch(source, /:error="snapshotState === 'error'"/)
+  assert.doesNotMatch(source, /:forbidden="snapshotState === 'forbidden'"/)
+  assert.match(source, /v-if="!snapshot" class="runtime-errors"/)
+  assert.match(source, /bootstrapResource\.data\?\.line_catalog/)
+  assert.match(source, /loadBootstrap\(\)/)
+  assert.match(source, /recoveryLineIDs\.value\.map\(lineID =>/)
+  assert.match(client, /get\('diagnosticsFixture'\) === 'error'/)
+
+  const recovery = source.indexOf("t('device.faultRecovery')")
+  const logs = source.indexOf("t('diagnostics.runtimeLogs')")
+  assert.ok(recovery >= 0)
+  assert.ok(logs > recovery)
+  assert.match(
+    client,
+    /const lines = source\.lines === null \? \[\] : source\.lines/
+  )
+  assert.match(
+    client,
+    /const activeCalls = source\.active_calls === null \? \[\] : source\.active_calls/
+  )
 })
 
 test('runtime log connection colors describe reachable stream states', () => {

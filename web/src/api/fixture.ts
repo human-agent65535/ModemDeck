@@ -453,6 +453,7 @@ export type FixtureGatewayOptions = {
   initialConcurrentCalls?: boolean
   initialOutgoingReservation?: 'owned' | 'occupied'
   initialSoftwareUpdate?: boolean | 'hardware'
+  initialDiagnosticsFailure?: boolean
   externalAccessDiagnostic?: 'origin-sni'
 }
 
@@ -2863,6 +2864,13 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     },
 
     async getDiagnostics(): Promise<DiagnosticsSnapshot> {
+      if (options.initialDiagnosticsFailure) {
+        throw new ApiError(
+          'diagnostics 的线路或通话列表无效',
+          0,
+          'invalid_response'
+        )
+      }
       return {
         status: 'ok',
         observed_at: '2026-07-23T12:00:00Z',

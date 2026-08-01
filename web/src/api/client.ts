@@ -223,6 +223,10 @@ const softwareUpdateFixture =
     : ''
 const initialSoftwareUpdateFixture: boolean | 'hardware' =
   softwareUpdateFixture === 'hardware' ? 'hardware' : softwareUpdateFixture === '1'
+const initialDiagnosticsFailure =
+  fixtureMode && typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('diagnosticsFixture') === 'error'
+    : false
 
 const fixturePreviewOptions =
   fixtureMode && typeof window !== 'undefined'
@@ -230,7 +234,8 @@ const fixturePreviewOptions =
         initialIncomingCall: initialIncomingCallFixture,
         initialConcurrentCalls: initialConcurrentCallsFixture,
         initialOutgoingReservation: initialOutgoingReservationFixture,
-        initialSoftwareUpdate: initialSoftwareUpdateFixture
+        initialSoftwareUpdate: initialSoftwareUpdateFixture,
+        initialDiagnosticsFailure
       }
     : {}
 
@@ -698,7 +703,9 @@ function parseDiagnostics(value: unknown): DiagnosticsSnapshot {
     throw new ApiError(`diagnostics.status 未知：${status}`, 0, 'invalid_response')
   }
   const hostAgentSource = requiredRecord(source.host_agent, 'diagnostics.host_agent')
-  if (!Array.isArray(source.lines) || !Array.isArray(source.active_calls)) {
+  const lines = source.lines === null ? [] : source.lines
+  const activeCalls = source.active_calls === null ? [] : source.active_calls
+  if (!Array.isArray(lines) || !Array.isArray(activeCalls)) {
     throw new ApiError('diagnostics 的线路或通话列表无效', 0, 'invalid_response')
   }
   return {
@@ -724,8 +731,8 @@ function parseDiagnostics(value: unknown): DiagnosticsSnapshot {
       source.call_runtime,
       'diagnostics.call_runtime'
     ),
-    lines: source.lines.map(parseDiagnosticLine),
-    active_calls: source.active_calls.map(parseDiagnosticCall)
+    lines: lines.map(parseDiagnosticLine),
+    active_calls: activeCalls.map(parseDiagnosticCall)
   }
 }
 
