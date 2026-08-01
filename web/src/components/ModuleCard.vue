@@ -37,6 +37,7 @@ const props = withDefaults(
     selectable?: boolean
     deletable?: boolean
     deletePending?: boolean
+    recovering?: boolean
     flightMode?: boolean
     runtime?: NetworkLineStatus
   }>(),
@@ -48,6 +49,7 @@ const props = withDefaults(
     selectable: true,
     deletable: false,
     deletePending: false,
+    recovering: false,
     flightMode: undefined,
     runtime: undefined
   }
@@ -62,7 +64,7 @@ const emit = defineEmits<{
 const moduleOnly = computed(() => props.line.module_only === true)
 const signal = computed(
   () =>
-    props.device?.present === false
+    props.recovering || props.device?.present === false
       ? null
       : props.line.signal_quality ?? props.device?.signal_quality ?? null
 )
@@ -76,6 +78,7 @@ const flightMode = computed(
 )
 const radioWaitingForRegistration = computed(
   () =>
+    !props.recovering &&
     !flightMode.value &&
     props.line.radio_desired_enabled_known &&
     props.line.radio_desired_enabled &&
@@ -85,6 +88,7 @@ const radioWaitingForRegistration = computed(
 )
 const online = computed(
   () =>
+    !props.recovering &&
     !flightMode.value &&
     !radioWaitingForRegistration.value &&
     isRegisteredNetwork(props.line)
@@ -97,7 +101,7 @@ const equipmentIdentifier = computed(
 )
 const networkFacts = computed(() =>
   operatorFacts(
-    flightMode.value || radioWaitingForRegistration.value
+    props.recovering || flightMode.value || radioWaitingForRegistration.value
       ? {
           ...props.line,
           state: 'disabled',
@@ -110,6 +114,7 @@ const networkFacts = computed(() =>
   ).filter(fact => fact.value !== '—')
 )
 const stateLabel = computed(() => {
+  if (props.recovering) return t('device.radioRecovering')
   if (moduleOnly.value && props.device?.present === false) {
     return t('device.disconnected')
   }
@@ -138,6 +143,7 @@ const lineBusy = computed(() => {
 const accessTechnology = computed(() => {
   if (
     flightMode.value ||
+    props.recovering ||
     radioWaitingForRegistration.value ||
     props.device?.present === false
   ) {
@@ -161,7 +167,7 @@ const accessTechnology = computed(() => {
         type="button"
         :aria-label="t('lines.configureModule', { label: lineLabel(line) })"
         :aria-pressed="selected"
-        :disabled="!selectable"
+        :disabled="!selectable || recovering"
         @click="emit('select')"
       />
       <header>
@@ -174,14 +180,14 @@ const accessTechnology = computed(() => {
           </small>
         </span>
         <span
-          v-if="lineBusy"
+          v-if="!recovering && lineBusy"
           class="module-card__call-status"
         >
           <PhoneCall :size="13" />
           {{ t('calls.lineInUse') }}
         </span>
         <span
-          v-if="dataConnection && dataConnection.kind !== 'idle'"
+          v-if="!recovering && dataConnection && dataConnection.kind !== 'idle'"
           class="module-card__data-status"
           :class="`is-${dataConnection.kind}`"
         >
@@ -284,7 +290,7 @@ const accessTechnology = computed(() => {
           type="button"
           :title="t('device.deleteModule')"
           :aria-label="t('device.deleteModule')"
-          :disabled="deletePending"
+          :disabled="deletePending || recovering"
           @click="emit('delete')"
         >
           <LoaderCircle v-if="deletePending" class="spin" :size="16" />
@@ -299,7 +305,7 @@ const accessTechnology = computed(() => {
           :title="defaultLine ? t('lines.currentDefaultLine') : t('lines.setDefaultLine')"
           :aria-label="defaultLine ? t('lines.currentDefaultLine') : t('lines.setDefaultLine')"
           :aria-pressed="defaultLine"
-          :disabled="defaultLine"
+          :disabled="defaultLine || recovering"
           @click="emit('makeDefault')"
         >
           <CircleCheck :size="16" />

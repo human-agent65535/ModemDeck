@@ -1409,7 +1409,7 @@ export default {
     turnOffFlightModeForData: '關閉飛航模式後才能開啟行動數據。',
     waitForRadioRecoveryForData: '等待模組無線功能恢復後再開啟行動數據。',
     invalidDeviceConfiguration: '裝置配置響應不完整',
-    modemRestartTimeout: '模組重啟後未在 45 秒內重新上線',
+    modemRestartTimeout: '重啟指令已送出，但未能在 45 秒內確認模組恢復',
     usbResetTimeout: 'USB 硬復位後模組未在 60 秒內重新上線',
     audioOutputUnsupported: '當前瀏覽器不支援指定音訊輸出裝置',
     audioOutputUnavailable: '所選音訊輸出裝置當前不可用',

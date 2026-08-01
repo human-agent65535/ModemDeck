@@ -196,8 +196,16 @@ const selectedLineID = computed(() => deviceConfigurationState.selectedLineID)
 const selectedLine = computed(() =>
   lines.value.find(line => line.id === selectedLineID.value)
 )
+const selectedDeviceIMEI = computed(() => {
+  if (selectedLine.value?.device_imei) return selectedLine.value.device_imei
+  if (!selectedLineID.value) return ''
+  return (
+    deviceConfigurationResource(selectedLineID.value).data?.hardware?.identity
+      .equipment_identifier || ''
+  )
+})
 const selectedDevice = computed(() =>
-  devicesResource.data.find(device => device.imei === selectedLine.value?.device_imei)
+  devicesResource.data.find(device => device.imei === selectedDeviceIMEI.value)
 )
 const simOperatorFacts = computed(() =>
   operatorFacts(simStatus.value, '—', key => t(key))
@@ -269,7 +277,20 @@ const apnPlaceholder = computed(() => automaticAPNLabel(hardware.value?.automati
 const incomingCalls = computed(() => configuration.value?.incoming_calls)
 const messaging = computed(() => configuration.value?.messaging)
 const savingOperation = computed(() => selectedResource.value?.savingOperation || '')
-const hardwareBusy = computed(() => savingOperation.value !== '')
+const hardwareBusy = computed(
+  () => savingOperation.value !== '' || selectedResource.value?.recovering === true
+)
+
+function lineRecovering(line: LineSummary): boolean {
+  const lineID = selectedLineID.value
+  if (!lineID) return false
+  const resource = deviceConfigurationResource(lineID)
+  if (!resource.recovering) return false
+  if (line.id === lineID) return true
+  const equipmentIdentifier =
+    resource.data?.hardware?.identity.equipment_identifier.trim() || ''
+  return Boolean(equipmentIdentifier && line.device_imei.trim() === equipmentIdentifier)
+}
 
 async function runDeviceMutation(
   key: string,
@@ -593,6 +614,12 @@ function modemPortTypeLabel(type: string): string {
 watch(
   [lines, defaultLineID],
   ([currentLines, currentDefaultLineID]) => {
+    if (
+      selectedLineID.value &&
+      deviceConfigurationResource(selectedLineID.value).recovering
+    ) {
+      return
+    }
     if (
       selectedLineID.value &&
       currentLines.some(line => line.id === selectedLineID.value)
@@ -1318,8 +1345,9 @@ onMounted(() => {
             :line="line"
             :device="deviceFor(line)"
             :runtime="networkRuntime(line)"
-            :selected="line.id === selectedLineID"
-            :selectable="!line.module_only"
+            :selected="line.id === selectedLineID || lineRecovering(line)"
+            :recovering="lineRecovering(line)"
+            :selectable="!line.module_only && !lineRecovering(line)"
             :deletable="
               Boolean(
                 sessionState.role === 'admin' &&
@@ -1476,6 +1504,13 @@ onMounted(() => {
         />
 
         <div v-else-if="hardware && incomingCalls && messaging" class="device-configuration__body">
+        <div v-if="selectedResource?.recovering" class="device-recovery-notice" role="status">
+          <LoaderCircle class="spin" :size="18" />
+          <span>
+            <strong>{{ t('device.radioRecovering') }}</strong>
+            <small>{{ t('device.loadingModule') }}</small>
+          </span>
+        </div>
         <p v-if="selectedResource?.error" class="inline-error" role="alert">
           <AlertCircle :size="16" />
           {{ selectedResource.error }}
@@ -2219,7 +2254,7 @@ onMounted(() => {
                   role="switch"
                   :aria-label="t('device.requestDeliveryReports')"
                   :checked="messaging.delivery_reports_enabled"
-                  :disabled="Boolean(savingOperation)"
+                  :disabled="hardwareBusy"
                   @change="applyDeliveryReports"
                 />
               </span>
@@ -2301,7 +2336,7 @@ onMounted(() => {
             </header>
             <fieldset
               class="incoming-policy"
-              :disabled="Boolean(savingOperation) || incomingCallControlUnavailable"
+              :disabled="hardwareBusy || incomingCallControlUnavailable"
               :aria-describedby="
                 incomingCallControlUnavailable
                   ? 'incoming-policy-call-control-unavailable'
@@ -2406,7 +2441,7 @@ onMounted(() => {
               </div>
             </dl>
             <div
-              v-if="hardware.volte.restart_required"
+              v-if="hardware.volte.restart_required && !selectedResource?.recovering"
               class="restart-required"
               role="status"
             >
@@ -2752,6 +2787,32 @@ onMounted(() => {
   width: 100%;
   min-width: 0;
   padding-inline: var(--device-workspace-gutter);
+}
+
+.device-recovery-notice {
+  display: flex;
+  width: min(100%, 520px);
+  min-height: 52px;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 9px 11px;
+  color: var(--warning-strong);
+  background: var(--warning-soft);
+  border: 1px solid var(--warning-border);
+  border-radius: 6px;
+}
+
+.device-recovery-notice > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.device-recovery-notice small {
+  color: var(--warning);
+  font-size: 12px;
 }
 
 .configuration-section {

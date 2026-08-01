@@ -528,11 +528,11 @@ test('module cards keep selection and default actions in a stable shared footer'
     moduleCardSource,
     /defaultLine \? t\('lines\.defaultLine'\) : t\('lines\.setAsDefault'\)/
   )
-  assert.match(moduleCardSource, /:disabled="defaultLine"/)
+  assert.match(moduleCardSource, /:disabled="defaultLine \|\| recovering"/)
   assert.doesNotMatch(moduleCardSource, /module-card__current|currentConfiguration/)
   assert.match(
     moduleCardSource,
-    /v-if="dataConnection && dataConnection\.kind !== 'idle'"[\s\S]*class="module-card__data-status"/
+    /v-if="!recovering && dataConnection && dataConnection\.kind !== 'idle'"[\s\S]*class="module-card__data-status"/
   )
   assert.match(moduleCardSource, /\.module-card\.is-selected\s*\{[^}]*border-color: var\(--accent\)/s)
   assert.match(

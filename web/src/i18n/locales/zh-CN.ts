@@ -1409,7 +1409,7 @@ export default {
     turnOffFlightModeForData: '关闭飞行模式后才能开启移动数据。',
     waitForRadioRecoveryForData: '等待模组无线功能恢复后再开启移动数据。',
     invalidDeviceConfiguration: '设备配置响应不完整',
-    modemRestartTimeout: '模组重启后未在 45 秒内重新上线',
+    modemRestartTimeout: '重启指令已发送，但未能在 45 秒内确认模组恢复',
     usbResetTimeout: 'USB 硬复位后模组未在 60 秒内重新上线',
     audioOutputUnsupported: '当前浏览器不支持指定音频输出设备',
     audioOutputUnavailable: '所选音频输出设备当前不可用',

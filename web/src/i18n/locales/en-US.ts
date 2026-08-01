@@ -1446,7 +1446,7 @@ export default {
     turnOffFlightModeForData: 'Turn off airplane mode before enabling mobile data.',
     waitForRadioRecoveryForData: 'Wait for the modem radio to finish recovering before enabling mobile data.',
     invalidDeviceConfiguration: 'Device configuration response is incomplete',
-    modemRestartTimeout: 'The modem did not come back online within 45 seconds',
+    modemRestartTimeout: 'The restart was sent, but recovery was not confirmed within 45 seconds',
     usbResetTimeout: 'The modem did not come back online within 60 seconds of the USB reset',
     audioOutputUnsupported: 'This browser does not support selecting an audio output device',
     audioOutputUnavailable: 'The selected audio output device is currently unavailable',

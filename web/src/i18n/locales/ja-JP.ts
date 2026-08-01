@@ -1395,7 +1395,7 @@ export default {
     "turnOffFlightModeForData": "モバイルデータを有効にする前に、機内モードをオフにしてください。",
     "waitForRadioRecoveryForData": "モデム無線の回復が完了するまで待ってから、モバイル データを有効にしてください。",
     "invalidDeviceConfiguration": "デバイス構成の応答が不完全です",
-    "modemRestartTimeout": "モデムは 45 秒以内にオンラインに戻りませんでした",
+    "modemRestartTimeout": "再起動指示は送信されましたが、45 秒以内にモデムの復旧を確認できませんでした",
     "usbResetTimeout": "USB リセットから 60 秒以内にモデムがオンラインに戻りませんでした",
     "audioOutputUnsupported": "このブラウザはオーディオ出力デバイスの選択をサポートしていません",
     "audioOutputUnavailable": "選択したオーディオ出力デバイスは現在使用できません",
