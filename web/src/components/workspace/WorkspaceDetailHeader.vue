@@ -19,7 +19,7 @@
   flex: 0 0 auto;
   align-items: center;
   gap: 12px;
-  padding: 8px 20px;
+  padding: 7px 20px;
   border-bottom: 1px solid var(--border);
   container-type: inline-size;
 }

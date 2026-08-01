@@ -96,7 +96,7 @@ test('workspace primitives own action sizing, priority, and transition timing', 
   assert.doesNotMatch(detailHeader, /density\?:/)
   assert.match(
     detailHeader,
-    /\.workspace-detail-header \{[\s\S]*min-height: 60px;[\s\S]*padding: 8px 20px;/
+    /\.workspace-detail-header \{[\s\S]*min-height: 60px;[\s\S]*padding: 7px 20px;/
   )
   assert.match(detailHeader, /class="workspace-detail-header__actions"/)
   assert.match(detailHeader, /gap: var\(--detail-action-gap\);/)
