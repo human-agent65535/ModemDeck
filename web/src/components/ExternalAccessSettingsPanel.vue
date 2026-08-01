@@ -23,6 +23,7 @@ import { sessionState } from '../state/session'
 import OverlayDialog from './OverlayDialog.vue'
 import SelectControl from './SelectControl.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
+import type { SettingsSkeletonShape } from './settings/settingsSkeleton'
 import SettingsModuleCard from './settings/SettingsModuleCard.vue'
 
 const STATUS_REFRESH_INTERVAL_MS = 15_000
@@ -42,6 +43,10 @@ const showConnectivity = computed(
   () => props.mode !== 'pairing' && isAdmin.value
 )
 const showPairing = computed(() => props.mode !== 'connectivity')
+const loadingShape = computed<SettingsSkeletonShape>(() => {
+  if (showConnectivity.value && showPairing.value) return 'modules'
+  return showConnectivity.value ? 'modules-two' : 'modules-one'
+})
 const loading = ref(true)
 const loadError = ref('')
 const pairing = ref<IOSPairingStatus | null>(null)
@@ -366,7 +371,7 @@ onBeforeUnmount(() => {
       :loading="loading"
       :error="Boolean(loadError)"
       :loading-title="t('iosPairing.loading')"
-      loading-shape="modules"
+      :loading-shape="loadingShape"
       :error-title="t('iosPairing.loadFailed')"
       :detail="loadError"
       retryable

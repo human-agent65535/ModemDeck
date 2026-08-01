@@ -506,6 +506,7 @@ onMounted(() => {
     :error="telegramResource.status === 'error'"
     :loading-title="t('telegram.loading')"
     loading-shape="master-detail"
+    :has-selection="mobileDetailOpen"
     :forbidden-title="t('telegram.viewForbidden')"
     :error-title="t('telegram.loadFailed')"
     :detail="telegramResource.error"

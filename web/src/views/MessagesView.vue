@@ -28,6 +28,8 @@ import SearchField from '../components/SearchField.vue'
 import SelectableListRow from '../components/SelectableListRow.vue'
 import StatePanel from '../components/StatePanel.vue'
 import SwipeActionRow from '../components/SwipeActionRow.vue'
+import ConversationSkeleton from '../components/skeletons/ConversationSkeleton.vue'
+import LoadingSkeletonBoundary from '../components/skeletons/LoadingSkeletonBoundary.vue'
 import CommunicationListToolbar from '../components/workspace/CommunicationListToolbar.vue'
 import FavoriteActionButton from '../components/workspace/FavoriteActionButton.vue'
 import WorkspaceDetailActions from '../components/workspace/WorkspaceDetailActions.vue'
@@ -920,25 +922,27 @@ onBeforeUnmount(() => {
         {{ threadDeleteError || threadsResource.error }}
       </p>
 
-      <ListSkeleton
-        v-if="initialLoading || threadsResource.status === 'loading'"
-        :label="t('messages.loading')"
-      />
-      <StatePanel
-        v-else-if="threadsResource.status === 'forbidden'"
-        state="forbidden"
-        :title="t('messages.forbidden')"
-        :detail="threadsResource.error"
-      />
-      <StatePanel
-        v-else-if="threadsResource.status === 'error'"
-        state="error"
-        :title="t('messages.loadFailed')"
-        :detail="threadsResource.error"
-        retryable
-        @retry="loadThreads(true)"
-      />
-      <div v-else class="item-list">
+      <LoadingSkeletonBoundary
+        :loading="initialLoading || threadsResource.status === 'loading'"
+      >
+        <template #skeleton>
+          <ListSkeleton :label="t('messages.loading')" />
+        </template>
+        <StatePanel
+          v-if="threadsResource.status === 'forbidden'"
+          state="forbidden"
+          :title="t('messages.forbidden')"
+          :detail="threadsResource.error"
+        />
+        <StatePanel
+          v-else-if="threadsResource.status === 'error'"
+          state="error"
+          :title="t('messages.loadFailed')"
+          :detail="threadsResource.error"
+          retryable
+          @retry="loadThreads(true)"
+        />
+        <div v-else class="item-list">
         <div
           v-if="
             filteredThreads.length === 0 &&
@@ -1014,7 +1018,8 @@ onBeforeUnmount(() => {
           :retry-label="t('common.retry')"
           @load="loadMoreThreads"
         />
-      </div>
+        </div>
+      </LoadingSkeletonBoundary>
       <BatchActionBar
         v-if="selecting"
         :selected="selectionCount"
@@ -1080,7 +1085,13 @@ onBeforeUnmount(() => {
     <template #detail>
       <WorkspaceDetailPane
         class="conversation-pane"
-        :content-key="initialLoading ? null : composingNew ? 'compose' : selectedThread?.key"
+        :content-key="
+          initialLoading
+            ? null
+            : composingNew
+              ? 'compose'
+              : selectedThread?.key
+        "
       >
         <WorkspaceDetailHeader>
           <template v-if="composingNew" #leading>
@@ -1199,31 +1210,32 @@ onBeforeUnmount(() => {
             :retry-label="t('common.retry')"
             @load="loadOlderMessages"
           />
-          <StatePanel
-            v-if="!composingNew && currentMessages?.status === 'loading'"
-            state="loading"
-            :title="t('messages.loadingConversation')"
-          />
-          <StatePanel
-            v-else-if="!composingNew && currentMessages?.status === 'forbidden'"
-            state="forbidden"
-            :title="t('messages.conversationForbidden')"
-            :detail="currentMessages.error"
-          />
-          <StatePanel
-            v-else-if="!composingNew && currentMessages?.status === 'error'"
-            state="error"
-            :title="t('messages.conversationLoadFailed')"
-            :detail="currentMessages.error"
-            retryable
-            @retry="selectedThread && openThread(selectedThread, true)"
-          />
-          <StatePanel
-            v-else-if="!composingNew && currentMessages?.status === 'ready' && currentMessages.data.length === 0"
-            state="empty"
-            :title="t('messages.conversationEmpty')"
-          />
-          <div v-else-if="!composingNew" class="message-stack">
+          <LoadingSkeletonBoundary
+            :loading="!composingNew && currentMessages?.status === 'loading'"
+          >
+            <template #skeleton>
+              <ConversationSkeleton :label="t('messages.loadingConversation')" />
+            </template>
+            <StatePanel
+              v-if="!composingNew && currentMessages?.status === 'forbidden'"
+              state="forbidden"
+              :title="t('messages.conversationForbidden')"
+              :detail="currentMessages.error"
+            />
+            <StatePanel
+              v-else-if="!composingNew && currentMessages?.status === 'error'"
+              state="error"
+              :title="t('messages.conversationLoadFailed')"
+              :detail="currentMessages.error"
+              retryable
+              @retry="selectedThread && openThread(selectedThread, true)"
+            />
+            <StatePanel
+              v-else-if="!composingNew && currentMessages?.status === 'ready' && currentMessages.data.length === 0"
+              state="empty"
+              :title="t('messages.conversationEmpty')"
+            />
+            <div v-else-if="!composingNew" class="message-stack">
             <div
               v-for="message in currentMessages?.data || []"
               :key="message.id"
@@ -1248,8 +1260,8 @@ onBeforeUnmount(() => {
                 </span>
               </div>
             </div>
-          </div>
-          <div v-else class="new-message-empty">
+            </div>
+            <div v-else class="new-message-empty">
             <MessageSquarePlus :size="30" />
             <strong>{{ t('dashboard.newMessage') }}</strong>
             <button
@@ -1260,7 +1272,8 @@ onBeforeUnmount(() => {
             >
               {{ t('messages.viewExistingConversation') }}
             </button>
-          </div>
+            </div>
+          </LoadingSkeletonBoundary>
           <div ref="messagesEnd" />
         </div>
 
@@ -1294,11 +1307,16 @@ onBeforeUnmount(() => {
         </footer>
 
         <template #empty>
-          <StatePanel
-            :state="initialLoading ? 'loading' : 'empty'"
-            :title="initialLoading ? t('messages.loading') : t('messages.selectConversation')"
-            :detail="initialLoading ? '' : t('messages.detailPlaceholder')"
-          />
+          <LoadingSkeletonBoundary :loading="initialLoading">
+            <template #skeleton>
+              <ConversationSkeleton :label="t('messages.loading')" framed />
+            </template>
+            <StatePanel
+              state="empty"
+              :title="t('messages.selectConversation')"
+              :detail="t('messages.detailPlaceholder')"
+            />
+          </LoadingSkeletonBoundary>
         </template>
       </WorkspaceDetailPane>
     </template>

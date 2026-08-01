@@ -95,6 +95,8 @@ import SensitiveValue from './SensitiveValue.vue'
 import SelectControl from './SelectControl.vue'
 import SignalBars from './SignalBars.vue'
 import StatePanel from './StatePanel.vue'
+import LoadingSkeletonBoundary from './skeletons/LoadingSkeletonBoundary.vue'
+import SectionSkeleton from './skeletons/SectionSkeleton.vue'
 import DeviceWorkspace from './settings/DeviceWorkspace.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 
@@ -1321,25 +1323,30 @@ onMounted(() => {
           </div>
         </header>
 
-        <StatePanel
-          v-if="bootstrapResource.status === 'loading' || bootstrapResource.status === 'idle'"
-          state="loading"
-          :title="t('device.loadingModules')"
-        />
-        <StatePanel
-          v-else-if="bootstrapResource.status === 'error'"
-          state="error"
-          :title="t('device.modulesLoadFailed')"
-          :detail="bootstrapResource.error"
-          retryable
-          @retry="loadBootstrap(true)"
-        />
-        <StatePanel
-          v-else-if="moduleLines.length === 0"
-          state="empty"
-          :title="t('device.noModules')"
-        />
-        <div v-else class="module-grid">
+        <LoadingSkeletonBoundary
+          :loading="bootstrapResource.status === 'loading' || bootstrapResource.status === 'idle'"
+        >
+          <template #skeleton>
+            <SectionSkeleton
+              :label="t('device.loadingModules')"
+              variant="cards"
+              :rows="2"
+            />
+          </template>
+          <StatePanel
+            v-if="bootstrapResource.status === 'error'"
+            state="error"
+            :title="t('device.modulesLoadFailed')"
+            :detail="bootstrapResource.error"
+            retryable
+            @retry="loadBootstrap(true)"
+          />
+          <StatePanel
+            v-else-if="moduleLines.length === 0"
+            state="empty"
+            :title="t('device.noModules')"
+          />
+          <div v-else class="module-grid">
           <ModuleCard
             v-for="line in moduleLines"
             :key="lineKey(line)"
@@ -1367,7 +1374,8 @@ onMounted(() => {
             @make-default="makeDefault(line)"
             @delete="deleteHistoricalModule(line)"
           />
-        </div>
+          </div>
+        </LoadingSkeletonBoundary>
         <p v-if="moduleError" class="field-error device-module-list__error" role="alert">
           {{ moduleError }}
         </p>
@@ -1472,21 +1480,37 @@ onMounted(() => {
         </button>
       </nav>
 
-      <StatePanel
-        v-if="selectedResource?.status === 'loading' || selectedResource?.status === 'idle'"
-        state="loading"
-        :title="t('device.loadingModule')"
-      />
-      <StatePanel
-        v-else-if="selectedResource?.status === 'error' && !configuration"
-        state="error"
-        :title="t('device.moduleLoadFailed')"
-        :detail="selectedResource.error"
-        retryable
-        @retry="loadDeviceConfiguration(selectedLineID, true)"
-      />
+      <LoadingSkeletonBoundary
+        :loading="selectedResource?.status === 'loading' || selectedResource?.status === 'idle'"
+      >
+        <template #skeleton>
+          <div class="device-configuration__body device-configuration__body--skeleton">
+            <section class="configuration-section">
+              <SectionSkeleton
+                :label="t('device.loadingModule')"
+                variant="facts"
+                :rows="6"
+              />
+            </section>
+            <section class="configuration-section">
+              <SectionSkeleton
+                :label="t('device.loadingModule')"
+                variant="rows"
+                :rows="4"
+              />
+            </section>
+          </div>
+        </template>
+        <StatePanel
+          v-if="selectedResource?.status === 'error' && !configuration"
+          state="error"
+          :title="t('device.moduleLoadFailed')"
+          :detail="selectedResource.error"
+          retryable
+          @retry="loadDeviceConfiguration(selectedLineID, true)"
+        />
 
-      <div v-else-if="hardware && incomingCalls && messaging" class="device-configuration__body">
+        <div v-else-if="hardware && incomingCalls && messaging" class="device-configuration__body">
         <p v-if="selectedResource?.error" class="inline-error" role="alert">
           <AlertCircle :size="16" />
           {{ selectedResource.error }}
@@ -1718,28 +1742,33 @@ onMounted(() => {
               </small>
             </header>
             <div class="network-selection">
-              <StatePanel
-                v-if="selectedNetworkSelection?.policyStatus === 'loading'"
-                state="loading"
-                :title="t('device.loadingNetworkSettings')"
-              />
-              <div
-                v-else-if="
-                  selectedNetworkSelection?.policyStatus === 'error' ||
-                  selectedNetworkSelection?.policyStatus === 'forbidden'
-                "
-                class="network-selection__load-error"
+              <LoadingSkeletonBoundary
+                :loading="selectedNetworkSelection?.policyStatus === 'loading'"
               >
-                <p>{{ selectedNetworkSelection.policyError }}</p>
-                <button
-                  class="secondary-action"
-                  type="button"
-                  @click="loadNetworkSelection(selectedLineID, true)"
+                <template #skeleton>
+                  <SectionSkeleton
+                    :label="t('device.loadingNetworkSettings')"
+                    variant="form"
+                    :rows="3"
+                  />
+                </template>
+                <div
+                  v-if="
+                    selectedNetworkSelection?.policyStatus === 'error' ||
+                    selectedNetworkSelection?.policyStatus === 'forbidden'
+                  "
+                  class="network-selection__load-error"
                 >
-                  {{ t('common.retry') }}
-                </button>
-              </div>
-              <template v-else-if="selectedNetworkSelection?.policyStatus === 'ready'">
+                  <p>{{ selectedNetworkSelection.policyError }}</p>
+                  <button
+                    class="secondary-action"
+                    type="button"
+                    @click="loadNetworkSelection(selectedLineID, true)"
+                  >
+                    {{ t('common.retry') }}
+                  </button>
+                </div>
+                <template v-else-if="selectedNetworkSelection?.policyStatus === 'ready'">
                 <fieldset
                   class="network-selection-mode"
                   :data-selection="selectedNetworkSelection.mode"
@@ -1879,7 +1908,8 @@ onMounted(() => {
                     </button>
                   </div>
                 </div>
-              </template>
+                </template>
+              </LoadingSkeletonBoundary>
             </div>
           </section>
 
@@ -1976,13 +2006,16 @@ onMounted(() => {
                     {{ t('common.add') }}
                   </button>
                 </div>
-                <StatePanel
-                  v-if="profileLoadStatus === 'loading'"
-                  state="loading"
-                  :title="t('device.loadingProfiles')"
-                />
-                <p v-else-if="profileError" class="inline-error">{{ profileError }}</p>
-                <div v-else class="profile-list">
+                <LoadingSkeletonBoundary :loading="profileLoadStatus === 'loading'">
+                  <template #skeleton>
+                    <SectionSkeleton
+                      :label="t('device.loadingProfiles')"
+                      variant="rows"
+                      :rows="3"
+                    />
+                  </template>
+                  <p v-if="profileError" class="inline-error">{{ profileError }}</p>
+                  <div v-else class="profile-list">
                   <div
                     v-for="profile in profiles"
                     :key="profile.profile_id"
@@ -2004,7 +2037,8 @@ onMounted(() => {
                       <Trash2 :size="16" />
                     </button>
                   </div>
-                </div>
+                  </div>
+                </LoadingSkeletonBoundary>
                 <form class="profile-form" @submit.prevent="saveProfile">
                   <label><span>{{ t('device.name') }}</span><input v-model.trim="profileName" /></label>
                   <label><span>APN</span><input v-model.trim="profileAPN" /></label>
@@ -2043,13 +2077,16 @@ onMounted(() => {
         <template v-else-if="activeTab === 'sim'">
           <section class="configuration-section">
             <header><CardSim :size="18" /><h4>SIM</h4></header>
-            <StatePanel
-              v-if="simLoadStatus === 'loading'"
-              state="loading"
-              :title="t('device.loadingSIM')"
-            />
-            <p v-else-if="simError" class="inline-error">{{ simError }}</p>
-            <template v-else-if="simStatus">
+            <LoadingSkeletonBoundary :loading="simLoadStatus === 'loading'">
+              <template #skeleton>
+                <SectionSkeleton
+                  :label="t('device.loadingSIM')"
+                  variant="facts"
+                  :rows="6"
+                />
+              </template>
+              <p v-if="simError" class="inline-error">{{ simError }}</p>
+              <template v-else-if="simStatus">
               <dl class="configuration-facts">
                 <div>
                   <dt>ICCID</dt>
@@ -2137,7 +2174,8 @@ onMounted(() => {
                   {{ name }} {{ count }}
                 </span>
               </div>
-            </template>
+              </template>
+            </LoadingSkeletonBoundary>
           </section>
 
           <section class="configuration-section">
@@ -2415,17 +2453,21 @@ onMounted(() => {
         <template v-else>
           <section class="configuration-section">
             <header><Send :size="18" /><h4>USSD</h4></header>
-            <StatePanel
-              v-if="ussdLoadStatus === 'loading'"
-              state="loading"
-              :title="t('device.loadingUSSD')"
-            />
-            <p v-else-if="ussdError" class="inline-error">{{ ussdError }}</p>
-            <div v-else-if="ussdStatus" class="ussd-status">
-              <strong>{{ ussdStatus.state }}</strong>
-              <span v-if="ussdStatus.network_notification">{{ ussdStatus.network_notification }}</span>
-              <span v-if="ussdStatus.network_request">{{ ussdStatus.network_request }}</span>
-            </div>
+            <LoadingSkeletonBoundary :loading="ussdLoadStatus === 'loading'">
+              <template #skeleton>
+                <SectionSkeleton
+                  :label="t('device.loadingUSSD')"
+                  variant="facts"
+                  :rows="3"
+                />
+              </template>
+              <p v-if="ussdError" class="inline-error">{{ ussdError }}</p>
+              <div v-else-if="ussdStatus" class="ussd-status">
+                <strong>{{ ussdStatus.state }}</strong>
+                <span v-if="ussdStatus.network_notification">{{ ussdStatus.network_notification }}</span>
+                <span v-if="ussdStatus.network_request">{{ ussdStatus.network_request }}</span>
+              </div>
+            </LoadingSkeletonBoundary>
             <form class="ussd-form" @submit.prevent="submitUSSD(ussdStatus?.state === 'user-response' ? 'respond' : 'initiate')">
               <input v-model.trim="ussdCommand" placeholder="*123#" autocomplete="off" />
               <button class="primary-action" type="submit" :disabled="ussdPending || !ussdCommand">
@@ -2446,7 +2488,8 @@ onMounted(() => {
             <pre v-if="ussdResult">{{ ussdResult }}</pre>
           </section>
         </template>
-      </div>
+        </div>
+      </LoadingSkeletonBoundary>
       </template>
       <StatePanel
         v-else

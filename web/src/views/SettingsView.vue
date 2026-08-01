@@ -32,7 +32,10 @@ import type {
   SettingsSection,
   SettingsSectionGroup
 } from '../components/settings/settingsNavigation'
-import type { SettingsSkeletonShape } from '../components/settings/settingsSkeleton'
+import {
+  settingsSkeletonShape,
+  type SettingsSkeletonShape
+} from '../components/settings/settingsSkeleton'
 import { fixtureMode } from '../api/client'
 import { logout as logoutSession, sessionState } from '../state/session'
 import {
@@ -196,27 +199,17 @@ const currentTitle = computed(
     sections.value.find(section => section.id === selectedSection.value)?.label ||
     t('settings.title')
 )
-const settingsLoadingShape = computed<SettingsSkeletonShape>(() => {
-  switch (selectedSection.value) {
-    case 'preferences':
-    case 'security':
-    case 'audio':
-      return 'preferences'
-    case 'users':
-    case 'telegram':
-      return 'master-detail'
-    case 'contacts':
-    case 'pairing':
-    case 'connectivity':
-    case 'about':
-      return 'modules'
-    case 'devices':
-      return 'workbench'
-    case 'diagnostics':
-      return 'diagnostics'
-    default:
-      return 'preferences'
+const settingsLoadingShape = computed<SettingsSkeletonShape>(() =>
+  settingsSkeletonShape(selectedSection.value)
+)
+const settingsSkeletonHasSelection = computed(() => {
+  if (selectedSection.value === 'users') {
+    return typeof route.query.user === 'string' || route.query.newUser === '1'
   }
+  if (selectedSection.value === 'telegram') {
+    return typeof route.query.bot === 'string' || route.query.newBot === '1'
+  }
+  return false
 })
 
 watch(
@@ -450,6 +443,7 @@ onMounted(() => {
           <SettingsAsyncBoundary
             :loading-title="t('common.loading')"
             :loading-shape="settingsLoadingShape"
+            :has-selection="settingsSkeletonHasSelection"
           >
             <div v-if="selectedSection === 'preferences'" class="settings-content">
               <PageContentFrame mode="reading">

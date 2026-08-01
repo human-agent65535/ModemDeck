@@ -49,7 +49,7 @@ onMounted(() => {
   <SettingsLoadBoundary
     :loading="initialLoading && !accountResourcesReady"
     :loading-title="t('common.loading')"
-    loading-shape="preferences"
+    loading-shape="preference-rows"
   >
     <div class="account-settings-panel">
       <section

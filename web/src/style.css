@@ -1536,8 +1536,10 @@ dd {
 }
 
 .messages-scroll {
+  display: flex;
   min-height: 0;
   flex: 1;
+  flex-direction: column;
   padding: 20px clamp(18px, 4vw, 56px);
   overflow-y: auto;
   background: #fbfcfd;
@@ -1545,6 +1547,7 @@ dd {
 
 .message-stack {
   display: flex;
+  margin-top: auto;
   flex-direction: column;
   gap: 7px;
 }

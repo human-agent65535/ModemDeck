@@ -2,6 +2,8 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Download, LoaderCircle, RefreshCw, Trash2 } from '@lucide/vue'
+import LoadingSkeletonBoundary from './skeletons/LoadingSkeletonBoundary.vue'
+import SectionSkeleton from './skeletons/SectionSkeleton.vue'
 import {
   deleteRecording,
   loadCallRecordings,
@@ -100,30 +102,36 @@ watch(
     <p v-if="deleteError" class="recording-list__state recording-list__state--error">
       {{ deleteError }}
     </p>
-    <div v-if="current.status === 'loading' || current.status === 'idle'" class="recording-list__state">
-      <LoaderCircle class="spin" :size="17" />
-      {{ t('recordings.loading') }}
-    </div>
-    <div
-      v-else-if="current.status === 'error' || current.status === 'forbidden'"
-      class="recording-list__state recording-list__state--error"
-      role="alert"
+    <LoadingSkeletonBoundary
+      :loading="current.status === 'loading' || current.status === 'idle'"
     >
-      <span>{{ current.error }}</span>
-      <button
-        v-if="current.status === 'error'"
-        type="button"
-        :title="t('common.retry')"
-        :aria-label="t('recordings.reload')"
-        @click="loadCallRecordings(callId, true)"
+      <template #skeleton>
+        <SectionSkeleton
+          :label="t('recordings.loading')"
+          variant="rows"
+          :rows="2"
+        />
+      </template>
+      <div
+        v-if="current.status === 'error' || current.status === 'forbidden'"
+        class="recording-list__state recording-list__state--error"
+        role="alert"
       >
-        <RefreshCw :size="16" />
-      </button>
-    </div>
-    <p v-else-if="current.data.length === 0" class="recording-list__empty">
-      {{ t('recordings.emptyForCall') }}
-    </p>
-    <ol v-else>
+        <span>{{ current.error }}</span>
+        <button
+          v-if="current.status === 'error'"
+          type="button"
+          :title="t('common.retry')"
+          :aria-label="t('recordings.reload')"
+          @click="loadCallRecordings(callId, true)"
+        >
+          <RefreshCw :size="16" />
+        </button>
+      </div>
+      <p v-else-if="current.data.length === 0" class="recording-list__empty">
+        {{ t('recordings.emptyForCall') }}
+      </p>
+      <ol v-else>
       <li v-for="recording in current.data" :key="recording.id">
         <div class="recording-list__meta">
           <strong>{{ t('recordings.segment', { number: recording.segment_index }) }}</strong>
@@ -169,7 +177,8 @@ watch(
         </button>
         <span v-else aria-hidden="true" />
       </li>
-    </ol>
+      </ol>
+    </LoadingSkeletonBoundary>
   </section>
 </template>
 

@@ -42,6 +42,61 @@ test('initial page skeletons wait for every required request to settle', async (
   }
 })
 
+test('primary routes keep their final frame and use structure-specific skeletons', async () => {
+  const [
+    dashboard,
+    contacts,
+    messages,
+    calls,
+    recordings,
+    traffic,
+    devices,
+    diagnostics,
+    settingsShapes,
+    preview,
+    styles
+  ] = await Promise.all([
+    source('../src/views/DashboardView.vue'),
+    source('../src/views/ContactsView.vue'),
+    source('../src/views/MessagesView.vue'),
+    source('../src/views/CallsView.vue'),
+    source('../src/views/RecordingsView.vue'),
+    source('../src/views/TrafficView.vue'),
+    source('../src/components/DeviceConfigurationPanel.vue'),
+    source('../src/components/DiagnosticsPanel.vue'),
+    source('../src/components/settings/settingsSkeleton.ts'),
+    source('../src/composables/useSkeletonPreview.ts'),
+    source('../src/style.css')
+  ])
+
+  for (const route of [dashboard, contacts, messages, calls, recordings, traffic]) {
+    assert.match(route, /LoadingSkeletonBoundary/)
+    assert.doesNotMatch(route, /state="loading"/)
+  }
+  for (const detail of [dashboard, contacts, calls, recordings]) {
+    assert.match(detail, /WorkspaceDetailSkeleton/)
+  }
+  assert.match(messages, /ConversationSkeleton/)
+  assert.match(
+    messages,
+    /ConversationSkeleton :label="t\('messages\.loading'\)" framed/
+  )
+  assert.match(traffic, /TrafficSkeleton/)
+  assert.match(devices, /SectionSkeleton/)
+  assert.match(diagnostics, /SectionSkeleton/)
+  assert.match(settingsShapes, /case 'preferences':\s*return 'preference-rows'/)
+  assert.match(settingsShapes, /case 'pairing':\s*return 'modules-one'/)
+  assert.match(settingsShapes, /case 'connectivity':\s*return 'connectivity'/)
+  assert.match(preview, /fixtureMode/)
+  assert.match(preview, /query\.get\('skeleton'\) === '1'/)
+  assert.match(section(styles, '.messages-scroll {', '\n}'), /display:\s*flex/)
+  assert.match(
+    section(styles, '.messages-scroll {', '\n}'),
+    /flex-direction:\s*column/
+  )
+  assert.match(section(styles, '.message-stack {', '\n}'), /margin-top:\s*auto/)
+})
+
 test('settings initial barriers cover every resource before revealing content', async () => {
   const [account, users, system, contacts, audio, audioDevices, about] = await Promise.all([
     source('../src/components/AccountSettingsPanel.vue'),
@@ -298,7 +353,7 @@ test('recordings are a communication workspace with native playback and call lin
   assert.match(view, /<WorkspaceMasterDetail/)
   assert.match(
     view,
-    /<WorkspaceDetailPane :content-key="initialLoading \? null : selected\?\.id">/
+    /<WorkspaceDetailPane[\s\S]*:content-key="initialLoading \|\| skeletonPreviewEnabled \? null : selected\?\.id"/
   )
   assert.match(
     view,

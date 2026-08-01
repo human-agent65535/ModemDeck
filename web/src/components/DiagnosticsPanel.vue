@@ -49,6 +49,8 @@ import {
 } from '../utils/operatorNetwork'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SelectControl from './SelectControl.vue'
+import LoadingSkeletonBoundary from './skeletons/LoadingSkeletonBoundary.vue'
+import SectionSkeleton from './skeletons/SectionSkeleton.vue'
 
 type SnapshotState = 'idle' | 'loading' | 'ready' | 'forbidden' | 'error'
 type LogConnectionState =
@@ -1269,30 +1271,35 @@ onBeforeUnmount(() => {
         aria-live="polite"
         @scroll.passive="handleLogScroll"
       >
-        <div v-if="logsLoading && logs.length === 0" class="log-empty">
-          <LoaderCircle class="spin" :size="18" />
-          {{ t('diagnostics.loadingLogs') }}
-        </div>
-        <div v-else-if="logs.length === 0" class="log-empty">
-          <MessageSquare :size="18" />
-          {{ t('diagnostics.emptyLogs') }}
-        </div>
-        <article
-          v-for="entry in logs"
-          v-else
-          :key="entry.id"
-          class="log-entry"
-          :class="`is-${entry.level}`"
-        >
-          <time :datetime="entry.timestamp">{{ formatTimestamp(entry.timestamp, true) }}</time>
-          <span class="log-level">{{ entry.level }}</span>
-          <span class="log-component">{{ entry.component }}</span>
-          <span class="log-message">{{ entry.message }}</span>
-          <code v-if="entry.fields && Object.keys(entry.fields).length">
-            {{ formatFields(entry.fields) }}
-          </code>
-          <small v-if="entry.caller">{{ entry.caller }}</small>
-        </article>
+        <LoadingSkeletonBoundary :loading="logsLoading && logs.length === 0">
+          <template #skeleton>
+            <SectionSkeleton
+              :label="t('diagnostics.loadingLogs')"
+              variant="lines"
+              :rows="8"
+            />
+          </template>
+          <div v-if="logs.length === 0" class="log-empty">
+            <MessageSquare :size="18" />
+            {{ t('diagnostics.emptyLogs') }}
+          </div>
+          <article
+            v-for="entry in logs"
+            v-else
+            :key="entry.id"
+            class="log-entry"
+            :class="`is-${entry.level}`"
+          >
+            <time :datetime="entry.timestamp">{{ formatTimestamp(entry.timestamp, true) }}</time>
+            <span class="log-level">{{ entry.level }}</span>
+            <span class="log-component">{{ entry.component }}</span>
+            <span class="log-message">{{ entry.message }}</span>
+            <code v-if="entry.fields && Object.keys(entry.fields).length">
+              {{ formatFields(entry.fields) }}
+            </code>
+            <small v-if="entry.caller">{{ entry.caller }}</small>
+          </article>
+        </LoadingSkeletonBoundary>
       </div>
     </section>
     </SettingsLoadBoundary>

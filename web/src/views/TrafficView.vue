@@ -14,6 +14,8 @@ import ProxyEditorModal from '../components/ProxyEditorModal.vue'
 import StatePanel from '../components/StatePanel.vue'
 import TrafficLineCard from '../components/TrafficLineCard.vue'
 import TrafficSummary from '../components/TrafficSummary.vue'
+import LoadingSkeletonBoundary from '../components/skeletons/LoadingSkeletonBoundary.vue'
+import TrafficSkeleton from '../components/skeletons/TrafficSkeleton.vue'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { requestConfirmation } from '../state/confirmation'
 import { showSuccess } from '../state/feedback'
@@ -225,27 +227,32 @@ onMounted(() => {
       <h1>{{ t('shell.traffic') }}</h1>
     </header>
 
-    <StatePanel
-      v-if="initialLoading || (networkState.status === 'loading' && !snapshot)"
-      state="loading"
-      :title="t('traffic.loading')"
-    />
-    <StatePanel
-      v-else-if="networkState.status === 'forbidden'"
-      state="forbidden"
-      :title="t('traffic.forbidden')"
-      :detail="networkState.error"
-    />
-    <StatePanel
-      v-else-if="networkState.status === 'error' && !snapshot"
-      state="error"
-      :title="t('traffic.loadFailed')"
-      :detail="networkState.error"
-      retryable
-      @retry="loadNetwork(true)"
-    />
+    <LoadingSkeletonBoundary
+      :loading="initialLoading || (networkState.status === 'loading' && !snapshot)"
+    >
+      <template #skeleton>
+        <div class="traffic-page__scroll">
+          <PageContentFrame mode="dashboard" class="traffic-page__content">
+            <TrafficSkeleton :label="t('traffic.loading')" />
+          </PageContentFrame>
+        </div>
+      </template>
+      <StatePanel
+        v-if="networkState.status === 'forbidden'"
+        state="forbidden"
+        :title="t('traffic.forbidden')"
+        :detail="networkState.error"
+      />
+      <StatePanel
+        v-else-if="networkState.status === 'error' && !snapshot"
+        state="error"
+        :title="t('traffic.loadFailed')"
+        :detail="networkState.error"
+        retryable
+        @retry="loadNetwork(true)"
+      />
 
-    <div v-else class="traffic-page__scroll">
+      <div v-else class="traffic-page__scroll">
       <PageContentFrame mode="dashboard" class="traffic-page__content">
         <div
           v-if="snapshot && !snapshot.available"
@@ -361,7 +368,8 @@ onMounted(() => {
           </div>
         </section>
       </PageContentFrame>
-    </div>
+      </div>
+    </LoadingSkeletonBoundary>
 
     <ProxyEditorModal
       :open="editorOpen"

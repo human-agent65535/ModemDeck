@@ -9,7 +9,6 @@ import {
   ChevronRight,
   House,
   Inbox,
-  LoaderCircle,
   Mail,
   MailOpen,
   MessageSquareText,
@@ -33,15 +32,20 @@ import CallHistoryListItem from '../components/CallHistoryListItem.vue'
 import ContactEditor from '../components/ContactEditor.vue'
 import MessageThreadListItem from '../components/MessageThreadListItem.vue'
 import ModuleCard from '../components/ModuleCard.vue'
+import ListSkeleton from '../components/ListSkeleton.vue'
 import ListSelectionToggle from '../components/ListSelectionToggle.vue'
 import SelectableListRow from '../components/SelectableListRow.vue'
 import StatePanel from '../components/StatePanel.vue'
 import SwipeActionRow from '../components/SwipeActionRow.vue'
 import TrafficSummary from '../components/TrafficSummary.vue'
+import LoadingSkeletonBoundary from '../components/skeletons/LoadingSkeletonBoundary.vue'
+import SectionSkeleton from '../components/skeletons/SectionSkeleton.vue'
+import WorkspaceDetailSkeleton from '../components/skeletons/WorkspaceDetailSkeleton.vue'
 import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
 import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { useListSelection } from '../composables/useListSelection'
+import { skeletonPreviewEnabled } from '../composables/useSkeletonPreview'
 import { requestConfirmation } from '../state/confirmation'
 import { showSuccess } from '../state/feedback'
 import { selectDeviceConfiguration } from '../state/deviceConfiguration'
@@ -767,25 +771,24 @@ onBeforeUnmount(() => {
 
       <div class="dashboard-list-label">{{ t('dashboard.recentActivity') }}</div>
 
-      <StatePanel
-        v-if="activityLoading"
-        state="loading"
-        :title="t('dashboard.loadingActivities')"
-      />
-      <StatePanel
-        v-else-if="activities.length === 0 && activityErrors.length > 0"
-        :state="activityRetryable ? 'error' : 'forbidden'"
-        :title="t('dashboard.loadActivitiesFailed')"
-        :detail="activityErrors.join('；')"
-        :retryable="activityRetryable"
-        @retry="retryActivities"
-      />
-      <StatePanel
-        v-else-if="activities.length === 0"
-        state="empty"
-        :title="t('dashboard.noActivities')"
-      />
-      <div v-else class="item-list dashboard-activity-list">
+      <LoadingSkeletonBoundary :loading="activityLoading">
+        <template #skeleton>
+          <ListSkeleton :label="t('dashboard.loadingActivities')" />
+        </template>
+        <StatePanel
+          v-if="activities.length === 0 && activityErrors.length > 0"
+          :state="activityRetryable ? 'error' : 'forbidden'"
+          :title="t('dashboard.loadActivitiesFailed')"
+          :detail="activityErrors.join('；')"
+          :retryable="activityRetryable"
+          @retry="retryActivities"
+        />
+        <StatePanel
+          v-else-if="activities.length === 0"
+          state="empty"
+          :title="t('dashboard.noActivities')"
+        />
+        <div v-else class="item-list dashboard-activity-list">
         <div v-if="activityMutationError" class="dashboard-inline-error" role="alert">
           <AlertCircle :size="15" />
           <span>{{ activityMutationError }}</span>
@@ -852,7 +855,8 @@ onBeforeUnmount(() => {
             />
           </SwipeActionRow>
         </SelectableListRow>
-      </div>
+        </div>
+      </LoadingSkeletonBoundary>
       <BatchActionBar
         v-if="selecting"
         :selected="selectionCount"
@@ -916,8 +920,18 @@ onBeforeUnmount(() => {
     </template>
 
     <template #detail>
-      <article v-if="initialLoading" class="detail-pane dashboard-detail-pane">
-        <StatePanel state="loading" :title="t('dashboard.loadingActivityDetail')" />
+      <article
+        v-if="initialLoading || skeletonPreviewEnabled"
+        class="detail-pane dashboard-detail-pane"
+      >
+        <LoadingSkeletonBoundary :loading="initialLoading">
+          <template #skeleton>
+            <WorkspaceDetailSkeleton
+              :label="t('dashboard.loadingActivityDetail')"
+              shape="dashboard"
+            />
+          </template>
+        </LoadingSkeletonBoundary>
       </article>
 
       <template v-else>
@@ -1026,18 +1040,21 @@ onBeforeUnmount(() => {
                 <ChevronRight :size="15" />
               </RouterLink>
             </header>
-            <div
-              v-if="contactsResource.status === 'loading' || contactsResource.status === 'idle'"
-              class="dashboard-section-state"
+            <LoadingSkeletonBoundary
+              :loading="contactsResource.status === 'loading' || contactsResource.status === 'idle'"
             >
-              <LoaderCircle class="spin" :size="17" />
-              {{ t('contacts.loading') }}
-            </div>
-            <div
-              v-else-if="contactsResource.status === 'error' || contactsResource.status === 'forbidden'"
-              class="dashboard-section-state dashboard-section-state--error"
-              role="alert"
-            >
+              <template #skeleton>
+                <SectionSkeleton
+                  :label="t('contacts.loading')"
+                  variant="rows"
+                  :rows="3"
+                />
+              </template>
+              <div
+                v-if="contactsResource.status === 'error' || contactsResource.status === 'forbidden'"
+                class="dashboard-section-state dashboard-section-state--error"
+                role="alert"
+              >
               <AlertCircle :size="17" />
               <span>{{ contactsResource.error || t('contacts.loadFailed') }}</span>
               <button
@@ -1047,15 +1064,15 @@ onBeforeUnmount(() => {
               >
                 {{ t('common.retry') }}
               </button>
-            </div>
-            <div
-              v-else-if="favoriteContacts.length === 0"
-              class="dashboard-section-state dashboard-favorites-empty"
-            >
+              </div>
+              <div
+                v-else-if="favoriteContacts.length === 0"
+                class="dashboard-section-state dashboard-favorites-empty"
+              >
               <Star :size="17" />
               {{ t('dashboard.noFavoriteContacts') }}
-            </div>
-            <div v-else class="dashboard-detail-list">
+              </div>
+              <div v-else class="dashboard-detail-list">
               <div
                 v-for="contact in favoriteContacts"
                 :key="contact.id"
@@ -1097,7 +1114,8 @@ onBeforeUnmount(() => {
                   </button>
                 </span>
               </div>
-            </div>
+              </div>
+            </LoadingSkeletonBoundary>
           </section>
 
           <section class="dashboard-detail-section" aria-labelledby="dashboard-traffic-title">
@@ -1110,18 +1128,21 @@ onBeforeUnmount(() => {
                 <ChevronRight :size="15" />
               </RouterLink>
             </header>
-            <div
-              v-if="networkState.status === 'loading' || networkState.status === 'idle'"
-              class="dashboard-section-state"
+            <LoadingSkeletonBoundary
+              :loading="networkState.status === 'loading' || networkState.status === 'idle'"
             >
-              <LoaderCircle class="spin" :size="17" />
-              {{ t('dashboard.loadingTraffic') }}
-            </div>
-            <div
-              v-else-if="networkState.status === 'error' || networkState.status === 'forbidden'"
-              class="dashboard-section-state dashboard-section-state--error"
-              role="alert"
-            >
+              <template #skeleton>
+                <SectionSkeleton
+                  :label="t('dashboard.loadingTraffic')"
+                  variant="facts"
+                  :rows="4"
+                />
+              </template>
+              <div
+                v-if="networkState.status === 'error' || networkState.status === 'forbidden'"
+                class="dashboard-section-state dashboard-section-state--error"
+                role="alert"
+              >
               <AlertCircle :size="17" />
               <span>{{ networkState.error || t('dashboard.loadTrafficFailed') }}</span>
               <button
@@ -1131,23 +1152,24 @@ onBeforeUnmount(() => {
               >
                 {{ t('common.retry') }}
               </button>
-            </div>
-            <div
-              v-else-if="!trafficSnapshot?.available"
-              class="dashboard-section-state"
-            >
+              </div>
+              <div
+                v-else-if="!trafficSnapshot?.available"
+                class="dashboard-section-state"
+              >
               <ChartNoAxesCombined :size="17" />
               {{ t('dashboard.trafficUnavailable') }}
-            </div>
-            <TrafficSummary
-              v-else
-              :today-bytes="todayTraffic"
-              :month-bytes="monthTraffic"
-              :connected-lines="connectedNetworkLines"
-              :total-lines="trafficSnapshot.lines.length"
-              :running-proxies="runningProxies"
-              :total-proxies="trafficSnapshot.proxies.length"
-            />
+              </div>
+              <TrafficSummary
+                v-else
+                :today-bytes="todayTraffic"
+                :month-bytes="monthTraffic"
+                :connected-lines="connectedNetworkLines"
+                :total-lines="trafficSnapshot.lines.length"
+                :running-proxies="runningProxies"
+                :total-proxies="trafficSnapshot.proxies.length"
+              />
+            </LoadingSkeletonBoundary>
           </section>
 
           <section class="dashboard-detail-section" aria-labelledby="dashboard-lines-title">
@@ -1166,18 +1188,21 @@ onBeforeUnmount(() => {
                 <ChevronRight :size="15" />
               </RouterLink>
             </header>
-            <div
-              v-if="bootstrapResource.status === 'loading' || bootstrapResource.status === 'idle'"
-              class="dashboard-section-state"
+            <LoadingSkeletonBoundary
+              :loading="bootstrapResource.status === 'loading' || bootstrapResource.status === 'idle'"
             >
-              <LoaderCircle class="spin" :size="17" />
-              {{ t('dashboard.loadingLines') }}
-            </div>
-            <div
-              v-else-if="bootstrapResource.status === 'error' || bootstrapResource.status === 'forbidden'"
-              class="dashboard-section-state dashboard-section-state--error"
-              role="alert"
-            >
+              <template #skeleton>
+                <SectionSkeleton
+                  :label="t('dashboard.loadingLines')"
+                  variant="cards"
+                  :rows="3"
+                />
+              </template>
+              <div
+                v-if="bootstrapResource.status === 'error' || bootstrapResource.status === 'forbidden'"
+                class="dashboard-section-state dashboard-section-state--error"
+                role="alert"
+              >
               <AlertCircle :size="17" />
               <span>{{ bootstrapResource.error || t('dashboard.loadLinesFailed') }}</span>
               <button
@@ -1187,12 +1212,12 @@ onBeforeUnmount(() => {
               >
                 {{ t('common.retry') }}
               </button>
-            </div>
-            <div v-else-if="moduleLines.length === 0" class="dashboard-section-state">
-              <Inbox :size="17" />
-              {{ t('dashboard.noLines') }}
-            </div>
-            <div v-else class="dashboard-module-grid">
+              </div>
+              <div v-else-if="moduleLines.length === 0" class="dashboard-section-state">
+                <Inbox :size="17" />
+                {{ t('dashboard.noLines') }}
+              </div>
+              <div v-else class="dashboard-module-grid">
               <ModuleCard
                 v-for="line in moduleLines"
                 :key="lineKey(line)"
@@ -1203,15 +1228,16 @@ onBeforeUnmount(() => {
                 :default-line="lineKey(line) === defaultLineID"
                 @select="openLineSettings(line)"
               />
-            </div>
+              </div>
+            </LoadingSkeletonBoundary>
           </section>
             </div>
           </template>
 
-          <StatePanel
+          <WorkspaceDetailSkeleton
             v-else-if="activityLoading"
-            state="loading"
-            :title="t('dashboard.loadingActivityDetail')"
+            :label="t('dashboard.loadingActivityDetail')"
+            shape="communication"
           />
           <StatePanel
             v-else

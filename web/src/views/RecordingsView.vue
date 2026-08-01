@@ -20,6 +20,8 @@ import SearchField from '../components/SearchField.vue'
 import SelectableListRow from '../components/SelectableListRow.vue'
 import StatePanel from '../components/StatePanel.vue'
 import SwipeActionRow from '../components/SwipeActionRow.vue'
+import LoadingSkeletonBoundary from '../components/skeletons/LoadingSkeletonBoundary.vue'
+import WorkspaceDetailSkeleton from '../components/skeletons/WorkspaceDetailSkeleton.vue'
 import CommunicationListToolbar from '../components/workspace/CommunicationListToolbar.vue'
 import FavoriteActionButton from '../components/workspace/FavoriteActionButton.vue'
 import WorkspaceDetailActions from '../components/workspace/WorkspaceDetailActions.vue'
@@ -29,6 +31,7 @@ import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue
 import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { useListSelection } from '../composables/useListSelection'
+import { skeletonPreviewEnabled } from '../composables/useSkeletonPreview'
 import { audioState } from '../state/audio'
 import { requestConfirmation } from '../state/confirmation'
 import {
@@ -414,25 +417,27 @@ onBeforeUnmount(() => {
         {{ deleteError }}
       </p>
 
-      <ListSkeleton
-        v-if="initialLoading || recordingCatalogState.status === 'loading'"
-        :label="t('recordings.loading')"
-      />
-      <StatePanel
-        v-else-if="recordingCatalogState.status === 'forbidden'"
-        state="forbidden"
-        :title="t('recordings.forbidden')"
-        :detail="recordingCatalogState.error"
-      />
-      <StatePanel
-        v-else-if="recordingCatalogState.status === 'error'"
-        state="error"
-        :title="t('recordings.loadFailed')"
-        :detail="recordingCatalogState.error"
-        retryable
-        @retry="loadRecordingEntries(search, true)"
-      />
-      <div v-else class="item-list">
+      <LoadingSkeletonBoundary
+        :loading="initialLoading || recordingCatalogState.status === 'loading'"
+      >
+        <template #skeleton>
+          <ListSkeleton :label="t('recordings.loading')" />
+        </template>
+        <StatePanel
+          v-if="recordingCatalogState.status === 'forbidden'"
+          state="forbidden"
+          :title="t('recordings.forbidden')"
+          :detail="recordingCatalogState.error"
+        />
+        <StatePanel
+          v-else-if="recordingCatalogState.status === 'error'"
+          state="error"
+          :title="t('recordings.loadFailed')"
+          :detail="recordingCatalogState.error"
+          retryable
+          @retry="loadRecordingEntries(search, true)"
+        />
+        <div v-else class="item-list">
         <StatePanel
           v-if="
             filteredRecordings.length === 0 &&
@@ -529,7 +534,8 @@ onBeforeUnmount(() => {
           :retry-label="t('common.retry')"
           @load="loadMoreRecordingEntries"
         />
-      </div>
+        </div>
+      </LoadingSkeletonBoundary>
       <BatchActionBar
         v-if="selecting"
         :selected="selectionCount"
@@ -580,7 +586,9 @@ onBeforeUnmount(() => {
     </template>
 
     <template #detail>
-      <WorkspaceDetailPane :content-key="initialLoading ? null : selected?.id">
+      <WorkspaceDetailPane
+        :content-key="initialLoading || skeletonPreviewEnabled ? null : selected?.id"
+      >
         <template v-if="selected">
           <WorkspaceDetailHeader>
           <template #identity>
@@ -696,21 +704,24 @@ onBeforeUnmount(() => {
           </div>
         </template>
         <template #empty>
-          <StatePanel
-            v-if="initialLoading"
-            state="loading"
-            :title="t('recordings.loading')"
-          />
-          <StatePanel
-            v-else-if="selectedID && recordingCatalogState.status === 'ready'"
-            state="empty"
-            :title="t('recordings.notInResults')"
-          />
-          <StatePanel
-            v-else
-            state="empty"
-            :title="t('recordings.select')"
-          />
+          <LoadingSkeletonBoundary :loading="initialLoading">
+            <template #skeleton>
+              <WorkspaceDetailSkeleton
+                :label="t('recordings.loading')"
+                shape="recording"
+              />
+            </template>
+            <StatePanel
+              v-if="selectedID && recordingCatalogState.status === 'ready'"
+              state="empty"
+              :title="t('recordings.notInResults')"
+            />
+            <StatePanel
+              v-else
+              state="empty"
+              :title="t('recordings.select')"
+            />
+          </LoadingSkeletonBoundary>
         </template>
       </WorkspaceDetailPane>
     </template>

@@ -403,6 +403,7 @@ onMounted(() => {
     :error="status === 'error'"
     :loading-title="t('users.loading')"
     loading-shape="master-detail"
+    :has-selection="mobileDetailOpen"
     :error-title="t('users.loadFailed')"
     :detail="loadError"
     retryable

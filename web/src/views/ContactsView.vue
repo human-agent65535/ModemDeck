@@ -24,6 +24,8 @@ import SearchField from '../components/SearchField.vue'
 import SelectableListRow from '../components/SelectableListRow.vue'
 import StatePanel from '../components/StatePanel.vue'
 import SwipeActionRow from '../components/SwipeActionRow.vue'
+import LoadingSkeletonBoundary from '../components/skeletons/LoadingSkeletonBoundary.vue'
+import WorkspaceDetailSkeleton from '../components/skeletons/WorkspaceDetailSkeleton.vue'
 import CommunicationListToolbar from '../components/workspace/CommunicationListToolbar.vue'
 import FavoriteActionButton from '../components/workspace/FavoriteActionButton.vue'
 import WorkspaceDetailActions from '../components/workspace/WorkspaceDetailActions.vue'
@@ -33,6 +35,7 @@ import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue
 import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { useListSelection } from '../composables/useListSelection'
+import { skeletonPreviewEnabled } from '../composables/useSkeletonPreview'
 import { requestConfirmation } from '../state/confirmation'
 import { showSuccess } from '../state/feedback'
 import { openDialer } from '../state/ui'
@@ -323,25 +326,27 @@ onBeforeUnmount(() => {
         {{ deleteError }}
       </p>
 
-      <ListSkeleton
-        v-if="initialLoading || contactsResource.status === 'loading'"
-        :label="t('contacts.loading')"
-      />
-      <StatePanel
-        v-else-if="contactsResource.status === 'forbidden'"
-        state="forbidden"
-        :title="t('contacts.forbidden')"
-        :detail="contactsResource.error"
-      />
-      <StatePanel
-        v-else-if="contactsResource.status === 'error'"
-        state="error"
-        :title="t('contacts.loadFailed')"
-        :detail="contactsResource.error"
-        retryable
-        @retry="loadContacts(true)"
-      />
-      <div v-else class="item-list" role="list">
+      <LoadingSkeletonBoundary
+        :loading="initialLoading || contactsResource.status === 'loading'"
+      >
+        <template #skeleton>
+          <ListSkeleton :label="t('contacts.loading')" />
+        </template>
+        <StatePanel
+          v-if="contactsResource.status === 'forbidden'"
+          state="forbidden"
+          :title="t('contacts.forbidden')"
+          :detail="contactsResource.error"
+        />
+        <StatePanel
+          v-else-if="contactsResource.status === 'error'"
+          state="error"
+          :title="t('contacts.loadFailed')"
+          :detail="contactsResource.error"
+          retryable
+          @retry="loadContacts(true)"
+        />
+        <div v-else class="item-list" role="list">
         <div
           v-if="
             filteredContacts.length === 0 &&
@@ -410,7 +415,8 @@ onBeforeUnmount(() => {
           :retry-label="t('common.retry')"
           @load="loadMoreContacts"
         />
-      </div>
+        </div>
+      </LoadingSkeletonBoundary>
       <BatchActionBar
         v-if="selecting"
         :selected="selectionCount"
@@ -438,7 +444,9 @@ onBeforeUnmount(() => {
     </template>
 
     <template #detail>
-      <WorkspaceDetailPane :content-key="initialLoading ? null : selected?.id">
+      <WorkspaceDetailPane
+        :content-key="initialLoading || skeletonPreviewEnabled ? null : selected?.id"
+      >
         <template v-if="selected">
           <WorkspaceDetailHeader>
           <template #identity>
@@ -527,11 +535,19 @@ onBeforeUnmount(() => {
           </div>
         </template>
         <template #empty>
-          <StatePanel
-            :state="initialLoading ? 'loading' : 'empty'"
-            :title="initialLoading ? t('contacts.loading') : t('contacts.select')"
-            :detail="initialLoading ? '' : t('contacts.detailPlaceholder')"
-          />
+          <LoadingSkeletonBoundary :loading="initialLoading">
+            <template #skeleton>
+              <WorkspaceDetailSkeleton
+                :label="t('contacts.loading')"
+                shape="contact"
+              />
+            </template>
+            <StatePanel
+              state="empty"
+              :title="t('contacts.select')"
+              :detail="t('contacts.detailPlaceholder')"
+            />
+          </LoadingSkeletonBoundary>
         </template>
       </WorkspaceDetailPane>
     </template>

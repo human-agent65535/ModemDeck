@@ -5,6 +5,7 @@ import type { SettingsSkeletonShape } from './settingsSkeleton'
 defineProps<{
   label: string
   shape: SettingsSkeletonShape
+  hasSelection?: boolean
 }>()
 </script>
 
@@ -18,7 +19,26 @@ defineProps<{
     <span class="sr-only">{{ label }}</span>
 
     <div
-      v-if="shape === 'preferences'"
+      v-if="shape === 'preference-rows'"
+      class="settings-skeleton__preference-rows"
+      aria-hidden="true"
+    >
+      <div
+        v-for="row in 3"
+        :key="row"
+        class="settings-skeleton__preference-row"
+      >
+        <SkeletonBlock class="settings-skeleton__icon" />
+        <span class="settings-skeleton__copy">
+          <SkeletonBlock class="settings-skeleton__title" />
+          <SkeletonBlock class="settings-skeleton__description" />
+        </span>
+        <SkeletonBlock class="settings-skeleton__control" />
+      </div>
+    </div>
+
+    <div
+      v-else-if="shape === 'preferences'"
       class="settings-skeleton__preferences"
       aria-hidden="true"
     >
@@ -41,11 +61,78 @@ defineProps<{
     </div>
 
     <div
-      v-else-if="shape === 'modules'"
+      v-else-if="shape === 'form'"
+      class="settings-skeleton__form"
+      aria-hidden="true"
+    >
+      <header class="settings-skeleton__form-identity">
+        <SkeletonBlock class="settings-skeleton__icon" />
+        <span class="settings-skeleton__copy">
+          <SkeletonBlock class="settings-skeleton__title" />
+          <SkeletonBlock class="settings-skeleton__description" />
+        </span>
+        <SkeletonBlock class="settings-skeleton__badge" />
+      </header>
+      <div class="settings-skeleton__form-fields">
+        <span v-for="field in 3" :key="field">
+          <SkeletonBlock class="settings-skeleton__field-label" />
+          <SkeletonBlock class="settings-skeleton__form-field" />
+        </span>
+      </div>
+      <SkeletonBlock class="settings-skeleton__button" />
+    </div>
+
+    <div
+      v-else-if="shape === 'connectivity'"
+      class="settings-skeleton__connectivity"
+      aria-hidden="true"
+    >
+      <section class="settings-skeleton__certificate">
+        <header class="settings-skeleton__card-header">
+          <SkeletonBlock class="settings-skeleton__card-icon" />
+          <span class="settings-skeleton__copy">
+            <SkeletonBlock class="settings-skeleton__title" />
+            <SkeletonBlock class="settings-skeleton__description" />
+          </span>
+          <SkeletonBlock class="settings-skeleton__badge" />
+        </header>
+        <div class="settings-skeleton__certificate-fields">
+          <span v-for="field in 2" :key="field">
+            <SkeletonBlock class="settings-skeleton__field-label" />
+            <SkeletonBlock class="settings-skeleton__form-field" />
+          </span>
+        </div>
+      </section>
+      <div class="settings-skeleton__connectivity-modules">
+        <section v-for="card in 2" :key="card" class="settings-skeleton__card">
+          <header class="settings-skeleton__card-header">
+            <SkeletonBlock class="settings-skeleton__card-icon" />
+            <span class="settings-skeleton__copy">
+              <SkeletonBlock class="settings-skeleton__title" />
+              <SkeletonBlock class="settings-skeleton__description" />
+            </span>
+            <SkeletonBlock class="settings-skeleton__badge" />
+          </header>
+          <div class="settings-skeleton__card-body">
+            <span v-for="fact in 2" :key="fact" class="settings-skeleton__fact">
+              <SkeletonBlock />
+              <SkeletonBlock />
+            </span>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div
+      v-else-if="shape === 'modules-one' || shape === 'modules-two' || shape === 'modules'"
       class="settings-skeleton__modules"
       aria-hidden="true"
     >
-      <section v-for="card in 3" :key="card" class="settings-skeleton__card">
+      <section
+        v-for="card in shape === 'modules-one' ? 1 : shape === 'modules-two' ? 2 : 3"
+        :key="card"
+        class="settings-skeleton__card"
+      >
         <header class="settings-skeleton__card-header">
           <SkeletonBlock class="settings-skeleton__card-icon" />
           <span class="settings-skeleton__copy">
@@ -66,6 +153,7 @@ defineProps<{
     <div
       v-else-if="shape === 'master-detail'"
       class="settings-skeleton__master-detail"
+      :class="{ 'is-detail-open': hasSelection }"
       aria-hidden="true"
     >
       <aside class="settings-skeleton__rail">
@@ -294,10 +382,65 @@ defineProps<{
   border-radius: var(--radius-control);
 }
 
-.settings-skeleton__preferences {
+.settings-skeleton__preference-rows,
+.settings-skeleton__preferences,
+.settings-skeleton__form {
   display: grid;
   max-width: 680px;
+}
+
+.settings-skeleton__preference-rows {
+  gap: 0;
+}
+
+.settings-skeleton__preferences {
   gap: 26px;
+}
+
+.settings-skeleton__preference-row {
+  display: flex;
+  min-height: 106px;
+  align-items: center;
+  gap: 11px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-skeleton__preference-row .settings-skeleton__control {
+  width: min(280px, 42%);
+}
+
+.settings-skeleton__form {
+  gap: 22px;
+}
+
+.settings-skeleton__form-identity {
+  display: flex;
+  min-height: 66px;
+  align-items: center;
+  gap: 11px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-skeleton__form-fields {
+  display: grid;
+  gap: 18px;
+}
+
+.settings-skeleton__form-fields > span {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-skeleton__field-label {
+  width: min(160px, 30%);
+  height: 10px;
+}
+
+.settings-skeleton__form-field {
+  width: 100%;
+  height: 42px;
+  border-radius: var(--radius-control);
 }
 
 .settings-skeleton__section-header,
@@ -330,6 +473,37 @@ defineProps<{
 .settings-skeleton__modules {
   display: grid;
   gap: 14px;
+}
+
+.settings-skeleton__connectivity {
+  display: grid;
+  gap: 28px;
+}
+
+.settings-skeleton__certificate {
+  display: grid;
+  gap: 18px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.settings-skeleton__certificate-fields {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-skeleton__certificate-fields > span {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-skeleton__connectivity-modules {
+  display: grid;
+  gap: 14px;
+  padding-top: 28px;
+  border-top: 1px solid var(--border);
 }
 
 .settings-skeleton__card {
@@ -567,8 +741,22 @@ defineProps<{
 }
 
 @media (max-width: 860px) {
-  .settings-skeleton__preferences {
+  .settings-skeleton__preference-rows,
+  .settings-skeleton__preferences,
+  .settings-skeleton__form {
     max-width: none;
+  }
+
+  .settings-skeleton__preference-row {
+    min-height: 118px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    padding: 16px 0;
+  }
+
+  .settings-skeleton__preference-row .settings-skeleton__control {
+    width: min(240px, 72%);
+    margin-left: auto;
   }
 
   .settings-skeleton__control-row,
@@ -585,6 +773,7 @@ defineProps<{
   }
 
   .settings-skeleton__card-body,
+  .settings-skeleton__certificate-fields,
   .settings-skeleton__facts-grid,
   .settings-skeleton__file-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -602,6 +791,15 @@ defineProps<{
   .settings-skeleton__editor,
   .settings-skeleton__workbench-detail {
     display: none;
+  }
+
+  .settings-skeleton__master-detail.is-detail-open .settings-skeleton__rail {
+    display: none;
+  }
+
+  .settings-skeleton__master-detail.is-detail-open .settings-skeleton__editor {
+    display: block;
+    padding: 18px 16px;
   }
 
   .settings-skeleton__module-grid {

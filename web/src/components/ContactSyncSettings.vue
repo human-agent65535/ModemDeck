@@ -249,7 +249,7 @@ onMounted(() => {
   <SettingsLoadBoundary
     :loading="initialLoading && !initialResourcesReady"
     :loading-title="t('contacts.loading')"
-    loading-shape="modules"
+    loading-shape="modules-two"
   >
   <section class="contact-sync-settings" :aria-label="t('contactSync.title')">
     <SettingsModuleCard

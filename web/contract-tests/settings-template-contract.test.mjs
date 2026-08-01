@@ -222,6 +222,11 @@ test('page-level async settings share one mutually exclusive skeleton boundary',
     settingsSkeleton,
     settingsView,
     messages,
+    loadingVisibility,
+    loadingBoundary,
+    conversationSkeleton,
+    trafficSkeleton,
+    detailSkeleton,
     ...settingsPanels
   ] = await Promise.all([
     source('../src/components/StatePanel.vue'),
@@ -232,6 +237,11 @@ test('page-level async settings share one mutually exclusive skeleton boundary',
     source('../src/components/settings/SettingsSkeleton.vue'),
     source('../src/views/SettingsView.vue'),
     source('../src/views/MessagesView.vue'),
+    source('../src/composables/useLoadingVisibility.ts'),
+    source('../src/components/skeletons/LoadingSkeletonBoundary.vue'),
+    source('../src/components/skeletons/ConversationSkeleton.vue'),
+    source('../src/components/skeletons/TrafficSkeleton.vue'),
+    source('../src/components/skeletons/WorkspaceDetailSkeleton.vue'),
     source('../src/components/AccountSettingsPanel.vue'),
     source('../src/components/UserSettingsPanel.vue'),
     source('../src/components/ContactSyncSettings.vue'),
@@ -251,10 +261,11 @@ test('page-level async settings share one mutually exclusive skeleton boundary',
   assert.match(loadBoundary, /import SettingsSkeleton from '\.\/SettingsSkeleton\.vue'/)
   assert.match(
     loadBoundary,
-    /<SettingsSkeleton[\s\S]*v-if="loading"[\s\S]*<StatePanel[\s\S]*v-else-if="forbidden"[\s\S]*v-else-if="error"[\s\S]*<slot v-else \/>/
+    /<LoadingSkeletonBoundary :loading="props\.loading">[\s\S]*#skeleton[\s\S]*<SettingsSkeleton[\s\S]*<StatePanel[\s\S]*v-if="forbidden"[\s\S]*v-else-if="error"[\s\S]*<slot v-else \/>/
   )
   assert.match(asyncBoundary, /import SettingsSkeleton from '\.\/SettingsSkeleton\.vue'/)
-  assert.match(asyncBoundary, /<Suspense>/)
+  assert.match(asyncBoundary, /<Suspense\b/)
+  assert.match(asyncBoundary, /useLoadingVisibility/)
   assert.match(asyncBoundary, /:shape="loadingShape"/)
   assert.match(asyncBoundary, /<PageContentFrame v-else :mode="frameMode">/)
   assert.match(settingsView, /:loading-shape="settingsLoadingShape"/)
@@ -263,21 +274,34 @@ test('page-level async settings share one mutually exclusive skeleton boundary',
   assert.doesNotMatch(listSkeleton, /list-skeleton-reveal|opacity:\s*0/)
   assert.match(skeletonBlock, /animation: skeleton-block-shimmer/)
   assert.match(settingsSkeleton, /settings-skeleton__preferences/)
+  assert.match(settingsSkeleton, /settings-skeleton__preference-rows/)
+  assert.match(settingsSkeleton, /settings-skeleton__form-fields/)
   assert.match(settingsSkeleton, /settings-skeleton__modules/)
+  assert.match(settingsSkeleton, /settings-skeleton__connectivity/)
   assert.match(settingsSkeleton, /settings-skeleton__master-detail/)
   assert.match(settingsSkeleton, /settings-skeleton__workbench/)
   assert.match(settingsSkeleton, /settings-skeleton__detail-form/)
   assert.match(settingsSkeleton, /settings-skeleton__diagnostics/)
   assert.doesNotMatch(settingsSkeleton, /settings-skeleton-reveal|opacity:\s*0/)
-  assert.match(messages, /<ListSkeleton[\s\S]*threadsResource\.status === 'loading'/)
+  assert.match(
+    messages,
+    /<LoadingSkeletonBoundary[\s\S]*threadsResource\.status === 'loading'[\s\S]*<ListSkeleton/
+  )
+  assert.match(messages, /<ConversationSkeleton/)
+  assert.match(loadingVisibility, /SKELETON_REVEAL_DELAY_MS = 120/)
+  assert.match(loadingVisibility, /SKELETON_MIN_VISIBLE_MS = 180/)
+  assert.match(loadingBoundary, /skeletonPreviewEnabled/)
+  assert.match(conversationSkeleton, /conversation-skeleton__row--outgoing/)
+  assert.match(trafficSkeleton, /traffic-skeleton__summary/)
+  assert.match(detailSkeleton, /workspace-detail-skeleton__header/)
   const expectedShapes = [
-    'preferences',
+    'preference-rows',
     'master-detail',
-    'modules',
+    'modules-two',
     'preferences',
     'master-detail',
     'workbench',
-    'modules',
+    null,
     'detail-form',
     'diagnostics',
     'modules'
@@ -285,7 +309,11 @@ test('page-level async settings share one mutually exclusive skeleton boundary',
   for (const [index, panel] of settingsPanels.entries()) {
     assert.match(panel, /import SettingsLoadBoundary from/)
     assert.match(panel, /<SettingsLoadBoundary/)
-    assert.match(panel, new RegExp(`loading-shape="${expectedShapes[index]}"`))
+    if (expectedShapes[index]) {
+      assert.match(panel, new RegExp(`loading-shape="${expectedShapes[index]}"`))
+    } else {
+      assert.match(panel, /:loading-shape="loadingShape"/)
+    }
   }
 })
 
