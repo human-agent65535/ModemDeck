@@ -8,7 +8,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 )
 
-func TestNetworkSnapshotsPublishBoundedRuntimeEvents(t *testing.T) {
+func TestNetworkSnapshotsPublishRuntimeInvalidations(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, time.July, 24, 14, 0, 0, 0, time.UTC)
@@ -32,10 +32,12 @@ func TestNetworkSnapshotsPublishBoundedRuntimeEvents(t *testing.T) {
 
 	window, updates, cancel := events.Subscribe(0)
 	defer cancel()
-	if len(window.Events) != 1 {
-		t.Fatalf("duplicate snapshot events = %+v, want one", window.Events)
+	if len(window.Events) != 2 {
+		t.Fatalf("snapshot events = %+v, want one invalidation per observation", window.Events)
 	}
-	assertNetworkRuntimeResource(t, window.Events[0])
+	for _, event := range window.Events {
+		assertNetworkRuntimeResource(t, event)
+	}
 
 	snapshot.ObservedAt = now.Add(30 * time.Second)
 	service.setSnapshot(snapshot)

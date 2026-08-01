@@ -20,7 +20,7 @@ const (
 )
 
 type lineSource interface {
-	Snapshot(context.Context) (domain.Snapshot, error)
+	LineIDs(context.Context) ([]string, error)
 }
 
 type deviceConfigurationReader interface {
@@ -311,7 +311,7 @@ func (manager *Manager) observeNetwork(
 			err,
 		)
 	}
-	snapshot, err := manager.source.Snapshot(ctx)
+	discoveredLineIDs, err := manager.source.LineIDs(ctx)
 	if err != nil {
 		return networkObservation{}, domain.Unavailable(
 			operation,
@@ -327,11 +327,11 @@ func (manager *Manager) observeNetwork(
 		)
 	}
 
-	discovered := make(map[string]struct{}, len(snapshot.Lines))
-	allLineIDs := make(map[string]struct{}, len(snapshot.Lines)+len(extraLineIDs))
-	for _, line := range snapshot.Lines {
-		discovered[line.ID] = struct{}{}
-		allLineIDs[line.ID] = struct{}{}
+	discovered := make(map[string]struct{}, len(discoveredLineIDs))
+	allLineIDs := make(map[string]struct{}, len(discoveredLineIDs)+len(extraLineIDs))
+	for _, lineID := range discoveredLineIDs {
+		discovered[lineID] = struct{}{}
+		allLineIDs[lineID] = struct{}{}
 	}
 	for lineID := range extraLineIDs {
 		allLineIDs[lineID] = struct{}{}

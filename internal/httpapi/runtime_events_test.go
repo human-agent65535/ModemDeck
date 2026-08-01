@@ -17,12 +17,10 @@ func TestRuntimeEventStreamReplaysLastEventID(t *testing.T) {
 
 	events := runtimeevents.NewBuffer(8)
 	events.Publish(runtimeevents.Event{
-		EventKey:   "lines:1",
 		Resources:  []runtimeevents.Resource{runtimeevents.ResourceLines},
 		ObservedAt: time.Date(2026, time.July, 24, 3, 0, 0, 0, time.UTC),
 	})
 	events.Publish(runtimeevents.Event{
-		EventKey:   "network:1",
 		Resources:  []runtimeevents.Resource{runtimeevents.ResourceNetwork, runtimeevents.ResourceCalls},
 		ObservedAt: time.Date(2026, time.July, 24, 3, 0, 1, 0, time.UTC),
 	})

@@ -1284,7 +1284,8 @@ func TestRefreshPublishesCommittedIncomingMessage(t *testing.T) {
 	event := window.Events[0]
 	if event.EventKey != "sms:42" || event.MessageID != "42" ||
 		event.ThreadKey != "line-1|+818012345678" ||
-		event.LineID != "line-1" || event.Content != "hello" {
+		event.LineID != "line-1" || event.Content != "hello" ||
+		!event.ObservedAt.Equal(now) {
 		t.Fatalf("published event = %+v", event)
 	}
 }

@@ -1,7 +1,7 @@
 import { reactive, readonly } from 'vue'
 import type { Router } from 'vue-router'
 import { fixtureMode, gateway } from '../api/client'
-import type { IncomingMessageEvent } from '../api/types'
+import type { IncomingMessageEvent, MessageEventDelivery } from '../api/types'
 import { translate } from '../i18n'
 import {
   contactForNumber,
@@ -15,6 +15,7 @@ import { showBrowserNotification } from './browserNotifications'
 import { playIncomingMessageSound } from './browserSounds'
 
 const fallbackRefreshMilliseconds = 30_000
+const incomingMessageAlertWindowMilliseconds = 60_000
 
 const state = reactive({
   connected: false
@@ -43,7 +44,7 @@ export function initializeMessageRuntime(router: Router): void {
       enqueue(async () => {
         if (currentGeneration !== generation) return
         await refreshIncomingMessage(event, activeThreadKey(router))
-        if (delivery === 'live') {
+        if (shouldAlertIncomingMessage(event, delivery)) {
           playIncomingMessageSound(event.message_id)
           showIncomingMessageNotification(event, router)
         }
@@ -90,6 +91,19 @@ export function shutdownMessageRuntime(): void {
 
 export function shouldRunMessageFallback(connected: boolean): boolean {
   return !connected
+}
+
+export function shouldAlertIncomingMessage(
+  event: IncomingMessageEvent,
+  delivery: MessageEventDelivery,
+  now = Date.now()
+): boolean {
+  if (delivery !== 'live') return false
+  const observedAt = Date.parse(event.observed_at)
+  return (
+    Number.isFinite(observedAt) &&
+    Math.abs(now - observedAt) <= incomingMessageAlertWindowMilliseconds
+  )
 }
 
 export function incomingMessageRoute(event: IncomingMessageEvent): {

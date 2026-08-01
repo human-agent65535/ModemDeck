@@ -633,6 +633,14 @@ function parseDiagnosticLogEntry(value: unknown, path = 'diagnostic_log'): Diagn
 
 function parseIncomingMessageEvent(value: unknown): IncomingMessageEvent {
   const source = requiredRecord(value, 'incoming_message_event')
+  const observedAt = requiredStringValue(source, 'incoming_message_event', 'observed_at')
+  if (Number.isNaN(Date.parse(observedAt))) {
+    throw new ApiError(
+      'incoming_message_event.observed_at 必须是有效时间',
+      0,
+      'invalid_response'
+    )
+  }
   return {
     id: numberValue(source, 'incoming_message_event', 'id'),
     event_key: requiredStringValue(source, 'incoming_message_event', 'event_key'),
@@ -641,7 +649,8 @@ function parseIncomingMessageEvent(value: unknown): IncomingMessageEvent {
     line_id: requiredStringValue(source, 'incoming_message_event', 'line_id'),
     peer: requiredStringValue(source, 'incoming_message_event', 'peer'),
     content: stringValue(source, 'content'),
-    timestamp: requiredStringValue(source, 'incoming_message_event', 'timestamp')
+    timestamp: requiredStringValue(source, 'incoming_message_event', 'timestamp'),
+    observed_at: observedAt
   }
 }
 

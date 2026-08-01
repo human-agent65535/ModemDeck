@@ -25,7 +25,6 @@ const (
 
 type Event struct {
 	ID         uint64     `json:"id"`
-	EventKey   string     `json:"-"`
 	Resources  []Resource `json:"resources"`
 	ObservedAt time.Time  `json:"observed_at"`
 }
@@ -51,7 +50,6 @@ type Buffer struct {
 	capacity    int
 	nextID      uint64
 	events      []Event
-	eventIDs    map[string]uint64
 	nextClient  uint64
 	subscribers map[uint64]chan Event
 }
@@ -63,7 +61,6 @@ func NewBuffer(capacity int) *Buffer {
 	return &Buffer{
 		capacity:    capacity,
 		events:      make([]Event, 0, capacity),
-		eventIDs:    make(map[string]uint64, capacity),
 		subscribers: make(map[uint64]chan Event),
 	}
 }
@@ -82,29 +79,13 @@ func (b *Buffer) Publish(event Event) (Event, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if event.EventKey != "" {
-		if id, exists := b.eventIDs[event.EventKey]; exists {
-			for _, current := range b.events {
-				if current.ID == id {
-					return cloneEvent(current), false
-				}
-			}
-		}
-	}
-
 	b.nextID++
 	event.ID = b.nextID
 	if len(b.events) == b.capacity {
-		if oldestKey := b.events[0].EventKey; oldestKey != "" {
-			delete(b.eventIDs, oldestKey)
-		}
 		copy(b.events, b.events[1:])
 		b.events[len(b.events)-1] = event
 	} else {
 		b.events = append(b.events, event)
-	}
-	if event.EventKey != "" {
-		b.eventIDs[event.EventKey] = event.ID
 	}
 
 	for id, subscriber := range b.subscribers {

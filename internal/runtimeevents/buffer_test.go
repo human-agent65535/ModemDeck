@@ -6,13 +6,12 @@ import (
 	"time"
 )
 
-func TestBufferPublishesIdempotentlyAndReplaysAfterID(t *testing.T) {
+func TestBufferPublishesEveryInvalidationAndReplaysAfterID(t *testing.T) {
 	t.Parallel()
 
 	buffer := NewBuffer(4)
 	observedAt := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.FixedZone("JST", 9*60*60))
 	first, created := buffer.Publish(Event{
-		EventKey:   "lines:1",
 		Resources:  []Resource{ResourceLines, ResourceLines, "unsupported"},
 		ObservedAt: observedAt,
 	})
@@ -21,15 +20,13 @@ func TestBufferPublishesIdempotentlyAndReplaysAfterID(t *testing.T) {
 		!first.ObservedAt.Equal(observedAt.UTC()) {
 		t.Fatalf("first publish = %+v, created = %v", first, created)
 	}
-	replayed, created := buffer.Publish(Event{
-		EventKey:  "lines:1",
-		Resources: []Resource{ResourceNetwork},
-	})
-	if created || !reflect.DeepEqual(replayed, first) {
-		t.Fatalf("duplicate publish = %+v, created = %v; want %+v, false", replayed, created, first)
-	}
 	second, created := buffer.Publish(Event{
-		EventKey: "network:1",
+		Resources: []Resource{ResourceLines},
+	})
+	if !created || second.ID != 2 || second.ObservedAt.IsZero() {
+		t.Fatalf("second publish = %+v, created = %v", second, created)
+	}
+	third, created := buffer.Publish(Event{
 		Resources: []Resource{
 			ResourceSession,
 			ResourceNetwork,
@@ -39,9 +36,9 @@ func TestBufferPublishesIdempotentlyAndReplaysAfterID(t *testing.T) {
 			ResourceRecordings,
 		},
 	})
-	if !created || second.ID != 2 || second.ObservedAt.IsZero() ||
+	if !created || third.ID != 3 || third.ObservedAt.IsZero() ||
 		!reflect.DeepEqual(
-			second.Resources,
+			third.Resources,
 			[]Resource{
 				ResourceSession,
 				ResourceNetwork,
@@ -51,17 +48,17 @@ func TestBufferPublishesIdempotentlyAndReplaysAfterID(t *testing.T) {
 				ResourceRecordings,
 			},
 		) {
-		t.Fatalf("second publish = %+v, created = %v", second, created)
+		t.Fatalf("third publish = %+v, created = %v", third, created)
 	}
 
-	window, updates, cancel := buffer.Subscribe(first.ID)
+	window, updates, cancel := buffer.Subscribe(second.ID)
 	defer cancel()
-	if window.Reset || len(window.Events) != 1 || !reflect.DeepEqual(window.Events[0], second) {
-		t.Fatalf("window = %+v, want only second event", window)
+	if window.Reset || len(window.Events) != 1 || !reflect.DeepEqual(window.Events[0], third) {
+		t.Fatalf("window = %+v, want only third event", window)
 	}
-	third, _ := buffer.Publish(Event{Resources: []Resource{ResourceCalls}})
-	if update := <-updates; !reflect.DeepEqual(update, third) {
-		t.Fatalf("live update = %+v, want %+v", update, third)
+	fourth, _ := buffer.Publish(Event{Resources: []Resource{ResourceCalls}})
+	if update := <-updates; !reflect.DeepEqual(update, fourth) {
+		t.Fatalf("live update = %+v, want %+v", update, fourth)
 	}
 }
 

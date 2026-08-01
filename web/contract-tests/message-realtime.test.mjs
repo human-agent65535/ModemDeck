@@ -4,6 +4,7 @@ import test from 'node:test'
 
 import {
   incomingMessageRoute,
+  shouldAlertIncomingMessage,
   shouldRunMessageFallback
 } from '../src/state/messageRuntime.ts'
 import {
@@ -30,7 +31,8 @@ const event = {
   line_id: 'line-main',
   peer: '+818012345678',
   content: 'hello',
-  timestamp: '2026-07-24T07:30:00Z'
+  timestamp: '2026-07-24T07:30:00Z',
+  observed_at: '2026-07-24T07:30:05Z'
 }
 
 test('browser permission and the local notification preference remain independent', () => {
@@ -126,6 +128,25 @@ test('incoming call notification history stays bounded', () => {
 test('message reconciliation polling only runs while SSE is disconnected', () => {
   assert.equal(shouldRunMessageFallback(false), true)
   assert.equal(shouldRunMessageFallback(true), false)
+})
+
+test('incoming SMS alerts require a fresh live server observation', () => {
+  const now = Date.parse('2026-07-24T07:31:00Z')
+
+  assert.equal(shouldAlertIncomingMessage(event, 'live', now), true)
+  assert.equal(shouldAlertIncomingMessage(event, 'replay', now), false)
+  assert.equal(
+    shouldAlertIncomingMessage(
+      { ...event, observed_at: '2026-07-24T07:29:59Z' },
+      'live',
+      now
+    ),
+    false
+  )
+  assert.equal(
+    shouldAlertIncomingMessage({ ...event, observed_at: 'invalid' }, 'live', now),
+    false
+  )
 })
 
 test('message SSE observes heartbeats and resumes after its last event cursor', () => {

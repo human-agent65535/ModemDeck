@@ -325,6 +325,27 @@ func (p *Provider) Snapshot(ctx context.Context) (domain.Snapshot, error) {
 	}, nil
 }
 
+// LineIDs discovers routable modem identities without hydrating calls or messages.
+func (p *Provider) LineIDs(ctx context.Context) ([]string, error) {
+	const operation = "line_ids"
+	identity, err := p.resolveProviderIdentity(ctx, operation)
+	if err != nil {
+		return nil, err
+	}
+	objects, err := p.managedObjects(ctx, operation)
+	if err != nil {
+		return nil, err
+	}
+	lines := ParseManagedObjects(objects, identity).Lines
+	lineIDs := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if line.ID != "" {
+			lineIDs = append(lineIDs, line.ID)
+		}
+	}
+	return lineIDs, nil
+}
+
 func (p *Provider) projectDesiredRadioState(lines []domain.Line) {
 	for index := range lines {
 		line := &lines[index]

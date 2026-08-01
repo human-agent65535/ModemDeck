@@ -556,6 +556,7 @@ export type IncomingMessageEvent = {
   peer: string
   content: string
   timestamp: string
+  observed_at: string
 }
 
 export type MessageEventDelivery = 'replay' | 'live'

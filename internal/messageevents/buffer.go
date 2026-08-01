@@ -1,6 +1,9 @@
 package messageevents
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 const (
 	DefaultCapacity    = 512
@@ -8,15 +11,16 @@ const (
 )
 
 type IncomingSMS struct {
-	ID        uint64 `json:"id"`
-	EventKey  string `json:"event_key"`
-	MessageID string `json:"message_id"`
-	ThreadKey string `json:"thread_key"`
-	LineID    string `json:"line_id"`
-	ICCID     string `json:"iccid"`
-	Peer      string `json:"peer"`
-	Content   string `json:"content"`
-	Timestamp string `json:"timestamp"`
+	ID         uint64    `json:"id"`
+	EventKey   string    `json:"event_key"`
+	MessageID  string    `json:"message_id"`
+	ThreadKey  string    `json:"thread_key"`
+	LineID     string    `json:"line_id"`
+	ICCID      string    `json:"iccid"`
+	Peer       string    `json:"peer"`
+	Content    string    `json:"content"`
+	Timestamp  string    `json:"timestamp"`
+	ObservedAt time.Time `json:"observed_at"`
 }
 
 type Window struct {
@@ -58,6 +62,12 @@ func NewBuffer(capacity int) *Buffer {
 }
 
 func (b *Buffer) Publish(event IncomingSMS) (IncomingSMS, bool) {
+	if event.ObservedAt.IsZero() {
+		event.ObservedAt = time.Now().UTC()
+	} else {
+		event.ObservedAt = event.ObservedAt.UTC()
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 

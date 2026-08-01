@@ -34,6 +34,7 @@ const (
 	defaultSyncEvery           = 30 * time.Second
 	freshSnapshotAge           = 35 * time.Second
 	eventReconnectDelay        = 2 * time.Second
+	agentEventCoalesceDelay    = 250 * time.Millisecond
 	maxMessageRunes            = 1600
 	maxRequestIDLen            = 128
 	maxIncomingCallActions     = 8
@@ -286,7 +287,7 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 		return s.recordRefreshFailure("read persisted line identities", err)
 	}
 	lines = bindProjectedLines(lines, snapshotResult.LineIDsByEndpoint, stableLines)
-	s.publishIncomingMessages(snapshotResult.CreatedIncomingMessages)
+	s.publishIncomingMessages(snapshotResult.CreatedIncomingMessages, snapshot.ObservedAt)
 	activeCalls, err := s.repository.ActiveCalls(refreshContext)
 	if err != nil {
 		return s.recordRefreshFailure("read authoritative active calls", err)
@@ -466,7 +467,7 @@ func canonicalRuntimeCalls(calls []agentclient.Call) []agentclient.Call {
 	return canonical
 }
 
-func (s *Service) publishIncomingMessages(messages []store.Message) {
+func (s *Service) publishIncomingMessages(messages []store.Message, observedAt time.Time) {
 	for _, message := range messages {
 		messageID := strconv.FormatInt(message.ID, 10)
 		s.events.Publish(messageevents.IncomingSMS{
@@ -476,11 +477,12 @@ func (s *Service) publishIncomingMessages(messages []store.Message) {
 				message.LineID,
 				message.Peer,
 			),
-			LineID:    message.LineID,
-			ICCID:     message.ICCID,
-			Peer:      message.Peer,
-			Content:   message.Content,
-			Timestamp: message.Timestamp,
+			LineID:     message.LineID,
+			ICCID:      message.ICCID,
+			Peer:       message.Peer,
+			Content:    message.Content,
+			Timestamp:  message.Timestamp,
+			ObservedAt: observedAt,
 		})
 	}
 }
@@ -885,10 +887,15 @@ func (s *Service) Run(ctx context.Context, every time.Duration, report func(erro
 	controlLeaseTicker := time.NewTicker(controlLeaseRenewInterval)
 	defer controlLeaseTicker.Stop()
 	changeEvents := make(chan struct{}, 1)
+	var changeTimer *time.Timer
+	var changeTimerC <-chan time.Time
 	watchFailures := make(chan error, 1)
 	watchStates := make(chan bool)
 	var watchCancel context.CancelFunc
 	defer func() {
+		if changeTimer != nil {
+			changeTimer.Stop()
+		}
 		if watchCancel != nil {
 			watchCancel()
 		}
@@ -971,6 +978,17 @@ func (s *Service) Run(ctx context.Context, every time.Duration, report func(erro
 			)
 			cancel()
 		case <-changeEvents:
+			if changeTimerC == nil {
+				if changeTimer == nil {
+					changeTimer = time.NewTimer(agentEventCoalesceDelay)
+				} else {
+					resetTimer(changeTimer, agentEventCoalesceDelay)
+				}
+				changeTimerC = changeTimer.C
+			}
+		case <-changeTimerC:
+			changeTimerC = nil
+			drainChangeEvents(changeEvents)
 			lastWatchError = ""
 			if status, ok := refresh(); ok {
 				startWatcher(status)
@@ -979,6 +997,11 @@ func (s *Service) Run(ctx context.Context, every time.Duration, report func(erro
 		case err := <-watchFailures:
 			reportDistinct(err, &lastWatchError)
 		case <-timer.C:
+			if changeTimerC != nil {
+				changeTimer.Stop()
+				changeTimerC = nil
+			}
+			drainChangeEvents(changeEvents)
 			if status, ok := refresh(); ok {
 				startWatcher(status)
 			}
@@ -990,6 +1013,16 @@ func (s *Service) Run(ctx context.Context, every time.Duration, report func(erro
 					&lastControlLeaseError,
 				)
 			}
+		}
+	}
+}
+
+func drainChangeEvents(events <-chan struct{}) {
+	for {
+		select {
+		case <-events:
+		default:
+			return
 		}
 	}
 }

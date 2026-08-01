@@ -116,13 +116,14 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 
 func incomingMessageEvent(event messageevents.IncomingSMS) incomingMessageEventResponse {
 	return incomingMessageEventResponse{
-		ID:        event.ID,
-		EventKey:  event.EventKey,
-		MessageID: event.MessageID,
-		ThreadKey: event.ThreadKey,
-		LineID:    event.LineID,
-		Peer:      event.Peer,
-		Content:   event.Content,
-		Timestamp: event.Timestamp,
+		ID:         event.ID,
+		EventKey:   event.EventKey,
+		MessageID:  event.MessageID,
+		ThreadKey:  event.ThreadKey,
+		LineID:     event.LineID,
+		Peer:       event.Peer,
+		Content:    event.Content,
+		Timestamp:  event.Timestamp,
+		ObservedAt: event.ObservedAt,
 	}
 }

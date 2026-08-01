@@ -114,13 +114,13 @@ func (repository *eventCountingRepository) ApplyHardwareSnapshotWithResult(
 	return result, err
 }
 
-func TestRunRefreshesImmediatelyFromAgentEvents(t *testing.T) {
+func TestRunCoalescesAgentEventBurstsIntoOneRefresh(t *testing.T) {
 	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
 	baseAgent := connectedAgent(now)
 	baseAgent.health.Provider.Capabilities.Events = true
 	agent := &eventTestAgent{
 		fakeAgent: baseAgent,
-		changes:   make(chan struct{}, 1),
+		changes:   make(chan struct{}, 16),
 		started:   make(chan struct{}),
 	}
 	repository := &eventCountingRepository{
@@ -153,8 +153,16 @@ func TestRunRefreshesImmediatelyFromAgentEvents(t *testing.T) {
 	}
 	waitForAppliedSnapshots(t, repository, 2)
 	before := repository.applied.Load()
-	agent.changes <- struct{}{}
+	for range 16 {
+		agent.changes <- struct{}{}
+	}
 	waitForAppliedSnapshots(t, repository, before+1)
+	quietWindow := time.NewTimer(2 * agentEventCoalesceDelay)
+	defer quietWindow.Stop()
+	<-quietWindow.C
+	if got := repository.applied.Load(); got != before+1 {
+		t.Fatalf("applied snapshots after one event burst = %d, want %d", got, before+1)
+	}
 }
 
 func TestRunReleasesControlLeaseWhenAgentEventStreamDisconnects(t *testing.T) {

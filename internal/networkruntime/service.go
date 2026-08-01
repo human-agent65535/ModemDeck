@@ -1154,7 +1154,6 @@ func (s *Service) setSnapshot(snapshot agentclient.NetworkSnapshot) {
 	s.stateMu.Unlock()
 	if s.runtimeEvents != nil {
 		s.runtimeEvents.Publish(runtimeevents.Event{
-			EventKey:   "network:" + snapshot.BootEpoch + ":" + snapshot.ObservedAt.UTC().Format(time.RFC3339Nano),
 			Resources:  []runtimeevents.Resource{runtimeevents.ResourceNetwork},
 			ObservedAt: snapshot.ObservedAt,
 		})

@@ -1,13 +1,21 @@
 package messageevents
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestBufferPublishesIdempotentlyAndReplaysAfterID(t *testing.T) {
 	t.Parallel()
 
 	buffer := NewBuffer(4)
-	first, created := buffer.Publish(IncomingSMS{EventKey: "sms:1", MessageID: "1"})
-	if !created || first.ID != 1 {
+	observedAt := time.Date(2026, time.July, 24, 16, 0, 0, 0, time.FixedZone("JST", 9*60*60))
+	first, created := buffer.Publish(IncomingSMS{
+		EventKey:   "sms:1",
+		MessageID:  "1",
+		ObservedAt: observedAt,
+	})
+	if !created || first.ID != 1 || !first.ObservedAt.Equal(observedAt.UTC()) {
 		t.Fatalf("first publish = %+v, created = %v", first, created)
 	}
 	replayed, created := buffer.Publish(IncomingSMS{EventKey: "sms:1", MessageID: "different"})

@@ -288,7 +288,7 @@ func TestManagerPreservesRuntimeOnDiscoveryReadAndCancellationErrors(t *testing.
 	}
 	configuration.ListenPort++
 
-	source.setSnapshotError(errors.New("D-Bus discovery unavailable"))
+	source.setLineIDsError(errors.New("D-Bus discovery unavailable"))
 	if _, err := manager.ApplyProxySet(context.Background(), domain.ProxyDesiredSet{
 		Proxies: []domain.ProxyConfiguration{configuration},
 	}); operationErrorCode(err) != domain.ErrorUnavailable {
@@ -297,7 +297,7 @@ func TestManagerPreservesRuntimeOnDiscoveryReadAndCancellationErrors(t *testing.
 	if _, err := manager.NetworkSnapshot(context.Background()); operationErrorCode(err) != domain.ErrorUnavailable {
 		t.Fatalf("discovery snapshot error = %v, want unavailable", err)
 	}
-	source.setSnapshotError(nil)
+	source.setLineIDsError(nil)
 
 	source.setConfigurationError("line-main", errors.New("configuration read timed out"))
 	if _, err := manager.ApplyProxySet(context.Background(), domain.ProxyDesiredSet{
@@ -735,19 +735,21 @@ type fakeNetworkSource struct {
 	mu                  sync.Mutex
 	lines               []domain.Line
 	configurations      map[string]domain.DeviceConfiguration
-	snapshotError       error
+	lineIDsError        error
 	configurationErrors map[string]error
 }
 
-func (source *fakeNetworkSource) Snapshot(context.Context) (domain.Snapshot, error) {
+func (source *fakeNetworkSource) LineIDs(context.Context) ([]string, error) {
 	source.mu.Lock()
 	defer source.mu.Unlock()
-	if source.snapshotError != nil {
-		return domain.Snapshot{}, source.snapshotError
+	if source.lineIDsError != nil {
+		return nil, source.lineIDsError
 	}
-	return domain.Snapshot{
-		Lines: append([]domain.Line(nil), source.lines...),
-	}, nil
+	lineIDs := make([]string, 0, len(source.lines))
+	for _, line := range source.lines {
+		lineIDs = append(lineIDs, line.ID)
+	}
+	return lineIDs, nil
 }
 
 func (source *fakeNetworkSource) DeviceConfiguration(
@@ -778,9 +780,9 @@ func (source *fakeNetworkSource) setConfiguration(
 	source.mu.Unlock()
 }
 
-func (source *fakeNetworkSource) setSnapshotError(err error) {
+func (source *fakeNetworkSource) setLineIDsError(err error) {
 	source.mu.Lock()
-	source.snapshotError = err
+	source.lineIDsError = err
 	source.mu.Unlock()
 }
 

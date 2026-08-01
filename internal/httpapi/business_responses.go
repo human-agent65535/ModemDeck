@@ -1,16 +1,21 @@
 package httpapi
 
-import "github.com/human-agent65535/modemdeck/internal/store"
+import (
+	"time"
+
+	"github.com/human-agent65535/modemdeck/internal/store"
+)
 
 type incomingMessageEventResponse struct {
-	ID        uint64 `json:"id"`
-	EventKey  string `json:"event_key"`
-	MessageID string `json:"message_id"`
-	ThreadKey string `json:"thread_key"`
-	LineID    string `json:"line_id"`
-	Peer      string `json:"peer"`
-	Content   string `json:"content"`
-	Timestamp string `json:"timestamp"`
+	ID         uint64    `json:"id"`
+	EventKey   string    `json:"event_key"`
+	MessageID  string    `json:"message_id"`
+	ThreadKey  string    `json:"thread_key"`
+	LineID     string    `json:"line_id"`
+	Peer       string    `json:"peer"`
+	Content    string    `json:"content"`
+	Timestamp  string    `json:"timestamp"`
+	ObservedAt time.Time `json:"observed_at"`
 }
 
 type lineSummaryResponse struct {

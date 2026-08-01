@@ -101,6 +101,7 @@ func TestMessageEventStreamReplaysLastEventID(t *testing.T) {
 	t.Parallel()
 
 	events := messageevents.NewBuffer(8)
+	observedAt := time.Date(2026, time.July, 24, 7, 30, 5, 0, time.UTC)
 	events.Publish(messageevents.IncomingSMS{
 		EventKey:  "sms:1",
 		MessageID: "1",
@@ -108,11 +109,12 @@ func TestMessageEventStreamReplaysLastEventID(t *testing.T) {
 		LineID:    "line-main",
 	})
 	events.Publish(messageevents.IncomingSMS{
-		EventKey:  "sms:2",
-		MessageID: "2",
-		ThreadKey: "line-main|+818000000002",
-		LineID:    "line-main",
-		ICCID:     "legacy-hardware-id",
+		EventKey:   "sms:2",
+		MessageID:  "2",
+		ThreadKey:  "line-main|+818000000002",
+		LineID:     "line-main",
+		ICCID:      "legacy-hardware-id",
+		ObservedAt: observedAt,
 	})
 	api, err := New(&fakeRepository{}, Options{
 		MessageEvents:         events,
@@ -136,6 +138,7 @@ func TestMessageEventStreamReplaysLastEventID(t *testing.T) {
 	if !strings.Contains(body, "event: sms") ||
 		!strings.Contains(body, `"message_id":"2"`) ||
 		!strings.Contains(body, `"line_id":"line-main"`) ||
+		!strings.Contains(body, `"observed_at":"2026-07-24T07:30:05Z"`) ||
 		strings.Contains(body, `"message_id":"1"`) ||
 		strings.Contains(body, `"iccid"`) ||
 		!strings.Contains(body, "event: ready") {

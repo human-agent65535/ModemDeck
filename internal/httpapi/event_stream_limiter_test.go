@@ -375,11 +375,10 @@ func TestEventStreamsRecheckAccessBeforePublishing(t *testing.T) {
 		)
 		repository.setFound(false)
 		events.Publish(runtimeevents.Event{
-			EventKey:  "revoked-runtime-event",
 			Resources: []runtimeevents.Resource{runtimeevents.ResourceSession},
 		})
 		waitForEventStreamClose(t, done, cancel)
-		if bytes.Contains([]byte(response.bodyString()), []byte("revoked-runtime-event")) {
+		if bytes.Contains([]byte(response.bodyString()), []byte("event: runtime")) {
 			t.Fatalf("revoked runtime event was published: %q", response.bodyString())
 		}
 	})
