@@ -903,6 +903,8 @@ export default {
     "loadFailed": "Không thể tải cài đặt Telegram",
     "newBot": "Bot mới",
     "newTelegramBot": "Bot Telegram mới",
+    "searchBots": "Tìm kiếm bot",
+    "noMatchingBots": "Không có bot phù hợp",
     "empty": "Chưa có bot Telegram nào",
     "unnamed": "Bot không tên",
     "unsaved": "Chưa lưu",

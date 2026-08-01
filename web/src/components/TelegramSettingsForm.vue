@@ -5,8 +5,6 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   Bell,
   CardSim,
-  CircleCheck,
-  CircleOff,
   KeyRound,
   LoaderCircle,
   MessageSquareText,
@@ -38,6 +36,7 @@ import StatePanel from './StatePanel.vue'
 import SettingsLineScopeList from './settings/SettingsLineScopeList.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SettingsMasterDetail from './settings/SettingsMasterDetail.vue'
+import SettingsResourceStatus from './settings/SettingsResourceStatus.vue'
 
 type TelegramScopeOption = {
   id: string
@@ -66,6 +65,7 @@ const saving = ref(false)
 const deleting = ref(false)
 const deleteConfirm = ref(false)
 const saveError = ref('')
+const searchQuery = ref('')
 const users = ref<UserAccount[]>([])
 const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
 const mobileDetailOpen = computed(
@@ -157,6 +157,20 @@ function unitScopeSummary(unit: TelegramUnit): string {
     lines: summary
   })
 }
+
+const normalizedSearch = computed(() => searchQuery.value.trim().toLocaleLowerCase())
+const filteredTelegramUnits = computed(() => {
+  if (!normalizedSearch.value) return telegramResource.data
+  return telegramResource.data.filter(unit =>
+    [
+      unit.display_name,
+      unit.bot_username,
+      unit.chat_id,
+      unit.assigned_username,
+      unitScopeSummary(unit)
+    ].some(value => (value || '').toLocaleLowerCase().includes(normalizedSearch.value))
+  )
+})
 
 const tokenConfigured = computed(() => selectedUnit.value?.token_configured === true)
 const validationError = computed(() => {
@@ -494,6 +508,8 @@ onMounted(() => {
     :label="t('telegram.bots')"
     :sidebar-title="t('telegram.bots')"
     :sidebar-description="t('telegram.count', { count: telegramResource.data.length })"
+    v-model:search-query="searchQuery"
+    :search-placeholder="t('telegram.searchBots')"
     :detail-open="mobileDetailOpen"
     :detail-key="creating ? '__telegram_bot_draft__' : selectedID"
   >
@@ -518,7 +534,7 @@ onMounted(() => {
         type="button"
         aria-current="true"
       >
-        <span class="telegram-unit-row__icon is-enabled" aria-hidden="true">
+        <span class="telegram-unit-row__icon" aria-hidden="true">
           <Send :size="18" />
         </span>
         <span class="telegram-unit-row__copy">
@@ -536,31 +552,23 @@ onMounted(() => {
         </span>
       </button>
       <button
-        v-for="unit in telegramResource.data"
+        v-for="unit in filteredTelegramUnits"
         :key="unit.id"
         class="settings-resource-row telegram-unit-row"
         :class="{ 'is-selected': !creating && unit.id === selectedID }"
         type="button"
         @click="selectUnit(unit.id)"
       >
-        <span
-          class="telegram-unit-row__icon"
-          :class="{ 'is-enabled': unit.effective_enabled }"
-          aria-hidden="true"
-        >
+        <span class="telegram-unit-row__icon" aria-hidden="true">
           <Send :size="18" />
         </span>
         <span class="telegram-unit-row__copy">
           <span class="telegram-unit-row__topline">
             <strong>{{ unit.display_name }}</strong>
-            <span
-              class="telegram-unit-row__state"
-              :class="{ 'is-enabled': unit.effective_enabled }"
-            >
-              <CircleCheck v-if="unit.effective_enabled" :size="12" aria-hidden="true" />
-              <CircleOff v-else :size="12" aria-hidden="true" />
-              {{ unit.effective_enabled ? t('lines.enabled') : t('lines.disabled') }}
-            </span>
+            <SettingsResourceStatus
+              :disabled="!unit.effective_enabled"
+              :label="t('lines.disabled')"
+            />
           </span>
           <small>{{ unit.bot_username ? `@${unit.bot_username}` : unit.chat_id }}</small>
           <span class="telegram-unit-row__scope" :title="unitScopeSummary(unit)">
@@ -569,6 +577,15 @@ onMounted(() => {
           </span>
         </span>
       </button>
+      <StatePanel
+        v-if="
+          !creating &&
+          telegramResource.data.length > 0 &&
+          filteredTelegramUnits.length === 0
+        "
+        state="empty"
+        :title="t('telegram.noMatchingBots')"
+      />
     </template>
 
     <section class="telegram-unit-editor">
@@ -820,16 +837,10 @@ onMounted(() => {
   height: 36px;
   align-items: center;
   justify-content: center;
-  color: var(--muted);
-  background: var(--surface-subtle);
-  border: 1px solid var(--border);
-  border-radius: 50%;
-}
-
-.telegram-unit-row__icon.is-enabled {
   color: var(--accent-strong);
   background: var(--accent-soft);
-  border-color: var(--accent-border);
+  border: 1px solid var(--accent-border);
+  border-radius: 50%;
 }
 
 .telegram-unit-row__copy {
@@ -871,10 +882,6 @@ onMounted(() => {
   color: var(--muted);
   font-size: 10px;
   font-weight: 700;
-}
-
-.telegram-unit-row__state.is-enabled {
-  color: var(--success);
 }
 
 .telegram-unit-row__state.is-draft {

@@ -911,6 +911,8 @@ export default {
     loadFailed: '無法載入 Telegram 設定',
     newBot: '新建 Bot',
     newTelegramBot: '新建 Telegram Bot',
+    searchBots: '搜尋 Bot',
+    noMatchingBots: '沒有符合條件的 Bot',
     empty: '還沒有 Telegram Bot',
     unnamed: '未命名 Bot',
     unsaved: '未儲存',

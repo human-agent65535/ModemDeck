@@ -5,7 +5,6 @@ import {
   LoaderCircle,
   Plus,
   Save,
-  Search,
   ShieldCheck,
   Trash2,
   UserRound
@@ -37,6 +36,7 @@ import StatePanel from './StatePanel.vue'
 import SettingsLineScopeList from './settings/SettingsLineScopeList.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SettingsMasterDetail from './settings/SettingsMasterDetail.vue'
+import SettingsResourceStatus from './settings/SettingsResourceStatus.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -381,6 +381,8 @@ onMounted(() => {
     :label="t('users.title')"
     :sidebar-title="t('users.title')"
     :sidebar-description="t('users.count', { count: users.length })"
+    v-model:search-query="searchQuery"
+    :search-placeholder="t('users.searchUsers')"
     :detail-open="mobileDetailOpen"
     :detail-key="creating ? '__new_member__' : selectedID"
   >
@@ -394,17 +396,6 @@ onMounted(() => {
       >
         <Plus :size="18" />
       </button>
-    </template>
-    <template #sidebar-toolbar>
-      <label class="user-search">
-        <Search :size="16" aria-hidden="true" />
-        <span class="sr-only">{{ t('users.searchUsers') }}</span>
-        <input
-          v-model="searchQuery"
-          type="search"
-          :placeholder="t('users.searchUsers')"
-        />
-      </label>
     </template>
     <template #sidebar>
       <button
@@ -444,10 +435,9 @@ onMounted(() => {
           </span>
           <small>{{ userLineSummary(user) }}</small>
         </span>
-        <span
-          class="user-status"
-          :class="{ 'is-disabled': !user.enabled }"
-          :title="user.enabled ? t('users.enabled') : t('users.disabled')"
+        <SettingsResourceStatus
+          :disabled="!user.enabled"
+          :label="t('users.disabled')"
         />
       </button>
       <StatePanel
@@ -738,33 +728,6 @@ onMounted(() => {
   gap: 3px;
 }
 
-.user-search {
-  display: flex;
-  height: 44px;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 10px;
-  color: var(--muted);
-  border-bottom: 1px solid var(--border);
-}
-
-.user-search input {
-  width: 100%;
-  min-width: 0;
-  height: 32px;
-  padding: 0;
-  color: var(--text);
-  font-size: 12px;
-  background: transparent;
-  border: 0;
-  outline: 0;
-}
-
-.user-search:focus-within {
-  color: var(--accent-strong);
-  box-shadow: inset 3px 0 0 var(--accent);
-}
-
 .user-row small,
 .user-editor small {
   overflow: hidden;
@@ -790,17 +753,6 @@ onMounted(() => {
 
 .user-row__name svg {
   color: var(--accent-strong);
-}
-
-.user-status {
-  width: 8px;
-  height: 8px;
-  background: var(--success);
-  border-radius: 50%;
-}
-
-.user-status.is-disabled {
-  background: var(--faint);
 }
 
 .user-editor {

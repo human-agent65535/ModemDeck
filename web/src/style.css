@@ -61,6 +61,7 @@
   --detail-action-size: var(--touch-target);
   --page-content-reading-max: 960px;
   --page-content-dashboard-max: 1440px;
+  --settings-page-end-gutter: 32px;
   --rail-width: 92px;
   --header-height: 72px;
   --dialer-width: clamp(360px, 28vw, 420px);
@@ -1373,6 +1374,10 @@ textarea::placeholder {
   min-height: 0;
   padding: 26px;
   overflow-y: auto;
+}
+
+.settings-content {
+  padding-bottom: var(--settings-page-end-gutter);
 }
 
 .detail-section {
@@ -3370,6 +3375,10 @@ dd {
 
   .settings-content {
     padding: 18px 16px;
+    padding-bottom: max(
+      var(--settings-page-end-gutter),
+      env(safe-area-inset-bottom)
+    );
   }
 
   .messages-scroll {
@@ -3458,8 +3467,6 @@ dd {
   .tls-install__actions {
     align-items: stretch;
     flex-direction: column;
-    padding-bottom: 76px;
-    scroll-margin-block-end: 76px;
   }
 
   .tls-install__actions .primary-button {
@@ -3471,8 +3478,6 @@ dd {
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
     gap: 8px;
-    padding-bottom: 76px;
-    scroll-margin-block-end: 76px;
   }
 
   .settings-form-feedback {

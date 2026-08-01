@@ -230,14 +230,53 @@ test('master-detail settings are flush and mobile page titles cover every sectio
     masterDetail,
     /\.settings-master-detail__detail-content \{[\s\S]*overflow-y: auto;[\s\S]*overscroll-behavior: contain;/
   )
-  assert.match(masterDetail, /padding: 0 24px 32px;/)
   assert.match(
     masterDetail,
-    /padding: 12px 16px max\(32px, env\(safe-area-inset-bottom\)\);/
+    /padding: 0 24px var\(--settings-page-end-gutter\);/
+  )
+  assert.match(
+    masterDetail,
+    /padding: 12px 16px[\s\S]*max\(var\(--settings-page-end-gutter\), env\(safe-area-inset-bottom\)\);/
   )
   assert.match(shell, /'external-access': t\('settings\.iosApp'\)/)
   assert.match(shell, /'web-certificate': t\('settings\.tls'\)/)
   assert.match(shell, /about: t\('settings\.about'\)/)
+})
+
+test('master-detail resources use the template-owned search field', async () => {
+  const [masterDetail, users, telegram] = await Promise.all([
+    source('../src/components/settings/SettingsMasterDetail.vue'),
+    source('../src/components/UserSettingsPanel.vue'),
+    source('../src/components/TelegramSettingsForm.vue')
+  ])
+
+  assert.match(masterDetail, /searchQuery: string/)
+  assert.match(masterDetail, /searchPlaceholder: string/)
+  assert.match(masterDetail, /class="settings-master-detail__search"/)
+  for (const resource of [users, telegram]) {
+    assert.match(resource, /v-model:search-query="searchQuery"/)
+    assert.doesNotMatch(resource, /#sidebar-toolbar|class="user-search"/)
+  }
+  assert.match(telegram, /v-for="unit in filteredTelegramUnits"/)
+})
+
+test('settings scroll owners share one page-end gutter', async () => {
+  const [style, masterDetail, devices] = await Promise.all([
+    source('../src/style.css'),
+    source('../src/components/settings/SettingsMasterDetail.vue'),
+    source('../src/components/DeviceConfigurationPanel.vue')
+  ])
+
+  assert.match(style, /--settings-page-end-gutter: 32px;/)
+  assert.match(
+    style,
+    /\.settings-content \{\s*padding-bottom: var\(--settings-page-end-gutter\);\s*\}/
+  )
+  for (const template of [masterDetail, devices]) {
+    assert.match(template, /var\(--settings-page-end-gutter\)/)
+  }
+  assert.doesNotMatch(style, /padding-bottom: 76px;/)
+  assert.doesNotMatch(devices, /padding-bottom: (?:24|76)px;/)
 })
 
 test('settings drilldown aligns with the shell compact breakpoint', async () => {

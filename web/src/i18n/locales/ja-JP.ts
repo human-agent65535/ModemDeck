@@ -903,6 +903,8 @@ export default {
     "loadFailed": "テレグラム設定をロードできません",
     "newBot": "新しいボット",
     "newTelegramBot": "新しい電報ボット",
+    "searchBots": "Botを検索",
+    "noMatchingBots": "一致するBotはありません",
     "empty": "Telegram ボットはまだありません",
     "unnamed": "名前のないボット",
     "unsaved": "保存されていません",

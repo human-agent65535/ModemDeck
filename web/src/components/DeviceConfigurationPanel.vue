@@ -2452,7 +2452,7 @@ onMounted(() => {
 
 .device-detail {
   min-width: 0;
-  padding-bottom: 24px;
+  padding-bottom: var(--settings-page-end-gutter);
 }
 
 .module-toolbar,
@@ -3874,6 +3874,10 @@ pre {
 
   .device-module-list {
     padding-inline: var(--device-workspace-gutter);
+    padding-bottom: max(
+      var(--settings-page-end-gutter),
+      env(safe-area-inset-bottom)
+    );
   }
 
   .module-grid {
@@ -3885,7 +3889,10 @@ pre {
   }
 
   .device-detail {
-    padding-bottom: 76px;
+    padding-bottom: max(
+      var(--settings-page-end-gutter),
+      env(safe-area-inset-bottom)
+    );
   }
 
   .selected-module-context {

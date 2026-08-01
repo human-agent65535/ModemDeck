@@ -176,6 +176,11 @@ test('multi-user UI exposes only authorized settings and communication areas', a
   assert.match(users, /const filteredUsers = computed/)
   assert.match(users, /<SettingsMasterDetail/)
   assert.match(users, /class="settings-resource-row user-row/)
+  assert.match(
+    users,
+    /<SettingsResourceStatus[\s\S]*:disabled="!user\.enabled"[\s\S]*:label="t\('users\.disabled'\)"/
+  )
+  assert.doesNotMatch(users, /class="user-status"/)
   assert.match(users, /:detail-open="mobileDetailOpen"/)
   assert.match(users, /class="user-account-access"/)
   assert.match(

@@ -911,6 +911,8 @@ export default {
     loadFailed: '无法载入 Telegram 设置',
     newBot: '新建 Bot',
     newTelegramBot: '新建 Telegram Bot',
+    searchBots: '搜索 Bot',
+    noMatchingBots: '没有匹配的 Bot',
     empty: '还没有 Telegram Bot',
     unnamed: '未命名 Bot',
     unsaved: '未保存',

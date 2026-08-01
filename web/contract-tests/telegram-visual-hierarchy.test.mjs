@@ -14,6 +14,10 @@ const lineScopeList = readFileSync(
   new URL('../src/components/settings/SettingsLineScopeList.vue', import.meta.url),
   'utf8'
 )
+const resourceStatus = readFileSync(
+  new URL('../src/components/settings/SettingsResourceStatus.vue', import.meta.url),
+  'utf8'
+)
 
 test('Telegram bot list exposes channel identity, status, and line scope', () => {
   const listStart = form.indexOf('<template #sidebar>')
@@ -21,6 +25,7 @@ test('Telegram bot list exposes channel identity, status, and line scope', () =>
   const list = form.slice(listStart, listEnd)
 
   assert.match(form, /:sidebar-title="t\('telegram\.bots'\)"/)
+  assert.match(form, /:search-placeholder="t\('telegram\.searchBots'\)"/)
   assert.match(
     form,
     /:sidebar-description="t\('telegram\.count', \{ count: telegramResource\.data\.length \}\)"/
@@ -28,8 +33,11 @@ test('Telegram bot list exposes channel identity, status, and line scope', () =>
   assert.match(list, /telegram-unit-row__icon[\s\S]*<Send/)
   assert.match(
     list,
-    /unit\.effective_enabled \? t\('lines\.enabled'\) : t\('lines\.disabled'\)/
+    /<SettingsResourceStatus[\s\S]*:disabled="!unit\.effective_enabled"[\s\S]*:label="t\('lines\.disabled'\)"/
   )
+  assert.match(resourceStatus, /v-if="disabled"/)
+  assert.match(resourceStatus, /<CircleOff/)
+  assert.doesNotMatch(resourceStatus, /CircleCheck/)
   assert.match(list, /unitScopeSummary\(unit\)/)
   assert.match(list, /<UsersRound :size="13"/)
   assert.doesNotMatch(list, /unit\.scope_source|<CardSim v-else/)

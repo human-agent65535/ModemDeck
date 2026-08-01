@@ -932,6 +932,8 @@ export default {
     loadFailed: 'Unable to load Telegram settings',
     newBot: 'New bot',
     newTelegramBot: 'New Telegram bot',
+    searchBots: 'Search bots',
+    noMatchingBots: 'No matching bots',
     empty: 'No Telegram bots yet',
     unnamed: 'Unnamed bot',
     unsaved: 'Not saved',

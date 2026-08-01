@@ -903,6 +903,8 @@ export default {
     "loadFailed": "No se puede cargar la configuración de Telegram",
     "newBot": "Nuevo robot",
     "newTelegramBot": "Nuevo robot de Telegram",
+    "searchBots": "Buscar bots",
+    "noMatchingBots": "No hay bots coincidentes",
     "empty": "Aún no hay robots de Telegram",
     "unnamed": "Bot sin nombre",
     "unsaved": "No guardado",

@@ -903,6 +903,8 @@ export default {
     "loadFailed": "Telegrammeinstellungen können nicht geladen werden",
     "newBot": "Neuer Bot",
     "newTelegramBot": "Neuer Telegram-Bot",
+    "searchBots": "Bots suchen",
+    "noMatchingBots": "Keine passenden Bots",
     "empty": "Noch keine Telegram-Bots",
     "unnamed": "Unbenannter Bot",
     "unsaved": "Nicht gespeichert",

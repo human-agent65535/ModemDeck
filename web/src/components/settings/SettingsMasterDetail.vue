@@ -1,9 +1,13 @@
 <script setup lang="ts">
+import { Search } from '@lucide/vue'
+
 withDefaults(
   defineProps<{
     label: string
     sidebarTitle?: string
     sidebarDescription?: string
+    searchQuery: string
+    searchPlaceholder: string
     detailOpen?: boolean
     detailKey?: string | number | null
   }>(),
@@ -14,6 +18,10 @@ withDefaults(
     detailKey: null
   }
 )
+
+const emit = defineEmits<{
+  'update:searchQuery': [value: string]
+}>()
 </script>
 
 <template>
@@ -33,11 +41,17 @@ withDefaults(
         </span>
         <slot name="sidebar-action" />
       </header>
-      <div
-        v-if="$slots['sidebar-toolbar']"
-        class="settings-master-detail__sidebar-toolbar"
-      >
-        <slot name="sidebar-toolbar" />
+      <div class="settings-master-detail__sidebar-toolbar">
+        <label class="settings-master-detail__search">
+          <Search :size="16" aria-hidden="true" />
+          <span class="sr-only">{{ searchPlaceholder }}</span>
+          <input
+            :value="searchQuery"
+            type="search"
+            :placeholder="searchPlaceholder"
+            @input="emit('update:searchQuery', ($event.target as HTMLInputElement).value)"
+          />
+        </label>
       </div>
       <div class="settings-master-detail__list">
         <slot name="sidebar" />
@@ -126,6 +140,34 @@ withDefaults(
   flex: 0 0 auto;
 }
 
+.settings-master-detail__search {
+  display: flex;
+  height: 44px;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  color: var(--muted);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-master-detail__search input {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0;
+  color: var(--text);
+  font-size: 12px;
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.settings-master-detail__search:focus-within {
+  color: var(--accent-strong);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
 .settings-master-detail__list {
   min-height: 0;
   flex: 1;
@@ -161,7 +203,7 @@ withDefaults(
   min-width: 0;
   min-height: 0;
   flex: 1;
-  padding: 0 24px 32px;
+  padding: 0 24px var(--settings-page-end-gutter);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -178,7 +220,8 @@ withDefaults(
   }
 
   .settings-master-detail__detail-content {
-    padding: 12px 16px max(32px, env(safe-area-inset-bottom));
+    padding: 12px 16px
+      max(var(--settings-page-end-gutter), env(safe-area-inset-bottom));
   }
 }
 </style>
