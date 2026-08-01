@@ -468,13 +468,15 @@ test('recording settings and active state require authoritative booleans and rev
       state: {
         call_id: 'call-1',
         enabled: true,
-        status: 'recording'
+        status: 'recording',
+        active_segment_id: 'segment-1'
       }
     }),
     {
       call_id: 'call-1',
       enabled: true,
-      active: true
+      status: 'recording',
+      active_segment_id: 'segment-1'
     }
   )
   assert.throws(
@@ -490,6 +492,13 @@ test('recording settings and active state require authoritative booleans and rev
         state: { call_id: 'call-1', enabled: true }
       }),
     /status/
+  )
+  assert.throws(
+    () =>
+      parseCallRecordingState({
+        state: { call_id: 'call-1', enabled: true, status: 'starting' }
+      }),
+    /未知/
   )
 })
 
@@ -528,7 +537,8 @@ test('recording metadata derives same-origin authenticated API downloads', () =>
       state: {
         call_id: 'call-1',
         enabled: true,
-        status: 'recording'
+        status: 'recording',
+        active_segment_id: 'recording-1'
       },
       segments: [segment]
     }),
@@ -536,7 +546,8 @@ test('recording metadata derives same-origin authenticated API downloads', () =>
       state: {
         call_id: 'call-1',
         enabled: true,
-        active: true
+        status: 'recording',
+        active_segment_id: 'recording-1'
       },
       segments: parsedSegments
     }

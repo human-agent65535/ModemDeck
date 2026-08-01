@@ -3,6 +3,7 @@ import { gateway } from '../api/client'
 import type {
   CallRecordingSegment,
   CallRecordingState,
+  CallRecordingStatus,
   CallSession,
   RecordingEntry,
   RecordingSettings,
@@ -49,8 +50,8 @@ export const callRecordingState = reactive<{
   callID: string
   status: ActiveRecordingStatus
   enabled: boolean
-  active: boolean
-  startedAt: string
+  recordingStatus: CallRecordingStatus
+  activeSegmentID: string
   busy: boolean
   error: string
   segmentsStatus: ResourceStatus
@@ -60,8 +61,8 @@ export const callRecordingState = reactive<{
   callID: '',
   status: 'idle',
   enabled: false,
-  active: false,
-  startedAt: '',
+  recordingStatus: 'off',
+  activeSegmentID: '',
   busy: false,
   error: '',
   segmentsStatus: 'idle',
@@ -99,18 +100,13 @@ let settingsGeneration = 0
 let dialerResetGeneration = 0
 let callSyncGeneration = 0
 let activeSnapshotCallID = ''
+let activeSnapshotEligible = false
 let preferredCallID = ''
 let preferredCallEnabled = false
-let activeSegmentsGeneration = 0
+let activeSnapshotRequest: Promise<void> | undefined
+let activeSnapshotDirty = false
 let recordingListGeneration = 0
 let recordingCatalogGeneration = 0
-const RECORDING_INTERACTION_LOCK_MS = 160
-
-function recordingInteractionLock(): Promise<void> {
-  return new Promise(resolve => {
-    globalThis.setTimeout(resolve, RECORDING_INTERACTION_LOCK_MS)
-  })
-}
 
 function failureMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiError && error.status === 403) {
@@ -136,11 +132,11 @@ function acceptCallRecording(callID: string, state: CallRecordingState): void {
     throw new Error(translate('runtime.recordingCallMismatch'))
   }
   callRecordingState.callID = callID
-  callRecordingState.status = state.error ? 'error' : 'ready'
+  callRecordingState.status = 'ready'
   callRecordingState.enabled = state.enabled
-  callRecordingState.active = state.active
-  callRecordingState.startedAt = state.started_at || ''
-  callRecordingState.error = state.error || ''
+  callRecordingState.recordingStatus = state.status
+  callRecordingState.activeSegmentID = state.active_segment_id || ''
+  callRecordingState.error = ''
 }
 
 export async function loadRecordingSettings(force = false): Promise<RecordingSettings | null> {
@@ -234,7 +230,10 @@ export function setDialerRecording(enabled: boolean): void {
 export function rememberCallRecordingPreference(callID: string, enabled: boolean): void {
   preferredCallID = callID
   preferredCallEnabled = enabled
-  if (callRecordingState.callID === callID && !callRecordingState.active) {
+  if (
+    callRecordingState.callID === callID &&
+    !activeSnapshotEligible
+  ) {
     callSyncGeneration += 1
     callRecordingState.status = 'ready'
     callRecordingState.enabled = enabled
@@ -248,13 +247,14 @@ export function preferredCallRecording(callID: string): boolean | undefined {
 
 function clearActiveRecording(): void {
   callSyncGeneration += 1
-  activeSegmentsGeneration += 1
   activeSnapshotCallID = ''
+  activeSnapshotEligible = false
+  activeSnapshotDirty = false
   callRecordingState.callID = ''
   callRecordingState.status = 'idle'
   callRecordingState.enabled = false
-  callRecordingState.active = false
-  callRecordingState.startedAt = ''
+  callRecordingState.recordingStatus = 'off'
+  callRecordingState.activeSegmentID = ''
   callRecordingState.busy = false
   callRecordingState.error = ''
   callRecordingState.segmentsStatus = 'idle'
@@ -262,17 +262,25 @@ function clearActiveRecording(): void {
   callRecordingState.segmentsError = ''
 }
 
-async function loadActiveCallRecording(callID: string): Promise<void> {
+async function readActiveCallRecording(callID: string): Promise<void> {
   const normalizedCallID = callID.trim()
-  if (!normalizedCallID || callRecordingState.callID !== normalizedCallID) return
+  if (
+    !normalizedCallID ||
+    !activeSnapshotEligible ||
+    callRecordingState.callID !== normalizedCallID
+  ) {
+    return
+  }
 
-  const token = ++activeSegmentsGeneration
+  if (callRecordingState.status === 'idle') {
+    callRecordingState.status = 'initializing'
+  }
   callRecordingState.segmentsStatus = 'loading'
   callRecordingState.segmentsError = ''
   try {
     const snapshot = await gateway.getCallRecording(normalizedCallID)
     if (
-      token !== activeSegmentsGeneration ||
+      !activeSnapshotEligible ||
       callRecordingState.callID !== normalizedCallID
     ) {
       return
@@ -284,7 +292,7 @@ async function loadActiveCallRecording(callID: string): Promise<void> {
     callRecordingState.segmentsStatus = 'ready'
   } catch (error) {
     if (
-      token !== activeSegmentsGeneration ||
+      !activeSnapshotEligible ||
       callRecordingState.callID !== normalizedCallID
     ) {
       return
@@ -295,11 +303,42 @@ async function loadActiveCallRecording(callID: string): Promise<void> {
       error,
       translate('runtime.callRecordingsLoadFailed')
     )
-    if (callRecordingState.status === 'idle') {
-      callRecordingState.status = 'error'
-      callRecordingState.error = callRecordingState.segmentsError
+    callRecordingState.status = 'error'
+    callRecordingState.error = callRecordingState.segmentsError
+  }
+}
+
+function requestActiveCallRecordingRefresh(): Promise<void> {
+  if (!callRecordingState.callID || !activeSnapshotEligible) {
+    return Promise.resolve()
+  }
+
+  activeSnapshotDirty = true
+  if (callRecordingState.busy || activeSnapshotRequest) {
+    return activeSnapshotRequest || Promise.resolve()
+  }
+
+  const run = async () => {
+    while (activeSnapshotDirty && !callRecordingState.busy) {
+      activeSnapshotDirty = false
+      const callID = callRecordingState.callID
+      if (!callID) return
+      await readActiveCallRecording(callID)
     }
   }
+  const request = run().finally(() => {
+    if (activeSnapshotRequest === request) activeSnapshotRequest = undefined
+    if (
+      activeSnapshotDirty &&
+      !callRecordingState.busy &&
+      activeSnapshotEligible &&
+      callRecordingState.callID
+    ) {
+      void requestActiveCallRecordingRefresh()
+    }
+  })
+  activeSnapshotRequest = request
+  return request
 }
 
 export function syncCallRecording(session: CallSession | null): void {
@@ -309,24 +348,41 @@ export function syncCallRecording(session: CallSession | null): void {
     return
   }
 
+  const snapshotEligible = session.control_state === 'owned'
+  let snapshotRequested = false
   if (callRecordingState.callID !== session.id) {
     callSyncGeneration += 1
     activeSnapshotCallID = ''
+    activeSnapshotEligible = snapshotEligible
+    activeSnapshotDirty = false
     callRecordingState.callID = session.id
     callRecordingState.status = 'idle'
     callRecordingState.enabled = false
-    callRecordingState.active = false
-    callRecordingState.startedAt = ''
+    callRecordingState.recordingStatus = 'off'
+    callRecordingState.activeSegmentID = ''
     callRecordingState.busy = false
     callRecordingState.error = ''
     callRecordingState.segmentsStatus = 'idle'
     callRecordingState.segments = []
     callRecordingState.segmentsError = ''
-    if (session.direction === 'outgoing' || session.control_state === 'owned') {
-      void loadActiveCallRecording(session.id)
+    if (snapshotEligible) {
+      void requestActiveCallRecordingRefresh()
+      snapshotRequested = true
     }
+  } else if (snapshotEligible && !activeSnapshotEligible) {
+    callSyncGeneration += 1
+    activeSnapshotCallID = ''
+    activeSnapshotEligible = true
+    callRecordingState.status = 'initializing'
+    callRecordingState.error = ''
+    void requestActiveCallRecordingRefresh()
+    snapshotRequested = true
+  } else {
+    activeSnapshotEligible = snapshotEligible
+    if (!snapshotEligible) activeSnapshotDirty = false
   }
   if (session.phase !== 'active') {
+    if (snapshotEligible) return
     if (preferredCallID === session.id) {
       callRecordingState.status = 'ready'
       callRecordingState.enabled = preferredCallEnabled
@@ -361,40 +417,44 @@ export function syncCallRecording(session: CallSession | null): void {
     })
     return
   }
+  if (!snapshotEligible) return
   if (activeSnapshotCallID === session.id) return
   activeSnapshotCallID = session.id
-  if (!callRecordingState.busy) void loadActiveCallRecording(session.id)
+  if (!snapshotRequested) void requestActiveCallRecordingRefresh()
 }
 
 export async function setCallRecordingEnabled(enabled: boolean): Promise<void> {
   const callID = callRecordingState.callID
-  if (!callID || callRecordingState.busy) return
+  if (
+    !callID ||
+    !activeSnapshotEligible ||
+    callRecordingState.busy ||
+    callRecordingState.status !== 'ready' ||
+    callRecordingState.segmentsStatus === 'loading'
+  ) {
+    return
+  }
 
-  const interactionLock = recordingInteractionLock()
-  const previousEnabled = callRecordingState.enabled
-  const token = ++callSyncGeneration
+  let mutationError = ''
   callRecordingState.busy = true
-  callRecordingState.status = 'ready'
-  callRecordingState.enabled = enabled
   callRecordingState.error = ''
   try {
     const state = await gateway.setCallRecording(callID, enabled)
-    if (token !== callSyncGeneration || callRecordingState.callID !== callID) return
+    if (callRecordingState.callID !== callID) return
     acceptCallRecording(callID, state)
   } catch (error) {
-    if (token !== callSyncGeneration || callRecordingState.callID !== callID) return
-    callRecordingState.status = 'error'
-    callRecordingState.enabled = previousEnabled
-    callRecordingState.error = failureMessage(
+    if (callRecordingState.callID !== callID) return
+    mutationError = failureMessage(
       error,
       translate('runtime.recordingToggleFailed')
     )
   } finally {
-    await interactionLock
     if (callRecordingState.callID === callID) {
       callRecordingState.busy = false
-      if (activeSnapshotCallID === callID) {
-        void loadActiveCallRecording(callID)
+      activeSnapshotDirty = true
+      await requestActiveCallRecordingRefresh()
+      if (callRecordingState.callID === callID && mutationError) {
+        callRecordingState.error = mutationError
       }
     }
   }
@@ -584,7 +644,9 @@ export async function refreshRecordingWorkspace(): Promise<void> {
     refreshRecordingEntries()
   ]
   if (callRecordingState.callID) {
-    requests.push(loadActiveCallRecording(callRecordingState.callID))
+    if (activeSnapshotEligible) {
+      requests.push(requestActiveCallRecordingRefresh())
+    }
   }
   if (recordingListState.callID) {
     requests.push(loadCallRecordings(recordingListState.callID, true))
@@ -667,11 +729,11 @@ export function resetRecordingState(): void {
   settingsGeneration += 1
   dialerResetGeneration += 1
   callSyncGeneration += 1
-  activeSegmentsGeneration += 1
   recordingListGeneration += 1
   recordingCatalogGeneration += 1
   settingsRequest = undefined
   activeSnapshotCallID = ''
+  activeSnapshotEligible = false
   preferredCallID = ''
   preferredCallEnabled = false
 
@@ -688,13 +750,14 @@ export function resetRecordingState(): void {
   callRecordingState.callID = ''
   callRecordingState.status = 'idle'
   callRecordingState.enabled = false
-  callRecordingState.active = false
-  callRecordingState.startedAt = ''
+  callRecordingState.recordingStatus = 'off'
+  callRecordingState.activeSegmentID = ''
   callRecordingState.busy = false
   callRecordingState.error = ''
   callRecordingState.segmentsStatus = 'idle'
   callRecordingState.segments = []
   callRecordingState.segmentsError = ''
+  activeSnapshotDirty = false
 
   recordingListState.callID = ''
   recordingListState.status = 'idle'

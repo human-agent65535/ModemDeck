@@ -138,6 +138,26 @@ const recordingSegments = computed(() =>
     ? callRecordingState.segments
     : []
 )
+const activeRecordingSegment = computed(() =>
+  recordingSegments.value.find(
+    segment =>
+      segment.id === callRecordingState.activeSegmentID &&
+      segment.status === 'recording'
+  )
+)
+const recordingActive = computed(
+  () =>
+    callRecordingState.recordingStatus === 'recording' &&
+    Boolean(activeRecordingSegment.value)
+)
+const recordingFailed = computed(
+  () => callRecordingState.recordingStatus === 'failed'
+)
+const recordingControlReady = computed(
+  () =>
+    callRecordingState.status === 'ready' &&
+    callRecordingState.segmentsStatus !== 'loading'
+)
 const canHangup = computed(() => {
   const phase = session.value?.phase
   return (
@@ -201,9 +221,12 @@ const showMediaControls = computed(
 )
 const recordingLabel = computed(() => {
   if (!active.value || !callState.owned) return ''
-  if (callRecordingState.status === 'initializing') return t('calls.applyingRecording')
-  if (callRecordingState.active) return t('calls.recordingActive')
-  if (callRecordingState.enabled) return t('calls.recordingEnabled')
+  if (recordingActive.value) return t('calls.recordingActive')
+  if (callRecordingState.busy || callRecordingState.status === 'initializing') {
+    return t('calls.applyingRecording')
+  }
+  if (recordingFailed.value) return t('calls.recordingFailed')
+  if (callRecordingState.enabled) return t('calls.recordingPending')
   return ''
 })
 const statusError = computed(
@@ -227,8 +250,12 @@ const capabilityNotice = computed(() => {
     .join(t('common.listSeparator'))
 })
 
+function isActiveRecordingSegment(segment: CallRecordingSegment): boolean {
+  return recordingActive.value && segment.id === callRecordingState.activeSegmentID
+}
+
 function recordingSegmentDuration(segment: CallRecordingSegment): string {
-  if (segment.status === 'recording' && segment.started_at) {
+  if (isActiveRecordingSegment(segment) && segment.started_at) {
     const startedAt = Date.parse(segment.started_at)
     if (Number.isFinite(startedAt)) {
       return formatDuration(Math.max(0, Math.floor((now.value - startedAt) / 1000)))
@@ -270,7 +297,7 @@ function toggleRecording(): void {
     !session.value ||
     callState.busy ||
     callRecordingState.busy ||
-    callRecordingState.status === 'initializing'
+    !recordingControlReady.value
   ) {
     return
   }
@@ -355,9 +382,12 @@ onBeforeUnmount(() => {
           <p
             v-if="recordingLabel"
             class="call-surface__recording"
-            :class="{ 'is-active': callRecordingState.active }"
+            :class="{
+              'is-active': recordingActive,
+              'is-failed': recordingFailed
+            }"
           >
-            <i v-if="callRecordingState.active" aria-hidden="true" />
+            <i v-if="recordingActive" aria-hidden="true" />
             {{ recordingLabel }}
           </p>
         </div>
@@ -375,14 +405,14 @@ onBeforeUnmount(() => {
               v-for="segment in recordingSegments"
               :key="segment.id"
               :class="{
-                'is-active': segment.status === 'recording',
+                'is-active': isActiveRecordingSegment(segment),
                 'is-failed': segment.status === 'failed'
               }"
               :title="
                 `${t('recordings.segment', { number: segment.segment_index })} · ${recordingSegmentStatus(segment)}`
               "
             >
-              <i v-if="segment.status === 'recording'" aria-hidden="true" />
+              <i v-if="isActiveRecordingSegment(segment)" aria-hidden="true" />
               <span>{{ String(segment.segment_index).padStart(2, '0') }}</span>
               <strong>{{ recordingSegmentDuration(segment) }}</strong>
             </li>
@@ -494,13 +524,16 @@ onBeforeUnmount(() => {
           :disabled="
             callState.busy ||
             callRecordingState.busy ||
-            callRecordingState.status === 'initializing'
+            !recordingControlReady
           "
           @click="toggleRecording"
         >
           <span class="call-footer-action__icon" aria-hidden="true">
             <LoaderCircle
-              v-if="callRecordingState.status === 'initializing'"
+              v-if="
+                callRecordingState.busy ||
+                callRecordingState.status === 'initializing'
+              "
               class="spin"
               :size="20"
             />
@@ -726,6 +759,11 @@ onBeforeUnmount(() => {
 }
 
 .call-surface__recording.is-active {
+  color: var(--danger);
+  font-weight: 650;
+}
+
+.call-surface__recording.is-failed {
   color: var(--danger);
   font-weight: 650;
 }

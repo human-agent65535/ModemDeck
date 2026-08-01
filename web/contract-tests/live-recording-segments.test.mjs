@@ -10,7 +10,7 @@ test('recording runtime events refresh the active call segment resources', async
 
   assert.match(
     recording,
-    /if \(callRecordingState\.callID\) \{[\s\S]*loadActiveCallRecording\(callRecordingState\.callID\)/
+    /if \(callRecordingState\.callID\) \{[\s\S]*requestActiveCallRecordingRefresh\(\)/
   )
   assert.match(
     recording,
@@ -28,6 +28,9 @@ test('the active call surface shows each recording segment and its live duration
   assert.match(surface, /callRecordingState\.segments/)
   assert.match(surface, /segment\.segment_index/)
   assert.match(surface, /recordingSegmentDuration\(segment\)/)
-  assert.match(surface, /segment\.status === 'recording'/)
+  assert.match(surface, /isActiveRecordingSegment\(segment\)/)
+  assert.match(surface, /callRecordingState\.recordingStatus === 'recording'/)
+  assert.match(surface, /t\('calls\.recordingPending'\)/)
+  assert.match(surface, /t\('calls\.recordingFailed'\)/)
   assert.match(surface, /class="call-surface__recording-segments"/)
 })

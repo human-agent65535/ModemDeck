@@ -1023,7 +1023,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     ? {
         call_id: activeCall.id,
         enabled: false,
-        active: false
+        status: 'off'
       }
     : undefined
   let activeCallRecordingSegments: CallRecordingSegment[] = []
@@ -1046,6 +1046,12 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       size_bytes: 0,
       playable: false
     })
+    if (activeCallRecording) {
+      activeCallRecording.status = 'recording'
+      activeCallRecording.active_segment_id =
+        `recording-${activeCall.id}-${activeCallRecordingSequence}`
+      delete activeCallRecording.last_error_code
+    }
   }
 
   function finishFixtureRecordingSegment(): void {
@@ -1062,6 +1068,11 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     segment.playable = true
     segment.content_type = 'audio/wav'
     segment.download_url = recordingFixtureURL()
+    if (activeCallRecording?.active_segment_id === segment.id) {
+      activeCallRecording.status = activeCallRecording.enabled ? 'ready' : 'off'
+      delete activeCallRecording.active_segment_id
+      delete activeCallRecording.last_error_code
+    }
   }
   let callPolls = 0
   let recordingSettings: RecordingSettings = {
@@ -1897,8 +1908,6 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           activeCall.active_at = '2026-07-23T12:05:04Z'
           activeCall.bearer = 'volte'
           if (activeCallRecording?.enabled) {
-            activeCallRecording.active = true
-            activeCallRecording.started_at = new Date().toISOString()
             startFixtureRecordingSegment()
           }
         }
@@ -1941,7 +1950,9 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       activeCallRecording = {
         call_id: activeCall.id,
         enabled: recordingEnabled ?? recordingSettings.default_enabled,
-        active: false
+        status: (recordingEnabled ?? recordingSettings.default_enabled)
+          ? 'pending'
+          : 'off'
       }
       activeCallRecordingSegments = []
       activeCallRecordingSequence = 0
@@ -1957,21 +1968,21 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       if (action === 'answer') {
         if (activeCallRecording && typeof recordingEnabled === 'boolean') {
           activeCallRecording.enabled = recordingEnabled
+          activeCallRecording.status = recordingEnabled ? 'pending' : 'off'
+          delete activeCallRecording.active_segment_id
+          delete activeCallRecording.last_error_code
         }
         activeCall.phase = 'active'
         activeCall.control_state = 'owned'
         activeCall.active_at = '2026-07-23T12:05:04Z'
         activeCall.bearer = 'volte'
         if (activeCallRecording?.enabled) {
-          activeCallRecording.active = true
-          activeCallRecording.started_at = new Date().toISOString()
           startFixtureRecordingSegment()
         }
       } else {
         finishFixtureRecordingSegment()
         activeCall.phase = 'ended'
         activeCall.ended_at = '2026-07-23T12:08:00Z'
-        if (activeCallRecording) activeCallRecording.active = false
       }
     },
 
@@ -2105,17 +2116,19 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       if (!activeCall || activeCall.id !== id || !activeCallRecording) {
         throw new ApiError('通话不存在', 404)
       }
-      const wasActive = activeCallRecording.active
+      const wasActive = activeCallRecording.status === 'recording'
       activeCallRecording.enabled = enabled
-      activeCallRecording.active = enabled && activeCall.phase === 'active'
-      activeCallRecording.error = undefined
-      activeCallRecording.started_at = activeCallRecording.active
-        ? wasActive
-          ? activeCallRecording.started_at
-          : new Date().toISOString()
-        : undefined
-      if (wasActive && !activeCallRecording.active) finishFixtureRecordingSegment()
-      if (!wasActive && activeCallRecording.active) startFixtureRecordingSegment()
+      delete activeCallRecording.last_error_code
+      if (wasActive && !enabled) finishFixtureRecordingSegment()
+      if (!wasActive && enabled && activeCall.phase === 'active') {
+        startFixtureRecordingSegment()
+      } else if (!enabled && !wasActive) {
+        activeCallRecording.status = 'off'
+        delete activeCallRecording.active_segment_id
+      } else if (enabled && activeCall.phase !== 'active') {
+        activeCallRecording.status = 'pending'
+        delete activeCallRecording.active_segment_id
+      }
       return clone(activeCallRecording)
     },
 

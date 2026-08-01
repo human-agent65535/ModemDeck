@@ -12,6 +12,7 @@ import {
 import {
   callRecordingState,
   recordingSettingsState,
+  refreshRecordingWorkspace,
   rememberCallRecordingPreference,
   setCallRecordingEnabled,
   syncCallRecording
@@ -192,6 +193,130 @@ test('a pre-connect recording choice wins over a pending default lookup', async 
   }
 })
 
+test('runtime recording refresh leaves an unclaimed incoming draft alone', async () => {
+  const originalGetRecordingSettings = gateway.getRecordingSettings
+  const originalGetCallRecording = gateway.getCallRecording
+  const originalListRecordings = gateway.listRecordings
+  let snapshotReads = 0
+  const session = {
+    ...callResponse(
+      'call-recording-unclaimed-refresh',
+      'line-main',
+      '+818000000019'
+    ).call,
+    direction: 'incoming',
+    phase: 'ringing',
+    control_state: 'available'
+  }
+
+  recordingSettingsState.status = 'idle'
+  recordingSettingsState.data = null
+  recordingSettingsState.error = ''
+  gateway.getRecordingSettings = async () => ({
+    default_enabled: true,
+    revision: 1
+  })
+  gateway.getCallRecording = async callID => {
+    snapshotReads += 1
+    return {
+      state: { call_id: callID, enabled: false, status: 'off' },
+      segments: []
+    }
+  }
+  gateway.listRecordings = async () => ({
+    items: [],
+    meta: { limit: 50, next_cursor: '', has_more: false }
+  })
+
+  try {
+    syncCallRecording(session)
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(callRecordingState.enabled, true)
+
+    await refreshRecordingWorkspace()
+
+    assert.equal(snapshotReads, 0)
+    assert.equal(callRecordingState.enabled, true)
+    assert.equal(callRecordingState.recordingStatus, 'off')
+  } finally {
+    syncCallRecording(null)
+    gateway.getRecordingSettings = originalGetRecordingSettings
+    gateway.getCallRecording = originalGetCallRecording
+    gateway.listRecordings = originalListRecordings
+  }
+})
+
+test('claiming an incoming call invalidates its pending default lookup', async () => {
+  const originalGetRecordingSettings = gateway.getRecordingSettings
+  const originalGetCallRecording = gateway.getCallRecording
+  let resolveSettings
+  const session = {
+    ...callResponse(
+      'call-recording-claim-default-race',
+      'line-main',
+      '+818000000020'
+    ).call,
+    direction: 'incoming',
+    phase: 'ringing',
+    control_state: 'available'
+  }
+
+  recordingSettingsState.status = 'idle'
+  recordingSettingsState.data = null
+  recordingSettingsState.error = ''
+  gateway.getRecordingSettings = () =>
+    new Promise(resolve => {
+      resolveSettings = resolve
+    })
+  gateway.getCallRecording = async callID => ({
+    state: {
+      call_id: callID,
+      enabled: true,
+      status: 'recording',
+      active_segment_id: 'segment-claimed-incoming'
+    },
+    segments: [{
+      id: 'segment-claimed-incoming',
+      call_id: callID,
+      segment_index: 1,
+      status: 'recording',
+      recorded_at: '2026-07-23T12:00:03Z',
+      started_at: '2026-07-23T12:00:03Z',
+      duration_seconds: 0,
+      size_bytes: 0,
+      playable: false
+    }]
+  })
+
+  try {
+    syncCallRecording(session)
+    assert.equal(callRecordingState.status, 'initializing')
+
+    syncCallRecording({
+      ...session,
+      phase: 'active',
+      control_state: 'owned',
+      media_available: true,
+      active_at: '2026-07-23T12:00:03Z'
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    assert.equal(callRecordingState.recordingStatus, 'recording')
+
+    resolveSettings({ default_enabled: false, revision: 1 })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    assert.equal(callRecordingState.enabled, true)
+    assert.equal(callRecordingState.recordingStatus, 'recording')
+    assert.equal(callRecordingState.activeSegmentID, 'segment-claimed-incoming')
+  } finally {
+    syncCallRecording(null)
+    gateway.getRecordingSettings = originalGetRecordingSettings
+    gateway.getCallRecording = originalGetCallRecording
+  }
+})
+
 test('an active transition reads authority without replaying a recording mutation', async () => {
   const originalSetCallRecording = gateway.setCallRecording
   const originalGetCallRecording = gateway.getCallRecording
@@ -212,16 +337,29 @@ test('an active transition reads authority without replaying a recording mutatio
   }
   gateway.getCallRecording = async callID => {
     snapshotReads += 1
+    const recording = snapshotReads > 1
     return {
       state: {
         call_id: callID,
         enabled: true,
-        active: snapshotReads > 1,
-        ...(snapshotReads > 1
-          ? { started_at: '2026-07-23T12:00:01Z' }
+        status: recording ? 'recording' : 'pending',
+        ...(recording
+          ? { active_segment_id: 'segment-connect-race' }
           : {})
       },
-      segments: []
+      segments: recording
+        ? [{
+            id: 'segment-connect-race',
+            call_id: callID,
+            segment_index: 1,
+            status: 'recording',
+            recorded_at: '2026-07-23T12:00:01Z',
+            started_at: '2026-07-23T12:00:01Z',
+            duration_seconds: 0,
+            size_bytes: 0,
+            playable: false
+          }]
+        : []
     }
   }
 
@@ -247,7 +385,7 @@ test('an active transition reads authority without replaying a recording mutatio
     resolvers.shift()({
       call_id: session.id,
       enabled: true,
-      active: false
+      status: 'pending'
     })
     await preConnectUpdate
     await Promise.resolve()
@@ -258,11 +396,114 @@ test('an active transition reads authority without replaying a recording mutatio
     assert.equal(callRecordingState.busy, false)
     assert.equal(callRecordingState.status, 'ready')
     assert.equal(callRecordingState.enabled, true)
-    assert.equal(callRecordingState.active, true)
+    assert.equal(callRecordingState.recordingStatus, 'recording')
+    assert.equal(callRecordingState.activeSegmentID, 'segment-connect-race')
   } finally {
     syncCallRecording(null)
     gateway.setCallRecording = originalSetCallRecording
     gateway.getCallRecording = originalGetCallRecording
+  }
+})
+
+test('an owned recording toggle stays pessimistic and defers runtime refreshes', async () => {
+  const originalSetCallRecording = gateway.setCallRecording
+  const originalGetCallRecording = gateway.getCallRecording
+  const originalListRecordings = gateway.listRecordings
+  let snapshotReads = 0
+  let releaseMutation
+  const session = {
+    ...callResponse(
+      'call-recording-pessimistic',
+      'line-main',
+      '+818000000018'
+    ).call,
+    phase: 'active',
+    media_available: true,
+    active_at: '2026-07-23T12:00:01Z'
+  }
+
+  gateway.getCallRecording = async callID => {
+    snapshotReads += 1
+    if (snapshotReads === 1) {
+      return {
+        state: { call_id: callID, enabled: false, status: 'off' },
+        segments: []
+      }
+    }
+    return {
+      state: {
+        call_id: callID,
+        enabled: true,
+        status: 'recording',
+        active_segment_id: 'segment-pessimistic'
+      },
+      segments: [{
+        id: 'segment-pessimistic',
+        call_id: callID,
+        segment_index: 1,
+        status: 'recording',
+        recorded_at: '2026-07-23T12:00:02Z',
+        started_at: '2026-07-23T12:00:02Z',
+        duration_seconds: 0,
+        size_bytes: 0,
+        playable: false
+      }]
+    }
+  }
+  gateway.setCallRecording = () =>
+    new Promise(resolve => {
+      releaseMutation = resolve
+    })
+  gateway.listRecordings = async () => ({
+    items: [],
+    meta: { limit: 50, next_cursor: '', has_more: false }
+  })
+
+  try {
+    syncCallRecording(session)
+    await Promise.resolve()
+    await Promise.resolve()
+    assert.equal(snapshotReads, 1)
+    assert.equal(callRecordingState.status, 'ready')
+    assert.equal(callRecordingState.enabled, false)
+
+    const mutation = setCallRecordingEnabled(true)
+    assert.equal(callRecordingState.busy, true)
+    assert.equal(callRecordingState.enabled, false)
+
+    await refreshRecordingWorkspace()
+    assert.equal(snapshotReads, 1)
+
+    releaseMutation({
+      call_id: session.id,
+      enabled: true,
+      status: 'pending'
+    })
+    await mutation
+    await Promise.resolve()
+
+    assert.equal(snapshotReads, 2)
+    assert.equal(callRecordingState.busy, false)
+    assert.equal(callRecordingState.enabled, true)
+    assert.equal(callRecordingState.recordingStatus, 'recording')
+    assert.equal(callRecordingState.activeSegmentID, 'segment-pessimistic')
+
+    gateway.setCallRecording = async () => {
+      throw new Error('forced recording failure')
+    }
+    const failedMutation = setCallRecordingEnabled(false)
+    assert.equal(callRecordingState.enabled, true)
+    await failedMutation
+
+    assert.equal(snapshotReads, 3)
+    assert.equal(callRecordingState.enabled, true)
+    assert.equal(callRecordingState.recordingStatus, 'recording')
+    assert.match(callRecordingState.error, /forced recording failure/)
+  } finally {
+    syncCallRecording(null)
+    gateway.setCallRecording = originalSetCallRecording
+    gateway.getCallRecording = originalGetCallRecording
+    gateway.listRecordings = originalListRecordings
   }
 })
 

@@ -275,12 +275,14 @@ export type UpdateTLSSettingsInput =
       operation: 'use_automatic'
     }
 
+export type CallRecordingStatus = 'off' | 'pending' | 'recording' | 'ready' | 'failed'
+
 export type CallRecordingState = {
   call_id: string
   enabled: boolean
-  active: boolean
-  started_at?: string
-  error?: string
+  status: CallRecordingStatus
+  active_segment_id?: string
+  last_error_code?: string
 }
 
 export type CallRecording = {
@@ -294,7 +296,7 @@ export type CallRecording = {
   download_url: string
 }
 
-export type RecordingStatus = 'pending' | 'recording' | 'ready' | 'failed'
+export type RecordingStatus = Exclude<CallRecordingStatus, 'off'>
 
 export type RecordingEntry = {
   id: string

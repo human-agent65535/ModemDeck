@@ -12,6 +12,7 @@ import type {
   CallRecordingSegment,
   CallRecordingSnapshot,
   CallRecordingState,
+  CallRecordingStatus,
   CallSession,
   CallPolicyEnforcement,
   CreateMemberInput,
@@ -112,6 +113,10 @@ const RECORDING_STATUSES = new Set<RecordingStatus>([
   'recording',
   'ready',
   'failed'
+])
+const CALL_RECORDING_STATUSES = new Set<CallRecordingStatus>([
+  'off',
+  ...RECORDING_STATUSES
 ])
 const INCOMING_CALL_POLICIES = new Set<IncomingCallPolicy>([
   'follow_global',
@@ -2128,13 +2133,22 @@ export function parseTLSSettingsResponse(value: unknown): TLSSettings {
 export function parseCallRecordingState(value: unknown): CallRecordingState {
   const response = objectValue(value, 'call_recording_response')
   const source = objectValue(response.state, 'call_recording')
-  const status = requiredString(source, 'call_recording', 'status')
-  const recordingError = optionalString(source, 'last_error_code')
+  const status = requiredString(
+    source,
+    'call_recording',
+    'status'
+  ) as CallRecordingStatus
+  if (!CALL_RECORDING_STATUSES.has(status)) {
+    throw new Error(`call_recording.status 未知：${status}`)
+  }
+  const activeSegmentID = optionalString(source, 'active_segment_id')
+  const lastErrorCode = optionalString(source, 'last_error_code')
   return {
     call_id: requiredString(source, 'call_recording', 'call_id'),
     enabled: requiredBoolean(source, 'call_recording', 'enabled'),
-    active: status === 'recording',
-    ...(recordingError ? { error: recordingError } : {})
+    status,
+    ...(activeSegmentID ? { active_segment_id: activeSegmentID } : {}),
+    ...(lastErrorCode ? { last_error_code: lastErrorCode } : {})
   }
 }
 
