@@ -130,7 +130,7 @@ test('root VERSION is the only maintained release version', async () => {
   )
   assert.match(hardwareBuilder, /< "\$\{repo_root\}\/VERSION"/)
   assert.match(viteConfig, /readFileSync\([\s\S]*new URL\('\.\.\/VERSION'/)
-  assert.match(viteConfig, /cssCodeSplit: false/)
+  assert.match(viteConfig, /cssCodeSplit: true/)
   assert.match(dockerfile, /COPY VERSION \/workspace\/VERSION/)
   assert.doesNotMatch(dockerfile, /VITE_MODEMDECK_BUILD_ID=\$\{VCS_REF\}/)
   assert.doesNotMatch(dockerfile, /main\.(?:commit|buildDate)=/)

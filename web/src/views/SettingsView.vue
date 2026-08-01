@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -18,18 +18,9 @@ import {
   UserRound,
   Volume2
 } from '@lucide/vue'
-import AccountSettingsPanel from '../components/AccountSettingsPanel.vue'
-import AudioSettingsForm from '../components/AudioSettingsForm.vue'
-import AboutSettingsPanel from '../components/AboutSettingsPanel.vue'
-import ContactSyncSettings from '../components/ContactSyncSettings.vue'
 import StatePanel from '../components/StatePanel.vue'
-import DeviceConfigurationPanel from '../components/DeviceConfigurationPanel.vue'
-import DiagnosticsPanel from '../components/DiagnosticsPanel.vue'
-import ExternalAccessSettingsPanel from '../components/ExternalAccessSettingsPanel.vue'
-import TelegramSettingsForm from '../components/TelegramSettingsForm.vue'
-import UserSettingsPanel from '../components/UserSettingsPanel.vue'
-import WebCertificateSettingsPanel from '../components/WebCertificateSettingsPanel.vue'
 import PageContentFrame from '../components/PageContentFrame.vue'
+import SettingsAsyncBoundary from '../components/settings/SettingsAsyncBoundary.vue'
 import SettingsContentTransition from '../components/settings/SettingsContentTransition.vue'
 import { fixtureMode } from '../api/client'
 import { logout as logoutSession, sessionState } from '../state/session'
@@ -59,6 +50,35 @@ type SettingsSectionDefinition = {
   description: string
   icon: typeof RadioTower
 }
+
+const loadAccountSettingsPanel = () => import('../components/AccountSettingsPanel.vue')
+const loadUserSettingsPanel = () => import('../components/UserSettingsPanel.vue')
+const loadAudioSettingsForm = () => import('../components/AudioSettingsForm.vue')
+const loadAboutSettingsPanel = () => import('../components/AboutSettingsPanel.vue')
+const loadContactSyncSettings = () => import('../components/ContactSyncSettings.vue')
+const loadDeviceConfigurationPanel = () =>
+  import('../components/DeviceConfigurationPanel.vue')
+const loadDiagnosticsPanel = () => import('../components/DiagnosticsPanel.vue')
+const loadExternalAccessSettingsPanel = () =>
+  import('../components/ExternalAccessSettingsPanel.vue')
+const loadTelegramSettingsForm = () => import('../components/TelegramSettingsForm.vue')
+const loadWebCertificateSettingsPanel = () =>
+  import('../components/WebCertificateSettingsPanel.vue')
+
+const AccountSettingsPanel = defineAsyncComponent(loadAccountSettingsPanel)
+const UserSettingsPanel = defineAsyncComponent(loadUserSettingsPanel)
+const AudioSettingsForm = defineAsyncComponent(loadAudioSettingsForm)
+const AboutSettingsPanel = defineAsyncComponent(loadAboutSettingsPanel)
+const ContactSyncSettings = defineAsyncComponent(loadContactSyncSettings)
+const DeviceConfigurationPanel = defineAsyncComponent(loadDeviceConfigurationPanel)
+const DiagnosticsPanel = defineAsyncComponent(loadDiagnosticsPanel)
+const ExternalAccessSettingsPanel = defineAsyncComponent(
+  loadExternalAccessSettingsPanel
+)
+const TelegramSettingsForm = defineAsyncComponent(loadTelegramSettingsForm)
+const WebCertificateSettingsPanel = defineAsyncComponent(
+  loadWebCertificateSettingsPanel
+)
 
 const route = useRoute()
 const router = useRouter()
@@ -193,6 +213,34 @@ function openSection(section: SettingsSection): void {
   void router.push({ name: 'settings', params: { section } })
 }
 
+function preloadSection(section: SettingsSection): void {
+  const loader = (() => {
+    switch (section) {
+      case 'account':
+        return sessionState.role === 'admin'
+          ? loadUserSettingsPanel
+          : loadAccountSettingsPanel
+      case 'contacts':
+        return loadContactSyncSettings
+      case 'audio':
+        return loadAudioSettingsForm
+      case 'devices':
+        return loadDeviceConfigurationPanel
+      case 'telegram':
+        return loadTelegramSettingsForm
+      case 'external-access':
+        return loadExternalAccessSettingsPanel
+      case 'web-certificate':
+        return loadWebCertificateSettingsPanel
+      case 'diagnostics':
+        return loadDiagnosticsPanel
+      case 'about':
+        return loadAboutSettingsPanel
+    }
+  })()
+  void loader().catch(() => undefined)
+}
+
 function backToSettings(): void {
   if (
     selectedSection.value === 'account' &&
@@ -286,6 +334,8 @@ onMounted(() => {
           class="list-item"
           :class="{ 'is-selected': selectedSection === section.id }"
           type="button"
+          @focus="preloadSection(section.id)"
+          @pointerenter="preloadSection(section.id)"
           @click="openSection(section.id)"
         >
           <span class="settings-icon"><component :is="section.icon" :size="19" /></span>
@@ -339,68 +389,70 @@ onMounted(() => {
         </header>
 
         <SettingsContentTransition :content-key="selectedSection">
-          <div
-            v-if="selectedSection === 'account'"
-            class="settings-content"
-            :class="{ 'settings-content--master-detail': sessionState.role === 'admin' }"
-          >
-            <UserSettingsPanel
-              v-if="sessionState.role === 'admin'"
-            />
-            <PageContentFrame v-else mode="reading">
-              <AccountSettingsPanel />
-            </PageContentFrame>
-          </div>
+          <SettingsAsyncBoundary :loading-title="t('common.loading')">
+            <div
+              v-if="selectedSection === 'account'"
+              class="settings-content"
+              :class="{ 'settings-content--master-detail': sessionState.role === 'admin' }"
+            >
+              <UserSettingsPanel
+                v-if="sessionState.role === 'admin'"
+              />
+              <PageContentFrame v-else mode="reading">
+                <AccountSettingsPanel />
+              </PageContentFrame>
+            </div>
 
-          <div v-else-if="selectedSection === 'contacts'" class="settings-content">
-            <PageContentFrame mode="reading">
-              <ContactSyncSettings />
-            </PageContentFrame>
-          </div>
+            <div v-else-if="selectedSection === 'contacts'" class="settings-content">
+              <PageContentFrame mode="reading">
+                <ContactSyncSettings />
+              </PageContentFrame>
+            </div>
 
-          <div v-else-if="selectedSection === 'audio'" class="settings-content">
-            <PageContentFrame mode="reading">
-              <AudioSettingsForm />
-            </PageContentFrame>
-          </div>
+            <div v-else-if="selectedSection === 'audio'" class="settings-content">
+              <PageContentFrame mode="reading">
+                <AudioSettingsForm />
+              </PageContentFrame>
+            </div>
 
-          <div
-            v-else-if="selectedSection === 'devices'"
-            class="settings-content settings-content--master-detail"
-          >
-            <DeviceConfigurationPanel />
-          </div>
+            <div
+              v-else-if="selectedSection === 'devices'"
+              class="settings-content settings-content--master-detail"
+            >
+              <DeviceConfigurationPanel />
+            </div>
 
-          <div
-            v-else-if="selectedSection === 'telegram'"
-            class="settings-content settings-content--master-detail"
-          >
-            <TelegramSettingsForm />
-          </div>
+            <div
+              v-else-if="selectedSection === 'telegram'"
+              class="settings-content settings-content--master-detail"
+            >
+              <TelegramSettingsForm />
+            </div>
 
-          <div v-else-if="selectedSection === 'external-access'" class="settings-content">
-            <PageContentFrame mode="reading">
-              <ExternalAccessSettingsPanel />
-            </PageContentFrame>
-          </div>
+            <div v-else-if="selectedSection === 'external-access'" class="settings-content">
+              <PageContentFrame mode="reading">
+                <ExternalAccessSettingsPanel />
+              </PageContentFrame>
+            </div>
 
-          <div v-else-if="selectedSection === 'web-certificate'" class="settings-content">
-            <PageContentFrame mode="reading">
-              <WebCertificateSettingsPanel />
-            </PageContentFrame>
-          </div>
+            <div v-else-if="selectedSection === 'web-certificate'" class="settings-content">
+              <PageContentFrame mode="reading">
+                <WebCertificateSettingsPanel />
+              </PageContentFrame>
+            </div>
 
-          <div v-else-if="selectedSection === 'diagnostics'" class="settings-content">
-            <PageContentFrame mode="fluid">
-              <DiagnosticsPanel />
-            </PageContentFrame>
-          </div>
+            <div v-else-if="selectedSection === 'diagnostics'" class="settings-content">
+              <PageContentFrame mode="fluid">
+                <DiagnosticsPanel />
+              </PageContentFrame>
+            </div>
 
-          <div v-else class="settings-content">
-            <PageContentFrame mode="reading">
-              <AboutSettingsPanel />
-            </PageContentFrame>
-          </div>
+            <div v-else class="settings-content">
+              <PageContentFrame mode="reading">
+                <AboutSettingsPanel />
+              </PageContentFrame>
+            </div>
+          </SettingsAsyncBoundary>
         </SettingsContentTransition>
       </template>
 

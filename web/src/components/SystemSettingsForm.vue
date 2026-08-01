@@ -95,7 +95,7 @@ async function load(): Promise<void> {
     }
     settings.value = { ...loaded }
     selected.value = loaded.language
-    setSystemLanguage(loaded.language)
+    await setSystemLanguage(loaded.language)
   } catch (cause) {
     loadError.value =
       cause instanceof Error ? cause.message : t('settings.systemLoadFailed')
@@ -109,7 +109,7 @@ async function selectLanguage(language: SystemLanguage): Promise<void> {
 
   const previous = selected.value
   selected.value = language
-  setSystemLanguage(language)
+  await setSystemLanguage(language)
   const payload = {
     language,
     expected_revision: settings.value.revision
@@ -124,10 +124,10 @@ async function selectLanguage(language: SystemLanguage): Promise<void> {
       bootstrapResource.data.system_settings = updated
     }
     selected.value = updated.language
-    setSystemLanguage(updated.language)
+    await setSystemLanguage(updated.language)
   } else {
     selected.value = previous
-    setSystemLanguage(previous)
+    await setSystemLanguage(previous)
   }
 }
 

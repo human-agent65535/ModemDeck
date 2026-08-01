@@ -9,7 +9,8 @@
     "lint": "node ./node_modules/eslint/bin/eslint.js \"src/**/*.{ts,vue}\"",
     "typecheck": "vue-tsc --noEmit",
     "typecheck:sidecar": "tsc --project tsconfig.typescript7.json --noEmit",
-    "build": "npm run typecheck && vite build",
+    "build": "npm run typecheck && vite build && npm run check:bundle",
+    "check:bundle": "node ./scripts/check-bundle-budget.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

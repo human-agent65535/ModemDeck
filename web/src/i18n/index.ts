@@ -1,14 +1,6 @@
-import { createI18n } from 'vue-i18n'
+import { createI18n, type LocaleMessageValue } from 'vue-i18n'
 import type { SystemLanguage } from '../api/types'
-import deDE from './locales/de-DE'
 import enUS from './locales/en-US'
-import esES from './locales/es-ES'
-import frFR from './locales/fr-FR'
-import jaJP from './locales/ja-JP'
-import ptBR from './locales/pt-BR'
-import viVN from './locales/vi-VN'
-import zhCN from './locales/zh-CN'
-import zhTW from './locales/zh-TW'
 
 export type ResolvedLocale = Exclude<SystemLanguage, 'auto'>
 
@@ -45,27 +37,73 @@ export function resolveSystemLanguage(
 }
 
 let configuredLanguage: SystemLanguage = 'auto'
+let languageChangeGeneration = 0
+
+type LocaleCatalog = Record<string, LocaleMessageValue>
+type LocaleModule = { default: LocaleCatalog }
+type LocaleLoader = () => Promise<LocaleModule>
+
+const localeLoaders: Record<Exclude<ResolvedLocale, 'en-US'>, LocaleLoader> = {
+  'zh-CN': () => import('./locales/zh-CN'),
+  'zh-TW': () => import('./locales/zh-TW'),
+  'ja-JP': () => import('./locales/ja-JP'),
+  'vi-VN': () => import('./locales/vi-VN'),
+  'es-ES': () => import('./locales/es-ES'),
+  'de-DE': () => import('./locales/de-DE'),
+  'fr-FR': () => import('./locales/fr-FR'),
+  'pt-BR': () => import('./locales/pt-BR')
+}
+const loadedLocales = new Set<ResolvedLocale>(['en-US'])
+const localeLoads = new Map<ResolvedLocale, Promise<void>>()
+
+const initialMessages: Record<ResolvedLocale, LocaleCatalog> = {
+  'zh-CN': {},
+  'zh-TW': {},
+  'en-US': enUS,
+  'ja-JP': {},
+  'vi-VN': {},
+  'es-ES': {},
+  'de-DE': {},
+  'fr-FR': {},
+  'pt-BR': {}
+}
 
 export const i18n = createI18n({
   legacy: false,
-  locale: resolveSystemLanguage(configuredLanguage),
+  locale: 'en-US' as ResolvedLocale,
   fallbackLocale: 'en-US',
-  messages: {
-    'zh-CN': zhCN,
-    'en-US': enUS,
-    'ja-JP': jaJP,
-    'vi-VN': viVN,
-    'zh-TW': zhTW,
-    'es-ES': esES,
-    'de-DE': deDE,
-    'fr-FR': frFR,
-    'pt-BR': ptBR
-  }
+  messages: initialMessages
 })
 
-export function setSystemLanguage(language: SystemLanguage): ResolvedLocale {
+async function loadLocale(locale: ResolvedLocale): Promise<void> {
+  if (loadedLocales.has(locale)) return
+  const existing = localeLoads.get(locale)
+  if (existing) return existing
+
+  const loader = locale === 'en-US' ? undefined : localeLoaders[locale]
+  if (!loader) return
+  const request = loader()
+    .then(module => {
+      i18n.global.setLocaleMessage(locale, module.default)
+      loadedLocales.add(locale)
+    })
+    .finally(() => {
+      localeLoads.delete(locale)
+    })
+  localeLoads.set(locale, request)
+  return request
+}
+
+export async function setSystemLanguage(
+  language: SystemLanguage
+): Promise<ResolvedLocale> {
   configuredLanguage = language
   const resolved = resolveSystemLanguage(language)
+  const generation = ++languageChangeGeneration
+  await loadLocale(resolved)
+  if (generation !== languageChangeGeneration) {
+    return i18n.global.locale.value
+  }
   i18n.global.locale.value = resolved
   if (typeof document !== 'undefined') document.documentElement.lang = resolved
   return resolved
@@ -85,6 +123,6 @@ export function translate(key: string, parameters?: Record<string, unknown>): st
 
 if (typeof window !== 'undefined') {
   window.addEventListener('languagechange', () => {
-    if (configuredLanguage === 'auto') setSystemLanguage('auto')
+    if (configuredLanguage === 'auto') void setSystemLanguage('auto')
   })
 }

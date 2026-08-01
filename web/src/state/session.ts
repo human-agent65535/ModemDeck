@@ -35,8 +35,8 @@ let inspection: Promise<boolean> | undefined
 let sessionTerminationInProgress = false
 let sessionInvalidatedDuringTermination = false
 
-function applySession(session: SessionResponse): boolean {
-  setSystemLanguage(session.language)
+async function applySession(session: SessionResponse): Promise<boolean> {
+  await setSystemLanguage(session.language)
   if (!session.authenticated) {
     clearSession('', session.setup_required)
     return false
@@ -136,7 +136,7 @@ export async function login(username: string, password: string): Promise<void> {
   state.error = ''
   try {
     const session = await gateway.login({ username, password })
-    if (!applySession(session)) {
+    if (!(await applySession(session))) {
       throw new ApiError(
         translate('auth.invalidCredentials'),
         401,
@@ -158,7 +158,7 @@ export async function setup(username: string, password: string): Promise<void> {
   state.error = ''
   try {
     const session = await gateway.setup({ username, password })
-    if (!applySession(session)) {
+    if (!(await applySession(session))) {
       throw new ApiError(
         translate('auth.setupFailed'),
         409,

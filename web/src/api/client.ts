@@ -167,7 +167,6 @@ import type {
   UserAccount
 } from './types'
 import { ApiError } from './types'
-import { createFixtureGateway } from './fixture'
 
 const API_ROOT = '/api/v1'
 const READ_REQUEST_TIMEOUT_MS = 15_000
@@ -2024,6 +2023,10 @@ function configureFixture(gateway: ModemDeckGateway): ConfiguredModemDeckGateway
   }
 }
 
-export const gateway: ConfiguredModemDeckGateway = fixtureMode
-  ? configureFixture(createFixtureGateway(fixturePreviewOptions))
+const fixtureGateway = fixtureMode
+  ? (await import('./fixture')).createFixtureGateway(fixturePreviewOptions)
+  : undefined
+
+export const gateway: ConfiguredModemDeckGateway = fixtureGateway
+  ? configureFixture(fixtureGateway)
   : realGateway
