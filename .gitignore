@@ -51,6 +51,7 @@ Thumbs.db
 !.env.*.example
 *.key
 *.pem
+!internal/tlsmanager/cloudflare_origin_roots.pem
 *.p12
 *.pfx
 *.jks

@@ -45,6 +45,7 @@ config/config.yaml
 **/*.sql.gz
 **/*.key
 **/*.pem
+!internal/tlsmanager/cloudflare_origin_roots.pem
 **/*.p12
 **/*.pfx
 **/*.jks
