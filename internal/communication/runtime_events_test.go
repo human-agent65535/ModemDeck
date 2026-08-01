@@ -2,6 +2,7 @@ package communication
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -92,6 +93,69 @@ func TestRefreshPublishesRuntimeEventsOnlyForChangedResources(t *testing.T) {
 		assertRuntimeResource(t, event, runtimeevents.ResourceCalls)
 	case <-time.After(time.Second):
 		t.Fatal("runtime event was not published for changed call state")
+	}
+}
+
+func TestRefreshPublishesRuntimeEventsForProviderEpochAndRecovery(t *testing.T) {
+	t.Parallel()
+
+	observedAt := time.Date(2026, time.July, 24, 14, 0, 0, 0, time.UTC)
+	agent := connectedAgent(observedAt)
+	service, err := New(agent, &fakeRepository{}, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	events := runtimeevents.NewBuffer(8)
+	if err := service.SetRuntimeEventPublisher(events); err != nil {
+		t.Fatalf("SetRuntimeEventPublisher() error = %v", err)
+	}
+	if _, err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("initial Refresh() error = %v", err)
+	}
+	_, updates, cancel := events.SubscribeCurrent()
+	defer cancel()
+
+	agent.health.Provider.BootEpoch = "boot-2"
+	if _, err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("new-epoch Refresh() error = %v", err)
+	}
+	assertNextRuntimeResource(t, updates, runtimeevents.ResourceLines)
+	assertNextRuntimeResource(t, updates, runtimeevents.ResourceCalls)
+
+	agent.healthError = errors.New("agent unavailable")
+	if _, err := service.Refresh(context.Background()); err == nil {
+		t.Fatal("failed Refresh() error = nil")
+	}
+	select {
+	case event := <-updates:
+		if len(event.Resources) != 2 ||
+			event.Resources[0] != runtimeevents.ResourceLines ||
+			event.Resources[1] != runtimeevents.ResourceCalls {
+			t.Fatalf("failure event resources = %v, want lines and calls", event.Resources)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runtime event was not published for provider failure")
+	}
+
+	agent.healthError = nil
+	if _, err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("recovery Refresh() error = %v", err)
+	}
+	assertNextRuntimeResource(t, updates, runtimeevents.ResourceLines)
+	assertNextRuntimeResource(t, updates, runtimeevents.ResourceCalls)
+}
+
+func assertNextRuntimeResource(
+	t *testing.T,
+	updates <-chan runtimeevents.Event,
+	resource runtimeevents.Resource,
+) {
+	t.Helper()
+	select {
+	case event := <-updates:
+		assertRuntimeResource(t, event, resource)
+	case <-time.After(time.Second):
+		t.Fatalf("runtime event was not published for %s", resource)
 	}
 }
 

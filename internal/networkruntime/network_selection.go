@@ -349,27 +349,24 @@ func (s *Service) reconcileNetworkSelections(
 	return pending, errors.Join(failures...)
 }
 
-func (s *Service) networkSelectionsPending(
+func (s *Service) networkSelectionReplayPending(
 	ctx context.Context,
-	snapshot agentclient.NetworkSnapshot,
-	fullSnapshot agentclient.Snapshot,
+	bootEpoch string,
 ) (bool, error) {
-	active, policies, identityPending, err := s.networkSelectionPolicies(ctx, fullSnapshot)
+	bootEpoch = strings.TrimSpace(bootEpoch)
+	if bootEpoch == "" {
+		return false, nil
+	}
+	policies, err := s.repository.NetworkSelectionPolicies(ctx)
 	if err != nil {
 		return false, err
 	}
-	if identityPending {
-		return true, nil
-	}
 	for _, policy := range policies {
-		if _, attached := active[policy.LineID]; !attached {
-			continue
-		}
 		if !policy.Configured {
 			continue
 		}
 		if policy.AppliedRevision != policy.Revision ||
-			policy.AppliedBootEpoch != snapshot.BootEpoch {
+			policy.AppliedBootEpoch != bootEpoch {
 			return true, nil
 		}
 	}

@@ -1,6 +1,7 @@
 package networkruntime
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -60,6 +61,99 @@ func TestNetworkSnapshotsPublishRuntimeInvalidations(t *testing.T) {
 	case event := <-updates:
 		t.Fatalf("unchanged unavailable state published another event: %+v", event)
 	case <-time.After(20 * time.Millisecond):
+	}
+}
+
+func TestLineEventReplaysConfiguredNetworkSelectionAfterLateDiscovery(t *testing.T) {
+	t.Parallel()
+
+	events := runtimeevents.NewBuffer(8)
+	service, repository, agent := newNetworkTestService(t, nil)
+	service.interval = time.Hour
+	service.runtimeEventSource = events
+
+	policy, err := repository.EnsureNetworkSelectionPolicy(
+		context.Background(),
+		"line-1",
+	)
+	if err != nil {
+		t.Fatalf("EnsureNetworkSelectionPolicy() error = %v", err)
+	}
+	if _, err := repository.UpdateNetworkSelectionPolicy(
+		context.Background(),
+		"line-1",
+		"manual",
+		"44010",
+		policy.Revision,
+	); err != nil {
+		t.Fatalf("UpdateNetworkSelectionPolicy() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- service.Run(ctx)
+	}()
+	defer func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("Run() error = %v", err)
+		}
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		agent.mu.Lock()
+		fullSnapshotCalls := agent.fullSnapshotCalls
+		selectionCalls := len(agent.selectionCalls)
+		agent.mu.Unlock()
+		status, err := service.Status(context.Background())
+		if err != nil {
+			t.Fatalf("Status() error = %v", err)
+		}
+		if fullSnapshotCalls == 1 && selectionCalls == 0 &&
+			!status.ApplyPending && status.ApplyStatus == ApplyStatusApplied {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf(
+				"startup did not settle before line discovery: snapshots=%d selections=%d status=%+v",
+				fullSnapshotCalls,
+				selectionCalls,
+				status,
+			)
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	agent.mu.Lock()
+	agent.fullSnapshot = agentclient.Snapshot{Lines: []agentclient.Line{{
+		ID:                   "line-1",
+		SIMPresent:           true,
+		SavedPolicySupported: true,
+	}}}
+	agent.mu.Unlock()
+	events.Publish(runtimeevents.Event{
+		Resources: []runtimeevents.Resource{runtimeevents.ResourceLines},
+	})
+
+	deadline = time.Now().Add(time.Second)
+	for {
+		applied, err := repository.NetworkSelectionPolicy(
+			context.Background(),
+			"line-1",
+		)
+		if err != nil {
+			t.Fatalf("NetworkSelectionPolicy() error = %v", err)
+		}
+		if applied.AppliedRevision == applied.Revision &&
+			applied.AppliedBootEpoch == "boot-1" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("line event did not replay configured policy: %+v", applied)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 

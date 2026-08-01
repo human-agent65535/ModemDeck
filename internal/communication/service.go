@@ -308,7 +308,7 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 	s.lastSnapshot = snapshot
 	s.mu.Unlock()
 	s.updateAgentControlCapabilities(status.Capabilities)
-	s.publishRuntimeSnapshot(snapshot, lines)
+	s.publishRuntimeSnapshot(status.BootEpoch, snapshot, lines)
 	if err := s.reconcileAuthoritativeCalls(refreshContext, activeCalls); err != nil {
 		return cloneStatus(status), operationError(
 			CodeInternal,
@@ -398,6 +398,7 @@ func (s *Service) drainDeviceMessageCleanup(deleter AgentMessageDeleter) {
 }
 
 func (s *Service) publishRuntimeSnapshot(
+	bootEpoch string,
 	snapshot agentclient.Snapshot,
 	lines []store.LineSummary,
 ) {
@@ -406,7 +407,13 @@ func (s *Service) publishRuntimeSnapshot(
 	}
 	previous := s.runtimeProjection
 	current := previous
-	if digest, ok := runtimeProjectionDigest(canonicalRuntimeLines(lines)); ok {
+	if digest, ok := runtimeProjectionDigest(struct {
+		BootEpoch string              `json:"boot_epoch"`
+		Lines     []store.LineSummary `json:"lines"`
+	}{
+		BootEpoch: strings.TrimSpace(bootEpoch),
+		Lines:     canonicalRuntimeLines(lines),
+	}); ok {
 		current.linesDigest = digest
 		if digest != previous.linesDigest {
 			s.runtime.Publish(runtimeevents.Event{
@@ -415,7 +422,13 @@ func (s *Service) publishRuntimeSnapshot(
 			})
 		}
 	}
-	if digest, ok := runtimeProjectionDigest(canonicalRuntimeCalls(snapshot.Calls)); ok {
+	if digest, ok := runtimeProjectionDigest(struct {
+		BootEpoch string             `json:"boot_epoch"`
+		Calls     []agentclient.Call `json:"calls"`
+	}{
+		BootEpoch: strings.TrimSpace(bootEpoch),
+		Calls:     canonicalRuntimeCalls(snapshot.Calls),
+	}); ok {
 		current.callsDigest = digest
 		if digest != previous.callsDigest {
 			s.runtime.Publish(runtimeevents.Event{
@@ -1721,6 +1734,12 @@ func (s *Service) recordRefreshFailure(operation string, cause error) (Status, e
 	changed := s.status.Connected || s.status.LastError != cause.Error()
 	s.status.Connected = false
 	s.status.LastError = cause.Error()
+	if changed {
+		// The failure event invalidates both live projections. Clearing their
+		// digests makes the first successful observation publish the matching
+		// recovery event even when the modem data itself is unchanged.
+		s.runtimeProjection = runtimeProjection{}
+	}
 	status := cloneStatus(s.status)
 	s.mu.Unlock()
 	if changed && s.runtime != nil {

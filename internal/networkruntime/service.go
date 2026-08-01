@@ -343,8 +343,25 @@ func (s *Service) Run(ctx context.Context) error {
 				runtimeUpdates = nil
 				continue
 			}
-			if runtimeEventContains(event, runtimeevents.ResourceLines) &&
-				s.shouldApply() {
+			if !runtimeEventContains(event, runtimeevents.ResourceLines) {
+				continue
+			}
+			if err := s.Refresh(ctx); err != nil {
+				s.report(err)
+				continue
+			}
+			selectionPending, err := s.networkSelectionReplayPending(
+				ctx,
+				s.currentBootEpoch(),
+			)
+			if err != nil {
+				s.report(err)
+				continue
+			}
+			if selectionPending {
+				s.markDirty()
+			}
+			if s.shouldApply() {
 				s.Reconcile(ctx)
 			}
 		case <-ticker.C:
@@ -518,11 +535,10 @@ func (s *Service) refreshLocked(ctx context.Context) error {
 	}
 	s.setSnapshot(publicSnapshot)
 	if snapshot.BootEpoch != previousBootEpoch || !wasAvailable {
-		fullSnapshot, snapshotErr := s.agent.Snapshot(ctx)
-		if snapshotErr != nil {
-			return fmt.Errorf("read lines for network selection replay: %w", snapshotErr)
-		}
-		pending, pendingErr := s.networkSelectionsPending(ctx, snapshot, fullSnapshot)
+		pending, pendingErr := s.networkSelectionReplayPending(
+			ctx,
+			snapshot.BootEpoch,
+		)
 		if pendingErr != nil {
 			return fmt.Errorf("inspect network selection replay state: %w", pendingErr)
 		}
