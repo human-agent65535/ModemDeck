@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+release_tag=${1:?release tag is required}
+vcs_ref=${2:?release commit is required}
+previous_tag=${3:-}
+namespace=${4:?GHCR namespace is required}
+force_hardware=${5:-false}
+manifest=deploy/release-manifest.json
+stable_tag='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+
+component_version() {
+    jq -r --arg key "${1}_version" '.[$key] // ""' "$manifest"
+}
+
+previous_component_version() {
+    local component=$1
+    local previous_manifest
+    previous_manifest=$(git show "${previous_tag}^{commit}:deploy/release-manifest.json")
+    local retained
+    retained=$(printf '%s' "$previous_manifest" |
+        jq -r --arg key "${component}_version" '.[$key] // ""')
+    if [[ -n "$retained" ]]; then
+        printf '%s' "$retained"
+    else
+        # Releases before per-component manifests published these images under
+        # the overall release tag. Hardware already had its own field.
+        if [[ "$component" == hardware ]]; then
+            retained=$(printf '%s' "$previous_manifest" |
+                jq -r '.hardware_version // ""')
+        fi
+        printf '%s' "${retained:-$previous_tag}"
+    fi
+}
+
+component_changed() {
+    local component=$1
+    [[ -n "$previous_tag" ]] || return 0
+
+    local -a paths
+    case "$component" in
+        api)
+            paths=(
+                Dockerfile .dockerignore go.mod go.sum
+                LICENSE NOTICE.md THIRD_PARTY_NOTICES.md
+                scripts/docker-entrypoint.sh
+                ':(glob)cmd/modemdeck/*.go'
+                ':(glob)cmd/modemdeck/**/*.go'
+                ':(glob)internal/**'
+                ':(exclude,glob)internal/**/*_test.go'
+                ':(exclude,glob)internal/ota/**'
+                ':(exclude,glob)internal/**/.DS_Store'
+            )
+            ;;
+        web)
+            paths=(
+                Dockerfile .dockerignore
+                LICENSE NOTICE.md THIRD_PARTY_NOTICES.md
+                scripts/nginx-entrypoint.sh
+                web/index.html web/nginx.conf web/package.json web/package-lock.json
+                web/tsconfig.json web/tsconfig.typescript7.json web/vite.config.ts
+                ':(glob)web/public/**'
+                ':(glob)web/src/**'
+            )
+            ;;
+        updater)
+            paths=(
+                Dockerfile .dockerignore go.mod go.sum
+                LICENSE NOTICE.md THIRD_PARTY_NOTICES.md
+                ':(glob)cmd/modemdeck-updater/*.go'
+                ':(glob)cmd/modemdeck-updater/**/*.go'
+                ':(glob)internal/ota/**'
+                ':(glob)internal/updatecheck/**'
+                ':(exclude,glob)**/*_test.go'
+            )
+            ;;
+        hardware)
+            paths=(
+                hardware/Dockerfile hardware/Dockerfile.dockerignore
+                ':(glob)hardware/bin/**'
+                ':(glob)hardware/dbus/**'
+                ':(glob)hardware/ownership/**'
+                ':(glob)agent/**'
+                ':(exclude,glob)**/*_test.go'
+                ':(exclude,glob)agent/README.md'
+                ':(exclude,glob)hardware/ownership/**/.DS_Store'
+                ':(exclude,glob)agent/**/.DS_Store'
+            )
+            ;;
+        *)
+            printf 'unknown release component: %s\n' "$component" >&2
+            return 2
+            ;;
+    esac
+    ! git diff --quiet "${previous_tag}^{commit}" "$vcs_ref" -- "${paths[@]}"
+}
+
+append_component() {
+    local component=$1
+    local version=$2
+    local dockerfile image target
+    case "$component" in
+        api)
+            dockerfile=./Dockerfile
+            image=modemdeck
+            target=runtime
+            ;;
+        web)
+            dockerfile=./Dockerfile
+            image=modemdeck-web
+            target=web-runtime
+            ;;
+        updater)
+            dockerfile=./Dockerfile
+            image=modemdeck-updater
+            target=updater-runtime
+            ;;
+        hardware)
+            dockerfile=./hardware/Dockerfile
+            image=modemdeck-hardware
+            target=runtime
+            ;;
+    esac
+    matrix=$(jq -c \
+        --arg component "$component" \
+        --arg dockerfile "$dockerfile" \
+        --arg image "$image" \
+        --arg target "$target" \
+        --arg version "$version" \
+        '.include += [{component: $component, dockerfile: $dockerfile, image: $image, target: $target, version: $version}]' \
+        <<<"$matrix")
+}
+
+[[ "$release_tag" =~ $stable_tag ]] || {
+    printf 'release tag must be a stable vX.Y.Z tag: %s\n' "$release_tag" >&2
+    exit 1
+}
+[[ "$force_hardware" == true || "$force_hardware" == false ]] || {
+    printf 'force_hardware must be true or false\n' >&2
+    exit 1
+}
+
+matrix='{"include":[]}'
+for component in api web updater hardware; do
+    version=$(component_version "$component")
+    [[ "$version" =~ $stable_tag ]] || {
+        printf 'release manifest %s_version must be a stable vX.Y.Z tag\n' "$component" >&2
+        exit 1
+    }
+    git rev-parse --verify "${version}^{commit}" >/dev/null 2>&1 || {
+        printf 'release manifest %s tag does not exist: %s\n' "$component" "$version" >&2
+        exit 1
+    }
+
+    changed=false
+    if component_changed "$component"; then
+        changed=true
+    fi
+    if [[ "$component" == hardware && "$force_hardware" == true ]]; then
+        changed=true
+    fi
+
+    if [[ "$changed" == true ]]; then
+        [[ "$version" == "$release_tag" ]] || {
+            printf 'changed %s must set %s_version to %s\n' \
+                "$component" "$component" "$release_tag" >&2
+            exit 1
+        }
+        append_component "$component" "$version"
+        continue
+    fi
+
+    retained=$(previous_component_version "$component")
+    [[ "$version" == "$retained" ]] || {
+        printf 'unchanged %s must retain %s_version at %s\n' \
+            "$component" "$component" "$retained" >&2
+        exit 1
+    }
+done
+
+for component in api web hardware updater; do
+    expected="ghcr.io/${namespace}/modemdeck"
+    [[ "$component" == web ]] && expected+="-web"
+    [[ "$component" == hardware ]] && expected+="-hardware"
+    [[ "$component" == updater ]] && expected+="-updater"
+    actual=$(jq -r --arg component "$component" '.images[$component] // ""' "$manifest")
+    [[ "$actual" == "$expected" ]] || {
+        printf 'release manifest %s image must be %s\n' "$component" "$expected" >&2
+        exit 1
+    }
+done
+
+printf '%s\n' "$matrix"

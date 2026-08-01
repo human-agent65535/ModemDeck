@@ -118,7 +118,7 @@ export interface SessionGateway {
 export interface ModemDeckGateway {
   readonly interactions?: GatewayInteractions
   getAbout(): Promise<AboutInfo>
-  checkForUpdates(): Promise<UpdateCheck>
+  checkForUpdates(refresh?: boolean): Promise<UpdateCheck>
   applySoftwareUpdate(version: string, confirmHardware: boolean): Promise<UpdateOperation>
   getSoftwareUpdateStatus(): Promise<UpdateOperation>
   subscribeSoftwareUpdateEvents(handlers: UpdateEventStreamHandlers): () => void

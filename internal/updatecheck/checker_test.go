@@ -75,6 +75,43 @@ func TestCheckerReportsUpToDate(t *testing.T) {
 	}
 }
 
+func TestCheckerCachesForOneDayAndManualRefreshBypassesCache(t *testing.T) {
+	t.Parallel()
+	var requests atomic.Int32
+	now := time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		request := requests.Add(1)
+		_, _ = response.Write([]byte(`{"tag_name":"v1.0.` + string(rune('0'+request)) + `"}`))
+	}))
+	defer server.Close()
+
+	checker := New(Options{
+		CurrentVersion:   "v1.0.0",
+		LatestReleaseURL: server.URL,
+		Now:              func() time.Time { return now },
+	})
+	first := checker.Check(context.Background())
+	now = now.Add(23 * time.Hour)
+	cached := checker.Check(context.Background())
+	if first.LatestVersion != "v1.0.1" || cached.LatestVersion != first.LatestVersion || requests.Load() != 1 {
+		t.Fatalf("23-hour cache = %+v then %+v; requests = %d", first, cached, requests.Load())
+	}
+	refreshed := checker.Check(WithRefresh(context.Background()))
+	if refreshed.LatestVersion != "v1.0.2" || requests.Load() != 2 {
+		t.Fatalf("manual refresh = %+v; requests = %d", refreshed, requests.Load())
+	}
+	now = now.Add(23 * time.Hour)
+	afterRefresh := checker.Check(context.Background())
+	if afterRefresh.LatestVersion != refreshed.LatestVersion || requests.Load() != 2 {
+		t.Fatalf("refreshed 23-hour cache = %+v; requests = %d", afterRefresh, requests.Load())
+	}
+	now = now.Add(time.Hour)
+	expired := checker.Check(context.Background())
+	if expired.LatestVersion != "v1.0.3" || requests.Load() != 3 {
+		t.Fatalf("expired manual refresh cache = %+v; requests = %d", expired, requests.Load())
+	}
+}
+
 func TestCheckerReportsMissingReleaseAsUnavailable(t *testing.T) {
 	t.Parallel()
 	server := releaseServer(t, http.StatusNotFound, `{}`)

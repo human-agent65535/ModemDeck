@@ -39,24 +39,22 @@ type OperationStore interface {
 }
 
 type Options struct {
-	Checker        ReleaseChecker
-	Manifests      ManifestLoader
-	Digests        DigestResolver
-	Runtime        Runtime
-	Operations     OperationStore
-	CurrentVersion string
-	Now            func() time.Time
+	Checker    ReleaseChecker
+	Manifests  ManifestLoader
+	Digests    DigestResolver
+	Runtime    Runtime
+	Operations OperationStore
+	Now        func() time.Time
 }
 
 type Controller struct {
-	checker        ReleaseChecker
-	manifests      ManifestLoader
-	digests        DigestResolver
-	runtime        Runtime
-	operations     OperationStore
-	currentVersion string
-	now            func() time.Time
-	mu             sync.Mutex
+	checker    ReleaseChecker
+	manifests  ManifestLoader
+	digests    DigestResolver
+	runtime    Runtime
+	operations OperationStore
+	now        func() time.Time
+	mu         sync.Mutex
 }
 
 type Target struct {
@@ -95,18 +93,13 @@ func New(options Options) (*Controller, error) {
 	if now == nil {
 		now = time.Now
 	}
-	currentVersion := strings.TrimSpace(options.CurrentVersion)
-	if currentVersion == "" {
-		currentVersion = "dev"
-	}
 	return &Controller{
-		checker:        options.Checker,
-		manifests:      options.Manifests,
-		digests:        options.Digests,
-		runtime:        options.Runtime,
-		operations:     options.Operations,
-		currentVersion: currentVersion,
-		now:            now,
+		checker:    options.Checker,
+		manifests:  options.Manifests,
+		digests:    options.Digests,
+		runtime:    options.Runtime,
+		operations: options.Operations,
+		now:        now,
 	}, nil
 }
 
@@ -281,10 +274,10 @@ func (controller *Controller) plan(ctx context.Context) (Plan, error) {
 		return Plan{}, err
 	}
 	targets := []Target{
-		{Name: "api", Service: "api", Image: manifest.Images.API, Version: result.LatestVersion, ImageEnv: "MODEMDECK_IMAGE", RefEnv: "MODEMDECK_API_IMAGE_REF", VersionEnv: "MODEMDECK_API_VERSION", DigestEnv: "MODEMDECK_API_DIGEST"},
-		{Name: "web", Service: "modemdeck", Image: manifest.Images.Web, Version: result.LatestVersion, ImageEnv: "MODEMDECK_WEB_IMAGE", RefEnv: "MODEMDECK_WEB_IMAGE_REF", VersionEnv: "MODEMDECK_WEB_VERSION", DigestEnv: "MODEMDECK_WEB_DIGEST"},
+		{Name: "api", Service: "api", Image: manifest.Images.API, Version: manifest.APIVersion, ImageEnv: "MODEMDECK_IMAGE", RefEnv: "MODEMDECK_API_IMAGE_REF", VersionEnv: "MODEMDECK_API_VERSION", DigestEnv: "MODEMDECK_API_DIGEST"},
+		{Name: "web", Service: "modemdeck", Image: manifest.Images.Web, Version: manifest.WebVersion, ImageEnv: "MODEMDECK_WEB_IMAGE", RefEnv: "MODEMDECK_WEB_IMAGE_REF", VersionEnv: "MODEMDECK_WEB_VERSION", DigestEnv: "MODEMDECK_WEB_DIGEST"},
 		{Name: "hardware", Service: "hardware", Image: manifest.Images.Hardware, Version: manifest.HardwareVersion, ImageEnv: "MODEMDECK_HARDWARE_IMAGE", RefEnv: "MODEMDECK_HARDWARE_IMAGE_REF", VersionEnv: "MODEMDECK_HARDWARE_VERSION", DigestEnv: "MODEMDECK_HARDWARE_DIGEST"},
-		{Name: "updater", Service: "updater", Image: manifest.Images.Updater, Version: result.LatestVersion, ImageEnv: "MODEMDECK_UPDATER_IMAGE", RefEnv: "MODEMDECK_UPDATER_IMAGE_REF", VersionEnv: "MODEMDECK_UPDATER_VERSION", DigestEnv: "MODEMDECK_UPDATER_DIGEST"},
+		{Name: "updater", Service: "updater", Image: manifest.Images.Updater, Version: manifest.UpdaterVersion, ImageEnv: "MODEMDECK_UPDATER_IMAGE", RefEnv: "MODEMDECK_UPDATER_IMAGE_REF", VersionEnv: "MODEMDECK_UPDATER_VERSION", DigestEnv: "MODEMDECK_UPDATER_DIGEST"},
 	}
 	if controller.runtime.Managed("cloudflared") {
 		targets = append(targets, Target{
@@ -332,7 +325,6 @@ func (controller *Controller) plan(ctx context.Context) (Plan, error) {
 		targets[resolved.index].Digest = resolved.digest
 	}
 
-	changed := false
 	components := make([]updatecheck.Component, 0, len(targets))
 	for index := range targets {
 		target := &targets[index]
@@ -343,11 +335,13 @@ func (controller *Controller) plan(ctx context.Context) (Plan, error) {
 		target.CurrentRef = currentRef
 		target.Current = imageVersion(currentRef)
 		if target.Current == "" {
-			target.Current = controller.currentVersion
+			target.Current = strings.TrimSpace(result.CurrentVersion)
+			if target.Current == "" {
+				target.Current = "dev"
+			}
 		}
 		target.Reference = target.Image + ":" + target.Version + "@" + target.Digest
 		target.Changed = !present || imageDigest(currentRef) != target.Digest
-		changed = changed || target.Changed
 		if target.Name == "hardware" && target.Changed {
 			result.HardwareConfirmationRequired = true
 		}
@@ -359,7 +353,7 @@ func (controller *Controller) plan(ctx context.Context) (Plan, error) {
 		})
 	}
 	result.Components = components
-	result.ApplyAvailable = changed
+	result.ApplyAvailable = true
 	return Plan{Result: result, Targets: targets}, nil
 }
 

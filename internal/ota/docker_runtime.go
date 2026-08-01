@@ -14,7 +14,10 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/updatecheck"
 )
 
-const workerContainerName = "modemdeck-update-worker"
+const (
+	workerContainerName      = "modemdeck-update-worker"
+	InstalledVersionFilename = "installed-version"
+)
 
 type CommandRunner interface {
 	Run(context.Context, string, ...string) ([]byte, error)
@@ -61,10 +64,14 @@ type ApplyError struct {
 }
 
 func (err *ApplyError) Error() string {
+	message := "software update failed"
 	if err.RollbackFailed {
-		return "software update and rollback failed"
+		message = "software update and rollback failed"
 	}
-	return "software update failed"
+	if err.Cause == nil {
+		return message
+	}
+	return message + ": " + err.Cause.Error()
 }
 
 func (err *ApplyError) Unwrap() error {
@@ -140,6 +147,8 @@ func (runtime *DockerRuntime) StartWorker(
 		"--read-only",
 		"--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777",
 		"--cap-drop", "ALL",
+		"--cap-add", "DAC_OVERRIDE",
+		"--cap-add", "CHOWN",
 		"--security-opt", "no-new-privileges:true",
 		"--pids-limit", "128",
 		"--env", "MODEMDECK_DEPLOYMENT_DIR=" + runtime.deploymentDir,
@@ -217,12 +226,18 @@ func (runtime *DockerRuntime) Apply(
 	); err != nil {
 		return err
 	}
-	if err := runtime.composeUp(ctx, next); err == nil {
-		return reportChangedTargets(
+	if !hasChangedTarget(plan.Targets) {
+		return runtime.recordInstalledVersion(plan.Result.LatestVersion)
+	}
+	if err := runtime.composeUp(ctx, next, plan.Targets); err == nil {
+		if err := reportChangedTargets(
 			plan.Targets,
 			report,
 			updatecheck.OperationComponentReady,
-		)
+		); err != nil {
+			return err
+		}
+		return runtime.recordInstalledVersion(plan.Result.LatestVersion)
 	} else {
 		applyErr := err
 		if reportErr := reportChangedTargets(
@@ -235,7 +250,7 @@ func (runtime *DockerRuntime) Apply(
 		if restoreErr := replaceFile(environmentPath, previous); restoreErr != nil {
 			return &ApplyError{Cause: errors.Join(applyErr, restoreErr), RollbackFailed: true}
 		}
-		if rollbackErr := runtime.composeUp(ctx, previous); rollbackErr != nil {
+		if rollbackErr := runtime.composeUp(ctx, previous, plan.Targets); rollbackErr != nil {
 			return &ApplyError{Cause: errors.Join(applyErr, rollbackErr), RollbackFailed: true}
 		}
 		if reportErr := reportChangedTargets(
@@ -247,6 +262,45 @@ func (runtime *DockerRuntime) Apply(
 		}
 		return &ApplyError{Cause: applyErr}
 	}
+}
+
+func (runtime *DockerRuntime) recordInstalledVersion(version string) error {
+	if err := os.MkdirAll(runtime.stateDir, 0o700); err != nil {
+		return &ApplyError{Cause: fmt.Errorf("create updater state directory: %w", err)}
+	}
+	temporary, err := os.CreateTemp(runtime.stateDir, ".installed-version-*")
+	if err != nil {
+		return &ApplyError{Cause: fmt.Errorf("create installed version state: %w", err)}
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err == nil {
+		_, err = temporary.WriteString(strings.TrimSpace(version) + "\n")
+	}
+	if err == nil {
+		err = temporary.Sync()
+	}
+	closeErr := temporary.Close()
+	if err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return &ApplyError{Cause: fmt.Errorf("write installed version state: %w", err)}
+	}
+	path := filepath.Join(runtime.stateDir, InstalledVersionFilename)
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return &ApplyError{Cause: fmt.Errorf("commit installed version state: %w", err)}
+	}
+	return nil
+}
+
+func hasChangedTarget(targets []Target) bool {
+	for _, target := range targets {
+		if target.Changed {
+			return true
+		}
+	}
+	return false
 }
 
 func reportProgress(
@@ -276,7 +330,11 @@ func reportChangedTargets(
 	return nil
 }
 
-func (runtime *DockerRuntime) composeUp(ctx context.Context, environment []byte) error {
+func (runtime *DockerRuntime) composeUp(
+	ctx context.Context,
+	environment []byte,
+	targets []Target,
+) error {
 	values := parseEnvironment(environment)
 	arguments := []string{
 		"compose",
@@ -297,9 +355,14 @@ func (runtime *DockerRuntime) composeUp(ctx context.Context, environment []byte)
 	arguments = append(
 		arguments,
 		"-f", filepath.Join(runtime.deploymentDir, "docker-compose.ota.yml"),
-		"up", "--detach", "--no-build", "--remove-orphans",
+		"up", "--detach", "--no-build", "--no-deps",
 		"--wait", "--wait-timeout", "180",
 	)
+	for _, target := range targets {
+		if target.Changed {
+			arguments = append(arguments, target.Service)
+		}
+	}
 	_, err := runtime.runner.Run(ctx, "docker", arguments...)
 	return err
 }

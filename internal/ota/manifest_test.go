@@ -15,6 +15,18 @@ func TestReleaseManifestRejectsMutableOrUnexpectedImages(t *testing.T) {
 			},
 		},
 		{
+			name: "missing API component version",
+			mutate: func(manifest *ReleaseManifest) {
+				manifest.APIVersion = ""
+			},
+		},
+		{
+			name: "unstable Web component version",
+			mutate: func(manifest *ReleaseManifest) {
+				manifest.WebVersion = "v2.0.0-rc.1"
+			},
+		},
+		{
 			name: "mutable cloudflared tag",
 			mutate: func(manifest *ReleaseManifest) {
 				manifest.Cloudflared.Version = "latest"

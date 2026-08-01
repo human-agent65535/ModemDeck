@@ -32,7 +32,10 @@ type ReleaseManifest struct {
 		Hardware string `json:"hardware"`
 		Updater  string `json:"updater"`
 	} `json:"images"`
+	APIVersion      string `json:"api_version"`
+	WebVersion      string `json:"web_version"`
 	HardwareVersion string `json:"hardware_version"`
+	UpdaterVersion  string `json:"updater_version"`
 	Cloudflared     struct {
 		Image   string `json:"image"`
 		Version string `json:"version"`
@@ -61,8 +64,16 @@ func (manifest ReleaseManifest) Validate() error {
 			return fmt.Errorf("invalid %s image repository", component)
 		}
 	}
-	if !stableTagPattern.MatchString(manifest.HardwareVersion) {
-		return fmt.Errorf("invalid hardware release version")
+	componentVersions := map[string]string{
+		"api":      manifest.APIVersion,
+		"web":      manifest.WebVersion,
+		"hardware": manifest.HardwareVersion,
+		"updater":  manifest.UpdaterVersion,
+	}
+	for component, version := range componentVersions {
+		if !stableTagPattern.MatchString(version) {
+			return fmt.Errorf("invalid %s release version", component)
+		}
 	}
 	if manifest.Cloudflared.Image != "cloudflare/cloudflared" {
 		return fmt.Errorf("invalid cloudflared image repository")

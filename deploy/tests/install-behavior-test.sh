@@ -885,11 +885,18 @@ done
 # ModemDeck image to the digest returned by the registry. The updater is part
 # of this release deployment; source builds remain opt-in above.
 printf '%s\n' '1.9.3' >"${fixture}/VERSION"
+sed -i.bak \
+    -e 's/"api_version": "[^"]*"/"api_version": "v1.9.2"/' \
+    -e 's/"web_version": "[^"]*"/"web_version": "v1.9.3"/' \
+    -e 's/"hardware_version": "[^"]*"/"hardware_version": "v1.9.3"/' \
+    -e 's/"updater_version": "[^"]*"/"updater_version": "v1.9.1"/' \
+    "${fixture}/deploy/release-manifest.json"
+rm -f "${fixture}/deploy/release-manifest.json.bak"
 cp "${fixture}/.env" "${test_root}/before-required-updater.env"
 : >"${test_root}/commands.log"
 if common_env \
     MODEMDECK_TEST_DOCKER_HEALTH=healthy \
-    MODEMDECK_TEST_PULL_FAILURE=ghcr.io/human-agent65535/modemdeck-updater:v1.9.3 \
+    MODEMDECK_TEST_PULL_FAILURE=ghcr.io/human-agent65535/modemdeck-updater:v1.9.1 \
     "${fixture}/install.sh" \
         --mode simple \
         --version v1.9.3 \
@@ -908,10 +915,10 @@ common_env \
         --version v1.9.3 \
         >"${test_root}/release-output.log" 2>&1
 for release_image in \
-    ghcr.io/human-agent65535/modemdeck:v1.9.3 \
+    ghcr.io/human-agent65535/modemdeck:v1.9.2 \
     ghcr.io/human-agent65535/modemdeck-web:v1.9.3 \
     ghcr.io/human-agent65535/modemdeck-hardware:v1.9.3 \
-    ghcr.io/human-agent65535/modemdeck-updater:v1.9.3
+    ghcr.io/human-agent65535/modemdeck-updater:v1.9.1
 do
     grep -Fq "docker|pull ${release_image}" "${test_root}/commands.log" ||
         fail "default release deployment did not pull ${release_image}"
@@ -921,9 +928,18 @@ if grep -Eq '^docker\|compose .* build( |$)' "${test_root}/commands.log"; then
 fi
 grep -Fq 'Deployment:    release' "${test_root}/release-output.log" ||
     fail "default installer mode did not report release deployment"
-grep -Eq '^MODEMDECK_API_IMAGE_REF=ghcr.io/human-agent65535/modemdeck:v1.9.3@sha256:[0-9]{64}$' \
+grep -Eq '^MODEMDECK_API_IMAGE_REF=ghcr.io/human-agent65535/modemdeck:v1.9.2@sha256:[0-9]{64}$' \
     "${fixture}/.env" ||
     fail "default release deployment did not pin the API digest"
+for retained_version in \
+    MODEMDECK_API_VERSION=v1.9.2 \
+    MODEMDECK_WEB_VERSION=v1.9.3 \
+    MODEMDECK_HARDWARE_VERSION=v1.9.3 \
+    MODEMDECK_UPDATER_VERSION=v1.9.1
+do
+    grep -qx "$retained_version" "${fixture}/.env" ||
+        fail "default release deployment ignored component version: $retained_version"
+done
 grep -qx 'MODEMDECK_UPDATER_URL=http://updater:8081' "${fixture}/.env" ||
     fail "default release deployment did not enable the updater control plane"
 

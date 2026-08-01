@@ -15,7 +15,6 @@ services:
     expose:
       - "8081"
     environment:
-      MODEMDECK_CURRENT_VERSION: ${MODEMDECK_VERSION:-dev}
       MODEMDECK_DEPLOYMENT_DIR: ${MODEMDECK_DEPLOYMENT_DIR:?MODEMDECK_DEPLOYMENT_DIR must be the absolute host deployment directory}
       MODEMDECK_HOST_DEPLOYMENT_DIR: ${MODEMDECK_DEPLOYMENT_DIR:?MODEMDECK_DEPLOYMENT_DIR must be the absolute host deployment directory}
       MODEMDECK_UPDATER_LISTEN_ADDRESS: 0.0.0.0:8081

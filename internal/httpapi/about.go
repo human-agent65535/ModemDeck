@@ -60,7 +60,11 @@ func (api *API) updateCheck(response http.ResponseWriter, request *http.Request)
 		})
 		return
 	}
-	writeJSON(response, http.StatusOK, api.updateChecker.Check(request.Context()))
+	ctx := request.Context()
+	if request.URL.Query().Get("refresh") == "1" {
+		ctx = updatecheck.WithRefresh(ctx)
+	}
+	writeJSON(response, http.StatusOK, api.updateChecker.Check(ctx))
 }
 
 func (api *API) updateApply(response http.ResponseWriter, request *http.Request) {

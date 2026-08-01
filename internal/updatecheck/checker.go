@@ -17,7 +17,7 @@ import (
 const (
 	DefaultLatestReleaseURL  = "https://api.github.com/repos/human-agent65535/ModemDeck/releases/latest"
 	DefaultReleasePageURL    = "https://github.com/human-agent65535/ModemDeck/releases/tag/"
-	defaultCacheTTL          = 15 * time.Minute
+	defaultCacheTTL          = 24 * time.Hour
 	defaultRequestTimeout    = 5 * time.Second
 	maximumResponseBytes     = 1 << 20
 	maximumReleaseNotesBytes = 32 << 10
@@ -100,6 +100,17 @@ type HTTPClient interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
+type refreshContextKey struct{}
+
+func WithRefresh(ctx context.Context) context.Context {
+	return context.WithValue(ctx, refreshContextKey{}, true)
+}
+
+func RefreshRequested(ctx context.Context) bool {
+	requested, _ := ctx.Value(refreshContextKey{}).(bool)
+	return requested
+}
+
 type Options struct {
 	CurrentVersion   string
 	LatestReleaseURL string
@@ -172,7 +183,8 @@ func (checker *Checker) Check(ctx context.Context) Result {
 	defer checker.mu.Unlock()
 
 	now := checker.now().UTC()
-	if !checker.cacheExpiresAt.IsZero() && now.Before(checker.cacheExpiresAt) {
+	if !RefreshRequested(ctx) &&
+		!checker.cacheExpiresAt.IsZero() && now.Before(checker.cacheExpiresAt) {
 		return checker.cachedResult
 	}
 

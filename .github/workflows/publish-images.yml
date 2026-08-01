@@ -29,6 +29,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       build-date: ${{ steps.release.outputs.build-date }}
+      image-count: ${{ steps.release.outputs.image-count }}
       namespace: ${{ steps.release.outputs.namespace }}
       image-matrix: ${{ steps.release.outputs.image-matrix }}
       release-tag: ${{ steps.release.outputs.release-tag }}
@@ -49,7 +50,6 @@ jobs:
           RELEASE_REF: ${{ inputs.release_tag || github.ref }}
           RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
           REPOSITORY_OWNER: ${{ github.repository_owner }}
-          EVENT_NAME: ${{ github.event_name }}
           INCLUDE_HARDWARE: ${{ inputs.include_hardware }}
         run: |
           set -euo pipefail
@@ -76,58 +76,18 @@ jobs:
 
           namespace="$(printf '%s' "${REPOSITORY_OWNER}" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
           build_date="$(git show -s --format=%cI "${vcs_ref}")"
-          publish_hardware=false
-          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
-            publish_hardware="${INCLUDE_HARDWARE:-false}"
-          else
-            previous_tag=""
-            if git rev-parse --verify "${vcs_ref}^" >/dev/null 2>&1; then
-              while IFS= read -r candidate; do
-                if [[ "${candidate}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-                  previous_tag="${candidate}"
-                  break
-                fi
-              done < <(git tag --merged "${vcs_ref}^" --sort=-version:refname)
-            fi
-            if [[ -z "${previous_tag}" ]] ||
-              ! git diff --quiet "${previous_tag}^{commit}" "${vcs_ref}" -- agent hardware
-            then
-              publish_hardware=true
-            fi
+          previous_tag=""
+          if git rev-parse --verify "${vcs_ref}^" >/dev/null 2>&1; then
+            while IFS= read -r candidate; do
+              if [[ "${candidate}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+                previous_tag="${candidate}"
+                break
+              fi
+            done < <(git tag --merged "${vcs_ref}^" --sort=-version:refname)
           fi
 
           if [[ "$(jq -r '.schema_version' deploy/release-manifest.json)" != "1" ]]; then
             echo "deploy/release-manifest.json must use schema_version 1" >&2
-            exit 1
-          fi
-          declare -A expected_images=(
-            [api]="ghcr.io/${namespace}/modemdeck"
-            [web]="ghcr.io/${namespace}/modemdeck-web"
-            [hardware]="ghcr.io/${namespace}/modemdeck-hardware"
-            [updater]="ghcr.io/${namespace}/modemdeck-updater"
-          )
-          for component in api web hardware updater; do
-            actual_image="$(jq -r --arg component "${component}" '.images[$component] // ""' deploy/release-manifest.json)"
-            if [[ "${actual_image}" != "${expected_images[$component]}" ]]; then
-              echo "release manifest ${component} image must be ${expected_images[$component]}" >&2
-              exit 1
-            fi
-          done
-          hardware_version="$(jq -r '.hardware_version // ""' deploy/release-manifest.json)"
-          if [[ ! "${hardware_version}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "release manifest hardware_version must be a stable vX.Y.Z tag" >&2
-            exit 1
-          fi
-          if ! git rev-parse --verify "${hardware_version}^{commit}" >/dev/null 2>&1; then
-            echo "release manifest Hardware tag does not exist: ${hardware_version}" >&2
-            exit 1
-          fi
-          if [[ "${publish_hardware}" == "true" && "${hardware_version}" != "${RELEASE_TAG}" ]]; then
-            echo "a Hardware-changing release must set hardware_version to ${RELEASE_TAG}" >&2
-            exit 1
-          fi
-          if [[ "${EVENT_NAME}" != "workflow_dispatch" && "${publish_hardware}" != "true" && "${hardware_version}" == "${RELEASE_TAG}" ]]; then
-            echo "a release without Hardware changes must retain the previous hardware_version" >&2
             exit 1
           fi
           cloudflared_image="$(jq -r '.cloudflared.image // ""' deploy/release-manifest.json)"
@@ -142,12 +102,16 @@ jobs:
             exit 1
           fi
 
-          image_matrix='{"include":[{"component":"api","dockerfile":"./Dockerfile","image":"modemdeck","target":"runtime"},{"component":"web","dockerfile":"./Dockerfile","image":"modemdeck-web","target":"web-runtime"},{"component":"updater","dockerfile":"./Dockerfile","image":"modemdeck-updater","target":"updater-runtime"}]}'
-          if [[ "${publish_hardware}" == "true" ]]; then
-            image_matrix='{"include":[{"component":"api","dockerfile":"./Dockerfile","image":"modemdeck","target":"runtime"},{"component":"web","dockerfile":"./Dockerfile","image":"modemdeck-web","target":"web-runtime"},{"component":"updater","dockerfile":"./Dockerfile","image":"modemdeck-updater","target":"updater-runtime"},{"component":"hardware","dockerfile":"./hardware/Dockerfile","image":"modemdeck-hardware","target":"runtime"}]}'
-          fi
+          image_matrix="$(deploy/release-image-plan.sh \
+            "${RELEASE_TAG}" \
+            "${vcs_ref}" \
+            "${previous_tag}" \
+            "${namespace}" \
+            "${INCLUDE_HARDWARE:-false}")"
+          image_count="$(jq -r '.include | length' <<<"${image_matrix}")"
           {
             echo "build-date=${build_date}"
+            echo "image-count=${image_count}"
             echo "image-matrix=${image_matrix}"
             echo "namespace=${namespace}"
             echo "release-tag=${RELEASE_TAG}"
@@ -158,6 +122,7 @@ jobs:
   publish:
     name: Publish ${{ matrix.component }} image
     needs: release
+    if: needs.release.outputs.image-count != '0'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     permissions:
@@ -203,18 +168,18 @@ jobs:
           push: true
           pull: true
           build-args: |
-            VERSION=${{ needs.release.outputs.release-tag }}
+            VERSION=${{ matrix.version }}
             BUILD_DATE=${{ needs.release.outputs.build-date }}
             VCS_REF=${{ needs.release.outputs.vcs-ref }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.url=https://github.com/${{ github.repository }}
-            org.opencontainers.image.version=${{ needs.release.outputs.release-tag }}
+            org.opencontainers.image.version=${{ matrix.version }}
             org.opencontainers.image.created=${{ needs.release.outputs.build-date }}
             org.opencontainers.image.revision=${{ needs.release.outputs.vcs-ref }}
             org.opencontainers.image.licenses=PolyForm-Noncommercial-1.0.0
           tags: |
-            ${{ env.IMAGE }}:${{ needs.release.outputs.release-tag }}
+            ${{ env.IMAGE }}:${{ matrix.version }}
             ${{ env.IMAGE }}:sha-${{ needs.release.outputs.vcs-ref }}
           cache-from: type=gha,scope=release-${{ matrix.component }}
           cache-to: type=gha,mode=max,scope=release-${{ matrix.component }}

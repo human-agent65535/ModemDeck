@@ -8,14 +8,16 @@ ARG DOCKER_CLI_IMAGE=docker:28.5.2-cli@sha256:625d9431a9f54c5a2bc90f24f0e1c3d55b
 
 FROM ${NODE_IMAGE} AS web-builder
 
-ENV NODE_OPTIONS=--max-old-space-size=1536
+ARG VERSION=dev
+
+ENV NODE_OPTIONS=--max-old-space-size=1536 \
+    VITE_MODEMDECK_BUILD_ID=${VERSION}
 WORKDIR /workspace/web
 
 COPY web/package.json web/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --include=dev --no-audit --no-fund
 
-COPY VERSION /workspace/VERSION
 COPY web/ ./
 RUN npm run build
 
@@ -36,6 +38,7 @@ FROM go-toolchain AS app-builder
 
 ARG TARGETOS
 ARG TARGETARCH
+ARG VERSION=dev
 
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -45,12 +48,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 COPY cmd/modemdeck/ ./cmd/modemdeck/
 COPY cmd/modemdeck-updater/ ./cmd/modemdeck-updater/
 COPY internal/ ./internal/
-COPY VERSION ./
-
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    app_version="v$(tr -d '\r\n' < VERSION)" \
-    && test "${app_version}" != "v" \
+    app_version="${VERSION}" \
+    && test -n "${app_version}" \
     && \
     GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
     go build -mod=readonly -tags=netgo,osusergo -trimpath -buildvcs=false \
@@ -60,8 +61,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    updater_version="v$(tr -d '\r\n' < VERSION)" \
-    && test "${updater_version}" != "v" \
+    updater_version="${VERSION}" \
+    && test -n "${updater_version}" \
     && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
     go build -mod=readonly -tags=netgo,osusergo -trimpath -buildvcs=false \
     -ldflags="-s -w -X main.version=${updater_version}" \

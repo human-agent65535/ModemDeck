@@ -37,7 +37,7 @@ test('about gateway uses read-only metadata and update-check endpoints', async (
   const requests = []
   globalThis.fetch = async input => {
     requests.push(String(input))
-    const body = String(input).endsWith('/updates/check') ? updateResponse : aboutResponse
+    const body = String(input).includes('/updates/check') ? updateResponse : aboutResponse
     return new Response(JSON.stringify(body), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
@@ -52,11 +52,16 @@ test('about gateway uses read-only metadata and update-check endpoints', async (
     assert.equal(update.checked_at, updateResponse.checked_at)
     assert.equal(update.release_url, undefined)
     assert.equal(update.release_notes, updateResponse.release_notes)
+    await gateway.checkForUpdates(true)
   } finally {
     globalThis.fetch = originalFetch
   }
 
-  assert.deepEqual(requests, ['/api/v1/about', '/api/v1/updates/check'])
+  assert.deepEqual(requests, [
+    '/api/v1/about',
+    '/api/v1/updates/check',
+    '/api/v1/updates/check?refresh=1'
+  ])
 })
 
 test('update response rejects an unknown status', async () => {
@@ -218,7 +223,9 @@ test('about panel checks automatically and applies only through the updater', as
   ])
 
   assert.match(settingsView, /id: 'about'/)
-  assert.match(panel, /gateway\.checkForUpdates\(\)/)
+  assert.match(panel, /gateway\.checkForUpdates\(refresh\)/)
+  assert.match(panel, /@click="checkForUpdates\(true\)"/)
+  assert.match(panel, /:class="\{ spin: checking \}"/)
   assert.match(panel, /gateway\.applySoftwareUpdate\(/)
   assert.match(panel, /gateway\.subscribeSoftwareUpdateEvents\(/)
   assert.doesNotMatch(panel, /gateway\.getSoftwareUpdateStatus\(\)|operationTimer/)
@@ -250,6 +257,7 @@ test('about panel checks automatically and applies only through the updater', as
   assert.match(panel, /about\.projectLicense/)
   assert.match(panel, /about\.thirdPartyNotices/)
   assert.doesNotMatch(panel, /about-version/)
+  assert.match(panel, /\{\{ displayedVersion \}\}/)
   assert.match(notices, /Vue\.js, Vue Router, and Vue I18n/)
   assert.match(
     zhCN,
@@ -257,7 +265,7 @@ test('about panel checks automatically and applies only through the updater', as
   )
 })
 
-test('root VERSION is the only maintained release version', async () => {
+test('root VERSION owns the release while images accept component versions', async () => {
   const [
     version,
     packageSource,
@@ -291,10 +299,12 @@ test('root VERSION is the only maintained release version', async () => {
     /import\.meta\.env\.VITE_MODEMDECK_BUILD_ID\.trim\(\)/
   )
   assert.match(hardwareBuilder, /< "\$\{repo_root\}\/VERSION"/)
-  assert.match(viteConfig, /readFileSync\([\s\S]*new URL\('\.\.\/VERSION'/)
+  assert.match(viteConfig, /readFileSync\(new URL\('\.\.\/VERSION'/)
+  assert.match(viteConfig, /process\.env\.VITE_MODEMDECK_BUILD_ID/)
+  assert.match(viteConfig, /fileName: 'modemdeck-build\.json'/)
   assert.match(viteConfig, /cssCodeSplit: true/)
-  assert.match(dockerfile, /COPY VERSION \/workspace\/VERSION/)
-  assert.doesNotMatch(dockerfile, /VITE_MODEMDECK_BUILD_ID=\$\{VCS_REF\}/)
+  assert.match(dockerfile, /VITE_MODEMDECK_BUILD_ID=\$\{VERSION\}/)
+  assert.doesNotMatch(dockerfile, /COPY VERSION/)
   assert.doesNotMatch(dockerfile, /main\.(?:commit|buildDate)=/)
   assert.match(dockerfile, /org\.opencontainers\.image\.revision="\$\{VCS_REF\}"/)
 })

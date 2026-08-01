@@ -43,6 +43,10 @@ const loadError = ref('')
 const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
 let closeUpdateEvents: (() => void) | undefined
 
+const displayedVersion = computed(
+  () => update.value?.current_version || about.value?.version || t('about.notAvailable')
+)
+
 const changedComponents = computed(
   () => update.value?.components?.filter(component => component.changed) || []
 )
@@ -139,11 +143,11 @@ const statusDescription = computed(() => {
   })
 })
 
-async function checkForUpdates(): Promise<void> {
+async function checkForUpdates(refresh = false): Promise<void> {
   if (checking.value) return
   checking.value = true
   try {
-    const result = await gateway.checkForUpdates()
+    const result = await gateway.checkForUpdates(refresh)
     update.value = result
     if (result.operation?.state === 'running') {
       applying.value = true
@@ -201,7 +205,7 @@ async function handleUpdateOperation(operation: UpdateOperation): Promise<void> 
       }
     }
     showSuccess(t('about.updateSucceeded'))
-    await Promise.all([load(), checkForUpdates()])
+    await Promise.all([load(), checkForUpdates(true)])
   } else {
     applying.value = false
     showError(t('about.updateFailed'))
@@ -279,7 +283,7 @@ onBeforeUnmount(() => {
       <dl class="about-facts">
         <div>
           <dt>{{ t('about.version') }}</dt>
-          <dd>{{ about?.version || t('about.notAvailable') }}</dd>
+          <dd>{{ displayedVersion }}</dd>
         </div>
         <div>
           <dt>{{ t('about.sourceCode') }}</dt>
@@ -312,7 +316,7 @@ onBeforeUnmount(() => {
           :disabled="checking || applying"
           :aria-label="t('about.checkAgain')"
           :title="t('about.checkAgain')"
-          @click="checkForUpdates"
+          @click="checkForUpdates(true)"
         >
           <RefreshCw :size="17" :class="{ spin: checking }" />
         </button>
@@ -330,11 +334,12 @@ onBeforeUnmount(() => {
         </div>
 
         <section
-          v-if="displayedComponents.length"
+          v-if="displayedComponents.length || update?.apply_available || applying"
           class="about-update__targets"
+          :class="{ 'about-update__targets--action-only': !displayedComponents.length }"
           aria-labelledby="about-update-targets-title"
         >
-          <div class="about-update__target-copy">
+          <div v-if="displayedComponents.length" class="about-update__target-copy">
             <div class="about-update__target-heading">
               <strong id="about-update-targets-title">
                 {{ t(applying ? 'about.containersUpdating' : 'about.componentsToUpdate', { count: displayedComponents.length }) }}
@@ -664,6 +669,10 @@ onBeforeUnmount(() => {
 .about-update__target-copy {
   min-width: 0;
   flex: 1;
+}
+
+.about-update__targets--action-only {
+  justify-content: flex-end;
 }
 
 .about-update__target-heading {

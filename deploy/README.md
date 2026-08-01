@@ -92,9 +92,8 @@ owner's GHCR namespace:
 
 - `ghcr.io/OWNER/modemdeck:vX.Y.Z` for the API
 - `ghcr.io/OWNER/modemdeck-web:vX.Y.Z` for the Web gateway
-- `ghcr.io/OWNER/modemdeck-updater:vX.Y.Z` for the updater on every release
-- `ghcr.io/OWNER/modemdeck-hardware:vX.Y.Z` for the Hardware runtime, only when
-  `agent/` or `hardware/` changed since the previous stable tag
+- `ghcr.io/OWNER/modemdeck-updater:vX.Y.Z` for the updater
+- `ghcr.io/OWNER/modemdeck-hardware:vX.Y.Z` for the Hardware runtime
 
 The workflow uses the repository `GITHUB_TOKEN`; it needs no registry secret.
 Each image also receives a `sha-COMMIT` tag and GitHub build-provenance
@@ -109,10 +108,9 @@ workflow checks out the tagged commit, verifies that its `VERSION` matches,
 requires the existing tag to be annotated, and builds only that historical
 source. Never move or recreate a published release tag.
 
-API, Web, and updater are application release artifacts and are built for every
-stable tag. Hardware has its own component version: when its inputs are
-unchanged, no new Hardware tag is created and update tooling must retain the
-previously published Hardware digest.
+Each component has its own version in `release-manifest.json`. A stable release
+publishes only images whose runtime inputs changed and retains the previous tag
+and digest for every unchanged component.
 
 Verify package visibility after its first publication. Public packages support
 anonymous device pulls; if a package is private, either change it to public in

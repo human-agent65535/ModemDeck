@@ -46,7 +46,11 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 			methodNotAllowed(response, http.MethodGet)
 			return
 		}
-		writeJSON(response, http.StatusOK, handler.controller.Check(request.Context()))
+		ctx := request.Context()
+		if request.URL.Query().Get("refresh") == "1" {
+			ctx = updatecheck.WithRefresh(ctx)
+		}
+		writeJSON(response, http.StatusOK, handler.controller.Check(ctx))
 	case "/v1/updates/status":
 		if request.Method != http.MethodGet {
 			methodNotAllowed(response, http.MethodGet)

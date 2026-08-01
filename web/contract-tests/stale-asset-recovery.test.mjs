@@ -142,7 +142,7 @@ test('storage failure permits a cache-key change but never reloads the same entr
   assert.equal(fixture.replacements.length, 1)
 })
 
-test('version endpoint returns the release version as the build identity', async () => {
+test('Web build endpoint returns the container version as the build identity', async () => {
   let request
   const version = await readServerVersion(async (url, options) => {
     request = { url, options }
@@ -155,7 +155,7 @@ test('version endpoint returns the release version as the build identity', async
   })
 
   assert.equal(version, 'v1.8.6')
-  assert.equal(request.url, '/api/v1/version')
+  assert.equal(request.url, '/modemdeck-build.json')
   assert.equal(request.options.cache, 'no-store')
   assert.equal(request.options.credentials, 'same-origin')
 })

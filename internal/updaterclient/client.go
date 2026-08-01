@@ -68,7 +68,11 @@ func New(options Options) (*Client, error) {
 
 func (client *Client) Check(ctx context.Context) updatecheck.Result {
 	var result updatecheck.Result
-	if err := client.request(ctx, http.MethodGet, "/v1/updates/check", nil, &result); err != nil {
+	path := "/v1/updates/check"
+	if updatecheck.RefreshRequested(ctx) {
+		path += "?refresh=1"
+	}
+	if err := client.request(ctx, http.MethodGet, path, nil, &result); err != nil {
 		return updatecheck.Result{
 			Status:         updatecheck.StatusUnavailable,
 			CurrentVersion: client.currentVersion,
@@ -108,7 +112,9 @@ func (client *Client) request(
 		body = bytes.NewReader(encoded)
 	}
 	requestURL := *client.baseURL
-	requestURL.Path += path
+	requestPath, rawQuery, _ := strings.Cut(path, "?")
+	requestURL.Path += requestPath
+	requestURL.RawQuery = rawQuery
 	request, err := http.NewRequestWithContext(ctx, method, requestURL.String(), body)
 	if err != nil {
 		return err

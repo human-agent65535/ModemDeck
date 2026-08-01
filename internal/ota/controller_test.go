@@ -18,9 +18,9 @@ func TestCheckPlansOnlyChangedReleaseComponents(t *testing.T) {
 		cloudflared: true,
 		images: map[string]string{
 			"api":         "ghcr.io/human-agent65535/modemdeck:v1.9.2@" + testDigest("3"),
-			"modemdeck":   "ghcr.io/human-agent65535/modemdeck-web:v1.9.2@" + testDigest("4"),
+			"modemdeck":   "ghcr.io/human-agent65535/modemdeck-web:v1.9.2@" + testDigest("b"),
 			"hardware":    "ghcr.io/human-agent65535/modemdeck-hardware:v1.9.2@" + hardwareDigest,
-			"updater":     "ghcr.io/human-agent65535/modemdeck-updater:v1.9.2@" + testDigest("5"),
+			"updater":     "ghcr.io/human-agent65535/modemdeck-updater:v1.9.2@" + testDigest("c"),
 			"cloudflared": "cloudflare/cloudflared:2026.7.3@" + cloudflaredDigest,
 		},
 	}
@@ -38,12 +38,10 @@ func TestCheckPlansOnlyChangedReleaseComponents(t *testing.T) {
 	for _, component := range result.Components {
 		changed[component.Name] = component.Changed
 	}
-	for _, name := range []string{"api", "web", "updater"} {
-		if !changed[name] {
-			t.Errorf("%s was not planned for update", name)
-		}
+	if !changed["api"] {
+		t.Error("API was not planned for update")
 	}
-	if changed["hardware"] || changed["cloudflared"] {
+	if changed["web"] || changed["hardware"] || changed["updater"] || changed["cloudflared"] {
 		t.Fatalf("retained components = %+v", changed)
 	}
 }
@@ -56,7 +54,11 @@ func TestApplyRequiresOnlyExplicitHardwareConfirmation(t *testing.T) {
 		"hardware":  "ghcr.io/human-agent65535/modemdeck-hardware:v1.8.0@" + testDigest("3"),
 		"updater":   "ghcr.io/human-agent65535/modemdeck-updater:v1.9.2@" + testDigest("4"),
 	}}
-	controller := newTestController(t, runtime, testManifest(testDigest("8")), testDigest("9"))
+	manifest := testManifest(testDigest("8"))
+	manifest.WebVersion = "v2.0.0"
+	manifest.HardwareVersion = "v2.0.0"
+	manifest.UpdaterVersion = "v2.0.0"
+	controller := newTestController(t, runtime, manifest, testDigest("9"))
 
 	_, err := controller.Apply(context.Background(), updatecheck.ApplyRequest{Version: "v2.0.0"})
 	if !errors.Is(err, ErrHardwareConfirmationRequired) {
@@ -88,6 +90,34 @@ func TestApplyRequiresOnlyExplicitHardwareConfirmation(t *testing.T) {
 	}
 }
 
+func TestCheckCanAdvanceReleaseWithoutChangingAContainer(t *testing.T) {
+	t.Parallel()
+	manifest := testManifest(testDigest("8"))
+	runtime := &fakeRuntime{images: map[string]string{
+		"api":       manifest.Images.API + ":" + manifest.APIVersion + "@" + testDigest("a"),
+		"modemdeck": manifest.Images.Web + ":" + manifest.WebVersion + "@" + testDigest("b"),
+		"hardware":  manifest.Images.Hardware + ":" + manifest.HardwareVersion + "@" + testDigest("9"),
+		"updater":   manifest.Images.Updater + ":" + manifest.UpdaterVersion + "@" + testDigest("c"),
+	}}
+	controller := newTestController(t, runtime, manifest, testDigest("9"))
+	result := controller.Check(context.Background())
+	if !result.ApplyAvailable {
+		t.Fatalf("metadata-only release is not applicable: %+v", result)
+	}
+	for _, component := range result.Components {
+		if component.Changed {
+			t.Fatalf("metadata-only release changed %s", component.Name)
+		}
+	}
+	operation, err := controller.Apply(
+		context.Background(),
+		updatecheck.ApplyRequest{Version: "v2.0.0"},
+	)
+	if err != nil || len(operation.Components) != 0 || runtime.started == nil {
+		t.Fatalf("operation = %+v; worker = %+v; error = %v", operation, runtime.started, err)
+	}
+}
+
 func TestEnvironmentUpdateRetainsUnrelatedConfiguration(t *testing.T) {
 	t.Parallel()
 	updated, err := upsertEnvironment([]byte("# keep\nMODEMDECK_PORT=7577\nMODEMDECK_API_VERSION=v1.0.0\n"), map[string]string{
@@ -111,10 +141,14 @@ func TestEnvironmentUpdateRetainsUnrelatedConfiguration(t *testing.T) {
 }
 
 type fakeChecker struct {
-	result updatecheck.Result
+	result  updatecheck.Result
+	observe func(bool)
 }
 
-func (checker fakeChecker) Check(context.Context) updatecheck.Result {
+func (checker fakeChecker) Check(ctx context.Context) updatecheck.Result {
+	if checker.observe != nil {
+		checker.observe(updatecheck.RefreshRequested(ctx))
+	}
 	return checker.result
 }
 
@@ -184,10 +218,10 @@ func newTestController(
 ) *Controller {
 	t.Helper()
 	digests := map[string]string{
-		manifest.Images.API + ":v2.0.0":      testDigest("a"),
-		manifest.Images.Web + ":v2.0.0":      testDigest("b"),
-		manifest.Images.Hardware + ":v1.9.2": hardwareDigest,
-		manifest.Images.Updater + ":v2.0.0":  testDigest("c"),
+		manifest.Images.API + ":" + manifest.APIVersion:           testDigest("a"),
+		manifest.Images.Web + ":" + manifest.WebVersion:           testDigest("b"),
+		manifest.Images.Hardware + ":" + manifest.HardwareVersion: hardwareDigest,
+		manifest.Images.Updater + ":" + manifest.UpdaterVersion:   testDigest("c"),
 	}
 	controller, err := New(Options{
 		Checker: fakeChecker{result: updatecheck.Result{
@@ -196,11 +230,10 @@ func newTestController(
 			LatestVersion:  "v2.0.0",
 			CheckedAt:      "2026-08-01T00:00:00Z",
 		}},
-		Manifests:      fakeManifestLoader{manifest: manifest},
-		Digests:        fakeResolver{digests: digests},
-		Runtime:        runtime,
-		Operations:     &memoryOperationStore{},
-		CurrentVersion: "v1.9.2",
+		Manifests:  fakeManifestLoader{manifest: manifest},
+		Digests:    fakeResolver{digests: digests},
+		Runtime:    runtime,
+		Operations: &memoryOperationStore{},
 		Now: func() time.Time {
 			return time.Date(2026, 8, 1, 1, 0, 0, 0, time.UTC)
 		},
@@ -218,7 +251,10 @@ func testManifest(cloudflaredDigest string) ReleaseManifest {
 	manifest.Images.Web = "ghcr.io/human-agent65535/modemdeck-web"
 	manifest.Images.Hardware = "ghcr.io/human-agent65535/modemdeck-hardware"
 	manifest.Images.Updater = "ghcr.io/human-agent65535/modemdeck-updater"
+	manifest.APIVersion = "v2.0.0"
+	manifest.WebVersion = "v1.9.2"
 	manifest.HardwareVersion = "v1.9.2"
+	manifest.UpdaterVersion = "v1.9.2"
 	manifest.Cloudflared.Image = "cloudflare/cloudflared"
 	manifest.Cloudflared.Version = "2026.7.3"
 	manifest.Cloudflared.Digest = cloudflaredDigest

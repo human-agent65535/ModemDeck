@@ -929,17 +929,28 @@ then
     build_hardware=true
 fi
 else
-    api_version=$version
-    web_version=$version
-    updater_version=$version
-    hardware_version=$(awk -F'"' '
-        /"hardware_version"[[:space:]]*:/ { print $4; found = 1; exit }
+    manifest_component_version() {
+        component_key=$1
+        awk -F'"' -v key="${component_key}_version" '
+        $2 == key { print $4; found = 1; exit }
         END { if (!found) exit 1 }
-    ' "${repo_dir}/deploy/release-manifest.json") ||
+        ' "${repo_dir}/deploy/release-manifest.json"
+    }
+    api_version=$(manifest_component_version api) ||
+        fail "release manifest does not declare api_version"
+    web_version=$(manifest_component_version web) ||
+        fail "release manifest does not declare web_version"
+    hardware_version=$(manifest_component_version hardware) ||
         fail "release manifest does not declare hardware_version"
-    printf '%s\n' "$hardware_version" |
-        grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' ||
-        fail "release manifest hardware_version must be a stable vX.Y.Z tag"
+    updater_version=$(manifest_component_version updater) ||
+        fail "release manifest does not declare updater_version"
+    for component_version in \
+        "$api_version" "$web_version" "$hardware_version" "$updater_version"
+    do
+        printf '%s\n' "$component_version" |
+            grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' ||
+            fail "release manifest component versions must be stable vX.Y.Z tags"
+    done
 
     pin_release_image() {
         pin_image=$1

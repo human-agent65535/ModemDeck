@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -47,11 +48,6 @@ func buildController() (*ota.Controller, string, error) {
 	deploymentDir := environmentOrDefault("MODEMDECK_DEPLOYMENT_DIR", "/deployment")
 	stateDir := environmentOrDefault("MODEMDECK_UPDATER_STATE_DIR", "/var/lib/modemdeck-updater")
 	environment := readEnvironment(filepath.Join(deploymentDir, ".env"))
-	currentVersion := firstNonempty(
-		os.Getenv("MODEMDECK_CURRENT_VERSION"),
-		environment["MODEMDECK_VERSION"],
-		version,
-	)
 	cloudflared := firstNonempty(
 		os.Getenv("MODEMDECK_CLOUDFLARE_ENABLED"),
 		environment["MODEMDECK_CLOUDFLARE_ENABLED"],
@@ -76,12 +72,14 @@ func buildController() (*ota.Controller, string, error) {
 		return nil, "", err
 	}
 	controller, err := ota.New(ota.Options{
-		Checker:        updatecheck.New(updatecheck.Options{CurrentVersion: currentVersion}),
-		Manifests:      ota.NewHTTPManifestLoader(os.Getenv("MODEMDECK_RELEASE_MANIFEST_URL_TEMPLATE"), nil),
-		Digests:        ota.NewGHCRResolver("", "", nil),
-		Runtime:        runtime,
-		Operations:     ota.NewFileOperationStore(stateDir),
-		CurrentVersion: currentVersion,
+		Checker: newDeploymentReleaseChecker(
+			filepath.Join(stateDir, ota.InstalledVersionFilename),
+			firstNonempty(os.Getenv("MODEMDECK_CURRENT_VERSION"), version),
+		),
+		Manifests:  ota.NewHTTPManifestLoader(os.Getenv("MODEMDECK_RELEASE_MANIFEST_URL_TEMPLATE"), nil),
+		Digests:    ota.NewGHCRResolver("", "", nil),
+		Runtime:    runtime,
+		Operations: ota.NewFileOperationStore(stateDir),
 	})
 	if err != nil {
 		return nil, "", err
@@ -95,6 +93,48 @@ func buildController() (*ota.Controller, string, error) {
 		token = strings.TrimSpace(string(contents))
 	}
 	return controller, token, nil
+}
+
+type deploymentReleaseChecker struct {
+	installedVersionPath string
+	fallbackVersion      string
+
+	mu             sync.Mutex
+	currentVersion string
+	checker        *updatecheck.Checker
+}
+
+func newDeploymentReleaseChecker(
+	installedVersionPath string,
+	fallbackVersion string,
+) *deploymentReleaseChecker {
+	return &deploymentReleaseChecker{
+		installedVersionPath: installedVersionPath,
+		fallbackVersion:      firstNonempty(fallbackVersion, "dev"),
+	}
+}
+
+func (checker *deploymentReleaseChecker) Check(ctx context.Context) updatecheck.Result {
+	currentVersion := firstNonempty(
+		readTrimmedFile(checker.installedVersionPath),
+		checker.fallbackVersion,
+	)
+	checker.mu.Lock()
+	if checker.checker == nil || checker.currentVersion != currentVersion {
+		checker.currentVersion = currentVersion
+		checker.checker = updatecheck.New(updatecheck.Options{CurrentVersion: currentVersion})
+	}
+	releaseChecker := checker.checker
+	checker.mu.Unlock()
+	return releaseChecker.Check(ctx)
+}
+
+func readTrimmedFile(path string) string {
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(contents))
 }
 
 func serve(

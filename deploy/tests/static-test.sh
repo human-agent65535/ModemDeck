@@ -217,6 +217,9 @@ grep -Fq 'no-new-privileges:true' "${test_root}/updater.yml" ||
 if grep -Fq 'ports:' "${test_root}/updater.yml"; then
     fail "updater control plane is published to the host"
 fi
+if grep -Fq 'MODEMDECK_CURRENT_VERSION:' "${test_root}/updater.yml"; then
+    fail "overall release changes alter the retained updater service"
+fi
 
 for forbidden in \
     'network_mode: host' \

@@ -18,11 +18,10 @@ func TestUpdaterHTTPBoundaryRequiresBearerTokenExceptForHealth(t *testing.T) {
 			CurrentVersion: "v1.9.3",
 			CheckedAt:      "2026-08-02T00:00:00Z",
 		}},
-		Manifests:      fakeManifestLoader{},
-		Digests:        fakeResolver{},
-		Runtime:        &fakeRuntime{},
-		Operations:     &memoryOperationStore{},
-		CurrentVersion: "v1.9.3",
+		Manifests:  fakeManifestLoader{},
+		Digests:    fakeResolver{},
+		Runtime:    &fakeRuntime{},
+		Operations: &memoryOperationStore{},
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -59,12 +58,11 @@ func TestUpdaterHTTPBoundaryRequiresBearerTokenExceptForHealth(t *testing.T) {
 func TestUpdaterHTTPApplyRejectsUnknownInput(t *testing.T) {
 	t.Parallel()
 	controller, err := New(Options{
-		Checker:        fakeChecker{},
-		Manifests:      fakeManifestLoader{},
-		Digests:        fakeResolver{},
-		Runtime:        &fakeRuntime{},
-		Operations:     &memoryOperationStore{},
-		CurrentVersion: "v1.9.3",
+		Checker:    fakeChecker{},
+		Manifests:  fakeManifestLoader{},
+		Digests:    fakeResolver{},
+		Runtime:    &fakeRuntime{},
+		Operations: &memoryOperationStore{},
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -84,5 +82,36 @@ func TestUpdaterHTTPApplyRejectsUnknownInput(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestUpdaterHTTPForwardsManualRefresh(t *testing.T) {
+	t.Parallel()
+	refreshed := false
+	controller, err := New(Options{
+		Checker: fakeChecker{
+			result: updatecheck.Result{Status: updatecheck.StatusUpToDate},
+			observe: func(requested bool) {
+				refreshed = requested
+			},
+		},
+		Manifests:  fakeManifestLoader{},
+		Digests:    fakeResolver{},
+		Runtime:    &fakeRuntime{},
+		Operations: &memoryOperationStore{},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	handler, err := NewHandler(controller, "test-token")
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/v1/updates/check?refresh=1", nil)
+	request.Header.Set("Authorization", "Bearer test-token")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !refreshed {
+		t.Fatalf("status = %d; refreshed = %t", response.Code, refreshed)
 	}
 }

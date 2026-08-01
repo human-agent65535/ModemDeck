@@ -8,6 +8,7 @@ set -eu
 tests_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 repo_dir=$(CDPATH='' cd -- "${tests_dir}/../.." && pwd)
 workflow="${repo_dir}/.github/workflows/publish-images.yml"
+planner="${repo_dir}/deploy/release-image-plan.sh"
 
 fail() {
     printf 'release-workflow-test: %s\n' "$*" >&2
@@ -15,6 +16,7 @@ fail() {
 }
 
 [ -f "$workflow" ] || fail "release image workflow is missing"
+[ -x "$planner" ] || fail "release image planner is missing or not executable"
 
 grep -Fq '      - "v[0-9]+.[0-9]+.[0-9]+"' "$workflow" ||
     fail "workflow is not restricted to stable release tags"
@@ -40,27 +42,35 @@ do
 done
 
 for matrix_contract in \
-    '"component":"api","dockerfile":"./Dockerfile","image":"modemdeck","target":"runtime"' \
-    '"component":"web","dockerfile":"./Dockerfile","image":"modemdeck-web","target":"web-runtime"' \
-    '"component":"updater","dockerfile":"./Dockerfile","image":"modemdeck-updater","target":"updater-runtime"' \
-    '"component":"hardware","dockerfile":"./hardware/Dockerfile","image":"modemdeck-hardware","target":"runtime"'
+    'image=modemdeck' \
+    'image=modemdeck-web' \
+    'image=modemdeck-updater' \
+    'image=modemdeck-hardware' \
+    'target=web-runtime' \
+    'target=updater-runtime'
 do
-    grep -Fq "$matrix_contract" "$workflow" ||
+    grep -Fq "$matrix_contract" "$planner" ||
         fail "release image contract is incomplete: ${matrix_contract}"
 done
 
-grep -Fq 'git diff --quiet "${previous_tag}^{commit}" "${vcs_ref}" -- agent hardware' \
-    "$workflow" || fail "automatic releases do not isolate Hardware source changes"
-grep -Fq 'publish_hardware="${INCLUDE_HARDWARE:-false}"' "$workflow" ||
-    fail "manual release backfills do not default to application images only"
-grep -Fq "jq -r '.hardware_version // \"\"' deploy/release-manifest.json" \
-    "$workflow" || fail "release workflow does not validate the retained Hardware version"
-grep -Fq 'a Hardware-changing release must set hardware_version' "$workflow" ||
-    fail "Hardware image publication is not tied to the release manifest"
+grep -Fq 'deploy/release-image-plan.sh' "$workflow" ||
+    fail "release workflow does not use the component planner"
+grep -Fq 'for component in api web updater hardware' "$planner" ||
+    fail "planner does not evaluate every component independently"
+grep -Fq '"${1}_version"' "$planner" ||
+    fail "planner does not read per-component manifest versions"
+grep -Fq 'internal/ota/**' "$planner" ||
+    fail "updater source changes are not isolated"
+grep -Fq 'web/src/**' "$planner" ||
+    fail "Web source changes are not isolated"
+grep -Fq 'agent/**' "$planner" ||
+    fail "Hardware source changes are not isolated"
 grep -Fq 'release manifest must pin the tested Cloudflared tag and sha256 digest' \
     "$workflow" || fail "release workflow does not validate the Cloudflared pin"
 grep -Fq 'matrix: ${{ fromJSON(needs.release.outputs.image-matrix) }}' "$workflow" ||
     fail "release jobs do not use the validated component matrix"
+grep -Fq "if: needs.release.outputs.image-count != '0'" "$workflow" ||
+    fail "release workflow does not permit a release with no new images"
 
 grep -Fq 'platforms: linux/amd64,linux/arm64' "$workflow" ||
     fail "release images are not multi-architecture"
@@ -72,6 +82,8 @@ grep -Fq '${{ env.IMAGE }}:sha-${{ needs.release.outputs.vcs-ref }}' "$workflow"
     fail "release images do not have an immutable source revision tag"
 grep -Fq '          ref: ${{ needs.release.outputs.vcs-ref }}' "$workflow" ||
     fail "image builds do not check out the validated release commit"
+grep -Fq 'VERSION=${{ matrix.version }}' "$workflow" ||
+    fail "image builds do not use the selected component version"
 
 if grep -Eq '^ +[^#]*IMAGE.*:latest([[:space:]]|$)' "$workflow"; then
     fail "release workflow must not publish a mutable latest tag"

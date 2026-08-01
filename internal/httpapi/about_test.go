@@ -35,6 +35,15 @@ func (checker fakeUpdateChecker) Check(context.Context) updatecheck.Result {
 	return checker.result
 }
 
+type observingUpdateChecker struct {
+	refreshed *bool
+}
+
+func (checker observingUpdateChecker) Check(ctx context.Context) updatecheck.Result {
+	*checker.refreshed = updatecheck.RefreshRequested(ctx)
+	return updatecheck.Result{Status: updatecheck.StatusUpToDate}
+}
+
 func TestAboutReportsProductMetadata(t *testing.T) {
 	t.Parallel()
 	api, err := New(&fakeRepository{}, Options{
@@ -121,6 +130,26 @@ func TestUpdateCheckReturnsCheckerResult(t *testing.T) {
 	}
 	if !reflect.DeepEqual(body, expected) {
 		t.Fatalf("result = %+v; want %+v", body, expected)
+	}
+}
+
+func TestUpdateCheckForwardsManualRefresh(t *testing.T) {
+	t.Parallel()
+	refreshed := false
+	api, err := New(&fakeRepository{}, Options{
+		UpdateChecker:         observingUpdateChecker{refreshed: &refreshed},
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	response := httptest.NewRecorder()
+	api.ServeHTTP(
+		response,
+		httptest.NewRequest(http.MethodGet, "/api/v1/updates/check?refresh=1", nil),
+	)
+	if response.Code != http.StatusOK || !refreshed {
+		t.Fatalf("status = %d; refreshed = %t", response.Code, refreshed)
 	}
 }
 

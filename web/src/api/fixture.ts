@@ -1546,7 +1546,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       }
     },
 
-    async checkForUpdates(): Promise<UpdateCheck> {
+    async checkForUpdates(_refresh = false): Promise<UpdateCheck> {
       if (previewSoftwareUpdate) {
         if (fixtureApplicationVersion === 'v1.9.3') {
           return {

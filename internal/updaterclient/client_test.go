@@ -67,6 +67,24 @@ func TestClientMapsUpdaterFailureToUnavailableResult(t *testing.T) {
 	}
 }
 
+func TestClientForwardsManualRefresh(t *testing.T) {
+	t.Parallel()
+	var rawQuery string
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		rawQuery = request.URL.RawQuery
+		_, _ = response.Write([]byte(`{"status":"up_to_date","current_version":"v1.0.0","checked_at":"2026-08-02T00:00:00Z","apply_available":false,"hardware_confirmation_required":false}`))
+	}))
+	defer server.Close()
+	client, err := New(Options{BaseURL: server.URL, CurrentVersion: "v1.0.0"})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	client.Check(updatecheck.WithRefresh(context.Background()))
+	if rawQuery != "refresh=1" {
+		t.Fatalf("refresh query = %q", rawQuery)
+	}
+}
+
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (function roundTripperFunc) Do(request *http.Request) (*http.Response, error) {

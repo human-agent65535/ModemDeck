@@ -1,5 +1,5 @@
 const staleAssetReloadKey = 'modemdeck:stale-asset-transitions'
-const versionEndpoint = '/api/v1/version'
+const versionEndpoint = '/modemdeck-build.json'
 const versionQueryParameter = 'v'
 const clientVersion =
   typeof import.meta.env?.VITE_MODEMDECK_BUILD_ID === 'string'

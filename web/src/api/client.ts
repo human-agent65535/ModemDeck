@@ -1169,8 +1169,9 @@ const realGateway: ConfiguredModemDeckGateway = {
     return parseAbout(await get(`${API_ROOT}/about`))
   },
 
-  async checkForUpdates(): Promise<UpdateCheck> {
-    return parseUpdateCheck(await get(`${API_ROOT}/updates/check`))
+  async checkForUpdates(refresh = false): Promise<UpdateCheck> {
+    const query = refresh ? '?refresh=1' : ''
+    return parseUpdateCheck(await get(`${API_ROOT}/updates/check${query}`))
   },
 
   async applySoftwareUpdate(

@@ -25,6 +25,7 @@ func TestDockerRuntimeApplyRestoresEnvironmentWithOneRollback(t *testing.T) {
 		Result: updateResult("v1.9.3"),
 		Targets: []Target{{
 			Name:       "api",
+			Service:    "api",
 			Image:      "ghcr.io/human-agent65535/modemdeck",
 			Version:    "v1.9.3",
 			Digest:     testDigest("a"),
@@ -73,8 +74,14 @@ func TestDockerRuntimeApplyRestoresEnvironmentWithOneRollback(t *testing.T) {
 		t.Fatalf("progress = %v; want %v", progress, wantProgress)
 	}
 	for _, command := range runner.commands {
-		if len(command) > 1 && command[1] == "compose" && !containsSequence(command, "--profile", "ota") {
+		if len(command) <= 1 || command[1] != "compose" {
+			continue
+		}
+		if !containsSequence(command, "--profile", "ota") {
 			t.Fatalf("Compose command did not enable OTA profile: %q", command)
+		}
+		if !containsSequence(command, "--no-deps", "--wait") || command[len(command)-1] != "api" {
+			t.Fatalf("Compose command did not isolate the changed API service: %q", command)
 		}
 	}
 }
@@ -98,6 +105,8 @@ func TestDockerRuntimeWorkerUsesRestrictedOneShotContainer(t *testing.T) {
 	for _, expected := range [][]string{
 		{"--name", workerContainerName},
 		{"--cap-drop", "ALL"},
+		{"--cap-add", "DAC_OVERRIDE"},
+		{"--cap-add", "CHOWN"},
 		{"--security-opt", "no-new-privileges:true"},
 		{"--pids-limit", "128"},
 		{"--env", "MODEMDECK_DEPLOYMENT_DIR=" + directory},
@@ -106,6 +115,53 @@ func TestDockerRuntimeWorkerUsesRestrictedOneShotContainer(t *testing.T) {
 		if !containsSequence(command, expected...) {
 			t.Errorf("worker command missing %q: %q", expected, command)
 		}
+	}
+}
+
+func TestDockerRuntimeAdvancesMetadataWithoutTouchingContainers(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	environmentPath := filepath.Join(directory, ".env")
+	if err := os.WriteFile(environmentPath, []byte("MODEMDECK_VERSION=v1.9.5\n"), 0o600); err != nil {
+		t.Fatalf("write environment: %v", err)
+	}
+	runner := &recordingRunner{}
+	runtime := newDockerRuntimeForTest(t, runner, directory)
+	err := runtime.Apply(context.Background(), Plan{
+		Result: updateResult("v1.9.6"),
+		Targets: []Target{{
+			Name:    "api",
+			Service: "api",
+			Changed: false,
+		}},
+	}, nil)
+	if err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	contents, err := os.ReadFile(environmentPath)
+	if err != nil {
+		t.Fatalf("read environment: %v", err)
+	}
+	if string(contents) != "MODEMDECK_VERSION=v1.9.6\n" {
+		t.Fatalf("environment = %q", contents)
+	}
+	if len(runner.commands) != 0 {
+		t.Fatalf("metadata-only release ran container commands: %q", runner.commands)
+	}
+	installedVersion, err := os.ReadFile(filepath.Join(directory, "state", InstalledVersionFilename))
+	if err != nil {
+		t.Fatalf("read installed version state: %v", err)
+	}
+	if string(installedVersion) != "v1.9.6\n" {
+		t.Fatalf("installed version state = %q", installedVersion)
+	}
+}
+
+func TestApplyErrorIncludesCause(t *testing.T) {
+	t.Parallel()
+	err := (&ApplyError{Cause: errors.New("read Compose environment: permission denied")}).Error()
+	if err != "software update failed: read Compose environment: permission denied" {
+		t.Fatalf("ApplyError() = %q", err)
 	}
 }
 
