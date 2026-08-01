@@ -105,9 +105,10 @@ tag. Hardware has its own component version: when its inputs are unchanged, no
 new Hardware tag is created and update tooling must retain the previously
 published Hardware digest.
 
-GHCR creates a package as private on its first publication. For anonymous
-device pulls, change each package to public once in its GitHub package settings.
-Private packages instead require a device credential with `read:packages`.
+Verify package visibility after its first publication. Public packages support
+anonymous device pulls; if a package is private, either change it to public in
+its GitHub package settings or provision a device credential with
+`read:packages`.
 
 Release images are build artifacts, not authority for an unattended Hardware
 restart. API and Web may be updated together after staging both digests;
