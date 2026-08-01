@@ -30,7 +30,7 @@ import {
 import {
   callRecordingState,
   rememberCallRecordingPreference,
-  setActiveCallRecording
+  setCallRecordingEnabled
 } from '../state/recording'
 import type { CallRecordingSegment } from '../api/types'
 import { playDTMFTone } from '../state/dtmfAudio'
@@ -122,6 +122,17 @@ const occupiedDescription = computed(() =>
     : t('calls.lineInUseDescription')
 )
 const active = computed(() => session.value?.phase === 'active')
+const recordingAdjustable = computed(() => {
+  const phase = session.value?.phase
+  return (
+    !occupied.value &&
+    (incoming.value || callState.owned) &&
+    (phase === 'dialing' ||
+      phase === 'ringing' ||
+      phase === 'connecting' ||
+      phase === 'active')
+  )
+})
 const recordingSegments = computed(() =>
   callRecordingState.callID === session.value?.id
     ? callRecordingState.segments
@@ -255,14 +266,24 @@ function tone(digit: string): void {
 }
 
 function toggleRecording(): void {
-  if (incoming.value && !callState.owned && session.value) {
-    rememberCallRecordingPreference(
-      session.value.id,
-      !callRecordingState.enabled
-    )
+  if (
+    !session.value ||
+    callState.busy ||
+    callRecordingState.busy ||
+    callRecordingState.status === 'initializing'
+  ) {
     return
   }
-  void setActiveCallRecording(!callRecordingState.enabled)
+  if (!active.value) {
+    const enabled = !callRecordingState.enabled
+    rememberCallRecordingPreference(
+      session.value.id,
+      enabled
+    )
+    if (callState.owned) void setCallRecordingEnabled(enabled)
+    return
+  }
+  void setCallRecordingEnabled(!callRecordingState.enabled)
 }
 
 onMounted(() => {
@@ -452,9 +473,12 @@ onBeforeUnmount(() => {
 
       <div class="call-surface__primary-actions">
         <button
-          v-if="(incoming || active) && !occupied"
+          v-if="recordingAdjustable"
           class="call-footer-action call-footer-action--recording"
-          :class="{ 'is-active': callRecordingState.enabled }"
+          :class="{
+            'is-active': callRecordingState.enabled,
+            'is-changing': callRecordingState.busy
+          }"
           type="button"
           :title="
             callRecordingState.enabled
@@ -468,6 +492,7 @@ onBeforeUnmount(() => {
           "
           :aria-pressed="callRecordingState.enabled"
           :disabled="
+            callState.busy ||
             callRecordingState.busy ||
             callRecordingState.status === 'initializing'
           "
@@ -475,10 +500,7 @@ onBeforeUnmount(() => {
         >
           <span class="call-footer-action__icon" aria-hidden="true">
             <LoaderCircle
-              v-if="
-                callRecordingState.busy ||
-                callRecordingState.status === 'initializing'
-              "
+              v-if="callRecordingState.status === 'initializing'"
               class="spin"
               :size="20"
             />
@@ -828,10 +850,10 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border);
   border-radius: 50%;
   transition:
-    color 150ms ease,
-    background 150ms ease,
-    border-color 150ms ease,
-    transform 150ms ease;
+    color var(--motion-base) var(--ease-standard),
+    background var(--motion-base) var(--ease-standard),
+    border-color var(--motion-base) var(--ease-standard),
+    transform var(--motion-base) var(--ease-standard);
 }
 
 .call-control:hover:not(:disabled) .call-control__icon {
@@ -996,6 +1018,20 @@ onBeforeUnmount(() => {
   border-color: var(--danger);
 }
 
+.call-footer-action--recording.is-changing .call-footer-action__icon {
+  animation: recording-choice var(--motion-base) var(--ease-standard) both;
+}
+
+@keyframes recording-choice {
+  from {
+    transform: scale(0.94);
+  }
+
+  to {
+    transform: scale(1);
+  }
+}
+
 .call-footer-action--keypad.is-active .call-footer-action__icon {
   color: var(--on-accent);
   background: var(--accent);
@@ -1115,6 +1151,7 @@ onBeforeUnmount(() => {
   .call-control__icon,
   .call-footer-action__icon {
     transition: none;
+    animation: none;
   }
 }
 

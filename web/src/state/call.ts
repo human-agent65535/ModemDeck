@@ -26,7 +26,7 @@ import {
   shutdownCallMedia,
   syncCallMedia
 } from './callMedia'
-import { syncCallRecording } from './recording'
+import { preferredCallRecording, syncCallRecording } from './recording'
 
 const TERMINAL_PHASES = new Set<CallSession['phase']>(['ended', 'failed'])
 const LEASED_PHASES = new Set<CallSession['phase']>([
@@ -516,7 +516,11 @@ async function act(action: CallAction): Promise<void> {
   callState.errorStatus = 0
   syncCallSounds(null)
   try {
-    await gateway.callAction(id, action)
+    await gateway.callAction(
+      id,
+      action,
+      action === 'answer' ? preferredCallRecording(id) : undefined
+    )
     if (action === 'answer' && previousSession) {
       acceptSession({
         ...previousSession,

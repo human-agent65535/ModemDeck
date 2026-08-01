@@ -98,12 +98,19 @@ let settingsRequest: Promise<RecordingSettings | null> | undefined
 let settingsGeneration = 0
 let dialerResetGeneration = 0
 let callSyncGeneration = 0
-let attemptedCallID = ''
+let activeSnapshotCallID = ''
 let preferredCallID = ''
 let preferredCallEnabled = false
 let activeSegmentsGeneration = 0
 let recordingListGeneration = 0
 let recordingCatalogGeneration = 0
+const RECORDING_INTERACTION_LOCK_MS = 160
+
+function recordingInteractionLock(): Promise<void> {
+  return new Promise(resolve => {
+    globalThis.setTimeout(resolve, RECORDING_INTERACTION_LOCK_MS)
+  })
+}
 
 function failureMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiError && error.status === 403) {
@@ -228,16 +235,21 @@ export function rememberCallRecordingPreference(callID: string, enabled: boolean
   preferredCallID = callID
   preferredCallEnabled = enabled
   if (callRecordingState.callID === callID && !callRecordingState.active) {
+    callSyncGeneration += 1
     callRecordingState.status = 'ready'
     callRecordingState.enabled = enabled
     callRecordingState.error = ''
   }
 }
 
+export function preferredCallRecording(callID: string): boolean | undefined {
+  return preferredCallID === callID ? preferredCallEnabled : undefined
+}
+
 function clearActiveRecording(): void {
   callSyncGeneration += 1
   activeSegmentsGeneration += 1
-  attemptedCallID = ''
+  activeSnapshotCallID = ''
   callRecordingState.callID = ''
   callRecordingState.status = 'idle'
   callRecordingState.enabled = false
@@ -250,7 +262,7 @@ function clearActiveRecording(): void {
   callRecordingState.segmentsError = ''
 }
 
-async function loadActiveCallRecordingSegments(callID: string): Promise<void> {
+async function loadActiveCallRecording(callID: string): Promise<void> {
   const normalizedCallID = callID.trim()
   if (!normalizedCallID || callRecordingState.callID !== normalizedCallID) return
 
@@ -258,14 +270,15 @@ async function loadActiveCallRecordingSegments(callID: string): Promise<void> {
   callRecordingState.segmentsStatus = 'loading'
   callRecordingState.segmentsError = ''
   try {
-    const segments = await gateway.listCallRecordings(normalizedCallID)
+    const snapshot = await gateway.getCallRecording(normalizedCallID)
     if (
       token !== activeSegmentsGeneration ||
       callRecordingState.callID !== normalizedCallID
     ) {
       return
     }
-    callRecordingState.segments = segments
+    acceptCallRecording(normalizedCallID, snapshot.state)
+    callRecordingState.segments = snapshot.segments
       .slice()
       .sort((left, right) => left.segment_index - right.segment_index)
     callRecordingState.segmentsStatus = 'ready'
@@ -282,6 +295,10 @@ async function loadActiveCallRecordingSegments(callID: string): Promise<void> {
       error,
       translate('runtime.callRecordingsLoadFailed')
     )
+    if (callRecordingState.status === 'idle') {
+      callRecordingState.status = 'error'
+      callRecordingState.error = callRecordingState.segmentsError
+    }
   }
 }
 
@@ -294,7 +311,7 @@ export function syncCallRecording(session: CallSession | null): void {
 
   if (callRecordingState.callID !== session.id) {
     callSyncGeneration += 1
-    attemptedCallID = ''
+    activeSnapshotCallID = ''
     callRecordingState.callID = session.id
     callRecordingState.status = 'idle'
     callRecordingState.enabled = false
@@ -305,12 +322,20 @@ export function syncCallRecording(session: CallSession | null): void {
     callRecordingState.segmentsStatus = 'idle'
     callRecordingState.segments = []
     callRecordingState.segmentsError = ''
-    void loadActiveCallRecordingSegments(session.id)
+    if (session.direction === 'outgoing' || session.control_state === 'owned') {
+      void loadActiveCallRecording(session.id)
+    }
   }
   if (session.phase !== 'active') {
     if (preferredCallID === session.id) {
       callRecordingState.status = 'ready'
       callRecordingState.enabled = preferredCallEnabled
+      return
+    }
+    if (
+      session.direction !== 'incoming' ||
+      session.control_state !== 'available'
+    ) {
       return
     }
     if (callRecordingState.status !== 'idle') return
@@ -336,66 +361,41 @@ export function syncCallRecording(session: CallSession | null): void {
     })
     return
   }
-  if (attemptedCallID === session.id) return
-
-  attemptedCallID = session.id
-  const token = ++callSyncGeneration
-  callRecordingState.status = 'initializing'
-  callRecordingState.error = ''
-  void (async () => {
-    let enabled: boolean
-    if (preferredCallID === session.id) {
-      enabled = preferredCallEnabled
-    } else {
-      const settings = await loadRecordingSettings()
-      if (!settings) {
-        if (token !== callSyncGeneration || callRecordingState.callID !== session.id) return
-        callRecordingState.status = 'error'
-        callRecordingState.error =
-          recordingSettingsState.error || translate('runtime.defaultRecordingReadFailed')
-        return
-      }
-      enabled = settings.default_enabled
-    }
-
-    try {
-      const state = await gateway.setCallRecording(session.id, enabled)
-      if (token !== callSyncGeneration || callRecordingState.callID !== session.id) return
-      acceptCallRecording(session.id, state)
-      await loadActiveCallRecordingSegments(session.id)
-    } catch (error) {
-      if (token !== callSyncGeneration || callRecordingState.callID !== session.id) return
-      callRecordingState.status = 'error'
-      callRecordingState.error = failureMessage(
-        error,
-        translate('runtime.recordingApplyFailed')
-      )
-    }
-  })()
+  if (activeSnapshotCallID === session.id) return
+  activeSnapshotCallID = session.id
+  if (!callRecordingState.busy) void loadActiveCallRecording(session.id)
 }
 
-export async function setActiveCallRecording(enabled: boolean): Promise<void> {
+export async function setCallRecordingEnabled(enabled: boolean): Promise<void> {
   const callID = callRecordingState.callID
   if (!callID || callRecordingState.busy) return
 
+  const interactionLock = recordingInteractionLock()
+  const previousEnabled = callRecordingState.enabled
   const token = ++callSyncGeneration
   callRecordingState.busy = true
+  callRecordingState.status = 'ready'
+  callRecordingState.enabled = enabled
   callRecordingState.error = ''
   try {
     const state = await gateway.setCallRecording(callID, enabled)
     if (token !== callSyncGeneration || callRecordingState.callID !== callID) return
     acceptCallRecording(callID, state)
-    await loadActiveCallRecordingSegments(callID)
   } catch (error) {
     if (token !== callSyncGeneration || callRecordingState.callID !== callID) return
     callRecordingState.status = 'error'
+    callRecordingState.enabled = previousEnabled
     callRecordingState.error = failureMessage(
       error,
       translate('runtime.recordingToggleFailed')
     )
   } finally {
-    if (token === callSyncGeneration && callRecordingState.callID === callID) {
+    await interactionLock
+    if (callRecordingState.callID === callID) {
       callRecordingState.busy = false
+      if (activeSnapshotCallID === callID) {
+        void loadActiveCallRecording(callID)
+      }
     }
   }
 }
@@ -584,7 +584,7 @@ export async function refreshRecordingWorkspace(): Promise<void> {
     refreshRecordingEntries()
   ]
   if (callRecordingState.callID) {
-    requests.push(loadActiveCallRecordingSegments(callRecordingState.callID))
+    requests.push(loadActiveCallRecording(callRecordingState.callID))
   }
   if (recordingListState.callID) {
     requests.push(loadCallRecordings(recordingListState.callID, true))
@@ -671,7 +671,7 @@ export function resetRecordingState(): void {
   recordingListGeneration += 1
   recordingCatalogGeneration += 1
   settingsRequest = undefined
-  attemptedCallID = ''
+  activeSnapshotCallID = ''
   preferredCallID = ''
   preferredCallEnabled = false
 

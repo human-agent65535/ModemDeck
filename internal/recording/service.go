@@ -196,7 +196,12 @@ func (s *Service) SetEnabled(
 	if err != nil {
 		return store.CallRecordingState{}, translateStoreError(err)
 	}
-	if call.Phase != "active" || call.EndedAt != "" {
+	if call.EndedAt != "" {
+		return store.CallRecordingState{}, ErrCallNotActive
+	}
+	switch call.Phase {
+	case "dialing", "ringing", "connecting", "active":
+	default:
 		return store.CallRecordingState{}, ErrCallNotActive
 	}
 	s.mu.Lock()
@@ -207,6 +212,14 @@ func (s *Service) SetEnabled(
 		return store.CallRecordingState{}, translateStoreError(err)
 	}
 	s.notifyChanged()
+	if call.Phase != "active" {
+		stopErr := s.stopWorker(normalizeContext(ctx), callID)
+		authoritative, stateErr := s.repository.CallRecordingState(
+			normalizeContext(ctx),
+			callID,
+		)
+		return authoritative, errors.Join(stopErr, translateStoreError(stateErr))
+	}
 	if !enabled {
 		stopErr := s.stopWorker(normalizeContext(ctx), callID)
 		authoritative, stateErr := s.repository.CallRecordingState(

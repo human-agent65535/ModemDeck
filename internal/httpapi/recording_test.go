@@ -483,6 +483,54 @@ func TestStartCallRecordingOverrideIsOptional(t *testing.T) {
 	})
 }
 
+func TestIncomingAnswerPersistsRecordingChoiceBeforeModemAnswer(t *testing.T) {
+	recordings := &fakeRecordingService{
+		settings: store.RecordingSettings{DefaultEnabled: true, Revision: 1},
+		toggleState: store.CallRecordingState{
+			CallID: "call-incoming",
+			Status: store.RecordingStateOff,
+		},
+	}
+	answerSawPreparedRecording := false
+	communications := &fakeCommunications{onAction: func() {
+		answerSawPreparedRecording =
+			recordings.toggleCallID == "call-incoming" && !recordings.toggleEnabled
+	}}
+	api, err := New(&fakeRepository{}, Options{
+		Communications:        communications,
+		Recording:             recordings,
+		CallLeases:            &fakeCallLeases{},
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/calls/call-incoming/answer",
+		bytes.NewBufferString(
+			`{"request_id":"request-answer","holder_id":"browser-1","recording_enabled":false}`,
+		),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if recordings.toggleCallID != "call-incoming" || recordings.toggleEnabled {
+		t.Fatalf("recording preparation = %+v", recordings)
+	}
+	if communications.actionCalls != 1 || communications.actionInput.Action != "answer" {
+		t.Fatalf("answer action = %+v", communications.actionInput)
+	}
+	if !answerSawPreparedRecording {
+		t.Fatal("modem answer ran before the recording choice was persisted")
+	}
+}
+
 type fakeRecordingService struct {
 	settings                 store.RecordingSettings
 	updatedSettings          store.RecordingSettings

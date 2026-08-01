@@ -41,9 +41,10 @@ type startCallRequest struct {
 }
 
 type callActionRequest struct {
-	RequestID string `json:"request_id"`
-	Digits    string `json:"digits"`
-	HolderID  string `json:"holder_id"`
+	RequestID        string `json:"request_id"`
+	Digits           string `json:"digits"`
+	HolderID         string `json:"holder_id"`
+	RecordingEnabled *bool  `json:"recording_enabled,omitempty"`
 }
 
 type callsBatchRequest struct {
@@ -741,6 +742,59 @@ func (api *API) callAction(response http.ResponseWriter, request *http.Request, 
 	if claimed {
 		api.publishRuntimeResources(runtimeevents.ResourceCalls)
 	}
+	releaseClaim := func() {
+		if !claimed {
+			return
+		}
+		rollbackContext, cancel := context.WithTimeout(
+			context.WithoutCancel(request.Context()),
+			callControlRollbackTimeout,
+		)
+		defer cancel()
+		if releaseErr := api.callLeases.Release(
+			rollbackContext,
+			callID,
+			holder.LeaseID,
+		); releaseErr != nil {
+			api.logger.Warn(
+				"failed call action owner could not be released",
+				"component", "calls",
+				"call_id", callID,
+				"action", action,
+				"error", releaseErr,
+			)
+		}
+		api.publishRuntimeResources(runtimeevents.ResourceCalls)
+	}
+	if action == "answer" && api.recordings != nil {
+		recordingEnabled := false
+		if input.RecordingEnabled != nil {
+			recordingEnabled = *input.RecordingEnabled
+		} else {
+			settings, settingsErr := api.recordings.Settings(request.Context())
+			if settingsErr != nil {
+				releaseClaim()
+				api.writeRecordingError(response, request, "load incoming call recording default", settingsErr, nil)
+				return
+			}
+			recordingEnabled = settings.DefaultEnabled
+		}
+		state, recordingErr := api.recordings.SetEnabled(
+			request.Context(),
+			callID,
+			recordingEnabled,
+		)
+		if recordingErr != nil {
+			releaseClaim()
+			api.writeRecordingError(response, request, "prepare incoming call recording", recordingErr, &state)
+			return
+		}
+		api.publishRuntimeResources(runtimeevents.ResourceRecordings)
+	} else if action == "answer" && input.RecordingEnabled != nil {
+		releaseClaim()
+		writeError(response, http.StatusServiceUnavailable, "recording_unavailable", "Call recording is unavailable", "")
+		return
+	}
 	_, err = api.communications.CallAction(request.Context(), communication.CallActionInput{
 		RequestID: requestID,
 		CallID:    callID,
@@ -748,27 +802,7 @@ func (api *API) callAction(response http.ResponseWriter, request *http.Request, 
 		Digits:    input.Digits,
 	})
 	if err != nil {
-		if claimed {
-			rollbackContext, cancel := context.WithTimeout(
-				context.WithoutCancel(request.Context()),
-				callControlRollbackTimeout,
-			)
-			if releaseErr := api.callLeases.Release(
-				rollbackContext,
-				callID,
-				holder.LeaseID,
-			); releaseErr != nil {
-				api.logger.Warn(
-					"failed call action owner could not be released",
-					"component", "calls",
-					"call_id", callID,
-					"action", action,
-					"error", releaseErr,
-				)
-			}
-			cancel()
-			api.publishRuntimeResources(runtimeevents.ResourceCalls)
-		}
+		releaseClaim()
 		api.writeCommunicationError(response, request, "control call", err)
 		return
 	}

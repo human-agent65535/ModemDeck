@@ -29,6 +29,7 @@ type fakeCommunications struct {
 	actionInput  communication.CallActionInput
 	actionError  error
 	actionCalls  int
+	onAction     func()
 	active       []store.Call
 	activeError  error
 	endCallID    string
@@ -64,6 +65,9 @@ func (service *fakeCommunications) CallAction(
 ) (store.Call, error) {
 	service.actionCalls++
 	service.actionInput = input
+	if service.onAction != nil {
+		service.onAction()
+	}
 	return service.call, service.actionError
 }
 

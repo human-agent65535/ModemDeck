@@ -10,11 +10,11 @@ test('recording runtime events refresh the active call segment resources', async
 
   assert.match(
     recording,
-    /if \(callRecordingState\.callID\) \{[\s\S]*loadActiveCallRecordingSegments\(callRecordingState\.callID\)/
+    /if \(callRecordingState\.callID\) \{[\s\S]*loadActiveCallRecording\(callRecordingState\.callID\)/
   )
   assert.match(
     recording,
-    /acceptCallRecording\(callID, state\)[\s\S]*await loadActiveCallRecordingSegments\(callID\)/
+    /const snapshot = await gateway\.getCallRecording\(normalizedCallID\)[\s\S]*acceptCallRecording\(normalizedCallID, snapshot\.state\)/
   )
   assert.match(
     runtime,

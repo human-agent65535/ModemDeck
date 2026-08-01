@@ -220,6 +220,60 @@ func TestServiceOutgoingOverrideCanDisableRecording(t *testing.T) {
 	}
 }
 
+func TestServicePersistsDialingToggleBeforeCallBecomesActive(t *testing.T) {
+	fixture := newServiceFixture(t, nil)
+	applyServiceTestCallPhase(
+		t,
+		fixture.repository,
+		"call-dialing-toggle",
+		"",
+		"outgoing",
+		"dialing",
+		false,
+	)
+
+	state, err := fixture.service.SetEnabled(
+		context.Background(),
+		"call-dialing-toggle",
+		true,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.Enabled || state.Status != store.RecordingStatePending {
+		t.Fatalf("dialing state = %+v", state)
+	}
+	select {
+	case writer := <-fixture.writers.created:
+		t.Fatalf("recording started before the call was active: %+v", writer)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	applyServiceTestCallPhase(
+		t,
+		fixture.repository,
+		"call-dialing-toggle",
+		"",
+		"outgoing",
+		"active",
+		true,
+	)
+	if err := fixture.reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	receiveWriter(t, fixture.writers.created)
+	state, err = fixture.repository.CallRecordingState(
+		context.Background(),
+		"call-dialing-toggle",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.Enabled || state.Status != store.RecordingStateRecording {
+		t.Fatalf("active state = %+v", state)
+	}
+}
+
 func TestCallRecordingsDoesNotCreateStateForHistoricalCall(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
 	applyServiceTestCall(t, fixture.repository, "call-history-only", "", "incoming", false)
@@ -1114,8 +1168,30 @@ func applyServiceTestCall(
 	callID, requestID, direction string,
 	mediaAvailable bool,
 ) {
+	applyServiceTestCallPhase(
+		t,
+		repository,
+		callID,
+		requestID,
+		direction,
+		"active",
+		mediaAvailable,
+	)
+}
+
+func applyServiceTestCallPhase(
+	t *testing.T,
+	repository *store.Store,
+	callID, requestID, direction, phase string,
+	mediaAvailable bool,
+) {
 	t.Helper()
 	observed := time.Date(2026, time.July, 23, 16, 0, 0, 0, time.UTC)
+	callRevision := int64(1)
+	if phase == "active" {
+		observed = observed.Add(time.Second)
+		callRevision = 2
+	}
 	line := store.HardwareLine{
 		ID:                  "line-service-recording",
 		Model:               "Fixture modem",
@@ -1130,7 +1206,7 @@ func applyServiceTestCall(
 	}
 	if err := repository.ApplyHardwareSnapshot(context.Background(), store.HardwareSnapshot{
 		BootEpoch:  "boot-service-recording",
-		Revision:   "snapshot-" + callID,
+		Revision:   "snapshot-" + callID + "-" + phase,
 		ObservedAt: observed,
 		Lines:      []store.HardwareLine{line},
 		Calls: []store.HardwareCall{{
@@ -1140,13 +1216,13 @@ func applyServiceTestCall(
 			EndpointCallID:  "endpoint-" + callID,
 			Number:          "+818000000088",
 			Direction:       direction,
-			Phase:           "active",
+			Phase:           phase,
 			AudioPort:       audioPort,
 			AudioEncoding:   "pcm",
 			AudioResolution: "s16le",
 			AudioRate:       8000,
 			MediaAvailable:  mediaAvailable,
-			Revision:        1,
+			Revision:        callRevision,
 			ObservedAt:      observed,
 		}},
 	}); err != nil {

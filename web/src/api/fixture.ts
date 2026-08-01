@@ -1929,9 +1929,16 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       return clone(activeCall)
     },
 
-    async callAction(id: string, action: 'answer' | 'reject' | 'hangup'): Promise<void> {
+    async callAction(
+      id: string,
+      action: 'answer' | 'reject' | 'hangup',
+      recordingEnabled?: boolean
+    ): Promise<void> {
       if (!activeCall || activeCall.id !== id) throw new ApiError('通话不存在', 404)
       if (action === 'answer') {
+        if (activeCallRecording && typeof recordingEnabled === 'boolean') {
+          activeCallRecording.enabled = recordingEnabled
+        }
         activeCall.phase = 'active'
         activeCall.control_state = 'owned'
         activeCall.active_at = '2026-07-23T12:05:04Z'
@@ -2091,6 +2098,16 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       if (wasActive && !activeCallRecording.active) finishFixtureRecordingSegment()
       if (!wasActive && activeCallRecording.active) startFixtureRecordingSegment()
       return clone(activeCallRecording)
+    },
+
+    async getCallRecording(id: string) {
+      if (!activeCall || activeCall.id !== id || !activeCallRecording) {
+        throw new ApiError('通话不存在', 404)
+      }
+      return {
+        state: clone(activeCallRecording),
+        segments: clone(activeCallRecordingSegments)
+      }
     },
 
     async listCallRecordings(id: string): Promise<CallRecordingSegment[]> {

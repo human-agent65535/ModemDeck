@@ -30,6 +30,7 @@ import {
   parseActiveCallSnapshotResponse,
   parseCallLeaseStatus,
   parseCallMediaResponse,
+  parseCallRecordingSnapshotResponse,
   parseCallRecordingState,
   parseCallRecordingsResponse,
   parseCallResponse,
@@ -318,6 +319,19 @@ test('call and DTMF payloads use line_id, number, request_id, and digits', () =>
       holder_id: 'browser-1'
     }
   )
+  assert.deepEqual(
+    createCallActionPayload('answer', 'request-answer-1', 'browser-1', false),
+    {
+      request_id: 'request-answer-1',
+      holder_id: 'browser-1',
+      recording_enabled: false
+    }
+  )
+  assert.equal(
+    'recording_enabled' in
+      createCallActionPayload('hangup', 'request-hangup-2', 'browser-1', true),
+    false
+  )
   assert.deepEqual(createCallLeasePayload(' browser-1 '), {
     holder_id: 'browser-1'
   })
@@ -509,6 +523,24 @@ test('recording metadata derives same-origin authenticated API downloads', () =>
     }
   ])
   assert.equal('favorite' in parsedSegments[0], false)
+  assert.deepEqual(
+    parseCallRecordingSnapshotResponse({
+      state: {
+        call_id: 'call-1',
+        enabled: true,
+        status: 'recording'
+      },
+      segments: [segment]
+    }),
+    {
+      state: {
+        call_id: 'call-1',
+        enabled: true,
+        active: true
+      },
+      segments: parsedSegments
+    }
+  )
   assert.deepEqual(
     parseCallRecordingsResponse({
       segments: [{ ...segment, status: 'recording', ended_at: undefined }]

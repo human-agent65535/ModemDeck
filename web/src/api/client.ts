@@ -44,6 +44,7 @@ import {
   parseCallMediaICEConfiguration,
   parseCallLeaseStatus,
   parseCallRecordingState,
+  parseCallRecordingSnapshotResponse,
   parseCallRecordingsResponse,
   parseCallResponse,
   parseDeviceConfigurationResponse,
@@ -1843,12 +1844,17 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
-  async callAction(id, action): Promise<void> {
+  async callAction(id, action, recordingEnabled): Promise<void> {
     const contract = callActionContract(id, action)
     await writeJSON(
       contract.path,
       contract.method,
-      createCallActionPayload(action, requestID(), callLeaseHolderID),
+      createCallActionPayload(
+        action,
+        requestID(),
+        callLeaseHolderID,
+        recordingEnabled
+      ),
       contract.successStatus
     )
   },
@@ -1960,6 +1966,11 @@ const realGateway: ConfiguredModemDeckGateway = {
         contract.successStatus
       )
     )
+  },
+
+  async getCallRecording(id: string) {
+    const contract = callRecordingContract(id).list
+    return parseCallRecordingSnapshotResponse(await get(contract.path))
   },
 
   async listCallRecordings(id: string): Promise<CallRecordingSegment[]> {

@@ -8,6 +8,7 @@ import type {
   CallFilter,
   CallBatchAction,
   CallRecordingSegment,
+  CallRecordingSnapshot,
   CallRecordingState,
   CallRecord,
   CallSession,
@@ -207,7 +208,7 @@ export interface ModemDeckGateway {
     number: string,
     recordingEnabled?: boolean
   ): Promise<CallSession>
-  callAction(id: string, action: CallAction): Promise<void>
+  callAction(id: string, action: CallAction, recordingEnabled?: boolean): Promise<void>
   sendDTMF(id: string, digit: string): Promise<void>
   renewCallLease(id: string): Promise<CallLeaseStatus>
   getCallMediaICEConfiguration(
@@ -225,6 +226,7 @@ export interface ModemDeckGateway {
   getRecordingSettings(): Promise<RecordingSettings>
   updateRecordingSettings(settings: RecordingSettings): Promise<RecordingSettings>
   setCallRecording(id: string, enabled: boolean): Promise<CallRecordingState>
+  getCallRecording(id: string): Promise<CallRecordingSnapshot>
   listCallRecordings(id: string): Promise<CallRecordingSegment[]>
   deleteRecording(callID: string, recordingID: string): Promise<void>
   updateRecordings(

@@ -10,6 +10,7 @@ import type {
   CallPhase,
   CallRecording,
   CallRecordingSegment,
+  CallRecordingSnapshot,
   CallRecordingState,
   CallSession,
   CallPolicyEnforcement,
@@ -1253,15 +1254,19 @@ export function createCallPayload(
 export function createCallActionPayload(
   action: CallAction,
   requestID: string | undefined,
-  holderID: string
-): { request_id?: string; holder_id: string } {
+  holderID: string,
+  recordingEnabled?: boolean
+): { request_id?: string; holder_id: string; recording_enabled?: boolean } {
   if (!CALL_ACTIONS.has(action)) throw new Error(`未知通话操作：${action}`)
   const normalizedRequestID = requestID?.trim()
   const normalizedHolderID = holderID.trim()
   if (!normalizedHolderID) throw new Error('holder_id 不能为空')
   return {
     ...(normalizedRequestID ? { request_id: normalizedRequestID } : {}),
-    holder_id: normalizedHolderID
+    holder_id: normalizedHolderID,
+    ...(action === 'answer' && typeof recordingEnabled === 'boolean'
+      ? { recording_enabled: recordingEnabled }
+      : {})
   }
 }
 
@@ -2170,6 +2175,15 @@ export function parseCallRecordingsResponse(value: unknown): CallRecordingSegmen
         : {})
     }
   })
+}
+
+export function parseCallRecordingSnapshotResponse(
+  value: unknown
+): CallRecordingSnapshot {
+  return {
+    state: parseCallRecordingState(value),
+    segments: parseCallRecordingsResponse(value)
+  }
 }
 
 export function parseRecordingEntriesResponse(value: unknown): Page<RecordingEntry> {
