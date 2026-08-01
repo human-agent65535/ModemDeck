@@ -61,6 +61,7 @@ const OUTPUT_STORAGE_KEY = 'modemdeck.audio.output-device'
 const LEVELS_STORAGE_KEY = 'modemdeck.audio.levels.v1'
 const MICROPHONE_TEST_LIMIT_MS = 30_000
 const MICROPHONE_SAMPLE_MS = 80
+const MICROPHONE_METER_FLOOR_DBFS = -60
 
 export type BrowserAudioLevels = {
   microphoneGain: number
@@ -116,6 +117,15 @@ export function normalizeAudioLevels(raw: unknown): BrowserAudioLevels {
       100
     )
   }
+}
+
+export function microphoneMeterLevel(rms: number): number {
+  if (!Number.isFinite(rms) || rms <= 0) return 0
+  const dbfs = 20 * Math.log10(rms)
+  return Math.min(
+    1,
+    Math.max(0, (dbfs - MICROPHONE_METER_FLOOR_DBFS) / -MICROPHONE_METER_FLOOR_DBFS)
+  )
 }
 
 function storedAudioLevels(): BrowserAudioLevels {
@@ -665,16 +675,17 @@ export async function startMicrophoneTest(): Promise<void> {
     audioState.microphoneTestSeconds = MICROPHONE_TEST_LIMIT_MS / 1000
     audioState.microphoneTestError = ''
 
-    const samples = new Uint8Array(analyser.fftSize)
+    const samples = new Float32Array(analyser.fftSize)
     microphoneSampleTimer = window.setInterval(() => {
       if (!microphoneTestAnalyser) return
-      microphoneTestAnalyser.getByteTimeDomainData(samples)
+      microphoneTestAnalyser.getFloatTimeDomainData(samples)
       let sum = 0
       for (const sample of samples) {
-        const normalized = (sample - 128) / 128
-        sum += normalized * normalized
+        sum += sample * sample
       }
-      audioState.microphoneTestLevel = Math.min(1, Math.sqrt(sum / samples.length) * 4)
+      audioState.microphoneTestLevel = microphoneMeterLevel(
+        Math.sqrt(sum / samples.length)
+      )
     }, MICROPHONE_SAMPLE_MS)
     microphoneCountdownTimer = window.setInterval(() => {
       audioState.microphoneTestSeconds = Math.max(

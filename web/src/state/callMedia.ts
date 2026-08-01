@@ -301,18 +301,12 @@ async function connect(
     })
     let recovering = false
     peer = connection
-    remoteStream = new MediaStream()
-    attachRemoteAudio(remoteStream)
 
     connection.ontrack = event => {
-      if (generation !== token || currentCallID !== callID || !remoteStream) return
-      const tracks = event.streams[0]?.getTracks() || [event.track]
-      for (const track of tracks) {
-        if (!remoteStream.getTracks().some(existing => existing.id === track.id)) {
-          remoteStream.addTrack(track)
-        }
-      }
-      attachRemoteAudio(remoteStream)
+      if (generation !== token || currentCallID !== callID) return
+      const stream = event.streams[0] ?? new MediaStream([event.track])
+      remoteStream = stream
+      attachRemoteAudio(stream)
     }
     connection.onconnectionstatechange = () => {
       if (generation !== token || currentCallID !== callID) return

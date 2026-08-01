@@ -15,6 +15,7 @@ import {
   applySelectedAudioOutput,
   audioState,
   markAudioOutputInactive,
+  microphoneMeterLevel,
   normalizeAudioLevels
 } from '../src/state/audio.ts'
 
@@ -123,6 +124,25 @@ test('browser audio levels are bounded and retain independent channels', () => {
       recordingPlaybackVolume: 35
     }
   )
+})
+
+test('a new browser starts every audio level at 100 percent', () => {
+  assert.deepEqual(normalizeAudioLevels(undefined), {
+    microphoneGain: 100,
+    callVolume: 100,
+    ringAlertsVolume: 100,
+    recordingPlaybackVolume: 100
+  })
+})
+
+test('microphone meter uses dBFS and reaches full scale only at digital full scale', () => {
+  assert.equal(microphoneMeterLevel(0), 0)
+  assert.equal(microphoneMeterLevel(0.001), 0)
+  assert.ok(Math.abs(microphoneMeterLevel(0.01) - 1 / 3) < 1e-12)
+  assert.ok(Math.abs(microphoneMeterLevel(0.1) - 2 / 3) < 1e-12)
+  assert.ok(microphoneMeterLevel(0.25) < 1)
+  assert.equal(microphoneMeterLevel(1), 1)
+  assert.equal(microphoneMeterLevel(2), 1)
 })
 
 test('call sound output routing survives inactive call media and concurrent sounds', async () => {
@@ -303,6 +323,14 @@ test('audio settings expose persisted devices and browser-local communication so
   assert.match(callMedia, /createMediaStreamDestination\(\)/)
   assert.match(callMedia, /createDynamicsCompressor\(\)/)
   assert.match(callMedia, /audioState\.callVolume \/ 100/)
+  assert.match(
+    callMedia,
+    /const stream = event\.streams\[0\] \?\? new MediaStream\(\[event\.track\]\)[\s\S]*attachRemoteAudio\(stream\)/
+  )
+  assert.doesNotMatch(
+    callMedia,
+    /remoteStream = new MediaStream\(\)[\s\S]*attachRemoteAudio\(remoteStream\)/
+  )
   assert.match(dtmf, /audioState\.callVolume \/ 100/)
   assert.match(recordings, /audioState\.recordingPlaybackVolume \/ 100/)
   assert.match(recordingList, /audioState\.recordingPlaybackVolume \/ 100/)
