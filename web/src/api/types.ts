@@ -44,6 +44,15 @@ export type Capabilities = {
   unavailable_reasons?: Partial<Record<CapabilityName, string>>
 }
 
+export type ServingRadio = {
+  access_technology: string
+  duplex_mode?: string
+  band?: string
+  channel?: number
+  channel_type?: string
+  source?: string
+}
+
 export type LineSummary = {
   id: string
   iccid: string
@@ -71,6 +80,7 @@ export type LineSummary = {
   primary_port?: string
   ports?: ModemPort[]
   access_technologies?: number
+  serving_radio?: ServingRadio
   state?: string
   failure_reason?: string
   failure_reason_code?: number
@@ -930,6 +940,7 @@ export type DeviceHardwareDetails = {
   hardware_revision: string
   primary_port: string
   access_technologies: number | null
+  serving_radio?: ServingRadio
   snr: number | null
   ports: ModemPort[]
 }

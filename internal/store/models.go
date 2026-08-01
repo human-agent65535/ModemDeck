@@ -319,6 +319,7 @@ type LineSummary struct {
 	PrimaryPort              string           `json:"primary_port,omitempty"`
 	Ports                    []HardwarePort   `json:"ports,omitempty"`
 	AccessTechnologies       *uint32          `json:"access_technologies,omitempty"`
+	ServingRadio             *ServingRadio    `json:"serving_radio,omitempty"`
 	State                    string           `json:"state"`
 	FailureReason            string           `json:"failure_reason,omitempty"`
 	FailureReasonCode        uint32           `json:"failure_reason_code,omitempty"`
@@ -327,6 +328,15 @@ type LineSummary struct {
 	Signal                   *uint32          `json:"signal_quality,omitempty"`
 	SignalSNR                *float64         `json:"signal_snr,omitempty"`
 	Capabilities             LineCapabilities `json:"capabilities"`
+}
+
+type ServingRadio struct {
+	AccessTechnology string  `json:"access_technology"`
+	DuplexMode       string  `json:"duplex_mode,omitempty"`
+	Band             string  `json:"band,omitempty"`
+	Channel          *uint32 `json:"channel,omitempty"`
+	ChannelType      string  `json:"channel_type,omitempty"`
+	Source           string  `json:"source,omitempty"`
 }
 
 type HardwarePort struct {

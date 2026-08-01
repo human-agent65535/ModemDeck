@@ -71,6 +71,39 @@ func TestOrdinaryBusinessResponsesOmitEndpointIdentity(t *testing.T) {
 	}
 }
 
+func TestLineSummaryResponseIncludesServingRadioTelemetry(t *testing.T) {
+	t.Parallel()
+
+	channel := uint32(100)
+	response := lineSummaryResponseFromStore(store.LineSummary{
+		ID: "line-main",
+		ServingRadio: &store.ServingRadio{
+			AccessTechnology: "lte",
+			DuplexMode:       "fdd",
+			Band:             "B1",
+			Channel:          &channel,
+			ChannelType:      "earfcn",
+			Source:           "quectel-qnwinfo",
+		},
+	})
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		t.Fatalf("marshal line response: %v", err)
+	}
+	body := string(encoded)
+	for _, evidence := range []string{
+		`"access_technology":"lte"`,
+		`"duplex_mode":"fdd"`,
+		`"band":"B1"`,
+		`"channel":100`,
+		`"channel_type":"earfcn"`,
+	} {
+		if !strings.Contains(body, evidence) {
+			t.Fatalf("line response omitted %s: %s", evidence, body)
+		}
+	}
+}
+
 func TestFavoritesAppearOnCallsAndRecordingEntriesButNotSegments(t *testing.T) {
 	t.Parallel()
 

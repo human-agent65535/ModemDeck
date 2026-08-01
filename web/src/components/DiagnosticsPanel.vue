@@ -47,6 +47,11 @@ import {
   isRegisteredNetwork,
   registrationStateLabel
 } from '../utils/operatorNetwork'
+import {
+  detailedServingTechnologyLabel,
+  servingBandLabel,
+  servingChannelLabel
+} from '../utils/radioAccess'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SelectControl from './SelectControl.vue'
 import LoadingSkeletonBoundary from './skeletons/LoadingSkeletonBoundary.vue'
@@ -373,6 +378,21 @@ function lineRadioEvidence(line: DiagnosticLineSummary): string {
 function lineAccessMask(line: DiagnosticLineSummary): string {
   if (line.access_technologies === undefined) return t('diagnostics.notReported')
   return `0x${line.access_technologies.toString(16).toUpperCase()}`
+}
+
+function lineAccessTechnologyEvidence(line: DiagnosticLineSummary): string {
+  return (
+    detailedServingTechnologyLabel(line.serving_radio, line.access_technologies) ||
+    t('diagnostics.notReported')
+  )
+}
+
+function lineBandEvidence(line: DiagnosticLineSummary): string {
+  return servingBandLabel(line.serving_radio) || t('diagnostics.notReported')
+}
+
+function lineChannelEvidence(line: DiagnosticLineSummary): string {
+  return servingChannelLabel(line.serving_radio) || t('diagnostics.notReported')
 }
 
 function lineSignalEvidence(line: DiagnosticLineSummary): string {
@@ -1019,6 +1039,18 @@ onBeforeUnmount(() => {
             </div>
             <div>
               <dt>{{ t('device.accessTechnology') }}</dt>
+              <dd><code>{{ lineAccessTechnologyEvidence(selectedDiagnosticLine) }}</code></dd>
+            </div>
+            <div>
+              <dt>{{ t('device.currentBand') }}</dt>
+              <dd><code>{{ lineBandEvidence(selectedDiagnosticLine) }}</code></dd>
+            </div>
+            <div>
+              <dt>{{ t('diagnostics.radioChannel') }}</dt>
+              <dd><code>{{ lineChannelEvidence(selectedDiagnosticLine) }}</code></dd>
+            </div>
+            <div>
+              <dt>{{ t('diagnostics.accessMask') }}</dt>
               <dd><code>{{ lineAccessMask(selectedDiagnosticLine) }}</code></dd>
             </div>
             <div>

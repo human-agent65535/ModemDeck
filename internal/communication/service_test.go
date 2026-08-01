@@ -1500,13 +1500,22 @@ func TestRefreshPreservesSixDiscoveredLines(t *testing.T) {
 func TestProjectLinePreservesDetectedInterfaces(t *testing.T) {
 	t.Parallel()
 	snr := 8.75
+	channel := uint32(100)
 	projected := projectLine(agentclient.Line{
-		ID:                       "line-voice",
-		Model:                    "QDC507",
-		HardwareRevision:         "fixture-hw-1",
-		PrimaryPort:              "cdc-wdm0",
-		AccessTechnologies:       1 << 14,
-		AccessTechnologiesKnown:  true,
+		ID:                      "line-voice",
+		Model:                   "QDC507",
+		HardwareRevision:        "fixture-hw-1",
+		PrimaryPort:             "cdc-wdm0",
+		AccessTechnologies:      1 << 14,
+		AccessTechnologiesKnown: true,
+		ServingRadio: &agentclient.ServingRadio{
+			AccessTechnology: "lte",
+			DuplexMode:       "fdd",
+			Band:             "B1",
+			Channel:          &channel,
+			ChannelType:      "earfcn",
+			Source:           "quectel-qnwinfo",
+		},
 		SignalQualityKnown:       true,
 		SignalQualityRecent:      true,
 		SignalQuality:            73,
@@ -1560,6 +1569,12 @@ func TestProjectLinePreservesDetectedInterfaces(t *testing.T) {
 		projected.PrimaryPort != "cdc-wdm0" ||
 		projected.AccessTechnologies == nil ||
 		*projected.AccessTechnologies != 1<<14 ||
+		projected.ServingRadio == nil ||
+		projected.ServingRadio.AccessTechnology != "lte" ||
+		projected.ServingRadio.DuplexMode != "fdd" ||
+		projected.ServingRadio.Band != "B1" ||
+		projected.ServingRadio.Channel == nil ||
+		*projected.ServingRadio.Channel != 100 ||
 		projected.SignalSNR == nil ||
 		*projected.SignalSNR != snr ||
 		len(projected.Ports) != 1 ||

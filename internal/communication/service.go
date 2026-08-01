@@ -2144,6 +2144,24 @@ func projectHardwarePorts(ports []agentclient.ModemPort) []store.HardwarePort {
 	return projected
 }
 
+func projectServingRadio(value *agentclient.ServingRadio) *store.ServingRadio {
+	if value == nil {
+		return nil
+	}
+	projected := &store.ServingRadio{
+		AccessTechnology: value.AccessTechnology,
+		DuplexMode:       value.DuplexMode,
+		Band:             value.Band,
+		ChannelType:      value.ChannelType,
+		Source:           value.Source,
+	}
+	if value.Channel != nil {
+		channel := *value.Channel
+		projected.Channel = &channel
+	}
+	return projected
+}
+
 func projectLine(line agentclient.Line) store.LineSummary {
 	signal := projectedSignalQuality(line)
 	homeOperatorCode := firstNonEmpty(line.HomeOperatorCode, line.OperatorIdentifier)
@@ -2178,6 +2196,7 @@ func projectLine(line agentclient.Line) store.LineSummary {
 		PrimaryPort:              line.PrimaryPort,
 		Ports:                    projectHardwarePorts(line.Ports),
 		AccessTechnologies:       knownAccessTechnologies(line),
+		ServingRadio:             projectServingRadio(line.ServingRadio),
 		State:                    line.State,
 		FailureReason:            line.FailureReason,
 		FailureReasonCode:        line.FailureReasonCode,

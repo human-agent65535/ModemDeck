@@ -82,6 +82,15 @@ type LineCapabilities struct {
 	Media              bool `json:"media"`
 }
 
+type ServingRadio struct {
+	AccessTechnology string  `json:"access_technology"`
+	DuplexMode       string  `json:"duplex_mode"`
+	Band             string  `json:"band"`
+	Channel          *uint32 `json:"channel"`
+	ChannelType      string  `json:"channel_type"`
+	Source           string  `json:"source"`
+}
+
 type Line struct {
 	ID                       string                    `json:"id"`
 	Manufacturer             string                    `json:"manufacturer"`
@@ -110,6 +119,7 @@ type Line struct {
 	RadioDesiredEnabledKnown bool                      `json:"radio_desired_enabled_known"`
 	AccessTechnologies       uint32                    `json:"access_technologies"`
 	AccessTechnologiesKnown  bool                      `json:"access_technologies_known"`
+	ServingRadio             *ServingRadio             `json:"serving_radio"`
 	SignalQualityKnown       bool                      `json:"signal_quality_known"`
 	SignalQuality            uint32                    `json:"signal_quality"`
 	SignalQualityRecent      bool                      `json:"signal_quality_recent"`

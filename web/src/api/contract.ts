@@ -63,6 +63,7 @@ import type {
   RecordingSettings,
   RecordingStatus,
   SendMessageInput,
+  ServingRadio,
   SystemLanguage,
   SystemSettings,
   ESIMStatus,
@@ -1740,6 +1741,28 @@ function parseDeviceCapabilities(value: unknown): DeviceConfigurationCapabilitie
   }
 }
 
+function parseServingRadio(value: unknown, path: string): ServingRadio | undefined {
+  if (value === undefined || value === null) return undefined
+  const source = objectValue(value, path)
+  const channelValue = source.channel
+  let channel: number | undefined
+  if (channelValue !== undefined && channelValue !== null) {
+    channel = requiredNonNegativeInteger(source, path, 'channel')
+  }
+  const duplexMode = optionalString(source, 'duplex_mode')
+  const band = optionalString(source, 'band')
+  const channelType = optionalString(source, 'channel_type')
+  const telemetrySource = optionalString(source, 'source')
+  return {
+    access_technology: requiredString(source, path, 'access_technology'),
+    ...(duplexMode ? { duplex_mode: duplexMode } : {}),
+    ...(band ? { band } : {}),
+    ...(channel !== undefined ? { channel } : {}),
+    ...(channelType ? { channel_type: channelType } : {}),
+    ...(telemetrySource ? { source: telemetrySource } : {})
+  }
+}
+
 function parseDeviceHardwareConfiguration(value: unknown): DeviceHardwareConfiguration {
   const source = objectValue(value, 'hardware')
   const identity = objectValue(source.identity, 'hardware.identity')
@@ -1811,6 +1834,10 @@ function parseDeviceHardwareConfiguration(value: unknown): DeviceHardwareConfigu
       type_code: requiredNonNegativeInteger(port, path, 'type_code')
     }
   })
+  const servingRadio = parseServingRadio(
+    details.serving_radio,
+    'hardware.details.serving_radio'
+  )
   const profileID = optionalString(volte, 'profile_id')
   const configurationMode = optionalString(volte, 'configuration_mode')
   const carrierConfiguration = optionalString(
@@ -1852,6 +1879,7 @@ function parseDeviceHardwareConfiguration(value: unknown): DeviceHardwareConfigu
         'hardware.details',
         'access_technologies'
       ),
+      ...(servingRadio ? { serving_radio: servingRadio } : {}),
       snr: nullableFiniteNumber(details, 'hardware.details', 'snr'),
       ports
     },

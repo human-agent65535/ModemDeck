@@ -374,6 +374,7 @@ func (p *Provider) readDeviceConfiguration(
 	}
 	parsed := ParseManagedObjects(objects, identity)
 	p.initializeVoiceModel(ctx, operation, &parsed)
+	p.projectServingRadios(ctx, operation, &parsed)
 	line, found := findLine(parsed.Lines, lineID)
 	if !found {
 		return domain.DeviceConfiguration{}, nil, "", domain.NotFound(operation, "line was not found")
@@ -420,6 +421,7 @@ func (p *Provider) readDeviceConfiguration(
 			HardwareRevision:   line.HardwareRevision,
 			PrimaryPort:        line.PrimaryPort,
 			AccessTechnologies: accessTechnologies,
+			ServingRadio:       cloneServingRadio(line.ServingRadio),
 			SNR:                line.SignalSNR,
 			Ports:              append([]domain.ModemPort(nil), line.Ports...),
 		},

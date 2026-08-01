@@ -13,6 +13,7 @@ import type {
   MessageThread,
   Page,
   PageMeta,
+  ServingRadio,
   SystemLanguage
 } from './types'
 import { isLineColorPresetID } from './types'
@@ -171,6 +172,33 @@ function parseModemPorts(value: unknown, path: string) {
       type_code: typeCode
     }
   })
+}
+
+function parseServingRadio(value: unknown, path: string): ServingRadio | undefined {
+  if (value === undefined || value === null) return undefined
+  const source = objectValue(value, path)
+  const accessTechnology = requiredString(source, path, 'access_technology')
+  const rawChannel = source.channel
+  let channel: number | undefined
+  if (rawChannel !== undefined && rawChannel !== null && rawChannel !== '') {
+    const parsed = Number(rawChannel)
+    if (!Number.isSafeInteger(parsed) || parsed < 0) {
+      throw new Error(`${path}.channel 必须是非负整数`)
+    }
+    channel = parsed
+  }
+  return {
+    access_technology: accessTechnology,
+    ...(stringValue(source, 'duplex_mode')
+      ? { duplex_mode: stringValue(source, 'duplex_mode') }
+      : {}),
+    ...(stringValue(source, 'band') ? { band: stringValue(source, 'band') } : {}),
+    ...(channel !== undefined ? { channel } : {}),
+    ...(stringValue(source, 'channel_type')
+      ? { channel_type: stringValue(source, 'channel_type') }
+      : {}),
+    ...(stringValue(source, 'source') ? { source: stringValue(source, 'source') } : {})
+  }
 }
 
 function normalizePhone(value: unknown, contactId: string, index: number): ContactPhone {
@@ -393,6 +421,7 @@ export function parseLine(value: unknown): LineSummary {
       rawAccessTechnologies != null && rawAccessTechnologies > 0
         ? rawAccessTechnologies
         : undefined,
+    serving_radio: parseServingRadio(source.serving_radio, 'line.serving_radio'),
     state: stringValue(source, 'state') || undefined,
     failure_reason: stringValue(source, 'failure_reason') || undefined,
     failure_reason_code:

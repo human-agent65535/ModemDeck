@@ -45,6 +45,7 @@ type lineSummaryResponse struct {
 	PrimaryPort              string                 `json:"primary_port,omitempty"`
 	Ports                    []store.HardwarePort   `json:"ports,omitempty"`
 	AccessTechnologies       *uint32                `json:"access_technologies,omitempty"`
+	ServingRadio             *store.ServingRadio    `json:"serving_radio,omitempty"`
 	State                    string                 `json:"state"`
 	RadioDesiredEnabled      bool                   `json:"radio_desired_enabled"`
 	RadioDesiredEnabledKnown bool                   `json:"radio_desired_enabled_known"`
@@ -81,6 +82,7 @@ func lineSummaryResponseFromStore(line store.LineSummary) lineSummaryResponse {
 		PrimaryPort:              line.PrimaryPort,
 		Ports:                    line.Ports,
 		AccessTechnologies:       line.AccessTechnologies,
+		ServingRadio:             line.ServingRadio,
 		State:                    line.State,
 		RadioDesiredEnabled:      line.RadioDesiredEnabled,
 		RadioDesiredEnabledKnown: line.RadioDesiredEnabledKnown,

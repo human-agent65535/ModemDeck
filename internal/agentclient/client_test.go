@@ -147,6 +147,14 @@ func TestSnapshotDecodesAgentContract(t *testing.T) {
 				"radio_desired_enabled":true,
 				"radio_desired_enabled_known":true,
 				"access_technologies":16384,
+				"serving_radio":{
+					"access_technology":"lte",
+					"duplex_mode":"fdd",
+					"band":"B1",
+					"channel":100,
+					"channel_type":"earfcn",
+					"source":"quectel-qnwinfo"
+				},
 				"signal_quality_known":true,
 				"signal_quality":73,
 				"signal_quality_recent":true,
@@ -246,6 +254,15 @@ func TestSnapshotDecodesAgentContract(t *testing.T) {
 	if snapshot.Lines[0].AudioPort != "quectel-uac:/sys/devices/pci0000:00/usb1/1-1" {
 		t.Fatalf("unexpected line audio port: %q", snapshot.Lines[0].AudioPort)
 	}
+	if snapshot.Lines[0].ServingRadio == nil ||
+		snapshot.Lines[0].ServingRadio.AccessTechnology != "lte" ||
+		snapshot.Lines[0].ServingRadio.DuplexMode != "fdd" ||
+		snapshot.Lines[0].ServingRadio.Band != "B1" ||
+		snapshot.Lines[0].ServingRadio.Channel == nil ||
+		*snapshot.Lines[0].ServingRadio.Channel != 100 ||
+		snapshot.Lines[0].ServingRadio.ChannelType != "earfcn" {
+		t.Fatalf("unexpected serving radio: %+v", snapshot.Lines[0].ServingRadio)
+	}
 	if snapshot.Lines[0].VoiceVerification == nil ||
 		snapshot.Lines[0].VoiceVerification.USBConfiguration != "enabled" ||
 		snapshot.Lines[0].VoiceVerification.MediaRouting != "enabled" {
@@ -343,6 +360,7 @@ func TestDeviceConfigurationReadsAndAppliesTypedContract(t *testing.T) {
 				"hardware_revision":"fixture-hw-1",
 				"primary_port":"cdc-wdm0",
 				"access_technologies":16384,
+				"serving_radio":{"access_technology":"lte","duplex_mode":"fdd","band":"B1","channel":100,"channel_type":"earfcn","source":"quectel-qnwinfo"},
 				"snr":8.5,
 				"ports":[
 					{"name":"cdc-wdm0","type":"qmi","type_code":6},
@@ -422,6 +440,11 @@ func TestDeviceConfigurationReadsAndAppliesTypedContract(t *testing.T) {
 		configuration.Details.PrimaryPort != "cdc-wdm0" ||
 		configuration.Details.AccessTechnologies == nil ||
 		*configuration.Details.AccessTechnologies != 16384 ||
+		configuration.Details.ServingRadio == nil ||
+		configuration.Details.ServingRadio.DuplexMode != "fdd" ||
+		configuration.Details.ServingRadio.Band != "B1" ||
+		configuration.Details.ServingRadio.Channel == nil ||
+		*configuration.Details.ServingRadio.Channel != 100 ||
 		configuration.Details.SNR == nil ||
 		*configuration.Details.SNR != 8.5 ||
 		len(configuration.Details.Ports) != 2 ||

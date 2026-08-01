@@ -58,25 +58,40 @@ test('device detail content stays aligned with its full-width tab rail', () => {
 test('module cards expose one fixed information skeleton in both views', () => {
   const labels = [
     "t('lines.signal')",
+    "t('device.accessTechnology')",
     "t('lines.model')",
-    "t('lines.firmware')",
-    'IMEI',
-    'ICCID',
-    "t('lines.port')"
+    '<dt>IMEI</dt>'
   ]
   const positions = labels.map(label => moduleCard.indexOf(label))
 
   assert.ok(positions.every(position => position >= 0))
   assert.deepEqual(positions, positions.slice().sort((left, right) => left - right))
   assert.match(moduleCard, /v-for="fact in networkFacts"/)
+  assert.match(moduleCard, /class="module-card__operator-fact"/)
   assert.match(moduleCard, /<dt>\{\{ fact\.label \}\}<\/dt>/)
+  const factGrid = cssBlock(moduleCard, '.module-card__facts')
+  assert.match(factGrid, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/)
+  assert.match(factGrid, /grid-template-rows: minmax\(35px, auto\) auto auto/)
   assert.match(
-    cssBlock(moduleCard, '.module-card__facts'),
-    /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/
+    cssBlock(moduleCard, '.module-card__operator-fact'),
+    /grid-row: 1/
   )
+  assert.match(moduleCard, /\.filter\(fact => fact\.value !== '—'\)/)
   assert.doesNotMatch(moduleCard, /compact\??:|is-compact|v-if="!compact"/)
   assert.doesNotMatch(moduleCard, /@container \(min-width: 410px\)/)
   assert.doesNotMatch(moduleCard, /repeat\(3, minmax\(0, 1fr\)\)/)
+  assert.doesNotMatch(
+    moduleCard,
+    /lines\.firmware|device\.lastSeen|lines\.port|ICCID/
+  )
+  assert.match(moduleCard, /import SensitiveValue from '\.\/SensitiveValue\.vue'/)
+  assert.match(
+    moduleCard,
+    /<SensitiveValue[\s\S]*:value="equipmentIdentifier"[\s\S]*label="IMEI"/
+  )
+  assert.match(moduleCard, /props\.line\.device_imei \|\| props\.device\?\.imei/)
+  assert.doesNotMatch(moduleCard, /currentBand|servingBand|serving_radio/)
+  assert.match(moduleCard, /accessTechnologyLabel\(props\.line\.access_technologies\)/)
 })
 
 test('module cards stretch their body while keeping every footer fixed to the bottom', () => {

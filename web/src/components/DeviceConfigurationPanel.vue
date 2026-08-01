@@ -89,6 +89,11 @@ import {
 } from '../state/workspace'
 import { operatorFacts } from '../utils/operatorNetwork'
 import { LINE_TONE_PRESETS, lineTonePreset } from '../utils/lineTone'
+import {
+  accessTechnologyLabel,
+  detailedServingTechnologyLabel,
+  servingBandLabel
+} from '../utils/radioAccess'
 import LineTag from './LineTag.vue'
 import ModuleCard from './ModuleCard.vue'
 import SensitiveValue from './SensitiveValue.vue'
@@ -560,46 +565,6 @@ function esimStatusLabel(value: SIMStatus['esim_status']): string {
     default:
       return t('common.unknown')
   }
-}
-
-const accessTechnologyLabels: Array<{ mask: number; label: string }> = [
-  { mask: 1 << 15, label: '5G NR' },
-  { mask: 1 << 14, label: 'LTE' },
-  { mask: 1 << 16, label: 'LTE-M' },
-  { mask: 1 << 17, label: 'NB-IoT' },
-  { mask: 1 << 9, label: 'HSPA+' },
-  { mask: 1 << 8, label: 'HSPA' },
-  { mask: 1 << 7, label: 'HSUPA' },
-  { mask: 1 << 6, label: 'HSDPA' },
-  { mask: 1 << 5, label: 'UMTS' },
-  { mask: 1 << 4, label: 'EDGE' },
-  { mask: 1 << 3, label: 'GPRS' },
-  { mask: 1 << 2, label: 'GSM Compact' },
-  { mask: 1 << 1, label: 'GSM' },
-  { mask: 1 << 13, label: 'EVDO-B' },
-  { mask: 1 << 12, label: 'EVDO-A' },
-  { mask: 1 << 11, label: 'EVDO-0' },
-  { mask: 1 << 10, label: '1xRTT' },
-  { mask: 1, label: 'POTS' }
-]
-
-function accessTechnologyLabel(value: number | null): string {
-  if (value == null || value === 0) return ''
-  const unsigned = value >>> 0
-  const labels = accessTechnologyLabels
-    .filter(item => (unsigned & item.mask) !== 0)
-    .map(item => item.label)
-  const knownMask = accessTechnologyLabels.reduce(
-    (mask, item) => (mask | item.mask) >>> 0,
-    0
-  )
-  const unknownMask = (unsigned & ~knownMask) >>> 0
-  if (unknownMask !== 0) {
-    labels.push(
-      t('device.otherMask', { mask: unknownMask.toString(16).toUpperCase() })
-    )
-  }
-  return labels.join(' / ') || `0x${unsigned.toString(16).toUpperCase()}`
 }
 
 function modemPortTypeLabel(type: string): string {
@@ -1643,9 +1608,26 @@ onMounted(() => {
                   </span>
                 </dd>
               </div>
-              <div v-if="hardware.details.access_technologies != null">
+              <div
+                v-if="hardware.details.access_technologies != null || hardware.details.serving_radio"
+              >
                 <dt>{{ t('device.accessTechnology') }}</dt>
-                <dd>{{ accessTechnologyLabel(hardware.details.access_technologies) }}</dd>
+                <dd>
+                  {{
+                    detailedServingTechnologyLabel(
+                      hardware.details.serving_radio,
+                      hardware.details.access_technologies
+                    ) || t('device.unknownTechnology')
+                  }}
+                </dd>
+              </div>
+              <div
+                v-if="hardware.details.access_technologies != null || hardware.details.serving_radio"
+              >
+                <dt>{{ t('device.currentBand') }}</dt>
+                <dd>
+                  {{ servingBandLabel(hardware.details.serving_radio) || t('device.notReported') }}
+                </dd>
               </div>
               <div>
                 <dt>IMEI</dt>

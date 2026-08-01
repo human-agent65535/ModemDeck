@@ -226,12 +226,29 @@ test('service readiness requires a usable registration state', () => {
 test('bootstrap and device decoders preserve the complete network identity', () => {
   const line = parseLine({
     ...roamingLine(),
+    access_technologies: 1 << 14,
+    serving_radio: {
+      access_technology: 'lte',
+      duplex_mode: 'fdd',
+      band: 'B1',
+      channel: 100,
+      channel_type: 'earfcn',
+      source: 'quectel-qnwinfo'
+    },
     capabilities: {
       ...diagnosticLineCapabilities,
       media: true
     }
   })
   assert.equal(line.capabilities?.media, true)
+  assert.deepEqual(line.serving_radio, {
+    access_technology: 'lte',
+    duplex_mode: 'fdd',
+    band: 'B1',
+    channel: 100,
+    channel_type: 'earfcn',
+    source: 'quectel-qnwinfo'
+  })
   assert.deepEqual(
     {
       operator: line.operator,

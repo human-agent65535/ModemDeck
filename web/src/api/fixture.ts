@@ -462,7 +462,7 @@ function fixtureLines(count: number): LineSummary[] {
       registration_state: 'home',
       roaming: false,
       emergency_only: false,
-      device_imei: 'fixture-001',
+      device_imei: '860000000006656',
       device_name: 'Main cellular modem',
       line_label: 'Line A',
       line_color: 'violet',
@@ -471,6 +471,15 @@ function fixtureLines(count: number): LineSummary[] {
       state: 'registered',
       radio_desired_enabled: true,
       radio_desired_enabled_known: true,
+      access_technologies: 1 << 14,
+      serving_radio: {
+        access_technology: 'lte',
+        duplex_mode: 'fdd',
+        band: 'B1',
+        channel: 100,
+        channel_type: 'earfcn',
+        source: 'quectel-qnwinfo'
+      },
       signal_quality: 82,
       capabilities: {
         modem: true,
@@ -505,7 +514,7 @@ function fixtureLines(count: number): LineSummary[] {
       registration_state: 'roaming',
       roaming: true,
       emergency_only: false,
-      device_imei: 'fixture-002',
+      device_imei: '860000000009347',
       device_name: 'Travel cellular modem',
       line_label: 'Line B',
       line_color: 'teal',
@@ -514,6 +523,15 @@ function fixtureLines(count: number): LineSummary[] {
       state: 'registered',
       radio_desired_enabled: true,
       radio_desired_enabled_known: true,
+      access_technologies: 1 << 14,
+      serving_radio: {
+        access_technology: 'lte',
+        duplex_mode: 'fdd',
+        band: 'B3',
+        channel: 1650,
+        channel_type: 'earfcn',
+        source: 'quectel-qnwinfo'
+      },
       signal_quality: 76,
       capabilities: {
         modem: true,
@@ -549,7 +567,7 @@ function fixtureLines(count: number): LineSummary[] {
       registration_state: 'home',
       roaming: false,
       emergency_only: false,
-      device_imei: `fixture-${String(displayIndex).padStart(3, '0')}`,
+      device_imei: `8600000000${String(displayIndex).padStart(5, '0')}`,
       device_name: `Cellular modem ${displayIndex}`,
       line_label: '',
       line_color: '',
@@ -606,7 +624,8 @@ function fixtureHardware(line: LineSummary, index: number): DeviceHardwareConfig
     details: {
       hardware_revision: `fixture-hw-${index + 1}`,
       primary_port: `cdc-wdm${index}`,
-      access_technologies: index === 0 ? 1 << 14 : 1 << 5,
+      access_technologies: line.access_technologies ?? (index === 0 ? 1 << 14 : 1 << 5),
+      serving_radio: line.serving_radio,
       snr: index === 0 ? 8.5 : null,
       ports: [
         { name: `cdc-wdm${index}`, type: 'qmi', type_code: 6 },

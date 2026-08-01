@@ -67,6 +67,17 @@ type ModemPort struct {
 	TypeCode uint32 `json:"type_code"`
 }
 
+// ServingRadio describes the radio access currently serving a registered line.
+// It is live telemetry, not the modem's configured or supported band list.
+type ServingRadio struct {
+	AccessTechnology string  `json:"access_technology"`
+	DuplexMode       string  `json:"duplex_mode,omitempty"`
+	Band             string  `json:"band,omitempty"`
+	Channel          *uint32 `json:"channel,omitempty"`
+	ChannelType      string  `json:"channel_type,omitempty"`
+	Source           string  `json:"source,omitempty"`
+}
+
 type Line struct {
 	ID                       string      `json:"id"`
 	Manufacturer             string      `json:"manufacturer"`
@@ -129,6 +140,7 @@ type Line struct {
 	AudioPort                string                    `json:"audio_port,omitempty"`
 	Capabilities             LineCapabilities          `json:"capabilities"`
 	VoiceVerification        *VoiceRuntimeVerification `json:"voice_verification,omitempty"`
+	ServingRadio             *ServingRadio             `json:"serving_radio,omitempty"`
 }
 
 type CallAudioFormat struct {

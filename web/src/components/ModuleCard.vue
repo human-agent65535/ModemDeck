@@ -16,12 +16,12 @@ import { useI18n } from 'vue-i18n'
 import type { Device, LineSummary, NetworkLineStatus } from '../api/types'
 import { lineIsOccupied } from '../state/call'
 import { lineHasCallControl, lineKey, lineLabel } from '../state/workspace'
-import { formatDateTime } from '../utils/format'
 import {
   isRegisteredNetwork,
   operatorFacts,
   registrationStateLabel
 } from '../utils/operatorNetwork'
+import { accessTechnologyLabel } from '../utils/radioAccess'
 import SensitiveValue from './SensitiveValue.vue'
 import SignalBars from './SignalBars.vue'
 import { trafficLineState } from './trafficLineState'
@@ -92,19 +92,9 @@ const online = computed(
 const model = computed(
   () => props.line.model || props.device?.model || t('lines.unknownModel')
 )
-const firmware = computed(
-  () => props.line.firmware || props.device?.firmware || ''
-)
 const equipmentIdentifier = computed(
   () => props.line.device_imei || props.device?.imei || ''
 )
-const simIdentifier = computed(
-  () => props.line.iccid || props.device?.current_iccid || ''
-)
-const lastSeen = computed(() => {
-  const value = props.device?.last_seen || ''
-  return value ? formatDateTime(value) : '—'
-})
 const networkFacts = computed(() =>
   operatorFacts(
     flightMode.value || radioWaitingForRegistration.value
@@ -117,7 +107,7 @@ const networkFacts = computed(() =>
       : props.line,
     '—',
     key => t(key)
-  )
+  ).filter(fact => fact.value !== '—')
 )
 const stateLabel = computed(() => {
   if (moduleOnly.value && props.device?.present === false) {
@@ -144,6 +134,16 @@ const dataConnection = computed(() => {
 })
 const lineBusy = computed(() => {
   return lineIsOccupied(lineKey(props.line))
+})
+const accessTechnology = computed(() => {
+  if (
+    flightMode.value ||
+    radioWaitingForRegistration.value ||
+    props.device?.present === false
+  ) {
+    return ''
+  }
+  return accessTechnologyLabel(props.line.access_technologies)
 })
 </script>
 
@@ -192,11 +192,15 @@ const lineBusy = computed(() => {
       </header>
 
       <dl class="module-card__facts">
-        <div v-for="fact in networkFacts" :key="fact.id">
+        <div
+          v-for="fact in networkFacts"
+          :key="fact.id"
+          class="module-card__operator-fact"
+        >
           <dt>{{ fact.label }}</dt>
           <dd>{{ fact.value }}</dd>
         </div>
-        <div>
+        <div class="module-card__signal-fact">
           <dt>{{ t('lines.signal') }}</dt>
           <dd class="module-card__signal-value">
             <SignalBars :value="signal" :flight-mode="flightMode" />
@@ -211,15 +215,15 @@ const lineBusy = computed(() => {
             </span>
           </dd>
         </div>
-        <div>
+        <div class="module-card__technology-fact">
+          <dt>{{ t('device.accessTechnology') }}</dt>
+          <dd class="module-card__technology">{{ accessTechnology || '—' }}</dd>
+        </div>
+        <div class="module-card__model-fact">
           <dt>{{ t('lines.model') }}</dt>
           <dd>{{ model }}</dd>
         </div>
-        <div>
-          <dt>{{ t('lines.firmware') }}</dt>
-          <dd>{{ firmware || '—' }}</dd>
-        </div>
-        <div class="is-code">
+        <div class="module-card__imei-fact is-code">
           <dt>IMEI</dt>
           <dd>
             <SensitiveValue
@@ -227,27 +231,6 @@ const lineBusy = computed(() => {
               :value="equipmentIdentifier"
               label="IMEI"
             />
-          </dd>
-        </div>
-        <div class="is-code">
-          <dt>ICCID</dt>
-          <dd>
-            <SensitiveValue
-              class="module-card__sensitive"
-              :value="simIdentifier"
-              label="ICCID"
-            />
-          </dd>
-        </div>
-        <div class="is-code">
-          <dt>{{ t('lines.port') }}</dt>
-          <dd>{{ device?.port || '—' }}</dd>
-        </div>
-        <div>
-          <dt>{{ t('device.lastSeen') }}</dt>
-          <dd>
-            <time v-if="device?.last_seen" :datetime="device.last_seen">{{ lastSeen }}</time>
-            <span v-else>—</span>
           </dd>
         </div>
       </dl>
@@ -510,6 +493,7 @@ const lineBusy = computed(() => {
 .module-card__facts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: minmax(35px, auto) auto auto;
   gap: 10px 14px;
   margin: 0;
   padding: 10px;
@@ -520,6 +504,26 @@ const lineBusy = computed(() => {
 
 .module-card__facts div {
   min-width: 0;
+}
+
+.module-card__operator-fact {
+  grid-row: 1;
+}
+
+.module-card__signal-fact {
+  grid-area: 2 / 1;
+}
+
+.module-card__technology-fact {
+  grid-area: 2 / 2;
+}
+
+.module-card__model-fact {
+  grid-area: 3 / 1;
+}
+
+.module-card__imei-fact {
+  grid-area: 3 / 2;
 }
 
 .module-card dt {
@@ -546,6 +550,11 @@ const lineBusy = computed(() => {
   display: flex;
   align-items: center;
   gap: 5px;
+}
+
+.module-card__technology {
+  color: var(--accent-strong);
+  font-weight: 700;
 }
 
 .module-card__footer {

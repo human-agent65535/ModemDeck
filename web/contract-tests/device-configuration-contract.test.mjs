@@ -262,10 +262,13 @@ test('device identifiers are masked consistently and automatically re-mask', () 
   assert.match(devicePanelSource, /SensitiveValue[\s\S]*label="IMEI"/)
   assert.match(devicePanelSource, /SensitiveValue[\s\S]*label="ICCID"/)
   assert.match(devicePanelSource, /SensitiveValue[\s\S]*label="IMSI"/)
-  assert.match(moduleCardSource, /SensitiveValue[\s\S]*:value="equipmentIdentifier"[\s\S]*label="IMEI"/)
-  assert.match(moduleCardSource, /SensitiveValue[\s\S]*:value="simIdentifier"[\s\S]*label="ICCID"/)
+  assert.match(
+    moduleCardSource,
+    /SensitiveValue[\s\S]*:value="equipmentIdentifier"[\s\S]*label="IMEI"/
+  )
+  assert.doesNotMatch(moduleCardSource, /simIdentifier|>ICCID</)
+  assert.match(moduleCardSource, /<dt>IMEI<\/dt>/)
   assert.match(moduleCardSource, /class="module-card__select-action"/)
-  assert.match(moduleCardSource, /class="module-card__sensitive"/)
   assert.match(moduleCardSource, /<div[\s\S]*class="module-card__main"/)
   assert.doesNotMatch(moduleCardSource, /<button\s+class="module-card__main"/)
   assert.doesNotMatch(moduleCardSource, /:title="equipmentIdentifier"|:title="simIdentifier"/)
@@ -347,6 +350,14 @@ test('device configuration preserves truthful hardware details and nullable tele
   assert.equal(parsed.hardware?.details.hardware_revision, 'fixture-hw-1')
   assert.equal(parsed.hardware?.details.primary_port, 'cdc-wdm0')
   assert.equal(parsed.hardware?.details.access_technologies, 1 << 14)
+  assert.deepEqual(parsed.hardware?.details.serving_radio, {
+    access_technology: 'lte',
+    duplex_mode: 'fdd',
+    band: 'B1',
+    channel: 100,
+    channel_type: 'earfcn',
+    source: 'quectel-qnwinfo'
+  })
   assert.equal(parsed.hardware?.details.snr, 8.5)
   assert.deepEqual(
     parsed.hardware?.details.ports.map(port => [port.name, port.type, port.type_code]),
@@ -412,6 +423,13 @@ test('device configuration rejects invented or malformed hardware telemetry', as
   assert.throws(
     () => parseDeviceConfigurationResponse(configuration),
     /hardware\.details\.access_technologies/
+  )
+
+  configuration.hardware.details.access_technologies = 1 << 14
+  configuration.hardware.details.serving_radio.channel = -1
+  assert.throws(
+    () => parseDeviceConfigurationResponse(configuration),
+    /hardware\.details\.serving_radio\.channel/
   )
 })
 

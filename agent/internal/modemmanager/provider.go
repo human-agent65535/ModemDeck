@@ -54,8 +54,10 @@ type Provider struct {
 	networkOperationMu sync.Mutex
 	networkOperations  map[string]struct{}
 
-	telemetryMu       sync.Mutex
-	signalSetupStates map[string]signalSetupState
+	telemetryMu        sync.Mutex
+	signalSetupStates  map[string]signalSetupState
+	servingRadioMu     sync.Mutex
+	servingRadioStates map[string]servingRadioState
 
 	voiceProbeMu sync.Mutex
 	voiceProbes  map[string]voiceProbeResult
@@ -180,22 +182,23 @@ func newProviderWithOptions(
 		resolver = staticProviderEpochResolver{epoch: epoch}
 	}
 	return &Provider{
-		caller:            caller,
-		epochResolver:     resolver,
-		now:               time.Now,
-		ids:               ids,
-		dataPlane:         options.DataPlane,
-		ownedBearers:      ownedBearers,
-		radioStates:       radioStates,
-		usbRecovery:       options.USBRecovery,
-		terminalCalls:     make(map[string]terminalCallProjection),
-		networkOperations: make(map[string]struct{}),
-		signalSetupStates: make(map[string]signalSetupState),
-		voiceProbes:       make(map[string]voiceProbeResult),
-		atCalls:           make(map[string]map[int]atCallLifecycle),
-		atPendingCalls:    make(map[string]atCallLifecycle),
-		messageProperties: newMessagePropertyCache(defaultMessagePropertyCacheLimit),
-		changes:           newChangeHub(),
+		caller:             caller,
+		epochResolver:      resolver,
+		now:                time.Now,
+		ids:                ids,
+		dataPlane:          options.DataPlane,
+		ownedBearers:       ownedBearers,
+		radioStates:        radioStates,
+		usbRecovery:        options.USBRecovery,
+		terminalCalls:      make(map[string]terminalCallProjection),
+		networkOperations:  make(map[string]struct{}),
+		signalSetupStates:  make(map[string]signalSetupState),
+		servingRadioStates: make(map[string]servingRadioState),
+		voiceProbes:        make(map[string]voiceProbeResult),
+		atCalls:            make(map[string]map[int]atCallLifecycle),
+		atPendingCalls:     make(map[string]atCallLifecycle),
+		messageProperties:  newMessagePropertyCache(defaultMessagePropertyCacheLimit),
+		changes:            newChangeHub(),
 	}, nil
 }
 
@@ -303,6 +306,7 @@ func (p *Provider) Snapshot(ctx context.Context) (domain.Snapshot, error) {
 	}
 	parsed := ParseManagedObjects(objects, identity)
 	p.initializeVoiceModel(ctx, operation, &parsed)
+	p.projectServingRadios(ctx, operation, &parsed)
 	p.projectDesiredRadioState(parsed.Lines)
 	observedAt := p.now().UTC()
 	p.projectTerminatedCalls(&parsed, observedAt)
@@ -1065,6 +1069,9 @@ func (p *Provider) resolveProviderIdentity(
 		p.telemetryMu.Lock()
 		p.signalSetupStates = make(map[string]signalSetupState)
 		p.telemetryMu.Unlock()
+		p.servingRadioMu.Lock()
+		p.servingRadioStates = make(map[string]servingRadioState)
+		p.servingRadioMu.Unlock()
 		p.clearATCallState()
 		p.clearVoiceProbes()
 	}
@@ -1090,6 +1097,9 @@ func (p *Provider) clearProviderIdentity() {
 	p.telemetryMu.Lock()
 	p.signalSetupStates = make(map[string]signalSetupState)
 	p.telemetryMu.Unlock()
+	p.servingRadioMu.Lock()
+	p.servingRadioStates = make(map[string]servingRadioState)
+	p.servingRadioMu.Unlock()
 	p.clearATCallState()
 	p.clearVoiceProbes()
 }
