@@ -7,8 +7,6 @@ import (
 )
 
 type incomingMessageEventResponse struct {
-	ID         uint64    `json:"id"`
-	EventKey   string    `json:"event_key"`
 	MessageID  string    `json:"message_id"`
 	ThreadKey  string    `json:"thread_key"`
 	LineID     string    `json:"line_id"`

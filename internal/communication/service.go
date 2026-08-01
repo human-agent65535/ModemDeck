@@ -278,6 +278,7 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 	if err != nil {
 		return s.recordRefreshFailure("persist host agent snapshot", err)
 	}
+	s.publishIncomingMessages(snapshotResult.CreatedIncomingMessages, snapshot.ObservedAt)
 	s.enqueueDeviceMessageCleanup(
 		hardwareSnapshot.Messages,
 		snapshotResult.HandledDeliveryReportIDs,
@@ -287,7 +288,6 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 		return s.recordRefreshFailure("read persisted line identities", err)
 	}
 	lines = bindProjectedLines(lines, snapshotResult.LineIDsByEndpoint, stableLines)
-	s.publishIncomingMessages(snapshotResult.CreatedIncomingMessages, snapshot.ObservedAt)
 	activeCalls, err := s.repository.ActiveCalls(refreshContext)
 	if err != nil {
 		return s.recordRefreshFailure("read authoritative active calls", err)
@@ -481,17 +481,24 @@ func canonicalRuntimeCalls(calls []agentclient.Call) []agentclient.Call {
 }
 
 func (s *Service) publishIncomingMessages(messages []store.Message, observedAt time.Time) {
+	if len(messages) == 0 {
+		return
+	}
+	if s.runtime != nil {
+		s.runtime.Publish(runtimeevents.Event{
+			Resources:  []runtimeevents.Resource{runtimeevents.ResourceMessages},
+			ObservedAt: observedAt,
+		})
+	}
 	for _, message := range messages {
 		messageID := strconv.FormatInt(message.ID, 10)
 		s.events.Publish(messageevents.IncomingSMS{
-			EventKey:  "sms:" + messageID,
 			MessageID: messageID,
 			ThreadKey: store.MessageThreadKey(
 				message.LineID,
 				message.Peer,
 			),
 			LineID:     message.LineID,
-			ICCID:      message.ICCID,
 			Peer:       message.Peer,
 			Content:    message.Content,
 			Timestamp:  message.Timestamp,

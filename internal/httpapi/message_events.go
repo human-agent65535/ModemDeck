@@ -15,10 +15,6 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 		writeError(response, http.StatusServiceUnavailable, "message_events_unavailable", "Message events are unavailable", "")
 		return
 	}
-	after, replay, ok := eventCursor(response, request)
-	if !ok {
-		return
-	}
 	flusher, ok := response.(http.Flusher)
 	if !ok {
 		writeError(response, http.StatusInternalServerError, "stream_unavailable", "Streaming is unavailable", "")
@@ -33,14 +29,7 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 	}
 	defer release()
 
-	var window messageevents.Window
-	var updates <-chan messageevents.IncomingSMS
-	var cancel func()
-	if replay {
-		window, updates, cancel = api.messageEvents.Subscribe(after)
-	} else {
-		window, updates, cancel = api.messageEvents.SubscribeCurrent()
-	}
+	updates, cancel := api.messageEvents.Subscribe()
 	defer cancel()
 
 	response.Header().Set("Content-Type", "text/event-stream")
@@ -53,29 +42,7 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 	if _, err := fmt.Fprint(response, "retry: 2000\n\n"); err != nil {
 		return
 	}
-	if window.Reset && !writeSSE(response, flusher, "reset", 0, map[string]uint64{
-		"oldest_id": window.OldestID,
-		"newest_id": window.NewestID,
-	}) {
-		return
-	}
-	for _, event := range window.Events {
-		allowed, err := api.currentStreamCanAccessLine(request, event.LineID)
-		if err != nil {
-			return
-		}
-		if !allowed {
-			continue
-		}
-		if !writeSSE(response, flusher, "sms", event.ID, incomingMessageEvent(event)) {
-			return
-		}
-	}
-	if !writeSSE(response, flusher, "ready", window.NewestID, map[string]uint64{
-		"newest_id": window.NewestID,
-	}) {
-		return
-	}
+	flusher.Flush()
 
 	heartbeat := time.NewTicker(messageHeartbeatInterval)
 	defer heartbeat.Stop()
@@ -100,7 +67,7 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 			if !allowed {
 				continue
 			}
-			if !writeSSE(response, flusher, "sms", event.ID, incomingMessageEvent(event)) {
+			if !writeSSE(response, flusher, "sms", 0, incomingMessageEvent(event)) {
 				return
 			}
 		case observedAt := <-heartbeat.C:
@@ -116,8 +83,6 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 
 func incomingMessageEvent(event messageevents.IncomingSMS) incomingMessageEventResponse {
 	return incomingMessageEventResponse{
-		ID:         event.ID,
-		EventKey:   event.EventKey,
 		MessageID:  event.MessageID,
 		ThreadKey:  event.ThreadKey,
 		LineID:     event.LineID,

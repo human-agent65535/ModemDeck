@@ -8,6 +8,7 @@ import {
   parseUserResponse,
   parseUsersResponse
 } from '../src/api/contract.ts'
+import { authorizationScopeChanged } from '../src/state/session.ts'
 
 const source = path => readFile(new URL(path, import.meta.url), 'utf8')
 
@@ -28,6 +29,34 @@ const member = {
   created_at: '2026-07-29T00:00:00Z',
   updated_at: '2026-07-29T01:00:00Z'
 }
+
+test('authorization scope ignores line order but detects access changes', () => {
+  const current = {
+    userID: 'user_member',
+    role: 'member',
+    allowedLineIDs: ['line_beta', 'line_alpha']
+  }
+
+  assert.equal(
+    authorizationScopeChanged(current, {
+      ...current,
+      allowedLineIDs: ['line_alpha', 'line_beta', 'line_alpha']
+    }),
+    false
+  )
+  assert.equal(
+    authorizationScopeChanged(current, {
+      ...current,
+      allowedLineIDs: ['line_alpha']
+    }),
+    true
+  )
+  assert.equal(authorizationScopeChanged(current, { ...current, role: 'admin' }), true)
+  assert.equal(
+    authorizationScopeChanged(current, { ...current, userID: 'another_user' }),
+    true
+  )
+})
 
 test('user contracts retain role, personal profile, and assigned-line state', () => {
   assert.deepEqual(parseUserResponse({ user: member }), member)
@@ -228,6 +257,12 @@ test('multi-user UI exposes only authorized settings and communication areas', a
   assert.doesNotMatch(client, /must_change_password/)
   assert.match(client, /source\.allowed_line_ids/)
   assert.match(session, /state\.allowedLineIDs = \[\.\.\.\(session\.allowed_line_ids \|\| \[\]\)\]/)
+  assert.match(session, /new Set\(scope\.allowedLineIDs[\s\S]*?\.sort\(\)/)
+  assert.match(
+    session,
+    /state\.status === 'authenticated' &&[\s\S]*?authorizationScopeChanged\(/
+  )
+  assert.match(session, /if \(reloadForAuthorizationChange\) window\.location\.reload\(\)/)
   assert.match(session, /resetRecordingState\(\)/)
   assert.match(runtime, /case 'session':[\s\S]*?await refreshSession\(\)/)
   assert.match(english, /The bot uses this user’s contacts/)

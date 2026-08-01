@@ -827,42 +827,9 @@ export function refreshMessages(thread: MessageThread): Promise<Message[] | null
   return operation
 }
 
-export async function refreshIncomingMessage(
-  event: IncomingMessageEvent,
-  activeThreadKey = '',
-  animate = true
-): Promise<void> {
-  const previousThread = threadsResource.data.find(thread => thread.key === event.thread_key)
-  const threadWasPresent = Boolean(previousThread)
-  const activeResource = activeThreadKey === event.thread_key
-    ? messageResources[event.thread_key]
-    : undefined
-  const messagesWereReady = activeResource?.status === 'ready'
-  const previousMessageIDs = new Set(activeResource?.data.map(message => message.id) || [])
-
-  const threads = await refreshThreads()
-  const thread = threads?.find(item => item.key === event.thread_key)
-  if (
-    animate &&
-    thread &&
-    (!threadWasPresent || thread.last_timestamp !== previousThread?.last_timestamp)
-  ) {
-    markArrival(recentIncomingThreadKeys, `thread:${event.thread_key}`, event.thread_key)
-  }
-  if (!thread || activeThreadKey !== event.thread_key) return
-
-  const messages = await refreshMessages(thread)
-  if (!messages) return
-  if (!messagesWereReady || !animate) return
-  const inserted = messages.filter(message => !previousMessageIDs.has(message.id))
-  const eventMessage = inserted.find(message => message.id === event.message_id)
-  if (eventMessage) {
-    markArrival(recentIncomingMessageIDs, `message:${event.message_id}`, event.message_id)
-    return
-  }
-  for (const message of inserted) {
-    markArrival(recentIncomingMessageIDs, `message:${message.id}`, message.id)
-  }
+export function noteIncomingMessageArrival(event: IncomingMessageEvent): void {
+  markArrival(recentIncomingThreadKeys, `thread:${event.thread_key}`, event.thread_key)
+  markArrival(recentIncomingMessageIDs, `message:${event.message_id}`, event.message_id)
 }
 
 export async function refreshMessageWorkspace(activeThreadKey = ''): Promise<void> {

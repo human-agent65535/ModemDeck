@@ -4,8 +4,7 @@ import test from 'node:test'
 
 import {
   incomingMessageRoute,
-  shouldAlertIncomingMessage,
-  shouldRunMessageFallback
+  shouldAlertIncomingMessage
 } from '../src/state/messageRuntime.ts'
 import {
   browserNotificationsActive,
@@ -16,17 +15,9 @@ import {
   incomingCallRoute
 } from '../src/state/call.ts'
 import { gateway } from '../src/api/client.ts'
-import {
-  messageResources,
-  messagesFor,
-  refreshIncomingMessage,
-  threadsResource
-} from '../src/state/workspace.ts'
 import { messageThreadKeyFromReference } from '../src/router/messageRoute.ts'
 
 const event = {
-  id: 7,
-  event_key: 'sms:42',
   message_id: '42',
   thread_key: 'line-main|+818012345678',
   line_id: 'line-main',
@@ -129,31 +120,24 @@ test('incoming call notification history stays bounded', () => {
   assert.equal(claimed.has('call-299'), true)
 })
 
-test('message reconciliation polling only runs while SSE is disconnected', () => {
-  assert.equal(shouldRunMessageFallback(false), true)
-  assert.equal(shouldRunMessageFallback(true), false)
-})
-
-test('incoming SMS alerts require a fresh live server observation', () => {
+test('incoming SMS alerts require a fresh server observation', () => {
   const now = Date.parse('2026-07-24T07:31:00Z')
 
-  assert.equal(shouldAlertIncomingMessage(event, 'live', now), true)
-  assert.equal(shouldAlertIncomingMessage(event, 'replay', now), false)
+  assert.equal(shouldAlertIncomingMessage(event, now), true)
   assert.equal(
     shouldAlertIncomingMessage(
       { ...event, observed_at: '2026-07-24T07:29:59Z' },
-      'live',
       now
     ),
     false
   )
   assert.equal(
-    shouldAlertIncomingMessage({ ...event, observed_at: 'invalid' }, 'live', now),
+    shouldAlertIncomingMessage({ ...event, observed_at: 'invalid' }, now),
     false
   )
 })
 
-test('message SSE observes heartbeats and resumes after its last event cursor', () => {
+test('message SSE observes heartbeats and reconnects without replay state', () => {
   const originalEventSource = globalThis.EventSource
   const originalSetTimeout = globalThis.setTimeout
   const originalClearTimeout = globalThis.clearTimeout
@@ -195,25 +179,17 @@ test('message SSE observes heartbeats and resumes after its last event cursor', 
       timers.delete(timerID)
     }
 
-    let errors = 0
     const messages = []
-    const deliveries = []
     const close = gateway.subscribeMessageEvents({
-      onOpen() {},
-      onReady() {},
-      onMessage(message, delivery) {
+      onMessage(message) {
         messages.push(message)
-        deliveries.push(delivery)
-      },
-      onReset() {},
-      onError() {
-        errors += 1
       }
     })
 
     assert.equal(FakeEventSource.instances[0].url, '/api/v1/messages/events')
     assert.equal(FakeEventSource.instances[0].withCredentials, true)
-    FakeEventSource.instances[0].emit('ready', '{"newest_id":12}')
+    assert.equal(FakeEventSource.instances[0].listeners.has('ready'), false)
+    assert.equal(FakeEventSource.instances[0].listeners.has('reset'), false)
     FakeEventSource.instances[0].emit(
       'heartbeat',
       '{"at":"2026-07-30T08:00:00Z"}'
@@ -223,34 +199,21 @@ test('message SSE observes heartbeats and resumes after its last event cursor', 
     timers.delete(firstTimerID)
     expireFirst()
 
-    assert.equal(errors, 1)
     assert.equal(FakeEventSource.instances[0].closed, true)
-    assert.equal(
-      FakeEventSource.instances[1].url,
-      '/api/v1/messages/events?after=12'
-    )
+    assert.equal(FakeEventSource.instances[1].url, '/api/v1/messages/events')
 
     FakeEventSource.instances[1].emit(
       'sms',
-      JSON.stringify({ ...event, id: 13, message_id: '43' })
+      JSON.stringify({ ...event, message_id: '43' })
     )
     assert.equal(messages.length, 1)
-    assert.deepEqual(deliveries, ['replay'])
-    FakeEventSource.instances[1].emit('ready', '{"newest_id":13}')
-    FakeEventSource.instances[1].emit(
-      'sms',
-      JSON.stringify({ ...event, id: 14, message_id: '44' })
-    )
-    assert.deepEqual(deliveries, ['replay', 'live'])
+    assert.equal(messages[0].message_id, '43')
 
     const [secondTimerID, expireSecond] = timers.entries().next().value
     timers.delete(secondTimerID)
     expireSecond()
 
-    assert.equal(
-      FakeEventSource.instances[2].url,
-      '/api/v1/messages/events?after=14'
-    )
+    assert.equal(FakeEventSource.instances[2].url, '/api/v1/messages/events')
     close()
     assert.equal(FakeEventSource.instances[2].closed, true)
     assert.equal(timers.size, 0)
@@ -265,100 +228,10 @@ test('message SSE observes heartbeats and resumes after its last event cursor', 
   }
 })
 
-test('active-thread SMS invalidation refreshes messages without bypassing viewport read acknowledgement', async () => {
-  const key = event.thread_key
-  const initialThread = {
-    key,
-    line_id: event.line_id,
-    peer: event.peer,
-    last_timestamp: '2026-07-24T07:00:00Z',
-    last_content: 'before',
-    unread_count: 0
-  }
-  const incomingThread = {
-    ...initialThread,
-    last_timestamp: event.timestamp,
-    last_content: event.content,
-    unread_count: 1
-  }
-  const initialMessage = {
-    id: '41',
-    line_id: event.line_id,
-    peer: event.peer,
-    direction: 'incoming',
-    state: 'received',
-    content: 'before',
-    timestamp: initialThread.last_timestamp
-  }
-  const incomingMessage = {
-    ...initialMessage,
-    id: event.message_id,
-    content: event.content,
-    timestamp: event.timestamp
-  }
-  const previousThreads = {
-    status: threadsResource.status,
-    data: threadsResource.data,
-    error: threadsResource.error
-  }
-  const hadMessages = Object.hasOwn(messageResources, key)
-  const previousMessages = hadMessages
-    ? {
-        status: messageResources[key].status,
-        data: messageResources[key].data,
-        error: messageResources[key].error
-      }
-    : undefined
-  const originalListThreads = gateway.listThreads
-  const originalListMessages = gateway.listMessages
-  const originalMarkThreadRead = gateway.markThreadRead
-  const reads = []
-
-  threadsResource.status = 'ready'
-  threadsResource.data = [initialThread]
-  threadsResource.error = ''
-  const messages = messagesFor(key)
-  messages.status = 'ready'
-  messages.data = [initialMessage]
-  messages.error = ''
-  gateway.listThreads = async () => ({
-    items: [incomingThread],
-    meta: { limit: 50, next_cursor: '', has_more: false }
-  })
-  gateway.listMessages = async () => ({
-    items: [initialMessage, incomingMessage],
-    meta: { limit: 50, next_cursor: '', has_more: false }
-  })
-  gateway.markThreadRead = async input => {
-    reads.push(input)
-  }
-
-  try {
-    await refreshIncomingMessage(event, key, false)
-
-    assert.deepEqual(reads, [])
-    assert.deepEqual(messagesFor(key).data.map(message => message.id), ['41', event.message_id])
-    assert.equal(threadsResource.data[0].unread_count, 1)
-  } finally {
-    gateway.listThreads = originalListThreads
-    gateway.listMessages = originalListMessages
-    gateway.markThreadRead = originalMarkThreadRead
-    threadsResource.status = previousThreads.status
-    threadsResource.data = previousThreads.data
-    threadsResource.error = previousThreads.error
-    if (previousMessages) {
-      messageResources[key].status = previousMessages.status
-      messageResources[key].data = previousMessages.data
-      messageResources[key].error = previousMessages.error
-    } else {
-      delete messageResources[key]
-    }
-  }
-})
-
 test('communication notifications share one explicit browser preference', async () => {
   const [
     runtime,
+    runtimeEvents,
     client,
     browserNotifications,
     calls,
@@ -368,6 +241,7 @@ test('communication notifications share one explicit browser preference', async 
     styles
   ] = await Promise.all([
     readFile(new URL('../src/state/messageRuntime.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/state/runtimeEvents.ts', import.meta.url), 'utf8'),
     readFile(new URL('../src/api/client.ts', import.meta.url), 'utf8'),
     readFile(
       new URL('../src/state/browserNotifications.ts', import.meta.url),
@@ -383,11 +257,18 @@ test('communication notifications share one explicit browser preference', async 
   assert.match(runtime, /gateway\.subscribeMessageEvents\(/)
   assert.match(client, /MESSAGE_EVENT_INACTIVITY_TIMEOUT_MS = 40_000/)
   assert.match(client, /source\.addEventListener\('heartbeat'/)
-  assert.match(runtime, /fallbackRefreshMilliseconds = 30_000/)
-  assert.match(runtime, /if \(!shouldRunMessageFallback\(state\.connected\)\) return/)
-  assert.match(
-    runtime,
-    /refreshIncomingMessage\(event, activeThreadKey\(router\)\)/
+  assert.doesNotMatch(runtime, /setInterval|refreshIncomingMessage|refreshMessageWorkspace/)
+  assert.match(runtime, /noteIncomingMessageArrival\(event\)/)
+  assert.match(runtimeEvents, /case 'messages':[\s\S]*?await refreshMessageWorkspace\(\)/)
+  const messageSubscriptionStart = client.indexOf('subscribeMessageEvents(')
+  const runtimeSubscriptionStart = client.indexOf(
+    'subscribeRuntimeEvents(',
+    messageSubscriptionStart
+  )
+  const messageSubscription = client.slice(messageSubscriptionStart, runtimeSubscriptionStart)
+  assert.doesNotMatch(
+    messageSubscription,
+    /setCursor|addEventListener\('ready'|addEventListener\('reset'/
   )
   assert.match(runtime, /showBrowserNotification\(/)
   assert.match(calls, /showBrowserNotification\(/)
@@ -414,18 +295,15 @@ test('communication notifications share one explicit browser preference', async 
     /v-if="[^"]*browserNotificationState\.(?:secureContext|supported)/
   )
   assert.doesNotMatch(shell, /onMounted\([^]*requestPermission/)
-  assert.match(workspace, /refreshThreads\(\)/)
-  assert.match(workspace, /activeThreadKey !== event\.thread_key/)
-  const refreshIncomingStart = workspace.indexOf(
-    'export async function refreshIncomingMessage('
-  )
+  const arrivalStart = workspace.indexOf('export function noteIncomingMessageArrival(')
   const refreshWorkspaceStart = workspace.indexOf(
     'export async function refreshMessageWorkspace(',
-    refreshIncomingStart
+    arrivalStart
   )
+  assert.match(workspace.slice(arrivalStart, refreshWorkspaceStart), /markArrival\(/)
   assert.doesNotMatch(
-    workspace.slice(refreshIncomingStart, refreshWorkspaceStart),
-    /markThreadRead\(/
+    workspace.slice(arrivalStart, refreshWorkspaceStart),
+    /refreshThreads\(|refreshMessages\(|markThreadRead\(/
   )
   assert.match(messages, /canAcknowledgeMessageThread\(/)
   assert.match(messages, /document\.visibilityState === 'visible'/)

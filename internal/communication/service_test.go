@@ -1272,17 +1272,14 @@ func TestRefreshPublishesCommittedIncomingMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+	updates, cancel := events.Subscribe()
+	defer cancel()
 
 	if _, err := service.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
-	window, _, cancel := events.Subscribe(0)
-	cancel()
-	if len(window.Events) != 1 {
-		t.Fatalf("published events = %+v, want one", window.Events)
-	}
-	event := window.Events[0]
-	if event.EventKey != "sms:42" || event.MessageID != "42" ||
+	event := <-updates
+	if event.MessageID != "42" ||
 		event.ThreadKey != "line-1|+818012345678" ||
 		event.LineID != "line-1" || event.Content != "hello" ||
 		!event.ObservedAt.Equal(now) {
@@ -1306,14 +1303,16 @@ func TestRefreshDoesNotPublishWhenSnapshotCommitFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+	updates, cancel := events.Subscribe()
+	defer cancel()
 
 	if _, err := service.Refresh(context.Background()); err == nil {
 		t.Fatal("Refresh() error = nil, want commit failure")
 	}
-	window, _, cancel := events.Subscribe(0)
-	cancel()
-	if len(window.Events) != 0 {
-		t.Fatalf("published events = %+v, want none", window.Events)
+	select {
+	case event := <-updates:
+		t.Fatalf("published event = %+v, want none", event)
+	default:
 	}
 }
 

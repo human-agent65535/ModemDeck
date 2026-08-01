@@ -1,108 +1,46 @@
-import { reactive, readonly } from 'vue'
 import type { Router } from 'vue-router'
 import { fixtureMode, gateway } from '../api/client'
-import type { IncomingMessageEvent, MessageEventDelivery } from '../api/types'
+import type { IncomingMessageEvent } from '../api/types'
 import { translate } from '../i18n'
-import {
-  messageThreadKeyFromReference,
-  messageThreadRoute
-} from '../router/messageRoute'
+import { messageThreadRoute } from '../router/messageRoute'
 import {
   contactForNumber,
   displayPhoneNumber,
   lineForKey,
   lineLabel,
-  refreshIncomingMessage,
-  refreshMessageWorkspace
+  noteIncomingMessageArrival
 } from './workspace'
 import { showBrowserNotification } from './browserNotifications'
 import { playIncomingMessageSound } from './browserSounds'
 
-const fallbackRefreshMilliseconds = 30_000
 const incomingMessageAlertWindowMilliseconds = 60_000
 
-const state = reactive({
-  connected: false
-})
-
 let closeStream: (() => void) | undefined
-let fallbackTimer: number | undefined
 let activeRouter: Router | undefined
-let eventQueue = Promise.resolve()
-let generation = 0
-
-export const messageRuntimeState = readonly(state)
 
 export function initializeMessageRuntime(router: Router): void {
   if (activeRouter || fixtureMode) return
   activeRouter = router
-  generation += 1
-  const currentGeneration = generation
   closeStream = gateway.subscribeMessageEvents({
-    onOpen: () => {
-      if (currentGeneration !== generation) return
-      state.connected = true
-    },
-    onReady: () => undefined,
-    onMessage: (event, delivery) => {
-      enqueue(async () => {
-        if (currentGeneration !== generation) return
-        await refreshIncomingMessage(event, activeThreadKey(router))
-        if (shouldAlertIncomingMessage(event, delivery)) {
-          playIncomingMessageSound(event.message_id)
-          showIncomingMessageNotification(event, router)
-        }
-      })
-    },
-    onReset: () => {
-      if (currentGeneration !== generation) return
-      enqueue(async () => {
-        if (currentGeneration !== generation) return
-        await refreshMessageWorkspace(activeThreadKey(router))
-      })
-    },
-    onError: () => {
-      if (currentGeneration !== generation) return
-      const wasConnected = state.connected
-      state.connected = false
-      if (wasConnected) {
-        enqueue(async () => {
-          if (currentGeneration !== generation) return
-          await refreshMessageWorkspace(activeThreadKey(router))
-        })
-      }
+    onMessage: event => {
+      if (activeRouter !== router || !shouldAlertIncomingMessage(event)) return
+      noteIncomingMessageArrival(event)
+      playIncomingMessageSound(event.message_id)
+      showIncomingMessageNotification(event, router)
     }
   })
-
-  fallbackTimer = window.setInterval(() => {
-    if (!shouldRunMessageFallback(state.connected)) return
-    enqueue(async () => {
-      if (currentGeneration !== generation) return
-      await refreshMessageWorkspace(activeThreadKey(router))
-    })
-  }, fallbackRefreshMilliseconds)
 }
 
 export function shutdownMessageRuntime(): void {
-  generation += 1
   closeStream?.()
   closeStream = undefined
-  if (fallbackTimer !== undefined) window.clearInterval(fallbackTimer)
-  fallbackTimer = undefined
   activeRouter = undefined
-  state.connected = false
-}
-
-export function shouldRunMessageFallback(connected: boolean): boolean {
-  return !connected
 }
 
 export function shouldAlertIncomingMessage(
   event: IncomingMessageEvent,
-  delivery: MessageEventDelivery,
   now = Date.now()
 ): boolean {
-  if (delivery !== 'live') return false
   const observedAt = Date.parse(event.observed_at)
   return (
     Number.isFinite(observedAt) &&
@@ -118,16 +56,6 @@ export function incomingMessageRoute(event: IncomingMessageEvent): {
     name: 'messages'
     params: { threadRef: string }
   }
-}
-
-function activeThreadKey(router: Router): string {
-  const route = router.currentRoute.value
-  if (route.name !== 'messages') return ''
-  return messageThreadKeyFromReference(route.params.threadRef)
-}
-
-function enqueue(operation: () => Promise<void>): void {
-  eventQueue = eventQueue.then(operation, operation)
 }
 
 function showIncomingMessageNotification(event: IncomingMessageEvent, router: Router): void {

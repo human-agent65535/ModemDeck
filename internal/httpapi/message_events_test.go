@@ -97,24 +97,15 @@ func (repository *streamAuthRepository) setPrincipal(principal auth.Principal) {
 	repository.mu.Unlock()
 }
 
-func TestMessageEventStreamReplaysLastEventID(t *testing.T) {
+func TestMessageEventStreamOnlyForwardsLiveMessages(t *testing.T) {
 	t.Parallel()
 
 	events := messageevents.NewBuffer(8)
 	observedAt := time.Date(2026, time.July, 24, 7, 30, 5, 0, time.UTC)
 	events.Publish(messageevents.IncomingSMS{
-		EventKey:  "sms:1",
 		MessageID: "1",
 		ThreadKey: "line-main|+818000000001",
 		LineID:    "line-main",
-	})
-	events.Publish(messageevents.IncomingSMS{
-		EventKey:   "sms:2",
-		MessageID:  "2",
-		ThreadKey:  "line-main|+818000000002",
-		LineID:     "line-main",
-		ICCID:      "legacy-hardware-id",
-		ObservedAt: observedAt,
 	})
 	api, err := New(&fakeRepository{}, Options{
 		MessageEvents:         events,
@@ -123,147 +114,44 @@ func TestMessageEventStreamReplaysLastEventID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/messages/events", nil)
-	request.Header.Set("Last-Event-ID", "1")
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/messages/events?after=invalid", nil)
+	request.Header.Set("Last-Event-ID", "99")
 	ctx, cancel := context.WithCancel(request.Context())
+	response := newEventStreamTestResponse()
+	done := make(chan struct{})
+	go func() {
+		api.ServeHTTP(response, request.WithContext(ctx))
+		close(done)
+	}()
+	waitForEventStreamFlush(t, response.flushed)
+	events.Publish(messageevents.IncomingSMS{
+		MessageID:  "2",
+		ThreadKey:  "line-main|+818000000002",
+		LineID:     "line-main",
+		Peer:       "+818000000002",
+		Content:    "hello",
+		Timestamp:  "2026-07-24T07:30:00Z",
+		ObservedAt: observedAt,
+	})
+	waitForMessageEvent(t, response, `"message_id":"2"`)
 	cancel()
-	response := httptest.NewRecorder()
+	waitForEventStreamClose(t, done, nil)
 
-	api.ServeHTTP(response, request.WithContext(ctx))
-
-	if response.Code != http.StatusOK {
-		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	if response.statusCode() != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.statusCode(), response.bodyString())
 	}
-	body := response.Body.String()
+	body := response.bodyString()
 	if !strings.Contains(body, "event: sms") ||
 		!strings.Contains(body, `"message_id":"2"`) ||
 		!strings.Contains(body, `"line_id":"line-main"`) ||
 		!strings.Contains(body, `"observed_at":"2026-07-24T07:30:05Z"`) ||
 		strings.Contains(body, `"message_id":"1"`) ||
+		strings.Contains(body, "id:") ||
+		strings.Contains(body, `"event_key"`) ||
 		strings.Contains(body, `"iccid"`) ||
-		!strings.Contains(body, "event: ready") {
+		strings.Contains(body, "event: ready") ||
+		strings.Contains(body, "event: reset") {
 		t.Fatalf("stream = %q", body)
-	}
-}
-
-func TestMessageEventStreamInitialSubscriptionStartsAtCurrentWatermark(t *testing.T) {
-	t.Parallel()
-
-	events := messageevents.NewBuffer(8)
-	events.Publish(messageevents.IncomingSMS{
-		EventKey:  "sms:1",
-		MessageID: "1",
-		ThreadKey: "line-main|+818000000001",
-		LineID:    "line-main",
-	})
-	second, _ := events.Publish(messageevents.IncomingSMS{
-		EventKey:  "sms:2",
-		MessageID: "2",
-		ThreadKey: "line-main|+818000000002",
-		LineID:    "line-main",
-	})
-	api, err := New(&fakeRepository{}, Options{
-		MessageEvents:         events,
-		disableAuthentication: true,
-	})
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/messages/events", nil)
-	ctx, cancel := context.WithCancel(request.Context())
-	cancel()
-	response := httptest.NewRecorder()
-
-	api.ServeHTTP(response, request.WithContext(ctx))
-
-	if response.Code != http.StatusOK {
-		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
-	}
-	body := response.Body.String()
-	if strings.Contains(body, "event: sms") ||
-		!strings.Contains(body, "id: 2\nevent: ready") ||
-		!strings.Contains(body, `"newest_id":2`) {
-		t.Fatalf("stream = %q; want ready at watermark %d without replay", body, second.ID)
-	}
-}
-
-func TestMessageEventStreamReplaysExplicitAfterCursor(t *testing.T) {
-	t.Parallel()
-
-	events := messageevents.NewBuffer(8)
-	events.Publish(messageevents.IncomingSMS{
-		EventKey:  "sms:1",
-		MessageID: "1",
-		ThreadKey: "line-main|+818000000001",
-		LineID:    "line-main",
-	})
-	api, err := New(&fakeRepository{}, Options{
-		MessageEvents:         events,
-		disableAuthentication: true,
-	})
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/messages/events?after=0", nil)
-	ctx, cancel := context.WithCancel(request.Context())
-	cancel()
-	response := httptest.NewRecorder()
-
-	api.ServeHTTP(response, request.WithContext(ctx))
-
-	body := response.Body.String()
-	if response.Code != http.StatusOK ||
-		!strings.Contains(body, "event: sms") ||
-		!strings.Contains(body, `"message_id":"1"`) {
-		t.Fatalf("status = %d; stream = %q", response.Code, body)
-	}
-}
-
-func TestMessageEventStreamResetsCursorFromPreviousProcess(t *testing.T) {
-	t.Parallel()
-
-	events := messageevents.NewBuffer(8)
-	events.Publish(messageevents.IncomingSMS{EventKey: "sms:1", MessageID: "1"})
-	api, err := New(&fakeRepository{}, Options{
-		MessageEvents:         events,
-		disableAuthentication: true,
-	})
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/messages/events", nil)
-	request.Header.Set("Last-Event-ID", "99")
-	ctx, cancel := context.WithCancel(request.Context())
-	cancel()
-	response := httptest.NewRecorder()
-
-	api.ServeHTTP(response, request.WithContext(ctx))
-
-	body := response.Body.String()
-	if response.Code != http.StatusOK || !strings.Contains(body, "id: 0\nevent: reset") ||
-		strings.Contains(body, "event: sms") ||
-		!strings.Contains(body, "id: 1\nevent: ready") {
-		t.Fatalf("status = %d; stream = %q", response.Code, body)
-	}
-}
-
-func TestMessageEventStreamRejectsInvalidCursor(t *testing.T) {
-	t.Parallel()
-
-	api, err := New(&fakeRepository{}, Options{
-		MessageEvents:         messageevents.NewBuffer(8),
-		disableAuthentication: true,
-	})
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	response := httptest.NewRecorder()
-	api.ServeHTTP(
-		response,
-		httptest.NewRequest(http.MethodGet, "/api/v1/messages/events?after=nope", nil),
-	)
-	if response.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400; body = %s", response.Code, response.Body.String())
 	}
 }
 
@@ -310,4 +198,20 @@ func TestMessageEventStreamRechecksSessionAndLineAccess(t *testing.T) {
 	if _, err := api.currentStreamCanAccessLine(request, "line-beta"); err == nil {
 		t.Fatal("revoked session retained message stream access")
 	}
+}
+
+func waitForMessageEvent(
+	t *testing.T,
+	response *eventStreamTestResponse,
+	value string,
+) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(response.bodyString(), value) {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("message event stream did not contain %q: %q", value, response.bodyString())
 }

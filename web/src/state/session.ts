@@ -35,6 +35,26 @@ let inspection: Promise<boolean> | undefined
 let sessionTerminationInProgress = false
 let sessionInvalidatedDuringTermination = false
 
+type AuthorizationScope = {
+  userID: string
+  role: string
+  allowedLineIDs: readonly string[]
+}
+
+export function authorizationScopeChanged(
+  current: AuthorizationScope,
+  next: AuthorizationScope
+): boolean {
+  return authorizationScopeSignature(current) !== authorizationScopeSignature(next)
+}
+
+function authorizationScopeSignature(scope: AuthorizationScope): string {
+  const lineIDs = Array.from(
+    new Set(scope.allowedLineIDs.map(lineID => lineID.trim()).filter(Boolean))
+  ).sort()
+  return JSON.stringify([scope.userID.trim(), scope.role.trim(), lineIDs])
+}
+
 async function applySession(session: SessionResponse): Promise<boolean> {
   if (!session.authenticated) {
     clearSession('', session.setup_required)
@@ -43,22 +63,40 @@ async function applySession(session: SessionResponse): Promise<boolean> {
 
   await setSystemLanguage(session.language)
 
+  const nextScope = {
+    userID: session.user_id || '',
+    role: session.role || 'admin',
+    allowedLineIDs: session.allowed_line_ids || []
+  }
+  const reloadForAuthorizationChange =
+    state.status === 'authenticated' &&
+    authorizationScopeChanged(
+      {
+        userID: state.userID,
+        role: state.role,
+        allowedLineIDs: state.allowedLineIDs
+      },
+      nextScope
+    )
+
   if (
     state.status !== 'authenticated' ||
-    state.userID !== (session.user_id || '')
+    state.userID !== nextScope.userID ||
+    reloadForAuthorizationChange
   ) {
     rotateAuthenticationRequestScope()
   }
   state.status = 'authenticated'
-  state.userID = session.user_id || ''
+  state.userID = nextScope.userID
   state.username = session.username || ''
-  state.role = session.role || 'admin'
+  state.role = nextScope.role as 'admin' | 'member'
   state.profileContactID = session.profile_contact_id || ''
   state.iosPairingEnabled = session.ios_pairing_enabled
   state.allowedLineIDs = [...(session.allowed_line_ids || [])]
   state.setupRequired = false
   state.error = ''
   setClientCSRFToken(session.csrf_token)
+  if (reloadForAuthorizationChange) window.location.reload()
   return true
 }
 

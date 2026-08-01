@@ -583,8 +583,6 @@ export type Message = {
 }
 
 export type IncomingMessageEvent = {
-  id: number
-  event_key: string
   message_id: string
   thread_key: string
   line_id: string
@@ -594,14 +592,8 @@ export type IncomingMessageEvent = {
   observed_at: string
 }
 
-export type MessageEventDelivery = 'replay' | 'live'
-
 export type MessageEventStreamHandlers = {
-  onOpen: () => void
-  onReady: (newestID: number) => void
-  onMessage: (event: IncomingMessageEvent, delivery: MessageEventDelivery) => void
-  onReset: (oldestID: number, newestID: number) => void
-  onError: (error?: Error) => void
+  onMessage: (event: IncomingMessageEvent) => void
 }
 
 export type RuntimeResource =

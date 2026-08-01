@@ -133,7 +133,6 @@ import type {
   InstallCloudflareOriginTLSInput,
   LoginInput,
   Message,
-  MessageEventDelivery,
   MessageEventStreamHandlers,
   MobileNetworkScan,
   NetworkSelectionPolicy,
@@ -652,8 +651,6 @@ function parseIncomingMessageEvent(value: unknown): IncomingMessageEvent {
     )
   }
   return {
-    id: numberValue(source, 'incoming_message_event', 'id'),
-    event_key: requiredStringValue(source, 'incoming_message_event', 'event_key'),
     message_id: requiredStringValue(source, 'incoming_message_event', 'message_id'),
     thread_key: requiredStringValue(source, 'incoming_message_event', 'thread_key'),
     line_id: requiredStringValue(source, 'incoming_message_event', 'line_id'),
@@ -1576,27 +1573,19 @@ const realGateway: ConfiguredModemDeckGateway = {
   },
 
   subscribeMessageEvents(handlers: MessageEventStreamHandlers): () => void {
-    let delivery: MessageEventDelivery = 'replay'
     return subscribeEventSource(
       `${API_ROOT}/messages/events`,
       {
-        onOpen: () => {
-          delivery = 'replay'
-          handlers.onOpen()
-        },
-        onError: error => {
-          delivery = 'replay'
-          handlers.onError(error)
-        }
+        onOpen: () => undefined,
+        onError: () => undefined
       },
-      (source, restart, isActive, markActivity, setCursor) => {
+      (source, restart, isActive, markActivity) => {
         source.addEventListener('sms', event => {
           if (!isActive()) return
           markActivity()
           try {
             const message = parseIncomingMessageEvent(JSON.parse(event.data) as unknown)
-            setCursor(message.id)
-            handlers.onMessage(message, delivery)
+            handlers.onMessage(message)
           } catch (error) {
             restart(error instanceof Error ? error : new Error('短信事件格式无效'))
           }
@@ -1612,33 +1601,6 @@ const realGateway: ConfiguredModemDeckGateway = {
             requiredStringValue(heartbeat, 'message_event_heartbeat', 'at')
           } catch (error) {
             restart(error instanceof Error ? error : new Error('短信事件心跳无效'))
-          }
-        })
-        source.addEventListener('ready', event => {
-          if (!isActive()) return
-          markActivity()
-          try {
-            const ready = requiredRecord(JSON.parse(event.data) as unknown, 'message_event_ready')
-            const newestID = numberValue(ready, 'message_event_ready', 'newest_id')
-            setCursor(newestID)
-            delivery = 'live'
-            handlers.onReady(newestID)
-          } catch (error) {
-            restart(error instanceof Error ? error : new Error('短信事件就绪状态无效'))
-          }
-        })
-        source.addEventListener('reset', event => {
-          if (!isActive()) return
-          markActivity()
-          try {
-            const reset = requiredRecord(JSON.parse(event.data) as unknown, 'message_event_reset')
-            const oldestID = numberValue(reset, 'message_event_reset', 'oldest_id')
-            const newestID = numberValue(reset, 'message_event_reset', 'newest_id')
-            setCursor(newestID)
-            delivery = 'replay'
-            handlers.onReset(oldestID, newestID)
-          } catch (error) {
-            restart(error instanceof Error ? error : new Error('短信事件重置状态无效'))
           }
         })
       },
