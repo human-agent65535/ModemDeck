@@ -79,12 +79,13 @@ escape hatch that rebuilds every image and force-recreates the complete stack.
 
 Pushing an annotated stable tag that exactly matches `v$(cat VERSION)` starts
 the `Publish release images` GitHub Actions workflow. It builds Linux `amd64`
-and `arm64` variants and publishes these packages under the repository owner's
-GHCR namespace:
+and `arm64` variants and publishes application packages under the repository
+owner's GHCR namespace:
 
 - `ghcr.io/OWNER/modemdeck:vX.Y.Z` for the API
 - `ghcr.io/OWNER/modemdeck-web:vX.Y.Z` for the Web gateway
-- `ghcr.io/OWNER/modemdeck-hardware:vX.Y.Z` for the Hardware runtime
+- `ghcr.io/OWNER/modemdeck-hardware:vX.Y.Z` for the Hardware runtime, only when
+  `agent/` or `hardware/` changed since the previous stable tag
 
 The workflow uses the repository `GITHUB_TOKEN`; it needs no registry secret.
 Each image also receives a `sha-COMMIT` tag and GitHub build-provenance
@@ -93,10 +94,16 @@ published digest instead of following a mutable tag. The workflow deliberately
 does not publish `latest`.
 
 To backfill images for an existing release whose tag predates the workflow,
-run it manually with `release_tag` set to that tag, for example `v1.9.2`. The
+run it manually with `release_tag` set to that tag, for example `v1.9.2`. Select
+`include_hardware` only when the backfill also needs a Hardware baseline. The
 workflow checks out the tagged commit, verifies that its `VERSION` matches,
 requires the existing tag to be annotated, and builds only that historical
 source. Never move or recreate a published release tag.
+
+API and Web are application release artifacts and are built for every stable
+tag. Hardware has its own component version: when its inputs are unchanged, no
+new Hardware tag is created and update tooling must retain the previously
+published Hardware digest.
 
 GHCR creates a package as private on its first publication. For anonymous
 device pulls, change each package to public once in its GitHub package settings.

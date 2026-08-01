@@ -10,6 +10,11 @@ on:
         description: Existing annotated stable tag to publish
         required: true
         type: string
+      include_hardware:
+        description: Also publish the Hardware image for this backfill
+        default: false
+        required: true
+        type: boolean
 
 concurrency:
   group: publish-release-images-${{ inputs.release_tag || github.ref }}
@@ -25,6 +30,7 @@ jobs:
     outputs:
       build-date: ${{ steps.release.outputs.build-date }}
       namespace: ${{ steps.release.outputs.namespace }}
+      image-matrix: ${{ steps.release.outputs.image-matrix }}
       release-tag: ${{ steps.release.outputs.release-tag }}
       vcs-ref: ${{ steps.release.outputs.vcs-ref }}
       version: ${{ steps.release.outputs.version }}
@@ -43,6 +49,8 @@ jobs:
           RELEASE_REF: ${{ inputs.release_tag || github.ref }}
           RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
           REPOSITORY_OWNER: ${{ github.repository_owner }}
+          EVENT_NAME: ${{ github.event_name }}
+          INCLUDE_HARDWARE: ${{ inputs.include_hardware }}
         run: |
           set -euo pipefail
 
@@ -68,8 +76,33 @@ jobs:
 
           namespace="$(printf '%s' "${REPOSITORY_OWNER}" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
           build_date="$(git show -s --format=%cI "${vcs_ref}")"
+          publish_hardware=false
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            publish_hardware="${INCLUDE_HARDWARE:-false}"
+          else
+            previous_tag=""
+            if git rev-parse --verify "${vcs_ref}^" >/dev/null 2>&1; then
+              while IFS= read -r candidate; do
+                if [[ "${candidate}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+                  previous_tag="${candidate}"
+                  break
+                fi
+              done < <(git tag --merged "${vcs_ref}^" --sort=-version:refname)
+            fi
+            if [[ -z "${previous_tag}" ]] ||
+              ! git diff --quiet "${previous_tag}^{commit}" "${vcs_ref}" -- agent hardware
+            then
+              publish_hardware=true
+            fi
+          fi
+
+          image_matrix='{"include":[{"component":"api","dockerfile":"./Dockerfile","image":"modemdeck","target":"runtime"},{"component":"web","dockerfile":"./Dockerfile","image":"modemdeck-web","target":"web-runtime"}]}'
+          if [[ "${publish_hardware}" == "true" ]]; then
+            image_matrix='{"include":[{"component":"api","dockerfile":"./Dockerfile","image":"modemdeck","target":"runtime"},{"component":"web","dockerfile":"./Dockerfile","image":"modemdeck-web","target":"web-runtime"},{"component":"hardware","dockerfile":"./hardware/Dockerfile","image":"modemdeck-hardware","target":"runtime"}]}'
+          fi
           {
             echo "build-date=${build_date}"
+            echo "image-matrix=${image_matrix}"
             echo "namespace=${namespace}"
             echo "release-tag=${RELEASE_TAG}"
             echo "vcs-ref=${vcs_ref}"
@@ -88,20 +121,7 @@ jobs:
       packages: write
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - component: api
-            dockerfile: ./Dockerfile
-            image: modemdeck
-            target: runtime
-          - component: web
-            dockerfile: ./Dockerfile
-            image: modemdeck-web
-            target: web-runtime
-          - component: hardware
-            dockerfile: ./hardware/Dockerfile
-            image: modemdeck-hardware
-            target: runtime
+      matrix: ${{ fromJSON(needs.release.outputs.image-matrix) }}
     env:
       IMAGE: ghcr.io/${{ needs.release.outputs.namespace }}/${{ matrix.image }}
     steps:

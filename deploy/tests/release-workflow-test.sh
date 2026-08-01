@@ -22,6 +22,8 @@ grep -Fq '  workflow_dispatch:' "$workflow" ||
     fail "workflow cannot backfill an existing stable release"
 grep -Fq '      release_tag:' "$workflow" ||
     fail "release backfill does not require an explicit tag"
+grep -Fq '      include_hardware:' "$workflow" ||
+    fail "release backfill cannot explicitly include Hardware"
 grep -Fq 'RELEASE_TAG} does not match VERSION' "$workflow" ||
     fail "workflow does not require the tag to match VERSION"
 grep -Fq 'git cat-file -t "${RELEASE_REF}"' "$workflow" ||
@@ -37,44 +39,21 @@ do
         fail "workflow permission is missing: ${permission}"
 done
 
-matrix_has() {
-    component=$1
-    dockerfile=$2
-    image=$3
-    target=$4
+for matrix_contract in \
+    '"component":"api","dockerfile":"./Dockerfile","image":"modemdeck","target":"runtime"' \
+    '"component":"web","dockerfile":"./Dockerfile","image":"modemdeck-web","target":"web-runtime"' \
+    '"component":"hardware","dockerfile":"./hardware/Dockerfile","image":"modemdeck-hardware","target":"runtime"'
+do
+    grep -Fq "$matrix_contract" "$workflow" ||
+        fail "release image contract is incomplete: ${matrix_contract}"
+done
 
-    awk \
-        -v expected_component="$component" \
-        -v expected_dockerfile="$dockerfile" \
-        -v expected_image="$image" \
-        -v expected_target="$target" '
-        $0 == "          - component: " expected_component {
-            found_component = 1
-            in_component = 1
-            next
-        }
-        in_component && /^          - component:/ { in_component = 0 }
-        in_component && $0 == "            dockerfile: " expected_dockerfile {
-            found_dockerfile = 1
-        }
-        in_component && $0 == "            image: " expected_image {
-            found_image = 1
-        }
-        in_component && $0 == "            target: " expected_target {
-            found_target = 1
-        }
-        END {
-            exit !(found_component && found_dockerfile && found_image && found_target)
-        }
-    ' "$workflow"
-}
-
-matrix_has api ./Dockerfile modemdeck runtime ||
-    fail "API release image contract is incomplete"
-matrix_has web ./Dockerfile modemdeck-web web-runtime ||
-    fail "Web release image contract is incomplete"
-matrix_has hardware ./hardware/Dockerfile modemdeck-hardware runtime ||
-    fail "Hardware release image contract is incomplete"
+grep -Fq 'git diff --quiet "${previous_tag}^{commit}" "${vcs_ref}" -- agent hardware' \
+    "$workflow" || fail "automatic releases do not isolate Hardware source changes"
+grep -Fq 'publish_hardware="${INCLUDE_HARDWARE:-false}"' "$workflow" ||
+    fail "manual release backfills do not default to application images only"
+grep -Fq 'matrix: ${{ fromJSON(needs.release.outputs.image-matrix) }}' "$workflow" ||
+    fail "release jobs do not use the validated component matrix"
 
 grep -Fq 'platforms: linux/amd64,linux/arm64' "$workflow" ||
     fail "release images are not multi-architecture"
