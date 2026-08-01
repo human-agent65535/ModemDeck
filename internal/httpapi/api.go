@@ -266,6 +266,7 @@ type Options struct {
 	Network               NetworkService
 	TelegramSettings      TelegramSettingsService
 	TLSSettings           TLSSettingsService
+	CloudflareOriginTLS   CloudflareOriginTLSService
 	MobilePairing         mobilepairing.Availability
 	RTCConfiguration      rtcconfig.Provider
 	Authenticator         Authenticator
@@ -280,35 +281,36 @@ type Options struct {
 }
 
 type API struct {
-	repository                Repository
-	healthProbe               HealthProbe
-	capabilities              CapabilitySource
-	communications            CommunicationService
-	deviceConfigurations      DeviceConfigurationService
-	lineServices              LineService
-	callPolicies              CallPolicyService
-	messagePolicies           MessagePolicyService
-	callMedia                 CallMediaService
-	callLeases                CallLeaseService
-	recordings                RecordingService
-	network                   NetworkService
-	telegram                  TelegramSettingsService
-	tlsSettingsService        TLSSettingsService
-	mobilePairingAvailability mobilepairing.Availability
-	rtcConfiguration          rtcconfig.Provider
-	turnAvailability          turnAvailabilityCache
-	authenticator             Authenticator
-	secureCookies             bool
-	loginSlots                chan struct{}
-	loginFailures             *loginFailureLimiter
-	eventStreams              *eventStreamLimiter
-	streamAuthInterval        time.Duration
-	logger                    *slog.Logger
-	diagnosticLogs            diagnostics.LogSource
-	messageEvents             messageevents.Source
-	runtimeEvents             runtimeevents.Source
-	updateChecker             UpdateChecker
-	applicationVersion        string
+	repository                 Repository
+	healthProbe                HealthProbe
+	capabilities               CapabilitySource
+	communications             CommunicationService
+	deviceConfigurations       DeviceConfigurationService
+	lineServices               LineService
+	callPolicies               CallPolicyService
+	messagePolicies            MessagePolicyService
+	callMedia                  CallMediaService
+	callLeases                 CallLeaseService
+	recordings                 RecordingService
+	network                    NetworkService
+	telegram                   TelegramSettingsService
+	tlsSettingsService         TLSSettingsService
+	cloudflareOriginTLSService CloudflareOriginTLSService
+	mobilePairingAvailability  mobilepairing.Availability
+	rtcConfiguration           rtcconfig.Provider
+	turnAvailability           turnAvailabilityCache
+	authenticator              Authenticator
+	secureCookies              bool
+	loginSlots                 chan struct{}
+	loginFailures              *loginFailureLimiter
+	eventStreams               *eventStreamLimiter
+	streamAuthInterval         time.Duration
+	logger                     *slog.Logger
+	diagnosticLogs             diagnostics.LogSource
+	messageEvents              messageevents.Source
+	runtimeEvents              runtimeevents.Source
+	updateChecker              UpdateChecker
+	applicationVersion         string
 }
 
 func New(repository Repository, options Options) (*API, error) {
@@ -327,34 +329,35 @@ func New(repository Repository, options Options) (*API, error) {
 		healthProbe, _ = options.Communications.(HealthProbe)
 	}
 	return &API{
-		repository:                repository,
-		healthProbe:               healthProbe,
-		capabilities:              options.Capabilities,
-		communications:            options.Communications,
-		deviceConfigurations:      options.DeviceConfigurations,
-		lineServices:              options.LineServices,
-		callPolicies:              options.CallPolicies,
-		messagePolicies:           options.MessagePolicies,
-		callMedia:                 options.CallMedia,
-		callLeases:                options.CallLeases,
-		recordings:                options.Recording,
-		network:                   options.Network,
-		telegram:                  options.TelegramSettings,
-		tlsSettingsService:        options.TLSSettings,
-		mobilePairingAvailability: options.MobilePairing,
-		rtcConfiguration:          options.RTCConfiguration,
-		authenticator:             options.Authenticator,
-		secureCookies:             options.SecureCookies,
-		loginSlots:                make(chan struct{}, 2),
-		loginFailures:             newLoginFailureLimiter(defaultLoginFailurePolicy),
-		eventStreams:              newEventStreamLimiter(defaultEventStreamLimitPolicy),
-		streamAuthInterval:        runtimeHeartbeatInterval,
-		logger:                    logger,
-		diagnosticLogs:            options.DiagnosticLogs,
-		messageEvents:             options.MessageEvents,
-		runtimeEvents:             options.RuntimeEvents,
-		updateChecker:             options.UpdateChecker,
-		applicationVersion:        normalizedApplicationVersion(options.ApplicationVersion),
+		repository:                 repository,
+		healthProbe:                healthProbe,
+		capabilities:               options.Capabilities,
+		communications:             options.Communications,
+		deviceConfigurations:       options.DeviceConfigurations,
+		lineServices:               options.LineServices,
+		callPolicies:               options.CallPolicies,
+		messagePolicies:            options.MessagePolicies,
+		callMedia:                  options.CallMedia,
+		callLeases:                 options.CallLeases,
+		recordings:                 options.Recording,
+		network:                    options.Network,
+		telegram:                   options.TelegramSettings,
+		tlsSettingsService:         options.TLSSettings,
+		cloudflareOriginTLSService: options.CloudflareOriginTLS,
+		mobilePairingAvailability:  options.MobilePairing,
+		rtcConfiguration:           options.RTCConfiguration,
+		authenticator:              options.Authenticator,
+		secureCookies:              options.SecureCookies,
+		loginSlots:                 make(chan struct{}, 2),
+		loginFailures:              newLoginFailureLimiter(defaultLoginFailurePolicy),
+		eventStreams:               newEventStreamLimiter(defaultEventStreamLimitPolicy),
+		streamAuthInterval:         runtimeHeartbeatInterval,
+		logger:                     logger,
+		diagnosticLogs:             options.DiagnosticLogs,
+		messageEvents:              options.MessageEvents,
+		runtimeEvents:              options.RuntimeEvents,
+		updateChecker:              options.UpdateChecker,
+		applicationVersion:         normalizedApplicationVersion(options.ApplicationVersion),
 	}, nil
 }
 
@@ -411,6 +414,8 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.getOnly(response, request, api.externalAccessStatus)
 	case "/api/v1/external-access/refresh":
 		api.postOnly(response, request, api.refreshExternalAccess)
+	case "/api/v1/external-access/origin-tls":
+		api.cloudflareOriginTLS(response, request)
 	case "/api/v1/mobile/pairing":
 		api.mobilePairing(response, request)
 	case "/api/v1/users":

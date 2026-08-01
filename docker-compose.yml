@@ -185,7 +185,7 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - wget -q -T 3 -O /dev/null http://127.0.0.1:7575/api/v1/health/live || exit 1
+        - wget -q -T 3 --no-check-certificate -O /dev/null https://127.0.0.1:7577/api/v1/health/live || exit 1
       interval: 20s
       timeout: 5s
       start_period: 15s

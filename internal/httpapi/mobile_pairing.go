@@ -54,6 +54,7 @@ type createIOSPairingRequest struct {
 type externalAccessStatusResponse struct {
 	Cloudflare mobilepairing.CloudflareStatus `json:"cloudflare"`
 	TURN       turnAvailabilityStatus         `json:"turn"`
+	OriginTLS  CloudflareOriginTLSStatus      `json:"origin_tls"`
 }
 
 func (api *API) mobileTunnelProbe(
@@ -89,6 +90,7 @@ func (api *API) externalAccessStatus(
 	writeJSON(response, http.StatusOK, externalAccessStatusResponse{
 		Cloudflare: <-cloudflareResult,
 		TURN:       turn,
+		OriginTLS:  api.cloudflareOriginTLSStatus(request.Context()),
 	})
 }
 
@@ -116,7 +118,21 @@ func (api *API) refreshExternalAccess(
 	writeJSON(response, http.StatusOK, externalAccessStatusResponse{
 		Cloudflare: <-cloudflareResult,
 		TURN:       turn,
+		OriginTLS:  api.cloudflareOriginTLSStatus(request.Context()),
 	})
+}
+
+func (api *API) cloudflareOriginTLSStatus(
+	ctx context.Context,
+) CloudflareOriginTLSStatus {
+	if api.cloudflareOriginTLSService == nil {
+		return CloudflareOriginTLSStatus{DNSNames: []string{}}
+	}
+	status := api.cloudflareOriginTLSService.Status(ctx)
+	if status.DNSNames == nil {
+		status.DNSNames = []string{}
+	}
+	return status
 }
 
 func (api *API) mobilePairing(

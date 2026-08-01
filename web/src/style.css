@@ -2250,17 +2250,6 @@ dd {
   color: var(--danger);
 }
 
-.tls-scope-notice {
-  margin: 0 0 14px;
-  padding: 9px 11px;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.5;
-  background: var(--surface-subtle);
-  border-left: 3px solid var(--accent);
-  border-radius: 4px;
-}
-
 .tls-summary {
   display: flex;
   min-height: 68px;
@@ -2287,7 +2276,7 @@ dd {
 }
 
 .tls-summary__heading h3,
-.tls-install h3 {
+.tls-install__title {
   margin: 0;
   color: var(--text);
   font-size: 13px;
@@ -2367,7 +2356,8 @@ dd {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   color: var(--muted);
   font-size: 10px;
-  word-break: break-all;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .tls-ca-download {
@@ -2417,81 +2407,6 @@ dd {
   gap: 16px;
   padding: 18px 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.tls-file-field {
-  min-width: 0;
-}
-
-.tls-file-field__label {
-  display: block;
-  margin-bottom: 7px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 650;
-}
-
-.tls-file-picker {
-  display: flex;
-  min-height: 64px;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  color: var(--accent-strong);
-  background: var(--surface-subtle);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.tls-file-picker:hover {
-  background: var(--surface-hover);
-}
-
-.tls-file-field:focus-within .tls-file-picker {
-  box-shadow: 0 0 0 3px rgb(17 120 100 / 20%);
-}
-
-.tls-file-picker.is-disabled {
-  cursor: not-allowed;
-  opacity: 0.46;
-}
-
-.tls-file-field.has-error .tls-file-picker {
-  border-color: var(--danger);
-}
-
-.tls-file-picker > svg {
-  flex: 0 0 auto;
-}
-
-.tls-file-picker > span {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.tls-file-picker strong,
-.tls-file-picker small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tls-file-picker strong {
-  color: var(--text);
-  font-size: 12px;
-}
-
-.tls-file-picker small {
-  color: var(--muted);
-  font-size: 10px;
-}
-
-.tls-file-field .field-error {
-  margin-top: 6px;
-  font-size: 11px;
 }
 
 .tls-install__actions {

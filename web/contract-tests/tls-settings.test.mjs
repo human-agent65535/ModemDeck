@@ -190,7 +190,18 @@ test('gateway sends TLS requests with the contract path, method, payload, and CS
 })
 
 test('admin settings group HTTPS and remote entry points under Access', async () => {
-  const [settingsView, connectivityPanel, certificatePanel, english, chinese] = await Promise.all([
+  const [
+    settingsView,
+    connectivityPanel,
+    certificatePanel,
+    originTLSPanel,
+    externalAccessPanel,
+    certificateFacts,
+    fileDropControl,
+    textareaControl,
+    english,
+    chinese
+  ] = await Promise.all([
     readFile(new URL('../src/views/SettingsView.vue', import.meta.url), 'utf8'),
     readFile(
       new URL(
@@ -206,6 +217,32 @@ test('admin settings group HTTPS and remote entry points under Access', async ()
       ),
       'utf8'
     ),
+    readFile(
+      new URL(
+        '../src/components/CloudflareOriginTLSSettings.vue',
+        import.meta.url
+      ),
+      'utf8'
+    ),
+    readFile(
+      new URL(
+        '../src/components/ExternalAccessSettingsPanel.vue',
+        import.meta.url
+      ),
+      'utf8'
+    ),
+    readFile(
+      new URL('../src/components/CertificateFacts.vue', import.meta.url),
+      'utf8'
+    ),
+    readFile(
+      new URL('../src/components/FileDropControl.vue', import.meta.url),
+      'utf8'
+    ),
+    readFile(
+      new URL('../src/components/TextareaControl.vue', import.meta.url),
+      'utf8'
+    ),
     readFile(new URL('../src/i18n/locales/en-US.ts', import.meta.url), 'utf8'),
     readFile(new URL('../src/i18n/locales/zh-CN.ts', import.meta.url), 'utf8')
   ])
@@ -214,11 +251,42 @@ test('admin settings group HTTPS and remote entry points under Access', async ()
   assert.match(settingsView, /label: t\('settings\.tls'\)/)
   assert.match(settingsView, /<ConnectivitySettingsPanel/)
   assert.match(connectivityPanel, /<WebCertificateSettingsPanel/)
-  assert.match(connectivityPanel, /<ExternalAccessSettingsPanel mode="connectivity"/)
-  assert.match(certificatePanel, /t\('tls\.scopeNotice'\)/)
+  assert.match(connectivityPanel, /connectivity\.remoteAccess/)
+  assert.match(connectivityPanel, /mode="modules"/)
+  assert.match(
+    connectivityPanel,
+    /<ExternalAccessSettingsPanel mode="connectivity" :heading-level="4"/
+  )
+  assert.doesNotMatch(certificatePanel, /tls\.scopeNotice/)
+  assert.match(certificatePanel, /HTTPS :7577/)
+  assert.equal((certificatePanel.match(/<FileDropControl/g) || []).length, 2)
+  assert.doesNotMatch(certificatePanel, /<input[\s\S]*?type="file"/)
+  assert.match(fileDropControl, /@dragenter="handleDragEnter"/)
+  assert.match(fileDropControl, /@dragover="handleDragOver"/)
+  assert.match(fileDropControl, /@drop="handleDrop"/)
+  assert.match(fileDropControl, /type="file"/)
+  assert.equal((originTLSPanel.match(/<TextareaControl/g) || []).length, 2)
+  assert.doesNotMatch(originTLSPanel, /<textarea/)
+  assert.match(originTLSPanel, /<template v-if="status\.enabled">/)
+  assert.match(certificatePanel, /<CertificateFacts/)
+  assert.match(originTLSPanel, /<CertificateFacts/)
+  assert.match(certificateFacts, /<dl class="tls-facts">/)
+  assert.doesNotMatch(externalAccessPanel, /ios-origin-protocols/)
+  assert.doesNotMatch(originTLSPanel, /https:\/\/modemdeck:757[56]/)
+  assert.doesNotMatch(originTLSPanel, /originTLS\.tunnelSettings/)
+  assert.match(originTLSPanel, /cloudflare_origin_tls_activation_failed/)
+  assert.match(originTLSPanel, /<form v-else class="tls-install origin-install"/)
+  assert.match(originTLSPanel, /originTLS\.delete/)
+  assert.doesNotMatch(
+    originTLSPanel,
+    /t\(['"]originTLS\.(?:replace|replaceTitle|disable|disableTitle|disableMessage)['"]\)/
+  )
+  assert.match(textareaControl, /<textarea/)
   assert.match(certificatePanel, /gateway\.getTLSSettings\(\)/)
   assert.match(certificatePanel, /gateway\.updateTLSSettings\(/)
   assert.match(certificatePanel, /tlsCAPath/)
   assert.match(english, /tls: 'Access'/)
+  assert.match(english, /currentCertificate: 'Local Web certificate'/)
   assert.match(chinese, /tls: '接入'/)
+  assert.match(chinese, /currentCertificate: '本地 Web 证书'/)
 })

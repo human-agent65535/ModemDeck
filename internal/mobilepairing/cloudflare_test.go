@@ -141,6 +141,34 @@ func TestCloudflareGatewayDiscoversAndVerifiesAPIIngress(t *testing.T) {
 	}
 }
 
+func TestCloudflareGatewayDiscoversHTTPSOrigins(t *testing.T) {
+	t.Parallel()
+
+	management := newCloudflaredManagementServer(
+		t,
+		http.StatusServiceUnavailable,
+		[]cloudflaredTestIngress{
+			{
+				Hostname: "callsapi.example.com",
+				Service:  cloudflareAPIOriginTLS,
+			},
+			{
+				Hostname: "call.example.com",
+				Service:  cloudflareWebOriginTLS,
+			},
+		},
+	)
+	gateway, err := NewCloudflareGateway(management.URL + "/ready")
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := gateway.Refresh(context.Background())
+	if len(status.APIURLs) != 1 ||
+		len(status.WebURLs) != 1 {
+		t.Fatalf("status = %+v", status)
+	}
+}
+
 func TestCloudflareGatewayDoesNotTreatConnectorHealthAsPublicReachability(
 	t *testing.T,
 ) {

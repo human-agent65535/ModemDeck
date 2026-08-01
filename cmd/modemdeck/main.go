@@ -114,6 +114,18 @@ func run(
 	if err != nil {
 		return fmt.Errorf("open Web TLS certificate manager: %w", err)
 	}
+	cloudflareOriginTLS, err := tlsmanager.OpenCloudflareOrigin(
+		tlsmanager.CloudflareOriginConfig{Directory: tlsDirectory},
+	)
+	if err != nil {
+		return fmt.Errorf("open Cloudflare origin TLS certificate manager: %w", err)
+	}
+	cloudflareOriginActivator, err := newCloudflareOriginTLSActivator(
+		os.Getenv("MODEMDECK_CLOUDFLARE_ORIGIN_PROBE_URLS"),
+	)
+	if err != nil {
+		return fmt.Errorf("configure Cloudflare origin TLS activation: %w", err)
+	}
 	cloudflareGateway, err := mobilepairing.NewCloudflareGateway(
 		os.Getenv("MODEMDECK_CLOUDFLARE_READY_URL"),
 	)
@@ -291,16 +303,21 @@ func run(
 		Network:              networkRuntime,
 		TelegramSettings:     telegramSettings,
 		TLSSettings:          tlsSettingsService{manager: tlsCertificates},
-		MobilePairing:        cloudflareGateway,
-		RTCConfiguration:     turnProvider,
-		Authenticator:        authenticator,
-		SecureCookies:        secureCookies,
-		Logger:               logger.With("component", "http"),
-		DiagnosticLogs:       logBuffer,
-		MessageEvents:        messageEvents,
-		RuntimeEvents:        runtimeEvents,
-		UpdateChecker:        updatecheck.New(updatecheck.Options{CurrentVersion: version}),
-		ApplicationVersion:   version,
+		CloudflareOriginTLS: &cloudflareOriginTLSService{
+			manager:    cloudflareOriginTLS,
+			cloudflare: cloudflareGateway,
+			activate:   cloudflareOriginActivator,
+		},
+		MobilePairing:      cloudflareGateway,
+		RTCConfiguration:   turnProvider,
+		Authenticator:      authenticator,
+		SecureCookies:      secureCookies,
+		Logger:             logger.With("component", "http"),
+		DiagnosticLogs:     logBuffer,
+		MessageEvents:      messageEvents,
+		RuntimeEvents:      runtimeEvents,
+		UpdateChecker:      updatecheck.New(updatecheck.Options{CurrentVersion: version}),
+		ApplicationVersion: version,
 	})
 	if err != nil {
 		_ = recordings.Close(context.Background())

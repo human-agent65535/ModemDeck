@@ -27,8 +27,10 @@ const (
 	cloudflareProbeBytes          = 32
 	cloudflareConfigResponseBytes = 256 * 1024
 
-	cloudflareAPIOrigin = "http://modemdeck:7575"
-	cloudflareWebOrigin = "http://modemdeck:7576"
+	cloudflareAPIOrigin    = "http://modemdeck:7575"
+	cloudflareAPIOriginTLS = "https://modemdeck:7575"
+	cloudflareWebOrigin    = "http://modemdeck:7576"
+	cloudflareWebOriginTLS = "https://modemdeck:7576"
 
 	CloudflareProbePath            = "/api/v1/mobile/tunnel/verify"
 	CloudflareProbeChallengeHeader = "X-ModemDeck-Tunnel-Challenge"
@@ -75,7 +77,9 @@ type CloudflareGateway struct {
 	readyURL           string
 	configURL          string
 	apiOrigin          string
+	apiOriginTLS       string
 	webOrigin          string
+	webOriginTLS       string
 	probeKey           []byte
 	client             *http.Client
 	healthyRefresh     time.Duration
@@ -117,6 +121,20 @@ func NewCloudflareGateway(readyURL string) (*CloudflareGateway, error) {
 			ErrInvalidCloudflareConfiguration,
 		)
 	}
+	normalizedAPIOriginTLS, err := normalizeOriginURL(cloudflareAPIOriginTLS)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"%w: invalid built-in HTTPS API origin",
+			ErrInvalidCloudflareConfiguration,
+		)
+	}
+	normalizedWebOriginTLS, err := normalizeOriginURL(cloudflareWebOriginTLS)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"%w: invalid built-in HTTPS Web origin",
+			ErrInvalidCloudflareConfiguration,
+		)
+	}
 	probeKey := make([]byte, cloudflareProbeBytes)
 	if _, err := io.ReadFull(rand.Reader, probeKey); err != nil {
 		return nil, fmt.Errorf("generate Cloudflare route probe key: %w", err)
@@ -125,11 +143,13 @@ func NewCloudflareGateway(readyURL string) (*CloudflareGateway, error) {
 		status: CloudflareStatus{
 			Enabled: true,
 		},
-		readyURL:  normalizedReadyURL,
-		configURL: config.String(),
-		apiOrigin: normalizedAPIOrigin,
-		webOrigin: normalizedWebOrigin,
-		probeKey:  probeKey,
+		readyURL:     normalizedReadyURL,
+		configURL:    config.String(),
+		apiOrigin:    normalizedAPIOrigin,
+		apiOriginTLS: normalizedAPIOriginTLS,
+		webOrigin:    normalizedWebOrigin,
+		webOriginTLS: normalizedWebOriginTLS,
+		probeKey:     probeKey,
 		client: &http.Client{
 			Timeout: cloudflareRequestTimeout,
 			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
@@ -433,15 +453,19 @@ func (gateway *CloudflareGateway) discoverRoutes(
 			continue
 		}
 		origin, err := normalizeOriginURL(ingress.Service)
-		if err != nil ||
-			(origin != gateway.apiOrigin && origin != gateway.webOrigin) {
+		if err != nil {
+			continue
+		}
+		isAPI := origin == gateway.apiOrigin || origin == gateway.apiOriginTLS
+		isWeb := origin == gateway.webOrigin || origin == gateway.webOriginTLS
+		if !isAPI && !isWeb {
 			continue
 		}
 		publicURL, err := publicURLFromHostname(ingress.Hostname)
 		if err != nil {
 			continue
 		}
-		if origin == gateway.apiOrigin {
+		if isAPI {
 			apiCandidates[publicURL] = struct{}{}
 		} else {
 			webCandidates[publicURL] = struct{}{}

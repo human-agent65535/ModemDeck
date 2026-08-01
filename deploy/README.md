@@ -51,9 +51,11 @@ by host software.
 
 The base stack has three services:
 
-- `modemdeck` runs Nginx with three isolated listeners. Compose-only HTTP
-  `7575` proxies `/api/*` and returns 404 for every other path. Compose-only
-  HTTP `7576` serves the Web UI and same-origin API to Cloudflare Tunnel.
+- `modemdeck` runs Nginx with three isolated listeners. Compose-only `7575`
+  proxies `/api/*` and returns 404 for every other path. Compose-only `7576`
+  serves the Web UI and same-origin API to Cloudflare Tunnel. They use HTTP by
+  default and switch together to verified HTTPS with HTTP/2 only while a
+  Cloudflare Origin CA certificate is installed.
   HTTPS `7577` serves the local Web UI and is the only listener published to
   the host. It accepts HTTP/1.1 and HTTP/2 over TCP plus HTTP/3 over UDP, and
   advertises the host port selected by `--port`. Plain HTTP sent over TCP to
@@ -82,6 +84,19 @@ persistent TLS directory. The Nginx container mounts that directory read-only,
 detects source changes, and reloads the selected certificate without a
 container restart. Cloudflare edge certificates are outside this setting.
 
+The administrator-facing **Cloudflare Origin TLS** setting is separate. With
+no saved certificate, `7575` and `7576` remain the existing private HTTP
+origins. Saving a current Cloudflare Origin CA PEM certificate and matching
+private key switches both listeners to HTTPS with HTTP/2. The API returns
+success only after both listeners present that exact certificate over HTTP/2;
+if activation fails, it removes the bundle and returns an error. Removing an
+active bundle switches both listeners back to HTTP. The certificate
+must cover every currently discovered API and Web Tunnel hostname. Invalid,
+expired, mismatched, or non-Cloudflare material is rejected before it changes
+the active listeners. An installed certificate that later expires remains
+selected and is reported as expired rather than silently changing the origin
+protocol. This setting never changes listener `7577`.
+
 `--bind-address` and `--port` control only the host-published local HTTPS Web
 UI, which binds to host loopback by default. They do not change Cloudflare
 origins or appear in an iOS QR payload. To use HTTP/3 outside the host, allow
@@ -90,10 +105,9 @@ does not modify firewall policy.
 
 ## Cloudflare Tunnel and Realtime TURN
 
-Cloudflare Tunnel and Realtime TURN are installer options, not editable
-application settings. Create a remotely-managed Tunnel and configure its
-public hostnames as needed. The available origins are the API-only
-`http://modemdeck:7575` listener and the Web
+Cloudflare Tunnel and Realtime TURN are installer options. Create a
+remotely-managed Tunnel and configure its public hostnames as needed. The
+default origins are the API-only `http://modemdeck:7575` listener and the Web
 `http://modemdeck:7576` listener. The connector requires only a Tunnel token:
 
 ```sh
@@ -115,20 +129,23 @@ The installer enables `docker-compose.cloudflare.yml` and, when TURN is
 configured, `docker-compose.cloudflare-turn.yml`. Credentials are copied into
 restricted file secrets. Both Tunnel origins are reachable from the connector;
 the user decides which ingress rules Cloudflare publishes. The Go API
-discovers every pathless ingress whose service is `http://modemdeck:7575` and
-verifies each public route. Pairing uses one verified address selected by the
-user. Tunnel changes are scanned at startup and while running without
+discovers every pathless ingress for the HTTP or HTTPS forms of the built-in
+`7575` and `7576` origins and verifies each public API route. Pairing uses one
+verified address selected by the user. Tunnel changes are scanned at startup and while running without
 reinstalling; administrators can also rescan manually. With the connector
 disabled or no verified API route, users may revoke an existing credential but
 cannot create one.
 
 Cloudflare's edge protocol and the connector-to-origin protocol are separate.
 The remotely managed connector token can read its assigned routes but cannot
-rewrite them. Cloudflare therefore keeps using HTTP/1.1 for these private HTTP
-origins unless an administrator replaces them with HTTPS origins and explicitly
-enables `http2Origin` using a separate Tunnel configuration credential. The
-installer does not request that broader Cloudflare permission or disable origin
-certificate verification merely to change the internal hop's HTTP version.
+rewrite them. After uploading an Origin CA certificate, the administrator must
+change the two published application services to
+`https://modemdeck:7575` and `https://modemdeck:7576`, enable `http2Origin`
+and `matchSNItoHost`, and keep `noTLSVerify` disabled. The External Access page
+keeps connector reachability in the Tunnel card and certificate state in the
+Origin TLS card. Reverse those Tunnel changes before removing the certificate.
+The installer and Web application do not request a broader Tunnel-edit API
+credential.
 
 Paired clients receive short-lived relay-only ICE configurations, while the
 long-lived TURN API token remains available only to the API container.

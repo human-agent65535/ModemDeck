@@ -85,7 +85,7 @@ EXPOSE 7575 7576 7577/tcp 7577/udp
 STOPSIGNAL SIGQUIT
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD wget -q -T 3 -O /dev/null http://127.0.0.1:7575/api/v1/health/live || exit 1
+    CMD wget -q -T 3 --no-check-certificate -O /dev/null https://127.0.0.1:7577/api/v1/health/live || exit 1
 
 ENTRYPOINT ["/usr/local/bin/modemdeck-web-entrypoint"]
 CMD ["-g", "daemon off;"]

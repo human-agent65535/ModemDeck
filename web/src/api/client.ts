@@ -36,6 +36,7 @@ import {
   createProxyUpdatePayload,
   createRecordingSettingsPayload,
   createTelegramUnitPayload,
+  createCloudflareOriginTLSPayload,
   createTLSSettingsPayload,
   externalAccessContract,
   parseActiveCallSnapshotResponse,
@@ -46,6 +47,7 @@ import {
   parseCallRecordingsResponse,
   parseCallResponse,
   parseDeviceConfigurationResponse,
+  parseCloudflareOriginTLSResponse,
   parseExternalAccessStatusResponse,
   parseGlobalCallSettings,
   parseLineSettingsResponse,
@@ -122,10 +124,12 @@ import type {
   DiagnosticLogStreamHandlers,
   DiagnosticStatus,
   DiagnosticsSnapshot,
+  CloudflareOriginTLSStatus,
   GlobalCallSettings,
   IncomingMessageEvent,
   LineLabelResult,
   IOSPairingResult,
+  InstallCloudflareOriginTLSInput,
   LoginInput,
   Message,
   MessageEventDelivery,
@@ -1087,6 +1091,27 @@ const realGateway: ConfiguredModemDeckGateway = {
         {},
         contract.successStatus
       )
+    )
+  },
+
+  async installCloudflareOriginTLS(
+    input: InstallCloudflareOriginTLSInput
+  ): Promise<CloudflareOriginTLSStatus> {
+    const contract = externalAccessContract.installOriginTLS
+    return parseCloudflareOriginTLSResponse(
+      await writeJSON(
+        contract.path,
+        contract.method,
+        createCloudflareOriginTLSPayload(input),
+        contract.successStatus
+      )
+    )
+  },
+
+  async disableCloudflareOriginTLS(): Promise<CloudflareOriginTLSStatus> {
+    const contract = externalAccessContract.disableOriginTLS
+    return parseCloudflareOriginTLSResponse(
+      await writeJSON(contract.path, contract.method, {}, contract.successStatus)
     )
   },
 

@@ -2,6 +2,7 @@ services:
   api:
     environment:
       MODEMDECK_CLOUDFLARE_READY_URL: http://cloudflared:2000/ready
+      MODEMDECK_CLOUDFLARE_ORIGIN_PROBE_URLS: https://modemdeck:7575/api/v1/health/live,https://modemdeck:7576/api/v1/health/live
 
   cloudflared:
     image: cloudflare/cloudflared:${MODEMDECK_CLOUDFLARED_VERSION:-2026.7.3}@${MODEMDECK_CLOUDFLARED_DIGEST:-sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf}

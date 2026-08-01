@@ -17,12 +17,14 @@ import type { TLSSettings } from '../api/types'
 import { ApiError } from '../api/types'
 import { requestConfirmation } from '../state/confirmation'
 import { showError, showSuccess } from '../state/feedback'
+import FileDropControl from './FileDropControl.vue'
+import CertificateFacts from './CertificateFacts.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 
 const MAX_PEM_BYTES = 1024 * 1024
 const PEM_ACCEPT =
   '.pem,.crt,.cer,.key,application/x-pem-file,application/pem-certificate-chain,text/plain'
-const { t, locale } = useI18n()
+const { t } = useI18n()
 
 const settings = ref<TLSSettings | null>(null)
 const loading = ref(true)
@@ -34,8 +36,6 @@ const certificateFile = ref<File | null>(null)
 const privateKeyFile = ref<File | null>(null)
 const certificateError = ref('')
 const privateKeyError = ref('')
-const certificateInput = ref<HTMLInputElement | null>(null)
-const privateKeyInput = ref<HTMLInputElement | null>(null)
 
 const modeLabel = computed(() =>
   settings.value?.mode === 'automatic'
@@ -47,16 +47,6 @@ const renewalLabel = computed(() =>
     ? t('tls.automaticRenewal')
     : t('tls.noAutomaticRenewal')
 )
-
-function formatTimestamp(value: string): string {
-  return new Intl.DateTimeFormat(locale.value, {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(new Date(value))
-}
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -82,10 +72,8 @@ async function loadTLSSettings(): Promise<void> {
   }
 }
 
-function handleFileSelection(kind: 'certificate' | 'private-key', event: Event): void {
-  const input = event.currentTarget as HTMLInputElement
-  const file = input.files?.[0] || null
-  const tooLarge = Boolean(file && file.size > MAX_PEM_BYTES)
+function handleFileSelection(kind: 'certificate' | 'private-key', file: File): void {
+  const tooLarge = file.size > MAX_PEM_BYTES
 
   operationError.value = ''
   if (kind === 'certificate') {
@@ -95,7 +83,6 @@ function handleFileSelection(kind: 'certificate' | 'private-key', event: Event):
     privateKeyFile.value = tooLarge ? null : file
     privateKeyError.value = tooLarge ? t('tls.privateKeyTooLarge') : ''
   }
-  if (tooLarge) input.value = ''
 }
 
 async function readPEM(file: File, kind: 'certificate' | 'private-key'): Promise<string> {
@@ -137,8 +124,6 @@ function clearSelectedFiles(): void {
   privateKeyFile.value = null
   certificateError.value = ''
   privateKeyError.value = ''
-  if (certificateInput.value) certificateInput.value.value = ''
-  if (privateKeyInput.value) privateKeyInput.value.value = ''
 }
 
 async function installUserCertificate(): Promise<void> {
@@ -218,13 +203,11 @@ onMounted(() => {
       @retry="loadTLSSettings"
     >
     <template v-if="settings">
-      <p class="tls-scope-notice">{{ t('tls.scopeNotice') }}</p>
-
       <header class="tls-summary">
         <span class="tls-summary__icon"><ShieldCheck :size="21" /></span>
         <div class="tls-summary__heading">
           <h3 id="tls-settings-title">{{ t('tls.currentCertificate') }}</h3>
-          <p>{{ modeLabel }} · {{ renewalLabel }}</p>
+          <p>HTTPS :7577 · {{ modeLabel }} · {{ renewalLabel }}</p>
         </div>
         <div class="tls-summary__status" :aria-label="t('tls.certificateStatus')">
           <span class="status-label" :class="{ 'status-label--danger': settings.expired }">
@@ -243,36 +226,15 @@ onMounted(() => {
         <span>{{ t('tls.expiredWarning') }}</span>
       </p>
 
-      <dl class="tls-facts">
-        <div>
-          <dt>{{ t('tls.validFrom') }}</dt>
-          <dd>{{ formatTimestamp(settings.not_before) }}</dd>
-        </div>
-        <div>
-          <dt>{{ t('tls.expiresAt') }}</dt>
-          <dd>{{ formatTimestamp(settings.not_after) }}</dd>
-        </div>
-        <div class="tls-facts__wide">
-          <dt>{{ t('tls.subject') }}</dt>
-          <dd>{{ settings.subject || t('tls.notProvided') }}</dd>
-        </div>
-        <div class="tls-facts__wide">
-          <dt>{{ t('tls.issuer') }}</dt>
-          <dd>{{ settings.issuer || t('tls.notProvided') }}</dd>
-        </div>
-        <div class="tls-facts__wide">
-          <dt>DNS SAN</dt>
-          <dd>{{ settings.dns_names.join(t('common.listSeparator')) || t('common.none') }}</dd>
-        </div>
-        <div class="tls-facts__wide">
-          <dt>IP SAN</dt>
-          <dd>{{ settings.ip_addresses.join(t('common.listSeparator')) || t('common.none') }}</dd>
-        </div>
-        <div class="tls-facts__wide">
-          <dt>{{ t('tls.fingerprint') }}</dt>
-          <dd><code>{{ settings.fingerprint_sha256 }}</code></dd>
-        </div>
-      </dl>
+      <CertificateFacts
+        :not-before="settings.not_before"
+        :not-after="settings.not_after"
+        :subject="settings.subject"
+        :issuer="settings.issuer"
+        :dns-names="settings.dns_names"
+        :ip-addresses="settings.ip_addresses"
+        :fingerprint="settings.fingerprint_sha256"
+      />
 
       <div v-if="settings.mode === 'automatic'" class="tls-ca-download">
         <a class="secondary-button" :href="tlsCAPath">
@@ -284,7 +246,9 @@ onMounted(() => {
       <section class="tls-install" aria-labelledby="tls-install-title">
         <header>
           <div>
-            <h3 id="tls-install-title">{{ t('tls.installUser') }}</h3>
+            <h3 id="tls-install-title" class="tls-install__title">
+              {{ t('tls.installUser') }}
+            </h3>
             <p>{{ t('tls.pemHint') }}</p>
           </div>
           <button
@@ -301,83 +265,43 @@ onMounted(() => {
 
         <form @submit.prevent="installUserCertificate">
           <div class="tls-file-grid">
-            <div class="tls-file-field" :class="{ 'has-error': certificateError }">
-              <span class="tls-file-field__label">{{ t('tls.certificatePEM') }}</span>
-              <label
-                class="tls-file-picker"
-                :class="{ 'is-disabled': saving }"
-                for="tls-certificate-file"
-              >
+            <FileDropControl
+              :file="certificateFile"
+              :label="t('tls.certificatePEM')"
+              :prompt="t('tls.chooseCertificate')"
+              :description="
+                certificateFile
+                  ? formatFileSize(certificateFile.size)
+                  : t('tls.certificateChain')
+              "
+              :accept="PEM_ACCEPT"
+              :disabled="saving"
+              :error="certificateError"
+              @select="handleFileSelection('certificate', $event)"
+            >
+              <template #icon>
                 <FileText :size="18" />
-                <span>
-                  <strong>{{ certificateFile?.name || t('tls.chooseCertificate') }}</strong>
-                  <small>
-                    {{
-                      certificateFile
-                        ? formatFileSize(certificateFile.size)
-                        : t('tls.certificateChain')
-                    }}
-                  </small>
-                </span>
-              </label>
-              <input
-                id="tls-certificate-file"
-                ref="certificateInput"
-                class="sr-only"
-                type="file"
-                :accept="PEM_ACCEPT"
-                :disabled="saving"
-                :aria-describedby="certificateError ? 'tls-certificate-error' : undefined"
-                @change="handleFileSelection('certificate', $event)"
-              />
-              <p
-                v-if="certificateError"
-                id="tls-certificate-error"
-                class="field-error"
-                role="alert"
-              >
-                {{ certificateError }}
-              </p>
-            </div>
+              </template>
+            </FileDropControl>
 
-            <div class="tls-file-field" :class="{ 'has-error': privateKeyError }">
-              <span class="tls-file-field__label">{{ t('tls.privateKeyPEM') }}</span>
-              <label
-                class="tls-file-picker"
-                :class="{ 'is-disabled': saving }"
-                for="tls-private-key-file"
-              >
+            <FileDropControl
+              :file="privateKeyFile"
+              :label="t('tls.privateKeyPEM')"
+              :prompt="t('tls.choosePrivateKey')"
+              :description="
+                privateKeyFile
+                  ? formatFileSize(privateKeyFile.size)
+                  : t('tls.matchingPrivateKey')
+              "
+              :accept="PEM_ACCEPT"
+              :disabled="saving"
+              :error="privateKeyError"
+              @select="handleFileSelection('private-key', $event)"
+            >
+              <template #icon>
                 <KeyRound :size="18" />
-                <span>
-                  <strong>{{ privateKeyFile?.name || t('tls.choosePrivateKey') }}</strong>
-                  <small>
-                    {{
-                      privateKeyFile
-                        ? formatFileSize(privateKeyFile.size)
-                        : t('tls.matchingPrivateKey')
-                    }}
-                  </small>
-                </span>
-              </label>
-              <input
-                id="tls-private-key-file"
-                ref="privateKeyInput"
-                class="sr-only"
-                type="file"
-                :accept="PEM_ACCEPT"
-                :disabled="saving"
-                :aria-describedby="privateKeyError ? 'tls-private-key-error' : undefined"
-                @change="handleFileSelection('private-key', $event)"
-              />
-              <p
-                v-if="privateKeyError"
-                id="tls-private-key-error"
-                class="field-error"
-                role="alert"
-              >
-                {{ privateKeyError }}
-              </p>
-            </div>
+              </template>
+            </FileDropControl>
           </div>
 
           <footer class="tls-install__actions">
@@ -386,7 +310,11 @@ onMounted(() => {
                 {{ operationError }}
               </p>
             </div>
-            <button class="primary-button" type="submit" :disabled="saving">
+            <button
+              class="primary-button"
+              type="submit"
+              :disabled="saving || !certificateFile || !privateKeyFile"
+            >
               <LoaderCircle v-if="saving" class="spin" :size="17" />
               <Upload v-else :size="17" />
               <span>{{ t('tls.install') }}</span>

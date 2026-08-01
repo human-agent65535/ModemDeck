@@ -333,6 +333,7 @@ func adminOnlyAPIPath(path, method string) bool {
 	if path == "/api/v1/about" ||
 		path == "/api/v1/external-access/status" ||
 		path == "/api/v1/external-access/refresh" ||
+		path == "/api/v1/external-access/origin-tls" ||
 		path == "/api/v1/updates/check" {
 		return true
 	}

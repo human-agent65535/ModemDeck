@@ -27,6 +27,7 @@ import type {
   DiagnosticLogQuery,
   DiagnosticLogStreamHandlers,
   DiagnosticsSnapshot,
+  CloudflareOriginTLSStatus,
   ExternalAccessStatus,
   GlobalCallSettings,
   LineLabelResult,
@@ -60,6 +61,7 @@ import type {
   TelegramUnit,
   TelegramUnitInput,
   IOSPairingResult,
+  InstallCloudflareOriginTLSInput,
   TLSSettings,
   UpdateCheck,
   UpdateDeviceConfigurationInput,
@@ -180,6 +182,10 @@ export interface ModemDeckGateway {
   updateSystemSettings(input: UpdateSystemSettingsInput): Promise<SystemSettings>
   getExternalAccessStatus(): Promise<ExternalAccessStatus>
   refreshExternalAccess(): Promise<ExternalAccessStatus>
+  installCloudflareOriginTLS(
+    input: InstallCloudflareOriginTLSInput
+  ): Promise<CloudflareOriginTLSStatus>
+  disableCloudflareOriginTLS(): Promise<CloudflareOriginTLSStatus>
   getIOSPairing(): Promise<IOSPairingResult>
   createIOSPairing(serverURL?: string): Promise<IOSPairingResult>
   revokeIOSPairing(): Promise<void>

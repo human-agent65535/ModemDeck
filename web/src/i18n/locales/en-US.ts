@@ -432,8 +432,6 @@ export default {
     refresh: 'Rescan routes',
     refreshed: 'External access status refreshed',
     refreshFailed: 'Unable to refresh external access',
-    routeVerified: 'Verified',
-    routeUnverified: 'Not verified',
     notInstalled: 'Not installed',
     connected: 'Connected',
     disconnected: 'Disconnected',
@@ -967,9 +965,12 @@ export default {
     saved: 'Saved',
     saveBot: 'Save bot'
   },
+  connectivity: {
+    remoteAccess: 'Remote access',
+    remoteAccessDescription:
+      'Cloudflare Tunnel routes, origin HTTPS, and TURN availability for remote Web and iOS access.'
+  },
   tls: {
-    scopeNotice:
-      'This certificate is used only by the local Web interface on port 7577. Cloudflare and iOS certificates are managed separately.',
     automaticCertificate: 'Automatic certificate',
     userCertificate: 'User certificate',
     automaticRenewal: 'Renews automatically',
@@ -993,7 +994,7 @@ export default {
     useAutomatic: 'Use automatic certificate',
     switchFailed: 'Unable to switch to the automatic certificate',
     loading: 'Loading HTTPS certificate',
-    currentCertificate: 'Current certificate',
+    currentCertificate: 'Local Web certificate',
     certificateStatus: 'Certificate status',
     expired: 'Expired',
     valid: 'Valid',
@@ -1008,12 +1009,37 @@ export default {
     installUser: 'Install user certificate',
     pemHint: 'Certificate and private key must be PEM text files, up to 1 MiB each.',
     certificatePEM: 'Certificate PEM',
-    chooseCertificate: 'Choose certificate file',
+    chooseCertificate: 'Drop certificate here or click to browse',
     certificateChain: 'Certificate or certificate chain',
     privateKeyPEM: 'Private key PEM',
-    choosePrivateKey: 'Choose private key file',
+    choosePrivateKey: 'Drop private key here or click to browse',
     matchingPrivateKey: 'Private key matching the certificate',
     install: 'Install certificate'
+  },
+  originTLS: {
+    title: 'Cloudflare Origin TLS',
+    description:
+      'Secures Cloudflare Tunnel connections to origin ports 7575 and 7576 with verified HTTPS and HTTP/2.',
+    disabled: 'Not enabled',
+    expired: 'Certificate expired',
+    hostnameMismatch: 'Hostname not covered',
+    forbidden: 'Your account cannot modify Cloudflare origin TLS',
+    invalidCertificate:
+      'Use a current matching Cloudflare Origin CA certificate and private key covering every configured public hostname.',
+    activationFailed:
+      'Origin HTTPS and HTTP/2 could not start. The certificate was not saved.',
+    alreadyEnabled:
+      'Delete the installed Cloudflare Origin CA certificate before installing another one.',
+    saveFailed: 'Unable to update Cloudflare origin TLS',
+    saved: 'Cloudflare origin TLS settings were saved.',
+    installTitle: 'Enable Origin TLS',
+    pasteHint:
+      'Paste the Origin Certificate and Private Key shown by Cloudflare. Enabling switches ports 7575 and 7576 to HTTPS; update both Tunnel routes in the same maintenance window.',
+    delete: 'Delete certificate',
+    deleteTitle: 'Delete Cloudflare Origin CA certificate?',
+    deleteMessage:
+      'First restore both Tunnel services to http://modemdeck:7575 and http://modemdeck:7576 with HTTP/2 disabled. Deleting the certificate then returns origin ports 7575 and 7576 to HTTP.',
+    enable: 'Enable Origin TLS'
   },
   diagnostics: {
     statusOK: 'Healthy',

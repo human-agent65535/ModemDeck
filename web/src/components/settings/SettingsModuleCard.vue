@@ -1,5 +1,7 @@
 <script setup lang="ts">
-withDefaults(
+import { computed } from 'vue'
+
+const props = withDefaults(
   defineProps<{
     title: string
     titleId: string
@@ -7,14 +9,18 @@ withDefaults(
     iconTone?: 'accent' | 'blue' | 'brand' | 'danger' | 'warning' | 'neutral'
     surface?: 'default' | 'subtle'
     hasBody?: boolean
+    headingLevel?: 3 | 4
   }>(),
   {
     description: '',
     iconTone: 'accent',
     surface: 'default',
-    hasBody: true
+    hasBody: true,
+    headingLevel: 3
   }
 )
+
+const headingTag = computed(() => `h${props.headingLevel}`)
 </script>
 
 <template>
@@ -33,7 +39,13 @@ withDefaults(
         <slot name="icon" />
       </span>
       <div class="settings-module-card__copy">
-        <h3 :id="titleId">{{ title }}</h3>
+        <component
+          :is="headingTag"
+          :id="titleId"
+          class="settings-module-card__title"
+        >
+          {{ title }}
+        </component>
         <p v-if="description">{{ description }}</p>
       </div>
       <slot name="status" />
@@ -107,7 +119,7 @@ withDefaults(
   flex: 1;
 }
 
-.settings-module-card__copy h3 {
+.settings-module-card__title {
   margin: 0;
   color: var(--text);
   font-size: 15px;

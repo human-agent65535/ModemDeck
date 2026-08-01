@@ -222,10 +222,12 @@ grep -Fq 'read_only: true' "${test_root}/web.yml" ||
 grep -Fq -- '- ALL' "${test_root}/web.yml" ||
     fail "Web gateway does not drop every capability"
 
-grep -Fq 'listen 7575 default_server;' "${repo_dir}/web/nginx.conf" ||
-    fail "Nginx does not listen on API-only port 7575"
-grep -Fq 'listen 7576 default_server;' "${repo_dir}/web/nginx.conf" ||
-    fail "Nginx does not listen on Cloudflare Web port 7576"
+grep -Fq 'include /tmp/modemdeck-origin-7575.conf;' \
+    "${repo_dir}/web/nginx.conf" ||
+    fail "Nginx does not load the conditional API origin listener"
+grep -Fq 'include /tmp/modemdeck-origin-7576.conf;' \
+    "${repo_dir}/web/nginx.conf" ||
+    fail "Nginx does not load the conditional Web origin listener"
 grep -Fq 'listen 7577 ssl default_server;' "${repo_dir}/web/nginx.conf" ||
     fail "Nginx does not listen on HTTPS Web port 7577"
 grep -Fq 'listen 7577 quic reuseport;' "${repo_dir}/web/nginx.conf" ||
@@ -282,6 +284,20 @@ grep -Fq 'MODEMDECK_WEB_HTTPS_PORT' "${repo_dir}/scripts/nginx-entrypoint.sh" ||
     fail "Nginx entrypoint does not use the published HTTP/3 port"
 grep -Fq 'h3=":%s"; ma=86400' "${repo_dir}/scripts/nginx-entrypoint.sh" ||
     fail "Nginx entrypoint does not generate the HTTP/3 Alt-Svc header"
+grep -Fq 'cloudflare-origin.pem' "${repo_dir}/scripts/nginx-entrypoint.sh" ||
+    fail "Nginx entrypoint does not observe the optional Origin CA bundle"
+grep -Fq "'listen %s default_server;" "${repo_dir}/scripts/nginx-entrypoint.sh" ||
+    fail "Nginx entrypoint cannot keep disabled origins on HTTP"
+grep -Fq "'listen %s ssl default_server;" "${repo_dir}/scripts/nginx-entrypoint.sh" ||
+    fail "Nginx entrypoint cannot enable HTTPS origins"
+grep -Fq "'http2 on;'" "${repo_dir}/scripts/nginx-entrypoint.sh" ||
+    fail "Nginx entrypoint does not enable HTTP/2 with Origin TLS"
+grep -Fq 'https://127.0.0.1:7577/api/v1/health/live' \
+    "${test_root}/web.yml" ||
+    fail "Web health does not use the invariant local HTTPS listener"
+grep -Fq 'https://127.0.0.1:7577/api/v1/health/live' \
+    "${repo_dir}/Dockerfile" ||
+    fail "Web image health does not use the invariant local HTTPS listener"
 
 if grep -Fq 'MODEMDECK_CLOUDFLARE_PUBLIC_URL' \
     "${test_root}/cloudflare-app.yml"
@@ -291,6 +307,9 @@ fi
 grep -Fq 'MODEMDECK_CLOUDFLARE_READY_URL: http://cloudflared:2000/ready' \
     "${test_root}/cloudflare-app.yml" ||
     fail "Cloudflare readiness URL does not reach the application"
+grep -Fq 'MODEMDECK_CLOUDFLARE_ORIGIN_PROBE_URLS: https://modemdeck:7575/api/v1/health/live,https://modemdeck:7576/api/v1/health/live' \
+    "${test_root}/cloudflare-app.yml" ||
+    fail "Cloudflare origin TLS activation does not verify both HTTP/2 listeners"
 if grep -Fq 'MODEMDECK_CLOUDFLARE_TURN_' \
     "${test_root}/cloudflare-app.yml"
 then

@@ -66,6 +66,16 @@ test('pairing exposes only verified selectable API addresses', () => {
       method: 'POST',
       path: '/api/v1/external-access/refresh',
       successStatus: 200
+    },
+    installOriginTLS: {
+      method: 'PUT',
+      path: '/api/v1/external-access/origin-tls',
+      successStatus: 200
+    },
+    disableOriginTLS: {
+      method: 'DELETE',
+      path: '/api/v1/external-access/origin-tls',
+      successStatus: 200
     }
   })
   const external = parseExternalAccessStatusResponse({
@@ -81,6 +91,17 @@ test('pairing exposes only verified selectable API addresses', () => {
     turn: {
       configured: true,
       available: true
+    },
+    origin_tls: {
+      enabled: false,
+      covers_routes: false,
+      subject: '',
+      issuer: '',
+      dns_names: [],
+      not_before: '',
+      not_after: '',
+      fingerprint_sha256: '',
+      expired: false
     }
   })
   assert.equal(external.cloudflare.public_url, 'https://phone.example.com')
@@ -221,6 +242,7 @@ test('settings separate administrator infrastructure from self-service pairing',
   assert.match(externalAccessPanel, /showConnectivity && externalAccess/)
   assert.match(externalAccessPanel, /externalAccess\.cloudflare\.api_urls/)
   assert.match(externalAccessPanel, /externalAccess\.cloudflare\.web_urls/)
+  assert.doesNotMatch(externalAccessPanel, /verified_api_urls|ios-route/)
   assert.match(
     externalAccessPanel,
     /'is-active': externalAccess\.cloudflare\.connected/

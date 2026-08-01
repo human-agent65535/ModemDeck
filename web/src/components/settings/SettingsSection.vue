@@ -5,16 +5,22 @@ withDefaults(
     titleId: string
     description?: string
     iconTone?: 'accent' | 'blue' | 'danger' | 'warning' | 'neutral'
+    mode?: 'preferences' | 'modules'
   }>(),
   {
     description: '',
-    iconTone: 'accent'
+    iconTone: 'accent',
+    mode: 'preferences'
   }
 )
 </script>
 
 <template>
-  <section class="settings-section" :aria-labelledby="titleId">
+  <section
+    class="settings-section"
+    :class="`settings-section--${mode}`"
+    :aria-labelledby="titleId"
+  >
     <header class="settings-section__header">
       <span
         v-if="$slots.icon"
@@ -41,6 +47,10 @@ withDefaults(
   width: 100%;
   max-width: var(--settings-preference-content-max);
   min-width: 0;
+}
+
+.settings-section--modules {
+  max-width: none;
 }
 
 .settings-section__header {

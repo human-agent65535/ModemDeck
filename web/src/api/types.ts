@@ -172,6 +172,18 @@ export type CloudflareTunnelStatus = {
   web_urls: string[]
 }
 
+export type CloudflareOriginTLSStatus = {
+  enabled: boolean
+  covers_routes: boolean
+  subject: string
+  issuer: string
+  dns_names: string[]
+  not_before: string
+  not_after: string
+  fingerprint_sha256: string
+  expired: boolean
+}
+
 export type TURNAvailabilityStatus = {
   configured: boolean
   available: boolean
@@ -197,6 +209,12 @@ export type IOSPairingStatus = {
 export type ExternalAccessStatus = {
   cloudflare: CloudflareTunnelStatus
   turn: TURNAvailabilityStatus
+  origin_tls: CloudflareOriginTLSStatus
+}
+
+export type InstallCloudflareOriginTLSInput = {
+  certificate_pem: string
+  private_key_pem: string
 }
 
 export type IOSPairingPayload = {

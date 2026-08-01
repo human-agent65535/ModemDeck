@@ -421,8 +421,6 @@ export default {
     "refresh": "Quét lại tuyến",
     "refreshed": "Đã cập nhật trạng thái truy cập bên ngoài",
     "refreshFailed": "Không thể cập nhật truy cập bên ngoài",
-    "routeVerified": "Đã xác minh",
-    "routeUnverified": "Chưa xác minh",
     "notInstalled": "Chưa cài đặt",
     "connected": "Đã kết nối",
     "disconnected": "Chưa kết nối",
@@ -937,8 +935,11 @@ export default {
     "saved": "Đã lưu",
     "saveBot": "Lưu bot"
   },
+  "connectivity": {
+    "remoteAccess": "Truy cập từ xa",
+    "remoteAccessDescription": "Các tuyến Cloudflare Tunnel, HTTPS origin và khả năng sẵn sàng của TURN cho truy cập Web và iOS từ xa."
+  },
   "tls": {
-    "scopeNotice": "Chứng chỉ này chỉ dùng cho giao diện Web cục bộ trên cổng 7577. Chứng chỉ Cloudflare và iOS được quản lý riêng.",
     "automaticCertificate": "Chứng chỉ tự động",
     "userCertificate": "Chứng chỉ người dùng",
     "automaticRenewal": "Tự động gia hạn",
@@ -962,7 +963,7 @@ export default {
     "useAutomatic": "Sử dụng chứng chỉ tự động",
     "switchFailed": "Không thể chuyển sang chứng chỉ tự động",
     "loading": "Đang tải chứng chỉ HTTPS",
-    "currentCertificate": "Chứng chỉ hiện tại",
+    "currentCertificate": "Chứng chỉ Web cục bộ",
     "certificateStatus": "Trạng thái chứng chỉ",
     "expired": "Đã hết hạn",
     "valid": "hợp lệ",
@@ -977,12 +978,31 @@ export default {
     "installUser": "Cài đặt chứng chỉ người dùng",
     "pemHint": "Chứng chỉ và khóa riêng phải là tệp văn bản PEM, mỗi tệp tối đa 1 MiB.",
     "certificatePEM": "Chứng chỉ PEM",
-    "chooseCertificate": "Chọn tệp chứng chỉ",
+    "chooseCertificate": "Thả chứng chỉ vào đây hoặc nhấp để chọn",
     "certificateChain": "Chứng chỉ hoặc chuỗi chứng chỉ",
     "privateKeyPEM": "PEM khóa riêng",
-    "choosePrivateKey": "Chọn tệp khóa riêng",
+    "choosePrivateKey": "Thả khóa riêng vào đây hoặc nhấp để chọn",
     "matchingPrivateKey": "Khóa riêng phù hợp với chứng chỉ",
-    "install": "Cài đặt chứng chỉ"
+   "install": "Cài đặt chứng chỉ"
+  },
+  "originTLS": {
+    "title": "Cloudflare Origin TLS",
+    "description": "Bảo vệ kết nối Cloudflare Tunnel tới các cổng origin 7575 và 7576 bằng HTTPS đã xác minh và HTTP/2.",
+    "disabled": "Not enabled",
+    "expired": "Certificate expired",
+    "hostnameMismatch": "Hostname not covered",
+    "forbidden": "Your account cannot modify Cloudflare origin TLS",
+    "invalidCertificate": "Use a current matching Cloudflare Origin CA certificate and private key covering every configured public hostname.",
+    "activationFailed": "Không thể khởi động HTTPS và HTTP/2 tại origin. Chứng chỉ chưa được lưu.",
+    "alreadyEnabled": "Hãy xóa chứng chỉ Cloudflare Origin CA đã cài đặt trước khi cài chứng chỉ mới.",
+    "saveFailed": "Unable to update Cloudflare origin TLS",
+    "saved": "Cloudflare origin TLS settings were saved.",
+    "installTitle": "Enable Origin TLS",
+    "pasteHint": "Dán Origin Certificate và Private Key do Cloudflare hiển thị. Khi bật, các cổng 7575 và 7576 dùng HTTPS; hãy cập nhật cả hai tuyến Tunnel trong cùng thời gian bảo trì.",
+    "delete": "Delete certificate",
+    "deleteTitle": "Delete Cloudflare Origin CA certificate?",
+    "deleteMessage": "First restore both Tunnel services to http://modemdeck:7575 and http://modemdeck:7576 with HTTP/2 disabled. Deleting the certificate then returns origin ports 7575 and 7576 to HTTP.",
+    "enable": "Bật Origin TLS"
   },
   "diagnostics": {
     "statusOK": "khỏe mạnh",

@@ -25,6 +25,7 @@ import SelectControl from './SelectControl.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import type { SettingsSkeletonShape } from './settings/settingsSkeleton'
 import SettingsModuleCard from './settings/SettingsModuleCard.vue'
+import CloudflareOriginTLSSettings from './CloudflareOriginTLSSettings.vue'
 
 const STATUS_REFRESH_INTERVAL_MS = 15_000
 const PAIRING_CONFIRMATION_INTERVAL_MS = 2_000
@@ -32,9 +33,11 @@ const PAIRING_CONFIRMATION_INTERVAL_MS = 2_000
 const props = withDefaults(
   defineProps<{
     mode?: 'all' | 'connectivity' | 'pairing'
+    headingLevel?: 3 | 4
   }>(),
   {
-    mode: 'all'
+    mode: 'all',
+    headingLevel: 3
   }
 )
 const { t, locale } = useI18n()
@@ -44,8 +47,7 @@ const showConnectivity = computed(
 )
 const showPairing = computed(() => props.mode !== 'connectivity')
 const loadingShape = computed<SettingsSkeletonShape>(() => {
-  if (showConnectivity.value && showPairing.value) return 'modules'
-  return showConnectivity.value ? 'modules-two' : 'modules-one'
+  return showConnectivity.value ? 'modules' : 'modules-one'
 })
 const loading = ref(true)
 const loadError = ref('')
@@ -247,6 +249,13 @@ function load(): Promise<void> {
   return refreshStatus(false)
 }
 
+function applyOriginTLSStatus(
+  status: ExternalAccessStatus['origin_tls']
+): void {
+  if (!externalAccess.value) return
+  externalAccess.value = { ...externalAccess.value, origin_tls: status }
+}
+
 async function createPairing(): Promise<void> {
   if (!pairingReady.value || pairingPending.value) return
   if (pairing.value?.has_credential) {
@@ -384,6 +393,7 @@ onBeforeUnmount(() => {
         :title="t('iosPairing.tunnelTitle')"
         title-id="ios-tunnel-title"
         surface="subtle"
+        :heading-level="headingLevel"
         :has-body="externalAccess.cloudflare.enabled"
       >
         <template #icon>
@@ -427,30 +437,8 @@ onBeforeUnmount(() => {
         <dl v-if="externalAccess.cloudflare.enabled" class="ios-pairing-facts">
           <div v-if="externalAccess.cloudflare.api_urls.length">
             <dt>API</dt>
-            <dd
-              v-for="url in externalAccess.cloudflare.api_urls"
-              :key="url"
-              class="ios-route"
-            >
-              <Check
-                v-if="externalAccess.cloudflare.verified_api_urls.includes(url)"
-                :size="14"
-                aria-hidden="true"
-              />
-              <X
-                v-else
-                class="ios-route__unverified"
-                :size="14"
-                aria-hidden="true"
-              />
+            <dd v-for="url in externalAccess.cloudflare.api_urls" :key="url">
               <code>{{ url }}</code>
-              <span class="sr-only">
-                {{
-                  externalAccess.cloudflare.verified_api_urls.includes(url)
-                    ? t('iosPairing.routeVerified')
-                    : t('iosPairing.routeUnverified')
-                }}
-              </span>
             </dd>
           </div>
           <div v-if="externalAccess.cloudflare.web_urls.length">
@@ -462,12 +450,20 @@ onBeforeUnmount(() => {
         </dl>
       </SettingsModuleCard>
 
+      <CloudflareOriginTLSSettings
+        v-if="showConnectivity && externalAccess"
+        :status="externalAccess.origin_tls"
+        :heading-level="headingLevel"
+        @updated="applyOriginTLSStatus"
+      />
+
       <SettingsModuleCard
         v-if="showConnectivity && externalAccess"
         class="ios-card"
         :title="t('iosPairing.turnTitle')"
         title-id="external-turn-title"
         surface="subtle"
+        :heading-level="headingLevel"
         :has-body="!externalAccess.turn.available"
       >
         <template #icon>
@@ -505,6 +501,7 @@ onBeforeUnmount(() => {
         title-id="ios-pairing-title"
         :description="t('iosPairing.yourDeviceDescription')"
         surface="subtle"
+        :heading-level="headingLevel"
       >
         <template #icon>
           <KeyRound :size="19" />
@@ -746,21 +743,6 @@ onBeforeUnmount(() => {
   margin: 4px 0 0;
   font-size: 12px;
   overflow-wrap: anywhere;
-}
-
-.ios-route {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.ios-route > svg:first-child {
-  flex: 0 0 auto;
-  color: var(--accent-strong);
-}
-
-.ios-route > svg.ios-route__unverified {
-  color: var(--danger);
 }
 
 .ios-server-select {

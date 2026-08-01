@@ -21,6 +21,7 @@ import type {
   DeviceFeatureCapability,
   DeviceHardwareConfiguration,
   EffectiveIncomingCallPolicy,
+  CloudflareOriginTLSStatus,
   ExternalAccessStatus,
   GlobalCallSettings,
   IncomingCallActionResult,
@@ -37,6 +38,7 @@ import type {
   IOSPairingAvailability,
   IOSPairingResult,
   IOSPairingStatus,
+  InstallCloudflareOriginTLSInput,
   MobileNetwork,
   MobileNetworkScan,
   MobileNetworkStatus,
@@ -509,6 +511,16 @@ export const externalAccessContract = {
   refresh: {
     method: 'POST',
     path: externalAccessRefreshPath,
+    successStatus: 200
+  },
+  installOriginTLS: {
+    method: 'PUT',
+    path: '/api/v1/external-access/origin-tls',
+    successStatus: 200
+  },
+  disableOriginTLS: {
+    method: 'DELETE',
+    path: '/api/v1/external-access/origin-tls',
     successStatus: 200
   }
 } as const
@@ -1338,6 +1350,17 @@ export function createTLSSettingsPayload(
   if (!input.private_key_pem.trim()) throw new Error('private_key_pem 不能为空')
   return {
     operation: 'install_user',
+    certificate_pem: input.certificate_pem,
+    private_key_pem: input.private_key_pem
+  }
+}
+
+export function createCloudflareOriginTLSPayload(
+  input: InstallCloudflareOriginTLSInput
+): InstallCloudflareOriginTLSInput {
+  if (!input.certificate_pem.trim()) throw new Error('certificate_pem 不能为空')
+  if (!input.private_key_pem.trim()) throw new Error('private_key_pem 不能为空')
+  return {
     certificate_pem: input.certificate_pem,
     private_key_pem: input.private_key_pem
   }
@@ -2268,6 +2291,33 @@ function parseCloudflareTunnelStatus(value: unknown) {
   }
 }
 
+function parseCloudflareOriginTLSStatus(value: unknown): CloudflareOriginTLSStatus {
+  const source = objectValue(value, 'cloudflare_origin_tls')
+  return {
+    enabled: requiredBoolean(source, 'cloudflare_origin_tls', 'enabled'),
+    covers_routes: requiredBoolean(source, 'cloudflare_origin_tls', 'covers_routes'),
+    subject: requiredString(source, 'cloudflare_origin_tls', 'subject', true),
+    issuer: requiredString(source, 'cloudflare_origin_tls', 'issuer', true),
+    dns_names: optionalStringArray(source, 'cloudflare_origin_tls', 'dns_names'),
+    not_before: optionalTimestamp(source, 'cloudflare_origin_tls', 'not_before') || '',
+    not_after: optionalTimestamp(source, 'cloudflare_origin_tls', 'not_after') || '',
+    fingerprint_sha256: requiredString(
+      source,
+      'cloudflare_origin_tls',
+      'fingerprint_sha256',
+      true
+    ),
+    expired: requiredBoolean(source, 'cloudflare_origin_tls', 'expired')
+  }
+}
+
+export function parseCloudflareOriginTLSResponse(
+  value: unknown
+): CloudflareOriginTLSStatus {
+  const response = objectValue(value, 'cloudflare_origin_tls_response')
+  return parseCloudflareOriginTLSStatus(response.origin_tls)
+}
+
 function parseTURNAvailabilityStatus(value: unknown) {
   const turn = objectValue(value, 'turn')
   return {
@@ -2316,7 +2366,8 @@ export function parseExternalAccessStatusResponse(
   const response = objectValue(value, 'external_access_status')
   return {
     cloudflare: parseCloudflareTunnelStatus(response.cloudflare),
-    turn: parseTURNAvailabilityStatus(response.turn)
+    turn: parseTURNAvailabilityStatus(response.turn),
+    origin_tls: parseCloudflareOriginTLSStatus(response.origin_tls)
   }
 }
 

@@ -887,6 +887,17 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     verified_api_urls: ['https://mobile.modemdeck.example'],
     web_urls: ['https://web.modemdeck.example']
   }
+  let cloudflareOriginTLS = {
+    enabled: false,
+    covers_routes: false,
+    subject: '',
+    issuer: '',
+    dns_names: [] as string[],
+    not_before: '',
+    not_after: '',
+    fingerprint_sha256: '',
+    expired: false
+  }
   const turnStatus = {
     configured: true,
     available: true
@@ -1476,15 +1487,51 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     async getExternalAccessStatus() {
       return {
         cloudflare: clone(cloudflareStatus),
-        turn: clone(turnStatus)
+        turn: clone(turnStatus),
+        origin_tls: clone(cloudflareOriginTLS)
       }
     },
 
     async refreshExternalAccess() {
       return {
         cloudflare: clone(cloudflareStatus),
-        turn: clone(turnStatus)
+        turn: clone(turnStatus),
+        origin_tls: clone(cloudflareOriginTLS)
       }
+    },
+
+    async installCloudflareOriginTLS(input) {
+      if (!input.certificate_pem.trim() || !input.private_key_pem.trim()) {
+        throw new ApiError('Certificate and private key are required', 400)
+      }
+      cloudflareOriginTLS = {
+        enabled: true,
+        covers_routes: true,
+        subject: 'CN=*.modemdeck.example',
+        issuer: 'Cloudflare Origin SSL Certificate Authority',
+        dns_names: ['*.modemdeck.example'],
+        not_before: '2026-07-24T00:00:00Z',
+        not_after: '2031-07-24T00:00:00Z',
+        fingerprint_sha256:
+          '81:5A:6D:03:7F:48:5B:61:AC:B1:C9:65:8E:52:25:43:2E:31:F4:BB:95:67:74:E3:CD:97:51:26:F4:E0:4D:10',
+        expired: false
+      }
+      return clone(cloudflareOriginTLS)
+    },
+
+    async disableCloudflareOriginTLS() {
+      cloudflareOriginTLS = {
+        enabled: false,
+        covers_routes: false,
+        subject: '',
+        issuer: '',
+        dns_names: [],
+        not_before: '',
+        not_after: '',
+        fingerprint_sha256: '',
+        expired: false
+      }
+      return clone(cloudflareOriginTLS)
     },
 
     async getIOSPairing(): Promise<IOSPairingResult> {

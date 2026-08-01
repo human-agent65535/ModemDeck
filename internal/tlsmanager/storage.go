@@ -9,10 +9,11 @@ import (
 )
 
 const (
-	sourceFilename          = "source"
-	automaticCAFilename     = "automatic-ca.pem"
-	automaticServerFilename = "automatic-server.pem"
-	userBundleFilename      = "user.pem"
+	sourceFilename           = "source"
+	automaticCAFilename      = "automatic-ca.pem"
+	automaticServerFilename  = "automatic-server.pem"
+	userBundleFilename       = "user.pem"
+	cloudflareOriginFilename = "cloudflare-origin.pem"
 )
 
 func ensureStorageDirectory(directory string) error {
@@ -33,10 +34,11 @@ func ensureStorageDirectory(directory string) error {
 		return fmt.Errorf("secure TLS storage directory: %w", err)
 	}
 	for filename, permission := range map[string]os.FileMode{
-		sourceFilename:          0o640,
-		automaticCAFilename:     0o600,
-		automaticServerFilename: 0o640,
-		userBundleFilename:      0o640,
+		sourceFilename:           0o640,
+		automaticCAFilename:      0o600,
+		automaticServerFilename:  0o640,
+		userBundleFilename:       0o640,
+		cloudflareOriginFilename: 0o640,
 	} {
 		path := filepath.Join(directory, filename)
 		info, err := os.Lstat(path)

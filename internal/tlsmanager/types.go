@@ -13,8 +13,10 @@ const (
 )
 
 var (
-	ErrInvalidConfiguration = errors.New("invalid TLS manager configuration")
-	ErrInvalidUserMaterial  = errors.New("invalid user TLS certificate material")
+	ErrInvalidConfiguration            = errors.New("invalid TLS manager configuration")
+	ErrInvalidUserMaterial             = errors.New("invalid user TLS certificate material")
+	ErrInvalidCloudflareOriginMaterial = errors.New("invalid Cloudflare Origin CA certificate material")
+	ErrCloudflareOriginAlreadyEnabled  = errors.New("Cloudflare Origin TLS is already enabled")
 )
 
 type Source string
