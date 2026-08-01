@@ -140,6 +140,7 @@ func TestSnapshotDecodesAgentContract(t *testing.T) {
 				"drivers":["qmi_wwan","option"],
 				"plugin":"quectel",
 				"primary_port":"cdc-wdm0",
+				"audio_port":"quectel-uac:/sys/devices/pci0000:00/usb1/1-1",
 				"state":"registered",
 				"state_code":8,
 				"power_state_code":3,
@@ -241,6 +242,9 @@ func TestSnapshotDecodesAgentContract(t *testing.T) {
 	}
 	if !snapshot.Lines[0].Capabilities.Media {
 		t.Fatalf("unexpected line media capability: %+v", snapshot.Lines[0].Capabilities)
+	}
+	if snapshot.Lines[0].AudioPort != "quectel-uac:/sys/devices/pci0000:00/usb1/1-1" {
+		t.Fatalf("unexpected line audio port: %q", snapshot.Lines[0].AudioPort)
 	}
 	if snapshot.Lines[0].VoiceVerification == nil ||
 		snapshot.Lines[0].VoiceVerification.USBConfiguration != "enabled" ||

@@ -99,6 +99,7 @@ type Line struct {
 	Drivers                  []string                  `json:"drivers"`
 	Plugin                   string                    `json:"plugin"`
 	PrimaryPort              string                    `json:"primary_port"`
+	AudioPort                string                    `json:"audio_port"`
 	Ports                    []ModemPort               `json:"ports"`
 	State                    string                    `json:"state"`
 	StateCode                int32                     `json:"state_code"`
