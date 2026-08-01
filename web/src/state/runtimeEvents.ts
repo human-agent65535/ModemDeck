@@ -2,6 +2,7 @@ import { reactive, readonly } from 'vue'
 import { fixtureMode, gateway } from '../api/client'
 import type { RuntimeResource } from '../api/types'
 import { renewActiveCallLease, requestActiveCallRefresh } from './call'
+import { refreshUnconfirmedDeviceConfigurations } from './deviceConfiguration'
 import { loadNetwork } from './network'
 import { refreshRecordingWorkspace } from './recording'
 import { refreshSession } from './session'
@@ -88,6 +89,7 @@ async function refreshResource(resource: RuntimeResource): Promise<void> {
       break
     case 'lines':
       await refreshDeviceWorkspace()
+      await refreshUnconfirmedDeviceConfigurations()
       break
     case 'network':
       await loadNetwork(true, true)

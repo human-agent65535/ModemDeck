@@ -727,7 +727,10 @@ test('hardware writes refresh their revision and retry one concurrent change', (
   )
 
   assert.match(body, /for \(let attempt = 0; attempt < 2; attempt \+= 1\)/)
-  assert.match(body, /const latest = await gateway\.getDeviceConfiguration\(lineID\)/)
+  assert.match(
+    body,
+    /const latest = completeDeviceConfiguration\([\s\S]*gateway\.getDeviceConfiguration\(lineID\)/
+  )
   assert.match(body, /request_id: requestID\(\)/)
   assert.match(body, /expected_device_revision: latest\.hardware\.revision/)
   assert.match(body, /error instanceof ApiError/)

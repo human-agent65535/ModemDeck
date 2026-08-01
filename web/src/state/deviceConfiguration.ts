@@ -11,12 +11,14 @@ import type {
 } from '../api/types'
 import { ApiError } from '../api/types'
 import { translate } from '../i18n'
+import { waitForUnavailableThenReadable } from './deviceRecovery'
 
 type DeviceConfigurationResource = {
   status: ResourceStatus
   data: DeviceConfiguration | null
   error: string
   savingOperation: UpdateDeviceConfigurationInput['operation'] | ''
+  recovering: boolean
 }
 
 type IncomingPolicyUpdate = Extract<
@@ -68,6 +70,7 @@ export const deviceConfigurationState = reactive<{
 
 const deviceConfigurationLoads = new Map<string, Promise<boolean>>()
 const deviceConfigurationGenerations = new Map<string, number>()
+const unconfirmedDeviceRecoveries = new Set<string>()
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : translate('runtime.requestFailed')
@@ -123,7 +126,8 @@ function resourceFor(lineID: string): DeviceConfigurationResource {
       status: 'idle',
       data: null,
       error: '',
-      savingOperation: ''
+      savingOperation: '',
+      recovering: false
     }
   }
   return deviceConfigurationState.resources[lineID]
@@ -144,6 +148,29 @@ function beginDeviceRecovery(lineID: string): number {
   return beginDeviceConfigurationRequest(lineID)
 }
 
+function completeDeviceConfiguration(
+  configuration: DeviceConfiguration
+): Required<DeviceConfiguration> {
+  if (
+    !configuration.hardware ||
+    !configuration.incoming_calls ||
+    !configuration.messaging
+  ) {
+    throw new Error(translate('runtime.invalidDeviceConfiguration'))
+  }
+  return configuration as Required<DeviceConfiguration>
+}
+
+function isDeviceUnavailableDuringRecovery(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    (error.status === 404 ||
+      error.status === 503 ||
+      error.code === 'not_found' ||
+      error.code === 'communications_unavailable')
+  )
+}
+
 function mergeConfiguration(
   current: DeviceConfiguration | null,
   update: DeviceConfiguration
@@ -160,7 +187,9 @@ function mergeConfiguration(
 
 async function refreshConfigurationsAfterGlobalChange(): Promise<void> {
   for (const target of Object.values(deviceConfigurationState.resources)) {
-    if (target.data) target.status = 'idle'
+    if (target.data && !target.savingOperation && !target.recovering) {
+      target.status = 'idle'
+    }
   }
   const selectedLineID = deviceConfigurationState.selectedLineID
   if (selectedLineID) await loadDeviceConfiguration(selectedLineID, true)
@@ -245,6 +274,7 @@ export async function loadDeviceConfiguration(
   const normalizedLineID = lineID.trim()
   if (!normalizedLineID) return false
   const target = resourceFor(normalizedLineID)
+  if (target.savingOperation || target.recovering) return target.status === 'ready'
   if (!force && target.status === 'ready') return true
   const pending = deviceConfigurationLoads.get(normalizedLineID)
   if (!force && pending) return pending
@@ -256,19 +286,16 @@ export async function loadDeviceConfiguration(
   let operation: Promise<boolean> = Promise.resolve(false)
   operation = (async () => {
     try {
-      const configuration = await gateway.getDeviceConfiguration(normalizedLineID)
-      if (
-        !configuration.hardware ||
-        !configuration.incoming_calls ||
-        !configuration.messaging
-      ) {
-        throw new Error(translate('runtime.invalidDeviceConfiguration'))
-      }
+      const configuration = completeDeviceConfiguration(
+        await gateway.getDeviceConfiguration(normalizedLineID)
+      )
       if (isCurrentDeviceConfigurationRequest(normalizedLineID, generation)) {
         target.data = configuration
         target.status = 'ready'
+        unconfirmedDeviceRecoveries.delete(normalizedLineID)
+        return true
       }
-      return true
+      return false
     } catch (error) {
       if (isCurrentDeviceConfigurationRequest(normalizedLineID, generation)) {
         target.status = hasConfiguration ? 'ready' : errorStatus(error)
@@ -288,27 +315,38 @@ export async function loadDeviceConfiguration(
 async function restoreDeviceConfiguration(
   lineID: string,
   target: DeviceConfigurationResource,
-  saveError: string
+  saveError: string,
+  generation: number
 ): Promise<void> {
   try {
-    target.data = await gateway.getDeviceConfiguration(lineID)
-    target.status = 'ready'
-    target.error = saveError
+    const configuration = completeDeviceConfiguration(
+      await gateway.getDeviceConfiguration(lineID)
+    )
+    if (isCurrentDeviceConfigurationRequest(lineID, generation)) {
+      target.data = configuration
+      target.status = 'ready'
+      target.error = saveError
+    }
   } catch (refreshError) {
-    target.status = errorStatus(refreshError)
-    target.error = translate('runtime.refreshAfterSaveFailed', {
-      error: saveError,
-      refreshError: errorText(refreshError)
-    })
+    if (isCurrentDeviceConfigurationRequest(lineID, generation)) {
+      target.status = target.data ? 'ready' : errorStatus(refreshError)
+      target.error = translate('runtime.refreshAfterSaveFailed', {
+        error: saveError,
+        refreshError: errorText(refreshError)
+      })
+    }
   }
 }
 
 async function updateDevice(
   lineID: string,
-  input: DeviceUpdateIntent
+  input: DeviceUpdateIntent,
+  commitResponse = true
 ): Promise<boolean> {
   const target = resourceFor(lineID)
-  if (!target.data || target.savingOperation) return false
+  if (!target.data || target.savingOperation || target.recovering) return false
+  deviceConfigurationLoads.delete(lineID)
+  const generation = beginDeviceConfigurationRequest(lineID)
   target.savingOperation = input.operation
   target.error = ''
   try {
@@ -316,35 +354,42 @@ async function updateDevice(
       input.operation === 'set_incoming_call_policy' ||
       input.operation === 'set_delivery_reports_enabled'
         ? await gateway.updateDeviceConfiguration(lineID, input)
-        : await applyHardwareUpdate(lineID, target, input)
-    target.data = mergeConfiguration(target.data, updated)
-    target.status = 'ready'
+        : await applyHardwareUpdate(lineID, target, input, generation)
+    if (isCurrentDeviceConfigurationRequest(lineID, generation)) {
+      if (commitResponse) target.data = mergeConfiguration(target.data, updated)
+      target.status = 'ready'
+    }
     return true
   } catch (error) {
     await restoreDeviceConfiguration(
       lineID,
       target,
-      deviceConfigurationErrorText(error, input, target.data?.hardware)
+      deviceConfigurationErrorText(error, input, target.data?.hardware),
+      generation
     )
     return false
   } finally {
-    target.savingOperation = ''
+    if (isCurrentDeviceConfigurationRequest(lineID, generation)) {
+      target.savingOperation = ''
+    }
   }
 }
 
 async function applyHardwareUpdate(
   lineID: string,
   target: DeviceConfigurationResource,
-  input: HardwareUpdateIntent
+  input: HardwareUpdateIntent,
+  generation: number
 ): Promise<DeviceConfiguration> {
   let lastConflict: unknown
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const latest = await gateway.getDeviceConfiguration(lineID)
-    if (!latest.hardware || !latest.incoming_calls || !latest.messaging) {
-      throw new Error(translate('runtime.invalidDeviceConfiguration'))
+    const latest = completeDeviceConfiguration(
+      await gateway.getDeviceConfiguration(lineID)
+    )
+    if (isCurrentDeviceConfigurationRequest(lineID, generation)) {
+      target.data = mergeConfiguration(target.data, latest)
+      target.status = 'ready'
     }
-    target.data = mergeConfiguration(target.data, latest)
-    target.status = 'ready'
 
     const request = {
       ...input,
@@ -411,39 +456,66 @@ function wait(milliseconds: number): Promise<void> {
 
 export async function restartModem(lineID: string): Promise<boolean> {
   const target = resourceFor(lineID)
-  const accepted = await updateDevice(lineID, {
-    operation: 'restart_modem'
-  })
+  const accepted = await updateDevice(
+    lineID,
+    { operation: 'restart_modem' },
+    false
+  )
   if (!accepted) return false
 
   const generation = beginDeviceRecovery(lineID)
-  target.status = 'loading'
+  target.recovering = true
   target.error = ''
-  await wait(1500)
-  const deadline = Date.now() + 45_000
-  while (Date.now() < deadline) {
-    try {
-      const configuration = await gateway.getDeviceConfiguration(lineID)
-      if (
-        configuration.hardware?.volte.policy_known &&
-        !configuration.hardware.volte.restart_required
-      ) {
-        if (isCurrentDeviceConfigurationRequest(lineID, generation)) {
-          target.data = configuration
-          target.status = 'ready'
-        }
+  unconfirmedDeviceRecoveries.delete(lineID)
+  try {
+    const result = await waitForUnavailableThenReadable({
+      read: async () =>
+        completeDeviceConfiguration(await gateway.getDeviceConfiguration(lineID)),
+      isCurrent: () => isCurrentDeviceConfigurationRequest(lineID, generation),
+      isUnavailable: isDeviceUnavailableDuringRecovery,
+      timeoutMs: 45_000,
+      intervalMs: 1_000
+    })
+    if (result.status === 'recovered') {
+      if (isCurrentDeviceConfigurationRequest(lineID, generation)) {
+        target.data = result.value
+        target.status = 'ready'
+        unconfirmedDeviceRecoveries.delete(lineID)
         return true
       }
-    } catch {
-      // The ModemManager object normally disappears while the modem restarts.
+      return false
     }
-    await wait(1000)
+    if (
+      result.status === 'timeout' &&
+      isCurrentDeviceConfigurationRequest(lineID, generation)
+    ) {
+      target.status = 'ready'
+      target.error = translate('runtime.modemRestartTimeout')
+      if (result.observedUnavailable) unconfirmedDeviceRecoveries.add(lineID)
+    }
+    return false
+  } catch (error) {
+    if (isCurrentDeviceConfigurationRequest(lineID, generation)) {
+      target.status = 'ready'
+      target.error = errorText(error)
+    }
+    return false
+  } finally {
+    if (isCurrentDeviceConfigurationRequest(lineID, generation)) {
+      target.recovering = false
+    }
   }
-  if (isCurrentDeviceConfigurationRequest(lineID, generation)) {
-    target.status = 'error'
-    target.error = translate('runtime.modemRestartTimeout')
-  }
-  return false
+}
+
+export async function refreshUnconfirmedDeviceConfigurations(): Promise<void> {
+  const lineIDs = Array.from(unconfirmedDeviceRecoveries)
+  await Promise.all(
+    lineIDs.map(async lineID => {
+      const target = resourceFor(lineID)
+      if (target.savingOperation || target.recovering) return
+      await loadDeviceConfiguration(lineID, true)
+    })
+  )
 }
 
 export async function resetUSBDevice(lineID: string): Promise<boolean> {
