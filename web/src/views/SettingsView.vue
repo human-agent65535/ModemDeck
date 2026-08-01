@@ -395,34 +395,34 @@ onMounted(() => {
             </span>
           </button>
         </section>
+        <footer class="settings-account">
+          <span class="settings-account__icon"><UserRound :size="19" /></span>
+          <span class="settings-account__identity">
+            <strong>{{ sessionState.username || t('settings.account') }}</strong>
+            <small>
+              {{
+                sessionState.role === 'admin'
+                  ? t('settings.administratorAccount')
+                  : t('settings.memberAccount')
+              }}
+            </small>
+            <small v-if="logoutError" class="settings-account__error" role="alert">
+              {{ logoutError }}
+            </small>
+          </span>
+          <button
+            class="icon-button"
+            type="button"
+            :title="t('settings.logout')"
+            :aria-label="t('settings.logout')"
+            :disabled="fixtureMode || logoutPending"
+            @click="logout"
+          >
+            <LoaderCircle v-if="logoutPending" class="spin" :size="19" />
+            <LogOut v-else :size="19" />
+          </button>
+        </footer>
       </div>
-      <footer v-if="!fixtureMode" class="settings-account">
-        <span class="settings-account__icon"><UserRound :size="19" /></span>
-        <span class="settings-account__identity">
-          <strong>{{ sessionState.username || t('settings.account') }}</strong>
-          <small>
-            {{
-              sessionState.role === 'admin'
-                ? t('settings.administratorAccount')
-                : t('settings.memberAccount')
-            }}
-          </small>
-          <small v-if="logoutError" class="settings-account__error" role="alert">
-            {{ logoutError }}
-          </small>
-        </span>
-        <button
-          class="icon-button"
-          type="button"
-          :title="t('settings.logout')"
-          :aria-label="t('settings.logout')"
-          :disabled="logoutPending"
-          @click="logout"
-        >
-          <LoaderCircle v-if="logoutPending" class="spin" :size="19" />
-          <LogOut v-else :size="19" />
-        </button>
-      </footer>
     </aside>
 
     <article class="detail-pane settings-detail-pane">

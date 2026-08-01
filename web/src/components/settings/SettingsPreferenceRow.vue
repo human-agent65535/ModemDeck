@@ -125,6 +125,10 @@ withDefaults(
 }
 
 @media (max-width: 860px) {
+  .settings-preference-row:not(:first-child) {
+    padding-top: 22px;
+  }
+
   .settings-preference-row__main {
     align-items: flex-start;
     flex-wrap: wrap;

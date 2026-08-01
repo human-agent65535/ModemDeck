@@ -78,11 +78,8 @@ onMounted(() => {
         @saved="emit('profileSaved')"
       />
 
-      <div class="account-preferences">
-        <SystemSettingsForm v-if="props.showLanguage" />
-        <DefaultLineSettingsForm />
-      </div>
-
+      <SystemSettingsForm v-if="props.showLanguage" />
+      <DefaultLineSettingsForm />
     </div>
   </SettingsLoadBoundary>
 </template>
@@ -92,11 +89,6 @@ onMounted(() => {
   display: grid;
   width: 100%;
   max-width: var(--settings-preference-content-max);
-  gap: 0;
-}
-
-.account-preferences {
-  display: grid;
   gap: 0;
 }
 

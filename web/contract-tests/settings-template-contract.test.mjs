@@ -67,6 +67,31 @@ test('settings navigation groups personal and managed surfaces behind one visibi
   assert.match(view, /settingsSectionGroup\(section\.id\)/)
 })
 
+test('settings landing remains a directory and mobile preference rows keep balanced spacing', async () => {
+  const [shell, view, account, row] = await Promise.all([
+    source('../src/components/AppShell.vue'),
+    source('../src/views/SettingsView.vue'),
+    source('../src/components/AccountSettingsPanel.vue'),
+    source('../src/components/settings/SettingsPreferenceRow.vue')
+  ])
+
+  assert.doesNotMatch(shell, /settingsLanding/)
+  assert.match(
+    shell,
+    /class="rail-link"[\s\S]*:class="\{ 'is-current': route\.name === 'settings' \}"[\s\S]*:to="\{ name: 'settings' \}"/
+  )
+  assert.match(
+    view,
+    /<div class="item-list settings-list">[\s\S]*<footer class="settings-account">[\s\S]*<\/footer>\s*<\/div>\s*<\/aside>/
+  )
+  assert.match(view, /:disabled="fixtureMode \|\| logoutPending"/)
+  assert.doesNotMatch(account, /class="account-preferences"/)
+  assert.match(
+    row,
+    /@media \(max-width: 860px\)[\s\S]*\.settings-preference-row:not\(:first-child\) \{\s*padding-top: 22px;/
+  )
+})
+
 test('settings pages use the shared layout templates and the device workbench exception', async () => {
   const [
     defaultLine,

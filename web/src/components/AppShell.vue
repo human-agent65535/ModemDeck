@@ -69,7 +69,6 @@ import OverlayDialog from './OverlayDialog.vue'
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
-const settingsLanding = computed(() => 'preferences')
 const permanentDialer = ref(false)
 const nonModalDialer = ref(false)
 const mobileMoreOpen = ref(false)
@@ -416,7 +415,7 @@ onBeforeUnmount(() => {
         <RouterLink
           class="rail-link"
           :class="{ 'is-current': route.name === 'settings' }"
-          :to="{ name: 'settings', params: { section: settingsLanding } }"
+          :to="{ name: 'settings' }"
           :title="t('shell.settings')"
         >
           <Settings :size="22" />
