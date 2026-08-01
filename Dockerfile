@@ -81,7 +81,7 @@ LABEL org.opencontainers.image.title="ModemDeck Web" \
 
 USER 101:101
 
-EXPOSE 7575 7576 7577
+EXPOSE 7575 7576 7577/tcp 7577/udp
 STOPSIGNAL SIGQUIT
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \

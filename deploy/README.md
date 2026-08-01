@@ -55,8 +55,9 @@ The base stack has three services:
   `7575` proxies `/api/*` and returns 404 for every other path. Compose-only
   HTTP `7576` serves the Web UI and same-origin API to Cloudflare Tunnel.
   HTTPS `7577` serves the local Web UI and is the only listener published to
-  the host. Plain HTTP sent to `7577` is redirected to HTTPS on the same
-  address.
+  the host. It accepts HTTP/1.1 and HTTP/2 over TCP plus HTTP/3 over UDP, and
+  advertises the host port selected by `--port`. Plain HTTP sent over TCP to
+  `7577` is redirected to HTTPS on the same address.
 - `api` runs the Go HTTP API on `8080` inside the Compose network. It has
   no published host port.
 - `hardware` owns the modem and host data plane.
@@ -83,7 +84,9 @@ container restart. Cloudflare edge certificates are outside this setting.
 
 `--bind-address` and `--port` control only the host-published local HTTPS Web
 UI, which binds to host loopback by default. They do not change Cloudflare
-origins or appear in an iOS QR payload.
+origins or appear in an iOS QR payload. To use HTTP/3 outside the host, allow
+the selected port over both TCP and UDP in the host firewall; the installer
+does not modify firewall policy.
 
 ## Cloudflare Tunnel and Realtime TURN
 
@@ -118,6 +121,14 @@ user. Tunnel changes are scanned at startup and while running without
 reinstalling; administrators can also rescan manually. With the connector
 disabled or no verified API route, users may revoke an existing credential but
 cannot create one.
+
+Cloudflare's edge protocol and the connector-to-origin protocol are separate.
+The remotely managed connector token can read its assigned routes but cannot
+rewrite them. Cloudflare therefore keeps using HTTP/1.1 for these private HTTP
+origins unless an administrator replaces them with HTTPS origins and explicitly
+enables `http2Origin` using a separate Tunnel configuration credential. The
+installer does not request that broader Cloudflare permission or disable origin
+certificate verification merely to change the internal hop's HTTP version.
 
 Paired clients receive short-lived relay-only ICE configurations, while the
 long-lived TURN API token remains available only to the API container.

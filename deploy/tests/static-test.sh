@@ -197,6 +197,12 @@ grep -Fq '127.0.0.1' "${test_root}/web.yml" ||
     fail "Web gateway is not restricted to host loopback"
 grep -Fq 'target: 7577' "${test_root}/web.yml" ||
     fail "Web gateway does not publish HTTPS port 7577"
+grep -Fq 'protocol: tcp' "${test_root}/web.yml" ||
+    fail "Web gateway does not publish HTTPS over TCP"
+grep -Fq 'protocol: udp' "${test_root}/web.yml" ||
+    fail "Web gateway does not publish HTTP/3 over UDP"
+grep -Fq 'MODEMDECK_WEB_HTTPS_PORT: "7577"' "${test_root}/web.yml" ||
+    fail "Web gateway does not advertise its published HTTP/3 port"
 grep -Fq -- '- "7575"' "${test_root}/web.yml" ||
     fail "Web gateway does not expose Cloudflare API port 7575"
 grep -Fq -- '- "7576"' "${test_root}/web.yml" ||
@@ -222,8 +228,12 @@ grep -Fq 'listen 7576 default_server;' "${repo_dir}/web/nginx.conf" ||
     fail "Nginx does not listen on Cloudflare Web port 7576"
 grep -Fq 'listen 7577 ssl default_server;' "${repo_dir}/web/nginx.conf" ||
     fail "Nginx does not listen on HTTPS Web port 7577"
+grep -Fq 'listen 7577 quic reuseport;' "${repo_dir}/web/nginx.conf" ||
+    fail "Nginx does not listen for HTTP/3 on Web port 7577"
 grep -Fq 'http2 on;' "${repo_dir}/web/nginx.conf" ||
     fail "HTTPS Web listener does not enable HTTP/2"
+grep -Fq 'include /tmp/modemdeck-http3.conf;' "${repo_dir}/web/nginx.conf" ||
+    fail "HTTPS Web listener does not advertise HTTP/3"
 grep -Fq 'error_page 497 =308 https://$http_host$request_uri;' \
     "${repo_dir}/web/nginx.conf" ||
     fail "HTTPS Web listener does not upgrade plain HTTP requests"
@@ -268,6 +278,10 @@ grep -Fq '"${tls_directory}/user.pem"' "${repo_dir}/scripts/nginx-entrypoint.sh"
     fail "Nginx entrypoint cannot select an uploaded Web certificate"
 grep -Fq 'nginx -s reload' "${repo_dir}/scripts/nginx-entrypoint.sh" ||
     fail "Nginx entrypoint does not hot-reload certificate changes"
+grep -Fq 'MODEMDECK_WEB_HTTPS_PORT' "${repo_dir}/scripts/nginx-entrypoint.sh" ||
+    fail "Nginx entrypoint does not use the published HTTP/3 port"
+grep -Fq 'h3=":%s"; ma=86400' "${repo_dir}/scripts/nginx-entrypoint.sh" ||
+    fail "Nginx entrypoint does not generate the HTTP/3 Alt-Svc header"
 
 if grep -Fq 'MODEMDECK_CLOUDFLARE_PUBLIC_URL' \
     "${test_root}/cloudflare-app.yml"

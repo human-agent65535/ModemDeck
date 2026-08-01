@@ -5,7 +5,23 @@ set -eu
 tls_directory=${MODEMDECK_WEB_TLS_DIRECTORY:-/var/lib/modemdeck/tls}
 runtime_certificate=${MODEMDECK_WEB_TLS_CERTIFICATE:-/tmp/modemdeck-web-cert.pem}
 runtime_key=${MODEMDECK_WEB_TLS_KEY:-/tmp/modemdeck-web-key.pem}
+runtime_http3_config=${MODEMDECK_WEB_HTTP3_CONFIG:-/tmp/modemdeck-http3.conf}
+https_port=${MODEMDECK_WEB_HTTPS_PORT:-7577}
 refresh_seconds=${MODEMDECK_WEB_TLS_REFRESH_SECONDS:-5}
+
+case "$https_port" in
+    ""|*[!0-9]*)
+        printf 'modemdeck-web: HTTPS port must be numeric\n' >&2
+        exit 1
+        ;;
+esac
+[ "$https_port" -ge 1 ] && [ "$https_port" -le 65535 ] || {
+    printf 'modemdeck-web: HTTPS port must be between 1 and 65535\n' >&2
+    exit 1
+}
+
+printf 'add_header Alt-Svc '\''h3=":%s"; ma=86400'\'' always;\n' \
+    "$https_port" >"$runtime_http3_config"
 
 selected_bundle() {
     source_value=$(tr -d '[:space:]' <"${tls_directory}/source")

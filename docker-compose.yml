@@ -159,12 +159,14 @@ services:
         condition: service_healthy
         restart: true
     ports:
-      - "${MODEMDECK_BIND_ADDRESS:-127.0.0.1}:${MODEMDECK_PORT:-7577}:7577"
+      - "${MODEMDECK_BIND_ADDRESS:-127.0.0.1}:${MODEMDECK_PORT:-7577}:7577/tcp"
+      - "${MODEMDECK_BIND_ADDRESS:-127.0.0.1}:${MODEMDECK_PORT:-7577}:7577/udp"
     expose:
       - "7575"
       - "7576"
     environment:
       MODEMDECK_WEB_TLS_DIRECTORY: /var/lib/modemdeck/tls
+      MODEMDECK_WEB_HTTPS_PORT: ${MODEMDECK_PORT:-7577}
     volumes:
       - type: bind
         source: ${MODEMDECK_DATA_DIR:-./data}/tls
