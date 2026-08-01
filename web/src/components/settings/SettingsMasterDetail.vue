@@ -161,23 +161,9 @@ withDefaults(
   min-width: 0;
   min-height: 0;
   flex: 1;
-  padding-inline: 24px;
+  padding: 0 24px 32px;
   overflow-y: auto;
   overscroll-behavior: contain;
-}
-
-@media (min-width: 861px) {
-  .settings-master-detail__detail-content {
-    animation: settings-master-detail-content-in var(--motion-base)
-      var(--ease-standard) both;
-  }
-}
-
-@keyframes settings-master-detail-content-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
 }
 
 @media (max-width: 860px) {
@@ -192,7 +178,7 @@ withDefaults(
   }
 
   .settings-master-detail__detail-content {
-    padding: 12px 16px 0;
+    padding: 12px 16px max(32px, env(safe-area-inset-bottom));
   }
 }
 </style>

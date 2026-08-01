@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import StatePanel from '../StatePanel.vue'
+import SettingsSkeleton from './SettingsSkeleton.vue'
+import type { SettingsSkeletonShape } from './settingsSkeleton'
 
 withDefaults(
   defineProps<{
@@ -7,11 +9,11 @@ withDefaults(
     error?: boolean
     forbidden?: boolean
     loadingTitle: string
+    loadingShape: SettingsSkeletonShape
     errorTitle?: string
     forbiddenTitle?: string
     detail?: string
     retryable?: boolean
-    loadingRows?: number
   }>(),
   {
     loading: false,
@@ -20,8 +22,7 @@ withDefaults(
     errorTitle: '',
     forbiddenTitle: '',
     detail: '',
-    retryable: false,
-    loadingRows: 5
+    retryable: false
   }
 )
 
@@ -29,11 +30,10 @@ const emit = defineEmits<{ retry: [] }>()
 </script>
 
 <template>
-  <StatePanel
+  <SettingsSkeleton
     v-if="loading"
-    state="loading"
-    :title="loadingTitle"
-    :loading-rows="loadingRows"
+    :label="loadingTitle"
+    :shape="loadingShape"
   />
   <StatePanel
     v-else-if="forbidden"

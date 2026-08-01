@@ -15,7 +15,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { gateway } from '../api/client'
 import type { LineSummary, UserAccount } from '../api/types'
 import { ApiError } from '../api/types'
-import { useSettingsMutation } from '../composables/useSettingsMutation'
 import { requestConfirmation } from '../state/confirmation'
 import { showError, showSuccess } from '../state/feedback'
 import { resetNetworkState } from '../state/network'
@@ -33,14 +32,11 @@ import {
 } from '../utils/password'
 import { formatDateTime } from '../utils/format'
 import BaseAvatar from './BaseAvatar.vue'
-import AccountProfileSetting from './AccountProfileSetting.vue'
 import AccountSettingsPanel from './AccountSettingsPanel.vue'
 import StatePanel from './StatePanel.vue'
-import SystemSettingsForm from './SystemSettingsForm.vue'
 import SettingsLineScopeList from './settings/SettingsLineScopeList.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SettingsMasterDetail from './settings/SettingsMasterDetail.vue'
-import SettingsSaveStatus from './settings/SettingsSaveStatus.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -60,12 +56,6 @@ const pairingRevoking = ref(false)
 const saveError = ref('')
 const newPassword = ref('')
 const searchQuery = ref('')
-const lineMutation = useSettingsMutation({
-  errorMessage: cause =>
-    cause instanceof Error ? cause.message : t('users.saveFailed')
-})
-const lineSaving = lineMutation.saving
-const lineSaveError = lineMutation.error
 
 const lines = computed(
   () => bootstrapResource.data?.line_catalog || bootstrapResource.data?.lines || []
@@ -153,11 +143,10 @@ function applyUser(user?: UserAccount): void {
   lineIDs.value = [...(user?.line_ids || [])]
   newPassword.value = ''
   saveError.value = ''
-  lineMutation.reset()
 }
 
 function selectUser(id: string): void {
-  if (saving.value || lineSaving.value || pairingRevoking.value) return
+  if (saving.value || pairingRevoking.value) return
   creating.value = false
   selectedID.value = id
   applyUser(users.value.find(user => user.id === id))
@@ -169,7 +158,7 @@ function selectUser(id: string): void {
 }
 
 function startCreate(): void {
-  if (saving.value || lineSaving.value || pairingRevoking.value) return
+  if (saving.value || pairingRevoking.value) return
   creating.value = true
   selectedID.value = '__new_member__'
   applyUser()
@@ -180,42 +169,11 @@ function startCreate(): void {
   })
 }
 
-async function toggleLine(id: string, checked: boolean): Promise<void> {
-  if (saving.value || lineSaving.value) return
-
-  const previous = [...lineIDs.value]
-  const next = checked
-    ? [...new Set([...previous, id])]
-    : previous.filter(value => value !== id)
-  lineIDs.value = next
-  lineMutation.reset()
-  if (creating.value) return
-
-  const user = editableUser.value
-  if (!user) return
-
-  const result = await lineMutation.run(async () => {
-    const updated = await gateway.updateMember(user.id, {
-      username: user.username,
-      enabled: user.enabled,
-      ios_pairing_enabled: user.ios_pairing_enabled,
-      line_ids: next,
-      revision: user.revision
-    })
-    users.value = users.value.map(current =>
-      current.id === updated.id ? updated : current
-    )
-    lineIDs.value = [...updated.line_ids]
-    if (updated.id === sessionState.userID) {
-      await refreshSession()
-      resetNetworkState()
-      await loadBootstrap(true)
-    }
-    return updated
-  })
-  if (!result.ok) {
-    lineIDs.value = previous
-  }
+function toggleLine(id: string, checked: boolean): void {
+  if (saving.value || selectedUser.value?.role === 'admin') return
+  lineIDs.value = checked
+    ? [...new Set([...lineIDs.value, id])]
+    : lineIDs.value.filter(value => value !== id)
 }
 
 async function load(): Promise<void> {
@@ -264,7 +222,6 @@ async function refreshUserList(): Promise<void> {
 async function submit(): Promise<void> {
   if (
     saving.value ||
-    lineSaving.value ||
     pairingRevoking.value ||
     validationError.value
   ) {
@@ -369,7 +326,6 @@ function syncSelectionFromRoute(): void {
   if (
     status.value !== 'ready' ||
     saving.value ||
-    lineSaving.value ||
     pairingRevoking.value
   ) {
     return
@@ -415,6 +371,7 @@ onMounted(() => {
     :loading="status === 'loading'"
     :error="status === 'error'"
     :loading-title="t('users.loading')"
+    loading-shape="master-detail"
     :error-title="t('users.loadFailed')"
     :detail="loadError"
     retryable
@@ -551,11 +508,6 @@ onMounted(() => {
           </header>
 
           <div class="user-management-card__body">
-            <AccountProfileSetting
-              v-if="!creating && selectedUser?.id === sessionState.userID"
-              @saved="refreshUserList"
-            />
-
             <div class="user-fields">
               <label class="field">
                 <span>{{ t('common.username') }}</span>
@@ -585,11 +537,6 @@ onMounted(() => {
                 </small>
               </label>
             </div>
-
-            <SystemSettingsForm
-              v-if="!creating && selectedUser?.id === sessionState.userID"
-              class="user-system-language"
-            />
 
             <section
               v-if="!creating && selectedUser"
@@ -683,10 +630,6 @@ onMounted(() => {
               <legend class="sr-only">{{ t('users.assignedLines') }}</legend>
               <div class="user-lines__heading">
                 <strong>{{ t('users.assignedLines') }}</strong>
-                <SettingsSaveStatus
-                  :status="lineMutation.status.value"
-                  :error="lineMutation.error.value"
-                />
               </div>
               <p>
                 {{
@@ -698,12 +641,9 @@ onMounted(() => {
               <SettingsLineScopeList
                 :options="lineScopeOptions"
                 :selected-ids="lineIDs"
-                :disabled="saving || lineSaving"
+                :disabled="saving || selectedUser?.role === 'admin'"
                 @toggle-line="toggleLine"
               />
-              <p v-if="lineSaveError" class="field-error" role="alert">
-                {{ lineSaveError }}
-              </p>
             </fieldset>
 
             <section
@@ -749,7 +689,6 @@ onMounted(() => {
                 type="submit"
                 :disabled="
                   saving ||
-                  lineSaving ||
                   pairingRevoking ||
                   Boolean(validationError) ||
                   (!creating && !formChanged)
@@ -757,20 +696,34 @@ onMounted(() => {
               >
                 <LoaderCircle v-if="saving" class="spin" :size="17" />
                 <Save v-else :size="17" />
-                {{ creating ? t('users.createMember') : t('common.save') }}
+                {{ creating ? t('users.createMember') : t('users.saveUser') }}
               </button>
             </footer>
           </div>
         </section>
       </form>
 
-      <AccountSettingsPanel
+      <section
         v-if="!creating && selectedUser?.id === sessionState.userID"
-        :show-identity="false"
-        :show-profile="false"
-        :show-language="false"
-        @profile-saved="refreshUserList"
-      />
+        class="user-personal-settings"
+        aria-labelledby="user-personal-settings-title"
+      >
+        <header class="user-personal-settings__heading">
+          <span class="user-personal-settings__icon" aria-hidden="true">
+            <UserRound :size="19" />
+          </span>
+          <div>
+            <h3 id="user-personal-settings-title">
+              {{ t('users.personalSettings') }}
+            </h3>
+            <p>{{ t('users.personalSettingsDescription') }}</p>
+          </div>
+        </header>
+        <AccountSettingsPanel
+          :show-identity="false"
+          @profile-saved="refreshUserList"
+        />
+      </section>
     </section>
   </SettingsMasterDetail>
   </SettingsLoadBoundary>
@@ -936,12 +889,6 @@ onMounted(() => {
   margin-top: 4px;
 }
 
-.user-system-language {
-  max-width: none;
-  padding-bottom: 12px;
-  border-bottom: 0;
-}
-
 .user-account-access {
   display: grid;
   min-height: 64px;
@@ -1076,11 +1023,41 @@ onMounted(() => {
   min-width: 0;
 }
 
-.user-editor :deep(.account-settings-panel) {
+.user-personal-settings {
   max-width: 760px;
   margin-top: 28px;
   padding-top: 28px;
   border-top: 1px solid var(--border);
+}
+
+.user-personal-settings__heading {
+  display: flex;
+  min-height: 64px;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.user-personal-settings__icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  place-items: center;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-radius: 50%;
+}
+
+.user-personal-settings__heading p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.user-personal-settings :deep(.account-settings-panel) {
+  margin-top: 22px;
 }
 
 .user-admin-summary {

@@ -141,6 +141,7 @@ onBeforeUnmount(() => {
   <SettingsLoadBoundary
     :loading="initialLoading && !initialResourcesReady"
     :loading-title="t('common.loading')"
+    loading-shape="preferences"
   >
   <div class="audio-preferences">
     <SettingsSection

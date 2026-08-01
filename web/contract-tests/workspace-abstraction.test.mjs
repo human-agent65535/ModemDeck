@@ -28,6 +28,7 @@ test('communication pages use one master-detail and header system', async () => 
     assert.match(view, /<CommunicationListToolbar/)
     assert.match(view, /<WorkspaceDetailPane[\s\S]*:content-key=/)
     assert.match(view, /<WorkspaceDetailHeader/)
+    assert.doesNotMatch(view, /<WorkspaceDetailHeader[^>]*density=/)
     assert.match(view, /<WorkspaceDetailActions/)
     assert.match(view, /<FavoriteActionButton/)
     assert.doesNotMatch(view, /<header class="detail-header"/)
@@ -92,7 +93,11 @@ test('workspace primitives own action sizing, priority, and transition timing', 
     listHeader,
     /@media \(max-width: 860px\)[\s\S]*\.workspace-list-header\.workspace-list-header--compact-hidden \{[\s\S]*display: none;/
   )
-  assert.match(detailHeader, /density\?: 'default' \| 'compact'/)
+  assert.doesNotMatch(detailHeader, /density\?:/)
+  assert.match(
+    detailHeader,
+    /\.workspace-detail-header \{[\s\S]*min-height: 68px;[\s\S]*padding: 10px 24px;/
+  )
   assert.match(detailHeader, /class="workspace-detail-header__actions"/)
   assert.match(detailHeader, /gap: var\(--detail-action-gap\);/)
   assert.doesNotMatch(detailHeader, /--detail-action-size:/)

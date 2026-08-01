@@ -166,13 +166,10 @@ test('multi-user UI exposes only authorized settings and communication areas', a
   assert.match(users, /passwordCharacterCount\(newPassword\.value\)/)
   assert.doesNotMatch(users, /temporaryPassword/)
   assert.doesNotMatch(users, /recordingDefaultEnabled|languageOptions|preferences: \{/)
-  assert.match(users, /<AccountProfileSetting/)
-  assert.match(
-    users,
-    /<AccountProfileSetting[\s\S]*?<div class="user-fields">/
-  )
+  assert.doesNotMatch(users, /import AccountProfileSetting from/)
   assert.match(users, /<AccountSettingsPanel/)
-  assert.match(users, /:show-profile="false"/)
+  assert.match(users, /class="user-personal-settings"/)
+  assert.doesNotMatch(users, /:show-profile="false"|:show-language="false"/)
   assert.match(users, /selectedUser\.profile_name \|\| selectedUser\.username/)
   assert.match(users, /selectedUser\?\.profile_name \|\| username/)
   assert.match(users, /selectedUser\?\.id === sessionState\.userID/)
@@ -192,6 +189,10 @@ test('multi-user UI exposes only authorized settings and communication areas', a
   assert.match(
     users,
     /v-model="iosPairingEnabled"[\s\S]*?:disabled="saving \|\| selectedUser\?\.role === 'admin'"/
+  )
+  assert.match(
+    users,
+    /:selected-ids="lineIDs"[\s\S]*?:disabled="saving \|\| selectedUser\?\.role === 'admin'"/
   )
   assert.match(users, /class="user-pairing-state"/)
   assert.match(users, /class="ui-switch"/)

@@ -106,7 +106,7 @@ test('message conversations reuse contact create and add actions', async () => {
   assert.match(source, /<ContactHeaderIdentity/)
   assert.match(
     source,
-    /<WorkspaceDetailHeader density="compact">[\s\S]*?<template[^>]*#actions>[\s\S]*?<ContactNumberActions/
+    /<WorkspaceDetailHeader>[\s\S]*?<template[^>]*#actions>[\s\S]*?<ContactNumberActions/
   )
   assert.match(source, /<ContactNumberActions[\s\S]*:number="selectedThread\.peer"/)
   assert.match(source, /:contact="activeContact"/)
@@ -140,7 +140,7 @@ test('communication detail action groups share one stable size and gap', async (
   )
   assert.match(
     messages,
-    /<WorkspaceDetailHeader density="compact">[\s\S]*?<template[^>]*#actions>/
+    /<WorkspaceDetailHeader>[\s\S]*?<template[^>]*#actions>/
   )
   assert.match(styles, /--detail-action-gap: var\(--space-2\);/)
   assert.match(styles, /--detail-action-size: var\(--touch-target\);/)
@@ -167,6 +167,15 @@ test('recordings reuse the compact contact identity and actions in the header', 
     /<WorkspaceDetailHeader>[\s\S]*?<template #actions>/
   )
   assert.match(source, /<ContactNumberActions[\s\S]*:contact="selectedContact"[\s\S]*compact/)
+})
+
+test('contact details keep their avatar within the shared header geometry', async () => {
+  const source = await readFile(contactsView, 'utf8')
+
+  assert.match(
+    source,
+    /<WorkspaceDetailHeader>[\s\S]*?<BaseAvatar[\s\S]*?size="medium"/
+  )
 })
 
 test('incoming and outgoing call surfaces reuse a matched contact avatar', async () => {

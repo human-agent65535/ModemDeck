@@ -9,7 +9,6 @@ import {
   updateDefaultRecording
 } from '../state/recording'
 import SettingsPreferenceRow from './settings/SettingsPreferenceRow.vue'
-import SettingsSaveStatus from './settings/SettingsSaveStatus.vue'
 
 const { t } = useI18n()
 const pendingEnabled = ref(false)
@@ -93,11 +92,6 @@ onMounted(() => {
         <span class="recording-settings__value">
           {{ displayedEnabled ? t('recordingSettings.enabled') : t('recordingSettings.disabled') }}
         </span>
-        <SettingsSaveStatus
-          :status="saveMutation.status.value"
-          :error="saveMutation.error.value"
-          compact
-        />
         <input
           class="ui-switch ui-switch--danger"
           type="checkbox"

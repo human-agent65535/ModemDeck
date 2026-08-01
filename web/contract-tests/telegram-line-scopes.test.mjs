@@ -24,7 +24,7 @@ function functionBody(name, nextName) {
 }
 
 test('Telegram all-lines selection clears every concrete line scope', () => {
-  const body = functionBody('setAllLines', 'persistLineScopes')
+  const body = functionBody('setAllLines', 'selectAllLines')
 
   assert.match(body, /allLines\.value = true/)
   assert.match(body, /lineScopes\.value = \[\]/)
@@ -56,6 +56,18 @@ test('Telegram save payload has one canonical line-scope representation', () => 
   assert.match(body, /allLines\.value = false[\s\S]*return scopes/)
   assert.match(form, /line_scopes: normalizedLineScopes\(\)/)
   assert.doesNotMatch(form, /line_scopes: allLines\.value \? \[\]/)
+})
+
+test('Telegram line scopes remain local draft state until the bot is saved', () => {
+  const selectAll = functionBody('selectAllLines', 'toggleLineScope')
+  const toggle = functionBody('toggleLineScope', 'normalizedLineScopes')
+
+  assert.match(selectAll, /setAllLines\(\)/)
+  assert.match(toggle, /lineScopes\.value = scopes/)
+  assert.doesNotMatch(selectAll, /saveTelegramUnit|persistLineScopes/)
+  assert.doesNotMatch(toggle, /saveTelegramUnit|persistLineScopes/)
+  assert.doesNotMatch(form, /useSettingsMutation|scopeSaving|scopeSaveError/)
+  assert.match(form, /t\('telegram\.saveBot'\)/)
 })
 
 test('Telegram line scopes show the line label and reliable phone number without internal IDs', () => {

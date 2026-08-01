@@ -22,6 +22,7 @@ import StatePanel from '../components/StatePanel.vue'
 import PageContentFrame from '../components/PageContentFrame.vue'
 import SettingsAsyncBoundary from '../components/settings/SettingsAsyncBoundary.vue'
 import SettingsContentTransition from '../components/settings/SettingsContentTransition.vue'
+import type { SettingsSkeletonShape } from '../components/settings/settingsSkeleton'
 import { fixtureMode } from '../api/client'
 import { logout as logoutSession, sessionState } from '../state/session'
 import {
@@ -183,6 +184,28 @@ const currentTitle = computed(
     sections.value.find(section => section.id === selectedSection.value)?.label ||
     t('settings.title')
 )
+const settingsLoadingShape = computed<SettingsSkeletonShape>(() => {
+  switch (selectedSection.value) {
+    case 'account':
+      return sessionState.role === 'admin' ? 'master-detail' : 'preferences'
+    case 'contacts':
+    case 'external-access':
+    case 'about':
+      return 'modules'
+    case 'audio':
+      return 'preferences'
+    case 'devices':
+      return 'workbench'
+    case 'telegram':
+      return 'master-detail'
+    case 'web-certificate':
+      return 'detail-form'
+    case 'diagnostics':
+      return 'diagnostics'
+    default:
+      return 'preferences'
+  }
+})
 
 watch(
   selectedSection,
@@ -389,7 +412,10 @@ onMounted(() => {
         </header>
 
         <SettingsContentTransition :content-key="selectedSection">
-          <SettingsAsyncBoundary :loading-title="t('common.loading')">
+          <SettingsAsyncBoundary
+            :loading-title="t('common.loading')"
+            :loading-shape="settingsLoadingShape"
+          >
             <div
               v-if="selectedSection === 'account'"
               class="settings-content"

@@ -1,19 +1,5 @@
-<script setup lang="ts">
-withDefaults(
-  defineProps<{
-    density?: 'default' | 'compact'
-  }>(),
-  {
-    density: 'default'
-  }
-)
-</script>
-
 <template>
-  <header
-    class="workspace-detail-header"
-    :class="`workspace-detail-header--${density}`"
-  >
+  <header class="workspace-detail-header">
     <slot name="leading" />
     <slot name="identity" />
     <div
@@ -29,19 +15,13 @@ withDefaults(
 .workspace-detail-header {
   display: flex;
   min-width: 0;
-  min-height: 82px;
+  min-height: 68px;
   flex: 0 0 auto;
   align-items: center;
   gap: 14px;
-  padding: 14px 24px;
+  padding: 10px 24px;
   border-bottom: 1px solid var(--border);
   container-type: inline-size;
-}
-
-.workspace-detail-header--compact {
-  min-height: 68px;
-  padding-top: 10px;
-  padding-bottom: 10px;
 }
 
 .workspace-detail-header__actions {

@@ -59,7 +59,8 @@ test('settings panels and their CSS load through one shared async boundary', asy
   assert.match(settings, /@pointerenter="preloadSection\(section\.id\)"/)
   assert.match(settings, /<SettingsAsyncBoundary/)
   assert.match(boundary, /<Suspense>/)
-  assert.match(boundary, /<StatePanel[\s\S]*state="loading"/)
+  assert.match(boundary, /<SettingsSkeleton/)
+  assert.match(boundary, /:shape="loadingShape"/)
 })
 
 test('locale catalogs and fixture data stay out of the production shell', async () => {

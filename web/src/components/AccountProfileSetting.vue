@@ -6,7 +6,6 @@ import { useSettingsMutation } from '../composables/useSettingsMutation'
 import { sessionState, setSessionProfileContact } from '../state/session'
 import { contactsResource, loadContacts } from '../state/workspace'
 import BaseAvatar from './BaseAvatar.vue'
-import SettingsSaveStatus from './settings/SettingsSaveStatus.vue'
 
 const { t } = useI18n()
 const emit = defineEmits<{
@@ -88,10 +87,6 @@ onMounted(() => {
         {{ profileNumber }}
       </small>
     </label>
-    <SettingsSaveStatus
-      :status="profileMutation.status.value"
-      :error="profileMutation.error.value"
-    />
   </section>
 </template>
 
@@ -102,7 +97,7 @@ onMounted(() => {
   align-items: center;
   gap: 14px;
   padding: 18px 0;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   border-bottom: 1px solid var(--border);
 }
 

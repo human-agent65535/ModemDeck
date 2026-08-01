@@ -415,7 +415,11 @@ export default {
     setPasswordFailed: 'Unable to set the password',
     saved: 'User saved',
     passwordSet: 'Password set',
-    createMember: 'Create member'
+    createMember: 'Create member',
+    saveUser: 'Save user',
+    personalSettings: 'Your preferences and security',
+    personalSettingsDescription:
+      'These settings apply only to your signed-in account.'
   },
   iosPairing: {
     loading: 'Loading external access',
@@ -956,7 +960,8 @@ export default {
     allAssignedLines: 'All assigned lines',
     allAssignedLinesDescription: 'Automatically includes future line assignments',
     confirmDelete: 'Confirm delete',
-    saved: 'Saved'
+    saved: 'Saved',
+    saveBot: 'Save bot'
   },
   tls: {
     scopeNotice:

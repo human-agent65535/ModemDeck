@@ -405,7 +405,10 @@ export default {
     "setPasswordFailed": "Passwort konnte nicht festgelegt werden",
     "saved": "Benutzer gespeichert",
     "passwordSet": "Passwort festgelegt",
-    "createMember": "Mitglied erstellen"
+    "createMember": "Mitglied erstellen",
+    "saveUser": "Benutzer speichern",
+    "personalSettings": "Deine Einstellungen und Sicherheit",
+    "personalSettingsDescription": "Diese Einstellungen gelten nur für dein angemeldetes Konto."
   },
   "iosPairing": {
     "loading": "Externer Zugriff wird geladen",
@@ -927,7 +930,8 @@ export default {
     "allAssignedLines": "Alle zugewiesenen Leitungen",
     "allAssignedLinesDescription": "Künftige Zuweisungen werden automatisch einbezogen",
     "confirmDelete": "Bestätigen Sie das Löschen",
-    "saved": "Gespeichert"
+    "saved": "Gespeichert",
+    "saveBot": "Bot speichern"
   },
   "tls": {
     "scopeNotice": "Dieses Zertifikat wird nur von der lokalen Weboberfläche auf Port 7577 verwendet. Cloudflare- und iOS-Zertifikate werden separat verwaltet.",

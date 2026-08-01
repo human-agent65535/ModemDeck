@@ -405,7 +405,10 @@ export default {
     "setPasswordFailed": "No se pudo establecer la contraseña",
     "saved": "Usuario guardado",
     "passwordSet": "Contraseña establecida",
-    "createMember": "Crear miembro"
+    "createMember": "Crear miembro",
+    "saveUser": "Guardar usuario",
+    "personalSettings": "Tus preferencias y seguridad",
+    "personalSettingsDescription": "Estos ajustes solo se aplican a tu cuenta actual."
   },
   "iosPairing": {
     "loading": "Cargando el acceso externo",
@@ -927,7 +930,8 @@ export default {
     "allAssignedLines": "Todas las líneas asignadas",
     "allAssignedLinesDescription": "Incluye automáticamente las futuras asignaciones",
     "confirmDelete": "Confirmar eliminación",
-    "saved": "Guardado"
+    "saved": "Guardado",
+    "saveBot": "Guardar bot"
   },
   "tls": {
     "scopeNotice": "Este certificado solo se usa en la interfaz web local del puerto 7577. Los certificados de Cloudflare e iOS se administran por separado.",

@@ -8,7 +8,6 @@ import { useSettingsMutation } from '../composables/useSettingsMutation'
 import { setSystemLanguage, systemLanguage } from '../i18n'
 import { bootstrapResource, loadBootstrap } from '../state/workspace'
 import SettingsPreferenceRow from './settings/SettingsPreferenceRow.vue'
-import SettingsSaveStatus from './settings/SettingsSaveStatus.vue'
 
 const { t } = useI18n()
 const initialSettings = bootstrapResource.data?.system_settings
@@ -169,11 +168,6 @@ onMounted(() => {
         </select>
         <ChevronDown :size="18" aria-hidden="true" />
       </label>
-      <SettingsSaveStatus
-        :status="saveMutation.status.value"
-        :error="saveMutation.error.value"
-        compact
-      />
     </template>
     <template v-if="loadError || saveMutation.error.value" #feedback>
       <p class="system-settings__feedback is-error" role="alert">

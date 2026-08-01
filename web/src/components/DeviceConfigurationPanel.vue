@@ -96,7 +96,6 @@ import SignalBars from './SignalBars.vue'
 import StatePanel from './StatePanel.vue'
 import DeviceWorkspace from './settings/DeviceWorkspace.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
-import SettingsSaveStatus from './settings/SettingsSaveStatus.vue'
 
 type DeviceTab = 'overview' | 'network' | 'sim' | 'sms' | 'voice' | 'ussd'
 type AsyncStatus = 'idle' | 'loading' | 'ready' | 'error'
@@ -1286,6 +1285,7 @@ onMounted(() => {
   <SettingsLoadBoundary
     :loading="initialLoading"
     :loading-title="t('device.loadingModules')"
+    loading-shape="workbench"
   >
   <DeviceWorkspace
     class="device-configuration"
@@ -1430,7 +1430,7 @@ onMounted(() => {
               @click="makeDefault(selectedLine)"
             >
               <CheckCircle2 :size="15" />
-              {{ t('lines.setDefault') }}
+              {{ t('lines.setDefaultLine') }}
             </button>
           </div>
           <p v-if="moduleNameError" class="module-name-error" role="alert">
@@ -1668,12 +1668,6 @@ onMounted(() => {
                 </small>
               </span>
               <span class="configuration-toggle__control">
-                <SettingsSaveStatus
-                  v-if="activeDeviceMutation === 'radio'"
-                  :status="deviceMutation.status.value"
-                  :error="deviceMutation.error.value"
-                  compact
-                />
                 <input
                   class="ui-switch"
                   type="checkbox"
@@ -1879,12 +1873,6 @@ onMounted(() => {
                 </small>
               </span>
               <span class="configuration-toggle__control">
-                <SettingsSaveStatus
-                  v-if="activeDeviceMutation === 'data'"
-                  :status="deviceMutation.status.value"
-                  :error="deviceMutation.error.value"
-                  compact
-                />
                 <input
                   class="ui-switch"
                   type="checkbox"
@@ -2184,12 +2172,6 @@ onMounted(() => {
                 <small v-else>{{ t('device.deliveryReportsDescription') }}</small>
               </span>
               <span class="configuration-toggle__control">
-                <SettingsSaveStatus
-                  v-if="activeDeviceMutation === 'delivery-reports'"
-                  :status="deviceMutation.status.value"
-                  :error="deviceMutation.error.value"
-                  compact
-                />
                 <input
                   class="ui-switch"
                   type="checkbox"
@@ -2326,11 +2308,6 @@ onMounted(() => {
             <div v-if="!incomingCallControlUnavailable" class="incoming-policy__status">
               <span>{{ t('device.current') }}</span>
               <strong>{{ policyLabel(incomingCalls.effective_policy) }}</strong>
-              <SettingsSaveStatus
-                v-if="activeDeviceMutation === 'incoming-policy'"
-                :status="deviceMutation.status.value"
-                :error="deviceMutation.error.value"
-              />
               <small v-if="incomingPolicyDraft === 'follow_global'">
                 {{
                   t('device.globalPolicy', {
@@ -2366,12 +2343,6 @@ onMounted(() => {
                 <small v-else>{{ volteStatusLabel }}</small>
               </span>
               <span class="configuration-toggle__control">
-                <SettingsSaveStatus
-                  v-if="activeDeviceMutation === 'volte'"
-                  :status="deviceMutation.status.value"
-                  :error="deviceMutation.error.value"
-                  compact
-                />
                 <input
                   class="ui-switch"
                   type="checkbox"

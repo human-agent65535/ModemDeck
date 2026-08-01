@@ -405,7 +405,10 @@ export default {
     setPasswordFailed: '密码设置失败',
     saved: '用户已保存',
     passwordSet: '密码已设置',
-    createMember: '创建成员'
+    createMember: '创建成员',
+    saveUser: '保存用户',
+    personalSettings: '你的偏好与安全',
+    personalSettingsDescription: '这些设置仅影响你当前登录的账户。'
   },
   iosPairing: {
     loading: '正在载入外部访问',
@@ -935,7 +938,8 @@ export default {
     allAssignedLines: '该用户全部线路',
     allAssignedLinesDescription: '以后分配给该用户的线路也会自动加入',
     confirmDelete: '确认删除',
-    saved: '已保存'
+    saved: '已保存',
+    saveBot: '保存 Bot'
   },
   tls: {
     scopeNotice: '此证书仅用于本地 Web 入口 7577；Cloudflare 与 iOS 的证书由各自链路独立管理。',

@@ -94,7 +94,7 @@ test('binary preferences share one switch primitive with semantic variants', asy
   assert.doesNotMatch(recording, /\.recording-settings__control input\s*\{/)
 })
 
-test('the current user hierarchy keeps personal language near identity and line scope readable', async () => {
+test('the current user hierarchy separates personal preferences from managed resource fields', async () => {
   const [account, users, telegram, lineSelector, lineIdentity, lineScopeList] = await Promise.all([
     source('../src/components/AccountSettingsPanel.vue'),
     source('../src/components/UserSettingsPanel.vue'),
@@ -106,17 +106,16 @@ test('the current user hierarchy keeps personal language near identity and line 
 
   assert.match(account, /showLanguage\?: boolean/)
   assert.match(account, /<SystemSettingsForm v-if="props\.showLanguage" \/>/)
-  assert.match(users, /import SystemSettingsForm from/)
-  assert.match(users, /class="user-system-language"/)
-  assert.match(users, /:show-language="false"/)
+  assert.doesNotMatch(users, /import SystemSettingsForm from/)
+  assert.doesNotMatch(users, /import AccountProfileSetting from/)
+  assert.match(users, /class="user-personal-settings"/)
+  assert.match(users, /<AccountSettingsPanel[\s\S]*:show-identity="false"/)
+  assert.doesNotMatch(users, /:show-language="false"|:show-profile="false"/)
   assert.ok(
-    users.indexOf('class="user-system-language"') <
-      users.indexOf('class="user-account-access"'),
-    'language preference should precede account access'
+    account.indexOf('<SystemSettingsForm') <
+      account.indexOf('<DefaultLineSettingsForm'),
+    'language preference should precede default line'
   )
-  const systemLanguageStyle = users.match(/\.user-system-language \{[^}]*\}/)?.[0]
-  assert.ok(systemLanguageStyle)
-  assert.match(systemLanguageStyle, /max-width: none;/)
   assert.match(users, /<SettingsLineScopeList/)
   assert.match(telegram, /<SettingsLineScopeList/)
   assert.match(lineSelector, /import LineIdentity from/)
@@ -131,10 +130,24 @@ test('the current user hierarchy keeps personal language near identity and line 
 })
 
 test('page-level async settings share one mutually exclusive skeleton boundary', async () => {
-  const [statePanel, loadBoundary, listSkeleton, messages, ...settingsPanels] = await Promise.all([
+  const [
+    statePanel,
+    loadBoundary,
+    asyncBoundary,
+    listSkeleton,
+    skeletonBlock,
+    settingsSkeleton,
+    settingsView,
+    messages,
+    ...settingsPanels
+  ] = await Promise.all([
     source('../src/components/StatePanel.vue'),
     source('../src/components/settings/SettingsLoadBoundary.vue'),
+    source('../src/components/settings/SettingsAsyncBoundary.vue'),
     source('../src/components/ListSkeleton.vue'),
+    source('../src/components/SkeletonBlock.vue'),
+    source('../src/components/settings/SettingsSkeleton.vue'),
+    source('../src/views/SettingsView.vue'),
     source('../src/views/MessagesView.vue'),
     source('../src/components/AccountSettingsPanel.vue'),
     source('../src/components/UserSettingsPanel.vue'),
@@ -152,16 +165,44 @@ test('page-level async settings share one mutually exclusive skeleton boundary',
   assert.match(statePanel, /<ListSkeleton[\s\S]*variant="content"/)
   assert.doesNotMatch(statePanel, /LoaderCircle|state-panel__loading-mark/)
   assert.match(loadBoundary, /import StatePanel from '\.\.\/StatePanel\.vue'/)
+  assert.match(loadBoundary, /import SettingsSkeleton from '\.\/SettingsSkeleton\.vue'/)
   assert.match(
     loadBoundary,
-    /<StatePanel[\s\S]*v-if="loading"[\s\S]*v-else-if="forbidden"[\s\S]*v-else-if="error"[\s\S]*<slot v-else \/>/
+    /<SettingsSkeleton[\s\S]*v-if="loading"[\s\S]*<StatePanel[\s\S]*v-else-if="forbidden"[\s\S]*v-else-if="error"[\s\S]*<slot v-else \/>/
   )
+  assert.match(asyncBoundary, /import SettingsSkeleton from '\.\/SettingsSkeleton\.vue'/)
+  assert.match(asyncBoundary, /<Suspense>/)
+  assert.match(asyncBoundary, /:shape="loadingShape"/)
+  assert.match(asyncBoundary, /<PageContentFrame v-else :mode="frameMode">/)
+  assert.match(settingsView, /:loading-shape="settingsLoadingShape"/)
   assert.match(listSkeleton, /variant\?: 'list' \| 'content'/)
-  assert.match(listSkeleton, /list-skeleton-shimmer/)
+  assert.match(listSkeleton, /import SkeletonBlock from '\.\/SkeletonBlock\.vue'/)
+  assert.doesNotMatch(listSkeleton, /list-skeleton-reveal|opacity:\s*0/)
+  assert.match(skeletonBlock, /animation: skeleton-block-shimmer/)
+  assert.match(settingsSkeleton, /settings-skeleton__preferences/)
+  assert.match(settingsSkeleton, /settings-skeleton__modules/)
+  assert.match(settingsSkeleton, /settings-skeleton__master-detail/)
+  assert.match(settingsSkeleton, /settings-skeleton__workbench/)
+  assert.match(settingsSkeleton, /settings-skeleton__detail-form/)
+  assert.match(settingsSkeleton, /settings-skeleton__diagnostics/)
+  assert.doesNotMatch(settingsSkeleton, /settings-skeleton-reveal|opacity:\s*0/)
   assert.match(messages, /<ListSkeleton[\s\S]*threadsResource\.status === 'loading'/)
-  for (const panel of settingsPanels) {
+  const expectedShapes = [
+    'preferences',
+    'master-detail',
+    'modules',
+    'preferences',
+    'master-detail',
+    'workbench',
+    'modules',
+    'detail-form',
+    'diagnostics',
+    'modules'
+  ]
+  for (const [index, panel] of settingsPanels.entries()) {
     assert.match(panel, /import SettingsLoadBoundary from/)
     assert.match(panel, /<SettingsLoadBoundary/)
+    assert.match(panel, new RegExp(`loading-shape="${expectedShapes[index]}"`))
   }
 })
 
@@ -188,6 +229,11 @@ test('master-detail settings are flush and mobile page titles cover every sectio
   assert.match(
     masterDetail,
     /\.settings-master-detail__detail-content \{[\s\S]*overflow-y: auto;[\s\S]*overscroll-behavior: contain;/
+  )
+  assert.match(masterDetail, /padding: 0 24px 32px;/)
+  assert.match(
+    masterDetail,
+    /padding: 12px 16px max\(32px, env\(safe-area-inset-bottom\)\);/
   )
   assert.match(shell, /'external-access': t\('settings\.iosApp'\)/)
   assert.match(shell, /'web-certificate': t\('settings\.tls'\)/)
@@ -216,6 +262,15 @@ test('settings drilldown aligns with the shell compact breakpoint', async () => 
   ]) {
     assert.match(component, /@media \(max-width: 860px\)/)
   }
+
+  assert.match(
+    deviceWorkspace,
+    /\.device-workspace \{[\s\S]*height: 100%;[\s\S]*min-height: 0;[\s\S]*overflow-y: auto;[\s\S]*grid-template-rows: auto auto;/
+  )
+  assert.match(
+    deviceWorkspace,
+    /@media \(max-width: 860px\)[\s\S]*\.device-workspace__selector,[\s\S]*\.device-workspace__detail \{[\s\S]*overflow-y: auto;/
+  )
   assert.match(masterDetail, /mobile-drilldown__list/)
   assert.match(masterDetail, /mobile-drilldown__detail/)
   assert.match(deviceWorkspace, /mobile-drilldown__list/)
@@ -235,7 +290,7 @@ test('settings drilldown aligns with the shell compact breakpoint', async () => 
   )
 })
 
-test('settings section and resource changes use the shared stable transition', async () => {
+test('settings sections animate while resource and communication entities switch immediately', async () => {
   const [transition, view, masterDetail, users, telegram] = await Promise.all([
     source('../src/components/settings/SettingsContentTransition.vue'),
     source('../src/views/SettingsView.vue'),
@@ -249,10 +304,8 @@ test('settings section and resource changes use the shared stable transition', a
   assert.match(transition, /animation: settings-content-in var\(--motion-base\)/)
   assert.match(masterDetail, /detailKey\?: string \| number \| null/)
   assert.match(masterDetail, /settings-master-detail__detail-content/)
-  assert.match(
-    masterDetail,
-    /animation: settings-master-detail-content-in var\(--motion-base\)/
-  )
+  assert.doesNotMatch(masterDetail, /settings-master-detail-content-in|opacity:\s*0/)
+  assert.doesNotMatch(masterDetail, /<Transition/)
   assert.match(users, /:detail-key="creating \? '__new_member__' : selectedID"/)
   assert.match(
     telegram,
@@ -300,11 +353,16 @@ test('save behavior distinguishes immediate preferences from dirty resource form
   assert.match(profile, /@change="changeProfile"/)
   for (const immediate of [profile, defaultLine, language, recording, device]) {
     assert.match(immediate, /useSettingsMutation/)
-    assert.match(immediate, /SettingsSaveStatus/)
+    assert.doesNotMatch(immediate, /SettingsSaveStatus/)
   }
-  assert.match(users, /async function toggleLine/)
+  assert.match(users, /function toggleLine/)
   assert.match(users, /const formChanged = computed/)
   assert.match(users, /v-if="creating \|\| selectedUser\?\.role === 'member'"/)
-  assert.match(telegram, /async function persistLineScopes/)
+  assert.match(users, /t\('users\.saveUser'\)/)
+  assert.doesNotMatch(users, /useSettingsMutation|lineSaving|lineSaveError/)
   assert.match(telegram, /const formChanged = computed/)
+  assert.match(telegram, /t\('telegram\.saveBot'\)/)
+  assert.doesNotMatch(telegram, /persistLineScopes|scopeSaving|scopeSaveError/)
+  assert.doesNotMatch(users, /SettingsSaveStatus/)
+  assert.doesNotMatch(telegram, /SettingsSaveStatus/)
 })

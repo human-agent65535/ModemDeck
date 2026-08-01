@@ -445,7 +445,7 @@ onBeforeUnmount(() => {
             <BaseAvatar
               :name="selected.display_name"
               :src="selected.avatar"
-              size="large"
+              size="medium"
             />
             <div class="workspace-detail-identity">
               <h2>{{ selected.display_name }}</h2>

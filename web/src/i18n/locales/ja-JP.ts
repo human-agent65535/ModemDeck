@@ -405,7 +405,10 @@ export default {
     "setPasswordFailed": "パスワードを設定できません",
     "saved": "ユーザーを保存しました",
     "passwordSet": "パスワードを設定しました",
-    "createMember": "メンバーを作成"
+    "createMember": "メンバーを作成",
+    "saveUser": "ユーザーを保存",
+    "personalSettings": "個人設定とセキュリティ",
+    "personalSettingsDescription": "現在ログイン中のアカウントにのみ適用されます。"
   },
   "iosPairing": {
     "loading": "外部アクセスを読み込み中",
@@ -927,7 +930,8 @@ export default {
     "allAssignedLines": "割り当て済みの全回線",
     "allAssignedLinesDescription": "今後の回線割り当ても自動的に含めます",
     "confirmDelete": "削除の確認",
-    "saved": "保存されました"
+    "saved": "保存されました",
+    "saveBot": "Botを保存"
   },
   "tls": {
     "scopeNotice": "この証明書はポート 7577 のローカル Web インターフェイスだけで使用されます。Cloudflare と iOS の証明書は別に管理されます。",

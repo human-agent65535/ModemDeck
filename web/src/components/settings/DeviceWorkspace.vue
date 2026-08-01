@@ -28,28 +28,44 @@ withDefaults(
 <style scoped>
 .device-workspace {
   display: grid;
+  width: 100%;
+  height: 100%;
   min-width: 0;
-  min-height: 520px;
-  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  grid-template-rows: auto auto;
+  align-content: start;
   background: var(--surface);
   border-top: 1px solid var(--border);
+  overscroll-behavior: contain;
 }
 
 .device-workspace__selector,
 .device-workspace__detail {
   min-width: 0;
+  min-height: 0;
 }
 
 .device-workspace__selector {
   border-bottom: 1px solid var(--border);
 }
 
+.device-workspace__detail {
+  overflow: visible;
+}
+
 @media (max-width: 860px) {
   .device-workspace {
-    min-height: 0;
+    overflow: hidden;
     grid-template-rows: minmax(0, 1fr);
     border-top: 0;
   }
 
+  .device-workspace__selector,
+  .device-workspace__detail {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
 }
 </style>

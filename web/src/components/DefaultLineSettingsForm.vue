@@ -11,7 +11,6 @@ import {
   updateDefaultLine
 } from '../state/workspace'
 import SettingsPreferenceRow from './settings/SettingsPreferenceRow.vue'
-import SettingsSaveStatus from './settings/SettingsSaveStatus.vue'
 
 const { t } = useI18n()
 const selected = ref('')
@@ -83,11 +82,6 @@ onMounted(() => {
         </select>
         <ChevronDown :size="18" aria-hidden="true" />
       </label>
-      <SettingsSaveStatus
-        :status="saveMutation.status.value"
-        :error="saveMutation.error.value"
-        compact
-      />
     </template>
     <template v-if="saveMutation.error.value" #feedback>
       <p class="default-line-settings__feedback is-error" role="alert">

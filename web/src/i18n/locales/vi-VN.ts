@@ -405,7 +405,10 @@ export default {
     "setPasswordFailed": "Không thể đặt mật khẩu",
     "saved": "Đã lưu người dùng",
     "passwordSet": "Đã đặt mật khẩu",
-    "createMember": "Tạo thành viên"
+    "createMember": "Tạo thành viên",
+    "saveUser": "Lưu người dùng",
+    "personalSettings": "Tùy chọn và bảo mật của bạn",
+    "personalSettingsDescription": "Các cài đặt này chỉ áp dụng cho tài khoản đang đăng nhập."
   },
   "iosPairing": {
     "loading": "Đang tải truy cập bên ngoài",
@@ -927,7 +930,8 @@ export default {
     "allAssignedLines": "Tất cả đường dây được phân",
     "allAssignedLinesDescription": "Tự động gồm cả các đường dây được phân sau này",
     "confirmDelete": "Xác nhận xóa",
-    "saved": "Đã lưu"
+    "saved": "Đã lưu",
+    "saveBot": "Lưu bot"
   },
   "tls": {
     "scopeNotice": "Chứng chỉ này chỉ dùng cho giao diện Web cục bộ trên cổng 7577. Chứng chỉ Cloudflare và iOS được quản lý riêng.",

@@ -729,6 +729,7 @@ onBeforeUnmount(() => {
       :forbidden="snapshotState === 'forbidden'"
       :error="snapshotState === 'error'"
       :loading-title="t('diagnostics.loadingStatus')"
+      loading-shape="diagnostics"
       :forbidden-title="t('diagnostics.viewForbidden')"
       :error-title="t('diagnostics.snapshotFailed')"
       :detail="snapshotError"

@@ -211,6 +211,7 @@ onMounted(() => {
       :loading="loading"
       :error="Boolean(loadError)"
       :loading-title="t('tls.loading')"
+      loading-shape="detail-form"
       :error-title="t('tls.loadFailed')"
       :detail="loadError"
       retryable

@@ -50,6 +50,7 @@ onMounted(() => {
   <SettingsLoadBoundary
     :loading="initialLoading && !accountResourcesReady"
     :loading-title="t('common.loading')"
+    loading-shape="preferences"
   >
     <div class="account-settings-panel">
       <section
@@ -79,8 +80,8 @@ onMounted(() => {
       />
 
       <div class="account-preferences">
-        <DefaultLineSettingsForm />
         <SystemSettingsForm v-if="props.showLanguage" />
+        <DefaultLineSettingsForm />
       </div>
 
       <AccountSecurityForm />

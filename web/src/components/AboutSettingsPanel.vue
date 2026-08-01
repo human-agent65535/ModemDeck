@@ -107,6 +107,7 @@ onMounted(() => {
   <SettingsLoadBoundary
     :loading="initialLoading"
     :loading-title="t('about.loading')"
+    loading-shape="modules"
   >
   <section class="about-settings" aria-labelledby="about-product-title">
     <SettingsModuleCard

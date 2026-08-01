@@ -1082,7 +1082,7 @@ onBeforeUnmount(() => {
         class="conversation-pane"
         :content-key="initialLoading ? null : composingNew ? 'compose' : selectedThread?.key"
       >
-        <WorkspaceDetailHeader density="compact">
+        <WorkspaceDetailHeader>
           <template v-if="composingNew" #leading>
             <button
               class="icon-button mobile-compose-cancel"

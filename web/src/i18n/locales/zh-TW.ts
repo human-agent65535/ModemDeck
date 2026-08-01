@@ -405,7 +405,10 @@ export default {
     setPasswordFailed: '密碼設定失敗',
     saved: '使用者已儲存',
     passwordSet: '密碼已設定',
-    createMember: '建立成員'
+    createMember: '建立成員',
+    saveUser: '儲存使用者',
+    personalSettings: '你的偏好與安全',
+    personalSettingsDescription: '這些設定僅套用至你目前登入的帳戶。'
   },
   iosPairing: {
     loading: '正在載入外部存取',
@@ -935,7 +938,8 @@ export default {
     allAssignedLines: '該使用者全部線路',
     allAssignedLinesDescription: '日後分配給該使用者的線路也會自動加入',
     confirmDelete: '確認刪除',
-    saved: '已儲存'
+    saved: '已儲存',
+    saveBot: '儲存 Bot'
   },
   tls: {
     scopeNotice: '此證書僅用於本機 Web 入口 7577；Cloudflare 與 iOS 的證書由各自鏈路獨立管理。',

@@ -21,7 +21,6 @@ import {
 import type { LineSummary, TelegramUnit, UserAccount } from '../api/types'
 import { ApiError } from '../api/types'
 import { gateway } from '../api/client'
-import { useSettingsMutation } from '../composables/useSettingsMutation'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { showError, showSuccess } from '../state/feedback'
 import { sessionState } from '../state/session'
@@ -39,7 +38,6 @@ import StatePanel from './StatePanel.vue'
 import SettingsLineScopeList from './settings/SettingsLineScopeList.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SettingsMasterDetail from './settings/SettingsMasterDetail.vue'
-import SettingsSaveStatus from './settings/SettingsSaveStatus.vue'
 
 type TelegramScopeOption = {
   id: string
@@ -70,17 +68,6 @@ const deleteConfirm = ref(false)
 const saveError = ref('')
 const users = ref<UserAccount[]>([])
 const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
-let suppressSelectedUnitApply = false
-const scopeMutation = useSettingsMutation({
-  errorMessage: error =>
-    error instanceof ApiError && error.status === 403
-      ? t('telegram.updateForbidden')
-      : error instanceof Error
-        ? error.message
-        : t('telegram.saveFailed')
-})
-const scopeSaving = scopeMutation.saving
-const scopeSaveError = scopeMutation.error
 const mobileDetailOpen = computed(
   () => typeof route.query.bot === 'string' || route.query.newBot === '1'
 )
@@ -232,14 +219,13 @@ function applyUnit(unit?: TelegramUnit): void {
   missedCalls.value = unit?.missed_calls ?? true
   botToken.value = ''
   saveError.value = ''
-  scopeMutation.reset()
   deleteConfirm.value = false
 }
 
 watch(
   selectedUnit,
   unit => {
-    if (!creating.value && !suppressSelectedUnitApply) applyUnit(unit)
+    if (!creating.value) applyUnit(unit)
   },
   { immediate: true }
 )
@@ -280,71 +266,18 @@ function setAllLines(): void {
   lineScopes.value = []
 }
 
-async function persistLineScopes(
-  scopes: string[],
-  previousAllLines: boolean,
-  previousScopes: string[]
-): Promise<void> {
-  const current = selectedUnit.value
-  if (
-    creating.value ||
-    !current ||
-    assignedUserID.value !== current.assigned_user_id
-  ) {
-    return
-  }
-
-  suppressSelectedUnitApply = true
-  const result = await scopeMutation.run(async () => {
-    const unit = await saveTelegramUnit(
-      {
-        display_name: current.display_name,
-        enabled: current.enabled,
-        chat_id: current.chat_id,
-        admin_id: current.admin_id,
-        assigned_user_id: current.assigned_user_id,
-        line_scopes: scopes,
-        incoming_sms: current.incoming_sms,
-        missed_calls: current.missed_calls,
-        revision: current.revision
-      },
-      current.id
-    )
-    allLines.value = unit.all_assigned_lines
-    lineScopes.value = unit.all_assigned_lines ? [] : [...unit.line_scopes]
-    await nextTick()
-    return unit
-  })
-  if (!result.ok) {
-    allLines.value = previousAllLines
-    lineScopes.value = previousScopes
-  }
-  suppressSelectedUnitApply = false
-}
-
 function selectAllLines(): void {
-  if (scopeSaving.value || (allLines.value && lineScopes.value.length === 0)) return
-  const previousAllLines = allLines.value
-  const previousScopes = [...lineScopes.value]
+  if (allLines.value && lineScopes.value.length === 0) return
   setAllLines()
-  void persistLineScopes([], previousAllLines, previousScopes)
 }
 
 function toggleLineScope(lineID: string, checked: boolean): void {
-  if (scopeSaving.value) return
-  const previousAllLines = allLines.value
-  const previousScopes = [...lineScopes.value]
   const scopes = checked
     ? [...new Set([...lineScopes.value, lineID])]
     : lineScopes.value.filter(scope => scope !== lineID)
 
   lineScopes.value = scopes
   allLines.value = scopes.length === 0
-  void persistLineScopes(
-    allLines.value ? [] : scopes,
-    previousAllLines,
-    previousScopes
-  )
 }
 
 function normalizedLineScopes(): string[] {
@@ -364,7 +297,7 @@ function changeAssignedUser(event: Event): void {
 }
 
 function selectUnit(id: string): void {
-  if (saving.value || deleting.value || scopeSaving.value) return
+  if (saving.value || deleting.value) return
   discardDraft(id)
   void router.push({
     name: 'settings',
@@ -374,7 +307,7 @@ function selectUnit(id: string): void {
 }
 
 function startCreate(): void {
-  if (saving.value || deleting.value || scopeSaving.value) return
+  if (saving.value || deleting.value) return
   if (!creating.value) {
     draftReturnID.value = selectedUnit.value?.id || telegramResource.data[0]?.id || ''
   }
@@ -403,7 +336,7 @@ function discardDraft(nextID?: string): string {
 }
 
 function cancelCreate(): void {
-  if (!creating.value || saving.value || deleting.value || scopeSaving.value) return
+  if (!creating.value || saving.value || deleting.value) return
   const returnID = discardDraft()
   void router.replace({
     name: 'settings',
@@ -413,7 +346,7 @@ function cancelCreate(): void {
 }
 
 async function submit(): Promise<void> {
-  if (saving.value || deleting.value || scopeSaving.value || validationError.value) return
+  if (saving.value || deleting.value || validationError.value) return
   saving.value = true
   saveError.value = ''
   try {
@@ -459,7 +392,7 @@ async function submit(): Promise<void> {
 
 async function remove(): Promise<void> {
   const unit = selectedUnit.value
-  if (!unit || deleting.value || saving.value || scopeSaving.value) return
+  if (!unit || deleting.value || saving.value) return
   if (!deleteConfirm.value) {
     deleteConfirm.value = true
     return
@@ -494,8 +427,7 @@ function syncSelectionFromRoute(): void {
   if (
     telegramResource.status !== 'ready' ||
     saving.value ||
-    deleting.value ||
-    scopeSaving.value
+    deleting.value
   ) {
     return
   }
@@ -551,6 +483,7 @@ onMounted(() => {
     :forbidden="telegramResource.status === 'forbidden'"
     :error="telegramResource.status === 'error'"
     :loading-title="t('telegram.loading')"
+    loading-shape="master-detail"
     :forbidden-title="t('telegram.viewForbidden')"
     :error-title="t('telegram.loadFailed')"
     :detail="telegramResource.error"
@@ -785,10 +718,6 @@ onMounted(() => {
             <h4>
               {{ t('telegram.userLines') }}
             </h4>
-            <SettingsSaveStatus
-              :status="scopeMutation.status.value"
-              :error="scopeMutation.error.value"
-            />
           </header>
           <SettingsLineScopeList
             :options="lineScopeOptions"
@@ -796,15 +725,12 @@ onMounted(() => {
             :all-selected="allLines"
             :all-label="t('telegram.allAssignedLines')"
             :all-description="t('telegram.allAssignedLinesDescription')"
-            :disabled="saving || deleting || scopeSaving"
+            :disabled="saving || deleting"
             @select-all="selectAllLines"
             @toggle-line="toggleLineScope"
           />
           <p v-if="assignedUser && inheritedLineIDs.length === 0" class="telegram-scope-empty">
             {{ t('telegram.userHasNoLines') }}
-          </p>
-          <p v-if="scopeSaveError" class="field-error" role="alert">
-            {{ scopeSaveError }}
           </p>
         </fieldset>
 
@@ -813,7 +739,7 @@ onMounted(() => {
             v-if="creating"
             class="secondary-button"
             type="button"
-            :disabled="saving || deleting || scopeSaving"
+            :disabled="saving || deleting"
             @click="cancelCreate"
           >
             <X :size="16" />
@@ -823,7 +749,7 @@ onMounted(() => {
             v-else-if="selectedUnit"
             class="danger-button"
             type="button"
-            :disabled="saving || deleting || scopeSaving"
+            :disabled="saving || deleting"
             @click="remove"
           >
             <LoaderCircle v-if="deleting" class="spin" :size="16" />
@@ -843,14 +769,13 @@ onMounted(() => {
             :disabled="
               saving ||
               deleting ||
-              scopeSaving ||
               Boolean(validationError) ||
               (!creating && !formChanged)
             "
           >
             <LoaderCircle v-if="saving" class="spin" :size="17" />
             <Save v-else :size="17" />
-            <span>{{ t('common.save') }}</span>
+            <span>{{ t('telegram.saveBot') }}</span>
           </button>
         </footer>
       </form>

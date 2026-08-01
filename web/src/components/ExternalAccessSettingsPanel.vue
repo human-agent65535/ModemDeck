@@ -337,6 +337,7 @@ onBeforeUnmount(() => {
       :loading="loading"
       :error="Boolean(loadError)"
       :loading-title="t('iosPairing.loading')"
+      loading-shape="modules"
       :error-title="t('iosPairing.loadFailed')"
       :detail="loadError"
       retryable
