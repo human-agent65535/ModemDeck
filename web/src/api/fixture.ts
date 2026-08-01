@@ -293,11 +293,12 @@ const calls: CallRecord[] = [
 const deletedRecordingIDs = new Set<string>()
 const favoriteRecordingCallIDs = new Set<string>(['call-1'])
 
-const diagnosticLogs: DiagnosticLogEntry[] = [
+const diagnosticLogFixtures: DiagnosticLogEntry[] = [
   {
     id: 41,
     timestamp: '2026-07-23T11:58:42Z',
     level: 'info',
+    source: 'application',
     component: 'application',
     caller: 'main.go:42',
     message: 'ModemDeck service started',
@@ -307,28 +308,35 @@ const diagnosticLogs: DiagnosticLogEntry[] = [
     id: 42,
     timestamp: '2026-07-23T11:58:43Z',
     level: 'info',
+    source: 'application',
     component: 'communications',
-    caller: 'service.go:108',
-    message: 'host agent snapshot loaded',
-    fields: { provider: 'modemmanager', lines: 2, revision: 'fixture-revision-8' }
+    caller: 'diagnostic_logging.go:32',
+    message: 'hardware snapshot synchronized',
+    fields: { provider: 'modemmanager', line_count: 2, revision: 'fixture-revision-8' }
   },
   {
     id: 43,
     timestamp: '2026-07-23T11:59:12Z',
-    level: 'warn',
-    component: 'call-media',
-    caller: 'runtime.go:214',
-    message: 'media remains unavailable until a call is active',
-    fields: { line_id: 'line-fixture-travel' }
+    level: 'info',
+    source: 'application',
+    component: 'devices',
+    caller: 'device_configuration.go:188',
+    message: 'device configuration applied',
+    fields: {
+      line_id: 'line-fixture-main',
+      operation: 'set_volte_policy',
+      revision: 'fixture-revision-8'
+    }
   },
   {
     id: 44,
     timestamp: '2026-07-23T12:00:00Z',
-    level: 'debug',
-    component: 'http',
-    caller: 'api.go:231',
-    message: 'diagnostics snapshot served',
-    fields: { duration: '4ms' }
+    level: 'info',
+    source: 'application',
+    component: 'communications',
+    caller: 'diagnostic_logging.go:61',
+    message: 'SMS received',
+    fields: { line_id: 'line-fixture-travel', message_id: 'fixture-message-44' }
   }
 ]
 
@@ -757,6 +765,12 @@ function fixtureHardware(line: LineSummary, index: number): DeviceHardwareConfig
 }
 
 export function createFixtureGateway(options: FixtureGatewayOptions = {}): ModemDeckGateway {
+  const diagnosticLogs = clone(diagnosticLogFixtures)
+  const diagnosticLogSubscribers = new Map<
+    number,
+    { query: DiagnosticLogQuery; handlers: DiagnosticLogStreamHandlers }
+  >()
+  let diagnosticLogSubscriberSequence = 0
   const requestedLineCount = Math.max(0, Math.trunc(options.lineCount ?? 2))
   const lines = options.noDevices ? [] : fixtureLines(requestedLineCount)
   const externalAccessDiagnostic =
@@ -1408,6 +1422,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       if (!search) return true
       return [
         entry.message,
+        entry.source || '',
         entry.component,
         entry.caller || '',
         JSON.stringify(entry.fields || {})
@@ -1418,6 +1433,50 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       oldest_id: diagnosticLogs[0]?.id || 0,
       newest_id: diagnosticLogs.at(-1)?.id || 0,
       truncated: matching.length > limit || (after > 0 && after + 1 < (diagnosticLogs[0]?.id || 0))
+    }
+  }
+
+  function diagnosticLogMatches(
+    entry: DiagnosticLogEntry,
+    query: DiagnosticLogQuery = {}
+  ): boolean {
+    if (entry.id <= (query.after || 0)) return false
+    if (query.level && entry.level !== query.level) return false
+    const component = query.component?.trim().toLocaleLowerCase() || ''
+    if (component && entry.component.toLocaleLowerCase() !== component) return false
+    const search = query.search?.trim().toLocaleLowerCase() || ''
+    if (!search) return true
+    return [
+      entry.message,
+      entry.source || '',
+      entry.component,
+      entry.caller || '',
+      JSON.stringify(entry.fields || {})
+    ].some(value => value.toLocaleLowerCase().includes(search))
+  }
+
+  function appendDiagnosticLog(
+    level: DiagnosticLogEntry['level'],
+    component: string,
+    message: string,
+    fields?: Record<string, unknown>,
+    source = 'application'
+  ): void {
+    const entry: DiagnosticLogEntry = {
+      id: (diagnosticLogs.at(-1)?.id || 0) + 1,
+      timestamp: new Date().toISOString(),
+      level,
+      source,
+      component,
+      message,
+      ...(fields && Object.keys(fields).length ? { fields: clone(fields) } : {})
+    }
+    diagnosticLogs.push(entry)
+    if (diagnosticLogs.length > 2000) diagnosticLogs.splice(0, diagnosticLogs.length - 2000)
+    for (const subscriber of diagnosticLogSubscribers.values()) {
+      if (diagnosticLogMatches(entry, subscriber.query)) {
+        subscriber.handlers.onEntry(clone(entry))
+      }
     }
   }
 
@@ -1885,6 +1944,11 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       messagesByThread[key]?.push(message)
       thread.last_content = message.content
       thread.last_timestamp = message.timestamp
+      appendDiagnosticLog('info', 'messages', 'SMS submitted', {
+        line_id: message.line_id,
+        message_id: message.id,
+        delivery_status: message.delivery_status
+      })
       return clone(message)
     },
 
@@ -1947,6 +2011,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         }
       }
       if (activeCall.direction === 'outgoing') {
+        const previousPhase = activeCall.phase
         callPolls += 1
         if (activeCall.phase === 'dialing' && callPolls >= 1) activeCall.phase = 'ringing'
         else if (activeCall.phase === 'ringing' && callPolls >= 2) {
@@ -1956,6 +2021,15 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           if (activeCallRecording?.enabled) {
             startFixtureRecordingSegment()
           }
+        }
+        if (activeCall.phase !== previousPhase) {
+          appendDiagnosticLog('info', 'calls', 'call state changed', {
+            call_id: activeCall.id,
+            line_id: activeCall.line_id,
+            previous_state: previousPhase,
+            state: activeCall.phase,
+            bearer: activeCall.bearer || ''
+          })
         }
       }
       return {
@@ -2002,6 +2076,12 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       }
       activeCallRecordingSegments = []
       activeCallRecordingSequence = 0
+      appendDiagnosticLog('info', 'calls', 'call observed', {
+        call_id: activeCall.id,
+        line_id: activeCall.line_id,
+        direction: activeCall.direction,
+        state: activeCall.phase
+      })
       return clone(activeCall)
     },
 
@@ -2011,6 +2091,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       recordingEnabled?: boolean
     ): Promise<void> {
       if (!activeCall || activeCall.id !== id) throw new ApiError('通话不存在', 404)
+      const previousPhase = activeCall.phase
       if (action === 'answer') {
         if (activeCallRecording && typeof recordingEnabled === 'boolean') {
           activeCallRecording.enabled = recordingEnabled
@@ -2030,12 +2111,21 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         activeCall.phase = 'ended'
         activeCall.ended_at = '2026-07-23T12:08:00Z'
       }
+      appendDiagnosticLog('info', 'calls', 'call state changed', {
+        call_id: activeCall.id,
+        line_id: activeCall.line_id,
+        action,
+        previous_state: previousPhase,
+        state: activeCall.phase,
+        bearer: activeCall.bearer || ''
+      })
     },
 
     async sendDTMF(id: string, digit: string): Promise<void> {
       if (!activeCall || activeCall.id !== id) throw new ApiError('通话不存在', 404)
       if (activeCall.phase !== 'active') throw new ApiError('通话尚未接通', 409)
       if (!/^[0-9*#A-D]$/.test(digit)) throw new ApiError('DTMF 按键无效', 400)
+      appendDiagnosticLog('info', 'calls', 'DTMF submitted', { call_id: id })
     },
 
     async renewCallLease(id: string) {
@@ -2671,10 +2761,29 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     },
 
     subscribeDiagnosticLogs(
-      _query: DiagnosticLogQuery,
-      _handlers: DiagnosticLogStreamHandlers
+      query: DiagnosticLogQuery,
+      handlers: DiagnosticLogStreamHandlers
     ): () => void {
-      return () => undefined
+      diagnosticLogSubscriberSequence += 1
+      const subscriberID = diagnosticLogSubscriberSequence
+      const normalizedQuery = { ...query }
+      diagnosticLogSubscribers.set(subscriberID, { query: normalizedQuery, handlers })
+      handlers.onOpen()
+      const oldestID = diagnosticLogs[0]?.id || 0
+      const newestID = diagnosticLogs.at(-1)?.id || 0
+      if (
+        (normalizedQuery.after || 0) > newestID ||
+        ((normalizedQuery.after || 0) > 0 && (normalizedQuery.after || 0) + 1 < oldestID)
+      ) {
+        handlers.onReset(oldestID, newestID)
+        normalizedQuery.after = oldestID > 0 ? oldestID - 1 : 0
+      }
+      for (const entry of diagnosticLogs) {
+        if (diagnosticLogMatches(entry, normalizedQuery)) handlers.onEntry(clone(entry))
+      }
+      return () => {
+        diagnosticLogSubscribers.delete(subscriberID)
+      }
     },
 
     async downloadDiagnosticLogs(query: DiagnosticLogQuery = {}): Promise<Blob> {
@@ -2763,6 +2872,10 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         restart_required: false
       }
       advanceHardwareRevision(lineID, hardware)
+      appendDiagnosticLog('warn', 'devices', 'USB reset completed', {
+        line_id: lineID,
+        revision: hardware.revision
+      })
       return { hardware: clone(hardware) }
     },
 
@@ -2780,6 +2893,11 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         policy.policy = input.incoming_call_policy
         policy.revision += 1
         policy.updated_at = '2026-07-23 12:01:00'
+        appendDiagnosticLog('info', 'devices', 'incoming call policy changed', {
+          line_id: lineID,
+          policy: policy.policy,
+          revision: policy.revision
+        })
         return { incoming_calls: configurationForLine(lineID).incoming_calls }
       }
       if (input.operation === 'set_delivery_reports_enabled') {
@@ -2793,6 +2911,11 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           policy.delivery_reports_support = 'unknown'
         }
         policy.revision += 1
+        appendDiagnosticLog('info', 'messages', 'delivery report policy changed', {
+          line_id: lineID,
+          enabled: policy.delivery_reports_enabled,
+          revision: policy.revision
+        })
         return { messaging: configurationForLine(lineID).messaging }
       }
 
@@ -2911,6 +3034,12 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           break
       }
       advanceHardwareRevision(lineID, hardware)
+      appendDiagnosticLog('info', 'devices', 'device configuration applied', {
+        line_id: lineID,
+        operation: input.operation,
+        request_id: input.request_id,
+        revision: hardware.revision
+      })
       return { hardware: clone(hardware) }
     },
 

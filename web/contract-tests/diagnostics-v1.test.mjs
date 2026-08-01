@@ -94,7 +94,7 @@ test('runtime log connection colors describe reachable stream states', () => {
   )
   assert.match(
     source,
-    /\.connection-state\.is-paused,\s*\.connection-state\.is-fixture\s*\{\s*color: var\(--muted\)/
+    /\.connection-state\.is-paused\s*\{\s*color: var\(--muted\)/
   )
   assert.match(
     source,

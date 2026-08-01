@@ -25,7 +25,7 @@ import {
 } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { fixtureMode, gateway } from '../api/client'
+import { gateway } from '../api/client'
 import { knownCallBearerLabel } from '../callBearer'
 import type {
   DiagnosticActiveCall,
@@ -63,7 +63,6 @@ type LogConnectionState =
   | 'live'
   | 'reconnecting'
   | 'paused'
-  | 'fixture'
 
 const { t, locale } = useI18n()
 const MAX_LOCAL_LOGS = 1000
@@ -81,9 +80,7 @@ const logError = ref('')
 const logLevel = ref<DiagnosticLogLevel | ''>('')
 const logComponent = ref('')
 const logSearch = ref('')
-const connectionState = ref<LogConnectionState>(
-  fixtureMode ? 'fixture' : 'connecting'
-)
+const connectionState = ref<LogConnectionState>('connecting')
 const paused = ref(false)
 const autoFollow = ref(true)
 const downloading = ref(false)
@@ -166,8 +163,7 @@ const connectionLabel = computed(() => {
     live: t('diagnostics.live'),
     connecting: t('diagnostics.connecting'),
     reconnecting: t('diagnostics.reconnecting'),
-    paused: t('diagnostics.paused'),
-    fixture: t('diagnostics.fixture')
+    paused: t('diagnostics.paused')
   }
   return labels[connectionState.value]
 })
@@ -605,7 +601,7 @@ function appendLog(entry: DiagnosticLogEntry): void {
 }
 
 function scheduleReconnect(generation: number): void {
-  if (disposed || paused.value || fixtureMode || generation !== streamGeneration) return
+  if (disposed || paused.value || generation !== streamGeneration) return
   connectionState.value = 'reconnecting'
   const delay = Math.min(10_000, 1000 * 2 ** reconnectAttempt)
   reconnectAttempt += 1
@@ -616,7 +612,7 @@ function scheduleReconnect(generation: number): void {
 }
 
 function connectLogStream(generation = streamGeneration): void {
-  if (disposed || paused.value || fixtureMode || generation !== streamGeneration) return
+  if (disposed || paused.value || generation !== streamGeneration) return
   closeStream()
   connectionState.value = reconnectAttempt > 0 ? 'reconnecting' : 'connecting'
   closeLogStream = gateway.subscribeDiagnosticLogs(currentLogQuery(lastSeenID.value), {
@@ -671,7 +667,7 @@ async function loadLogs(): Promise<void> {
   reconnectAttempt = 0
   logsLoading.value = true
   logError.value = ''
-  if (!fixtureMode && !paused.value) connectionState.value = 'connecting'
+  if (!paused.value) connectionState.value = 'connecting'
   try {
     const page = await gateway.listDiagnosticLogs(currentLogQuery())
     if (generation !== streamGeneration || disposed) return
@@ -683,9 +679,7 @@ async function loadLogs(): Promise<void> {
       0
     )
     await scrollToLatest()
-    if (fixtureMode) {
-      connectionState.value = 'fixture'
-    } else if (paused.value) {
+    if (paused.value) {
       connectionState.value = 'paused'
     } else {
       connectLogStream(generation)
@@ -700,7 +694,6 @@ async function loadLogs(): Promise<void> {
 }
 
 function togglePause(): void {
-  if (fixtureMode) return
   paused.value = !paused.value
   if (paused.value) {
     closeStream()
@@ -1263,7 +1256,6 @@ onBeforeUnmount(() => {
             type="button"
             :title="paused ? t('diagnostics.resumeLogs') : t('diagnostics.pauseLogs')"
             :aria-label="paused ? t('diagnostics.resumeLogs') : t('diagnostics.pauseLogs')"
-            :disabled="fixtureMode"
             @click="togglePause"
           >
             <Play v-if="paused" :size="17" />
@@ -1358,7 +1350,9 @@ onBeforeUnmount(() => {
           >
             <time :datetime="entry.timestamp">{{ formatTimestamp(entry.timestamp, true) }}</time>
             <span class="log-level">{{ entry.level }}</span>
-            <span class="log-component">{{ entry.component }}</span>
+            <span class="log-component">
+              {{ entry.source ? `${entry.source} · ${entry.component}` : entry.component }}
+            </span>
             <span class="log-message">{{ entry.message }}</span>
             <code v-if="entry.fields && Object.keys(entry.fields).length">
               {{ formatFields(entry.fields) }}
@@ -1447,8 +1441,7 @@ onBeforeUnmount(() => {
   border-radius: 50%;
 }
 
-.connection-state.is-paused,
-.connection-state.is-fixture {
+.connection-state.is-paused {
   color: var(--muted);
 }
 

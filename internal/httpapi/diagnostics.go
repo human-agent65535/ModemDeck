@@ -354,6 +354,7 @@ func matchesDiagnosticLog(entry diagnostics.LogEntry, filter diagnosticLogFilter
 		return true
 	}
 	if strings.Contains(strings.ToLower(entry.Message), filter.search) ||
+		strings.Contains(strings.ToLower(entry.Source), filter.search) ||
 		strings.Contains(strings.ToLower(entry.Component), filter.search) ||
 		strings.Contains(strings.ToLower(entry.Caller), filter.search) {
 		return true

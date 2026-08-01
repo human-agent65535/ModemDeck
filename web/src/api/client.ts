@@ -633,6 +633,7 @@ function parseDiagnosticLogEntry(value: unknown, path = 'diagnostic_log'): Diagn
     id: numberValue(source, path, 'id'),
     timestamp: requiredStringValue(source, path, 'timestamp'),
     level: level as DiagnosticLogLevel,
+    source: stringValue(source, 'source') || undefined,
     component: requiredStringValue(source, path, 'component'),
     caller: stringValue(source, 'caller') || undefined,
     message: requiredStringValue(source, path, 'message'),

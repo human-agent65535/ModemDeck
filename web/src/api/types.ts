@@ -1121,6 +1121,7 @@ export type DiagnosticLogEntry = {
   id: number
   timestamp: string
   level: DiagnosticLogLevel
+  source?: string
   component: string
   caller?: string
   message: string

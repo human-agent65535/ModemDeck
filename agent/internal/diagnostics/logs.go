@@ -1,8 +1,12 @@
+// Package diagnostics keeps a bounded, sanitized copy of the Hardware Agent's
+// structured runtime logs for the application process to consume over the
+// permission-scoped Unix socket.
 package diagnostics
 
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"path/filepath"
 	"runtime"
@@ -12,7 +16,7 @@ import (
 )
 
 const (
-	DefaultLogCapacity = 2000
+	DefaultLogCapacity = 1000
 	subscriberCapacity = 128
 )
 
@@ -20,7 +24,7 @@ type LogEntry struct {
 	ID        uint64         `json:"id"`
 	Timestamp time.Time      `json:"timestamp"`
 	Level     string         `json:"level"`
-	Source    string         `json:"source,omitempty"`
+	Source    string         `json:"source"`
 	Component string         `json:"component"`
 	Caller    string         `json:"caller,omitempty"`
 	Message   string         `json:"message"`
@@ -61,7 +65,7 @@ func NewLogBuffer(capacity int) *LogBuffer {
 
 func (b *LogBuffer) Handler(next slog.Handler) slog.Handler {
 	if next == nil {
-		next = slog.NewTextHandler(discardWriter{}, nil)
+		next = slog.NewTextHandler(io.Discard, nil)
 	}
 	return &logHandler{next: next, buffer: b}
 }
@@ -93,18 +97,6 @@ func (b *LogBuffer) Subscribe(after uint64) (LogWindow, <-chan LogEntry, func())
 		})
 	}
 	return window, updates, cancel
-}
-
-// AppendExternal imports one already-structured entry from another trusted
-// ModemDeck process. The local buffer always assigns the public cursor so a
-// hardware-agent restart cannot make browser SSE IDs move backwards.
-func (b *LogBuffer) AppendExternal(entry LogEntry) {
-	entry.Source = normalizedValue(entry.Source, "external")
-	entry.Component = normalizedValue(entry.Component, "runtime")
-	entry.Level = normalizedLevel(entry.Level)
-	entry.Message = strings.TrimSpace(entry.Message)
-	entry.Fields = sanitizeFields(entry.Fields)
-	b.append(entry)
 }
 
 func (b *LogBuffer) append(entry LogEntry) {
@@ -141,8 +133,6 @@ func (b *LogBuffer) windowLocked(after uint64) LogWindow {
 	window.OldestID = b.entries[0].ID
 	window.NewestID = b.entries[len(b.entries)-1].ID
 	if after > window.NewestID {
-		// A future cursor normally means the upstream process restarted and its
-		// in-memory sequence began again. Replay the retained window explicitly.
 		window.Truncated = true
 		after = 0
 	} else {
@@ -181,26 +171,15 @@ func (h *logHandler) Handle(ctx context.Context, record slog.Record) error {
 		addAttr(fields, h.groups, attr)
 		return true
 	})
-	component := "app"
-	if value, ok := fields["component"].(string); ok {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			component = value
-		}
+	component := "agent"
+	if value, ok := fields["component"].(string); ok && strings.TrimSpace(value) != "" {
+		component = strings.TrimSpace(value)
 	}
 	delete(fields, "component")
-	source := "application"
-	if value, ok := fields["source"].(string); ok {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			source = value
-		}
-	}
-	delete(fields, "source")
 	h.buffer.append(LogEntry{
 		Timestamp: record.Time,
 		Level:     strings.ToLower(record.Level.String()),
-		Source:    source,
+		Source:    "hardware-agent",
 		Component: component,
 		Caller:    caller(record.PC),
 		Message:   record.Message,
@@ -210,8 +189,7 @@ func (h *logHandler) Handle(ctx context.Context, record slog.Record) error {
 }
 
 func (h *logHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	combined := make([]boundAttr, 0, len(h.attrs)+len(attrs))
-	combined = append(combined, h.attrs...)
+	combined := append([]boundAttr(nil), h.attrs...)
 	for _, attr := range attrs {
 		combined = append(combined, boundAttr{
 			groups: append([]string(nil), h.groups...),
@@ -307,44 +285,6 @@ func sensitiveKey(key string) bool {
 	return false
 }
 
-func sanitizeFields(fields map[string]any) map[string]any {
-	if len(fields) == 0 {
-		return nil
-	}
-	sanitized := make(map[string]any, len(fields))
-	for key, value := range fields {
-		key = strings.TrimSpace(key)
-		if key == "" {
-			continue
-		}
-		if sensitiveKey(key) {
-			sanitized[key] = "[redacted]"
-			continue
-		}
-		sanitized[key] = value
-	}
-	if len(sanitized) == 0 {
-		return nil
-	}
-	return sanitized
-}
-
-func normalizedValue(value, fallback string) string {
-	if value = strings.TrimSpace(value); value != "" {
-		return value
-	}
-	return fallback
-}
-
-func normalizedLevel(value string) string {
-	switch value = strings.ToLower(strings.TrimSpace(value)); value {
-	case "debug", "info", "warn", "error":
-		return value
-	default:
-		return "info"
-	}
-}
-
 func caller(pc uintptr) string {
 	if pc == 0 {
 		return ""
@@ -365,10 +305,4 @@ func cloneLogEntry(entry LogEntry) LogEntry {
 		}
 	}
 	return cloned
-}
-
-type discardWriter struct{}
-
-func (discardWriter) Write(value []byte) (int, error) {
-	return len(value), nil
 }

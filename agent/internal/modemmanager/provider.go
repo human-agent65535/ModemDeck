@@ -399,7 +399,7 @@ func (p *Provider) StartCall(ctx context.Context, request domain.StartCallReques
 	properties := map[string]dbus.Variant{
 		"number": dbus.MakeVariant(request.Number),
 	}
-	slog.Info(
+	slog.Debug(
 		"outgoing call create requested",
 		"component", "modemmanager",
 		"request_id", request.RequestID,
@@ -430,7 +430,7 @@ func (p *Provider) StartCall(ctx context.Context, request domain.StartCallReques
 	if !strings.HasPrefix(string(callPath), "/org/freedesktop/ModemManager1/Call/") {
 		return domain.CommandReceipt{}, domain.Internal(operation, "ModemManager returned an unexpected call path", nil)
 	}
-	slog.Info(
+	slog.Debug(
 		"outgoing call object created",
 		"component", "modemmanager",
 		"request_id", request.RequestID,

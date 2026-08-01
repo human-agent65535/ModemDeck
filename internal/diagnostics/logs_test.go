@@ -28,6 +28,9 @@ func TestLogHandlerCapturesStructuredAndRedactedFields(t *testing.T) {
 	if entry.ID != 1 || entry.Level != "warn" || entry.Component != "communications" {
 		t.Fatalf("entry identity = %+v", entry)
 	}
+	if entry.Source != "application" {
+		t.Fatalf("source = %q", entry.Source)
+	}
 	if entry.Message != "snapshot unavailable" {
 		t.Fatalf("message = %q", entry.Message)
 	}
@@ -39,6 +42,48 @@ func TestLogHandlerCapturesStructuredAndRedactedFields(t *testing.T) {
 	}
 	if got := entry.Fields["provider.name"]; got != "modemmanager" {
 		t.Fatalf("provider.name = %#v", got)
+	}
+}
+
+func TestLogBufferImportsExternalEntriesWithLocalCursorAndPrivacy(t *testing.T) {
+	buffer := NewLogBuffer(8)
+	buffer.AppendExternal(LogEntry{
+		ID:        91,
+		Level:     "NOTICE",
+		Source:    "hardware-agent",
+		Component: "modemmanager",
+		Message:   "  line state changed  ",
+		Fields: map[string]any{
+			"line_id": "line-1",
+			"number":  "+818012345678",
+			"imsi":    "440101234567890",
+		},
+	})
+
+	window := buffer.Snapshot(0)
+	if len(window.Entries) != 1 {
+		t.Fatalf("entries = %d, want 1", len(window.Entries))
+	}
+	entry := window.Entries[0]
+	if entry.ID != 1 || entry.Level != "info" || entry.Source != "hardware-agent" ||
+		entry.Component != "modemmanager" || entry.Message != "line state changed" {
+		t.Fatalf("entry = %+v", entry)
+	}
+	if entry.Fields["line_id"] != "line-1" || entry.Fields["number"] != "[redacted]" ||
+		entry.Fields["imsi"] != "[redacted]" {
+		t.Fatalf("fields = %+v", entry.Fields)
+	}
+}
+
+func TestLogBufferReplaysWhenCursorComesFromRestartedProcess(t *testing.T) {
+	buffer := NewLogBuffer(2)
+	logger := slog.New(buffer.Handler(slog.NewTextHandler(io.Discard, nil)))
+	logger.Info("first")
+	logger.Info("second")
+
+	window := buffer.Snapshot(99)
+	if !window.Truncated || len(window.Entries) != 2 {
+		t.Fatalf("window = %+v", window)
 	}
 }
 

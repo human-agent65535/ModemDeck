@@ -159,12 +159,16 @@ type runtimeProjection struct {
 }
 
 type Service struct {
-	agent      Agent
-	repository Repository
-	events     messageevents.Publisher
-	runtime    runtimeevents.Publisher
-	random     io.Reader
-	now        func() time.Time
+	agent                   Agent
+	repository              Repository
+	events                  messageevents.Publisher
+	runtime                 runtimeevents.Publisher
+	random                  io.Reader
+	now                     func() time.Time
+	loggerMu                sync.RWMutex
+	logger                  *slog.Logger
+	diagnosticLogMu         sync.Mutex
+	loggedDeliveryReportIDs map[string]struct{}
 
 	mu                sync.RWMutex
 	status            Status
@@ -202,13 +206,25 @@ func New(
 		return nil, operationError(CodeInvalidArgument, "create communication service", "message event publisher is required", nil)
 	}
 	return &Service{
-		agent:                 agent,
-		repository:            repository,
-		events:                events,
-		random:                rand.Reader,
-		now:                   time.Now,
-		messageCleanupPending: make(map[string]struct{}),
+		agent:                   agent,
+		repository:              repository,
+		events:                  events,
+		random:                  rand.Reader,
+		now:                     time.Now,
+		logger:                  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		loggedDeliveryReportIDs: make(map[string]struct{}),
+		messageCleanupPending:   make(map[string]struct{}),
 	}, nil
+}
+
+// SetLogger configures structured operational logging before Run starts.
+func (s *Service) SetLogger(logger *slog.Logger) {
+	if logger == nil {
+		return
+	}
+	s.loggerMu.Lock()
+	s.logger = logger
+	s.loggerMu.Unlock()
 }
 
 func (s *Service) SetRuntimeEventPublisher(events runtimeevents.Publisher) error {
@@ -238,6 +254,10 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 	s.refreshMu.Lock()
 	defer s.refreshMu.Unlock()
 
+	s.mu.RLock()
+	previousStatus := cloneStatus(s.status)
+	previousSnapshot := cloneAgentSnapshot(s.lastSnapshot)
+	s.mu.RUnlock()
 	refreshContext, cancel := context.WithTimeout(normalizeContext(ctx), snapshotTimeout)
 	defer cancel()
 	health, err := s.agent.Health(refreshContext)
@@ -307,6 +327,14 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 	s.status = cloneStatus(status)
 	s.lastSnapshot = snapshot
 	s.mu.Unlock()
+	s.logSnapshotTransitions(
+		previousStatus,
+		previousSnapshot,
+		status,
+		snapshot,
+		snapshotResult.CreatedIncomingMessages,
+		snapshotResult.HandledDeliveryReportIDs,
+	)
 	s.updateAgentControlCapabilities(status.Capabilities)
 	s.publishRuntimeSnapshot(
 		status.BootEpoch,
@@ -390,7 +418,7 @@ func (s *Service) drainDeviceMessageCleanup(deleter AgentMessageDeleter) {
 			clear(s.messageCleanupPending)
 			s.messageCleanupRunning = false
 			s.messageCleanupMu.Unlock()
-			slog.Warn(
+			s.loggerForDiagnostics().Warn(
 				"persisted SMS could not be removed from the modem",
 				"component", "communication",
 				"message_id", messageID,
@@ -1436,7 +1464,7 @@ func (s *Service) SendMessage(ctx context.Context, input SendMessageInput) (stor
 			line.ID,
 			deliveryPolicy.Revision,
 		); policyErr != nil && !errors.Is(policyErr, store.ErrRevisionConflict) {
-			slog.Warn(
+			s.loggerForDiagnostics().Warn(
 				"delivery-report rejection could not be persisted",
 				"component", "communication",
 				"line_id", line.ID,

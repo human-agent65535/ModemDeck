@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/human-agent65535/modemdeck/agent/internal/diagnostics"
 	"github.com/human-agent65535/modemdeck/agent/internal/domain"
 	"github.com/human-agent65535/modemdeck/agent/internal/media"
 )
@@ -26,6 +27,7 @@ type handler struct {
 	lineServices         domain.LineServiceProvider
 	network              domain.NetworkProvider
 	networkSelection     domain.NetworkSelectionProvider
+	diagnosticLogs       diagnostics.LogSource
 	agentVersion         string
 	media                *media.Manager
 }
@@ -67,6 +69,7 @@ type Options struct {
 	LineServices         domain.LineServiceProvider
 	Network              domain.NetworkProvider
 	NetworkSelection     domain.NetworkSelectionProvider
+	DiagnosticLogs       diagnostics.LogSource
 }
 
 func NewWithOptions(
@@ -86,6 +89,7 @@ func NewWithOptions(
 		lineServices:         lineServices,
 		network:              options.Network,
 		networkSelection:     options.NetworkSelection,
+		diagnosticLogs:       options.DiagnosticLogs,
 		agentVersion:         agentVersion,
 		media:                options.Media,
 	}
@@ -95,6 +99,7 @@ func NewWithOptions(
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", h.health)
 	mux.HandleFunc("GET /v1/events", h.events)
+	mux.HandleFunc("GET /v1/diagnostics/logs/stream", h.diagnosticLogStream)
 	mux.HandleFunc("PUT /v1/control-lease", h.renewControlLease)
 	mux.HandleFunc("DELETE /v1/control-lease", h.releaseControlLease)
 	mux.HandleFunc("GET /v1/snapshot", h.snapshot)

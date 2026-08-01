@@ -15,6 +15,7 @@ import (
 
 	"github.com/human-agent65535/modemdeck/agent/internal/controllease"
 	"github.com/human-agent65535/modemdeck/agent/internal/deviceconfig"
+	"github.com/human-agent65535/modemdeck/agent/internal/diagnostics"
 	"github.com/human-agent65535/modemdeck/agent/internal/httpapi"
 	"github.com/human-agent65535/modemdeck/agent/internal/media"
 	"github.com/human-agent65535/modemdeck/agent/internal/modemmanager"
@@ -27,13 +28,16 @@ import (
 var version = "dev"
 
 func main() {
-	if err := run(); err != nil {
+	logBuffer := diagnostics.NewLogBuffer(diagnostics.DefaultLogCapacity)
+	logger := slog.New(logBuffer.Handler(slog.NewJSONHandler(os.Stdout, nil)))
+	slog.SetDefault(logger)
+	if err := run(logBuffer); err != nil {
 		slog.Error("agent stopped", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(diagnosticLogs diagnostics.LogSource) error {
 	socketPath := flag.String("socket", "/run/modemdeck/agent.sock", "absolute unix socket path")
 	socketMode := flag.String("socket-mode", "0660", "unix socket permission mode in octal")
 	socketUID := flag.Int("socket-uid", -1, "unix socket owner uid; -1 keeps the process uid")
@@ -247,6 +251,7 @@ func run() error {
 			DeviceConfigurations: deviceConfigurations,
 			Network:              networkManager,
 			NetworkSelection:     provider,
+			DiagnosticLogs:       diagnosticLogs,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,

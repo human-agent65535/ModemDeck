@@ -104,7 +104,7 @@ func run(
 	tlsHosts []string,
 	secureCookies bool,
 	settingsSecrets *secretbox.Box,
-	logBuffer diagnostics.LogSource,
+	logBuffer *diagnostics.LogBuffer,
 ) error {
 	ctx := context.Background()
 	tlsCertificates, err := tlsmanager.Open(tlsmanager.Config{
@@ -170,6 +170,7 @@ func run(
 		_ = db.Close()
 		return fmt.Errorf("create communication service: %w", err)
 	}
+	communications.SetLogger(logger.With("component", "communications"))
 	if err := communications.SetRuntimeEventPublisher(runtimeEvents); err != nil {
 		_ = db.Close()
 		return fmt.Errorf("configure communication runtime events: %w", err)
@@ -340,6 +341,16 @@ func run(
 			logger.Warn("hardware snapshot unavailable", "component", "communications", "error", err)
 		})
 	}()
+	agentLogsDone := make(chan struct{})
+	go func() {
+		defer close(agentLogsDone)
+		mirrorAgentDiagnosticLogs(
+			signals,
+			agent,
+			logBuffer,
+			logger.With("component", "diagnostics"),
+		)
+	}()
 	callLeaseDone := make(chan struct{})
 	go func() {
 		defer close(callLeaseDone)
@@ -415,6 +426,7 @@ func run(
 		}
 	}
 	<-syncDone
+	<-agentLogsDone
 	<-callLeaseDone
 	<-tlsMaintenanceDone
 	<-cloudflareDone
