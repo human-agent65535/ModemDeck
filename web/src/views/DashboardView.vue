@@ -46,6 +46,7 @@ import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { useListSelection } from '../composables/useListSelection'
 import { skeletonPreviewEnabled } from '../composables/useSkeletonPreview'
+import { messageThreadReference } from '../router/messageRoute'
 import { requestConfirmation } from '../state/confirmation'
 import { showSuccess } from '../state/feedback'
 import { selectDeviceConfiguration } from '../state/deviceConfiguration'
@@ -219,7 +220,7 @@ const activities = computed<DashboardActivity[]>(() => {
     call
   }))
   const messages: DashboardActivity[] = threadsResource.data.map(thread => ({
-    key: `message:${thread.key}`,
+    key: `message:${messageThreadReference(thread.key)}`,
     kind: 'message',
     timestamp: thread.last_timestamp,
     thread
@@ -641,7 +642,7 @@ function finishMessageComposer(threadKey?: string): void {
   if (threadKey) {
     void router.replace({
       name: 'dashboard',
-      query: { item: `message:${threadKey}` }
+      query: { item: `message:${messageThreadReference(threadKey)}` }
     })
   }
 }

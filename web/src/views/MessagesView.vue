@@ -39,6 +39,12 @@ import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue
 import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { useListSelection } from '../composables/useListSelection'
+import {
+  messageComposeContextFromReference,
+  messageComposeRoute,
+  messageThreadKeyFromReference,
+  messageThreadRoute
+} from '../router/messageRoute'
 import { requestConfirmation } from '../state/confirmation'
 import { openDialer } from '../state/ui'
 import { phoneDestination } from '../utils/format'
@@ -155,7 +161,8 @@ const embedded = computed(
   () => props.embeddedCompose || Boolean(props.embeddedThreadKey)
 )
 const selectedKey = computed(() =>
-  props.embeddedThreadKey || String(route.params.threadKey || '')
+  props.embeddedThreadKey ||
+  messageThreadKeyFromReference(route.params.threadRef)
 )
 const selectedThread = computed(() =>
   threadsResource.data.find(thread => thread.key === selectedKey.value)
@@ -366,16 +373,22 @@ watch(
 )
 
 watch(
-  () => [route.params.threadKey, route.query.compose] as const,
+  () => [route.params.threadRef, route.query.compose] as const,
   ([, compose]) => {
     if (embedded.value) return
-    if (typeof compose === 'string') {
+    const hasCompose = Object.prototype.hasOwnProperty.call(
+      route.query,
+      'compose'
+    )
+    const context = hasCompose
+      ? messageComposeContextFromReference(compose)
+      : undefined
+    if (context) {
       composingNew.value = true
-      newRecipient.value = compose
-      newRecipientName.value = typeof route.query.name === 'string' ? route.query.name : ''
+      newRecipient.value = context.recipient
+      newRecipientName.value = context.name
       selectedRecipientPreferredLineID.value = ''
-      composeContextLineKey.value =
-        typeof route.query.line === 'string' ? route.query.line : ''
+      composeContextLineKey.value = context.lineKey
       lineSelectionOverridden = false
       syncComposeLine(true)
       sendError.value = ''
@@ -572,11 +585,7 @@ function chooseThread(key: string): void {
   composeReturnThreadKey = ''
   draft.value = ''
   sendError.value = ''
-  void router.push({
-    name: 'messages',
-    params: { threadKey: key },
-    query: messageFilterQuery()
-  })
+  void router.push(messageThreadRoute(key, messageFilterQuery()))
 }
 
 async function removeThread(thread: MessageThread): Promise<void> {
@@ -711,10 +720,12 @@ function startMessage(): void {
   syncComposeLine(true)
   draft.value = ''
   sendError.value = ''
-  void router.push({
-    name: 'messages',
-    query: { compose: '', ...messageFilterQuery() }
-  })
+  void router.push(
+    messageComposeRoute(
+      { recipient: '', name: '', lineKey: '' },
+      messageFilterQuery()
+    )
+  )
 }
 
 function chooseRecipient(suggestion: {
@@ -776,11 +787,9 @@ async function submit(): Promise<void> {
     }
     if (sentThread && (composingNew.value || sentThread.key !== replyKey)) {
       composingNew.value = false
-      await router.replace({
-        name: 'messages',
-        params: { threadKey: sentThread.key },
-        query: messageFilterQuery()
-      })
+      await router.replace(
+        messageThreadRoute(sentThread.key, messageFilterQuery())
+      )
       await loadMessages(sentThread)
     }
     scrollToEnd()

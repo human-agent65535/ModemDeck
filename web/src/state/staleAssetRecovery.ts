@@ -20,6 +20,10 @@ type RecoveryDocument = Pick<
   'addEventListener' | 'removeEventListener' | 'visibilityState'
 >
 type ServerVersionReader = () => Promise<string>
+type EntryURLTarget = {
+  location: Pick<Location, 'href'>
+  history: Pick<History, 'replaceState' | 'state'>
+}
 
 let requestInstalledVersionCheck: (() => void) | undefined
 
@@ -59,6 +63,21 @@ export function versionedEntryURL(href: string, version: string): string {
   const target = new URL(href)
   target.searchParams.set(versionQueryParameter, version)
   return target.toString()
+}
+
+export function unversionedEntryURL(href: string): string {
+  const target = new URL(href)
+  target.searchParams.delete(versionQueryParameter)
+  return target.toString()
+}
+
+export function hideApplicationVersion(
+  target: EntryURLTarget = window
+): boolean {
+  const cleanURL = unversionedEntryURL(target.location.href)
+  if (cleanURL === target.location.href) return false
+  target.history.replaceState(target.history.state, '', cleanURL)
+  return true
 }
 
 export function switchApplicationVersion(

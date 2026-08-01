@@ -201,7 +201,7 @@ const mobileCommunicationDetailOpen = computed(() => {
       return typeof route.params.contactId === 'string'
     case 'messages':
       return (
-        typeof route.params.threadKey === 'string' ||
+        typeof route.params.threadRef === 'string' ||
         Object.prototype.hasOwnProperty.call(route.query, 'compose')
       )
     case 'calls':

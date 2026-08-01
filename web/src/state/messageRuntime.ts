@@ -4,6 +4,10 @@ import { fixtureMode, gateway } from '../api/client'
 import type { IncomingMessageEvent, MessageEventDelivery } from '../api/types'
 import { translate } from '../i18n'
 import {
+  messageThreadKeyFromReference,
+  messageThreadRoute
+} from '../router/messageRoute'
+import {
   contactForNumber,
   displayPhoneNumber,
   lineForKey,
@@ -108,15 +112,18 @@ export function shouldAlertIncomingMessage(
 
 export function incomingMessageRoute(event: IncomingMessageEvent): {
   name: 'messages'
-  params: { threadKey: string }
+  params: { threadRef: string }
 } {
-  return { name: 'messages', params: { threadKey: event.thread_key } }
+  return messageThreadRoute(event.thread_key) as {
+    name: 'messages'
+    params: { threadRef: string }
+  }
 }
 
 function activeThreadKey(router: Router): string {
   const route = router.currentRoute.value
   if (route.name !== 'messages') return ''
-  return typeof route.params.threadKey === 'string' ? route.params.threadKey : ''
+  return messageThreadKeyFromReference(route.params.threadRef)
 }
 
 function enqueue(operation: () => Promise<void>): void {

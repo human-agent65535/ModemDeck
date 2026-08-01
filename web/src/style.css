@@ -272,6 +272,22 @@ strong {
   margin-top: 2px;
 }
 
+.application-surface-enter-active,
+.application-surface-leave-active {
+  transition: opacity var(--motion-base) var(--ease-standard);
+}
+
+.application-surface-leave-active {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.application-surface-enter-from,
+.application-surface-leave-to {
+  opacity: 0;
+}
+
 .app-shell {
   display: grid;
   width: 100%;

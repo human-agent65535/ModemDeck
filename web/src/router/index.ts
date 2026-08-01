@@ -1,9 +1,13 @@
-import { createRouter, createWebHashHistory } from 'vue-router'
+import { createRouter, createWebHistory } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import { ensureSession } from '../state/session'
+import {
+  messageComposeContextFromReference,
+  messageThreadKeyFromReference
+} from './messageRoute'
 
 const router = createRouter({
-  history: createWebHashHistory(),
+  history: createWebHistory(),
   routes: [
     {
       path: '/login',
@@ -27,7 +31,7 @@ const router = createRouter({
           meta: { communication: true }
         },
         {
-          path: 'messages/:threadKey?',
+          path: 'messages/:threadRef?',
           name: 'messages',
           component: () => import('../views/MessagesView.vue'),
           meta: { communication: true }
@@ -61,6 +65,35 @@ const router = createRouter({
 })
 
 router.beforeEach(async to => {
+  if (to.name === 'messages') {
+    const threadReference = to.params.threadRef
+    const hasCompose = Object.prototype.hasOwnProperty.call(
+      to.query,
+      'compose'
+    )
+    const invalidThread =
+      typeof threadReference === 'string' &&
+      !messageThreadKeyFromReference(threadReference)
+    const invalidCompose =
+      hasCompose && !messageComposeContextFromReference(to.query.compose)
+    if (invalidThread || invalidCompose) {
+      const query = { ...to.query }
+      if (invalidCompose) delete query.compose
+      return { name: 'messages', query, replace: true }
+    }
+  }
+
+  if (
+    to.name === 'dashboard' &&
+    typeof to.query.item === 'string' &&
+    to.query.item.startsWith('message:') &&
+    !messageThreadKeyFromReference(to.query.item.slice('message:'.length))
+  ) {
+    const query = { ...to.query }
+    delete query.item
+    return { name: 'dashboard', query, replace: true }
+  }
+
   const authenticated = await ensureSession()
 
   if (to.name === 'login') {

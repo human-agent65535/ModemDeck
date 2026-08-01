@@ -36,6 +36,7 @@ import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { useListSelection } from '../composables/useListSelection'
 import { skeletonPreviewEnabled } from '../composables/useSkeletonPreview'
+import { messageComposeRoute } from '../router/messageRoute'
 import { requestConfirmation } from '../state/confirmation'
 import { showSuccess } from '../state/feedback'
 import { openDialer } from '../state/ui'
@@ -251,14 +252,13 @@ function call(contact: Contact, number: string): void {
 
 function message(contact: Contact, number: string): void {
   if (messageUnavailable.value) return
-  void router.push({
-    name: 'messages',
-    query: {
-      compose: number,
+  void router.push(
+    messageComposeRoute({
+      recipient: number,
       name: contact.display_name,
-      ...(contact.preferred_line_id ? { line: contact.preferred_line_id } : {})
-    }
-  })
+      lineKey: contact.preferred_line_id || ''
+    })
+  )
 }
 
 function openSavedContact(contact: Contact): void {

@@ -1,11 +1,8 @@
 import type { LineSummary, MessageThread } from '../../api/types'
-
-export type MessageRouteLocation = {
-  name: 'messages'
-  params?: {
-    threadKey: string
-  }
-}
+import {
+  messageThreadRoute,
+  type MessageRouteLocation
+} from '../../router/messageRoute'
 
 function normalizedAddress(value: string): string {
   const trimmed = value.trim()
@@ -39,7 +36,5 @@ export function findRecipientThread(
 }
 
 export function messageReturnRoute(threadKey: string): MessageRouteLocation {
-  return threadKey
-    ? { name: 'messages', params: { threadKey } }
-    : { name: 'messages' }
+  return messageThreadRoute(threadKey)
 }

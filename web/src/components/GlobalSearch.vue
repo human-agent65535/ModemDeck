@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
+import type { RouteLocationRaw } from 'vue-router'
 import { History, MessageSquareText, Phone, UsersRound } from '@lucide/vue'
 import {
   callsResource,
@@ -11,6 +12,7 @@ import {
   threadsResource
 } from '../state/workspace'
 import { formatRelativeDate, primaryPhone } from '../utils/format'
+import { messageThreadRoute } from '../router/messageRoute'
 import SearchField from './SearchField.vue'
 
 const router = useRouter()
@@ -79,7 +81,7 @@ function close(): void {
   open.value = false
 }
 
-async function go(to: string | { name: string; params?: Record<string, string>; query?: Record<string, string> }): Promise<void> {
+async function go(to: RouteLocationRaw): Promise<void> {
   query.value = ''
   close()
   await router.push(to)
@@ -131,7 +133,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
           :key="thread.key"
           class="global-search__result"
           type="button"
-          @click="go({ name: 'messages', params: { threadKey: thread.key } })"
+          @click="go(messageThreadRoute(thread.key))"
         >
           <span>{{ thread.contact_name || displayPhoneNumber(thread.peer, thread.line_id) }}</span>
           <small>{{ thread.last_content || displayPhoneNumber(thread.peer, thread.line_id) }}</small>

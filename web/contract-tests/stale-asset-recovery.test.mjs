@@ -3,15 +3,17 @@ import test from 'node:test'
 
 import {
   checkForApplicationUpdate,
+  hideApplicationVersion,
   initializeApplicationVersionChecks,
   installStaleAssetRecovery,
   readServerVersion,
   recoverAfterStaleAsset,
   switchApplicationVersion,
+  unversionedEntryURL,
   versionedEntryURL
 } from '../src/state/staleAssetRecovery.ts'
 
-function recoveryFixture(href = 'https://modemdeck.test/#/calls') {
+function recoveryFixture(href = 'https://modemdeck.test/calls') {
   const values = new Map()
   const windowListeners = new Map()
   const documentListeners = new Map()
@@ -49,6 +51,13 @@ function recoveryFixture(href = 'https://modemdeck.test/#/calls') {
         setItem(key, value) {
           values.set(key, value)
         }
+      },
+      history: {
+        state: { fixture: true },
+        replaceState(state, _title, value) {
+          this.state = state
+          location.href = String(value)
+        }
       }
     },
     documentListener(name) {
@@ -66,14 +75,30 @@ async function settle() {
   await Promise.resolve()
 }
 
-test('versioned entry URL preserves the active hash route and other query values', () => {
+test('versioned entry URL preserves the active SPA route and other query values', () => {
   assert.equal(
     versionedEntryURL(
-      'https://modemdeck.test/?source=home#/settings/account?user=1',
+      'https://modemdeck.test/settings/users?source=home&user=1',
       'v1.8.6'
     ),
-    'https://modemdeck.test/?source=home&v=v1.8.6#/settings/account?user=1'
+    'https://modemdeck.test/settings/users?source=home&user=1&v=v1.8.6'
   )
+})
+
+test('the cache-switch version is removed after the new entry has loaded', () => {
+  assert.equal(
+    unversionedEntryURL(
+      'https://modemdeck.test/messages/m_1234567890abcdef?filter=unread&v=v1.8.6'
+    ),
+    'https://modemdeck.test/messages/m_1234567890abcdef?filter=unread'
+  )
+  const fixture = recoveryFixture(
+    'https://modemdeck.test/calls?v=v1.8.6'
+  )
+  assert.equal(hideApplicationVersion(fixture.target), true)
+  assert.equal(fixture.target.location.href, 'https://modemdeck.test/calls')
+  assert.deepEqual(fixture.target.history.state, { fixture: true })
+  assert.equal(hideApplicationVersion(fixture.target), false)
 })
 
 test('application version switches at most once for each build transition', () => {
@@ -84,7 +109,7 @@ test('application version switches at most once for each build transition', () =
     true
   )
   assert.deepEqual(fixture.replacements, [
-    'https://modemdeck.test/?v=v1.8.6#/calls'
+    'https://modemdeck.test/calls?v=v1.8.6'
   ])
   assert.equal(
     switchApplicationVersion(fixture.target, 'v1.8.5', 'v1.8.6'),
@@ -195,7 +220,7 @@ test('lifecycle checks defer during a call and switch when the page is safe', as
 })
 
 test('proactive checks do nothing when the client already matches the server', async () => {
-  const fixture = recoveryFixture('https://modemdeck.test/?v=v1.8.6#/')
+  const fixture = recoveryFixture('https://modemdeck.test/?v=v1.8.6')
   assert.equal(
     await checkForApplicationUpdate(
       fixture.target,
@@ -218,6 +243,6 @@ test('proactive checks add the version cache key to an unversioned entry', async
     true
   )
   assert.deepEqual(fixture.replacements, [
-    'https://modemdeck.test/?v=v1.8.6#/calls'
+    'https://modemdeck.test/calls?v=v1.8.6'
   ])
 })

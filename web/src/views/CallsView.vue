@@ -39,6 +39,7 @@ import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { useListSelection } from '../composables/useListSelection'
 import { skeletonPreviewEnabled } from '../composables/useSkeletonPreview'
+import { messageComposeRoute } from '../router/messageRoute'
 import { requestConfirmation } from '../state/confirmation'
 import { callState } from '../state/call'
 import {
@@ -480,14 +481,13 @@ function sendMessage(call: CallRecord): void {
     })
     return
   }
-  void router.push({
-    name: 'messages',
-    query: {
-      compose: call.remote_number,
+  void router.push(
+    messageComposeRoute({
+      recipient: call.remote_number,
       name: displayName(call),
-      ...(selectedLineKey ? { line: selectedLineKey } : {})
-    }
-  })
+      lineKey: selectedLineKey
+    })
+  )
 }
 
 watch(lines, availableLines => {

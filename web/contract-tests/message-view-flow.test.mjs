@@ -5,6 +5,7 @@ import {
   messageReturnRoute,
   messageThreadUsesLine
 } from '../src/views/messages/messageFlow.ts'
+import { messageThreadKeyFromReference } from '../src/router/messageRoute.ts'
 
 const mainLine = {
   id: 'line-main',
@@ -64,9 +65,12 @@ test('recipient lookup uses backend-canonical global identity and remains line s
 })
 
 test('leaving compose restores its originating conversation when available', () => {
-  assert.deepEqual(messageReturnRoute(mainThread.key), {
-    name: 'messages',
-    params: { threadKey: mainThread.key }
-  })
+  const route = messageReturnRoute(mainThread.key)
+  assert.equal(route.name, 'messages')
+  assert.match(route.params.threadRef, /^m_[a-f0-9]{16}$/)
+  assert.equal(
+    messageThreadKeyFromReference(route.params.threadRef),
+    mainThread.key
+  )
   assert.deepEqual(messageReturnRoute(''), { name: 'messages' })
 })

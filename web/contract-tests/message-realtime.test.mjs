@@ -22,6 +22,7 @@ import {
   refreshIncomingMessage,
   threadsResource
 } from '../src/state/workspace.ts'
+import { messageThreadKeyFromReference } from '../src/router/messageRoute.ts'
 
 const event = {
   id: 7,
@@ -51,10 +52,13 @@ test('enabled browser notifications are delivered for every live event', () => {
 })
 
 test('notification click route preserves the exact line and peer thread identity', () => {
-  assert.deepEqual(incomingMessageRoute(event), {
-    name: 'messages',
-    params: { threadKey: event.thread_key }
-  })
+  const route = incomingMessageRoute(event)
+  assert.equal(route.name, 'messages')
+  assert.match(route.params.threadRef, /^m_[a-f0-9]{16}$/)
+  assert.equal(
+    messageThreadKeyFromReference(route.params.threadRef),
+    event.thread_key
+  )
 })
 
 test('incoming call notification is claimed once for one genuinely ringing call', () => {

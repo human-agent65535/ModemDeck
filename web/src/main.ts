@@ -1,10 +1,10 @@
 import { createApp } from 'vue'
 import App from './App.vue'
 import { i18n } from './i18n'
-import router from './router'
 import { ensureSession } from './state/session'
 import {
   checkForApplicationUpdate,
+  hideApplicationVersion,
   installStaleAssetRecovery
 } from './state/staleAssetRecovery'
 import './style.css'
@@ -13,6 +13,8 @@ if (!import.meta.env.DEV) installStaleAssetRecovery()
 
 async function mount(): Promise<void> {
   if (!import.meta.env.DEV && (await checkForApplicationUpdate())) return
+  if (!import.meta.env.DEV) hideApplicationVersion()
+  const { default: router } = await import('./router')
   await ensureSession()
   createApp(App).use(i18n).use(router).mount('#app')
 }

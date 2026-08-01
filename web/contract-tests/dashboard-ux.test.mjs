@@ -95,7 +95,7 @@ test('dashboard reuses message and call detail surfaces in the middle pane', () 
   assert.match(messages, /embeddedThreadKey\?: string/)
   assert.match(
     messages,
-    /props\.embeddedThreadKey \|\| String\(route\.params\.threadKey \|\| ''\)/
+    /props\.embeddedThreadKey \|\|[\s\S]*messageThreadKeyFromReference\(route\.params\.threadRef\)/
   )
   assert.match(
     messages,

@@ -197,7 +197,7 @@ test('mobile settings starts with a live communication overview entry', async ()
   assert.match(shell, /const mobileTrafficFromSettings = computed/)
   assert.match(shell, /const mobileCommunicationDetailOpen = computed/)
   assert.match(shell, /case 'contacts':[\s\S]*route\.params\.contactId/)
-  assert.match(shell, /case 'messages':[\s\S]*route\.params\.threadKey/)
+  assert.match(shell, /case 'messages':[\s\S]*route\.params\.threadRef/)
   assert.match(
     shell,
     /case 'calls':[\s\S]*case 'recordings':[\s\S]*route\.query\.selected/
