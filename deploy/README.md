@@ -75,6 +75,38 @@ container. Agent/Hardware inputs, Hardware mode, device assignments, and media
 bindings select Hardware for replacement. `--rebuild-all` is the explicit
 escape hatch that rebuilds every image and force-recreates the complete stack.
 
+## Release images
+
+Pushing an annotated stable tag that exactly matches `v$(cat VERSION)` starts
+the `Publish release images` GitHub Actions workflow. It builds Linux `amd64`
+and `arm64` variants and publishes these packages under the repository owner's
+GHCR namespace:
+
+- `ghcr.io/OWNER/modemdeck:vX.Y.Z` for the API
+- `ghcr.io/OWNER/modemdeck-web:vX.Y.Z` for the Web gateway
+- `ghcr.io/OWNER/modemdeck-hardware:vX.Y.Z` for the Hardware runtime
+
+The workflow uses the repository `GITHUB_TOKEN`; it needs no registry secret.
+Each image also receives a `sha-COMMIT` tag and GitHub build-provenance
+attestation. Deployments and update tooling must resolve and retain the
+published digest instead of following a mutable tag. The workflow deliberately
+does not publish `latest`.
+
+To backfill images for an existing release whose tag predates the workflow,
+run it manually with `release_tag` set to that tag, for example `v1.9.2`. The
+workflow checks out the tagged commit, verifies that its `VERSION` matches,
+requires the existing tag to be annotated, and builds only that historical
+source. Never move or recreate a published release tag.
+
+GHCR creates a package as private on its first publication. For anonymous
+device pulls, change each package to public once in its GitHub package settings.
+Private packages instead require a device credential with `read:packages`.
+
+Release images are build artifacts, not authority for an unattended Hardware
+restart. API and Web may be updated together after staging both digests;
+Hardware replacement remains an explicit maintenance operation because it
+restarts the private D-Bus, ModemManager, and Agent data plane.
+
 ## HTTPS certificates
 
 The administrator-facing **Web certificate** setting manages only HTTPS

@@ -1,0 +1,175 @@
+name: Publish release images
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing annotated stable tag to publish
+        required: true
+        type: string
+
+concurrency:
+  group: publish-release-images-${{ inputs.release_tag || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Validate release tag
+    runs-on: ubuntu-24.04
+    outputs:
+      build-date: ${{ steps.release.outputs.build-date }}
+      namespace: ${{ steps.release.outputs.namespace }}
+      release-tag: ${{ steps.release.outputs.release-tag }}
+      vcs-ref: ${{ steps.release.outputs.vcs-ref }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Check out the release
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.release_tag || github.ref }}
+
+      - name: Validate VERSION and annotated tag
+        id: release
+        shell: bash
+        env:
+          RELEASE_REF: ${{ inputs.release_tag || github.ref }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+
+          version="$(tr -d '\r\n' < VERSION)"
+          if [[ ! "${version}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "VERSION must contain a stable Semantic Version: ${version}" >&2
+            exit 1
+          fi
+          if [[ "${RELEASE_TAG}" != "v${version}" ]]; then
+            echo "release tag ${RELEASE_TAG} does not match VERSION ${version}" >&2
+            exit 1
+          fi
+          if [[ "$(git cat-file -t "${RELEASE_REF}")" != "tag" ]]; then
+            echo "release tag ${RELEASE_TAG} must be annotated" >&2
+            exit 1
+          fi
+
+          vcs_ref="$(git rev-list -n 1 "${RELEASE_REF}")"
+          if [[ "$(git rev-parse HEAD)" != "${vcs_ref}" ]]; then
+            echo "checked-out commit does not match ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+
+          namespace="$(printf '%s' "${REPOSITORY_OWNER}" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+          build_date="$(git show -s --format=%cI "${vcs_ref}")"
+          {
+            echo "build-date=${build_date}"
+            echo "namespace=${namespace}"
+            echo "release-tag=${RELEASE_TAG}"
+            echo "vcs-ref=${vcs_ref}"
+            echo "version=${version}"
+          } >> "${GITHUB_OUTPUT}"
+
+  publish:
+    name: Publish ${{ matrix.component }} image
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: api
+            dockerfile: ./Dockerfile
+            image: modemdeck
+            target: runtime
+          - component: web
+            dockerfile: ./Dockerfile
+            image: modemdeck-web
+            target: web-runtime
+          - component: hardware
+            dockerfile: ./hardware/Dockerfile
+            image: modemdeck-hardware
+            target: runtime
+    env:
+      IMAGE: ghcr.io/${{ needs.release.outputs.namespace }}/${{ matrix.image }}
+    steps:
+      - name: Check out the release
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ needs.release.outputs.vcs-ref }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          pull: true
+          build-args: |
+            VERSION=${{ needs.release.outputs.release-tag }}
+            BUILD_DATE=${{ needs.release.outputs.build-date }}
+            VCS_REF=${{ needs.release.outputs.vcs-ref }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.url=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.release.outputs.release-tag }}
+            org.opencontainers.image.created=${{ needs.release.outputs.build-date }}
+            org.opencontainers.image.revision=${{ needs.release.outputs.vcs-ref }}
+            org.opencontainers.image.licenses=PolyForm-Noncommercial-1.0.0
+          tags: |
+            ${{ env.IMAGE }}:${{ needs.release.outputs.release-tag }}
+            ${{ env.IMAGE }}:sha-${{ needs.release.outputs.vcs-ref }}
+          cache-from: type=gha,scope=release-${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.component }}
+
+      - name: Attest build provenance
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Record immutable image reference
+        shell: bash
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          RELEASE_TAG: ${{ needs.release.outputs.release-tag }}
+        run: |
+          {
+            echo "### ${{ matrix.component }}"
+            echo
+            echo "\`${IMAGE}@${DIGEST}\`"
+            echo
+            echo "Published as \`${IMAGE}:${RELEASE_TAG}\`."
+          } >> "${GITHUB_STEP_SUMMARY}"

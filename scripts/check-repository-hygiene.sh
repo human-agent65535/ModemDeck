@@ -8,6 +8,9 @@ violations="$(
         /^web\/src\/assets\/(notifications|ringtones|tones)\/[^\/]+\.ogg$/ {
             next
         }
+        /^internal\/tlsmanager\/cloudflare_origin_roots\.pem$/ {
+            next
+        }
         /(^|\/)(data|logs|secrets|recordings|private|scratch|backups|one-off|migration|migrations)\// ||
         /(^|\/)cmd\/modemdeck-(import-legacy-telegram|migrate)\// ||
         /(^|\/)internal\/(legacymigrate|legacytelegram)\// ||

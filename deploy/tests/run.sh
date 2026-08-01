@@ -5,6 +5,7 @@ set -eu
 tests_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 
 "${tests_dir}/static-test.sh"
+"${tests_dir}/release-workflow-test.sh"
 "${tests_dir}/install-check-test.sh"
 "${tests_dir}/install-behavior-test.sh"
 
@@ -13,6 +14,7 @@ if command -v shellcheck >/dev/null 2>&1; then
         "${tests_dir}/../../install.sh" \
         "${tests_dir}/run.sh" \
         "${tests_dir}/static-test.sh" \
+        "${tests_dir}/release-workflow-test.sh" \
         "${tests_dir}/install-check-test.sh" \
         "${tests_dir}/install-behavior-test.sh"
 fi
