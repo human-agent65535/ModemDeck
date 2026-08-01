@@ -3,7 +3,7 @@ import type { Router } from 'vue-router'
 import { fixtureMode, gateway } from '../api/client'
 import type { RuntimeResource } from '../api/types'
 import { visibleMessageThreadKey } from '../router/messageRoute'
-import { requestActiveCallRefresh } from './call'
+import { renewActiveCallLease, requestActiveCallRefresh } from './call'
 import { refreshUnconfirmedDeviceConfigurations } from './deviceConfiguration'
 import { loadNetwork } from './network'
 import { refreshRecordingWorkspace } from './recording'
@@ -130,12 +130,13 @@ export function initializeRuntimeEvents(router: Router): void {
     onOpen: () => {
       if (currentGeneration !== generation) return
       state.connected = true
-      void refreshQueue?.enqueue(['calls'])
+      void renewActiveCallLease()
     },
     onHeartbeat: observedAt => {
       if (currentGeneration !== generation) return
       state.connected = true
       state.lastHeartbeatAt = observedAt
+      void renewActiveCallLease()
     },
     onReady: () => {
       if (currentGeneration !== generation) return
