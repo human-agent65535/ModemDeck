@@ -28,9 +28,11 @@ test('runtime refresh queue coalesces duplicate resources without overlapping re
 
   const initial = queue.enqueue(['lines', 'lines'])
   await Promise.resolve()
-  const followUp = queue.enqueue(['lines', 'network', 'network'])
+  const replayBurst = Array.from({ length: 512 }, () =>
+    queue.enqueue(['lines', 'network', 'network'])
+  )
   releaseFirst()
-  await Promise.all([initial, followUp])
+  await Promise.all([initial, ...replayBurst])
 
   assert.deepEqual(calls, ['lines', 'lines', 'network'])
   assert.equal(maximum.get('lines'), 1)
@@ -209,7 +211,7 @@ test('runtime SSE is global to the authenticated application shell', async () =>
   assert.match(client, /RUNTIME_RESOURCES[\s\S]*?'messages'/)
   assert.match(
     shell,
-    /async function initializeWorkspaceRuntime[\s\S]*?await bootstrap\(\)[\s\S]*?initializeRuntimeEvents\(\)/
+    /async function initializeWorkspaceRuntime[\s\S]*?await bootstrap\(\)[\s\S]*?initializeRuntimeEvents\(router\)/
   )
   assert.match(shell, /shutdownRuntimeEvents\(\)/)
   assert.match(runtime, /refreshDeviceWorkspace\(\)/)
@@ -218,10 +220,13 @@ test('runtime SSE is global to the authenticated application shell', async () =>
   assert.match(runtime, /onHeartbeat:[\s\S]*?renewActiveCallLease\(\)/)
   assert.match(runtime, /case 'calls':[\s\S]*?await requestActiveCallRefresh\(\)/)
   assert.match(runtime, /refreshCalls\(\)/)
-  assert.match(runtime, /case 'messages':[\s\S]*?refreshMessageWorkspace\(\)/)
   assert.match(
     runtime,
-    /onReady:[\s\S]*?lastEventID = Math\.max\(lastEventID, newestID\)[\s\S]*?refreshQueue\?\.enqueue\(ALL_RESOURCES\)/
+    /case 'messages':[\s\S]*?refreshMessageWorkspace\([\s\S]*?visibleMessageThreadKey\(router\.currentRoute\.value\)/
+  )
+  assert.match(
+    runtime,
+    /onReady:[\s\S]*?const initialBoundary = lastEventID === undefined[\s\S]*?if \(initialBoundary\) void refreshQueue\?\.enqueue\(ALL_RESOURCES\)/
   )
   assert.doesNotMatch(
     runtime,

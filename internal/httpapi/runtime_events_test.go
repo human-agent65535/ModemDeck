@@ -5,12 +5,24 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 )
+
+type runtimeReplayFlushResponse struct {
+	*eventStreamTestResponse
+	once    sync.Once
+	onFlush func()
+}
+
+func (response *runtimeReplayFlushResponse) Flush() {
+	response.eventStreamTestResponse.Flush()
+	response.once.Do(response.onFlush)
+}
 
 func TestRuntimeEventStreamReplaysLastEventID(t *testing.T) {
 	t.Parallel()
@@ -49,6 +61,53 @@ func TestRuntimeEventStreamReplaysLastEventID(t *testing.T) {
 		strings.Contains(body, `"resources":["lines"]`) ||
 		!strings.Contains(body, "event: ready") {
 		t.Fatalf("stream = %q", body)
+	}
+}
+
+func TestRuntimeEventStreamDoesNotLoseLiveEventDuringReplay(t *testing.T) {
+	t.Parallel()
+
+	events := runtimeevents.NewBuffer(8)
+	events.Publish(runtimeevents.Event{
+		Resources: []runtimeevents.Resource{runtimeevents.ResourceLines},
+	})
+	events.Publish(runtimeevents.Event{
+		Resources: []runtimeevents.Resource{runtimeevents.ResourceCalls},
+	})
+	api, err := New(&fakeRepository{}, Options{
+		RuntimeEvents:         events,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/runtime/events?after=1", nil)
+	requestContext, cancel := context.WithCancel(request.Context())
+	baseResponse := newEventStreamTestResponse()
+	response := &runtimeReplayFlushResponse{
+		eventStreamTestResponse: baseResponse,
+		onFlush: func() {
+			events.Publish(runtimeevents.Event{
+				Resources: []runtimeevents.Resource{runtimeevents.ResourceMessages},
+			})
+		},
+	}
+	done := make(chan struct{})
+	go func() {
+		api.ServeHTTP(response, request.WithContext(requestContext))
+		close(done)
+	}()
+	waitForMessageEvent(t, baseResponse, `"id":3`)
+	cancel()
+	waitForEventStreamClose(t, done, nil)
+
+	body := baseResponse.bodyString()
+	replayed := strings.Index(body, "id: 2\nevent: runtime")
+	ready := strings.Index(body, "id: 2\nevent: ready")
+	live := strings.Index(body, "id: 3\nevent: runtime")
+	if replayed < 0 || ready < replayed || live < ready {
+		t.Fatalf("stream order = %q; want replay, ready, then live event", body)
 	}
 }
 

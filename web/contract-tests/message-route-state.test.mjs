@@ -3,6 +3,44 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { createFixtureGateway } from '../src/api/fixture.ts'
 import { parseCallRecord, parseThread } from '../src/api/normalize.ts'
+import {
+  messageThreadReference,
+  visibleMessageThreadKey
+} from '../src/router/messageRoute.ts'
+
+test('the visible message thread is derived from the router', () => {
+  const threadKey = 'line-main|+12025550103'
+  const reference = messageThreadReference(threadKey)
+
+  assert.equal(
+    visibleMessageThreadKey({
+      name: 'messages',
+      params: { threadRef: reference },
+      query: {}
+    }),
+    threadKey
+  )
+  assert.equal(
+    visibleMessageThreadKey({
+      name: 'dashboard',
+      params: {},
+      query: { item: `message:${reference}` }
+    }),
+    threadKey
+  )
+  assert.equal(
+    visibleMessageThreadKey({ name: 'calls', params: {}, query: {} }),
+    ''
+  )
+  assert.equal(
+    visibleMessageThreadKey({
+      name: 'dashboard',
+      params: {},
+      query: { item: 'message:invalid' }
+    }),
+    ''
+  )
+})
 
 test('thread parsing preserves only the stable line and peer identity', () => {
   const thread = parseThread({

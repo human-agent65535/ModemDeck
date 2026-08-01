@@ -1,6 +1,8 @@
 import { reactive, readonly } from 'vue'
+import type { Router } from 'vue-router'
 import { fixtureMode, gateway } from '../api/client'
 import type { RuntimeResource } from '../api/types'
+import { visibleMessageThreadKey } from '../router/messageRoute'
 import { renewActiveCallLease, requestActiveCallRefresh } from './call'
 import { refreshUnconfirmedDeviceConfigurations } from './deviceConfiguration'
 import { loadNetwork } from './network'
@@ -82,7 +84,10 @@ let generation = 0
 
 export const runtimeEventState = readonly(state)
 
-async function refreshResource(resource: RuntimeResource): Promise<void> {
+async function refreshResource(
+  resource: RuntimeResource,
+  router: Router
+): Promise<void> {
   switch (resource) {
     case 'session':
       await refreshSession()
@@ -99,7 +104,9 @@ async function refreshResource(resource: RuntimeResource): Promise<void> {
       await refreshCalls()
       break
     case 'messages':
-      await refreshMessageWorkspace()
+      await refreshMessageWorkspace(
+        visibleMessageThreadKey(router.currentRoute.value)
+      )
       break
     case 'contacts':
       await refreshContacts()
@@ -110,13 +117,15 @@ async function refreshResource(resource: RuntimeResource): Promise<void> {
   }
 }
 
-export function initializeRuntimeEvents(): void {
+export function initializeRuntimeEvents(router: Router): void {
   if (closeStream || fixtureMode) return
 
   generation += 1
   const currentGeneration = generation
-  let lastEventID = 0
-  refreshQueue = createRuntimeRefreshQueue(refreshResource)
+  let lastEventID: number | undefined
+  refreshQueue = createRuntimeRefreshQueue(resource =>
+    refreshResource(resource, router)
+  )
   closeStream = gateway.subscribeRuntimeEvents({
     onOpen: () => {
       if (currentGeneration !== generation) return
@@ -131,14 +140,18 @@ export function initializeRuntimeEvents(): void {
     },
     onReady: newestID => {
       if (currentGeneration !== generation) return
-      lastEventID = Math.max(lastEventID, newestID)
+      const initialBoundary = lastEventID === undefined
+      lastEventID = Math.max(lastEventID ?? 0, newestID)
       // Reconcile once at the snapshot-to-stream boundary so events emitted
       // before this subscription cannot leave the workspace stale.
-      void refreshQueue?.enqueue(ALL_RESOURCES)
+      if (initialBoundary) void refreshQueue?.enqueue(ALL_RESOURCES)
       requestApplicationVersionCheck()
     },
     onEvent: event => {
-      if (currentGeneration !== generation || event.id <= lastEventID) return
+      if (
+        currentGeneration !== generation ||
+        (lastEventID !== undefined && event.id <= lastEventID)
+      ) return
       lastEventID = event.id
       state.lastObservedAt = event.observed_at
       void refreshQueue?.enqueue(event.resources)

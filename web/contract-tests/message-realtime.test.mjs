@@ -16,6 +16,12 @@ import {
 } from '../src/state/call.ts'
 import { gateway } from '../src/api/client.ts'
 import { messageThreadKeyFromReference } from '../src/router/messageRoute.ts'
+import {
+  loadMessages,
+  messagesFor,
+  refreshMessageWorkspace,
+  resetWorkspaceState
+} from '../src/state/workspace.ts'
 
 const event = {
   message_id: '42',
@@ -228,6 +234,62 @@ test('message SSE observes heartbeats and reconnects without replay state', () =
   }
 })
 
+test('message invalidation reloads only the visible thread and expires hidden caches', async () => {
+  const originalListThreads = gateway.listThreads
+  const originalListMessages = gateway.listMessages
+  const threads = Array.from({ length: 20 }, (_, index) => ({
+    key: `line-main|+81800000${String(index).padStart(3, '0')}`,
+    line_id: 'line-main',
+    peer: `+81800000${String(index).padStart(3, '0')}`,
+    last_timestamp: `2026-07-24T07:${String(index).padStart(2, '0')}:00Z`,
+    unread_count: 0,
+    marked_unread: false,
+    favorite: false
+  }))
+  const page = items => ({
+    items,
+    meta: { next_cursor: '', has_more: false }
+  })
+  const messageRequests = []
+
+  try {
+    resetWorkspaceState()
+    gateway.listThreads = async () => page(threads)
+    gateway.listMessages = async query => {
+      messageRequests.push(query.peer)
+      return page([])
+    }
+
+    for (const thread of threads) await loadMessages(thread, true)
+    messageRequests.length = 0
+
+    const visible = threads[7]
+    await refreshMessageWorkspace(visible.key)
+
+    assert.deepEqual(messageRequests, [visible.peer])
+    assert.equal(messagesFor(visible.key).status, 'ready')
+    for (const thread of threads) {
+      if (thread.key !== visible.key) {
+        assert.equal(messagesFor(thread.key).status, 'idle')
+      }
+    }
+
+    const reopened = threads[12]
+    messageRequests.length = 0
+    await loadMessages(reopened)
+    assert.deepEqual(messageRequests, [reopened.peer])
+
+    messageRequests.length = 0
+    await refreshMessageWorkspace('')
+    assert.deepEqual(messageRequests, [])
+    assert.equal(messagesFor(visible.key).status, 'idle')
+  } finally {
+    gateway.listThreads = originalListThreads
+    gateway.listMessages = originalListMessages
+    resetWorkspaceState()
+  }
+})
+
 test('communication notifications share one explicit browser preference', async () => {
   const [
     runtime,
@@ -259,7 +321,10 @@ test('communication notifications share one explicit browser preference', async 
   assert.match(client, /source\.addEventListener\('heartbeat'/)
   assert.doesNotMatch(runtime, /setInterval|refreshIncomingMessage|refreshMessageWorkspace/)
   assert.match(runtime, /noteIncomingMessageArrival\(event\)/)
-  assert.match(runtimeEvents, /case 'messages':[\s\S]*?await refreshMessageWorkspace\(\)/)
+  assert.match(
+    runtimeEvents,
+    /case 'messages':[\s\S]*?refreshMessageWorkspace\([\s\S]*?visibleMessageThreadKey\(router\.currentRoute\.value\)/
+  )
   const messageSubscriptionStart = client.indexOf('subscribeMessageEvents(')
   const runtimeSubscriptionStart = client.indexOf(
     'subscribeRuntimeEvents(',

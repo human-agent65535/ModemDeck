@@ -34,6 +34,12 @@ export type MessageRouteLocation = {
   query?: LocationQueryRaw
 }
 
+type CurrentMessageRoute = {
+  name?: unknown
+  params: Record<string, unknown>
+  query: Record<string, unknown>
+}
+
 const referenceRecords = new Map<string, MessageReference>()
 const identityReferences = new Map<string, string>()
 let storageLoaded = false
@@ -174,6 +180,18 @@ export function messageThreadKeyFromReference(value: unknown): string {
   loadStoredReferences()
   const record = referenceRecords.get(reference)
   return record?.kind === 'thread' ? record.threadKey : ''
+}
+
+export function visibleMessageThreadKey(route: CurrentMessageRoute): string {
+  if (route.name === 'messages') {
+    return messageThreadKeyFromReference(route.params.threadRef)
+  }
+  if (route.name !== 'dashboard') return ''
+
+  const item = routeValue(route.query.item)
+  return item.startsWith('message:')
+    ? messageThreadKeyFromReference(item.slice('message:'.length))
+    : ''
 }
 
 export function messageThreadRoute(
