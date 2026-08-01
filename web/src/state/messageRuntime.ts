@@ -2,13 +2,17 @@ import type { Router } from 'vue-router'
 import { fixtureMode, gateway } from '../api/client'
 import type { IncomingMessageEvent } from '../api/types'
 import { translate } from '../i18n'
-import { messageThreadRoute } from '../router/messageRoute'
+import {
+  messageThreadRoute,
+  visibleMessageThreadKey
+} from '../router/messageRoute'
 import {
   contactForNumber,
   displayPhoneNumber,
   lineForKey,
   lineLabel,
-  noteIncomingMessageArrival
+  noteIncomingMessageArrival,
+  refreshMessageWorkspace
 } from './workspace'
 import { showBrowserNotification } from './browserNotifications'
 import { playIncomingMessageSound } from './browserSounds'
@@ -17,14 +21,27 @@ const incomingMessageAlertWindowMilliseconds = 60_000
 
 let closeStream: (() => void) | undefined
 let activeRouter: Router | undefined
+let streamOpened = false
 
 export function initializeMessageRuntime(router: Router): void {
   if (activeRouter || fixtureMode) return
   activeRouter = router
   closeStream = gateway.subscribeMessageEvents({
+    onOpen: () => {
+      if (activeRouter !== router) return
+      if (streamOpened) {
+        void refreshMessageWorkspace(
+          visibleMessageThreadKey(router.currentRoute.value)
+        )
+      }
+      streamOpened = true
+    },
     onMessage: event => {
       if (activeRouter !== router || !shouldAlertIncomingMessage(event)) return
       noteIncomingMessageArrival(event)
+      void refreshMessageWorkspace(
+        visibleMessageThreadKey(router.currentRoute.value)
+      )
       playIncomingMessageSound(event.message_id)
       showIncomingMessageNotification(event, router)
     }
@@ -35,6 +52,7 @@ export function shutdownMessageRuntime(): void {
   closeStream?.()
   closeStream = undefined
   activeRouter = undefined
+  streamOpened = false
 }
 
 export function shouldAlertIncomingMessage(

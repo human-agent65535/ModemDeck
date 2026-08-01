@@ -67,7 +67,7 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 			if !allowed {
 				continue
 			}
-			if !writeSSE(response, flusher, "sms", 0, incomingMessageEvent(event)) {
+			if !writeSSE(response, flusher, "sms", incomingMessageEvent(event)) {
 				return
 			}
 		case observedAt := <-heartbeat.C:

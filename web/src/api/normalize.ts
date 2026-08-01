@@ -446,9 +446,11 @@ export function parseLineResponse(value: unknown): LineSummary {
   return parseLine(source.line ?? source)
 }
 
-export function parseBootstrap(value: unknown): BootstrapResponse {
-  const source = objectValue(value, 'bootstrap')
-  const capabilities = objectValue(source.capabilities, 'bootstrap.capabilities')
+export function parseRuntimeCapabilities(
+  value: unknown,
+  path = 'capabilities'
+): BootstrapResponse['capabilities'] {
+  const capabilities = objectValue(value, path)
   const booleanKeys = [
     'agent_connected',
     'dial',
@@ -460,13 +462,34 @@ export function parseBootstrap(value: unknown): BootstrapResponse {
   ] as const
   for (const key of booleanKeys) {
     if (typeof capabilities[key] !== 'boolean') {
-      throw new Error(`bootstrap.capabilities.${key} 必须是布尔值`)
+      throw new Error(`${path}.${key} 必须是布尔值`)
     }
   }
   const reasons =
     capabilities.unavailable_reasons && typeof capabilities.unavailable_reasons === 'object'
       ? (capabilities.unavailable_reasons as JsonRecord)
       : {}
+  return {
+    agent_connected: capabilities.agent_connected as boolean,
+    dial: capabilities.dial as boolean,
+    message: capabilities.message as boolean,
+    webrtc_audio: capabilities.webrtc_audio as boolean,
+    device_control: capabilities.device_control as boolean,
+    volte_control: capabilities.volte_control as boolean,
+    vowifi_control: capabilities.vowifi_control as boolean,
+    unavailable_reasons: {
+      dial: stringValue(reasons, 'dial') || undefined,
+      message: stringValue(reasons, 'message') || undefined
+    }
+  }
+}
+
+export function parseBootstrap(value: unknown): BootstrapResponse {
+  const source = objectValue(value, 'bootstrap')
+  const capabilities = parseRuntimeCapabilities(
+    source.capabilities,
+    'bootstrap.capabilities'
+  )
   const lines = Array.isArray(source.lines) ? source.lines.map(parseLine) : []
   const lineCatalog = Array.isArray(source.line_catalog)
     ? source.line_catalog.map(parseLine)
@@ -497,19 +520,7 @@ export function parseBootstrap(value: unknown): BootstrapResponse {
     throw new Error('bootstrap.system_settings.revision must be a positive integer')
   }
   return {
-    capabilities: {
-      agent_connected: capabilities.agent_connected as boolean,
-      dial: capabilities.dial as boolean,
-      message: capabilities.message as boolean,
-      webrtc_audio: capabilities.webrtc_audio as boolean,
-      device_control: capabilities.device_control as boolean,
-      volte_control: capabilities.volte_control as boolean,
-      vowifi_control: capabilities.vowifi_control as boolean,
-      unavailable_reasons: {
-        dial: stringValue(reasons, 'dial') || undefined,
-        message: stringValue(reasons, 'message') || undefined
-      }
-    },
+    capabilities,
     lines,
     line_catalog: lineCatalog,
     line_settings: {

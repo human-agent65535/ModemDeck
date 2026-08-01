@@ -319,6 +319,7 @@ type API struct {
 	diagnosticLogs             diagnostics.LogSource
 	messageEvents              messageevents.Source
 	runtimeEvents              runtimeevents.Source
+	runtimeState               runtimeStateCache
 	updateChecker              UpdateChecker
 	updateManager              UpdateManager
 	applicationVersion         string
@@ -584,55 +585,14 @@ func (api *API) postOnly(response http.ResponseWriter, request *http.Request, ha
 }
 
 func (api *API) bootstrap(response http.ResponseWriter, request *http.Request) {
-	persistedLines, err := api.repository.Lines(request.Context())
+	projection, err := api.currentCommunicationProjection(request, true)
 	if err != nil {
 		api.writeInternalError(response, request, "load bootstrap lines", err)
 		return
 	}
-	lines := persistedLines
-	capabilities := Capabilities{}
-	if api.communications != nil {
-		status, statusErr := api.communications.Status(request.Context())
-		if statusErr != nil {
-			api.logger.Warn("live communication state is unavailable", "error", statusErr)
-			lines = attachedPersistedLines(persistedLines)
-			capabilities = disconnectedCapabilities()
-		} else {
-			lines = mergePersistedLineMetadata(status.Lines, persistedLines)
-			capabilities = capabilitiesForLines(status.Lines)
-			capabilities.WebRTCAudio = capabilities.WebRTCAudio &&
-				status.Capabilities.Media && api.callMedia != nil
-		}
-	} else if api.capabilities != nil {
-		capabilities, err = api.capabilities.Capabilities(request.Context())
-		if err != nil {
-			api.logger.Warn("host agent is unavailable", "error", err)
-			capabilities = disconnectedCapabilities()
-		} else {
-			capabilities.WebRTCAudio = capabilities.WebRTCAudio && api.callMedia != nil
-		}
-	} else {
-		capabilities = disconnectedCapabilities()
-	}
-	if isMobileRequest(request) && api.rtcConfiguration == nil {
-		capabilities.WebRTCAudio = false
-	}
-	lineCatalog := persistedLines
-	lines = filterLinesForPrincipal(request.Context(), lines)
-	persistedLines = filterLinesForPrincipal(request.Context(), persistedLines)
-	if _, scoped := auth.PrincipalFromContext(request.Context()); scoped &&
-		api.communications != nil &&
-		capabilities.AgentConnected {
-		mediaAvailable := capabilities.WebRTCAudio
-		capabilities = capabilitiesForLines(lines)
-		capabilities.WebRTCAudio = capabilities.WebRTCAudio && mediaAvailable
-	}
-	if principal, exists := auth.PrincipalFromContext(request.Context()); !exists ||
-		isMobileRequest(request) ||
-		!principal.IsAdmin() {
-		lineCatalog = persistedLines
-	}
-	capabilities = gateCapabilities(capabilities)
+	lines := projection.Lines
+	lineCatalog := projection.LineCatalog
+	capabilities := projection.Capabilities
 	lineSettings, err := api.repository.LineSettings(request.Context())
 	if err != nil {
 		api.writeInternalError(response, request, "load line settings", err)
@@ -658,6 +618,117 @@ func (api *API) bootstrap(response http.ResponseWriter, request *http.Request) {
 		LineSettings:   lineSettings,
 		SystemSettings: systemSettings,
 	})
+}
+
+type communicationProjection struct {
+	Capabilities Capabilities
+	Lines        []store.LineSummary
+	LineCatalog  []store.LineSummary
+	DeviceLines  []store.LineSummary
+	Connected    bool
+}
+
+func (api *API) currentCommunicationProjection(
+	request *http.Request,
+	refresh bool,
+) (communicationProjection, error) {
+	projection, err := api.loadCommunicationProjection(request.Context(), refresh)
+	if err != nil {
+		return communicationProjection{}, err
+	}
+	return api.projectCommunicationProjection(projection, request), nil
+}
+
+func (api *API) loadCommunicationProjection(
+	ctx context.Context,
+	refresh bool,
+) (communicationProjection, error) {
+	persistedLines, err := api.repository.Lines(ctx)
+	if err != nil {
+		return communicationProjection{}, err
+	}
+	lines := persistedLines
+	capabilities := Capabilities{}
+	deviceLines := []store.LineSummary{}
+	connected := false
+	if api.communications != nil {
+		status, statusErr := api.communicationStatus(ctx, refresh)
+		if statusErr != nil {
+			api.logger.Warn("live communication state is unavailable", "error", statusErr)
+			lines = attachedPersistedLines(persistedLines)
+			capabilities = disconnectedCapabilities()
+		} else if !status.Connected {
+			lines = attachedPersistedLines(persistedLines)
+			capabilities = disconnectedCapabilities()
+		} else {
+			deviceLines = status.Lines
+			connected = status.Connected
+			lines = mergePersistedLineMetadata(status.Lines, persistedLines)
+			capabilities = capabilitiesForLines(status.Lines)
+			capabilities.WebRTCAudio = capabilities.WebRTCAudio &&
+				status.Capabilities.Media && api.callMedia != nil
+		}
+	} else if api.capabilities != nil {
+		capabilities, err = api.capabilities.Capabilities(ctx)
+		if err != nil {
+			api.logger.Warn("host agent is unavailable", "error", err)
+			capabilities = disconnectedCapabilities()
+		} else {
+			capabilities.WebRTCAudio = capabilities.WebRTCAudio && api.callMedia != nil
+		}
+	} else {
+		capabilities = disconnectedCapabilities()
+	}
+	return communicationProjection{
+		Capabilities: gateCapabilities(capabilities),
+		Lines:        lines,
+		LineCatalog:  persistedLines,
+		DeviceLines:  deviceLines,
+		Connected:    connected,
+	}, nil
+}
+
+func (api *API) projectCommunicationProjection(
+	projection communicationProjection,
+	request *http.Request,
+) communicationProjection {
+	lines := filterLinesForPrincipal(request.Context(), projection.Lines)
+	lineCatalog := filterLinesForPrincipal(request.Context(), projection.LineCatalog)
+	capabilities := projection.Capabilities
+	if _, scoped := auth.PrincipalFromContext(request.Context()); scoped &&
+		api.communications != nil &&
+		capabilities.AgentConnected {
+		mediaAvailable := capabilities.WebRTCAudio
+		capabilities = capabilitiesForLines(lines)
+		capabilities.WebRTCAudio = capabilities.WebRTCAudio && mediaAvailable
+	}
+	if principal, exists := auth.PrincipalFromContext(request.Context()); !exists ||
+		isMobileRequest(request) ||
+		!principal.IsAdmin() {
+		projection.LineCatalog = lineCatalog
+	}
+	if isMobileRequest(request) && api.rtcConfiguration == nil {
+		capabilities.WebRTCAudio = false
+	}
+	projection.Capabilities = gateCapabilities(capabilities)
+	projection.Lines = lines
+	return projection
+}
+
+type currentCommunicationStatusSource interface {
+	CurrentStatus() communication.Status
+}
+
+func (api *API) communicationStatus(
+	ctx context.Context,
+	refresh bool,
+) (communication.Status, error) {
+	if !refresh {
+		if source, ok := api.communications.(currentCommunicationStatusSource); ok {
+			return source.CurrentStatus(), nil
+		}
+	}
+	return api.communications.Status(ctx)
 }
 
 func attachedPersistedLines(lines []store.LineSummary) []store.LineSummary {
@@ -791,13 +862,7 @@ func (api *API) contactsBatch(response http.ResponseWriter, request *http.Reques
 		api.writeContactError(response, request, "delete contacts", err)
 		return
 	}
-	api.publishRuntimeResources(
-		runtimeevents.ResourceSession,
-		runtimeevents.ResourceContacts,
-		runtimeevents.ResourceMessages,
-		runtimeevents.ResourceCalls,
-		runtimeevents.ResourceRecordings,
-	)
+	api.publishDurableChange()
 	response.Header().Set("Cache-Control", "no-store")
 	response.WriteHeader(http.StatusNoContent)
 }
@@ -905,13 +970,7 @@ func (api *API) createContact(response http.ResponseWriter, request *http.Reques
 		api.writeContactError(response, request, "create contact", err)
 		return
 	}
-	api.publishRuntimeResources(
-		runtimeevents.ResourceSession,
-		runtimeevents.ResourceContacts,
-		runtimeevents.ResourceMessages,
-		runtimeevents.ResourceCalls,
-		runtimeevents.ResourceRecordings,
-	)
+	api.publishDurableChange()
 	writeJSON(response, http.StatusCreated, contactResponse{Contact: contact})
 }
 
@@ -929,13 +988,7 @@ func (api *API) updateContact(response http.ResponseWriter, request *http.Reques
 		api.writeContactError(response, request, "update contact", err)
 		return
 	}
-	api.publishRuntimeResources(
-		runtimeevents.ResourceSession,
-		runtimeevents.ResourceContacts,
-		runtimeevents.ResourceMessages,
-		runtimeevents.ResourceCalls,
-		runtimeevents.ResourceRecordings,
-	)
+	api.publishDurableChange()
 	writeJSON(response, http.StatusOK, contactResponse{Contact: contact})
 }
 
@@ -948,13 +1001,7 @@ func (api *API) deleteContact(response http.ResponseWriter, request *http.Reques
 		api.writeContactError(response, request, "delete contact", err)
 		return
 	}
-	api.publishRuntimeResources(
-		runtimeevents.ResourceSession,
-		runtimeevents.ResourceContacts,
-		runtimeevents.ResourceMessages,
-		runtimeevents.ResourceCalls,
-		runtimeevents.ResourceRecordings,
-	)
+	api.publishDurableChange()
 	response.Header().Set("Cache-Control", "no-store")
 	response.WriteHeader(http.StatusNoContent)
 }

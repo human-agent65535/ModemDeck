@@ -286,7 +286,7 @@ func filterNetworkStatusForPrincipal(
 		}
 	}
 
-	lines := status.Lines[:0]
+	lines := make([]agentclient.NetworkLine, 0, len(status.Lines))
 	for _, line := range status.Lines {
 		if canAccessLine(request.Context(), line.LineID) {
 			lines = append(lines, line)
@@ -294,7 +294,7 @@ func filterNetworkStatusForPrincipal(
 	}
 	status.Lines = lines
 
-	proxies := status.Proxies[:0]
+	proxies := make([]agentclient.NetworkProxy, 0, len(status.Proxies))
 	for _, proxy := range status.Proxies {
 		if _, allowed := allowedProxyIDs[proxy.ID]; allowed {
 			proxies = append(proxies, proxy)

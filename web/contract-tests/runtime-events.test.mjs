@@ -3,56 +3,22 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 import { gateway } from '../src/api/client.ts'
-import { createRuntimeRefreshQueue } from '../src/state/runtimeEvents.ts'
-
-test('runtime refresh queue coalesces duplicate resources without overlapping refreshes', async () => {
-  let releaseFirst
-  const firstRefresh = new Promise(resolve => {
-    releaseFirst = resolve
-  })
-  const calls = []
-  const active = new Map()
-  const maximum = new Map()
-  let first = true
-  const queue = createRuntimeRefreshQueue(async resource => {
-    calls.push(resource)
-    const count = (active.get(resource) || 0) + 1
-    active.set(resource, count)
-    maximum.set(resource, Math.max(maximum.get(resource) || 0, count))
-    if (resource === 'lines' && first) {
-      first = false
-      await firstRefresh
-    }
-    active.set(resource, (active.get(resource) || 1) - 1)
-  })
-
-  const initial = queue.enqueue(['lines', 'lines'])
-  await Promise.resolve()
-  const replayBurst = Array.from({ length: 512 }, () =>
-    queue.enqueue(['lines', 'network', 'network'])
-  )
-  releaseFirst()
-  await Promise.all([initial, ...replayBurst])
-
-  assert.deepEqual(calls, ['lines', 'lines', 'network'])
-  assert.equal(maximum.get('lines'), 1)
-  assert.equal(maximum.get('network'), 1)
-  queue.stop()
-})
-
-test('runtime refresh queue continues after a failed resource refresh', async () => {
-  const calls = []
-  const queue = createRuntimeRefreshQueue(async resource => {
-    calls.push(resource)
-    if (resource === 'lines') throw new Error('request timed out')
-  })
-
-  await queue.enqueue(['lines'])
-  await queue.enqueue(['calls'])
-
-  assert.deepEqual(calls, ['lines', 'calls'])
-  queue.stop()
-})
+import {
+  acceptRuntimeActiveCalls,
+  callState,
+  initializeCallRuntime,
+  shutdownCallRuntime
+} from '../src/state/call.ts'
+import {
+  acceptNetworkSnapshot,
+  loadNetwork,
+  networkState,
+  resetNetworkState
+} from '../src/state/network.ts'
+import {
+  acceptRuntimeState,
+  shutdownRuntimeEvents
+} from '../src/state/runtimeEvents.ts'
 
 test('API requests abort at the shared deadline', async () => {
   const originalFetch = globalThis.fetch
@@ -88,7 +54,7 @@ test('API requests abort at the shared deadline', async () => {
   }
 })
 
-test('runtime SSE reports heartbeats and recreates stale or malformed streams', () => {
+test('runtime SSE parses current state and reconnects without replay cursors', () => {
   const originalEventSource = globalThis.EventSource
   const originalSetTimeout = globalThis.setTimeout
   const originalClearTimeout = globalThis.clearTimeout
@@ -131,14 +97,15 @@ test('runtime SSE reports heartbeats and recreates stale or malformed streams', 
     }
     let errors = 0
     let heartbeatAt = ''
+    let state
     const close = gateway.subscribeRuntimeEvents({
       onOpen() {},
       onHeartbeat(observedAt) {
         heartbeatAt = observedAt
       },
-      onReady() {},
-      onEvent() {},
-      onReset() {},
+      onState(value) {
+        state = value
+      },
       onError() {
         errors += 1
       }
@@ -146,12 +113,29 @@ test('runtime SSE reports heartbeats and recreates stale or malformed streams', 
 
     assert.equal(FakeEventSource.instances[0].url, '/api/v1/runtime/events')
     assert.equal(FakeEventSource.instances[0].withCredentials, true)
-    FakeEventSource.instances[0].emit('ready', '{"newest_id":7}')
+    assert.equal(FakeEventSource.instances[0].listeners.has('ready'), false)
+    assert.equal(FakeEventSource.instances[0].listeners.has('reset'), false)
+    assert.equal(FakeEventSource.instances[0].listeners.has('runtime'), false)
+    FakeEventSource.instances[0].emit(
+      'state',
+      JSON.stringify({
+        epoch: 'process-a',
+        revision: 7,
+        data_revision: 3,
+        observed_at: '2026-08-02T07:29:59Z'
+      })
+    )
     FakeEventSource.instances[0].emit(
       'heartbeat',
-      '{"at":"2026-07-28T07:30:00Z"}'
+      '{"at":"2026-08-02T07:30:00Z"}'
     )
-    assert.equal(heartbeatAt, '2026-07-28T07:30:00Z')
+    assert.deepEqual(state, {
+      epoch: 'process-a',
+      revision: 7,
+      data_revision: 3,
+      observed_at: '2026-08-02T07:29:59Z'
+    })
+    assert.equal(heartbeatAt, '2026-08-02T07:30:00Z')
     assert.equal(timers.size, 1)
 
     const [timerID, expire] = timers.entries().next().value
@@ -160,19 +144,13 @@ test('runtime SSE reports heartbeats and recreates stale or malformed streams', 
     assert.equal(errors, 1)
     assert.equal(FakeEventSource.instances.length, 2)
     assert.equal(FakeEventSource.instances[0].closed, true)
-    assert.equal(
-      FakeEventSource.instances[1].url,
-      '/api/v1/runtime/events?after=7'
-    )
+    assert.equal(FakeEventSource.instances[1].url, '/api/v1/runtime/events')
 
-    FakeEventSource.instances[1].emit('runtime', '{')
+    FakeEventSource.instances[1].emit('state', '{')
     assert.equal(errors, 2)
     assert.equal(FakeEventSource.instances.length, 3)
     assert.equal(FakeEventSource.instances[1].closed, true)
-    assert.equal(
-      FakeEventSource.instances[2].url,
-      '/api/v1/runtime/events?after=7'
-    )
+    assert.equal(FakeEventSource.instances[2].url, '/api/v1/runtime/events')
 
     close()
     assert.equal(FakeEventSource.instances[2].closed, true)
@@ -188,7 +166,164 @@ test('runtime SSE reports heartbeats and recreates stale or malformed streams', 
   }
 })
 
-test('runtime SSE is global to the authenticated application shell', async () => {
+test('live signal and network changes apply directly without REST request storms', async () => {
+  const originalFetch = globalThis.fetch
+  const requests = []
+  globalThis.fetch = async input => {
+    requests.push(String(input))
+    return new Response('{"version":"test"}', {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    })
+  }
+  const router = { currentRoute: { value: { name: 'dashboard', query: {} } } }
+  const capabilities = {
+    agent_connected: true,
+    dial: true,
+    message: true,
+    webrtc_audio: true,
+    device_control: true,
+    volte_control: true,
+    vowifi_control: false,
+    unavailable_reasons: {}
+  }
+  const networkStatus = sample => ({
+    available: true,
+    state: 'available',
+    boot_epoch: 'boot-a',
+    observed_at: `2026-08-02T07:30:${String(sample).padStart(2, '0')}Z`,
+    lines: [],
+    proxies: [],
+    today_total: { rx_bytes: sample, tx_bytes: sample },
+    today_usage: [],
+    month_total: { rx_bytes: sample, tx_bytes: sample },
+    month_usage: [],
+    stale: false,
+    apply_pending: false,
+    apply_status: 'applied',
+    apply_attempts: 0,
+    apply_exhausted: false
+  })
+
+  try {
+    shutdownRuntimeEvents()
+    for (let revision = 0; revision < 40; revision += 1) {
+      acceptRuntimeState(
+        {
+          epoch: 'process-a',
+          revision,
+          data_revision: 0,
+          observed_at: `2026-08-02T07:30:${String(revision).padStart(2, '0')}Z`,
+          communication: {
+            capabilities,
+            lines: [{ id: 'line-1', signal_quality: revision }],
+            line_catalog: [{ id: 'line-1', signal_quality: revision }],
+            devices: []
+          },
+          network: {
+            status: networkStatus(revision),
+            proxies: [{ id: 'proxy-1', revision: 1 }]
+          }
+        },
+        router
+      )
+    }
+    await Promise.resolve()
+    await Promise.resolve()
+
+    assert.equal(networkState.snapshot?.today_total.rx_bytes, 39)
+    assert.equal(networkState.proxies[0]?.id, 'proxy-1')
+    assert.deepEqual(
+      requests.filter(url =>
+        /\/api\/v1\/(bootstrap|devices|network|proxies|calls\/active)/.test(url)
+      ),
+      []
+    )
+  } finally {
+    shutdownRuntimeEvents()
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('runtime proxy truth supersedes an older in-flight REST read', async () => {
+  const originalStatus = gateway.getNetworkStatus
+  const originalProxies = gateway.listProxies
+  let resolveStatus
+  let resolveProxies
+  const pendingStatus = new Promise(resolve => { resolveStatus = resolve })
+  const pendingProxies = new Promise(resolve => { resolveProxies = resolve })
+  const observedAt = '2026-08-02T07:30:00Z'
+  const status = {
+    available: true,
+    state: 'available',
+    boot_epoch: 'boot-a',
+    observed_at: observedAt,
+    lines: [],
+    proxies: [],
+    today_total: { rx_bytes: 0, tx_bytes: 0 },
+    today_usage: [],
+    month_total: { rx_bytes: 0, tx_bytes: 0 },
+    month_usage: [],
+    stale: false,
+    apply_pending: false,
+    apply_status: 'applied',
+    apply_attempts: 0,
+    apply_exhausted: false
+  }
+
+  try {
+    resetNetworkState()
+    gateway.getNetworkStatus = () => pendingStatus
+    gateway.listProxies = () => pendingProxies
+    const oldRead = loadNetwork(true)
+    acceptNetworkSnapshot(status, [{ id: 'proxy-1', revision: 2 }], true)
+    resolveStatus(status)
+    resolveProxies([{ id: 'proxy-1', revision: 1 }])
+    await oldRead
+
+    assert.equal(networkState.proxies[0]?.revision, 2)
+  } finally {
+    gateway.getNetworkStatus = originalStatus
+    gateway.listProxies = originalProxies
+    resetNetworkState()
+  }
+})
+
+test('runtime call truth supersedes an older in-flight REST read', async () => {
+  const originalSnapshot = gateway.getActiveCallSnapshot
+  let resolveSnapshot
+  const pendingSnapshot = new Promise(resolve => { resolveSnapshot = resolve })
+
+  try {
+    shutdownCallRuntime()
+    gateway.getActiveCallSnapshot = () => pendingSnapshot
+    initializeCallRuntime()
+    acceptRuntimeActiveCalls({ calls: [], reservations: [] })
+    resolveSnapshot({
+      calls: [{
+        id: 'stale-call',
+        line_id: 'line-1',
+        direction: 'incoming',
+        remote_number: '+818012345678',
+        phase: 'ringing',
+        control_state: 'available',
+        media_available: false,
+        created_at: '2026-08-02T07:30:00Z'
+      }],
+      reservations: []
+    })
+    await pendingSnapshot
+    await Promise.resolve()
+    await Promise.resolve()
+
+    assert.deepEqual(callState.sessions, [])
+  } finally {
+    gateway.getActiveCallSnapshot = originalSnapshot
+    shutdownCallRuntime()
+  }
+})
+
+test('runtime state is global to the authenticated application shell', async () => {
   const shell = await readFile(
     new URL('../src/components/AppShell.vue', import.meta.url),
     'utf8'
@@ -204,34 +339,34 @@ test('runtime SSE is global to the authenticated application shell', async () =>
     client,
     /subscribeEventSource\(\s*`\$\{API_ROOT\}\/runtime\/events`/
   )
-  assert.match(client, /source\.addEventListener\('runtime'/)
+  assert.match(client, /source\.addEventListener\('state'/)
   assert.match(client, /source\.addEventListener\('heartbeat'/)
-  assert.match(client, /source\.addEventListener\('reset'/)
+  const runtimeSubscriptionStart = client.indexOf('subscribeRuntimeEvents(')
+  const diagnosticSubscriptionStart = client.indexOf(
+    'subscribeDiagnosticLogs(',
+    runtimeSubscriptionStart
+  )
+  const runtimeSubscription = client.slice(
+    runtimeSubscriptionStart,
+    diagnosticSubscriptionStart
+  )
+  assert.doesNotMatch(runtimeSubscription, /addEventListener\('runtime'/)
+  assert.doesNotMatch(runtimeSubscription, /addEventListener\('reset'/)
+  assert.doesNotMatch(client, /RUNTIME_RESOURCES/)
   assert.match(client, /RUNTIME_EVENT_INACTIVITY_TIMEOUT_MS = 12_000/)
-  assert.match(client, /RUNTIME_RESOURCES[\s\S]*?'messages'/)
   assert.match(
     shell,
     /async function initializeWorkspaceRuntime[\s\S]*?await bootstrap\(\)[\s\S]*?initializeRuntimeEvents\(router\)/
   )
   assert.match(shell, /shutdownRuntimeEvents\(\)/)
-  assert.match(runtime, /refreshDeviceWorkspace\(\)/)
-  assert.match(runtime, /loadNetwork\(true, true\)/)
-  assert.match(runtime, /onOpen:[\s\S]*?refreshQueue\?\.enqueue\(\['calls'\]\)/)
-  assert.match(runtime, /onHeartbeat:[\s\S]*?state\.lastHeartbeatAt = observedAt/)
-  assert.doesNotMatch(runtime, /renewActiveCallLease/)
-  assert.match(runtime, /case 'calls':[\s\S]*?await requestActiveCallRefresh\(\)/)
-  assert.match(runtime, /refreshCalls\(\)/)
+  assert.match(runtime, /acceptRuntimeCommunicationState\(runtime\.communication\)/)
   assert.match(
     runtime,
-    /case 'messages':[\s\S]*?refreshMessageWorkspace\([\s\S]*?visibleMessageThreadKey\(router\.currentRoute\.value\)/
+    /acceptNetworkSnapshot\([\s\S]*?runtime\.network\.status,[\s\S]*?runtime\.network\.proxies,[\s\S]*?true/
   )
-  assert.match(
-    runtime,
-    /onReady:[\s\S]*?if \(!initialized\)[\s\S]*?refreshQueue\?\.enqueue\(ALL_RESOURCES\)/
-  )
-  assert.doesNotMatch(runtime, /let lastEventID/)
-  assert.doesNotMatch(
-    runtime,
-    /onError:[\s\S]*?if \(wasConnected\)[\s\S]*?refreshQueue\?\.enqueue\(ALL_RESOURCES\)/
-  )
+  assert.match(runtime, /acceptRuntimeActiveCalls\(runtime\.calls\)/)
+  assert.match(runtime, /data_revision > lastDataRevision/)
+  assert.match(runtime, /Promise\.allSettled\(\[/)
+  assert.doesNotMatch(runtime, /ALL_RESOURCES|RuntimeResource|FALLBACK_REFRESH_MS/)
+  assert.doesNotMatch(runtime, /loadNetwork|requestActiveCallRefresh/)
 })

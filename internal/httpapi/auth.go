@@ -10,7 +10,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
-	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -354,7 +353,7 @@ func (api *API) accountPassword(response http.ResponseWriter, request *http.Requ
 		if revokeErr != nil {
 			api.logger.Error("end calls after password change", "error", revokeErr)
 		}
-		api.publishRuntimeResources(runtimeevents.ResourceSession)
+		api.publishDurableChange()
 		api.clearAuthCookies(response)
 		response.Header().Set("Cache-Control", "no-store")
 		response.WriteHeader(http.StatusNoContent)

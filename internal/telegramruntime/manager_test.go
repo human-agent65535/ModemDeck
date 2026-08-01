@@ -177,12 +177,12 @@ func TestAdaptersHonorContactResolutionConfiguration(t *testing.T) {
 	}
 }
 
-func TestAdaptersPublishMessageInvalidationAfterMarkingThreadRead(t *testing.T) {
+func TestAdaptersPublishDurableRevisionAfterMarkingThreadRead(t *testing.T) {
 	t.Parallel()
 
 	repository := &fakeRepository{}
-	events := runtimeevents.NewBuffer(4)
-	_, updates, cancel := events.SubscribeCurrent()
+	events := runtimeevents.NewHub()
+	_, updates, cancel := events.Subscribe()
 	defer cancel()
 
 	err := (adapters{
@@ -202,13 +202,12 @@ func TestAdaptersPublishMessageInvalidationAfterMarkingThreadRead(t *testing.T) 
 	}
 
 	select {
-	case event := <-updates:
-		if len(event.Resources) != 1 ||
-			event.Resources[0] != runtimeevents.ResourceMessages {
-			t.Fatalf("runtime event = %+v", event)
+	case signal := <-updates:
+		if signal.Revision != 1 || signal.DataRevision != 1 {
+			t.Fatalf("runtime signal = %+v", signal)
 		}
 	default:
-		t.Fatal("message invalidation event was not published")
+		t.Fatal("durable revision was not published")
 	}
 }
 
@@ -217,8 +216,8 @@ func TestAdaptersDoNotPublishMessageInvalidationWhenMarkReadFails(t *testing.T) 
 
 	markErr := errors.New("database unavailable")
 	repository := &fakeRepository{markReadError: markErr}
-	events := runtimeevents.NewBuffer(4)
-	_, updates, cancel := events.SubscribeCurrent()
+	events := runtimeevents.NewHub()
+	_, updates, cancel := events.Subscribe()
 	defer cancel()
 
 	err := (adapters{
@@ -235,12 +234,12 @@ func TestAdaptersDoNotPublishMessageInvalidationWhenMarkReadFails(t *testing.T) 
 	}
 }
 
-func TestAdaptersPublishCallInvalidationAfterMarkingMissedCallsRead(t *testing.T) {
+func TestAdaptersPublishDurableRevisionAfterMarkingMissedCallsRead(t *testing.T) {
 	t.Parallel()
 
 	repository := &fakeRepository{}
-	events := runtimeevents.NewBuffer(4)
-	_, updates, cancel := events.SubscribeCurrent()
+	events := runtimeevents.NewHub()
+	_, updates, cancel := events.Subscribe()
 	defer cancel()
 
 	err := (adapters{
@@ -259,13 +258,12 @@ func TestAdaptersPublishCallInvalidationAfterMarkingMissedCallsRead(t *testing.T
 	}
 
 	select {
-	case event := <-updates:
-		if len(event.Resources) != 1 ||
-			event.Resources[0] != runtimeevents.ResourceCalls {
-			t.Fatalf("runtime event = %+v", event)
+	case signal := <-updates:
+		if signal.Revision != 1 || signal.DataRevision != 1 {
+			t.Fatalf("runtime signal = %+v", signal)
 		}
 	default:
-		t.Fatal("call invalidation event was not published")
+		t.Fatal("durable revision was not published")
 	}
 }
 
@@ -274,8 +272,8 @@ func TestAdaptersDoNotPublishCallInvalidationWhenMarkReadFails(t *testing.T) {
 
 	markErr := errors.New("database unavailable")
 	repository := &fakeRepository{markCallsReadError: markErr}
-	events := runtimeevents.NewBuffer(4)
-	_, updates, cancel := events.SubscribeCurrent()
+	events := runtimeevents.NewHub()
+	_, updates, cancel := events.Subscribe()
 	defer cancel()
 
 	err := (adapters{

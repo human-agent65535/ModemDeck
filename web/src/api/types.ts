@@ -649,30 +649,37 @@ export type IncomingMessageEvent = {
 }
 
 export type MessageEventStreamHandlers = {
+  onOpen?: () => void
   onMessage: (event: IncomingMessageEvent) => void
 }
 
-export type RuntimeResource =
-  | 'session'
-  | 'lines'
-  | 'network'
-  | 'calls'
-  | 'messages'
-  | 'contacts'
-  | 'recordings'
+export type RuntimeCommunicationState = {
+  capabilities: BootstrapResponse['capabilities']
+  lines: LineSummary[]
+  line_catalog: LineSummary[]
+  devices?: Device[]
+}
 
-export type RuntimeEvent = {
-  id: number
-  resources: RuntimeResource[]
+export type RuntimeNetworkState = {
+  status: NetworkStatus
+  proxies: ProxyInstance[]
+}
+
+export type RuntimeState = {
+  epoch: string
+  revision: number
+  data_revision: number
   observed_at: string
+  communication?: RuntimeCommunicationState
+  network?: RuntimeNetworkState
+  calls?: ActiveCallSnapshot
+  recordings?: CallRecordingSnapshot[]
 }
 
 export type RuntimeEventStreamHandlers = {
   onOpen: () => void
   onHeartbeat: (observedAt: string) => void
-  onReady: (newestID: number) => void
-  onEvent: (event: RuntimeEvent) => void
-  onReset: (oldestID: number, newestID: number) => void
+  onState: (state: RuntimeState) => void
   onError: (error?: Error) => void
 }
 

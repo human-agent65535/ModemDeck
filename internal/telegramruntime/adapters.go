@@ -202,9 +202,7 @@ func (a adapters) MarkMessageThreadRead(ctx context.Context, lineID, peer string
 		return err
 	}
 	if a.runtimeEvents != nil {
-		a.runtimeEvents.Publish(runtimeevents.Event{
-			Resources: []runtimeevents.Resource{runtimeevents.ResourceMessages},
-		})
+		a.runtimeEvents.Publish(runtimeevents.Change{Durable: true})
 	}
 	return nil
 }
@@ -214,9 +212,7 @@ func (a adapters) MarkMissedCallsRead(ctx context.Context, callIDs []string) err
 		return err
 	}
 	if a.runtimeEvents != nil {
-		a.runtimeEvents.Publish(runtimeevents.Event{
-			Resources: []runtimeevents.Resource{runtimeevents.ResourceCalls},
-		})
+		a.runtimeEvents.Publish(runtimeevents.Change{Durable: true})
 	}
 	return nil
 }

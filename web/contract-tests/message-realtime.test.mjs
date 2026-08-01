@@ -234,7 +234,7 @@ test('message SSE observes heartbeats and reconnects without replay state', () =
   }
 })
 
-test('message invalidation reloads only the visible thread without mutating hidden caches', async () => {
+test('message convergence reloads only the visible thread without mutating hidden caches', async () => {
   const originalListThreads = gateway.listThreads
   const originalListMessages = gateway.listMessages
   const threads = Array.from({ length: 20 }, (_, index) => ({
@@ -319,12 +319,17 @@ test('communication notifications share one explicit browser preference', async 
   assert.match(runtime, /gateway\.subscribeMessageEvents\(/)
   assert.match(client, /MESSAGE_EVENT_INACTIVITY_TIMEOUT_MS = 40_000/)
   assert.match(client, /source\.addEventListener\('heartbeat'/)
-  assert.doesNotMatch(runtime, /setInterval|refreshIncomingMessage|refreshMessageWorkspace/)
+  assert.doesNotMatch(runtime, /setInterval|refreshIncomingMessage/)
   assert.match(runtime, /noteIncomingMessageArrival\(event\)/)
   assert.match(
-    runtimeEvents,
-    /case 'messages':[\s\S]*?refreshMessageWorkspace\([\s\S]*?visibleMessageThreadKey\(router\.currentRoute\.value\)/
+    runtime,
+    /onMessage:[\s\S]*?refreshMessageWorkspace\([\s\S]*?visibleMessageThreadKey\(router\.currentRoute\.value\)/
   )
+  assert.match(
+    runtime,
+    /onOpen:[\s\S]*?if \(streamOpened\)[\s\S]*?refreshMessageWorkspace\(/
+  )
+  assert.doesNotMatch(runtimeEvents, /case 'messages'|RuntimeResource/)
   const messageSubscriptionStart = client.indexOf('subscribeMessageEvents(')
   const runtimeSubscriptionStart = client.indexOf(
     'subscribeRuntimeEvents(',

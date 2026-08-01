@@ -19,8 +19,10 @@ import (
 type fakeNetworkService struct {
 	status                  networkruntime.Status
 	statusError             error
+	statusCalls             int
 	proxies                 []networkruntime.Proxy
 	proxiesError            error
+	proxiesCalls            int
 	createInput             networkruntime.CreateInput
 	createResult            networkruntime.ProxyMutation
 	createError             error
@@ -49,12 +51,14 @@ type fakeNetworkService struct {
 }
 
 func (service *fakeNetworkService) Status(context.Context) (networkruntime.Status, error) {
+	service.statusCalls++
 	return service.status, service.statusError
 }
 
 func (service *fakeNetworkService) Proxies(
 	context.Context,
 ) ([]networkruntime.Proxy, error) {
+	service.proxiesCalls++
 	return service.proxies, service.proxiesError
 }
 

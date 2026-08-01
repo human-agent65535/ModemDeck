@@ -1,22 +1,69 @@
 package httpapi
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
+	"github.com/human-agent65535/modemdeck/internal/auth"
+	"github.com/human-agent65535/modemdeck/internal/networkruntime"
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
+	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
 const runtimeHeartbeatInterval = 5 * time.Second
+const runtimeStateBuildTimeout = 5 * time.Second
+
+type runtimeCommunicationState struct {
+	Capabilities Capabilities          `json:"capabilities"`
+	Lines        []lineSummaryResponse `json:"lines"`
+	LineCatalog  []lineSummaryResponse `json:"line_catalog"`
+	Devices      *[]store.Device       `json:"devices,omitempty"`
+}
+
+type runtimeNetworkState struct {
+	Status  networkruntime.Status  `json:"status"`
+	Proxies []networkruntime.Proxy `json:"proxies"`
+}
+
+type runtimeStateResponse struct {
+	Epoch         string                     `json:"epoch"`
+	Revision      uint64                     `json:"revision"`
+	DataRevision  uint64                     `json:"data_revision"`
+	ObservedAt    time.Time                  `json:"observed_at"`
+	Communication *runtimeCommunicationState `json:"communication,omitempty"`
+	Network       *runtimeNetworkState       `json:"network,omitempty"`
+	Calls         *activeCallsResponse       `json:"calls,omitempty"`
+	Recordings    []recordingListResponse    `json:"recordings,omitempty"`
+}
+
+type runtimeGlobalCommunicationState struct {
+	Projection communicationProjection
+	Devices    *[]store.Device
+}
+
+type runtimeGlobalState struct {
+	Signal        runtimeevents.Signal
+	Communication *runtimeGlobalCommunicationState
+	Network       *runtimeNetworkState
+	Calls         []store.Call
+	CallsReady    bool
+	Recordings    map[string]recordingListResponse
+}
+
+type runtimeStateCache struct {
+	mu          sync.Mutex
+	initialized bool
+	epoch       string
+	revision    uint64
+	state       runtimeGlobalState
+}
 
 func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.Request) {
 	if api.runtimeEvents == nil {
 		writeError(response, http.StatusServiceUnavailable, "runtime_events_unavailable", "Runtime events are unavailable", "")
-		return
-	}
-	after, replay, ok := eventCursor(response, request)
-	if !ok {
 		return
 	}
 	flusher, ok := response.(http.Flusher)
@@ -33,15 +80,12 @@ func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.R
 	}
 	defer release()
 
-	var window runtimeevents.Window
-	var updates <-chan runtimeevents.Event
-	var cancel func()
-	if replay {
-		window, updates, cancel = api.runtimeEvents.Subscribe(after)
-	} else {
-		window, updates, cancel = api.runtimeEvents.SubscribeCurrent()
-	}
+	current, updates, cancel := api.runtimeEvents.Subscribe()
 	defer cancel()
+	principal, scoped, err := api.currentStreamAccess(request, false)
+	if err != nil {
+		return
+	}
 
 	response.Header().Set("Content-Type", "text/event-stream")
 	response.Header().Set("Cache-Control", "no-store")
@@ -53,30 +97,7 @@ func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.R
 	if _, err := fmt.Fprint(response, "retry: 2000\n\n"); err != nil {
 		return
 	}
-	if window.Reset && !writeSSE(response, flusher, "reset", 0, map[string]uint64{
-		"oldest_id": window.OldestID,
-		"newest_id": window.NewestID,
-	}) {
-		return
-	}
-	for _, event := range window.Events {
-		visibleEvent, visible := runtimeEventForRequest(request, event)
-		if !visible {
-			continue
-		}
-		if !writeSSE(
-			response,
-			flusher,
-			"runtime",
-			visibleEvent.ID,
-			visibleEvent,
-		) {
-			return
-		}
-	}
-	if !writeSSE(response, flusher, "ready", window.NewestID, map[string]uint64{
-		"newest_id": window.NewestID,
-	}) {
+	if !api.writeRuntimeState(response, flusher, request, principal, scoped, current) {
 		return
 	}
 
@@ -86,24 +107,15 @@ func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.R
 		select {
 		case <-request.Context().Done():
 			return
-		case event, open := <-updates:
+		case signal, open := <-updates:
 			if !open {
 				return
 			}
-			if _, _, err := api.currentStreamAccess(request, false); err != nil {
+			principal, scoped, err := api.currentStreamAccess(request, false)
+			if err != nil {
 				return
 			}
-			visibleEvent, visible := runtimeEventForRequest(request, event)
-			if !visible {
-				continue
-			}
-			if !writeSSE(
-				response,
-				flusher,
-				"runtime",
-				visibleEvent.ID,
-				visibleEvent,
-			) {
+			if !api.writeRuntimeState(response, flusher, request, principal, scoped, signal) {
 				return
 			}
 		case observedAt := <-heartbeat.C:
@@ -117,30 +129,186 @@ func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.R
 	}
 }
 
-func runtimeEventForRequest(
+func (api *API) writeRuntimeState(
+	response http.ResponseWriter,
+	flusher http.Flusher,
 	request *http.Request,
-	event runtimeevents.Event,
-) (runtimeevents.Event, bool) {
-	if !isMobileRequest(request) {
-		return event, true
+	principal auth.Principal,
+	scoped bool,
+	signal runtimeevents.Signal,
+) bool {
+	if scoped {
+		request = request.WithContext(auth.ContextWithPrincipal(request.Context(), principal))
 	}
-	resources := make([]runtimeevents.Resource, 0, len(event.Resources))
-	for _, resource := range event.Resources {
-		switch resource {
-		case runtimeevents.ResourceLines,
-			runtimeevents.ResourceNetwork,
-			runtimeevents.ResourceCalls:
-			resources = append(resources, resource)
+	current := api.currentRuntimeState(signal)
+	state := runtimeStateResponse{
+		Epoch:        current.Signal.Epoch,
+		Revision:     current.Signal.Revision,
+		DataRevision: current.Signal.DataRevision,
+		ObservedAt:   current.Signal.ObservedAt,
+	}
+	if state.ObservedAt.IsZero() {
+		state.ObservedAt = time.Now().UTC()
+	}
+
+	if current.Communication != nil {
+		projection := api.projectCommunicationProjection(
+			current.Communication.Projection,
+			request,
+		)
+		communication := &runtimeCommunicationState{
+			Capabilities: projection.Capabilities,
+			Lines:        lineSummaryResponses(projection.Lines),
+			LineCatalog:  lineSummaryResponses(projection.LineCatalog),
+		}
+		if current.Communication.Devices != nil {
+			devices := append([]store.Device(nil), (*current.Communication.Devices)...)
+			devices = filterDevicesForPrincipal(request.Context(), devices)
+			if devices == nil {
+				devices = []store.Device{}
+			}
+			communication.Devices = &devices
+		}
+		state.Communication = communication
+	}
+
+	if current.Network != nil {
+		status := current.Network.Status
+		proxies := current.Network.Proxies
+		if _, scoped := auth.PrincipalFromContext(request.Context()); scoped {
+			status = filterNetworkStatusForPrincipal(request, status, proxies)
+		}
+		proxies = filterProxiesForPrincipal(request, proxies)
+		state.Network = &runtimeNetworkState{Status: status, Proxies: proxies}
+	}
+
+	if current.CallsReady {
+		calls, err := api.projectActiveCallSnapshot(request, current.Calls)
+		if err != nil {
+			api.logRuntimeStateError(request, "calls", err)
+		} else {
+			state.Calls = &calls
+			for _, call := range calls.Calls {
+				if recording, ok := current.Recordings[call.ID]; ok {
+					state.Recordings = append(state.Recordings, recording)
+				}
+			}
 		}
 	}
-	event.Resources = resources
-	return event, len(resources) > 0
+	return writeSSE(response, flusher, "state", state)
 }
 
-func (api *API) publishRuntimeResources(resources ...runtimeevents.Resource) {
+// currentRuntimeState builds one process-wide snapshot per signal. Browser
+// connections only apply their authorization projection to this immutable
+// value, so adding viewers does not multiply hardware or SQLite reads.
+func (api *API) currentRuntimeState(signal runtimeevents.Signal) runtimeGlobalState {
+	cache := &api.runtimeState
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if cache.initialized &&
+		cache.epoch == signal.Epoch &&
+		cache.revision == signal.Revision {
+		return cache.state
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), runtimeStateBuildTimeout)
+	defer cancel()
+	state := runtimeGlobalState{
+		Signal:     signal,
+		Recordings: make(map[string]recordingListResponse),
+	}
+	if state.Signal.ObservedAt.IsZero() {
+		state.Signal.ObservedAt = time.Now().UTC()
+	}
+
+	projection, err := api.loadCommunicationProjection(ctx, false)
+	if err != nil {
+		api.logRuntimeStateBuildError("communication", err)
+	} else {
+		communication := &runtimeGlobalCommunicationState{Projection: projection}
+		devices, deviceErr := api.repository.Devices(ctx)
+		if deviceErr != nil {
+			api.logRuntimeStateBuildError("devices", deviceErr)
+		} else {
+			if projection.Connected {
+				devices = mergeLiveDeviceNetwork(devices, projection.DeviceLines)
+			}
+			if devices == nil {
+				devices = []store.Device{}
+			}
+			communication.Devices = &devices
+		}
+		state.Communication = communication
+	}
+
+	if api.network != nil {
+		status, statusErr := api.network.Status(ctx)
+		if statusErr != nil {
+			api.logRuntimeStateBuildError("network", statusErr)
+		} else if proxies, proxyErr := api.network.Proxies(ctx); proxyErr != nil {
+			api.logRuntimeStateBuildError("proxies", proxyErr)
+		} else {
+			state.Network = &runtimeNetworkState{Status: status, Proxies: proxies}
+		}
+	}
+
+	if api.communications != nil && api.callLeases != nil {
+		calls, callsErr := api.communications.ActiveCalls(ctx)
+		if callsErr != nil {
+			api.logRuntimeStateBuildError("calls", callsErr)
+		} else {
+			state.Calls = append([]store.Call(nil), calls...)
+			state.CallsReady = true
+			if api.recordings != nil {
+				for _, call := range calls {
+					recordings, recordingErr := api.recordings.CallRecordings(ctx, call.ID)
+					if recordingErr != nil {
+						api.logRuntimeStateBuildError("recording", recordingErr)
+						continue
+					}
+					state.Recordings[call.ID] = recordingListResponse{
+						State:    recordings.State,
+						Segments: recordings.Segments,
+					}
+				}
+			}
+		}
+	}
+
+	cache.initialized = true
+	cache.epoch = signal.Epoch
+	cache.revision = signal.Revision
+	cache.state = state
+	return state
+}
+
+func (api *API) logRuntimeStateBuildError(section string, err error) {
+	api.logger.Warn(
+		"live runtime state section is unavailable",
+		"section", section,
+		"error", err,
+	)
+}
+
+func (api *API) logRuntimeStateError(request *http.Request, section string, err error) {
+	if requestWasCanceled(request, err) {
+		return
+	}
+	api.logger.Warn("live runtime state section is unavailable", "section", section, "error", err)
+}
+
+func (api *API) publishLiveState() {
 	publisher, ok := api.runtimeEvents.(runtimeevents.Publisher)
 	if !ok {
 		return
 	}
-	publisher.Publish(runtimeevents.Event{Resources: resources})
+	publisher.Publish(runtimeevents.Change{})
+}
+
+func (api *API) publishDurableChange() {
+	publisher, ok := api.runtimeEvents.(runtimeevents.Publisher)
+	if !ok {
+		return
+	}
+	publisher.Publish(runtimeevents.Change{Durable: true})
 }

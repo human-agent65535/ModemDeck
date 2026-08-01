@@ -167,18 +167,24 @@ test('proxy cards keep runtime truth separate from desired apply state', () => {
   assert.match(trafficView, /t\('traffic\.addProxy'\)/)
 })
 
-test('runtime SSE refreshes line inventory and guards newer proxy state', () => {
+test('runtime SSE applies line, network, and proxy truth without invalidation requests', () => {
   assert.match(trafficView, /loadBootstrap\(true\)/)
   assert.doesNotMatch(trafficView, /setInterval/)
   assert.match(runtimeEvents, /gateway\.subscribeRuntimeEvents/)
   assert.match(
     runtimeEvents,
-    /case 'lines':[\s\S]*?await refreshDeviceWorkspace\(\)/
+    /acceptRuntimeCommunicationState\(runtime\.communication\)/
   )
-  assert.match(runtimeEvents, /case 'network':[\s\S]*?await loadNetwork\(true, true\)/)
-  assert.match(runtimeEvents, /case 'calls':[\s\S]*?requestActiveCallRefresh\(\)/)
+  assert.match(
+    runtimeEvents,
+    /acceptNetworkSnapshot\([\s\S]*?runtime\.network\.status,[\s\S]*?runtime\.network\.proxies,[\s\S]*?true/
+  )
+  assert.doesNotMatch(runtimeEvents, /loadNetwork|requestActiveCallRefresh|case 'lines'/)
   assert.match(networkState, /acceptNetworkSnapshot\(snapshot, proxies\)/)
-  assert.match(runtimeEvents, /if \(currentGeneration !== generation \|\| state\.connected\) return/)
+  assert.match(
+    networkState,
+    /current\?\.boot_epoch === snapshot\.boot_epoch[\s\S]*?Date\.parse\(snapshot\.observed_at\) < Date\.parse\(current\.observed_at\)/
+  )
   assert.match(trafficView, /:error="networkState\.error"/)
 })
 

@@ -92,6 +92,7 @@ import {
   parseDevices,
   parseLine,
   parseMessages,
+  parseRuntimeCapabilities,
   parseThreads
 } from './normalize'
 import type {
@@ -142,9 +143,8 @@ import type {
   ProxyMutation,
   RecordingSettings,
   RenameDeviceInput,
-  RuntimeEvent,
   RuntimeEventStreamHandlers,
-  RuntimeResource,
+  RuntimeState,
   SaveConnectionProfileInput,
   SendMessageInput,
   SessionResponse,
@@ -769,42 +769,94 @@ function parseIncomingMessageEvent(value: unknown): IncomingMessageEvent {
   }
 }
 
-const RUNTIME_RESOURCES = new Set<RuntimeResource>([
-  'session',
-  'lines',
-  'network',
-  'calls',
-  'messages',
-  'contacts',
-  'recordings'
-])
-
-function parseRuntimeEvent(value: unknown): RuntimeEvent {
-  const source = requiredRecord(value, 'runtime_event')
-  if (!Array.isArray(source.resources) || source.resources.length === 0) {
-    throw new ApiError('runtime_event.resources 必须是非空数组', 0, 'invalid_response')
+function parseRuntimeState(value: unknown): RuntimeState {
+  const source = requiredRecord(value, 'runtime_state')
+  const revision = numberValue(source, 'runtime_state', 'revision')
+  const dataRevision = numberValue(source, 'runtime_state', 'data_revision')
+  if (!Number.isSafeInteger(revision) || revision < 0) {
+    throw new ApiError('runtime_state.revision 必须是非负整数', 0, 'invalid_response')
   }
-  const resources: RuntimeResource[] = []
-  for (const [index, value] of source.resources.entries()) {
-    if (typeof value !== 'string' || !RUNTIME_RESOURCES.has(value as RuntimeResource)) {
+  if (!Number.isSafeInteger(dataRevision) || dataRevision < 0) {
+    throw new ApiError('runtime_state.data_revision 必须是非负整数', 0, 'invalid_response')
+  }
+  const observedAt = requiredStringValue(source, 'runtime_state', 'observed_at')
+  if (Number.isNaN(Date.parse(observedAt))) {
+    throw new ApiError('runtime_state.observed_at 必须是有效时间', 0, 'invalid_response')
+  }
+  const state: RuntimeState = {
+    epoch: requiredStringValue(source, 'runtime_state', 'epoch'),
+    revision,
+    data_revision: dataRevision,
+    observed_at: observedAt
+  }
+  if (source.communication !== undefined) {
+    const communication = requiredRecord(
+      source.communication,
+      'runtime_state.communication'
+    )
+    if (!Array.isArray(communication.lines)) {
       throw new ApiError(
-        `runtime_event.resources[${index}] 是未知资源`,
+        'runtime_state.communication.lines 必须是数组',
         0,
         'invalid_response'
       )
     }
-    const resource = value as RuntimeResource
-    if (!resources.includes(resource)) resources.push(resource)
+    if (!Array.isArray(communication.line_catalog)) {
+      throw new ApiError(
+        'runtime_state.communication.line_catalog 必须是数组',
+        0,
+        'invalid_response'
+      )
+    }
+    if (communication.devices !== undefined && !Array.isArray(communication.devices)) {
+      throw new ApiError(
+        'runtime_state.communication.devices 必须是数组',
+        0,
+        'invalid_response'
+      )
+    }
+    state.communication = {
+      capabilities: parseRuntimeCapabilities(
+        communication.capabilities,
+        'runtime_state.communication.capabilities'
+      ),
+      lines: communication.lines.map(parseLine),
+      line_catalog: communication.line_catalog.map(parseLine),
+      ...(communication.devices !== undefined
+        ? { devices: parseDevices({ devices: communication.devices }) }
+        : {})
+    }
   }
-  const observedAt = requiredStringValue(source, 'runtime_event', 'observed_at')
-  if (Number.isNaN(Date.parse(observedAt))) {
-    throw new ApiError('runtime_event.observed_at 必须是有效时间', 0, 'invalid_response')
+  if (source.network !== undefined) {
+    const network = requiredRecord(source.network, 'runtime_state.network')
+    if (!Array.isArray(network.proxies)) {
+      throw new ApiError(
+        'runtime_state.network.proxies 必须是数组',
+        0,
+        'invalid_response'
+      )
+    }
+    state.network = {
+      status: parseNetworkStatusResponse(network.status),
+      proxies: parseProxyCollectionResponse({ proxies: network.proxies })
+    }
   }
-  return {
-    id: numberValue(source, 'runtime_event', 'id'),
-    resources,
-    observed_at: observedAt
+  if (source.calls !== undefined) {
+    state.calls = parseActiveCallSnapshotResponse(source.calls)
   }
+  if (source.recordings !== undefined) {
+    if (!Array.isArray(source.recordings)) {
+      throw new ApiError(
+        'runtime_state.recordings 必须是数组',
+        0,
+        'invalid_response'
+      )
+    }
+    state.recordings = source.recordings.map(recording =>
+      parseCallRecordingSnapshotResponse(recording)
+    )
+  }
+  return state
 }
 
 function parseDiagnosticLogPage(value: unknown): DiagnosticLogPage {
@@ -1002,11 +1054,6 @@ type EventSourceLifecycleHandlers = {
   onError: (error?: Error) => void
 }
 
-function replayEventSourcePath(path: string, after: number): string {
-  const separator = path.includes('?') ? '&' : '?'
-  return `${path}${separator}after=${encodeURIComponent(String(after))}`
-}
-
 function subscribeEventSource(
   path: string,
   handlers: EventSourceLifecycleHandlers,
@@ -1014,14 +1061,12 @@ function subscribeEventSource(
     source: EventSource,
     restart: (error: Error) => void,
     isActive: () => boolean,
-    markActivity: () => void,
-    setCursor: (eventID: number) => void
+    markActivity: () => void
   ) => void,
   inactivityTimeoutMilliseconds?: number
 ): () => void {
   let source: EventSource | undefined
   let inactivityTimer: ReturnType<typeof globalThis.setTimeout> | undefined
-  let lastEventID: number | undefined
   let stopped = false
 
   const clearInactivityTimer = () => {
@@ -1030,13 +1075,9 @@ function subscribeEventSource(
     inactivityTimer = undefined
   }
 
-  const connect = (replay = false) => {
+  const connect = () => {
     if (stopped) return
-    const eventPath =
-      replay && lastEventID !== undefined
-        ? replayEventSourcePath(path, lastEventID)
-        : path
-    const current = new EventSource(eventPath, { withCredentials: true })
+    const current = new EventSource(path, { withCredentials: true })
     source = current
     const isActive = () => !stopped && source === current
     const restart = (error: Error) => {
@@ -1044,7 +1085,7 @@ function subscribeEventSource(
       clearInactivityTimer()
       current.close()
       handlers.onError(error)
-      connect(true)
+      connect()
     }
     const markActivity = () => {
       if (!isActive() || !inactivityTimeoutMilliseconds) return
@@ -1052,10 +1093,6 @@ function subscribeEventSource(
       inactivityTimer = globalThis.setTimeout(() => {
         restart(new Error('事件流长时间没有响应'))
       }, inactivityTimeoutMilliseconds)
-    }
-    const setCursor = (eventID: number) => {
-      if (!isActive() || !Number.isSafeInteger(eventID) || eventID < 0) return
-      lastEventID = eventID
     }
     current.onopen = () => {
       if (!isActive()) return
@@ -1065,7 +1102,7 @@ function subscribeEventSource(
     current.onerror = () => {
       if (isActive()) handlers.onError()
     }
-    bind(current, restart, isActive, markActivity, setCursor)
+    bind(current, restart, isActive, markActivity)
     markActivity()
   }
 
@@ -1739,7 +1776,7 @@ const realGateway: ConfiguredModemDeckGateway = {
     return subscribeEventSource(
       `${API_ROOT}/messages/events`,
       {
-        onOpen: () => undefined,
+        onOpen: () => handlers.onOpen?.(),
         onError: () => undefined
       },
       (source, restart, isActive, markActivity) => {
@@ -1775,16 +1812,14 @@ const realGateway: ConfiguredModemDeckGateway = {
     return subscribeEventSource(
       `${API_ROOT}/runtime/events`,
       handlers,
-      (source, restart, isActive, markActivity, setCursor) => {
-        source.addEventListener('runtime', event => {
+      (source, restart, isActive, markActivity) => {
+        source.addEventListener('state', event => {
           if (!isActive()) return
           markActivity()
           try {
-            const runtimeEvent = parseRuntimeEvent(JSON.parse(event.data) as unknown)
-            setCursor(runtimeEvent.id)
-            handlers.onEvent(runtimeEvent)
+            handlers.onState(parseRuntimeState(JSON.parse(event.data) as unknown))
           } catch (error) {
-            restart(error instanceof Error ? error : new Error('运行时事件格式无效'))
+            restart(error instanceof Error ? error : new Error('运行时状态格式无效'))
           }
         })
         source.addEventListener('heartbeat', event => {
@@ -1800,31 +1835,6 @@ const realGateway: ConfiguredModemDeckGateway = {
             )
           } catch (error) {
             restart(error instanceof Error ? error : new Error('运行时事件心跳无效'))
-          }
-        })
-        source.addEventListener('ready', event => {
-          if (!isActive()) return
-          markActivity()
-          try {
-            const ready = requiredRecord(JSON.parse(event.data) as unknown, 'runtime_event_ready')
-            const newestID = numberValue(ready, 'runtime_event_ready', 'newest_id')
-            setCursor(newestID)
-            handlers.onReady(newestID)
-          } catch (error) {
-            restart(error instanceof Error ? error : new Error('运行时事件就绪状态无效'))
-          }
-        })
-        source.addEventListener('reset', event => {
-          if (!isActive()) return
-          markActivity()
-          try {
-            const reset = requiredRecord(JSON.parse(event.data) as unknown, 'runtime_event_reset')
-            const oldestID = numberValue(reset, 'runtime_event_reset', 'oldest_id')
-            const newestID = numberValue(reset, 'runtime_event_reset', 'newest_id')
-            setCursor(newestID)
-            handlers.onReset(oldestID, newestID)
-          } catch (error) {
-            restart(error instanceof Error ? error : new Error('运行时事件重置状态无效'))
           }
         })
       },

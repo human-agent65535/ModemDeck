@@ -233,8 +233,10 @@ func (s *Service) ReplayCallAction(
 }
 
 type runtimeProjection struct {
-	linesDigest string
-	callsDigest string
+	linesDigest   string
+	callsDigest   string
+	activeCallIDs []string
+	initialized   bool
 }
 
 type Service struct {
@@ -463,10 +465,9 @@ func (s *Service) commitSnapshotLocked(
 			err,
 		)
 	}
-	// Runtime events invalidate the fully committed application projection,
-	// including media, recording, and ownership reconciliation. Publishing
-	// earlier can wake a client while ownership still reflects the preceding
-	// call snapshot.
+	// Publish only after the complete application projection, including media,
+	// recording, and ownership reconciliation, has committed. Publishing earlier
+	// could expose the preceding call snapshot as the newest state.
 	s.publishRuntimeSnapshot(
 		status.BootEpoch,
 		snapshot.ObservedAt,
@@ -564,6 +565,8 @@ func (s *Service) publishRuntimeSnapshot(
 	}
 	previous := s.runtimeProjection
 	current := previous
+	changed := false
+	durable := false
 	if digest, ok := runtimeProjectionDigest(struct {
 		BootEpoch string              `json:"boot_epoch"`
 		Lines     []store.LineSummary `json:"lines"`
@@ -573,28 +576,35 @@ func (s *Service) publishRuntimeSnapshot(
 	}); ok {
 		current.linesDigest = digest
 		if digest != previous.linesDigest {
-			s.runtime.Publish(runtimeevents.Event{
-				Resources:  []runtimeevents.Resource{runtimeevents.ResourceLines},
-				ObservedAt: observedAt,
-			})
+			changed = true
 		}
 	}
+	canonicalCalls := canonicalRuntimeCalls(activeCalls)
 	if digest, ok := runtimeProjectionDigest(struct {
 		BootEpoch string                  `json:"boot_epoch"`
 		Calls     []runtimeCallProjection `json:"calls"`
 	}{
 		BootEpoch: strings.TrimSpace(bootEpoch),
-		Calls:     canonicalRuntimeCalls(activeCalls),
+		Calls:     canonicalCalls,
 	}); ok {
 		current.callsDigest = digest
+		current.activeCallIDs = runtimeCallIDs(canonicalCalls)
 		if digest != previous.callsDigest {
-			s.runtime.Publish(runtimeevents.Event{
-				Resources:  []runtimeevents.Resource{runtimeevents.ResourceCalls},
-				ObservedAt: observedAt,
-			})
+			changed = true
+			durable = previous.initialized && runtimeCallEnded(
+				previous.activeCallIDs,
+				current.activeCallIDs,
+			)
 		}
 	}
+	current.initialized = true
 	s.runtimeProjection = current
+	if changed {
+		s.runtime.Publish(runtimeevents.Change{
+			Durable:    durable,
+			ObservedAt: observedAt,
+		})
+	}
 }
 
 func runtimeProjectionDigest(payload any) (string, bool) {
@@ -674,15 +684,30 @@ func canonicalRuntimeCalls(calls []store.Call) []runtimeCallProjection {
 	return canonical
 }
 
+func runtimeCallIDs(calls []runtimeCallProjection) []string {
+	ids := make([]string, 0, len(calls))
+	for _, call := range calls {
+		ids = append(ids, call.ID)
+	}
+	return ids
+}
+
+func runtimeCallEnded(previous, current []string) bool {
+	currentIDs := make(map[string]struct{}, len(current))
+	for _, callID := range current {
+		currentIDs[callID] = struct{}{}
+	}
+	for _, callID := range previous {
+		if _, exists := currentIDs[callID]; !exists {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) publishIncomingMessages(messages []store.Message, observedAt time.Time) {
 	if len(messages) == 0 {
 		return
-	}
-	if s.runtime != nil {
-		s.runtime.Publish(runtimeevents.Event{
-			Resources:  []runtimeevents.Resource{runtimeevents.ResourceMessages},
-			ObservedAt: observedAt,
-		})
 	}
 	for _, message := range messages {
 		messageID := strconv.FormatInt(message.ID, 10)
@@ -1090,6 +1115,15 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 		return status, nil
 	}
 	return s.Refresh(ctx)
+}
+
+// CurrentStatus returns the last committed projection without contacting the
+// Agent. Live-state fanout must never turn one hardware observation into one
+// hardware request per connected browser.
+func (s *Service) CurrentStatus() Status {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return cloneStatus(s.status)
 }
 
 func (s *Service) Run(ctx context.Context, every time.Duration, report func(error)) {
@@ -2090,16 +2124,14 @@ func (s *Service) recordRefreshFailure(operation string, cause error) (Status, e
 	s.status.Connected = false
 	s.status.LastError = cause.Error()
 	if changed {
-		// The failure event invalidates both live projections. Clearing their
-		// digests makes the first successful observation publish the matching
-		// recovery event even when the modem data itself is unchanged.
+		// Clear both live digests so the first successful observation publishes
+		// the matching recovery state even when the modem data itself is unchanged.
 		s.runtimeProjection = runtimeProjection{}
 	}
 	status := cloneStatus(s.status)
 	s.mu.Unlock()
 	if changed && s.runtime != nil {
-		s.runtime.Publish(runtimeevents.Event{
-			Resources:  []runtimeevents.Resource{runtimeevents.ResourceLines, runtimeevents.ResourceCalls},
+		s.runtime.Publish(runtimeevents.Change{
 			ObservedAt: s.now().UTC(),
 		})
 	}

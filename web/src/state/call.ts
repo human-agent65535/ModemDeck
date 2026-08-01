@@ -243,6 +243,14 @@ function reconcileActiveSnapshot(
   else clearForegroundSession()
 }
 
+export function acceptRuntimeActiveCalls(snapshot: ActiveCallSnapshot): void {
+  if (!runtimeStarted || callState.busy) return
+  mutationEpoch += 1
+  reconcileActiveSnapshot(snapshot)
+  callState.syncStatus = 'ready'
+  callState.syncError = ''
+}
+
 function acceptSession(session: CallSession): void {
   const sessions = callState.sessions.slice()
   const index = sessions.findIndex(candidate => candidate.id === session.id)

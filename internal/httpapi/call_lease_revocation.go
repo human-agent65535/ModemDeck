@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
-	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 )
 
 const callRevocationTimeout = 20 * time.Second
@@ -49,7 +48,7 @@ func (api *API) finishRevokedCalls(ctx context.Context, callIDs []string) error 
 	if len(callIDs) == 0 {
 		// A pending reservation may still have had its liveness deadline reset.
 		// Invalidate the projection for every revocation.
-		api.publishRuntimeResources(runtimeevents.ResourceCalls)
+		api.publishLiveState()
 		return nil
 	}
 	cleanupParent := context.WithoutCancel(normalizeRequestContext(ctx))
@@ -91,7 +90,7 @@ func (api *API) finishRevokedCalls(ctx context.Context, callIDs []string) error 
 		}
 		cancelCall()
 	}
-	api.publishRuntimeResources(runtimeevents.ResourceCalls)
+	api.publishLiveState()
 	return result
 }
 

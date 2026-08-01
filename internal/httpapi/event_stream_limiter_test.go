@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -169,7 +170,7 @@ func TestEventStreamConnectionLimitReleasesOnCancel(t *testing.T) {
 	t.Parallel()
 
 	api, err := New(&fakeRepository{}, Options{
-		RuntimeEvents:         runtimeevents.NewBuffer(8),
+		RuntimeEvents:         runtimeevents.NewHub(),
 		disableAuthentication: true,
 	})
 	if err != nil {
@@ -309,7 +310,7 @@ func TestEventStreamsCloseWhenCurrentAccessIsRevoked(t *testing.T) {
 			path := ""
 			switch test.kind {
 			case "runtime":
-				options.RuntimeEvents = runtimeevents.NewBuffer(8)
+				options.RuntimeEvents = runtimeevents.NewHub()
 				path = "/api/v1/runtime/events"
 			case "messages":
 				options.MessageEvents = messageevents.NewBuffer(8)
@@ -357,7 +358,7 @@ func TestEventStreamsRecheckAccessBeforePublishing(t *testing.T) {
 		t.Parallel()
 
 		repository, authenticator := newEventStreamTestAuthenticator(t)
-		events := runtimeevents.NewBuffer(8)
+		events := runtimeevents.NewHub()
 		api, err := New(&fakeRepository{}, Options{
 			Authenticator: authenticator,
 			RuntimeEvents: events,
@@ -374,12 +375,10 @@ func TestEventStreamsRecheckAccessBeforePublishing(t *testing.T) {
 			auth.SessionToken(opaqueTestToken(91)),
 		)
 		repository.setFound(false)
-		events.Publish(runtimeevents.Event{
-			Resources: []runtimeevents.Resource{runtimeevents.ResourceSession},
-		})
+		events.Publish(runtimeevents.Change{Durable: true})
 		waitForEventStreamClose(t, done, cancel)
-		if bytes.Contains([]byte(response.bodyString()), []byte("event: runtime")) {
-			t.Fatalf("revoked runtime event was published: %q", response.bodyString())
+		if strings.Count(response.bodyString(), "event: state") != 1 {
+			t.Fatalf("revoked runtime state was published: %q", response.bodyString())
 		}
 	})
 

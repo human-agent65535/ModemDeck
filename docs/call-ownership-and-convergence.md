@@ -45,15 +45,16 @@ SQLite call projection and command journal
             +----> lifecycle: media -> recording -> ownership
             |
             v
-revisioned SSE invalidation
+latest-value SSE projection
             |
             v
-Web / iOS authoritative GET
+Web / iOS live state
 ```
 
 The host Agent is authoritative about whether a hardware call exists and its
-phase. SQLite is authoritative for committed Web reads. SSE is never a state
-authority; it only invalidates a cached resource and prompts a new GET.
+phase. SQLite is authoritative for the committed projection and history. SSE
+carries the current user-scoped projection but is not an independent source of
+truth: reconnecting clients receive a newly built current snapshot.
 
 ## Identities
 
@@ -233,7 +234,7 @@ validate and resolve durable request replay
     -> obtain one complete Agent call snapshot
     -> apply call projection and command outcome in database order
     -> release coordinator
-    -> publish SSE invalidation after commit
+    -> publish the latest SSE state after commit
 ```
 
 Background snapshots use the same coordinator. This prevents a snapshot
@@ -306,20 +307,19 @@ safe intermediate design.
 
 ## SSE and client reconciliation
 
-Runtime SSE is a revisioned broadcast invalidation stream. Every authenticated
-subscriber receives events; events are not consumed by one tab. The server
-publishes a calls invalidation only after the database call projection commits.
+Runtime SSE is a latest-value broadcast. Every authenticated subscriber first
+receives the current user-scoped state and then newer revisions; events are not
+consumed by one tab. There is no replay cursor, replay window, reset event, or
+per-resource invalidation tree. A slow subscriber keeps only the newest signal.
+The server builds one shared snapshot for each revision and applies each
+subscriber's line and ownership scope in memory, so additional browsers do not
+multiply hardware or SQLite reads.
 
-Clients reconcile active calls with a no-store GET on:
-
-- initial application startup;
-- SSE ready;
-- replay reset or continuity loss;
-- reconnect;
-- `online`;
-- `pageshow`;
-- transition to visible;
-- an ambiguous or failed call-control request.
+Live calls and recording state are applied directly from SSE. The client keeps
+the no-store active-call GET for initial startup, `online`, `pageshow`, becoming
+visible, and ambiguous or failed call-control requests. An SSE snapshot
+supersedes an older in-flight GET. A call reaching terminal state also advances
+one coarse durable-data revision so paginated call history refreshes once.
 
 Switching to WebSocket would not remove this requirement because browsers may
 freeze both timers and network callbacks in background pages.
@@ -356,6 +356,7 @@ catalog of speculative races:
 - media/control liveness uses the 15-second deadline and never transfers a call;
 - explicit logout and administrator account revocation end the intended calls;
 - a revoked pending dial binds and exits through the ordinary timeout path;
-- revisioned SSE invalidates after commit and Web failures trigger a fresh GET;
+- latest-value SSE publishes after commit, coalesces slow subscribers, and an
+  older GET cannot overwrite newer pushed state;
 - Agent lease expiry waits for protected commands, cleans calls, then permits a
   new controller.

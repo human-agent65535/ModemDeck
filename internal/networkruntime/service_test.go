@@ -14,7 +14,6 @@ import (
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
 	platformdb "github.com/human-agent65535/modemdeck/internal/platform/database"
-	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/secretbox"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
@@ -578,13 +577,11 @@ func TestRunUsesGetForNormalPeriodicRefresh(t *testing.T) {
 	}
 }
 
-func TestRunReconcilesPendingLineIdentityWhenBindingIsPublished(t *testing.T) {
+func TestRunReconcilesPendingLineIdentityOnPeriodicObservation(t *testing.T) {
 	t.Parallel()
 
-	events := runtimeevents.NewBuffer(8)
 	service, repository, agent := newNetworkTestService(t, nil)
-	service.interval = time.Hour
-	service.runtimeEventSource = events
+	service.interval = 50 * time.Millisecond
 	repository.setLines()
 	agent.fullSnapshot = agentclient.Snapshot{Lines: []agentclient.Line{{
 		ID:                   "endpoint-pending",
@@ -631,9 +628,6 @@ func TestRunReconcilesPendingLineIdentityWhenBindingIsPublished(t *testing.T) {
 		ID:         "line-stable",
 		EndpointID: "endpoint-pending",
 	})
-	events.Publish(runtimeevents.Event{
-		Resources: []runtimeevents.Resource{runtimeevents.ResourceLines},
-	})
 
 	deadline = time.Now().Add(time.Second)
 	for {
@@ -649,7 +643,7 @@ func TestRunReconcilesPendingLineIdentityWhenBindingIsPublished(t *testing.T) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("line event did not resume reconciliation: calls=%d status=%+v", putCalls, status)
+			t.Fatalf("periodic observation did not resume reconciliation: calls=%d status=%+v", putCalls, status)
 		}
 		time.Sleep(time.Millisecond)
 	}

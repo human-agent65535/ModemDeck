@@ -4,13 +4,13 @@ import test from 'node:test'
 
 const source = path => readFile(new URL(path, import.meta.url), 'utf8')
 
-test('recording runtime events refresh the active call segment resources', async () => {
+test('runtime state applies active recording truth without another request', async () => {
   const recording = await source('../src/state/recording.ts')
   const runtime = await source('../src/state/runtimeEvents.ts')
 
   assert.match(
     recording,
-    /if \(callRecordingState\.callID\) \{[\s\S]*requestActiveCallRecordingRefresh\(\)/
+    /export function acceptRuntimeCallRecordings[\s\S]*?acceptCallRecording\(callID, snapshot\.state\)[\s\S]*?callRecordingState\.segments = snapshot\.segments/
   )
   assert.match(
     recording,
@@ -18,8 +18,9 @@ test('recording runtime events refresh the active call segment resources', async
   )
   assert.match(
     runtime,
-    /case 'recordings':[\s\S]*refreshRecordingWorkspace\(\)/
+    /acceptRuntimeCallRecordings\(runtime\.recordings\)/
   )
+  assert.match(runtime, /refreshRecordingWorkspace\(false\)/)
 })
 
 test('the active call surface shows each recording segment and its live duration', async () => {

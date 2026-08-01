@@ -47,7 +47,11 @@ test('call ownership uses independent control and server media liveness', async 
     /LEASED_MEDIA_STATES|callMediaState\.status/
   )
   assert.doesNotMatch(runtimeEvents, /renewActiveCallLease/)
-  assert.match(runtimeEvents, /onOpen:[\s\S]*?enqueue\(\['calls'\]\)/)
+  assert.match(
+    runtimeEvents,
+    /onState:[\s\S]*?acceptRuntimeState\(runtime, router\)/
+  )
+  assert.match(runtimeEvents, /acceptRuntimeActiveCalls\(runtime\.calls\)/)
   assert.match(runtimeEvents, /onHeartbeat:[\s\S]*?lastHeartbeatAt/)
   assert.match(
     callMedia,

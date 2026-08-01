@@ -217,28 +217,26 @@ type Status struct {
 }
 
 type Options struct {
-	Interval           time.Duration
-	MaxApplyAttempts   int
-	Location           *time.Location
-	Now                func() time.Time
-	Random             io.Reader
-	Report             func(error)
-	RuntimeEvents      runtimeevents.Publisher
-	RuntimeEventSource runtimeevents.Source
+	Interval         time.Duration
+	MaxApplyAttempts int
+	Location         *time.Location
+	Now              func() time.Time
+	Random           io.Reader
+	Report           func(error)
+	RuntimeEvents    runtimeevents.Publisher
 }
 
 type Service struct {
-	repository         Repository
-	secrets            SecretBox
-	agent              Agent
-	interval           time.Duration
-	maxApplyAttempts   int
-	location           *time.Location
-	now                func() time.Time
-	random             io.Reader
-	report             func(error)
-	runtimeEvents      runtimeevents.Publisher
-	runtimeEventSource runtimeevents.Source
+	repository       Repository
+	secrets          SecretBox
+	agent            Agent
+	interval         time.Duration
+	maxApplyAttempts int
+	location         *time.Location
+	now              func() time.Time
+	random           io.Reader
+	report           func(error)
+	runtimeEvents    runtimeevents.Publisher
 
 	mutationsMu sync.Mutex
 	randomMu    sync.Mutex
@@ -296,17 +294,16 @@ func New(
 		options.Report = func(error) {}
 	}
 	return &Service{
-		repository:         repository,
-		secrets:            secrets,
-		agent:              agent,
-		interval:           options.Interval,
-		maxApplyAttempts:   options.MaxApplyAttempts,
-		location:           options.Location,
-		now:                options.Now,
-		random:             options.Random,
-		report:             options.Report,
-		runtimeEvents:      options.RuntimeEvents,
-		runtimeEventSource: options.RuntimeEventSource,
+		repository:       repository,
+		secrets:          secrets,
+		agent:            agent,
+		interval:         options.Interval,
+		maxApplyAttempts: options.MaxApplyAttempts,
+		location:         options.Location,
+		now:              options.Now,
+		random:           options.Random,
+		report:           options.Report,
+		runtimeEvents:    options.RuntimeEvents,
 		state: Status{
 			State:             "unavailable",
 			UnavailableReason: "Network runtime has not synchronized",
@@ -324,13 +321,6 @@ func (s *Service) Run(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	var runtimeUpdates <-chan runtimeevents.Event
-	cancelRuntimeUpdates := func() {}
-	if s.runtimeEventSource != nil {
-		_, runtimeUpdates, cancelRuntimeUpdates = s.runtimeEventSource.SubscribeCurrent()
-	}
-	defer cancelRuntimeUpdates()
-
 	s.Reconcile(ctx)
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
@@ -338,12 +328,9 @@ func (s *Service) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return nil
-		case event, ok := <-runtimeUpdates:
-			if !ok {
-				runtimeUpdates = nil
-				continue
-			}
-			if !runtimeEventContains(event, runtimeevents.ResourceLines) {
+		case <-ticker.C:
+			if s.shouldApply() {
+				s.Reconcile(ctx)
 				continue
 			}
 			if err := s.Refresh(ctx); err != nil {
@@ -360,17 +347,7 @@ func (s *Service) Run(ctx context.Context) error {
 			}
 			if selectionPending {
 				s.markDirty()
-			}
-			if s.shouldApply() {
 				s.Reconcile(ctx)
-			}
-		case <-ticker.C:
-			if s.shouldApply() {
-				s.Reconcile(ctx)
-				continue
-			}
-			if err := s.Refresh(ctx); err != nil {
-				s.report(err)
 			}
 		}
 	}
@@ -1149,8 +1126,7 @@ func (s *Service) setUnavailable(reason string) {
 	s.state.Stale = s.state.ObservedAt != nil
 	s.stateMu.Unlock()
 	if changed && s.runtimeEvents != nil {
-		s.runtimeEvents.Publish(runtimeevents.Event{
-			Resources:  []runtimeevents.Resource{runtimeevents.ResourceNetwork},
+		s.runtimeEvents.Publish(runtimeevents.Change{
 			ObservedAt: s.now().UTC(),
 		})
 	}
@@ -1169,8 +1145,7 @@ func (s *Service) setSnapshot(snapshot agentclient.NetworkSnapshot) {
 	s.state.Proxies = cloneProxies(snapshot.Proxies)
 	s.stateMu.Unlock()
 	if s.runtimeEvents != nil {
-		s.runtimeEvents.Publish(runtimeevents.Event{
-			Resources:  []runtimeevents.Resource{runtimeevents.ResourceNetwork},
+		s.runtimeEvents.Publish(runtimeevents.Change{
 			ObservedAt: snapshot.ObservedAt,
 		})
 	}
@@ -1222,15 +1197,6 @@ func (s *Service) shouldApply() bool {
 	s.stateMu.RLock()
 	defer s.stateMu.RUnlock()
 	return s.state.ApplyPending && !s.state.ApplyExhausted
-}
-
-func runtimeEventContains(event runtimeevents.Event, resource runtimeevents.Resource) bool {
-	for _, current := range event.Resources {
-		if current == resource {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *Service) newProxyID() (string, error) {

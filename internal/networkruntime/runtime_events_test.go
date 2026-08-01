@@ -9,19 +9,21 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 )
 
-func TestNetworkSnapshotsPublishRuntimeInvalidations(t *testing.T) {
+func TestNetworkSnapshotsPublishLatestStateSignals(t *testing.T) {
 	t.Parallel()
 
-	now := time.Date(2026, time.July, 24, 14, 0, 0, 0, time.UTC)
-	events := runtimeevents.NewBuffer(8)
+	now := time.Date(2026, time.August, 2, 14, 0, 0, 0, time.UTC)
+	hub := runtimeevents.NewHub()
 	service := &Service{
 		now:           func() time.Time { return now },
-		runtimeEvents: events,
+		runtimeEvents: hub,
 		state: Status{
 			Lines:   []agentclient.NetworkLine{},
 			Proxies: []agentclient.NetworkProxy{},
 		},
 	}
+	_, updates, cancel := hub.Subscribe()
+	defer cancel()
 	snapshot := agentclient.NetworkSnapshot{
 		BootEpoch:  "boot-network-events",
 		ObservedAt: now,
@@ -30,47 +32,36 @@ func TestNetworkSnapshotsPublishRuntimeInvalidations(t *testing.T) {
 	}
 	service.setSnapshot(snapshot)
 	service.setSnapshot(snapshot)
-
-	window, updates, cancel := events.Subscribe(0)
-	defer cancel()
-	if len(window.Events) != 2 {
-		t.Fatalf("snapshot events = %+v, want one invalidation per observation", window.Events)
-	}
-	for _, event := range window.Events {
-		assertNetworkRuntimeResource(t, event)
+	coalesced := nextNetworkSignal(t, updates)
+	if coalesced.Revision != 2 || coalesced.DataRevision != 0 {
+		t.Fatalf("coalesced signal = %+v", coalesced)
 	}
 
 	snapshot.ObservedAt = now.Add(30 * time.Second)
 	service.setSnapshot(snapshot)
-	select {
-	case event := <-updates:
-		assertNetworkRuntimeResource(t, event)
-	case <-time.After(time.Second):
-		t.Fatal("runtime event was not published for a new network sample")
+	latest := nextNetworkSignal(t, updates)
+	if latest.Revision != 3 || !latest.ObservedAt.Equal(snapshot.ObservedAt) {
+		t.Fatalf("latest signal = %+v", latest)
 	}
 
 	service.setUnavailable("host agent unavailable")
 	service.setUnavailable("host agent unavailable")
-	select {
-	case event := <-updates:
-		assertNetworkRuntimeResource(t, event)
-	case <-time.After(time.Second):
-		t.Fatal("runtime event was not published for availability transition")
+	unavailable := nextNetworkSignal(t, updates)
+	if unavailable.Revision != 4 || unavailable.DataRevision != 0 {
+		t.Fatalf("unavailable signal = %+v", unavailable)
 	}
 	select {
-	case event := <-updates:
-		t.Fatalf("unchanged unavailable state published another event: %+v", event)
+	case signal := <-updates:
+		t.Fatalf("unchanged unavailable state published another signal: %+v", signal)
 	case <-time.After(20 * time.Millisecond):
 	}
 }
 
-func TestLineEventReplaysConfiguredNetworkSelectionAfterLateDiscovery(t *testing.T) {
+func TestPeriodicReconciliationAppliesSelectionAfterLateLineDiscovery(t *testing.T) {
 	t.Parallel()
 
-	events := runtimeevents.NewBuffer(8)
 	service, repository, agent := newNetworkTestService(t, nil)
-	service.interval = time.Hour
-	service.runtimeEventSource = events
+	service.interval = 5 * time.Millisecond
 
 	policy, err := repository.EnsureNetworkSelectionPolicy(
 		context.Background(),
@@ -111,7 +102,7 @@ func TestLineEventReplaysConfiguredNetworkSelectionAfterLateDiscovery(t *testing
 		if err != nil {
 			t.Fatalf("Status() error = %v", err)
 		}
-		if fullSnapshotCalls == 1 && selectionCalls == 0 &&
+		if fullSnapshotCalls >= 1 && selectionCalls == 0 &&
 			!status.ApplyPending && status.ApplyStatus == ApplyStatusApplied {
 			break
 		}
@@ -133,9 +124,6 @@ func TestLineEventReplaysConfiguredNetworkSelectionAfterLateDiscovery(t *testing
 		SavedPolicySupported: true,
 	}}}
 	agent.mu.Unlock()
-	events.Publish(runtimeevents.Event{
-		Resources: []runtimeevents.Resource{runtimeevents.ResourceLines},
-	})
 
 	deadline = time.Now().Add(time.Second)
 	for {
@@ -151,15 +139,19 @@ func TestLineEventReplaysConfiguredNetworkSelectionAfterLateDiscovery(t *testing
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("line event did not replay configured policy: %+v", applied)
+			t.Fatalf("periodic reconciliation did not apply configured policy: %+v", applied)
 		}
 		time.Sleep(time.Millisecond)
 	}
 }
 
-func assertNetworkRuntimeResource(t *testing.T, event runtimeevents.Event) {
+func nextNetworkSignal(t *testing.T, updates <-chan runtimeevents.Signal) runtimeevents.Signal {
 	t.Helper()
-	if len(event.Resources) != 1 || event.Resources[0] != runtimeevents.ResourceNetwork {
-		t.Fatalf("runtime event resources = %v", event.Resources)
+	select {
+	case signal := <-updates:
+		return signal
+	case <-time.After(time.Second):
+		t.Fatal("network state signal was not published")
+		return runtimeevents.Signal{}
 	}
 }

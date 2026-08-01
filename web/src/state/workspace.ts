@@ -19,6 +19,7 @@ import type {
   Resource,
   ResourceStatus,
   RenameDeviceInput,
+  RuntimeCommunicationState,
   SendMessageInput,
   TelegramUnit,
   TelegramUnitInput,
@@ -492,6 +493,24 @@ export function loadBootstrap(force = false): Promise<BootstrapResponse | null> 
     bootstrapLoad = undefined
   })
   return bootstrapLoad
+}
+
+export function acceptRuntimeCommunicationState(
+  state: RuntimeCommunicationState
+): void {
+  const bootstrap = bootstrapResource.data
+  if (bootstrap) {
+    bootstrap.capabilities = state.capabilities
+    bootstrap.lines = state.lines
+    bootstrap.line_catalog = state.line_catalog
+    bootstrapResource.status = 'ready'
+    bootstrapResource.error = ''
+  }
+  if (state.devices) {
+    devicesResource.data = state.devices
+    devicesResource.status = 'ready'
+    devicesResource.error = ''
+  }
 }
 
 export function loadContacts(force = false): Promise<Contact[] | null> {

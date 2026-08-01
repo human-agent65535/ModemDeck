@@ -511,7 +511,7 @@ func TestChangePasswordRequiresCSRFAndClearsSession(t *testing.T) {
 	t.Parallel()
 
 	authenticator, sessionToken, csrfToken := newAPIAuthenticator(t)
-	events := runtimeevents.NewBuffer(8)
+	events := runtimeevents.NewHub()
 	api, err := New(&fakeRepository{}, Options{
 		Authenticator: authenticator,
 		RuntimeEvents: events,
@@ -568,12 +568,10 @@ func TestChangePasswordRequiresCSRFAndClearsSession(t *testing.T) {
 			t.Fatalf("cleared cookie %s MaxAge = %d", cookie.Name, cookie.MaxAge)
 		}
 	}
-	window, _, cancel := events.Subscribe(0)
+	signal, _, cancel := events.Subscribe()
 	cancel()
-	if len(window.Events) != 1 ||
-		len(window.Events[0].Resources) != 1 ||
-		window.Events[0].Resources[0] != runtimeevents.ResourceSession {
-		t.Fatalf("password-change runtime events = %+v", window.Events)
+	if signal.Revision != 1 || signal.DataRevision != 1 {
+		t.Fatalf("password-change runtime signal = %+v", signal)
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -74,10 +73,6 @@ func (api *API) accountPreferences(response http.ResponseWriter, request *http.R
 		}
 		return
 	}
-	api.publishRuntimeResources(
-		runtimeevents.ResourceSession,
-		runtimeevents.ResourceLines,
-		runtimeevents.ResourceContacts,
-	)
+	api.publishDurableChange()
 	writeJSON(response, http.StatusOK, accountPreferencesResponse{Preferences: preferences})
 }

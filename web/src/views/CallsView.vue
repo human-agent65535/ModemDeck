@@ -572,24 +572,6 @@ watch(
   { immediate: true }
 )
 
-watch(
-  () =>
-    callState.sessions
-      .map(session => session.id)
-      .sort()
-      .join('\u0000'),
-  (activeCallIDs, previousActiveCallIDs) => {
-    if (
-      previousActiveCallIDs &&
-      previousActiveCallIDs
-        .split('\u0000')
-        .some(callID => callID && !activeCallIDs.split('\u0000').includes(callID))
-    ) {
-      void loadCalls(true)
-    }
-  }
-)
-
 onMounted(() => {
   window.addEventListener('keydown', onSelectionKeydown)
   window.addEventListener('focus', onCallWindowFocus)

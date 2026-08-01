@@ -1,75 +1,24 @@
 import { reactive, readonly } from 'vue'
 import type { Router } from 'vue-router'
 import { fixtureMode, gateway } from '../api/client'
-import type { RuntimeResource } from '../api/types'
+import type { RuntimeState } from '../api/types'
 import { visibleMessageThreadKey } from '../router/messageRoute'
-import { requestActiveCallRefresh } from './call'
+import { acceptRuntimeActiveCalls } from './call'
 import { refreshUnconfirmedDeviceConfigurations } from './deviceConfiguration'
-import { loadNetwork } from './network'
-import { refreshRecordingWorkspace } from './recording'
+import { acceptNetworkSnapshot } from './network'
+import {
+  acceptRuntimeCallRecordings,
+  refreshRecordingWorkspace
+} from './recording'
 import { refreshSession } from './session'
 import { requestApplicationVersionCheck } from './staleAssetRecovery'
 import {
-  refreshContacts,
+  acceptRuntimeCommunicationState,
   refreshCalls,
+  refreshContacts,
   refreshDeviceWorkspace,
   refreshMessageWorkspace
 } from './workspace'
-
-const ALL_RESOURCES: RuntimeResource[] = [
-  'session',
-  'lines',
-  'network',
-  'calls',
-  'messages',
-  'contacts',
-  'recordings'
-]
-const FALLBACK_REFRESH_MS = 30_000
-
-type RuntimeResourceRefresher = (resource: RuntimeResource) => Promise<void>
-
-export type RuntimeRefreshQueue = {
-  enqueue: (resources: Iterable<RuntimeResource>) => Promise<void>
-  stop: () => void
-}
-
-export function createRuntimeRefreshQueue(
-  refresh: RuntimeResourceRefresher
-): RuntimeRefreshQueue {
-  const queued = new Set<RuntimeResource>()
-  let stopped = false
-  let scheduled = false
-  let operation = Promise.resolve()
-
-  const drain = async () => {
-    try {
-      while (!stopped && queued.size > 0) {
-        const resources = Array.from(queued)
-        queued.clear()
-        await Promise.allSettled(resources.map(resource => refresh(resource)))
-      }
-    } finally {
-      scheduled = false
-    }
-  }
-
-  return {
-    enqueue(resources) {
-      if (stopped) return operation
-      for (const resource of resources) queued.add(resource)
-      if (!scheduled && queued.size > 0) {
-        scheduled = true
-        operation = operation.then(drain, drain)
-      }
-      return operation
-    },
-    stop() {
-      stopped = true
-      queued.clear()
-    }
-  }
-}
 
 const state = reactive({
   connected: false,
@@ -78,43 +27,91 @@ const state = reactive({
 })
 
 let closeStream: (() => void) | undefined
-let fallbackTimer: number | undefined
-let refreshQueue: RuntimeRefreshQueue | undefined
 let generation = 0
+let initialized = false
+let lastEpoch = ''
+let lastRevision = -1
+let lastDataRevision = 0
+let lastCommunication = ''
+let lastCalls = ''
+let durableRefreshPending = false
+let durableRefreshOperation: Promise<void> | undefined
 
 export const runtimeEventState = readonly(state)
 
-async function refreshResource(
-  resource: RuntimeResource,
-  router: Router
-): Promise<void> {
-  switch (resource) {
-    case 'session':
-      await refreshSession()
-      break
-    case 'lines':
-      await refreshDeviceWorkspace()
-      await refreshUnconfirmedDeviceConfigurations()
-      break
-    case 'network':
-      await loadNetwork(true, true)
-      break
-    case 'calls':
-      await requestActiveCallRefresh()
-      await refreshCalls()
-      break
-    case 'messages':
-      await refreshMessageWorkspace(
-        visibleMessageThreadKey(router.currentRoute.value)
-      )
-      break
-    case 'contacts':
-      await refreshContacts()
-      break
-    case 'recordings':
-      await refreshRecordingWorkspace()
-      break
+function stateSignature(value: unknown): string {
+  return value === undefined ? '' : JSON.stringify(value)
+}
+
+function requestDurableRefresh(router: Router): Promise<void> {
+  durableRefreshPending = true
+  if (!durableRefreshOperation) {
+    durableRefreshOperation = (async () => {
+      while (durableRefreshPending) {
+        durableRefreshPending = false
+        await Promise.allSettled([
+          refreshSession(),
+          refreshDeviceWorkspace(),
+          refreshContacts(),
+          refreshCalls(),
+          refreshMessageWorkspace(
+            visibleMessageThreadKey(router.currentRoute.value)
+          ),
+          refreshRecordingWorkspace(false)
+        ])
+      }
+    })().finally(() => {
+      durableRefreshOperation = undefined
+      if (durableRefreshPending) void requestDurableRefresh(router)
+    })
   }
+  return durableRefreshOperation
+}
+
+export function acceptRuntimeState(runtime: RuntimeState, router: Router): void {
+  if (runtime.epoch === lastEpoch && runtime.revision < lastRevision) return
+
+  const wasInitialized = initialized
+  const processChanged = wasInitialized && runtime.epoch !== lastEpoch
+  const durableChanged =
+    wasInitialized &&
+    (processChanged ||
+      (runtime.epoch === lastEpoch && runtime.data_revision > lastDataRevision))
+
+  initialized = true
+  lastEpoch = runtime.epoch
+  lastRevision = runtime.revision
+  lastDataRevision = runtime.data_revision
+  state.connected = true
+  state.lastObservedAt = runtime.observed_at
+
+  if (runtime.communication) {
+    const signature = stateSignature(runtime.communication)
+    if (signature !== lastCommunication) {
+      lastCommunication = signature
+      acceptRuntimeCommunicationState(runtime.communication)
+      void refreshUnconfirmedDeviceConfigurations()
+    }
+  }
+  if (runtime.network) {
+    acceptNetworkSnapshot(
+      runtime.network.status,
+      runtime.network.proxies,
+      true
+    )
+  }
+  if (runtime.calls) {
+    const signature = stateSignature(runtime.calls)
+    if (signature !== lastCalls) {
+      lastCalls = signature
+      acceptRuntimeActiveCalls(runtime.calls)
+    }
+  }
+  if (runtime.recordings) {
+    acceptRuntimeCallRecordings(runtime.recordings)
+  }
+  if (durableChanged) void requestDurableRefresh(router)
+  if (!wasInitialized || processChanged) requestApplicationVersionCheck()
 }
 
 export function initializeRuntimeEvents(router: Router): void {
@@ -122,60 +119,39 @@ export function initializeRuntimeEvents(router: Router): void {
 
   generation += 1
   const currentGeneration = generation
-  let initialized = false
-  refreshQueue = createRuntimeRefreshQueue(resource =>
-    refreshResource(resource, router)
-  )
   closeStream = gateway.subscribeRuntimeEvents({
     onOpen: () => {
       if (currentGeneration !== generation) return
       state.connected = true
-      void refreshQueue?.enqueue(['calls'])
     },
     onHeartbeat: observedAt => {
       if (currentGeneration !== generation) return
       state.connected = true
       state.lastHeartbeatAt = observedAt
     },
-    onReady: () => {
+    onState: runtime => {
       if (currentGeneration !== generation) return
-      // Reconcile once at the snapshot-to-stream boundary so events emitted
-      // before this subscription cannot leave the workspace stale.
-      if (!initialized) {
-        initialized = true
-        void refreshQueue?.enqueue(ALL_RESOURCES)
-      }
-      requestApplicationVersionCheck()
-    },
-    onEvent: event => {
-      if (currentGeneration !== generation) return
-      state.lastObservedAt = event.observed_at
-      void refreshQueue?.enqueue(event.resources)
-    },
-    onReset: () => {
-      if (currentGeneration !== generation) return
-      void refreshQueue?.enqueue(ALL_RESOURCES)
+      acceptRuntimeState(runtime, router)
     },
     onError: () => {
       if (currentGeneration !== generation) return
       state.connected = false
     }
   })
-
-  fallbackTimer = window.setInterval(() => {
-    if (currentGeneration !== generation || state.connected) return
-    void refreshQueue?.enqueue(ALL_RESOURCES)
-  }, FALLBACK_REFRESH_MS)
 }
 
 export function shutdownRuntimeEvents(): void {
   generation += 1
   closeStream?.()
   closeStream = undefined
-  if (fallbackTimer !== undefined) window.clearInterval(fallbackTimer)
-  fallbackTimer = undefined
-  refreshQueue?.stop()
-  refreshQueue = undefined
+  initialized = false
+  lastEpoch = ''
+  lastRevision = -1
+  lastDataRevision = 0
+  lastCommunication = ''
+  lastCalls = ''
+  durableRefreshPending = false
+  durableRefreshOperation = undefined
   state.connected = false
   state.lastHeartbeatAt = ''
   state.lastObservedAt = ''

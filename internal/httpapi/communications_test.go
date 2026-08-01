@@ -17,29 +17,31 @@ import (
 )
 
 type fakeCommunications struct {
-	status            communication.Status
-	statusError       error
-	message           store.Message
-	messageInput      communication.SendMessageInput
-	messageError      error
-	call              store.Call
-	replayStartInput  communication.StartCallInput
-	startInput        communication.StartCallInput
-	startReplay       bool
-	replayError       error
-	startError        error
-	startCalls        int
-	onStart           func()
-	actionInput       communication.CallActionInput
-	replayActionInput communication.CallActionInput
-	actionReplay      bool
-	actionError       error
-	actionCalls       int
-	onAction          func()
-	active            []store.Call
-	activeError       error
-	endCallID         string
-	endCallError      error
+	status             communication.Status
+	statusError        error
+	statusCalls        int
+	currentStatusCalls int
+	message            store.Message
+	messageInput       communication.SendMessageInput
+	messageError       error
+	call               store.Call
+	replayStartInput   communication.StartCallInput
+	startInput         communication.StartCallInput
+	startReplay        bool
+	replayError        error
+	startError         error
+	startCalls         int
+	onStart            func()
+	actionInput        communication.CallActionInput
+	replayActionInput  communication.CallActionInput
+	actionReplay       bool
+	actionError        error
+	actionCalls        int
+	onAction           func()
+	active             []store.Call
+	activeError        error
+	endCallID          string
+	endCallError       error
 }
 
 func (service *fakeCommunications) ReplayStartCall(
@@ -51,7 +53,13 @@ func (service *fakeCommunications) ReplayStartCall(
 }
 
 func (service *fakeCommunications) Status(context.Context) (communication.Status, error) {
+	service.statusCalls++
 	return service.status, service.statusError
+}
+
+func (service *fakeCommunications) CurrentStatus() communication.Status {
+	service.currentStatusCalls++
+	return service.status
 }
 
 func (service *fakeCommunications) SendMessage(
@@ -207,11 +215,11 @@ func TestMessageReadUsesExactLineAndPeer(t *testing.T) {
 	}
 }
 
-func TestMessageThreadDeleteUsesExactIdentityAndPublishesRuntimeEvent(t *testing.T) {
+func TestMessageThreadDeleteUsesExactIdentityAndPublishesDurableRevision(t *testing.T) {
 	t.Parallel()
 
 	repository := &fakeRepository{}
-	events := runtimeevents.NewBuffer(8)
+	events := runtimeevents.NewHub()
 	api, err := New(repository, Options{
 		RuntimeEvents:         events,
 		disableAuthentication: true,
@@ -236,12 +244,10 @@ func TestMessageThreadDeleteUsesExactIdentityAndPublishesRuntimeEvent(t *testing
 		repository.messageDeleteIdentity.Peer != "+818012345678" {
 		t.Fatalf("message deletion identity = %+v", repository.messageDeleteIdentity)
 	}
-	window, _, cancel := events.Subscribe(0)
+	signal, _, cancel := events.Subscribe()
 	cancel()
-	if len(window.Events) != 1 ||
-		len(window.Events[0].Resources) != 1 ||
-		window.Events[0].Resources[0] != runtimeevents.ResourceMessages {
-		t.Fatalf("runtime events = %+v", window.Events)
+	if signal.Revision != 1 || signal.DataRevision != 1 {
+		t.Fatalf("runtime signal = %+v", signal)
 	}
 }
 
@@ -249,7 +255,7 @@ func TestMessageThreadStateUpdatesMultipleExactIdentities(t *testing.T) {
 	t.Parallel()
 
 	repository := &fakeRepository{}
-	events := runtimeevents.NewBuffer(8)
+	events := runtimeevents.NewHub()
 	api, err := New(repository, Options{
 		RuntimeEvents:         events,
 		disableAuthentication: true,
@@ -287,12 +293,10 @@ func TestMessageThreadStateUpdatesMultipleExactIdentities(t *testing.T) {
 			t.Fatalf("thread %d = %+v, want %+v", index, repository.messageUpdateThreads[index], want[index])
 		}
 	}
-	window, _, cancel := events.Subscribe(0)
+	signal, _, cancel := events.Subscribe()
 	cancel()
-	if len(window.Events) != 1 ||
-		len(window.Events[0].Resources) != 1 ||
-		window.Events[0].Resources[0] != runtimeevents.ResourceMessages {
-		t.Fatalf("runtime events = %+v", window.Events)
+	if signal.Revision != 1 || signal.DataRevision != 1 {
+		t.Fatalf("runtime signal = %+v", signal)
 	}
 }
 

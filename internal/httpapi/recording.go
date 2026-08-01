@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/recording"
-	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -97,7 +96,7 @@ func (api *API) recordingSettings(response http.ResponseWriter, request *http.Re
 			api.writeRecordingError(response, request, "update recording settings", err, nil)
 			return
 		}
-		api.publishRuntimeResources(runtimeevents.ResourceRecordings)
+		api.publishDurableChange()
 		api.logger.Info("recording defaults updated", "enabled", settings.DefaultEnabled)
 		writeJSON(response, http.StatusOK, recordingSettingsResponse{Settings: settings})
 	default:
@@ -251,7 +250,7 @@ func (api *API) recordingsBatch(response http.ResponseWriter, request *http.Requ
 			}
 		}
 	}
-	api.publishRuntimeResources(runtimeevents.ResourceRecordings)
+	api.publishDurableChange()
 	response.Header().Set("Cache-Control", "no-store")
 	response.WriteHeader(http.StatusNoContent)
 }
@@ -321,7 +320,7 @@ func (api *API) toggleRecording(response http.ResponseWriter, request *http.Requ
 		api.writeRecordingError(response, request, "toggle call recording", err, &state)
 		return
 	}
-	api.publishRuntimeResources(runtimeevents.ResourceRecordings)
+	api.publishDurableChange()
 	api.logger.Info(
 		"call recording updated",
 		"call_id",
@@ -369,7 +368,7 @@ func (api *API) deleteRecording(
 		api.writeRecordingError(response, request, "delete call recording", err, nil)
 		return
 	}
-	api.publishRuntimeResources(runtimeevents.ResourceRecordings)
+	api.publishDurableChange()
 	response.Header().Set("Cache-Control", "no-store")
 	response.WriteHeader(http.StatusNoContent)
 }

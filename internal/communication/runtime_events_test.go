@@ -12,45 +12,41 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
-func TestRefreshPublishesRuntimeEventsOnlyForChangedResources(t *testing.T) {
+func TestRefreshPublishesLatestStateOnlyWhenProjectionChanges(t *testing.T) {
 	t.Parallel()
 
-	observedAt := time.Date(2026, time.July, 24, 14, 0, 0, 0, time.UTC)
+	observedAt := time.Date(2026, time.August, 2, 14, 0, 0, 0, time.UTC)
 	agent := connectedAgent(observedAt)
 	repository := &fakeRepository{}
 	service, err := New(agent, repository, messageevents.NewBuffer(8))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	events := runtimeevents.NewBuffer(8)
-	if err := service.SetRuntimeEventPublisher(events); err != nil {
+	hub := runtimeevents.NewHub()
+	if err := service.SetRuntimeEventPublisher(hub); err != nil {
 		t.Fatalf("SetRuntimeEventPublisher() error = %v", err)
 	}
+	_, updates, cancel := hub.Subscribe()
+	defer cancel()
+
 	if _, err := service.Refresh(context.Background()); err != nil {
 		t.Fatalf("first Refresh() error = %v", err)
+	}
+	initial := nextRuntimeSignal(t, updates)
+	if initial.Revision != 1 || initial.DataRevision != 0 {
+		t.Fatalf("initial signal = %+v", initial)
 	}
 	if _, err := service.Refresh(context.Background()); err != nil {
 		t.Fatalf("unchanged Refresh() error = %v", err)
 	}
-
-	window, updates, cancel := events.Subscribe(0)
-	defer cancel()
-	if len(window.Events) != 2 {
-		t.Fatalf("initial runtime events = %+v, want lines and calls", window.Events)
-	}
-	assertRuntimeResource(t, window.Events[0], runtimeevents.ResourceLines)
-	assertRuntimeResource(t, window.Events[1], runtimeevents.ResourceCalls)
+	assertNoRuntimeSignal(t, updates)
 
 	agent.snapshot.Revision = "snapshot-4"
 	agent.snapshot.ObservedAt = observedAt.Add(3 * time.Second)
 	if _, err := service.Refresh(context.Background()); err != nil {
 		t.Fatalf("revision-only Refresh() error = %v", err)
 	}
-	select {
-	case event := <-updates:
-		t.Fatalf("revision-only refresh published event %+v", event)
-	default:
-	}
+	assertNoRuntimeSignal(t, updates)
 
 	agent.snapshot.Lines[0].State = "registered"
 	agent.snapshot.Revision = "snapshot-5"
@@ -58,24 +54,9 @@ func TestRefreshPublishesRuntimeEventsOnlyForChangedResources(t *testing.T) {
 	if _, err := service.Refresh(context.Background()); err != nil {
 		t.Fatalf("line Refresh() error = %v", err)
 	}
-	select {
-	case event := <-updates:
-		assertRuntimeResource(t, event, runtimeevents.ResourceLines)
-	case <-time.After(time.Second):
-		t.Fatal("runtime event was not published for changed line state")
-	}
-
-	agent.snapshot.Lines[0].State = ""
-	agent.snapshot.Revision = "snapshot-6"
-	agent.snapshot.ObservedAt = observedAt.Add(9 * time.Second)
-	if _, err := service.Refresh(context.Background()); err != nil {
-		t.Fatalf("reverted line Refresh() error = %v", err)
-	}
-	select {
-	case event := <-updates:
-		assertRuntimeResource(t, event, runtimeevents.ResourceLines)
-	case <-time.After(time.Second):
-		t.Fatal("runtime event was not published when line state returned to an earlier value")
+	lineSignal := nextRuntimeSignal(t, updates)
+	if lineSignal.Revision != 2 || lineSignal.DataRevision != 0 {
+		t.Fatalf("line signal = %+v; durable revision must stay unchanged", lineSignal)
 	}
 
 	agent.snapshot.Calls = []agentclient.Call{{
@@ -85,8 +66,8 @@ func TestRefreshPublishesRuntimeEventsOnlyForChangedResources(t *testing.T) {
 		Direction: "outgoing",
 		State:     "ringing-out",
 	}}
-	agent.snapshot.Revision = "snapshot-7"
-	agent.snapshot.ObservedAt = observedAt.Add(12 * time.Second)
+	agent.snapshot.Revision = "snapshot-6"
+	agent.snapshot.ObservedAt = observedAt.Add(9 * time.Second)
 	repository.activeCalls = []store.Call{{
 		ID:           "call-1",
 		LineID:       "line-1",
@@ -97,33 +78,32 @@ func TestRefreshPublishesRuntimeEventsOnlyForChangedResources(t *testing.T) {
 	if _, err := service.Refresh(context.Background()); err != nil {
 		t.Fatalf("call Refresh() error = %v", err)
 	}
-	select {
-	case event := <-updates:
-		assertRuntimeResource(t, event, runtimeevents.ResourceCalls)
-	case <-time.After(time.Second):
-		t.Fatal("runtime event was not published for changed call state")
+	callSignal := nextRuntimeSignal(t, updates)
+	if callSignal.Revision != 3 || callSignal.DataRevision != 0 {
+		t.Fatalf("call signal = %+v; starting a call is live state", callSignal)
 	}
 }
 
-func TestRefreshPublishesCallEventsFromPersistedActiveCalls(t *testing.T) {
+func TestRefreshPublishesPersistedActiveCallChanges(t *testing.T) {
 	t.Parallel()
 
-	observedAt := time.Date(2026, time.July, 24, 14, 30, 0, 0, time.UTC)
+	observedAt := time.Date(2026, time.August, 2, 14, 30, 0, 0, time.UTC)
 	agent := connectedAgent(observedAt)
 	repository := &fakeRepository{}
 	service, err := New(agent, repository, messageevents.NewBuffer(8))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	events := runtimeevents.NewBuffer(8)
-	if err := service.SetRuntimeEventPublisher(events); err != nil {
+	hub := runtimeevents.NewHub()
+	if err := service.SetRuntimeEventPublisher(hub); err != nil {
 		t.Fatalf("SetRuntimeEventPublisher() error = %v", err)
 	}
+	_, updates, cancel := hub.Subscribe()
+	defer cancel()
 	if _, err := service.Refresh(context.Background()); err != nil {
 		t.Fatalf("initial Refresh() error = %v", err)
 	}
-	_, updates, cancel := events.SubscribeCurrent()
-	defer cancel()
+	initial := nextRuntimeSignal(t, updates)
 
 	repository.activeCalls = []store.Call{{
 		ID:             "call-command-created",
@@ -137,86 +117,87 @@ func TestRefreshPublishesCallEventsFromPersistedActiveCalls(t *testing.T) {
 	if _, err := service.Refresh(context.Background()); err != nil {
 		t.Fatalf("active call Refresh() error = %v", err)
 	}
-	assertNextRuntimeResource(t, updates, runtimeevents.ResourceCalls)
+	active := nextRuntimeSignal(t, updates)
+	if active.DataRevision != initial.DataRevision {
+		t.Fatalf("active signal = %+v, initial = %+v", active, initial)
+	}
 
 	repository.activeCalls = nil
 	agent.snapshot.ObservedAt = observedAt.Add(2 * time.Second)
 	if _, err := service.Refresh(context.Background()); err != nil {
 		t.Fatalf("ended call Refresh() error = %v", err)
 	}
-	assertNextRuntimeResource(t, updates, runtimeevents.ResourceCalls)
+	ended := nextRuntimeSignal(t, updates)
+	if ended.DataRevision != active.DataRevision+1 {
+		t.Fatalf("ended signal = %+v, active = %+v", ended, active)
+	}
 }
 
-func TestRefreshPublishesRuntimeEventsForProviderEpochAndRecovery(t *testing.T) {
+func TestRefreshPublishesCurrentStateAcrossProviderFailure(t *testing.T) {
 	t.Parallel()
 
-	observedAt := time.Date(2026, time.July, 24, 14, 0, 0, 0, time.UTC)
+	observedAt := time.Date(2026, time.August, 2, 15, 0, 0, 0, time.UTC)
 	agent := connectedAgent(observedAt)
 	service, err := New(agent, &fakeRepository{}, messageevents.NewBuffer(8))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	events := runtimeevents.NewBuffer(8)
-	if err := service.SetRuntimeEventPublisher(events); err != nil {
+	hub := runtimeevents.NewHub()
+	if err := service.SetRuntimeEventPublisher(hub); err != nil {
 		t.Fatalf("SetRuntimeEventPublisher() error = %v", err)
 	}
+	_, updates, cancel := hub.Subscribe()
+	defer cancel()
 	if _, err := service.Refresh(context.Background()); err != nil {
 		t.Fatalf("initial Refresh() error = %v", err)
 	}
-	_, updates, cancel := events.SubscribeCurrent()
-	defer cancel()
+	initial := nextRuntimeSignal(t, updates)
 
 	agent.health.Provider.BootEpoch = "boot-2"
 	if _, err := service.Refresh(context.Background()); err != nil {
 		t.Fatalf("new-epoch Refresh() error = %v", err)
 	}
-	assertNextRuntimeResource(t, updates, runtimeevents.ResourceLines)
-	assertNextRuntimeResource(t, updates, runtimeevents.ResourceCalls)
+	epoch := nextRuntimeSignal(t, updates)
+	if epoch.Revision != initial.Revision+1 || epoch.DataRevision != initial.DataRevision {
+		t.Fatalf("epoch signal = %+v, initial = %+v", epoch, initial)
+	}
 
 	agent.healthError = errors.New("agent unavailable")
 	if _, err := service.Refresh(context.Background()); err == nil {
 		t.Fatal("failed Refresh() error = nil")
 	}
-	select {
-	case event := <-updates:
-		if len(event.Resources) != 2 ||
-			event.Resources[0] != runtimeevents.ResourceLines ||
-			event.Resources[1] != runtimeevents.ResourceCalls {
-			t.Fatalf("failure event resources = %v, want lines and calls", event.Resources)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("runtime event was not published for provider failure")
+	failure := nextRuntimeSignal(t, updates)
+	if failure.DataRevision != epoch.DataRevision {
+		t.Fatalf("failure signal = %+v; failure is live state, not durable data", failure)
 	}
 
 	agent.healthError = nil
 	if _, err := service.Refresh(context.Background()); err != nil {
 		t.Fatalf("recovery Refresh() error = %v", err)
 	}
-	assertNextRuntimeResource(t, updates, runtimeevents.ResourceLines)
-	assertNextRuntimeResource(t, updates, runtimeevents.ResourceCalls)
-}
-
-func assertNextRuntimeResource(
-	t *testing.T,
-	updates <-chan runtimeevents.Event,
-	resource runtimeevents.Resource,
-) {
-	t.Helper()
-	select {
-	case event := <-updates:
-		assertRuntimeResource(t, event, resource)
-	case <-time.After(time.Second):
-		t.Fatalf("runtime event was not published for %s", resource)
+	recovery := nextRuntimeSignal(t, updates)
+	if recovery.Revision != failure.Revision+1 ||
+		recovery.DataRevision != failure.DataRevision {
+		t.Fatalf("recovery signal = %+v, failure = %+v", recovery, failure)
 	}
 }
 
-func assertRuntimeResource(
-	t *testing.T,
-	event runtimeevents.Event,
-	resource runtimeevents.Resource,
-) {
+func nextRuntimeSignal(t *testing.T, updates <-chan runtimeevents.Signal) runtimeevents.Signal {
 	t.Helper()
-	if len(event.Resources) != 1 || event.Resources[0] != resource {
-		t.Fatalf("runtime event resources = %v, want [%s]", event.Resources, resource)
+	select {
+	case signal := <-updates:
+		return signal
+	case <-time.After(time.Second):
+		t.Fatal("runtime signal was not published")
+		return runtimeevents.Signal{}
+	}
+}
+
+func assertNoRuntimeSignal(t *testing.T, updates <-chan runtimeevents.Signal) {
+	t.Helper()
+	select {
+	case signal := <-updates:
+		t.Fatalf("unexpected runtime signal: %+v", signal)
+	case <-time.After(20 * time.Millisecond):
 	}
 }

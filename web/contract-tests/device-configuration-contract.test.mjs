@@ -578,7 +578,7 @@ test('device discovery is automatic and does not ask for a manually entered IMEI
   assert.doesNotMatch(devicePanelSource, /setInterval\(/)
   assert.match(
     runtimeEventsSource,
-    /case 'lines':[\s\S]*?await refreshDeviceWorkspace\(\)/
+    /acceptRuntimeCommunicationState\(runtime\.communication\)[\s\S]*?refreshUnconfirmedDeviceConfigurations\(\)/
   )
 })
 

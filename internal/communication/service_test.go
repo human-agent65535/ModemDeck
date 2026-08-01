@@ -1731,7 +1731,7 @@ func TestRefreshReconcilesRemoteCallRemovalImmediately(t *testing.T) {
 	}
 }
 
-func TestRefreshPublishesCallInvalidationAfterLifecycleReconciliation(t *testing.T) {
+func TestRefreshPublishesLiveStateAfterLifecycleReconciliation(t *testing.T) {
 	now := time.Date(2026, time.August, 1, 16, 0, 0, 0, time.UTC)
 	agent := connectedAgent(now)
 	repository := &fakeRepository{activeCalls: []store.Call{{
@@ -1743,11 +1743,11 @@ func TestRefreshPublishesCallInvalidationAfterLifecycleReconciliation(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime := runtimeevents.NewBuffer(8)
+	runtime := runtimeevents.NewHub()
 	if err := service.SetRuntimeEventPublisher(runtime); err != nil {
 		t.Fatal(err)
 	}
-	_, updates, cancel := runtime.SubscribeCurrent()
+	_, updates, cancel := runtime.Subscribe()
 	defer cancel()
 	publishedBeforeReconcile := false
 	observer := &fakeCallLifecycleObserver{onReconcile: func() {
@@ -1765,12 +1765,12 @@ func TestRefreshPublishesCallInvalidationAfterLifecycleReconciliation(t *testing
 		t.Fatalf("Refresh() error = %v", err)
 	}
 	if publishedBeforeReconcile {
-		t.Fatal("runtime invalidation was published before lifecycle reconciliation")
+		t.Fatal("live state was published before lifecycle reconciliation")
 	}
 	select {
 	case <-updates:
 	case <-time.After(time.Second):
-		t.Fatal("runtime invalidation was not published after reconciliation")
+		t.Fatal("live state was not published after reconciliation")
 	}
 }
 

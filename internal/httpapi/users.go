@@ -8,7 +8,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
-	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -152,7 +151,7 @@ func (api *API) userResource(
 				err,
 			)
 		}
-		api.publishRuntimeResources(runtimeevents.ResourceSession)
+		api.publishDurableChange()
 		response.Header().Set("Cache-Control", "no-store")
 		response.WriteHeader(http.StatusNoContent)
 		return
@@ -230,15 +229,7 @@ func (api *API) userResource(
 		}
 	}
 	api.notifyTelegramAccessChanged()
-	api.publishRuntimeResources(
-		runtimeevents.ResourceSession,
-		runtimeevents.ResourceLines,
-		runtimeevents.ResourceNetwork,
-		runtimeevents.ResourceCalls,
-		runtimeevents.ResourceMessages,
-		runtimeevents.ResourceContacts,
-		runtimeevents.ResourceRecordings,
-	)
+	api.publishDurableChange()
 	writeJSON(response, http.StatusOK, userResponse{User: user})
 }
 
@@ -266,7 +257,7 @@ func (api *API) accountContact(response http.ResponseWriter, request *http.Reque
 		}
 		return
 	}
-	api.publishRuntimeResources(runtimeevents.ResourceSession)
+	api.publishDurableChange()
 	response.Header().Set("Cache-Control", "no-store")
 	response.WriteHeader(http.StatusNoContent)
 }

@@ -165,7 +165,7 @@ func run(
 	}
 	defer agent.CloseIdleConnections()
 	messageEvents := messageevents.NewBuffer(messageevents.DefaultCapacity)
-	runtimeEvents := runtimeevents.NewBuffer(runtimeevents.DefaultCapacity)
+	runtimeEvents := runtimeevents.NewHub()
 	communications, err := communication.New(agent, repository, messageEvents)
 	if err != nil {
 		_ = db.Close()
@@ -228,9 +228,7 @@ func run(
 	recordings, err := recording.New(repository, mediaCore, recording.Options{
 		RootDirectory: recordingsPath,
 		OnChange: func() {
-			runtimeEvents.Publish(runtimeevents.Event{
-				Resources: []runtimeevents.Resource{runtimeevents.ResourceRecordings},
-			})
+			runtimeEvents.Publish(runtimeevents.Change{Durable: true})
 		},
 		Report: func(err error) {
 			logger.Warn("call recording worker failed", "component", "recording", "error", err)
@@ -287,8 +285,7 @@ func run(
 		settingsSecrets,
 		agent,
 		networkruntime.Options{
-			RuntimeEvents:      runtimeEvents,
-			RuntimeEventSource: runtimeEvents,
+			RuntimeEvents: runtimeEvents,
 			Report: func(err error) {
 				logger.Warn("network runtime synchronization failed", "component", "network", "error", err)
 			},

@@ -9,7 +9,6 @@ import (
 
 	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/communication"
-	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -110,7 +109,7 @@ func (api *API) sendMessage(response http.ResponseWriter, request *http.Request)
 		"state",
 		message.State,
 	)
-	api.publishRuntimeResources(runtimeevents.ResourceMessages)
+	api.publishDurableChange()
 	writeJSON(response, http.StatusCreated, messageResponse{
 		Message: messageResponseItemFromStore(message),
 	})
@@ -152,7 +151,7 @@ func (api *API) messageRead(response http.ResponseWriter, request *http.Request)
 		}
 		return
 	}
-	api.publishRuntimeResources(runtimeevents.ResourceMessages)
+	api.publishDurableChange()
 	response.Header().Set("Cache-Control", "no-store")
 	response.WriteHeader(http.StatusNoContent)
 }
@@ -213,7 +212,7 @@ func (api *API) messageThreadState(response http.ResponseWriter, request *http.R
 		}
 		return
 	}
-	api.publishRuntimeResources(runtimeevents.ResourceMessages)
+	api.publishDurableChange()
 	response.Header().Set("Cache-Control", "no-store")
 	response.WriteHeader(http.StatusNoContent)
 }
@@ -265,7 +264,7 @@ func (api *API) deleteMessageThread(response http.ResponseWriter, request *http.
 		}
 		return
 	}
-	api.publishRuntimeResources(runtimeevents.ResourceMessages)
+	api.publishDurableChange()
 	response.Header().Set("Cache-Control", "no-store")
 	response.WriteHeader(http.StatusNoContent)
 }
@@ -292,7 +291,7 @@ func (api *API) missedCallsRead(response http.ResponseWriter, request *http.Requ
 		api.writeInternalError(response, request, "mark missed calls read", err)
 		return
 	}
-	api.publishRuntimeResources(runtimeevents.ResourceCalls)
+	api.publishDurableChange()
 	response.Header().Set("Cache-Control", "no-store")
 	response.WriteHeader(http.StatusNoContent)
 }
@@ -345,13 +344,13 @@ func (api *API) callsBatch(response http.ResponseWriter, request *http.Request) 
 			api.writeInternalError(response, request, "mark missed calls read", err)
 			return
 		}
-		api.publishRuntimeResources(runtimeevents.ResourceCalls)
+		api.publishDurableChange()
 	case "unread":
 		if err := api.repository.MarkMissedCallsUnreadByIDs(request.Context(), ids); err != nil {
 			api.writeInternalError(response, request, "mark missed calls unread", err)
 			return
 		}
-		api.publishRuntimeResources(runtimeevents.ResourceCalls)
+		api.publishDurableChange()
 	case "favorite", "unfavorite":
 		if err := api.repository.SetCallFavoritesByIDs(
 			request.Context(),
@@ -365,7 +364,7 @@ func (api *API) callsBatch(response http.ResponseWriter, request *http.Request) 
 			api.writeInternalError(response, request, "update call favorite state", err)
 			return
 		}
-		api.publishRuntimeResources(runtimeevents.ResourceCalls)
+		api.publishDurableChange()
 	case "delete":
 		if !api.requireAdmin(response, request) {
 			return
@@ -380,10 +379,7 @@ func (api *API) callsBatch(response http.ResponseWriter, request *http.Request) 
 				return
 			}
 		}
-		api.publishRuntimeResources(
-			runtimeevents.ResourceCalls,
-			runtimeevents.ResourceRecordings,
-		)
+		api.publishDurableChange()
 	}
 	response.Header().Set("Cache-Control", "no-store")
 	response.WriteHeader(http.StatusNoContent)
@@ -415,10 +411,7 @@ func (api *API) callRecordResource(
 			api.writeRecordingError(response, request, "delete call history", err, nil)
 			return
 		}
-		api.publishRuntimeResources(
-			runtimeevents.ResourceCalls,
-			runtimeevents.ResourceRecordings,
-		)
+		api.publishDurableChange()
 	case "read":
 		if request.Method != http.MethodPatch {
 			response.Header().Set("Allow", http.MethodPatch)
@@ -432,7 +425,7 @@ func (api *API) callRecordResource(
 			api.writeInternalError(response, request, "mark missed call read", err)
 			return
 		}
-		api.publishRuntimeResources(runtimeevents.ResourceCalls)
+		api.publishDurableChange()
 	case "unread":
 		if request.Method != http.MethodPatch {
 			response.Header().Set("Allow", http.MethodPatch)
@@ -446,7 +439,7 @@ func (api *API) callRecordResource(
 			api.writeInternalError(response, request, "mark missed call unread", err)
 			return
 		}
-		api.publishRuntimeResources(runtimeevents.ResourceCalls)
+		api.publishDurableChange()
 	default:
 		writeError(response, http.StatusNotFound, "not_found", "API endpoint was not found", "")
 		return
@@ -607,11 +600,11 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 			)
 		}
 		if released {
-			api.publishRuntimeResources(runtimeevents.ResourceCalls)
+			api.publishLiveState()
 		}
 	}
 	defer releaseReservation()
-	api.publishRuntimeResources(runtimeevents.ResourceCalls)
+	api.publishLiveState()
 
 	call, err := api.communications.StartCall(request.Context(), startInput)
 	if err != nil {
@@ -621,7 +614,7 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 				holderID,
 			); resolutionErr == nil {
 				reservationActive = false
-				api.publishRuntimeResources(runtimeevents.ResourceCalls)
+				api.publishLiveState()
 			} else {
 				api.logger.Warn(
 					"indeterminate outgoing call ownership could not be retained",
@@ -675,7 +668,7 @@ func (api *API) startCall(response http.ResponseWriter, request *http.Request) {
 		"phase",
 		call.Phase,
 	)
-	api.publishRuntimeResources(runtimeevents.ResourceCalls)
+	api.publishLiveState()
 	writeJSON(response, http.StatusCreated, callSessionEnvelope{
 		Call: callSession(call, calllease.ControlOwned),
 	})
@@ -690,26 +683,61 @@ func (api *API) activeCalls(response http.ResponseWriter, request *http.Request)
 		writeError(response, http.StatusServiceUnavailable, "call_lease_unavailable", "Browser call ownership is unavailable", "")
 		return
 	}
-	owner, err := api.callLeaseOwner(request.Context())
+	snapshot, err := api.currentActiveCallSnapshot(request)
 	if err != nil {
-		api.writeCallLeaseError(response, request, "validate browser call owner", err)
+		var snapshotErr *activeCallSnapshotError
+		if errors.As(err, &snapshotErr) && snapshotErr.communication {
+			api.writeCommunicationError(response, request, snapshotErr.operation, snapshotErr.err)
+		} else if errors.As(err, &snapshotErr) {
+			api.writeCallLeaseError(response, request, snapshotErr.operation, snapshotErr.err)
+		} else {
+			api.writeInternalError(response, request, "project active calls", err)
+		}
 		return
 	}
-	holderID := owner.HolderID
+	writeJSON(response, http.StatusOK, snapshot)
+}
+
+type activeCallSnapshotError struct {
+	operation     string
+	communication bool
+	err           error
+}
+
+func (e *activeCallSnapshotError) Error() string { return e.operation + ": " + e.err.Error() }
+func (e *activeCallSnapshotError) Unwrap() error { return e.err }
+
+func (api *API) currentActiveCallSnapshot(
+	request *http.Request,
+) (activeCallsResponse, error) {
 	calls, err := api.communications.ActiveCalls(request.Context())
 	if err != nil {
-		api.writeCommunicationError(response, request, "list active calls", err)
-		return
+		return activeCallsResponse{}, &activeCallSnapshotError{
+			operation:     "list active calls",
+			communication: true,
+			err:           err,
+		}
 	}
-	projection, err := api.callLeases.ProjectActive(calls, holderID)
+	return api.projectActiveCallSnapshot(request, calls)
+}
+
+func (api *API) projectActiveCallSnapshot(
+	request *http.Request,
+	calls []store.Call,
+) (activeCallsResponse, error) {
+	owner, err := api.callLeaseOwner(request.Context())
 	if err != nil {
-		api.writeCallLeaseError(
-			response,
-			request,
-			"project active browser calls",
-			err,
-		)
-		return
+		return activeCallsResponse{}, &activeCallSnapshotError{
+			operation: "validate browser call owner",
+			err:       err,
+		}
+	}
+	projection, err := api.callLeases.ProjectActive(calls, owner.HolderID)
+	if err != nil {
+		return activeCallsResponse{}, &activeCallSnapshotError{
+			operation: "project active browser calls",
+			err:       err,
+		}
 	}
 	sessions := make([]callSessionResponse, 0, len(projection.Calls))
 	for _, projected := range projection.Calls {
@@ -740,11 +768,10 @@ func (api *API) activeCalls(response http.ResponseWriter, request *http.Request)
 			},
 		)
 	}
-	response.Header().Set("Cache-Control", "no-store")
-	writeJSON(response, http.StatusOK, activeCallsResponse{
+	return activeCallsResponse{
 		Calls:        sessions,
 		Reservations: reservationResponses,
-	})
+	}, nil
 }
 
 func (api *API) callAction(response http.ResponseWriter, request *http.Request, callID, action string) {
@@ -821,7 +848,7 @@ func (api *API) callAction(response http.ResponseWriter, request *http.Request, 
 		return
 	}
 	if claimed {
-		api.publishRuntimeResources(runtimeevents.ResourceCalls)
+		api.publishLiveState()
 	}
 	if action == "answer" && api.recordings != nil {
 		recordingEnabled := false
@@ -844,7 +871,7 @@ func (api *API) callAction(response http.ResponseWriter, request *http.Request, 
 			api.writeRecordingError(response, request, "prepare incoming call recording", recordingErr, &state)
 			return
 		}
-		api.publishRuntimeResources(runtimeevents.ResourceRecordings)
+		api.publishDurableChange()
 	} else if action == "answer" && input.RecordingEnabled != nil {
 		writeError(response, http.StatusServiceUnavailable, "recording_unavailable", "Call recording is unavailable", "")
 		return

@@ -48,6 +48,7 @@ func (api *API) devicesCollection(response http.ResponseWriter, request *http.Re
 			api.writeDeviceError(response, request, "create device", err)
 			return
 		}
+		api.publishDurableChange()
 		writeJSON(response, http.StatusCreated, deviceResponse{Device: device})
 	default:
 		response.Header().Set("Allow", http.MethodGet+", "+http.MethodPost)
@@ -77,12 +78,14 @@ func (api *API) deviceResource(response http.ResponseWriter, request *http.Reque
 			api.writeDeviceError(response, request, "rename device", err)
 			return
 		}
+		api.publishDurableChange()
 		writeJSON(response, http.StatusOK, deviceResponse{Device: device})
 	case http.MethodDelete:
 		if err := api.repository.DeleteDevice(request.Context(), imei); err != nil {
 			api.writeDeviceError(response, request, "delete device", err)
 			return
 		}
+		api.publishDurableChange()
 		response.WriteHeader(http.StatusNoContent)
 	default:
 		response.Header().Set("Allow", http.MethodPatch+", "+http.MethodDelete)
@@ -160,6 +163,7 @@ func (api *API) lineLabelResource(
 		}
 		return
 	}
+	api.publishDurableChange()
 	writeJSON(response, http.StatusOK, lineResponse{Line: lineLabel{
 		LineID:    line.ID,
 		LineLabel: line.LineLabel,

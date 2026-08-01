@@ -129,8 +129,10 @@ export function loadNetwork(force = false, silent = false): Promise<void> {
 
 export function acceptNetworkSnapshot(
   snapshot: NetworkStatus,
-  proxies?: ProxyInstance[]
+  proxies?: ProxyInstance[],
+  supersedePendingLoad = false
 ): void {
+  if (supersedePendingLoad) loadGeneration += 1
   const current = networkState.snapshot
   if (
     current?.boot_epoch === snapshot.boot_epoch &&

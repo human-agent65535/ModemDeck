@@ -2,6 +2,7 @@ import { reactive } from 'vue'
 import { gateway } from '../api/client'
 import type {
   CallRecordingSegment,
+  CallRecordingSnapshot,
   CallRecordingState,
   CallRecordingStatus,
   CallSession,
@@ -139,6 +140,24 @@ function acceptCallRecording(callID: string, state: CallRecordingState): void {
   callRecordingState.error = ''
 }
 
+export function acceptRuntimeCallRecordings(
+  snapshots: CallRecordingSnapshot[]
+): void {
+  const callID = callRecordingState.callID
+  if (!callID || !activeSnapshotEligible || callRecordingState.busy) return
+  const snapshot = snapshots.find(item => item.state.call_id === callID)
+  if (!snapshot) return
+
+  callSyncGeneration += 1
+  activeSnapshotDirty = false
+  acceptCallRecording(callID, snapshot.state)
+  callRecordingState.segments = snapshot.segments
+    .slice()
+    .sort((left, right) => left.segment_index - right.segment_index)
+  callRecordingState.segmentsStatus = 'ready'
+  callRecordingState.segmentsError = ''
+}
+
 export async function loadRecordingSettings(force = false): Promise<RecordingSettings | null> {
   if (!force && recordingSettingsState.status === 'ready' && recordingSettingsState.data) {
     return recordingSettingsState.data
@@ -263,7 +282,8 @@ function clearActiveRecording(): void {
 }
 
 async function readActiveCallRecording(callID: string): Promise<void> {
-  const normalizedCallID = callID.trim()
+	const normalizedCallID = callID.trim()
+	const generation = callSyncGeneration
   if (
     !normalizedCallID ||
     !activeSnapshotEligible ||
@@ -280,6 +300,7 @@ async function readActiveCallRecording(callID: string): Promise<void> {
   try {
     const snapshot = await gateway.getCallRecording(normalizedCallID)
     if (
+      generation !== callSyncGeneration ||
       !activeSnapshotEligible ||
       callRecordingState.callID !== normalizedCallID
     ) {
@@ -292,6 +313,7 @@ async function readActiveCallRecording(callID: string): Promise<void> {
     callRecordingState.segmentsStatus = 'ready'
   } catch (error) {
     if (
+      generation !== callSyncGeneration ||
       !activeSnapshotEligible ||
       callRecordingState.callID !== normalizedCallID
     ) {
@@ -639,11 +661,11 @@ async function refreshRecordingEntries(): Promise<RecordingEntry[] | null> {
   }
 }
 
-export async function refreshRecordingWorkspace(): Promise<void> {
+export async function refreshRecordingWorkspace(includeActive = true): Promise<void> {
   const requests: Promise<unknown>[] = [
     refreshRecordingEntries()
   ]
-  if (callRecordingState.callID) {
+  if (includeActive && callRecordingState.callID) {
     if (activeSnapshotEligible) {
       requests.push(requestActiveCallRecordingRefresh())
     }

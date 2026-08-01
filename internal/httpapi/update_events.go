@@ -59,7 +59,7 @@ func (api *API) updateEventStream(response http.ResponseWriter, request *http.Re
 		if hasPrevious && reflect.DeepEqual(previous, operation) {
 			return true
 		}
-		if !writeSSE(response, flusher, "operation", 0, operation) {
+		if !writeSSE(response, flusher, "operation", operation) {
 			return false
 		}
 		previous = operation
