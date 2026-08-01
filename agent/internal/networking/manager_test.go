@@ -16,14 +16,14 @@ import (
 func TestManagerReconcilesOnlyChangesAndRotatesRuntimeEpoch(t *testing.T) {
 	source := &fakeNetworkSource{
 		lines: []domain.Line{{ID: "line-main"}},
-		configurations: map[string]domain.DeviceConfiguration{
+		configurations: map[string]domain.LineNetworkConfiguration{
 			"line-main": connectedConfiguration("line-main", "wwan0", "8.8.8.8"),
 		},
 	}
 	factory := &fakeRunnerFactory{}
 	now := time.Date(2026, 7, 24, 1, 2, 3, 0, time.UTC)
 	epochSequence := 0
-	manager, err := newManager(source, source, managerOptions{
+	manager, err := newManager(source, managerOptions{
 		statsReader: fakeStatsReader{
 			"wwan0": {RXBytes: 100, TXBytes: 200},
 		},
@@ -134,7 +134,7 @@ func TestManagerReconcilesOnlyChangesAndRotatesRuntimeEpoch(t *testing.T) {
 func TestManagerWaitsForBearerUntilExplicitReapply(t *testing.T) {
 	source := &fakeNetworkSource{
 		lines: []domain.Line{{ID: "line-main"}},
-		configurations: map[string]domain.DeviceConfiguration{
+		configurations: map[string]domain.LineNetworkConfiguration{
 			"line-main": {
 				LineID: "line-main",
 				DataConnections: []domain.DataConnection{{
@@ -145,7 +145,7 @@ func TestManagerWaitsForBearerUntilExplicitReapply(t *testing.T) {
 		},
 	}
 	factory := &fakeRunnerFactory{}
-	manager, err := newManager(source, source, managerOptions{
+	manager, err := newManager(source, managerOptions{
 		statsReader:        fakeStatsReader{},
 		runnerFactory:      factory.new,
 		interfaceReadiness: alwaysReadyBearer,
@@ -216,12 +216,12 @@ func TestManagerWaitsForBearerUntilExplicitReapply(t *testing.T) {
 func TestManagerRejectsInvalidDesiredSetWithoutChangingRuntime(t *testing.T) {
 	source := &fakeNetworkSource{
 		lines: []domain.Line{{ID: "line-main"}},
-		configurations: map[string]domain.DeviceConfiguration{
+		configurations: map[string]domain.LineNetworkConfiguration{
 			"line-main": connectedConfiguration("line-main", "wwan0", "8.8.8.8"),
 		},
 	}
 	factory := &fakeRunnerFactory{}
-	manager, err := newManager(source, source, managerOptions{
+	manager, err := newManager(source, managerOptions{
 		runnerFactory:      factory.new,
 		statsReader:        fakeStatsReader{},
 		interfaceReadiness: alwaysReadyBearer,
@@ -264,12 +264,12 @@ func TestManagerRejectsInvalidDesiredSetWithoutChangingRuntime(t *testing.T) {
 func TestManagerPreservesRuntimeOnDiscoveryReadAndCancellationErrors(t *testing.T) {
 	source := &fakeNetworkSource{
 		lines: []domain.Line{{ID: "line-main"}},
-		configurations: map[string]domain.DeviceConfiguration{
+		configurations: map[string]domain.LineNetworkConfiguration{
 			"line-main": connectedConfiguration("line-main", "wwan0", "8.8.8.8"),
 		},
 	}
 	factory := &fakeRunnerFactory{}
-	manager, err := newManager(source, source, managerOptions{
+	manager, err := newManager(source, managerOptions{
 		statsReader:        fakeStatsReader{},
 		runnerFactory:      factory.new,
 		interfaceReadiness: alwaysReadyBearer,
@@ -288,7 +288,7 @@ func TestManagerPreservesRuntimeOnDiscoveryReadAndCancellationErrors(t *testing.
 	}
 	configuration.ListenPort++
 
-	source.setLineIDsError(errors.New("D-Bus discovery unavailable"))
+	source.setNetworkConfigurationsError(errors.New("D-Bus discovery unavailable"))
 	if _, err := manager.ApplyProxySet(context.Background(), domain.ProxyDesiredSet{
 		Proxies: []domain.ProxyConfiguration{configuration},
 	}); operationErrorCode(err) != domain.ErrorUnavailable {
@@ -297,7 +297,7 @@ func TestManagerPreservesRuntimeOnDiscoveryReadAndCancellationErrors(t *testing.
 	if _, err := manager.NetworkSnapshot(context.Background()); operationErrorCode(err) != domain.ErrorUnavailable {
 		t.Fatalf("discovery snapshot error = %v, want unavailable", err)
 	}
-	source.setLineIDsError(nil)
+	source.setNetworkConfigurationsError(nil)
 
 	source.setConfigurationError("line-main", errors.New("configuration read timed out"))
 	if _, err := manager.ApplyProxySet(context.Background(), domain.ProxyDesiredSet{
@@ -330,12 +330,12 @@ func TestManagerPreservesRuntimeOnDiscoveryReadAndCancellationErrors(t *testing.
 func TestManagerStopsRunningProxyAfterAuthoritativeDisconnect(t *testing.T) {
 	source := &fakeNetworkSource{
 		lines: []domain.Line{{ID: "line-main"}},
-		configurations: map[string]domain.DeviceConfiguration{
+		configurations: map[string]domain.LineNetworkConfiguration{
 			"line-main": connectedConfiguration("line-main", "wwan0", "8.8.8.8"),
 		},
 	}
 	factory := &fakeRunnerFactory{}
-	manager, err := newManager(source, source, managerOptions{
+	manager, err := newManager(source, managerOptions{
 		statsReader:        fakeStatsReader{},
 		runnerFactory:      factory.new,
 		interfaceReadiness: alwaysReadyBearer,
@@ -352,7 +352,7 @@ func TestManagerStopsRunningProxyAfterAuthoritativeDisconnect(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("initial apply: %v", err)
 	}
-	source.setConfiguration("line-main", domain.DeviceConfiguration{
+	source.setConfiguration("line-main", domain.LineNetworkConfiguration{
 		LineID: "line-main",
 		DataConnections: []domain.DataConnection{{
 			ID:        "bearer-default",
@@ -381,7 +381,7 @@ func TestManagerStopsRunningProxyAfterAuthoritativeDisconnect(t *testing.T) {
 func TestManagerRetainsRunnerOwnershipUntilFailedCloseCanBeRetried(t *testing.T) {
 	source := &fakeNetworkSource{
 		lines: []domain.Line{{ID: "line-main"}},
-		configurations: map[string]domain.DeviceConfiguration{
+		configurations: map[string]domain.LineNetworkConfiguration{
 			"line-main": connectedConfiguration("line-main", "wwan0", "8.8.8.8"),
 		},
 	}
@@ -395,7 +395,7 @@ func TestManagerRetainsRunnerOwnershipUntilFailedCloseCanBeRetried(t *testing.T)
 			}
 		},
 	}
-	manager, err := newManager(source, source, managerOptions{
+	manager, err := newManager(source, managerOptions{
 		statsReader:        fakeStatsReader{},
 		runnerFactory:      factory.new,
 		interfaceReadiness: alwaysReadyBearer,
@@ -456,7 +456,7 @@ func TestManagerResumesTimedOutCloseWithoutStartingAConflictingRunner(t *testing
 	closeStarted := make(chan struct{})
 	source := &fakeNetworkSource{
 		lines: []domain.Line{{ID: "line-main"}},
-		configurations: map[string]domain.DeviceConfiguration{
+		configurations: map[string]domain.LineNetworkConfiguration{
 			"line-main": connectedConfiguration("line-main", "wwan0", "8.8.8.8"),
 		},
 	}
@@ -468,7 +468,7 @@ func TestManagerResumesTimedOutCloseWithoutStartingAConflictingRunner(t *testing
 			}
 		},
 	}
-	manager, err := newManager(source, source, managerOptions{
+	manager, err := newManager(source, managerOptions{
 		statsReader:        fakeStatsReader{},
 		runnerFactory:      factory.new,
 		interfaceReadiness: alwaysReadyBearer,
@@ -518,13 +518,13 @@ func TestManagerResumesTimedOutCloseWithoutStartingAConflictingRunner(t *testing
 func TestManagerTreatsInterfaceReadinessFailureAsConfigurationError(t *testing.T) {
 	source := &fakeNetworkSource{
 		lines: []domain.Line{{ID: "line-main"}},
-		configurations: map[string]domain.DeviceConfiguration{
+		configurations: map[string]domain.LineNetworkConfiguration{
 			"line-main": connectedConfiguration("line-main", "wwan0", "8.8.8.8"),
 		},
 	}
 	var readinessError error
 	factory := &fakeRunnerFactory{}
-	manager, err := newManager(source, source, managerOptions{
+	manager, err := newManager(source, managerOptions{
 		statsReader:   fakeStatsReader{},
 		runnerFactory: factory.new,
 		interfaceReadiness: func(_ bearer) error {
@@ -564,7 +564,7 @@ func TestManagerTreatsInterfaceReadinessFailureAsConfigurationError(t *testing.T
 func TestNetworkSnapshotKeepsInterfaceCountersWhenDNSIsMissing(t *testing.T) {
 	source := &fakeNetworkSource{
 		lines: []domain.Line{{ID: "line-main"}},
-		configurations: map[string]domain.DeviceConfiguration{
+		configurations: map[string]domain.LineNetworkConfiguration{
 			"line-main": {
 				LineID: "line-main",
 				DataConnections: []domain.DataConnection{{
@@ -576,7 +576,7 @@ func TestNetworkSnapshotKeepsInterfaceCountersWhenDNSIsMissing(t *testing.T) {
 			},
 		},
 	}
-	manager, err := newManager(source, source, managerOptions{
+	manager, err := newManager(source, managerOptions{
 		statsReader: fakeStatsReader{
 			"wwan0": {RXBytes: 700, TXBytes: 800},
 		},
@@ -610,7 +610,7 @@ func TestNetworkSnapshotKeepsInterfaceCountersWhenDNSIsMissing(t *testing.T) {
 func TestNetworkSnapshotIncludesSelectedBearerAddresses(t *testing.T) {
 	source := &fakeNetworkSource{
 		lines: []domain.Line{{ID: "line-main"}},
-		configurations: map[string]domain.DeviceConfiguration{
+		configurations: map[string]domain.LineNetworkConfiguration{
 			"line-main": {
 				LineID: "line-main",
 				DataConnections: []domain.DataConnection{{
@@ -629,7 +629,7 @@ func TestNetworkSnapshotIncludesSelectedBearerAddresses(t *testing.T) {
 			},
 		},
 	}
-	manager, err := newManager(source, source, managerOptions{
+	manager, err := newManager(source, managerOptions{
 		statsReader:        fakeStatsReader{},
 		runnerFactory:      (&fakeRunnerFactory{}).new,
 		interfaceReadiness: alwaysReadyBearer,
@@ -656,14 +656,14 @@ func TestNetworkSnapshotIncludesSelectedBearerAddresses(t *testing.T) {
 func TestManagerReportsListenerStartFailureAsRuntimeError(t *testing.T) {
 	source := &fakeNetworkSource{
 		lines: []domain.Line{{ID: "line-main"}},
-		configurations: map[string]domain.DeviceConfiguration{
+		configurations: map[string]domain.LineNetworkConfiguration{
 			"line-main": connectedConfiguration("line-main", "wwan0", "8.8.8.8"),
 		},
 	}
 	factory := &fakeRunnerFactory{
 		startError: errors.New("listener unavailable"),
 	}
-	manager, err := newManager(source, source, managerOptions{
+	manager, err := newManager(source, managerOptions{
 		statsReader:        fakeStatsReader{},
 		runnerFactory:      factory.new,
 		interfaceReadiness: alwaysReadyBearer,
@@ -715,8 +715,8 @@ func connectedConfiguration(
 	lineID string,
 	interfaceName string,
 	dns string,
-) domain.DeviceConfiguration {
-	return domain.DeviceConfiguration{
+) domain.LineNetworkConfiguration {
+	return domain.LineNetworkConfiguration{
 		LineID: lineID,
 		DataConnections: []domain.DataConnection{{
 			ID:        "bearer-1",
@@ -734,55 +734,52 @@ func connectedConfiguration(
 type fakeNetworkSource struct {
 	mu                  sync.Mutex
 	lines               []domain.Line
-	configurations      map[string]domain.DeviceConfiguration
-	lineIDsError        error
+	configurations      map[string]domain.LineNetworkConfiguration
+	networkReadError    error
 	configurationErrors map[string]error
 }
 
-func (source *fakeNetworkSource) LineIDs(context.Context) ([]string, error) {
+func (source *fakeNetworkSource) NetworkConfigurations(
+	context.Context,
+) ([]domain.LineNetworkConfiguration, error) {
 	source.mu.Lock()
 	defer source.mu.Unlock()
-	if source.lineIDsError != nil {
-		return nil, source.lineIDsError
+	if source.networkReadError != nil {
+		return nil, source.networkReadError
 	}
-	lineIDs := make([]string, 0, len(source.lines))
+	configurations := make([]domain.LineNetworkConfiguration, 0, len(source.lines))
 	for _, line := range source.lines {
-		lineIDs = append(lineIDs, line.ID)
-	}
-	return lineIDs, nil
-}
-
-func (source *fakeNetworkSource) DeviceConfiguration(
-	_ context.Context,
-	lineID string,
-) (domain.DeviceConfiguration, error) {
-	source.mu.Lock()
-	defer source.mu.Unlock()
-	if err := source.configurationErrors[lineID]; err != nil {
-		return domain.DeviceConfiguration{}, err
-	}
-	configuration, exists := source.configurations[lineID]
-	if !exists {
-		return domain.DeviceConfiguration{}, domain.NotFound(
-			"device_configuration",
-			"line was not found",
+		if err := source.configurationErrors[line.ID]; err != nil {
+			return nil, err
+		}
+		configuration, exists := source.configurations[line.ID]
+		if !exists {
+			return nil, domain.NotFound(
+				"network_configurations",
+				"line was not found",
+			)
+		}
+		configuration.DataConnections = append(
+			[]domain.DataConnection(nil),
+			configuration.DataConnections...,
 		)
+		configurations = append(configurations, configuration)
 	}
-	return configuration, nil
+	return configurations, nil
 }
 
 func (source *fakeNetworkSource) setConfiguration(
 	lineID string,
-	configuration domain.DeviceConfiguration,
+	configuration domain.LineNetworkConfiguration,
 ) {
 	source.mu.Lock()
 	source.configurations[lineID] = configuration
 	source.mu.Unlock()
 }
 
-func (source *fakeNetworkSource) setLineIDsError(err error) {
+func (source *fakeNetworkSource) setNetworkConfigurationsError(err error) {
 	source.mu.Lock()
-	source.lineIDsError = err
+	source.networkReadError = err
 	source.mu.Unlock()
 }
 

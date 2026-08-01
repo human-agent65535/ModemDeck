@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -452,34 +451,18 @@ func (p *Provider) readDeviceConfiguration(
 		operation,
 	)
 
-	bearerPaths, _ := objectPathValuesProperty(modemProperties, "Bearers")
-	for _, bearerPath := range bearerPaths {
-		bearerProperties, found, err := p.referencedBearerProperties(
-			ctx,
-			objects,
-			bearerPath,
-			operation,
-		)
-		if err != nil {
-			return domain.DeviceConfiguration{}, nil, "", err
-		}
-		if !found {
-			continue
-		}
-		connection, err := parseDataConnection(p.ids.bearerID(bearerPath), bearerProperties)
-		if err != nil {
-			return domain.DeviceConfiguration{}, nil, "", domain.Internal(
-				operation,
-				"ModemManager bearer properties were malformed",
-				err,
-			)
-		}
-		configuration.DataConnections = append(configuration.DataConnections, connection)
+	configuration.DataConnections, err = p.dataConnectionsFromModem(
+		ctx,
+		objects,
+		modemProperties,
+		operation,
+	)
+	if err != nil {
+		return domain.DeviceConfiguration{}, nil, "", err
+	}
+	for _, connection := range configuration.DataConnections {
 		configuration.NetworkEnabled = configuration.NetworkEnabled || connection.Connected
 	}
-	sort.Slice(configuration.DataConnections, func(i, j int) bool {
-		return configuration.DataConnections[i].ID < configuration.DataConnections[j].ID
-	})
 	configuration.Revision, err = domain.RevisionDeviceConfiguration(configuration)
 	if err != nil {
 		return domain.DeviceConfiguration{}, nil, "", domain.Internal(

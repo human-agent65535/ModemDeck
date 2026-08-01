@@ -19,12 +19,8 @@ const (
 	managerCloseTimeout = 3 * time.Second
 )
 
-type lineSource interface {
-	LineIDs(context.Context) ([]string, error)
-}
-
-type deviceConfigurationReader interface {
-	DeviceConfiguration(context.Context, string) (domain.DeviceConfiguration, error)
+type networkConfigurationSource interface {
+	NetworkConfigurations(context.Context) ([]domain.LineNetworkConfiguration, error)
 }
 
 type epochGenerator func(string) (string, error)
@@ -50,8 +46,7 @@ type managedProxy struct {
 }
 
 type Manager struct {
-	source             lineSource
-	configurations     deviceConfigurationReader
+	source             networkConfigurationSource
 	statsReader        InterfaceStatsReader
 	runnerFactory      proxyRunnerFactory
 	interfaceReadiness bearerReadinessChecker
@@ -67,22 +62,17 @@ type Manager struct {
 }
 
 func NewManager(
-	source lineSource,
-	configurations deviceConfigurationReader,
+	source networkConfigurationSource,
 ) (*Manager, error) {
-	return newManager(source, configurations, managerOptions{})
+	return newManager(source, managerOptions{})
 }
 
 func newManager(
-	source lineSource,
-	configurations deviceConfigurationReader,
+	source networkConfigurationSource,
 	options managerOptions,
 ) (*Manager, error) {
 	if source == nil {
-		return nil, fmt.Errorf("network line source is required")
-	}
-	if configurations == nil {
-		return nil, fmt.Errorf("device configuration reader is required")
+		return nil, fmt.Errorf("network configuration source is required")
 	}
 	if options.statsReader == nil {
 		options.statsReader = SysfsStatsReader{}
@@ -108,7 +98,6 @@ func newManager(
 	}
 	return &Manager{
 		source:             source,
-		configurations:     configurations,
 		statsReader:        options.statsReader,
 		runnerFactory:      options.runnerFactory,
 		interfaceReadiness: options.interfaceReadiness,
@@ -295,7 +284,7 @@ func (manager *Manager) currentProxies(
 
 type networkObservation struct {
 	discovered     map[string]struct{}
-	configurations map[string]domain.DeviceConfiguration
+	configurations map[string]domain.LineNetworkConfiguration
 	lineIDs        []string
 }
 
@@ -311,11 +300,11 @@ func (manager *Manager) observeNetwork(
 			err,
 		)
 	}
-	discoveredLineIDs, err := manager.source.LineIDs(ctx)
+	observedConfigurations, err := manager.source.NetworkConfigurations(ctx)
 	if err != nil {
 		return networkObservation{}, domain.Unavailable(
 			operation,
-			"ModemManager discovery is unavailable",
+			"ModemManager network configuration is unavailable",
 			err,
 		)
 	}
@@ -327,10 +316,32 @@ func (manager *Manager) observeNetwork(
 		)
 	}
 
-	discovered := make(map[string]struct{}, len(discoveredLineIDs))
-	allLineIDs := make(map[string]struct{}, len(discoveredLineIDs)+len(extraLineIDs))
-	for _, lineID := range discoveredLineIDs {
+	discovered := make(map[string]struct{}, len(observedConfigurations))
+	configurations := make(map[string]domain.LineNetworkConfiguration, len(observedConfigurations))
+	allLineIDs := make(map[string]struct{}, len(observedConfigurations)+len(extraLineIDs))
+	for _, configuration := range observedConfigurations {
+		lineID := strings.TrimSpace(configuration.LineID)
+		if lineID == "" {
+			return networkObservation{}, domain.Unavailable(
+				operation,
+				"ModemManager network configuration has no line identity",
+				nil,
+			)
+		}
+		if _, duplicate := discovered[lineID]; duplicate {
+			return networkObservation{}, domain.Unavailable(
+				operation,
+				fmt.Sprintf("ModemManager returned duplicate network line %q", lineID),
+				nil,
+			)
+		}
+		configuration.LineID = lineID
+		configuration.DataConnections = append(
+			[]domain.DataConnection(nil),
+			configuration.DataConnections...,
+		)
 		discovered[lineID] = struct{}{}
+		configurations[lineID] = configuration
 		allLineIDs[lineID] = struct{}{}
 	}
 	for lineID := range extraLineIDs {
@@ -342,35 +353,6 @@ func (manager *Manager) observeNetwork(
 	}
 	sort.Strings(lineIDs)
 
-	configurations := make(map[string]domain.DeviceConfiguration, len(discovered))
-	for _, lineID := range lineIDs {
-		if _, exists := discovered[lineID]; !exists {
-			continue
-		}
-		if err := ctx.Err(); err != nil {
-			return networkObservation{}, domain.Unavailable(
-				operation,
-				"device configuration discovery was cancelled",
-				err,
-			)
-		}
-		configuration, err := manager.configurations.DeviceConfiguration(ctx, lineID)
-		if err != nil {
-			return networkObservation{}, domain.Unavailable(
-				operation,
-				fmt.Sprintf("device configuration for line %q is unavailable", lineID),
-				err,
-			)
-		}
-		if err := ctx.Err(); err != nil {
-			return networkObservation{}, domain.Unavailable(
-				operation,
-				"device configuration discovery was cancelled",
-				err,
-			)
-		}
-		configurations[lineID] = configuration
-	}
 	return networkObservation{
 		discovered:     discovered,
 		configurations: configurations,
@@ -515,7 +497,7 @@ func (manager *Manager) lineStatuses(
 }
 
 func (manager *Manager) lineStatus(
-	configuration domain.DeviceConfiguration,
+	configuration domain.LineNetworkConfiguration,
 ) domain.LineNetworkStatus {
 	status := domain.LineNetworkStatus{
 		LineID:    configuration.LineID,

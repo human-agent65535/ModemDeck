@@ -112,7 +112,7 @@ func TestNormalizeProxySetValidatesSecurityAndConflicts(t *testing.T) {
 }
 
 func TestResolveBearerRequiresConnectedInterfaceAndDNS(t *testing.T) {
-	configuration := domain.DeviceConfiguration{
+	configuration := domain.LineNetworkConfiguration{
 		DataConnections: []domain.DataConnection{
 			{
 				ID:        "z",

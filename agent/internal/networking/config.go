@@ -171,7 +171,7 @@ func normalizeProxyConfiguration(
 	return configuration, nil
 }
 
-func resolveBearer(configuration domain.DeviceConfiguration) (bearer, error) {
+func resolveBearer(configuration domain.LineNetworkConfiguration) (bearer, error) {
 	connection, err := selectDefaultInternetConnection(configuration)
 	if err != nil {
 		return bearer{}, err
@@ -191,7 +191,7 @@ func resolveBearer(configuration domain.DeviceConfiguration) (bearer, error) {
 }
 
 func selectDefaultInternetConnection(
-	configuration domain.DeviceConfiguration,
+	configuration domain.LineNetworkConfiguration,
 ) (domain.DataConnection, error) {
 	connected := make([]domain.DataConnection, 0, len(configuration.DataConnections))
 	defaults := make([]domain.DataConnection, 0, len(configuration.DataConnections))

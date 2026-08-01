@@ -3,7 +3,6 @@ package modemmanager
 import (
 	"context"
 	"errors"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -233,24 +232,6 @@ func TestSnapshotHydratesReferencedSIMOutsideManagedObjects(t *testing.T) {
 	if len(invocations[2].Args) != 1 || invocations[2].Args[0] != simInterface {
 		t.Fatalf("GetAll args = %#v", invocations[2].Args)
 	}
-}
-
-func TestLineIDsUsesOnlyManagedObjectDiscovery(t *testing.T) {
-	t.Parallel()
-	objects := emptyLineObjects(true, true)
-	delete(objects, testSIMPath)
-	caller := newFakeCaller(objects)
-	provider := newTestProvider(caller)
-	want := []string{parsedLineID(objects, provider.ids)}
-
-	lineIDs, err := provider.LineIDs(context.Background())
-	if err != nil {
-		t.Fatalf("LineIDs() error = %v", err)
-	}
-	if !reflect.DeepEqual(lineIDs, want) {
-		t.Fatalf("LineIDs() = %v, want %v", lineIDs, want)
-	}
-	assertMethods(t, caller.invocations(), objectManagerInterface+".GetManagedObjects")
 }
 
 func TestSnapshotKeepsCoreLineWhenReferencedSIMIsTemporarilyUnavailable(t *testing.T) {

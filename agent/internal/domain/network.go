@@ -48,6 +48,14 @@ type LineNetworkStatus struct {
 	Error     string   `json:"error"`
 }
 
+// LineNetworkConfiguration is the authoritative packet-data configuration
+// needed by the networking runtime. Device settings and provisioning details
+// deliberately do not cross this boundary.
+type LineNetworkConfiguration struct {
+	LineID          string
+	DataConnections []DataConnection
+}
+
 type ProxyNetworkStatus struct {
 	ID                string     `json:"id"`
 	LineID            string     `json:"line_id"`

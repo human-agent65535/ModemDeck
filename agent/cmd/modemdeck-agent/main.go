@@ -189,7 +189,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("create device configuration service: %w", err)
 	}
-	networkManager, err := networking.NewManager(provider, deviceConfigurations)
+	networkManager, err := networking.NewManager(provider)
 	if err != nil {
 		return fmt.Errorf("create network manager: %w", err)
 	}
