@@ -59,16 +59,8 @@ id_rsa*
 id_ed25519*
 
 # One-off migrations, private fixtures, and local exports
-/AGENTS.md
-/agent/README.md
 /cmd/modemdeck-import-legacy-telegram/
 /cmd/modemdeck-migrate/
-/docs/architecture.md
-/docs/call-webrtc-capability-and-test-plan.md
-/docs/device-configuration.md
-/docs/images/README.md
-/docs/volte-extension.md
-/packaging/modemmanager/README.md
 /internal/legacymigrate/
 /internal/legacytelegram/
 /integration/legacy_*
