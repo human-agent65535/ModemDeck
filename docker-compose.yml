@@ -10,7 +10,7 @@ services:
         VERSION: ${MODEMDECK_HARDWARE_VERSION:-dev}
         BUILD_DATE: ${MODEMDECK_BUILD_DATE:-unknown}
         VCS_REF: ${MODEMDECK_VCS_REF:-unknown}
-    image: ${MODEMDECK_HARDWARE_IMAGE:-modemdeck-hardware}:${MODEMDECK_HARDWARE_VERSION:-dev}
+    image: ${MODEMDECK_HARDWARE_IMAGE_REF:-${MODEMDECK_HARDWARE_IMAGE:-modemdeck-hardware}:${MODEMDECK_HARDWARE_VERSION:-dev}}
     container_name: modemdeck-hardware
     restart: unless-stopped
     network_mode: host
@@ -83,7 +83,7 @@ services:
         VCS_REF: ${MODEMDECK_VCS_REF:-unknown}
         MODEMDECK_UID: ${MODEMDECK_UID:-10001}
         MODEMDECK_GID: ${MODEMDECK_GID:-10001}
-    image: ${MODEMDECK_IMAGE:-modemdeck}:${MODEMDECK_API_VERSION:-dev}
+    image: ${MODEMDECK_API_IMAGE_REF:-${MODEMDECK_IMAGE:-modemdeck}:${MODEMDECK_API_VERSION:-dev}}
     container_name: modemdeck-api
     restart: unless-stopped
     init: true
@@ -147,7 +147,7 @@ services:
         VERSION: ${MODEMDECK_WEB_VERSION:-dev}
         BUILD_DATE: ${MODEMDECK_BUILD_DATE:-unknown}
         VCS_REF: ${MODEMDECK_VCS_REF:-unknown}
-    image: ${MODEMDECK_WEB_IMAGE:-modemdeck-web}:${MODEMDECK_WEB_VERSION:-dev}
+    image: ${MODEMDECK_WEB_IMAGE_REF:-${MODEMDECK_WEB_IMAGE:-modemdeck-web}:${MODEMDECK_WEB_VERSION:-dev}}
     container_name: modemdeck
     restart: unless-stopped
     init: true

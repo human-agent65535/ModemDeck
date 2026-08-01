@@ -74,6 +74,18 @@ docker compose \
     -f "${repo_dir}/docker-compose.cloudflare-turn.yml" \
     config >"${test_root}/cloudflare-turn-compose.yml"
 
+MODEMDECK_SETTINGS_KEY_FILE=/dev/null \
+MODEMDECK_DATA_DIR="${test_root}/data" \
+MODEMDECK_UPDATER_TOKEN_FILE=/dev/null \
+MODEMDECK_DEPLOYMENT_DIR="${repo_dir}" \
+MODEMDECK_UPDATER_IMAGE_REF="ghcr.io/human-agent65535/modemdeck-updater:v1.9.3@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+docker compose \
+    --project-directory "$repo_dir" \
+    -f "${repo_dir}/docker-compose.yml" \
+    -f "${repo_dir}/docker-compose.ota.yml" \
+    --profile ota \
+    config >"${test_root}/ota-compose.yml"
+
 extract_service() {
     service_name=$1
     source_file=$2
@@ -101,6 +113,10 @@ extract_service api "${test_root}/cloudflare-turn-compose.yml" \
     >"${test_root}/cloudflare-turn-app.yml"
 extract_service cloudflared "${test_root}/cloudflare-compose.yml" \
     >"${test_root}/cloudflared.yml"
+extract_service api "${test_root}/ota-compose.yml" \
+    >"${test_root}/ota-app.yml"
+extract_service updater "${test_root}/ota-compose.yml" \
+    >"${test_root}/updater.yml"
 
 grep -Fq 'image: modemdeck-hardware:hardware-test' \
     "${test_root}/hardware.yml" ||
@@ -175,6 +191,31 @@ grep -Fq -- '- "8080"' "${test_root}/app.yml" ||
     fail "application API private port is not 8080"
 if grep -Fq 'ports:' "${test_root}/app.yml"; then
     fail "application API is published to the host"
+fi
+
+grep -Fq 'MODEMDECK_UPDATER_URL:' "${test_root}/ota-app.yml" ||
+    fail "application API does not expose the private updater client configuration"
+grep -Fq 'source: modemdeck_updater_token' "${test_root}/ota-app.yml" ||
+    fail "application API does not receive updater authentication as a secret"
+if grep -Fq 'source: /var/run/docker.sock' "${test_root}/ota-app.yml"; then
+    fail "application API has direct Docker socket access"
+fi
+
+grep -Fq 'image: ghcr.io/human-agent65535/modemdeck-updater:v1.9.3@sha256:' \
+    "${test_root}/updater.yml" ||
+    fail "updater does not use the immutable configured image reference"
+grep -Fq 'source: /var/run/docker.sock' "${test_root}/updater.yml" ||
+    fail "updater is missing its explicit Docker control-plane mount"
+grep -Fq 'target: /var/run/docker.sock' "${test_root}/updater.yml" ||
+    fail "updater Docker socket target is incorrect"
+grep -Fq 'read_only: true' "${test_root}/updater.yml" ||
+    fail "updater root filesystem is not read-only"
+grep -Fq -- '- ALL' "${test_root}/updater.yml" ||
+    fail "updater does not drop every Linux capability"
+grep -Fq 'no-new-privileges:true' "${test_root}/updater.yml" ||
+    fail "updater permits privilege escalation"
+if grep -Fq 'ports:' "${test_root}/updater.yml"; then
+    fail "updater control plane is published to the host"
 fi
 
 for forbidden in \

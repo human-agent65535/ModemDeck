@@ -31,6 +31,9 @@ Keep real assignment JSON outside the repository; `deploy/` also ignores
 Re-running the installer preserves SQLite data, settings secrets, certificates,
 and saved Cloudflare credentials.
 
+The default install uses published images. Use `sudo ./install.sh --git` to
+build the current checkout instead.
+
 ## Deployment modes
 
 ### Simple mode
@@ -49,7 +52,7 @@ by host software.
 
 ## Service boundary
 
-The base stack has three services:
+The release stack has four services:
 
 - `modemdeck` runs Nginx with three isolated listeners. Compose-only `7575`
   proxies `/api/*` and returns 404 for every other path. Compose-only `7576`
@@ -63,10 +66,15 @@ The base stack has three services:
 - `api` runs the Go HTTP API on `8080` inside the Compose network. It has
   no published host port.
 - `hardware` owns the modem and host data plane.
+- `updater` applies release updates and is the only service with Docker socket
+  access. It has no published host port.
 
 ## Upgrades
 
-On an existing deployment, `install.sh` compares the previously deployed Git
+Published-image deployments update from **Settings > About** and replace only
+changed containers. Hardware changes require confirmation.
+
+For `--git` deployments, `install.sh` compares the previously deployed Git
 revision, resolved Compose service hashes, and fingerprints of external
 assignment/media-binding files. It builds and replaces only affected services,
 using independent image tags for API, Web, and Hardware. API, Web,
@@ -84,6 +92,7 @@ owner's GHCR namespace:
 
 - `ghcr.io/OWNER/modemdeck:vX.Y.Z` for the API
 - `ghcr.io/OWNER/modemdeck-web:vX.Y.Z` for the Web gateway
+- `ghcr.io/OWNER/modemdeck-updater:vX.Y.Z` for the updater on every release
 - `ghcr.io/OWNER/modemdeck-hardware:vX.Y.Z` for the Hardware runtime, only when
   `agent/` or `hardware/` changed since the previous stable tag
 
@@ -93,17 +102,17 @@ attestation. Deployments and update tooling must resolve and retain the
 published digest instead of following a mutable tag. The workflow deliberately
 does not publish `latest`.
 
-To backfill images for an existing release whose tag predates the workflow,
-run it manually with `release_tag` set to that tag, for example `v1.9.2`. Select
+To backfill images for an existing release that contains the updater workflow
+and release manifest, run it manually with `release_tag` set to that tag. Select
 `include_hardware` only when the backfill also needs a Hardware baseline. The
 workflow checks out the tagged commit, verifies that its `VERSION` matches,
 requires the existing tag to be annotated, and builds only that historical
 source. Never move or recreate a published release tag.
 
-API and Web are application release artifacts and are built for every stable
-tag. Hardware has its own component version: when its inputs are unchanged, no
-new Hardware tag is created and update tooling must retain the previously
-published Hardware digest.
+API, Web, and updater are application release artifacts and are built for every
+stable tag. Hardware has its own component version: when its inputs are
+unchanged, no new Hardware tag is created and update tooling must retain the
+previously published Hardware digest.
 
 Verify package visibility after its first publication. Public packages support
 anonymous device pulls; if a package is private, either change it to public in

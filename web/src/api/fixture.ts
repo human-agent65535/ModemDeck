@@ -56,6 +56,10 @@ import type {
   TelegramUnitInput,
   TLSSettings,
   UpdateCheck,
+  UpdateComponent,
+  UpdateEventStreamHandlers,
+  UpdateOperation,
+  UpdateOperationComponentState,
   UpdateDeviceConfigurationInput,
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
@@ -448,6 +452,7 @@ export type FixtureGatewayOptions = {
   initialIncomingCall?: boolean | 'occupied'
   initialConcurrentCalls?: boolean
   initialOutgoingReservation?: 'owned' | 'occupied'
+  initialSoftwareUpdate?: boolean | 'hardware'
   externalAccessDiagnostic?: 'origin-sni'
 }
 
@@ -779,6 +784,53 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       ? new URLSearchParams(window.location.search).get('externalAccessFixture')
       : '')
   const previewOriginSNI = externalAccessDiagnostic === 'origin-sni'
+  const previewSoftwareUpdate = options.initialSoftwareUpdate
+  let fixtureApplicationVersion = previewSoftwareUpdate
+    ? 'v1.9.2'
+    : FIXTURE_APPLICATION_VERSION
+  const hardwareUpdateFixture = previewSoftwareUpdate === 'hardware'
+  const softwareUpdateComponents: UpdateComponent[] = [
+    { name: 'api', current_version: 'v1.9.2', target_version: 'v1.9.3', changed: true },
+    { name: 'web', current_version: 'v1.9.2', target_version: 'v1.9.3', changed: true },
+    {
+      name: 'hardware',
+      current_version: 'v1.9.2',
+      target_version: hardwareUpdateFixture ? 'v1.9.3' : 'v1.9.2',
+      changed: hardwareUpdateFixture
+    },
+    {
+      name: 'updater',
+      current_version: 'v1.9.2',
+      target_version: 'v1.9.3',
+      changed: true
+    },
+    {
+      name: 'cloudflared',
+      current_version: hardwareUpdateFixture ? '2026.6.0' : '2026.7.3',
+      target_version: '2026.7.3',
+      changed: hardwareUpdateFixture
+    }
+  ]
+  let fixtureUpdateOperation: UpdateOperation | undefined
+  const updateEventSubscribers = new Set<UpdateEventStreamHandlers>()
+
+  function publishFixtureUpdateOperation(): void {
+    if (!fixtureUpdateOperation) return
+    const operation = clone(fixtureUpdateOperation)
+    for (const subscriber of updateEventSubscribers) {
+      subscriber.onOperation(operation)
+    }
+  }
+
+  function setFixtureComponentState(
+    name: UpdateComponent['name'],
+    state: UpdateOperationComponentState
+  ): void {
+    const component = fixtureUpdateOperation?.components?.find(item => item.name === name)
+    if (!component) return
+    component.state = state
+    publishFixtureUpdateOperation()
+  }
   const users: UserAccount[] = [
     {
       id: 'user_admin',
@@ -1484,7 +1536,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     async getAbout(): Promise<AboutInfo> {
       return {
         name: 'ModemDeck',
-        version: FIXTURE_APPLICATION_VERSION,
+        version: fixtureApplicationVersion,
         repository_url: 'https://github.com/human-agent65535/ModemDeck',
         license_name: 'PolyForm Noncommercial 1.0.0',
         license_url: 'https://github.com/human-agent65535/ModemDeck/blob/modemdeck/LICENSE',
@@ -1494,12 +1546,118 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     },
 
     async checkForUpdates(): Promise<UpdateCheck> {
+      if (previewSoftwareUpdate) {
+        if (fixtureApplicationVersion === 'v1.9.3') {
+          return {
+            status: 'up_to_date',
+            current_version: fixtureApplicationVersion,
+            checked_at: new Date().toISOString(),
+            apply_available: false,
+            components: softwareUpdateComponents.map(component => ({
+              ...component,
+              current_version: component.target_version,
+              changed: false
+            })),
+            hardware_confirmation_required: false,
+            operation: fixtureUpdateOperation ? clone(fixtureUpdateOperation) : undefined
+          }
+        }
+        return {
+          status: 'update_available',
+          current_version: fixtureApplicationVersion,
+          latest_version: 'v1.9.3',
+          release_name: 'ModemDeck v1.9.3',
+          release_url: 'https://github.com/human-agent65535/ModemDeck/releases/tag/v1.9.3',
+          release_notes: `## Highlights
+
+- Update API, Web, Hardware, Updater, and Cloudflared from one screen.
+- Show exactly which containers will change before the update starts.
+- Require explicit confirmation before a Hardware update can interrupt cellular service.
+
+## Fixed
+
+- Keep unchanged Hardware containers online during application-only updates.
+- Stop automatic recovery after a failed rollback and show the operator what to do next.
+
+**Full Changelog**: https://github.com/human-agent65535/ModemDeck/compare/v1.9.2...v1.9.3`,
+          published_at: '2026-08-02T00:00:00Z',
+          checked_at: new Date().toISOString(),
+          apply_available: true,
+          components: clone(softwareUpdateComponents),
+          hardware_confirmation_required: hardwareUpdateFixture,
+          operation: fixtureUpdateOperation ? clone(fixtureUpdateOperation) : undefined
+        }
+      }
       return {
         status: 'unavailable',
-        current_version: FIXTURE_APPLICATION_VERSION,
+        current_version: fixtureApplicationVersion,
         checked_at: new Date().toISOString(),
-        error_code: 'github_no_release'
+        error_code: 'github_no_release',
+        apply_available: false,
+        hardware_confirmation_required: false
       }
+    },
+
+    async applySoftwareUpdate(
+      version: string,
+      confirmHardware: boolean
+    ): Promise<UpdateOperation> {
+      if (!previewSoftwareUpdate || version !== 'v1.9.3') {
+        throw new ApiError('Fixture updater is unavailable', 503, 'updater_unavailable')
+      }
+      if (hardwareUpdateFixture && !confirmHardware) {
+        throw new ApiError(
+          'Hardware update confirmation is required',
+          409,
+          'hardware_confirmation_required'
+        )
+      }
+      fixtureUpdateOperation = {
+        id: 'fixture-update-operation',
+        state: 'running',
+        target_version: version,
+        started_at: new Date().toISOString(),
+        components: softwareUpdateComponents
+          .filter(component => component.changed)
+          .map(component => ({ name: component.name, state: 'pending' }))
+      }
+      publishFixtureUpdateOperation()
+
+      const changedNames = fixtureUpdateOperation.components?.map(component => component.name) || []
+      let delay = 350
+      for (const name of changedNames) {
+        globalThis.setTimeout(() => setFixtureComponentState(name, 'pulling'), delay)
+        delay += 450
+        globalThis.setTimeout(() => setFixtureComponentState(name, 'staged'), delay)
+        delay += 180
+      }
+      globalThis.setTimeout(() => {
+        if (!fixtureUpdateOperation) return
+        for (const component of fixtureUpdateOperation.components || []) {
+          component.state = 'restarting'
+        }
+        publishFixtureUpdateOperation()
+      }, delay)
+      delay += 900
+      globalThis.setTimeout(() => {
+        if (!fixtureUpdateOperation) return
+        for (const component of fixtureUpdateOperation.components || []) {
+          component.state = 'ready'
+        }
+        fixtureUpdateOperation.state = 'succeeded'
+        fixtureUpdateOperation.finished_at = new Date().toISOString()
+        fixtureApplicationVersion = 'v1.9.3'
+        publishFixtureUpdateOperation()
+      }, delay)
+
+      return clone(fixtureUpdateOperation)
+    },
+
+    async getSoftwareUpdateStatus(): Promise<UpdateOperation> {
+      if (!fixtureUpdateOperation) {
+        throw new ApiError('No fixture update operation', 404, 'operation_not_found')
+      }
+      return clone(fixtureUpdateOperation)
     },
 
     async getBootstrap(): Promise<BootstrapResponse> {
@@ -1857,6 +2015,18 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
 
     subscribeRuntimeEvents(_handlers: RuntimeEventStreamHandlers): () => void {
       return () => undefined
+    },
+
+    subscribeSoftwareUpdateEvents(handlers: UpdateEventStreamHandlers): () => void {
+      updateEventSubscribers.add(handlers)
+      if (fixtureUpdateOperation) {
+        queueMicrotask(() => {
+          if (updateEventSubscribers.has(handlers) && fixtureUpdateOperation) {
+            handlers.onOperation(clone(fixtureUpdateOperation))
+          }
+        })
+      }
+      return () => updateEventSubscribers.delete(handlers)
     },
 
     async markThreadRead(query: MessageReadInput): Promise<void> {

@@ -1,0 +1,71 @@
+services:
+  api:
+    environment:
+      MODEMDECK_UPDATER_URL: ${MODEMDECK_UPDATER_URL:-}
+      MODEMDECK_UPDATER_TOKEN_FILE: /run/secrets/modemdeck_updater_token
+    secrets:
+      - modemdeck_updater_token
+
+  updater:
+    profiles:
+      - ota
+    image: ${MODEMDECK_UPDATER_IMAGE_REF:-${MODEMDECK_UPDATER_IMAGE:-modemdeck-updater}:${MODEMDECK_UPDATER_VERSION:-dev}}
+    restart: unless-stopped
+    user: "0:0"
+    expose:
+      - "8081"
+    environment:
+      MODEMDECK_CURRENT_VERSION: ${MODEMDECK_VERSION:-dev}
+      MODEMDECK_DEPLOYMENT_DIR: ${MODEMDECK_DEPLOYMENT_DIR:?MODEMDECK_DEPLOYMENT_DIR must be the absolute host deployment directory}
+      MODEMDECK_HOST_DEPLOYMENT_DIR: ${MODEMDECK_DEPLOYMENT_DIR:?MODEMDECK_DEPLOYMENT_DIR must be the absolute host deployment directory}
+      MODEMDECK_UPDATER_LISTEN_ADDRESS: 0.0.0.0:8081
+      MODEMDECK_UPDATER_SELF_IMAGE: ${MODEMDECK_UPDATER_SELF_IMAGE:-disabled}
+      MODEMDECK_UPDATER_STATE_DIR: /var/lib/modemdeck-updater
+      MODEMDECK_UPDATER_STATE_VOLUME: ${MODEMDECK_UPDATER_STATE_VOLUME:-modemdeck-updater-state}
+      MODEMDECK_UPDATER_TOKEN_FILE: /run/secrets/modemdeck_updater_token
+      MODEMDECK_CLOUDFLARE_ENABLED: ${MODEMDECK_CLOUDFLARE_ENABLED:-false}
+    secrets:
+      - modemdeck_updater_token
+    volumes:
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+      - type: bind
+        source: ${MODEMDECK_DEPLOYMENT_DIR:?MODEMDECK_DEPLOYMENT_DIR must be the absolute host deployment directory}
+        target: ${MODEMDECK_DEPLOYMENT_DIR:?MODEMDECK_DEPLOYMENT_DIR must be the absolute host deployment directory}
+      - type: volume
+        source: updater-state
+        target: /var/lib/modemdeck-updater
+        volume:
+          nocopy: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -q
+        - -T
+        - "3"
+        - -O
+        - /dev/null
+        - http://127.0.0.1:8081/health
+      interval: 20s
+      timeout: 5s
+      start_period: 10s
+      retries: 4
+    stop_grace_period: 10s
+
+secrets:
+  modemdeck_updater_token:
+    file: ${MODEMDECK_UPDATER_TOKEN_FILE:?MODEMDECK_UPDATER_TOKEN_FILE must point to a host secret file}
+
+volumes:
+  updater-state:
+    name: ${MODEMDECK_UPDATER_STATE_VOLUME:-modemdeck-updater-state}

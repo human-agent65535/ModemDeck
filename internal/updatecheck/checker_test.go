@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -25,6 +26,7 @@ func TestCheckerReportsAvailableStableRelease(t *testing.T) {
 		_, _ = response.Write([]byte(`{
 			"tag_name":"v1.2.0",
 			"name":"ModemDeck 1.2",
+			"body":"## Highlights\n\n- One-click container updates\n\n## Fixed\n\n- Faster recovery",
 			"published_at":"2026-07-27T10:00:00Z"
 		}`))
 	}))
@@ -48,9 +50,12 @@ func TestCheckerReportsAvailableStableRelease(t *testing.T) {
 	if result.ReleaseURL != "https://example.invalid/releases/tag/v1.2.0" {
 		t.Fatalf("release URL = %q", result.ReleaseURL)
 	}
+	if result.ReleaseNotes != "## Highlights\n\n- One-click container updates\n\n## Fixed\n\n- Faster recovery" {
+		t.Fatalf("release notes = %q", result.ReleaseNotes)
+	}
 
 	cached := checker.Check(context.Background())
-	if cached != result || requests.Load() != 1 {
+	if !reflect.DeepEqual(cached, result) || requests.Load() != 1 {
 		t.Fatalf("cached result = %+v; requests = %d", cached, requests.Load())
 	}
 }

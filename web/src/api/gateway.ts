@@ -65,6 +65,8 @@ import type {
   InstallCloudflareOriginTLSInput,
   TLSSettings,
   UpdateCheck,
+  UpdateEventStreamHandlers,
+  UpdateOperation,
   UpdateDeviceConfigurationInput,
   UpdateGlobalCallSettingsInput,
   UpdateLineLabelInput,
@@ -113,6 +115,9 @@ export interface ModemDeckGateway {
   readonly interactions?: GatewayInteractions
   getAbout(): Promise<AboutInfo>
   checkForUpdates(): Promise<UpdateCheck>
+  applySoftwareUpdate(version: string, confirmHardware: boolean): Promise<UpdateOperation>
+  getSoftwareUpdateStatus(): Promise<UpdateOperation>
+  subscribeSoftwareUpdateEvents(handlers: UpdateEventStreamHandlers): () => void
   getBootstrap(): Promise<BootstrapResponse>
   listUsers(): Promise<UserAccount[]>
   createMember(input: CreateMemberInput): Promise<UserAccount>

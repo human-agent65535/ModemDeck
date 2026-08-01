@@ -94,6 +94,7 @@ env \
     MODEMDECK_SETTINGS_KEY_FILE="$settings_file" \
     "${repo_dir}/install.sh" \
         --check \
+        --git \
         --allow-dirty \
         >"${test_root}/output.log"
 

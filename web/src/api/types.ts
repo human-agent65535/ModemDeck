@@ -270,9 +270,55 @@ export type UpdateCheck = {
   latest_version?: string
   release_name?: string
   release_url?: string
+  release_notes?: string
   published_at?: string
   checked_at: string
   error_code?: string
+  apply_available: boolean
+  components?: UpdateComponent[]
+  hardware_confirmation_required: boolean
+  operation?: UpdateOperation
+}
+
+export type UpdateComponentName = 'api' | 'web' | 'hardware' | 'updater' | 'cloudflared'
+
+export type UpdateComponent = {
+  name: UpdateComponentName
+  current_version?: string
+  target_version?: string
+  changed: boolean
+}
+
+export type UpdateOperationState = 'running' | 'succeeded' | 'failed'
+
+export type UpdateOperationComponentState =
+  | 'pending'
+  | 'pulling'
+  | 'staged'
+  | 'restarting'
+  | 'rolling_back'
+  | 'rolled_back'
+  | 'ready'
+  | 'failed'
+
+export type UpdateOperationComponent = {
+  name: UpdateComponentName
+  state: UpdateOperationComponentState
+}
+
+export type UpdateOperation = {
+  id: string
+  state: UpdateOperationState
+  target_version: string
+  started_at: string
+  finished_at?: string
+  error_code?: string
+  components?: UpdateOperationComponent[]
+}
+
+export type UpdateEventStreamHandlers = {
+  onOperation: (operation: UpdateOperation) => void
+  onError: (error?: Error) => void
 }
 
 export type UpdateTLSSettingsInput =

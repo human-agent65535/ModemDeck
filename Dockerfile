@@ -4,6 +4,7 @@ ARG NODE_IMAGE=node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527
 ARG GO_IMAGE=golang:1.26.5-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651
 ARG RUNTIME_IMAGE=alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
 ARG NGINX_IMAGE=nginx:1.30.4-alpine-slim@sha256:ddde39c6e51f02fde7410c2e9c234cf2d0a4c7bdbbe176aeb37d8ad7ab4eb58c
+ARG DOCKER_CLI_IMAGE=docker:28.5.2-cli@sha256:625d9431a9f54c5a2bc90f24f0e1c3d55b1349fd857dd85035f98c2c9acbdd4d
 
 FROM ${NODE_IMAGE} AS web-builder
 
@@ -42,6 +43,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
 COPY cmd/modemdeck/ ./cmd/modemdeck/
+COPY cmd/modemdeck-updater/ ./cmd/modemdeck-updater/
 COPY internal/ ./internal/
 COPY VERSION ./
 
@@ -56,10 +58,41 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -X main.version=${app_version}" \
     -o /out/modemdeck ./cmd/modemdeck
 
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    updater_version="v$(tr -d '\r\n' < VERSION)" \
+    && test "${updater_version}" != "v" \
+    && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
+    go build -mod=readonly -tags=netgo,osusergo -trimpath -buildvcs=false \
+    -ldflags="-s -w -X main.version=${updater_version}" \
+    -o /out/modemdeck-updater ./cmd/modemdeck-updater
+
 
 FROM scratch AS modemdeck-artifact
 
 COPY --from=app-builder /out/modemdeck /modemdeck
+
+
+FROM ${DOCKER_CLI_IMAGE} AS updater-runtime
+
+ARG VERSION=dev
+ARG BUILD_DATE=unknown
+ARG VCS_REF=unknown
+
+COPY --from=app-builder /out/modemdeck-updater /usr/local/bin/modemdeck-updater
+COPY LICENSE NOTICE.md THIRD_PARTY_NOTICES.md /usr/share/licenses/modemdeck/
+
+LABEL org.opencontainers.image.title="ModemDeck Updater" \
+      org.opencontainers.image.description="Digest-pinned update control plane for ModemDeck containers" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.revision="${VCS_REF}"
+
+USER 0:0
+EXPOSE 8081
+STOPSIGNAL SIGTERM
+
+ENTRYPOINT ["/usr/local/bin/modemdeck-updater"]
 
 
 FROM ${NGINX_IMAGE} AS web-runtime

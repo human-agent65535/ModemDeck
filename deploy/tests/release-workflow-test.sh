@@ -42,6 +42,7 @@ done
 for matrix_contract in \
     '"component":"api","dockerfile":"./Dockerfile","image":"modemdeck","target":"runtime"' \
     '"component":"web","dockerfile":"./Dockerfile","image":"modemdeck-web","target":"web-runtime"' \
+    '"component":"updater","dockerfile":"./Dockerfile","image":"modemdeck-updater","target":"updater-runtime"' \
     '"component":"hardware","dockerfile":"./hardware/Dockerfile","image":"modemdeck-hardware","target":"runtime"'
 do
     grep -Fq "$matrix_contract" "$workflow" ||
@@ -52,6 +53,12 @@ grep -Fq 'git diff --quiet "${previous_tag}^{commit}" "${vcs_ref}" -- agent hard
     "$workflow" || fail "automatic releases do not isolate Hardware source changes"
 grep -Fq 'publish_hardware="${INCLUDE_HARDWARE:-false}"' "$workflow" ||
     fail "manual release backfills do not default to application images only"
+grep -Fq "jq -r '.hardware_version // \"\"' deploy/release-manifest.json" \
+    "$workflow" || fail "release workflow does not validate the retained Hardware version"
+grep -Fq 'a Hardware-changing release must set hardware_version' "$workflow" ||
+    fail "Hardware image publication is not tied to the release manifest"
+grep -Fq 'release manifest must pin the tested Cloudflared tag and sha256 digest' \
+    "$workflow" || fail "release workflow does not validate the Cloudflared pin"
 grep -Fq 'matrix: ${{ fromJSON(needs.release.outputs.image-matrix) }}' "$workflow" ||
     fail "release jobs do not use the validated component matrix"
 

@@ -156,6 +156,13 @@ import type {
   TelegramUnitInput,
   TLSSettings,
   UpdateCheck,
+  UpdateComponent,
+  UpdateComponentName,
+  UpdateEventStreamHandlers,
+  UpdateOperation,
+  UpdateOperationComponent,
+  UpdateOperationComponentState,
+  UpdateOperationState,
   UpdateStatus,
   UpdateDeviceConfigurationInput,
   UpdateGlobalCallSettingsInput,
@@ -180,6 +187,7 @@ const NETWORK_SCAN_REQUEST_TIMEOUT_MS = 130_000
 const CALL_LEASE_REQUEST_TIMEOUT_MS = 4_000
 const MESSAGE_EVENT_INACTIVITY_TIMEOUT_MS = 40_000
 const RUNTIME_EVENT_INACTIVITY_TIMEOUT_MS = 12_000
+const UPDATE_EVENT_INACTIVITY_TIMEOUT_MS = 12_000
 
 const runtimeEnvironment = import.meta.env
 
@@ -209,13 +217,20 @@ const initialOutgoingReservationFixture: 'owned' | 'occupied' | undefined =
   outgoingReservationFixture === 'owned' || outgoingReservationFixture === 'occupied'
     ? outgoingReservationFixture
     : undefined
+const softwareUpdateFixture =
+  fixtureMode && typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('updateFixture')
+    : ''
+const initialSoftwareUpdateFixture: boolean | 'hardware' =
+  softwareUpdateFixture === 'hardware' ? 'hardware' : softwareUpdateFixture === '1'
 
 const fixturePreviewOptions =
   fixtureMode && typeof window !== 'undefined'
     ? {
         initialIncomingCall: initialIncomingCallFixture,
         initialConcurrentCalls: initialConcurrentCallsFixture,
-        initialOutgoingReservation: initialOutgoingReservationFixture
+        initialOutgoingReservation: initialOutgoingReservationFixture,
+        initialSoftwareUpdate: initialSoftwareUpdateFixture
       }
     : {}
 
@@ -392,6 +407,91 @@ const UPDATE_STATUSES = new Set<UpdateStatus>([
   'development',
   'unavailable'
 ])
+const UPDATE_COMPONENT_NAMES = new Set<UpdateComponentName>([
+  'api',
+  'web',
+  'hardware',
+  'updater',
+  'cloudflared'
+])
+const UPDATE_OPERATION_STATES = new Set<UpdateOperationState>([
+  'running',
+  'succeeded',
+  'failed'
+])
+const UPDATE_OPERATION_COMPONENT_STATES = new Set<UpdateOperationComponentState>([
+  'pending',
+  'pulling',
+  'staged',
+  'restarting',
+  'rolling_back',
+  'rolled_back',
+  'ready',
+  'failed'
+])
+
+function parseUpdateOperationComponent(
+  value: unknown,
+  index: number
+): UpdateOperationComponent {
+  const path = `update_operation.components[${index}]`
+  const source = requiredRecord(value, path)
+  const name = requiredStringValue(source, path, 'name') as UpdateComponentName
+  if (!UPDATE_COMPONENT_NAMES.has(name)) {
+    throw new ApiError(`${path}.name 未知：${name}`, 0, 'invalid_response')
+  }
+  const state = requiredStringValue(
+    source,
+    path,
+    'state'
+  ) as UpdateOperationComponentState
+  if (!UPDATE_OPERATION_COMPONENT_STATES.has(state)) {
+    throw new ApiError(`${path}.state 未知：${state}`, 0, 'invalid_response')
+  }
+  return { name, state }
+}
+
+function parseUpdateOperation(value: unknown): UpdateOperation {
+  const source = requiredRecord(value, 'update_operation')
+  const components = source.components
+  if (components !== undefined && !Array.isArray(components)) {
+    throw new ApiError('update_operation.components 必须是数组', 0, 'invalid_response')
+  }
+  const state = requiredStringValue(
+    source,
+    'update_operation',
+    'state'
+  ) as UpdateOperationState
+  if (!UPDATE_OPERATION_STATES.has(state)) {
+    throw new ApiError(`update_operation.state 未知：${state}`, 0, 'invalid_response')
+  }
+  return {
+    id: requiredStringValue(source, 'update_operation', 'id'),
+    state,
+    target_version: requiredStringValue(source, 'update_operation', 'target_version'),
+    started_at: requiredStringValue(source, 'update_operation', 'started_at'),
+    finished_at: stringValue(source, 'finished_at') || undefined,
+    error_code: stringValue(source, 'error_code') || undefined,
+    components: components?.map((component, index) =>
+      parseUpdateOperationComponent(component, index)
+    )
+  }
+}
+
+function parseUpdateComponent(value: unknown, index: number): UpdateComponent {
+  const path = `update_check.components[${index}]`
+  const source = requiredRecord(value, path)
+  const name = requiredStringValue(source, path, 'name') as UpdateComponentName
+  if (!UPDATE_COMPONENT_NAMES.has(name)) {
+    throw new ApiError(`${path}.name 未知：${name}`, 0, 'invalid_response')
+  }
+  return {
+    name,
+    current_version: stringValue(source, 'current_version') || undefined,
+    target_version: stringValue(source, 'target_version') || undefined,
+    changed: requiredBooleanValue(source, path, 'changed')
+  }
+}
 
 function parseAbout(value: unknown): AboutInfo {
   const source = requiredRecord(value, 'about')
@@ -411,15 +511,28 @@ function parseUpdateCheck(value: unknown): UpdateCheck {
   if (!UPDATE_STATUSES.has(status)) {
     throw new ApiError(`update_check.status 未知：${status}`, 0, 'invalid_response')
   }
+  const components = source.components
+  if (components !== undefined && !Array.isArray(components)) {
+    throw new ApiError('update_check.components 必须是数组', 0, 'invalid_response')
+  }
   return {
     status,
     current_version: requiredStringValue(source, 'update_check', 'current_version'),
     latest_version: stringValue(source, 'latest_version') || undefined,
     release_name: stringValue(source, 'release_name') || undefined,
     release_url: stringValue(source, 'release_url') || undefined,
+    release_notes: stringValue(source, 'release_notes') || undefined,
     published_at: stringValue(source, 'published_at') || undefined,
     checked_at: requiredStringValue(source, 'update_check', 'checked_at'),
-    error_code: stringValue(source, 'error_code') || undefined
+    error_code: stringValue(source, 'error_code') || undefined,
+    apply_available: requiredBooleanValue(source, 'update_check', 'apply_available'),
+    components: components?.map((component, index) => parseUpdateComponent(component, index)),
+    hardware_confirmation_required: requiredBooleanValue(
+      source,
+      'update_check',
+      'hardware_confirmation_required'
+    ),
+    operation: source.operation ? parseUpdateOperation(source.operation) : undefined
   }
 }
 
@@ -974,6 +1087,61 @@ const realGateway: ConfiguredModemDeckGateway = {
 
   async checkForUpdates(): Promise<UpdateCheck> {
     return parseUpdateCheck(await get(`${API_ROOT}/updates/check`))
+  },
+
+  async applySoftwareUpdate(
+    version: string,
+    confirmHardware: boolean
+  ): Promise<UpdateOperation> {
+    return parseUpdateOperation(
+      await writeJSON(
+        `${API_ROOT}/updates/apply`,
+        'POST',
+        { version, confirm_hardware: confirmHardware },
+        202
+      )
+    )
+  },
+
+  async getSoftwareUpdateStatus(): Promise<UpdateOperation> {
+    return parseUpdateOperation(await get(`${API_ROOT}/updates/status`))
+  },
+
+  subscribeSoftwareUpdateEvents(handlers: UpdateEventStreamHandlers): () => void {
+    return subscribeEventSource(
+      `${API_ROOT}/updates/events`,
+      {
+        onOpen: () => undefined,
+        onError: handlers.onError
+      },
+      (source, restart, isActive, markActivity) => {
+        source.addEventListener('operation', event => {
+          if (!isActive()) return
+          markActivity()
+          try {
+            handlers.onOperation(
+              parseUpdateOperation(JSON.parse(event.data) as unknown)
+            )
+          } catch (error) {
+            restart(error instanceof Error ? error : new Error('更新事件格式无效'))
+          }
+        })
+        source.addEventListener('heartbeat', event => {
+          if (!isActive()) return
+          markActivity()
+          try {
+            const heartbeat = requiredRecord(
+              JSON.parse(event.data) as unknown,
+              'update_event_heartbeat'
+            )
+            requiredStringValue(heartbeat, 'update_event_heartbeat', 'at')
+          } catch (error) {
+            restart(error instanceof Error ? error : new Error('更新事件心跳无效'))
+          }
+        })
+      },
+      UPDATE_EVENT_INACTIVITY_TIMEOUT_MS
+    )
   },
 
   async getSession(): Promise<SessionResponse> {

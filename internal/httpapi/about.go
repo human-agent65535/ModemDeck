@@ -1,11 +1,13 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/updatecheck"
+	"github.com/human-agent65535/modemdeck/internal/updaterclient"
 )
 
 const (
@@ -59,6 +61,41 @@ func (api *API) updateCheck(response http.ResponseWriter, request *http.Request)
 		return
 	}
 	writeJSON(response, http.StatusOK, api.updateChecker.Check(request.Context()))
+}
+
+func (api *API) updateApply(response http.ResponseWriter, request *http.Request) {
+	if api.updateManager == nil {
+		writeError(response, http.StatusServiceUnavailable, "updater_unavailable", "Automatic updates are unavailable for this deployment", "")
+		return
+	}
+	var input updatecheck.ApplyRequest
+	if !decodeJSONBody(response, request, &input) {
+		return
+	}
+	operation, err := api.updateManager.Apply(request.Context(), input)
+	switch {
+	case errors.Is(err, updaterclient.ErrHardwareConfirmationRequired):
+		writeError(response, http.StatusConflict, "hardware_confirmation_required", "Hardware update confirmation is required", "confirm_hardware")
+	case errors.Is(err, updaterclient.ErrOperationRunning):
+		writeError(response, http.StatusConflict, "update_in_progress", "A software update is already running", "")
+	case err != nil:
+		writeError(response, http.StatusServiceUnavailable, "updater_unavailable", "The software update could not be started", "")
+	default:
+		writeJSON(response, http.StatusAccepted, operation)
+	}
+}
+
+func (api *API) updateStatus(response http.ResponseWriter, request *http.Request) {
+	if api.updateManager == nil {
+		writeError(response, http.StatusServiceUnavailable, "updater_unavailable", "Automatic updates are unavailable for this deployment", "")
+		return
+	}
+	operation, err := api.updateManager.Status(request.Context())
+	if err != nil {
+		writeError(response, http.StatusServiceUnavailable, "updater_unavailable", "The software update status is unavailable", "")
+		return
+	}
+	writeJSON(response, http.StatusOK, operation)
 }
 
 func normalizedApplicationVersion(value string) string {

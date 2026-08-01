@@ -46,6 +46,8 @@ cp "${source_repo}/docker-compose.cloudflare.yml" \
     "${fixture}/docker-compose.cloudflare.yml"
 cp "${source_repo}/docker-compose.cloudflare-turn.yml" \
     "${fixture}/docker-compose.cloudflare-turn.yml"
+cp "${source_repo}/docker-compose.ota.yml" \
+    "${fixture}/docker-compose.ota.yml"
 cp "${source_repo}/Dockerfile" "${fixture}/Dockerfile"
 cp "${source_repo}/hardware/Dockerfile" "${fixture}/hardware/Dockerfile"
 cp "${source_repo}/hardware/config/media-bindings.empty.json" \
@@ -54,6 +56,8 @@ cp "${source_repo}/scripts/prepare-modemdeck-data.sh" \
     "${fixture}/scripts/prepare-modemdeck-data.sh"
 cp "${source_repo}/deploy/advanced-assignment.example.json" \
     "${fixture}/deploy/advanced-assignment.example.json"
+cp "${source_repo}/deploy/release-manifest.json" \
+    "${fixture}/deploy/release-manifest.json"
 cp "${source_repo}/VERSION" "${fixture}/VERSION"
 cp "${source_repo}/.gitignore" "${fixture}/.gitignore"
 chmod 0755 \
@@ -160,6 +164,14 @@ case "${1:-}" in
     info)
         exit 0
         ;;
+    pull)
+        if [ -n "${MODEMDECK_TEST_PULL_FAILURE:-}" ] &&
+            [ "${2:-}" = "$MODEMDECK_TEST_PULL_FAILURE" ]
+        then
+            exit 1
+        fi
+        exit 0
+        ;;
     inspect)
         container_id=
         for argument in "$@"; do
@@ -176,6 +188,7 @@ case "${1:-}" in
                     app-id) printf '%s\n' api-hash ;;
                     web-id) printf '%s\n' modemdeck-hash ;;
                     cloudflared-id) printf '%s\n' cloudflared-hash ;;
+                    updater-id) printf '%s\n' updater-hash ;;
                 esac
                 exit 0
                 ;;
@@ -203,6 +216,12 @@ case "${1:-}" in
         then
             exit 1
         fi
+        case "$*" in
+            *RepoDigests*)
+                image_repository=${image_name%:*}
+                printf '%s@sha256:%064d\n' "$image_repository" 1
+                ;;
+        esac
         exit 0
         ;;
     *)
@@ -244,6 +263,7 @@ case "$action" in
                 api) printf '%s\n' app-id ;;
                 modemdeck) printf '%s\n' web-id ;;
                 cloudflared) printf '%s\n' cloudflared-id ;;
+                updater) printf '%s\n' updater-id ;;
             esac
         fi
         ;;
@@ -430,6 +450,7 @@ write_unit_state modemdeck-agent.service masked 0
 if common_env \
     MODEMDECK_TEST_DOCKER_HEALTH=fail \
     "${fixture}/install.sh" \
+        --git \
         --mode simple \
         --allow-dirty \
         >"${test_root}/simple-output.log" 2>&1
@@ -501,6 +522,7 @@ common_env \
     MODEMDECK_TEST_DOCKER_HEALTH=healthy \
     MODEMDECK_HOST_DBUS_SOCKET=/var/run/docker.sock \
     "${fixture}/install.sh" \
+        --git \
         --mode advanced \
         --assignment-file "${test_root}/assignments.json" \
         --allow-dirty \
@@ -541,6 +563,7 @@ common_env \
     MODEMDECK_TEST_DOCKER_HEALTH=healthy \
     MODEMDECK_HOST_DBUS_SOCKET=/var/run/docker.sock \
     "${fixture}/install.sh" \
+        --git \
         --mode advanced \
         --assignment-file "${test_root}/assignments.json" \
         --allow-dirty \
@@ -568,6 +591,7 @@ common_env \
     MODEMDECK_TEST_DOCKER_HEALTH=healthy \
     MODEMDECK_HOST_DBUS_SOCKET=/var/run/docker.sock \
     "${fixture}/install.sh" \
+        --git \
         --mode advanced \
         --assignment-file "${test_root}/assignments.json" \
         --cloudflare-token-file "${test_root}/cloudflare-token-input" \
@@ -590,6 +614,7 @@ common_env \
     MODEMDECK_TEST_DOCKER_HEALTH=healthy \
     MODEMDECK_HOST_DBUS_SOCKET=/var/run/docker.sock \
     "${fixture}/install.sh" \
+        --git \
         --mode advanced \
         --assignment-file "${test_root}/assignments.json" \
         --cloudflare-turn-key-id 0123456789abcdef0123456789abcdef \
@@ -659,6 +684,7 @@ common_env \
     MODEMDECK_TEST_DOCKER_HEALTH=healthy \
     MODEMDECK_HOST_DBUS_SOCKET=/var/run/docker.sock \
     "${fixture}/install.sh" \
+        --git \
         --mode advanced \
         --assignment-file "${test_root}/assignments.json" \
         --disable-cloudflare-turn \
@@ -692,6 +718,7 @@ common_env \
     MODEMDECK_TEST_DOCKER_HEALTH=healthy \
     MODEMDECK_TEST_MASK_FAILURE_UNIT=modemdeck-agent.service \
     "${fixture}/install.sh" \
+        --git \
         --mode simple \
         --allow-dirty \
         >"${test_root}/simple-success-output.log" 2>&1
@@ -732,6 +759,7 @@ git -C "$fixture" \
 common_env \
     MODEMDECK_TEST_DOCKER_HEALTH=healthy \
     "${fixture}/install.sh" \
+        --git \
         --mode simple \
         --version selective-v2 \
         >"${test_root}/selective-update-output.log" 2>&1
@@ -774,6 +802,7 @@ cp "${fixture}/hardware/config/media-bindings.empty.json" \
 common_env \
     MODEMDECK_TEST_DOCKER_HEALTH=healthy \
     "${fixture}/install.sh" \
+        --git \
         --mode simple \
         --version selective-v2 \
         --media-bindings-file "${test_root}/media-bindings.json" \
@@ -783,6 +812,7 @@ printf '\n' >>"${test_root}/media-bindings.json"
 common_env \
     MODEMDECK_TEST_DOCKER_HEALTH=healthy \
     "${fixture}/install.sh" \
+        --git \
         --mode simple \
         --version selective-v2 \
         --media-bindings-file "${test_root}/media-bindings.json" \
@@ -804,6 +834,7 @@ common_env \
     MODEMDECK_TEST_DOCKER_HEALTH=healthy \
     MODEMDECK_TEST_MISSING_IMAGE="modemdeck-hardware:${hardware_version_before}" \
     "${fixture}/install.sh" \
+        --git \
         --mode simple \
         --version recovered-v3 \
         >"${test_root}/missing-image-output.log" 2>&1
@@ -827,6 +858,7 @@ grep -qx 'MODEMDECK_HARDWARE_VERSION=recovered-v3' "${fixture}/.env" ||
 common_env \
     MODEMDECK_TEST_DOCKER_HEALTH=healthy \
     "${fixture}/install.sh" \
+        --git \
         --mode simple \
         --version full-v2 \
         --rebuild-all \
@@ -848,5 +880,51 @@ do
     grep -qx "${component_key}=full-v2" "${fixture}/.env" ||
         fail "--rebuild-all did not advance $component_key"
 done
+
+# Without --git, the installer pulls the published release and pins every
+# ModemDeck image to the digest returned by the registry. The updater is part
+# of this release deployment; source builds remain opt-in above.
+printf '%s\n' '1.9.3' >"${fixture}/VERSION"
+cp "${fixture}/.env" "${test_root}/before-required-updater.env"
+: >"${test_root}/commands.log"
+if common_env \
+    MODEMDECK_TEST_DOCKER_HEALTH=healthy \
+    MODEMDECK_TEST_PULL_FAILURE=ghcr.io/human-agent65535/modemdeck-updater:v1.9.3 \
+    "${fixture}/install.sh" \
+        --mode simple \
+        --version v1.9.3 \
+        >"${test_root}/missing-updater-output.log" 2>&1
+then
+    fail "release deployment accepted a missing updater image"
+fi
+cmp -s "${fixture}/.env" "${test_root}/before-required-updater.env" ||
+    fail "missing updater image changed the installed Compose environment"
+
+: >"${test_root}/commands.log"
+common_env \
+    MODEMDECK_TEST_DOCKER_HEALTH=healthy \
+    "${fixture}/install.sh" \
+        --mode simple \
+        --version v1.9.3 \
+        >"${test_root}/release-output.log" 2>&1
+for release_image in \
+    ghcr.io/human-agent65535/modemdeck:v1.9.3 \
+    ghcr.io/human-agent65535/modemdeck-web:v1.9.3 \
+    ghcr.io/human-agent65535/modemdeck-hardware:v1.9.3 \
+    ghcr.io/human-agent65535/modemdeck-updater:v1.9.3
+do
+    grep -Fq "docker|pull ${release_image}" "${test_root}/commands.log" ||
+        fail "default release deployment did not pull ${release_image}"
+done
+if grep -Eq '^docker\|compose .* build( |$)' "${test_root}/commands.log"; then
+    fail "default release deployment built a local image"
+fi
+grep -Fq 'Deployment:    release' "${test_root}/release-output.log" ||
+    fail "default installer mode did not report release deployment"
+grep -Eq '^MODEMDECK_API_IMAGE_REF=ghcr.io/human-agent65535/modemdeck:v1.9.3@sha256:[0-9]{64}$' \
+    "${fixture}/.env" ||
+    fail "default release deployment did not pin the API digest"
+grep -qx 'MODEMDECK_UPDATER_URL=http://updater:8081' "${fixture}/.env" ||
+    fail "default release deployment did not enable the updater control plane"
 
 printf '%s\n' "install-behavior-test: ok"

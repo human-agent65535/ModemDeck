@@ -96,9 +96,55 @@ jobs:
             fi
           fi
 
-          image_matrix='{"include":[{"component":"api","dockerfile":"./Dockerfile","image":"modemdeck","target":"runtime"},{"component":"web","dockerfile":"./Dockerfile","image":"modemdeck-web","target":"web-runtime"}]}'
+          if [[ "$(jq -r '.schema_version' deploy/release-manifest.json)" != "1" ]]; then
+            echo "deploy/release-manifest.json must use schema_version 1" >&2
+            exit 1
+          fi
+          declare -A expected_images=(
+            [api]="ghcr.io/${namespace}/modemdeck"
+            [web]="ghcr.io/${namespace}/modemdeck-web"
+            [hardware]="ghcr.io/${namespace}/modemdeck-hardware"
+            [updater]="ghcr.io/${namespace}/modemdeck-updater"
+          )
+          for component in api web hardware updater; do
+            actual_image="$(jq -r --arg component "${component}" '.images[$component] // ""' deploy/release-manifest.json)"
+            if [[ "${actual_image}" != "${expected_images[$component]}" ]]; then
+              echo "release manifest ${component} image must be ${expected_images[$component]}" >&2
+              exit 1
+            fi
+          done
+          hardware_version="$(jq -r '.hardware_version // ""' deploy/release-manifest.json)"
+          if [[ ! "${hardware_version}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "release manifest hardware_version must be a stable vX.Y.Z tag" >&2
+            exit 1
+          fi
+          if ! git rev-parse --verify "${hardware_version}^{commit}" >/dev/null 2>&1; then
+            echo "release manifest Hardware tag does not exist: ${hardware_version}" >&2
+            exit 1
+          fi
+          if [[ "${publish_hardware}" == "true" && "${hardware_version}" != "${RELEASE_TAG}" ]]; then
+            echo "a Hardware-changing release must set hardware_version to ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          if [[ "${EVENT_NAME}" != "workflow_dispatch" && "${publish_hardware}" != "true" && "${hardware_version}" == "${RELEASE_TAG}" ]]; then
+            echo "a release without Hardware changes must retain the previous hardware_version" >&2
+            exit 1
+          fi
+          cloudflared_image="$(jq -r '.cloudflared.image // ""' deploy/release-manifest.json)"
+          cloudflared_version="$(jq -r '.cloudflared.version // ""' deploy/release-manifest.json)"
+          cloudflared_digest="$(jq -r '.cloudflared.digest // ""' deploy/release-manifest.json)"
+          if [[ "${cloudflared_image}" != "cloudflare/cloudflared" ]] ||
+            [[ ! "${cloudflared_version}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] ||
+            [[ "${cloudflared_version,,}" == "latest" ]] ||
+            [[ ! "${cloudflared_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          then
+            echo "release manifest must pin the tested Cloudflared tag and sha256 digest" >&2
+            exit 1
+          fi
+
+          image_matrix='{"include":[{"component":"api","dockerfile":"./Dockerfile","image":"modemdeck","target":"runtime"},{"component":"web","dockerfile":"./Dockerfile","image":"modemdeck-web","target":"web-runtime"},{"component":"updater","dockerfile":"./Dockerfile","image":"modemdeck-updater","target":"updater-runtime"}]}'
           if [[ "${publish_hardware}" == "true" ]]; then
-            image_matrix='{"include":[{"component":"api","dockerfile":"./Dockerfile","image":"modemdeck","target":"runtime"},{"component":"web","dockerfile":"./Dockerfile","image":"modemdeck-web","target":"web-runtime"},{"component":"hardware","dockerfile":"./hardware/Dockerfile","image":"modemdeck-hardware","target":"runtime"}]}'
+            image_matrix='{"include":[{"component":"api","dockerfile":"./Dockerfile","image":"modemdeck","target":"runtime"},{"component":"web","dockerfile":"./Dockerfile","image":"modemdeck-web","target":"web-runtime"},{"component":"updater","dockerfile":"./Dockerfile","image":"modemdeck-updater","target":"updater-runtime"},{"component":"hardware","dockerfile":"./hardware/Dockerfile","image":"modemdeck-hardware","target":"runtime"}]}'
           fi
           {
             echo "build-date=${build_date}"

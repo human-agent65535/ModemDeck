@@ -32,6 +32,7 @@ test('application uses one accessible confirmation dialog instead of browser con
   assert.match(app, /<ConfirmationDialog \/>/)
   assert.match(dialog, /<OverlayDialog/)
   assert.match(dialog, /layer="critical"/)
+  assert.match(dialog, /placement="center"/)
   assert.match(overlay, /role="dialog"/)
   assert.match(overlay, /aria-modal="true"/)
   assert.match(overlay, /event\.key === 'Escape'/)

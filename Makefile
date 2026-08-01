@@ -9,6 +9,7 @@ AGENT_NAME ?= modemdeck-agent
 IMAGE ?= modemdeck
 WEB_IMAGE ?= modemdeck-web
 HARDWARE_IMAGE ?= modemdeck-hardware
+UPDATER_IMAGE ?= modemdeck-updater
 RELEASE_VERSION ?= $(shell tr -d '\r\n' 2>/dev/null < VERSION)
 VERSION ?= $(if $(RELEASE_VERSION),v$(RELEASE_VERSION),dev)
 BUILD_DATE ?= $(shell git show -s --format=%cI HEAD 2>/dev/null || printf '%s' unknown)
@@ -26,6 +27,7 @@ COMPOSE_ASSIGNMENT_FILE ?= $(CURDIR)/deploy/advanced-assignment.example.json
 COMPOSE_CLOUDFLARE_TOKEN_FILE ?= /dev/null
 COMPOSE_CLOUDFLARE_TURN_KEY_ID ?= 0123456789abcdef0123456789abcdef
 COMPOSE_CLOUDFLARE_TURN_TOKEN_FILE ?= /dev/null
+COMPOSE_UPDATER_TOKEN_FILE ?= /dev/null
 HOST_UID := $(shell id -u)
 HOST_GID := $(shell id -g)
 
@@ -72,7 +74,7 @@ WEB_NODE_RW = docker run --rm \
 	-w /workspace/web \
 	$(NODE_IMAGE)
 
-.PHONY: all build app-build agent-build image app-image web-image hardware-image check \
+.PHONY: all build app-build agent-build image app-image web-image hardware-image updater-image check \
 	hardware-check deployment-check root-toolchain root-test \
 	agent-test root-vet agent-vet web-install web-test web-typecheck web-lint \
 	web-check web-build compose-config dockerfile-check compose-up compose-down \
@@ -101,7 +103,7 @@ agent-build:
 		-o /workspace/$(AGENT_OUT) $(AGENT_MAIN); \
 		chown $(HOST_UID):$(HOST_GID) /workspace/$(AGENT_OUT)'
 
-image: app-image web-image hardware-image
+image: app-image web-image hardware-image updater-image
 
 app-image:
 	docker build \
@@ -134,6 +136,16 @@ hardware-image:
 		--build-arg BUILD_DATE="$(BUILD_DATE)" \
 		--build-arg VCS_REF="$(VCS_REF)" \
 		-t "$(HARDWARE_IMAGE):$(VERSION)" \
+		.
+
+updater-image:
+	docker build \
+		--platform "$(TARGETOS)/$(TARGETARCH)" \
+		--target updater-runtime \
+		--build-arg VERSION="$(VERSION)" \
+		--build-arg BUILD_DATE="$(BUILD_DATE)" \
+		--build-arg VCS_REF="$(VCS_REF)" \
+		-t "$(UPDATER_IMAGE):$(VERSION)" \
 		.
 
 check: repository-check root-test agent-test root-vet agent-vet web-check \
@@ -234,6 +246,19 @@ compose-config:
 			-f docker-compose.yml \
 			-f docker-compose.cloudflare.yml \
 			-f docker-compose.cloudflare-turn.yml \
+			config --quiet; \
+	fi
+	@if [ -f docker-compose.ota.yml ]; then \
+		MODEMDECK_BUILD_DATE="$(BUILD_DATE)" \
+		MODEMDECK_VCS_REF="$(VCS_REF)" \
+		MODEMDECK_AGENT_GID="$(MODEMDECK_AGENT_GID)" \
+		MODEMDECK_SETTINGS_KEY_FILE="$(COMPOSE_SETTINGS_KEY_FILE)" \
+		MODEMDECK_UPDATER_TOKEN_FILE="$(COMPOSE_UPDATER_TOKEN_FILE)" \
+		MODEMDECK_DEPLOYMENT_DIR="$(CURDIR)" \
+		docker compose \
+			-f docker-compose.yml \
+			-f docker-compose.ota.yml \
+			--profile ota \
 			config --quiet; \
 	fi
 

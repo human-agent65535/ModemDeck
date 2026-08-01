@@ -10,6 +10,7 @@ compose_file="${repo_dir}/docker-compose.yml"
 advanced_compose_file="${repo_dir}/docker-compose.advanced.yml"
 cloudflare_compose_file="${repo_dir}/docker-compose.cloudflare.yml"
 cloudflare_turn_compose_file="${repo_dir}/docker-compose.cloudflare-turn.yml"
+ota_compose_file="${repo_dir}/docker-compose.ota.yml"
 assignment_example="${repo_dir}/deploy/advanced-assignment.example.json"
 
 mode_arg=
@@ -28,6 +29,7 @@ disable_cloudflare_turn=false
 rebuild_all=false
 allow_dirty=false
 check_only=false
+git_deployment=false
 cloudflare_enabled=false
 cloudflare_turn_enabled=false
 
@@ -48,8 +50,8 @@ usage() {
     cat <<'EOF'
 Usage: sudo ./install.sh [options]
 
-Build and run ModemDeck as three Docker containers, plus an optional Cloudflare
-Tunnel connector. No Go, Node.js,
+Pull and run the published ModemDeck containers, plus an optional Cloudflare
+Tunnel connector and the lightweight updater. No Go, Node.js,
 ModemManager, D-Bus, NetworkManager, or Polkit build packages are installed on
 the host.
 
@@ -80,7 +82,9 @@ Options:
   --disable-cloudflare-turn
                           Disable TURN while keeping the Tunnel connector
   --disable-cloudflare    Disable the installed Tunnel connector and iOS pairing
-  --version TAG           Docker image tag (default: current Git revision)
+  --version TAG           Published vX.Y.Z tag; with --git, local image tag
+  --git                   Build from this Git checkout instead of pulling the
+                          published release images; automatic apply is disabled
   --rebuild-all           Rebuild every image and force-recreate every container;
                           this interrupts ModemManager and attached modems
   --allow-dirty           Allow deployment from a modified Git checkout
@@ -113,6 +117,12 @@ fail() {
 }
 
 compose() {
+    if [ "$git_deployment" = true ]; then
+        unset COMPOSE_PROFILES
+    else
+        COMPOSE_PROFILES=ota
+        export COMPOSE_PROFILES
+    fi
     if [ "$mode" = advanced ]; then
         if [ "$cloudflare_enabled" = true ]; then
             if [ "$cloudflare_turn_enabled" = true ]; then
@@ -123,6 +133,7 @@ compose() {
                     -f "$advanced_compose_file" \
                     -f "$cloudflare_compose_file" \
                     -f "$cloudflare_turn_compose_file" \
+                    -f "$ota_compose_file" \
                     "$@"
             else
                 docker compose \
@@ -131,6 +142,7 @@ compose() {
                     -f "$compose_file" \
                     -f "$advanced_compose_file" \
                     -f "$cloudflare_compose_file" \
+                    -f "$ota_compose_file" \
                     "$@"
             fi
         else
@@ -139,6 +151,7 @@ compose() {
                 --env-file "$env_work" \
                 -f "$compose_file" \
                 -f "$advanced_compose_file" \
+                -f "$ota_compose_file" \
                 "$@"
         fi
     else
@@ -150,6 +163,7 @@ compose() {
                     -f "$compose_file" \
                     -f "$cloudflare_compose_file" \
                     -f "$cloudflare_turn_compose_file" \
+                    -f "$ota_compose_file" \
                     "$@"
             else
                 docker compose \
@@ -157,6 +171,7 @@ compose() {
                     --env-file "$env_work" \
                     -f "$compose_file" \
                     -f "$cloudflare_compose_file" \
+                    -f "$ota_compose_file" \
                     "$@"
             fi
         else
@@ -164,6 +179,7 @@ compose() {
                 --project-directory "$repo_dir" \
                 --env-file "$env_work" \
                 -f "$compose_file" \
+                -f "$ota_compose_file" \
                 "$@"
         fi
     fi
@@ -345,6 +361,10 @@ while [ "$#" -gt 0 ]; do
             allow_dirty=true
             shift
             ;;
+        --git)
+            git_deployment=true
+            shift
+            ;;
         --check)
             check_only=true
             shift
@@ -359,6 +379,11 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
+if [ "$git_deployment" != true ]; then
+    [ "$rebuild_all" != true ] || fail "--rebuild-all requires --git"
+    [ "$allow_dirty" != true ] || fail "--allow-dirty requires --git"
+fi
+
 [ "$(uname -s)" = Linux ] || fail "the deployment host must run Linux"
 if [ "$check_only" != true ] && [ "$(id -u)" -ne 0 ]; then
     fail "run installation as root: sudo ./install.sh"
@@ -368,14 +393,23 @@ for required_file in \
     "$compose_file" \
     "$cloudflare_compose_file" \
     "$cloudflare_turn_compose_file" \
-    "${repo_dir}/Dockerfile" \
-    "${repo_dir}/hardware/Dockerfile" \
+    "$ota_compose_file" \
+    "${repo_dir}/VERSION" \
     "${repo_dir}/hardware/config/media-bindings.empty.json" \
     "${repo_dir}/scripts/prepare-modemdeck-data.sh"
 do
     [ -f "$required_file" ] ||
         fail "required repository file is missing: $required_file"
 done
+if [ "$git_deployment" = true ]; then
+    for build_file in "${repo_dir}/Dockerfile" "${repo_dir}/hardware/Dockerfile"; do
+        [ -f "$build_file" ] || fail "required Git build file is missing: $build_file"
+    done
+fi
+if [ "$git_deployment" != true ]; then
+    [ -f "${repo_dir}/deploy/release-manifest.json" ] ||
+        fail "release manifest is missing: ${repo_dir}/deploy/release-manifest.json"
+fi
 
 for command_name in \
     awk base64 cat chmod chown cksum cp date dd dirname docker find grep id install \
@@ -467,10 +501,22 @@ tls_hosts=${MODEMDECK_TLS_HOSTS:-$(env_or_default MODEMDECK_TLS_HOSTS localhost,
 app_uid=${MODEMDECK_UID:-$(env_or_default MODEMDECK_UID 10001)}
 app_gid=${MODEMDECK_GID:-$(env_or_default MODEMDECK_GID 10001)}
 agent_gid=${MODEMDECK_AGENT_GID:-$(env_or_default MODEMDECK_AGENT_GID 10002)}
-image_name=${MODEMDECK_IMAGE:-$(env_or_default MODEMDECK_IMAGE modemdeck)}
-web_image=${MODEMDECK_WEB_IMAGE:-$(env_or_default MODEMDECK_WEB_IMAGE modemdeck-web)}
-hardware_image=${MODEMDECK_HARDWARE_IMAGE:-$(env_or_default MODEMDECK_HARDWARE_IMAGE modemdeck-hardware)}
+if [ "$git_deployment" = true ]; then
+    deployment_source=git
+    image_name=${MODEMDECK_IMAGE:-$(env_or_default MODEMDECK_IMAGE modemdeck)}
+    web_image=${MODEMDECK_WEB_IMAGE:-$(env_or_default MODEMDECK_WEB_IMAGE modemdeck-web)}
+    hardware_image=${MODEMDECK_HARDWARE_IMAGE:-$(env_or_default MODEMDECK_HARDWARE_IMAGE modemdeck-hardware)}
+    updater_image=${MODEMDECK_UPDATER_IMAGE:-$(env_or_default MODEMDECK_UPDATER_IMAGE modemdeck-updater)}
+else
+    deployment_source=release
+    image_name=${MODEMDECK_IMAGE:-ghcr.io/human-agent65535/modemdeck}
+    web_image=${MODEMDECK_WEB_IMAGE:-ghcr.io/human-agent65535/modemdeck-web}
+    hardware_image=${MODEMDECK_HARDWARE_IMAGE:-ghcr.io/human-agent65535/modemdeck-hardware}
+    updater_image=${MODEMDECK_UPDATER_IMAGE:-ghcr.io/human-agent65535/modemdeck-updater}
+fi
 settings_key_path=${MODEMDECK_SETTINGS_KEY_FILE:-$(env_or_default MODEMDECK_SETTINGS_KEY_FILE ./secrets/settings-key)}
+updater_token_path=${MODEMDECK_UPDATER_TOKEN_FILE:-$(env_or_default MODEMDECK_UPDATER_TOKEN_FILE ./secrets/updater-token)}
+updater_state_volume=${MODEMDECK_UPDATER_STATE_VOLUME:-$(env_or_default MODEMDECK_UPDATER_STATE_VOLUME modemdeck-updater-state)}
 data_path=${MODEMDECK_DATA_DIR:-$(env_or_default MODEMDECK_DATA_DIR ./data)}
 media_bindings_path=${MODEMDECK_MEDIA_BINDINGS_FILE:-$(env_or_default MODEMDECK_MEDIA_BINDINGS_FILE ./hardware/config/media-bindings.empty.json)}
 cloudflare_enabled=${MODEMDECK_CLOUDFLARE_ENABLED:-$(env_or_default MODEMDECK_CLOUDFLARE_ENABLED false)}
@@ -508,8 +554,12 @@ for numeric_value in "$app_uid" "$app_gid" "$agent_gid"; do
 done
 [ "$app_gid" != "$agent_gid" ] ||
     fail "MODEMDECK_GID and MODEMDECK_AGENT_GID must remain separate"
+printf '%s\n' "$updater_state_volume" |
+    grep -Eq '^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$' ||
+    fail "MODEMDECK_UPDATER_STATE_VOLUME is not a valid Docker volume name"
 
 settings_key_file=$(absolute_path "$settings_key_path")
+updater_token_file=$(absolute_path "$updater_token_path")
 data_dir=$(absolute_path "$data_path")
 media_bindings_file=$(absolute_path "$media_bindings_path")
 cloudflare_token_file=$(absolute_path "$cloudflare_token_path")
@@ -711,7 +761,7 @@ git_command() {
 vcs_ref=unknown
 derived_version=
 checkout_dirty=false
-if command -v git >/dev/null 2>&1 &&
+if [ "$git_deployment" = true ] && command -v git >/dev/null 2>&1 &&
     git_command rev-parse --is-inside-work-tree >/dev/null 2>&1
 then
     vcs_ref=$(git_command rev-parse HEAD)
@@ -725,18 +775,26 @@ then
     fi
 fi
 
-if [ -n "$version_arg" ]; then
-    version=$version_arg
-elif [ -n "${MODEMDECK_VERSION:-}" ]; then
-    version=$MODEMDECK_VERSION
-elif [ -n "$derived_version" ]; then
-    version=$derived_version
+if [ "$git_deployment" = true ]; then
+    if [ -n "$version_arg" ]; then
+        version=$version_arg
+    elif [ -n "${MODEMDECK_VERSION:-}" ]; then
+        version=$MODEMDECK_VERSION
+    elif [ -n "$derived_version" ]; then
+        version=$derived_version
+    else
+        version="local-$(date -u +%Y%m%d%H%M%S)"
+    fi
+    printf '%s\n' "$version" |
+        grep -Eq '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$' ||
+        fail "resolved version is not a valid Docker tag: $version"
 else
-    version="local-$(date -u +%Y%m%d%H%M%S)"
+    release_version=$(tr -d '\r\n' <"${repo_dir}/VERSION")
+    version=${version_arg:-v${release_version}}
+    printf '%s\n' "$version" |
+        grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' ||
+        fail "published image version must be a stable vX.Y.Z tag: $version"
 fi
-printf '%s\n' "$version" |
-    grep -Eq '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$' ||
-    fail "resolved version is not a valid Docker tag: $version"
 
 build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/modemdeck-install.XXXXXX")
@@ -759,6 +817,11 @@ installed_media_bindings_fingerprint=$(
 api_version=$(env_or_default MODEMDECK_API_VERSION "$installed_version")
 web_version=$(env_or_default MODEMDECK_WEB_VERSION "$installed_version")
 hardware_version=$(env_or_default MODEMDECK_HARDWARE_VERSION "$installed_version")
+updater_version=$(env_or_default MODEMDECK_UPDATER_VERSION "$installed_version")
+api_image_ref=
+web_image_ref=
+hardware_image_ref=
+updater_image_ref=
 
 file_fingerprint() {
     cksum "$1" | awk '{ print $1 ":" $2 }'
@@ -775,6 +838,7 @@ build_web=false
 build_hardware=false
 selective_images=false
 
+if [ "$git_deployment" = true ]; then
 if [ "$rebuild_all" = true ] || [ ! -f "$env_file" ]; then
     build_api=true
     build_web=true
@@ -864,6 +928,51 @@ then
     hardware_version=$version
     build_hardware=true
 fi
+else
+    api_version=$version
+    web_version=$version
+    updater_version=$version
+    hardware_version=$(awk -F'"' '
+        /"hardware_version"[[:space:]]*:/ { print $4; found = 1; exit }
+        END { if (!found) exit 1 }
+    ' "${repo_dir}/deploy/release-manifest.json") ||
+        fail "release manifest does not declare hardware_version"
+    printf '%s\n' "$hardware_version" |
+        grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' ||
+        fail "release manifest hardware_version must be a stable vX.Y.Z tag"
+
+    pin_release_image() {
+        pin_image=$1
+        pin_version=$2
+        pin_tagged_ref="${pin_image}:${pin_version}"
+        docker pull "$pin_tagged_ref" >/dev/null
+        pin_digest=$(docker image inspect \
+            --format '{{range .RepoDigests}}{{println .}}{{end}}' \
+            "$pin_tagged_ref" |
+            awk -F@ -v image="$pin_image" '
+                $1 == image && $2 ~ /^sha256:[0-9a-f]{64}$/ {
+                    print $2
+                    found = 1
+                    exit
+                }
+                END { if (!found) exit 1 }
+            ') || fail "pulled image has no immutable repository digest: $pin_tagged_ref"
+        printf '%s:%s@%s' "$pin_image" "$pin_version" "$pin_digest"
+    }
+
+    if [ "$check_only" = true ]; then
+        api_image_ref="${image_name}:${api_version}"
+        web_image_ref="${web_image}:${web_version}"
+        hardware_image_ref="${hardware_image}:${hardware_version}"
+        updater_image_ref="${updater_image}:${updater_version}"
+    else
+        log "Pulling published release images"
+        api_image_ref=$(pin_release_image "$image_name" "$api_version")
+        web_image_ref=$(pin_release_image "$web_image" "$web_version")
+        hardware_image_ref=$(pin_release_image "$hardware_image" "$hardware_version")
+        updater_image_ref=$(pin_release_image "$updater_image" "$updater_version")
+    fi
+fi
 
 if [ -f "$env_file" ]; then
     cp "$env_file" "$env_work"
@@ -904,13 +1013,22 @@ remove_env() {
 
 upsert_env MODEMDECK_HARDWARE_MODE "$mode"
 upsert_env MODEMDECK_ASSIGNMENT_FILE "$assignment_path"
+upsert_env MODEMDECK_DEPLOYMENT_SOURCE "$deployment_source"
+upsert_env MODEMDECK_DEPLOYMENT_DIR "$repo_dir"
 upsert_env MODEMDECK_IMAGE "$image_name"
 upsert_env MODEMDECK_WEB_IMAGE "$web_image"
 upsert_env MODEMDECK_HARDWARE_IMAGE "$hardware_image"
+upsert_env MODEMDECK_UPDATER_IMAGE "$updater_image"
+upsert_env MODEMDECK_API_IMAGE_REF "$api_image_ref"
+upsert_env MODEMDECK_WEB_IMAGE_REF "$web_image_ref"
+upsert_env MODEMDECK_HARDWARE_IMAGE_REF "$hardware_image_ref"
+upsert_env MODEMDECK_UPDATER_IMAGE_REF "$updater_image_ref"
+upsert_env MODEMDECK_UPDATER_SELF_IMAGE "$updater_image_ref"
 upsert_env MODEMDECK_VERSION "$version"
 upsert_env MODEMDECK_API_VERSION "$api_version"
 upsert_env MODEMDECK_WEB_VERSION "$web_version"
 upsert_env MODEMDECK_HARDWARE_VERSION "$hardware_version"
+upsert_env MODEMDECK_UPDATER_VERSION "$updater_version"
 upsert_env MODEMDECK_BUILD_DATE "$build_date"
 upsert_env MODEMDECK_VCS_REF "$vcs_ref"
 upsert_env MODEMDECK_BIND_ADDRESS "$bind_address"
@@ -920,6 +1038,13 @@ upsert_env MODEMDECK_UID "$app_uid"
 upsert_env MODEMDECK_GID "$app_gid"
 upsert_env MODEMDECK_AGENT_GID "$agent_gid"
 upsert_env MODEMDECK_SETTINGS_KEY_FILE "$settings_key_file"
+upsert_env MODEMDECK_UPDATER_TOKEN_FILE "$updater_token_file"
+upsert_env MODEMDECK_UPDATER_STATE_VOLUME "$updater_state_volume"
+if [ "$git_deployment" = true ]; then
+    upsert_env MODEMDECK_UPDATER_URL ""
+else
+    upsert_env MODEMDECK_UPDATER_URL http://updater:8081
+fi
 upsert_env MODEMDECK_DATA_DIR "$data_dir"
 upsert_env MODEMDECK_MEDIA_BINDINGS_FILE "$media_bindings_file"
 upsert_env MODEMDECK_ASSIGNMENT_FINGERPRINT "$assignment_fingerprint"
@@ -941,13 +1066,21 @@ compose_ready=true
 
 log "Validating deployment"
 printf 'Source:        %s\n' "$repo_dir"
+printf 'Deployment:    %s\n' "$deployment_source"
 printf 'Mode:          %s\n' "$mode"
 printf 'Architecture:  linux/%s\n' "$target_arch"
-printf 'Images:        %s:%s, %s:%s, %s:%s\n' \
+printf 'Images:        %s:%s, %s:%s, %s:%s' \
     "$image_name" "$api_version" \
     "$web_image" "$web_version" \
     "$hardware_image" "$hardware_version"
-if [ "$rebuild_all" = true ]; then
+if [ "$git_deployment" = true ]; then
+    printf '\n'
+else
+    printf ', %s:%s\n' "$updater_image" "$updater_version"
+fi
+if [ "$git_deployment" != true ]; then
+    printf '%s\n' 'Update plan:   pull immutable release images; retain unchanged digests'
+elif [ "$rebuild_all" = true ]; then
     printf '%s\n' 'Update plan:   rebuild and recreate every container'
 elif [ "$selective_images" = true ]; then
     printf '%s\n' 'Update plan:   rebuild only changed component images'
@@ -978,6 +1111,10 @@ compose config --quiet
 existing_hardware_id=$(compose ps -q hardware 2>/dev/null || true)
 existing_api_id=$(compose ps -q api 2>/dev/null || true)
 existing_web_id=$(compose ps -q modemdeck 2>/dev/null || true)
+existing_updater_id=
+if [ "$git_deployment" != true ]; then
+    existing_updater_id=$(compose ps -q updater 2>/dev/null || true)
+fi
 existing_cloudflared_id=$(docker ps -aq \
     --filter 'label=com.docker.compose.project=modemdeck' \
     --filter 'label=com.docker.compose.service=cloudflared' 2>/dev/null |
@@ -1018,6 +1155,7 @@ service_needs_update() {
 update_hardware=$build_hardware
 update_api=$build_api
 update_web=$build_web
+update_updater=false
 update_cloudflared=false
 remove_cloudflared=false
 
@@ -1029,6 +1167,11 @@ if service_needs_update api "$existing_api_id"; then
 fi
 if service_needs_update modemdeck "$existing_web_id"; then
     update_web=true
+fi
+if [ "$git_deployment" != true ] &&
+    service_needs_update updater "$existing_updater_id"
+then
+    update_updater=true
 fi
 if [ "$cloudflare_enabled" = true ]; then
     if service_needs_update cloudflared "$existing_cloudflared_id"; then
@@ -1083,6 +1226,9 @@ printf 'Containers:    hardware=%s, api=%s, web=%s' \
     "$(plan_action "$update_hardware")" \
     "$(plan_action "$update_api")" \
     "$(plan_action "$update_web")"
+if [ "$git_deployment" != true ]; then
+    printf ', updater=%s' "$(plan_action "$update_updater")"
+fi
 if [ "$cloudflare_enabled" = true ]; then
     printf ', cloudflared=%s\n' "$(plan_action "$update_cloudflared")"
 elif [ "$remove_cloudflared" = true ]; then
@@ -1203,6 +1349,7 @@ prepare_secret() {
 }
 
 prepare_secret "$settings_key_file" 32 "settings encryption key"
+prepare_secret "$updater_token_file" 32 "updater authentication token"
 
 prepare_cloudflare_token() {
     token_source=$1
@@ -1238,16 +1385,20 @@ if [ "$cloudflare_turn_enabled" = true ]; then
         cloudflare-turn-token
 fi
 
-set --
-[ "$build_hardware" != true ] || set -- "$@" hardware
-[ "$build_api" != true ] || set -- "$@" api
-[ "$build_web" != true ] || set -- "$@" modemdeck
-if [ "$#" -gt 0 ]; then
-    log "Building selected component images in Docker"
-    printf 'Build images:  %s\n' "$*"
-    compose build "$@"
+if [ "$git_deployment" = true ]; then
+    set --
+    [ "$build_hardware" != true ] || set -- "$@" hardware
+    [ "$build_api" != true ] || set -- "$@" api
+    [ "$build_web" != true ] || set -- "$@" modemdeck
+    if [ "$#" -gt 0 ]; then
+        log "Building selected component images in Docker"
+        printf 'Build images:  %s\n' "$*"
+        compose build "$@"
+    else
+        log "No component image rebuild is required"
+    fi
 else
-    log "No component image rebuild is required"
+    log "Published release images are pulled and digest-pinned"
 fi
 if [ "$mode" = advanced ]; then
     log "Validating advanced device assignments with the hardware image"
@@ -1526,6 +1677,18 @@ else
             cloudflared
         wait_for_healthy cloudflared 60
     fi
+    if [ "$git_deployment" != true ] && [ "$update_updater" = true ]; then
+        selected_update=true
+        compose_started=true
+        compose up \
+            --detach \
+            --no-build \
+            --no-deps \
+            --force-recreate \
+            --remove-orphans \
+            updater
+        wait_for_healthy updater 60
+    fi
     if [ "$selected_update" != true ]; then
         printf '%s\n' 'No running container needs replacement.'
     fi
@@ -1536,6 +1699,9 @@ wait_for_healthy api 60
 wait_for_healthy modemdeck 60
 if [ "$cloudflare_enabled" = true ]; then
     wait_for_healthy cloudflared 60
+fi
+if [ "$git_deployment" != true ]; then
+    wait_for_healthy updater 60
 fi
 
 if [ -n "$legacy_cloudflared_id" ] &&

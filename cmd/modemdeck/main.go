@@ -35,6 +35,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/telegramsettings"
 	"github.com/human-agent65535/modemdeck/internal/tlsmanager"
 	"github.com/human-agent65535/modemdeck/internal/updatecheck"
+	"github.com/human-agent65535/modemdeck/internal/updaterclient"
 )
 
 const hostAgentRequestTimeout = 15 * time.Second
@@ -299,6 +300,24 @@ func run(
 		_ = db.Close()
 		return fmt.Errorf("create network runtime: %w", err)
 	}
+	var updateChecker httpapi.UpdateChecker = updatecheck.New(updatecheck.Options{CurrentVersion: version})
+	var updateManager httpapi.UpdateManager
+	if updaterURL := strings.TrimSpace(os.Getenv("MODEMDECK_UPDATER_URL")); updaterURL != "" {
+		tokenFile := strings.TrimSpace(os.Getenv("MODEMDECK_UPDATER_TOKEN_FILE"))
+		token, tokenErr := os.ReadFile(tokenFile)
+		if tokenErr != nil {
+			logger.Warn("automatic software updates unavailable", "component", "updates", "error", tokenErr)
+		} else if client, clientErr := updaterclient.New(updaterclient.Options{
+			BaseURL:        updaterURL,
+			CurrentVersion: version,
+			Token:          strings.TrimSpace(string(token)),
+		}); clientErr != nil {
+			logger.Warn("automatic software updates unavailable", "component", "updates", "error", clientErr)
+		} else {
+			updateChecker = client
+			updateManager = client
+		}
+	}
 	api, err := httpapi.New(repository, httpapi.Options{
 		Communications:       communications,
 		DeviceConfigurations: communications,
@@ -324,7 +343,8 @@ func run(
 		DiagnosticLogs:     logBuffer,
 		MessageEvents:      messageEvents,
 		RuntimeEvents:      runtimeEvents,
-		UpdateChecker:      updatecheck.New(updatecheck.Options{CurrentVersion: version}),
+		UpdateChecker:      updateChecker,
+		UpdateManager:      updateManager,
 		ApplicationVersion: version,
 	})
 	if err != nil {

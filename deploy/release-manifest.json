@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "images": {
+    "api": "ghcr.io/human-agent65535/modemdeck",
+    "web": "ghcr.io/human-agent65535/modemdeck-web",
+    "hardware": "ghcr.io/human-agent65535/modemdeck-hardware",
+    "updater": "ghcr.io/human-agent65535/modemdeck-updater"
+  },
+  "hardware_version": "v1.9.3",
+  "cloudflared": {
+    "image": "cloudflare/cloudflared",
+    "version": "2026.7.3",
+    "digest": "sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf"
+  }
+}

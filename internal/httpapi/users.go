@@ -354,7 +354,7 @@ func adminOnlyAPIPath(path, method string) bool {
 		path == "/api/v1/external-access/status" ||
 		path == "/api/v1/external-access/refresh" ||
 		path == "/api/v1/external-access/origin-tls" ||
-		path == "/api/v1/updates/check" {
+		strings.HasPrefix(path, "/api/v1/updates/") {
 		return true
 	}
 	if path == "/api/v1/network" ||

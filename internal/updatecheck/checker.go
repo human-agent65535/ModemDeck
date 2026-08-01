@@ -11,14 +11,16 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 const (
-	DefaultLatestReleaseURL = "https://api.github.com/repos/human-agent65535/ModemDeck/releases/latest"
-	DefaultReleasePageURL   = "https://github.com/human-agent65535/ModemDeck/releases/tag/"
-	defaultCacheTTL         = 15 * time.Minute
-	defaultRequestTimeout   = 5 * time.Second
-	maximumResponseBytes    = 1 << 20
+	DefaultLatestReleaseURL  = "https://api.github.com/repos/human-agent65535/ModemDeck/releases/latest"
+	DefaultReleasePageURL    = "https://github.com/human-agent65535/ModemDeck/releases/tag/"
+	defaultCacheTTL          = 15 * time.Minute
+	defaultRequestTimeout    = 5 * time.Second
+	maximumResponseBytes     = 1 << 20
+	maximumReleaseNotesBytes = 32 << 10
 )
 
 type Status string
@@ -31,14 +33,67 @@ const (
 )
 
 type Result struct {
-	Status         Status `json:"status"`
-	CurrentVersion string `json:"current_version"`
-	LatestVersion  string `json:"latest_version,omitempty"`
-	ReleaseName    string `json:"release_name,omitempty"`
-	ReleaseURL     string `json:"release_url,omitempty"`
-	PublishedAt    string `json:"published_at,omitempty"`
-	CheckedAt      string `json:"checked_at"`
-	ErrorCode      string `json:"error_code,omitempty"`
+	Status                       Status      `json:"status"`
+	CurrentVersion               string      `json:"current_version"`
+	LatestVersion                string      `json:"latest_version,omitempty"`
+	ReleaseName                  string      `json:"release_name,omitempty"`
+	ReleaseURL                   string      `json:"release_url,omitempty"`
+	ReleaseNotes                 string      `json:"release_notes,omitempty"`
+	PublishedAt                  string      `json:"published_at,omitempty"`
+	CheckedAt                    string      `json:"checked_at"`
+	ErrorCode                    string      `json:"error_code,omitempty"`
+	ApplyAvailable               bool        `json:"apply_available"`
+	Components                   []Component `json:"components,omitempty"`
+	HardwareConfirmationRequired bool        `json:"hardware_confirmation_required"`
+	Operation                    *Operation  `json:"operation,omitempty"`
+}
+
+type Component struct {
+	Name           string `json:"name"`
+	CurrentVersion string `json:"current_version,omitempty"`
+	TargetVersion  string `json:"target_version,omitempty"`
+	Changed        bool   `json:"changed"`
+}
+
+type OperationState string
+
+const (
+	OperationRunning   OperationState = "running"
+	OperationSucceeded OperationState = "succeeded"
+	OperationFailed    OperationState = "failed"
+)
+
+type OperationComponentState string
+
+const (
+	OperationComponentPending     OperationComponentState = "pending"
+	OperationComponentPulling     OperationComponentState = "pulling"
+	OperationComponentStaged      OperationComponentState = "staged"
+	OperationComponentRestarting  OperationComponentState = "restarting"
+	OperationComponentRollingBack OperationComponentState = "rolling_back"
+	OperationComponentRolledBack  OperationComponentState = "rolled_back"
+	OperationComponentReady       OperationComponentState = "ready"
+	OperationComponentFailed      OperationComponentState = "failed"
+)
+
+type OperationComponent struct {
+	Name  string                  `json:"name"`
+	State OperationComponentState `json:"state"`
+}
+
+type Operation struct {
+	ID            string               `json:"id"`
+	State         OperationState       `json:"state"`
+	TargetVersion string               `json:"target_version"`
+	StartedAt     string               `json:"started_at"`
+	FinishedAt    string               `json:"finished_at,omitempty"`
+	ErrorCode     string               `json:"error_code,omitempty"`
+	Components    []OperationComponent `json:"components,omitempty"`
+}
+
+type ApplyRequest struct {
+	Version         string `json:"version"`
+	ConfirmHardware bool   `json:"confirm_hardware"`
 }
 
 type HTTPClient interface {
@@ -73,6 +128,7 @@ type Checker struct {
 type githubRelease struct {
 	TagName     string `json:"tag_name"`
 	Name        string `json:"name"`
+	Body        string `json:"body"`
 	PublishedAt string `json:"published_at"`
 }
 
@@ -191,6 +247,7 @@ func (checker *Checker) compare(release githubRelease, now time.Time) Result {
 		LatestVersion:  latestVersion,
 		ReleaseName:    strings.TrimSpace(release.Name),
 		ReleaseURL:     checker.releasePageURL + url.PathEscape(latestVersion),
+		ReleaseNotes:   boundedReleaseNotes(release.Body),
 		PublishedAt:    strings.TrimSpace(release.PublishedAt),
 		CheckedAt:      now.Format(time.RFC3339),
 	}
@@ -209,6 +266,18 @@ func (checker *Checker) compare(release githubRelease, now time.Time) Result {
 		result.Status = StatusDevelopment
 	}
 	return result
+}
+
+func boundedReleaseNotes(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= maximumReleaseNotesBytes {
+		return value
+	}
+	value = value[:maximumReleaseNotesBytes]
+	for len(value) > 0 && !utf8.ValidString(value) {
+		value = value[:len(value)-1]
+	}
+	return strings.TrimSpace(value)
 }
 
 func (checker *Checker) unavailable(now time.Time, code string) Result {

@@ -12,6 +12,7 @@ const messageID = `confirmation-message-${useId()}`
   <OverlayDialog
     :open="Boolean(confirmationState.request)"
     size="small"
+    placement="center"
     layer="critical"
     :labelledby="titleID"
     :describedby="confirmationState.request?.message ? messageID : undefined"

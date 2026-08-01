@@ -110,6 +110,11 @@ type UpdateChecker interface {
 	Check(context.Context) updatecheck.Result
 }
 
+type UpdateManager interface {
+	Apply(context.Context, updatecheck.ApplyRequest) (updatecheck.Operation, error)
+	Status(context.Context) (updatecheck.Operation, error)
+}
+
 type Authenticator interface {
 	Status(context.Context) (auth.AdminStatus, error)
 	Setup(context.Context, string, string) error
@@ -280,6 +285,7 @@ type Options struct {
 	MessageEvents         messageevents.Source
 	RuntimeEvents         runtimeevents.Source
 	UpdateChecker         UpdateChecker
+	UpdateManager         UpdateManager
 	ApplicationVersion    string
 	disableAuthentication bool
 }
@@ -314,6 +320,7 @@ type API struct {
 	messageEvents              messageevents.Source
 	runtimeEvents              runtimeevents.Source
 	updateChecker              UpdateChecker
+	updateManager              UpdateManager
 	applicationVersion         string
 }
 
@@ -361,6 +368,7 @@ func New(repository Repository, options Options) (*API, error) {
 		messageEvents:              options.MessageEvents,
 		runtimeEvents:              options.RuntimeEvents,
 		updateChecker:              options.UpdateChecker,
+		updateManager:              options.UpdateManager,
 		applicationVersion:         normalizedApplicationVersion(options.ApplicationVersion),
 	}, nil
 }
@@ -408,6 +416,12 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.getOnly(response, request, api.about)
 	case "/api/v1/updates/check":
 		api.getOnly(response, request, api.updateCheck)
+	case "/api/v1/updates/apply":
+		api.postOnly(response, request, api.updateApply)
+	case "/api/v1/updates/status":
+		api.getOnly(response, request, api.updateStatus)
+	case "/api/v1/updates/events":
+		api.getOnly(response, request, api.updateEventStream)
 	case "/api/v1/account/password":
 		api.accountPassword(response, request)
 	case "/api/v1/account/contact":
