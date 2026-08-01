@@ -1210,6 +1210,7 @@ export default {
     "faultRecovery": "Recuperación de fallas",
     "usbHardReset": "Restablecimiento completo del USB",
     "usbResetDescription": "Vuelva a enumerar el dispositivo USB para la recuperación manual cuando el módem deje de responder.",
+    "usbResetRecovering": "Esperando la reenumeración USB",
     "usbResetTitle": "¿Realizar un restablecimiento completo del USB?",
     "usbResetMessage": "El módem se desconectará del USB y volverá a enumerar. Se interrumpirán las llamadas actuales, las operaciones de mensajería y los datos móviles.",
     "simLoadFailed": "No se puede cargar el estado de la SIM",

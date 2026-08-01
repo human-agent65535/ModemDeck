@@ -7,9 +7,11 @@ import { ApiError } from '../src/api/types.ts'
 import {
   deviceConfigurationResource,
   loadDeviceConfiguration,
+  refreshUnconfirmedDeviceConfigurations,
   restartModem,
   setRadioEnabled
 } from '../src/state/deviceConfiguration.ts'
+import { useDiagnosticDevices } from '../src/state/diagnosticDevices.ts'
 import { waitForUnavailableThenReadable } from '../src/state/deviceRecovery.ts'
 
 function deterministicClock() {
@@ -228,5 +230,175 @@ test('a stale configuration load cannot replay over a completed hardware write',
   } finally {
     gateway.getDeviceConfiguration = originalGet
     gateway.updateDeviceConfiguration = originalUpdate
+  }
+})
+
+test('a later line refresh reconciles a restart that timed out after disappearing', async () => {
+  const lineID = 'line-restart-late-recovery'
+  const fixture = createFixtureGateway()
+  const initial = await fixture.getDeviceConfiguration('line-fixture-main')
+  const recovered = structuredClone(initial)
+  recovered.hardware.revision = 'revision-after-late-restart'
+
+  const target = deviceConfigurationResource(lineID)
+  target.status = 'ready'
+  target.data = structuredClone(initial)
+  target.error = ''
+  target.savingOperation = ''
+  target.recovering = false
+
+  const originalGet = gateway.getDeviceConfiguration
+  const originalUpdate = gateway.updateDeviceConfiguration
+  const originalSetTimeout = globalThis.setTimeout
+  const originalNow = Date.now
+  let now = 0
+  let commandAccepted = false
+  try {
+    gateway.getDeviceConfiguration = async () => {
+      if (!commandAccepted) return structuredClone(initial)
+      throw new ApiError('modem unavailable', 503, 'communications_unavailable')
+    }
+    gateway.updateDeviceConfiguration = async () => {
+      commandAccepted = true
+      return structuredClone(initial)
+    }
+    Date.now = () => now
+    globalThis.setTimeout = (callback, milliseconds = 0) => {
+      now += Number(milliseconds)
+      queueMicrotask(callback)
+      return 1
+    }
+
+    assert.equal(await restartModem(lineID), false)
+    assert.match(target.error, /45/)
+    assert.equal(target.status, 'ready')
+
+    gateway.getDeviceConfiguration = async () => structuredClone(recovered)
+    await refreshUnconfirmedDeviceConfigurations()
+    assert.equal(target.data.hardware.revision, 'revision-after-late-restart')
+    assert.equal(target.error, '')
+  } finally {
+    gateway.getDeviceConfiguration = originalGet
+    gateway.updateDeviceConfiguration = originalUpdate
+    globalThis.setTimeout = originalSetTimeout
+    Date.now = originalNow
+  }
+})
+
+test('USB recovery ignores stale reads and the reset response until re-enumeration', async () => {
+  const lineID = 'line-usb-recovery-integration'
+  const fixture = createFixtureGateway()
+  const initial = await fixture.getDiagnosticDeviceConfiguration('line-fixture-main')
+  const stale = structuredClone(initial.hardware)
+  stale.revision = 'stale-diagnostic-load'
+  const recovered = structuredClone(initial.hardware)
+  recovered.revision = 'revision-after-usb-recovery'
+
+  const {
+    diagnosticDeviceResource,
+    loadDiagnosticDeviceConfiguration,
+    resetDiagnosticUSBDevice
+  } = useDiagnosticDevices()
+  const target = diagnosticDeviceResource(lineID)
+  target.status = 'ready'
+  target.hardware = structuredClone(initial.hardware)
+  target.error = ''
+  target.resetting = false
+
+  const staleLoad = deferred()
+  const originalGet = gateway.getDiagnosticDeviceConfiguration
+  const originalReset = gateway.resetDiagnosticUSB
+  const originalSetTimeout = globalThis.setTimeout
+  let reads = 0
+  try {
+    gateway.getDiagnosticDeviceConfiguration = async requestedLineID => {
+      assert.equal(requestedLineID, lineID)
+      reads += 1
+      if (reads === 1) return { hardware: await staleLoad.promise }
+      if (reads <= 3) return structuredClone(initial)
+      if (reads === 4) {
+        throw new ApiError('modem unavailable', 503, 'communications_unavailable')
+      }
+      return { hardware: structuredClone(recovered) }
+    }
+    gateway.resetDiagnosticUSB = async (requestedLineID, expectedRevision) => {
+      assert.equal(requestedLineID, lineID)
+      assert.equal(expectedRevision, initial.hardware.revision)
+      return structuredClone(initial)
+    }
+    globalThis.setTimeout = callback => {
+      queueMicrotask(callback)
+      return 1
+    }
+
+    const loading = loadDiagnosticDeviceConfiguration(lineID, true)
+    assert.equal(await resetDiagnosticUSBDevice(lineID), true)
+    staleLoad.resolve(stale)
+    assert.equal(await loading, false)
+
+    assert.equal(reads, 5)
+    assert.equal(target.hardware.revision, 'revision-after-usb-recovery')
+    assert.equal(target.status, 'ready')
+    assert.equal(target.error, '')
+    assert.equal(target.resetting, false)
+  } finally {
+    gateway.getDiagnosticDeviceConfiguration = originalGet
+    gateway.resetDiagnosticUSB = originalReset
+    globalThis.setTimeout = originalSetTimeout
+  }
+})
+
+test('a later diagnostics snapshot reconciles USB recovery after an observed timeout', async () => {
+  const lineID = 'line-usb-late-recovery'
+  const fixture = createFixtureGateway()
+  const initial = await fixture.getDiagnosticDeviceConfiguration('line-fixture-main')
+  const recovered = structuredClone(initial.hardware)
+  recovered.revision = 'revision-after-late-usb-recovery'
+  const {
+    diagnosticDeviceResource,
+    resetDiagnosticUSBDevice,
+    refreshUnconfirmedDiagnosticDevices
+  } = useDiagnosticDevices()
+  const target = diagnosticDeviceResource(lineID)
+  target.status = 'ready'
+  target.hardware = structuredClone(initial.hardware)
+
+  const originalGet = gateway.getDiagnosticDeviceConfiguration
+  const originalReset = gateway.resetDiagnosticUSB
+  const originalSetTimeout = globalThis.setTimeout
+  const originalNow = Date.now
+  let now = 0
+  let commandAccepted = false
+  try {
+    gateway.getDiagnosticDeviceConfiguration = async () => {
+      if (!commandAccepted) return structuredClone(initial)
+      throw new ApiError('modem unavailable', 503, 'communications_unavailable')
+    }
+    gateway.resetDiagnosticUSB = async () => {
+      commandAccepted = true
+      return structuredClone(initial)
+    }
+    Date.now = () => now
+    globalThis.setTimeout = (callback, milliseconds = 0) => {
+      now += Number(milliseconds)
+      queueMicrotask(callback)
+      return 1
+    }
+
+    assert.equal(await resetDiagnosticUSBDevice(lineID), false)
+    assert.match(target.error, /60/)
+    assert.equal(target.status, 'ready')
+
+    gateway.getDiagnosticDeviceConfiguration = async () => ({
+      hardware: structuredClone(recovered)
+    })
+    await refreshUnconfirmedDiagnosticDevices([lineID])
+    assert.equal(target.hardware.revision, 'revision-after-late-usb-recovery')
+    assert.equal(target.error, '')
+  } finally {
+    gateway.getDiagnosticDeviceConfiguration = originalGet
+    gateway.resetDiagnosticUSB = originalReset
+    globalThis.setTimeout = originalSetTimeout
+    Date.now = originalNow
   }
 })

@@ -1210,6 +1210,7 @@ export default {
     "faultRecovery": "Fehlerbehebung",
     "usbHardReset": "USB-Hard-Reset",
     "usbResetDescription": "Listen Sie das USB-Gerät zur manuellen Wiederherstellung erneut auf, wenn das Modem nicht mehr reagiert.",
+    "usbResetRecovering": "Warten auf die erneute USB-Erkennung",
     "usbResetTitle": "Einen USB-Hard-Reset durchführen?",
     "usbResetMessage": "Das Modem trennt die USB-Verbindung und führt eine neue Aufzählung durch. Aktuelle Anrufe, Messaging-Vorgänge und mobile Daten werden unterbrochen.",
     "simLoadFailed": "SIM-Status kann nicht geladen werden",

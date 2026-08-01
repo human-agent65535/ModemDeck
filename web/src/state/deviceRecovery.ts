@@ -13,6 +13,17 @@ type DeviceRecoveryProbe<T> = {
   wait?: (milliseconds: number) => Promise<void>
 }
 
+export function isExpectedDeviceRecoveryOutage(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const candidate = error as { status?: unknown; code?: unknown }
+  return (
+    candidate.status === 404 ||
+    candidate.status === 503 ||
+    candidate.code === 'not_found' ||
+    candidate.code === 'communications_unavailable'
+  )
+}
+
 function defaultWait(milliseconds: number): Promise<void> {
   return new Promise(resolve => globalThis.setTimeout(resolve, milliseconds))
 }

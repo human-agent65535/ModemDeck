@@ -236,7 +236,13 @@ test('USB hard reset uses the administrator-wide diagnostics scope', async () =>
   assert.match(applyUSBResetBody, /tone:\s*['"]danger['"]/)
   assert.match(resetUSBDeviceBody, /gateway\.resetDiagnosticUSB/)
   assert.match(resetUSBDeviceBody, /60_000/)
+  assert.match(resetUSBDeviceBody, /waitForUnavailableThenReadable/)
+  assert.doesNotMatch(
+    resetUSBDeviceBody,
+    /target\.status = ['"]loading['"]/
+  )
   assert.match(diagnosticsPanelSource, /resetDiagnosticUSBDevice\(line\.id\)/)
+  assert.match(diagnosticsPanelSource, /v-for="line in recoveryLines"/)
   assert.doesNotMatch(diagnosticsPanelSource, /state\/deviceConfiguration/)
   assert.doesNotMatch(devicePanelSource, /usbHardReset|resetUSBDevice|reset_usb/)
   assert.doesNotMatch(diagnosticsPanelSource, /\/dev\/bus\/usb|\/sys\/devices/)

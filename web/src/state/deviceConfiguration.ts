@@ -11,7 +11,10 @@ import type {
 } from '../api/types'
 import { ApiError } from '../api/types'
 import { translate } from '../i18n'
-import { waitForUnavailableThenReadable } from './deviceRecovery'
+import {
+  isExpectedDeviceRecoveryOutage,
+  waitForUnavailableThenReadable
+} from './deviceRecovery'
 
 type DeviceConfigurationResource = {
   status: ResourceStatus
@@ -44,7 +47,6 @@ type HardwareUpdateIntent =
   | { operation: 'set_volte_policy'; volte_policy: 'enabled' | 'disabled' }
   | { operation: 'reprobe_voice' }
   | { operation: 'restart_modem' }
-  | { operation: 'reset_usb' }
 
 type DeviceUpdateIntent = IncomingPolicyUpdate | MessagePolicyUpdate | HardwareUpdateIntent
 
@@ -159,16 +161,6 @@ function completeDeviceConfiguration(
     throw new Error(translate('runtime.invalidDeviceConfiguration'))
   }
   return configuration as Required<DeviceConfiguration>
-}
-
-function isDeviceUnavailableDuringRecovery(error: unknown): boolean {
-  return (
-    error instanceof ApiError &&
-    (error.status === 404 ||
-      error.status === 503 ||
-      error.code === 'not_found' ||
-      error.code === 'communications_unavailable')
-  )
 }
 
 function mergeConfiguration(
@@ -450,10 +442,6 @@ export function reprobeVoiceCapabilities(lineID: string): Promise<boolean> {
   })
 }
 
-function wait(milliseconds: number): Promise<void> {
-  return new Promise(resolve => window.setTimeout(resolve, milliseconds))
-}
-
 export async function restartModem(lineID: string): Promise<boolean> {
   const target = resourceFor(lineID)
   const accepted = await updateDevice(
@@ -472,7 +460,7 @@ export async function restartModem(lineID: string): Promise<boolean> {
       read: async () =>
         completeDeviceConfiguration(await gateway.getDeviceConfiguration(lineID)),
       isCurrent: () => isCurrentDeviceConfigurationRequest(lineID, generation),
-      isUnavailable: isDeviceUnavailableDuringRecovery,
+      isUnavailable: isExpectedDeviceRecoveryOutage,
       timeoutMs: 45_000,
       intervalMs: 1_000
     })
@@ -516,40 +504,6 @@ export async function refreshUnconfirmedDeviceConfigurations(): Promise<void> {
       await loadDeviceConfiguration(lineID, true)
     })
   )
-}
-
-export async function resetUSBDevice(lineID: string): Promise<boolean> {
-  const target = resourceFor(lineID)
-  const accepted = await updateDevice(lineID, {
-    operation: 'reset_usb'
-  })
-  if (!accepted) return false
-
-  const generation = beginDeviceRecovery(lineID)
-  target.status = 'loading'
-  target.error = ''
-  await wait(1500)
-  const deadline = Date.now() + 60_000
-  while (Date.now() < deadline) {
-    try {
-      const configuration = await gateway.getDeviceConfiguration(lineID)
-      if (configuration.hardware) {
-        if (isCurrentDeviceConfigurationRequest(lineID, generation)) {
-          target.data = configuration
-          target.status = 'ready'
-        }
-        return true
-      }
-    } catch {
-      // The ModemManager object disappears while USB re-enumeration is in progress.
-    }
-    await wait(1000)
-  }
-  if (isCurrentDeviceConfigurationRequest(lineID, generation)) {
-    target.status = 'error'
-    target.error = translate('runtime.usbResetTimeout')
-  }
-  return false
 }
 
 export function setIncomingCallPolicy(

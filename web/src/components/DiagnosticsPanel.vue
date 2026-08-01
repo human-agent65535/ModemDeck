@@ -90,10 +90,12 @@ const downloading = ref(false)
 const logViewport = ref<HTMLElement | null>(null)
 const lastSeenID = ref(0)
 const selectedDiagnosticLineID = ref('')
+const retainedRecoveryLines = ref<Record<string, LineSummary>>({})
 const {
   diagnosticDeviceResource,
   loadDiagnosticDeviceConfiguration,
-  resetDiagnosticUSBDevice
+  resetDiagnosticUSBDevice,
+  refreshUnconfirmedDiagnosticDevices
 } = useDiagnosticDevices()
 
 let closeLogStream: (() => void) | null = null
@@ -220,6 +222,14 @@ const allDiagnosticLinesFailed = computed(
     failedLines.value.length === diagnosticLines.value.length
 )
 const diagnosticLineIDs = computed(() => diagnosticLines.value.map(line => line.id))
+const recoveryLines = computed<LineSummary[]>(() => {
+  const current = [...diagnosticLines.value]
+  const currentIDs = new Set(current.map(line => line.id))
+  for (const line of Object.values(retainedRecoveryLines.value)) {
+    if (!currentIDs.has(line.id)) current.push(line)
+  }
+  return current
+})
 const selectedDiagnosticLine = computed(() =>
   diagnosticLines.value.find(line => line.id === selectedDiagnosticLineID.value)
 )
@@ -434,12 +444,14 @@ function recoveryPending(line: LineSummary): boolean {
 }
 
 function recoveryAvailable(line: LineSummary): boolean {
+  if (!diagnosticLineIDs.value.includes(line.id)) return false
   const capability = usbResetCapability(line)
   return Boolean(capability?.supported && capability.implemented && capability.writable)
 }
 
 function recoveryDetail(line: LineSummary): string {
   const resource = recoveryResource(line)
+  if (resource.resetting) return t('device.usbResetRecovering')
   if (resource.error) return resource.error
   if (resource.status === 'idle' || resource.status === 'loading') {
     return t('common.loading')
@@ -462,8 +474,20 @@ async function applyUSBReset(line: LineSummary): Promise<void> {
     tone: 'danger'
   })
   if (!confirmed) return
-  await resetDiagnosticUSBDevice(line.id)
-  await loadSnapshot()
+  retainedRecoveryLines.value = {
+    ...retainedRecoveryLines.value,
+    [line.id]: line
+  }
+  try {
+    await resetDiagnosticUSBDevice(line.id)
+    await loadSnapshot()
+  } finally {
+    if (diagnosticLineIDs.value.includes(line.id)) {
+      const retained = { ...retainedRecoveryLines.value }
+      delete retained[line.id]
+      retainedRecoveryLines.value = retained
+    }
+  }
 }
 
 function callLineLabel(call: DiagnosticActiveCall): string {
@@ -625,9 +649,11 @@ async function loadSnapshot(): Promise<void> {
   if (snapshotState.value === 'loading') return
   if (!snapshot.value) snapshotState.value = 'loading'
   try {
-    snapshot.value = await gateway.getDiagnostics()
+    const current = await gateway.getDiagnostics()
+    snapshot.value = current
     snapshotState.value = 'ready'
     snapshotError.value = ''
+    void refreshUnconfirmedDiagnosticDevices(current.lines.map(line => line.id))
   } catch (error) {
     snapshotError.value = error instanceof Error ? error.message : t('diagnostics.snapshotFailed')
     if (snapshot.value) {
@@ -734,6 +760,14 @@ watch(autoFollow, enabled => {
 watch(
   () => diagnosticLineIDs.value.join('\u0000'),
   () => {
+    const retained = { ...retainedRecoveryLines.value }
+    let retainedChanged = false
+    for (const lineID of diagnosticLineIDs.value) {
+      if (!retained[lineID] || recoveryResource(retained[lineID]).resetting) continue
+      delete retained[lineID]
+      retainedChanged = true
+    }
+    if (retainedChanged) retainedRecoveryLines.value = retained
     if (!diagnosticLineIDs.value.includes(selectedDiagnosticLineID.value)) {
       selectedDiagnosticLineID.value = diagnosticLineIDs.value[0] || ''
     }
@@ -1148,9 +1182,9 @@ onBeforeUnmount(() => {
           </div>
         </header>
 
-        <div v-if="snapshot.lines.length" class="recovery-list">
+        <div v-if="recoveryLines.length" class="recovery-list">
           <article
-            v-for="line in snapshot.lines"
+            v-for="line in recoveryLines"
             :key="line.id"
             class="recovery-action"
           >

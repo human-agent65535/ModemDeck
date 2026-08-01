@@ -1210,6 +1210,7 @@ export default {
     "faultRecovery": "Phục hồi lỗi",
     "usbHardReset": "Thiết lập lại cứng USB",
     "usbResetDescription": "Liệt kê lại thiết bị USB để khôi phục thủ công khi modem ngừng phản hồi.",
+    "usbResetRecovering": "Đang chờ USB liệt kê lại",
     "usbResetTitle": "Thực hiện thiết lập lại cứng USB?",
     "usbResetMessage": "Modem sẽ ngắt kết nối USB và liệt kê lại. Các cuộc gọi, hoạt động nhắn tin và dữ liệu di động hiện tại sẽ bị gián đoạn.",
     "simLoadFailed": "Không thể tải trạng thái SIM",

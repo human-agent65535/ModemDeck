@@ -1210,6 +1210,7 @@ export default {
     "faultRecovery": "Recuperação de falhas",
     "usbHardReset": "Reinicialização forçada USB",
     "usbResetDescription": "Enumere novamente o dispositivo USB para recuperação manual quando o modem parar de responder.",
+    "usbResetRecovering": "Aguardando a reenumeração USB",
     "usbResetTitle": "Executar uma reinicialização total do USB?",
     "usbResetMessage": "O modem será desconectado do USB e reenumerado. As chamadas atuais, as operações de mensagens e os dados móveis serão interrompidos.",
     "simLoadFailed": "Não foi possível carregar o status do SIM",

@@ -1257,6 +1257,7 @@ export default {
     usbHardReset: 'USB hard reset',
     usbResetDescription:
       'Re-enumerate the USB device for manual recovery when the modem stops responding.',
+    usbResetRecovering: 'Waiting for USB re-enumeration',
     usbResetTitle: 'Perform a USB hard reset?',
     usbResetMessage:
       'The modem will disconnect from USB and re-enumerate. Current calls, messaging operations, and mobile data will be interrupted.',
@@ -1447,7 +1448,7 @@ export default {
     waitForRadioRecoveryForData: 'Wait for the modem radio to finish recovering before enabling mobile data.',
     invalidDeviceConfiguration: 'Device configuration response is incomplete',
     modemRestartTimeout: 'The restart was sent, but recovery was not confirmed within 45 seconds',
-    usbResetTimeout: 'The modem did not come back online within 60 seconds of the USB reset',
+    usbResetTimeout: 'The USB reset was sent, but recovery was not confirmed within 60 seconds',
     audioOutputUnsupported: 'This browser does not support selecting an audio output device',
     audioOutputUnavailable: 'The selected audio output device is currently unavailable',
     microphoneUnavailable: 'The selected microphone is currently unavailable',

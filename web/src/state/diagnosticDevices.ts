@@ -6,6 +6,10 @@ import type {
 } from '../api/types'
 import { ApiError } from '../api/types'
 import { translate } from '../i18n'
+import {
+  isExpectedDeviceRecoveryOutage,
+  waitForUnavailableThenReadable
+} from './deviceRecovery'
 
 export type DiagnosticDeviceResource = {
   status: ResourceStatus
@@ -22,14 +26,11 @@ function errorStatus(error: unknown): ResourceStatus {
   return error instanceof ApiError && error.status === 403 ? 'forbidden' : 'error'
 }
 
-function wait(milliseconds: number): Promise<void> {
-  return new Promise(resolve => window.setTimeout(resolve, milliseconds))
-}
-
 export function useDiagnosticDevices() {
   const resources = reactive<Record<string, DiagnosticDeviceResource>>({})
   const loads = new Map<string, Promise<boolean>>()
   const generations = new Map<string, number>()
+  const unconfirmedRecoveries = new Set<string>()
 
   function resource(lineID: string): DiagnosticDeviceResource {
     const normalizedLineID = lineID.trim()
@@ -69,6 +70,7 @@ export function useDiagnosticDevices() {
     const normalizedLineID = lineID.trim()
     if (!normalizedLineID) return false
     const target = resource(normalizedLineID)
+    if (target.resetting) return target.status === 'ready'
     if (!force && target.status === 'ready') return true
     const pending = loads.get(normalizedLineID)
     if (!force && pending) return pending
@@ -84,8 +86,10 @@ export function useDiagnosticDevices() {
         if (isCurrent(normalizedLineID, generation)) {
           target.hardware = hardware
           target.status = 'ready'
+          unconfirmedRecoveries.delete(normalizedLineID)
+          return true
         }
-        return true
+        return false
       } catch (error) {
         if (isCurrent(normalizedLineID, generation)) {
           target.status = hasHardware ? 'ready' : errorStatus(error)
@@ -108,15 +112,20 @@ export function useDiagnosticDevices() {
     const target = resource(normalizedLineID)
     if (!target.hardware || target.resetting) return false
 
+    loads.delete(normalizedLineID)
+    const generation = beginRequest(normalizedLineID)
     target.resetting = true
     target.error = ''
+    unconfirmedRecoveries.delete(normalizedLineID)
     try {
       let accepted = false
       let lastConflict: unknown
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const latest = await readHardware(normalizedLineID)
-        target.hardware = latest
-        target.status = 'ready'
+        if (isCurrent(normalizedLineID, generation)) {
+          target.hardware = latest
+          target.status = 'ready'
+        }
         try {
           const updated = await gateway.resetDiagnosticUSB(
             normalizedLineID,
@@ -125,7 +134,6 @@ export function useDiagnosticDevices() {
           if (!updated.hardware) {
             throw new Error(translate('runtime.invalidDeviceConfiguration'))
           }
-          target.hardware = updated.hardware
           accepted = true
           break
         } catch (error) {
@@ -144,41 +152,58 @@ export function useDiagnosticDevices() {
         throw lastConflict || new Error(translate('runtime.requestFailed'))
       }
 
-      loads.delete(normalizedLineID)
-      const generation = beginRequest(normalizedLineID)
-      target.status = 'loading'
-      await wait(1500)
-      const deadline = Date.now() + 60_000
-      while (Date.now() < deadline) {
-        try {
-          const hardware = await readHardware(normalizedLineID)
-          if (isCurrent(normalizedLineID, generation)) {
-            target.hardware = hardware
-            target.status = 'ready'
-          }
+      const result = await waitForUnavailableThenReadable({
+        read: () => readHardware(normalizedLineID),
+        isCurrent: () => isCurrent(normalizedLineID, generation),
+        isUnavailable: isExpectedDeviceRecoveryOutage,
+        timeoutMs: 60_000,
+        intervalMs: 1_000
+      })
+      if (result.status === 'recovered') {
+        if (isCurrent(normalizedLineID, generation)) {
+          target.hardware = result.value
+          target.status = 'ready'
+          unconfirmedRecoveries.delete(normalizedLineID)
           return true
-        } catch {
-          // The modem normally disappears while USB re-enumeration is in progress.
         }
-        await wait(1000)
+        return false
       }
-      if (isCurrent(normalizedLineID, generation)) {
-        target.status = 'error'
+      if (result.status === 'timeout' && isCurrent(normalizedLineID, generation)) {
+        target.status = 'ready'
         target.error = translate('runtime.usbResetTimeout')
+        if (result.observedUnavailable) unconfirmedRecoveries.add(normalizedLineID)
       }
       return false
     } catch (error) {
-      target.status = target.hardware ? 'ready' : errorStatus(error)
-      target.error = errorText(error)
+      if (isCurrent(normalizedLineID, generation)) {
+        target.status = target.hardware ? 'ready' : errorStatus(error)
+        target.error = errorText(error)
+      }
       return false
     } finally {
-      target.resetting = false
+      if (isCurrent(normalizedLineID, generation)) target.resetting = false
     }
+  }
+
+  async function refreshUnconfirmed(lineIDs: Iterable<string>): Promise<void> {
+    const available = new Set(Array.from(lineIDs, lineID => lineID.trim()))
+    await Promise.all(
+      Array.from(unconfirmedRecoveries).map(async lineID => {
+        if (!available.has(lineID)) return
+        const pending = loads.get(lineID)
+        if (pending) {
+          await pending
+          return
+        }
+        await load(lineID, true)
+      })
+    )
   }
 
   return {
     diagnosticDeviceResource: resource,
     loadDiagnosticDeviceConfiguration: load,
-    resetDiagnosticUSBDevice: resetUSB
+    resetDiagnosticUSBDevice: resetUSB,
+    refreshUnconfirmedDiagnosticDevices: refreshUnconfirmed
   }
 }

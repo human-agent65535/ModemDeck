@@ -1210,6 +1210,7 @@ export default {
     "faultRecovery": "Récupération de panne",
     "usbHardReset": "Réinitialisation matérielle USB",
     "usbResetDescription": "Réénumérez le périphérique USB pour une récupération manuelle lorsque le modem ne répond plus.",
+    "usbResetRecovering": "En attente de la réénumération USB",
     "usbResetTitle": "Effectuer une réinitialisation matérielle USB ?",
     "usbResetMessage": "Le modem se déconnectera de l'USB et réénumérera. Les appels en cours, les opérations de messagerie et les données mobiles seront interrompus.",
     "simLoadFailed": "Impossible de charger l'état de la carte SIM",
