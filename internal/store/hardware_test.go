@@ -1154,7 +1154,7 @@ func TestMarkMessageThreadReadRejectsMissingStableIdentity(t *testing.T) {
 	}
 }
 
-func TestHardwareSnapshotRetainsCallAcrossTransientOmission(t *testing.T) {
+func TestHardwareSnapshotClosesCallMissingFromAuthoritativeSnapshot(t *testing.T) {
 	t.Parallel()
 
 	repository := newHardwareTestStore(t)
@@ -1186,82 +1186,52 @@ func TestHardwareSnapshotRetainsCallAcrossTransientOmission(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ActiveCalls() error = %v", err)
 	}
-	if len(active) != 1 || active[0].ID != call.AppID {
-		t.Fatalf("active calls after one omission = %+v, want retained call", active)
+	if len(active) != 0 {
+		t.Fatalf("active calls after authoritative omission = %+v, want none", active)
 	}
-
-	call.ObservedAt = observed.Add(2 * time.Second)
-	if err := repository.ApplyHardwareSnapshot(ctx, HardwareSnapshot{
-		BootEpoch:  "boot-single",
-		Revision:   "snapshot-single-3",
-		ObservedAt: observed.Add(2 * time.Second),
-		Lines:      []HardwareLine{line},
-		Calls:      []HardwareCall{call},
-	}); err != nil {
-		t.Fatalf("recovery ApplyHardwareSnapshot() error = %v", err)
-	}
-
-	active, err = repository.ActiveCalls(ctx)
-	if err != nil {
-		t.Fatalf("ActiveCalls() after recovery error = %v", err)
-	}
-	if len(active) != 1 || active[0].ID != call.AppID {
-		t.Fatalf("active calls after recovery = %+v, want restored call", active)
-	}
-	for _, call := range active {
-		if call.Phase != "active" || call.EndedAt != "" {
-			t.Fatalf("recovered active call = %+v, want open active call", call)
-		}
-	}
+	assertMissingHardwareCallClosed(t, repository, call)
 }
 
-func TestHardwareSnapshotClosesPersistentlyMissingCallAfterConfirmationWindow(t *testing.T) {
+func TestDuplicateAuthoritativeSnapshotClosesCommandCreatedCall(t *testing.T) {
 	t.Parallel()
 
 	repository := newHardwareTestStore(t)
 	ctx := context.Background()
 	observed := time.Date(2026, time.July, 23, 12, 5, 0, 0, time.UTC)
-	line := hardwareLifecycleTestLine("line-persistent", "990000000000206")
-	call := hardwareLifecycleTestCall("call-persistent", line.ID, observed)
+	line := hardwareLifecycleTestLine("line-command", "990000000000206")
 
 	if err := repository.ApplyHardwareSnapshot(ctx, HardwareSnapshot{
-		BootEpoch:  "boot-persistent",
-		Revision:   "snapshot-persistent-1",
+		BootEpoch:  "boot-command",
+		Revision:   "snapshot-empty",
 		ObservedAt: observed,
 		Lines:      []HardwareLine{line},
-		Calls:      []HardwareCall{call},
+		Calls:      []HardwareCall{},
 	}); err != nil {
 		t.Fatalf("initial ApplyHardwareSnapshot() error = %v", err)
 	}
 
-	for index, omission := range []struct {
-		revision string
-		elapsed  time.Duration
-	}{
-		{revision: "snapshot-persistent-missing", elapsed: time.Second},
-		{revision: "snapshot-persistent-missing", elapsed: 8 * time.Second},
-		{revision: "snapshot-persistent-missing", elapsed: missingCallConfirmationWindow},
-	} {
-		if err := repository.ApplyHardwareSnapshot(ctx, HardwareSnapshot{
-			BootEpoch:  "boot-persistent",
-			Revision:   omission.revision,
-			ObservedAt: observed.Add(omission.elapsed),
-			Lines:      []HardwareLine{line},
-			Calls:      []HardwareCall{},
-		}); err != nil {
-			t.Fatalf("missing ApplyHardwareSnapshot() %d error = %v", index+1, err)
-		}
+	call := hardwareLifecycleTestCall("call-command", line.ID, observed.Add(time.Second))
+	call.Revision = 0
+	if _, err := repository.UpsertHardwareCall(ctx, call); err != nil {
+		t.Fatalf("UpsertHardwareCall() error = %v", err)
+	}
 
-		active, err := repository.ActiveCalls(ctx)
-		if err != nil {
-			t.Fatalf("ActiveCalls() after omission %d error = %v", index+1, err)
-		}
-		if index < 2 && (len(active) != 1 || active[0].ID != call.AppID) {
-			t.Fatalf("active calls after omission %d = %+v, want retained call", index+1, active)
-		}
-		if index == 2 && len(active) != 0 {
-			t.Fatalf("active calls after confirmed omission = %+v, want none", active)
-		}
+	if err := repository.ApplyHardwareSnapshot(ctx, HardwareSnapshot{
+		BootEpoch:  "boot-command",
+		Revision:   "snapshot-empty",
+		ObservedAt: observed.Add(2 * time.Second),
+		Lines:      []HardwareLine{line},
+		Calls:      []HardwareCall{},
+	}); err != nil {
+		t.Fatalf("duplicate ApplyHardwareSnapshot() error = %v", err)
+	}
+
+	active, err := repository.ActiveCalls(ctx)
+	if err != nil {
+		t.Fatalf("ActiveCalls() error = %v", err)
+	}
+	if len(active) != 0 {
+		t.Fatalf("active calls after duplicate authoritative snapshot = %+v, want none", active)
 	}
 
 	assertMissingHardwareCallClosed(t, repository, call)

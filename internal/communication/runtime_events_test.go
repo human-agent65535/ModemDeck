@@ -9,6 +9,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
 	"github.com/human-agent65535/modemdeck/internal/messageevents"
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
+	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
 func TestRefreshPublishesRuntimeEventsOnlyForChangedResources(t *testing.T) {
@@ -16,7 +17,8 @@ func TestRefreshPublishesRuntimeEventsOnlyForChangedResources(t *testing.T) {
 
 	observedAt := time.Date(2026, time.July, 24, 14, 0, 0, 0, time.UTC)
 	agent := connectedAgent(observedAt)
-	service, err := New(agent, &fakeRepository{}, messageevents.NewBuffer(8))
+	repository := &fakeRepository{}
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -85,6 +87,13 @@ func TestRefreshPublishesRuntimeEventsOnlyForChangedResources(t *testing.T) {
 	}}
 	agent.snapshot.Revision = "snapshot-7"
 	agent.snapshot.ObservedAt = observedAt.Add(12 * time.Second)
+	repository.activeCalls = []store.Call{{
+		ID:           "call-1",
+		LineID:       "line-1",
+		Direction:    "outgoing",
+		RemoteNumber: "+819012345678",
+		Phase:        "ringing",
+	}}
 	if _, err := service.Refresh(context.Background()); err != nil {
 		t.Fatalf("call Refresh() error = %v", err)
 	}
@@ -94,6 +103,48 @@ func TestRefreshPublishesRuntimeEventsOnlyForChangedResources(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("runtime event was not published for changed call state")
 	}
+}
+
+func TestRefreshPublishesCallEventsFromPersistedActiveCalls(t *testing.T) {
+	t.Parallel()
+
+	observedAt := time.Date(2026, time.July, 24, 14, 30, 0, 0, time.UTC)
+	agent := connectedAgent(observedAt)
+	repository := &fakeRepository{}
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	events := runtimeevents.NewBuffer(8)
+	if err := service.SetRuntimeEventPublisher(events); err != nil {
+		t.Fatalf("SetRuntimeEventPublisher() error = %v", err)
+	}
+	if _, err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("initial Refresh() error = %v", err)
+	}
+	_, updates, cancel := events.SubscribeCurrent()
+	defer cancel()
+
+	repository.activeCalls = []store.Call{{
+		ID:             "call-command-created",
+		LineID:         "line-1",
+		Direction:      "outgoing",
+		RemoteNumber:   "+819012345678",
+		Phase:          "active",
+		MediaAvailable: true,
+	}}
+	agent.snapshot.ObservedAt = observedAt.Add(time.Second)
+	if _, err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("active call Refresh() error = %v", err)
+	}
+	assertNextRuntimeResource(t, updates, runtimeevents.ResourceCalls)
+
+	repository.activeCalls = nil
+	agent.snapshot.ObservedAt = observedAt.Add(2 * time.Second)
+	if _, err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("ended call Refresh() error = %v", err)
+	}
+	assertNextRuntimeResource(t, updates, runtimeevents.ResourceCalls)
 }
 
 func TestRefreshPublishesRuntimeEventsForProviderEpochAndRecovery(t *testing.T) {

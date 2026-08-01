@@ -308,7 +308,12 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 	s.lastSnapshot = snapshot
 	s.mu.Unlock()
 	s.updateAgentControlCapabilities(status.Capabilities)
-	s.publishRuntimeSnapshot(status.BootEpoch, snapshot, lines)
+	s.publishRuntimeSnapshot(
+		status.BootEpoch,
+		snapshot.ObservedAt,
+		lines,
+		activeCalls,
+	)
 	if err := s.reconcileAuthoritativeCalls(refreshContext, activeCalls); err != nil {
 		return cloneStatus(status), operationError(
 			CodeInternal,
@@ -399,8 +404,9 @@ func (s *Service) drainDeviceMessageCleanup(deleter AgentMessageDeleter) {
 
 func (s *Service) publishRuntimeSnapshot(
 	bootEpoch string,
-	snapshot agentclient.Snapshot,
+	observedAt time.Time,
 	lines []store.LineSummary,
+	activeCalls []store.Call,
 ) {
 	if s.runtime == nil {
 		return
@@ -418,22 +424,22 @@ func (s *Service) publishRuntimeSnapshot(
 		if digest != previous.linesDigest {
 			s.runtime.Publish(runtimeevents.Event{
 				Resources:  []runtimeevents.Resource{runtimeevents.ResourceLines},
-				ObservedAt: snapshot.ObservedAt,
+				ObservedAt: observedAt,
 			})
 		}
 	}
 	if digest, ok := runtimeProjectionDigest(struct {
-		BootEpoch string             `json:"boot_epoch"`
-		Calls     []agentclient.Call `json:"calls"`
+		BootEpoch string                  `json:"boot_epoch"`
+		Calls     []runtimeCallProjection `json:"calls"`
 	}{
 		BootEpoch: strings.TrimSpace(bootEpoch),
-		Calls:     canonicalRuntimeCalls(snapshot.Calls),
+		Calls:     canonicalRuntimeCalls(activeCalls),
 	}); ok {
 		current.callsDigest = digest
 		if digest != previous.callsDigest {
 			s.runtime.Publish(runtimeevents.Event{
 				Resources:  []runtimeevents.Resource{runtimeevents.ResourceCalls},
-				ObservedAt: snapshot.ObservedAt,
+				ObservedAt: observedAt,
 			})
 		}
 	}
@@ -469,9 +475,46 @@ func canonicalRuntimeLines(lines []store.LineSummary) []store.LineSummary {
 	return canonical
 }
 
-func canonicalRuntimeCalls(calls []agentclient.Call) []agentclient.Call {
-	canonical := append([]agentclient.Call(nil), calls...)
-	slices.SortFunc(canonical, func(left, right agentclient.Call) int {
+type runtimeCallProjection struct {
+	ID              string  `json:"id"`
+	LineID          string  `json:"line_id"`
+	Direction       string  `json:"direction"`
+	RemoteNumber    string  `json:"remote_number"`
+	Phase           string  `json:"phase"`
+	ActiveAt        *string `json:"active_at,omitempty"`
+	Bearer          string  `json:"bearer"`
+	StateReason     string  `json:"state_reason"`
+	StateReasonCode int64   `json:"state_reason_code"`
+	Multiparty      bool    `json:"multiparty"`
+	AudioPort       string  `json:"audio_port"`
+	AudioEncoding   string  `json:"audio_encoding"`
+	AudioResolution string  `json:"audio_resolution"`
+	AudioRate       uint32  `json:"audio_rate"`
+	MediaAvailable  bool    `json:"media_available"`
+}
+
+func canonicalRuntimeCalls(calls []store.Call) []runtimeCallProjection {
+	canonical := make([]runtimeCallProjection, 0, len(calls))
+	for _, call := range calls {
+		canonical = append(canonical, runtimeCallProjection{
+			ID:              call.ID,
+			LineID:          call.LineID,
+			Direction:       call.Direction,
+			RemoteNumber:    call.RemoteNumber,
+			Phase:           call.Phase,
+			ActiveAt:        call.ActiveAt,
+			Bearer:          call.Bearer,
+			StateReason:     call.StateReason,
+			StateReasonCode: call.StateReasonCode,
+			Multiparty:      call.Multiparty,
+			AudioPort:       call.AudioPort,
+			AudioEncoding:   call.AudioEncoding,
+			AudioResolution: call.AudioResolution,
+			AudioRate:       call.AudioRate,
+			MediaAvailable:  call.MediaAvailable,
+		})
+	}
+	slices.SortFunc(canonical, func(left, right runtimeCallProjection) int {
 		if comparison := strings.Compare(left.LineID, right.LineID); comparison != 0 {
 			return comparison
 		}
