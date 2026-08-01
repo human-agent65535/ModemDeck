@@ -111,6 +111,13 @@ func TestQuectelVoiceModelingProbesCallAudioOnce(t *testing.T) {
 			if line.Capabilities.Media != test.wantMedia {
 				t.Fatalf("media capability = %v, want %v", line.Capabilities.Media, test.wantMedia)
 			}
+			wantAudioPort := ""
+			if test.wantMedia {
+				wantAudioPort = quectelUACPortPrefix + "/sys/devices/usb1/1-2"
+			}
+			if line.AudioPort != wantAudioPort {
+				t.Fatalf("audio port = %q, want %q", line.AudioPort, wantAudioPort)
+			}
 			if line.VoiceVerification == nil ||
 				line.VoiceVerification.USBConfiguration != test.wantUSB ||
 				line.VoiceVerification.MediaRouting != test.wantRouting {

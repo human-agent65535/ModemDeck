@@ -227,6 +227,21 @@ grep -Fq 'http2 on;' "${repo_dir}/web/nginx.conf" ||
 grep -Fq 'error_page 497 =308 https://$http_host$request_uri;' \
     "${repo_dir}/web/nginx.conf" ||
     fail "HTTPS Web listener does not upgrade plain HTTP requests"
+grep -Fq 'map $http_x_forwarded_proto $cloudflare_https_redirect {' \
+    "${repo_dir}/web/nginx.conf" ||
+    fail "Nginx does not classify Cloudflare HTTP requests"
+cloudflare_redirect_count=$(
+    grep -Fc 'if ($cloudflare_https_redirect) {' \
+        "${repo_dir}/web/nginx.conf" || true
+)
+[ "$cloudflare_redirect_count" -eq 2 ] ||
+    fail "Cloudflare API and Web listeners do not both enforce HTTPS"
+cloudflare_redirect_target_count=$(
+    grep -Fc 'return 308 https://$host$request_uri;' \
+        "${repo_dir}/web/nginx.conf" || true
+)
+[ "$cloudflare_redirect_target_count" -eq 2 ] ||
+    fail "Cloudflare listeners do not preserve host and request URI on HTTPS redirect"
 grep -Fq 'return 404;' "${repo_dir}/web/nginx.conf" ||
     fail "Nginx does not reject non-API paths on port 7575"
 grep -Fq 'server api:8080 resolve;' "${repo_dir}/web/nginx.conf" ||

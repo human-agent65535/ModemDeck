@@ -141,6 +141,11 @@ func (p *Provider) projectVoiceCapabilities(
 
 func projectVoiceProbeResult(line *domain.Line, result voiceProbeResult) {
 	line.Capabilities.Media = result.media
+	line.AudioPort = ""
+	if result.media {
+		line.AudioPort = quectelUACAudioPort(*line)
+		line.Capabilities.Media = line.AudioPort != ""
+	}
 	line.VoiceVerification = &domain.VoiceRuntimeVerification{
 		USBConfiguration: result.usbConfiguration,
 		MediaRouting:     result.mediaRouting,
@@ -483,17 +488,25 @@ func projectQuectelUACCall(
 	if call.MediaAvailable {
 		return
 	}
-	physicalDevice := normalizePhysicalDevice(line.PhysicalDevice)
-	if physicalDevice == "" {
+	audioPort := quectelUACAudioPort(line)
+	if audioPort == "" {
 		return
 	}
-	call.AudioPort = quectelUACPortPrefix + physicalDevice
+	call.AudioPort = audioPort
 	call.AudioFormat = &domain.CallAudioFormat{
 		Encoding:   "pcm",
 		Resolution: "s16le",
 		Rate:       8000,
 	}
 	call.MediaAvailable = true
+}
+
+func quectelUACAudioPort(line domain.Line) string {
+	physicalDevice := normalizePhysicalDevice(line.PhysicalDevice)
+	if physicalDevice == "" {
+		return ""
+	}
+	return quectelUACPortPrefix + physicalDevice
 }
 
 // ReprobeVoiceCapabilities rebuilds and initializes the cached voice model for

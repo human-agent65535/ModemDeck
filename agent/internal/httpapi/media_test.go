@@ -185,24 +185,55 @@ func TestDecorateMediaSnapshotKeepsAvailabilityConfigurationAndSessionDistinct(t
 		true,
 		&mediaTestBackend{nextDevice: device},
 	)
-	snapshot := domain.Snapshot{Calls: []domain.Call{
-		{
-			ID:             "call-1",
-			AudioPort:      "hw:2,0",
-			MediaAvailable: true,
+	snapshot := domain.Snapshot{
+		Lines: []domain.Line{
+			{
+				ID:        "line-configured",
+				AudioPort: "hw:2,0",
+				Capabilities: domain.LineCapabilities{
+					Media: true,
+				},
+			},
+			{
+				ID:        "line-unbound",
+				AudioPort: "hw:9,9",
+				Capabilities: domain.LineCapabilities{
+					Media: true,
+				},
+			},
+			{
+				ID:        "line-hardware-unavailable",
+				AudioPort: "hw:2,0",
+			},
 		},
-		{
-			ID:             "call-unbound",
-			AudioPort:      "hw:9,9",
-			MediaAvailable: true,
+		Calls: []domain.Call{
+			{
+				ID:             "call-1",
+				AudioPort:      "hw:2,0",
+				MediaAvailable: true,
+			},
+			{
+				ID:             "call-unbound",
+				AudioPort:      "hw:9,9",
+				MediaAvailable: true,
+			},
+			{
+				ID:             "call-metadata-unavailable",
+				AudioPort:      "hw:2,0",
+				MediaAvailable: false,
+			},
 		},
-		{
-			ID:             "call-metadata-unavailable",
-			AudioPort:      "hw:2,0",
-			MediaAvailable: false,
-		},
-	}}
+	}
 	decorateMediaSnapshot(&snapshot, manager)
+	if !snapshot.Lines[0].Capabilities.Media {
+		t.Fatalf("configured line = %+v", snapshot.Lines[0])
+	}
+	if snapshot.Lines[1].Capabilities.Media {
+		t.Fatalf("unbound line = %+v", snapshot.Lines[1])
+	}
+	if snapshot.Lines[2].Capabilities.Media {
+		t.Fatalf("hardware-unavailable line = %+v", snapshot.Lines[2])
+	}
 	if !snapshot.Calls[0].MediaAvailable ||
 		!snapshot.Calls[0].MediaConfigured ||
 		snapshot.Calls[0].MediaActive {

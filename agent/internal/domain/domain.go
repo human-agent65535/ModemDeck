@@ -126,6 +126,7 @@ type Line struct {
 	MessageIDs               []string                  `json:"message_ids"`
 	SupportedMessageStorages []uint32                  `json:"supported_message_storages"`
 	DefaultMessageStorage    uint32                    `json:"default_message_storage"`
+	AudioPort                string                    `json:"audio_port,omitempty"`
 	Capabilities             LineCapabilities          `json:"capabilities"`
 	VoiceVerification        *VoiceRuntimeVerification `json:"voice_verification,omitempty"`
 }

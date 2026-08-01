@@ -447,24 +447,35 @@ func TestBootstrapRequiresHostMediaCapabilityAndCallMediaService(t *testing.T) {
 
 	for _, test := range []struct {
 		name            string
+		lineMedia       bool
 		hostMedia       bool
 		callMedia       CallMediaService
 		wantWebRTCAudio bool
 	}{
 		{
 			name:            "no host binding",
+			lineMedia:       true,
 			hostMedia:       false,
 			callMedia:       &fakeCallMedia{},
 			wantWebRTCAudio: false,
 		},
 		{
+			name:            "no line binding",
+			lineMedia:       false,
+			hostMedia:       true,
+			callMedia:       &fakeCallMedia{},
+			wantWebRTCAudio: false,
+		},
+		{
 			name:            "no application media service",
+			lineMedia:       true,
 			hostMedia:       true,
 			callMedia:       nil,
 			wantWebRTCAudio: false,
 		},
 		{
 			name:            "both sides available",
+			lineMedia:       true,
 			hostMedia:       true,
 			callMedia:       &fakeCallMedia{},
 			wantWebRTCAudio: true,
@@ -480,7 +491,11 @@ func TestBootstrapRequiresHostMediaCapabilityAndCallMediaService(t *testing.T) {
 						Capabilities: agentclient.Capabilities{
 							Media: test.hostMedia,
 						},
-						Lines: []store.LineSummary{},
+						Lines: []store.LineSummary{{
+							Capabilities: store.LineCapabilities{
+								Media: test.lineMedia,
+							},
+						}},
 					}},
 					CallMedia:             test.callMedia,
 					disableAuthentication: true,

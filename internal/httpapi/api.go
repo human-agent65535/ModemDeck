@@ -577,7 +577,8 @@ func (api *API) bootstrap(response http.ResponseWriter, request *http.Request) {
 		} else {
 			lines = mergePersistedLineMetadata(status.Lines, persistedLines)
 			capabilities = capabilitiesForLines(status.Lines)
-			capabilities.WebRTCAudio = status.Capabilities.Media && api.callMedia != nil
+			capabilities.WebRTCAudio = capabilities.WebRTCAudio &&
+				status.Capabilities.Media && api.callMedia != nil
 		}
 	} else if api.capabilities != nil {
 		capabilities, err = api.capabilities.Capabilities(request.Context())

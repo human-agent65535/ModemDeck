@@ -40,6 +40,13 @@ func decorateMediaSnapshot(snapshot *domain.Snapshot, manager *media.Manager) {
 	if snapshot == nil {
 		return
 	}
+	for index := range snapshot.Lines {
+		line := &snapshot.Lines[index]
+		if line.Capabilities.Media {
+			line.Capabilities.Media = manager != nil &&
+				manager.IsConfigured(line.AudioPort)
+		}
+	}
 	for index := range snapshot.Calls {
 		call := &snapshot.Calls[index]
 		call.MediaConfigured = manager != nil && manager.IsConfigured(call.AudioPort)
