@@ -1,5 +1,5 @@
 import { reactive, watch } from 'vue'
-import { gateway } from '../api/client'
+import { fixtureCallMediaPreview, gateway } from '../api/client'
 import type { CallSession } from '../api/types'
 import { ApiError } from '../api/types'
 import { translate } from '../i18n'
@@ -414,6 +414,18 @@ async function ownAndConnect(
 }
 
 export function syncCallMedia(session: CallSession | null): void {
+  if (fixtureCallMediaPreview) {
+    if (!session || session.phase !== 'active') {
+      attemptedCallID = ''
+      setIdle('idle')
+      return
+    }
+    if (callMediaState.callID === session.id && callMediaState.status === 'active') return
+    setIdle('idle')
+    callMediaState.callID = session.id
+    callMediaState.status = 'active'
+    return
+  }
   if (!session || session.phase !== 'active') {
     attemptedCallID = ''
     setIdle('idle')
@@ -447,6 +459,12 @@ export function retryCallMedia(session: CallSession | null): void {
 }
 
 export function toggleCallMute(): void {
+  if (fixtureCallMediaPreview) {
+    if (callMediaState.status === 'active') {
+      callMediaState.muted = !callMediaState.muted
+    }
+    return
+  }
   if (!localStream) return
   const muted = !callMediaState.muted
   for (const track of localStream.getAudioTracks()) track.enabled = !muted

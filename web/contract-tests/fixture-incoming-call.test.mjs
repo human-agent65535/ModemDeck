@@ -62,7 +62,12 @@ test('fixture active snapshot can expose a reservation without inventing a call'
 
 test('fixture client exposes incomingCallFixture modes only in fixture mode', async () => {
   const source = await readFile(new URL('../src/api/client.ts', import.meta.url), 'utf8')
+  const callMedia = await readFile(
+    new URL('../src/state/callMedia.ts', import.meta.url),
+    'utf8'
+  )
 
+  assert.match(source, /get\('callMediaFixture'\) === '1'/)
   assert.match(source, /get\('incomingCallFixture'\)/)
   assert.match(source, /incomingCallFixture === 'occupied' \? 'occupied'/)
   assert.match(source, /get\('multiCallFixture'\) === '1'/)
@@ -70,4 +75,12 @@ test('fixture client exposes incomingCallFixture modes only in fixture mode', as
   assert.match(source, /get\('outgoingReservationFixture'\)/)
   assert.match(source, /initialOutgoingReservation: initialOutgoingReservationFixture/)
   assert.match(source, /createFixtureGateway\(fixturePreviewOptions\)/)
+  assert.match(
+    callMedia,
+    /if \(fixtureCallMediaPreview\) \{[\s\S]*callMediaState\.callID = session\.id[\s\S]*callMediaState\.status = 'active'/
+  )
+  assert.match(
+    callMedia,
+    /export function toggleCallMute\(\): void \{[\s\S]*if \(fixtureCallMediaPreview\)[\s\S]*callMediaState\.muted = !callMediaState\.muted/
+  )
 })

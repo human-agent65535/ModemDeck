@@ -142,13 +142,16 @@ const showNumber = computed(
 
 .call-list-item__meta {
   display: flex;
+  width: 100%;
   min-width: 0;
   align-items: center;
   gap: 6px;
+  overflow: hidden;
 }
 
 .call-list-item__meta small {
   min-width: 0;
+  flex: 1 1 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -70,6 +70,34 @@ test('mobile navigation exposes routes that fit and falls back to More on narrow
   assert.match(english, /more: 'More'/)
 })
 
+test('mobile shell keeps navigation inside the structural viewport on iOS', async () => {
+  const styles = await source('../src/style.css')
+  const index = await source('../index.html')
+
+  assert.match(index, /viewport-fit=cover/)
+  assert.match(styles, /--mobile-nav-content-height: 66px;/)
+  assert.match(
+    styles,
+    /--mobile-nav-height: calc\([\s\S]*var\(--mobile-nav-content-height\)[\s\S]*env\(safe-area-inset-bottom\)/
+  )
+  assert.match(
+    styles,
+    /@media \(max-width: 860px\)[\s\S]*?\.app-shell \{[\s\S]*?display: grid;[\s\S]*?grid-template-rows: minmax\(0, 1fr\) var\(--mobile-nav-height\);[\s\S]*?overflow: hidden;/
+  )
+  assert.match(
+    styles,
+    /@media \(max-width: 860px\)[\s\S]*?\.route-view \{\s*bottom: 0;/
+  )
+  assert.match(
+    styles,
+    /@media \(max-width: 860px\)[\s\S]*?\.mobile-nav \{[\s\S]*?position: relative;[\s\S]*?grid-row: 2;/
+  )
+  assert.match(
+    styles,
+    /\.item-list::-webkit-scrollbar \{[\s\S]*?display: none;/
+  )
+})
+
 test('ringing calls animate the central call action and remain restorable when minimized', async () => {
   const shell = await source('../src/components/AppShell.vue')
   const dialer = await source('../src/components/DialerPanel.vue')

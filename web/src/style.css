@@ -70,7 +70,10 @@
   --rail-width: 92px;
   --header-height: 72px;
   --dialer-width: clamp(360px, 28vw, 420px);
-  --mobile-nav-height: 66px;
+  --mobile-nav-content-height: 66px;
+  --mobile-nav-height: calc(
+    var(--mobile-nav-content-height) + env(safe-area-inset-bottom)
+  );
   color-scheme: light;
   font-family:
     Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -96,8 +99,15 @@ html,
 body,
 #app {
   width: 100%;
+  max-width: 100%;
   height: 100%;
   overflow: hidden;
+  overscroll-behavior: none;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
@@ -1068,10 +1078,12 @@ textarea::placeholder {
   position: relative;
   display: flex;
   width: 100%;
+  min-width: 0;
   min-height: 72px;
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
+  overflow: hidden;
   text-align: left;
   background: transparent;
   border-bottom: 1px solid var(--border);
@@ -1110,6 +1122,7 @@ textarea::placeholder {
   flex: 1;
   flex-direction: column;
   gap: 4px;
+  overflow: hidden;
 }
 
 .list-item__content strong,
@@ -2771,7 +2784,12 @@ dd {
   }
 
   .app-shell {
-    display: block;
+    display: grid;
+    min-width: 0;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) var(--mobile-nav-height);
+    overflow: hidden;
   }
 
   .rail {
@@ -2779,14 +2797,17 @@ dd {
   }
 
   .shell-main {
-    height: 100dvh;
+    min-width: 0;
+    min-height: 0;
+    height: auto;
+    grid-row: 1;
     grid-template-rows: auto auto minmax(0, 1fr);
   }
 
   .shell-header {
-    min-height: 56px;
+    min-height: calc(56px + env(safe-area-inset-top));
     gap: 10px;
-    padding: 8px 12px;
+    padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
   }
 
   .mobile-brand {
@@ -2826,7 +2847,7 @@ dd {
   }
 
   .route-view {
-    bottom: var(--mobile-nav-height);
+    bottom: 0;
   }
 
   .route-view-enter-active,
@@ -2913,18 +2934,30 @@ dd {
   }
 
   .mobile-nav {
-    position: fixed;
+    position: relative;
     z-index: 40;
-    right: 0;
-    bottom: 0;
-    left: 0;
     display: grid;
+    width: 100%;
     height: var(--mobile-nav-height);
+    min-width: 0;
+    grid-row: 2;
     grid-template-columns: repeat(3, minmax(0, 1fr)) 62px repeat(3, minmax(0, 1fr));
     grid-template-rows: 100%;
     padding-bottom: env(safe-area-inset-bottom);
     background: rgb(255 255 255 / 96%);
     border-top: 1px solid var(--border);
+  }
+
+  .item-list {
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .item-list::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
   }
 
   .mobile-nav :is(a, button) {

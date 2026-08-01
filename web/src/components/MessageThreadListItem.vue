@@ -136,13 +136,16 @@ const { t } = useI18n()
 
 .message-thread-meta {
   display: flex;
+  width: 100%;
   min-width: 0;
   align-items: center;
   gap: 6px;
+  overflow: hidden;
 }
 
 .message-thread-meta small {
   min-width: 0;
+  flex: 1 1 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

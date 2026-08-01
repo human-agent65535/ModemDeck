@@ -187,6 +187,11 @@ const runtimeEnvironment = import.meta.env
 export const fixtureMode =
   Boolean(runtimeEnvironment?.DEV) && runtimeEnvironment?.VITE_MODEMDECK_FIXTURE === '1'
 
+export const fixtureCallMediaPreview =
+  fixtureMode &&
+  typeof window !== 'undefined' &&
+  new URLSearchParams(window.location.search).get('callMediaFixture') === '1'
+
 const incomingCallFixture =
   fixtureMode && typeof window !== 'undefined'
     ? new URLSearchParams(window.location.search).get('incomingCallFixture')

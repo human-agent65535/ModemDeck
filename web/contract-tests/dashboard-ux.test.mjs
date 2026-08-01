@@ -138,6 +138,25 @@ test('dashboard activity reuses the same message and call list items as their mo
   assert.doesNotMatch(dashboard, /dashboard-activity-meta/)
 })
 
+test('shared activity rows constrain long communication previews', () => {
+  assert.match(
+    messageThreadListItem,
+    /\.message-thread-meta \{[\s\S]*?width: 100%;[\s\S]*?overflow: hidden;/
+  )
+  assert.match(
+    messageThreadListItem,
+    /\.message-thread-meta small \{[\s\S]*?flex: 1 1 0;[\s\S]*?text-overflow: ellipsis;/
+  )
+  assert.match(
+    callHistoryListItem,
+    /\.call-list-item__meta \{[\s\S]*?width: 100%;[\s\S]*?overflow: hidden;/
+  )
+  assert.match(
+    callHistoryListItem,
+    /\.call-list-item__meta small \{[\s\S]*?flex: 1 1 0;[\s\S]*?text-overflow: ellipsis;/
+  )
+})
+
 test('dashboard uses existing network data for a traffic summary and entry point', () => {
   assert.match(dashboard, /import \{ loadNetwork, networkState \} from '\.\.\/state\/network'/)
   assert.match(dashboard, /loadNetwork\(\)/)
