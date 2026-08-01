@@ -113,10 +113,8 @@ test('workspace primitives own action sizing, priority, and transition timing', 
 
   assert.doesNotMatch(detailPane, /<Transition/)
   assert.match(detailPane, /:key="`detail:\$\{String\(contentKey\)\}`"/)
-  assert.match(
-    detailPane,
-    /@media \(min-width: 861px\)[\s\S]*workspace-detail-content-in/
-  )
+  assert.doesNotMatch(detailPane, /workspace-detail-content-in/)
+  assert.doesNotMatch(detailPane, /opacity:\s*0/)
   assert.match(
     styles,
     /\.list-pane,[\s\S]*\.detail-pane \{[\s\S]*transform var\(--motion-slow\)/

@@ -41,19 +41,4 @@ const hasContent = computed(
   flex: 1;
   flex-direction: column;
 }
-
-@media (min-width: 861px) {
-  .workspace-detail-pane__content,
-  .workspace-detail-pane__empty {
-    animation: workspace-detail-content-in var(--motion-base) var(--ease-standard)
-      both;
-  }
-}
-
-@keyframes workspace-detail-content-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-}
 </style>
