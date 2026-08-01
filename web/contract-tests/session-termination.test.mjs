@@ -78,6 +78,13 @@ test('an intentional logout suppresses concurrent session-expired feedback', asy
     assert.equal(sessionState.status, 'anonymous')
     assert.equal(sessionState.error, '')
 
+    await assert.rejects(
+      gateway.listContacts(),
+      error => error?.status === 401 && error?.code === 'authentication_required'
+    )
+    assert.equal(sessionState.status, 'anonymous')
+    assert.equal(sessionState.error, '')
+
     globalThis.fetch = async (path, init = {}) => {
       const method = (init.method || 'GET').toUpperCase()
       if (method === 'POST' && String(path).endsWith('/session')) {

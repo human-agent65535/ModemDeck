@@ -93,6 +93,7 @@ setAuthenticationRequiredHandler(() => {
     sessionInvalidatedDuringTermination = true
     return
   }
+  if (state.status !== 'authenticated') return
   clearSession(translate('auth.sessionExpired'))
 })
 
