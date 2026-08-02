@@ -234,7 +234,6 @@ test('live signal and network changes apply directly without REST request storms
       headers: { 'Content-Type': 'application/json' }
     })
   }
-  const router = { currentRoute: { value: { name: 'dashboard', query: {} } } }
   const capabilities = {
     agent_connected: true,
     dial: true,
@@ -266,8 +265,7 @@ test('live signal and network changes apply directly without REST request storms
   try {
     shutdownRuntimeEvents()
     for (let revision = 0; revision < 40; revision += 1) {
-      acceptRuntimeState(
-        {
+      acceptRuntimeState({
           epoch: 'process-a',
           revision,
           data_revision: 0,
@@ -282,9 +280,7 @@ test('live signal and network changes apply directly without REST request storms
             status: networkStatus(revision),
             proxies: [{ id: 'proxy-1', revision: 1 }]
           }
-        },
-        router
-      )
+        })
     }
     await Promise.resolve()
     await Promise.resolve()
@@ -414,7 +410,7 @@ test('runtime state is global to the authenticated application shell', async () 
   assert.match(client, /RUNTIME_EVENT_INACTIVITY_TIMEOUT_MS = 12_000/)
   assert.match(
     shell,
-    /async function initializeWorkspaceRuntime[\s\S]*?await bootstrap\(\)[\s\S]*?initializeRuntimeEvents\(router\)/
+    /async function initializeWorkspaceRuntime[\s\S]*?await bootstrap\(\)[\s\S]*?initializeRuntimeEvents\(\)/
   )
   assert.match(shell, /shutdownRuntimeEvents\(\)/)
   assert.match(runtime, /acceptRuntimeCommunicationState\(runtime\.communication\)/)
@@ -423,8 +419,8 @@ test('runtime state is global to the authenticated application shell', async () 
     /acceptNetworkSnapshot\([\s\S]*?runtime\.network\.status,[\s\S]*?runtime\.network\.proxies,[\s\S]*?true/
   )
   assert.match(runtime, /acceptRuntimeActiveCalls\(runtime\.calls\)/)
-  assert.match(runtime, /data_revision > lastDataRevision/)
-  assert.match(runtime, /Promise\.allSettled\(\[/)
+  assert.match(runtime, /state\.dataWatermark = `\$\{runtime\.epoch\}:\$\{runtime\.data_revision\}`/)
+  assert.doesNotMatch(runtime, /requestDurableRefresh|Promise\.allSettled\(\[/)
   assert.doesNotMatch(runtime, /ALL_RESOURCES|RuntimeResource|FALLBACK_REFRESH_MS/)
   assert.doesNotMatch(runtime, /loadNetwork|requestActiveCallRefresh/)
 })

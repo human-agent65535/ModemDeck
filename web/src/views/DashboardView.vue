@@ -43,6 +43,7 @@ import SectionSkeleton from '../components/skeletons/SectionSkeleton.vue'
 import WorkspaceDetailSkeleton from '../components/skeletons/WorkspaceDetailSkeleton.vue'
 import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
 import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
+import { useDurablePageRefresh } from '../composables/useDurablePageRefresh'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { useListArrivals } from '../composables/useListArrivals'
 import { useListSelection } from '../composables/useListSelection'
@@ -54,8 +55,8 @@ import { selectDeviceConfiguration } from '../state/deviceConfiguration'
 import { loadNetwork, networkState } from '../state/network'
 import {
   forgetCallRecordings,
-  loadRecordingEntries,
-  recordingCatalogState
+  recordingCatalogState,
+  refreshRecordingWorkspace
 } from '../state/recording'
 import { openDialer } from '../state/ui'
 import CallsView from './CallsView.vue'
@@ -89,6 +90,9 @@ import {
   markThreadsUnread,
   presentModuleLines,
   recentIncomingThreadKeys,
+  refreshCalls,
+  refreshContacts,
+  refreshThreads,
   saveContact,
   setCallsFavorite,
   setThreadsFavorite,
@@ -160,6 +164,15 @@ const selection = useListSelection<DashboardActivity>(activity => activity.key)
 const selecting = selection.active
 const selectionCount = selection.count
 const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
+useDurablePageRefresh(
+  () => Promise.all([
+    refreshCalls(),
+    refreshThreads(),
+    refreshContacts(),
+    refreshRecordingWorkspace(false)
+  ]),
+  { enabled: () => route.name === 'dashboard' }
+)
 const unreadMessages = computed(() =>
   threadsResource.data.reduce(
     (total, thread) =>
@@ -694,11 +707,11 @@ function retryActivities(): void {
 function loadDashboard(): void {
   void waitForInitialLoad([
     () => loadBootstrap(),
-    () => loadCalls(),
-    () => loadThreads(),
-    () => loadContacts(),
+    () => refreshCalls(),
+    () => refreshThreads(),
+    () => refreshContacts(),
     () => loadDevices(),
-    () => loadRecordingEntries(),
+    () => refreshRecordingWorkspace(false),
     () => loadNetwork()
   ])
 }

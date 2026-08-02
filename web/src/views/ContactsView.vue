@@ -34,6 +34,7 @@ import WorkspaceDetailPane from '../components/workspace/WorkspaceDetailPane.vue
 import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
 import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
+import { useDurablePageRefresh } from '../composables/useDurablePageRefresh'
 import { useListArrivals } from '../composables/useListArrivals'
 import { useListSelection } from '../composables/useListSelection'
 import { skeletonPreviewEnabled } from '../composables/useSkeletonPreview'
@@ -54,6 +55,7 @@ import {
   loadBootstrap,
   loadContacts,
   loadMoreContacts,
+  refreshContacts,
   saveContact
 } from '../state/workspace'
 import { phoneDestination, primaryPhone } from '../utils/format'
@@ -75,6 +77,9 @@ const selection = useListSelection<Contact>(contact => contact.id)
 const selecting = selection.active
 const selectionCount = selection.count
 const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
+useDurablePageRefresh(() => refreshContacts(), {
+  enabled: () => route.name === 'contacts'
+})
 const contactArrivals = useListArrivals(
   () => ({
     items: contactsResource.data,
@@ -282,7 +287,7 @@ function preferredLineName(contact: Contact): string {
 
 onMounted(() => {
   window.addEventListener('keydown', onSelectionKeydown)
-  void waitForInitialLoad([() => loadBootstrap(), () => loadContacts()])
+  void waitForInitialLoad([() => loadBootstrap(), () => refreshContacts()])
 })
 
 onBeforeUnmount(() => {

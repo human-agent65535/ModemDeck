@@ -30,6 +30,7 @@ import WorkspaceDetailPane from '../components/workspace/WorkspaceDetailPane.vue
 import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
 import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
+import { useDurablePageRefresh } from '../composables/useDurablePageRefresh'
 import { useListArrivals } from '../composables/useListArrivals'
 import { useListSelection } from '../composables/useListSelection'
 import { skeletonPreviewEnabled } from '../composables/useSkeletonPreview'
@@ -42,6 +43,7 @@ import {
   loadMoreRecordingEntries,
   recordingCatalogPagination,
   recordingCatalogState,
+  refreshRecordingEntries,
   setRecordingsFavorite
 } from '../state/recording'
 import {
@@ -51,7 +53,8 @@ import {
   lineForKey,
   lineKey,
   loadBootstrap,
-  loadContacts
+  loadContacts,
+  refreshContacts
 } from '../state/workspace'
 import { formatDateTime, formatDuration, formatRelativeDate } from '../utils/format'
 import { lineTagFallback, lineTagLine } from '../utils/lineIdentity'
@@ -70,6 +73,13 @@ const selection = useListSelection<RecordingEntry>(recording => recording.id)
 const selecting = selection.active
 const selectionCount = selection.count
 const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
+useDurablePageRefresh(
+  () => Promise.all([
+    refreshRecordingEntries(search.value),
+    refreshContacts()
+  ]),
+  { enabled: () => route.name === 'recordings' }
+)
 const recordingArrivals = useListArrivals(
   () => ({
     items: recordingCatalogState.data,
@@ -360,8 +370,8 @@ onMounted(() => {
   window.addEventListener('keydown', onSelectionKeydown)
   void waitForInitialLoad([
     () => loadBootstrap(),
-    () => loadRecordingEntries(),
-    () => loadContacts()
+    () => refreshRecordingEntries(search.value),
+    () => refreshContacts()
   ])
 })
 

@@ -37,6 +37,7 @@ import WorkspaceDetailPane from '../components/workspace/WorkspaceDetailPane.vue
 import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
 import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
+import { useDurablePageRefresh } from '../composables/useDurablePageRefresh'
 import { useListArrivals } from '../composables/useListArrivals'
 import { useListSelection } from '../composables/useListSelection'
 import { skeletonPreviewEnabled } from '../composables/useSkeletonPreview'
@@ -46,7 +47,8 @@ import { callState } from '../state/call'
 import {
   loadRecordingEntries,
   forgetCallRecordings,
-  recordingCatalogState
+  recordingCatalogState,
+  refreshRecordingWorkspace
 } from '../state/recording'
 import { openDialerAndCall } from '../state/ui'
 import {
@@ -66,6 +68,8 @@ import {
   loadContacts,
   markMissedCallRead,
   markMissedCallUnread,
+  refreshCalls,
+  refreshContacts,
   setCallsFavorite,
   updateMissedCallsReadState
 } from '../state/workspace'
@@ -106,6 +110,14 @@ const selection = useListSelection<CallRecord>(call => call.id)
 const selecting = selection.active
 const selectionCount = selection.count
 const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
+useDurablePageRefresh(
+  () => Promise.all([
+    refreshCalls(),
+    refreshContacts(),
+    refreshRecordingWorkspace(false)
+  ]),
+  { enabled: () => route.name === 'calls' }
+)
 const callArrivals = useListArrivals(
   () => ({
     items: callsResource.data,
@@ -585,12 +597,21 @@ onMounted(() => {
   window.addEventListener('keydown', onSelectionKeydown)
   window.addEventListener('focus', onCallWindowFocus)
   document.addEventListener('visibilitychange', onCallDocumentVisibilityChange)
-  void waitForInitialLoad([
-    () => loadBootstrap(),
-    () => loadCalls(),
-    () => loadContacts(),
-    () => loadRecordingEntries()
-  ])
+  void waitForInitialLoad(
+    embedded.value
+      ? [
+          () => loadBootstrap(),
+          () => loadCalls(),
+          () => loadContacts(),
+          () => loadRecordingEntries()
+        ]
+      : [
+          () => loadBootstrap(),
+          () => refreshCalls(),
+          () => refreshContacts(),
+          () => refreshRecordingWorkspace(false)
+        ]
+  )
 })
 
 onBeforeUnmount(() => {

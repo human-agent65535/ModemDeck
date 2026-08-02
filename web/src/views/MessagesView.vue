@@ -78,6 +78,8 @@ import {
   messagePaginationFor,
   recentIncomingMessageIDs,
   recentIncomingThreadKeys,
+  refreshContacts,
+  refreshMessageWorkspace,
   resolveLine,
   setThreadsFavorite,
   sendMessage,
@@ -159,7 +161,10 @@ const selecting = selection.active
 const selectionCount = selection.count
 const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
 useDurablePageRefresh(
-  () => Promise.all([loadContacts(true), loadThreads(true)]),
+  () => Promise.all([
+    refreshContacts(),
+    refreshMessageWorkspace(selectedKey.value)
+  ]),
   { enabled: () => route.name === 'messages' }
 )
 const threadArrivals = useListArrivals(
@@ -857,11 +862,15 @@ onMounted(() => {
     'visibilitychange',
     onMessageDocumentVisibilityChange
   )
-  void waitForInitialLoad([
-    () => loadBootstrap(),
-    () => loadContacts(true),
-    () => loadThreads(true)
-  ])
+  void waitForInitialLoad(
+    embedded.value
+      ? [() => loadBootstrap(), () => loadContacts(), () => loadThreads()]
+      : [
+          () => loadBootstrap(),
+          () => refreshContacts(),
+          () => refreshMessageWorkspace(selectedKey.value)
+        ]
+  )
   void reconcileRenderedMessages(false)
 })
 

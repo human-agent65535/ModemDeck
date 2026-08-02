@@ -625,12 +625,20 @@ export async function loadMoreRecordingEntries(): Promise<RecordingEntry[] | nul
   }
 }
 
-async function refreshRecordingEntries(): Promise<RecordingEntry[] | null> {
+export async function refreshRecordingEntries(
+  query = recordingCatalogState.query
+): Promise<RecordingEntry[] | null> {
+  const normalizedQuery = query.trim()
+  if (normalizedQuery !== recordingCatalogState.query) {
+    return loadRecordingEntries(normalizedQuery, true)
+  }
   const token = recordingCatalogGeneration
   const pageGeneration = recordingCatalogPagination.generation
-  const query = recordingCatalogState.query
+  const currentQuery = recordingCatalogState.query
   try {
-    const page = await gateway.listRecordings(query ? { q: query } : undefined)
+    const page = await gateway.listRecordings(
+      currentQuery ? { q: currentQuery } : undefined
+    )
     if (
       token !== recordingCatalogGeneration ||
       pageGeneration !== recordingCatalogPagination.generation

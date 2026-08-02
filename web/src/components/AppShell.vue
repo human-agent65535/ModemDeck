@@ -298,7 +298,7 @@ async function initializeWorkspaceRuntime(currentGeneration: number): Promise<vo
       () => !activeCallPresent.value
     )
   }
-  initializeRuntimeEvents(router)
+  initializeRuntimeEvents()
 }
 
 function syncDialerMode(): void {
