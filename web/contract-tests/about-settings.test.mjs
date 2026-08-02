@@ -84,7 +84,7 @@ test('update response rejects an unknown status', async () => {
   }
 })
 
-test('update event stream reports per-container operation state', () => {
+test('runtime event stream reports per-container update state', () => {
   const originalEventSource = globalThis.EventSource
   class FakeEventSource {
     static instances = []
@@ -113,16 +113,22 @@ test('update event stream reports per-container operation state', () => {
 
   try {
     let observed
-    const close = gateway.subscribeSoftwareUpdateEvents({
-      onOperation: operation => {
+    const close = gateway.subscribeRuntimeEvents({
+      onOpen: () => undefined,
+      onHeartbeat: () => undefined,
+      onState: () => undefined,
+      onUpdateOperation: operation => {
         observed = operation
       },
       onError: () => undefined
-    })
-    assert.equal(FakeEventSource.instances[0].url, '/api/v1/updates/events')
+    }, 'operation-1')
+    assert.equal(
+      FakeEventSource.instances[0].url,
+      '/api/v1/runtime/events?update_operation=operation-1'
+    )
     assert.equal(FakeEventSource.instances[0].withCredentials, true)
     FakeEventSource.instances[0].emit(
-      'operation',
+      'update',
       JSON.stringify({
         id: 'operation-1',
         state: 'running',
@@ -227,12 +233,16 @@ test('about panel checks automatically and applies only through the updater', as
   assert.match(panel, /@click="checkForUpdates\(true\)"/)
   assert.match(panel, /:class="\{ spin: checking \}"/)
   assert.match(panel, /gateway\.applySoftwareUpdate\(/)
-  assert.match(panel, /gateway\.subscribeSoftwareUpdateEvents\(/)
-  assert.match(panel, /gateway\.getSoftwareUpdateStatus\(\)/)
-  assert.match(panel, /onError: \(\) => void recoverUpdateOperation\(\)/)
+  assert.match(panel, /setApplicationUpdateNoticeSuppressed\(true\)/)
+  assert.match(
+    panel,
+    /clearApplicationUpdateNotice\(\)[\s\S]*if \(operation\.state === 'succeeded'\) \{[\s\S]*refreshApplication\(\)/
+  )
+  assert.match(panel, /subscribeRuntimeUpdateOperations\(/)
+  assert.match(panel, /monitorRuntimeUpdateOperation\(operation\.id\)/)
+  assert.doesNotMatch(panel, /subscribeSoftwareUpdateEvents|getSoftwareUpdateStatus/)
   assert.doesNotMatch(panel, /operationTimer|setInterval/)
   assert.match(panel, /role="progressbar"/)
-  assert.match(panel, /version: operation\.target_version/)
   assert.match(
     panel,
     /startingUpdate\.value[\s\S]*operation\.target_version !== currentUpdate\?\.latest_version/

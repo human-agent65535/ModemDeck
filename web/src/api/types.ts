@@ -316,11 +316,6 @@ export type UpdateOperation = {
   components?: UpdateOperationComponent[]
 }
 
-export type UpdateEventStreamHandlers = {
-  onOperation: (operation: UpdateOperation) => void
-  onError: (error?: Error) => void
-}
-
 export type UpdateTLSSettingsInput =
   | {
       operation: 'install_user'
@@ -681,6 +676,7 @@ export type RuntimeEventStreamHandlers = {
   onOpen: () => void
   onHeartbeat: (observedAt: string) => void
   onState: (state: RuntimeState) => void
+  onUpdateOperation: (operation: UpdateOperation) => void
   onError: (error?: Error) => void
 }
 

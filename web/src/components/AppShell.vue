@@ -52,8 +52,7 @@ import {
 } from '../state/runtimeEvents'
 import { sessionState } from '../state/session'
 import {
-  initializeApplicationVersionChecks,
-  requestApplicationVersionCheck
+  initializeApplicationVersionChecks
 } from '../state/staleAssetRecovery'
 import { openDialer, showCallSurface, uiState } from '../state/ui'
 import {
@@ -275,10 +274,6 @@ watch(
   }
 )
 
-watch(activeCallPresent, active => {
-  if (!active) requestApplicationVersionCheck()
-})
-
 watch(
   () => route.fullPath,
   () => {
@@ -296,8 +291,7 @@ async function initializeWorkspaceRuntime(currentGeneration: number): Promise<vo
   if (!fixtureMode && !import.meta.env.DEV) {
     stopApplicationVersionChecks = initializeApplicationVersionChecks(
       window,
-      document,
-      () => !activeCallPresent.value
+      document
     )
   }
   initializeRuntimeEvents()

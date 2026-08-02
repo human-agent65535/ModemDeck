@@ -88,7 +88,10 @@ export default {
     "notificationsRequesting": "ブラウザ通知許可のリクエスト",
     "notificationsDisable": "メッセージと通話の通知を無効にする",
     "notificationsDenied": "通知はブロックされています。ブラウザの設定で許可してください。",
-    "notificationsEnable": "メッセージと通話の通知を有効にする"
+    "notificationsEnable": "メッセージと通話の通知を有効にする",
+    "applicationUpdateReady": "ModemDeck {version} 準備完了",
+    "applicationUpdateReadyDuringCall": "ModemDeck {version} 準備完了 · 通話中",
+    "refreshApplication": "再読み込み"
   },
   "incomingCallMode": {
     "settings": "着信設定",

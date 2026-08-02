@@ -20,6 +20,9 @@ func testDistribution() fs.FS {
 		"favicon.svg": {
 			Data: []byte("<svg></svg>"),
 		},
+		"modemdeck-build.json": {
+			Data: []byte(`{"version":"v1.8.6"}`),
+		},
 	}
 }
 
@@ -33,17 +36,17 @@ func TestHandlerSetsDeploymentSafeCachePolicies(t *testing.T) {
 		wantBodyText string
 	}{
 		{
-			name:         "unversioned entry redirects",
+			name:         "entry document",
 			target:       "/",
-			wantStatus:   http.StatusTemporaryRedirect,
-			wantCache:    "no-store",
-			wantBodyText: "Temporary Redirect",
+			wantStatus:   http.StatusOK,
+			wantCache:    "no-cache",
+			wantBodyText: "ModemDeck",
 		},
 		{
-			name:         "versioned entry document",
-			target:       "/?v=v1.8.6",
+			name:         "entry query does not control caching",
+			target:       "/?compose=1",
 			wantStatus:   http.StatusOK,
-			wantCache:    "public, max-age=31536000, immutable",
+			wantCache:    "no-cache",
 			wantBodyText: "ModemDeck",
 		},
 		{
@@ -62,10 +65,17 @@ func TestHandlerSetsDeploymentSafeCachePolicies(t *testing.T) {
 		},
 		{
 			name:         "history fallback",
-			target:       "/settings/account?v=v1.8.6",
+			target:       "/settings/account",
 			wantStatus:   http.StatusOK,
-			wantCache:    "public, max-age=31536000, immutable",
+			wantCache:    "no-cache",
 			wantBodyText: "ModemDeck",
+		},
+		{
+			name:         "build identity",
+			target:       "/modemdeck-build.json",
+			wantStatus:   http.StatusOK,
+			wantCache:    "no-cache",
+			wantBodyText: "v1.8.6",
 		},
 		{
 			name:         "missing non-script asset",
@@ -96,60 +106,65 @@ func TestHandlerSetsDeploymentSafeCachePolicies(t *testing.T) {
 	}
 }
 
-func TestHandlerRedirectsStaleEntryToCurrentVersion(t *testing.T) {
+func TestHandlerKeepsApplicationVersionOutOfEntryURL(t *testing.T) {
 	handler := Handler(testDistribution(), "v1.8.6")
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(
 		http.MethodGet,
-		"/?compose=1&v=v1.8.5",
+		"/?compose=1&source=call",
 		nil,
 	)
 
 	handler.ServeHTTP(response, request)
 
-	if response.Code != http.StatusTemporaryRedirect {
-		t.Fatalf("status = %d, want %d", response.Code, http.StatusTemporaryRedirect)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
 	}
-	if location := response.Header().Get("Location"); location != "/?compose=1&v=v1.8.6" {
-		t.Fatalf("Location = %q", location)
+	if location := response.Header().Get("Location"); location != "" {
+		t.Fatalf("Location = %q, want empty", location)
 	}
 	if cache := response.Header().Get("Cloudflare-CDN-Cache-Control"); cache != "no-store" {
 		t.Fatalf("Cloudflare-CDN-Cache-Control = %q, want no-store", cache)
 	}
 }
 
-func TestHandlerAllowsLegacyCSSPreloadToReachJavaScriptRecovery(t *testing.T) {
+func TestHandlerPreventsEdgeCachingVersionSources(t *testing.T) {
+	handler := Handler(testDistribution(), "v1.8.6")
+	for _, target := range []string{"/", "/modemdeck-build.json"} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(
+			response,
+			httptest.NewRequest(http.MethodGet, target, nil),
+		)
+		if response.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want %d", target, response.Code, http.StatusOK)
+		}
+		if cache := response.Header().Get("Cloudflare-CDN-Cache-Control"); cache != "no-store" {
+			t.Fatalf("%s Cloudflare-CDN-Cache-Control = %q, want no-store", target, cache)
+		}
+	}
+}
+
+func TestHandlerAllowsMissingCSSPreloadToReachJavaScriptRecovery(t *testing.T) {
 	handler := Handler(testDistribution(), "v1.8.6")
 
-	legacyResponse := httptest.NewRecorder()
-	legacyRequest := httptest.NewRequest(
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(
 		http.MethodGet,
 		"/assets/CallsView-removed.css",
 		nil,
 	)
-	legacyRequest.Header.Set("Referer", "https://modemdeck.test/?v=v1.8.5#/calls")
-	handler.ServeHTTP(legacyResponse, legacyRequest)
+	request.Header.Set("Referer", "https://modemdeck.test/calls")
+	handler.ServeHTTP(response, request)
 
-	if legacyResponse.Code != http.StatusOK {
-		t.Fatalf("legacy status = %d, want %d", legacyResponse.Code, http.StatusOK)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
 	}
-	if contentType := legacyResponse.Header().Get("Content-Type"); contentType != "text/css; charset=utf-8" {
-		t.Fatalf("legacy Content-Type = %q", contentType)
+	if contentType := response.Header().Get("Content-Type"); contentType != "text/css; charset=utf-8" {
+		t.Fatalf("Content-Type = %q", contentType)
 	}
-	if legacyResponse.Body.Len() != 0 {
-		t.Fatalf("legacy body length = %d, want 0", legacyResponse.Body.Len())
-	}
-
-	currentResponse := httptest.NewRecorder()
-	currentRequest := httptest.NewRequest(
-		http.MethodGet,
-		"/assets/CallsView-removed.css",
-		nil,
-	)
-	currentRequest.Header.Set("Referer", "https://modemdeck.test/?v=v1.8.6#/calls")
-	handler.ServeHTTP(currentResponse, currentRequest)
-	if currentResponse.Code != http.StatusNotFound {
-		t.Fatalf("current status = %d, want %d", currentResponse.Code, http.StatusNotFound)
+	if response.Body.Len() != 0 {
+		t.Fatalf("body length = %d, want 0", response.Body.Len())
 	}
 }
 
@@ -171,14 +186,18 @@ func TestHandlerRecoversRequestsForRemovedJavaScriptChunks(t *testing.T) {
 	}
 	body := response.Body.String()
 	for _, expected := range []string{
-		`const v="v1.8.6"`,
-		`searchParams.get("v")!==v`,
-		`searchParams.set("v",v)`,
-		"location.replace",
+		`globalThis.dispatchEvent`,
+		`new CustomEvent("modemdeck:update-ready"`,
+		`version:"v1.8.6"`,
 		"export{}",
 	} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("recovery module %q does not contain %q", body, expected)
+		}
+	}
+	for _, forbidden := range []string{"searchParams", "location.reload", "location.replace"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("recovery module %q unexpectedly contains %q", body, forbidden)
 		}
 	}
 

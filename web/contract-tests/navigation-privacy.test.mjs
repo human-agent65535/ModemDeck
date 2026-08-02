@@ -55,7 +55,6 @@ test('the app uses clean history routes and a geometry-stable auth transition', 
   assert.match(router, /createWebHistory\(\)/)
   assert.doesNotMatch(router, /createWebHashHistory/)
   assert.match(router, /path: 'messages\/:threadRef\?'/)
-  assert.match(main, /hideApplicationVersion\(\)/)
   assert.match(app, /<Transition name="application-surface">/)
   assert.match(
     app,

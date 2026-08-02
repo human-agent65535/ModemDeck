@@ -1,30 +1,24 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 import {
+  announceApplicationUpdate,
+  applicationUpdateState,
   checkForApplicationUpdate,
-  hideApplicationVersion,
+  clearApplicationUpdateNotice,
   initializeApplicationVersionChecks,
   installStaleAssetRecovery,
   readServerVersion,
   recoverAfterStaleAsset,
-  switchApplicationVersion,
-  unversionedEntryURL,
-  versionedEntryURL
+  refreshApplication,
+  setApplicationUpdateNoticeSuppressed
 } from '../src/state/staleAssetRecovery.ts'
 
-function recoveryFixture(href = 'https://modemdeck.test/calls') {
-  const values = new Map()
+function recoveryFixture() {
   const windowListeners = new Map()
   const documentListeners = new Map()
-  const replacements = []
-  const location = {
-    href,
-    replace(value) {
-      replacements.push(value)
-      location.href = value
-    }
-  }
+  let reloads = 0
 
   return {
     document: {
@@ -36,28 +30,17 @@ function recoveryFixture(href = 'https://modemdeck.test/calls') {
         if (documentListeners.get(name) === listener) documentListeners.delete(name)
       }
     },
+    location: {
+      reload() {
+        reloads += 1
+      }
+    },
     target: {
       addEventListener(name, listener) {
         windowListeners.set(name, listener)
       },
       removeEventListener(name, listener) {
         if (windowListeners.get(name) === listener) windowListeners.delete(name)
-      },
-      location,
-      sessionStorage: {
-        getItem(key) {
-          return values.get(key) ?? null
-        },
-        setItem(key, value) {
-          values.set(key, value)
-        }
-      },
-      history: {
-        state: { fixture: true },
-        replaceState(state, _title, value) {
-          this.state = state
-          location.href = String(value)
-        }
       }
     },
     documentListener(name) {
@@ -66,7 +49,9 @@ function recoveryFixture(href = 'https://modemdeck.test/calls') {
     listener(name) {
       return windowListeners.get(name)
     },
-    replacements
+    reloads() {
+      return reloads
+    }
   }
 }
 
@@ -75,71 +60,38 @@ async function settle() {
   await Promise.resolve()
 }
 
-test('versioned entry URL preserves the active SPA route and other query values', () => {
-  assert.equal(
-    versionedEntryURL(
-      'https://modemdeck.test/settings/users?source=home&user=1',
-      'v1.8.6'
-    ),
-    'https://modemdeck.test/settings/users?source=home&user=1&v=v1.8.6'
-  )
-})
-
-test('the cache-switch version is removed after the new entry has loaded', () => {
-  assert.equal(
-    unversionedEntryURL(
-      'https://modemdeck.test/messages/m_1234567890abcdef?filter=unread&v=v1.8.6'
-    ),
-    'https://modemdeck.test/messages/m_1234567890abcdef?filter=unread'
-  )
-  const fixture = recoveryFixture(
-    'https://modemdeck.test/calls?v=v1.8.6'
-  )
-  assert.equal(hideApplicationVersion(fixture.target), true)
-  assert.equal(fixture.target.location.href, 'https://modemdeck.test/calls')
-  assert.deepEqual(fixture.target.history.state, { fixture: true })
-  assert.equal(hideApplicationVersion(fixture.target), false)
-})
-
-test('application version switches at most once for each build transition', () => {
+test('a version mismatch publishes a persistent update notice without navigating', async () => {
   const fixture = recoveryFixture()
 
   assert.equal(
-    switchApplicationVersion(fixture.target, 'v1.8.5', 'v1.8.6'),
+    await checkForApplicationUpdate('v1.8.5', async () => 'v1.8.6'),
     true
   )
-  assert.deepEqual(fixture.replacements, [
-    'https://modemdeck.test/calls?v=v1.8.6'
-  ])
-  assert.equal(
-    switchApplicationVersion(fixture.target, 'v1.8.5', 'v1.8.6'),
-    false
-  )
-  assert.equal(fixture.replacements.length, 1)
-
-  assert.equal(
-    switchApplicationVersion(fixture.target, 'v1.8.6', 'v1.8.7'),
-    true
-  )
-  assert.equal(fixture.replacements.length, 2)
+  assert.equal(applicationUpdateState.available, true)
+  assert.equal(applicationUpdateState.currentVersion, 'v1.8.5')
+  assert.equal(applicationUpdateState.serverVersion, 'v1.8.6')
+  assert.equal(fixture.reloads(), 0)
 })
 
-test('storage failure permits a cache-key change but never reloads the same entry', () => {
-  const fixture = recoveryFixture()
-  fixture.target.sessionStorage.getItem = () => {
-    throw new Error('storage unavailable')
-  }
+test('a matching client and server do not announce an update', () => {
+  assert.equal(announceApplicationUpdate('v1.8.6', 'v1.8.6'), false)
+})
 
-  assert.equal(
-    switchApplicationVersion(fixture.target, 'v1.8.5', 'v1.8.6'),
-    true
-  )
-  assert.equal(fixture.replacements.length, 1)
-  assert.equal(
-    switchApplicationVersion(fixture.target, 'v1.8.5', 'v1.8.6'),
-    false
-  )
-  assert.equal(fixture.replacements.length, 1)
+test('the application reloads only after an explicit refresh action', () => {
+  const fixture = recoveryFixture()
+  refreshApplication(fixture.location)
+  assert.equal(fixture.reloads(), 1)
+})
+
+test('an administrator-initiated update defers the global refresh notice', () => {
+  setApplicationUpdateNoticeSuppressed(true)
+  assert.equal(announceApplicationUpdate('v1.8.8', 'v1.8.9'), true)
+  assert.equal(applicationUpdateState.available, false)
+
+  setApplicationUpdateNoticeSuppressed(false)
+  assert.equal(applicationUpdateState.available, true)
+  assert.equal(applicationUpdateState.serverVersion, 'v1.8.9')
+  clearApplicationUpdateNotice()
 })
 
 test('Web build endpoint returns the container version as the build identity', async () => {
@@ -160,21 +112,17 @@ test('Web build endpoint returns the container version as the build identity', a
   assert.equal(request.options.credentials, 'same-origin')
 })
 
-test('failed version checks keep the usable page instead of navigating offline', async () => {
+test('failed version checks keep the usable page without reloading it', async () => {
   const fixture = recoveryFixture()
-  const recovered = await recoverAfterStaleAsset(
-    fixture.target,
-    'v1.8.5',
-    async () => {
-      throw new Error('offline')
-    }
-  )
+  const recovered = await recoverAfterStaleAsset('v1.8.5', async () => {
+    throw new Error('offline')
+  })
 
   assert.equal(recovered, false)
-  assert.equal(fixture.replacements.length, 0)
+  assert.equal(fixture.reloads(), 0)
 })
 
-test('Vite preload failures verify the server version and replace once', async () => {
+test('Vite preload failures publish a refresh notice instead of navigating', async () => {
   const fixture = recoveryFixture()
   installStaleAssetRecovery(fixture.target, 'v1.8.5', async () => 'v1.8.6')
 
@@ -189,60 +137,66 @@ test('Vite preload failures verify the server version and replace once', async (
   })
 
   assert.equal(prevented, true)
-  assert.equal(fixture.replacements.length, 1)
-
-  await listener({ preventDefault() {} })
-  assert.equal(fixture.replacements.length, 1)
+  assert.equal(applicationUpdateState.serverVersion, 'v1.8.6')
+  assert.equal(fixture.reloads(), 0)
 })
 
-test('lifecycle checks defer during a call and switch when the page is safe', async () => {
+test('the missing-chunk recovery module can publish the current server version', () => {
   const fixture = recoveryFixture()
-  let safe = false
+  installStaleAssetRecovery(fixture.target, 'v1.8.5')
+
+  fixture.listener('modemdeck:update-ready')({
+    detail: { version: 'v1.8.7' }
+  })
+
+  assert.equal(applicationUpdateState.currentVersion, 'v1.8.5')
+  assert.equal(applicationUpdateState.serverVersion, 'v1.8.7')
+  assert.equal(fixture.reloads(), 0)
+})
+
+test('lifecycle checks announce an update without waiting for call state', async () => {
+  const fixture = recoveryFixture()
   const stop = initializeApplicationVersionChecks(
     fixture.target,
     fixture.document,
-    () => safe,
     'v1.8.5',
-    async () => 'v1.8.6'
+    async () => 'v1.8.8'
   )
 
   await settle()
-  assert.equal(fixture.replacements.length, 0)
+  assert.equal(applicationUpdateState.serverVersion, 'v1.8.8')
+  assert.equal(fixture.reloads(), 0)
 
-  safe = true
   fixture.listener('pageshow')()
   await settle()
-  assert.equal(fixture.replacements.length, 1)
+  assert.equal(fixture.reloads(), 0)
 
   stop()
   assert.equal(fixture.listener('pageshow'), undefined)
   assert.equal(fixture.documentListener('visibilitychange'), undefined)
 })
 
-test('proactive checks do nothing when the client already matches the server', async () => {
-  const fixture = recoveryFixture('https://modemdeck.test/?v=v1.8.6')
-  assert.equal(
-    await checkForApplicationUpdate(
-      fixture.target,
-      'v1.8.6',
-      async () => 'v1.8.6'
+test('the shell renders one global call-aware refresh bar', async () => {
+  const [app, bar, main, recovery] = await Promise.all([
+    readFile(new URL('../src/App.vue', import.meta.url), 'utf8'),
+    readFile(
+      new URL('../src/components/ApplicationUpdateBar.vue', import.meta.url),
+      'utf8'
     ),
-    false
-  )
-  assert.equal(fixture.replacements.length, 0)
-})
-
-test('proactive checks add the version cache key to an unversioned entry', async () => {
-  const fixture = recoveryFixture()
-  assert.equal(
-    await checkForApplicationUpdate(
-      fixture.target,
-      'v1.8.6',
-      async () => 'v1.8.6'
-    ),
-    true
-  )
-  assert.deepEqual(fixture.replacements, [
-    'https://modemdeck.test/calls?v=v1.8.6'
+    readFile(new URL('../src/main.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/state/staleAssetRecovery.ts', import.meta.url), 'utf8')
   ])
+
+  assert.match(app, /<ApplicationUpdateBar \/>/)
+  assert.match(bar, /applicationUpdateState\.available/)
+  assert.match(
+    bar,
+    /isLiveCallSession\(session\) && session\.control_state === 'owned'/
+  )
+  assert.match(bar, /applicationUpdateReadyDuringCall/)
+  assert.match(bar, /@click="refreshApplication\(\)"/)
+  assert.match(bar, /white-space: nowrap/)
+  assert.match(bar, /prefers-reduced-motion: reduce/)
+  assert.doesNotMatch(main, /if \(!import\.meta\.env\.DEV && \(await checkForApplicationUpdate\(\)\)\) return/)
+  assert.doesNotMatch(recovery, /searchParams|location\.replace/)
 })

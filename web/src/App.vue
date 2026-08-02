@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ApplicationUpdateBar from './components/ApplicationUpdateBar.vue'
 import ConfirmationDialog from './components/ConfirmationDialog.vue'
 import FeedbackHost from './components/FeedbackHost.vue'
 </script>
@@ -12,6 +13,7 @@ import FeedbackHost from './components/FeedbackHost.vue'
       />
     </Transition>
   </RouterView>
+  <ApplicationUpdateBar />
   <ConfirmationDialog />
   <FeedbackHost />
 </template>

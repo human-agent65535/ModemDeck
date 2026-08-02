@@ -88,7 +88,10 @@ export default {
     notificationsRequesting: '正在請求瀏覽器通知許可權',
     notificationsDisable: '關閉簡訊與來電通知',
     notificationsDenied: '通知已被瀏覽器阻止，請在瀏覽器設定中允許',
-    notificationsEnable: '啟用簡訊與來電通知'
+    notificationsEnable: '啟用簡訊與來電通知',
+    applicationUpdateReady: 'ModemDeck {version} 已就緒',
+    applicationUpdateReadyDuringCall: 'ModemDeck {version} 已就緒 · 通話中',
+    refreshApplication: '重新整理'
   },
   incomingCallMode: {
     settings: '來電設定',

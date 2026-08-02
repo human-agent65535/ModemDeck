@@ -88,7 +88,10 @@ export default {
     "notificationsRequesting": "Demander l'autorisation de notification du navigateur",
     "notificationsDisable": "Désactiver les notifications de messages et d'appels",
     "notificationsDenied": "Les notifications sont bloquées. Autorisez-les dans les paramètres du navigateur.",
-    "notificationsEnable": "Activer les notifications de messages et d'appels"
+    "notificationsEnable": "Activer les notifications de messages et d'appels",
+    "applicationUpdateReady": "ModemDeck {version} prêt",
+    "applicationUpdateReadyDuringCall": "ModemDeck {version} prêt · Appel en cours",
+    "refreshApplication": "Actualiser"
   },
   "incomingCallMode": {
     "settings": "Paramètres des appels entrants",

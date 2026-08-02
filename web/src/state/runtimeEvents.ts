@@ -1,11 +1,14 @@
 import { reactive, readonly } from 'vue'
-import { fixtureMode, gateway } from '../api/client'
-import type { RuntimeState } from '../api/types'
+import { gateway } from '../api/client'
+import type { RuntimeState, UpdateOperation } from '../api/types'
 import { acceptRuntimeActiveCalls } from './call'
 import { refreshUnconfirmedDeviceConfigurations } from './deviceConfiguration'
 import { acceptNetworkSnapshot } from './network'
 import { acceptRuntimeCallRecordings } from './recording'
-import { requestApplicationVersionCheck } from './staleAssetRecovery'
+import {
+  requestApplicationVersionCheck,
+  setApplicationUpdateNoticeSuppressed
+} from './staleAssetRecovery'
 import { acceptRuntimeCommunicationState } from './workspace'
 
 const state = reactive({
@@ -24,6 +27,8 @@ let lastEpoch = ''
 let lastRevision = -1
 let lastCommunication = ''
 let lastCalls = ''
+let monitoredUpdateOperationID = ''
+const updateOperationListeners = new Set<(operation: UpdateOperation) => void>()
 
 export const runtimeEventState = readonly(state)
 
@@ -74,9 +79,7 @@ export function acceptRuntimeState(runtime: RuntimeState): void {
   if (!wasInitialized || processChanged) requestApplicationVersionCheck()
 }
 
-export function initializeRuntimeEvents(): void {
-  if (closeStream || fixtureMode) return
-
+function openRuntimeEvents(): void {
   generation += 1
   const currentGeneration = generation
   closeStream = gateway.subscribeRuntimeEvents({
@@ -93,17 +96,57 @@ export function initializeRuntimeEvents(): void {
       if (currentGeneration !== generation) return
       acceptRuntimeState(runtime)
     },
+    onUpdateOperation: operation => {
+      if (currentGeneration !== generation) return
+      for (const listener of updateOperationListeners) listener(operation)
+      if (
+        operation.id === monitoredUpdateOperationID &&
+        (operation.state === 'succeeded' || operation.state === 'failed')
+      ) {
+        monitorRuntimeUpdateOperation()
+      }
+    },
     onError: () => {
       if (currentGeneration !== generation) return
       state.connected = false
     }
-  })
+  }, monitoredUpdateOperationID)
+}
+
+export function initializeRuntimeEvents(): void {
+  if (closeStream) return
+  openRuntimeEvents()
+}
+
+export function monitorRuntimeUpdateOperation(operationID = ''): void {
+  const normalizedOperationID = operationID.trim()
+  if (normalizedOperationID === monitoredUpdateOperationID) {
+    setApplicationUpdateNoticeSuppressed(Boolean(normalizedOperationID))
+    return
+  }
+  monitoredUpdateOperationID = normalizedOperationID
+  setApplicationUpdateNoticeSuppressed(Boolean(normalizedOperationID))
+  if (!closeStream) return
+  generation += 1
+  closeStream()
+  closeStream = undefined
+  openRuntimeEvents()
+}
+
+export function subscribeRuntimeUpdateOperations(
+  listener: (operation: UpdateOperation) => void
+): () => void {
+  updateOperationListeners.add(listener)
+  return () => updateOperationListeners.delete(listener)
 }
 
 export function shutdownRuntimeEvents(): void {
   generation += 1
   closeStream?.()
   closeStream = undefined
+  monitoredUpdateOperationID = ''
+  setApplicationUpdateNoticeSuppressed(false)
+  updateOperationListeners.clear()
   initialized = false
   lastEpoch = ''
   lastRevision = -1

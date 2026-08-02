@@ -5,12 +5,9 @@ import (
 	"io/fs"
 	"mime"
 	"net/http"
-	"net/url"
 	"path"
 	"strings"
 )
-
-const versionQueryParameter = "v"
 
 func Embedded(applicationVersion string) http.Handler {
 	distribution, err := fs.Sub(embedded, "dist")
@@ -36,7 +33,7 @@ func Handler(distribution fs.FS, applicationVersion string) http.Handler {
 			name = "index.html"
 		}
 		if name == "index.html" {
-			serveEntryDocument(response, request, distribution, applicationVersion)
+			serveEntryDocument(response, request, distribution)
 			return
 		}
 		if fs.ValidPath(name) {
@@ -47,8 +44,7 @@ func Handler(distribution fs.FS, applicationVersion string) http.Handler {
 			}
 		}
 		if (request.Method == http.MethodGet || request.Method == http.MethodHead) &&
-			strings.HasPrefix(name, "assets/") &&
-			!requestUsesCurrentVersion(request, applicationVersion) {
+			strings.HasPrefix(name, "assets/") {
 			response.Header().Set("Cache-Control", "no-store")
 			switch path.Ext(name) {
 			case ".js":
@@ -71,7 +67,7 @@ func Handler(distribution fs.FS, applicationVersion string) http.Handler {
 			http.NotFound(response, request)
 			return
 		}
-		serveEntryDocument(response, request, distribution, applicationVersion)
+		serveEntryDocument(response, request, distribution)
 	})
 }
 
@@ -81,6 +77,9 @@ func setCachePolicy(response http.ResponseWriter, name string) {
 		response.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	default:
 		response.Header().Set("Cache-Control", "no-cache")
+		if name == "modemdeck-build.json" {
+			response.Header().Set("Cloudflare-CDN-Cache-Control", "no-store")
+		}
 	}
 }
 
@@ -88,25 +87,14 @@ func serveEntryDocument(
 	response http.ResponseWriter,
 	request *http.Request,
 	distribution fs.FS,
-	applicationVersion string,
 ) {
 	if request.Method != http.MethodGet && request.Method != http.MethodHead {
 		response.Header().Set("Allow", http.MethodGet+", "+http.MethodHead)
 		http.Error(response, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
 	}
-	if request.URL.Query().Get(versionQueryParameter) != applicationVersion {
-		target := *request.URL
-		query := target.Query()
-		query.Set(versionQueryParameter, applicationVersion)
-		target.RawQuery = query.Encode()
-		response.Header().Set("Cache-Control", "no-store")
-		response.Header().Set("Cloudflare-CDN-Cache-Control", "no-store")
-		http.Redirect(response, request, target.String(), http.StatusTemporaryRedirect)
-		return
-	}
-
-	response.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	response.Header().Set("Cache-Control", "no-cache")
+	response.Header().Set("Cloudflare-CDN-Cache-Control", "no-store")
 	response.Header().Set("Content-Type", mime.TypeByExtension(".html"))
 	contents, err := fs.ReadFile(distribution, "index.html")
 	if err != nil {
@@ -128,17 +116,5 @@ func normalizedVersion(value string) string {
 
 func staleAssetRecoveryModule(applicationVersion string) string {
 	encodedVersion, _ := json.Marshal(applicationVersion)
-	return `const v=` + string(encodedVersion) + `,u=new URL(globalThis.location.href);if(u.searchParams.get("v")!==v){u.searchParams.set("v",v);globalThis.location.replace(u.toString())}export{}`
-}
-
-func requestUsesCurrentVersion(request *http.Request, applicationVersion string) bool {
-	referrer := strings.TrimSpace(request.Referer())
-	if referrer == "" {
-		return false
-	}
-	entry, err := url.Parse(referrer)
-	if err != nil {
-		return false
-	}
-	return entry.Query().Get(versionQueryParameter) == applicationVersion
+	return `globalThis.dispatchEvent(new CustomEvent("modemdeck:update-ready",{detail:{version:` + string(encodedVersion) + `}}));export{}`
 }

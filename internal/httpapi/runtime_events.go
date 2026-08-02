@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,10 +13,16 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/networkruntime"
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
+	"github.com/human-agent65535/modemdeck/internal/updatecheck"
 )
 
-const runtimeHeartbeatInterval = 5 * time.Second
-const runtimeStateBuildTimeout = 5 * time.Second
+const (
+	runtimeHeartbeatInterval    = 5 * time.Second
+	runtimeStateBuildTimeout    = 5 * time.Second
+	runtimeUpdatePollInterval   = 750 * time.Millisecond
+	runtimeUpdateStatusTimeout  = 3 * time.Second
+	runtimeUpdateOperationIDMax = 128
+)
 
 type runtimeCommunicationState struct {
 	Capabilities Capabilities          `json:"capabilities"`
@@ -81,6 +89,10 @@ func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.R
 		return
 	}
 	defer release()
+	expectedUpdateID := strings.TrimSpace(request.URL.Query().Get("update_operation"))
+	if len(expectedUpdateID) > runtimeUpdateOperationIDMax {
+		expectedUpdateID = ""
+	}
 
 	current, updates, cancel := api.runtimeEvents.Subscribe()
 	defer cancel()
@@ -108,6 +120,66 @@ func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.R
 	}
 	lastWrite := time.Now()
 
+	var previousUpdate updatecheck.Operation
+	hasPreviousUpdate := false
+	var updateTicker *time.Ticker
+	var updateTicks <-chan time.Time
+	stopUpdateMonitoring := func() {
+		if updateTicker != nil {
+			updateTicker.Stop()
+		}
+		updateTicker = nil
+		updateTicks = nil
+	}
+	defer stopUpdateMonitoring()
+	writeCurrentUpdate := func() (bool, bool, bool) {
+		if api.updateManager == nil || expectedUpdateID == "" ||
+			(scoped && !principal.IsAdmin()) {
+			return true, false, true
+		}
+		ctx, cancel := context.WithTimeout(request.Context(), runtimeUpdateStatusTimeout)
+		defer cancel()
+		operation, err := api.updateManager.Status(ctx)
+		if err != nil || operation.ID != expectedUpdateID {
+			return true, false, false
+		}
+		terminal := operation.State == updatecheck.OperationSucceeded ||
+			operation.State == updatecheck.OperationFailed
+		if hasPreviousUpdate && reflect.DeepEqual(previousUpdate, operation) {
+			return true, false, terminal
+		}
+		if !writeSSE(response, flusher, "update", operation) {
+			return false, false, terminal
+		}
+		previousUpdate = operation
+		hasPreviousUpdate = true
+		return true, true, terminal
+	}
+	syncUpdateMonitoring := func() bool {
+		if api.updateManager == nil || expectedUpdateID == "" ||
+			(scoped && !principal.IsAdmin()) {
+			stopUpdateMonitoring()
+			return true
+		}
+		ok, wrote, terminal := writeCurrentUpdate()
+		if !ok {
+			return false
+		}
+		if wrote {
+			lastWrite = time.Now()
+		}
+		if terminal {
+			stopUpdateMonitoring()
+		} else if updateTicker == nil {
+			updateTicker = time.NewTicker(runtimeUpdatePollInterval)
+			updateTicks = updateTicker.C
+		}
+		return true
+	}
+	if !syncUpdateMonitoring() {
+		return
+	}
+
 	heartbeat := time.NewTicker(runtimeHeartbeatInterval)
 	defer heartbeat.Stop()
 	authentication := time.NewTicker(api.streamAuthInterval)
@@ -133,6 +205,17 @@ func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.R
 				return
 			}
 			lastWrite = time.Now()
+		case <-updateTicks:
+			ok, wrote, terminal := writeCurrentUpdate()
+			if !ok {
+				return
+			}
+			if wrote {
+				lastWrite = time.Now()
+			}
+			if terminal {
+				stopUpdateMonitoring()
+			}
 		case <-authentication.C:
 			refreshedPrincipal, refreshedScoped, err := api.currentStreamAccess(request, false)
 			if err != nil {
@@ -155,6 +238,9 @@ func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.R
 				return
 			}
 			lastWrite = time.Now()
+			if !syncUpdateMonitoring() {
+				return
+			}
 		case observedAt := <-heartbeat.C:
 			if time.Since(lastWrite) < runtimeHeartbeatInterval {
 				continue

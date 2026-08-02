@@ -21,6 +21,8 @@ var defaultEventStreamLimitPolicy = eventStreamLimitPolicy{
 	global:     eventStreamMaximumConnectionsGlobal,
 }
 
+// OTA restarts can leave application-wide streams draining while the browser
+// reconnects, so every stream shares the same per-session and global bound.
 type eventStreamLimiter struct {
 	mu       sync.Mutex
 	policy   eventStreamLimitPolicy

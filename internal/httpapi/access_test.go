@@ -211,7 +211,6 @@ func TestAdminOnlyRoutesExcludeLineOwnedConfiguration(t *testing.T) {
 		{"/api/v1/updates/check", http.MethodGet},
 		{"/api/v1/updates/apply", http.MethodPost},
 		{"/api/v1/updates/status", http.MethodGet},
-		{"/api/v1/updates/events", http.MethodGet},
 		{"/api/v1/external-access/status", http.MethodGet},
 		{"/api/v1/external-access/refresh", http.MethodPost},
 		{"/api/v1/external-access/origin-tls", http.MethodPut},

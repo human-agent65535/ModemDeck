@@ -88,7 +88,10 @@ export default {
     "notificationsRequesting": "Bitte um Erlaubnis zur Browser-Benachrichtigung anfordern",
     "notificationsDisable": "Deaktivieren Sie Nachrichten- und Anrufbenachrichtigungen",
     "notificationsDenied": "Benachrichtigungen sind blockiert. Erlauben Sie sie in den Browsereinstellungen.",
-    "notificationsEnable": "Aktivieren Sie Nachrichten- und Anrufbenachrichtigungen"
+    "notificationsEnable": "Aktivieren Sie Nachrichten- und Anrufbenachrichtigungen",
+    "applicationUpdateReady": "ModemDeck {version} ist bereit",
+    "applicationUpdateReadyDuringCall": "ModemDeck {version} ist bereit · Anruf aktiv",
+    "refreshApplication": "Aktualisieren"
   },
   "incomingCallMode": {
     "settings": "Einstellungen für eingehende Anrufe",

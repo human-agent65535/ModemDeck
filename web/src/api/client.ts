@@ -159,7 +159,6 @@ import type {
   UpdateCheck,
   UpdateComponent,
   UpdateComponentName,
-  UpdateEventStreamHandlers,
   UpdateOperation,
   UpdateOperationComponent,
   UpdateOperationComponentState,
@@ -188,7 +187,6 @@ const NETWORK_SCAN_REQUEST_TIMEOUT_MS = 130_000
 const CALL_LEASE_REQUEST_TIMEOUT_MS = 4_000
 const MESSAGE_EVENT_INACTIVITY_TIMEOUT_MS = 40_000
 const RUNTIME_EVENT_INACTIVITY_TIMEOUT_MS = 12_000
-const UPDATE_EVENT_INACTIVITY_TIMEOUT_MS = 40_000
 const RUNTIME_STATE_COALESCE_MS = 50
 
 const runtimeEnvironment = import.meta.env
@@ -1266,43 +1264,6 @@ const realGateway: ConfiguredModemDeckGateway = {
     return parseUpdateOperation(await get(`${API_ROOT}/updates/status`))
   },
 
-  subscribeSoftwareUpdateEvents(handlers: UpdateEventStreamHandlers): () => void {
-    return subscribeEventSource(
-      `${API_ROOT}/updates/events`,
-      {
-        onOpen: () => undefined,
-        onError: handlers.onError
-      },
-      (source, restart, isActive, markActivity) => {
-        source.addEventListener('operation', event => {
-          if (!isActive()) return
-          markActivity()
-          try {
-            handlers.onOperation(
-              parseUpdateOperation(JSON.parse(event.data) as unknown)
-            )
-          } catch (error) {
-            restart(error instanceof Error ? error : new Error('更新事件格式无效'))
-          }
-        })
-        source.addEventListener('heartbeat', event => {
-          if (!isActive()) return
-          markActivity()
-          try {
-            const heartbeat = requiredRecord(
-              JSON.parse(event.data) as unknown,
-              'update_event_heartbeat'
-            )
-            requiredStringValue(heartbeat, 'update_event_heartbeat', 'at')
-          } catch (error) {
-            restart(error instanceof Error ? error : new Error('更新事件心跳无效'))
-          }
-        })
-      },
-      UPDATE_EVENT_INACTIVITY_TIMEOUT_MS
-    )
-  },
-
   async getSession(): Promise<SessionResponse> {
     return parseSession(await getPublic(`${API_ROOT}/session`))
   },
@@ -1956,7 +1917,10 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
-  subscribeRuntimeEvents(handlers: RuntimeEventStreamHandlers): () => void {
+  subscribeRuntimeEvents(
+    handlers: RuntimeEventStreamHandlers,
+    updateOperationID = ''
+  ): () => void {
     let pendingState: RuntimeState | undefined
     let stateTimer: ReturnType<typeof globalThis.setTimeout> | undefined
     const clearPendingState = () => {
@@ -1970,8 +1934,12 @@ const realGateway: ConfiguredModemDeckGateway = {
       pendingState = undefined
       if (state) handlers.onState(state)
     }
+    const normalizedUpdateOperationID = updateOperationID.trim()
+    const updateQuery = normalizedUpdateOperationID
+      ? `?update_operation=${encodeURIComponent(normalizedUpdateOperationID)}`
+      : ''
     const closeSource = subscribeEventSource(
-      `${API_ROOT}/runtime/events`,
+      `${API_ROOT}/runtime/events${updateQuery}`,
       {
         onOpen: handlers.onOpen,
         onError: error => {
@@ -2010,6 +1978,17 @@ const realGateway: ConfiguredModemDeckGateway = {
             )
           } catch (error) {
             restart(error instanceof Error ? error : new Error('运行时事件心跳无效'))
+          }
+        })
+        source.addEventListener('update', event => {
+          if (!isActive()) return
+          markActivity()
+          try {
+            handlers.onUpdateOperation(
+              parseUpdateOperation(JSON.parse(event.data) as unknown)
+            )
+          } catch (error) {
+            restart(error instanceof Error ? error : new Error('更新事件格式无效'))
           }
         })
       },

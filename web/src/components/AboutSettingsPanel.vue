@@ -25,7 +25,16 @@ import type {
 } from '../api/types'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
 import { requestConfirmation } from '../state/confirmation'
-import { showError, showSuccess } from '../state/feedback'
+import { showError } from '../state/feedback'
+import {
+  monitorRuntimeUpdateOperation,
+  subscribeRuntimeUpdateOperations
+} from '../state/runtimeEvents'
+import {
+  clearApplicationUpdateNotice,
+  refreshApplication,
+  setApplicationUpdateNoticeSuppressed
+} from '../state/staleAssetRecovery'
 import { releaseNoteRemainder, releaseNoteSummary } from '../utils/releaseNotes'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import SettingsModuleCard from './settings/SettingsModuleCard.vue'
@@ -42,8 +51,7 @@ const applying = ref(false)
 const startingUpdate = ref(false)
 const loadError = ref('')
 const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
-let closeUpdateEvents: (() => void) | undefined
-let recoveringUpdateOperation = false
+let closeRuntimeUpdateSubscription: (() => void) | undefined
 
 const displayedVersion = computed(
   () => update.value?.current_version || about.value?.version || t('about.notAvailable')
@@ -166,10 +174,10 @@ async function checkForUpdates(refresh = false): Promise<void> {
     update.value = result
     if (result.operation?.state === 'running') {
       applying.value = true
-      startUpdateEvents()
+      monitorRuntimeUpdateOperation(result.operation.id)
     } else {
       applying.value = false
-      stopUpdateEvents()
+      monitorRuntimeUpdateOperation()
     }
   } catch {
     update.value = {
@@ -180,38 +188,19 @@ async function checkForUpdates(refresh = false): Promise<void> {
       hardware_confirmation_required: false
     }
     applying.value = false
-    stopUpdateEvents()
+    monitorRuntimeUpdateOperation()
   } finally {
     checking.value = false
   }
 }
 
-function stopUpdateEvents(): void {
-  closeUpdateEvents?.()
-  closeUpdateEvents = undefined
+function acceptRuntimeUpdateOperation(operation: UpdateOperation): void {
+  const trackedOperationID = update.value?.operation?.id
+  if (!applying.value && trackedOperationID !== operation.id) return
+  handleUpdateOperation(operation)
 }
 
-function startUpdateEvents(): void {
-  if (closeUpdateEvents) return
-  closeUpdateEvents = gateway.subscribeSoftwareUpdateEvents({
-    onOperation: operation => void handleUpdateOperation(operation),
-    onError: () => void recoverUpdateOperation()
-  })
-}
-
-async function recoverUpdateOperation(): Promise<void> {
-  if (!applying.value || recoveringUpdateOperation) return
-  recoveringUpdateOperation = true
-  try {
-    await handleUpdateOperation(await gateway.getSoftwareUpdateStatus())
-  } catch {
-    // The EventSource reconnects itself and the API emits the current operation on open.
-  } finally {
-    recoveringUpdateOperation = false
-  }
-}
-
-async function handleUpdateOperation(operation: UpdateOperation): Promise<void> {
+function handleUpdateOperation(operation: UpdateOperation): void {
   const trackedOperationID = update.value?.operation?.id
   if (trackedOperationID && trackedOperationID !== operation.id) return
   if (update.value) update.value = { ...update.value, operation }
@@ -220,20 +209,10 @@ async function handleUpdateOperation(operation: UpdateOperation): Promise<void> 
     applying.value = true
     return
   }
-  stopUpdateEvents()
+  monitorRuntimeUpdateOperation()
+  clearApplicationUpdateNotice()
   if (operation.state === 'succeeded') {
-    if (about.value) {
-      about.value = { ...about.value, version: operation.target_version }
-    }
-    if (update.value) {
-      update.value = {
-        ...update.value,
-        current_version: operation.target_version,
-        operation
-      }
-    }
-    showSuccess(t('about.updateSucceeded'))
-    await Promise.all([load(), checkForUpdates(true)])
+    refreshApplication()
   } else {
     applying.value = false
     showError(t('about.updateFailed'))
@@ -254,17 +233,24 @@ async function applyUpdate(): Promise<void> {
   }
   startingUpdate.value = true
   applying.value = true
+  setApplicationUpdateNoticeSuppressed(true)
   try {
     const operation = await gateway.applySoftwareUpdate(
       current.latest_version,
       confirmHardware
     )
-    update.value = { ...current, operation }
+    const observedOperation = update.value?.operation
+    update.value = {
+      ...current,
+      operation:
+        observedOperation?.id === operation.id ? observedOperation : operation
+    }
     startingUpdate.value = false
-    startUpdateEvents()
+    monitorRuntimeUpdateOperation(operation.id)
   } catch {
     startingUpdate.value = false
     applying.value = false
+    setApplicationUpdateNoticeSuppressed(false)
     showError(t('about.updateStartFailed'))
   }
 }
@@ -285,11 +271,15 @@ function statusClass(status?: UpdateStatus): string {
 }
 
 onMounted(() => {
+  closeRuntimeUpdateSubscription = subscribeRuntimeUpdateOperations(
+    acceptRuntimeUpdateOperation
+  )
   void waitForInitialLoad([() => load(), () => checkForUpdates()])
 })
 
 onBeforeUnmount(() => {
-  stopUpdateEvents()
+  closeRuntimeUpdateSubscription?.()
+  closeRuntimeUpdateSubscription = undefined
 })
 </script>
 

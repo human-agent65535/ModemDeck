@@ -88,7 +88,10 @@ export default {
     "notificationsRequesting": "Yêu cầu quyền thông báo của trình duyệt",
     "notificationsDisable": "Tắt thông báo tin nhắn và cuộc gọi",
     "notificationsDenied": "Thông báo bị chặn. Cho phép chúng trong cài đặt trình duyệt.",
-    "notificationsEnable": "Bật thông báo tin nhắn và cuộc gọi"
+    "notificationsEnable": "Bật thông báo tin nhắn và cuộc gọi",
+    "applicationUpdateReady": "ModemDeck {version} sẵn sàng",
+    "applicationUpdateReadyDuringCall": "ModemDeck {version} sẵn sàng · Đang gọi",
+    "refreshApplication": "Tải lại"
   },
   "incomingCallMode": {
     "settings": "Cài đặt cuộc gọi đến",

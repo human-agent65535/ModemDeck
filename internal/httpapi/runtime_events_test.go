@@ -15,6 +15,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/networkruntime"
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
+	"github.com/human-agent65535/modemdeck/internal/updatecheck"
 )
 
 type runtimeStateFlushResponse struct {
@@ -27,6 +28,31 @@ type countingRuntimeRepository struct {
 	*fakeRepository
 	linesCalls   int
 	devicesCalls int
+}
+
+type sequencedRuntimeUpdateManager struct {
+	mu         sync.Mutex
+	operations []updatecheck.Operation
+	statusCall int
+}
+
+func (manager *sequencedRuntimeUpdateManager) Apply(
+	context.Context,
+	updatecheck.ApplyRequest,
+) (updatecheck.Operation, error) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	return manager.operations[0], nil
+}
+
+func (manager *sequencedRuntimeUpdateManager) Status(
+	context.Context,
+) (updatecheck.Operation, error) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	index := min(manager.statusCall, len(manager.operations)-1)
+	manager.statusCall++
+	return manager.operations[index], nil
 }
 
 func (repository *countingRuntimeRepository) Lines(
@@ -126,6 +152,105 @@ func TestRuntimeStateStreamSendsLatestStateAfterNotification(t *testing.T) {
 		!strings.Contains(body, `"revision":1,"data_revision":0`) ||
 		!strings.Contains(body, `"revision":2,"data_revision":1`) {
 		t.Fatalf("stream = %q; want initial and latest state", body)
+	}
+}
+
+func TestRuntimeStateStreamMultiplexesAdminUpdateProgress(t *testing.T) {
+	t.Parallel()
+
+	hub := runtimeevents.NewHub()
+	manager := &sequencedRuntimeUpdateManager{operations: []updatecheck.Operation{
+		{
+			ID:            "operation-1",
+			State:         updatecheck.OperationRunning,
+			TargetVersion: "v1.10.2",
+			StartedAt:     "2026-08-02T12:00:00Z",
+			Components: []updatecheck.OperationComponent{
+				{Name: "api", State: updatecheck.OperationComponentRestarting},
+			},
+		},
+		{
+			ID:            "operation-1",
+			State:         updatecheck.OperationSucceeded,
+			TargetVersion: "v1.10.2",
+			StartedAt:     "2026-08-02T12:00:00Z",
+			FinishedAt:    "2026-08-02T12:00:05Z",
+			Components: []updatecheck.OperationComponent{
+				{Name: "api", State: updatecheck.OperationComponentReady},
+			},
+		},
+	}}
+	api, err := New(&fakeRepository{}, Options{
+		RuntimeEvents:         hub,
+		UpdateManager:         manager,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/runtime/events?update_operation=operation-1",
+		nil,
+	)
+	request = request.WithContext(auth.ContextWithPrincipal(
+		request.Context(),
+		auth.Principal{UserID: "admin-1", Role: auth.RoleAdmin},
+	))
+	requestContext, cancel := context.WithCancel(request.Context())
+	response := newEventStreamTestResponse()
+	done := make(chan struct{})
+	go func() {
+		api.ServeHTTP(response, request.WithContext(requestContext))
+		close(done)
+	}()
+	waitForMessageEvent(t, response, `"state":"succeeded"`)
+	cancel()
+	waitForEventStreamClose(t, done, nil)
+
+	body := response.bodyString()
+	if strings.Count(body, "event: update") != 2 ||
+		!strings.Contains(body, `"state":"running"`) ||
+		!strings.Contains(body, `"name":"api","state":"restarting"`) ||
+		!strings.Contains(body, `"name":"api","state":"ready"`) {
+		t.Fatalf("stream = %q; want running and succeeded update events", body)
+	}
+}
+
+func TestRuntimeStateStreamDoesNotExposeUpdateToMembers(t *testing.T) {
+	t.Parallel()
+
+	api, err := New(&fakeRepository{}, Options{
+		RuntimeEvents: runtimeevents.NewHub(),
+		UpdateManager: fakeUpdateManager{operation: updatecheck.Operation{
+			ID:            "operation-1",
+			State:         updatecheck.OperationRunning,
+			TargetVersion: "v1.10.2",
+		}},
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/runtime/events?update_operation=operation-1",
+		nil,
+	)
+	request = request.WithContext(auth.ContextWithPrincipal(
+		request.Context(),
+		auth.Principal{UserID: "member-1", Role: auth.RoleMember},
+	))
+	requestContext, cancel := context.WithCancel(request.Context())
+	cancel()
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request.WithContext(requestContext))
+
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "event: state") ||
+		strings.Contains(response.Body.String(), "event: update") {
+		t.Fatalf("status = %d; member stream = %q", response.Code, response.Body.String())
 	}
 }
 

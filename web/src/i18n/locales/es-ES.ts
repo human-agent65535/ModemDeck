@@ -88,7 +88,10 @@ export default {
     "notificationsRequesting": "Solicitando permiso de notificación del navegador",
     "notificationsDisable": "Desactivar notificaciones de mensajes y llamadas",
     "notificationsDenied": "Las notificaciones están bloqueadas. Permítalos en la configuración del navegador.",
-    "notificationsEnable": "Habilitar notificaciones de mensajes y llamadas"
+    "notificationsEnable": "Habilitar notificaciones de mensajes y llamadas",
+    "applicationUpdateReady": "ModemDeck {version} listo",
+    "applicationUpdateReadyDuringCall": "ModemDeck {version} listo · Llamada activa",
+    "refreshApplication": "Actualizar"
   },
   "incomingCallMode": {
     "settings": "Configuración de llamadas entrantes",

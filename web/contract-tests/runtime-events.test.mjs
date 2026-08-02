@@ -106,6 +106,7 @@ test('runtime SSE parses current state and reconnects without replay cursors', (
       onState(value) {
         state = value
       },
+      onUpdateOperation() {},
       onError() {
         errors += 1
       }
@@ -391,10 +392,11 @@ test('runtime state is global to the authenticated application shell', async () 
   assert.match(client, /function subscribeEventSource\(/)
   assert.match(
     client,
-    /subscribeEventSource\(\s*`\$\{API_ROOT\}\/runtime\/events`/
+    /subscribeEventSource\(\s*`\$\{API_ROOT\}\/runtime\/events\$\{updateQuery\}`/
   )
   assert.match(client, /source\.addEventListener\('state'/)
   assert.match(client, /source\.addEventListener\('heartbeat'/)
+  assert.match(client, /source\.addEventListener\('update'/)
   const runtimeSubscriptionStart = client.indexOf('subscribeRuntimeEvents(')
   const diagnosticSubscriptionStart = client.indexOf(
     'subscribeDiagnosticLogs(',
@@ -420,6 +422,14 @@ test('runtime state is global to the authenticated application shell', async () 
   )
   assert.match(runtime, /acceptRuntimeActiveCalls\(runtime\.calls\)/)
   assert.match(runtime, /state\.dataWatermark = `\$\{runtime\.epoch\}:\$\{runtime\.data_revision\}`/)
+  assert.match(
+    runtime,
+    /setApplicationUpdateNoticeSuppressed\(Boolean\(normalizedOperationID\)\)/
+  )
+  assert.match(
+    runtime,
+    /operation\.state === 'succeeded' \|\| operation\.state === 'failed'/
+  )
   assert.doesNotMatch(runtime, /requestDurableRefresh|Promise\.allSettled\(\[/)
   assert.doesNotMatch(runtime, /ALL_RESOURCES|RuntimeResource|FALLBACK_REFRESH_MS/)
   assert.doesNotMatch(runtime, /loadNetwork|requestActiveCallRefresh/)

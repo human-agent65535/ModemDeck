@@ -421,8 +421,6 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.postOnly(response, request, api.updateApply)
 	case "/api/v1/updates/status":
 		api.getOnly(response, request, api.updateStatus)
-	case "/api/v1/updates/events":
-		api.getOnly(response, request, api.updateEventStream)
 	case "/api/v1/account/password":
 		api.accountPassword(response, request)
 	case "/api/v1/account/contact":

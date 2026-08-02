@@ -88,7 +88,10 @@ export default {
     notificationsRequesting: '正在请求浏览器通知权限',
     notificationsDisable: '关闭短信与来电通知',
     notificationsDenied: '通知已被浏览器阻止，请在浏览器设置中允许',
-    notificationsEnable: '启用短信与来电通知'
+    notificationsEnable: '启用短信与来电通知',
+    applicationUpdateReady: 'ModemDeck {version} 已就绪',
+    applicationUpdateReadyDuringCall: 'ModemDeck {version} 已就绪 · 通话中',
+    refreshApplication: '刷新页面'
   },
   incomingCallMode: {
     settings: '来电设置',

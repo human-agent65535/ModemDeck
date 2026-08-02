@@ -88,7 +88,10 @@ export default {
     notificationsRequesting: 'Requesting browser notification permission',
     notificationsDisable: 'Disable message and call notifications',
     notificationsDenied: 'Notifications are blocked. Allow them in browser settings.',
-    notificationsEnable: 'Enable message and call notifications'
+    notificationsEnable: 'Enable message and call notifications',
+    applicationUpdateReady: 'ModemDeck {version} ready',
+    applicationUpdateReadyDuringCall: 'ModemDeck {version} ready · In call',
+    refreshApplication: 'Refresh'
   },
   incomingCallMode: {
     settings: 'Incoming call settings',

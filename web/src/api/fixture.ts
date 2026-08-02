@@ -57,7 +57,6 @@ import type {
   TLSSettings,
   UpdateCheck,
   UpdateComponent,
-  UpdateEventStreamHandlers,
   UpdateOperation,
   UpdateOperationComponentState,
   UpdateDeviceConfigurationInput,
@@ -816,13 +815,13 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     }
   ]
   let fixtureUpdateOperation: UpdateOperation | undefined
-  const updateEventSubscribers = new Set<UpdateEventStreamHandlers>()
+  const runtimeEventSubscribers = new Map<RuntimeEventStreamHandlers, string>()
 
   function publishFixtureUpdateOperation(): void {
     if (!fixtureUpdateOperation) return
-    const operation = clone(fixtureUpdateOperation)
-    for (const subscriber of updateEventSubscribers) {
-      subscriber.onOperation(operation)
+    for (const [subscriber, operationID] of runtimeEventSubscribers) {
+      if (operationID !== fixtureUpdateOperation.id) continue
+      subscriber.onUpdateOperation(clone(fixtureUpdateOperation))
     }
   }
 
@@ -2017,20 +2016,25 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       return () => undefined
     },
 
-    subscribeRuntimeEvents(_handlers: RuntimeEventStreamHandlers): () => void {
-      return () => undefined
-    },
-
-    subscribeSoftwareUpdateEvents(handlers: UpdateEventStreamHandlers): () => void {
-      updateEventSubscribers.add(handlers)
-      if (fixtureUpdateOperation) {
-        queueMicrotask(() => {
-          if (updateEventSubscribers.has(handlers) && fixtureUpdateOperation) {
-            handlers.onOperation(clone(fixtureUpdateOperation))
-          }
-        })
+    subscribeRuntimeEvents(
+      handlers: RuntimeEventStreamHandlers,
+      updateOperationID = ''
+    ): () => void {
+      const normalizedUpdateOperationID = updateOperationID.trim()
+      runtimeEventSubscribers.set(handlers, normalizedUpdateOperationID)
+      queueMicrotask(() => {
+        if (!runtimeEventSubscribers.has(handlers)) return
+        handlers.onOpen()
+        if (
+          fixtureUpdateOperation &&
+          normalizedUpdateOperationID === fixtureUpdateOperation.id
+        ) {
+          handlers.onUpdateOperation(clone(fixtureUpdateOperation))
+        }
+      })
+      return () => {
+        runtimeEventSubscribers.delete(handlers)
       }
-      return () => updateEventSubscribers.delete(handlers)
     },
 
     async markThreadRead(query: MessageReadInput): Promise<void> {
