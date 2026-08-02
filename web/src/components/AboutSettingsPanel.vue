@@ -745,8 +745,9 @@ onBeforeUnmount(() => {
 .about-update__components--progress {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-auto-rows: minmax(0, 1fr);
-  gap: 4px;
+  grid-auto-rows: 28px;
+  align-content: start;
+  gap: 0;
   height: 144px;
   max-width: 520px;
 }

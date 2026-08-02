@@ -252,6 +252,11 @@ test('about panel checks automatically and applies only through the updater', as
     panel,
     /class="about-update__component-tag">\s*\{\{ componentLabel\(component\.name\) \}\}\s*<\/span>\s*<small[\s\S]*class="about-update__component-state"/
   )
+  assert.match(
+    panel,
+    /\.about-update__components--progress\s*\{[^}]*grid-auto-rows:\s*28px;[^}]*align-content:\s*start;/s
+  )
+  assert.doesNotMatch(panel, /grid-auto-rows:\s*minmax\(0,\s*1fr\)/)
   assert.match(panel, /requestConfirmation\(/)
   assert.match(panel, /hardware_confirmation_required/)
   assert.match(panel, /releaseNoteSummary/)
