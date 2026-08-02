@@ -55,9 +55,6 @@ func TestApplyRequiresOnlyExplicitHardwareConfirmation(t *testing.T) {
 		"updater":   "ghcr.io/human-agent65535/modemdeck-updater:v1.9.2@" + testDigest("4"),
 	}}
 	manifest := testManifest(testDigest("8"))
-	manifest.WebVersion = "v2.0.0"
-	manifest.HardwareVersion = "v2.0.0"
-	manifest.UpdaterVersion = "v2.0.0"
 	controller := newTestController(t, runtime, manifest, testDigest("9"))
 
 	_, err := controller.Apply(context.Background(), updatecheck.ApplyRequest{Version: "v2.0.0"})
@@ -94,10 +91,10 @@ func TestCheckCanAdvanceReleaseWithoutChangingAContainer(t *testing.T) {
 	t.Parallel()
 	manifest := testManifest(testDigest("8"))
 	runtime := &fakeRuntime{images: map[string]string{
-		"api":       manifest.Images.API + ":" + manifest.APIVersion + "@" + testDigest("a"),
-		"modemdeck": manifest.Images.Web + ":" + manifest.WebVersion + "@" + testDigest("b"),
-		"hardware":  manifest.Images.Hardware + ":" + manifest.HardwareVersion + "@" + testDigest("9"),
-		"updater":   manifest.Images.Updater + ":" + manifest.UpdaterVersion + "@" + testDigest("c"),
+		"api":       manifest.Images.API + ":v2.0.0@" + testDigest("a"),
+		"modemdeck": manifest.Images.Web + ":v2.0.0@" + testDigest("b"),
+		"hardware":  manifest.Images.Hardware + ":v2.0.0@" + testDigest("9"),
+		"updater":   manifest.Images.Updater + ":v2.0.0@" + testDigest("c"),
 	}}
 	controller := newTestController(t, runtime, manifest, testDigest("9"))
 	result := controller.Check(context.Background())
@@ -218,10 +215,10 @@ func newTestController(
 ) *Controller {
 	t.Helper()
 	digests := map[string]string{
-		manifest.Images.API + ":" + manifest.APIVersion:           testDigest("a"),
-		manifest.Images.Web + ":" + manifest.WebVersion:           testDigest("b"),
-		manifest.Images.Hardware + ":" + manifest.HardwareVersion: hardwareDigest,
-		manifest.Images.Updater + ":" + manifest.UpdaterVersion:   testDigest("c"),
+		manifest.Images.API + ":v2.0.0":      testDigest("a"),
+		manifest.Images.Web + ":v2.0.0":      testDigest("b"),
+		manifest.Images.Hardware + ":v2.0.0": hardwareDigest,
+		manifest.Images.Updater + ":v2.0.0":  testDigest("c"),
 	}
 	controller, err := New(Options{
 		Checker: fakeChecker{result: updatecheck.Result{
@@ -246,15 +243,11 @@ func newTestController(
 
 func testManifest(cloudflaredDigest string) ReleaseManifest {
 	var manifest ReleaseManifest
-	manifest.SchemaVersion = 1
+	manifest.SchemaVersion = 2
 	manifest.Images.API = "ghcr.io/human-agent65535/modemdeck"
 	manifest.Images.Web = "ghcr.io/human-agent65535/modemdeck-web"
 	manifest.Images.Hardware = "ghcr.io/human-agent65535/modemdeck-hardware"
 	manifest.Images.Updater = "ghcr.io/human-agent65535/modemdeck-updater"
-	manifest.APIVersion = "v2.0.0"
-	manifest.WebVersion = "v1.9.2"
-	manifest.HardwareVersion = "v1.9.2"
-	manifest.UpdaterVersion = "v1.9.2"
 	manifest.Cloudflared.Image = "cloudflare/cloudflared"
 	manifest.Cloudflared.Version = "2026.7.3"
 	manifest.Cloudflared.Digest = cloudflaredDigest

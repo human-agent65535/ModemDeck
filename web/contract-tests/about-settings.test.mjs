@@ -272,7 +272,7 @@ test('about panel checks automatically and applies only through the updater', as
   )
 })
 
-test('root VERSION owns the release while images accept component versions', async () => {
+test('root VERSION is the single release version for every image', async () => {
   const [
     version,
     packageSource,

@@ -274,10 +274,10 @@ func (controller *Controller) plan(ctx context.Context) (Plan, error) {
 		return Plan{}, err
 	}
 	targets := []Target{
-		{Name: "api", Service: "api", Image: manifest.Images.API, Version: manifest.APIVersion, ImageEnv: "MODEMDECK_IMAGE", RefEnv: "MODEMDECK_API_IMAGE_REF", VersionEnv: "MODEMDECK_API_VERSION", DigestEnv: "MODEMDECK_API_DIGEST"},
-		{Name: "web", Service: "modemdeck", Image: manifest.Images.Web, Version: manifest.WebVersion, ImageEnv: "MODEMDECK_WEB_IMAGE", RefEnv: "MODEMDECK_WEB_IMAGE_REF", VersionEnv: "MODEMDECK_WEB_VERSION", DigestEnv: "MODEMDECK_WEB_DIGEST"},
-		{Name: "hardware", Service: "hardware", Image: manifest.Images.Hardware, Version: manifest.HardwareVersion, ImageEnv: "MODEMDECK_HARDWARE_IMAGE", RefEnv: "MODEMDECK_HARDWARE_IMAGE_REF", VersionEnv: "MODEMDECK_HARDWARE_VERSION", DigestEnv: "MODEMDECK_HARDWARE_DIGEST"},
-		{Name: "updater", Service: "updater", Image: manifest.Images.Updater, Version: manifest.UpdaterVersion, ImageEnv: "MODEMDECK_UPDATER_IMAGE", RefEnv: "MODEMDECK_UPDATER_IMAGE_REF", VersionEnv: "MODEMDECK_UPDATER_VERSION", DigestEnv: "MODEMDECK_UPDATER_DIGEST"},
+		{Name: "api", Service: "api", Image: manifest.Images.API, Version: result.LatestVersion, ImageEnv: "MODEMDECK_IMAGE", RefEnv: "MODEMDECK_API_IMAGE_REF", VersionEnv: "MODEMDECK_API_VERSION", DigestEnv: "MODEMDECK_API_DIGEST"},
+		{Name: "web", Service: "modemdeck", Image: manifest.Images.Web, Version: result.LatestVersion, ImageEnv: "MODEMDECK_WEB_IMAGE", RefEnv: "MODEMDECK_WEB_IMAGE_REF", VersionEnv: "MODEMDECK_WEB_VERSION", DigestEnv: "MODEMDECK_WEB_DIGEST"},
+		{Name: "hardware", Service: "hardware", Image: manifest.Images.Hardware, Version: result.LatestVersion, ImageEnv: "MODEMDECK_HARDWARE_IMAGE", RefEnv: "MODEMDECK_HARDWARE_IMAGE_REF", VersionEnv: "MODEMDECK_HARDWARE_VERSION", DigestEnv: "MODEMDECK_HARDWARE_DIGEST"},
+		{Name: "updater", Service: "updater", Image: manifest.Images.Updater, Version: result.LatestVersion, ImageEnv: "MODEMDECK_UPDATER_IMAGE", RefEnv: "MODEMDECK_UPDATER_IMAGE_REF", VersionEnv: "MODEMDECK_UPDATER_VERSION", DigestEnv: "MODEMDECK_UPDATER_DIGEST"},
 	}
 	if controller.runtime.Managed("cloudflared") {
 		targets = append(targets, Target{

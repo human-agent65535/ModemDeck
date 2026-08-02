@@ -108,9 +108,12 @@ workflow checks out the tagged commit, verifies that its `VERSION` matches,
 requires the existing tag to be annotated, and builds only that historical
 source. Never move or recreate a published release tag.
 
-Each component has its own version in `release-manifest.json`. A stable release
-publishes only images whose runtime inputs changed and retains the previous tag
-and digest for every unchanged component.
+`VERSION` is the only ModemDeck release version. The release workflow compares
+each container's runtime inputs with the previous stable tag. Changed containers
+are rebuilt; unchanged multi-architecture manifests are copied to the new tag
+without rebuilding. The updater resolves that shared tag for every container
+and compares immutable digests, so only containers whose image actually changed
+are replaced.
 
 Verify package visibility after its first publication. Public packages support
 anonymous device pulls; if a package is private, either change it to public in

@@ -86,8 +86,8 @@ jobs:
             done < <(git tag --merged "${vcs_ref}^" --sort=-version:refname)
           fi
 
-          if [[ "$(jq -r '.schema_version' deploy/release-manifest.json)" != "1" ]]; then
-            echo "deploy/release-manifest.json must use schema_version 1" >&2
+          if [[ "$(jq -r '.schema_version' deploy/release-manifest.json)" != "2" ]]; then
+            echo "deploy/release-manifest.json must use schema_version 2" >&2
             exit 1
           fi
           cloudflared_image="$(jq -r '.cloudflared.image // ""' deploy/release-manifest.json)"
@@ -150,6 +150,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up QEMU
+        if: matrix.mode == 'build'
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
         with:
           platforms: arm64
@@ -158,6 +159,7 @@ jobs:
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Build and push
+        if: matrix.mode == 'build'
         id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
@@ -184,17 +186,44 @@ jobs:
           cache-from: type=gha,scope=release-${{ matrix.component }}
           cache-to: type=gha,mode=max,scope=release-${{ matrix.component }}
 
+      - name: Retain unchanged image under release tag
+        if: matrix.mode == 'retain'
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.release.outputs.release-tag }}
+          SOURCE_VERSION: ${{ matrix.source_version }}
+          VCS_REF: ${{ needs.release.outputs.vcs-ref }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            --tag "${IMAGE}:${RELEASE_TAG}" \
+            --tag "${IMAGE}:sha-${VCS_REF}" \
+            "${IMAGE}:${SOURCE_VERSION}"
+
+      - name: Resolve published digest
+        id: image
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.release.outputs.release-tag }}
+        run: |
+          set -euo pipefail
+          digest="$(docker buildx imagetools inspect \
+            "${IMAGE}:${RELEASE_TAG}" --format '{{.Manifest.Digest}}')"
+          [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+
       - name: Attest build provenance
+        if: matrix.mode == 'build'
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
         with:
           subject-name: ${{ env.IMAGE }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-digest: ${{ steps.image.outputs.digest }}
           push-to-registry: true
 
       - name: Record immutable image reference
         shell: bash
         env:
-          DIGEST: ${{ steps.build.outputs.digest }}
+          DIGEST: ${{ steps.image.outputs.digest }}
           RELEASE_TAG: ${{ needs.release.outputs.release-tag }}
         run: |
           {

@@ -57,8 +57,10 @@ grep -Fq 'deploy/release-image-plan.sh' "$workflow" ||
     fail "release workflow does not use the component planner"
 grep -Fq 'for component in api web updater hardware' "$planner" ||
     fail "planner does not evaluate every component independently"
-grep -Fq '"${1}_version"' "$planner" ||
-    fail "planner does not read per-component manifest versions"
+grep -Fq 'append_component "$component" build' "$planner" ||
+    fail "planner does not mark changed components for rebuild"
+grep -Fq 'append_component "$component" retain' "$planner" ||
+    fail "planner does not retain unchanged component images"
 grep -Fq 'internal/ota/**' "$planner" ||
     fail "updater source changes are not isolated"
 grep -Fq 'web/src/**' "$planner" ||
@@ -74,7 +76,11 @@ grep -Fq "if: needs.release.outputs.image-count != '0'" "$workflow" ||
 
 grep -Fq 'platforms: linux/amd64,linux/arm64' "$workflow" ||
     fail "release images are not multi-architecture"
-grep -Fq 'subject-digest: ${{ steps.build.outputs.digest }}' "$workflow" ||
+grep -Fq "if: matrix.mode == 'build'" "$workflow" ||
+    fail "release workflow does not separate rebuilds from retained images"
+grep -Fq 'docker buildx imagetools create' "$workflow" ||
+    fail "release workflow does not copy unchanged images to the shared tag"
+grep -Fq 'subject-digest: ${{ steps.image.outputs.digest }}' "$workflow" ||
     fail "release image digest is not attested"
 grep -Fq 'org.opencontainers.image.source=https://github.com/${{ github.repository }}' \
     "$workflow" || fail "release images are not linked to their source repository"

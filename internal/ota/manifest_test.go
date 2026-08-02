@@ -15,15 +15,9 @@ func TestReleaseManifestRejectsMutableOrUnexpectedImages(t *testing.T) {
 			},
 		},
 		{
-			name: "missing API component version",
+			name: "unsupported schema",
 			mutate: func(manifest *ReleaseManifest) {
-				manifest.APIVersion = ""
-			},
-		},
-		{
-			name: "unstable Web component version",
-			mutate: func(manifest *ReleaseManifest) {
-				manifest.WebVersion = "v2.0.0-rc.1"
+				manifest.SchemaVersion = 1
 			},
 		},
 		{

@@ -10,30 +10,6 @@ force_hardware=${5:-false}
 manifest=deploy/release-manifest.json
 stable_tag='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
 
-component_version() {
-    jq -r --arg key "${1}_version" '.[$key] // ""' "$manifest"
-}
-
-previous_component_version() {
-    local component=$1
-    local previous_manifest
-    previous_manifest=$(git show "${previous_tag}^{commit}:deploy/release-manifest.json")
-    local retained
-    retained=$(printf '%s' "$previous_manifest" |
-        jq -r --arg key "${component}_version" '.[$key] // ""')
-    if [[ -n "$retained" ]]; then
-        printf '%s' "$retained"
-    else
-        # Releases before per-component manifests published these images under
-        # the overall release tag. Hardware already had its own field.
-        if [[ "$component" == hardware ]]; then
-            retained=$(printf '%s' "$previous_manifest" |
-                jq -r '.hardware_version // ""')
-        fi
-        printf '%s' "${retained:-$previous_tag}"
-    fi
-}
-
 component_changed() {
     local component=$1
     [[ -n "$previous_tag" ]] || return 0
@@ -98,7 +74,7 @@ component_changed() {
 
 append_component() {
     local component=$1
-    local version=$2
+    local mode=$2
     local dockerfile image target
     case "$component" in
         api)
@@ -126,9 +102,11 @@ append_component() {
         --arg component "$component" \
         --arg dockerfile "$dockerfile" \
         --arg image "$image" \
+        --arg mode "$mode" \
+        --arg source_version "$previous_tag" \
         --arg target "$target" \
-        --arg version "$version" \
-        '.include += [{component: $component, dockerfile: $dockerfile, image: $image, target: $target, version: $version}]' \
+        --arg version "$release_tag" \
+        '.include += [{component: $component, mode: $mode, dockerfile: $dockerfile, image: $image, target: $target, version: $version, source_version: $source_version}]' \
         <<<"$matrix")
 }
 
@@ -143,16 +121,6 @@ append_component() {
 
 matrix='{"include":[]}'
 for component in api web updater hardware; do
-    version=$(component_version "$component")
-    [[ "$version" =~ $stable_tag ]] || {
-        printf 'release manifest %s_version must be a stable vX.Y.Z tag\n' "$component" >&2
-        exit 1
-    }
-    git rev-parse --verify "${version}^{commit}" >/dev/null 2>&1 || {
-        printf 'release manifest %s tag does not exist: %s\n' "$component" "$version" >&2
-        exit 1
-    }
-
     changed=false
     if component_changed "$component"; then
         changed=true
@@ -162,21 +130,14 @@ for component in api web updater hardware; do
     fi
 
     if [[ "$changed" == true ]]; then
-        [[ "$version" == "$release_tag" ]] || {
-            printf 'changed %s must set %s_version to %s\n' \
-                "$component" "$component" "$release_tag" >&2
-            exit 1
-        }
-        append_component "$component" "$version"
+        append_component "$component" build
         continue
     fi
-
-    retained=$(previous_component_version "$component")
-    [[ "$version" == "$retained" ]] || {
-        printf 'unchanged %s must retain %s_version at %s\n' \
-            "$component" "$component" "$retained" >&2
+    [[ "$previous_tag" =~ $stable_tag ]] || {
+        printf 'unchanged %s requires a previous stable release tag\n' "$component" >&2
         exit 1
     }
+    append_component "$component" retain
 done
 
 for component in api web hardware updater; do

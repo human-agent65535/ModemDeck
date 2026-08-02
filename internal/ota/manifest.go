@@ -32,11 +32,7 @@ type ReleaseManifest struct {
 		Hardware string `json:"hardware"`
 		Updater  string `json:"updater"`
 	} `json:"images"`
-	APIVersion      string `json:"api_version"`
-	WebVersion      string `json:"web_version"`
-	HardwareVersion string `json:"hardware_version"`
-	UpdaterVersion  string `json:"updater_version"`
-	Cloudflared     struct {
+	Cloudflared struct {
 		Image   string `json:"image"`
 		Version string `json:"version"`
 		Digest  string `json:"digest"`
@@ -44,7 +40,7 @@ type ReleaseManifest struct {
 }
 
 func (manifest ReleaseManifest) Validate() error {
-	if manifest.SchemaVersion != 1 {
+	if manifest.SchemaVersion != 2 {
 		return fmt.Errorf("unsupported release manifest schema")
 	}
 	expectedImages := map[string]string{
@@ -62,17 +58,6 @@ func (manifest ReleaseManifest) Validate() error {
 	for component, expected := range expectedImages {
 		if strings.TrimSpace(actualImages[component]) != expected {
 			return fmt.Errorf("invalid %s image repository", component)
-		}
-	}
-	componentVersions := map[string]string{
-		"api":      manifest.APIVersion,
-		"web":      manifest.WebVersion,
-		"hardware": manifest.HardwareVersion,
-		"updater":  manifest.UpdaterVersion,
-	}
-	for component, version := range componentVersions {
-		if !stableTagPattern.MatchString(version) {
-			return fmt.Errorf("invalid %s release version", component)
 		}
 	}
 	if manifest.Cloudflared.Image != "cloudflare/cloudflared" {
