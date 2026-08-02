@@ -45,6 +45,16 @@ export function acceptNextPage(state: PaginationState, meta: PageMeta): void {
   state.pages += 1
 }
 
+export function replaceFirstPage<T>(
+  state: PaginationState,
+  items: T[],
+  meta: PageMeta
+): T[] {
+  resetPagination(state)
+  acceptFirstPage(state, meta)
+  return items
+}
+
 export function mergeUnique<T>(
   first: T[],
   second: T[],

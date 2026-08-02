@@ -17,6 +17,7 @@ import {
   acceptNextPage,
   mergeUnique,
   paginationState,
+  replaceFirstPage,
   resetPagination
 } from './pagination'
 
@@ -643,16 +644,11 @@ export async function refreshRecordingEntries(
       token !== recordingCatalogGeneration ||
       pageGeneration !== recordingCatalogPagination.generation
     ) return null
-    if (recordingCatalogPagination.pages > 1) {
-      recordingCatalogState.data = mergeUnique(
-        page.items,
-        recordingCatalogState.data,
-        recording => recording.id
-      )
-    } else {
-      recordingCatalogState.data = page.items
-      acceptFirstPage(recordingCatalogPagination, page.meta)
-    }
+    recordingCatalogState.data = replaceFirstPage(
+      recordingCatalogPagination,
+      page.items,
+      page.meta
+    )
     recordingCatalogState.status = 'ready'
     recordingCatalogState.error = ''
     return recordingCatalogState.data

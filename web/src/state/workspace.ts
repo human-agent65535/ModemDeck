@@ -35,6 +35,7 @@ import {
   acceptNextPage,
   mergeUnique,
   paginationState,
+  replaceFirstPage,
   resetPagination,
   type PaginationState
 } from './pagination'
@@ -140,9 +141,7 @@ async function loadFirstPage<T>(
 async function refreshFirstPage<T>(
   target: Resource<T[]>,
   pagination: PaginationState,
-  loader: () => Promise<Page<T>>,
-  identity: (item: T) => string,
-  sort?: (left: T, right: T) => number
+  loader: () => Promise<Page<T>>
 ): Promise<T[] | null> {
   const generation = workspaceGeneration
   const pageGeneration = pagination.generation
@@ -152,13 +151,7 @@ async function refreshFirstPage<T>(
       generation !== workspaceGeneration ||
       pageGeneration !== pagination.generation
     ) return null
-    if (pagination.pages > 1) {
-      const merged = mergeUnique(page.items, target.data, identity)
-      target.data = sort ? merged.sort(sort) : merged
-    } else {
-      target.data = page.items
-      acceptFirstPage(pagination, page.meta)
-    }
+    target.data = replaceFirstPage(pagination, page.items, page.meta)
     target.status = 'ready'
     target.error = ''
     return target.data
@@ -227,12 +220,6 @@ async function loadNextPage<T>(
       pagination.loadingMore = false
     }
   }
-}
-
-function messageOrder(left: Message, right: Message): number {
-  return Date.parse(left.timestamp) - Date.parse(right.timestamp) ||
-    Number(left.id) - Number(right.id) ||
-    left.id.localeCompare(right.id)
 }
 
 export function createMessageReadCoordinator(
@@ -541,8 +528,7 @@ export function refreshContacts(): Promise<Contact[] | null> {
   contactsRefresh = refreshFirstPage(
     contactsResource,
     contactsPagination,
-    () => gateway.listContacts(),
-    contact => contact.id
+    () => gateway.listContacts()
   ).finally(() => {
     contactsRefresh = undefined
   })
@@ -577,8 +563,7 @@ export function refreshThreads(): Promise<MessageThread[] | null> {
   threadsRefresh = refreshFirstPage(
     threadsResource,
     threadsPagination,
-    () => gateway.listThreads(),
-    thread => thread.key
+    () => gateway.listThreads()
   ).finally(() => {
     threadsRefresh = undefined
   })
@@ -610,8 +595,7 @@ export function refreshCalls(): Promise<CallRecord[] | null> {
   callsRefreshRequest = refreshFirstPage(
     callsResource,
     callsPagination,
-    () => gateway.listCalls(callsQueryFilter),
-    call => call.id
+    () => gateway.listCalls(callsQueryFilter)
   ).finally(() => {
     callsRefreshRequest = undefined
   })
@@ -838,9 +822,7 @@ export function refreshMessages(thread: MessageThread): Promise<Message[] | null
   const operation = refreshFirstPage(
     target,
     messagePaginationFor(thread.key),
-    () => gateway.listMessages(messageQueryForThread(thread)),
-    message => message.id,
-    messageOrder
+    () => gateway.listMessages(messageQueryForThread(thread))
   ).finally(() => {
     if (messageRefreshes.get(thread.key) === operation) messageRefreshes.delete(thread.key)
   })
