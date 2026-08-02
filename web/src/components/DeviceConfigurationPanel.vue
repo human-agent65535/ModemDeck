@@ -2913,8 +2913,8 @@ onMounted(() => {
   border: 1px solid;
   border-radius: 5px;
   transition:
-    box-shadow 120ms ease,
-    transform 120ms ease;
+    box-shadow var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
 }
 
 .line-color-picker__options label:hover span {
@@ -3376,7 +3376,7 @@ onMounted(() => {
   background: var(--surface);
   border-radius: 4px;
   box-shadow: 0 1px 3px rgb(16 24 40 / 12%);
-  transition: transform 180ms ease;
+  transition: transform var(--motion-base) var(--ease-standard);
 }
 
 .network-selection-mode[data-selection='manual'] .network-selection-mode__slider {
@@ -3793,7 +3793,7 @@ onMounted(() => {
   border-radius: 4px;
   box-shadow: 0 1px 3px rgb(16 24 40 / 12%);
   transform: translateX(0);
-  transition: transform 180ms ease;
+  transition: transform var(--motion-base) var(--ease-standard);
 }
 
 .incoming-policy__options[data-selection='receive'] .incoming-policy__slider {

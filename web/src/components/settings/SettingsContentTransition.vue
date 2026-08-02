@@ -28,7 +28,7 @@ defineProps<{
 @keyframes settings-content-in {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(var(--space-1));
   }
 }
 </style>

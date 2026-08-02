@@ -75,7 +75,7 @@ function interceptKey(event: KeyboardEvent): void {
 @keyframes list-row-arrival {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(var(--space-2));
   }
 }
 

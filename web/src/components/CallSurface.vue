@@ -1039,10 +1039,10 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border);
   border-radius: 50%;
   transition:
-    color 150ms ease,
-    background 150ms ease,
-    border-color 150ms ease,
-    transform 150ms ease;
+    color var(--motion-base) var(--ease-standard),
+    background var(--motion-base) var(--ease-standard),
+    border-color var(--motion-base) var(--ease-standard),
+    transform var(--motion-base) var(--ease-standard);
 }
 
 .call-footer-action:hover:not(:disabled) .call-footer-action__icon {
@@ -1103,19 +1103,21 @@ onBeforeUnmount(() => {
 .call-surface-leave-active,
 .dtmf-enter-active,
 .dtmf-leave-active {
-  transition: opacity 150ms ease, transform 150ms ease;
+  transition:
+    opacity var(--motion-base) var(--ease-standard),
+    transform var(--motion-base) var(--ease-standard);
 }
 
 .call-surface-enter-from,
 .call-surface-leave-to {
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(var(--space-2));
 }
 
 .dtmf-enter-from,
 .dtmf-leave-to {
   opacity: 0;
-  transform: translateY(-6px);
+  transform: translateY(calc(var(--space-2) * -1));
 }
 
 @media (max-width: 860px) {

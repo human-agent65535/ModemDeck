@@ -225,7 +225,7 @@ test('incoming call override uses a compact three-state segmented control', () =
   )
   assert.match(
     source,
-    /\.incoming-policy__slider\s*\{[^}]*width: calc\(\(100% - 6px\) \/ 3\)[^}]*transition: transform 180ms ease/s
+    /\.incoming-policy__slider\s*\{[^}]*width: calc\(\(100% - 6px\) \/ 3\)[^}]*transition: transform var\(--motion-base\) var\(--ease-standard\)/s
   )
   assert.match(
     source,

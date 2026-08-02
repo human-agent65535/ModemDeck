@@ -21,12 +21,12 @@
 .popover-motion-enter-from,
 .popover-motion-leave-to {
   opacity: 0;
-  transform: translateY(-4px) scale(0.985);
+  transform: translateY(calc(var(--space-1) * -1)) scale(0.985);
 }
 
 .popover-motion-enter-from.is-up,
 .popover-motion-leave-to.is-up {
-  transform: translateY(4px) scale(0.985);
+  transform: translateY(var(--space-1)) scale(0.985);
 }
 
 .popover-motion-leave-active {

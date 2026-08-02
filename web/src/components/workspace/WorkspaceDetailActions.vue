@@ -107,7 +107,7 @@ onBeforeUnmount(() => {
     border: 1px solid var(--border);
     border-radius: var(--radius-control);
     box-shadow: var(--shadow);
-    transform: translateY(-4px) scale(0.985);
+    transform: translateY(calc(var(--space-1) * -1)) scale(0.985);
     transform-origin: top right;
     transition:
       opacity var(--motion-fast) var(--ease-standard),

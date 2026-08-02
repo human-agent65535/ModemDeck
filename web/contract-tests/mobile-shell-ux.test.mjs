@@ -200,7 +200,7 @@ test('mobile list creation actions share one bottom-right floating treatment', a
   assert.match(detailPane, /class="workspace-detail-pane__content"/)
   assert.match(
     styles,
-    /\.workspace\.has-selection \.list-pane \{[\s\S]*opacity: 0;[\s\S]*translateX\(-8px\);/
+    /\.workspace\.has-selection \.list-pane \{[\s\S]*opacity: 0;[\s\S]*translateX\(calc\(var\(--space-2\) \* -1\)\);/
   )
 })
 

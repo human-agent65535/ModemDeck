@@ -112,10 +112,10 @@ function onLineChange(id: string, event: Event): void {
   border-radius: 7px;
   cursor: pointer;
   transition:
-    border-color 140ms ease,
-    box-shadow 140ms ease,
-    background 140ms ease,
-    transform 100ms ease;
+    border-color var(--motion-base) var(--ease-standard),
+    box-shadow var(--motion-base) var(--ease-standard),
+    background var(--motion-base) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
 }
 
 .settings-line-scope-option:hover {

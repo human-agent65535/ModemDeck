@@ -111,3 +111,46 @@ test('the production entry stays compatible with the strict style CSP', async ()
   assert.doesNotMatch(index, /<style(?:\s|>)/i)
   assert.doesNotMatch(index, /\sstyle\s*=/i)
 })
+
+test('interaction motion uses the shared timing and easing language', async () => {
+  const style = await readFile(new URL('../src/style.css', import.meta.url), 'utf8')
+  const files = await sourceFiles()
+
+  for (const token of [
+    '--motion-fast',
+    '--motion-base',
+    '--motion-slow',
+    '--ease-standard',
+    '--ease-emphasized'
+  ]) {
+    assert.match(style, new RegExp(`${token}:`), `missing ${token}`)
+  }
+
+  for (const file of files) {
+    const contents = await readFile(file, 'utf8')
+    for (const declaration of contents.matchAll(/\btransition\s*:\s*([^;]+);/g)) {
+      assert.doesNotMatch(
+        declaration[1],
+        /\b\d+(?:\.\d+)?ms\b/,
+        `${file.pathname} bypasses the shared interaction motion tokens`
+      )
+    }
+    assert.doesNotMatch(
+      contents,
+      /<Transition(?:Group)?\s+name="fade"/,
+      `${file.pathname} uses an unowned generic fade transition`
+    )
+  }
+})
+
+test('binary switches share the global visual primitive', async () => {
+  const [style, proxy] = await Promise.all([
+    readFile(new URL('../src/style.css', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/ProxyCard.vue', import.meta.url), 'utf8')
+  ])
+
+  assert.match(style, /\.ui-switch\s*\{/)
+  assert.match(proxy, /class="ui-switch ui-switch--compact"/)
+  assert.doesNotMatch(proxy, /class="proxy-switch"/)
+  assert.doesNotMatch(style, /\.settings-toggle-row\s*\{/)
+})

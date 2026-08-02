@@ -375,7 +375,7 @@ strong {
   background: transparent;
   border-radius: 8px;
   transition:
-    color var(--motion-fast) ease,
+    color var(--motion-fast) var(--ease-standard),
     background-color var(--motion-base) var(--ease-standard),
     transform var(--motion-fast) var(--ease-standard);
 }
@@ -560,12 +560,12 @@ strong {
 
 .route-view-enter-from {
   opacity: 0;
-  transform: translateY(5px);
+  transform: translateY(var(--space-1));
 }
 
 .route-view-leave-to {
   opacity: 0;
-  transform: translateY(-3px);
+  transform: translateY(calc(var(--space-1) * -1));
 }
 
 .workspace {
@@ -1223,7 +1223,7 @@ textarea::placeholder {
   background: transparent;
   border-radius: 50%;
   transition:
-    color var(--motion-fast) ease,
+    color var(--motion-fast) var(--ease-standard),
     background-color var(--motion-base) var(--ease-standard),
     transform var(--motion-fast) var(--ease-standard);
 }
@@ -1261,7 +1261,7 @@ textarea::placeholder {
   background: var(--accent-soft);
   border-radius: 6px;
   transition:
-    color var(--motion-fast) ease,
+    color var(--motion-fast) var(--ease-standard),
     background-color var(--motion-base) var(--ease-standard),
     transform var(--motion-fast) var(--ease-standard);
 }
@@ -1285,7 +1285,7 @@ textarea::placeholder {
   font-weight: 650;
   border-radius: 8px;
   transition:
-    color var(--motion-fast) ease,
+    color var(--motion-fast) var(--ease-standard),
     background-color var(--motion-base) var(--ease-standard),
     border-color var(--motion-base) var(--ease-standard),
     box-shadow var(--motion-base) var(--ease-standard),
@@ -1920,7 +1920,9 @@ dd {
   color: var(--text);
   background: #f1f3f5;
   border-radius: 50%;
-  transition: background 90ms ease, transform 90ms ease;
+  transition:
+    background var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -2486,7 +2488,7 @@ dd {
   border: 0;
   border-radius: calc(var(--ui-switch-height) / 2);
   cursor: pointer;
-  transition: background-color 150ms ease;
+  transition: background-color var(--motion-base) var(--ease-standard);
 }
 
 .ui-switch::before {
@@ -2499,7 +2501,7 @@ dd {
   background: var(--surface);
   border-radius: 50%;
   box-shadow: 0 1px 3px rgb(16 24 40 / 20%);
-  transition: transform 150ms ease;
+  transition: transform var(--motion-base) var(--ease-standard);
 }
 
 .ui-switch:checked {
@@ -2601,70 +2603,6 @@ dd {
   background: var(--danger-soft);
 }
 
-.settings-toggle-row {
-  display: flex;
-  min-height: 70px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.settings-toggle-row > span {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.settings-toggle-row strong {
-  font-size: 14px;
-}
-
-.settings-toggle-row small {
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.settings-toggle-row input {
-  position: relative;
-  width: 42px;
-  height: 24px;
-  flex: 0 0 42px;
-  appearance: none;
-  background: #d8dde2;
-  border-radius: 12px;
-  cursor: pointer;
-  transition: background 150ms ease;
-}
-
-.settings-toggle-row input::before {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 18px;
-  height: 18px;
-  content: "";
-  background: var(--surface);
-  border-radius: 50%;
-  box-shadow: 0 1px 3px rgb(16 24 40 / 20%);
-  transition: transform 150ms ease;
-}
-
-.settings-toggle-row input:checked {
-  background: var(--accent);
-}
-
-.settings-toggle-row input:checked::before {
-  transform: translateX(18px);
-}
-
-.settings-toggle-row input:focus-visible {
-  outline: 3px solid rgb(17 120 100 / 18%);
-  outline-offset: 2px;
-}
-
 .settings-form-grid {
   display: grid;
   gap: 18px;
@@ -2735,16 +2673,6 @@ dd {
 
 .mobile-nav {
   display: none;
-}
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 150ms ease, transform 150ms ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
 }
 
 @media (min-width: 1480px) {
@@ -2879,7 +2807,7 @@ dd {
     visibility: hidden;
     opacity: 0;
     pointer-events: none;
-    transform: translateX(12px);
+    transform: translateX(var(--space-3));
   }
 
   .list-pane {
@@ -2890,7 +2818,7 @@ dd {
     visibility: hidden;
     opacity: 0;
     pointer-events: none;
-    transform: translateX(-8px);
+    transform: translateX(calc(var(--space-2) * -1));
     transition-delay: 0s, 0s, var(--motion-base);
   }
 
@@ -2914,7 +2842,7 @@ dd {
     visibility: hidden;
     opacity: 0;
     pointer-events: none;
-    transform: translateX(12px);
+    transform: translateX(var(--space-3));
     transition-delay: 0s, 0s, var(--motion-base);
   }
 
@@ -3223,14 +3151,14 @@ dd {
 @keyframes mobile-drilldown-forward {
   from {
     opacity: 0;
-    transform: translateX(12px);
+    transform: translateX(var(--space-3));
   }
 }
 
 @keyframes mobile-drilldown-back {
   from {
     opacity: 0;
-    transform: translateX(-8px);
+    transform: translateX(calc(var(--space-2) * -1));
   }
 }
 

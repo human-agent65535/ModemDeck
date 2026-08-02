@@ -453,9 +453,9 @@ onBeforeUnmount(() => {
   border-radius: 7px;
   cursor: pointer;
   transition:
-    border-color 140ms ease,
-    box-shadow 140ms ease,
-    background 140ms ease;
+    border-color var(--motion-base) var(--ease-standard),
+    box-shadow var(--motion-base) var(--ease-standard),
+    background var(--motion-base) var(--ease-standard);
 }
 
 .line-selector__control:hover {
@@ -479,7 +479,7 @@ onBeforeUnmount(() => {
 
 .line-selector__chevron {
   color: var(--muted);
-  transition: transform 140ms ease;
+  transition: transform var(--motion-base) var(--ease-standard);
 }
 
 .line-selector__chevron.is-open {

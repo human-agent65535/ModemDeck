@@ -232,7 +232,7 @@ onBeforeUnmount(() => {
 
 .overlay-enter-from .overlay-dialog,
 .overlay-leave-to .overlay-dialog {
-  transform: translateY(10px) scale(0.985);
+  transform: translateY(var(--space-3)) scale(0.985);
 }
 
 .overlay-leave-active {
@@ -256,7 +256,7 @@ onBeforeUnmount(() => {
 
   .overlay-enter-from .overlay-dialog--responsive-sheet,
   .overlay-leave-to .overlay-dialog--responsive-sheet {
-    transform: translateY(18px);
+    transform: translateY(var(--space-5));
   }
 }
 

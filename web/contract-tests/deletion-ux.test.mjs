@@ -12,6 +12,11 @@ test('phone and tablet list rows expose native-style swipe actions', async () =>
   assert.match(swipeRow, /window\.matchMedia\('\(max-width: 1100px\)'\)\.matches/)
   assert.match(swipeRow, /event\.pointerType !== 'touch' && event\.pointerType !== 'pen'/)
   assert.match(swipeRow, /side === 'read' \? ACTION_WIDTH : -ACTION_WIDTH/)
+  assert.match(swipeRow, /const GESTURE_SLOP = 10/)
+  assert.match(swipeRow, /const HORIZONTAL_DOMINANCE = 1\.25/)
+  assert.match(swipeRow, /absoluteX >= absoluteY \* HORIZONTAL_DOMINANCE/)
+  assert.match(swipeRow, /@pointercancel="onPointerCancel"/)
+  assert.doesNotMatch(swipeRow, /@pointercancel="onPointerEnd"/)
   assert.match(swipeRow, /@media \(max-width: 1100px\)/)
   assert.match(
     swipeRow,
@@ -19,7 +24,7 @@ test('phone and tablet list rows expose native-style swipe actions', async () =>
   )
   assert.match(
     swipeRow,
-    /\.swipe-action-row__action \{\s*display: flex;/
+    /\.swipe-action-row\.is-revealing-read \.swipe-action-row__action--read,[\s\S]*\.swipe-action-row\.is-revealing-delete \.swipe-action-row__action--delete \{\s*display: flex;/
   )
 })
 

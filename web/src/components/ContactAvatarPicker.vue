@@ -161,9 +161,9 @@ function removeAvatar(): void {
   border-radius: 50%;
   cursor: pointer;
   transition:
-    border-color 150ms ease,
-    box-shadow 150ms ease,
-    transform 150ms ease;
+    border-color var(--motion-base) var(--ease-standard),
+    box-shadow var(--motion-base) var(--ease-standard),
+    transform var(--motion-base) var(--ease-standard);
 }
 
 .contact-avatar-picker__target :deep(.avatar) {
@@ -201,7 +201,7 @@ function removeAvatar(): void {
   background: rgb(15 23 42 / 46%);
   border-radius: 50%;
   opacity: 0;
-  transition: opacity 150ms ease;
+  transition: opacity var(--motion-base) var(--ease-standard);
 }
 
 .contact-avatar-picker__target:hover .contact-avatar-picker__overlay,

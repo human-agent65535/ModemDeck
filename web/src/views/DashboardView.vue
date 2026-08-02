@@ -1336,8 +1336,8 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border);
   border-radius: 7px;
   transition:
-    border-color 150ms ease,
-    background 150ms ease;
+    border-color var(--motion-base) var(--ease-standard),
+    background var(--motion-base) var(--ease-standard);
 }
 
 .dashboard-summary-card:hover {

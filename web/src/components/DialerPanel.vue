@@ -497,7 +497,7 @@ onBeforeUnmount(() => {
 
 <template>
   <Teleport to="body" :disabled="permanent">
-    <Transition name="fade">
+    <Transition name="dialer-surface">
       <div
         v-if="permanent || uiState.dialerOpen || callSurfaceVisible"
         :class="[
@@ -716,6 +716,30 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.dialer-surface-enter-active,
+.dialer-surface-leave-active {
+  transition: opacity var(--motion-base) var(--ease-standard);
+}
+
+.dialer-surface-enter-active .dialer-panel,
+.dialer-surface-leave-active .dialer-panel {
+  transition:
+    opacity var(--motion-base) var(--ease-standard),
+    transform var(--motion-slow) var(--ease-emphasized);
+}
+
+.dialer-surface-enter-from,
+.dialer-surface-leave-to,
+.dialer-surface-enter-from .dialer-panel,
+.dialer-surface-leave-to .dialer-panel {
+  opacity: 0;
+}
+
+.dialer-surface-enter-from .dialer-panel,
+.dialer-surface-leave-to .dialer-panel {
+  transform: translateY(var(--space-2)) scale(0.99);
+}
+
 .dialer-host--permanent {
   min-width: 0;
   min-height: 0;
@@ -862,8 +886,8 @@ onBeforeUnmount(() => {
   border-radius: 0;
   box-shadow: none;
   transition:
-    border-color 150ms ease,
-    background 150ms ease;
+    border-color var(--motion-base) var(--ease-standard),
+    background var(--motion-base) var(--ease-standard);
 }
 
 .dialer-number-entry :deep(.suggest-input__field:focus-within) {
@@ -1036,10 +1060,10 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border);
   border-radius: 50%;
   transition:
-    color 150ms ease,
-    background 150ms ease,
-    border-color 150ms ease,
-    transform 150ms ease;
+    color var(--motion-base) var(--ease-standard),
+    background var(--motion-base) var(--ease-standard),
+    border-color var(--motion-base) var(--ease-standard),
+    transform var(--motion-base) var(--ease-standard);
 }
 
 .dialer-recording-action:hover:not(:disabled) .dialer-recording-action__icon {
@@ -1169,6 +1193,11 @@ onBeforeUnmount(() => {
     border-left: 0;
     border-radius: 8px 8px 0 0;
   }
+
+  .dialer-surface-enter-from .dialer-panel,
+  .dialer-surface-leave-to .dialer-panel {
+    transform: translateY(var(--space-3));
+  }
 }
 
 @media (min-width: 861px) and (max-width: 1479px) {
@@ -1188,6 +1217,20 @@ onBeforeUnmount(() => {
     width: min(420px, calc(100vw - 40px));
     height: min(720px, calc(100dvh - 40px));
     max-height: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dialer-surface-enter-active,
+  .dialer-surface-leave-active,
+  .dialer-surface-enter-active .dialer-panel,
+  .dialer-surface-leave-active .dialer-panel {
+    transition: none;
+  }
+
+  .dialer-surface-enter-from .dialer-panel,
+  .dialer-surface-leave-to .dialer-panel {
+    transform: none;
   }
 }
 

@@ -38,6 +38,7 @@ import WorkspaceDetailPane from '../components/workspace/WorkspaceDetailPane.vue
 import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
 import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
+import { useDurablePageRefresh } from '../composables/useDurablePageRefresh'
 import { useListArrivals } from '../composables/useListArrivals'
 import { useListSelection } from '../composables/useListSelection'
 import {
@@ -157,6 +158,10 @@ const selection = useListSelection<MessageThread>(thread => thread.key)
 const selecting = selection.active
 const selectionCount = selection.count
 const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
+useDurablePageRefresh(
+  () => Promise.all([loadContacts(true), loadThreads(true)]),
+  { enabled: () => route.name === 'messages' }
+)
 const threadArrivals = useListArrivals(
   () => ({
     items: threadsResource.data,
@@ -854,8 +859,8 @@ onMounted(() => {
   )
   void waitForInitialLoad([
     () => loadBootstrap(),
-    () => loadContacts(),
-    () => loadThreads()
+    () => loadContacts(true),
+    () => loadThreads(true)
   ])
   void reconcileRenderedMessages(false)
 })
@@ -1394,13 +1399,13 @@ onBeforeUnmount(() => {
 }
 
 .message-row.is-arriving {
-  animation: incoming-message 520ms ease-out;
+  animation: incoming-message calc(var(--motion-slow) * 2) var(--ease-standard);
 }
 
 @keyframes incoming-message {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(var(--space-2));
   }
 }
 

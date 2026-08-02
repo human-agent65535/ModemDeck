@@ -266,7 +266,7 @@ onBeforeUnmount(() => {
   height: 100%;
   background: var(--accent);
   border-radius: inherit;
-  transition: width 80ms linear;
+  transition: width var(--motion-fast) linear;
 }
 
 .microphone-test__button {

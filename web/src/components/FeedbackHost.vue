@@ -124,7 +124,7 @@ function iconFor(tone: FeedbackTone): typeof CircleCheck {
 .feedback-enter-from,
 .feedback-leave-to {
   opacity: 0;
-  transform: translateY(-8px) scale(0.98);
+  transform: translateY(calc(var(--space-2) * -1)) scale(0.98);
 }
 
 .feedback-move {

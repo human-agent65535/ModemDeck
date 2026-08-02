@@ -84,19 +84,17 @@ function applyStateLabel(): string {
         />
         <strong>{{ proxy.mode === 'http' ? 'HTTP CONNECT' : 'SOCKS5' }}</strong>
       </div>
-      <button
-        class="proxy-switch"
-        :class="{ 'is-enabled': proxy.enabled }"
-        type="button"
+      <input
+        class="ui-switch ui-switch--compact"
+        type="checkbox"
         role="switch"
+        :checked="proxy.enabled"
         :aria-checked="proxy.enabled"
         :aria-label="proxy.enabled ? t('proxy.disable') : t('proxy.enable')"
         :title="pendingDelete ? t('proxy.deleting') : proxy.enabled ? t('proxy.disable') : t('proxy.enable')"
         :disabled="busy || pendingDelete"
-        @click="$emit('toggle', proxy, !proxy.enabled)"
-      >
-        <span />
-      </button>
+        @change="$emit('toggle', proxy, !proxy.enabled)"
+      />
     </header>
 
     <div class="proxy-card__status" :class="`is-${runtimeState()}`">
@@ -203,37 +201,6 @@ function applyStateLabel(): string {
   font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.proxy-switch {
-  position: relative;
-  width: 38px;
-  height: 22px;
-  flex: 0 0 38px;
-  padding: 0;
-  background: var(--border-strong);
-  border-radius: 11px;
-  transition: background 140ms ease;
-}
-
-.proxy-switch > span {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 16px;
-  height: 16px;
-  background: var(--surface);
-  border-radius: 50%;
-  box-shadow: 0 1px 3px rgb(16 24 40 / 24%);
-  transition: transform 140ms ease;
-}
-
-.proxy-switch.is-enabled {
-  background: var(--accent);
-}
-
-.proxy-switch.is-enabled > span {
-  transform: translateX(16px);
 }
 
 .proxy-card__status {
