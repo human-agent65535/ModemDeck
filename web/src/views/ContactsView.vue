@@ -34,6 +34,7 @@ import WorkspaceDetailPane from '../components/workspace/WorkspaceDetailPane.vue
 import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
 import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
+import { useListArrivals } from '../composables/useListArrivals'
 import { useListSelection } from '../composables/useListSelection'
 import { skeletonPreviewEnabled } from '../composables/useSkeletonPreview'
 import { messageComposeRoute } from '../router/messageRoute'
@@ -74,6 +75,14 @@ const selection = useListSelection<Contact>(contact => contact.id)
 const selecting = selection.active
 const selectionCount = selection.count
 const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
+const contactArrivals = useListArrivals(
+  () => ({
+    items: contactsResource.data,
+    ready: contactsResource.status === 'ready',
+    animate: !contactsPagination.loadingMore
+  }),
+  contact => contact.id
+)
 
 const filteredContacts = computed(() => {
   const query = search.value.trim().toLocaleLowerCase()
@@ -371,6 +380,7 @@ onBeforeUnmount(() => {
             :key="contact.id"
             :active="selecting"
             :selected="selection.has(contact)"
+            :arriving="contactArrivals.isArriving(contact.id)"
             :label="t('common.selectItem', { name: contact.display_name })"
             @toggle="selection.toggle(contact)"
           >

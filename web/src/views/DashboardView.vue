@@ -44,6 +44,7 @@ import WorkspaceDetailSkeleton from '../components/skeletons/WorkspaceDetailSkel
 import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
 import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
+import { useListArrivals } from '../composables/useListArrivals'
 import { useListSelection } from '../composables/useListSelection'
 import { skeletonPreviewEnabled } from '../composables/useSkeletonPreview'
 import { messageThreadReference } from '../router/messageRoute'
@@ -295,6 +296,15 @@ const activityErrors = computed(() =>
 )
 const activityRetryable = computed(
   () => callsResource.status === 'error' || threadsResource.status === 'error'
+)
+const activityArrivals = useListArrivals(
+  () => ({
+    items: activities.value,
+    ready:
+      callsResource.status === 'ready' &&
+      threadsResource.status === 'ready'
+  }),
+  activity => activity.key
 )
 
 const favoriteContacts = computed(() =>
@@ -806,6 +816,11 @@ onBeforeUnmount(() => {
           :key="activity.key"
           :active="selecting"
           :selected="selection.has(activity)"
+          :arriving="
+            activityArrivals.isArriving(activity.key) ||
+            (activity.kind === 'message' &&
+              recentIncomingThreadKeys[activity.thread.key])
+          "
           :label="
             t('common.selectItem', {
               name:
@@ -838,7 +853,6 @@ onBeforeUnmount(() => {
               :line="lineTagLine(lineForThread(activity.thread), activity.thread.line_id)"
               :line-fallback="threadLineFallback(activity.thread)"
               :selected="selectionKey === activity.key"
-              :arriving="recentIncomingThreadKeys[activity.thread.key]"
               :favorite-interactive="false"
               @select="selectActivity(activity)"
             />

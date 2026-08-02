@@ -38,6 +38,7 @@ import WorkspaceDetailPane from '../components/workspace/WorkspaceDetailPane.vue
 import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
 import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
+import { useListArrivals } from '../composables/useListArrivals'
 import { useListSelection } from '../composables/useListSelection'
 import {
   messageComposeContextFromReference,
@@ -156,6 +157,14 @@ const selection = useListSelection<MessageThread>(thread => thread.key)
 const selecting = selection.active
 const selectionCount = selection.count
 const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
+const threadArrivals = useListArrivals(
+  () => ({
+    items: threadsResource.data,
+    ready: threadsResource.status === 'ready',
+    animate: !threadsPagination.loadingMore
+  }),
+  thread => thread.key
+)
 
 const embedded = computed(
   () => props.embeddedCompose || Boolean(props.embeddedThreadKey)
@@ -1000,6 +1009,10 @@ onBeforeUnmount(() => {
             :key="thread.key"
             :active="selecting"
             :selected="selection.has(thread)"
+            :arriving="
+              threadArrivals.isArriving(thread.key) ||
+              recentIncomingThreadKeys[thread.key]
+            "
             :label="t('common.selectItem', { name: displayNameForThread(thread) })"
             @toggle="selection.toggle(thread)"
           >
@@ -1028,7 +1041,6 @@ onBeforeUnmount(() => {
                 :line="lineTagLine(lineForThread(thread), thread.line_id)"
                 :line-fallback="threadLineFallback(thread)"
                 :selected="thread.key === selectedKey && !composingNew"
-                :arriving="recentIncomingThreadKeys[thread.key]"
                 :favorite-interactive="false"
                 @select="chooseThread"
               />

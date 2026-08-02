@@ -37,6 +37,7 @@ import WorkspaceDetailPane from '../components/workspace/WorkspaceDetailPane.vue
 import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
 import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
+import { useListArrivals } from '../composables/useListArrivals'
 import { useListSelection } from '../composables/useListSelection'
 import { skeletonPreviewEnabled } from '../composables/useSkeletonPreview'
 import { messageComposeRoute } from '../router/messageRoute'
@@ -105,6 +106,14 @@ const selection = useListSelection<CallRecord>(call => call.id)
 const selecting = selection.active
 const selectionCount = selection.count
 const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
+const callArrivals = useListArrivals(
+  () => ({
+    items: callsResource.data,
+    ready: callsResource.status === 'ready',
+    animate: !callsPagination.loadingMore
+  }),
+  call => call.id
+)
 const lines = computed(() => bootstrapResource.data?.lines || [])
 const defaultLineID = computed(
   () => bootstrapResource.data?.line_settings.default_line_id || ''
@@ -719,6 +728,7 @@ onBeforeUnmount(() => {
             :key="call.id"
             :active="selecting"
             :selected="selection.has(call)"
+            :arriving="callArrivals.isArriving(call.id)"
             :label="t('common.selectItem', { name: displayName(call) })"
             @toggle="selection.toggle(call)"
           >

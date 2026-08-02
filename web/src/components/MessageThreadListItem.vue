@@ -18,7 +18,6 @@ const props = withDefaults(
     line: LineTagLine
     lineFallback?: string
     selected?: boolean
-    arriving?: boolean
     showFavorite?: boolean
     favoriteInteractive?: boolean
   }>(),
@@ -26,7 +25,6 @@ const props = withDefaults(
     avatar: '',
     lineFallback: '',
     selected: false,
-    arriving: false,
     showFavorite: true,
     favoriteInteractive: false
   }
@@ -43,8 +41,7 @@ const { t } = useI18n()
   <div
     class="list-item list-item--thread"
     :class="{
-      'is-selected': selected,
-      'is-arriving': arriving
+      'is-selected': selected
     }"
     role="button"
     tabindex="0"
@@ -117,23 +114,6 @@ const { t } = useI18n()
 </template>
 
 <style scoped>
-.list-item--thread.is-arriving {
-  animation: incoming-thread 700ms ease-out;
-}
-
-@keyframes incoming-thread {
-  from {
-    background: var(--accent-soft);
-    box-shadow: inset 3px 0 var(--accent);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .list-item--thread.is-arriving {
-    animation: none;
-  }
-}
-
 .message-thread-meta {
   display: flex;
   width: 100%;

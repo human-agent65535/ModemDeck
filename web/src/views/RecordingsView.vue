@@ -30,6 +30,7 @@ import WorkspaceDetailPane from '../components/workspace/WorkspaceDetailPane.vue
 import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
 import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
+import { useListArrivals } from '../composables/useListArrivals'
 import { useListSelection } from '../composables/useListSelection'
 import { skeletonPreviewEnabled } from '../composables/useSkeletonPreview'
 import { audioState } from '../state/audio'
@@ -69,6 +70,14 @@ const selection = useListSelection<RecordingEntry>(recording => recording.id)
 const selecting = selection.active
 const selectionCount = selection.count
 const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
+const recordingArrivals = useListArrivals(
+  () => ({
+    items: recordingCatalogState.data,
+    ready: recordingCatalogState.status === 'ready',
+    animate: !recordingCatalogPagination.loadingMore
+  }),
+  recording => recording.id
+)
 let searchTimer: number | undefined
 
 const selectedID = computed(() =>
@@ -457,6 +466,7 @@ onBeforeUnmount(() => {
             :key="recording.id"
             :active="selecting"
             :selected="selection.has(recording)"
+            :arriving="recordingArrivals.isArriving(recording.id)"
             :label="t('common.selectItem', { name: displayName(recording) })"
             @toggle="selection.toggle(recording)"
           >
