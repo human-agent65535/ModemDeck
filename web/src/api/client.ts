@@ -259,6 +259,7 @@ let currentCSRFToken = ''
 let authenticationRequestGeneration = 0
 let authenticationRequestController = new AbortController()
 let authenticationRequiredHandler: () => void = () => undefined
+const conditionalJSONCache = new Map<string, { etag: string; body: unknown }>()
 
 function requestID(): string {
   const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16))
@@ -276,6 +277,7 @@ export function rotateAuthenticationRequestScope(): void {
   authenticationRequestGeneration += 1
   authenticationRequestController.abort()
   authenticationRequestController = new AbortController()
+  conditionalJSONCache.clear()
 }
 
 export function setAuthenticationRequiredHandler(handler: () => void): void {
@@ -971,13 +973,18 @@ async function responseBody(response: Response): Promise<unknown> {
   }
 }
 
-async function request(
+type RequestResult = {
+  body: unknown
+  response: Response
+}
+
+async function requestWithResponse(
   path: string,
   init: RequestInit,
-  expectedStatus: number,
+  expectedStatus: number | readonly number[],
   timeoutMilliseconds?: number,
   authenticationRequired = true
-): Promise<unknown> {
+): Promise<RequestResult> {
   const method = (init.method || 'GET').toUpperCase()
   const headers = new Headers(init.headers)
   if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS' && currentCSRFToken) {
@@ -1024,7 +1031,11 @@ async function request(
     throw new ApiError('无法读取 ModemDeck 服务响应', response.status, 'invalid_response')
   }
 
-  if (!response.ok) {
+  const expectedStatuses = Array.isArray(expectedStatus)
+    ? expectedStatus
+    : [expectedStatus]
+  const statusExpected = expectedStatuses.includes(response.status)
+  if (!response.ok && !statusExpected) {
     const details = errorDetails(body)
     if (
       response.status === 401 &&
@@ -1039,14 +1050,31 @@ async function request(
       (typeof body === 'string' && body.trim() ? body.trim() : `请求失败（${response.status}）`)
     throw new ApiError(message, response.status, details?.code, details?.field)
   }
-  if (response.status !== expectedStatus) {
+  if (!statusExpected) {
     throw new ApiError(
-      `ModemDeck 服务返回了意外状态（${response.status}，预期 ${expectedStatus}）`,
+      `ModemDeck 服务返回了意外状态（${response.status}，预期 ${expectedStatuses.join(' 或 ')}）`,
       response.status,
       'unexpected_status'
     )
   }
-  return body
+  return { body, response }
+}
+
+async function request(
+  path: string,
+  init: RequestInit,
+  expectedStatus: number,
+  timeoutMilliseconds?: number,
+  authenticationRequired = true
+): Promise<unknown> {
+  const result = await requestWithResponse(
+    path,
+    init,
+    expectedStatus,
+    timeoutMilliseconds,
+    authenticationRequired
+  )
+  return result.body
 }
 
 function get(path: string): Promise<unknown> {
@@ -1058,6 +1086,29 @@ function get(path: string): Promise<unknown> {
     },
     200
   )
+}
+
+async function conditionalGet(path: string): Promise<unknown> {
+  const cached = conditionalJSONCache.get(path)
+  const headers = new Headers({ Accept: 'application/json' })
+  if (cached) headers.set('If-None-Match', cached.etag)
+  let result = await requestWithResponse(
+    path,
+    { method: 'GET', headers },
+    [200, 304]
+  )
+  if (result.response.status === 304) {
+    if (cached) return cached.body
+    result = await requestWithResponse(
+      path,
+      { method: 'GET', headers: { Accept: 'application/json' } },
+      200
+    )
+  }
+  const etag = result.response.headers.get('etag')?.trim() || ''
+  if (etag) conditionalJSONCache.set(path, { etag, body: result.body })
+  else conditionalJSONCache.delete(path)
+  return result.body
 }
 
 function getPublic(path: string): Promise<unknown> {
@@ -1461,7 +1512,7 @@ const realGateway: ConfiguredModemDeckGateway = {
 
   async listContacts(query: ListQuery = {}) {
     return parseContacts(
-      await get(
+      await conditionalGet(
         `${API_ROOT}/contacts${queryString({
           q: query.q,
           cursor: query.cursor,
@@ -1514,7 +1565,7 @@ const realGateway: ConfiguredModemDeckGateway = {
 
   async listThreads(query: ListQuery = {}) {
     return parseThreads(
-      await get(
+      await conditionalGet(
         `${API_ROOT}/messages/threads${queryString({
           q: query.q,
           cursor: query.cursor,
@@ -1526,7 +1577,7 @@ const realGateway: ConfiguredModemDeckGateway = {
 
   async listMessages(query) {
     return parseMessages(
-      await get(
+      await conditionalGet(
         `${API_ROOT}/messages${queryString({
           line_id: query.line_id,
           peer: query.peer,
@@ -1584,7 +1635,7 @@ const realGateway: ConfiguredModemDeckGateway = {
 
   async listCalls(filter: CallFilter = 'all', query: ListQuery = {}) {
     return parseCalls(
-      await get(
+      await conditionalGet(
         `${API_ROOT}/calls${queryString({
           kind: filter,
           q: query.q,
@@ -2197,7 +2248,7 @@ const realGateway: ConfiguredModemDeckGateway = {
   async listRecordings(query: ListQuery = {}) {
     const contract = communicationContracts.listRecordings
     return parseRecordingEntriesResponse(
-      await get(
+      await conditionalGet(
         `${contract.path}${queryString({
           q: query.q,
           cursor: query.cursor,

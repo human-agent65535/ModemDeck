@@ -141,6 +141,9 @@ func (api *API) recordingEntries(response http.ResponseWriter, request *http.Req
 	if hasCursor {
 		query.After = &after
 	}
+	if _, notModified := api.prepareConditionalCollectionRead(response, request); notModified {
+		return
+	}
 	entries, err := api.repository.RecordingEntries(
 		request.Context(),
 		query,

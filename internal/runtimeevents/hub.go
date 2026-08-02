@@ -45,6 +45,7 @@ type Publisher interface {
 }
 
 type Source interface {
+	Current() Signal
 	Subscribe() (Signal, <-chan Signal, func())
 }
 
@@ -121,6 +122,12 @@ func (h *Hub) Subscribe() (Signal, <-chan Signal, func()) {
 		})
 	}
 	return current, updates, cancel
+}
+
+func (h *Hub) Current() Signal {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.current
 }
 
 func newEpoch() string {

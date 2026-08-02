@@ -933,6 +933,9 @@ func (api *API) contacts(response http.ResponseWriter, request *http.Request) {
 	if hasCursor {
 		query.After = &after
 	}
+	if _, notModified := api.prepareConditionalCollectionRead(response, request); notModified {
+		return
+	}
 	contacts, err := api.repository.Contacts(request.Context(), query)
 	if err != nil {
 		api.writeInternalError(response, request, "list contacts", err)
@@ -1069,6 +1072,9 @@ func (api *API) messageThreads(response http.ResponseWriter, request *http.Reque
 	if hasCursor {
 		query.After = &after
 	}
+	if _, notModified := api.prepareConditionalCollectionRead(response, request); notModified {
+		return
+	}
 	threads, err := api.repository.MessageThreads(request.Context(), query)
 	if err != nil {
 		api.writeInternalError(response, request, "list message threads", err)
@@ -1160,6 +1166,9 @@ func (api *API) messages(response http.ResponseWriter, request *http.Request) {
 	if hasCursor {
 		query.After = &after
 	}
+	if _, notModified := api.prepareConditionalCollectionRead(response, request); notModified {
+		return
+	}
 	messages, err := api.repository.Messages(request.Context(), query)
 	if err != nil {
 		api.writeInternalError(response, request, "list messages", err)
@@ -1227,6 +1236,9 @@ func (api *API) calls(response http.ResponseWriter, request *http.Request) {
 	}
 	if hasCursor {
 		query.After = &after
+	}
+	if _, notModified := api.prepareConditionalCollectionRead(response, request); notModified {
+		return
 	}
 	calls, err := api.repository.Calls(request.Context(), query)
 	if err != nil {
