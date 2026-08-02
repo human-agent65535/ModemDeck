@@ -27,8 +27,9 @@ export function useDurablePageRefresh(
     (!documentTarget || documentTarget.visibilityState === 'visible')
 
   const request = (): Promise<void> => {
-    if (stopped || !active()) return Promise.resolve()
+    if (stopped) return Promise.resolve()
     pending = true
+    if (!active()) return Promise.resolve()
     if (!operation) {
       operation = (async () => {
         while (!stopped && pending) {
@@ -56,7 +57,7 @@ export function useDurablePageRefresh(
   )
 
   const resumeVisiblePage = () => {
-    if (documentTarget?.visibilityState === 'visible') void request()
+    if (documentTarget?.visibilityState === 'visible' && pending) void request()
   }
   documentTarget?.addEventListener('visibilitychange', resumeVisiblePage)
 

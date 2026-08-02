@@ -80,7 +80,7 @@ test('background collection refresh preserves ready state and arrival baselines'
   }
 })
 
-test('hidden pages defer durable work and revalidate once on foreground resume', async () => {
+test('hidden pages revalidate only missed durable work on foreground resume', async () => {
   const visibility = visibilityFixture()
   const scope = effectScope()
   let refreshes = 0
@@ -92,6 +92,11 @@ test('hidden pages defer durable work and revalidate once on foreground resume',
       { documentTarget: visibility.target }
     )
   )
+
+  visibility.change('hidden')
+  visibility.change('visible')
+  await Promise.resolve()
+  assert.equal(refreshes, 0)
 
   visibility.change('hidden')
   await durable.request()
