@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -351,10 +351,10 @@ func TestEventStreamsCloseWhenCurrentAccessIsRevoked(t *testing.T) {
 	}
 }
 
-func TestEventStreamsRecheckAccessBeforePublishing(t *testing.T) {
+func TestEventStreamPayloadsUseCachedAuthorization(t *testing.T) {
 	t.Parallel()
 
-	t.Run("runtime session revocation", func(t *testing.T) {
+	t.Run("runtime", func(t *testing.T) {
 		t.Parallel()
 
 		repository, authenticator := newEventStreamTestAuthenticator(t)
@@ -374,19 +374,63 @@ func TestEventStreamsRecheckAccessBeforePublishing(t *testing.T) {
 			"/api/v1/runtime/events",
 			auth.SessionToken(opaqueTestToken(91)),
 		)
-		repository.setFound(false)
-		events.Publish(runtimeevents.Change{Durable: true})
-		waitForEventStreamClose(t, done, cancel)
-		if strings.Count(response.bodyString(), "event: state") != 1 {
-			t.Fatalf("revoked runtime state was published: %q", response.bodyString())
+		baseline := repository.authenticationLookups()
+		for range 40 {
+			events.Publish(runtimeevents.Change{Sections: runtimeevents.SectionNetwork})
 		}
+		waitForMessageEvent(t, response, `"revision":40`)
+		if got := repository.authenticationLookups(); got != baseline {
+			t.Fatalf("authorization lookups = %d after payload burst, want %d", got, baseline)
+		}
+		cancel()
+		waitForEventStreamClose(t, done, nil)
 	})
 
-	t.Run("diagnostic administrator downgrade", func(t *testing.T) {
+	t.Run("messages", func(t *testing.T) {
 		t.Parallel()
 
 		repository, authenticator := newEventStreamTestAuthenticator(t)
-		logs := diagnostics.NewLogBuffer(8)
+		repository.setPrincipal(auth.Principal{
+			UserID:         "user-admin",
+			Role:           auth.RoleAdmin,
+			AllowedLineIDs: []string{"line-1"},
+		})
+		events := messageevents.NewBuffer(64)
+		api, err := New(&fakeRepository{}, Options{
+			Authenticator: authenticator,
+			MessageEvents: events,
+		})
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+		api.streamAuthInterval = time.Hour
+
+		response, done, cancel := startAuthenticatedEventStream(
+			t,
+			api,
+			"/api/v1/messages/events",
+			auth.SessionToken(opaqueTestToken(92)),
+		)
+		baseline := repository.authenticationLookups()
+		for index := range 40 {
+			events.Publish(messageevents.IncomingSMS{
+				MessageID: fmt.Sprintf("message-%d", index),
+				LineID:    "line-1",
+			})
+		}
+		waitForMessageEvent(t, response, `"message_id":"message-39"`)
+		if got := repository.authenticationLookups(); got != baseline {
+			t.Fatalf("authorization lookups = %d after payload burst, want %d", got, baseline)
+		}
+		cancel()
+		waitForEventStreamClose(t, done, nil)
+	})
+
+	t.Run("diagnostics", func(t *testing.T) {
+		t.Parallel()
+
+		repository, authenticator := newEventStreamTestAuthenticator(t)
+		logs := diagnostics.NewLogBuffer(64)
 		logger := slog.New(logs.Handler(nil))
 		api, err := New(&fakeRepository{}, Options{
 			Authenticator:  authenticator,
@@ -401,17 +445,18 @@ func TestEventStreamsRecheckAccessBeforePublishing(t *testing.T) {
 			t,
 			api,
 			"/api/v1/diagnostics/logs/stream",
-			auth.SessionToken(opaqueTestToken(92)),
+			auth.SessionToken(opaqueTestToken(93)),
 		)
-		repository.setPrincipal(auth.Principal{
-			UserID: "user-admin",
-			Role:   auth.RoleMember,
-		})
-		logger.Info("revoked diagnostic event")
-		waitForEventStreamClose(t, done, cancel)
-		if bytes.Contains([]byte(response.bodyString()), []byte("revoked diagnostic event")) {
-			t.Fatalf("revoked diagnostic event was published: %q", response.bodyString())
+		baseline := repository.authenticationLookups()
+		for index := range 40 {
+			logger.Info(fmt.Sprintf("diagnostic-%d", index))
 		}
+		waitForMessageEvent(t, response, "diagnostic-39")
+		if got := repository.authenticationLookups(); got != baseline {
+			t.Fatalf("authorization lookups = %d after payload burst, want %d", got, baseline)
+		}
+		cancel()
+		waitForEventStreamClose(t, done, nil)
 	})
 }
 

@@ -52,7 +52,7 @@ func TestRuntimeStateStreamStartsWithCurrentStateAndIgnoresReplayCursors(t *test
 	t.Parallel()
 
 	hub := runtimeevents.NewHub()
-	hub.Publish(runtimeevents.Change{})
+	hub.Publish(runtimeevents.Change{Sections: runtimeevents.SectionNetwork})
 	current := hub.Publish(runtimeevents.Change{
 		Durable:    true,
 		ObservedAt: time.Date(2026, time.August, 2, 3, 0, 1, 0, time.UTC),
@@ -94,7 +94,7 @@ func TestRuntimeStateStreamSendsLatestStateAfterNotification(t *testing.T) {
 	t.Parallel()
 
 	hub := runtimeevents.NewHub()
-	hub.Publish(runtimeevents.Change{})
+	hub.Publish(runtimeevents.Change{Sections: runtimeevents.SectionCommunication})
 	api, err := New(&fakeRepository{}, Options{
 		RuntimeEvents:         hub,
 		disableAuthentication: true,
@@ -135,6 +135,7 @@ func TestRuntimeStateSnapshotIsBuiltOncePerSignal(t *testing.T) {
 	network := &fakeNetworkService{}
 	api, err := New(repository, Options{
 		Communications:        communications,
+		CallLeases:            &fakeCallLeases{},
 		Network:               network,
 		disableAuthentication: true,
 	})
@@ -148,7 +149,7 @@ func TestRuntimeStateSnapshotIsBuiltOncePerSignal(t *testing.T) {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			_ = api.currentRuntimeState(signal)
+			_ = api.currentRuntimeState(signal, runtimeevents.AllSections)
 		}()
 	}
 	wait.Wait()
@@ -167,11 +168,94 @@ func TestRuntimeStateSnapshotIsBuiltOncePerSignal(t *testing.T) {
 		)
 	}
 
-	_ = api.currentRuntimeState(runtimeevents.Signal{Epoch: "process-a", Revision: 8})
+	networkSignal := runtimeevents.Signal{Epoch: "process-a", Revision: 8}
+	_ = api.currentRuntimeState(networkSignal, runtimeevents.SectionNetwork)
+	if repository.linesCalls != 1 || repository.devicesCalls != 1 ||
+		communications.currentStatusCalls != 1 ||
+		network.statusCalls != 2 || network.proxiesCalls != 2 {
+		t.Fatalf("network-only signal rebuilt unrelated sections")
+	}
+
+	_ = api.currentRuntimeState(networkSignal, runtimeevents.AllSections)
 	if repository.linesCalls != 2 || repository.devicesCalls != 2 ||
 		communications.currentStatusCalls != 2 ||
 		network.statusCalls != 2 || network.proxiesCalls != 2 {
-		t.Fatalf("new signal did not rebuild exactly once")
+		t.Fatalf("lazy section fill did not reuse the network snapshot")
+	}
+}
+
+func TestRuntimeStateWritesOnlyChangedSections(t *testing.T) {
+	t.Parallel()
+
+	repository := &countingRuntimeRepository{fakeRepository: &fakeRepository{}}
+	communications := &fakeCommunications{}
+	network := &fakeNetworkService{status: networkruntime.Status{
+		Available:   true,
+		State:       "available",
+		ApplyStatus: networkruntime.ApplyStatusApplied,
+	}}
+	api, err := New(repository, Options{
+		Communications:        communications,
+		CallLeases:            &fakeCallLeases{},
+		Network:               network,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/runtime/events", nil)
+	response := httptest.NewRecorder()
+	if !api.writeRuntimeState(
+		response,
+		response,
+		request,
+		auth.Principal{},
+		false,
+		runtimeevents.Signal{Epoch: "process-a", Revision: 1},
+		runtimeevents.SectionNetwork,
+	) {
+		t.Fatal("writeRuntimeState() = false")
+	}
+
+	body := response.Body.String()
+	if !strings.Contains(body, `"network":`) ||
+		strings.Contains(body, `"communication":`) ||
+		strings.Contains(body, `"calls":`) ||
+		strings.Contains(body, `"recordings":`) {
+		t.Fatalf("network-only state = %q", body)
+	}
+	if repository.linesCalls != 0 || repository.devicesCalls != 0 ||
+		communications.currentStatusCalls != 0 ||
+		network.statusCalls != 1 || network.proxiesCalls != 1 {
+		t.Fatalf(
+			"network-only reads: lines=%d devices=%d communication=%d network=%d proxies=%d",
+			repository.linesCalls,
+			repository.devicesCalls,
+			communications.currentStatusCalls,
+			network.statusCalls,
+			network.proxiesCalls,
+		)
+	}
+
+	response = httptest.NewRecorder()
+	if !api.writeRuntimeState(
+		response,
+		response,
+		request,
+		auth.Principal{},
+		false,
+		runtimeevents.Signal{Epoch: "process-a", Revision: 2},
+		runtimeevents.SectionCalls,
+	) {
+		t.Fatal("writeRuntimeState() = false")
+	}
+	body = response.Body.String()
+	if !strings.Contains(body, `"calls":{"calls":[],"reservations":[]}`) ||
+		!strings.Contains(body, `"recordings":[]`) ||
+		strings.Contains(body, `"communication":`) ||
+		strings.Contains(body, `"network":`) {
+		t.Fatalf("calls-only state = %q", body)
 	}
 }
 
@@ -259,7 +343,15 @@ func TestRuntimeStateCacheKeepsPerUserProjectionsIndependent(t *testing.T) {
 	streamFor := func(principal auth.Principal) string {
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/runtime/events", nil)
 		response := httptest.NewRecorder()
-		if !api.writeRuntimeState(response, response, request, principal, true, signal) {
+		if !api.writeRuntimeState(
+			response,
+			response,
+			request,
+			principal,
+			true,
+			signal,
+			runtimeevents.AllSections,
+		) {
 			t.Fatal("writeRuntimeState() = false")
 		}
 		return response.Body.String()

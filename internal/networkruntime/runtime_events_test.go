@@ -27,27 +27,42 @@ func TestNetworkSnapshotsPublishLatestStateSignals(t *testing.T) {
 	snapshot := agentclient.NetworkSnapshot{
 		BootEpoch:  "boot-network-events",
 		ObservedAt: now,
-		Lines:      []agentclient.NetworkLine{},
-		Proxies:    []agentclient.NetworkProxy{},
+		Lines: []agentclient.NetworkLine{{
+			LineID:  "line-1",
+			RXBytes: 10,
+			TXBytes: 20,
+		}},
+		Proxies: []agentclient.NetworkProxy{},
 	}
 	service.setSnapshot(snapshot)
 	service.setSnapshot(snapshot)
-	coalesced := nextNetworkSignal(t, updates)
-	if coalesced.Revision != 2 || coalesced.DataRevision != 0 {
-		t.Fatalf("coalesced signal = %+v", coalesced)
+	initial := nextNetworkSignal(t, updates)
+	if initial.Revision != 1 || initial.DataRevision != 0 ||
+		initial.Sections != runtimeevents.SectionNetwork {
+		t.Fatalf("initial signal = %+v", initial)
 	}
 
 	snapshot.ObservedAt = now.Add(30 * time.Second)
 	service.setSnapshot(snapshot)
+	select {
+	case signal := <-updates:
+		t.Fatalf("observed-at-only snapshot published another signal: %+v", signal)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	snapshot.Lines[0].RXBytes++
+	service.setSnapshot(snapshot)
 	latest := nextNetworkSignal(t, updates)
-	if latest.Revision != 3 || !latest.ObservedAt.Equal(snapshot.ObservedAt) {
+	if latest.Revision != 2 || latest.Sections != runtimeevents.SectionNetwork ||
+		!latest.ObservedAt.Equal(snapshot.ObservedAt) {
 		t.Fatalf("latest signal = %+v", latest)
 	}
 
 	service.setUnavailable("host agent unavailable")
 	service.setUnavailable("host agent unavailable")
 	unavailable := nextNetworkSignal(t, updates)
-	if unavailable.Revision != 4 || unavailable.DataRevision != 0 {
+	if unavailable.Revision != 3 || unavailable.DataRevision != 0 ||
+		unavailable.Sections != runtimeevents.SectionNetwork {
 		t.Fatalf("unavailable signal = %+v", unavailable)
 	}
 	select {

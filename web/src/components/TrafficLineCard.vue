@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   ArrowDown,
@@ -35,6 +35,13 @@ const props = defineProps<{
 const connection = computed(() => trafficLineState(props.runtime))
 const rate = ref<NetworkRate>()
 let previousSample: NetworkCounterSample | undefined
+let rateIdleTimer: ReturnType<typeof globalThis.setTimeout> | undefined
+
+function clearRateIdleTimer(): void {
+  if (rateIdleTimer === undefined) return
+  globalThis.clearTimeout(rateIdleTimer)
+  rateIdleTimer = undefined
+}
 
 watch(
   () => [
@@ -46,6 +53,7 @@ watch(
     props.runtime?.tx_bytes
   ],
   () => {
+    clearRateIdleTimer()
     if (!props.runtime || !props.observedAt) {
       rate.value = undefined
       previousSample = undefined
@@ -61,9 +69,17 @@ watch(
     }
     rate.value = calculateNetworkRate(previousSample, sample)
     previousSample = sample
+    if (rate.value) {
+      rateIdleTimer = globalThis.setTimeout(() => {
+        rateIdleTimer = undefined
+        rate.value = { rxBytesPerSecond: 0, txBytesPerSecond: 0 }
+      }, 10_000)
+    }
   },
   { immediate: true }
 )
+
+onBeforeUnmount(clearRateIdleTimer)
 
 function primaryIdentity(): string {
   return props.line.phone_number.trim() || props.fallback

@@ -117,6 +117,8 @@ test('traffic line cards use a balanced responsive information grid', () => {
     trafficView,
     /@media \(max-width:\s*560px\)[\s\S]*\.traffic-line-grid\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)/
   )
+  assert.match(trafficLineCard, /globalThis\.setTimeout\([\s\S]*10_000/)
+  assert.match(trafficLineCard, /onBeforeUnmount\(clearRateIdleTimer\)/)
 })
 
 test('proxy facts reserve enough space for localized labels', () => {

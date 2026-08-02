@@ -33,7 +33,8 @@ func TestRefreshPublishesLatestStateOnlyWhenProjectionChanges(t *testing.T) {
 		t.Fatalf("first Refresh() error = %v", err)
 	}
 	initial := nextRuntimeSignal(t, updates)
-	if initial.Revision != 1 || initial.DataRevision != 0 {
+	if initial.Revision != 1 || initial.DataRevision != 0 ||
+		initial.Sections != runtimeevents.SectionCommunication|runtimeevents.SectionCalls {
 		t.Fatalf("initial signal = %+v", initial)
 	}
 	if _, err := service.Refresh(context.Background()); err != nil {
@@ -55,7 +56,8 @@ func TestRefreshPublishesLatestStateOnlyWhenProjectionChanges(t *testing.T) {
 		t.Fatalf("line Refresh() error = %v", err)
 	}
 	lineSignal := nextRuntimeSignal(t, updates)
-	if lineSignal.Revision != 2 || lineSignal.DataRevision != 0 {
+	if lineSignal.Revision != 2 || lineSignal.DataRevision != 0 ||
+		lineSignal.Sections != runtimeevents.SectionCommunication {
 		t.Fatalf("line signal = %+v; durable revision must stay unchanged", lineSignal)
 	}
 
@@ -79,7 +81,8 @@ func TestRefreshPublishesLatestStateOnlyWhenProjectionChanges(t *testing.T) {
 		t.Fatalf("call Refresh() error = %v", err)
 	}
 	callSignal := nextRuntimeSignal(t, updates)
-	if callSignal.Revision != 3 || callSignal.DataRevision != 0 {
+	if callSignal.Revision != 3 || callSignal.DataRevision != 0 ||
+		callSignal.Sections != runtimeevents.SectionCalls {
 		t.Fatalf("call signal = %+v; starting a call is live state", callSignal)
 	}
 }
@@ -118,7 +121,8 @@ func TestRefreshPublishesPersistedActiveCallChanges(t *testing.T) {
 		t.Fatalf("active call Refresh() error = %v", err)
 	}
 	active := nextRuntimeSignal(t, updates)
-	if active.DataRevision != initial.DataRevision {
+	if active.DataRevision != initial.DataRevision ||
+		active.Sections != runtimeevents.SectionCalls {
 		t.Fatalf("active signal = %+v, initial = %+v", active, initial)
 	}
 
@@ -128,7 +132,8 @@ func TestRefreshPublishesPersistedActiveCallChanges(t *testing.T) {
 		t.Fatalf("ended call Refresh() error = %v", err)
 	}
 	ended := nextRuntimeSignal(t, updates)
-	if ended.DataRevision != active.DataRevision+1 {
+	if ended.DataRevision != active.DataRevision+1 ||
+		ended.Sections != runtimeevents.SectionCalls {
 		t.Fatalf("ended signal = %+v, active = %+v", ended, active)
 	}
 }
@@ -158,7 +163,9 @@ func TestRefreshPublishesCurrentStateAcrossProviderFailure(t *testing.T) {
 		t.Fatalf("new-epoch Refresh() error = %v", err)
 	}
 	epoch := nextRuntimeSignal(t, updates)
-	if epoch.Revision != initial.Revision+1 || epoch.DataRevision != initial.DataRevision {
+	if epoch.Revision != initial.Revision+1 ||
+		epoch.DataRevision != initial.DataRevision ||
+		epoch.Sections != runtimeevents.SectionCommunication|runtimeevents.SectionCalls {
 		t.Fatalf("epoch signal = %+v, initial = %+v", epoch, initial)
 	}
 
@@ -167,7 +174,8 @@ func TestRefreshPublishesCurrentStateAcrossProviderFailure(t *testing.T) {
 		t.Fatal("failed Refresh() error = nil")
 	}
 	failure := nextRuntimeSignal(t, updates)
-	if failure.DataRevision != epoch.DataRevision {
+	if failure.DataRevision != epoch.DataRevision ||
+		failure.Sections != runtimeevents.SectionCommunication|runtimeevents.SectionCalls {
 		t.Fatalf("failure signal = %+v; failure is live state, not durable data", failure)
 	}
 
@@ -177,7 +185,8 @@ func TestRefreshPublishesCurrentStateAcrossProviderFailure(t *testing.T) {
 	}
 	recovery := nextRuntimeSignal(t, updates)
 	if recovery.Revision != failure.Revision+1 ||
-		recovery.DataRevision != failure.DataRevision {
+		recovery.DataRevision != failure.DataRevision ||
+		recovery.Sections != runtimeevents.SectionCommunication|runtimeevents.SectionCalls {
 		t.Fatalf("recovery signal = %+v, failure = %+v", recovery, failure)
 	}
 }

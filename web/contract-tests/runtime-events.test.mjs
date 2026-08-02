@@ -87,9 +87,9 @@ test('runtime SSE parses current state and reconnects without replay cursors', (
 
   try {
     globalThis.EventSource = FakeEventSource
-    globalThis.setTimeout = callback => {
+    globalThis.setTimeout = (callback, delay) => {
       nextTimerID += 1
-      timers.set(nextTimerID, callback)
+      timers.set(nextTimerID, { callback, delay })
       return nextTimerID
     }
     globalThis.clearTimeout = timerID => {
@@ -122,6 +122,40 @@ test('runtime SSE parses current state and reconnects without replay cursors', (
         epoch: 'process-a',
         revision: 7,
         data_revision: 3,
+        observed_at: '2026-08-02T07:29:57Z',
+        communication: {
+          capabilities: {
+            agent_connected: false,
+            dial: false,
+            message: false,
+            webrtc_audio: false,
+            device_control: false,
+            volte_control: false,
+            vowifi_control: false,
+            unavailable_reasons: {}
+          },
+          lines: [],
+          line_catalog: []
+        }
+      })
+    )
+    FakeEventSource.instances[0].emit(
+      'state',
+      JSON.stringify({
+        epoch: 'process-a',
+        revision: 8,
+        data_revision: 3,
+        observed_at: '2026-08-02T07:29:58Z',
+        calls: { calls: [], reservations: [] },
+        recordings: []
+      })
+    )
+    FakeEventSource.instances[0].emit(
+      'state',
+      JSON.stringify({
+        epoch: 'process-a',
+        revision: 9,
+        data_revision: 4,
         observed_at: '2026-08-02T07:29:59Z'
       })
     )
@@ -129,18 +163,42 @@ test('runtime SSE parses current state and reconnects without replay cursors', (
       'heartbeat',
       '{"at":"2026-08-02T07:30:00Z"}'
     )
+    assert.equal(state, undefined)
+    assert.equal(heartbeatAt, '2026-08-02T07:30:00Z')
+    assert.equal(timers.size, 2)
+
+    const [stateTimerID, stateTimer] = [...timers.entries()].find(
+      ([, timer]) => timer.delay === 50
+    )
+    timers.delete(stateTimerID)
+    stateTimer.callback()
     assert.deepEqual(state, {
       epoch: 'process-a',
-      revision: 7,
-      data_revision: 3,
-      observed_at: '2026-08-02T07:29:59Z'
+      revision: 9,
+      data_revision: 4,
+      observed_at: '2026-08-02T07:29:59Z',
+      communication: {
+        capabilities: {
+          agent_connected: false,
+          dial: false,
+          message: false,
+          webrtc_audio: false,
+          device_control: false,
+          volte_control: false,
+          vowifi_control: false,
+          unavailable_reasons: { dial: undefined, message: undefined }
+        },
+        lines: [],
+        line_catalog: []
+      },
+      calls: { calls: [], reservations: [] },
+      recordings: []
     })
-    assert.equal(heartbeatAt, '2026-08-02T07:30:00Z')
     assert.equal(timers.size, 1)
 
     const [timerID, expire] = timers.entries().next().value
     timers.delete(timerID)
-    expire()
+    expire.callback()
     assert.equal(errors, 1)
     assert.equal(FakeEventSource.instances.length, 2)
     assert.equal(FakeEventSource.instances[0].closed, true)

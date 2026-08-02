@@ -16,9 +16,13 @@ func TestHubPublishesCurrentWatermarks(t *testing.T) {
 	}
 
 	observedAt := time.Date(2026, time.August, 2, 12, 0, 0, 0, time.UTC)
-	first := hub.Publish(Change{ObservedAt: observedAt})
+	first := hub.Publish(Change{
+		ObservedAt: observedAt,
+		Sections:   SectionNetwork,
+	})
 	if first.Epoch != initial.Epoch || first.Revision != 1 ||
-		first.DataRevision != 0 || !first.ObservedAt.Equal(observedAt) {
+		first.DataRevision != 0 || first.Sections != SectionNetwork ||
+		!first.ObservedAt.Equal(observedAt) {
 		t.Fatalf("first signal = %+v", first)
 	}
 	if update := <-updates; update != first {
@@ -42,14 +46,16 @@ func TestHubCoalescesSlowSubscribersToNewestSignal(t *testing.T) {
 	hub := NewHub()
 	_, updates, cancel := hub.Subscribe()
 	defer cancel()
-	hub.Publish(Change{})
+	hub.Publish(Change{Sections: SectionCommunication})
 	hub.Publish(Change{Durable: true})
-	newest := hub.Publish(Change{})
+	newest := hub.Publish(Change{Sections: SectionCalls})
 
 	select {
 	case update := <-updates:
-		if update != newest {
-			t.Fatalf("coalesced update = %+v, want %+v", update, newest)
+		if update.Revision != newest.Revision ||
+			update.DataRevision != newest.DataRevision ||
+			update.Sections != SectionCommunication|SectionCalls {
+			t.Fatalf("coalesced update = %+v, newest = %+v", update, newest)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("coalesced update was not delivered")
@@ -57,6 +63,23 @@ func TestHubCoalescesSlowSubscribersToNewestSignal(t *testing.T) {
 	select {
 	case update := <-updates:
 		t.Fatalf("unexpected intermediate update: %+v", update)
+	default:
+	}
+}
+
+func TestHubIgnoresChangesWithoutStateOrDurableData(t *testing.T) {
+	t.Parallel()
+
+	hub := NewHub()
+	initial, updates, cancel := hub.Subscribe()
+	defer cancel()
+	current := hub.Publish(Change{ObservedAt: time.Now()})
+	if current != initial {
+		t.Fatalf("no-op signal = %+v, want %+v", current, initial)
+	}
+	select {
+	case update := <-updates:
+		t.Fatalf("no-op change published %+v", update)
 	default:
 	}
 }

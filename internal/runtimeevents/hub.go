@@ -13,7 +13,21 @@ import (
 type Change struct {
 	Durable    bool
 	ObservedAt time.Time
+	Sections   Section
 }
+
+// Section identifies one independently replaceable part of the live runtime
+// projection. It is a bit mask so a slow subscriber can receive the union of
+// changes it missed without replaying intermediate events.
+type Section uint8
+
+const (
+	SectionCommunication Section = 1 << iota
+	SectionNetwork
+	SectionCalls
+
+	AllSections = SectionCommunication | SectionNetwork | SectionCalls
+)
 
 // Signal is a process-local watermark. It is not an event log: subscribers
 // always receive the newest value and reconnecting clients rebuild from the
@@ -23,6 +37,7 @@ type Signal struct {
 	Revision     uint64    `json:"revision"`
 	DataRevision uint64    `json:"data_revision"`
 	ObservedAt   time.Time `json:"observed_at"`
+	Sections     Section   `json:"-"`
 }
 
 type Publisher interface {
@@ -50,6 +65,9 @@ func NewHub() *Hub {
 func (h *Hub) Publish(change Change) Signal {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if change.Sections == 0 && !change.Durable {
+		return h.current
+	}
 
 	h.current.Revision++
 	if change.Durable {
@@ -60,6 +78,7 @@ func (h *Hub) Publish(change Change) Signal {
 	} else {
 		h.current.ObservedAt = change.ObservedAt.UTC()
 	}
+	h.current.Sections = change.Sections
 	current := h.current
 	for _, subscriber := range h.subscribers {
 		// One buffered value is enough. A slow client needs the newest
@@ -67,11 +86,15 @@ func (h *Hub) Publish(change Change) Signal {
 		select {
 		case subscriber <- current:
 		default:
+			pendingSections := Section(0)
 			select {
-			case <-subscriber:
+			case pending := <-subscriber:
+				pendingSections = pending.Sections
 			default:
 			}
-			subscriber <- current
+			coalesced := current
+			coalesced.Sections |= pendingSections
+			subscriber <- coalesced
 		}
 	}
 	return current

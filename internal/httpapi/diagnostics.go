@@ -178,7 +178,8 @@ func (api *API) diagnosticLogStream(response http.ResponseWriter, request *http.
 		writeError(response, http.StatusInternalServerError, "stream_unavailable", "Streaming is unavailable", "")
 		return
 	}
-	if !api.authorizeEventStream(response, request, true) {
+	_, _, authorized := api.authorizeEventStream(response, request, true)
+	if !authorized {
 		return
 	}
 	release, ok := api.acquireEventStream(response, request)
@@ -214,6 +215,7 @@ func (api *API) diagnosticLogStream(response http.ResponseWriter, request *http.
 		}
 	}
 	flusher.Flush()
+	lastWrite := time.Now()
 
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
@@ -232,21 +234,20 @@ func (api *API) diagnosticLogStream(response http.ResponseWriter, request *http.
 				return
 			}
 			if matchesDiagnosticLog(entry, filter) {
-				if _, _, err := api.currentStreamAccess(request, true); err != nil {
-					return
-				}
 				if !writeDiagnosticSSE(response, flusher, "log", entry.ID, entry) {
 					return
 				}
+				lastWrite = time.Now()
 			}
 		case <-heartbeat.C:
-			if _, _, err := api.currentStreamAccess(request, true); err != nil {
-				return
+			if time.Since(lastWrite) < 15*time.Second {
+				continue
 			}
 			if _, err := fmt.Fprint(response, ": keepalive\n\n"); err != nil {
 				return
 			}
 			flusher.Flush()
+			lastWrite = time.Now()
 		}
 	}
 }

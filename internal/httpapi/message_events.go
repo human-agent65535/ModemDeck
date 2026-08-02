@@ -20,7 +20,8 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 		writeError(response, http.StatusInternalServerError, "stream_unavailable", "Streaming is unavailable", "")
 		return
 	}
-	if !api.authorizeEventStream(response, request, false) {
+	principal, scoped, authorized := api.authorizeEventStream(response, request, false)
+	if !authorized {
 		return
 	}
 	release, ok := api.acquireEventStream(response, request)
@@ -43,6 +44,7 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 		return
 	}
 	flusher.Flush()
+	lastWrite := time.Now()
 
 	heartbeat := time.NewTicker(messageHeartbeatInterval)
 	defer heartbeat.Stop()
@@ -53,30 +55,31 @@ func (api *API) messageEventStream(response http.ResponseWriter, request *http.R
 		case <-request.Context().Done():
 			return
 		case <-authentication.C:
-			if _, _, err := api.currentStreamAccess(request, false); err != nil {
+			refreshedPrincipal, refreshedScoped, err := api.currentStreamAccess(request, false)
+			if err != nil {
 				return
 			}
+			principal = refreshedPrincipal
+			scoped = refreshedScoped
 		case event, open := <-updates:
 			if !open {
 				return
 			}
-			allowed, err := api.currentStreamCanAccessLine(request, event.LineID)
-			if err != nil {
-				return
-			}
-			if !allowed {
+			if !streamCanAccessLine(principal, scoped, event.LineID) {
 				continue
 			}
 			if !writeSSE(response, flusher, "sms", incomingMessageEvent(event)) {
 				return
 			}
+			lastWrite = time.Now()
 		case observedAt := <-heartbeat.C:
-			if _, _, err := api.currentStreamPrincipal(request); err != nil {
-				return
+			if time.Since(lastWrite) < messageHeartbeatInterval {
+				continue
 			}
 			if !writeEventHeartbeat(response, flusher, observedAt) {
 				return
 			}
+			lastWrite = time.Now()
 		}
 	}
 }

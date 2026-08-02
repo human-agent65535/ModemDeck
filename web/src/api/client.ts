@@ -189,6 +189,7 @@ const CALL_LEASE_REQUEST_TIMEOUT_MS = 4_000
 const MESSAGE_EVENT_INACTIVITY_TIMEOUT_MS = 40_000
 const RUNTIME_EVENT_INACTIVITY_TIMEOUT_MS = 12_000
 const UPDATE_EVENT_INACTIVITY_TIMEOUT_MS = 12_000
+const RUNTIME_STATE_COALESCE_MS = 50
 
 const runtimeEnvironment = import.meta.env
 
@@ -904,6 +905,28 @@ function parseRuntimeState(value: unknown): RuntimeState {
     )
   }
   return state
+}
+
+function mergePendingRuntimeState(
+  current: RuntimeState | undefined,
+  incoming: RuntimeState
+): RuntimeState {
+  if (!current || current.epoch !== incoming.epoch) return incoming
+  if (incoming.revision < current.revision) return current
+
+  const merged: RuntimeState = { ...incoming }
+  const communication = incoming.communication ?? current.communication
+  const network = incoming.network ?? current.network
+  const calls = incoming.calls ?? current.calls
+  const recordings =
+    incoming.calls !== undefined
+      ? (incoming.recordings ?? [])
+      : (incoming.recordings ?? current.recordings)
+  if (communication !== undefined) merged.communication = communication
+  if (network !== undefined) merged.network = network
+  if (calls !== undefined) merged.calls = calls
+  if (recordings !== undefined) merged.recordings = recordings
+  return merged
 }
 
 function parseDiagnosticLogPage(value: unknown): DiagnosticLogPage {
@@ -1883,15 +1906,42 @@ const realGateway: ConfiguredModemDeckGateway = {
   },
 
   subscribeRuntimeEvents(handlers: RuntimeEventStreamHandlers): () => void {
-    return subscribeEventSource(
+    let pendingState: RuntimeState | undefined
+    let stateTimer: ReturnType<typeof globalThis.setTimeout> | undefined
+    const clearPendingState = () => {
+      if (stateTimer !== undefined) globalThis.clearTimeout(stateTimer)
+      stateTimer = undefined
+      pendingState = undefined
+    }
+    const flushPendingState = () => {
+      stateTimer = undefined
+      const state = pendingState
+      pendingState = undefined
+      if (state) handlers.onState(state)
+    }
+    const closeSource = subscribeEventSource(
       `${API_ROOT}/runtime/events`,
-      handlers,
+      {
+        onOpen: handlers.onOpen,
+        onError: error => {
+          clearPendingState()
+          handlers.onError(error)
+        }
+      },
       (source, restart, isActive, markActivity) => {
         source.addEventListener('state', event => {
           if (!isActive()) return
           markActivity()
           try {
-            handlers.onState(parseRuntimeState(JSON.parse(event.data) as unknown))
+            pendingState = mergePendingRuntimeState(
+              pendingState,
+              parseRuntimeState(JSON.parse(event.data) as unknown)
+            )
+            if (stateTimer !== undefined) globalThis.clearTimeout(stateTimer)
+            stateTimer = globalThis.setTimeout(
+              flushPendingState,
+              RUNTIME_STATE_COALESCE_MS
+            )
           } catch (error) {
             restart(error instanceof Error ? error : new Error('运行时状态格式无效'))
           }
@@ -1914,6 +1964,10 @@ const realGateway: ConfiguredModemDeckGateway = {
       },
       RUNTIME_EVENT_INACTIVITY_TIMEOUT_MS
     )
+    return () => {
+      clearPendingState()
+      closeSource()
+    }
   },
 
   subscribeDiagnosticLogs(

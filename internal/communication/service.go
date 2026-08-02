@@ -565,7 +565,7 @@ func (s *Service) publishRuntimeSnapshot(
 	}
 	previous := s.runtimeProjection
 	current := previous
-	changed := false
+	sections := runtimeevents.Section(0)
 	durable := false
 	if digest, ok := runtimeProjectionDigest(struct {
 		BootEpoch string              `json:"boot_epoch"`
@@ -576,7 +576,7 @@ func (s *Service) publishRuntimeSnapshot(
 	}); ok {
 		current.linesDigest = digest
 		if digest != previous.linesDigest {
-			changed = true
+			sections |= runtimeevents.SectionCommunication
 		}
 	}
 	canonicalCalls := canonicalRuntimeCalls(activeCalls)
@@ -590,7 +590,7 @@ func (s *Service) publishRuntimeSnapshot(
 		current.callsDigest = digest
 		current.activeCallIDs = runtimeCallIDs(canonicalCalls)
 		if digest != previous.callsDigest {
-			changed = true
+			sections |= runtimeevents.SectionCalls
 			durable = previous.initialized && runtimeCallEnded(
 				previous.activeCallIDs,
 				current.activeCallIDs,
@@ -599,10 +599,11 @@ func (s *Service) publishRuntimeSnapshot(
 	}
 	current.initialized = true
 	s.runtimeProjection = current
-	if changed {
+	if sections != 0 {
 		s.runtime.Publish(runtimeevents.Change{
 			Durable:    durable,
 			ObservedAt: observedAt,
+			Sections:   sections,
 		})
 	}
 }
@@ -2133,6 +2134,8 @@ func (s *Service) recordRefreshFailure(operation string, cause error) (Status, e
 	if changed && s.runtime != nil {
 		s.runtime.Publish(runtimeevents.Change{
 			ObservedAt: s.now().UTC(),
+			Sections: runtimeevents.SectionCommunication |
+				runtimeevents.SectionCalls,
 		})
 	}
 	return status, operationError(CodeUnavailable, operation, "live hardware state is unavailable", cause)

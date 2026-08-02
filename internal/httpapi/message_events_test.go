@@ -18,6 +18,7 @@ type streamAuthRepository struct {
 	mu        sync.RWMutex
 	principal auth.Principal
 	found     bool
+	lookups   int
 }
 
 func (*streamAuthRepository) UserCredentialsByUsername(
@@ -47,8 +48,9 @@ func (repository *streamAuthRepository) UserSessionByTokenDigest(
 	digest auth.SessionTokenDigest,
 ) (auth.UserSessionRecord, auth.Principal, bool, error) {
 	now := time.Now().UTC()
-	repository.mu.RLock()
-	defer repository.mu.RUnlock()
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	repository.lookups++
 
 	return auth.UserSessionRecord{
 		UserID:             repository.principal.UserID,
@@ -85,6 +87,12 @@ func (repository *streamAuthRepository) setPrincipal(principal auth.Principal) {
 	repository.mu.Lock()
 	repository.principal = principal.Copy()
 	repository.mu.Unlock()
+}
+
+func (repository *streamAuthRepository) authenticationLookups() int {
+	repository.mu.RLock()
+	defer repository.mu.RUnlock()
+	return repository.lookups
 }
 
 func TestMessageEventStreamOnlyForwardsLiveMessages(t *testing.T) {

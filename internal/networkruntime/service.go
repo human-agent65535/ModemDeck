@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -1125,15 +1126,22 @@ func (s *Service) setUnavailable(reason string) {
 	s.state.UnavailableReason = reason
 	s.state.Stale = s.state.ObservedAt != nil
 	s.stateMu.Unlock()
-	if changed && s.runtimeEvents != nil {
-		s.runtimeEvents.Publish(runtimeevents.Change{
-			ObservedAt: s.now().UTC(),
-		})
+	if changed {
+		s.publishNetworkChange(s.now().UTC())
 	}
 }
 
 func (s *Service) setSnapshot(snapshot agentclient.NetworkSnapshot) {
+	lines := cloneLines(snapshot.Lines)
+	proxies := cloneProxies(snapshot.Proxies)
 	s.stateMu.Lock()
+	changed := !s.state.Available ||
+		s.state.State != "available" ||
+		s.state.UnavailableReason != "" ||
+		s.state.Stale ||
+		s.state.BootEpoch != snapshot.BootEpoch ||
+		!reflect.DeepEqual(s.state.Lines, lines) ||
+		!reflect.DeepEqual(s.state.Proxies, proxies)
 	observedAt := snapshot.ObservedAt
 	s.state.Available = true
 	s.state.State = "available"
@@ -1141,56 +1149,91 @@ func (s *Service) setSnapshot(snapshot agentclient.NetworkSnapshot) {
 	s.state.Stale = false
 	s.state.BootEpoch = snapshot.BootEpoch
 	s.state.ObservedAt = &observedAt
-	s.state.Lines = cloneLines(snapshot.Lines)
-	s.state.Proxies = cloneProxies(snapshot.Proxies)
+	s.state.Lines = lines
+	s.state.Proxies = proxies
 	s.stateMu.Unlock()
-	if s.runtimeEvents != nil {
-		s.runtimeEvents.Publish(runtimeevents.Change{
-			ObservedAt: snapshot.ObservedAt,
-		})
+	if changed {
+		s.publishNetworkChange(snapshot.ObservedAt)
 	}
 }
 
 func (s *Service) markDirty() {
-	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
-	s.state.ApplyPending = true
-	s.state.ApplyStatus = ApplyStatusPending
-	s.state.ApplyAttempts = 0
-	s.state.ApplyExhausted = false
+	s.updateApplyState(func(status *Status) {
+		status.ApplyPending = true
+		status.ApplyStatus = ApplyStatusPending
+		status.ApplyAttempts = 0
+		status.ApplyExhausted = false
+	})
 }
 
 func (s *Service) noteApplyAttempt() {
-	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
-	s.state.ApplyPending = true
-	s.state.ApplyAttempts++
+	s.updateApplyState(func(status *Status) {
+		status.ApplyPending = true
+		status.ApplyAttempts++
+	})
 }
 
 func (s *Service) markApplyFailure(status ApplyStatus) {
-	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
-	s.state.ApplyPending = true
-	s.state.ApplyStatus = status
-	s.state.ApplyExhausted = s.state.ApplyAttempts >= s.maxApplyAttempts
+	s.updateApplyState(func(state *Status) {
+		state.ApplyPending = true
+		state.ApplyStatus = status
+		state.ApplyExhausted = state.ApplyAttempts >= s.maxApplyAttempts
+	})
 }
 
 func (s *Service) markApplyPending() {
-	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
-	s.state.ApplyPending = true
-	s.state.ApplyStatus = ApplyStatusPending
-	s.state.ApplyAttempts = 0
-	s.state.ApplyExhausted = false
+	s.updateApplyState(func(status *Status) {
+		status.ApplyPending = true
+		status.ApplyStatus = ApplyStatusPending
+		status.ApplyAttempts = 0
+		status.ApplyExhausted = false
+	})
 }
 
 func (s *Service) markApplySuccess() {
+	s.updateApplyState(func(status *Status) {
+		status.ApplyPending = false
+		status.ApplyStatus = ApplyStatusApplied
+		status.ApplyAttempts = 0
+		status.ApplyExhausted = false
+	})
+}
+
+type applyState struct {
+	pending   bool
+	status    ApplyStatus
+	attempts  int
+	exhausted bool
+}
+
+func currentApplyState(status *Status) applyState {
+	return applyState{
+		pending:   status.ApplyPending,
+		status:    status.ApplyStatus,
+		attempts:  status.ApplyAttempts,
+		exhausted: status.ApplyExhausted,
+	}
+}
+
+func (s *Service) updateApplyState(update func(*Status)) {
 	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
-	s.state.ApplyPending = false
-	s.state.ApplyStatus = ApplyStatusApplied
-	s.state.ApplyAttempts = 0
-	s.state.ApplyExhausted = false
+	previous := currentApplyState(&s.state)
+	update(&s.state)
+	changed := currentApplyState(&s.state) != previous
+	s.stateMu.Unlock()
+	if changed {
+		s.publishNetworkChange(s.now().UTC())
+	}
+}
+
+func (s *Service) publishNetworkChange(observedAt time.Time) {
+	if s.runtimeEvents == nil {
+		return
+	}
+	s.runtimeEvents.Publish(runtimeevents.Change{
+		ObservedAt: observedAt,
+		Sections:   runtimeevents.SectionNetwork,
+	})
 }
 
 func (s *Service) shouldApply() bool {

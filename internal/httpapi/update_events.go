@@ -26,7 +26,8 @@ func (api *API) updateEventStream(response http.ResponseWriter, request *http.Re
 		writeError(response, http.StatusInternalServerError, "stream_unavailable", "Streaming is unavailable", "")
 		return
 	}
-	if !api.authorizeEventStream(response, request, true) {
+	_, _, authorized := api.authorizeEventStream(response, request, true)
+	if !authorized {
 		return
 	}
 	release, ok := api.acquireEventStream(response, request)
@@ -46,28 +47,31 @@ func (api *API) updateEventStream(response http.ResponseWriter, request *http.Re
 		return
 	}
 	flusher.Flush()
+	lastWrite := time.Now()
 
 	var previous updatecheck.Operation
 	hasPrevious := false
-	writeCurrent := func() bool {
+	writeCurrent := func() (bool, bool) {
 		ctx, cancel := context.WithTimeout(request.Context(), updateEventStatusTimeout)
 		defer cancel()
 		operation, err := api.updateManager.Status(ctx)
 		if err != nil {
-			return true
+			return true, false
 		}
 		if hasPrevious && reflect.DeepEqual(previous, operation) {
-			return true
+			return true, false
 		}
 		if !writeSSE(response, flusher, "operation", operation) {
-			return false
+			return false, false
 		}
 		previous = operation
 		hasPrevious = true
-		return true
+		return true, true
 	}
-	if !writeCurrent() {
+	if ok, wrote := writeCurrent(); !ok {
 		return
+	} else if wrote {
+		lastWrite = time.Now()
 	}
 
 	status := time.NewTicker(updateEventPollInterval)
@@ -82,13 +86,21 @@ func (api *API) updateEventStream(response http.ResponseWriter, request *http.Re
 		case <-request.Context().Done():
 			return
 		case <-status.C:
-			if !writeCurrent() {
+			ok, wrote := writeCurrent()
+			if !ok {
 				return
 			}
+			if wrote {
+				lastWrite = time.Now()
+			}
 		case observedAt := <-heartbeat.C:
+			if time.Since(lastWrite) < updateEventHeartbeatInterval {
+				continue
+			}
 			if !writeEventHeartbeat(response, flusher, observedAt) {
 				return
 			}
+			lastWrite = time.Now()
 		case <-authentication.C:
 			if _, _, err := api.currentStreamAccess(request, true); err != nil {
 				return

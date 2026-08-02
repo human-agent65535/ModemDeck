@@ -363,7 +363,7 @@ func New(repository Repository, options Options) (*API, error) {
 		loginSlots:                 make(chan struct{}, 2),
 		loginFailures:              newLoginFailureLimiter(defaultLoginFailurePolicy),
 		eventStreams:               newEventStreamLimiter(defaultEventStreamLimitPolicy),
-		streamAuthInterval:         runtimeHeartbeatInterval,
+		streamAuthInterval:         eventStreamAuthenticationInterval,
 		logger:                     logger,
 		diagnosticLogs:             options.DiagnosticLogs,
 		messageEvents:              options.MessageEvents,
