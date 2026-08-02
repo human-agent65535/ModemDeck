@@ -31,6 +31,7 @@ test('line filters use the shared compact selector on desktop and mobile', async
     /\.communication-list-toolbar__primary :deep\(\.line-selector\.is-filter\) \{[\s\S]*position: absolute;/
   )
   assert.match(toolbar, /hasLineFilter\?: boolean/)
+  assert.match(recordings, /<template #primaryTrailing>[\s\S]*<FavoriteFilterButton/)
 
   for (const view of [calls, messages, recordings]) {
     assert.match(view, /<CommunicationListToolbar/)

@@ -42,7 +42,7 @@ test('the visible message thread is derived from the router', () => {
   )
 })
 
-test('thread parsing preserves only the stable line and peer identity', () => {
+test('thread parsing preserves stable identity and the latest message cursor', () => {
   const thread = parseThread({
     key: 'backend-thread-key',
     line_id: 'line-main',
@@ -50,6 +50,7 @@ test('thread parsing preserves only the stable line and peer identity', () => {
     imsi: '001010000000001',
     iccid: '8986012345678900001',
     peer: '+1 202 555 0103',
+    last_message_id: 42,
     last_timestamp: '2026-07-24T12:00:00Z',
     unread_count: 1,
     marked_unread: false,
@@ -59,6 +60,7 @@ test('thread parsing preserves only the stable line and peer identity', () => {
   assert.equal(thread.key, 'backend-thread-key')
   assert.equal(thread.line_id, 'line-main')
   assert.equal(thread.peer, '+1 202 555 0103')
+  assert.equal(thread.last_message_id, '42')
   assert.equal(thread.marked_unread, false)
   assert.equal(thread.favorite, true)
   assert.equal('local_phone' in thread, false)

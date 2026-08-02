@@ -11,6 +11,7 @@ import {
   displayPhoneNumber,
   lineForKey,
   lineLabel,
+  queueIncomingMessageArrival,
   refreshMessageWorkspace
 } from './workspace'
 import { showBrowserNotification } from './browserNotifications'
@@ -38,9 +39,9 @@ export function initializeMessageRuntime(router: Router): void {
     onMessage: event => {
       if (activeRouter !== router) return
       const shouldAlert = shouldAlertIncomingMessage(event)
+      if (shouldAlert) queueIncomingMessageArrival(event)
       void refreshMessageWorkspace(
-        visibleMessageThreadKey(router.currentRoute.value),
-        shouldAlert ? event : undefined
+        visibleMessageThreadKey(router.currentRoute.value)
       )
       if (!shouldAlert) return
       playIncomingMessageSound(event.message_id)

@@ -104,6 +104,16 @@ test('workspace primitives own action sizing, priority, and transition timing', 
   assert.match(detailHeader, /container-type: inline-size;/)
   assert.match(listToolbar, /class="pane-search communication-list-toolbar"/)
   assert.match(listToolbar, /hasLineFilter\?: boolean/)
+  assert.match(listToolbar, /<slot name="primaryTrailing" \/>/)
+  assert.match(
+    listToolbar,
+    /--communication-toolbar-primary-height: 36px;[\s\S]*--communication-toolbar-filter-height: 32px;/
+  )
+  assert.match(
+    listToolbar,
+    /@media \(max-width: 560px\)[\s\S]*--communication-toolbar-primary-height: 38px;[\s\S]*--communication-toolbar-filter-height: 38px;/
+  )
+  assert.doesNotMatch(listToolbar, /min-height: var\(--touch-target\)/)
   assert.match(detailActions, /class="workspace-detail-actions__primary"/)
   assert.match(detailActions, /class="workspace-detail-actions__secondary"/)
   assert.match(detailActions, /workspace-detail-actions__more/)

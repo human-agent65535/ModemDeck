@@ -97,6 +97,8 @@ let missedCallsReadRequest: Promise<void> | undefined
 const messageLoads = new Map<string, Promise<Message[] | null>>()
 const messageRefreshes = new Map<string, Promise<Message[] | null>>()
 const arrivalTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const pendingIncomingThreadMessageIDs = new Map<string, string>()
+const pendingIncomingMessageIDs = new Map<string, Set<string>>()
 let callsQueryFilter: CallFilter = 'all'
 
 function pageErrorStatus(error: unknown): ResourceStatus {
@@ -846,47 +848,91 @@ export function refreshMessages(thread: MessageThread): Promise<Message[] | null
   return operation
 }
 
-export async function refreshMessageWorkspace(
-  activeThreadKey = '',
-  incomingEvent?: IncomingMessageEvent
-): Promise<void> {
+export function queueIncomingMessageArrival(event: IncomingMessageEvent): void {
+  if (
+    threadsResource.status === 'ready' &&
+    threadsResource.data.some(thread => thread.key === event.thread_key)
+  ) {
+    const pendingID = pendingIncomingThreadMessageIDs.get(event.thread_key)
+    if (!pendingID || messageIDAtLeast(event.message_id, pendingID)) {
+      pendingIncomingThreadMessageIDs.set(event.thread_key, event.message_id)
+    }
+  }
+
+  const messages = messageResources[event.thread_key]
+  if (messages?.status !== 'ready') return
+  const pendingIDs =
+    pendingIncomingMessageIDs.get(event.thread_key) || new Set<string>()
+  pendingIDs.add(event.message_id)
+  pendingIncomingMessageIDs.set(event.thread_key, pendingIDs)
+}
+
+export async function refreshMessageWorkspace(activeThreadKey = ''): Promise<void> {
   const normalizedActiveKey = activeThreadKey.trim()
-  const threadsWereReady = threadsResource.status === 'ready'
-  const threads = await refreshThreads()
+  let threads = await refreshThreads()
   if (!threads) return
 
-  if (
-    incomingEvent &&
-    threadsWereReady &&
-    threads.some(thread => thread.key === incomingEvent.thread_key)
-  ) {
-    markArrival(
-      recentIncomingThreadKeys,
-      `thread:${incomingEvent.thread_key}`,
-      incomingEvent.thread_key
-    )
+  commitPendingIncomingThreadArrivals(threads)
+  if (pendingIncomingThreadMessageIDs.size > 0) {
+    const refreshedThreads = await refreshThreads()
+    if (refreshedThreads) {
+      threads = refreshedThreads
+      commitPendingIncomingThreadArrivals(threads)
+    }
   }
+  discardHiddenIncomingMessageArrivals(normalizedActiveKey)
 
   if (!normalizedActiveKey) return
 
   const thread = threads.find(item => item.key === normalizedActiveKey)
   if (!thread) return
 
-  const messages = messagesFor(thread.key)
-  const messagesWereReady = messages.status === 'ready'
   const refreshedMessages = await refreshMessages(thread)
-  if (
-    incomingEvent &&
-    incomingEvent.thread_key === thread.key &&
-    messagesWereReady &&
-    refreshedMessages?.some(message => message.id === incomingEvent.message_id)
-  ) {
-    markArrival(
-      recentIncomingMessageIDs,
-      `message:${incomingEvent.message_id}`,
-      incomingEvent.message_id
-    )
+  if (refreshedMessages) {
+    commitPendingIncomingMessageArrivals(thread.key, refreshedMessages)
   }
+}
+
+function commitPendingIncomingThreadArrivals(
+  threads: readonly MessageThread[]
+): void {
+  const refreshedThreads = new Map(threads.map(thread => [thread.key, thread]))
+  for (const [key, messageID] of pendingIncomingThreadMessageIDs) {
+    const thread = refreshedThreads.get(key)
+    if (!thread || !messageIDAtLeast(thread.last_message_id, messageID)) continue
+    markArrival(recentIncomingThreadKeys, `thread:${key}`, key)
+    pendingIncomingThreadMessageIDs.delete(key)
+  }
+}
+
+function messageIDAtLeast(current: string, expected: string): boolean {
+  try {
+    return BigInt(current) >= BigInt(expected)
+  } catch {
+    return current === expected
+  }
+}
+
+function discardHiddenIncomingMessageArrivals(activeThreadKey: string): void {
+  for (const key of pendingIncomingMessageIDs.keys()) {
+    if (key !== activeThreadKey) pendingIncomingMessageIDs.delete(key)
+  }
+}
+
+function commitPendingIncomingMessageArrivals(
+  threadKey: string,
+  messages: readonly Message[]
+): void {
+  const pendingIDs = pendingIncomingMessageIDs.get(threadKey)
+  if (!pendingIDs) return
+
+  const refreshedIDs = new Set(messages.map(message => message.id))
+  for (const id of pendingIDs) {
+    if (!refreshedIDs.has(id)) continue
+    markArrival(recentIncomingMessageIDs, `message:${id}`, id)
+    pendingIDs.delete(id)
+  }
+  if (pendingIDs.size === 0) pendingIncomingMessageIDs.delete(threadKey)
 }
 
 async function refreshResource<T>(
@@ -942,6 +988,8 @@ export function resetWorkspaceState(): void {
   }
   for (const timer of arrivalTimers.values()) clearTimeout(timer)
   arrivalTimers.clear()
+  pendingIncomingThreadMessageIDs.clear()
+  pendingIncomingMessageIDs.clear()
   messageLoads.clear()
   messageRefreshes.clear()
   threadsLoad = undefined

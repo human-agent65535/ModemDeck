@@ -424,6 +424,8 @@ onBeforeUnmount(() => {
             :all-label="t('recordings.allLines')"
             :all-description="t('recordings.allLinesDescription')"
           />
+        </template>
+        <template #primaryTrailing>
           <FavoriteFilterButton
             :active="favoriteOnly"
             :label="t('common.favoriteOnly')"

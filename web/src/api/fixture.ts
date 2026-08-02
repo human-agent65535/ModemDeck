@@ -158,6 +158,7 @@ const threads: MessageThread[] = [
     line_id: 'line-fixture-main',
     peer: ALEX_PHONE,
     contact_name: ALEX_NAME,
+    last_message_id: '102',
     last_timestamp: '2026-07-23T09:42:00Z',
     last_content: 'Thanks — I’ll check it later.',
     unread_count: 1,
@@ -169,6 +170,7 @@ const threads: MessageThread[] = [
     line_id: 'line-fixture-travel',
     peer: CASEY_PHONE,
     contact_name: CASEY_NAME,
+    last_message_id: '103',
     last_timestamp: '2026-07-22T14:18:00Z',
     last_content: 'The demo workspace is ready.',
     unread_count: 0,
@@ -180,6 +182,7 @@ const threads: MessageThread[] = [
     line_id: 'line-fixture-main',
     peer: RILEY_PHONE,
     contact_name: RILEY_NAME,
+    last_message_id: '105',
     last_timestamp: '2026-07-20T06:05:00Z',
     last_content: 'Got it, thank you.',
     unread_count: 0,
@@ -2093,6 +2096,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           line_id: input.line_id,
           peer: input.to,
           contact_name: contact?.display_name,
+          last_message_id: String(sequence),
           last_timestamp: '2026-07-23T12:00:00Z',
           unread_count: 0,
           marked_unread: false,
@@ -2113,6 +2117,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         delivery_status: 'submitted'
       }
       messagesByThread[key]?.push(message)
+      thread.last_message_id = message.id
       thread.last_content = message.content
       thread.last_timestamp = message.timestamp
       appendDiagnosticLog('info', 'messages', 'SMS submitted', {

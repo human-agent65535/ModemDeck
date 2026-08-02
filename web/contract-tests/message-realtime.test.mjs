@@ -21,6 +21,7 @@ import { messageThreadKeyFromReference } from '../src/router/messageRoute.ts'
 import {
   loadMessages,
   messagesFor,
+  queueIncomingMessageArrival,
   recentIncomingMessageIDs,
   recentIncomingThreadKeys,
   refreshMessageWorkspace,
@@ -339,6 +340,7 @@ test('incoming message arrivals begin only after refreshed data is observable', 
     key: event.thread_key,
     line_id: event.line_id,
     peer: event.peer,
+    last_message_id: event.message_id,
     last_timestamp: event.timestamp,
     unread_count: 1,
     marked_unread: false,
@@ -383,7 +385,8 @@ test('incoming message arrivals begin only after refreshed data is observable', 
       })
     }
 
-    const refresh = refreshMessageWorkspace(event.thread_key, event)
+    queueIncomingMessageArrival(event)
+    const refresh = refreshMessageWorkspace(event.thread_key)
     assert.equal(recentIncomingThreadKeys[event.thread_key], undefined)
     assert.equal(recentIncomingMessageIDs[event.message_id], undefined)
 
@@ -432,10 +435,10 @@ test('communication notifications share one explicit browser preference', async 
   assert.match(client, /MESSAGE_EVENT_INACTIVITY_TIMEOUT_MS = 40_000/)
   assert.match(client, /source\.addEventListener\('heartbeat'/)
   assert.doesNotMatch(runtime, /setInterval|refreshIncomingMessage/)
-  assert.doesNotMatch(runtime, /noteIncomingMessageArrival/)
+  assert.match(runtime, /queueIncomingMessageArrival\(event\)/)
   assert.match(
     runtime,
-    /onMessage:[\s\S]*?refreshMessageWorkspace\([\s\S]*?visibleMessageThreadKey\(router\.currentRoute\.value\),[\s\S]*?shouldAlert \? event : undefined/
+    /onMessage:[\s\S]*?queueIncomingMessageArrival\(event\)[\s\S]*?refreshMessageWorkspace\([\s\S]*?visibleMessageThreadKey\(router\.currentRoute\.value\)/
   )
   assert.match(
     runtime,
@@ -485,7 +488,15 @@ test('communication notifications share one explicit browser preference', async 
     refreshWorkspaceStart
   )
   const refreshWorkspace = workspace.slice(refreshWorkspaceStart, refreshWorkspaceEnd)
-  assert.match(refreshWorkspace, /const threads = await refreshThreads\(\)/)
+  assert.match(refreshWorkspace, /let threads = await refreshThreads\(\)/)
+  assert.match(
+    refreshWorkspace,
+    /pendingIncomingThreadMessageIDs\.size > 0[\s\S]*const refreshedThreads = await refreshThreads\(\)/
+  )
+  assert.match(
+    refreshWorkspace,
+    /messageIDAtLeast\(thread\.last_message_id, messageID\)/
+  )
   assert.match(refreshWorkspace, /markArrival\([\s\S]*?recentIncomingThreadKeys/)
   assert.match(refreshWorkspace, /const refreshedMessages = await refreshMessages\(thread\)/)
   assert.match(refreshWorkspace, /markArrival\([\s\S]*?recentIncomingMessageIDs/)
