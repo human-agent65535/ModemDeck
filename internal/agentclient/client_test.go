@@ -30,7 +30,7 @@ func TestHealthOverUnixSocket(t *testing.T) {
 			"provider":{
 				"name":"org.freedesktop.ModemManager1",
 				"available":true,
-				"capabilities":{"discovery":true,"network":true,"proxy":true,"dial":false,"answer_call":false,"hangup_call":false,"send_message":false}
+				"capabilities":{"discovery":true,"telemetry":true,"network":true,"proxy":true,"dial":false,"answer_call":false,"hangup_call":false,"send_message":false}
 			}
 		}`))
 	})}
@@ -55,7 +55,9 @@ func TestHealthOverUnixSocket(t *testing.T) {
 	if health.APIVersion != APIVersion || !health.Provider.Available || !health.Provider.Capabilities.Discovery {
 		t.Fatalf("unexpected health: %+v", health)
 	}
-	if !health.Provider.Capabilities.Network || !health.Provider.Capabilities.Proxy {
+	if !health.Provider.Capabilities.Telemetry ||
+		!health.Provider.Capabilities.Network ||
+		!health.Provider.Capabilities.Proxy {
 		t.Fatalf("network capabilities were not decoded: %+v", health.Provider.Capabilities)
 	}
 	if health.Provider.Capabilities.Dial || health.Provider.Capabilities.SendMessage {
@@ -274,6 +276,60 @@ func TestSnapshotDecodesAgentContract(t *testing.T) {
 		!snapshot.Calls[0].MediaConfigured ||
 		snapshot.Calls[0].MediaActive {
 		t.Fatalf("unexpected call media: %+v", snapshot.Calls[0])
+	}
+}
+
+func TestTelemetryDecodesAgentContract(t *testing.T) {
+	client := newUnixTestClient(t, http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/v1/telemetry" {
+			http.NotFound(response, request)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{
+			"boot_epoch":"boot-1",
+			"observed_at":"2026-08-02T00:00:00Z",
+			"lines":[{
+				"id":"line-1",
+				"access_technologies":16384,
+				"access_technologies_known":true,
+				"signal_quality_known":true,
+				"signal_quality":73,
+				"signal_quality_recent":true,
+				"signal_metrics_recent":true,
+				"signal_dbm":-67,
+				"signal_rsrp":-92,
+				"signal_rsrq":-11,
+				"signal_snr":18,
+				"serving_radio":{
+					"access_technology":"lte",
+					"duplex_mode":"fdd",
+					"band":"B1",
+					"channel":100,
+					"channel_type":"earfcn",
+					"source":"quectel-qnwinfo"
+				}
+			}]
+		}`))
+	}))
+
+	snapshot, err := client.Telemetry(context.Background())
+	if err != nil {
+		t.Fatalf("Telemetry() error = %v", err)
+	}
+	if snapshot.BootEpoch != "boot-1" ||
+		!snapshot.ObservedAt.Equal(time.Date(2026, time.August, 2, 0, 0, 0, 0, time.UTC)) ||
+		len(snapshot.Lines) != 1 {
+		t.Fatalf("unexpected telemetry snapshot: %+v", snapshot)
+	}
+	line := snapshot.Lines[0]
+	if line.ID != "line-1" ||
+		!line.SignalQualityKnown ||
+		line.SignalQuality != 73 ||
+		line.SignalDBM == nil || *line.SignalDBM != -67 ||
+		line.ServingRadio == nil ||
+		line.ServingRadio.Band != "B1" {
+		t.Fatalf("unexpected line telemetry: %+v", line)
 	}
 }
 

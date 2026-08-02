@@ -641,6 +641,32 @@ func TestSnapshotStartsExtendedSignalPollingOnceAndReadsMetrics(t *testing.T) {
 	)
 }
 
+func TestTelemetryReadsRadioFactsWithoutHydratingCommunicationObjects(t *testing.T) {
+	t.Parallel()
+	objects := emptyLineObjects(true, true)
+	objects[testModemPath][modemInterface]["SignalQuality"] =
+		dbus.MakeVariant([]any{uint32(72), true})
+	addCall(objects, "/org/freedesktop/ModemManager1/Call/1", 4)
+	addMessage(objects, "/org/freedesktop/ModemManager1/SMS/1", 1, 3, "hello")
+	caller := newFakeCaller(objects)
+	provider := newTestProvider(caller)
+
+	snapshot, err := provider.Telemetry(context.Background())
+	if err != nil {
+		t.Fatalf("Telemetry() error = %v", err)
+	}
+	if snapshot.BootEpoch == "" || snapshot.ObservedAt.IsZero() ||
+		len(snapshot.Lines) != 1 || !snapshot.Lines[0].SignalQualityKnown ||
+		snapshot.Lines[0].SignalQuality != 72 {
+		t.Fatalf("telemetry = %+v", snapshot)
+	}
+	assertMethods(
+		t,
+		caller.invocations(),
+		objectManagerInterface+".GetManagedObjects",
+	)
+}
+
 func TestSnapshotKeepsCoreDataWhenExtendedSignalSetupFails(t *testing.T) {
 	t.Parallel()
 	objects := emptyLineObjects(true, true)

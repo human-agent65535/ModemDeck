@@ -76,6 +76,22 @@ func (p *Provider) publishChange() {
 	p.changes.publish()
 }
 
+// SubscribeRadioLifecycle reports only provider and modem discovery boundaries
+// where persisted radio intent needs to be applied again.
+func (p *Provider) SubscribeRadioLifecycle(ctx context.Context) (<-chan struct{}, error) {
+	if p == nil {
+		return nil, domain.Unavailable("subscribe_radio_lifecycle", "provider is unavailable", nil)
+	}
+	return p.radioLifecycle.subscribe(ctx)
+}
+
+func (p *Provider) publishRadioLifecycle() {
+	if p == nil {
+		return
+	}
+	p.radioLifecycle.publish()
+}
+
 func (p *Provider) startSystemBusChangeWatcher(conn *dbus.Conn) (func(), error) {
 	if conn == nil {
 		return nil, fmt.Errorf("watch ModemManager changes: system D-Bus connection is required")
@@ -124,6 +140,9 @@ func (p *Provider) startSystemBusChangeWatcher(conn *dbus.Conn) (func(), error) 
 				if signal == nil {
 					continue
 				}
+				if systemBusSignalRequiresRadioReconcile(signal) {
+					p.publishRadioLifecycle()
+				}
 				if systemBusSignalAffectsSnapshot(signal) {
 					p.publishChange()
 				}
@@ -148,9 +167,8 @@ func (p *Provider) startSystemBusChangeWatcher(conn *dbus.Conn) (func(), error) 
 // the communication snapshot contract. ModemManager emits radio telemetry on
 // the same D-Bus namespace as calls, messages, and modem lifecycle changes.
 // Forwarding every telemetry sample would make the API rehydrate the complete
-// call and message snapshot for each signal reading. Telemetry is still picked
-// up by the API's periodic reconciliation; lifecycle and communication changes
-// remain event driven.
+// call and message snapshot for each signal reading. Telemetry uses its
+// lightweight endpoint; lifecycle and communication changes remain event driven.
 func systemBusSignalAffectsSnapshot(signal *dbus.Signal) bool {
 	if signal == nil {
 		return false
@@ -171,6 +189,32 @@ func systemBusSignalAffectsSnapshot(signal *dbus.Signal) bool {
 		return false
 	}
 	return eventDrivenSnapshotInterface(signal.Name[:separator])
+}
+
+func systemBusSignalRequiresRadioReconcile(signal *dbus.Signal) bool {
+	if signal == nil {
+		return false
+	}
+	switch signal.Name {
+	case busInterface + ".NameOwnerChanged":
+		if len(signal.Body) < 3 {
+			return true
+		}
+		newOwner, ok := signal.Body[2].(string)
+		return !ok || strings.TrimSpace(newOwner) != ""
+	case objectManagerInterface + ".InterfacesAdded":
+		if len(signal.Body) < 2 {
+			return true
+		}
+		interfaces, ok := signal.Body[1].(map[string]map[string]dbus.Variant)
+		if !ok {
+			return true
+		}
+		_, modemAdded := interfaces[modemInterface]
+		return modemAdded
+	default:
+		return false
+	}
 }
 
 func addedInterfacesAffectSnapshot(body []any) bool {

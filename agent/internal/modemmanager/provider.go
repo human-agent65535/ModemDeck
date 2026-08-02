@@ -69,6 +69,7 @@ type Provider struct {
 
 	messageProperties *messagePropertyCache
 	changes           *changeHub
+	radioLifecycle    *changeHub
 }
 
 type terminalCallProjection struct {
@@ -199,6 +200,7 @@ func newProviderWithOptions(
 		atPendingCalls:     make(map[string]atCallLifecycle),
 		messageProperties:  newMessagePropertyCache(defaultMessagePropertyCacheLimit),
 		changes:            newChangeHub(),
+		radioLifecycle:     newChangeHub(),
 	}, nil
 }
 
@@ -335,6 +337,50 @@ func (p *Provider) Snapshot(ctx context.Context) (domain.Snapshot, error) {
 		Calls:           parsed.Calls,
 		Messages:        parsed.Messages,
 		DeliveryReports: parsed.DeliveryReports,
+	}, nil
+}
+
+// Telemetry samples only current radio facts. It deliberately avoids call and
+// message hydration so periodic signal updates cannot become lifecycle scans.
+func (p *Provider) Telemetry(ctx context.Context) (domain.TelemetrySnapshot, error) {
+	const operation = "telemetry"
+	identity, err := p.resolveProviderIdentity(ctx, operation)
+	if err != nil {
+		return domain.TelemetrySnapshot{}, err
+	}
+	objects, err := p.managedObjects(ctx, operation)
+	if err != nil {
+		return domain.TelemetrySnapshot{}, err
+	}
+	if p.prepareExtendedSignal(ctx, operation, objects) {
+		objects, err = p.managedObjects(ctx, operation)
+		if err != nil {
+			return domain.TelemetrySnapshot{}, err
+		}
+	}
+	parsed := ParseManagedObjects(objects, identity)
+	p.projectServingRadios(ctx, operation, &parsed)
+	lines := make([]domain.LineTelemetry, 0, len(parsed.Lines))
+	for _, line := range parsed.Lines {
+		lines = append(lines, domain.LineTelemetry{
+			ID:                      line.ID,
+			AccessTechnologies:      line.AccessTechnologies,
+			AccessTechnologiesKnown: line.AccessTechnologiesKnown,
+			SignalQualityKnown:      line.SignalQualityKnown,
+			SignalQuality:           line.SignalQuality,
+			SignalQualityRecent:     line.SignalQualityRecent,
+			SignalMetricsRecent:     line.SignalMetricsRecent,
+			SignalDBM:               line.SignalDBM,
+			SignalRSRP:              line.SignalRSRP,
+			SignalRSRQ:              line.SignalRSRQ,
+			SignalSNR:               line.SignalSNR,
+			ServingRadio:            cloneServingRadio(line.ServingRadio),
+		})
+	}
+	return domain.TelemetrySnapshot{
+		BootEpoch:  identity.providerEpoch(),
+		ObservedAt: p.now().UTC(),
+		Lines:      lines,
 	}, nil
 }
 
@@ -1367,6 +1413,7 @@ func implementedCapabilities() domain.AgentCapabilities {
 	return domain.AgentCapabilities{
 		Discovery:           true,
 		Snapshot:            true,
+		Telemetry:           true,
 		Events:              true,
 		DeviceConfiguration: true,
 		Dial:                true,

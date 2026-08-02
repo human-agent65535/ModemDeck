@@ -15,9 +15,11 @@ import (
 
 type eventTestAgent struct {
 	*fakeAgent
-	changes chan struct{}
-	started chan struct{}
-	once    sync.Once
+	changes        chan struct{}
+	started        chan struct{}
+	once           sync.Once
+	telemetry      agentclient.TelemetrySnapshot
+	telemetryCalls atomic.Int32
 }
 
 func (agent *eventTestAgent) WatchChanges(ctx context.Context, notify func()) error {
@@ -31,6 +33,13 @@ func (agent *eventTestAgent) WatchChanges(ctx context.Context, notify func()) er
 			notify()
 		}
 	}
+}
+
+func (agent *eventTestAgent) Telemetry(
+	context.Context,
+) (agentclient.TelemetrySnapshot, error) {
+	agent.telemetryCalls.Add(1)
+	return agent.telemetry, nil
 }
 
 type eventCountingRepository struct {
@@ -165,7 +174,7 @@ func TestRunCoalescesAgentEventBurstsIntoOneRefresh(t *testing.T) {
 	}
 }
 
-func TestRunKeepsPeriodicRefreshWhileAgentEventsAreHealthy(t *testing.T) {
+func TestRunDoesNotPeriodicallyRefreshWhileAgentEventsAreHealthy(t *testing.T) {
 	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
 	baseAgent := connectedAgent(now)
 	baseAgent.health.Provider.Capabilities.Events = true
@@ -205,9 +214,93 @@ func TestRunKeepsPeriodicRefreshWhileAgentEventsAreHealthy(t *testing.T) {
 	waitForAppliedSnapshots(t, repository, 2)
 	waitForAgentEventsHealthy(t, service)
 
-	// No further change event arrives. The periodic refresh remains the simple
-	// convergence path for missed events and agents that do not emit every change.
-	waitForAppliedSnapshots(t, repository, 3)
+	before := repository.applied.Load()
+	time.Sleep(600 * time.Millisecond)
+	if got := repository.applied.Load(); got != before {
+		t.Fatalf("periodic snapshots with a healthy event stream = %d, want %d", got, before)
+	}
+}
+
+func TestRunKeepsPeriodicRefreshWhenAgentHasNoEvents(t *testing.T) {
+	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
+	agent := connectedAgent(now)
+	repository := &eventCountingRepository{
+		fakeRepository: &fakeRepository{},
+		signal:         make(chan struct{}, 8),
+	}
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		service.Run(ctx, 100*time.Millisecond, func(err error) {
+			t.Errorf("Run() report = %v", err)
+		})
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+
+	waitForAppliedSnapshots(t, repository, 2)
+}
+
+func TestRunSamplesTelemetryWithoutApplyingHardwareSnapshot(t *testing.T) {
+	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
+	baseAgent := connectedAgent(now)
+	baseAgent.health.Provider.Capabilities.Events = true
+	baseAgent.health.Provider.Capabilities.Telemetry = true
+	agent := &eventTestAgent{
+		fakeAgent: baseAgent,
+		changes:   make(chan struct{}, 1),
+		started:   make(chan struct{}),
+		telemetry: agentclient.TelemetrySnapshot{
+			BootEpoch:  "boot-1",
+			ObservedAt: now.Add(time.Second),
+			Lines: []agentclient.LineTelemetry{{
+				ID:                  "line-1",
+				SignalQualityKnown:  true,
+				SignalQualityRecent: true,
+				SignalQuality:       91,
+			}},
+		},
+	}
+	repository := &eventCountingRepository{
+		fakeRepository: &fakeRepository{},
+		signal:         make(chan struct{}, 8),
+	}
+	service, err := New(agent, repository, messageevents.NewBuffer(8))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		service.Run(ctx, 100*time.Millisecond, func(err error) {
+			t.Errorf("Run() report = %v", err)
+		})
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+
+	waitForAppliedSnapshots(t, repository, 2)
+	waitForCount(t, &agent.telemetryCalls, 1, "telemetry samples")
+	status := waitForLineSignal(t, service, 91)
+	if got := repository.applied.Load(); got != 2 {
+		t.Fatalf("hardware snapshots after telemetry = %d, want 2", got)
+	}
+	if len(status.Lines) != 1 || status.Lines[0].Signal == nil ||
+		*status.Lines[0].Signal != 91 {
+		t.Fatalf("status after telemetry = %+v, want signal 91", status.Lines)
+	}
 }
 
 func TestRunReleasesControlLeaseWhenAgentEventStreamDisconnects(t *testing.T) {
@@ -449,8 +542,30 @@ func waitForCount(
 	}
 }
 
+func waitForLineSignal(t *testing.T, service *Service, expected uint32) Status {
+	t.Helper()
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		status := service.CurrentStatus()
+		if len(status.Lines) == 1 && status.Lines[0].Signal != nil &&
+			*status.Lines[0].Signal == expected {
+			return status
+		}
+		select {
+		case <-ticker.C:
+		case <-deadline.C:
+			t.Fatalf("line status = %+v, want signal %d", status.Lines, expected)
+			return Status{}
+		}
+	}
+}
+
 var _ Agent = (*eventTestAgent)(nil)
 var _ AgentChangeSource = (*eventTestAgent)(nil)
+var _ AgentTelemetrySource = (*eventTestAgent)(nil)
 var _ Agent = (*controlLeaseEventAgent)(nil)
 var _ AgentChangeSource = (*controlLeaseEventAgent)(nil)
 var _ AgentControlLease = (*controlLeaseEventAgent)(nil)

@@ -19,6 +19,7 @@ const maxRequestBodyBytes = 256 << 10
 
 type handler struct {
 	provider             domain.Provider
+	telemetry            domain.TelemetryProvider
 	messageDeleter       domain.MessageDeleter
 	changes              domain.ChangeSource
 	controlLease         domain.ControlLease
@@ -94,6 +95,7 @@ func NewWithOptions(
 		media:                options.Media,
 	}
 	h.changes, _ = provider.(domain.ChangeSource)
+	h.telemetry, _ = provider.(domain.TelemetryProvider)
 	h.callMedia, _ = provider.(domain.CallMediaActivator)
 	h.messageDeleter, _ = provider.(domain.MessageDeleter)
 	mux := http.NewServeMux()
@@ -103,6 +105,7 @@ func NewWithOptions(
 	mux.HandleFunc("PUT /v1/control-lease", h.renewControlLease)
 	mux.HandleFunc("DELETE /v1/control-lease", h.releaseControlLease)
 	mux.HandleFunc("GET /v1/snapshot", h.snapshot)
+	mux.HandleFunc("GET /v1/telemetry", h.getTelemetry)
 	mux.HandleFunc("GET /v1/lines/{id}/configuration", h.getDeviceConfiguration)
 	mux.HandleFunc("PATCH /v1/lines/{id}/configuration", h.patchDeviceConfiguration)
 	mux.HandleFunc("GET /v1/lines/{id}/sim", h.getSIMStatus)
@@ -145,6 +148,7 @@ func (h *handler) health(w http.ResponseWriter, r *http.Request) {
 		status = "degraded"
 	}
 	health.Capabilities.DeviceConfiguration = h.deviceConfigurations != nil
+	health.Capabilities.Telemetry = h.telemetry != nil
 	health.Capabilities.SIMManagement = h.lineServices != nil
 	health.Capabilities.ConnectionProfiles = h.lineServices != nil
 	health.Capabilities.USSD = h.lineServices != nil
@@ -168,6 +172,26 @@ func (h *handler) snapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	decorateMediaSnapshot(&snapshot, h.media)
+	h.writeJSON(w, http.StatusOK, snapshot)
+}
+
+func (h *handler) getTelemetry(w http.ResponseWriter, r *http.Request) {
+	if h.telemetry == nil {
+		h.writeAPIError(
+			w,
+			http.StatusNotImplemented,
+			domain.ErrorNotSupported,
+			"telemetry",
+			"",
+			"provider does not expose radio telemetry",
+		)
+		return
+	}
+	snapshot, err := h.telemetry.Telemetry(r.Context())
+	if err != nil {
+		h.writeError(w, err, "")
+		return
+	}
 	h.writeJSON(w, http.StatusOK, snapshot)
 }
 

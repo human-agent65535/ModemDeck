@@ -19,11 +19,12 @@ import (
 )
 
 const (
-	APIVersion            = "v1"
-	defaultRequestTimeout = 2 * time.Second
-	defaultEventIdleLimit = 5 * time.Second
-	maxResponseBodyBytes  = 4 << 20
-	controlLeaseHeader    = "X-ModemDeck-Controller"
+	APIVersion                    = "v1"
+	defaultRequestTimeout         = 2 * time.Second
+	defaultEventIdleLimit         = 5 * time.Second
+	defaultDiagnosticLogIdleLimit = 40 * time.Second
+	maxResponseBodyBytes          = 4 << 20
+	controlLeaseHeader            = "X-ModemDeck-Controller"
 )
 
 var (
@@ -34,6 +35,7 @@ var (
 
 type Capabilities struct {
 	Discovery           bool `json:"discovery"`
+	Telemetry           bool `json:"telemetry"`
 	Events              bool `json:"events"`
 	ControlLease        bool `json:"control_lease"`
 	DeviceConfiguration bool `json:"device_configuration"`
@@ -212,6 +214,27 @@ type Snapshot struct {
 	DeliveryReports []MessageDeliveryReport `json:"delivery_reports"`
 }
 
+type LineTelemetry struct {
+	ID                      string        `json:"id"`
+	AccessTechnologies      uint32        `json:"access_technologies"`
+	AccessTechnologiesKnown bool          `json:"access_technologies_known"`
+	SignalQualityKnown      bool          `json:"signal_quality_known"`
+	SignalQuality           uint32        `json:"signal_quality"`
+	SignalQualityRecent     bool          `json:"signal_quality_recent"`
+	SignalMetricsRecent     bool          `json:"signal_metrics_recent"`
+	SignalDBM               *float64      `json:"signal_dbm"`
+	SignalRSRP              *float64      `json:"signal_rsrp"`
+	SignalRSRQ              *float64      `json:"signal_rsrq"`
+	SignalSNR               *float64      `json:"signal_snr"`
+	ServingRadio            *ServingRadio `json:"serving_radio"`
+}
+
+type TelemetrySnapshot struct {
+	BootEpoch  string          `json:"boot_epoch"`
+	ObservedAt time.Time       `json:"observed_at"`
+	Lines      []LineTelemetry `json:"lines"`
+}
+
 type CommandReceipt struct {
 	RequestID                 string `json:"request_id"`
 	ResourceID                string `json:"resource_id"`
@@ -274,10 +297,11 @@ func (e *OperationError) Error() string {
 }
 
 type Client struct {
-	httpClient     *http.Client
-	requestTimeout time.Duration
-	eventIdleLimit time.Duration
-	controllerID   string
+	httpClient             *http.Client
+	requestTimeout         time.Duration
+	eventIdleLimit         time.Duration
+	diagnosticLogIdleLimit time.Duration
+	controllerID           string
 }
 
 func New(socketPath string, timeout time.Duration) (*Client, error) {
@@ -302,10 +326,11 @@ func New(socketPath string, timeout time.Duration) (*Client, error) {
 		return nil, err
 	}
 	return &Client{
-		httpClient:     &http.Client{Transport: transport},
-		requestTimeout: timeout,
-		eventIdleLimit: defaultEventIdleLimit,
-		controllerID:   controllerID,
+		httpClient:             &http.Client{Transport: transport},
+		requestTimeout:         timeout,
+		eventIdleLimit:         defaultEventIdleLimit,
+		diagnosticLogIdleLimit: defaultDiagnosticLogIdleLimit,
+		controllerID:           controllerID,
 	}, nil
 }
 
@@ -336,6 +361,24 @@ func (client *Client) Snapshot(ctx context.Context) (Snapshot, error) {
 	}
 	if snapshot.DeliveryReports == nil {
 		snapshot.DeliveryReports = []MessageDeliveryReport{}
+	}
+	return snapshot, nil
+}
+
+func (client *Client) Telemetry(ctx context.Context) (TelemetrySnapshot, error) {
+	var snapshot TelemetrySnapshot
+	if err := client.doJSON(
+		ctx,
+		http.MethodGet,
+		"/v1/telemetry",
+		nil,
+		http.StatusOK,
+		&snapshot,
+	); err != nil {
+		return TelemetrySnapshot{}, err
+	}
+	if snapshot.Lines == nil {
+		snapshot.Lines = []LineTelemetry{}
 	}
 	return snapshot, nil
 }

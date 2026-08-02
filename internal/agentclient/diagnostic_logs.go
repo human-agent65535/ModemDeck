@@ -113,9 +113,9 @@ func (client *Client) WatchDiagnosticLogs(
 		}
 	}()
 
-	idleLimit := client.eventIdleLimit
+	idleLimit := client.diagnosticLogIdleLimit
 	if idleLimit <= 0 {
-		idleLimit = defaultEventIdleLimit
+		idleLimit = defaultDiagnosticLogIdleLimit
 	}
 	idle := time.NewTimer(idleLimit)
 	defer idle.Stop()

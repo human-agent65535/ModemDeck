@@ -12,7 +12,7 @@ import (
 
 const (
 	updateEventPollInterval      = 750 * time.Millisecond
-	updateEventHeartbeatInterval = 5 * time.Second
+	updateEventHeartbeatInterval = 15 * time.Second
 	updateEventStatusTimeout     = 3 * time.Second
 )
 

@@ -27,6 +27,21 @@ type fakeProvider struct {
 	deletedMessages []domain.DeleteMessageRequest
 }
 
+type telemetryFakeProvider struct {
+	*fakeProvider
+	telemetry domain.TelemetrySnapshot
+}
+
+func (p *telemetryFakeProvider) Telemetry(
+	ctx context.Context,
+) (domain.TelemetrySnapshot, error) {
+	p.contexts = append(p.contexts, ctx)
+	if p.operationError != nil {
+		return domain.TelemetrySnapshot{}, p.operationError
+	}
+	return p.telemetry, nil
+}
+
 func (p *fakeProvider) Health(ctx context.Context) (domain.ProviderHealth, error) {
 	p.contexts = append(p.contexts, ctx)
 	if p.operationError != nil {
@@ -132,6 +147,39 @@ func TestHealthReportsCapabilitiesAndBootEpoch(t *testing.T) {
 	}
 	if !response.Provider.Capabilities.Snapshot || !response.Provider.Capabilities.SendDTMF {
 		t.Fatalf("capabilities missing: %+v", response.Provider.Capabilities)
+	}
+}
+
+func TestTelemetryReturnsLightweightRadioSnapshot(t *testing.T) {
+	observedAt := time.Date(2026, time.August, 2, 9, 0, 0, 0, time.UTC)
+	provider := &telemetryFakeProvider{
+		fakeProvider: &fakeProvider{},
+		telemetry: domain.TelemetrySnapshot{
+			BootEpoch:  "boot-1",
+			ObservedAt: observedAt,
+			Lines: []domain.LineTelemetry{{
+				ID:                  "line-1",
+				SignalQualityKnown:  true,
+				SignalQualityRecent: true,
+				SignalQuality:       72,
+			}},
+		},
+	}
+	recorder := performRequest(New(provider, "test-version"), http.MethodGet, "/v1/telemetry", nil)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var response domain.TelemetrySnapshot
+	decodeResponse(t, recorder, &response)
+	if response.BootEpoch != "boot-1" || !response.ObservedAt.Equal(observedAt) ||
+		len(response.Lines) != 1 || response.Lines[0].SignalQuality != 72 {
+		t.Fatalf("telemetry response = %+v", response)
+	}
+	healthRecorder := performRequest(New(provider, "test-version"), http.MethodGet, "/v1/health", nil)
+	var health healthResponse
+	decodeResponse(t, healthRecorder, &health)
+	if !health.Provider.Capabilities.Telemetry {
+		t.Fatalf("telemetry capability missing: %+v", health.Provider.Capabilities)
 	}
 }
 

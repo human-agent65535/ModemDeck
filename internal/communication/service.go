@@ -31,7 +31,7 @@ import (
 const (
 	snapshotTimeout            = 5 * time.Second
 	commandTimeout             = 20 * time.Second
-	defaultSyncEvery           = 30 * time.Second
+	defaultMaintenanceEvery    = 30 * time.Second
 	freshSnapshotAge           = 35 * time.Second
 	eventReconnectDelay        = 2 * time.Second
 	agentEventCoalesceDelay    = 250 * time.Millisecond
@@ -63,6 +63,10 @@ type Agent interface {
 
 type AgentChangeSource interface {
 	WatchChanges(context.Context, func()) error
+}
+
+type AgentTelemetrySource interface {
+	Telemetry(context.Context) (agentclient.TelemetrySnapshot, error)
 }
 
 type AgentControlLease interface {
@@ -254,6 +258,9 @@ type Service struct {
 	mu           sync.RWMutex
 	status       Status
 	lastSnapshot agentclient.Snapshot
+	// telemetryObservedAt orders lightweight radio samples without making them
+	// look like complete lifecycle snapshots.
+	telemetryObservedAt time.Time
 	// coordinatorMu orders every complete hardware snapshot commit with every
 	// command that can create or change a call. A command holds it from the
 	// Agent request through the resulting database projection, so a snapshot
@@ -339,6 +346,75 @@ func (s *Service) Refresh(ctx context.Context) (Status, error) {
 	s.coordinatorMu.Lock()
 	defer s.coordinatorMu.Unlock()
 	return s.refreshLocked(ctx)
+}
+
+func (s *Service) refreshTelemetry(ctx context.Context) error {
+	source, available := s.agent.(AgentTelemetrySource)
+	if !available {
+		return nil
+	}
+	telemetryContext, cancel := context.WithTimeout(normalizeContext(ctx), snapshotTimeout)
+	snapshot, err := source.Telemetry(telemetryContext)
+	cancel()
+	if err != nil {
+		return fmt.Errorf("read host agent telemetry: %w", err)
+	}
+	if strings.TrimSpace(snapshot.BootEpoch) == "" {
+		return errors.New("read host agent telemetry: boot_epoch is missing")
+	}
+	if snapshot.ObservedAt.IsZero() {
+		return errors.New("read host agent telemetry: observed_at is missing")
+	}
+
+	s.coordinatorMu.Lock()
+	defer s.coordinatorMu.Unlock()
+	s.mu.RLock()
+	status := cloneStatus(s.status)
+	lastSnapshot := cloneAgentSnapshot(s.lastSnapshot)
+	lastObservedAt := s.telemetryObservedAt
+	s.mu.RUnlock()
+	if !status.Connected || status.BootEpoch != strings.TrimSpace(snapshot.BootEpoch) {
+		_, err := s.refreshLocked(ctx)
+		return err
+	}
+	if !lastObservedAt.IsZero() && !snapshot.ObservedAt.After(lastObservedAt) {
+		return nil
+	}
+
+	telemetryByLine := make(map[string]agentclient.LineTelemetry, len(snapshot.Lines))
+	for _, line := range snapshot.Lines {
+		if lineID := strings.TrimSpace(line.ID); lineID != "" {
+			telemetryByLine[lineID] = line
+		}
+	}
+	for index := range status.Lines {
+		line := &status.Lines[index]
+		telemetry, found := telemetryByLine[strings.TrimSpace(line.EndpointID)]
+		if !found {
+			continue
+		}
+		projectLineTelemetry(line, telemetry)
+	}
+	for index := range lastSnapshot.Lines {
+		line := &lastSnapshot.Lines[index]
+		telemetry, found := telemetryByLine[strings.TrimSpace(line.ID)]
+		if !found {
+			continue
+		}
+		applyAgentLineTelemetry(line, telemetry)
+	}
+
+	s.mu.Lock()
+	s.status.Lines = append([]store.LineSummary(nil), status.Lines...)
+	s.lastSnapshot = lastSnapshot
+	s.telemetryObservedAt = snapshot.ObservedAt.UTC()
+	s.mu.Unlock()
+	s.publishRuntimeLines(
+		status.BootEpoch,
+		snapshot.ObservedAt,
+		status.Lines,
+	)
+	return nil
 }
 
 // refreshLocked obtains and commits one complete Agent snapshot. Callers must
@@ -447,6 +523,7 @@ func (s *Service) commitSnapshotLocked(
 	s.mu.Lock()
 	s.status = cloneStatus(status)
 	s.lastSnapshot = snapshot
+	s.telemetryObservedAt = snapshot.ObservedAt.UTC()
 	s.mu.Unlock()
 	s.logSnapshotTransitions(
 		previousStatus,
@@ -567,13 +644,7 @@ func (s *Service) publishRuntimeSnapshot(
 	current := previous
 	sections := runtimeevents.Section(0)
 	durable := false
-	if digest, ok := runtimeProjectionDigest(struct {
-		BootEpoch string              `json:"boot_epoch"`
-		Lines     []store.LineSummary `json:"lines"`
-	}{
-		BootEpoch: strings.TrimSpace(bootEpoch),
-		Lines:     canonicalRuntimeLines(lines),
-	}); ok {
+	if digest, ok := runtimeLinesDigest(bootEpoch, lines); ok {
 		current.linesDigest = digest
 		if digest != previous.linesDigest {
 			sections |= runtimeevents.SectionCommunication
@@ -606,6 +677,38 @@ func (s *Service) publishRuntimeSnapshot(
 			Sections:   sections,
 		})
 	}
+}
+
+func (s *Service) publishRuntimeLines(
+	bootEpoch string,
+	observedAt time.Time,
+	lines []store.LineSummary,
+) {
+	if s.runtime == nil {
+		return
+	}
+	digest, ok := runtimeLinesDigest(bootEpoch, lines)
+	if !ok || digest == s.runtimeProjection.linesDigest {
+		return
+	}
+	s.runtimeProjection.linesDigest = digest
+	s.runtime.Publish(runtimeevents.Change{
+		ObservedAt: observedAt,
+		Sections:   runtimeevents.SectionCommunication,
+	})
+}
+
+func runtimeLinesDigest(
+	bootEpoch string,
+	lines []store.LineSummary,
+) (string, bool) {
+	return runtimeProjectionDigest(struct {
+		BootEpoch string              `json:"boot_epoch"`
+		Lines     []store.LineSummary `json:"lines"`
+	}{
+		BootEpoch: strings.TrimSpace(bootEpoch),
+		Lines:     canonicalRuntimeLines(lines),
+	})
 }
 
 func runtimeProjectionDigest(payload any) (string, bool) {
@@ -1112,8 +1215,13 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 	s.mu.RLock()
 	status := cloneStatus(s.status)
 	s.mu.RUnlock()
-	if status.Connected && s.now().UTC().Sub(status.ObservedAt) <= freshSnapshotAge {
-		return status, nil
+	if status.Connected {
+		if status.Capabilities.Events && s.agentEventStreamHealthy() {
+			return status, nil
+		}
+		if s.now().UTC().Sub(status.ObservedAt) <= freshSnapshotAge {
+			return status, nil
+		}
 	}
 	return s.Refresh(ctx)
 }
@@ -1129,10 +1237,10 @@ func (s *Service) CurrentStatus() Status {
 
 func (s *Service) Run(ctx context.Context, every time.Duration, report func(error)) {
 	if every <= 0 {
-		every = defaultSyncEvery
+		every = defaultMaintenanceEvery
 	}
-	timer := time.NewTimer(every)
-	defer timer.Stop()
+	maintenanceTimer := time.NewTimer(every)
+	defer maintenanceTimer.Stop()
 	controlLeaseTicker := time.NewTicker(controlLeaseRenewInterval)
 	defer controlLeaseTicker.Stop()
 	changeEvents := make(chan struct{}, 1)
@@ -1150,6 +1258,7 @@ func (s *Service) Run(ctx context.Context, every time.Duration, report func(erro
 		}
 	}()
 	lastRefreshError := ""
+	lastTelemetryError := ""
 	lastWatchError := ""
 	lastControlLeaseError := ""
 	watchStarted := false
@@ -1242,19 +1351,19 @@ func (s *Service) Run(ctx context.Context, every time.Duration, report func(erro
 			if status, ok := refresh(); ok {
 				startWatcher(status)
 			}
-			resetTimer(timer, every)
 		case err := <-watchFailures:
 			reportDistinct(err, &lastWatchError)
-		case <-timer.C:
-			if changeTimerC != nil {
-				changeTimer.Stop()
-				changeTimerC = nil
+		case <-maintenanceTimer.C:
+			status := s.CurrentStatus()
+			switch {
+			case status.Capabilities.Events && status.Capabilities.Telemetry:
+				reportDistinct(s.refreshTelemetry(ctx), &lastTelemetryError)
+			case !status.Capabilities.Events:
+				if refreshed, ok := refresh(); ok {
+					startWatcher(refreshed)
+				}
 			}
-			drainChangeEvents(changeEvents)
-			if status, ok := refresh(); ok {
-				startWatcher(status)
-			}
-			timer.Reset(every)
+			maintenanceTimer.Reset(every)
 		case <-controlLeaseTicker.C:
 			if s.agentControlLeaseRenewable() {
 				reportDistinct(
@@ -1348,6 +1457,12 @@ func (s *Service) setAgentEventsHealthy(healthy bool) {
 	s.controlMu.Lock()
 	s.agentEventsHealthy = healthy
 	s.controlMu.Unlock()
+}
+
+func (s *Service) agentEventStreamHealthy() bool {
+	s.controlMu.RLock()
+	defer s.controlMu.RUnlock()
+	return s.agentEventsHealthy
 }
 
 func (s *Service) agentControlLeaseRenewable() bool {
@@ -2694,6 +2809,41 @@ func projectLine(line agentclient.Line) store.LineSummary {
 			Media:       line.Capabilities.Media,
 		},
 	}
+}
+
+func projectLineTelemetry(
+	line *store.LineSummary,
+	telemetry agentclient.LineTelemetry,
+) {
+	if line == nil {
+		return
+	}
+	projected := agentclient.Line{}
+	applyAgentLineTelemetry(&projected, telemetry)
+	line.AccessTechnologies = knownAccessTechnologies(projected)
+	line.ServingRadio = projectServingRadio(projected.ServingRadio)
+	line.Signal = projectedSignalQuality(projected)
+	line.SignalSNR = freshSignal(projected.SignalMetricsRecent, projected.SignalSNR)
+}
+
+func applyAgentLineTelemetry(
+	line *agentclient.Line,
+	telemetry agentclient.LineTelemetry,
+) {
+	if line == nil {
+		return
+	}
+	line.AccessTechnologies = telemetry.AccessTechnologies
+	line.AccessTechnologiesKnown = telemetry.AccessTechnologiesKnown
+	line.SignalQualityKnown = telemetry.SignalQualityKnown
+	line.SignalQuality = telemetry.SignalQuality
+	line.SignalQualityRecent = telemetry.SignalQualityRecent
+	line.SignalMetricsRecent = telemetry.SignalMetricsRecent
+	line.SignalDBM = telemetry.SignalDBM
+	line.SignalRSRP = telemetry.SignalRSRP
+	line.SignalRSRQ = telemetry.SignalRSRQ
+	line.SignalSNR = telemetry.SignalSNR
+	line.ServingRadio = telemetry.ServingRadio
 }
 
 func projectedSignalQuality(line agentclient.Line) *uint32 {

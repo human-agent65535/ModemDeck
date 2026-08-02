@@ -52,7 +52,7 @@ func TestWatchDiagnosticLogsFailsWhenStreamStalls(t *testing.T) {
 		response.(http.Flusher).Flush()
 		<-request.Context().Done()
 	}))
-	client.eventIdleLimit = 25 * time.Millisecond
+	client.diagnosticLogIdleLimit = 25 * time.Millisecond
 	if err := client.WatchDiagnosticLogs(context.Background(), 0, DiagnosticLogHandlers{
 		OnEntry: func(DiagnosticLogEntry) {},
 	}); err == nil {

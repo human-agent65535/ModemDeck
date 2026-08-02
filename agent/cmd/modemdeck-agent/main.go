@@ -295,11 +295,18 @@ func run(diagnosticLogs diagnostics.LogSource) error {
 	}
 }
 
-func runRadioReconciler(ctx context.Context, provider *modemmanager.Provider) {
-	const (
-		interval       = 5 * time.Second
-		attemptTimeout = 45 * time.Second
-	)
+type radioReconciler interface {
+	ReconcileRadioState(context.Context) error
+	SubscribeRadioLifecycle(context.Context) (<-chan struct{}, error)
+}
+
+func runRadioReconciler(ctx context.Context, provider radioReconciler) {
+	const attemptTimeout = 45 * time.Second
+	events, err := provider.SubscribeRadioLifecycle(ctx)
+	if err != nil {
+		slog.Error("subscribe modem radio lifecycle", "error", err)
+		return
+	}
 	reconcile := func() {
 		attemptContext, cancel := context.WithTimeout(ctx, attemptTimeout)
 		defer cancel()
@@ -310,13 +317,14 @@ func runRadioReconciler(ctx context.Context, provider *modemmanager.Provider) {
 	}
 
 	reconcile()
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case _, open := <-events:
+			if !open {
+				return
+			}
 			reconcile()
 		}
 	}

@@ -11,6 +11,8 @@ import (
 	"github.com/human-agent65535/modemdeck/agent/internal/domain"
 )
 
+const diagnosticLogHeartbeatInterval = 15 * time.Second
+
 func (h *handler) diagnosticLogStream(w http.ResponseWriter, r *http.Request) {
 	if h.diagnosticLogs == nil {
 		h.writeAPIError(
@@ -65,7 +67,7 @@ func (h *handler) diagnosticLogStream(w http.ResponseWriter, r *http.Request) {
 	}
 	flusher.Flush()
 
-	heartbeat := time.NewTicker(eventHeartbeatInterval)
+	heartbeat := time.NewTicker(diagnosticLogHeartbeatInterval)
 	defer heartbeat.Stop()
 	for {
 		select {

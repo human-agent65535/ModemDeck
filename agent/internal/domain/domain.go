@@ -16,6 +16,7 @@ var ErrForcedCallTermination = errors.New("call was terminated by forced modem r
 type AgentCapabilities struct {
 	Discovery           bool `json:"discovery"`
 	Snapshot            bool `json:"snapshot"`
+	Telemetry           bool `json:"telemetry"`
 	Events              bool `json:"events"`
 	ControlLease        bool `json:"control_lease"`
 	DeviceConfiguration bool `json:"device_configuration"`
@@ -198,6 +199,33 @@ type Snapshot struct {
 	Calls           []Call                  `json:"calls"`
 	Messages        []Message               `json:"messages"`
 	DeliveryReports []MessageDeliveryReport `json:"delivery_reports"`
+}
+
+// LineTelemetry contains sampled radio facts that do not participate in the
+// durable call, message, or device lifecycle projection.
+type LineTelemetry struct {
+	ID                      string        `json:"id"`
+	AccessTechnologies      uint32        `json:"access_technologies"`
+	AccessTechnologiesKnown bool          `json:"access_technologies_known"`
+	SignalQualityKnown      bool          `json:"signal_quality_known"`
+	SignalQuality           uint32        `json:"signal_quality"`
+	SignalQualityRecent     bool          `json:"signal_quality_recent"`
+	SignalMetricsRecent     bool          `json:"signal_metrics_recent"`
+	SignalDBM               *float64      `json:"signal_dbm,omitempty"`
+	SignalRSRP              *float64      `json:"signal_rsrp,omitempty"`
+	SignalRSRQ              *float64      `json:"signal_rsrq,omitempty"`
+	SignalSNR               *float64      `json:"signal_snr,omitempty"`
+	ServingRadio            *ServingRadio `json:"serving_radio,omitempty"`
+}
+
+type TelemetrySnapshot struct {
+	BootEpoch  string          `json:"boot_epoch"`
+	ObservedAt time.Time       `json:"observed_at"`
+	Lines      []LineTelemetry `json:"lines"`
+}
+
+type TelemetryProvider interface {
+	Telemetry(context.Context) (TelemetrySnapshot, error)
 }
 
 type ChangeSource interface {
