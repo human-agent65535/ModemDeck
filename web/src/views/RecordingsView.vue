@@ -53,7 +53,6 @@ import {
   lineForKey,
   lineKey,
   loadBootstrap,
-  loadContacts,
   refreshContacts
 } from '../state/workspace'
 import { formatDateTime, formatDuration, formatRelativeDate } from '../utils/format'

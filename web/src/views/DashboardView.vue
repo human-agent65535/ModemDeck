@@ -43,9 +43,12 @@ import SectionSkeleton from '../components/skeletons/SectionSkeleton.vue'
 import WorkspaceDetailSkeleton from '../components/skeletons/WorkspaceDetailSkeleton.vue'
 import WorkspaceListHeader from '../components/workspace/WorkspaceListHeader.vue'
 import WorkspaceMasterDetail from '../components/workspace/WorkspaceMasterDetail.vue'
+import {
+  useCommunicationActivity,
+  type CommunicationActivity
+} from '../composables/useCommunicationActivity'
 import { useDurablePageRefresh } from '../composables/useDurablePageRefresh'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
-import { useListArrivals } from '../composables/useListArrivals'
 import { useListSelection } from '../composables/useListSelection'
 import { skeletonPreviewEnabled } from '../composables/useSkeletonPreview'
 import { messageThreadReference } from '../router/messageRoute'
@@ -109,20 +112,6 @@ import {
 import { primaryPhone, primaryPhoneDestination } from '../utils/format'
 import { lineTagFallback, lineTagLine } from '../utils/lineIdentity'
 
-type DashboardActivity =
-  | {
-      key: string
-      kind: 'call'
-      timestamp: string
-      call: CallRecord
-    }
-  | {
-      key: string
-      kind: 'message'
-      timestamp: string
-      thread: MessageThread
-    }
-
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
@@ -160,7 +149,7 @@ const contactEditorError = ref('')
 const activityMutationError = ref('')
 const deletingActivityKey = ref('')
 const batchBusy = ref(false)
-const selection = useListSelection<DashboardActivity>(activity => activity.key)
+const selection = useListSelection<CommunicationActivity>(activity => activity.key)
 const selecting = selection.active
 const selectionCount = selection.count
 const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
@@ -226,34 +215,24 @@ function networkRuntime(line: LineSummary) {
   return trafficSnapshot.value?.lines.find(runtime => runtime.line_id === id)
 }
 
-const activities = computed<DashboardActivity[]>(() => {
-  const calls: DashboardActivity[] = callsResource.data.map(call => ({
-    key: `call:${call.id}`,
-    kind: 'call',
-    timestamp: call.started_at,
-    call
-  }))
-  const messages: DashboardActivity[] = threadsResource.data.map(thread => ({
-    key: `message:${messageThreadReference(thread.key)}`,
-    kind: 'message',
-    timestamp: thread.last_timestamp,
-    thread
-  }))
-  return calls
-    .concat(messages)
-    .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
-    .slice(0, 30)
+const {
+  activities,
+  isArriving: activityIsArriving
+} = useCommunicationActivity({
+  calls: callsResource,
+  threads: threadsResource,
+  recentIncomingThreadKeys
 })
 const batchActivities = computed(() => selection.selected(activities.value))
 const batchMessageActivities = computed(() =>
   batchActivities.value.filter(
-    (activity): activity is Extract<DashboardActivity, { kind: 'message' }> =>
+    (activity): activity is Extract<CommunicationActivity, { kind: 'message' }> =>
       activity.kind === 'message'
   )
 )
 const batchCallActivities = computed(() =>
   batchActivities.value.filter(
-    (activity): activity is Extract<DashboardActivity, { kind: 'call' }> =>
+    (activity): activity is Extract<CommunicationActivity, { kind: 'call' }> =>
       activity.kind === 'call'
   )
 )
@@ -310,16 +289,6 @@ const activityErrors = computed(() =>
 const activityRetryable = computed(
   () => callsResource.status === 'error' || threadsResource.status === 'error'
 )
-const activityArrivals = useListArrivals(
-  () => ({
-    items: activities.value,
-    ready:
-      callsResource.status === 'ready' &&
-      threadsResource.status === 'ready'
-  }),
-  activity => activity.key
-)
-
 const favoriteContacts = computed(() =>
   contactsResource.data
     .filter(contact => contact.favorite)
@@ -385,11 +354,11 @@ function threadLineFallback(thread: MessageThread): string {
   )
 }
 
-function activityHasReadState(activity: DashboardActivity): boolean {
+function activityHasReadState(activity: CommunicationActivity): boolean {
   return activity.kind === 'message' || activity.call.missed
 }
 
-function activityIsUnread(activity: DashboardActivity): boolean {
+function activityIsUnread(activity: CommunicationActivity): boolean {
   return activity.kind === 'message'
     ? threadIsUnread(activity.thread)
     : activity.call.missed && !activity.call.read
@@ -405,7 +374,7 @@ function recordingCount(call: CallRecord): number {
   return recordingCatalogState.data.filter(recording => recording.call_id === call.id).length
 }
 
-async function markActivityRead(activity: DashboardActivity): Promise<void> {
+async function markActivityRead(activity: CommunicationActivity): Promise<void> {
   activityMutationError.value = ''
   if (activity.kind === 'message') {
     const marked = await markThreadRead(activity.thread)
@@ -425,7 +394,7 @@ async function markActivityRead(activity: DashboardActivity): Promise<void> {
   }
 }
 
-async function markActivityUnread(activity: DashboardActivity): Promise<void> {
+async function markActivityUnread(activity: CommunicationActivity): Promise<void> {
   activityMutationError.value = ''
   try {
     if (activity.kind === 'message') {
@@ -442,13 +411,13 @@ async function markActivityUnread(activity: DashboardActivity): Promise<void> {
   }
 }
 
-function toggleActivityRead(activity: DashboardActivity): Promise<void> {
+function toggleActivityRead(activity: CommunicationActivity): Promise<void> {
   return activityIsUnread(activity)
     ? markActivityRead(activity)
     : markActivityUnread(activity)
 }
 
-async function removeActivity(activity: DashboardActivity): Promise<void> {
+async function removeActivity(activity: CommunicationActivity): Promise<void> {
   const callRecordings =
     activity.kind === 'call' ? recordingCount(activity.call) : 0
   const confirmed = await requestConfirmation({
@@ -552,13 +521,13 @@ async function batchDelete(): Promise<void> {
   if (batchBusy.value || selected.length === 0) return
   const calls = selected
     .filter(
-      (activity): activity is Extract<DashboardActivity, { kind: 'call' }> =>
+      (activity): activity is Extract<CommunicationActivity, { kind: 'call' }> =>
         activity.kind === 'call'
     )
     .map(activity => activity.call)
   const threads = selected
     .filter(
-      (activity): activity is Extract<DashboardActivity, { kind: 'message' }> =>
+      (activity): activity is Extract<CommunicationActivity, { kind: 'message' }> =>
         activity.kind === 'message'
     )
     .map(activity => activity.thread)
@@ -605,7 +574,7 @@ function selectOverview(): void {
   void router.push({ name: 'dashboard', query: { item: 'overview' } })
 }
 
-function selectActivity(activity: DashboardActivity): void {
+function selectActivity(activity: CommunicationActivity): void {
   composingMessage.value = false
   void router.push({ name: 'dashboard', query: { item: activity.key } })
 }
@@ -829,11 +798,7 @@ onBeforeUnmount(() => {
           :key="activity.key"
           :active="selecting"
           :selected="selection.has(activity)"
-          :arriving="
-            activityArrivals.isArriving(activity.key) ||
-            (activity.kind === 'message' &&
-              recentIncomingThreadKeys[activity.thread.key])
-          "
+          :arriving="activityIsArriving(activity)"
           :label="
             t('common.selectItem', {
               name:

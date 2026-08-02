@@ -21,6 +21,8 @@ import { messageThreadKeyFromReference } from '../src/router/messageRoute.ts'
 import {
   loadMessages,
   messagesFor,
+  recentIncomingMessageIDs,
+  recentIncomingThreadKeys,
   refreshMessageWorkspace,
   resetWorkspaceState
 } from '../src/state/workspace.ts'
@@ -330,6 +332,76 @@ test('message convergence reloads only the visible thread without mutating hidde
   }
 })
 
+test('incoming message arrivals begin only after refreshed data is observable', async () => {
+  const originalListThreads = gateway.listThreads
+  const originalListMessages = gateway.listMessages
+  const incomingThread = {
+    key: event.thread_key,
+    line_id: event.line_id,
+    peer: event.peer,
+    last_timestamp: event.timestamp,
+    unread_count: 1,
+    marked_unread: false,
+    favorite: false
+  }
+  const incomingMessage = {
+    id: event.message_id,
+    line_id: event.line_id,
+    peer: event.peer,
+    direction: 'incoming',
+    content: event.content,
+    timestamp: event.timestamp,
+    type: 1,
+    status: 0,
+    delivery_status: 'delivered'
+  }
+  const page = items => ({
+    items,
+    meta: { next_cursor: '', has_more: false }
+  })
+  let releaseThreads
+  let releaseMessages
+  let notifyMessagesRequested
+  const messagesRequested = new Promise(resolve => {
+    notifyMessagesRequested = resolve
+  })
+
+  try {
+    resetWorkspaceState()
+    gateway.listThreads = async () => page([incomingThread])
+    gateway.listMessages = async () => page([])
+    await refreshMessageWorkspace('')
+    await loadMessages(incomingThread, true)
+
+    gateway.listThreads = () => new Promise(resolve => {
+      releaseThreads = resolve
+    })
+    gateway.listMessages = () => {
+      notifyMessagesRequested()
+      return new Promise(resolve => {
+        releaseMessages = resolve
+      })
+    }
+
+    const refresh = refreshMessageWorkspace(event.thread_key, event)
+    assert.equal(recentIncomingThreadKeys[event.thread_key], undefined)
+    assert.equal(recentIncomingMessageIDs[event.message_id], undefined)
+
+    releaseThreads(page([incomingThread]))
+    await messagesRequested
+    assert.equal(recentIncomingThreadKeys[event.thread_key], true)
+    assert.equal(recentIncomingMessageIDs[event.message_id], undefined)
+
+    releaseMessages(page([incomingMessage]))
+    await refresh
+    assert.equal(recentIncomingMessageIDs[event.message_id], true)
+  } finally {
+    gateway.listThreads = originalListThreads
+    gateway.listMessages = originalListMessages
+    resetWorkspaceState()
+  }
+})
+
 test('communication notifications share one explicit browser preference', async () => {
   const [
     runtime,
@@ -360,10 +432,10 @@ test('communication notifications share one explicit browser preference', async 
   assert.match(client, /MESSAGE_EVENT_INACTIVITY_TIMEOUT_MS = 40_000/)
   assert.match(client, /source\.addEventListener\('heartbeat'/)
   assert.doesNotMatch(runtime, /setInterval|refreshIncomingMessage/)
-  assert.match(runtime, /noteIncomingMessageArrival\(event\)/)
+  assert.doesNotMatch(runtime, /noteIncomingMessageArrival/)
   assert.match(
     runtime,
-    /onMessage:[\s\S]*?refreshMessageWorkspace\([\s\S]*?visibleMessageThreadKey\(router\.currentRoute\.value\)/
+    /onMessage:[\s\S]*?refreshMessageWorkspace\([\s\S]*?visibleMessageThreadKey\(router\.currentRoute\.value\),[\s\S]*?shouldAlert \? event : undefined/
   )
   assert.match(
     runtime,
@@ -405,16 +477,18 @@ test('communication notifications share one explicit browser preference', async 
     /v-if="[^"]*browserNotificationState\.(?:secureContext|supported)/
   )
   assert.doesNotMatch(shell, /onMounted\([^]*requestPermission/)
-  const arrivalStart = workspace.indexOf('export function noteIncomingMessageArrival(')
   const refreshWorkspaceStart = workspace.indexOf(
-    'export async function refreshMessageWorkspace(',
-    arrivalStart
+    'export async function refreshMessageWorkspace('
   )
-  assert.match(workspace.slice(arrivalStart, refreshWorkspaceStart), /markArrival\(/)
-  assert.doesNotMatch(
-    workspace.slice(arrivalStart, refreshWorkspaceStart),
-    /refreshThreads\(|refreshMessages\(|markThreadRead\(/
+  const refreshWorkspaceEnd = workspace.indexOf(
+    'async function refreshResource',
+    refreshWorkspaceStart
   )
+  const refreshWorkspace = workspace.slice(refreshWorkspaceStart, refreshWorkspaceEnd)
+  assert.match(refreshWorkspace, /const threads = await refreshThreads\(\)/)
+  assert.match(refreshWorkspace, /markArrival\([\s\S]*?recentIncomingThreadKeys/)
+  assert.match(refreshWorkspace, /const refreshedMessages = await refreshMessages\(thread\)/)
+  assert.match(refreshWorkspace, /markArrival\([\s\S]*?recentIncomingMessageIDs/)
   assert.match(messages, /canAcknowledgeMessageThread\(/)
   assert.match(
     messages,

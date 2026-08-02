@@ -42,7 +42,6 @@ test('all communication collections use the shared arrival primitive', async () 
   assert.match(row, /prefers-reduced-motion: reduce/)
 
   for (const view of [
-    'DashboardView.vue',
     'ContactsView.vue',
     'MessagesView.vue',
     'CallsView.vue',
@@ -52,4 +51,11 @@ test('all communication collections use the shared arrival primitive', async () 
     assert.match(source, /useListArrivals/)
     assert.match(source, /:arriving=/)
   }
+
+  const dashboard = await readFile(
+    new URL('../src/views/DashboardView.vue', import.meta.url),
+    'utf8'
+  )
+  assert.match(dashboard, /useCommunicationActivity/)
+  assert.match(dashboard, /:arriving="activityIsArriving\(activity\)"/)
 })

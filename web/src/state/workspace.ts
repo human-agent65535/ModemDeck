@@ -846,19 +846,47 @@ export function refreshMessages(thread: MessageThread): Promise<Message[] | null
   return operation
 }
 
-export function noteIncomingMessageArrival(event: IncomingMessageEvent): void {
-  markArrival(recentIncomingThreadKeys, `thread:${event.thread_key}`, event.thread_key)
-  markArrival(recentIncomingMessageIDs, `message:${event.message_id}`, event.message_id)
-}
-
-export async function refreshMessageWorkspace(activeThreadKey = ''): Promise<void> {
+export async function refreshMessageWorkspace(
+  activeThreadKey = '',
+  incomingEvent?: IncomingMessageEvent
+): Promise<void> {
   const normalizedActiveKey = activeThreadKey.trim()
+  const threadsWereReady = threadsResource.status === 'ready'
   const threads = await refreshThreads()
+  if (!threads) return
+
+  if (
+    incomingEvent &&
+    threadsWereReady &&
+    threads.some(thread => thread.key === incomingEvent.thread_key)
+  ) {
+    markArrival(
+      recentIncomingThreadKeys,
+      `thread:${incomingEvent.thread_key}`,
+      incomingEvent.thread_key
+    )
+  }
+
   if (!normalizedActiveKey) return
 
-  const currentThreads = threads || threadsResource.data
-  const thread = currentThreads.find(item => item.key === normalizedActiveKey)
-  if (thread) await refreshMessages(thread)
+  const thread = threads.find(item => item.key === normalizedActiveKey)
+  if (!thread) return
+
+  const messages = messagesFor(thread.key)
+  const messagesWereReady = messages.status === 'ready'
+  const refreshedMessages = await refreshMessages(thread)
+  if (
+    incomingEvent &&
+    incomingEvent.thread_key === thread.key &&
+    messagesWereReady &&
+    refreshedMessages?.some(message => message.id === incomingEvent.message_id)
+  ) {
+    markArrival(
+      recentIncomingMessageIDs,
+      `message:${incomingEvent.message_id}`,
+      incomingEvent.message_id
+    )
+  }
 }
 
 async function refreshResource<T>(
