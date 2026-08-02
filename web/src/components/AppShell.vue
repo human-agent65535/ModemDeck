@@ -45,6 +45,7 @@ import {
   shutdownMessageRuntime
 } from '../state/messageRuntime'
 import { shutdownDTMFAudio } from '../state/dtmfAudio'
+import { initializeForegroundCommunicationRefresh } from '../state/foregroundCommunication'
 import {
   initializeRuntimeEvents,
   shutdownRuntimeEvents
@@ -120,6 +121,7 @@ let dialerMediaQuery: MediaQueryList | undefined
 let nonModalDialerMediaQuery: MediaQueryList | undefined
 let mountGeneration = 0
 let stopApplicationVersionChecks: (() => void) | undefined
+let stopForegroundCommunicationRefresh: (() => void) | undefined
 const primaryNav = computed(() => [
   { name: 'dashboard', label: t('shell.home'), icon: House },
   { name: 'contacts', label: t('shell.contacts'), icon: UsersRound },
@@ -360,6 +362,7 @@ onMounted(() => {
   initializeBrowserSounds()
   initializeCallRuntime(router)
   initializeMessageRuntime(router)
+  stopForegroundCommunicationRefresh = initializeForegroundCommunicationRefresh()
   void initializeWorkspaceRuntime(currentGeneration)
   void loadContacts()
   dialerMediaQuery = window.matchMedia('(min-width: 1480px)')
@@ -375,6 +378,8 @@ onBeforeUnmount(() => {
   nonModalDialerMediaQuery?.removeEventListener('change', syncDialerMode)
   stopApplicationVersionChecks?.()
   stopApplicationVersionChecks = undefined
+  stopForegroundCommunicationRefresh?.()
+  stopForegroundCommunicationRefresh = undefined
   shutdownRuntimeEvents()
   shutdownMessageRuntime()
   shutdownCallRuntime()

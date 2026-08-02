@@ -4,6 +4,7 @@ import test from 'node:test'
 import { effectScope } from 'vue'
 
 import { gateway } from '../src/api/client.ts'
+import { useDurablePageRefresh } from '../src/composables/useDurablePageRefresh.ts'
 import { useListArrivals } from '../src/composables/useListArrivals.ts'
 import {
   contactsResource,
@@ -16,6 +17,26 @@ const contactPage = items => ({
   items,
   meta: { limit: 50, next_cursor: '', has_more: false }
 })
+
+function visibilityFixture(initial = 'visible') {
+  let listener
+  return {
+    target: {
+      visibilityState: initial,
+      addEventListener(type, current) {
+        if (type === 'visibilitychange') listener = current
+      },
+      removeEventListener(type, current) {
+        if (type === 'visibilitychange' && listener === current) listener = undefined
+      }
+    },
+    change(value) {
+      this.target.visibilityState = value
+      listener?.()
+    },
+    listener: () => listener
+  }
+}
 
 test('background collection refresh preserves ready state and arrival baselines', async () => {
   const originalListContacts = gateway.listContacts
@@ -57,6 +78,31 @@ test('background collection refresh preserves ready state and arrival baselines'
     gateway.listContacts = originalListContacts
     resetWorkspaceState()
   }
+})
+
+test('hidden pages defer durable work and revalidate once on foreground resume', async () => {
+  const visibility = visibilityFixture()
+  const scope = effectScope()
+  let refreshes = 0
+  const durable = scope.run(() =>
+    useDurablePageRefresh(
+      () => {
+        refreshes += 1
+      },
+      { documentTarget: visibility.target }
+    )
+  )
+
+  visibility.change('hidden')
+  await durable.request()
+  assert.equal(refreshes, 0)
+
+  visibility.change('visible')
+  await Promise.resolve()
+  assert.equal(refreshes, 1)
+
+  scope.stop()
+  assert.equal(visibility.listener(), undefined)
 })
 
 test('each durable page declares only its persisted list dependencies', async () => {

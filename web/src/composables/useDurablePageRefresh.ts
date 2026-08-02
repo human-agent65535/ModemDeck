@@ -1,8 +1,14 @@
-import { onBeforeUnmount, watch } from 'vue'
+import { getCurrentScope, onScopeDispose, watch } from 'vue'
 import { runtimeEventState } from '../state/runtimeEvents'
+
+type VisibilityTarget = Pick<
+  Document,
+  'visibilityState' | 'addEventListener' | 'removeEventListener'
+>
 
 type DurablePageRefreshOptions = {
   enabled?: () => boolean
+  documentTarget?: VisibilityTarget
 }
 
 export function useDurablePageRefresh(
@@ -12,9 +18,16 @@ export function useDurablePageRefresh(
   let stopped = false
   let pending = false
   let operation: Promise<void> | undefined
+  const documentTarget =
+    options.documentTarget ||
+    (typeof document === 'undefined' ? undefined : document)
+
+  const active = (): boolean =>
+    options.enabled?.() !== false &&
+    (!documentTarget || documentTarget.visibilityState === 'visible')
 
   const request = (): Promise<void> => {
-    if (stopped || options.enabled?.() === false) return Promise.resolve()
+    if (stopped || !active()) return Promise.resolve()
     pending = true
     if (!operation) {
       operation = (async () => {
@@ -42,11 +55,18 @@ export function useDurablePageRefresh(
     }
   )
 
-  onBeforeUnmount(() => {
+  const resumeVisiblePage = () => {
+    if (documentTarget?.visibilityState === 'visible') void request()
+  }
+  documentTarget?.addEventListener('visibilitychange', resumeVisiblePage)
+
+  const dispose = () => {
     stopped = true
     pending = false
     stop()
-  })
+    documentTarget?.removeEventListener('visibilitychange', resumeVisiblePage)
+  }
+  if (getCurrentScope()) onScopeDispose(dispose)
 
   return { request }
 }
