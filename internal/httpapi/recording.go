@@ -235,9 +235,6 @@ func (api *API) recordingsBatch(response http.ResponseWriter, request *http.Requ
 			return
 		}
 	case "delete":
-		if !api.requireAdmin(response, request) {
-			return
-		}
 		if api.recordings == nil {
 			writeError(response, http.StatusServiceUnavailable, "recording_unavailable", "Call recording is unavailable", "")
 			return
@@ -276,9 +273,6 @@ func (api *API) recordingResource(
 	case recordingResourceList:
 		api.callRecordings(response, request, resource.CallID)
 	case recordingResourceDelete:
-		if !api.requireAdmin(response, request) {
-			return
-		}
 		api.deleteRecording(response, request, resource.CallID, resource.SegmentID)
 	case recordingResourceDownload:
 		api.downloadRecording(response, request, resource.CallID, resource.SegmentID)

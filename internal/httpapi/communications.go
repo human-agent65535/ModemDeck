@@ -196,9 +196,6 @@ func (api *API) messageThreadState(response http.ResponseWriter, request *http.R
 		}
 		identities = append(identities, identity)
 	}
-	if action == store.MessageThreadDelete && !api.requireAdmin(response, request) {
-		return
-	}
 	if err := api.repository.UpdateMessageThreads(
 		request.Context(),
 		identities,
@@ -251,8 +248,7 @@ func (api *API) deleteMessageThread(response http.ResponseWriter, request *http.
 		)
 		return
 	}
-	if !api.requireAdmin(response, request) ||
-		!api.requireLineAccess(response, request, identity.LineID) {
+	if !api.requireLineAccess(response, request, identity.LineID) {
 		return
 	}
 	if err := api.repository.DeleteMessageThread(request.Context(), identity); err != nil {
@@ -366,9 +362,6 @@ func (api *API) callsBatch(response http.ResponseWriter, request *http.Request) 
 		}
 		api.publishDurableChange()
 	case "delete":
-		if !api.requireAdmin(response, request) {
-			return
-		}
 		if api.recordings == nil {
 			writeError(response, http.StatusServiceUnavailable, "recording_unavailable", "Call history deletion is unavailable", "")
 			return
@@ -395,9 +388,6 @@ func (api *API) callRecordResource(
 	}
 	switch resource.Action {
 	case "":
-		if !api.requireAdmin(response, request) {
-			return
-		}
 		if request.Method != http.MethodDelete {
 			response.Header().Set("Allow", http.MethodDelete)
 			writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only DELETE is supported", "")

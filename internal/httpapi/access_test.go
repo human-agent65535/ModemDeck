@@ -1,13 +1,149 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
+
+func TestCommunicationDeletionUsesAssignedLineScopeForMembers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   func(string) string
+		called func(*fakeRepository, *fakeRecordingService) bool
+	}{
+		{
+			name:   "message thread",
+			method: http.MethodDelete,
+			path:   "/api/v1/messages/threads",
+			body: func(lineID string) string {
+				return `{"line_id":"` + lineID + `","peer":"+818012345678"}`
+			},
+			called: func(repository *fakeRepository, _ *fakeRecordingService) bool {
+				return repository.messageDeleteIdentity.Peer == "+818012345678"
+			},
+		},
+		{
+			name:   "message thread batch",
+			method: http.MethodPatch,
+			path:   "/api/v1/messages/threads/state",
+			body: func(lineID string) string {
+				return `{"action":"delete","threads":[{"line_id":"` +
+					lineID + `","peer":"+818012345678"}]}`
+			},
+			called: func(repository *fakeRepository, _ *fakeRecordingService) bool {
+				return repository.messageUpdateAction == store.MessageThreadDelete
+			},
+		},
+		{
+			name:   "call",
+			method: http.MethodDelete,
+			path:   "/api/v1/calls/call-one",
+			body:   func(string) string { return "" },
+			called: func(_ *fakeRepository, recordings *fakeRecordingService) bool {
+				return recordings.deleteCallID == "call-one"
+			},
+		},
+		{
+			name:   "call batch",
+			method: http.MethodPatch,
+			path:   "/api/v1/calls/batch",
+			body: func(string) string {
+				return `{"action":"delete","ids":["call-one"]}`
+			},
+			called: func(_ *fakeRepository, recordings *fakeRecordingService) bool {
+				return len(recordings.deleteCallIDs) == 1 &&
+					recordings.deleteCallIDs[0] == "call-one"
+			},
+		},
+		{
+			name:   "recording",
+			method: http.MethodDelete,
+			path:   "/api/v1/calls/call-one/recordings/segment-one",
+			body:   func(string) string { return "" },
+			called: func(_ *fakeRepository, recordings *fakeRecordingService) bool {
+				return recordings.deleteRecordingCallID == "call-one" &&
+					recordings.deleteRecordingSegmentID == "segment-one"
+			},
+		},
+		{
+			name:   "recording batch",
+			method: http.MethodPatch,
+			path:   "/api/v1/recordings/batch",
+			body: func(string) string {
+				return `{"action":"delete","recordings":[{"call_id":"call-one","id":"segment-one"}]}`
+			},
+			called: func(_ *fakeRepository, recordings *fakeRecordingService) bool {
+				return recordings.deleteRecordingCallID == "call-one" &&
+					recordings.deleteRecordingSegmentID == "segment-one"
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for _, scope := range []struct {
+				name       string
+				lineID     string
+				wantStatus int
+				wantCalled bool
+			}{
+				{name: "assigned", lineID: "line-allowed", wantStatus: http.StatusNoContent, wantCalled: true},
+				{name: "unassigned", lineID: "line-hidden", wantStatus: http.StatusNotFound, wantCalled: false},
+			} {
+				t.Run(scope.name, func(t *testing.T) {
+					repository := &fakeRepository{callLineID: scope.lineID}
+					recordings := &fakeRecordingService{}
+					api, err := New(repository, Options{
+						Recording:             recordings,
+						disableAuthentication: true,
+					})
+					if err != nil {
+						t.Fatalf("New() error = %v", err)
+					}
+					request := httptest.NewRequest(
+						test.method,
+						test.path,
+						bytes.NewBufferString(test.body(scope.lineID)),
+					)
+					request.Header.Set("Content-Type", "application/json")
+					request = request.WithContext(auth.ContextWithPrincipal(
+						request.Context(),
+						auth.Principal{
+							UserID:         "user-member",
+							Role:           auth.RoleMember,
+							AllowedLineIDs: []string{"line-allowed"},
+						},
+					))
+					response := httptest.NewRecorder()
+
+					api.ServeHTTP(response, request)
+
+					if response.Code != scope.wantStatus {
+						t.Fatalf(
+							"status = %d, want %d; body = %s",
+							response.Code,
+							scope.wantStatus,
+							response.Body.String(),
+						)
+					}
+					if called := test.called(repository, recordings); called != scope.wantCalled {
+						t.Fatalf("deletion called = %t, want %t", called, scope.wantCalled)
+					}
+				})
+			}
+		})
+	}
+}
 
 func TestLineInventoryAndDevicesFollowExplicitAssignmentsForAdminAndMember(t *testing.T) {
 	t.Parallel()

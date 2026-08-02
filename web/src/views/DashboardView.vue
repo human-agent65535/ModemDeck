@@ -397,11 +397,11 @@ async function markActivityRead(activity: CommunicationActivity): Promise<void> 
 async function markActivityUnread(activity: CommunicationActivity): Promise<void> {
   activityMutationError.value = ''
   try {
+    if (selectionKey.value === activity.key) {
+      await router.replace({ name: 'dashboard' })
+    }
     if (activity.kind === 'message') {
       await markThreadsUnread([activity.thread])
-      if (selectionKey.value === activity.key) {
-        await router.replace({ name: 'dashboard' })
-      }
     } else {
       await markMissedCallUnread(activity.call)
     }
@@ -468,23 +468,21 @@ async function removeActivity(activity: CommunicationActivity): Promise<void> {
 }
 
 async function batchSetRead(read: boolean): Promise<void> {
-  if (batchBusy.value || batchActivities.value.length === 0) return
+  const selected = batchActivities.value
+  if (batchBusy.value || selected.length === 0) return
   const threads = batchMessageActivities.value.map(activity => activity.thread)
   const calls = batchMissedCallActivities.value.map(activity => activity.call)
   if (threads.length === 0 && calls.length === 0) return
   batchBusy.value = true
   activityMutationError.value = ''
   try {
+    if (!read && selected.some(activity => activity.key === selectionKey.value)) {
+      await router.replace({ name: 'dashboard' })
+    }
     await Promise.all([
       read ? markThreadsRead(threads) : markThreadsUnread(threads),
       updateMissedCallsReadState(calls, read)
     ])
-    if (
-      !read &&
-      batchMessageActivities.value.some(activity => activity.key === selectionKey.value)
-    ) {
-      await router.replace({ name: 'dashboard' })
-    }
   } catch (error) {
     activityMutationError.value =
       error instanceof Error ? error.message : t('runtime.requestFailed')

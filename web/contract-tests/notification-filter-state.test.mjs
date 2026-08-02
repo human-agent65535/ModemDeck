@@ -93,6 +93,17 @@ test('missed call filter preserves unread state until one call detail is opened'
   assert.match(workspace, /if \(selected\.has\(call\.id\) && call\.missed\) call\.read = read/)
 })
 
+test('dashboard leaves a selected communication detail before marking it unread', () => {
+  assert.match(
+    dashboard,
+    /async function markActivityUnread[\s\S]*?selectionKey\.value === activity\.key[\s\S]*?await router\.replace\(\{ name: 'dashboard' \}\)[\s\S]*?activity\.kind === 'message'[\s\S]*?markThreadsUnread\(\[activity\.thread\]\)[\s\S]*?markMissedCallUnread\(activity\.call\)/
+  )
+  assert.match(
+    dashboard,
+    /async function batchSetRead[\s\S]*?const selected = batchActivities\.value[\s\S]*?!read && selected\.some\(activity => activity\.key === selectionKey\.value\)[\s\S]*?await router\.replace\(\{ name: 'dashboard' \}\)[\s\S]*?await Promise\.all\(\[[\s\S]*?markThreadsUnread\(threads\)[\s\S]*?updateMissedCallsReadState\(calls, read\)/
+  )
+})
+
 test('opening the unread SMS filter does not acknowledge a conversation', () => {
   assert.match(
     messages,
