@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	workerContainerName      = "modemdeck-update-worker"
-	InstalledVersionFilename = "installed-version"
+	workerContainerName        = "modemdeck-update-worker"
+	WorkerSelfImageEnvironment = "MODEMDECK_UPDATER_WORKER_SELF_IMAGE"
+	InstalledVersionFilename   = "installed-version"
 )
 
 type CommandRunner interface {
@@ -154,7 +155,7 @@ func (runtime *DockerRuntime) StartWorker(
 		"--env", "MODEMDECK_DEPLOYMENT_DIR=" + runtime.deploymentDir,
 		"--env", "MODEMDECK_HOST_DEPLOYMENT_DIR=" + runtime.hostDeploymentDir,
 		"--env", "MODEMDECK_UPDATER_STATE_VOLUME=" + runtime.stateVolume,
-		"--env", "MODEMDECK_UPDATER_SELF_IMAGE=" + runtime.selfImage,
+		"--env", WorkerSelfImageEnvironment + "=" + runtime.selfImage,
 		"--env", "MODEMDECK_CLOUDFLARE_ENABLED=" + fmt.Sprintf("%t", runtime.cloudflared),
 		runtime.selfImage,
 		"worker",

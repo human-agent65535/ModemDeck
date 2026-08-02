@@ -18,6 +18,7 @@ const (
 	DefaultLatestReleaseURL  = "https://api.github.com/repos/human-agent65535/ModemDeck/releases/latest"
 	DefaultReleasePageURL    = "https://github.com/human-agent65535/ModemDeck/releases/tag/"
 	defaultCacheTTL          = 24 * time.Hour
+	defaultUnavailableTTL    = 30 * time.Second
 	defaultRequestTimeout    = 5 * time.Second
 	maximumResponseBytes     = 1 << 20
 	maximumReleaseNotesBytes = 32 << 10
@@ -190,7 +191,11 @@ func (checker *Checker) Check(ctx context.Context) Result {
 
 	result := checker.fetch(ctx, now)
 	checker.cachedResult = result
-	checker.cacheExpiresAt = now.Add(checker.cacheTTL)
+	cacheTTL := checker.cacheTTL
+	if result.Status == StatusUnavailable {
+		cacheTTL = defaultUnavailableTTL
+	}
+	checker.cacheExpiresAt = now.Add(cacheTTL)
 	return result
 }
 

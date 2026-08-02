@@ -39,9 +39,11 @@ const about = ref<AboutInfo | null>(null)
 const update = ref<UpdateCheck | null>(null)
 const checking = ref(false)
 const applying = ref(false)
+const startingUpdate = ref(false)
 const loadError = ref('')
 const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
 let closeUpdateEvents: (() => void) | undefined
+let recoveringUpdateOperation = false
 
 const displayedVersion = computed(
   () => update.value?.current_version || about.value?.version || t('about.notAvailable')
@@ -50,11 +52,25 @@ const displayedVersion = computed(
 const changedComponents = computed(
   () => update.value?.components?.filter(component => component.changed) || []
 )
+const activeOperation = computed<UpdateOperation | undefined>(() => {
+  const currentUpdate = update.value
+  const operation = currentUpdate?.operation
+  if (
+    !applying.value ||
+    startingUpdate.value ||
+    !operation ||
+    operation.target_version !== currentUpdate?.latest_version
+  ) {
+    return undefined
+  }
+  return operation
+})
 const displayedComponents = computed<UpdateComponent[]>(() => {
-  const operationComponents = update.value?.operation?.components
+  const currentUpdate = update.value
+  const operationComponents = activeOperation.value?.components
   if (!applying.value || !operationComponents?.length) return changedComponents.value
   return operationComponents.map(component =>
-    update.value?.components?.find(candidate => candidate.name === component.name) || {
+    currentUpdate?.components?.find(candidate => candidate.name === component.name) || {
       name: component.name,
       changed: true
     }
@@ -72,8 +88,7 @@ const releaseRemainder = computed(() =>
 )
 const componentStates = computed(() => {
   const states = new Map<UpdateComponentName, UpdateOperationComponentState>()
-  if (!applying.value) return states
-  for (const component of update.value?.operation?.components || []) {
+  for (const component of activeOperation.value?.components || []) {
     states.set(component.name, component.state)
   }
   return states
@@ -180,14 +195,27 @@ function startUpdateEvents(): void {
   if (closeUpdateEvents) return
   closeUpdateEvents = gateway.subscribeSoftwareUpdateEvents({
     onOperation: operation => void handleUpdateOperation(operation),
-    onError: () => undefined
+    onError: () => void recoverUpdateOperation()
   })
+}
+
+async function recoverUpdateOperation(): Promise<void> {
+  if (!applying.value || recoveringUpdateOperation) return
+  recoveringUpdateOperation = true
+  try {
+    await handleUpdateOperation(await gateway.getSoftwareUpdateStatus())
+  } catch {
+    // The EventSource reconnects itself and the API emits the current operation on open.
+  } finally {
+    recoveringUpdateOperation = false
+  }
 }
 
 async function handleUpdateOperation(operation: UpdateOperation): Promise<void> {
   const trackedOperationID = update.value?.operation?.id
   if (trackedOperationID && trackedOperationID !== operation.id) return
   if (update.value) update.value = { ...update.value, operation }
+  startingUpdate.value = false
   if (operation.state === 'running') {
     applying.value = true
     return
@@ -224,6 +252,7 @@ async function applyUpdate(): Promise<void> {
     })
     if (!confirmHardware) return
   }
+  startingUpdate.value = true
   applying.value = true
   try {
     const operation = await gateway.applySoftwareUpdate(
@@ -231,8 +260,10 @@ async function applyUpdate(): Promise<void> {
       confirmHardware
     )
     update.value = { ...current, operation }
+    startingUpdate.value = false
     startUpdateEvents()
   } catch {
+    startingUpdate.value = false
     applying.value = false
     showError(t('about.updateStartFailed'))
   }

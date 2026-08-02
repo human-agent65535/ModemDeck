@@ -89,6 +89,7 @@ func TestDockerRuntimeApplyRestoresEnvironmentWithOneRollback(t *testing.T) {
 func TestDockerRuntimeWorkerUsesRestrictedOneShotContainer(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
+	selfImage := "ghcr.io/human-agent65535/modemdeck-updater:v1.9.2@" + testDigest("f")
 	runner := &recordingRunner{}
 	runtime := newDockerRuntimeForTest(t, runner, directory)
 	err := runtime.StartWorker(context.Background(), WorkerRequest{
@@ -110,11 +111,15 @@ func TestDockerRuntimeWorkerUsesRestrictedOneShotContainer(t *testing.T) {
 		{"--security-opt", "no-new-privileges:true"},
 		{"--pids-limit", "128"},
 		{"--env", "MODEMDECK_DEPLOYMENT_DIR=" + directory},
+		{"--env", WorkerSelfImageEnvironment + "=" + selfImage},
 		{"worker", "--expected-version", "v1.9.3"},
 	} {
 		if !containsSequence(command, expected...) {
 			t.Errorf("worker command missing %q: %q", expected, command)
 		}
+	}
+	if containsSequence(command, "--env", "MODEMDECK_UPDATER_SELF_IMAGE="+selfImage) {
+		t.Fatal("worker self image must not override Compose environment interpolation")
 	}
 }
 

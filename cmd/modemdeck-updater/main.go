@@ -53,6 +53,7 @@ func buildController() (*ota.Controller, string, error) {
 		environment["MODEMDECK_CLOUDFLARE_ENABLED"],
 	) == "true"
 	selfImage := firstNonempty(
+		os.Getenv(ota.WorkerSelfImageEnvironment),
 		os.Getenv("MODEMDECK_UPDATER_SELF_IMAGE"),
 		environment["MODEMDECK_UPDATER_SELF_IMAGE"],
 	)

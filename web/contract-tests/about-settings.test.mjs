@@ -228,9 +228,16 @@ test('about panel checks automatically and applies only through the updater', as
   assert.match(panel, /:class="\{ spin: checking \}"/)
   assert.match(panel, /gateway\.applySoftwareUpdate\(/)
   assert.match(panel, /gateway\.subscribeSoftwareUpdateEvents\(/)
-  assert.doesNotMatch(panel, /gateway\.getSoftwareUpdateStatus\(\)|operationTimer/)
+  assert.match(panel, /gateway\.getSoftwareUpdateStatus\(\)/)
+  assert.match(panel, /onError: \(\) => void recoverUpdateOperation\(\)/)
+  assert.doesNotMatch(panel, /operationTimer|setInterval/)
   assert.match(panel, /role="progressbar"/)
   assert.match(panel, /version: operation\.target_version/)
+  assert.match(
+    panel,
+    /startingUpdate\.value[\s\S]*operation\.target_version !== currentUpdate\?\.latest_version/
+  )
+  assert.match(panel, /startingUpdate\.value = true[\s\S]*applying\.value = true/)
   assert.match(
     panel,
     /class="about-update__component-tag">\s*\{\{ componentLabel\(component\.name\) \}\}\s*<\/span>\s*<small[\s\S]*class="about-update__component-state"/

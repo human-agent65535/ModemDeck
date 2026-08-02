@@ -112,6 +112,37 @@ func TestCheckerCachesForOneDayAndManualRefreshBypassesCache(t *testing.T) {
 	}
 }
 
+func TestCheckerRetriesUnavailableResultAfterShortCache(t *testing.T) {
+	t.Parallel()
+	var requests atomic.Int32
+	now := time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		if requests.Add(1) == 1 {
+			response.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = response.Write([]byte(`{"tag_name":"v1.0.1"}`))
+	}))
+	defer server.Close()
+
+	checker := New(Options{
+		CurrentVersion:   "v1.0.0",
+		LatestReleaseURL: server.URL,
+		Now:              func() time.Time { return now },
+	})
+	first := checker.Check(context.Background())
+	now = now.Add(defaultUnavailableTTL - time.Second)
+	cached := checker.Check(context.Background())
+	if first.Status != StatusUnavailable || !reflect.DeepEqual(cached, first) || requests.Load() != 1 {
+		t.Fatalf("unavailable cache = %+v then %+v; requests = %d", first, cached, requests.Load())
+	}
+	now = now.Add(time.Second)
+	retried := checker.Check(context.Background())
+	if retried.Status != StatusUpdateAvailable || retried.LatestVersion != "v1.0.1" || requests.Load() != 2 {
+		t.Fatalf("retried result = %+v; requests = %d", retried, requests.Load())
+	}
+}
+
 func TestCheckerReportsMissingReleaseAsUnavailable(t *testing.T) {
 	t.Parallel()
 	server := releaseServer(t, http.StatusNotFound, `{}`)
