@@ -138,6 +138,34 @@ func TestRefreshPublishesPersistedActiveCallChanges(t *testing.T) {
 	}
 }
 
+func TestRefreshPublishesPersistedMessageStatusChanges(t *testing.T) {
+	t.Parallel()
+
+	observedAt := time.Date(2026, time.August, 2, 14, 45, 0, 0, time.UTC)
+	repository := &fakeRepository{snapshotResult: store.HardwareSnapshotResult{
+		HandledDeliveryReportIDs: []string{"report-1"},
+	}}
+	service, err := New(
+		connectedAgent(observedAt),
+		repository,
+		messageevents.NewBuffer(8),
+	)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	hub := runtimeevents.NewHub()
+	if err := service.SetRuntimeEventPublisher(hub); err != nil {
+		t.Fatalf("SetRuntimeEventPublisher() error = %v", err)
+	}
+
+	if _, err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	if current := hub.Current(); current.DataRevision != 1 {
+		t.Fatalf("current signal = %+v, want one durable message-status revision", current)
+	}
+}
+
 func TestRefreshPublishesCurrentStateAcrossProviderFailure(t *testing.T) {
 	t.Parallel()
 

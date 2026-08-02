@@ -3,10 +3,12 @@ package communication
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/messageevents"
+	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -26,10 +28,15 @@ func (repository *postCommitLinesFailureRepository) Lines(
 }
 
 type orderedMessagePublisher struct {
-	order *[]string
+	order   *[]string
+	runtime *runtimeevents.Hub
 }
 
 func (publisher orderedMessagePublisher) Publish(event messageevents.IncomingSMS) {
+	*publisher.order = append(
+		*publisher.order,
+		"watermark:"+strconv.FormatUint(publisher.runtime.Current().DataRevision, 10),
+	)
 	*publisher.order = append(*publisher.order, "notification:"+event.MessageID)
 }
 
@@ -49,18 +56,22 @@ func TestRefreshPublishesMessageNotificationBeforePostCommitWork(t *testing.T) {
 		},
 	}}
 	order := []string{}
+	runtime := runtimeevents.NewHub()
 	service, err := New(
 		connectedAgent(observedAt),
 		repository,
-		orderedMessagePublisher{order: &order},
+		orderedMessagePublisher{order: &order, runtime: runtime},
 	)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+	if err := service.SetRuntimeEventPublisher(runtime); err != nil {
+		t.Fatalf("SetRuntimeEventPublisher() error = %v", err)
+	}
 	if _, err := service.Refresh(context.Background()); err == nil {
 		t.Fatal("Refresh() error = nil, want post-commit line read failure")
 	}
-	if len(order) != 1 || order[0] != "notification:42" {
-		t.Fatalf("publish order = %v, want direct message notification", order)
+	if len(order) != 2 || order[0] != "watermark:1" || order[1] != "notification:42" {
+		t.Fatalf("publish order = %v, want durable watermark before message notification", order)
 	}
 }

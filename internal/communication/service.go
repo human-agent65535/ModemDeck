@@ -495,6 +495,17 @@ func (s *Service) commitSnapshotLocked(
 	if err != nil {
 		return s.recordRefreshFailure("persist host agent snapshot", err)
 	}
+	durableMessageChange := len(snapshotResult.CreatedIncomingMessages) > 0 ||
+		len(snapshotResult.HandledDeliveryReportIDs) > 0
+	if durableMessageChange && s.runtime != nil {
+		// The persistent write is already committed. Advance the shared
+		// watermark before the domain event can make a client issue a
+		// conditional read; otherwise that read could reuse the old SMS data.
+		s.runtime.Publish(runtimeevents.Change{
+			Durable:    true,
+			ObservedAt: snapshot.ObservedAt,
+		})
+	}
 	s.publishIncomingMessages(snapshotResult.CreatedIncomingMessages, snapshot.ObservedAt)
 	s.enqueueDeviceMessageCleanup(
 		hardwareSnapshot.Messages,
@@ -550,6 +561,7 @@ func (s *Service) commitSnapshotLocked(
 		snapshot.ObservedAt,
 		lines,
 		activeCalls,
+		durableMessageChange,
 	)
 	if err := s.processIncomingCallActions(ctx, snapshot); err != nil {
 		return cloneStatus(status), operationError(
@@ -636,6 +648,7 @@ func (s *Service) publishRuntimeSnapshot(
 	observedAt time.Time,
 	lines []store.LineSummary,
 	activeCalls []store.Call,
+	durableAlreadyPublished bool,
 ) {
 	if s.runtime == nil {
 		return
@@ -662,7 +675,8 @@ func (s *Service) publishRuntimeSnapshot(
 		current.activeCallIDs = runtimeCallIDs(canonicalCalls)
 		if digest != previous.callsDigest {
 			sections |= runtimeevents.SectionCalls
-			durable = previous.initialized && runtimeCallEnded(
+			durable = !durableAlreadyPublished &&
+				previous.initialized && runtimeCallEnded(
 				previous.activeCallIDs,
 				current.activeCallIDs,
 			)
