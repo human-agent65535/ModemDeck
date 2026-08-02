@@ -20,7 +20,7 @@ test('runtime state applies active recording truth without another request', asy
     runtime,
     /acceptRuntimeCallRecordings\(runtime\.recordings\)/
   )
-  assert.match(runtime, /refreshRecordingWorkspace\(false\)/)
+  assert.doesNotMatch(runtime, /refreshRecordingWorkspace\(false\)/)
 })
 
 test('the active call surface shows each recording segment and its live duration', async () => {

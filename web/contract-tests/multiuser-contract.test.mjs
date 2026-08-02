@@ -264,10 +264,7 @@ test('multi-user UI exposes only authorized settings and communication areas', a
   )
   assert.match(session, /if \(reloadForAuthorizationChange\) window\.location\.reload\(\)/)
   assert.match(session, /resetRecordingState\(\)/)
-  assert.match(
-    runtime,
-    /function requestDurableRefresh[\s\S]*?Promise\.allSettled\(\[[\s\S]*?refreshSession\(\)/
-  )
+  assert.doesNotMatch(runtime, /requestDurableRefresh/)
   assert.match(english, /The bot uses this user’s contacts/)
   assert.match(chinese, /Bot 使用该用户的通讯录/)
   assert.doesNotMatch(english, /temporary password|first login/i)
