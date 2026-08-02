@@ -254,7 +254,7 @@ test('live call and SMS paths own sound playback instead of view components', as
   assert.match(calls, /shutdownCallRuntime[\s\S]*syncCallSounds\(null\)/)
   assert.match(
     messages,
-    /!shouldAlertIncomingMessage\(event\)\) return[\s\S]*playIncomingMessageSound\(event\.message_id\)/
+    /const shouldAlert = shouldAlertIncomingMessage\(event\)[\s\S]*if \(!shouldAlert\) return[\s\S]*playIncomingMessageSound\(event\.message_id\)/
   )
   assert.match(
     workspace,

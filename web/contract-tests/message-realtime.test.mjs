@@ -3,7 +3,9 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 import {
+  initializeMessageRuntime,
   incomingMessageRoute,
+  shutdownMessageRuntime,
   shouldAlertIncomingMessage
 } from '../src/state/messageRuntime.ts'
 import {
@@ -141,6 +143,44 @@ test('incoming SMS alerts require a fresh server observation', () => {
     shouldAlertIncomingMessage({ ...event, observed_at: 'invalid' }, now),
     false
   )
+})
+
+test('a queued stale SMS still converges persisted message state', async () => {
+  const originalSubscribe = gateway.subscribeMessageEvents
+  const originalListThreads = gateway.listThreads
+  let handlers
+  let threadReads = 0
+
+  try {
+    shutdownMessageRuntime()
+    resetWorkspaceState()
+    gateway.subscribeMessageEvents = currentHandlers => {
+      handlers = currentHandlers
+      currentHandlers.onOpen?.()
+      return () => undefined
+    }
+    gateway.listThreads = async () => {
+      threadReads += 1
+      return { items: [], meta: { next_cursor: '', has_more: false } }
+    }
+    initializeMessageRuntime({
+      currentRoute: { value: { name: 'dashboard', params: {}, query: {} } }
+    })
+
+    handlers.onMessage({
+      ...event,
+      observed_at: '2020-01-01T00:00:00Z'
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    assert.equal(threadReads, 1)
+  } finally {
+    shutdownMessageRuntime()
+    gateway.subscribeMessageEvents = originalSubscribe
+    gateway.listThreads = originalListThreads
+    resetWorkspaceState()
+  }
 })
 
 test('message SSE observes heartbeats and reconnects without replay state', () => {

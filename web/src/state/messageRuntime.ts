@@ -37,11 +37,13 @@ export function initializeMessageRuntime(router: Router): void {
       streamOpened = true
     },
     onMessage: event => {
-      if (activeRouter !== router || !shouldAlertIncomingMessage(event)) return
-      noteIncomingMessageArrival(event)
+      if (activeRouter !== router) return
+      const shouldAlert = shouldAlertIncomingMessage(event)
+      if (shouldAlert) noteIncomingMessageArrival(event)
       void refreshMessageWorkspace(
         visibleMessageThreadKey(router.currentRoute.value)
       )
+      if (!shouldAlert) return
       playIncomingMessageSound(event.message_id)
       showIncomingMessageNotification(event, router)
     }
