@@ -151,6 +151,7 @@ const threadDeleteError = ref('')
 const deletingThreadKey = ref('')
 const messagesViewport = ref<HTMLElement | null>(null)
 const messagesEnd = ref<HTMLElement | null>(null)
+const composerInput = ref<HTMLTextAreaElement | null>(null)
 const viewportAtBottom = ref(false)
 const retainedUnreadThreadKeys = ref(new Set<string>())
 const manuallyUnreadThreadKeys = ref(new Set<string>())
@@ -835,6 +836,30 @@ async function submit(): Promise<void> {
   }
 }
 
+function resizeComposer(): void {
+  const input = composerInput.value
+  if (!input) return
+
+  input.style.height = 'auto'
+  const maxHeight = 120
+  const nextHeight = Math.min(Math.max(input.scrollHeight, 42), maxHeight)
+  input.style.height = `${nextHeight}px`
+  input.style.overflowY = input.scrollHeight > maxHeight ? 'auto' : 'hidden'
+}
+
+function handleComposerKeydown(event: KeyboardEvent): void {
+  if (
+    event.key !== 'Enter' ||
+    event.shiftKey ||
+    event.altKey ||
+    event.isComposing ||
+    event.keyCode === 229
+  ) return
+
+  event.preventDefault()
+  void submit()
+}
+
 function callCurrent(): void {
   if (
     dialUnavailable.value ||
@@ -872,6 +897,11 @@ onMounted(() => {
         ]
   )
   void reconcileRenderedMessages(false)
+  void nextTick(resizeComposer)
+})
+
+watch(draft, () => {
+  void nextTick(resizeComposer)
 })
 
 onBeforeUnmount(() => {
@@ -1335,11 +1365,13 @@ onBeforeUnmount(() => {
         <footer v-if="!selectedThreadIsOneWay" class="message-composer">
           <div class="composer-row">
             <textarea
+              ref="composerInput"
               v-model="draft"
               rows="1"
               :placeholder="t('messages.enterMessage')"
               :disabled="Boolean(messageWriteUnavailable)"
-              @keydown.enter.exact.prevent="submit"
+              @input="resizeComposer"
+              @keydown="handleComposerKeydown"
             />
             <button
               class="send-button"

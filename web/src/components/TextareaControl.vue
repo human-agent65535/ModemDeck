@@ -119,11 +119,6 @@ function updateValue(event: Event): void {
   background: var(--surface-hover);
 }
 
-.textarea-control:focus-within .textarea-control__surface {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgb(17 120 100 / 20%);
-}
-
 .textarea-control.is-error .textarea-control__surface {
   border-color: var(--danger);
 }

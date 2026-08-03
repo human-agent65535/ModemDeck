@@ -316,11 +316,6 @@ watch(
   border-radius: 6px;
 }
 
-.proxy-field input:focus,
-.proxy-field select:focus {
-  border-color: var(--accent);
-}
-
 .proxy-fields-row {
   display: grid;
   min-width: 0;

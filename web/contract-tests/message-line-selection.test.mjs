@@ -89,3 +89,14 @@ test('new messages retain contact preference then global default resolution', as
   )
   assert.doesNotMatch(source, /'mobile-back'|t\('messages\.back'\)/)
 })
+
+test('message composer uses explicit send and newline keyboard semantics', async () => {
+  const source = await readFile(messagesView, 'utf8')
+
+  assert.match(source, /const composerInput = ref<HTMLTextAreaElement \| null>\(null\)/)
+  assert.match(source, /function resizeComposer\(\): void[\s\S]*?input\.style\.height = 'auto'/)
+  assert.match(source, /resizeComposer\(\)[\s\S]*?input\.style\.overflowY = input\.scrollHeight > maxHeight \? 'auto' : 'hidden'/)
+  assert.match(source, /function handleComposerKeydown\(event: KeyboardEvent\): void[\s\S]*?event\.shiftKey[\s\S]*?event\.preventDefault\(\)[\s\S]*?void submit\(\)/)
+  assert.match(source, /ref="composerInput"[\s\S]*?@input="resizeComposer"[\s\S]*?@keydown="handleComposerKeydown"/)
+  assert.doesNotMatch(source, /@keydown\.enter\.exact\.prevent/)
+})

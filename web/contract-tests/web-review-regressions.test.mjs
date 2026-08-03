@@ -6,6 +6,21 @@ async function source(path) {
   return readFile(new URL(path, import.meta.url), 'utf8')
 }
 
+test('text-entry focus keeps the resting field border and geometry', async () => {
+  const styles = await source('../src/style.css')
+  const textarea = await source('../src/components/TextareaControl.vue')
+  const resourceEditor = await source('../src/components/settings/SettingsMasterDetail.vue')
+  const proxyEditor = await source('../src/components/ProxyEditorModal.vue')
+
+  assert.match(styles, /button:focus-visible,\s*a:focus-visible\s*\{/)
+  assert.doesNotMatch(styles, /a:focus-visible,\s*input:focus-visible/)
+  assert.doesNotMatch(styles, /\.search-field:focus-within\s*\{[^}]*border-color:/)
+  assert.doesNotMatch(styles, /\.suggest-input__field:focus-within\s*\{[^}]*box-shadow:/)
+  assert.doesNotMatch(textarea, /\.textarea-control:focus-within/)
+  assert.doesNotMatch(resourceEditor, /\.settings-master-detail__search:focus-within\s*\{[^}]*box-shadow:/)
+  assert.doesNotMatch(proxyEditor, /\.proxy-field (?:input|select):focus/)
+})
+
 test('dialing and messages resolve context, contact, and global default lines', async () => {
   const dialer = await source('../src/components/DialerPanel.vue')
   const messages = await source('../src/views/MessagesView.vue')

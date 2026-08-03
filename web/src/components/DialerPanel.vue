@@ -886,8 +886,6 @@ onBeforeUnmount(() => {
 .dialer-number-entry :deep(.suggest-input__field:focus-within) {
   color: var(--accent);
   background: rgb(17 120 100 / 4%);
-  border-color: var(--accent);
-  box-shadow: none;
 }
 
 .dialer-number-entry :deep(.suggest-input__field > svg) {

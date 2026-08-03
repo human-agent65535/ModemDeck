@@ -42,7 +42,8 @@ test('all communication list panes expose selection and their eligible batch act
     callRow,
     messageRow,
     statusRail,
-    avatarStatus
+    avatarStatus,
+    styles
   ] = await Promise.all([
     source('../src/views/DashboardView.vue'),
     source('../src/views/MessagesView.vue'),
@@ -56,7 +57,8 @@ test('all communication list panes expose selection and their eligible batch act
     source('../src/components/CallHistoryListItem.vue'),
     source('../src/components/MessageThreadListItem.vue'),
     source('../src/components/ListItemStatusRail.vue'),
-    source('../src/components/ListItemAvatarStatus.vue')
+    source('../src/components/ListItemAvatarStatus.vue'),
+    source('../src/style.css')
   ])
 
   for (const view of [dashboard, messages, calls, contacts, recordings]) {
@@ -172,6 +174,8 @@ test('all communication list panes expose selection and their eligible batch act
   assert.match(batchBar, /text-overflow: ellipsis/)
   assert.match(batchBar, /--batch-action-bar-height: 52px;/)
   assert.match(batchBar, /max-height: var\(--batch-action-bar-height\);/)
+  assert.doesNotMatch(batchBar, /\.batch-action-bar\s*\{[^}]*position: fixed;/)
+  assert.doesNotMatch(styles, /\.workspace\.is-batch-selecting \.item-list\s*\{/)
   assert.match(
     batchBar,
     /\.batch-action-bar__select-label,[\s\S]*?position: absolute;[\s\S]*?clip: rect/

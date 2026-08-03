@@ -173,10 +173,7 @@ select {
 }
 
 button:focus-visible,
-a:focus-visible,
-input:focus-visible,
-textarea:focus-visible,
-select:focus-visible {
+a:focus-visible {
   box-shadow: 0 0 0 3px rgb(17 120 100 / 20%);
 }
 
@@ -966,9 +963,6 @@ strong {
 
 .search-field:focus-within {
   color: var(--text);
-  background: var(--surface);
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgb(17 120 100 / 12%);
 }
 
 .search-field input {
@@ -1665,18 +1659,16 @@ dd {
 }
 
 .composer-row textarea {
+  height: 42px;
   min-height: 42px;
   max-height: 120px;
   flex: 1;
   padding: 10px 12px;
-  resize: vertical;
+  resize: none;
+  overflow-y: hidden;
   background: var(--surface-subtle);
   border: 1px solid var(--border-strong);
   border-radius: 8px;
-}
-
-.composer-row textarea:focus {
-  border-color: var(--accent);
 }
 
 .send-button,
@@ -1747,8 +1739,6 @@ dd {
 
 .suggest-input__field:focus-within {
   color: var(--text);
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgb(17 120 100 / 12%);
 }
 
 .suggest-input__field input {
@@ -1881,13 +1871,6 @@ dd {
   background: var(--surface);
   border: 1px solid var(--border-strong);
   border-radius: 8px;
-}
-
-.field input:focus,
-.field textarea:focus,
-.field select:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgb(17 120 100 / 12%);
 }
 
 .dialer-panel .field {
@@ -3265,10 +3248,6 @@ details[open] > .ui-disclosure-summary .ui-disclosure-summary__chevron {
     .dashboard-activity-action
   ) {
     display: none;
-  }
-
-  .workspace.is-batch-selecting .item-list {
-    padding-bottom: 72px;
   }
 
   .mobile-list-fab,

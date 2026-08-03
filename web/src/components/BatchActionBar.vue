@@ -163,16 +163,6 @@ const emit = defineEmits<{
   border: 0;
 }
 
-@media (max-width: 860px) {
-  .batch-action-bar {
-    position: fixed;
-    z-index: 39;
-    right: 0;
-    bottom: var(--mobile-nav-height);
-    left: 0;
-  }
-}
-
 @media (max-width: 560px) {
   .batch-action-bar {
     gap: 3px;

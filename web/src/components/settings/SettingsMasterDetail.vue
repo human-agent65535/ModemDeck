@@ -163,8 +163,7 @@ const emit = defineEmits<{
 }
 
 .settings-master-detail__search:focus-within {
-  color: var(--accent-strong);
-  box-shadow: inset 3px 0 0 var(--accent);
+  color: var(--text);
 }
 
 .settings-master-detail__list {
