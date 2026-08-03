@@ -411,6 +411,7 @@ export default {
     pairedIPhone: 'Paired iPhone',
     pendingIPhone: 'iPhone pairing pending',
     signedInAt: 'Signed in {date}',
+    lastActiveAt: 'Last active {date}',
     pairedAt: 'Paired {date}',
     unknownBrowser: 'Web browser',
     unknownDevice: 'Unknown device',

@@ -404,6 +404,7 @@ export default {
     "pairedIPhone": "iPhone jumelé",
     "pendingIPhone": "Jumelage de l’iPhone en attente",
     "signedInAt": "Connecté le {date}",
+    "lastActiveAt": "Dernière activité {date}",
     "pairedAt": "Jumelé le {date}",
     "unknownBrowser": "Navigateur Web",
     "unknownDevice": "Appareil inconnu",

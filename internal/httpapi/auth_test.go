@@ -241,14 +241,18 @@ func TestAccountSessionsListAndRevocation(t *testing.T) {
 		{
 			ID:         "current-session",
 			CreatedAt:  now,
+			LastSeenAt: now.Add(30 * time.Minute),
 			UserAgent:  "Current Browser",
+			AccessIP:   "192.0.2.10",
 			AccessHost: "192.168.50.111:7577",
 			Current:    true,
 		},
 		{
 			ID:         "other-session",
 			CreatedAt:  now.Add(-time.Hour),
+			LastSeenAt: now.Add(-10 * time.Minute),
 			UserAgent:  "Other Browser",
+			AccessIP:   "198.51.100.22",
 			AccessHost: "call.example.test",
 		},
 	}
@@ -289,7 +293,11 @@ func TestAccountSessionsListAndRevocation(t *testing.T) {
 	}
 	if len(listed.Sessions) != 3 ||
 		!listed.Sessions[0].Current ||
+		listed.Sessions[0].LastSeenAt != now.Add(30*time.Minute).Format(time.RFC3339) ||
+		listed.Sessions[0].AccessIP != "192.0.2.10" ||
 		listed.Sessions[1].ID != "other-session" ||
+		listed.Sessions[1].LastSeenAt != now.Add(-10*time.Minute).Format(time.RFC3339) ||
+		listed.Sessions[1].AccessIP != "198.51.100.22" ||
 		listed.Sessions[2].ID != iosPairingDeviceID ||
 		!listed.Sessions[2].Paired {
 		t.Fatalf("listed sessions = %+v", listed.Sessions)
@@ -355,6 +363,36 @@ func TestAccountSessionsListAndRevocation(t *testing.T) {
 			revokeOthers.Code,
 			revokeOthers.Body.String(),
 		)
+	}
+}
+
+func TestRequestSessionClientUsesNormalizedClientIP(t *testing.T) {
+	t.Parallel()
+
+	request := httptest.NewRequest(http.MethodGet, "https://call.example.test/api/v1/session", nil)
+	request.Host = "call.example.test"
+	request.RemoteAddr = "192.0.2.7:443"
+	request.Header.Set("User-Agent", "Example Browser")
+	request.Header.Set("CF-Connecting-IP", "203.0.113.8")
+	request.Header.Set("X-ModemDeck-Client-IP", "2001:db8::8")
+	client := requestSessionClient(request)
+	if client.UserAgent != "Example Browser" ||
+		client.AccessIP != "2001:db8::8" ||
+		client.AccessHost != "call.example.test" {
+		t.Fatalf("session client = %+v", client)
+	}
+
+	request.Header.Del("X-ModemDeck-Client-IP")
+	request.Header.Set("X-Real-IP", "198.51.100.9")
+	client = requestSessionClient(request)
+	if client.AccessIP != "198.51.100.9" {
+		t.Fatalf("X-Real-IP fallback = %q", client.AccessIP)
+	}
+
+	request.Header.Set("X-Real-IP", "not-an-ip")
+	client = requestSessionClient(request)
+	if client.AccessIP != "192.0.2.7" {
+		t.Fatalf("remote address fallback = %q", client.AccessIP)
 	}
 }
 

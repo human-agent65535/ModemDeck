@@ -391,11 +391,13 @@ function parseAccountSessions(value: unknown): AccountSession[] {
     const id = stringProperty(session, 'id')
     const kind = stringProperty(session, 'kind')
     const createdAt = stringProperty(session, 'created_at')
+    const lastSeenAt = stringProperty(session, 'last_seen_at')
     if (
       !id ||
       (kind !== 'web' && kind !== 'ios') ||
       !createdAt ||
       !Number.isFinite(Date.parse(createdAt)) ||
+      (lastSeenAt !== undefined && !Number.isFinite(Date.parse(lastSeenAt))) ||
       typeof session.current !== 'boolean'
     ) {
       throw new ApiError(`${path} is invalid`, 0, 'invalid_response')
@@ -404,7 +406,9 @@ function parseAccountSessions(value: unknown): AccountSession[] {
       id,
       kind,
       created_at: createdAt,
+      last_seen_at: lastSeenAt,
       user_agent: stringProperty(session, 'user_agent'),
+      access_ip: stringProperty(session, 'access_ip') || undefined,
       access_host: stringProperty(session, 'access_host'),
       current: session.current,
       paired: typeof session.paired === 'boolean' ? session.paired : undefined
@@ -2355,8 +2359,10 @@ function configureFixture(gateway: ModemDeckGateway): ConfiguredModemDeckGateway
       id: 'fixture-current',
       kind: 'web',
       created_at: '2026-08-01T10:00:00Z',
+      last_seen_at: '2026-08-03T04:00:00Z',
       user_agent:
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/138.0.0.0 Safari/537.36',
+      access_ip: '192.0.2.22',
       access_host: '192.168.50.111:7577',
       current: true
     },
@@ -2364,8 +2370,10 @@ function configureFixture(gateway: ModemDeckGateway): ConfiguredModemDeckGateway
       id: 'fixture-cloudflare',
       kind: 'web',
       created_at: '2026-07-31T02:30:00Z',
+      last_seen_at: '2026-08-01T10:03:00Z',
       user_agent:
         'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 Version/18.5 Mobile/15E148 Safari/604.1',
+      access_ip: '203.0.113.42',
       access_host: 'call.b1ank.page',
       current: false
     },

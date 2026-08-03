@@ -39,7 +39,9 @@ type accountSessionResponse struct {
 	ID         string `json:"id"`
 	Kind       string `json:"kind"`
 	CreatedAt  string `json:"created_at"`
+	LastSeenAt string `json:"last_seen_at,omitempty"`
 	UserAgent  string `json:"user_agent,omitempty"`
+	AccessIP   string `json:"access_ip,omitempty"`
 	AccessHost string `json:"access_host,omitempty"`
 	Current    bool   `json:"current"`
 	Paired     bool   `json:"paired,omitempty"`
@@ -72,11 +74,17 @@ func (api *API) accountSessions(response http.ResponseWriter, request *http.Requ
 	}
 	result := make([]accountSessionResponse, 0, len(sessions)+1)
 	for _, session := range sessions {
+		lastSeenAt := session.LastSeenAt
+		if lastSeenAt.IsZero() {
+			lastSeenAt = session.CreatedAt
+		}
 		result = append(result, accountSessionResponse{
 			ID:         session.ID,
 			Kind:       "web",
 			CreatedAt:  session.CreatedAt.UTC().Format(time.RFC3339),
+			LastSeenAt: lastSeenAt.UTC().Format(time.RFC3339),
 			UserAgent:  session.UserAgent,
+			AccessIP:   session.AccessIP,
 			AccessHost: session.AccessHost,
 			Current:    session.Current,
 		})

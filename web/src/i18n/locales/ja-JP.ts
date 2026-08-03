@@ -404,6 +404,7 @@ export default {
     "pairedIPhone": "ペアリング済みの iPhone",
     "pendingIPhone": "iPhone のペアリング待ち",
     "signedInAt": "{date} にログイン",
+    "lastActiveAt": "最終アクティブ {date}",
     "pairedAt": "{date} にペアリング",
     "unknownBrowser": "Web ブラウザ",
     "unknownDevice": "不明なデバイス",

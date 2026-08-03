@@ -406,6 +406,7 @@ export default {
     pairedIPhone: '已配对的 iPhone',
     pendingIPhone: 'iPhone 等待完成配对',
     signedInAt: '{date} 登录',
+    lastActiveAt: '{date} 最近活动',
     pairedAt: '{date} 配对',
     unknownBrowser: 'Web 浏览器',
     unknownDevice: '未知设备',

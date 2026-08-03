@@ -20,7 +20,9 @@ const (
 	MaximumPasswordBytes   = 1024
 	MaximumUsernameRunes   = 64
 	maximumUserAgentBytes  = 512
+	maximumAccessIPBytes   = 64
 	maximumAccessHostBytes = 255
+	sessionMetadataRefresh = 5 * time.Minute
 )
 
 type AdminCredentials struct {
@@ -35,6 +37,7 @@ type AdminStatus struct {
 
 type SessionClient struct {
 	UserAgent  string
+	AccessIP   string
 	AccessHost string
 }
 
@@ -45,6 +48,7 @@ func ContextWithSessionClient(ctx context.Context, client SessionClient) context
 		ctx = context.Background()
 	}
 	client.UserAgent = normalizedSessionClientValue(client.UserAgent, maximumUserAgentBytes)
+	client.AccessIP = normalizedSessionClientValue(client.AccessIP, maximumAccessIPBytes)
 	client.AccessHost = normalizedSessionClientValue(client.AccessHost, maximumAccessHostBytes)
 	return context.WithValue(ctx, sessionClientContextKey{}, client)
 }
@@ -78,7 +82,9 @@ type SessionRecord struct {
 	SessionTokenDigest SessionTokenDigest
 	CSRFTokenDigest    CSRFTokenDigest
 	CreatedAt          time.Time
+	LastSeenAt         time.Time
 	UserAgent          string
+	AccessIP           string
 	AccessHost         string
 }
 
@@ -126,7 +132,9 @@ type LoginResult struct {
 type WebSession struct {
 	ID         string
 	CreatedAt  time.Time
+	LastSeenAt time.Time
 	UserAgent  string
+	AccessIP   string
 	AccessHost string
 	Current    bool
 }
@@ -387,7 +395,9 @@ func (s *Service) Login(ctx context.Context, username, password string) (LoginRe
 		SessionTokenDigest: sessionDigest,
 		CSRFTokenDigest:    csrfDigest,
 		CreatedAt:          createdAt,
+		LastSeenAt:         createdAt,
 		UserAgent:          client.UserAgent,
+		AccessIP:           client.AccessIP,
 		AccessHost:         client.AccessHost,
 	}
 	created, err := s.repository.CreateSessionIfPasswordHash(
@@ -457,7 +467,9 @@ func (s *Service) loginUser(
 		SessionTokenDigest: sessionDigest,
 		CSRFTokenDigest:    csrfDigest,
 		CreatedAt:          createdAt,
+		LastSeenAt:         createdAt,
 		UserAgent:          client.UserAgent,
+		AccessIP:           client.AccessIP,
 		AccessHost:         client.AccessHost,
 	}
 	created, err := repository.CreateUserSessionIfPasswordHash(
@@ -543,7 +555,12 @@ func (s *Service) Authenticate(ctx context.Context, token SessionToken) (Authent
 		if !found {
 			return Authentication{}, newError(op, CodeUnauthenticated, nil)
 		}
-		return s.authenticationFromUserSession(record, principal)
+		authentication, err := s.authenticationFromUserSession(record, principal)
+		if err != nil {
+			return Authentication{}, err
+		}
+		s.refreshUserSessionMetadata(ctx, repository, record)
+		return authentication, nil
 	}
 
 	record, found, err := s.repository.SessionByTokenDigest(ctx, digest)
@@ -558,6 +575,7 @@ func (s *Service) Authenticate(ctx context.Context, token SessionToken) (Authent
 	if createdAt.IsZero() {
 		return Authentication{}, newError(op, CodeInvalidSessionRecord, nil)
 	}
+	s.refreshSessionMetadata(ctx, record)
 
 	return Authentication{
 		CreatedAt:     createdAt,
@@ -618,12 +636,94 @@ func (s *Service) WebSessions(
 		result = append(result, WebSession{
 			ID:         webSessionID(record.SessionTokenDigest),
 			CreatedAt:  record.CreatedAt.UTC(),
+			LastSeenAt: record.LastSeenAt.UTC(),
 			UserAgent:  record.UserAgent,
+			AccessIP:   record.AccessIP,
 			AccessHost: record.AccessHost,
 			Current:    record.SessionTokenDigest == digest,
 		})
 	}
 	return result, nil
+}
+
+func (s *Service) refreshSessionMetadata(ctx context.Context, record SessionRecord) {
+	client := sessionClientFromContext(ctx)
+	client = mergeSessionClient(
+		client,
+		record.UserAgent,
+		record.AccessIP,
+		record.AccessHost,
+	)
+	now := s.now().UTC()
+	if !sessionMetadataNeedsRefresh(record.LastSeenAt, record.UserAgent, record.AccessIP, record.AccessHost, client, now) {
+		return
+	}
+	repository, ok := s.repository.(SessionMetadataRepository)
+	if !ok {
+		return
+	}
+	_ = repository.UpdateSessionMetadata(ctx, record.SessionTokenDigest, client, now)
+}
+
+func (s *Service) refreshUserSessionMetadata(
+	ctx context.Context,
+	repository MultiUserRepository,
+	record UserSessionRecord,
+) {
+	client := sessionClientFromContext(ctx)
+	client = mergeSessionClient(
+		client,
+		record.UserAgent,
+		record.AccessIP,
+		record.AccessHost,
+	)
+	now := s.now().UTC()
+	if !sessionMetadataNeedsRefresh(record.LastSeenAt, record.UserAgent, record.AccessIP, record.AccessHost, client, now) {
+		return
+	}
+	metadataRepository, ok := repository.(UserSessionMetadataRepository)
+	if !ok {
+		return
+	}
+	_ = metadataRepository.UpdateUserSessionMetadata(
+		ctx,
+		record.UserID,
+		record.SessionTokenDigest,
+		client,
+		now,
+	)
+}
+
+func mergeSessionClient(
+	client SessionClient,
+	userAgent, accessIP, accessHost string,
+) SessionClient {
+	if client.UserAgent == "" {
+		client.UserAgent = userAgent
+	}
+	if client.AccessIP == "" {
+		client.AccessIP = accessIP
+	}
+	if client.AccessHost == "" {
+		client.AccessHost = accessHost
+	}
+	return client
+}
+
+func sessionMetadataNeedsRefresh(
+	lastSeenAt time.Time,
+	userAgent, accessIP, accessHost string,
+	client SessionClient,
+	now time.Time,
+) bool {
+	if client.UserAgent == "" && client.AccessIP == "" && client.AccessHost == "" {
+		return false
+	}
+	return userAgent != client.UserAgent ||
+		accessIP != client.AccessIP ||
+		accessHost != client.AccessHost ||
+		lastSeenAt.IsZero() ||
+		now.Sub(lastSeenAt) >= sessionMetadataRefresh
 }
 
 func (s *Service) RevokeWebSession(

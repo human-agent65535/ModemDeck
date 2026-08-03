@@ -26,7 +26,9 @@ CREATE TABLE modemdeck_auth_sessions (
 			csrf_token_digest BLOB NOT NULL CHECK (length(csrf_token_digest) = 32),
 			user_id TEXT NOT NULL DEFAULT 'user_admin',
 			created_at_unix INTEGER NOT NULL,
+			last_seen_at_unix INTEGER NOT NULL,
 			user_agent TEXT NOT NULL DEFAULT '',
+			access_ip TEXT NOT NULL DEFAULT '',
 			access_host TEXT NOT NULL DEFAULT '',
 			FOREIGN KEY (user_id) REFERENCES modemdeck_users(id) ON DELETE CASCADE ON UPDATE CASCADE
 		);

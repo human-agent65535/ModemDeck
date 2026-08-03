@@ -404,6 +404,7 @@ export default {
     "pairedIPhone": "Gekoppeltes iPhone",
     "pendingIPhone": "iPhone-Kopplung ausstehend",
     "signedInAt": "Angemeldet {date}",
+    "lastActiveAt": "Zuletzt aktiv {date}",
     "pairedAt": "Gekoppelt {date}",
     "unknownBrowser": "Webbrowser",
     "unknownDevice": "Unbekanntes Gerät",

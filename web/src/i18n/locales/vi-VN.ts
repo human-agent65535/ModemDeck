@@ -404,6 +404,7 @@ export default {
     "pairedIPhone": "iPhone đã ghép đôi",
     "pendingIPhone": "Đang chờ ghép đôi iPhone",
     "signedInAt": "Đăng nhập {date}",
+    "lastActiveAt": "Hoạt động gần nhất {date}",
     "pairedAt": "Ghép đôi {date}",
     "unknownBrowser": "Trình duyệt Web",
     "unknownDevice": "Thiết bị không xác định",

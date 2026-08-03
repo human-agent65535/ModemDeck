@@ -237,6 +237,7 @@ func TestLoginCreatesIndependentTokensAndDigestOnlyRecord(t *testing.T) {
 
 	ctx = ContextWithSessionClient(ctx, SessionClient{
 		UserAgent:  " Test Browser\n ",
+		AccessIP:   " 192.0.2.7 ",
 		AccessHost: " call.example.test ",
 	})
 	result, err := service.Login(ctx, "admin", "password")
@@ -276,7 +277,10 @@ func TestLoginCreatesIndependentTokensAndDigestOnlyRecord(t *testing.T) {
 	if !record.CreatedAt.Equal(wantCreatedAt) {
 		t.Fatalf("stored creation = %s, want %s", record.CreatedAt, wantCreatedAt)
 	}
-	if record.UserAgent != "Test Browser" || record.AccessHost != "call.example.test" {
+	if !record.LastSeenAt.Equal(wantCreatedAt) ||
+		record.UserAgent != "Test Browser" ||
+		record.AccessIP != "192.0.2.7" ||
+		record.AccessHost != "call.example.test" {
 		t.Fatalf("stored client = %#v", record)
 	}
 }
@@ -472,6 +476,64 @@ func TestAuthenticateAndVerifyCSRF(t *testing.T) {
 	}
 }
 
+func TestAuthenticateRefreshesLatestSessionMetadata(t *testing.T) {
+	createdAt := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	sessionToken, sessionDigest := mustSessionToken(t, 0xb7)
+	_, csrfDigest := mustCSRFToken(t, 0xc7)
+	repository := newMemoryRepository()
+	repository.sessions[sessionDigest] = SessionRecord{
+		SessionTokenDigest: sessionDigest,
+		CSRFTokenDigest:    csrfDigest,
+		CreatedAt:          createdAt,
+		LastSeenAt:         createdAt,
+		UserAgent:          "Old Browser",
+		AccessIP:           "192.0.2.10",
+		AccessHost:         "old.example.test",
+	}
+	service := mustService(t, repository)
+	service.now = func() time.Time { return createdAt.Add(6 * time.Minute) }
+	ctx := ContextWithSessionClient(context.Background(), SessionClient{
+		UserAgent:  "New Browser",
+		AccessIP:   "198.51.100.22",
+		AccessHost: "new.example.test",
+	})
+
+	if _, err := service.Authenticate(ctx, sessionToken); err != nil {
+		t.Fatalf("Authenticate() error = %v", err)
+	}
+	if repository.metadataUpdates != 1 {
+		t.Fatalf("metadata updates = %d, want 1", repository.metadataUpdates)
+	}
+	updated := repository.sessions[sessionDigest]
+	if updated.UserAgent != "New Browser" ||
+		updated.AccessIP != "198.51.100.22" ||
+		updated.AccessHost != "new.example.test" ||
+		!updated.LastSeenAt.Equal(createdAt.Add(6*time.Minute)) {
+		t.Fatalf("updated metadata = %+v", updated)
+	}
+
+	if _, err := service.Authenticate(ctx, sessionToken); err != nil {
+		t.Fatalf("second Authenticate() error = %v", err)
+	}
+	if repository.metadataUpdates != 1 {
+		t.Fatalf("unchanged metadata updates = %d, want 1", repository.metadataUpdates)
+	}
+
+	service.now = func() time.Time { return createdAt.Add(12 * time.Minute) }
+	partialContext := ContextWithSessionClient(context.Background(), SessionClient{
+		AccessIP: "203.0.113.7",
+	})
+	if _, err := service.Authenticate(partialContext, sessionToken); err != nil {
+		t.Fatalf("partial Authenticate() error = %v", err)
+	}
+	updated = repository.sessions[sessionDigest]
+	if updated.UserAgent != "New Browser" ||
+		updated.AccessIP != "203.0.113.7" ||
+		updated.AccessHost != "new.example.test" {
+		t.Fatalf("partial metadata erased observed values = %+v", updated)
+	}
+}
+
 func TestAuthenticateHasNoTimeExpiry(t *testing.T) {
 	ctx := context.Background()
 	createdAt := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
@@ -636,6 +698,7 @@ type memoryRepository struct {
 	createExpectedHash      string
 	lastLookupDigest        SessionTokenDigest
 	lastDeleteDigest        SessionTokenDigest
+	metadataUpdates         int
 }
 
 func newMemoryRepository() *memoryRepository {
@@ -734,6 +797,25 @@ func (r *memoryRepository) DeleteSessionByTokenDigest(_ context.Context, digest 
 		return r.deleteErr
 	}
 	delete(r.sessions, digest)
+	return nil
+}
+
+func (r *memoryRepository) UpdateSessionMetadata(
+	_ context.Context,
+	digest SessionTokenDigest,
+	client SessionClient,
+	lastSeenAt time.Time,
+) error {
+	r.metadataUpdates++
+	record, found := r.sessions[digest]
+	if !found {
+		return nil
+	}
+	record.LastSeenAt = lastSeenAt
+	record.UserAgent = client.UserAgent
+	record.AccessIP = client.AccessIP
+	record.AccessHost = client.AccessHost
+	r.sessions[digest] = record
 	return nil
 }
 

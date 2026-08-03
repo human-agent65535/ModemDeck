@@ -43,7 +43,9 @@ func TestAuthStorePasswordAndSessionLifecycle(t *testing.T) {
 		SessionTokenDigest: auth.SessionTokenDigest{1, 2, 3},
 		CSRFTokenDigest:    auth.CSRFTokenDigest{4, 5, 6},
 		CreatedAt:          createdAt,
+		LastSeenAt:         createdAt,
 		UserAgent:          "Test Browser",
+		AccessIP:           "192.0.2.7",
 		AccessHost:         "call.example.test",
 	}
 	created, err = repository.CreateSessionIfPasswordHash(ctx, "wrong-hash", session)
@@ -60,9 +62,27 @@ func TestAuthStorePasswordAndSessionLifecycle(t *testing.T) {
 	}
 	if stored.CSRFTokenDigest != session.CSRFTokenDigest ||
 		!stored.CreatedAt.Equal(session.CreatedAt) ||
+		!stored.LastSeenAt.Equal(session.LastSeenAt) ||
 		stored.UserAgent != session.UserAgent ||
+		stored.AccessIP != session.AccessIP ||
 		stored.AccessHost != session.AccessHost {
 		t.Fatalf("stored session = %+v, want %+v", stored, session)
+	}
+	updatedAt := createdAt.Add(6 * time.Minute)
+	if err := repository.UpdateSessionMetadata(ctx, session.SessionTokenDigest, auth.SessionClient{
+		UserAgent:  "Updated Browser",
+		AccessIP:   "198.51.100.7",
+		AccessHost: "updated.example.test",
+	}, updatedAt); err != nil {
+		t.Fatalf("UpdateSessionMetadata() error = %v", err)
+	}
+	stored, found, err = repository.SessionByTokenDigest(ctx, session.SessionTokenDigest)
+	if err != nil || !found ||
+		!stored.LastSeenAt.Equal(updatedAt) ||
+		stored.UserAgent != "Updated Browser" ||
+		stored.AccessIP != "198.51.100.7" ||
+		stored.AccessHost != "updated.example.test" {
+		t.Fatalf("updated session = %+v, found %t, err %v", stored, found, err)
 	}
 
 	if replaced, err := repository.ReplaceAdminPasswordHashIfCurrentAndRevokeSessions(

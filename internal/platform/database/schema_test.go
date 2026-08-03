@@ -630,6 +630,10 @@ func TestMigratePersistentAuthSessionsKeepsNewestValidEight(t *testing.T) {
 			csrf_token_digest BLOB NOT NULL CHECK (length(csrf_token_digest) = 32),
 			user_id TEXT NOT NULL,
 			created_at_unix INTEGER NOT NULL,
+			last_seen_at_unix INTEGER,
+			user_agent TEXT NOT NULL DEFAULT '',
+			access_ip TEXT NOT NULL DEFAULT '',
+			access_host TEXT NOT NULL DEFAULT '',
 			expires_at_unix INTEGER NOT NULL CHECK (expires_at_unix >= created_at_unix),
 			FOREIGN KEY (user_id) REFERENCES modemdeck_users(id) ON DELETE CASCADE ON UPDATE CASCADE
 		);
@@ -656,6 +660,20 @@ func TestMigratePersistentAuthSessionsKeepsNewestValidEight(t *testing.T) {
 		); err != nil {
 			t.Fatalf("insert session %d: %v", index, err)
 		}
+	}
+	metadataDigest := make([]byte, 32)
+	metadataDigest[0] = 10
+	if _, err := database.Exec(
+		`UPDATE modemdeck_auth_sessions
+		 SET last_seen_at_unix = ?, user_agent = ?, access_ip = ?, access_host = ?
+		 WHERE session_token_digest = ?`,
+		now+600,
+		"Migrated Browser",
+		"198.51.100.44",
+		"legacy.example.test",
+		metadataDigest,
+	); err != nil {
+		t.Fatal(err)
 	}
 	expiredDigest := make([]byte, 32)
 	expiredDigest[0] = 99
@@ -691,7 +709,7 @@ func TestMigratePersistentAuthSessionsKeepsNewestValidEight(t *testing.T) {
 	if _, exists := columns["expires_at_unix"]; exists {
 		t.Fatal("migrated session table still has expires_at_unix")
 	}
-	for _, column := range []string{"user_agent", "access_host"} {
+	for _, column := range []string{"last_seen_at_unix", "user_agent", "access_ip", "access_host"} {
 		if _, exists := columns[column]; !exists {
 			t.Fatalf("migrated session table is missing %s", column)
 		}
@@ -711,16 +729,82 @@ func TestMigratePersistentAuthSessionsKeepsNewestValidEight(t *testing.T) {
 	}
 	if err := database.QueryRow(
 		`SELECT COUNT(*) FROM modemdeck_auth_sessions
-		 WHERE user_agent <> '' OR access_host <> ''`,
+		 WHERE user_agent <> '' OR access_ip <> '' OR access_host <> ''`,
 	).Scan(&populatedMetadata); err != nil {
 		t.Fatal(err)
 	}
-	if count != 8 || oldCount != 0 || populatedMetadata != 0 {
+	if count != 8 || oldCount != 0 || populatedMetadata != 1 {
 		t.Fatalf(
 			"migrated sessions = count %d, old %d, metadata %d",
 			count,
 			oldCount,
 			populatedMetadata,
+		)
+	}
+}
+
+func TestOpenAddsCurrentAuthSessionMetadata(t *testing.T) {
+	t.Parallel()
+
+	previousSchema := currentSchemaSQL
+	for _, definition := range []string{
+		"\n\t\t\tlast_seen_at_unix INTEGER NOT NULL,",
+		"\n\t\t\taccess_ip TEXT NOT NULL DEFAULT '',",
+	} {
+		updated := strings.Replace(previousSchema, definition, "", 1)
+		if updated == previousSchema {
+			t.Fatalf("previous schema fixture did not remove %q", definition)
+		}
+		previousSchema = updated
+	}
+	path := filepath.Join(t.TempDir(), "before-auth-session-metadata.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(previousSchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO modemdeck_users (
+			id, username, password_hash, role, enabled, ios_pairing_enabled
+		) VALUES ('user_admin', 'owner', 'owner-hash', 'admin', 1, 1);
+		INSERT INTO modemdeck_auth_sessions (
+			session_token_digest, csrf_token_digest, user_id,
+			created_at_unix, user_agent, access_host
+		) VALUES (zeroblob(32), randomblob(32), 'user_admin', 123,
+			'Legacy Browser', 'legacy.example.test');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	if err := ValidateSchema(context.Background(), database); err != nil {
+		t.Fatalf("ValidateSchema() after migration error = %v", err)
+	}
+	var lastSeenAt int64
+	var userAgent, accessIP, accessHost string
+	if err := database.QueryRow(`
+		SELECT last_seen_at_unix, user_agent, access_ip, access_host
+		FROM modemdeck_auth_sessions
+	`).Scan(&lastSeenAt, &userAgent, &accessIP, &accessHost); err != nil {
+		t.Fatal(err)
+	}
+	if lastSeenAt != 123 || userAgent != "Legacy Browser" ||
+		accessIP != "" || accessHost != "legacy.example.test" {
+		t.Fatalf(
+			"migrated auth metadata = seen %d, UA %q, IP %q, host %q",
+			lastSeenAt,
+			userAgent,
+			accessIP,
+			accessHost,
 		)
 	}
 }
@@ -2495,7 +2579,9 @@ func singleUserSchemaFixture(t *testing.T) string {
 	replace(
 		"user_id TEXT NOT NULL DEFAULT 'user_admin',\n"+
 			"\t\t\tcreated_at_unix INTEGER NOT NULL,\n"+
+			"\t\t\tlast_seen_at_unix INTEGER NOT NULL,\n"+
 			"\t\t\tuser_agent TEXT NOT NULL DEFAULT '',\n"+
+			"\t\t\taccess_ip TEXT NOT NULL DEFAULT '',\n"+
 			"\t\t\taccess_host TEXT NOT NULL DEFAULT '',\n"+
 			"\t\t\tFOREIGN KEY (user_id) REFERENCES modemdeck_users(id) "+
 			"ON DELETE CASCADE ON UPDATE CASCADE",

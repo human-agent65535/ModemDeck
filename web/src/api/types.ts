@@ -1313,7 +1313,9 @@ export type AccountSession = {
   id: string
   kind: 'web' | 'ios'
   created_at: string
+  last_seen_at?: string
   user_agent?: string
+  access_ip?: string
   access_host?: string
   current: boolean
   paired?: boolean

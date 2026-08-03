@@ -85,6 +85,8 @@ test('signed-in devices support one-device and all-other-device logout', async (
   assert.match(gateway, /logoutAccountSession\(id: string\): Promise<void>/)
   assert.match(gateway, /logoutOtherAccountSessions\(\): Promise<void>/)
   assert.match(client, /get\(`\$\{API_ROOT\}\/account\/sessions`\)/)
+  assert.match(client, /last_seen_at: lastSeenAt/)
+  assert.match(client, /access_ip: stringProperty\(session, 'access_ip'\)/)
   assert.match(
     client,
     /`\$\{API_ROOT\}\/account\/sessions\/\$\{encodeURIComponent\(id\)\}`[\s\S]*?method: 'DELETE'/
@@ -94,6 +96,8 @@ test('signed-in devices support one-device and all-other-device logout', async (
     /`\$\{API_ROOT\}\/account\/sessions\/others`[\s\S]*?method: 'DELETE'/
   )
   assert.match(panel, /v-if="session\.current"/)
+  assert.match(panel, /session\.access_ip\?\.trim\(\)/)
+  assert.match(panel, /account\.lastActiveAt/)
   assert.match(panel, /@click="emit\('revoke', session\.id\)"/)
   assert.match(panel, /@click="emit\('revokeOthers'\)"/)
   assert.match(security, /sessions\.value = sessions\.value\.filter\(session => session\.id !== id\)/)

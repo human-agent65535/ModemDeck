@@ -49,10 +49,10 @@ function sessionTitle(session: AccountSession): string {
 }
 
 function sessionDescription(session: AccountSession): string {
-  const details = [session.access_host?.trim()]
+  const details = [session.access_ip?.trim(), session.access_host?.trim()]
   details.push(
-    t(session.kind === 'ios' ? 'account.pairedAt' : 'account.signedInAt', {
-      date: formatDateTime(session.created_at)
+    t('account.lastActiveAt', {
+      date: formatDateTime(session.last_seen_at || session.created_at)
     })
   )
   return details.filter(Boolean).join(t('common.listSeparator'))

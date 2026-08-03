@@ -196,13 +196,17 @@ func (s *Store) CreateSessionIfPasswordHash(
 		return false, fmt.Errorf("begin authentication session creation: %w", err)
 	}
 	defer transaction.Rollback()
+	lastSeenAt := session.LastSeenAt
+	if lastSeenAt.IsZero() {
+		lastSeenAt = session.CreatedAt
+	}
 	result, err := transaction.ExecContext(
 		ctx,
 		`INSERT INTO modemdeck_auth_sessions (
 			session_token_digest, csrf_token_digest, created_at_unix,
-			user_agent, access_host
+			last_seen_at_unix, user_agent, access_ip, access_host
 		 )
-		 SELECT ?, ?, ?, ?, ?
+		 SELECT ?, ?, ?, ?, ?, ?, ?
 		 WHERE EXISTS (
 			SELECT 1 FROM modemdeck_admin_credentials
 			WHERE singleton = 1 AND password_hash = ?
@@ -210,7 +214,9 @@ func (s *Store) CreateSessionIfPasswordHash(
 		session.SessionTokenDigest[:],
 		session.CSRFTokenDigest[:],
 		session.CreatedAt.UTC().Unix(),
+		lastSeenAt.UTC().Unix(),
 		session.UserAgent,
+		session.AccessIP,
 		session.AccessHost,
 		expectedPasswordHash,
 	)
@@ -251,17 +257,27 @@ func (s *Store) SessionByTokenDigest(
 		sessionDigest []byte
 		csrfDigest    []byte
 		createdAt     int64
+		lastSeenAt    int64
 		userAgent     string
+		accessIP      string
 		accessHost    string
 	)
 	err := s.database.QueryRowContext(
 		ctx,
 		`SELECT session_token_digest, csrf_token_digest, created_at_unix,
-			user_agent, access_host
+			last_seen_at_unix, user_agent, access_ip, access_host
 		 FROM modemdeck_auth_sessions
 		 WHERE session_token_digest = ?`,
 		digest[:],
-	).Scan(&sessionDigest, &csrfDigest, &createdAt, &userAgent, &accessHost)
+	).Scan(
+		&sessionDigest,
+		&csrfDigest,
+		&createdAt,
+		&lastSeenAt,
+		&userAgent,
+		&accessIP,
+		&accessHost,
+	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return auth.SessionRecord{}, false, nil
 	}
@@ -275,7 +291,9 @@ func (s *Store) SessionByTokenDigest(
 	copy(result.SessionTokenDigest[:], sessionDigest)
 	copy(result.CSRFTokenDigest[:], csrfDigest)
 	result.CreatedAt = time.Unix(createdAt, 0).UTC()
+	result.LastSeenAt = time.Unix(lastSeenAt, 0).UTC()
 	result.UserAgent = userAgent
+	result.AccessIP = accessIP
 	result.AccessHost = accessHost
 	if err := validateAuthSession(result); err != nil {
 		return auth.SessionRecord{}, false, err
@@ -371,19 +389,25 @@ func (s *Store) CreateUserSessionIfPasswordHash(
 		return false, fmt.Errorf("begin user session creation: %w", err)
 	}
 	defer transaction.Rollback()
+	lastSeenAt := session.LastSeenAt
+	if lastSeenAt.IsZero() {
+		lastSeenAt = session.CreatedAt
+	}
 	result, err := transaction.ExecContext(
 		ctx,
 		`INSERT INTO modemdeck_auth_sessions (
 			session_token_digest, csrf_token_digest, user_id,
-			created_at_unix, user_agent, access_host
+			created_at_unix, last_seen_at_unix, user_agent, access_ip, access_host
 		 )
-		 SELECT ?, ?, id, ?, ?, ?
+		 SELECT ?, ?, id, ?, ?, ?, ?, ?
 		 FROM modemdeck_users
 		 WHERE id = ? AND enabled = 1 AND password_hash = ?`,
 		session.SessionTokenDigest[:],
 		session.CSRFTokenDigest[:],
 		session.CreatedAt.UTC().Unix(),
+		lastSeenAt.UTC().Unix(),
 		session.UserAgent,
+		session.AccessIP,
 		session.AccessHost,
 		session.UserID,
 		expectedPasswordHash,
@@ -430,7 +454,9 @@ func (s *Store) UserSessionByTokenDigest(
 		role          string
 		iosPairing    int64
 		createdAt     int64
+		lastSeenAt    int64
 		userAgent     string
+		accessIP      string
 		accessHost    string
 	)
 	err := s.database.QueryRowContext(
@@ -440,7 +466,9 @@ func (s *Store) UserSessionByTokenDigest(
 			session.csrf_token_digest,
 			session.user_id,
 			session.created_at_unix,
+			session.last_seen_at_unix,
 			session.user_agent,
+			session.access_ip,
 			session.access_host,
 			user.username,
 			user.role,
@@ -458,7 +486,9 @@ func (s *Store) UserSessionByTokenDigest(
 		&csrfDigest,
 		&record.UserID,
 		&createdAt,
+		&lastSeenAt,
 		&userAgent,
+		&accessIP,
 		&accessHost,
 		&principal.Username,
 		&role,
@@ -478,7 +508,9 @@ func (s *Store) UserSessionByTokenDigest(
 	copy(record.SessionTokenDigest[:], sessionDigest)
 	copy(record.CSRFTokenDigest[:], csrfDigest)
 	record.CreatedAt = time.Unix(createdAt, 0).UTC()
+	record.LastSeenAt = time.Unix(lastSeenAt, 0).UTC()
 	record.UserAgent = userAgent
+	record.AccessIP = accessIP
 	record.AccessHost = accessHost
 	principal.UserID = record.UserID
 	principal.Role = auth.Role(role)
@@ -516,7 +548,7 @@ func (s *Store) UserSessions(
 	rows, err := s.database.QueryContext(
 		ctx,
 		`SELECT session_token_digest, csrf_token_digest, user_id,
-			created_at_unix, user_agent, access_host
+			created_at_unix, last_seen_at_unix, user_agent, access_ip, access_host
 		 FROM modemdeck_auth_sessions
 		 WHERE user_id = ?
 		 ORDER BY created_at_unix DESC, rowid DESC`,
@@ -534,13 +566,17 @@ func (s *Store) UserSessions(
 			sessionDigest []byte
 			csrfDigest    []byte
 			createdAt     int64
+			lastSeenAt    int64
+			accessIP      string
 		)
 		if err := rows.Scan(
 			&sessionDigest,
 			&csrfDigest,
 			&record.UserID,
 			&createdAt,
+			&lastSeenAt,
 			&record.UserAgent,
+			&accessIP,
 			&record.AccessHost,
 		); err != nil {
 			return nil, fmt.Errorf("scan user session: %w", err)
@@ -552,12 +588,80 @@ func (s *Store) UserSessions(
 		copy(record.SessionTokenDigest[:], sessionDigest)
 		copy(record.CSRFTokenDigest[:], csrfDigest)
 		record.CreatedAt = time.Unix(createdAt, 0).UTC()
+		record.LastSeenAt = time.Unix(lastSeenAt, 0).UTC()
+		record.AccessIP = accessIP
 		sessions = append(sessions, record)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate user sessions: %w", err)
 	}
 	return sessions, nil
+}
+
+func (s *Store) UpdateSessionMetadata(
+	ctx context.Context,
+	digest auth.SessionTokenDigest,
+	client auth.SessionClient,
+	lastSeenAt time.Time,
+) error {
+	if _, err := s.database.ExecContext(
+		ctx,
+		`UPDATE modemdeck_auth_sessions
+		 SET last_seen_at_unix = ?, user_agent = ?, access_ip = ?, access_host = ?
+		 WHERE session_token_digest = ?
+		   AND (
+				last_seen_at_unix < ?
+				OR user_agent <> ?
+				OR access_ip <> ?
+				OR access_host <> ?
+			)`,
+		lastSeenAt.UTC().Unix(),
+		client.UserAgent,
+		client.AccessIP,
+		client.AccessHost,
+		digest[:],
+		lastSeenAt.UTC().Unix(),
+		client.UserAgent,
+		client.AccessIP,
+		client.AccessHost,
+	); err != nil {
+		return fmt.Errorf("update authentication session metadata: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) UpdateUserSessionMetadata(
+	ctx context.Context,
+	userID string,
+	digest auth.SessionTokenDigest,
+	client auth.SessionClient,
+	lastSeenAt time.Time,
+) error {
+	if _, err := s.database.ExecContext(
+		ctx,
+		`UPDATE modemdeck_auth_sessions
+		 SET last_seen_at_unix = ?, user_agent = ?, access_ip = ?, access_host = ?
+		 WHERE user_id = ? AND session_token_digest = ?
+		   AND (
+				last_seen_at_unix < ?
+				OR user_agent <> ?
+				OR access_ip <> ?
+				OR access_host <> ?
+			)`,
+		lastSeenAt.UTC().Unix(),
+		client.UserAgent,
+		client.AccessIP,
+		client.AccessHost,
+		userID,
+		digest[:],
+		lastSeenAt.UTC().Unix(),
+		client.UserAgent,
+		client.AccessIP,
+		client.AccessHost,
+	); err != nil {
+		return fmt.Errorf("update user session metadata: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) DeleteUserSession(

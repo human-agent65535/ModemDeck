@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -429,7 +430,10 @@ func (api *API) requestAuthentication(
 		return "", auth.Authentication{}, false, writeFailure
 	}
 	token := auth.SessionToken(cookie.Value)
-	authentication, err := api.authenticator.Authenticate(request.Context(), token)
+	authentication, err := api.authenticator.Authenticate(
+		auth.ContextWithSessionClient(request.Context(), requestSessionClient(request)),
+		token,
+	)
 	if err == nil {
 		return token, authentication, true, false
 	}
@@ -493,8 +497,29 @@ func (api *API) setAuthCookieValues(
 func requestSessionClient(request *http.Request) auth.SessionClient {
 	return auth.SessionClient{
 		UserAgent:  request.UserAgent(),
+		AccessIP:   requestClientIP(request),
 		AccessHost: request.Host,
 	}
+}
+
+func requestClientIP(request *http.Request) string {
+	for _, header := range []string{"X-ModemDeck-Client-IP", "X-Real-IP"} {
+		if value := strings.TrimSpace(request.Header.Get(header)); value != "" {
+			if address := net.ParseIP(value); address != nil {
+				return address.String()
+			}
+		}
+	}
+	remoteAddress := strings.TrimSpace(request.RemoteAddr)
+	if host, _, err := net.SplitHostPort(remoteAddress); err == nil {
+		if address := net.ParseIP(host); address != nil {
+			return address.String()
+		}
+	}
+	if address := net.ParseIP(remoteAddress); address != nil {
+		return address.String()
+	}
+	return ""
 }
 
 func (api *API) clearAuthCookies(response http.ResponseWriter) {

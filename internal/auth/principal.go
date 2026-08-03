@@ -69,8 +69,34 @@ type UserSessionRecord struct {
 	SessionTokenDigest SessionTokenDigest
 	CSRFTokenDigest    CSRFTokenDigest
 	CreatedAt          time.Time
+	LastSeenAt         time.Time
 	UserAgent          string
+	AccessIP           string
 	AccessHost         string
+}
+
+// SessionMetadataRepository updates the non-authoritative client facts that
+// are shown in account security. They describe the most recent observation of
+// a session and must never be used as an authentication binding.
+type SessionMetadataRepository interface {
+	UpdateSessionMetadata(
+		ctx context.Context,
+		digest SessionTokenDigest,
+		client SessionClient,
+		lastSeenAt time.Time,
+	) error
+}
+
+// UserSessionMetadataRepository is the multi-user equivalent of
+// SessionMetadataRepository.
+type UserSessionMetadataRepository interface {
+	UpdateUserSessionMetadata(
+		ctx context.Context,
+		userID string,
+		digest SessionTokenDigest,
+		client SessionClient,
+		lastSeenAt time.Time,
+	) error
 }
 
 type MultiUserRepository interface {
