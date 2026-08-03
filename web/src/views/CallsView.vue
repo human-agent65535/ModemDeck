@@ -775,6 +775,9 @@ onBeforeUnmount(() => {
                 :name="displayName(call)"
                 :number="callDisplayNumber(call)"
                 :avatar="avatarForCall(call)"
+                :contact-bound="Boolean(
+                  call.contact_id || contactForNumber(call.remote_number)
+                )"
                 :line="lineTagLine(lineForCall(call), call.line_id)"
                 :line-fallback="callLineFallback(call)"
                 :selected="call.id === selectedId"
@@ -867,6 +870,7 @@ onBeforeUnmount(() => {
               :name="displayName(selected)"
               :number="callDisplayNumber(selected)"
               :avatar="selectedContact?.avatar"
+              :contact-bound="Boolean(selected.contact_id || selectedContact)"
               :line="lineTagLine(lineForCall(selected), selected.line_id)"
               :line-fallback="callLineFallback(selected)"
             />

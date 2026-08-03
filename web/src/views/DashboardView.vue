@@ -826,6 +826,9 @@ onBeforeUnmount(() => {
               :name="threadName(activity.thread)"
               :peer="displayPhoneNumber(activity.thread.peer, activity.thread.line_id)"
               :avatar="avatarForNumber(activity.thread.peer)"
+              :contact-bound="Boolean(
+                activity.thread.contact_id || contactForNumber(activity.thread.peer)
+              )"
               :line="lineTagLine(lineForThread(activity.thread), activity.thread.line_id)"
               :line-fallback="threadLineFallback(activity.thread)"
               :selected="selectionKey === activity.key"
@@ -838,6 +841,10 @@ onBeforeUnmount(() => {
               :name="callName(activity.call)"
               :number="displayPhoneNumber(activity.call.remote_number, activity.call.line_id)"
               :avatar="avatarForNumber(activity.call.remote_number)"
+              :contact-bound="Boolean(
+                activity.call.contact_id ||
+                  contactForNumber(activity.call.remote_number)
+              )"
               :line="lineTagLine(lineForCall(activity.call), activity.call.line_id)"
               :line-fallback="callLineFallback(activity.call)"
               :selected="selectionKey === activity.key"

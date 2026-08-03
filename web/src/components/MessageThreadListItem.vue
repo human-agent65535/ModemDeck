@@ -15,6 +15,7 @@ const props = withDefaults(
     name: string
     peer: string
     avatar?: string
+    contactBound?: boolean
     line: LineTagLine
     lineFallback?: string
     selected?: boolean
@@ -23,6 +24,7 @@ const props = withDefaults(
   }>(),
   {
     avatar: '',
+    contactBound: false,
     lineFallback: '',
     selected: false,
     showFavorite: true,
@@ -63,6 +65,7 @@ const { t } = useI18n()
         :name="name"
         :address="peer"
         :src="avatar"
+        :contact-bound="contactBound"
       />
     </ListItemAvatarStatus>
     <span class="list-item__content">

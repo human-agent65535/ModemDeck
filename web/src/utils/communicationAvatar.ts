@@ -1,19 +1,14 @@
-import {
-  communicationAddressKind,
-  isContactPhoneCandidate
-} from './communicationAddress'
-
-export type CommunicationChannel = 'call' | 'message'
+export type CommunicationChannel = 'call' | 'message' | 'recording'
 export type CommunicationAvatarFallback =
   | 'initials'
   | 'person'
-  | 'service'
-  | 'unknown'
+  | CommunicationChannel
 
 type CommunicationAvatarIdentity = {
   channel: CommunicationChannel
   name: string
   address: string
+  contactBound: boolean
 }
 
 function comparisonKey(value: string): string {
@@ -26,36 +21,19 @@ function comparisonKey(value: string): string {
   return compact
 }
 
-function hasNamedIdentity(name: string, address: string): boolean {
-  const nameKey = comparisonKey(name)
-  const addressKey = comparisonKey(address)
-  return Boolean(nameKey && addressKey && nameKey !== addressKey)
-}
-
 export function communicationAvatarFallback(
   identity: CommunicationAvatarIdentity
 ): CommunicationAvatarFallback {
-  const address = identity.address.trim()
-  if (!address) return 'unknown'
-  if (hasNamedIdentity(identity.name, address)) return 'initials'
-
-  const kind = communicationAddressKind(address)
-  const phoneAddress =
-    isContactPhoneCandidate(address) || kind === 'subscriber'
-
-  if (identity.channel === 'call') {
-    if (phoneAddress) return 'person'
-    return kind === 'short_code' ? 'service' : 'unknown'
-  }
-  if (kind === 'alphanumeric') return 'initials'
-  return phoneAddress ? 'person' : 'service'
+  if (!identity.contactBound) return identity.channel
+  const nameKey = comparisonKey(identity.name)
+  const addressKey = comparisonKey(identity.address)
+  return nameKey && nameKey !== addressKey ? 'initials' : 'person'
 }
 
 export function communicationAvatarPaletteKey(
   identity: CommunicationAvatarIdentity,
   fallback = communicationAvatarFallback(identity)
 ): string {
-  if (fallback === 'unknown') return 'anonymous'
-  if (fallback === 'person') return comparisonKey(identity.address)
-  return identity.name.trim() || identity.address.trim()
+  if (fallback === 'initials') return identity.name.trim()
+  return comparisonKey(identity.address) || identity.channel
 }

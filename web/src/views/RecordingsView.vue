@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { AudioLines, Download, Star, Trash2 } from '@lucide/vue'
+import { Download, Star, Trash2 } from '@lucide/vue'
 import type { RecordingEntry } from '../api/types'
 import BatchActionBar from '../components/BatchActionBar.vue'
 import CommunicationAvatar from '../components/CommunicationAvatar.vue'
@@ -498,19 +498,16 @@ onBeforeUnmount(() => {
               >
                 <ListItemAvatarStatus class="recording-list-item__avatar">
                   <CommunicationAvatar
-                    channel="call"
+                    channel="recording"
                     :name="displayName(recording)"
                     :address="recordingDisplayNumber(recording)"
                     :src="avatar(recording)"
+                    :contact-bound="Boolean(
+                      recording.call.contact_id ||
+                        contactForNumber(recording.call.remote_number)
+                    )"
+                    :muted="!recording.playable"
                   />
-                  <template #badge>
-                    <span
-                      class="recording-list-item__icon"
-                      :class="{ 'is-unavailable': !recording.playable }"
-                    >
-                      <AudioLines :size="12" />
-                    </span>
-                  </template>
                 </ListItemAvatarStatus>
                 <span class="list-item__content">
                   <strong>{{ displayName(recording) }}</strong>
@@ -614,9 +611,12 @@ onBeforeUnmount(() => {
           <WorkspaceDetailHeader>
           <template #identity>
             <ContactHeaderIdentity
+              channel="recording"
               :name="displayName(selected)"
               :number="recordingDisplayNumber(selected)"
               :avatar="avatar(selected)"
+              :contact-bound="Boolean(selected.call.contact_id || selectedContact)"
+              :muted="!selected.playable"
               :line="lineTagLine(lineForRecording(selected), selected.call.line_id)"
               :line-fallback="recordingLineFallback(selected)"
             />
@@ -752,24 +752,6 @@ onBeforeUnmount(() => {
 <style scoped>
 .recording-list-item {
   cursor: pointer;
-}
-
-.recording-list-item__icon {
-  display: inline-grid;
-  width: 21px;
-  height: 21px;
-  flex: 0 0 21px;
-  place-items: center;
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-  border: 2px solid var(--surface);
-  border-radius: 50%;
-  box-shadow: 0 1px 3px rgb(16 24 40 / 14%);
-}
-
-.recording-list-item__icon.is-unavailable {
-  color: var(--muted);
-  background: var(--surface-hover);
 }
 
 .recording-list-item__meta {

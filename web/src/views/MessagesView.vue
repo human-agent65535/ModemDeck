@@ -1052,6 +1052,7 @@ onBeforeUnmount(() => {
                 :name="displayNameForThread(thread)"
                 :peer="threadDisplayNumber(thread)"
                 :avatar="avatarForNumber(thread.peer)"
+                :contact-bound="Boolean(thread.contact_id || contactForNumber(thread.peer))"
                 :line="lineTagLine(lineForThread(thread), thread.line_id)"
                 :line-fallback="threadLineFallback(thread)"
                 :selected="thread.key === selectedKey && !composingNew"
@@ -1190,6 +1191,9 @@ onBeforeUnmount(() => {
               :name="displayNameForThread(selectedThread)"
               :number="threadDisplayNumber(selectedThread)"
               :avatar="avatarForNumber(selectedThread.peer)"
+              :contact-bound="Boolean(
+                selectedThread.contact_id || contactForNumber(selectedThread.peer)
+              )"
               :line="lineTagLine(lineForThread(selectedThread), selectedThread.line_id)"
               :line-fallback="threadLineFallback(selectedThread)"
             />

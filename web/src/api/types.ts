@@ -611,6 +611,7 @@ export type MessageThread = {
   key: string
   line_id: string
   peer: string
+  contact_id?: string
   contact_name?: string
   last_message_id: string
   last_timestamp: string

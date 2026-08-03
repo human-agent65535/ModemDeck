@@ -11,12 +11,16 @@ const props = withDefaults(
     name: string
     number: string
     avatar?: string
+    contactBound?: boolean
+    muted?: boolean
     line: LineTagLine
     lineFallback: string
   }>(),
   {
     channel: 'call',
-    avatar: ''
+    avatar: '',
+    contactBound: false,
+    muted: false
   }
 )
 
@@ -33,6 +37,8 @@ const showNumber = computed(
     :name="name"
     :address="number"
     :src="avatar"
+    :contact-bound="contactBound"
+    :muted="muted"
     size="small"
   />
   <div class="contact-header-identity">

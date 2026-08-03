@@ -247,6 +247,7 @@ export function parseThread(value: unknown): MessageThread {
     key: requiredString(source, 'thread', 'key'),
     line_id: requiredString(source, 'thread', 'line_id'),
     peer,
+    contact_id: stringValue(source, 'contact_id') || undefined,
     contact_name: stringValue(source, 'contact_name') || undefined,
     last_message_id: requiredString(source, 'thread', 'last_message_id'),
     last_timestamp: stringValue(source, 'last_timestamp'),

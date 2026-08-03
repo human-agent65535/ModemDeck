@@ -158,7 +158,7 @@ test('recordings reuse the compact contact identity and actions in the header', 
   assert.match(source, /<ContactHeaderIdentity/)
   assert.match(
     source,
-    /<CommunicationAvatar[\s\S]*channel="call"[\s\S]*:address="recordingDisplayNumber\(recording\)"[\s\S]*:src="avatar\(recording\)"/
+    /<CommunicationAvatar[\s\S]*channel="recording"[\s\S]*:address="recordingDisplayNumber\(recording\)"[\s\S]*:src="avatar\(recording\)"/
   )
   assert.match(source, /class="recording-list-item__avatar"/)
   assert.match(source, /:number="selected\.call\.remote_number"/)

@@ -3,9 +3,6 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   CassetteTape,
-  PhoneIncoming,
-  PhoneMissed,
-  PhoneOutgoing,
   Star
 } from '@lucide/vue'
 import type { CallRecord } from '../api/types'
@@ -22,6 +19,7 @@ const props = withDefaults(
     name: string
     number: string
     avatar?: string
+    contactBound?: boolean
     line: LineTagLine
     lineFallback?: string
     selected?: boolean
@@ -29,6 +27,7 @@ const props = withDefaults(
   }>(),
   {
     avatar: '',
+    contactBound: false,
     lineFallback: '',
     selected: false,
     hasRecording: false
@@ -39,11 +38,6 @@ const emit = defineEmits<{
   select: [call: CallRecord]
 }>()
 const { t } = useI18n()
-
-const directionIcon = computed(() => {
-  if (props.call.missed) return PhoneMissed
-  return props.call.direction === 'incoming' ? PhoneIncoming : PhoneOutgoing
-})
 
 const directionLabel = computed(() => {
   if (props.call.missed) return t('dashboard.missedCall')
@@ -85,12 +79,8 @@ const showNumber = computed(
         :name="name"
         :address="number"
         :src="avatar"
+        :contact-bound="contactBound"
       />
-      <template #badge>
-        <span class="call-direction-icon">
-          <component :is="directionIcon" :size="12" />
-        </span>
-      </template>
     </ListItemAvatarStatus>
     <span class="list-item__content">
       <span class="call-list-item__identity">
@@ -130,16 +120,6 @@ const showNumber = computed(
 </template>
 
 <style scoped>
-.call-list-item__avatar .call-direction-icon {
-  width: 21px;
-  height: 21px;
-  flex: 0 0 21px;
-  color: var(--blue);
-  background: var(--blue-soft);
-  border: 2px solid var(--surface);
-  box-shadow: 0 1px 3px rgb(16 24 40 / 14%);
-}
-
 .call-list-item__meta {
   display: flex;
   width: 100%;

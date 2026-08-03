@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { CircleHelp, MessageSquareText, UserRound } from '@lucide/vue'
+import {
+  AudioLines,
+  CircleHelp,
+  MessageSquareText,
+  Phone,
+  UserRound
+} from '@lucide/vue'
 import { initials } from '../utils/format'
 
 const props = withDefaults(
@@ -8,7 +14,14 @@ const props = withDefaults(
     name: string
     src?: string
     size?: 'small' | 'medium' | 'large'
-    fallback?: 'initials' | 'person' | 'service' | 'unknown'
+    fallback?:
+      | 'initials'
+      | 'person'
+      | 'service'
+      | 'unknown'
+      | 'call'
+      | 'message'
+      | 'recording'
     paletteKey?: string
   }>(),
   {
@@ -29,6 +42,9 @@ const fallbackIcon = computed(() => {
   if (props.fallback === 'person') return UserRound
   if (props.fallback === 'service') return MessageSquareText
   if (props.fallback === 'unknown') return CircleHelp
+  if (props.fallback === 'call') return Phone
+  if (props.fallback === 'message') return MessageSquareText
+  if (props.fallback === 'recording') return AudioLines
   return undefined
 })
 const iconSize = computed(() => {

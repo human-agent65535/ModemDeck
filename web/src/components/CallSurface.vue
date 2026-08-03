@@ -333,6 +333,7 @@ onBeforeUnmount(() => {
             :name="contactName"
             :address="presentedNumber"
             :src="contact?.avatar"
+            :contact-bound="Boolean(contact)"
             size="large"
           />
           <strong>{{ contactName }}</strong>

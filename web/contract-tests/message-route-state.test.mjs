@@ -50,6 +50,7 @@ test('thread parsing preserves stable identity and the latest message cursor', (
     imsi: '001010000000001',
     iccid: '8986012345678900001',
     peer: '+1 202 555 0103',
+    contact_id: 'contact-alex',
     last_message_id: 42,
     last_timestamp: '2026-07-24T12:00:00Z',
     unread_count: 1,
@@ -60,6 +61,7 @@ test('thread parsing preserves stable identity and the latest message cursor', (
   assert.equal(thread.key, 'backend-thread-key')
   assert.equal(thread.line_id, 'line-main')
   assert.equal(thread.peer, '+1 202 555 0103')
+  assert.equal(thread.contact_id, 'contact-alex')
   assert.equal(thread.last_message_id, '42')
   assert.equal(thread.marked_unread, false)
   assert.equal(thread.favorite, true)
