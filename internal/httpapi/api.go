@@ -411,6 +411,8 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	}
 
 	switch request.URL.Path {
+	case "/api/v1/mobile/session":
+		api.getOnly(response, request, api.mobileSession)
 	case "/api/v1/bootstrap":
 		api.getOnly(response, request, api.bootstrap)
 	case "/api/v1/about":

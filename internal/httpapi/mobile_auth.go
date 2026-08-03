@@ -140,7 +140,26 @@ func mobileBearerDigest(
 
 func mobileAPIRequestAllowed(request *http.Request) bool {
 	switch request.URL.Path {
+	case "/api/v1/mobile/session":
+		return request.Method == http.MethodGet
 	case "/api/v1/bootstrap":
+		return request.Method == http.MethodGet
+	case "/api/v1/account/contact":
+		return request.Method == http.MethodPut
+	case "/api/v1/contacts":
+		return request.Method == http.MethodGet ||
+			request.Method == http.MethodPost
+	case "/api/v1/contacts/batch":
+		return request.Method == http.MethodPatch
+	case "/api/v1/messages/threads":
+		return request.Method == http.MethodGet ||
+			request.Method == http.MethodDelete
+	case "/api/v1/messages":
+		return request.Method == http.MethodGet ||
+			request.Method == http.MethodPost
+	case "/api/v1/messages/read", "/api/v1/messages/threads/state":
+		return request.Method == http.MethodPatch
+	case "/api/v1/messages/events":
 		return request.Method == http.MethodGet
 	case "/api/v1/runtime/events":
 		return request.Method == http.MethodGet
@@ -149,8 +168,29 @@ func mobileAPIRequestAllowed(request *http.Request) bool {
 	case "/api/v1/calls":
 		return request.Method == http.MethodGet ||
 			request.Method == http.MethodPost
+	case "/api/v1/calls/missed/read", "/api/v1/calls/batch":
+		return request.Method == http.MethodPatch
 	case "/api/v1/calls/active":
 		return request.Method == http.MethodGet
+	case "/api/v1/recordings":
+		return request.Method == http.MethodGet
+	case "/api/v1/recordings/batch":
+		return request.Method == http.MethodPatch
+	case "/api/v1/devices":
+		return request.Method == http.MethodGet
+	case "/api/v1/settings/calls":
+		return request.Method == http.MethodGet ||
+			request.Method == http.MethodPatch
+	case "/api/v1/settings/lines", "/api/v1/settings/system":
+		return request.Method == http.MethodPatch
+	case "/api/v1/settings/recording":
+		return request.Method == http.MethodGet ||
+			request.Method == http.MethodPut
+	}
+	if _, ok := contactResourceID(request.URL.Path); ok {
+		return request.Method == http.MethodGet ||
+			request.Method == http.MethodPut ||
+			request.Method == http.MethodDelete
 	}
 	if _, ok := callLeaseResourceID(request.URL.Path); ok {
 		return request.Method == http.MethodPut
@@ -165,5 +205,45 @@ func mobileAPIRequestAllowed(request *http.Request) bool {
 		return request.Method == http.MethodPost ||
 			request.Method == http.MethodDelete
 	}
+	if resource, ok := parseRecordingResource(request.URL.Path); ok {
+		switch resource.Kind {
+		case recordingResourceToggle:
+			return request.Method == http.MethodPut
+		case recordingResourceList, recordingResourceDownload:
+			return request.Method == http.MethodGet
+		case recordingResourceDelete:
+			return request.Method == http.MethodDelete
+		}
+	}
+	if resource, ok := callRecordResource(request.URL.Path); ok {
+		if resource.Action == "" {
+			return request.Method == http.MethodDelete
+		}
+		return request.Method == http.MethodPatch
+	}
 	return false
+}
+
+func (api *API) mobileSession(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	principal, exists := auth.PrincipalFromContext(request.Context())
+	if !exists || principal.UserID == "" {
+		writeError(
+			response,
+			http.StatusUnauthorized,
+			"authentication_required",
+			"Authentication is required",
+			"",
+		)
+		return
+	}
+	session := sessionResponse{
+		Authenticated: true,
+		SetupRequired: false,
+		Language:      api.sessionLanguage(request.Context()),
+	}
+	applyPrincipalToSessionResponse(&session, principal)
+	writeJSON(response, http.StatusOK, session)
 }
