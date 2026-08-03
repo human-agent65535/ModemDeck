@@ -3,13 +3,13 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Download, LoaderCircle, RefreshCw, Trash2 } from '@lucide/vue'
 import LoadingSkeletonBoundary from './skeletons/LoadingSkeletonBoundary.vue'
+import RecordingPlayer from './RecordingPlayer.vue'
 import SectionSkeleton from './skeletons/SectionSkeleton.vue'
 import {
   deleteRecording,
   loadCallRecordings,
   recordingListState
 } from '../state/recording'
-import { audioState } from '../state/audio'
 import { requestConfirmation } from '../state/confirmation'
 import { formatDateTime, formatDuration } from '../utils/format'
 
@@ -141,15 +141,13 @@ watch(
             {{ formatSize(recording.size_bytes) }}
           </span>
         </div>
-        <audio
+        <RecordingPlayer
           v-if="recording.playable && recording.download_url"
+          class="recording-list__player"
           :src="recording.download_url"
-          :volume="audioState.recordingPlaybackVolume / 100"
-          controls
-          preload="metadata"
-        >
-          {{ t('recordings.audioUnsupported') }}
-        </audio>
+          :label="t('recordings.segment', { number: recording.segment_index })"
+          compact
+        />
         <p v-else class="recording-list__availability">
           {{ statusLabel(recording.status) }}
         </p>
@@ -273,10 +271,9 @@ watch(
   white-space: nowrap;
 }
 
-.recording-list audio {
+.recording-list__player {
   width: 100%;
   min-width: 0;
-  height: 34px;
 }
 
 .recording-list__availability {
@@ -323,7 +320,7 @@ watch(
     grid-row: 1;
   }
 
-  .recording-list audio {
+  .recording-list__player {
     grid-column: 1 / 4;
     grid-row: 2;
   }

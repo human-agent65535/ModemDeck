@@ -345,13 +345,14 @@ test('active calls own the dialer surface and keep modal call controls reachable
   assert.match(surface, /max\(20px, env\(safe-area-inset-top\)\)/)
 })
 
-test('recordings are a communication workspace with native playback and call linkage', async () => {
+test('recordings are a communication workspace with shared playback and call linkage', async () => {
   const router = await source('../src/router/index.ts')
   const view = await source('../src/views/RecordingsView.vue')
 
   assert.match(router, /path: 'recordings',\s*name: 'recordings'/)
   assert.match(view, /import WorkspaceMasterDetail from/)
   assert.match(view, /import WorkspaceDetailPane from/)
+  assert.match(view, /import RecordingPlayer from/)
   assert.match(view, /<WorkspaceMasterDetail/)
   assert.match(
     view,
@@ -359,8 +360,9 @@ test('recordings are a communication workspace with native playback and call lin
   )
   assert.match(
     view,
-    /<audio[\s\S]*:src="selected\.download_url"[\s\S]*:volume="audioState\.recordingPlaybackVolume \/ 100"[\s\S]*controls/
+    /<RecordingPlayer[\s\S]*:src="selected\.download_url"[\s\S]*:label="t\('recordings\.playback'\)"/
   )
+  assert.doesNotMatch(view, /<audio[^>]*\scontrols(?:\s|>)/)
   assert.match(view, /:download="`modemdeck-\$\{selected\.id\}\.ogg`"/)
   assert.match(view, /:to="\{ name: 'calls', query: \{ selected: selected\.call\.id \} \}"/)
   assert.doesNotMatch(view, /marketing|hero/)

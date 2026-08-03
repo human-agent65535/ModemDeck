@@ -34,4 +34,7 @@ test('the active call surface shows each recording segment and its live duration
   assert.match(surface, /t\('calls\.recordingPending'\)/)
   assert.match(surface, /t\('calls\.recordingFailed'\)/)
   assert.match(surface, /class="call-surface__recording-segments"/)
+  assert.match(surface, /<AudioLines :size="14"/)
+  assert.match(surface, /<Circle v-else :size="20" fill="currentColor"/)
+  assert.doesNotMatch(surface, /CassetteTape/)
 })

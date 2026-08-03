@@ -28,7 +28,8 @@ test('call history marks only calls with playable recordings', async () => {
     /<CommunicationAvatar[\s\S]*channel="call"[\s\S]*:address="number"[\s\S]*:src="avatar"/
   )
   assert.match(row, /class="call-list-item__avatar"/)
-  assert.match(row, /CassetteTape/)
+  assert.match(row, /AudioLines/)
+  assert.doesNotMatch(row, /CassetteTape/)
   assert.match(
     calls,
     /recordingCatalogState\.data[\s\S]*?\.filter\(recording => recording\.playable\)[\s\S]*?\.map\(recording => recording\.call_id\)/
@@ -40,7 +41,7 @@ test('call history marks only calls with playable recordings', async () => {
   )
   assert.match(
     row,
-    /v-if="hasRecording"[\s\S]*?class="call-list-item__recording"[\s\S]*?:aria-label="t\('calls\.hasRecording'\)"[\s\S]*?<CassetteTape/
+    /v-if="hasRecording"[\s\S]*?class="call-list-item__recording"[\s\S]*?:aria-label="t\('calls\.hasRecording'\)"[\s\S]*?<AudioLines/
   )
   assert.match(calls, /loadRecordingEntries\(\)/)
 })

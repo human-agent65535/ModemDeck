@@ -21,7 +21,7 @@ test('recording rows stay compact when wide and split by container width', async
   )
   assert.match(
     source,
-    /@container \(max-width: 720px\)[\s\S]*?\.recording-list audio\s*\{[^}]*grid-column: 1 \/ 4;[^}]*grid-row: 2;/s
+    /@container \(max-width: 720px\)[\s\S]*?\.recording-list__player\s*\{[^}]*grid-column: 1 \/ 4;[^}]*grid-row: 2;/s
   )
   assert.match(
     source,

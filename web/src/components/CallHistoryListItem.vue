@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
-  CassetteTape,
+  AudioLines,
   Star
 } from '@lucide/vue'
 import type { CallRecord } from '../api/types'
@@ -104,7 +104,7 @@ const showNumber = computed(
         :aria-label="t('calls.hasRecording')"
         :title="t('calls.hasRecording')"
       >
-        <CassetteTape :size="15" aria-hidden="true" />
+        <AudioLines :size="15" aria-hidden="true" />
       </span>
       <template #favorite>
         <Star

@@ -2,7 +2,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
-  CassetteTape,
+  AudioLines,
+  Circle,
   Grip,
   LoaderCircle,
   Mic,
@@ -10,6 +11,7 @@ import {
   PhoneCall,
   PhoneOff,
   RefreshCw,
+  Square,
   Volume2,
   X
 } from '@lucide/vue'
@@ -398,7 +400,7 @@ onBeforeUnmount(() => {
           class="call-surface__recording-segments"
         >
           <header>
-            <span><CassetteTape :size="14" /> {{ t('recordings.title') }}</span>
+            <span><AudioLines :size="14" /> {{ t('recordings.title') }}</span>
             <strong>{{ recordingSegments.length }}</strong>
           </header>
           <ol :aria-label="t('recordings.title')">
@@ -538,7 +540,12 @@ onBeforeUnmount(() => {
               class="spin"
               :size="20"
             />
-            <CassetteTape v-else :size="21" />
+            <Square
+              v-else-if="callRecordingState.enabled"
+              :size="18"
+              fill="currentColor"
+            />
+            <Circle v-else :size="20" fill="currentColor" />
             <span class="call-footer-action__state">
               {{
                 callRecordingState.enabled

@@ -16,6 +16,7 @@ import ListItemAvatarStatus from '../components/ListItemAvatarStatus.vue'
 import ListItemStatusRail from '../components/ListItemStatusRail.vue'
 import ListSkeleton from '../components/ListSkeleton.vue'
 import ListSelectionToggle from '../components/ListSelectionToggle.vue'
+import RecordingPlayer from '../components/RecordingPlayer.vue'
 import SearchField from '../components/SearchField.vue'
 import SelectableListRow from '../components/SelectableListRow.vue'
 import StatePanel from '../components/StatePanel.vue'
@@ -34,7 +35,6 @@ import { useDurablePageRefresh } from '../composables/useDurablePageRefresh'
 import { useListArrivals } from '../composables/useListArrivals'
 import { useListSelection } from '../composables/useListSelection'
 import { skeletonPreviewEnabled } from '../composables/useSkeletonPreview'
-import { audioState } from '../state/audio'
 import { requestConfirmation } from '../state/confirmation'
 import {
   deleteRecording,
@@ -655,14 +655,11 @@ onBeforeUnmount(() => {
         <div class="recording-detail">
           <section class="recording-player" :aria-label="t('recordings.playback')">
             <template v-if="selected.playable && selected.download_url">
-              <audio
+              <RecordingPlayer
+                class="recording-player__controls"
                 :src="selected.download_url"
-                :volume="audioState.recordingPlaybackVolume / 100"
-                controls
-                preload="metadata"
-              >
-                {{ t('recordings.audioUnsupported') }}
-              </audio>
+                :label="t('recordings.playback')"
+              />
               <a
                 class="icon-button recording-download"
                 :href="selected.download_url"
@@ -791,7 +788,7 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--border);
 }
 
-.recording-player audio {
+.recording-player__controls {
   min-width: 0;
   flex: 1;
 }

@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
-  CassetteTape,
+  Circle,
   Delete,
   LoaderCircle,
   Minus,
@@ -682,7 +682,7 @@ onBeforeUnmount(() => {
                 @click="changeRecording"
               >
                 <span class="dialer-recording-action__icon" aria-hidden="true">
-                  <CassetteTape :size="21" aria-hidden="true" />
+                  <Circle :size="20" fill="currentColor" aria-hidden="true" />
                   <span class="dialer-recording-action__state">
                     {{
                       dialerRecordingState.enabled

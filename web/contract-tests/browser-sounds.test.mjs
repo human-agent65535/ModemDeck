@@ -274,6 +274,7 @@ test('audio settings expose persisted devices and browser-local communication so
     dtmf,
     recordings,
     recordingList,
+    recordingPlayer,
     notice,
     ignore,
     dockerIgnore
@@ -292,6 +293,7 @@ test('audio settings expose persisted devices and browser-local communication so
       readFile(new URL('../src/state/dtmfAudio.ts', import.meta.url), 'utf8'),
       readFile(new URL('../src/views/RecordingsView.vue', import.meta.url), 'utf8'),
       readFile(new URL('../src/components/RecordingList.vue', import.meta.url), 'utf8'),
+      readFile(new URL('../src/components/RecordingPlayer.vue', import.meta.url), 'utf8'),
       readFile(new URL('../../NOTICE.md', import.meta.url), 'utf8'),
       readFile(new URL('../../.gitignore', import.meta.url), 'utf8'),
       readFile(new URL('../../.dockerignore', import.meta.url), 'utf8')
@@ -332,8 +334,9 @@ test('audio settings expose persisted devices and browser-local communication so
     /remoteStream = new MediaStream\(\)[\s\S]*attachRemoteAudio\(remoteStream\)/
   )
   assert.match(dtmf, /audioState\.callVolume \/ 100/)
-  assert.match(recordings, /audioState\.recordingPlaybackVolume \/ 100/)
-  assert.match(recordingList, /audioState\.recordingPlaybackVolume \/ 100/)
+  assert.match(recordings, /<RecordingPlayer/)
+  assert.match(recordingList, /<RecordingPlayer/)
+  assert.match(recordingPlayer, /audioState\.recordingPlaybackVolume \/ 100/)
   assert.match(notice, /Android Open Source Project ringtones/)
   assert.match(notice, /SMS alert sounds/)
   assert.match(notice, /Apache License 2\.0/)
