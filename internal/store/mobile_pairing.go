@@ -11,7 +11,10 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
 )
 
-var ErrIOSPairingNotAllowed = errors.New("iOS pairing is not allowed")
+var (
+	ErrIOSPairingNotAllowed         = errors.New("iOS pairing is not allowed")
+	errIOSPairingCredentialNotFound = errors.New("iOS pairing credential not found")
+)
 
 type IOSPairingStatus struct {
 	Allowed             bool                     `json:"allowed"`
@@ -21,6 +24,73 @@ type IOSPairingStatus struct {
 	PairedAt            string                   `json:"paired_at,omitempty"`
 	Device              mobilepairing.DeviceInfo `json:"device,omitempty"`
 	LastSeenAt          string                   `json:"last_seen_at,omitempty"`
+}
+
+func (s *Store) UpdateIOSPushRegistration(
+	ctx context.Context,
+	digest mobilepairing.TokenDigest,
+	registration mobilepairing.PushRegistration,
+) error {
+	result, err := s.database.ExecContext(
+		ctx,
+		`UPDATE modemdeck_ios_pairing_credentials
+		 SET apns_token = ?,
+			 voip_token = ?,
+			 push_environment = ?,
+			 push_updated_at = CURRENT_TIMESTAMP,
+			 updated_at = CURRENT_TIMESTAMP
+		 WHERE token_digest = ?
+			AND activated_at IS NOT NULL
+			AND EXISTS (
+				SELECT 1
+				FROM modemdeck_users AS user
+				WHERE user.id = modemdeck_ios_pairing_credentials.user_id
+					AND user.enabled = 1
+					AND user.ios_pairing_enabled = 1
+			)`,
+		registration.APNSToken,
+		registration.VoIPToken,
+		registration.Environment,
+		digest[:],
+	)
+	if err != nil {
+		return fmt.Errorf("store iOS push registration: %w", err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read iOS push registration result: %w", err)
+	}
+	if updated != 1 {
+		return errIOSPairingCredentialNotFound
+	}
+	return nil
+}
+
+func (s *Store) ClearIOSPushRegistration(
+	ctx context.Context,
+	digest mobilepairing.TokenDigest,
+) error {
+	result, err := s.database.ExecContext(
+		ctx,
+		`UPDATE modemdeck_ios_pairing_credentials
+		 SET apns_token = '',
+			 voip_token = '',
+			 push_updated_at = CURRENT_TIMESTAMP,
+			 updated_at = CURRENT_TIMESTAMP
+		 WHERE token_digest = ?`,
+		digest[:],
+	)
+	if err != nil {
+		return fmt.Errorf("clear iOS push registration: %w", err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read cleared iOS push registration result: %w", err)
+	}
+	if updated != 1 {
+		return errIOSPairingCredentialNotFound
+	}
+	return nil
 }
 
 func (s *Store) IOSPairingPrincipalByTokenDigest(
@@ -297,6 +367,10 @@ func (s *Store) RotateIOSPairingCredential(
 			os_version = '',
 			app_version = '',
 			app_build = '',
+			apns_token = '',
+			voip_token = '',
+			push_environment = 'development',
+			push_updated_at = NULL,
 			last_seen_at = NULL,
 			created_at = CURRENT_TIMESTAMP,
 			updated_at = CURRENT_TIMESTAMP

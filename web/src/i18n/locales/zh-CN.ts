@@ -95,6 +95,7 @@ export default {
   },
   nativeIOS: {
     settingsTitle: 'iPhone',
+    back: '返回',
     settingsDescription: '管理此 iPhone 的来电和 iOS 系统通知。',
     incomingCalls: '来电设置',
     incomingCallsDescription: '设置跟随全局的线路是否接收新来电。',

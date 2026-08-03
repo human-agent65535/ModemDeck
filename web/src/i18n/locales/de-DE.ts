@@ -95,6 +95,7 @@ export default {
   },
   "nativeIOS": {
     "settingsTitle": "iPhone",
+    "back": "Zurück",
     "settingsDescription": "Eingehende Anrufe und iOS-Mitteilungen auf diesem iPhone verwalten.",
     "incomingCalls": "Eingehende Anrufe",
     "incomingCallsDescription": "Festlegen, ob Leitungen mit globaler Vorgabe neue Anrufe empfangen.",

@@ -49,14 +49,16 @@ sudo ./install.sh
 | M2 单路通话 | ✅ 已实现 | 拨号、接听、拒接、挂断、DTMF、浏览器音频和通话录音。 |
 | M3 多路通话 | 🧪 已实现，未测试 | 每个 Modem 的独立通话会话、线路预占、占线显示和线路切换；待多模组实机验证。 |
 | M4 多用户 | ✅ 已实现 | 初始管理员、普通成员、线路分配、用户通讯录、个人偏好和 Telegram 绑定。 |
-| M5 iOS App + CallKit | 🧱 iOS 消费 API groundwork | 已实现按用户配对、受限 Mobile Bearer API、通话会话复用与 Cloudflare TURN 中继配置。iOS 固定使用 Cloudflare HTTPS，不实现 LAN 探测或线路切换；原生客户端、CallKit 和后台通知仍待实现。 |
+| M5 iOS App + CallKit | 🧪 原生客户端与推送链路已接入 | 已实现按用户配对、受限 Mobile Bearer API、通话会话复用、Cloudflare TURN 中继、APNs/PushKit 注册与 PushKit→CallKit 来电入口。iOS 固定使用 Cloudflare HTTPS，不实现 LAN 探测或线路切换；Apple 推送服务端凭据和事件发送器仍需部署配置。 |
 
 只有安装并连接 Cloudflare Tunnel 后才能创建 iOS 配对。二维码包含自动发现的
 Cloudflare API HTTPS 地址和每用户凭据，不包含 LAN 地址，也没有过期时间；
 首次通过该凭据认证的 iOS API 请求会确认配对，关闭二维码不影响等待确认。
 凭据由用户或管理员撤销后才失效。iOS 通话复用现有 Call API 和 WebRTC
-媒体边界，并通过 Cloudflare TURN 强制中继；原生客户端和后台生命周期将在
-M5 后续阶段实现。
+媒体边界，并通过 Cloudflare TURN 强制中继。配对后的 iOS 客户端会把 APNs
+与 PushKit token 注册到 `/api/v1/mobile/push`，收到 VoIP payload 后交给
+CallKit；服务端实际向 Apple 发包还需要配置 Apple Team ID、Key ID、`.p8`
+密钥和 Bundle ID，并接入短信/来电事件发送器。
 
 ## 架构
 
@@ -233,7 +235,7 @@ covered in the [deployment guide](deploy/README.md).
 | M2 Single-call flow | ✅ Implemented | Dial, answer, decline, hang up, DTMF, browser audio, and call recording. |
 | M3 Concurrent calls | 🧪 Implemented, not tested | Independent sessions per modem, line reservations, busy-state display, and line switching; pending multi-modem hardware validation. |
 | M4 Multi-user | ✅ Implemented | Initial administrator, members, line assignments, user address books, personal preferences, and Telegram bindings. |
-| M5 iOS app + CallKit | 🧱 iOS-consumable API groundwork | Per-user pairing, a constrained Mobile Bearer API, shared call sessions, and Cloudflare TURN relay configuration are implemented. iOS always uses Cloudflare HTTPS, with no LAN discovery or route switching; the native client, CallKit, and background delivery remain pending. |
+| M5 iOS app + CallKit | 🧪 Native client and push path integrated | Per-user pairing, a constrained Mobile Bearer API, shared call sessions, Cloudflare TURN relay configuration, APNs/PushKit registration, and the PushKit-to-CallKit incoming-call entry point are implemented. iOS always uses Cloudflare HTTPS, with no LAN discovery or route switching; Apple provider credentials and event delivery still require deployment configuration. |
 
 An iOS pairing can be created only while the installed Cloudflare Tunnel is
 connected. The QR payload contains the automatically discovered Cloudflare API
@@ -241,8 +243,11 @@ HTTPS origin and a per-user credential; it contains no LAN address and has no
 expiry. The first authenticated iOS API request confirms the pairing; closing
 the QR does not cancel the pending credential. It remains valid until the user
 or an administrator revokes it. iOS calls reuse the Call API and WebRTC media
-boundary with Cloudflare TURN relay-only configuration. Native-client and
-background lifecycle work remains in M5.
+boundary with Cloudflare TURN relay-only configuration. After pairing, the
+client registers APNs and PushKit tokens through `/api/v1/mobile/push` and
+hands VoIP payloads to CallKit. Sending those payloads still requires Apple
+Team ID, Key ID, `.p8` key, Bundle ID, and server-side SMS/call event delivery
+configuration.
 
 ## Architecture
 

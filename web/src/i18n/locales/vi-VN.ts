@@ -95,6 +95,7 @@ export default {
   },
   "nativeIOS": {
     "settingsTitle": "iPhone",
+    "back": "Quay lại",
     "settingsDescription": "Quản lý cuộc gọi đến và thông báo hệ thống iOS trên iPhone này.",
     "incomingCalls": "Cuộc gọi đến",
     "incomingCallsDescription": "Chọn việc các đường dây theo chính sách chung có nhận cuộc gọi mới hay không.",

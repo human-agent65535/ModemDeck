@@ -64,6 +64,8 @@ func TestMobileAPIAllowsAuthenticatedApplicationSurface(t *testing.T) {
 		{http.MethodPut, "/api/v1/settings/recording"},
 		{http.MethodDelete, "/api/v1/mobile/pairing"},
 		{http.MethodGet, "/api/v1/mobile/pairing"},
+		{http.MethodPut, "/api/v1/mobile/push"},
+		{http.MethodDelete, "/api/v1/mobile/push"},
 		{http.MethodGet, "/api/v1/account/sessions"},
 		{http.MethodGet, "/api/v1/users"},
 		{http.MethodGet, "/api/v1/diagnostics"},
@@ -160,6 +162,55 @@ func TestMobileBearerReturnsPrincipalSession(t *testing.T) {
 		AppBuild:        "1",
 	}) {
 		t.Fatalf("confirmed device = %+v", repository.mobileConfirmedDevice)
+	}
+}
+
+func TestMobileBearerRegistersAndClearsApplePushTokens(t *testing.T) {
+	t.Parallel()
+
+	token, _, err := mobilepairing.NewToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	registrationToken := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	repository := &fakeRepository{
+		mobileFound: true,
+		mobilePrincipal: auth.Principal{
+			UserID:            "member-1",
+			Role:              auth.RoleMember,
+			IOSPairingEnabled: true,
+		},
+	}
+	api, err := New(repository, Options{disableAuthentication: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/mobile/push",
+		bytes.NewBufferString(`{"apns_token":"`+registrationToken+`","voip_token":"`+registrationToken+`","bundle_id":"com.example.modemdeck"}`),
+	)
+	request.Header.Set("Authorization", "Bearer "+string(token))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("register status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if repository.mobilePushRegistration.APNSToken != registrationToken ||
+		repository.mobilePushRegistration.VoIPToken != registrationToken ||
+		repository.mobilePushRegistration.Environment != "development" {
+		t.Fatalf("registration = %+v", repository.mobilePushRegistration)
+	}
+
+	clearRequest := httptest.NewRequest(http.MethodDelete, "/api/v1/mobile/push", nil)
+	clearRequest.Header.Set("Authorization", "Bearer "+string(token))
+	clearResponse := httptest.NewRecorder()
+	api.ServeHTTP(clearResponse, clearRequest)
+	if clearResponse.Code != http.StatusNoContent || !repository.mobilePushCleared {
+		t.Fatalf("clear status = %d, cleared = %v", clearResponse.Code, repository.mobilePushCleared)
 	}
 }
 

@@ -18,76 +18,79 @@ import (
 )
 
 type fakeRepository struct {
-	pingError             error
-	contactLimit          int
-	contactQuery          store.ContactQuery
-	contacts              []store.Contact
-	contact               store.Contact
-	contactError          error
-	createContactInput    store.ContactInput
-	createContactError    error
-	updateContactID       string
-	updateContactInput    store.ContactInput
-	updateContactError    error
-	deleteContactID       string
-	deleteContactRev      int64
-	deleteContactError    error
-	deleteContacts        []store.ContactRevision
-	messageQuery          store.MessageQuery
-	messages              []store.Message
-	threadQuery           store.ThreadQuery
-	threads               []store.MessageThread
-	messageReadIdentity   store.MessageThreadIdentity
-	messageReadError      error
-	messageUpdateAction   store.MessageThreadAction
-	messageUpdateThreads  []store.MessageThreadIdentity
-	messageUpdateError    error
-	messageDeleteIdentity store.MessageThreadIdentity
-	messageDeleteError    error
-	missedReadCalls       int
-	missedReadIDs         []string
-	missedUnreadIDs       []string
-	missedReadError       error
-	callFavoriteIDs       []string
-	callFavorite          bool
-	callFavoriteError     error
-	callQuery             store.CallQuery
-	calls                 []store.Call
-	recordingQuery        store.RecordingQuery
-	recordingEntries      []store.RecordingEntry
-	recordingError        error
-	recordingFavorites    []store.RecordingIdentity
-	recordingFavorite     bool
-	recordingFavoriteErr  error
-	devices               []store.Device
-	deleteDeviceIMEI      string
-	deleteDeviceError     error
-	lines                 []store.LineSummary
-	updateLineID          string
-	updateLineLabel       string
-	updateLineColor       *store.LineColor
-	updateLineResult      store.LineSummary
-	updateLineError       error
-	systemSettings        store.SystemSettings
-	principalLanguage     store.SystemLanguage
-	systemSettingsError   error
-	updateSystemInput     store.SystemLanguage
-	updateSystemRev       int64
-	updateSystemResult    store.SystemSettings
-	updateSystemError     error
-	mobilePrincipal       auth.Principal
-	mobileFound           bool
-	mobileError           error
-	mobileConfirmedDigest mobilepairing.TokenDigest
-	mobileConfirmedDevice mobilepairing.DeviceInfo
-	mobileConfirmError    error
-	iosPairingStatus      store.IOSPairingStatus
-	iosPairingStatusError error
-	iosRevokedUserID      string
-	iosRevokedDigest      mobilepairing.TokenDigest
-	iosRevokeError        error
-	callLineID            string
-	callLineError         error
+	pingError              error
+	contactLimit           int
+	contactQuery           store.ContactQuery
+	contacts               []store.Contact
+	contact                store.Contact
+	contactError           error
+	createContactInput     store.ContactInput
+	createContactError     error
+	updateContactID        string
+	updateContactInput     store.ContactInput
+	updateContactError     error
+	deleteContactID        string
+	deleteContactRev       int64
+	deleteContactError     error
+	deleteContacts         []store.ContactRevision
+	messageQuery           store.MessageQuery
+	messages               []store.Message
+	threadQuery            store.ThreadQuery
+	threads                []store.MessageThread
+	messageReadIdentity    store.MessageThreadIdentity
+	messageReadError       error
+	messageUpdateAction    store.MessageThreadAction
+	messageUpdateThreads   []store.MessageThreadIdentity
+	messageUpdateError     error
+	messageDeleteIdentity  store.MessageThreadIdentity
+	messageDeleteError     error
+	missedReadCalls        int
+	missedReadIDs          []string
+	missedUnreadIDs        []string
+	missedReadError        error
+	callFavoriteIDs        []string
+	callFavorite           bool
+	callFavoriteError      error
+	callQuery              store.CallQuery
+	calls                  []store.Call
+	recordingQuery         store.RecordingQuery
+	recordingEntries       []store.RecordingEntry
+	recordingError         error
+	recordingFavorites     []store.RecordingIdentity
+	recordingFavorite      bool
+	recordingFavoriteErr   error
+	devices                []store.Device
+	deleteDeviceIMEI       string
+	deleteDeviceError      error
+	lines                  []store.LineSummary
+	updateLineID           string
+	updateLineLabel        string
+	updateLineColor        *store.LineColor
+	updateLineResult       store.LineSummary
+	updateLineError        error
+	systemSettings         store.SystemSettings
+	principalLanguage      store.SystemLanguage
+	systemSettingsError    error
+	updateSystemInput      store.SystemLanguage
+	updateSystemRev        int64
+	updateSystemResult     store.SystemSettings
+	updateSystemError      error
+	mobilePrincipal        auth.Principal
+	mobileFound            bool
+	mobileError            error
+	mobileConfirmedDigest  mobilepairing.TokenDigest
+	mobileConfirmedDevice  mobilepairing.DeviceInfo
+	mobileConfirmError     error
+	mobilePushRegistration mobilepairing.PushRegistration
+	mobilePushCleared      bool
+	mobilePushError        error
+	iosPairingStatus       store.IOSPairingStatus
+	iosPairingStatusError  error
+	iosRevokedUserID       string
+	iosRevokedDigest       mobilepairing.TokenDigest
+	iosRevokeError         error
+	callLineID             string
+	callLineError          error
 }
 
 func (repository *fakeRepository) IOSPairingStatus(
@@ -127,6 +130,23 @@ func (repository *fakeRepository) ConfirmIOSPairingCredential(
 	repository.mobileConfirmedDigest = digest
 	repository.mobileConfirmedDevice = device
 	return repository.mobileConfirmError == nil, repository.mobileConfirmError
+}
+
+func (repository *fakeRepository) UpdateIOSPushRegistration(
+	_ context.Context,
+	_ mobilepairing.TokenDigest,
+	registration mobilepairing.PushRegistration,
+) error {
+	repository.mobilePushRegistration = registration
+	return repository.mobilePushError
+}
+
+func (repository *fakeRepository) ClearIOSPushRegistration(
+	context.Context,
+	mobilepairing.TokenDigest,
+) error {
+	repository.mobilePushCleared = true
+	return repository.mobilePushError
 }
 
 func (repository *fakeRepository) CallLineID(

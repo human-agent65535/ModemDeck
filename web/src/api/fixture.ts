@@ -95,8 +95,8 @@ const CASEY_NAME = 'Casey Morgan'
 const MEMBER_PROFILE_NAME = 'Casey Park'
 const CASEY_PHONE = '+1 202 555 0104'
 const CASEY_WORK_PHONE = '+1 202 555 0105'
-const RILEY_NAME = 'Riley Quinn'
-const RILEY_PHONE = '+1 202 555 0106'
+const SAMPLE_CONTACT_NAME = 'Sample Contact'
+const SAMPLE_CONTACT_PHONE = '+1 202 555 0106'
 const UNKNOWN_CALLER_PHONE = '+1 202 555 0107'
 const FIXTURE_APPLICATION_VERSION =
   typeof import.meta.env?.VITE_MODEMDECK_BUILD_ID === 'string' &&
@@ -144,9 +144,9 @@ const contacts: Contact[] = [
   },
   {
     id: 'contact-riley',
-    display_name: RILEY_NAME,
+    display_name: SAMPLE_CONTACT_NAME,
     favorite: false,
-    phones: [{ id: 'phone-riley', label: 'Mobile', number: RILEY_PHONE, primary: true }],
+    phones: [{ id: 'phone-sample-contact', label: 'Mobile', number: SAMPLE_CONTACT_PHONE, primary: true }],
     revision: 1
   }
 ]
@@ -179,11 +179,11 @@ const threads: MessageThread[] = [
     favorite: false
   },
   {
-    key: fixtureThreadKey('line-fixture-main', RILEY_PHONE),
+    key: fixtureThreadKey('line-fixture-main', SAMPLE_CONTACT_PHONE),
     line_id: 'line-fixture-main',
-    peer: RILEY_PHONE,
+    peer: SAMPLE_CONTACT_PHONE,
     contact_id: 'contact-riley',
-    contact_name: RILEY_NAME,
+    contact_name: SAMPLE_CONTACT_NAME,
     last_message_id: '105',
     last_timestamp: '2026-07-20T06:05:00Z',
     last_content: 'Got it, thank you.',
@@ -231,11 +231,11 @@ const messagesByThread: Record<string, Message[]> = {
       delivery_status: ''
     }
   ],
-  [fixtureThreadKey('line-fixture-main', RILEY_PHONE)]: [
+  [fixtureThreadKey('line-fixture-main', SAMPLE_CONTACT_PHONE)]: [
     {
       id: '104',
       line_id: 'line-fixture-main',
-      peer: RILEY_PHONE,
+      peer: SAMPLE_CONTACT_PHONE,
       direction: 'outgoing',
       content: 'The sample report is available.',
       timestamp: '2026-07-20T05:59:00Z',
@@ -246,7 +246,7 @@ const messagesByThread: Record<string, Message[]> = {
     {
       id: '105',
       line_id: 'line-fixture-main',
-      peer: RILEY_PHONE,
+      peer: SAMPLE_CONTACT_PHONE,
       direction: 'incoming',
       content: 'Got it, thank you.',
       timestamp: '2026-07-20T06:05:00Z',

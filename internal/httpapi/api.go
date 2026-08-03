@@ -442,6 +442,8 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.cloudflareOriginTLS(response, request)
 	case "/api/v1/mobile/pairing":
 		api.mobilePairing(response, request)
+	case "/api/v1/mobile/push":
+		api.mobilePush(response, request)
 	case "/api/v1/users":
 		api.usersCollection(response, request)
 	case "/api/v1/contacts":

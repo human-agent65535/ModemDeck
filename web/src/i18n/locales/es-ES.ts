@@ -95,6 +95,7 @@ export default {
   },
   "nativeIOS": {
     "settingsTitle": "iPhone",
+    "back": "Volver",
     "settingsDescription": "Gestiona las llamadas entrantes y las notificaciones de iOS en este iPhone.",
     "incomingCalls": "Llamadas entrantes",
     "incomingCallsDescription": "Elige si las líneas que siguen la política global reciben llamadas nuevas.",

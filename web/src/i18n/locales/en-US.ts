@@ -95,6 +95,7 @@ export default {
   },
   nativeIOS: {
     settingsTitle: 'iPhone',
+    back: 'Back',
     settingsDescription: 'Manage incoming calls and iOS system notifications on this iPhone.',
     incomingCalls: 'Incoming calls',
     incomingCallsDescription: 'Choose whether lines following the global policy receive new calls.',

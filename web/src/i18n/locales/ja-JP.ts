@@ -95,6 +95,7 @@ export default {
   },
   "nativeIOS": {
     "settingsTitle": "iPhone",
+    "back": "戻る",
     "settingsDescription": "このiPhoneの着信とiOSシステム通知を管理します。",
     "incomingCalls": "着信設定",
     "incomingCallsDescription": "グローバル設定に従う回線で新しい着信を受けるか選択します。",
