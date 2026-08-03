@@ -93,6 +93,27 @@ export default {
     "applicationUpdateReadyDuringCall": "ModemDeck {version} sẵn sàng · Đang gọi",
     "refreshApplication": "Tải lại"
   },
+  "nativeIOS": {
+    "settingsTitle": "iPhone",
+    "settingsDescription": "Quản lý cuộc gọi đến và thông báo hệ thống iOS trên iPhone này.",
+    "incomingCalls": "Cuộc gọi đến",
+    "incomingCallsDescription": "Chọn việc các đường dây theo chính sách chung có nhận cuộc gọi mới hay không.",
+    "notifications": "Thông báo hệ thống",
+    "notificationsDescription": "iOS quản lý quyền cảnh báo tin nhắn và cuộc gọi đến.",
+    "notificationAuthorized": "Đã cho phép",
+    "notificationProvisional": "Gửi yên lặng",
+    "notificationDenied": "Đã tắt",
+    "notificationNotDetermined": "Chưa thiết lập",
+    "notificationUnavailable": "Không khả dụng",
+    "enableNotifications": "Bật thông báo",
+    "openNotificationSettings": "Mở cài đặt hệ thống",
+    "notificationPermissionFailed": "Không thể đọc hoặc thay đổi quyền thông báo iOS",
+    "sendTestSMSNotification": "Gửi cảnh báo SMS thử nghiệm",
+    "testSMSNotificationTitle": "SMS thử nghiệm",
+    "testSMSNotificationBody": "Đây là thông báo thử nghiệm ModemDeck trên iOS.",
+    "testNotificationScheduled": "Đã lên lịch thông báo thử nghiệm",
+    "testNotificationFailed": "Không thể gửi thông báo thử nghiệm iOS"
+  },
   "incomingCallMode": {
     "settings": "Cài đặt cuộc gọi đến",
     "globalPolicy": "Chính sách cuộc gọi đến toàn cầu",

@@ -93,6 +93,27 @@ export default {
     "applicationUpdateReadyDuringCall": "ModemDeck {version} pronto · Chamada ativa",
     "refreshApplication": "Atualizar"
   },
+  "nativeIOS": {
+    "settingsTitle": "iPhone",
+    "settingsDescription": "Gerencie chamadas recebidas e notificações do iOS neste iPhone.",
+    "incomingCalls": "Chamadas recebidas",
+    "incomingCallsDescription": "Escolha se linhas que seguem a política global recebem novas chamadas.",
+    "notifications": "Notificações do sistema",
+    "notificationsDescription": "O iOS gerencia a permissão para alertas de mensagens e chamadas.",
+    "notificationAuthorized": "Permitidas",
+    "notificationProvisional": "Entrega silenciosa",
+    "notificationDenied": "Desativadas",
+    "notificationNotDetermined": "Não configuradas",
+    "notificationUnavailable": "Indisponível",
+    "enableNotifications": "Ativar notificações",
+    "openNotificationSettings": "Abrir ajustes do sistema",
+    "notificationPermissionFailed": "Não foi possível ler ou alterar a permissão de notificações do iOS",
+    "sendTestSMSNotification": "Enviar alerta SMS de teste",
+    "testSMSNotificationTitle": "SMS de teste",
+    "testSMSNotificationBody": "Este é um teste de notificação do ModemDeck para iOS.",
+    "testNotificationScheduled": "Notificação de teste agendada",
+    "testNotificationFailed": "Não foi possível enviar a notificação de teste do iOS"
+  },
   "incomingCallMode": {
     "settings": "Configurações de chamadas recebidas",
     "globalPolicy": "Política global de chamadas recebidas",

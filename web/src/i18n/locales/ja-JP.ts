@@ -93,6 +93,27 @@ export default {
     "applicationUpdateReadyDuringCall": "ModemDeck {version} 準備完了 · 通話中",
     "refreshApplication": "再読み込み"
   },
+  "nativeIOS": {
+    "settingsTitle": "iPhone",
+    "settingsDescription": "このiPhoneの着信とiOSシステム通知を管理します。",
+    "incomingCalls": "着信設定",
+    "incomingCallsDescription": "グローバル設定に従う回線で新しい着信を受けるか選択します。",
+    "notifications": "システム通知",
+    "notificationsDescription": "メッセージと着信通知の権限はiOSで管理されます。",
+    "notificationAuthorized": "許可済み",
+    "notificationProvisional": "目立たない形で配信",
+    "notificationDenied": "オフ",
+    "notificationNotDetermined": "未設定",
+    "notificationUnavailable": "利用不可",
+    "enableNotifications": "通知を有効にする",
+    "openNotificationSettings": "システム設定を開く",
+    "notificationPermissionFailed": "iOSの通知権限を確認または変更できませんでした",
+    "sendTestSMSNotification": "テストSMS通知を送信",
+    "testSMSNotificationTitle": "テストSMS",
+    "testSMSNotificationBody": "これはModemDeckのiOS通知テストです。",
+    "testNotificationScheduled": "テスト通知を送信しました",
+    "testNotificationFailed": "iOSテスト通知を配信できませんでした"
+  },
   "incomingCallMode": {
     "settings": "着信設定",
     "globalPolicy": "グローバル着信通話ポリシー",

@@ -93,6 +93,27 @@ export default {
     applicationUpdateReadyDuringCall: 'ModemDeck {version} 已就緒 · 通話中',
     refreshApplication: '重新整理'
   },
+  nativeIOS: {
+    settingsTitle: 'iPhone',
+    settingsDescription: '管理此 iPhone 的來電與 iOS 系統通知。',
+    incomingCalls: '來電設定',
+    incomingCallsDescription: '設定跟隨全域的線路是否接收新來電。',
+    notifications: '系統通知',
+    notificationsDescription: '由 iOS 管理簡訊與來電提醒權限。',
+    notificationAuthorized: '已允許',
+    notificationProvisional: '靜默傳送',
+    notificationDenied: '已關閉',
+    notificationNotDetermined: '尚未設定',
+    notificationUnavailable: '無法使用',
+    enableNotifications: '啟用通知',
+    openNotificationSettings: '開啟系統設定',
+    notificationPermissionFailed: '無法讀取或修改 iOS 通知權限',
+    sendTestSMSNotification: '傳送測試簡訊通知',
+    testSMSNotificationTitle: '測試簡訊',
+    testSMSNotificationBody: '這是一則來自 ModemDeck 的 iOS 通知測試。',
+    testNotificationScheduled: '測試通知已傳送',
+    testNotificationFailed: '無法傳送 iOS 測試通知'
+  },
   incomingCallMode: {
     settings: '來電設定',
     globalPolicy: '全域來電策略',
