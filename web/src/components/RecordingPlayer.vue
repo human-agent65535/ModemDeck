@@ -184,6 +184,7 @@ onBeforeUnmount(() => {
           aria-hidden="true"
         />
         <input
+          class="ui-range"
           type="range"
           min="0"
           :max="timelineMaximum"
@@ -247,11 +248,6 @@ onBeforeUnmount(() => {
 }
 
 .recording-audio-player__toggle:focus-visible,
-.recording-audio-player__timeline input:focus-visible {
-  outline: 3px solid var(--accent-soft);
-  outline-offset: 2px;
-}
-
 .recording-audio-player__progress {
   display: grid;
   min-width: 0;
@@ -299,43 +295,11 @@ onBeforeUnmount(() => {
 }
 
 .recording-audio-player__timeline input {
+  --ui-range-track-color: transparent;
+  --ui-range-progress-color: transparent;
+  --ui-range-thumb-size: 12px;
+
   height: 18px;
-  appearance: none;
-  cursor: pointer;
-  background: transparent;
-  border-radius: 999px;
-}
-
-.recording-audio-player__timeline input:disabled {
-  cursor: default;
-}
-
-.recording-audio-player__timeline input::-webkit-slider-runnable-track {
-  height: 4px;
-  background: transparent;
-}
-
-.recording-audio-player__timeline input::-webkit-slider-thumb {
-  width: 12px;
-  height: 12px;
-  margin-top: -4px;
-  appearance: none;
-  background: var(--surface);
-  border: 2px solid var(--accent-strong);
-  border-radius: 50%;
-}
-
-.recording-audio-player__timeline input::-moz-range-track {
-  height: 4px;
-  background: transparent;
-}
-
-.recording-audio-player__timeline input::-moz-range-thumb {
-  width: 9px;
-  height: 9px;
-  background: var(--surface);
-  border: 2px solid var(--accent-strong);
-  border-radius: 50%;
 }
 
 .recording-audio-player__time {

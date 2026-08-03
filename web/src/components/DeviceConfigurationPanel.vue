@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import {
   AlertCircle,
-  ArrowLeft,
   AudioLines,
   Cable,
   CardSim,
   Check,
   CheckCircle2,
+  ChevronDown,
   Cpu,
   Database,
   LoaderCircle,
@@ -28,6 +28,7 @@ import {
 } from '@lucide/vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 import { gateway } from '../api/client'
 import { ApiError } from '../api/types'
 import { useInitialLoadBarrier } from '../composables/useInitialLoadBarrier'
@@ -109,6 +110,8 @@ type DeviceTab = 'overview' | 'network' | 'sim' | 'sms' | 'voice' | 'ussd'
 type AsyncStatus = 'idle' | 'loading' | 'ready' | 'error'
 
 const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
 const tabs = computed<Array<{ id: DeviceTab; label: string; icon: typeof RadioTower }>>(() => [
   { id: 'overview', label: t('device.overview'), icon: RadioTower },
   { id: 'network', label: t('device.network'), icon: Network },
@@ -120,6 +123,13 @@ const tabs = computed<Array<{ id: DeviceTab; label: string; icon: typeof RadioTo
 
 const activeTab = ref<DeviceTab>('overview')
 const deviceDetailOpen = ref(false)
+const requestedDeviceLineID = computed(() =>
+  route.name === 'settings' &&
+  route.params.section === 'devices' &&
+  typeof route.query.device === 'string'
+    ? route.query.device
+    : ''
+)
 const { loading: initialLoading, waitFor: waitForInitialLoad } = useInitialLoadBarrier()
 const apn = ref('')
 const ipFamily = ref<IPFamily>('ipv4v6')
@@ -635,6 +645,23 @@ watch(
 )
 
 watch(
+  [requestedDeviceLineID, lines, () => bootstrapResource.status],
+  ([lineID, currentLines, bootstrapStatus]) => {
+    deviceDetailOpen.value = Boolean(lineID)
+    if (!lineID) return
+
+    const requestedLine = currentLines.find(line => line.id === lineID && !line.module_only)
+    if (requestedLine) {
+      selectLine(requestedLine, false)
+      return
+    }
+
+    if (bootstrapStatus === 'ready') updateDeviceRoute('', true)
+  },
+  { immediate: true }
+)
+
+watch(
   selectedLineID,
   () => {
     apn.value = ''
@@ -722,7 +749,10 @@ watch(activeTab, tab => void loadActiveLineService(tab))
 
 function selectLine(line: LineSummary, openDetail = true): void {
   if (!line.id || line.module_only) return
-  if (openDetail) deviceDetailOpen.value = true
+  if (openDetail) {
+    deviceDetailOpen.value = true
+    if (requestedDeviceLineID.value !== line.id) updateDeviceRoute(line.id)
+  }
   if (line.id === selectedLineID.value) {
     const resource = deviceConfigurationResource(line.id)
     if (resource.status !== 'ready') void loadDeviceConfiguration(line.id, true)
@@ -734,8 +764,18 @@ function selectLine(line: LineSummary, openDetail = true): void {
   void loadActiveLineService()
 }
 
-function backToModules(): void {
-  deviceDetailOpen.value = false
+function updateDeviceRoute(lineID: string, replace = false): void {
+  const query = { ...route.query }
+  if (lineID) query.device = lineID
+  else delete query.device
+
+  const location = {
+    name: 'settings' as const,
+    params: { section: 'devices' },
+    query
+  }
+  if (replace) void router.replace(location)
+  else void router.push(location)
 }
 
 function resetLineServices(): void {
@@ -1378,15 +1418,6 @@ onMounted(() => {
     <div class="device-detail">
       <template v-if="selectedLineID">
       <header class="selected-module-context">
-        <button
-          class="icon-button device-detail-back"
-          type="button"
-          :title="t('settings.back')"
-          :aria-label="t('settings.back')"
-          @click="backToModules"
-        >
-          <ArrowLeft :size="19" />
-        </button>
         <div class="selected-module-context__identity">
           <span>{{ t('device.currentModule') }}</span>
           <div class="selected-module-context__name">
@@ -1551,6 +1582,7 @@ onMounted(() => {
                   <div class="line-color-picker__options">
                     <label v-for="preset in lineTonePresets" :key="preset.id">
                       <input
+                        class="ui-choice-input--hidden"
                         v-model="lineColorDraft"
                         type="radio"
                         name="line-color"
@@ -1703,9 +1735,14 @@ onMounted(() => {
               </div>
             </dl>
             <details v-if="hardware.details.ports.length" class="hardware-ports">
-              <summary>
+              <summary class="ui-disclosure-summary">
                 <span><Cable :size="16" />{{ t('device.portDetails') }}</span>
                 <small>{{ t('device.moduleCount', { count: hardware.details.ports.length }) }}</small>
+                <ChevronDown
+                  class="ui-disclosure-summary__chevron"
+                  :size="16"
+                  aria-hidden="true"
+                />
               </summary>
               <ul>
                 <li v-for="port in hardware.details.ports" :key="`${port.name}:${port.type_code}`">
@@ -1796,6 +1833,7 @@ onMounted(() => {
                     <span class="network-selection-mode__slider" aria-hidden="true" />
                     <label>
                       <input
+                        class="ui-choice-input--hidden"
                         type="radio"
                         value="auto"
                         :checked="selectedNetworkSelection.mode === 'auto'"
@@ -1805,6 +1843,7 @@ onMounted(() => {
                     </label>
                     <label>
                       <input
+                        class="ui-choice-input--hidden"
                         type="radio"
                         value="manual"
                         :checked="selectedNetworkSelection.mode === 'manual'"
@@ -1974,15 +2013,15 @@ onMounted(() => {
                 <legend>{{ t('device.ipMode') }}</legend>
                 <div class="ip-mode-options">
                   <label>
-                    <input v-model="ipFamily" type="radio" value="ipv4" />
+                    <input class="ui-choice-input--hidden" v-model="ipFamily" type="radio" value="ipv4" />
                     <span>IPv4</span>
                   </label>
                   <label>
-                    <input v-model="ipFamily" type="radio" value="ipv6" />
+                    <input class="ui-choice-input--hidden" v-model="ipFamily" type="radio" value="ipv6" />
                     <span>IPv6</span>
                   </label>
                   <label>
-                    <input v-model="ipFamily" type="radio" value="ipv4v6" />
+                    <input class="ui-choice-input--hidden" v-model="ipFamily" type="radio" value="ipv4v6" />
                     <span>IPv4 + IPv6</span>
                   </label>
                 </div>
@@ -2008,13 +2047,18 @@ onMounted(() => {
 
           <section class="configuration-section">
             <details class="advanced-profiles">
-              <summary>
+              <summary class="ui-disclosure-summary">
                 <span>
                   <Database :size="18" /><strong>{{ t('device.advancedProfiles') }}</strong>
                 </span>
                 <small v-if="profiles.length">
                   {{ t('device.moduleCount', { count: profiles.length }) }}
                 </small>
+                <ChevronDown
+                  class="ui-disclosure-summary__chevron"
+                  :size="16"
+                  aria-hidden="true"
+                />
               </summary>
               <div class="advanced-profiles__body">
                 <div class="advanced-profiles__actions">
@@ -2220,7 +2264,7 @@ onMounted(() => {
                 <input v-model="simNewPIN" type="password" inputmode="numeric" maxlength="8" autocomplete="off" />
               </label>
               <label v-if="simOperation === 'enable_pin'" class="inline-check">
-                <input v-model="simProtectionEnabled" type="checkbox" />
+                <input v-model="simProtectionEnabled" class="ui-check" type="checkbox" />
                 <span>{{ t('device.enableProtection') }}</span>
               </label>
               <button class="primary-action" type="submit" :disabled="simPending">
@@ -2353,6 +2397,7 @@ onMounted(() => {
                 <span class="incoming-policy__slider" aria-hidden="true" />
                 <label>
                   <input
+                    class="ui-choice-input--hidden"
                     v-model="incomingPolicyDraft"
                     type="radio"
                     value="follow_global"
@@ -2362,6 +2407,7 @@ onMounted(() => {
                 </label>
                 <label>
                   <input
+                    class="ui-choice-input--hidden"
                     v-model="incomingPolicyDraft"
                     type="radio"
                     value="receive"
@@ -2371,6 +2417,7 @@ onMounted(() => {
                 </label>
                 <label>
                   <input
+                    class="ui-choice-input--hidden"
                     v-model="incomingPolicyDraft"
                     type="radio"
                     value="do_not_disturb"
@@ -2684,10 +2731,6 @@ onMounted(() => {
   border-bottom: 1px solid var(--border);
 }
 
-.device-detail-back {
-  display: none;
-}
-
 .selected-module-context__identity {
   display: flex;
   min-width: 0;
@@ -2898,13 +2941,6 @@ onMounted(() => {
   cursor: pointer;
 }
 
-.line-color-picker__options input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-}
-
 .line-color-picker__options span {
   display: grid;
   width: 30px;
@@ -3017,9 +3053,9 @@ onMounted(() => {
   display: flex;
   min-height: 32px;
   align-items: center;
+  gap: 8px;
   color: var(--text);
   cursor: pointer;
-  list-style-position: inside;
 }
 
 .hardware-ports > summary > span {
@@ -3196,13 +3232,6 @@ onMounted(() => {
   position: relative;
   min-width: 0;
   cursor: pointer;
-}
-
-.ip-mode-options input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
 }
 
 .ip-mode-options span {
@@ -3389,13 +3418,6 @@ onMounted(() => {
   cursor: pointer;
 }
 
-.network-selection-mode__options input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-}
-
 .network-selection-mode__options label > span {
   display: flex;
   min-height: 32px;
@@ -3533,20 +3555,18 @@ onMounted(() => {
 }
 
 .advanced-profiles > summary {
+  display: flex;
   min-height: 32px;
+  align-items: center;
+  gap: 8px;
   color: var(--text);
   cursor: pointer;
-}
-
-.advanced-profiles > summary::marker {
-  color: var(--muted);
 }
 
 .advanced-profiles > summary > span {
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  margin-left: 5px;
 }
 
 .advanced-profiles > summary > span svg {
@@ -3554,8 +3574,7 @@ onMounted(() => {
 }
 
 .advanced-profiles > summary > small {
-  float: right;
-  margin-top: 3px;
+  margin-left: auto;
   color: var(--muted);
   font-size: 12px;
 }
@@ -3638,11 +3657,6 @@ onMounted(() => {
   min-height: 36px;
   align-items: center;
   gap: 7px;
-}
-
-.inline-check input {
-  width: 15px;
-  height: 15px;
 }
 
 .retry-row {
@@ -3809,13 +3823,6 @@ onMounted(() => {
   z-index: 1;
   min-width: 0;
   cursor: pointer;
-}
-
-.incoming-policy__options input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
 }
 
 .incoming-policy__options span {
@@ -4007,14 +4014,11 @@ pre {
   }
 
   .selected-module-context {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
+    padding-block: 10px;
   }
 
-  .device-detail-back {
-    display: grid;
-    flex: 0 0 auto;
+  .selected-module-context__identity > span {
+    display: none;
   }
 
   .selected-module-context__default {

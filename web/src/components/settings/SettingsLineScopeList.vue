@@ -48,6 +48,7 @@ function onLineChange(id: string, event: Event): void {
       }"
     >
       <input
+        class="ui-choice-input--hidden"
         :checked="allSelected"
         type="checkbox"
         :disabled="disabled"
@@ -73,6 +74,7 @@ function onLineChange(id: string, event: Event): void {
       }"
     >
       <input
+        class="ui-choice-input--hidden"
         :checked="selectedIds.includes(option.id)"
         type="checkbox"
         :disabled="disabled"
@@ -141,15 +143,6 @@ function onLineChange(id: string, event: Event): void {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgb(17 120 100 / 12%);
-}
-
-.settings-line-scope-option > input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  overflow: hidden;
-  opacity: 0;
 }
 
 .settings-line-scope-option__check {

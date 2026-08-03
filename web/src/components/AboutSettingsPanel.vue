@@ -438,9 +438,13 @@ onBeforeUnmount(() => {
             <li v-for="line in releaseSummary" :key="line">{{ line }}</li>
           </ul>
           <details v-if="releaseRemainder.length" class="about-release__more">
-            <summary>
+            <summary class="ui-disclosure-summary">
               <span>{{ t('about.fullReleaseNotes') }}</span>
-              <ChevronDown :size="15" />
+              <ChevronDown
+                class="ui-disclosure-summary__chevron"
+                :size="15"
+                aria-hidden="true"
+              />
             </summary>
             <div class="about-release__content">
               <section
@@ -820,19 +824,6 @@ onBeforeUnmount(() => {
   font-size: 11px;
   font-weight: 750;
   cursor: pointer;
-  list-style: none;
-}
-
-.about-release__more summary::-webkit-details-marker {
-  display: none;
-}
-
-.about-release__more summary svg {
-  transition: transform var(--motion-fast) var(--ease-standard);
-}
-
-.about-release__more[open] summary svg {
-  transform: rotate(180deg);
 }
 
 .about-release__content {
@@ -951,8 +942,7 @@ onBeforeUnmount(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .about-update__progress > span,
-  .about-release__more summary svg {
+  .about-update__progress > span {
     transition: none;
   }
 }

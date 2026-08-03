@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check } from '@lucide/vue'
+import SelectionCheckIndicator from './SelectionCheckIndicator.vue'
 
 const props = defineProps<{
   active: boolean
@@ -38,15 +38,14 @@ function interceptKey(event: KeyboardEvent): void {
     @click.capture="intercept"
     @keydown.capture="interceptKey"
   >
-    <span
+    <SelectionCheckIndicator
       v-if="active"
       class="selectable-list-row__check"
       role="checkbox"
+      :checked="selected"
       :aria-checked="selected"
       :aria-label="label"
-    >
-      <Check v-if="selected" :size="15" stroke-width="3" aria-hidden="true" />
-    </span>
+    />
     <slot />
   </div>
 </template>
@@ -94,21 +93,8 @@ function interceptKey(event: KeyboardEvent): void {
   z-index: 4;
   top: 50%;
   left: 14px;
-  display: grid;
-  width: 22px;
-  height: 22px;
-  place-items: center;
-  color: var(--on-accent);
-  background: var(--surface);
-  border: 2px solid var(--faint);
-  border-radius: 5px;
   pointer-events: none;
   transform: translateY(-50%);
-}
-
-.selectable-list-row.is-checked .selectable-list-row__check {
-  background: var(--accent);
-  border-color: var(--accent);
 }
 
 .selectable-list-row.is-selecting :deep(.list-item) {

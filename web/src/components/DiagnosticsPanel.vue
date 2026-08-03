@@ -1334,7 +1334,7 @@ onBeforeUnmount(() => {
         </div>
         <div class="log-actions">
           <label class="follow-control">
-            <input v-model="autoFollow" type="checkbox" />
+            <input v-model="autoFollow" class="ui-check" type="checkbox" />
             <ChevronsDown :size="15" />
             <span>{{ t('diagnostics.autoFollow') }}</span>
           </label>
@@ -2132,12 +2132,6 @@ onBeforeUnmount(() => {
   color: var(--muted);
   font-size: 12px;
   cursor: pointer;
-}
-
-.follow-control input {
-  width: 14px;
-  height: 14px;
-  accent-color: var(--accent);
 }
 
 .log-filters {

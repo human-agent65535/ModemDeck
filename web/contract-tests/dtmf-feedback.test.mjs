@@ -69,6 +69,7 @@ test('pre-call delete stays in the number field and the call action owns a foote
 
 test('per-call recording is a footer action and does not crowd the search area', async () => {
   const dialer = await source('../src/components/DialerPanel.vue')
+  const call = await source('../src/components/CallSurface.vue')
 
   assert.match(
     dialer,
@@ -76,6 +77,17 @@ test('per-call recording is a footer action and does not crowd the search area',
   )
   assert.match(dialer, /:aria-pressed="dialerRecordingState\.enabled"/)
   assert.doesNotMatch(dialer, /<label class="dialer-recording">/)
+  assert.doesNotMatch(dialer, /dialer-recording-action__state/)
+  assert.doesNotMatch(call, /call-footer-action__state|recording-choice|is-changing/)
+  assert.match(call, /:aria-pressed="callRecordingState\.enabled"/)
+  assert.match(
+    dialer,
+    /\.dialer-recording-action:not\(\.is-active\):hover:not\(:disabled\)/
+  )
+  assert.match(
+    call,
+    /\.call-footer-action:not\(\.is-active\):hover:not\(:disabled\)/
+  )
 })
 
 test('dial and in-call keypads share a bottom-aligned interaction stage', async () => {

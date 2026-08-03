@@ -713,6 +713,7 @@ onMounted(() => {
               </span>
               <strong>{{ t('telegram.incomingSMS') }}</strong>
               <input
+                class="ui-check"
                 v-model="incomingSMS"
                 type="checkbox"
                 :disabled="saving || deleting"
@@ -724,6 +725,7 @@ onMounted(() => {
               </span>
               <strong>{{ t('telegram.missedCalls') }}</strong>
               <input
+                class="ui-check"
                 v-model="missedCalls"
                 type="checkbox"
                 :disabled="saving || deleting"
@@ -1151,7 +1153,6 @@ onMounted(() => {
   width: 16px;
   height: 16px;
   margin: 0;
-  accent-color: var(--accent);
 }
 
 .telegram-scope-empty {

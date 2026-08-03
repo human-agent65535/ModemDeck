@@ -41,7 +41,7 @@ withDefaults(
   --communication-toolbar-filter-height: 32px;
 
   gap: 7px;
-  padding: 0 var(--space-3) 9px;
+  padding: 6px var(--space-3) 9px;
 }
 
 .communication-list-toolbar__primary :deep(.search-field) {

@@ -109,6 +109,7 @@ test('workspace primitives own action sizing, priority, and transition timing', 
     listToolbar,
     /--communication-toolbar-primary-height: 36px;[\s\S]*--communication-toolbar-filter-height: 32px;/
   )
+  assert.match(listToolbar, /padding: 6px var\(--space-3\) 9px;/)
   assert.match(
     listToolbar,
     /@media \(max-width: 560px\)[\s\S]*--communication-toolbar-primary-height: 38px;[\s\S]*--communication-toolbar-filter-height: 38px;/

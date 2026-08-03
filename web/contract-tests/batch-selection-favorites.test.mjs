@@ -38,6 +38,7 @@ test('all communication list panes expose selection and their eligible batch act
     batchBar,
     selectionToggle,
     selectableRow,
+    selectionIndicator,
     callRow,
     messageRow,
     statusRail,
@@ -51,6 +52,7 @@ test('all communication list panes expose selection and their eligible batch act
     source('../src/components/BatchActionBar.vue'),
     source('../src/components/ListSelectionToggle.vue'),
     source('../src/components/SelectableListRow.vue'),
+    source('../src/components/SelectionCheckIndicator.vue'),
     source('../src/components/CallHistoryListItem.vue'),
     source('../src/components/MessageThreadListItem.vue'),
     source('../src/components/ListItemStatusRail.vue'),
@@ -150,8 +152,16 @@ test('all communication list panes expose selection and their eligible batch act
   assert.match(dashboard, /@click="batchSetFavorite\(!batchAllFavorite\)"/)
   assert.match(dashboard, /await Promise\.all\(\[[\s\S]*deleteMessageThreads\(threads\),[\s\S]*deleteCalls\(calls\)/)
   assert.match(dashboard, /:favorite-interactive="false"/)
-  assert.match(batchBar, /<Square v-else/)
-  assert.match(batchBar, /<CheckSquare2/)
+  assert.match(batchBar, /import SelectionCheckIndicator from/)
+  assert.match(
+    batchBar,
+    /<SelectionCheckIndicator[\s\S]*:checked="selected === total && total > 0"/
+  )
+  assert.match(selectableRow, /import SelectionCheckIndicator from/)
+  assert.match(selectableRow, /<SelectionCheckIndicator[\s\S]*:checked="selected"/)
+  assert.match(selectionIndicator, /width: 22px;/)
+  assert.match(selectionIndicator, /height: 22px;/)
+  assert.match(selectionIndicator, /border-radius: 5px;/)
   assert.match(selectionToggle, /import \{ ListChecks \}/)
   assert.match(selectionToggle, /<ListChecks :size="18"/)
   assert.doesNotMatch(selectionToggle, /<X |<CheckSquare2/)
@@ -160,11 +170,14 @@ test('all communication list panes expose selection and their eligible batch act
     /<strong :title="selectedLabel" :aria-label="selectedLabel">[\s\S]*?\{\{ selectedLabel \}\}/
   )
   assert.match(batchBar, /text-overflow: ellipsis/)
+  assert.match(batchBar, /--batch-action-bar-height: 52px;/)
+  assert.match(batchBar, /max-height: var\(--batch-action-bar-height\);/)
   assert.match(
     batchBar,
-    /\.batch-action-bar__select span,[\s\S]*?position: absolute;[\s\S]*?clip: rect/
+    /\.batch-action-bar__select-label,[\s\S]*?position: absolute;[\s\S]*?clip: rect/
   )
-  assert.match(selectableRow, /border-radius: 5px/)
+  assert.doesNotMatch(batchBar, /\.batch-action-bar__select span/)
+  assert.doesNotMatch(selectableRow, /border-radius: 5px/)
 })
 
 test('message conversation read and favorite state are independent and persistent in the gateway', async () => {

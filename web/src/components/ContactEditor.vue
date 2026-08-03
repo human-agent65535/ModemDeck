@@ -225,6 +225,7 @@ function submit(): void {
             "
           >
             <input
+              class="ui-radio"
               type="radio"
               name="primary-phone"
               :checked="phone.primary"

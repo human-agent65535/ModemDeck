@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { CheckSquare2, Square, X } from '@lucide/vue'
+import { X } from '@lucide/vue'
+import SelectionCheckIndicator from './SelectionCheckIndicator.vue'
 
 defineProps<{
   selected: number
@@ -27,13 +28,13 @@ const emit = defineEmits<{
       :aria-label="selected === total && total > 0 ? clearAllLabel : selectAllLabel"
       @click="emit('selectAll')"
     >
-      <CheckSquare2
-        v-if="selected === total && total > 0"
-        :size="18"
+      <SelectionCheckIndicator
+        :checked="selected === total && total > 0"
         aria-hidden="true"
       />
-      <Square v-else :size="18" aria-hidden="true" />
-      <span>{{ selected === total && total > 0 ? clearAllLabel : selectAllLabel }}</span>
+      <span class="batch-action-bar__select-label">
+        {{ selected === total && total > 0 ? clearAllLabel : selectAllLabel }}
+      </span>
     </button>
     <strong :title="selectedLabel" :aria-label="selectedLabel">
       {{ selectedLabel }}
@@ -56,14 +57,19 @@ const emit = defineEmits<{
 
 <style scoped>
 .batch-action-bar {
+  --batch-action-bar-height: 52px;
+
   position: relative;
   z-index: 8;
   display: flex;
-  min-height: 58px;
-  flex: 0 0 auto;
+  height: var(--batch-action-bar-height);
+  min-height: var(--batch-action-bar-height);
+  max-height: var(--batch-action-bar-height);
+  flex: 0 0 var(--batch-action-bar-height);
   align-items: center;
   gap: 4px;
-  padding: 8px 10px;
+  padding: 7px 10px;
+  overflow: hidden;
   background: rgb(255 255 255 / 97%);
   border-top: 1px solid var(--border);
   box-shadow: 0 -6px 18px rgb(16 24 40 / 7%);
@@ -144,7 +150,7 @@ const emit = defineEmits<{
   padding: 0;
 }
 
-.batch-action-bar__select span,
+.batch-action-bar__select-label,
 .batch-action-bar__actions :deep(button span) {
   position: absolute;
   width: 1px;
@@ -164,7 +170,6 @@ const emit = defineEmits<{
     right: 0;
     bottom: var(--mobile-nav-height);
     left: 0;
-    padding-bottom: 8px;
   }
 }
 

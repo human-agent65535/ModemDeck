@@ -470,6 +470,13 @@ test('settings drilldown aligns with the shell compact breakpoint', async () => 
   assert.match(telegram, /route\.query\.bot/)
   assert.match(telegram, /route\.query\.newBot/)
   assert.match(shell, /const settingsTelegramDetailOpen = computed/)
+  assert.match(devices, /route\.query\.device/)
+  assert.match(devices, /updateDeviceRoute\(line\.id\)/)
+  assert.doesNotMatch(devices, /device-detail-back|<ArrowLeft/)
+  assert.match(shell, /const settingsDeviceDetailOpen = computed/)
+  assert.match(shell, /const mobileDrilldownControlsHidden = computed/)
+  assert.match(shell, /'is-hidden-on-mobile': mobileDrilldownControlsHidden/)
+  assert.match(style, /\.shell-header__controls\.is-hidden-on-mobile \{\s*display: none;/)
   assert.match(view, /selectedSection\.value === 'telegram'/)
   assert.match(
     view,

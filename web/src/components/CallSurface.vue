@@ -508,10 +508,7 @@ onBeforeUnmount(() => {
         <button
           v-if="recordingAdjustable"
           class="call-footer-action call-footer-action--recording"
-          :class="{
-            'is-active': callRecordingState.enabled,
-            'is-changing': callRecordingState.busy
-          }"
+          :class="{ 'is-active': callRecordingState.enabled }"
           type="button"
           :title="
             callRecordingState.enabled
@@ -532,27 +529,8 @@ onBeforeUnmount(() => {
           @click="toggleRecording"
         >
           <span class="call-footer-action__icon" aria-hidden="true">
-            <LoaderCircle
-              v-if="
-                callRecordingState.busy ||
-                callRecordingState.status === 'initializing'
-              "
-              class="spin"
-              :size="20"
-            />
-            <Square
-              v-else-if="callRecordingState.enabled"
-              :size="18"
-              fill="currentColor"
-            />
+            <Square v-if="callRecordingState.enabled" :size="18" fill="currentColor" />
             <Circle v-else :size="20" fill="currentColor" />
-            <span class="call-footer-action__state">
-              {{
-                callRecordingState.enabled
-                  ? t('recordingSettings.enabled')
-                  : t('recordingSettings.disabled')
-              }}
-            </span>
           </span>
           <small>{{ t('calls.record') }}</small>
         </button>
@@ -902,7 +880,7 @@ onBeforeUnmount(() => {
     transform var(--motion-base) var(--ease-standard);
 }
 
-.call-control:hover:not(:disabled) .call-control__icon {
+.call-control:not(.is-active):hover:not(:disabled) .call-control__icon {
   background: var(--control-muted);
   transform: translateY(-1px);
 }
@@ -1053,7 +1031,7 @@ onBeforeUnmount(() => {
     transform var(--motion-base) var(--ease-standard);
 }
 
-.call-footer-action:hover:not(:disabled) .call-footer-action__icon {
+.call-footer-action:not(.is-active):hover:not(:disabled) .call-footer-action__icon {
   background: var(--control-muted);
   transform: translateY(-1px);
 }
@@ -1064,31 +1042,10 @@ onBeforeUnmount(() => {
   border-color: var(--danger);
 }
 
-.call-footer-action--recording.is-changing .call-footer-action__icon {
-  animation: recording-choice var(--motion-base) var(--ease-standard) both;
-}
-
-@keyframes recording-choice {
-  from {
-    transform: scale(0.94);
-  }
-
-  to {
-    transform: scale(1);
-  }
-}
-
 .call-footer-action--keypad.is-active .call-footer-action__icon {
   color: var(--on-accent);
   background: var(--accent);
   border-color: var(--accent);
-}
-
-.call-footer-action__state {
-  color: inherit;
-  font-size: 8px;
-  font-weight: 800;
-  line-height: 1;
 }
 
 .call-footer-action > small {

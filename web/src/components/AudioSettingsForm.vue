@@ -178,6 +178,7 @@ onBeforeUnmount(() => {
         <template #icon><Mic :size="18" /></template>
         <span class="audio-level-control">
           <input
+            class="ui-range"
             type="range"
             min="0"
             max="200"
@@ -194,6 +195,7 @@ onBeforeUnmount(() => {
         <template #icon><PhoneCall :size="18" /></template>
         <span class="audio-level-control">
           <input
+            class="ui-range"
             type="range"
             min="0"
             max="100"
@@ -210,6 +212,7 @@ onBeforeUnmount(() => {
         <template #icon><BellRing :size="18" /></template>
         <span class="audio-level-control">
           <input
+            class="ui-range"
             type="range"
             min="0"
             max="100"
@@ -229,6 +232,7 @@ onBeforeUnmount(() => {
         <template #icon><AudioLines :size="18" /></template>
         <span class="audio-level-control">
           <input
+            class="ui-range"
             type="range"
             min="0"
             max="100"
@@ -479,8 +483,6 @@ onBeforeUnmount(() => {
 
 .audio-level-control input {
   width: 100%;
-  accent-color: var(--accent-strong);
-  cursor: pointer;
 }
 
 .audio-level-control output {

@@ -1512,6 +1512,11 @@ onBeforeUnmount(() => {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .dashboard-overview-row,
+  .dashboard-list-label {
+    display: none;
+  }
+
   .dashboard-workspace > :deep(.workspace) {
     grid-area: 1 / 1;
     min-width: 0;

@@ -683,13 +683,6 @@ onBeforeUnmount(() => {
               >
                 <span class="dialer-recording-action__icon" aria-hidden="true">
                   <Circle :size="20" fill="currentColor" aria-hidden="true" />
-                  <span class="dialer-recording-action__state">
-                    {{
-                      dialerRecordingState.enabled
-                        ? t('recordingSettings.enabled')
-                        : t('recordingSettings.disabled')
-                    }}
-                  </span>
                 </span>
                 <small>{{ t('calls.record') }}</small>
               </button>
@@ -1066,7 +1059,8 @@ onBeforeUnmount(() => {
     transform var(--motion-base) var(--ease-standard);
 }
 
-.dialer-recording-action:hover:not(:disabled) .dialer-recording-action__icon {
+.dialer-recording-action:not(.is-active):hover:not(:disabled)
+  .dialer-recording-action__icon {
   background: var(--control-muted);
   transform: translateY(-1px);
 }
@@ -1080,13 +1074,6 @@ onBeforeUnmount(() => {
 .dialer-recording-action:disabled {
   cursor: not-allowed;
   opacity: 0.5;
-}
-
-.dialer-recording-action__state {
-  color: inherit;
-  font-size: 8px;
-  font-weight: 800;
-  line-height: 1;
 }
 
 .dialer-recording-action > small {

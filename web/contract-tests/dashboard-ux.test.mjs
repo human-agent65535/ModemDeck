@@ -63,6 +63,13 @@ test('dashboard keeps creation actions with activity and omits the duplicate ove
   )
 })
 
+test('mobile dashboard starts directly with activity while overview remains in settings', () => {
+  assert.match(
+    dashboard,
+    /@media \(max-width: 860px\)[\s\S]*\.dashboard-overview-row,\s*\.dashboard-list-label \{\s*display: none;/
+  )
+})
+
 test('dashboard new-contact action opens the shared editor in place', () => {
   assert.match(dashboard, /import ContactEditor from/)
   assert.match(dashboard, /const contactEditorOpen = ref\(false\)/)

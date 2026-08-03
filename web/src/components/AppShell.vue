@@ -193,6 +193,12 @@ const settingsTelegramDetailOpen = computed(
     route.params.section === 'telegram' &&
     (typeof route.query.bot === 'string' || route.query.newBot === '1')
 )
+const settingsDeviceDetailOpen = computed(
+  () =>
+    route.name === 'settings' &&
+    route.params.section === 'devices' &&
+    typeof route.query.device === 'string'
+)
 const mobileCommunicationDetailOpen = computed(() => {
   switch (route.name) {
     case 'dashboard':
@@ -218,6 +224,7 @@ const mobileShellBackVisible = computed(
     mobileTrafficFromSettings.value ||
     mobileCommunicationDetailOpen.value
 )
+const mobileDrilldownControlsHidden = computed(() => mobileShellBackVisible.value)
 const mobileBackTitle = computed(() => {
   if (settingsUserDetailOpen.value) return t('users.backToUsers')
   if (mobileOverviewFromSettings.value || mobileTrafficFromSettings.value) {
@@ -314,6 +321,13 @@ function handleMobileBack(): void {
     void router.push({
       name: 'settings',
       params: { section: 'telegram' }
+    })
+    return
+  }
+  if (settingsDeviceDetailOpen.value) {
+    void router.push({
+      name: 'settings',
+      params: { section: 'devices' }
     })
     return
   }
@@ -445,7 +459,10 @@ onBeforeUnmount(() => {
           <TestTube2 :size="15" />
           {{ t('shell.fixtureData') }}
         </div>
-        <div class="shell-header__controls">
+        <div
+          class="shell-header__controls"
+          :class="{ 'is-hidden-on-mobile': mobileDrilldownControlsHidden }"
+        >
           <IncomingCallModeControl v-if="sessionState.role === 'admin'" />
           <button
             class="icon-button"
