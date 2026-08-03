@@ -79,6 +79,7 @@ type fakeRepository struct {
 	mobileFound           bool
 	mobileError           error
 	mobileConfirmedDigest mobilepairing.TokenDigest
+	mobileConfirmedDevice mobilepairing.DeviceInfo
 	mobileConfirmError    error
 	iosPairingStatus      store.IOSPairingStatus
 	iosPairingStatusError error
@@ -121,8 +122,10 @@ func (repository *fakeRepository) IOSPairingPrincipalByTokenDigest(
 func (repository *fakeRepository) ConfirmIOSPairingCredential(
 	_ context.Context,
 	digest mobilepairing.TokenDigest,
+	device mobilepairing.DeviceInfo,
 ) (bool, error) {
 	repository.mobileConfirmedDigest = digest
+	repository.mobileConfirmedDevice = device
 	return repository.mobileConfirmError == nil, repository.mobileConfirmError
 }
 

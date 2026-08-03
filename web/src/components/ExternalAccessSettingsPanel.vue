@@ -331,15 +331,11 @@ function applyOriginTLSStatus(
 }
 
 async function createPairing(): Promise<void> {
-  if (!pairingReady.value || pairingPending.value) return
-  if (pairing.value?.has_credential) {
-    const confirmed = await requestConfirmation({
-      title: t('iosPairing.replaceTitle'),
-      message: t('iosPairing.replaceMessage'),
-      confirmLabel: t('iosPairing.replaceConfirm')
-    })
-    if (!confirmed) return
-  }
+  if (
+    !pairingReady.value ||
+    pairingPending.value ||
+    pairing.value?.has_credential
+  ) return
 
   pairingPending.value = true
   pairingError.value = ''
@@ -387,7 +383,9 @@ async function revokePairing(): Promise<void> {
       has_credential: false,
       credential_created_at: undefined,
       paired: false,
-      paired_at: undefined
+      paired_at: undefined,
+      device: undefined,
+      last_seen_at: undefined
     })
     closeQR()
   } catch (cause) {
@@ -431,6 +429,10 @@ function closeQR(): void {
   pairingCode.value = ''
   pairingError.value = ''
   copied.value = false
+}
+
+function joinDeviceFacts(...values: Array<string | undefined>): string {
+  return values.filter(Boolean).join(t('common.listSeparator'))
 }
 
 onMounted(() => {
@@ -615,9 +617,55 @@ onBeforeUnmount(() => {
               <dt>{{ t('iosPairing.createdAt') }}</dt>
               <dd>{{ formatTimestamp(pairing.credential_created_at) }}</dd>
             </div>
+            <div v-if="pairing.paired_at">
+              <dt>{{ t('iosPairing.pairedAt') }}</dt>
+              <dd>{{ formatTimestamp(pairing.paired_at) }}</dd>
+            </div>
+            <div v-if="pairing.device?.device_name">
+              <dt>{{ t('iosPairing.deviceName') }}</dt>
+              <dd>{{ pairing.device.device_name }}</dd>
+            </div>
+            <div
+              v-if="pairing.device?.device_model || pairing.device?.device_model_identifier"
+            >
+              <dt>{{ t('iosPairing.deviceModel') }}</dt>
+              <dd>
+                {{
+                  joinDeviceFacts(
+                    pairing.device?.device_model,
+                    pairing.device?.device_model_identifier
+                  )
+                }}
+              </dd>
+            </div>
+            <div v-if="pairing.device?.os_name || pairing.device?.os_version">
+              <dt>{{ t('iosPairing.operatingSystem') }}</dt>
+              <dd>
+                {{
+                  joinDeviceFacts(
+                    pairing.device?.os_name,
+                    pairing.device?.os_version
+                  )
+                }}
+              </dd>
+            </div>
+            <div v-if="pairing.device?.app_version || pairing.device?.app_build">
+              <dt>{{ t('iosPairing.appVersion') }}</dt>
+              <dd>
+                {{
+                  pairing.device?.app_build
+                    ? `${pairing.device?.app_version || ''} (${pairing.device.app_build})`
+                    : pairing.device?.app_version
+                }}
+              </dd>
+            </div>
+            <div v-if="pairing.last_seen_at">
+              <dt>{{ t('iosPairing.lastSeenAt') }}</dt>
+              <dd>{{ formatTimestamp(pairing.last_seen_at) }}</dd>
+            </div>
           </dl>
           <div
-            v-if="pairing.server_urls.length > 1"
+            v-if="!pairing.has_credential && pairing.server_urls.length > 1"
             class="field ios-server-select"
           >
             <span>{{ t('iosPairing.pairingRoute') }}</span>
@@ -633,7 +681,7 @@ onBeforeUnmount(() => {
           <p class="ios-pairing-note">{{ t('iosPairing.noExpiry') }}</p>
           <div class="ios-pairing-actions">
             <button
-              v-if="pairingReady"
+              v-if="pairingReady && !pairing.has_credential"
               class="primary-button"
               type="button"
               :disabled="pairingPending || !pairingReady"
@@ -641,11 +689,7 @@ onBeforeUnmount(() => {
             >
               <LoaderCircle v-if="pairingPending" class="spin" :size="16" />
               <QrCode v-else :size="16" />
-              {{
-                pairing.has_credential
-                  ? t('iosPairing.replaceQR')
-                  : t('iosPairing.generateQR')
-              }}
+              {{ t('iosPairing.generateQR') }}
             </button>
             <button
               v-if="pairing.has_credential"

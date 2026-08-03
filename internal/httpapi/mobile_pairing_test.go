@@ -261,6 +261,11 @@ func TestIOSPairingStatusReturnsReadinessAndVerifiedPairingAddresses(
 			CredentialCreatedAt: "2026-07-30T12:00:00Z",
 			Paired:              true,
 			PairedAt:            "2026-07-30T12:01:00Z",
+			Device: mobilepairing.DeviceInfo{
+				Name:            "Test iPhone",
+				ModelIdentifier: "iPhone18,2",
+			},
+			LastSeenAt: "2026-08-03T05:10:00Z",
 		},
 	}
 	api, err := New(repository, Options{
@@ -302,6 +307,10 @@ func TestIOSPairingStatusReturnsReadinessAndVerifiedPairingAddresses(
 		body.Pairing.CredentialCreatedAt != "2026-07-30T12:00:00Z" ||
 		!body.Pairing.Paired ||
 		body.Pairing.PairedAt != "2026-07-30T12:01:00Z" ||
+		body.Pairing.Device == nil ||
+		body.Pairing.Device.Name != "Test iPhone" ||
+		body.Pairing.Device.ModelIdentifier != "iPhone18,2" ||
+		body.Pairing.LastSeenAt != "2026-08-03T05:10:00Z" ||
 		len(body.Pairing.ServerURLs) != 1 ||
 		body.Pairing.ServerURLs[0] != "https://phone.example.com" {
 		t.Fatalf("pairing = %+v", body.Pairing)

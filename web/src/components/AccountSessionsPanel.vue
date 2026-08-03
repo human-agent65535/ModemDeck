@@ -43,16 +43,47 @@ function platformName(userAgent = ''): string {
 
 function sessionTitle(session: AccountSession): string {
   if (session.kind === 'ios') {
+    if (session.device?.device_name) return session.device.device_name
     return session.paired ? t('account.pairedIPhone') : t('account.pendingIPhone')
   }
   return `${browserName(session.user_agent)} · ${platformName(session.user_agent)}`
 }
 
 function sessionDescription(session: AccountSession): string {
+  if (session.kind === 'ios') {
+    const model = [
+      session.device?.device_model,
+      session.device?.device_model_identifier
+    ].filter(Boolean).join(' · ')
+    const operatingSystem = [
+      session.device?.os_name,
+      session.device?.os_version
+    ].filter(Boolean).join(' ')
+    const appVersion = session.device?.app_build
+      ? `${session.device?.app_version || ''} (${session.device.app_build})`
+      : session.device?.app_version
+    return [
+      model ? `${t('iosPairing.deviceModel')}: ${model}` : '',
+      operatingSystem
+        ? `${t('iosPairing.operatingSystem')}: ${operatingSystem}`
+        : '',
+      appVersion ? `${t('iosPairing.appVersion')}: ${appVersion}` : '',
+      session.created_at
+        ? `${t('iosPairing.createdAt')}: ${formatDateTime(session.created_at)}`
+        : '',
+      session.paired_at
+        ? `${t('iosPairing.pairedAt')}: ${formatDateTime(session.paired_at)}`
+        : '',
+      session.last_seen_at
+        ? `${t('iosPairing.lastSeenAt')}: ${formatDateTime(session.last_seen_at)}`
+        : ''
+    ].filter(Boolean).join(t('common.listSeparator'))
+  }
   const details = [session.access_ip?.trim(), session.access_host?.trim()]
+  const activityAt = session.last_seen_at || session.created_at
   details.push(
     t('account.lastActiveAt', {
-      date: formatDateTime(session.last_seen_at || session.created_at)
+      date: formatDateTime(activityAt)
     })
   )
   return details.filter(Boolean).join(t('common.listSeparator'))

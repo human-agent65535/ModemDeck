@@ -2,9 +2,12 @@ package httpapi
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
@@ -12,6 +15,16 @@ import (
 
 var errMobileCredentialRevoked = errors.New(
 	"iOS pairing credential is invalid or revoked",
+)
+
+const (
+	mobileDeviceNameHeader            = "X-ModemDeck-Device-Name"
+	mobileDeviceModelHeader           = "X-ModemDeck-Device-Model"
+	mobileDeviceModelIdentifierHeader = "X-ModemDeck-Device-Model-Identifier"
+	mobileOSNameHeader                = "X-ModemDeck-OS-Name"
+	mobileOSVersionHeader             = "X-ModemDeck-OS-Version"
+	mobileAppVersionHeader            = "X-ModemDeck-App-Version"
+	mobileAppBuildHeader              = "X-ModemDeck-App-Build"
 )
 
 type mobileAuthentication struct {
@@ -82,6 +95,7 @@ func (api *API) authorizeMobileAPI(
 	if _, err := api.repository.ConfirmIOSPairingCredential(
 		request.Context(),
 		digest,
+		mobileDeviceInfo(request),
 	); err != nil {
 		api.logger.Error("confirm iOS pairing credential", "error", err)
 		writeError(
@@ -139,89 +153,56 @@ func mobileBearerDigest(
 }
 
 func mobileAPIRequestAllowed(request *http.Request) bool {
+	if !strings.HasPrefix(request.URL.Path, "/api/v1/") {
+		return false
+	}
 	switch request.URL.Path {
-	case "/api/v1/mobile/session":
-		return request.Method == http.MethodGet
-	case "/api/v1/bootstrap":
-		return request.Method == http.MethodGet
-	case "/api/v1/account/contact":
-		return request.Method == http.MethodPut
-	case "/api/v1/contacts":
-		return request.Method == http.MethodGet ||
-			request.Method == http.MethodPost
-	case "/api/v1/contacts/batch":
-		return request.Method == http.MethodPatch
-	case "/api/v1/messages/threads":
-		return request.Method == http.MethodGet ||
-			request.Method == http.MethodDelete
-	case "/api/v1/messages":
-		return request.Method == http.MethodGet ||
-			request.Method == http.MethodPost
-	case "/api/v1/messages/read", "/api/v1/messages/threads/state":
-		return request.Method == http.MethodPatch
-	case "/api/v1/messages/events":
-		return request.Method == http.MethodGet
-	case "/api/v1/runtime/events":
-		return request.Method == http.MethodGet
+	case "/api/v1/setup", "/api/v1/login", "/api/v1/session":
+		return false
 	case "/api/v1/mobile/pairing":
-		return request.Method == http.MethodDelete
-	case "/api/v1/calls":
 		return request.Method == http.MethodGet ||
-			request.Method == http.MethodPost
-	case "/api/v1/calls/missed/read", "/api/v1/calls/batch":
-		return request.Method == http.MethodPatch
-	case "/api/v1/calls/active":
-		return request.Method == http.MethodGet
-	case "/api/v1/recordings":
-		return request.Method == http.MethodGet
-	case "/api/v1/recordings/batch":
-		return request.Method == http.MethodPatch
-	case "/api/v1/devices":
-		return request.Method == http.MethodGet
-	case "/api/v1/settings/calls":
-		return request.Method == http.MethodGet ||
-			request.Method == http.MethodPatch
-	case "/api/v1/settings/lines", "/api/v1/settings/system":
-		return request.Method == http.MethodPatch
-	case "/api/v1/settings/recording":
-		return request.Method == http.MethodGet ||
-			request.Method == http.MethodPut
-	}
-	if _, ok := contactResourceID(request.URL.Path); ok {
-		return request.Method == http.MethodGet ||
-			request.Method == http.MethodPut ||
 			request.Method == http.MethodDelete
 	}
-	if _, ok := callLeaseResourceID(request.URL.Path); ok {
-		return request.Method == http.MethodPut
+	return true
+}
+
+func mobileDeviceInfo(request *http.Request) mobilepairing.DeviceInfo {
+	return mobilepairing.DeviceInfo{
+		Name:  mobileDeviceHeader(request, mobileDeviceNameHeader, 128),
+		Model: mobileDeviceHeader(request, mobileDeviceModelHeader, 64),
+		ModelIdentifier: mobileDeviceHeader(
+			request,
+			mobileDeviceModelIdentifierHeader,
+			64,
+		),
+		OSName:     mobileDeviceHeader(request, mobileOSNameHeader, 64),
+		OSVersion:  mobileDeviceHeader(request, mobileOSVersionHeader, 64),
+		AppVersion: mobileDeviceHeader(request, mobileAppVersionHeader, 64),
+		AppBuild:   mobileDeviceHeader(request, mobileAppBuildHeader, 64),
 	}
-	if _, _, ok := callActionResource(request.URL.Path); ok {
-		return request.Method == http.MethodPost
-	}
-	if _, ok := callMediaICEConfigurationResourceID(request.URL.Path); ok {
-		return request.Method == http.MethodPost
-	}
-	if _, ok := callMediaResourceID(request.URL.Path); ok {
-		return request.Method == http.MethodPost ||
-			request.Method == http.MethodDelete
-	}
-	if resource, ok := parseRecordingResource(request.URL.Path); ok {
-		switch resource.Kind {
-		case recordingResourceToggle:
-			return request.Method == http.MethodPut
-		case recordingResourceList, recordingResourceDownload:
-			return request.Method == http.MethodGet
-		case recordingResourceDelete:
-			return request.Method == http.MethodDelete
+}
+
+func mobileDeviceHeader(request *http.Request, name string, maximumRunes int) string {
+	value := strings.TrimSpace(request.Header.Get(name))
+	if encoded, ok := strings.CutPrefix(value, "b64:"); ok {
+		if decoded, err := base64.StdEncoding.DecodeString(encoded); err == nil &&
+			utf8.Valid(decoded) {
+			value = string(decoded)
+		} else {
+			value = ""
 		}
 	}
-	if resource, ok := callRecordResource(request.URL.Path); ok {
-		if resource.Action == "" {
-			return request.Method == http.MethodDelete
+	value = strings.Map(func(character rune) rune {
+		if unicode.IsControl(character) {
+			return -1
 		}
-		return request.Method == http.MethodPatch
+		return character
+	}, value)
+	runes := []rune(value)
+	if len(runes) > maximumRunes {
+		value = string(runes[:maximumRunes])
 	}
-	return false
+	return value
 }
 
 func (api *API) mobileSession(

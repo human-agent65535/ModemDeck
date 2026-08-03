@@ -82,11 +82,21 @@ func TestIOSPairingPermissionAndRevocationLifecycle(t *testing.T) {
 		t.Fatalf("user pairing status = %+v, want credential at %q", member, status.CredentialCreatedAt)
 	}
 
-	confirmed, err := repository.ConfirmIOSPairingCredential(ctx, digest)
+	device := mobilepairing.DeviceInfo{
+		Name:            "Test iPhone",
+		Model:           "iPhone",
+		ModelIdentifier: "iPhone18,2",
+		OSName:          "iOS",
+		OSVersion:       "26.0",
+		AppVersion:      "0.1.0",
+		AppBuild:        "1",
+	}
+	confirmed, err := repository.ConfirmIOSPairingCredential(ctx, digest, device)
 	if err != nil || !confirmed {
 		t.Fatalf("ConfirmIOSPairingCredential() = %t, %v", confirmed, err)
 	}
-	confirmed, err = repository.ConfirmIOSPairingCredential(ctx, digest)
+	device.AppBuild = "2"
+	confirmed, err = repository.ConfirmIOSPairingCredential(ctx, digest, device)
 	if err != nil || confirmed {
 		t.Fatalf("second confirmation = %t, %v", confirmed, err)
 	}
@@ -94,7 +104,9 @@ func TestIOSPairingPermissionAndRevocationLifecycle(t *testing.T) {
 	if err != nil ||
 		!status.HasCredential ||
 		!status.Paired ||
-		status.PairedAt == "" {
+		status.PairedAt == "" ||
+		status.LastSeenAt == "" ||
+		status.Device != device {
 		t.Fatalf("confirmed credential = %+v, %v", status, err)
 	}
 	if _, err := time.Parse(time.RFC3339, status.PairedAt); err != nil {
@@ -119,6 +131,9 @@ func TestIOSPairingPermissionAndRevocationLifecycle(t *testing.T) {
 	}
 	if status.Paired || status.PairedAt != "" {
 		t.Fatalf("replacement credential status = %+v, want pending", status)
+	}
+	if status.Device != (mobilepairing.DeviceInfo{}) || status.LastSeenAt != "" {
+		t.Fatalf("replacement credential device = %+v, want empty", status)
 	}
 	member, err = repository.UpdateMember(ctx, member.ID, UpdateMemberInput{
 		Username:          member.Username,
@@ -232,6 +247,7 @@ func TestIOSPairingCredentialHasNoTimeExpiry(t *testing.T) {
 	if confirmed, err := repository.ConfirmIOSPairingCredential(
 		ctx,
 		digest,
+		mobilepairing.DeviceInfo{},
 	); err != nil || !confirmed {
 		t.Fatalf("ConfirmIOSPairingCredential() = %t, %v", confirmed, err)
 	}

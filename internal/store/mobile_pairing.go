@@ -14,11 +14,13 @@ import (
 var ErrIOSPairingNotAllowed = errors.New("iOS pairing is not allowed")
 
 type IOSPairingStatus struct {
-	Allowed             bool   `json:"allowed"`
-	HasCredential       bool   `json:"has_credential"`
-	CredentialCreatedAt string `json:"credential_created_at,omitempty"`
-	Paired              bool   `json:"paired"`
-	PairedAt            string `json:"paired_at,omitempty"`
+	Allowed             bool                     `json:"allowed"`
+	HasCredential       bool                     `json:"has_credential"`
+	CredentialCreatedAt string                   `json:"credential_created_at,omitempty"`
+	Paired              bool                     `json:"paired"`
+	PairedAt            string                   `json:"paired_at,omitempty"`
+	Device              mobilepairing.DeviceInfo `json:"device,omitempty"`
+	LastSeenAt          string                   `json:"last_seen_at,omitempty"`
 }
 
 func (s *Store) IOSPairingPrincipalByTokenDigest(
@@ -106,11 +108,21 @@ func (s *Store) IOSPairingPrincipalByTokenDigest(
 func (s *Store) ConfirmIOSPairingCredential(
 	ctx context.Context,
 	digest mobilepairing.TokenDigest,
+	device mobilepairing.DeviceInfo,
 ) (bool, error) {
+	hasDevice := device != (mobilepairing.DeviceInfo{})
 	result, err := s.database.ExecContext(
 		ctx,
 		`UPDATE modemdeck_ios_pairing_credentials
 		 SET activated_at = CURRENT_TIMESTAMP,
+			device_name = CASE WHEN ? <> '' THEN ? ELSE device_name END,
+			device_model = CASE WHEN ? <> '' THEN ? ELSE device_model END,
+			device_model_identifier = CASE WHEN ? <> '' THEN ? ELSE device_model_identifier END,
+			os_name = CASE WHEN ? <> '' THEN ? ELSE os_name END,
+			os_version = CASE WHEN ? <> '' THEN ? ELSE os_version END,
+			app_version = CASE WHEN ? <> '' THEN ? ELSE app_version END,
+			app_build = CASE WHEN ? <> '' THEN ? ELSE app_build END,
+			last_seen_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE last_seen_at END,
 			updated_at = CURRENT_TIMESTAMP
 		 WHERE token_digest = ?
 			AND activated_at IS NULL
@@ -121,6 +133,14 @@ func (s *Store) ConfirmIOSPairingCredential(
 					AND user.enabled = 1
 					AND user.ios_pairing_enabled = 1
 			)`,
+		device.Name, device.Name,
+		device.Model, device.Model,
+		device.ModelIdentifier, device.ModelIdentifier,
+		device.OSName, device.OSName,
+		device.OSVersion, device.OSVersion,
+		device.AppVersion, device.AppVersion,
+		device.AppBuild, device.AppBuild,
+		hasDevice,
 		digest[:],
 	)
 	if err != nil {
@@ -133,7 +153,43 @@ func (s *Store) ConfirmIOSPairingCredential(
 			err,
 		)
 	}
-	return updated > 0, nil
+	if updated > 0 || !hasDevice {
+		return updated > 0, nil
+	}
+	_, err = s.database.ExecContext(
+		ctx,
+		`UPDATE modemdeck_ios_pairing_credentials
+		 SET device_name = CASE WHEN ? <> '' THEN ? ELSE device_name END,
+			device_model = CASE WHEN ? <> '' THEN ? ELSE device_model END,
+			device_model_identifier = CASE WHEN ? <> '' THEN ? ELSE device_model_identifier END,
+			os_name = CASE WHEN ? <> '' THEN ? ELSE os_name END,
+			os_version = CASE WHEN ? <> '' THEN ? ELSE os_version END,
+			app_version = CASE WHEN ? <> '' THEN ? ELSE app_version END,
+			app_build = CASE WHEN ? <> '' THEN ? ELSE app_build END,
+			last_seen_at = CURRENT_TIMESTAMP,
+			updated_at = CURRENT_TIMESTAMP
+		 WHERE token_digest = ?
+			AND activated_at IS NOT NULL
+			AND EXISTS (
+				SELECT 1
+				FROM modemdeck_users AS user
+				WHERE user.id = modemdeck_ios_pairing_credentials.user_id
+					AND user.enabled = 1
+					AND user.ios_pairing_enabled = 1
+			)`,
+		device.Name, device.Name,
+		device.Model, device.Model,
+		device.ModelIdentifier, device.ModelIdentifier,
+		device.OSName, device.OSName,
+		device.OSVersion, device.OSVersion,
+		device.AppVersion, device.AppVersion,
+		device.AppBuild, device.AppBuild,
+		digest[:],
+	)
+	if err != nil {
+		return false, fmt.Errorf("refresh iOS pairing device: %w", err)
+	}
+	return false, nil
 }
 
 func (s *Store) IOSPairingStatus(
@@ -141,11 +197,12 @@ func (s *Store) IOSPairingStatus(
 	userID string,
 ) (IOSPairingStatus, error) {
 	var (
-		status    IOSPairingStatus
-		enabled   int64
-		pairing   int64
-		createdAt sql.NullString
-		pairedAt  sql.NullString
+		status     IOSPairingStatus
+		enabled    int64
+		pairing    int64
+		createdAt  sql.NullString
+		pairedAt   sql.NullString
+		lastSeenAt sql.NullString
 	)
 	err := s.database.QueryRowContext(
 		ctx,
@@ -153,7 +210,15 @@ func (s *Store) IOSPairingStatus(
 			user.enabled,
 			user.ios_pairing_enabled,
 			credential.created_at,
-			credential.activated_at
+			credential.activated_at,
+			COALESCE(credential.device_name, ''),
+			COALESCE(credential.device_model, ''),
+			COALESCE(credential.device_model_identifier, ''),
+			COALESCE(credential.os_name, ''),
+			COALESCE(credential.os_version, ''),
+			COALESCE(credential.app_version, ''),
+			COALESCE(credential.app_build, ''),
+			credential.last_seen_at
 		 FROM modemdeck_users AS user
 		 LEFT JOIN modemdeck_ios_pairing_credentials AS credential
 			ON credential.user_id = user.id
@@ -164,6 +229,14 @@ func (s *Store) IOSPairingStatus(
 		&pairing,
 		&createdAt,
 		&pairedAt,
+		&status.Device.Name,
+		&status.Device.Model,
+		&status.Device.ModelIdentifier,
+		&status.Device.OSName,
+		&status.Device.OSVersion,
+		&status.Device.AppVersion,
+		&status.Device.AppBuild,
+		&lastSeenAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return IOSPairingStatus{}, ErrUserNotFound
@@ -176,6 +249,7 @@ func (s *Store) IOSPairingStatus(
 	status.CredentialCreatedAt = iosPairingTimestamp(stringValue(createdAt))
 	status.Paired = pairedAt.Valid
 	status.PairedAt = iosPairingTimestamp(stringValue(pairedAt))
+	status.LastSeenAt = iosPairingTimestamp(stringValue(lastSeenAt))
 	return status, nil
 }
 
@@ -216,6 +290,14 @@ func (s *Store) RotateIOSPairingCredential(
 		 ON CONFLICT(user_id) DO UPDATE SET
 			token_digest = excluded.token_digest,
 			activated_at = NULL,
+			device_name = '',
+			device_model = '',
+			device_model_identifier = '',
+			os_name = '',
+			os_version = '',
+			app_version = '',
+			app_build = '',
+			last_seen_at = NULL,
 			created_at = CURRENT_TIMESTAMP,
 			updated_at = CURRENT_TIMESTAMP
 		 RETURNING created_at`,

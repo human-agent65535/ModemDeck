@@ -80,6 +80,7 @@ type Repository interface {
 	ConfirmIOSPairingCredential(
 		context.Context,
 		mobilepairing.TokenDigest,
+		mobilepairing.DeviceInfo,
 	) (bool, error)
 }
 

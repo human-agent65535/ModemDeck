@@ -53,6 +53,7 @@ import {
   parseGlobalCallSettings,
   parseLineSettingsResponse,
   parseIOSPairingResponse,
+  parseIOSDeviceInfo,
   parseSystemSettingsResponse,
   parseLineLabelResponse,
   parseMessageResponse,
@@ -391,12 +392,14 @@ function parseAccountSessions(value: unknown): AccountSession[] {
     const id = stringProperty(session, 'id')
     const kind = stringProperty(session, 'kind')
     const createdAt = stringProperty(session, 'created_at')
+    const pairedAt = stringProperty(session, 'paired_at')
     const lastSeenAt = stringProperty(session, 'last_seen_at')
     if (
       !id ||
       (kind !== 'web' && kind !== 'ios') ||
       !createdAt ||
       !Number.isFinite(Date.parse(createdAt)) ||
+      (pairedAt !== undefined && !Number.isFinite(Date.parse(pairedAt))) ||
       (lastSeenAt !== undefined && !Number.isFinite(Date.parse(lastSeenAt))) ||
       typeof session.current !== 'boolean'
     ) {
@@ -406,10 +409,12 @@ function parseAccountSessions(value: unknown): AccountSession[] {
       id,
       kind,
       created_at: createdAt,
+      paired_at: pairedAt,
       last_seen_at: lastSeenAt,
       user_agent: stringProperty(session, 'user_agent'),
       access_ip: stringProperty(session, 'access_ip') || undefined,
       access_host: stringProperty(session, 'access_host'),
+      device: parseIOSDeviceInfo(session.device, `${path}.device`),
       current: session.current,
       paired: typeof session.paired === 'boolean' ? session.paired : undefined
     }
@@ -2381,6 +2386,17 @@ function configureFixture(gateway: ModemDeckGateway): ConfiguredModemDeckGateway
       id: 'ios-pairing',
       kind: 'ios',
       created_at: '2026-07-20T06:15:00Z',
+      paired_at: '2026-07-20T06:16:00Z',
+      last_seen_at: '2026-08-03T05:10:00Z',
+      device: {
+        device_name: "Test iPhone",
+        device_model: 'iPhone',
+        device_model_identifier: 'iPhone18,2',
+        os_name: 'iOS',
+        os_version: '26.0',
+        app_version: '0.1.0',
+        app_build: '1'
+      },
       current: false,
       paired: true
     }

@@ -12,6 +12,20 @@ const (
 	iosPairingActivatedColumn  = "activated_at"
 )
 
+var iosPairingDeviceColumns = []struct {
+	name       string
+	definition string
+}{
+	{name: "device_name", definition: "TEXT NOT NULL DEFAULT ''"},
+	{name: "device_model", definition: "TEXT NOT NULL DEFAULT ''"},
+	{name: "device_model_identifier", definition: "TEXT NOT NULL DEFAULT ''"},
+	{name: "os_name", definition: "TEXT NOT NULL DEFAULT ''"},
+	{name: "os_version", definition: "TEXT NOT NULL DEFAULT ''"},
+	{name: "app_version", definition: "TEXT NOT NULL DEFAULT ''"},
+	{name: "app_build", definition: "TEXT NOT NULL DEFAULT ''"},
+	{name: "last_seen_at", definition: "DATETIME"},
+}
+
 func schemaBeforeMobilePairing(current schemaShape) schemaShape {
 	previous := schemaWithoutColumn(
 		current,
@@ -32,41 +46,80 @@ func migrateMobilePairingSchema(
 	_, pairingColumnExists := userColumns[iosPairingEnabledColumn]
 	credentialColumns, credentialsExist := actual.tables[iosPairingCredentialsTable]
 	_, activatedColumnExists := credentialColumns[iosPairingActivatedColumn]
-	if pairingColumnExists && credentialsExist && activatedColumnExists {
+	deviceColumnsCurrent := true
+	for _, column := range iosPairingDeviceColumns {
+		if _, exists := credentialColumns[column.name]; !exists {
+			deviceColumnsCurrent = false
+			break
+		}
+	}
+	if pairingColumnExists && credentialsExist && activatedColumnExists && deviceColumnsCurrent {
 		return false, nil
 	}
-	if pairingColumnExists && credentialsExist && !activatedColumnExists {
-		beforeConfirmation := schemaWithoutColumn(
-			expected,
-			iosPairingCredentialsTable,
-			iosPairingActivatedColumn,
-		)
-		if !schemaContains(beforeConfirmation, actual) {
+	if pairingColumnExists && credentialsExist {
+		previous := expected
+		if !activatedColumnExists {
+			previous = schemaWithoutColumn(
+				previous,
+				iosPairingCredentialsTable,
+				iosPairingActivatedColumn,
+			)
+		}
+		for _, column := range iosPairingDeviceColumns {
+			if _, exists := credentialColumns[column.name]; !exists {
+				previous = schemaWithoutColumn(
+					previous,
+					iosPairingCredentialsTable,
+					column.name,
+				)
+			}
+		}
+		if !schemaContains(previous, actual) {
 			return false, nil
 		}
 		transaction, err := database.BeginTx(ctx, nil)
 		if err != nil {
 			return false, fmt.Errorf(
-				"begin iOS pairing confirmation migration: %w",
+				"begin iOS pairing device migration: %w",
 				err,
 			)
 		}
 		defer transaction.Rollback()
-		if _, err := transaction.ExecContext(ctx, `
-			ALTER TABLE modemdeck_ios_pairing_credentials
-				ADD COLUMN activated_at DATETIME;
-			UPDATE modemdeck_ios_pairing_credentials
-			SET activated_at = created_at
-			WHERE activated_at IS NULL;
-		`); err != nil {
-			return false, fmt.Errorf(
-				"migrate iOS pairing confirmation: %w",
-				err,
+		if !activatedColumnExists {
+			if _, err := transaction.ExecContext(ctx, `
+				ALTER TABLE modemdeck_ios_pairing_credentials
+					ADD COLUMN activated_at DATETIME;
+				UPDATE modemdeck_ios_pairing_credentials
+				SET activated_at = created_at
+				WHERE activated_at IS NULL;
+			`); err != nil {
+				return false, fmt.Errorf(
+					"migrate iOS pairing confirmation: %w",
+					err,
+				)
+			}
+		}
+		for _, column := range iosPairingDeviceColumns {
+			if _, exists := credentialColumns[column.name]; exists {
+				continue
+			}
+			statement := fmt.Sprintf(
+				"ALTER TABLE %s ADD COLUMN %s %s",
+				iosPairingCredentialsTable,
+				column.name,
+				column.definition,
 			)
+			if _, err := transaction.ExecContext(ctx, statement); err != nil {
+				return false, fmt.Errorf(
+					"migrate iOS pairing device column %s: %w",
+					column.name,
+					err,
+				)
+			}
 		}
 		if err := transaction.Commit(); err != nil {
 			return false, fmt.Errorf(
-				"commit iOS pairing confirmation migration: %w",
+				"commit iOS pairing device migration: %w",
 				err,
 			)
 		}
@@ -96,6 +149,14 @@ func migrateMobilePairingSchema(
 			user_id TEXT PRIMARY KEY,
 			token_digest BLOB NOT NULL CHECK (length(token_digest) = 32),
 			activated_at DATETIME,
+			device_name TEXT NOT NULL DEFAULT '',
+			device_model TEXT NOT NULL DEFAULT '',
+			device_model_identifier TEXT NOT NULL DEFAULT '',
+			os_name TEXT NOT NULL DEFAULT '',
+			os_version TEXT NOT NULL DEFAULT '',
+			app_version TEXT NOT NULL DEFAULT '',
+			app_build TEXT NOT NULL DEFAULT '',
+			last_seen_at DATETIME,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (user_id) REFERENCES modemdeck_users(id)

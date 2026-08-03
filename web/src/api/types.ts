@@ -216,6 +216,16 @@ export type IOSPairingAvailability =
   | 'route_unavailable'
   | 'ready'
 
+export type IOSDeviceInfo = {
+  device_name?: string
+  device_model?: string
+  device_model_identifier?: string
+  os_name?: string
+  os_version?: string
+  app_version?: string
+  app_build?: string
+}
+
 export type IOSPairingStatus = {
   allowed: boolean
   availability: IOSPairingAvailability
@@ -223,6 +233,8 @@ export type IOSPairingStatus = {
   credential_created_at?: string
   paired: boolean
   paired_at?: string
+  device?: IOSDeviceInfo
+  last_seen_at?: string
   server_urls: string[]
 }
 
@@ -1313,10 +1325,12 @@ export type AccountSession = {
   id: string
   kind: 'web' | 'ios'
   created_at: string
+  paired_at?: string
   last_seen_at?: string
   user_agent?: string
   access_ip?: string
   access_host?: string
+  device?: IOSDeviceInfo
   current: boolean
   paired?: boolean
 }

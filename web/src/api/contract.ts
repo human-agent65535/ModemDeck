@@ -39,6 +39,7 @@ import type {
   MessageDeliveryReportSupport,
   MessageReadInput,
   IOSPairingAvailability,
+  IOSDeviceInfo,
   IOSPairingResult,
   IOSPairingStatus,
   InstallCloudflareOriginTLSInput,
@@ -2398,6 +2399,24 @@ function parseIOSPairingAvailability(value: unknown): IOSPairingAvailability {
   throw new Error('ios_pairing.availability is invalid')
 }
 
+export function parseIOSDeviceInfo(
+  value: unknown,
+  path = 'ios_device'
+): IOSDeviceInfo | undefined {
+  if (value === undefined || value === null) return undefined
+  const source = objectValue(value, path)
+  const device: IOSDeviceInfo = {
+    device_name: optionalString(source, 'device_name'),
+    device_model: optionalString(source, 'device_model'),
+    device_model_identifier: optionalString(source, 'device_model_identifier'),
+    os_name: optionalString(source, 'os_name'),
+    os_version: optionalString(source, 'os_version'),
+    app_version: optionalString(source, 'app_version'),
+    app_build: optionalString(source, 'app_build')
+  }
+  return Object.values(device).some(Boolean) ? device : undefined
+}
+
 function parseIOSPairingStatus(value: unknown): IOSPairingStatus {
   const source = objectValue(value, 'ios_pairing')
   const credentialCreatedAt = optionalTimestamp(
@@ -2406,6 +2425,8 @@ function parseIOSPairingStatus(value: unknown): IOSPairingStatus {
     'credential_created_at'
   )
   const pairedAt = optionalTimestamp(source, 'ios_pairing', 'paired_at')
+  const lastSeenAt = optionalTimestamp(source, 'ios_pairing', 'last_seen_at')
+  const device = parseIOSDeviceInfo(source.device, 'ios_pairing.device')
   return {
     allowed: requiredBoolean(source, 'ios_pairing', 'allowed'),
     availability: parseIOSPairingAvailability(source.availability),
@@ -2415,7 +2436,9 @@ function parseIOSPairingStatus(value: unknown): IOSPairingStatus {
     ...(credentialCreatedAt
       ? { credential_created_at: credentialCreatedAt }
       : {}),
-    ...(pairedAt ? { paired_at: pairedAt } : {})
+    ...(pairedAt ? { paired_at: pairedAt } : {}),
+    ...(lastSeenAt ? { last_seen_at: lastSeenAt } : {}),
+    ...(device ? { device } : {})
   }
 }
 

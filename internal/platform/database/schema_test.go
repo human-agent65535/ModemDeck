@@ -362,6 +362,88 @@ func TestOpenAddsIOSPairingConfirmationAndPreservesExistingPairing(
 	}
 }
 
+func TestOpenAddsIOSPairingDeviceMetadataAndPreservesExistingPairing(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	previousSchema := currentSchemaSQL
+	for _, definition := range []string{
+		"\n\t\t\tdevice_name TEXT NOT NULL DEFAULT '',",
+		"\n\t\t\tdevice_model TEXT NOT NULL DEFAULT '',",
+		"\n\t\t\tdevice_model_identifier TEXT NOT NULL DEFAULT '',",
+		"\n\t\t\tos_name TEXT NOT NULL DEFAULT '',",
+		"\n\t\t\tos_version TEXT NOT NULL DEFAULT '',",
+		"\n\t\t\tapp_version TEXT NOT NULL DEFAULT '',",
+		"\n\t\t\tapp_build TEXT NOT NULL DEFAULT '',",
+		"\n\t\t\tlast_seen_at DATETIME,",
+	} {
+		updated := strings.Replace(previousSchema, definition, "", 1)
+		if updated == previousSchema {
+			t.Fatalf("previous schema fixture did not remove %q", definition)
+		}
+		previousSchema = updated
+	}
+	path := filepath.Join(t.TempDir(), "before-ios-pairing-device.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(previousSchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO modemdeck_users (
+			id, username, password_hash, role, enabled, ios_pairing_enabled
+		) VALUES (
+			'user_admin', 'owner', 'owner-hash', 'admin', 1, 1
+		);
+		INSERT INTO modemdeck_ios_pairing_credentials (
+			user_id, token_digest, activated_at, created_at, updated_at
+		) VALUES (
+			'user_admin', randomblob(32),
+			'2026-08-01 12:01:00', '2026-08-01 12:00:00',
+			'2026-08-01 12:01:00'
+		);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	if err := ValidateSchema(context.Background(), database); err != nil {
+		t.Fatalf("ValidateSchema() after migration error = %v", err)
+	}
+	var activatedAt, deviceName, lastSeenAt sql.NullString
+	if err := database.QueryRow(`
+		SELECT activated_at, device_name, last_seen_at
+		FROM modemdeck_ios_pairing_credentials
+		WHERE user_id = 'user_admin'
+	`).Scan(&activatedAt, &deviceName, &lastSeenAt); err != nil {
+		t.Fatal(err)
+	}
+	activated, err := time.Parse(time.RFC3339, activatedAt.String)
+	if err != nil {
+		t.Fatalf("migrated activated_at = %q: %v", activatedAt.String, err)
+	}
+	if !activated.Equal(time.Date(2026, 8, 1, 12, 1, 0, 0, time.UTC)) ||
+		deviceName.String != "" ||
+		lastSeenAt.Valid {
+		t.Fatalf(
+			"migrated pairing = activated %q, device %q, last seen %q",
+			activatedAt.String,
+			deviceName.String,
+			lastSeenAt.String,
+		)
+	}
+}
+
 func TestOpenMigratesSingleUserDataToInitialAdministrator(t *testing.T) {
 	t.Parallel()
 

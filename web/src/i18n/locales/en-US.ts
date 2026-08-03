@@ -506,7 +506,7 @@ export default {
       'Cloudflare Tunnel is enabled, but the public API route has not verified this instance. Pairing is unavailable until it is reachable.',
     yourDevice: 'Your iPhone',
     yourDeviceDescription:
-      'Only you can generate, replace, or revoke this account’s pairing.',
+      'Only you can generate or revoke this account’s pairing.',
     notAllowed: 'Not allowed',
     paired: 'Paired',
     waiting: 'Waiting for iPhone',
@@ -517,9 +517,15 @@ export default {
     pairingRoute: 'Pairing address',
     connection: 'Always connects through',
     createdAt: 'Credential created',
+    pairedAt: 'Paired',
+    deviceName: 'Device name',
+    deviceModel: 'Device model',
+    operatingSystem: 'Operating system',
+    appVersion: 'App version',
+    lastSeenAt: 'Last active',
     noSwitching:
-      'Each pairing code contains one API address. Pair again to change it.',
-    noExpiry: 'The credential remains valid until replaced or revoked.',
+      'Revoke this credential before pairing with a different API address.',
+    noExpiry: 'The credential remains valid until revoked.',
     replaceQR: 'Replace QR code',
     generateQR: 'Generate QR code',
     revoke: 'Revoke pairing',
@@ -574,6 +580,16 @@ export default {
     searchCountries: 'Search country or code',
     noCountries: 'No matching country',
     phone: 'Phone',
+    importFromIPhone: 'Import from iPhone',
+    importConfirmTitle: 'Import iPhone contacts?',
+    importConfirmMessage:
+      'Import {count} contacts with phone numbers into ModemDeck? Existing phone numbers will be skipped.',
+    importEmpty: 'No iPhone contacts with phone numbers are available to import.',
+    importSummary:
+      'Import finished: {imported} added, {skipped} already existed, {failed} failed.',
+    importPermissionDenied:
+      'Allow Contacts access in iPhone Settings to import your address book.',
+    importFailed: 'Unable to import iPhone contacts',
     mobile: 'Mobile',
     other: 'Other',
     primary: 'Primary',

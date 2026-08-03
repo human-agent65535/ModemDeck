@@ -36,15 +36,17 @@ type accountSessionRepository interface {
 }
 
 type accountSessionResponse struct {
-	ID         string `json:"id"`
-	Kind       string `json:"kind"`
-	CreatedAt  string `json:"created_at"`
-	LastSeenAt string `json:"last_seen_at,omitempty"`
-	UserAgent  string `json:"user_agent,omitempty"`
-	AccessIP   string `json:"access_ip,omitempty"`
-	AccessHost string `json:"access_host,omitempty"`
-	Current    bool   `json:"current"`
-	Paired     bool   `json:"paired,omitempty"`
+	ID         string                    `json:"id"`
+	Kind       string                    `json:"kind"`
+	CreatedAt  string                    `json:"created_at"`
+	PairedAt   string                    `json:"paired_at,omitempty"`
+	LastSeenAt string                    `json:"last_seen_at,omitempty"`
+	UserAgent  string                    `json:"user_agent,omitempty"`
+	AccessIP   string                    `json:"access_ip,omitempty"`
+	AccessHost string                    `json:"access_host,omitempty"`
+	Device     *mobilepairing.DeviceInfo `json:"device,omitempty"`
+	Current    bool                      `json:"current"`
+	Paired     bool                      `json:"paired,omitempty"`
 }
 
 type accountSessionsResponse struct {
@@ -63,31 +65,35 @@ func (api *API) accountSessions(response http.ResponseWriter, request *http.Requ
 		)
 		return
 	}
-	manager, token, ok := api.webSessionManager(response, request)
-	if !ok {
-		return
-	}
-	sessions, err := manager.WebSessions(request.Context(), token)
-	if err != nil {
-		api.writeAccountSessionError(response, request, "list account sessions", err)
-		return
-	}
-	result := make([]accountSessionResponse, 0, len(sessions)+1)
-	for _, session := range sessions {
-		lastSeenAt := session.LastSeenAt
-		if lastSeenAt.IsZero() {
-			lastSeenAt = session.CreatedAt
+	_, isMobile := mobileAuthenticationFromContext(request.Context())
+	result := make([]accountSessionResponse, 0, 1)
+	if !isMobile {
+		manager, token, ok := api.webSessionManager(response, request)
+		if !ok {
+			return
 		}
-		result = append(result, accountSessionResponse{
-			ID:         session.ID,
-			Kind:       "web",
-			CreatedAt:  session.CreatedAt.UTC().Format(time.RFC3339),
-			LastSeenAt: lastSeenAt.UTC().Format(time.RFC3339),
-			UserAgent:  session.UserAgent,
-			AccessIP:   session.AccessIP,
-			AccessHost: session.AccessHost,
-			Current:    session.Current,
-		})
+		sessions, err := manager.WebSessions(request.Context(), token)
+		if err != nil {
+			api.writeAccountSessionError(response, request, "list account sessions", err)
+			return
+		}
+		result = make([]accountSessionResponse, 0, len(sessions)+1)
+		for _, session := range sessions {
+			lastSeenAt := session.LastSeenAt
+			if lastSeenAt.IsZero() {
+				lastSeenAt = session.CreatedAt
+			}
+			result = append(result, accountSessionResponse{
+				ID:         session.ID,
+				Kind:       "web",
+				CreatedAt:  session.CreatedAt.UTC().Format(time.RFC3339),
+				LastSeenAt: lastSeenAt.UTC().Format(time.RFC3339),
+				UserAgent:  session.UserAgent,
+				AccessIP:   session.AccessIP,
+				AccessHost: session.AccessHost,
+				Current:    session.Current,
+			})
+		}
 	}
 	principal, hasPrincipal := auth.PrincipalFromContext(request.Context())
 	pairingRepository, supportsPairing := api.repository.(accountSessionRepository)
@@ -108,15 +114,15 @@ func (api *API) accountSessions(response http.ResponseWriter, request *http.Requ
 			return
 		}
 		if status.HasCredential {
-			createdAt := status.CredentialCreatedAt
-			if status.PairedAt != "" {
-				createdAt = status.PairedAt
-			}
 			result = append(result, accountSessionResponse{
-				ID:        iosPairingDeviceID,
-				Kind:      "ios",
-				CreatedAt: createdAt,
-				Paired:    status.Paired,
+				ID:         iosPairingDeviceID,
+				Kind:       "ios",
+				CreatedAt:  status.CredentialCreatedAt,
+				PairedAt:   status.PairedAt,
+				LastSeenAt: status.LastSeenAt,
+				Device:     iosPairingDeviceInfo(status.Device),
+				Current:    isMobile,
+				Paired:     status.Paired,
 			})
 		}
 	}

@@ -265,6 +265,16 @@ func TestAccountSessionsListAndRevocation(t *testing.T) {
 			CredentialCreatedAt: now.Add(-24 * time.Hour).Format(time.RFC3339),
 			Paired:              true,
 			PairedAt:            now.Add(-23 * time.Hour).Format(time.RFC3339),
+			Device: mobilepairing.DeviceInfo{
+				Name:            "Test iPhone",
+				Model:           "iPhone",
+				ModelIdentifier: "iPhone18,2",
+				OSName:          "iOS",
+				OSVersion:       "26.0",
+				AppVersion:      "0.1.0",
+				AppBuild:        "1",
+			},
+			LastSeenAt: now.Add(-5 * time.Minute).Format(time.RFC3339),
 		},
 		iosRevokedDigest: mobilepairing.TokenDigest{7},
 	}
@@ -299,7 +309,12 @@ func TestAccountSessionsListAndRevocation(t *testing.T) {
 		listed.Sessions[1].LastSeenAt != now.Add(-10*time.Minute).Format(time.RFC3339) ||
 		listed.Sessions[1].AccessIP != "198.51.100.22" ||
 		listed.Sessions[2].ID != iosPairingDeviceID ||
-		!listed.Sessions[2].Paired {
+		!listed.Sessions[2].Paired ||
+		listed.Sessions[2].CreatedAt != now.Add(-24*time.Hour).Format(time.RFC3339) ||
+		listed.Sessions[2].PairedAt != now.Add(-23*time.Hour).Format(time.RFC3339) ||
+		listed.Sessions[2].LastSeenAt != now.Add(-5*time.Minute).Format(time.RFC3339) ||
+		listed.Sessions[2].Device == nil ||
+		listed.Sessions[2].Device.Name != "Test iPhone" {
 		t.Fatalf("listed sessions = %+v", listed.Sessions)
 	}
 
@@ -363,6 +378,58 @@ func TestAccountSessionsListAndRevocation(t *testing.T) {
 			revokeOthers.Code,
 			revokeOthers.Body.String(),
 		)
+	}
+}
+
+func TestMobileAccountSessionsListsCurrentIPhoneWithoutWebCookie(t *testing.T) {
+	t.Parallel()
+
+	token, digest, err := mobilepairing.NewToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 3, 6, 0, 0, 0, time.UTC)
+	repository := &fakeRepository{
+		mobileFound: true,
+		mobilePrincipal: auth.Principal{
+			UserID:            "user-1",
+			Role:              auth.RoleAdmin,
+			IOSPairingEnabled: true,
+		},
+		iosPairingStatus: store.IOSPairingStatus{
+			Allowed:             true,
+			HasCredential:       true,
+			CredentialCreatedAt: now.Add(-time.Hour).Format(time.RFC3339),
+			Paired:              true,
+			PairedAt:            now.Add(-59 * time.Minute).Format(time.RFC3339),
+			Device: mobilepairing.DeviceInfo{
+				Name: "Test iPhone",
+			},
+			LastSeenAt: now.Format(time.RFC3339),
+		},
+	}
+	api, err := New(repository, Options{disableAuthentication: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/account/sessions", nil)
+	request.Header.Set("Authorization", "Bearer "+string(token))
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	var listed accountSessionsResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Sessions) != 1 ||
+		listed.Sessions[0].ID != iosPairingDeviceID ||
+		!listed.Sessions[0].Current ||
+		listed.Sessions[0].Device == nil ||
+		listed.Sessions[0].Device.Name != "Test iPhone" ||
+		repository.mobileConfirmedDigest != digest {
+		t.Fatalf("mobile sessions = %+v", listed.Sessions)
 	}
 }
 

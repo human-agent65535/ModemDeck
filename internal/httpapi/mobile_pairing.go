@@ -33,13 +33,15 @@ const (
 )
 
 type iosPairingStatusResponse struct {
-	Allowed             bool                   `json:"allowed"`
-	Availability        iosPairingAvailability `json:"availability"`
-	HasCredential       bool                   `json:"has_credential"`
-	CredentialCreatedAt string                 `json:"credential_created_at,omitempty"`
-	Paired              bool                   `json:"paired"`
-	PairedAt            string                 `json:"paired_at,omitempty"`
-	ServerURLs          []string               `json:"server_urls,omitempty"`
+	Allowed             bool                      `json:"allowed"`
+	Availability        iosPairingAvailability    `json:"availability"`
+	HasCredential       bool                      `json:"has_credential"`
+	CredentialCreatedAt string                    `json:"credential_created_at,omitempty"`
+	Paired              bool                      `json:"paired"`
+	PairedAt            string                    `json:"paired_at,omitempty"`
+	Device              *mobilepairing.DeviceInfo `json:"device,omitempty"`
+	LastSeenAt          string                    `json:"last_seen_at,omitempty"`
+	ServerURLs          []string                  `json:"server_urls,omitempty"`
 }
 
 type iosPairingResponse struct {
@@ -316,8 +318,19 @@ func iosPairingStatusForCloudflare(
 		CredentialCreatedAt: status.CredentialCreatedAt,
 		Paired:              status.Paired,
 		PairedAt:            status.PairedAt,
+		Device:              iosPairingDeviceInfo(status.Device),
+		LastSeenAt:          status.LastSeenAt,
 		ServerURLs:          verifiedCloudflareAPIURLs(cloudflare),
 	}
+}
+
+func iosPairingDeviceInfo(
+	device mobilepairing.DeviceInfo,
+) *mobilepairing.DeviceInfo {
+	if device == (mobilepairing.DeviceInfo{}) {
+		return nil
+	}
+	return &device
 }
 
 var (

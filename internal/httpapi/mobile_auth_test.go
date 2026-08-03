@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -12,7 +13,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
 )
 
-func TestMobileAPIAllowlistCoversOnlyIOSCommunicationSurface(t *testing.T) {
+func TestMobileAPIAllowsAuthenticatedApplicationSurface(t *testing.T) {
 	t.Parallel()
 
 	allowed := []struct {
@@ -62,6 +63,11 @@ func TestMobileAPIAllowlistCoversOnlyIOSCommunicationSurface(t *testing.T) {
 		{http.MethodGet, "/api/v1/settings/recording"},
 		{http.MethodPut, "/api/v1/settings/recording"},
 		{http.MethodDelete, "/api/v1/mobile/pairing"},
+		{http.MethodGet, "/api/v1/mobile/pairing"},
+		{http.MethodGet, "/api/v1/account/sessions"},
+		{http.MethodGet, "/api/v1/users"},
+		{http.MethodGet, "/api/v1/diagnostics"},
+		{http.MethodGet, "/api/v1/settings/telegram"},
 	}
 	for _, testCase := range allowed {
 		request := httptest.NewRequest(testCase.method, testCase.path, nil)
@@ -75,14 +81,10 @@ func TestMobileAPIAllowlistCoversOnlyIOSCommunicationSurface(t *testing.T) {
 		path   string
 	}{
 		{http.MethodPost, "/api/v1/mobile/pairing"},
-		{http.MethodGet, "/api/v1/users"},
-		{http.MethodGet, "/api/v1/network"},
-		{http.MethodGet, "/api/v1/proxies"},
-		{http.MethodGet, "/api/v1/diagnostics"},
-		{http.MethodGet, "/api/v1/settings/tls"},
-		{http.MethodGet, "/api/v1/settings/telegram"},
-		{http.MethodPost, "/api/v1/contacts/batch"},
-		{http.MethodDelete, "/api/v1/bootstrap"},
+		{http.MethodPost, "/api/v1/setup"},
+		{http.MethodPost, "/api/v1/login"},
+		{http.MethodGet, "/api/v1/session"},
+		{http.MethodGet, "/healthz"},
 	}
 	for _, testCase := range forbidden {
 		request := httptest.NewRequest(testCase.method, testCase.path, nil)
@@ -116,6 +118,16 @@ func TestMobileBearerReturnsPrincipalSession(t *testing.T) {
 	}
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/mobile/session", nil)
 	request.Header.Set("Authorization", "Bearer "+string(token))
+	request.Header.Set(
+		mobileDeviceNameHeader,
+		"b64:"+base64.StdEncoding.EncodeToString([]byte("测试 iPhone")),
+	)
+	request.Header.Set(mobileDeviceModelHeader, "iPhone")
+	request.Header.Set(mobileDeviceModelIdentifierHeader, "iPhone18,2")
+	request.Header.Set(mobileOSNameHeader, "iOS")
+	request.Header.Set(mobileOSVersionHeader, "26.0")
+	request.Header.Set(mobileAppVersionHeader, "0.1.0")
+	request.Header.Set(mobileAppBuildHeader, "1")
 	response := httptest.NewRecorder()
 
 	api.ServeHTTP(response, request)
@@ -137,6 +149,17 @@ func TestMobileBearerReturnsPrincipalSession(t *testing.T) {
 	}
 	if repository.mobileConfirmedDigest != digest {
 		t.Fatalf("confirmed digest = %x, want %x", repository.mobileConfirmedDigest, digest)
+	}
+	if repository.mobileConfirmedDevice != (mobilepairing.DeviceInfo{
+		Name:            "测试 iPhone",
+		Model:           "iPhone",
+		ModelIdentifier: "iPhone18,2",
+		OSName:          "iOS",
+		OSVersion:       "26.0",
+		AppVersion:      "0.1.0",
+		AppBuild:        "1",
+	}) {
+		t.Fatalf("confirmed device = %+v", repository.mobileConfirmedDevice)
 	}
 }
 
@@ -186,10 +209,10 @@ func TestMobileBearerAllowsCallAPIWithoutCSRF(t *testing.T) {
 	}
 }
 
-func TestMobileBearerCannotAccessWebSettingsAPI(t *testing.T) {
+func TestMobileBearerCanAccessRoleCheckedSettingsAPI(t *testing.T) {
 	t.Parallel()
 
-	token, _, err := mobilepairing.NewToken()
+	token, digest, err := mobilepairing.NewToken()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,14 +238,15 @@ func TestMobileBearerCannotAccessWebSettingsAPI(t *testing.T) {
 
 	api.ServeHTTP(response, request)
 
-	assertAPIError(
-		t,
-		response,
-		http.StatusForbidden,
-		"mobile_api_forbidden",
-	)
-	if repository.mobileConfirmedDigest != (mobilepairing.TokenDigest{}) {
-		t.Fatal("forbidden API request confirmed the pairing")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if repository.mobileConfirmedDigest != digest {
+		t.Fatalf(
+			"confirmed digest = %x, want %x",
+			repository.mobileConfirmedDigest,
+			digest,
+		)
 	}
 }
 
