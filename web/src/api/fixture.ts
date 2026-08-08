@@ -1039,8 +1039,8 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     configured: true,
     available: true
   }
-  let iosPairingCreatedAt = ''
-  let iosPairingPairedAt = ''
+  let iosPairingCreatedAt = '2026-07-20T06:15:00Z'
+  let iosPairingPairedAt = '2026-07-20T06:16:00Z'
   const connectionProfiles = new Map<string, ConnectionProfile[]>(
     lines.map(line => [
       fixtureLineKey(line),
@@ -1844,7 +1844,21 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           ...(iosPairingCreatedAt
             ? { credential_created_at: iosPairingCreatedAt }
             : {}),
-          ...(iosPairingPairedAt ? { paired_at: iosPairingPairedAt } : {})
+          ...(iosPairingPairedAt
+            ? {
+                paired_at: iosPairingPairedAt,
+                last_seen_at: '2026-08-03T05:10:00Z',
+                device: {
+                  device_name: 'Test iPhone',
+                  device_model: 'iPhone',
+                  device_model_identifier: 'iPhone18,2',
+                  os_name: 'iOS',
+                  os_version: '26.0',
+                  app_version: '0.1.0',
+                  app_build: '1'
+                }
+              }
+            : {})
         }
       }
     },

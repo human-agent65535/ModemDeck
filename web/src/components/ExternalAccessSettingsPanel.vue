@@ -119,6 +119,22 @@ const pairingNotice = computed(() => {
       return ''
   }
 })
+const pairingDeviceTitle = computed(() => {
+  const device = pairing.value?.device
+  const specificName = [device?.device_name, device?.device_model]
+    .map(value => value?.trim() || '')
+    .find(value => value && value.toLocaleLowerCase() !== 'iphone')
+  return specificName || t('iosPairing.yourDevice')
+})
+const pairingOperatingSystem = computed(() =>
+  [
+    pairing.value?.device?.os_name?.trim(),
+    pairing.value?.device?.os_version?.trim()
+  ].filter(Boolean).join(' ')
+)
+const pairingAppVersion = computed(
+  () => pairing.value?.device?.app_version?.trim() || ''
+)
 
 type TunnelDiagnostic = {
   code: string
@@ -431,10 +447,6 @@ function closeQR(): void {
   copied.value = false
 }
 
-function joinDeviceFacts(...values: Array<string | undefined>): string {
-  return values.filter(Boolean).join(t('common.listSeparator'))
-}
-
 onMounted(() => {
   void load()
   statusRefreshTimer = window.setInterval(() => {
@@ -587,7 +599,7 @@ onBeforeUnmount(() => {
       <SettingsModuleCard
         v-if="showPairing && pairing"
         class="ios-card"
-        :title="t('iosPairing.yourDevice')"
+        :title="pairingDeviceTitle"
         title-id="ios-pairing-title"
         :description="t('iosPairing.yourDeviceDescription')"
         surface="subtle"
@@ -612,52 +624,22 @@ onBeforeUnmount(() => {
           {{ pairingNotice }}
         </div>
         <template v-if="pairing.allowed">
-          <dl class="ios-pairing-facts">
-            <div v-if="pairing.credential_created_at">
+          <dl class="ios-pairing-facts ios-pairing-facts--device">
+            <div v-if="pairing.credential_created_at && !pairing.paired">
               <dt>{{ t('iosPairing.createdAt') }}</dt>
               <dd>{{ formatTimestamp(pairing.credential_created_at) }}</dd>
+            </div>
+            <div v-if="pairingOperatingSystem">
+              <dt>{{ t('iosPairing.operatingSystem') }}</dt>
+              <dd>{{ pairingOperatingSystem }}</dd>
+            </div>
+            <div v-if="pairingAppVersion">
+              <dt>{{ t('iosPairing.appVersion') }}</dt>
+              <dd>{{ pairingAppVersion }}</dd>
             </div>
             <div v-if="pairing.paired_at">
               <dt>{{ t('iosPairing.pairedAt') }}</dt>
               <dd>{{ formatTimestamp(pairing.paired_at) }}</dd>
-            </div>
-            <div v-if="pairing.device?.device_name">
-              <dt>{{ t('iosPairing.deviceName') }}</dt>
-              <dd>{{ pairing.device.device_name }}</dd>
-            </div>
-            <div
-              v-if="pairing.device?.device_model || pairing.device?.device_model_identifier"
-            >
-              <dt>{{ t('iosPairing.deviceModel') }}</dt>
-              <dd>
-                {{
-                  joinDeviceFacts(
-                    pairing.device?.device_model,
-                    pairing.device?.device_model_identifier
-                  )
-                }}
-              </dd>
-            </div>
-            <div v-if="pairing.device?.os_name || pairing.device?.os_version">
-              <dt>{{ t('iosPairing.operatingSystem') }}</dt>
-              <dd>
-                {{
-                  joinDeviceFacts(
-                    pairing.device?.os_name,
-                    pairing.device?.os_version
-                  )
-                }}
-              </dd>
-            </div>
-            <div v-if="pairing.device?.app_version || pairing.device?.app_build">
-              <dt>{{ t('iosPairing.appVersion') }}</dt>
-              <dd>
-                {{
-                  pairing.device?.app_build
-                    ? `${pairing.device?.app_version || ''} (${pairing.device.app_build})`
-                    : pairing.device?.app_version
-                }}
-              </dd>
             </div>
             <div v-if="pairing.last_seen_at">
               <dt>{{ t('iosPairing.lastSeenAt') }}</dt>
@@ -677,8 +659,9 @@ onBeforeUnmount(() => {
               @change="selectedServerURL = $event"
             />
           </div>
-          <p class="ios-pairing-note">{{ t('iosPairing.noSwitching') }}</p>
-          <p class="ios-pairing-note">{{ t('iosPairing.noExpiry') }}</p>
+          <p class="ios-pairing-note">
+            {{ t('iosPairing.noSwitching') }} {{ t('iosPairing.noExpiry') }}
+          </p>
           <div class="ios-pairing-actions">
             <button
               v-if="pairingReady && !pairing.has_credential"
@@ -888,6 +871,21 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
 }
 
+.ios-pairing-facts--device {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 24px;
+}
+
+.ios-pairing-facts--device dt {
+  font-size: 11px;
+  text-transform: none;
+}
+
+.ios-pairing-facts--device dd {
+  margin-top: 3px;
+  font-size: 13px;
+}
+
 .ios-server-select {
   max-width: 520px;
   margin-top: 14px;
@@ -980,6 +978,12 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
+@media (min-width: 861px) {
+  .ios-pairing-facts--device {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 560px) {
   .ios-status {
     margin-left: 51px;
@@ -1002,4 +1006,5 @@ onBeforeUnmount(() => {
     width: min(260px, 70vw);
   }
 }
+
 </style>

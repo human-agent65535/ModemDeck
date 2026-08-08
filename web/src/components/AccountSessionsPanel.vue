@@ -51,31 +51,27 @@ function sessionTitle(session: AccountSession): string {
 
 function sessionDescription(session: AccountSession): string {
   if (session.kind === 'ios') {
-    const model = [
-      session.device?.device_model,
-      session.device?.device_model_identifier
-    ].filter(Boolean).join(' · ')
+    const title = sessionTitle(session).trim().toLocaleLowerCase()
+    const model = session.device?.device_model?.trim() || ''
     const operatingSystem = [
-      session.device?.os_name,
-      session.device?.os_version
+      session.device?.os_name?.trim(),
+      session.device?.os_version?.trim()
     ].filter(Boolean).join(' ')
-    const appVersion = session.device?.app_build
-      ? `${session.device?.app_version || ''} (${session.device.app_build})`
-      : session.device?.app_version
+    const appVersion = session.device?.app_version?.trim()
+    const activityAt = session.last_seen_at || session.paired_at
     return [
-      model ? `${t('iosPairing.deviceModel')}: ${model}` : '',
-      operatingSystem
-        ? `${t('iosPairing.operatingSystem')}: ${operatingSystem}`
+      model &&
+      model.toLocaleLowerCase() !== 'iphone' &&
+      model.toLocaleLowerCase() !== title
+        ? model
         : '',
-      appVersion ? `${t('iosPairing.appVersion')}: ${appVersion}` : '',
-      session.created_at
+      operatingSystem,
+      appVersion ? `ModemDeck ${appVersion}` : '',
+      activityAt
+        ? t('account.lastActiveAt', { date: formatDateTime(activityAt) })
+        : '',
+      !activityAt && session.created_at
         ? `${t('iosPairing.createdAt')}: ${formatDateTime(session.created_at)}`
-        : '',
-      session.paired_at
-        ? `${t('iosPairing.pairedAt')}: ${formatDateTime(session.paired_at)}`
-        : '',
-      session.last_seen_at
-        ? `${t('iosPairing.lastSeenAt')}: ${formatDateTime(session.last_seen_at)}`
         : ''
     ].filter(Boolean).join(t('common.listSeparator'))
   }

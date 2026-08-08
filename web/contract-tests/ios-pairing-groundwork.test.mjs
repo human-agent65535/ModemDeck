@@ -316,6 +316,13 @@ test('settings separate administrator infrastructure from self-service pairing',
   assert.match(externalAccessPanel, /externalAccess\.turn\.configured/)
   assert.match(externalAccessPanel, /externalAccess\.turn\.available/)
   assert.match(externalAccessPanel, /pairing\.value\.availability === 'ready'/)
+  assert.match(
+    externalAccessPanel,
+    /pairing\.credential_created_at && !pairing\.paired/
+  )
+  assert.match(externalAccessPanel, /ios-pairing-facts--device/)
+  assert.doesNotMatch(externalAccessPanel, /device_model_identifier/)
+  assert.doesNotMatch(externalAccessPanel, /device\?\.app_build/)
   assert.match(externalAccessPanel, /turnCallUnavailable/)
   assert.doesNotMatch(externalAccessPanel, /turnReady/)
   assert.match(externalAccessPanel, /window\.setInterval/)
