@@ -70,6 +70,10 @@
   --rail-width: 92px;
   --header-height: 72px;
   --dialer-width: clamp(360px, 28vw, 420px);
+  --keypad-grid-width: 238px;
+  --keypad-track-size: 62px;
+  --keypad-action-primary-size: 64px;
+  --keypad-action-secondary-size: 52px;
   --mobile-nav-content-height: 66px;
   --mobile-nav-height: calc(
     var(--mobile-nav-content-height) + env(safe-area-inset-bottom)
@@ -1905,18 +1909,18 @@ dd {
 
 .keypad {
   display: grid;
-  width: 238px;
+  width: var(--keypad-grid-width);
   margin: 16px auto 12px;
-  grid-template-columns: repeat(3, 62px);
-  grid-auto-rows: 62px;
+  grid-template-columns: repeat(3, var(--keypad-track-size));
+  grid-auto-rows: var(--keypad-track-size);
   justify-content: space-between;
   gap: 9px;
 }
 
 .keypad__key {
   display: flex;
-  width: 62px;
-  height: 62px;
+  width: var(--keypad-track-size);
+  height: var(--keypad-track-size);
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -1955,6 +1959,33 @@ dd {
   margin-top: 2px;
   font-size: 14px;
   font-weight: 650;
+}
+
+.keypad-action-grid {
+  display: grid;
+  min-height: 108px;
+  flex: 0 0 auto;
+  grid-template-columns: repeat(3, var(--keypad-track-size));
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  padding: 10px max(0px, calc((100% - var(--keypad-grid-width)) / 2)) 12px;
+  border-top: 1px solid var(--border);
+}
+
+.keypad-action-item {
+  display: grid;
+  width: var(--keypad-track-size);
+  min-width: var(--keypad-track-size);
+  min-height: 84px;
+  grid-template-rows: var(--keypad-action-primary-size) 14px;
+  align-items: center;
+  justify-items: center;
+  gap: 6px;
+}
+
+.keypad-action-item > small {
+  line-height: 14px;
 }
 
 @media (prefers-reduced-motion: reduce) {

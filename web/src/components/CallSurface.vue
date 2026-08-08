@@ -504,10 +504,10 @@ onBeforeUnmount(() => {
         </Transition>
       </div>
 
-      <div class="call-surface__primary-actions">
+      <div class="call-surface__primary-actions keypad-action-grid">
         <button
           v-if="recordingAdjustable"
-          class="call-footer-action call-footer-action--recording"
+          class="call-footer-action call-footer-action--recording keypad-action-item"
           :class="{ 'is-active': callRecordingState.enabled }"
           type="button"
           :title="
@@ -535,7 +535,7 @@ onBeforeUnmount(() => {
           <small>{{ t('calls.record') }}</small>
         </button>
         <template v-if="incoming">
-          <span class="call-primary-action call-primary-action--center">
+          <span class="call-primary-action call-primary-action--center keypad-action-item">
             <button
               class="call-button call-button--hangup"
               type="button"
@@ -550,7 +550,7 @@ onBeforeUnmount(() => {
             </button>
             <small>{{ t('calls.reject') }}</small>
           </span>
-          <span class="call-primary-action call-primary-action--end">
+          <span class="call-primary-action call-primary-action--end keypad-action-item">
             <button
               class="call-button call-button--answer"
               type="button"
@@ -567,7 +567,7 @@ onBeforeUnmount(() => {
           </span>
         </template>
         <template v-else-if="canHangup && callState.owned">
-          <span class="call-primary-action call-primary-action--center">
+          <span class="call-primary-action call-primary-action--center keypad-action-item">
             <button
               class="call-button call-button--hangup"
               type="button"
@@ -584,7 +584,7 @@ onBeforeUnmount(() => {
           </span>
           <button
             v-if="active"
-            class="call-footer-action call-footer-action--keypad"
+            class="call-footer-action call-footer-action--keypad keypad-action-item"
             :class="{ 'is-active': dtmfOpen }"
             type="button"
             :title="dtmfUnavailable || t('calls.keypad')"
@@ -599,7 +599,10 @@ onBeforeUnmount(() => {
             <small>{{ t('calls.keypadShort') }}</small>
           </button>
         </template>
-        <span v-else-if="terminal" class="call-primary-action call-primary-action--center">
+        <span
+          v-else-if="terminal"
+          class="call-primary-action call-primary-action--center keypad-action-item"
+        >
           <button
             class="call-button call-button--dismiss"
             type="button"
@@ -944,21 +947,11 @@ onBeforeUnmount(() => {
 }
 
 .call-surface__primary-actions {
-  display: grid;
-  min-height: 112px;
-  flex: 0 0 auto;
-  align-items: center;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  padding: 14px 28px 18px;
-  border-top: 1px solid var(--border);
+  min-width: 0;
 }
 
 .call-primary-action {
-  display: flex;
-  min-width: 72px;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
+  color: var(--muted);
 }
 
 .call-primary-action--start {
@@ -974,9 +967,9 @@ onBeforeUnmount(() => {
 }
 
 .call-primary-action .call-button {
-  width: 64px;
-  height: 64px;
-  flex-basis: 64px;
+  width: var(--keypad-action-primary-size);
+  height: var(--keypad-action-primary-size);
+  flex-basis: var(--keypad-action-primary-size);
 }
 
 .call-button--answer:disabled {
@@ -992,13 +985,6 @@ onBeforeUnmount(() => {
 }
 
 .call-footer-action {
-  display: flex;
-  width: 72px;
-  min-height: 80px;
-  flex-direction: column;
-  align-items: center;
-  justify-self: center;
-  gap: 7px;
   color: var(--muted);
   font-size: 11px;
   background: transparent;
@@ -1014,8 +1000,8 @@ onBeforeUnmount(() => {
 
 .call-footer-action__icon {
   display: inline-flex;
-  width: 58px;
-  height: 58px;
+  width: var(--keypad-action-secondary-size);
+  height: var(--keypad-action-secondary-size);
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -1027,13 +1013,11 @@ onBeforeUnmount(() => {
   transition:
     color var(--motion-base) var(--ease-standard),
     background var(--motion-base) var(--ease-standard),
-    border-color var(--motion-base) var(--ease-standard),
-    transform var(--motion-base) var(--ease-standard);
+    border-color var(--motion-base) var(--ease-standard);
 }
 
 .call-footer-action:not(.is-active):hover:not(:disabled) .call-footer-action__icon {
   background: var(--control-muted);
-  transform: translateY(-1px);
 }
 
 .call-footer-action--recording.is-active .call-footer-action__icon {
@@ -1143,8 +1127,11 @@ onBeforeUnmount(() => {
   }
 
   .call-surface__primary-actions {
+    --keypad-action-primary-size: 56px;
+    --keypad-action-secondary-size: 48px;
+
     min-height: 96px;
-    padding-block: 10px;
+    padding-block: 8px 10px;
   }
 }
 

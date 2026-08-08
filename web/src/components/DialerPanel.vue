@@ -670,9 +670,9 @@ onBeforeUnmount(() => {
               </div>
             </div>
 
-            <div class="dialer-primary-actions">
+            <div class="dialer-primary-actions keypad-action-grid">
               <button
-                class="dialer-recording-action"
+                class="dialer-recording-action keypad-action-item"
                 :class="{ 'is-active': dialerRecordingState.enabled }"
                 type="button"
                 :disabled="dialerRecordingState.status !== 'ready'"
@@ -686,7 +686,7 @@ onBeforeUnmount(() => {
                 </span>
                 <small>{{ t('calls.record') }}</small>
               </button>
-              <span class="dialer-primary-action">
+              <span class="dialer-primary-action keypad-action-item">
                 <button
                   class="call-button"
                   type="button"
@@ -1016,23 +1016,11 @@ onBeforeUnmount(() => {
 }
 
 .dialer-primary-actions {
-  display: grid;
-  min-height: 112px;
-  flex: 0 0 auto;
-  align-items: center;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  padding: 14px 28px 18px;
-  border-top: 1px solid var(--border);
+  min-width: 0;
 }
 
 .dialer-recording-action {
-  display: flex;
-  width: 72px;
-  min-height: 80px;
-  flex-direction: column;
-  align-items: center;
-  justify-self: end;
-  gap: 7px;
+  grid-column: 1;
   color: var(--muted);
   font-size: 11px;
   background: transparent;
@@ -1040,8 +1028,8 @@ onBeforeUnmount(() => {
 
 .dialer-recording-action__icon {
   display: inline-flex;
-  width: 58px;
-  height: 58px;
+  width: var(--keypad-action-secondary-size);
+  height: var(--keypad-action-secondary-size);
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -1053,14 +1041,12 @@ onBeforeUnmount(() => {
   transition:
     color var(--motion-base) var(--ease-standard),
     background var(--motion-base) var(--ease-standard),
-    border-color var(--motion-base) var(--ease-standard),
-    transform var(--motion-base) var(--ease-standard);
+    border-color var(--motion-base) var(--ease-standard);
 }
 
 .dialer-recording-action:not(.is-active):hover:not(:disabled)
   .dialer-recording-action__icon {
   background: var(--control-muted);
-  transform: translateY(-1px);
 }
 
 .dialer-recording-action.is-active .dialer-recording-action__icon {
@@ -1081,18 +1067,13 @@ onBeforeUnmount(() => {
 }
 
 .dialer-primary-action {
-  display: flex;
-  min-width: 72px;
-  flex-direction: column;
-  align-items: center;
   grid-column: 2;
-  gap: 6px;
 }
 
 .dialer-primary-action .call-button {
-  width: 64px;
-  height: 64px;
-  flex-basis: 64px;
+  width: var(--keypad-action-primary-size);
+  height: var(--keypad-action-primary-size);
+  flex-basis: var(--keypad-action-primary-size);
 }
 
 .dialer-primary-action small {
@@ -1145,8 +1126,11 @@ onBeforeUnmount(() => {
   }
 
   .dialer-primary-actions {
+    --keypad-action-primary-size: 56px;
+    --keypad-action-secondary-size: 48px;
+
     min-height: 96px;
-    padding-block: 10px;
+    padding-block: 8px 10px;
   }
 }
 

@@ -139,8 +139,11 @@ test('dialer separates the primary call action from backspace', async () => {
     dialer,
     /class="dialer-number-control"[\s\S]*?v-if="number"[\s\S]*?class="icon-button dialer-backspace-button"/
   )
-  assert.match(dialer, /class="dialer-primary-actions"[\s\S]*?class="call-button"/)
-  assert.match(dialer, /\.dialer-primary-actions\s*\{[\s\S]*?border-top: 1px solid var\(--border\)/)
+  assert.match(
+    dialer,
+    /class="dialer-primary-actions keypad-action-grid"[\s\S]*?class="call-button"/
+  )
+  assert.match(styles, /\.keypad-action-grid\s*\{[\s\S]*?border-top: 1px solid var\(--border\)/)
   assert.match(
     dialer,
     /\.dialer-number-trailing\s*\{[\s\S]*?position: absolute[\s\S]*?right: 7px/
@@ -160,7 +163,10 @@ test('dialer separates the primary call action from backspace', async () => {
   )
   assert.match(dialer, /text-align: center/)
   assert.doesNotMatch(dialer, /class="dialer-actions"/)
-  assert.match(styles, /grid-template-columns: repeat\(3, 62px\)/)
+  assert.match(
+    styles,
+    /grid-template-columns: repeat\(3, var\(--keypad-track-size\)\)/
+  )
   assert.match(dialer, /<small v-if="key\.letters">\{\{ key\.letters \}\}<\/small>/)
   assert.match(styles, /\.keypad__key strong\s*\{[\s\S]*?font-size: 26px/)
   assert.match(styles, /\.keypad__key--zero small\s*\{[\s\S]*?font-size: 14px/)
