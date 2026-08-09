@@ -91,6 +91,13 @@ for incoming calls. It uses each iPhone registration's own `development` or
 can coexist. Incoming calls suppressed by the effective do-not-disturb policy
 are not sent to CallKit.
 
+An authenticated paired user can send a synthetic PushKit check with
+`POST /api/v1/mobile/push/test-call`, also exposed as **Settings → Pairing →
+Test Call**. A successful `202` means APNs accepted the VoIP push; it does not
+prove device presentation. The payload is marked `test_call`, expires after ten
+seconds, and the iOS client ends its local CallKit call after thirty seconds.
+This check never creates a modem call, call record, call lease, or media owner.
+
 Provider credentials are server secrets. Do not commit a real Bundle ID, Apple
 Team ID, Key ID, or `.p8` file. The default published deployment reads
 `${MODEMDECK_DATA_DIR}/apple-push/config.json` through the API's existing data

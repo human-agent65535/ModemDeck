@@ -8,7 +8,8 @@ import {
   iosPairingContract,
   parseCallMediaICEConfiguration,
   parseExternalAccessStatusResponse,
-  parseIOSPairingResponse
+  parseIOSPairingResponse,
+  parseIOSTestCallResponse
 } from '../src/api/contract.ts'
 import { createFixtureGateway } from '../src/api/fixture.ts'
 
@@ -28,6 +29,11 @@ test('pairing exposes only verified selectable API addresses', () => {
       method: 'DELETE',
       path: '/api/v1/mobile/pairing',
       successStatus: 204
+    },
+    testCall: {
+      method: 'POST',
+      path: '/api/v1/mobile/push/test-call',
+      successStatus: 202
     }
   })
 
@@ -144,12 +150,24 @@ test('pairing exposes only verified selectable API addresses', () => {
   assert.equal(created.payload?.server_url, 'https://phone.example.com')
   assert.equal(created.payload?.token, 'md_ios_secret')
   assert.equal('expires_at' in created.payload, false)
+
+  assert.deepEqual(
+    parseIOSTestCallResponse({
+      id: 'f4bf0e11-c90c-5f42-838f-262f567ee160',
+      accepted_at: '2026-08-09T08:00:00Z'
+    }),
+    {
+      id: 'f4bf0e11-c90c-5f42-838f-262f567ee160',
+      accepted_at: '2026-08-09T08:00:00Z'
+    }
+  )
 })
 
 test('fixture creates and revokes one non-expiring Cloudflare pairing', async () => {
   const gateway = createFixtureGateway()
   const initial = await gateway.getIOSPairing()
   assert.equal(initial.pairing.availability, 'ready')
+  assert.ok((await gateway.sendIOSTestCall()).id)
   assert.deepEqual((await gateway.getExternalAccessStatus()).cloudflare, {
     enabled: true,
     connector_connected: true,

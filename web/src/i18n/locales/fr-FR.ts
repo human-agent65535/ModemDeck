@@ -544,7 +544,10 @@ export default {
     "pairingCode": "Code de jumelage",
     "sameDeviceHint": "Sur ce même téléphone, copiez le code et collez-le dans l’application ModemDeck.",
     "copied": "Copié",
-    "copyPairingData": "Copier le code de jumelage"
+    "copyPairingData": "Copier le code de jumelage",
+    "testCall": "Tester un appel entrant",
+    "testCallAccepted": "Apple a accepté l’appel de test ; l’iPhone devrait sonner maintenant",
+    "testCallFailed": "Impossible d’envoyer l’appel de test"
   },
   "contacts": {
     "new": "Nouveau contact",

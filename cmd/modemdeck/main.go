@@ -370,6 +370,7 @@ func run(
 			activate:   cloudflareOriginActivator,
 		},
 		MobilePairing:      cloudflareGateway,
+		IOSCallTests:       applePushRuntime,
 		RTCConfiguration:   turnProvider,
 		Authenticator:      authenticator,
 		SecureCookies:      secureCookies,

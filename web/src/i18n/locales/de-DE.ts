@@ -544,7 +544,10 @@ export default {
     "pairingCode": "Kopplungscode",
     "sameDeviceHint": "Auf diesem Smartphone den Code kopieren und in die ModemDeck-App einfügen.",
     "copied": "Kopiert",
-    "copyPairingData": "Kopplungscode kopieren"
+    "copyPairingData": "Kopplungscode kopieren",
+    "testCall": "Eingehenden Anruf testen",
+    "testCallAccepted": "Apple hat den Testanruf angenommen; das iPhone sollte jetzt klingeln",
+    "testCallFailed": "Testanruf konnte nicht gesendet werden"
   },
   "contacts": {
     "new": "Neuer Kontakt",

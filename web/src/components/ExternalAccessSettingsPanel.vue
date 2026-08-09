@@ -6,6 +6,7 @@ import {
   Clipboard,
   KeyRound,
   LoaderCircle,
+  PhoneIncoming,
   QrCode,
   RadioTower,
   RefreshCw,
@@ -86,6 +87,11 @@ const refreshMutation = useSettingsMutation({
   errorMessage: cause =>
     errorMessage(cause, t('iosPairing.refreshFailed')),
   successMessage: () => t('iosPairing.refreshed'),
+  toast: 'both'
+})
+const testCallMutation = useSettingsMutation({
+  errorMessage: cause => errorMessage(cause, t('iosPairing.testCallFailed')),
+  successMessage: () => t('iosPairing.testCallAccepted'),
   toast: 'both'
 })
 const pairingStatusLabel = computed(() => {
@@ -411,6 +417,13 @@ async function revokePairing(): Promise<void> {
   }
 }
 
+async function sendTestCall(): Promise<void> {
+  if (!pairing.value?.paired || testCallMutation.saving.value) return
+  pairingError.value = ''
+  const result = await testCallMutation.run(() => gateway.sendIOSTestCall())
+  if (!result.ok) pairingError.value = result.error
+}
+
 function selectPairingCode(): void {
   pairingCodeInput.value?.select()
 }
@@ -673,6 +686,21 @@ onBeforeUnmount(() => {
               <LoaderCircle v-if="pairingPending" class="spin" :size="16" />
               <QrCode v-else :size="16" />
               {{ t('iosPairing.generateQR') }}
+            </button>
+            <button
+              v-if="pairing.paired"
+              class="secondary-button"
+              type="button"
+              :disabled="pairingPending || testCallMutation.saving.value"
+              @click="sendTestCall"
+            >
+              <LoaderCircle
+                v-if="testCallMutation.saving.value"
+                class="spin"
+                :size="16"
+              />
+              <PhoneIncoming v-else :size="16" />
+              {{ t('iosPairing.testCall') }}
             </button>
             <button
               v-if="pairing.has_credential"

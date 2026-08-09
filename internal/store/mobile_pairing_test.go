@@ -345,6 +345,10 @@ func TestIOSPushTargetsAreScopedByLineAndTokenKind(t *testing.T) {
 		}) {
 			t.Fatalf("IOSPushTargetsForLine(%q) = %+v", kind, targets)
 		}
+		target, found, err := repository.IOSPushTargetForUser(ctx, member.ID, kind)
+		if err != nil || !found || target != targets[0] {
+			t.Fatalf("IOSPushTargetForUser(%q) = %+v, %t, %v", kind, target, found, err)
+		}
 	}
 	assertTarget(IOSPushTokenAPNS, apnsToken)
 	assertTarget(IOSPushTokenVoIP, voipToken)
@@ -358,6 +362,9 @@ func TestIOSPushTargetsAreScopedByLineAndTokenKind(t *testing.T) {
 	}
 	if targets, err := repository.IOSPushTargetsForLine(ctx, lineID, IOSPushTokenAPNS); err != nil || len(targets) != 0 {
 		t.Fatalf("cleared APNs targets = %+v, %v", targets, err)
+	}
+	if target, found, err := repository.IOSPushTargetForUser(ctx, member.ID, IOSPushTokenAPNS); err != nil || found {
+		t.Fatalf("cleared APNs user target = %+v, %t, %v", target, found, err)
 	}
 	assertTarget(IOSPushTokenVoIP, voipToken)
 }

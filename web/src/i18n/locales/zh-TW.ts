@@ -553,7 +553,10 @@ export default {
     sameDeviceHint:
       '如果 App 和網頁在同一部手機上，請複製配對碼並貼到 ModemDeck App。',
     copied: '已複製',
-    copyPairingData: '複製配對碼'
+    copyPairingData: '複製配對碼',
+    testCall: '測試來電',
+    testCallAccepted: 'Apple 已接受測試來電，iPhone 應會立即響鈴',
+    testCallFailed: '無法傳送測試來電'
   },
   contacts: {
     new: '新建聯絡人',

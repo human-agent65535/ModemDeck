@@ -49,16 +49,19 @@ sudo ./install.sh
 | M2 单路通话 | ✅ 已实现 | 拨号、接听、拒接、挂断、DTMF、浏览器音频和通话录音。 |
 | M3 多路通话 | 🧪 已实现，未测试 | 每个 Modem 的独立通话会话、线路预占、占线显示和线路切换；待多模组实机验证。 |
 | M4 多用户 | ✅ 已实现 | 初始管理员、普通成员、线路分配、用户通讯录、个人偏好和 Telegram 绑定。 |
-| M5 iOS App + CallKit | 🧪 原生客户端与推送链路已接入 | 已实现按用户配对、受限 Mobile Bearer API、通话会话复用、Cloudflare TURN 中继、APNs/PushKit 注册、服务端短信/来电推送与 PushKit→CallKit 来电入口。iOS 固定使用 Cloudflare HTTPS，不实现 LAN 探测或线路切换；Apple provider 凭据必须在服务器本地配置。 |
+| M5 iOS App + CallKit | 🧪 原生通话链路已实现，待实网 UAT | 已实现按用户配对、受限 Mobile Bearer API、APNs/PushKit、CallKit 接听与拨出、原生 WebRTC 音频、静音、DTMF、挂断及服务端测试来电。iOS 固定使用 Cloudflare HTTPS 并通过 TURN 中继通话媒体；Apple provider 凭据必须在服务器本地配置。 |
 
 只有安装并连接 Cloudflare Tunnel 后才能创建 iOS 配对。二维码包含自动发现的
 Cloudflare API HTTPS 地址和每用户凭据，不包含 LAN 地址，也没有过期时间；
 首次通过该凭据认证的 iOS API 请求会确认配对，关闭二维码不影响等待确认。
-凭据由用户或管理员撤销后才失效。iOS 通话复用现有 Call API 和 WebRTC
-媒体边界，并通过 Cloudflare TURN 强制中继。配对后的 iOS 客户端会把 APNs
-与 PushKit token 注册到 `/api/v1/mobile/push`。服务端按用户线路权限发送新短信
-通知，并只为允许接听的新来电发送 VoIP push；客户端收到 VoIP payload 后交给
-CallKit。Apple Team ID、Key ID、`.p8` 密钥和 Bundle ID 只保存在服务器本地，
+凭据由用户或管理员撤销后才失效。iOS 通话复用现有 Call API、通话租约和 WebRTC
+媒体边界，并通过 Cloudflare TURN 强制中继；来电、拨出、接听、静音、DTMF 与
+挂断均由 CallKit 作为原生状态所有者。配对后的 iOS 客户端会把 APNs 与 PushKit
+token 注册到 `/api/v1/mobile/push`。服务端按用户线路权限发送新短信通知，并只为
+允许接听的新来电发送 VoIP push；客户端收到 VoIP payload 后交给 CallKit。
+“设置 → 配对”中的测试来电通过 `/api/v1/mobile/push/test-call` 发送一个不会创建
+调制解调器通话、通话记录或租约的短时合成 CallKit 来电。Apple Team ID、Key ID、
+`.p8` 密钥和 Bundle ID 只保存在服务器本地，
 配置方式见[部署说明](deploy/README.md#apple-push-apns-and-pushkit)。
 
 ## 架构
@@ -236,19 +239,23 @@ covered in the [deployment guide](deploy/README.md).
 | M2 Single-call flow | ✅ Implemented | Dial, answer, decline, hang up, DTMF, browser audio, and call recording. |
 | M3 Concurrent calls | 🧪 Implemented, not tested | Independent sessions per modem, line reservations, busy-state display, and line switching; pending multi-modem hardware validation. |
 | M4 Multi-user | ✅ Implemented | Initial administrator, members, line assignments, user address books, personal preferences, and Telegram bindings. |
-| M5 iOS app + CallKit | 🧪 Native client and push path integrated | Per-user pairing, a constrained Mobile Bearer API, shared call sessions, Cloudflare TURN relay configuration, APNs/PushKit registration, server-side SMS and incoming-call delivery, and the PushKit-to-CallKit incoming-call entry point are implemented. iOS always uses Cloudflare HTTPS, with no LAN discovery or route switching; Apple provider credentials must be configured locally on the server. |
+| M5 iOS app + CallKit | 🧪 Native call path implemented; carrier UAT pending | Per-user pairing, a constrained Mobile Bearer API, APNs/PushKit, CallKit incoming and outgoing calls, native WebRTC audio, mute, DTMF, hang-up, and a server-originated test call are implemented. iOS always uses Cloudflare HTTPS and relays call media through TURN; Apple provider credentials must be configured locally on the server. |
 
 An iOS pairing can be created only while the installed Cloudflare Tunnel is
 connected. The QR payload contains the automatically discovered Cloudflare API
 HTTPS origin and a per-user credential; it contains no LAN address and has no
 expiry. The first authenticated iOS API request confirms the pairing; closing
 the QR does not cancel the pending credential. It remains valid until the user
-or an administrator revokes it. iOS calls reuse the Call API and WebRTC media
-boundary with Cloudflare TURN relay-only configuration. After pairing, the
-client registers APNs and PushKit tokens through `/api/v1/mobile/push`. The
-server sends new-message alerts according to each user's line access and sends
-VoIP pushes only for incoming calls whose effective policy permits receiving;
-the client hands those VoIP payloads to CallKit. Apple Team ID, Key ID, `.p8`
+or an administrator revokes it. iOS calls reuse the Call API, call lease, and
+WebRTC media boundaries with Cloudflare TURN relay-only configuration. CallKit
+owns incoming and outgoing call state, answering, mute, DTMF, and hang-up.
+After pairing, the client registers APNs and PushKit tokens through
+`/api/v1/mobile/push`. The server sends new-message alerts according to each
+user's line access and sends VoIP pushes only for incoming calls whose effective
+policy permits receiving; the client hands those VoIP payloads to CallKit.
+The Test Call action under Settings → Pairing posts to
+`/api/v1/mobile/push/test-call`; it creates a short-lived synthetic CallKit call
+without a modem call, call record, or lease. Apple Team ID, Key ID, `.p8`
 key, and Bundle ID remain server-local. See the [deployment guide](deploy/README.md#apple-push-apns-and-pushkit).
 
 ## Architecture

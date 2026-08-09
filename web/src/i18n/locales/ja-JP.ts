@@ -544,7 +544,10 @@ export default {
     "pairingCode": "ペアリングコード",
     "sameDeviceHint": "この端末で開いている場合は、コードをコピーして ModemDeck アプリに貼り付けてください。",
     "copied": "コピーしました",
-    "copyPairingData": "ペアリングコードをコピー"
+    "copyPairingData": "ペアリングコードをコピー",
+    "testCall": "着信をテスト",
+    "testCallAccepted": "Apple がテスト着信を受け付けました。iPhone がまもなく鳴ります",
+    "testCallFailed": "テスト着信を送信できません"
   },
   "contacts": {
     "new": "新しい連絡先",

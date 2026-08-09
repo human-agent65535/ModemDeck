@@ -150,6 +150,48 @@ func (s *Store) IOSPushTargetsForLine(
 	return targets, nil
 }
 
+func (s *Store) IOSPushTargetForUser(
+	ctx context.Context,
+	userID string,
+	kind IOSPushTokenKind,
+) (IOSPushTarget, bool, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" || (kind != IOSPushTokenAPNS && kind != IOSPushTokenVoIP) {
+		return IOSPushTarget{}, false, fmt.Errorf("query iOS push target: invalid target scope")
+	}
+	tokenColumn := "credential.apns_token"
+	if kind == IOSPushTokenVoIP {
+		tokenColumn = "credential.voip_token"
+	}
+	var target IOSPushTarget
+	err := s.database.QueryRowContext(
+		ctx,
+		`SELECT credential.user_id, `+tokenColumn+`,
+			credential.push_environment, credential.push_bundle_id
+		 FROM modemdeck_ios_pairing_credentials AS credential
+		 JOIN modemdeck_users AS user
+			ON user.id = credential.user_id
+				AND user.enabled = 1
+				AND user.ios_pairing_enabled = 1
+		 WHERE credential.user_id = ?
+			AND credential.activated_at IS NOT NULL
+			AND `+tokenColumn+` <> ''`,
+		userID,
+	).Scan(
+		&target.UserID,
+		&target.Token,
+		&target.Environment,
+		&target.BundleID,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return IOSPushTarget{}, false, nil
+	}
+	if err != nil {
+		return IOSPushTarget{}, false, fmt.Errorf("query iOS push target: %w", err)
+	}
+	return target, true, nil
+}
+
 func (s *Store) ClearIOSPushToken(
 	ctx context.Context,
 	userID string,

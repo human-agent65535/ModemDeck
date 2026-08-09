@@ -261,6 +261,11 @@ export type IOSPairingResult = {
   payload?: IOSPairingPayload
 }
 
+export type IOSTestCallResult = {
+  id: string
+  accepted_at: string
+}
+
 export type AboutInfo = {
   name: string
   version: string

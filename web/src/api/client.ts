@@ -53,6 +53,7 @@ import {
   parseGlobalCallSettings,
   parseLineSettingsResponse,
   parseIOSPairingResponse,
+  parseIOSTestCallResponse,
   parseIOSDeviceInfo,
   parseSystemSettingsResponse,
   parseLineLabelResponse,
@@ -133,6 +134,7 @@ import type {
   IncomingMessageEvent,
   LineLabelResult,
   IOSPairingResult,
+  IOSTestCallResult,
   InstallCloudflareOriginTLSInput,
   LoginInput,
   Message,
@@ -1461,6 +1463,18 @@ const realGateway: ConfiguredModemDeckGateway = {
         headers: { Accept: 'application/json' }
       },
       contract.successStatus
+    )
+  },
+
+  async sendIOSTestCall(): Promise<IOSTestCallResult> {
+    const contract = iosPairingContract.testCall
+    return parseIOSTestCallResponse(
+      await writeJSON(
+        contract.path,
+        contract.method,
+        {},
+        contract.successStatus
+      )
     )
   },
 

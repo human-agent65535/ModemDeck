@@ -573,7 +573,10 @@ export default {
     sameDeviceHint:
       'On this phone, copy the code and paste it into the ModemDeck app.',
     copied: 'Copied',
-    copyPairingData: 'Copy pairing code'
+    copyPairingData: 'Copy pairing code',
+    testCall: 'Test incoming call',
+    testCallAccepted: 'Apple accepted the test call; the iPhone should ring now',
+    testCallFailed: 'Unable to send the test call'
   },
   contacts: {
     new: 'New contact',

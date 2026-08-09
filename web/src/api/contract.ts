@@ -42,6 +42,7 @@ import type {
   IOSDeviceInfo,
   IOSPairingResult,
   IOSPairingStatus,
+  IOSTestCallResult,
   InstallCloudflareOriginTLSInput,
   MobileNetwork,
   MobileNetworkScan,
@@ -490,6 +491,7 @@ export const communicationContracts = {
 } as const
 
 export const iosPairingPath = '/api/v1/mobile/pairing'
+export const iosTestCallPath = '/api/v1/mobile/push/test-call'
 export const externalAccessStatusPath = '/api/v1/external-access/status'
 export const externalAccessRefreshPath = '/api/v1/external-access/refresh'
 
@@ -508,6 +510,11 @@ export const iosPairingContract = {
     method: 'DELETE',
     path: iosPairingPath,
     successStatus: 204
+  },
+  testCall: {
+    method: 'POST',
+    path: iosTestCallPath,
+    successStatus: 202
   }
 } as const
 
@@ -2474,6 +2481,14 @@ export function parseIOSPairingResponse(value: unknown): IOSPairingResult {
       server_url: requiredString(payload, 'ios_pairing_payload', 'server_url'),
       token: requiredString(payload, 'ios_pairing_payload', 'token')
     }
+  }
+}
+
+export function parseIOSTestCallResponse(value: unknown): IOSTestCallResult {
+  const response = objectValue(value, 'ios_test_call')
+  return {
+    id: requiredString(response, 'ios_test_call', 'id'),
+    accepted_at: requiredTimestamp(response, 'ios_test_call', 'accepted_at')
   }
 }
 

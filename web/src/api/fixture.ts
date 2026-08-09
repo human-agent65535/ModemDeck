@@ -1921,6 +1921,20 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       }
     },
 
+    async sendIOSTestCall() {
+      if (!iosPairingPairedAt) {
+        throw new ApiError(
+          'The paired iPhone has not registered for incoming calls',
+          409,
+          'pushkit_not_registered'
+        )
+      }
+      return {
+        id: globalThis.crypto.randomUUID(),
+        accepted_at: new Date().toISOString()
+      }
+    },
+
     async getCallMediaICEConfiguration(): Promise<CallMediaICEConfiguration> {
       return {
         ice_servers: [],

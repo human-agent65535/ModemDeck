@@ -24,18 +24,33 @@ const (
 	maximumAlertRunes      = 240
 )
 
+var (
+	ErrPushTargetUnavailable = errors.New("Apple push target is unavailable")
+	ErrPushTopicMismatch     = errors.New("Apple push topic does not match the paired app")
+)
+
 type Repository interface {
 	IOSPushTargetsForLine(
 		context.Context,
 		string,
 		store.IOSPushTokenKind,
 	) ([]store.IOSPushTarget, error)
+	IOSPushTargetForUser(
+		context.Context,
+		string,
+		store.IOSPushTokenKind,
+	) (store.IOSPushTarget, bool, error)
 	ClearIOSPushToken(
 		context.Context,
 		string,
 		store.IOSPushTokenKind,
 		string,
 	) error
+}
+
+type TestCallResult struct {
+	ID         string
+	AcceptedAt time.Time
 }
 
 type Sender interface {
@@ -233,6 +248,94 @@ func (runtime *Runtime) deliverCall(ctx context.Context, event callevents.Incomi
 			Payload:    payload,
 		},
 	)
+}
+
+// SendTestCall sends a synthetic CallKit wake-up to the current user's paired
+// iPhone. It never creates a modem call or a durable call record.
+func (runtime *Runtime) SendTestCall(
+	ctx context.Context,
+	userID string,
+) (TestCallResult, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return TestCallResult{}, ErrPushTargetUnavailable
+	}
+	target, found, err := runtime.repository.IOSPushTargetForUser(
+		ctx,
+		userID,
+		store.IOSPushTokenVoIP,
+	)
+	if err != nil {
+		return TestCallResult{}, fmt.Errorf("query test call target: %w", err)
+	}
+	if !found || strings.TrimSpace(target.Token) == "" {
+		return TestCallResult{}, ErrPushTargetUnavailable
+	}
+	if target.BundleID != runtime.sender.BundleID() {
+		return TestCallResult{}, ErrPushTopicMismatch
+	}
+
+	now := runtime.now().UTC()
+	testID := deterministicUUID(
+		"callkit-test",
+		fmt.Sprintf("%s\x00%d", userID, now.UnixNano()),
+	)
+	payload := struct {
+		APS  struct{} `json:"aps"`
+		Call struct {
+			CallID       string `json:"call_id"`
+			UUID         string `json:"uuid"`
+			RemoteNumber string `json:"remote_number"`
+			DisplayName  string `json:"display_name"`
+			TestCall     bool   `json:"test_call"`
+		} `json:"modemdeck_call"`
+	}{}
+	payload.Call.CallID = "test-" + testID
+	payload.Call.UUID = testID
+	payload.Call.RemoteNumber = "ModemDeck Test"
+	payload.Call.DisplayName = "ModemDeck Test Call"
+	payload.Call.TestCall = true
+
+	notification := Notification{
+		DeviceToken: target.Token,
+		Environment: target.Environment,
+		PushType:    PushTypeVoIP,
+		APNSID:      testID,
+		CollapseID:  testID,
+		Expiration:  now.Add(10 * time.Second),
+		Payload:     payload,
+	}
+	deliveryContext, cancel := context.WithTimeout(ctx, runtime.deliveryTimeout)
+	err = runtime.sendWithRetry(deliveryContext, notification)
+	cancel()
+	if err != nil {
+		if InvalidatesToken(err) {
+			clearContext, clearCancel := context.WithTimeout(ctx, 5*time.Second)
+			clearErr := runtime.repository.ClearIOSPushToken(
+				clearContext,
+				target.UserID,
+				store.IOSPushTokenVoIP,
+				target.Token,
+			)
+			clearCancel()
+			if clearErr != nil {
+				runtime.logger.Warn(
+					"invalid test call token could not be cleared",
+					"component", "apple_push",
+					"user_id", target.UserID,
+					"error", clearErr,
+				)
+			}
+		}
+		return TestCallResult{}, fmt.Errorf("send test call: %w", err)
+	}
+	runtime.logger.Info(
+		"test CallKit push accepted by APNs",
+		"component", "apple_push",
+		"user_id", target.UserID,
+		"test_call_id", testID,
+	)
+	return TestCallResult{ID: testID, AcceptedAt: now}, nil
 }
 
 func (runtime *Runtime) deliver(

@@ -544,7 +544,10 @@ export default {
     "pairingCode": "Código de emparejamiento",
     "sameDeviceHint": "Si estás en el mismo teléfono, copia el código y pégalo en la aplicación ModemDeck.",
     "copied": "Copiado",
-    "copyPairingData": "Copiar código de emparejamiento"
+    "copyPairingData": "Copiar código de emparejamiento",
+    "testCall": "Probar llamada entrante",
+    "testCallAccepted": "Apple aceptó la llamada de prueba; el iPhone sonará ahora",
+    "testCallFailed": "No se pudo enviar la llamada de prueba"
   },
   "contacts": {
     "new": "Nuevo contacto",

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
+	"github.com/human-agent65535/modemdeck/internal/applepush"
 	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/communication"
@@ -210,6 +211,10 @@ type CallMediaService interface {
 	CloseCall(context.Context, string) error
 }
 
+type IOSCallTestService interface {
+	SendTestCall(context.Context, string) (applepush.TestCallResult, error)
+}
+
 type CallLeaseService interface {
 	ReserveOutgoingFor(context.Context, string, string, calllease.Owner) (calllease.OutgoingReservation, error)
 	ActivateOutgoing(context.Context, string, string, string) (calllease.Status, error)
@@ -278,6 +283,7 @@ type Options struct {
 	TLSSettings           TLSSettingsService
 	CloudflareOriginTLS   CloudflareOriginTLSService
 	MobilePairing         mobilepairing.Availability
+	IOSCallTests          IOSCallTestService
 	RTCConfiguration      rtcconfig.Provider
 	Authenticator         Authenticator
 	SecureCookies         bool
@@ -308,6 +314,7 @@ type API struct {
 	tlsSettingsService         TLSSettingsService
 	cloudflareOriginTLSService CloudflareOriginTLSService
 	mobilePairingAvailability  mobilepairing.Availability
+	iosCallTests               IOSCallTestService
 	rtcConfiguration           rtcconfig.Provider
 	turnAvailability           turnAvailabilityCache
 	authenticator              Authenticator
@@ -358,6 +365,7 @@ func New(repository Repository, options Options) (*API, error) {
 		tlsSettingsService:         options.TLSSettings,
 		cloudflareOriginTLSService: options.CloudflareOriginTLS,
 		mobilePairingAvailability:  options.MobilePairing,
+		iosCallTests:               options.IOSCallTests,
 		rtcConfiguration:           options.RTCConfiguration,
 		authenticator:              options.Authenticator,
 		secureCookies:              options.SecureCookies,
@@ -444,6 +452,8 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.mobilePairing(response, request)
 	case "/api/v1/mobile/push":
 		api.mobilePush(response, request)
+	case "/api/v1/mobile/push/test-call":
+		api.postOnly(response, request, api.mobilePushTestCall)
 	case "/api/v1/users":
 		api.usersCollection(response, request)
 	case "/api/v1/contacts":

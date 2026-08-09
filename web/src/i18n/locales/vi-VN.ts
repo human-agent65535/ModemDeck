@@ -544,7 +544,10 @@ export default {
     "pairingCode": "Mã ghép đôi",
     "sameDeviceHint": "Nếu đang mở trên cùng điện thoại, hãy sao chép mã và dán vào ứng dụng ModemDeck.",
     "copied": "Đã sao chép",
-    "copyPairingData": "Sao chép mã ghép đôi"
+    "copyPairingData": "Sao chép mã ghép đôi",
+    "testCall": "Kiểm tra cuộc gọi đến",
+    "testCallAccepted": "Apple đã chấp nhận cuộc gọi thử; iPhone sẽ đổ chuông ngay",
+    "testCallFailed": "Không thể gửi cuộc gọi thử"
   },
   "contacts": {
     "new": "Liên hệ mới",

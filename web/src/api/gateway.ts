@@ -63,6 +63,7 @@ import type {
   TelegramUnit,
   TelegramUnitInput,
   IOSPairingResult,
+  IOSTestCallResult,
   InstallCloudflareOriginTLSInput,
   TLSSettings,
   UpdateCheck,
@@ -200,6 +201,7 @@ export interface ModemDeckGateway {
   getIOSPairing(): Promise<IOSPairingResult>
   createIOSPairing(serverURL?: string): Promise<IOSPairingResult>
   revokeIOSPairing(): Promise<void>
+  sendIOSTestCall(): Promise<IOSTestCallResult>
   getTLSSettings(): Promise<TLSSettings>
   updateTLSSettings(input: UpdateTLSSettingsInput): Promise<TLSSettings>
   getDeviceConfiguration(lineID: string): Promise<DeviceConfiguration>

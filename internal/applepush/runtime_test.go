@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -37,6 +38,22 @@ func (repository *fakePushRepository) IOSPushTargetsForLine(
 		return nil, repository.err
 	}
 	return append([]store.IOSPushTarget(nil), repository.targets[kind]...), nil
+}
+
+func (repository *fakePushRepository) IOSPushTargetForUser(
+	_ context.Context,
+	userID string,
+	kind store.IOSPushTokenKind,
+) (store.IOSPushTarget, bool, error) {
+	if repository.err != nil {
+		return store.IOSPushTarget{}, false, repository.err
+	}
+	for _, target := range repository.targets[kind] {
+		if target.UserID == userID {
+			return target, true, nil
+		}
+	}
+	return store.IOSPushTarget{}, false, nil
 }
 
 func (repository *fakePushRepository) ClearIOSPushToken(
@@ -207,6 +224,89 @@ func TestRuntimeSkipsMismatchedTopicAndStaleCall(t *testing.T) {
 	})
 	if len(sender.notifications) != 0 {
 		t.Fatalf("notifications = %+v, want none", sender.notifications)
+	}
+}
+
+func TestRuntimeSendsSyntheticTestCallOnlyToRequestedUser(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.August, 9, 7, 0, 0, 0, time.UTC)
+	repository := &fakePushRepository{targets: map[store.IOSPushTokenKind][]store.IOSPushTarget{
+		store.IOSPushTokenVoIP: {
+			{
+				UserID:      "user-other",
+				Token:       strings.Repeat("11", 32),
+				Environment: "production",
+				BundleID:    "com.example.modemdeck",
+			},
+			{
+				UserID:      "user-example",
+				Token:       strings.Repeat("22", 32),
+				Environment: "production",
+				BundleID:    "com.example.modemdeck",
+			},
+		},
+	}}
+	sender := &fakePushSender{bundleID: "com.example.modemdeck"}
+	runtime := testRuntime(t, repository, sender, now)
+
+	result, err := runtime.SendTestCall(context.Background(), "user-example")
+	if err != nil {
+		t.Fatalf("SendTestCall() error = %v", err)
+	}
+	if result.ID == "" || !result.AcceptedAt.Equal(now) {
+		t.Fatalf("result = %+v", result)
+	}
+	if len(sender.notifications) != 1 {
+		t.Fatalf("notifications = %+v", sender.notifications)
+	}
+	notification := sender.notifications[0]
+	if notification.DeviceToken != strings.Repeat("22", 32) ||
+		notification.PushType != PushTypeVoIP ||
+		notification.APNSID != result.ID {
+		t.Fatalf("notification = %+v", notification)
+	}
+	payload, _ := json.Marshal(notification.Payload)
+	for _, expected := range []string{`"test_call":true`, "ModemDeck Test Call", "test-" + result.ID} {
+		if !jsonContains(t, payload, expected) {
+			t.Fatalf("test call payload %s does not contain %q", payload, expected)
+		}
+	}
+}
+
+func TestRuntimeRejectsTestCallWithoutMatchingPushKitTarget(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.August, 9, 7, 30, 0, 0, time.UTC)
+	tests := []struct {
+		name    string
+		targets []store.IOSPushTarget
+		wantErr error
+	}{
+		{name: "missing", wantErr: ErrPushTargetUnavailable},
+		{
+			name: "topic mismatch",
+			targets: []store.IOSPushTarget{{
+				UserID:      "user-example",
+				Token:       strings.Repeat("33", 32),
+				Environment: "production",
+				BundleID:    "com.example.other",
+			}},
+			wantErr: ErrPushTopicMismatch,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repository := &fakePushRepository{targets: map[store.IOSPushTokenKind][]store.IOSPushTarget{
+				store.IOSPushTokenVoIP: test.targets,
+			}}
+			sender := &fakePushSender{bundleID: "com.example.modemdeck"}
+			runtime := testRuntime(t, repository, sender, now)
+			if _, err := runtime.SendTestCall(context.Background(), "user-example"); !errors.Is(err, test.wantErr) {
+				t.Fatalf("SendTestCall() error = %v, want %v", err, test.wantErr)
+			}
+			if len(sender.notifications) != 0 {
+				t.Fatalf("notifications = %+v", sender.notifications)
+			}
+		})
 	}
 }
 
