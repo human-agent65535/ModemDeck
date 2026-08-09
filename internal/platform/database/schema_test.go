@@ -376,6 +376,7 @@ func TestOpenAddsIOSPairingDeviceMetadataAndPreservesExistingPairing(
 		"\n\t\t\tos_version TEXT NOT NULL DEFAULT '',",
 		"\n\t\t\tapp_version TEXT NOT NULL DEFAULT '',",
 		"\n\t\t\tapp_build TEXT NOT NULL DEFAULT '',",
+		"\n\t\t\tpush_bundle_id TEXT NOT NULL DEFAULT '',",
 		"\n\t\t\tlast_seen_at DATETIME,",
 	} {
 		updated := strings.Replace(previousSchema, definition, "", 1)
@@ -420,12 +421,12 @@ func TestOpenAddsIOSPairingDeviceMetadataAndPreservesExistingPairing(
 	if err := ValidateSchema(context.Background(), database); err != nil {
 		t.Fatalf("ValidateSchema() after migration error = %v", err)
 	}
-	var activatedAt, deviceName, lastSeenAt sql.NullString
+	var activatedAt, deviceName, pushBundleID, lastSeenAt sql.NullString
 	if err := database.QueryRow(`
-		SELECT activated_at, device_name, last_seen_at
+		SELECT activated_at, device_name, push_bundle_id, last_seen_at
 		FROM modemdeck_ios_pairing_credentials
 		WHERE user_id = 'user_admin'
-	`).Scan(&activatedAt, &deviceName, &lastSeenAt); err != nil {
+	`).Scan(&activatedAt, &deviceName, &pushBundleID, &lastSeenAt); err != nil {
 		t.Fatal(err)
 	}
 	activated, err := time.Parse(time.RFC3339, activatedAt.String)
@@ -434,11 +435,13 @@ func TestOpenAddsIOSPairingDeviceMetadataAndPreservesExistingPairing(
 	}
 	if !activated.Equal(time.Date(2026, 8, 1, 12, 1, 0, 0, time.UTC)) ||
 		deviceName.String != "" ||
+		pushBundleID.String != "" ||
 		lastSeenAt.Valid {
 		t.Fatalf(
-			"migrated pairing = activated %q, device %q, last seen %q",
+			"migrated pairing = activated %q, device %q, bundle %q, last seen %q",
 			activatedAt.String,
 			deviceName.String,
+			pushBundleID.String,
 			lastSeenAt.String,
 		)
 	}

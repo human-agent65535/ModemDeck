@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -275,6 +276,90 @@ func TestIOSPairingCredentialHasNoTimeExpiry(t *testing.T) {
 			err,
 		)
 	}
+}
+
+func TestIOSPushTargetsAreScopedByLineAndTokenKind(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	ctx := context.Background()
+	if created, err := repository.CreateAdminIfAbsent(ctx, auth.AdminCredentials{
+		Username:     "owner",
+		PasswordHash: "owner-hash",
+	}); err != nil || !created {
+		t.Fatalf("CreateAdminIfAbsent() = %t, %v", created, err)
+	}
+	line := policyTestLine()
+	result, err := repository.ApplyHardwareSnapshotWithResult(ctx, HardwareSnapshot{
+		BootEpoch:  "boot-ios-push",
+		Revision:   "snapshot-ios-push",
+		ObservedAt: time.Date(2026, time.August, 9, 2, 0, 0, 0, time.UTC),
+		Lines:      []HardwareLine{line},
+	})
+	if err != nil {
+		t.Fatalf("ApplyHardwareSnapshotWithResult() error = %v", err)
+	}
+	lineID := result.LineIDsByEndpoint[line.ID]
+	member, err := repository.CreateMember(ctx, CreateMemberInput{
+		Username:          "push-member",
+		PasswordHash:      "member-hash",
+		IOSPairingEnabled: true,
+		LineIDs:           []string{lineID},
+	})
+	if err != nil {
+		t.Fatalf("CreateMember() error = %v", err)
+	}
+	digest := mobilepairing.TokenDigest{9, 8, 7}
+	if _, err := repository.RotateIOSPairingCredential(ctx, member.ID, digest); err != nil {
+		t.Fatalf("RotateIOSPairingCredential() error = %v", err)
+	}
+	if confirmed, err := repository.ConfirmIOSPairingCredential(
+		ctx,
+		digest,
+		mobilepairing.DeviceInfo{},
+	); err != nil || !confirmed {
+		t.Fatalf("ConfirmIOSPairingCredential() = %t, %v", confirmed, err)
+	}
+	apnsToken := strings.Repeat("ab", 32)
+	voipToken := strings.Repeat("cd", 32)
+	if err := repository.UpdateIOSPushRegistration(ctx, digest, mobilepairing.PushRegistration{
+		APNSToken:   apnsToken,
+		VoIPToken:   voipToken,
+		Environment: "production",
+		BundleID:    "com.example.modemdeck",
+	}); err != nil {
+		t.Fatalf("UpdateIOSPushRegistration() error = %v", err)
+	}
+
+	assertTarget := func(kind IOSPushTokenKind, token string) {
+		t.Helper()
+		targets, err := repository.IOSPushTargetsForLine(ctx, lineID, kind)
+		if err != nil {
+			t.Fatalf("IOSPushTargetsForLine(%q) error = %v", kind, err)
+		}
+		if len(targets) != 1 || targets[0] != (IOSPushTarget{
+			UserID:      member.ID,
+			Token:       token,
+			Environment: "production",
+			BundleID:    "com.example.modemdeck",
+		}) {
+			t.Fatalf("IOSPushTargetsForLine(%q) = %+v", kind, targets)
+		}
+	}
+	assertTarget(IOSPushTokenAPNS, apnsToken)
+	assertTarget(IOSPushTokenVoIP, voipToken)
+
+	if err := repository.ClearIOSPushToken(ctx, member.ID, IOSPushTokenAPNS, "stale-token"); err != nil {
+		t.Fatalf("ClearIOSPushToken(stale) error = %v", err)
+	}
+	assertTarget(IOSPushTokenAPNS, apnsToken)
+	if err := repository.ClearIOSPushToken(ctx, member.ID, IOSPushTokenAPNS, apnsToken); err != nil {
+		t.Fatalf("ClearIOSPushToken() error = %v", err)
+	}
+	if targets, err := repository.IOSPushTargetsForLine(ctx, lineID, IOSPushTokenAPNS); err != nil || len(targets) != 0 {
+		t.Fatalf("cleared APNs targets = %+v, %v", targets, err)
+	}
+	assertTarget(IOSPushTokenVoIP, voipToken)
 }
 
 func TestPasswordChangesRevokeIOSPairingCredentials(t *testing.T) {

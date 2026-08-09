@@ -106,6 +106,7 @@ func (s *Store) ApplyHardwareSnapshotWithResult(
 		}
 		return HardwareSnapshotResult{
 			CreatedIncomingMessages:  []Message{},
+			CreatedIncomingCalls:     []Call{},
 			HandledDeliveryReportIDs: handledReports,
 			LineIDsByEndpoint:        lineIDsByEndpoint,
 		}, nil
@@ -136,10 +137,21 @@ func (s *Store) ApplyHardwareSnapshotWithResult(
 			handledReports = append(handledReports, report.EndpointReportID)
 		}
 	}
+	createdIncomingCalls := make([]Call, 0)
 	for _, call := range snapshot.Calls {
 		call.Revision = sequence
-		if _, err := upsertHardwareCall(ctx, transaction, call); err != nil {
+		stored, created, err := upsertHardwareCall(ctx, transaction, call)
+		if err != nil {
 			return HardwareSnapshotResult{}, err
+		}
+		if created && stored.Direction == "incoming" && stored.Phase == "ringing" {
+			effective, err := effectiveCallPolicy(ctx, transaction, stored.LineID)
+			if err != nil {
+				return HardwareSnapshotResult{}, err
+			}
+			if effective.Policy == EffectiveCallPolicyReceive {
+				createdIncomingCalls = append(createdIncomingCalls, stored)
+			}
 		}
 	}
 	if err := closeMissingCalls(ctx, transaction, snapshot, sequence); err != nil {
@@ -150,6 +162,7 @@ func (s *Store) ApplyHardwareSnapshotWithResult(
 	}
 	return HardwareSnapshotResult{
 		CreatedIncomingMessages:  createdIncoming,
+		CreatedIncomingCalls:     createdIncomingCalls,
 		HandledDeliveryReportIDs: handledReports,
 		LineIDsByEndpoint:        lineIDsByEndpoint,
 	}, nil
@@ -215,7 +228,7 @@ func (s *Store) UpsertHardwareCall(ctx context.Context, call HardwareCall) (Call
 	if err != nil {
 		return Call{}, fmt.Errorf("resolve call line: %w", err)
 	}
-	stored, err := upsertHardwareCall(ctx, transaction, call)
+	stored, _, err := upsertHardwareCall(ctx, transaction, call)
 	if err != nil {
 		return Call{}, err
 	}
@@ -1389,7 +1402,11 @@ func signalMetricValue(value *int64) int64 {
 	return *value
 }
 
-func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareCall) (Call, error) {
+func upsertHardwareCall(
+	ctx context.Context,
+	transaction *sql.Tx,
+	call HardwareCall,
+) (Call, bool, error) {
 	call.AppID = strings.TrimSpace(call.AppID)
 	call.LineID = strings.TrimSpace(call.LineID)
 	call.EndpointLineID = strings.TrimSpace(call.EndpointLineID)
@@ -1410,7 +1427,7 @@ func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareC
 	if call.AppID == "" || call.LineID == "" || call.EndpointLineID == "" ||
 		call.EndpointCallID == "" ||
 		(call.Direction != "incoming" && call.Direction != "outgoing") {
-		return Call{}, fmt.Errorf("%w: invalid call identity", ErrSnapshotInvalid)
+		return Call{}, false, fmt.Errorf("%w: invalid call identity", ErrSnapshotInvalid)
 	}
 	if call.Revision <= 0 {
 		call.Revision = 1
@@ -1429,7 +1446,7 @@ func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareC
 	case errors.Is(err, sql.ErrNoRows):
 		newlyDiscovered = true
 	case err != nil:
-		return Call{}, fmt.Errorf("query hardware call identity: %w", err)
+		return Call{}, false, fmt.Errorf("query hardware call identity: %w", err)
 	}
 	observed := databaseTime(call.ObservedAt)
 	activeAt := any(nil)
@@ -1560,19 +1577,19 @@ func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareC
 		call.AudioRate,
 		call.MediaAvailable,
 	); err != nil {
-		return Call{}, fmt.Errorf("upsert hardware call: %w", err)
+		return Call{}, false, fmt.Errorf("upsert hardware call: %w", err)
 	}
 	if err := ensureCallRecordingState(ctx, transaction, call.AppID); err != nil {
-		return Call{}, err
+		return Call{}, false, err
 	}
 	if newlyDiscovered && call.Direction == "incoming" && call.Phase == "ringing" {
 		if err := enqueueIncomingCallAction(ctx, transaction, call); err != nil {
-			return Call{}, err
+			return Call{}, false, err
 		}
 	}
 	stored, err := callByID(ctx, transaction, call.AppID)
 	if err != nil {
-		return Call{}, err
+		return Call{}, false, err
 	}
 	if stored.Missed && (stored.Phase == "ended" || stored.Phase == "failed") {
 		if err := enqueueTelegramNotification(
@@ -1586,10 +1603,10 @@ func upsertHardwareCall(ctx context.Context, transaction *sql.Tx, call HardwareC
 			"",
 			call.ObservedAt,
 		); err != nil {
-			return Call{}, err
+			return Call{}, false, err
 		}
 	}
-	return stored, nil
+	return stored, newlyDiscovered, nil
 }
 
 func closeMissingCalls(

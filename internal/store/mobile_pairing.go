@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
@@ -37,6 +38,7 @@ func (s *Store) UpdateIOSPushRegistration(
 		 SET apns_token = ?,
 			 voip_token = ?,
 			 push_environment = ?,
+			 push_bundle_id = ?,
 			 push_updated_at = CURRENT_TIMESTAMP,
 			 updated_at = CURRENT_TIMESTAMP
 		 WHERE token_digest = ?
@@ -51,6 +53,7 @@ func (s *Store) UpdateIOSPushRegistration(
 		registration.APNSToken,
 		registration.VoIPToken,
 		registration.Environment,
+		registration.BundleID,
 		digest[:],
 	)
 	if err != nil {
@@ -75,6 +78,7 @@ func (s *Store) ClearIOSPushRegistration(
 		`UPDATE modemdeck_ios_pairing_credentials
 		 SET apns_token = '',
 			 voip_token = '',
+			 push_bundle_id = '',
 			 push_updated_at = CURRENT_TIMESTAMP,
 			 updated_at = CURRENT_TIMESTAMP
 		 WHERE token_digest = ?`,
@@ -89,6 +93,90 @@ func (s *Store) ClearIOSPushRegistration(
 	}
 	if updated != 1 {
 		return errIOSPairingCredentialNotFound
+	}
+	return nil
+}
+
+func (s *Store) IOSPushTargetsForLine(
+	ctx context.Context,
+	lineID string,
+	kind IOSPushTokenKind,
+) ([]IOSPushTarget, error) {
+	lineID = strings.TrimSpace(lineID)
+	if lineID == "" || (kind != IOSPushTokenAPNS && kind != IOSPushTokenVoIP) {
+		return nil, fmt.Errorf("query iOS push targets: invalid target scope")
+	}
+	tokenColumn := "credential.apns_token"
+	if kind == IOSPushTokenVoIP {
+		tokenColumn = "credential.voip_token"
+	}
+	rows, err := s.database.QueryContext(
+		ctx,
+		`SELECT credential.user_id, `+tokenColumn+`,
+			credential.push_environment, credential.push_bundle_id
+		 FROM modemdeck_ios_pairing_credentials AS credential
+		 JOIN modemdeck_users AS user
+			ON user.id = credential.user_id
+				AND user.enabled = 1
+				AND user.ios_pairing_enabled = 1
+		 JOIN modemdeck_user_lines AS access
+			ON access.user_id = user.id
+		 WHERE access.line_id = ?
+			AND credential.activated_at IS NOT NULL
+			AND `+tokenColumn+` <> ''
+		 ORDER BY credential.user_id`,
+		lineID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query iOS push targets: %w", err)
+	}
+	defer rows.Close()
+	targets := make([]IOSPushTarget, 0)
+	for rows.Next() {
+		var target IOSPushTarget
+		if err := rows.Scan(
+			&target.UserID,
+			&target.Token,
+			&target.Environment,
+			&target.BundleID,
+		); err != nil {
+			return nil, fmt.Errorf("scan iOS push target: %w", err)
+		}
+		targets = append(targets, target)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate iOS push targets: %w", err)
+	}
+	return targets, nil
+}
+
+func (s *Store) ClearIOSPushToken(
+	ctx context.Context,
+	userID string,
+	kind IOSPushTokenKind,
+	token string,
+) error {
+	userID = strings.TrimSpace(userID)
+	token = strings.TrimSpace(token)
+	if userID == "" || token == "" || (kind != IOSPushTokenAPNS && kind != IOSPushTokenVoIP) {
+		return errors.New("clear iOS push token: invalid token identity")
+	}
+	tokenColumn := "apns_token"
+	if kind == IOSPushTokenVoIP {
+		tokenColumn = "voip_token"
+	}
+	_, err := s.database.ExecContext(
+		ctx,
+		`UPDATE modemdeck_ios_pairing_credentials
+		 SET `+tokenColumn+` = '',
+			 push_updated_at = CURRENT_TIMESTAMP,
+			 updated_at = CURRENT_TIMESTAMP
+		 WHERE user_id = ? AND `+tokenColumn+` = ?`,
+		userID,
+		token,
+	)
+	if err != nil {
+		return fmt.Errorf("clear iOS push token: %w", err)
 	}
 	return nil
 }
@@ -370,6 +458,7 @@ func (s *Store) RotateIOSPairingCredential(
 			apns_token = '',
 			voip_token = '',
 			push_environment = 'development',
+			push_bundle_id = '',
 			push_updated_at = NULL,
 			last_seen_at = NULL,
 			created_at = CURRENT_TIMESTAMP,

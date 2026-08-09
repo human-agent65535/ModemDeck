@@ -54,6 +54,7 @@ Thumbs.db
 !internal/tlsmanager/cloudflare_origin_roots.pem
 *.p12
 *.pfx
+*.p8
 *.jks
 *.keystore
 id_rsa*

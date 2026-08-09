@@ -29,6 +29,9 @@ func (registration PushRegistration) Normalize() (PushRegistration, error) {
 	if registration.APNSToken == "" && registration.VoIPToken == "" {
 		return PushRegistration{}, ErrInvalidPushToken
 	}
+	if !ValidBundleID(registration.BundleID) {
+		return PushRegistration{}, ErrInvalidPushToken
+	}
 	for _, token := range []string{registration.APNSToken, registration.VoIPToken} {
 		if token == "" {
 			continue
@@ -39,4 +42,25 @@ func (registration PushRegistration) Normalize() (PushRegistration, error) {
 		}
 	}
 	return registration, nil
+}
+
+func ValidBundleID(value string) bool {
+	if len(value) == 0 || len(value) > 255 || !strings.Contains(value, ".") {
+		return false
+	}
+	for _, segment := range strings.Split(value, ".") {
+		if segment == "" || segment[0] == '-' || segment[len(segment)-1] == '-' {
+			return false
+		}
+		for _, character := range []byte(segment) {
+			if character == '-' ||
+				(character >= 'A' && character <= 'Z') ||
+				(character >= 'a' && character <= 'z') ||
+				(character >= '0' && character <= '9') {
+				continue
+			}
+			return false
+		}
+	}
+	return true
 }

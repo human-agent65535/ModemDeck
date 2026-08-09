@@ -47,6 +47,7 @@ CREATE TABLE modemdeck_ios_pairing_credentials (
 			apns_token TEXT NOT NULL DEFAULT '',
 			voip_token TEXT NOT NULL DEFAULT '',
 			push_environment TEXT NOT NULL DEFAULT 'development',
+			push_bundle_id TEXT NOT NULL DEFAULT '',
 			push_updated_at DATETIME,
 			last_seen_at DATETIME,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

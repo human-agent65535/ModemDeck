@@ -15,7 +15,9 @@ import (
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
 	"github.com/human-agent65535/modemdeck/internal/agentmedia"
+	"github.com/human-agent65535/modemdeck/internal/applepush"
 	"github.com/human-agent65535/modemdeck/internal/auth"
+	"github.com/human-agent65535/modemdeck/internal/callevents"
 	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/calllifecycle"
 	"github.com/human-agent65535/modemdeck/internal/callmedia"
@@ -165,6 +167,7 @@ func run(
 	}
 	defer agent.CloseIdleConnections()
 	messageEvents := messageevents.NewBuffer(messageevents.DefaultCapacity)
+	callEvents := callevents.NewBuffer(callevents.DefaultCapacity)
 	runtimeEvents := runtimeevents.NewHub()
 	communications, err := communication.New(agent, repository, messageEvents)
 	if err != nil {
@@ -175,6 +178,37 @@ func run(
 	if err := communications.SetRuntimeEventPublisher(runtimeEvents); err != nil {
 		_ = db.Close()
 		return fmt.Errorf("configure communication runtime events: %w", err)
+	}
+	if err := communications.SetIncomingCallPublisher(callEvents); err != nil {
+		_ = db.Close()
+		return fmt.Errorf("configure incoming call events: %w", err)
+	}
+	var applePushRuntime *applepush.Runtime
+	applePushConfig, applePushConfigured, err := applepush.LoadConfigFromEnvironment()
+	if err != nil {
+		_ = db.Close()
+		return fmt.Errorf("configure Apple push delivery: %w", err)
+	}
+	if applePushConfigured {
+		applePushClient, clientErr := applepush.NewClient(applePushConfig, applepush.ClientOptions{})
+		if clientErr != nil {
+			_ = db.Close()
+			return fmt.Errorf("create Apple push client: %w", clientErr)
+		}
+		applePushRuntime, err = applepush.NewRuntime(
+			repository,
+			applePushClient,
+			messageEvents,
+			callEvents,
+			applepush.Options{Logger: logger.With("component", "apple_push")},
+		)
+		if err != nil {
+			_ = db.Close()
+			return fmt.Errorf("create Apple push runtime: %w", err)
+		}
+		logger.Info("Apple push delivery enabled", "component", "apple_push")
+	} else {
+		logger.Info("Apple push delivery disabled", "component", "apple_push")
 	}
 	callLeases, err := calllease.New(
 		repository,
@@ -361,6 +395,16 @@ func run(
 		defer close(tlsMaintenanceDone)
 		maintainTLSCertificates(signals, tlsCertificates, logger)
 	}()
+	var applePushDone chan struct{}
+	if applePushRuntime != nil {
+		applePushDone = make(chan struct{})
+		applePushReady := make(chan struct{})
+		go func() {
+			defer close(applePushDone)
+			applePushRuntime.RunReady(signals, applePushReady)
+		}()
+		<-applePushReady
+	}
 	syncDone := make(chan struct{})
 	go func() {
 		defer close(syncDone)
@@ -453,6 +497,9 @@ func run(
 		}
 	}
 	<-syncDone
+	if applePushDone != nil {
+		<-applePushDone
+	}
 	<-agentLogsDone
 	<-callLeaseDone
 	<-tlsMaintenanceDone

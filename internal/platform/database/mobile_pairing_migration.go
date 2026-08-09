@@ -26,6 +26,7 @@ var iosPairingDeviceColumns = []struct {
 	{name: "apns_token", definition: "TEXT NOT NULL DEFAULT ''"},
 	{name: "voip_token", definition: "TEXT NOT NULL DEFAULT ''"},
 	{name: "push_environment", definition: "TEXT NOT NULL DEFAULT 'development'"},
+	{name: "push_bundle_id", definition: "TEXT NOT NULL DEFAULT ''"},
 	{name: "push_updated_at", definition: "DATETIME"},
 	{name: "last_seen_at", definition: "DATETIME"},
 }
@@ -163,6 +164,7 @@ func migrateMobilePairingSchema(
 			apns_token TEXT NOT NULL DEFAULT '',
 			voip_token TEXT NOT NULL DEFAULT '',
 			push_environment TEXT NOT NULL DEFAULT 'development',
+			push_bundle_id TEXT NOT NULL DEFAULT '',
 			push_updated_at DATETIME,
 			last_seen_at DATETIME,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

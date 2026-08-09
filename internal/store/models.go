@@ -435,8 +435,23 @@ type HardwareSnapshot struct {
 
 type HardwareSnapshotResult struct {
 	CreatedIncomingMessages  []Message
+	CreatedIncomingCalls     []Call
 	HandledDeliveryReportIDs []string
 	LineIDsByEndpoint        map[string]string
+}
+
+type IOSPushTokenKind string
+
+const (
+	IOSPushTokenAPNS IOSPushTokenKind = "apns"
+	IOSPushTokenVoIP IOSPushTokenKind = "voip"
+)
+
+type IOSPushTarget struct {
+	UserID      string
+	Token       string
+	Environment string
+	BundleID    string
 }
 
 type HardwareCommand struct {

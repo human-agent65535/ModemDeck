@@ -1,0 +1,6 @@
+{
+  "team_id": "ABCDEFGHIJ",
+  "key_id": "KLMNOPQRST",
+  "bundle_id": "com.example.modemdeck",
+  "private_key_file": "AuthKey_example.p8"
+}

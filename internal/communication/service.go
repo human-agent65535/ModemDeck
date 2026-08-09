@@ -21,6 +21,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
+	"github.com/human-agent65535/modemdeck/internal/callevents"
 	"github.com/human-agent65535/modemdeck/internal/messageevents"
 	"github.com/human-agent65535/modemdeck/internal/modemidentity"
 	"github.com/human-agent65535/modemdeck/internal/phone"
@@ -247,6 +248,7 @@ type Service struct {
 	agent                   Agent
 	repository              Repository
 	events                  messageevents.Publisher
+	callEvents              callevents.Publisher
 	runtime                 runtimeevents.Publisher
 	random                  io.Reader
 	now                     func() time.Time
@@ -339,6 +341,29 @@ func (s *Service) SetRuntimeEventPublisher(events runtimeevents.Publisher) error
 		)
 	}
 	s.runtime = events
+	return nil
+}
+
+func (s *Service) SetIncomingCallPublisher(events callevents.Publisher) error {
+	if events == nil {
+		return operationError(
+			CodeInvalidArgument,
+			"configure incoming call events",
+			"incoming call event publisher is required",
+			nil,
+		)
+	}
+	s.coordinatorMu.Lock()
+	defer s.coordinatorMu.Unlock()
+	if s.callEvents != nil {
+		return operationError(
+			CodeConflict,
+			"configure incoming call events",
+			"incoming call event publisher is already configured",
+			nil,
+		)
+	}
+	s.callEvents = events
 	return nil
 }
 
@@ -507,6 +532,10 @@ func (s *Service) commitSnapshotLocked(
 		})
 	}
 	s.publishIncomingMessages(snapshotResult.CreatedIncomingMessages, snapshot.ObservedAt)
+	// The incoming-call subset is already filtered by the effective receive
+	// policy in the same transaction that created each call. Publish immediately
+	// after commit so a later projection failure cannot lose the one-shot event.
+	s.publishIncomingCalls(snapshotResult.CreatedIncomingCalls, snapshot.ObservedAt)
 	s.enqueueDeviceMessageCleanup(
 		hardwareSnapshot.Messages,
 		snapshotResult.HandledDeliveryReportIDs,
@@ -840,6 +869,25 @@ func (s *Service) publishIncomingMessages(messages []store.Message, observedAt t
 			Content:    message.Content,
 			Timestamp:  message.Timestamp,
 			ObservedAt: observedAt,
+		})
+	}
+}
+
+func (s *Service) publishIncomingCalls(calls []store.Call, observedAt time.Time) {
+	if s.callEvents == nil {
+		return
+	}
+	for _, call := range calls {
+		displayName := strings.TrimSpace(call.ContactName)
+		if displayName == "" {
+			displayName = call.RemoteNumber
+		}
+		s.callEvents.Publish(callevents.IncomingCall{
+			CallID:       call.ID,
+			LineID:       call.LineID,
+			RemoteNumber: call.RemoteNumber,
+			DisplayName:  displayName,
+			ObservedAt:   observedAt,
 		})
 	}
 }

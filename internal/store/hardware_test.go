@@ -225,6 +225,82 @@ func TestHardwareSnapshotIsIdempotentAndAuthoritative(t *testing.T) {
 	}
 }
 
+func TestHardwareSnapshotReturnsOnlyNewReceivePolicyIncomingCalls(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	ctx := context.Background()
+	observedAt := time.Date(2026, time.August, 9, 3, 30, 0, 0, time.UTC)
+	line := policyTestLine()
+	base, err := repository.ApplyHardwareSnapshotWithResult(ctx, HardwareSnapshot{
+		BootEpoch:  "boot-call-events",
+		Revision:   "snapshot-lines",
+		ObservedAt: observedAt,
+		Lines:      []HardwareLine{line},
+	})
+	if err != nil {
+		t.Fatalf("apply line snapshot: %v", err)
+	}
+	lineID := base.LineIDsByEndpoint[line.ID]
+	call := HardwareCall{
+		AppID:          "call-event-1",
+		LineID:         lineID,
+		EndpointLineID: line.ID,
+		EndpointCallID: "endpoint-call-event-1",
+		Number:         "+818012345678",
+		Direction:      "incoming",
+		Phase:          "ringing",
+		ObservedAt:     observedAt.Add(time.Second),
+	}
+	snapshot := HardwareSnapshot{
+		BootEpoch:  "boot-call-events",
+		Revision:   "snapshot-call-1",
+		ObservedAt: observedAt.Add(time.Second),
+		Lines:      []HardwareLine{line},
+		Calls:      []HardwareCall{call},
+	}
+	result, err := repository.ApplyHardwareSnapshotWithResult(ctx, snapshot)
+	if err != nil {
+		t.Fatalf("apply incoming call snapshot: %v", err)
+	}
+	if len(result.CreatedIncomingCalls) != 1 || result.CreatedIncomingCalls[0].ID != call.AppID {
+		t.Fatalf("created incoming calls = %+v", result.CreatedIncomingCalls)
+	}
+	replayed, err := repository.ApplyHardwareSnapshotWithResult(ctx, snapshot)
+	if err != nil {
+		t.Fatalf("replay incoming call snapshot: %v", err)
+	}
+	if len(replayed.CreatedIncomingCalls) != 0 {
+		t.Fatalf("replayed incoming calls = %+v, want none", replayed.CreatedIncomingCalls)
+	}
+
+	policy, err := repository.LineCallPolicy(ctx, lineID)
+	if err != nil {
+		t.Fatalf("LineCallPolicy() error = %v", err)
+	}
+	if _, err := repository.UpdateLineCallPolicy(
+		ctx,
+		lineID,
+		LineCallPolicyDND,
+		policy.Revision,
+	); err != nil {
+		t.Fatalf("UpdateLineCallPolicy() error = %v", err)
+	}
+	call.AppID = "call-event-dnd"
+	call.EndpointCallID = "endpoint-call-event-dnd"
+	call.ObservedAt = observedAt.Add(2 * time.Second)
+	snapshot.Revision = "snapshot-call-dnd"
+	snapshot.ObservedAt = call.ObservedAt
+	snapshot.Calls = []HardwareCall{call}
+	dndResult, err := repository.ApplyHardwareSnapshotWithResult(ctx, snapshot)
+	if err != nil {
+		t.Fatalf("apply DND call snapshot: %v", err)
+	}
+	if len(dndResult.CreatedIncomingCalls) != 0 {
+		t.Fatalf("DND incoming calls = %+v, want none", dndResult.CreatedIncomingCalls)
+	}
+}
+
 func TestHardwareCallFillsNumberWhenTheNetworkReportsItLate(t *testing.T) {
 	t.Parallel()
 

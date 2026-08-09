@@ -83,6 +83,40 @@ container. Agent/Hardware inputs, Hardware mode, device assignments, and media
 bindings select Hardware for replacement. `--rebuild-all` is the explicit
 escape hatch that rebuilds every image and force-recreates the complete stack.
 
+## Apple Push (APNs and PushKit)
+
+The API can send standard APNs alerts for incoming SMS and PushKit VoIP pushes
+for incoming calls. It uses each iPhone registration's own `development` or
+`production` environment, so a development-signed app and a TestFlight build
+can coexist. Incoming calls suppressed by the effective do-not-disturb policy
+are not sent to CallKit.
+
+Provider credentials are server secrets. Do not commit a real Bundle ID, Apple
+Team ID, Key ID, or `.p8` file. The default published deployment reads
+`${MODEMDECK_DATA_DIR}/apple-push/config.json` through the API's existing data
+mount; copy [`apple-push.example.json`](apple-push.example.json) there and
+replace every placeholder locally. A relative `private_key_file` is resolved
+beside `config.json`:
+
+```text
+data/apple-push/
+├── config.json
+└── AuthKey_local.p8
+```
+
+Both files must be readable by the API container's configured
+`MODEMDECK_UID` (default `10001`) and should not be readable by other users.
+Restart `modemdeck-api` after creating or changing them. With no config file,
+push delivery remains disabled and the rest of ModemDeck starts normally.
+
+A custom deployment can instead provide all four environment variables to the
+API container: `MODEMDECK_APNS_TEAM_ID`, `MODEMDECK_APNS_KEY_ID`,
+`MODEMDECK_APNS_BUNDLE_ID`, and `MODEMDECK_APNS_PRIVATE_KEY_FILE`. Partial or
+mixed file/environment configuration fails closed at startup. The token-based
+Apple provider key is used only to create short-lived provider JWTs; registered
+device tokens and the client-reported Bundle ID remain in SQLite. ModemDeck
+clears an individual token only when APNs reports that exact token as invalid.
+
 ## Release images
 
 Pushing an annotated stable tag that exactly matches `v$(cat VERSION)` starts
