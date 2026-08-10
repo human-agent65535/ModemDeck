@@ -40,6 +40,8 @@ import type {
   MessageReadInput,
   IOSPairingAvailability,
   IOSDeviceInfo,
+  IOSPairingDevice,
+  IOSPairingPendingCredential,
   IOSPairingResult,
   IOSPairingStatus,
   IOSTestCallResult,
@@ -2434,11 +2436,54 @@ function parseIOSPairingStatus(value: unknown): IOSPairingStatus {
   const pairedAt = optionalTimestamp(source, 'ios_pairing', 'paired_at')
   const lastSeenAt = optionalTimestamp(source, 'ios_pairing', 'last_seen_at')
   const device = parseIOSDeviceInfo(source.device, 'ios_pairing.device')
+  if (!Array.isArray(source.devices)) {
+    throw new Error('ios_pairing.devices 必须是数组')
+  }
+  const devices: IOSPairingDevice[] = source.devices.map((value, index) => {
+    const path = `ios_pairing.devices[${index}]`
+    const item = objectValue(value, path)
+    const itemDevice = parseIOSDeviceInfo(item.device, `${path}.device`)
+    const itemLastSeenAt = optionalTimestamp(item, path, 'last_seen_at')
+    return {
+      id: requiredString(item, path, 'id'),
+      credential_created_at: requiredTimestamp(
+        item,
+        path,
+        'credential_created_at'
+      ),
+      paired_at: requiredTimestamp(item, path, 'paired_at'),
+      ...(itemDevice ? { device: itemDevice } : {}),
+      ...(itemLastSeenAt ? { last_seen_at: itemLastSeenAt } : {})
+    }
+  })
+  let pending: IOSPairingPendingCredential | undefined
+  if (source.pending !== undefined && source.pending !== null) {
+    const item = objectValue(source.pending, 'ios_pairing.pending')
+    pending = {
+      id: requiredString(item, 'ios_pairing.pending', 'id'),
+      credential_created_at: requiredTimestamp(
+        item,
+        'ios_pairing.pending',
+        'credential_created_at'
+      )
+    }
+  }
+  const deviceLimit = requiredNonNegativeInteger(
+    source,
+    'ios_pairing',
+    'device_limit'
+  )
+  if (deviceLimit < 1) {
+    throw new Error('ios_pairing.device_limit 必须是正整数')
+  }
   return {
     allowed: requiredBoolean(source, 'ios_pairing', 'allowed'),
     availability: parseIOSPairingAvailability(source.availability),
     has_credential: requiredBoolean(source, 'ios_pairing', 'has_credential'),
     paired: requiredBoolean(source, 'ios_pairing', 'paired'),
+    devices,
+    ...(pending ? { pending } : {}),
+    device_limit: deviceLimit,
     server_urls: optionalStringArray(source, 'ios_pairing', 'server_urls'),
     ...(credentialCreatedAt
       ? { credential_created_at: credentialCreatedAt }
@@ -2605,6 +2650,12 @@ export function parseUserAccount(value: unknown): UserAccount {
     'user',
     'ios_pairing_paired_at'
   )
+  const pairingDeviceCount =
+    user.ios_pairing_device_count === undefined
+      ? requiredBoolean(user, 'user', 'ios_pairing_paired')
+        ? 1
+        : 0
+      : requiredNonNegativeInteger(user, 'user', 'ios_pairing_device_count')
   return {
     id: requiredString(user, 'user', 'id'),
     username: requiredString(user, 'user', 'username'),
@@ -2620,6 +2671,12 @@ export function parseUserAccount(value: unknown): UserAccount {
       user,
       'user',
       'ios_pairing_paired'
+    ),
+    ios_pairing_device_count: pairingDeviceCount,
+    ios_pairing_pending: optionalBoolean(
+      user,
+      'user',
+      'ios_pairing_pending'
     ),
     ...(pairingCredentialCreatedAt
       ? { ios_pairing_credential_created_at: pairingCredentialCreatedAt }

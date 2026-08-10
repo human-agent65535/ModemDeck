@@ -28,6 +28,8 @@ type User struct {
 	IOSPairingCredentialCreatedAt string    `json:"ios_pairing_credential_created_at,omitempty"`
 	IOSPairingPaired              bool      `json:"ios_pairing_paired"`
 	IOSPairingPairedAt            string    `json:"ios_pairing_paired_at,omitempty"`
+	IOSPairingDeviceCount         int       `json:"ios_pairing_device_count"`
+	IOSPairingPending             bool      `json:"ios_pairing_pending"`
 	Revision                      int64     `json:"revision"`
 	ProfileName                   string    `json:"profile_name,omitempty"`
 	ProfileAvatar                 string    `json:"profile_avatar,omitempty"`
@@ -80,16 +82,28 @@ func (s *Store) Users(ctx context.Context) ([]User, error) {
 			user.role,
 			user.enabled,
 			user.ios_pairing_enabled,
-			credential.created_at,
-			credential.activated_at,
+			(SELECT MAX(credential.created_at)
+			 FROM modemdeck_ios_pairing_credentials AS credential
+			 WHERE credential.user_id = user.id),
+			(SELECT MAX(credential.activated_at)
+			 FROM modemdeck_ios_pairing_credentials AS credential
+			 WHERE credential.user_id = user.id),
+			(SELECT COUNT(*)
+			 FROM modemdeck_ios_pairing_credentials AS credential
+			 WHERE credential.user_id = user.id
+				AND credential.activated_at IS NOT NULL),
+			EXISTS (
+				SELECT 1
+				FROM modemdeck_ios_pairing_credentials AS credential
+				WHERE credential.user_id = user.id
+					AND credential.activated_at IS NULL
+			),
 			user.revision,
 			COALESCE(contact.display_name, ''),
 			COALESCE(contact.avatar, ''),
 			user.created_at,
 			user.updated_at
 		FROM modemdeck_users AS user
-		LEFT JOIN modemdeck_ios_pairing_credentials AS credential
-			ON credential.user_id = user.id
 		LEFT JOIN modemdeck_user_profile_contacts AS profile
 			ON profile.user_id = user.id
 		LEFT JOIN contacts AS contact
@@ -107,6 +121,7 @@ func (s *Store) Users(ctx context.Context) ([]User, error) {
 			role                string
 			enabled             int64
 			iosPairing          int64
+			iosPairingPending   int64
 			credentialCreatedAt sql.NullString
 			pairedAt            sql.NullString
 		)
@@ -118,6 +133,8 @@ func (s *Store) Users(ctx context.Context) ([]User, error) {
 			&iosPairing,
 			&credentialCreatedAt,
 			&pairedAt,
+			&user.IOSPairingDeviceCount,
+			&iosPairingPending,
 			&user.Revision,
 			&user.ProfileName,
 			&user.ProfileAvatar,
@@ -135,6 +152,7 @@ func (s *Store) Users(ctx context.Context) ([]User, error) {
 		)
 		user.IOSPairingPaired = pairedAt.Valid
 		user.IOSPairingPairedAt = iosPairingTimestamp(stringValue(pairedAt))
+		user.IOSPairingPending = iosPairingPending != 0
 		user.LineIDs = []string{}
 		users = append(users, user)
 	}

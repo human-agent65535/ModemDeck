@@ -448,10 +448,11 @@ const (
 )
 
 type IOSPushTarget struct {
-	UserID      string
-	Token       string
-	Environment string
-	BundleID    string
+	CredentialID string
+	UserID       string
+	Token        string
+	Environment  string
+	BundleID     string
 }
 
 type HardwareCommand struct {

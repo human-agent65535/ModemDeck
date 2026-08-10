@@ -82,9 +82,10 @@ Web sessions have no server-side time expiry. Each user retains the newest
 eight sessions; a ninth successful login removes the oldest one. The Security
 screen lists the browser, operating system, login host, and creation time for
 each session and can revoke one session or every session except the current
-one. An iOS pairing credential also has no time-based expiry, appears in the
-same device list, and does not consume a Web session slot. It remains valid
-until it is rotated or revoked by the account security lifecycle.
+one. Each account may have up to three iOS/iPadOS pairing credentials. They have
+no time-based expiry, appear separately in the same device list, and do not
+consume Web session slots. Each credential remains valid until that device is
+revoked or the account security lifecycle revokes all of them.
 
 The client does not submit a separate browser or tab holder ID. A network
 reconnect, page reload, or browser restart that retains the same authenticated

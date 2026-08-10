@@ -14,7 +14,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { gateway } from '../api/client'
 import type { LineSummary, UserAccount } from '../api/types'
-import { ApiError } from '../api/types'
+import { ApiError, IOS_PAIRING_DEVICE_LIMIT } from '../api/types'
 import { requestConfirmation } from '../state/confirmation'
 import { showError, showSuccess } from '../state/feedback'
 import { resetNetworkState } from '../state/network'
@@ -337,7 +337,9 @@ async function revokeSelectedPairing(): Promise<void> {
             ios_pairing_has_credential: false,
             ios_pairing_credential_created_at: undefined,
             ios_pairing_paired: false,
-            ios_pairing_paired_at: undefined
+            ios_pairing_paired_at: undefined,
+            ios_pairing_device_count: 0,
+            ios_pairing_pending: false
           }
         : current
     )
@@ -598,12 +600,20 @@ onMounted(() => {
                     }"
                   >
                     {{
-                      selectedUser.ios_pairing_paired
-                        ? t('iosPairing.paired')
-                        : selectedUser.ios_pairing_has_credential
+                      selectedUser.ios_pairing_device_count > 0
+                        ? `${t('iosPairing.paired')} · ${selectedUser.ios_pairing_device_count}/${IOS_PAIRING_DEVICE_LIMIT}`
+                        : selectedUser.ios_pairing_pending
                           ? t('iosPairing.waiting')
-                        : t('iosPairing.notPaired')
+                          : t('iosPairing.notPaired')
                     }}
+                    <template
+                      v-if="
+                        selectedUser.ios_pairing_device_count > 0 &&
+                        selectedUser.ios_pairing_pending
+                      "
+                    >
+                      · {{ t('iosPairing.waiting') }}
+                    </template>
                     <template
                       v-if="selectedUser.ios_pairing_credential_created_at"
                     >

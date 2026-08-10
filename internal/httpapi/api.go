@@ -212,7 +212,7 @@ type CallMediaService interface {
 }
 
 type IOSCallTestService interface {
-	SendTestCall(context.Context, string) (applepush.TestCallResult, error)
+	SendTestCall(context.Context, string, string) (applepush.TestCallResult, error)
 }
 
 type CallLeaseService interface {

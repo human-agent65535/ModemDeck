@@ -35,8 +35,9 @@ type Repository interface {
 		string,
 		store.IOSPushTokenKind,
 	) ([]store.IOSPushTarget, error)
-	IOSPushTargetForUser(
+	IOSPushTargetForCredential(
 		context.Context,
+		string,
 		string,
 		store.IOSPushTokenKind,
 	) (store.IOSPushTarget, bool, error)
@@ -254,15 +255,17 @@ func (runtime *Runtime) deliverCall(ctx context.Context, event callevents.Incomi
 // iPhone. It never creates a modem call or a durable call record.
 func (runtime *Runtime) SendTestCall(
 	ctx context.Context,
-	userID string,
+	userID, credentialID string,
 ) (TestCallResult, error) {
 	userID = strings.TrimSpace(userID)
-	if userID == "" {
+	credentialID = strings.TrimSpace(credentialID)
+	if userID == "" || credentialID == "" {
 		return TestCallResult{}, ErrPushTargetUnavailable
 	}
-	target, found, err := runtime.repository.IOSPushTargetForUser(
+	target, found, err := runtime.repository.IOSPushTargetForCredential(
 		ctx,
 		userID,
+		credentialID,
 		store.IOSPushTokenVoIP,
 	)
 	if err != nil {
@@ -333,6 +336,7 @@ func (runtime *Runtime) SendTestCall(
 		"test CallKit push accepted by APNs",
 		"component", "apple_push",
 		"user_id", target.UserID,
+		"credential_id", target.CredentialID,
 		"test_call_id", testID,
 	)
 	return TestCallResult{ID: testID, AcceptedAt: now}, nil

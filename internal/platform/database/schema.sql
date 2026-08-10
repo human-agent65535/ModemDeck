@@ -34,8 +34,9 @@ CREATE TABLE modemdeck_auth_sessions (
 		);
 
 CREATE TABLE modemdeck_ios_pairing_credentials (
-			user_id TEXT PRIMARY KEY,
-			token_digest BLOB NOT NULL CHECK (length(token_digest) = 32),
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			token_digest BLOB NOT NULL UNIQUE CHECK (length(token_digest) = 32),
 			activated_at DATETIME,
 			device_name TEXT NOT NULL DEFAULT '',
 			device_model TEXT NOT NULL DEFAULT '',
@@ -564,6 +565,12 @@ CREATE TABLE modemdeck_user_preferences (
 
 CREATE INDEX idx_modemdeck_auth_sessions_user_created
 	ON modemdeck_auth_sessions(user_id, created_at_unix DESC);
+
+CREATE INDEX idx_modemdeck_ios_pairing_user
+	ON modemdeck_ios_pairing_credentials(user_id, activated_at, created_at);
+
+CREATE UNIQUE INDEX ux_modemdeck_ios_pairing_pending_user
+	ON modemdeck_ios_pairing_credentials(user_id) WHERE activated_at IS NULL;
 
 CREATE UNIQUE INDEX ux_modemdeck_single_admin ON modemdeck_users(role) WHERE role = 'admin';
 

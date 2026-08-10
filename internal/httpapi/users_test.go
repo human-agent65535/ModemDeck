@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
+	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -60,12 +61,12 @@ func (repository *fakeUserRepository) SetMemberPassword(
 	return nil
 }
 
-func (repository *fakeUserRepository) RevokeIOSPairingCredential(
+func (repository *fakeUserRepository) RevokeAllIOSPairingCredentials(
 	_ context.Context,
 	userID string,
-) error {
+) ([]mobilepairing.TokenDigest, error) {
 	repository.revokeID = userID
-	return repository.revokeError
+	return nil, repository.revokeError
 }
 
 func (*fakeUserRepository) SetProfileContact(context.Context, string) error {

@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
+	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
@@ -16,7 +17,10 @@ type userRepository interface {
 	CreateMember(context.Context, store.CreateMemberInput) (store.User, error)
 	UpdateMember(context.Context, string, store.UpdateMemberInput) (store.User, error)
 	SetMemberPassword(context.Context, string, string) error
-	RevokeIOSPairingCredential(context.Context, string) error
+	RevokeAllIOSPairingCredentials(
+		context.Context,
+		string,
+	) ([]mobilepairing.TokenDigest, error)
 	SetProfileContact(context.Context, string) error
 }
 
@@ -162,10 +166,11 @@ func (api *API) userResource(
 			writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only DELETE is supported", "")
 			return
 		}
-		if err := repository.RevokeIOSPairingCredential(
+		digests, err := repository.RevokeAllIOSPairingCredentials(
 			request.Context(),
 			userID,
-		); err != nil {
+		)
+		if err != nil {
 			api.writeMobilePairingError(
 				response,
 				request,
@@ -173,6 +178,9 @@ func (api *API) userResource(
 				err,
 			)
 			return
+		}
+		for _, digest := range digests {
+			api.endRevokedIOSSessionCall(request.Context(), digest)
 		}
 		response.Header().Set("Cache-Control", "no-store")
 		response.WriteHeader(http.StatusNoContent)

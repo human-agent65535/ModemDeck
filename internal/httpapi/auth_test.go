@@ -275,6 +275,35 @@ func TestAccountSessionsListAndRevocation(t *testing.T) {
 				AppBuild:        "1",
 			},
 			LastSeenAt: now.Add(-5 * time.Minute).Format(time.RFC3339),
+			Devices: []store.IOSPairingDevice{{
+				ID:                  "ios-device-example",
+				CredentialCreatedAt: now.Add(-24 * time.Hour).Format(time.RFC3339),
+				PairedAt:            now.Add(-23 * time.Hour).Format(time.RFC3339),
+				Device: mobilepairing.DeviceInfo{
+					Name:            "Test iPhone",
+					Model:           "iPhone",
+					ModelIdentifier: "iPhone18,2",
+					OSName:          "iOS",
+					OSVersion:       "26.0",
+					AppVersion:      "0.1.0",
+					AppBuild:        "1",
+				},
+				LastSeenAt: now.Add(-5 * time.Minute).Format(time.RFC3339),
+			}, {
+				ID:                  "ios-tablet-example",
+				CredentialCreatedAt: now.Add(-12 * time.Hour).Format(time.RFC3339),
+				PairedAt:            now.Add(-11 * time.Hour).Format(time.RFC3339),
+				Device: mobilepairing.DeviceInfo{
+					Name:      "Test iPad",
+					Model:     "iPad",
+					OSName:    "iPadOS",
+					OSVersion: "26.0",
+				},
+			}},
+			Pending: &store.IOSPairingPendingCredential{
+				ID:                  "ios-pending-example",
+				CredentialCreatedAt: now.Add(-time.Minute).Format(time.RFC3339),
+			},
 		},
 		iosRevokedDigest: mobilepairing.TokenDigest{7},
 	}
@@ -301,20 +330,26 @@ func TestAccountSessionsListAndRevocation(t *testing.T) {
 	if err := json.Unmarshal(list.Body.Bytes(), &listed); err != nil {
 		t.Fatal(err)
 	}
-	if len(listed.Sessions) != 3 ||
+	if len(listed.Sessions) != 5 ||
 		!listed.Sessions[0].Current ||
 		listed.Sessions[0].LastSeenAt != now.Add(30*time.Minute).Format(time.RFC3339) ||
 		listed.Sessions[0].AccessIP != "192.0.2.10" ||
 		listed.Sessions[1].ID != "other-session" ||
 		listed.Sessions[1].LastSeenAt != now.Add(-10*time.Minute).Format(time.RFC3339) ||
 		listed.Sessions[1].AccessIP != "198.51.100.22" ||
-		listed.Sessions[2].ID != iosPairingDeviceID ||
+		listed.Sessions[2].ID != iosPairingSessionID("ios-device-example") ||
 		!listed.Sessions[2].Paired ||
 		listed.Sessions[2].CreatedAt != now.Add(-24*time.Hour).Format(time.RFC3339) ||
 		listed.Sessions[2].PairedAt != now.Add(-23*time.Hour).Format(time.RFC3339) ||
 		listed.Sessions[2].LastSeenAt != now.Add(-5*time.Minute).Format(time.RFC3339) ||
 		listed.Sessions[2].Device == nil ||
-		listed.Sessions[2].Device.Name != "Test iPhone" {
+		listed.Sessions[2].Device.Name != "Test iPhone" ||
+		listed.Sessions[3].ID != iosPairingSessionID("ios-tablet-example") ||
+		!listed.Sessions[3].Paired ||
+		listed.Sessions[3].Device == nil ||
+		listed.Sessions[3].Device.Name != "Test iPad" ||
+		listed.Sessions[4].ID != iosPairingSessionID("ios-pending-example") ||
+		listed.Sessions[4].Paired {
 		t.Fatalf("listed sessions = %+v", listed.Sessions)
 	}
 
@@ -344,7 +379,7 @@ func TestAccountSessionsListAndRevocation(t *testing.T) {
 		revokeIOS,
 		authorizedAPIRequest(
 			http.MethodDelete,
-			"/api/v1/account/sessions/ios-pairing",
+			"/api/v1/account/sessions/"+iosPairingSessionID("ios-device-example"),
 			nil,
 			sessionToken,
 			csrfToken,
@@ -406,7 +441,15 @@ func TestMobileAccountSessionsListsCurrentIPhoneWithoutWebCookie(t *testing.T) {
 				Name: "Test iPhone",
 			},
 			LastSeenAt: now.Format(time.RFC3339),
+			Devices: []store.IOSPairingDevice{{
+				ID:                  "ios-device-example",
+				CredentialCreatedAt: now.Add(-time.Hour).Format(time.RFC3339),
+				PairedAt:            now.Add(-59 * time.Minute).Format(time.RFC3339),
+				Device:              mobilepairing.DeviceInfo{Name: "Test iPhone"},
+				LastSeenAt:          now.Format(time.RFC3339),
+			}},
 		},
+		iosCurrentCredentialID: "ios-device-example",
 	}
 	api, err := New(repository, Options{disableAuthentication: true})
 	if err != nil {
@@ -424,7 +467,7 @@ func TestMobileAccountSessionsListsCurrentIPhoneWithoutWebCookie(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(listed.Sessions) != 1 ||
-		listed.Sessions[0].ID != iosPairingDeviceID ||
+		listed.Sessions[0].ID != iosPairingSessionID("ios-device-example") ||
 		!listed.Sessions[0].Current ||
 		listed.Sessions[0].Device == nil ||
 		listed.Sessions[0].Device.Name != "Test iPhone" ||

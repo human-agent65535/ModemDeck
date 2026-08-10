@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,17 +16,36 @@ import (
 
 var (
 	ErrIOSPairingNotAllowed         = errors.New("iOS pairing is not allowed")
-	errIOSPairingCredentialNotFound = errors.New("iOS pairing credential not found")
+	ErrIOSPairingDeviceLimit        = errors.New("iOS pairing device limit reached")
+	ErrIOSPairingCredentialNotFound = errors.New("iOS pairing credential not found")
 )
 
-type IOSPairingStatus struct {
-	Allowed             bool                     `json:"allowed"`
-	HasCredential       bool                     `json:"has_credential"`
-	CredentialCreatedAt string                   `json:"credential_created_at,omitempty"`
-	Paired              bool                     `json:"paired"`
-	PairedAt            string                   `json:"paired_at,omitempty"`
+const MaxIOSPairingDevices = 3
+
+type IOSPairingDevice struct {
+	ID                  string                   `json:"id"`
+	CredentialCreatedAt string                   `json:"credential_created_at"`
+	PairedAt            string                   `json:"paired_at"`
 	Device              mobilepairing.DeviceInfo `json:"device,omitempty"`
 	LastSeenAt          string                   `json:"last_seen_at,omitempty"`
+}
+
+type IOSPairingPendingCredential struct {
+	ID                  string `json:"id"`
+	CredentialCreatedAt string `json:"credential_created_at"`
+}
+
+type IOSPairingStatus struct {
+	Allowed             bool                         `json:"allowed"`
+	HasCredential       bool                         `json:"has_credential"`
+	CredentialCreatedAt string                       `json:"credential_created_at,omitempty"`
+	Paired              bool                         `json:"paired"`
+	PairedAt            string                       `json:"paired_at,omitempty"`
+	Device              mobilepairing.DeviceInfo     `json:"device,omitempty"`
+	LastSeenAt          string                       `json:"last_seen_at,omitempty"`
+	Devices             []IOSPairingDevice           `json:"devices"`
+	Pending             *IOSPairingPendingCredential `json:"pending,omitempty"`
+	DeviceLimit         int                          `json:"device_limit"`
 }
 
 func (s *Store) UpdateIOSPushRegistration(
@@ -64,7 +85,7 @@ func (s *Store) UpdateIOSPushRegistration(
 		return fmt.Errorf("read iOS push registration result: %w", err)
 	}
 	if updated != 1 {
-		return errIOSPairingCredentialNotFound
+		return ErrIOSPairingCredentialNotFound
 	}
 	return nil
 }
@@ -92,7 +113,7 @@ func (s *Store) ClearIOSPushRegistration(
 		return fmt.Errorf("read cleared iOS push registration result: %w", err)
 	}
 	if updated != 1 {
-		return errIOSPairingCredentialNotFound
+		return ErrIOSPairingCredentialNotFound
 	}
 	return nil
 }
@@ -112,7 +133,7 @@ func (s *Store) IOSPushTargetsForLine(
 	}
 	rows, err := s.database.QueryContext(
 		ctx,
-		`SELECT credential.user_id, `+tokenColumn+`,
+		`SELECT credential.id, credential.user_id, `+tokenColumn+`,
 			credential.push_environment, credential.push_bundle_id
 		 FROM modemdeck_ios_pairing_credentials AS credential
 		 JOIN modemdeck_users AS user
@@ -124,7 +145,7 @@ func (s *Store) IOSPushTargetsForLine(
 		 WHERE access.line_id = ?
 			AND credential.activated_at IS NOT NULL
 			AND `+tokenColumn+` <> ''
-		 ORDER BY credential.user_id`,
+		 ORDER BY credential.user_id, credential.id`,
 		lineID,
 	)
 	if err != nil {
@@ -135,6 +156,7 @@ func (s *Store) IOSPushTargetsForLine(
 	for rows.Next() {
 		var target IOSPushTarget
 		if err := rows.Scan(
+			&target.CredentialID,
 			&target.UserID,
 			&target.Token,
 			&target.Environment,
@@ -150,13 +172,15 @@ func (s *Store) IOSPushTargetsForLine(
 	return targets, nil
 }
 
-func (s *Store) IOSPushTargetForUser(
+func (s *Store) IOSPushTargetForCredential(
 	ctx context.Context,
-	userID string,
+	userID, credentialID string,
 	kind IOSPushTokenKind,
 ) (IOSPushTarget, bool, error) {
 	userID = strings.TrimSpace(userID)
-	if userID == "" || (kind != IOSPushTokenAPNS && kind != IOSPushTokenVoIP) {
+	credentialID = strings.TrimSpace(credentialID)
+	if userID == "" || credentialID == "" ||
+		(kind != IOSPushTokenAPNS && kind != IOSPushTokenVoIP) {
 		return IOSPushTarget{}, false, fmt.Errorf("query iOS push target: invalid target scope")
 	}
 	tokenColumn := "credential.apns_token"
@@ -166,7 +190,7 @@ func (s *Store) IOSPushTargetForUser(
 	var target IOSPushTarget
 	err := s.database.QueryRowContext(
 		ctx,
-		`SELECT credential.user_id, `+tokenColumn+`,
+		`SELECT credential.id, credential.user_id, `+tokenColumn+`,
 			credential.push_environment, credential.push_bundle_id
 		 FROM modemdeck_ios_pairing_credentials AS credential
 		 JOIN modemdeck_users AS user
@@ -174,10 +198,13 @@ func (s *Store) IOSPushTargetForUser(
 				AND user.enabled = 1
 				AND user.ios_pairing_enabled = 1
 		 WHERE credential.user_id = ?
+			AND credential.id = ?
 			AND credential.activated_at IS NOT NULL
 			AND `+tokenColumn+` <> ''`,
 		userID,
+		credentialID,
 	).Scan(
+		&target.CredentialID,
 		&target.UserID,
 		&target.Token,
 		&target.Environment,
@@ -396,68 +423,116 @@ func (s *Store) IOSPairingStatus(
 	ctx context.Context,
 	userID string,
 ) (IOSPairingStatus, error) {
-	var (
-		status     IOSPairingStatus
-		enabled    int64
-		pairing    int64
-		createdAt  sql.NullString
-		pairedAt   sql.NullString
-		lastSeenAt sql.NullString
-	)
+	userID = strings.TrimSpace(userID)
+	var enabled, pairing int64
 	err := s.database.QueryRowContext(
 		ctx,
-		`SELECT
-			user.enabled,
-			user.ios_pairing_enabled,
-			credential.created_at,
-			credential.activated_at,
-			COALESCE(credential.device_name, ''),
-			COALESCE(credential.device_model, ''),
-			COALESCE(credential.device_model_identifier, ''),
-			COALESCE(credential.os_name, ''),
-			COALESCE(credential.os_version, ''),
-			COALESCE(credential.app_version, ''),
-			COALESCE(credential.app_build, ''),
-			credential.last_seen_at
-		 FROM modemdeck_users AS user
-		 LEFT JOIN modemdeck_ios_pairing_credentials AS credential
-			ON credential.user_id = user.id
-		 WHERE user.id = ?`,
+		`SELECT enabled, ios_pairing_enabled
+		 FROM modemdeck_users
+		 WHERE id = ?`,
 		userID,
-	).Scan(
-		&enabled,
-		&pairing,
-		&createdAt,
-		&pairedAt,
-		&status.Device.Name,
-		&status.Device.Model,
-		&status.Device.ModelIdentifier,
-		&status.Device.OSName,
-		&status.Device.OSVersion,
-		&status.Device.AppVersion,
-		&status.Device.AppBuild,
-		&lastSeenAt,
-	)
+	).Scan(&enabled, &pairing)
 	if errors.Is(err, sql.ErrNoRows) {
 		return IOSPairingStatus{}, ErrUserNotFound
 	}
 	if err != nil {
 		return IOSPairingStatus{}, fmt.Errorf("query iOS pairing status: %w", err)
 	}
-	status.Allowed = enabled != 0 && pairing != 0
-	status.HasCredential = createdAt.Valid
-	status.CredentialCreatedAt = iosPairingTimestamp(stringValue(createdAt))
-	status.Paired = pairedAt.Valid
-	status.PairedAt = iosPairingTimestamp(stringValue(pairedAt))
-	status.LastSeenAt = iosPairingTimestamp(stringValue(lastSeenAt))
+	status := IOSPairingStatus{
+		Allowed:     enabled != 0 && pairing != 0,
+		Devices:     []IOSPairingDevice{},
+		DeviceLimit: MaxIOSPairingDevices,
+	}
+	rows, err := s.database.QueryContext(
+		ctx,
+		`SELECT
+			id,
+			created_at,
+			activated_at,
+			device_name,
+			device_model,
+			device_model_identifier,
+			os_name,
+			os_version,
+			app_version,
+			app_build,
+			last_seen_at
+		 FROM modemdeck_ios_pairing_credentials
+		 WHERE user_id = ?
+		 ORDER BY activated_at IS NULL DESC,
+			COALESCE(last_seen_at, activated_at, created_at) DESC,
+			created_at DESC,
+			id`,
+		userID,
+	)
+	if err != nil {
+		return IOSPairingStatus{}, fmt.Errorf("query iOS pairing credentials: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			device      IOSPairingDevice
+			createdAt   string
+			activatedAt sql.NullString
+			lastSeenAt  sql.NullString
+		)
+		if err := rows.Scan(
+			&device.ID,
+			&createdAt,
+			&activatedAt,
+			&device.Device.Name,
+			&device.Device.Model,
+			&device.Device.ModelIdentifier,
+			&device.Device.OSName,
+			&device.Device.OSVersion,
+			&device.Device.AppVersion,
+			&device.Device.AppBuild,
+			&lastSeenAt,
+		); err != nil {
+			return IOSPairingStatus{}, fmt.Errorf("scan iOS pairing credential: %w", err)
+		}
+		device.CredentialCreatedAt = iosPairingTimestamp(createdAt)
+		if !activatedAt.Valid {
+			status.Pending = &IOSPairingPendingCredential{
+				ID:                  device.ID,
+				CredentialCreatedAt: device.CredentialCreatedAt,
+			}
+			continue
+		}
+		device.PairedAt = iosPairingTimestamp(stringValue(activatedAt))
+		device.LastSeenAt = iosPairingTimestamp(stringValue(lastSeenAt))
+		status.Devices = append(status.Devices, device)
+	}
+	if err := rows.Err(); err != nil {
+		return IOSPairingStatus{}, fmt.Errorf("iterate iOS pairing credentials: %w", err)
+	}
+	status.HasCredential = status.Pending != nil || len(status.Devices) > 0
+	if status.Pending != nil {
+		status.CredentialCreatedAt = status.Pending.CredentialCreatedAt
+	}
+	if len(status.Devices) > 0 {
+		primary := status.Devices[0]
+		status.Paired = true
+		status.PairedAt = primary.PairedAt
+		status.Device = primary.Device
+		status.LastSeenAt = primary.LastSeenAt
+		if status.CredentialCreatedAt == "" {
+			status.CredentialCreatedAt = primary.CredentialCreatedAt
+		}
+	}
 	return status, nil
 }
 
-func (s *Store) RotateIOSPairingCredential(
+func (s *Store) CreateIOSPairingCredential(
 	ctx context.Context,
 	userID string,
 	digest mobilepairing.TokenDigest,
 ) (IOSPairingStatus, error) {
+	userID = strings.TrimSpace(userID)
+	credentialID, err := newIOSPairingCredentialID()
+	if err != nil {
+		return IOSPairingStatus{}, fmt.Errorf("generate iOS pairing credential id: %w", err)
+	}
 	transaction, err := s.database.BeginTx(ctx, nil)
 	if err != nil {
 		return IOSPairingStatus{}, fmt.Errorf("begin iOS pairing credential update: %w", err)
@@ -481,65 +556,82 @@ func (s *Store) RotateIOSPairingCredential(
 	if enabled == 0 || pairing == 0 {
 		return IOSPairingStatus{}, ErrIOSPairingNotAllowed
 	}
-	var createdAt string
+	var activeCount int
 	if err := transaction.QueryRowContext(
 		ctx,
+		`SELECT COUNT(*)
+		 FROM modemdeck_ios_pairing_credentials
+		 WHERE user_id = ? AND activated_at IS NOT NULL`,
+		userID,
+	).Scan(&activeCount); err != nil {
+		return IOSPairingStatus{}, fmt.Errorf("count paired iOS devices: %w", err)
+	}
+	if activeCount >= MaxIOSPairingDevices {
+		return IOSPairingStatus{}, ErrIOSPairingDeviceLimit
+	}
+	if _, err := transaction.ExecContext(
+		ctx,
+		`DELETE FROM modemdeck_ios_pairing_credentials
+		 WHERE user_id = ? AND activated_at IS NULL`,
+		userID,
+	); err != nil {
+		return IOSPairingStatus{}, fmt.Errorf("replace pending iOS pairing credential: %w", err)
+	}
+	if _, err := transaction.ExecContext(
+		ctx,
 		`INSERT INTO modemdeck_ios_pairing_credentials (
-			user_id, token_digest, created_at, updated_at
-		 ) VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-		 ON CONFLICT(user_id) DO UPDATE SET
-			token_digest = excluded.token_digest,
-			activated_at = NULL,
-			device_name = '',
-			device_model = '',
-			device_model_identifier = '',
-			os_name = '',
-			os_version = '',
-			app_version = '',
-			app_build = '',
-			apns_token = '',
-			voip_token = '',
-			push_environment = 'development',
-			push_bundle_id = '',
-			push_updated_at = NULL,
-			last_seen_at = NULL,
-			created_at = CURRENT_TIMESTAMP,
-			updated_at = CURRENT_TIMESTAMP
-		 RETURNING created_at`,
+			id, user_id, token_digest, created_at, updated_at
+		 ) VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		credentialID,
 		userID,
 		digest[:],
-	).Scan(&createdAt); err != nil {
+	); err != nil {
 		return IOSPairingStatus{}, fmt.Errorf("store iOS pairing credential: %w", err)
 	}
 	if err := transaction.Commit(); err != nil {
 		return IOSPairingStatus{}, fmt.Errorf("commit iOS pairing credential update: %w", err)
 	}
-	return IOSPairingStatus{
-		Allowed:             true,
-		HasCredential:       true,
-		CredentialCreatedAt: iosPairingTimestamp(createdAt),
-	}, nil
+	return s.IOSPairingStatus(ctx, userID)
 }
 
-func (s *Store) RevokeIOSPairingCredential(
+func (s *Store) IOSPairingCredentialIDByTokenDigest(
 	ctx context.Context,
-	userID string,
-) error {
-	_, _, err := s.RevokeIOSPairingCredentialWithDigest(ctx, userID)
-	return err
+	digest mobilepairing.TokenDigest,
+) (string, bool, error) {
+	var credentialID string
+	err := s.database.QueryRowContext(
+		ctx,
+		`SELECT id
+		 FROM modemdeck_ios_pairing_credentials
+		 WHERE token_digest = ?`,
+		digest[:],
+	).Scan(&credentialID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("query iOS pairing credential id: %w", err)
+	}
+	return credentialID, true, nil
 }
 
 func (s *Store) RevokeIOSPairingCredentialWithDigest(
 	ctx context.Context,
-	userID string,
+	userID, credentialID string,
 ) (mobilepairing.TokenDigest, bool, error) {
+	userID = strings.TrimSpace(userID)
+	credentialID = strings.TrimSpace(credentialID)
+	if userID == "" || credentialID == "" {
+		return mobilepairing.TokenDigest{}, false, ErrIOSPairingCredentialNotFound
+	}
 	var value []byte
 	err := s.database.QueryRowContext(
 		ctx,
 		`DELETE FROM modemdeck_ios_pairing_credentials
-		 WHERE user_id = ?
+		 WHERE user_id = ? AND id = ?
 		 RETURNING token_digest`,
 		userID,
+		credentialID,
 	).Scan(&value)
 	if errors.Is(err, sql.ErrNoRows) {
 		return mobilepairing.TokenDigest{}, false, nil
@@ -559,6 +651,72 @@ func (s *Store) RevokeIOSPairingCredentialWithDigest(
 	var digest mobilepairing.TokenDigest
 	copy(digest[:], value)
 	return digest, true, nil
+}
+
+func (s *Store) RevokeIOSPairingCredentialByTokenDigest(
+	ctx context.Context,
+	digest mobilepairing.TokenDigest,
+) (bool, error) {
+	result, err := s.database.ExecContext(
+		ctx,
+		`DELETE FROM modemdeck_ios_pairing_credentials
+		 WHERE token_digest = ?`,
+		digest[:],
+	)
+	if err != nil {
+		return false, fmt.Errorf("revoke current iOS pairing credential: %w", err)
+	}
+	revoked, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("read current iOS pairing revocation: %w", err)
+	}
+	return revoked == 1, nil
+}
+
+func (s *Store) RevokeAllIOSPairingCredentials(
+	ctx context.Context,
+	userID string,
+) ([]mobilepairing.TokenDigest, error) {
+	userID = strings.TrimSpace(userID)
+	rows, err := s.database.QueryContext(
+		ctx,
+		`DELETE FROM modemdeck_ios_pairing_credentials
+		 WHERE user_id = ?
+		 RETURNING token_digest`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("revoke all iOS pairing credentials: %w", err)
+	}
+	defer rows.Close()
+	digests := make([]mobilepairing.TokenDigest, 0)
+	for rows.Next() {
+		var value []byte
+		if err := rows.Scan(&value); err != nil {
+			return nil, fmt.Errorf("scan revoked iOS pairing credential: %w", err)
+		}
+		if len(value) != len(mobilepairing.TokenDigest{}) {
+			return nil, fmt.Errorf(
+				"revoke all iOS pairing credentials: invalid digest length %d",
+				len(value),
+			)
+		}
+		var digest mobilepairing.TokenDigest
+		copy(digest[:], value)
+		digests = append(digests, digest)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate revoked iOS pairing credentials: %w", err)
+	}
+	return digests, nil
+}
+
+func newIOSPairingCredentialID() (string, error) {
+	var random [16]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return "", err
+	}
+	return "ios-" + base64.RawURLEncoding.EncodeToString(random[:]), nil
 }
 
 func iosPairingTimestamp(value string) string {

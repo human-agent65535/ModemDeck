@@ -216,6 +216,8 @@ export type IOSPairingAvailability =
   | 'route_unavailable'
   | 'ready'
 
+export const IOS_PAIRING_DEVICE_LIMIT = 3
+
 export type IOSDeviceInfo = {
   device_name?: string
   device_model?: string
@@ -224,6 +226,19 @@ export type IOSDeviceInfo = {
   os_version?: string
   app_version?: string
   app_build?: string
+}
+
+export type IOSPairingDevice = {
+  id: string
+  credential_created_at: string
+  paired_at: string
+  device?: IOSDeviceInfo
+  last_seen_at?: string
+}
+
+export type IOSPairingPendingCredential = {
+  id: string
+  credential_created_at: string
 }
 
 export type IOSPairingStatus = {
@@ -235,6 +250,9 @@ export type IOSPairingStatus = {
   paired_at?: string
   device?: IOSDeviceInfo
   last_seen_at?: string
+  devices: IOSPairingDevice[]
+  pending?: IOSPairingPendingCredential
+  device_limit: number
   server_urls: string[]
 }
 
@@ -1350,6 +1368,8 @@ export type UserAccount = {
   ios_pairing_credential_created_at?: string
   ios_pairing_paired: boolean
   ios_pairing_paired_at?: string
+  ios_pairing_device_count: number
+  ios_pairing_pending: boolean
   revision: number
   profile_name?: string
   profile_avatar?: string

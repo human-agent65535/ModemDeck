@@ -44,6 +44,22 @@ test('pairing exposes only verified selectable API addresses', () => {
       has_credential: true,
       paired: true,
       paired_at: '2026-07-30T12:01:00Z',
+      devices: [
+        {
+          id: 'ios-phone',
+          credential_created_at: '2026-07-30T12:00:00Z',
+          paired_at: '2026-07-30T12:01:00Z',
+          last_seen_at: '2026-07-30T12:02:00Z',
+          device: {
+            device_name: 'Personal iPhone',
+            device_model: 'iPhone',
+            os_name: 'iOS',
+            os_version: '26.0',
+            app_version: '0.1.0'
+          }
+        }
+      ],
+      device_limit: 3,
       server_urls: [
         'https://phone-a.example.com',
         'https://phone-b.example.com'
@@ -54,6 +70,8 @@ test('pairing exposes only verified selectable API addresses', () => {
   assert.equal(status.pairing.availability, 'ready')
   assert.equal(status.pairing.has_credential, true)
   assert.equal(status.pairing.paired, true)
+  assert.equal(status.pairing.devices[0].id, 'ios-phone')
+  assert.equal(status.pairing.device_limit, 3)
   assert.deepEqual(status.pairing.server_urls, [
     'https://phone-a.example.com',
     'https://phone-b.example.com'
@@ -163,11 +181,13 @@ test('pairing exposes only verified selectable API addresses', () => {
   )
 })
 
-test('fixture creates and revokes one non-expiring Cloudflare pairing', async () => {
+test('fixture keeps active devices while creating and revoking one pending pairing', async () => {
   const gateway = createFixtureGateway()
   const initial = await gateway.getIOSPairing()
   assert.equal(initial.pairing.availability, 'ready')
-  assert.ok((await gateway.sendIOSTestCall()).id)
+  assert.equal(initial.pairing.devices.length, 2)
+  assert.equal(initial.pairing.device_limit, 3)
+  assert.ok((await gateway.sendIOSTestCall(initial.pairing.devices[0].id)).id)
   assert.deepEqual((await gateway.getExternalAccessStatus()).cloudflare, {
     enabled: true,
     connector_connected: true,
@@ -200,11 +220,20 @@ test('fixture creates and revokes one non-expiring Cloudflare pairing', async ()
 
   const created = await gateway.createIOSPairing()
   assert.equal(created.pairing.has_credential, true)
-  assert.equal(created.pairing.paired, false)
+  assert.equal(created.pairing.paired, true)
+  assert.equal(created.pairing.devices.length, 2)
+  assert.ok(created.pairing.pending?.id)
   assert.equal(created.payload?.server_url, 'https://mobile.modemdeck.example')
   assert.ok(created.payload?.token)
 
-  await gateway.revokeIOSPairing()
+  await gateway.revokeIOSPairing(created.pairing.pending.id)
+  const afterPendingRevoke = await gateway.getIOSPairing()
+  assert.equal(afterPendingRevoke.pairing.devices.length, 2)
+  assert.equal(afterPendingRevoke.pairing.pending, undefined)
+
+  for (const device of afterPendingRevoke.pairing.devices) {
+    await gateway.revokeIOSPairing(device.id)
+  }
   assert.equal((await gateway.getIOSPairing()).pairing.has_credential, false)
   assert.equal((await gateway.getIOSPairing()).pairing.paired, false)
 })
@@ -308,8 +337,8 @@ test('settings separate administrator infrastructure from self-service pairing',
   assert.match(connectivityPanel, /<WebCertificateSettingsPanel/)
   assert.match(connectivityPanel, /<ExternalAccessSettingsPanel mode="connectivity"/)
   assert.match(userPanel, /ios_pairing_enabled: iosPairingEnabled\.value/)
-  assert.match(userPanel, /selectedUser\.ios_pairing_has_credential/)
-  assert.match(userPanel, /selectedUser\.ios_pairing_paired/)
+  assert.match(userPanel, /selectedUser\.ios_pairing_device_count/)
+  assert.match(userPanel, /selectedUser\.ios_pairing_pending/)
   assert.match(userPanel, /gateway\.revokeUserIOSPairing\(user\.id\)/)
   assert.match(externalAccessPanel, /gateway\.getExternalAccessStatus\(\)/)
   assert.match(externalAccessPanel, /gateway\.refreshExternalAccess\(\)/)
@@ -334,11 +363,8 @@ test('settings separate administrator infrastructure from self-service pairing',
   assert.match(externalAccessPanel, /externalAccess\.turn\.configured/)
   assert.match(externalAccessPanel, /externalAccess\.turn\.available/)
   assert.match(externalAccessPanel, /pairing\.value\.availability === 'ready'/)
-  assert.match(
-    externalAccessPanel,
-    /pairing\.credential_created_at && !pairing\.paired/
-  )
-  assert.match(externalAccessPanel, /ios-pairing-facts--device/)
+  assert.match(externalAccessPanel, /v-for="device in pairing\.devices"/)
+  assert.match(externalAccessPanel, /<SettingsControlRow/)
   assert.doesNotMatch(externalAccessPanel, /device_model_identifier/)
   assert.doesNotMatch(externalAccessPanel, /device\?\.app_build/)
   assert.match(externalAccessPanel, /turnCallUnavailable/)
@@ -351,11 +377,11 @@ test('settings separate administrator infrastructure from self-service pairing',
   assert.match(externalAccessPanel, /refreshPairingConfirmation/)
   assert.match(
     externalAccessPanel,
-    /!wasPaired && status\.paired && qrDataURL\.value/
+    /status\.pending\?\.id !== qrCredentialID\.value/
   )
   assert.match(
     externalAccessPanel,
-    /pairing\.value\?\.has_credential && !pairing\.value\.paired/
+    /Boolean\(pairing\.value\?\.pending\)/
   )
   assert.match(externalAccessPanel, /onBeforeUnmount/)
   assert.match(externalAccessPanel, /gateway\.createIOSPairing\(/)
@@ -364,7 +390,8 @@ test('settings separate administrator infrastructure from self-service pairing',
     externalAccessPanel,
     /<SelectControl[\s\S]*:model-value="selectedServerURL"/
   )
-  assert.match(externalAccessPanel, /gateway\.revokeIOSPairing\(\)/)
+  assert.match(externalAccessPanel, /gateway\.revokeIOSPairing\(credentialID\)/)
+  assert.match(externalAccessPanel, /gateway\.sendIOSTestCall\(credentialID\)/)
   assert.match(
     externalAccessPanel,
     /pairingCode\.value = JSON\.stringify\(result\.payload\)/

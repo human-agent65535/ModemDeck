@@ -243,17 +243,20 @@ covered in the [deployment guide](deploy/README.md).
 
 An iOS pairing can be created only while the installed Cloudflare Tunnel is
 connected. The QR payload contains the automatically discovered Cloudflare API
-HTTPS origin and a per-user credential; it contains no LAN address and has no
-expiry. The first authenticated iOS API request confirms the pairing; closing
-the QR does not cancel the pending credential. It remains valid until the user
-or an administrator revokes it. iOS calls reuse the Call API, call lease, and
-WebRTC media boundaries with Cloudflare TURN relay-only configuration. CallKit
+HTTPS origin and a per-device credential; it contains no LAN address and has no
+expiry. Each account can retain up to three paired Apple devices and one pending
+QR request. Creating a new QR replaces only that pending request, never an
+already paired device. The first authenticated iOS API request confirms the
+pairing; closing the QR does not cancel the pending credential. Each paired
+device remains valid until the user or an administrator revokes it. iOS calls
+reuse the Call API, call lease, and WebRTC media boundaries with Cloudflare TURN
+relay-only configuration. CallKit
 owns incoming and outgoing call state, answering, mute, DTMF, and hang-up.
 After pairing, the client registers APNs and PushKit tokens through
 `/api/v1/mobile/push`. The server sends new-message alerts according to each
 user's line access and sends VoIP pushes only for incoming calls whose effective
 policy permits receiving; the client hands those VoIP payloads to CallKit.
-The Test Call action under Settings → Pairing posts to
+Each device row under Settings → Pairing has its own Test Call action, which posts to
 `/api/v1/mobile/push/test-call`; it creates a short-lived synthetic CallKit call
 without a modem call, call record, or lease. Apple Team ID, Key ID, `.p8`
 key, and Bundle ID remain server-local. See the [deployment guide](deploy/README.md#apple-push-apns-and-pushkit).

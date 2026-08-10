@@ -342,7 +342,7 @@ func TestMobileBearerConfirmationFailureRejectsTheRequest(t *testing.T) {
 func TestMobileBearerCanRevokeItsOwnPairingCredential(t *testing.T) {
 	t.Parallel()
 
-	token, _, err := mobilepairing.NewToken()
+	token, digest, err := mobilepairing.NewToken()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,8 +373,8 @@ func TestMobileBearerCanRevokeItsOwnPairingCredential(t *testing.T) {
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
 	}
-	if repository.revokedUserID != "member-1" {
-		t.Fatalf("revoked user = %q", repository.revokedUserID)
+	if repository.revokedTokenDigest != digest {
+		t.Fatalf("revoked digest = %x, want %x", repository.revokedTokenDigest, digest)
 	}
 }
 

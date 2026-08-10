@@ -17,13 +17,15 @@ import (
 
 type fakeMobilePairingRepository struct {
 	*fakeRepository
-	pairing       store.IOSPairingStatus
-	rotatedUserID string
-	rotatedDigest mobilepairing.TokenDigest
-	revokedUserID string
-	pairingError  error
-	rotateError   error
-	revokeError   error
+	pairing             store.IOSPairingStatus
+	createdUserID       string
+	createdDigest       mobilepairing.TokenDigest
+	revokedUserID       string
+	revokedCredentialID string
+	revokedTokenDigest  mobilepairing.TokenDigest
+	pairingError        error
+	rotateError         error
+	revokeError         error
 }
 
 func (repository *fakeMobilePairingRepository) IOSPairingStatus(
@@ -33,22 +35,31 @@ func (repository *fakeMobilePairingRepository) IOSPairingStatus(
 	return repository.pairing, repository.pairingError
 }
 
-func (repository *fakeMobilePairingRepository) RotateIOSPairingCredential(
+func (repository *fakeMobilePairingRepository) CreateIOSPairingCredential(
 	_ context.Context,
 	userID string,
 	digest mobilepairing.TokenDigest,
 ) (store.IOSPairingStatus, error) {
-	repository.rotatedUserID = userID
-	repository.rotatedDigest = digest
+	repository.createdUserID = userID
+	repository.createdDigest = digest
 	return repository.pairing, repository.rotateError
 }
 
-func (repository *fakeMobilePairingRepository) RevokeIOSPairingCredential(
+func (repository *fakeMobilePairingRepository) RevokeIOSPairingCredentialWithDigest(
 	_ context.Context,
-	userID string,
-) error {
+	userID, credentialID string,
+) (mobilepairing.TokenDigest, bool, error) {
 	repository.revokedUserID = userID
-	return repository.revokeError
+	repository.revokedCredentialID = credentialID
+	return mobilepairing.TokenDigest{9}, repository.revokeError == nil, repository.revokeError
+}
+
+func (repository *fakeMobilePairingRepository) RevokeIOSPairingCredentialByTokenDigest(
+	_ context.Context,
+	digest mobilepairing.TokenDigest,
+) (bool, error) {
+	repository.revokedTokenDigest = digest
+	return repository.revokeError == nil, repository.revokeError
 }
 
 type fakeMobilePairingAvailability struct {
@@ -266,6 +277,17 @@ func TestIOSPairingStatusReturnsReadinessAndVerifiedPairingAddresses(
 				ModelIdentifier: "iPhone18,2",
 			},
 			LastSeenAt: "2026-08-03T05:10:00Z",
+			Devices: []store.IOSPairingDevice{{
+				ID:                  "ios-device-example",
+				CredentialCreatedAt: "2026-07-30T12:00:00Z",
+				PairedAt:            "2026-07-30T12:01:00Z",
+				Device: mobilepairing.DeviceInfo{
+					Name:            "Test iPhone",
+					ModelIdentifier: "iPhone18,2",
+				},
+				LastSeenAt: "2026-08-03T05:10:00Z",
+			}},
+			DeviceLimit: store.MaxIOSPairingDevices,
 		},
 	}
 	api, err := New(repository, Options{
@@ -311,6 +333,9 @@ func TestIOSPairingStatusReturnsReadinessAndVerifiedPairingAddresses(
 		body.Pairing.Device.Name != "Test iPhone" ||
 		body.Pairing.Device.ModelIdentifier != "iPhone18,2" ||
 		body.Pairing.LastSeenAt != "2026-08-03T05:10:00Z" ||
+		len(body.Pairing.Devices) != 1 ||
+		body.Pairing.Devices[0].ID != "ios-device-example" ||
+		body.Pairing.DeviceLimit != store.MaxIOSPairingDevices ||
 		len(body.Pairing.ServerURLs) != 1 ||
 		body.Pairing.ServerURLs[0] != "https://phone.example.com" {
 		t.Fatalf("pairing = %+v", body.Pairing)
@@ -372,8 +397,8 @@ func TestIOSPairingCreatesOnlyCurrentUsersCredentialThroughCloudflare(
 	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if repository.rotatedUserID != principal.UserID {
-		t.Fatalf("rotated user = %q", repository.rotatedUserID)
+	if repository.createdUserID != principal.UserID {
+		t.Fatalf("created user = %q", repository.createdUserID)
 	}
 	if body.Payload == nil ||
 		body.Payload.ServerURL != publicURL ||
@@ -387,8 +412,8 @@ func TestIOSPairingCreatesOnlyCurrentUsersCredentialThroughCloudflare(
 	if err != nil {
 		t.Fatalf("Digest() error = %v", err)
 	}
-	if digest != repository.rotatedDigest {
-		t.Fatalf("stored digest = %x, want %x", repository.rotatedDigest, digest)
+	if digest != repository.createdDigest {
+		t.Fatalf("stored digest = %x, want %x", repository.createdDigest, digest)
 	}
 	if strings.Contains(response.Body.String(), "expires") {
 		t.Fatalf("response unexpectedly contains expiry: %s", response.Body.String())
@@ -506,8 +531,8 @@ func TestIOSPairingRequiresAValidSelectionForMultipleIngresses(
 				http.StatusUnprocessableEntity,
 				testCase.wantCode,
 			)
-			if repository.rotatedUserID != "" {
-				t.Fatalf("credential rotated for %q", repository.rotatedUserID)
+			if repository.createdUserID != "" {
+				t.Fatalf("credential created for %q", repository.createdUserID)
 			}
 		})
 	}
@@ -614,8 +639,8 @@ func TestIOSPairingRequiresEnabledAndConnectedCloudflare(t *testing.T) {
 				testCase.wantStatus,
 				testCase.wantCode,
 			)
-			if repository.rotatedUserID != "" {
-				t.Fatalf("credential rotated for %q", repository.rotatedUserID)
+			if repository.createdUserID != "" {
+				t.Fatalf("credential created for %q", repository.createdUserID)
 			}
 		})
 	}
@@ -629,6 +654,9 @@ func TestIOSPairingCanBeRevokedWhileCloudflareIsDisabled(t *testing.T) {
 		pairing: store.IOSPairingStatus{
 			Allowed:       true,
 			HasCredential: true,
+			Devices: []store.IOSPairingDevice{{
+				ID: "ios-device-example",
+			}},
 		},
 	}
 	api, err := New(repository, Options{disableAuthentication: true})
@@ -638,7 +666,11 @@ func TestIOSPairingCanBeRevokedWhileCloudflareIsDisabled(t *testing.T) {
 	response := httptest.NewRecorder()
 	api.ServeHTTP(
 		response,
-		httptest.NewRequest(http.MethodDelete, "/api/v1/mobile/pairing", nil),
+		httptest.NewRequest(
+			http.MethodDelete,
+			"/api/v1/mobile/pairing?credential_id=ios-device-example",
+			nil,
+		),
 	)
 
 	if response.Code != http.StatusNoContent {
@@ -646,5 +678,8 @@ func TestIOSPairingCanBeRevokedWhileCloudflareIsDisabled(t *testing.T) {
 	}
 	if repository.revokedUserID != auth.InitialAdminUserID {
 		t.Fatalf("revoked user = %q", repository.revokedUserID)
+	}
+	if repository.revokedCredentialID != "ios-device-example" {
+		t.Fatalf("revoked credential = %q", repository.revokedCredentialID)
 	}
 }

@@ -307,6 +307,20 @@ func TestOpenAddsIOSPairingConfirmationAndPreservesExistingPairing(
 		"",
 		1,
 	)
+	previousSchema = strings.Replace(
+		previousSchema,
+		"CREATE INDEX idx_modemdeck_ios_pairing_user\n"+
+			"\tON modemdeck_ios_pairing_credentials(user_id, activated_at, created_at);\n\n",
+		"",
+		1,
+	)
+	previousSchema = strings.Replace(
+		previousSchema,
+		"CREATE UNIQUE INDEX ux_modemdeck_ios_pairing_pending_user\n"+
+			"\tON modemdeck_ios_pairing_credentials(user_id) WHERE activated_at IS NULL;\n\n",
+		"",
+		1,
+	)
 	if previousSchema == currentSchemaSQL {
 		t.Fatal("previous schema fixture did not remove activated_at")
 	}
@@ -444,6 +458,123 @@ func TestOpenAddsIOSPairingDeviceMetadataAndPreservesExistingPairing(
 			pushBundleID.String,
 			lastSeenAt.String,
 		)
+	}
+}
+
+func TestOpenMigratesSingleDeviceIOSPairingToMultipleCredentials(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	previousSchema := strings.Replace(
+		currentSchemaSQL,
+		"CREATE TABLE modemdeck_ios_pairing_credentials (\n"+
+			"\t\t\tid TEXT PRIMARY KEY,\n"+
+			"\t\t\tuser_id TEXT NOT NULL,",
+		"CREATE TABLE modemdeck_ios_pairing_credentials (\n"+
+			"\t\t\tuser_id TEXT PRIMARY KEY,",
+		1,
+	)
+	for _, index := range []string{
+		"CREATE INDEX idx_modemdeck_ios_pairing_user\n" +
+			"\tON modemdeck_ios_pairing_credentials(user_id, activated_at, created_at);\n\n",
+		"CREATE UNIQUE INDEX ux_modemdeck_ios_pairing_pending_user\n" +
+			"\tON modemdeck_ios_pairing_credentials(user_id) WHERE activated_at IS NULL;\n\n",
+	} {
+		updated := strings.Replace(previousSchema, index, "", 1)
+		if updated == previousSchema {
+			t.Fatalf("single-device fixture did not remove %q", index)
+		}
+		previousSchema = updated
+	}
+	if previousSchema == currentSchemaSQL {
+		t.Fatal("single-device fixture did not remove credential id")
+	}
+
+	path := filepath.Join(t.TempDir(), "single-ios-pairing-device.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(previousSchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO modemdeck_users (
+			id, username, password_hash, role, enabled, ios_pairing_enabled
+		) VALUES (
+			'user_admin', 'owner', 'owner-hash', 'admin', 1, 1
+		);
+		INSERT INTO modemdeck_ios_pairing_credentials (
+			user_id, token_digest, activated_at,
+			device_name, device_model, os_name, os_version,
+			app_version, apns_token, voip_token, push_environment,
+			push_bundle_id, created_at, updated_at
+		) VALUES (
+			'user_admin', randomblob(32), '2026-08-01 12:01:00',
+			'Migrated iPhone', 'iPhone', 'iOS', '26.0',
+			'0.1.0', 'legacy-apns', 'legacy-voip', 'production',
+			'com.example.modemdeck',
+			'2026-08-01 12:00:00', '2026-08-01 12:01:00'
+		);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	if err := ValidateSchema(context.Background(), database); err != nil {
+		t.Fatalf("ValidateSchema() after migration error = %v", err)
+	}
+
+	var credentialID, deviceName, apnsToken, bundleID string
+	if err := database.QueryRow(`
+		SELECT id, device_name, apns_token, push_bundle_id
+		FROM modemdeck_ios_pairing_credentials
+		WHERE user_id = 'user_admin'
+	`).Scan(&credentialID, &deviceName, &apnsToken, &bundleID); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(credentialID, "ios-") ||
+		deviceName != "Migrated iPhone" ||
+		apnsToken != "legacy-apns" ||
+		bundleID != "com.example.modemdeck" {
+		t.Fatalf(
+			"migrated credential = id %q, device %q, APNs %q, bundle %q",
+			credentialID,
+			deviceName,
+			apnsToken,
+			bundleID,
+		)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO modemdeck_ios_pairing_credentials (
+			id, user_id, token_digest, activated_at
+		) VALUES (
+			'ios-second-device', 'user_admin', randomblob(32), CURRENT_TIMESTAMP
+		)
+	`); err != nil {
+		t.Fatalf("insert second active credential after migration: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO modemdeck_ios_pairing_credentials (
+			id, user_id, token_digest
+		) VALUES ('ios-pending-one', 'user_admin', randomblob(32))
+	`); err != nil {
+		t.Fatalf("insert first pending credential after migration: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO modemdeck_ios_pairing_credentials (
+			id, user_id, token_digest
+		) VALUES ('ios-pending-two', 'user_admin', randomblob(32))
+	`); err == nil {
+		t.Fatal("inserted a second pending credential for one user")
 	}
 }
 
@@ -2494,6 +2625,16 @@ func legacyV1SchemaFixture(t *testing.T) string {
 		"CREATE TABLE modemdeck_ios_pairing_credentials (",
 		"CREATE TABLE contacts",
 	)
+	replace(
+		"CREATE INDEX idx_modemdeck_ios_pairing_user\n"+
+			"\tON modemdeck_ios_pairing_credentials(user_id, activated_at, created_at);\n\n",
+		"",
+	)
+	replace(
+		"CREATE UNIQUE INDEX ux_modemdeck_ios_pairing_pending_user\n"+
+			"\tON modemdeck_ios_pairing_credentials(user_id) WHERE activated_at IS NULL;\n\n",
+		"",
+	)
 	replace("preferred_line_id TEXT NOT NULL DEFAULT ''", "preferred_device_imei TEXT NOT NULL DEFAULT ''")
 	replace(
 		"line_id TEXT NOT NULL DEFAULT '',\n\t\t\t\tendpoint_line_id TEXT NOT NULL DEFAULT '',\n\t\t\t\tendpoint_message_id",
@@ -2606,6 +2747,10 @@ func schemaBeforeMobilePairingFixture(t *testing.T) string {
 
 	remove("\n\t\t\tios_pairing_enabled NUMERIC NOT NULL DEFAULT 0,")
 	removeTable("modemdeck_ios_pairing_credentials")
+	remove("CREATE INDEX idx_modemdeck_ios_pairing_user\n" +
+		"\tON modemdeck_ios_pairing_credentials(user_id, activated_at, created_at);\n\n")
+	remove("CREATE UNIQUE INDEX ux_modemdeck_ios_pairing_pending_user\n" +
+		"\tON modemdeck_ios_pairing_credentials(user_id) WHERE activated_at IS NULL;\n\n")
 	return schema
 }
 
@@ -2661,6 +2806,10 @@ func singleUserSchemaFixture(t *testing.T) string {
 	} {
 		removeTable(table)
 	}
+	remove("CREATE INDEX idx_modemdeck_ios_pairing_user\n" +
+		"\tON modemdeck_ios_pairing_credentials(user_id, activated_at, created_at);\n\n")
+	remove("CREATE UNIQUE INDEX ux_modemdeck_ios_pairing_pending_user\n" +
+		"\tON modemdeck_ios_pairing_credentials(user_id) WHERE activated_at IS NULL;\n\n")
 	replace(
 		"user_id TEXT NOT NULL DEFAULT 'user_admin',\n"+
 			"\t\t\tcreated_at_unix INTEGER NOT NULL,\n"+

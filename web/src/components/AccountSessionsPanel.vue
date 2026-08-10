@@ -62,6 +62,7 @@ function sessionDescription(session: AccountSession): string {
     return [
       model &&
       model.toLocaleLowerCase() !== 'iphone' &&
+      model.toLocaleLowerCase() !== 'ipad' &&
       model.toLocaleLowerCase() !== title
         ? model
         : '',

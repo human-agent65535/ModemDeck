@@ -200,8 +200,8 @@ export interface ModemDeckGateway {
   disableCloudflareOriginTLS(): Promise<CloudflareOriginTLSStatus>
   getIOSPairing(): Promise<IOSPairingResult>
   createIOSPairing(serverURL?: string): Promise<IOSPairingResult>
-  revokeIOSPairing(): Promise<void>
-  sendIOSTestCall(): Promise<IOSTestCallResult>
+  revokeIOSPairing(credentialID: string): Promise<void>
+  sendIOSTestCall(credentialID?: string): Promise<IOSTestCallResult>
   getTLSSettings(): Promise<TLSSettings>
   updateTLSSettings(input: UpdateTLSSettingsInput): Promise<TLSSettings>
   getDeviceConfiguration(lineID: string): Promise<DeviceConfiguration>

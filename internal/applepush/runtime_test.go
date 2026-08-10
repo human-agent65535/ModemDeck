@@ -40,16 +40,16 @@ func (repository *fakePushRepository) IOSPushTargetsForLine(
 	return append([]store.IOSPushTarget(nil), repository.targets[kind]...), nil
 }
 
-func (repository *fakePushRepository) IOSPushTargetForUser(
+func (repository *fakePushRepository) IOSPushTargetForCredential(
 	_ context.Context,
-	userID string,
+	userID, credentialID string,
 	kind store.IOSPushTokenKind,
 ) (store.IOSPushTarget, bool, error) {
 	if repository.err != nil {
 		return store.IOSPushTarget{}, false, repository.err
 	}
 	for _, target := range repository.targets[kind] {
-		if target.UserID == userID {
+		if target.UserID == userID && target.CredentialID == credentialID {
 			return target, true, nil
 		}
 	}
@@ -233,23 +233,29 @@ func TestRuntimeSendsSyntheticTestCallOnlyToRequestedUser(t *testing.T) {
 	repository := &fakePushRepository{targets: map[store.IOSPushTokenKind][]store.IOSPushTarget{
 		store.IOSPushTokenVoIP: {
 			{
-				UserID:      "user-other",
-				Token:       strings.Repeat("11", 32),
-				Environment: "production",
-				BundleID:    "com.example.modemdeck",
+				CredentialID: "ios-other",
+				UserID:       "user-other",
+				Token:        strings.Repeat("11", 32),
+				Environment:  "production",
+				BundleID:     "com.example.modemdeck",
 			},
 			{
-				UserID:      "user-example",
-				Token:       strings.Repeat("22", 32),
-				Environment: "production",
-				BundleID:    "com.example.modemdeck",
+				CredentialID: "ios-example",
+				UserID:       "user-example",
+				Token:        strings.Repeat("22", 32),
+				Environment:  "production",
+				BundleID:     "com.example.modemdeck",
 			},
 		},
 	}}
 	sender := &fakePushSender{bundleID: "com.example.modemdeck"}
 	runtime := testRuntime(t, repository, sender, now)
 
-	result, err := runtime.SendTestCall(context.Background(), "user-example")
+	result, err := runtime.SendTestCall(
+		context.Background(),
+		"user-example",
+		"ios-example",
+	)
 	if err != nil {
 		t.Fatalf("SendTestCall() error = %v", err)
 	}
@@ -285,10 +291,11 @@ func TestRuntimeRejectsTestCallWithoutMatchingPushKitTarget(t *testing.T) {
 		{
 			name: "topic mismatch",
 			targets: []store.IOSPushTarget{{
-				UserID:      "user-example",
-				Token:       strings.Repeat("33", 32),
-				Environment: "production",
-				BundleID:    "com.example.other",
+				CredentialID: "ios-example",
+				UserID:       "user-example",
+				Token:        strings.Repeat("33", 32),
+				Environment:  "production",
+				BundleID:     "com.example.other",
 			}},
 			wantErr: ErrPushTopicMismatch,
 		},
@@ -300,7 +307,11 @@ func TestRuntimeRejectsTestCallWithoutMatchingPushKitTarget(t *testing.T) {
 			}}
 			sender := &fakePushSender{bundleID: "com.example.modemdeck"}
 			runtime := testRuntime(t, repository, sender, now)
-			if _, err := runtime.SendTestCall(context.Background(), "user-example"); !errors.Is(err, test.wantErr) {
+			if _, err := runtime.SendTestCall(
+				context.Background(),
+				"user-example",
+				"ios-example",
+			); !errors.Is(err, test.wantErr) {
 				t.Fatalf("SendTestCall() error = %v, want %v", err, test.wantErr)
 			}
 			if len(sender.notifications) != 0 {

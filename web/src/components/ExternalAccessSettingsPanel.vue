@@ -11,12 +11,17 @@ import {
   RadioTower,
   RefreshCw,
   ShieldCheck,
+  Smartphone,
   Trash2,
   X
 } from '@lucide/vue'
 import QRCode from 'qrcode'
 import { gateway } from '../api/client'
-import type { ExternalAccessStatus, IOSPairingStatus } from '../api/types'
+import type {
+  ExternalAccessStatus,
+  IOSPairingDevice,
+  IOSPairingStatus
+} from '../api/types'
 import { ApiError } from '../api/types'
 import { useSettingsMutation } from '../composables/useSettingsMutation'
 import { requestConfirmation } from '../state/confirmation'
@@ -25,6 +30,7 @@ import OverlayDialog from './OverlayDialog.vue'
 import SelectControl from './SelectControl.vue'
 import SettingsLoadBoundary from './settings/SettingsLoadBoundary.vue'
 import type { SettingsSkeletonShape } from './settings/settingsSkeleton'
+import SettingsControlRow from './settings/SettingsControlRow.vue'
 import SettingsModuleCard from './settings/SettingsModuleCard.vue'
 import CloudflareOriginTLSSettings from './CloudflareOriginTLSSettings.vue'
 
@@ -66,6 +72,9 @@ const pairingCode = ref('')
 const pairingCodeInput = ref<HTMLTextAreaElement | null>(null)
 const copied = ref(false)
 const selectedServerURL = ref('')
+const qrCredentialID = ref('')
+const revokingCredentialID = ref('')
+const testingCredentialID = ref('')
 let statusRefreshTimer: number | undefined
 let statusLoadPending = false
 let pairingConfirmationTimer: number | undefined
@@ -76,6 +85,13 @@ const pairingReady = computed(
     pairing.value?.allowed &&
     pairing.value.availability === 'ready' &&
     pairing.value.server_urls.length > 0
+)
+const canCreatePairing = computed(
+  () =>
+    pairingReady.value &&
+    !pairing.value?.pending &&
+    (pairing.value?.devices.length || 0) <
+      (pairing.value?.device_limit || 0)
 )
 const pairingRouteOptions = computed(() =>
   (pairing.value?.server_urls || []).map(url => ({
@@ -105,8 +121,12 @@ const pairingStatusLabel = computed(() => {
     case 'route_unavailable':
       return t('iosPairing.routeUnavailable')
     case 'ready':
-      if (pairing.value.paired) return t('iosPairing.paired')
-      if (pairing.value.has_credential) return t('iosPairing.waiting')
+      if (pairing.value.pending) {
+        return `${pairing.value.devices.length}/${pairing.value.device_limit}${t('common.listSeparator')}${t('iosPairing.waiting')}`
+      }
+      if (pairing.value.devices.length > 0) {
+        return `${pairing.value.devices.length}/${pairing.value.device_limit}`
+      }
       return t('iosPairing.notPaired')
     default:
       return ''
@@ -125,22 +145,31 @@ const pairingNotice = computed(() => {
       return ''
   }
 })
-const pairingDeviceTitle = computed(() => {
-  const device = pairing.value?.device
-  const specificName = [device?.device_name, device?.device_model]
+function pairingDeviceTitle(entry: IOSPairingDevice): string {
+  const specificName = [entry.device?.device_name, entry.device?.device_model]
     .map(value => value?.trim() || '')
-    .find(value => value && value.toLocaleLowerCase() !== 'iphone')
-  return specificName || t('iosPairing.yourDevice')
-})
-const pairingOperatingSystem = computed(() =>
-  [
-    pairing.value?.device?.os_name?.trim(),
-    pairing.value?.device?.os_version?.trim()
+    .find(value => value)
+  return specificName || t('account.pairedIPhone')
+}
+
+function pairingDeviceDescription(entry: IOSPairingDevice): string {
+  const title = pairingDeviceTitle(entry).toLocaleLowerCase()
+  const model = entry.device?.device_model?.trim() || ''
+  const operatingSystem = [
+    entry.device?.os_name?.trim(),
+    entry.device?.os_version?.trim()
   ].filter(Boolean).join(' ')
-)
-const pairingAppVersion = computed(
-  () => pairing.value?.device?.app_version?.trim() || ''
-)
+  const appVersion = entry.device?.app_version?.trim()
+  return [
+    model && model.toLocaleLowerCase() !== title ? model : '',
+    operatingSystem,
+    appVersion ? `ModemDeck ${appVersion}` : '',
+    `${t('iosPairing.pairedAt')}: ${formatTimestamp(entry.paired_at)}`,
+    entry.last_seen_at
+      ? `${t('iosPairing.lastSeenAt')}: ${formatTimestamp(entry.last_seen_at)}`
+      : ''
+  ].filter(Boolean).join(t('common.listSeparator'))
+}
 
 type TunnelDiagnostic = {
   code: string
@@ -248,12 +277,15 @@ function formatTimestamp(value?: string): string {
 }
 
 function applyPairingStatus(status: IOSPairingStatus): void {
-  const wasPaired = pairing.value?.paired ?? false
   pairing.value = status
   if (!status.server_urls.includes(selectedServerURL.value)) {
     selectedServerURL.value = status.server_urls[0] || ''
   }
-  if (!wasPaired && status.paired && qrDataURL.value) {
+  if (
+    qrCredentialID.value &&
+    status.pending?.id !== qrCredentialID.value &&
+    qrDataURL.value
+  ) {
     closeQR()
   }
   syncPairingConfirmationPolling()
@@ -266,9 +298,7 @@ function clearPairingConfirmationPolling(): void {
 }
 
 function syncPairingConfirmationPolling(): void {
-  const waiting = Boolean(
-    pairing.value?.has_credential && !pairing.value.paired
-  )
+  const waiting = Boolean(pairing.value?.pending)
   if (!waiting) {
     clearPairingConfirmationPolling()
     return
@@ -284,8 +314,7 @@ async function refreshPairingConfirmation(): Promise<void> {
     !showPairing.value ||
     pairingConfirmationLoadPending ||
     statusLoadPending ||
-    !pairing.value?.has_credential ||
-    pairing.value.paired
+    !pairing.value?.pending
   ) {
     return
   }
@@ -353,11 +382,7 @@ function applyOriginTLSStatus(
 }
 
 async function createPairing(): Promise<void> {
-  if (
-    !pairingReady.value ||
-    pairingPending.value ||
-    pairing.value?.has_credential
-  ) return
+  if (!canCreatePairing.value || pairingPending.value) return
 
   pairingPending.value = true
   pairingError.value = ''
@@ -366,6 +391,7 @@ async function createPairing(): Promise<void> {
       selectedServerURL.value || undefined
     )
     if (!result.payload) throw new Error(t('iosPairing.invalidPayload'))
+    qrCredentialID.value = result.pairing.pending?.id || ''
     applyPairingStatus(result.pairing)
     pairingCode.value = JSON.stringify(result.payload)
     qrDataURL.value = await QRCode.toDataURL(pairingCode.value, {
@@ -386,8 +412,34 @@ async function createPairing(): Promise<void> {
   }
 }
 
-async function revokePairing(): Promise<void> {
-  if (!pairing.value?.has_credential || pairingPending.value) return
+function statusWithoutCredential(
+  status: IOSPairingStatus,
+  credentialID: string
+): IOSPairingStatus {
+  const devices = status.devices.filter(device => device.id !== credentialID)
+  const pending =
+    status.pending?.id === credentialID ? undefined : status.pending
+  const primary = devices[0]
+  return {
+    ...status,
+    devices,
+    pending,
+    has_credential: Boolean(primary || pending),
+    credential_created_at:
+      pending?.credential_created_at || primary?.credential_created_at,
+    paired: Boolean(primary),
+    paired_at: primary?.paired_at,
+    device: primary?.device,
+    last_seen_at: primary?.last_seen_at
+  }
+}
+
+async function revokePairing(credentialID: string): Promise<void> {
+  if (
+    !pairing.value?.has_credential ||
+    pairingPending.value ||
+    revokingCredentialID.value
+  ) return
   const confirmed = await requestConfirmation({
     title: t('iosPairing.revokeTitle'),
     message: t('iosPairing.revokeMessage'),
@@ -396,31 +448,29 @@ async function revokePairing(): Promise<void> {
   })
   if (!confirmed) return
 
-  pairingPending.value = true
+  revokingCredentialID.value = credentialID
   pairingError.value = ''
   try {
-    await gateway.revokeIOSPairing()
-    applyPairingStatus({
-      ...pairing.value,
-      has_credential: false,
-      credential_created_at: undefined,
-      paired: false,
-      paired_at: undefined,
-      device: undefined,
-      last_seen_at: undefined
-    })
-    closeQR()
+    await gateway.revokeIOSPairing(credentialID)
+    applyPairingStatus(statusWithoutCredential(pairing.value, credentialID))
   } catch (cause) {
     pairingError.value = errorMessage(cause, t('iosPairing.revokeFailed'))
   } finally {
-    pairingPending.value = false
+    revokingCredentialID.value = ''
   }
 }
 
-async function sendTestCall(): Promise<void> {
-  if (!pairing.value?.paired || testCallMutation.saving.value) return
+async function sendTestCall(credentialID: string): Promise<void> {
+  if (
+    !pairing.value?.devices.some(device => device.id === credentialID) ||
+    testCallMutation.saving.value
+  ) return
   pairingError.value = ''
-  const result = await testCallMutation.run(() => gateway.sendIOSTestCall())
+  testingCredentialID.value = credentialID
+  const result = await testCallMutation.run(() =>
+    gateway.sendIOSTestCall(credentialID)
+  )
+  testingCredentialID.value = ''
   if (!result.ok) pairingError.value = result.error
 }
 
@@ -456,6 +506,7 @@ async function copyPairingCode(): Promise<void> {
 function closeQR(): void {
   qrDataURL.value = ''
   pairingCode.value = ''
+  qrCredentialID.value = ''
   pairingError.value = ''
   copied.value = false
 }
@@ -612,7 +663,7 @@ onBeforeUnmount(() => {
       <SettingsModuleCard
         v-if="showPairing && pairing"
         class="ios-card"
-        :title="pairingDeviceTitle"
+        :title="t('iosPairing.yourDevice')"
         title-id="ios-pairing-title"
         :description="t('iosPairing.yourDeviceDescription')"
         surface="subtle"
@@ -637,30 +688,78 @@ onBeforeUnmount(() => {
           {{ pairingNotice }}
         </div>
         <template v-if="pairing.allowed">
-          <dl class="ios-pairing-facts ios-pairing-facts--device">
-            <div v-if="pairing.credential_created_at && !pairing.paired">
-              <dt>{{ t('iosPairing.createdAt') }}</dt>
-              <dd>{{ formatTimestamp(pairing.credential_created_at) }}</dd>
-            </div>
-            <div v-if="pairingOperatingSystem">
-              <dt>{{ t('iosPairing.operatingSystem') }}</dt>
-              <dd>{{ pairingOperatingSystem }}</dd>
-            </div>
-            <div v-if="pairingAppVersion">
-              <dt>{{ t('iosPairing.appVersion') }}</dt>
-              <dd>{{ pairingAppVersion }}</dd>
-            </div>
-            <div v-if="pairing.paired_at">
-              <dt>{{ t('iosPairing.pairedAt') }}</dt>
-              <dd>{{ formatTimestamp(pairing.paired_at) }}</dd>
-            </div>
-            <div v-if="pairing.last_seen_at">
-              <dt>{{ t('iosPairing.lastSeenAt') }}</dt>
-              <dd>{{ formatTimestamp(pairing.last_seen_at) }}</dd>
-            </div>
-          </dl>
           <div
-            v-if="!pairing.has_credential && pairing.server_urls.length > 1"
+            v-if="pairing.devices.length || pairing.pending"
+            class="ios-device-list"
+          >
+            <SettingsControlRow
+              v-for="device in pairing.devices"
+              :key="device.id"
+              :title="pairingDeviceTitle(device)"
+              :description="pairingDeviceDescription(device)"
+            >
+              <template #icon><Smartphone :size="18" /></template>
+              <button
+                class="secondary-button"
+                type="button"
+                :disabled="
+                  pairingPending ||
+                  Boolean(revokingCredentialID) ||
+                  testCallMutation.saving.value
+                "
+                @click="sendTestCall(device.id)"
+              >
+                <LoaderCircle
+                  v-if="testingCredentialID === device.id"
+                  class="spin"
+                  :size="16"
+                />
+                <PhoneIncoming v-else :size="16" />
+                {{ t('iosPairing.testCall') }}
+              </button>
+              <button
+                class="danger-button"
+                type="button"
+                :disabled="
+                  pairingPending ||
+                  Boolean(revokingCredentialID) ||
+                  testCallMutation.saving.value
+                "
+                @click="revokePairing(device.id)"
+              >
+                <LoaderCircle
+                  v-if="revokingCredentialID === device.id"
+                  class="spin"
+                  :size="16"
+                />
+                <Trash2 v-else :size="16" />
+                {{ t('iosPairing.revoke') }}
+              </button>
+            </SettingsControlRow>
+            <SettingsControlRow
+              v-if="pairing.pending"
+              :title="t('iosPairing.waiting')"
+              :description="`${t('iosPairing.createdAt')}: ${formatTimestamp(pairing.pending.credential_created_at)}`"
+            >
+              <template #icon><QrCode :size="18" /></template>
+              <button
+                class="danger-button"
+                type="button"
+                :disabled="pairingPending || Boolean(revokingCredentialID)"
+                @click="revokePairing(pairing.pending.id)"
+              >
+                <LoaderCircle
+                  v-if="revokingCredentialID === pairing.pending.id"
+                  class="spin"
+                  :size="16"
+                />
+                <Trash2 v-else :size="16" />
+                {{ t('iosPairing.revoke') }}
+              </button>
+            </SettingsControlRow>
+          </div>
+          <div
+            v-if="canCreatePairing && pairing.server_urls.length > 1"
             class="field ios-server-select"
           >
             <span>{{ t('iosPairing.pairingRoute') }}</span>
@@ -675,42 +774,16 @@ onBeforeUnmount(() => {
           <p class="ios-pairing-note">
             {{ t('iosPairing.noSwitching') }} {{ t('iosPairing.noExpiry') }}
           </p>
-          <div class="ios-pairing-actions">
+          <div v-if="canCreatePairing" class="ios-pairing-actions">
             <button
-              v-if="pairingReady && !pairing.has_credential"
               class="primary-button"
               type="button"
-              :disabled="pairingPending || !pairingReady"
+              :disabled="pairingPending || Boolean(revokingCredentialID)"
               @click="createPairing"
             >
               <LoaderCircle v-if="pairingPending" class="spin" :size="16" />
               <QrCode v-else :size="16" />
               {{ t('iosPairing.generateQR') }}
-            </button>
-            <button
-              v-if="pairing.paired"
-              class="secondary-button"
-              type="button"
-              :disabled="pairingPending || testCallMutation.saving.value"
-              @click="sendTestCall"
-            >
-              <LoaderCircle
-                v-if="testCallMutation.saving.value"
-                class="spin"
-                :size="16"
-              />
-              <PhoneIncoming v-else :size="16" />
-              {{ t('iosPairing.testCall') }}
-            </button>
-            <button
-              v-if="pairing.has_credential"
-              class="danger-button"
-              type="button"
-              :disabled="pairingPending"
-              @click="revokePairing"
-            >
-              <Trash2 :size="16" />
-              {{ t('iosPairing.revoke') }}
             </button>
           </div>
         </template>
@@ -798,6 +871,10 @@ onBeforeUnmount(() => {
   display: grid;
   width: 100%;
   gap: 18px;
+}
+
+.ios-card {
+  min-width: 0;
 }
 
 .ios-pairing-note {
@@ -899,19 +976,14 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
 }
 
-.ios-pairing-facts--device {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px 24px;
+.ios-device-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  border-top: 1px solid var(--border);
 }
 
-.ios-pairing-facts--device dt {
-  font-size: 11px;
-  text-transform: none;
-}
-
-.ios-pairing-facts--device dd {
-  margin-top: 3px;
-  font-size: 13px;
+.ios-device-list :deep(.settings-control-row:last-child) {
+  border-bottom: 0;
 }
 
 .ios-server-select {
@@ -1006,9 +1078,9 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
-@media (min-width: 861px) {
-  .ios-pairing-facts--device {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+@media (max-width: 860px) {
+  .ios-device-list :deep(.settings-control-row__identity) {
+    width: 100%;
   }
 }
 

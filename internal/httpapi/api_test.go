@@ -87,7 +87,9 @@ type fakeRepository struct {
 	iosPairingStatus       store.IOSPairingStatus
 	iosPairingStatusError  error
 	iosRevokedUserID       string
+	iosRevokedCredentialID string
 	iosRevokedDigest       mobilepairing.TokenDigest
+	iosCurrentCredentialID string
 	iosRevokeError         error
 	callLineID             string
 	callLineError          error
@@ -102,7 +104,7 @@ func (repository *fakeRepository) IOSPairingStatus(
 
 func (repository *fakeRepository) RevokeIOSPairingCredentialWithDigest(
 	_ context.Context,
-	userID string,
+	userID, credentialID string,
 ) (mobilepairing.TokenDigest, bool, error) {
 	if repository.iosRevokeError != nil {
 		return mobilepairing.TokenDigest{}, false, repository.iosRevokeError
@@ -111,8 +113,38 @@ func (repository *fakeRepository) RevokeIOSPairingCredentialWithDigest(
 		return mobilepairing.TokenDigest{}, false, nil
 	}
 	repository.iosRevokedUserID = userID
+	repository.iosRevokedCredentialID = credentialID
 	repository.iosPairingStatus.HasCredential = false
 	return repository.iosRevokedDigest, true, nil
+}
+
+func (repository *fakeRepository) RevokeAllIOSPairingCredentials(
+	_ context.Context,
+	userID string,
+) ([]mobilepairing.TokenDigest, error) {
+	if repository.iosRevokeError != nil {
+		return nil, repository.iosRevokeError
+	}
+	repository.iosRevokedUserID = userID
+	repository.iosPairingStatus.HasCredential = false
+	if repository.iosRevokedDigest == (mobilepairing.TokenDigest{}) {
+		return []mobilepairing.TokenDigest{}, nil
+	}
+	return []mobilepairing.TokenDigest{repository.iosRevokedDigest}, nil
+}
+
+func (repository *fakeRepository) IOSPairingCredentialIDByTokenDigest(
+	context.Context,
+	mobilepairing.TokenDigest,
+) (string, bool, error) {
+	if repository.mobileError != nil {
+		return "", false, repository.mobileError
+	}
+	credentialID := repository.iosCurrentCredentialID
+	if credentialID == "" && len(repository.iosPairingStatus.Devices) == 1 {
+		credentialID = repository.iosPairingStatus.Devices[0].ID
+	}
+	return credentialID, credentialID != "", nil
 }
 
 func (repository *fakeRepository) IOSPairingPrincipalByTokenDigest(

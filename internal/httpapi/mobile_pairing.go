@@ -14,12 +14,20 @@ import (
 
 type mobilePairingRepository interface {
 	IOSPairingStatus(context.Context, string) (store.IOSPairingStatus, error)
-	RotateIOSPairingCredential(
+	CreateIOSPairingCredential(
 		context.Context,
 		string,
 		mobilepairing.TokenDigest,
 	) (store.IOSPairingStatus, error)
-	RevokeIOSPairingCredential(context.Context, string) error
+	RevokeIOSPairingCredentialWithDigest(
+		context.Context,
+		string,
+		string,
+	) (mobilepairing.TokenDigest, bool, error)
+	RevokeIOSPairingCredentialByTokenDigest(
+		context.Context,
+		mobilepairing.TokenDigest,
+	) (bool, error)
 }
 
 type iosPairingAvailability string
@@ -33,15 +41,31 @@ const (
 )
 
 type iosPairingStatusResponse struct {
-	Allowed             bool                      `json:"allowed"`
-	Availability        iosPairingAvailability    `json:"availability"`
-	HasCredential       bool                      `json:"has_credential"`
-	CredentialCreatedAt string                    `json:"credential_created_at,omitempty"`
-	Paired              bool                      `json:"paired"`
-	PairedAt            string                    `json:"paired_at,omitempty"`
+	Allowed             bool                       `json:"allowed"`
+	Availability        iosPairingAvailability     `json:"availability"`
+	HasCredential       bool                       `json:"has_credential"`
+	CredentialCreatedAt string                     `json:"credential_created_at,omitempty"`
+	Paired              bool                       `json:"paired"`
+	PairedAt            string                     `json:"paired_at,omitempty"`
+	Device              *mobilepairing.DeviceInfo  `json:"device,omitempty"`
+	LastSeenAt          string                     `json:"last_seen_at,omitempty"`
+	Devices             []iosPairingDeviceResponse `json:"devices"`
+	Pending             *iosPairingPendingResponse `json:"pending,omitempty"`
+	DeviceLimit         int                        `json:"device_limit"`
+	ServerURLs          []string                   `json:"server_urls,omitempty"`
+}
+
+type iosPairingDeviceResponse struct {
+	ID                  string                    `json:"id"`
+	CredentialCreatedAt string                    `json:"credential_created_at"`
+	PairedAt            string                    `json:"paired_at"`
 	Device              *mobilepairing.DeviceInfo `json:"device,omitempty"`
 	LastSeenAt          string                    `json:"last_seen_at,omitempty"`
-	ServerURLs          []string                  `json:"server_urls,omitempty"`
+}
+
+type iosPairingPendingResponse struct {
+	ID                  string `json:"id"`
+	CredentialCreatedAt string `json:"credential_created_at"`
 }
 
 type iosPairingResponse struct {
@@ -241,7 +265,7 @@ func (api *API) mobilePairing(
 			api.writeInternalError(response, request, "generate iOS pairing token", err)
 			return
 		}
-		status, err := repository.RotateIOSPairingCredential(
+		status, err := repository.CreateIOSPairingCredential(
 			request.Context(),
 			userID,
 			digest,
@@ -260,13 +284,70 @@ func (api *API) mobilePairing(
 			},
 		)
 	case http.MethodDelete:
-		if err := repository.RevokeIOSPairingCredential(
+		if authentication, mobile := mobileAuthenticationFromContext(request.Context()); mobile {
+			revoked, err := repository.RevokeIOSPairingCredentialByTokenDigest(
+				request.Context(),
+				authentication.Digest,
+			)
+			if err != nil {
+				api.writeMobilePairingError(response, request, "revoke current iOS pairing", err)
+				return
+			}
+			if !revoked {
+				api.writeMobilePairingError(
+					response,
+					request,
+					"revoke current iOS pairing",
+					store.ErrIOSPairingCredentialNotFound,
+				)
+				return
+			}
+			api.endRevokedIOSSessionCall(request.Context(), authentication.Digest)
+			response.WriteHeader(http.StatusNoContent)
+			return
+		}
+		credentialID := strings.TrimSpace(request.URL.Query().Get("credential_id"))
+		if credentialID == "" {
+			current, err := repository.IOSPairingStatus(request.Context(), userID)
+			if err != nil {
+				api.writeMobilePairingError(response, request, "read iOS pairing", err)
+				return
+			}
+			switch {
+			case current.Pending != nil && len(current.Devices) == 0:
+				credentialID = current.Pending.ID
+			case current.Pending == nil && len(current.Devices) == 1:
+				credentialID = current.Devices[0].ID
+			default:
+				writeError(
+					response,
+					http.StatusUnprocessableEntity,
+					"ios_pairing_credential_required",
+					"Choose an Apple device to revoke",
+					"credential_id",
+				)
+				return
+			}
+		}
+		digest, revoked, err := repository.RevokeIOSPairingCredentialWithDigest(
 			request.Context(),
 			userID,
-		); err != nil {
+			credentialID,
+		)
+		if err != nil {
 			api.writeMobilePairingError(response, request, "revoke iOS pairing", err)
 			return
 		}
+		if !revoked {
+			api.writeMobilePairingError(
+				response,
+				request,
+				"revoke iOS pairing",
+				store.ErrIOSPairingCredentialNotFound,
+			)
+			return
+		}
+		api.endRevokedIOSSessionCall(request.Context(), digest)
 		response.WriteHeader(http.StatusNoContent)
 	default:
 		response.Header().Set(
@@ -311,6 +392,27 @@ func iosPairingStatusForCloudflare(
 	case !cloudflare.Connected:
 		availability = iosPairingRouteUnavailable
 	}
+	devices := make([]iosPairingDeviceResponse, 0, len(status.Devices))
+	for _, device := range status.Devices {
+		devices = append(devices, iosPairingDeviceResponse{
+			ID:                  device.ID,
+			CredentialCreatedAt: device.CredentialCreatedAt,
+			PairedAt:            device.PairedAt,
+			Device:              iosPairingDeviceInfo(device.Device),
+			LastSeenAt:          device.LastSeenAt,
+		})
+	}
+	var pending *iosPairingPendingResponse
+	if status.Pending != nil {
+		pending = &iosPairingPendingResponse{
+			ID:                  status.Pending.ID,
+			CredentialCreatedAt: status.Pending.CredentialCreatedAt,
+		}
+	}
+	deviceLimit := status.DeviceLimit
+	if deviceLimit <= 0 {
+		deviceLimit = store.MaxIOSPairingDevices
+	}
 	return iosPairingStatusResponse{
 		Allowed:             status.Allowed,
 		Availability:        availability,
@@ -320,6 +422,9 @@ func iosPairingStatusForCloudflare(
 		PairedAt:            status.PairedAt,
 		Device:              iosPairingDeviceInfo(status.Device),
 		LastSeenAt:          status.LastSeenAt,
+		Devices:             devices,
+		Pending:             pending,
+		DeviceLimit:         deviceLimit,
 		ServerURLs:          verifiedCloudflareAPIURLs(cloudflare),
 	}
 }
@@ -401,6 +506,22 @@ func (api *API) writeMobilePairingError(
 			"ios_pairing_not_allowed",
 			"An administrator has not enabled iOS pairing for this account",
 			"",
+		)
+	case errors.Is(err, store.ErrIOSPairingDeviceLimit):
+		writeError(
+			response,
+			http.StatusConflict,
+			"ios_pairing_device_limit",
+			"Revoke an Apple device before pairing another one",
+			"",
+		)
+	case errors.Is(err, store.ErrIOSPairingCredentialNotFound):
+		writeError(
+			response,
+			http.StatusNotFound,
+			"ios_pairing_credential_not_found",
+			"The paired Apple device was not found",
+			"credential_id",
 		)
 	default:
 		api.writeInternalError(response, request, operation, err)

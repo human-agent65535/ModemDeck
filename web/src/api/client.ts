@@ -1454,10 +1454,11 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
-  async revokeIOSPairing(): Promise<void> {
+  async revokeIOSPairing(credentialID: string): Promise<void> {
     const contract = iosPairingContract.revoke
+    const path = `${contract.path}?credential_id=${encodeURIComponent(credentialID)}`
     await request(
-      contract.path,
+      path,
       {
         method: contract.method,
         headers: { Accept: 'application/json' }
@@ -1466,11 +1467,14 @@ const realGateway: ConfiguredModemDeckGateway = {
     )
   },
 
-  async sendIOSTestCall(): Promise<IOSTestCallResult> {
+  async sendIOSTestCall(credentialID?: string): Promise<IOSTestCallResult> {
     const contract = iosPairingContract.testCall
+    const path = credentialID
+      ? `${contract.path}?credential_id=${encodeURIComponent(credentialID)}`
+      : contract.path
     return parseIOSTestCallResponse(
       await writeJSON(
-        contract.path,
+        path,
         contract.method,
         {},
         contract.successStatus

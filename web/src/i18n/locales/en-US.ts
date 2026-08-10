@@ -428,10 +428,10 @@ export default {
     passwordChangeFailed: 'Unable to change the password',
     signedInDevices: 'Signed-in devices',
     signedInDevicesDescription:
-      'The newest eight Web sign-ins stay active until revoked. Paired iPhones appear here too.',
+      'The newest eight Web sign-ins stay active until revoked. Paired Apple devices appear here too.',
     currentDevice: 'Current device',
-    pairedIPhone: 'Paired iPhone',
-    pendingIPhone: 'iPhone pairing pending',
+    pairedIPhone: 'Paired Apple device',
+    pendingIPhone: 'Apple device pairing pending',
     signedInAt: 'Signed in {date}',
     lastActiveAt: 'Last active {date}',
     pairedAt: 'Paired {date}',
@@ -461,7 +461,7 @@ export default {
       'Saving a disabled user blocks sign-in and revokes current sessions.',
     iosPairingAccess: 'Allow iOS pairing',
     iosPairingAccessDescription:
-      'The user can pair their own iPhone. Disabling this revokes its credential.',
+      'The user can pair up to three Apple devices. Disabling this revokes all of their credentials.',
     selectUser: 'Select a user',
     initialAdminDescription:
       'The initial administrator is permanent and cannot be converted or disabled.',
@@ -526,12 +526,12 @@ export default {
       'Enable Cloudflare Tunnel through the installer before pairing iOS.',
     cloudflareUnavailable:
       'Cloudflare Tunnel is enabled, but the public API route has not verified this instance. Pairing is unavailable until it is reachable.',
-    yourDevice: 'Your iPhone',
+    yourDevice: 'Your Apple devices',
     yourDeviceDescription:
-      'Only you can generate or revoke this account’s pairing.',
+      'Only you can pair or revoke this account’s Apple devices.',
     notAllowed: 'Not allowed',
     paired: 'Paired',
-    waiting: 'Waiting for iPhone',
+    waiting: 'Waiting for Apple device',
     notPaired: 'Not paired',
     permissionRequired:
       'An administrator must allow iOS pairing for your account.',
@@ -545,18 +545,17 @@ export default {
     operatingSystem: 'Operating system',
     appVersion: 'App version',
     lastSeenAt: 'Last active',
-    noSwitching:
-      'Revoke this credential before pairing with a different API address.',
+    noSwitching: 'You can pair up to three Apple devices.',
     noExpiry: 'The credential remains valid until revoked.',
     replaceQR: 'Replace QR code',
     generateQR: 'Generate QR code',
     revoke: 'Revoke pairing',
     replaceTitle: 'Replace the pairing QR code?',
-    replaceMessage: 'The existing iPhone credential will be replaced.',
+    replaceMessage: 'The pending pairing request will be replaced.',
     replaceConfirm: 'Replace QR code',
     revokeTitle: 'Revoke iOS pairing?',
     revokeMessage:
-      'The paired iPhone will lose access until you generate and scan a new QR code.',
+      'This Apple device will lose access until it scans a new pairing QR code.',
     revokeConfirm: 'Revoke',
     revokeFailed: 'Unable to revoke iOS pairing',
     invalidPayload: 'The server returned invalid pairing data',
@@ -565,7 +564,7 @@ export default {
     scanTitle: 'Scan with the ModemDeck iOS app',
     scanDescription: 'Open pairing in the iOS app and scan this QR code.',
     scanWaiting:
-      'This window closes automatically after the iPhone confirms the pairing.',
+      'This window closes automatically after the Apple device confirms the pairing.',
     qrAlt: 'ModemDeck iOS pairing QR code',
     showOnce:
       'This QR code contains a secret and is shown only now. Do not share it.',
@@ -575,7 +574,7 @@ export default {
     copied: 'Copied',
     copyPairingData: 'Copy pairing code',
     testCall: 'Test incoming call',
-    testCallAccepted: 'Apple accepted the test call; the iPhone should ring now',
+    testCallAccepted: 'Apple accepted the test call; the selected device should ring now',
     testCallFailed: 'Unable to send the test call'
   },
   contacts: {

@@ -31,7 +31,10 @@ import type {
   LineLabelResult,
   LineSettings,
   LineSummary,
+  IOSPairingDevice,
+  IOSPairingPendingCredential,
   IOSPairingResult,
+  IOSPairingStatus,
   Message,
   MessageEventStreamHandlers,
   MessageReadInput,
@@ -73,7 +76,11 @@ import type {
   USSDStatus,
   UserAccount
 } from './types'
-import { ApiError, isLineColorPresetID } from './types'
+import {
+  ApiError,
+  IOS_PAIRING_DEVICE_LIMIT,
+  isLineColorPresetID
+} from './types'
 import { normalizeDialTarget } from '../utils/dialTarget'
 import { isIPAddress, isLoopbackAddress } from '../utils/ipAddress'
 import { normalizedPhoneIdentity } from '../utils/lineIdentity'
@@ -846,6 +853,8 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       ios_pairing_enabled: true,
       ios_pairing_has_credential: false,
       ios_pairing_paired: false,
+      ios_pairing_device_count: 0,
+      ios_pairing_pending: false,
       revision: 1,
       profile_name: ALEX_NAME,
       line_ids: lines.map(line => line.id),
@@ -860,6 +869,8 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       ios_pairing_enabled: false,
       ios_pairing_has_credential: false,
       ios_pairing_paired: false,
+      ios_pairing_device_count: 0,
+      ios_pairing_pending: false,
       revision: 2,
       profile_name: MEMBER_PROFILE_NAME,
       line_ids: lines[1] ? [lines[1].id] : [],
@@ -1039,8 +1050,78 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
     configured: true,
     available: true
   }
-  let iosPairingCreatedAt = '2026-07-20T06:15:00Z'
-  let iosPairingPairedAt = '2026-07-20T06:16:00Z'
+  const iosPairingDeviceLimit = IOS_PAIRING_DEVICE_LIMIT
+  let iosPairingDevices: IOSPairingDevice[] = [
+    {
+      id: 'ios-fixture-phone',
+      credential_created_at: '2026-07-20T06:15:00Z',
+      paired_at: '2026-07-20T06:16:00Z',
+      last_seen_at: '2026-08-03T05:10:00Z',
+      device: {
+        device_name: 'Test iPhone',
+        device_model: 'iPhone',
+        os_name: 'iOS',
+        os_version: '26.0',
+        app_version: '0.1.0'
+      }
+    },
+    {
+      id: 'ios-fixture-tablet',
+      credential_created_at: '2026-08-01T01:20:00Z',
+      paired_at: '2026-08-01T01:21:00Z',
+      last_seen_at: '2026-08-03T05:08:00Z',
+      device: {
+        device_name: 'Test iPad',
+        device_model: 'iPad',
+        os_name: 'iPadOS',
+        os_version: '26.0',
+        app_version: '0.1.0'
+      }
+    }
+  ]
+  let iosPairingPending: IOSPairingPendingCredential | undefined
+
+  function currentIOSPairingStatus(): IOSPairingStatus {
+    const primary = iosPairingDevices[0]
+    const credentialCreatedAt =
+      iosPairingPending?.credential_created_at || primary?.credential_created_at
+    return {
+      allowed: true,
+      availability: 'ready',
+      has_credential: Boolean(primary || iosPairingPending),
+      paired: Boolean(primary),
+      devices: clone(iosPairingDevices),
+      ...(iosPairingPending ? { pending: clone(iosPairingPending) } : {}),
+      device_limit: iosPairingDeviceLimit,
+      server_urls: [...cloudflareStatus.verified_api_urls],
+      ...(credentialCreatedAt
+        ? { credential_created_at: credentialCreatedAt }
+        : {}),
+      ...(primary
+        ? {
+            paired_at: primary.paired_at,
+            ...(primary.device ? { device: clone(primary.device) } : {}),
+            ...(primary.last_seen_at
+              ? { last_seen_at: primary.last_seen_at }
+              : {})
+          }
+        : {})
+    }
+  }
+
+  function syncFixtureAdminIOSPairing(): void {
+    const user = users.find(candidate => candidate.id === 'user_admin')
+    if (!user) return
+    const status = currentIOSPairingStatus()
+    user.ios_pairing_has_credential = status.has_credential
+    user.ios_pairing_credential_created_at = status.credential_created_at
+    user.ios_pairing_paired = status.paired
+    user.ios_pairing_paired_at = status.paired_at
+    user.ios_pairing_device_count = status.devices.length
+    user.ios_pairing_pending = Boolean(status.pending)
+  }
+
+  syncFixtureAdminIOSPairing()
   const connectionProfiles = new Map<string, ConnectionProfile[]>(
     lines.map(line => [
       fixtureLineKey(line),
@@ -1705,6 +1786,8 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
         ios_pairing_enabled: input.ios_pairing_enabled,
         ios_pairing_has_credential: false,
         ios_pairing_paired: false,
+        ios_pairing_device_count: 0,
+        ios_pairing_pending: false,
         revision: 1,
         line_ids: [...input.line_ids],
         created_at: '2026-07-29 12:00:00',
@@ -1746,7 +1829,9 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
               ios_pairing_has_credential: false,
               ios_pairing_credential_created_at: undefined,
               ios_pairing_paired: false,
-              ios_pairing_paired_at: undefined
+              ios_pairing_paired_at: undefined,
+              ios_pairing_device_count: 0,
+              ios_pairing_pending: false
             }
           : {}),
         line_ids: [...input.line_ids],
@@ -1768,6 +1853,8 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       user.ios_pairing_credential_created_at = undefined
       user.ios_pairing_paired = false
       user.ios_pairing_paired_at = undefined
+      user.ios_pairing_device_count = 0
+      user.ios_pairing_pending = false
     },
 
     async revokeUserIOSPairing(id: string): Promise<void> {
@@ -1777,9 +1864,12 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       user.ios_pairing_credential_created_at = undefined
       user.ios_pairing_paired = false
       user.ios_pairing_paired_at = undefined
+      user.ios_pairing_device_count = 0
+      user.ios_pairing_pending = false
       if (id === 'user_admin') {
-        iosPairingCreatedAt = ''
-        iosPairingPairedAt = ''
+        iosPairingDevices = []
+        iosPairingPending = undefined
+        syncFixtureAdminIOSPairing()
       }
     },
 
@@ -1835,31 +1925,7 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
 
     async getIOSPairing(): Promise<IOSPairingResult> {
       return {
-        pairing: {
-          allowed: true,
-          availability: 'ready',
-          has_credential: Boolean(iosPairingCreatedAt),
-          paired: Boolean(iosPairingPairedAt),
-          server_urls: [...cloudflareStatus.verified_api_urls],
-          ...(iosPairingCreatedAt
-            ? { credential_created_at: iosPairingCreatedAt }
-            : {}),
-          ...(iosPairingPairedAt
-            ? {
-                paired_at: iosPairingPairedAt,
-                last_seen_at: '2026-08-03T05:10:00Z',
-                device: {
-                  device_name: 'Test iPhone',
-                  device_model: 'iPhone',
-                  device_model_identifier: 'iPhone18,2',
-                  os_name: 'iOS',
-                  os_version: '26.0',
-                  app_version: '0.1.0',
-                  app_build: '1'
-                }
-              }
-            : {})
-        }
+        pairing: currentIOSPairingStatus()
       }
     },
 
@@ -1882,24 +1948,20 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
           'invalid_server_url'
         )
       }
-      iosPairingCreatedAt = new Date().toISOString()
-      iosPairingPairedAt = ''
-      const user = users.find(candidate => candidate.id === 'user_admin')
-      if (user) {
-        user.ios_pairing_has_credential = true
-        user.ios_pairing_credential_created_at = iosPairingCreatedAt
-        user.ios_pairing_paired = false
-        user.ios_pairing_paired_at = undefined
+      if (iosPairingDevices.length >= iosPairingDeviceLimit) {
+        throw new ApiError(
+          'Revoke an Apple device before pairing another one',
+          409,
+          'ios_pairing_device_limit'
+        )
       }
+      iosPairingPending = {
+        id: `ios-${globalThis.crypto.randomUUID()}`,
+        credential_created_at: new Date().toISOString()
+      }
+      syncFixtureAdminIOSPairing()
       return {
-        pairing: {
-          allowed: true,
-          availability: 'ready',
-          has_credential: true,
-          credential_created_at: iosPairingCreatedAt,
-          paired: false,
-          server_urls: [...cloudflareStatus.verified_api_urls]
-        },
+        pairing: currentIOSPairingStatus(),
         payload: {
           version: 1,
           type: 'modemdeck.ios.pairing',
@@ -1909,22 +1971,39 @@ export function createFixtureGateway(options: FixtureGatewayOptions = {}): Modem
       }
     },
 
-    async revokeIOSPairing(): Promise<void> {
-      iosPairingCreatedAt = ''
-      iosPairingPairedAt = ''
-      const user = users.find(candidate => candidate.id === 'user_admin')
-      if (user) {
-        user.ios_pairing_has_credential = false
-        user.ios_pairing_credential_created_at = undefined
-        user.ios_pairing_paired = false
-        user.ios_pairing_paired_at = undefined
+    async revokeIOSPairing(credentialID: string): Promise<void> {
+      const pendingMatches = iosPairingPending?.id === credentialID
+      const activeMatches = iosPairingDevices.some(
+        device => device.id === credentialID
+      )
+      if (!pendingMatches && !activeMatches) {
+        throw new ApiError(
+          'The paired Apple device was not found',
+          404,
+          'ios_pairing_credential_not_found'
+        )
       }
+      if (pendingMatches) iosPairingPending = undefined
+      iosPairingDevices = iosPairingDevices.filter(
+        device => device.id !== credentialID
+      )
+      syncFixtureAdminIOSPairing()
     },
 
-    async sendIOSTestCall() {
-      if (!iosPairingPairedAt) {
+    async sendIOSTestCall(credentialID?: string) {
+      if (!credentialID && iosPairingDevices.length !== 1) {
         throw new ApiError(
-          'The paired iPhone has not registered for incoming calls',
+          'Choose an Apple device for the test call',
+          422,
+          'ios_pairing_credential_required'
+        )
+      }
+      const target = credentialID
+        ? iosPairingDevices.find(device => device.id === credentialID)
+        : iosPairingDevices[0]
+      if (!target) {
+        throw new ApiError(
+          'The paired Apple device has not registered for incoming calls',
           409,
           'pushkit_not_registered'
         )

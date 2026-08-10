@@ -38,7 +38,7 @@ func TestIOSPairingPermissionAndRevocationLifecycle(t *testing.T) {
 		t.Fatalf("initial pairing status = %+v", status)
 	}
 	digest := mobilepairing.TokenDigest{1, 2, 3}
-	if _, err := repository.RotateIOSPairingCredential(
+	if _, err := repository.CreateIOSPairingCredential(
 		ctx,
 		member.ID,
 		digest,
@@ -56,14 +56,16 @@ func TestIOSPairingPermissionAndRevocationLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("enable iOS pairing: %v", err)
 	}
-	status, err = repository.RotateIOSPairingCredential(ctx, member.ID, digest)
+	status, err = repository.CreateIOSPairingCredential(ctx, member.ID, digest)
 	if err != nil {
-		t.Fatalf("RotateIOSPairingCredential() error = %v", err)
+		t.Fatalf("CreateIOSPairingCredential() error = %v", err)
 	}
 	if !status.Allowed ||
 		!status.HasCredential ||
 		status.CredentialCreatedAt == "" ||
-		status.Paired {
+		status.Paired ||
+		status.Pending == nil ||
+		status.DeviceLimit != MaxIOSPairingDevices {
 		t.Fatalf("pending pairing status = %+v", status)
 	}
 	if _, err := time.Parse(time.RFC3339, status.CredentialCreatedAt); err != nil {
@@ -107,7 +109,9 @@ func TestIOSPairingPermissionAndRevocationLifecycle(t *testing.T) {
 		!status.Paired ||
 		status.PairedAt == "" ||
 		status.LastSeenAt == "" ||
-		status.Device != device {
+		status.Device != device ||
+		len(status.Devices) != 1 ||
+		status.Pending != nil {
 		t.Fatalf("confirmed credential = %+v, %v", status, err)
 	}
 	if _, err := time.Parse(time.RFC3339, status.PairedAt); err != nil {
@@ -118,23 +122,81 @@ func TestIOSPairingPermissionAndRevocationLifecycle(t *testing.T) {
 		t.Fatalf("User() after confirmation error = %v", err)
 	}
 	if !member.IOSPairingPaired ||
+		member.IOSPairingDeviceCount != 1 ||
+		member.IOSPairingPending ||
 		member.IOSPairingPairedAt != status.PairedAt {
 		t.Fatalf("confirmed user pairing status = %+v", member)
 	}
 
-	status, err = repository.RotateIOSPairingCredential(
+	firstCredentialID := status.Devices[0].ID
+	secondDigest := mobilepairing.TokenDigest{4, 5, 6}
+	status, err = repository.CreateIOSPairingCredential(
 		ctx,
 		member.ID,
-		mobilepairing.TokenDigest{4, 5, 6},
+		secondDigest,
 	)
 	if err != nil {
-		t.Fatalf("rotate credential again: %v", err)
+		t.Fatalf("create second credential: %v", err)
 	}
-	if status.Paired || status.PairedAt != "" {
-		t.Fatalf("replacement credential status = %+v, want pending", status)
+	if !status.Paired || len(status.Devices) != 1 ||
+		status.Devices[0].ID != firstCredentialID || status.Pending == nil {
+		t.Fatalf("second pending credential status = %+v", status)
 	}
-	if status.Device != (mobilepairing.DeviceInfo{}) || status.LastSeenAt != "" {
-		t.Fatalf("replacement credential device = %+v, want empty", status)
+	secondPendingID := status.Pending.ID
+	replacementDigest := mobilepairing.TokenDigest{4, 5, 7}
+	status, err = repository.CreateIOSPairingCredential(
+		ctx,
+		member.ID,
+		replacementDigest,
+	)
+	if err != nil {
+		t.Fatalf("replace second pending credential: %v", err)
+	}
+	if len(status.Devices) != 1 ||
+		status.Devices[0].ID != firstCredentialID ||
+		status.Pending == nil ||
+		status.Pending.ID == secondPendingID {
+		t.Fatalf("replaced pending credential status = %+v", status)
+	}
+	if confirmed, err := repository.ConfirmIOSPairingCredential(
+		ctx,
+		secondDigest,
+		mobilepairing.DeviceInfo{Name: "Replaced iPad", Model: "iPad"},
+	); err != nil || confirmed {
+		t.Fatalf("replaced credential confirmation = %t, %v", confirmed, err)
+	}
+	if confirmed, err := repository.ConfirmIOSPairingCredential(
+		ctx,
+		replacementDigest,
+		mobilepairing.DeviceInfo{Name: "Test iPad", Model: "iPad"},
+	); err != nil || !confirmed {
+		t.Fatalf("confirm second credential = %t, %v", confirmed, err)
+	}
+	status, err = repository.IOSPairingStatus(ctx, member.ID)
+	if err != nil || len(status.Devices) != 2 || status.Pending != nil {
+		t.Fatalf("two paired devices = %+v, %v", status, err)
+	}
+	thirdDigest := mobilepairing.TokenDigest{7, 8, 9}
+	if _, err := repository.CreateIOSPairingCredential(ctx, member.ID, thirdDigest); err != nil {
+		t.Fatalf("create third credential: %v", err)
+	}
+	if confirmed, err := repository.ConfirmIOSPairingCredential(
+		ctx,
+		thirdDigest,
+		mobilepairing.DeviceInfo{Name: "Backup iPhone", Model: "iPhone"},
+	); err != nil || !confirmed {
+		t.Fatalf("confirm third credential = %t, %v", confirmed, err)
+	}
+	if _, err := repository.CreateIOSPairingCredential(
+		ctx,
+		member.ID,
+		mobilepairing.TokenDigest{10, 11, 12},
+	); !errors.Is(err, ErrIOSPairingDeviceLimit) {
+		t.Fatalf("fourth credential error = %v, want device limit", err)
+	}
+	status, err = repository.IOSPairingStatus(ctx, member.ID)
+	if err != nil || len(status.Devices) != MaxIOSPairingDevices || status.Pending != nil {
+		t.Fatalf("maximum paired device status = %+v, %v", status, err)
 	}
 	member, err = repository.UpdateMember(ctx, member.ID, UpdateMemberInput{
 		Username:          member.Username,
@@ -181,12 +243,12 @@ func TestIOSPairingPrincipalLookupFollowsCredentialAndPermission(t *testing.T) {
 		t.Fatalf("CreateMember() error = %v", err)
 	}
 	digest := mobilepairing.TokenDigest{1, 2, 3}
-	if _, err := repository.RotateIOSPairingCredential(
+	if _, err := repository.CreateIOSPairingCredential(
 		ctx,
 		member.ID,
 		digest,
 	); err != nil {
-		t.Fatalf("RotateIOSPairingCredential() error = %v", err)
+		t.Fatalf("CreateIOSPairingCredential() error = %v", err)
 	}
 	principal, found, err := repository.IOSPairingPrincipalByTokenDigest(
 		ctx,
@@ -207,8 +269,9 @@ func TestIOSPairingPrincipalLookupFollowsCredentialAndPermission(t *testing.T) {
 		t.Fatalf("principal = %+v", principal)
 	}
 
-	if err := repository.RevokeIOSPairingCredential(ctx, member.ID); err != nil {
-		t.Fatalf("RevokeIOSPairingCredential() error = %v", err)
+	digests, err := repository.RevokeAllIOSPairingCredentials(ctx, member.ID)
+	if err != nil || len(digests) != 1 || digests[0] != digest {
+		t.Fatalf("RevokeAllIOSPairingCredentials() = %x, %v", digests, err)
 	}
 	if _, found, err := repository.IOSPairingPrincipalByTokenDigest(
 		ctx,
@@ -238,12 +301,12 @@ func TestIOSPairingCredentialHasNoTimeExpiry(t *testing.T) {
 		t.Fatalf("CreateMember() error = %v", err)
 	}
 	digest := mobilepairing.TokenDigest{1, 2, 3}
-	if _, err := repository.RotateIOSPairingCredential(
+	if _, err := repository.CreateIOSPairingCredential(
 		ctx,
 		member.ID,
 		digest,
 	); err != nil {
-		t.Fatalf("RotateIOSPairingCredential() error = %v", err)
+		t.Fatalf("CreateIOSPairingCredential() error = %v", err)
 	}
 	if confirmed, err := repository.ConfirmIOSPairingCredential(
 		ctx,
@@ -251,6 +314,10 @@ func TestIOSPairingCredentialHasNoTimeExpiry(t *testing.T) {
 		mobilepairing.DeviceInfo{},
 	); err != nil || !confirmed {
 		t.Fatalf("ConfirmIOSPairingCredential() = %t, %v", confirmed, err)
+	}
+	status, err := repository.IOSPairingStatus(ctx, member.ID)
+	if err != nil || len(status.Devices) != 1 {
+		t.Fatalf("IOSPairingStatus() = %+v, %v", status, err)
 	}
 	if _, err := database.ExecContext(
 		ctx,
@@ -310,8 +377,8 @@ func TestIOSPushTargetsAreScopedByLineAndTokenKind(t *testing.T) {
 		t.Fatalf("CreateMember() error = %v", err)
 	}
 	digest := mobilepairing.TokenDigest{9, 8, 7}
-	if _, err := repository.RotateIOSPairingCredential(ctx, member.ID, digest); err != nil {
-		t.Fatalf("RotateIOSPairingCredential() error = %v", err)
+	if _, err := repository.CreateIOSPairingCredential(ctx, member.ID, digest); err != nil {
+		t.Fatalf("CreateIOSPairingCredential() error = %v", err)
 	}
 	if confirmed, err := repository.ConfirmIOSPairingCredential(
 		ctx,
@@ -320,6 +387,11 @@ func TestIOSPushTargetsAreScopedByLineAndTokenKind(t *testing.T) {
 	); err != nil || !confirmed {
 		t.Fatalf("ConfirmIOSPairingCredential() = %t, %v", confirmed, err)
 	}
+	status, err := repository.IOSPairingStatus(ctx, member.ID)
+	if err != nil || len(status.Devices) != 1 {
+		t.Fatalf("IOSPairingStatus() = %+v, %v", status, err)
+	}
+	credentialID := status.Devices[0].ID
 	apnsToken := strings.Repeat("ab", 32)
 	voipToken := strings.Repeat("cd", 32)
 	if err := repository.UpdateIOSPushRegistration(ctx, digest, mobilepairing.PushRegistration{
@@ -338,17 +410,100 @@ func TestIOSPushTargetsAreScopedByLineAndTokenKind(t *testing.T) {
 			t.Fatalf("IOSPushTargetsForLine(%q) error = %v", kind, err)
 		}
 		if len(targets) != 1 || targets[0] != (IOSPushTarget{
-			UserID:      member.ID,
-			Token:       token,
-			Environment: "production",
-			BundleID:    "com.example.modemdeck",
+			CredentialID: credentialID,
+			UserID:       member.ID,
+			Token:        token,
+			Environment:  "production",
+			BundleID:     "com.example.modemdeck",
 		}) {
 			t.Fatalf("IOSPushTargetsForLine(%q) = %+v", kind, targets)
 		}
-		target, found, err := repository.IOSPushTargetForUser(ctx, member.ID, kind)
+		target, found, err := repository.IOSPushTargetForCredential(
+			ctx,
+			member.ID,
+			credentialID,
+			kind,
+		)
 		if err != nil || !found || target != targets[0] {
-			t.Fatalf("IOSPushTargetForUser(%q) = %+v, %t, %v", kind, target, found, err)
+			t.Fatalf("IOSPushTargetForCredential(%q) = %+v, %t, %v", kind, target, found, err)
 		}
+	}
+	assertTarget(IOSPushTokenAPNS, apnsToken)
+	assertTarget(IOSPushTokenVoIP, voipToken)
+
+	secondDigest := mobilepairing.TokenDigest{6, 5, 4}
+	if _, err := repository.CreateIOSPairingCredential(
+		ctx,
+		member.ID,
+		secondDigest,
+	); err != nil {
+		t.Fatalf("CreateIOSPairingCredential(second) error = %v", err)
+	}
+	if confirmed, err := repository.ConfirmIOSPairingCredential(
+		ctx,
+		secondDigest,
+		mobilepairing.DeviceInfo{Name: "Test iPad", Model: "iPad"},
+	); err != nil || !confirmed {
+		t.Fatalf("ConfirmIOSPairingCredential(second) = %t, %v", confirmed, err)
+	}
+	secondCredentialID, found, err := repository.IOSPairingCredentialIDByTokenDigest(
+		ctx,
+		secondDigest,
+	)
+	if err != nil || !found {
+		t.Fatalf("IOSPairingCredentialIDByTokenDigest(second) = %q, %t, %v", secondCredentialID, found, err)
+	}
+	secondAPNSToken := strings.Repeat("ef", 32)
+	secondVoIPToken := strings.Repeat("12", 32)
+	if err := repository.UpdateIOSPushRegistration(
+		ctx,
+		secondDigest,
+		mobilepairing.PushRegistration{
+			APNSToken:   secondAPNSToken,
+			VoIPToken:   secondVoIPToken,
+			Environment: "production",
+			BundleID:    "com.example.modemdeck",
+		},
+	); err != nil {
+		t.Fatalf("UpdateIOSPushRegistration(second) error = %v", err)
+	}
+	for _, testCase := range []struct {
+		kind   IOSPushTokenKind
+		tokens map[string]string
+	}{
+		{
+			kind: IOSPushTokenAPNS,
+			tokens: map[string]string{
+				credentialID:       apnsToken,
+				secondCredentialID: secondAPNSToken,
+			},
+		},
+		{
+			kind: IOSPushTokenVoIP,
+			tokens: map[string]string{
+				credentialID:       voipToken,
+				secondCredentialID: secondVoIPToken,
+			},
+		},
+	} {
+		targets, err := repository.IOSPushTargetsForLine(ctx, lineID, testCase.kind)
+		if err != nil || len(targets) != 2 {
+			t.Fatalf("multi-device IOSPushTargetsForLine(%q) = %+v, %v", testCase.kind, targets, err)
+		}
+		for _, target := range targets {
+			if target.UserID != member.ID ||
+				target.Token != testCase.tokens[target.CredentialID] ||
+				target.Environment != "production" ||
+				target.BundleID != "com.example.modemdeck" {
+				t.Fatalf("multi-device push target = %+v", target)
+			}
+		}
+	}
+	if revoked, err := repository.RevokeIOSPairingCredentialByTokenDigest(
+		ctx,
+		secondDigest,
+	); err != nil || !revoked {
+		t.Fatalf("RevokeIOSPairingCredentialByTokenDigest(second) = %t, %v", revoked, err)
 	}
 	assertTarget(IOSPushTokenAPNS, apnsToken)
 	assertTarget(IOSPushTokenVoIP, voipToken)
@@ -363,7 +518,12 @@ func TestIOSPushTargetsAreScopedByLineAndTokenKind(t *testing.T) {
 	if targets, err := repository.IOSPushTargetsForLine(ctx, lineID, IOSPushTokenAPNS); err != nil || len(targets) != 0 {
 		t.Fatalf("cleared APNs targets = %+v, %v", targets, err)
 	}
-	if target, found, err := repository.IOSPushTargetForUser(ctx, member.ID, IOSPushTokenAPNS); err != nil || found {
+	if target, found, err := repository.IOSPushTargetForCredential(
+		ctx,
+		member.ID,
+		credentialID,
+		IOSPushTokenAPNS,
+	); err != nil || found {
 		t.Fatalf("cleared APNs user target = %+v, %t, %v", target, found, err)
 	}
 	assertTarget(IOSPushTokenVoIP, voipToken)
@@ -387,12 +547,12 @@ func TestPasswordChangesRevokeIOSPairingCredentials(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateMember() error = %v", err)
 		}
-		if _, err := repository.RotateIOSPairingCredential(
+		if _, err := repository.CreateIOSPairingCredential(
 			ctx,
 			member.ID,
 			mobilepairing.TokenDigest{1},
 		); err != nil {
-			t.Fatalf("RotateIOSPairingCredential() error = %v", err)
+			t.Fatalf("CreateIOSPairingCredential() error = %v", err)
 		}
 		if err := repository.SetMemberPassword(
 			ctx,
@@ -424,12 +584,12 @@ func TestPasswordChangesRevokeIOSPairingCredentials(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateMember() error = %v", err)
 		}
-		if _, err := repository.RotateIOSPairingCredential(
+		if _, err := repository.CreateIOSPairingCredential(
 			ctx,
 			member.ID,
 			mobilepairing.TokenDigest{2},
 		); err != nil {
-			t.Fatalf("RotateIOSPairingCredential() error = %v", err)
+			t.Fatalf("CreateIOSPairingCredential() error = %v", err)
 		}
 		if _, err := repository.UpdateMember(ctx, member.ID, UpdateMemberInput{
 			Username:          member.Username,
@@ -464,12 +624,12 @@ func TestPasswordChangesRevokeIOSPairingCredentials(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateMember() error = %v", err)
 		}
-		if _, err := repository.RotateIOSPairingCredential(
+		if _, err := repository.CreateIOSPairingCredential(
 			ctx,
 			member.ID,
 			mobilepairing.TokenDigest{3},
 		); err != nil {
-			t.Fatalf("RotateIOSPairingCredential() error = %v", err)
+			t.Fatalf("CreateIOSPairingCredential() error = %v", err)
 		}
 		replaced, err := repository.ReplaceUserPasswordHashIfCurrentAndRevokeSessions(
 			ctx,

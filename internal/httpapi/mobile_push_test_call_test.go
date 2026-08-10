@@ -11,19 +11,22 @@ import (
 
 	"github.com/human-agent65535/modemdeck/internal/applepush"
 	"github.com/human-agent65535/modemdeck/internal/auth"
+	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
 type fakeIOSCallTestService struct {
-	userID string
-	result applepush.TestCallResult
-	err    error
+	userID       string
+	credentialID string
+	result       applepush.TestCallResult
+	err          error
 }
 
 func (service *fakeIOSCallTestService) SendTestCall(
 	_ context.Context,
-	userID string,
+	userID, credentialID string,
 ) (applepush.TestCallResult, error) {
 	service.userID = userID
+	service.credentialID = credentialID
 	return service.result, service.err
 }
 
@@ -34,7 +37,11 @@ func TestMobilePushTestCallTargetsCurrentPrincipal(t *testing.T) {
 		ID:         "test-call-example",
 		AcceptedAt: acceptedAt,
 	}}
-	api, err := New(&fakeRepository{}, Options{
+	api, err := New(&fakeRepository{
+		iosPairingStatus: store.IOSPairingStatus{
+			Devices: []store.IOSPairingDevice{{ID: "ios-device-example"}},
+		},
+	}, Options{
 		IOSCallTests:          service,
 		disableAuthentication: true,
 	})
@@ -59,9 +66,73 @@ func TestMobilePushTestCallTargetsCurrentPrincipal(t *testing.T) {
 	if service.userID != "member-example" {
 		t.Fatalf("test call user = %q", service.userID)
 	}
+	if service.credentialID != "ios-device-example" {
+		t.Fatalf("test call credential = %q", service.credentialID)
+	}
 	if body := response.Body.String(); !strings.Contains(body, `"id":"test-call-example"`) ||
 		!strings.Contains(body, acceptedAt.Format(time.RFC3339Nano)) {
 		t.Fatalf("body = %s", body)
+	}
+}
+
+func TestMobilePushTestCallRequiresAndUsesOneOfMultipleCredentials(
+	t *testing.T,
+) {
+	t.Parallel()
+	service := &fakeIOSCallTestService{result: applepush.TestCallResult{
+		ID:         "test-call-tablet",
+		AcceptedAt: time.Date(2026, time.August, 9, 8, 0, 0, 0, time.UTC),
+	}}
+	api, err := New(&fakeRepository{
+		iosPairingStatus: store.IOSPairingStatus{
+			Devices: []store.IOSPairingDevice{
+				{ID: "ios-phone"},
+				{ID: "ios-tablet"},
+			},
+		},
+	}, Options{
+		IOSCallTests:          service,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	principal := auth.Principal{UserID: "member-example", Role: auth.RoleMember}
+
+	missing := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/mobile/push/test-call",
+		nil,
+	).WithContext(auth.ContextWithPrincipal(context.Background(), principal))
+	api.ServeHTTP(missing, request)
+	assertAPIError(
+		t,
+		missing,
+		http.StatusUnprocessableEntity,
+		"ios_pairing_credential_required",
+	)
+	if service.credentialID != "" {
+		t.Fatalf("test call sent without a selected credential: %q", service.credentialID)
+	}
+
+	selected := httptest.NewRecorder()
+	request = httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/mobile/push/test-call?credential_id=ios-tablet",
+		nil,
+	).WithContext(auth.ContextWithPrincipal(context.Background(), principal))
+	api.ServeHTTP(selected, request)
+	if selected.Code != http.StatusAccepted ||
+		service.userID != "member-example" ||
+		service.credentialID != "ios-tablet" {
+		t.Fatalf(
+			"selected test call = status %d, user %q, credential %q, body %s",
+			selected.Code,
+			service.userID,
+			service.credentialID,
+			selected.Body.String(),
+		)
 	}
 }
 
@@ -99,7 +170,11 @@ func TestMobilePushTestCallReportsUnavailableStates(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			api, err := New(&fakeRepository{}, Options{
+			api, err := New(&fakeRepository{
+				iosPairingStatus: store.IOSPairingStatus{
+					Devices: []store.IOSPairingDevice{{ID: "ios-device-example"}},
+				},
+			}, Options{
 				IOSCallTests:          test.service,
 				disableAuthentication: true,
 			})

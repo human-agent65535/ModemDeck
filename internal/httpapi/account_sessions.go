@@ -12,7 +12,10 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/store"
 )
 
-const iosPairingDeviceID = "ios-pairing"
+const (
+	legacyIOSPairingDeviceID = "ios-pairing"
+	iosPairingDeviceIDPrefix = "ios-pairing-"
+)
 
 type webSessionManager interface {
 	WebSessions(context.Context, auth.SessionToken) ([]auth.WebSession, error)
@@ -32,7 +35,16 @@ type accountSessionRepository interface {
 	RevokeIOSPairingCredentialWithDigest(
 		context.Context,
 		string,
+		string,
 	) (mobilepairing.TokenDigest, bool, error)
+	RevokeAllIOSPairingCredentials(
+		context.Context,
+		string,
+	) ([]mobilepairing.TokenDigest, error)
+	IOSPairingCredentialIDByTokenDigest(
+		context.Context,
+		mobilepairing.TokenDigest,
+	) (string, bool, error)
 }
 
 type accountSessionResponse struct {
@@ -65,7 +77,7 @@ func (api *API) accountSessions(response http.ResponseWriter, request *http.Requ
 		)
 		return
 	}
-	_, isMobile := mobileAuthenticationFromContext(request.Context())
+	mobileAuthentication, isMobile := mobileAuthenticationFromContext(request.Context())
 	result := make([]accountSessionResponse, 0, 1)
 	if !isMobile {
 		manager, token, ok := api.webSessionManager(response, request)
@@ -98,6 +110,29 @@ func (api *API) accountSessions(response http.ResponseWriter, request *http.Requ
 	principal, hasPrincipal := auth.PrincipalFromContext(request.Context())
 	pairingRepository, supportsPairing := api.repository.(accountSessionRepository)
 	if hasPrincipal && supportsPairing {
+		currentCredentialID := ""
+		if isMobile {
+			var found bool
+			var err error
+			currentCredentialID, found, err = pairingRepository.IOSPairingCredentialIDByTokenDigest(
+				request.Context(),
+				mobileAuthentication.Digest,
+			)
+			if err != nil {
+				api.logger.Error("read current iOS account session", "error", err)
+				writeError(
+					response,
+					http.StatusServiceUnavailable,
+					"sessions_unavailable",
+					"Signed-in devices are unavailable",
+					"",
+				)
+				return
+			}
+			if !found {
+				currentCredentialID = ""
+			}
+		}
 		status, err := pairingRepository.IOSPairingStatus(
 			request.Context(),
 			principal.UserID,
@@ -113,16 +148,25 @@ func (api *API) accountSessions(response http.ResponseWriter, request *http.Requ
 			)
 			return
 		}
-		if status.HasCredential {
+		for _, device := range status.Devices {
 			result = append(result, accountSessionResponse{
-				ID:         iosPairingDeviceID,
+				ID:         iosPairingSessionID(device.ID),
 				Kind:       "ios",
-				CreatedAt:  status.CredentialCreatedAt,
-				PairedAt:   status.PairedAt,
-				LastSeenAt: status.LastSeenAt,
-				Device:     iosPairingDeviceInfo(status.Device),
-				Current:    isMobile,
-				Paired:     status.Paired,
+				CreatedAt:  device.CredentialCreatedAt,
+				PairedAt:   device.PairedAt,
+				LastSeenAt: device.LastSeenAt,
+				Device:     iosPairingDeviceInfo(device.Device),
+				Current:    device.ID == currentCredentialID,
+				Paired:     true,
+			})
+		}
+		if status.Pending != nil {
+			result = append(result, accountSessionResponse{
+				ID:        iosPairingSessionID(status.Pending.ID),
+				Kind:      "ios",
+				CreatedAt: status.Pending.CredentialCreatedAt,
+				Current:   false,
+				Paired:    false,
 			})
 		}
 	}
@@ -145,12 +189,12 @@ func (api *API) accountSessionResource(
 		)
 		return
 	}
-	manager, token, ok := api.webSessionManager(response, request)
-	if !ok {
+	if credentialID, iosSession := iosPairingCredentialID(sessionID); iosSession {
+		api.revokeIOSAccountSession(response, request, credentialID)
 		return
 	}
-	if sessionID == iosPairingDeviceID {
-		api.revokeIOSAccountSession(response, request)
+	manager, token, ok := api.webSessionManager(response, request)
+	if !ok {
 		return
 	}
 	digest, err := manager.RevokeWebSession(
@@ -198,7 +242,7 @@ func (api *API) revokeOtherAccountSessions(
 	principal, hasPrincipal := auth.PrincipalFromContext(request.Context())
 	pairingRepository, supportsPairing := api.repository.(accountSessionRepository)
 	if hasPrincipal && supportsPairing {
-		digest, revoked, err := pairingRepository.RevokeIOSPairingCredentialWithDigest(
+		digests, err := pairingRepository.RevokeAllIOSPairingCredentials(
 			request.Context(),
 			principal.UserID,
 		)
@@ -213,7 +257,7 @@ func (api *API) revokeOtherAccountSessions(
 			)
 			return
 		}
-		if revoked {
+		for _, digest := range digests {
 			api.endRevokedIOSSessionCall(request.Context(), digest)
 		}
 	}
@@ -224,6 +268,7 @@ func (api *API) revokeOtherAccountSessions(
 func (api *API) revokeIOSAccountSession(
 	response http.ResponseWriter,
 	request *http.Request,
+	credentialID string,
 ) {
 	principal, ok := auth.PrincipalFromContext(request.Context())
 	if !ok {
@@ -247,9 +292,51 @@ func (api *API) revokeIOSAccountSession(
 		)
 		return
 	}
+	if credentialID == "" {
+		status, err := repository.IOSPairingStatus(request.Context(), principal.UserID)
+		if err != nil {
+			api.writeAccountSessionError(response, request, "read iOS account session", err)
+			return
+		}
+		if status.Pending != nil && len(status.Devices) == 0 {
+			credentialID = status.Pending.ID
+		} else if status.Pending == nil && len(status.Devices) == 1 {
+			credentialID = status.Devices[0].ID
+		} else {
+			writeError(
+				response,
+				http.StatusUnprocessableEntity,
+				"ios_pairing_credential_required",
+				"Choose an Apple device to log out",
+				"",
+			)
+			return
+		}
+	}
+	if authentication, mobile := mobileAuthenticationFromContext(request.Context()); mobile {
+		currentID, found, err := repository.IOSPairingCredentialIDByTokenDigest(
+			request.Context(),
+			authentication.Digest,
+		)
+		if err != nil {
+			api.writeAccountSessionError(response, request, "read current iOS account session", err)
+			return
+		}
+		if found && currentID == credentialID {
+			writeError(
+				response,
+				http.StatusConflict,
+				"current_session",
+				"Use Log out to end the current session",
+				"",
+			)
+			return
+		}
+	}
 	digest, revoked, err := repository.RevokeIOSPairingCredentialWithDigest(
 		request.Context(),
 		principal.UserID,
+		credentialID,
 	)
 	if err != nil {
 		api.logger.Error("revoke iOS account session", "error", err)
@@ -275,6 +362,21 @@ func (api *API) revokeIOSAccountSession(
 	api.endRevokedIOSSessionCall(request.Context(), digest)
 	response.Header().Set("Cache-Control", "no-store")
 	response.WriteHeader(http.StatusNoContent)
+}
+
+func iosPairingSessionID(credentialID string) string {
+	return iosPairingDeviceIDPrefix + credentialID
+}
+
+func iosPairingCredentialID(sessionID string) (string, bool) {
+	if sessionID == legacyIOSPairingDeviceID {
+		return "", true
+	}
+	credentialID, found := strings.CutPrefix(sessionID, iosPairingDeviceIDPrefix)
+	if !found || strings.TrimSpace(credentialID) == "" {
+		return "", false
+	}
+	return credentialID, true
 }
 
 func (api *API) webSessionManager(

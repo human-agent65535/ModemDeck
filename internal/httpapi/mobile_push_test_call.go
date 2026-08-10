@@ -1,13 +1,25 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/applepush"
 	"github.com/human-agent65535/modemdeck/internal/auth"
+	"github.com/human-agent65535/modemdeck/internal/mobilepairing"
+	"github.com/human-agent65535/modemdeck/internal/store"
 )
+
+type iosTestCallRepository interface {
+	IOSPairingStatus(context.Context, string) (store.IOSPairingStatus, error)
+	IOSPairingCredentialIDByTokenDigest(
+		context.Context,
+		mobilepairing.TokenDigest,
+	) (string, bool, error)
+}
 
 type iosTestCallResponse struct {
 	ID         string `json:"id"`
@@ -32,7 +44,56 @@ func (api *API) mobilePushTestCall(
 	if principal, ok := auth.PrincipalFromContext(request.Context()); ok {
 		userID = principal.UserID
 	}
-	result, err := api.iosCallTests.SendTestCall(request.Context(), userID)
+	repository, ok := api.repository.(iosTestCallRepository)
+	if !ok {
+		writeError(
+			response,
+			http.StatusServiceUnavailable,
+			"apple_push_unavailable",
+			"Apple push delivery is unavailable",
+			"",
+		)
+		return
+	}
+	credentialID := strings.TrimSpace(request.URL.Query().Get("credential_id"))
+	if authentication, mobile := mobileAuthenticationFromContext(request.Context()); mobile {
+		var found bool
+		var err error
+		credentialID, found, err = repository.IOSPairingCredentialIDByTokenDigest(
+			request.Context(),
+			authentication.Digest,
+		)
+		if err != nil {
+			api.writeInternalError(response, request, "read current iOS push target", err)
+			return
+		}
+		if !found {
+			credentialID = ""
+		}
+	} else if credentialID == "" {
+		status, err := repository.IOSPairingStatus(request.Context(), userID)
+		if err != nil {
+			api.writeInternalError(response, request, "read iOS push targets", err)
+			return
+		}
+		if len(status.Devices) == 1 {
+			credentialID = status.Devices[0].ID
+		} else if len(status.Devices) > 1 {
+			writeError(
+				response,
+				http.StatusUnprocessableEntity,
+				"ios_pairing_credential_required",
+				"Choose an Apple device for the test call",
+				"credential_id",
+			)
+			return
+		}
+	}
+	result, err := api.iosCallTests.SendTestCall(
+		request.Context(),
+		userID,
+		credentialID,
+	)
 	if err != nil {
 		switch {
 		case errors.Is(err, applepush.ErrPushTargetUnavailable):
@@ -40,7 +101,7 @@ func (api *API) mobilePushTestCall(
 				response,
 				http.StatusConflict,
 				"pushkit_not_registered",
-				"The paired iPhone has not registered for incoming calls",
+				"The paired Apple device has not registered for incoming calls",
 				"",
 			)
 		case errors.Is(err, applepush.ErrPushTopicMismatch):
