@@ -301,6 +301,151 @@ func TestHardwareSnapshotReturnsOnlyNewReceivePolicyIncomingCalls(t *testing.T) 
 	}
 }
 
+func TestHardwareSnapshotReturnsTerminalCallTransitionsOnce(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	ctx := context.Background()
+	observedAt := time.Date(2026, time.August, 10, 2, 0, 0, 0, time.UTC)
+	line := policyTestLine()
+	base, err := repository.ApplyHardwareSnapshotWithResult(ctx, HardwareSnapshot{
+		BootEpoch:  "boot-terminal-events",
+		Revision:   "snapshot-lines",
+		ObservedAt: observedAt,
+		Lines:      []HardwareLine{line},
+	})
+	if err != nil {
+		t.Fatalf("apply line snapshot: %v", err)
+	}
+	lineID := base.LineIDsByEndpoint[line.ID]
+	call := HardwareCall{
+		AppID:          "call-terminal-explicit",
+		LineID:         lineID,
+		EndpointLineID: line.ID,
+		EndpointCallID: "endpoint-call-terminal-explicit",
+		Number:         "+818012345678",
+		Direction:      "incoming",
+		Phase:          "ringing",
+		ObservedAt:     observedAt.Add(time.Second),
+	}
+	if _, err := repository.ApplyHardwareSnapshotWithResult(ctx, HardwareSnapshot{
+		BootEpoch:  "boot-terminal-events",
+		Revision:   "snapshot-ringing",
+		ObservedAt: call.ObservedAt,
+		Lines:      []HardwareLine{line},
+		Calls:      []HardwareCall{call},
+	}); err != nil {
+		t.Fatalf("apply ringing call snapshot: %v", err)
+	}
+
+	terminal := call
+	terminal.Phase = "ended"
+	terminal.StateReason = "terminated"
+	terminal.ObservedAt = observedAt.Add(2 * time.Second)
+	terminalSnapshot := HardwareSnapshot{
+		BootEpoch:  "boot-terminal-events",
+		Revision:   "snapshot-terminal",
+		ObservedAt: terminal.ObservedAt,
+		Lines:      []HardwareLine{line},
+		Calls:      []HardwareCall{terminal},
+	}
+	result, err := repository.ApplyHardwareSnapshotWithResult(ctx, terminalSnapshot)
+	if err != nil {
+		t.Fatalf("apply terminal call snapshot: %v", err)
+	}
+	if len(result.TerminalCalls) != 1 ||
+		result.TerminalCalls[0].ID != call.AppID ||
+		result.TerminalCalls[0].Phase != "ended" ||
+		result.TerminalCalls[0].EndReason != "terminated" {
+		t.Fatalf("terminal calls = %+v", result.TerminalCalls)
+	}
+	replayed, err := repository.ApplyHardwareSnapshotWithResult(ctx, terminalSnapshot)
+	if err != nil {
+		t.Fatalf("replay terminal snapshot: %v", err)
+	}
+	if len(replayed.TerminalCalls) != 0 {
+		t.Fatalf("replayed terminal calls = %+v, want none", replayed.TerminalCalls)
+	}
+
+	newlyDiscoveredTerminal := terminal
+	newlyDiscoveredTerminal.AppID = "call-discovered-terminal"
+	newlyDiscoveredTerminal.EndpointCallID = "endpoint-call-discovered-terminal"
+	newlyDiscoveredTerminal.ObservedAt = observedAt.Add(3 * time.Second)
+	result, err = repository.ApplyHardwareSnapshotWithResult(ctx, HardwareSnapshot{
+		BootEpoch:  "boot-terminal-events",
+		Revision:   "snapshot-discovered-terminal",
+		ObservedAt: newlyDiscoveredTerminal.ObservedAt,
+		Lines:      []HardwareLine{line},
+		Calls:      []HardwareCall{newlyDiscoveredTerminal},
+	})
+	if err != nil {
+		t.Fatalf("apply newly discovered terminal snapshot: %v", err)
+	}
+	if len(result.TerminalCalls) != 0 {
+		t.Fatalf("newly discovered terminal calls = %+v, want none", result.TerminalCalls)
+	}
+}
+
+func TestHardwareSnapshotReturnsMissingCallTransitionOnce(t *testing.T) {
+	t.Parallel()
+
+	repository := newHardwareTestStore(t)
+	ctx := context.Background()
+	observedAt := time.Date(2026, time.August, 10, 2, 30, 0, 0, time.UTC)
+	line := policyTestLine()
+	base, err := repository.ApplyHardwareSnapshotWithResult(ctx, HardwareSnapshot{
+		BootEpoch:  "boot-missing-terminal-event",
+		Revision:   "snapshot-lines",
+		ObservedAt: observedAt,
+		Lines:      []HardwareLine{line},
+	})
+	if err != nil {
+		t.Fatalf("apply line snapshot: %v", err)
+	}
+	call := HardwareCall{
+		AppID:          "call-terminal-missing",
+		LineID:         base.LineIDsByEndpoint[line.ID],
+		EndpointLineID: line.ID,
+		EndpointCallID: "endpoint-call-terminal-missing",
+		Number:         "+818012345679",
+		Direction:      "incoming",
+		Phase:          "ringing",
+		ObservedAt:     observedAt.Add(time.Second),
+	}
+	if _, err := repository.ApplyHardwareSnapshotWithResult(ctx, HardwareSnapshot{
+		BootEpoch:  "boot-missing-terminal-event",
+		Revision:   "snapshot-ringing",
+		ObservedAt: call.ObservedAt,
+		Lines:      []HardwareLine{line},
+		Calls:      []HardwareCall{call},
+	}); err != nil {
+		t.Fatalf("apply ringing call snapshot: %v", err)
+	}
+
+	missingSnapshot := HardwareSnapshot{
+		BootEpoch:  "boot-missing-terminal-event",
+		Revision:   "snapshot-missing",
+		ObservedAt: observedAt.Add(2 * time.Second),
+		Lines:      []HardwareLine{line},
+	}
+	result, err := repository.ApplyHardwareSnapshotWithResult(ctx, missingSnapshot)
+	if err != nil {
+		t.Fatalf("apply missing call snapshot: %v", err)
+	}
+	if len(result.TerminalCalls) != 1 ||
+		result.TerminalCalls[0].ID != call.AppID ||
+		result.TerminalCalls[0].EndReason != "not_present_in_snapshot" {
+		t.Fatalf("missing terminal calls = %+v", result.TerminalCalls)
+	}
+	replayed, err := repository.ApplyHardwareSnapshotWithResult(ctx, missingSnapshot)
+	if err != nil {
+		t.Fatalf("replay missing call snapshot: %v", err)
+	}
+	if len(replayed.TerminalCalls) != 0 {
+		t.Fatalf("replayed missing terminal calls = %+v, want none", replayed.TerminalCalls)
+	}
+}
+
 func TestHardwareCallFillsNumberWhenTheNetworkReportsItLate(t *testing.T) {
 	t.Parallel()
 

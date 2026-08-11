@@ -7,27 +7,40 @@ import (
 
 const DefaultCapacity = 32
 
-type IncomingCall struct {
+type Kind string
+
+const (
+	KindIncoming Kind = "incoming"
+	KindTerminal Kind = "terminal"
+)
+
+type Event struct {
+	Kind         Kind
 	CallID       string
 	LineID       string
 	RemoteNumber string
 	DisplayName  string
+	Revision     int64
+	Phase        string
+	EndReason    string
+	FailureCode  string
+	WasAnswered  bool
 	ObservedAt   time.Time
 }
 
 type Publisher interface {
-	Publish(IncomingCall)
+	Publish(Event)
 }
 
 type Source interface {
-	Subscribe() (<-chan IncomingCall, func())
+	Subscribe() (<-chan Event, func())
 }
 
 type Buffer struct {
 	mu          sync.Mutex
 	capacity    int
 	nextClient  uint64
-	subscribers map[uint64]chan IncomingCall
+	subscribers map[uint64]chan Event
 }
 
 func NewBuffer(capacity int) *Buffer {
@@ -36,11 +49,11 @@ func NewBuffer(capacity int) *Buffer {
 	}
 	return &Buffer{
 		capacity:    capacity,
-		subscribers: make(map[uint64]chan IncomingCall),
+		subscribers: make(map[uint64]chan Event),
 	}
 }
 
-func (b *Buffer) Publish(event IncomingCall) {
+func (b *Buffer) Publish(event Event) {
 	if event.ObservedAt.IsZero() {
 		event.ObservedAt = time.Now().UTC()
 	} else {
@@ -59,11 +72,11 @@ func (b *Buffer) Publish(event IncomingCall) {
 	}
 }
 
-func (b *Buffer) Subscribe() (<-chan IncomingCall, func()) {
+func (b *Buffer) Subscribe() (<-chan Event, func()) {
 	b.mu.Lock()
 	b.nextClient++
 	clientID := b.nextClient
-	updates := make(chan IncomingCall, b.capacity)
+	updates := make(chan Event, b.capacity)
 	b.subscribers[clientID] = updates
 	b.mu.Unlock()
 

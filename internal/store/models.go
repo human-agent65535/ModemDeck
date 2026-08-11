@@ -436,6 +436,7 @@ type HardwareSnapshot struct {
 type HardwareSnapshotResult struct {
 	CreatedIncomingMessages  []Message
 	CreatedIncomingCalls     []Call
+	TerminalCalls            []Call
 	HandledDeliveryReportIDs []string
 	LineIDsByEndpoint        map[string]string
 }

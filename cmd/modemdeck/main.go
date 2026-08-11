@@ -179,9 +179,9 @@ func run(
 		_ = db.Close()
 		return fmt.Errorf("configure communication runtime events: %w", err)
 	}
-	if err := communications.SetIncomingCallPublisher(callEvents); err != nil {
+	if err := communications.SetCallEventPublisher(callEvents); err != nil {
 		_ = db.Close()
-		return fmt.Errorf("configure incoming call events: %w", err)
+		return fmt.Errorf("configure call events: %w", err)
 	}
 	var applePushRuntime *applepush.Runtime
 	applePushConfig, applePushConfigured, err := applepush.LoadConfigFromEnvironment()

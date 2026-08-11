@@ -95,7 +95,8 @@ func (s *Store) ApplyHardwareSnapshotWithResult(
 				handledReports = append(handledReports, report.EndpointReportID)
 			}
 		}
-		if err := closeMissingCalls(ctx, transaction, snapshot, sequence); err != nil {
+		terminalCalls, err := closeMissingCalls(ctx, transaction, snapshot, sequence)
+		if err != nil {
 			return HardwareSnapshotResult{}, err
 		}
 		if err := transaction.Commit(); err != nil {
@@ -107,6 +108,7 @@ func (s *Store) ApplyHardwareSnapshotWithResult(
 		return HardwareSnapshotResult{
 			CreatedIncomingMessages:  []Message{},
 			CreatedIncomingCalls:     []Call{},
+			TerminalCalls:            terminalCalls,
 			HandledDeliveryReportIDs: handledReports,
 			LineIDsByEndpoint:        lineIDsByEndpoint,
 		}, nil
@@ -138,9 +140,10 @@ func (s *Store) ApplyHardwareSnapshotWithResult(
 		}
 	}
 	createdIncomingCalls := make([]Call, 0)
+	terminalCalls := make([]Call, 0)
 	for _, call := range snapshot.Calls {
 		call.Revision = sequence
-		stored, created, err := upsertHardwareCall(ctx, transaction, call)
+		stored, created, becameTerminal, err := upsertHardwareCall(ctx, transaction, call)
 		if err != nil {
 			return HardwareSnapshotResult{}, err
 		}
@@ -153,16 +156,22 @@ func (s *Store) ApplyHardwareSnapshotWithResult(
 				createdIncomingCalls = append(createdIncomingCalls, stored)
 			}
 		}
+		if becameTerminal {
+			terminalCalls = append(terminalCalls, stored)
+		}
 	}
-	if err := closeMissingCalls(ctx, transaction, snapshot, sequence); err != nil {
+	missingTerminalCalls, err := closeMissingCalls(ctx, transaction, snapshot, sequence)
+	if err != nil {
 		return HardwareSnapshotResult{}, err
 	}
+	terminalCalls = append(terminalCalls, missingTerminalCalls...)
 	if err := transaction.Commit(); err != nil {
 		return HardwareSnapshotResult{}, fmt.Errorf("commit hardware snapshot: %w", err)
 	}
 	return HardwareSnapshotResult{
 		CreatedIncomingMessages:  createdIncoming,
 		CreatedIncomingCalls:     createdIncomingCalls,
+		TerminalCalls:            terminalCalls,
 		HandledDeliveryReportIDs: handledReports,
 		LineIDsByEndpoint:        lineIDsByEndpoint,
 	}, nil
@@ -228,7 +237,7 @@ func (s *Store) UpsertHardwareCall(ctx context.Context, call HardwareCall) (Call
 	if err != nil {
 		return Call{}, fmt.Errorf("resolve call line: %w", err)
 	}
-	stored, _, err := upsertHardwareCall(ctx, transaction, call)
+	stored, _, _, err := upsertHardwareCall(ctx, transaction, call)
 	if err != nil {
 		return Call{}, err
 	}
@@ -1406,7 +1415,7 @@ func upsertHardwareCall(
 	ctx context.Context,
 	transaction *sql.Tx,
 	call HardwareCall,
-) (Call, bool, error) {
+) (Call, bool, bool, error) {
 	call.AppID = strings.TrimSpace(call.AppID)
 	call.LineID = strings.TrimSpace(call.LineID)
 	call.EndpointLineID = strings.TrimSpace(call.EndpointLineID)
@@ -1427,7 +1436,7 @@ func upsertHardwareCall(
 	if call.AppID == "" || call.LineID == "" || call.EndpointLineID == "" ||
 		call.EndpointCallID == "" ||
 		(call.Direction != "incoming" && call.Direction != "outgoing") {
-		return Call{}, false, fmt.Errorf("%w: invalid call identity", ErrSnapshotInvalid)
+		return Call{}, false, false, fmt.Errorf("%w: invalid call identity", ErrSnapshotInvalid)
 	}
 	if call.Revision <= 0 {
 		call.Revision = 1
@@ -1436,17 +1445,20 @@ func upsertHardwareCall(
 		call.ObservedAt = time.Now().UTC()
 	}
 	newlyDiscovered := false
-	var existingCallID string
+	var (
+		existingCallID, existingPhase string
+		existingEndedAt               sql.NullString
+	)
 	err := transaction.QueryRowContext(
 		ctx,
-		"SELECT id FROM call_history WHERE id = ?",
+		"SELECT id, phase, ended_at FROM call_history WHERE id = ?",
 		call.AppID,
-	).Scan(&existingCallID)
+	).Scan(&existingCallID, &existingPhase, &existingEndedAt)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		newlyDiscovered = true
 	case err != nil:
-		return Call{}, false, fmt.Errorf("query hardware call identity: %w", err)
+		return Call{}, false, false, fmt.Errorf("query hardware call identity: %w", err)
 	}
 	observed := databaseTime(call.ObservedAt)
 	activeAt := any(nil)
@@ -1577,19 +1589,19 @@ func upsertHardwareCall(
 		call.AudioRate,
 		call.MediaAvailable,
 	); err != nil {
-		return Call{}, false, fmt.Errorf("upsert hardware call: %w", err)
+		return Call{}, false, false, fmt.Errorf("upsert hardware call: %w", err)
 	}
 	if err := ensureCallRecordingState(ctx, transaction, call.AppID); err != nil {
-		return Call{}, false, err
+		return Call{}, false, false, err
 	}
 	if newlyDiscovered && call.Direction == "incoming" && call.Phase == "ringing" {
 		if err := enqueueIncomingCallAction(ctx, transaction, call); err != nil {
-			return Call{}, false, err
+			return Call{}, false, false, err
 		}
 	}
 	stored, err := callByID(ctx, transaction, call.AppID)
 	if err != nil {
-		return Call{}, false, err
+		return Call{}, false, false, err
 	}
 	if stored.Missed && (stored.Phase == "ended" || stored.Phase == "failed") {
 		if err := enqueueTelegramNotification(
@@ -1603,10 +1615,13 @@ func upsertHardwareCall(
 			"",
 			call.ObservedAt,
 		); err != nil {
-			return Call{}, false, err
+			return Call{}, false, false, err
 		}
 	}
-	return stored, newlyDiscovered, nil
+	wasOpen := !newlyDiscovered && strings.TrimSpace(existingEndedAt.String) == "" &&
+		existingPhase != "ended" && existingPhase != "failed"
+	becameTerminal := wasOpen && (stored.Phase == "ended" || stored.Phase == "failed")
+	return stored, newlyDiscovered, becameTerminal, nil
 }
 
 func closeMissingCalls(
@@ -1614,7 +1629,7 @@ func closeMissingCalls(
 	transaction *sql.Tx,
 	snapshot HardwareSnapshot,
 	sequence int64,
-) error {
+) ([]Call, error) {
 	activeIDs := make(map[string]struct{}, len(snapshot.Calls))
 	for _, call := range snapshot.Calls {
 		phase := strings.ToLower(strings.TrimSpace(call.Phase))
@@ -1631,7 +1646,7 @@ func closeMissingCalls(
 		modemManagerEndpointID,
 	)
 	if err != nil {
-		return fmt.Errorf("query open hardware calls: %w", err)
+		return nil, fmt.Errorf("query open hardware calls: %w", err)
 	}
 	type missingCall struct {
 		id, lineID, endpointLineID, peer, createdAt, direction string
@@ -1655,7 +1670,7 @@ func closeMissingCalls(
 			&failureCode,
 		); err != nil {
 			_ = rows.Close()
-			return fmt.Errorf("scan open hardware call: %w", err)
+			return nil, fmt.Errorf("scan open hardware call: %w", err)
 		}
 		if _, stillActive := activeIDs[call.id]; stillActive {
 			continue
@@ -1668,14 +1683,15 @@ func closeMissingCalls(
 	}
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
-		return fmt.Errorf("read open hardware calls: %w", err)
+		return nil, fmt.Errorf("read open hardware calls: %w", err)
 	}
 	if err := rows.Close(); err != nil {
-		return fmt.Errorf("close open hardware calls: %w", err)
+		return nil, fmt.Errorf("close open hardware calls: %w", err)
 	}
 
+	terminalCalls := make([]Call, 0, len(missing))
 	for _, call := range missing {
-		if _, err := transaction.ExecContext(
+		result, err := transaction.ExecContext(
 			ctx,
 			`UPDATE call_history
 				 SET phase = 'ended', ended_at = ?, updated_at = ?,
@@ -1702,9 +1718,22 @@ func closeMissingCalls(
 			call.lineID,
 			call.endpointLineID,
 			modemManagerEndpointID,
-		); err != nil {
-			return fmt.Errorf("close missing hardware call: %w", err)
+		)
+		if err != nil {
+			return nil, fmt.Errorf("close missing hardware call: %w", err)
 		}
+		updated, err := result.RowsAffected()
+		if err != nil {
+			return nil, fmt.Errorf("read closed missing hardware call count: %w", err)
+		}
+		if updated == 0 {
+			continue
+		}
+		stored, err := callByID(ctx, transaction, call.id)
+		if err != nil {
+			return nil, fmt.Errorf("read closed missing hardware call: %w", err)
+		}
+		terminalCalls = append(terminalCalls, stored)
 		if !call.missed {
 			continue
 		}
@@ -1723,10 +1752,10 @@ func closeMissingCalls(
 			"",
 			occurredAt,
 		); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return terminalCalls, nil
 }
 
 func allocateSnapshotSequence(

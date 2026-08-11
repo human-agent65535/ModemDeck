@@ -22,6 +22,7 @@ const (
 	defaultRetryDelay      = 250 * time.Millisecond
 	maximumCallEventAge    = 45 * time.Second
 	maximumAlertRunes      = 240
+	maximumTrackedCalls    = 64
 )
 
 var (
@@ -75,6 +76,9 @@ type Runtime struct {
 	now             func() time.Time
 	deliveryTimeout time.Duration
 	retryDelay      time.Duration
+	callTargetsMu   sync.Mutex
+	callTargets     map[string][]store.IOSPushTarget
+	callTargetOrder []string
 }
 
 func NewRuntime(
@@ -112,6 +116,7 @@ func NewRuntime(
 		now:             now,
 		deliveryTimeout: deliveryTimeout,
 		retryDelay:      retryDelay,
+		callTargets:     make(map[string][]store.IOSPushTarget),
 	}, nil
 }
 
@@ -207,7 +212,23 @@ func (runtime *Runtime) deliverSMS(ctx context.Context, event messageevents.Inco
 	)
 }
 
-func (runtime *Runtime) deliverCall(ctx context.Context, event callevents.IncomingCall) {
+func (runtime *Runtime) deliverCall(ctx context.Context, event callevents.Event) {
+	switch event.Kind {
+	case "", callevents.KindIncoming:
+		runtime.deliverIncomingCall(ctx, event)
+	case callevents.KindTerminal:
+		runtime.deliverTerminalCall(ctx, event)
+	default:
+		runtime.logger.Warn(
+			"discarded unknown call event",
+			"component", "apple_push",
+			"call_id", event.CallID,
+			"event_kind", event.Kind,
+		)
+	}
+}
+
+func (runtime *Runtime) deliverIncomingCall(ctx context.Context, event callevents.Event) {
 	now := runtime.now().UTC()
 	observedAt := event.ObservedAt.UTC()
 	if !observedAt.IsZero() && now.Sub(observedAt) > maximumCallEventAge {
@@ -222,6 +243,7 @@ func (runtime *Runtime) deliverCall(ctx context.Context, event callevents.Incomi
 	payload := struct {
 		APS  struct{} `json:"aps"`
 		Call struct {
+			Event        string `json:"event"`
 			CallID       string `json:"call_id"`
 			UUID         string `json:"uuid"`
 			LineID       string `json:"line_id"`
@@ -229,13 +251,14 @@ func (runtime *Runtime) deliverCall(ctx context.Context, event callevents.Incomi
 			DisplayName  string `json:"display_name,omitempty"`
 		} `json:"modemdeck_call"`
 	}{}
+	payload.Call.Event = string(callevents.KindIncoming)
 	payload.Call.CallID = strings.TrimSpace(event.CallID)
 	payload.Call.UUID = callUUID
 	payload.Call.LineID = strings.TrimSpace(event.LineID)
 	payload.Call.RemoteNumber = strings.TrimSpace(event.RemoteNumber)
 	payload.Call.DisplayName = strings.TrimSpace(event.DisplayName)
 
-	runtime.deliver(
+	targets := runtime.deliver(
 		ctx,
 		store.IOSPushTokenVoIP,
 		event.LineID,
@@ -248,6 +271,72 @@ func (runtime *Runtime) deliverCall(ctx context.Context, event callevents.Incomi
 			Expiration: now.Add(30 * time.Second),
 			Payload:    payload,
 		},
+	)
+	runtime.rememberCallTargets(event.CallID, targets)
+}
+
+func (runtime *Runtime) deliverTerminalCall(ctx context.Context, event callevents.Event) {
+	callID := strings.TrimSpace(event.CallID)
+	targets := runtime.takeCallTargets(callID)
+	if len(targets) == 0 {
+		runtime.logger.Debug(
+			"skipped terminal call push without accepted incoming targets",
+			"component", "apple_push",
+			"call_id", callID,
+		)
+		return
+	}
+	now := runtime.now().UTC()
+	observedAt := event.ObservedAt.UTC()
+	if observedAt.IsZero() {
+		observedAt = now
+	}
+	callUUID := deterministicUUID("callkit", callID)
+	payload := struct {
+		APS     struct{} `json:"aps"`
+		CallEnd struct {
+			Event        string `json:"event"`
+			CallID       string `json:"call_id"`
+			UUID         string `json:"uuid"`
+			LineID       string `json:"line_id"`
+			RemoteNumber string `json:"remote_number,omitempty"`
+			DisplayName  string `json:"display_name,omitempty"`
+			Revision     int64  `json:"revision,omitempty"`
+			Phase        string `json:"phase,omitempty"`
+			Reason       string `json:"reason"`
+			EndReason    string `json:"end_reason,omitempty"`
+			FailureCode  string `json:"failure_code,omitempty"`
+			WasAnswered  bool   `json:"was_answered"`
+			OccurredAt   string `json:"occurred_at"`
+		} `json:"modemdeck_call_end"`
+	}{}
+	payload.CallEnd.Event = "ended"
+	payload.CallEnd.CallID = callID
+	payload.CallEnd.UUID = callUUID
+	payload.CallEnd.LineID = strings.TrimSpace(event.LineID)
+	payload.CallEnd.RemoteNumber = strings.TrimSpace(event.RemoteNumber)
+	payload.CallEnd.DisplayName = strings.TrimSpace(event.DisplayName)
+	payload.CallEnd.Revision = event.Revision
+	payload.CallEnd.Phase = strings.ToLower(strings.TrimSpace(event.Phase))
+	payload.CallEnd.Reason = callEndedReason(event)
+	payload.CallEnd.EndReason = strings.ToLower(strings.TrimSpace(event.EndReason))
+	payload.CallEnd.FailureCode = strings.ToLower(strings.TrimSpace(event.FailureCode))
+	payload.CallEnd.WasAnswered = event.WasAnswered
+	payload.CallEnd.OccurredAt = observedAt.Format(time.RFC3339Nano)
+
+	runtime.deliverToTargets(
+		ctx,
+		store.IOSPushTokenVoIP,
+		"call_end",
+		callID,
+		Notification{
+			PushType:   PushTypeVoIP,
+			APNSID:     deterministicUUID("callkit-end", callID),
+			CollapseID: callUUID,
+			Expiration: now.Add(30 * time.Second),
+			Payload:    payload,
+		},
+		targets,
 	)
 }
 
@@ -286,6 +375,7 @@ func (runtime *Runtime) SendTestCall(
 	payload := struct {
 		APS  struct{} `json:"aps"`
 		Call struct {
+			Event        string `json:"event"`
 			CallID       string `json:"call_id"`
 			UUID         string `json:"uuid"`
 			RemoteNumber string `json:"remote_number"`
@@ -293,6 +383,7 @@ func (runtime *Runtime) SendTestCall(
 			TestCall     bool   `json:"test_call"`
 		} `json:"modemdeck_call"`
 	}{}
+	payload.Call.Event = string(callevents.KindIncoming)
 	payload.Call.CallID = "test-" + testID
 	payload.Call.UUID = testID
 	payload.Call.RemoteNumber = "ModemDeck Test"
@@ -349,7 +440,7 @@ func (runtime *Runtime) deliver(
 	eventKind string,
 	eventID string,
 	notification Notification,
-) {
+) []store.IOSPushTarget {
 	targets, err := runtime.repository.IOSPushTargetsForLine(ctx, strings.TrimSpace(lineID), kind)
 	if err != nil {
 		runtime.logger.Warn(
@@ -359,8 +450,20 @@ func (runtime *Runtime) deliver(
 			"event_id", eventID,
 			"error", err,
 		)
-		return
+		return nil
 	}
+	return runtime.deliverToTargets(ctx, kind, eventKind, eventID, notification, targets)
+}
+
+func (runtime *Runtime) deliverToTargets(
+	ctx context.Context,
+	kind store.IOSPushTokenKind,
+	eventKind string,
+	eventID string,
+	notification Notification,
+	targets []store.IOSPushTarget,
+) []store.IOSPushTarget {
+	delivered := make([]store.IOSPushTarget, 0, len(targets))
 	for _, target := range targets {
 		if target.BundleID != runtime.sender.BundleID() {
 			runtime.logger.Warn(
@@ -378,6 +481,7 @@ func (runtime *Runtime) deliver(
 		err := runtime.sendWithRetry(deliveryContext, notification)
 		cancel()
 		if err == nil {
+			delivered = append(delivered, target)
 			continue
 		}
 		if InvalidatesToken(err) {
@@ -409,6 +513,65 @@ func (runtime *Runtime) deliver(
 			"error", err,
 		)
 	}
+	return delivered
+}
+
+func (runtime *Runtime) rememberCallTargets(callID string, targets []store.IOSPushTarget) {
+	callID = strings.TrimSpace(callID)
+	if callID == "" || len(targets) == 0 {
+		return
+	}
+	runtime.callTargetsMu.Lock()
+	defer runtime.callTargetsMu.Unlock()
+	if _, exists := runtime.callTargets[callID]; !exists {
+		for len(runtime.callTargetOrder) >= maximumTrackedCalls {
+			oldest := runtime.callTargetOrder[0]
+			runtime.callTargetOrder = runtime.callTargetOrder[1:]
+			delete(runtime.callTargets, oldest)
+		}
+		runtime.callTargetOrder = append(runtime.callTargetOrder, callID)
+	}
+	runtime.callTargets[callID] = append([]store.IOSPushTarget(nil), targets...)
+}
+
+func (runtime *Runtime) takeCallTargets(callID string) []store.IOSPushTarget {
+	callID = strings.TrimSpace(callID)
+	if callID == "" {
+		return nil
+	}
+	runtime.callTargetsMu.Lock()
+	defer runtime.callTargetsMu.Unlock()
+	targets := append([]store.IOSPushTarget(nil), runtime.callTargets[callID]...)
+	delete(runtime.callTargets, callID)
+	for index, trackedCallID := range runtime.callTargetOrder {
+		if trackedCallID == callID {
+			runtime.callTargetOrder = append(
+				runtime.callTargetOrder[:index],
+				runtime.callTargetOrder[index+1:]...,
+			)
+			break
+		}
+	}
+	return targets
+}
+
+func callEndedReason(event callevents.Event) string {
+	endReason := strings.ToLower(strings.TrimSpace(event.EndReason))
+	failureCode := strings.ToLower(strings.TrimSpace(event.FailureCode))
+	if endReason == "rejected" || failureCode == "rejected" {
+		return "declined_elsewhere"
+	}
+	if event.WasAnswered {
+		return "answered_elsewhere"
+	}
+	switch endReason {
+	case "timeout", "timed_out", "no_answer", "unanswered":
+		return "unanswered"
+	}
+	if strings.EqualFold(strings.TrimSpace(event.Phase), "failed") || failureCode != "" {
+		return "failed"
+	}
+	return "remote_ended"
 }
 
 func (runtime *Runtime) sendWithRetry(ctx context.Context, notification Notification) error {

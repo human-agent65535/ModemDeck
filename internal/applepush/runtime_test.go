@@ -111,7 +111,8 @@ func TestRuntimeBuildsAlertAndVoIPPayloads(t *testing.T) {
 		Peer:      "+12025550106",
 		Content:   "Example message",
 	})
-	runtime.deliverCall(context.Background(), callevents.IncomingCall{
+	runtime.deliverCall(context.Background(), callevents.Event{
+		Kind:         callevents.KindIncoming,
 		CallID:       "call-example",
 		LineID:       "line-example",
 		RemoteNumber: "+12025550106",
@@ -134,7 +135,7 @@ func TestRuntimeBuildsAlertAndVoIPPayloads(t *testing.T) {
 		t.Fatalf("VoIP notification = %+v", voip)
 	}
 	voipJSON, _ := json.Marshal(voip.Payload)
-	for _, expected := range []string{"modemdeck_call", "call-example", "Example Contact", voip.APNSID} {
+	for _, expected := range []string{"modemdeck_call", `"event":"incoming"`, "call-example", "Example Contact", voip.APNSID} {
 		if !jsonContains(t, voipJSON, expected) {
 			t.Fatalf("VoIP payload %s does not contain %q", voipJSON, expected)
 		}
@@ -217,13 +218,143 @@ func TestRuntimeSkipsMismatchedTopicAndStaleCall(t *testing.T) {
 		LineID:    "line-example",
 		Content:   "Example",
 	})
-	runtime.deliverCall(context.Background(), callevents.IncomingCall{
+	runtime.deliverCall(context.Background(), callevents.Event{
+		Kind:       callevents.KindIncoming,
 		CallID:     "call-stale",
 		LineID:     "line-example",
 		ObservedAt: now.Add(-time.Minute),
 	})
 	if len(sender.notifications) != 0 {
 		t.Fatalf("notifications = %+v, want none", sender.notifications)
+	}
+}
+
+func TestRuntimeEndsOnlyCallsAcceptedByIncomingTargets(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.August, 10, 6, 45, 0, 0, time.UTC)
+	firstToken := strings.Repeat("11", 32)
+	secondToken := strings.Repeat("22", 32)
+	repository := &fakePushRepository{targets: map[store.IOSPushTokenKind][]store.IOSPushTarget{
+		store.IOSPushTokenVoIP: {
+			{
+				UserID:      "user-first",
+				Token:       firstToken,
+				Environment: "production",
+				BundleID:    "com.example.modemdeck",
+			},
+			{
+				UserID:      "user-second",
+				Token:       secondToken,
+				Environment: "production",
+				BundleID:    "com.example.modemdeck",
+			},
+		},
+	}}
+	sender := &fakePushSender{
+		bundleID: "com.example.modemdeck",
+		errors: []error{
+			&ResponseError{StatusCode: http.StatusBadRequest, Reason: "BadDeviceToken"},
+			nil,
+		},
+	}
+	runtime := testRuntime(t, repository, sender, now)
+	incoming := callevents.Event{
+		Kind:         callevents.KindIncoming,
+		CallID:       "call-multi-device",
+		LineID:       "line-example",
+		RemoteNumber: "+12025550106",
+		DisplayName:  "Example Contact",
+		Revision:     11,
+		Phase:        "ringing",
+		ObservedAt:   now,
+	}
+	runtime.deliverCall(context.Background(), incoming)
+	runtime.deliverCall(context.Background(), callevents.Event{
+		Kind:         callevents.KindTerminal,
+		CallID:       incoming.CallID,
+		LineID:       incoming.LineID,
+		RemoteNumber: incoming.RemoteNumber,
+		DisplayName:  incoming.DisplayName,
+		Revision:     12,
+		Phase:        "ended",
+		EndReason:    "terminated",
+		WasAnswered:  true,
+		ObservedAt:   now.Add(time.Minute),
+	})
+
+	if len(sender.notifications) != 3 {
+		t.Fatalf("notifications = %+v, want two incoming attempts and one terminal", sender.notifications)
+	}
+	incomingNotification := sender.notifications[1]
+	terminalNotification := sender.notifications[2]
+	if terminalNotification.DeviceToken != secondToken {
+		t.Fatalf("terminal target = %q, want only accepted target %q", terminalNotification.DeviceToken, secondToken)
+	}
+	if terminalNotification.CollapseID != incomingNotification.CollapseID ||
+		terminalNotification.APNSID == incomingNotification.APNSID {
+		t.Fatalf("incoming=%+v terminal=%+v", incomingNotification, terminalNotification)
+	}
+	payload, _ := json.Marshal(terminalNotification.Payload)
+	for _, expected := range []string{
+		"modemdeck_call_end",
+		`"event":"ended"`,
+		`"reason":"answered_elsewhere"`,
+		`"was_answered":true`,
+		incoming.CallID,
+	} {
+		if !jsonContains(t, payload, expected) {
+			t.Fatalf("terminal payload %s does not contain %q", payload, expected)
+		}
+	}
+	if jsonContains(t, payload, `{"call_id"`) {
+		t.Fatalf("terminal payload leaked call fields at the top level: %s", payload)
+	}
+}
+
+func TestRuntimeSkipsTerminalCallWithoutAcceptedIncomingTarget(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.August, 10, 7, 0, 0, 0, time.UTC)
+	repository := &fakePushRepository{targets: map[store.IOSPushTokenKind][]store.IOSPushTarget{
+		store.IOSPushTokenVoIP: {{
+			UserID:      "user-example",
+			Token:       strings.Repeat("33", 32),
+			Environment: "production",
+			BundleID:    "com.example.modemdeck",
+		}},
+	}}
+	sender := &fakePushSender{bundleID: "com.example.modemdeck"}
+	runtime := testRuntime(t, repository, sender, now)
+	runtime.deliverCall(context.Background(), callevents.Event{
+		Kind:       callevents.KindTerminal,
+		CallID:     "call-without-incoming",
+		LineID:     "line-example",
+		Phase:      "ended",
+		ObservedAt: now.Add(-time.Hour),
+	})
+	if len(sender.notifications) != 0 {
+		t.Fatalf("notifications = %+v, want none", sender.notifications)
+	}
+}
+
+func TestCallEndedReason(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		event callevents.Event
+		want  string
+	}{
+		{name: "rejected", event: callevents.Event{Phase: "failed", FailureCode: "rejected"}, want: "declined_elsewhere"},
+		{name: "answered", event: callevents.Event{WasAnswered: true}, want: "answered_elsewhere"},
+		{name: "timeout", event: callevents.Event{EndReason: "no_answer"}, want: "unanswered"},
+		{name: "failed", event: callevents.Event{Phase: "failed"}, want: "failed"},
+		{name: "remote", event: callevents.Event{Phase: "ended", EndReason: "terminated"}, want: "remote_ended"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := callEndedReason(test.event); got != test.want {
+				t.Fatalf("callEndedReason(%+v) = %q, want %q", test.event, got, test.want)
+			}
+		})
 	}
 }
 

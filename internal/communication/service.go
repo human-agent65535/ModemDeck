@@ -344,12 +344,12 @@ func (s *Service) SetRuntimeEventPublisher(events runtimeevents.Publisher) error
 	return nil
 }
 
-func (s *Service) SetIncomingCallPublisher(events callevents.Publisher) error {
+func (s *Service) SetCallEventPublisher(events callevents.Publisher) error {
 	if events == nil {
 		return operationError(
 			CodeInvalidArgument,
-			"configure incoming call events",
-			"incoming call event publisher is required",
+			"configure call events",
+			"call event publisher is required",
 			nil,
 		)
 	}
@@ -358,8 +358,8 @@ func (s *Service) SetIncomingCallPublisher(events callevents.Publisher) error {
 	if s.callEvents != nil {
 		return operationError(
 			CodeConflict,
-			"configure incoming call events",
-			"incoming call event publisher is already configured",
+			"configure call events",
+			"call event publisher is already configured",
 			nil,
 		)
 	}
@@ -536,6 +536,10 @@ func (s *Service) commitSnapshotLocked(
 	// policy in the same transaction that created each call. Publish immediately
 	// after commit so a later projection failure cannot lose the one-shot event.
 	s.publishIncomingCalls(snapshotResult.CreatedIncomingCalls, snapshot.ObservedAt)
+	// Terminal calls are returned only for an open-to-terminal transition in the
+	// same committed transaction. Publishing here lets PushKit close CallKit on
+	// every device that received the matching incoming event.
+	s.publishTerminalCalls(snapshotResult.TerminalCalls, snapshot.ObservedAt)
 	s.enqueueDeviceMessageCleanup(
 		hardwareSnapshot.Messages,
 		snapshotResult.HandledDeliveryReportIDs,
@@ -882,11 +886,39 @@ func (s *Service) publishIncomingCalls(calls []store.Call, observedAt time.Time)
 		if displayName == "" {
 			displayName = call.RemoteNumber
 		}
-		s.callEvents.Publish(callevents.IncomingCall{
+		s.callEvents.Publish(callevents.Event{
+			Kind:         callevents.KindIncoming,
 			CallID:       call.ID,
 			LineID:       call.LineID,
 			RemoteNumber: call.RemoteNumber,
 			DisplayName:  displayName,
+			Revision:     call.Revision,
+			Phase:        call.Phase,
+			ObservedAt:   observedAt,
+		})
+	}
+}
+
+func (s *Service) publishTerminalCalls(calls []store.Call, observedAt time.Time) {
+	if s.callEvents == nil {
+		return
+	}
+	for _, call := range calls {
+		displayName := strings.TrimSpace(call.ContactName)
+		if displayName == "" {
+			displayName = call.RemoteNumber
+		}
+		s.callEvents.Publish(callevents.Event{
+			Kind:         callevents.KindTerminal,
+			CallID:       call.ID,
+			LineID:       call.LineID,
+			RemoteNumber: call.RemoteNumber,
+			DisplayName:  displayName,
+			Revision:     call.Revision,
+			Phase:        call.Phase,
+			EndReason:    call.EndReason,
+			FailureCode:  call.FailureCode,
+			WasAnswered:  call.ActiveAt != nil,
 			ObservedAt:   observedAt,
 		})
 	}
