@@ -7,8 +7,10 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,9 +20,21 @@ import (
 )
 
 type fakePushRepository struct {
-	targets map[store.IOSPushTokenKind][]store.IOSPushTarget
-	cleared []clearedPushToken
-	err     error
+	mu         sync.Mutex
+	deliveries map[string]store.ApplePushDelivery
+	statuses   map[string]string
+	next       map[string]time.Time
+	finished   []finishedPushDelivery
+	cleared    []clearedPushToken
+	targets    map[store.IOSPushTokenKind][]store.IOSPushTarget
+	err        error
+}
+
+type finishedPushDelivery struct {
+	key         string
+	status      string
+	errorClass  string
+	nextAttempt time.Time
 }
 
 type clearedPushToken struct {
@@ -29,15 +43,125 @@ type clearedPushToken struct {
 	token  string
 }
 
-func (repository *fakePushRepository) IOSPushTargetsForLine(
+func newFakePushRepository() *fakePushRepository {
+	return &fakePushRepository{
+		deliveries: make(map[string]store.ApplePushDelivery),
+		statuses:   make(map[string]string),
+		next:       make(map[string]time.Time),
+		targets:    make(map[store.IOSPushTokenKind][]store.IOSPushTarget),
+	}
+}
+
+func deliveryKey(eventKey, credentialID string, kind store.IOSPushTokenKind) string {
+	return eventKey + "\x00" + credentialID + "\x00" + string(kind)
+}
+
+func (repository *fakePushRepository) add(
+	delivery store.ApplePushDelivery,
+	status string,
+	next time.Time,
+) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	key := deliveryKey(delivery.EventKey, delivery.CredentialID, delivery.TokenKind)
+	repository.deliveries[key] = delivery
+	repository.statuses[key] = status
+	repository.next[key] = next
+}
+
+func (repository *fakePushRepository) PendingApplePushDeliveries(
 	_ context.Context,
-	_ string,
-	kind store.IOSPushTokenKind,
-) ([]store.IOSPushTarget, error) {
+	now time.Time,
+	limit int,
+) ([]store.ApplePushDelivery, error) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
 	if repository.err != nil {
 		return nil, repository.err
 	}
-	return append([]store.IOSPushTarget(nil), repository.targets[kind]...), nil
+	result := make([]store.ApplePushDelivery, 0, limit)
+	for key, delivery := range repository.deliveries {
+		if repository.statuses[key] != store.NotificationPending ||
+			repository.next[key].After(now) {
+			continue
+		}
+		result = append(result, delivery)
+		if len(result) == limit {
+			break
+		}
+	}
+	return result, nil
+}
+
+func (repository *fakePushRepository) NextApplePushDeliveryAttempt(
+	_ context.Context,
+) (time.Time, bool, error) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	var earliest time.Time
+	for key, next := range repository.next {
+		if repository.statuses[key] != store.NotificationPending {
+			continue
+		}
+		if earliest.IsZero() || next.Before(earliest) {
+			earliest = next
+		}
+	}
+	return earliest, !earliest.IsZero(), repository.err
+}
+
+func (repository *fakePushRepository) RequeueSendingApplePushDeliveries(
+	_ context.Context,
+) error {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	for key, status := range repository.statuses {
+		if status == store.NotificationSending {
+			repository.statuses[key] = store.NotificationPending
+			repository.next[key] = time.Time{}
+		}
+	}
+	return repository.err
+}
+
+func (repository *fakePushRepository) ClaimApplePushDelivery(
+	_ context.Context,
+	eventKey, credentialID string,
+	kind store.IOSPushTokenKind,
+	_ string,
+) (bool, error) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	key := deliveryKey(eventKey, credentialID, kind)
+	if repository.statuses[key] != store.NotificationPending {
+		return false, repository.err
+	}
+	repository.statuses[key] = store.NotificationSending
+	delivery := repository.deliveries[key]
+	delivery.AttemptCount++
+	repository.deliveries[key] = delivery
+	return true, repository.err
+}
+
+func (repository *fakePushRepository) FinishApplePushDelivery(
+	_ context.Context,
+	eventKey, credentialID string,
+	kind store.IOSPushTokenKind,
+	_, status, errorClass string,
+	nextAttempt time.Time,
+) error {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	key := deliveryKey(eventKey, credentialID, kind)
+	repository.statuses[key] = status
+	repository.next[key] = nextAttempt
+	repository.finished = append(repository.finished, finishedPushDelivery{
+		key:         key,
+		status:      status,
+		errorClass:  errorClass,
+		nextAttempt: nextAttempt,
+	})
+	return repository.err
 }
 
 func (repository *fakePushRepository) IOSPushTargetForCredential(
@@ -45,15 +169,12 @@ func (repository *fakePushRepository) IOSPushTargetForCredential(
 	userID, credentialID string,
 	kind store.IOSPushTokenKind,
 ) (store.IOSPushTarget, bool, error) {
-	if repository.err != nil {
-		return store.IOSPushTarget{}, false, repository.err
-	}
 	for _, target := range repository.targets[kind] {
 		if target.UserID == userID && target.CredentialID == credentialID {
-			return target, true, nil
+			return target, true, repository.err
 		}
 	}
-	return store.IOSPushTarget{}, false, nil
+	return store.IOSPushTarget{}, false, repository.err
 }
 
 func (repository *fakePushRepository) ClearIOSPushToken(
@@ -62,393 +183,300 @@ func (repository *fakePushRepository) ClearIOSPushToken(
 	kind store.IOSPushTokenKind,
 	token string,
 ) error {
-	repository.cleared = append(repository.cleared, clearedPushToken{userID: userID, kind: kind, token: token})
-	return nil
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	repository.cleared = append(repository.cleared, clearedPushToken{
+		userID: userID,
+		kind:   kind,
+		token:  token,
+	})
+	return repository.err
 }
 
 type fakePushSender struct {
+	mu            sync.Mutex
 	bundleID      string
 	notifications []Notification
 	errors        []error
+	wake          chan struct{}
 }
 
 func (sender *fakePushSender) BundleID() string { return sender.bundleID }
 
 func (sender *fakePushSender) Send(_ context.Context, notification Notification) error {
+	sender.mu.Lock()
 	sender.notifications = append(sender.notifications, notification)
-	if len(sender.errors) == 0 {
-		return nil
+	var err error
+	if len(sender.errors) > 0 {
+		err = sender.errors[0]
+		sender.errors = sender.errors[1:]
 	}
-	err := sender.errors[0]
-	sender.errors = sender.errors[1:]
+	sender.mu.Unlock()
+	if sender.wake != nil {
+		select {
+		case sender.wake <- struct{}{}:
+		default:
+		}
+	}
 	return err
 }
 
-func TestRuntimeBuildsAlertAndVoIPPayloads(t *testing.T) {
-	t.Parallel()
+func (sender *fakePushSender) sent() []Notification {
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+	return append([]Notification(nil), sender.notifications...)
+}
+
+func TestRuntimeBuildsDurableAlertAndVoIPPayloads(t *testing.T) {
 	now := time.Date(2026, time.August, 9, 5, 0, 0, 0, time.UTC)
-	repository := &fakePushRepository{targets: map[store.IOSPushTokenKind][]store.IOSPushTarget{
-		store.IOSPushTokenAPNS: {{
-			UserID:      "user-example",
-			Token:       "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899",
-			Environment: "production",
-			BundleID:    "com.example.modemdeck",
-		}},
-		store.IOSPushTokenVoIP: {{
-			UserID:      "user-example",
-			Token:       "11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff",
-			Environment: "development",
-			BundleID:    "com.example.modemdeck",
-		}},
-	}}
+	repository := newFakePushRepository()
 	sender := &fakePushSender{bundleID: "com.example.modemdeck"}
 	runtime := testRuntime(t, repository, sender, now)
 
-	runtime.deliverSMS(context.Background(), messageevents.IncomingSMS{
-		MessageID: "42",
-		ThreadKey: "line-example|peer-example",
-		LineID:    "line-example",
-		Peer:      "+12025550106",
-		Content:   "Example message",
-	})
-	runtime.deliverCall(context.Background(), callevents.Event{
-		Kind:         callevents.KindIncoming,
-		CallID:       "call-example",
-		LineID:       "line-example",
-		RemoteNumber: "+12025550106",
-		DisplayName:  "Example Contact",
-		ObservedAt:   now,
-	})
-	if len(sender.notifications) != 2 {
-		t.Fatalf("notifications = %+v", sender.notifications)
+	sms := exampleDelivery(now, store.NotificationIncomingSMS, store.IOSPushTokenAPNS)
+	sms.EventKey = "sms:42"
+	sms.ResourceID = "42"
+	sms.Body = "Example message"
+	call := exampleDelivery(now, store.NotificationIncomingCall, store.IOSPushTokenVoIP)
+	call.EventKey = "incoming-call:call-example"
+	call.ResourceID = "call-example"
+	call.Body = "Example Contact"
+	for _, delivery := range []store.ApplePushDelivery{sms, call} {
+		repository.add(delivery, store.NotificationPending, now)
+		if !runtime.deliverOutboxEntry(context.Background(), delivery) {
+			t.Fatalf("delivery was not claimed: %+v", delivery)
+		}
 	}
-	alert := sender.notifications[0]
-	if alert.PushType != PushTypeAlert || alert.Environment != "production" || alert.DeviceToken == "" {
-		t.Fatalf("alert = %+v", alert)
+
+	notifications := sender.sent()
+	if len(notifications) != 2 {
+		t.Fatalf("notifications = %+v", notifications)
 	}
-	alertJSON, _ := json.Marshal(alert.Payload)
-	if !jsonContains(t, alertJSON, "Example message") || !jsonContains(t, alertJSON, "modemdeck_message") {
-		t.Fatalf("alert payload = %s", alertJSON)
+	alertJSON, _ := json.Marshal(notifications[0].Payload)
+	for _, expected := range []string{"Example message", "modemdeck_message", `"message_id":"42"`} {
+		if !jsonContains(t, alertJSON, expected) {
+			t.Fatalf("alert payload %s does not contain %q", alertJSON, expected)
+		}
 	}
-	voip := sender.notifications[1]
-	if voip.PushType != PushTypeVoIP || voip.Environment != "development" || voip.CollapseID == "" {
-		t.Fatalf("VoIP notification = %+v", voip)
-	}
-	voipJSON, _ := json.Marshal(voip.Payload)
-	for _, expected := range []string{"modemdeck_call", `"event":"incoming"`, "call-example", "Example Contact", voip.APNSID} {
+	voipJSON, _ := json.Marshal(notifications[1].Payload)
+	for _, expected := range []string{"modemdeck_call", `"event":"incoming"`, "call-example", "Example Contact"} {
 		if !jsonContains(t, voipJSON, expected) {
 			t.Fatalf("VoIP payload %s does not contain %q", voipJSON, expected)
 		}
 	}
-}
-
-func TestRuntimeRetriesTransientFailureOnce(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2026, time.August, 9, 5, 30, 0, 0, time.UTC)
-	repository := &fakePushRepository{targets: map[store.IOSPushTokenKind][]store.IOSPushTarget{
-		store.IOSPushTokenAPNS: {{
-			UserID:      "user-example",
-			Token:       "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899",
-			Environment: "production",
-			BundleID:    "com.example.modemdeck",
-		}},
-	}}
-	sender := &fakePushSender{
-		bundleID: "com.example.modemdeck",
-		errors:   []error{&ResponseError{StatusCode: http.StatusServiceUnavailable, Reason: "Shutdown"}},
+	if notifications[1].CollapseID != deterministicUUID("callkit", "call-example") ||
+		notifications[1].APNSID == notifications[1].CollapseID {
+		t.Fatalf("VoIP identities = %+v", notifications[1])
 	}
-	runtime := testRuntime(t, repository, sender, now)
-	runtime.deliverSMS(context.Background(), messageevents.IncomingSMS{
-		MessageID: "43",
-		LineID:    "line-example",
-		Content:   "Example",
-	})
-	if len(sender.notifications) != 2 {
-		t.Fatalf("send attempts = %d, want 2", len(sender.notifications))
-	}
-}
-
-func TestRuntimeClearsOnlyRejectedCurrentToken(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2026, time.August, 9, 6, 0, 0, 0, time.UTC)
-	token := strings.Repeat("ab", 32)
-	repository := &fakePushRepository{targets: map[store.IOSPushTokenKind][]store.IOSPushTarget{
-		store.IOSPushTokenAPNS: {{
-			UserID:      "user-example",
-			Token:       token,
-			Environment: "production",
-			BundleID:    "com.example.modemdeck",
-		}},
-	}}
-	sender := &fakePushSender{
-		bundleID: "com.example.modemdeck",
-		errors:   []error{&ResponseError{StatusCode: http.StatusGone, Reason: "Unregistered"}},
-	}
-	runtime := testRuntime(t, repository, sender, now)
-	runtime.deliverSMS(context.Background(), messageevents.IncomingSMS{
-		MessageID: "44",
-		LineID:    "line-example",
-		Content:   "Example",
-	})
-	if len(sender.notifications) != 1 || len(repository.cleared) != 1 ||
-		repository.cleared[0] != (clearedPushToken{
-			userID: "user-example",
-			kind:   store.IOSPushTokenAPNS,
-			token:  token,
-		}) {
-		t.Fatalf("notifications=%d cleared=%+v", len(sender.notifications), repository.cleared)
-	}
-}
-
-func TestRuntimeSkipsMismatchedTopicAndStaleCall(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2026, time.August, 9, 6, 30, 0, 0, time.UTC)
-	repository := &fakePushRepository{targets: map[store.IOSPushTokenKind][]store.IOSPushTarget{
-		store.IOSPushTokenAPNS: {{
-			UserID:      "user-example",
-			Token:       "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899",
-			Environment: "production",
-			BundleID:    "com.example.different",
-		}},
-	}}
-	sender := &fakePushSender{bundleID: "com.example.modemdeck"}
-	runtime := testRuntime(t, repository, sender, now)
-	runtime.deliverSMS(context.Background(), messageevents.IncomingSMS{
-		MessageID: "45",
-		LineID:    "line-example",
-		Content:   "Example",
-	})
-	runtime.deliverCall(context.Background(), callevents.Event{
-		Kind:       callevents.KindIncoming,
-		CallID:     "call-stale",
-		LineID:     "line-example",
-		ObservedAt: now.Add(-time.Minute),
-	})
-	if len(sender.notifications) != 0 {
-		t.Fatalf("notifications = %+v, want none", sender.notifications)
-	}
-}
-
-func TestRuntimeEndsOnlyCallsAcceptedByIncomingTargets(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2026, time.August, 10, 6, 45, 0, 0, time.UTC)
-	firstToken := strings.Repeat("11", 32)
-	secondToken := strings.Repeat("22", 32)
-	repository := &fakePushRepository{targets: map[store.IOSPushTokenKind][]store.IOSPushTarget{
-		store.IOSPushTokenVoIP: {
-			{
-				UserID:      "user-first",
-				Token:       firstToken,
-				Environment: "production",
-				BundleID:    "com.example.modemdeck",
-			},
-			{
-				UserID:      "user-second",
-				Token:       secondToken,
-				Environment: "production",
-				BundleID:    "com.example.modemdeck",
-			},
-		},
-	}}
-	sender := &fakePushSender{
-		bundleID: "com.example.modemdeck",
-		errors: []error{
-			&ResponseError{StatusCode: http.StatusBadRequest, Reason: "BadDeviceToken"},
-			nil,
-		},
-	}
-	runtime := testRuntime(t, repository, sender, now)
-	incoming := callevents.Event{
-		Kind:         callevents.KindIncoming,
-		CallID:       "call-multi-device",
-		LineID:       "line-example",
-		RemoteNumber: "+12025550106",
-		DisplayName:  "Example Contact",
-		Revision:     11,
-		Phase:        "ringing",
-		ObservedAt:   now,
-	}
-	runtime.deliverCall(context.Background(), incoming)
-	runtime.deliverCall(context.Background(), callevents.Event{
-		Kind:         callevents.KindTerminal,
-		CallID:       incoming.CallID,
-		LineID:       incoming.LineID,
-		RemoteNumber: incoming.RemoteNumber,
-		DisplayName:  incoming.DisplayName,
-		Revision:     12,
-		Phase:        "ended",
-		EndReason:    "terminated",
-		WasAnswered:  true,
-		ObservedAt:   now.Add(time.Minute),
-	})
-
-	if len(sender.notifications) != 3 {
-		t.Fatalf("notifications = %+v, want two incoming attempts and one terminal", sender.notifications)
-	}
-	incomingNotification := sender.notifications[1]
-	terminalNotification := sender.notifications[2]
-	if terminalNotification.DeviceToken != secondToken {
-		t.Fatalf("terminal target = %q, want only accepted target %q", terminalNotification.DeviceToken, secondToken)
-	}
-	if terminalNotification.CollapseID != incomingNotification.CollapseID ||
-		terminalNotification.APNSID == incomingNotification.APNSID {
-		t.Fatalf("incoming=%+v terminal=%+v", incomingNotification, terminalNotification)
-	}
-	payload, _ := json.Marshal(terminalNotification.Payload)
-	for _, expected := range []string{
-		"modemdeck_call_end",
-		`"event":"ended"`,
-		`"reason":"answered_elsewhere"`,
-		`"was_answered":true`,
-		incoming.CallID,
-	} {
-		if !jsonContains(t, payload, expected) {
-			t.Fatalf("terminal payload %s does not contain %q", payload, expected)
+	for _, finished := range repository.finished {
+		if finished.status != store.NotificationAccepted {
+			t.Fatalf("finished = %+v", repository.finished)
 		}
 	}
-	if jsonContains(t, payload, `{"call_id"`) {
-		t.Fatalf("terminal payload leaked call fields at the top level: %s", payload)
-	}
 }
 
-func TestRuntimeSkipsTerminalCallWithoutAcceptedIncomingTarget(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2026, time.August, 10, 7, 0, 0, 0, time.UTC)
-	repository := &fakePushRepository{targets: map[store.IOSPushTokenKind][]store.IOSPushTarget{
-		store.IOSPushTokenVoIP: {{
-			UserID:      "user-example",
-			Token:       strings.Repeat("33", 32),
-			Environment: "production",
-			BundleID:    "com.example.modemdeck",
+func TestRuntimePersistsRetryInsteadOfSendingTwiceImmediately(t *testing.T) {
+	now := time.Date(2026, time.August, 9, 5, 30, 0, 0, time.UTC)
+	repository := newFakePushRepository()
+	sender := &fakePushSender{
+		bundleID: "com.example.modemdeck",
+		errors: []error{&ResponseError{
+			StatusCode: http.StatusServiceUnavailable,
+			Reason:     "Shutdown",
 		}},
-	}}
+	}
+	runtime := testRuntime(t, repository, sender, now)
+	delivery := exampleDelivery(now, store.NotificationIncomingSMS, store.IOSPushTokenAPNS)
+	repository.add(delivery, store.NotificationPending, now)
+	runtime.deliverOutboxEntry(context.Background(), delivery)
+
+	if len(sender.sent()) != 1 || len(repository.finished) != 1 {
+		t.Fatalf("sends=%d finished=%+v", len(sender.sent()), repository.finished)
+	}
+	finished := repository.finished[0]
+	if finished.status != store.NotificationPending || !finished.nextAttempt.After(now) {
+		t.Fatalf("finished = %+v", finished)
+	}
+}
+
+func TestRuntimeRequeuesAmbiguousTransportWithStableAPNSID(t *testing.T) {
+	now := time.Date(2026, time.August, 9, 5, 45, 0, 0, time.UTC)
+	repository := newFakePushRepository()
+	sender := &fakePushSender{
+		bundleID: "com.example.modemdeck",
+		errors: []error{&transportError{cause: &net.DNSError{
+			Err:         "temporary",
+			IsTemporary: true,
+		}}},
+	}
+	runtime := testRuntime(t, repository, sender, now)
+	delivery := exampleDelivery(now, store.NotificationIncomingSMS, store.IOSPushTokenAPNS)
+	repository.add(delivery, store.NotificationPending, now)
+	runtime.deliverOutboxEntry(context.Background(), delivery)
+	firstID := sender.sent()[0].APNSID
+
+	repository.mu.Lock()
+	repository.statuses[deliveryKey(delivery.EventKey, delivery.CredentialID, delivery.TokenKind)] = store.NotificationPending
+	repository.mu.Unlock()
+	sender.errors = nil
+	runtime.deliverOutboxEntry(context.Background(), delivery)
+	notifications := sender.sent()
+	if len(notifications) != 2 || notifications[1].APNSID != firstID {
+		t.Fatalf("notifications = %+v", notifications)
+	}
+}
+
+func TestRuntimeClearsRejectedCurrentToken(t *testing.T) {
+	now := time.Date(2026, time.August, 9, 6, 0, 0, 0, time.UTC)
+	repository := newFakePushRepository()
+	sender := &fakePushSender{
+		bundleID: "com.example.modemdeck",
+		errors: []error{&ResponseError{
+			StatusCode: http.StatusGone,
+			Reason:     "Unregistered",
+		}},
+	}
+	runtime := testRuntime(t, repository, sender, now)
+	delivery := exampleDelivery(now, store.NotificationIncomingSMS, store.IOSPushTokenAPNS)
+	repository.add(delivery, store.NotificationPending, now)
+	runtime.deliverOutboxEntry(context.Background(), delivery)
+
+	if len(repository.cleared) != 1 || repository.cleared[0] != (clearedPushToken{
+		userID: delivery.UserID,
+		kind:   delivery.TokenKind,
+		token:  delivery.DeviceToken,
+	}) || repository.finished[0].status != store.NotificationFailed {
+		t.Fatalf("cleared=%+v finished=%+v", repository.cleared, repository.finished)
+	}
+}
+
+func TestRuntimeExpiresCallThatIsNoLongerRinging(t *testing.T) {
+	now := time.Date(2026, time.August, 9, 6, 30, 0, 0, time.UTC)
+	repository := newFakePushRepository()
 	sender := &fakePushSender{bundleID: "com.example.modemdeck"}
 	runtime := testRuntime(t, repository, sender, now)
-	runtime.deliverCall(context.Background(), callevents.Event{
-		Kind:       callevents.KindTerminal,
-		CallID:     "call-without-incoming",
-		LineID:     "line-example",
-		Phase:      "ended",
-		ObservedAt: now.Add(-time.Hour),
+	delivery := exampleDelivery(now, store.NotificationIncomingCall, store.IOSPushTokenVoIP)
+	delivery.ResourceLive = false
+	repository.add(delivery, store.NotificationPending, now)
+	runtime.deliverOutboxEntry(context.Background(), delivery)
+	if len(sender.sent()) != 0 || repository.finished[0].status != store.NotificationExpired {
+		t.Fatalf("notifications=%+v finished=%+v", sender.sent(), repository.finished)
+	}
+}
+
+func TestRuntimeStartupRecoversAndDrainsSendingDelivery(t *testing.T) {
+	now := time.Date(2026, time.August, 9, 6, 45, 0, 0, time.UTC)
+	repository := newFakePushRepository()
+	delivery := exampleDelivery(now, store.NotificationIncomingSMS, store.IOSPushTokenAPNS)
+	repository.add(delivery, store.NotificationSending, now)
+	sender := &fakePushSender{
+		bundleID: "com.example.modemdeck",
+		wake:     make(chan struct{}, 1),
+	}
+	messages := messageevents.NewBuffer(2)
+	calls := callevents.NewBuffer(2)
+	runtime, err := NewRuntime(repository, sender, messages, calls, Options{
+		Logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Now:             func() time.Time { return now },
+		DeliveryTimeout: time.Second,
+		SweepInterval:   time.Second,
 	})
-	if len(sender.notifications) != 0 {
-		t.Fatalf("notifications = %+v, want none", sender.notifications)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	ready := make(chan struct{})
+	go func() {
+		defer close(done)
+		runtime.RunReady(ctx, ready)
+	}()
+	<-ready
+	select {
+	case <-sender.wake:
+	case <-time.After(time.Second):
+		t.Fatal("recovered delivery was not sent")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("runtime did not stop")
 	}
 }
 
-func TestCallEndedReason(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name  string
-		event callevents.Event
-		want  string
-	}{
-		{name: "rejected", event: callevents.Event{Phase: "failed", FailureCode: "rejected"}, want: "declined_elsewhere"},
-		{name: "answered", event: callevents.Event{WasAnswered: true}, want: "answered_elsewhere"},
-		{name: "timeout", event: callevents.Event{EndReason: "no_answer"}, want: "unanswered"},
-		{name: "failed", event: callevents.Event{Phase: "failed"}, want: "failed"},
-		{name: "remote", event: callevents.Event{Phase: "ended", EndReason: "terminated"}, want: "remote_ended"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if got := callEndedReason(test.event); got != test.want {
-				t.Fatalf("callEndedReason(%+v) = %q, want %q", test.event, got, test.want)
-			}
-		})
-	}
-}
-
-func TestRuntimeSendsSyntheticTestCallOnlyToRequestedUser(t *testing.T) {
-	t.Parallel()
+func TestRuntimeSendsSyntheticTestCallOnlyToRequestedCredential(t *testing.T) {
 	now := time.Date(2026, time.August, 9, 7, 0, 0, 0, time.UTC)
-	repository := &fakePushRepository{targets: map[store.IOSPushTokenKind][]store.IOSPushTarget{
-		store.IOSPushTokenVoIP: {
-			{
-				CredentialID: "ios-other",
-				UserID:       "user-other",
-				Token:        strings.Repeat("11", 32),
-				Environment:  "production",
-				BundleID:     "com.example.modemdeck",
-			},
-			{
-				CredentialID: "ios-example",
-				UserID:       "user-example",
-				Token:        strings.Repeat("22", 32),
-				Environment:  "production",
-				BundleID:     "com.example.modemdeck",
-			},
+	repository := newFakePushRepository()
+	repository.targets[store.IOSPushTokenVoIP] = []store.IOSPushTarget{
+		{
+			CredentialID: "ios-other",
+			UserID:       "user-other",
+			Token:        strings.Repeat("11", 32),
+			Environment:  "production",
+			BundleID:     "com.example.modemdeck",
 		},
-	}}
+		{
+			CredentialID: "ios-example",
+			UserID:       "user-example",
+			Token:        strings.Repeat("22", 32),
+			Environment:  "production",
+			BundleID:     "com.example.modemdeck",
+		},
+	}
 	sender := &fakePushSender{bundleID: "com.example.modemdeck"}
 	runtime := testRuntime(t, repository, sender, now)
+	result, err := runtime.SendTestCall(context.Background(), "user-example", "ios-example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	notifications := sender.sent()
+	if len(notifications) != 1 || notifications[0].DeviceToken != strings.Repeat("22", 32) ||
+		notifications[0].APNSID != result.ID {
+		t.Fatalf("result=%+v notifications=%+v", result, notifications)
+	}
+	payload, _ := json.Marshal(notifications[0].Payload)
+	if !jsonContains(t, payload, `"test_call":true`) {
+		t.Fatalf("payload = %s", payload)
+	}
+}
 
-	result, err := runtime.SendTestCall(
+func TestRuntimeRejectsTestCallWithoutMatchingTarget(t *testing.T) {
+	now := time.Date(2026, time.August, 9, 7, 30, 0, 0, time.UTC)
+	repository := newFakePushRepository()
+	sender := &fakePushSender{bundleID: "com.example.modemdeck"}
+	runtime := testRuntime(t, repository, sender, now)
+	if _, err := runtime.SendTestCall(
 		context.Background(),
 		"user-example",
 		"ios-example",
-	)
-	if err != nil {
-		t.Fatalf("SendTestCall() error = %v", err)
-	}
-	if result.ID == "" || !result.AcceptedAt.Equal(now) {
-		t.Fatalf("result = %+v", result)
-	}
-	if len(sender.notifications) != 1 {
-		t.Fatalf("notifications = %+v", sender.notifications)
-	}
-	notification := sender.notifications[0]
-	if notification.DeviceToken != strings.Repeat("22", 32) ||
-		notification.PushType != PushTypeVoIP ||
-		notification.APNSID != result.ID {
-		t.Fatalf("notification = %+v", notification)
-	}
-	payload, _ := json.Marshal(notification.Payload)
-	for _, expected := range []string{`"test_call":true`, "ModemDeck Test Call", "test-" + result.ID} {
-		if !jsonContains(t, payload, expected) {
-			t.Fatalf("test call payload %s does not contain %q", payload, expected)
-		}
+	); !errors.Is(err, ErrPushTargetUnavailable) {
+		t.Fatalf("error = %v", err)
 	}
 }
 
-func TestRuntimeRejectsTestCallWithoutMatchingPushKitTarget(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2026, time.August, 9, 7, 30, 0, 0, time.UTC)
-	tests := []struct {
-		name    string
-		targets []store.IOSPushTarget
-		wantErr error
-	}{
-		{name: "missing", wantErr: ErrPushTargetUnavailable},
-		{
-			name: "topic mismatch",
-			targets: []store.IOSPushTarget{{
-				CredentialID: "ios-example",
-				UserID:       "user-example",
-				Token:        strings.Repeat("33", 32),
-				Environment:  "production",
-				BundleID:     "com.example.other",
-			}},
-			wantErr: ErrPushTopicMismatch,
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			repository := &fakePushRepository{targets: map[store.IOSPushTokenKind][]store.IOSPushTarget{
-				store.IOSPushTokenVoIP: test.targets,
-			}}
-			sender := &fakePushSender{bundleID: "com.example.modemdeck"}
-			runtime := testRuntime(t, repository, sender, now)
-			if _, err := runtime.SendTestCall(
-				context.Background(),
-				"user-example",
-				"ios-example",
-			); !errors.Is(err, test.wantErr) {
-				t.Fatalf("SendTestCall() error = %v, want %v", err, test.wantErr)
-			}
-			if len(sender.notifications) != 0 {
-				t.Fatalf("notifications = %+v", sender.notifications)
-			}
-		})
+func exampleDelivery(
+	now time.Time,
+	eventType string,
+	kind store.IOSPushTokenKind,
+) store.ApplePushDelivery {
+	return store.ApplePushDelivery{
+		EventKey:     "sms:1",
+		CredentialID: "ios-example",
+		UserID:       "user-example",
+		TokenKind:    kind,
+		DeviceToken:  strings.Repeat("ab", 32),
+		Environment:  "production",
+		BundleID:     "com.example.modemdeck",
+		EventType:    eventType,
+		ResourceID:   "1",
+		LineID:       "line-example",
+		Peer:         "+12025550106",
+		Body:         "Example",
+		OccurredAt:   now,
+		ExpiresAt:    now.Add(24 * time.Hour),
+		Eligible:     true,
+		ResourceLive: true,
 	}
 }
 
@@ -469,6 +497,7 @@ func testRuntime(
 			Now:             func() time.Time { return now },
 			DeliveryTimeout: time.Second,
 			RetryDelay:      time.Millisecond,
+			SweepInterval:   time.Second,
 		},
 	)
 	if err != nil {

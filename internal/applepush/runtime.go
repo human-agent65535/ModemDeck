@@ -18,11 +18,14 @@ import (
 )
 
 const (
-	defaultDeliveryTimeout = 12 * time.Second
-	defaultRetryDelay      = 250 * time.Millisecond
-	maximumCallEventAge    = 45 * time.Second
-	maximumAlertRunes      = 240
-	maximumTrackedCalls    = 64
+	defaultDeliveryTimeout  = 12 * time.Second
+	defaultRetryDelay       = 250 * time.Millisecond
+	defaultSweepInterval    = 30 * time.Second
+	subscriptionRetryDelay  = 100 * time.Millisecond
+	maximumCallEventAge     = 45 * time.Second
+	maximumAlertRunes       = 240
+	deliveryBatchSize       = 100
+	maximumDeliveryAttempts = 5
 )
 
 var (
@@ -31,11 +34,26 @@ var (
 )
 
 type Repository interface {
-	IOSPushTargetsForLine(
+	PendingApplePushDeliveries(context.Context, time.Time, int) ([]store.ApplePushDelivery, error)
+	NextApplePushDeliveryAttempt(context.Context) (time.Time, bool, error)
+	RequeueSendingApplePushDeliveries(context.Context) error
+	ClaimApplePushDelivery(
 		context.Context,
 		string,
+		string,
 		store.IOSPushTokenKind,
-	) ([]store.IOSPushTarget, error)
+		string,
+	) (bool, error)
+	FinishApplePushDelivery(
+		context.Context,
+		string,
+		string,
+		store.IOSPushTokenKind,
+		string,
+		string,
+		string,
+		time.Time,
+	) error
 	IOSPushTargetForCredential(
 		context.Context,
 		string,
@@ -65,6 +83,7 @@ type Options struct {
 	Now             func() time.Time
 	DeliveryTimeout time.Duration
 	RetryDelay      time.Duration
+	SweepInterval   time.Duration
 }
 
 type Runtime struct {
@@ -76,9 +95,7 @@ type Runtime struct {
 	now             func() time.Time
 	deliveryTimeout time.Duration
 	retryDelay      time.Duration
-	callTargetsMu   sync.Mutex
-	callTargets     map[string][]store.IOSPushTarget
-	callTargetOrder []string
+	sweepInterval   time.Duration
 }
 
 func NewRuntime(
@@ -107,6 +124,10 @@ func NewRuntime(
 	if retryDelay <= 0 {
 		retryDelay = defaultRetryDelay
 	}
+	sweepInterval := options.SweepInterval
+	if sweepInterval <= 0 {
+		sweepInterval = defaultSweepInterval
+	}
 	return &Runtime{
 		repository:      repository,
 		sender:          sender,
@@ -116,7 +137,7 @@ func NewRuntime(
 		now:             now,
 		deliveryTimeout: deliveryTimeout,
 		retryDelay:      retryDelay,
-		callTargets:     make(map[string][]store.IOSPushTarget),
+		sweepInterval:   sweepInterval,
 	}, nil
 }
 
@@ -130,214 +151,452 @@ func (runtime *Runtime) RunReady(ctx context.Context, ready chan<- struct{}) {
 
 func (runtime *Runtime) run(ctx context.Context, ready chan<- struct{}) {
 	messageEvents, cancelMessages := runtime.messages.Subscribe()
-	defer cancelMessages()
 	callEvents, cancelCalls := runtime.calls.Subscribe()
-	defer cancelCalls()
+	if err := runtime.repository.RequeueSendingApplePushDeliveries(ctx); err != nil {
+		runtime.logger.Error(
+			"Apple push outbox recovery failed",
+			"component", "apple_push",
+			"error", err,
+		)
+	}
+	runtime.drainOutbox(ctx)
 	if ready != nil {
 		close(ready)
 	}
 
+	wake := make(chan struct{}, 1)
 	var workers sync.WaitGroup
-	workers.Add(2)
+	workers.Add(3)
 	go func() {
 		defer workers.Done()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case event, open := <-messageEvents:
-				if !open {
-					return
-				}
-				runtime.deliverSMS(ctx, event)
-			}
-		}
+		runtime.consumeMessageEvents(ctx, messageEvents, cancelMessages, wake)
 	}()
 	go func() {
 		defer workers.Done()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case event, open := <-callEvents:
-				if !open {
-					return
-				}
-				runtime.deliverCall(ctx, event)
-			}
-		}
+		runtime.consumeCallEvents(ctx, callEvents, cancelCalls, wake)
+	}()
+	go func() {
+		defer workers.Done()
+		runtime.sweepOutbox(ctx, wake)
 	}()
 	workers.Wait()
 }
 
-func (runtime *Runtime) deliverSMS(ctx context.Context, event messageevents.IncomingSMS) {
-	payload := struct {
-		APS struct {
-			Alert struct {
-				Title string `json:"title"`
-				Body  string `json:"body"`
-			} `json:"alert"`
-			Sound    string `json:"sound"`
-			ThreadID string `json:"thread-id,omitempty"`
-		} `json:"aps"`
-		Message struct {
-			MessageID string `json:"message_id"`
-			LineID    string `json:"line_id"`
-			ThreadKey string `json:"thread_key"`
-		} `json:"modemdeck_message"`
-	}{}
-	payload.APS.Alert.Title = truncateAlert(strings.TrimSpace(event.Peer))
-	if payload.APS.Alert.Title == "" {
-		payload.APS.Alert.Title = "New message"
+func (runtime *Runtime) consumeMessageEvents(
+	ctx context.Context,
+	events <-chan messageevents.IncomingSMS,
+	cancel func(),
+	wake chan<- struct{},
+) {
+	for {
+		select {
+		case <-ctx.Done():
+			cancel()
+			return
+		case event, open := <-events:
+			if open {
+				_ = event
+				runtime.wakeOutbox(wake)
+				continue
+			}
+		}
+		cancel()
+		if !runtime.waitToResubscribe(ctx, "message") {
+			return
+		}
+		events, cancel = runtime.messages.Subscribe()
 	}
-	payload.APS.Alert.Body = truncateAlert(event.Content)
-	payload.APS.Sound = "default"
-	payload.APS.ThreadID = truncateBytes(event.ThreadKey, 64)
-	payload.Message.MessageID = strings.TrimSpace(event.MessageID)
-	payload.Message.LineID = strings.TrimSpace(event.LineID)
-	payload.Message.ThreadKey = strings.TrimSpace(event.ThreadKey)
-
-	runtime.deliver(
-		ctx,
-		store.IOSPushTokenAPNS,
-		event.LineID,
-		"message",
-		event.MessageID,
-		Notification{
-			PushType:   PushTypeAlert,
-			APNSID:     deterministicUUID("message", event.MessageID),
-			Expiration: runtime.now().UTC().Add(24 * time.Hour),
-			Payload:    payload,
-		},
-	)
 }
 
-func (runtime *Runtime) deliverCall(ctx context.Context, event callevents.Event) {
-	switch event.Kind {
-	case "", callevents.KindIncoming:
-		runtime.deliverIncomingCall(ctx, event)
-	case callevents.KindTerminal:
-		runtime.deliverTerminalCall(ctx, event)
+func (runtime *Runtime) consumeCallEvents(
+	ctx context.Context,
+	events <-chan callevents.Event,
+	cancel func(),
+	wake chan<- struct{},
+) {
+	for {
+		select {
+		case <-ctx.Done():
+			cancel()
+			return
+		case event, open := <-events:
+			if open {
+				_ = event
+				runtime.wakeOutbox(wake)
+				continue
+			}
+		}
+		cancel()
+		if !runtime.waitToResubscribe(ctx, "call") {
+			return
+		}
+		events, cancel = runtime.calls.Subscribe()
+	}
+}
+
+func (runtime *Runtime) wakeOutbox(wake chan<- struct{}) {
+	select {
+	case wake <- struct{}{}:
 	default:
-		runtime.logger.Warn(
-			"discarded unknown call event",
-			"component", "apple_push",
-			"call_id", event.CallID,
-			"event_kind", event.Kind,
-		)
 	}
 }
 
-func (runtime *Runtime) deliverIncomingCall(ctx context.Context, event callevents.Event) {
-	now := runtime.now().UTC()
-	observedAt := event.ObservedAt.UTC()
-	if !observedAt.IsZero() && now.Sub(observedAt) > maximumCallEventAge {
-		runtime.logger.Warn(
-			"discarded stale incoming call push",
-			"component", "apple_push",
-			"call_id", event.CallID,
-		)
-		return
+func (runtime *Runtime) sweepOutbox(ctx context.Context, wake <-chan struct{}) {
+	timer := time.NewTimer(runtime.nextSweepDelay(ctx))
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-wake:
+			runtime.drainOutbox(ctx)
+		case <-timer.C:
+			runtime.drainOutbox(ctx)
+		}
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer.Reset(runtime.nextSweepDelay(ctx))
 	}
-	callUUID := deterministicUUID("callkit", event.CallID)
-	payload := struct {
-		APS  struct{} `json:"aps"`
-		Call struct {
-			Event        string `json:"event"`
-			CallID       string `json:"call_id"`
-			UUID         string `json:"uuid"`
-			LineID       string `json:"line_id"`
-			RemoteNumber string `json:"remote_number"`
-			DisplayName  string `json:"display_name,omitempty"`
-		} `json:"modemdeck_call"`
-	}{}
-	payload.Call.Event = string(callevents.KindIncoming)
-	payload.Call.CallID = strings.TrimSpace(event.CallID)
-	payload.Call.UUID = callUUID
-	payload.Call.LineID = strings.TrimSpace(event.LineID)
-	payload.Call.RemoteNumber = strings.TrimSpace(event.RemoteNumber)
-	payload.Call.DisplayName = strings.TrimSpace(event.DisplayName)
+}
 
-	targets := runtime.deliver(
+func (runtime *Runtime) nextSweepDelay(ctx context.Context) time.Duration {
+	next, found, err := runtime.repository.NextApplePushDeliveryAttempt(ctx)
+	if err != nil || !found {
+		return runtime.sweepInterval
+	}
+	delay := next.Sub(runtime.now().UTC())
+	if delay <= 0 {
+		return 100 * time.Millisecond
+	}
+	return min(delay, runtime.sweepInterval)
+}
+
+func (runtime *Runtime) waitToResubscribe(ctx context.Context, eventKind string) bool {
+	runtime.logger.Warn(
+		"Apple push event subscription closed; resubscribing",
+		"component", "apple_push",
+		"event_kind", eventKind,
+	)
+	timer := time.NewTimer(subscriptionRetryDelay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func (runtime *Runtime) drainOutbox(ctx context.Context) {
+	for ctx.Err() == nil {
+		deliveries, err := runtime.repository.PendingApplePushDeliveries(
+			ctx,
+			runtime.now().UTC(),
+			deliveryBatchSize,
+		)
+		if err != nil {
+			runtime.logger.Warn(
+				"Apple push outbox unavailable",
+				"component", "apple_push",
+				"error", err,
+			)
+			return
+		}
+		if len(deliveries) == 0 {
+			return
+		}
+		claimed := 0
+		for _, delivery := range deliveries {
+			if runtime.deliverOutboxEntry(ctx, delivery) {
+				claimed++
+			}
+		}
+		if len(deliveries) < deliveryBatchSize || claimed == 0 {
+			return
+		}
+	}
+}
+
+func (runtime *Runtime) deliverOutboxEntry(
+	ctx context.Context,
+	delivery store.ApplePushDelivery,
+) bool {
+	attemptToken := deterministicUUID(
+		"apple-push-attempt",
+		fmt.Sprintf(
+			"%s\x00%s\x00%s\x00%d",
+			delivery.EventKey,
+			delivery.CredentialID,
+			delivery.TokenKind,
+			runtime.now().UnixNano(),
+		),
+	)
+	claimed, err := runtime.repository.ClaimApplePushDelivery(
 		ctx,
-		store.IOSPushTokenVoIP,
-		event.LineID,
-		"call",
-		event.CallID,
-		Notification{
+		delivery.EventKey,
+		delivery.CredentialID,
+		delivery.TokenKind,
+		attemptToken,
+	)
+	if err != nil {
+		runtime.logger.Warn(
+			"Apple push delivery could not be claimed",
+			"component", "apple_push",
+			"event_key", delivery.EventKey,
+			"credential_id", delivery.CredentialID,
+			"error", err,
+		)
+		return false
+	}
+	if !claimed {
+		return false
+	}
+
+	status, errorClass, nextAttempt, deliveryErr := runtime.sendOutboxDelivery(ctx, delivery)
+	finishContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	finishErr := runtime.repository.FinishApplePushDelivery(
+		finishContext,
+		delivery.EventKey,
+		delivery.CredentialID,
+		delivery.TokenKind,
+		attemptToken,
+		status,
+		errorClass,
+		nextAttempt,
+	)
+	cancel()
+	if finishErr != nil {
+		runtime.logger.Error(
+			"Apple push delivery result could not be recorded",
+			"component", "apple_push",
+			"event_key", delivery.EventKey,
+			"credential_id", delivery.CredentialID,
+			"error", finishErr,
+		)
+		return true
+	}
+	if deliveryErr != nil {
+		runtime.logger.Warn(
+			"Apple push delivery not confirmed",
+			"component", "apple_push",
+			"event_key", delivery.EventKey,
+			"credential_id", delivery.CredentialID,
+			"status", status,
+			"error_class", errorClass,
+			"error", deliveryErr,
+		)
+	}
+	return true
+}
+
+func (runtime *Runtime) sendOutboxDelivery(
+	ctx context.Context,
+	delivery store.ApplePushDelivery,
+) (string, string, time.Time, error) {
+	now := runtime.now().UTC()
+	if !delivery.ExpiresAt.After(now) {
+		return store.NotificationExpired, "delivery_expired", time.Time{}, nil
+	}
+	if !delivery.Eligible {
+		return store.NotificationCancelled, "target_ineligible", time.Time{}, nil
+	}
+	if !delivery.ResourceLive {
+		return store.NotificationExpired, "call_no_longer_ringing", time.Time{}, nil
+	}
+	if delivery.AttemptCount >= maximumDeliveryAttempts {
+		return store.NotificationFailed, "attempt_limit", time.Time{}, nil
+	}
+	if delivery.BundleID != runtime.sender.BundleID() {
+		return store.NotificationFailed, "topic_mismatch", time.Time{}, ErrPushTopicMismatch
+	}
+	if strings.TrimSpace(delivery.DeviceToken) == "" {
+		return store.NotificationCancelled, "target_unavailable", time.Time{}, ErrPushTargetUnavailable
+	}
+	notification, err := runtime.notificationForDelivery(delivery)
+	if err != nil {
+		return store.NotificationFailed, "invalid_delivery", time.Time{}, err
+	}
+	notification.DeviceToken = delivery.DeviceToken
+	notification.Environment = delivery.Environment
+	notification.APNSID = deterministicUUID(
+		"apple-delivery",
+		delivery.EventKey+"\x00"+delivery.CredentialID+"\x00"+string(delivery.TokenKind),
+	)
+
+	deliveryContext, cancel := context.WithTimeout(ctx, runtime.deliveryTimeout)
+	err = runtime.sender.Send(deliveryContext, notification)
+	cancel()
+	if err == nil {
+		return store.NotificationAccepted, "", time.Time{}, nil
+	}
+	if InvalidatesToken(err) {
+		clearContext, clearCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		clearErr := runtime.repository.ClearIOSPushToken(
+			clearContext,
+			delivery.UserID,
+			delivery.TokenKind,
+			delivery.DeviceToken,
+		)
+		clearCancel()
+		if clearErr != nil {
+			runtime.logger.Warn(
+				"invalid Apple push token could not be cleared",
+				"component", "apple_push",
+				"user_id", delivery.UserID,
+				"credential_id", delivery.CredentialID,
+				"error", clearErr,
+			)
+		}
+		return store.NotificationFailed, "invalid_device_token", time.Time{}, err
+	}
+	if explicitAPNSRetry(err) || ambiguousAPNSDelivery(err) {
+		errorClass := applePushErrorClass(err)
+		if ambiguousAPNSDelivery(err) {
+			errorClass = "transport_ambiguous"
+		}
+		nextAttempt := now.Add(applePushRetryDelay(delivery.AttemptCount + 1))
+		if delivery.AttemptCount+1 >= maximumDeliveryAttempts ||
+			!nextAttempt.Before(delivery.ExpiresAt) {
+			return store.NotificationExpired, "retry_window_expired", time.Time{}, err
+		}
+		return store.NotificationPending, errorClass, nextAttempt, err
+	}
+	return store.NotificationFailed, applePushErrorClass(err), time.Time{}, err
+}
+
+func applePushRetryDelay(attempt int) time.Duration {
+	delays := [...]time.Duration{
+		1 * time.Second,
+		5 * time.Second,
+		30 * time.Second,
+		2 * time.Minute,
+		10 * time.Minute,
+	}
+	if attempt <= 0 {
+		return delays[0]
+	}
+	return delays[min(attempt-1, len(delays)-1)]
+}
+
+func (runtime *Runtime) notificationForDelivery(
+	delivery store.ApplePushDelivery,
+) (Notification, error) {
+	now := runtime.now().UTC()
+	switch delivery.EventType {
+	case store.NotificationIncomingSMS:
+		expiresAt := delivery.OccurredAt.UTC().Add(24 * time.Hour)
+		if !expiresAt.After(now) {
+			return Notification{}, errors.New("incoming message push expired")
+		}
+		messageID := strings.TrimPrefix(delivery.EventKey, "sms:")
+		if messageID == "" || messageID == delivery.EventKey {
+			messageID = strings.TrimSpace(delivery.ResourceID)
+		}
+		threadKey := store.MessageThreadKey(delivery.LineID, delivery.Peer)
+		payload := struct {
+			APS struct {
+				Alert struct {
+					Title string `json:"title"`
+					Body  string `json:"body"`
+				} `json:"alert"`
+				Sound    string `json:"sound"`
+				ThreadID string `json:"thread-id,omitempty"`
+			} `json:"aps"`
+			Message struct {
+				MessageID string `json:"message_id"`
+				LineID    string `json:"line_id"`
+				ThreadKey string `json:"thread_key"`
+			} `json:"modemdeck_message"`
+		}{}
+		payload.APS.Alert.Title = truncateAlert(delivery.Peer)
+		if payload.APS.Alert.Title == "" {
+			payload.APS.Alert.Title = "New message"
+		}
+		payload.APS.Alert.Body = truncateAlert(delivery.Body)
+		payload.APS.Sound = "default"
+		payload.APS.ThreadID = truncateBytes(threadKey, 64)
+		payload.Message.MessageID = messageID
+		payload.Message.LineID = strings.TrimSpace(delivery.LineID)
+		payload.Message.ThreadKey = threadKey
+		return Notification{
+			PushType:   PushTypeAlert,
+			APNSID:     deterministicUUID("message", messageID),
+			Expiration: expiresAt,
+			Payload:    payload,
+		}, nil
+	case store.NotificationIncomingCall:
+		observedAt := delivery.OccurredAt.UTC()
+		if !observedAt.IsZero() && now.Sub(observedAt) > maximumCallEventAge {
+			return Notification{}, errors.New("incoming call push expired")
+		}
+		callID := strings.TrimSpace(delivery.ResourceID)
+		if callID == "" {
+			return Notification{}, errors.New("incoming call has no call ID")
+		}
+		callUUID := deterministicUUID("callkit", callID)
+		displayName := strings.TrimSpace(delivery.Body)
+		if displayName == "" {
+			displayName = strings.TrimSpace(delivery.Peer)
+		}
+		payload := struct {
+			APS  struct{} `json:"aps"`
+			Call struct {
+				Event        string `json:"event"`
+				CallID       string `json:"call_id"`
+				UUID         string `json:"uuid"`
+				LineID       string `json:"line_id"`
+				RemoteNumber string `json:"remote_number"`
+				DisplayName  string `json:"display_name,omitempty"`
+			} `json:"modemdeck_call"`
+		}{}
+		payload.Call.Event = string(callevents.KindIncoming)
+		payload.Call.CallID = callID
+		payload.Call.UUID = callUUID
+		payload.Call.LineID = strings.TrimSpace(delivery.LineID)
+		payload.Call.RemoteNumber = strings.TrimSpace(delivery.Peer)
+		payload.Call.DisplayName = displayName
+		return Notification{
 			PushType:   PushTypeVoIP,
 			APNSID:     callUUID,
 			CollapseID: callUUID,
-			Expiration: now.Add(30 * time.Second),
+			Expiration: observedAt.Add(30 * time.Second),
 			Payload:    payload,
-		},
-	)
-	runtime.rememberCallTargets(event.CallID, targets)
+		}, nil
+	default:
+		return Notification{}, fmt.Errorf(
+			"unsupported Apple push event type %q",
+			delivery.EventType,
+		)
+	}
 }
 
-func (runtime *Runtime) deliverTerminalCall(ctx context.Context, event callevents.Event) {
-	callID := strings.TrimSpace(event.CallID)
-	targets := runtime.takeCallTargets(callID)
-	if len(targets) == 0 {
-		runtime.logger.Debug(
-			"skipped terminal call push without accepted incoming targets",
-			"component", "apple_push",
-			"call_id", callID,
-		)
-		return
-	}
-	now := runtime.now().UTC()
-	observedAt := event.ObservedAt.UTC()
-	if observedAt.IsZero() {
-		observedAt = now
-	}
-	callUUID := deterministicUUID("callkit", callID)
-	payload := struct {
-		APS     struct{} `json:"aps"`
-		CallEnd struct {
-			Event        string `json:"event"`
-			CallID       string `json:"call_id"`
-			UUID         string `json:"uuid"`
-			LineID       string `json:"line_id"`
-			RemoteNumber string `json:"remote_number,omitempty"`
-			DisplayName  string `json:"display_name,omitempty"`
-			Revision     int64  `json:"revision,omitempty"`
-			Phase        string `json:"phase,omitempty"`
-			Reason       string `json:"reason"`
-			EndReason    string `json:"end_reason,omitempty"`
-			FailureCode  string `json:"failure_code,omitempty"`
-			WasAnswered  bool   `json:"was_answered"`
-			OccurredAt   string `json:"occurred_at"`
-		} `json:"modemdeck_call_end"`
-	}{}
-	payload.CallEnd.Event = "ended"
-	payload.CallEnd.CallID = callID
-	payload.CallEnd.UUID = callUUID
-	payload.CallEnd.LineID = strings.TrimSpace(event.LineID)
-	payload.CallEnd.RemoteNumber = strings.TrimSpace(event.RemoteNumber)
-	payload.CallEnd.DisplayName = strings.TrimSpace(event.DisplayName)
-	payload.CallEnd.Revision = event.Revision
-	payload.CallEnd.Phase = strings.ToLower(strings.TrimSpace(event.Phase))
-	payload.CallEnd.Reason = callEndedReason(event)
-	payload.CallEnd.EndReason = strings.ToLower(strings.TrimSpace(event.EndReason))
-	payload.CallEnd.FailureCode = strings.ToLower(strings.TrimSpace(event.FailureCode))
-	payload.CallEnd.WasAnswered = event.WasAnswered
-	payload.CallEnd.OccurredAt = observedAt.Format(time.RFC3339Nano)
+func explicitAPNSRetry(err error) bool {
+	var responseError *ResponseError
+	return errors.As(err, &responseError) &&
+		(responseError.StatusCode == 429 || responseError.StatusCode >= 500)
+}
 
-	runtime.deliverToTargets(
-		ctx,
-		store.IOSPushTokenVoIP,
-		"call_end",
-		callID,
-		Notification{
-			PushType:   PushTypeVoIP,
-			APNSID:     deterministicUUID("callkit-end", callID),
-			CollapseID: callUUID,
-			Expiration: now.Add(30 * time.Second),
-			Payload:    payload,
-		},
-		targets,
-	)
+func ambiguousAPNSDelivery(err error) bool {
+	var transport *transportError
+	return errors.As(err, &transport) ||
+		errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded)
+}
+
+func applePushErrorClass(err error) string {
+	var responseError *ResponseError
+	if errors.As(err, &responseError) {
+		reason := strings.ToLower(strings.TrimSpace(responseError.Reason))
+		if reason != "" {
+			return truncateBytes("apns_"+reason, 64)
+		}
+		return fmt.Sprintf("apns_http_%d", responseError.StatusCode)
+	}
+	return "request_rejected"
 }
 
 // SendTestCall sends a synthetic CallKit wake-up to the current user's paired
@@ -431,147 +690,6 @@ func (runtime *Runtime) SendTestCall(
 		"test_call_id", testID,
 	)
 	return TestCallResult{ID: testID, AcceptedAt: now}, nil
-}
-
-func (runtime *Runtime) deliver(
-	ctx context.Context,
-	kind store.IOSPushTokenKind,
-	lineID string,
-	eventKind string,
-	eventID string,
-	notification Notification,
-) []store.IOSPushTarget {
-	targets, err := runtime.repository.IOSPushTargetsForLine(ctx, strings.TrimSpace(lineID), kind)
-	if err != nil {
-		runtime.logger.Warn(
-			"Apple push targets unavailable",
-			"component", "apple_push",
-			"event_kind", eventKind,
-			"event_id", eventID,
-			"error", err,
-		)
-		return nil
-	}
-	return runtime.deliverToTargets(ctx, kind, eventKind, eventID, notification, targets)
-}
-
-func (runtime *Runtime) deliverToTargets(
-	ctx context.Context,
-	kind store.IOSPushTokenKind,
-	eventKind string,
-	eventID string,
-	notification Notification,
-	targets []store.IOSPushTarget,
-) []store.IOSPushTarget {
-	delivered := make([]store.IOSPushTarget, 0, len(targets))
-	for _, target := range targets {
-		if target.BundleID != runtime.sender.BundleID() {
-			runtime.logger.Warn(
-				"skipped Apple push with mismatched app topic",
-				"component", "apple_push",
-				"event_kind", eventKind,
-				"event_id", eventID,
-				"user_id", target.UserID,
-			)
-			continue
-		}
-		notification.DeviceToken = target.Token
-		notification.Environment = target.Environment
-		deliveryContext, cancel := context.WithTimeout(ctx, runtime.deliveryTimeout)
-		err := runtime.sendWithRetry(deliveryContext, notification)
-		cancel()
-		if err == nil {
-			delivered = append(delivered, target)
-			continue
-		}
-		if InvalidatesToken(err) {
-			clearContext, clearCancel := context.WithTimeout(ctx, 5*time.Second)
-			clearErr := runtime.repository.ClearIOSPushToken(
-				clearContext,
-				target.UserID,
-				kind,
-				target.Token,
-			)
-			clearCancel()
-			if clearErr != nil {
-				runtime.logger.Warn(
-					"invalid Apple push token could not be cleared",
-					"component", "apple_push",
-					"event_kind", eventKind,
-					"event_id", eventID,
-					"user_id", target.UserID,
-					"error", clearErr,
-				)
-			}
-		}
-		runtime.logger.Warn(
-			"Apple push delivery failed",
-			"component", "apple_push",
-			"event_kind", eventKind,
-			"event_id", eventID,
-			"user_id", target.UserID,
-			"error", err,
-		)
-	}
-	return delivered
-}
-
-func (runtime *Runtime) rememberCallTargets(callID string, targets []store.IOSPushTarget) {
-	callID = strings.TrimSpace(callID)
-	if callID == "" || len(targets) == 0 {
-		return
-	}
-	runtime.callTargetsMu.Lock()
-	defer runtime.callTargetsMu.Unlock()
-	if _, exists := runtime.callTargets[callID]; !exists {
-		for len(runtime.callTargetOrder) >= maximumTrackedCalls {
-			oldest := runtime.callTargetOrder[0]
-			runtime.callTargetOrder = runtime.callTargetOrder[1:]
-			delete(runtime.callTargets, oldest)
-		}
-		runtime.callTargetOrder = append(runtime.callTargetOrder, callID)
-	}
-	runtime.callTargets[callID] = append([]store.IOSPushTarget(nil), targets...)
-}
-
-func (runtime *Runtime) takeCallTargets(callID string) []store.IOSPushTarget {
-	callID = strings.TrimSpace(callID)
-	if callID == "" {
-		return nil
-	}
-	runtime.callTargetsMu.Lock()
-	defer runtime.callTargetsMu.Unlock()
-	targets := append([]store.IOSPushTarget(nil), runtime.callTargets[callID]...)
-	delete(runtime.callTargets, callID)
-	for index, trackedCallID := range runtime.callTargetOrder {
-		if trackedCallID == callID {
-			runtime.callTargetOrder = append(
-				runtime.callTargetOrder[:index],
-				runtime.callTargetOrder[index+1:]...,
-			)
-			break
-		}
-	}
-	return targets
-}
-
-func callEndedReason(event callevents.Event) string {
-	endReason := strings.ToLower(strings.TrimSpace(event.EndReason))
-	failureCode := strings.ToLower(strings.TrimSpace(event.FailureCode))
-	if endReason == "rejected" || failureCode == "rejected" {
-		return "declined_elsewhere"
-	}
-	if event.WasAnswered {
-		return "answered_elsewhere"
-	}
-	switch endReason {
-	case "timeout", "timed_out", "no_answer", "unanswered":
-		return "unanswered"
-	}
-	if strings.EqualFold(strings.TrimSpace(event.Phase), "failed") || failureCode != "" {
-		return "failed"
-	}
-	return "remote_ended"
 }
 
 func (runtime *Runtime) sendWithRetry(ctx context.Context, notification Notification) error {

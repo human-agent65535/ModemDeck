@@ -296,6 +296,71 @@ func TestOpenMigratesCurrentSchemaBeforeIOSPairing(t *testing.T) {
 
 }
 
+func TestOpenAddsApplePushDeliveryOutbox(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "before-apple-push-outbox.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(schemaBeforeApplePushDeliveryFixture(t)); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = Open(context.Background(), Config{TargetPath: path})
+	if err != nil {
+		t.Fatalf("Open() migration error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	if err := ValidateSchema(context.Background(), database); err != nil {
+		t.Fatalf("ValidateSchema() after migration error = %v", err)
+	}
+	var table, index int
+	if err := database.QueryRow(`SELECT
+		EXISTS(SELECT 1 FROM sqlite_master
+			WHERE type = 'table' AND name = 'modemdeck_apple_push_deliveries'),
+		EXISTS(SELECT 1 FROM sqlite_master
+			WHERE type = 'index' AND name = 'idx_modemdeck_apple_push_pending')`,
+	).Scan(&table, &index); err != nil {
+		t.Fatal(err)
+	}
+	if table != 1 || index != 1 {
+		t.Fatalf("Apple push schema = table %d, index %d", table, index)
+	}
+}
+
+func TestOpenRejectsMalformedApplePushDeliveryOutbox(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "malformed-apple-push-outbox.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(schemaBeforeApplePushDeliveryFixture(t)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`CREATE TABLE modemdeck_apple_push_deliveries (
+		event_key TEXT NOT NULL,
+		credential_id TEXT NOT NULL,
+		PRIMARY KEY (event_key, credential_id)
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Open(context.Background(), Config{TargetPath: path})
+	if !errors.Is(err, ErrSchemaOutdated) {
+		t.Fatalf("Open() error = %v, want ErrSchemaOutdated", err)
+	}
+}
+
 func TestOpenAddsIOSPairingConfirmationAndPreservesExistingPairing(
 	t *testing.T,
 ) {
@@ -2752,6 +2817,33 @@ func schemaBeforeMobilePairingFixture(t *testing.T) string {
 	remove("CREATE UNIQUE INDEX ux_modemdeck_ios_pairing_pending_user\n" +
 		"\tON modemdeck_ios_pairing_credentials(user_id) WHERE activated_at IS NULL;\n\n")
 	return schema
+}
+
+func schemaBeforeApplePushDeliveryFixture(t *testing.T) string {
+	t.Helper()
+	schema := currentSchemaSQL
+	start := "CREATE TABLE modemdeck_apple_push_deliveries ("
+	startIndex := strings.Index(schema, start)
+	if startIndex < 0 {
+		t.Fatalf("pre-Apple-push schema fixture did not find delivery table")
+	}
+	endOffset := strings.Index(schema[startIndex:], ");\n\n")
+	if endOffset < 0 {
+		t.Fatalf("pre-Apple-push schema fixture did not find delivery table end")
+	}
+	endIndex := startIndex + endOffset + len(");\n\n")
+	schema = schema[:startIndex] + schema[endIndex:]
+	indexStart := "CREATE INDEX idx_modemdeck_apple_push_pending\n"
+	indexStartAt := strings.Index(schema, indexStart)
+	if indexStartAt < 0 {
+		t.Fatalf("pre-Apple-push schema fixture did not find delivery index")
+	}
+	indexEndOffset := strings.Index(schema[indexStartAt:], ";\n\n")
+	if indexEndOffset < 0 {
+		t.Fatalf("pre-Apple-push schema fixture did not find delivery index end")
+	}
+	indexEnd := indexStartAt + indexEndOffset + len(";\n\n")
+	return schema[:indexStartAt] + schema[indexEnd:]
 }
 
 func singleUserSchemaFixture(t *testing.T) string {

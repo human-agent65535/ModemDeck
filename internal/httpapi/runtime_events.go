@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -16,13 +17,37 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/updatecheck"
 )
 
+var errRuntimeCallForbidden = errors.New("runtime call access is forbidden")
+
 const (
 	runtimeHeartbeatInterval    = 5 * time.Second
 	runtimeStateBuildTimeout    = 5 * time.Second
 	runtimeUpdatePollInterval   = 750 * time.Millisecond
 	runtimeUpdateStatusTimeout  = 3 * time.Second
 	runtimeUpdateOperationIDMax = 128
+	runtimeCallIDMax            = 128
 )
+
+type runtimeCallStateRepository interface {
+	CallByID(context.Context, string) (store.Call, error)
+}
+
+type runtimeCallStateResponse struct {
+	ID             string `json:"id"`
+	Revision       int64  `json:"revision"`
+	LineID         string `json:"line_id"`
+	Direction      string `json:"direction"`
+	RemoteNumber   string `json:"remote_number"`
+	DisplayName    string `json:"display_name,omitempty"`
+	Phase          string `json:"phase"`
+	Active         bool   `json:"active"`
+	Ended          bool   `json:"ended"`
+	WasAnswered    bool   `json:"was_answered"`
+	EndReason      string `json:"end_reason,omitempty"`
+	FailureCode    string `json:"failure_code,omitempty"`
+	ControlState   string `json:"control_state,omitempty"`
+	MediaAvailable bool   `json:"media_available"`
+}
 
 type runtimeCommunicationState struct {
 	Capabilities Capabilities          `json:"capabilities"`
@@ -89,6 +114,22 @@ func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.R
 		return
 	}
 	defer release()
+	expectedCallID := strings.TrimSpace(request.URL.Query().Get("call_id"))
+	if len(expectedCallID) > runtimeCallIDMax {
+		writeError(response, http.StatusBadRequest, "invalid_call_id", "Call ID is invalid", "call_id")
+		return
+	}
+	if expectedCallID != "" {
+		api.runtimeCallEventStream(
+			response,
+			request,
+			flusher,
+			principal,
+			scoped,
+			expectedCallID,
+		)
+		return
+	}
 	expectedUpdateID := strings.TrimSpace(request.URL.Query().Get("update_operation"))
 	if len(expectedUpdateID) > runtimeUpdateOperationIDMax {
 		expectedUpdateID = ""
@@ -250,6 +291,176 @@ func (api *API) runtimeEventStream(response http.ResponseWriter, request *http.R
 			}
 			lastWrite = time.Now()
 		}
+	}
+}
+
+func (api *API) runtimeCallEventStream(
+	response http.ResponseWriter,
+	request *http.Request,
+	flusher http.Flusher,
+	principal auth.Principal,
+	scoped bool,
+	callID string,
+) {
+	repository, ok := api.repository.(runtimeCallStateRepository)
+	if !ok || api.callLeases == nil {
+		writeError(response, http.StatusServiceUnavailable, "call_state_unavailable", "Call state is unavailable", "")
+		return
+	}
+	if scoped {
+		request = request.WithContext(auth.ContextWithPrincipal(request.Context(), principal))
+	}
+	_, updates, cancel := api.runtimeEvents.Subscribe()
+	defer cancel()
+	state, err := api.currentRuntimeCallState(request, repository, callID)
+	if err != nil {
+		api.writeRuntimeCallStateError(response, request, err)
+		return
+	}
+
+	response.Header().Set("Content-Type", "text/event-stream")
+	response.Header().Set("Cache-Control", "no-store")
+	response.Header().Set("Connection", "keep-alive")
+	response.Header().Set("X-Accel-Buffering", "no")
+	response.WriteHeader(http.StatusOK)
+	controller := http.NewResponseController(response)
+	_ = controller.SetWriteDeadline(time.Time{})
+	if _, err := fmt.Fprint(response, "retry: 2000\n\n"); err != nil {
+		return
+	}
+	if !writeSSE(response, flusher, "call_state", state) || state.Ended {
+		return
+	}
+	lastWrite := time.Now()
+	previous := state
+	heartbeat := time.NewTicker(runtimeHeartbeatInterval)
+	defer heartbeat.Stop()
+	authentication := time.NewTicker(api.streamAuthInterval)
+	defer authentication.Stop()
+	for {
+		select {
+		case <-request.Context().Done():
+			return
+		case signal, open := <-updates:
+			if !open {
+				return
+			}
+			if signal.Sections&runtimeevents.SectionCalls == 0 {
+				continue
+			}
+			state, err = api.currentRuntimeCallState(request, repository, callID)
+			if err != nil {
+				api.logRuntimeStateError(request, "call_state", err)
+				continue
+			}
+			if reflect.DeepEqual(previous, state) {
+				continue
+			}
+			if !writeSSE(response, flusher, "call_state", state) {
+				return
+			}
+			previous = state
+			lastWrite = time.Now()
+			if state.Ended {
+				return
+			}
+		case <-authentication.C:
+			refreshedPrincipal, refreshedScoped, err := api.currentStreamAccess(request, false)
+			if err != nil {
+				return
+			}
+			principal = refreshedPrincipal
+			scoped = refreshedScoped
+			if scoped {
+				request = request.WithContext(auth.ContextWithPrincipal(request.Context(), principal))
+			}
+			state, err = api.currentRuntimeCallState(request, repository, callID)
+			if err != nil {
+				return
+			}
+			if reflect.DeepEqual(previous, state) {
+				continue
+			}
+			if !writeSSE(response, flusher, "call_state", state) {
+				return
+			}
+			previous = state
+			lastWrite = time.Now()
+			if state.Ended {
+				return
+			}
+		case observedAt := <-heartbeat.C:
+			if time.Since(lastWrite) < runtimeHeartbeatInterval {
+				continue
+			}
+			if !writeEventHeartbeat(response, flusher, observedAt) {
+				return
+			}
+			lastWrite = time.Now()
+		}
+	}
+}
+
+func (api *API) currentRuntimeCallState(
+	request *http.Request,
+	repository runtimeCallStateRepository,
+	callID string,
+) (runtimeCallStateResponse, error) {
+	call, err := repository.CallByID(request.Context(), callID)
+	if err != nil {
+		return runtimeCallStateResponse{}, err
+	}
+	if !canAccessLine(request.Context(), call.LineID) {
+		return runtimeCallStateResponse{}, errRuntimeCallForbidden
+	}
+	phase := strings.ToLower(strings.TrimSpace(call.Phase))
+	ended := call.EndedAt != "" || phase == "ended" || phase == "failed"
+	controlState := ""
+	if !ended {
+		owner, ownerErr := api.callLeaseOwner(request.Context())
+		if ownerErr != nil {
+			return runtimeCallStateResponse{}, ownerErr
+		}
+		control, controlErr := api.callLeases.ControlState(
+			request.Context(),
+			call.ID,
+			owner.HolderID,
+		)
+		if controlErr != nil {
+			return runtimeCallStateResponse{}, controlErr
+		}
+		controlState = string(control)
+	}
+	return runtimeCallStateResponse{
+		ID:             call.ID,
+		Revision:       call.Revision,
+		LineID:         call.LineID,
+		Direction:      call.Direction,
+		RemoteNumber:   call.RemoteNumber,
+		DisplayName:    call.ContactName,
+		Phase:          call.Phase,
+		Active:         !ended,
+		Ended:          ended,
+		WasAnswered:    call.ActiveAt != nil,
+		EndReason:      call.EndReason,
+		FailureCode:    call.FailureCode,
+		ControlState:   controlState,
+		MediaAvailable: call.MediaAvailable,
+	}, nil
+}
+
+func (api *API) writeRuntimeCallStateError(
+	response http.ResponseWriter,
+	request *http.Request,
+	err error,
+) {
+	switch {
+	case errors.Is(err, store.ErrCallNotFound):
+		writeError(response, http.StatusNotFound, "call_not_found", "Call not found", "")
+	case errors.Is(err, errRuntimeCallForbidden):
+		writeError(response, http.StatusForbidden, "forbidden", "Call access is forbidden", "")
+	default:
+		api.writeInternalError(response, request, "read call state", err)
 	}
 }
 

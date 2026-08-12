@@ -11,6 +11,7 @@ import (
 
 	"github.com/human-agent65535/modemdeck/internal/agentclient"
 	"github.com/human-agent65535/modemdeck/internal/auth"
+	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/communication"
 	"github.com/human-agent65535/modemdeck/internal/networkruntime"
 	"github.com/human-agent65535/modemdeck/internal/runtimeevents"
@@ -28,6 +29,34 @@ type countingRuntimeRepository struct {
 	*fakeRepository
 	linesCalls   int
 	devicesCalls int
+}
+
+type runtimeCallRepository struct {
+	*fakeRepository
+	mu   sync.Mutex
+	call store.Call
+	err  error
+}
+
+func (repository *runtimeCallRepository) CallByID(
+	_ context.Context,
+	id string,
+) (store.Call, error) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	if repository.err != nil {
+		return store.Call{}, repository.err
+	}
+	if repository.call.ID != id {
+		return store.Call{}, store.ErrCallNotFound
+	}
+	return repository.call, nil
+}
+
+func (repository *runtimeCallRepository) setCall(call store.Call) {
+	repository.mu.Lock()
+	repository.call = call
+	repository.mu.Unlock()
 }
 
 type sequencedRuntimeUpdateManager struct {
@@ -152,6 +181,116 @@ func TestRuntimeStateStreamSendsLatestStateAfterNotification(t *testing.T) {
 		!strings.Contains(body, `"revision":1,"data_revision":0`) ||
 		!strings.Contains(body, `"revision":2,"data_revision":1`) {
 		t.Fatalf("stream = %q; want initial and latest state", body)
+	}
+}
+
+func TestRuntimeCallStateStreamEndsWithPersistedTerminalReason(t *testing.T) {
+	t.Parallel()
+
+	hub := runtimeevents.NewHub()
+	repository := &runtimeCallRepository{
+		fakeRepository: &fakeRepository{},
+		call: store.Call{
+			ID:           "call-1",
+			LineID:       "line-1",
+			Direction:    "incoming",
+			RemoteNumber: "+12025550106",
+			Phase:        "ringing",
+			Revision:     1,
+		},
+	}
+	leases := &fakeCallLeases{control: calllease.ControlOwned}
+	api, err := New(repository, Options{
+		RuntimeEvents:         hub,
+		CallLeases:            leases,
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/runtime/events?call_id=call-1",
+		nil,
+	)
+	response := &runtimeStateFlushResponse{
+		eventStreamTestResponse: newEventStreamTestResponse(),
+		onFlush: func() {
+			activeAt := "2026-08-12T08:00:02Z"
+			repository.setCall(store.Call{
+				ID:           "call-1",
+				LineID:       "line-1",
+				Direction:    "incoming",
+				RemoteNumber: "+12025550106",
+				Phase:        "ended",
+				Revision:     2,
+				ActiveAt:     &activeAt,
+				EndedAt:      "2026-08-12T08:00:10Z",
+				EndReason:    "remote_hangup",
+			})
+			hub.Publish(runtimeevents.Change{Sections: runtimeevents.SectionCalls})
+		},
+	}
+	done := make(chan struct{})
+	go func() {
+		api.ServeHTTP(response, request)
+		close(done)
+	}()
+	waitForEventStreamClose(t, done, nil)
+
+	body := response.bodyString()
+	if strings.Count(body, "event: call_state") != 2 ||
+		strings.Contains(body, "event: state") ||
+		!strings.Contains(body, `"revision":1`) ||
+		!strings.Contains(body, `"control_state":"owned"`) ||
+		!strings.Contains(body, `"revision":2`) ||
+		!strings.Contains(body, `"ended":true`) ||
+		!strings.Contains(body, `"was_answered":true`) ||
+		!strings.Contains(body, `"end_reason":"remote_hangup"`) {
+		t.Fatalf("call stream = %q", body)
+	}
+}
+
+func TestRuntimeCallStateStreamRejectsInaccessibleLine(t *testing.T) {
+	t.Parallel()
+
+	repository := &runtimeCallRepository{
+		fakeRepository: &fakeRepository{},
+		call: store.Call{
+			ID:      "call-2",
+			LineID:  "line-2",
+			Phase:   "ended",
+			EndedAt: "2026-08-12T08:00:10Z",
+		},
+	}
+	api, err := New(repository, Options{
+		RuntimeEvents:         runtimeevents.NewHub(),
+		CallLeases:            &fakeCallLeases{},
+		disableAuthentication: true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/runtime/events?call_id=call-2",
+		nil,
+	)
+	request = request.WithContext(auth.ContextWithPrincipal(
+		request.Context(),
+		auth.Principal{
+			UserID:         "member-1",
+			Role:           auth.RoleMember,
+			AllowedLineIDs: []string{"line-1"},
+		},
+	))
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+
+	if response.Code != http.StatusForbidden ||
+		!strings.Contains(response.Body.String(), `"code":"forbidden"`) {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
 	}
 }
 

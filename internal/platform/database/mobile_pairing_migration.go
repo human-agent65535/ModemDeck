@@ -43,6 +43,8 @@ func schemaBeforeMobilePairing(current schemaShape) schemaShape {
 	delete(previous.tables, iosPairingCredentialsTable)
 	delete(previous.indexes, iosPairingUserIndex)
 	delete(previous.indexes, iosPairingPendingUserIndex)
+	delete(previous.tables, applePushDeliveriesTable)
+	delete(previous.indexes, applePushPendingIndex)
 	return previous
 }
 

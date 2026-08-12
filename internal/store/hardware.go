@@ -917,12 +917,9 @@ func upsertHardwareMessage(
 		if err := updateMessageThread(ctx, transaction, existingID, message); err != nil {
 			return Message{}, false, err
 		}
-		if message.Direction == "incoming" {
-			resourceID := message.EndpointMessageID
-			if resourceID == "" {
-				resourceID = fmt.Sprintf("%d", existingID)
-			}
-			if err := enqueueTelegramNotification(
+		if message.Direction == "incoming" && message.State == "received" {
+			resourceID := fmt.Sprintf("%d", existingID)
+			if err := enqueueNotification(
 				ctx,
 				transaction,
 				fmt.Sprintf("sms:%d", existingID),
@@ -1603,8 +1600,29 @@ func upsertHardwareCall(
 	if err != nil {
 		return Call{}, false, false, err
 	}
+	if newlyDiscovered && stored.Direction == "incoming" && stored.Phase == "ringing" {
+		effective, err := effectiveCallPolicy(ctx, transaction, stored.LineID)
+		if err != nil {
+			return Call{}, false, false, err
+		}
+		if effective.Policy == EffectiveCallPolicyReceive {
+			if err := enqueueNotification(
+				ctx,
+				transaction,
+				"incoming-call:"+stored.ID,
+				NotificationIncomingCall,
+				stored.ID,
+				stored.LineID,
+				stored.RemoteNumber,
+				stored.ContactName,
+				call.ObservedAt,
+			); err != nil {
+				return Call{}, false, false, err
+			}
+		}
+	}
 	if stored.Missed && (stored.Phase == "ended" || stored.Phase == "failed") {
-		if err := enqueueTelegramNotification(
+		if err := enqueueNotification(
 			ctx,
 			transaction,
 			"call:"+stored.ID,
@@ -1741,7 +1759,7 @@ func closeMissingCalls(
 		if parsed, ok := parseDatabaseTime(call.createdAt); ok {
 			occurredAt = parsed.UTC()
 		}
-		if err := enqueueTelegramNotification(
+		if err := enqueueNotification(
 			ctx,
 			transaction,
 			"call:"+call.id,

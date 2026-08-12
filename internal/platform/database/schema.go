@@ -290,6 +290,35 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 			return err
 		}
 	}
+	droppedOrphanApplePush, err := dropEmptyOrphanApplePushDeliverySchema(
+		ctx,
+		database,
+		actual,
+	)
+	if err != nil {
+		return err
+	}
+	if droppedOrphanApplePush {
+		actual, err = readSchemaShape(ctx, database)
+		if err != nil {
+			return err
+		}
+	}
+	migratedApplePush, err := migrateApplePushDeliverySchema(
+		ctx,
+		database,
+		expected,
+		actual,
+	)
+	if err != nil {
+		return err
+	}
+	if migratedApplePush {
+		actual, err = readSchemaShape(ctx, database)
+		if err != nil {
+			return err
+		}
+	}
 	if schemaContains(expected, actual) {
 		return nil
 	}
@@ -345,7 +374,14 @@ func migrateSchema(ctx context.Context, database *sql.DB) error {
 			return err
 		}
 	}
-	_, err = migrateMobilePairingSchema(ctx, database, expected, actual)
+	if _, err = migrateMobilePairingSchema(ctx, database, expected, actual); err != nil {
+		return err
+	}
+	actual, err = readSchemaShape(ctx, database)
+	if err != nil {
+		return err
+	}
+	_, err = migrateApplePushDeliverySchema(ctx, database, expected, actual)
 	return err
 }
 
