@@ -17,6 +17,7 @@ import (
 
 	"github.com/godbus/dbus/v5"
 	"github.com/human-agent65535/modemdeck/agent/internal/domain"
+	"github.com/human-agent65535/modemdeck/agent/internal/qdc507usb"
 	"github.com/human-agent65535/modemdeck/agent/internal/usbrecovery"
 )
 
@@ -45,6 +46,8 @@ type Provider struct {
 	ownedBearers  *bearerOwnershipStore
 	radioStates   *radioStateStore
 	usbRecovery   USBRecovery
+	qdc507Voice   QDC507VoiceRuntime
+	qdc507USB     QDC507USBProvisioner
 
 	callMu        sync.Mutex
 	configMu      sync.Mutex
@@ -70,6 +73,7 @@ type Provider struct {
 	messageProperties *messagePropertyCache
 	changes           *changeHub
 	radioLifecycle    *changeHub
+	modemLifecycle    *changeHub
 }
 
 type terminalCallProjection struct {
@@ -182,7 +186,7 @@ func newProviderWithOptions(
 	if epoch := ids.providerEpoch(); epoch != "" {
 		resolver = staticProviderEpochResolver{epoch: epoch}
 	}
-	return &Provider{
+	provider := &Provider{
 		caller:             caller,
 		epochResolver:      resolver,
 		now:                time.Now,
@@ -191,6 +195,8 @@ func newProviderWithOptions(
 		ownedBearers:       ownedBearers,
 		radioStates:        radioStates,
 		usbRecovery:        options.USBRecovery,
+		qdc507Voice:        options.QDC507VoiceRuntime,
+		qdc507USB:          options.QDC507USBProvisioner,
 		terminalCalls:      make(map[string]terminalCallProjection),
 		networkOperations:  make(map[string]struct{}),
 		signalSetupStates:  make(map[string]signalSetupState),
@@ -201,7 +207,18 @@ func newProviderWithOptions(
 		messageProperties:  newMessagePropertyCache(defaultMessagePropertyCacheLimit),
 		changes:            newChangeHub(),
 		radioLifecycle:     newChangeHub(),
-	}, nil
+		modemLifecycle:     newChangeHub(),
+	}
+	if provider.qdc507USB == nil && provider.qdc507Voice != nil {
+		provisioner, err := qdc507usb.New(qdc507usb.Options{
+			Inhibitor: qdc507DeviceInhibitor{provider: provider},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create QDC507 USB provisioner: %w", err)
+		}
+		provider.qdc507USB = provisioner
+	}
+	return provider, nil
 }
 
 func OpenSystemBus() (*Provider, error) {
@@ -338,6 +355,33 @@ func (p *Provider) Snapshot(ctx context.Context) (domain.Snapshot, error) {
 		Messages:        parsed.Messages,
 		DeliveryReports: parsed.DeliveryReports,
 	}, nil
+}
+
+// QDC507VoiceLines returns only the modem inventory needed by the module-side
+// voice reconciler. It deliberately avoids call/message hydration and voice
+// probing so a hardware lifecycle event cannot become an application snapshot.
+func (p *Provider) QDC507VoiceLines(ctx context.Context) ([]domain.Line, error) {
+	const operation = "qdc507_voice_lines"
+	identity, err := p.resolveProviderIdentity(ctx, operation)
+	if err != nil {
+		return nil, err
+	}
+	objects, err := p.managedObjects(ctx, operation)
+	if err != nil {
+		return nil, err
+	}
+	parsed := ParseManagedObjects(objects, identity)
+	return parsed.Lines, nil
+}
+
+// QDC507VoiceRuntimeChanged invalidates the cached capability projection and
+// asks API consumers for a fresh snapshot after the module route changes.
+func (p *Provider) QDC507VoiceRuntimeChanged() {
+	if p == nil {
+		return
+	}
+	p.clearVoiceProbes()
+	p.publishChange()
 }
 
 // Telemetry samples only current radio facts. It deliberately avoids call and

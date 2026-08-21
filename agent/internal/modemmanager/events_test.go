@@ -218,6 +218,67 @@ func TestSystemBusSignalRequiresRadioReconcile(t *testing.T) {
 	}
 }
 
+func TestSystemBusSignalRequiresModemReconcile(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		signal *dbus.Signal
+		want   bool
+	}{
+		{
+			name: "provider disappeared",
+			signal: &dbus.Signal{
+				Name: busInterface + ".NameOwnerChanged",
+				Body: []any{serviceName, ":1.42", ""},
+			},
+			want: true,
+		},
+		{
+			name: "modem added",
+			signal: &dbus.Signal{
+				Name: objectManagerInterface + ".InterfacesAdded",
+				Body: []any{
+					dbus.ObjectPath("/org/freedesktop/ModemManager1/Modem/0"),
+					map[string]map[string]dbus.Variant{modemInterface: {}},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "modem removed",
+			signal: &dbus.Signal{
+				Name: objectManagerInterface + ".InterfacesRemoved",
+				Body: []any{
+					dbus.ObjectPath("/org/freedesktop/ModemManager1/Modem/0"),
+					[]string{modemInterface},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "call removed",
+			signal: &dbus.Signal{
+				Name: objectManagerInterface + ".InterfacesRemoved",
+				Body: []any{
+					dbus.ObjectPath("/org/freedesktop/ModemManager1/Call/0"),
+					[]string{callInterface},
+				},
+			},
+		},
+		{name: "nil"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := systemBusSignalRequiresModemReconcile(test.signal); got != test.want {
+				t.Fatalf("systemBusSignalRequiresModemReconcile() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
 func propertyChangeSignal(
 	interfaceName string,
 	changed map[string]dbus.Variant,

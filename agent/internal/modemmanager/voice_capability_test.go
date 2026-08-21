@@ -9,6 +9,96 @@ import (
 	"github.com/human-agent65535/modemdeck/agent/internal/domain"
 )
 
+type staticQDC507VoiceRuntime struct {
+	status domain.QDC507VoiceRuntimeStatus
+}
+
+func (r staticQDC507VoiceRuntime) Status(domain.Line) domain.QDC507VoiceRuntimeStatus {
+	return r.status
+}
+
+func TestQDC507ModuleRuntimeReplacesQPCMVWithoutChangingCallControl(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		status      domain.QDC507VoiceRuntimeStatus
+		wantMedia   bool
+		wantRouting string
+	}{
+		{
+			name: "resident module route is ready",
+			status: domain.QDC507VoiceRuntimeStatus{
+				Configured:     true,
+				Ready:          true,
+				RuntimeVersion: "qdc507-test",
+			},
+			wantMedia:   true,
+			wantRouting: voiceVerificationEnabled,
+		},
+		{
+			name: "module route is still initializing",
+			status: domain.QDC507VoiceRuntimeStatus{
+				Configured:     true,
+				RuntimeVersion: "qdc507-test",
+				Reason:         "module route pending",
+			},
+			wantRouting: voiceVerificationInactive,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			objects := emptyLineObjects(true, false)
+			properties := objects[testModemPath][modemInterface]
+			properties["Manufacturer"] = dbus.MakeVariant("Baiwang")
+			properties["Model"] = dbus.MakeVariant("QDC507")
+			properties["Revision"] = dbus.MakeVariant("QDC507GLEFM21")
+
+			caller := newFakeCaller(objects)
+			caller.owner = true
+			caller.atCommandErrors[quectelUSBVoiceQuery] = errors.New("AT command returned ERROR")
+			caller.atResponses[quectelCallListQuery] = ""
+			provider, err := newProviderWithOptions(
+				caller,
+				newInstanceIDsForTest("boot-test"),
+				Options{QDC507VoiceRuntime: staticQDC507VoiceRuntime{status: test.status}},
+			)
+			if err != nil {
+				t.Fatalf("newProviderWithOptions() error = %v", err)
+			}
+
+			snapshot, err := provider.Snapshot(context.Background())
+			if err != nil {
+				t.Fatalf("Snapshot() error = %v", err)
+			}
+			line := snapshot.Lines[0]
+			if !line.Capabilities.Dial || line.Capabilities.Media != test.wantMedia {
+				t.Fatalf("line capabilities = %+v", line.Capabilities)
+			}
+			if line.VoiceVerification == nil ||
+				line.VoiceVerification.MediaRouting != test.wantRouting {
+				t.Fatalf("voice verification = %+v", line.VoiceVerification)
+			}
+			assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 0)
+			assertATInvocationCount(t, caller.invocations(), quectelPCMStatusQuery, 0)
+
+			if test.wantMedia {
+				lineID := line.ID
+				if _, err := provider.StartCall(context.Background(), domain.StartCallRequest{
+					RequestID: "qdc507-runtime-call",
+					LineID:    lineID,
+					Number:    "+818012345678",
+				}); err != nil {
+					t.Fatalf("StartCall() error = %v", err)
+				}
+				assertATInvocationCount(t, caller.invocations(), quectelPCMEnable, 0)
+				assertATInvocationCount(t, caller.invocations(), quectelPCMStatusQuery, 0)
+			}
+		})
+	}
+}
+
 func TestQuectelVoiceModelingProbesCallAudioOnce(t *testing.T) {
 	t.Parallel()
 

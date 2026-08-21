@@ -121,6 +121,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+        adb \
         alsa-utils \
         bash \
         ca-certificates \
@@ -175,6 +176,7 @@ RUN ldd /usr/sbin/ModemManager | tee /tmp/modemmanager-ldd \
     && test -x /usr/local/bin/modemdeck-agent \
     && test -x /usr/local/bin/modemdeck-call-watchdog \
     && test -x /usr/local/bin/modemdeck-device-owner \
+    && adb version | grep -Fq 'Android Debug Bridge' \
     && install -d -m 0700 /var/lib/ModemManager \
     && install -d -m 0770 /run/dbus \
     && install -d -m 0770 /run/modemdeck \

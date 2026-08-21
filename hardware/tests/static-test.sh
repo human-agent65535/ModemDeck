@@ -36,6 +36,11 @@ grep -Fq 'libqmi-glib5)" ge 1.36' "${hardware_dir}/Dockerfile" \
   || fail "libqmi minimum version assertion is missing"
 grep -Fq 'libmbim-glib4)" ge 1.32' "${hardware_dir}/Dockerfile" \
   || fail "libmbim minimum version assertion is missing"
+grep -Eq '^[[:space:]]+adb \\' "${hardware_dir}/Dockerfile" \
+  || fail "QDC507 control-channel client is missing"
+grep -Fq "adb version | grep -Fq 'Android Debug Bridge'" \
+  "${hardware_dir}/Dockerfile" \
+  || fail "QDC507 ADB client is not verified during the image build"
 grep -Fq 'tests/verify-oci-platforms.sh' "${hardware_dir}/build-image.sh" \
   || fail "OCI builds do not verify their exported platforms"
 

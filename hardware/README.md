@@ -79,9 +79,10 @@ Each binding maps an exact call audio route to either an `alsa-pcm` device name
 or a `char-pcm` device node. The route is normally the `audio_port` reported by
 ModemManager. Its QMI Voice implementation does not publish host audio
 metadata for Quectel UAC, so the Agent publishes
-`quectel-uac:<physical-device>` only for an active call after the supported
-firmware has passed the UAC probe. Before dialing or answering, the Agent reads
-`AT+QPCMV?` and writes `AT+QPCMV=1,2` only when the route is not already active:
+`quectel-uac:<physical-device>` only after the corresponding media route has
+been verified. Standard Quectel firmware uses `AT+QPCMV?` and
+`AT+QPCMV=1,2`. A configured QDC507 instead uses the module-side resident
+runtime described below and never falls back to QPCMV:
 
 ```json
 {
@@ -99,6 +100,62 @@ The physical-device value must be copied from the Agent inventory and the ALSA
 card must belong to that same USB topology. Bindings are hardware-specific
 deployment data and should remain outside the repository. The Agent never
 guesses a card name or falls back to another sound device.
+
+## QDC507 resident voice route
+
+QDC507 firmware can enumerate USB Audio while rejecting QPCMV. For this model,
+the optional module-side runtime loads the reviewed ARMv7 kernel modules,
+applies the VoLTE ACDB calibration, and keeps the D4-to-UAC route open. The
+Agent checks it at Agent startup and on ModemManager modem add/remove events.
+It keys readiness by the module boot ID, adopts an already-ready route after an
+Agent restart, and does not stop the route when a call ends or when the Agent
+shuts down. A module reboot clears its RAM and kernel modules; the next modem
+discovery event restores them.
+
+The binaries are not distributed in this repository. Provision the exact
+`Resources/ModuleVoice` files from MaVo commit
+`0443dfdaf8aec086fd76ba2ee9152fd908114524` into a private directory inside the
+`agent-runtime` volume. The Agent accepts only manifest runtime
+`qdc507-3.18.44-voice-20260712.5` and the reviewed file sizes/SHA-256 values
+compiled into `agent/internal/qdc507voice`; startup fails closed if any runtime
+artifact differs. Preserve the upstream `COPYING-GPL-2.0` and
+`MODULE-REPORT.md` beside the runtime files.
+
+Set the container path only after provisioning succeeds:
+
+```text
+MODEMDECK_QDC507_VOICE_RUNTIME_DIR=/run/modemdeck/qdc507-voice
+```
+
+When this runtime is configured, the Agent checks the exact QDC507 USB topology
+at startup and on modem lifecycle events. If ADB or UAC is missing, it first
+rejects provisioning while a voice call or user data bearer is active, inhibits
+that physical modem in ModemManager, reads the complete `USBCFG`, and changes
+only the missing ADB/UAC bits. VID/PID and the other five function bits are
+preserved. The legacy `QADBKEY` response is derived in memory, never logged or
+persisted by ModemDeck, and a write must pass exact readback before one
+controlled `AT+CFUN=1,1` restart. The Agent keeps the device inhibited through
+the 35-second ADB quiet window, then verifies the settled descriptors, complete
+`USBCFG`, a fresh post-restart authorization, and a root shell.
+
+The USB composition and the module's ADB authorization are persistent modem
+state. The loaded kernel modules, calibration process, and D4-to-UAC bridge are
+RAM-only runtime state. The Agent restores that runtime after each module boot,
+keeps the route resident between calls, and adopts it after an Agent restart.
+It does not close the route on hangup. If the saved composition already requests
+ADB/UAC but live descriptors are incomplete, the Agent reports the inconsistency
+instead of entering a recovery-reboot loop.
+
+ADB runs on a private Unix server socket. The Agent first matches `usb:<port>`
+to the line's exact sysfs USB port, then selects the current ADB
+`transport_id`; this also supports QDC507 firmware that reports
+`(no serial number)` without allowing another attached Android device to be
+selected.
+
+QMI versus ECM is independent of the audio route and does not need to be
+changed. ECM supplies a packet-data interface only. It is not treated as a
+module shell or as a substitute for the USB ADB function, and the Agent never
+enables network ADB implicitly.
 
 ## Simple mode
 

@@ -85,6 +85,10 @@ func (p *Provider) projectVoiceCapabilities(
 			delete(parsed.CallBackends, line.ID)
 			continue
 		}
+		if runtimeResult, configured := p.applyQDC507VoiceRuntime(*line, result); configured {
+			result = runtimeResult
+			p.storeVoiceProbe(voiceProbeKey(parsed.ids, *line, path), result)
+		}
 		projectVoiceProbeResult(line, result)
 		if result.callControl {
 			if line.Capabilities.VoiceInterface {
@@ -239,6 +243,10 @@ func (p *Provider) probeQuectelVoice(
 		p.voiceProbes[key] = result
 		return result
 	}
+	if runtimeResult, configured := p.applyQDC507VoiceRuntime(line, result); configured {
+		p.voiceProbes[key] = runtimeResult
+		return runtimeResult
+	}
 	if callListErr != nil || callListParseErr != nil {
 		result.mediaRouting = voiceVerificationReadFailed
 		result.reason = "call state could not be read before the PCM capability probe"
@@ -310,6 +318,19 @@ func (p *Provider) ensureQuectelMediaRouting(
 	if !found || !result.callControl {
 		return result, found
 	}
+	if runtimeResult, configured := p.applyQDC507VoiceRuntime(line, result); configured {
+		p.storeVoiceProbe(key, runtimeResult)
+		if !runtimeResult.media {
+			slog.Warn(
+				"QDC507 module voice route is unavailable",
+				"component", "modemmanager",
+				"operation", operation,
+				"line_id", line.ID,
+				"reason", runtimeResult.reason,
+			)
+		}
+		return runtimeResult, true
+	}
 
 	status, statusErr := p.commandATPath(ctx, path, operation, quectelPCMStatusQuery)
 	if statusErr == nil &&
@@ -346,6 +367,37 @@ func (p *Provider) ensureQuectelMediaRouting(
 		)
 	}
 	return refreshed, true
+}
+
+func (p *Provider) applyQDC507VoiceRuntime(
+	line domain.Line,
+	result voiceProbeResult,
+) (voiceProbeResult, bool) {
+	if p == nil || p.qdc507Voice == nil || !isQDC507Line(line) {
+		return result, false
+	}
+	status := p.qdc507Voice.Status(line)
+	if !status.Configured {
+		return result, false
+	}
+	result.media = status.Ready
+	if status.Ready {
+		result.mediaRouting = voiceVerificationEnabled
+		result.reason = ""
+		return result, true
+	}
+	result.mediaRouting = voiceVerificationInactive
+	result.reason = strings.TrimSpace(status.Reason)
+	if result.reason == "" {
+		result.reason = "QDC507 module voice route is not ready"
+	}
+	return result, true
+}
+
+func isQDC507Line(line domain.Line) bool {
+	revision := strings.ToUpper(strings.TrimSpace(line.Revision))
+	model := strings.ToUpper(strings.TrimSpace(line.Model))
+	return strings.HasPrefix(revision, "QDC507") || model == "QDC507"
 }
 
 func (p *Provider) projectQuectelMediaState(parsed *ParsedObjects) {

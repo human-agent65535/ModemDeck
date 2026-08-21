@@ -16,10 +16,12 @@ import (
 	"github.com/human-agent65535/modemdeck/agent/internal/controllease"
 	"github.com/human-agent65535/modemdeck/agent/internal/deviceconfig"
 	"github.com/human-agent65535/modemdeck/agent/internal/diagnostics"
+	"github.com/human-agent65535/modemdeck/agent/internal/domain"
 	"github.com/human-agent65535/modemdeck/agent/internal/httpapi"
 	"github.com/human-agent65535/modemdeck/agent/internal/media"
 	"github.com/human-agent65535/modemdeck/agent/internal/modemmanager"
 	"github.com/human-agent65535/modemdeck/agent/internal/networking"
+	"github.com/human-agent65535/modemdeck/agent/internal/qdc507voice"
 	"github.com/human-agent65535/modemdeck/agent/internal/safetywatchdog"
 	"github.com/human-agent65535/modemdeck/agent/internal/unixsocket"
 	"github.com/human-agent65535/modemdeck/agent/internal/volte"
@@ -62,6 +64,11 @@ func run(diagnosticLogs diagnostics.LogSource) error {
 		envOrDefault("MODEMDECK_RADIO_STATE_FILE", "/run/modemdeck/radio-state.json"),
 		"persistent file recording user-disabled modem radios",
 	)
+	qdc507VoiceRuntimeDirectory := flag.String(
+		"qdc507-voice-runtime-dir",
+		os.Getenv("MODEMDECK_QDC507_VOICE_RUNTIME_DIR"),
+		"absolute directory containing the reviewed QDC507 module voice runtime",
+	)
 	watchdogHeartbeatFile := flag.String(
 		"watchdog-heartbeat-file",
 		os.Getenv("MODEMDECK_AGENT_HEARTBEAT_FILE"),
@@ -80,10 +87,17 @@ func run(diagnosticLogs diagnostics.LogSource) error {
 	if err != nil {
 		return fmt.Errorf("create cellular data plane: %w", err)
 	}
+	qdc507VoiceRuntime, err := qdc507voice.New(qdc507voice.Options{
+		RuntimeDirectory: *qdc507VoiceRuntimeDirectory,
+	})
+	if err != nil {
+		return fmt.Errorf("create QDC507 module voice runtime: %w", err)
+	}
 	provider, err := modemmanager.OpenSystemBusWithOptions(modemmanager.Options{
-		DataPlane:       dataPlane,
-		BearerStateFile: *bearerStateFile,
-		RadioStateFile:  *radioStateFile,
+		DataPlane:          dataPlane,
+		BearerStateFile:    *bearerStateFile,
+		RadioStateFile:     *radioStateFile,
+		QDC507VoiceRuntime: qdc507VoiceRuntime,
 	})
 	if err != nil {
 		return err
@@ -241,6 +255,9 @@ func run(diagnosticLogs diagnostics.LogSource) error {
 		}()
 	}
 	go runRadioReconciler(ctx, provider)
+	if qdc507VoiceRuntime.Enabled() {
+		go runQDC507VoiceReconciler(ctx, provider, qdc507VoiceRuntime)
+	}
 	go controlLease.Run(ctx)
 	go provider.RunATCallObserver(ctx)
 
@@ -292,6 +309,71 @@ func run(diagnosticLogs diagnostics.LogSource) error {
 			return fmt.Errorf("serve unix socket: %w", err)
 		}
 		return nil
+	}
+}
+
+type qdc507VoiceLineProvider interface {
+	QDC507VoiceLines(context.Context) ([]domain.Line, error)
+	EnsureQDC507VoiceUSB(context.Context, []domain.Line) (bool, error)
+	QDC507VoiceRuntimeChanged()
+	SubscribeModemLifecycle(context.Context) (<-chan struct{}, error)
+}
+
+type qdc507VoiceReconciler interface {
+	Reconcile(context.Context, []domain.Line) (bool, error)
+}
+
+func runQDC507VoiceReconciler(
+	ctx context.Context,
+	provider qdc507VoiceLineProvider,
+	runtime qdc507VoiceReconciler,
+) {
+	const attemptTimeout = 3 * time.Minute
+	events, err := provider.SubscribeModemLifecycle(ctx)
+	if err != nil {
+		slog.Error("subscribe QDC507 modem lifecycle", "error", err)
+		return
+	}
+	reconcile := func() {
+		attemptContext, cancel := context.WithTimeout(ctx, attemptTimeout)
+		defer cancel()
+		lines, err := provider.QDC507VoiceLines(attemptContext)
+		if err != nil {
+			if !errors.Is(err, context.Canceled) {
+				slog.Warn("read QDC507 modem inventory", "error", err)
+			}
+			return
+		}
+		usbChanged, provisionErr := provider.EnsureQDC507VoiceUSB(attemptContext, lines)
+		if usbChanged {
+			provider.QDC507VoiceRuntimeChanged()
+		}
+		if provisionErr != nil {
+			if !errors.Is(provisionErr, context.Canceled) {
+				slog.Warn("provision QDC507 ADB/UAC interfaces", "error", provisionErr)
+			}
+			return
+		}
+		changed, reconcileErr := runtime.Reconcile(attemptContext, lines)
+		if changed {
+			provider.QDC507VoiceRuntimeChanged()
+		}
+		if reconcileErr != nil && !errors.Is(reconcileErr, context.Canceled) {
+			slog.Warn("reconcile QDC507 module voice route", "error", reconcileErr)
+		}
+	}
+
+	reconcile()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case _, open := <-events:
+			if !open {
+				return
+			}
+			reconcile()
+		}
 	}
 }
 

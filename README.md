@@ -77,13 +77,13 @@ Linux 基线使用 Quectel USB、`qmi_wwan`、ModemManager 和 `usbnet=0`。
 命令定义见 Quectel
 [EC2x/EG2x/EG9x/EM05 QCFG AT 命令手册 V1.0](https://www.quectel.com/content/uploads/2024/02/Quectel_EC2xEG2xEG9xEM05_Series_QCFG_AT_Commands_Manual_V1.0.pdf)。
 
-已验证的 USB 身份和接口配置为：
+实机验证过的 QDC507 语音运行时 USB 组合为：
 
 ```text
-AT+QCFG="usbcfg",0x2C7C,0x0125,1,1,1,1,1,0,0
+AT+QCFG="usbcfg",0x2C7C,0x0125,1,1,1,1,1,1,1
                          |      | | | | | | |
-                         |      | | | | | | +-- USB 语音接口：禁用
-                         |      | | | | | +---- ADB：禁用
+                         |      | | | | | | +-- USB 语音接口：启用
+                         |      | | | | | +---- ADB：启用
                          |      | | | | +------ USB 网络接口：启用
                          |      | | | +-------- Modem 端口：启用
                          |      | | +---------- AT 端口：启用
@@ -94,6 +94,11 @@ AT+QCFG="usbcfg",0x2C7C,0x0125,1,1,1,1,1,0,0
 
 该配置自动保存，重启模组后生效。换到另一台主机时配置仍然保留。它只改变 USB
 描述符和接口，不会安装驱动或改变硬件型号。
+
+配置私有 QDC507 语音运行时后，Agent 会在模组发现时检查实际 USB 描述符。仅当
+ADB/UAC 缺失、没有语音通话且没有用户数据 bearer 时，才读取并保留当前 VID/PID
+和其余五个功能位，只开启 ADB/UAC，严格回读后执行一次受控模组重启。已经正确的
+组合不会重写或重启；保存值已正确但描述符缺失时也不会循环重启。
 
 `usbcfg` 倒数第二位控制 ADB；网络协议由 `usbnet` 单独选择：
 
@@ -110,14 +115,15 @@ QDC507 的 ECM 模式可用于 macOS 和 iPadOS。这只证明网络接口可用
 短信或语音功能。[Apple 文档](https://support.apple.com/zh-cn/108894)列出了
 iPadOS 的 USB 转以太网支持。Windows 是否可用取决于 QMI、ECM 或 MBIM 驱动。
 
-实测固件需要将 USB 语音接口设为 `1`，ModemManager 才能可靠拨号、接听和挂断：
+实测固件的呼叫控制需要最后一位 UAC 为 `1`；QDC507 常驻媒体运行时还需要
+倒数第二位 ADB 为 `1`：
 
 ```text
-AT+QCFG="usbcfg",0x2C7C,0x0125,1,1,1,1,1,0,1
+AT+QCFG="usbcfg",0x2C7C,0x0125,1,1,1,1,1,1,1
 ```
 
-这个字段只作为呼叫控制前置条件。它为 `1` 不代表固件已经提供通话音频路由，
-也不代表主机已枚举出可用声卡。
+配置位本身不代表音频可用。只有 ADB root、匹配内核的驱动、模块侧 D4-to-UAC
+路由和主机 UAC 声卡均通过运行时验证后，Agent 才发布媒体能力。
 
 ### Quectel 语音与 VoLTE
 
@@ -132,8 +138,10 @@ QCFG IMS 的启用和关闭分别写入
 可读的 `usbcfg` 末位 `0` 会明确禁用，末位 `1` 会确认控制；固件返回
 `ERROR` 时只标记为不可读，并由安全的 `AT+CLCC` 查询继续确认，不会把读取失败
 误判成禁用。ModemManager Voice 存在时作为优先控制接口，否则由 Agent 使用
-同一组 AT 呼叫命令。通话接通后，只有 `AT+QPCMV=1,2` 成功并回读为
-`1,2` 才会发布 UAC PCM 路径。浏览器双向音频还需要主机声卡和已配置的媒体桥。
+同一组 AT 呼叫命令。标准 Quectel 固件在通话接通后，只有
+`AT+QPCMV=1,2` 成功并回读为 `1,2` 才会发布 UAC PCM 路径。QDC507 不走
+QPCMV；它在模组启动后恢复并常驻 D4-to-UAC 路由，通话结束时不关闭。浏览器
+双向音频还需要主机声卡和已配置的媒体桥。
 
 实测 EG25 固件 `EG25GGCR07A02M1G_A0.301.A0.301` 可读写 `usbcfg`，并能
 启用及回读 `QPCMV: 1,2`。同一硬件上的 A0.302 会对 `usbcfg` 读写返回
@@ -142,9 +150,11 @@ QCFG IMS 的启用和关闭分别写入
 QDC507 是 EC25 系的定制变种，固件与标准 EC25/EG25 不互换。实机测试中，
 刷入标准 EC25/EG25 固件后 QDC507 无法启动。
 
-实测 QDC507 在 `usbcfg` 末位为 `1` 时可以拨号、接听和挂断。当前固件的
-`AT+QPCMV=1,2` 返回 `ERROR`，所以已确认的边界是：支持呼叫控制，不支持
-ModemDeck 的浏览器双向通话音频。
+实测 QDC507 固件 `QDC507GLEFM21_02.004` 的
+`AT+QPCMV=1,2` 仍返回 `ERROR`，但已验证另一条路径：ADB/UAC 与 QMI
+同时枚举、ADB root、匹配 `3.18.44` 的语音驱动、ACDB 校准、D4-to-UAC
+常驻桥和主机双向 UAC 端点均就绪，Agent 会发布媒体能力。尚未执行授权的真实
+电话，所以运营商实网中的双向可懂度仍属于 UAT，而不是本次验证结论。
 
 ### eSIM/eUICC
 
@@ -275,13 +285,13 @@ The Linux baseline uses Quectel USB, `qmi_wwan`, ModemManager, and `usbnet=0`.
 Command definitions are in Quectel's
 [EC2x/EG2x/EG9x/EM05 QCFG AT Commands Manual V1.0](https://www.quectel.com/content/uploads/2024/02/Quectel_EC2xEG2xEG9xEM05_Series_QCFG_AT_Commands_Manual_V1.0.pdf).
 
-The validated USB identity and interface configuration is:
+The field-validated QDC507 voice-runtime USB composition is:
 
 ```text
-AT+QCFG="usbcfg",0x2C7C,0x0125,1,1,1,1,1,0,0
+AT+QCFG="usbcfg",0x2C7C,0x0125,1,1,1,1,1,1,1
                          |      | | | | | | |
-                         |      | | | | | | +-- USB voice interface: disabled
-                         |      | | | | | +---- ADB: disabled
+                         |      | | | | | | +-- USB voice interface: enabled
+                         |      | | | | | +---- ADB: enabled
                          |      | | | | +------ USB network: enabled
                          |      | | | +-------- modem port: enabled
                          |      | | +---------- AT port: enabled
@@ -293,6 +303,14 @@ AT+QCFG="usbcfg",0x2C7C,0x0125,1,1,1,1,1,0,0
 This setting is saved automatically and takes effect after a module restart. It
 stays with the module when moved to another host. It changes USB descriptors
 and interfaces only; it does not install drivers or change the hardware model.
+
+When the private QDC507 voice runtime is configured, the Agent checks live USB
+descriptors on modem discovery. Only when ADB/UAC is missing and there is no
+voice call or user data bearer does it preserve the current VID/PID and other
+five function bits, enable only ADB/UAC, require exact readback, and perform one
+controlled module restart. A correct composition is neither rewritten nor
+restarted; a saved-correct but descriptor-incomplete state also cannot enter a
+reboot loop.
 
 The penultimate `usbcfg` value controls ADB. `usbnet` selects the network
 protocol separately:
@@ -311,16 +329,17 @@ iPadOS. This confirms the network interface only, not AT, messaging, or voice.
 [Apple documents](https://support.apple.com/en-us/108894) iPadOS USB Ethernet
 support. Windows support depends on its QMI, ECM, or MBIM driver.
 
-The tested firmware requires the USB voice interface to be `1` before
-ModemManager can dial, answer, or hang up reliably:
+Call control on the tested firmware requires the final UAC bit to be `1`;
+the resident QDC507 media runtime also requires the penultimate ADB bit to be
+`1`:
 
 ```text
-AT+QCFG="usbcfg",0x2C7C,0x0125,1,1,1,1,1,0,1
+AT+QCFG="usbcfg",0x2C7C,0x0125,1,1,1,1,1,1,1
 ```
 
-This field is only a prerequisite for call control. A value of `1` does not
-prove that the firmware routes call audio or that the host has enumerated a
-usable sound device.
+Configuration bits alone do not prove audio availability. The Agent publishes
+media only after validating ADB root, kernel-matched drivers, the module-side
+D4-to-UAC route, and the host UAC sound device.
 
 ### Quectel voice and VoLTE
 
@@ -338,8 +357,10 @@ call-control probe, AT state is authoritative for capability. A readable final
 `ERROR` is reported as unreadable and followed by the safe `AT+CLCC` query
 instead of being misclassified as disabled. ModemManager Voice is the
 preferred control interface when present; otherwise the Agent uses the same
-AT call commands directly. After a call becomes active, its UAC PCM route is
-published only when `AT+QPCMV=1,2` succeeds and reads back as `1,2`. Browser
+AT call commands directly. On standard Quectel firmware, an active call's UAC
+PCM route is published only when `AT+QPCMV=1,2` succeeds and reads back as
+`1,2`. QDC507 does not use QPCMV: its D4-to-UAC route is restored after
+module startup, remains resident, and is not closed after hangup. Browser
 bidirectional audio additionally requires a host sound device and a configured
 media bridge.
 
@@ -352,9 +373,13 @@ QDC507 is a customized EC25-family derivative, and its firmware is not
 interchangeable with standard EC25/EG25 releases. In a hardware test, the
 QDC507 did not boot after a standard EC25/EG25 release was flashed.
 
-The tested QDC507 can dial, answer, and hang up when the final `usbcfg` value
-is `1`. The current firmware rejects `AT+QPCMV=1,2`; the verified boundary is
-therefore call control without ModemDeck browser bidirectional call audio.
+The tested QDC507 firmware `QDC507GLEFM21_02.004` still rejects
+`AT+QPCMV=1,2`, but a separate path is now validated: ADB/UAC and QMI
+enumerate together, root ADB works, the kernel-`3.18.44` voice drivers and
+ACDB calibration load, the resident D4-to-UAC bridge runs, and the host exposes
+both UAC directions, so the Agent publishes media capability. No authorized
+live carrier call was placed in this validation; bidirectional intelligibility
+on a real call remains UAT.
 
 ### eSIM/eUICC
 

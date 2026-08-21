@@ -92,6 +92,23 @@ func (p *Provider) publishRadioLifecycle() {
 	p.radioLifecycle.publish()
 }
 
+// SubscribeModemLifecycle reports provider and modem discovery boundaries.
+// Consumers use it for hardware state that must be checked once when a modem
+// appears or disappears, rather than with a periodic watchdog.
+func (p *Provider) SubscribeModemLifecycle(ctx context.Context) (<-chan struct{}, error) {
+	if p == nil {
+		return nil, domain.Unavailable("subscribe_modem_lifecycle", "provider is unavailable", nil)
+	}
+	return p.modemLifecycle.subscribe(ctx)
+}
+
+func (p *Provider) publishModemLifecycle() {
+	if p == nil {
+		return
+	}
+	p.modemLifecycle.publish()
+}
+
 func (p *Provider) startSystemBusChangeWatcher(conn *dbus.Conn) (func(), error) {
 	if conn == nil {
 		return nil, fmt.Errorf("watch ModemManager changes: system D-Bus connection is required")
@@ -143,6 +160,9 @@ func (p *Provider) startSystemBusChangeWatcher(conn *dbus.Conn) (func(), error) 
 				if systemBusSignalRequiresRadioReconcile(signal) {
 					p.publishRadioLifecycle()
 				}
+				if systemBusSignalRequiresModemReconcile(signal) {
+					p.publishModemLifecycle()
+				}
 				if systemBusSignalAffectsSnapshot(signal) {
 					p.publishChange()
 				}
@@ -161,6 +181,40 @@ func (p *Provider) startSystemBusChangeWatcher(conn *dbus.Conn) (func(), error) 
 		})
 	}
 	return stop, nil
+}
+
+func systemBusSignalRequiresModemReconcile(signal *dbus.Signal) bool {
+	if signal == nil {
+		return false
+	}
+	switch signal.Name {
+	case busInterface + ".NameOwnerChanged":
+		return true
+	case objectManagerInterface + ".InterfacesAdded":
+		if len(signal.Body) < 2 {
+			return true
+		}
+		interfaces, ok := signal.Body[1].(map[string]map[string]dbus.Variant)
+		if !ok {
+			return true
+		}
+		_, modemAdded := interfaces[modemInterface]
+		return modemAdded
+	case objectManagerInterface + ".InterfacesRemoved":
+		if len(signal.Body) < 2 {
+			return true
+		}
+		interfaces, ok := signal.Body[1].([]string)
+		if !ok {
+			return true
+		}
+		for _, interfaceName := range interfaces {
+			if interfaceName == modemInterface {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // systemBusSignalAffectsSnapshot keeps the Agent change stream aligned with

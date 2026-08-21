@@ -62,6 +62,16 @@ type VoiceRuntimeVerification struct {
 	MediaRouting     string `json:"media_routing"`
 }
 
+// QDC507VoiceRuntimeStatus is the host Agent's current view of the
+// module-resident QDC507 voice route. The runtime is restored after each
+// module boot; it is intentionally independent from the lifetime of a call.
+type QDC507VoiceRuntimeStatus struct {
+	Configured     bool
+	Ready          bool
+	RuntimeVersion string
+	Reason         string
+}
+
 type ModemPort struct {
 	Name     string `json:"name"`
 	Type     string `json:"type"`

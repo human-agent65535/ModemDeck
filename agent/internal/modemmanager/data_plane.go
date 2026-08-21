@@ -20,11 +20,21 @@ type USBRecovery interface {
 	Reset(context.Context, string) error
 }
 
+type QDC507VoiceRuntime interface {
+	Status(domain.Line) domain.QDC507VoiceRuntimeStatus
+}
+
+type QDC507USBProvisioner interface {
+	Ensure(context.Context, domain.Line) (bool, error)
+}
+
 type Options struct {
-	DataPlane       DataPlane
-	BearerStateFile string
-	RadioStateFile  string
-	USBRecovery     USBRecovery
+	DataPlane            DataPlane
+	BearerStateFile      string
+	RadioStateFile       string
+	USBRecovery          USBRecovery
+	QDC507VoiceRuntime   QDC507VoiceRuntime
+	QDC507USBProvisioner QDC507USBProvisioner
 }
 
 type noopDataPlane struct{}
