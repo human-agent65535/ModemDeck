@@ -1,0 +1,26 @@
+{
+  "name": "modemdeck-ios",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "../web/node_modules/.bin/tsx --test tests/*.test.mjs",
+    "build:web-preview": "node ./scripts/build-web-preview.mjs",
+    "sync:ios": "npm run build:web-preview && cap sync ios",
+    "build:ios": "node ./scripts/build-ios.mjs",
+    "run:ios": "node ./scripts/run-ios.mjs",
+    "run:ios:iphone": "MODEMDECK_SIMULATOR_FAMILY=iphone node ./scripts/run-ios.mjs",
+    "run:ios:ipad": "MODEMDECK_SIMULATOR_FAMILY=ipad node ./scripts/run-ios.mjs",
+    "open:ios": "cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.5.0",
+    "@capacitor/ios": "8.5.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.0"
+  },
+  "overrides": {
+    "uuid": "11.1.1"
+  }
+}

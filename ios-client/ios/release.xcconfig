@@ -1,0 +1,4 @@
+#include "Config/ModemDeck.xcconfig"
+
+CAPACITOR_DEBUG = false
+MODEMDECK_APNS_ENVIRONMENT = production

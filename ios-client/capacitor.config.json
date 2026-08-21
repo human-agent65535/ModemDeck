@@ -1,0 +1,15 @@
+{
+  "appId": "com.example.modemdeck",
+  "appName": "ModemDeck",
+  "webDir": "www",
+  "server": {
+    "hostname": "localhost",
+    "iosScheme": "capacitor"
+  },
+  "ios": {
+    "contentInset": "never",
+    "preferredContentMode": "mobile",
+    "zoomEnabled": false,
+    "handleApplicationNotifications": false
+  }
+}

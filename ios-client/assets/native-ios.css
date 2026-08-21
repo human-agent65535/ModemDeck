@@ -1,0 +1,44 @@
+/* Keep native controls stable when WKWebView receives taps and focus. */
+html,
+body,
+#app,
+.app-shell {
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+}
+
+input,
+textarea,
+select,
+[contenteditable='true'] {
+  font-size: 16px !important;
+}
+
+/* WKWebView spans the display; page content starts below the status bar. */
+@media (max-width: 860px) {
+  .app-shell .shell-main {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .app-shell .shell-main.native-ios-settings-header-visible {
+    padding-top: 0;
+  }
+
+  .app-shell .shell-header__controls {
+    display: none;
+  }
+
+  .settings-workspace > .settings-detail-pane > .settings-detail-header {
+    display: none;
+  }
+
+  .settings-workspace:not(.has-selection)
+    > .settings-list-pane
+    > .pane-header {
+    display: none;
+  }
+
+  .settings-workspace .settings-traffic-link {
+    display: none;
+  }
+}

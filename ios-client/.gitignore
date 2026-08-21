@@ -1,0 +1,17 @@
+.DS_Store
+.build/
+build/
+DerivedData*/
+dist/
+*.xcuserstate
+xcuserdata/
+*.xccheckout
+.swiftpm/
+node_modules/
+www/
+.web-preview/
+ios/App/Pods/
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+ios/App/Podfile.lock
+ios/LocalSigning.xcconfig

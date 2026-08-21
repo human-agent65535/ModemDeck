@@ -1,0 +1,24 @@
+{
+  "originHash" : "50a93490b81712ef5006b3026e89293c411cfdf744b19d6907ac17ac2732c881",
+  "pins" : [
+    {
+      "identity" : "capacitor-swift-pm",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ionic-team/capacitor-swift-pm.git",
+      "state" : {
+        "revision" : "4f71d0b979f2f957326f04353eca7604ee937e1e",
+        "version" : "8.5.0"
+      }
+    },
+    {
+      "identity" : "webrtc",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/stasel/WebRTC.git",
+      "state" : {
+        "revision" : "19aa8c1fc7120d50df987b7111f42d5024df3d54",
+        "version" : "151.0.0"
+      }
+    }
+  ],
+  "version" : 3
+}

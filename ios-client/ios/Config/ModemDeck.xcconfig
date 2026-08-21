@@ -1,0 +1,6 @@
+// Public defaults only. Put personal signing and bundle identifiers in
+// ../LocalSigning.xcconfig, which is ignored by git.
+
+MODEMDECK_BUNDLE_IDENTIFIER = com.example.modemdeck
+
+#include? "../LocalSigning.xcconfig"

@@ -100,7 +100,6 @@ coverage.out
 *.tmp
 *.temp
 .cache/
-/ios-client/
 /server
 /reader
 *.code-workspace
