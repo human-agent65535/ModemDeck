@@ -10,6 +10,8 @@ const certificatePath = argument('--cert')
 const keyPath = argument('--key')
 const port = Number(argument('--port', '8443'))
 const token = process.env.MODEMDECK_UAT_TOKEN || ''
+const mutable = process.argv.includes('--mutable')
+let online = true
 
 // 本地 UAT fixture 仅使用文档保留号码与合成标识，不包含真实个人信息。
 
@@ -161,6 +163,12 @@ const calls = [
     missed: false,
     read: true,
     favorite: false
+  },
+  {
+    id: 'uat-call-missed', line_id: 'uat-line-a', direction: 'incoming',
+    remote_number: '+1 202 555 0103', started_at: '2026-08-09T07:40:00Z',
+    ended_at: '2026-08-09T07:40:30Z', duration_seconds: 0,
+    missed: true, read: false, favorite: false
   }
 ]
 
@@ -414,17 +422,79 @@ function readOnlyBody(pathname) {
   }
 }
 
+// Mutable mode is explicitly opt-in and only edits these in-memory fixtures.
+// It never proxies to a real server, device, messaging or call service.
+const initial = structuredClone({ contacts, threads, calls, recordings })
+const operations = []
+async function readJSON(request) {
+  let body = ''
+  for await (const chunk of request) {
+    body += chunk
+    if (body.length > 65536) throw new Error('Fixture request too large')
+  }
+  return body ? JSON.parse(body) : {}
+}
+
+function applyState(items, predicate, action) {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i]
+    if (!predicate(item)) continue
+    if (action === 'delete') items.splice(i, 1)
+    if (action === 'favorite' || action === 'unfavorite') item.favorite = action === 'favorite'
+    if (action === 'read' || action === 'unread') {
+      if ('unread_count' in item) {
+        item.unread_count = action === 'read' ? 0 : item.unread_count
+        item.marked_unread = action === 'unread'
+      } else if (item.missed) item.read = action === 'read'
+    }
+  }
+}
+
+async function fixtureWrite(request, response, pathname) {
+  const body = await readJSON(request)
+  if (pathname === '/__uat/reset') {
+    for (const [name, items] of Object.entries({ contacts, threads, calls, recordings })) {
+      items.splice(0, items.length, ...structuredClone(initial[name]))
+    }
+    online = true
+    operations.length = 0
+  } else if (pathname === '/__uat/connectivity') {
+    online = body.online !== false
+  } else if (pathname === '/api/v1/messages/read') {
+    applyState(threads, item => item.line_id === body.line_id && item.peer === body.peer, 'read')
+  } else if (pathname === '/api/v1/messages/threads/state') {
+    applyState(threads, item => body.threads?.some(target => target.line_id === item.line_id && target.peer === item.peer), body.action)
+  } else if (pathname === '/api/v1/calls/batch') {
+    applyState(calls, item => body.ids?.includes(item.id), body.action)
+    if (body.action === 'delete') applyState(recordings, item => body.ids?.includes(item.call.id), 'delete')
+  } else if (pathname === '/api/v1/recordings/batch') {
+    applyState(recordings, item => body.recordings?.some(target => target.id === item.segment.id && target.call_id === item.call.id), body.action)
+  } else {
+    send(response, 409, { code: 'uat_write_disabled', message: 'This fixture operation is not enabled' })
+    return
+  }
+  if (pathname.startsWith('/api/')) operations.push({ pathname, action: body.action ?? 'read' })
+  send(response, 200, { ok: true })
+}
+
 const activeStreams = new Set()
 const server = https.createServer(
   {
     cert: await readFile(certificatePath),
     key: await readFile(keyPath)
   },
-  (request, response) => {
+  async (request, response) => {
     const url = new URL(request.url || '/', `https://${request.headers.host || 'localhost'}`)
     let status = 200
     if (!authorize(request, response)) {
       status = 401
+    } else if (mutable && url.pathname === '/__uat/state' && request.method === 'GET') {
+      send(response, 200, { online, contacts, threads, calls, recordings, operations })
+    } else if (mutable && url.pathname.startsWith('/__uat/') && request.method === 'POST') {
+      try { await fixtureWrite(request, response, url.pathname) } catch { send(response, 400, { code: 'invalid_fixture_request' }) }
+    } else if (!online) {
+      status = 503
+      send(response, status, { code: 'uat_offline', message: 'The local fixture server is temporarily unavailable' })
     } else if (
       request.method === 'GET' &&
       (url.pathname === '/api/v1/runtime/events' || url.pathname === '/api/v1/messages/events')
@@ -455,6 +525,8 @@ const server = https.createServer(
         status = 404
         send(response, status, { code: 'not_found', message: 'Not found' })
       }
+    } else if (mutable && request.method === 'PATCH') {
+      try { await fixtureWrite(request, response, url.pathname) } catch { send(response, 400, { code: 'invalid_fixture_request' }) }
     } else {
       status = 409
       send(response, status, {
@@ -467,7 +539,7 @@ const server = https.createServer(
 )
 
 server.listen(port, '127.0.0.1', () => {
-  process.stdout.write(`ModemDeck iOS read-only UAT server listening on https://127.0.0.1:${port}\n`)
+  process.stdout.write(`ModemDeck iOS ${mutable ? 'in-memory mutable' : 'read-only'} UAT server listening on https://127.0.0.1:${port}\n`)
 })
 
 function shutdown() {

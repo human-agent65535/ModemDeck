@@ -16,6 +16,15 @@ call audio remain native platform services.
 - Keeps the server address and token in the iOS Keychain.
 - Sends API calls through URLSession with Bearer authentication and explicit
   request deadlines.
+- Keeps cached history readable during service outages. Foreground recovery
+  probes back off from one to thirty seconds, coalesce concurrent refreshes,
+  and retry immediately on a restored network path or app activation. SMS,
+  call, and other write requests are never replayed automatically.
+- Home is a quick view of compact line cards and recent activity, sharing
+  message, call, recording, and contact stores with the dedicated pages.
+  Native swipe actions and copy/action menus remain available; search,
+  filters, and bulk management stay in the dedicated pages. iPad keeps the
+  activity list beside its selected detail.
 - Imports the device address book from **Settings → Contacts** after native
   Contacts permission and an explicit import confirmation.
 - Shows the packaged iOS marketing/build version and local device information
@@ -129,6 +138,58 @@ For direct review, set `SIMCTL_CHILD_MODEMDECK_UAT_INITIAL_SECTION` to `home`,
 
 The injection is compiled only under `DEBUG`; Release builds always require
 normal QR pairing and Keychain confirmation.
+
+## Automated native regression tests
+
+`npm test` runs the existing source/runtime checks and, on macOS, compiles the
+actual connection-recovery owner with a deterministic Swift behavior harness.
+The harness covers capped backoff, concurrent refreshes, network/resume
+recovery, cancellation, and revoked-session shutdown without a live service.
+
+The simulator-only **App-UAT** scheme adds XCTest interaction tests for Home,
+shared read/favorite state, delete confirmation and recording cleanup,
+foreground refresh, edge-back navigation, and automatic recovery with cached
+history. No UI-test code or fixture credential is included in the app target.
+
+Use a disposable Pro Max or iPad Pro simulator running iOS 17 or later, as
+required by Xcode Beta's UI-test framework; the app's deployment target is
+unchanged. Generate the temporary TLS
+certificate as above and trust it on that simulator only, using its explicit
+UUID instead of `booted`. Start this opt-in fixture server in another terminal:
+
+```sh
+MODEMDECK_UAT_TOKEN=md_ios_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA \
+  node scripts/uat-mock-server.mjs --mutable --port 18943 \
+  --cert DerivedData/uat-mock/server-cert.pem \
+  --key DerivedData/uat-mock/server-key.pem
+```
+
+`--mutable` only changes synthetic in-memory fixtures on loopback. It allows
+read/favorite/delete tests and simulated service outages; it cannot send an
+SMS, place a call, or proxy requests to a real server. Without this flag the
+fixture server remains read-only. Each UI test resets the fixture; run devices
+sequentially to avoid resetting another test's state.
+
+```sh
+UAT_SIMULATOR_ID="DISPOSABLE_SIMULATOR_UUID"
+DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer \
+  xcrun simctl keychain "$UAT_SIMULATOR_ID" add-root-cert \
+  DerivedData/uat-mock/server-cert.pem
+
+DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer \
+  xcodebuild -project ios/App/App.xcodeproj -scheme App-UAT \
+  -configuration Debug -sdk iphonesimulator \
+  -destination "id=$UAT_SIMULATOR_ID" -derivedDataPath DerivedData \
+  -onlyUsePackageVersionsFromResolvedFile \
+  -disableAutomaticPackageResolution -skipPackageUpdates \
+  -parallel-testing-enabled NO \
+  -resultBundlePath "DerivedData/uat-ui-$(date +%Y%m%d-%H%M%S).xcresult" test
+```
+
+Inspect the retained screenshot attachments, including iPad portrait and
+landscape, as well as the assertions. Stop the fixture server and shut down
+the disposable simulators after testing. These checks are not evidence of
+physical-device radio changes, background push delivery, or call audio.
 
 ## Foreground UAT acceptance
 

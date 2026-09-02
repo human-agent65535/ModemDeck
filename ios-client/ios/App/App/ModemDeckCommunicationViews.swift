@@ -5,6 +5,7 @@ struct ModemDeckContactsView: View {
     @ObservedObject var controller: ModemDeckSessionController
     @StateObject private var store: ModemDeckContactsStore
     @Environment(\.modemDeckUsesSplitWorkspace) private var usesSplitWorkspace
+    @Environment(\.modemDeckNavigate) private var navigate
     @State private var query = ""
     @State private var selecting = false
     @State private var selectedIDs = Set<String>()
@@ -13,11 +14,10 @@ struct ModemDeckContactsView: View {
     @State private var editingContact: ModemDeckContact?
     @State private var batchBusy = false
     @State private var confirmBatchDelete = false
-    @State private var rowMutationIDs = Set<String>()
 
     init(controller: ModemDeckSessionController) {
         self.controller = controller
-        _store = StateObject(wrappedValue: ModemDeckContactsStore(api: controller.api))
+        _store = StateObject(wrappedValue: controller.contactsStore)
     }
 
     private var filteredContacts: [ModemDeckContact] {
@@ -58,9 +58,6 @@ struct ModemDeckContactsView: View {
                 .padding(.horizontal, 16)
         }
         .task { await store.load() }
-        .onReceive(NotificationCenter.default.publisher(for: .modemDeckRemoteNotification)) { _ in
-            Task { await store.load() }
-        }
         .onChange(of: filteredContacts.map(\.id)) { visibleIDs in
             guard selecting else { return }
             selectedIDs.formIntersection(Set(visibleIDs))
@@ -154,26 +151,33 @@ struct ModemDeckContactsView: View {
         }
     }
 
-    @ViewBuilder
     private func contactListRow(_ contact: ModemDeckContact) -> some View {
-        if selecting {
-            VStack(spacing: 0) {
-                contactLink(contact)
-                ModemDeckListDivider()
+        ModemDeckListRow(
+            controller: controller, selecting: selecting,
+            selected: selecting ? selectedIDs.contains(contact.id) : usesSplitWorkspace && selectedContactID == contact.id,
+            enabled: !batchBusy, favorite: contact.favorite,
+            accessibilityID: "contact-\(contact.id)",
+            deleteMessage: controller.text("将永久删除此联系人。", "This permanently deletes this contact."),
+            open: {
+                if selecting {
+                    if !selectedIDs.insert(contact.id).inserted { selectedIDs.remove(contact.id) }
+                } else if usesSplitWorkspace {
+                    selectedContactID = contact.id
+                } else { navigate(.contact(contact.id)) }
+            },
+            toggleFavorite: {
+                let saved = try await controller.api.updateContact(
+                    id: contact.id,
+                    draft: ModemDeckContactEditor.draft(from: contact, favorite: !contact.favorite)
+                )
+                store.upsert(saved)
+            },
+            delete: {
+                try await controller.api.deleteContact(contact)
+                store.remove(ids: [contact.id])
             }
-        } else {
-            VStack(spacing: 0) {
-                contactLink(contact)
-                ModemDeckListDivider()
-            }
-            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                Button(role: .destructive) {
-                    deleteContact(contact)
-                } label: {
-                    Label(controller.text("删除", "Delete"), systemImage: "trash")
-                }
-                .disabled(!controller.isOnline || rowMutationIDs.contains(contact.id))
-            }
+        ) { actions in
+            ModemDeckContactRow(contact: contact, controller: controller, contextActions: actions)
         }
     }
 
@@ -217,45 +221,6 @@ struct ModemDeckContactsView: View {
             )
         }
         .modemDeckListToolbar(showsDivider: true)
-    }
-
-    @ViewBuilder
-    private func contactLink(_ contact: ModemDeckContact) -> some View {
-        if selecting {
-            Button {
-                if selectedIDs.contains(contact.id) {
-                    selectedIDs.remove(contact.id)
-                } else {
-                    selectedIDs.insert(contact.id)
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    ModemDeckSelectionMark(selected: selectedIDs.contains(contact.id))
-                    ModemDeckContactRow(contact: contact, controller: controller)
-                }
-            }
-            .buttonStyle(.plain)
-        } else {
-            if usesSplitWorkspace {
-                Button { selectedContactID = contact.id } label: {
-                    ModemDeckContactRow(contact: contact, controller: controller)
-                        .background(selectedContactID == contact.id ? Color.mdSelected : Color.mdSurface)
-                }
-                .buttonStyle(.plain)
-            } else {
-                NavigationLink {
-                    ModemDeckContactDetailView(
-                        contact: contact,
-                        controller: controller,
-                        onChanged: store.upsert,
-                        onDeleted: { id in store.remove(ids: [id]) }
-                    )
-                } label: {
-                    ModemDeckContactRow(contact: contact, controller: controller)
-                }
-                .buttonStyle(.plain)
-            }
-        }
     }
 
     private var contactBatchBar: some View {
@@ -350,29 +315,12 @@ struct ModemDeckContactsView: View {
         }
     }
 
-    private func deleteContact(_ contact: ModemDeckContact) {
-        guard controller.isOnline,
-              !batchBusy,
-              rowMutationIDs.insert(contact.id).inserted else {
-            return
-        }
-        Task {
-            defer { rowMutationIDs.remove(contact.id) }
-            do {
-                try await controller.api.deleteContact(contact)
-                store.remove(ids: [contact.id])
-                if selectedContactID == contact.id { selectedContactID = nil }
-                store.errorMessage = ""
-            } catch {
-                store.errorMessage = error.localizedDescription
-            }
-        }
-    }
 }
 
 struct ModemDeckContactRow: View {
     let contact: ModemDeckContact
     @ObservedObject var controller: ModemDeckSessionController
+    var contextActions: [ModemDeckContextAction] = []
 
     var body: some View {
         HStack(spacing: 11) {
@@ -410,7 +358,7 @@ struct ModemDeckContactRow: View {
                 label: controller.text("复制号码", "Copy Number"),
                 value: contact.primaryPhone?.displayNumber ?? ""
             )
-        ])
+        ], actions: contextActions)
     }
 }
 
@@ -917,6 +865,7 @@ struct ModemDeckContactDetailView: View {
                 contact: displayedContact
             ) { saved in
                 displayedContact = saved
+                controller.contactsStore.upsert(saved)
                 onChanged(saved)
             }
         }
@@ -988,6 +937,7 @@ struct ModemDeckContactDetailView: View {
                     draft: draft
                 )
                 displayedContact = saved
+                controller.contactsStore.upsert(saved)
                 onChanged(saved)
             } catch {
                 mutationError = error.localizedDescription
@@ -1004,6 +954,7 @@ struct ModemDeckContactDetailView: View {
         Task {
             do {
                 try await controller.api.deleteContact(target)
+                controller.contactsStore.remove(ids: [target.id])
                 onDeleted(target.id)
                 if showsBackButton { presentationMode.wrappedValue.dismiss() }
             } catch {
@@ -1362,6 +1313,7 @@ struct ModemDeckContactEditor: View {
                 } else {
                     saved = try await controller.api.createContact(input)
                 }
+                controller.contactsStore.upsert(saved)
                 onSaved(saved)
                 presentationMode.wrappedValue.dismiss()
             } catch {
@@ -1487,6 +1439,7 @@ struct ModemDeckDirectMessageView: View {
         Task {
             do {
                 _ = try await controller.api.sendMessage(lineID: line.id, to: number, content: message)
+                Task { await controller.messagesStore.load() }
                 content = ""
                 errorMessage = ""
             } catch {
@@ -1653,6 +1606,7 @@ struct ModemDeckNewMessageView: View {
         Task {
             do {
                 _ = try await controller.api.sendMessage(lineID: line.id, to: number, content: message)
+                Task { await controller.messagesStore.load() }
                 onSent()
                 presentationMode.wrappedValue.dismiss()
             } catch {
@@ -1667,6 +1621,7 @@ struct ModemDeckMessagesView: View {
     @ObservedObject var controller: ModemDeckSessionController
     @StateObject private var store: ModemDeckMessagesStore
     @Environment(\.modemDeckUsesSplitWorkspace) private var usesSplitWorkspace
+    @Environment(\.modemDeckNavigate) private var navigate
     @State private var query = ""
     @State private var statusFilter = "all"
     @State private var lineFilter = ""
@@ -1679,11 +1634,10 @@ struct ModemDeckMessagesView: View {
     @State private var composeOpen = false
     @State private var batchBusy = false
     @State private var confirmBatchDelete = false
-    @State private var rowMutationIDs = Set<String>()
 
     init(controller: ModemDeckSessionController) {
         self.controller = controller
-        _store = StateObject(wrappedValue: ModemDeckMessagesStore(api: controller.api))
+        _store = StateObject(wrappedValue: controller.messagesStore)
     }
 
     private var filteredThreads: [ModemDeckMessageThread] {
@@ -1742,12 +1696,6 @@ struct ModemDeckMessagesView: View {
         .task {
             await store.load()
             applyRequestedThread()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .modemDeckRemoteNotification)) { _ in
-            Task {
-                await store.load()
-                applyRequestedThread()
-            }
         }
         .onChange(of: controller.requestedMessageThreadKey) { _ in
             applyRequestedThread()
@@ -1936,94 +1884,29 @@ struct ModemDeckMessagesView: View {
         }
     }
 
-    @ViewBuilder
     private func threadListRow(_ thread: ModemDeckMessageThread) -> some View {
-        if selecting {
-            VStack(spacing: 0) {
-                threadLink(thread)
-                ModemDeckListDivider()
-            }
-        } else {
-            VStack(spacing: 0) {
-                threadLink(thread)
-                ModemDeckListDivider()
-            }
-            .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                let unread = thread.unreadCount > 0 || thread.markedUnread
-                Button {
-                    mutateThread(thread, unread ? .read : .unread)
-                } label: {
-                    Label(
-                        unread
-                            ? controller.text("已读", "Read")
-                            : controller.text("未读", "Unread"),
-                        systemImage: unread ? "envelope.open" : "envelope.badge"
-                    )
-                }
-                .tint(.mdAccent)
-                .disabled(!controller.isOnline || rowMutationIDs.contains(thread.id))
-            }
-            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                Button(role: .destructive) {
-                    mutateThread(thread, .delete)
-                } label: {
-                    Label(controller.text("删除", "Delete"), systemImage: "trash")
-                }
-                .disabled(!controller.isOnline || rowMutationIDs.contains(thread.id))
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func threadLink(_ thread: ModemDeckMessageThread) -> some View {
-        if selecting {
-            Button {
-                if selectedIDs.contains(thread.id) {
-                    selectedIDs.remove(thread.id)
-                } else {
-                    selectedIDs.insert(thread.id)
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    ModemDeckSelectionMark(selected: selectedIDs.contains(thread.id))
-                    ModemDeckMessageThreadRow(
-                        thread: thread,
-                        contact: contact(for: thread),
-                        controller: controller
-                    )
-                }
-                .padding(.leading, 12)
-            }
-            .buttonStyle(.plain)
-        } else {
-            if usesSplitWorkspace {
-                Button { selectedThreadID = thread.id } label: {
-                    ModemDeckMessageThreadRow(
-                        thread: thread,
-                        contact: contact(for: thread),
-                        controller: controller
-                    )
-                        .background(selectedThreadID == thread.id ? Color.mdSelected : Color.mdSurface)
-                }
-                .buttonStyle(.plain)
-            } else {
-                NavigationLink {
-                    ModemDeckConversationView(
-                        thread: thread,
-                        controller: controller,
-                        contact: contact(for: thread),
-                        onChanged: reloadThreads,
-                        onDeleted: handleDeletedThread
-                    )
-                } label: {
-                    ModemDeckMessageThreadRow(
-                        thread: thread,
-                        contact: contact(for: thread),
-                        controller: controller
-                    )
-                }
-                .buttonStyle(.plain)
-            }
+        let unread = thread.unreadCount > 0 || thread.markedUnread
+        return ModemDeckListRow(
+            controller: controller, selecting: selecting,
+            selected: selecting ? selectedIDs.contains(thread.id) : usesSplitWorkspace && selectedThreadID == thread.id,
+            enabled: !batchBusy, unread: unread, favorite: thread.favorite,
+            accessibilityID: "message-\(thread.id)",
+            deleteMessage: controller.text("该会话中的全部短信将被永久删除。", "All messages in this conversation will be permanently deleted."),
+            open: {
+                if selecting {
+                    if !selectedIDs.insert(thread.id).inserted { selectedIDs.remove(thread.id) }
+                } else if usesSplitWorkspace {
+                    selectedThreadID = thread.id
+                } else { navigate(.message(thread.id)) }
+            },
+            toggleRead: { try await store.mutate(unread ? .read : .unread, threads: [thread]) },
+            toggleFavorite: { try await store.mutate(thread.favorite ? .unfavorite : .favorite, threads: [thread]) },
+            delete: { try await store.mutate(.delete, threads: [thread]) }
+        ) { actions in
+            ModemDeckMessageThreadRow(
+                thread: thread, contact: contact(for: thread), controller: controller,
+                contextActions: actions
+            )
         }
     }
 
@@ -2088,8 +1971,7 @@ struct ModemDeckMessagesView: View {
         batchBusy = true
         Task {
             do {
-                try await controller.api.updateMessageThreads(action: action, threads: threads)
-                store.apply(action, to: Set(threads.map(\.id)))
+                try await store.mutate(action, threads: threads)
                 if action == .delete {
                     if let id = selectedThreadID, selectedIDs.contains(id) {
                         selectedThreadID = nil
@@ -2102,32 +1984,6 @@ struct ModemDeckMessagesView: View {
                 store.errorMessage = error.localizedDescription
             }
             batchBusy = false
-        }
-    }
-
-    private func mutateThread(
-        _ thread: ModemDeckMessageThread,
-        _ action: ModemDeckMessageThreadAction
-    ) {
-        guard controller.isOnline,
-              !batchBusy,
-              rowMutationIDs.insert(thread.id).inserted else {
-            return
-        }
-        Task {
-            defer { rowMutationIDs.remove(thread.id) }
-            do {
-                try await controller.api.updateMessageThreads(action: action, threads: [thread])
-                store.apply(action, to: [thread.id])
-                if action == .delete {
-                    if selectedThreadID == thread.id { selectedThreadID = nil }
-                    selectedIDs.remove(thread.id)
-                }
-                await store.load()
-                store.errorMessage = ""
-            } catch {
-                store.errorMessage = error.localizedDescription
-            }
         }
     }
 
@@ -2189,6 +2045,7 @@ struct ModemDeckMessageThreadRow: View {
     let thread: ModemDeckMessageThread
     var contact: ModemDeckContact? = nil
     @ObservedObject var controller: ModemDeckSessionController
+    var contextActions: [ModemDeckContextAction] = []
 
     private var line: ModemDeckLine? {
         controller.bootstrap?.lineCatalog.first(where: { $0.id == thread.lineId })
@@ -2263,7 +2120,7 @@ struct ModemDeckMessageThreadRow: View {
                 label: controller.text("复制短信", "Copy Message"),
                 value: thread.lastContent ?? ""
             )
-        ])
+        ], actions: contextActions)
     }
 }
 
@@ -2302,7 +2159,7 @@ struct ModemDeckConversationView: View {
         self.onChanged = onChanged
         self.onDeleted = onDeleted
         _store = StateObject(
-            wrappedValue: ModemDeckConversationStore(api: controller.api, thread: thread)
+            wrappedValue: ModemDeckConversationStore(api: controller.api, thread: thread, messagesStore: controller.messagesStore)
         )
         _favorite = State(initialValue: thread.favorite)
         _unread = State(initialValue: thread.unreadCount > 0 || thread.markedUnread)
@@ -2606,7 +2463,7 @@ struct ModemDeckConversationView: View {
         mutationError = ""
         Task {
             do {
-                try await controller.api.updateMessageThreads(action: action, threads: [thread])
+                try await controller.messagesStore.mutate(action, threads: [thread])
                 switch action {
                 case .read: unread = false
                 case .unread: unread = true
@@ -2628,7 +2485,7 @@ struct ModemDeckConversationView: View {
         mutationError = ""
         Task {
             do {
-                try await controller.api.deleteMessageThread(thread)
+                try await controller.messagesStore.mutate(.delete, threads: [thread])
                 onDeleted(thread.id)
                 if showsBackButton { presentationMode.wrappedValue.dismiss() }
             } catch {

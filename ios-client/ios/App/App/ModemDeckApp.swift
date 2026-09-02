@@ -99,10 +99,11 @@ struct ModemDeckCopyItem: Identifiable, Hashable {
 
 private struct ModemDeckCopyMenuModifier: ViewModifier {
     let items: [ModemDeckCopyItem]
+    let actions: [ModemDeckContextAction]
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if items.isEmpty {
+        if items.isEmpty && actions.isEmpty {
             content
         } else {
             content.contextMenu {
@@ -113,14 +114,21 @@ private struct ModemDeckCopyMenuModifier: ViewModifier {
                         Label(item.label, systemImage: "doc.on.doc")
                     }
                 }
+                if !items.isEmpty && !actions.isEmpty { Divider() }
+                ForEach(actions) { action in
+                    Button(role: action.destructive ? .destructive : nil, action: action.perform) {
+                        Label(action.title, systemImage: action.icon)
+                    }
+                    .disabled(action.disabled)
+                }
             }
         }
     }
 }
 
 extension View {
-    func modemDeckCopyMenu(_ items: [ModemDeckCopyItem]) -> some View {
-        modifier(ModemDeckCopyMenuModifier(items: items.filter { !$0.value.isEmpty }))
+    func modemDeckCopyMenu(_ items: [ModemDeckCopyItem], actions: [ModemDeckContextAction] = []) -> some View {
+        modifier(ModemDeckCopyMenuModifier(items: items.filter { !$0.value.isEmpty }, actions: actions))
     }
 }
 
@@ -276,14 +284,11 @@ struct ModemDeckRootView: View {
             Task {
                 await controller.refreshNotificationStatus()
                 controller.refreshMicrophoneStatus()
-                if controller.phase == .paired {
-                    await controller.refresh()
-                    NotificationCenter.default.post(
-                        name: .modemDeckRemoteNotification,
-                        object: controller
-                    )
-                }
+                await controller.resume()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            controller.suspend()
         }
         .onReceive(NotificationCenter.default.publisher(for: .modemDeckRemoteNotification)) { notification in
             guard notification.object == nil else { return }
@@ -343,19 +348,23 @@ private struct ModemDeckOfflineBanner: View {
         HStack(spacing: 8) {
             Image(systemName: "wifi.slash")
                 .font(.caption.weight(.semibold))
-            Text(controller.text("离线 · 显示上次同步内容", "Offline · Showing last synced content"))
+            Text(controller.text("暂时离线 · 自动重连中", "Offline · Reconnecting"))
                 .font(.caption.weight(.medium))
                 .lineLimit(1)
+                .accessibilityHint(controller.text("历史内容仍可查看和复制。", "Saved history remains available to read and copy."))
             Spacer(minLength: 8)
             Button(controller.text("重试", "Retry")) {
                 Task { await controller.refresh() }
             }
             .font(.caption.weight(.semibold))
+            .disabled(controller.reconnecting)
         }
         .foregroundColor(.mdText)
         .padding(.horizontal, 12)
         .frame(minHeight: 34)
         .background(Color.orange.opacity(0.16))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("connection-offline")
         .overlay(alignment: .bottom) {
             Rectangle().fill(Color.orange.opacity(0.25)).frame(height: 1)
         }
@@ -500,11 +509,16 @@ private struct ModemDeckSectionRoot: View {
     @ObservedObject var controller: ModemDeckSessionController
     let usesSplitWorkspace: Bool
     let padDialerAction: ModemDeckPadDialerAction?
+    @State private var path: [ModemDeckRoute] = []
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             destination
+                .navigationDestination(for: ModemDeckRoute.self) { route in
+                    ModemDeckRouteContent(route: route, controller: controller)
+                }
         }
+        .environment(\.modemDeckNavigate, { path.append($0) })
         .environment(\.modemDeckUsesSplitWorkspace, usesSplitWorkspace)
         .environment(\.modemDeckPadDialerAction, padDialerAction)
     }
@@ -776,6 +790,7 @@ private struct ModemDeckPhoneTabBar: View {
                 .buttonStyle(.plain)
                 .frame(maxWidth: .infinity, minHeight: 66)
                 .accessibilityLabel(title(for: tab))
+                .accessibilityIdentifier("section-\(tab.id)")
                 .accessibilityValue(isSelected(tab) ? controller.text("已选择", "Selected") : "")
                 .accessibilityAddTraits(isSelected(tab) ? .isSelected : [])
                 .zIndex(tab == .dial ? 1 : 0)
@@ -966,6 +981,7 @@ private struct ModemDeckPadNavigationRail: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(title(for: section))
+                .accessibilityIdentifier("section-\(section.id)")
                 .accessibilityValue(
                     isSelected(section) ? controller.text("已选择", "Selected") : ""
                 )
@@ -1001,208 +1017,8 @@ private struct ModemDeckPadNavigationRail: View {
     }
 }
 
-private enum ModemDeckActivityItem: Identifiable {
-    case message(ModemDeckMessageThread)
-    case call(ModemDeckCallRecord)
 
-    var id: String {
-        switch self {
-        case .message(let thread): return "message-\(thread.id)"
-        case .call(let call): return "call-\(call.id)"
-        }
-    }
-
-    var timestamp: String {
-        switch self {
-        case .message(let thread): return thread.lastTimestamp
-        case .call(let call): return call.startedAt
-        }
-    }
-}
-
-@MainActor
-private final class ModemDeckActivityStore: ObservableObject {
-    @Published private(set) var items: [ModemDeckActivityItem] = []
-    @Published private(set) var contacts: [ModemDeckContact] = []
-    @Published private(set) var loading = false
-    @Published var errorMessage = ""
-
-    private let api: ModemDeckAPIClient
-    private var reloadRequested = false
-
-    init(api: ModemDeckAPIClient) {
-        self.api = api
-        items = Self.merge(
-            threads: api.cachedMessageThreads(),
-            calls: api.cachedCalls()
-        )
-        contacts = api.cachedContacts()
-    }
-
-    func load() async {
-        if loading {
-            reloadRequested = true
-            return
-        }
-        loading = true
-        defer { loading = false }
-        repeat {
-            reloadRequested = false
-            do {
-                async let threads = api.messageThreads()
-                async let calls = api.calls()
-                async let contacts: [ModemDeckContact]? = try? await api.contacts()
-                let values = try await (threads, calls)
-                items = Self.merge(threads: values.0, calls: values.1)
-                if let contacts = await contacts {
-                    self.contacts = contacts
-                }
-                errorMessage = ""
-            } catch {
-                errorMessage = items.isEmpty ? error.localizedDescription : ""
-            }
-        } while reloadRequested
-    }
-
-    private static func merge(
-        threads: [ModemDeckMessageThread],
-        calls: [ModemDeckCallRecord]
-    ) -> [ModemDeckActivityItem] {
-        (
-            threads.map(ModemDeckActivityItem.message) +
-                calls.map(ModemDeckActivityItem.call)
-        )
-        .sorted { lhs, rhs in
-            let left = ModemDeckDateText.date(lhs.timestamp) ?? .distantPast
-            let right = ModemDeckDateText.date(rhs.timestamp) ?? .distantPast
-            return left > right
-        }
-    }
-}
-
-struct ModemDeckHomeView: View {
-    @ObservedObject var controller: ModemDeckSessionController
-    @StateObject private var store: ModemDeckActivityStore
-
-    init(controller: ModemDeckSessionController) {
-        self.controller = controller
-        _store = StateObject(wrappedValue: ModemDeckActivityStore(api: controller.api))
-    }
-
-    private func contact(for thread: ModemDeckMessageThread) -> ModemDeckContact? {
-        store.contacts.modemDeckContact(id: thread.contactId, number: thread.peer)
-    }
-
-    private func contact(for call: ModemDeckCallRecord) -> ModemDeckContact? {
-        store.contacts.modemDeckContact(id: call.contactId, number: call.remoteNumber)
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ModemDeckPageHeader(title: controller.text("概览", "Overview"))
-
-            Group {
-                if store.loading && store.items.isEmpty {
-                    ProgressView(controller.text("正在载入…", "Loading…"))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if !store.errorMessage.isEmpty && store.items.isEmpty {
-                    ModemDeckLoadErrorState(
-                        controller: controller,
-                        detail: store.errorMessage
-                    ) {
-                        Task { await store.load() }
-                    }
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 12) {
-                            ModemDeckHomeLineGrid(
-                                controller: controller,
-                                lines: controller.bootstrap?.lines ?? []
-                            )
-
-                            if store.items.isEmpty {
-                                ModemDeckStateView(
-                                    icon: "tray",
-                                    title: controller.text("暂无活动", "No Activity Yet"),
-                                    detail: controller.text(
-                                        "短信与通话活动会直接显示在这里。",
-                                        "Messages and calls appear here."
-                                    )
-                                )
-                                .background(Color.mdSurface)
-                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            } else {
-                                LazyVStack(spacing: 0) {
-                                    ForEach(store.items) { item in
-                                        switch item {
-                                        case .message(let thread):
-                                            NavigationLink {
-                                                ModemDeckConversationView(
-                                                    thread: thread,
-                                                    controller: controller,
-                                                    contact: contact(for: thread)
-                                                )
-                                            } label: {
-                                                ModemDeckMessageThreadRow(
-                                                    thread: thread,
-                                                    contact: contact(for: thread),
-                                                    controller: controller
-                                                )
-                                            }
-                                            .buttonStyle(.plain)
-                                        case .call(let call):
-                                            NavigationLink {
-                                                ModemDeckCallDetailView(
-                                                    call: call,
-                                                    recordings: [],
-                                                    controller: controller,
-                                                    contact: contact(for: call)
-                                                )
-                                            } label: {
-                                                ModemDeckCallRecordRow(
-                                                    call: call,
-                                                    contact: contact(for: call),
-                                                    controller: controller
-                                                )
-                                            }
-                                            .buttonStyle(.plain)
-                                        }
-                                        if item.id != store.items.last?.id {
-                                            ModemDeckListDivider()
-                                        }
-                                    }
-                                }
-                                .background(Color.mdSurface)
-                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .stroke(Color.mdBorder, lineWidth: 1)
-                                )
-                            }
-                        }
-                        .frame(maxWidth: 980)
-                        .padding(12)
-                        .frame(maxWidth: .infinity)
-                    }
-                    .refreshable { await store.load() }
-                }
-            }
-            .background(Color.mdBackground)
-        }
-        .background(Color.mdBackground)
-        .navigationBarHidden(true)
-        .overlay(alignment: .bottom) {
-            ModemDeckInlineError(message: store.errorMessage)
-                .padding(.horizontal, 16)
-        }
-        .task { await store.load() }
-        .onReceive(NotificationCenter.default.publisher(for: .modemDeckRemoteNotification)) { _ in
-            Task { await store.load() }
-        }
-    }
-}
-
-private struct ModemDeckHomeLineGrid: View {
+struct ModemDeckHomeLineGrid: View {
     @ObservedObject var controller: ModemDeckSessionController
     let lines: [ModemDeckLine]
 
@@ -1256,26 +1072,25 @@ private struct ModemDeckHomeLineCard: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(line.displayName)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundColor(.mdText)
-                    .lineLimit(1)
-
                 HStack(spacing: 5) {
+                    Text(line.displayName)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.mdText)
+                        .lineLimit(1)
+                    Spacer(minLength: 2)
                     Circle()
-                        .fill(isOnline ? Color.mdAccent : Color.mdFaint)
-                        .frame(width: 7, height: 7)
+                        .fill(controller.isOnline && isOnline ? Color.mdAccent : Color.mdFaint)
+                        .frame(width: 6, height: 6)
                     Text(statusText)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundColor(isOnline ? .mdAccentStrong : .mdMuted)
-                    if !detailText.isEmpty {
-                        Text("·")
-                            .foregroundColor(.mdFaint)
-                        Text(detailText)
-                            .font(.caption)
-                            .foregroundColor(.mdMuted)
-                            .lineLimit(1)
-                    }
+                        .font(.caption2)
+                        .foregroundColor(controller.isOnline && isOnline ? .mdAccentStrong : .mdMuted)
+                        .fixedSize()
+                }
+                if !detailText.isEmpty {
+                    Text(detailText)
+                        .font(.caption)
+                        .foregroundColor(.mdMuted)
+                        .lineLimit(1)
                 }
             }
             Spacer(minLength: 0)
@@ -1289,6 +1104,10 @@ private struct ModemDeckHomeLineCard: View {
                 .stroke(Color.mdBorder, lineWidth: 1)
         )
         .accessibilityElement(children: .combine)
+        .modemDeckCopyMenu([
+            .init(label: controller.text("复制号码", "Copy Number"), value: line.phoneNumber),
+            .init(label: controller.text("复制线路名称", "Copy Line Name"), value: line.displayName)
+        ])
     }
 
     private var isOnline: Bool {
@@ -1303,7 +1122,8 @@ private struct ModemDeckHomeLineCard: View {
     }
 
     private var statusText: String {
-        isOnline
+        guard controller.isOnline else { return controller.text("待同步", "Not synced") }
+        return isOnline
             ? controller.text("在线", "Online")
             : controller.text("离线", "Offline")
     }

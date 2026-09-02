@@ -311,7 +311,7 @@ struct ModemDeckDialerView: View {
     init(controller: ModemDeckSessionController) {
         self.controller = controller
         _callController = ObservedObject(wrappedValue: controller.callController)
-        _contactsStore = StateObject(wrappedValue: ModemDeckContactsStore(api: controller.api))
+        _contactsStore = StateObject(wrappedValue: controller.contactsStore)
     }
 
     private var lines: [ModemDeckLine] {
@@ -827,6 +827,7 @@ struct ModemDeckCallsView: View {
     @ObservedObject var controller: ModemDeckSessionController
     @StateObject private var store: ModemDeckCallsStore
     @Environment(\.modemDeckUsesSplitWorkspace) private var usesSplitWorkspace
+    @Environment(\.modemDeckNavigate) private var navigate
     @State private var query = ""
     @State private var statusFilter = "all"
     @State private var lineFilter = ""
@@ -836,11 +837,10 @@ struct ModemDeckCallsView: View {
     @State private var selectedCallID: String?
     @State private var batchBusy = false
     @State private var confirmBatchDelete = false
-    @State private var rowMutationIDs = Set<String>()
 
     init(controller: ModemDeckSessionController) {
         self.controller = controller
-        _store = StateObject(wrappedValue: ModemDeckCallsStore(api: controller.api))
+        _store = StateObject(wrappedValue: controller.callsStore)
     }
 
     private var filteredCalls: [ModemDeckCallRecord] {
@@ -860,7 +860,7 @@ struct ModemDeckCallsView: View {
     }
 
     private var recordedCallIDs: Set<String> {
-        Set(store.recordings.map { $0.call.id })
+        Set(store.recordings.filter(\.playable).map { $0.call.id })
     }
 
     private var selectedCall: ModemDeckCallRecord? {
@@ -900,9 +900,6 @@ struct ModemDeckCallsView: View {
                 .padding(.horizontal, 16)
         }
         .task { await store.load() }
-        .onReceive(NotificationCenter.default.publisher(for: .modemDeckRemoteNotification)) { _ in
-            Task { await store.load() }
-        }
         .onChange(of: filteredCalls.map(\.id)) { visibleIDs in
             guard selecting else { return }
             selectedIDs.formIntersection(Set(visibleIDs))
@@ -1045,96 +1042,29 @@ struct ModemDeckCallsView: View {
         }
     }
 
-    @ViewBuilder
     private func callListRow(_ call: ModemDeckCallRecord) -> some View {
-        if selecting {
-            VStack(spacing: 0) {
-                Button {
-                    toggleSelection(call.id)
-                } label: {
-                    HStack(spacing: 8) {
-                        ModemDeckSelectionMark(selected: selectedIDs.contains(call.id))
-                        ModemDeckCallRecordRow(
-                            call: call,
-                            contact: contact(for: call),
-                            controller: controller,
-                            recorded: recordedCallIDs.contains(call.id)
-                        )
-                    }
-                    .padding(.leading, 12)
-                }
-                .buttonStyle(.plain)
-                ModemDeckListDivider()
-            }
-        } else {
-            VStack(spacing: 0) {
-                callLink(call)
-                ModemDeckListDivider()
-            }
-            .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                if call.missed {
-                    Button {
-                        mutateCall(call, call.read ? .unread : .read)
-                    } label: {
-                        Label(
-                            call.read
-                                ? controller.text("未读", "Unread")
-                                : controller.text("已读", "Read"),
-                            systemImage: call.read ? "phone.badge.waveform" : "phone.badge.checkmark"
-                        )
-                    }
-                    .tint(.mdAccent)
-                    .disabled(!controller.isOnline || rowMutationIDs.contains(call.id))
-                }
-            }
-            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                Button(role: .destructive) {
-                    mutateCall(call, .delete)
-                } label: {
-                    Label(controller.text("删除", "Delete"), systemImage: "trash")
-                }
-                .disabled(!controller.isOnline || rowMutationIDs.contains(call.id))
-            }
+        ModemDeckListRow(
+            controller: controller, selecting: selecting,
+            selected: selecting ? selectedIDs.contains(call.id) : usesSplitWorkspace && selectedCallID == call.id,
+            enabled: !batchBusy, unread: call.missed ? !call.read : nil, favorite: call.favorite,
+            accessibilityID: "call-\(call.id)",
+            deleteMessage: controller.text("将永久删除此通话记录及其录音。", "This permanently deletes the call record and its recordings."),
+            open: {
+                if selecting {
+                    if !selectedIDs.insert(call.id).inserted { selectedIDs.remove(call.id) }
+                } else if usesSplitWorkspace {
+                    selectedCallID = call.id
+                } else { navigate(.call(call.id)) }
+            },
+            toggleRead: call.missed ? { try await store.mutate(call.read ? .unread : .read, calls: [call]) } : nil,
+            toggleFavorite: { try await store.mutate(call.favorite ? .unfavorite : .favorite, calls: [call]) },
+            delete: { try await store.mutate(.delete, calls: [call]) }
+        ) { actions in
+            ModemDeckCallRecordRow(
+                call: call, contact: contact(for: call), controller: controller,
+                recorded: recordedCallIDs.contains(call.id), contextActions: actions
+            )
         }
-    }
-
-    @ViewBuilder
-    private func callLink(_ call: ModemDeckCallRecord) -> some View {
-        if usesSplitWorkspace {
-            Button { selectedCallID = call.id } label: {
-                ModemDeckCallRecordRow(
-                    call: call,
-                    contact: contact(for: call),
-                    controller: controller,
-                    recorded: recordedCallIDs.contains(call.id)
-                )
-                .background(selectedCallID == call.id ? Color.mdSelected : Color.mdSurface)
-            }
-            .buttonStyle(.plain)
-        } else {
-            NavigationLink {
-                ModemDeckCallDetailView(
-                    call: call,
-                    recordings: store.recordings.filter { $0.call.id == call.id },
-                    controller: controller,
-                    contact: contact(for: call),
-                    onChanged: reloadCalls,
-                    onDeleted: handleDeletedCall
-                )
-            } label: {
-                ModemDeckCallRecordRow(
-                    call: call,
-                    contact: contact(for: call),
-                    controller: controller,
-                    recorded: recordedCallIDs.contains(call.id)
-                )
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    private func toggleSelection(_ id: String) {
-        if selectedIDs.contains(id) { selectedIDs.remove(id) } else { selectedIDs.insert(id) }
     }
 
     private var callBatchBar: some View {
@@ -1202,8 +1132,7 @@ struct ModemDeckCallsView: View {
         batchBusy = true
         Task {
             do {
-                try await controller.api.updateCalls(action: action, ids: targets.map(\.id))
-                store.apply(action, to: Set(targets.map(\.id)))
+                try await store.mutate(action, calls: targets)
                 if action == .delete {
                     if let id = selectedCallID, selectedIDs.contains(id) { selectedCallID = nil }
                     endCallSelection()
@@ -1214,29 +1143,6 @@ struct ModemDeckCallsView: View {
                 store.errorMessage = error.localizedDescription
             }
             batchBusy = false
-        }
-    }
-
-    private func mutateCall(_ call: ModemDeckCallRecord, _ action: ModemDeckCallBatchAction) {
-        guard controller.isOnline,
-              !batchBusy,
-              rowMutationIDs.insert(call.id).inserted else {
-            return
-        }
-        Task {
-            defer { rowMutationIDs.remove(call.id) }
-            do {
-                try await controller.api.updateCalls(action: action, ids: [call.id])
-                store.apply(action, to: [call.id])
-                if action == .delete {
-                    if selectedCallID == call.id { selectedCallID = nil }
-                    selectedIDs.remove(call.id)
-                }
-                await store.load()
-                store.errorMessage = ""
-            } catch {
-                store.errorMessage = error.localizedDescription
-            }
         }
     }
 
@@ -1256,6 +1162,7 @@ struct ModemDeckCallRecordRow: View {
     var contact: ModemDeckContact? = nil
     @ObservedObject var controller: ModemDeckSessionController
     var recorded = false
+    var contextActions: [ModemDeckContextAction] = []
 
     private var line: ModemDeckLine? {
         controller.bootstrap?.lineCatalog.first(where: { $0.id == call.lineId })
@@ -1325,7 +1232,7 @@ struct ModemDeckCallRecordRow: View {
                 label: controller.text("复制号码", "Copy Number"),
                 value: call.remoteNumber
             )
-        ])
+        ], actions: contextActions)
     }
 
     private var directionIcon: String {
@@ -1338,6 +1245,7 @@ struct ModemDeckRecordingsView: View {
     @ObservedObject var controller: ModemDeckSessionController
     @StateObject private var store: ModemDeckCallsStore
     @Environment(\.modemDeckUsesSplitWorkspace) private var usesSplitWorkspace
+    @Environment(\.modemDeckNavigate) private var navigate
     @State private var query = ""
     @State private var lineFilter = ""
     @State private var favoriteOnly = false
@@ -1346,11 +1254,10 @@ struct ModemDeckRecordingsView: View {
     @State private var selectedRecordingID: String?
     @State private var batchBusy = false
     @State private var confirmBatchDelete = false
-    @State private var rowMutationIDs = Set<String>()
 
     init(controller: ModemDeckSessionController) {
         self.controller = controller
-        _store = StateObject(wrappedValue: ModemDeckCallsStore(api: controller.api))
+        _store = StateObject(wrappedValue: controller.callsStore)
     }
 
     private var filteredRecordings: [ModemDeckRecording] {
@@ -1405,9 +1312,6 @@ struct ModemDeckRecordingsView: View {
                 .padding(.horizontal, 16)
         }
         .task { await store.load() }
-        .onReceive(NotificationCenter.default.publisher(for: .modemDeckRemoteNotification)) { _ in
-            Task { await store.load() }
-        }
         .onChange(of: filteredRecordings.map(\.id)) { visibleIDs in
             guard selecting else { return }
             selectedIDs.formIntersection(Set(visibleIDs))
@@ -1527,75 +1431,27 @@ struct ModemDeckRecordingsView: View {
         }
     }
 
-    @ViewBuilder
     private func recordingListRow(_ recording: ModemDeckRecording) -> some View {
-        if selecting {
-            VStack(spacing: 0) {
-                Button {
-                    if selectedIDs.contains(recording.id) {
-                        selectedIDs.remove(recording.id)
-                    } else {
-                        selectedIDs.insert(recording.id)
-                    }
-                } label: {
-                    HStack(spacing: 8) {
-                        ModemDeckSelectionMark(selected: selectedIDs.contains(recording.id))
-                        ModemDeckRecordingRow(
-                            recording: recording,
-                            contact: contact(for: recording),
-                            controller: controller
-                        )
-                    }
-                    .padding(.leading, 12)
-                }
-                .buttonStyle(.plain)
-                ModemDeckListDivider()
-            }
-        } else {
-            VStack(spacing: 0) {
-                recordingLink(recording)
-                ModemDeckListDivider()
-            }
-            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                Button(role: .destructive) {
-                    mutateRecording(recording, .delete)
-                } label: {
-                    Label(controller.text("删除", "Delete"), systemImage: "trash")
-                }
-                .disabled(!controller.isOnline || rowMutationIDs.contains(recording.id))
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func recordingLink(_ recording: ModemDeckRecording) -> some View {
-        if usesSplitWorkspace {
-            Button { selectedRecordingID = recording.id } label: {
-                ModemDeckRecordingRow(
-                    recording: recording,
-                    contact: contact(for: recording),
-                    controller: controller
-                )
-                    .background(selectedRecordingID == recording.id ? Color.mdSelected : Color.mdSurface)
-            }
-            .buttonStyle(.plain)
-        } else {
-            NavigationLink {
-                ModemDeckRecordingDetailView(
-                    recording: recording,
-                    controller: controller,
-                    contact: contact(for: recording),
-                    onChanged: reloadRecordings,
-                    onDeleted: handleDeletedRecording
-                )
-            } label: {
-                ModemDeckRecordingRow(
-                    recording: recording,
-                    contact: contact(for: recording),
-                    controller: controller
-                )
-            }
-            .buttonStyle(.plain)
+        ModemDeckListRow(
+            controller: controller, selecting: selecting,
+            selected: selecting ? selectedIDs.contains(recording.id) : usesSplitWorkspace && selectedRecordingID == recording.id,
+            enabled: !batchBusy, favorite: recording.favorite,
+            accessibilityID: "recording-\(recording.id)",
+            deleteMessage: controller.text("将永久删除此录音。", "This permanently deletes this recording."),
+            open: {
+                if selecting {
+                    if !selectedIDs.insert(recording.id).inserted { selectedIDs.remove(recording.id) }
+                } else if usesSplitWorkspace {
+                    selectedRecordingID = recording.id
+                } else { navigate(.recording(recording.id)) }
+            },
+            toggleFavorite: { try await store.mutate(recording.favorite ? .unfavorite : .favorite, recordings: [recording]) },
+            delete: { try await store.mutate(.delete, recordings: [recording]) }
+        ) { actions in
+            ModemDeckRecordingRow(
+                recording: recording, contact: contact(for: recording), controller: controller,
+                contextActions: actions
+            )
         }
     }
 
@@ -1650,8 +1506,7 @@ struct ModemDeckRecordingsView: View {
         batchBusy = true
         Task {
             do {
-                try await controller.api.updateRecordings(action: action, recordings: recordings)
-                store.apply(action, to: Set(recordings.map(\.id)))
+                try await store.mutate(action, recordings: recordings)
                 if action == .delete {
                     if let id = selectedRecordingID, selectedIDs.contains(id) {
                         selectedRecordingID = nil
@@ -1664,32 +1519,6 @@ struct ModemDeckRecordingsView: View {
                 store.errorMessage = error.localizedDescription
             }
             batchBusy = false
-        }
-    }
-
-    private func mutateRecording(
-        _ recording: ModemDeckRecording,
-        _ action: ModemDeckRecordingBatchAction
-    ) {
-        guard controller.isOnline,
-              !batchBusy,
-              rowMutationIDs.insert(recording.id).inserted else {
-            return
-        }
-        Task {
-            defer { rowMutationIDs.remove(recording.id) }
-            do {
-                try await controller.api.updateRecordings(action: action, recordings: [recording])
-                store.apply(action, to: [recording.id])
-                if action == .delete {
-                    if selectedRecordingID == recording.id { selectedRecordingID = nil }
-                    selectedIDs.remove(recording.id)
-                }
-                await store.load()
-                store.errorMessage = ""
-            } catch {
-                store.errorMessage = error.localizedDescription
-            }
         }
     }
 
@@ -1708,6 +1537,7 @@ struct ModemDeckRecordingRow: View {
     let recording: ModemDeckRecording
     var contact: ModemDeckContact? = nil
     @ObservedObject var controller: ModemDeckSessionController
+    var contextActions: [ModemDeckContextAction] = []
 
     private var line: ModemDeckLine? {
         controller.bootstrap?.lineCatalog.first(where: { $0.id == recording.call.lineId })
@@ -1772,7 +1602,7 @@ struct ModemDeckRecordingRow: View {
                 label: controller.text("复制号码", "Copy Number"),
                 value: recording.call.remoteNumber
             )
-        ])
+        ], actions: contextActions)
     }
 }
 
@@ -2041,9 +1871,6 @@ struct ModemDeckCallDetailView: View {
                                                 .foregroundColor(.mdMuted)
                                         }
                                         Spacer()
-                                        Image(systemName: "chevron.right")
-                                            .font(.system(size: 12, weight: .semibold))
-                                            .foregroundColor(.mdFaint)
                                     }
                                     .padding(.horizontal, 14)
                                     .frame(minHeight: 58)
@@ -2138,7 +1965,7 @@ struct ModemDeckCallDetailView: View {
         mutationError = ""
         Task {
             do {
-                try await controller.api.updateCalls(action: action, ids: [call.id])
+                try await controller.callsStore.mutate(action, calls: [call])
                 switch action {
                 case .read: isRead = true
                 case .unread: isRead = false
@@ -2160,7 +1987,7 @@ struct ModemDeckCallDetailView: View {
         mutationError = ""
         Task {
             do {
-                try await controller.api.deleteCall(id: call.id)
+                try await controller.callsStore.mutate(.delete, calls: [call])
                 onDeleted(call.id)
                 if showsBackButton { presentationMode.wrappedValue.dismiss() }
             } catch {
@@ -2479,8 +2306,8 @@ struct ModemDeckRecordingDetailView: View {
         mutationError = ""
         Task {
             do {
-                try await controller.api.updateRecordings(
-                    action: favorite ? .unfavorite : .favorite,
+                try await controller.callsStore.mutate(
+                    favorite ? .unfavorite : .favorite,
                     recordings: [recording]
                 )
                 favorite.toggle()
@@ -2498,10 +2325,7 @@ struct ModemDeckRecordingDetailView: View {
         mutationError = ""
         Task {
             do {
-                try await controller.api.deleteRecording(
-                    callID: recording.call.id,
-                    recordingID: recording.id
-                )
+                try await controller.callsStore.mutate(.delete, recordings: [recording])
                 onDeleted(recording.id)
                 if showsBackButton { presentationMode.wrappedValue.dismiss() }
             } catch {

@@ -2,6 +2,7 @@ import AVFoundation
 import Combine
 @preconcurrency import Contacts
 import Foundation
+import Network
 import UIKit
 import UserNotifications
 
@@ -9,6 +10,7 @@ extension Notification.Name {
     static let modemDeckRemoteNotification = Notification.Name("ModemDeckRemoteNotification")
     static let modemDeckNotificationResponse = Notification.Name("ModemDeckNotificationResponse")
     static let modemDeckAuthenticationFailed = Notification.Name("ModemDeckAuthenticationFailed")
+    static let modemDeckRequestConnectivity = Notification.Name("ModemDeckRequestConnectivity")
 }
 
 enum ModemDeckSessionPhase: Equatable {
@@ -37,11 +39,23 @@ final class ModemDeckSessionController: ObservableObject {
     @Published var selectedSection: ModemDeckSection
     @Published private(set) var requestedMessageThreadKey: String?
     @Published private(set) var connectionState: ModemDeckConnectionState = .checking
+    @Published private(set) var reconnecting = false
 
     let credentialStore: ModemDeckCredentialStore
     let api: ModemDeckAPIClient
     let callController: ModemDeckCallController
+    let contactsStore: ModemDeckContactsStore
+    let messagesStore: ModemDeckMessagesStore
+    let callsStore: ModemDeckCallsStore
     private var refreshGeneration = 0
+    private var transportFailureRevision = 0
+    private let networkMonitor = NWPathMonitor()
+    private var networkAvailable: Bool?
+    private var connectivityObserver: AnyCancellable?
+    private lazy var recovery = ModemDeckConnectionRecovery { [weak self] in
+        guard let self else { return .stop }
+        return await self.checkConnection()
+    }
 
     init(credentialStore: ModemDeckCredentialStore) {
         self.credentialStore = credentialStore
@@ -50,7 +64,42 @@ final class ModemDeckSessionController: ObservableObject {
         let api = ModemDeckAPIClient(credentialStore: credentialStore)
         self.api = api
         callController = ModemDeckCallController(api: api)
+        let contactsStore = ModemDeckContactsStore(api: api)
+        self.contactsStore = contactsStore
+        messagesStore = ModemDeckMessagesStore(api: api, contactsStore: contactsStore)
+        callsStore = ModemDeckCallsStore(api: api, contactsStore: contactsStore)
+        connectivityObserver = NotificationCenter.default.publisher(for: .modemDeckRequestConnectivity)
+            .sink { [weak self] notification in
+                guard let self, notification.object as? ModemDeckAPIClient === self.api,
+                      self.phase == .paired,
+                      let reachable = notification.userInfo?["reachable"] as? Bool else { return }
+                if reachable {
+                    if self.connectionState == .offline { self.recovery.connectionMayBeAvailable() }
+                } else {
+                    self.transportFailureRevision += 1
+                    self.connectionState = .offline
+                    self.recovery.requestFailed()
+                }
+            }
+        networkMonitor.pathUpdateHandler = { [weak self] path in
+            let available = path.status == .satisfied
+            Task { @MainActor [weak self] in
+                guard let self, self.networkAvailable != available else { return }
+                self.networkAvailable = available
+                guard self.phase == .paired else { return }
+                if available {
+                    self.recovery.connectionMayBeAvailable()
+                } else {
+                    self.transportFailureRevision += 1
+                    self.connectionState = .offline
+                    self.recovery.requestFailed()
+                }
+            }
+        }
+        networkMonitor.start(queue: DispatchQueue(label: "modemdeck.connectivity"))
     }
+
+    deinit { networkMonitor.cancel() }
 
     var serverDisplayName: String {
         guard let credential = try? credentialStore.load(),
@@ -93,6 +142,7 @@ final class ModemDeckSessionController: ObservableObject {
             bootstrap = api.cachedBootstrap()
             phase = .paired
             connectionState = .checking
+            recovery.enable()
             await refresh()
         } catch {
             try? credentialStore.clear()
@@ -105,33 +155,65 @@ final class ModemDeckSessionController: ObservableObject {
     }
 
     func refresh() async {
+        await recovery.refresh()
+    }
+
+    func resume() async {
+        recovery.setForeground(true)
+        guard phase == .paired else { return }
+        await refresh()
+    }
+
+    func suspend() {
+        refreshGeneration &+= 1
+        reconnecting = false
+        recovery.setForeground(false)
+    }
+
+    func refreshCollections() async {
+        async let contacts: () = contactsStore.load()
+        async let messages: () = messagesStore.load()
+        async let calls: () = callsStore.load()
+        _ = await (contacts, messages, calls)
+    }
+
+    private func checkConnection() async -> ModemDeckConnectionRecovery.Result {
+        guard phase == .paired else { return .stop }
         refreshGeneration &+= 1
         let generation = refreshGeneration
-        if connectionState == .offline {
-            connectionState = .checking
+        let failuresBeforeCheck = transportFailureRevision
+        reconnecting = true
+        defer {
+            if generation == refreshGeneration { reconnecting = false }
         }
         do {
             async let nextSession = api.mobileSession()
             async let nextBootstrap = api.bootstrap()
             let values = try await (nextSession, nextBootstrap)
-            guard generation == refreshGeneration else { return }
+            guard generation == refreshGeneration, !Task.isCancelled else { return .stop }
             guard values.0.authenticated else {
                 await resetAfterRevocation()
-                return
+                return .stop
             }
             session = values.0
             bootstrap = values.1
             errorMessage = ""
-            connectionState = .online
             phase = .paired
+            await refreshCollections()
+            guard generation == refreshGeneration, !Task.isCancelled else { return .stop }
+            if transportFailureRevision == failuresBeforeCheck { connectionState = .online }
+            NotificationCenter.default.post(name: .modemDeckRemoteNotification, object: self)
+            return connectionState == .online ? .online : .retry
         } catch let error as ModemDeckAPIError where error.isAuthenticationFailure {
-            guard generation == refreshGeneration else { return }
+            guard generation == refreshGeneration, !Task.isCancelled else { return .stop }
             await resetAfterRevocation()
+            return .stop
         } catch {
-            guard generation == refreshGeneration else { return }
+            guard generation == refreshGeneration, !Task.isCancelled else { return .stop }
             errorMessage = error.localizedDescription
             connectionState = .offline
             phase = .paired
+            return .retry
         }
     }
 
@@ -167,6 +249,8 @@ final class ModemDeckSessionController: ObservableObject {
             try credentialStore.save(credential)
             ModemDeckPushCoordinator.shared.configure(store: credentialStore)
             session = verifiedSession
+            phase = .paired
+            recovery.enable()
             await refresh()
         } catch {
             errorMessage = error.localizedDescription
@@ -186,6 +270,7 @@ final class ModemDeckSessionController: ObservableObject {
             )
             connectionState = .offline
             phase = .paired
+            recovery.requestFailed()
         }
     }
 
@@ -303,6 +388,11 @@ final class ModemDeckSessionController: ObservableObject {
 
     private func resetAfterRevocation() async {
         refreshGeneration &+= 1
+        recovery.stop()
+        reconnecting = false
+        contactsStore.clear()
+        messagesStore.clear()
+        callsStore.clear()
         ModemDeckPushCoordinator.shared.clearConfiguration()
         api.clearCachedData()
         try? credentialStore.clear()
@@ -710,6 +800,9 @@ final class ModemDeckContactsStore: ObservableObject {
 
     private let api: ModemDeckAPIClient
     private var reloadRequested = false
+    private var revision = 0
+    private var scope = 0
+    private var reloadWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(api: ModemDeckAPIClient) {
         self.api = api
@@ -719,22 +812,39 @@ final class ModemDeckContactsStore: ObservableObject {
     func load() async {
         if loading {
             reloadRequested = true
+            await withCheckedContinuation { reloadWaiters.append($0) }
             return
         }
         loading = true
-        defer { loading = false }
+        let scope = scope
+        defer {
+            if scope == self.scope {
+                loading = false
+                finishWaitingLoads()
+            }
+        }
         repeat {
             reloadRequested = false
+            let revision = revision
             do {
-                contacts = try await api.contacts()
+                let next = try await api.contacts()
+                guard scope == self.scope else { return }
+                guard revision == self.revision else {
+                    api.cacheContacts(contacts)
+                    reloadRequested = true
+                    continue
+                }
+                contacts = next
                 errorMessage = ""
             } catch {
+                guard scope == self.scope else { return }
                 errorMessage = contacts.isEmpty ? error.localizedDescription : ""
             }
         } while reloadRequested
     }
 
     func upsert(_ contact: ModemDeckContact) {
+        revision += 1
         if let index = contacts.firstIndex(where: { $0.id == contact.id }) {
             contacts[index] = contact
         } else {
@@ -744,9 +854,26 @@ final class ModemDeckContactsStore: ObservableObject {
     }
 
     func remove<S: Sequence>(ids: S) where S.Element == String {
+        revision += 1
         let removed = Set(ids)
         contacts.removeAll { removed.contains($0.id) }
         api.cacheContacts(contacts)
+    }
+
+    private func finishWaitingLoads() {
+        let waiting = reloadWaiters
+        reloadWaiters.removeAll()
+        waiting.forEach { $0.resume() }
+    }
+
+    func clear() {
+        finishWaitingLoads()
+        scope += 1
+        revision += 1
+        loading = false
+        reloadRequested = false
+        contacts = []
+        errorMessage = ""
     }
 }
 
@@ -758,37 +885,61 @@ final class ModemDeckMessagesStore: ObservableObject {
     @Published var errorMessage = ""
 
     let api: ModemDeckAPIClient
+    private let contactsStore: ModemDeckContactsStore
     private var reloadRequested = false
+    private var revision = 0
+    private var scope = 0
+    private var reloadWaiters: [CheckedContinuation<Void, Never>] = []
 
-    init(api: ModemDeckAPIClient) {
+    init(api: ModemDeckAPIClient, contactsStore: ModemDeckContactsStore) {
         self.api = api
+        self.contactsStore = contactsStore
         threads = api.cachedMessageThreads()
-        contacts = api.cachedContacts()
+        contactsStore.$contacts.assign(to: &$contacts)
     }
 
     func load() async {
         if loading {
             reloadRequested = true
+            await withCheckedContinuation { reloadWaiters.append($0) }
             return
         }
         loading = true
-        defer { loading = false }
+        let scope = scope
+        defer {
+            if scope == self.scope {
+                loading = false
+                finishWaitingLoads()
+            }
+        }
         repeat {
             reloadRequested = false
-            async let nextContacts: [ModemDeckContact]? = try? await api.contacts()
+            let revision = revision
             do {
-                threads = try await api.messageThreads()
+                let next = try await api.messageThreads()
+                guard scope == self.scope else { return }
+                guard revision == self.revision else {
+                    api.cacheMessageThreads(threads)
+                    reloadRequested = true
+                    continue
+                }
+                threads = next
                 errorMessage = ""
             } catch {
+                guard scope == self.scope else { return }
                 errorMessage = threads.isEmpty ? error.localizedDescription : ""
-            }
-            if let nextContacts = await nextContacts {
-                contacts = nextContacts
             }
         } while reloadRequested
     }
 
+    func mutate(_ action: ModemDeckMessageThreadAction, threads: [ModemDeckMessageThread]) async throws {
+        try await api.updateMessageThreads(action: action, threads: threads)
+        apply(action, to: Set(threads.map(\.id)))
+        errorMessage = ""
+    }
+
     func apply(_ action: ModemDeckMessageThreadAction, to ids: Set<String>) {
+        revision += 1
         threads = threads.compactMap { thread in
             guard ids.contains(thread.id) else { return thread }
             if action == .delete { return nil }
@@ -812,6 +963,22 @@ final class ModemDeckMessagesStore: ObservableObject {
         }
         api.cacheMessageThreads(threads)
     }
+
+    private func finishWaitingLoads() {
+        let waiting = reloadWaiters
+        reloadWaiters.removeAll()
+        waiting.forEach { $0.resume() }
+    }
+
+    func clear() {
+        finishWaitingLoads()
+        scope += 1
+        revision += 1
+        loading = false
+        reloadRequested = false
+        threads = []
+        errorMessage = ""
+    }
 }
 
 @MainActor
@@ -823,11 +990,13 @@ final class ModemDeckConversationStore: ObservableObject {
 
     let thread: ModemDeckMessageThread
     private let api: ModemDeckAPIClient
+    private let messagesStore: ModemDeckMessagesStore
     private var reloadRequested = false
 
-    init(api: ModemDeckAPIClient, thread: ModemDeckMessageThread) {
+    init(api: ModemDeckAPIClient, thread: ModemDeckMessageThread, messagesStore: ModemDeckMessagesStore) {
         self.api = api
         self.thread = thread
+        self.messagesStore = messagesStore
         messages = api.cachedMessages(lineID: thread.lineId, peer: thread.peer)
     }
 
@@ -852,6 +1021,7 @@ final class ModemDeckConversationStore: ObservableObject {
     func markRead() async -> Bool {
         do {
             try await api.markThreadRead(lineID: thread.lineId, peer: thread.peer)
+            messagesStore.apply(.read, to: [thread.id])
             errorMessage = ""
             return true
         } catch {
@@ -873,6 +1043,8 @@ final class ModemDeckConversationStore: ObservableObject {
             )
             messages.append(message)
             api.cacheMessages(messages, lineID: thread.lineId, peer: thread.peer)
+            // A confirmed send must not wait for a separate history refresh.
+            Task { await messagesStore.load() }
             errorMessage = ""
             return true
         } catch {
@@ -891,36 +1063,53 @@ final class ModemDeckCallsStore: ObservableObject {
     @Published var errorMessage = ""
 
     private let api: ModemDeckAPIClient
+    private let contactsStore: ModemDeckContactsStore
     private var reloadRequested = false
+    private var revision = 0
+    private var scope = 0
+    private var reloadWaiters: [CheckedContinuation<Void, Never>] = []
 
-    init(api: ModemDeckAPIClient) {
+    init(api: ModemDeckAPIClient, contactsStore: ModemDeckContactsStore) {
         self.api = api
+        self.contactsStore = contactsStore
         calls = api.cachedCalls()
         recordings = api.cachedRecordings()
-        contacts = api.cachedContacts()
+        contactsStore.$contacts.assign(to: &$contacts)
     }
 
     func load() async {
         if loading {
             reloadRequested = true
+            await withCheckedContinuation { reloadWaiters.append($0) }
             return
         }
         loading = true
-        defer { loading = false }
+        let scope = scope
+        defer {
+            if scope == self.scope {
+                loading = false
+                finishWaitingLoads()
+            }
+        }
         repeat {
             reloadRequested = false
+            let revision = revision
             do {
                 async let nextCalls = api.calls()
                 async let nextRecordings = api.recordings()
-                async let nextContacts: [ModemDeckContact]? = try? await api.contacts()
                 let values = try await (nextCalls, nextRecordings)
+                guard scope == self.scope else { return }
+                guard revision == self.revision else {
+                    api.cacheCalls(calls)
+                    api.cacheRecordings(recordings)
+                    reloadRequested = true
+                    continue
+                }
                 calls = values.0
                 recordings = values.1
-                if let nextContacts = await nextContacts {
-                    contacts = nextContacts
-                }
                 errorMessage = ""
             } catch {
+                guard scope == self.scope else { return }
                 errorMessage = calls.isEmpty && recordings.isEmpty
                     ? error.localizedDescription
                     : ""
@@ -929,6 +1118,7 @@ final class ModemDeckCallsStore: ObservableObject {
     }
 
     func apply(_ action: ModemDeckCallBatchAction, to ids: Set<String>) {
+        revision += 1
         calls = calls.compactMap { call in
             guard ids.contains(call.id) else { return call }
             if action == .delete { return nil }
@@ -951,9 +1141,14 @@ final class ModemDeckCallsStore: ObservableObject {
             )
         }
         api.cacheCalls(calls)
+        if action == .delete {
+            recordings.removeAll { ids.contains($0.call.id) }
+            api.cacheRecordings(recordings)
+        }
     }
 
     func apply(_ action: ModemDeckRecordingBatchAction, to ids: Set<String>) {
+        revision += 1
         recordings = recordings.compactMap { recording in
             guard ids.contains(recording.id) else { return recording }
             if action == .delete { return nil }
@@ -967,6 +1162,38 @@ final class ModemDeckCallsStore: ObservableObject {
             )
         }
         api.cacheRecordings(recordings)
+    }
+
+    func mutate(_ action: ModemDeckCallBatchAction, calls: [ModemDeckCallRecord]) async throws {
+        let targets = (action == .read || action == .unread) ? calls.filter(\.missed) : calls
+        guard !targets.isEmpty else { return }
+        let ids = Set(targets.map(\.id))
+        try await api.updateCalls(action: action, ids: Array(ids))
+        apply(action, to: ids)
+        errorMessage = ""
+    }
+
+    func mutate(_ action: ModemDeckRecordingBatchAction, recordings: [ModemDeckRecording]) async throws {
+        try await api.updateRecordings(action: action, recordings: recordings)
+        apply(action, to: Set(recordings.map(\.id)))
+        errorMessage = ""
+    }
+
+    private func finishWaitingLoads() {
+        let waiting = reloadWaiters
+        reloadWaiters.removeAll()
+        waiting.forEach { $0.resume() }
+    }
+
+    func clear() {
+        finishWaitingLoads()
+        scope += 1
+        revision += 1
+        loading = false
+        reloadRequested = false
+        calls = []
+        recordings = []
+        errorMessage = ""
     }
 }
 

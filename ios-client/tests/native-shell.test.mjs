@@ -11,6 +11,21 @@ async function source(path) {
   return readFile(new URL(path, root), 'utf8')
 }
 
+test('native app keeps a shared Release archive scheme separate from simulator UAT', async () => {
+  const [app, uat] = await Promise.all([
+    source('ios/App/App.xcodeproj/xcshareddata/xcschemes/App.xcscheme'),
+    source('ios/App/App.xcodeproj/xcshareddata/xcschemes/App-UAT.xcscheme')
+  ])
+  assert.match(app, /BuildableName="App\.app" BlueprintName="App"/)
+  assert.match(app, /buildForArchiving="YES"/)
+  assert.match(app, /ArchiveAction buildConfiguration="Release"/)
+  assert.match(app, /LaunchAction buildConfiguration="Debug"/)
+  assert.doesNotMatch(app, /AppUITests|MODEMDECK_UAT/)
+  assert.match(uat, /TestAction buildConfiguration="Debug"/)
+  assert.match(uat, /BuildableName="AppUITests\.xctest"/)
+  assert.doesNotMatch(uat, /buildForArchiving="YES"/)
+})
+
 test('native preview shows one persistent header only for the settings flow', async () => {
   const [builder, styles] = await Promise.all([
     source('scripts/build-web-preview.mjs'),
@@ -400,16 +415,14 @@ test('native home omits overview and recent activity heading rows', async () => 
 })
 
 test('native home uses compact line cards instead of summary counters', async () => {
-  const app = await source('ios/App/App/ModemDeckApp.swift')
-
-  assert.match(
-    app,
-    /ModemDeckHomeLineGrid\([\s\S]*lines: controller\.bootstrap\?\.lines \?\? \[\]/
-  )
+  const [app, home] = await Promise.all([
+    source('ios/App/App/ModemDeckApp.swift'), source('ios/App/App/ModemDeckHomeView.swift')
+  ])
+  assert.match(home, /ModemDeckHomeLineGrid\([\s\S]*lines: controller\.bootstrap\?\.lines \?\? \[\]/)
   assert.match(app, /private struct ModemDeckHomeLineCard/)
   assert.match(app, /GridItem\(\.adaptive\(minimum: 168, maximum: 280\), spacing: 8\)/)
-  assert.doesNotMatch(app, /ModemDeckHomeSummaryGrid/)
-  assert.doesNotMatch(app, /unreadMessageCount|missedCallCount|onlineLineCount/)
+  assert.doesNotMatch(home, /ModemDeckPageHeader|最近活动|Recent Activity/)
+  assert.doesNotMatch(app + home, /ModemDeckHomeSummaryGrid|unreadMessageCount|missedCallCount|onlineLineCount/)
 })
 
 test('native contact import is injected into Settings Contacts only', async () => {
@@ -517,12 +530,14 @@ test('native pairing and push retries preserve server ownership boundaries', asy
 })
 
 test('native collection stores coalesce refreshes that arrive during an active request', async () => {
-  const [app, session] = await Promise.all([
-    source('ios/App/App/ModemDeckApp.swift'),
-    source('ios/App/App/ModemDeckSession.swift')
+  const [home, session] = await Promise.all([
+    source('ios/App/App/ModemDeckHomeView.swift'), source('ios/App/App/ModemDeckSession.swift')
   ])
-
-  assert.match(app, /private var reloadRequested = false[\s\S]*if loading \{[\s\S]*reloadRequested = true[\s\S]*while reloadRequested/)
+  assert.doesNotMatch(home, /class ModemDeckActivityStore|api\.messageThreads\(|api\.calls\(/)
+  assert.match(home, /messages = controller\.messagesStore/)
+  assert.match(home, /calls = controller\.callsStore/)
+  assert.match(session, /await withCheckedContinuation \{ reloadWaiters\.append/)
+  assert.match(session, /guard revision == self\.revision/)
   assert.ok((session.match(/private var reloadRequested = false/g) || []).length >= 4)
   assert.ok((session.match(/reloadRequested = true/g) || []).length >= 4)
   assert.ok((session.match(/while reloadRequested/g) || []).length >= 4)
@@ -575,26 +590,40 @@ test('native offline mode preserves protected cached history without blocking th
   assert.match(session, /messages = api\.cachedMessages/)
   assert.match(session, /calls = api\.cachedCalls\(\)[\s\S]*recordings = api\.cachedRecordings\(\)/)
   assert.match(app, /ModemDeckOfflineBanner/)
-  assert.match(app, /离线 · 显示上次同步内容/)
+  assert.match(app, /暂时离线 · 自动重连中/)
+  assert.match(app, /历史内容仍可查看和复制/)
+  assert.match(session, /ModemDeckConnectionRecovery/)
+  assert.match(session, /NWPathMonitor/)
+  assert.match(session, /await refreshCollections\(\)/)
+  assert.match(api, /isCurrentCredential\(credential\)/)
 })
 
 test('native communication rows support selection, copy menus, and Web-equivalent swipe actions', async () => {
-  const [app, communication, calls] = await Promise.all([
+  const [app, communication, calls, home, interaction] = await Promise.all([
     source('ios/App/App/ModemDeckApp.swift'),
     source('ios/App/App/ModemDeckCommunicationViews.swift'),
-    source('ios/App/App/ModemDeckCallViews.swift')
+    source('ios/App/App/ModemDeckCallViews.swift'),
+    source('ios/App/App/ModemDeckHomeView.swift'),
+    source('ios/App/App/ModemDeckListInteraction.swift')
   ])
-
   assert.match(app, /\.textSelection\(\.enabled\)/)
   assert.match(app, /UIPasteboard\.general\.string = item\.value/)
   assert.ok((communication.match(/List \{/g) || []).length >= 2)
   assert.ok((calls.match(/List \{/g) || []).length >= 2)
-  assert.match(communication, /contactListRow[\s\S]*swipeActions\(edge: \.trailing[\s\S]*deleteContact\(contact\)/)
-  assert.match(communication, /threadListRow[\s\S]*swipeActions\(edge: \.leading[\s\S]*unread \? \.read : \.unread/)
-  assert.match(communication, /threadListRow[\s\S]*swipeActions\(edge: \.trailing[\s\S]*mutateThread\(thread, \.delete\)/)
-  assert.match(calls, /callListRow[\s\S]*if call\.missed[\s\S]*call\.read \? \.unread : \.read/)
-  assert.match(calls, /callListRow[\s\S]*swipeActions\(edge: \.trailing[\s\S]*mutateCall\(call, \.delete\)/)
-  assert.match(calls, /recordingListRow[\s\S]*swipeActions\(edge: \.trailing[\s\S]*mutateRecording\(recording, \.delete\)/)
+  assert.match(communication, /contactListRow[\s\S]*ModemDeckListRow/)
+  assert.match(communication, /threadListRow[\s\S]*ModemDeckListRow/)
+  assert.match(calls, /callListRow[\s\S]*ModemDeckListRow/)
+  assert.match(calls, /recordingListRow[\s\S]*ModemDeckListRow/)
+  assert.match(home, /activityRow[\s\S]*ModemDeckListRow/)
+  assert.match(interaction, /swipeActions\(edge: \.leading, allowsFullSwipe: true\)/)
+  assert.match(interaction, /swipeActions\(edge: \.trailing, allowsFullSwipe: false\)/)
+  assert.match(interaction, /Button \{ confirmingDelete = true \}/)
+  assert.match(interaction, /role: \.destructive\) \{ perform\(delete\) \}/)
+  assert.match(calls, /toggleRead: call\.missed \? /)
+  assert.match(app, /NavigationStack\(path: \$path\)/)
+  assert.match(app, /navigationDestination\(for: ModemDeckRoute\.self\)/)
+  assert.doesNotMatch(interaction, /NavigationLink \{/)
+  for (const rows of [communication, calls]) assert.match(rows, /actions: contextActions/)
 })
 
 test('native communication avatars and phone copying follow the Web identity rules', async () => {
@@ -893,10 +922,30 @@ test('native communication details expose single-item state and delete actions',
   ])
 
   assert.match(communication, /private var threadHeaderActions/)
-  assert.match(communication, /deleteMessageThread\(thread\)/)
+  assert.match(communication, /messagesStore\.mutate\(\.delete, threads: \[thread\]\)/)
   assert.match(communication, /mutateThread\(favorite \? \.unfavorite : \.favorite\)/)
   assert.match(calls, /private var callHeaderActions/)
   assert.match(calls, /private var recordingHeaderActions/)
-  assert.match(calls, /deleteCall\(id: call\.id\)/)
-  assert.match(calls, /deleteRecording\([\s\S]*callID: recording\.call\.id/)
+  assert.match(calls, /callsStore\.mutate\(\.delete, calls: \[call\]\)/)
+  assert.match(calls, /callsStore\.mutate\(\.delete, recordings: \[recording\]\)/)
+})
+
+test('home stays a quick view with shared row actions and split detail', async () => {
+  const [home, routing, session] = await Promise.all([
+    source('ios/App/App/ModemDeckHomeView.swift'),
+    source('ios/App/App/ModemDeckListInteraction.swift'),
+    source('ios/App/App/ModemDeckSession.swift')
+  ])
+  assert.match(home, /if usesSplitWorkspace/)
+  assert.match(home, /ModemDeckRouteContent\(route: selectedRoute/)
+  assert.match(routing, /recordings: calls\.recordings\.filter/)
+  assert.doesNotMatch(home, /recordings: \[\]/)
+  assert.doesNotMatch(home, /ModemDeckSearchField|ModemDeckToolbarButton|ModemDeckSegmentPicker|ModemDeckLineFilterMenu|ModemDeckBatchActionBar/)
+  assert.doesNotMatch(home, /selectedIDs|mutateSelected|filteredItems/)
+  assert.match(home, /ForEach\(items\)/)
+  assert.match(home, /\.refreshable \{ await controller\.refresh\(\) \}/)
+  assert.match(home, /await messages\.mutate\(action, threads: \[thread\]\)/)
+  assert.match(home, /await calls\.mutate\(action, calls: \[call\]\)/)
+  assert.match(session, /recordings\.removeAll \{ ids\.contains\(\$0\.call\.id\) \}/)
+  assert.match(session, /messagesStore\.apply\(\.read, to: \[thread\.id\]\)/)
 })

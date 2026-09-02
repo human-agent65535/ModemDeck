@@ -583,7 +583,7 @@ private struct ModemDeckPreferencesSettingsView: View {
 
     init(controller: ModemDeckSessionController) {
         self.controller = controller
-        _contactsStore = StateObject(wrappedValue: ModemDeckContactsStore(api: controller.api))
+        _contactsStore = StateObject(wrappedValue: controller.contactsStore)
     }
 
     private var languageChoices: [ModemDeckSettingsChoice] {

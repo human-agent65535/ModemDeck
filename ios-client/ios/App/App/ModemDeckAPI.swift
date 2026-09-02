@@ -1471,15 +1471,33 @@ final class ModemDeckAPIClient {
             body: body,
             timeout: 30
         )
-        let (payload, response) = try await session.data(for: request)
+        let payload: Data
+        let response: URLResponse
+        do {
+            (payload, response) = try await session.data(for: request)
+        } catch {
+            if let error = error as? URLError, error.code != .cancelled {
+                await reportConnectivity(false, credential: credential, verifying: suppliedCredential != nil)
+            }
+            throw error
+        }
+        // A late response from a revoked/replaced pairing must not populate the
+        // new account's cache or change its connectivity state.
+        if suppliedCredential == nil, !isCurrentCredential(credential) {
+            throw CancellationError()
+        }
         guard let response = response as? HTTPURLResponse else {
             throw ModemDeckAPIError.invalidResponse
         }
         guard (200..<300).contains(response.statusCode) else {
+            if [502, 503, 504].contains(response.statusCode) {
+                await reportConnectivity(false, credential: credential, verifying: suppliedCredential != nil)
+            }
             let serverError = try? decoder.decode(ModemDeckServerError.self, from: payload)
             let message = serverError?.message?.trimmingCharacters(in: .whitespacesAndNewlines)
-            if response.statusCode == 401 {
+            if response.statusCode == 401, suppliedCredential == nil {
                 DispatchQueue.main.async {
+                    guard self.isCurrentCredential(credential) else { return }
                     NotificationCenter.default.post(
                         name: .modemDeckAuthenticationFailed,
                         object: nil
@@ -1494,7 +1512,26 @@ final class ModemDeckAPIClient {
                     : "ModemDeck request failed (HTTP \(response.statusCode))."
             )
         }
+        await reportConnectivity(true, credential: credential, verifying: suppliedCredential != nil)
+        if suppliedCredential == nil, !isCurrentCredential(credential) { throw CancellationError() }
         return payload
+    }
+
+    private func isCurrentCredential(_ credential: ModemDeckCredential) -> Bool {
+        guard let current = try? credentialStore.load() else { return false }
+        return current.serverURL == credential.serverURL && current.token == credential.token
+    }
+
+    private func reportConnectivity(_ reachable: Bool, credential: ModemDeckCredential, verifying: Bool) async {
+        guard !verifying else { return }
+        await MainActor.run {
+            guard self.isCurrentCredential(credential) else { return }
+            NotificationCenter.default.post(
+                name: .modemDeckRequestConnectivity,
+                object: self,
+                userInfo: ["reachable": reachable]
+            )
+        }
     }
 
     private func operationIdentity(
