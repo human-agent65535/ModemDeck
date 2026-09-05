@@ -40,6 +40,10 @@ func main() {
 }
 
 func run(diagnosticLogs diagnostics.LogSource) error {
+	usbProvisioningDefault, err := strconv.ParseBool(envOrDefault("MODEMDECK_QDC507_USB_PROVISIONING", "true"))
+	if err != nil {
+		return fmt.Errorf("parse MODEMDECK_QDC507_USB_PROVISIONING: %w", err)
+	}
 	socketPath := flag.String("socket", "/run/modemdeck/agent.sock", "absolute unix socket path")
 	socketMode := flag.String("socket-mode", "0660", "unix socket permission mode in octal")
 	socketUID := flag.Int("socket-uid", -1, "unix socket owner uid; -1 keeps the process uid")
@@ -68,6 +72,11 @@ func run(diagnosticLogs diagnostics.LogSource) error {
 		"qdc507-voice-runtime-dir",
 		os.Getenv("MODEMDECK_QDC507_VOICE_RUNTIME_DIR"),
 		"absolute directory containing the reviewed QDC507 module voice runtime",
+	)
+	qdc507USBProvisioning := flag.Bool(
+		"qdc507-usb-provisioning",
+		usbProvisioningDefault,
+		"allow automatic QDC507 USB composition changes and module reboot",
 	)
 	watchdogHeartbeatFile := flag.String(
 		"watchdog-heartbeat-file",
@@ -256,7 +265,7 @@ func run(diagnosticLogs diagnostics.LogSource) error {
 	}
 	go runRadioReconciler(ctx, provider)
 	if qdc507VoiceRuntime.Enabled() {
-		go runQDC507VoiceReconciler(ctx, provider, qdc507VoiceRuntime)
+		go runQDC507VoiceReconciler(ctx, provider, qdc507VoiceRuntime, *qdc507USBProvisioning)
 	}
 	go controlLease.Run(ctx)
 	go provider.RunATCallObserver(ctx)
@@ -327,6 +336,7 @@ func runQDC507VoiceReconciler(
 	ctx context.Context,
 	provider qdc507VoiceLineProvider,
 	runtime qdc507VoiceReconciler,
+	provisionUSB bool,
 ) {
 	const attemptTimeout = 3 * time.Minute
 	events, err := provider.SubscribeModemLifecycle(ctx)
@@ -344,15 +354,17 @@ func runQDC507VoiceReconciler(
 			}
 			return
 		}
-		usbChanged, provisionErr := provider.EnsureQDC507VoiceUSB(attemptContext, lines)
-		if usbChanged {
-			provider.QDC507VoiceRuntimeChanged()
-		}
-		if provisionErr != nil {
-			if !errors.Is(provisionErr, context.Canceled) {
-				slog.Warn("provision QDC507 ADB/UAC interfaces", "error", provisionErr)
+		if provisionUSB {
+			usbChanged, provisionErr := provider.EnsureQDC507VoiceUSB(attemptContext, lines)
+			if usbChanged {
+				provider.QDC507VoiceRuntimeChanged()
 			}
-			return
+			if provisionErr != nil {
+				if !errors.Is(provisionErr, context.Canceled) {
+					slog.Warn("provision QDC507 ADB/UAC interfaces", "error", provisionErr)
+				}
+				return
+			}
 		}
 		changed, reconcileErr := runtime.Reconcile(attemptContext, lines)
 		if changed {

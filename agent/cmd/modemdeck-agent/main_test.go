@@ -122,7 +122,7 @@ func TestRunQDC507VoiceReconcilerRunsAtStartupAndModemLifecycle(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		runQDC507VoiceReconciler(ctx, provider, runtime)
+		runQDC507VoiceReconciler(ctx, provider, runtime, true)
 	}()
 
 	waitForQDC507VoiceReconcile(t, provider.provisioned, runtime.reconciled, provider.changes)
@@ -134,6 +134,48 @@ func TestRunQDC507VoiceReconcilerRunsAtStartupAndModemLifecycle(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("runQDC507VoiceReconciler did not stop after cancellation")
+	}
+}
+
+func TestRunQDC507VoiceReconcilerCanPreserveUSBComposition(t *testing.T) {
+	provider := &testQDC507VoiceProvider{
+		events:      make(chan struct{}, 1),
+		changes:     make(chan struct{}, 2),
+		provisioned: make(chan []domain.Line, 2),
+		lines:       []domain.Line{{ID: "line-qdc507"}},
+	}
+	runtime := &testQDC507VoiceRuntime{reconciled: make(chan []domain.Line, 2)}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		runQDC507VoiceReconciler(ctx, provider, runtime, false)
+	}()
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			provider.events <- struct{}{}
+		}
+		select {
+		case lines := <-runtime.reconciled:
+			if len(lines) != 1 || lines[0].ID != "line-qdc507" {
+				t.Fatalf("reconciled lines = %+v", lines)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("resident voice route reconciliation was disabled")
+		}
+		waitForReconcile(t, provider.changes)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("voice reconciler did not stop after cancellation")
+	}
+	select {
+	case <-provider.provisioned:
+		t.Fatal("USB provisioning ran while composition changes were disabled")
+	default:
 	}
 }
 

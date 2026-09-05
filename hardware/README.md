@@ -138,6 +138,13 @@ controlled `AT+CFUN=1,1` restart. The Agent keeps the device inhibited through
 the 35-second ADB quiet window, then verifies the settled descriptors, complete
 `USBCFG`, a fresh post-restart authorization, and a root shell.
 
+For maintenance that must preserve the current USB configuration, set
+`MODEMDECK_QDC507_USB_PROVISIONING=false` (or pass
+`--qdc507-usb-provisioning=false` to the Agent). This disables automatic USB
+configuration and the associated module restart at startup and on lifecycle
+events. Resident voice route checks still run; a missing ADB interface remains
+unavailable until an operator restores it. The default remains `true`.
+
 The USB composition and the module's ADB authorization are persistent modem
 state. The loaded kernel modules, calibration process, and D4-to-UAC bridge are
 RAM-only runtime state. The Agent restores that runtime after each module boot,
