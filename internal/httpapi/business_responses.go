@@ -99,76 +99,80 @@ func lineSummaryResponses(lines []store.LineSummary) []lineSummaryResponse {
 }
 
 type messageThreadResponse struct {
-	Key           string `json:"key"`
-	LineID        string `json:"line_id"`
-	Peer          string `json:"peer"`
-	ContactID     string `json:"contact_id,omitempty"`
-	ContactName   string `json:"contact_name,omitempty"`
-	LastMessageID int64  `json:"last_message_id"`
-	LastTimestamp string `json:"last_timestamp"`
-	LastContent   string `json:"last_content,omitempty"`
-	LastType      int64  `json:"last_type"`
-	UnreadCount   int64  `json:"unread_count"`
-	MarkedUnread  bool   `json:"marked_unread"`
-	Favorite      bool   `json:"favorite"`
+	Key                  string `json:"key"`
+	LineID               string `json:"line_id"`
+	Peer                 string `json:"peer"`
+	ContactID            string `json:"contact_id,omitempty"`
+	ContactName          string `json:"contact_name,omitempty"`
+	LastMessageID        int64  `json:"last_message_id"`
+	LastTimestamp        string `json:"last_timestamp"`
+	LastContent          string `json:"last_content,omitempty"`
+	LastType             int64  `json:"last_type"`
+	UnreadCount          int64  `json:"unread_count"`
+	FirstUnreadMessageID int64  `json:"first_unread_message_id,omitempty"`
+	MarkedUnread         bool   `json:"marked_unread"`
+	Favorite             bool   `json:"favorite"`
 }
 
 func messageThreadResponses(threads []store.MessageThread) []messageThreadResponse {
 	result := make([]messageThreadResponse, 0, len(threads))
 	for _, thread := range threads {
 		result = append(result, messageThreadResponse{
-			Key:           thread.Key,
-			LineID:        thread.LineID,
-			Peer:          thread.Peer,
-			ContactID:     thread.ContactID,
-			ContactName:   thread.ContactName,
-			LastMessageID: thread.LastMessageID,
-			LastTimestamp: thread.LastTimestamp,
-			LastContent:   thread.LastContent,
-			LastType:      thread.LastType,
-			UnreadCount:   thread.UnreadCount,
-			MarkedUnread:  thread.MarkedUnread,
-			Favorite:      thread.Favorite,
+			Key:                  thread.Key,
+			LineID:               thread.LineID,
+			Peer:                 thread.Peer,
+			ContactID:            thread.ContactID,
+			ContactName:          thread.ContactName,
+			LastMessageID:        thread.LastMessageID,
+			LastTimestamp:        thread.LastTimestamp,
+			LastContent:          thread.LastContent,
+			LastType:             thread.LastType,
+			UnreadCount:          thread.UnreadCount,
+			FirstUnreadMessageID: thread.FirstUnreadMessageID,
+			MarkedUnread:         thread.MarkedUnread,
+			Favorite:             thread.Favorite,
 		})
 	}
 	return result
 }
 
 type messageResponseItem struct {
-	ID          int64  `json:"id"`
-	RequestID   string `json:"request_id,omitempty"`
-	LineID      string `json:"line_id"`
-	Peer        string `json:"peer"`
-	Direction   string `json:"direction"`
-	Sender      string `json:"sender,omitempty"`
-	Recipient   string `json:"recipient,omitempty"`
-	Content     string `json:"content"`
-	Type        int64  `json:"type"`
-	Status      int64  `json:"status"`
-	State       string `json:"state,omitempty"`
-	FailureCode string `json:"failure_code,omitempty"`
-	Revision    int64  `json:"revision"`
-	Timestamp   string `json:"timestamp"`
-	CreatedAt   string `json:"created_at,omitempty"`
+	ID             int64                       `json:"id"`
+	RequestID      string                      `json:"request_id,omitempty"`
+	LineID         string                      `json:"line_id"`
+	Peer           string                      `json:"peer"`
+	Direction      string                      `json:"direction"`
+	Sender         string                      `json:"sender,omitempty"`
+	Recipient      string                      `json:"recipient,omitempty"`
+	Content        string                      `json:"content"`
+	Type           int64                       `json:"type"`
+	Status         int64                       `json:"status"`
+	State          string                      `json:"state,omitempty"`
+	DeliveryStatus store.MessageDeliveryStatus `json:"delivery_status,omitempty"`
+	FailureCode    string                      `json:"failure_code,omitempty"`
+	Revision       int64                       `json:"revision"`
+	Timestamp      string                      `json:"timestamp"`
+	CreatedAt      string                      `json:"created_at,omitempty"`
 }
 
 func messageResponseItemFromStore(message store.Message) messageResponseItem {
 	return messageResponseItem{
-		ID:          message.ID,
-		RequestID:   message.RequestID,
-		LineID:      message.LineID,
-		Peer:        message.Peer,
-		Direction:   message.Direction,
-		Sender:      message.Sender,
-		Recipient:   message.Recipient,
-		Content:     message.Content,
-		Type:        message.Type,
-		Status:      message.Status,
-		State:       message.State,
-		FailureCode: message.FailureCode,
-		Revision:    message.Revision,
-		Timestamp:   message.Timestamp,
-		CreatedAt:   message.CreatedAt,
+		ID:             message.ID,
+		RequestID:      message.RequestID,
+		LineID:         message.LineID,
+		Peer:           message.Peer,
+		Direction:      message.Direction,
+		Sender:         message.Sender,
+		Recipient:      message.Recipient,
+		Content:        message.Content,
+		Type:           message.Type,
+		Status:         message.Status,
+		State:          message.State,
+		DeliveryStatus: message.DeliveryStatus,
+		FailureCode:    message.FailureCode,
+		Revision:       message.Revision,
+		Timestamp:      message.Timestamp,
+		CreatedAt:      message.CreatedAt,
 	}
 }
 

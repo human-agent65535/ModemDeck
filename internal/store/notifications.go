@@ -13,6 +13,7 @@ const (
 	NotificationIncomingSMS  = "incoming_sms"
 	NotificationIncomingCall = "incoming_call"
 	NotificationMissedCall   = "missed_call"
+	NotificationBadgeSync    = "badge_sync"
 
 	NotificationPending       = "pending"
 	NotificationSending       = "sending"
@@ -80,10 +81,13 @@ func (s *Store) PendingApplePushDeliveries(
 					WHEN 'voip' THEN credential.voip_token
 					ELSE credential.apns_token
 				END <> ''
-				AND EXISTS (
-					SELECT 1 FROM modemdeck_user_lines access
-					WHERE access.user_id = user.id AND access.line_id = e.line_id
-				)
+					AND (
+						e.event_type = 'badge_sync'
+						OR EXISTS (
+							SELECT 1 FROM modemdeck_user_lines access
+							WHERE access.user_id = user.id AND access.line_id = e.line_id
+						)
+					)
 			THEN 1 ELSE 0 END,
 			CASE WHEN e.event_type <> 'incoming_call' OR EXISTS (
 				SELECT 1 FROM call_history call
@@ -143,6 +147,68 @@ func (s *Store) PendingApplePushDeliveries(
 		deliveries = append(deliveries, delivery)
 	}
 	return deliveries, rowsError("read pending Apple push deliveries", rows.Err())
+}
+
+func (s *Store) EnqueueAppleBadgeSync(ctx context.Context, userID string) error {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return errors.New("enqueue Apple badge sync: user ID is required")
+	}
+	now := time.Now().UTC()
+	eventKey := fmt.Sprintf("badge:%s:%d", userID, now.UnixNano())
+	transaction, err := s.database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin Apple badge sync: %w", err)
+	}
+	defer transaction.Rollback()
+
+	if _, err := transaction.ExecContext(ctx, `
+		UPDATE modemdeck_apple_push_deliveries
+		SET status = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE status = ? AND event_key IN (
+			SELECT event_key FROM modemdeck_notification_events
+			WHERE event_type = ? AND resource_id = ?
+		)
+	`, NotificationCancelled, NotificationPending, NotificationBadgeSync, userID); err != nil {
+		return fmt.Errorf("cancel stale Apple badge sync: %w", err)
+	}
+	if _, err := transaction.ExecContext(ctx, `
+		INSERT INTO modemdeck_notification_events (
+			event_key, event_type, resource_id, line_id, peer, body,
+			occurred_at, created_at
+		) VALUES (?, ?, ?, '', '', '', ?, CURRENT_TIMESTAMP)
+	`, eventKey, NotificationBadgeSync, userID, databaseTime(now)); err != nil {
+		return fmt.Errorf("insert Apple badge sync event: %w", err)
+	}
+	if _, err := transaction.ExecContext(ctx, `
+		INSERT INTO modemdeck_apple_push_deliveries (
+			event_key, credential_id, token_kind, status,
+			attempt_count, next_attempt_at, expires_at, created_at, updated_at
+		)
+		SELECT ?, credential.id, ?, ?, 0, ?, ?,
+			CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+		FROM modemdeck_ios_pairing_credentials AS credential
+		JOIN modemdeck_users AS user
+			ON user.id = credential.user_id
+			AND user.enabled = 1
+			AND user.ios_pairing_enabled = 1
+		WHERE credential.user_id = ?
+			AND credential.activated_at IS NOT NULL
+			AND credential.apns_token <> ''
+	`,
+		eventKey,
+		IOSPushTokenAPNS,
+		NotificationPending,
+		databaseTime(now),
+		databaseTime(now.Add(10*time.Minute)),
+		userID,
+	); err != nil {
+		return fmt.Errorf("allocate Apple badge sync deliveries: %w", err)
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit Apple badge sync: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) NextApplePushDeliveryAttempt(

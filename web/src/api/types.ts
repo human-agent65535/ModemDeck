@@ -652,6 +652,7 @@ export type MessageThread = {
   last_timestamp: string
   last_content?: string
   unread_count: number
+  first_unread_message_id?: string
   marked_unread: boolean
   favorite: boolean
 }

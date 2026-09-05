@@ -127,6 +127,30 @@ func TestApplePushOutboxAllocatesScopedDeliveryAndPersistsRetry(t *testing.T) {
 	if err != nil || len(deliveries) != 1 || deliveries[0].AttemptCount != 1 {
 		t.Fatalf("due retry = %+v, %v", deliveries, err)
 	}
+
+	if err := repository.EnqueueAppleBadgeSync(ctx, member.ID); err != nil {
+		t.Fatalf("EnqueueAppleBadgeSync(first) error = %v", err)
+	}
+	if err := repository.EnqueueAppleBadgeSync(ctx, member.ID); err != nil {
+		t.Fatalf("EnqueueAppleBadgeSync(second) error = %v", err)
+	}
+	deliveries, err = repository.PendingApplePushDeliveries(ctx, time.Now().UTC().Add(time.Second), 10)
+	if err != nil {
+		t.Fatalf("PendingApplePushDeliveries(badge) error = %v", err)
+	}
+	badgeDeliveries := make([]ApplePushDelivery, 0, 1)
+	for _, delivery := range deliveries {
+		if delivery.EventType == NotificationBadgeSync {
+			badgeDeliveries = append(badgeDeliveries, delivery)
+		}
+	}
+	if len(badgeDeliveries) != 1 ||
+		badgeDeliveries[0].UserID != member.ID ||
+		badgeDeliveries[0].LineID != "" ||
+		badgeDeliveries[0].TokenKind != IOSPushTokenAPNS ||
+		!badgeDeliveries[0].Eligible {
+		t.Fatalf("badge deliveries = %+v", badgeDeliveries)
+	}
 }
 
 func TestIncomingCallPushOutboxFollowsPolicyAndPersistedCallState(t *testing.T) {

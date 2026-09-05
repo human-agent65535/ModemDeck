@@ -148,6 +148,7 @@ function applyUser(user?: UserAccount): void {
 
 function selectUser(id: string): void {
   if (saving.value || pairingRevoking.value) return
+  if (!creating.value && selectedID.value === id) return
   creating.value = false
   selectedID.value = id
   applyUser(users.value.find(user => user.id === id))

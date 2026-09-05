@@ -106,17 +106,17 @@ test('communication and Telegram endpoints match the root API', () => {
   assert.deepEqual(communicationContracts.markMessageRead, {
     method: 'PATCH',
     path: '/api/v1/messages/read',
-    successStatus: 204
+    successStatus: 200
   })
   assert.deepEqual(communicationContracts.deleteMessageThread, {
     method: 'DELETE',
     path: '/api/v1/messages/threads',
-    successStatus: 204
+    successStatus: 200
   })
   assert.deepEqual(communicationContracts.updateMessageThreads, {
     method: 'PATCH',
     path: '/api/v1/messages/threads/state',
-    successStatus: 204
+    successStatus: 200
   })
   assert.deepEqual(communicationContracts.startCall, {
     method: 'POST',

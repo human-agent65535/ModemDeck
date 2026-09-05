@@ -66,6 +66,8 @@ type Repository interface {
 		store.IOSPushTokenKind,
 		string,
 	) error
+	MessageUnreadSummaryForUser(context.Context, string) (store.MessageUnreadSummary, error)
+	EnqueueAppleBadgeSync(context.Context, string) error
 }
 
 type TestCallResult struct {
@@ -96,6 +98,7 @@ type Runtime struct {
 	deliveryTimeout time.Duration
 	retryDelay      time.Duration
 	sweepInterval   time.Duration
+	wake            chan struct{}
 }
 
 func NewRuntime(
@@ -138,6 +141,7 @@ func NewRuntime(
 		deliveryTimeout: deliveryTimeout,
 		retryDelay:      retryDelay,
 		sweepInterval:   sweepInterval,
+		wake:            make(chan struct{}, 1),
 	}, nil
 }
 
@@ -164,22 +168,29 @@ func (runtime *Runtime) run(ctx context.Context, ready chan<- struct{}) {
 		close(ready)
 	}
 
-	wake := make(chan struct{}, 1)
 	var workers sync.WaitGroup
 	workers.Add(3)
 	go func() {
 		defer workers.Done()
-		runtime.consumeMessageEvents(ctx, messageEvents, cancelMessages, wake)
+		runtime.consumeMessageEvents(ctx, messageEvents, cancelMessages, runtime.wake)
 	}()
 	go func() {
 		defer workers.Done()
-		runtime.consumeCallEvents(ctx, callEvents, cancelCalls, wake)
+		runtime.consumeCallEvents(ctx, callEvents, cancelCalls, runtime.wake)
 	}()
 	go func() {
 		defer workers.Done()
-		runtime.sweepOutbox(ctx, wake)
+		runtime.sweepOutbox(ctx, runtime.wake)
 	}()
 	workers.Wait()
+}
+
+func (runtime *Runtime) SyncMessageBadge(ctx context.Context, userID string) error {
+	if err := runtime.repository.EnqueueAppleBadgeSync(ctx, userID); err != nil {
+		return err
+	}
+	runtime.wakeOutbox(runtime.wake)
+	return nil
 }
 
 func (runtime *Runtime) consumeMessageEvents(
@@ -416,7 +427,7 @@ func (runtime *Runtime) sendOutboxDelivery(
 	if strings.TrimSpace(delivery.DeviceToken) == "" {
 		return store.NotificationCancelled, "target_unavailable", time.Time{}, ErrPushTargetUnavailable
 	}
-	notification, err := runtime.notificationForDelivery(delivery)
+	notification, err := runtime.notificationForDelivery(ctx, delivery)
 	if err != nil {
 		return store.NotificationFailed, "invalid_delivery", time.Time{}, err
 	}
@@ -483,6 +494,7 @@ func applePushRetryDelay(attempt int) time.Duration {
 }
 
 func (runtime *Runtime) notificationForDelivery(
+	ctx context.Context,
 	delivery store.ApplePushDelivery,
 ) (Notification, error) {
 	now := runtime.now().UTC()
@@ -505,6 +517,7 @@ func (runtime *Runtime) notificationForDelivery(
 				} `json:"alert"`
 				Sound    string `json:"sound"`
 				ThreadID string `json:"thread-id,omitempty"`
+				Badge    int64  `json:"badge"`
 			} `json:"aps"`
 			Message struct {
 				MessageID string `json:"message_id"`
@@ -519,6 +532,11 @@ func (runtime *Runtime) notificationForDelivery(
 		payload.APS.Alert.Body = truncateAlert(delivery.Body)
 		payload.APS.Sound = "default"
 		payload.APS.ThreadID = truncateBytes(threadKey, 64)
+		summary, err := runtime.repository.MessageUnreadSummaryForUser(ctx, delivery.UserID)
+		if err != nil {
+			return Notification{}, fmt.Errorf("read message badge for incoming push: %w", err)
+		}
+		payload.APS.Badge = summary.BadgeCount
 		payload.Message.MessageID = messageID
 		payload.Message.LineID = strings.TrimSpace(delivery.LineID)
 		payload.Message.ThreadKey = threadKey
@@ -526,6 +544,29 @@ func (runtime *Runtime) notificationForDelivery(
 			PushType:   PushTypeAlert,
 			APNSID:     deterministicUUID("message", messageID),
 			Expiration: expiresAt,
+			Payload:    payload,
+		}, nil
+	case store.NotificationBadgeSync:
+		summary, err := runtime.repository.MessageUnreadSummaryForUser(ctx, delivery.UserID)
+		if err != nil {
+			return Notification{}, fmt.Errorf("read message badge for synchronization: %w", err)
+		}
+		payload := struct {
+			APS struct {
+				Badge            int64 `json:"badge"`
+				ContentAvailable int   `json:"content-available"`
+			} `json:"aps"`
+			Badge struct {
+				Count int64 `json:"count"`
+			} `json:"modemdeck_badge"`
+		}{}
+		payload.APS.Badge = summary.BadgeCount
+		payload.APS.ContentAvailable = 1
+		payload.Badge.Count = summary.BadgeCount
+		return Notification{
+			PushType:   PushTypeAlert,
+			CollapseID: deterministicUUID("message-badge", delivery.UserID),
+			Expiration: delivery.ExpiresAt,
 			Payload:    payload,
 		}, nil
 	case store.NotificationIncomingCall:

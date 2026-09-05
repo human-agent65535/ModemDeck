@@ -371,6 +371,7 @@ func run(
 		},
 		MobilePairing:      cloudflareGateway,
 		IOSCallTests:       applePushRuntime,
+		MessageBadgeSync:   applePushRuntime,
 		RTCConfiguration:   turnProvider,
 		Authenticator:      authenticator,
 		SecureCookies:      secureCookies,

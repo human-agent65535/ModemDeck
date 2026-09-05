@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
@@ -91,13 +92,17 @@ func TestCommunicationDeletionUsesAssignedLineScopeForMembers(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			assignedStatus := http.StatusNoContent
+			if strings.HasPrefix(test.path, "/api/v1/messages/") {
+				assignedStatus = http.StatusOK
+			}
 			for _, scope := range []struct {
 				name       string
 				lineID     string
 				wantStatus int
 				wantCalled bool
 			}{
-				{name: "assigned", lineID: "line-allowed", wantStatus: http.StatusNoContent, wantCalled: true},
+				{name: "assigned", lineID: "line-allowed", wantStatus: assignedStatus, wantCalled: true},
 				{name: "unassigned", lineID: "line-hidden", wantStatus: http.StatusNotFound, wantCalled: false},
 			} {
 				t.Run(scope.name, func(t *testing.T) {

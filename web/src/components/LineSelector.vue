@@ -256,6 +256,7 @@ function onTriggerKeydown(event: KeyboardEvent): void {
     case 'Escape':
       if (open.value) {
         event.preventDefault()
+        event.stopPropagation()
         closeMenu(true)
       }
       break
@@ -291,6 +292,7 @@ function onOptionKeydown(event: KeyboardEvent, index: number): void {
       break
     case 'Escape':
       event.preventDefault()
+      event.stopPropagation()
       closeMenu(true)
       break
     case 'Tab':

@@ -640,6 +640,11 @@ watch(
       currentLines.find(line => line.id === currentDefaultLineID) ||
       currentLines.find(line => line.id)
     if (next?.id) selectLine(next, false)
+    else {
+      resetLineServices()
+      selectDeviceConfiguration('')
+      deviceDetailOpen.value = false
+    }
   },
   { immediate: true }
 )
@@ -780,6 +785,7 @@ function updateDeviceRoute(lineID: string, replace = false): void {
 
 function resetLineServices(): void {
   lineServiceGeneration += 1
+  editProfile()
   simStatus.value = null
   simLoadStatus.value = 'idle'
   simError.value = ''
@@ -1226,29 +1232,34 @@ async function saveProfile(): Promise<void> {
     profileError.value = t('device.profileNameOrAPN')
     return
   }
+  const lineID = selectedLineID.value
+  const generation = lineServiceGeneration
+  const input = {
+    ...(editingProfileID.value === null ? {} : { profile_id: editingProfileID.value }),
+    profile_name: profileName.value.trim(),
+    apn: profileAPN.value.trim(),
+    ip_family: profileIPFamily.value,
+    user: profileUser.value.trim(),
+    ...(profilePassword.value ? { password: profilePassword.value } : {})
+  }
   const confirmed = await requestConfirmation({
     title: t('device.saveProfileTitle'),
     confirmLabel: t('common.save')
   })
-  if (!confirmed) return
+  if (!confirmed || !isCurrentLineServiceRequest(lineID, generation)) return
   profilePending.value = true
   profileError.value = ''
   try {
-    await gateway.saveConnectionProfile(selectedLineID.value, {
-      ...(editingProfileID.value === null ? {} : { profile_id: editingProfileID.value }),
-      profile_name: profileName.value.trim(),
-      apn: profileAPN.value.trim(),
-      ip_family: profileIPFamily.value,
-      user: profileUser.value.trim(),
-      ...(profilePassword.value ? { password: profilePassword.value } : {})
-    })
-    editProfile()
-    await loadProfiles(true)
+    await gateway.saveConnectionProfile(lineID, input)
+    if (isCurrentLineServiceRequest(lineID, generation)) {
+      editProfile()
+      await loadProfiles(true)
+    }
     showSuccess(t('common.saved'))
   } catch (error) {
-    profileError.value =
-      error instanceof Error ? error.message : t('device.profileSaveFailed')
-    showError(profileError.value)
+    const message = error instanceof Error ? error.message : t('device.profileSaveFailed')
+    if (isCurrentLineServiceRequest(lineID, generation)) profileError.value = message
+    showError(message)
   } finally {
     profilePending.value = false
   }

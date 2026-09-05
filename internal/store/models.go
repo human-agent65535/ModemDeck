@@ -87,22 +87,29 @@ type ThreadCursor struct {
 }
 
 type MessageThread struct {
-	Key           string `json:"key"`
-	IMSI          string `json:"imsi"`
-	ICCID         string `json:"iccid"`
-	LocalPhone    string `json:"local_phone"`
-	LineID        string `json:"line_id"`
-	Peer          string `json:"peer"`
-	ContactID     string `json:"contact_id"`
-	ContactName   string `json:"contact_name"`
-	LastMessageID int64  `json:"last_message_id"`
-	LastTimestamp string `json:"last_timestamp"`
-	LastContent   string `json:"last_content"`
-	LastType      int64  `json:"last_type"`
-	UnreadCount   int64  `json:"unread_count"`
-	MarkedUnread  bool   `json:"marked_unread"`
-	Favorite      bool   `json:"favorite"`
-	SortTimestamp string `json:"-"`
+	Key                  string `json:"key"`
+	IMSI                 string `json:"imsi"`
+	ICCID                string `json:"iccid"`
+	LocalPhone           string `json:"local_phone"`
+	LineID               string `json:"line_id"`
+	Peer                 string `json:"peer"`
+	ContactID            string `json:"contact_id"`
+	ContactName          string `json:"contact_name"`
+	LastMessageID        int64  `json:"last_message_id"`
+	LastTimestamp        string `json:"last_timestamp"`
+	LastContent          string `json:"last_content"`
+	LastType             int64  `json:"last_type"`
+	UnreadCount          int64  `json:"unread_count"`
+	FirstUnreadMessageID int64  `json:"first_unread_message_id,omitempty"`
+	MarkedUnread         bool   `json:"marked_unread"`
+	Favorite             bool   `json:"favorite"`
+	SortTimestamp        string `json:"-"`
+}
+
+type MessageUnreadSummary struct {
+	BadgeCount         int64 `json:"badge_count"`
+	UnreadMessageCount int64 `json:"unread_message_count"`
+	UnreadThreadCount  int64 `json:"unread_thread_count"`
 }
 
 type MessageQuery struct {
@@ -121,8 +128,9 @@ type MessageCursor struct {
 }
 
 type MessageThreadIdentity struct {
-	LineID string
-	Peer   string
+	LineID           string
+	Peer             string
+	ThroughMessageID int64
 }
 
 type MessageThreadAction string

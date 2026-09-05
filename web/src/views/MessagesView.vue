@@ -807,6 +807,7 @@ async function submit(): Promise<void> {
   if (sendDisabledReason.value || sending.value) return
   sending.value = true
   sendError.value = ''
+  const generation = composerGeneration
   try {
     const replyKey = replyThreadKey.value
     const result = await sendMessage({
@@ -815,6 +816,7 @@ async function submit(): Promise<void> {
       to: activeRecipient.value,
       content: draft.value.trim()
     })
+    if (generation !== composerGeneration) return
     draft.value = ''
     const sentThread = result.thread
     if (props.embeddedCompose) {
@@ -899,6 +901,11 @@ onMounted(() => {
   void reconcileRenderedMessages(false)
   void nextTick(resizeComposer)
 })
+
+let composerGeneration = 0
+watch([draft, activeRecipient, activeLineID], () => {
+  composerGeneration += 1
+}, { flush: 'sync' })
 
 watch(draft, () => {
   void nextTick(resizeComposer)

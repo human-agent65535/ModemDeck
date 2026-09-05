@@ -79,7 +79,7 @@ function requestClose(): void {
 
 function onKeydown(event: KeyboardEvent): void {
   if (!overlayIsTopmost(overlayID)) return
-  if (event.key === 'Escape' && props.closeOnEscape) {
+  if (event.key === 'Escape' && props.closeOnEscape && !event.defaultPrevented) {
     event.preventDefault()
     event.stopPropagation()
     emit('close')

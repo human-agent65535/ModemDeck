@@ -297,13 +297,14 @@ struct ModemDeckContactsView: View {
 
     private func deleteSelectedContacts() {
         let contacts = selectedContacts
+        let deletedIDs = Set(contacts.map(\.id))
         guard controller.isOnline, !contacts.isEmpty, !batchBusy else { return }
         batchBusy = true
         Task {
             do {
                 try await controller.api.deleteContacts(contacts)
-                store.remove(ids: selectedIDs)
-                if let selectedContactID, selectedIDs.contains(selectedContactID) {
+                store.remove(ids: deletedIDs)
+                if let selectedContactID, deletedIDs.contains(selectedContactID) {
                     self.selectedContactID = nil
                 }
                 endContactSelection()
@@ -1697,6 +1698,12 @@ struct ModemDeckMessagesView: View {
             await store.load()
             applyRequestedThread()
         }
+        .onChange(of: usesSplitWorkspace) { split in
+            if !split, let selectedThreadID {
+                navigate(.message(selectedThreadID))
+                self.selectedThreadID = nil
+            }
+        }
         .onChange(of: controller.requestedMessageThreadKey) { _ in
             applyRequestedThread()
         }
@@ -1762,6 +1769,11 @@ struct ModemDeckMessagesView: View {
         VStack(spacing: 0) {
             ModemDeckPageHeader(
                 title: controller.text("消息", "Messages"),
+                secondaryActionIcon: "envelope.open",
+                secondaryActionAccessibilityText: controller.text("全部标为已读", "Mark All Read"),
+                secondaryActionDisabled: batchBusy || !controller.isOnline ||
+                    !filteredThreads.contains { $0.unreadCount > 0 || $0.markedUnread },
+                secondaryAction: markAllMessagesRead,
                 actionIcon: "square.and.pencil",
                 actionAccessibilityText: controller.text("新建短信", "New message"),
                 actionDisabled: !controller.isOnline
@@ -1912,7 +1924,7 @@ struct ModemDeckMessagesView: View {
 
     private var messageBatchBar: some View {
         let selected = selectedThreads
-        let allUnread = !selected.isEmpty && selected.allSatisfy {
+        let hasUnread = selected.contains {
             $0.unreadCount > 0 || $0.markedUnread
         }
         let allFavorite = !selected.isEmpty && selected.allSatisfy(\.favorite)
@@ -1929,12 +1941,12 @@ struct ModemDeckMessagesView: View {
             done: endMessageSelection
         ) {
             ModemDeckBatchActionButton(
-                title: allUnread
+                title: hasUnread
                     ? controller.text("标为已读", "Mark Read")
                     : controller.text("标为未读", "Mark Unread"),
-                icon: allUnread ? "envelope.open" : "envelope.badge",
+                icon: hasUnread ? "envelope.open" : "envelope.badge",
                 disabled: selected.isEmpty || batchBusy || !controller.isOnline
-            ) { mutateSelectedThreads(allUnread ? .read : .unread) }
+            ) { mutateSelectedThreads(hasUnread ? .read : .unread) }
             ModemDeckBatchActionButton(
                 title: allFavorite
                     ? controller.text("取消收藏", "Unfavorite")
@@ -1978,6 +1990,21 @@ struct ModemDeckMessagesView: View {
                     }
                     endMessageSelection()
                 }
+                await store.load()
+                store.errorMessage = ""
+            } catch {
+                store.errorMessage = error.localizedDescription
+            }
+            batchBusy = false
+        }
+    }
+
+    private func markAllMessagesRead() {
+        guard controller.isOnline, !batchBusy else { return }
+        batchBusy = true
+        Task {
+            do {
+                try await store.markAllRead(lineID: lineFilter)
                 await store.load()
                 store.errorMessage = ""
             } catch {
@@ -2059,8 +2086,17 @@ struct ModemDeckMessageThreadRow: View {
         contact != nil || !(thread.contactId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
     }
 
+    private var unread: Bool {
+        thread.unreadCount > 0 || thread.markedUnread
+    }
+
     var body: some View {
-        HStack(alignment: .center, spacing: 11) {
+        HStack(alignment: .center, spacing: 10) {
+            Circle()
+                .fill(Color.mdAccent)
+                .frame(width: 8, height: 8)
+                .opacity(unread ? 1 : 0)
+                .accessibilityHidden(true)
             ModemDeckCommunicationAvatar(
                 channel: .message,
                 name: displayName,
@@ -2072,18 +2108,21 @@ struct ModemDeckMessageThreadRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     Text(displayName)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.subheadline.weight(unread ? .semibold : .regular))
                         .foregroundColor(.mdText)
                         .lineLimit(1)
                     Spacer(minLength: 6)
                     Text(controller.compactDateText(thread.lastTimestamp))
                         .font(.caption)
                         .foregroundColor(.mdFaint)
+                        .monospacedDigit()
                 }
                 HStack(spacing: 7) {
-                    if let line { ModemDeckLineTag(line: line) }
+                    if let line, (controller.bootstrap?.lineCatalog.count ?? 0) > 1 {
+                        ModemDeckLineTag(line: line)
+                    }
                     Text(thread.lastContent ?? "")
-                        .font(.footnote)
+                        .font(.footnote.weight(unread ? .medium : .regular))
                         .foregroundColor(.mdMuted)
                         .lineLimit(1)
                     Spacer(minLength: 0)
@@ -2092,21 +2131,16 @@ struct ModemDeckMessageThreadRow: View {
                             .font(.system(size: 12))
                             .foregroundColor(.orange)
                     }
-                    if thread.unreadCount > 0 || thread.markedUnread {
-                        Text(thread.unreadCount > 99 ? "99+" : "\(max(1, thread.unreadCount))")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 6)
-                            .frame(minWidth: 20, minHeight: 20)
-                            .background(Color.mdAccent)
-                            .clipShape(Capsule())
-                    }
                 }
             }
         }
         .padding(.horizontal, ModemDeckLayout.listHorizontalPadding)
         .frame(minHeight: ModemDeckLayout.listRowMinHeight)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(unread
+            ? controller.text("未读", "Unread")
+            : controller.text("已读", "Read"))
         .modemDeckCopyMenu([
             ModemDeckCopyItem(
                 label: controller.text("复制联系人", "Copy Contact"),
@@ -2133,7 +2167,9 @@ struct ModemDeckConversationView: View {
     let onDeleted: (String) -> Void
     @StateObject private var store: ModemDeckConversationStore
     @Environment(\.presentationMode) private var presentationMode
-    @State private var composer = ""
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @GestureState private var timestampDrag: CGFloat = 0
+    @StateObject private var draft: ModemDeckMessageDraft
     @State private var favorite: Bool
     @State private var unread: Bool
     @State private var mutationBusy = false
@@ -2143,6 +2179,9 @@ struct ModemDeckConversationView: View {
     @State private var bottomVisible = false
     @State private var readAcknowledgementBusy = false
     @State private var scrollToBottomRequest = 0
+    @State private var hasNewMessagesBelow = false
+    @State private var acknowledgedThroughID: Int64 = 0
+    @State private var unreadDividerMessageID: Int64?
 
     init(
         thread: ModemDeckMessageThread,
@@ -2158,11 +2197,13 @@ struct ModemDeckConversationView: View {
         self.showsBackButton = showsBackButton
         self.onChanged = onChanged
         self.onDeleted = onDeleted
+        _draft = StateObject(wrappedValue: controller.messagesStore.draft(for: thread.id))
         _store = StateObject(
             wrappedValue: ModemDeckConversationStore(api: controller.api, thread: thread, messagesStore: controller.messagesStore)
         )
         _favorite = State(initialValue: thread.favorite)
         _unread = State(initialValue: thread.unreadCount > 0 || thread.markedUnread)
+        _unreadDividerMessageID = State(initialValue: thread.firstUnreadMessageId)
     }
 
     private var dialLine: ModemDeckLine? {
@@ -2224,7 +2265,22 @@ struct ModemDeckConversationView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: 10) {
+                        LazyVStack(spacing: 8) {
+                            if store.hasMore {
+                                Button {
+                                    loadOlder(using: proxy)
+                                } label: {
+                                    if store.loadingOlder {
+                                        ProgressView()
+                                    } else {
+                                        Text(controller.text("载入更早消息", "Load Earlier Messages"))
+                                    }
+                                }
+                                .font(.footnote.weight(.medium))
+                                .foregroundColor(.mdAccent)
+                                .frame(minHeight: 38)
+                                .disabled(store.loadingOlder)
+                            }
                             if store.messages.isEmpty {
                                 ModemDeckStateView(
                                     icon: "message",
@@ -2232,12 +2288,21 @@ struct ModemDeckConversationView: View {
                                     detail: controller.text("发送第一条短信。", "Send the first message.")
                                 )
                             }
-                            ForEach(store.messages) { message in
-                                VStack(spacing: 10) {
+                            ForEach(Array(store.messages.enumerated()), id: \.element.id) { index, message in
+                                VStack(spacing: 8) {
+                                    if showsDateDivider(at: index) {
+                                        dateDivider(for: message)
+                                    }
                                     if message.id == initialUnreadMessageID {
                                         unreadDivider
                                     }
-                                    ModemDeckMessageBubble(message: message, controller: controller)
+                                    ModemDeckMessageBubble(
+                                        message: message,
+                                        controller: controller,
+                                        timestampReveal: timestampReveal,
+                                        showsDeliveryStatus: message.id == lastOutgoingMessageID ||
+                                            message.deliveryStatus?.lowercased() == "failed"
+                                    )
                                 }
                                 .id(message.id)
                             }
@@ -2246,23 +2311,49 @@ struct ModemDeckConversationView: View {
                                 .id(conversationBottomID)
                                 .onAppear {
                                     bottomVisible = true
-                                    acknowledgeReadIfNeeded()
+                                    if initialPositionApplied {
+                                        acknowledgeReadIfNeeded()
+                                    }
                                 }
                                 .onDisappear { bottomVisible = false }
                         }
                         .padding(14)
                     }
                     .background(Color.mdBackground)
+                    .simultaneousGesture(timestampRevealGesture)
                     .onAppear {
-                        guard !store.loading, !store.messages.isEmpty else { return }
+                        guard store.authoritativeLoadCompleted, !store.messages.isEmpty else { return }
                         applyInitialPosition(using: proxy)
                     }
-                    .onChange(of: store.loading) { loading in
-                        guard !loading else { return }
+                    .onChange(of: store.authoritativeLoadCompleted) { completed in
+                        guard completed else { return }
                         applyInitialPosition(using: proxy)
                     }
                     .onChange(of: scrollToBottomRequest) { _ in
                         scrollToBottom(using: proxy, animated: true)
+                    }
+                    .overlay(alignment: .bottomTrailing) {
+                        if hasNewMessagesBelow {
+                            Button {
+                                hasNewMessagesBelow = false
+                                scrollToBottomRequest += 1
+                                acknowledgeReadIfNeeded(through: latestMessageID, force: true)
+                            } label: {
+                                Label(
+                                    controller.text("新消息", "New Messages"),
+                                    systemImage: "arrow.down"
+                                )
+                                .font(.footnote.weight(.semibold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 12)
+                                .frame(minHeight: 36)
+                                .background(Color.mdAccent)
+                                .clipShape(Capsule())
+                                .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+                            }
+                            .buttonStyle(.plain)
+                            .padding(14)
+                        }
                     }
                 }
             }
@@ -2284,7 +2375,7 @@ struct ModemDeckConversationView: View {
                 HStack(alignment: .bottom, spacing: 10) {
                     TextField(
                         controller.text("短信内容", "Message"),
-                        text: $composer,
+                        text: $draft.text,
                         axis: .vertical
                     )
                         .lineLimit(1...5)
@@ -2293,10 +2384,11 @@ struct ModemDeckConversationView: View {
                         .background(Color.mdSurfaceHover)
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     Button {
-                        let value = composer
+                        let value = draft.text
+                        let revision = draft.revision
                         Task {
                             if await store.send(value) {
-                                composer = ""
+                                draft.clear(ifRevision: revision)
                                 scrollToBottomRequest += 1
                             }
                         }
@@ -2306,7 +2398,7 @@ struct ModemDeckConversationView: View {
                             .foregroundColor(.mdAccent)
                     }
                     .disabled(
-                        composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                             store.sending || !controller.isOnline
                     )
                 }
@@ -2327,8 +2419,19 @@ struct ModemDeckConversationView: View {
         .onReceive(NotificationCenter.default.publisher(for: .modemDeckRemoteNotification)) { _ in
             Task {
                 let shouldFollowLatest = bottomVisible
+                let previousIDs = Set(store.messages.map(\.id))
                 await store.load()
-                if shouldFollowLatest { scrollToBottomRequest += 1 }
+                let receivedIncoming = store.messages.contains {
+                    $0.incoming && !previousIDs.contains($0.id)
+                }
+                guard receivedIncoming else { return }
+                unread = true
+                if shouldFollowLatest {
+                    scrollToBottomRequest += 1
+                    acknowledgeReadIfNeeded(through: latestMessageID, force: true)
+                } else {
+                    hasNewMessagesBelow = true
+                }
             }
         }
         .alert(
@@ -2347,15 +2450,55 @@ struct ModemDeckConversationView: View {
     }
 
     private var initialUnreadMessageID: Int64? {
-        guard unread, thread.unreadCount > 0, !store.messages.isEmpty else { return nil }
-        var remaining = thread.unreadCount
-        var earliestLoadedIncoming: Int64?
-        for message in store.messages.reversed() where message.incoming {
-            earliestLoadedIncoming = message.id
-            remaining -= 1
-            if remaining <= 0 { return message.id }
-        }
-        return earliestLoadedIncoming ?? store.messages.first?.id
+        guard let id = unreadDividerMessageID, id > 0,
+              store.messages.contains(where: { $0.id == id }) else { return nil }
+        return id
+    }
+
+    private var latestMessageID: Int64? {
+        store.messages.last?.id
+    }
+
+    private var latestIncomingMessageID: Int64? {
+        store.messages.last(where: \.incoming)?.id
+    }
+
+    private var lastOutgoingMessageID: Int64? {
+        store.messages.last(where: { !$0.incoming })?.id
+    }
+
+    private var timestampReveal: CGFloat {
+        min(max(-timestampDrag, 0), 72)
+    }
+
+    private var timestampRevealGesture: some Gesture {
+        DragGesture(minimumDistance: 14)
+            .updating($timestampDrag) { value, state, _ in
+                let horizontal = value.translation.width
+                let vertical = value.translation.height
+                guard horizontal < 0, abs(horizontal) > abs(vertical) * 1.2 else { return }
+                state = max(horizontal, -72)
+            }
+    }
+
+    private func showsDateDivider(at index: Int) -> Bool {
+        guard store.messages.indices.contains(index) else { return false }
+        guard index > 0 else { return true }
+        return !ModemDeckDateText.sameDay(
+            store.messages[index - 1].timestamp,
+            store.messages[index].timestamp
+        )
+    }
+
+    private func dateDivider(for message: ModemDeckMessage) -> some View {
+        Text(controller.messageDayText(message.timestamp))
+            .font(.caption.weight(.semibold))
+            .foregroundColor(.mdMuted)
+            .padding(.horizontal, 10)
+            .frame(minHeight: 26)
+            .background(Color.mdSurfaceHover.opacity(0.86))
+            .clipShape(Capsule())
+            .padding(.vertical, 7)
     }
 
     private var unreadDivider: some View {
@@ -2371,15 +2514,20 @@ struct ModemDeckConversationView: View {
     }
 
     private func applyInitialPosition(using proxy: ScrollViewProxy) {
-        guard !initialPositionApplied, !store.loading else { return }
+        guard !initialPositionApplied, store.authoritativeLoadCompleted else { return }
         initialPositionApplied = true
         let unreadID = initialUnreadMessageID
+        let snapshotID = latestMessageID
         Task { @MainActor in
             await Task.yield()
             if let unreadID {
                 proxy.scrollTo(unreadID, anchor: .top)
             } else {
                 proxy.scrollTo(conversationBottomID, anchor: .bottom)
+            }
+            if unread {
+                try? await Task.sleep(nanoseconds: 180_000_000)
+                acknowledgeReadIfNeeded(through: snapshotID, force: true)
             }
         }
     }
@@ -2388,7 +2536,7 @@ struct ModemDeckConversationView: View {
         Task { @MainActor in
             await Task.yield()
             if animated {
-                withAnimation(.easeOut(duration: 0.22)) {
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
                     proxy.scrollTo(conversationBottomID, anchor: .bottom)
                 }
             } else {
@@ -2397,15 +2545,32 @@ struct ModemDeckConversationView: View {
         }
     }
 
-    private func acknowledgeReadIfNeeded() {
-        guard controller.isOnline, unread, !readAcknowledgementBusy else { return }
+    private func loadOlder(using proxy: ScrollViewProxy) {
+        Task {
+            guard let anchor = await store.loadOlder() else { return }
+            await Task.yield()
+            proxy.scrollTo(anchor, anchor: .top)
+        }
+    }
+
+    private func acknowledgeReadIfNeeded(through messageID: Int64? = nil, force: Bool = false) {
+        guard let target = messageID ?? latestMessageID, target > acknowledgedThroughID,
+              controller.isOnline, (force || unread || hasNewMessagesBelow),
+              !readAcknowledgementBusy else { return }
         readAcknowledgementBusy = true
         Task {
-            if await store.markRead() {
-                unread = false
+            let succeeded = await store.markRead(throughMessageID: target)
+            if succeeded {
+                acknowledgedThroughID = max(acknowledgedThroughID, target)
+                let newerIncoming = (latestIncomingMessageID ?? 0) > target
+                unread = newerIncoming
+                if !newerIncoming { hasNewMessagesBelow = false }
                 onChanged()
             }
             readAcknowledgementBusy = false
+            if succeeded, bottomVisible, let latest = latestIncomingMessageID, latest > target {
+                acknowledgeReadIfNeeded(through: latestMessageID, force: true)
+            }
         }
     }
 
@@ -2418,14 +2583,6 @@ struct ModemDeckConversationView: View {
                 color: .mdAccent,
                 disabled: dialLine == nil || controller.callController.busy || !controller.isOnline
             ) { startCall() },
-            ModemDeckHeaderAction(
-                id: "read",
-                icon: unread ? "envelope.open" : "envelope.badge",
-                title: unread
-                    ? controller.text("标为已读", "Mark read")
-                    : controller.text("标为未读", "Mark unread"),
-                disabled: mutationBusy || !controller.isOnline
-            ) { mutateThread(unread ? .read : .unread) },
             ModemDeckHeaderAction(
                 id: "favorite",
                 icon: favorite ? "star.fill" : "star",
@@ -2499,23 +2656,77 @@ struct ModemDeckConversationView: View {
 private struct ModemDeckMessageBubble: View {
     let message: ModemDeckMessage
     @ObservedObject var controller: ModemDeckSessionController
+    let timestampReveal: CGFloat
+    let showsDeliveryStatus: Bool
+
+    private var deliveryText: String? {
+        guard !message.incoming, showsDeliveryStatus else { return nil }
+        switch message.deliveryStatus?.lowercased() {
+        case "delivered":
+            return controller.text("已送达", "Delivered")
+        case "submitted":
+            return controller.text("已发送", "Sent")
+        case "failed":
+            return controller.text("发送失败", "Not Delivered")
+        default:
+            return message.failureCode?.isEmpty == false
+                ? controller.text("发送失败", "Not Delivered")
+                : nil
+        }
+    }
+
+    private var deliveryFailed: Bool {
+        message.deliveryStatus?.lowercased() == "failed" || message.failureCode?.isEmpty == false
+    }
 
     var body: some View {
-        HStack {
-            if !message.incoming { Spacer(minLength: 48) }
-            VStack(alignment: message.incoming ? .leading : .trailing, spacing: 4) {
-                Text(message.content)
-                    .font(.system(size: 15))
-                    .foregroundColor(message.incoming ? .mdText : .white)
-                    .padding(.horizontal, 13)
-                    .padding(.vertical, 9)
-                    .background(message.incoming ? Color.mdSurface : Color.mdAccent)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                Text(controller.compactDateText(message.timestamp))
-                    .font(.system(size: 10))
-                    .foregroundColor(.mdFaint)
+        ZStack(alignment: .trailing) {
+            Text(controller.messageTimeText(message.timestamp))
+                .font(.caption2.monospacedDigit())
+                .foregroundColor(.mdFaint)
+                .frame(width: 66, alignment: .trailing)
+                .opacity(min(timestampReveal / 24, 1))
+                .accessibilityHidden(true)
+
+            HStack {
+                if !message.incoming { Spacer(minLength: 48) }
+                VStack(alignment: message.incoming ? .leading : .trailing, spacing: 4) {
+                    Text(message.content)
+                        .font(.body)
+                        .foregroundColor(message.incoming ? .mdText : .white)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 13)
+                        .padding(.vertical, 9)
+                        .background(message.incoming ? Color.mdSurface : Color.mdAccent)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    if let deliveryText {
+                        Label(deliveryText, systemImage: deliveryFailed ? "exclamationmark.circle" : "checkmark")
+                            .font(.caption2)
+                            .foregroundColor(deliveryFailed ? .mdDanger : .mdFaint)
+                    }
+                }
+                if message.incoming { Spacer(minLength: 48) }
             }
-            if message.incoming { Spacer(minLength: 48) }
+            .frame(maxWidth: .infinity)
+            .background(Color.mdBackground)
+            .offset(x: -timestampReveal)
         }
+        .frame(maxWidth: .infinity)
+        .clipped()
+        .modemDeckCopyMenu([
+            ModemDeckCopyItem(
+                label: controller.text("复制短信", "Copy Message"),
+                value: message.content
+            )
+        ])
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel([
+            message.incoming
+                ? controller.text("收到", "Received")
+                : controller.text("发出", "Sent"),
+            message.content,
+            controller.dateText(message.timestamp),
+            deliveryText
+        ].compactMap { $0 }.joined(separator: ", "))
     }
 }

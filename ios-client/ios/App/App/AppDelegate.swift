@@ -41,7 +41,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         ModemDeckPushCoordinator.shared.handleRemoteNotification(
             notification.request.content.userInfo
         )
-        completionHandler([.banner, .list, .sound])
+        completionHandler([.banner, .list, .sound, .badge])
     }
 
     func userNotificationCenter(

@@ -103,6 +103,7 @@ const threads = [
     last_timestamp: '2026-08-09T08:32:00Z',
     last_content: '第三条未读 UAT 消息。',
     unread_count: 3,
+    first_unread_message_id: 28,
     marked_unread: false,
     favorite: true
   },
@@ -114,6 +115,7 @@ const threads = [
     last_timestamp: '2026-08-09T08:33:00Z',
     last_content: '未绑定发送方 UAT 消息。',
     unread_count: 0,
+    first_unread_message_id: null,
     marked_unread: false,
     favorite: false
   }
@@ -130,9 +132,10 @@ const messages = [
       content: incoming
         ? `历史 UAT 消息 ${index + 1}`
         : `历史 UAT 回复 ${index + 1}`,
-      timestamp: new Date(Date.UTC(2026, 7, 9, 8, index)).toISOString(),
+      timestamp: new Date(Date.UTC(2026, 7, index < 12 ? 8 : 9, 8, index)).toISOString(),
       type: incoming ? 1 : 2,
       status: 0,
+      delivery_status: incoming ? '' : 'delivered',
       revision: 1
     }
   }),
@@ -145,6 +148,7 @@ const messages = [
     timestamp: `2026-08-09T08:${id + 2}:00Z`,
     type: 1,
     status: 0,
+    delivery_status: '',
     revision: 1
   }))
 ]
@@ -339,6 +343,8 @@ function readOnlyBody(pathname) {
     return { contacts, meta: pageMeta }
   case '/api/v1/messages/threads':
     return { threads, meta: pageMeta }
+  case '/api/v1/messages/unread-summary':
+    return unreadSummary()
   case '/api/v1/messages':
     return { messages, meta: pageMeta }
   case '/api/v1/calls':
@@ -444,11 +450,23 @@ function applyState(items, predicate, action) {
     if (action === 'read' || action === 'unread') {
       if ('unread_count' in item) {
         item.unread_count = action === 'read' ? 0 : item.unread_count
+        item.first_unread_message_id = action === 'read' ? null : item.first_unread_message_id
         item.marked_unread = action === 'unread'
       } else if (item.missed) item.read = action === 'read'
     }
   }
 }
+
+function unreadSummary() {
+  const counts = threads.map(thread => Math.max(thread.unread_count || 0, thread.marked_unread ? 1 : 0))
+  return {
+    badge_count: counts.reduce((total, count) => total + count, 0),
+    unread_message_count: threads.reduce((total, thread) => total + (thread.unread_count || 0), 0),
+    unread_thread_count: counts.filter(count => count > 0).length
+  }
+}
+
+let contactDeleteDelayMS = 0
 
 async function fixtureWrite(request, response, pathname) {
   const body = await readJSON(request)
@@ -457,24 +475,50 @@ async function fixtureWrite(request, response, pathname) {
       items.splice(0, items.length, ...structuredClone(initial[name]))
     }
     online = true
+    contactDeleteDelayMS = 0
     operations.length = 0
+  } else if (pathname === '/__uat/configure') {
+    contactDeleteDelayMS = Math.max(0, Math.min(8000, Number(body.contactDeleteDelayMS) || 0))
+    if (body.secondContact) {
+      const extra = structuredClone(initial.contacts[0])
+      extra.id = 'uat-contact-second'
+      extra.display_name = '第二个测试联系人'
+      extra.phones[0].id = 'uat-phone-second'
+      extra.phones[0].original_number = '+1 202 555 0102'
+      extra.phones[0].canonical_e164 = '+12025550102'
+      contacts.push(extra)
+    }
   } else if (pathname === '/__uat/connectivity') {
     online = body.online !== false
   } else if (pathname === '/api/v1/messages/read') {
     applyState(threads, item => item.line_id === body.line_id && item.peer === body.peer, 'read')
+  } else if (pathname === '/api/v1/messages/read-all') {
+    applyState(threads, item => !body.line_id || item.line_id === body.line_id, 'read')
   } else if (pathname === '/api/v1/messages/threads/state') {
     applyState(threads, item => body.threads?.some(target => target.line_id === item.line_id && target.peer === item.peer), body.action)
+  } else if (pathname === '/api/v1/messages/threads') {
+    applyState(threads, item => item.line_id === body.line_id && item.peer === body.peer, 'delete')
   } else if (pathname === '/api/v1/calls/batch') {
     applyState(calls, item => body.ids?.includes(item.id), body.action)
     if (body.action === 'delete') applyState(recordings, item => body.ids?.includes(item.call.id), 'delete')
   } else if (pathname === '/api/v1/recordings/batch') {
     applyState(recordings, item => body.recordings?.some(target => target.id === item.segment.id && target.call_id === item.call.id), body.action)
+  } else if (pathname === '/api/v1/contacts/batch' && body.action === 'delete') {
+    operations.push({ pathname, phase: 'started' })
+    if (contactDeleteDelayMS) await new Promise(resolve => setTimeout(resolve, contactDeleteDelayMS))
+    applyState(contacts, item => body.contacts?.some(target => target.id === item.id), 'delete')
   } else {
     send(response, 409, { code: 'uat_write_disabled', message: 'This fixture operation is not enabled' })
     return
   }
-  if (pathname.startsWith('/api/')) operations.push({ pathname, action: body.action ?? 'read' })
-  send(response, 200, { ok: true })
+  if (pathname.startsWith('/api/')) {
+    operations.push({
+      pathname,
+      action: body.action ?? 'read',
+      ...(body.through_message_id ? { through_message_id: body.through_message_id } : {})
+    })
+  }
+  send(response, 200, pathname.startsWith('/api/v1/messages/') ? unreadSummary() : { ok: true })
 }
 
 const activeStreams = new Set()
@@ -525,7 +569,7 @@ const server = https.createServer(
         status = 404
         send(response, status, { code: 'not_found', message: 'Not found' })
       }
-    } else if (mutable && request.method === 'PATCH') {
+    } else if (mutable && (request.method === 'PATCH' || request.method === 'DELETE')) {
       try { await fixtureWrite(request, response, url.pathname) } catch { send(response, 400, { code: 'invalid_fixture_request' }) }
     } else {
       status = 409

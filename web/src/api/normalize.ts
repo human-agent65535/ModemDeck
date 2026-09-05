@@ -253,6 +253,7 @@ export function parseThread(value: unknown): MessageThread {
     last_timestamp: stringValue(source, 'last_timestamp'),
     last_content: stringValue(source, 'last_content') || undefined,
     unread_count: Math.max(0, numberValue(source, 'unread_count')),
+    first_unread_message_id: stringValue(source, 'first_unread_message_id') || undefined,
     marked_unread: requiredBoolean(source, 'thread', 'marked_unread'),
     favorite: requiredBoolean(source, 'thread', 'favorite')
   }

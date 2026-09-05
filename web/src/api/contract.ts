@@ -418,17 +418,17 @@ export const communicationContracts = {
   markMessageRead: {
     method: 'PATCH',
     path: communicationPaths.messageRead,
-    successStatus: 204
+    successStatus: 200
   },
   deleteMessageThread: {
     method: 'DELETE',
     path: communicationPaths.messageThreads,
-    successStatus: 204
+    successStatus: 200
   },
   updateMessageThreads: {
     method: 'PATCH',
     path: communicationPaths.messageThreadState,
-    successStatus: 204
+    successStatus: 200
   },
   startCall: {
     method: 'POST',

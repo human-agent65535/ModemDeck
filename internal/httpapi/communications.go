@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/communication"
 	"github.com/human-agent65535/modemdeck/internal/store"
@@ -25,8 +26,17 @@ type sendMessageRequest struct {
 }
 
 type markMessageReadRequest struct {
-	LineID string `json:"line_id"`
-	Peer   string `json:"peer"`
+	LineID           string `json:"line_id"`
+	Peer             string `json:"peer"`
+	ThroughMessageID int64  `json:"through_message_id,omitempty"`
+}
+
+type markAllMessagesReadRequest struct {
+	LineID string `json:"line_id,omitempty"`
+}
+
+type MessageBadgeSyncService interface {
+	SyncMessageBadge(context.Context, string) error
 }
 
 type messageThreadStateRequest struct {
@@ -126,8 +136,9 @@ func (api *API) messageRead(response http.ResponseWriter, request *http.Request)
 		return
 	}
 	identity := store.MessageThreadIdentity{
-		LineID: strings.TrimSpace(input.LineID),
-		Peer:   strings.TrimSpace(input.Peer),
+		LineID:           strings.TrimSpace(input.LineID),
+		Peer:             strings.TrimSpace(input.Peer),
+		ThroughMessageID: input.ThroughMessageID,
 	}
 	if identity.LineID == "" || identity.Peer == "" {
 		writeError(
@@ -152,8 +163,58 @@ func (api *API) messageRead(response http.ResponseWriter, request *http.Request)
 		return
 	}
 	api.publishDurableChange()
+	api.syncMessageBadgeForRequest(request)
+	api.writeMessageUnreadSummary(response, request)
+}
+
+func (api *API) messageReadAll(response http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPatch {
+		response.Header().Set("Allow", http.MethodPatch)
+		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "Only PATCH is supported", "")
+		return
+	}
+	var input markAllMessagesReadRequest
+	if !decodeJSONBody(response, request, &input) {
+		return
+	}
+	lineID := strings.TrimSpace(input.LineID)
+	if lineID != "" && !api.requireLineAccess(response, request, lineID) {
+		return
+	}
+	if err := api.repository.MarkAllMessageThreadsRead(request.Context(), lineID); err != nil {
+		api.writeInternalError(response, request, "mark all message threads read", err)
+		return
+	}
+	api.publishDurableChange()
+	api.syncMessageBadgeForRequest(request)
+	api.writeMessageUnreadSummary(response, request)
+}
+
+func (api *API) messageUnreadSummary(response http.ResponseWriter, request *http.Request) {
+	api.writeMessageUnreadSummary(response, request)
+}
+
+func (api *API) writeMessageUnreadSummary(response http.ResponseWriter, request *http.Request) {
+	summary, err := api.repository.MessageUnreadSummary(request.Context())
+	if err != nil {
+		api.writeInternalError(response, request, "read message unread summary", err)
+		return
+	}
 	response.Header().Set("Cache-Control", "no-store")
-	response.WriteHeader(http.StatusNoContent)
+	writeJSON(response, http.StatusOK, summary)
+}
+
+func (api *API) syncMessageBadgeForRequest(request *http.Request) {
+	if api.messageBadgeSync == nil {
+		return
+	}
+	principal, ok := auth.PrincipalFromContext(request.Context())
+	if !ok || strings.TrimSpace(principal.UserID) == "" {
+		return
+	}
+	if err := api.messageBadgeSync.SyncMessageBadge(request.Context(), principal.UserID); err != nil {
+		api.logger.Warn("queue message badge synchronization", "user_id", principal.UserID, "error", err)
+	}
 }
 
 func (api *API) messageThreadState(response http.ResponseWriter, request *http.Request) {
@@ -184,8 +245,9 @@ func (api *API) messageThreadState(response http.ResponseWriter, request *http.R
 	identities := make([]store.MessageThreadIdentity, 0, len(input.Threads))
 	for _, thread := range input.Threads {
 		identity := store.MessageThreadIdentity{
-			LineID: strings.TrimSpace(thread.LineID),
-			Peer:   strings.TrimSpace(thread.Peer),
+			LineID:           strings.TrimSpace(thread.LineID),
+			Peer:             strings.TrimSpace(thread.Peer),
+			ThroughMessageID: thread.ThroughMessageID,
 		}
 		if identity.LineID == "" || identity.Peer == "" {
 			writeError(response, http.StatusBadRequest, "invalid_argument", "line_id and peer are required", "threads")
@@ -210,8 +272,12 @@ func (api *API) messageThreadState(response http.ResponseWriter, request *http.R
 		return
 	}
 	api.publishDurableChange()
-	response.Header().Set("Cache-Control", "no-store")
-	response.WriteHeader(http.StatusNoContent)
+	if action == store.MessageThreadMarkRead ||
+		action == store.MessageThreadMarkUnread ||
+		action == store.MessageThreadDelete {
+		api.syncMessageBadgeForRequest(request)
+	}
+	api.writeMessageUnreadSummary(response, request)
 }
 
 func (api *API) messageThreadsCollection(
@@ -261,8 +327,8 @@ func (api *API) deleteMessageThread(response http.ResponseWriter, request *http.
 		return
 	}
 	api.publishDurableChange()
-	response.Header().Set("Cache-Control", "no-store")
-	response.WriteHeader(http.StatusNoContent)
+	api.syncMessageBadgeForRequest(request)
+	api.writeMessageUnreadSummary(response, request)
 }
 
 func (api *API) callsCollection(response http.ResponseWriter, request *http.Request) {

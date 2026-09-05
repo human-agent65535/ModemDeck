@@ -11,6 +11,7 @@ import {
 import { setSystemLanguage, translate } from '../i18n'
 import { requestActiveCallRefresh } from './call'
 import { releaseCallMediaForSessionEnd } from './callMedia'
+import { resetDeviceConfigurationState } from './deviceConfiguration'
 import { resetNetworkState } from './network'
 import { resetRecordingState } from './recording'
 import { resetUIState } from './ui'
@@ -84,6 +85,7 @@ async function applySession(session: SessionResponse): Promise<boolean> {
     reloadForAuthorizationChange
   ) {
     rotateAuthenticationRequestScope()
+    resetDeviceConfigurationState()
   }
   state.status = 'authenticated'
   state.userID = nextScope.userID
@@ -119,6 +121,7 @@ export function clearSession(message = '', setupRequired = false): void {
   state.error = message
   setClientCSRFToken()
   resetWorkspaceState()
+  resetDeviceConfigurationState()
   resetNetworkState()
   resetRecordingState()
   resetUIState()

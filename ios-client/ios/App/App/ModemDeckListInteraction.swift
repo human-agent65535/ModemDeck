@@ -165,6 +165,7 @@ struct ModemDeckListRow<Content: View>: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(!enabled || busy)
             .accessibilityIdentifier(accessibilityID)
             .accessibilityAddTraits(selected ? .isSelected : [])
             .accessibilityValue([

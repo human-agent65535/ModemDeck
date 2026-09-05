@@ -36,6 +36,7 @@ func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]Messag
 	contactOwner := contactOwnerSQL(ctx, "contacts")
 	stateJoin := ""
 	unreadExpression := "sc.unread_count"
+	firstUnreadExpression := "0"
 	markedUnreadExpression := "sc.marked_unread"
 	favoriteExpression := "sc.is_favorite"
 	if principal, scoped := auth.PrincipalFromContext(ctx); scoped {
@@ -53,6 +54,15 @@ func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]Messag
 				AND unread_message.deleted_at IS NULL
 				AND unread_message.id > COALESCE(user_state.last_read_sms_id, 0)
 		)`
+		firstUnreadExpression = `COALESCE((
+			SELECT MIN(unread_message.id)
+			FROM sms AS unread_message
+			WHERE unread_message.line_id = sc.line_id
+				AND unread_message.peer = sc.peer
+				AND unread_message.type = 1
+				AND unread_message.deleted_at IS NULL
+				AND unread_message.id > COALESCE(user_state.last_read_sms_id, 0)
+		), 0)`
 		markedUnreadExpression = "COALESCE(user_state.marked_unread, 0)"
 		favoriteExpression = "COALESCE(user_state.is_favorite, 0)"
 	}
@@ -74,6 +84,7 @@ func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]Messag
 			sc.last_content,
 			sc.last_type,
 			` + unreadExpression + `,
+			` + firstUnreadExpression + `,
 			` + markedUnreadExpression + `,
 			` + favoriteExpression + `,
 			COALESCE(CAST(sc.last_timestamp AS TEXT), '')
@@ -148,12 +159,12 @@ func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]Messag
 		var (
 			thread                                                             MessageThread
 			key, imsi, iccid, localPhone, lineID, peer, contactID, contactName sql.NullString
-			lastID, lastType, unread, markedUnread, favorite                   sql.NullInt64
+			lastID, lastType, unread, firstUnread, markedUnread, favorite      sql.NullInt64
 			lastTimestamp, lastContent, sortTimestamp                          sql.NullString
 		)
 		if err := rows.Scan(
 			&key, &imsi, &iccid, &localPhone, &lineID, &peer, &contactID, &contactName,
-			&lastID, &lastTimestamp, &lastContent, &lastType, &unread,
+			&lastID, &lastTimestamp, &lastContent, &lastType, &unread, &firstUnread,
 			&markedUnread, &favorite, &sortTimestamp,
 		); err != nil {
 			return nil, fmt.Errorf("scan message thread: %w", err)
@@ -171,12 +182,84 @@ func (s *Store) MessageThreads(ctx context.Context, query ThreadQuery) ([]Messag
 		thread.LastContent = stringValue(lastContent)
 		thread.LastType = intValue(lastType)
 		thread.UnreadCount = intValue(unread)
+		thread.FirstUnreadMessageID = intValue(firstUnread)
 		thread.MarkedUnread = boolValue(markedUnread)
 		thread.Favorite = boolValue(favorite)
 		thread.SortTimestamp = stringValue(sortTimestamp)
 		threads = append(threads, thread)
 	}
 	return threads, rowsError("read message threads", rows.Err())
+}
+
+func (s *Store) MessageUnreadSummary(ctx context.Context) (MessageUnreadSummary, error) {
+	if principal, scoped := auth.PrincipalFromContext(ctx); scoped {
+		return s.MessageUnreadSummaryForUser(ctx, principal.UserID)
+	}
+	var summary MessageUnreadSummary
+	err := s.database.QueryRowContext(ctx, `
+		SELECT
+			COALESCE(SUM(CASE
+				WHEN unread_count > 0 THEN unread_count
+				WHEN marked_unread <> 0 THEN 1
+				ELSE 0
+			END), 0),
+			COALESCE(SUM(unread_count), 0),
+			COALESCE(SUM(CASE WHEN unread_count > 0 OR marked_unread <> 0 THEN 1 ELSE 0 END), 0)
+		FROM sms_contacts
+	`).Scan(&summary.BadgeCount, &summary.UnreadMessageCount, &summary.UnreadThreadCount)
+	if err != nil {
+		return MessageUnreadSummary{}, fmt.Errorf("query message unread summary: %w", err)
+	}
+	return summary, nil
+}
+
+func (s *Store) MessageUnreadSummaryForUser(
+	ctx context.Context,
+	userID string,
+) (MessageUnreadSummary, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return MessageUnreadSummary{}, fmt.Errorf("query message unread summary: user ID is required")
+	}
+	var summary MessageUnreadSummary
+	err := s.database.QueryRowContext(ctx, `
+		SELECT
+			COALESCE(SUM(CASE
+				WHEN unread_count > 0 THEN unread_count
+				WHEN marked_unread <> 0 THEN 1
+				ELSE 0
+			END), 0),
+			COALESCE(SUM(unread_count), 0),
+			COALESCE(SUM(CASE WHEN unread_count > 0 OR marked_unread <> 0 THEN 1 ELSE 0 END), 0)
+		FROM (
+			SELECT
+				(
+					SELECT COUNT(*)
+					FROM sms AS unread_message
+					WHERE unread_message.line_id = thread.line_id
+						AND unread_message.peer = thread.peer
+						AND unread_message.type = 1
+						AND unread_message.deleted_at IS NULL
+						AND unread_message.id > COALESCE(user_state.last_read_sms_id, 0)
+				) AS unread_count,
+				COALESCE(user_state.marked_unread, 0) AS marked_unread
+			FROM sms_contacts AS thread
+			JOIN modemdeck_user_lines AS access
+				ON access.user_id = ? AND access.line_id = thread.line_id
+			LEFT JOIN modemdeck_user_message_thread_state AS user_state
+				ON user_state.user_id = ?
+				AND user_state.line_id = thread.line_id
+				AND user_state.peer = thread.peer
+		)
+	`, userID, userID).Scan(
+		&summary.BadgeCount,
+		&summary.UnreadMessageCount,
+		&summary.UnreadThreadCount,
+	)
+	if err != nil {
+		return MessageUnreadSummary{}, fmt.Errorf("query user message unread summary: %w", err)
+	}
+	return summary, nil
 }
 
 func (s *Store) Messages(ctx context.Context, query MessageQuery) ([]Message, error) {
@@ -414,18 +497,13 @@ func (s *Store) UpdateMessageThreads(
 	return nil
 }
 
-func updateUserMessageThreadState(
-	ctx context.Context,
-	transaction *sql.Tx,
-	userID string,
-	identity MessageThreadIdentity,
-	action MessageThreadAction,
-) error {
-	// last_read_sms_id is an ingestion watermark, not the ID of the message
-	// displayed last. sms_contacts.last_sms_id follows message timestamps, which
-	// can be out of order when a modem imports historical messages.
-	if action == MessageThreadMarkRead {
-		if _, err := transaction.ExecContext(ctx, `
+func (s *Store) MarkAllMessageThreadsRead(ctx context.Context, lineID string) error {
+	lineID = strings.TrimSpace(lineID)
+	if principal, scoped := auth.PrincipalFromContext(ctx); scoped {
+		if lineID != "" && !principalCanAccessLine(ctx, lineID) {
+			return ErrMessageThreadNotFound
+		}
+		_, err := s.database.ExecContext(ctx, `
 			INSERT INTO modemdeck_user_message_thread_state (
 				user_id, line_id, peer, last_read_sms_id, marked_unread,
 				is_favorite, updated_at
@@ -444,6 +522,68 @@ func updateUserMessageThreadState(
 				0,
 				CURRENT_TIMESTAMP
 			FROM sms_contacts AS thread
+			JOIN modemdeck_user_lines AS access
+				ON access.user_id = ? AND access.line_id = thread.line_id
+			WHERE (? = '' OR thread.line_id = ?)
+			ON CONFLICT(user_id, line_id, peer) DO UPDATE SET
+				last_read_sms_id = MAX(
+					modemdeck_user_message_thread_state.last_read_sms_id,
+					excluded.last_read_sms_id
+				),
+				marked_unread = 0,
+				updated_at = CURRENT_TIMESTAMP
+		`, principal.UserID, principal.UserID, lineID, lineID)
+		if err != nil {
+			return fmt.Errorf("mark all user message threads read: %w", err)
+		}
+		return nil
+	}
+
+	statement := `UPDATE sms_contacts
+		SET unread_count = 0, marked_unread = 0, updated_at = CURRENT_TIMESTAMP`
+	arguments := []any{}
+	if lineID != "" {
+		statement += " WHERE line_id = ?"
+		arguments = append(arguments, lineID)
+	}
+	if _, err := s.database.ExecContext(ctx, statement, arguments...); err != nil {
+		return fmt.Errorf("mark all message threads read: %w", err)
+	}
+	return nil
+}
+
+func updateUserMessageThreadState(
+	ctx context.Context,
+	transaction *sql.Tx,
+	userID string,
+	identity MessageThreadIdentity,
+	action MessageThreadAction,
+) error {
+	// last_read_sms_id is an ingestion watermark, not the ID of the message
+	// displayed last. sms_contacts.last_sms_id follows message timestamps, which
+	// can be out of order when a modem imports historical messages.
+	if action == MessageThreadMarkRead {
+		throughMessageID := identity.ThroughMessageID
+		if _, err := transaction.ExecContext(ctx, `
+			INSERT INTO modemdeck_user_message_thread_state (
+				user_id, line_id, peer, last_read_sms_id, marked_unread,
+				is_favorite, updated_at
+			)
+			SELECT
+				?,
+				thread.line_id,
+				thread.peer,
+				COALESCE((
+					SELECT MAX(message.id)
+					FROM sms AS message
+					WHERE message.line_id = thread.line_id
+						AND message.peer = thread.peer
+						AND (? <= 0 OR message.id <= ?)
+				), 0),
+				0,
+				0,
+				CURRENT_TIMESTAMP
+			FROM sms_contacts AS thread
 			WHERE thread.line_id = ? AND thread.peer = ?
 			ON CONFLICT(user_id, line_id, peer) DO UPDATE SET
 				last_read_sms_id = MAX(
@@ -452,7 +592,7 @@ func updateUserMessageThreadState(
 				),
 				marked_unread = 0,
 				updated_at = CURRENT_TIMESTAMP
-		`, userID, identity.LineID, identity.Peer); err != nil {
+		`, userID, throughMessageID, throughMessageID, identity.LineID, identity.Peer); err != nil {
 			return fmt.Errorf("mark user message thread read: %w", err)
 		}
 		return nil
@@ -467,12 +607,7 @@ func updateUserMessageThreadState(
 			?,
 			thread.line_id,
 			thread.peer,
-			COALESCE((
-				SELECT MAX(message.id)
-				FROM sms AS message
-				WHERE message.line_id = thread.line_id
-					AND message.peer = thread.peer
-			), 0),
+			0,
 			0,
 			0,
 			CURRENT_TIMESTAMP
@@ -518,7 +653,7 @@ func normalizeMessageThreadIdentities(
 		return nil, fmt.Errorf("update message threads: between 1 and 100 threads are required")
 	}
 	result := make([]MessageThreadIdentity, 0, len(identities))
-	seen := make(map[string]struct{}, len(identities))
+	seen := make(map[string]int, len(identities))
 	for _, identity := range identities {
 		identity.LineID = strings.TrimSpace(identity.LineID)
 		identity.Peer = strings.TrimSpace(identity.Peer)
@@ -526,10 +661,13 @@ func normalizeMessageThreadIdentities(
 			return nil, fmt.Errorf("update message threads: line ID and peer are required")
 		}
 		key := identity.LineID + "\x00" + identity.Peer
-		if _, duplicate := seen[key]; duplicate {
+		if index, duplicate := seen[key]; duplicate {
+			if identity.ThroughMessageID > result[index].ThroughMessageID {
+				result[index].ThroughMessageID = identity.ThroughMessageID
+			}
 			continue
 		}
-		seen[key] = struct{}{}
+		seen[key] = len(result)
 		result = append(result, identity)
 	}
 	return result, nil

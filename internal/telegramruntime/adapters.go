@@ -194,6 +194,9 @@ func (a adapters) SendSMS(ctx context.Context, request telegram.SMSRequest) erro
 		Number:    request.To,
 		Text:      request.Body,
 	})
+	if err == nil && a.runtimeEvents != nil {
+		a.runtimeEvents.Publish(runtimeevents.Change{Durable: true})
+	}
 	return err
 }
 

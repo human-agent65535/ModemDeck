@@ -1640,6 +1640,17 @@ func (dataPlane *linuxDataPlane) remove(
 	link netlink.Link,
 	network appliedNetwork,
 ) error {
+	current, lookupErr := dataPlane.netlink.LinkByName(network.Interface)
+	if lookupErr != nil && !isMissingNetlinkObject(lookupErr) {
+		return fmt.Errorf("inspect interface before cleanup: %w", lookupErr)
+	}
+	ownedInterface := lookupErr == nil && current.Attrs().Index == network.LinkIndex
+	// Policy rules survive device removal, but interface-local state does not.
+	// Never use a replacement device merely because it acquired the old name.
+	link = &netlink.Dummy{LinkAttrs: netlink.LinkAttrs{Index: network.LinkIndex, Name: network.Interface}}
+	if ownedInterface {
+		link = current
+	}
 	var result error
 	for index := len(network.Rules) - 1; index >= 0; index-- {
 		rule, err := netlinkRule(network.Table, network.Rules[index])
@@ -1658,6 +1669,9 @@ func (dataPlane *linuxDataPlane) remove(
 		if err != nil && !isMissingNetlinkObject(err) {
 			result = errors.Join(result, err)
 		}
+	}
+	if !ownedInterface {
+		return result
 	}
 	for _, value := range network.Addresses {
 		address, err := netlink.ParseAddr(value)
@@ -1690,6 +1704,13 @@ func (dataPlane *linuxDataPlane) remove(
 		setting := network.Sysctls[index]
 		current, err := dataPlane.sysctl.Read(network.Interface, setting.Name)
 		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				remaining, lookupErr := dataPlane.netlink.LinkByName(network.Interface)
+				if isMissingNetlinkObject(lookupErr) ||
+					(lookupErr == nil && remaining.Attrs().Index != network.LinkIndex) {
+					continue
+				}
+			}
 			result = errors.Join(result, err)
 			continue
 		}
@@ -1718,7 +1739,7 @@ func (dataPlane *linuxDataPlane) remove(
 			if !isMissingNetlinkObject(err) {
 				result = errors.Join(result, err)
 			}
-		} else if current.Attrs().Flags&net.FlagUp != 0 {
+		} else if current.Attrs().Index == network.LinkIndex && current.Attrs().Flags&net.FlagUp != 0 {
 			if err := dataPlane.netlink.LinkSetDown(current); err != nil &&
 				!isMissingNetlinkObject(err) {
 				result = errors.Join(result, err)
@@ -1991,7 +2012,7 @@ func linkForApplied(
 	controller netlinkController,
 ) netlink.Link {
 	link, err := controller.LinkByName(applied.Interface)
-	if err == nil {
+	if err == nil && link.Attrs().Index == applied.LinkIndex {
 		return link
 	}
 	return &netlink.Dummy{LinkAttrs: netlink.LinkAttrs{

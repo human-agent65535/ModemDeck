@@ -199,6 +199,21 @@ func TestMultiUserCommunicationAndPersonalStateIsolation(t *testing.T) {
 	}
 	assertThreadState(t, repository, aliceCtx, 0, true)
 	assertThreadState(t, repository, bobCtx, 1, false)
+	aliceSummary, err := repository.MessageUnreadSummary(aliceCtx)
+	if err != nil {
+		t.Fatalf("MessageUnreadSummary(alice) error = %v", err)
+	}
+	bobSummary, err := repository.MessageUnreadSummary(bobCtx)
+	if err != nil {
+		t.Fatalf("MessageUnreadSummary(bob) error = %v", err)
+	}
+	if aliceSummary != (MessageUnreadSummary{}) || bobSummary != (MessageUnreadSummary{
+		BadgeCount:         1,
+		UnreadMessageCount: 1,
+		UnreadThreadCount:  1,
+	}) {
+		t.Fatalf("unread summaries alice=%+v bob=%+v", aliceSummary, bobSummary)
+	}
 
 	if err := repository.MarkMissedCallsReadByIDs(aliceCtx, []string{"call-alpha-new"}); err != nil {
 		t.Fatalf("mark alice call read: %v", err)
@@ -382,15 +397,29 @@ func TestMessageReadWatermarkUsesIngestionOrder(t *testing.T) {
 	}
 	if len(threads) != 1 ||
 		threads[0].LastMessageID != displayedMessageID ||
-		threads[0].UnreadCount != 1 {
+		threads[0].UnreadCount != 1 ||
+		threads[0].FirstUnreadMessageID != backfilledMessageID {
 		t.Fatalf(
-			"thread before read = %+v, want displayed ID %d and one unread",
+			"thread before read = %+v, want displayed ID %d and first unread %d",
 			threads,
 			displayedMessageID,
+			backfilledMessageID,
 		)
 	}
 
-	identity := MessageThreadIdentity{LineID: lineID, Peer: peer}
+	concurrentMessageID := insertTestMessage(
+		t,
+		database,
+		lineID,
+		peer,
+		"arrived after the client snapshot",
+		"2026-07-30 11:00:00",
+	)
+	identity := MessageThreadIdentity{
+		LineID:           lineID,
+		Peer:             peer,
+		ThroughMessageID: backfilledMessageID,
+	}
 	if err := repository.UpdateMessageThreads(
 		userCtx,
 		[]MessageThreadIdentity{identity},
@@ -402,8 +431,26 @@ func TestMessageReadWatermarkUsesIngestionOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MessageThreads() after read error = %v", err)
 	}
-	if len(threads) != 1 || threads[0].UnreadCount != 0 {
-		t.Fatalf("thread remains unread after read: %+v", threads)
+	if len(threads) != 1 ||
+		threads[0].UnreadCount != 1 ||
+		threads[0].FirstUnreadMessageID != concurrentMessageID {
+		t.Fatalf("snapshot read consumed a concurrent message: %+v", threads)
+	}
+
+	identity.ThroughMessageID = concurrentMessageID
+	if err := repository.UpdateMessageThreads(
+		userCtx,
+		[]MessageThreadIdentity{identity},
+		MessageThreadMarkRead,
+	); err != nil {
+		t.Fatalf("mark concurrent message read: %v", err)
+	}
+	threads, err = repository.MessageThreads(userCtx, ThreadQuery{})
+	if err != nil {
+		t.Fatalf("MessageThreads() after final read error = %v", err)
+	}
+	if len(threads) != 1 || threads[0].UnreadCount != 0 || threads[0].FirstUnreadMessageID != 0 {
+		t.Fatalf("thread remains unread after final read: %+v", threads)
 	}
 
 	var readThrough int64
@@ -414,11 +461,11 @@ func TestMessageReadWatermarkUsesIngestionOrder(t *testing.T) {
 	`, user.ID, lineID, peer).Scan(&readThrough); err != nil {
 		t.Fatalf("read message watermark: %v", err)
 	}
-	if readThrough != backfilledMessageID {
+	if readThrough != concurrentMessageID {
 		t.Fatalf(
 			"read watermark = %d, want ingestion boundary %d",
 			readThrough,
-			backfilledMessageID,
+			concurrentMessageID,
 		)
 	}
 

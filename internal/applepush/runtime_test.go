@@ -27,7 +27,27 @@ type fakePushRepository struct {
 	finished   []finishedPushDelivery
 	cleared    []clearedPushToken
 	targets    map[store.IOSPushTokenKind][]store.IOSPushTarget
+	summary    store.MessageUnreadSummary
+	summaryFor string
+	badgeSync  string
 	err        error
+}
+
+func (repository *fakePushRepository) MessageUnreadSummaryForUser(
+	_ context.Context,
+	userID string,
+) (store.MessageUnreadSummary, error) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	repository.summaryFor = userID
+	return repository.summary, repository.err
+}
+
+func (repository *fakePushRepository) EnqueueAppleBadgeSync(_ context.Context, userID string) error {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	repository.badgeSync = userID
+	return repository.err
 }
 
 type finishedPushDelivery struct {
@@ -230,6 +250,7 @@ func (sender *fakePushSender) sent() []Notification {
 func TestRuntimeBuildsDurableAlertAndVoIPPayloads(t *testing.T) {
 	now := time.Date(2026, time.August, 9, 5, 0, 0, 0, time.UTC)
 	repository := newFakePushRepository()
+	repository.summary = store.MessageUnreadSummary{BadgeCount: 7}
 	sender := &fakePushSender{bundleID: "com.example.modemdeck"}
 	runtime := testRuntime(t, repository, sender, now)
 
@@ -253,7 +274,7 @@ func TestRuntimeBuildsDurableAlertAndVoIPPayloads(t *testing.T) {
 		t.Fatalf("notifications = %+v", notifications)
 	}
 	alertJSON, _ := json.Marshal(notifications[0].Payload)
-	for _, expected := range []string{"Example message", "modemdeck_message", `"message_id":"42"`} {
+	for _, expected := range []string{"Example message", "modemdeck_message", `"message_id":"42"`, `"badge":7`} {
 		if !jsonContains(t, alertJSON, expected) {
 			t.Fatalf("alert payload %s does not contain %q", alertJSON, expected)
 		}
@@ -272,6 +293,47 @@ func TestRuntimeBuildsDurableAlertAndVoIPPayloads(t *testing.T) {
 		if finished.status != store.NotificationAccepted {
 			t.Fatalf("finished = %+v", repository.finished)
 		}
+	}
+}
+
+func TestRuntimeSynchronizesAbsoluteBadgeOnEveryPairedDevice(t *testing.T) {
+	now := time.Date(2026, time.August, 9, 5, 15, 0, 0, time.UTC)
+	repository := newFakePushRepository()
+	repository.summary = store.MessageUnreadSummary{
+		BadgeCount:         3,
+		UnreadMessageCount: 3,
+		UnreadThreadCount:  2,
+	}
+	sender := &fakePushSender{bundleID: "com.example.modemdeck"}
+	runtime := testRuntime(t, repository, sender, now)
+
+	if err := runtime.SyncMessageBadge(context.Background(), "user-example"); err != nil {
+		t.Fatalf("SyncMessageBadge() error = %v", err)
+	}
+	if repository.badgeSync != "user-example" {
+		t.Fatalf("badge sync user = %q, want user-example", repository.badgeSync)
+	}
+
+	delivery := exampleDelivery(now, store.NotificationBadgeSync, store.IOSPushTokenAPNS)
+	delivery.UserID = "user-example"
+	delivery.LineID = ""
+	repository.add(delivery, store.NotificationPending, now)
+	if !runtime.deliverOutboxEntry(context.Background(), delivery) {
+		t.Fatal("badge synchronization delivery was not claimed")
+	}
+	notifications := sender.sent()
+	if len(notifications) != 1 {
+		t.Fatalf("notifications = %+v", notifications)
+	}
+	payload, _ := json.Marshal(notifications[0].Payload)
+	for _, expected := range []string{`"badge":3`, `"content-available":1`, `"count":3`} {
+		if !jsonContains(t, payload, expected) {
+			t.Fatalf("badge payload %s does not contain %q", payload, expected)
+		}
+	}
+	if notifications[0].CollapseID != deterministicUUID("message-badge", "user-example") ||
+		repository.summaryFor != "user-example" {
+		t.Fatalf("badge notification = %+v, summary user = %q", notifications[0], repository.summaryFor)
 	}
 }
 

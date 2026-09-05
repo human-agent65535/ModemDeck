@@ -22,9 +22,12 @@ final class CommunicationUXTests: XCTestCase {
         return (try JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
     }
 
-    private func launch() async throws -> XCUIApplication {
+    private func launch(configuration: [String: Any] = [:]) async throws -> XCUIApplication {
         continueAfterFailure = false
         _ = try await fixture("/__uat/reset", body: [:])
+        if !configuration.isEmpty {
+            _ = try await fixture("/__uat/configure", body: configuration)
+        }
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment = [
@@ -45,6 +48,78 @@ final class CommunicationUXTests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    func testRotationPreservesConversationAndDraft() async throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad)
+        let app = try await launch()
+        app.buttons["section-messages"].tap()
+        app.buttons["message-\(threadID)"].tap()
+        let composer = app.textFields["短信内容"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 6))
+        composer.tap()
+        composer.typeText("KEEP_THIS_UNSENT_DRAFT")
+        let draft = app.descendants(matching: .any).matching(
+            NSPredicate(format: "value CONTAINS %@", "KEEP_THIS_UNSENT_DRAFT")
+        ).firstMatch
+        XCTAssertTrue(draft.exists)
+        for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
+            XCUIDevice.shared.orientation = orientation
+            let expectedLandscape = orientation == .landscapeLeft
+            let rotated = NSPredicate { _, _ in (app.frame.width > app.frame.height) == expectedLandscape }
+            await fulfillment(of: [XCTNSPredicateExpectation(predicate: rotated, object: app)], timeout: 8)
+            XCTAssertTrue(draft.waitForExistence(timeout: 5), "Rotation must retain the visible conversation and draft")
+            XCTAssertFalse(app.staticTexts["选择会话"].exists)
+            capture(expectedLandscape ? "fixed-draft-landscape" : "fixed-draft-portrait", app: app)
+        }
+    }
+
+    func testSplitConversationSurvivesCompactRotation() async throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad)
+        let app = try await launch()
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let landscape = NSPredicate { _, _ in app.frame.width > app.frame.height }
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: landscape, object: app)], timeout: 8)
+        app.buttons["section-messages"].tap()
+        app.buttons["message-\(threadID)"].tap()
+        let composer = app.textFields["短信内容"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 6))
+        composer.tap()
+        composer.typeText("SPLIT_DRAFT")
+        XCUIDevice.shared.orientation = .portrait
+        let portrait = NSPredicate { _, _ in app.frame.width < app.frame.height }
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: portrait, object: app)], timeout: 8)
+        XCTAssertTrue(app.descendants(matching: .any).matching(
+            NSPredicate(format: "value CONTAINS %@", "SPLIT_DRAFT")
+        ).firstMatch.waitForExistence(timeout: 6))
+        capture("fixed-split-to-compact-draft", app: app)
+    }
+
+    func testContactBatchDeleteKeepsItsOriginalSelection() async throws {
+        let app = try await launch(configuration: ["secondContact": true, "contactDeleteDelayMS": 8000])
+        app.buttons["section-contacts"].tap()
+        let original = app.buttons["contact-uat-contact-example"]
+        let other = app.buttons["contact-uat-contact-second"]
+        XCTAssertTrue(original.waitForExistence(timeout: 6))
+        app.buttons["选择联系人"].tap()
+        original.tap()
+        app.buttons["删除"].tap()
+        app.alerts.buttons["删除"].tap()
+        var started = false
+        for _ in 0..<12 where !started {
+            let state = try await fixture("/__uat/state")
+            started = (state["operations"] as? [[String: Any]] ?? []).contains { $0["phase"] as? String == "started" }
+            if !started { try await Task.sleep(nanoseconds: 100_000_000) }
+        }
+        XCTAssertTrue(started)
+        XCTAssertFalse(original.isEnabled)
+        XCTAssertFalse(other.isEnabled, "Selection must be frozen during the submitted deletion")
+        let gone = NSPredicate(format: "exists == false")
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: gone, object: original)], timeout: 12)
+        XCTAssertTrue(other.exists)
+        let state = try await fixture("/__uat/state")
+        XCTAssertEqual((state["contacts"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }, ["uat-contact-second"])
+        capture("fixed-contact-delete-selection", app: app)
     }
 
     func testHomeSwipeCancelAndSharedReadState() async throws {
@@ -93,6 +168,7 @@ final class CommunicationUXTests: XCTestCase {
         messageRow.tap()
         app.buttons["message-uat-line-a:UAT-SERVICE"].tap()
         XCTAssertTrue(app.staticTexts["已选择 2 项"].exists)
+        XCTAssertTrue(app.buttons["标为已读"].exists, "Mixed read state defaults to Mark Read")
         capture("messages-batch-selection", app: app)
         app.buttons["收藏"].tap()
         let favorite = NSPredicate(format: "value CONTAINS %@", "已收藏")
@@ -102,6 +178,37 @@ final class CommunicationUXTests: XCTestCase {
         XCTAssertTrue(message.waitForExistence(timeout: 5))
         XCTAssertTrue((message.value as? String)?.contains("已收藏") == true)
         XCTAssertEqual(app.textFields.count, 0)
+    }
+
+    func testMessageConversationStartsAtUnreadAndAcknowledgesSnapshot() async throws {
+        let app = try await launch()
+        app.buttons["section-messages"].tap()
+        let row = app.buttons["message-\(threadID)"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.tap()
+        XCTAssertTrue(app.staticTexts["未读消息"].waitForExistence(timeout: 5))
+        capture("message-unread-anchor-and-day-groups", app: app)
+
+        let conversation = app.scrollViews.firstMatch
+        let dragStart = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5))
+        let dragEnd = conversation.coordinate(withNormalizedOffset: CGVector(dx: 0.58, dy: 0.5))
+        dragStart.press(
+            forDuration: 0.05,
+            thenDragTo: dragEnd,
+            withVelocity: .slow,
+            thenHoldForDuration: 0.5
+        )
+
+        var readOperation: [String: Any]?
+        for _ in 0..<20 where readOperation == nil {
+            let state = try await fixture("/__uat/state")
+            let operations = state["operations"] as? [[String: Any]] ?? []
+            readOperation = operations.last {
+                $0["pathname"] as? String == "/api/v1/messages/read"
+            }
+            if readOperation == nil { try await Task.sleep(nanoseconds: 250_000_000) }
+        }
+        XCTAssertEqual(readOperation?["through_message_id"] as? Int, 30)
     }
 
     func testHomeCallRecordingAndNavigation() async throws {

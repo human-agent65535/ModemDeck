@@ -41,7 +41,9 @@ type Repository interface {
 	DeleteContacts(context.Context, []store.ContactRevision) error
 	MessageThreads(context.Context, store.ThreadQuery) ([]store.MessageThread, error)
 	Messages(context.Context, store.MessageQuery) ([]store.Message, error)
+	MessageUnreadSummary(context.Context) (store.MessageUnreadSummary, error)
 	MarkMessageThreadRead(context.Context, store.MessageThreadIdentity) error
+	MarkAllMessageThreadsRead(context.Context, string) error
 	UpdateMessageThreads(
 		context.Context,
 		[]store.MessageThreadIdentity,
@@ -284,6 +286,7 @@ type Options struct {
 	CloudflareOriginTLS   CloudflareOriginTLSService
 	MobilePairing         mobilepairing.Availability
 	IOSCallTests          IOSCallTestService
+	MessageBadgeSync      MessageBadgeSyncService
 	RTCConfiguration      rtcconfig.Provider
 	Authenticator         Authenticator
 	SecureCookies         bool
@@ -315,6 +318,7 @@ type API struct {
 	cloudflareOriginTLSService CloudflareOriginTLSService
 	mobilePairingAvailability  mobilepairing.Availability
 	iosCallTests               IOSCallTestService
+	messageBadgeSync           MessageBadgeSyncService
 	rtcConfiguration           rtcconfig.Provider
 	turnAvailability           turnAvailabilityCache
 	authenticator              Authenticator
@@ -366,6 +370,7 @@ func New(repository Repository, options Options) (*API, error) {
 		cloudflareOriginTLSService: options.CloudflareOriginTLS,
 		mobilePairingAvailability:  options.MobilePairing,
 		iosCallTests:               options.IOSCallTests,
+		messageBadgeSync:           options.MessageBadgeSync,
 		rtcConfiguration:           options.RTCConfiguration,
 		authenticator:              options.Authenticator,
 		secureCookies:              options.SecureCookies,
@@ -466,6 +471,10 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.messagesCollection(response, request)
 	case "/api/v1/messages/read":
 		api.messageRead(response, request)
+	case "/api/v1/messages/read-all":
+		api.messageReadAll(response, request)
+	case "/api/v1/messages/unread-summary":
+		api.getOnly(response, request, api.messageUnreadSummary)
 	case "/api/v1/messages/threads/state":
 		api.messageThreadState(response, request)
 	case "/api/v1/messages/events":

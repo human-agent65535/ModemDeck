@@ -512,6 +512,10 @@ async function replaceCallInput(deviceID: string): Promise<void> {
       .find(candidate => candidate.track?.kind === 'audio')
     if (!newTrack || !sender) throw new Error(translate('runtime.microphoneTrackMissing'))
 
+    // Keep the replacement silent until it is installed. Mute may change
+    // while replaceTrack is pending, so apply the latest state afterwards.
+    newTrack.enabled = false
+    for (const track of replacement.getAudioTracks()) track.enabled = false
     await sender.replaceTrack(newTrack)
     if (
       token !== inputReplaceGeneration ||
@@ -525,10 +529,13 @@ async function replaceCallInput(deviceID: string): Promise<void> {
 
     localStream = replacement
     microphonePipeline = replacementPipeline
+    for (const track of localStream.getAudioTracks()) {
+      track.enabled = !callMediaState.muted
+    }
+    newTrack.enabled = !callMediaState.muted
     replacement = undefined
     replacementPipeline = undefined
     stopMicrophonePipeline(pipeline)
-    callMediaState.muted = false
     markAudioInputActive()
     void refreshAudioDevices()
   } catch (error) {

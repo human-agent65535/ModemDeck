@@ -921,7 +921,7 @@ if grep -Eq '^docker\|compose .* build( |$)' "${test_root}/commands.log"; then
 fi
 grep -Fq 'Deployment:    release' "${test_root}/release-output.log" ||
     fail "default installer mode did not report release deployment"
-grep -Eq '^MODEMDECK_API_IMAGE_REF=ghcr.io/human-agent65535/modemdeck:v1.9.3@sha256:[0-9]{64}$' \
+grep -Eq '^MODEMDECK_API_IMAGE_REF=ghcr.io/human-agent65535/modemdeck@sha256:[0-9]{64}$' \
     "${fixture}/.env" ||
     fail "default release deployment did not pin the API digest"
 for retained_version in \
@@ -935,5 +935,22 @@ do
 done
 grep -qx 'MODEMDECK_UPDATER_URL=http://updater:8081' "${fixture}/.env" ||
     fail "default release deployment did not enable the updater control plane"
+
+# A new release can reuse hardware content. Cover both modern digest-only
+# references and an installed tag@digest pin from an older installer.
+previous_api_ref=$(sed -n 's/^MODEMDECK_API_IMAGE_REF=//p' "${fixture}/.env")
+previous_hardware_ref=$(sed -n 's/^MODEMDECK_HARDWARE_IMAGE_REF=//p' "${fixture}/.env")
+legacy_hardware_ref=$(printf '%s' "$previous_hardware_ref" | sed 's/@/:v1.9.3@/')
+sed "s|^MODEMDECK_HARDWARE_IMAGE_REF=.*|MODEMDECK_HARDWARE_IMAGE_REF=${legacy_hardware_ref}|" \
+    "${fixture}/.env" >"${test_root}/legacy.env"
+cp "${test_root}/legacy.env" "${fixture}/.env"
+printf '%s\n' '1.9.4' >"${fixture}/VERSION"
+common_env MODEMDECK_TEST_DOCKER_HEALTH=healthy \
+    "${fixture}/install.sh" --mode simple --version v1.9.4 \
+    >"${test_root}/same-digest-upgrade.log" 2>&1
+[ "$(sed -n 's/^MODEMDECK_API_IMAGE_REF=//p' "${fixture}/.env")" = "$previous_api_ref" ] ||
+    fail "unchanged API digest changed its Compose image reference"
+[ "$(sed -n 's/^MODEMDECK_HARDWARE_IMAGE_REF=//p' "${fixture}/.env")" = "$legacy_hardware_ref" ] ||
+    fail "unchanged hardware digest changed its legacy Compose image reference"
 
 printf '%s\n' "install-behavior-test: ok"

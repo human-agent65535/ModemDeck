@@ -327,6 +327,7 @@ struct ModemDeckMessageThread: Codable, Identifiable, Hashable {
     let lastTimestamp: String
     let lastContent: String?
     let unreadCount: Int
+    let firstUnreadMessageId: Int64?
     let markedUnread: Bool
     let favorite: Bool
 
@@ -347,9 +348,22 @@ struct ModemDeckMessage: Codable, Identifiable, Hashable {
     let type: Int
     let status: Int
     let state: String?
+    let deliveryStatus: String?
     let failureCode: String?
 
     var incoming: Bool { type == 1 }
+}
+
+struct ModemDeckUnreadSummary: Codable, Equatable {
+    let badgeCount: Int
+    let unreadMessageCount: Int
+    let unreadThreadCount: Int
+
+    static let empty = ModemDeckUnreadSummary(
+        badgeCount: 0,
+        unreadMessageCount: 0,
+        unreadThreadCount: 0
+    )
 }
 
 struct ModemDeckCallRecord: Codable, Identifiable, Hashable {
@@ -640,12 +654,12 @@ private struct ModemDeckContactsResponse: Decodable {
     let meta: ModemDeckPageMeta
 }
 
-private struct ModemDeckThreadsResponse: Decodable {
+struct ModemDeckThreadsResponse: Decodable {
     let threads: [ModemDeckMessageThread]
     let meta: ModemDeckPageMeta
 }
 
-private struct ModemDeckMessagesResponse: Decodable {
+struct ModemDeckMessagesResponse: Decodable {
     let messages: [ModemDeckMessage]
     let meta: ModemDeckPageMeta
 }
@@ -847,14 +861,16 @@ final class ModemDeckAPIClient {
     }
 
     func contacts(query: String = "") async throws -> [ModemDeckContact] {
-        let response = try await decode(
+        let contacts = try await allPages(
             ModemDeckContactsResponse.self,
-            path: listPath("/api/v1/contacts", query: query)
+            base: "/api/v1/contacts",
+            queryItems: [URLQueryItem(name: "q", value: query)],
+            items: \.contacts, meta: \.meta
         )
         if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            offlineCache.write(response.contacts, key: "contacts")
+            offlineCache.write(contacts, key: "contacts")
         }
-        return response.contacts
+        return contacts
     }
 
     func cachedContacts() -> [ModemDeckContact] {
@@ -866,14 +882,20 @@ final class ModemDeckAPIClient {
     }
 
     func messageThreads(query: String = "") async throws -> [ModemDeckMessageThread] {
-        let response = try await decode(
-            ModemDeckThreadsResponse.self,
-            path: listPath("/api/v1/messages/threads", query: query)
-        )
+        var result: [ModemDeckMessageThread] = []
+        var cursor = ""
+        repeat {
+            let response = try await decode(
+                ModemDeckThreadsResponse.self,
+                path: listPath("/api/v1/messages/threads", query: query, cursor: cursor)
+            )
+            result.append(contentsOf: response.threads)
+            cursor = response.meta.hasMore ? response.meta.nextCursor : ""
+        } while !cursor.isEmpty
         if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            offlineCache.write(response.threads, key: "message-threads")
+            offlineCache.write(result, key: "message-threads")
         }
-        return response.threads
+        return result
     }
 
     func cachedMessageThreads() -> [ModemDeckMessageThread] {
@@ -884,16 +906,26 @@ final class ModemDeckAPIClient {
         offlineCache.write(threads, key: "message-threads")
     }
 
-    func messages(lineID: String, peer: String) async throws -> [ModemDeckMessage] {
-        let path = path(
+    func messagePage(lineID: String, peer: String, cursor: String = "") async throws -> ModemDeckMessagesResponse {
+        var queryItems = [
+            URLQueryItem(name: "line_id", value: lineID),
+            URLQueryItem(name: "peer", value: peer),
+            URLQueryItem(name: "limit", value: "100")
+        ]
+        if !cursor.isEmpty {
+            queryItems.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+        return try await decode(
+            ModemDeckMessagesResponse.self,
+            path: path(
             "/api/v1/messages",
-            queryItems: [
-                URLQueryItem(name: "line_id", value: lineID),
-                URLQueryItem(name: "peer", value: peer),
-                URLQueryItem(name: "limit", value: "100")
-            ]
+                queryItems: queryItems
+            )
         )
-        let response = try await decode(ModemDeckMessagesResponse.self, path: path)
+    }
+
+    func messages(lineID: String, peer: String) async throws -> [ModemDeckMessage] {
+        let response = try await messagePage(lineID: lineID, peer: peer)
         offlineCache.write(response.messages, key: messageCacheKey(lineID: lineID, peer: peer))
         return response.messages
     }
@@ -944,65 +976,112 @@ final class ModemDeckAPIClient {
         }
     }
 
-    func markThreadRead(lineID: String, peer: String) async throws {
+    func unreadSummary() async throws -> ModemDeckUnreadSummary {
+        let summary = try await decode(
+            ModemDeckUnreadSummary.self,
+            path: "/api/v1/messages/unread-summary"
+        )
+        offlineCache.write(summary, key: "message-unread-summary")
+        return summary
+    }
+
+    func cachedUnreadSummary() -> ModemDeckUnreadSummary {
+        offlineCache.read(ModemDeckUnreadSummary.self, key: "message-unread-summary") ?? .empty
+    }
+
+    func cacheUnreadSummary(_ summary: ModemDeckUnreadSummary) {
+        offlineCache.write(summary, key: "message-unread-summary")
+    }
+
+    func markThreadRead(lineID: String, peer: String, throughMessageID: Int64) async throws -> ModemDeckUnreadSummary {
         struct Payload: Encodable {
             let lineId: String
             let peer: String
+            let throughMessageId: Int64
         }
-        _ = try await data(
+        let summary = try await decode(
+            ModemDeckUnreadSummary.self,
             path: "/api/v1/messages/read",
             method: "PATCH",
-            body: try encoder.encode(Payload(lineId: lineID, peer: peer))
+            body: try encoder.encode(Payload(
+                lineId: lineID,
+                peer: peer,
+                throughMessageId: throughMessageID
+            ))
         )
+        cacheUnreadSummary(summary)
+        return summary
     }
 
     func updateMessageThreads(
         action: ModemDeckMessageThreadAction,
         threads: [ModemDeckMessageThread]
-    ) async throws {
+    ) async throws -> ModemDeckUnreadSummary {
         struct Identity: Encodable {
             let lineId: String
             let peer: String
+            let throughMessageId: Int64
         }
         struct Payload: Encodable {
             let action: ModemDeckMessageThreadAction
             let threads: [Identity]
         }
-        _ = try await data(
+        let summary = try await decode(
+            ModemDeckUnreadSummary.self,
             path: "/api/v1/messages/threads/state",
             method: "PATCH",
             body: try encoder.encode(Payload(
                 action: action,
-                threads: threads.map { Identity(lineId: $0.lineId, peer: $0.peer) }
+                threads: threads.map {
+                    Identity(
+                        lineId: $0.lineId,
+                        peer: $0.peer,
+                        throughMessageId: action == .read ? $0.lastMessageId : 0
+                    )
+                }
             ))
         )
+        cacheUnreadSummary(summary)
+        return summary
     }
 
-    func deleteMessageThread(_ thread: ModemDeckMessageThread) async throws {
+    func markAllMessageThreadsRead(lineID: String = "") async throws -> ModemDeckUnreadSummary {
+        struct Payload: Encodable { let lineId: String }
+        let summary = try await decode(
+            ModemDeckUnreadSummary.self,
+            path: "/api/v1/messages/read-all",
+            method: "PATCH",
+            body: try encoder.encode(Payload(lineId: lineID))
+        )
+        cacheUnreadSummary(summary)
+        return summary
+    }
+
+    func deleteMessageThread(_ thread: ModemDeckMessageThread) async throws -> ModemDeckUnreadSummary {
         struct Payload: Encodable {
             let lineId: String
             let peer: String
         }
-        _ = try await data(
+        let summary = try await decode(
+            ModemDeckUnreadSummary.self,
             path: "/api/v1/messages/threads",
             method: "DELETE",
             body: try encoder.encode(Payload(lineId: thread.lineId, peer: thread.peer))
         )
+        cacheUnreadSummary(summary)
+        cacheMessages([], lineID: thread.lineId, peer: thread.peer)
+        return summary
     }
 
     func calls() async throws -> [ModemDeckCallRecord] {
-        let response = try await decode(
+        let calls = try await allPages(
             ModemDeckCallsResponse.self,
-            path: path(
-                "/api/v1/calls",
-                queryItems: [
-                    URLQueryItem(name: "kind", value: "all"),
-                    URLQueryItem(name: "limit", value: "100")
-                ]
-            )
+            base: "/api/v1/calls",
+            queryItems: [URLQueryItem(name: "kind", value: "all")],
+            items: \.calls, meta: \.meta
         )
-        offlineCache.write(response.calls, key: "calls")
-        return response.calls
+        offlineCache.write(calls, key: "calls")
+        return calls
     }
 
     func cachedCalls() -> [ModemDeckCallRecord] {
@@ -1014,14 +1093,11 @@ final class ModemDeckAPIClient {
     }
 
     func recordings() async throws -> [ModemDeckRecording] {
-        let response = try await decode(
+        let items = try await allPages(
             ModemDeckRecordingsResponse.self,
-            path: path(
-                "/api/v1/recordings",
-                queryItems: [URLQueryItem(name: "limit", value: "100")]
-            )
+            base: "/api/v1/recordings", items: \.recordings, meta: \.meta
         )
-        let recordings = response.recordings.map {
+        let recordings = items.map {
             ModemDeckRecording(
                 segment: $0.segment,
                 call: $0.call,
@@ -1398,11 +1474,39 @@ final class ModemDeckAPIClient {
         _ = try await data(path: "/api/v1/mobile/pairing", method: "DELETE")
     }
 
-    private func listPath(_ base: String, query: String) -> String {
+    private func allPages<Response: Decodable, Item>(
+        _ responseType: Response.Type,
+        base: String,
+        queryItems: [URLQueryItem] = [],
+        items: KeyPath<Response, [Item]>,
+        meta: KeyPath<Response, ModemDeckPageMeta>
+    ) async throws -> [Item] {
+        var result: [Item] = []
+        var cursor = ""
+        var seenCursors = Set<String>()
+        repeat {
+            var query = queryItems + [URLQueryItem(name: "limit", value: "100")]
+            if !cursor.isEmpty { query.append(URLQueryItem(name: "cursor", value: cursor)) }
+            let response = try await decode(responseType, path: path(base, queryItems: query))
+            result.append(contentsOf: response[keyPath: items])
+            let page = response[keyPath: meta]
+            if !page.hasMore { return result }
+            cursor = page.nextCursor
+            guard !cursor.isEmpty, seenCursors.insert(cursor).inserted else {
+                throw ModemDeckAPIError.invalidResponse
+            }
+        } while !cursor.isEmpty
+        return result
+    }
+
+    private func listPath(_ base: String, query: String, cursor: String = "") -> String {
         var items = [URLQueryItem(name: "limit", value: "100")]
         let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalized.isEmpty {
             items.insert(URLQueryItem(name: "q", value: normalized), at: 0)
+        }
+        if !cursor.isEmpty {
+            items.append(URLQueryItem(name: "cursor", value: cursor))
         }
         return path(base, queryItems: items)
     }

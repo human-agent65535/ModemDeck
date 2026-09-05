@@ -155,6 +155,22 @@ extension ModemDeckSessionController {
             locale: Locale(identifier: usesChinese ? "zh_CN" : "en_US")
         )
     }
+
+    func messageDayText(_ value: String) -> String {
+        ModemDeckDateText.day(
+            value,
+            locale: Locale(identifier: usesChinese ? "zh_CN" : "en_US"),
+            today: text("今天", "Today"),
+            yesterday: text("昨天", "Yesterday")
+        )
+    }
+
+    func messageTimeText(_ value: String) -> String {
+        ModemDeckDateText.time(
+            value,
+            locale: Locale(identifier: usesChinese ? "zh_CN" : "en_US")
+        )
+    }
 }
 
 enum ModemDeckDateText {
@@ -192,6 +208,39 @@ enum ModemDeckDateText {
         return formatter.string(from: date)
     }
 
+    static func day(
+        _ value: String,
+        locale: Locale = .current,
+        today: String,
+        yesterday: String
+    ) -> String {
+        guard !value.isEmpty, let date = date(value) else { return value }
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) { return today }
+        if calendar.isDateInYesterday(date) { return yesterday }
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        if calendar.component(.year, from: date) == calendar.component(.year, from: Date()) {
+            formatter.setLocalizedDateFormatFromTemplate("EEEEMMMMd")
+        } else {
+            formatter.setLocalizedDateFormatFromTemplate("yMMMEd")
+        }
+        return formatter.string(from: date)
+    }
+
+    static func time(_ value: String, locale: Locale = .current) -> String {
+        guard !value.isEmpty, let date = date(value) else { return value }
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.setLocalizedDateFormatFromTemplate("j:mm")
+        return formatter.string(from: date)
+    }
+
+    static func sameDay(_ left: String, _ right: String) -> Bool {
+        guard let leftDate = date(left), let rightDate = date(right) else { return left == right }
+        return Calendar.current.isDate(leftDate, inSameDayAs: rightDate)
+    }
+
     static func duration(_ seconds: Int) -> String {
         let safe = max(0, seconds)
         return String(format: "%d:%02d", safe / 60, safe % 60)
@@ -199,8 +248,8 @@ enum ModemDeckDateText {
 }
 
 enum ModemDeckLayout {
-    static let padListWidth: CGFloat = 360
-    static let splitWorkspaceMinimumWidth: CGFloat = 780
+    static let padListWidth: CGFloat = 340
+    static let splitWorkspaceMinimumWidth: CGFloat = 900
     static let pageHorizontalPadding: CGFloat = 14
     static let pageHeaderHeight: CGFloat = 52
     static let toolbarHorizontalPadding: CGFloat = 10
@@ -473,6 +522,7 @@ private enum ModemDeckDialerMotion {
 
 private struct ModemDeckSectionTabs: View {
     @ObservedObject var controller: ModemDeckSessionController
+    @EnvironmentObject private var retainedSections: ModemDeckLazySectionHost.Coordinator
     @Environment(\.modemDeckUsesSplitWorkspace) private var usesSplitWorkspace
     @Environment(\.modemDeckPadDialerAction) private var padDialerAction
 
@@ -481,7 +531,8 @@ private struct ModemDeckSectionTabs: View {
             controller: controller,
             activeSection: activeSection,
             usesSplitWorkspace: usesSplitWorkspace,
-            padDialerAction: padDialerAction
+            padDialerAction: padDialerAction,
+            retainedCoordinator: retainedSections
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.mdBackground)
@@ -504,21 +555,26 @@ private struct ModemDeckSectionTabs: View {
 
 }
 
+@MainActor
+private final class ModemDeckSectionNavigation: ObservableObject {
+    @Published var path: [ModemDeckRoute] = []
+}
+
 private struct ModemDeckSectionRoot: View {
     let section: ModemDeckSection
     @ObservedObject var controller: ModemDeckSessionController
     let usesSplitWorkspace: Bool
     let padDialerAction: ModemDeckPadDialerAction?
-    @State private var path: [ModemDeckRoute] = []
+    @ObservedObject var navigation: ModemDeckSectionNavigation
 
     var body: some View {
-        NavigationStack(path: $path) {
+        NavigationStack(path: $navigation.path) {
             destination
                 .navigationDestination(for: ModemDeckRoute.self) { route in
                     ModemDeckRouteContent(route: route, controller: controller)
                 }
         }
-        .environment(\.modemDeckNavigate, { path.append($0) })
+        .environment(\.modemDeckNavigate, { navigation.path.append($0) })
         .environment(\.modemDeckUsesSplitWorkspace, usesSplitWorkspace)
         .environment(\.modemDeckPadDialerAction, padDialerAction)
     }
@@ -560,6 +616,11 @@ private struct ModemDeckLazySectionHost: UIViewControllerRepresentable {
                 visibleController.view.removeFromSuperview()
                 visibleController.removeFromParent()
             }
+            if controller.parent != nil {
+                controller.willMove(toParent: nil)
+                controller.view.removeFromSuperview()
+                controller.removeFromParent()
+            }
             addChild(controller)
             controller.view.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(controller.view)
@@ -575,8 +636,9 @@ private struct ModemDeckLazySectionHost: UIViewControllerRepresentable {
     }
 
     @MainActor
-    final class Coordinator {
+    final class Coordinator: ObservableObject {
         var sections: [ModemDeckSection: UIHostingController<ModemDeckSectionRoot>] = [:]
+        private var navigation: [ModemDeckSection: ModemDeckSectionNavigation] = [:]
         private var isEnvironmentConfigured = false
         private var usesSplitWorkspace = false
         private var padDialerAction: ModemDeckPadDialerAction?
@@ -616,11 +678,14 @@ private struct ModemDeckLazySectionHost: UIViewControllerRepresentable {
             for section: ModemDeckSection,
             controller: ModemDeckSessionController
         ) -> ModemDeckSectionRoot {
-            ModemDeckSectionRoot(
+            let state = navigation[section] ?? ModemDeckSectionNavigation()
+            navigation[section] = state
+            return ModemDeckSectionRoot(
                 section: section,
                 controller: controller,
                 usesSplitWorkspace: usesSplitWorkspace,
-                padDialerAction: padDialerAction
+                padDialerAction: padDialerAction,
+                navigation: state
             )
         }
     }
@@ -629,8 +694,9 @@ private struct ModemDeckLazySectionHost: UIViewControllerRepresentable {
     let activeSection: ModemDeckSection
     let usesSplitWorkspace: Bool
     let padDialerAction: ModemDeckPadDialerAction?
+    let retainedCoordinator: Coordinator
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator { retainedCoordinator }
 
     func makeUIViewController(context: Context) -> ContainerViewController {
         ContainerViewController()
@@ -653,74 +719,108 @@ private struct ModemDeckLazySectionHost: UIViewControllerRepresentable {
 
 private struct ModemDeckAdaptiveShell: View {
     @ObservedObject var controller: ModemDeckSessionController
+    @StateObject private var retainedSections = ModemDeckLazySectionHost.Coordinator()
 
     var body: some View {
         GeometryReader { geometry in
             let usesSplitWorkspace = ModemDeckLayout.isPad &&
                 geometry.size.width >= ModemDeckLayout.splitWorkspaceMinimumWidth
-            Group {
-                if usesSplitWorkspace {
-                    ModemDeckPadShell(controller: controller)
-                } else {
-                    ModemDeckPhoneShell(controller: controller)
-                }
-            }
+            ModemDeckWorkspaceShell(controller: controller, usesSplitWorkspace: usesSplitWorkspace)
             .environment(\.modemDeckUsesSplitWorkspace, usesSplitWorkspace)
+            .environmentObject(retainedSections)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
 
-struct ModemDeckPhoneShell: View {
+private struct ModemDeckWorkspaceShell: View {
     @ObservedObject var controller: ModemDeckSessionController
+    let usesSplitWorkspace: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showingDialer: Bool
 
-    init(controller: ModemDeckSessionController) {
+    init(controller: ModemDeckSessionController, usesSplitWorkspace: Bool) {
         self.controller = controller
-        let initial = ModemDeckSection.initialSection
-        _showingDialer = State(initialValue: initial == .dial)
+        self.usesSplitWorkspace = usesSplitWorkspace
+        _showingDialer = State(initialValue: ModemDeckSection.initialSection == .dial)
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            ZStack(alignment: .bottom) {
-                ModemDeckSectionTabs(controller: controller)
-
-                if showingDialer {
-                    Color.black.opacity(0.16)
-                        .ignoresSafeArea()
-                        .onTapGesture { closeDialer() }
-                        .transition(.opacity)
-                }
-
-                GeometryReader { geometry in
-                    if showingDialer {
-                        VStack(spacing: 0) {
-                            Spacer(minLength: 8)
-                            ModemDeckDialerPanel(controller: controller, close: closeDialer)
-                                .frame(
-                                    width: geometry.size.width,
-                                    height: min(720, max(0, geometry.size.height - 8))
-                                )
-                        }
-                        .transition(ModemDeckDialerMotion.phoneTransition)
+            ZStack(alignment: .bottomTrailing) {
+                HStack(spacing: 0) {
+                    if usesSplitWorkspace {
+                        ModemDeckPadNavigationRail(
+                            controller: controller,
+                            selection: Binding(
+                                get: { controller.selectedSection },
+                                set: { controller.selectedSection = $0 }
+                            ),
+                            showingDialer: $showingDialer
+                        )
+                        Rectangle().fill(Color.mdBorder).frame(width: 1)
                     }
+                    // The content host keeps the same structural identity when
+                    // the rail and bottom tabs exchange places at the breakpoint.
+                    ZStack(alignment: .bottom) {
+                        ModemDeckSectionTabs(controller: controller)
+                            .environment(
+                                \.modemDeckPadDialerAction,
+                                usesSplitWorkspace ? ModemDeckPadDialerAction(
+                                    accessibilityLabel: controller.text("打开拨号盘", "Open dialer"),
+                                    open: openDialer
+                                ) : nil
+                            )
+                        if showingDialer && !usesSplitWorkspace {
+                            Color.black.opacity(0.16)
+                                .ignoresSafeArea()
+                                .onTapGesture { closeDialer() }
+                                .transition(.opacity)
+                        }
+                        GeometryReader { geometry in
+                            if showingDialer && !usesSplitWorkspace {
+                                VStack(spacing: 0) {
+                                    Spacer(minLength: 8)
+                                    ModemDeckDialerPanel(controller: controller, close: closeDialer)
+                                        .frame(
+                                            width: geometry.size.width,
+                                            height: min(720, max(0, geometry.size.height - 8))
+                                        )
+                                }
+                                .transition(ModemDeckDialerMotion.phoneTransition)
+                            }
+                        }
+                        .allowsHitTesting(showingDialer && !usesSplitWorkspace)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .allowsHitTesting(showingDialer)
+                if showingDialer && usesSplitWorkspace {
+                    ModemDeckDialerPanel(controller: controller, close: closeDialer, floating: true)
+                        .frame(width: 390, height: 700)
+                        .padding(16)
+                        .transition(ModemDeckDialerMotion.padTransition)
+                        .zIndex(10)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            ModemDeckPhoneTabBar(
-                controller: controller,
-                selection: Binding(
-                    get: { controller.selectedSection },
-                    set: { controller.selectedSection = $0 }
-                ),
-                showingDialer: $showingDialer
-            )
+            if !usesSplitWorkspace {
+                ModemDeckPhoneTabBar(
+                    controller: controller,
+                    selection: Binding(
+                        get: { controller.selectedSection },
+                        set: { controller.selectedSection = $0 }
+                    ),
+                    showingDialer: $showingDialer
+                )
+            }
         }
         .background(Color.mdSurface.ignoresSafeArea(edges: .bottom))
+        .accentColor(.mdAccent)
+    }
+
+    private func openDialer() {
+        guard !showingDialer else { return }
+        withAnimation(dialerAnimation) { showingDialer = true }
     }
 
     private func closeDialer() {
@@ -730,7 +830,6 @@ struct ModemDeckPhoneShell: View {
     private var dialerAnimation: Animation? {
         reduceMotion ? nil : ModemDeckDialerMotion.animation
     }
-
 }
 
 private struct ModemDeckPhoneTabBar: View {
@@ -859,72 +958,6 @@ private enum ModemDeckPhoneTab: String, CaseIterable, Identifiable {
         case .settings: return ModemDeckLucideAsset.settings
         }
     }
-}
-
-struct ModemDeckPadShell: View {
-    @ObservedObject var controller: ModemDeckSessionController
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var showingDialer: Bool
-
-    init(controller: ModemDeckSessionController) {
-        self.controller = controller
-        let initial = ModemDeckSection.initialSection
-        _showingDialer = State(initialValue: initial == .dial)
-    }
-
-    var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            HStack(spacing: 0) {
-                ModemDeckPadNavigationRail(
-                    controller: controller,
-                    selection: Binding(
-                        get: { controller.selectedSection },
-                        set: { controller.selectedSection = $0 }
-                    ),
-                    showingDialer: $showingDialer
-                )
-                Rectangle()
-                    .fill(Color.mdBorder)
-                    .frame(width: 1)
-                ModemDeckSectionTabs(controller: controller)
-                .environment(
-                    \.modemDeckPadDialerAction,
-                    ModemDeckPadDialerAction(
-                        accessibilityLabel: controller.text("打开拨号盘", "Open dialer"),
-                        open: openDialer
-                    )
-                )
-            }
-
-            if showingDialer {
-                ModemDeckDialerPanel(
-                    controller: controller,
-                    close: closeDialer,
-                    floating: true
-                )
-                .frame(width: 390, height: 700)
-                .padding(16)
-                .transition(ModemDeckDialerMotion.padTransition)
-                .zIndex(10)
-            }
-        }
-        .background(Color.mdBackground.ignoresSafeArea())
-        .accentColor(.mdAccent)
-    }
-
-    private func openDialer() {
-        guard !showingDialer else { return }
-        withAnimation(dialerAnimation) { showingDialer = true }
-    }
-
-    private func closeDialer() {
-        withAnimation(dialerAnimation) { showingDialer = false }
-    }
-
-    private var dialerAnimation: Animation? {
-        reduceMotion ? nil : ModemDeckDialerMotion.animation
-    }
-
 }
 
 private struct ModemDeckPadNavigationRail: View {
@@ -1167,6 +1200,10 @@ struct ModemDeckLoadErrorState: View {
 
 struct ModemDeckPageHeader: View {
     let title: String
+    var secondaryActionIcon: String? = nil
+    var secondaryActionAccessibilityText = ""
+    var secondaryActionDisabled = false
+    var secondaryAction: (() -> Void)? = nil
     var actionIcon: String? = nil
     var actionAccessibilityText = ""
     var actionDisabled = false
@@ -1181,6 +1218,18 @@ struct ModemDeckPageHeader: View {
                 .dynamicTypeSize(...DynamicTypeSize.accessibility2)
             Spacer()
             HStack(spacing: 4) {
+                if let secondaryActionIcon, let secondaryAction {
+                    Button(action: secondaryAction) {
+                        Image(systemName: secondaryActionIcon)
+                            .font(.body.weight(.semibold))
+                            .foregroundColor(.mdAccent)
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(secondaryActionDisabled)
+                    .opacity(secondaryActionDisabled ? 0.45 : 1)
+                    .accessibilityLabel(secondaryActionAccessibilityText)
+                }
                 if let actionIcon, let action {
                     Button(action: action) {
                         Image(systemName: actionIcon)

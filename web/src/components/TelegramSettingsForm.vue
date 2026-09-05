@@ -322,6 +322,7 @@ function changeAssignedUser(userID: string): void {
 
 function selectUnit(id: string): void {
   if (saving.value || deleting.value) return
+  if (!creating.value && selectedID.value === id) return
   discardDraft(id)
   void router.push({
     name: 'settings',

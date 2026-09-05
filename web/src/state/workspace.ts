@@ -513,6 +513,25 @@ export function loadContacts(force = false): Promise<Contact[] | null> {
   return contactsLoad
 }
 
+// Transfers need an authoritative full collection without replacing the
+// interactive list's current page or selection.
+export async function fetchAllContacts(): Promise<Contact[]> {
+  const generation = workspaceGeneration
+  const contacts = new Map<string, Contact>()
+  const cursors = new Set<string>()
+  let cursor: string | undefined
+  do {
+    const page = await gateway.listContacts({ limit: 100, ...(cursor ? { cursor } : {}) })
+    if (generation !== workspaceGeneration) throw new Error(translate('auth.sessionExpired'))
+    for (const contact of page.items) contacts.set(contact.id, contact)
+    if (!page.meta.has_more) return Array.from(contacts.values())
+    cursor = page.meta.next_cursor
+    if (!cursor || cursors.has(cursor)) throw new Error(translate('runtime.requestFailed'))
+    cursors.add(cursor)
+  } while (cursor)
+  return Array.from(contacts.values())
+}
+
 export function loadMoreContacts(): Promise<Contact[] | null> {
   return loadNextPage(
     contactsResource,

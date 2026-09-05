@@ -187,7 +187,11 @@ func TestHTTPCommandRequestIDCannotUseInternalNamespace(t *testing.T) {
 func TestMessageReadUsesExactLineAndPeer(t *testing.T) {
 	t.Parallel()
 
-	repository := &fakeRepository{}
+	repository := &fakeRepository{messageUnreadSummary: store.MessageUnreadSummary{
+		BadgeCount:         4,
+		UnreadMessageCount: 4,
+		UnreadThreadCount:  2,
+	}}
 	api, err := New(repository, Options{disableAuthentication: true})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -195,18 +199,19 @@ func TestMessageReadUsesExactLineAndPeer(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPatch,
 		"/api/v1/messages/read",
-		bytes.NewBufferString(`{"line_id":"  line-main  ","peer":"  +818012345678  "}`),
+		bytes.NewBufferString(`{"line_id":"  line-main  ","peer":"  +818012345678  ","through_message_id":42}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 
 	api.ServeHTTP(response, request)
 
-	if response.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204; body = %s", response.Code, response.Body.String())
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", response.Code, response.Body.String())
 	}
 	if repository.messageReadIdentity.LineID != "line-main" ||
-		repository.messageReadIdentity.Peer != "+818012345678" {
+		repository.messageReadIdentity.Peer != "+818012345678" ||
+		repository.messageReadIdentity.ThroughMessageID != 42 {
 		t.Fatalf(
 			"message read identity = %q %q",
 			repository.messageReadIdentity.LineID,
@@ -237,8 +242,8 @@ func TestMessageThreadDeleteUsesExactIdentityAndPublishesDurableRevision(t *test
 
 	api.ServeHTTP(response, request)
 
-	if response.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204; body = %s", response.Code, response.Body.String())
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", response.Code, response.Body.String())
 	}
 	if repository.messageDeleteIdentity.LineID != "line-main" ||
 		repository.messageDeleteIdentity.Peer != "+818012345678" {
@@ -275,8 +280,8 @@ func TestMessageThreadStateUpdatesMultipleExactIdentities(t *testing.T) {
 
 	api.ServeHTTP(response, request)
 
-	if response.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204; body = %s", response.Code, response.Body.String())
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", response.Code, response.Body.String())
 	}
 	if repository.messageUpdateAction != store.MessageThreadFavorite {
 		t.Fatalf("action = %q, want favorite", repository.messageUpdateAction)

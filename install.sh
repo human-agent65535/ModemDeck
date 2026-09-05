@@ -950,7 +950,15 @@ else
                 }
                 END { if (!found) exit 1 }
             ') || fail "pulled image has no immutable repository digest: $pin_tagged_ref"
-        printf '%s:%s@%s' "$pin_image" "$pin_version" "$pin_digest"
+        pin_previous_ref=$(env_or_default "$3" "")
+        case "$pin_previous_ref" in
+            "$pin_image"@"$pin_digest"|"$pin_image":*@"$pin_digest")
+                # Retain identical content's reference, including older tagged
+                # pins, so Compose does not restart an unchanged service.
+                printf '%s' "$pin_previous_ref"
+                ;;
+            *) printf '%s@%s' "$pin_image" "$pin_digest" ;;
+        esac
     }
 
     if [ "$check_only" = true ]; then
@@ -960,10 +968,10 @@ else
         updater_image_ref="${updater_image}:${updater_version}"
     else
         log "Pulling published release images"
-        api_image_ref=$(pin_release_image "$image_name" "$api_version")
-        web_image_ref=$(pin_release_image "$web_image" "$web_version")
-        hardware_image_ref=$(pin_release_image "$hardware_image" "$hardware_version")
-        updater_image_ref=$(pin_release_image "$updater_image" "$updater_version")
+        api_image_ref=$(pin_release_image "$image_name" "$api_version" MODEMDECK_API_IMAGE_REF)
+        web_image_ref=$(pin_release_image "$web_image" "$web_version" MODEMDECK_WEB_IMAGE_REF)
+        hardware_image_ref=$(pin_release_image "$hardware_image" "$hardware_version" MODEMDECK_HARDWARE_IMAGE_REF)
+        updater_image_ref=$(pin_release_image "$updater_image" "$updater_version" MODEMDECK_UPDATER_IMAGE_REF)
     fi
 fi
 

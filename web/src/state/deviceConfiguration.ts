@@ -73,6 +73,25 @@ export const deviceConfigurationState = reactive<{
 const deviceConfigurationLoads = new Map<string, Promise<boolean>>()
 const deviceConfigurationGenerations = new Map<string, number>()
 const unconfirmedDeviceRecoveries = new Set<string>()
+let deviceConfigurationGeneration = 0
+let globalSettingsGeneration = 0
+
+export function resetDeviceConfigurationState(): void {
+  globalSettingsGeneration += 1
+  deviceConfigurationLoads.clear()
+  deviceConfigurationGenerations.clear()
+  unconfirmedDeviceRecoveries.clear()
+  for (const target of Object.values(deviceConfigurationState.resources)) {
+    Object.assign(target, {
+      status: 'idle', data: null, error: '', savingOperation: '', recovering: false
+    })
+  }
+  deviceConfigurationState.selectedLineID = ''
+  deviceConfigurationState.resources = {}
+  Object.assign(globalIncomingCallState, {
+    status: 'idle', data: null, error: '', saving: false
+  })
+}
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : translate('runtime.requestFailed')
@@ -136,7 +155,7 @@ function resourceFor(lineID: string): DeviceConfigurationResource {
 }
 
 function beginDeviceConfigurationRequest(lineID: string): number {
-  const generation = (deviceConfigurationGenerations.get(lineID) || 0) + 1
+  const generation = ++deviceConfigurationGeneration
   deviceConfigurationGenerations.set(lineID, generation)
   return generation
 }
@@ -188,6 +207,7 @@ async function refreshConfigurationsAfterGlobalChange(): Promise<void> {
 }
 
 export async function loadGlobalIncomingCallSettings(force = false): Promise<boolean> {
+  if (globalIncomingCallState.saving) return globalIncomingCallState.status === 'ready'
   if (
     !force &&
     (globalIncomingCallState.status === 'ready' ||
@@ -197,11 +217,15 @@ export async function loadGlobalIncomingCallSettings(force = false): Promise<boo
   }
   globalIncomingCallState.status = 'loading'
   globalIncomingCallState.error = ''
+  const generation = ++globalSettingsGeneration
   try {
-    globalIncomingCallState.data = await gateway.getGlobalCallSettings()
+    const data = await gateway.getGlobalCallSettings()
+    if (generation !== globalSettingsGeneration) return false
+    globalIncomingCallState.data = data
     globalIncomingCallState.status = 'ready'
     return true
   } catch (error) {
+    if (generation !== globalSettingsGeneration) return false
     globalIncomingCallState.status = errorStatus(error)
     globalIncomingCallState.error = errorText(error)
     return false
@@ -215,24 +239,31 @@ export async function updateGlobalIncomingCallSettings(
   if (!current || globalIncomingCallState.saving) return false
 
   globalIncomingCallState.saving = true
+  const generation = ++globalSettingsGeneration
   globalIncomingCallState.error = ''
   globalIncomingCallState.data = { ...current, receive_calls: receiveCalls }
   try {
-    globalIncomingCallState.data = await gateway.updateGlobalCallSettings({
+    const data = await gateway.updateGlobalCallSettings({
       receive_calls: receiveCalls,
       expected_revision: current.revision
     })
+    if (generation !== globalSettingsGeneration) return false
+    globalIncomingCallState.data = data
     globalIncomingCallState.status = 'ready'
     await refreshConfigurationsAfterGlobalChange()
     return true
   } catch (error) {
+    if (generation !== globalSettingsGeneration) return false
     const saveError = errorText(error)
     try {
-      globalIncomingCallState.data = await gateway.getGlobalCallSettings()
+      const data = await gateway.getGlobalCallSettings()
+      if (generation !== globalSettingsGeneration) return false
+      globalIncomingCallState.data = data
       globalIncomingCallState.status = 'ready'
       globalIncomingCallState.error = saveError
       await refreshConfigurationsAfterGlobalChange()
     } catch (refreshError) {
+      if (generation !== globalSettingsGeneration) return false
       globalIncomingCallState.data = current
       globalIncomingCallState.status = errorStatus(refreshError)
       globalIncomingCallState.error = translate('runtime.refreshAfterSaveFailed', {
@@ -242,7 +273,7 @@ export async function updateGlobalIncomingCallSettings(
     }
     return false
   } finally {
-    globalIncomingCallState.saving = false
+    if (generation === globalSettingsGeneration) globalIncomingCallState.saving = false
   }
 }
 
@@ -310,6 +341,7 @@ async function restoreDeviceConfiguration(
   saveError: string,
   generation: number
 ): Promise<void> {
+  if (!isCurrentDeviceConfigurationRequest(lineID, generation)) return
   try {
     const configuration = completeDeviceConfiguration(
       await gateway.getDeviceConfiguration(lineID)
@@ -351,7 +383,7 @@ async function updateDevice(
       if (commitResponse) target.data = mergeConfiguration(target.data, updated)
       target.status = 'ready'
     }
-    return true
+    return isCurrentDeviceConfigurationRequest(lineID, generation)
   } catch (error) {
     await restoreDeviceConfiguration(
       lineID,
@@ -378,6 +410,9 @@ async function applyHardwareUpdate(
     const latest = completeDeviceConfiguration(
       await gateway.getDeviceConfiguration(lineID)
     )
+    if (!isCurrentDeviceConfigurationRequest(lineID, generation)) {
+      throw new Error('Device configuration request was superseded')
+    }
     if (isCurrentDeviceConfigurationRequest(lineID, generation)) {
       target.data = mergeConfiguration(target.data, latest)
       target.status = 'ready'

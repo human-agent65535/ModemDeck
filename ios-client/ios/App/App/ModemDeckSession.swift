@@ -396,6 +396,7 @@ final class ModemDeckSessionController: ObservableObject {
         ModemDeckPushCoordinator.shared.clearConfiguration()
         api.clearCachedData()
         try? credentialStore.clear()
+        try? await UNUserNotificationCenter.current().setBadgeCount(0)
         session = nil
         bootstrap = nil
         connectionState = .offline
@@ -878,9 +879,20 @@ final class ModemDeckContactsStore: ObservableObject {
 }
 
 @MainActor
+final class ModemDeckMessageDraft: ObservableObject {
+    @Published var text = "" { didSet { revision += 1 } }
+    private(set) var revision = 0
+
+    func clear(ifRevision expected: Int) {
+        if revision == expected { text = "" }
+    }
+}
+
+@MainActor
 final class ModemDeckMessagesStore: ObservableObject {
     @Published private(set) var threads: [ModemDeckMessageThread] = []
     @Published private(set) var contacts: [ModemDeckContact] = []
+    @Published private(set) var unreadSummary: ModemDeckUnreadSummary
     @Published private(set) var loading = false
     @Published var errorMessage = ""
 
@@ -890,12 +902,22 @@ final class ModemDeckMessagesStore: ObservableObject {
     private var revision = 0
     private var scope = 0
     private var reloadWaiters: [CheckedContinuation<Void, Never>] = []
+    private var drafts: [String: ModemDeckMessageDraft] = [:]
+
+    func draft(for threadID: String) -> ModemDeckMessageDraft {
+        if let existing = drafts[threadID] { return existing }
+        let draft = ModemDeckMessageDraft()
+        drafts[threadID] = draft
+        return draft
+    }
 
     init(api: ModemDeckAPIClient, contactsStore: ModemDeckContactsStore) {
         self.api = api
         self.contactsStore = contactsStore
         threads = api.cachedMessageThreads()
+        unreadSummary = api.cachedUnreadSummary()
         contactsStore.$contacts.assign(to: &$contacts)
+        updateSystemBadge(unreadSummary.badgeCount)
     }
 
     func load() async {
@@ -917,6 +939,7 @@ final class ModemDeckMessagesStore: ObservableObject {
             let revision = revision
             do {
                 let next = try await api.messageThreads()
+                let summary = try? await api.unreadSummary()
                 guard scope == self.scope else { return }
                 guard revision == self.revision else {
                     api.cacheMessageThreads(threads)
@@ -924,6 +947,7 @@ final class ModemDeckMessagesStore: ObservableObject {
                     continue
                 }
                 threads = next
+                if let summary { apply(summary) }
                 errorMessage = ""
             } catch {
                 guard scope == self.scope else { return }
@@ -933,8 +957,33 @@ final class ModemDeckMessagesStore: ObservableObject {
     }
 
     func mutate(_ action: ModemDeckMessageThreadAction, threads: [ModemDeckMessageThread]) async throws {
-        try await api.updateMessageThreads(action: action, threads: threads)
+        let summary = try await api.updateMessageThreads(action: action, threads: threads)
         apply(action, to: Set(threads.map(\.id)))
+        apply(summary)
+        errorMessage = ""
+    }
+
+    func markAllRead(lineID: String = "") async throws {
+        let summary = try await api.markAllMessageThreadsRead(lineID: lineID)
+        revision += 1
+        threads = threads.map { thread in
+            ModemDeckMessageThread(
+                key: thread.key,
+                lineId: thread.lineId,
+                peer: thread.peer,
+                contactId: thread.contactId,
+                contactName: thread.contactName,
+                lastMessageId: thread.lastMessageId,
+                lastTimestamp: thread.lastTimestamp,
+                lastContent: thread.lastContent,
+                unreadCount: 0,
+                firstUnreadMessageId: nil,
+                markedUnread: false,
+                favorite: thread.favorite
+            )
+        }
+        api.cacheMessageThreads(threads)
+        apply(summary)
         errorMessage = ""
     }
 
@@ -942,7 +991,11 @@ final class ModemDeckMessagesStore: ObservableObject {
         revision += 1
         threads = threads.compactMap { thread in
             guard ids.contains(thread.id) else { return thread }
-            if action == .delete { return nil }
+            if action == .delete {
+                drafts.removeValue(forKey: thread.id)
+                api.cacheMessages([], lineID: thread.lineId, peer: thread.peer)
+                return nil
+            }
             return ModemDeckMessageThread(
                 key: thread.key,
                 lineId: thread.lineId,
@@ -953,6 +1006,7 @@ final class ModemDeckMessagesStore: ObservableObject {
                 lastTimestamp: thread.lastTimestamp,
                 lastContent: thread.lastContent,
                 unreadCount: action == .read ? 0 : thread.unreadCount,
+                firstUnreadMessageId: action == .read ? nil : thread.firstUnreadMessageId,
                 markedUnread: action == .unread
                     ? true
                     : (action == .read ? false : thread.markedUnread),
@@ -962,6 +1016,20 @@ final class ModemDeckMessagesStore: ObservableObject {
             )
         }
         api.cacheMessageThreads(threads)
+    }
+
+    func apply(_ summary: ModemDeckUnreadSummary) {
+        unreadSummary = summary
+        api.cacheUnreadSummary(summary)
+        updateSystemBadge(summary.badgeCount)
+    }
+
+    private func updateSystemBadge(_ count: Int) {
+        UNUserNotificationCenter.current().setBadgeCount(max(0, count)) { error in
+            if let error {
+                NSLog("ModemDeck badge update failed: %@", error.localizedDescription)
+            }
+        }
     }
 
     private func finishWaitingLoads() {
@@ -977,6 +1045,9 @@ final class ModemDeckMessagesStore: ObservableObject {
         loading = false
         reloadRequested = false
         threads = []
+        drafts.removeAll()
+        unreadSummary = .empty
+        updateSystemBadge(0)
         errorMessage = ""
     }
 }
@@ -986,12 +1057,17 @@ final class ModemDeckConversationStore: ObservableObject {
     @Published private(set) var messages: [ModemDeckMessage] = []
     @Published private(set) var loading = false
     @Published private(set) var sending = false
+    @Published private(set) var loadingOlder = false
+    @Published private(set) var hasMore = false
+    @Published private(set) var authoritativeLoadCompleted = false
     @Published var errorMessage = ""
 
     let thread: ModemDeckMessageThread
     private let api: ModemDeckAPIClient
     private let messagesStore: ModemDeckMessagesStore
     private var reloadRequested = false
+    private var nextCursor = ""
+    private var revision = 0
 
     init(api: ModemDeckAPIClient, thread: ModemDeckMessageThread, messagesStore: ModemDeckMessagesStore) {
         self.api = api
@@ -1006,11 +1082,39 @@ final class ModemDeckConversationStore: ObservableObject {
             return
         }
         loading = true
+        revision += 1
         defer { loading = false }
         repeat {
             reloadRequested = false
+            let revision = revision
             do {
-                messages = try await api.messages(lineID: thread.lineId, peer: thread.peer)
+                var response = try await api.messagePage(lineID: thread.lineId, peer: thread.peer)
+                var loaded = response.messages
+                var cursor = response.meta.hasMore ? response.meta.nextCursor : ""
+                // Refresh every page currently displayed, then replace that
+                // authoritative window. Unioning a cache resurrects deletions.
+                let oldestDisplayed = authoritativeLoadCompleted ? messages.first?.id : nil
+                let anchors = [thread.firstUnreadMessageId, oldestDisplayed].compactMap { $0 }.filter { $0 > 0 }
+                var seenCursors = Set<String>()
+                while anchors.contains(where: { anchor in !loaded.contains(where: { $0.id == anchor }) }), !cursor.isEmpty {
+                    guard seenCursors.insert(cursor).inserted else { throw ModemDeckAPIError.invalidResponse }
+                    response = try await api.messagePage(
+                        lineID: thread.lineId,
+                        peer: thread.peer,
+                        cursor: cursor
+                    )
+                    loaded = merge(response.messages, with: loaded)
+                    cursor = response.meta.hasMore ? response.meta.nextCursor : ""
+                }
+                guard revision == self.revision else {
+                    reloadRequested = true
+                    continue
+                }
+                messages = merge([], with: loaded)
+                nextCursor = cursor
+                hasMore = !cursor.isEmpty
+                authoritativeLoadCompleted = true
+                api.cacheMessages(messages, lineID: thread.lineId, peer: thread.peer)
                 errorMessage = ""
             } catch {
                 errorMessage = messages.isEmpty ? error.localizedDescription : ""
@@ -1018,15 +1122,60 @@ final class ModemDeckConversationStore: ObservableObject {
         } while reloadRequested
     }
 
-    func markRead() async -> Bool {
+    func loadOlder() async -> Int64? {
+        guard !loading, !loadingOlder, !nextCursor.isEmpty else { return nil }
+        loadingOlder = true
+        defer { loadingOlder = false }
+        let anchor = messages.first?.id
+        let revision = revision
         do {
-            try await api.markThreadRead(lineID: thread.lineId, peer: thread.peer)
+            let response = try await api.messagePage(
+                lineID: thread.lineId,
+                peer: thread.peer,
+                cursor: nextCursor
+            )
+            guard revision == self.revision else { return nil }
+            messages = merge(response.messages, with: messages)
+            nextCursor = response.meta.hasMore ? response.meta.nextCursor : ""
+            hasMore = !nextCursor.isEmpty
+            api.cacheMessages(messages, lineID: thread.lineId, peer: thread.peer)
+            errorMessage = ""
+            return anchor
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    func markRead(throughMessageID: Int64) async -> Bool {
+        do {
+            let summary = try await api.markThreadRead(
+                lineID: thread.lineId,
+                peer: thread.peer,
+                throughMessageID: throughMessageID
+            )
             messagesStore.apply(.read, to: [thread.id])
+            messagesStore.apply(summary)
             errorMessage = ""
             return true
         } catch {
             errorMessage = error.localizedDescription
             return false
+        }
+    }
+
+    private func merge(
+        _ olderOrExisting: [ModemDeckMessage],
+        with newerOrUpdated: [ModemDeckMessage]
+    ) -> [ModemDeckMessage] {
+        var byID: [Int64: ModemDeckMessage] = [:]
+        for message in olderOrExisting { byID[message.id] = message }
+        for message in newerOrUpdated { byID[message.id] = message }
+        return byID.values.sorted { left, right in
+            let leftDate = ModemDeckDateText.date(left.timestamp) ?? .distantPast
+            let rightDate = ModemDeckDateText.date(right.timestamp) ?? .distantPast
+            if leftDate == rightDate { return left.id < right.id }
+            return leftDate < rightDate
         }
     }
 
@@ -1041,6 +1190,7 @@ final class ModemDeckConversationStore: ObservableObject {
                 to: thread.peer,
                 content: normalized
             )
+            revision += 1
             messages.append(message)
             api.cacheMessages(messages, lineID: thread.lineId, peer: thread.peer)
             // A confirmed send must not wait for a separate history refresh.

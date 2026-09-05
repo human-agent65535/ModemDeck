@@ -27,6 +27,7 @@ import {
 import {
   bootstrapResource,
   contactsResource,
+  fetchAllContacts,
   loadBootstrap,
   loadContacts,
   saveContact
@@ -95,7 +96,7 @@ async function importContacts(transfers: TransferContact[]): Promise<{
   skipped: number
   failed: number
 }> {
-  await loadContacts(true)
+  const contacts = await fetchAllContacts()
   let created = 0
   let updated = 0
   let skipped = 0
@@ -104,7 +105,7 @@ async function importContacts(transfers: TransferContact[]): Promise<{
   for (const transfer of transfers.slice(0, MAX_IMPORT_CONTACTS)) {
     const plan = planContactImport(
       transfer,
-      contactsResource.data,
+      contacts,
       defaultRegion.value
     )
     if (plan.conflict || !plan.input) {
@@ -112,7 +113,10 @@ async function importContacts(transfers: TransferContact[]): Promise<{
       continue
     }
     try {
-      await saveContact(plan.input, plan.existing?.id)
+      const saved = await saveContact(plan.input, plan.existing?.id)
+      const index = contacts.findIndex(contact => contact.id === saved.id)
+      if (index >= 0) contacts[index] = saved
+      else contacts.push(saved)
       if (plan.existing) updated += 1
       else created += 1
     } catch {
@@ -216,11 +220,11 @@ async function exportVCard(): Promise<void> {
   vcardError.value = ''
   vcardNotice.value = ''
   try {
-    await loadContacts(true)
-    if (contactsResource.data.length === 0) {
+    const contacts = await fetchAllContacts()
+    if (contacts.length === 0) {
       throw new Error(t('contactSync.noContactsToExport'))
     }
-    const blob = new Blob([serializeContactsToVCard(contactsResource.data)], {
+    const blob = new Blob([serializeContactsToVCard(contacts)], {
       type: 'text/vcard;charset=utf-8'
     })
     const url = URL.createObjectURL(blob)
@@ -230,7 +234,7 @@ async function exportVCard(): Promise<void> {
     link.click()
     URL.revokeObjectURL(url)
     vcardNotice.value = t('contactSync.exportedContacts', {
-      count: contactsResource.data.length
+      count: contacts.length
     })
   } catch (error) {
     vcardError.value = errorMessage(error, t('contactSync.vcardExportFailed'))

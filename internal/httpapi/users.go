@@ -213,6 +213,34 @@ func (api *API) userResource(
 			return
 		}
 	}
+	// Read the revisioned access scope before committing the update. Tightening
+	// access must also revoke existing media, which can outlive request auth.
+	users, err := repository.Users(request.Context())
+	if err != nil {
+		api.writeInternalError(response, request, "read member access before update", err)
+		return
+	}
+	revokeCalls := !input.Enabled || passwordHash != ""
+	for _, previous := range users {
+		if previous.ID != userID || previous.Role == auth.RoleAdmin {
+			continue
+		}
+		if previous.IOSPairingEnabled && !input.IOSPairingEnabled {
+			revokeCalls = true
+		}
+		for _, lineID := range previous.LineIDs {
+			retained := false
+			for _, allowed := range input.LineIDs {
+				if lineID == strings.TrimSpace(allowed) {
+					retained = true
+					break
+				}
+			}
+			if !retained {
+				revokeCalls = true
+			}
+		}
+	}
 	user, err := repository.UpdateMember(request.Context(), userID, store.UpdateMemberInput{
 		Username:          input.Username,
 		PasswordHash:      passwordHash,
@@ -225,10 +253,10 @@ func (api *API) userResource(
 		api.writeUserError(response, request, "update member", err)
 		return
 	}
-	if !input.Enabled || passwordHash != "" {
+	if revokeCalls {
 		if err := api.revokeCallSubject(request.Context(), userID); err != nil {
 			api.logger.Error(
-				"end calls after user credential revocation",
+				"end calls after user access revocation",
 				"user_id",
 				userID,
 				"error",

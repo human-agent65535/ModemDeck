@@ -39,6 +39,10 @@ type fakeRepository struct {
 	threads                []store.MessageThread
 	messageReadIdentity    store.MessageThreadIdentity
 	messageReadError       error
+	messageUnreadSummary   store.MessageUnreadSummary
+	messageUnreadError     error
+	messageReadAllLineID   string
+	messageReadAllError    error
 	messageUpdateAction    store.MessageThreadAction
 	messageUpdateThreads   []store.MessageThreadIdentity
 	messageUpdateError     error
@@ -240,12 +244,21 @@ func (repository *fakeRepository) Messages(_ context.Context, query store.Messag
 	return repository.messages, nil
 }
 
+func (repository *fakeRepository) MessageUnreadSummary(context.Context) (store.MessageUnreadSummary, error) {
+	return repository.messageUnreadSummary, repository.messageUnreadError
+}
+
 func (repository *fakeRepository) MarkMessageThreadRead(
 	_ context.Context,
 	identity store.MessageThreadIdentity,
 ) error {
 	repository.messageReadIdentity = identity
 	return repository.messageReadError
+}
+
+func (repository *fakeRepository) MarkAllMessageThreadsRead(_ context.Context, lineID string) error {
+	repository.messageReadAllLineID = lineID
+	return repository.messageReadAllError
 }
 
 func (repository *fakeRepository) UpdateMessageThreads(
