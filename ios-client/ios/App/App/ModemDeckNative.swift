@@ -1679,7 +1679,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
                 self.answerRequestedCallUUIDs.remove(uuid)
                 self.finishProviderCallAction(action, result: .failure(error))
                 self.callProvider.reportCall(with: uuid, endedAt: Date(), reason: .failed)
-                self.cleanupCall(uuid)
+                self.cleanupCall(uuid, failureMessage: error.localizedDescription)
             case .success:
                 guard self.callIDsByUUID[uuid] != nil,
                       let audioSession = self.callAudioSessions[uuid] else {
@@ -1712,7 +1712,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
                             endedAt: Date(),
                             reason: .failed
                         )
-                        self.cleanupCall(uuid)
+                        self.cleanupCall(uuid, failureMessage: error.localizedDescription)
                     }
                 }
             }
@@ -1950,7 +1950,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
                         endedAt: Date(),
                         reason: .failed
                     )
-                    self.cleanupCall(uuid)
+                    self.cleanupCall(uuid, failureMessage: error.localizedDescription)
                 }
             }
         }
@@ -2275,7 +2275,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         }
     }
 
-    private func cleanupCall(_ uuid: UUID) {
+    private func cleanupCall(_ uuid: UUID, failureMessage: String? = nil) {
         settleProviderCallActions(for: uuid)
         failRequestedCallActions(ModemDeckCallAudioError.callEnded, for: uuid)
         rememberEndedCall(uuid)
@@ -2295,7 +2295,13 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         if !callIDsByUUID.contains(where: { !testCallUUIDs.contains($0.key) }) {
             stopRuntimeCallStream()
         }
-        publishCallState()
+        if let failureMessage, callIDsByUUID.isEmpty {
+            var payload = currentCallStatePayload()
+            payload["failureMessage"] = failureMessage
+            callStateObserver?.callStateDidChange(payload)
+        } else {
+            publishCallState()
+        }
     }
 
     private func endAllCalls(reason: CXCallEndedReason) {

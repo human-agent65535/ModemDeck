@@ -404,6 +404,19 @@ struct ModemDeckRootView: View {
         .preferredColorScheme(ModemDeckAppearance(rawValue: appearance)?.colorScheme)
         .accentColor(.mdAccent)
         .textSelection(.enabled)
+        .alert(
+            controller.text("通话连接失败", "Call Connection Failed"),
+            isPresented: Binding(
+                get: { !callController.connectionFailureMessage.isEmpty },
+                set: { if !$0 { callController.connectionFailureMessage = "" } }
+            )
+        ) {
+            Button(controller.text("好", "OK"), role: .cancel) {
+                callController.connectionFailureMessage = ""
+            }
+        } message: {
+            Text(callController.connectionFailureMessage)
+        }
         .task {
             guard !started else { return }
             started = true

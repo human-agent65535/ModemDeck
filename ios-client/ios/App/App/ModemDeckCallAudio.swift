@@ -8,6 +8,7 @@ enum ModemDeckCallAudioError: LocalizedError {
     case mediaUnavailable
     case invalidResponse
     case negotiationFailed
+    case relayUnavailable
     case timedOut
 
     var errorDescription: String? {
@@ -22,6 +23,8 @@ enum ModemDeckCallAudioError: LocalizedError {
             return "ModemDeck returned invalid call audio data."
         case .negotiationFailed:
             return "The iOS device could not establish call audio."
+        case .relayUnavailable:
+            return "The call audio relay could not be reached. Check your network and try again."
         case .timedOut:
             return "Call audio took too long to connect."
         }
@@ -104,6 +107,15 @@ final class ModemDeckCallAudioSession: NSObject {
     private var connectDeadline = Date.distantPast
     private var activePollAttempt = 0
     private var waitingForICE = false
+    private var localDescriptionReady = false
+    private var relayRequired = false
+    private var gatheredCandidateCount = 0
+    private var relayCandidateCount = 0
+    private var gatheringTimeout: DispatchWorkItem?
+    private var offerSubmission: DispatchWorkItem?
+    private var connectionStartedAt = ProcessInfo.processInfo.systemUptime
+    private var connectionStage = "idle"
+    private var diagnosticEntries: [String] = []
     private var mediaClaimed = false
     private var stopped = false
     private var connecting = false
@@ -169,10 +181,13 @@ final class ModemDeckCallAudioSession: NSObject {
             }
             self.connecting = true
             self.connectCompletion = completion
+            self.connectionStartedAt = ProcessInfo.processInfo.systemUptime
+            self.setConnectionStage("waiting_for_active_call")
             self.connectDeadline = Date().addingTimeInterval(20)
             self.activePollAttempt = 0
             let timeout = DispatchWorkItem { [weak self] in
                 guard let self, self.connectCompletion != nil else { return }
+                self.recordConnectionEvent("connection_deadline")
                 self.finishConnection(.failure(ModemDeckCallAudioError.timedOut))
             }
             self.connectTimeout = timeout
@@ -183,6 +198,7 @@ final class ModemDeckCallAudioSession: NSObject {
 
     static func didActivate(_ audioSession: AVAudioSession) {
         dispatchPrecondition(condition: .onQueue(.main))
+        NSLog("ModemDeck CallKit audio activated")
         let rtcSession = RTCAudioSession.sharedInstance()
         rtcSession.audioSessionDidActivate(audioSession)
         rtcSession.isAudioEnabled = true
@@ -190,6 +206,7 @@ final class ModemDeckCallAudioSession: NSObject {
 
     static func didDeactivate(_ audioSession: AVAudioSession) {
         dispatchPrecondition(condition: .onQueue(.main))
+        NSLog("ModemDeck CallKit audio deactivated")
         let rtcSession = RTCAudioSession.sharedInstance()
         rtcSession.isAudioEnabled = false
         rtcSession.audioSessionDidDeactivate(audioSession)
@@ -278,6 +295,7 @@ final class ModemDeckCallAudioSession: NSObject {
     }
 
     private func fetchICEConfiguration() {
+        setConnectionStage("fetching_turn_configuration")
         request(
             path: callPath("media/ice"),
             method: "POST",
@@ -301,10 +319,12 @@ final class ModemDeckCallAudioSession: NSObject {
     }
 
     private func createOffer(configuration: ModemDeckICEConfiguration) {
+        setConnectionStage("creating_offer")
+        relayRequired = configuration.transportPolicy == "relay"
         let rtcConfiguration = RTCConfiguration()
         rtcConfiguration.sdpSemantics = .unifiedPlan
         rtcConfiguration.continualGatheringPolicy = .gatherOnce
-        rtcConfiguration.iceTransportPolicy = configuration.transportPolicy == "relay"
+        rtcConfiguration.iceTransportPolicy = relayRequired
             ? .relay
             : .all
         rtcConfiguration.iceServers = configuration.iceServers.map { server in
@@ -351,13 +371,20 @@ final class ModemDeckCallAudioSession: NSObject {
                     return
                 }
                 self.waitingForICE = true
+                self.setConnectionStage("setting_local_description")
                 peer.setLocalDescription(description) { [weak self] error in
                     self?.queue.async {
                         guard let self, !self.stopped else { return }
                         if let error {
                             self.finishConnection(.failure(error))
-                        } else if peer.iceGatheringState == .complete {
-                            self.exchangeGatheredOffer()
+                        } else {
+                            self.localDescriptionReady = true
+                            self.setConnectionStage("gathering_candidates")
+                            self.startGatheringDeadline()
+                            self.scheduleGatheredOffer()
+                            if peer.iceGatheringState == .complete {
+                                self.finishGathering()
+                            }
                         }
                     }
                 }
@@ -365,9 +392,61 @@ final class ModemDeckCallAudioSession: NSObject {
         }
     }
 
+    private func startGatheringDeadline() {
+        let timeout = DispatchWorkItem { [weak self] in
+            guard let self, !self.stopped, self.waitingForICE else { return }
+            self.recordConnectionEvent("gathering_deadline")
+            self.finishGathering()
+        }
+        gatheringTimeout = timeout
+        queue.asyncAfter(deadline: .now() + 8, execute: timeout)
+    }
+
+    private func hasUsableCandidate(in sdp: String) -> Bool {
+        sdp.components(separatedBy: .newlines).contains { line in
+            guard line.hasPrefix("a=candidate:") else { return false }
+            return !relayRequired || line.contains(" typ relay")
+        }
+    }
+
+    private func scheduleGatheredOffer() {
+        guard !stopped, waitingForICE, localDescriptionReady,
+              offerSubmission == nil,
+              let sdp = peerConnection?.localDescription?.sdp,
+              hasUsableCandidate(in: sdp) else { return }
+        // The API accepts one SDP snapshot. Briefly collect adjacent candidates,
+        // then negotiate without waiting for every interface/TURN URL to finish.
+        let submission = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.offerSubmission = nil
+            self.exchangeGatheredOffer()
+        }
+        offerSubmission = submission
+        queue.asyncAfter(deadline: .now() + .milliseconds(200), execute: submission)
+    }
+
+    private func finishGathering() {
+        guard !stopped, waitingForICE, localDescriptionReady else { return }
+        guard let sdp = peerConnection?.localDescription?.sdp,
+              hasUsableCandidate(in: sdp) else {
+            finishConnection(.failure(relayRequired
+                ? ModemDeckCallAudioError.relayUnavailable
+                : ModemDeckCallAudioError.negotiationFailed))
+            return
+        }
+        exchangeGatheredOffer()
+    }
+
     private func exchangeGatheredOffer() {
-        guard waitingForICE, let offer = peerConnection?.localDescription?.sdp else { return }
+        guard !stopped, waitingForICE, localDescriptionReady,
+              let offer = peerConnection?.localDescription?.sdp,
+              hasUsableCandidate(in: offer) else { return }
         waitingForICE = false
+        gatheringTimeout?.cancel()
+        gatheringTimeout = nil
+        offerSubmission?.cancel()
+        offerSubmission = nil
+        setConnectionStage("exchanging_offer")
         mediaClaimed = true
         request(
             path: callPath("media"),
@@ -390,6 +469,7 @@ final class ModemDeckCallAudioSession: NSObject {
                     self.finishConnection(.failure(ModemDeckCallAudioError.invalidResponse))
                     return
                 }
+                self.setConnectionStage("applying_answer")
                 peer.setRemoteDescription(
                     RTCSessionDescription(type: .answer, sdp: answer.answerSDP)
                 ) { [weak self] error in
@@ -399,6 +479,7 @@ final class ModemDeckCallAudioSession: NSObject {
                             self.finishConnection(.failure(error))
                             return
                         }
+                        self.setConnectionStage("connecting_ice")
                         self.startLeaseHeartbeat()
                         if peer.iceConnectionState == .connected ||
                             peer.iceConnectionState == .completed {
@@ -436,21 +517,35 @@ final class ModemDeckCallAudioSession: NSObject {
 
     private func finishConnection(_ result: Result<Void, Error>) {
         guard let completion = connectCompletion else { return }
+        switch result {
+        case .success:
+            setConnectionStage("connected")
+        case .failure(let error):
+            let failure = error as NSError
+            recordConnectionEvent("failed domain=\(failure.domain) code=\(failure.code)")
+        }
         connectCompletion = nil
         connecting = false
         connectTimeout?.cancel()
         connectTimeout = nil
-        if case .failure = result {
-            stopLocked(notifyRemoteEnd: false)
-        }
+        // Let CallKit/UI finish even if WebRTC teardown takes time.
         DispatchQueue.main.async {
             completion(result)
+        }
+        if case .failure = result {
+            stopLocked(notifyRemoteEnd: false)
         }
     }
 
     private func stopLocked(notifyRemoteEnd: Bool) {
         guard !stopped else { return }
+        recordConnectionEvent("stopped")
         stopped = true
+        waitingForICE = false
+        gatheringTimeout?.cancel()
+        gatheringTimeout = nil
+        offerSubmission?.cancel()
+        offerSubmission = nil
         leaseTimer?.cancel()
         leaseTimer = nil
         connectTimeout?.cancel()
@@ -478,6 +573,22 @@ final class ModemDeckCallAudioSession: NSObject {
                 self?.onRemoteEnded?()
             }
         }
+    }
+
+    private func setConnectionStage(_ stage: String) {
+        connectionStage = stage
+        recordConnectionEvent("stage_changed")
+    }
+
+    private func recordConnectionEvent(_ event: String) {
+        let elapsed = Int((ProcessInfo.processInfo.systemUptime - connectionStartedAt) * 1_000)
+        // Never record SDP, candidate addresses, phone numbers, or TURN credentials.
+        let entry = "call_id=\(callID) elapsed_ms=\(elapsed) stage=\(connectionStage) " +
+            "candidates=\(gatheredCandidateCount) relay_candidates=\(relayCandidateCount) event=\(event)"
+        NSLog("ModemDeck call connection %@", entry)
+        diagnosticEntries.append(entry)
+        if diagnosticEntries.count > 64 { diagnosticEntries.removeFirst() }
+        UserDefaults.standard.set(diagnosticEntries, forKey: "modemdeck.last-call-connection-diagnostics")
     }
 
     private func releaseMedia() {
@@ -582,7 +693,9 @@ extension ModemDeckCallAudioSession: RTCPeerConnectionDelegate {
         didChange newState: RTCIceConnectionState
     ) {
         queue.async { [weak self] in
-            guard let self, !self.stopped else { return }
+            guard let self, !self.stopped,
+                  self.peerConnection === peerConnection else { return }
+            self.recordConnectionEvent("ice_state=\(newState.rawValue)")
             switch newState {
             case .connected, .completed:
                 self.disconnectTimeout?.cancel()
@@ -626,16 +739,27 @@ extension ModemDeckCallAudioSession: RTCPeerConnectionDelegate {
         _ peerConnection: RTCPeerConnection,
         didChange newState: RTCIceGatheringState
     ) {
-        guard newState == .complete else { return }
         queue.async { [weak self] in
-            self?.exchangeGatheredOffer()
+            guard let self, !self.stopped,
+                  self.peerConnection === peerConnection else { return }
+            self.recordConnectionEvent("gathering_state=\(newState.rawValue)")
+            if newState == .complete { self.finishGathering() }
         }
     }
 
     func peerConnection(
         _ peerConnection: RTCPeerConnection,
         didGenerate candidate: RTCIceCandidate
-    ) {}
+    ) {
+        queue.async { [weak self] in
+            guard let self, !self.stopped,
+                  self.peerConnection === peerConnection else { return }
+            self.gatheredCandidateCount += 1
+            if candidate.sdp.contains(" typ relay") { self.relayCandidateCount += 1 }
+            self.recordConnectionEvent("candidate_gathered")
+            self.scheduleGatheredOffer()
+        }
+    }
 
     func peerConnection(
         _ peerConnection: RTCPeerConnection,

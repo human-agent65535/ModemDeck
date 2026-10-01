@@ -466,6 +466,7 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
     @Published private(set) var recordingBusy = false
     @Published private(set) var dtmfBusy = false
     @Published var errorMessage = ""
+    @Published var connectionFailureMessage = ""
 
     private let api: ModemDeckAPIClient
     private var recordingGeneration = 0
@@ -487,6 +488,9 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
             guard (state["state"] as? String) != "idle",
                   let callID = state["callID"] as? String else {
                 self.resetCallState()
+                if let message = state["failureMessage"] as? String {
+                    self.connectionFailureMessage = message
+                }
                 return
             }
             let previousCall = self.call
@@ -504,6 +508,7 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
             )
             self.call = presentedCall
             if previousCall?.callID != callID {
+                self.connectionFailureMessage = ""
                 self.prepareForNewCall(presentedCall)
             } else if previousCall?.state != presentedCall.state {
                 self.reconcileRecording(for: presentedCall)
