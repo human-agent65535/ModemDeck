@@ -265,6 +265,9 @@ func (p *Provider) refreshAuthoritativeATCalls(
 		removeProjectedATCalls(parsed, line)
 		p.projectKnownATCalls(parsed, line, records, true)
 	}
+	// Fresh CLCC records replace the cached calls that already had their audio
+	// route projected. Reapply verified media to these authoritative call states.
+	p.projectQuectelMediaState(parsed)
 	sort.Slice(parsed.Calls, func(i, j int) bool {
 		return parsed.Calls[i].ID < parsed.Calls[j].ID
 	})

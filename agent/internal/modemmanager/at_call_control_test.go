@@ -93,6 +93,93 @@ func TestAuthoritativeATSnapshotFailsWhenFreshCallListCannotBeRead(t *testing.T)
 	}
 }
 
+func TestAuthoritativeATSnapshotPreservesVerifiedCallMedia(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name       string
+		ringing    string
+		active     string
+		mediaReady bool
+	}{
+		{
+			name:       "incoming",
+			ringing:    `+CLCC: 1,1,4,0,0,"+818012345678",145`,
+			active:     `+CLCC: 1,1,0,0,0,"+818012345678",145`,
+			mediaReady: true,
+		},
+		{
+			name:       "outgoing",
+			ringing:    `+CLCC: 1,0,3,0,0,"+818012345678",145`,
+			active:     `+CLCC: 1,0,0,0,0,"+818012345678",145`,
+			mediaReady: true,
+		},
+		{
+			name:    "unavailable route",
+			ringing: `+CLCC: 1,1,4,0,0,"+818012345678",145`,
+			active:  `+CLCC: 1,1,0,0,0,"+818012345678",145`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			objects := emptyLineObjects(false, true)
+			objects[testModemPath][modemInterface]["Revision"] = dbus.MakeVariant("EG25GGCR07A02M1G")
+			caller := newFakeCaller(objects)
+			caller.atResponses[quectelUSBVoiceQuery] =
+				`+QCFG: "usbcfg",0x2C7C,0x125,1,1,1,1,1,0,1`
+			caller.atResponses[quectelPCMStatusQuery] = quectelPCMReadyStatus
+			if !test.mediaReady {
+				caller.atCommandErrors[quectelPCMEnable] = errors.New("unsupported")
+			}
+			provider := newTestProvider(caller)
+			idle, err := provider.Snapshot(context.Background())
+			if err != nil || len(idle.Lines) != 1 || idle.Lines[0].Capabilities.Media != test.mediaReady {
+				t.Fatalf("idle Snapshot() = %+v, %v", idle, err)
+			}
+
+			caller.atResponses[quectelCallListQuery] = test.ringing
+			ringing, err := provider.Snapshot(context.Background())
+			if err != nil || len(ringing.Calls) != 1 {
+				t.Fatalf("ringing Snapshot() = %+v, %v", ringing, err)
+			}
+			callID := ringing.Calls[0].ID
+			if ringing.Calls[0].MediaAvailable {
+				t.Fatalf("ringing call exposed media: %+v", ringing.Calls[0])
+			}
+
+			// The fresh CLCC read must retain the verified audio route both when
+			// it first observes acceptance and when replacing an active cached call.
+			caller.atResponses[quectelCallListQuery] = test.active
+			for refresh := 0; refresh < 2; refresh++ {
+				active, err := provider.Snapshot(context.Background())
+				if err != nil || len(active.Calls) != 1 {
+					t.Fatalf("active Snapshot() = %+v, %v", active, err)
+				}
+				call := active.Calls[0]
+				if call.ID != callID || call.State != "active" || call.MediaAvailable != test.mediaReady {
+					t.Fatalf("active call lost identity, state or media readiness: %+v", call)
+				}
+				if test.mediaReady {
+					if call.AudioPort != idle.Lines[0].AudioPort || call.AudioFormat == nil ||
+						call.AudioFormat.Encoding != "pcm" || call.AudioFormat.Resolution != "s16le" ||
+						call.AudioFormat.Rate != 8000 {
+						t.Fatalf("active call lost verified audio format: %+v", call)
+					}
+				} else if call.AudioPort != "" || call.AudioFormat != nil {
+					t.Fatalf("unavailable route exposed call audio: %+v", call)
+				}
+			}
+
+			caller.atResponses[quectelCallListQuery] = ""
+			ended, err := provider.Snapshot(context.Background())
+			if err != nil || len(ended.Calls) != 1 || ended.Calls[0].ID != callID ||
+				ended.Calls[0].State != "terminated" || ended.Calls[0].MediaAvailable ||
+				ended.Calls[0].AudioPort != "" || ended.Calls[0].AudioFormat != nil {
+				t.Fatalf("ended Snapshot() retained active call media: %+v, %v", ended, err)
+			}
+		})
+	}
+}
+
 func TestATControlDoesNotActOnCallReplacedBeforeFreshEnumeration(t *testing.T) {
 	t.Parallel()
 	objects := emptyLineObjects(false, true)
