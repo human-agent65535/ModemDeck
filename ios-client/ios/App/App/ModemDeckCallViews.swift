@@ -1717,6 +1717,7 @@ private final class ModemDeckRecordingPlayer: NSObject, ObservableObject, AVAudi
                 self.player = player
                 playing = player.play()
             } catch {
+                ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
                 errorMessage = error.localizedDescription
             }
             loading = false

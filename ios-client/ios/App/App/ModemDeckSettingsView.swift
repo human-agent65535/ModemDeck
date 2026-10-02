@@ -13,6 +13,7 @@ private enum ModemDeckSettingsSection: String, Identifiable {
     case telegram
     case access
     case diagnostics
+    case deviceDiagnostics
     case about
 
     var id: String { rawValue }
@@ -81,6 +82,13 @@ struct ModemDeckSettingsView: View {
                     icon: "phone.connection",
                     title: controller.text("来电与音频", "Calls & Audio"),
                     subtitle: controller.text("CallKit、麦克风与通话录音", "CallKit, microphone, and call recording")
+                )
+                ModemDeckListDivider(leading: 74)
+                directoryItem(
+                    .deviceDiagnostics,
+                    icon: "waveform.path.ecg",
+                    title: controller.text("手机诊断", "Device Diagnostics"),
+                    subtitle: controller.text("App 诊断回传与上传状态", "App diagnostic uploads and status")
                 )
                 ModemDeckListDivider(leading: 74)
                 directoryItem(
@@ -216,6 +224,7 @@ struct ModemDeckSettingsView: View {
         case .telegram: ModemDeckTelegramSettingsView(controller: controller)
         case .access: ModemDeckAccessSettingsView(controller: controller)
         case .diagnostics: ModemDeckDiagnosticsSettingsView(controller: controller)
+        case .deviceDiagnostics: ModemDeckDeviceDiagnosticsSettingsView(controller: controller)
         case .about: ModemDeckAboutSettingsView(controller: controller)
         }
     }
@@ -720,6 +729,7 @@ private struct ModemDeckPreferencesSettingsView: View {
                 await controller.refresh()
             } catch {
                 profileContactID = previous
+                ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
                 errorMessage = error.localizedDescription
             }
             profileBusy = false
@@ -738,6 +748,7 @@ private struct ModemDeckPreferencesSettingsView: View {
                 await controller.refresh()
             } catch {
                 language = previous
+                ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
                 errorMessage = error.localizedDescription
             }
             languageBusy = false
@@ -756,6 +767,7 @@ private struct ModemDeckPreferencesSettingsView: View {
                 await controller.refresh()
             } catch {
                 defaultLineID = previous
+                ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
                 errorMessage = error.localizedDescription
             }
             lineBusy = false
@@ -921,6 +933,7 @@ private struct ModemDeckSecuritySettingsView: View {
                 }
             errorMessage = ""
         } catch {
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             errorMessage = error.localizedDescription
         }
         loading = false
@@ -935,6 +948,7 @@ private struct ModemDeckSecuritySettingsView: View {
                 try await controller.api.revokeAccountSession(id: session.id)
                 sessions.removeAll { $0.id == session.id }
             } catch {
+                ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
                 errorMessage = error.localizedDescription
             }
             revokingSessionID = ""
@@ -1088,6 +1102,7 @@ private struct ModemDeckPasswordChangeSheet: View {
                 errorMessage = passwordError(error)
                 saving = false
             } catch {
+                ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
                 errorMessage = error.localizedDescription
                 saving = false
             }
@@ -1351,6 +1366,7 @@ private struct ModemDeckCallSettingsView: View {
         do {
             recordingSettings = try await controller.api.recordingSettings()
         } catch {
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             controller.errorMessage = error.localizedDescription
         }
     }
@@ -1359,6 +1375,7 @@ private struct ModemDeckCallSettingsView: View {
         do {
             callSettings = try await controller.api.callSettings()
         } catch {
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             controller.errorMessage = error.localizedDescription
         }
     }
@@ -1379,6 +1396,7 @@ private struct ModemDeckCallSettingsView: View {
                 controller.errorMessage = ""
             } catch {
                 callSettings = current
+                ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
                 controller.errorMessage = error.localizedDescription
             }
             callSettingsBusy = false
@@ -1396,6 +1414,7 @@ private struct ModemDeckCallSettingsView: View {
                 )
                 controller.errorMessage = ""
             } catch {
+                ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
                 controller.errorMessage = error.localizedDescription
             }
             recordingBusy = false
@@ -1439,6 +1458,7 @@ private struct ModemDeckCallSettingsView: View {
                 statusMessage = controller.text("服务器尚未确认来电送达，请稍后重试。", "The server has not confirmed call delivery. Try again shortly.")
             } catch {
                 statusMessage = ""
+                ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
                 controller.errorMessage = error.localizedDescription
             }
         }
@@ -1543,6 +1563,7 @@ private struct ModemDeckDevicesSettingsView: View {
             devices = try await controller.api.managedDevices()
             errorMessage = ""
         } catch {
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             errorMessage = error.localizedDescription
         }
         loading = false
@@ -1624,6 +1645,7 @@ private struct ModemDeckUsersSettingsView: View {
             users = try await controller.api.users()
             errorMessage = ""
         } catch {
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             errorMessage = error.localizedDescription
         }
         loading = false
@@ -1698,6 +1720,7 @@ private struct ModemDeckTelegramSettingsView: View {
             units = try await controller.api.telegramUnits()
             errorMessage = ""
         } catch {
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             errorMessage = error.localizedDescription
         }
         loading = false
@@ -1777,6 +1800,61 @@ private struct ModemDeckAccessSettingsView: View {
                     icon: "phone.connection",
                     valueColor: .mdAccent
                 )
+            }
+        }
+    }
+}
+
+private struct ModemDeckDeviceDiagnosticsSettingsView: View {
+    @ObservedObject var controller: ModemDeckSessionController
+    @AppStorage(ModemDeckDiagnostics.uploadPreference) private var enabled = false
+    @State private var status = ModemDeckDiagnostics.shared.status()
+
+    var body: some View {
+        ModemDeckSettingsDetailScaffold(
+            title: controller.text("手机诊断", "Device Diagnostics"),
+            backTitle: controller.text("返回设置", "Back to Settings")
+        ) {
+            ModemDeckSettingsModule(title: controller.text("诊断回传", "Diagnostic Uploads"), footer: controller.text(
+                "默认关闭。开启后，后续的网络请求、连接恢复、推送、CallKit、音频及其他 App 诊断会回传到已配对的服务器。关闭会停止上传并清空待传队列。",
+                "Off by default. When enabled, subsequent network, recovery, push, CallKit, audio, and other app diagnostics are sent to your paired server. Turning this off stops uploads and clears the queue."
+            )) {
+                Toggle(controller.text("回传所有 App 诊断", "Upload All App Diagnostics"), isOn: Binding(
+                    get: { enabled },
+                    set: { value in
+                        ModemDeckDiagnostics.shared.setUploadEnabled(value)
+                        enabled = value
+                        status = ModemDeckDiagnostics.shared.status()
+                    }
+                ))
+                .accessibilityIdentifier("diagnostics-upload-toggle")
+                .font(.system(size: 15))
+                .foregroundColor(.mdText)
+                .tint(.mdAccent)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 52)
+                ModemDeckSettingsDivider()
+                ModemDeckSettingsValueRow(title: controller.text("待上传", "Queued"),
+                    value: String(status.pending), icon: "arrow.up.circle")
+                ModemDeckSettingsDivider()
+                ModemDeckSettingsValueRow(title: controller.text("最近上传", "Last Upload"),
+                    value: status.lastUpload.map { $0.formatted(date: .abbreviated, time: .standard) }
+                        ?? controller.text("暂无", "None"), icon: "clock")
+                if status.dropped > 0 {
+                    ModemDeckSettingsDivider()
+                    ModemDeckSettingsValueRow(title: controller.text("队列已满时丢弃", "Dropped When Queue Was Full"),
+                        value: String(status.dropped), icon: "exclamationmark.circle")
+                }
+            }
+            ModemDeckSettingsModule(title: controller.text("诊断内容", "What's Included"), footer: controller.text(
+                "仅包含 App 版本、系统版本、网络类型、错误码、连接阶段和耗时等诊断信息，不包含令牌、电话号码、消息正文或音频。断网时暂存，恢复后补传；设备最多保留 512 条待传诊断。关闭前已上传的数据仍保留在服务器日志中。",
+                "Includes app and OS versions, network type, error codes, connection stages, and timing. Excludes tokens, phone numbers, message bodies, and audio. Up to 512 events wait on this device while offline and upload after recovery. Previously uploaded events remain in server logs."
+            )) { EmptyView() }
+        }
+        .task {
+            while !Task.isCancelled {
+                status = ModemDeckDiagnostics.shared.status()
+                do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
             }
         }
     }
@@ -1889,6 +1967,7 @@ private struct ModemDeckDiagnosticsSettingsView: View {
             snapshot = try await controller.api.diagnostics()
             errorMessage = ""
         } catch {
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             errorMessage = error.localizedDescription
         }
         loading = false

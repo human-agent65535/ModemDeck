@@ -52,10 +52,23 @@ call audio remain native platform services.
   requests across network interruptions and app restarts. Recovery checks the
   original call's state and credential scope before retrying; bearer tokens
   are never stored in the pending-request journal.
-- Presents server-originated synthetic test calls in CallKit and mirrors their
-  live state in the in-app call surface. After answer, an audible local test
-  tone verifies the CallKit output route without creating a modem call, call
-  record, call lease, or WebRTC session.
+- Offers **Settings → Calls & Audio → Start Call Test** through the same native
+  WebRTC/TURN, media lifecycle and ownership leases as a real call. The server
+  supplies a test tone and temporary voice playback without a SIM call,
+  recording or durable call history. Pairing's older push-only test still uses
+  a local tone and has no server audio session.
+- Offers **Settings → Device Diagnostics → Upload All App Diagnostics**, off
+  by default. When enabled, all app diagnostic categories (API, recovery,
+  pairing, push, CallKit, audio, permissions, storage and app lifecycle/errors)
+  are sent to the paired server's `/api/v1/mobile/diagnostics` endpoint. TURN
+  events include normalized entry/transport/port, native error code, elapsed
+  time and network type; raw addresses, SDP, credentials and user content are
+  excluded. The device keeps at most 128 local events and 512 pending uploads,
+  persists retries across restarts, and isolates queues by pairing. Turning
+  off cancels uploads and clears the queue; turning on only sends subsequent
+  events. Previously uploaded data remains subject to server log retention.
+  Operators can inspect `source=ios` and `component=ios.*` in existing server
+  diagnostics/logs, correlated by authenticated device, build and call ID.
 - Requires ModemDeck v1.12.0 or newer plus matching Apple provider credentials
   on the server before remote delivery is enabled. Debug builds installed
   directly on a device use APNs sandbox; the distributed TestFlight app uses

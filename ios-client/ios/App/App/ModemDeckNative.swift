@@ -404,6 +404,7 @@ private final class ModemDeckRuntimeCallStream: NSObject, URLSessionDataDelegate
             return
         }
         statusCode = response.statusCode
+        ModemDeckDiagnostics.shared.recordRequest(dataTask.originalRequest, response: response, error: nil)
         let contentType = response.value(forHTTPHeaderField: "Content-Type")?
             .lowercased() ?? ""
         accepted = response.statusCode == 200 && contentType.contains("text/event-stream")
@@ -428,6 +429,7 @@ private final class ModemDeckRuntimeCallStream: NSObject, URLSessionDataDelegate
         task: URLSessionTask,
         didCompleteWithError error: Error?
     ) {
+        ModemDeckDiagnostics.shared.recordRequest(task.originalRequest, response: task.response, error: error)
         guard !cancelled else { return }
         finish(status: statusCode, error: error)
     }
@@ -623,6 +625,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         let configure = { [weak self] in
             guard let self else { return }
             self.credentialStore = store
+            self.configureDiagnostics()
             self.start()
             self.syncTokens()
             self.resumePendingCallEnds()
@@ -640,6 +643,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             guard let self else { return }
             self.cancelPendingCallEnds()
             self.credentialStore = nil
+            ModemDeckDiagnostics.shared.configure(scope: nil)
             self.apnsRegistrationRetryWorkItem?.cancel()
             self.apnsRegistrationRetryWorkItem = nil
             self.apnsRegistrationRetryAttempt = 0
@@ -657,6 +661,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     func applicationDidBecomeActive() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            self.configureDiagnostics()
             UIApplication.shared.registerForRemoteNotifications()
             self.syncTokens()
             self.resumePendingCallEnds()
@@ -668,6 +673,35 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         DispatchQueue.main.async { [weak self] in
             self?.resumePendingCallEnds()
             self?.startRuntimeCallStream(forceRestart: true)
+            ModemDeckDiagnostics.shared.flush()
+        }
+    }
+
+    private func configureDiagnostics() {
+        guard let credential = loadCredential() else {
+            ModemDeckDiagnostics.shared.configure(scope: nil)
+            return
+        }
+        ModemDeckDiagnostics.shared.configure(scope: credential.callControlScope,
+                                              authorization: "Bearer \(credential.token)") { data, completion in
+            guard let request = try? authorizedRequest(credential: credential,
+                path: "/api/v1/mobile/diagnostics", method: "POST",
+                headers: ["Content-Type": "application/json"], body: data, timeout: 15) else {
+                completion(400)
+                return {}
+            }
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.timeoutIntervalForRequest = 15
+            configuration.timeoutIntervalForResource = 20
+            // Deliberately uninstrumented: uploading diagnostics must not generate
+            // another upload. This session also outlives call audio teardown.
+            let session = URLSession(configuration: configuration)
+            let task = session.dataTask(with: request) { _, response, error in
+                completion(error == nil ? (response as? HTTPURLResponse)?.statusCode ?? 0 : 0)
+                session.finishTasksAndInvalidate()
+            }
+            task.resume()
+            return { session.invalidateAndCancel() }
         }
     }
 
@@ -742,10 +776,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
                     return
                 }
                 if let error, (error as NSError).code != NSURLErrorCancelled {
-                    NSLog(
-                        "ModemDeck runtime call stream closed: %@",
-                        error.localizedDescription
-                    )
+                    ModemDeckDiagnostics.shared.record(.network, "call_stream_closed", error: error)
                 }
                 self.scheduleRuntimeCallReconnect()
             }
@@ -764,6 +795,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     }
 
     private func scheduleRuntimeCallReconnect() {
+        ModemDeckDiagnostics.shared.record(.network, "call_stream_reconnect", fields: ["attempt": String(runtimeCallRetryAttempt)])
         dispatchPrecondition(condition: .onQueue(.main))
         guard credentialStore != nil,
               let callID = runtimeCallTargetID,
@@ -1009,6 +1041,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     }
 
     func didRegisterForRemoteNotifications(deviceToken: Data) {
+        ModemDeckDiagnostics.shared.record(.push, "registered")
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.apnsRegistrationRetryWorkItem?.cancel()
@@ -1021,12 +1054,13 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
 
     func didFailToRegisterForRemoteNotifications(error: Error) {
         DispatchQueue.main.async { [weak self] in
-            NSLog("ModemDeck APNs registration failed: %@", error.localizedDescription)
+            ModemDeckDiagnostics.shared.record(.push, "registration_failed", error: error)
             self?.scheduleAPNSRegistrationRetry()
         }
     }
 
     func handleRemoteNotification(_ userInfo: [AnyHashable: Any]) {
+        ModemDeckDiagnostics.shared.record(.push, "notification_received")
         DispatchQueue.main.async {
             NotificationCenter.default.post(
                 name: .modemDeckRemoteNotification,
@@ -1037,6 +1071,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     }
 
     func handleNotificationResponse(_ userInfo: [AnyHashable: Any]) {
+        ModemDeckDiagnostics.shared.record(.push, "notification_opened")
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             if let route = self.notificationRoute(from: userInfo) {
@@ -1067,6 +1102,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         for type: PKPushType
     ) {
         guard type == .voIP else { return }
+        ModemDeckDiagnostics.shared.record(.push, "voip_registered")
         voipToken = pushCredentials.token.hexString
         syncTokens()
     }
@@ -1076,6 +1112,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         didInvalidatePushTokenFor type: PKPushType
     ) {
         guard type == .voIP else { return }
+        ModemDeckDiagnostics.shared.record(.push, "voip_registration_invalidated")
         voipToken = nil
         syncTokens(forceEmpty: true)
     }
@@ -1167,19 +1204,19 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 20
-        tokenSyncTask = URLSession(configuration: configuration).dataTask(with: request) { [weak self] _, response, error in
+        tokenSyncTask = URLSession(configuration: configuration).diagnosticDataTask(with: request) { [weak self] _, response, error in
             DispatchQueue.main.async {
                 guard let self, generation == self.tokenSyncGeneration else { return }
                 self.tokenSyncTask = nil
                 if let error {
                     guard (error as NSError).code != NSURLErrorCancelled else { return }
-                    NSLog("ModemDeck push token sync failed: %@", error.localizedDescription)
+                    ModemDeckDiagnostics.shared.record(.push, "registration_sync_failed", error: error)
                     self.scheduleTokenSyncRetry(forceEmpty: forceEmpty)
                     return
                 }
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                 guard (200..<300).contains(status) else {
-                    NSLog("ModemDeck push token sync returned HTTP %ld", status)
+                    ModemDeckDiagnostics.shared.record(.push, "registration_sync_rejected", fields: ["http_status": String(status)])
                     if status == 401 {
                         NotificationCenter.default.post(
                             name: .modemDeckAuthenticationFailed,
@@ -1281,11 +1318,12 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         from call: [AnyHashable: Any],
         completion: @escaping () -> Void
     ) {
+        ModemDeckDiagnostics.shared.record(.push, "voip_incoming_received", callID: stringValue(call["call_id"]))
         let callID = stringValue(call["call_id"]) ?? stringValue(call["id"])
         guard let callID, !callID.isEmpty,
               let uuidText = stringValue(call["uuid"]),
               let uuid = UUID(uuidString: uuidText) else {
-            NSLog("ModemDeck ignored an incoming VoIP push without a stable call identity.")
+            ModemDeckDiagnostics.shared.record(.push, "invalid_incoming_identity")
             completion()
             return
         }
@@ -1357,7 +1395,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
                     return
                 }
                 if let error {
-                    NSLog("ModemDeck could not report the incoming call: %@", error.localizedDescription)
+                    ModemDeckDiagnostics.shared.record(.callkit, "report_incoming_failed", error: error)
                     if isAudioTest { self.sendEndCallAction(verb: "hangup", callUUID: uuid) }
                     self.cleanupCall(uuid, failureMessage: isAudioTest ? error.localizedDescription : nil)
                 } else if isTestCall {
@@ -1386,7 +1424,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     ) {
         guard let uuidText = stringValue(call["uuid"]),
               let uuid = UUID(uuidString: uuidText) else {
-            NSLog("ModemDeck ignored a terminal VoIP push without a stable CallKit UUID.")
+            ModemDeckDiagnostics.shared.record(.push, "invalid_terminal_identity")
             completion()
             return
         }
@@ -1420,10 +1458,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
                     return
                 }
                 if let error {
-                    NSLog(
-                        "ModemDeck could not reconcile an unknown terminal call: %@",
-                        error.localizedDescription
-                    )
+                    ModemDeckDiagnostics.shared.record(.callkit, "reconcile_terminal_failed", error: error)
                 } else {
                     self.reportCallEnded(
                         with: uuid,
@@ -1579,7 +1614,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 20
         let session = URLSession(configuration: configuration)
-        session.dataTask(with: request) { _, response, error in
+        session.diagnosticDataTask(with: request) { _, response, error in
             session.finishTasksAndInvalidate()
             DispatchQueue.main.async {
                 if let error {
@@ -1604,6 +1639,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     }
 
     func providerDidReset(_ provider: CXProvider) {
+        ModemDeckDiagnostics.shared.record(.callkit, "provider_reset")
         failRequestedCallActions(ModemDeckCallAudioError.callEnded)
         failPendingOutgoingCalls(ModemDeckCallAudioError.callEnded)
         for uuid in Array(callIDsByUUID.keys) {
@@ -1618,6 +1654,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     }
 
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
+        ModemDeckDiagnostics.shared.record(.callkit, "answer_requested")
         let uuid = action.callUUID
         let answerInProgress = providerCallActions.values.contains {
             $0 is CXAnswerCallAction && $0.callUUID == uuid
@@ -1684,7 +1721,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             guard self.providerCallActions[action.uuid] != nil else { return }
             switch result {
             case .failure(let error):
-                NSLog("ModemDeck CallKit answer failed: %@", error.localizedDescription)
+                ModemDeckDiagnostics.shared.record(.callkit, "answer_failed", error: error)
                 self.sendEndCallAction(verb: "hangup", callUUID: uuid, reconcileFirst: true)
                 self.answerRequestedCallUUIDs.remove(uuid)
                 self.finishProviderCallAction(action, result: .failure(error))
@@ -1717,7 +1754,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
                         self.finishProviderCallAction(action, result: .success(()))
                         self.markCallActive(uuid)
                     case .failure(let error):
-                        NSLog("ModemDeck CallKit audio connection failed: %@", error.localizedDescription)
+                        ModemDeckDiagnostics.shared.record(.callkit, "audio_connect_failed", error: error)
                         self.finishProviderCallAction(action, result: .failure(error))
                         self.sendEndCallAction(verb: "hangup", callUUID: uuid)
                         self.reportCallEnded(
@@ -1733,6 +1770,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     }
 
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
+        ModemDeckDiagnostics.shared.record(.callkit, "end_requested")
         let uuid = action.callUUID
         trackProviderCallAction(action)
         guard callIDsByUUID[uuid] != nil else {
@@ -1764,7 +1802,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         if audioTestCallUUIDs.contains(callUUID) {
             sendCallAction(verb: verb, callUUID: callUUID) { result in
                 if case .failure(let error) = result {
-                    NSLog("ModemDeck test call cleanup failed: %@", error.localizedDescription)
+                    ModemDeckDiagnostics.shared.record(.callkit, "test_cleanup_failed", error: error)
                 }
             }
             return
@@ -1805,8 +1843,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
                 self.finishCallEndBackgroundTask(uuid)
             },
             onDeferred: { [weak self] error in
-                NSLog("ModemDeck call end remains pending: %@",
-                      error?.localizedDescription ?? "Awaiting server confirmation")
+                ModemDeckDiagnostics.shared.record(.callkit, "end_pending", error: error)
                 self?.finishCallEndBackgroundTask(uuid)
             }
         )
@@ -1829,7 +1866,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         configuration.timeoutIntervalForRequest = 8
         configuration.timeoutIntervalForResource = 10
         let session = URLSession(configuration: configuration)
-        session.dataTask(with: request) { data, response, error in
+        session.diagnosticDataTask(with: request) { data, response, error in
             session.finishTasksAndInvalidate()
             DispatchQueue.main.async {
                 if let error { completion(.failure(error)); return }
@@ -1902,6 +1939,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     }
 
     func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
+        ModemDeckDiagnostics.shared.record(.callkit, "start_requested")
         let uuid = action.callUUID
         guard let pending = pendingOutgoingCalls.removeValue(forKey: uuid) else {
             action.fail()
@@ -1964,10 +2002,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
                     self.callProvider.reportOutgoingCall(with: uuid, connectedAt: Date())
                     self.markCallActive(uuid)
                 case .failure(let error):
-                    NSLog(
-                        "ModemDeck outgoing CallKit audio failed: %@",
-                        error.localizedDescription
-                    )
+                    ModemDeckDiagnostics.shared.record(.callkit, "outgoing_audio_failed", error: error)
                     self.sendEndCallAction(verb: "hangup", callUUID: uuid)
                     self.reportCallEnded(
                         with: uuid,
@@ -1986,10 +2021,12 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     }
 
     func provider(_ provider: CXProvider, perform action: CXSetHeldCallAction) {
+        ModemDeckDiagnostics.shared.record(.callkit, "hold_requested")
         action.fail()
     }
 
     func provider(_ provider: CXProvider, perform action: CXSetMutedCallAction) {
+        ModemDeckDiagnostics.shared.record(.callkit, "mute_requested")
         trackProviderCallAction(action)
         guard callIDsByUUID[action.callUUID] != nil else {
             finishProviderCallAction(
@@ -2017,6 +2054,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     }
 
     func provider(_ provider: CXProvider, perform action: CXPlayDTMFCallAction) {
+        ModemDeckDiagnostics.shared.record(.callkit, "dtmf_requested")
         let uuid = action.callUUID
         trackProviderCallAction(action)
         guard answeredCallUUIDs.contains(uuid),
@@ -2039,7 +2077,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             case .success:
                 self.finishProviderCallAction(action, result: .success(()))
             case .failure(let error):
-                NSLog("ModemDeck CallKit DTMF failed: %@", error.localizedDescription)
+                ModemDeckDiagnostics.shared.record(.callkit, "dtmf_failed", error: error)
                 self.finishProviderCallAction(action, result: .failure(error))
             }
         }
@@ -2060,6 +2098,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     }
 
     func provider(_ provider: CXProvider, timedOutPerforming action: CXAction) {
+        ModemDeckDiagnostics.shared.record(.callkit, "action_timed_out")
         guard let callAction = action as? CXCallAction else { return }
         let uuid = callAction.callUUID
         let timeoutError = NSError(
@@ -2145,7 +2184,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             guard let credentialStore else { return nil }
             return try credentialStore.load()
         } catch {
-            NSLog("ModemDeck could not load the iOS credential: %@", error.localizedDescription)
+            ModemDeckDiagnostics.shared.record(.storage, "credential_load_failed", error: error)
             return nil
         }
     }
@@ -3188,7 +3227,7 @@ final class ModemDeckNativePlugin: CAPPlugin, CAPBridgedPlugin, ModemDeckCallSta
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 20
-        URLSession(configuration: configuration).dataTask(with: request) { [weak self] data, response, error in
+        URLSession(configuration: configuration).diagnosticDataTask(with: request) { [weak self] data, response, error in
             if let error {
                 call.reject("Unable to reach the paired ModemDeck server.", "PAIRING_CONNECTION_FAILED", error)
                 return
@@ -3261,7 +3300,7 @@ final class ModemDeckNativePlugin: CAPPlugin, CAPBridgedPlugin, ModemDeckCallSta
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 10
         configuration.timeoutIntervalForResource = 12
-        URLSession(configuration: configuration).dataTask(with: request) { [weak self] _, response, _ in
+        URLSession(configuration: configuration).diagnosticDataTask(with: request) { [weak self] _, response, _ in
             let status = (response as? HTTPURLResponse)?.statusCode
             try? self?.store.clear()
             call.resolve(["revoked": status == 204 || status == 401])
@@ -3305,7 +3344,7 @@ final class ModemDeckNativePlugin: CAPPlugin, CAPBridgedPlugin, ModemDeckCallSta
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = request.timeoutInterval
         configuration.timeoutIntervalForResource = min(190, request.timeoutInterval + 10)
-        let task = URLSession(configuration: configuration).dataTask(with: request) { [weak self] data, response, error in
+        let task = URLSession(configuration: configuration).diagnosticDataTask(with: request) { [weak self] data, response, error in
             self?.removeRequest(requestID)
             if let error {
                 let code = (error as NSError).code == NSURLErrorCancelled ? "REQUEST_CANCELLED" : "REQUEST_FAILED"
@@ -3619,6 +3658,7 @@ private final class ModemDeckEventStream: NSObject, URLSessionDataDelegate {
             return
         }
         statusCode = response.statusCode
+        ModemDeckDiagnostics.shared.recordRequest(dataTask.originalRequest, response: response, error: nil)
         let contentType = response.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? ""
         accepted = response.statusCode == 200 && contentType.contains("text/event-stream")
         if accepted {
@@ -3646,6 +3686,7 @@ private final class ModemDeckEventStream: NSObject, URLSessionDataDelegate {
         task: URLSessionTask,
         didCompleteWithError error: Error?
     ) {
+        ModemDeckDiagnostics.shared.recordRequest(task.originalRequest, response: task.response, error: error)
         if cancelled {
             plugin?.streamFinished(streamID)
             return
@@ -3769,7 +3810,7 @@ final class ModemDeckAPIURLSchemeHandler: NSObject, WKURLSchemeHandler {
             let configuration = URLSessionConfiguration.ephemeral
             configuration.timeoutIntervalForRequest = 60
             configuration.timeoutIntervalForResource = 180
-            let task = URLSession(configuration: configuration).dataTask(with: request) { [weak self] data, response, error in
+            let task = URLSession(configuration: configuration).diagnosticDataTask(with: request) { [weak self] data, response, error in
                 DispatchQueue.main.async {
                     guard let self, self.takeTask(identifier) else {
                         return

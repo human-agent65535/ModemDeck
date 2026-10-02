@@ -465,6 +465,8 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.postOnly(response, request, api.mobilePushTestCall)
 	case "/api/v1/mobile/call-tests":
 		api.mobileCallTest(response, request)
+	case "/api/v1/mobile/diagnostics":
+		api.postOnly(response, request, api.mobileDiagnostics)
 	case "/api/v1/users":
 		api.usersCollection(response, request)
 	case "/api/v1/contacts":

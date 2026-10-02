@@ -466,6 +466,7 @@ function unreadSummary() {
   }
 }
 
+const diagnosticBatches = []
 let contactDeleteDelayMS = 0
 let messageReadDelayMS = 0
 let messageReadsStarted = 0
@@ -489,6 +490,9 @@ async function fixtureWrite(request, response, pathname) {
     historyReadsStarted = 0
     historyReadsCompleted = 0
     operations.length = 0
+    diagnosticBatches.length = 0
+  } else if (pathname === '/api/v1/mobile/diagnostics') {
+    diagnosticBatches.push(body)
   } else if (pathname === '/__uat/configure') {
     contactDeleteDelayMS = Math.max(0, Math.min(8000, Number(body.contactDeleteDelayMS) || 0))
     messageReadDelayMS = Math.max(0, Math.min(8000, Number(body.messageReadDelayMS) || 0))
@@ -558,7 +562,7 @@ const server = https.createServer(
     if (!authorize(request, response)) {
       status = 401
     } else if (mutable && url.pathname === '/__uat/state' && request.method === 'GET') {
-      send(response, 200, { online, contacts, threads, calls, recordings, operations, messageReadsStarted, messageReadsCompleted, historyReadsStarted, historyReadsCompleted })
+      send(response, 200, { online, contacts, threads, calls, recordings, operations, messageReadsStarted, messageReadsCompleted, historyReadsStarted, historyReadsCompleted, diagnosticBatches })
     } else if (mutable && url.pathname.startsWith('/__uat/') && request.method === 'POST') {
       try { await fixtureWrite(request, response, url.pathname) } catch { send(response, 400, { code: 'invalid_fixture_request' }) }
     } else if (!online) {
@@ -604,7 +608,8 @@ const server = https.createServer(
         status = 404
         send(response, status, { code: 'not_found', message: 'Not found' })
       }
-    } else if (mutable && (request.method === 'PATCH' || request.method === 'DELETE')) {
+    } else if (mutable && (request.method === 'PATCH' || request.method === 'DELETE' ||
+      (request.method === 'POST' && url.pathname === '/api/v1/mobile/diagnostics'))) {
       try { await fixtureWrite(request, response, url.pathname) } catch { send(response, 400, { code: 'invalid_fixture_request' }) }
     } else {
       status = 409

@@ -29,11 +29,17 @@ enum ModemDeckConnectionState: Equatable {
 
 @MainActor
 final class ModemDeckSessionController: ObservableObject {
-    @Published private(set) var phase: ModemDeckSessionPhase = .launching
+    @Published private(set) var phase: ModemDeckSessionPhase = .launching {
+        didSet { if phase != oldValue { ModemDeckDiagnostics.shared.record(.app, "session_phase_changed", fields: ["status": String(describing: phase)]) } }
+    }
     @Published private(set) var session: ModemDeckMobileSession?
     @Published private(set) var bootstrap: ModemDeckBootstrap?
-    @Published private(set) var notificationStatus = "unknown"
-    @Published private(set) var microphoneStatus = "unknown"
+    @Published private(set) var notificationStatus = "unknown" {
+        didSet { if notificationStatus != oldValue { ModemDeckDiagnostics.shared.record(.permissions, "notification_permission", fields: ["status": notificationStatus]) } }
+    }
+    @Published private(set) var microphoneStatus = "unknown" {
+        didSet { if microphoneStatus != oldValue { ModemDeckDiagnostics.shared.record(.permissions, "microphone_permission", fields: ["status": microphoneStatus]) } }
+    }
     @Published var errorMessage = ""
     @Published var pairingInProgress = false
     @Published var selectedSection: ModemDeckSection {
@@ -45,7 +51,9 @@ final class ModemDeckSessionController: ObservableObject {
     @Published var callsFilter = "all"
     @Published private(set) var callsNavigationRevision = 0
     @Published private(set) var requestedMessageThreadKey: String?
-    @Published private(set) var connectionState: ModemDeckConnectionState = .checking
+    @Published private(set) var connectionState: ModemDeckConnectionState = .checking {
+        didSet { if connectionState != oldValue { ModemDeckDiagnostics.shared.record(.network, "connection_state_changed", fields: ["status": String(describing: connectionState)]) } }
+    }
     @Published private(set) var reconnecting = false
 
     let credentialStore: ModemDeckCredentialStore
@@ -167,6 +175,7 @@ final class ModemDeckSessionController: ObservableObject {
             try? credentialStore.clear()
             phase = .unpaired
             connectionState = .offline
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             errorMessage = error.localizedDescription
         }
         await refreshNotificationStatus()
@@ -178,12 +187,16 @@ final class ModemDeckSessionController: ObservableObject {
     }
 
     func resume() async {
+        ModemDeckDiagnostics.shared.record(.app, "foreground")
+        ModemDeckDiagnostics.shared.flush()
         recovery.setForeground(true)
         guard phase == .paired else { return }
         await refresh()
     }
 
     func suspend() {
+        ModemDeckDiagnostics.shared.record(.app, "background")
+        ModemDeckDiagnostics.shared.flush()
         refreshGeneration &+= 1
         reconnecting = false
         recovery.setForeground(false)
@@ -232,6 +245,7 @@ final class ModemDeckSessionController: ObservableObject {
             return .stop
         } catch {
             guard generation == refreshGeneration, !Task.isCancelled else { return .stop }
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             errorMessage = error.localizedDescription
             connectionState = .offline
             phase = .paired
@@ -240,6 +254,7 @@ final class ModemDeckSessionController: ObservableObject {
     }
 
     func pair(using payloadText: String) async {
+        ModemDeckDiagnostics.shared.record(.pairing, "pairing_started")
         guard !pairingInProgress else { return }
         pairingInProgress = true
         errorMessage = ""
@@ -270,11 +285,13 @@ final class ModemDeckSessionController: ObservableObject {
             api.clearCachedData()
             try credentialStore.save(credential)
             ModemDeckPushCoordinator.shared.configure(store: credentialStore)
+            ModemDeckDiagnostics.shared.record(.pairing, "pairing_completed")
             session = verifiedSession
             phase = .paired
             recovery.enable()
             await refresh()
         } catch {
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             errorMessage = error.localizedDescription
             connectionState = .offline
             phase = .unpaired
@@ -325,6 +342,7 @@ final class ModemDeckSessionController: ObservableObject {
             )
             UIApplication.shared.registerForRemoteNotifications()
         } catch {
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             errorMessage = error.localizedDescription
         }
         await refreshNotificationStatus()
@@ -382,6 +400,7 @@ final class ModemDeckSessionController: ObservableObject {
             errorMessage = ""
             return true
         } catch {
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             errorMessage = error.localizedDescription
             return false
         }
@@ -569,6 +588,7 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
             if let createdCallID {
                 try? await api.callAction(callID: createdCallID, action: "hangup")
             }
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             errorMessage = error.localizedDescription
         }
     }
@@ -622,6 +642,7 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
                 }
             }
         } catch {
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             errorMessage = error.localizedDescription
         }
     }
@@ -666,6 +687,7 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
             )
             acceptRecordingState(state, for: call.callID)
         } catch {
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             errorMessage = error.localizedDescription
             await refreshRecordingState(callID: call.callID)
         }
@@ -729,6 +751,7 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
                         return
                     }
                     self.recordingReady = false
+                    ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
                     self.errorMessage = error.localizedDescription
                 }
             }
@@ -759,6 +782,7 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
                 return
             }
             recordingReady = false
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             errorMessage = error.localizedDescription
         }
     }
@@ -798,6 +822,7 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
                     return
                 }
                 if case .failure(let error) = result {
+                    ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
                     self.errorMessage = error.localizedDescription
                     self.dtmfQueue.removeAll()
                     return
@@ -1093,7 +1118,7 @@ final class ModemDeckMessagesStore: ObservableObject {
     private func updateSystemBadge(_ count: Int) {
         UNUserNotificationCenter.current().setBadgeCount(max(0, count)) { error in
             if let error {
-                NSLog("ModemDeck badge update failed: %@", error.localizedDescription)
+                ModemDeckDiagnostics.shared.record(.push, "badge_update_failed", error: error)
             }
         }
     }
@@ -1208,6 +1233,7 @@ final class ModemDeckConversationStore: ObservableObject {
             errorMessage = ""
             return anchor
         } catch {
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             errorMessage = error.localizedDescription
             return nil
         }
@@ -1225,6 +1251,7 @@ final class ModemDeckConversationStore: ObservableObject {
             errorMessage = ""
             return true
         } catch {
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             errorMessage = error.localizedDescription
             return false
         }
@@ -1264,6 +1291,7 @@ final class ModemDeckConversationStore: ObservableObject {
             errorMessage = ""
             return true
         } catch {
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             errorMessage = error.localizedDescription
             return false
         }
@@ -1458,6 +1486,7 @@ final class ModemDeckContactImporter: ObservableObject {
         } catch {
             pendingContacts = []
             pendingCount = 0
+            ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
             errorMessage = error.localizedDescription
         }
     }

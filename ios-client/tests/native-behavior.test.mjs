@@ -10,6 +10,22 @@ import { fileURLToPath } from 'node:url'
 const run = promisify(execFile)
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 
+test('all native diagnostics honor consent, redaction, retries, persistence and pairing isolation', {
+  skip: process.platform !== 'darwin', timeout: 60_000
+}, async () => {
+  const temporary = await mkdtemp(path.join(os.tmpdir(), 'modemdeck-diagnostics-test-'))
+  try {
+    const executable = path.join(temporary, 'diagnostics-tests')
+    const env = { ...process.env, DEVELOPER_DIR: process.env.DEVELOPER_DIR || '/Applications/Xcode.app/Contents/Developer' }
+    await run('xcrun', ['swiftc', '-swift-version', '5', '-parse-as-library',
+      path.join(root, 'ios/App/App/ModemDeckDiagnostics.swift'),
+      path.join(root, 'tests/diagnostics.swift'), '-o', executable
+    ], { env })
+    const { stdout } = await run(executable, [], { env, timeout: 15_000, maxBuffer: 2 * 1024 * 1024 })
+    assert.match(stdout, /8 diagnostics behavior tests passed/)
+  } finally { await rm(temporary, { recursive: true, force: true }) }
+})
+
 test('foreground recovery executes automatic retries, coalescing and cancellation', {
   skip: process.platform !== 'darwin', timeout: 60_000
 }, async () => {

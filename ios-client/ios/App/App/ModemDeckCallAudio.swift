@@ -123,7 +123,8 @@ final class ModemDeckCallAudioSession: NSObject {
     private var offerSubmission: DispatchWorkItem?
     private var connectionStartedAt = ProcessInfo.processInfo.systemUptime
     private var connectionStage = "idle"
-    private var diagnosticEntries: [String] = []
+    private var stageStartedAt = ProcessInfo.processInfo.systemUptime
+    private var gatheringStartedAt = ProcessInfo.processInfo.systemUptime
     private var mediaClaimed = false
     private var stopped = false
     private var connecting = false
@@ -143,7 +144,7 @@ final class ModemDeckCallAudioSession: NSObject {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 12
         configuration.timeoutIntervalForResource = 18
-        urlSession = URLSession(configuration: configuration)
+        urlSession = ModemDeckDiagnostics.urlSession(configuration: configuration)
         super.init()
     }
 
@@ -161,7 +162,7 @@ final class ModemDeckCallAudioSession: NSObject {
         do {
             try session.setConfiguration(configuration)
         } catch {
-            NSLog("ModemDeck could not prepare the CallKit audio session: %@", error.localizedDescription)
+            ModemDeckDiagnostics.shared.record(.audio, "session_prepare_failed", error: error)
         }
     }
 
@@ -209,7 +210,7 @@ final class ModemDeckCallAudioSession: NSObject {
 
     static func didActivate(_ audioSession: AVAudioSession) {
         dispatchPrecondition(condition: .onQueue(.main))
-        NSLog("ModemDeck CallKit audio activated")
+        ModemDeckDiagnostics.shared.record(.audio, "session_activated")
         let rtcSession = RTCAudioSession.sharedInstance()
         rtcSession.audioSessionDidActivate(audioSession)
         rtcSession.isAudioEnabled = true
@@ -217,7 +218,7 @@ final class ModemDeckCallAudioSession: NSObject {
 
     static func didDeactivate(_ audioSession: AVAudioSession) {
         dispatchPrecondition(condition: .onQueue(.main))
-        NSLog("ModemDeck CallKit audio deactivated")
+        ModemDeckDiagnostics.shared.record(.audio, "session_deactivated")
         let rtcSession = RTCAudioSession.sharedInstance()
         rtcSession.isAudioEnabled = false
         rtcSession.audioSessionDidDeactivate(audioSession)
@@ -335,6 +336,10 @@ final class ModemDeckCallAudioSession: NSObject {
 
     private func createOffer(configuration: ModemDeckICEConfiguration) {
         setConnectionStage("creating_offer")
+        for (index, url) in configuration.iceServers.flatMap(\.urls).enumerated() {
+            recordConnectionEvent("turn_endpoint", fields: ModemDeckDiagnostics.turnFields(url).merging(
+                ["turn_index": String(index)]) { _, new in new })
+        }
         relayRequired = configuration.transportPolicy == "relay"
         let rtcConfiguration = RTCConfiguration()
         rtcConfiguration.sdpSemantics = .unifiedPlan
@@ -408,6 +413,7 @@ final class ModemDeckCallAudioSession: NSObject {
     }
 
     private func startGatheringDeadline() {
+        gatheringStartedAt = ProcessInfo.processInfo.systemUptime
         let timeout = DispatchWorkItem { [weak self] in
             guard let self, !self.stopped, self.waitingForICE else { return }
             self.recordConnectionEvent("gathering_deadline")
@@ -527,7 +533,7 @@ final class ModemDeckCallAudioSession: NSObject {
                 guard let self, !self.stopped else { return }
                 self.leaseRequestInFlight = false
                 if case .failure(let error) = result {
-                    NSLog("ModemDeck call lease renewal failed: %@", error.localizedDescription)
+                    ModemDeckDiagnostics.shared.record(.audio, "lease_renewal_failed", error: error)
                 }
             }
         }
@@ -568,8 +574,8 @@ final class ModemDeckCallAudioSession: NSObject {
         case .success:
             setConnectionStage("connected")
         case .failure(let error):
-            let failure = error as NSError
-            recordConnectionEvent("failed domain=\(failure.domain) code=\(failure.code)")
+            recordConnectionEvent("connection_failed", error: error)
+            ModemDeckDiagnostics.shared.flush()
         }
         connectCompletion = nil
         connecting = false
@@ -626,18 +632,18 @@ final class ModemDeckCallAudioSession: NSObject {
 
     private func setConnectionStage(_ stage: String) {
         connectionStage = stage
+        stageStartedAt = ProcessInfo.processInfo.systemUptime
         recordConnectionEvent("stage_changed")
     }
 
-    private func recordConnectionEvent(_ event: String) {
+    private func recordConnectionEvent(_ event: String, fields: [String: String] = [:], error: Error? = nil) {
         let elapsed = Int((ProcessInfo.processInfo.systemUptime - connectionStartedAt) * 1_000)
-        // Never record SDP, candidate addresses, phone numbers, or TURN credentials.
-        let entry = "call_id=\(callID) elapsed_ms=\(elapsed) stage=\(connectionStage) " +
-            "candidates=\(gatheredCandidateCount) relay_candidates=\(relayCandidateCount) event=\(event)"
-        NSLog("ModemDeck call connection %@", entry)
-        diagnosticEntries.append(entry)
-        if diagnosticEntries.count > 64 { diagnosticEntries.removeFirst() }
-        UserDefaults.standard.set(diagnosticEntries, forKey: "modemdeck.last-call-connection-diagnostics")
+        let values = ["elapsed_ms": String(elapsed), "stage": connectionStage,
+                      "stage_elapsed_ms": String(Int((ProcessInfo.processInfo.systemUptime - stageStartedAt) * 1_000)),
+                      "candidates": String(gatheredCandidateCount), "relay_candidates": String(relayCandidateCount),
+                      "test_call": String(testCall)].merging(fields) { _, new in new }
+        ModemDeckDiagnostics.shared.record(.audio, event, callID: callID, fields: values,
+                                           error: error, scope: credential.callControlScope)
     }
 
     private func releaseMedia() {
@@ -659,8 +665,8 @@ final class ModemDeckCallAudioSession: NSObject {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 8
         configuration.timeoutIntervalForResource = 10
-        let releaseSession = URLSession(configuration: configuration)
-        releaseSession.dataTask(with: request) { _, _, _ in
+        let releaseSession = ModemDeckDiagnostics.urlSession(configuration: configuration)
+        releaseSession.diagnosticDataTask(with: request) { _, _, _ in
             releaseSession.finishTasksAndInvalidate()
         }.resume()
     }
@@ -697,7 +703,7 @@ final class ModemDeckCallAudioSession: NSObject {
             completion(.failure(error))
             return
         }
-        urlSession.dataTask(with: request) { [weak self] data, response, error in
+        urlSession.diagnosticDataTask(with: request) { [weak self] data, response, error in
             self?.queue.async {
                 if let error {
                     completion(.failure(error))
@@ -757,7 +763,7 @@ extension ModemDeckCallAudioSession: RTCPeerConnectionDelegate {
         queue.async { [weak self] in
             guard let self, !self.stopped,
                   self.peerConnection === peerConnection else { return }
-            self.recordConnectionEvent("ice_state=\(newState.rawValue)")
+            self.recordConnectionEvent("ice_state_changed", fields: ["ice_state": String(newState.rawValue)])
             switch newState {
             case .connected, .completed:
                 self.disconnectTimeout?.cancel()
@@ -804,8 +810,24 @@ extension ModemDeckCallAudioSession: RTCPeerConnectionDelegate {
         queue.async { [weak self] in
             guard let self, !self.stopped,
                   self.peerConnection === peerConnection else { return }
-            self.recordConnectionEvent("gathering_state=\(newState.rawValue)")
+            self.recordConnectionEvent("gathering_state_changed", fields: ["gathering_state": String(newState.rawValue)])
             if newState == .complete { self.finishGathering() }
+        }
+    }
+
+    func peerConnection(
+        _ peerConnection: RTCPeerConnection,
+        didFailToGatherIceCandidate event: RTCIceCandidateErrorEvent
+    ) {
+        // The raw error can contain local addresses; retain only its code and a
+        // fixed reason category. The TURN URL is reduced to provider/port/transport.
+        var fields = ModemDeckDiagnostics.turnFields(event.url)
+        fields["error_code"] = String(event.errorCode)
+        fields["reason"] = ModemDeckDiagnostics.turnFailureReason(event.errorText)
+        queue.async { [weak self] in
+            guard let self, !self.stopped, self.peerConnection === peerConnection else { return }
+            fields["stage_elapsed_ms"] = String(max(0, Int((ProcessInfo.processInfo.systemUptime - self.gatheringStartedAt) * 1_000)))
+            self.recordConnectionEvent("turn_gather_failed", fields: fields)
         }
     }
 
@@ -818,7 +840,7 @@ extension ModemDeckCallAudioSession: RTCPeerConnectionDelegate {
                   self.peerConnection === peerConnection else { return }
             self.gatheredCandidateCount += 1
             if candidate.sdp.contains(" typ relay") { self.relayCandidateCount += 1 }
-            self.recordConnectionEvent("candidate_gathered")
+            self.recordConnectionEvent("candidate_gathered", fields: ModemDeckDiagnostics.turnFields(candidate.serverUrl ?? ""))
             self.scheduleGatheredOffer()
         }
     }
@@ -852,10 +874,7 @@ final class ModemDeckTestCallTone {
                 try audioSession.overrideOutputAudioPort(.speaker)
                 forcedSpeaker = true
             } catch {
-                NSLog(
-                    "ModemDeck could not route the test call to the speaker: %@",
-                    error.localizedDescription
-                )
+                ModemDeckDiagnostics.shared.record(.audio, "speaker_route_failed", error: error)
             }
         }
 
@@ -902,13 +921,9 @@ final class ModemDeckTestCallTone {
             try engine.start()
             player.play()
             started = true
-            NSLog(
-                "ModemDeck test call tone started at %.0f Hz on %u channel(s)",
-                sampleRate,
-                channelCount
-            )
+            ModemDeckDiagnostics.shared.record(.audio, "test_tone_started", fields: ["sample_rate": String(Int(sampleRate)), "channels": String(channelCount)])
         } catch {
-            NSLog("ModemDeck test call tone failed: %@", error.localizedDescription)
+            ModemDeckDiagnostics.shared.record(.audio, "test_tone_failed", error: error)
             restoreOutputRoute()
         }
     }
@@ -937,10 +952,7 @@ final class ModemDeckTestCallTone {
         do {
             try audioSession.overrideOutputAudioPort(.none)
         } catch {
-            NSLog(
-                "ModemDeck could not restore the test call audio route: %@",
-                error.localizedDescription
-            )
+            ModemDeckDiagnostics.shared.record(.audio, "route_restore_failed", error: error)
         }
     }
 }

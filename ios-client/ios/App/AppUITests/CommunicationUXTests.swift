@@ -112,6 +112,64 @@ final class CommunicationUXTests: XCTestCase {
         add(attachment)
     }
 
+    func testDeviceDiagnosticsConsentPersistsAndUploads() async throws {
+        XCUIDevice.shared.orientation = UIDevice.current.userInterfaceIdiom == .pad ? .landscapeLeft : .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+        _ = try await fixture("/__uat/reset", body: [:])
+        let app = XCUIApplication()
+        app.launchEnvironment = ["MODEMDECK_UAT_MODE": "1", "MODEMDECK_UAT_SERVER_URL": server,
+            "MODEMDECK_UAT_TOKEN": token, "MODEMDECK_UAT_INITIAL_SECTION": "home",
+            "MODEMDECK_UAT_DIAGNOSTICS_RESET": "1"]
+        app.launch()
+        func openDiagnostics() {
+            XCTAssertTrue(app.buttons["section-settings"].waitForExistence(timeout: 15))
+            app.buttons["section-settings"].tap()
+            let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "手机诊断")).firstMatch
+            XCTAssertTrue(row.waitForExistence(timeout: 5))
+            row.tap()
+            XCTAssertTrue(app.switches["diagnostics-upload-toggle"].waitForExistence(timeout: 5))
+        }
+        openDiagnostics()
+        let toggle = app.switches["diagnostics-upload-toggle"]
+        XCTAssertEqual(toggle.value as? String, "0")
+        let before = try await fixture("/__uat/state")
+        XCTAssertTrue((before["diagnosticBatches"] as? [Any] ?? []).isEmpty)
+        capture("device-diagnostics-off", app: app)
+        toggle.tap()
+        XCTAssertEqual(toggle.value as? String, "1")
+        app.launchEnvironment.removeValue(forKey: "MODEMDECK_UAT_DIAGNOSTICS_RESET")
+        app.terminate()
+        app.launch()
+        openDiagnostics()
+        XCTAssertEqual(toggle.value as? String, "1", "Consent must survive relaunch")
+        var batches: [[String: Any]] = []
+        for _ in 0..<30 {
+            batches = (try await fixture("/__uat/state"))["diagnosticBatches"] as? [[String: Any]] ?? []
+            if batches.flatMap({ $0["events"] as? [[String: Any]] ?? [] }).contains(where: { $0["category"] as? String == "api" }) { break }
+            try await Task.sleep(nanoseconds: 300_000_000)
+        }
+        let events = batches.flatMap { $0["events"] as? [[String: Any]] ?? [] }
+        XCTAssertTrue(events.contains { $0["category"] as? String == "app" })
+        XCTAssertTrue(events.contains { $0["category"] as? String == "api" }, "Actual URLSession results must reach the collector")
+        let uploaded = String(data: try JSONSerialization.data(withJSONObject: batches), encoding: .utf8)!
+        for secret in [token, "+12025550101", "示例联系人", "第三条未读 UAT 消息"] {
+            XCTAssertFalse(uploaded.contains(secret), "Diagnostic upload leaked communication data")
+        }
+        capture("device-diagnostics-on", app: app)
+        toggle.tap()
+        XCTAssertEqual(toggle.value as? String, "0")
+        try await Task.sleep(nanoseconds: 500_000_000)
+        let countAfterOff = ((try await fixture("/__uat/state"))["diagnosticBatches"] as? [Any] ?? []).count
+        app.terminate()
+        app.launch()
+        openDiagnostics()
+        XCTAssertEqual(toggle.value as? String, "0")
+        try await Task.sleep(nanoseconds: 2_500_000_000)
+        let after = try await fixture("/__uat/state")
+        XCTAssertEqual((after["diagnosticBatches"] as? [Any] ?? []).count, countAfterOff,
+                       "Disabled diagnostics must not upload new foreground/API events")
+    }
+
     func testCompactCollectionHeadersKeepSearchAndFiltersUsable() async throws {
         let app = try await launch()
         func appearance(_ value: String) {

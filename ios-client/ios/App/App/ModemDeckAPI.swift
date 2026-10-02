@@ -91,6 +91,7 @@ private final class ModemDeckOfflineCache {
             )
         } catch {
             // A cache write must never block live API data.
+            ModemDeckDiagnostics.shared.record(.storage, "cache_write_failed", error: error)
         }
     }
 
@@ -832,7 +833,7 @@ final class ModemDeckAPIClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 60
-        session = URLSession(configuration: configuration)
+        session = ModemDeckDiagnostics.urlSession(configuration: configuration)
         decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         encoder = JSONEncoder()
@@ -1575,6 +1576,7 @@ final class ModemDeckAPIClient {
         do {
             return try decoder.decode(type, from: payload)
         } catch {
+            ModemDeckDiagnostics.shared.record(.api, "response_decode_failed", fields: ["route": path], error: error)
             throw ModemDeckAPIError.invalidResponse
         }
     }
@@ -1610,7 +1612,7 @@ final class ModemDeckAPIClient {
         let payload: Data
         let response: URLResponse
         do {
-            (payload, response) = try await session.data(for: request)
+            (payload, response) = try await session.diagnosticData(for: request)
         } catch {
             if let error = error as? URLError, error.code != .cancelled {
                 await reportConnectivity(false, credential: credential, verifying: suppliedCredential != nil)

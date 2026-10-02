@@ -1317,6 +1317,7 @@ struct ModemDeckContactEditor: View {
                 onSaved(saved)
                 presentationMode.wrappedValue.dismiss()
             } catch {
+                ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
                 errorMessage = error.localizedDescription
             }
             saving = false
@@ -1443,6 +1444,7 @@ struct ModemDeckDirectMessageView: View {
                 content = ""
                 errorMessage = ""
             } catch {
+                ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
                 errorMessage = error.localizedDescription
             }
             sending = false
@@ -1610,6 +1612,7 @@ struct ModemDeckNewMessageView: View {
                 onSent()
                 presentationMode.wrappedValue.dismiss()
             } catch {
+                ModemDeckDiagnostics.shared.record(.app, "operation_failed", error: error)
                 errorMessage = error.localizedDescription
                 sending = false
             }

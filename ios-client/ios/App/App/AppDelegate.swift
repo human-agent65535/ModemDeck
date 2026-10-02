@@ -11,8 +11,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         UNUserNotificationCenter.current().delegate = self
         #if DEBUG
         installModemDeckUATCredentialFromEnvironment(in: credentialStore)
+        if ProcessInfo.processInfo.environment["MODEMDECK_UAT_DIAGNOSTICS_RESET"] == "1" {
+            ModemDeckDiagnostics.shared.setUploadEnabled(false)
+        }
         #endif
         ModemDeckPushCoordinator.shared.configure(store: credentialStore)
+        ModemDeckDiagnostics.shared.record(.app, "launched")
         return true
     }
 

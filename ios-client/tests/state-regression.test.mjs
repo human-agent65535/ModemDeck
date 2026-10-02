@@ -24,7 +24,8 @@ async function verify(template, declarations) {
     const file = path.join(directory, 'test.swift')
     const binary = path.join(directory, 'test')
     await writeFile(file, stubs.replace('// INSERT_PRODUCT_METHODS', declarations.join('\n')))
-    const compiled = spawnSync('xcrun', ['swiftc', '-parse-as-library', file, '-o', binary], {
+    const compiled = spawnSync('xcrun', ['swiftc', '-parse-as-library', file,
+      new URL('fixtures/diagnostics-stub.swift', import.meta.url).pathname, '-o', binary], {
       env: { ...process.env, DEVELOPER_DIR: process.env.DEVELOPER_DIR || '/Applications/Xcode.app/Contents/Developer' }, encoding: 'utf8'
     })
     assert.equal(compiled.status, 0, compiled.stderr)
