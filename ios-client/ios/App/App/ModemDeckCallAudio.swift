@@ -47,6 +47,12 @@ struct ModemDeckActiveCallsResponse: Decodable {
     }
 
     let calls: [Call]
+    let testPhase: String?
+
+    enum CodingKeys: String, CodingKey {
+        case calls
+        case testPhase = "test_phase"
+    }
 }
 
 private struct ModemDeckICEConfiguration: Decodable {
@@ -124,6 +130,8 @@ final class ModemDeckCallAudioSession: NSObject {
     private var reportedActive = false
     private var leaseTimer: DispatchSourceTimer?
     private var leaseRequestInFlight = false
+    private var testPhaseTimer: DispatchSourceTimer?
+    private var testPhaseRequestInFlight = false
     private var connectTimeout: DispatchWorkItem?
     private var disconnectTimeout: DispatchWorkItem?
 
@@ -231,7 +239,6 @@ final class ModemDeckCallAudioSession: NSObject {
     }
 
     func startControlHeartbeat() {
-        guard !testCall else { return }
         queue.async { [weak self] in
             guard let self, !self.stopped else { return }
             self.startLeaseHeartbeat()
@@ -240,27 +247,11 @@ final class ModemDeckCallAudioSession: NSObject {
 
     private func waitForActiveCall() {
         guard !stopped else { return }
-        if testCall {
-            request(path: callPath("status"), method: "GET") { [weak self] result in
-                guard let self, !self.stopped else { return }
-                switch result {
-                case .failure(let error): self.finishConnection(.failure(error))
-                case .success(let data):
-                    guard let status = try? JSONDecoder().decode(ModemDeckAudioTestStatus.self, from: data),
-                          status.phase == "active" else {
-                        self.finishConnection(.failure(ModemDeckCallAudioError.callEnded))
-                        return
-                    }
-                    self.fetchICEConfiguration()
-                }
-            }
-            return
-        }
         if Date() >= connectDeadline {
             finishConnection(.failure(ModemDeckCallAudioError.timedOut))
             return
         }
-        request(path: "/api/v1/calls/active", method: "GET") { [weak self] result in
+        request(path: activeCallsPath, method: "GET") { [weak self] result in
             guard let self, !self.stopped else { return }
             switch result {
             case .failure(let error):
@@ -282,6 +273,10 @@ final class ModemDeckCallAudioSession: NSObject {
                 }
                 switch call.phase {
                 case "active":
+                    guard call.controlState == "owned" else {
+                        self.finishConnection(.failure(ModemDeckCallAudioError.callNotActive))
+                        return
+                    }
                     guard call.mediaAvailable else {
                         self.finishConnection(.failure(ModemDeckCallAudioError.mediaUnavailable))
                         return
@@ -501,6 +496,7 @@ final class ModemDeckCallAudioSession: NSObject {
                         }
                         self.setConnectionStage("connecting_ice")
                         self.startLeaseHeartbeat()
+                        self.startTestPhaseUpdates()
                         if peer.iceConnectionState == .connected ||
                             peer.iceConnectionState == .completed {
                             self.finishConnection(.success(()))
@@ -519,33 +515,50 @@ final class ModemDeckCallAudioSession: NSObject {
     private func startLeaseHeartbeat() {
         guard leaseTimer == nil else { return }
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        let interval: TimeInterval = testCall ? 1 : 5
-        timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .milliseconds(250))
+        timer.schedule(deadline: .now() + 5, repeating: 5, leeway: .milliseconds(250))
         timer.setEventHandler { [weak self] in
             guard let self, !self.stopped, !self.leaseRequestInFlight else { return }
             self.leaseRequestInFlight = true
             self.request(
-                path: self.callPath(self.testCall ? "status" : "lease"),
-                method: self.testCall ? "GET" : "PUT",
-                json: self.testCall ? nil : [:]
+                path: self.callPath("lease"),
+                method: "PUT",
+                json: [:]
             ) { [weak self] result in
                 guard let self, !self.stopped else { return }
                 self.leaseRequestInFlight = false
                 if case .failure(let error) = result {
                     NSLog("ModemDeck call lease renewal failed: %@", error.localizedDescription)
-                } else if self.testCall, case .success(let data) = result,
-                          let status = try? JSONDecoder().decode(ModemDeckAudioTestStatus.self, from: data) {
-                    if status.phase == "ended" || status.phase == "failed" {
-                        self.stopLocked(notifyRemoteEnd: true)
-                    } else {
-                        DispatchQueue.main.async { [weak self] in
-                            self?.onTestPhaseChanged?(status.testPhase)
-                        }
-                    }
                 }
             }
         }
         leaseTimer = timer
+        timer.resume()
+    }
+
+    // Presentation polling is separate from ownership: both call types use the
+    // same five-second PUT lease heartbeat and server-side media liveness.
+    private func startTestPhaseUpdates() {
+        guard testCall, testPhaseTimer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now(), repeating: 1, leeway: .milliseconds(100))
+        timer.setEventHandler { [weak self] in
+            guard let self, !self.stopped, !self.testPhaseRequestInFlight else { return }
+            self.testPhaseRequestInFlight = true
+            self.request(path: self.activeCallsPath, method: "GET") { [weak self] result in
+                guard let self, !self.stopped else { return }
+                self.testPhaseRequestInFlight = false
+                guard case .success(let data) = result,
+                      let state = try? JSONDecoder().decode(ModemDeckActiveCallsResponse.self, from: data) else { return }
+                guard state.calls.contains(where: { $0.id == self.callID }) else {
+                    self.stopLocked(notifyRemoteEnd: true)
+                    return
+                }
+                if let phase = state.testPhase {
+                    DispatchQueue.main.async { [weak self] in self?.onTestPhaseChanged?(phase) }
+                }
+            }
+        }
+        testPhaseTimer = timer
         timer.resume()
     }
 
@@ -582,6 +595,8 @@ final class ModemDeckCallAudioSession: NSObject {
         offerSubmission = nil
         leaseTimer?.cancel()
         leaseTimer = nil
+        testPhaseTimer?.cancel()
+        testPhaseTimer = nil
         connectTimeout?.cancel()
         connectTimeout = nil
         disconnectTimeout?.cancel()
@@ -693,7 +708,7 @@ final class ModemDeckCallAudioSession: NSObject {
                     return
                 }
                 guard (200..<300).contains(response.statusCode) else {
-                    if self?.testCall == true, let data,
+                    if let data,
                        let error = try? JSONDecoder().decode(ModemDeckServerError.self, from: data),
                        let message = error.message, !message.isEmpty {
                         completion(.failure(ModemDeckAPIError.server(
@@ -707,6 +722,10 @@ final class ModemDeckCallAudioSession: NSObject {
                 completion(.success(data ?? Data()))
             }
         }.resume()
+    }
+
+    private var activeCallsPath: String {
+        testCall ? callPath("active") : "/api/v1/calls/active"
     }
 
     private func callPath(_ suffix: String) -> String {

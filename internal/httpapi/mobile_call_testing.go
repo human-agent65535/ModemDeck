@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/auth"
+	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/calltest"
+	"github.com/human-agent65535/modemdeck/internal/mediaapp"
 )
 
 // Tests are bound to the current paired device, never a browser-selected user
@@ -58,8 +60,11 @@ func (api *API) mobileCallTest(response http.ResponseWriter, request *http.Reque
 	}
 	id, action := parts[0], strings.Join(parts[1:], "/")
 	method := http.MethodPost
-	if action == "status" {
+	if action == "status" || action == "active" {
 		method = http.MethodGet
+	}
+	if action == "lease" {
+		method = http.MethodPut
 	}
 	if action == "media" && request.Method == http.MethodDelete {
 		method = http.MethodDelete
@@ -70,6 +75,31 @@ func (api *API) mobileCallTest(response http.ResponseWriter, request *http.Reque
 		return
 	}
 	switch action {
+	case "active":
+		projection, phase, err := api.callTests.Active(request.Context(), id, owner)
+		if err != nil {
+			api.writeCallTestError(response, request, err)
+			return
+		}
+		calls := make([]callSessionResponse, 0, len(projection.Calls))
+		for _, projected := range projection.Calls {
+			calls = append(calls, callSession(projected.Call, projected.ControlState))
+		}
+		writeJSON(response, http.StatusOK, struct {
+			activeCallsResponse
+			TestPhase string `json:"test_phase"`
+		}{activeCallsResponse: activeCallsResponse{Calls: calls, Reservations: []outgoingCallReservationResponse{}}, TestPhase: phase})
+	case "lease":
+		var input renewCallLeaseRequest
+		if !decodeJSONBody(response, request, &input) {
+			return
+		}
+		status, err := api.callTests.Renew(request.Context(), id, owner)
+		if err != nil {
+			api.writeCallTestError(response, request, err)
+			return
+		}
+		writeJSON(response, http.StatusOK, status)
 	case "status":
 		status, err := api.callTests.Status(id, owner)
 		if err != nil {
@@ -99,7 +129,11 @@ func (api *API) mobileCallTest(response http.ResponseWriter, request *http.Reque
 		writeJSON(response, http.StatusOK, callMediaICEConfigurationResponse{ICEServers: configuration.ICEServers, ICETransportPolicy: "relay", ExpiresAt: configuration.ExpiresAt.UTC().Format(time.RFC3339)})
 	case "media":
 		if request.Method == http.MethodDelete {
-			if err := api.callTests.End(id, owner); err != nil {
+			var input callMediaReleaseRequest
+			if !decodeJSONBody(response, request, &input) {
+				return
+			}
+			if err := api.callTests.Release(request.Context(), id, owner, input.OwnerToken); err != nil {
 				api.writeCallTestError(response, request, err)
 				return
 			}
@@ -131,6 +165,11 @@ func (api *API) writeCallTestError(response http.ResponseWriter, request *http.R
 		writeError(response, http.StatusGone, "test_call_ended", "The test call has ended", "")
 	case errors.Is(err, calltest.ErrUnavailable):
 		writeError(response, http.StatusServiceUnavailable, "test_call_unavailable", "Call tests require configured Apple push and TURN", "")
+	case errors.Is(err, calllease.ErrInvalidArgument), errors.Is(err, calllease.ErrCallNotFound), errors.Is(err, calllease.ErrCallNotActive), errors.Is(err, calllease.ErrCallOwned), errors.Is(err, calllease.ErrHolderBusy), errors.Is(err, calllease.ErrNotOwner):
+		api.writeCallLeaseError(response, request, "control test call owner", err)
+	case errors.Is(err, mediaapp.ErrInvalidArgument), errors.Is(err, mediaapp.ErrNotFound), errors.Is(err, mediaapp.ErrNotActive), errors.Is(err, mediaapp.ErrUnavailable), errors.Is(err, mediaapp.ErrConflict), errors.Is(err, mediaapp.ErrNegotiation):
+		api.logger.Warn("test call media failed", "path", request.URL.Path, "error", err)
+		api.writeCallMediaError(response, request, err)
 	default:
 		api.logger.Warn("test call media failed", "error", err)
 		writeError(response, http.StatusBadGateway, "test_call_media_failed", "Test call audio could not connect", "")

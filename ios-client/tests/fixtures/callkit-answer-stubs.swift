@@ -18,11 +18,13 @@ final class Coordinator {
     var callIDsByUUID: [UUID: String] = [:]
     var presentedCalls: [UUID: PresentedCall] = [:]
     var testCallUUIDs: Set<UUID> = []
+    var audioTestCallUUIDs: Set<UUID> = []
     var answeredCallUUIDs: Set<UUID> = []
     var activeAudioSession: Int?
     let testCallTone = Tone()
     var permissionRequests = 0, answers = 0, completions = 0
     var permission: ((Bool) -> Void)?
+    func configureCallHistory(enabled: Bool) {}
     func requestMicrophoneAccess(completion: @escaping (Bool) -> Void) {
         permissionRequests += 1
         permission = completion
@@ -38,9 +40,10 @@ final class Coordinator {
 }
 @main struct Tests {
     static func main() {
-        for granted in [true, false] {
+        for (audioTest, granted) in [(false, true), (false, false), (true, true), (true, false)] {
             let c = Coordinator(), id = UUID(), provider = CXProvider()
             c.callIDsByUUID[id] = "call"
+            if audioTest { c.testCallUUIDs.insert(id); c.audioTestCallUUIDs.insert(id) }
             let first = CXAnswerCallAction(id), second = CXAnswerCallAction(id)
             c.provider(provider, perform: first)
             c.provider(provider, perform: second)

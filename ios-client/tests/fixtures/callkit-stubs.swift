@@ -6,15 +6,16 @@ final class CXEndCallAction: CXCallAction {}
 final class CXAnswerCallAction: CXCallAction {}
 final class CXStartCallAction: CXCallAction {}
 final class CXPlayDTMFCallAction: CXCallAction {}
-enum EndReason { case failed }
+enum CXCallEndedReason { case failed }
 final class CXProvider {
     var ended: [UUID] = []
-    func reportCall(with uuid: UUID, endedAt: Date, reason: EndReason) { ended.append(uuid) }
+    func reportCall(with uuid: UUID, endedAt: Date, reason: CXCallEndedReason) { ended.append(uuid) }
 }
 struct PendingCall { let completion: (Result<Void, Error>) -> Void }
 final class Coordinator {
     var callIDsByUUID: [UUID: String] = [:]
     var testCallUUIDs: Set<UUID> = []
+    var audioTestCallUUIDs: Set<UUID> = []
     var outgoingCallUUIDs: Set<UUID> = []
     var answeredCallUUIDs: Set<UUID> = []
     var answerRequestedCallUUIDs: Set<UUID> = []
@@ -25,6 +26,7 @@ final class Coordinator {
     var fulfilled: [UUID] = []
     var cleaned: [UUID] = []
     var events: [String] = []
+    func configureCallHistory(enabled: Bool) {}
     func trackProviderCallAction(_ action: CXCallAction) { providerCallActions[action.uuid] = action }
     func finishProviderCallAction(_ action: CXCallAction, result: Result<Void, Error>) {
         if case .success = result { fulfilled.append(action.uuid) }
@@ -47,13 +49,16 @@ final class Coordinator {
 }
 @main struct Tests {
     static func main() {
-        for mode in ["incoming", "outgoing", "answered", "answering", "test"] {
+        for mode in ["incoming", "outgoing", "answered", "answering", "test", "audio-test"] {
             let c = Coordinator(), id = UUID()
             c.callIDsByUUID[id] = "call"
             if mode == "outgoing" { c.outgoingCallUUIDs.insert(id) }
             if mode == "answered" { c.answeredCallUUIDs.insert(id) }
             if mode == "answering" { c.answerRequestedCallUUIDs.insert(id) }
             if mode == "test" { c.testCallUUIDs.insert(id) }
+            if mode == "audio-test" {
+                c.testCallUUIDs.insert(id); c.audioTestCallUUIDs.insert(id)
+            }
             let end = CXEndCallAction(id)
             c.provider(c.callProvider, perform: end)
             precondition(c.fulfilled == [end.uuid] && c.cleaned == [id])
@@ -80,6 +85,12 @@ final class Coordinator {
             synthetic.provider(synthetic.callProvider, timedOutPerforming: action)
             precondition(synthetic.commands.isEmpty, "synthetic call timeouts stay local")
             precondition(synthetic.cleaned == [action.callUUID] && synthetic.callProvider.ended == [action.callUUID])
+            let audio = Coordinator()
+            audio.callIDsByUUID[action.callUUID] = "test-audio"
+            audio.testCallUUIDs.insert(action.callUUID); audio.audioTestCallUUIDs.insert(action.callUUID)
+            audio.answeredCallUUIDs.insert(action.callUUID)
+            audio.provider(audio.callProvider, timedOutPerforming: action)
+            precondition(audio.commands == ["hangup"], "server audio tests must close their remote session")
         }
         print("CallKit lifecycle regressions passed")
     }

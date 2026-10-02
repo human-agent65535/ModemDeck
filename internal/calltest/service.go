@@ -9,7 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/human-agent65535/modemdeck/internal/callmedia"
+	"github.com/human-agent65535/modemdeck/internal/calllease"
+	"github.com/human-agent65535/modemdeck/internal/mediaapp"
 	"github.com/human-agent65535/modemdeck/internal/rtcconfig"
 )
 
@@ -31,14 +32,7 @@ type Status struct {
 	TestPhase   string    `json:"test_phase"`
 	FailureCode string    `json:"failure_code,omitempty"`
 }
-type session struct {
-	status Status
-	owner  string
-	ctx    context.Context
-	cancel context.CancelFunc
-	core   *callmedia.Core
-	audio  *audioEndpoint
-}
+
 type Service struct {
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -52,8 +46,12 @@ type Service struct {
 
 func New(push PushSender, rtc rtcconfig.Provider, logger *slog.Logger) *Service {
 	ctx, cancel := context.WithCancel(context.Background())
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &Service{sessions: make(map[string]*session), push: push, rtc: rtc, logger: logger, ctx: ctx, cancel: cancel}
 }
+
 func (s *Service) Start(userID, credentialID string) (Status, error) {
 	if s == nil || s.push == nil || s.rtc == nil || userID == "" || credentialID == "" {
 		return Status{}, ErrUnavailable
@@ -65,7 +63,7 @@ func (s *Service) Start(userID, credentialID string) (Status, error) {
 	}
 	owner := userID + "\x00" + credentialID
 	for _, existing := range s.sessions {
-		if existing.owner == owner && (existing.ctx.Err() == nil || time.Since(existing.status.AcceptedAt) < 30*time.Second) {
+		if existing.owner == owner && (existing.ctx.Err() == nil || time.Since(existing.snapshot().AcceptedAt) < 30*time.Second) {
 			return Status{}, ErrBusy
 		}
 	}
@@ -76,38 +74,58 @@ func (s *Service) Start(userID, credentialID string) (Status, error) {
 	if _, err := rand.Read(random[:]); err != nil {
 		return Status{}, err
 	}
-	random[6] = random[6]&0x0f | 0x40
-	random[8] = random[8]&0x3f | 0x80
+	random[6], random[8] = random[6]&0x0f|0x40, random[8]&0x3f|0x80
 	id := fmt.Sprintf("test-%x-%x-%x-%x-%x", random[:4], random[4:6], random[6:8], random[8:10], random[10:])
-	audio := newAudioEndpoint()
-	core, err := callmedia.New(callmedia.Options{EndpointOpener: audio})
-	if err != nil {
-		return Status{}, err
-	}
 	ctx, cancel := context.WithCancel(s.ctx)
 	now := time.Now().UTC()
-	entry := &session{status: Status{ID: id, AcceptedAt: now, ExpiresAt: now.Add(35 * time.Second), Phase: "scheduled", TestPhase: "scheduled"}, owner: owner, ctx: ctx, cancel: cancel, core: core, audio: audio}
+	entry := &session{status: Status{ID: id, AcceptedAt: now, ExpiresAt: now.Add(35 * time.Second), Phase: "scheduled", TestPhase: "scheduled"}, owner: owner, ctx: ctx, cancel: cancel, audio: newAudioEndpoint()}
+	runtime, err := mediaapp.NewRuntime(mediaapp.RuntimeOptions{
+		Calls: entry, Refresher: entry, Controller: entry, EndpointOpener: entry.audio, RTCProvider: s.rtc,
+		LeaseOptions: calllease.Options{Report: func(err error) { s.logger.Warn("test call ownership cleanup failed", "call_id", id, "error", err) }},
+	})
+	if err != nil {
+		cancel()
+		_ = entry.audio.Close()
+		return Status{}, err
+	}
+	entry.runtime = runtime
+	entry.lifecycle, err = runtime.Lifecycle()
+	if err == nil {
+		// Publish the empty pre-call baseline before a new ringing call appears,
+		// matching production startup without treating it as an orphaned old call.
+		_, err = entry.Refresh(ctx)
+	}
+	if err != nil {
+		cancel()
+		_ = runtime.Media.Close(context.Background())
+		_ = entry.audio.Close()
+		return Status{}, err
+	}
 	s.sessions[id] = entry
 	s.workers.Add(1)
 	go s.run(entry, userID, credentialID)
-	return entry.status, nil
+	return entry.snapshot(), nil
 }
 
 func (s *Service) run(entry *session, userID, credentialID string) {
 	defer s.workers.Done()
+	leaseDone := make(chan struct{})
+	go func() { defer close(leaseDone); entry.runtime.Leases.Run(entry.ctx) }()
 	defer func() {
+		entry.cancel()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := entry.core.Close(ctx); err != nil {
+		if err := entry.runtime.Media.Close(ctx); err != nil {
 			s.logger.Warn("close test call media", "error", err)
 		}
 		cancel()
 		_ = entry.audio.Close()
+		<-leaseDone
 		select {
 		case <-s.ctx.Done():
 		case <-time.After(30 * time.Second):
 		}
 		s.mu.Lock()
-		delete(s.sessions, entry.status.ID)
+		delete(s.sessions, entry.snapshot().ID)
 		s.mu.Unlock()
 	}()
 	select {
@@ -115,27 +133,30 @@ func (s *Service) run(entry *session, userID, credentialID string) {
 		return
 	case <-time.After(5 * time.Second):
 	}
-	s.mu.Lock()
+	entry.mu.Lock()
 	if entry.ctx.Err() != nil {
-		s.mu.Unlock()
+		entry.mu.Unlock()
 		return
 	}
-	entry.status.Phase = "ringing"
-	entry.status.TestPhase = "sending"
-	s.mu.Unlock()
+	entry.status.Phase, entry.status.TestPhase = "ringing", "sending"
+	entry.mu.Unlock()
+	if _, err := entry.Refresh(entry.ctx); err != nil {
+		entry.finish("media_failed")
+		return
+	}
 	pushContext, cancel := context.WithTimeout(entry.ctx, 12*time.Second)
-	err := s.push.SendAudioTestCall(pushContext, userID, credentialID, entry.status.ID)
+	err := s.push.SendAudioTestCall(pushContext, userID, credentialID, entry.snapshot().ID)
 	cancel()
 	if err != nil {
-		s.logger.Warn("send audio test call", "call_id", entry.status.ID, "error", err)
-		s.finish(entry, "push_failed")
+		s.logger.Warn("send audio test call", "call_id", entry.snapshot().ID, "error", err)
+		entry.finish("push_failed")
 		return
 	}
-	s.mu.Lock()
+	entry.mu.Lock()
 	if entry.status.Phase == "ringing" {
 		entry.status.TestPhase = "ringing"
 	}
-	s.mu.Unlock()
+	entry.mu.Unlock()
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
@@ -143,11 +164,8 @@ func (s *Service) run(entry *session, userID, credentialID string) {
 		case <-entry.ctx.Done():
 			return
 		case <-ticker.C:
-			s.mu.Lock()
-			expired := !time.Now().Before(entry.status.ExpiresAt)
-			s.mu.Unlock()
-			if expired {
-				s.finish(entry, "")
+			if !time.Now().Before(entry.snapshot().ExpiresAt) {
+				entry.finish("")
 				return
 			}
 		}
@@ -166,94 +184,118 @@ func (s *Service) lookup(id, owner string) (*session, error) {
 	}
 	return entry, nil
 }
+
 func (s *Service) Status(id, owner string) (Status, error) {
 	entry, err := s.lookup(id, owner)
 	if err != nil {
 		return Status{}, err
 	}
-	s.mu.Lock()
-	status := entry.status
-	s.mu.Unlock()
+	status := entry.snapshot()
 	if status.Phase == "active" {
 		status.TestPhase = entry.audio.Phase()
+		// Build 22 uses authenticated status polling as its control heartbeat.
+		// New clients use the same PUT lease endpoint as production calls.
+		_, _ = entry.runtime.Leases.Renew(entry.ctx, id, owner)
 	}
 	return status, nil
 }
+
 func (s *Service) Answer(id, owner string) (Status, error) {
 	entry, err := s.lookup(id, owner)
 	if err != nil {
 		return Status{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if entry.ctx.Err() != nil || !time.Now().Before(entry.status.ExpiresAt) {
+	entry.controlMu.Lock()
+	defer entry.controlMu.Unlock()
+	status := entry.snapshot()
+	if entry.ctx.Err() != nil || !time.Now().Before(status.ExpiresAt) {
 		return Status{}, ErrEnded
 	}
-	if entry.status.Phase == "active" {
-		return entry.status, nil
+	if status.Phase == "active" {
+		return status, nil
 	}
-	if entry.status.Phase != "ringing" {
+	if status.Phase != "ringing" {
 		return Status{}, ErrEnded
 	}
-	entry.status.Phase = "active"
-	entry.status.TestPhase = "connecting"
+	if _, err := entry.runtime.Leases.Claim(entry.ctx, id, owner); err != nil {
+		return Status{}, err
+	}
+	entry.mu.Lock()
+	entry.status.Phase, entry.status.TestPhase = "active", "connecting"
 	entry.status.ExpiresAt = time.Now().UTC().Add(60 * time.Second)
-	return entry.status, nil
-}
-func (s *Service) finish(entry *session, failure string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if entry.ctx.Err() != nil {
-		return
+	entry.mu.Unlock()
+	if err := entry.reconcile(entry.ctx); err != nil {
+		return Status{}, err
 	}
-	entry.status.Phase = "ended"
-	entry.status.TestPhase = "completed"
-	if failure != "" {
-		entry.status.Phase = "failed"
-		entry.status.FailureCode = failure
-	}
-	entry.cancel()
+	return entry.snapshot(), nil
 }
+
 func (s *Service) End(id, owner string) error {
 	entry, err := s.lookup(id, owner)
 	if err != nil {
 		return err
 	}
-	s.finish(entry, "")
+	entry.finish("")
 	return nil
 }
+
+func (s *Service) Active(ctx context.Context, id, owner string) (calllease.ActiveProjection, string, error) {
+	entry, err := s.lookup(id, owner)
+	if err != nil {
+		return calllease.ActiveProjection{}, "", err
+	}
+	if _, err := entry.Refresh(ctx); err != nil {
+		return calllease.ActiveProjection{}, "", err
+	}
+	calls, err := entry.ActiveCalls(ctx)
+	if err != nil {
+		return calllease.ActiveProjection{}, "", err
+	}
+	projection, err := entry.runtime.Leases.ProjectActive(calls, owner)
+	return projection, entry.audio.Phase(), err
+}
+
+func (s *Service) Renew(ctx context.Context, id, owner string) (calllease.Status, error) {
+	entry, err := s.lookup(id, owner)
+	if err != nil {
+		return calllease.Status{}, err
+	}
+	return entry.runtime.Leases.Renew(ctx, id, owner)
+}
+
 func (s *Service) Configuration(ctx context.Context, id, owner string) (rtcconfig.Configuration, error) {
-	status, err := s.Status(id, owner)
+	entry, err := s.lookup(id, owner)
 	if err != nil {
 		return rtcconfig.Configuration{}, err
 	}
-	if status.Phase != "active" || !time.Now().Before(status.ExpiresAt) {
-		return rtcconfig.Configuration{}, ErrEnded
+	if err := entry.runtime.Leases.Require(ctx, id, owner); err != nil {
+		return rtcconfig.Configuration{}, err
 	}
-	configuration, err := s.rtc.Generate(ctx)
-	if err != nil {
-		return rtcconfig.Configuration{}, ErrUnavailable
-	}
-	configuration.RelayOnly = true
-	return configuration, nil
+	return entry.runtime.Media.Configuration(ctx, true)
 }
+
 func (s *Service) Exchange(ctx context.Context, id, owner, token, offer string) (string, error) {
 	entry, err := s.lookup(id, owner)
 	if err != nil {
 		return "", err
 	}
-	configuration, err := s.Configuration(ctx, id, owner)
-	if err != nil {
+	if err := entry.runtime.Leases.Require(ctx, id, owner); err != nil {
 		return "", err
 	}
-	result, err := entry.core.Exchange(ctx, callmedia.Offer{Call: callmedia.ActiveCall{ID: id, State: callmedia.CallStateActive}, OwnerToken: token, SDP: offer, RTCConfiguration: configuration})
-	if err != nil {
-		s.finish(entry, "media_failed")
-		return "", err
-	}
-	go func() { <-result.Session.Done(); s.finish(entry, "") }()
-	return result.AnswerSDP, nil
+	return entry.runtime.Media.Exchange(ctx, id, token, offer, true)
 }
+
+func (s *Service) Release(ctx context.Context, id, owner, token string) error {
+	entry, err := s.lookup(id, owner)
+	if err != nil {
+		return err
+	}
+	if err := entry.runtime.Leases.Require(ctx, id, owner); err != nil {
+		return err
+	}
+	return entry.runtime.Media.ReleaseOwner(ctx, id, token)
+}
+
 func (s *Service) Close() {
 	if s == nil {
 		return

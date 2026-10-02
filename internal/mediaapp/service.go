@@ -101,22 +101,9 @@ func (s *Service) Exchange(
 	if !call.MediaAvailable {
 		return "", ErrUnavailable
 	}
-	var rtcConfiguration rtcconfig.Configuration
-	if relayOnly {
-		if s.rtc == nil {
-			return "", fmt.Errorf(
-				"%w: relay configuration is not configured",
-				ErrUnavailable,
-			)
-		}
-		rtcConfiguration, err = s.rtc.Generate(ctx)
-		if err != nil {
-			return "", fmt.Errorf(
-				"%w: relay configuration could not be generated",
-				ErrUnavailable,
-			)
-		}
-		rtcConfiguration.RelayOnly = true
+	rtcConfiguration, err := s.Configuration(ctx, relayOnly)
+	if err != nil {
+		return "", err
 	}
 	result, err := s.core.Exchange(ctx, callmedia.Offer{
 		Call: callmedia.ActiveCall{
@@ -131,6 +118,22 @@ func (s *Service) Exchange(
 		return "", classifyCoreError(err)
 	}
 	return result.AnswerSDP, nil
+}
+
+// Configuration is shared by offer negotiation and temporary-call ICE setup.
+func (s *Service) Configuration(ctx context.Context, relayOnly bool) (rtcconfig.Configuration, error) {
+	if !relayOnly {
+		return rtcconfig.Configuration{}, nil
+	}
+	if s.rtc == nil {
+		return rtcconfig.Configuration{}, ErrUnavailable
+	}
+	configuration, err := s.rtc.Generate(ctx)
+	if err != nil {
+		return rtcconfig.Configuration{}, fmt.Errorf("%w: relay configuration could not be generated", ErrUnavailable)
+	}
+	configuration.RelayOnly = true
+	return configuration, nil
 }
 
 func (s *Service) ReleaseOwner(ctx context.Context, callID, ownerToken string) error {

@@ -13,8 +13,11 @@ final class Coordinator {
     let callProvider = Provider()
     var endCommands = 0
     func markCallActive(_ id: UUID) {}
-    func cleanupCall(_ id: UUID) { callAudioSessions.removeValue(forKey: id) }
+    func cleanupCall(_ id: UUID, failureMessage: String? = nil) { callAudioSessions.removeValue(forKey: id) }
     func sendEndCallAction(verb: String, callUUID: UUID) { endCommands += 1 }
+    func reportCallEnded(with uuid: UUID, endedAt: Date, reason: EndReason) {
+        callProvider.reportCall(with: uuid, endedAt: endedAt, reason: reason)
+    }
     func begin(_ uuid: UUID) {
         let audioSession = Audio()
         callAudioSessions[uuid] = audioSession

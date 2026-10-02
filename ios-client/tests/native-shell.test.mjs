@@ -199,7 +199,7 @@ test('terminal VoIP pushes close the same CallKit UUID without reviving ended ca
   assert.match(native, /let uuid = UUID\(uuidString: uuidText\)/)
   assert.doesNotMatch(native, /UUID\(uuidString:[^\n]+\) \?\? UUID\(\)/)
   assert.match(native, /callController\.callObserver\.calls\.contains/)
-  assert.match(native, /reportCall\(with: uuid, endedAt: Date\(\), reason: reason\)/)
+  assert.match(native, /reportCallEnded\(with: uuid, endedAt: Date\(\), reason: reason\)/)
   assert.match(
     native,
     /guard mustReport else[\s\S]*reportNewIncomingCall\(with: uuid, update: update\)[\s\S]*reportCall/
@@ -373,7 +373,7 @@ test('native API models match populated communication responses', async () => {
   assert.match(calls, /case "recording":[\s\S]*controller\.text\("录音中", "Recording"\)/)
   assert.match(calls, /ModemDeckDialerPanel/)
   assert.match(settings, /从本机通讯录导入/)
-  assert.match(settings, /发送测试来电/)
+  assert.match(settings, /开始通话测试/)
   assert.match(fixture, /示例联系人/)
   assert.match(fixture, /UAT-SERVICE/)
   assert.match(fixture, /不包含真实个人信息/)

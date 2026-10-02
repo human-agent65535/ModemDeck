@@ -79,7 +79,8 @@ test('CallKit end closes locally without an HTTP response and auxiliary timeouts
   await verify('callkit-stubs.swift', [
     'func provider(_ provider: CXProvider, perform action: CXEndCallAction)',
     'func provider(_ provider: CXProvider, timedOutPerforming action: CXAction)',
-    'private func endCallVerb('
+    'private func endCallVerb(', 'private func isLocalTestCall(',
+    'private func reportCallEnded('
   ].map(marker => declaration(source, marker)))
 })
 
@@ -104,9 +105,9 @@ test('runtime reconciliation accepts ownership-only changes and rejects obsolete
   await verify('call-state-cursor-stubs.swift', [declaration(source, 'private func acceptRuntimeCallState(').replace('private func', 'func')])
 })
 
-test('call ownership heartbeat renews before a WebRTC track exists', { skip: process.platform !== 'darwin' }, async () => {
+test('real and test call ownership heartbeats renew before a WebRTC track exists', { skip: process.platform !== 'darwin' }, async () => {
   const source = await readFile(new URL('../ios/App/App/ModemDeckCallAudio.swift', import.meta.url), 'utf8')
-  await verify('call-heartbeat-stubs.swift', ['func startControlHeartbeat()', 'private func startLeaseHeartbeat()']
+  await verify('call-heartbeat-stubs.swift', ['func startControlHeartbeat()', 'private func startLeaseHeartbeat()', 'private func callPath(']
     .map(marker => declaration(source, marker)))
 })
 
@@ -142,6 +143,6 @@ test('CallKit repeated answers share permission and connection outcomes without 
   const source = await readFile(new URL('../ios/App/App/ModemDeckNative.swift', import.meta.url), 'utf8')
   await verify('callkit-answer-stubs.swift', [
     'func provider(_ provider: CXProvider, perform action: CXAnswerCallAction)',
-    'private func finishProviderCallAction('
+    'private func finishProviderCallAction(', 'private func isLocalTestCall('
   ].map(marker => declaration(source, marker)))
 })

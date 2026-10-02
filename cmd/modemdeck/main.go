@@ -19,8 +19,6 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/callevents"
 	"github.com/human-agent65535/modemdeck/internal/calllease"
-	"github.com/human-agent65535/modemdeck/internal/calllifecycle"
-	"github.com/human-agent65535/modemdeck/internal/callmedia"
 	"github.com/human-agent65535/modemdeck/internal/calltest"
 	"github.com/human-agent65535/modemdeck/internal/communication"
 	"github.com/human-agent65535/modemdeck/internal/diagnostics"
@@ -211,55 +209,23 @@ func run(
 	} else {
 		logger.Info("Apple push delivery disabled", "component", "apple_push")
 	}
-	callLeases, err := calllease.New(
-		repository,
-		communications,
-		calllease.Options{
-			Report: func(err error) {
-				logger.Warn(
-					"call ownership cleanup failed",
-					"component",
-					"calls",
-					"error",
-					err,
-				)
-			},
-		},
-	)
-	if err != nil {
-		_ = db.Close()
-		return fmt.Errorf("create call ownership manager: %w", err)
-	}
 	mediaOpener, err := agentmedia.New(agentSocketPath, repository, agentmedia.Options{})
 	if err != nil {
 		_ = db.Close()
 		return fmt.Errorf("create host media opener: %w", err)
 	}
-	mediaCore, err := callmedia.New(callmedia.Options{
-		EndpointOpener: mediaOpener,
-		OnOwnerStateChange: func(callID string, connected bool) {
-			if connected {
-				callLeases.MediaConnected(callID)
-				return
-			}
-			callLeases.MediaDisconnected(callID)
-		},
+	mediaRuntime, err := mediaapp.NewRuntime(mediaapp.RuntimeOptions{
+		Calls: repository, Refresher: communications, Controller: communications,
+		EndpointOpener: mediaOpener, RTCProvider: turnProvider,
+		LeaseOptions: calllease.Options{Report: func(err error) {
+			logger.Warn("call ownership cleanup failed", "component", "calls", "error", err)
+		}},
 	})
 	if err != nil {
 		_ = db.Close()
-		return fmt.Errorf("create WebRTC media core: %w", err)
+		return fmt.Errorf("create call media runtime: %w", err)
 	}
-	callMedia, err := mediaapp.New(
-		communications,
-		repository,
-		mediaCore,
-		mediaapp.Options{RTCProvider: turnProvider},
-	)
-	if err != nil {
-		_ = mediaCore.Close(context.Background())
-		_ = db.Close()
-		return fmt.Errorf("create call media service: %w", err)
-	}
+	callLeases, mediaCore, callMedia := mediaRuntime.Leases, mediaRuntime.Core, mediaRuntime.Media
 	recordings, err := recording.New(repository, mediaCore, recording.Options{
 		RootDirectory: recordingsPath,
 		OnChange: func() {
@@ -283,7 +249,7 @@ func run(
 		_ = db.Close()
 		return fmt.Errorf("recover call recordings: %w", err)
 	}
-	callLifecycle, err := calllifecycle.New(callMedia, recordings, callLeases)
+	callLifecycle, err := mediaRuntime.Lifecycle(recordings)
 	if err != nil {
 		_ = recordings.Close(context.Background())
 		_ = mediaCore.Close(context.Background())
