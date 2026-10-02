@@ -44,7 +44,11 @@ func (api *API) mobileCallTest(response http.ResponseWriter, request *http.Reque
 	path := strings.TrimPrefix(request.URL.Path, "/api/v1/mobile/call-tests")
 	if path == "" {
 		api.postOnly(response, request, func(w http.ResponseWriter, r *http.Request) {
-			status, err := api.callTests.Start(principal.UserID, credentialID)
+			language := "en"
+			if strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "zh") {
+				language = "zh"
+			}
+			status, err := api.callTests.Start(principal.UserID, credentialID, language)
 			if err != nil {
 				api.writeCallTestError(w, r, err)
 				return
@@ -85,10 +89,12 @@ func (api *API) mobileCallTest(response http.ResponseWriter, request *http.Reque
 		for _, projected := range projection.Calls {
 			calls = append(calls, callSession(projected.Call, projected.ControlState))
 		}
+		audioStatus, _ := api.callTests.AudioStatus(id, owner)
 		writeJSON(response, http.StatusOK, struct {
 			activeCallsResponse
-			TestPhase string `json:"test_phase"`
-		}{activeCallsResponse: activeCallsResponse{Calls: calls, Reservations: []outgoingCallReservationResponse{}}, TestPhase: phase})
+			TestPhase string               `json:"test_phase"`
+			TestAudio calltest.AudioStatus `json:"test_audio"`
+		}{activeCallsResponse: activeCallsResponse{Calls: calls, Reservations: []outgoingCallReservationResponse{}}, TestPhase: phase, TestAudio: audioStatus})
 	case "lease":
 		var input renewCallLeaseRequest
 		if !decodeJSONBody(response, request, &input) {

@@ -25,6 +25,7 @@ type RuntimeOptions struct {
 	EndpointOpener callmedia.MediaEndpointOpener
 	RTCProvider    rtcconfig.Provider
 	LeaseOptions   calllease.Options
+	OnAudioStats   func(string, callmedia.AudioStatistics)
 }
 
 func NewRuntime(options RuntimeOptions) (*Runtime, error) {
@@ -34,6 +35,7 @@ func NewRuntime(options RuntimeOptions) (*Runtime, error) {
 	}
 	core, err := callmedia.New(callmedia.Options{
 		EndpointOpener: options.EndpointOpener,
+		OnAudioStats:   options.OnAudioStats,
 		OnOwnerStateChange: func(callID string, connected bool) {
 			if connected {
 				leases.MediaConnected(callID)

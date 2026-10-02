@@ -71,6 +71,7 @@ func TestCallTestUsesProductionRuntimeForRelayAudioAndOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	owner := "user\x00device"
+	entry, _ := service.lookup(status.ID, owner)
 	if _, err := service.Answer(status.ID, owner); !errors.Is(err, ErrEnded) {
 		t.Fatalf("answer before ringing = %v", err)
 	}
@@ -140,13 +141,13 @@ func TestCallTestUsesProductionRuntimeForRelayAudioAndOwnership(t *testing.T) {
 				return
 			}
 			low, high := spectralPower(audio.PCM, 440), spectralPower(audio.PCM, 880)
-			if low > 1e5 && low > 4*high {
+			if entry.audio.Phase() == "tone" && low > 1e5 && low > 4*high {
 				select {
 				case tone <- struct{}{}:
 				default:
 				}
 			}
-			if high > 1e5 && high > 4*low {
+			if entry.audio.Phase() == "playback" && high > 1e5 && high > 4*low {
 				select {
 				case playback <- struct{}{}:
 				default:
@@ -208,6 +209,10 @@ func TestCallTestUsesProductionRuntimeForRelayAudioAndOwnership(t *testing.T) {
 	// A recognizable microphone waveform must survive Opus uplink, PCM capture,
 	// delayed playback and Opus downlink, including rejected ownership attempts.
 	receive(t, playback)
+	quality, err := service.AudioStatus(status.ID, owner)
+	if err != nil || quality.ReceivedPackets == 0 || quality.CapturedFrames < 150 || quality.CapturedDBFS < -25 || quality.CapturedDBFS > -10 {
+		t.Fatalf("microphone level did not survive the production pipeline: %+v, %v", quality, err)
+	}
 	if err := service.End(status.ID, owner); err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +223,6 @@ func TestCallTestUsesProductionRuntimeForRelayAudioAndOwnership(t *testing.T) {
 	if _, err := service.Exchange(ctx, status.ID, owner, "late-owner", offerSDP); !errors.Is(err, calllease.ErrCallNotActive) {
 		t.Fatalf("late negotiation = %v", err)
 	}
-	entry, _ := service.lookup(status.ID, owner)
 	entry.audio.mu.Lock()
 	cleared := entry.audio.closed && len(entry.audio.clip) == 0
 	entry.audio.mu.Unlock()

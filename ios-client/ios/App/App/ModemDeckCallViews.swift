@@ -2071,6 +2071,7 @@ struct ModemDeckActiveCallView: View {
     let call: ModemDeckPresentedCall
     @ObservedObject var controller: ModemDeckSessionController
     @ObservedObject var callController: ModemDeckCallController
+    @ObservedObject private var audioRoute = ModemDeckAudioRoute.shared
 
     var collapse: () -> Void = {}
     @GestureState private var collapseOffset: CGFloat = 0
@@ -2216,21 +2217,26 @@ struct ModemDeckActiveCallView: View {
                         action: sendDTMF
                     )
                 } else if isActive {
-                    ModemDeckCallControl(
-                        title: call.muted
-                            ? controller.text("取消静音", "Unmute")
-                            : controller.text("静音", "Mute"),
-                        icon: call.muted ? "mic.slash.fill" : "mic.fill",
-                        selected: call.muted,
-                        disabled: callController.muteBusy
-                    ) {
-                        Task { await callController.setMuted(!call.muted) }
+                    if call.testAudio { testAudioFeedback.padding(.bottom, 20) }
+                    HStack(alignment: .top, spacing: 40) {
+                        ModemDeckCallControl(
+                            title: call.muted
+                                ? controller.text("取消静音", "Unmute")
+                                : controller.text("静音", "Mute"),
+                            icon: call.muted ? "mic.slash.fill" : "mic.fill",
+                            selected: call.muted,
+                            disabled: callController.muteBusy
+                        ) {
+                            Task { await callController.setMuted(!call.muted) }
+                        }
+                        audioRouteControl
                     }
                 }
 
                 ModemDeckInlineError(message: callController.errorMessage)
                     .foregroundColor(.mdText)
                     .padding(.horizontal)
+                ModemDeckInlineError(message: audioRoute.errorMessage)
 
                 callFooter
                     .padding(.top, 34)
@@ -2345,9 +2351,11 @@ struct ModemDeckActiveCallView: View {
             if call.state == "connecting" { return controller.text("正在连接测试音频…", "Connecting test audio…") }
             if isActive && call.testAudio {
                 switch call.testPhase {
+                case "guide": return controller.text("请听语音提示", "Listen to the instructions")
                 case "tone": return controller.text("音频已连接 · 正在播放提示音", "Audio connected · Playing test tone")
-                case "speak": return controller.text("请说几句话 · 随后会回放", "Say a few words · Playback follows")
-                case "playback": return controller.text("正在回放你的声音", "Playing back your voice")
+                case "speak": return controller.text("请说几句话", "Say a few words") + countdown
+                case "playback_prompt": return controller.text("准备回放你的声音", "Preparing your playback")
+                case "playback": return controller.text("正在回放你的声音", "Playing back your voice") + countdown
                 case "pause": return controller.text("即将再次测试", "The test will repeat shortly")
                 default: return controller.text("测试音频已连接", "Test audio connected")
                 }
@@ -2362,6 +2370,65 @@ struct ModemDeckActiveCallView: View {
         case "active": return controller.text("通话中", "Connected")
         default: return call.state
         }
+    }
+
+    private var countdown: String {
+        call.testRemainingMS > 0 ? " · \((call.testRemainingMS + 999) / 1000)s" : ""
+    }
+
+    @ViewBuilder private var audioRouteControl: some View {
+        if audioRoute.externalInputs.isEmpty {
+            ModemDeckCallControl(title: controller.text("扬声器", "Speaker"), icon: "speaker.wave.2.fill",
+                selected: audioRoute.output == "speaker", disabled: !audioRoute.active || !audioRoute.hasReceiver) {
+                    audioRoute.selectSpeaker(audioRoute.output != "speaker")
+                }
+                .accessibilityIdentifier("call-speaker")
+                .accessibilityValue(audioRoute.output == "speaker" ? controller.text("已开启", "On") : controller.text("已关闭", "Off"))
+        } else {
+            Menu {
+                Button(controller.text("扬声器", "Speaker")) { audioRoute.selectSpeaker(true) }
+                if audioRoute.hasReceiver {
+                    Button(controller.text("iPhone 听筒", "iPhone receiver")) { audioRoute.selectSpeaker(false) }
+                }
+                ForEach(audioRoute.externalInputs, id: \.uid) { input in
+                    Button(input.portName) { audioRoute.selectInput(input) }
+                }
+            } label: {
+                VStack(spacing: 8) {
+                    Image(systemName: audioRoute.output == "speaker" ? "speaker.wave.2.fill" : "headphones")
+                        .font(.title2).frame(width: 62, height: 62)
+                        .background(Color.mdSurfaceHover).clipShape(Circle())
+                    Text(controller.text("音频", "Audio")).font(.caption)
+                }.foregroundColor(.mdText)
+            }
+            .disabled(!audioRoute.active)
+            .accessibilityIdentifier("call-audio-route")
+        }
+    }
+
+    private var testAudioFeedback: some View {
+        VStack(spacing: 8) {
+            Text(call.microphoneDBFS == nil ? controller.text("服务端收音", "Received audio") : controller.text("麦克风", "Microphone"))
+                .font(.caption).foregroundColor(.mdMuted)
+            ProgressView(value: Double(max(0, min(60, (call.microphoneDBFS ?? call.serverInputDBFS) + 60))) / 60)
+                .tint(.mdAccent)
+                .accessibilityLabel(controller.text("收音电平", "Microphone level"))
+            Text(testAudioHint).font(.caption).foregroundColor(.mdMuted)
+                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: 250)
+        .accessibilityIdentifier("call-test-audio-feedback")
+    }
+
+    private var testAudioHint: String {
+        if call.muted { return controller.text("麦克风已静音", "Microphone is muted") }
+        if ["playback", "playback_prompt", "pause"].contains(call.testPhase) {
+            if call.receivedPackets == 0 { return controller.text("服务端尚未收到麦克风音频", "No microphone audio has reached the server") }
+            if call.capturedPeakDBFS <= -80 { return controller.text("未检测到声音，请检查麦克风", "No sound detected. Check your microphone") }
+            if call.capturedPeakDBFS < -40 { return controller.text("收音偏小，请靠近麦克风再试", "Audio is quiet. Move closer to the microphone") }
+            return controller.text("请确认能否听清自己的回放", "Check whether you can hear your voice clearly")
+        }
+        return controller.text("提示音结束后说话，随后会回放", "Speak after the beep, then listen to the playback")
     }
 }
 

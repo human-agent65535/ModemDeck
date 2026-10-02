@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/human-agent65535/modemdeck/internal/calllease"
+	"github.com/human-agent65535/modemdeck/internal/callmedia"
 	"github.com/human-agent65535/modemdeck/internal/mediaapp"
 	"github.com/human-agent65535/modemdeck/internal/rtcconfig"
 )
@@ -52,7 +53,7 @@ func New(push PushSender, rtc rtcconfig.Provider, logger *slog.Logger) *Service 
 	return &Service{sessions: make(map[string]*session), push: push, rtc: rtc, logger: logger, ctx: ctx, cancel: cancel}
 }
 
-func (s *Service) Start(userID, credentialID string) (Status, error) {
+func (s *Service) Start(userID, credentialID string, language ...string) (Status, error) {
 	if s == nil || s.push == nil || s.rtc == nil || userID == "" || credentialID == "" {
 		return Status{}, ErrUnavailable
 	}
@@ -78,9 +79,10 @@ func (s *Service) Start(userID, credentialID string) (Status, error) {
 	id := fmt.Sprintf("test-%x-%x-%x-%x-%x", random[:4], random[4:6], random[6:8], random[8:10], random[10:])
 	ctx, cancel := context.WithCancel(s.ctx)
 	now := time.Now().UTC()
-	entry := &session{status: Status{ID: id, AcceptedAt: now, ExpiresAt: now.Add(35 * time.Second), Phase: "scheduled", TestPhase: "scheduled"}, owner: owner, ctx: ctx, cancel: cancel, audio: newAudioEndpoint()}
+	entry := &session{status: Status{ID: id, AcceptedAt: now, ExpiresAt: now.Add(35 * time.Second), Phase: "scheduled", TestPhase: "scheduled"}, owner: owner, ctx: ctx, cancel: cancel, audio: newAudioEndpoint(language...)}
 	runtime, err := mediaapp.NewRuntime(mediaapp.RuntimeOptions{
 		Calls: entry, Refresher: entry, Controller: entry, EndpointOpener: entry.audio, RTCProvider: s.rtc,
+		OnAudioStats: callmedia.AudioStatsLogger(s.logger),
 		LeaseOptions: calllease.Options{Report: func(err error) { s.logger.Warn("test call ownership cleanup failed", "call_id", id, "error", err) }},
 	})
 	if err != nil {
@@ -253,6 +255,16 @@ func (s *Service) Active(ctx context.Context, id, owner string) (calllease.Activ
 	}
 	projection, err := entry.runtime.Leases.ProjectActive(calls, owner)
 	return projection, entry.audio.Phase(), err
+}
+
+func (s *Service) AudioStatus(id, owner string) (AudioStatus, error) {
+	entry, err := s.lookup(id, owner)
+	if err != nil {
+		return AudioStatus{}, err
+	}
+	status := entry.audio.Snapshot()
+	status.AudioStatistics = entry.runtime.Core.Statistics(id)
+	return status, nil
 }
 
 func (s *Service) Renew(ctx context.Context, id, owner string) (calllease.Status, error) {

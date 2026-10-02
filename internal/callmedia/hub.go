@@ -467,6 +467,9 @@ func (h *mediaHub) initiate(reason error) {
 
 func (h *mediaHub) cleanup() {
 	<-h.ctx.Done()
+	// Parent cancellation can wake cleanup before its AfterFunc closes the
+	// endpoint. Done must mean the old PCM owner is fully released.
+	h.initiate(nil)
 	h.startMu.Lock()
 	h.startClosed = true
 	h.startMu.Unlock()

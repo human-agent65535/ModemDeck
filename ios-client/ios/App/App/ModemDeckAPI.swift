@@ -1430,11 +1430,12 @@ final class ModemDeckAPIClient {
         )
     }
 
-    func sendIOSTestCall() async throws -> ModemDeckIOSTestCallResult {
+    func sendIOSTestCall(language: String = "en") async throws -> ModemDeckIOSTestCallResult {
         try await decode(
             ModemDeckIOSTestCallResult.self,
             path: "/api/v1/mobile/call-tests",
-            method: "POST"
+            method: "POST",
+            headers: ["Accept-Language": language]
         )
     }
 

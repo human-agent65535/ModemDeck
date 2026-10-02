@@ -137,7 +137,13 @@ func TestOnePeerOwnsConsumerCallUntilSessionCloses(t *testing.T) {
 	}
 	browser.applyAnswer(t, result.AnswerSDP)
 
-	_, err = core.Exchange(context.Background(), offer)
+	replayed, err := core.Exchange(context.Background(), offer)
+	if err != nil || replayed.Session != result.Session || replayed.AnswerSDP != result.AnswerSDP {
+		t.Fatalf("lost response replay = %+v, %v", replayed, err)
+	}
+	foreign := offer
+	foreign.OwnerToken = "different-owner"
+	_, err = core.Exchange(context.Background(), foreign)
 	if !errors.Is(err, ErrCallInUse) {
 		t.Fatalf("second peer error = %v", err)
 	}

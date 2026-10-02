@@ -466,6 +466,11 @@ struct ModemDeckPresentedCall: Identifiable, Equatable {
     let activeAt: String?
     var testAudio = false
     var testPhase = ""
+    var testRemainingMS = 0
+    var serverInputDBFS = -96
+    var capturedPeakDBFS = -96
+    var receivedPackets = 0
+    var microphoneDBFS: Int?
 
     var id: String { callID }
 }
@@ -529,7 +534,12 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
                 createdAt: state["createdAt"] as? String ?? "",
                 activeAt: state["activeAt"] as? String,
                 testAudio: state["testAudio"] as? Bool ?? false,
-                testPhase: state["testPhase"] as? String ?? ""
+                testPhase: state["testPhase"] as? String ?? "",
+                testRemainingMS: state["testRemainingMS"] as? Int ?? 0,
+                serverInputDBFS: state["serverInputDBFS"] as? Int ?? -96,
+                capturedPeakDBFS: state["capturedPeakDBFS"] as? Int ?? -96,
+                receivedPackets: state["receivedPackets"] as? Int ?? 0,
+                microphoneDBFS: state["microphoneDBFS"] as? Int
             )
             self.call = presentedCall
             if previousCall?.callID != callID {
@@ -857,6 +867,7 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
             return
         }
         DispatchQueue.main.async { [weak self] in
+            let audioTest = environment["MODEMDECK_UAT_TEST_AUDIO"] == "1"
             self?.callStateDidChange([
                 "callID": "uat-call-surface",
                 "lineID": "uat-line-a",
@@ -864,7 +875,14 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
                 "displayName": "UAT Call",
                 "direction": state == "ringing" ? "incoming" : "outgoing",
                 "state": state,
-                "testCall": false,
+                "testCall": audioTest,
+                "testAudio": audioTest,
+                "testPhase": audioTest ? "speak" : "",
+                "testRemainingMS": 3000,
+                "microphoneDBFS": -24,
+                "serverInputDBFS": -26,
+                "capturedPeakDBFS": -18,
+                "receivedPackets": 120,
                 "muted": false,
                 "createdAt": ISO8601DateFormatter().string(from: Date()),
                 "activeAt": ISO8601DateFormatter().string(from: Date())

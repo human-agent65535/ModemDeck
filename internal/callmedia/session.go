@@ -149,6 +149,8 @@ type Session struct {
 	jitter       *jitterBuffer
 	playout      *rtpPlayout
 	recoveryTime time.Duration
+	stats        audioCounters
+	reportStats  func(string, AudioStatistics)
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -199,6 +201,9 @@ func newSession(
 
 func (s *Session) start() {
 	s.startOnce.Do(func() {
+		s.stats.inputDBFS.Store(-96)
+		s.stats.inputPeakDBFS.Store(-96)
+		s.stats.outputDBFS.Store(-96)
 		s.workers.Add(5)
 		go s.runWorker(s.captureLoop)
 		go s.runWorker(s.receiveLoop)
@@ -331,6 +336,9 @@ func (s *Session) captureLoop() error {
 			}
 			return fmt.Errorf("write browser RTP: %w", ErrTransportClosed)
 		}
+		level, _ := PCMLevels(frame.DownlinkPCM)
+		s.stats.outputDBFS.Store(int64(level))
+		s.stats.sentPackets.Add(1)
 	}
 }
 
@@ -361,6 +369,8 @@ func (s *Session) receiveLoop() error {
 		if err := s.jitter.push(packet); err != nil {
 			return err
 		}
+		s.stats.receivedPackets.Add(1)
+		s.stats.receivedBytes.Add(uint64(len(packet.Payload)))
 	}
 }
 
@@ -397,6 +407,9 @@ func (s *Session) playbackLoop() error {
 		if err := s.playout.nextFrame(frame); err != nil {
 			return err
 		}
+		level, peak := PCMLevels(frame)
+		s.stats.inputDBFS.Store(int64(level))
+		s.stats.inputPeakDBFS.Store(int64(peak))
 		if err := s.hub.WritePCM(s.ctx, frame); err != nil {
 			if s.ctx.Err() != nil {
 				return nil
@@ -427,6 +440,14 @@ func (s *Session) rtcpLoop() error {
 }
 
 func (s *Session) connectionLoop() error {
+	statsTimer := time.NewTicker(5 * time.Second)
+	defer statsTimer.Stop()
+	report := func() {
+		if s.reportStats != nil {
+			s.reportStats(s.callID, s.Statistics())
+		}
+	}
+	defer report()
 	var (
 		recoveryTimer *time.Timer
 		recovery      <-chan time.Time
@@ -448,6 +469,8 @@ func (s *Session) connectionLoop() error {
 
 	for {
 		select {
+		case <-statsTimer.C:
+			report()
 		case state := <-s.events.state:
 			switch state {
 			case webrtc.PeerConnectionStateConnected:

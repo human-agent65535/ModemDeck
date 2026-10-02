@@ -22,7 +22,7 @@ final class CommunicationUXTests: XCTestCase {
         return (try JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
     }
 
-    private func launch(configuration: [String: Any] = [:], callSurface: Bool = false, waitForActivity: Bool = true) async throws -> XCUIApplication {
+    private func launch(configuration: [String: Any] = [:], callSurface: Bool = false, testAudio: Bool = false, waitForActivity: Bool = true) async throws -> XCUIApplication {
         continueAfterFailure = false
         _ = try await fixture("/__uat/reset", body: [:])
         if !configuration.isEmpty {
@@ -35,6 +35,7 @@ final class CommunicationUXTests: XCTestCase {
             "MODEMDECK_UAT_TOKEN": token, "MODEMDECK_UAT_INITIAL_SECTION": "home"
         ]
         if callSurface { app.launchEnvironment["MODEMDECK_UAT_CALL_STATE"] = "active" }
+        if testAudio { app.launchEnvironment["MODEMDECK_UAT_TEST_AUDIO"] = "1" }
         app.launch()
         if !callSurface && waitForActivity { XCTAssertTrue(app.buttons["activity-message-\(threadID)"].waitForExistence(timeout: 20)) }
         return app
@@ -336,6 +337,28 @@ final class CommunicationUXTests: XCTestCase {
         app.buttons["call-restore"].tap()
         XCTAssertTrue(app.buttons["隐藏键盘"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.buttons["call-collapse"].exists)
+    }
+
+    func testCallAudioControlsAndGuidanceRemainVisible() async throws {
+        var app = try await launch(callSurface: true)
+        XCTAssertTrue(app.buttons["call-speaker"].waitForExistence(timeout: 12))
+        capture("call-audio-controls", app: app)
+        app.buttons["call-collapse"].tap()
+        XCTAssertTrue(app.buttons["call-restore"].waitForExistence(timeout: 4))
+        app.buttons["call-restore"].tap()
+        XCTAssertTrue(app.buttons["call-speaker"].waitForExistence(timeout: 4))
+        app.terminate()
+        app = try await launch(callSurface: true, testAudio: true)
+        XCTAssertTrue(app.staticTexts["请说几句话 · 3s"].waitForExistence(timeout: 12))
+        XCTAssertTrue(app.progressIndicators["收音电平"].exists)
+        XCTAssertTrue(app.buttons["call-speaker"].exists)
+        XCTAssertTrue(app.buttons["挂断"].isHittable)
+        capture("call-test-guidance-portrait", app: app)
+        XCUIDevice.shared.orientation = .landscapeLeft
+        try await Task.sleep(nanoseconds: 500_000_000)
+        XCTAssertTrue(app.buttons["挂断"].isHittable)
+        XCTAssertTrue(app.buttons["call-collapse"].isHittable)
+        capture("call-test-guidance-landscape", app: app)
     }
 
     func testRotationPreservesConversationAndDraft() async throws {

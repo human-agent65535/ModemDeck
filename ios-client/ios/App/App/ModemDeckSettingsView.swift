@@ -1439,7 +1439,7 @@ private struct ModemDeckCallSettingsView: View {
                     return
                 }
                 guard callController.call == nil else { return }
-                let result = try await controller.api.sendIOSTestCall()
+                let result = try await controller.api.sendIOSTestCall(language: controller.usesChinese ? "zh" : "en")
                 statusMessage = controller.text("测试来电将在 5 秒后发起，现在可以锁屏。", "Your test call starts in 5 seconds. You can lock the screen now.")
                 for _ in 0..<25 {
                     try await Task.sleep(nanoseconds: 1_000_000_000)

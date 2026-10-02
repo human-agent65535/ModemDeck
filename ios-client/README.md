@@ -32,7 +32,9 @@ call audio remain native platform services.
 - Keeps cached history readable during service outages. Foreground recovery
   probes back off from one to thirty seconds, coalesce concurrent refreshes,
   and retry immediately on a restored network path or app activation. SMS,
-  call, and other write requests are never replayed automatically.
+  call, and other business writes are never replayed automatically. Media
+  negotiation can retry one transient transport failure using its unchanged
+  offer and owner token; the server returns the original answer for duplicates.
 - Recents is a quick view of line status, call shortcuts and dated activity, sharing
   message, call, recording, and contact stores with the dedicated pages.
   Native swipe actions and copy/action menus remain available; search,
@@ -47,16 +49,19 @@ call audio remain native platform services.
 - Uses CallKit as the owner for incoming and outgoing calls, answer,
   reject/hang-up, mute, and DTMF, while an audio-only WebRTC peer carries sound
   through the existing call media and lease APIs. The in-app native call surface
-  also exposes mute, keypad, recording, and hang-up after CallKit is hidden.
+  also exposes mute, speaker/receiver routing, connected headset selection,
+  keypad, recording, and hang-up after CallKit is hidden.
 - Ends the local call immediately while retaining unconfirmed server hang-up
   requests across network interruptions and app restarts. Recovery checks the
   original call's state and credential scope before retrying; bearer tokens
   are never stored in the pending-request journal.
 - Offers **Settings → Calls & Audio → Start Call Test** through the same native
   WebRTC/TURN, media lifecycle and ownership leases as a real call. The server
-  supplies a test tone and temporary voice playback without a SIM call,
+  supplies spoken instructions, a test tone and temporary voice playback without a SIM call,
   recording or durable call history. Pairing's older push-only test still uses
   a local tone and has no server audio session.
+  A countdown and live microphone/received-audio meter make the capture window
+  visible; silent/quiet playback is distinguished from a missing uplink.
 - Offers **Settings → Device Diagnostics → Upload All App Diagnostics**, off
   by default. When enabled, all app diagnostic categories (API, recovery,
   pairing, push, CallKit, audio, permissions, storage and app lifecycle/errors)
@@ -69,6 +74,9 @@ call audio remain native platform services.
   events. Previously uploaded data remains subject to server log retention.
   Operators can inspect `source=ios` and `component=ios.*` in existing server
   diagnostics/logs, correlated by authenticated device, build and call ID.
+  Audio diagnostics include route categories, input gain availability, input and
+  output levels, and RTP counters. Server media logs report received/played PCM
+  levels and packet counts for real and test calls without retaining PCM.
 - Requires ModemDeck v1.12.0 or newer plus matching Apple provider credentials
   on the server before remote delivery is enabled. Debug builds installed
   directly on a device use APNs sandbox; the distributed TestFlight app uses

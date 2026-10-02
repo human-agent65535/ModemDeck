@@ -533,6 +533,11 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         let createdAt: Date
         var activeAt: Date?
         var testPhase = ""
+        var testRemainingMS = 0
+        var serverInputDBFS = -96
+        var capturedPeakDBFS = -96
+        var receivedPackets = 0
+        var microphoneDBFS: Int?
     }
 
     private struct CallControlTarget {
@@ -2156,12 +2161,17 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             "testCall": call.testCall,
             "testAudio": audioTestCallUUIDs.contains(uuid),
             "testPhase": call.testPhase,
+            "testRemainingMS": call.testRemainingMS,
+            "serverInputDBFS": call.serverInputDBFS,
+            "capturedPeakDBFS": call.capturedPeakDBFS,
+            "receivedPackets": call.receivedPackets,
             "muted": mutedCallUUIDs.contains(uuid),
             "createdAt": Self.timestampFormatter.string(from: call.createdAt)
         ]
         if let activeAt = call.activeAt {
             payload["activeAt"] = Self.timestampFormatter.string(from: activeAt)
         }
+        if let level = call.microphoneDBFS { payload["microphoneDBFS"] = level }
         return payload
     }
 
@@ -2304,6 +2314,19 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         audioSession.onTestPhaseChanged = { [weak self] phase in
             guard let self, self.presentedCalls[uuid] != nil else { return }
             self.presentedCalls[uuid]?.testPhase = phase
+            self.publishCallState()
+        }
+        audioSession.onTestAudioChanged = { [weak self] status in
+            guard let self, self.presentedCalls[uuid] != nil else { return }
+            self.presentedCalls[uuid]?.testRemainingMS = status.remainingMS
+            self.presentedCalls[uuid]?.serverInputDBFS = status.inputDBFS
+            self.presentedCalls[uuid]?.capturedPeakDBFS = status.capturedPeakDBFS
+            self.presentedCalls[uuid]?.receivedPackets = status.receivedPackets
+            self.publishCallState()
+        }
+        audioSession.onMicrophoneLevelChanged = { [weak self] level in
+            guard let self, self.presentedCalls[uuid] != nil else { return }
+            self.presentedCalls[uuid]?.microphoneDBFS = level
             self.publishCallState()
         }
         audioSession.onRemoteEnded = { [weak self, weak audioSession] in

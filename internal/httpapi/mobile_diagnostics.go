@@ -130,11 +130,15 @@ func validMobileDiagnosticField(key, value string) bool {
 		return false
 	}
 	switch key {
-	case "elapsed_ms", "stage_elapsed_ms", "dns_ms", "connect_ms", "tls_ms", "candidates", "relay_candidates", "error_code", "http_status", "ice_state", "gathering_state", "signaling_state", "turn_port", "turn_index", "attempt", "delay_ms", "sample_rate", "channels":
+	case "elapsed_ms", "stage_elapsed_ms", "dns_ms", "connect_ms", "tls_ms", "candidates", "relay_candidates", "error_code", "http_status", "ice_state", "gathering_state", "signaling_state", "turn_port", "turn_index", "attempt", "delay_ms", "sample_rate", "channels", "input_gain_percent", "output_volume_percent", "microphone_dbfs", "sent_packets", "sent_bytes", "received_packets", "received_bytes", "lost_packets":
 		number, err := strconv.ParseInt(value, 10, 64)
 		return err == nil && number >= -1_000_000_000 && number <= 1_000_000_000
-	case "expensive", "constrained", "ipv4", "ipv6", "dns", "enabled", "test_call":
+	case "expensive", "constrained", "ipv4", "ipv6", "dns", "enabled", "test_call", "input_available", "input_gain_settable", "audio_enabled", "microphone_track_enabled", "reused_connection":
 		return value == "true" || value == "false"
+	case "input_route", "output_route":
+		return diagnosticChoice(value, "none microphone receiver speaker bluetooth headphones external")
+	case "http_protocol":
+		return diagnosticChoice(value, "h2 h3 http/1.1 other")
 	case "stage":
 		return diagnosticChoice(value, "idle waiting_for_active_call fetching_turn_configuration creating_offer setting_local_description gathering_candidates exchanging_offer applying_answer connecting_ice connected")
 	case "method":

@@ -31,6 +31,23 @@ enum ModemDeckCallAudioError: LocalizedError {
     }
 }
 
+struct ModemDeckTestAudioStatus: Decodable {
+    let phase: String
+    let remainingMS: Int
+    let capturedFrames: Int
+    let capturedDBFS: Int
+    let capturedPeakDBFS: Int
+    let receivedPackets: Int
+    let inputDBFS: Int
+    let outputDBFS: Int
+    enum CodingKeys: String, CodingKey {
+        case phase
+        case remainingMS = "remaining_ms", capturedFrames = "captured_frames"
+        case capturedDBFS = "captured_dbfs", capturedPeakDBFS = "captured_peak_dbfs"
+        case receivedPackets = "received_packets", inputDBFS = "input_dbfs", outputDBFS = "output_dbfs"
+    }
+}
+
 struct ModemDeckActiveCallsResponse: Decodable {
     struct Call: Decodable {
         let id: String
@@ -48,10 +65,12 @@ struct ModemDeckActiveCallsResponse: Decodable {
 
     let calls: [Call]
     let testPhase: String?
+    let testAudio: ModemDeckTestAudioStatus?
 
     enum CodingKeys: String, CodingKey {
         case calls
         case testPhase = "test_phase"
+        case testAudio = "test_audio"
     }
 }
 
@@ -102,12 +121,15 @@ final class ModemDeckCallAudioSession: NSObject {
     var onRemoteEnded: (() -> Void)?
     var onBecameActive: (() -> Void)?
     var onTestPhaseChanged: ((String) -> Void)?
+    var onTestAudioChanged: ((ModemDeckTestAudioStatus) -> Void)?
+    var onMicrophoneLevelChanged: ((Int?) -> Void)?
 
     private let credential: ModemDeckCredential
     private let testCall: Bool
     private let ownerToken = UUID().uuidString.lowercased()
     private let queue: DispatchQueue
     private let urlSession: URLSession
+    private var mediaRequest: ModemDeckMediaRequest?
     private var peerConnection: RTCPeerConnection?
     private var localAudioTrack: RTCAudioTrack?
     private var muted = false
@@ -135,6 +157,10 @@ final class ModemDeckCallAudioSession: NSObject {
     private var testPhaseRequestInFlight = false
     private var connectTimeout: DispatchWorkItem?
     private var disconnectTimeout: DispatchWorkItem?
+    private var statisticsTimer: DispatchSourceTimer?
+    private var statisticsInFlight = false
+    private var previousAudioEnergy: (energy: Double, duration: Double)?
+    private var lastStatisticsLog = 0.0
 
     init(callID: String, credential: ModemDeckCredential, testCall: Bool = false) {
         self.callID = callID
@@ -146,7 +172,10 @@ final class ModemDeckCallAudioSession: NSObject {
         configuration.timeoutIntervalForResource = 18
         urlSession = ModemDeckDiagnostics.urlSession(configuration: configuration)
         super.init()
+        RTCAudioSession.sharedInstance().add(self)
     }
+
+    deinit { RTCAudioSession.sharedInstance().remove(self) }
 
     static func prepareAudioSession() {
         let session = RTCAudioSession.sharedInstance()
@@ -214,6 +243,7 @@ final class ModemDeckCallAudioSession: NSObject {
         let rtcSession = RTCAudioSession.sharedInstance()
         rtcSession.audioSessionDidActivate(audioSession)
         rtcSession.isAudioEnabled = true
+        ModemDeckAudioRoute.shared.setActive(true)
     }
 
     static func didDeactivate(_ audioSession: AVAudioSession) {
@@ -222,6 +252,7 @@ final class ModemDeckCallAudioSession: NSObject {
         let rtcSession = RTCAudioSession.sharedInstance()
         rtcSession.isAudioEnabled = false
         rtcSession.audioSessionDidDeactivate(audioSession)
+        ModemDeckAudioRoute.shared.setActive(false)
     }
 
     func setMuted(_ muted: Bool) {
@@ -469,14 +500,7 @@ final class ModemDeckCallAudioSession: NSObject {
         offerSubmission = nil
         setConnectionStage("exchanging_offer")
         mediaClaimed = true
-        request(
-            path: callPath("media"),
-            method: "POST",
-            json: [
-                "owner_token": ownerToken,
-                "offer_sdp": offer
-            ]
-        ) { [weak self] result in
+        exchangeMedia(offer: offer) { [weak self] result in
             guard let self, !self.stopped else { return }
             switch result {
             case .failure(let error):
@@ -503,6 +527,7 @@ final class ModemDeckCallAudioSession: NSObject {
                         self.setConnectionStage("connecting_ice")
                         self.startLeaseHeartbeat()
                         self.startTestPhaseUpdates()
+                        self.startAudioStatistics()
                         if peer.iceConnectionState == .connected ||
                             peer.iceConnectionState == .completed {
                             self.finishConnection(.success(()))
@@ -516,6 +541,39 @@ final class ModemDeckCallAudioSession: NSObject {
     private func installLocalAudioTrack(_ track: RTCAudioTrack) {
         track.isEnabled = !muted
         localAudioTrack = track
+    }
+
+    private func exchangeMedia(offer: String, completion: @escaping (Result<Data, Error>) -> Void) {
+        do {
+            let body = try JSONSerialization.data(withJSONObject: ["owner_token": ownerToken, "offer_sdp": offer])
+            let request = try authorizedRequest(credential: credential, path: callPath("media"), method: "POST",
+                headers: ["Accept": "application/json", "Content-Type": "application/json"], body: body, timeout: 10)
+            let operation = ModemDeckMediaRequest(queue: queue)
+            operation.onRetry = { [weak self] attempt, error in
+                self?.recordConnectionEvent("media_request_retry", fields: ["attempt": String(attempt)], error: error)
+            }
+            mediaRequest = operation
+            operation.start(request, deadline: connectDeadline) { [weak self] data, response, error in
+                guard let self, !self.stopped else { return }
+                self.mediaRequest = nil
+                if let error { completion(.failure(error)); return }
+                guard let response = response as? HTTPURLResponse else {
+                    completion(.failure(ModemDeckCallAudioError.invalidResponse)); return
+                }
+                guard (200..<300).contains(response.statusCode) else {
+                    if let data,
+                       let error = try? JSONDecoder().decode(ModemDeckServerError.self, from: data),
+                       let message = error.message, !message.isEmpty {
+                        completion(.failure(ModemDeckAPIError.server(
+                            status: response.statusCode, code: error.code ?? "", message: message
+                        )))
+                        return
+                    }
+                    completion(.failure(ModemDeckHTTPError(status: response.statusCode))); return
+                }
+                completion(.success(data ?? Data()))
+            }
+        } catch { completion(.failure(error)) }
     }
 
     private func startLeaseHeartbeat() {
@@ -562,6 +620,9 @@ final class ModemDeckCallAudioSession: NSObject {
                 if let phase = state.testPhase {
                     DispatchQueue.main.async { [weak self] in self?.onTestPhaseChanged?(phase) }
                 }
+                if let audio = state.testAudio {
+                    DispatchQueue.main.async { [weak self] in self?.onTestAudioChanged?(audio) }
+                }
             }
         }
         testPhaseTimer = timer
@@ -594,6 +655,8 @@ final class ModemDeckCallAudioSession: NSObject {
         guard !stopped else { return }
         recordConnectionEvent("stopped")
         stopped = true
+        mediaRequest?.cancel()
+        mediaRequest = nil
         waitingForICE = false
         gatheringTimeout?.cancel()
         gatheringTimeout = nil
@@ -603,6 +666,8 @@ final class ModemDeckCallAudioSession: NSObject {
         leaseTimer = nil
         testPhaseTimer?.cancel()
         testPhaseTimer = nil
+        statisticsTimer?.cancel()
+        statisticsTimer = nil
         connectTimeout?.cancel()
         connectTimeout = nil
         disconnectTimeout?.cancel()
@@ -634,6 +699,59 @@ final class ModemDeckCallAudioSession: NSObject {
         connectionStage = stage
         stageStartedAt = ProcessInfo.processInfo.systemUptime
         recordConnectionEvent("stage_changed")
+    }
+
+    private func startAudioStatistics() {
+        guard statisticsTimer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now(), repeating: testCall ? 1 : 5)
+        timer.setEventHandler { [weak self] in
+            guard let self, !self.stopped, !self.statisticsInFlight, let peer = self.peerConnection else { return }
+            self.statisticsInFlight = true
+            peer.statistics { [weak self] report in
+                self?.queue.async { [weak self] in
+                    guard let self, !self.stopped, self.peerConnection === peer else { return }
+                    self.statisticsInFlight = false
+                    var fields = ModemDeckAudioRoute.fields()
+                    fields["audio_enabled"] = String(RTCAudioSession.sharedInstance().isAudioEnabled)
+                    fields["microphone_track_enabled"] = String(self.localAudioTrack?.isEnabled == true)
+                    var microphoneDBFS: Int?
+                    for stats in report.statistics.values {
+                        let values = stats.values
+                        guard (values["kind"] as? String ?? values["mediaType"] as? String) == "audio" else { continue }
+                        if stats.type == "media-source" {
+                            var level = (values["audioLevel"] as? NSNumber)?.doubleValue
+                            if let energy = (values["totalAudioEnergy"] as? NSNumber)?.doubleValue,
+                               let duration = (values["totalSamplesDuration"] as? NSNumber)?.doubleValue {
+                                if let previous = self.previousAudioEnergy, duration > previous.duration, energy >= previous.energy {
+                                    level = sqrt((energy - previous.energy) / (duration - previous.duration))
+                                }
+                                self.previousAudioEnergy = (energy, duration)
+                            }
+                            if let level, level.isFinite {
+                                microphoneDBFS = level > 0 ? Int(max(-96, min(0, 20 * log10(level)))) : -96
+                                fields["microphone_dbfs"] = String(microphoneDBFS!)
+                            }
+                        }
+                        let counters = stats.type == "outbound-rtp" ? ["packetsSent": "sent_packets", "bytesSent": "sent_bytes"] :
+                            (stats.type == "inbound-rtp" ? ["packetsReceived": "received_packets", "bytesReceived": "received_bytes", "packetsLost": "lost_packets"] : [:])
+                        for (key, field) in counters {
+                            if let value = values[key] as? NSNumber { fields[field] = String(max(-1_000_000_000, min(1_000_000_000, value.int64Value))) }
+                        }
+                    }
+                    if self.testCall {
+                        DispatchQueue.main.async { [weak self] in self?.onMicrophoneLevelChanged?(microphoneDBFS) }
+                    }
+                    let now = ProcessInfo.processInfo.systemUptime
+                    if now - self.lastStatisticsLog >= 5 {
+                        self.lastStatisticsLog = now
+                        self.recordConnectionEvent("audio_statistics", fields: fields)
+                    }
+                }
+            }
+        }
+        statisticsTimer = timer
+        timer.resume()
     }
 
     private func recordConnectionEvent(_ event: String, fields: [String: String] = [:], error: Error? = nil) {
@@ -741,6 +859,18 @@ final class ModemDeckCallAudioSession: NSObject {
         let encoded = callID.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
         let prefix = testCall ? "/api/v1/mobile/call-tests" : "/api/v1/calls"
         return "\(prefix)/\(encoded)/\(suffix)"
+    }
+}
+
+extension ModemDeckCallAudioSession: RTCAudioSessionDelegate {
+    func audioSessionDidStartPlayOrRecord(_ session: RTCAudioSession) {
+        queue.async { [weak self] in self?.recordConnectionEvent("audio_unit_started") }
+    }
+    func audioSessionDidStopPlayOrRecord(_ session: RTCAudioSession) {
+        queue.async { [weak self] in self?.recordConnectionEvent("audio_unit_stopped") }
+    }
+    func audioSession(_ audioSession: RTCAudioSession, audioUnitStartFailedWithError error: Error) {
+        queue.async { [weak self] in self?.recordConnectionEvent("audio_unit_failed", error: error) }
     }
 }
 

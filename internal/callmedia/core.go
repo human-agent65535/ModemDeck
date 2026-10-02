@@ -23,6 +23,7 @@ type Options struct {
 	RecoveryTimeout    time.Duration
 	Jitter             JitterConfig
 	OnOwnerStateChange func(callID string, connected bool)
+	OnAudioStats       func(callID string, stats AudioStatistics)
 }
 
 type Core struct {
@@ -34,6 +35,7 @@ type Core struct {
 	recoveryTime       time.Duration
 	jitter             JitterConfig
 	onOwnerStateChange func(callID string, connected bool)
+	onAudioStats       func(callID string, stats AudioStatistics)
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -41,6 +43,7 @@ type Core struct {
 	mu             sync.Mutex
 	closed         bool
 	owners         map[string]*mediaOwner
+	exchanges      map[string]*exchangeAttempt
 	hubs           map[string]*hubEntry
 	lifetimes      map[string]*callLifetime
 	authority      map[string]struct{}
@@ -117,16 +120,18 @@ func New(options Options) (*Core, error) {
 		recoveryTime:       recoveryTime,
 		jitter:             jitter,
 		onOwnerStateChange: options.OnOwnerStateChange,
+		onAudioStats:       options.OnAudioStats,
 		ctx:                ctx,
 		cancel:             cancel,
 		owners:             make(map[string]*mediaOwner),
+		exchanges:          make(map[string]*exchangeAttempt),
 		hubs:               make(map[string]*hubEntry),
 		lifetimes:          make(map[string]*callLifetime),
 		authority:          make(map[string]struct{}),
 	}, nil
 }
 
-func (c *Core) Exchange(ctx context.Context, offer Offer) (ExchangeResult, error) {
+func (c *Core) exchangeOnce(ctx context.Context, offer Offer) (ExchangeResult, error) {
 	if c == nil {
 		return ExchangeResult{}, ErrCoreClosed
 	}
@@ -269,6 +274,7 @@ func (c *Core) Exchange(ctx context.Context, offer Offer) (ExchangeResult, error
 		c.jitter,
 		c.recoveryTime,
 	)
+	session.reportStats = c.onAudioStats
 	if err := c.commit(call.ID, lifetime, owner, session); err != nil {
 		return ExchangeResult{}, fmt.Errorf("exchange WebRTC offer: %w", err)
 	}
@@ -503,6 +509,7 @@ func (c *Core) Close(ctx context.Context) error {
 	}
 	c.mu.Lock()
 	clear(c.owners)
+	clear(c.exchanges)
 	clear(c.hubs)
 	clear(c.lifetimes)
 	clear(c.authority)
@@ -769,6 +776,9 @@ func (c *Core) releaseWhenDone(
 		delete(c.owners, callID)
 		owner.cancel()
 		owner.finish()
+		if attempt := c.exchanges[callID]; attempt != nil && attempt.result.Session == session {
+			delete(c.exchanges, callID)
+		}
 	}
 	c.mu.Unlock()
 }

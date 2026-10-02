@@ -32,6 +32,8 @@
 		96A0000A310000000000000A /* ModemDeckListInteraction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A0001A310000000000001A /* ModemDeckListInteraction.swift */; };
 		96A0000B310000000000000B /* ModemDeckHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A0001B310000000000001B /* ModemDeckHomeView.swift */; };
 		96A0000C310000000000000C /* ModemDeckDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A0001C310000000000001C /* ModemDeckDiagnostics.swift */; };
+		96A0000D310000000000000D /* ModemDeckMediaRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A0001D310000000000001D /* ModemDeckMediaRequest.swift */; };
+		96A0000E310000000000000E /* ModemDeckAudioRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A0001E310000000000001E /* ModemDeckAudioRoute.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -64,6 +66,8 @@
 		96A0001A310000000000001A /* ModemDeckListInteraction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModemDeckListInteraction.swift; sourceTree = "<group>"; };
 		96A0001B310000000000001B /* ModemDeckHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModemDeckHomeView.swift; sourceTree = "<group>"; };
 		96A0001C310000000000001C /* ModemDeckDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModemDeckDiagnostics.swift; sourceTree = "<group>"; };
+		96A0001D310000000000001D /* ModemDeckMediaRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModemDeckMediaRequest.swift; sourceTree = "<group>"; };
+		96A0001E310000000000001E /* ModemDeckAudioRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModemDeckAudioRoute.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -112,6 +116,8 @@
 				96A0001A310000000000001A /* ModemDeckListInteraction.swift */,
 				96A0001B310000000000001B /* ModemDeckHomeView.swift */,
 				96A0001C310000000000001C /* ModemDeckDiagnostics.swift */,
+				96A0001E310000000000001E /* ModemDeckAudioRoute.swift */,
+				96A0001D310000000000001D /* ModemDeckMediaRequest.swift */,
 				96A000133100000000000013 /* ModemDeckPairing.swift */,
 				96A000153100000000000015 /* ModemDeckCommunicationViews.swift */,
 				96A000163100000000000016 /* ModemDeckCallViews.swift */,
@@ -256,6 +262,8 @@
 				96A0000A310000000000000A /* ModemDeckListInteraction.swift in Sources */,
 				96A0000B310000000000000B /* ModemDeckHomeView.swift in Sources */,
 				96A0000C310000000000000C /* ModemDeckDiagnostics.swift in Sources */,
+				96A0000E310000000000000E /* ModemDeckAudioRoute.swift in Sources */,
+				96A0000D310000000000000D /* ModemDeckMediaRequest.swift in Sources */,
 				96A000033100000000000003 /* ModemDeckPairing.swift in Sources */,
 				96A000053100000000000005 /* ModemDeckCommunicationViews.swift in Sources */,
 				96A000063100000000000006 /* ModemDeckCallViews.swift in Sources */,
@@ -443,7 +451,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 24;
+				CURRENT_PROJECT_VERSION = 25;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
@@ -467,7 +475,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 24;
+				CURRENT_PROJECT_VERSION = 25;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;

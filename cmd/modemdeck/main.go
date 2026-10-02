@@ -19,6 +19,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/callevents"
 	"github.com/human-agent65535/modemdeck/internal/calllease"
+	"github.com/human-agent65535/modemdeck/internal/callmedia"
 	"github.com/human-agent65535/modemdeck/internal/calltest"
 	"github.com/human-agent65535/modemdeck/internal/communication"
 	"github.com/human-agent65535/modemdeck/internal/diagnostics"
@@ -217,6 +218,7 @@ func run(
 	mediaRuntime, err := mediaapp.NewRuntime(mediaapp.RuntimeOptions{
 		Calls: repository, Refresher: communications, Controller: communications,
 		EndpointOpener: mediaOpener, RTCProvider: turnProvider,
+		OnAudioStats: callmedia.AudioStatsLogger(logger),
 		LeaseOptions: calllease.Options{Report: func(err error) {
 			logger.Warn("call ownership cleanup failed", "component", "calls", "error", err)
 		}},
