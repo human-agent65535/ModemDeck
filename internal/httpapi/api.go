@@ -13,6 +13,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/applepush"
 	"github.com/human-agent65535/modemdeck/internal/auth"
 	"github.com/human-agent65535/modemdeck/internal/calllease"
+	"github.com/human-agent65535/modemdeck/internal/calltest"
 	"github.com/human-agent65535/modemdeck/internal/communication"
 	"github.com/human-agent65535/modemdeck/internal/diagnostics"
 	"github.com/human-agent65535/modemdeck/internal/messageevents"
@@ -286,6 +287,7 @@ type Options struct {
 	CloudflareOriginTLS   CloudflareOriginTLSService
 	MobilePairing         mobilepairing.Availability
 	IOSCallTests          IOSCallTestService
+	CallTests             *calltest.Service
 	MessageBadgeSync      MessageBadgeSyncService
 	RTCConfiguration      rtcconfig.Provider
 	Authenticator         Authenticator
@@ -318,6 +320,7 @@ type API struct {
 	cloudflareOriginTLSService CloudflareOriginTLSService
 	mobilePairingAvailability  mobilepairing.Availability
 	iosCallTests               IOSCallTestService
+	callTests                  *calltest.Service
 	messageBadgeSync           MessageBadgeSyncService
 	rtcConfiguration           rtcconfig.Provider
 	turnAvailability           turnAvailabilityCache
@@ -370,6 +373,7 @@ func New(repository Repository, options Options) (*API, error) {
 		cloudflareOriginTLSService: options.CloudflareOriginTLS,
 		mobilePairingAvailability:  options.MobilePairing,
 		iosCallTests:               options.IOSCallTests,
+		callTests:                  options.CallTests,
 		messageBadgeSync:           options.MessageBadgeSync,
 		rtcConfiguration:           options.RTCConfiguration,
 		authenticator:              options.Authenticator,
@@ -459,6 +463,8 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 		api.mobilePush(response, request)
 	case "/api/v1/mobile/push/test-call":
 		api.postOnly(response, request, api.mobilePushTestCall)
+	case "/api/v1/mobile/call-tests":
+		api.mobileCallTest(response, request)
 	case "/api/v1/users":
 		api.usersCollection(response, request)
 	case "/api/v1/contacts":
@@ -522,6 +528,10 @@ func (api *API) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	case "/api/v1/settings/tls/ca":
 		api.getOnly(response, request, api.tlsCertificateAuthority)
 	default:
+		if strings.HasPrefix(request.URL.Path, "/api/v1/mobile/call-tests/") {
+			api.mobileCallTest(response, request)
+			return
+		}
 		if id, ok := accountSessionResourceID(request.URL.Path); ok {
 			api.accountSessionResource(response, request, id)
 			return

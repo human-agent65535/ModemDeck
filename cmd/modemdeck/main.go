@@ -21,6 +21,7 @@ import (
 	"github.com/human-agent65535/modemdeck/internal/calllease"
 	"github.com/human-agent65535/modemdeck/internal/calllifecycle"
 	"github.com/human-agent65535/modemdeck/internal/callmedia"
+	"github.com/human-agent65535/modemdeck/internal/calltest"
 	"github.com/human-agent65535/modemdeck/internal/communication"
 	"github.com/human-agent65535/modemdeck/internal/diagnostics"
 	"github.com/human-agent65535/modemdeck/internal/httpapi"
@@ -352,6 +353,11 @@ func run(
 			updateManager = client
 		}
 	}
+	var callTests *calltest.Service
+	if applePushRuntime != nil {
+		callTests = calltest.New(applePushRuntime, turnProvider, logger.With("component", "call_test"))
+		defer callTests.Close()
+	}
 	api, err := httpapi.New(repository, httpapi.Options{
 		Communications:       communications,
 		DeviceConfigurations: communications,
@@ -371,6 +377,7 @@ func run(
 		},
 		MobilePairing:      cloudflareGateway,
 		IOSCallTests:       applePushRuntime,
+		CallTests:          callTests,
 		MessageBadgeSync:   applePushRuntime,
 		RTCConfiguration:   turnProvider,
 		Authenticator:      authenticator,

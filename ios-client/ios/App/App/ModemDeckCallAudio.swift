@@ -95,8 +95,10 @@ final class ModemDeckCallAudioSession: NSObject {
     let callID: String
     var onRemoteEnded: (() -> Void)?
     var onBecameActive: (() -> Void)?
+    var onTestPhaseChanged: ((String) -> Void)?
 
     private let credential: ModemDeckCredential
+    private let testCall: Bool
     private let ownerToken = UUID().uuidString.lowercased()
     private let queue: DispatchQueue
     private let urlSession: URLSession
@@ -125,9 +127,10 @@ final class ModemDeckCallAudioSession: NSObject {
     private var connectTimeout: DispatchWorkItem?
     private var disconnectTimeout: DispatchWorkItem?
 
-    init(callID: String, credential: ModemDeckCredential) {
+    init(callID: String, credential: ModemDeckCredential, testCall: Bool = false) {
         self.callID = callID
         self.credential = credential
+        self.testCall = testCall
         queue = DispatchQueue(label: "modemdeck.call-audio.\(callID)")
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 12
@@ -228,6 +231,7 @@ final class ModemDeckCallAudioSession: NSObject {
     }
 
     func startControlHeartbeat() {
+        guard !testCall else { return }
         queue.async { [weak self] in
             guard let self, !self.stopped else { return }
             self.startLeaseHeartbeat()
@@ -236,6 +240,22 @@ final class ModemDeckCallAudioSession: NSObject {
 
     private func waitForActiveCall() {
         guard !stopped else { return }
+        if testCall {
+            request(path: callPath("status"), method: "GET") { [weak self] result in
+                guard let self, !self.stopped else { return }
+                switch result {
+                case .failure(let error): self.finishConnection(.failure(error))
+                case .success(let data):
+                    guard let status = try? JSONDecoder().decode(ModemDeckAudioTestStatus.self, from: data),
+                          status.phase == "active" else {
+                        self.finishConnection(.failure(ModemDeckCallAudioError.callEnded))
+                        return
+                    }
+                    self.fetchICEConfiguration()
+                }
+            }
+            return
+        }
         if Date() >= connectDeadline {
             finishConnection(.failure(ModemDeckCallAudioError.timedOut))
             return
@@ -499,15 +519,29 @@ final class ModemDeckCallAudioSession: NSObject {
     private func startLeaseHeartbeat() {
         guard leaseTimer == nil else { return }
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + 5, repeating: 5, leeway: .milliseconds(250))
+        let interval: TimeInterval = testCall ? 1 : 5
+        timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .milliseconds(250))
         timer.setEventHandler { [weak self] in
             guard let self, !self.stopped, !self.leaseRequestInFlight else { return }
             self.leaseRequestInFlight = true
-            self.request(path: self.callPath("lease"), method: "PUT", json: [:]) { [weak self] result in
+            self.request(
+                path: self.callPath(self.testCall ? "status" : "lease"),
+                method: self.testCall ? "GET" : "PUT",
+                json: self.testCall ? nil : [:]
+            ) { [weak self] result in
                 guard let self, !self.stopped else { return }
                 self.leaseRequestInFlight = false
                 if case .failure(let error) = result {
                     NSLog("ModemDeck call lease renewal failed: %@", error.localizedDescription)
+                } else if self.testCall, case .success(let data) = result,
+                          let status = try? JSONDecoder().decode(ModemDeckAudioTestStatus.self, from: data) {
+                    if status.phase == "ended" || status.phase == "failed" {
+                        self.stopLocked(notifyRemoteEnd: true)
+                    } else {
+                        DispatchQueue.main.async { [weak self] in
+                            self?.onTestPhaseChanged?(status.testPhase)
+                        }
+                    }
                 }
             }
         }
@@ -659,6 +693,14 @@ final class ModemDeckCallAudioSession: NSObject {
                     return
                 }
                 guard (200..<300).contains(response.statusCode) else {
+                    if self?.testCall == true, let data,
+                       let error = try? JSONDecoder().decode(ModemDeckServerError.self, from: data),
+                       let message = error.message, !message.isEmpty {
+                        completion(.failure(ModemDeckAPIError.server(
+                            status: response.statusCode, code: error.code ?? "", message: message
+                        )))
+                        return
+                    }
                     completion(.failure(ModemDeckHTTPError(status: response.statusCode)))
                     return
                 }
@@ -672,7 +714,8 @@ final class ModemDeckCallAudioSession: NSObject {
             CharacterSet(charactersIn: "-._~")
         )
         let encoded = callID.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
-        return "/api/v1/calls/\(encoded)/\(suffix)"
+        let prefix = testCall ? "/api/v1/mobile/call-tests" : "/api/v1/calls"
+        return "\(prefix)/\(encoded)/\(suffix)"
     }
 }
 

@@ -1211,12 +1211,18 @@ private struct ModemDeckNotificationSettingsView: View {
 
 private struct ModemDeckCallSettingsView: View {
     @ObservedObject var controller: ModemDeckSessionController
+    @ObservedObject private var callController: ModemDeckCallController
     @State private var callSettings: ModemDeckGlobalCallSettings?
     @State private var recordingSettings: ModemDeckRecordingSettings?
     @State private var callSettingsBusy = false
     @State private var recordingBusy = false
     @State private var testCallBusy = false
     @State private var statusMessage = ""
+
+    init(controller: ModemDeckSessionController) {
+        self.controller = controller
+        _callController = ObservedObject(wrappedValue: controller.callController)
+    }
 
     var body: some View {
         ModemDeckSettingsDetailScaffold(
@@ -1284,20 +1290,27 @@ private struct ModemDeckCallSettingsView: View {
                 }
             }
 
-            ModemDeckSettingsModule(title: controller.text("测试", "Test")) {
+            ModemDeckSettingsModule(
+                title: controller.text("通话测试", "Call Test"),
+                footer: controller.text(
+                    "5 秒后会收到测试来电，可先锁屏。接听后，听提示音、说几句话，再听声音回放；60 秒自动结束。不使用 SIM，声音只在内存中短暂回放。",
+                    "A test call arrives in 5 seconds, so you can lock your screen first. Answer, listen for the tone, speak, then hear your voice played back. Ends after 60 seconds. No SIM is used; audio stays briefly in memory."
+                )
+            ) {
                 ModemDeckSettingsActionRow(
                     title: testCallBusy
-                        ? controller.text("正在发送…", "Sending…")
-                        : controller.text("发送测试来电", "Send Test Call"),
+                        ? controller.text("正在安排测试来电…", "Scheduling Test Call…")
+                        : controller.text("开始通话测试", "Start Call Test"),
                     icon: "phone.arrow.down.left",
                     busy: testCallBusy
                 ) {
                     sendTestCall()
                 }
+                .disabled(callController.call != nil)
             }
 
-            if !statusMessage.isEmpty {
-                Text(statusMessage)
+            if !testStatusMessage.isEmpty {
+                Text(testStatusMessage)
                     .font(.system(size: 13))
                     .foregroundColor(.mdAccent)
                     .padding(.horizontal, 18)
@@ -1390,18 +1403,53 @@ private struct ModemDeckCallSettingsView: View {
     }
 
     private func sendTestCall() {
-        guard !testCallBusy else { return }
+        guard !testCallBusy, callController.call == nil else { return }
         testCallBusy = true
         statusMessage = ""
+        callController.testCallResult = ""
+        controller.errorMessage = ""
         Task {
+            defer { testCallBusy = false }
             do {
-                _ = try await controller.api.sendIOSTestCall()
-                statusMessage = controller.text("Apple 已接受测试来电。", "Apple accepted the test call.")
-                controller.errorMessage = ""
+                let granted = await withCheckedContinuation { continuation in
+                    ModemDeckPushCoordinator.shared.requestMicrophoneAccess { continuation.resume(returning: $0) }
+                }
+                controller.refreshMicrophoneStatus()
+                guard granted else {
+                    controller.errorMessage = controller.text("请允许麦克风访问后再开始通话测试。", "Allow microphone access before starting the call test.")
+                    return
+                }
+                guard callController.call == nil else { return }
+                let result = try await controller.api.sendIOSTestCall()
+                statusMessage = controller.text("测试来电将在 5 秒后发起，现在可以锁屏。", "Your test call starts in 5 seconds. You can lock the screen now.")
+                for _ in 0..<25 {
+                    try await Task.sleep(nanoseconds: 1_000_000_000)
+                    let status = try await controller.api.audioTestStatus(id: result.id)
+                    if status.phase == "failed" {
+                        statusMessage = ""
+                        controller.errorMessage = controller.text("测试来电发送失败，请检查推送注册与服务器连接。", "The test call could not be delivered. Check push registration and the server connection.")
+                        return
+                    }
+                    if status.phase == "active" || status.testPhase == "ringing" {
+                        statusMessage = controller.text("测试来电已发送，请接听并按照提示测试声音。", "Test call sent. Answer and follow the audio test prompts.")
+                        return
+                    }
+                    if status.phase == "ended" { statusMessage = controller.text("测试已结束。", "Test ended."); return }
+                }
+                statusMessage = controller.text("服务器尚未确认来电送达，请稍后重试。", "The server has not confirmed call delivery. Try again shortly.")
             } catch {
+                statusMessage = ""
                 controller.errorMessage = error.localizedDescription
             }
-            testCallBusy = false
+        }
+    }
+
+    private var testStatusMessage: String {
+        switch callController.testCallResult {
+        case "connected": return controller.text("测试音频连接已建立。能听到自己的回放，表示收音与播放均可用。", "Test audio connected. Hearing your own playback confirms that capture and playback work.")
+        case "failed": return controller.text("测试连接失败，请查看失败提示后重试。", "The test connection failed. Check the error and try again.")
+        case "cancelled": return controller.text("测试已结束，未建立音频连接。", "The test ended before audio connected.")
+        default: return statusMessage
         }
     }
 }

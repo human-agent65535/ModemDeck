@@ -646,6 +646,19 @@ func (runtime *Runtime) SendTestCall(
 	ctx context.Context,
 	userID, credentialID string,
 ) (TestCallResult, error) {
+	return runtime.sendTestCall(ctx, userID, credentialID, "", false)
+}
+
+// SendAudioTestCall wakes one paired device for an existing temporary audio test.
+func (runtime *Runtime) SendAudioTestCall(ctx context.Context, userID, credentialID, callID string) error {
+	if !strings.HasPrefix(callID, "test-") || len(callID) != 41 {
+		return errors.New("invalid audio test identity")
+	}
+	_, err := runtime.sendTestCall(ctx, userID, credentialID, strings.TrimPrefix(callID, "test-"), true)
+	return err
+}
+
+func (runtime *Runtime) sendTestCall(ctx context.Context, userID, credentialID, testID string, testAudio bool) (TestCallResult, error) {
 	userID = strings.TrimSpace(userID)
 	credentialID = strings.TrimSpace(credentialID)
 	if userID == "" || credentialID == "" {
@@ -668,10 +681,12 @@ func (runtime *Runtime) SendTestCall(
 	}
 
 	now := runtime.now().UTC()
-	testID := deterministicUUID(
-		"callkit-test",
-		fmt.Sprintf("%s\x00%d", userID, now.UnixNano()),
-	)
+	if testID == "" {
+		testID = deterministicUUID(
+			"callkit-test",
+			fmt.Sprintf("%s\x00%d", userID, now.UnixNano()),
+		)
+	}
 	payload := struct {
 		APS  struct{} `json:"aps"`
 		Call struct {
@@ -681,6 +696,7 @@ func (runtime *Runtime) SendTestCall(
 			RemoteNumber string `json:"remote_number"`
 			DisplayName  string `json:"display_name"`
 			TestCall     bool   `json:"test_call"`
+			TestAudio    bool   `json:"test_audio,omitempty"`
 		} `json:"modemdeck_call"`
 	}{}
 	payload.Call.Event = string(callevents.KindIncoming)
@@ -689,6 +705,7 @@ func (runtime *Runtime) SendTestCall(
 	payload.Call.RemoteNumber = "ModemDeck Test"
 	payload.Call.DisplayName = "ModemDeck Test Call"
 	payload.Call.TestCall = true
+	payload.Call.TestAudio = testAudio
 
 	notification := Notification{
 		DeviceToken: target.Token,

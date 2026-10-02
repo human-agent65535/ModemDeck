@@ -445,6 +445,8 @@ struct ModemDeckPresentedCall: Identifiable, Equatable {
     let muted: Bool
     let createdAt: String
     let activeAt: String?
+    var testAudio = false
+    var testPhase = ""
 
     var id: String { callID }
 }
@@ -467,6 +469,7 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
     @Published private(set) var dtmfBusy = false
     @Published var errorMessage = ""
     @Published var connectionFailureMessage = ""
+    @Published var testCallResult = ""
 
     private let api: ModemDeckAPIClient
     private var recordingGeneration = 0
@@ -491,6 +494,7 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
                 if let message = state["failureMessage"] as? String {
                     self.connectionFailureMessage = message
                 }
+                if let result = state["testResult"] as? String { self.testCallResult = result }
                 return
             }
             let previousCall = self.call
@@ -504,11 +508,14 @@ final class ModemDeckCallController: NSObject, ObservableObject, ModemDeckCallSt
                 testCall: state["testCall"] as? Bool ?? false,
                 muted: state["muted"] as? Bool ?? false,
                 createdAt: state["createdAt"] as? String ?? "",
-                activeAt: state["activeAt"] as? String
+                activeAt: state["activeAt"] as? String,
+                testAudio: state["testAudio"] as? Bool ?? false,
+                testPhase: state["testPhase"] as? String ?? ""
             )
             self.call = presentedCall
             if previousCall?.callID != callID {
                 self.connectionFailureMessage = ""
+                if presentedCall.testAudio { self.testCallResult = "" }
                 self.prepareForNewCall(presentedCall)
             } else if previousCall?.state != presentedCall.state {
                 self.reconcileRecording(for: presentedCall)

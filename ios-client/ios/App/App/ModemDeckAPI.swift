@@ -577,6 +577,19 @@ struct ModemDeckIOSTestCallResult: Decodable, Equatable {
     let acceptedAt: String
 }
 
+struct ModemDeckAudioTestStatus: Decodable {
+    let id: String
+    let phase: String
+    let testPhase: String
+    let failureCode: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, phase
+        case testPhase = "test_phase"
+        case failureCode = "failure_code"
+    }
+}
+
 struct ModemDeckContactDraft: Encodable, Hashable {
     struct Phone: Encodable, Hashable {
         let id: String?
@@ -730,7 +743,7 @@ private struct ModemDeckTelegramUnitsResponse: Decodable {
     let units: [ModemDeckTelegramUnitSummary]
 }
 
-private struct ModemDeckServerError: Decodable {
+struct ModemDeckServerError: Decodable {
     let code: String?
     let message: String?
     let detail: String?
@@ -1419,9 +1432,17 @@ final class ModemDeckAPIClient {
     func sendIOSTestCall() async throws -> ModemDeckIOSTestCallResult {
         try await decode(
             ModemDeckIOSTestCallResult.self,
-            path: "/api/v1/mobile/push/test-call",
+            path: "/api/v1/mobile/call-tests",
             method: "POST"
         )
+    }
+
+    func audioTestStatus(id: String) async throws -> ModemDeckAudioTestStatus {
+        // API decoding converts snake_case automatically; the audio owner uses
+        // a plain decoder, so decode this shared wire model explicitly.
+        let encoded = id.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-"))) ?? ""
+        let response = try await data(path: "/api/v1/mobile/call-tests/\(encoded)/status")
+        return try JSONDecoder().decode(ModemDeckAudioTestStatus.self, from: response)
     }
 
     func createContact(_ draft: ModemDeckContactDraft) async throws -> ModemDeckContact {

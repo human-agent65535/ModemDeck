@@ -530,6 +530,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         let testCall: Bool
         let createdAt: Date
         var activeAt: Date?
+        var testPhase = ""
     }
 
     private struct CallControlTarget {
@@ -577,6 +578,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         return Dictionary(entries.map { ($0.uuid, $0) }, uniquingKeysWith: { _, latest in latest })
     }()
     private var testCallUUIDs: Set<UUID> = []
+    private var audioTestCallUUIDs: Set<UUID> = []
     private var outgoingCallUUIDs: Set<UUID> = []
     private var mutedCallUUIDs: Set<UUID> = []
     private var preferredRecordingByUUID: [UUID: Bool] = [:]
@@ -730,7 +732,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
                     if let uuid = self.callIDsByUUID.first(where: {
                         $0.value == callID
                     })?.key {
-                        self.callProvider.reportCall(
+                        self.reportCallEnded(
                             with: uuid,
                             endedAt: Date(),
                             reason: .failed
@@ -804,7 +806,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         }
         let phase = runtimeCall.phase.lowercased()
         if runtimeCall.ended {
-            callProvider.reportCall(
+            reportCallEnded(
                 with: uuid,
                 endedAt: Date(),
                 reason: callEndedReason(from: runtimeCall, uuid: uuid)
@@ -813,7 +815,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             return
         }
         if runtimeCall.controlState?.lowercased() == "occupied" {
-            callProvider.reportCall(
+            reportCallEnded(
                 with: uuid,
                 endedAt: Date(),
                 reason: .answeredElsewhere
@@ -905,6 +907,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
                 completion(.failure(error))
                 return
             }
+            self.configureCallHistory(enabled: true)
             ModemDeckCallAudioSession.prepareAudioSession()
             let uuid = UUID()
             self.pendingOutgoingCalls[uuid] = PendingOutgoingCall(
@@ -1293,6 +1296,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         let lineID = stringValue(call["line_id"]) ?? ""
         let displayName = stringValue(call["display_name"]) ?? number
         let isTestCall = booleanValue(call["test_call"])
+        let isAudioTest = isTestCall && booleanValue(call["test_audio"])
         let update = CXCallUpdate()
         update.remoteHandle = CXHandle(
             type: isTestCall ? .generic : .phoneNumber,
@@ -1330,13 +1334,17 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         mutedCallUUIDs.remove(uuid)
         if isTestCall {
             testCallUUIDs.insert(uuid)
+            if isAudioTest { audioTestCallUUIDs.insert(uuid) }
         } else {
             testCallUUIDs.remove(uuid)
+        }
+        if !isTestCall || isAudioTest {
             // CallKit can deliver an answer before report completion reaches main.
             if let credential = loadCredential() {
                 _ = installAudioSession(uuid: uuid, callID: callID, credential: credential)
             }
         }
+        configureCallHistory(enabled: !booleanValue(call["test_call"]))
         callProvider.reportNewIncomingCall(with: uuid, update: update) { [weak self] error in
             DispatchQueue.main.async {
                 guard let self else {
@@ -1350,15 +1358,16 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
                 }
                 if let error {
                     NSLog("ModemDeck could not report the incoming call: %@", error.localizedDescription)
-                    self.cleanupCall(uuid)
+                    if isAudioTest { self.sendEndCallAction(verb: "hangup", callUUID: uuid) }
+                    self.cleanupCall(uuid, failureMessage: isAudioTest ? error.localizedDescription : nil)
                 } else if isTestCall {
-                    self.scheduleTestCallTimeout(uuid)
+                    self.scheduleTestCallTimeout(uuid, after: self.answeredCallUUIDs.contains(uuid) ? 60 : 30)
                     self.publishCallState()
                 } else if self.callAudioSessions[uuid] != nil {
                     self.startRuntimeCallStream(forceRestart: true)
                     self.publishCallState()
                 } else {
-                    self.callProvider.reportCall(
+                    self.reportCallEnded(
                         with: uuid,
                         endedAt: Date(),
                         reason: .failed
@@ -1390,7 +1399,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
 
         let reason = callEndedReason(from: call, uuid: uuid)
         if callExists {
-            callProvider.reportCall(with: uuid, endedAt: Date(), reason: reason)
+            reportCallEnded(with: uuid, endedAt: Date(), reason: reason)
             cleanupCall(uuid)
             completion()
             return
@@ -1403,6 +1412,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         }
 
         let update = callUpdate(from: call)
+        configureCallHistory(enabled: !booleanValue(call["test_call"]))
         callProvider.reportNewIncomingCall(with: uuid, update: update) { [weak self] error in
             DispatchQueue.main.async {
                 guard let self else {
@@ -1415,7 +1425,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
                         error.localizedDescription
                     )
                 } else {
-                    self.callProvider.reportCall(
+                    self.reportCallEnded(
                         with: uuid,
                         endedAt: Date(),
                         reason: reason
@@ -1551,7 +1561,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
               let body = try? JSONSerialization.data(withJSONObject: payload),
               let request = try? authorizedRequest(
                   credential: credential,
-                  path: "/api/v1/calls/\(encodedCallID)/\(verb)",
+                  path: "\(audioTestCallUUIDs.contains(callUUID) ? "/api/v1/mobile/call-tests" : "/api/v1/calls")/\(encodedCallID)/\(verb)",
                   method: "POST",
                   headers: [
                       "Accept": "application/json",
@@ -1597,7 +1607,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         failRequestedCallActions(ModemDeckCallAudioError.callEnded)
         failPendingOutgoingCalls(ModemDeckCallAudioError.callEnded)
         for uuid in Array(callIDsByUUID.keys) {
-            if !testCallUUIDs.contains(uuid) {
+            if !isLocalTestCall(uuid) {
                 sendEndCallAction(verb: endCallVerb(uuid), callUUID: uuid)
             }
             cleanupCall(uuid)
@@ -1627,7 +1637,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             finishProviderCallAction(action, result: .success(()))
             return
         }
-        if testCallUUIDs.contains(uuid) {
+        if isLocalTestCall(uuid) {
             answeredCallUUIDs.insert(uuid)
             finishProviderCallAction(action, result: .success(()))
             markCallActive(uuid)
@@ -1678,7 +1688,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
                 self.sendEndCallAction(verb: "hangup", callUUID: uuid, reconcileFirst: true)
                 self.answerRequestedCallUUIDs.remove(uuid)
                 self.finishProviderCallAction(action, result: .failure(error))
-                self.callProvider.reportCall(with: uuid, endedAt: Date(), reason: .failed)
+                self.reportCallEnded(with: uuid, endedAt: Date(), reason: .failed)
                 self.cleanupCall(uuid, failureMessage: error.localizedDescription)
             case .success:
                 guard self.callIDsByUUID[uuid] != nil,
@@ -1688,11 +1698,14 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
                         action,
                         result: .failure(ModemDeckNativeError.noActiveCall)
                     )
-                    self.callProvider.reportCall(with: uuid, endedAt: Date(), reason: .failed)
+                    self.reportCallEnded(with: uuid, endedAt: Date(), reason: .failed)
                     self.cleanupCall(uuid)
                     return
                 }
                 self.answeredCallUUIDs.insert(uuid)
+                if self.audioTestCallUUIDs.contains(uuid) {
+                    self.scheduleTestCallTimeout(uuid, after: 60)
+                }
                 audioSession.connect { [weak self, weak audioSession] mediaResult in
                     guard let self,
                           let audioSession,
@@ -1707,7 +1720,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
                         NSLog("ModemDeck CallKit audio connection failed: %@", error.localizedDescription)
                         self.finishProviderCallAction(action, result: .failure(error))
                         self.sendEndCallAction(verb: "hangup", callUUID: uuid)
-                        self.callProvider.reportCall(
+                        self.reportCallEnded(
                             with: uuid,
                             endedAt: Date(),
                             reason: .failed
@@ -1727,6 +1740,9 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             return
         }
         if testCallUUIDs.contains(uuid) {
+            if audioTestCallUUIDs.contains(uuid) {
+                sendEndCallAction(verb: "hangup", callUUID: uuid)
+            }
             finishProviderCallAction(action, result: .success(()))
             cleanupCall(uuid)
             return
@@ -1745,6 +1761,14 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     }
 
     private func sendEndCallAction(verb: String, callUUID: UUID, reconcileFirst: Bool = false) {
+        if audioTestCallUUIDs.contains(callUUID) {
+            sendCallAction(verb: verb, callUUID: callUUID) { result in
+                if case .failure(let error) = result {
+                    NSLog("ModemDeck test call cleanup failed: %@", error.localizedDescription)
+                }
+            }
+            return
+        }
         guard !testCallUUIDs.contains(callUUID), pendingCallEnds[callUUID] == nil,
               let callID = callIDsByUUID[callUUID], let credential = loadCredential() else { return }
         let intent = ModemDeckCallEndIntent(uuid: callUUID, callID: callID,
@@ -1945,7 +1969,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
                         error.localizedDescription
                     )
                     self.sendEndCallAction(verb: "hangup", callUUID: uuid)
-                    self.callProvider.reportCall(
+                    self.reportCallEnded(
                         with: uuid,
                         endedAt: Date(),
                         reason: .failed
@@ -1979,7 +2003,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         } else {
             mutedCallUUIDs.remove(action.callUUID)
         }
-        if testCallUUIDs.contains(action.callUUID) {
+        if isLocalTestCall(action.callUUID) {
             testCallTone.setMuted(action.isMuted)
         } else {
             callAudioSessions[action.callUUID]?.setMuted(action.isMuted)
@@ -2024,7 +2048,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
         activeAudioSession = audioSession
         ModemDeckCallAudioSession.didActivate(audioSession)
-        if answeredCallUUIDs.contains(where: { testCallUUIDs.contains($0) }) {
+        if answeredCallUUIDs.contains(where: { isLocalTestCall($0) }) {
             testCallTone.start(audioSession: audioSession)
         }
     }
@@ -2052,10 +2076,10 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         let endsCall = action is CXAnswerCallAction || action is CXStartCallAction ||
             action is CXEndCallAction
         if endsCall, callIDsByUUID[uuid] != nil {
-            if !testCallUUIDs.contains(uuid) {
+            if !isLocalTestCall(uuid) {
                 sendEndCallAction(verb: endCallVerb(uuid), callUUID: uuid)
             }
-            callProvider.reportCall(with: uuid, endedAt: Date(), reason: .failed)
+            reportCallEnded(with: uuid, endedAt: Date(), reason: .failed)
             cleanupCall(uuid)
         }
     }
@@ -2091,6 +2115,8 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
             "direction": call.direction,
             "state": state,
             "testCall": call.testCall,
+            "testAudio": audioTestCallUUIDs.contains(uuid),
+            "testPhase": call.testPhase,
             "muted": mutedCallUUIDs.contains(uuid),
             "createdAt": Self.timestampFormatter.string(from: call.createdAt)
         ]
@@ -2184,6 +2210,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         for joined in joinedAnswers {
             providerCallActions.removeValue(forKey: joined.uuid)
         }
+        configureCallHistory(enabled: !testCallUUIDs.contains(action.callUUID))
         for completed in [action] + joinedAnswers {
             switch result {
             case .success:
@@ -2232,8 +2259,14 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         }
         let audioSession = ModemDeckCallAudioSession(
             callID: callID,
-            credential: credential
+            credential: credential,
+            testCall: audioTestCallUUIDs.contains(uuid)
         )
+        audioSession.onTestPhaseChanged = { [weak self] phase in
+            guard let self, self.presentedCalls[uuid] != nil else { return }
+            self.presentedCalls[uuid]?.testPhase = phase
+            self.publishCallState()
+        }
         audioSession.onRemoteEnded = { [weak self, weak audioSession] in
             guard let self,
                   let audioSession,
@@ -2241,7 +2274,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
                 return
             }
             self.sendEndCallAction(verb: "hangup", callUUID: uuid)
-            self.callProvider.reportCall(
+            self.reportCallEnded(
                 with: uuid,
                 endedAt: Date(),
                 reason: .remoteEnded
@@ -2252,18 +2285,37 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         return audioSession
     }
 
-    private func scheduleTestCallTimeout(_ uuid: UUID) {
+    private func configureCallHistory(enabled: Bool) {
+        // CallKit exposes Recents on the provider, so set it before reporting
+        // each call and before ending it. Keep one shared provider/audio owner.
+        let configuration = callProvider.configuration
+        guard configuration.includesCallsInRecents != enabled else { return }
+        configuration.includesCallsInRecents = enabled
+        callProvider.configuration = configuration
+    }
+
+    private func reportCallEnded(with uuid: UUID, endedAt: Date, reason: CXCallEndedReason) {
+        configureCallHistory(enabled: !testCallUUIDs.contains(uuid))
+        callProvider.reportCall(with: uuid, endedAt: endedAt, reason: reason)
+    }
+
+    private func isLocalTestCall(_ uuid: UUID) -> Bool {
+        testCallUUIDs.contains(uuid) && !audioTestCallUUIDs.contains(uuid)
+    }
+
+    private func scheduleTestCallTimeout(_ uuid: UUID, after delay: TimeInterval = 30) {
         let timeout = DispatchWorkItem { [weak self] in
             guard let self, self.testCallUUIDs.contains(uuid) else { return }
             let reason: CXCallEndedReason = self.answeredCallUUIDs.contains(uuid)
                 ? .remoteEnded
                 : .unanswered
-            self.callProvider.reportCall(with: uuid, endedAt: Date(), reason: reason)
+            self.sendEndCallAction(verb: "hangup", callUUID: uuid)
+            self.reportCallEnded(with: uuid, endedAt: Date(), reason: reason)
             self.cleanupCall(uuid)
         }
         testCallTimeouts[uuid]?.cancel()
         testCallTimeouts[uuid] = timeout
-        DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: timeout)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: timeout)
     }
 
     private func rememberEndedCall(_ uuid: UUID) {
@@ -2276,6 +2328,8 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     }
 
     private func cleanupCall(_ uuid: UUID, failureMessage: String? = nil) {
+        let wasAudioTest = audioTestCallUUIDs.contains(uuid)
+        let testConnected = presentedCalls[uuid]?.activeAt != nil
         settleProviderCallActions(for: uuid)
         failRequestedCallActions(ModemDeckCallAudioError.callEnded, for: uuid)
         rememberEndedCall(uuid)
@@ -2289,15 +2343,19 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
         mutedCallUUIDs.remove(uuid)
         preferredRecordingByUUID.removeValue(forKey: uuid)
         let wasTestCall = testCallUUIDs.remove(uuid) != nil
+        audioTestCallUUIDs.remove(uuid)
         if wasTestCall && !answeredCallUUIDs.contains(where: { testCallUUIDs.contains($0) }) {
             testCallTone.stop()
         }
         if !callIDsByUUID.contains(where: { !testCallUUIDs.contains($0.key) }) {
             stopRuntimeCallStream()
         }
-        if let failureMessage, callIDsByUUID.isEmpty {
+        if callIDsByUUID.isEmpty && (failureMessage != nil || wasAudioTest) {
             var payload = currentCallStatePayload()
-            payload["failureMessage"] = failureMessage
+            if let failureMessage { payload["failureMessage"] = failureMessage }
+            if wasAudioTest {
+                payload["testResult"] = failureMessage != nil ? "failed" : (testConnected ? "connected" : "cancelled")
+            }
             callStateObserver?.callStateDidChange(payload)
         } else {
             publishCallState()
@@ -2307,7 +2365,7 @@ final class ModemDeckPushCoordinator: NSObject, PKPushRegistryDelegate, CXProvid
     private func endAllCalls(reason: CXCallEndedReason) {
         failPendingOutgoingCalls(ModemDeckCallAudioError.callEnded)
         for uuid in Array(callIDsByUUID.keys) {
-            callProvider.reportCall(with: uuid, endedAt: Date(), reason: reason)
+            reportCallEnded(with: uuid, endedAt: Date(), reason: reason)
             cleanupCall(uuid)
         }
     }

@@ -2341,6 +2341,16 @@ struct ModemDeckActiveCallView: View {
 
     private var stateText: String {
         if call.testCall {
+            if call.state == "connecting" { return controller.text("正在连接测试音频…", "Connecting test audio…") }
+            if isActive && call.testAudio {
+                switch call.testPhase {
+                case "tone": return controller.text("音频已连接 · 正在播放提示音", "Audio connected · Playing test tone")
+                case "speak": return controller.text("请说几句话 · 随后会回放", "Say a few words · Playback follows")
+                case "playback": return controller.text("正在回放你的声音", "Playing back your voice")
+                case "pause": return controller.text("即将再次测试", "The test will repeat shortly")
+                default: return controller.text("测试音频已连接", "Test audio connected")
+                }
+            }
             return isActive
                 ? controller.text("测试通话已接通", "Test call connected")
                 : controller.text("ModemDeck 测试通话", "ModemDeck Test Call")
