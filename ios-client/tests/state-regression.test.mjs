@@ -31,8 +31,25 @@ async function verify(template, declarations) {
     assert.equal(compiled.status, 0, compiled.stderr)
     const result = spawnSync(binary, [], { encoding: 'utf8' })
     assert.equal(result.status, 0, result.stderr)
+    return result.stdout
   } finally { await rm(directory, { recursive: true, force: true }) }
 }
+
+test('native message and search queries preserve phone prefixes and reserved characters on the server', { skip: process.platform !== 'darwin' }, async () => {
+  const source = await readFile(new URL('../ios/App/App/ModemDeckAPI.swift', import.meta.url), 'utf8')
+  const output = await verify('query-encoding-stubs.swift', [
+    'func messagePage(', 'private func listPath(', 'private func path('
+  ].map(marker => declaration(source, marker)))
+  const cases = JSON.parse(output)
+  assert.equal(cases.length, 13)
+  for (const { path: requestPath, parameters } of cases) {
+    // Like Go's net/url, URLSearchParams interprets a literal query '+' as a space.
+    const url = new URL(requestPath, 'https://example.invalid')
+    assert.equal(url.pathname, 'peer' in parameters ? '/api/v1/messages' : '/api/v1/messages/threads')
+    assert.equal(url.hash, '')
+    assert.deepEqual(Object.fromEntries(url.searchParams), parameters, requestPath)
+  }
+})
 
 test('native collections fetch all pages, retain filters, and reject partial snapshots', { skip: process.platform !== 'darwin' }, async () => {
   const source = await readFile(new URL('../ios/App/App/ModemDeckAPI.swift', import.meta.url), 'utf8')

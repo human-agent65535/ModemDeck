@@ -1556,6 +1556,10 @@ final class ModemDeckAPIClient {
         var components = URLComponents()
         components.path = base
         components.queryItems = queryItems
+        // URLComponents leaves '+' literal, but Go's query parser reads it as a space.
+        // Escape it after encoding so phone prefixes survive without double encoding.
+        components.percentEncodedQuery = components.percentEncodedQuery?
+            .replacingOccurrences(of: "+", with: "%2B")
         return components.string ?? base
     }
 
